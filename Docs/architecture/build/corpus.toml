@@ -1,0 +1,6 @@
+schema_version = 1
+id = "build"
+kind = "realized"
+source_roots = ["internal/build"]
+entrypoint = "README.md"
+verified_on = "2026-09-20"

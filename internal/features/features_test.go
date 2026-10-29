@@ -1,0 +1,243 @@
+package features
+
+import (
+	"strings"
+	"testing"
+)
+
+// TestResolveBoolPrecedence locks in the documented precedence:
+// env var > active config > compile-time default. The env var is
+// accepted only as "1"/"true"/"0"/"false" (case-insensitive forms in
+// the implementation); other values fall through.
+func TestResolveBoolPrecedence(t *testing.T) {
+	t.Run("env wins over active", func(t *testing.T) {
+		f := false
+		SetActive(&FeaturesConfig{Provenance: &f})
+		t.Cleanup(func() { SetActive(nil) })
+
+		t.Setenv("CODENERD_PROVENANCE", "1")
+		if got := IsProvenanceEnabled(); !got {
+			t.Fatalf("env=1 should win over active=false; got %v", got)
+		}
+	})
+
+	t.Run("active wins over default", func(t *testing.T) {
+		f := false
+		SetActive(&FeaturesConfig{Provenance: &f})
+		t.Cleanup(func() { SetActive(nil) })
+
+		t.Setenv("CODENERD_PROVENANCE", "")
+		if got := IsProvenanceEnabled(); got {
+			t.Fatalf("active=false should win over default; got %v", got)
+		}
+	})
+
+	t.Run("default kicks in when active nil and env empty", func(t *testing.T) {
+		SetActive(nil)
+		t.Setenv("CODENERD_PROVENANCE", "")
+		// Provenance defaults OFF at compile time (see DefaultFeaturesConfig
+		// rationale); it allocates per-derivation buffers.
+		if got := IsProvenanceEnabled(); got {
+			t.Fatalf("default should be false; got %v", got)
+		}
+	})
+
+	t.Run("invalid env value falls through to active", func(t *testing.T) {
+		f := false
+		SetActive(&FeaturesConfig{Provenance: &f})
+		t.Cleanup(func() { SetActive(nil) })
+
+		// "yes" is not in the accepted forms — should NOT override.
+		t.Setenv("CODENERD_PROVENANCE", "yes")
+		if got := IsProvenanceEnabled(); got {
+			t.Fatalf("invalid env should not override active=false; got %v", got)
+		}
+	})
+
+	t.Run("env 0 forces off even when active true", func(t *testing.T) {
+		t1 := true
+		SetActive(&FeaturesConfig{Provenance: &t1})
+		t.Cleanup(func() { SetActive(nil) })
+
+		t.Setenv("CODENERD_PROVENANCE", "0")
+		if got := IsProvenanceEnabled(); got {
+			t.Fatalf("env=0 should force off; got %v", got)
+		}
+	})
+}
+
+// TestPerShardFactsPrecedence: now that Track D's coordinator
+// (ShardFactRouter) is wired, the flag resolves through the standard
+// env → active → default precedence. Default is OFF since the
+// coordinator is not yet auto-wired into the production shard
+// factory; explicit opt-in via .nerd/config.json or the env var.
+func TestPerShardFactsPrecedence(t *testing.T) {
+	SetActive(nil)
+	t.Setenv("CODENERD_PER_SHARD_FACTS", "")
+	if got := IsPerShardFactsEnabled(); got {
+		t.Fatalf("default off; got %v", got)
+	}
+
+	t1 := true
+	SetActive(&FeaturesConfig{PerShardFacts: &t1})
+	t.Cleanup(func() { SetActive(nil) })
+	if got := IsPerShardFactsEnabled(); !got {
+		t.Fatalf("active=true should win over default; got %v", got)
+	}
+
+	t.Setenv("CODENERD_PER_SHARD_FACTS", "0")
+	if got := IsPerShardFactsEnabled(); got {
+		t.Fatalf("env=0 should override active=true; got %v", got)
+	}
+}
+
+// TestSystemShardsLegacyEnvIgnored confirms that the legacy
+// NERD_DISABLE_SYSTEM_SHARDS env var (which is a per-shard disable
+// list, not a master switch) does NOT bleed into the master toggle.
+// The master switch is CODENERD_SYSTEM_SHARDS only.
+func TestSystemShardsLegacyEnvIgnored(t *testing.T) {
+	SetActive(nil)
+	t.Cleanup(func() { SetActive(nil) })
+
+	t.Setenv("NERD_DISABLE_SYSTEM_SHARDS", "autopoiesis")
+	t.Setenv("CODENERD_SYSTEM_SHARDS", "")
+
+	if got := IsSystemShardsEnabled(); !got {
+		t.Fatalf("legacy env should not affect master switch; got %v", got)
+	}
+}
+
+// TestSetActiveCopySemantics proves SetActive snapshots its argument so
+// callers cannot mutate the active pointer's struct after install.
+func TestSetActiveCopySemantics(t *testing.T) {
+	f := false
+	cfg := &FeaturesConfig{Provenance: &f}
+	SetActive(cfg)
+	t.Cleanup(func() { SetActive(nil) })
+
+	// Mutate the original after install — this should NOT affect Active.
+	tval := true
+	cfg.Provenance = &tval
+
+	a := Active()
+	if a == nil || a.Provenance == nil || *a.Provenance != false {
+		t.Fatalf("SetActive should snapshot; got active=%+v", a)
+	}
+}
+
+// TestNumericAccessors covers FastScanWorkers / FastASTMaxBytes:
+// env wins, then active, then zero (meaning "use default" at the
+// call site).
+func TestNumericAccessors(t *testing.T) {
+	SetActive(nil)
+	t.Setenv("NERD_FAST_SCAN_WORKERS", "")
+	t.Setenv("NERD_FAST_AST_MAX_BYTES", "")
+	if FastScanWorkers() != 0 || FastASTMaxBytes() != 0 {
+		t.Fatalf("expected zeros when no source set")
+	}
+
+	SetActive(&FeaturesConfig{FastScanWorkers: 17, FastASTMaxBytes: 1024 * 1024})
+	t.Cleanup(func() { SetActive(nil) })
+	if got := FastScanWorkers(); got != 17 {
+		t.Fatalf("config-driven workers; want 17 got %d", got)
+	}
+	if got := FastASTMaxBytes(); got != 1024*1024 {
+		t.Fatalf("config-driven max bytes; want 1MiB got %d", got)
+	}
+
+	t.Setenv("NERD_FAST_SCAN_WORKERS", "32")
+	if got := FastScanWorkers(); got != 32 {
+		t.Fatalf("env should win; want 32 got %d", got)
+	}
+}
+
+// TestSummaryRendersBoolPointersAsValues proves the boot log line
+// shows true/false/unset rather than raw *bool pointer addresses.
+// FeaturesConfig fields are pointers so a missing JSON key (nil) can
+// be distinguished from an explicit false; Summary must dereference
+// them safely for human-readable triage logs.
+func TestSummaryRendersBoolPointersAsValues(t *testing.T) {
+	t.Cleanup(func() { SetActive(nil) })
+
+	t.Run("nil active reports defaults", func(t *testing.T) {
+		SetActive(nil)
+		got := Summary()
+		// Summary now reports resolved values rather than the phrase
+		// "defaults active", which said nothing about env overrides.
+		if !strings.Contains(got, "provenance=false") {
+			t.Fatalf("nil active: got %q", got)
+		}
+		if strings.Contains(got, "(config)") || strings.Contains(got, "(env)") {
+			t.Fatalf("nil active should report every flag as a default: %q", got)
+		}
+	})
+
+	t.Run("explicit true and false", func(t *testing.T) {
+		tr, fa := true, false
+		SetActive(&FeaturesConfig{
+			FlightRecorder:  &fa,
+			Provenance:      &tr,
+			SystemShards:    &fa,
+			PerShardFacts:   &tr,
+			DarkMode:        &fa,
+			SkipOnboarding:  &tr,
+			TaxonomyFast:    &fa,
+			PromptEvolution: &tr,
+			FastScanWorkers: 4,
+			FastASTMaxBytes: 2048,
+		})
+		got := Summary()
+		// Must not contain pointer-looking hex addresses.
+		if strings.Contains(got, "0x") {
+			t.Fatalf("Summary leaked pointer address: %q", got)
+		}
+		// Values set explicitly in config are tagged with their source so an
+		// operator can see at a glance what was deliberately changed.
+		want := "features: flight_recorder=false(config) provenance=true(config) " +
+			"system_shards=false(config) per_shard_facts=true(config) dark_mode=false(config) " +
+			"skip_onboarding=true(config) taxonomy_fast=false(config) " +
+			"prompt_evolution=true(config) " +
+			"fast_scan_workers=4 fast_ast_max_bytes=2048"
+		if got != want {
+			t.Fatalf("Summary mismatch\n got: %q\nwant: %q", got, want)
+		}
+	})
+
+	t.Run("nil bool fields resolve to their defaults", func(t *testing.T) {
+		// Zero-value FeaturesConfig has all *bool fields nil. Summary reports
+		// what the accessors actually return, not "unset": an operator reading
+		// this line wants the value in force, and "unset" is not one.
+		SetActive(&FeaturesConfig{})
+		got := Summary()
+		if strings.Contains(got, "0x") {
+			t.Fatalf("Summary leaked pointer address for nil fields: %q", got)
+		}
+		if strings.Contains(got, "unset") {
+			t.Fatalf("Summary should resolve nil fields, not print unset: %q", got)
+		}
+		for _, key := range []string{
+			"flight_recorder=false",
+			"provenance=false",
+			"system_shards=true", // default ON
+			"per_shard_facts=false",
+			"dark_mode=false",
+			"skip_onboarding=false",
+			"taxonomy_fast=false",
+		} {
+			if !strings.Contains(got, key) {
+				t.Errorf("Summary missing %q in %q", key, got)
+			}
+		}
+	})
+
+	t.Run("env override is reported as env-sourced", func(t *testing.T) {
+		// The whole point of the rewrite: a key absent from config used to log
+		// as "unset" even while an env var forced it on.
+		SetActive(&FeaturesConfig{})
+		t.Setenv("CODENERD_PROVENANCE", "1")
+		got := Summary()
+		if !strings.Contains(got, "provenance=true(env)") {
+			t.Errorf("Summary did not attribute the env override: %q", got)
+		}
+	})
+}

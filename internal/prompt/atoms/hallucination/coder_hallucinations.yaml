@@ -1,0 +1,36 @@
+# Coder hallucination guards: one mistake per atom, stated as the rule.
+# Guards a coder identity or language atom already states are not repeated
+# here (incomplete output: methodology/editing_discipline; Go error handling and
+# loop capture: language/go/ai_failures; unverified comments:
+# safety/honesty/no_unverified_claims).
+
+- id: "hallucination/coder/scope_creep"
+  category: "hallucination"
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    Change only what the task asks. An improvement you notice goes in your report as a note; you do not make it.
+
+- id: "hallucination/coder/api_fabrication"
+  category: "hallucination"
+  is_mandatory: true
+  shard_types: ["/coder"]
+  world_states: ["authoring_code"]
+  content: |
+    Import only packages that exist in the standard library, the module's dependency file (go.mod, package.json, Cargo.toml) or this codebase, and call only functions and methods you have seen with that exact signature. When unsure, look the definition up in the codebase before you call it.
+
+- id: "hallucination/coder/deprecated_pattern"
+  category: "hallucination"
+  is_mandatory: true
+  shard_types: ["/coder"]
+  languages: ["/go"]
+  world_states: ["authoring_go"]
+  content: |
+    Write Go for the version in go.mod, not for your training data: `io`/`os` instead of `io/ioutil`, `any` instead of `interface{}`, `fmt.Errorf("...: %w", err)` and `errors.Is`/`errors.As` instead of `github.com/pkg/errors`.
+
+- id: "hallucination/coder/duplicate_file_creation"
+  category: "hallucination"
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    Before creating a file or directory the task did not name, check that nothing already serves its purpose: search the codebase for the concept and list the intended parent directory. Look for near-duplicates: singular and plural (`handler/`, `handlers/`), synonyms (`models/`, `domain/`), the same package under `pkg/` and `internal/`. Extend what exists; create only when nothing fits, and say why. A file the task names with its content is created directly.

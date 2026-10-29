@@ -1,0 +1,38 @@
+# High Churn World State Atoms
+# Frequently modified code, stability concerns
+
+- id: "world_state/high_churn/analysis"
+  category: "world_state"
+  subcategory: "high_churn"
+  is_mandatory: false
+  world_states: ["high_churn"]
+  content: |
+    ## CHURN ANALYSIS
+
+    ### MEASURING CHURN
+    ```bash
+    # Files with most commits
+    git log --format=format: --name-only | sort | uniq -c | sort -rn | head -20
+
+    # Recent changes to file
+    git log --oneline -20 -- path/to/file.go
+
+    # Authors of file
+    git shortlog -sn -- path/to/file.go
+    ```
+
+    ### CHURN PATTERNS
+    | Pattern | Meaning | Action |
+    |---------|---------|--------|
+    | Bug fix churn | Area has bugs | Add tests, review logic |
+    | Feature churn | Requirements unclear | Stabilize requirements |
+    | Refactor churn | Design issues | Major refactor needed |
+    | Style churn | No standards | Establish conventions |
+
+    ### ROOT CAUSE QUESTIONS
+    - Is the code too coupled?
+    - Are responsibilities unclear?
+    - Are there hidden dependencies?
+    - Is the interface unstable?
+    - Are tests inadequate?
+

@@ -1,0 +1,95 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "request": "how is a model with no entry in the price table billed?"
+ },
+ "questions": {
+  "file_0": {
+   "type": "noul",
+   "instructions": {
+    "file": {
+     "head": "package usage\n\nimport (\n\t\"sort\"\n\t\"strings\"\n\t\"sync\"\n)\n\n// Price is the USD cost per one million tokens for a model family.\n//\n// Prices are list prices and change often. They exist to give an operator an\n// order-of-magnitude answer to \"what did this session cost\", not an invoice.\n// TokenCounts.Cost is always an estimate; the provider's billing is the record.\ntype Price struct {\n\tInputPerMTok  float64\n\tOutputPerMTok float64\n\t// CacheReadPerMTok/CacheWritePerMTok price the cached sub-counts of\n\t// input. Zero means \"no separate cache rate on record\": those tokens\n\t// are then priced at the plain input rate, which overestimates rather\n\t// than silently dropping spend.\n\tCacheReadPerMTok  float64\n\tCacheWritePerMTok float64\n}\n\n// CostDetailed prices input split into uncached, cache-read and cache-write\n// parts. cacheRead/cacheWrite are sub-counts of input; any excess over\n// input is clamped so a provider miscount can never price negative tokens.\nfunc (p Price) CostDetailed(input, output, cacheRead, cacheWrite int64) float64 {\n\tif cacheRead \u003c 0 {\n\t\tcacheRead = 0\n\t}\n\tif cacheWrite \u003c 0 {\n\t\tcacheWrite = 0\n\t}\n\tif cacheRead+cacheWrite \u003e input {\n\t\tcacheWrite = max(input-cacheRead, 0)\n\t\tif cacheRead \u003e input {\n\t\t\tcacheRead = input\n\t\t\tcacheWrite = 0\n\t\t}\n\t}\n\treadRate := p.CacheReadPerMTok\n\tif readRate == 0 {\n\t\treadRate = p.InputPerMTok\n\t}\n\twriteRate := p.CacheWritePerMTok\n\tif writeRate == 0 {\n\t\twriteRate = p.InputPerMTok\n\t}\n\tuncached := input - cacheRead - cacheWrite\n\treturn (float64(uncached)/1e6)*p.InputPerMTok +\n\t\t(float64(cacheRead)/1e6)*readRate +\n\t\t(float64(cacheWrite)/1e6)*writeRate +\n\t\t(float64(output)/1e6)*p.OutputPerMTok\n}\n\n// priceTable maps a lowercase model-name prefix to its price. Lookup picks the\n// longest matching prefix, so \"claude-opus-4-5-20260101\" resolves through\n// \"claude-opus-4-5\" rather than the shorter \"claude-opus\".\n//\n// Unknown models resolve to no price and contribute zero cost, which is why\n// Stats reports CostKnown alongside Cost: a $0.00 total means \"nothing priced\",\n// not \"nothing spent\".\nvar priceTable = map[string]Price{\n\t// Anthropic (Haiku 5.5's rate holds for prompts up to 100K tokens; above\n\t// that it is $0.50/$2.50, which this table does not model)\n\t\"claude-fable-5\":   {InputPerMTok: 10, OutputPerMTok: 50.00, CacheReadPerMTok: 1, CacheWritePerMTok: 12.5},\n\t\"claude-opus-5-5\":  {InputPerMTok: 4, OutputPerMTok: 20.00, CacheReadPerMTok: 0.4, CacheWritePerMTok: 5},\n\t\"claude-opus-5\":    {InputPerMTok: 5, OutputPerMTok: 25.00, CacheReadPerMTok: 0.5, CacheWritePerMTok: 6.25},\n\t\"claude-opus-4-8\":  {InputPerMTok: 5, OutputPerMTok: 25.00, CacheReadPerMTok: 0.5, CacheWritePerMTok: 6.25},\n\t\"claude-opus-4-7\":  {InputPerMTok: 5, OutputPerMTok: 25.00, CacheReadPerMTok: 0.5, CacheWritePerMTok: 6.25},\n\t\"claude-opus-4-6\":  {InputPerMTok: 5, OutputPerMTok: 25.00, CacheReadPerMTok: 0.5, CacheWritePerMTok: 6.25},\n\t\"claude-sonnet-5\":  {InputPerMTok: 2, OutputPerMTok: 10.00, CacheReadPerMTok: 0.2, CacheWritePerMTok: 2.5},\n\t\"claude-haiku-5",
+     "head_note": "the first 3000 of 8751 bytes",
+     "path": "internal/usage/pricing.go"
+    },
+    "question": "Would reading this file help with `request`?"
+   },
+   "criteria": {
+    "true": "The file holds code, tests or docs the request is about, or code the request would have to change or call.",
+    "false": "The file only shares a word with the request, such as a common name, and is about something else."
+   }
+  },
+  "file_1": {
+   "type": "noul",
+   "instructions": {
+    "file": {
+     "head": "package typesafe\n\nimport (\n\t\"context\"\n\t\"strings\"\n\n\t\"codenerd/internal/types\"\n\t\"codenerd/internal/usage\"\n)\n\n// Provider is the usage report's provider name for every Jev call.\nconst Provider = \"typesafe\"\n\n// defaultOperation names a call whose caller did not say which use it serves.\nconst defaultOperation = \"jev\"\n\ntype operationKey struct{}\n\n// WithOperation names the use a call serves (turn judgments, retrieval\n// relevance, ...) in its usage report, so the cost of each use is its own\n// row in the usage tracker.\nfunc WithOperation(ctx context.Context, op string) context.Context {\n\tif strings.TrimSpace(op) == \"\" {\n\t\treturn ctx\n\t}\n\treturn context.WithValue(ctx, operationKey{}, op)\n}\n\nfunc operationFrom(ctx context.Context) string {\n\tif op, ok := ctx.Value(operationKey{}).(string); ok {\n\t\treturn op\n\t}\n\treturn defaultOperation\n}\n\n// recordUsage reports one answered call to the usage tracker and observer the\n// context carries (usage.RecordFromContext): the model that answered, and the\n// billed input tokens. A call with no tracker on its context records nothing.\nfunc (c *Client) recordUsage(ctx context.Context, resp *Response) {\n\tmodel := resp.Model\n\tif model == \"\" {\n\t\tmodel = c.model\n\t}\n\tusage.RecordFromContext(ctx, usage.Report{\n\t\tModel:     model,\n\t\tProvider:  Provider,\n\t\tOperation: operationFrom(ctx),\n\t\tUsage: types.UsageMetadata{\n\t\t\tInputTokens:  resp.Usage.InputTokens,\n\t\t\tOutputTokens: resp.Usage.OutputTokens,\n\t\t\tTotalTokens:  resp.Usage.InputTokens + resp.Usage.OutputTokens,\n\t\t\tKnown:        types.UsageTokens,\n\t\t},\n\t})\n}\n",
+     "path": "internal/typesafe/usage.go"
+    },
+    "question": "Would reading this file help with `request`?"
+   },
+   "criteria": {
+    "true": "The file holds code, tests or docs the request is about, or code the request would have to change or call.",
+    "false": "The file only shares a word with the request, such as a common name, and is about something else."
+   }
+  },
+  "file_2": {
+   "type": "noul",
+   "instructions": {
+    "file": {
+     "head": "package approval\n\nimport (\n\t\"bufio\"\n\t\"bytes\"\n\t\"encoding/json\"\n\t\"errors\"\n\t\"fmt\"\n\t\"io/fs\"\n\t\"os\"\n\t\"path/filepath\"\n\t\"sort\"\n\t\"time\"\n\n\t\"codenerd/internal/atomicfile\"\n)\n\n// journal is the durable record of every transition: one JSON line holding\n// the request's full snapshot after the change. Replay keeps the last snapshot\n// per request. Each append is fsynced before the transition is visible, so a\n// dispatch is never started on a claim the disk does not hold.\ntype journal struct {\n\tpath string\n\tfile *os.File\n}\n\ntype journalLine struct {\n\tAt      time.Time `json:\"at\"`\n\tRequest Request   `json:\"request\"`\n}\n\n// openJournal replays path, reconciles every record a restart left open, and\n// compacts the file to one line per retained request. Records older than\n// retention whose status is terminal are dropped: their continuation is long\n// gone and no transition leads out of a terminal status.\nfunc openJournal(path string, now time.Time, retention time.Duration) (*journal, map[string]*Request, error) {\n\tif err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {\n\t\treturn nil, nil, fmt.Errorf(\"approval journal directory: %w\", err)\n\t}\n\trecords, err := replayJournal(path)\n\tif err != nil {\n\t\treturn nil, nil, err\n\t}\n\tkept := make(map[string]*Request, len(records))\n\tfor id, r := range records {\n\t\treconcileAfterRestart(r, now)\n\t\tif r.Status.Terminal() \u0026\u0026 now.Sub(r.CreatedAt) \u003e retention {\n\t\t\tcontinue\n\t\t}\n\t\tkept[id] = r\n\t}\n\tvar buf bytes.Buffer\n\tfor _, r := range sortedRequests(kept) {\n\t\tline, err := json.Marshal(journalLine{At: now, Request: *r})\n\t\tif err != nil {\n\t\t\treturn nil, nil, fmt.Errorf(\"encode approval journal: %w\", err)\n\t\t}\n\t\tbuf.Write(line)\n\t\tbuf.WriteByte('\\n')\n\t}\n\tif err := atomicfile.WriteFile(path, buf.Bytes(), 0o600); err != nil {\n\t\treturn nil, nil, fmt.Errorf(\"compact approval journal: %w\", err)\n\t}\n\tfile, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)\n\tif err != nil {\n\t\treturn nil, nil, fmt.Errorf(\"open approval journal: %w\", err)\n\t}\n\treturn \u0026journal{path: path, file: file}, kept, nil\n}\n\nfunc replayJournal(path string) (map[string]*Request, error) {\n\tdata, err := os.ReadFile(path)\n\tif errors.Is(err, fs.ErrNotExist) {\n\t\treturn map[string]*Request{}, nil\n\t}\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"read approval journal: %w\", err)\n\t}\n\trecords := make(map[string]*Request)\n\tscanner := bufio.NewScanner(bytes.NewReader(data))\n\tscanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)\n\tfor scanner.Scan() {\n\t\traw := bytes.TrimSpace(scanner.Bytes())\n\t\tif len(raw) == 0 {\n\t\t\tcontinue\n\t\t}\n\t\tvar line journalLine\n\t\t// A torn last line (a crash mid-append) is the only damage an append\n\t\t// can leave; it carries no committed transition, so it is skipped.\n\t\tif err := json.Unmarshal(raw, \u0026line); err != nil || line.Request.ID == \"\" || !line.Request.Status.valid() {\n\t\t\tcontinue\n\t\t}\n\t\tr := line.Request\n\t\trecords[r.ID] = \u0026r\n\t}\n\tif err := scanner.Err(); err != nil {\n\t\treturn nil, fmt.Errorf(\"scan approval journal: %w\", err)\n\t}\n\treturn records, nil\n}\n\n// rec",
+     "head_note": "the first 3000 of 5136 bytes",
+     "path": "internal/approval/journal.go"
+    },
+    "question": "Would reading this file help with `request`?"
+   },
+   "criteria": {
+    "true": "The file holds code, tests or docs the request is about, or code the request would have to change or call.",
+    "false": "The file only shares a word with the request, such as a common name, and is about something else."
+   }
+  },
+  "file_3": {
+   "type": "noul",
+   "instructions": {
+    "file": {
+     "head": "// Package embedding provides vector embedding generation for semantic search.\n// Supports multiple backends: Ollama (local) and Google GenAI (cloud).\npackage embedding\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"fmt\"\n\t\"math\"\n\t\"strings\"\n\t\"time\"\n\n\t\"codenerd/internal/logging\"\n)\n\n// =============================================================================\n// EMBEDDING ENGINE INTERFACE\n// =============================================================================\n\n// EmbeddingEngine generates vector embeddings for text.\ntype EmbeddingEngine interface {\n\t// Embed generates embeddings for a single text\n\tEmbed(ctx context.Context, text string) ([]float32, error)\n\n\t// EmbedBatch generates embeddings for multiple texts\n\tEmbedBatch(ctx context.Context, texts []string) ([][]float32, error)\n\n\t// Dimensions returns the dimensionality of embeddings\n\tDimensions() int\n\n\t// Name returns the engine name\n\tName() string\n}\n\n// TaskTypeAwareEngine extends EmbeddingEngine with task-type-specific embedding.\ntype TaskTypeAwareEngine interface {\n\tEmbeddingEngine\n\t// EmbedWithTask generates embeddings with a specific task type.\n\tEmbedWithTask(ctx context.Context, text string, taskType string) ([]float32, error)\n}\n\n// TaskTypeBatchAwareEngine extends EmbeddingEngine with task-type-specific batch embedding.\ntype TaskTypeBatchAwareEngine interface {\n\tEmbeddingEngine\n\t// EmbedBatchWithTask generates embeddings with a specific task type.\n\tEmbedBatchWithTask(ctx context.Context, texts []string, taskType string) ([][]float32, error)\n}\n\n// HealthChecker is an optional interface for embedding engines that support\n// health checks. If an engine implements this interface, the system can\n// verify availability before attempting batch operations.\ntype HealthChecker interface {\n\t// HealthCheck verifies the embedding service is reachable.\n\t// Returns nil if healthy, error otherwise.\n\tHealthCheck(ctx context.Context) error\n}\n\n// =============================================================================\n// EMBEDDING CONFIGURATION\n// =============================================================================\n\n// Config holds embedding engine configuration.\ntype Config struct {\n\t// Provider: \"ollama\" or \"genai\"\n\tProvider string `json:\"provider\"`\n\n\t// Ollama Configuration\n\tOllamaEndpoint string `json:\"ollama_endpoint\"` // Default: \"http://localhost:11434\"\n\tOllamaModel    string `json:\"ollama_model\"`    // Required for provider=ollama; no default\n\t// Dimensions is the vector length the Ollama model returns. Required for\n\t// provider=ollama; no default.\n\tDimensions int `json:\"dimensions\"`\n\t// OllamaKeepAlive is how long Ollama keeps the model loaded after each\n\t// request (a Go duration such as \"30m\", or \"-1\" for until it is stopped).\n\tOllamaKeepAlive string `json:\"ollama_keep_alive\"`\n\n\t// GenAI Configuration\n\tGenAIAPIKey string `json:\"genai_api_key\"`\n\tGenAIModel  string `json:\"genai_model\"` // Required for provider=genai; no default\n\n\t// TaskType for GenAI: \"SEMANTIC_SIMILARITY\", \"RETRIEVAL_QU",
+     "head_note": "the first 3000 of 8447 bytes",
+     "path": "internal/embedding/engine.go"
+    },
+    "question": "Would reading this file help with `request`?"
+   },
+   "criteria": {
+    "true": "The file holds code, tests or docs the request is about, or code the request would have to change or call.",
+    "false": "The file only shares a word with the request, such as a common name, and is about something else."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "file_0": {
+   "type": "noul",
+   "noul": 0.97
+  },
+  "file_1": {
+   "type": "noul",
+   "noul": 0.31
+  },
+  "file_2": {
+   "type": "noul",
+   "noul": 0.04
+  },
+  "file_3": {
+   "type": "noul",
+   "noul": 0.06
+  }
+ },
+ "usage": {
+  "input_tokens": 4039,
+  "output_tokens": 76
+ }
+}
+}

@@ -1,0 +1,447 @@
+package chat
+
+import (
+	"codenerd/internal/articulation"
+	"codenerd/internal/logging"
+	"codenerd/internal/perception"
+	"codenerd/internal/types"
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// =============================================================================
+// STREAMING HELPERS
+// =============================================================================
+
+// waitForStream is the surface-text streaming consumer used by the TUI.
+// Surface stream closing terminates the streaming UI (streamEndMsg);
+// thoughts are watched in parallel via waitForThoughts and a closed
+// thoughts channel is silently ignored (it's optional/auxiliary data).
+func waitForStream(sub chan string) tea.Cmd {
+	return func() tea.Msg {
+		chunk, ok := <-sub
+		if !ok {
+			return streamEndMsg{}
+		}
+		return streamChunkMsg{chunk: chunk, sub: sub, kind: streamKindSurface}
+	}
+}
+
+// waitForThoughts is the parallel consumer for the model's thinking
+// trace. We deliberately do NOT emit streamEndMsg when the thoughts
+// channel closes — the surface stream owns end-of-life. A nil channel
+// (provider doesn't expose thoughts) yields a no-op tea.Cmd so the
+// caller can wire it unconditionally.
+func waitForThoughts(sub chan string) tea.Cmd {
+	if sub == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		chunk, ok := <-sub
+		if !ok {
+			return nil // thoughts stream ended; surface stream drives the UI lifecycle
+		}
+		return streamChunkMsg{chunk: chunk, sub: sub, kind: streamKindThought}
+	}
+}
+
+func waitForResult(res chan tea.Msg, errChan chan error) tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case msg := <-res:
+			return msg
+		case err := <-errChan:
+			return errorMsg(err)
+		}
+	}
+}
+
+// =============================================================================
+// ARTICULATION HELPERS
+// =============================================================================
+
+func payloadForArticulation(intent perception.Intent, mangleUpdates []string) articulation.PiggybackEnvelope {
+	return articulation.PiggybackEnvelope{
+		Surface: "",
+		Control: articulation.ControlPacket{
+			IntentClassification: articulation.IntentClassification{
+				Category:   intent.Category,
+				Verb:       intent.Verb,
+				Target:     intent.Target,
+				Constraint: intent.Constraint,
+				Confidence: intent.Confidence,
+			},
+			MangleUpdates: mangleUpdates,
+		},
+	}
+}
+
+// ArticulationOutput contains the full output from the articulation layer.
+// This is used to pass control data back to the compressor.
+type ArticulationOutput struct {
+	Surface           string
+	Envelope          articulation.PiggybackEnvelope
+	MemoryOperations  []articulation.MemoryOperation
+	MangleUpdates     []string
+	SelfCorrection    *articulation.SelfCorrection
+	KnowledgeRequests []articulation.KnowledgeRequest // LLM-initiated knowledge gathering
+	ContextFeedback   *articulation.ContextFeedback   // LLM feedback on context usefulness
+	ParseMethod       string
+	Warnings          []string
+	GroundingSources  []string // URLs used to ground the response (from Google Search/URL Context)
+
+	// Admission is how the reply was classified (one envelope, plain text, an
+	// unfinished envelope, or an ambiguous one). Dispositions records the
+	// controls the parser removed, by position in the list the model sent.
+	Admission    articulation.AdmissionOutcome
+	Dispositions []articulation.ControlDisposition
+}
+
+// ConversationContext holds recent conversation history for LLM context injection.
+// This enables fluid conversation by providing the LLM with recent turns.
+// Implements the Blackboard Pattern for cross-shard and cross-turn context propagation.
+type ConversationContext struct {
+	RecentTurns     []Message      // Last N conversation turns
+	LastShardResult *ShardResult   // Most recent shard output for follow-ups
+	TurnNumber      int            // Current turn number
+	ShardHistory    []*ShardResult // Sliding window of past shard results (blackboard)
+	CompressedCtx   string         // Semantically compressed session context from compressor
+	// DebugSelfReport is the rendered new-problem set for this turn
+	// (self_debug.go); empty unless debug-self is on and something is new.
+	DebugSelfReport string
+	// Evidence is the workspace sources the host read for this turn (or the
+	// typed reason it could not). They are rendered into the answering
+	// request itself: a kernel fact is not in the prompt, so a read that only
+	// reached the kernel never reached the model.
+	Evidence []evidenceObservation
+}
+
+// articulateWithConversation performs articulation with full conversation context.
+// This is the new entry point that enables fluid conversational follow-ups.
+//
+// If thoughtsChan is non-nil AND the underlying client implements
+// types.ThoughtStreamer, the model's thinking trace is streamed
+// to thoughtsChan in arrival order; otherwise thoughtsChan is left
+// untouched (and the function silently falls back to 2-channel streaming).
+// Callers own closing thoughtsChan, just like streamChan.
+// The system prompt is NOT echoed into the user message here, and that is a
+// deletion rather than an omission. This function used to open `sb` — the USER
+// message — with "System Instructions:" followed by the whole systemPrompt, and
+// then pass the identical string as the system argument to every one of the
+// three completion calls below. The same bytes, twice, in one request. It cost
+// a doubled 1,616-token persona on every chat turn, and once the chat turn began
+// compiling a JIT skeleton (see persona.go) it would have doubled that too —
+// the budget the compiler was fitted to would have been spent twice and the
+// second copy would have been invisible to it.
+func articulateWithConversation(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, warnings []string, systemPrompt string, convCtx *ConversationContext, streamChan chan<- string, thoughtsChan chan<- string) (*ArticulationOutput, error) {
+	var sb strings.Builder
+
+	// =========================================================================
+	// CONVERSATION HISTORY INJECTION (Critical for fluid chat)
+	// =========================================================================
+	// Include recent conversation turns so the LLM understands context.
+	// This enables follow-up questions like "what are the other suggestions?"
+	if convCtx != nil && len(convCtx.RecentTurns) > 0 {
+		sb.WriteString("## Recent Conversation History\n")
+		sb.WriteString("(Use this context to understand follow-up questions)\n\n")
+		// Turns are replayed whole. The assistant's previous answer was cut
+		// at 500 characters here, which is exactly the answer "what are the
+		// other suggestions?" refers to; size is the compressor's job (it
+		// summarises older turns with the model), not a cut at replay.
+		for _, turn := range convCtx.RecentTurns {
+			if turn.Role == "user" {
+				sb.WriteString(fmt.Sprintf("**User**: %s\n", turn.Content))
+			} else {
+				sb.WriteString(fmt.Sprintf("**Assistant**: %s\n", turn.Content))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// =========================================================================
+	// LAST SHARD RESULT INJECTION (Critical for follow-up queries)
+	// =========================================================================
+	// If there's a recent shard result, include it so follow-ups work.
+	// This enables "what are the other warnings?" after a review.
+	if convCtx != nil && convCtx.LastShardResult != nil {
+		sr := convCtx.LastShardResult
+		sb.WriteString("## Last Shard Execution Result\n")
+		sb.WriteString(fmt.Sprintf("**Type**: %s\n", sr.ShardType))
+		sb.WriteString(fmt.Sprintf("**Task**: %s\n", sr.Task))
+		sb.WriteString(fmt.Sprintf("**Turn**: %d\n\n", sr.TurnNumber))
+
+		// Include structured findings if available (for reviewer).
+		// Capped: a large review can emit hundreds of findings; replaying all
+		// of them in every articulation prompt blows the token budget for
+		// diminishing returns.
+		if len(sr.Findings) > 0 {
+			const maxFindingsInPrompt = 40
+			sb.WriteString("### All Findings (use for follow-up queries)\n")
+			for i, finding := range sr.Findings {
+				if i >= maxFindingsInPrompt {
+					sb.WriteString(fmt.Sprintf("... and %d more findings (ask to filter by severity or file)\n", len(sr.Findings)-maxFindingsInPrompt))
+					break
+				}
+				sb.WriteString(fmt.Sprintf("%d. ", i+1))
+				// Sorted: a finding is a map, so ranging it directly renders the
+				// same finding with its fields in a different order every run.
+				// The model reads this, and two runs of one review become
+				// impossible to diff.
+				for _, k := range sortedKeys(finding) {
+					sb.WriteString(fmt.Sprintf("%s=%v ", k, finding[k]))
+				}
+				sb.WriteString("\n")
+			}
+			sb.WriteString("\n")
+		}
+
+		// Include metrics if available
+		if len(sr.Metrics) > 0 {
+			sb.WriteString("### Metrics\n")
+			for _, k := range sortedKeys(sr.Metrics) {
+				sb.WriteString(fmt.Sprintf("- %s: %v\n", k, sr.Metrics[k]))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	// =========================================================================
+	// SHARD HISTORY INJECTION (Blackboard Pattern)
+	// =========================================================================
+	// Include summarized history of recent shard executions for cross-shard context.
+	// This enables flows like: reviewer→coder, tester→debugger, coder→tester.
+	if convCtx != nil && len(convCtx.ShardHistory) > 1 {
+		sb.WriteString("## Shard Execution History (Blackboard)\n")
+		sb.WriteString("(Previous shard results for cross-shard context)\n\n")
+		// Skip the last one since it's already shown above as LastShardResult
+		for i := 0; i < len(convCtx.ShardHistory)-1; i++ {
+			sr := convCtx.ShardHistory[i]
+			sb.WriteString(fmt.Sprintf("- **Turn %d [%s]**: %s", sr.TurnNumber, sr.ShardType, flattenForTask(sr.Task)))
+			if len(sr.Findings) > 0 {
+				sb.WriteString(fmt.Sprintf(" → %d findings", len(sr.Findings)))
+			}
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// =========================================================================
+	// COMPRESSED SESSION CONTEXT INJECTION (Infinite Context)
+	// =========================================================================
+	// Inject the semantically compressed context from the compressor.
+	// This provides >100:1 compressed session history as Mangle atoms.
+	if convCtx != nil && convCtx.CompressedCtx != "" {
+		sb.WriteString("## Compressed Session Context\n")
+		sb.WriteString("(Semantic compression of prior turns - use for long-range context)\n\n")
+		sb.WriteString(convCtx.CompressedCtx)
+		sb.WriteString("\n\n")
+	}
+
+	// Debug-self: codenerd's own new log problems since the last turn,
+	// rendered as its own section (PendingProblems.Render).
+	if convCtx != nil && convCtx.DebugSelfReport != "" {
+		sb.WriteString(convCtx.DebugSelfReport)
+		sb.WriteString("\n")
+	}
+
+	// Workspace evidence the host read for this turn, with its coverage.
+	if convCtx != nil {
+		if evidence := renderEvidence(convCtx.Evidence); evidence != "" {
+			sb.WriteString(evidence)
+		}
+	}
+
+	// The kernel's contribution to this prompt used to be rendered here, from a
+	// context_to_inject query in process.go that returned zero rows in every
+	// build of this repository — the predicate had a Decl and no producer. It
+	// now arrives through the compiler instead: collectKernelInjectedAtoms reads
+	// injectable_context(ShardID, Atom) and places it in the SYSTEM prompt as a
+	// mandatory atom, inside the same budget as the rest of the skeleton. A
+	// kernel fact is context the harness decided to inject, so it belongs where
+	// the rest of that decision lands, not appended to the user's turn.
+
+	if len(warnings) > 0 {
+		sb.WriteString("Warnings:\n")
+		for _, w := range warnings {
+			sb.WriteString("- " + w + "\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString(fmt.Sprintf("Intent: %s -> %s\n\n", intent.Verb, intent.Target))
+	sb.WriteString("CRITICAL: You MUST output JSON in this EXACT order to prevent lies!\n")
+	sb.WriteString("If generation fails mid-stream, control_packet must be written FIRST.\n\n")
+	sb.WriteString("Required JSON Schema (control-packet field order):\n")
+	sb.WriteString("{\n")
+	sb.WriteString(`  "control_packet": {` + "\n")
+	sb.WriteString(`    "intent_classification": { "category": "mutation|query|instruction", "verb": "...", "target": "...", "confidence": 0.0 },` + "\n")
+	sb.WriteString(`    "decision_summary": "one or two sentences: what you decided this turn and why",` + "\n")
+	sb.WriteString(`    "mangle_updates": [ "predicate(arg1, arg2)." ],` + "\n")
+	sb.WriteString(`    "memory_operations": [ { "op": "promote_to_long_term|forget|note|store_vector", "key": "preference_name", "value": "value" } ],` + "\n")
+	sb.WriteString(`    "self_correction": { "triggered": false, "hypothesis": "" }` + "\n")
+	sb.WriteString(`  },` + "\n")
+	sb.WriteString(`  "surface_response": "text visible to user ONLY after control_packet is written"` + "\n")
+	sb.WriteString("}\n\n")
+	sb.WriteString("DO NOT speak to the user until AFTER you have written the complete control_packet!\n\n")
+	sb.WriteString("MEMORY OPERATIONS:\n")
+	sb.WriteString("- promote_to_long_term: Store user preferences or learned patterns\n")
+	sb.WriteString("- forget: Remove outdated facts\n")
+	sb.WriteString("- note: Add temporary session notes\n")
+	sb.WriteString("- store_vector: Store for semantic search\n\n")
+	sb.WriteString("Use only the context facts above. Do not invent filesystem access or knowledge not present in the facts. Output JSON only.")
+
+	// Log the full prompt package for transparency
+	logging.Get(logging.CategorySession).Debug("================ FULL PROMPT PACKAGE ================\nSystem:\n%s\n\nUser:\n%s\n==================================================", systemPrompt, sb.String())
+
+	var raw string
+	var err error
+
+	if streamChan != nil {
+		// Use streaming completion. If the client (or its wrapper) supports
+		// a thoughts stream AND the caller provided a thoughtsChan, route
+		// the model's thinking trace to it for live TUI rendering.
+		var chunkChan, tChan <-chan string
+		var done <-chan types.StreamResult
+		enableThinking := false
+		started := false
+		if thoughtsChan != nil {
+			if ts, ok := client.(types.ThoughtStreamer); ok {
+				enableThinking = true
+				chunkChan, tChan, done = ts.CompleteWithStreamingAndThoughts(ctx, systemPrompt, sb.String(), enableThinking)
+				started = true
+			}
+		}
+		if !started {
+			chunkChan, done = client.CompleteWithStreaming(ctx, systemPrompt, sb.String(), enableThinking)
+		}
+
+		parser := articulation.NewStreamParser()
+		var fullBuilder strings.Builder
+
+	streamLoop:
+		for chunkChan != nil || tChan != nil {
+			select {
+			case chunk, ok := <-chunkChan:
+				if !ok {
+					chunkChan = nil
+					continue
+				}
+				fullBuilder.WriteString(chunk)
+				if surfaceChunk := parser.ProcessChunk(chunk); surfaceChunk != "" {
+					streamChan <- surfaceChunk
+				}
+			case thought, ok := <-tChan:
+				if !ok {
+					tChan = nil
+					continue
+				}
+				if thoughtsChan != nil && thought != "" {
+					// Non-blocking forward — if the TUI hasn't drained yet,
+					// drop rather than stall the LLM stream.
+					select {
+					case thoughtsChan <- thought:
+					default:
+					}
+				}
+			case <-ctx.Done():
+				// Labelled: a bare break here exits the select, not the loop,
+				// and a cancelled context makes ctx.Done() ready on every pass.
+				err = ctx.Err()
+				break streamLoop
+			}
+		}
+		if err == nil {
+			// The content channel closing is not the end of the answer. Only
+			// the terminal result says the provider finished: a clean EOF, a
+			// parseable prefix and a completed generation are different
+			// things, and the response processor below would accept a
+			// well-formed prefix of a cut answer and act on its control
+			// packet. A terminal channel that closes without a result is an
+			// incomplete stream, never a success.
+			if res := types.AwaitStreamResult(ctx, done); res.Err != nil {
+				err = fmt.Errorf("stream %s: %w", res.Outcome(), res.Err)
+			}
+		}
+		raw = fullBuilder.String()
+	} else {
+		raw, err = client.CompleteWithSystem(ctx, systemPrompt, sb.String())
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("articulation failed: %w", err)
+	}
+
+	// Use the enhanced ResponseProcessor from articulation package
+	processor := articulation.NewResponseProcessor()
+	result, err := processor.Process(raw)
+	if err != nil {
+		// Truncate the raw response in the error: it surfaces in the TUI error
+		// display and logs, and a malformed response can be tens of KB.
+		preview := raw
+		if len(preview) > 600 {
+			preview = preview[:600] + "... (truncated)"
+		}
+		return nil, fmt.Errorf("piggyback JSON invalid: %w (raw=%s)", err, preview)
+	}
+
+	// Build output
+	output := &ArticulationOutput{
+		Surface:           result.Surface,
+		MemoryOperations:  result.Control.MemoryOperations,
+		MangleUpdates:     result.Control.MangleUpdates,
+		KnowledgeRequests: result.Control.KnowledgeRequests,
+		ContextFeedback:   result.Control.ContextFeedback, // NEW: Extract context usefulness feedback
+		ParseMethod:       result.ParseMethod,
+		Warnings:          result.Warnings,
+		Admission:         result.Admission,
+		Dispositions:      result.Dispositions,
+	}
+
+	// Check for self-correction
+	if result.Control.SelfCorrection != nil && result.Control.SelfCorrection.Triggered {
+		output.SelfCorrection = result.Control.SelfCorrection
+		output.Warnings = append(output.Warnings,
+			fmt.Sprintf("Self-correction: %s", result.Control.SelfCorrection.Hypothesis))
+	}
+
+	// Build the envelope with merged data
+	output.Envelope = articulation.PiggybackEnvelope{
+		Surface: result.Surface,
+		Control: result.Control,
+	}
+
+	// Override with any pre-existing payload data if LLM didn't provide it
+	if result.Control.IntentClassification.Category == "" {
+		output.Envelope.Control.IntentClassification = payload.Control.IntentClassification
+	}
+	if len(result.Control.MangleUpdates) == 0 && len(payload.Control.MangleUpdates) > 0 {
+		output.Envelope.Control.MangleUpdates = payload.Control.MangleUpdates
+		output.MangleUpdates = payload.Control.MangleUpdates
+	}
+
+	// Extract grounding sources if client supports grounding (e.g., Gemini with Google Search)
+	if gp, ok := client.(types.GroundingProvider); ok {
+		output.GroundingSources = gp.GetLastGroundingSources()
+	}
+
+	return output, nil
+}
+
+// sortedKeys returns a map's keys in a stable order.
+//
+// Go randomises map iteration deliberately, so any map ranged straight into
+// prompt text renders differently on every run. That costs twice: a provider's
+// prefix cache cannot match bytes that keep moving, and a person trying to work
+// out why a prompt got worse cannot diff two runs of it.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}

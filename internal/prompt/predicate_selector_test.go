@@ -1,0 +1,356 @@
+package prompt
+
+import (
+	"database/sql"
+	"math"
+	"path/filepath"
+	"strings"
+	"testing"
+	"unicode/utf8"
+
+	userconfig "codenerd/internal/config"
+	"codenerd/internal/core"
+
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// createTestCorpus creates a temporary SQLite database with a valid schema and sample data.
+func createTestCorpus(t *testing.T) *core.PredicateCorpus {
+	t.Helper()
+
+	// Create a temp file for the DB
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test_corpus.db")
+
+	// Open DB directly to set up schema
+	db, err := sql.Open("sqlite3", dbPath)
+	require.NoError(t, err)
+	defer db.Close()
+
+	// Create schema
+	_, err = db.Exec(`
+		CREATE TABLE predicates (
+			id INTEGER PRIMARY KEY,
+			name TEXT UNIQUE,
+			arity INTEGER,
+			type TEXT,
+			category TEXT,
+			description TEXT,
+			safety_level TEXT,
+			domain TEXT,
+			section TEXT,
+			source_file TEXT,
+			activation_priority INTEGER,
+			serialization_order INTEGER
+		);
+		CREATE TABLE predicate_domains (
+			predicate_id INTEGER,
+			domain TEXT,
+			PRIMARY KEY (predicate_id, domain),
+			FOREIGN KEY (predicate_id) REFERENCES predicates(id)
+		);
+	`)
+	require.NoError(t, err)
+
+	// Sample predicates to insert
+	// We need predicates for domains: core, safety, routing, shard_lifecycle, shard_coder, shard_tester, campaign
+	predicates := []struct {
+		name     string
+		arity    int
+		domain   string
+		domains  []string // Additional domains in predicate_domains table
+		category string
+		desc     string
+	}{
+		// Core predicates
+		{"core_fact", 1, "core", []string{"core"}, "base", "A core fact"},
+		{"file_topology", 3, "core", []string{"core"}, "world", "Filesystem structure"},
+
+		// Safety predicates
+		{"permitted", 1, "safety", []string{"safety"}, "security", "Allowed actions"},
+		{"dangerous", 1, "safety", []string{"safety"}, "security", "Dangerous actions"},
+
+		// Routing predicates
+		{"next_action", 1, "routing", []string{"routing"}, "dispatch", "The next action"},
+
+		// Shard Lifecycle
+		{"shard_status", 2, "shard_lifecycle", []string{"shard_lifecycle"}, "meta", "Status of shards"},
+
+		// Coder specific
+		{"code_change", 3, "shard_coder", []string{"shard_coder"}, "mutation", "Code modification"},
+		{"diagnostic", 4, "diagnostic", []string{"diagnostic", "shard_coder", "shard_tester"}, "analysis", "Compiler errors"},
+
+		// Tester specific
+		{"test_result", 3, "shard_tester", []string{"shard_tester"}, "verification", "Test execution result"},
+
+		// Campaign
+		{"campaign_goal", 2, "campaign", []string{"campaign"}, "planning", "Current campaign goal"},
+
+		// Other
+		{"random_fact", 1, "misc", []string{"misc"}, "misc", "Irrelevant fact"},
+	}
+
+	tx, err := db.Begin()
+	require.NoError(t, err)
+
+	stmtPred, err := tx.Prepare(`INSERT INTO predicates (name, arity, type, category, description, safety_level, domain, section, source_file) VALUES (?, ?, 'EDB', ?, ?, 'safe', ?, '', '')`)
+	require.NoError(t, err)
+	defer stmtPred.Close()
+
+	stmtDomain, err := tx.Prepare(`INSERT INTO predicate_domains (predicate_id, domain) VALUES (?, ?)`)
+	require.NoError(t, err)
+	defer stmtDomain.Close()
+
+	for _, p := range predicates {
+		res, err := stmtPred.Exec(p.name, p.arity, p.category, p.desc, p.domain)
+		require.NoError(t, err)
+
+		id, err := res.LastInsertId()
+		require.NoError(t, err)
+
+		for _, d := range p.domains {
+			_, err = stmtDomain.Exec(id, d)
+			require.NoError(t, err)
+		}
+	}
+
+	require.NoError(t, tx.Commit())
+
+	// Create the corpus wrapper
+	corpus, err := core.NewPredicateCorpusFromPath(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = corpus.Close() })
+
+	return corpus
+}
+
+func TestPredicateSelector_Select(t *testing.T) {
+	corpus := createTestCorpus(t)
+
+	selector := NewPredicateSelector(corpus)
+
+	t.Run("Empty Context", func(t *testing.T) {
+		// Should return core predicates + safety + routing by default logic (though Select adds them specifically)
+		ctx := SelectionContext{}
+		preds, err := selector.Select(ctx)
+		require.NoError(t, err)
+
+		names := make(map[string]bool)
+		for _, p := range preds {
+			names[p.Name] = true
+		}
+
+		assert.Contains(t, names, "core_fact")
+		assert.Contains(t, names, "permitted")      // Safety is always included
+		assert.Contains(t, names, "next_action")    // Routing is always included
+		assert.NotContains(t, names, "code_change") // Specific to coder
+	})
+
+	t.Run("Shard Context - Coder", func(t *testing.T) {
+		ctx := SelectionContext{
+			ShardType: "/coder",
+		}
+		preds, err := selector.Select(ctx)
+		require.NoError(t, err)
+
+		names := make(map[string]bool)
+		for _, p := range preds {
+			names[p.Name] = true
+		}
+
+		assert.Contains(t, names, "code_change")
+		assert.Contains(t, names, "diagnostic")
+		assert.Contains(t, names, "shard_status") // from shard_lifecycle
+	})
+
+	t.Run("Intent Context - Fix", func(t *testing.T) {
+		ctx := SelectionContext{
+			IntentVerb: "/fix",
+		}
+		preds, err := selector.Select(ctx)
+		require.NoError(t, err)
+
+		names := make(map[string]bool)
+		for _, p := range preds {
+			names[p.Name] = true
+		}
+
+		// /fix maps to diagnostic, world_model
+		assert.Contains(t, names, "diagnostic")
+	})
+
+	t.Run("Campaign Context", func(t *testing.T) {
+		ctx := SelectionContext{
+			CampaignPhase: "/planning",
+		}
+		preds, err := selector.Select(ctx)
+		require.NoError(t, err)
+
+		names := make(map[string]bool)
+		for _, p := range preds {
+			names[p.Name] = true
+		}
+
+		assert.Contains(t, names, "campaign_goal")
+	})
+
+	t.Run("Relevance Sorting", func(t *testing.T) {
+		// Core (1.0) > Safety (0.95) > Shard (0.9) > Intent (0.85) > Campaign (0.8) > Routing (0.7)
+		ctx := SelectionContext{
+			ShardType:     "/coder",
+			IntentVerb:    "/fix",
+			CampaignPhase: "/executing",
+		}
+		preds, err := selector.Select(ctx)
+		require.NoError(t, err)
+
+		// Check that order respects relevance
+		// "core_fact" (1.0) should be before "permitted" (0.95)
+		// "permitted" (0.95) should be before "code_change" (0.9)
+
+		var coreIdx, safetyIdx, shardIdx int = -1, -1, -1
+
+		for i, p := range preds {
+			if p.Name == "core_fact" {
+				coreIdx = i
+			}
+			if p.Name == "permitted" {
+				safetyIdx = i
+			}
+			if p.Name == "code_change" {
+				shardIdx = i
+			}
+		}
+
+		assert.True(t, coreIdx < safetyIdx, "Core should be before Safety")
+		assert.True(t, safetyIdx < shardIdx, "Safety should be before Shard")
+	})
+}
+
+func TestPredicateSelector_FormatForPrompt(t *testing.T) {
+	corpus := createTestCorpus(t)
+
+	selector := NewPredicateSelector(corpus)
+
+	// Manually create selected predicates to test formatting
+	selected := []SelectedPredicate{
+		{Name: "pred1", Arity: 2, Domain: "domA", Description: "Description 1", Relevance: 0.9},
+		{Name: "pred2", Arity: 1, Domain: "domB", Description: "Description 2", Relevance: 0.8},
+		{Name: "pred3", Arity: 3, Domain: "domA", Description: "Description 3 is very long and should be truncated if it exceeds 60 characters which this string definitely does.", Relevance: 0.7},
+	}
+
+	output := selector.FormatForPrompt(selected)
+
+	assert.Contains(t, output, "## Available Mangle Predicates")
+	assert.Contains(t, output, "### domA")
+	assert.Contains(t, output, "- `pred1/2` - Description 1")
+	// Descriptions ride whole no matter the length; the list is bounded by
+	// the selection limit instead of per-string cuts.
+	assert.Contains(t, output, "- `pred3/3` - Description 3 is very long and should be truncated if it exceeds 60 characters which this string definitely does.")
+	assert.Contains(t, output, "### domB")
+	assert.Contains(t, output, "- `pred2/1` - Description 2")
+}
+
+func TestPredicateSelector_MaxPredicates(t *testing.T) {
+	corpus := createTestCorpus(t)
+
+	selector := NewPredicateSelector(corpus)
+	selector.SetMaxPredicates(2) // Very low limit
+
+	ctx := SelectionContext{
+		ShardType: "/coder", // Should pull in many predicates
+	}
+
+	preds, err := selector.Select(ctx)
+	require.NoError(t, err)
+
+	assert.LessOrEqual(t, len(preds), 2)
+}
+
+func TestPredicateSelector_SelectForMangleGeneration(t *testing.T) {
+	corpus := createTestCorpus(t)
+
+	selector := NewPredicateSelector(corpus)
+
+	preds, err := selector.SelectForMangleGeneration("/coder", "/implement")
+	require.NoError(t, err)
+
+	// Should include routing and shard_lifecycle
+	names := make(map[string]bool)
+	for _, p := range preds {
+		names[p.Name] = true
+	}
+
+	assert.Contains(t, names, "next_action")
+	assert.Contains(t, names, "shard_status")
+}
+
+func TestPredicateSelector_Select_RelevanceTiesBreakByName(t *testing.T) {
+	// Every domain in one shard-type group shares a single relevance score,
+	// so the tier order comes entirely from the tiebreak. Arrival order is
+	// domain-grouped (shard_status first); name order is not.
+	corpus := createTestCorpus(t)
+	selector := NewPredicateSelector(corpus)
+	selected, err := selector.Select(SelectionContext{ShardType: "/coder", MaxPredicates: 100})
+	require.NoError(t, err)
+	var tier []string
+	for _, p := range selected {
+		if p.Relevance == 0.9 {
+			tier = append(tier, p.Name)
+		}
+	}
+	require.Equal(t, []string{"code_change", "diagnostic", "shard_status"}, tier)
+	first := make([]SelectedPredicate, len(selected))
+	copy(first, selected)
+	for i := 0; i < 20; i++ {
+		again, err := selector.Select(SelectionContext{ShardType: "/coder", MaxPredicates: 100})
+		require.NoError(t, err)
+		require.Equal(t, first, again, "selection must be stable across runs")
+	}
+}
+
+func TestPredicateSelector_DescriptionsEmittedWhole(t *testing.T) {
+	// Longer than either of the removed 50/60-rune cuts, with multibyte
+	// runes that a byte cut would have split.
+	desc := "héllo wörld 🌱🌱🌱 " + strings.Repeat("tail ", 40)
+	selector := NewPredicateSelector(createTestCorpus(t))
+
+	formatted := selector.FormatForPrompt([]SelectedPredicate{
+		{Name: "longdesc", Arity: 2, Domain: "domA", Description: desc},
+	})
+	assert.Contains(t, formatted, "- `longdesc/2` - "+desc)
+	assert.NotContains(t, formatted, "...")
+
+	sig := formatPredicateSignature(SelectedPredicate{Name: "longdesc", Arity: 2, Description: desc})
+	assert.Equal(t, "longdesc/2 - "+desc, sig)
+	assert.True(t, utf8.ValidString(sig))
+}
+
+func TestPredicateSelector_BoundsFromConfig(t *testing.T) {
+	jitDefaults := userconfig.DefaultJITConfig()
+	selector := NewPredicateSelector(createTestCorpus(t))
+	assert.Equal(t, jitDefaults.PredicateLimit, selector.maxPredicates)
+	assert.Equal(t, jitDefaults.PredicateVecLimit, selector.vectorLimit)
+
+	selector.SetMaxPredicates(7)
+	selector.SetVectorLimit(9)
+	assert.Equal(t, 7, selector.maxPredicates)
+	assert.Equal(t, 9, selector.vectorLimit)
+
+	// Non-positive overrides are ignored, like before.
+	selector.SetMaxPredicates(0)
+	selector.SetVectorLimit(-1)
+	assert.Equal(t, 7, selector.maxPredicates)
+	assert.Equal(t, 9, selector.vectorLimit)
+}
+
+func TestClampSimilarity_BoundsAndNaN(t *testing.T) {
+	assert.Equal(t, 0.0, clampSimilarity(math.NaN()))
+	assert.Equal(t, 0.0, clampSimilarity(-0.5))
+	assert.Equal(t, 1.0, clampSimilarity(1.5))
+	assert.Equal(t, 0.6, clampSimilarity(0.6))
+	assert.Equal(t, 0.6, similarityFromMetadata(map[string]any{}))
+	assert.Equal(t, 0.0, similarityFromMetadata(map[string]any{"similarity": math.NaN()}))
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "codeNERD Stress Tester"
+  short_description: "Bounded stress, chaos, race, and recovery tests"
+  default_prompt: "Use $stress-tester to run the narrowest bounded profile, preserve receipts, and diagnose any failure."

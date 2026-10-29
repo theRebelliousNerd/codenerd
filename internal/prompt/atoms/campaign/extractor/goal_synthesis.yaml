@@ -1,0 +1,20 @@
+# Goal-scoped extraction for the extractor role (campaign.RoleExtractor):
+# shard extractor, phase /requirement_extraction. extractRequirementsSmart
+# (internal/campaign/decomposer_requirements.go) sends one extraction call per
+# goal whose user message is only the Goal and the retrieved Snippets; this
+# atom says how that input bounds the extraction. Until 2026-10-28 this text
+# was a Go string literal.
+
+- id: "campaign/extractor/goal_synthesis"
+  category: "campaign"
+  subcategory: "extractor"
+  is_mandatory: true
+  shard_types: ["extractor"]
+  campaign_phases: ["requirement_extraction"]
+  depends_on: ["campaign/extractor/output"]
+  content: |
+    ## Goal-scoped extraction
+
+    The input is a Goal and the snippets retrieved for it, each headed "PATH: <path>".
+    Extract discrete requirements directly relevant to the goal (at most 20), with each requirement's "source" set to its snippet's path.
+    Return only requirements directly relevant to the goal. No duplicates. Return JSON only.

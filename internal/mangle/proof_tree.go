@@ -1,0 +1,483 @@
+package mangle
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"codeberg.org/TauCeti/mangle-go/analysis"
+	"codeberg.org/TauCeti/mangle-go/ast"
+)
+
+// ============================================================================
+// Proof Tree Visualization - Cortex 1.5.0 §2.2
+// Materializes derivation_trace and proof_tree_node facts during query execution
+// ============================================================================
+
+// DerivationNode represents a node in the proof tree.
+type DerivationNode struct {
+	ID        string            // Unique node ID
+	ParentID  string            // Parent node ID (empty for root)
+	Fact      Fact              // The derived fact
+	RuleName  string            // Rule that derived this fact (empty for EDB facts)
+	Source    DerivationSource  // EDB (base fact) or IDB (derived)
+	Children  []*DerivationNode // Child nodes (premises)
+	Depth     int               // Depth in the tree
+	Timestamp time.Time         // When this node was created
+}
+
+// DerivationSource indicates whether a fact came from EDB or IDB.
+type DerivationSource string
+
+const (
+	SourceEDB DerivationSource = "EDB" // Extensional - base facts
+	SourceIDB DerivationSource = "IDB" // Intensional - derived by rules
+)
+
+// DerivationTrace represents a complete proof tree for a query.
+type DerivationTrace struct {
+	Query      string            // Original query
+	RootNodes  []*DerivationNode // Top-level derivation nodes
+	AllNodes   []*DerivationNode // All nodes in the tree (flat list)
+	Duration   time.Duration     // Time to compute
+	Timestamp  time.Time         // When the trace was created
+	TotalFacts int               // Total number of derived facts
+}
+
+// ProofTreeTracer tracks derivations during query execution.
+type ProofTreeTracer struct {
+	mu         sync.RWMutex
+	engine     *Engine
+	traces     map[string]*DerivationTrace // Cache of recent traces by query
+	traceOrder []string                    // Insertion order for FIFO eviction
+	maxCache   int                         // Max traces to cache
+	nodeIDSeq  int64                       // Sequence for generating node IDs
+	ruleIndex  map[string][]RuleSpec       // Index of rules by head predicate
+}
+
+// RuleSpec describes a rule from policy.mg for tracing purposes.
+type RuleSpec struct {
+	Name        string   // Rule identifier
+	HeadPred    string   // Head predicate
+	BodyPreds   []string // Body predicates (premises)
+	IsRecursive bool     // Whether the rule is recursive
+	Source      string   // Source location (file:line)
+}
+
+// NewProofTreeTracer creates a new tracer for an engine.
+func NewProofTreeTracer(engine *Engine) *ProofTreeTracer {
+	return &ProofTreeTracer{
+		engine:     engine,
+		traces:     make(map[string]*DerivationTrace),
+		maxCache:   100,
+		traceOrder: make([]string, 0, 100),
+		ruleIndex:  make(map[string][]RuleSpec),
+	}
+}
+
+// IndexRules extracts rule structure from the program info for tracing.
+func (t *ProofTreeTracer) IndexRules() {
+	if t == nil || t.engine == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.engine.mu.RLock()
+	programInfo := t.engine.programInfo
+	t.engine.mu.RUnlock()
+
+	if programInfo == nil {
+		return
+	}
+
+	// Clear existing index.
+	t.ruleIndex = make(map[string][]RuleSpec)
+
+	// Index IDB rules by head predicate, extracting body predicates.
+	for _, rule := range programInfo.Rules {
+		headPred := rule.Head.Predicate.Symbol
+
+		var bodyPreds []string
+		isRecursive := false
+		for _, premise := range rule.Premises {
+			var predSym string
+			switch p := premise.(type) {
+			case ast.Atom:
+				predSym = p.Predicate.Symbol
+			case ast.NegAtom:
+				predSym = p.Atom.Predicate.Symbol
+			default:
+				continue
+			}
+			if predSym != "" {
+				bodyPreds = append(bodyPreds, predSym)
+				if predSym == headPred {
+					isRecursive = true
+				}
+			}
+		}
+
+		spec := RuleSpec{
+			Name:        headPred,
+			HeadPred:    headPred,
+			BodyPreds:   bodyPreds,
+			IsRecursive: isRecursive,
+		}
+		t.ruleIndex[headPred] = append(t.ruleIndex[headPred], spec)
+	}
+}
+
+// TraceQuery executes a query and builds a proof tree.
+//
+// The cache assumes the engine is unchanged between calls: mutate the engine
+// and call ClearCache, or a later identical query will be served the stale
+// derivation. There is no mutation hook from Engine to here by design.
+func (t *ProofTreeTracer) TraceQuery(ctx context.Context, query string) (*DerivationTrace, error) {
+	if t == nil || t.engine == nil {
+		return nil, fmt.Errorf("mangle: TraceQuery on nil tracer or engine")
+	}
+	start := time.Now()
+
+	// Check cache first
+	t.mu.RLock()
+	if cached, ok := t.traces[query]; ok {
+		t.mu.RUnlock()
+		return cached, nil
+	}
+	t.mu.RUnlock()
+
+	// Execute query and capture results
+	result, err := t.engine.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse query to understand structure
+	shape, err := parseQueryShape(query)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build derivation tree
+	trace := &DerivationTrace{
+		Query:     query,
+		RootNodes: make([]*DerivationNode, 0),
+		AllNodes:  make([]*DerivationNode, 0),
+		Timestamp: time.Now(),
+	}
+
+	predicate := shape.atom.Predicate.Symbol
+
+	// For each result binding, create a derivation node
+	for _, binding := range result.Bindings {
+		// Reconstruct the fact from bindings
+		fact := Fact{
+			Predicate: predicate,
+			Args:      make([]any, len(shape.atom.Args)),
+			Timestamp: time.Now(),
+		}
+
+		for i, arg := range shape.atom.Args {
+			if v, ok := arg.(ast.Variable); ok {
+				if val, exists := binding[v.Symbol]; exists {
+					fact.Args[i] = val
+				} else {
+					fact.Args[i] = v.Symbol
+				}
+			} else {
+				fact.Args[i] = convertBaseTermToInterface(arg)
+			}
+		}
+
+		// Build the derivation node with its tree. visited is per root:
+		// a premise shared by two answers still expands under each.
+		node := t.buildDerivationNode(ctx, fact, "", 0, make(map[string]bool))
+		trace.RootNodes = append(trace.RootNodes, node)
+		trace.AllNodes = append(trace.AllNodes, t.flattenTree(node)...)
+	}
+
+	trace.Duration = time.Since(start)
+
+	// Cache the result
+	t.mu.Lock()
+	if _, seen := t.traces[query]; !seen {
+		t.traceOrder = append(t.traceOrder, query)
+	}
+	for len(t.traces) >= t.maxCache && len(t.traceOrder) > 0 {
+		oldest := t.traceOrder[0]
+		t.traceOrder = t.traceOrder[1:]
+		if oldest != query {
+			delete(t.traces, oldest)
+		}
+	}
+	t.traces[query] = trace
+	t.mu.Unlock()
+
+	return trace, nil
+}
+
+// maxProofDepth bounds proof-tree recursion. findPremises can walk a cycle:
+// it skips a body predicate only when that predicate is the rule's own name,
+// so mutually recursive rules (A's premises mention B, B's mention A) and the
+// first-argument join both come back to a fact already on the path. Cycle
+// detection terminates those repeats. The depth guard stays for a premise
+// chain that never repeats a fact; without it a long chain recurses until
+// the stack gives out. A capped or cyclic node is marked, never rendered as
+// a complete leaf.
+const maxProofDepth = 10
+
+const (
+	// proofDepthNote rides on RuleName — the field both renderers print —
+	// when premises exist but were not expanded because the trace hit
+	// maxProofDepth.
+	proofDepthNote = " (chain continues past depth limit)"
+	// proofCycleNote marks a premise that repeats a fact already on the
+	// current path: the full expansion sits at the ancestor occurrence.
+	proofCycleNote = " (cycle: expanded above)"
+)
+
+// buildDerivationNode builds a derivation node and recursively finds premises.
+// visited holds the facts on the current path. It is path-scoped (entries are
+// removed on unwind), so a premise shared by two branches still renders fully
+// under each.
+func (t *ProofTreeTracer) buildDerivationNode(ctx context.Context, fact Fact, parentID string, depth int, visited map[string]bool) *DerivationNode {
+	t.mu.Lock()
+	t.nodeIDSeq++
+	nodeID := fmt.Sprintf("node_%d", t.nodeIDSeq)
+	t.mu.Unlock()
+
+	node := &DerivationNode{
+		ID:        nodeID,
+		ParentID:  parentID,
+		Fact:      fact,
+		Depth:     depth,
+		Timestamp: time.Now(),
+		Children:  make([]*DerivationNode, 0),
+	}
+
+	// Determine if this is EDB or IDB
+	source, ruleName := t.classifyFact(fact)
+	node.Source = source
+	node.RuleName = ruleName
+
+	if source == SourceIDB {
+		key := fact.String()
+		if visited[key] {
+			node.RuleName += proofCycleNote
+			return node
+		}
+		premises := t.findPremises(ctx, fact, ruleName)
+		if len(premises) == 0 {
+			return node
+		}
+		if depth >= maxProofDepth {
+			// Guard tripped with premises still to show: say so on the
+			// node instead of rendering a leaf that reads as complete.
+			node.RuleName += proofDepthNote
+			return node
+		}
+		visited[key] = true
+		defer delete(visited, key)
+		for _, premise := range premises {
+			child := t.buildDerivationNode(ctx, premise, nodeID, depth+1, visited)
+			node.Children = append(node.Children, child)
+		}
+	}
+
+	return node
+}
+
+// classifyFact determines if a fact is from EDB or IDB using ProgramInfo.
+func (t *ProofTreeTracer) classifyFact(fact Fact) (DerivationSource, string) {
+	t.engine.mu.RLock()
+	info := t.engine.programInfo
+	t.engine.mu.RUnlock()
+
+	if info != nil {
+		// Check IDB first — any predicate symbol that appears as a rule head is IDB.
+		for sym := range info.IdbPredicates {
+			if sym.Symbol == fact.Predicate {
+				// Try to find the first rule name (head predicate of the deriving rule).
+				ruleName := t.findRuleName(info, fact.Predicate)
+				return SourceIDB, ruleName
+			}
+		}
+
+		// Check EDB — predicates with declarations but no deriving rules.
+		for sym := range info.EdbPredicates {
+			if sym.Symbol == fact.Predicate {
+				return SourceEDB, ""
+			}
+		}
+	}
+
+	// Unknown predicates default to EDB.
+	return SourceEDB, ""
+}
+
+// findRuleName finds a descriptive rule name for an IDB predicate from ProgramInfo.Rules.
+func (t *ProofTreeTracer) findRuleName(info *analysis.ProgramInfo, predicate string) string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	// Check the ruleIndex cache first.
+	if specs, ok := t.ruleIndex[predicate]; ok && len(specs) > 0 {
+		return specs[0].Name
+	}
+
+	// Fall back to scanning Rules from ProgramInfo.
+	for _, rule := range info.Rules {
+		if rule.Head.Predicate.Symbol == predicate {
+			// Use the predicate name itself as the rule name (e.g., "next_action" → "next_action").
+			return predicate
+		}
+	}
+	return predicate
+}
+
+// findPremises finds the facts that were used to derive a given fact.
+// Uses the ruleIndex (populated by IndexRules from ProgramInfo) to discover
+// body predicates dynamically, rather than hardcoding rule structures.
+func (t *ProofTreeTracer) findPremises(_ context.Context, fact Fact, ruleName string) []Fact {
+	var premises []Fact
+
+	t.mu.RLock()
+	specs := t.ruleIndex[ruleName]
+	t.mu.RUnlock()
+
+	if len(specs) == 0 {
+		return nil
+	}
+
+	// Collect unique body predicates across all rules for this head predicate.
+	seen := make(map[string]bool)
+	for _, spec := range specs {
+		for _, bodyPred := range spec.BodyPreds {
+			if bodyPred == ruleName {
+				continue // Skip self-referential (recursive) predicates to avoid cycles.
+			}
+			seen[bodyPred] = true
+		}
+	}
+
+	// For each body predicate, look for facts whose first arg matches.
+	for bodyPred := range seen {
+		bodyFacts, _ := t.engine.GetFacts(bodyPred)
+		for _, bf := range bodyFacts {
+			// Heuristic: match on first arg if both facts have args.
+			if len(bf.Args) >= 1 && len(fact.Args) >= 1 && bf.Args[0] == fact.Args[0] {
+				premises = append(premises, bf)
+			}
+		}
+	}
+
+	return premises
+}
+
+// flattenTree converts a tree to a flat list of all nodes.
+func (t *ProofTreeTracer) flattenTree(node *DerivationNode) []*DerivationNode {
+	nodes := []*DerivationNode{node}
+	for _, child := range node.Children {
+		nodes = append(nodes, t.flattenTree(child)...)
+	}
+	return nodes
+}
+
+// ============================================================================
+// Proof Tree Rendering
+// ============================================================================
+
+// RenderASCII renders a proof tree as ASCII art.
+func (trace *DerivationTrace) RenderASCII() string {
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("Query: %s\n", trace.Query))
+	sb.WriteString(fmt.Sprintf("Duration: %v\n", trace.Duration))
+	sb.WriteString(strings.Repeat("=", 60) + "\n")
+
+	for i, root := range trace.RootNodes {
+		sb.WriteString(fmt.Sprintf("\nDerivation %d:\n", i+1))
+		renderNodeASCII(&sb, root, "", true)
+	}
+
+	return sb.String()
+}
+
+func renderNodeASCII(sb *strings.Builder, node *DerivationNode, prefix string, isLast bool) {
+	// Draw connector
+	connector := "├── "
+	if isLast {
+		connector = "└── "
+	}
+
+	// Format source indicator
+	sourceIndicator := "[EDB]"
+	if node.Source == SourceIDB {
+		sourceIndicator = fmt.Sprintf("[IDB:%s]", node.RuleName)
+	}
+
+	// Write the node
+	sb.WriteString(fmt.Sprintf("%s%s%s %s\n", prefix, connector, node.Fact.String(), sourceIndicator))
+
+	// Prepare prefix for children
+	childPrefix := prefix
+	if isLast {
+		childPrefix += "    "
+	} else {
+		childPrefix += "│   "
+	}
+
+	// Render children
+	for i, child := range node.Children {
+		renderNodeASCII(sb, child, childPrefix, i == len(node.Children)-1)
+	}
+}
+
+// RenderJSON renders the proof tree as JSON.
+func (trace *DerivationTrace) RenderJSON() ([]byte, error) {
+	type jsonNode struct {
+		ID       string      `json:"id"`
+		ParentID string      `json:"parent_id,omitzero"`
+		Fact     string      `json:"fact"`
+		Source   string      `json:"source"`
+		Rule     string      `json:"rule,omitzero"`
+		Depth    int         `json:"depth"`
+		Children []*jsonNode `json:"children,omitzero"`
+	}
+
+	var convertNode func(*DerivationNode) *jsonNode
+	convertNode = func(n *DerivationNode) *jsonNode {
+		jn := &jsonNode{
+			ID:       n.ID,
+			ParentID: n.ParentID,
+			Fact:     n.Fact.String(),
+			Source:   string(n.Source),
+			Rule:     n.RuleName,
+			Depth:    n.Depth,
+		}
+		for _, child := range n.Children {
+			jn.Children = append(jn.Children, convertNode(child))
+		}
+		return jn
+	}
+
+	type jsonTrace struct {
+		Query    string      `json:"query"`
+		Duration string      `json:"duration"`
+		Roots    []*jsonNode `json:"roots"`
+	}
+
+	jt := jsonTrace{
+		Query:    trace.Query,
+		Duration: trace.Duration.String(),
+	}
+	for _, root := range trace.RootNodes {
+		jt.Roots = append(jt.Roots, convertNode(root))
+	}
+
+	return json.MarshalIndent(jt, "", "  ")
+}

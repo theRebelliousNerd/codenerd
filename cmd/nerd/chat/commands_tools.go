@@ -1,0 +1,275 @@
+// Package chat provides the interactive TUI chat interface for codeNERD.
+// This file contains tool management command helpers.
+package chat
+
+import (
+	nerdinit "codenerd/internal/init"
+	"codenerd/internal/perception"
+	"codenerd/internal/store"
+	"fmt"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+// =============================================================================
+// STATUS AND TOOL COMMAND HELPERS
+// =============================================================================
+
+// buildStatusReport builds a status report for /status command
+func (m Model) buildStatusReport() string {
+	var sb strings.Builder
+	sb.WriteString("## System Status\n\n")
+
+	sb.WriteString("### Session\n")
+	sb.WriteString(fmt.Sprintf("- Session ID: `%s`\n", m.sessionID))
+	sb.WriteString(fmt.Sprintf("- Turn Count: %d\n", m.turnCount))
+	sb.WriteString(fmt.Sprintf("- Workspace: %s\n", m.workspace))
+	sb.WriteString(fmt.Sprintf("- Initialized: %v\n", nerdinit.IsInitialized(m.workspace)))
+	sb.WriteString(fmt.Sprintf("- Session State: %s\n", filepath.Join(m.workspace, ".nerd", "session.json")))
+	sb.WriteString(fmt.Sprintf("- Sessions Dir: %s\n", filepath.Join(m.workspace, ".nerd", "sessions")))
+	sb.WriteString("\n")
+
+	sb.WriteString("### Components\n")
+	sb.WriteString("- Kernel: Active\n")
+	sb.WriteString("- Transducer: Active\n")
+	sb.WriteString("- Shard Manager: Active\n")
+	sb.WriteString("- Dreamer: Precog safety enabled\n")
+	sb.WriteString("- Legislator: Available via `/legislate`\n")
+	sb.WriteString("- Requirements Interrogator: Available via `/clarify`\n")
+	if m.activeCampaign != nil {
+		sb.WriteString(fmt.Sprintf("- Active Campaign: %s\n", m.activeCampaign.Goal))
+	}
+	if m.autopoiesis != nil {
+		sb.WriteString("- Autopoiesis: Active\n")
+	}
+	sb.WriteString("\n")
+
+	// Query fact counts
+	sb.WriteString("### Kernel State\n")
+	if m.kernel == nil {
+		sb.WriteString("- Kernel: not running\n")
+	} else if facts, err := m.kernel.Query("*"); err != nil {
+		sb.WriteString(fmt.Sprintf("- Total Facts: query failed: %v\n", err))
+	} else {
+		sb.WriteString(fmt.Sprintf("- Total Facts: %d\n", len(facts)))
+	}
+
+	// List registered shards
+	sb.WriteString("\n### Registered Shards\n")
+	sb.WriteString("- coder\n")
+	sb.WriteString("- reviewer\n")
+	sb.WriteString("- tester\n")
+	sb.WriteString("- researcher\n")
+	sb.WriteString("- legislator\n")
+	sb.WriteString("- requirements_interrogator\n")
+
+	// List generated tools
+	if m.autopoiesis != nil {
+		tools := m.autopoiesis.ListTools()
+		sb.WriteString("\n### Generated Tools\n")
+		if len(tools) == 0 {
+			sb.WriteString("- No tools generated yet\n")
+			sb.WriteString("- Tools are created on-demand when capabilities are missing\n")
+			sb.WriteString("- Use `/tool generate <description>` to create a tool\n")
+		} else {
+			sb.WriteString(fmt.Sprintf("- Total Tools: %d\n", len(tools)))
+			sb.WriteString("- Recent Tools:\n")
+			count := 0
+			for _, tool := range tools {
+				if count >= 5 {
+					sb.WriteString(fmt.Sprintf("  ... and %d more (use `/tool list` for full list)\n", len(tools)-5))
+					break
+				}
+				sb.WriteString(fmt.Sprintf("  - `%s`: %d executions\n", tool.Name, tool.ExecuteCount))
+				count++
+			}
+		}
+	}
+
+	// Output LLM Metrics
+	metrics := perception.GetLLMMetrics()
+	if len(metrics) > 0 {
+		sb.WriteString("\n### LLM Usage Metrics\n\n")
+		sb.WriteString("| Category | Shard | Calls | Tokens | Avg Latency | Errors |\n")
+		sb.WriteString("|---|---|---|---|---|---|\n")
+
+		var keys []string
+		for k := range metrics {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		for _, k := range keys {
+			pts := strings.SplitN(k, ":", 2)
+			cat := ""
+			typ := k
+			if len(pts) == 2 {
+				cat = pts[0]
+				typ = pts[1]
+			}
+
+			met := metrics[k]
+			avg := int64(0)
+			if met.Calls > 0 {
+				avg = met.DurationMs / met.Calls
+			}
+
+			sb.WriteString(fmt.Sprintf("| %s | %s | %d | %d | %dms | %d |\n",
+				cat, typ, met.Calls, met.TokensUsed, avg, met.Errors))
+		}
+	}
+
+	sb.WriteString(renderDiagnostics(m.workspace))
+
+	return sb.String()
+}
+
+// handleCleanupToolsCommand handles the /cleanup-tools command for managing tool execution storage.
+// Flags:
+//   - (no args): Show current storage stats
+//   - --runtime: Cleanup by runtime hours budget (default: 336 hours)
+//   - --size: Cleanup by size limit (default: 100MB)
+//   - --smart: refused: which executions to delete is a retention decision
+//     the budgets make, not a model (store.ToolStore.CleanupIntelligent is
+//     deliberately not wired)
+//   - --force: Skip confirmation prompts
+func (m Model) handleCleanupToolsCommand(args []string) string {
+	var sb strings.Builder
+
+	// Check if ToolStore is available
+	if m.toolStore == nil {
+		return "Tool execution persistence is not enabled. Initialize with `/init` first."
+	}
+
+	// Parse flags
+	var mode string
+	var force bool
+	for _, arg := range args {
+		switch arg {
+		case "--runtime":
+			mode = "runtime"
+		case "--size":
+			mode = "size"
+		case "--smart":
+			mode = "smart"
+		case "--force":
+			force = true
+		case "--help", "-h":
+			return m.renderCleanupToolsHelp()
+		}
+	}
+
+	// Get current stats
+	stats, err := m.toolStore.GetStats()
+	if err != nil {
+		return fmt.Sprintf("Error getting storage stats: %v", err)
+	}
+
+	sb.WriteString("## Tool Execution Storage\n\n")
+	sb.WriteString("### Current Status\n")
+	sb.WriteString(fmt.Sprintf("- **Total Executions:** %d\n", stats.TotalExecutions))
+	sb.WriteString(fmt.Sprintf("- **Storage Size:** %.2f MB\n", float64(stats.TotalSizeBytes)/1024/1024))
+	sb.WriteString(fmt.Sprintf("- **Runtime Hours:** %.1f hours\n", stats.TotalRuntimeHours))
+	sb.WriteString(fmt.Sprintf("- **Success/Failure:** %d/%d\n", stats.SuccessCount, stats.FailureCount))
+	if len(stats.ToolBreakdown) > 0 {
+		sb.WriteString("- **Tools Used:** ")
+		first := true
+		for tool, count := range stats.ToolBreakdown {
+			if !first {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(fmt.Sprintf("%s(%d)", tool, count))
+			first = false
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n")
+
+	// If no mode specified, just show stats
+	if mode == "" {
+		sb.WriteString("### Cleanup Options\n")
+		sb.WriteString("- `/cleanup-tools --runtime` - Delete executions exceeding 336 runtime hours\n")
+		sb.WriteString("- `/cleanup-tools --size` - Delete oldest executions to stay under 100MB\n")
+		sb.WriteString("- `/cleanup-tools --smart` - not offered: retention is decided by the budgets, not by a model\n")
+		sb.WriteString("- Add `--force` to skip confirmation\n")
+		return sb.String()
+	}
+
+	// Execute cleanup based on mode
+	sb.WriteString("### Cleanup Results\n")
+
+	switch mode {
+	case "runtime":
+		// The same budget boot and the maintenance cycle enforce
+		// (store.DefaultCleanupConfig), so what this previews is what runs.
+		budgetHours := store.DefaultCleanupConfig().MaxRuntimeHours
+		if !force {
+			sb.WriteString(fmt.Sprintf("Would clean up executions exceeding %.0f runtime hours.\n", budgetHours))
+			sb.WriteString("Add `--force` to execute.\n")
+			return sb.String()
+		}
+		result, err := m.toolStore.CleanupByRuntimeBudget(budgetHours)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("Error during cleanup: %v\n", err))
+		} else {
+			sb.WriteString(fmt.Sprintf("- **Executions Deleted:** %d\n", result.ExecutionsDeleted))
+			sb.WriteString(fmt.Sprintf("- **Space Freed:** %.2f MB\n", float64(result.BytesFreed)/1024/1024))
+			sb.WriteString(fmt.Sprintf("- **Runtime Hours Freed:** %.1f hours\n", result.RuntimeHoursFreed))
+		}
+
+	case "size":
+		maxBytes := store.DefaultCleanupConfig().MaxSizeBytes
+		if !force {
+			sb.WriteString(fmt.Sprintf("Would clean up to stay under %.0f MB.\n", float64(maxBytes)/1024/1024))
+			sb.WriteString("Add `--force` to execute.\n")
+			return sb.String()
+		}
+		result, err := m.toolStore.CleanupBySizeLimit(maxBytes)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("Error during cleanup: %v\n", err))
+		} else {
+			sb.WriteString(fmt.Sprintf("- **Executions Deleted:** %d\n", result.ExecutionsDeleted))
+			sb.WriteString(fmt.Sprintf("- **Space Freed:** %.2f MB\n", float64(result.BytesFreed)/1024/1024))
+		}
+
+	case "smart":
+		// store.ToolStore.CleanupIntelligent asks a model which executions to
+		// delete. That is a retention decision, and retention is the
+		// harness's: the runtime and size budgets decide it, at boot and on
+		// every maintenance cycle. Declined 2026-09-25 rather than wired.
+		sb.WriteString("Smart cleanup is not offered: which executions to delete is decided by the runtime and size budgets, not by a model.\n")
+		sb.WriteString("The runtime budget already runs at boot and on every maintenance cycle; use `--runtime` or `--size` to run one now.\n")
+	}
+
+	return sb.String()
+}
+
+// renderCleanupToolsHelp renders the help text for /cleanup-tools command.
+func (m Model) renderCleanupToolsHelp() string {
+	return `## /cleanup-tools - Manage Tool Execution Storage
+
+### Usage
+` + "`/cleanup-tools [--runtime|--size|--smart] [--force]`" + `
+
+### Options
+- ` + "`(no args)`" + ` - Show current storage statistics
+- ` + "`--runtime`" + ` - Delete the oldest sessions past the runtime budget (336 hours; also run at boot and by maintenance)
+- ` + "`--size`" + ` - Delete oldest executions to stay under 100MB storage limit
+- ` + "`--smart`" + ` - Not offered: retention is decided by the budgets, not by a model
+- ` + "`--force`" + ` - Skip confirmation and execute cleanup immediately
+
+### Examples
+` + "```" + `
+/cleanup-tools              # Show stats
+/cleanup-tools --runtime    # Preview runtime cleanup
+/cleanup-tools --size --force  # Execute size-based cleanup
+` + "```" + `
+
+### Storage Strategy
+Tool executions are stored in ` + "`.nerd/tools.db`" + ` with:
+- Full result content for debugging
+- Reference tracking for usefulness scoring
+- Session runtime for accurate retention policies
+`
+}

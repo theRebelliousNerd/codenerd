@@ -1,0 +1,119 @@
+package mangle
+
+import (
+	"math"
+	"strings"
+	"testing"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
+
+	"codenerd/internal/types"
+)
+
+// A fact argument that cannot be encoded must stop the conversion, never
+// become a constant.
+//
+// The failure this pins is specific to a logic kernel and worth stating
+// plainly: json.Marshal returns nil on error, string(nil) is "", and
+// ast.String("") is a perfectly valid Mangle constant. So a map holding a NaN
+// used to be asserted as an empty string, indistinguishable from a genuinely
+// empty argument, and every rule that fired on it derived confidently from a
+// value that was not the value. An error here costs one fact; the alternative
+// costs the soundness of everything derived from it.
+func TestConvertValueToTypedTermRefusesUnencodableArguments(t *testing.T) {
+	unencodable := map[string]any{
+		"map with a NaN":     map[string]any{"score": math.NaN()},
+		"map with an Inf":    map[string]any{"score": math.Inf(1)},
+		"map with a channel": map[string]any{"ch": make(chan int)},
+		"bare channel":       make(chan int),
+		"func value":         func() {},
+	}
+
+	for name, v := range unencodable {
+		t.Run(name, func(t *testing.T) {
+			term, err := convertValueToTypedTerm(v, ast.StringType)
+			if err == nil {
+				t.Fatalf("converted an unencodable argument to %v with no error", term)
+			}
+			if term != nil {
+				t.Errorf("returned term %v alongside its error", term)
+			}
+			if !strings.Contains(err.Error(), "unsupported fact argument type") {
+				t.Errorf("error does not name the problem: %v", err)
+			}
+		})
+	}
+}
+
+// The encodable maps must still convert, and must not be confusable with the
+// empty string the broken path produced.
+func TestConvertValueToTypedTermEncodesMaps(t *testing.T) {
+	cases := map[string]any{
+		"string map": map[string]string{"k": "v"},
+		"any map":    map[string]any{"k": "v"},
+	}
+	for name, v := range cases {
+		t.Run(name, func(t *testing.T) {
+			term, err := convertValueToTypedTerm(v, ast.StringType)
+			if err != nil {
+				t.Fatalf("convertValueToTypedTerm: %v", err)
+			}
+			got, ok := term.(ast.Constant)
+			if !ok {
+				t.Fatalf("expected a constant, got %T", term)
+			}
+			s, err := got.StringValue()
+			if err != nil {
+				t.Fatalf("StringValue: %v", err)
+			}
+			if s != `{"k":"v"}` {
+				t.Errorf("encoded to %q, want %q", s, `{"k":"v"}`)
+			}
+		})
+	}
+}
+
+// The explicit atom and string types encode as what they say they are. A
+// types.MangleAtom has no String method, so it used to fall through to the
+// JSON default and become the string constant "\"/yes\"": every rule that
+// matched the atom by name saw nothing, for every caller that used the type.
+func TestConvertValueToTypedTermHonoursExplicitMangleTypes(t *testing.T) {
+	atom, err := convertValueToTypedTerm(types.MangleAtom("/yes"), -1)
+	if err != nil {
+		t.Fatalf("MangleAtom: %v", err)
+	}
+	if c, ok := atom.(ast.Constant); !ok || c.Type != ast.NameType || c.Symbol != "/yes" {
+		t.Fatalf("MangleAtom(\"/yes\") encoded as %#v, want the name /yes", atom)
+	}
+	bare, err := convertValueToTypedTerm(types.MangleAtom("yes"), -1)
+	if err != nil {
+		t.Fatalf("bare MangleAtom: %v", err)
+	}
+	if c, ok := bare.(ast.Constant); !ok || c.Type != ast.NameType || c.Symbol != "/yes" {
+		t.Fatalf("MangleAtom(\"yes\") encoded as %#v, want the name /yes", bare)
+	}
+	str, err := convertValueToTypedTerm(types.MangleString("/not-a-name"), -1)
+	if err != nil {
+		t.Fatalf("MangleString: %v", err)
+	}
+	if c, ok := str.(ast.Constant); !ok || c.Type != ast.StringType || c.Symbol != "/not-a-name" {
+		t.Fatalf("MangleString(\"/not-a-name\") encoded as %#v, want the string constant", str)
+	}
+}
+
+// A nil fact argument has no Mangle encoding. json.Marshal(nil) succeeds and
+// yields "null", so without the guard the kernel asserted the literal string
+// "null" in place of a missing value — indistinguishable downstream from a
+// genuine "null" argument. Refuse it with an honest error instead.
+func TestConvertValueToTypedTermRefusesNilArgument(t *testing.T) {
+	term, err := convertValueToTypedTerm(nil, ast.StringType)
+	if err == nil {
+		t.Fatalf("converted a nil argument to %v with no error", term)
+	}
+	if term != nil {
+		t.Errorf("returned term %v alongside its error", term)
+	}
+	if !strings.Contains(err.Error(), "unsupported fact argument type") {
+		t.Errorf("error does not name the problem: %v", err)
+	}
+}

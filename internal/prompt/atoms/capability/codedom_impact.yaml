@@ -1,0 +1,77 @@
+# Code DOM Impact Analysis Atoms
+# These atoms teach the LLM to query impact BEFORE editing.
+# "Measure twice, cut once" applied to code changes.
+
+- id: "capability/codedom_impact"
+  category: "capability"
+  subcategory: "semantic_editing"
+  is_mandatory: true
+  depends_on: ["capability/codedom_core"]
+  requires_tools: [callers_of, get_element, edit_element, importers_of, find_text, repoint, delete_element]
+  shard_types: []  # Applies to all personas
+  content: |
+    ## Blast Radius: Look Before Changing A Contract
+
+    An edit inside a function body is local. An edit to a signature, an exported name, a struct field, or a serialized field name is not: something else depends on it.
+
+    Before changing a contract:
+
+    1. Find what depends on it: `callers_of` for a function or method, `importers_of` for a package, `find_text` for a wire name (a `json:"user_id"` tag is also read by whatever else speaks that format).
+    2. Moving or renaming a package-level name is one `repoint from=... to=... paths=[...]`: every use rewritten, imports derived, every file parsed, all written or none. Deleting a name that is still used is refused until its uses are repointed (`delete_element replace_with=...`).
+    3. Otherwise change the declaration, then each dependent the queries listed, and run the build.
+
+    If dependency facts for the target were injected into your context (callers, methods of a type, covering tests), use them first: they come from the code graph.
+
+- id: "capability/codedom_safety"
+  category: "capability"
+  subcategory: "semantic_editing"
+  is_mandatory: true
+  # Ungated on purpose. deny_edit still applies to edit_lines and edit_element
+  # on catalogs that have neither edit_file nor write_file. Naming those two
+  # tools is capability/codedom_whole_file, which requires them. No depends_on:
+  # impact is tool-gated, and a missing parent is pruned, which would take
+  # this atom with it.
+  content: |
+    ## Edit Safety: What Gets Blocked
+
+    Line-range edits are applied to a shadow copy, re-parsed, and checked against the kernel's `deny_edit` rules before anything is written. If a rule fires, nothing is modified and the result names the rule. Edits that are refused:
+
+    - removing error handling from a Go function that returned an error
+    - starting a goroutine with no context to stop it
+    - removing an auth decorator
+    - introducing an `unsafe` block
+    - changing one side of a backend/frontend API contract without the other
+
+    When blocked: fix the cause and retry. Do not route around the block with a different edit tool; if the rule is wrong for this case, say so and stop. An `edit_warning` (e.g. no test covers the function) is reported but does not block.
+
+- id: "capability/codedom_transaction"
+  category: "capability"
+  subcategory: "semantic_editing"
+  is_mandatory: false
+  depends_on: ["capability/codedom_safety"]
+  # edit_element and apply_edits are named below. Safety no longer carries a
+  # tool gate, so this atom has to name the tools itself or the mention
+  # reaches catalogs that cannot call them.
+  requires_tools: [edit_element, apply_edits]
+  content: |
+    ## Transactional Editing: Staged, Validated, All-Or-Nothing
+
+    Every CodeDOM edit call is staged and validated before anything is
+    written -- the candidate file must parse afterwards, gofmt-clean with
+    imports derived -- and only then does one serialized commit write the
+    files. The commit first re-checks that each file still holds exactly
+    what was read: a concurrent change is an optimistic conflict, not
+    something to overwrite. If a write then fails, the files the commit
+    already wrote are restored from their snapshots in reverse order; a
+    file the commit cannot restore is reported as a rollback conflict
+    rather than overwritten.
+
+    A single `edit_element` call commits this way on its own. For an atomic
+    change across files, put the line edits in one `apply_edits edits=[...]`
+    call (1-16 entries, one distinct existing file per entry): every entry
+    is staged and validated before the commit, and the commit writes all
+    files or rolls back to the snapshots.
+
+    There is no transaction handle across calls: each tool call commits on
+    its own. Keep dependent edits in one call, and re-read before retrying
+    a commit that reported an optimistic conflict.

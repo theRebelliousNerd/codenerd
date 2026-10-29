@@ -1,0 +1,546 @@
+// Package chat provides the interactive TUI chat interface for codeNERD.
+// This file contains utility and helper functions.
+package chat
+
+import (
+	"codenerd/internal/articulation"
+	"codenerd/internal/core"
+	nerdinit "codenerd/internal/init"
+	"codenerd/internal/perception"
+	"codenerd/internal/store"
+	"codenerd/internal/types"
+	"codenerd/internal/verification"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"unicode"
+)
+
+// buildFileTopologyFact constructs a file_topology fact with hash/lang/test
+// flag. fsPath is read; factPath is the file's canonical (workspace-relative,
+// forward-slash) identity and is what the fact carries — the same split as
+// world.Cartographer.MapFileAs, for the same reason: a fact keyed by the
+// absolute path a chat command happened to open joins nothing the scanners
+// emitted for that file.
+func buildFileTopologyFact(fsPath, factPath string, info os.FileInfo) core.Fact {
+	data, _ := os.ReadFile(fsPath)
+	hash := sha256.Sum256(data)
+	lang := detectLanguage(factPath)
+	isTest := core.MangleAtom("/false")
+	if isTestFile(factPath) {
+		isTest = core.MangleAtom("/true")
+	}
+	return core.Fact{
+		Predicate: "file_topology",
+		Args: []any{
+			factPath,
+			hex.EncodeToString(hash[:]),
+			types.Atom(lang),
+			info.ModTime().Unix(),
+			isTest,
+		},
+	}
+}
+
+// detectLanguage is a lightweight extension-based detector.
+func detectLanguage(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".go":
+		return "go"
+	case ".py":
+		return "python"
+	case ".js":
+		return "javascript"
+	case ".ts", ".tsx":
+		return "typescript"
+	case ".java":
+		return "java"
+	case ".rs":
+		return "rust"
+	case ".c", ".h":
+		return "c"
+	case ".cpp", ".hpp", ".cc":
+		return "cpp"
+	case ".rb":
+		return "ruby"
+	case ".php":
+		return "php"
+	case ".swift":
+		return "swift"
+	case ".kt":
+		return "kotlin"
+	case ".cs":
+		return "csharp"
+	case ".json":
+		return "json"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".md":
+		return "markdown"
+	default:
+		return "unknown"
+	}
+}
+
+// isTestFile determines if a path is a test file.
+func isTestFile(path string) bool {
+	base := filepath.Base(path)
+	if strings.HasSuffix(base, "_test.go") || strings.HasSuffix(base, "_test.py") {
+		return true
+	}
+	if strings.HasSuffix(base, ".test.js") || strings.HasSuffix(base, ".test.ts") || strings.HasSuffix(base, ".test.tsx") {
+		return true
+	}
+	if strings.HasSuffix(base, ".spec.js") || strings.HasSuffix(base, ".spec.ts") || strings.HasSuffix(base, ".spec.tsx") {
+		return true
+	}
+	if strings.HasSuffix(base, "Test.java") || strings.HasSuffix(base, "_test.rs") {
+		return true
+	}
+	return false
+}
+
+// learningStoreAdapter wraps store.LearningStore to implement core.LearningStore interface.
+type learningStoreAdapter struct {
+	store *store.LearningStore
+}
+
+func (a *learningStoreAdapter) Save(shardType, factPredicate string, factArgs []any, sourceCampaign string) error {
+	return a.store.Save(shardType, factPredicate, factArgs, sourceCampaign)
+}
+
+func (a *learningStoreAdapter) SaveBatch(shardType string, learnings []types.ShardLearning, sourceCampaign string) error {
+	return a.store.SaveBatch(shardType, learnings, sourceCampaign)
+}
+
+func (a *learningStoreAdapter) Load(shardType string) ([]types.ShardLearning, error) {
+	learnings, err := a.store.Load(shardType)
+	if err != nil {
+		return nil, err
+	}
+	// Convert store.Learning to core.ShardLearning
+	result := make([]types.ShardLearning, len(learnings))
+	for i, l := range learnings {
+		result[i] = types.ShardLearning{
+			FactPredicate: l.FactPredicate,
+			FactArgs:      l.FactArgs,
+			Confidence:    l.Confidence,
+		}
+	}
+	return result, nil
+}
+
+func (a *learningStoreAdapter) DecayConfidence(shardType string, decayFactor float64) error {
+	return a.store.DecayConfidence(shardType, decayFactor)
+}
+
+func (a *learningStoreAdapter) LoadByPredicate(shardType, predicate string) ([]types.ShardLearning, error) {
+	learnings, err := a.store.LoadByPredicate(shardType, predicate)
+	if err != nil {
+		return nil, err
+	}
+	// Convert store.Learning to core.ShardLearning
+	result := make([]types.ShardLearning, len(learnings))
+	for i, l := range learnings {
+		result[i] = types.ShardLearning{
+			FactPredicate: l.FactPredicate,
+			FactArgs:      l.FactArgs,
+			Confidence:    l.Confidence,
+		}
+	}
+	return result, nil
+}
+
+func (a *learningStoreAdapter) Close() error {
+	return a.store.Close()
+}
+
+// renderInitComplete builds a summary message for initialization completion.
+func (m Model) renderInitComplete(result *nerdinit.InitResult) string {
+	var sb strings.Builder
+	// The heading reports what happened: Initialize returns a result, not an
+	// error, when required phases failed, and this used to say "Complete"
+	// over it without listing a single failure.
+	switch {
+	case !result.Success:
+		sb.WriteString("## Initialization Incomplete\n\n")
+		sb.WriteString("### Required failures\n\n")
+		for _, failure := range result.Failures {
+			sb.WriteString(fmt.Sprintf("- %s\n", failure))
+		}
+		sb.WriteString("\nResolve these and run `/init --force`.\n\n")
+	case result.LLMMetrics.Failed > 0:
+		sb.WriteString("## Initialization Complete (LLM enrichment degraded)\n\n")
+	default:
+		sb.WriteString("## Initialization Complete\n\n")
+	}
+
+	sb.WriteString(fmt.Sprintf("**Project**: %s\n", result.Profile.Name))
+	sb.WriteString(fmt.Sprintf("**Language**: %s\n", result.Profile.Language))
+	if result.Profile.Framework != "" {
+		sb.WriteString(fmt.Sprintf("**Framework**: %s\n", result.Profile.Framework))
+	}
+	sb.WriteString(fmt.Sprintf("**Architecture**: %s\n", result.Profile.Architecture))
+	sb.WriteString(fmt.Sprintf("**Files Analyzed**: %d\n", result.Profile.FileCount))
+	sb.WriteString(fmt.Sprintf("**Directories**: %d\n", result.Profile.DirectoryCount))
+	sb.WriteString(fmt.Sprintf("**Facts Generated**: %d\n\n", result.FactsGenerated))
+
+	// Show detected technologies
+	if len(result.Profile.Dependencies) > 0 {
+		sb.WriteString("### Detected Technologies\n\n")
+
+		// Group dependencies by type
+		var mainDeps, devDeps []string
+		for _, dep := range result.Profile.Dependencies {
+			depStr := dep.Name
+			if dep.Version != "" {
+				depStr += fmt.Sprintf(" (%s)", dep.Version)
+			}
+
+			if dep.Type == "dev" {
+				devDeps = append(devDeps, depStr)
+			} else {
+				mainDeps = append(mainDeps, depStr)
+			}
+		}
+
+		if len(mainDeps) > 0 {
+			sb.WriteString("**Dependencies**:\n")
+			for i, dep := range mainDeps {
+				if i >= 10 {
+					sb.WriteString(fmt.Sprintf("... and %d more\n", len(mainDeps)-10))
+					break
+				}
+				sb.WriteString(fmt.Sprintf("- %s\n", dep))
+			}
+			sb.WriteString("\n")
+		}
+
+		if len(devDeps) > 0 && len(devDeps) <= 5 {
+			sb.WriteString("**Dev Dependencies**:\n")
+			for _, dep := range devDeps {
+				sb.WriteString(fmt.Sprintf("- %s\n", dep))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	// Show created agents
+	if len(result.CreatedAgents) > 0 {
+		sb.WriteString("### Type 3 Agents Created\n\n")
+		sb.WriteString("| Agent | Knowledge Atoms | Status |\n")
+		sb.WriteString("|-------|-----------------|--------|\n")
+		for _, agent := range result.CreatedAgents {
+			sb.WriteString(fmt.Sprintf("| %s | %d | %s |\n", agent.Name, agent.KBSize, agent.Status))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(result.ProjectTools) > 0 {
+		sb.WriteString("### Project Command Tools\n\n")
+		sb.WriteString(strings.Join(result.ProjectTools, ", ") + "\n\n")
+	}
+
+	// Which client served which phases, so a failing planner is visible.
+	if result.LLMMetrics.Attempts > 0 {
+		sb.WriteString("### LLM Enrichment\n\n")
+		sb.WriteString("| Client | Model | Calls | Failed | Phases |\n|--------|-------|-------|--------|--------|\n")
+		for _, row := range result.LLMMetrics.Clients {
+			sb.WriteString(fmt.Sprintf("| %s | %s | %d | %d | %s |\n",
+				row.Slot, row.Identity(), row.Attempts, row.Failed, strings.Join(row.Phases, ", ")))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Show warnings if any
+	if len(result.Warnings) > 0 {
+		sb.WriteString("### Warnings\n\n")
+		for _, w := range result.Warnings {
+			sb.WriteString(fmt.Sprintf("- %s\n", w))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Everything the run logged, not only the warnings it curated: the
+	// problems log is where this session's WARN/ERROR lines all land.
+	if p := result.LogProblems; p.Warnings+p.Errors > 0 {
+		sb.WriteString(fmt.Sprintf("**Logged During Init**: %d error(s), %d warning(s)", p.Errors, p.Warnings))
+		if p.Path != "" {
+			sb.WriteString(fmt.Sprintf(" — `%s`", p.Path))
+		}
+		sb.WriteString("\n\n")
+	}
+
+	sb.WriteString(fmt.Sprintf("**Duration**: %.2fs\n\n", result.Duration.Seconds()))
+
+	sb.WriteString("### Next Steps\n\n")
+	sb.WriteString("- View agents: `/agents`\n")
+	sb.WriteString("- Spawn an agent: `/spawn <agent> <task>`\n")
+	sb.WriteString("- Define custom agents: `/define-agent <name>`\n")
+	sb.WriteString("- View available tools: `/tool list`\n")
+	sb.WriteString("- Query the codebase: Just ask questions!\n")
+
+	return sb.String()
+}
+
+// loadType3Agents loads Type 3 agents from the agents.json registry
+func (m Model) loadType3Agents() []nerdinit.CreatedAgent {
+	agents := make([]nerdinit.CreatedAgent, 0)
+
+	// Try to load from agents.json registry
+	registryPath := m.workspace + "/.nerd/agents.json"
+	data, err := os.ReadFile(registryPath)
+	if err != nil {
+		return agents
+	}
+
+	// Parse the registry
+	var registry struct {
+		Version   string                  `json:"version"`
+		CreatedAt string                  `json:"created_at"`
+		Agents    []nerdinit.CreatedAgent `json:"agents"`
+	}
+
+	if err := json.Unmarshal(data, &registry); err != nil {
+		return agents
+	}
+
+	return registry.Agents
+}
+
+// =============================================================================
+// VERIFICATION HELPERS
+// =============================================================================
+
+// formatVerifiedResponse formats a response that passed verification.
+//
+// A shard's raw `result` may be either plain text or a piggyback envelope
+// (JSON with control_packet + surface_response) — for example when a
+// downstream shard delegates back to articulation. Dumping the envelope
+// directly produces the noisy "### Output\n\n{control_packet:..., ...}"
+// blob users have been seeing. Extract surface_response when present so
+// the display stays clean. If parsing fails (genuine plain text), we
+// preserve the raw result unchanged.
+func formatVerifiedResponse(
+	intent perception.Intent,
+	shardType string,
+	task string,
+	result string,
+	verificationResult *verification.VerificationResult,
+) string {
+	displayResult := strings.TrimSpace(result)
+	if looksLikeEnvelope(displayResult) {
+		if processed := articulation.ProcessLLMResponseAllowPlain(displayResult); processed != nil &&
+			processed.ParseMethod != "fallback" && strings.TrimSpace(processed.Surface) != "" {
+			displayResult = strings.TrimSpace(processed.Surface)
+		}
+	}
+
+	var sb strings.Builder
+
+	// Include intent/task in header for traceability
+	if task != "" {
+		sb.WriteString(fmt.Sprintf("<!-- Task: %s (%s) -->\n", task, intent.Verb))
+	}
+
+	sb.WriteString(fmt.Sprintf("## %s Result\n\n", titleWords(shardType)))
+
+	if verificationResult != nil {
+		// The disposition is the kernel's; the confidence shown is the
+		// judge's own, when a judge spoke, never a number the disposition
+		// invented.
+		if j := verificationResult.Judgment; j != nil {
+			sb.WriteString(fmt.Sprintf("**Verification**: ✅ Accepted (judge: %s, confidence: %.0f%%)\n\n",
+				j.Status, j.Confidence*100))
+		} else {
+			sb.WriteString(fmt.Sprintf("**Verification**: ✅ Accepted (%s)\n\n", verificationResult.Reason))
+		}
+	}
+
+	// Include the LLM's surface response if meaningful
+	if intent.Response != "" && len(intent.Response) < 500 {
+		sb.WriteString(fmt.Sprintf("> %s\n\n", intent.Response))
+	}
+
+	sb.WriteString("### Output\n\n")
+	sb.WriteString(displayResult)
+
+	return sb.String()
+}
+
+// looksLikeEnvelope reports whether a string is plausibly a piggyback
+// envelope worth running through the response processor. Used to avoid
+// invoking the JSON parser on every plain-text shard result.
+func looksLikeEnvelope(s string) bool {
+	if len(s) < 20 {
+		return false
+	}
+	trimmed := strings.TrimLeft(s, " \t\r\n")
+	if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "{") {
+		return strings.Contains(trimmed, `"surface_response"`) ||
+			strings.Contains(trimmed, `"control_packet"`)
+	}
+	return false
+}
+
+// formatVerificationEscalation formats a response when verification fails after max retries.
+func formatVerificationEscalation(
+	task string,
+	shardType string,
+	verificationResult *verification.VerificationResult,
+) string {
+	var sb strings.Builder
+
+	sb.WriteString("## ⚠️ Task Escalation Required\n\n")
+	sb.WriteString("The task could not be completed to quality standards after multiple attempts.\n\n")
+
+	sb.WriteString("### Task\n")
+	sb.WriteString(task)
+	sb.WriteString("\n\n")
+
+	sb.WriteString(fmt.Sprintf("### Shard Used: %s\n\n", shardType))
+
+	if verificationResult != nil {
+		sb.WriteString("### Last Verification Result\n\n")
+		// The reason is the disposition's, always set: the judge's reply
+		// contract refuses a blank explanation, and the kernel's turn verdict
+		// names itself. The judge's own judgment follows it, unedited.
+		reason := strings.TrimSpace(verificationResult.Reason)
+		if reason == "" {
+			reason = "(the delegation recorded no reason — see logs)"
+		}
+		sb.WriteString(fmt.Sprintf("**Reason**: %s\n\n", reason))
+
+		if j := verificationResult.Judgment; j != nil {
+			if len(j.Violations) > 0 {
+				sb.WriteString("**Quality Violations Detected**:\n")
+				for _, v := range j.Violations {
+					sb.WriteString(fmt.Sprintf("- %s\n", v))
+				}
+				sb.WriteString("\n")
+			}
+			if cited := verificationResult.CitedEvidence(); len(cited) > 0 {
+				sb.WriteString("**Evidence**:\n")
+				for _, e := range cited {
+					sb.WriteString(fmt.Sprintf("- %s\n", e))
+				}
+				sb.WriteString("\n")
+			}
+			if len(j.Suggestions) > 0 {
+				sb.WriteString("**Suggestions**:\n")
+				for _, s := range j.Suggestions {
+					sb.WriteString(fmt.Sprintf("- %s\n", s))
+				}
+				sb.WriteString("\n")
+			}
+		}
+	}
+
+	sb.WriteString("### Next Steps\n\n")
+	sb.WriteString("- Provide more specific requirements\n")
+	sb.WriteString("- Break the task into smaller steps\n")
+	sb.WriteString("- Try a different approach or shard\n")
+
+	return sb.String()
+}
+
+// =============================================================================
+// JIT PROMPT COMPILER HELPERS
+// =============================================================================
+
+// renderJITStatus renders the JIT Prompt Compiler status and last compilation result.
+func (m Model) renderJITStatus() string {
+	var sb strings.Builder
+
+	sb.WriteString("## JIT Prompt Compiler Status\n\n")
+
+	if m.jitCompiler == nil {
+		sb.WriteString("**Status**: ❌ Not initialized\n\n")
+		sb.WriteString("The JIT Prompt Compiler is not available. This may indicate:\n")
+		sb.WriteString("- Initialization failure during boot\n")
+		sb.WriteString("- Missing embedded corpus\n")
+		sb.WriteString("- Configuration issue\n")
+		return sb.String()
+	}
+
+	sb.WriteString("**Status**: ✅ Active\n\n")
+
+	// Get compiler stats
+	stats := m.jitCompiler.GetStats()
+	sb.WriteString("### Compiler Stats\n\n")
+	sb.WriteString(fmt.Sprintf("- Embedded Atom Count: %d\n", stats.EmbeddedAtomCount))
+	sb.WriteString(fmt.Sprintf("- Shard DBs Loaded: %d\n", stats.ShardDBCount))
+	sb.WriteString("\n")
+
+	// Get last compilation result
+	result := m.jitCompiler.GetLastResult()
+	if result == nil {
+		sb.WriteString("### Last Compilation\n\n")
+		sb.WriteString("_No compilations yet this session._\n")
+		return sb.String()
+	}
+
+	sb.WriteString("### Last Compilation Result\n\n")
+	sb.WriteString(fmt.Sprintf("- **Tokens Used**: %d (%.1f%% of budget)\n",
+		result.TotalTokens, result.BudgetUsed*100))
+	sb.WriteString(fmt.Sprintf("- **Atoms Included**: %d\n", result.AtomsIncluded))
+
+	// Show timing breakdown
+	if result.Stats != nil {
+		sb.WriteString("\n### Timing Breakdown\n\n")
+		sb.WriteString(fmt.Sprintf("- Collect Atoms: %dms\n", result.Stats.CollectAtomsMs))
+		sb.WriteString(fmt.Sprintf("- Select Atoms: %dms (vector: %dms)\n",
+			result.Stats.SelectAtomsMs, result.Stats.VectorQueryMs))
+		sb.WriteString(fmt.Sprintf("- Resolve Deps: %dms\n", result.Stats.ResolveDepsMs))
+		sb.WriteString(fmt.Sprintf("- Fit Budget: %dms\n", result.Stats.FitBudgetMs))
+		sb.WriteString(fmt.Sprintf("- Assemble: %dms\n", result.Stats.AssembleMs))
+		sb.WriteString(fmt.Sprintf("- **Total**: %dms\n", result.Stats.Duration.Milliseconds()))
+	}
+
+	// Show included atoms
+	if len(result.IncludedAtoms) > 0 {
+		sb.WriteString("\n### Included Atoms\n\n")
+		sb.WriteString("| Category | ID | Tokens |\n")
+		sb.WriteString("|----------|----|---------|\n")
+		shown := 0
+		for _, atom := range result.IncludedAtoms {
+			if shown >= 10 {
+				sb.WriteString(fmt.Sprintf("| ... | _+%d more_ | |\n", len(result.IncludedAtoms)-10))
+				break
+			}
+			sb.WriteString(fmt.Sprintf("| %s | %s | %d |\n", atom.Category, atom.ID, atom.TokenCount))
+			shown++
+		}
+	}
+
+	sb.WriteString("\n---\n")
+	sb.WriteString("_Use Alt+P to toggle the Prompt Inspector view._\n")
+
+	return sb.String()
+}
+
+// titleWords upper-cases the first rune of each space-separated word.
+//
+// It replaces strings.Title, deprecated since Go 1.18 because its word-boundary
+// rule mishandles Unicode punctuation. The documented replacement,
+// golang.org/x/text/cases, is deliberately not used here: a cases.Caser is not
+// safe for concurrent use, and a package-level caser shared by a TUI that
+// renders from several goroutines would be a data race. Every input at these
+// call sites is a single ASCII display token — a shard type, an intent verb, a
+// knowledge-base name — so the simple rule is the correct one.
+func titleWords(s string) string {
+	prevIsSpace := true
+	return strings.Map(func(r rune) rune {
+		if prevIsSpace && unicode.IsLetter(r) {
+			prevIsSpace = false
+			return unicode.ToUpper(r)
+		}
+		prevIsSpace = unicode.IsSpace(r)
+		return r
+	}, s)
+}

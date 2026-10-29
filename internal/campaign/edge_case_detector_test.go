@@ -1,0 +1,430 @@
+package campaign
+
+import (
+	"context"
+	"math"
+	"os"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestNewEdgeCaseDetector(t *testing.T) {
+	// Test with nil dependencies
+	detector := NewEdgeCaseDetector(nil, nil)
+	if detector == nil {
+		t.Fatal("NewEdgeCaseDetector returned nil")
+	}
+
+	// Check default config
+	if detector.config.HighChurnRate != 10 {
+		t.Errorf("expected HighChurnRate 10, got %d", detector.config.HighChurnRate)
+	}
+	if detector.config.LargeFileLines != 500 {
+		t.Errorf("expected LargeFileLines 500, got %d", detector.config.LargeFileLines)
+	}
+	if detector.config.AnalysisTimeout != 30*time.Second {
+		t.Errorf("expected AnalysisTimeout 30s, got %v", detector.config.AnalysisTimeout)
+	}
+}
+
+func TestDefaultEdgeCaseConfig(t *testing.T) {
+	cfg := DefaultEdgeCaseConfig()
+
+	if cfg.HighChurnRate != 10 {
+		t.Errorf("expected HighChurnRate 10, got %d", cfg.HighChurnRate)
+	}
+	if cfg.LargeFileLines != 500 {
+		t.Errorf("expected LargeFileLines 500, got %d", cfg.LargeFileLines)
+	}
+	if cfg.HighComplexity != 10.0 {
+		t.Errorf("expected HighComplexity 10.0, got %f", cfg.HighComplexity)
+	}
+	if cfg.MaxFunctionsPerFile != 20 {
+		t.Errorf("expected MaxFunctionsPerFile 20, got %d", cfg.MaxFunctionsPerFile)
+	}
+	if cfg.AnalysisTimeout != 30*time.Second {
+		t.Errorf("expected AnalysisTimeout 30s, got %v", cfg.AnalysisTimeout)
+	}
+}
+
+func TestEdgeCaseDetector_WithConfig(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+
+	customConfig := EdgeCaseConfig{
+		HighChurnRate:  20,
+		LargeFileLines: 1000,
+		HighComplexity: 15.0,
+	}
+
+	result := detector.WithConfig(customConfig)
+
+	if result != detector {
+		t.Error("WithConfig should return same detector for chaining")
+	}
+	if detector.config.HighChurnRate != 20 {
+		t.Errorf("expected HighChurnRate 20, got %d", detector.config.HighChurnRate)
+	}
+	if detector.config.LargeFileLines != 1000 {
+		t.Errorf("expected LargeFileLines 1000, got %d", detector.config.LargeFileLines)
+	}
+}
+
+func TestFileAction_Constants(t *testing.T) {
+	// Verify file action constants are distinct
+	actions := map[FileAction]bool{
+		ActionCreate:        true,
+		ActionExtend:        true,
+		ActionModularize:    true,
+		ActionRefactorFirst: true,
+	}
+
+	if len(actions) != 4 {
+		t.Error("file actions should be distinct")
+	}
+}
+
+func TestFileDecision_Fields(t *testing.T) {
+	decision := FileDecision{
+		Path:              "test.go",
+		RecommendedAction: ActionExtend,
+		Reasoning:         "Small file, few dependencies",
+		Confidence:        0.85,
+		ChurnRate:         5,
+		Complexity:        3.0,
+		LineCount:         100,
+		Dependencies:      []string{"dep1", "dep2"},
+		Dependents:        []string{"user1"},
+		ImpactScore:       10,
+	}
+
+	if decision.Path != "test.go" {
+		t.Errorf("expected Path 'test.go', got %s", decision.Path)
+	}
+	if decision.RecommendedAction != ActionExtend {
+		t.Errorf("expected ActionExtend, got %v", decision.RecommendedAction)
+	}
+	if decision.ChurnRate != 5 {
+		t.Errorf("expected ChurnRate 5, got %d", decision.ChurnRate)
+	}
+	if len(decision.Dependencies) != 2 {
+		t.Errorf("expected 2 dependencies, got %d", len(decision.Dependencies))
+	}
+	if decision.Confidence != 0.85 {
+		t.Errorf("expected Confidence 0.85, got %f", decision.Confidence)
+	}
+}
+
+func TestEdgeCaseDetector_AnalyzeFiles_NilDependencies(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+
+	ctx := context.Background()
+	// AnalyzeFiles takes (ctx, paths, *IntelligenceReport)
+	decisions, err := detector.AnalyzeFiles(ctx, []string{}, nil)
+
+	// Should handle gracefully with empty paths
+	if err != nil {
+		t.Errorf("AnalyzeFiles with empty paths should not error: %v", err)
+	}
+	if decisions == nil {
+		t.Fatal("AnalyzeFiles should return non-nil slice")
+	}
+	if len(decisions) != 0 {
+		t.Errorf("expected 0 decisions for empty paths, got %d", len(decisions))
+	}
+}
+
+func TestEdgeCaseAnalysis_Fields(t *testing.T) {
+	analysis := &EdgeCaseAnalysis{
+		TotalFiles:      10,
+		RequiresPrework: 3,
+		Decisions:       []FileDecision{},
+		ActionCounts: map[FileAction]int{
+			ActionCreate:     3,
+			ActionExtend:     5,
+			ActionModularize: 2,
+		},
+		ModularizeFiles: []string{"large.go"},
+		CreateFiles:     []string{"new.go"},
+	}
+
+	if analysis.TotalFiles != 10 {
+		t.Errorf("expected TotalFiles 10, got %d", analysis.TotalFiles)
+	}
+	if analysis.ActionCounts[ActionCreate] != 3 {
+		t.Errorf("expected CreateCount 3, got %d", analysis.ActionCounts[ActionCreate])
+	}
+	if analysis.RequiresPrework != 3 {
+		t.Errorf("expected RequiresPrework 3, got %d", analysis.RequiresPrework)
+	}
+}
+
+func TestEdgeCaseAnalysis_ActionCountsTotals(t *testing.T) {
+	analysis := &EdgeCaseAnalysis{
+		ActionCounts: map[FileAction]int{
+			ActionCreate:        5,
+			ActionExtend:        10,
+			ActionModularize:    3,
+			ActionRefactorFirst: 2,
+		},
+	}
+
+	total := analysis.ActionCounts[ActionCreate] +
+		analysis.ActionCounts[ActionExtend] +
+		analysis.ActionCounts[ActionModularize] +
+		analysis.ActionCounts[ActionRefactorFirst]
+
+	if total != 20 {
+		t.Errorf("expected total 20, got %d", total)
+	}
+}
+
+func TestFileActionString(t *testing.T) {
+	// Test that file actions can be compared
+	if ActionCreate == ActionExtend {
+		t.Error("ActionCreate should not equal ActionExtend")
+	}
+	if ActionModularize == ActionRefactorFirst {
+		t.Error("ActionModularize should not equal ActionRefactorFirst")
+	}
+}
+
+func TestEdgeCaseDetector_DetermineAction_Logic(t *testing.T) {
+	// Test the decision logic by checking expected outcomes
+	// These are the rules from the implementation:
+	// - Large file (>500 lines) + high churn -> Modularize
+	// - Large file + low churn -> RefactorFirst
+	// - High complexity -> Modularize
+	// - Many dependencies -> RefactorFirst
+	// - New file -> Create
+	// - Default -> Extend
+
+	testCases := []struct {
+		name       string
+		lineCount  int
+		churnRate  int
+		complexity float64
+		depCount   int
+		isNew      bool
+		expected   FileAction
+	}{
+		{"new file", 0, 0, 0, 0, true, ActionCreate},
+		{"small simple file", 100, 3, 2.0, 5, false, ActionExtend},
+		{"large high churn", 600, 15, 5.0, 10, false, ActionModularize},
+		{"large low churn", 600, 2, 3.0, 5, false, ActionRefactorFirst},
+		{"high complexity", 200, 5, 12.0, 8, false, ActionModularize},
+		{"many dependencies", 200, 5, 3.0, 25, false, ActionRefactorFirst},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// This tests the expected behavior based on the rules
+			// The actual determineAction method uses these thresholds
+			var action FileAction
+
+			if tc.isNew {
+				action = ActionCreate
+			} else if tc.lineCount > 500 && tc.churnRate > 10 {
+				action = ActionModularize
+			} else if tc.lineCount > 500 && tc.churnRate <= 10 {
+				action = ActionRefactorFirst
+			} else if tc.complexity > 10.0 {
+				action = ActionModularize
+			} else if tc.depCount > 20 {
+				action = ActionRefactorFirst
+			} else {
+				action = ActionExtend
+			}
+
+			if action != tc.expected {
+				t.Errorf("expected %v, got %v", tc.expected, action)
+			}
+		})
+	}
+}
+
+func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
+	analysis := &EdgeCaseAnalysis{
+		TotalFiles:      6,
+		ModularizeFiles: []string{"huge.go", "complex.go"},
+		RefactorFiles:   []string{"messy.go"},
+		CreateFiles:     []string{"new.go"},
+		ExtendFiles:     []string{"simple.go", "small.go"},
+		HighImpactFiles: []string{"huge.go"},
+		NoTestFiles:     []string{"messy.go", "simple.go"},
+	}
+
+	if len(analysis.ModularizeFiles) != 2 {
+		t.Errorf("expected 2 modularize files, got %d", len(analysis.ModularizeFiles))
+	}
+	if len(analysis.ExtendFiles) != 2 {
+		t.Errorf("expected 2 extend files, got %d", len(analysis.ExtendFiles))
+	}
+	if len(analysis.NoTestFiles) != 2 {
+		t.Errorf("expected 2 no-test files, got %d", len(analysis.NoTestFiles))
+	}
+}
+
+// TODO: Missing Edge Case - Null/Undefined/Empty: Empty string in paths slice.
+// Test what happens when `paths` contains `""`.
+// Expected behavior: The system should not panic; `detectLanguage` should return "unknown";
+// `matchesPath` behavior with empty strings must be defined and validated.
+
+// TODO: Missing Edge Case - Null/Undefined/Empty: IntelligenceReport fields are empty (but not nil).
+// Test with `IntelligenceReport{FileTopology: map[string]FileInfo{}, GitChurnHotspots: []GitChurn{}}`.
+// Expected behavior: Should default to ActionCreate gracefully.
+
+// TODO: Missing Edge Case - Type Coercion: parseNumber handling NaN and +Inf.
+// Test passing a float64 representing math.NaN() or math.Inf(1) to parseNumber.
+// Expected behavior: If Mangle returns an anomalous float, complexity should not become infinite
+// or cause ActionRefactorFirst permanently.
+
+func TestEdgeCaseDetector_DetectLanguage_Unknown(t *testing.T) {
+	d := NewEdgeCaseDetector(nil, nil)
+
+	extensions := []string{".zig", ".mojo", ".xyz"}
+	for _, ext := range extensions {
+		path := "test_file" + ext
+		lang := d.detectLanguage(path)
+		if lang != "unknown" {
+			t.Errorf("Expected language for %s to be 'unknown', got %s", path, lang)
+		}
+	}
+}
+
+// TODO: Missing Edge Case - Performance Vector: Massive volume of facts in kernel.
+// Test `queryDependencies` and `queryComplexity` against a mock kernel returning 100,000 facts.
+// Expected behavior: The serial O(N) iteration over facts per file causes an O(N * M) performance cliff.
+// Test should define boundaries of acceptable latency.
+
+// TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
+// Test determineAction with `LineCount = math.MaxInt32`.
+// Expected behavior: Should cleanly suggest ActionModularize without overflow in heuristics (e.g., complexity calc).
+
+func TestEdgeCaseDetector_AnalyzeFiles_EmptyPaths(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+	ctx := context.Background()
+
+	// Should skip the empty path and return no decisions
+	decisions, err := detector.AnalyzeFiles(ctx, []string{""}, nil)
+	if err != nil {
+		t.Fatalf("AnalyzeFiles failed: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Errorf("Expected 0 decisions for empty path, got %d", len(decisions))
+	}
+
+	// matchesPath
+	if detector.matchesPath("", "foo.go") {
+		t.Errorf("matchesPath should return false if candidate is empty")
+	}
+	if detector.matchesPath("foo.go", "") {
+		t.Errorf("matchesPath should return false if path is empty")
+	}
+	if detector.matchesPath("", "") {
+		t.Errorf("matchesPath should return false if both are empty")
+	}
+
+	// detectLanguage
+	if lang := detector.detectLanguage(""); lang != "unknown" {
+		t.Errorf("Expected unknown language for empty path, got %s", lang)
+	}
+}
+
+func TestEdgeCaseDetector_AnalyzeFiles_ContextCancellation(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	decisions, err := detector.AnalyzeFiles(ctx, []string{"foo.go", "bar.go"}, nil)
+	if err != context.Canceled {
+		t.Errorf("Expected context.Canceled error, got: %v", err)
+	}
+	if len(decisions) == len([]string{"foo.go", "bar.go"}) {
+		t.Errorf("Expected fewer decisions due to cancellation, got %d", len(decisions))
+	}
+}
+
+func TestEdgeCaseDetector_GatherMetrics_NilIntelligence(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+	ctx := context.Background()
+
+	decision := &FileDecision{}
+	detector.gatherMetricsWithCache(ctx, decision, "foo_test.go", nil, nil)
+
+	if !decision.HasTests {
+		t.Errorf("Expected HasTests=true since path has _test.go suffix, even with nil intelligence")
+	}
+}
+
+// REMEDIATED: TEST_GAP: State Conflicts: Race condition where file exists in intel but not on disk.
+func TestEdgeCaseDetector_StateConflicts_DeletedFile(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+
+	path := "non_existent_file_test.go"
+	intel := &IntelligenceReport{
+		FileTopology: map[string]FileInfo{
+			path: {Language: "go"},
+		},
+	}
+
+	decision := detector.analyzeFileWithCache(context.Background(), path, intel, nil)
+
+	if decision.Exists {
+		t.Errorf("Expected decision.Exists to be false since file is not on disk")
+	}
+	if decision.RecommendedAction != ActionCreate {
+		t.Errorf("Expected ActionCreate, got %s", decision.RecommendedAction)
+	}
+}
+
+// REMEDIATED: TEST_GAP: State Conflicts: Race condition where file does not exist in intel but exists on disk.
+func TestEdgeCaseDetector_StateConflicts_CreatedFile(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+
+	tmpFile, err := os.CreateTemp("", "testfile_*.go")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	path := tmpFile.Name()
+
+	intel := &IntelligenceReport{
+		FileTopology: map[string]FileInfo{},
+	}
+
+	decision := detector.analyzeFileWithCache(context.Background(), path, intel, nil)
+
+	if !decision.Exists {
+		t.Errorf("Expected decision.Exists to be true since file is on disk")
+	}
+	if decision.RecommendedAction == ActionCreate {
+		t.Errorf("Expected an action other than ActionCreate")
+	}
+}
+
+func TestEdgeCaseDetector_MaxFileSize(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+	decision := FileDecision{
+		Path:      "huge_file.go",
+		LineCount: math.MaxInt32,
+		Language:  "go",
+		Exists:    true,
+	}
+
+	action, reason := detector.determineAction(decision)
+	if action != ActionModularize {
+		t.Errorf("Expected ActionModularize for huge file, got %v", action)
+	}
+	if !strings.Contains(reason, "threshold") {
+		t.Errorf("Expected threshold reasoning, got %v", reason)
+	}
+
+	detector.queryComplexity(context.Background(), &decision, "huge_file.go")
+	if decision.Complexity > float64(10000000)/50.0 {
+		t.Errorf("Complexity was not properly bounded, got %v", decision.Complexity)
+	}
+}

@@ -1,0 +1,52 @@
+# Reviewer Shard Tool Steering
+# Prefer codeNERD's cross-platform built-in tools over fragile shell commands
+# for code inspection, and always produce a final verdict even if a probe fails.
+
+- id: "shards/reviewer/tool_steering"
+  category: "methodology"
+  subcategory: "tools"
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  content: |
+    ## TOOL STEERING — INSPECT CODE WITH DEDICATED TOOLS, NOT SHELL
+
+    To read and search code you MUST use codeNERD's built-in tools;
+    never shell out. They are cross-platform (identical on Windows and Unix) and
+    never depend on an external binary being installed or a shell glob
+    resolving on this machine.
+
+    ### USE THESE for inspection (in order of preference)
+
+    - search_code / grep — find symbols, patterns, and usages across the tree
+    - read_file — read a whole file or a line range to inspect its contents
+    - list_files / glob — enumerate files and directories
+
+- id: "shards/reviewer/tool_steering/do-not-shell-out-to-inspect-code"
+  section_of: "shards/reviewer/tool_steering"
+  section_order: 1
+  category: "methodology"
+  subcategory: "tools"
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  content: |
+    *Part of: TOOL STEERING — INSPECT CODE WITH DEDICATED TOOLS, NOT SHELL*
+
+    ### DO NOT shell out to inspect code
+
+    Do NOT shell out to read or search the codebase. In particular AVOID:
+    - `go doc` — slow, can trigger a build and TIME OUT; read the source with
+      read_file / search_code instead.
+    - `Select-String`, `Get-ChildItem`, `findstr`, `find`, and shell globs such
+      as `internal/**/*.go` — these depend on the shell and on a path/glob
+      resolving on this platform, and fail unpredictably. Use search_code /
+      read_file / list_files instead.
+    - Building, testing, and git writes are outside a review; report
+      missing build or test output as a gap instead of probing for it.
+
+    ### RECOVER — NEVER RETURN AN EMPTY VERDICT
+
+    If any tool call or command fails (missing path, non-zero exit, timeout),
+    do NOT abandon the review. Treat the error as information, switch to the
+    dedicated tools above, and continue. You MUST always produce a complete
+    final review with an explicit verdict — never return an empty response
+    because one probe failed. An empty answer is recorded as a task failure.

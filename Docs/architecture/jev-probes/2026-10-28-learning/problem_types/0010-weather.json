@@ -1,0 +1,97 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "task": "what's the weather in Lisbon tomorrow?"
+ },
+ "questions": {
+  "problem_kind": {
+   "type": "choice",
+   "instructions": "Which kind of work does `task` ask for?",
+   "criteria": {
+    "api_integration": "Connect to an external service or API, or change how one is called.",
+    "code_review": "Review code and report problems, without changing it.",
+    "concurrency": "Fix or change goroutines, locks, channels, races or parallel work.",
+    "config_setup": "Change configuration, build setup, environment or deployment settings.",
+    "data_migration": "Change a stored data format or schema, or move data between stores.",
+    "debugging": "Find and fix a bug: something crashes, fails, or gives a wrong result.",
+    "dependency_mgmt": "Add, upgrade, remove or pin a dependency.",
+    "documentation": "Write or update documentation, comments or explanations of the code.",
+    "error_handling": "Change how errors are reported, wrapped, recovered from or surfaced.",
+    "feature_creation": "Add new behavior or a new capability that does not exist yet.",
+    "performance": "Make something faster or use less memory.",
+    "refactoring": "Restructure existing code without changing what it does: rename, split, move, simplify.",
+    "research": "Find out how something works or answer a question about the code, without changing it.",
+    "security": "Fix or prevent a vulnerability, or harden access, secrets or input handling.",
+    "testing": "Write, fix or extend tests.",
+    "type_system": "Change types, interfaces, generics or type signatures."
+   }
+  },
+  "problem_kind_fits": {
+   "type": "noul",
+   "instructions": {
+    "problem_kinds": {
+     "api_integration": "Connect to an external service or API, or change how one is called.",
+     "code_review": "Review code and report problems, without changing it.",
+     "concurrency": "Fix or change goroutines, locks, channels, races or parallel work.",
+     "config_setup": "Change configuration, build setup, environment or deployment settings.",
+     "data_migration": "Change a stored data format or schema, or move data between stores.",
+     "debugging": "Find and fix a bug: something crashes, fails, or gives a wrong result.",
+     "dependency_mgmt": "Add, upgrade, remove or pin a dependency.",
+     "documentation": "Write or update documentation, comments or explanations of the code.",
+     "error_handling": "Change how errors are reported, wrapped, recovered from or surfaced.",
+     "feature_creation": "Add new behavior or a new capability that does not exist yet.",
+     "performance": "Make something faster or use less memory.",
+     "refactoring": "Restructure existing code without changing what it does: rename, split, move, simplify.",
+     "research": "Find out how something works or answer a question about the code, without changing it.",
+     "security": "Fix or prevent a vulnerability, or harden access, secrets or input handling.",
+     "testing": "Write, fix or extend tests.",
+     "type_system": "Change types, interfaces, generics or type signatures."
+    },
+    "question": "Does `task` ask for one of the kinds of work in `problem_kinds`?"
+   },
+   "criteria": {
+    "true": "The task is coding work that one of the kinds describes.",
+    "false": "The task is not coding work (a greeting, small talk, a question about something else), or none of the kinds describes it."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "problem_kind": {
+   "type": "choice",
+   "choice": "api_integration",
+   "confidence": 0.66,
+   "probabilities": {
+    "api_integration": 0.68,
+    "code_review": 0.0,
+    "concurrency": 0.0,
+    "config_setup": 0.0,
+    "data_migration": 0.0,
+    "debugging": 0.0,
+    "dependency_mgmt": 0.0,
+    "documentation": 0.0,
+    "error_handling": 0.0,
+    "feature_creation": 0.02,
+    "performance": 0.0,
+    "refactoring": 0.0,
+    "research": 0.3,
+    "security": 0.0,
+    "testing": 0.0,
+    "type_system": 0.0
+   }
+  },
+  "problem_kind_fits": {
+   "type": "noul",
+   "noul": 0.05
+  }
+ },
+ "usage": {
+  "input_tokens": 1144,
+  "output_tokens": 174
+ }
+}
+}

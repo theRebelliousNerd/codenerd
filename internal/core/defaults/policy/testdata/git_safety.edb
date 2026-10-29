@@ -1,0 +1,18 @@
+# Facts for Git Safety Testing
+
+# Current User
+current_user("jules_test").
+
+# Git History: File, Commit, Author, Age (days), Message
+git_history("main.go", "hash1", "bob", 1, "fix bug").
+git_history("utils.go", "hash2", "alice", 5, "refactor").
+git_history("churn.go", "hash3", "charlie", 1, "updates").
+
+# Churn Rate: File, Frequency
+churn_rate("churn.go", 6).
+churn_rate("main.go", 1).
+
+# User Intent: ID, Type, Action, Target, Details
+user_intent(/current_intent, /mutation, /delete, "main.go", "").
+user_intent(/current_intent, /mutation, /refactor, "churn.go", "").
+user_intent(/current_intent, /mutation, /delete, "utils.go", "").

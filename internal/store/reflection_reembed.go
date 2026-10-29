@@ -1,0 +1,152 @@
+package store
+
+import (
+	"context"
+	"fmt"
+
+	"codenerd/internal/embedding"
+	"codenerd/internal/logging"
+)
+
+// ReembedAllTracesForce regenerates embeddings for all reasoning traces.
+func (s *LocalStore) ReembedAllTracesForce(ctx context.Context) (int, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "ReembedAllTracesForce")
+	defer timer.Stop()
+
+	if s == nil || s.traceStore == nil {
+		return 0, nil
+	}
+
+	s.mu.RLock()
+	engine := s.embeddingEngine
+	s.mu.RUnlock()
+	if engine == nil {
+		return 0, fmt.Errorf("no embedding engine configured")
+	}
+
+	expectedTask := embedding.SelectTaskType(embedding.ContentTypeDocumentation, false)
+	expectedModel := engine.Name()
+	expectedDim := engine.Dimensions()
+
+	// Force re-embed replaces every embedding (model switch): rebuild the ANN
+	// index once up front so stale-dimension rows cannot survive. Batches
+	// insert incrementally after this; the old per-batch drop wiped each
+	// previous batch's rows.
+	if s.vectorExt.Load() {
+		if err := s.rebuildTraceVecTable(expectedDim); err != nil {
+			logging.Get(logging.CategoryStore).Warn("Trace vec index rebuild failed, batch syncs will retry: %v", err)
+		}
+	}
+
+	totalEmbedded := 0
+	totalCandidates := 0
+	offset := 0
+	for {
+		candidates, err := s.traceStore.ListAllTraceEmbeddingCandidates(reflectionBatchSize, offset)
+		if err != nil {
+			return totalEmbedded, err
+		}
+		if len(candidates) == 0 {
+			break
+		}
+
+		updates, embedCount, err := s.buildTraceEmbeddingUpdates(ctx, candidates, engine, expectedTask, expectedModel, expectedDim, true)
+		if err != nil {
+			return totalEmbedded, err
+		}
+		if len(updates) > 0 {
+			if err := s.traceStore.ApplyTraceEmbeddingUpdates(updates); err != nil {
+				return totalEmbedded, err
+			}
+			if err := s.syncTraceVectorIndex(updates, expectedDim); err != nil {
+				logging.Get(logging.CategoryStore).Warn("Trace vector index update failed during re-embed: %v", err)
+			}
+		}
+		totalEmbedded += embedCount
+		totalCandidates += len(candidates)
+		offset += len(candidates)
+	}
+
+	// A trace whose embedding failed is stored with no embedding (the force
+	// builder clears it), so it is a visible backlog -- but this pass was
+	// responsible for it, so the pass says it did not finish.
+	if totalEmbedded < totalCandidates {
+		return totalEmbedded, &IncompleteReembedError{
+			Table: "reasoning_traces", Target: expectedModel,
+			Total: int64(totalCandidates), Done: int64(totalEmbedded), Failed: int64(totalCandidates - totalEmbedded),
+		}
+	}
+	return totalEmbedded, nil
+}
+
+// ReembedAllLearningsForce regenerates embeddings for all shard learnings.
+func (ls *LearningStore) ReembedAllLearningsForce(ctx context.Context) (int, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "ReembedAllLearningsForce")
+	defer timer.Stop()
+
+	if ls == nil {
+		return 0, nil
+	}
+
+	ls.mu.RLock()
+	engine := ls.embeddingEngine
+	ls.mu.RUnlock()
+	if engine == nil {
+		return 0, fmt.Errorf("no embedding engine configured")
+	}
+
+	expectedTask := embedding.SelectTaskType(embedding.ContentTypeKnowledgeAtom, false)
+	expectedModel := engine.Name()
+	expectedDim := engine.Dimensions()
+
+	totalEmbedded := 0
+	totalCandidates := 0
+	shardTypes := ls.listShardTypes()
+	for _, shardType := range shardTypes {
+		// Rebuild the ANN index once per shard up front; batches insert
+		// incrementally after this. See ReembedAllTracesForce.
+		if db, err := ls.getDB(shardType); err == nil {
+			if err := rebuildLearningVecTable(db, expectedDim); err != nil {
+				logging.Get(logging.CategoryStore).Warn("Learning vec index rebuild failed for %s, batch syncs will retry: %v", shardType, err)
+			}
+		}
+		offset := 0
+		for {
+			candidates, err := ls.ListAllLearningEmbeddingCandidates(shardType, reflectionBatchSize, offset)
+			if err != nil {
+				return totalEmbedded, err
+			}
+			if len(candidates) == 0 {
+				break
+			}
+
+			updates, embedCount, err := ls.buildLearningEmbeddingUpdates(ctx, candidates, engine, expectedTask, expectedModel, expectedDim, true)
+			if err != nil {
+				return totalEmbedded, err
+			}
+			if len(updates) > 0 {
+				if err := ls.ApplyLearningEmbeddingUpdates(shardType, updates); err != nil {
+					return totalEmbedded, err
+				}
+				db, err := ls.getDB(shardType)
+				if err == nil {
+					if err := syncLearningVectorIndex(db, updates, expectedDim); err != nil {
+						logging.Get(logging.CategoryStore).Warn("Learning vector index update failed during re-embed for %s: %v", shardType, err)
+					}
+				}
+			}
+
+			totalEmbedded += embedCount
+			totalCandidates += len(candidates)
+			offset += len(candidates)
+		}
+	}
+
+	if totalEmbedded < totalCandidates {
+		return totalEmbedded, &IncompleteReembedError{
+			Table: "learnings", Target: expectedModel,
+			Total: int64(totalCandidates), Done: int64(totalEmbedded), Failed: int64(totalCandidates - totalEmbedded),
+		}
+	}
+	return totalEmbedded, nil
+}

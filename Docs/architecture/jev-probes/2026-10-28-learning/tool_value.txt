@@ -1,0 +1,20 @@
+tool value probe
+harness line_count       p=0.96 want=true
+harness grep_todo        p=0.94 want=true
+harness go_vet_pkg       p=0.91 want=true
+harness avro_to_csv      p=0.08 want=false
+harness mangle_stratify  p=0.08 want=false
+harness pdf_tables       p=0.07 want=false
+call    count-ok         p=0.90 want=true
+call    count-err        p=0.02 want=false
+call    json-ok          p=0.86 want=true
+call    json-wrong-file  p=0.07 want=false
+call    avro-partial     p=0.02 want=false
+call    stratify-ok      p=0.86 want=true
+duplicate json_check -> json_lint any=0.85 (want yes)
+duplicate avro_to_csv -> line_count any=0.01 (want no)
+any_tool_does_this         right   2  wrong  0  unsettled  0
+gives_what_was_asked       right   6  wrong  0  unsettled  0
+harness_covers             right   6  wrong  0  unsettled  0
+all right 14 of 14
+misses (x wrong, ~ unsettled):

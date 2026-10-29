@@ -1,0 +1,78 @@
+---
+doc-class: governance
+subsystem: internal/diff
+implementation-status: not-applicable
+last-verified: 2026-09-21
+verified-against: 231cfa7
+supersedes: []
+---
+
+# Risk Register and Decision Log — internal/diff
+
+Governance for `internal/diff`: the risks any change to this package must not
+worsen, each with likelihood, consequence, and the machine-checkable condition
+that retires it; plus the shipped decisions behind them, each with its witness.
+On any disagreement about what the code does today,
+`IMPLEMENTED_SPEC.md` wins.
+
+Vision trace: this package serves `agents.md:43-46` — tools condense the
+search space, reduce the turns to complete the task, and offload cognition to
+deterministic code. The seams are `func ComputeDiff` at
+`internal/diff/diff.go:310-312` (via `var DefaultEngine` at
+`internal/diff/diff.go:238`) called at `internal/session/turn_diff.go:62`, and
+`var uiDiffEngine` at `cmd/nerd/ui/diffview.go:907` diffing at
+`cmd/nerd/ui/diffview.go:911` inside `func CreateDiffFromStrings` at
+`cmd/nerd/ui/diffview.go:910-912`.
+
+Gap source: `03-GAP-ANALYSIS.md` GAP-DIFF-01..07. Every shipped claim below
+cites a repo-relative path plus a symbol and line read 2026-09-21.
+
+## Risk register
+
+| Risk ID | Risk | Likelihood | Consequence | Retirement condition | Traces to |
+|---|---|---|---|---|---|
+| R1 | Trusted cache keys serve wrong hunks silently: both prod engines run with `VerifyCacheContent` off, so a key collision is served, not rejected | Low today (two-hash key plus lengths plus context width) | Medium today (diffs are display-only: wrong hunks shown in `func renderFileDiff` at `internal/session/turn_diff.go:55-76` or `func CreateDiffFromStrings` at `cmd/nerd/ui/diffview.go:910-912`); High if a diff ever drives apply | `go test ./internal/diff -run TestVerifyCacheContent_Collision -count=1` passes (forced key-collision asserts miss plus `Stats.Collisions==1` with entry dropped, per `struct Stats` at `internal/diff/cache.go:28-43` and verify branch `method diffCache.get` at `internal/diff/cache.go:109-116`); OR an ADR names a witness accepting trusted-key risk as `accepted-not-implemented` | GAP-DIFF-01; D5, D6 |
+| R2 | Unbounded repair-prompt concatenation: `func turnDiffSection` at `internal/session/turn_diff.go:24-52` concatenates per-file output of `func renderFileDiff` at `internal/session/turn_diff.go:55-76` with no byte/line budget and no truncation marker (absence by full-range read 2026-09-21, not a symbol) | High under large diffs (any big rename or generated file trips it) | High: floods the repair prompt, breaking the condense-search-space half of the vision sentence; degrades the model exactly when it needs signal | `go test ./internal/session -run TestTurnDiffSection_Budget -count=1` passes: synthetic large diff asserts output `len <= BUDGET` and contains a truncation marker; budget constant cited with symbol+line | GAP-DIFF-04; D10 |
+| R3 | Binary edits invisible to the repair round: NUL input short-circuits to `IsBinary` with empty hunks (`func containsNullByte` at `internal/diff/diff.go:24-26` into `method Engine.ComputeDiff` at `internal/diff/diff.go:261-265`, flags on `struct FileDiff` at `internal/diff/diff.go:98-105`), and the nil/zero-hunk guard at `internal/session/turn_diff.go:63-64` maps that to `""`; no binary-marker branch witnessed in `func turnDiffSection` at `internal/session/turn_diff.go:24-52` (absence by full-range read) | Medium (binary writes are rare, but when one lands the round sees nothing) | Medium: the model spends turns re-diagnosing an edit it was already shown nothing about, breaking the reduce-turns half of the vision sentence | `go test ./internal/session -run TestRenderFileDiff_BinaryMarker -count=1` passes: `renderFileDiff(binA,binB)` returns non-empty containing `binary`, and `turnDiffSection` includes it instead of `""` | GAP-DIFF-02; D3, D10 |
+| R4 | Delete note asymmetric with create note: `func newFileNote` at `internal/session/turn_diff.go:78-83` marks only `IsNew`, while `IsDelete` (set at `internal/diff/diff.go:253-255` on `struct FileDiff` at `internal/diff/diff.go:98-105`) gets no note | High (every file deletion trips it) | Low: the repair round sees hunks without the one-line `(created by this turn)` symmetry, so intent is merely less explicit — no wrong behaviour | `go test ./internal/session -run TestRenderFileDiff_DeleteNote -count=1` passes: `IsDelete` output asserts the delete-note string present in `renderFileDiff` result | GAP-DIFF-03; D10 |
+| R5 | Per-caller engine tuning is dead surface: `struct Options` at `internal/diff/diff.go:162-191` (`ContextLines` at `:166`, `DisableCache` at `:170`, `MaxCacheEntries` at `:173`, `MaxCacheBytes` at `:177`, `Timeout` at `:181`, `VerifyCacheContent` at `:190`) via `func NewEngineWith` at `internal/diff/diff.go:220-230` has no witnessed prod construction with non-zero values — prod builds only `var DefaultEngine` at `internal/diff/diff.go:238` (used at `internal/session/turn_diff.go:62`) and `var uiDiffEngine` at `cmd/nerd/ui/diffview.go:907` (equal to `NewEngineWith(Options{})` per `func NewEngine` at `internal/diff/diff.go:214-216`) | High (true on every boot until tuned or retired) | Low: unused knobs invite speculative tuning and confuse readers about which settings production actually runs under | One seam constructs `func NewEngineWith` at `internal/diff/diff.go:220-230` with non-zero `Options` and `go test ./cmd/nerd/ui -run TestEngineTuning -count=1` pins the behaviour; OR an ADR witness marks tuning `accepted-not-implemented` | GAP-DIFF-05; D9 |
+| R6 | Cache lifecycle unwired: `method Engine.ClearCache` at `internal/diff/diff.go:518-520` (counter-preserving `method diffCache.clear` at `internal/diff/cache.go:191-197`) has no witnessed prod caller at `internal/session/turn_diff.go:62` or `cmd/nerd/ui/diffview.go:911,916,970` (absence by full-range read; test callers not cited per citation rules) | Low (bounded LRU evicts via `method diffCache.evictLocked` at `internal/diff/cache.go:175-187`, so growth alone does not force a clear) | Low: a future lifecycle need (memory pressure, stale-entry bug) has no hook; meanwhile readers cannot tell whether `ClearCache` is API or test helper | Either a prod call-site plus `go test ./internal/diff -run TestClearCache_Concurrent -count=1 -race` passes (clear during concurrent compute preserves counters), or a doc/ADR witness retires it as test-only | GAP-DIFF-06; D11 |
+| R7 | Cache observability unwired: `func DiffEngineStats` at `cmd/nerd/ui/diffview.go:915-917` (delegating at `cmd/nerd/ui/diffview.go:916` to `method Engine.Stats` at `internal/diff/diff.go:233-235` over `struct Stats` at `internal/diff/cache.go:28-43`) has no witnessed prod caller beyond the pinning test `func TestCreateDiffFromStrings_ShouldUseTheSameEngineAsTheView` at `cmd/nerd/ui/word_highlight_test.go:141-162` | High (true on every run until a consumer lands or it is declared test-only) | Low: `Hits`/`Misses`/`Computes`/`Binary`/`Evicted`/`Collisions` advance silently, so a cache pathology (thrashing, collision burst) has no alert path | Prod caller of `func DiffEngineStats` at `cmd/nerd/ui/diffview.go:915-917` with `go test ./cmd/nerd/ui -run TestDiffEngineStats -count=1` asserting counters advance; OR a witness marks it test-only | GAP-DIFF-07; D9 |
+| R8a | Footgun: negative `Timeout` disables the bound — `method Options.timeout` at `internal/diff/diff.go:202-211` returns genuinely-zero (no timeout) on negative, which `func NewEngineWith` at `internal/diff/diff.go:220-230` applies at `:224` (`dmp.DiffTimeout = opts.timeout()`) | Low (requires an explicit negative value; zero selects `const diffTimeout` at `internal/diff/diff.go:14`, `5 * time.Second`) | Medium: a single misconfigured engine can hang on a pathological input (e.g. massive minified single-line file, per the comment at `:222-223`) | Constructor rejects or clamps negative `Timeout` with a pinning test, or the `struct Options` field comment at `internal/diff/diff.go:179-181` plus this row is accepted as sufficient warning (retire by explicit decision, not by drift) | D2 |
+| R8b | Footgun: `VerifyCacheContent` roughly doubles cache memory — `field VerifyCacheContent` at `internal/diff/diff.go:190` (documented at `:183-189`) retains full inputs per `struct cacheEntry` at `internal/diff/cache.go:47-57`, charged to the byte budget at `internal/diff/cache.go:132-136` | Low (off by default; only an explicit opt-in pays it) | Low-to-Medium: enabling verification on a large-diff workload halves effective cache capacity under `const defaultMaxCacheBytes` at `internal/diff/cache.go:23` (32 MiB), raising evictions (`field Evicted` at `internal/diff/cache.go:33`) | Turning verification on for an apply path is paired with a re-tuned byte bound and a test pinning `Entries`/`Bytes` under `method diffCache.stats` at `internal/diff/cache.go:211-224`; until then this row is the warning | D6; GAP-DIFF-01 |
+
+## Decision log (shipped)
+
+Each row is context → choice, with the code witness that proves it shipped.
+Status is derived from the witness per the architecture standard: a witness
+that resolves means `shipped`; a decision whose subject was never built is
+`accepted-not-implemented` and says so.
+
+| # | Decision | Witness (read 2026-09-21) | Status |
+|---|---|---|---|
+| D1 | Offload diff computation to `sergi/go-diff`, not hand-rolled LCS or LLM hand-edits | Third-party import at `internal/diff/diff.go:9`; chain `DiffLinesToChars`/`DiffMain`/`DiffCleanupSemantic`/`DiffCharsToLines` inside `method Engine.ComputeDiff` at `internal/diff/diff.go:293-296`; consumers `internal/session/turn_diff.go:62` and `cmd/nerd/ui/diffview.go:911` | shipped |
+| D2 | Bounded engine cost: 5s timeout plus clamped context width | `const diffTimeout` at `internal/diff/diff.go:14` (`5 * time.Second`); `const defaultContextLines` at `internal/diff/diff.go:17` (`3`); `const maxContextLines` at `internal/diff/diff.go:20` (`1000`); `func clampContextLines` at `internal/diff/diff.go:30-38`; `method Options.contextLines` at `internal/diff/diff.go:194-199` and `method Options.timeout` at `internal/diff/diff.go:202-211`; applied at `internal/diff/diff.go:224` | shipped |
+| D3 | Binary input short-circuits on NUL, never produces hunks | `func containsNullByte` at `internal/diff/diff.go:24-26` into `method Engine.ComputeDiff` at `internal/diff/diff.go:261-265` (`IsBinary=true`, empty hunks); flags on `struct FileDiff` at `internal/diff/diff.go:98-105`; counter `method diffCache.markBinary` at `internal/diff/cache.go:205-209` and `field Binary` at `internal/diff/cache.go:32` | shipped |
+| D4 | Bounded LRU with deep-copy isolation replaces the unbounded `sync.Map` plus wholesale-reassign race | Defect comment at `internal/diff/cache.go:8-14`; `func newDiffCache` at `internal/diff/cache.go:77-90` (`512` at `:18`, 32 MiB at `:23`); `method diffCache.get` at `internal/diff/cache.go:96-121` returns `Clone`; `method diffCache.put` at `internal/diff/cache.go:126-172` stores `Clone` at `:130`; `method diffCache.evictLocked` at `internal/diff/cache.go:175-187`; `method diffCache.clear` at `internal/diff/cache.go:191-197` is in-place; `method FileDiff.Clone` at `internal/diff/cache.go:229-246`; `method FileDiff.approxSize` at `internal/diff/cache.go:251-264` | shipped |
+| D5 | Widened cache key: two hashes plus lengths plus context width | `struct cacheKey` at `internal/diff/diff.go:121-129` with the single-FNV-1a-collision comment at `:114-120`; `func fingerprint` at `internal/diff/diff.go:141-157` (dual FNV-1a, one pass); key assembled at `internal/diff/diff.go:274-278` | shipped |
+| D6 | Trust by default, verify opt-in: wrong-diff protection is available but off unless a diff is applied, not merely displayed | `field VerifyCacheContent` at `internal/diff/diff.go:190` (documented at `:183-189`, doubles memory); verify-on-hit drops the entry and counts `Collisions` at `internal/diff/cache.go:109-116` (`field Collisions` at `internal/diff/cache.go:42`); verify bytes charged at `internal/diff/cache.go:132-136`; both prod engines use zero-`Options` (`var DefaultEngine` at `internal/diff/diff.go:238` via `func ComputeDiff` at `internal/diff/diff.go:310-312` at `internal/session/turn_diff.go:62`; `var uiDiffEngine` at `cmd/nerd/ui/diffview.go:907` via `func NewEngine` at `internal/diff/diff.go:214-216`) | shipped decision; the apply-gate half is `accepted-not-implemented` (see R1/GAP-DIFF-01) |
+| D7 | `LineHeader` is never emitted by the engine; framing lives in `Hunk`, rendering in the caller | `const LineHeader` at `internal/diff/diff.go:48-56` with the never-emit contract; `struct Hunk` at `internal/diff/diff.go:89-95`; callers compose `@@` at `internal/session/turn_diff.go:69` via `func diffMarker` at `internal/session/turn_diff.go:85-94` (used at `:71`) | shipped |
+| D8 | Word-level diff is an own `WordSpan` type, uncached, per line-pair | `struct WordSpan` at `internal/diff/diff.go:76-79` with the replace-raw-return comment at `:68-75`; `method Engine.ComputeWordLevelDiff` at `internal/diff/diff.go:530-551` (uncached rationale at `:527-529`); wrapper `func ComputeWordLevelDiff` at `internal/diff/diff.go:554-556`; consumer at `cmd/nerd/ui/diffview.go:970` | shipped |
+| D9 | One shared engine per use-site, mutex-shared | Agent side `var DefaultEngine` at `internal/diff/diff.go:238` at `internal/session/turn_diff.go:62`; TUI side `var uiDiffEngine` at `cmd/nerd/ui/diffview.go:907` with the one-engine rationale at `:897-906`; `func CreateDiffFromStrings` at `cmd/nerd/ui/diffview.go:910-912` (`:911`); `func DiffEngineStats` at `cmd/nerd/ui/diffview.go:915-917` (`:916`); pinned by `func TestCreateDiffFromStrings_ShouldUseTheSameEngineAsTheView` at `cmd/nerd/ui/word_highlight_test.go:141-162` | shipped |
+| D10 | A repair round is shown its own edits | Rationale comment at `internal/session/turn_diff.go:12-19` (ladder R1-12/R1-15 wasted three attempts); `func turnDiffSection` at `internal/session/turn_diff.go:24-52` returns `""` when nothing was written; `func renderFileDiff` at `internal/session/turn_diff.go:55-76` (identical short-circuit at `:59-61`, nil/zero-hunk to `""` at `:63-64`); `func newFileNote` at `internal/session/turn_diff.go:78-83` marks only `IsNew` | shipped (mechanics); the budget/binary/delete half is future work — see R2/R3/R4 |
+| D11 | An oversize single diff is skipped, not allowed to thrash the LRU; sizes are estimated, monotonic, and exactness is not required | Skip-if-larger-than-budget at `internal/diff/cache.go:159-161`; `method FileDiff.approxSize` at `internal/diff/cache.go:251-264` (per-line overhead at `:253`, per-hunk at `:254`); `method Engine.ClearCache` at `internal/diff/diff.go:518-520` preserves counters and is concurrency-safe (comment at `:515-517`) | shipped (mechanics); lifecycle wiring is `accepted-not-implemented` (see R6/GAP-DIFF-06) |
+
+## Grounded vs hypothesized
+
+- Observed (High, opened 2026-09-21): every prod symbol+line in the tables
+  above (`internal/diff/diff.go`, `internal/diff/cache.go`,
+  `internal/session/turn_diff.go:24-52,55-76,78-94`,
+  `cmd/nerd/ui/diffview.go:907,910-917,970`,
+  `cmd/nerd/ui/word_highlight_test.go:141-162` for the pinning test).
+- Hypothesized (do not cite as shipped): absence claims (no truncation symbol,
+  no binary-marker branch, no prod caller for `ClearCache` / `Stats` /
+  non-default `Options`) — consistent with the two-prod-importer shape, proven
+  only by full-range reads, not positive witnesses; likelihood labels above
+  (judgement, not measurement); any `git log` history narrative (no shell was
+  available to this workspace, so rationale comments plus verified docs stand
+  in as proxies).

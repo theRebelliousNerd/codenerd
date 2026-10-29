@@ -1,0 +1,412 @@
+package core
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
+)
+
+// newTestMangleWatcher builds a watcher, or skips when the host has no inotify
+// instance to give: inotify_init fails with EMFILE once a user's
+// fs.inotify.max_user_instances is spent (128 here, held by desktop apps), and
+// that measures the machine, not the watcher. Every other error is the test's.
+func newTestMangleWatcher(t *testing.T, dir string, k *RealKernel) (*MangleWatcher, error) {
+	t.Helper()
+	mw, err := NewMangleWatcher(dir, k)
+	if errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE) {
+		t.Skipf("no inotify instance available on this host (fs.inotify.max_user_instances spent): %v", err)
+	}
+	return mw, err
+}
+
+func TestMangleWatcher_New(t *testing.T) {
+	k := setupMockKernel(t)
+	defer k.Clear()
+
+	tempDir := t.TempDir()
+	mw, err := newTestMangleWatcher(t, tempDir, k)
+	if err != nil {
+		t.Fatalf("Failed to create MangleWatcher: %v", err)
+	}
+	defer mw.watcher.Close()
+
+	if mw.workspaceDir != tempDir {
+		t.Errorf("Expected workspaceDir %s, got %s", tempDir, mw.workspaceDir)
+	}
+
+	expectedMangleDir := filepath.Join(tempDir, ".nerd", "mangle")
+	if mw.mangleDir != expectedMangleDir {
+		t.Errorf("Expected mangleDir %s, got %s", expectedMangleDir, mw.mangleDir)
+	}
+
+	if mw.debounceDur != 500*time.Millisecond {
+		t.Errorf("Expected default debounce duration 500ms, got %v", mw.debounceDur)
+	}
+}
+
+func TestMangleWatcher_StartStop(t *testing.T) {
+	k := setupMockKernel(t)
+	defer k.Clear()
+
+	tempDir := t.TempDir()
+	mw, err := newTestMangleWatcher(t, tempDir, k)
+	if err != nil {
+		t.Fatalf("Failed to create MangleWatcher: %v", err)
+	}
+
+	ctx := t.Context()
+
+	if err := mw.Start(ctx); err != nil {
+		t.Fatalf("Failed to start MangleWatcher: %v", err)
+	}
+
+	if !mw.IsWatching() {
+		t.Error("Expected IsWatching() to be true after start")
+	}
+
+	// Starting again should be a no-op
+	if err := mw.Start(ctx); err != nil {
+		t.Fatalf("Starting already running watcher failed: %v", err)
+	}
+
+	mw.Stop()
+
+	if mw.IsWatching() {
+		t.Error("Expected IsWatching() to be false after stop")
+	}
+}
+
+func TestMangleWatcher_GetStatsAndReset(t *testing.T) {
+	k := setupMockKernel(t)
+	defer k.Clear()
+
+	tempDir := t.TempDir()
+	mw, err := newTestMangleWatcher(t, tempDir, k)
+	if err != nil {
+		t.Fatalf("Failed to create MangleWatcher: %v", err)
+	}
+	defer mw.watcher.Close()
+
+	mw.mu.Lock()
+	mw.stats.FilesCreated = 5
+	mw.stats.FilesModified = 3
+	mw.stats.FilesDeleted = 2
+	mw.stats.ValidationTriggered = 4
+	mw.stats.RepairsTriggered = 1
+	mw.stats.Errors = 0
+	mw.stats.LastEventPath = "test.mg"
+	mw.stats.LastEventType = "modify"
+	mw.mu.Unlock()
+
+	stats := mw.GetStats()
+	if stats.FilesCreated != 5 || stats.FilesModified != 3 || stats.LastEventPath != "test.mg" {
+		t.Errorf("GetStats returned incorrect stats: %+v", stats)
+	}
+
+	mw.ResetStats()
+	stats = mw.GetStats()
+	if stats.FilesCreated != 0 || stats.LastEventPath != "" {
+		t.Errorf("ResetStats did not clear stats: %+v", stats)
+	}
+}
+
+func TestMangleWatcher_GetWatchedDirs(t *testing.T) {
+	k := setupMockKernel(t)
+	defer k.Clear()
+
+	tempDir := t.TempDir()
+	mw, err := newTestMangleWatcher(t, tempDir, k)
+	if err != nil {
+		t.Fatalf("Failed to create MangleWatcher: %v", err)
+	}
+	defer mw.watcher.Close()
+
+	ctx := t.Context()
+
+	if err := mw.Start(ctx); err != nil {
+		t.Fatalf("Failed to start MangleWatcher: %v", err)
+	}
+	defer mw.Stop()
+
+	dirs := mw.GetWatchedDirs()
+	if len(dirs) == 0 {
+		t.Log("Watched directories list is empty (expected if directories do not exist yet on some OS)")
+	}
+}
+
+func TestMangleWatcher_ExtractRules(t *testing.T) {
+	mw := &MangleWatcher{}
+
+	content := `
+# A comment here
+parent(/foo, /bar).
+
+# Another comment
+sibling(X, Y) :-
+	parent(P, X),
+	parent(P, Y),
+	X != Y.
+
+# Trailing comment
+`
+	rules := mw.extractRules(content)
+	if len(rules) != 2 {
+		t.Fatalf("Expected 2 rules, got %d: %q", len(rules), rules)
+	}
+
+	if rules[0] != "parent(/foo, /bar)." {
+		t.Errorf("Expected first rule to be 'parent(/foo, /bar).', got %q", rules[0])
+	}
+
+	expectedSecond := "sibling(X, Y) :-\n\tparent(P, X),\n\tparent(P, Y),\n\tX != Y."
+	if rules[1] != expectedSecond {
+		t.Errorf("Expected second rule to match structure, got %q", rules[1])
+	}
+}
+
+func TestMangleWatcher_BasicValidation(t *testing.T) {
+	mw := &MangleWatcher{}
+
+	// Basic validation logs warnings. We just ensure it does not panic.
+	rules := []string{
+		"missing_period(X)",
+		"atom_confusion(\"active\").",
+		"souffle_syntax :- .decl predicate.",
+	}
+
+	mw.basicValidation("test.mg", rules)
+}
+
+func TestMangleWatcher_HandleEventAndDebounce(t *testing.T) {
+	k := setupMockKernel(t)
+	defer k.Clear()
+
+	tempDir := t.TempDir()
+	mw, err := newTestMangleWatcher(t, tempDir, k)
+	if err != nil {
+		t.Fatalf("Failed to create MangleWatcher: %v", err)
+	}
+	defer mw.watcher.Close()
+
+	// "Not yet settled" and "settled" are set by the debounce window, not by
+	// how fast the test runs: a 1ms window made step 3 fail whenever more than
+	// a millisecond passed between handleEvent and the process call, which a
+	// loaded machine does (full suite, 2026-09-19). An hour cannot elapse here;
+	// zero has always elapsed.
+	mw.debounceDur = time.Hour
+
+	ctx := context.Background()
+
+	// 1. Non-mg files should be ignored
+	mw.handleEvent(ctx, fsnotify.Event{
+		Name: "test.txt",
+		Op:   fsnotify.Write,
+	})
+	if len(mw.debounceMap) != 0 {
+		t.Error("Expected text file event to be ignored")
+	}
+
+	// 2. mg files events
+	mw.handleEvent(ctx, fsnotify.Event{
+		Name: filepath.Join(mw.mangleDir, "test1.mg"),
+		Op:   fsnotify.Create,
+	})
+	mw.handleEvent(ctx, fsnotify.Event{
+		Name: filepath.Join(mw.mangleDir, "test2.mg"),
+		Op:   fsnotify.Write,
+	})
+	mw.handleEvent(ctx, fsnotify.Event{
+		Name: filepath.Join(mw.mangleDir, "test3.mg"),
+		Op:   fsnotify.Remove,
+	})
+
+	stats := mw.GetStats()
+	if stats.FilesCreated != 1 || stats.FilesModified != 1 || stats.FilesDeleted != 1 {
+		t.Errorf("Incorrect event counts in stats: %+v", stats)
+	}
+
+	if len(mw.debounceMap) != 3 {
+		t.Errorf("Expected 3 items in debounce map, got %d", len(mw.debounceMap))
+	}
+
+	// 3. Process debounced events before they are settled (should do nothing)
+	mw.processDebouncedEvents(ctx)
+	if len(mw.debounceMap) != 3 {
+		t.Error("Expected events to remain in debounce map before settle time")
+	}
+
+	// 4. Settle and process
+	mw.debounceDur = 0
+
+	// Create dummy files for test1 and test2 so they can be read
+	err = os.MkdirAll(mw.mangleDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create mangle dir: %v", err)
+	}
+
+	ruleContent := "parent(/a, /b).\n"
+	err = os.WriteFile(filepath.Join(mw.mangleDir, "test1.mg"), []byte(ruleContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test1.mg: %v", err)
+	}
+
+	mw.processDebouncedEvents(ctx)
+	if len(mw.debounceMap) != 0 {
+		t.Errorf("Expected all settled events to be processed and removed, got %d remaining", len(mw.debounceMap))
+	}
+}
+
+func TestMangleWatcher_TriggerValidation(t *testing.T) {
+	k := setupMockKernel(t)
+	defer k.Clear()
+
+	tempDir := t.TempDir()
+	mw, err := newTestMangleWatcher(t, tempDir, k)
+	if err != nil {
+		t.Fatalf("Failed to create MangleWatcher: %v", err)
+	}
+	defer mw.watcher.Close()
+
+	ctx := context.Background()
+
+	// Direct manual validation on empty dir
+	if err := mw.TriggerValidation(ctx); err != nil {
+		t.Fatalf("TriggerValidation failed on empty dir: %v", err)
+	}
+
+	// Create mangleDir and write a .mg file
+	err = os.MkdirAll(mw.mangleDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create mangleDir: %v", err)
+	}
+
+	err = os.WriteFile(filepath.Join(mw.mangleDir, "manual.mg"), []byte("fact(/x, /y).\n"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write manual.mg: %v", err)
+	}
+
+	if err := mw.TriggerValidation(ctx); err != nil {
+		t.Fatalf("TriggerValidation failed: %v", err)
+	}
+
+	stats := mw.GetStats()
+	if stats.ValidationTriggered != 1 {
+		t.Errorf("Expected 1 validation triggered, got %d", stats.ValidationTriggered)
+	}
+}
+
+func TestMangleWatcher_ValidateAndRepair_FailedRead(t *testing.T) {
+	k := setupMockKernel(t)
+	defer k.Clear()
+
+	tempDir := t.TempDir()
+	mw, err := newTestMangleWatcher(t, tempDir, k)
+	if err != nil {
+		t.Fatalf("Failed to create MangleWatcher: %v", err)
+	}
+	defer mw.watcher.Close()
+
+	ctx := context.Background()
+
+	// Calling validateAndRepair on non-existent path should return without error/panic
+	mw.validateAndRepair(ctx, filepath.Join(mw.mangleDir, "does-not-exist.mg"))
+
+	stats := mw.GetStats()
+	if stats.Errors != 0 {
+		t.Errorf("Expected 0 errors for non-existent file (treated as deleted), got %d", stats.Errors)
+	}
+}
+
+// TODO: Test Null/Empty context bounds (e.g. cancelled context passed to validateAndRepair)
+// TODO: Test Type Coercion (e.g. read from binary/named pipes instead of plain files)
+// TODO: Test User request Extremes (e.g. 10,000 rapid fsnotify events to test debounce scale)
+// TODO: Test State Conflicts (e.g. read-while-writing race condition on identical file)
+// TODO: Test Extreme Length campaigns (e.g. 500MB massive .mg file triggering OOM)
+
+// scriptedInterceptor repairs and rejects rules by their text.
+type scriptedInterceptor struct {
+	repair map[string]string
+	reject map[string]bool
+}
+
+func (s scriptedInterceptor) InterceptLearnedRule(_ context.Context, rule string) (string, error) {
+	if s.reject[rule] {
+		return "", os.ErrInvalid
+	}
+	if repaired, ok := s.repair[rule]; ok {
+		return repaired, nil
+	}
+	return rule, nil
+}
+
+// A repaired or rejected rule is replaced where it stands, and nothing else in
+// the file changes. The watcher used to rebuild the file from the extracted
+// rules alone, so one repair deleted every comment in a user's .mg file; and a
+// rejected rule was commented only on its first line, leaving the rest of it
+// live below.
+func TestMangleWatcher_ValidateAndRepair_KeepsTheRestOfTheFile(t *testing.T) {
+	k := setupMockKernel(t)
+	defer k.Clear()
+	k.SetRepairInterceptor(scriptedInterceptor{
+		repair: map[string]string{"fixable(X) :- fact(X)": "fixable(X) :- fact(X)."},
+		reject: map[string]bool{"broken(X) :-\n    fact(X),\n    nonsense(X": true},
+	})
+	mw, err := newTestMangleWatcher(t, t.TempDir(), k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mw.watcher.Close()
+
+	for _, ending := range []string{"\n", "\r\n"} {
+		original := strings.Join([]string{
+			"# Learned rules. Keep this header.",
+			"",
+			"good(X) :- fact(X).",
+			"",
+			"# The next rule is missing its period.",
+			"fixable(X) :- fact(X)",
+			"",
+			"broken(X) :-",
+			"    fact(X),",
+			"    nonsense(X",
+			"",
+		}, "\n")
+		path := filepath.Join(t.TempDir(), "learned.mg")
+		if err := os.WriteFile(path, []byte(strings.ReplaceAll(original, "\n", ending)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		mw.validateAndRepair(context.Background(), path)
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := string(data)
+		if ending == "\n" && strings.Contains(got, "\r\n") || ending == "\r\n" && strings.Count(got, "\r\n") != strings.Count(got, "\n") {
+			t.Fatalf("line endings changed (%q file): %q", ending, got)
+		}
+		want := strings.ReplaceAll(strings.Join([]string{
+			"# Learned rules. Keep this header.",
+			"",
+			"good(X) :- fact(X).",
+			"",
+			"# The next rule is missing its period.",
+			"fixable(X) :- fact(X).",
+			"",
+			"# INVALID (MangleWatcher): broken(X) :-",
+			"#     fact(X),",
+			"#     nonsense(X",
+			"",
+		}, "\n"), "\n", ending)
+		if got != want {
+			t.Fatalf("%q file rewritten as:\n%s\nwant:\n%s", ending, got, want)
+		}
+	}
+}

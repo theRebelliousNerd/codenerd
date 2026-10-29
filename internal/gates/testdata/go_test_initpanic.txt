@@ -1,0 +1,7 @@
+panic: initboom
+
+goroutine 1 [running]:
+example.com/r7b/initpanic.init.0()
+	C:/Users/smoor/AppData/Local/Temp/r7b-gates/initpanic/p.go:3 +0x25
+FAIL	example.com/r7b/initpanic	0.177s
+FAIL

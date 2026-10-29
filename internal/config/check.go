@@ -1,0 +1,659 @@
+package config
+
+import (
+	"encoding/json"
+	"fmt"
+	"path"
+	"reflect"
+	"sort"
+	"strings"
+	"time"
+)
+
+// Severity ranks what Check found.
+type Severity string
+
+const (
+	// SeverityError is a contradiction: two settings that cannot both be meant,
+	// or a value outside its vocabulary. LoadUserConfig refuses the file.
+	SeverityError Severity = "error"
+	// SeverityWarning is an incomplete setting: something a run will need and
+	// the file does not say. The component that needs it refuses when reached.
+	SeverityWarning Severity = "warning"
+	// SeverityImplicit is a configurable field the file does not mention, so a
+	// default the user never saw is in force.
+	SeverityImplicit Severity = "implicit"
+)
+
+// Problem is one thing wrong with a config file, addressed by JSON path.
+type Problem struct {
+	Severity Severity
+	Path     string // e.g. shard_profiles.coder.model
+	Message  string
+	Fix      string
+}
+
+func (p Problem) String() string {
+	s := fmt.Sprintf("[%s] %s: %s", p.Severity, p.Path, p.Message)
+	if p.Fix != "" {
+		s += " -- " + p.Fix
+	}
+	return s
+}
+
+// ConfigError is what LoadUserConfig returns for a file with contradictions.
+// It carries every one of them: a user fixing a config should not have to
+// discover its errors one boot at a time.
+type ConfigError struct {
+	Path     string
+	Problems []Problem
+}
+
+func (e *ConfigError) Error() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s has %d error(s) and was not loaded:", e.Path, len(e.Problems))
+	for _, p := range e.Problems {
+		b.WriteString("\n  " + p.String())
+	}
+	b.WriteString("\n  (`nerd config check` lists these with every warning and every defaulted field)")
+	return b.String()
+}
+
+// modelFamilies maps the family a model name opens with to the provider that
+// serves it. Families, not models: no entry names a version, so nothing here
+// can become a default. A provider that routes to other vendors' models
+// (routerProviders) or runs local tags is exempt, as is any provider reached
+// through an explicit base_url or endpoint, which may be a proxy for anything.
+var modelFamilies = map[string]string{
+	"gemini":   "gemini",
+	"claude":   "anthropic",
+	"gpt":      "openai",
+	"grok":     "xai",
+	"glm":      "zai",
+	"muse":     "meta",
+	"kimi":     "moonshot",
+	"moonshot": "moonshot",
+	"qwen":     "dashscope",
+}
+
+// routerProviders accept model ids that belong to other vendors.
+var routerProviders = map[string]bool{"openrouter": true, "ollama": true}
+
+var knownProviders = map[string]bool{
+	"anthropic": true, "openai": true, "gemini": true, "xai": true, "zai": true,
+	"openrouter": true, "dashscope": true, "meta": true, "moonshot": true, "ollama": true,
+}
+
+// modelBelongsElsewhere reports why model cannot be served by provider, or "".
+func modelBelongsElsewhere(provider, model string) string {
+	provider, model = strings.ToLower(strings.TrimSpace(provider)), strings.ToLower(strings.TrimSpace(model))
+	if provider == "" || model == "" || routerProviders[provider] {
+		return ""
+	}
+	if strings.Contains(model, "/") {
+		return fmt.Sprintf("%q is a router id (vendor/model), which only a routing provider such as openrouter serves; provider is %q", model, provider)
+	}
+	for family, owner := range modelFamilies {
+		if strings.HasPrefix(model, family) && owner != provider {
+			return fmt.Sprintf("%q is a %s model; provider is %q", model, owner, provider)
+		}
+	}
+	return ""
+}
+
+// Check reads a config for what strict decoding cannot see: settings that
+// contradict each other, settings a run will need and the file omits, and
+// every configurable field the file leaves to a default. raw is the file's
+// bytes (for the implicit-field pass); it may be nil.
+//
+// Steve, 2026-09-21, on finding every shard profile naming an OpenRouter model
+// under provider "meta" with nothing having said a word: "there needs to be a
+// system that checks and raises errors for fuckups in the config.json".
+func (c *UserConfig) Check(raw []byte) []Problem {
+	var out []Problem
+	add := func(sev Severity, path, msg, fix string) {
+		out = append(out, Problem{Severity: sev, Path: path, Message: msg, Fix: fix})
+	}
+	proxied := strings.TrimSpace(c.BaseURL) != ""
+	if err := c.CheckAPIKeyPools(); err != nil {
+		add(SeverityError, "api_key_pools", err.Error(), "")
+	}
+	if c.Logging != nil && c.Logging.SelfProblemWarnRepeats < 0 {
+		add(SeverityError, "logging.self_problem_warn_repeats", fmt.Sprintf("%d is negative", c.Logging.SelfProblemWarnRepeats), "a count of 1 or more, or remove the key for the default")
+	}
+	if c.Logging != nil {
+		if _, err := c.Logging.SessionRetention(); err != nil {
+			add(SeverityError, "logging.session_ttl", err.Error(), `a duration such as "14d" or "36h", "off" to keep every session, or remove the key for 14 days`)
+		}
+	}
+	if err := checkWorkMode(c.WorkMode); err != nil {
+		add(SeverityError, "work_mode", err.Error(), "set work_mode to yolo, propose or explicit")
+	}
+	if c.Anthropic != nil {
+		if err := c.Anthropic.Validate(); err != nil {
+			add(SeverityError, "anthropic", err.Error(), "")
+		}
+	}
+	if err := ValidateReasoningEffort(c.Provider, c.Model, c.ReasoningEffort); err != nil {
+		add(SeverityError, "reasoning_effort", err.Error(), "set an effort the main model accepts, or remove it for the default ("+DefaultReasoningEffort+")")
+	}
+	if effort := strings.TrimSpace(c.ClassificationReasoningEffort); effort != "" {
+		// Every tier that may classify is sent it: the worker's first, the
+		// main provider's fast tier as its failover.
+		for _, tier := range c.classificationTiers() {
+			if err := ValidateReasoningEffort(tier.provider, tier.model, effort); err != nil {
+				add(SeverityError, "classification_reasoning_effort",
+					fmt.Sprintf("%s classifies on %s: %v", tier.model, tier.provider, err),
+					"set an effort every classifying tier accepts, or remove it for each tier's lowest")
+				break
+			}
+		}
+	}
+
+	// --- vocabulary ---
+	if p := strings.TrimSpace(c.Provider); p != "" && !knownProviders[strings.ToLower(p)] {
+		add(SeverityError, "provider", fmt.Sprintf("%q is not a provider codeNERD has", p), "one of "+strings.Join(sortedKeys(knownProviders), ", "))
+	}
+	switch strings.TrimSpace(c.Engine) {
+	case "", "api", "claude-cli", "codex-cli", "xai-oauth":
+	default:
+		add(SeverityError, "engine", fmt.Sprintf("%q is not an engine", c.Engine), "api, claude-cli, codex-cli or xai-oauth")
+	}
+	switch strings.TrimSpace(c.Theme) {
+	case "", "light", "dark":
+	default:
+		add(SeverityError, "theme", fmt.Sprintf("%q is not a theme", c.Theme), "light or dark")
+	}
+
+	// --- the main slot ---
+	apiEngine := c.Engine == "" || c.Engine == "api"
+	if !proxied {
+		if why := modelBelongsElsewhere(c.Provider, c.Model); why != "" {
+			add(SeverityError, "model", why, "name a model of that provider, or change provider")
+		}
+		if why := modelBelongsElsewhere(c.Provider, c.ClassificationModel); why != "" {
+			add(SeverityError, "classification_model", why, "name a model of that provider")
+		}
+	}
+	if apiEngine {
+		if strings.TrimSpace(c.Provider) == "" {
+			add(SeverityWarning, "provider", "engine is api and no provider is named", "set provider")
+		}
+		if strings.TrimSpace(c.Model) == "" {
+			// No model is ever filled in. With a named provider the main
+			// slot is built at boot and cannot be, so the file is refused;
+			// Ollama may name its tag in ollama.model instead.
+			switch p := strings.ToLower(strings.TrimSpace(c.Provider)); {
+			case p == "":
+				add(SeverityWarning, "model", "engine is api and no model is named; the client factory refuses to build without one", "set model")
+			case p == "ollama" && strings.TrimSpace(c.GetOllamaLLMConfig().Model) != "":
+			default:
+				add(SeverityError, "model", fmt.Sprintf("provider is %q and no model is named; codeNERD fills in no model", p), "set model to one "+p+" serves")
+			}
+		}
+		if p := strings.ToLower(strings.TrimSpace(c.Provider)); p != "" && p != "ollama" && c.keyFor(p) == "" {
+			add(SeverityWarning, p+"_api_key", fmt.Sprintf("provider is %q and it has no key in this file", p), "set "+p+"_api_key (or its environment variable)")
+		}
+	}
+
+	// --- worker and planner slots ---
+	shardProvider := c.Provider
+	for _, slot := range []struct {
+		name string
+		cfg  *WorkerLLMConfig
+	}{{"worker", c.Worker}, {"planner", (*WorkerLLMConfig)(c.Planner)}} {
+		if slot.cfg == nil {
+			continue
+		}
+		provider := strings.TrimSpace(slot.cfg.Provider)
+		if provider != "" && !knownProviders[strings.ToLower(provider)] {
+			add(SeverityError, slot.name+".provider", fmt.Sprintf("%q is not a provider codeNERD has", provider), "")
+		}
+		effective := provider
+		if effective == "" {
+			effective = c.Provider
+		}
+		if slot.cfg.Anthropic != nil {
+			if err := slot.cfg.Anthropic.Validate(); err != nil {
+				add(SeverityError, slot.name+".anthropic", err.Error(), "")
+			}
+		}
+		if err := ValidateReasoningEffort(effective, slot.cfg.Model, slot.cfg.ReasoningEffort); err != nil {
+			add(SeverityError, slot.name+".reasoning_effort", err.Error(), "set an effort the slot's model accepts, or remove it for the slot's default")
+		}
+		checkSlotInputCap(slot.name, provider, slot.cfg.MaxInputTokens, add)
+		if strings.TrimSpace(slot.cfg.Endpoint) == "" && !(provider == "" && proxied) {
+			if why := modelBelongsElsewhere(effective, slot.cfg.Model); why != "" {
+				add(SeverityError, slot.name+".model", why, "name a model of that provider, or set "+slot.name+".provider")
+			}
+		}
+		// A slot with a provider is built at boot; codeNERD fills in no model,
+		// so one without is refused. Ollama takes ollama.model when the slot
+		// names none (resolveSecondarySlot).
+		if provider != "" && strings.TrimSpace(slot.cfg.Model) == "" &&
+			!(strings.EqualFold(provider, "ollama") && strings.TrimSpace(c.GetOllamaLLMConfig().Model) != "") {
+			add(SeverityError, slot.name+".model", fmt.Sprintf("the slot names provider %q and no model; codeNERD fills in no model", provider), "set "+slot.name+".model")
+		}
+		if p := strings.ToLower(provider); p != "" && p != "ollama" && c.keyFor(p) == "" {
+			add(SeverityWarning, p+"_api_key", fmt.Sprintf("%s.provider is %q and it has no key in this file", slot.name, p), "set "+p+"_api_key")
+		}
+		if slot.name == "worker" && provider != "" {
+			shardProvider = provider
+		}
+	}
+
+	// --- shard profiles: served by the worker slot, or the main one ---
+	profiles := map[string]ShardProfile{}
+	for name, p := range c.ShardProfiles {
+		profiles["shard_profiles."+name] = p
+	}
+	if c.DefaultShard != nil {
+		profiles["default_shard"] = *c.DefaultShard
+	}
+	for _, path := range sortedKeys(profiles) {
+		p := profiles[path]
+		own := strings.ToLower(strings.TrimSpace(p.Provider))
+		switch {
+		case own != "" && !knownProviders[own]:
+			add(SeverityError, path+".provider", fmt.Sprintf("%q is not a provider codeNERD has", p.Provider), "")
+		case own != "":
+			// The profile routes itself: its model is judged against its own provider.
+			if strings.TrimSpace(p.Model) == "" {
+				add(SeverityError, path+".model", fmt.Sprintf("the profile routes to %q and names no model for it to run", own), "set "+path+".model")
+			} else if why := modelBelongsElsewhere(own, p.Model); why != "" {
+				add(SeverityError, path+".model", why, "")
+			}
+			if own != "ollama" && c.keyFor(own) == "" {
+				add(SeverityWarning, own+"_api_key", fmt.Sprintf("%s.provider is %q and it has no key in this file", path, own), "set "+own+"_api_key")
+			}
+		case !proxied:
+			if why := modelBelongsElsewhere(shardProvider, p.Model); why != "" {
+				add(SeverityError, path+".model",
+					why+" (with no provider of its own a shard runs on the worker slot, or the main provider when there is none)",
+					`set `+path+`.provider to the provider that serves this model, or set the model to "" to run the serving client's`)
+			}
+		}
+		if p.Temperature < 0 || p.Temperature > 2 {
+			add(SeverityError, path+".temperature", fmt.Sprintf("%v is outside 0-2", p.Temperature), "")
+		}
+		if p.TopP < 0 || p.TopP > 1 {
+			add(SeverityError, path+".top_p", fmt.Sprintf("%v is outside 0-1", p.TopP), "")
+		}
+		if own == "" || knownProviders[own] {
+			c.checkProfileEffort(path, own, p, add)
+		}
+	}
+
+	// --- embedding ---
+	if c.Embedding != nil {
+		switch c.Embedding.Provider {
+		case "", "ollama", "genai":
+		default:
+			add(SeverityError, "embedding.provider", fmt.Sprintf("%q is not an embedding provider", c.Embedding.Provider), "ollama or genai")
+		}
+		// One embedding HTTP call. Absent takes the default; a present value
+		// that does not parse would otherwise install silently as 60s.
+		if raw := strings.TrimSpace(c.Embedding.OllamaKeepAlive); raw != "" && raw != "-1" {
+			if d, err := time.ParseDuration(raw); err != nil || d < 0 {
+				add(SeverityError, "embedding.ollama_keep_alive", fmt.Sprintf("%q is not a non-negative duration", raw), `a Go duration such as "30m", "-1" to keep the model loaded, or remove the key for the default (30m)`)
+			}
+		}
+		if raw := strings.TrimSpace(c.Embedding.RequestTimeout); raw != "" {
+			d, err := time.ParseDuration(raw)
+			switch {
+			case err != nil:
+				add(SeverityError, "embedding.request_timeout", fmt.Sprintf("%q is not a duration: %v", raw, err), `a Go duration such as "60s" or "2m"`)
+			case d <= 0:
+				add(SeverityError, "embedding.request_timeout", fmt.Sprintf("%q is not positive", raw), "a positive duration, or remove the key for the default (60s)")
+			}
+		}
+		// One Ollama model download. Absent takes the default; a present
+		// value that does not parse would otherwise install silently as 30m.
+		if raw := strings.TrimSpace(c.Embedding.PullTimeout); raw != "" {
+			d, err := time.ParseDuration(raw)
+			switch {
+			case err != nil:
+				add(SeverityError, "embedding.pull_timeout", fmt.Sprintf("%q is not a duration: %v", raw, err), `a Go duration such as "30m" or "45s"`)
+			case d <= 0:
+				add(SeverityError, "embedding.pull_timeout", fmt.Sprintf("%q is not positive", raw), "a positive duration, or remove the key for the default (30m)")
+			}
+		}
+	}
+	emb := c.GetEmbeddingConfig()
+	if missing := emb.MissingModel(); missing != "" {
+		add(SeverityWarning, "embedding", missing, "")
+	}
+
+	// --- execution ---
+	// A secret pattern that path.Match cannot parse matches nothing, so the
+	// file it was written to protect would be readable while the config says
+	// it is not. That is a contradiction, and the file is refused.
+	if c.Execution != nil {
+		if c.Execution.MaxReadFileBytes < 0 {
+			add(SeverityError, "execution.max_read_file_bytes",
+				"a negative ceiling is not a read bound",
+				"0 reads the file whole; a positive value refuses the read")
+		}
+		if c.Execution.MaxSearchFileBytes < 0 {
+			add(SeverityError, "execution.max_search_file_bytes",
+				"a negative ceiling is not a search bound",
+				"omit it for the default, or set a positive byte size")
+		}
+		for i, pattern := range c.Execution.SecretPaths {
+			if strings.TrimSpace(pattern) == "" {
+				add(SeverityError, fmt.Sprintf("execution.secret_paths[%d]", i), "an empty pattern protects nothing", "remove it")
+				continue
+			}
+			if _, err := path.Match(pattern, ""); err != nil {
+				add(SeverityError, fmt.Sprintf("execution.secret_paths[%d]", i), fmt.Sprintf("%q is not a valid pattern: %v", pattern, err), "path.Match syntax: *, ?, [a-z]")
+			}
+		}
+	}
+
+	// --- campaign ---
+	if c.Campaign != nil {
+		out = append(out, c.Campaign.Check("campaign")...)
+	}
+
+	// --- session ---
+	if c.Session != nil {
+		out = append(out, c.Session.Check("session")...)
+	}
+
+	// --- classification ---
+	if c.Classification != nil {
+		out = append(out, c.Classification.Check("classification")...)
+	}
+
+	// --- routing ---
+	if c.Routing != nil {
+		out = append(out, c.Routing.Check("routing")...)
+	}
+
+	// --- explain ---
+	if c.Explain != nil {
+		out = append(out, c.Explain.Check("explain")...)
+	}
+
+	// --- ui ---
+	if c.UI != nil {
+		out = append(out, c.UI.Check("ui")...)
+	}
+
+	// --- retrieval ---
+	if c.Retrieval != nil {
+		out = append(out, c.Retrieval.Check("retrieval")...)
+	}
+
+	// --- prompt_evolution ---
+	if c.PromptEvolution != nil {
+		out = append(out, c.PromptEvolution.Check("prompt_evolution")...)
+	}
+
+	// --- orient ---
+	// A nil block is the defaults; an explicit threshold out of range, or
+	// span cuts out of order, refuses the file.
+	if c.Orient != nil {
+		out = append(out, c.Orient.Check("orient")...)
+	}
+
+	// --- tool_value ---
+	// A nil block is the defaults; a threshold below 1, or a dead bar that
+	// is not under the earning bar, refuses the file.
+	if c.ToolValue != nil {
+		out = append(out, c.ToolValue.Check("tool_value")...)
+	}
+
+	// --- usage ---
+	if c.Usage != nil {
+		out = append(out, c.Usage.Check("usage")...)
+	}
+
+	// --- delegation ---
+	if c.Delegation != nil {
+		out = append(out, c.Delegation.Check("delegation")...)
+	}
+
+	// --- approval ---
+	if c.Approval != nil {
+		out = append(out, c.Approval.Check("approval")...)
+	}
+
+	// --- working ---
+	if c.Working != nil {
+		out = append(out, c.Working.Check("working")...)
+	}
+
+	// --- articulation ---
+	// A nil section is the defaults. An explicit share outside 1-100 refuses
+	// the file; GetArticulationConfig fills an absent share before the check.
+	out = append(out, c.GetArticulationConfig().Check("articulation")...)
+
+	// --- research ---
+	if c.Browser != nil {
+		out = append(out, c.Browser.Reaper.Check("browser.reaper")...)
+	}
+	// Browser policy defaults are checked through the same resolved view the
+	// factory publishes. A nil browser block therefore validates its effective
+	// defaults, while explicit zero values survive normalization and are
+	// reported as contradictions.
+	out = append(out, c.GetBrowserConfig().Policy.Check("browser.policy")...)
+
+	if c.Research != nil {
+		out = append(out, c.Research.Check("research")...)
+	}
+
+	// --- meta ---
+	// A nil block is the default (search on, medium context). An explicit
+	// size outside low|medium|high is a contradiction and refuses the file.
+	if c.Meta != nil {
+		out = append(out, c.Meta.Check("meta")...)
+	}
+
+	// --- observation ---
+	if c.Observation != nil {
+		out = append(out, c.Observation.Check("observation")...)
+	}
+
+	// --- integrations ---
+	if c.Integrations != nil {
+		out = append(out, c.Integrations.Check("integrations")...)
+	}
+
+	// --- jit ---
+	if c.JIT != nil {
+		out = append(out, c.JIT.Check("jit")...)
+	}
+
+	// --- typesafe ---
+	// Absent is off; present must name its model, endpoint and key.
+	if c.TypeSafe != nil {
+		out = append(out, c.TypeSafe.Check("typesafe")...)
+	}
+
+	// --- everything the file leaves to a default ---
+	if raw != nil {
+		for _, path := range ImplicitFields(raw) {
+			add(SeverityImplicit, path, "not in the file: a default is in force", "`nerd config full` prints the file with every field and the value in force")
+		}
+	}
+	return out
+}
+
+// checkProfileEffort judges the effort a shard profile's calls are sent with.
+// A profile that routes itself (own provider) is sent its own effort, judged
+// against its own model, or else the effort of whichever slot routed the call
+// (main, worker or planner, SecondaryLLMConfig.RouteTo), which its provider
+// must accept. A profile that does not route rides its effort on the request
+// to whichever slot serves the call, so every one of them must accept it.
+func (c *UserConfig) checkProfileEffort(path, own string, p ShardProfile, add func(sev Severity, path, msg, fix string)) {
+	field := path + ".reasoning_effort"
+	effort := strings.TrimSpace(p.ReasoningEffort)
+	if own != "" {
+		if effort != "" {
+			if err := ValidateReasoningEffort(own, p.Model, effort); err != nil {
+				add(SeverityError, field, err.Error(), "set an effort "+p.Model+" accepts")
+			}
+			return
+		}
+		for _, serving := range c.servingSlots() {
+			if err := ValidateReasoningEffort(own, "", serving.slot.ReasoningEffort); err != nil {
+				add(SeverityError, field,
+					fmt.Sprintf("the profile's route to %s inherits the %s slot's reasoning effort %q: %v", own, serving.name, serving.slot.ReasoningEffort, err),
+					"set "+field+" to an effort "+own+" accepts")
+				return
+			}
+		}
+		return
+	}
+	if effort == "" {
+		return
+	}
+	for _, serving := range c.servingSlots() {
+		model := strings.TrimSpace(p.Model)
+		if model == "" {
+			model = serving.slot.Model
+		}
+		if err := ValidateReasoningEffort(serving.slot.Provider, model, effort); err != nil {
+			add(SeverityError, field,
+				fmt.Sprintf("the %s slot (%s) may serve this shard: %v", serving.name, serving.slot.Provider, err),
+				"set an effort every slot that serves the shard accepts, or give the profile its own provider")
+			return
+		}
+	}
+}
+
+// checkSlotInputCap judges a worker or planner slot's max_input_tokens. A
+// negative cap is not a token count, and one below MinPromptTokens could not
+// be sent a compiled prompt, so every request the slot served would be
+// refused: both refuse the file. A cap on a slot that names no provider caps
+// nothing, because such a slot is not built (resolveSecondarySlot).
+func checkSlotInputCap(slot, provider string, tokens int, add func(sev Severity, path, msg, fix string)) {
+	path := slot + ".max_input_tokens"
+	switch {
+	case tokens < 0:
+		add(SeverityError, path, fmt.Sprintf("%d is negative; an input cap is a token count", tokens),
+			fmt.Sprintf("omit it for no slot cap, or set at least %d", MinPromptTokens))
+	case tokens > 0 && tokens < MinPromptTokens:
+		add(SeverityError, path,
+			fmt.Sprintf("%d is below %d, the smallest window a compiled prompt fits in; every request the slot served would be refused", tokens, MinPromptTokens),
+			fmt.Sprintf("set at least %d, or omit it for no slot cap", MinPromptTokens))
+	case tokens > 0 && provider == "":
+		add(SeverityWarning, path, "the slot names no provider, so it is not built and the cap applies to nothing", "set "+slot+".provider")
+	}
+}
+
+// keyFor is the API key this file holds for provider ("" when none).
+func (c *UserConfig) keyFor(provider string) string {
+	if len(c.APIKeyPools[provider]) > 0 {
+		return "configured-credential-pool"
+	}
+	keys := map[string]string{
+		"anthropic": c.AnthropicAPIKey, "openai": c.OpenAIAPIKey, "gemini": c.GeminiAPIKey,
+		"xai": c.XAIAPIKey, "zai": c.ZAIAPIKey, "openrouter": c.OpenRouterAPIKey,
+		"dashscope": c.DashScopeAPIKey, "meta": c.MetaAPIKey, "moonshot": c.MoonshotAPIKey,
+	}
+	if k := strings.TrimSpace(keys[provider]); k != "" {
+		return k
+	}
+	return strings.TrimSpace(c.APIKey)
+}
+
+// Errors filters problems to the ones that refuse the file.
+func Errors(problems []Problem) []Problem {
+	var out []Problem
+	for _, p := range problems {
+		if p.Severity == SeverityError {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// ImplicitFields lists every configurable leaf of UserConfig that raw does not
+// mention, as JSON paths. It walks the struct's types, so a field added to the
+// schema is reported the day it is added; nothing here is a list to maintain.
+// Map-valued sections (shard_profiles, integrations) are reported as a whole
+// when absent, and per entry against their element type when present.
+func ImplicitFields(raw []byte) []string {
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil
+	}
+	var out []string
+	walkImplicit(reflect.TypeOf(UserConfig{}), doc, "", &out)
+	sort.Strings(out)
+	return out
+}
+
+func walkImplicit(t reflect.Type, doc map[string]any, prefix string, out *[]string) {
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		name := strings.Split(field.Tag.Get("json"), ",")[0]
+		if name == "" || name == "-" || !field.IsExported() {
+			continue
+		}
+		path := prefix + name
+		value, present := doc[name]
+		ft := field.Type
+		for ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		switch ft.Kind() {
+		case reflect.Struct:
+			child, _ := value.(map[string]any)
+			if child == nil && isOptionalSection(ft) {
+				continue // off, not defaulted
+			}
+			if !present || child == nil {
+				child = map[string]any{}
+			}
+			walkImplicit(ft, child, path+".", out)
+		case reflect.Map:
+			entries, _ := value.(map[string]any)
+			if !present || entries == nil {
+				*out = append(*out, path)
+				continue
+			}
+			et := ft.Elem()
+			for et.Kind() == reflect.Pointer {
+				et = et.Elem()
+			}
+			if et.Kind() != reflect.Struct {
+				continue
+			}
+			for key, entry := range entries {
+				if child, ok := entry.(map[string]any); ok {
+					walkImplicit(et, child, path+"."+key+".", out)
+				}
+			}
+		default:
+			if !present {
+				*out = append(*out, path)
+			}
+		}
+	}
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// DecodeUserConfig decodes a config file's bytes the way LoadUserConfig does
+// (removed keys named, unknown keys refused) and stops there: no Check, no
+// side effects. It is for reading a file the loader would refuse.
+func DecodeUserConfig(raw []byte) (*UserConfig, error) {
+	if err := rejectRemovedKeys(raw); err != nil {
+		return nil, err
+	}
+	cfg := &UserConfig{}
+	if err := decodeStrictJSON(raw, cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}

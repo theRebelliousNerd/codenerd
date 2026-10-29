@@ -1,0 +1,869 @@
+# Coder Shard Policy - Edit Safety & Blocking
+# Description: Safety rules to prevent dangerous or low-quality edits.
+
+# =============================================================================
+# SECTION 5: EDIT SAFETY & BLOCKING
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 5.1 Block Write Conditions
+# -----------------------------------------------------------------------------
+
+# test_coverage is derived from test_file_for pairings computed by the world
+# scanner because it needs string manipulation Mangle does not do. Coverage is
+# deliberately conservative: the x_test.go convention misses a source file
+# covered only by a package-level test with another name. That under-reports
+# coverage, which leaves the four rules cautious rather than falsely permissive,
+# and cautious is the correct direction to be wrong in for a rule that gates
+# refactors and writes.
+test_coverage(SourceFile) :- test_file_for(_, SourceFile).
+
+# Block if impacted files lack test coverage
+coder_block_write(File, "uncovered_impact") :-
+    pending_edit(File, _),
+    dependency_link(Dependent, File, _),
+    coder_impacted(Dependent),
+    !test_coverage(Dependent).
+
+# Block writes outside workspace
+coder_block_action(/edit, "forbidden_path") :-
+    pending_edit(Path, _),
+    !path_in_workspace(Path).
+
+# Block binary file modifications
+coder_block_action(/edit, "binary_file") :-
+    pending_edit(Path, _),
+    is_binary_file(Path).
+
+# Block edits to generated files
+coder_block_action(/edit, "generated_file") :-
+    pending_edit(Path, _),
+    is_generated_file(Path).
+
+# Block edits to vendor/third-party code
+coder_block_action(/edit, "vendor_file") :-
+    pending_edit(Path, _),
+    is_vendor_file(Path).
+
+# Turn verdict — the executor asserts one turn_evidence fact per turn (Go
+# measures: tool/write/test counts, claimed-output flag, dream flag) and
+# Mangle derives the verdict (Mangle decides). Go consumers query
+# hollow_success/2 for the failure reason and turn_done/1 for the single
+# completion signal instead of reimplementing these checks imperatively.
+#
+# Every relation in this block is keyed by Turn: one execution of the turn
+# verdict, an atom the executor mints per turn (/turn_<pid>_<n>) and carries
+# into every assertion, join, query and retraction. The kernel is shared --
+# CloneForTask hands the same one to every delegated task, and a campaign runs
+# tasks side by side -- so a key by verb let two concurrent /fix turns read
+# each other's gates, coverage debt and hollow reasons (external audit F1,
+# 2026-09-19). The verb is an attribute of turn_evidence, joined where the
+# intent tables need it; it is never the identity of a turn.
+#
+# Verb uses /name (not /string) so it unifies with the /name-typed
+# write_oriented_intent/1 and intent_requires_tool_call/1 facts in
+# delegation.mg; Go asserts it via MangleAtom ("/create" -> /create). A
+# /string verb would never unify with those atoms and the hollow rules
+# below would silently never fire.
+Decl turn_evidence(Turn, Verb, ToolCount, WriteCount, TestCount, ClaimedOutput, DreamMode) bound [/name, /name, /number, /number, /number, /name, /name].
+Decl hollow_success(Turn, Reason) bound [/name, /string].
+Decl turn_done(Turn) bound [/name].
+Decl turn_executed(Turn) bound [/name].
+Decl turn_verified(Turn) bound [/name].
+Decl turn_unverified(Turn) bound [/name].
+Decl turn_wrote(Turn) bound [/name].
+Decl turn_build_failed(Turn) bound [/name].
+Decl turn_missing_evidence(Turn, Missing) bound [/name, /name].
+Decl turn_acceptance(Turn, Contract, Snapshot) bound [/name, /string, /string].
+# turn_self_reported_incomplete is the turn's own final report admitting that
+# part of the requested work was not done (session/admission_audit.go). The
+# host asserts it from a model's one-word reading of the report; it can only
+# withhold verification, never supply it.
+Decl turn_self_reported_incomplete(Turn) bound [/name].
+Decl has_turn_acceptance(Turn) bound [/name].
+# turn_gate is THIS turn's post-edit gate. Gate is /build, /test, /vet,
+# /test_run, /pinned or /check; Verdict is /passing or /failing, and only an
+# affirmative verdict is ever present. /pinned is asserted by the executor
+# from that command's own exit (recordBuildState). /build, /test, /vet,
+# /test_run and /check are derived below from measurements the executor
+# asserts and does not judge. One source per gate: the engine keeps a source
+# fact of an IDB predicate beside atoms a rule derives (probed 2026-09-29,
+# nerd check-mangle --standalone --eval turn_gate), so a rule and a host
+# assert can share this predicate, and two sources for one gate would let
+# /passing and /failing both hold, which turn_red_gate reads as red.
+# The verdict rules below read the evidence of the turn they judge and
+# nothing else.
+# build_state/1 and test_state/1 are the session-global workspace state --
+# written by the same gates, but also by the run_tests tool the model invokes,
+# the TDD loop's state machine and the log reader, none of them per-turn -- and
+# until 2026-09-18 turn_verified read test_state(/passing) as if it were this
+# turn's gate: a green run left behind by a tool call in turn N verified a
+# write in turn N+k whose own test gate was skipped (REVIEW-wave1 F2).
+# Retracted with turn_evidence at the end of the turn.
+Decl turn_gate(Turn, Gate, Verdict) bound [/name, /name, /name].
+Decl turn_build_green(Turn) bound [/name].
+Decl turn_build_red(Turn) bound [/name].
+Decl turn_tests_green(Turn) bound [/name].
+Decl turn_tests_red(Turn) bound [/name].
+turn_build_green(Turn) :- turn_gate(Turn, /build, /passing).
+turn_build_red(Turn) :- turn_gate(Turn, /build, /failing).
+turn_tests_green(Turn) :- turn_gate(Turn, /test, /passing).
+turn_tests_red(Turn) :- turn_gate(Turn, /test, /failing).
+
+# The /build gate is this turn's compile, charged only for a failure the
+# turn's write set can have caused (dogfood runs 4 and 5: `go build ./...`
+# failed in another agent's half-written package and the turn was failed
+# for it). The command stays whole-workspace — scoping it to the touched
+# packages would miss a transitive importer the turn broke — and the
+# attribution is derived here.
+#
+# A diagnostic is the turn's when its file is in the write set, or its
+# package is a package the turn wrote (a signature change in a.go breaks
+# b.go in the same package, and a package does not import itself), or its
+# package transitively depends on a package the turn wrote. The executor
+# asserts the direct import edges (one `go list -e` of .Imports among the
+# module's own packages); the closure is these rules.
+#
+# An unlocatable failure (the build exited non-zero and named no file:line)
+# is attributed. Fail closed: calling it foreign would skip the repair for
+# a break that may be this turn's. A list that did not return the graph
+# (turn_build_graph_unknown) is attributed for the same reason: with no
+# edges an importer break would be called foreign.
+#
+# A failing build with no attributed diagnostic derives no /build verdict.
+# The gate is unknown, never green, and turn_missing_evidence names
+# /build_failure_foreign.
+Decl turn_build_measured(Turn, Outcome) bound [/name, /name].
+Decl turn_build_diagnostic(Turn, File, Pkg) bound [/name, /string, /string].
+Decl turn_pkg_imports(Turn, Importer, Imported) bound [/name, /string, /string].
+Decl turn_written_package(Turn, Pkg) bound [/name, /string].
+Decl turn_build_graph_unknown(Turn) bound [/name].
+Decl turn_pkg_depends(Turn, Pkg, Dep) bound [/name, /string, /string].
+Decl turn_build_depends_on_written(Turn, Pkg) bound [/name, /string].
+Decl turn_build_has_diagnostic(Turn) bound [/name].
+Decl turn_build_failure_attributed(Turn) bound [/name].
+Decl turn_build_failure_foreign(Turn, Pkg) bound [/name, /string].
+Decl turn_has_build_failure_foreign(Turn) bound [/name].
+
+turn_pkg_depends(Turn, Pkg, Dep) :-
+    turn_pkg_imports(Turn, Pkg, Dep).
+turn_pkg_depends(Turn, Pkg, Dep) :-
+    turn_pkg_imports(Turn, Pkg, Mid),
+    turn_pkg_depends(Turn, Mid, Dep).
+turn_build_depends_on_written(Turn, Pkg) :-
+    turn_pkg_depends(Turn, Pkg, Written),
+    turn_written_package(Turn, Written).
+turn_build_has_diagnostic(Turn) :-
+    turn_build_diagnostic(Turn, _, _).
+turn_build_failure_attributed(Turn) :-
+    turn_build_diagnostic(Turn, File, _),
+    turn_written(Turn, File, _).
+turn_build_failure_attributed(Turn) :-
+    turn_build_diagnostic(Turn, _, Pkg),
+    turn_written_package(Turn, Pkg),
+    Pkg != "".
+turn_build_failure_attributed(Turn) :-
+    turn_build_diagnostic(Turn, _, Pkg),
+    turn_build_depends_on_written(Turn, Pkg).
+# Unlocatable: no file:line. Fail closed (see the block comment).
+turn_build_failure_attributed(Turn) :-
+    turn_build_measured(Turn, /failing),
+    !turn_build_has_diagnostic(Turn).
+# The import graph did not come back. Fail closed (see the block comment).
+turn_build_failure_attributed(Turn) :-
+    turn_build_measured(Turn, /failing),
+    turn_build_graph_unknown(Turn).
+turn_gate(Turn, /build, /passing) :-
+    turn_build_measured(Turn, /passing).
+turn_gate(Turn, /build, /failing) :-
+    turn_build_measured(Turn, /failing),
+    turn_build_failure_attributed(Turn).
+turn_build_failure_foreign(Turn, Pkg) :-
+    turn_build_measured(Turn, /failing),
+    !turn_build_failure_attributed(Turn),
+    turn_build_diagnostic(Turn, _, Pkg),
+    Pkg != "".
+turn_has_build_failure_foreign(Turn) :-
+    turn_build_failure_foreign(Turn, _).
+
+# turn_untested is THIS turn's coverage debt as the session executor measured it
+# on disk: a production Go file the turn wrote with no test file beside it
+# (build_verify.go, untestedWithoutCoverageOnDisk). Until 2026-09-18 that list
+# went to the log and the subagent return and nowhere else, so a turn that wrote
+# production code and no test derived turn_verified on a green build and a green
+# run of the tests that already existed, and was recorded /done. Asserted by the
+# executor with the turn's gates, retracted with them, unreachable by the model.
+Decl turn_untested(Turn, Path) bound [/name, /string].
+Decl turn_has_untested(Turn) bound [/name].
+turn_has_untested(Turn) :- turn_untested(Turn, _).
+
+# turn_uncovered is the rest of this turn's coverage debt: a file the turn
+# changed holding blocks, on the lines it changed, that no test executes
+# (the executor's coverage profile narrowed to the turn's own lines,
+# build_verify.go), outside every changed element of the file: blocks inside
+# a changed element are judged at element level instead (turn_has_unwitnessed,
+# witness.mg). turn_untested asks whether a test file exists beside the
+# code; this asks whether any test runs the code the turn wrote. Until
+# 2026-09-19 the list reached the log and an advisory critic only, and a turn
+# whose 27 new blocks no test executed was recorded /done.
+Decl turn_uncovered(Turn, Path) bound [/name, /string].
+Decl turn_has_uncovered(Turn) bound [/name].
+turn_has_uncovered(Turn) :- turn_uncovered(Turn, _).
+
+# `go vet` over the packages the turn wrote, charged with the findings the turn
+# introduced. Only the red side withholds the verdict: a turn with no Go to vet
+# asserts no gate, and owing a green one would leave every non-Go write
+# unverifiable.
+Decl turn_vet_green(Turn) bound [/name].
+Decl turn_vet_red(Turn) bound [/name].
+turn_vet_green(Turn) :- turn_gate(Turn, /vet, /passing).
+turn_vet_red(Turn) :- turn_gate(Turn, /vet, /failing).
+
+# The /vet gate is the difference in counts of (file, message). The position
+# is not part of the key: an edit above a finding moves its line and not what
+# it is (session/change_gates.go, vetDiagnostic). Counts, not a set of lines:
+# a second copy of a message the baseline already reported is still new
+# (N > B). No before-row means the baseline did not report that finding,
+# including a baseline that did not run, so every current finding is charged.
+# turn_vet_ran is asserted only for a conclusive run (exit 0, or a failure
+# that named findings). A failure that named nothing asserts nothing, and
+# that is not a pass.
+Decl turn_vet_ran(Turn) bound [/name].
+Decl turn_vet_finding(Turn, File, Message, Count) bound [/name, /string, /string, /number].
+Decl turn_vet_before(Turn, File, Message, Count) bound [/name, /string, /string, /number].
+Decl turn_vet_before_key(Turn, File, Message) bound [/name, /string, /string].
+Decl turn_vet_new(Turn, File, Message) bound [/name, /string, /string].
+Decl turn_has_vet_new(Turn) bound [/name].
+
+turn_vet_before_key(Turn, File, Message) :-
+    turn_vet_before(Turn, File, Message, _).
+turn_vet_new(Turn, File, Message) :-
+    turn_vet_finding(Turn, File, Message, N),
+    turn_vet_before(Turn, File, Message, B),
+    N > B.
+turn_vet_new(Turn, File, Message) :-
+    turn_vet_finding(Turn, File, Message, _),
+    !turn_vet_before_key(Turn, File, Message).
+turn_has_vet_new(Turn) :- turn_vet_new(Turn, _, _).
+turn_gate(Turn, /vet, /failing) :-
+    turn_vet_ran(Turn),
+    turn_has_vet_new(Turn).
+turn_gate(Turn, /vet, /passing) :-
+    turn_vet_ran(Turn),
+    !turn_has_vet_new(Turn).
+
+# A turn that deleted tests it found, and did not put them back, fails: a
+# test is a contract the system already had, and a suite made green by losing
+# one is not green (session/test_removal_guard.go measures the removal; the
+# /removed_tests round, turn_rounds.mg, is the repair chance). The executor
+# asserts turn_removed_test_ran when it measures, and one turn_removed_test
+# row per test still missing; the gate is derived here, and the round and the
+# closure read it instead of re-deciding from the listing. The gate is owed
+# exactly when the measurement ran: every write turn is measured, at the
+# round and again at the closure (recordBuildState), so in production the
+# gate is always owed and always decided, while a turn whose removals were
+# never measured owes no retention verdict.
+Decl turn_removed_test_ran(Turn) bound [/name].
+Decl turn_removed_test(Turn, Name) bound [/name, /string].
+Decl turn_has_removed_test(Turn) bound [/name].
+turn_has_removed_test(Turn) :- turn_removed_test(Turn, _).
+turn_gate(Turn, /test_retention, /failing) :-
+    turn_removed_test_ran(Turn),
+    turn_has_removed_test(Turn).
+turn_gate(Turn, /test_retention, /passing) :-
+    turn_removed_test_ran(Turn),
+    !turn_has_removed_test(Turn).
+turn_owes_gate(Turn, /test_retention) :- turn_removed_test_ran(Turn).
+
+# The critic's triage: which on-change findings are worth an uplift round.
+# Go parses the reviewer's response and keeps the findings that cite changed
+# lines (session/critic.go parses the FINDING lines; findingsOnChange keeps
+# the ones inside the reviewed windows, with the path matching Mangle cannot
+# do). The remaining question is severity, and it is policy's: Go asserts one
+# turn_critic_finding row per on-change finding with its index and its
+# severity atom (/high, /medium, /low, /unknown for anything else -- the
+# parser admits only the first three, so /unknown is a hand-built finding's,
+# and ranks lowest). severity_rank is delegation.mg's table, shared, not a Go
+# switch; the bar is /medium there, named, not a number. turn_needs_uplift is
+# the round's question; turn_critic_actionable names the findings the uplift
+# prompt carries, by index. /critical sorts above /high in the shared table
+# but the critic never emits it: the parser rejects severities outside the
+# three it knows, and the normalizer maps them to /unknown instead.
+Decl turn_critic_finding(Turn, Idx, Severity) bound [/name, /number, /name].
+Decl turn_critic_actionable(Turn, Idx) bound [/name, /number].
+Decl turn_has_critic_actionable(Turn) bound [/name].
+Decl turn_needs_uplift(Turn) bound [/name].
+turn_critic_actionable(Turn, Idx) :-
+    turn_critic_finding(Turn, Idx, Sev),
+    severity_rank(Sev, Rank),
+    severity_rank(/medium, Bar),
+    Rank >= Bar.
+turn_has_critic_actionable(Turn) :- turn_critic_actionable(Turn, _).
+turn_needs_uplift(Turn) :- turn_has_critic_actionable(Turn).
+
+# What a write owes is policy, not a property of the gate code (external audit
+# N01, 2026-09-19). Until then the compile and test gates ran only when a .go
+# file was written while turn_verified demanded both green for every write, so
+# a document, a policy file or another language's code had no affirmative
+# completion path: /unverified however well it was done.
+#
+# The executor asserts each path the turn wrote with its lower-case extension
+# (turn_written) -- a measurement. write_class maps an extension to the class of
+# evidence it owes; an extension the table does not name is /other. .txt is
+# /other, not /doc: testdata golden files are .txt, and changing one changes
+# what the tests assert.
+#
+#   /go     the executor's own gates: /build and /test (vet and coverage debt
+#           withhold the verdict below as before)
+#   /doc    nothing mechanical: nothing compiles or runs a document, and owing
+#           a gate it cannot have would leave it unverifiable. Stated here so
+#           a reader does not infer it from an absence.
+#   /other  /test_run: a test process the tool layer started after the turn's
+#           last write, whose exit was 0. The executor asserts each run and
+#           each successful write (turn_test_run, turn_write_seq, one seq
+#           clock); the gate is derived below.
+#
+# A write-oriented turn with no recorded write -- dream mode, or a write tool
+# whose path was not recorded -- owes both Go gates: the cautious side, as
+# before.
+Decl turn_written(Turn, Path, Ext) bound [/name, /string, /string].
+# turn_changed_element is the functions and methods of a written .go file whose
+# body or signature this turn changed or added (the executor measures it at the
+# closure, beside turn_written; internal/session/turn_elements.go). Ref is a
+# code_element ref -- fn:<pkg>.<Name>, fn:<pkg>.<Recv>.<Name> for a method,
+# <pkg> the package clause -- so a future witness rule joins it against
+# code_element directly (policy/witness.mg joins it in witness_owed).
+Decl turn_changed_element(Turn, Ref) bound [/name, /string].
+# turn_element_uncovered is a changed element this turn's coverage run never
+# executed: its span holds at least one statement block, and every one of
+# them has an execution count of 0 (session/turn_element_coverage.go). Ref is
+# the same code_element ref as turn_changed_element. witness.mg reads it
+# (witness_executed); the file-level turn_uncovered above now covers only
+# blocks outside every changed element.
+Decl turn_element_uncovered(Turn, Ref) bound [/name, /string].
+# turn_element_measured is a changed element whose span holds at least one
+# statement block in this turn's coverage profile, whether or not the run
+# executed it (session/turn_element_coverage.go). An element with no
+# statements, or a file the profile does not mention, is not measured: no
+# block is not evidence the run saw the element. witness.mg reads it
+# (witness_executed).
+Decl turn_element_measured(Turn, Ref) bound [/name, /string].
+# The turn's own `go test -json` run (session/turn_test_facts.go), one row
+# per testfacts fact with this turn prepended. The unscoped test_case /
+# test_failure_at / failing_test predicates are a different measurement and
+# are not keyed by turn, so a verdict that joined them would see another
+# turn's failures; RetractFact matches the first argument, which is why the
+# turn is that argument. Shapes match testfacts.Facts exactly, Turn first.
+# turn_failing_test is what the /test gate reads. The other rows are the run
+# itself; the gate does not read them.
+Decl turn_test_case(Turn, Pkg, Test, Status, ElapsedMs) bound [/name, /string, /string, /name, /number].
+Decl turn_test_failure_at(Turn, Pkg, Test, File, Line, Message, Count) bound [/name, /string, /string, /string, /number, /string, /number].
+Decl turn_test_build_failure(Turn, Pkg, File, Line, Message) bound [/name, /string, /string, /number, /string].
+Decl turn_test_output_repeat(Turn, Line, Count) bound [/name, /string, /number].
+Decl turn_failing_test(Turn, Pkg, TestName, ErrorMessage) bound [/name, /string, /string, /string].
+
+# The /test gate. The executor asserts what the runs measured and does not
+# rewrite the outcome. turn_test_measured is the head run's raw exit, and
+# only when that run was conclusive. turn_failing_test names each failing
+# test by package and sanitized name (subtests included); an empty name is a
+# build that named no test. turn_test_failed_before is every package+test the
+# pre-turn baseline failed, when that baseline finished. A failure is this
+# turn's when the head failed that package+test and the baseline did not:
+# identity is the pair, so an old example/a.TestLoad failure cannot hide a
+# new example/b.TestLoad one. A failing run that named no test is the turn's:
+# attribution it could not make is not a pass.
+#
+# The packages that import what the turn wrote are a second run of this
+# same gate (session/importer_gate_facts.go), not a second gate and not a
+# Source column on turn_failing_test. That predicate is the turn's own
+# go test -json run; a Source argument would rewrite every rule that joins
+# it. turn_importer_measured is the importer run's exit: /passing,
+# /failing, or /unfinished when the run timed out or was canceled. R1-18
+# (2026-09-19) hit a four-minute importer budget and still printed
+# "tests ok", because a run that did not finish was treated as no verdict.
+# /unfinished withholds a pass and names no failure, so nothing is
+# repaired. A skipped importer run, or one this turn did not make, asserts
+# nothing, and the own rules stand. A failure is the turn's when the
+# importer head named it and the importer baseline did not.
+Decl turn_test_failed_before(Turn, Pkg, TestName) bound [/name, /string, /string].
+Decl turn_test_measured(Turn, Outcome) bound [/name, /name].
+Decl turn_own_test_failure(Turn, Pkg, Name) bound [/name, /string, /string].
+Decl turn_has_own_test_failure(Turn) bound [/name].
+Decl turn_has_failing_test(Turn) bound [/name].
+Decl turn_importer_failed_before(Turn, Pkg, TestName) bound [/name, /string, /string].
+Decl turn_importer_failing_test(Turn, Pkg, TestName, ErrorMessage) bound [/name, /string, /string, /string].
+Decl turn_importer_measured(Turn, Outcome) bound [/name, /name].
+Decl turn_importer_failure(Turn, Pkg, Name) bound [/name, /string, /string].
+Decl turn_has_importer_failure(Turn) bound [/name].
+Decl turn_has_importer_failing_test(Turn) bound [/name].
+Decl turn_importer_blocks(Turn) bound [/name].
+
+turn_own_test_failure(Turn, Pkg, Name) :-
+    turn_failing_test(Turn, Pkg, Name, Msg),
+    !turn_test_failed_before(Turn, Pkg, Name).
+turn_has_own_test_failure(Turn) :- turn_own_test_failure(Turn, Pkg, Name).
+turn_has_failing_test(Turn) :- turn_failing_test(Turn, Pkg, Name, Msg).
+
+turn_importer_failure(Turn, Pkg, Name) :-
+    turn_importer_failing_test(Turn, Pkg, Name, Msg),
+    !turn_importer_failed_before(Turn, Pkg, Name).
+turn_has_importer_failure(Turn) :- turn_importer_failure(Turn, Pkg, Name).
+turn_has_importer_failing_test(Turn) :- turn_importer_failing_test(Turn, Pkg, Name, Msg).
+# A run that did not finish, a new importer failure, or a failing run that
+# named no test. The projection is what negation can see.
+turn_importer_blocks(Turn) :- turn_importer_measured(Turn, /unfinished).
+turn_importer_blocks(Turn) :-
+    turn_importer_measured(Turn, /failing),
+    turn_has_importer_failure(Turn).
+turn_importer_blocks(Turn) :-
+    turn_importer_measured(Turn, /failing),
+    !turn_has_importer_failing_test(Turn).
+
+turn_gate(Turn, /test, /failing) :-
+    turn_test_measured(Turn, /failing),
+    turn_has_own_test_failure(Turn).
+# No failing_test row at all. The projection is what negation can see:
+# !turn_failing_test(Turn, _, _, _) is deleted (engine truth 020 item 1).
+turn_gate(Turn, /test, /failing) :-
+    turn_test_measured(Turn, /failing),
+    !turn_has_failing_test(Turn).
+turn_gate(Turn, /test, /failing) :-
+    turn_importer_measured(Turn, /failing),
+    turn_has_importer_failure(Turn).
+turn_gate(Turn, /test, /failing) :-
+    turn_importer_measured(Turn, /failing),
+    !turn_has_importer_failing_test(Turn).
+turn_gate(Turn, /test, /passing) :-
+    turn_test_measured(Turn, /passing),
+    !turn_importer_blocks(Turn).
+turn_gate(Turn, /test, /passing) :-
+    turn_test_measured(Turn, /failing),
+    turn_has_failing_test(Turn),
+    !turn_has_own_test_failure(Turn),
+    !turn_importer_blocks(Turn).
+# turn_doc_write: the written path lies under a path the workspace's nerd.md
+# declares as docs (the executor measures it; assertTurnWrites).
+Decl turn_doc_write(Turn, Path) bound [/name, /string].
+Decl write_class(Ext, Class) bound [/string, /name].
+Decl known_write_ext(Ext) bound [/string].
+Decl has_turn_written(Turn) bound [/name].
+Decl turn_write_class(Turn, Class) bound [/name, /name].
+Decl turn_owes_gate(Turn, Gate) bound [/name, /name].
+Decl turn_unmet_gate(Turn, Gate) bound [/name, /name].
+Decl turn_red_gate(Turn, Gate) bound [/name, /name].
+Decl has_unmet_gate(Turn) bound [/name].
+Decl has_red_gate(Turn) bound [/name].
+
+write_class(".go", /go).
+write_class(".md", /doc).
+write_class(".markdown", /doc).
+write_class(".rst", /doc).
+write_class(".adoc", /doc).
+known_write_ext(Ext) :- write_class(Ext, _).
+
+has_turn_written(Turn) :- turn_written(Turn, _, _).
+turn_write_class(Turn, Class) :- turn_written(Turn, _, Ext), write_class(Ext, Class).
+turn_write_class(Turn, /other) :- turn_written(Turn, Path, Ext), !known_write_ext(Ext), !turn_doc_write(Turn, Path).
+# A file of no known class under a declared docs path is documentation: the
+# corpus.toml that indexes a docs directory owes what its Markdown owes. Until
+# 2026-09-26 it was /other and owed a passing `go test ./...`: on campaign
+# 7b853890 a remediation that fixed four documents and that corpus.toml ran the
+# whole Go suite, reported that the suite cannot verify prose, and the
+# admission audit read that as unfinished work -- its correct edits were rolled
+# back. Source code keeps its class wherever it sits (a .go file under docs/
+# still compiles into the module).
+turn_write_class(Turn, /doc) :- turn_written(Turn, Path, Ext), !known_write_ext(Ext), turn_doc_write(Turn, Path).
+
+turn_owes_gate(Turn, /build) :- turn_write_class(Turn, /go).
+turn_owes_gate(Turn, /test) :- turn_write_class(Turn, /go).
+turn_owes_gate(Turn, /test_run) :- turn_write_class(Turn, /other).
+turn_owes_gate(Turn, /build) :- turn_wrote(Turn), !has_turn_written(Turn).
+turn_owes_gate(Turn, /test) :- turn_wrote(Turn), !has_turn_written(Turn).
+
+# A turn that exists to change behaviour owes tests that pin the change
+# (external audit N22, 2026-09-19): each function it changed, put back as it
+# was -- or, when it added the function, taken out -- must make a test the turn
+# wrote fail or stop compiling. Coverage asks whether a test executes the
+# changed code; this asks whether a test would notice the change gone. Ladder
+# run R1-10: five new tests executed every line of a new helper and all five
+# passed with the two call sites the fix was for put back as they were. The
+# executor measures it with go test -overlay, one change at a time
+# (internal/session/pin_gate.go), and records turn_gate(Turn, /pinned, _).
+#
+# Only intents that exist to change behaviour owe it: a refactor or an
+# optimisation keeps behaviour by definition, so no test can fail without it,
+# and documentation has none to pin. turn_verb is the intent the turn serves,
+# asserted by the executor before its forcing rounds ask what the turn owes.
+Decl turn_verb(Turn, Verb) bound [/name, /name].
+Decl behavior_change_intent(Verb) bound [/name].
+behavior_change_intent(/fix).
+behavior_change_intent(/create).
+behavior_change_intent(/implement).
+turn_owes_gate(Turn, /pinned) :- turn_verb(Turn, Verb), behavior_change_intent(Verb), turn_write_class(Turn, /go).
+
+# A campaign turn whose context carries a declared acceptance check and that
+# wrote owes a run_check that exited 0 after its last write. The executor
+# asserts turn_declared_check from the check on the task context
+# (tools.CampaignCheckFrom); it does not decide who owes the gate.
+# spawnTask attaches that check to every task, including /review, and
+# turn_catalog offers run_check only to an editing persona. A reviewer who
+# wrote must not owe a gate it was never offered the tool to meet. The
+# campaign's own acceptance round stays the authority; this is the turn's
+# evidence that it ran the same judge.
+Decl turn_declared_check(Turn) bound [/name].
+Decl editing_persona(Persona) bound [/name].
+# One clock for this turn (session gateSeq). turn_write_seq is each
+# successful write, turn_check_run each run_check, turn_test_run each test
+# process. A run counts only when its seq is after the last write, and the
+# last such run's exit is the gate. Probed 2026-09-29 with
+# nerd check-mangle --standalone --eval: fn:max after group_by(Turn) is the
+# greatest seq; a run at a lower seq derives no after-row; no write derives
+# no last-write and therefore no gate; exit 0 is passing and a non-zero exit
+# is failing. The seq is projected before the aggregate. A single-atom body
+# may keep a wildcard through a transform on this engine, and a second atom
+# in that body would not (engine truth 020 item 7), so the wildcard form is
+# not what these rules use.
+Decl turn_check_run(Turn, Seq, ExitCode) bound [/name, /number, /number].
+Decl turn_write_seq(Turn, Seq) bound [/name, /number].
+Decl turn_test_run(Turn, Seq, ExitCode) bound [/name, /number, /number].
+Decl turn_last_write(Turn, W) bound [/name, /number].
+Decl turn_check_after(Turn, S, C) bound [/name, /number, /number].
+Decl turn_check_after_seq(Turn, S) bound [/name, /number].
+Decl turn_last_check(Turn, M) bound [/name, /number].
+Decl turn_test_after(Turn, S, C) bound [/name, /number, /number].
+Decl turn_test_after_seq(Turn, S) bound [/name, /number].
+Decl turn_last_test_run(Turn, M) bound [/name, /number].
+
+turn_last_write(Turn, W) :-
+    turn_write_seq(Turn, S) |> do fn:group_by(Turn), let W = fn:max(S).
+
+turn_check_after(Turn, S, C) :-
+    turn_check_run(Turn, S, C),
+    turn_last_write(Turn, W),
+    S > W.
+turn_check_after_seq(Turn, S) :- turn_check_after(Turn, S, _).
+turn_last_check(Turn, M) :-
+    turn_check_after_seq(Turn, S) |> do fn:group_by(Turn), let M = fn:max(S).
+turn_gate(Turn, /check, /passing) :-
+    turn_last_check(Turn, M),
+    turn_check_after(Turn, M, 0).
+turn_gate(Turn, /check, /failing) :-
+    turn_last_check(Turn, M),
+    turn_check_after(Turn, M, C),
+    C != 0 .
+
+turn_test_after(Turn, S, C) :-
+    turn_test_run(Turn, S, C),
+    turn_last_write(Turn, W),
+    S > W.
+turn_test_after_seq(Turn, S) :- turn_test_after(Turn, S, _).
+turn_last_test_run(Turn, M) :-
+    turn_test_after_seq(Turn, S) |> do fn:group_by(Turn), let M = fn:max(S).
+# The test process the model (or a tool) started after the last write, last
+# one deciding. It is the whole /test_run gate for a workspace that declares
+# no applicable test check, and one input among others for one that does.
+Decl turn_selected_run(Turn, Verdict) bound [/name, /name].
+turn_selected_run(Turn, /passing) :-
+    turn_last_test_run(Turn, M),
+    turn_test_after(Turn, M, 0).
+turn_selected_run(Turn, /failing) :-
+    turn_last_test_run(Turn, M),
+    turn_test_after(Turn, M, C),
+    C != 0 .
+
+# The workspace's test plan (session/workspace_test_plan.go). The host plans
+# the checks the workspace declares for what this turn wrote -- one obligation
+# per gate and node, plus one per written language no declared check covers --
+# runs them, and records each outcome on the turn's clock. Discovery that
+# cannot run a check still plans it, so availability never shrinks what is
+# owed. Outcome is /passed, /failed, /unavailable (the program is missing or
+# will not start), /indeterminate (stopped before a verdict), /no_tests (it ran
+# and collected nothing) or /uncovered (no declared check exists for the
+# language). The latest outcome after the last write is the obligation's state;
+# a write puts every earlier outcome behind it.
+Decl turn_test_obligation(Turn, Ob) bound [/name, /string].
+Decl turn_test_obligation_run(Turn, Ob, Seq, Outcome) bound [/name, /string, /number, /name].
+Decl turn_ob_after(Turn, Ob, Seq, Outcome) bound [/name, /string, /number, /name].
+Decl turn_ob_after_seq(Turn, Ob, Seq) bound [/name, /string, /number].
+Decl turn_ob_last(Turn, Ob, Seq) bound [/name, /string, /number].
+Decl turn_ob_state(Turn, Ob, Outcome) bound [/name, /string, /name].
+Decl turn_has_test_plan(Turn) bound [/name].
+Decl turn_test_ob_met(Turn, Ob) bound [/name, /string].
+Decl turn_test_ob_unmet(Turn, Ob) bound [/name, /string].
+Decl turn_has_test_ob_unmet(Turn) bound [/name].
+Decl turn_test_plan_red(Turn) bound [/name].
+
+turn_has_test_plan(Turn) :- turn_test_obligation(Turn, _).
+turn_ob_after(Turn, Ob, S, O) :-
+    turn_test_obligation_run(Turn, Ob, S, O),
+    turn_last_write(Turn, W),
+    S > W.
+turn_ob_after_seq(Turn, Ob, S) :- turn_ob_after(Turn, Ob, S, _).
+turn_ob_last(Turn, Ob, M) :-
+    turn_ob_after_seq(Turn, Ob, S) |> do fn:group_by(Turn, Ob), let M = fn:max(S).
+turn_ob_state(Turn, Ob, O) :- turn_ob_last(Turn, Ob, M), turn_ob_after(Turn, Ob, M, O).
+
+# Only a check that executed tests and passed meets its obligation. A check
+# that collected none, and a language no declared check covers, leave the
+# obligation to a passing test process the turn started after its last write:
+# the only evidence there is, and nothing else clears them. A failed,
+# unavailable or stopped check is cleared only by its own later outcome.
+turn_test_ob_met(Turn, Ob) :- turn_ob_state(Turn, Ob, /passed).
+turn_test_ob_met(Turn, Ob) :- turn_ob_state(Turn, Ob, /no_tests), turn_selected_run(Turn, /passing).
+turn_test_ob_met(Turn, Ob) :- turn_ob_state(Turn, Ob, /uncovered), turn_selected_run(Turn, /passing).
+turn_test_ob_unmet(Turn, Ob) :- turn_test_obligation(Turn, Ob), !turn_test_ob_met(Turn, Ob).
+turn_has_test_ob_unmet(Turn) :- turn_test_ob_unmet(Turn, _).
+turn_test_plan_red(Turn) :- turn_test_obligation(Turn, Ob), turn_ob_state(Turn, Ob, /failed).
+turn_test_plan_red(Turn) :- turn_has_test_plan(Turn), turn_selected_run(Turn, /failing).
+
+turn_gate(Turn, /test_run, /passing) :- turn_selected_run(Turn, /passing), !turn_has_test_plan(Turn).
+turn_gate(Turn, /test_run, /failing) :- turn_selected_run(Turn, /failing), !turn_has_test_plan(Turn).
+turn_gate(Turn, /test_run, /passing) :- turn_has_test_plan(Turn), !turn_has_test_ob_unmet(Turn), !turn_test_plan_red(Turn).
+turn_gate(Turn, /test_run, /failing) :- turn_test_plan_red(Turn).
+editing_persona(/coder).
+editing_persona(/tester).
+# Owed exactly when this turn's catalog offered run_check and the turn wrote:
+# the offer (turn_catalog, intent_routing_rules.mg) is the one place that
+# decides who may run the check, so the obligation cannot drift from it.
+turn_owes_gate(Turn, /check) :-
+    turn_catalog(Turn, /run_check),
+    has_turn_written(Turn).
+
+# An owed gate is met by this turn's affirmative verdict and nothing older; a
+# gate that recorded both verdicts is red, so the green one cannot carry it.
+turn_unmet_gate(Turn, Gate) :- turn_owes_gate(Turn, Gate), !turn_gate(Turn, Gate, /passing).
+turn_red_gate(Turn, Gate) :- turn_owes_gate(Turn, Gate), turn_gate(Turn, Gate, /failing).
+has_unmet_gate(Turn) :- turn_unmet_gate(Turn, _).
+has_red_gate(Turn) :- turn_red_gate(Turn, _).
+
+# A turn that created new Go source owes a test for it. turn_created_source
+# and turn_created_test are the files this turn created, as the executor
+# recorded them; they are the turn's, not the world's. The executor used to
+# write created_source and test_file_for into the shared kernel for them, and
+# its end-of-turn sweep then retracted every test_file_for fact, the world
+# scanner's included. A created source is covered by a test the world already
+# pairs with it (test_coverage, from the scanner's test_file_for) or by a test
+# this same turn created, so a source and its test written together satisfy it
+# without waiting for a rescan.
+Decl turn_created_test(Turn, TestFile, SourceFile) bound [/name, /string, /string].
+Decl turn_test_coverage(Turn, File) bound [/name, /string].
+Decl turn_missing_test(Turn, File) bound [/name, /string].
+turn_test_coverage(Turn, File) :- turn_created_source(Turn, File), test_coverage(File).
+turn_test_coverage(Turn, File) :- turn_created_test(Turn, _, File).
+turn_missing_test(Turn, File) :- turn_created_source(Turn, File), !turn_test_coverage(Turn, File).
+
+Decl has_turn_tools(Turn) bound [/name].
+Decl has_turn_write(Turn) bound [/name].
+Decl has_turn_test(Turn) bound [/name].
+Decl has_hollow_success(Turn) bound [/name].
+has_turn_tools(Turn) :- turn_evidence(Turn, _, ToolCount, _, _, _, _), ToolCount > 0.
+has_turn_write(Turn) :- turn_evidence(Turn, _, _, WriteCount, _, _, _), WriteCount > 0.
+has_turn_test(Turn) :- turn_evidence(Turn, _, _, _, TestCount, _, _), TestCount > 0.
+has_hollow_success(Turn) :- hollow_success(Turn, _).
+hollow_success(Turn, "requires side effects but no tool call succeeded") :-
+    turn_evidence(Turn, Verb, _, _, _, _, /false),
+    intent_requires_tool_call(Verb),
+    !has_turn_tools(Turn).
+hollow_success(Turn, "write-oriented intent completed without a recognized write-mutation tool") :-
+    turn_evidence(Turn, Verb, _, _, _, _, /false),
+    write_oriented_intent(Verb),
+    has_turn_tools(Turn),
+    !has_turn_write(Turn).
+hollow_success(Turn, "response presents test-runner output but no test-execution tool ran") :-
+    turn_evidence(Turn, _, _, _, _, /true, /false),
+    !has_turn_test(Turn).
+hollow_success(Turn, "new source was created without a test file") :-
+    turn_evidence(Turn, _, _, _, _, _, /false),
+    turn_missing_test(Turn, _).
+# turn_done is the single completion signal. It must never derive alongside
+# hollow_success (a no-write / no-tool / unverified turn is not done) nor
+# while the build is red (a failed build is not done). Deriving done in
+# either case is hollow success with a policy stamp on it.
+#
+# Execution is weaker than completion. Execution asks whether the turn really
+# acted; verification asks whether the mechanical evidence THIS intent requires
+# came back affirmative. They are separate questions about the same turn, which
+# is why turn_verified does not carry turn_executed in its body — conjoining
+# them is turn_done's job and nothing else's.
+turn_executed(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), !has_hollow_success(Turn), !turn_build_red(Turn).
+turn_done(Turn) :- turn_executed(Turn), turn_verified(Turn).
+
+# ONE host emits verification, through two mechanisms. This block used to say
+# "only the host verifier emits acceptance", and that is still true — it is just
+# not the only thing the host verifies:
+#
+#   1. turn_acceptance — the acceptance transaction: an immutable caller
+#      contract with current, executed behavioral witnesses. Strongest, and
+#      still the only thing that can speak for REQUESTED BEHAVIOUR.
+#   2. turn_gate — the session executor's own post-edit gates for THIS turn
+#      (recordBuildState measures BuildCheck/TestCheck/VetCheck; /build,
+#      /test, /vet, /test_run and /check are derived from those measurements,
+#      and /pinned is the pinning run's exit). These are not the model's word
+#      for anything: the executor ran the compiler and the test runner itself
+#      and recorded what they returned, and only an affirmative verdict is
+#      ever present. A skipped or indeterminate gate asserts nothing.
+#
+# So the evidence arms below do not weaken the contract path. They are the same
+# host reporting what it mechanically measured, rather than what it was asked to
+# prove — a weaker claim about the workspace, not a weaker claim about who is
+# entitled to make it. The model can reach neither: turn_gate, build_state,
+# test_state and every predicate in this block are hard-blocked in
+# core.FilterMangleUpdates (predicateAllowed), ahead of any caller allowlist.
+#
+# The write arm reads this turn's gates and nothing older: a red test_state
+# left in the session by another producer does not block a turn whose own gate
+# ran green after the edit, because the gate is the fresher measurement; and a
+# green one left behind does not verify a turn whose own gate was skipped. The
+# arm is guarded on both sides (green present, red absent) so a turn that
+# somehow recorded both is not verified on the strength of the green.
+#
+# A turn that changed nothing has no workspace claim to verify, so execution is
+# the whole of what it can owe. A turn that wrote owes every gate its writes
+# owe (turn_owes_gate above), each green and none red, and no coverage debt,
+# vet finding or unwitnessed changed element of its own.
+#
+# A turn whose own report says the work is unfinished is not verified by its
+# gates: green gates measure what was done, and the report says what was not
+# (N41: R5-3 closed /done after "I cannot execute the remaining 177 deletions").
+# A verified caller contract still verifies: it witnesses the requested
+# behaviour itself.
+turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), !turn_wrote(Turn), !turn_self_reported_incomplete(Turn).
+turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), turn_wrote(Turn), !has_unmet_gate(Turn), !has_red_gate(Turn), !turn_has_untested(Turn), !turn_has_uncovered(Turn), !turn_vet_red(Turn), !turn_self_reported_incomplete(Turn), !turn_has_unwitnessed(Turn), !turn_has_rejected_effect(Turn), !turn_has_unmeasured_effect(Turn), !turn_has_open_family_obligation(Turn).
+turn_verified(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), has_turn_acceptance(Turn).
+
+# has_turn_acceptance projects turn_acceptance/3 to a single argument, matching
+# has_turn_tools / has_turn_write / has_turn_test above. The arm that uses it
+# reads positively, where turn_acceptance(Turn, _, _) would also have worked;
+# the projection is here so that a future rule can NEGATE the question safely.
+# Negating the 3-ary literal directly (!turn_acceptance(Turn, _, _)) does NOT
+# exclude on this engine — the wildcard negation trap documented in
+# internal/mangle/agents.md — and would fail silently, deriving nothing and
+# erroring nowhere. The single-argument form is the one that can be negated.
+has_turn_acceptance(Turn) :- turn_acceptance(Turn, _, _).
+
+# turn_wrote is "this turn made a claim about the workspace". The second arm
+# exists for dream mode: every hollow_success rule is guarded by DreamMode
+# /false, so a dream-mode /create that wrote nothing derives no hollow_success
+# and reaches turn_executed. With only the write-count arm it would then look
+# like a read-only turn and verify for free.
+turn_wrote(Turn) :- has_turn_write(Turn).
+turn_wrote(Turn) :- turn_evidence(Turn, Verb, _, _, _, _, _), write_oriented_intent(Verb).
+
+# turn_unverified and turn_missing_evidence exist so the turn's outcome can NAME
+# what is missing rather than Go guessing at it. turn_unverified never derives
+# for a turn that wrote nothing (those verify), so no spurious reason is
+# produced for a read-only turn.
+turn_unverified(Turn) :- turn_executed(Turn), !turn_verified(Turn).
+# A foreign build is unmet and not red. Naming it /build_not_green as well
+# would bury the packages the turn text has to state.
+turn_missing_evidence(Turn, /build_not_green) :-
+    turn_unverified(Turn),
+    turn_unmet_gate(Turn, /build),
+    !turn_has_build_failure_foreign(Turn).
+turn_missing_evidence(Turn, /build_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /build).
+turn_missing_evidence(Turn, /build_failure_foreign) :- turn_unverified(Turn), turn_has_build_failure_foreign(Turn).
+turn_missing_evidence(Turn, /tests_not_green) :- turn_unverified(Turn), turn_unmet_gate(Turn, /test).
+turn_missing_evidence(Turn, /tests_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /test).
+turn_missing_evidence(Turn, /test_run_not_green) :- turn_unverified(Turn), turn_unmet_gate(Turn, /test_run).
+turn_missing_evidence(Turn, /test_run_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /test_run).
+# Why the plan is unmet, when it is not a red suite: a declared check that
+# could not run, or that ran and collected no test, is named as that and not as
+# a failure.
+turn_missing_evidence(Turn, /test_run_unavailable) :- turn_unverified(Turn), turn_test_ob_unmet(Turn, Ob), turn_ob_state(Turn, Ob, /unavailable).
+turn_missing_evidence(Turn, /test_run_unavailable) :- turn_unverified(Turn), turn_test_ob_unmet(Turn, Ob), turn_ob_state(Turn, Ob, /indeterminate).
+turn_missing_evidence(Turn, /test_run_no_tests) :- turn_unverified(Turn), turn_test_ob_unmet(Turn, Ob), turn_ob_state(Turn, Ob, /no_tests).
+turn_missing_evidence(Turn, /test_run_no_tests) :- turn_unverified(Turn), turn_test_ob_unmet(Turn, Ob), turn_ob_state(Turn, Ob, /uncovered).
+turn_missing_evidence(Turn, /check_not_green) :- turn_unverified(Turn), turn_unmet_gate(Turn, /check).
+turn_missing_evidence(Turn, /check_not_green) :- turn_unverified(Turn), turn_red_gate(Turn, /check).
+turn_missing_evidence(Turn, /tests_not_written) :- turn_unverified(Turn), turn_has_untested(Turn).
+turn_missing_evidence(Turn, /changed_code_unexecuted) :- turn_unverified(Turn), turn_has_uncovered(Turn).
+turn_missing_evidence(Turn, /change_unwitnessed) :- turn_unverified(Turn), turn_has_unwitnessed(Turn).
+turn_missing_evidence(Turn, /vet_not_clean) :- turn_unverified(Turn), turn_vet_red(Turn).
+turn_missing_evidence(Turn, /change_not_pinned) :- turn_unverified(Turn), turn_unmet_gate(Turn, /pinned).
+turn_missing_evidence(Turn, /change_not_pinned) :- turn_unverified(Turn), turn_red_gate(Turn, /pinned).
+turn_missing_evidence(Turn, /tests_removed) :- turn_unverified(Turn), turn_unmet_gate(Turn, /test_retention).
+turn_missing_evidence(Turn, /tests_removed) :- turn_unverified(Turn), turn_red_gate(Turn, /test_retention).
+turn_missing_evidence(Turn, /self_reported_incomplete) :- turn_unverified(Turn), turn_self_reported_incomplete(Turn).
+# A change this turn left on disk that its validator rejected, or that no
+# validation measured (tool_effects.mg). The gates measure the tree, but a
+# green build that never reads a JSON file does not answer the syntax
+# validator that rejected it.
+turn_missing_evidence(Turn, /effect_rejected) :- turn_unverified(Turn), turn_has_rejected_effect(Turn).
+# A changed member of a declared code family left a peer unreviewed
+# (code_families.mg).
+turn_missing_evidence(Turn, /family_review_open) :- turn_unverified(Turn), turn_has_open_family_obligation(Turn).
+turn_missing_evidence(Turn, /effect_unmeasured) :- turn_unverified(Turn), turn_has_unmeasured_effect(Turn).
+
+# A red build is a failed turn, not merely an unverified one. turn_executed
+# already excludes it; this names it so the outcome can say /failed instead of
+# leaving Go to re-check BuildCheck itself. A failing build that derived no
+# /build verdict (every located diagnostic is outside the write set) is not
+# red: the turn stays unverified and names those packages.
+turn_build_failed(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), turn_build_red(Turn).
+# Helper: any pending edit is implementation
+Decl has_implementation_edit() bound [].
+has_implementation_edit() :-
+    edit_is_implementation(_).
+
+# Block edits during active TDD red phase (tests should fail first)
+coder_block_action(/edit, "tdd_red_phase") :-
+    !has_implementation_edit(),
+    pending_edit(_, _),
+    tdd_state(/red).
+
+# Helpers
+# Decl is_generated_file(Path) - Declared in schemas_coder.mg
+is_generated_file(Path) :-
+    path_contains(Path, "generated").
+
+is_generated_file(Path) :-
+    path_contains(Path, "_gen.").
+
+# Decl is_vendor_file(Path) - Declared in schemas_coder.mg
+is_vendor_file(Path) :-
+    path_contains(Path, "vendor/").
+
+is_vendor_file(Path) :-
+    path_contains(Path, "node_modules/").
+
+# -----------------------------------------------------------------------------
+# 5.2 Safety Check Aggregation
+# -----------------------------------------------------------------------------
+
+# Helper for safe negation: true if any block exists for file
+has_coder_block(File) :-
+    coder_block_write(File, _).
+
+has_coder_block(File) :-
+    coder_block_action(/edit, _),
+    pending_edit(File, _).
+
+# Safe to write check
+coder_safe_to_write(File) :-
+    pending_edit(File, _),
+    !has_coder_block(File).
+
+# -----------------------------------------------------------------------------
+# 5.3 Edit Quality Gates
+# -----------------------------------------------------------------------------
+
+# Edit should include tests if creating new code
+edit_needs_tests(File) :-
+    coder_task(_, /create, File, _),
+    detected_language(File, Lang),
+    testable_language(Lang),
+    !is_test_file(File).
+
+# Edit should update docs if modifying public API
+edit_needs_docs(File) :-
+    coder_task(_, /modify, File, _),
+    is_public_api(File),
+    !doc_exists_for(File).
+
+# Testable languages
+testable_language(/go).
+testable_language(/python).
+testable_language(/typescript).
+testable_language(/javascript).
+testable_language(/rust).
+testable_language(/java).

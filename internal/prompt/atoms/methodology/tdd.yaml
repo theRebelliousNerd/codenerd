@@ -1,0 +1,38 @@
+# TDD Methodology Atoms
+# These atoms define the test-driven development approach used by codeNERD
+
+- id: "methodology/tdd/retry_limits"
+  category: "methodology"
+  subcategory: "tdd"
+  is_mandatory: false
+  operational_modes: ["/tdd_repair"]
+  world_states: ["failing_tests"]
+  content: |
+    ## TDD RETRY LIMITS AND ESCALATION
+
+    ### RETRY POLICY
+    - Attempt 1: Apply obvious fix based on error message
+    - Attempt 2: Deeper analysis, check related code
+    - Attempt 3: Consider alternative approaches
+    - Attempt 4+: Escalate to user with detailed analysis
+
+    ### ESCALATION CRITERIA
+    Escalate immediately if:
+    - Same test fails with different errors
+    - Fix causes other tests to fail
+    - Root cause is ambiguous
+    - Fix requires architectural changes
+
+    ### ESCALATION FORMAT
+    When escalating, provide:
+    1. Test name and failure message
+    2. Analysis performed
+    3. Fixes attempted
+    4. Hypotheses for root cause
+    5. Recommended next steps
+
+    ### CIRCUIT BREAKER
+    After 3 consecutive failed attempts on the same test:
+    - Stop attempting fixes
+    - Report detailed findings
+    - Request human intervention

@@ -1,0 +1,326 @@
+package perception
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"codenerd/internal/types"
+)
+
+// metaContributorModel is the model these tests configure for Meta, the way a
+// workspace does in .nerd/config.json. Production code names no model.
+const metaContributorModel = "muse-spark-1.3-contributor"
+
+// testCompatModel is what a test workspace configures for a vendor.
+func testCompatModel(vendor Provider) string {
+	if vendor == ProviderMeta {
+		return metaContributorModel
+	}
+	return "test-model"
+}
+
+func newTestCompatClient(t *testing.T, vendor Provider, baseURL string) *OpenAICompatClient {
+	t.Helper()
+	cfg := DefaultOpenAICompatConfig(vendor, "test-key")
+	cfg.Model = testCompatModel(vendor)
+	cfg.BaseURL = baseURL
+	cfg.Timeout = 5 * time.Second
+	c, err := NewOpenAICompatClient(cfg)
+	if err != nil {
+		t.Fatalf("NewOpenAICompatClient(%s): %v", vendor, err)
+	}
+	return c
+}
+
+func TestNewOpenAICompatClient_RequiresKeyAndBaseURL(t *testing.T) {
+	if _, err := NewOpenAICompatClient(OpenAICompatConfig{Vendor: ProviderMeta, BaseURL: "https://x/v1"}); err == nil {
+		t.Fatal("expected error when API key is empty")
+	}
+	if _, err := NewOpenAICompatClient(OpenAICompatConfig{Vendor: "unknown-vendor", APIKey: "k"}); err == nil {
+		t.Fatal("expected error when base URL cannot be defaulted")
+	}
+}
+
+func TestDefaultOpenAICompatConfig_VendorEndpoints(t *testing.T) {
+	// A vendor default is an endpoint. It names no model: that is the
+	// workspace's to choose.
+	cases := map[Provider]struct{ base, model string }{
+		ProviderDashScope: {"https://dashscope-intl.aliyuncs.com/compatible-mode/v1", ""},
+		ProviderMeta:      {"https://api.meta.ai/v1", ""},
+		ProviderMoonshot:  {"https://api.moonshot.ai/v1", ""},
+	}
+	for vendor, want := range cases {
+		got := DefaultOpenAICompatConfig(vendor, "k")
+		if got.BaseURL != want.base {
+			t.Errorf("%s base = %q, want %q", vendor, got.BaseURL, want.base)
+		}
+		if got.Model != want.model {
+			t.Errorf("%s model = %q, want %q", vendor, got.Model, want.model)
+		}
+		if !IsOpenAICompatProvider(vendor) {
+			t.Errorf("IsOpenAICompatProvider(%s) = false", vendor)
+		}
+	}
+	if IsOpenAICompatProvider(ProviderGemini) {
+		t.Error("gemini must not route through the OpenAI-compatible client")
+	}
+}
+
+// Meta deprecates max_tokens and rejects reasoning_effort:"none" with HTTP 400,
+// and is tuned to run at default sampling. Its effort is the slot's configured
+// one: a capability hint on the context chooses nothing.
+func TestBuildRequest_MetaFieldShape(t *testing.T) {
+	c := newTestCompatClient(t, ProviderMeta, "https://api.meta.ai/v1")
+	c.reasoningEffort = "medium"
+
+	ctx := types.WithModelCapability(context.Background(), types.CapabilityHighReasoning)
+	req := c.buildRequest(ctx, []OpenAIMessage{{Role: "user", Content: "hi"}}, true)
+
+	if req.MaxTokens != 0 {
+		t.Errorf("MaxTokens = %d, want 0 (Meta uses max_completion_tokens)", req.MaxTokens)
+	}
+	if req.MaxCompletionTokens == 0 {
+		t.Error("MaxCompletionTokens must be set for Meta")
+	}
+	if req.ReasoningEffort != "medium" {
+		t.Errorf("ReasoningEffort = %q, want the configured medium whatever the capability hint", req.ReasoningEffort)
+	}
+	if req.EnableThinking != nil {
+		t.Error("enable_thinking is a DashScope field and must not be sent to Meta")
+	}
+	if req.Temperature != 0 || req.TopP != 0 {
+		t.Errorf("Meta should use default sampling, got temp=%v top_p=%v", req.Temperature, req.TopP)
+	}
+}
+
+// The effort a Meta request carries is the config's: the slot's configured
+// effort, thinking on or off, or a shard profile's riding the request; a
+// client configured with none sends none, and nothing invents one.
+func TestBuildRequest_MetaSendsTheConfiguredEffort(t *testing.T) {
+	tests := []struct {
+		name     string
+		effort   string
+		ctx      context.Context
+		thinking bool
+		want     string
+	}{
+		{name: "configured effort", effort: "xhigh", ctx: context.Background(), thinking: true, want: "xhigh"},
+		{name: "configured effort with thinking off", effort: "minimal", ctx: context.Background(), want: "minimal"},
+		{name: "a profile effort wins", effort: "xhigh", ctx: types.WithReasoningEffort(context.Background(), "low"), thinking: true, want: "low"},
+		{name: "a capability hint invents nothing", ctx: types.WithModelCapability(context.Background(), types.CapabilityHighSpeed), thinking: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestCompatClient(t, ProviderMeta, "https://api.meta.ai/v1")
+			c.reasoningEffort = tt.effort
+			if got := c.buildRequest(tt.ctx, nil, tt.thinking).ReasoningEffort; got != tt.want {
+				t.Errorf("reasoning_effort = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildRequest_DashScopeThinking(t *testing.T) {
+	c := newTestCompatClient(t, ProviderDashScope, "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
+
+	req := c.buildRequest(context.Background(), nil, true)
+	if req.EnableThinking == nil || !*req.EnableThinking {
+		t.Fatal("DashScope request must set enable_thinking=true")
+	}
+	if req.Temperature != 0.6 || req.TopP != 0.95 {
+		t.Errorf("thinking-mode sampling = temp %v / top_p %v, want 0.6 / 0.95", req.Temperature, req.TopP)
+	}
+	if req.MaxTokens == 0 {
+		t.Error("DashScope uses max_tokens")
+	}
+	if req.ReasoningEffort != "" {
+		t.Error("reasoning_effort is a Meta field and must not be sent to DashScope")
+	}
+
+	// enable_thinking:false must be transmitted, not omitted — "off" and "unset"
+	// are different requests.
+	off := c.buildRequest(context.Background(), nil, false)
+	if off.EnableThinking == nil {
+		t.Fatal("enable_thinking must be present even when false")
+	}
+	if *off.EnableThinking {
+		t.Error("enable_thinking should be false when thinking is disabled")
+	}
+	encoded, err := json.Marshal(off)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"enable_thinking":false`) {
+		t.Errorf("enable_thinking:false was dropped from payload: %s", encoded)
+	}
+}
+
+// A per-shard model override in the context must win over the client default.
+func TestModelForContext_OverridesDefault(t *testing.T) {
+	c := newTestCompatClient(t, ProviderMeta, "https://api.meta.ai/v1")
+
+	// The default is the contributor tier — see normalizeMetaModel. This
+	// asserted the plain "muse-spark-1.2", which is the wrong commercial tier
+	// and is what let 482 completions in one day run on it.
+	if got := c.ModelForContext(context.Background()); got != metaContributorModel {
+		t.Errorf("default model = %q, want %s", got, metaContributorModel)
+	}
+	ctx := types.WithModelName(context.Background(), metaContributorModel)
+	if got := c.ModelForContext(ctx); got != metaContributorModel {
+		t.Errorf("context model = %q, want %s", got, metaContributorModel)
+	}
+	req := c.buildRequest(ctx, nil, false)
+	if req.Model != metaContributorModel {
+		t.Errorf("request model = %q, per-shard override not applied", req.Model)
+	}
+}
+
+// reasoning_content must never be folded into content: callers parse content as
+// JSON for structured output and a prose preamble breaks that parse.
+func TestCompleteWithSystem_ExcludesReasoningContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Errorf("Authorization = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"choices":[{"index":0,"finish_reason":"stop","message":{
+				"role":"assistant",
+				"content":"{\"answer\":42}",
+				"reasoning_content":"Let me think step by step about this..."
+			}}],
+			"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}
+		}`))
+	}))
+	defer srv.Close()
+
+	c := newTestCompatClient(t, ProviderDashScope, srv.URL)
+	got, err := c.CompleteWithSystem(context.Background(), "sys", "user")
+	if err != nil {
+		t.Fatalf("CompleteWithSystem: %v", err)
+	}
+	if got != `{"answer":42}` {
+		t.Errorf("content = %q, want the JSON payload alone", got)
+	}
+	if strings.Contains(got, "step by step") {
+		t.Error("reasoning_content leaked into the returned content")
+	}
+}
+
+func TestExecuteChat_SurfacesAPIErrorEnvelope(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"bad model","type":"invalid_request_error","code":"model_not_found"}}`))
+	}))
+	defer srv.Close()
+
+	c := newTestCompatClient(t, ProviderMeta, srv.URL)
+	_, err := c.CompleteWithSystem(context.Background(), "sys", "user")
+	if err == nil {
+		t.Fatal("expected an error for HTTP 400")
+	}
+	if !strings.Contains(err.Error(), "bad model") {
+		t.Errorf("error did not surface the vendor message: %v", err)
+	}
+}
+
+func TestCompleteWithTools_MapsToolCalls(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req OpenAIRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		if len(req.Tools) != 1 || req.Tools[0].Function.Name != "read_file" {
+			t.Errorf("tools not forwarded: %+v", req.Tools)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"choices":[{"index":0,"finish_reason":"tool_calls","message":{
+				"role":"assistant","content":"",
+				"tool_calls":[{"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"a.go\"}"}}]
+			}}],
+			"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}
+		}`))
+	}))
+	defer srv.Close()
+
+	c := newTestCompatClient(t, ProviderMoonshot, srv.URL)
+	resp, err := c.CompleteWithTools(context.Background(), "sys", "user", []ToolDefinition{
+		{Name: "read_file", Description: "read a file", InputSchema: map[string]any{"type": "object"}},
+	})
+	if err != nil {
+		t.Fatalf("CompleteWithTools: %v", err)
+	}
+	if resp.StopReason != "tool_use" {
+		t.Errorf("StopReason = %q, want tool_use (normalized from tool_calls)", resp.StopReason)
+	}
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].Name != "read_file" {
+		t.Fatalf("tool calls = %+v", resp.ToolCalls)
+	}
+	if resp.ToolCalls[0].Input["path"] != "a.go" {
+		t.Errorf("tool args = %+v", resp.ToolCalls[0].Input)
+	}
+}
+
+// The client must satisfy both the base interface and the multi-turn tool
+// interface, so the session executor runs a real agentic loop rather than
+// degrading to single-turn tool use.
+func TestOpenAICompatClient_ImplementsInterfaces(t *testing.T) {
+	var c any = &OpenAICompatClient{}
+	if _, ok := c.(types.LLMClient); !ok {
+		t.Error("OpenAICompatClient does not implement types.LLMClient")
+	}
+	if _, ok := c.(types.ToolResultsProvider); !ok {
+		t.Error("OpenAICompatClient does not implement types.ToolResultsProvider")
+	}
+}
+
+func TestBuildRequest_MetaExplicitXHighOnUnhintedAndAllCapabilities(t *testing.T) {
+	cfg := DefaultOpenAICompatConfig(ProviderMeta, "k")
+	cfg.ReasoningEffort = "xhigh"
+	c, err := NewOpenAICompatClient(cfg)
+	if err != nil {
+		t.Fatalf("NewOpenAICompatClient: %v", err)
+	}
+	// The configured effort rides every request, whatever capability hint
+	// the context carries.
+	req := c.buildRequest(context.Background(), nil, true)
+	if req.ReasoningEffort != "xhigh" {
+		t.Fatalf("reasoning_effort = %q, want xhigh", req.ReasoningEffort)
+	}
+	for _, cap := range []types.ModelCapability{types.CapabilityHighReasoning, types.CapabilityBalanced, types.CapabilityHighSpeed} {
+		ctx := types.WithModelCapability(context.Background(), cap)
+		req = c.buildRequest(ctx, nil, true)
+		if req.ReasoningEffort != "xhigh" {
+			t.Errorf("cap %q: reasoning_effort = %q, want xhigh", cap, req.ReasoningEffort)
+		}
+	}
+	// DashScope must never emit reasoning_effort even with an explicit effort.
+	dsCfg := DefaultOpenAICompatConfig(ProviderDashScope, "k")
+	dsCfg.ReasoningEffort = "xhigh"
+	ds, err := NewOpenAICompatClient(dsCfg)
+	if err != nil {
+		t.Fatalf("dashscope NewOpenAICompatClient: %v", err)
+	}
+	dsReq := ds.buildRequest(context.Background(), nil, true)
+	if dsReq.ReasoningEffort != "" {
+		t.Errorf("dashscope reasoning_effort = %q, want empty", dsReq.ReasoningEffort)
+	}
+	encoded, _ := json.Marshal(dsReq)
+	if strings.Contains(string(encoded), "reasoning_effort") {
+		t.Error("dashscope payload must not contain reasoning_effort")
+	}
+}
+
+func TestNewOpenAICompatClient_InvalidMetaEffortRejects(t *testing.T) {
+	cfg := DefaultOpenAICompatConfig(ProviderMeta, "k")
+	cfg.ReasoningEffort = "turbo"
+	if _, err := NewOpenAICompatClient(cfg); err == nil {
+		t.Fatal("expected error for invalid reasoning_effort")
+	}
+}

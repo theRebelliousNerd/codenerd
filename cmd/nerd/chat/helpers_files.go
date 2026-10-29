@@ -1,0 +1,361 @@
+package chat
+
+import (
+	"bufio"
+	"codenerd/internal/logging"
+	"codenerd/internal/perception"
+	"codenerd/internal/tools"
+	"codenerd/internal/workspace"
+	"context"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
+)
+
+// openMembership is the workspace member set. An empty root means the
+// process working directory, which is what a walk of "." already meant.
+func openMembership(root string) (*workspace.Membership, error) {
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	m, err := workspace.For(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.Refresh(); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func appendFileContent(workspace, path, content string) error {
+	full := resolvePath(workspace, path)
+	dir := filepath.Dir(full)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(full, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(content)
+	return err
+}
+
+func applyPatchResult(workspace, patch string) string {
+	fullPatch := patch
+	if !strings.HasPrefix(strings.TrimSpace(patch), "*** Begin Patch") {
+		fullPatch = "*** Begin Patch\n" + patch + "\n*** End Patch\n"
+	}
+	tmpPath := filepath.Join(workspace, ".nerd", "last_patch.txt")
+	if err := os.MkdirAll(filepath.Dir(tmpPath), 0755); err == nil {
+		if err := os.WriteFile(tmpPath, []byte(fullPatch), 0644); err != nil {
+			logging.Routing("[helpers] failed to write patch file: %v", err)
+		}
+	}
+	if err := runApplyPatch(workspace, fullPatch); err != nil {
+		return fmt.Sprintf("Patch failed: %v", err)
+	}
+	return "Patch applied."
+}
+
+// runApplyPatch applies the patch with the workspace as the working
+// directory: the patch's paths are workspace-relative, not relative to
+// wherever the process was started.
+func runApplyPatch(workspace, patch string) error {
+	// Try git apply first, fallback to 'patch' if available
+	cmd := exec.Command("git", "apply", "--whitespace=nowarn")
+	cmd.Dir = workspace
+	cmd.Stdin = strings.NewReader(patch)
+	gitOut, gitErr := cmd.CombinedOutput()
+	if gitErr == nil {
+		return nil
+	}
+	gitFailure := fmt.Errorf("git apply: %v: %s", gitErr, strings.TrimSpace(string(gitOut)))
+	if _, err := exec.LookPath("patch"); err != nil {
+		return gitFailure
+	}
+	cmd = exec.Command("patch", "-p0")
+	cmd.Dir = workspace
+	cmd.Stdin = strings.NewReader(patch)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%w; patch -p0: %v: %s", gitFailure, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func resolvePath(workspace, path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(workspace, path)
+}
+
+// readFileRange reads lines [startLine, endLine] (1-based, inclusive;
+// endLine <= 0 means to end of file) up to maxBytes, counting every line in
+// the file. truncated reports that the byte cap cut the requested range —
+// a silent cap (the old readFileContent) is how /read once handed the user (and the
+// history) 16000 of a 24857-byte problems log with no sign the tail, where
+// the newest errors were, was missing.
+func readFileRange(workspace, path string, startLine, endLine, maxBytes int) (content string, first, last, totalLines int, truncated bool, err error) {
+	root := workspace
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	full, err := tools.ResolveWorkspacePath(context.Background(), root, path)
+	if err != nil {
+		return "", 0, 0, 0, false, err
+	}
+	f, err := os.Open(full)
+	if err != nil {
+		return "", 0, 0, 0, false, err
+	}
+	defer f.Close()
+	if startLine < 1 {
+		startLine = 1
+	}
+	first = startLine
+
+	reader := bufio.NewReaderSize(f, 256*1024)
+	var out strings.Builder
+	lineNo := 0
+	for {
+		chunk, readErr := reader.ReadBytes('\n')
+		if len(chunk) > 0 {
+			lineNo++
+			inRange := lineNo >= startLine && (endLine <= 0 || lineNo <= endLine)
+			if inRange && !truncated {
+				if out.Len()+len(chunk) > maxBytes {
+					remaining := maxBytes - out.Len()
+					if remaining > 0 {
+						out.Write(chunk[:remaining])
+					}
+					truncated = true
+					last = lineNo
+				} else {
+					out.Write(chunk)
+					last = lineNo
+				}
+			}
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+			return "", 0, 0, 0, false, readErr
+		}
+	}
+	totalLines = lineNo
+	if last < first {
+		// The range starts past the end of the file.
+		last = first - 1
+	}
+	content = out.String()
+	for len(content) > 0 && !utf8.ValidString(content) {
+		content = content[:len(content)-1]
+	}
+	return content, first, last, totalLines, truncated, nil
+}
+
+func countFileLines(workspace, path string) (int64, error) {
+	full := resolvePath(workspace, path)
+	f, err := os.Open(full)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	reader := bufio.NewReaderSize(f, 256*1024)
+	var lines int64
+	var sawAnyByte bool
+	lastByteWasNewline := false
+
+	for {
+		chunk, err := reader.ReadBytes('\n')
+		if len(chunk) > 0 {
+			sawAnyByte = true
+			lastByteWasNewline = chunk[len(chunk)-1] == '\n'
+			if lastByteWasNewline {
+				lines++
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return 0, err
+		}
+	}
+
+	if !sawAnyByte {
+		return 0, nil
+	}
+	if !lastByteWasNewline {
+		lines++
+	}
+	return lines, nil
+}
+
+func (m *Model) handleStatsIntent(ctx context.Context, intent perception.Intent) (string, error) {
+	target := strings.TrimSpace(intent.Target)
+	if target == "" || strings.EqualFold(target, "none") {
+		return "", fmt.Errorf("stats requires a file or directory target")
+	}
+
+	full := resolvePath(m.workspace, target)
+	info, err := os.Stat(full)
+	if err != nil {
+		// If the target looks like a path, surface a clear error; otherwise the /stats key isn't wired yet.
+		if strings.ContainsAny(target, `/\`) || filepath.Ext(target) != "" {
+			return "", fmt.Errorf("file not found: %s", full)
+		}
+		return "", fmt.Errorf("unsupported stats target %q (try a file path)", target)
+	}
+
+	memRoot := m.workspace
+	if strings.TrimSpace(memRoot) == "" {
+		memRoot = full
+	}
+	mem, memErr := openMembership(memRoot)
+	if memErr != nil {
+		return "", memErr
+	}
+
+	if info.IsDir() {
+		// Directory LOC: count lines across code-ish files under the directory.
+		allowedExt := map[string]bool{
+			".go":     true,
+			".mg":     true,
+			".mangle": true,
+			".dl":     true,
+			".py":     true,
+			".js":     true,
+			".jsx":    true,
+			".ts":     true,
+			".tsx":    true,
+			".rs":     true,
+			".java":   true,
+			".kt":     true,
+			".c":      true,
+			".cc":     true,
+			".cpp":    true,
+			".h":      true,
+			".hpp":    true,
+			".cs":     true,
+			".sh":     true,
+			".ps1":    true,
+		}
+
+		var totalLines int64
+		var countedFiles int64
+		var skippedFiles int64
+		const maxFileSize = 5 * 1024 * 1024 // 5MB
+
+		walkErr := filepath.WalkDir(full, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			member, admErr := mem.Admit(path, d.IsDir())
+			if admErr != nil {
+				return admErr
+			}
+			if !member || d.IsDir() {
+				return nil
+			}
+			name := d.Name()
+
+			ext := strings.ToLower(filepath.Ext(name))
+			if !allowedExt[ext] {
+				return nil
+			}
+
+			if st, statErr := os.Stat(path); statErr == nil && st.Size() > maxFileSize {
+				skippedFiles++
+				return nil
+			}
+
+			lines, err := countFileLines(m.workspace, path)
+			if err != nil {
+				skippedFiles++
+				return nil
+			}
+			totalLines += lines
+			countedFiles++
+			return nil
+		})
+		if walkErr != nil {
+			return "", walkErr
+		}
+
+		resp := fmt.Sprintf("%s: %d total lines across %d files", target, totalLines, countedFiles)
+		if skippedFiles > 0 {
+			resp += fmt.Sprintf(" (%d skipped)", skippedFiles)
+		}
+		return resp, nil
+	}
+
+	ok, admErr := mem.Admit(full, false)
+	if admErr != nil || !ok {
+		return "", fmt.Errorf("%s is not a workspace member", target)
+	}
+	lines, err := countFileLines(m.workspace, target)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s: %d lines", target, lines), nil
+}
+
+func writeFileContent(workspace, path, content string) error {
+	full := resolvePath(workspace, path)
+	dir := filepath.Dir(full)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(full, []byte(content), 0644)
+}
+
+func makeDir(workspace, path string) error {
+	full := resolvePath(workspace, path)
+	return os.MkdirAll(full, 0755)
+}
+
+func searchInFiles(root, pattern string, maxHits int) ([]string, error) {
+	mem, err := openMembership(root)
+	if err != nil {
+		return nil, err
+	}
+	matches := make([]string, 0)
+	err = filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		member, admErr := mem.Admit(path, info.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || info.IsDir() {
+			return nil
+		}
+		if len(matches) >= maxHits {
+			return filepath.SkipDir
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		if strings.Contains(string(data), pattern) {
+			matches = append(matches, path)
+		}
+		return nil
+	})
+	return matches, err
+}

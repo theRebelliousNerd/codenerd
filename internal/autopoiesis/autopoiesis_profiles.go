@@ -1,0 +1,360 @@
+package autopoiesis
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+)
+
+// =============================================================================
+// QUALITY PROFILE WRAPPERS
+// =============================================================================
+// These methods expose the tool-specific quality profile system.
+
+// GetToolProfile retrieves the quality profile for a tool
+func (o *Orchestrator) GetToolProfile(toolName string) *ToolQualityProfile {
+	return o.profiles.GetProfile(toolName)
+}
+
+// SetToolProfile stores a quality profile for a tool
+func (o *Orchestrator) SetToolProfile(profile *ToolQualityProfile) {
+	o.profiles.SetProfile(profile)
+}
+
+// GetDefaultToolProfile returns a default profile based on tool type
+func (o *Orchestrator) GetDefaultToolProfile(toolName string, toolType ToolType) *ToolQualityProfile {
+	return GetDefaultProfile(toolName, toolType)
+}
+
+// EvaluateWithProfile performs profile-aware quality evaluation
+func (o *Orchestrator) EvaluateWithProfile(ctx context.Context, feedback *ExecutionFeedback) *QualityAssessment {
+	profile := o.profiles.GetProfile(feedback.ToolName)
+	if profile == nil {
+		// Fall back to default evaluation
+		return o.evaluator.Evaluate(ctx, feedback)
+	}
+	return o.evaluator.EvaluateWithProfile(ctx, feedback, profile)
+}
+
+// ExecuteAndEvaluateWithProfile runs a tool and evaluates using its quality profile
+func (o *Orchestrator) ExecuteAndEvaluateWithProfile(ctx context.Context, toolName string, input string) (string, *QualityAssessment, error) {
+	start := time.Now()
+
+	output, err := o.ouroboros.ExecuteTool(ctx, toolName, input)
+
+	feedback := &ExecutionFeedback{
+		ToolName:   toolName,
+		Timestamp:  start,
+		Input:      input,
+		Output:     output,
+		OutputSize: len(output),
+		Duration:   time.Since(start),
+		Success:    err == nil,
+	}
+
+	if err != nil {
+		feedback.ErrorMsg = err.Error()
+	}
+
+	// Profile-aware evaluation
+	profile := o.profiles.GetProfile(toolName)
+	if profile != nil {
+		feedback.Quality = o.evaluator.EvaluateWithProfile(ctx, feedback, profile)
+	} else {
+		feedback.Quality = o.evaluator.Evaluate(ctx, feedback)
+	}
+
+	o.RecordExecution(ctx, feedback)
+
+	return output, feedback.Quality, err
+}
+
+func (o *Orchestrator) GeneratedToolIdentity(name string) (types.GeneratedToolIdentity, error) {
+	if o == nil {
+		return types.GeneratedToolIdentity{}, fmt.Errorf("generated registry unavailable")
+	}
+	loop, native := o.ouroboros.(*OuroborosLoop)
+	if !native || loop == nil || loop.registry == nil {
+		return types.GeneratedToolIdentity{}, fmt.Errorf("generated registry unavailable")
+	}
+	return loop.registry.GeneratedToolIdentity(name)
+}
+
+// ExecuteGeneratedBackend does not evaluate or record: the executive validates
+// its joined process receipt before RecordGeneratedExecution acknowledges it.
+func (o *Orchestrator) ExecuteGeneratedBackend(ctx context.Context, request types.GeneratedToolRequest) types.GeneratedToolReceipt {
+	refused := types.GeneratedToolReceipt{Request: request, ExitCode: -1}
+	if o == nil || o.ouroboros == nil || o.learnings == nil || o.evaluator == nil || o.profiles == nil {
+		refused.BackendError = fmt.Errorf("generated backend or durable learning disconnected")
+		return refused
+	}
+	loop, native := o.ouroboros.(*OuroborosLoop)
+	if !native || loop == nil || loop.registry == nil || loop.config.ExecutionMode != ExecuteCompiled {
+		refused.BackendError = fmt.Errorf("generated process route requires compiled backend; no transport fallback")
+		return refused
+	}
+	if err := o.learnings.DurabilityError(); err != nil {
+		refused.BackendError = err
+		return refused
+	}
+	if _, recorded := o.learnings.ExecutionAcknowledgment(request.Key()); recorded {
+		refused.BackendError = fmt.Errorf("persisted execution exists but its live receipt is unavailable; crash replay requires reconciliation")
+		return refused
+	}
+	release, err := loop.toolOperations.acquire(ctx, request.Tool.Name)
+	if err != nil {
+		refused.BackendError = fmt.Errorf("wait to execute generated tool %s: %w", request.Tool.Name, err)
+		return refused
+	}
+	defer release()
+	if request.Tool.Protocol == types.GeneratedStdinV1 {
+		identity, err := o.GeneratedToolIdentity(request.Tool.Name)
+		if err != nil || identity != request.Tool {
+			refused.BackendError = fmt.Errorf("runtime/catalog generated identity mismatch: %v", err)
+			return refused
+		}
+	}
+	receipt := RunGeneratedBinary(ctx, request)
+	if receipt.ProcessStarted {
+		loop.mu.Lock()
+		loop.stats.ExecutionCount++
+		loop.mu.Unlock()
+		if receipt.BackendError == nil {
+			loop.registry.recordGeneratedSuccess(request.Tool)
+		}
+	}
+	return receipt
+}
+
+func (o *Orchestrator) RecordGeneratedExecution(ctx context.Context, receipt types.GeneratedToolReceipt) (ack types.GeneratedLearningAck, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("generated recording panic: %v", recovered)
+		}
+	}()
+	if !receipt.ProcessStarted {
+		return types.GeneratedLearningAck{}, fmt.Errorf("cannot record a process that never started")
+	}
+	feedback := &ExecutionFeedback{
+		ToolName: receipt.Request.Tool.Name, ExecutionID: receipt.Request.Key(), RequestFingerprint: receipt.Request.Fingerprint(),
+		Timestamp: receipt.StartedAt, Input: receipt.Request.CanonicalArgs, Output: receipt.Output, OutputSize: len(receipt.Output),
+		Duration: receipt.Duration, Success: receipt.BackendError == nil && receipt.ValidationCompleted && receipt.ValidationPassed,
+		ProcessStarted: receipt.ProcessStarted, ExitCode: receipt.ExitCode, Stdout: receipt.Stdout, Stderr: receipt.Stderr,
+		PartialOutput: receipt.PartialOutput, OutputTruncated: receipt.OutputTruncated,
+		ValidationCompleted: receipt.ValidationCompleted, ValidationPassed: receipt.ValidationPassed,
+		TaskContext: map[string]string{"call_id": receipt.Request.CallID, "authorization_id": receipt.Request.AuthorizationID,
+			"action": string(receipt.Request.Action), "target": receipt.Request.Target, "binary_hash": receipt.Request.Tool.BinaryHash,
+			"protocol": string(receipt.Request.Tool.Protocol)},
+	}
+	if err := receipt.Err(); err != nil {
+		feedback.ErrorMsg = err.Error()
+	}
+	if receipt.BackendError != nil {
+		feedback.BackendError = receipt.BackendError.Error()
+	}
+	if receipt.ValidationError != nil {
+		feedback.ValidationError = receipt.ValidationError.Error()
+	}
+	feedback.Quality = o.EvaluateWithProfile(ctx, feedback)
+	return o.RecordExecutionDurable(ctx, feedback)
+}
+
+// GenerateToolProfile uses LLM to generate a quality profile during tool
+// creation. Its system prompt is the tool_profiler role's atoms; the message
+// is the tool. No tool_profiler prompt is an error; a failed or unparseable
+// model reply yields the default profile.
+func (o *Orchestrator) GenerateToolProfile(ctx context.Context, toolName string, description string, toolCode string) (*ToolQualityProfile, error) {
+	o.mu.RLock()
+	roles := o.rolePrompts
+	o.mu.RUnlock()
+	systemPrompt, err := compileRolePrompt(ctx, roles, roleToolProfiler)
+	if err != nil {
+		return nil, err
+	}
+	userPrompt := fmt.Sprintf(`Tool Name: %s
+Description: %s
+Code (abbreviated):
+%s`,
+		toolName,
+		description,
+		types.ClampText(toolCode, 12000, toolName+" source"),
+	)
+
+	resp, err := o.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		// Return default profile on error
+		return GetDefaultProfile(toolName, ToolTypeDataFetch), nil
+	}
+
+	// Parse response
+	profile, parseErr := parseProfileResponse(toolName, resp)
+	if parseErr != nil {
+		// Return default profile on parse error
+		logging.AutopoiesisDebug("Failed to parse profile response: %v", parseErr)
+		return GetDefaultProfile(toolName, ToolTypeDataFetch), nil
+	}
+
+	// Store the profile
+	o.profiles.SetProfile(profile)
+
+	return profile, nil
+}
+
+// GenerateToolWithProfile generates a tool and its quality profile together
+func (o *Orchestrator) GenerateToolWithProfile(ctx context.Context, need *ToolNeed, userRequest string) (*GeneratedTool, *ToolQualityProfile, *ToolGenerationRecord, error) {
+	// Generate tool with tracing
+	tool, trace, err := o.GenerateToolWithTracing(ctx, need, userRequest)
+	if err != nil {
+		return nil, nil, trace, err
+	}
+
+	// Generate quality profile for the tool
+	profile, profileErr := o.GenerateToolProfile(ctx, tool.Name, need.Purpose, tool.Code)
+	if profileErr != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Tool %s keeps the default quality profile: %v", tool.Name, profileErr)
+		// Non-fatal - use default profile
+		profile = GetDefaultProfile(tool.Name, ToolTypeDataFetch)
+	}
+
+	// Store profile
+	o.profiles.SetProfile(profile)
+
+	// Add profile info to trace notes
+	trace.PostExecutionNotes = append(trace.PostExecutionNotes,
+		fmt.Sprintf("Generated quality profile: type=%s, acceptable_duration=%v",
+			profile.ToolType, profile.Performance.AcceptableDuration))
+
+	return tool, profile, trace, nil
+}
+
+// parseProfileResponse parses LLM response into a ToolQualityProfile
+func parseProfileResponse(toolName string, response string) (*ToolQualityProfile, error) {
+	// Extract JSON from response
+	jsonStr := extractJSON(response)
+	if jsonStr == "" {
+		return nil, fmt.Errorf("no JSON found in response")
+	}
+
+	// Parse into intermediate struct
+	var raw struct {
+		AnalysisSummary string `json:"analysis_summary"`
+		ToolType        string `json:"tool_type"`
+		Description     string `json:"description"`
+		Performance     struct {
+			ExpectedDurationMinMS int64   `json:"expected_duration_min_ms"`
+			ExpectedDurationMaxMS int64   `json:"expected_duration_max_ms"`
+			AcceptableDurationMS  int64   `json:"acceptable_duration_ms"`
+			TimeoutDurationMS     int64   `json:"timeout_duration_ms"`
+			MaxRetries            int     `json:"max_retries"`
+			ExpectedAPICalls      int     `json:"expected_api_calls"`
+			MaxMemoryMB           int64   `json:"max_memory_mb"`
+			ScalesWithInputSize   bool    `json:"scales_with_input_size"`
+			ScalingFactor         float64 `json:"scaling_factor"`
+		} `json:"performance"`
+		Output struct {
+			ExpectedMinSize     int      `json:"expected_min_size"`
+			ExpectedMaxSize     int      `json:"expected_max_size"`
+			ExpectedTypicalSize int      `json:"expected_typical_size"`
+			ExpectedFormat      string   `json:"expected_format"`
+			ExpectsPagination   bool     `json:"expects_pagination"`
+			ExpectedPages       int      `json:"expected_pages"`
+			RequiredFields      []string `json:"required_fields"`
+			MustContain         []string `json:"must_contain"`
+			MustNotContain      []string `json:"must_not_contain"`
+			CompletenessCheck   string   `json:"completeness_check"`
+		} `json:"output"`
+		UsagePattern struct {
+			Frequency         string `json:"frequency"`
+			CallsPerSession   int    `json:"calls_per_session"`
+			IsIdempotent      bool   `json:"is_idempotent"`
+			HasSideEffects    bool   `json:"has_side_effects"`
+			DependsOnExternal bool   `json:"depends_on_external"`
+		} `json:"usage_pattern"`
+		Caching struct {
+			Cacheable     bool     `json:"cacheable"`
+			CacheDuration string   `json:"cache_duration"`
+			CacheKey      string   `json:"cache_key"`
+			InvalidateOn  []string `json:"invalidate_on"`
+		} `json:"caching"`
+		CustomDimensions []struct {
+			Name           string  `json:"name"`
+			Description    string  `json:"description"`
+			ExpectedValue  float64 `json:"expected_value"`
+			Tolerance      float64 `json:"tolerance"`
+			Weight         float64 `json:"weight"`
+			ExtractPattern string  `json:"extract_pattern"`
+		} `json:"custom_dimensions"`
+	}
+
+	if err := json.Unmarshal([]byte(jsonStr), &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse profile JSON: %w", err)
+	}
+
+	// Convert to ToolQualityProfile
+	profile := &ToolQualityProfile{
+		ToolName:    toolName,
+		ToolType:    ToolType(raw.ToolType),
+		Description: raw.Description,
+		CreatedAt:   time.Now(),
+		Performance: PerformanceExpectations{
+			ExpectedDurationMin: time.Duration(raw.Performance.ExpectedDurationMinMS) * time.Millisecond,
+			ExpectedDurationMax: time.Duration(raw.Performance.ExpectedDurationMaxMS) * time.Millisecond,
+			AcceptableDuration:  time.Duration(raw.Performance.AcceptableDurationMS) * time.Millisecond,
+			TimeoutDuration:     time.Duration(raw.Performance.TimeoutDurationMS) * time.Millisecond,
+			MaxRetries:          raw.Performance.MaxRetries,
+			ExpectedAPIcalls:    raw.Performance.ExpectedAPICalls,
+			MaxMemoryMB:         raw.Performance.MaxMemoryMB,
+			ScalesWithInputSize: raw.Performance.ScalesWithInputSize,
+			ScalingFactor:       raw.Performance.ScalingFactor,
+		},
+		Output: OutputExpectations{
+			ExpectedMinSize:     raw.Output.ExpectedMinSize,
+			ExpectedMaxSize:     raw.Output.ExpectedMaxSize,
+			ExpectedTypicalSize: raw.Output.ExpectedTypicalSize,
+			ExpectedFormat:      raw.Output.ExpectedFormat,
+			ExpectsPagination:   raw.Output.ExpectsPagination,
+			ExpectedPages:       raw.Output.ExpectedPages,
+			RequiredFields:      raw.Output.RequiredFields,
+			MustContain:         raw.Output.MustContain,
+			MustNotContain:      raw.Output.MustNotContain,
+			CompletenessCheck:   raw.Output.CompletenessCheck,
+		},
+		UsagePattern: UsagePattern{
+			Frequency:         UsageFrequency(raw.UsagePattern.Frequency),
+			CallsPerSession:   raw.UsagePattern.CallsPerSession,
+			IsIdempotent:      raw.UsagePattern.IsIdempotent,
+			HasSideEffects:    raw.UsagePattern.HasSideEffects,
+			DependsOnExternal: raw.UsagePattern.DependsOnExternal,
+		},
+		Caching: CachingConfig{
+			Cacheable:    raw.Caching.Cacheable,
+			CacheKey:     raw.Caching.CacheKey,
+			InvalidateOn: raw.Caching.InvalidateOn,
+		},
+	}
+
+	// Parse cache duration
+	if raw.Caching.CacheDuration != "" {
+		if dur, err := time.ParseDuration(raw.Caching.CacheDuration); err == nil {
+			profile.Caching.CacheDuration = dur
+		}
+	}
+
+	// Convert custom dimensions
+	for _, dim := range raw.CustomDimensions {
+		profile.CustomDimensions = append(profile.CustomDimensions, CustomDimension{
+			Name:           dim.Name,
+			Description:    dim.Description,
+			ExpectedValue:  dim.ExpectedValue,
+			Tolerance:      dim.Tolerance,
+			Weight:         dim.Weight,
+			ExtractPattern: dim.ExtractPattern,
+		})
+	}
+
+	return profile, nil
+}

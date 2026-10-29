@@ -1,0 +1,312 @@
+package init
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"codenerd/internal/config"
+	"codenerd/internal/embedding"
+	"codenerd/internal/perception"
+)
+
+func TestCreateMangleTemplatesPreservesUserContent(t *testing.T) {
+	nerdDir := filepath.Join(t.TempDir(), ".nerd")
+	mangleDir := filepath.Join(nerdDir, "mangle")
+	if err := os.MkdirAll(mangleDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	initializer := &Initializer{}
+	if err := initializer.createMangleTemplates(nerdDir); err != nil {
+		t.Fatalf("first createMangleTemplates() error = %v", err)
+	}
+
+	extensionsPath := filepath.Join(mangleDir, "extensions.mg")
+	policyPath := filepath.Join(mangleDir, "policy_overrides.mg")
+	const extensions = "# user extensions\nDecl user_owned(X).\n"
+	const policy = "# user policy\npermitted(/custom).\n"
+	if err := os.WriteFile(extensionsPath, []byte(extensions), 0o644); err != nil {
+		t.Fatalf("WriteFile(extensions) error = %v", err)
+	}
+	if err := os.WriteFile(policyPath, []byte(policy), 0o644); err != nil {
+		t.Fatalf("WriteFile(policy) error = %v", err)
+	}
+
+	if err := initializer.createMangleTemplates(nerdDir); err != nil {
+		t.Fatalf("second createMangleTemplates() error = %v", err)
+	}
+	assertFileContent(t, extensionsPath, extensions)
+	assertFileContent(t, policyPath, policy)
+}
+
+func TestCreateDirectoryStructurePreservesUserGitignore(t *testing.T) {
+	workspace := t.TempDir()
+	initializer := &Initializer{config: InitConfig{Workspace: workspace}}
+	nerdDir, err := initializer.createDirectoryStructure()
+	if err != nil {
+		t.Fatalf("first createDirectoryStructure() error = %v", err)
+	}
+
+	gitignorePath := filepath.Join(nerdDir, ".gitignore")
+	const custom = "# user-owned ignore rules\ncustom.db\n"
+	if err := os.WriteFile(gitignorePath, []byte(custom), 0o644); err != nil {
+		t.Fatalf("WriteFile(.gitignore) error = %v", err)
+	}
+	if _, err := initializer.createDirectoryStructure(); err != nil {
+		t.Fatalf("second createDirectoryStructure() error = %v", err)
+	}
+	assertFileContent(t, gitignorePath, custom)
+}
+
+func TestInitTimeoutBoundsOneModelRequest(t *testing.T) {
+	parent := context.Background()
+	initializer := &Initializer{config: InitConfig{Timeout: 2 * time.Second, LLMClient: &MockLLMClient{}}}
+	for range 2 {
+		_, err := initializer.withJITPrompt(parent, initCall{slot: slotPlanner, phase: "document_roles", task: "fixture", system: "compiled fixture guidance"},
+			func(ctx context.Context, _ perception.LLMClient, _ string) (string, error) {
+				deadline, ok := ctx.Deadline()
+				if !ok {
+					t.Fatal("model request has no deadline")
+				}
+				remaining := time.Until(deadline)
+				if remaining <= 0 || remaining > 2*time.Second {
+					t.Fatalf("request deadline remaining = %s, want (0s, 2s]", remaining)
+				}
+				return "ok", nil
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, hasDeadline := parent.Deadline(); hasDeadline {
+		t.Fatal("request deadline leaked into the initialization context")
+	}
+}
+
+// TestZeroTimeoutReadsConfiguredPerCallTimeout covers the callers' contract:
+// neither the chat /init nor `nerd init` sets InitConfig.Timeout, so the
+// configured llm_timeouts.per_call_timeout, as installed when the request is
+// made, is what bounds each model request; a non-positive configured value
+// adds no clock of its own.
+func TestZeroTimeoutReadsConfiguredPerCallTimeout(t *testing.T) {
+	saved := config.GetLLMTimeouts()
+	t.Cleanup(func() { config.SetLLMTimeouts(saved) })
+
+	tests := []struct {
+		name        string
+		perCall     time.Duration
+		wantBound   time.Duration
+		wantNoClock bool
+	}{
+		{name: "configured value bounds the request", perCall: 90 * time.Second, wantBound: 90 * time.Second},
+		{name: "a larger configured value is honored, not the old 10m hardcode", perCall: 45 * time.Minute, wantBound: 45 * time.Minute},
+		{name: "non-positive configured value adds no clock", perCall: 0, wantNoClock: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			timeouts := saved
+			timeouts.PerCallTimeout = tt.perCall
+			config.SetLLMTimeouts(timeouts)
+
+			initializer := &Initializer{config: InitConfig{LLMClient: &MockLLMClient{}}}
+			_, err := initializer.withJITPrompt(context.Background(), initCall{slot: slotMain, phase: "kb_agent", task: "fixture", system: "guidance"},
+				func(ctx context.Context, _ perception.LLMClient, _ string) (string, error) {
+					deadline, ok := ctx.Deadline()
+					if tt.wantNoClock {
+						if ok {
+							t.Fatalf("request has a deadline %s away; a non-positive per_call_timeout adds none", time.Until(deadline))
+						}
+						return "ok", nil
+					}
+					if !ok {
+						t.Fatal("model request has no deadline")
+					}
+					remaining := time.Until(deadline)
+					if remaining <= 0 || remaining > tt.wantBound || remaining < tt.wantBound-5*time.Second {
+						t.Fatalf("request deadline remaining = %s, want about %s", remaining, tt.wantBound)
+					}
+					return "ok", nil
+				})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestInitializePreservesCancellationIdentity(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	initializer := &Initializer{config: InitConfig{Timeout: time.Minute}}
+
+	result, err := initializer.Initialize(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Initialize() error = %v, want errors.Is(context.Canceled)", err)
+	}
+	if result == nil || len(result.Failures) != 1 {
+		t.Fatalf("Initialize() result = %+v, want one required cancellation failure", result)
+	}
+}
+
+func TestEnsureEmbeddingEngineRejectsCorruptWorkspaceConfig(t *testing.T) {
+	workspace := t.TempDir()
+	nerdDir := filepath.Join(workspace, ".nerd")
+	if err := os.MkdirAll(nerdDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nerdDir, "config.json"), []byte("{"), 0o600); err != nil {
+		t.Fatalf("WriteFile(config.json) error = %v", err)
+	}
+
+	initializer := &Initializer{config: InitConfig{Workspace: workspace}}
+	err := initializer.ensureEmbeddingEngine()
+	if err == nil || !strings.Contains(err.Error(), "load workspace embedding config") {
+		t.Fatalf("ensureEmbeddingEngine() error = %v, want corrupt workspace config failure", err)
+	}
+}
+
+func TestWithJITPromptRecordsProviderFailure(t *testing.T) {
+	initializer := &Initializer{config: InitConfig{LLMClient: &identifiedClient{provider: "test-provider", model: "test-model"}}}
+	wantErr := errors.New("provider unavailable")
+
+	_, gotErr := initializer.withJITPrompt(context.Background(), initCall{slot: slotMain, phase: "analysis", task: "test metrics", system: "guidance"},
+		func(context.Context, perception.LLMClient, string) (string, error) { return "", wantErr })
+	if !errors.Is(gotErr, wantErr) {
+		t.Fatalf("withJITPrompt() error = %v, want %v", gotErr, wantErr)
+	}
+
+	metrics := initializer.snapshotLLMMetrics()
+	if metrics.Attempts != 1 || metrics.Succeeded != 0 || metrics.Failed != 1 {
+		t.Fatalf("metrics = %+v, want one failed attempt", metrics)
+	}
+	if metrics.LastError != wantErr.Error() {
+		t.Fatalf("LastError = %q, want %q", metrics.LastError, wantErr)
+	}
+	if len(metrics.Clients) != 1 || metrics.Clients[0].Identity() != "test-provider/test-model" || metrics.Clients[0].Slot != "main" {
+		t.Fatalf("Clients = %+v, want one main row for test-provider/test-model", metrics.Clients)
+	}
+	if warnings := degradedEnrichmentWarnings(metrics); len(warnings) != 1 || !strings.Contains(warnings[0], "main client (test-provider/test-model)") {
+		t.Fatalf("degraded warnings = %v, want one naming the main client", warnings)
+	}
+}
+
+func TestRecordLLMCallIsConcurrentAndInternallyConsistent(t *testing.T) {
+	initializer := &Initializer{}
+	main := llmRoute{slot: slotMain}
+	planner := llmRoute{slot: slotPlanner}
+	const calls = 100
+	done := make(chan struct{}, calls)
+	for n := 0; n < calls; n++ {
+		go func(n int) {
+			route := main
+			if n%4 == 0 {
+				route = planner
+			}
+			if n%2 == 0 {
+				initializer.recordLLMCall(route, "phase", nil)
+			} else {
+				initializer.recordLLMCall(route, "phase", errors.New("failed"))
+			}
+			done <- struct{}{}
+		}(n)
+	}
+	for n := 0; n < calls; n++ {
+		<-done
+	}
+
+	metrics := initializer.snapshotLLMMetrics()
+	if metrics.Attempts != calls || metrics.Succeeded != calls/2 || metrics.Failed != calls/2 {
+		t.Fatalf("metrics = %+v, want %d attempts split evenly", metrics, calls)
+	}
+	total := 0
+	for _, row := range metrics.Clients {
+		total += row.Attempts
+	}
+	if total != calls || len(metrics.Clients) != 2 {
+		t.Fatalf("client rows = %+v, want two rows summing to %d", metrics.Clients, calls)
+	}
+}
+
+func TestInitializationSucceededRequiresNoRequiredFailures(t *testing.T) {
+	if !initializationSucceeded(&InitResult{}) {
+		t.Fatal("empty required-failure set should succeed")
+	}
+	if initializationSucceeded(&InitResult{Failures: []string{"database failed"}}) {
+		t.Fatal("required failure must make initialization unsuccessful")
+	}
+	if initializationSucceeded(nil) {
+		t.Fatal("nil result must not succeed")
+	}
+}
+
+func TestRecordValidationOutcomeAffectsRequiredFailures(t *testing.T) {
+	tests := []struct {
+		name    string
+		summary *ValidationSummary
+		err     error
+		created int
+		failed  bool
+	}{
+		{name: "valid", summary: &ValidationSummary{TotalDBs: 3, ValidDBs: 3, OverallValid: true}},
+		{name: "zero databases and no agents created", summary: &ValidationSummary{OverallValid: true}},
+		{name: "zero databases for created agents", summary: &ValidationSummary{OverallValid: true}, created: 2, failed: true},
+		{name: "invalid", summary: &ValidationSummary{TotalDBs: 3, InvalidDBs: 1}, failed: true},
+		{name: "nil summary", failed: true},
+		{name: "validator error", err: errors.New("read failed"), failed: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := &InitResult{CreatedAgents: make([]CreatedAgent, tt.created)}
+			recordValidationOutcome(result, tt.summary, tt.err)
+			if got := len(result.Failures) > 0; got != tt.failed {
+				t.Fatalf("has failure = %t, want %t; failures=%v", got, tt.failed, result.Failures)
+			}
+		})
+	}
+}
+
+func TestNewPhaseRunnerStartsAtOne(t *testing.T) {
+	runner := newPhaseRunner(&Initializer{})
+	if runner.phaseNum != 1 {
+		t.Fatalf("phaseNum = %d, want 1", runner.phaseNum)
+	}
+}
+
+func TestBoundedInitErrorNormalizesAndTruncates(t *testing.T) {
+	got := boundedInitError(errors.New("line one\n\"api_key\": \"super-secret-value\" ghp_1234567890abcdef line two and more"), 64)
+	if strings.Contains(got, "\n") {
+		t.Fatalf("boundedInitError() retained newline: %q", got)
+	}
+	if strings.Contains(got, "super-secret-value") || strings.Contains(got, "ghp_1234567890abcdef") || !strings.Contains(got, "[redacted]") {
+		t.Fatalf("boundedInitError() did not redact credential: %q", got)
+	}
+	if len([]rune(strings.TrimSuffix(got, "..."))) > 64 {
+		t.Fatalf("boundedInitError() exceeded rune limit: %q", got)
+	}
+}
+
+func TestInitEmbeddingModelUsesActiveProviderModel(t *testing.T) {
+	if got := initEmbeddingModel(embedding.Config{Provider: "genai", GenAIModel: "gemini-embedding"}); got != "gemini-embedding" {
+		t.Fatalf("genai model = %q", got)
+	}
+	if got := initEmbeddingModel(embedding.Config{Provider: "ollama", OllamaModel: "embeddinggemma"}); got != "embeddinggemma" {
+		t.Fatalf("ollama model = %q", got)
+	}
+}
+
+func assertFileContent(t *testing.T, path, want string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+	if got := string(content); got != want {
+		t.Fatalf("content of %q = %q, want %q", path, got, want)
+	}
+}

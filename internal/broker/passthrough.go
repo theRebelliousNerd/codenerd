@@ -1,0 +1,178 @@
+package broker
+
+import "codenerd/internal/types"
+
+// Pass-through accessors.
+//
+// These are unconditional on purpose, and the reasoning is worth recording
+// because it is the difference between a safe decorator and a subtly broken one.
+//
+// A probe like `if p, ok := client.(interface{ GetLastThinkingTokens() int });
+// ok` has two possible outcomes at the call site: skip, or use the value. Every
+// accessor below is an "enrich if available" read whose caller leaves its field
+// at the zero value when the probe fails. Forwarding the call and returning the
+// underlying's zero value when it does not implement the method therefore
+// produces exactly the behaviour the un-wrapped client produced.
+//
+// The same argument holds for the setters: a probe that succeeds and then calls
+// a method which forwards to nothing is indistinguishable from a probe that
+// failed and skipped the call.
+//
+// It does NOT hold for the three methods in optional.go. Those select a control
+// flow — the native tool loop instead of a synthesized envelope, structured
+// output instead of free text, thought streaming instead of plain streaming —
+// and answering "yes, supported" for a client that cannot serve them routes the
+// request into a path that fails. Those stay conditional, which is what wrap.go
+// is for.
+
+// GetModel returns the model this broker is metering.
+//
+// Unlike the accessors below, this one answers from the broker's own state
+// rather than only forwarding, because the broker tracks the model for counting
+// and is authoritative after a SetModel that the underlying client ignored.
+func (c *core) GetModel() string {
+	if getter, ok := c.delegate().(interface{ GetModel() string }); ok {
+		if model := getter.GetModel(); model != "" {
+			return model
+		}
+	}
+	return c.currentModel()
+}
+
+// DisableSemaphore forwards a concurrency-limit opt-out.
+func (c *core) DisableSemaphore() {
+	c.eachClient(func(client types.LLMClient) {
+		if p, ok := client.(interface{ DisableSemaphore() }); ok {
+			p.DisableSemaphore()
+		}
+	})
+}
+
+// GetLastThinkingTokens forwards the last turn's thinking token count.
+func (c *core) GetLastThinkingTokens() int {
+	if p, ok := c.delegate().(interface{ GetLastThinkingTokens() int }); ok {
+		return p.GetLastThinkingTokens()
+	}
+	return 0
+}
+
+// GetThinkingLevel forwards the configured thinking level.
+func (c *core) GetThinkingLevel() string {
+	if p, ok := c.delegate().(interface{ GetThinkingLevel() string }); ok {
+		return p.GetThinkingLevel()
+	}
+	return ""
+}
+
+// GetLastThoughtSummary forwards the last turn's reasoning summary.
+func (c *core) GetLastThoughtSummary() string {
+	if p, ok := c.delegate().(interface{ GetLastThoughtSummary() string }); ok {
+		return p.GetLastThoughtSummary()
+	}
+	return ""
+}
+
+// GetLastThoughtSignature forwards the last turn's opaque reasoning signature.
+//
+// This value is provider-bound continuation state, not text. It is forwarded
+// verbatim and never inspected, rewritten, or synthesized here.
+func (c *core) GetLastThoughtSignature() string {
+	if p, ok := c.delegate().(interface{ GetLastThoughtSignature() string }); ok {
+		return p.GetLastThoughtSignature()
+	}
+	return ""
+}
+
+// GetLastGroundingSources implements types.GroundingProvider.
+func (c *core) GetLastGroundingSources() []string {
+	if p, ok := c.delegate().(interface{ GetLastGroundingSources() []string }); ok {
+		return p.GetLastGroundingSources()
+	}
+	return nil
+}
+
+// IsWebSearchEnabled implements types.GroundingProvider.
+func (c *core) IsWebSearchEnabled() bool {
+	if p, ok := c.delegate().(interface{ IsWebSearchEnabled() bool }); ok {
+		return p.IsWebSearchEnabled()
+	}
+	return false
+}
+
+// IsURLContextEnabled implements types.GroundingProvider.
+func (c *core) IsURLContextEnabled() bool {
+	if p, ok := c.delegate().(interface{ IsURLContextEnabled() bool }); ok {
+		return p.IsURLContextEnabled()
+	}
+	return false
+}
+
+// SupportsGrounding implements types.GroundingCapable: it reports what the
+// client underneath can do, not what this wrapper's method set implies.
+//
+// The setters below stay unconditional for the reason at the top of this file.
+// The capability answer cannot: it selects a control flow, and every client the
+// broker meters would otherwise answer yes. Measured 2026-09-19 -- all 11 runs
+// on a Meta provider logged "Gemini grounding: Google Search enabled", and the
+// fourteen call sites that branch on this answer took the grounded path against
+// a client that grounds nothing.
+func (c *core) SupportsGrounding() bool {
+	// A client that shares its Go type across vendors (the OpenAI-compatible
+	// client) implements the controller for every vendor and answers this
+	// itself. Believe that over the method set: the method set is true for
+	// every client this wrapper meters.
+	if cap, ok := c.delegate().(types.GroundingCapable); ok {
+		return cap.SupportsGrounding()
+	}
+	_, ok := c.delegate().(types.GroundingController)
+	return ok
+}
+
+// ShouldUsePiggybackTools implements types.PiggybackToolProvider: whether the
+// client underneath carries its tool calls in the Piggyback envelope rather
+// than in native tool_use blocks. The two CLI engines always do (they have no
+// tool channel at all); Gemini does while grounding is on.
+//
+// This selects a control flow, like the three methods in optional.go, but it
+// is an answer rather than a method whose presence is the capability, so it can
+// forward unconditionally: a client with no opinion answers false here, which
+// is exactly what a probe of the unwrapped client concludes.
+//
+// Until 2026-09-25 the broker did not forward it, and every production client
+// is metered, so the answer was false for every client in the process. The
+// session executor then sent a CLI engine down the native tool path, where the
+// first tool round failed with "does not implement ToolResultsProvider", and
+// sent a grounded Gemini through function calling, which drops grounding.
+func (c *core) ShouldUsePiggybackTools() bool {
+	if p, ok := c.delegate().(types.PiggybackToolProvider); ok {
+		return p.ShouldUsePiggybackTools()
+	}
+	return false
+}
+
+// SetEnableWebSearch implements types.GroundingController.
+func (c *core) SetEnableWebSearch(enable bool) {
+	c.eachClient(func(client types.LLMClient) {
+		if p, ok := client.(interface{ SetEnableWebSearch(bool) }); ok {
+			p.SetEnableWebSearch(enable)
+		}
+	})
+}
+
+// SetEnableURLContext implements types.GroundingController.
+func (c *core) SetEnableURLContext(enable bool) {
+	c.eachClient(func(client types.LLMClient) {
+		if p, ok := client.(interface{ SetEnableURLContext(bool) }); ok {
+			p.SetEnableURLContext(enable)
+		}
+	})
+}
+
+// SetURLContextURLs implements types.GroundingController.
+func (c *core) SetURLContextURLs(urls []string) {
+	c.eachClient(func(client types.LLMClient) {
+		if p, ok := client.(interface{ SetURLContextURLs([]string) }); ok {
+			p.SetURLContextURLs(urls)
+		}
+	})
+}

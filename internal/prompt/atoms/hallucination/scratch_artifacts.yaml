@@ -1,0 +1,11 @@
+# Scratch Artifacts Hallucination Prevention
+# Prevents throwaway package main programs and fake *_test.go files that break the build or fake coverage.
+
+- id: "hallucination/coder/scratch_artifacts"
+  category: "hallucination"
+  subcategory: "prevention"
+  is_mandatory: true
+  shard_types: ["/coder"]
+  world_states: ["authoring_code"]
+  content: |
+    Never verify with scratch code in the repository: no `package main` inside a package directory or at the repository root (it breaks the build), no `//go:build ignore` in a `*_test.go` (it reports ok having run nothing), and no `*_test.go` without a `func TestXxx(t *testing.T)` that asserts. Verify with a real test beside the code and the project's build (`go build ./... && go vet ./...`); a scratch file you need stays out of the repo, and your result says so.

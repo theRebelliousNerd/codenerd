@@ -1,0 +1,166 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "assistant": "codeNERD, a coding agent working in the person's repository",
+  "request": "Read-only, do not change any files: evolved prompt atoms are pinned to an exact model, but an exact pin with no date suffix (e.g. claude-opus-5-5) still matches later dated snapshots of that model because matching compares family tokens. Find the code in internal/prompt and internal/autopoiesis/prompt_evolution responsible, explain precisely why it happens with file:line references, and describe the smallest correct fix and the test that would prove it.",
+  "result": "Research only. internal/prompt/pinning.go normalizes model names into tokens, and ModelFamilyToken strips date suffixes. MatchesContext in atoms.go accepts an atom when any context token is in its Models list."
+ },
+ "questions": {
+  "asked_0": {
+   "type": "noul",
+   "instructions": "In `request`, is \"(e.g\" something the person asks codeNERD to do or to answer?",
+   "criteria": {
+    "true": "It names an action to take, an artifact to produce, or a question to answer, such as \"add a test\" or \"explain why it fails\".",
+    "false": "It describes the situation, gives an example, names a place to look, states a rule for how to work (\"do not change files\"), or is a piece of another item's wording."
+   }
+  },
+  "asked_1": {
+   "type": "noul",
+   "instructions": "In `request`, is \"claude-opus-5-5) still matches later dated snapshots of that model because matching compares family tokens\" something the person asks codeNERD to do or to answer?",
+   "criteria": {
+    "true": "It names an action to take, an artifact to produce, or a question to answer, such as \"add a test\" or \"explain why it fails\".",
+    "false": "It describes the situation, gives an example, names a place to look, states a rule for how to work (\"do not change files\"), or is a piece of another item's wording."
+   }
+  },
+  "asked_2": {
+   "type": "noul",
+   "instructions": "In `request`, is \"Find the code in internal/prompt\" something the person asks codeNERD to do or to answer?",
+   "criteria": {
+    "true": "It names an action to take, an artifact to produce, or a question to answer, such as \"add a test\" or \"explain why it fails\".",
+    "false": "It describes the situation, gives an example, names a place to look, states a rule for how to work (\"do not change files\"), or is a piece of another item's wording."
+   }
+  },
+  "asked_3": {
+   "type": "noul",
+   "instructions": "In `request`, is \"internal/autopoiesis/prompt_evolution responsible, explain precisely why it happens with file:line references\" something the person asks codeNERD to do or to answer?",
+   "criteria": {
+    "true": "It names an action to take, an artifact to produce, or a question to answer, such as \"add a test\" or \"explain why it fails\".",
+    "false": "It describes the situation, gives an example, names a place to look, states a rule for how to work (\"do not change files\"), or is a piece of another item's wording."
+   }
+  },
+  "asked_4": {
+   "type": "noul",
+   "instructions": "In `request`, is \"describe the smallest correct fix\" something the person asks codeNERD to do or to answer?",
+   "criteria": {
+    "true": "It names an action to take, an artifact to produce, or a question to answer, such as \"add a test\" or \"explain why it fails\".",
+    "false": "It describes the situation, gives an example, names a place to look, states a rule for how to work (\"do not change files\"), or is a piece of another item's wording."
+   }
+  },
+  "asked_5": {
+   "type": "noul",
+   "instructions": "In `request`, is \"the test that would prove it\" something the person asks codeNERD to do or to answer?",
+   "criteria": {
+    "true": "It names an action to take, an artifact to produce, or a question to answer, such as \"add a test\" or \"explain why it fails\".",
+    "false": "It describes the situation, gives an example, names a place to look, states a rule for how to work (\"do not change files\"), or is a piece of another item's wording."
+   }
+  },
+  "delivered_0": {
+   "type": "noul",
+   "instructions": "Does `result` do or answer \"(e.g\", as `request` asks?",
+   "criteria": {
+    "true": "`result` shows that part done, or gives its answer.",
+    "false": "`result` does not mention that part, or says it was not done."
+   }
+  },
+  "delivered_1": {
+   "type": "noul",
+   "instructions": "Does `result` do or answer \"claude-opus-5-5) still matches later dated snapshots of that model because matching compares family tokens\", as `request` asks?",
+   "criteria": {
+    "true": "`result` shows that part done, or gives its answer.",
+    "false": "`result` does not mention that part, or says it was not done."
+   }
+  },
+  "delivered_2": {
+   "type": "noul",
+   "instructions": "Does `result` do or answer \"Find the code in internal/prompt\", as `request` asks?",
+   "criteria": {
+    "true": "`result` shows that part done, or gives its answer.",
+    "false": "`result` does not mention that part, or says it was not done."
+   }
+  },
+  "delivered_3": {
+   "type": "noul",
+   "instructions": "Does `result` do or answer \"internal/autopoiesis/prompt_evolution responsible, explain precisely why it happens with file:line references\", as `request` asks?",
+   "criteria": {
+    "true": "`result` shows that part done, or gives its answer.",
+    "false": "`result` does not mention that part, or says it was not done."
+   }
+  },
+  "delivered_4": {
+   "type": "noul",
+   "instructions": "Does `result` do or answer \"describe the smallest correct fix\", as `request` asks?",
+   "criteria": {
+    "true": "`result` shows that part done, or gives its answer.",
+    "false": "`result` does not mention that part, or says it was not done."
+   }
+  },
+  "delivered_5": {
+   "type": "noul",
+   "instructions": "Does `result` do or answer \"the test that would prove it\", as `request` asks?",
+   "criteria": {
+    "true": "`result` shows that part done, or gives its answer.",
+    "false": "`result` does not mention that part, or says it was not done."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "asked_0": {
+   "type": "noul",
+   "noul": 0.08
+  },
+  "asked_1": {
+   "type": "noul",
+   "noul": 0.2
+  },
+  "asked_2": {
+   "type": "noul",
+   "noul": 0.86
+  },
+  "asked_3": {
+   "type": "noul",
+   "noul": 0.95
+  },
+  "asked_4": {
+   "type": "noul",
+   "noul": 0.96
+  },
+  "asked_5": {
+   "type": "noul",
+   "noul": 0.92
+  },
+  "delivered_0": {
+   "type": "noul",
+   "noul": 0.31
+  },
+  "delivered_1": {
+   "type": "noul",
+   "noul": 0.9
+  },
+  "delivered_2": {
+   "type": "noul",
+   "noul": 0.9
+  },
+  "delivered_3": {
+   "type": "noul",
+   "noul": 0.11
+  },
+  "delivered_4": {
+   "type": "noul",
+   "noul": 0.04
+  },
+  "delivered_5": {
+   "type": "noul",
+   "noul": 0.04
+  }
+ },
+ "usage": {
+  "input_tokens": 1670,
+  "output_tokens": 232
+ }
+}
+}

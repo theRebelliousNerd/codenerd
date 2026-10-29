@@ -1,0 +1,1202 @@
+// Package init implements the "nerd init" cold-start initialization system.
+package init
+
+import (
+	"codenerd/internal/config"
+	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/prompt"
+	sysshards "codenerd/internal/shards"
+	"codenerd/internal/workspace"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+)
+
+// goKeyDeps lists the Go import substrings that detectDependencies treats as
+// notable dependencies. It is shared between detectDependencies and the
+// per-module parser so both see the same canonical names.
+var goKeyDeps = map[string]string{
+	"github.com/go-rod/rod":              "rod",
+	"github.com/chromedp/chromedp":       "chromedp",
+	"github.com/playwright-community":    "playwright",
+	"google/mangle":                      "mangle",
+	"codeberg.org/TauCeti/mangle-go":     "mangle",
+	"github.com/sashabaranov/go-openai":  "openai",
+	"github.com/anthropics/anthropic":    "anthropic",
+	"github.com/charmbracelet/bubbletea": "bubbletea",
+	"github.com/spf13/cobra":             "cobra",
+	"github.com/gin-gonic/gin":           "gin",
+	"github.com/labstack/echo":           "echo",
+	"github.com/gofiber/fiber":           "fiber",
+	"gorm.io/gorm":                       "gorm",
+	"github.com/jmoiron/sqlx":            "sqlx",
+	"database/sql":                       "sql",
+	"github.com/gorilla/mux":             "gorilla",
+	"net/http":                           "http",
+	"github.com/arangodb/go-driver":      "arangodb",
+	"google.golang.org/adk":              "adk",
+	"github.com/a2aserver/a2a-go":        "a2a",
+}
+
+// detectLanguageFromFiles detects the primary language by looking for config files.
+// FIX(BUG-006): Searches subdirectories (2 levels deep) for monorepo support.
+func (i *Initializer) detectLanguageFromFiles() string {
+	workspace := i.config.Workspace
+
+	// Check for language-specific config files
+	checks := []struct {
+		file     string
+		language string
+	}{
+		{"go.mod", "go"},
+		{"Cargo.toml", "rust"},
+		{"package.json", "typescript"}, // Could be JS, but TS is more common now
+		{"pyproject.toml", "python"},
+		{"requirements.txt", "python"},
+		{"setup.py", "python"},
+		{"pom.xml", "java"},
+		{"build.gradle", "java"},
+		{"build.gradle.kts", "kotlin"}, // FIX(BUG-006): Kotlin/Android detection
+		{"settings.gradle.kts", "kotlin"},
+		{"*.csproj", "csharp"},
+		{"mix.exs", "elixir"},
+		{"Gemfile", "ruby"},
+	}
+
+	// First check root directory
+	for _, check := range checks {
+		pattern := filepath.Join(workspace, check.file)
+		matches, err := filepath.Glob(pattern)
+		if err == nil && len(matches) > 0 {
+			return check.language
+		}
+	}
+
+	// FIX(BUG-006): For monorepos, check subdirectories (2 levels deep)
+	// Count occurrences of each language
+	langCounts := make(map[string]int)
+	for _, check := range checks {
+		// Check 1 level deep: */go.mod
+		pattern1 := filepath.Join(workspace, "*", check.file)
+		if matches, err := filepath.Glob(pattern1); err == nil {
+			langCounts[check.language] += len(matches)
+		}
+		// Check 2 levels deep: */*/go.mod
+		pattern2 := filepath.Join(workspace, "*", "*", check.file)
+		if matches, err := filepath.Glob(pattern2); err == nil {
+			langCounts[check.language] += len(matches)
+		}
+	}
+
+	// Return the language with the most config files, breaking ties by name.
+	//
+	// A polyglot repo with one go.mod and one package.json is an ordinary
+	// shape, not an edge case, and ranging the map with a strict `>` decided
+	// it by Go's randomised iteration order — so `nerd init` could classify
+	// the same workspace differently on two runs. Alphabetical is an
+	// arbitrary rule; being fixed is the property that matters.
+	langs := make([]string, 0, len(langCounts))
+	for lang := range langCounts {
+		langs = append(langs, lang)
+	}
+	sort.Strings(langs)
+
+	var maxLang string
+	var maxCount int
+	for _, lang := range langs {
+		if langCounts[lang] > maxCount {
+			maxCount = langCounts[lang]
+			maxLang = lang
+		}
+	}
+
+	if maxLang != "" {
+		return maxLang
+	}
+
+	return "unknown"
+}
+
+// detectDependencies scans project files for key dependencies with version information.
+// D4 enhancement: Extracts versions to enable version-specific agent recommendations.
+// FIX(BUG-006): Searches subdirectories (2 levels deep) for monorepo support.
+func (i *Initializer) detectDependencies() []DependencyInfo {
+	deps := []DependencyInfo{}
+	workspace := i.config.Workspace
+	seen := make(map[string]bool) // Dedupe dependencies
+
+	// Use helpers that parse a single manifest; the global seen map still
+	// ensures the merged flat Dependencies view is deduplicated with root winning.
+	scanGoMod := func(path string) {
+		goDepsForFile, _ := i.parseGoModManifest(path)
+		for _, dep := range goDepsForFile {
+			if !seen[dep.Name] {
+				deps = append(deps, dep)
+				seen[dep.Name] = true
+			}
+		}
+	}
+
+	scanPackageJSON := func(path string) {
+		nodeDepsForFile, _ := i.parsePackageJSONManifest(path)
+		for _, dep := range nodeDepsForFile {
+			if !seen[dep.Name] {
+				deps = append(deps, dep)
+				seen[dep.Name] = true
+			}
+		}
+	}
+
+	// Check root directory first so a root module's versions win the dedupe.
+	scanGoMod(filepath.Join(workspace, "go.mod"))
+	scanPackageJSON(filepath.Join(workspace, "package.json"))
+
+	// Monorepo modules. This used to be two hardcoded glob pairs limited to one
+	// and two levels below the root; findManifestFiles walks to
+	// maxManifestDepth and membership drops ignored trees, so
+	// services/api/go.mod and packages/@scope/ui/package.json are finally seen.
+	for _, goMod := range findManifestFiles(workspace, []string{"go.mod"}, maxManifestDepth) {
+		scanGoMod(goMod)
+	}
+	for _, pkg := range findManifestFiles(workspace, []string{"package.json"}, maxManifestDepth) {
+		scanPackageJSON(pkg)
+	}
+
+	// Parse transitive dependencies from lock files
+	transitiveDeps := i.detectTransitiveDependencies()
+	deps = append(deps, transitiveDeps...)
+
+	return deps
+}
+
+// parseGoModManifest parses a single go.mod file and returns its direct
+// dependencies and its module name. It reuses the same goKeyDeps table that
+// detectDependencies uses, so the per-module view and the merged flat view
+// agree.
+func (i *Initializer) parseGoModManifest(path string) ([]DependencyInfo, string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, ""
+	}
+	content := string(data)
+	name := parseGoModName(content)
+	seenLocal := make(map[string]bool)
+	var deps []DependencyInfo
+	for pkg, canonical := range goKeyDeps {
+		if strings.Contains(content, pkg) && !seenLocal[canonical] {
+			version := i.extractGoModVersion(content, pkg)
+			majorVersion := extractMajorVersion(version)
+			deps = append(deps, DependencyInfo{
+				Name:         canonical,
+				Version:      version,
+				MajorVersion: majorVersion,
+				Type:         "direct",
+			})
+			seenLocal[canonical] = true
+		}
+	}
+	return deps, name
+}
+
+// parseGoModName extracts the module path from go.mod content.
+// Returns empty string when the manifest does not declare a module path.
+func parseGoModName(content string) string {
+	for line := range strings.SplitSeq(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if after, ok := strings.CutPrefix(trimmed, "module "); ok {
+			after = strings.TrimSpace(after)
+			if after == "" {
+				return ""
+			}
+			fields := strings.Fields(after)
+			if len(fields) > 0 {
+				return fields[0]
+			}
+			return after
+		}
+	}
+	return ""
+}
+
+// parsePackageJSONManifest parses a single package.json file and returns its
+// direct dependencies (filtered to the same key set as detectDependencies) and
+// its "name" field. The name is empty when the manifest does not declare one.
+func (i *Initializer) parsePackageJSONManifest(path string) ([]DependencyInfo, string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, ""
+	}
+	var holder struct {
+		Name string `json:"name"`
+	}
+	name := ""
+	if err := json.Unmarshal(data, &holder); err == nil {
+		name = strings.TrimSpace(holder.Name)
+	}
+	deps := i.parsePackageJSONDependencies(data)
+	// Deduplicate within this single manifest (e.g. "prisma" and "@prisma/client"
+	// both map to "prisma"). The merged flat view deduplicates globally, but a
+	// per-module view should also not contain duplicates.
+	seenLocal := make(map[string]bool)
+	uniq := make([]DependencyInfo, 0, len(deps))
+	for _, d := range deps {
+		if !seenLocal[d.Name] {
+			uniq = append(uniq, d)
+			seenLocal[d.Name] = true
+		}
+	}
+	return uniq, name
+}
+
+// detectEntryPoints identifies the application entry points based on language patterns.
+func (i *Initializer) detectEntryPoints() []string {
+	return i.detectEntryPointsForRoot(i.config.Workspace)
+}
+
+// detectEntryPointsForRoot is the scoped helper that scans a specific root
+// directory for entry points. detectEntryPoints delegates to it with the
+// workspace root so the existing workspace-level behaviour is unchanged for the
+// root module; detectModules calls it per module root.
+func (i *Initializer) detectEntryPointsForRoot(root string) []string {
+	entryPoints := []string{}
+	memRoot := i.config.Workspace
+	if strings.TrimSpace(memRoot) == "" {
+		memRoot = root
+	}
+	mem := workspaceMembers(memRoot)
+	if mem == nil {
+		return entryPoints
+	}
+
+	exists := func(path string) bool {
+		abs := filepath.Join(root, path)
+		member, admErr := mem.Admit(abs, false)
+		if admErr != nil || !member {
+			return false
+		}
+		_, err := os.Stat(abs)
+		return err == nil
+	}
+
+	hasContent := func(path, pattern string) bool {
+		abs := filepath.Join(root, path)
+		member, admErr := mem.Admit(abs, false)
+		if admErr != nil || !member {
+			return false
+		}
+		content, err := os.ReadFile(abs)
+		if err != nil {
+			return false
+		}
+		return strings.Contains(string(content), pattern)
+	}
+
+	// 1. Go Detection
+	if exists("main.go") {
+		entryPoints = append(entryPoints, "main.go")
+	}
+	if info, err := os.Stat(filepath.Join(root, "cmd")); err == nil && info.IsDir() {
+		_ = filepath.Walk(filepath.Join(root, "cmd"), func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			member, admErr := mem.Admit(path, info.IsDir())
+			if admErr != nil {
+				return admErr
+			}
+			if !member || info.IsDir() || !strings.HasSuffix(path, ".go") {
+				return nil
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return nil
+			}
+			if hasContent(rel, "package main") && hasContent(rel, "func main()") {
+				entryPoints = append(entryPoints, rel)
+			}
+			return nil
+		})
+	}
+
+	// 2. Python Detection
+	pythonCandidates := []string{"main.py", "app.py", "manage.py", "wsgi.py", "asgi.py", "__main__.py"}
+	for _, f := range pythonCandidates {
+		if exists(f) {
+			entryPoints = append(entryPoints, f)
+		}
+	}
+	scanDirs := []string{".", "src"}
+	for _, dir := range scanDirs {
+		dirPath := filepath.Join(root, dir)
+		member, admErr := mem.Admit(dirPath, true)
+		if admErr != nil || !member {
+			continue
+		}
+		if _, err := os.Stat(dirPath); err != nil {
+			continue
+		}
+		entries, _ := os.ReadDir(dirPath)
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".py") {
+				relPath := filepath.Join(dir, entry.Name())
+				if dir == "." {
+					relPath = entry.Name()
+				}
+				alreadyAdded := slices.Contains(entryPoints, relPath)
+				if !alreadyAdded && hasContent(relPath, `if __name__ == "__main__":`) {
+					entryPoints = append(entryPoints, relPath)
+				}
+			}
+		}
+	}
+
+	// 3. Node/TypeScript Detection
+	if exists("package.json") {
+		data, err := os.ReadFile(filepath.Join(root, "package.json"))
+		if err == nil {
+			var pkg struct {
+				Main    string            `json:"main"`
+				Bin     any               `json:"bin"`
+				Scripts map[string]string `json:"scripts"`
+			}
+			if json.Unmarshal(data, &pkg) == nil {
+				if pkg.Main != "" {
+					entryPoints = append(entryPoints, pkg.Main)
+				}
+				switch v := pkg.Bin.(type) {
+				case string:
+					entryPoints = append(entryPoints, v)
+				case map[string]any:
+					for _, val := range v {
+						if strVal, ok := val.(string); ok {
+							entryPoints = append(entryPoints, strVal)
+						}
+					}
+				}
+				if start, ok := pkg.Scripts["start"]; ok {
+					parts := strings.FieldsSeq(start)
+					for part := range parts {
+						if strings.HasSuffix(part, ".js") || strings.HasSuffix(part, ".ts") {
+							entryPoints = append(entryPoints, part)
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+	nodeCandidates := []string{"index.js", "index.ts", "server.js", "server.ts", "app.js", "app.ts"}
+	for _, f := range nodeCandidates {
+		if exists(f) {
+			found := slices.Contains(entryPoints, f)
+			if !found {
+				entryPoints = append(entryPoints, f)
+			}
+		}
+	}
+
+	return entryPoints
+}
+
+// detectModules discovers one ModuleProfile per manifest, mirroring the
+// discovery that detectDependencies already does: the root go.mod and
+// package.json plus findManifestFiles for each kind. Reusing those helpers
+// guarantees both views agree on which files are modules.
+func (i *Initializer) detectModules() []ModuleProfile {
+	workspace := i.config.Workspace
+	// Deduplicate manifest paths: a single file discovered both via the explicit
+	// root check and via findManifestFiles should only appear once. If one
+	// directory has both go.mod and package.json, emit two ModuleProfiles (one
+	// per manifest kind) rather than merging them, since their dependency sets
+	// and languages differ.
+	seen := make(map[string]bool)
+	var modules []ModuleProfile
+
+	addModule := func(absPath, kind string) {
+		if seen[absPath] {
+			return
+		}
+		seen[absPath] = true
+		relManifest, err := filepath.Rel(workspace, absPath)
+		if err != nil {
+			return
+		}
+		relManifest = filepath.ToSlash(relManifest)
+		dir := filepath.Dir(absPath)
+		relDir, err := filepath.Rel(workspace, dir)
+		if err != nil {
+			return
+		}
+		if relDir != "." {
+			relDir = filepath.ToSlash(relDir)
+		}
+		path := relDir
+		if path == "" {
+			path = "."
+		}
+		var deps []DependencyInfo
+		var name string
+		var language string
+		if kind == "go.mod" {
+			language = "go"
+			deps, name = i.parseGoModManifest(absPath)
+		} else {
+			language = "javascript"
+			deps, name = i.parsePackageJSONManifest(absPath)
+		}
+		entryPoints := i.detectEntryPointsForRoot(dir)
+		modules = append(modules, ModuleProfile{
+			Path:         path,
+			Name:         name,
+			Manifest:     relManifest,
+			Language:     language,
+			Dependencies: deps,
+			EntryPoints:  entryPoints,
+		})
+	}
+
+	if _, err := os.Stat(filepath.Join(workspace, "go.mod")); err == nil {
+		addModule(filepath.Join(workspace, "go.mod"), "go.mod")
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "package.json")); err == nil {
+		addModule(filepath.Join(workspace, "package.json"), "package.json")
+	}
+	for _, p := range findManifestFiles(workspace, []string{"go.mod"}, maxManifestDepth) {
+		addModule(p, "go.mod")
+	}
+	for _, p := range findManifestFiles(workspace, []string{"package.json"}, maxManifestDepth) {
+		addModule(p, "package.json")
+	}
+
+	sort.Slice(modules, func(a, b int) bool {
+		if modules[a].Path != modules[b].Path {
+			return modules[a].Path < modules[b].Path
+		}
+		return modules[a].Manifest < modules[b].Manifest
+	})
+	return modules
+}
+
+// detectBuildSystem identifies the primary build system used by the project.
+// Returns the build system name and associated metadata.
+func (i *Initializer) detectBuildSystem() (string, map[string]string) {
+	workspace := i.config.Workspace
+	metadata := make(map[string]string)
+
+	// Build systems in priority order (more specific first)
+	buildSystems := []struct {
+		Name       string
+		Indicators []string
+		FileCheck  func(string) bool
+	}{
+		// Monorepo build tools (check first as they often coexist with language-specific tools)
+		{
+			Name:       "turborepo",
+			Indicators: []string{"turbo.json"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "nx",
+			Indicators: []string{"nx.json", "workspace.json"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "rush",
+			Indicators: []string{"rush.json"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "lerna",
+			Indicators: []string{"lerna.json"},
+			FileCheck:  nil,
+		},
+		// Language-agnostic build systems
+		{
+			Name:       "bazel",
+			Indicators: []string{"WORKSPACE", "WORKSPACE.bazel", "BUILD.bazel", "MODULE.bazel"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "buck",
+			Indicators: []string{"BUCK", ".buckconfig"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "buck2",
+			Indicators: []string{".buckroot", "BUCK.v2"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "pants",
+			Indicators: []string{"pants.toml", "BUILD"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "please",
+			Indicators: []string{".plzconfig"},
+			FileCheck:  nil,
+		},
+		// C/C++ build systems
+		{
+			Name:       "cmake",
+			Indicators: []string{"CMakeLists.txt"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "meson",
+			Indicators: []string{"meson.build"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "ninja",
+			Indicators: []string{"build.ninja"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "autotools",
+			Indicators: []string{"configure.ac", "Makefile.am"},
+			FileCheck:  nil,
+		},
+		// JVM build systems
+		{
+			Name:       "gradle",
+			Indicators: []string{"build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "maven",
+			Indicators: []string{"pom.xml"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "sbt",
+			Indicators: []string{"build.sbt"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "ant",
+			Indicators: []string{"build.xml"},
+			FileCheck:  nil,
+		},
+		// .NET build systems
+		{
+			Name:       "msbuild",
+			Indicators: []string{"*.csproj", "*.fsproj", "*.vbproj", "*.sln"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "dotnet",
+			Indicators: []string{"global.json"},
+			FileCheck:  nil,
+		},
+		// Go build system
+		{
+			Name:       "go",
+			Indicators: []string{"go.mod"},
+			FileCheck:  nil,
+		},
+		// Rust build system
+		{
+			Name:       "cargo",
+			Indicators: []string{"Cargo.toml"},
+			FileCheck:  nil,
+		},
+		// Node.js/JavaScript build systems
+		{
+			Name:       "npm",
+			Indicators: []string{"package.json", "package-lock.json"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "yarn",
+			Indicators: []string{"yarn.lock"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "pnpm",
+			Indicators: []string{"pnpm-lock.yaml"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "bun",
+			Indicators: []string{"bun.lockb"},
+			FileCheck:  nil,
+		},
+		// Python build systems
+		{
+			Name:       "poetry",
+			Indicators: []string{"pyproject.toml", "poetry.lock"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "pipenv",
+			Indicators: []string{"Pipfile", "Pipfile.lock"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "pip",
+			Indicators: []string{"requirements.txt", "setup.py"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "hatch",
+			Indicators: []string{"hatch.toml"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "pdm",
+			Indicators: []string{"pdm.lock"},
+			FileCheck:  nil,
+		},
+		// Ruby build systems
+		{
+			Name:       "bundler",
+			Indicators: []string{"Gemfile", "Gemfile.lock"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "rake",
+			Indicators: []string{"Rakefile"},
+			FileCheck:  nil,
+		},
+		// PHP build systems
+		{
+			Name:       "composer",
+			Indicators: []string{"composer.json", "composer.lock"},
+			FileCheck:  nil,
+		},
+		// Elixir build systems
+		{
+			Name:       "mix",
+			Indicators: []string{"mix.exs"},
+			FileCheck:  nil,
+		},
+		// Generic make
+		{
+			Name:       "make",
+			Indicators: []string{"Makefile", "makefile", "GNUmakefile"},
+			FileCheck:  nil,
+		},
+		// Task runners
+		{
+			Name:       "just",
+			Indicators: []string{"justfile", "Justfile"},
+			FileCheck:  nil,
+		},
+		{
+			Name:       "task",
+			Indicators: []string{"Taskfile.yml", "Taskfile.yaml"},
+			FileCheck:  nil,
+		},
+	}
+
+	// Check for each build system
+	for _, bs := range buildSystems {
+		for _, indicator := range bs.Indicators {
+			// Handle glob patterns
+			if strings.Contains(indicator, "*") {
+				pattern := filepath.Join(workspace, indicator)
+				if matches, _ := filepath.Glob(pattern); len(matches) > 0 {
+					metadata["detected_file"] = filepath.Base(matches[0])
+					return bs.Name, metadata
+				}
+			} else {
+				// Direct file check
+				if _, err := os.Stat(filepath.Join(workspace, indicator)); err == nil {
+					metadata["detected_file"] = indicator
+					return bs.Name, metadata
+				}
+			}
+		}
+	}
+
+	return "", metadata
+}
+
+// detectBuildSystemDetails returns extended information about the build system.
+func (i *Initializer) detectBuildSystemDetails() BuildSystemInfo {
+	workspace := i.config.Workspace
+	info := BuildSystemInfo{}
+
+	buildSystem, metadata := i.detectBuildSystem()
+	info.Name = buildSystem
+	info.Metadata = metadata
+
+	// Get additional details based on build system type
+	switch buildSystem {
+	case "gradle":
+		// Check for Kotlin DSL vs Groovy DSL
+		if _, err := os.Stat(filepath.Join(workspace, "build.gradle.kts")); err == nil {
+			info.Variant = "kotlin-dsl"
+		} else {
+			info.Variant = "groovy-dsl"
+		}
+		// Check for wrapper
+		if _, err := os.Stat(filepath.Join(workspace, "gradlew")); err == nil {
+			info.HasWrapper = true
+		}
+	case "maven":
+		// Check for wrapper
+		if _, err := os.Stat(filepath.Join(workspace, "mvnw")); err == nil {
+			info.HasWrapper = true
+		}
+	case "bazel":
+		// Check for Bzlmod (MODULE.bazel) vs WORKSPACE
+		if _, err := os.Stat(filepath.Join(workspace, "MODULE.bazel")); err == nil {
+			info.Variant = "bzlmod"
+		} else {
+			info.Variant = "workspace"
+		}
+	case "cmake":
+		// Check for presets
+		if _, err := os.Stat(filepath.Join(workspace, "CMakePresets.json")); err == nil {
+			info.Features = append(info.Features, "presets")
+		}
+	case "npm", "yarn", "pnpm":
+		// Check for scripts in package.json
+		if data, err := os.ReadFile(filepath.Join(workspace, "package.json")); err == nil {
+			var pkg struct {
+				Scripts map[string]string `json:"scripts"`
+			}
+			if json.Unmarshal(data, &pkg) == nil {
+				// Common script patterns
+				if _, ok := pkg.Scripts["build"]; ok {
+					info.Features = append(info.Features, "build-script")
+				}
+				if _, ok := pkg.Scripts["test"]; ok {
+					info.Features = append(info.Features, "test-script")
+				}
+				if _, ok := pkg.Scripts["lint"]; ok {
+					info.Features = append(info.Features, "lint-script")
+				}
+			}
+		}
+	}
+
+	return info
+}
+
+// BuildSystemInfo holds detailed information about the detected build system.
+type BuildSystemInfo struct {
+	Name       string            // Primary build system name
+	Variant    string            // Variant or flavor (e.g., "kotlin-dsl" for gradle)
+	HasWrapper bool              // Whether a wrapper script exists
+	Features   []string          // Detected features/capabilities
+	Metadata   map[string]string // Additional metadata
+}
+
+// detectProjectType identifies if the project is an application, library, or hybrid.
+// This helps determine which agents to create (e.g., skip SecurityAuditor for pure libraries).
+func (i *Initializer) detectProjectType() string {
+	workspace := i.config.Workspace
+
+	// Indicators for application (has runnable entry points)
+	appIndicators := 0
+	// Indicators for library (exports packages/modules for others to use)
+	libIndicators := 0
+
+	// Go project detection
+	if _, err := os.Stat(filepath.Join(workspace, "go.mod")); err == nil {
+		// Check for cmd/ directory (strong app indicator)
+		if _, err := os.Stat(filepath.Join(workspace, "cmd")); err == nil {
+			appIndicators += 3
+		}
+		// Check for main.go in root
+		if _, err := os.Stat(filepath.Join(workspace, "main.go")); err == nil {
+			appIndicators += 2
+		}
+		// Check for internal/ directory (app or library with private code)
+		if _, err := os.Stat(filepath.Join(workspace, "internal")); err == nil {
+			appIndicators += 1
+		}
+		// Check for pkg/ directory (library exporting public packages)
+		if _, err := os.Stat(filepath.Join(workspace, "pkg")); err == nil {
+			libIndicators += 2
+		}
+		// Scan for main function in any .go file
+		if i.hasMainFunction(workspace) {
+			appIndicators += 2
+		}
+	}
+
+	// Node.js project detection
+	if data, err := os.ReadFile(filepath.Join(workspace, "package.json")); err == nil {
+		var pkg struct {
+			Main    string            `json:"main"`
+			Bin     any               `json:"bin"`
+			Scripts map[string]string `json:"scripts"`
+			Exports any               `json:"exports"`
+			Types   string            `json:"types"`
+		}
+		if json.Unmarshal(data, &pkg) == nil {
+			// CLI tool (bin field present)
+			if pkg.Bin != nil {
+				appIndicators += 3
+			}
+			// Has start/serve script (application)
+			if _, ok := pkg.Scripts["start"]; ok {
+				appIndicators += 2
+			}
+			if _, ok := pkg.Scripts["serve"]; ok {
+				appIndicators += 1
+			}
+			// Has exports or types field (library)
+			if pkg.Exports != nil {
+				libIndicators += 2
+			}
+			if pkg.Types != "" {
+				libIndicators += 2
+			}
+			if pkg.Main != "" && !strings.Contains(pkg.Main, "bin") {
+				libIndicators += 1
+			}
+		}
+	}
+
+	// Python project detection
+	if data, err := os.ReadFile(filepath.Join(workspace, "pyproject.toml")); err == nil {
+		content := string(data)
+		// Check for scripts/entry points (application)
+		if strings.Contains(content, "[tool.poetry.scripts]") ||
+			strings.Contains(content, "[project.scripts]") {
+			appIndicators += 3
+		}
+		// Check for classifiers indicating library
+		if strings.Contains(content, "Framework ::") ||
+			strings.Contains(content, "Library") {
+			libIndicators += 2
+		}
+	}
+	// Check for __main__.py (application entry point)
+	if _, err := os.Stat(filepath.Join(workspace, "__main__.py")); err == nil {
+		appIndicators += 2
+	}
+	// Check for setup.py (library distribution)
+	if _, err := os.Stat(filepath.Join(workspace, "setup.py")); err == nil {
+		libIndicators += 1
+	}
+
+	// Rust project detection
+	if data, err := os.ReadFile(filepath.Join(workspace, "Cargo.toml")); err == nil {
+		content := string(data)
+		// Check for [[bin]] sections (application)
+		if strings.Contains(content, "[[bin]]") {
+			appIndicators += 3
+		}
+		// Check for src/main.rs (application)
+		if _, err := os.Stat(filepath.Join(workspace, "src", "main.rs")); err == nil {
+			appIndicators += 2
+		}
+		// Check for [lib] section (library)
+		if strings.Contains(content, "[lib]") {
+			libIndicators += 2
+		}
+		// Check for src/lib.rs (library)
+		if _, err := os.Stat(filepath.Join(workspace, "src", "lib.rs")); err == nil {
+			libIndicators += 2
+		}
+	}
+
+	// Java/JVM project detection
+	gradleFiles := []string{"build.gradle", "build.gradle.kts"}
+	for _, gf := range gradleFiles {
+		if data, err := os.ReadFile(filepath.Join(workspace, gf)); err == nil {
+			content := string(data)
+			// Application plugins
+			if strings.Contains(content, "application") {
+				appIndicators += 3
+			}
+			// Library plugins
+			if strings.Contains(content, "java-library") ||
+				strings.Contains(content, "'maven-publish'") {
+				libIndicators += 3
+			}
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(workspace, "pom.xml")); err == nil {
+		content := string(data)
+		// Executable JAR packaging
+		if strings.Contains(content, "<packaging>jar</packaging>") &&
+			strings.Contains(content, "<mainClass>") {
+			appIndicators += 2
+		}
+		// POM packaging (library parent)
+		if strings.Contains(content, "<packaging>pom</packaging>") {
+			libIndicators += 2
+		}
+	}
+
+	// Container/deployment indicators (strong app signal)
+	if _, err := os.Stat(filepath.Join(workspace, "Dockerfile")); err == nil {
+		appIndicators += 2
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "docker-compose.yml")); err == nil {
+		appIndicators += 2
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "docker-compose.yaml")); err == nil {
+		appIndicators += 2
+	}
+	// Kubernetes manifests
+	if _, err := os.Stat(filepath.Join(workspace, "k8s")); err == nil {
+		appIndicators += 2
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "kubernetes")); err == nil {
+		appIndicators += 2
+	}
+
+	// Determine project type based on indicator balance
+	if appIndicators > 0 && libIndicators > 0 {
+		// Both indicators present
+		if appIndicators > libIndicators*2 {
+			return "application"
+		} else if libIndicators > appIndicators*2 {
+			return "library"
+		}
+		return "hybrid" // Both app and library functionality
+	} else if appIndicators > 0 {
+		return "application"
+	} else if libIndicators > 0 {
+		return "library"
+	}
+
+	return "unknown"
+}
+
+// hasMainFunction checks if any Go file in the workspace has a main function.
+func (i *Initializer) hasMainFunction(workspace string) bool {
+	// Membership is relative to the workspace, not the cmd subdirectory
+	// the walk starts in. A failure skips the walk rather than reading
+	// every ignored tree looking for func main.
+	mem := workspaceMembers(workspace)
+	if mem == nil {
+		return false
+	}
+
+	// Check common locations
+	locations := []string{
+		filepath.Join(workspace, "main.go"),
+		filepath.Join(workspace, "cmd"),
+	}
+
+	for _, loc := range locations {
+		info, err := os.Stat(loc)
+		if err != nil {
+			continue
+		}
+
+		if info.IsDir() {
+			// Scan directory for main.go files
+			err := filepath.Walk(loc, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return nil
+				}
+				member, admErr := mem.Admit(path, info.IsDir())
+				if admErr != nil {
+					return admErr
+				}
+				if !member || info.IsDir() || !strings.HasSuffix(path, ".go") {
+					return nil
+				}
+				if content, err := os.ReadFile(path); err == nil {
+					if strings.Contains(string(content), "func main()") {
+						return filepath.SkipAll // Found main, stop walking
+					}
+				}
+				return nil
+			})
+			if err == filepath.SkipAll {
+				return true
+			}
+		} else if strings.HasSuffix(loc, ".go") {
+			ok, admErr := mem.Admit(loc, false)
+			if admErr != nil || !ok {
+				continue
+			}
+			if content, err := os.ReadFile(loc); err == nil {
+				if strings.Contains(string(content), "func main()") {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// workspaceMembers is nil when membership cannot be decided. Callers skip
+// the walk; they do not fall open.
+func workspaceMembers(root string) *workspace.Membership {
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	m, err := workspace.For(root)
+	if err != nil {
+		return nil
+	}
+	if err := m.Refresh(); err != nil {
+		return nil
+	}
+	return m
+}
+
+// createDirectoryStructure creates the .nerd/ directory and subdirectories.
+func (i *Initializer) createDirectoryStructure() (string, error) {
+	nerdDir := filepath.Join(i.config.Workspace, ".nerd")
+	toolsDir := filepath.Join(nerdDir, "tools")
+
+	dirs := []string{
+		nerdDir,
+		filepath.Join(nerdDir, "shards"),      // Knowledge shards for specialists
+		filepath.Join(nerdDir, "sessions"),    // Session history
+		filepath.Join(nerdDir, "cache"),       // Temporary cache
+		filepath.Join(nerdDir, "mangle"),      // Mangle logic overlay (User Extensions)
+		filepath.Join(nerdDir, "prompts"),     // Prompt atoms (YAML → SQLite)
+		toolsDir,                              // Autopoiesis generated tools
+		filepath.Join(toolsDir, ".compiled"),  // Compiled tool binaries
+		filepath.Join(toolsDir, ".learnings"), // Tool execution learnings
+		filepath.Join(toolsDir, ".profiles"),  // Tool quality profiles
+		filepath.Join(toolsDir, ".traces"),    // Tool-generation outcome audit records
+		filepath.Join(nerdDir, "agents"),      // Persistent agent definitions
+		filepath.Join(nerdDir, "campaigns"),   // Campaign checkpoints
+	}
+
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create %s: %w", dir, err)
+		}
+	}
+
+	// Create .gitignore for .nerd/
+	gitignorePath := filepath.Join(nerdDir, ".gitignore")
+	gitignoreContent := `# codeNERD local files
+knowledge.db
+knowledge.db-journal
+sessions/
+cache/
+*.log
+
+# Autopoiesis internal directories (always ignore)
+tools/.compiled/
+tools/.learnings/
+tools/.profiles/
+tools/.traces/
+
+# Keep tools/ source and agents/ tracked (user may want to commit generated tools)
+# Uncomment below to ignore tool source code:
+# tools/*.go
+# agents/
+`
+	if err := writeFileIfAbsent(gitignorePath, []byte(gitignoreContent), 0644); err != nil {
+		return "", fmt.Errorf("failed to create .gitignore: %w", err)
+	}
+
+	// Create config.json with defaults if it doesn't exist
+	configPath := filepath.Join(nerdDir, "config.json")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		if err := i.createDefaultConfig(configPath); err != nil {
+			return "", fmt.Errorf("failed to create config.json: %w", err)
+		}
+	}
+
+	return nerdDir, nil
+}
+
+// createDefaultConfig writes a fresh workspace's config.json. It names no
+// LLM engine, provider or model, no provider-specific settings and no
+// embedding provider: those are the user's choices, made in config.json, and
+// every unset one resolves to the config package's default at load. Until
+// 2026-10-27 this wrote provider "gemini" with a Gemini-tuned 1M-token
+// context window, so a workspace initialized under any other provider booted
+// on Gemini afterwards and sized every prompt for a window it did not have.
+func (i *Initializer) createDefaultConfig(path string) error {
+	cfg := &config.UserConfig{
+		Theme: "light",
+
+		// Shard profiles are populated dynamically below,
+		DefaultShard: &config.ShardProfile{
+			Temperature:    0.7,
+			TopP:           0.9,
+			MaxRetries:     3,
+			EnableLearning: true,
+		},
+		CoreLimits: &config.CoreLimits{
+			MaxTotalMemoryMB:     12288,
+			MaxConcurrentShards:  4,
+			MaxFactsInKernel:     250000,
+			MaxDerivedFactsLimit: 100000,
+		},
+		// No default MCP servers - internal capabilities use internal packages directly
+		Integrations: &config.IntegrationsConfig{
+			Servers: make(map[string]config.MCPServerIntegration),
+		},
+		Execution: &config.ExecutionConfig{
+			AllowedBinaries: []string{
+				"go", "git", "grep", "ls", "mkdir", "cp", "mv",
+				"npm", "npx", "node", "python", "python3", "pip",
+				"cargo", "rustc", "make", "cmake",
+			},
+			DefaultTimeout:   "30s",
+			WorkingDirectory: ".",
+			AllowedEnvVars:   []string{"PATH", "HOME", "GOPATH", "GOROOT"},
+		},
+		Logging: &config.LoggingConfig{
+			Level:  "info",
+			Format: "text",
+			File:   "codenerd.log",
+		},
+		// The host, not windows/amd64 — and written by the same helper the
+		// defaults use, so there is one definition rather than two.
+		//
+		// Ouroboros compiles a generated tool and then EXECUTES the binary
+		// itself, so a target the host cannot run means every generated tool
+		// compiles cleanly and dies with "exec format error" on first call.
+		// autopoiesis.DefaultConfig was fixed to default to the host and to
+		// honour an explicit user setting — and THIS is where the explicit
+		// setting came from. `nerd init` wrote windows/amd64 into every fresh
+		// workspace's config.json, so the raw-section read that exists
+		// precisely to tell "the user chose windows" from "we wrote windows
+		// into their file" was reading a file the product itself wrote.
+		ToolGeneration: func() *config.ToolGenerationConfig {
+			tg := config.DefaultToolGenerationConfig()
+			return &tg
+		}(),
+	}
+
+	// Dynamically build the ShardProfiles mapping
+	cfg.ShardProfiles = make(map[string]config.ShardProfile)
+
+	defaultProfile := *cfg.DefaultShard
+
+	// 1. Gather System Shards from the factory registry
+	sm := coreshards.NewShardManager()
+	sysshards.RegisterAllShardFactories(sm, sysshards.RegistryContext{})
+	for _, info := range sm.ListAvailableShards() {
+		cfg.ShardProfiles[info.Name] = defaultProfile
+	}
+
+	// 2. Gather Ephemeral Shards (Personas) from the prompt corpus
+	if corpus, err := prompt.LoadEmbeddedCorpus(); err == nil {
+		for _, atom := range corpus.GetByCategory(prompt.CategoryIdentity) {
+			for _, st := range atom.ShardTypes {
+				name := strings.TrimPrefix(st, "/") // Remove leading slash
+				if name != "" {
+					// Don't overwrite if it was already added by System Shards registry
+					if _, exists := cfg.ShardProfiles[name]; !exists {
+						cfg.ShardProfiles[name] = defaultProfile
+					}
+				}
+			}
+		}
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	return os.WriteFile(path, data, 0644)
+}

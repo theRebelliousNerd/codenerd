@@ -1,0 +1,50 @@
+# System wiring guidance
+
+- Cold bootstrap must carry the caller context through perception and embedding
+  constructors. Check cancellation before and after every stage, including a
+  stage returning nil, and roll back acquired handles before returning failure.
+- Cache admission uses a context-aware semaphore. Never wait on an uncancelable
+  bootstrap mutex, cache a canceled result, or detach boot work to meet a timer.
+  Release admission before closing a rejected Cortex; Close can evict the cache.
+
+- Keep the complete authorization envelope (`pending_action`, `permitted_action`,
+  `permission_check_result`, and `permitted`) owned by the policy Cortex shard so
+  Mangle can join one exact request.
+- Routers must preserve the executive-issued action ID and canonical payload;
+  never mint a replacement correlation ID at the effect boundary.
+- Tests that call `VirtualStore.RouteAction` directly must assert the exact
+  pending-action envelope. Do not add wildcard or `safe_action` test bypasses.
+- After boot/factory or router changes, run focused Cortex correlation tests,
+  `go test ./internal/shards/system`, and bounded `go test ./internal/system`.
+- Treat Cortex boot as a resource transaction. New boot steps must put acquired
+  handles on `bootContext`, transfer ownership in `cortexFromBootContext`, and
+  remain safe under the shared rollback/`Cortex.Close` path.
+- Join the prompt compiler's cooperative shutdown before closing its dependent
+  stores; an elapsed cleanup timer does not mean SQLite has released its files.
+- Cortex cache identity must include every boot option that changes live wiring.
+  Normalize set-like options before both hashing and applying them; never place
+  credentials or raw option material in the cache key.
+- Project `execution` settings must configure both the tactile executor and the
+  VirtualStore allowlists. Resolve working directories inside the active
+  workspace and reject invalid durations or path escapes during boot.
+- The production prompt `KernelAdapter` must create a private RealKernel clone
+  for each compilation. Never let JIT selector facts mutate the live Cortex.
+- `KernelAdapter.QueryAll` exposes the owned kernel snapshot with detached fact
+  containers. A compilation scope must read its clone, not the live parent.
+- Generated calls retain the session's exact authorization and binary/protocol
+  identity through VirtualStore, validation, and synchronous durable learning.
+  Duplicate live calls share a receipt; a failed feedback publication is retried
+  without executing again. Cortex shutdown closes admission and joins generated
+  execution and refinement before closing their dependencies. Restart ambiguity
+  requires reconciliation, not an unproved exactly-once claim.
+- The Cortex owns the process browser manager. Bind modular research tools to
+  that manager and adapt browser facts into `SystemKernel.AssertBatch`; a
+  private browser-only Mangle engine makes runtime evidence invisible. The
+  research runtime (`research.BrowserRuntime`) is Cortex-owned too: boot
+  creates it, `Cortex.Close` and boot rollback close it before the manager,
+  and it owns the lazily launched headless Chrome page reads use.
+- Apply the effective logging configuration before initializing workspace sinks,
+  including override-config boot. A directory selected by disabled defaults must
+  not become a stream of failed log opens after enabling logging.
+- The shared factory owns one Ouroboros listener. Test actual delegation and
+  cancellation/join through boot; do not require a duplicate chat-owned listener.

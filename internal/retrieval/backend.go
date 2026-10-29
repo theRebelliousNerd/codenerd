@@ -1,0 +1,178 @@
+package retrieval
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	"codenerd/internal/workspace"
+)
+
+// =============================================================================
+// SCAN BACKENDS
+// =============================================================================
+//
+// parseRipgrepOutput existed, was tested, was documented as the ripgrep path —
+// and had no caller. The package name, the config field "number of parallel
+// ripgrep processes" and the type comment all described a tool that was never
+// executed. That is resolved here by giving the parser a real backend rather
+// than deleting it, so the choice between engines is a config decision instead
+// of a comment that lies.
+//
+// Native remains the DEFAULT, deliberately:
+//
+//   - it needs no external binary, so behavior does not change with the host;
+//   - it is the only path that carries the in-process bounds (maxScanFileSize,
+//     maxHitsPerFile, maxHitsPerKeyword, the binary sniff) as code rather than
+//     as flags a future edit could drop;
+//   - its scan is bytes.Index in ScanBuffer (scanner_generic.go), which the Go
+//     runtime already vectorises on amd64.
+//
+// That third bullet used to read "it uses the AVX2 scanner in
+// scanner_amd64.go", and both halves of that were false. scanner_amd64.go was
+// deleted — scanner_generic.go says why, and says it is now the single
+// unconditional implementation — and the vector work it claimed was never
+// happening: the removed file built archsimd values and then compared them
+// element by element, sixteen scalar checks in a SIMD costume. So the bullet
+// justified a DEFAULT with a performance property the code did not have, which
+// is the kind of claim someone weighs when deciding whether to switch a large
+// tree over to ripgrep. The vectorisation is real; it belongs to the standard
+// library rather than to us.
+//
+// Ripgrep is worth selecting on very large trees, where its own walker and
+// mmap'd search beat a Go worker pool by a wide margin. The backend mirrors the
+// native bounds onto rg flags so the two engines answer the same question.
+
+// ScanBackend performs the literal keyword scan for one keyword.
+type ScanBackend interface {
+	// Name identifies the backend in logs.
+	Name() string
+
+	// Search returns hits for a single literal keyword beneath root, honoring
+	// the caller's exclusion globs. Implementations must respect ctx.
+	Search(ctx context.Context, root, keyword string, exclude []string) (BackendResult, error)
+}
+
+// BackendResult is one keyword's scan: the hits kept, and whether the scan
+// stopped keeping them at its cap. A capped result is true hits, not every
+// hit, and is reported partial; the hit count alone cannot say which it is.
+type BackendResult struct {
+	Hits       []KeywordHit
+	CapReached bool
+}
+
+// RipgrepBackend shells out to ripgrep.
+type RipgrepBackend struct {
+	// Binary is the resolved path to rg.
+	Binary string
+}
+
+// NewRipgrepBackend resolves ripgrep on PATH.
+func NewRipgrepBackend() (*RipgrepBackend, error) {
+	path, err := exec.LookPath("rg")
+	if err != nil {
+		return nil, fmt.Errorf("ripgrep backend unavailable: %w", err)
+	}
+	return &RipgrepBackend{Binary: path}, nil
+}
+
+// Name implements ScanBackend.
+func (b *RipgrepBackend) Name() string { return "ripgrep" }
+
+// Search implements ScanBackend.
+func (b *RipgrepBackend) Search(ctx context.Context, root, keyword string, exclude []string) (BackendResult, error) {
+	if strings.TrimSpace(keyword) == "" {
+		return BackendResult{}, nil
+	}
+	if root == "" {
+		root = "."
+	}
+
+	// Membership is applied to the hits. rg already honours .gitignore;
+	// the post-filter is what also applies world.ignore_patterns and the
+	// always-excluded .git and .nerd directories. Failing closed here
+	// keeps an unanswered git question from returning the unfiltered tree.
+	mem, memErr := membershipFor(root)
+	if memErr != nil {
+		return BackendResult{}, memErr
+	}
+	// rg then emits absolute paths, including when its caller supplied ".".
+	root = mem.Root()
+
+	args := []string{
+		"--vimgrep",       // path:line:col:content, which parseRipgrepOutput reads
+		"--fixed-strings", // the native scanner is a literal byte scan
+		"--word-regexp",   // mirrors isWordBoundary
+		"--ignore-case",   // mirrors the native case folding
+		"--no-messages",
+		"--hidden",
+		"--max-filesize", strconv.Itoa(maxScanFileSize),
+		"--max-count", strconv.Itoa(maxHitsPerFile),
+	}
+	for _, pattern := range exclude {
+		if strings.TrimSpace(pattern) == "" {
+			continue
+		}
+		args = append(args, "--glob", "!"+pattern)
+	}
+	args = append(args, "--", keyword, root)
+
+	var stdout bytes.Buffer
+	cmd := exec.CommandContext(ctx, b.Binary, args...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = nil
+
+	err := cmd.Run()
+	if ctx.Err() != nil {
+		hits := keepMemberHits(mem, root, parseRipgrepOutput(stdout.String(), keyword))
+		return BackendResult{Hits: hits}, fmt.Errorf("ripgrep search for %q: %w", keyword, ctx.Err())
+	}
+	if err != nil {
+		// rg exits 1 when nothing matched. That is an empty result, not a
+		// failure, and treating it as one made every miss look like a broken
+		// installation.
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+			return BackendResult{}, fmt.Errorf("ripgrep search for %q: %w", keyword, err)
+		}
+		return BackendResult{}, nil
+	}
+
+	// The same per-keyword cap as the native scan. Cutting here says so: a
+	// truncated result reported as whole read as "nothing else matches".
+	hits := keepMemberHits(mem, root, parseRipgrepOutput(stdout.String(), keyword))
+	if len(hits) > maxHitsPerKeyword {
+		return BackendResult{Hits: hits[:maxHitsPerKeyword], CapReached: true}, nil
+	}
+	return BackendResult{Hits: hits}, nil
+}
+
+// keepMemberHits drops hits whose path is not a workspace member. rg prints
+// paths relative to the process when root is relative, and absolute (with a
+// Windows volume colon) when root is absolute; Admit wants the absolute form.
+func keepMemberHits(mem *workspace.Membership, root string, hits []KeywordHit) []KeywordHit {
+	if len(hits) == 0 {
+		return hits
+	}
+	out := hits[:0]
+	for _, h := range hits {
+		p := h.FilePath
+		if p == "" {
+			continue
+		}
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(root, p)
+		}
+		ok, admErr := mem.Admit(p, false)
+		if admErr != nil || !ok {
+			continue
+		}
+		out = append(out, h)
+	}
+	return out
+}

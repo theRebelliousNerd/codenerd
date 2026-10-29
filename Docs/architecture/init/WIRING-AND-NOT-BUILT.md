@@ -1,0 +1,175 @@
+# init WIRING-AND-NOT-BUILT — what is reachable, what is dead, what is assumed
+
+> **Status, 2026-10-27 (planner routing and init review).** Current; the
+> older blocks below are history.
+>
+> | Entry | Resolution |
+> |---|---|
+> | Planner slot unused by init | wired: `InitConfig.PlannerClient`; CLI `configureInitLLM`, chat `Cortex.PlannerLLM()`; routing table in README.md |
+> | 10-minute per-request hardcode (chat), `--timeout` copied into the per-request bound (CLI) | removed: callers pass 0, `withJITPrompt` reads `llm_timeouts.per_call_timeout` at call time |
+> | Init compiles named no model | fixed: init and northstar derive compiles carry the serving client's provider/model and input window |
+> | `createDefaultConfig` wrote provider `gemini` and a 1M-token window | removed: the seeded config.json names no LLM or embedding provider |
+> | Init started system shards and set the LLM client on the chat's shard manager | removed; only created agents' profiles are defined |
+> | Grounding helper, Files API / context-cache extraction | deleted (bad idea): mutated a session-shared client, never active behind the scheduler, and web grounding has no place in extracting a given document |
+> | Shared knowledge pool (`core_concepts.db`) | deleted (filler): static, Go-specific advice inherited by every agent; topic dedupe is now a per-run fetch cache |
+> | Codebase, campaign and core-shard KBs (7b, 7c, 7d) | deleted (no reader): duplicated profile facts or described removed shards; core-shard research spent Context7 calls on generic topics |
+> | Phase 3 "analysis" (print only), ETA guesses, KB "quality" scores, base identity atoms, knowledge.db prompt-atom copies | deleted (no reader or untrue) |
+> | Phase 7e fixed `missing_tool_for` list | replaced: autopoiesis treated it as a standing codegen order every boot; 7e now chooses project command tools from declared commands on the planner |
+> | `/refresh-docs` | fixed: engine retained (every refresh failed), extracted docs no longer re-extracted, `--force` wired, stale doc atoms retired, counters per run |
+> | Strategic knowledge appended on every init | fixed: replaced; no "unknown"/"no vision" filler |
+> | Roster ignored the north star; core pair only as a fallback | built: planner-proposed domain experts with grounded research; core pair kept on evidence; imports bounded |
+> | agents.json overwritten; grants for unregistered tools refused at boot | fixed: merged registry, grants limited to registered tools, tools for every measured language |
+> | Output written into the chat's alt screen; `/init` reported "Complete" over failures | fixed: `InitConfig.Output`; truthful completion with per-client LLM table |
+>
+> Config fields still owned by `internal/config` (report, not built here):
+> `OrientConfig.DomainAgentMax` (`/orient_domain_agent_max`),
+> `DomainAgentTopicMax`, `ImportedAgentMax`, `ResearchStaleDays`, so the
+> `orient_param` defaults become visible in `config full`.
+
+> **Status, 2026-09-25 (lane B wave 2).** Every entry below is resolved; the
+> entries are kept as written at `3463477` and this table is current.
+>
+> | Entry | Resolution | Evidence |
+> |---|---|---|
+> | `filterTopicsNeedingResearch` test-only; upgrades researched every topic | closed `500d71d` | `createAgentKnowledgeBase` filters topics in upgrade mode (`minAtomsPerCoveredTopic`), reports `KnowledgeBaseStats.SkippedTopics`; fetch goes through `Initializer.topicFetcher`. `TestCreateAgentKnowledgeBase_UpgradeResearchesOnlyUncoveredTopics` (fails without the filter call) |
+> | `convertStoreAtomsToInitAtoms` test-only | declined | no consumer can exist: research atoms are parsed from fetched text (`parseResearchResult`), never converted from stored atoms. Its own comment calls it a stub of removed research; left for its test, a deletion candidate |
+> | `ProcessDocumentsWithTracking` / `extractAndStoreDocKnowledge` / `SynthesizeFromStoredAtoms` "no call sites" | already done (stale) | called from the chat's `/refresh-docs` (`runDocRefresh`, `cmd/nerd/chat/helpers_scan.go:261,269`); the claim only held inside `internal/init` |
+> | Phase 7e "Generating Project-Specific Tools" generates nothing | closed `500d71d` | titled "Recording Project Tool Needs"; needs land in `InitResult.ToolNeeds` instead of a fake `_generated_tools` agent KB; the summary no longer says tools are "ready to use". (The entry had the branch backwards: for a Go project it printed "Generated 4 tools".) `TestRunPhase7e_RecordsNeedsAndClaimsNoTools` |
+> | Phase 10 drops dependencies (`GetDependencyTools`) | declined (safety) | its entries are shell commands (`docker-compose up -d`, a browser download via `go run`) that `HydrateStaticTools` registers with `/all` affinity; wiring them widens what a model can execute. The repo contract forbids free-form CLI access by default |
+> | Tool coverage lags the agent table (A2A, ADK, Android, Arango, BubbleTea, Cobra, LLMIntegration, Mangle experts) | declined | `RecommendedAgent.Tools` reaches `types.ShardConfig.Tools` and `agents.json`, and nothing executes from it: a persona's catalog is the JIT config factory's plus the kernel's turn catalog (`policy/jit_tools.mg`). Filling an inert table is cruft; `BrowserAutomationExpert` was already covered |
+> | TTY gate is not proof of interactivity | already handled | the read timeout carries the safety property (`agents_curation.go`, `TestReadInput_WhenNobodyAnswers_ShouldGiveUpRatherThanBlockForever`) |
+> | `QualityScore` is a population proxy | documented | labelled legacy in code and in `KnowledgeBaseStats`; not a gap |
+> | Phases 5b/5c/12 prompt-atom pipeline | out of scope | JIT territory (lane A) |
+
+The old 19-file corpus described this package from stale claims. This file
+replaces that entire dimension: every entry cites the code that proves it, at
+commit `34634770970153e78c1e250fdab7abd888dcce6f` (2026-09-21).
+
+## Wired and reachable from production
+
+- `cmd/nerd/cmd_init_scan.go:214` and `cmd/nerd/chat/helpers_scan.go:65,244`
+  build the `Initializer`; `Initialize` (`internal/init/initializer.go:451`)
+  runs all 16 phases in order.
+- Type-U merge and interactive curation both run in phase 6
+  (`mergeTypeUAgents` then `curateAgents`,
+  `internal/init/initializer.go:895`) — they are not library-only helpers.
+- Per-agent research executes through `tools.NewRegistry` +
+  `research.RegisterAll` with a 2-minute timeout
+  (`internal/init/agents_knowledge.go:99`); shared-pool inheritance runs on
+  every fresh agent KB (`:63`).
+- `NewInitializer` always installs a non-nil `ShardManager`
+  (`internal/init/initializer.go:353`), so the nil guard in
+  `registerAgentsWithShardManager`
+  (`internal/init/agents_registration.go:42`) never fires on this path —
+  registration is live.
+- `LoadToolsFromFile` (`internal/init/tools.go:415`) is read by
+  `internal/system/factory.go:1441`; the phase-10 catalog is consumed, not
+  write-only.
+- `determineRequiredTools` (`internal/init/agents_registration.go:330`) runs
+  twice: into phase-5 facts (`internal/init/profile.go:131`) and into phase 7e
+  (`internal/init/agents_registration.go:260`).
+
+## Exists but nothing calls
+
+- `filterTopicsNeedingResearch` (`internal/init/agents_knowledge.go:225`):
+  the only call sites are its own tests
+  (`internal/init/agents_knowledge_helpers_test.go:67,81`).
+  `createAgentKnowledgeBase` researches **every** topic in a loop
+  (`internal/init/agents_knowledge.go:106`) without consulting it — the
+  "skip already-covered topics" optimization is written, tested, and bypassed.
+- `convertStoreAtomsToInitAtoms` (`internal/init/agents_knowledge.go:292`):
+  likewise test-only (`internal/init/agents_knowledge_helpers_test.go:91`).
+- `ProcessDocumentsWithTracking`
+  (`internal/init/strategic_documents.go:128`),
+  `extractAndStoreDocKnowledge` (`:245`), and `SynthesizeFromStoredAtoms`
+  (`:471`) have no call sites anywhere in `internal/init`. Phase 7b builds
+  strategic knowledge through `generateStrategicKnowledge` /
+  `PersistStrategicKnowledge` (`internal/init/strategic_knowledge.go:69`,
+  `:639`) instead — the whole document-ingestion path in
+  `strategic_documents.go` is unreachable from `Initialize`.
+
+## Named like it builds, but does not
+
+- **Phase 7e "Generating Project-Specific Tools" generates nothing.**
+  `generateProjectTools` (`internal/init/agents_registration.go:259`)
+  converts needs to `missing_tool_for` facts (`projectToolNeedFacts`, `:280`)
+  and returns empty, so phase 7e always lands on the "No tools generated"
+  branch (`internal/init/initializer.go:1011`). The phase title and its
+  "Generated %d tools" branch (`:1005`) describe behavior no input can
+  trigger. Recording needs-as-facts for later on-demand generation is the
+  actual design; the name is the lie.
+- **Phase 10 drops dependencies.** `detectedTech` is language plus framework
+  only (`internal/init/initializer.go:1051`), so `GetDependencyTools`
+  (`internal/init/tools.go:346`) results never reach
+  `tools/available_tools.json` even though the catalog supports them.
+- **Tool coverage lags the agent table.** Agent names come from
+  `determineRequiredAgents` (`internal/init/agents.go:380`) while tools come
+  from the separate switch in `GetToolsForAgentType`
+  (`internal/init/tools.go:452`); a recommended name with no case keeps the
+  empty values assigned at `internal/init/agents.go:626`. The newer
+  dependency-driven experts (Arango, ADK, A2A, BrowserAutomation, LLM,
+  Mangle, BubbleTea, Cobra, Android) are the names at risk — check the switch
+  before trusting any of their tool lists.
+
+## What the design assumes that the code does not do
+
+- The TTY gate assumes "character devices on both ends" means "a human is
+  present". The code itself admits `/dev/null` passes the gate and that
+  pty-allocating wrappers (`docker run -t`, `script -c`) pass it while never
+  sending EOF — which used to hang init forever
+  (`internal/init/agents_curation.go:161`). The safety property now lives on
+  the read timeout, not the gate; nothing downstream may treat the gate as
+  proof of interactivity.
+- `QualityScore`/`QualityRating` assume atom count measures knowledge
+  quality. The code labels them a legacy population proxy
+  (`internal/init/agents_knowledge.go:132`) — read them as "did research
+  return text", not as evaluation.
+- Phase 5b/5c and phase 12 assume a prompt-atom pipeline
+  (`runPhase5bPromptAtoms`, `runPhase5cPromptDB`, `runPhase12PromptSync`,
+  `internal/init/initializer.go:858`, `:868`, `:1087`) whose store and sync
+  semantics are defined in `internal/init/profile.go:1007` and
+  `internal/init/jit_integration.go`; this corpus pins their existence and
+  order, not their effect — that handoff is JIT territory.
+
+## Required ecosystem persistence profile
+
+**GAP-INIT-ECOSYSTEM-SQL-PROFILE:** `persistEcosystemAtoms` must apply the
+shared hot SQLite profile to every corpus connection before atom persistence.
+The current raw `sql.Open` in `internal/init/phase_ecosystem.go:675` leaves this
+production route untuned. Use the existing `sqlpragmas` connector, preserving
+caller cancellation, missing-corpus behavior, visible warnings, and atom identity,
+metadata, and embeddings. Do not exempt this route from the open-site audit.
+Acceptance requires the actual initializer method against a file-backed corpus
+starting in DELETE mode, persisted new atoms, unchanged preexisting rows, durable
+WAL/reopen evidence, error/cancellation controls, and the full open-site audit.
+
+`internal/init/phase_ecosystem.go:675` now opens the actual AtomLoader handle
+through ProfileHot. File-backed acceptance in
+`internal/init/ecosystem_persistence_profile_test.go:21` passes persistence,
+WAL header, preserved-row, repeated-identity, error, and cancellation controls;
+the full sqlpragmas suite passes its open-site audit. Broader initialization and
+LLM enrichment obligations remain separate from this persistence repair.
+
+## Initializer JIT snapshot obligations
+
+Every initializer JIT scope also exposes the complete owned kernel snapshot for
+GAP-PROMPT-DYNAMIC-CACHE-IDENTITY. Expert initialization and orientation must not
+fail because only the system factory adapter implements QueryAll. Preserve
+private scope ownership, detached result containers, and visible nil/backend
+errors; acceptance uses the normal expert-phase compiler, not an unscoped stub.
+
+## What the old corpus got wrong (why this rewrite exists)
+
+- It described research as key-gated and shared-pool-level
+  (old `01-VISION.md`). The code runs per-agent Context7 research gated only
+  on `--skip-research` (`internal/init/agents_knowledge.go:95`) and stores
+  base atoms only in the shared pool (`internal/init/shared_kb.go:128`).
+- It listed interactive curation and Type-U handling as partially wired (old
+  `00-ALIGNMENT-VISION-REVIEW.md`). Both run unconditionally in phase 6
+  (`internal/init/initializer.go:895`).
+- Its INDEX row claimed "16 go / 7 tests"; the package holds 17 non-test
+  `.go` files and 20 `_test.go` files. The INDEX row is corrected with this
+  rewrite.
+
+---
+Verified 2026-09-21 against commit `34634770970153e78c1e250fdab7abd888dcce6f`.

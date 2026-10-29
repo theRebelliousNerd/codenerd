@@ -1,0 +1,687 @@
+package chat
+
+import (
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	nerdinit "codenerd/internal/init"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+func (m Model) handleCmdLegislate(input string, parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Usage: `/legislate <constraint>`\n\nExample: `/legislate Stop using fmt.Printf; use log.Info instead.`",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+	}
+	task := strings.TrimSpace(strings.TrimPrefix(input, "/legislate"))
+	m = m.addMessage(Message{
+		Role:    "assistant",
+		Content: "Legislator engaged. Compiling and ratifying rule...",
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	return m, tea.Batch(m.spinner.Tick, m.spawnShard("legislator", task))
+}
+
+// handleCmdClarify handles the corresponding chat slash-command.
+func (m Model) handleCmdClarify(input string, parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Usage: `/clarify <goal>`\n\nExample: `/clarify build a campaign to harden auth`",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+	}
+	task := strings.TrimSpace(strings.TrimPrefix(input, "/clarify"))
+	m = m.addMessage(Message{
+		Role:    "assistant",
+		Content: "Requirements Interrogator engaged. Drafting clarifying questions...",
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	return m, tea.Batch(m.spinner.Tick, m.spawnShard("requirements_interrogator", task))
+}
+
+// handleCmdLaunchCampaign handles the corresponding chat slash-command.
+func (m Model) handleCmdLaunchCampaign(input string, parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Usage: `/launchcampaign <goal>`\n\nThis will run clarifications, then auto-start a campaign hands-free if possible.",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+	}
+	goal := strings.TrimSpace(strings.TrimPrefix(input, "/launchcampaign"))
+	m = m.addMessage(Message{
+		Role:    "assistant",
+		Content: "Launching auto-campaign: running clarifier and then starting the campaign...",
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	return m, tea.Batch(m.spinner.Tick, m.runLaunchCampaign(goal))
+}
+
+// handleCmdInit handles the corresponding chat slash-command.
+func (m Model) handleCmdInit(input string, parts []string) (tea.Model, tea.Cmd) {
+	// Check for --force flag
+	forceInit := false
+	for _, part := range parts[1:] {
+		if part == "--force" || part == "-f" {
+			forceInit = true
+			break
+		}
+	}
+
+	// Check if already initialized and not forcing
+	if nerdinit.IsInitialized(m.workspace) && !forceInit {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Workspace already initialized. Use `/init --force` to reinitialize.",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+	}
+
+	m = m.addMessage(Message{
+		Role:    "assistant",
+		Content: "Initializing codeNERD... This may take a few minutes for research and agent creation.",
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	m.isLoading = true
+	return m, tea.Batch(m.spinner.Tick, m.runInitialization(forceInit))
+}
+
+// handleCmdScan handles the corresponding chat slash-command.
+func (m Model) handleCmdScan(input string, parts []string) (tea.Model, tea.Cmd) {
+	deep := false
+	for _, part := range parts[1:] {
+		if part == "--deep" || part == "-d" {
+			deep = true
+			break
+		}
+	}
+	m = m.addMessage(Message{
+		Role:    "assistant",
+		Content: "Scanning workspace...",
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	m.isLoading = true
+	return m, tea.Batch(m.spinner.Tick, m.runScan(deep))
+}
+
+// handleCmdRefreshDocs handles the corresponding chat slash-command.
+func (m Model) handleCmdRefreshDocs(input string, parts []string) (tea.Model, tea.Cmd) {
+	// Refresh strategic knowledge by re-scanning and processing documentation
+	// Uses Mangle tracking to only process new/changed docs
+	force := false
+	for _, part := range parts[1:] {
+		if part == "--force" || part == "-f" {
+			force = true
+			break
+		}
+	}
+	m = m.addMessage(Message{
+		Role:    "assistant",
+		Content: "Scanning documentation for updates...\n\nThis will:\n- Refresh the orientation read set against HEAD\n- Extract knowledge atoms from new and changed documents (all of them with --force)\n- Retire the atoms of documents orientation no longer reads\n- Re-synthesize the strategic knowledge base",
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	m.isLoading = true
+	return m, tea.Batch(m.spinner.Tick, m.runDocRefresh(force))
+}
+
+// handleCmdScanPath handles the corresponding chat slash-command.
+func (m Model) handleCmdScanPath(input string, parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Usage: /scan-path <file1>[,<file2>...]",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+	}
+	targets := strings.Split(parts[1], ",")
+	m = m.addMessage(Message{
+		Role:    "assistant",
+		Content: fmt.Sprintf("Scanning %d path(s)...", len(targets)),
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	m.isLoading = true
+	return m, tea.Batch(m.spinner.Tick, m.runPartialScan(targets))
+}
+
+// handleCmdScanDir handles the corresponding chat slash-command.
+func (m Model) handleCmdScanDir(input string, parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Usage: /scan-dir <directory>",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+	}
+	dir := parts[1]
+	m = m.addMessage(Message{
+		Role:    "assistant",
+		Content: fmt.Sprintf("Scanning directory: %s", dir),
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	m.isLoading = true
+	return m, tea.Batch(m.spinner.Tick, m.runDirScan(dir))
+}
+
+// parseReadRange reports whether s is a /read line range ("10:50", ":50",
+// "10:") and its bounds (0 = open).
+func parseReadRange(s string) (start, end int, ok bool) {
+	lo, hi, found := strings.Cut(s, ":")
+	if !found || (lo == "" && hi == "") {
+		return 0, 0, false
+	}
+	for _, part := range []string{lo, hi} {
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				return 0, 0, false
+			}
+		}
+	}
+	if lo != "" {
+		start, _ = strconv.Atoi(lo)
+	}
+	if hi != "" {
+		end, _ = strconv.Atoi(hi)
+	}
+	return start, end, true
+}
+
+// handleCmdRead supplies a file's contents to the conversation and asks the
+// question in the same motion: `/read <path> [start:end] [question...]`.
+//
+// Until 2026-10-27 this only rendered the file (silently capped at 16000
+// bytes, the documented range ignored) as an *assistant* message and
+// returned no command, so no turn ever ran: the model that had just told
+// the user "drop it in with /read and I'll tally the problems fast" never
+// saw a reason to speak again, and the file entered history mislabeled as
+// the assistant's own words. Now the contents land as a user message —
+// evidence supplied by the user — and a turn runs on the question (the
+// earlier unanswered one about this file, when none is given).
+func (m Model) handleCmdRead(input string, parts []string) (tea.Model, tea.Cmd) {
+	m.textarea.Reset()
+	if len(parts) < 2 {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Usage: `/read <path> [start:end] [question...]`",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+	}
+
+	path := parts[1]
+	rest := parts[2:]
+	start, end := 1, 0
+	if len(rest) > 0 {
+		if lo, hi, ok := parseReadRange(rest[0]); ok {
+			start, end = lo, hi
+			if start < 1 {
+				start = 1
+			}
+			rest = rest[1:]
+		}
+	}
+	const maxReadBytes = 16000
+	content, first, last, totalLines, truncated, err := readFileRange(m.workspace, path, start, end, maxReadBytes)
+	if err != nil {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Failed to read file: %v", err),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+	}
+
+	header := fmt.Sprintf("[Contents of %s supplied via /read: lines %d-%d of %d]", path, first, last, totalLines)
+	if truncated {
+		header += fmt.Sprintf("\n[Truncated at %d bytes: the supplied range continues past line %d — re-run with /read %s %d:%d for the next part]",
+			maxReadBytes, last, path, last+1, totalLines)
+	}
+	m = m.addMessage(Message{
+		Role:    "user",
+		Content: header + "\n\n```\n" + content + "\n```",
+		Time:    time.Now(),
+	})
+
+	question := strings.Join(rest, " ")
+	if question == "" {
+		question = fmt.Sprintf("I supplied the contents of %s above because you asked for them. Answer my earlier question about this file from its actual contents.", path)
+	}
+	m = m.addMessage(Message{
+		Role:    "user",
+		Content: question,
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.isLoading = true
+	m.beginLiveTurn("Thinking...")
+	return m, tea.Batch(m.spinner.Tick, m.processInput(question))
+}
+
+// handleCmdMkdir handles the corresponding chat slash-command.
+func (m Model) handleCmdMkdir(input string, parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Usage: `/mkdir <path>`",
+			Time:    time.Now(),
+		})
+	} else {
+		path := parts[1]
+		if err := makeDir(m.workspace, path); err != nil {
+			m = m.addMessage(Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("Failed to create directory: %v", err),
+				Time:    time.Now(),
+			})
+		} else {
+			m = m.addMessage(Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("Created directory: %s", path),
+				Time:    time.Now(),
+			})
+		}
+	}
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	return m, nil
+}
+
+// handleCmdWrite writes the payload after the path exactly as submitted
+// (splitPayloadCommand), or refuses before touching the file.
+func (m Model) handleCmdWrite(raw string) (tea.Model, tea.Cmd) {
+	var reply string
+	path, content, err := splitPayloadCommand(raw)
+	switch {
+	case errors.Is(err, errPayloadMissing):
+		reply = "Usage: `/write <path> <content>` - the content after the path (or after a newline following it) is written byte for byte."
+	case err != nil:
+		reply = fmt.Sprintf("Refused to write %s: %v", path, err)
+	default:
+		if werr := writeFileContent(m.workspace, path, content); werr != nil {
+			reply = fmt.Sprintf("Failed to write file: %v", werr)
+		} else {
+			reply = fmt.Sprintf("Wrote %d bytes to %s", len(content), path)
+		}
+	}
+	m = m.addMessage(Message{Role: "assistant", Content: reply, Time: time.Now()})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	return m, nil
+}
+
+// handleCmdSearch handles the corresponding chat slash-command.
+func (m Model) handleCmdSearch(input string, parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Usage: `/search <pattern>`",
+			Time:    time.Now(),
+		})
+	} else {
+		pattern := strings.Join(parts[1:], " ")
+		matches, err := searchInFiles(m.workspace, pattern, 20)
+		if err != nil {
+			m = m.addMessage(Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("Search failed: %v", err),
+				Time:    time.Now(),
+			})
+		} else if len(matches) == 0 {
+			m = m.addMessage(Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("No matches found for: %s", pattern),
+				Time:    time.Now(),
+			})
+		} else {
+			var sb strings.Builder
+			sb.WriteString(fmt.Sprintf("**Found %d matches for '%s':**\n\n", len(matches), pattern))
+			for _, match := range matches {
+				sb.WriteString(fmt.Sprintf("- %s\n", match))
+			}
+			m = m.addMessage(Message{
+				Role:    "assistant",
+				Content: sb.String(),
+				Time:    time.Now(),
+			})
+		}
+	}
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	return m, nil
+}
+
+// handleCmdPatch handles the corresponding chat slash-command.
+func (m Model) handleCmdPatch(input string, parts []string) (tea.Model, tea.Cmd) {
+	m.inputMode = InputModePatch
+	m.pendingPatchLines = nil
+	m.textarea.Placeholder = "Paste patch lines (type --END-- when done)..."
+	m = m.addMessage(Message{
+		Role:    "assistant",
+		Content: "Patch mode enabled. Paste your patch line by line, then type `--END--` to apply.",
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	return m, nil
+}
+
+// handleCmdEdit handles the corresponding chat slash-command.
+func (m Model) handleCmdEdit(input string, parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Usage: `/edit <path>` - Opens file for inline editing",
+			Time:    time.Now(),
+		})
+	} else {
+		path := parts[1]
+		obs := readEvidenceFile(m.workspace, path, 16000)
+		if obs.Coverage == coverageUnavailable {
+			m = m.addMessage(Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("Failed to read file for editing: %s", obs.Diagnostic),
+				Time:    time.Now(),
+			})
+		} else if obs.Coverage == coverageSpan {
+			// A prefix is not the file: offering it for `/write` would
+			// overwrite the file with the prefix.
+			m = m.addMessage(Message{
+				Role: "assistant",
+				Content: fmt.Sprintf("**%s** is %d bytes; only the first %d fit here, so it is not offered for editing. Use `/read %s` with a line range, or `/append`.",
+					path, obs.SourceBytes, obs.ReturnedBytes, path),
+				Time: time.Now(),
+			})
+		} else {
+			m = m.addMessage(Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("**Editing %s:**\n\n```\n%s\n```\n\nTo save, send `/write %s` followed by Shift+Enter and the full new content; it is written byte for byte.", path, obs.Body, path),
+				Time:    time.Now(),
+			})
+		}
+	}
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	return m, nil
+}
+
+// handleCmdAppend appends the payload after the path as one line: its bytes
+// exactly, then a newline unless the payload already ends with one.
+func (m Model) handleCmdAppend(raw string) (tea.Model, tea.Cmd) {
+	var reply string
+	path, content, err := splitPayloadCommand(raw)
+	switch {
+	case errors.Is(err, errPayloadMissing):
+		reply = "Usage: `/append <path> <content>` - the content is appended byte for byte, followed by a newline unless it ends with one."
+	case err != nil:
+		reply = fmt.Sprintf("Refused to append to %s: %v", path, err)
+	default:
+		if !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		if aerr := appendFileContent(m.workspace, path, content); aerr != nil {
+			reply = fmt.Sprintf("Failed to append to file: %v", aerr)
+		} else {
+			reply = fmt.Sprintf("Appended %d bytes to %s", len(content), path)
+		}
+	}
+	m = m.addMessage(Message{Role: "assistant", Content: reply, Time: time.Now()})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	return m, nil
+}
+
+// handleCmdPick handles the corresponding chat slash-command.
+func (m Model) handleCmdPick(input string, parts []string) (tea.Model, tea.Cmd) {
+	m.viewMode = FilePickerView
+	m.textarea.Reset()
+	return m, m.filepicker.Init()
+}
+
+// handleCmdDefineAgent handles the corresponding chat slash-command.
+func (m Model) handleCmdDefineAgent(input string, parts []string) (tea.Model, tea.Cmd) {
+	// Enter agent definition wizard
+	m.setInputMode(InputModeAgentWizard)
+	m.agentWizard = &AgentWizardState{Step: 0} // Start at step 0 (Name)
+	m.textarea.Placeholder = "Enter agent name (e.g., 'RustExpert')..."
+	m = m.addMessage(Message{
+		Role:    "assistant",
+		Content: "**Agent Creation Wizard**\n\nLet's define a new specialist agent.\n\n**Step 1:** What should we name this agent? (Alphanumeric, e.g., `RustExpert`, `SecurityAuditor`)",
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	return m, nil
+}
+
+// handleCmdAgents handles the corresponding chat slash-command.
+func (m Model) handleCmdAgents(input string, parts []string) (tea.Model, tea.Cmd) {
+	// List defined agents
+	agents := m.loadType3Agents()
+	if len(agents) == 0 {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "No agents defined yet. Use `/define-agent` to create one, or run `/init` to auto-create agents.",
+			Time:    time.Now(),
+		})
+	} else {
+		var sb strings.Builder
+		sb.WriteString("## Defined Agents\n\n")
+		sb.WriteString("| Name | Type | KB Size | Status |\n")
+		sb.WriteString("|------|------|---------|--------|\n")
+		for _, agent := range agents {
+			sb.WriteString(fmt.Sprintf("| %s | %s | %d | %s |\n", agent.Name, agent.Type, agent.KBSize, agent.Status))
+		}
+		sb.WriteString("\n*Use `/spawn <name> <task>` to spawn an agent*")
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: sb.String(),
+			Time:    time.Now(),
+		})
+	}
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	return m, nil
+}
+
+// handleCmdAlignment handles the corresponding chat slash-command.
+func (m Model) handleCmdAlignment(input string, parts []string) (tea.Model, tea.Cmd) {
+	// Run on-demand alignment check against project vision
+	subject := "Current session state"
+	if len(parts) > 1 {
+		subject = strings.Join(parts[1:], " ")
+	}
+	m = m.addMessage(Message{
+		Role:    "assistant",
+		Content: "Running Northstar alignment check...",
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	m.isLoading = true
+	return m, tea.Batch(m.spinner.Tick, m.runAlignmentCheck(subject))
+}
+
+// handleCmdSpawn handles the corresponding chat slash-command.
+func (m Model) handleCmdSpawn(input string, parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 3 {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Usage: `/spawn <type> <task>`\n\nTypes: coder, researcher, reviewer, tester, or a defined agent name",
+			Time:    time.Now(),
+		})
+	} else {
+		shardType := parts[1]
+		task := strings.Join(parts[2:], " ")
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Spawning %s shard for: %s", shardType, task),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		m.isLoading = true
+		return m, tea.Batch(m.spinner.Tick, m.spawnShard(shardType, task))
+	}
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	return m, nil
+}
+
+// handleCmdIngest handles the corresponding chat slash-command.
+func (m Model) handleCmdIngest(input string, parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 3 {
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: "Usage: `/ingest <agent> <path>`\n\nExample: `/ingest mangleexpert .claude/skills/mangle-programming/references`",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+	}
+
+	agentName := parts[1]
+	docPath := strings.Join(parts[2:], " ")
+	m = m.addMessage(Message{
+		Role:    "assistant",
+		Content: fmt.Sprintf("Ingesting documents into %s: %s", agentName, docPath),
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	m.isLoading = true
+	return m, tea.Batch(m.spinner.Tick, m.ingestAgentDocs(agentName, docPath))
+}
+
+// handleCmdSecurity handles the corresponding chat slash-command.
+func (m Model) handleCmdSecurity(input string, parts []string) (tea.Model, tea.Cmd) {
+	target := "."
+	if len(parts) > 1 {
+		target = parts[1]
+	}
+	task := formatShardTask("/security", target, "", m.workspace)
+	m = m.addMessage(Message{
+		Role:    "assistant",
+		Content: fmt.Sprintf("Running security analysis on: %s", target),
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	m.isLoading = true
+	return m, tea.Batch(m.spinner.Tick, m.spawnShard("reviewer", task))
+}
+
+// handleCmdAnalyze handles the corresponding chat slash-command.
+func (m Model) handleCmdAnalyze(input string, parts []string) (tea.Model, tea.Cmd) {
+	target := "."
+	if len(parts) > 1 {
+		target = parts[1]
+	}
+	task := formatShardTask("/analyze", target, "", m.workspace)
+	m = m.addMessage(Message{
+		Role:    "assistant",
+		Content: fmt.Sprintf("Running complexity analysis on: %s", target),
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	m.isLoading = true
+	return m, tea.Batch(m.spinner.Tick, m.spawnShard("reviewer", task))
+}
+
+// handleCmdTest handles the corresponding chat slash-command.
+func (m Model) handleCmdTest(input string, parts []string) (tea.Model, tea.Cmd) {
+	target := "run"
+	if len(parts) > 1 {
+		target = strings.Join(parts[1:], " ")
+	}
+	task := formatShardTask("/test", target, "", m.workspace)
+	m = m.addMessage(Message{
+		Role:    "assistant",
+		Content: fmt.Sprintf("Running test task: %s (with specialist matching)", task),
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+	m.isLoading = true
+	// Use specialist-aware spawning for /test
+	return m, tea.Batch(m.spinner.Tick, m.spawnShardWithSpecialists("/test", "tester", task, target))
+}
+
+// handleCmdFix handles the corresponding chat slash-command.

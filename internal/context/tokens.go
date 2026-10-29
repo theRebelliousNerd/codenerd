@@ -1,0 +1,436 @@
+package context
+
+import (
+	"fmt"
+	"strings"
+	"sync"
+
+	"codenerd/internal/broker"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+)
+
+// =============================================================================
+// Token Counting
+// =============================================================================
+// Counting is delegated to the process broker, which owns the only
+// chars-per-token ratio in the system and corrects it against every provider
+// response.
+//
+// What used to be here was a private charsPerToken = 4.0 and a TokenEstimator
+// seam documented as the place to plug a real tokenizer. Nothing ever plugged
+// one in, so every compression threshold, every reserve, and every
+// IsCompressionActive decision was denominated in a unit roughly 20% wrong on
+// prose and worse on code — while the provider's exact figure was already
+// arriving on every response and reaching nothing but the cost display.
+
+// TokenCounter counts tokens for facts, turns, and compressed context blocks.
+//
+// The structural arithmetic (what a fact costs beyond its text, what a turn
+// costs beyond its atoms) stays here because it is specific to this package's
+// data shapes. Only the text-to-token conversion moved, and it moved to the one
+// place that learns.
+//
+// Safe for concurrent use: a single TokenCounter is shared across the
+// compressor, the activation engine's budget selection, and the context block
+// builder.
+type TokenCounter struct {
+	estimator *broker.TextCounter
+}
+
+// NewTokenCounter returns a counter bound to the meter's primary model.
+func NewTokenCounter() *TokenCounter {
+	return &TokenCounter{estimator: broker.Default().TextCounter("")}
+}
+
+// CountString estimates tokens in a string.
+func (tc *TokenCounter) CountString(s string) int {
+	if s == "" {
+		return 0
+	}
+	return tc.estimator.EstimateTokens(s)
+}
+
+// Confidence reports whether the counts this counter produces are backed by
+// observed provider actuals yet. Surfaced so a status display can distinguish
+// a measured budget from a seeded guess instead of presenting both as fact.
+func (tc *TokenCounter) Confidence() broker.Confidence {
+	return tc.estimator.Confidence()
+}
+
+// Ratio exposes the learned chars-per-token ratio, for diagnostics.
+func (tc *TokenCounter) Ratio() float64 { return tc.estimator.Ratio() }
+
+// CountFact estimates tokens for a single fact.
+func (tc *TokenCounter) CountFact(f core.Fact) int {
+	// Predicate name + parentheses + dot = ~4 tokens minimum
+	tokens := 4 + tc.CountString(f.Predicate)
+
+	// Count each argument
+	for _, arg := range f.Args {
+		switch v := arg.(type) {
+		case string:
+			if strings.HasPrefix(v, "/") {
+				// Name constant: no surrounding quotes on the wire, but still
+				// real text. It used to get its own len(v)/4, a second hardcoded
+				// ruler inside the fact accounting.
+				tokens += 1 + tc.CountString(v)
+			} else {
+				// String value - full counting
+				tokens += tc.CountString(v) + 2 // +2 for quotes
+			}
+		case types.MangleAtom:
+			// A MangleAtom is a distinct type from string, so without this
+			// case every atom — often a long path or symbol — cost a flat
+			// 3 tokens. Count the text like a name constant: no quotes.
+			tokens += 1 + tc.CountString(string(v))
+		case int, int32, int64, uint64, float32, float64:
+			tokens += 2 // Numbers are typically 1-2 tokens
+		case bool:
+			tokens += 1
+		default:
+			tokens += 3 // Unknown - estimate conservatively
+		}
+	}
+
+	return tokens
+}
+
+// CountFacts estimates tokens for a slice of facts.
+func (tc *TokenCounter) CountFacts(facts []core.Fact) int {
+	total := 0
+	for _, f := range facts {
+		total += tc.CountFact(f)
+	}
+	return total
+}
+
+// CountScoredFacts estimates tokens for scored facts.
+func (tc *TokenCounter) CountScoredFacts(facts []ScoredFact) int {
+	total := 0
+	for _, sf := range facts {
+		total += tc.CountFact(sf.Fact)
+	}
+	return total
+}
+
+// CountTurn estimates tokens for a compressed turn.
+func (tc *TokenCounter) CountTurn(turn CompressedTurn) int {
+	tokens := 10 // Base overhead (role, timestamp, etc.)
+
+	if turn.IntentAtom != nil {
+		tokens += tc.CountFact(*turn.IntentAtom)
+	}
+
+	for _, f := range turn.FocusAtoms {
+		tokens += tc.CountFact(f)
+	}
+
+	for _, f := range turn.ActionAtoms {
+		tokens += tc.CountFact(f)
+	}
+
+	for _, f := range turn.ResultAtoms {
+		tokens += tc.CountFact(f)
+	}
+
+	// Mangle updates
+	for _, update := range turn.MangleUpdates {
+		tokens += tc.CountString(update)
+	}
+
+	return tokens
+}
+
+// CountTurns estimates tokens for multiple turns.
+func (tc *TokenCounter) CountTurns(turns []CompressedTurn) int {
+	total := 0
+	for _, t := range turns {
+		total += tc.CountTurn(t)
+	}
+	return total
+}
+
+// CountCompressedContext estimates total tokens in a compressed context.
+func (tc *TokenCounter) CountCompressedContext(ctx *CompressedContext) int {
+	if ctx == nil {
+		return 0
+	}
+
+	total := 0
+	total += tc.CountString(ctx.ContextAtoms)
+	total += tc.CountString(ctx.CoreFacts)
+	total += tc.CountString(ctx.HistorySummary)
+	total += tc.CountTurns(ctx.RecentTurns)
+
+	return total
+}
+
+// =============================================================================
+// Token Budget Management
+// =============================================================================
+
+// ErrContextWindowExceeded is returned when context window limit is exceeded.
+var ErrContextWindowExceeded = fmt.Errorf("context window limit exceeded")
+
+// TokenBudget tracks token allocation and usage.
+//
+// Safe for concurrent use. The budget used to rely on the compressor's mutex
+// held around every access — an implicit contract one direct field write away
+// from a data race (recalcBudget did exactly that). The lock lives here now,
+// so the budget is correct no matter who touches it; it is a leaf lock, so
+// holding the compressor mutex while calling in cannot deadlock.
+type TokenBudget struct {
+	mu      sync.RWMutex
+	counter *TokenCounter
+	config  CompressorConfig
+
+	// Current usage
+	used struct {
+		core    int
+		atoms   int
+		history int
+		recent  int
+		working int
+	}
+
+	// Hard enforcement mode - when true, Allocate() returns error instead of false
+	hardEnforcement bool
+}
+
+// NewTokenBudget creates a new token budget with the given config.
+func NewTokenBudget(config CompressorConfig) *TokenBudget {
+	return &TokenBudget{
+		counter:         NewTokenCounter(),
+		config:          config,
+		hardEnforcement: true, // Default to hard enforcement
+	}
+}
+
+// SetHardEnforcement enables or disables hard enforcement mode.
+// When enabled (default), exceeding limits returns errors instead of just false.
+func (tb *TokenBudget) SetHardEnforcement(enabled bool) {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+	tb.hardEnforcement = enabled
+}
+
+// IsHardEnforcementEnabled returns whether hard enforcement is enabled.
+func (tb *TokenBudget) IsHardEnforcementEnabled() bool {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	return tb.hardEnforcement
+}
+
+// Allocate attempts to allocate tokens for a category.
+// Returns true if allocation succeeded, false if over budget.
+func (tb *TokenBudget) Allocate(category string, tokens int) bool {
+	if tokens < 0 {
+		// A negative allocation would silently un-spend budget. Reject it;
+		// callers that mean to release must say Release.
+		logging.Get(logging.CategoryContext).Warn("Token allocation REJECTED: %s negative amount %d", category, tokens)
+		return false
+	}
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+	switch category {
+	case "core":
+		if tb.used.core+tokens > tb.config.CoreReserve {
+			logging.ContextDebug("Token allocation REJECTED: %s +%d would exceed budget (%d > %d)",
+				category, tokens, tb.used.core+tokens, tb.config.CoreReserve)
+			return false
+		}
+		tb.used.core += tokens
+	case "atoms":
+		if tb.used.atoms+tokens > tb.config.AtomReserve {
+			logging.ContextDebug("Token allocation REJECTED: %s +%d would exceed budget (%d > %d)",
+				category, tokens, tb.used.atoms+tokens, tb.config.AtomReserve)
+			return false
+		}
+		tb.used.atoms += tokens
+	case "history":
+		if tb.used.history+tokens > tb.config.HistoryReserve {
+			logging.ContextDebug("Token allocation REJECTED: %s +%d would exceed budget (%d > %d)",
+				category, tokens, tb.used.history+tokens, tb.config.HistoryReserve)
+			return false
+		}
+		tb.used.history += tokens
+	case "recent":
+		// Recent is part of history reserve
+		if tb.used.recent+tokens > tb.config.HistoryReserve-tb.used.history {
+			logging.ContextDebug("Token allocation REJECTED: %s +%d would exceed budget (%d > %d)",
+				category, tokens, tb.used.recent+tokens, tb.config.HistoryReserve-tb.used.history)
+			return false
+		}
+		tb.used.recent += tokens
+	case "working":
+		if tb.used.working+tokens > tb.config.WorkingReserve {
+			logging.ContextDebug("Token allocation REJECTED: %s +%d would exceed budget (%d > %d)",
+				category, tokens, tb.used.working+tokens, tb.config.WorkingReserve)
+			return false
+		}
+		tb.used.working += tokens
+	default:
+		logging.Get(logging.CategoryContext).Warn("Unknown token category: %s", category)
+		return false
+	}
+	logging.ContextDebug("Token allocation: %s +%d (new total: %d)", category, tokens, tb.totalUsedLocked())
+	return true
+}
+
+// AllocateWithError is like Allocate but returns an error instead of bool.
+// This is the preferred method when hard enforcement is needed.
+func (tb *TokenBudget) AllocateWithError(category string, tokens int) error {
+	if !tb.Allocate(category, tokens) {
+		return fmt.Errorf("%w: category %s allocation of %d tokens exceeds budget",
+			ErrContextWindowExceeded, category, tokens)
+	}
+	return nil
+}
+
+// CheckTotalBudget verifies that total usage doesn't exceed the total budget.
+// Returns error if the hard limit is exceeded.
+func (tb *TokenBudget) CheckTotalBudget() error {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	total := tb.totalUsedLocked()
+	if total > tb.config.TotalBudget {
+		logging.Get(logging.CategoryContext).Error("CONTEXT WINDOW EXCEEDED: %d tokens > %d limit",
+			total, tb.config.TotalBudget)
+		return fmt.Errorf("%w: %d tokens exceeds %d token limit",
+			ErrContextWindowExceeded, total, tb.config.TotalBudget)
+	}
+	return nil
+}
+
+// MustFitWithinBudget checks if adding tokens would exceed the total budget.
+// Returns error if adding the tokens would exceed the limit.
+func (tb *TokenBudget) MustFitWithinBudget(additionalTokens int) error {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	used := tb.totalUsedLocked()
+	newTotal := used + additionalTokens
+	if newTotal > tb.config.TotalBudget {
+		logging.Get(logging.CategoryContext).Error("CONTEXT WINDOW WOULD EXCEED: %d + %d = %d tokens > %d limit",
+			used, additionalTokens, newTotal, tb.config.TotalBudget)
+		return fmt.Errorf("%w: adding %d tokens would result in %d total, exceeding %d limit",
+			ErrContextWindowExceeded, additionalTokens, newTotal, tb.config.TotalBudget)
+	}
+	return nil
+}
+
+// Release releases tokens from a category.
+func (tb *TokenBudget) Release(category string, tokens int) {
+	if tokens < 0 {
+		return
+	}
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+	switch category {
+	case "core":
+		tb.used.core = max(0, tb.used.core-tokens)
+	case "atoms":
+		tb.used.atoms = max(0, tb.used.atoms-tokens)
+	case "history":
+		tb.used.history = max(0, tb.used.history-tokens)
+	case "recent":
+		tb.used.recent = max(0, tb.used.recent-tokens)
+	case "working":
+		tb.used.working = max(0, tb.used.working-tokens)
+	}
+}
+
+// TotalUsed returns total tokens currently used.
+func (tb *TokenBudget) TotalUsed() int {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	return tb.totalUsedLocked()
+}
+
+// totalUsedLocked sums usage. Callers must hold at least a read lock.
+func (tb *TokenBudget) totalUsedLocked() int {
+	return tb.used.core + tb.used.atoms + tb.used.history + tb.used.recent + tb.used.working
+}
+
+// Available returns tokens still available.
+func (tb *TokenBudget) Available() int {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	return tb.config.TotalBudget - tb.totalUsedLocked()
+}
+
+// Utilization returns the current utilization as a fraction of the budget.
+//
+// A zero or negative budget reports 1.0 (full), not NaN: the old division
+// produced NaN, which compares false against every threshold, so a misconfigured
+// budget silently disabled compression — unbounded growth with no error.
+func (tb *TokenBudget) Utilization() float64 {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	if tb.config.TotalBudget <= 0 {
+		return 1.0
+	}
+	return float64(tb.totalUsedLocked()) / float64(tb.config.TotalBudget)
+}
+
+// ShouldCompress returns true if compression should be triggered.
+func (tb *TokenBudget) ShouldCompress() bool {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	var utilization float64
+	if tb.config.TotalBudget <= 0 {
+		utilization = 1.0
+	} else {
+		utilization = float64(tb.totalUsedLocked()) / float64(tb.config.TotalBudget)
+	}
+	shouldCompress := utilization >= tb.config.CompressionThreshold
+	if shouldCompress {
+		logging.ContextDebug("ShouldCompress: YES (%.1f%% >= %.1f%% threshold)",
+			utilization*100, tb.config.CompressionThreshold*100)
+	}
+	return shouldCompress
+}
+
+// GetUsage returns detailed token usage.
+func (tb *TokenBudget) GetUsage() TokenUsage {
+	tb.mu.RLock()
+	defer tb.mu.RUnlock()
+	total := tb.totalUsedLocked()
+	return TokenUsage{
+		Total:     total,
+		Core:      tb.used.core,
+		Atoms:     tb.used.atoms,
+		History:   tb.used.history,
+		Recent:    tb.used.recent,
+		Available: tb.config.TotalBudget - total,
+	}
+}
+
+// Reset resets all usage counters.
+func (tb *TokenBudget) Reset() {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+	tb.used.core = 0
+	tb.used.atoms = 0
+	tb.used.history = 0
+	tb.used.recent = 0
+	tb.used.working = 0
+}
+
+// SetUsage replaces every usage counter atomically. Negative inputs clamp to
+// zero. This is the only sanctioned way to set absolute usage from outside
+// (recalcBudget); direct field writes bypass the lock and race with readers.
+func (tb *TokenBudget) SetUsage(core, atoms, history, recent, working int) {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+	tb.used.core = max(core, 0)
+	tb.used.atoms = max(atoms, 0)
+	tb.used.history = max(history, 0)
+	tb.used.recent = max(recent, 0)
+	tb.used.working = max(working, 0)
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================

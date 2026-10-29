@@ -1,0 +1,218 @@
+# 03 — Gap Analysis: session
+
+## Accepted generated-tool feedback target (2026-10-02)
+
+**PARTIAL — GAP-SESSION-GENERATED-FEEDBACK:** `internal/session/executor_tools.go#Executor.executeToolCall` directly calls the generated registry at line 2597 after safety preflight. Root inspected this route and `internal/system/factory_tool_executor.go#orchestratorToolExecutor.ExecuteTool` at line 47: the factory's tool-quality feedback adapter is installed on VirtualStore, not this direct path. Raw execution counters are not automatic learning. Existing turn feedback through `#Executor.persistTurn` is distinct. Source audit: artifact:.corpus-build/runs/all-features-20261002/02-execution/handoff-3.json.
+
+**PROPOSED UPLIFT:** normal generated calls execute exactly once through the existing executive/feedback path, preserving the executive-issued action identity, exact canonical payload, JIT allowlist, default-deny permission, preflight, caller cancellation, binary protocol, true output/errors, validation and counters. Missing bridge or matching authorization must fail closed, never fall back to raw execution. Real successful and failed executions reach tool learning exactly once; refusals produce no effect or fabricated execution feedback. Root proves Process-to-effect-to-learning behavior with disconnected-route/feedback and refusal controls. Accepted, not yet wired or verified; no permission widening or shell access is implied. Companion GAP-SYSTEM-GENERATED-FEEDBACK owns factory/adapter lifecycle.
+
+> Wave-2 reconciliation 2026-09-25: see the table at the end of [TODO.md](TODO.md) for each item's current classification and evidence. Last full verification of the text below: 2026-08-09 — true-up for the 2026-08-09 task-integrity incident (prompt/03-GAP-ANALYSIS G9/G10, prompt/12-FAILURE-MODES FM17/FM18, world/03-GAP-ANALYSIS, session/09-SAFETY-AND-INVARIANTS). Section 7 records current reality as OPEN; do not mark G9/G10 closed until the canonical-precedence and temp-repo negative exams exist and pass.
+
+## 1. Spec vs reality matrix
+
+| Desired behavior | Reality | Gap severity |
+|------------------|---------|--------------|
+| Universal clean loop | `Process` / `ProcessWithIntent` live | **None** |
+| JIT specialization | Compiler + ConfigFactory wired | **None** |
+| Constitutional default deny | `checkSafety` fail-closed | **None** |
+| Interactive executive gate | Type-assert seam on VirtualStore | **None** (depends on VS implementing interface) |
+| Multi-turn tools all providers | Native and Piggyback share one loop (`piggybackChannel`, commit 799c5a3) | **Closed 2026-09-25** |
+| No planning-only false success | `intent_requires_tool_call` + nudge | **Low** residual (kernel policy must exist) |
+| Task isolation | CloneForTask + task intent IDs | **None** |
+| Cross-session memory | Persister optional; atomsJSON populated (`compilationAtomsJSON`) | **Low** (atomsJSON stale claim) |
+| Piggyback memory → cold store | `context.ApplyMemoryOperation` (commit e0df714) | **Closed 2026-09-25** |
+| Ouroboros auto-generation from missing_tool_for | Detect + log; generation elsewhere | **Low** (wiring external) |
+| Spawn auto-start consistency | Spawn does not start; SpawnSpecialist/async do | **Low** |
+| Completion signaling | Poll 100ms | **Low** |
+| Empty AllowedTools unrestricted | Nil/empty now denies every tool | **Closed 2026-07-13** |
+| Package README accuracy | Stale slogans | **Low** (docs) |
+| Pre-task ownership baseline + shell-effect safety (2026-08-09) | Mutating/ambiguous shell denied before any handler (`checkShellEffect`, `TestExecuteToolCall_ShellEffectGateStopsIncidentBeforeExecution`) | **Closed by fail-closed denial** (see TODO.md wave-2 table) |
+| World refresh after shell effects (2026-08-09) | No shell mutation is accepted, so none needs a refresh | **Moot while shell mutation is denied** |
+
+## 2. Priority backlog (engineering)
+
+### P0 — correctness / safety — 2026-08-09 task-integrity incident (OPEN, do first)
+
+1. **Capture an immutable pre-task ownership baseline at task start.** Snapshot (tracked vs untracked) × (dirty vs clean) × (owned by this task vs pre-existing) and freeze it for the task. Every later revert/delete decision must consult this baseline, not a later mutated view.
+2. **Detect, attribute, scope-check, and fail closed before success on every run_command/bash effect.** Treat every shell invocation as a potential workspace mutation; detect filesystem effects, attribute them to the invoking task, scope-check against the task’s permitted mutation set, and deny success on any out-of-scope or unattributable effect.
+3. **Forbid revert of pre-existing dirty tracked work and delete of pre-existing untracked paths.** `git checkout`/`restore` of a dirty tracked file that was dirty in the baseline and `rm -rf` of an untracked directory that was untracked in the baseline are violations, even if “cleanup” would otherwise be convenient.
+4. **Wire accepted mutations to incremental world retraction and reassertion.** When a shell effect is accepted, incrementally retract and reassert the affected world facts before any later policy/world query or success verdict, so the kernel view reflects post-shell reality. One-shot pre-delegation scan alone is insufficient.
+5. **Add both negative acceptance exams in a temporary repo** — (a) git checkout of dirty tracked work must not lose the dirty content; (b) recursive deletion of an untracked directory must not delete it. Both must currently fail and pass only when 1–4 are implemented.
+6. **Enforce canonical prompt-atom precedence (coupled with prompt/03-GAP-ANALYSIS G9):** boot reconciliation must replace 878 stale corpus.db built-in copies with the 888-ID embedded canonical atoms while preserving project-only atoms. Add the seeded temp-corpus.db exam.
+
+### P0 — correctness / safety (pre-existing)
+
+7. Ensure production VirtualStore always implements `InteractiveExecutiveGate` when destructive tools are enabled (wiring audit, not session-only).
+8. Keep fail-closed tests green; never reintroduce nil-kernel allow under gate-on.
+
+### P1 — tool protocol completeness
+
+3. Multi-iteration Piggyback tool feedback (re-issue envelope with tool results).  
+4. Preserve empty AllowedTools as “no tools”; any bootstrap capability must be an explicit validated envelope.
+
+### P2 — memory & persistence
+
+5. Populate `atomsJSON` on `StoreSessionTurn`.  
+6. Wire memory operations to cold storage / session compressed state.  
+7. Use `StoreCompressedState` when SubAgent compresses.
+
+### P3 — lifecycle polish
+
+8. Unify Spawn vs SpawnSpecialist start semantics (or document contract firmly).  
+9. Replace Wait polling with event/channel if contention becomes hot.  
+10. Align package README with Spawner/TaskExecutor reality.
+
+## 3. Non-gaps (do not “fix”)
+
+| Observation | Why not a gap |
+|-------------|----------------|
+| No local `.mg` | Correct: session is runtime, policy is global |
+| Spawner exists despite “no spawn” slogan | Slogan is anti-domain-shard; Spawner is intentional |
+| Baseline prompt on JIT failure | Deliberate degrade, not silent success with wrong tools |
+| `safe_action/1` classification | Correctly insufficient; only exact `permitted/3` authorizes |
+| Shared kernel across SubAgents | Intent IDs + retract; required for shared policy world |
+
+## 4. Consumer asymmetry
+
+| Path | Assembly |
+|------|----------|
+| Normal Cortex boot | `system.factory` `initFinalExecutors` |
+| Campaign cobra | Rebuilds Executor/Spawner/JITExecutor in `cmd_campaign.go` |
+
+**Gap:** dual assembly can drift (timeouts, token budgets, persister, ouroboros registry). Prefer shared factory helper long-term.
+
+## 5. Test gaps
+
+See [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md).
+
+Notable: Piggyback multi-turn (once built) needs e2e; real InteractiveExecutiveGate blocking path has unit coverage mainly via mocks/type-assert patterns.
+
+## 6. Repaired gaps and remaining truth
+
+The missing/empty capability fail-open, Ouroboros registration bypass, specialist
+config validation bypass, and `safe_action/1` permission fallback are closed with
+focused tests. The remaining priorities are protocol-neutral multi-turn tools,
+one owned stack composition, durable state/receipts, and policy-reference registry
+parity. The authoritative implementation contracts are in [TODO](TODO.md).
+
+## 7. 2026-08-09 task-integrity incident — true-up (OPEN gaps)
+
+> Records current reality, not aspirational completion. All items in this
+> section are OPEN until the contracts and negative acceptance exams listed
+> below exist and pass. This section is coupled to prompt/03-GAP-ANALYSIS.md
+> G9/G10, prompt/12-FAILURE-MODES.md FM17/FM18, world/03-GAP-ANALYSIS.md, and
+> session/09-SAFETY-AND-INVARIANTS.md for the same incident.
+
+### 7.1 Session reality on 2026-08-09 — OPEN
+
+- `run_command` and `bash` can mutate the workspace while being classified as
+  non-write tools. That classification lets shell effects bypass the write-intent
+  and world-refresh gates that `write_file`/`edit_*` paths go through.
+- The task saw fresh dirty state but incorrectly cleaned pre-existing tracked
+  and untracked work. In the incident this meant `git checkout -- <tracked>`
+  reverting dirty tracked files to HEAD and `rm -rf <untracked-dir>` deleting
+  an untracked directory that the task did not own.
+- The one-shot world scan runs before delegation but does not refresh after
+  shell effects. The pre-delegation snapshot was fresh; after an unreported
+  mutation, later policy/world queries can authorize or “succeed” on a stale
+  view.
+- No immutable pre-task ownership baseline is snapshotted at task start. Without
+  a frozen record of (tracked vs untracked) × (dirty vs clean) × (owned by
+  this task vs pre-existing), later mutations cannot be attributed or
+  scope-checked.
+
+### 7.2 Required session contracts (all OPEN)
+
+1. **Immutable pre-task ownership baseline** — at task start, snapshot the
+   workspace ownership map (tracked vs untracked, dirty vs clean, task-owned
+   vs pre-existing) and freeze it for the duration of the task. The baseline
+   is the authority for revert/delete decisions; it must not be recomputed
+   from a later mutated view.
+2. **Shell effects must be detected, attributed, scope-checked, and fail
+   closed before success** — every `run_command`/`bash` invocation is a
+   potential workspace mutation. The executor must detect filesystem effects,
+   attribute them to the invoking task/shell call, scope-check them against
+   the task’s permitted mutation set, and fail closed (deny success) on any
+   out-of-scope or unattributable effect before returning success.
+3. **Pre-existing dirty or untracked paths must never be reverted or
+   deleted** — reverting a dirty tracked file (`git checkout`/`restore`) or
+   recursively deleting an untracked directory is forbidden when the path was
+   dirty/untracked in the baseline. Only mutations owned by the task may be
+   cleaned; pre-existing work is inviolate.
+4. **Accepted mutations must trigger incremental world retraction and
+   reassertion** — when a shell effect is scope-checked and accepted, the
+   world must incrementally retract and reassert the affected facts before
+   any later policy/world query or success verdict, so the kernel view
+   reflects post-shell reality.
+
+### 7.3 Negative acceptance exams (both OPEN)
+
+Both must be implemented as tests that reproduce the violation without losing
+the artifact and that pass only when the contracts above are implemented:
+
+- **Exam A — git checkout of dirty tracked work:** in a temporary repo,
+  commit a file, mutate it to dirty, run the task/shell path that previously
+  issued `git checkout -- <file>`, and assert the dirty content is preserved
+  (no revert to HEAD). The test must fail on the current code and pass only
+  when baseline preservation + shell-effect scope-check are enforced.
+- **Exam B — recursive deletion of an untracked directory:** in a temporary
+  repo, create an untracked directory tree, run the task/shell path that
+  previously issued `rm -rf <untracked-dir>` (via run_command/bash), and
+  assert the directory survives intact. Must fail today and pass only when
+  baseline preservation + fail-closed shell handling are enforced.
+
+### 7.4 Coupling note
+
+Prompt/03-GAP-ANALYSIS G9 (canonical atom precedence) and G10
+(prompt/world/session coupling) and world/03-GAP-ANALYSIS and
+session/09-SAFETY-AND-INVARIANTS describe the same incident from their
+subsystem perspectives. Closing any one requires closing the shared contracts
+and both negative exams listed here.
+
+
+## Required contract: Generated execution acceptance
+
+A normal Executor.Process call must execute a real fixture generated tool exactly once through the authorized bridge and preserve its real output, error, and durable learning acknowledgement. Missing bridge or exact authorization must produce no effect and no fabricated execution feedback. This strengthens acceptance for GAP-SESSION-GENERATED-FEEDBACK without changing its target.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-SESSION-GENERATED-FEEDBACK-ROUNDTRIP | Generated execution acceptance | Normal `ProcessWithIntent` reaches the generated-tool loop and exact generated bridge (`internal/session/executor.go:1058`, `internal/session/executor_tools.go:2356`, `:2649`); the production fixture exercises durable acknowledgment after reopen (`generated_feedback_roundtrip_external_test.go:213`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Normal Process-to-generated-binary-to-durable-feedback test plus missing-bridge and refusal controls proves one effect and one real feedback record. |
+
+
+## Required contract: JIT degradation and cancellation
+
+Compiler cancellation/deadline must terminate the turn before configuration or provider calls. Other JIT failures and absent compiler must use the embedded mandatory identity/safety/protocol baseline or return a visible assembly error. Mandatory-budget refusal must not become a one-sentence ungoverned turn; empty capabilities remain no tools.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-SESSION-JIT-FAILURE-CONSTITUTION | JIT degradation and cancellation | Absent or failed JIT compilation assembles the embedded mandatory baseline and surfaces cancellation/assembly/budget failures before provider work (`internal/session/executor.go:997-1040`, `:1233-1240`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Process tests force cancellation and ordinary compile failure; canceled compilation invokes no LLM/config, degraded requests retain mandatory atoms, and denied/empty capability remains enforced. |
+
+**Verified current:** baseline, compile-failure, cancellation, and budget-refusal cases (`internal/session/executor_process_test.go:64`, `:114`, `:154`, `:207`) pass. `TestExecutor_Process_RealGeneratedBinaryFeedbackRoundTrip` (`internal/session/generated_feedback_roundtrip_external_test.go:213`) passes through a normal Cortex `ProcessWithIntent`, exact permission and disconnected-bridge controls, one real binary effect/output, and durable learning after reopen. The focused session gate passed; aggregate session/corpus verification remains pending.
+
+
+## Required contract: Planned-step admission completeness
+
+A plan with more valid distinct steps than `session.step_plan_max_steps` runs the first `max` and keeps the rest owed. The parser returns every step, marking the ones past the bound `Beyond`; the executor asserts `step_plan_remaining(Turn, Step, File)` for each before any step runs; `turn_has_unresolved_step` joins them, so the bounded prefix is never `/complete`. The anchor tells each pass how many steps lie beyond, and the report and the `ErrStepsIncomplete` message name every remaining step. Nothing past the bound is run, and no completed effect is replayed.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-SESSION-STEP-PLAN-OVERFLOW | Planned-step admission completeness | `parseWorkSteps` marks steps past the bound `Beyond` instead of dropping them; `runPlannedSteps` asserts `step_plan_remaining` and `derivedStepOutcome` names them; `turn_steps.mg` joins them into `turn_has_unresolved_step` (`internal/session/work_steps.go`, `internal/core/defaults/policy/turn_steps.mg`). | Required contract above | P1 | Implemented; focused tests pass | Existing turn-steps rules | `TestRunToolLoop_PlannedSteps_StepsBeyondTheBoundStayOwed`: with a bound of 2 and three planned steps, two run and edit, the third does not run, the verdict is `ErrStepsIncomplete` naming `[3] a.go (not run: beyond the step bound)`, and the report counts 3 planned, 2 run, 1 remaining. `TestParseWorkSteps` keeps the 5 steps past the default bound. Retained windows across tasks are not built. |
+
+## Required contract: Final per-step file state
+
+Planned-step outcome must be derived from the final file state after every post-edit repair and formatting pass. `work_steps.go` currently records `step_execution` pass counts (`internal/session/work_steps.go:349`), while policy declares `step_file_net/4` as `/changed` or `/unchanged` and derives `step_reverted` from `/unchanged` (`internal/core/defaults/policy/turn_steps.mg:50-71`, `:112-123`); the host does not currently assert that final-state fact. For each file's first planned write, retain its true preimage (existence and bytes, distinguishing absent from empty), then measure only after all repairs. Emit `/changed` or `/unchanged` for matching executed steps and let the existing Mangle rules determine status. Exact restoration must produce `step_reverted`/incomplete, never executed/complete success. Unknown baselines or unreadable final state must surface a measurement error and fail closed; they must not be represented as unchanged. Add no Go completion policy and no new `/unknown` literal.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-SESSION-STEP-NET-STATE | Planned-step final file state | `recordStepPass` records `step_execution`, but no host path asserts the existing `step_file_net/4` predicate after final repair (`internal/session/work_steps.go:346-366`; policy contract `internal/core/defaults/policy/turn_steps.mg:50-71`). | Required contract above | P1 | Accepted; implementation pending | Work-step host measurement and existing turn-steps rules | A real planned write followed by repair that exactly restores the preimage derives `step_reverted`/incomplete; changed, absent-versus-empty, and unknown-baseline/unreadable-final-state controls distinguish correctly and fail closed. Existing policy remains the sole completion decider. |
+
+
+## Required contract: Evidence toolchain executable identity
+
+Change evidence must pin the resolved Go executable artifact identity at transaction Begin and bind baseline/final witnesses to it. Replacement at the same path must make evidence unverified even if version and environment outputs match. Detect artifact changes around execution so a replaced tool cannot manufacture a passing receipt.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-EVIDENCE-GO-ARTIFACT-IDENTITY | Evidence toolchain executable identity | `Begin` pins the resolved executable identity and `Transaction.Verify` compares witness identities (`internal/evidence/change.go:249`, `:326`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Replacing a pinned Go shim with identical version/env and forged passing JSON is rejected; genuine unchanged executable produces revision-bound evidence. |
+
+**Verified current:** `TestChangeCarriesExecutedRevisionBoundEvidence` and `TestVerify_RejectsReplacedGoExecutableWithSameVersionAndEnvironment` (`internal/evidence/change_test.go:32`, `:82`) pass, along with the full `internal/evidence` package suite.

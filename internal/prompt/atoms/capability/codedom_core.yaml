@@ -1,0 +1,139 @@
+# Code DOM Core Capability Atoms
+# These atoms teach the LLM to think in semantic refs, not line numbers.
+# Part of the paradigm shift from "Text Editor" to "Graph Architect".
+
+- id: "capability/codedom_core"
+  category: "capability"
+  subcategory: "semantic_editing"
+  is_mandatory: true
+  shard_types: []  # Applies to all personas
+  requires_tools: [find_symbol, get_element]
+  content: |
+    ## Refs Name Code
+
+    Every element of a Go or Mangle file has a ref, printed by every structural tool:
+
+    - Go: directory, receiver and name - `internal/world.StructureIndex.Refresh`, `cmd/nerd.main`, `./Name` at the workspace root. When two files of one directory declare the same name, the ref ends in `@file.go`.
+    - A file's own regions: `internal/world/structure_index.go:header`, `path/file.go:syntax_error`.
+    - Mangle: file and statement - `internal/core/defaults/policy/impact.mg:decl:impact_caller/2`, `...:rule:impact_caller/2@3fa2c1`; the suffix hashes the rule's text, so it names the same rule after edits elsewhere in the file.
+
+    A short name (`Refresh`, `RealKernel.evaluate`, `core.NewRealKernel`) is a search: `find_symbol` takes it and answers with refs. The edit verbs refuse a name that matches several elements and list the refs to choose from.
+
+    A **rev** hashes one element's own bytes. An edit elsewhere in the file leaves it unchanged, so a rev you hold stays a valid precondition until that element itself changes.
+
+- id: "capability/codedom_visibility"
+  category: "capability"
+  subcategory: "semantic_editing"
+  is_mandatory: false
+  depends_on: ["capability/codedom_core"]
+  content: |
+    ## Element Visibility and Actions
+
+    Each code element has a **visibility** level determining its scope:
+
+    ### Visibility Levels
+
+    - `/public` - Exported, accessible from other packages
+      - Go: Uppercase first letter (`Login`, `UserID`)
+      - Python: No underscore prefix (`login`, `user_id`)
+      - TypeScript: `export` keyword
+      - Rust: `pub` keyword
+
+    - `/private` - Internal, package/module-scoped only
+      - Go: Lowercase first letter (`parseToken`)
+      - Python: Single underscore (`_internal_method`)
+      - TypeScript: No export, or private keyword
+      - Rust: No `pub` keyword
+
+    ### Available Actions on Elements
+
+    Each element supports specific actions:
+
+    - `/view` - Read the element's source code
+    - `/replace` - Replace the entire element body
+    - `/insert_before` - Insert code before the element
+    - `/insert_after` - Insert code after the element
+    - `/delete` - Remove the element (with safety checks)
+
+    ### Visibility Matters for Refactoring
+
+    When modifying a `/public` element:
+    - Check for callers via `code_calls(_, Ref)`
+    - Consider cross-package impact
+    - May require updates to documentation
+
+    When modifying a `/private` element:
+    - Impact is contained to the package
+    - Safer to change implementation details
+
+- id: "capability/codedom_polyglot"
+  category: "capability"
+  subcategory: "semantic_editing"
+  is_mandatory: false
+  depends_on: ["capability/codedom_core"]
+  content: |
+    ## Polyglot Code Analysis
+
+    The Code DOM supports multiple languages with a **Stratified Bridge Pattern**:
+
+    ### Stratum 0: Language-Specific Facts (EDB)
+
+    Each language emits its own facts:
+
+    **Go:**
+    - `go_struct(Ref)` - Struct definitions
+    - `go_goroutine(Ref)` - Functions spawning goroutines
+    - `go_uses_context(Ref)` - Functions using context.Context
+    - `go_returns_error(Ref)` - Functions returning error
+
+    **Python:**
+    - `py_class(Ref)` - Class definitions
+    - `py_decorator(Ref, Name)` - Decorator applications
+    - `py_async_def(Ref)` - Async function definitions
+
+    **TypeScript:**
+    - `ts_interface(Ref)` - Interface definitions
+    - `ts_component(Ref, Tag)` - React/Vue components
+    - `ts_hook(Ref, HookName)` - React hook usage
+    - `ts_async_function(Ref)` - Async functions
+
+    **Rust:**
+    - `rs_struct(Ref)` - Struct definitions
+    - `rs_async_fn(Ref)` - Async function definitions
+    - `rs_unsafe_block(Ref)` - Unsafe code blocks
+    - `rs_derive(Ref, Trait)` - Derive macro applications
+
+- id: "capability/codedom_polyglot/stratum-1-semantic-archetypes-idb"
+  section_of: "capability/codedom_polyglot"
+  section_order: 1
+  category: "capability"
+  subcategory: "semantic_editing"
+  is_mandatory: false
+  depends_on: ["capability/codedom_core"]
+  content: |
+    *Part of: Polyglot Code Analysis*
+
+    ### Stratum 1: Semantic Archetypes (IDB)
+
+    Language-specific facts are normalized to universal concepts:
+
+    - `is_data_contract(Ref)` - Types for serialization/API
+    - `is_async_context(Ref)` - Async/concurrent code
+    - `is_ui_component(Ref)` - UI rendering functions
+    - `has_auth_guard(Ref)` - Protected by authentication
+    - `wire_name(Ref, Name)` - JSON field names
+
+    ### Cross-Language Queries
+
+    The power comes from querying archetypes, not language-specific facts:
+
+    ```mangle
+    # Find all data contracts across all languages
+    :- is_data_contract(Ref).
+
+    # Find elements with API coupling
+    :- api_dependency(Backend, Frontend).
+
+    # Find all async code that might leak resources
+    :- is_async_context(Ref), not is_context_aware(Ref).
+    ```

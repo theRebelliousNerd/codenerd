@@ -1,0 +1,1068 @@
+// Package campaign implements the Campaign Orchestrator for long-running,
+// multi-phase goal execution with context management.
+//
+// Campaigns are used for:
+//   - Greenfield builds from spec documents
+//   - Large feature implementations
+//   - Codebase-wide stability audits
+//   - Migration projects
+//   - Any multi-step goal requiring sustained context management
+//
+// The Campaign Orchestrator follows the OODA loop but with phase-aware
+// context paging, progressive refinement, and autopoiesis.
+package campaign
+
+import (
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
+
+// CampaignType represents the type of campaign.
+type CampaignType string
+
+const (
+	CampaignTypeGreenfield         CampaignType = "/greenfield"          // Build from scratch
+	CampaignTypeFeature            CampaignType = "/feature"             // Add major feature
+	CampaignTypeAudit              CampaignType = "/audit"               // Stability/security audit
+	CampaignTypeMigration          CampaignType = "/migration"           // Technology migration
+	CampaignTypeRemediation        CampaignType = "/remediation"         // Fix issues across codebase
+	CampaignTypeAdversarialAssault CampaignType = "/adversarial_assault" // Long-horizon stress + adversarial probing
+	CampaignTypeRecurse            CampaignType = "/recurse"             // Self-improvement sweep over the subsystem DAG, wave after wave
+	CampaignTypeCustom             CampaignType = "/custom"              // User-defined campaign
+)
+
+// CampaignStatus represents the current status of a campaign.
+type CampaignStatus string
+
+const (
+	StatusPlanning    CampaignStatus = "/planning"    // Initial planning phase
+	StatusDecomposing CampaignStatus = "/decomposing" // Breaking down into phases/tasks
+	StatusValidating  CampaignStatus = "/validating"  // Validating the plan
+	StatusActive      CampaignStatus = "/active"      // Executing
+	StatusPaused      CampaignStatus = "/paused"      // Paused (user or system)
+	StatusCompleted   CampaignStatus = "/completed"   // Successfully completed
+	StatusFailed      CampaignStatus = "/failed"      // Failed (unrecoverable)
+)
+
+// PhaseStatus represents the status of a campaign phase.
+type PhaseStatus string
+
+const (
+	PhasePending    PhaseStatus = "/pending"     // Not started
+	PhaseInProgress PhaseStatus = "/in_progress" // Currently executing
+	PhaseCompleted  PhaseStatus = "/completed"   // Finished successfully
+	PhaseFailed     PhaseStatus = "/failed"      // Failed
+	PhaseSkipped    PhaseStatus = "/skipped"     // Skipped (user decision or dependency)
+	// PhaseUnverified: the tasks ran and the checkpoint never passed within
+	// its attempts. Not completed: hard dependents stay blocked, and a resume
+	// re-arms the checkpoint.
+	PhaseUnverified PhaseStatus = "/unverified"
+)
+
+// TaskStatus represents the status of a campaign task.
+type TaskStatus string
+
+const (
+	TaskPending    TaskStatus = "/pending"     // Not started
+	TaskInProgress TaskStatus = "/in_progress" // Currently executing
+	TaskCompleted  TaskStatus = "/completed"   // Finished successfully
+	TaskFailed     TaskStatus = "/failed"      // Failed
+	TaskSkipped    TaskStatus = "/skipped"     // Skipped
+	TaskBlocked    TaskStatus = "/blocked"     // Blocked by dependency
+)
+
+// TaskType represents the type of task.
+type TaskType string
+
+const (
+	TaskTypeFileCreate  TaskType = "/file_create"  // Create a new file
+	TaskTypeFileModify  TaskType = "/file_modify"  // Modify existing file
+	TaskTypeTestWrite   TaskType = "/test_write"   // Write tests
+	TaskTypeTestRun     TaskType = "/test_run"     // Run tests
+	TaskTypeResearch    TaskType = "/research"     // Deep research (spawns researcher shard)
+	TaskTypeShardSpawn  TaskType = "/shard_spawn"  // Spawn a shard agent
+	TaskTypeToolCreate  TaskType = "/tool_create"  // Create a new tool (autopoiesis)
+	TaskTypeVerify      TaskType = "/verify"       // Verification step
+	TaskTypeDocument    TaskType = "/document"     // Documentation
+	TaskTypeRefactor    TaskType = "/refactor"     // Refactoring
+	TaskTypeIntegrate   TaskType = "/integrate"    // Integration step
+	TaskTypeCampaignRef TaskType = "/campaign_ref" // Reference to a sub-campaign
+
+	// Adversarial Assault campaign task types (durable, batched).
+	TaskTypeAssaultDiscover TaskType = "/assault_discover" // Enumerate targets + create batch tasks
+	TaskTypeAssaultBatch    TaskType = "/assault_batch"    // Execute a persisted batch
+	TaskTypeAssaultTriage   TaskType = "/assault_triage"   // Summarize results + generate remediation tasks
+)
+
+// campaign_ref lifecycle contract states.
+const (
+	CampaignRefLifecycleLinked    = "/linked"    // Reference exists, target status unknown/not yet visible
+	CampaignRefLifecycleQueued    = "/queued"    // Target campaign exists but not actively executing
+	CampaignRefLifecycleActive    = "/active"    // Target campaign currently executing
+	CampaignRefLifecyclePaused    = "/paused"    // Target campaign paused
+	CampaignRefLifecycleCompleted = "/completed" // Target campaign completed successfully
+	CampaignRefLifecycleFailed    = "/failed"    // Target campaign failed
+)
+
+// TaskPriority represents task priority levels.
+type TaskPriority string
+
+const (
+	PriorityCritical TaskPriority = "/critical"
+	PriorityHigh     TaskPriority = "/high"
+	PriorityNormal   TaskPriority = "/normal"
+	PriorityLow      TaskPriority = "/low"
+)
+
+// ObjectiveType represents the type of phase objective.
+type ObjectiveType string
+
+const (
+	ObjectiveCreate    ObjectiveType = "/create"
+	ObjectiveModify    ObjectiveType = "/modify"
+	ObjectiveTest      ObjectiveType = "/test"
+	ObjectiveResearch  ObjectiveType = "/research"
+	ObjectiveValidate  ObjectiveType = "/validate"
+	ObjectiveIntegrate ObjectiveType = "/integrate"
+	ObjectiveReview    ObjectiveType = "/review"
+)
+
+// VerificationMethod represents how a phase is verified.
+type VerificationMethod string
+
+const (
+	VerifyTestsPass       VerificationMethod = "/tests_pass"
+	VerifyBuilds          VerificationMethod = "/builds"
+	VerifyManualReview    VerificationMethod = "/manual_review"
+	VerifyShardValidate   VerificationMethod = "/shard_validation"
+	VerifyNemesisGauntlet VerificationMethod = "/nemesis_gauntlet"
+	VerifyNone            VerificationMethod = "/none"
+)
+
+// DependencyType represents the type of dependency between phases.
+type DependencyType string
+
+const (
+	DepHard     DependencyType = "/hard"     // Must complete before dependent can start
+	DepSoft     DependencyType = "/soft"     // Preferred but not required
+	DepArtifact DependencyType = "/artifact" // Needs output artifact from dependency
+)
+
+// Campaign represents a long-running, multi-phase goal.
+type Campaign struct {
+	ID             string           `json:"id"`
+	Type           CampaignType     `json:"type"`
+	Title          string           `json:"title"`
+	Goal           string           `json:"goal"`            // High-level goal description
+	SourceMaterial []string         `json:"source_material"` // Paths to spec docs
+	SourceDocs     []SourceDocument `json:"source_docs,omitzero"`
+	KnowledgeBase  string           `json:"knowledge_base,omitzero"` // Path to campaign knowledge DB
+	Status         CampaignStatus   `json:"status"`
+
+	// BlockReason records why the campaign was marked failed when the
+	// execution loop stopped on a block (e.g. /all_tasks_blocked). Persisted
+	// so a resumed run can report it instead of relying on in-memory lastError.
+	BlockReason string `json:"block_reason,omitzero"`
+
+	// ResumeCount counts how many times PrepareResume re-activated this
+	// campaign after a failed/blocked stop.
+	ResumeCount int `json:"resume_count,omitzero"`
+
+	// RecurseID links the wave-campaigns of one /recurse run; RecurseWave is
+	// the zero-based wave index. Empty/zero for non-recurse campaigns. Each
+	// wave is a normal campaign (resumable, inspectable on its own); the ID
+	// is what ties the sweep together.
+	RecurseID   string `json:"recurse_id,omitzero"`
+	RecurseWave int    `json:"recurse_wave,omitzero"`
+
+	// PromptPhase is the JIT campaign_phase selector for this campaign's
+	// task turns (/recurse_fix, /recurse_improve). Empty for campaigns
+	// whose tasks are not phase-gated. The orchestrator puts it on the
+	// turn's session context; the session executor copies it onto the
+	// compilation context. Persisted so a resumed attempt still selects
+	// the same instruction atom.
+	PromptPhase string `json:"prompt_phase,omitzero"`
+
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	Confidence float64   `json:"confidence"` // LLM's confidence in the plan (0.0-1.0)
+
+	// PlanDegraded marks a campaign whose plan the decomposer synthesized
+	// because the model returned no phases. It is a generic three-task scaffold
+	// with the goal string pasted into each description, and it cannot express
+	// what the goal asked for.
+	//
+	// Persisted so a resumed campaign still knows, and surfaced by the CLI: a
+	// degraded plan shown as "Campaign Plan ... Confidence: 50%" is
+	// indistinguishable from a real one, and the campaign will report phases
+	// completed while doing something nobody asked for.
+	PlanDegraded bool `json:"plan_degraded,omitempty"`
+
+	// Acceptance is the campaign's deterministic witness, when the user
+	// declared one (nerd campaign start --accept). Nil means completion is
+	// judged by the phases alone. Persisted with its rounds, so a resumed
+	// campaign neither forgets the command nor restarts its count.
+	Acceptance *Acceptance `json:"acceptance,omitempty"`
+
+	// RootBaseline captures the workspace root filenames as they existed before
+	// the campaign first ran. Only files absent from this baseline are ever
+	// candidates for the completion sweep, so a campaign can never move
+	// something it did not create.
+	//
+	// Persisted so a resumed campaign still knows the original root: without it
+	// the baseline is re-snapshotted after earlier runs already wrote scratch
+	// into the workspace, and the sweep silently under-cleans exactly the files
+	// it exists to catch. omitempty is deliberately absent because empty-and-recorded must stay distinguishable from never-recorded.
+	RootBaseline []string `json:"root_baseline"`
+
+	// Structure
+	Phases          []Phase          `json:"phases"`
+	ContextProfiles []ContextProfile `json:"context_profiles,omitzero"`
+
+	// Progress
+	CompletedPhases int `json:"completed_phases"`
+	TotalPhases     int `json:"total_phases"`
+	CompletedTasks  int `json:"completed_tasks"`
+	TotalTasks      int `json:"total_tasks"`
+
+	// Context management
+	ContextBudget      int     `json:"context_budget"`      // Total token budget
+	ContextUsed        int     `json:"context_used"`        // Currently used tokens
+	ContextUtilization float64 `json:"context_utilization"` // 0.0-1.0
+
+	// Revision tracking
+	RevisionNumber int    `json:"revision_number"`
+	LastRevision   string `json:"last_revision_summary"`
+
+	// Learnings (autopoiesis)
+	Learnings []Learning `json:"learnings,omitzero"`
+
+	// Optional: adversarial assault configuration (for CampaignTypeAdversarialAssault).
+	Assault *AssaultConfig `json:"assault,omitzero"`
+}
+
+// Phase represents a distinct phase within a campaign.
+type Phase struct {
+	ID             string      `json:"id"`
+	CampaignID     string      `json:"campaign_id"`
+	Name           string      `json:"name"`
+	Order          int         `json:"order"` // Execution order (0-based)
+	Category       string      `json:"category"`
+	Status         PhaseStatus `json:"status"`
+	ContextProfile string      `json:"context_profile"` // ID of the context profile
+
+	// Objectives
+	Objectives []PhaseObjective `json:"objectives"`
+
+	// Tasks
+	Tasks []Task `json:"tasks"`
+
+	// Dependencies
+	Dependencies []PhaseDependency `json:"dependencies,omitzero"`
+
+	// Estimates
+	EstimatedTasks      int    `json:"estimated_tasks"`
+	EstimatedComplexity string `json:"estimated_complexity"` // /low, /medium, /high, /critical
+
+	// Checkpoints
+	Checkpoints []Checkpoint `json:"checkpoints,omitzero"`
+
+	// CheckpointFailures counts how many times this phase's verification
+	// checkpoint has failed. Bounds the failure→replan→re-checkpoint loop so a
+	// persistently-failing checkpoint (e.g. tool error, non-replan-fixable review)
+	// cannot spin the phase forever (F-CKPT-2).
+	CheckpointFailures int `json:"checkpoint_failures,omitempty"`
+
+	// Compression (after completion)
+	CompressedSummary string    `json:"compressed_summary,omitzero"`
+	OriginalAtomCount int       `json:"original_atom_count,omitzero"`
+	CompressedAt      time.Time `json:"compressed_at"`
+}
+
+// PhaseObjective describes what a phase aims to accomplish.
+type PhaseObjective struct {
+	Type               ObjectiveType      `json:"type"`
+	Description        string             `json:"description"`
+	VerificationMethod VerificationMethod `json:"verification_method"`
+}
+
+// PhaseDependency represents a dependency between phases.
+type PhaseDependency struct {
+	DependsOnPhaseID string         `json:"depends_on_phase_id"`
+	Type             DependencyType `json:"type"`
+}
+
+// Task represents an atomic unit of work within a phase.
+type TestExecutionWitness struct {
+	Snapshot   string    `json:"snapshot"`
+	Command    string    `json:"command"`
+	OutputHash string    `json:"output_sha256"`
+	RecordedAt time.Time `json:"recorded_at"`
+}
+
+type Task struct {
+	TestWitness *TestExecutionWitness `json:"test_witness,omitempty"`
+	ID          string                `json:"id"`
+	PhaseID     string                `json:"phase_id"`
+	Description string                `json:"description"`
+	Status      TaskStatus            `json:"status"`
+	Type        TaskType              `json:"type"`
+	PlannedType TaskType              `json:"planned_type,omitempty"` // Original execution obligation before reconciliation.
+	Priority    TaskPriority          `json:"priority"`
+	Order       int                   `json:"order"`
+
+	// Dependencies
+	DependsOn []string `json:"depends_on,omitzero"` // Task IDs this depends on
+	SoftDeps  []string `json:"soft_deps,omitzero"`  // Soft dependencies (preferred order)
+	Resources []string `json:"resources,omitzero"`  // Required resources (semaphores)
+	WriteSet  []string `json:"write_set,omitzero"`  // Canonical file paths this task is allowed to mutate
+
+	// Shard routing (explicit shard selection, overrides type-based inference)
+	Shard       string   `json:"shard,omitzero"`        // Which shard to use (e.g., "coder", "researcher")
+	ShardInput  string   `json:"shard_input,omitzero"`  // Full input to pass to shard
+	ContextFrom []string `json:"context_from,omitzero"` // Task IDs to pull results from for context injection
+
+	// Recursion
+	SubCampaignID string `json:"sub_campaign_id,omitzero"` // If set, this task is a sub-campaign
+
+	// Sub-campaign contract (TaskTypeCampaignRef)
+	CampaignRefFailurePolicy CampaignRefFailurePolicy `json:"campaign_ref_failure_policy,omitzero"`
+	CampaignRefInheritance   *CampaignRefInheritance  `json:"campaign_ref_inheritance,omitzero"`
+
+	// Artifacts produced
+	Artifacts []TaskArtifact `json:"artifacts,omitzero"`
+
+	// Provenance
+	InferredFrom    string  `json:"inferred_from,omitzero"` // What this was derived from
+	InferenceConf   float64 `json:"inference_confidence"`   // Confidence of inference
+	InferenceReason string  `json:"inference_reason,omitzero"`
+
+	// Execution tracking
+	Attempts  []TaskAttempt `json:"attempts,omitzero"`
+	LastError string        `json:"last_error,omitzero"`
+	// Backoff control (persisted for long-horizon durability)
+	NextRetryAt time.Time `json:"next_retry_at"`
+	// ReplannedAtCap records that the failure-driven replanner already ran
+	// once for this task when it reached the attempt cap. Bounds the
+	// attempt-cap replan to one invocation per task per campaign so a second
+	// failure of the same task falls through to today's block.
+	ReplannedAtCap bool `json:"replanned_at_cap,omitzero"`
+}
+
+// CampaignRefFailurePolicy controls how parent task status reacts to child status.
+type CampaignRefFailurePolicy string
+
+const (
+	CampaignRefPolicyPropagate CampaignRefFailurePolicy = "/propagate"
+	CampaignRefPolicyAbsorb    CampaignRefFailurePolicy = "/absorb"
+	CampaignRefPolicyTransform CampaignRefFailurePolicy = "/transform"
+)
+
+// CampaignRefInheritance defines parent -> child scope inheritance.
+type CampaignRefInheritance struct {
+	FactsScope  string `json:"facts_scope,omitzero"`
+	FSScope     string `json:"fs_scope,omitzero"`
+	MemoryScope string `json:"memory_scope,omitzero"`
+	ToolScope   string `json:"tool_scope,omitzero"`
+}
+
+// CampaignRefResult is the typed result envelope returned from /campaign_ref tasks.
+type CampaignRefResult struct {
+	Version        int                      `json:"version"`
+	SubCampaignID  string                   `json:"sub_campaign_id"`
+	Status         string                   `json:"status"`
+	Artifacts      []string                 `json:"artifacts,omitzero"`
+	LearnedFacts   []string                 `json:"learned_facts,omitzero"`
+	Checkpoints    int                      `json:"checkpoints"`
+	FailureSummary string                   `json:"failure_summary,omitzero"`
+	FailurePolicy  CampaignRefFailurePolicy `json:"failure_policy"`
+	Inheritance    CampaignRefInheritance   `json:"inheritance"`
+}
+
+// TaskArtifact represents an artifact produced by a task.
+type TaskArtifact struct {
+	Type string `json:"type"` // /source_file, /test_file, /config, /shard_agent, /knowledge_base, /doc
+	Path string `json:"path"`
+	Hash string `json:"hash,omitzero"`
+}
+
+// TaskAttempt tracks an execution attempt for a task.
+type TaskAttempt struct {
+	Number    int       `json:"number"`
+	Outcome   string    `json:"outcome"` // /success, /failure, /partial
+	Timestamp time.Time `json:"timestamp"`
+	Error     string    `json:"error,omitzero"`
+	// Signals are the attempt's typed failure signals (failureSignals), the
+	// facts the kernel derives the task's next move from. Attempts recorded
+	// before signals existed have none and count only as failures.
+	Signals []string `json:"signals,omitempty"`
+}
+
+// attemptFacts are the kernel's record of one attempt: task_attempt, and a
+// task_attempt_signal row per signal.
+func attemptFacts(taskID string, a TaskAttempt) []core.Fact {
+	facts := []core.Fact{{
+		Predicate: "task_attempt",
+		Args:      []any{taskID, a.Number, a.Outcome, a.Timestamp.Unix()},
+	}}
+	for _, sig := range a.Signals {
+		facts = append(facts, core.Fact{
+			Predicate: "task_attempt_signal",
+			Args:      []any{taskID, a.Number, sig},
+		})
+	}
+	return facts
+}
+
+// taskErrorFact records a task's last error under its last attempt's first
+// signal, so systemic-error rules group failures by what they were rather than
+// by one constant.
+func taskErrorFact(t *Task) (core.Fact, bool) {
+	if t.LastError == "" {
+		return core.Fact{}, false
+	}
+	kind := signalUnclassified
+	if n := len(t.Attempts); n > 0 && len(t.Attempts[n-1].Signals) > 0 {
+		kind = t.Attempts[n-1].Signals[0]
+	}
+	return core.Fact{Predicate: "task_error", Args: []any{t.ID, kind, t.LastError}}, true
+}
+
+// Checkpoint represents a verification checkpoint for a phase.
+type Checkpoint struct {
+	Type      string    `json:"type"` // /tests, /build, /lint, /coverage, /manual, /integration
+	Passed    bool      `json:"passed"`
+	Details   string    `json:"details,omitzero"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// ContextProfile defines what context a phase needs.
+type ContextProfile struct {
+	ID              string   `json:"id"`
+	RequiredSchemas []string `json:"required_schemas"` // Schema sections needed
+	RequiredTools   []string `json:"required_tools"`   // Tools permitted
+	FocusPatterns   []string `json:"focus_patterns"`   // Glob patterns for files
+}
+
+// Learning represents something learned during campaign execution.
+type Learning struct {
+	Type      string    `json:"type"` // /success_pattern, /failure_pattern, /preference, /optimization
+	Pattern   string    `json:"pattern"`
+	Fact      string    `json:"fact"`
+	AppliedAt time.Time `json:"applied_at"`
+}
+
+// SourceDocument represents a source document ingested for the campaign.
+type SourceDocument struct {
+	CampaignID string    `json:"campaign_id"`
+	Path       string    `json:"path"`
+	Type       string    `json:"type"` // /spec, /requirements, /design, /readme, /api_doc, /tutorial
+	ParsedAt   time.Time `json:"parsed_at"`
+	Summary    string    `json:"summary,omitzero"`
+}
+
+// FileMetadata captures lightweight document metadata for selection and retrieval.
+type FileMetadata struct {
+	Path            string    `json:"path"`
+	Type            string    `json:"type"`
+	SizeBytes       int64     `json:"size_bytes"`
+	ModifiedAt      time.Time `json:"modified_at"`
+	Tags            []string  `json:"tags,omitzero"`
+	Layer           string    `json:"layer,omitzero"`
+	LayerConfidence float64   `json:"layer_confidence,omitzero"`
+	LayerReason     string    `json:"layer_reason,omitzero"`
+}
+
+// Requirement represents a requirement extracted from source documents.
+type Requirement struct {
+	ID          string   `json:"id"`
+	CampaignID  string   `json:"campaign_id"`
+	Description string   `json:"description"`
+	Priority    string   `json:"priority"`
+	Source      string   `json:"source"`              // Which document this came from
+	CoveredBy   []string `json:"covered_by,omitzero"` // Task IDs that cover this
+}
+
+// CampaignShard tracks a shard spawned as part of campaign execution.
+type CampaignShard struct {
+	CampaignID string `json:"campaign_id"`
+	ShardID    string `json:"shard_id"`
+	ShardType  string `json:"shard_type"`
+	Task       string `json:"task"`
+	Status     string `json:"status"`
+}
+
+// ShardResult represents the result from a shard execution.
+type ShardResult struct {
+	ShardID    string    `json:"shard_id"`
+	ResultType string    `json:"result_type"` // /success, /failure, /partial, /knowledge
+	ResultData string    `json:"result_data"`
+	Timestamp  time.Time `json:"timestamp"`
+}
+
+// Progress represents campaign progress for display.
+type Progress struct {
+	CampaignID      string   `json:"campaign_id"`
+	CampaignTitle   string   `json:"campaign_title"`
+	CampaignStatus  string   `json:"campaign_status"`
+	CurrentPhase    string   `json:"current_phase"`
+	CurrentPhaseIdx int      `json:"current_phase_idx"`
+	CompletedPhases int      `json:"completed_phases"`
+	TotalPhases     int      `json:"total_phases"`
+	PhaseProgress   float64  `json:"phase_progress"`   // 0.0-1.0
+	OverallProgress float64  `json:"overall_progress"` // 0.0-1.0
+	CurrentTask     string   `json:"current_task"`
+	CompletedTasks  int      `json:"completed_tasks"`
+	TotalTasks      int      `json:"total_tasks"`
+	ActiveShards    []string `json:"active_shards"`
+	ContextUsage    float64  `json:"context_usage"` // 0.0-1.0
+	Learnings       int      `json:"learnings_count"`
+	Replans         int      `json:"replans_count"`
+	Errors          []string `json:"errors,omitzero"`
+}
+
+// ReplanTrigger represents a reason to replan the campaign.
+type ReplanTrigger struct {
+	CampaignID  string    `json:"campaign_id"`
+	Reason      string    `json:"reason"` // /task_failed, /new_requirement, /user_feedback, /dependency_change, /blocked
+	TriggeredAt time.Time `json:"triggered_at"`
+	Details     string    `json:"details,omitzero"`
+}
+
+// PlanValidationIssue represents an issue found during plan validation.
+type PlanValidationIssue struct {
+	CampaignID  string `json:"campaign_id"`
+	IssueType   string `json:"issue_type"` // /missing_dependency, /circular_dependency, /unreachable_task, /ambiguous_goal
+	Description string `json:"description"`
+}
+
+// ToFacts converts a Campaign to Mangle facts for kernel loading.
+func (c *Campaign) ToFacts() []core.Fact {
+	logging.CampaignDebug("Converting campaign %s to Mangle facts", c.ID)
+
+	facts := make([]core.Fact, 0)
+
+	source := ""
+	if len(c.SourceMaterial) > 0 {
+		source = c.SourceMaterial[0]
+	}
+
+	// Main campaign fact
+	facts = append(facts, core.Fact{
+		Predicate: "campaign",
+		Args:      []any{c.ID, string(c.Type), c.Title, source, string(c.Status)},
+	})
+
+	// Campaign metadata
+	facts = append(facts, core.Fact{
+		Predicate: "campaign_metadata",
+		Args:      []any{c.ID, c.CreatedAt.Unix(), len(c.Phases), int64(c.Confidence * 100)}, // Scale 0.0-1.0 → 0-100 integer
+	})
+
+	// Campaign goal
+	facts = append(facts, core.Fact{
+		Predicate: "campaign_goal",
+		Args:      []any{c.ID, c.Goal},
+	})
+
+	// Progress
+	facts = append(facts, core.Fact{
+		Predicate: "campaign_progress",
+		Args:      []any{c.ID, c.CompletedPhases, c.TotalPhases, c.CompletedTasks, c.TotalTasks},
+	})
+
+	// Acceptance: the declared witness and every round it has run.
+	facts = append(facts, c.Acceptance.ToFacts(c.ID)...)
+
+	// Context profiles
+	for i := range c.ContextProfiles {
+		facts = append(facts, c.ContextProfiles[i].ToFacts()...)
+	}
+
+	// Source documents
+	for _, doc := range c.SourceDocs {
+		facts = append(facts, core.Fact{
+			Predicate: "source_document",
+			Args:      []any{c.ID, doc.Path, doc.Type, doc.ParsedAt.Unix()},
+		})
+	}
+
+	// Phases. A phase belongs to the campaign that holds it, whatever its own
+	// CampaignID field says: campaign_phases_done reads campaign_phase rows by
+	// campaign, so a phase whose field was empty or stale was invisible to it
+	// and the campaign counted as done with that phase still pending.
+	for i := range c.Phases {
+		for _, f := range c.Phases[i].ToFacts() {
+			if f.Predicate == "campaign_phase" && len(f.Args) > 1 {
+				f.Args[1] = c.ID
+			}
+			facts = append(facts, f)
+		}
+	}
+
+	logging.CampaignDebug("Campaign %s converted: %d total facts (phases=%d, profiles=%d, docs=%d)",
+		c.ID, len(facts), len(c.Phases), len(c.ContextProfiles), len(c.SourceDocs))
+
+	return facts
+}
+
+// ToFacts converts a Phase to Mangle facts.
+func (p *Phase) ToFacts() []core.Fact {
+	logging.CampaignDebug("Converting phase %s (%s) to Mangle facts", p.ID, p.Name)
+
+	facts := make([]core.Fact, 0)
+
+	// Phase fact
+	facts = append(facts, core.Fact{
+		Predicate: "campaign_phase",
+		Args:      []any{p.ID, p.CampaignID, p.Name, p.Order, string(p.Status), p.ContextProfile},
+	})
+
+	// Phase category for build topology enforcement
+	category := normalizeCategory(p.Category)
+	p.Category = category
+	if category != "" {
+		facts = append(facts, core.Fact{
+			Predicate: "phase_category",
+			Args:      []any{p.ID, category},
+		})
+	}
+
+	// Phase objectives
+	for _, obj := range p.Objectives {
+		facts = append(facts, core.Fact{
+			Predicate: "phase_objective",
+			Args:      []any{p.ID, string(obj.Type), obj.Description, string(obj.VerificationMethod)},
+		})
+	}
+
+	// Phase dependencies
+	for _, dep := range p.Dependencies {
+		facts = append(facts, core.Fact{
+			Predicate: "phase_dependency",
+			Args:      []any{p.ID, dep.DependsOnPhaseID, string(dep.Type)},
+		})
+	}
+
+	// Failed checkpoint runs since the phase's budget was armed: the policy
+	// counts these rows (phase_ckpt_failures), so a resumed campaign decides
+	// from the same record the file keeps.
+	for run := 1; run <= p.CheckpointFailures; run++ {
+		facts = append(facts, core.Fact{
+			Predicate: "phase_checkpoint_failure",
+			Args:      []any{p.ID, run},
+		})
+	}
+
+	// Phase estimates
+	facts = append(facts, core.Fact{
+		Predicate: "phase_estimate",
+		Args:      []any{p.ID, p.EstimatedTasks, p.EstimatedComplexity},
+	})
+
+	// Tasks
+	for idx := range p.Tasks {
+		if p.Tasks[idx].Order == 0 {
+			p.Tasks[idx].Order = idx
+		}
+		facts = append(facts, p.Tasks[idx].ToFacts()...)
+	}
+
+	// Compression (if completed)
+	if p.CompressedSummary != "" {
+		facts = append(facts, core.Fact{
+			Predicate: "context_compression",
+			Args:      []any{p.ID, p.CompressedSummary, p.OriginalAtomCount, p.CompressedAt.Unix()},
+		})
+	}
+
+	return facts
+}
+
+// ToFacts converts a Task to Mangle facts.
+func (t *Task) ToFacts() []core.Fact {
+	facts := make([]core.Fact, 0)
+
+	// Task fact
+	facts = append(facts, core.Fact{
+		Predicate: "campaign_task",
+		Args:      []any{t.ID, t.PhaseID, t.Description, string(t.Status), string(t.Type)},
+	})
+
+	// Task priority
+	facts = append(facts, core.Fact{
+		Predicate: "task_priority",
+		Args:      []any{t.ID, string(t.Priority)},
+	})
+
+	// Task order (stable deterministic ordering)
+	facts = append(facts, core.Fact{
+		Predicate: "task_order",
+		Args:      []any{t.ID, t.Order},
+	})
+
+	// Task dependencies
+	for _, depID := range t.DependsOn {
+		facts = append(facts, core.Fact{
+			Predicate: "task_dependency",
+			Args:      []any{t.ID, depID},
+		})
+	}
+
+	// Context edges: the tasks whose returns this task's input carries, when
+	// the policy says their return is not already in the brief
+	// (task_context_projection, policy/campaign_evidence.mg).
+	for _, fromID := range t.ContextFrom {
+		facts = append(facts, core.Fact{
+			Predicate: "task_context_from",
+			Args:      []any{t.ID, fromID},
+		})
+	}
+
+	// Soft dependencies
+	for _, depID := range t.SoftDeps {
+		facts = append(facts, core.Fact{
+			Predicate: "task_soft_dependency",
+			Args:      []any{t.ID, depID},
+		})
+	}
+
+	// Resources
+	for _, res := range t.Resources {
+		facts = append(facts, core.Fact{
+			Predicate: "requires_resource",
+			Args:      []any{t.ID, res},
+		})
+	}
+
+	// Recursion
+	if t.SubCampaignID != "" {
+		facts = append(facts, core.Fact{
+			Predicate: "task_sub_campaign",
+			Args:      []any{t.ID, t.SubCampaignID},
+		})
+	}
+
+	// Artifacts
+	for _, artifact := range t.Artifacts {
+		path := normalizePath(artifact.Path)
+		facts = append(facts, core.Fact{
+			Predicate: "task_artifact",
+			Args:      []any{t.ID, artifact.Type, path, artifact.Hash},
+		})
+	}
+
+	// Inference. Confidence is scaled 0.0-1.0 -> 0-100 to match its own Decl
+	// (`bound [..., /number, ...]`) and the campaign_metadata convention. It
+	// used to be emitted as a raw float64, which lands in the kernel as an
+	// ast.Float64 in an integer slot; no rule reads it today, so the mismatch
+	// was invisible, and the first rule to compare it would have been the one
+	// that discovered it.
+	if t.InferredFrom != "" {
+		facts = append(facts, core.Fact{
+			Predicate: "task_inference",
+			Args:      []any{t.ID, t.InferredFrom, int64(t.InferenceConf * 100), types.MangleString(t.InferenceReason)},
+		})
+	}
+
+	// Attempts
+	for _, attempt := range t.Attempts {
+		facts = append(facts, attemptFacts(t.ID, attempt)...)
+	}
+	if t.ReplannedAtCap {
+		facts = append(facts, core.Fact{Predicate: "task_replanned_at_cap", Args: []any{t.ID}})
+	}
+
+	// Retry backoff window
+	if !t.NextRetryAt.IsZero() {
+		facts = append(facts, core.Fact{
+			Predicate: "task_retry_at",
+			Args:      []any{t.ID, t.NextRetryAt.Unix()},
+		})
+	}
+
+	// Error
+	if f, ok := taskErrorFact(t); ok {
+		facts = append(facts, f)
+	}
+
+	// Deterministic write contract
+	writeSet := t.DeterministicWriteSet()
+	for _, writePath := range writeSet {
+		facts = append(facts, core.Fact{
+			Predicate: "task_write_target",
+			Args:      []any{t.ID, writePath},
+		})
+	}
+
+	// The kinds of file the task writes, by extension, from the same write
+	// set: the policy classes them with write_class (coder_safety.mg) to
+	// decide what the task's phase can be verified by (verify_task_route) and
+	// what a failure of the task owes (task_owes_repro). A directory target
+	// has no extension and says nothing about its kind.
+	seenExt := make(map[string]bool, len(writeSet))
+	for _, writePath := range writeSet {
+		ext := strings.ToLower(filepath.Ext(writePath))
+		if ext == "" || seenExt[ext] {
+			continue
+		}
+		seenExt[ext] = true
+		facts = append(facts, core.Fact{
+			Predicate: "task_write_ext",
+			Args:      []any{t.ID, ext},
+		})
+	}
+
+	return facts
+}
+
+// DeterministicWriteSet returns a canonical, stable write_set for task contracts.
+// It prefers explicit WriteSet contracts and falls back to Artifacts for compatibility.
+func (t *Task) DeterministicWriteSet() []string {
+	paths := make([]string, 0, len(t.WriteSet)+len(t.Artifacts))
+	paths = append(paths, t.WriteSet...)
+	if len(paths) == 0 {
+		for _, artifact := range t.Artifacts {
+			if artifact.Path != "" {
+				paths = append(paths, artifact.Path)
+			}
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(paths))
+	writeSet := make([]string, 0, len(paths))
+	for _, candidate := range paths {
+		path := normalizePath(candidate)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		writeSet = append(writeSet, path)
+	}
+	sort.Strings(writeSet)
+	return writeSet
+}
+
+func campaignRefLifecycleFromStatus(status CampaignStatus) string {
+	switch status {
+	case StatusPlanning, StatusDecomposing, StatusValidating:
+		return CampaignRefLifecycleQueued
+	case StatusActive:
+		return CampaignRefLifecycleActive
+	case StatusPaused:
+		return CampaignRefLifecyclePaused
+	case StatusCompleted:
+		return CampaignRefLifecycleCompleted
+	case StatusFailed:
+		return CampaignRefLifecycleFailed
+	default:
+		return CampaignRefLifecycleLinked
+	}
+}
+
+// ToFacts converts a ContextProfile to Mangle facts.
+func (cp *ContextProfile) ToFacts() []core.Fact {
+	return []core.Fact{{
+		Predicate: "context_profile",
+		Args: []any{
+			cp.ID,
+			joinStrings(cp.RequiredSchemas),
+			joinStrings(cp.RequiredTools),
+			joinStrings(cp.FocusPatterns),
+		},
+	}}
+}
+
+// Helper to join strings with commas.
+func joinStrings(strs []string) string {
+	var result strings.Builder
+	for i, s := range strs {
+		if i > 0 {
+			result.WriteString(",")
+		}
+		result.WriteString(s)
+	}
+	return result.String()
+}
+
+// normalizeCategory coerces category strings into canonical /atom form with a default.
+func normalizeCategory(category string) string {
+	return normalizePhaseCategory(category)
+}
+
+func normalizeAtomValue(value string) string {
+	normalized := strings.TrimSpace(strings.ToLower(value))
+	if normalized == "" {
+		return ""
+	}
+	if !strings.HasPrefix(normalized, "/") {
+		normalized = "/" + normalized
+	}
+	return normalized
+}
+
+func defaultTaskTypeForCategory(category string) TaskType {
+	switch normalizeCategory(category) {
+	case "/research":
+		return TaskTypeResearch
+	case "/test", "/testing":
+		return TaskTypeTestWrite
+	case "/verify", "/validation", "/audit", "/review":
+		return TaskTypeVerify
+	case "/document", "/documentation", "/docs":
+		return TaskTypeDocument
+	case "/integrate", "/integration":
+		return TaskTypeIntegrate
+	case "/refactor":
+		return TaskTypeRefactor
+	case "/scaffold", "/create":
+		return TaskTypeFileCreate
+	default:
+		return TaskTypeFileModify
+	}
+}
+
+func normalizeTaskType(taskType string, fallback TaskType) TaskType {
+	normalized := normalizeAtomValue(taskType)
+	switch normalized {
+	case string(TaskTypeFileCreate):
+		return TaskTypeFileCreate
+	case string(TaskTypeFileModify):
+		return TaskTypeFileModify
+	case string(TaskTypeTestWrite):
+		return TaskTypeTestWrite
+	case string(TaskTypeTestRun):
+		return TaskTypeTestRun
+	case string(TaskTypeResearch):
+		return TaskTypeResearch
+	case string(TaskTypeShardSpawn):
+		return TaskTypeShardSpawn
+	case string(TaskTypeToolCreate):
+		return TaskTypeToolCreate
+	case string(TaskTypeVerify):
+		return TaskTypeVerify
+	case string(TaskTypeDocument):
+		return TaskTypeDocument
+	case string(TaskTypeRefactor):
+		return TaskTypeRefactor
+	case string(TaskTypeIntegrate):
+		return TaskTypeIntegrate
+	case string(TaskTypeCampaignRef):
+		return TaskTypeCampaignRef
+	case string(TaskTypeAssaultDiscover):
+		return TaskTypeAssaultDiscover
+	case string(TaskTypeAssaultBatch):
+		return TaskTypeAssaultBatch
+	case string(TaskTypeAssaultTriage):
+		return TaskTypeAssaultTriage
+	case "/code", "/modify", "/edit", "/patch":
+		return TaskTypeFileModify
+	case "/create", "/new_file":
+		return TaskTypeFileCreate
+	case "/test":
+		return TaskTypeTestWrite
+	case "/docs", "/documentation":
+		return TaskTypeDocument
+	case "/review", "/audit", "/validate":
+		return TaskTypeVerify
+	}
+	if fallback == "" {
+		return TaskTypeFileModify
+	}
+	return fallback
+}
+
+func normalizeTaskPriority(priority string) TaskPriority {
+	switch normalizeAtomValue(priority) {
+	case string(PriorityCritical), "/urgent":
+		return PriorityCritical
+	case string(PriorityHigh), "/important":
+		return PriorityHigh
+	case string(PriorityLow):
+		return PriorityLow
+	case string(PriorityNormal), "/medium", "/default":
+		return PriorityNormal
+	default:
+		return PriorityNormal
+	}
+}
+
+func defaultObjectiveTypeForCategory(category string) ObjectiveType {
+	switch normalizeCategory(category) {
+	case "/research":
+		return ObjectiveResearch
+	case "/test", "/testing":
+		return ObjectiveTest
+	case "/verify", "/validation", "/audit":
+		return ObjectiveValidate
+	case "/integrate", "/integration":
+		return ObjectiveIntegrate
+	case "/review":
+		return ObjectiveReview
+	case "/scaffold", "/create":
+		return ObjectiveCreate
+	default:
+		return ObjectiveModify
+	}
+}
+
+func normalizeObjectiveType(objective string, fallback ObjectiveType) ObjectiveType {
+	switch normalizeAtomValue(objective) {
+	case string(ObjectiveCreate):
+		return ObjectiveCreate
+	case string(ObjectiveModify), "/code":
+		return ObjectiveModify
+	case string(ObjectiveTest), "/testing":
+		return ObjectiveTest
+	case string(ObjectiveResearch):
+		return ObjectiveResearch
+	case string(ObjectiveValidate), "/verify", "/validation", "/audit":
+		return ObjectiveValidate
+	case string(ObjectiveIntegrate), "/integration":
+		return ObjectiveIntegrate
+	case string(ObjectiveReview):
+		return ObjectiveReview
+	}
+	if fallback == "" {
+		return ObjectiveModify
+	}
+	return fallback
+}
+
+func normalizeVerificationMethod(method string) VerificationMethod {
+	switch normalizeAtomValue(method) {
+	case string(VerifyTestsPass), "/test", "/tests", "/testing":
+		return VerifyTestsPass
+	case string(VerifyBuilds), "/build":
+		return VerifyBuilds
+	case string(VerifyManualReview), "/review":
+		return VerifyManualReview
+	case string(VerifyShardValidate), "/validate", "/validation":
+		return VerifyShardValidate
+	case string(VerifyNemesisGauntlet), "/gauntlet", "/nemesis":
+		return VerifyNemesisGauntlet
+	case string(VerifyNone), "":
+		return VerifyNone
+	default:
+		return VerifyNone
+	}
+}
+
+// normalizePath cleans filesystem paths and converts separators to slash form.
+func normalizePath(p string) string {
+	if p == "" {
+		return ""
+	}
+	return filepath.ToSlash(filepath.Clean(p))
+}

@@ -1,0 +1,7 @@
+schema_version = 1
+id = "browser"
+kind = "realized"
+source_roots = ["internal/browser"]
+entrypoint = "README.md"
+implemented_spec = "README.md"
+verified_on = "2026-09-20"

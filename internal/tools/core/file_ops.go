@@ -1,0 +1,770 @@
+package core
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"codenerd/internal/atomicfile"
+	"codenerd/internal/config"
+	"codenerd/internal/logging"
+	"codenerd/internal/observation"
+	"codenerd/internal/observation/precondition"
+	"codenerd/internal/projectdoc"
+	"codenerd/internal/tactile"
+	"codenerd/internal/tools"
+)
+
+// ReadFileTool returns a tool for reading file contents.
+func ReadFileTool() *tools.Tool {
+	return &tools.Tool{
+		Name:          "read_file",
+		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryAttack, tools.CategoryGeneral},
+		Description: "Read a file. Each line is returned prefixed with its 1-indexed line " +
+			"number and a tab, so you can cite file:line accurately. The prefix is NOT part " +
+			"of the file: strip it before passing any content to write_file, edit_file, " +
+			"edit_lines or any other tool that matches against the real text. " +
+			"A long file comes back as the region you asked about plus an outline of the " +
+			"code elements it did not print, with their line numbers — read those lines by " +
+			"asking for them with start_line/end_line. Every read reports a precondition " +
+			"handle; pass it to the edit verb that follows and the edit is refused if the " +
+			"lines you read have changed since.",
+		Category: tools.CategoryCode,
+		Priority: 90,
+		Execute:  executeReadFile,
+		Schema: tools.ToolSchema{
+			Required: []string{"path"},
+			Properties: map[string]tools.Property{
+				"path": {
+					Type:        "string",
+					Description: "The file path to read",
+				},
+				"start_line": {
+					Type:        "integer",
+					Description: "Starting line number (1-indexed, optional)",
+				},
+				"end_line": {
+					Type:        "integer",
+					Description: "Ending line number (inclusive, optional)",
+				},
+			},
+		},
+	}
+}
+
+// notFoundWithSuggestions turns a missing-file error into a recoverable one by
+// naming what actually exists in the directory the caller aimed at.
+//
+// The failure this addresses: a model guesses a plausible filename
+// (internal/northstar/campaign_observer.go when the file is observer.go),
+// read_file returns a bare "no such file", and the run dead-ends -- observed
+// live killing a task after five guessed paths in one batch. A wrong guess
+// should cost one turn, not the whole task, so the error carries the directory
+// listing needed to self-correct.
+func notFoundWithSuggestions(absPath, rawPath string) error {
+	dir := filepath.Dir(absPath)
+	want := strings.ToLower(strings.TrimSuffix(filepath.Base(absPath), filepath.Ext(absPath)))
+
+	entries, dirErr := os.ReadDir(dir)
+	if dirErr != nil {
+		// The directory itself is missing -- say so plainly; that is a
+		// different mistake than a wrong filename.
+		return fmt.Errorf("file not found: %s (directory %s does not exist either; "+
+			"use glob or list_files to find the correct path before reading)",
+			rawPath, filepath.Dir(rawPath))
+	}
+
+	var related, all []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		all = append(all, name)
+		base := strings.ToLower(strings.TrimSuffix(name, filepath.Ext(name)))
+		// Substring either way catches observer.go for campaign_observer.go
+		// and vice versa, which is the common shape of this mistake.
+		if want != "" && (strings.Contains(base, want) || strings.Contains(want, base)) {
+			related = append(related, name)
+		}
+	}
+
+	sort.Strings(related)
+	sort.Strings(all)
+
+	if len(related) > 0 {
+		return fmt.Errorf("file not found: %s. Did you mean one of these in the same directory: %s? "+
+			"(read one of those, or use glob to search more widely -- do not guess another filename)",
+			rawPath, strings.Join(related, ", "))
+	}
+	if len(all) == 0 {
+		return fmt.Errorf("file not found: %s (directory exists but contains no files)", rawPath)
+	}
+	// The listing is whole. A capped "including ..." names forty files the
+	// model cannot distinguish from the ones it cannot see; the working
+	// context ledger already archives large tool results behind recall
+	// handles, so the error carries every name and the ledger decides what
+	// stays in the window.
+	return fmt.Errorf("file not found: %s. That directory contains %d files: %s "+
+		"(pick one of those, or use glob to search elsewhere -- do not guess another filename)",
+		rawPath, len(all), strings.Join(all, ", "))
+}
+
+func directoryReadWithListing(absPath, rawPath string) error {
+	entries, err := os.ReadDir(absPath)
+	if err != nil {
+		return fmt.Errorf("path is a directory, not a file: %s (use list_files or glob to enumerate directory contents)", rawPath)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() {
+			name += "/"
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return fmt.Errorf("path is a directory, not a file: %s (directory is empty; use list_files or glob to enumerate directory contents)", rawPath)
+	}
+	// Whole, for the same reason as the not-found listing above: a capped
+	// contents list hides names the model needs to pick its next read, and
+	// the working context ledger archives large tool results behind recall
+	// handles instead of cutting them.
+	return fmt.Errorf("path is a directory, not a file: %s. Contents (%d): %s. "+
+		"Read one of those files; use list_files or glob only if you need a wider search",
+		rawPath, len(names), strings.Join(names, ", "))
+}
+
+func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
+		return "", fmt.Errorf("path is required")
+	}
+
+	root, err := workspaceRoot(ctx)
+	if err != nil {
+		return "", err
+	}
+	path, err := resolveWorkspacePath(ctx, root, rawPath)
+	if err != nil {
+		return "", err
+	}
+
+	logging.ToolsDebug("read_file: path=%s", path)
+
+	content, err := projectdoc.ReadFileForTool(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			auditErr := notFoundWithSuggestions(path, rawPath)
+			logging.Audit().FileOp(logging.AuditFileRead, path, 0, false, auditErr.Error())
+			return "", auditErr
+		}
+		if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
+			dirErr := directoryReadWithListing(path, rawPath)
+			logging.Audit().FileOp(logging.AuditFileRead, path, 0, false, dirErr.Error())
+			return "", dirErr
+		}
+		logging.Audit().FileOp(logging.AuditFileRead, path, 0, false, err.Error())
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// LLM tool args may arrive as float64 via JSON; coerce robustly. A
+	// present-but-uncoercible bound is refused: silently reading from line 0
+	// would answer a question about a region the caller did not ask for.
+	startLine, ok := coerceInt(args["start_line"])
+	if !ok && args["start_line"] != nil {
+		return "", fmt.Errorf("start_line must be integral, got %v", args["start_line"])
+	}
+	endLine, ok := coerceInt(args["end_line"])
+	if !ok && args["end_line"] != nil {
+		return "", fmt.Errorf("end_line must be integral, got %v", args["end_line"])
+	}
+
+	// The result is shaped by the file-read observation codec rather than
+	// returned as the whole file. Two things come out of that.
+	//
+	// It mints a precondition. An edit built on a read that has since gone
+	// stale is worse than no read at all: the model edits, with confidence, a
+	// file it no longer understands. Passing the handle back to an edit verb
+	// turns that into a refusal.
+	//
+	// And it bounds what a read costs. An unelided read of a long file was not
+	// arriving whole anyway — the tool-loop transcript clamps an oversized
+	// result head-and-tail, which removes the middle of the file and leaves no
+	// trace of what was in it. An outline of the elements it did not print is a
+	// better answer than a hole, and it is what lets the next read ask for the
+	// right lines instead of guessing at them.
+	observed := precondition.Read{
+		Path:    path,
+		Display: tools.WorkspaceDisplayPath(ctx, path),
+		Content: string(content),
+		Start:   startLine,
+		End:     endLine,
+	}
+	// The projection bounds come from observation.* via the installed
+	// policy, the way VirtualStore.handleReadFile builds them: observation
+	// is a leaf package and cannot read config, so the caller that builds
+	// ReadLimits passes the resolved values in. A zero ReadLimits here
+	// silently fell back to the codec's own defaults and the configured
+	// keys never reached this read path.
+	//
+	// PadLines stays the codec-honored 0, not the configured 8: the codec
+	// defaults a negative pad but honors an explicit 0 as "exact region",
+	// and TestReadFile_FractionalBoundsRefused pins that a bounded tool
+	// read returns its bounds, not its bounds plus padding. Routing
+	// observation.pad_lines into this path is a contract change, not a
+	// wiring fix, and needs that test's contract revisited first.
+	obsLimits := config.ResolvedObservationLimits()
+	result := observation.EncodeRead(observed, observation.ReadLimits{
+		MaxRegionLines: obsLimits.MaxRegionLines,
+		PadLines:       0,
+		MaxOutline:     obsLimits.MaxOutline,
+		MaxRegionBytes: obsLimits.MaxRegionBytes,
+	}).Text()
+
+	// The file is the material a read consumed; the projection is what it returns.
+	tools.ReportConsumed(ctx, int64(len(content)), 1)
+	logging.Audit().FileOp(logging.AuditFileRead, path, int64(len(content)), true, "")
+	logging.Tools("read_file completed: %s (%d bytes read, %d bytes returned)", path, len(content), len(result))
+	return result, nil
+}
+
+// stripLineNumberPrefixes removes the "N\t" prefix the read projection adds,
+// but only when every line has one. Returns ok=false otherwise, so a genuine
+// edit to a file of tab-separated numeric data is never silently rewritten.
+func stripLineNumberPrefixes(s string) (string, bool) {
+	if s == "" {
+		return s, false
+	}
+	lines := strings.Split(s, "\n")
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		tab := strings.IndexByte(line, '\t')
+		if tab <= 0 {
+			return s, false
+		}
+		for _, r := range line[:tab] {
+			if r < '0' || r > '9' {
+				return s, false
+			}
+		}
+		out[i] = line[tab+1:]
+	}
+	return strings.Join(out, "\n"), true
+}
+
+// coerceInt accepts an int or a JSON-decoded float64 and returns an int.
+// LLM tool args arrive via JSON, so integers commonly decode as float64.
+// It delegates to the strict canonical helper: line bounds are exact
+// addresses, so fractional values are refused rather than truncated.
+func coerceInt(v any) (int, bool) {
+	return tools.CoerceIntStrict(v)
+}
+
+// WriteFileTool returns a tool for writing content to a file.
+func WriteFileTool() *tools.Tool {
+	return &tools.Tool{
+		Name:          "write_file",
+		AltCategories: []tools.ToolCategory{tools.CategoryAttack},
+		Description:   "Write content to a file, creating it if it doesn't exist",
+		Category:      tools.CategoryCode,
+		Priority:      80,
+		Execute:       executeWriteFile,
+		Schema: tools.ToolSchema{
+			Required: []string{"path", "content"},
+			Properties: map[string]tools.Property{
+				"path": {
+					Type:        "string",
+					Description: "The file path to write",
+				},
+				"content": {
+					Type:        "string",
+					Description: "The content to write",
+				},
+				"create_dirs": {
+					Type:        "boolean",
+					Description: "Create parent directories if they don't exist (default: true)",
+					Default:     true,
+				},
+			},
+		},
+	}
+}
+
+func executeWriteFile(ctx context.Context, args map[string]any) (string, error) {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
+		return "", fmt.Errorf("path is required")
+	}
+
+	// Reject non-string content rather than silently writing an empty file.
+	rawContent, ok := args["content"]
+	if !ok {
+		return "", fmt.Errorf("content is required")
+	}
+	content, ok := rawContent.(string)
+	if !ok {
+		return "", fmt.Errorf("content must be a string, got %T", rawContent)
+	}
+
+	createDirs := true
+	if cd, ok := args["create_dirs"].(bool); ok {
+		createDirs = cd
+	}
+
+	root, err := workspaceRoot(ctx)
+	if err != nil {
+		return "", err
+	}
+	path, err := resolveWorkspacePath(ctx, root, rawPath)
+	if err != nil {
+		return "", err
+	}
+
+	logging.ToolsDebug("write_file: path=%s, size=%d", path, len(content))
+
+	// Create parent directories if needed
+	if createDirs {
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create directories: %w", err)
+		}
+	}
+
+	// One read is both the line-ending sample and the preimage the impact
+	// chain diffs. ExistingLineEnding discarded the bytes, so a write could
+	// not say which elements it had replaced. A missing file is a new file
+	// (before empty): every element it creates is recorded.
+	before, readErr := os.ReadFile(path)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return "", fmt.Errorf("failed to detect existing line ending: %w", readErr)
+	}
+	if readErr == nil {
+		content = tactile.NormalizeLineEnding(content, tactile.DetectLineEnding(before))
+	}
+
+	if err := tools.RejectUnparseableGo(path, []byte(content)); err != nil {
+		return "", err
+	}
+	// A file that parses can still be hidden: //go:build ignore is valid Go.
+	// before is nil for a new file; a file that already excluded stays writable.
+	if err := tools.RejectAddedBuildExclusion(root, path, before, []byte(content)); err != nil {
+		return "", err
+	}
+
+	if err := atomicfile.WriteFilePreservingMode(path, []byte(content), 0o644); err != nil {
+		logging.Audit().FileOp(logging.AuditFileWrite, path, 0, false, err.Error())
+		return "", fmt.Errorf("failed to write file: %w", err)
+	}
+	tools.RecordChangedSource(ctx, path, string(before), content)
+
+	logging.Audit().FileOp(logging.AuditFileWrite, path, int64(len(content)), true, "")
+	logging.Tools("write_file completed: %s (%d bytes)", path, len(content))
+	return fmt.Sprintf("Wrote %d bytes to %s", len(content), path), nil
+}
+
+// EditFileTool returns a tool for editing files with search/replace.
+func EditFileTool() *tools.Tool {
+	return &tools.Tool{
+		Name:          "edit_file",
+		AltCategories: []tools.ToolCategory{tools.CategoryAttack},
+		Description:   "Edit a file by replacing text",
+		Category:      tools.CategoryCode,
+		Priority:      85,
+		Execute:       executeEditFile,
+		Schema: tools.ToolSchema{
+			Required: []string{"path", "old_text", "new_text"},
+			Properties: map[string]tools.Property{
+				"path": {
+					Type:        "string",
+					Description: "The file path to edit",
+				},
+				"old_text": {
+					Type:        "string",
+					Description: "The text to find and replace",
+				},
+				"new_text": {
+					Type:        "string",
+					Description: "The replacement text",
+				},
+				"replace_all": {
+					Type:        "boolean",
+					Description: "Replace all occurrences (default: false, replaces first only)",
+					Default:     false,
+				},
+				precondition.Arg: {
+					Type:        "string",
+					Description: precondition.ArgDescription,
+				},
+			},
+		},
+	}
+}
+
+func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
+		return "", fmt.Errorf("path is required")
+	}
+
+	oldText, _ := args["old_text"].(string)
+	if oldText == "" {
+		return "", fmt.Errorf("old_text is required")
+	}
+
+	// Reject a non-string (or absent) new_text rather than silently coercing
+	// it to "" — that would turn the edit into a deletion of old_text without
+	// any error. Mirrors write_file's content type check. An explicit empty
+	// string is still a valid deletion and passes.
+	rawNewText, ok := args["new_text"]
+	if !ok {
+		return "", fmt.Errorf("new_text is required")
+	}
+	newText, ok := rawNewText.(string)
+	if !ok {
+		return "", fmt.Errorf("new_text must be a string, got %T", rawNewText)
+	}
+
+	replaceAll := false
+	if ra, ok := args["replace_all"].(bool); ok {
+		replaceAll = ra
+	}
+
+	root, err := workspaceRoot(ctx)
+	if err != nil {
+		return "", err
+	}
+	path, err := resolveWorkspacePath(ctx, root, rawPath)
+	if err != nil {
+		return "", err
+	}
+
+	logging.ToolsDebug("edit_file: path=%s, old_len=%d, new_len=%d", path, len(oldText), len(newText))
+
+	content, err := projectdoc.ReadFileForTool(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// The precondition is checked against these bytes — the ones about to be
+	// edited — and before anything is written. Checking after the write would
+	// report a problem that has already happened, and checking against a
+	// separate read of the file would compare two instants and prove nothing
+	// about the third one the edit lands on.
+	staleWarning, err := precondition.Enforce(args, path, content)
+	if err != nil {
+		return "", err
+	}
+
+	originalEnding := tactile.DetectLineEnding(content)
+	contentStr := tactile.NormalizeLineEnding(string(content), "\n")
+	oldText = tactile.NormalizeLineEnding(oldText, "\n")
+	newText = tactile.NormalizeLineEnding(newText, "\n")
+
+	if !strings.Contains(contentStr, oldText) {
+		// read_file now returns "N\tline" so the model can cite file:line. The
+		// tool description says to strip that prefix before editing, but a model
+		// that pastes what it read would otherwise get a bare "old_text not
+		// found" and burn the turn re-reading. Recover only when EVERY line
+		// carries the prefix, so this cannot mangle a genuine edit whose text
+		// happens to start with digits.
+		if stripped, ok := stripLineNumberPrefixes(oldText); ok && strings.Contains(contentStr, stripped) {
+			logging.ToolsWarn("edit_file: old_text carried read_file line-number prefixes; "+
+				"stripped them and matched. path=%s", path)
+			oldText = stripped
+		} else {
+			return "", fmt.Errorf("old_text not found in file")
+		}
+	}
+
+	var newContent string
+	var count int
+	if replaceAll {
+		count = strings.Count(contentStr, oldText)
+		newContent = strings.ReplaceAll(contentStr, oldText, newText)
+	} else {
+		// Refuse an ambiguous edit: replacing only the first of several
+		// matches silently can corrupt the wrong site (the caller believes it
+		// targeted a specific location). Require disambiguation with more
+		// surrounding context, or an explicit replace_all opt-in.
+		if n := strings.Count(contentStr, oldText); n > 1 {
+			return "", fmt.Errorf("old_text is not unique: found %d occurrences; add surrounding context to make it unique or set replace_all=true", n)
+		}
+		count = 1
+		newContent = strings.Replace(contentStr, oldText, newText, 1)
+	}
+	newContent = tactile.NormalizeLineEnding(newContent, originalEnding)
+
+	if err := tools.RejectUnparseableGo(path, []byte(newContent)); err != nil {
+		return "", err
+	}
+	// content is the bytes read above; newContent is what would be written.
+	if err := tools.RejectAddedBuildExclusion(root, path, content, []byte(newContent)); err != nil {
+		return "", err
+	}
+
+	if err := atomicfile.WriteFilePreservingMode(path, []byte(newContent), 0o644); err != nil {
+		// An edit is a write and belongs in the durable record. read_file and
+		// write_file were instrumented; edit_file and delete_file were not,
+		// which left the two most forensically interesting mutations invisible
+		// to `nerd transparency`. Raised by codeNERD's own security review of
+		// this file.
+		logging.Audit().FileOp(logging.AuditFileWrite, path, 0, false, err.Error())
+		return "", fmt.Errorf("failed to write file: %w", err)
+	}
+	// content is the bytes read above; newContent is what was written. The
+	// diff is of element spans, so a replacement that lands inside one
+	// function records that function and not its neighbours.
+	tools.RecordChangedSource(ctx, path, string(content), newContent)
+
+	logging.Audit().FileOp(logging.AuditFileWrite, path, int64(len(newContent)), true, "")
+	logging.Tools("edit_file completed: %s (%d replacements)", path, count)
+	result := fmt.Sprintf("Replaced %d occurrence(s) in %s", count, path)
+	if staleWarning != "" {
+		result += "\n" + staleWarning
+	}
+	return result, nil
+}
+
+// DeleteFileTool returns a tool for deleting files.
+func DeleteFileTool() *tools.Tool {
+	return &tools.Tool{
+		Name:        "delete_file",
+		Description: "Delete a file. Irreversible: requires confirmed=true.",
+		Category:    tools.CategoryCode,
+		Priority:    50,
+		Execute:     executeDeleteFile,
+		Schema: tools.ToolSchema{
+			Required: []string{"path", "confirmed"},
+			Properties: map[string]tools.Property{
+				"path": {
+					Type:        "string",
+					Description: "The file path to delete",
+				},
+				"confirmed": {
+					Type:        "boolean",
+					Description: "Must be true. Deliberate acknowledgement that this deletion is intended and irreversible.",
+				},
+			},
+		},
+	}
+}
+
+func executeDeleteFile(ctx context.Context, args map[string]any) (string, error) {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
+		return "", fmt.Errorf("path is required")
+	}
+
+	// Match the VirtualStore twin's contract.
+	//
+	// The tool's own description claimed it "requires explicit permission" and
+	// the code enforced nothing, while VirtualStore.handleDeleteFile
+	// (virtual_store_file_actions.go:322) refuses without confirmed:true. Two
+	// paths to the same irreversible operation disagreeing on whether consent
+	// is needed means the weaker one is the real policy. Raised by codeNERD's
+	// own security review of this file.
+	//
+	// Declared in the schema as required, so the model is told to supply it
+	// rather than discovering the rule by failing.
+	if confirmed, _ := args["confirmed"].(bool); !confirmed {
+		return "", fmt.Errorf("delete_file requires confirmed=true: deleting %q is irreversible, so it must be acknowledged explicitly", rawPath)
+	}
+
+	root, err := workspaceRoot(ctx)
+	if err != nil {
+		return "", err
+	}
+	path, err := resolveWorkspacePath(ctx, root, rawPath)
+	if err != nil {
+		return "", err
+	}
+
+	logging.ToolsDebug("delete_file: path=%s", path)
+
+	// Safety check - don't delete directories
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	if info.IsDir() {
+		return "", fmt.Errorf("cannot delete directory with delete_file, use dedicated command")
+	}
+
+	// Size is captured before removal — afterwards there is nothing to stat,
+	// and "how much was destroyed" is the first question asked of a delete.
+	deletedSize := info.Size()
+
+	// The impact chain needs the elements this file held. Remove is the last
+	// moment those bytes exist, so a read failure refuses the delete rather
+	// than destroying the only copy of the preimage.
+	before, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	if err := os.Remove(path); err != nil {
+		logging.Audit().FileOp(logging.AuditFileDelete, path, deletedSize, false, err.Error())
+		return "", fmt.Errorf("failed to delete file: %w", err)
+	}
+	tools.RecordChangedSource(ctx, path, string(before), "")
+
+	logging.Audit().FileOp(logging.AuditFileDelete, path, deletedSize, true, "")
+	logging.Tools("delete_file completed: %s", path)
+	return fmt.Sprintf("Deleted %s", path), nil
+}
+
+// ListFilesTool returns a tool for listing directory contents.
+func ListFilesTool() *tools.Tool {
+	return &tools.Tool{
+		Name:          "list_files",
+		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryAttack, tools.CategoryGeneral},
+		Description:   "List files in a directory",
+		Category:      tools.CategoryCode,
+		Priority:      85,
+		Execute:       executeListFiles,
+		Schema: tools.ToolSchema{
+			Required: []string{"path"},
+			Properties: map[string]tools.Property{
+				"path": {
+					Type:        "string",
+					Description: "The directory path to list",
+				},
+				"recursive": {
+					Type:        "boolean",
+					Description: "List recursively (default: false)",
+					Default:     false,
+				},
+				"include_hidden": {
+					Type:        "boolean",
+					Description: "Include hidden files (default: false)",
+					Default:     false,
+				},
+			},
+		},
+	}
+}
+
+func executeListFiles(ctx context.Context, args map[string]any) (string, error) {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
+		rawPath = "."
+	}
+
+	recursive := false
+	if r, ok := args["recursive"].(bool); ok {
+		recursive = r
+	}
+
+	includeHidden := false
+	if ih, ok := args["include_hidden"].(bool); ok {
+		includeHidden = ih
+	}
+
+	root, err := workspaceRoot(ctx)
+	if err != nil {
+		return "", err
+	}
+	path, err := resolveWorkspacePath(ctx, root, rawPath)
+	if err != nil {
+		return "", err
+	}
+
+	logging.ToolsDebug("list_files: path=%s, recursive=%v", path, recursive)
+
+	mem, err := workspaceMembership(root)
+	if err != nil {
+		return "", err
+	}
+
+	var files []string
+
+	var visited, visitedBytes int64
+	if recursive {
+		err := filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil // Skip errors
+			}
+			visited++
+			visitedBytes += int64(len(p))
+
+			member, admErr := mem.Admit(p, info.IsDir())
+			if admErr != nil {
+				return admErr
+			}
+			if !member {
+				return nil
+			}
+
+			name := info.Name()
+			// include_hidden is a display filter on top of membership: a
+			// tracked .github stays hidden until the caller asks for it.
+			if !includeHidden && strings.HasPrefix(name, ".") {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			// Defensive containment: skip anything that resolves outside the
+			// workspace root (e.g. a symlink pointing out of tree).
+			if _, guardErr := resolveWorkspacePath(ctx, root, p); guardErr != nil {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			relPath, _ := filepath.Rel(path, p)
+			if relPath == "." {
+				return nil
+			}
+
+			if info.IsDir() {
+				files = append(files, relPath+"/")
+			} else {
+				files = append(files, relPath)
+			}
+
+			return nil
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to walk directory: %w", err)
+		}
+	} else {
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return "", fmt.Errorf("failed to read directory: %w", err)
+		}
+
+		for _, entry := range entries {
+			name := entry.Name()
+			full := filepath.Join(path, name)
+			visited++
+			visitedBytes += int64(len(full))
+			ok, admErr := mem.Admit(full, entry.IsDir())
+			if admErr != nil || !ok {
+				continue
+			}
+			if !includeHidden && strings.HasPrefix(name, ".") {
+				continue
+			}
+
+			if entry.IsDir() {
+				files = append(files, name+"/")
+			} else {
+				files = append(files, name)
+			}
+		}
+	}
+
+	// The directory entries visited are the material a listing consumed.
+	tools.ReportConsumed(ctx, visitedBytes, visited)
+	logging.Tools("list_files completed: %s (%d entries)", path, len(files))
+	return strings.Join(files, "\n"), nil
+}

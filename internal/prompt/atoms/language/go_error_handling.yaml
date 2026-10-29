@@ -1,0 +1,246 @@
+# Go Error Handling - Encyclopedic Reference
+# Comprehensive guidance for error handling, wrapping, and patterns
+
+- id: "language/go/errors/custom_types"
+  category: "language"
+  subcategory: "go"
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  content: |
+    ## CUSTOM ERROR TYPES
+
+    ### When to Use Custom Error Types
+
+    - Error needs additional context (fields)
+    - Different error cases need different handling
+    - You want type-based error matching
+
+    ### Basic Custom Error
+
+    ```go
+    type ValidationError struct {
+        Field   string
+        Message string
+    }
+
+    func (e *ValidationError) Error() string {
+        return fmt.Sprintf("validation error on %s: %s", e.Field, e.Message)
+    }
+
+    // Usage
+    func Validate(user User) error {
+        if user.Email == "" {
+            return &ValidationError{Field: "email", Message: "required"}
+        }
+        return nil
+    }
+
+    // Handling
+    var valErr *ValidationError
+    if errors.As(err, &valErr) {
+        fmt.Printf("Invalid field: %s\n", valErr.Field)
+    }
+    ```
+  content_concise: |
+    ## Custom Error Types
+    ```go
+    type MyError struct {
+        Field string
+        Err   error
+    }
+    func (e *MyError) Error() string { return fmt.Sprintf("%s: %v", e.Field, e.Err) }
+    func (e *MyError) Unwrap() error { return e.Err }  // For errors.Is/As
+    ```
+
+- id: "language/go/errors/custom_types/error-with-wrapped-cause"
+  section_of: "language/go/errors/custom_types"
+  section_order: 1
+  category: "language"
+  subcategory: "go"
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  content: |
+    *Part of: CUSTOM ERROR TYPES*
+
+    ### Error with Wrapped Cause
+
+    ```go
+    type QueryError struct {
+        Query string
+        Err   error  // Wrapped error
+    }
+
+    func (e *QueryError) Error() string {
+        return fmt.Sprintf("query %q failed: %v", e.Query, e.Err)
+    }
+
+    // Implement Unwrap for errors.Is/As to work
+    func (e *QueryError) Unwrap() error {
+        return e.Err
+    }
+
+    // Usage
+    return &QueryError{Query: sql, Err: err}
+
+    // Now errors.Is works through the chain
+    if errors.Is(err, sql.ErrNoRows) {
+        // Underlying error was sql.ErrNoRows
+    }
+    ```
+
+    ### Multi-Error (Error List)
+
+    ```go
+    type MultiError struct {
+        Errors []error
+    }
+
+    func (e *MultiError) Error() string {
+        var b strings.Builder
+        for i, err := range e.Errors {
+            if i > 0 {
+                b.WriteString("; ")
+            }
+            b.WriteString(err.Error())
+        }
+        return b.String()
+    }
+
+    // Implement Unwrap for Go 1.20+ (returns slice)
+    func (e *MultiError) Unwrap() []error {
+        return e.Errors
+    }
+
+    // errors.Is/As now checks all wrapped errors
+    ```
+
+- id: "language/go/errors/custom_types/error-categories-with-interface"
+  section_of: "language/go/errors/custom_types"
+  section_order: 2
+  category: "language"
+  subcategory: "go"
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  content: |
+    *Part of: CUSTOM ERROR TYPES*
+
+    ### Error Categories with Interface
+
+    ```go
+    // Define behavior interface
+    type TemporaryError interface {
+        error
+        Temporary() bool
+    }
+
+    type RetryableError interface {
+        error
+        Retryable() bool
+    }
+
+    // Custom error implementing interface
+    type NetworkError struct {
+        Err       error
+        Retryable bool
+    }
+
+    func (e *NetworkError) Error() string { return e.Err.Error() }
+    func (e *NetworkError) Unwrap() error { return e.Err }
+    func (e *NetworkError) Retryable() bool { return e.Retryable }
+
+    // Generic retry check
+    func IsRetryable(err error) bool {
+        var re interface{ Retryable() bool }
+        if errors.As(err, &re) {
+            return re.Retryable()
+        }
+        return false
+    }
+    ```
+
+- id: "language/go/errors/patterns"
+  category: "language"
+  subcategory: "go"
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  content: |
+    ## ERROR HANDLING PATTERNS
+
+    ### Defer for Cleanup on Error
+
+    ```go
+    func ProcessFile(path string) (err error) {
+        f, err := os.Open(path)
+        if err != nil {
+            return fmt.Errorf("open: %w", err)
+        }
+        defer f.Close()
+
+        // Named return allows modifying err in defer
+        defer func() {
+            if cerr := f.Close(); cerr != nil && err == nil {
+                err = fmt.Errorf("close: %w", cerr)
+            }
+        }()
+
+        // Process file...
+        return nil
+    }
+    ```
+
+    ### Error Handling in Loops
+
+    ```go
+    func ProcessItems(items []Item) error {
+        var errs []error
+        for _, item := range items {
+            if err := process(item); err != nil {
+                errs = append(errs, fmt.Errorf("item %s: %w", item.ID, err))
+                // Continue processing other items
+            }
+        }
+        if len(errs) > 0 {
+            return errors.Join(errs...)  // Go 1.20+
+        }
+        return nil
+    }
+    ```
+  content_concise: |
+    ## Error Handling Patterns
+    - Named returns for defer error handling
+    - `errors.Join(errs...)` for multiple errors (Go 1.20+)
+    - `defer recover()` for panic safety
+    - Log at top level, wrap at lower levels
+    - Must pattern: panic for unrecoverable init errors
+
+- id: "language/go/errors/patterns/must-pattern-panic-on-error"
+  section_of: "language/go/errors/patterns"
+  section_order: 2
+  category: "language"
+  subcategory: "go"
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  content: |
+    *Part of: ERROR HANDLING PATTERNS*
+
+    ### Must Pattern (Panic on Error)
+
+    ```go
+    // Use only for unrecoverable initialization errors
+    func MustCompile(pattern string) *regexp.Regexp {
+        re, err := regexp.Compile(pattern)
+        if err != nil {
+            panic(fmt.Sprintf("invalid regex %q: %v", pattern, err))
+        }
+        return re
+    }
+
+    // Usage (typically at package init)
+    var emailRegex = MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+    ```
+

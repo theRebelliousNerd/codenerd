@@ -1,0 +1,847 @@
+// Package session implements the clean execution loop for codeNERD.
+package session
+
+import (
+	"codenerd/internal/approval"
+	"context"
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"codenerd/internal/broker"
+	"codenerd/internal/core"
+	"codenerd/internal/jit/config"
+	"codenerd/internal/logging"
+	"codenerd/internal/perception"
+	"codenerd/internal/projectdoc"
+	"codenerd/internal/prompt"
+	"codenerd/internal/types"
+	"codenerd/internal/usage"
+)
+
+var spawnerCounter uint64
+
+// Spawner manages JIT-driven subagent creation and lifecycle.
+// It replaces the old ShardFactory pattern with dynamic, config-driven spawning.
+type Spawner struct {
+	mu sync.RWMutex
+
+	// Core dependencies (shared with all spawned subagents)
+	kernel        types.Kernel
+	virtualStore  types.VirtualStore
+	llmClient     types.LLMClient
+	jitCompiler   JITCompiler
+	configFactory ConfigFactory
+	transducer    perception.Transducer
+
+	// plannerClient is handed to every spawned subagent so a subagent working
+	// a reasoning-intensive verb resolves the same tier the session would.
+	// Nil keeps subagents entirely on llmClient.
+	plannerClient types.LLMClient
+	// rolePrompts is handed to every spawned subagent's executor, so its
+	// build critic compiles the same role prompt the session's does.
+	rolePrompts types.RolePromptCompiler
+	// shardProfileContext is handed to every spawned subagent's executor, which
+	// is a fresh build and would otherwise run every persona on the serving
+	// client's model whatever shard_profiles says.
+	shardProfileContext ShardProfileContext
+	// approvals is handed to every spawned subagent's executor, so a
+	// subagent's approvable denial reaches the person the session would ask.
+	approvals *approval.Broker
+
+	// projectDoc is the workspace's parsed nerd.md. Nil when absent or invalid,
+	// which preserves the pre-fix behaviour: subagents run without project
+	// instructions. When set, every spawned subagent receives it via
+	// Executor.SetProjectDoc so withProjectInstructions can append the rendered
+	// prose to the compiled system prompt.
+	projectDoc *projectdoc.Document
+
+	// fileContext is the holographic per-file context provider. Nil means
+	// subagents run without holographic context, preserving current behaviour.
+	// When set, every spawned subagent receives it via
+	// Executor.SetFileContextProvider so withFileContext can append the rendered
+	// context to the compiled system prompt.
+	fileContext FileContextProvider
+
+	// issueRetriever is the per-turn retrieval pass handed to every spawned
+	// subagent's executor. Nil means subagents start without a brief.
+	issueRetriever IssueRetriever
+	// reportJudge reads each subagent's final report for the /finish round
+	// (finish_round.go).
+	reportJudge *ReportJudge
+
+	// codeElements parses the file a turn is looking at into the CodeDOM fact
+	// layer. It MUST be forwarded to every spawned subagent: `nerd fix`
+	// delegates to a coder shard, so the shard's executor is the one that
+	// needs it, and a provider set only on the session executor reaches
+	// nothing that does work (measured: the layer stayed empty for a whole run
+	// after it was wired in factory.go alone). See codedom_scope.go.
+	codeElements CodeElementSource
+
+	// executorConfig is the tool-loop budget inherited from the parent session.
+	// Nil means subagents keep DefaultExecutorConfig (8 iterations), preserving
+	// pre-fix behaviour when no parent budget has been supplied. When set,
+	// every spawned subagent receives it via Executor.SetConfig, mirroring the
+	// pattern for plannerClient/projectDoc/fileContext and ensuring the 24/120
+	// limits from .nerd/config.json reach the code that actually loops.
+	executorConfig *ExecutorConfig
+
+	// sessionID is the parent session identifier forwarded to every spawned
+	// subagent's executor via Executor.SetSessionID. Subagent executors have
+	// no persister, so this only correlates audit boundaries.
+	sessionID string
+
+	// usageTracker is the process-wide usage meter forwarded to every spawned
+	// subagent's executor via Executor.SetUsageTracker, so subagent turns
+	// read spend instead of zeros. Nil means subagents run untracked.
+	usageTracker *usage.Tracker
+
+	// toolMeter is the tool ledger forwarded to every spawned subagent's
+	// executor (Executor.SetToolMeter), so subagent tool calls are measured.
+	toolMeter types.ToolMeter
+
+	// ouroborosRegistry is the generated-tool registry forwarded to every
+	// spawned subagent's executor via Executor.SetOuroborosRegistry. Nil
+	// means subagents run without generated tools.
+	ouroborosRegistry *core.ToolRegistry
+
+	// Active subagents
+	subagents map[string]*SubAgent
+
+	// Configuration
+	maxActiveSubagents int
+	tokenBudget        int
+
+	// Pre-reservation tracking for pending spawns
+	pendingSpawns int
+
+	// closed is set by Shutdown: no subagent is admitted after it.
+	closed bool
+}
+
+// SpawnerConfig holds configuration for the spawner.
+type SpawnerConfig struct {
+	MaxActiveSubagents int
+
+	// TokenBudget is the JIT prompt compilation budget for spawned
+	// sub-agents. Zero falls back to DefaultTokenBudget. Earlier this
+	// was hardcoded to 8192 which silently dropped mandatory atoms from
+	// every spawned sub-agent's prompt — they came up amnesiac.
+	TokenBudget int
+}
+
+// DefaultSpawnerConfig returns sensible defaults.
+func DefaultSpawnerConfig() SpawnerConfig {
+	return SpawnerConfig{
+		MaxActiveSubagents: 10,
+		TokenBudget:        DefaultTokenBudget(),
+	}
+}
+
+// NewSpawner creates a new subagent spawner.
+func NewSpawner(
+	kernel types.Kernel,
+	virtualStore types.VirtualStore,
+	llmClient types.LLMClient,
+	jitCompiler JITCompiler,
+	configFactory ConfigFactory,
+	transducer perception.Transducer,
+	cfg SpawnerConfig,
+) *Spawner {
+	logging.Session("Creating Spawner (max active: %d)", cfg.MaxActiveSubagents)
+
+	budget := cfg.TokenBudget
+	if budget <= 0 {
+		budget = DefaultTokenBudget()
+	}
+	return &Spawner{
+		kernel:             kernel,
+		virtualStore:       virtualStore,
+		llmClient:          llmClient,
+		jitCompiler:        jitCompiler,
+		configFactory:      configFactory,
+		transducer:         transducer,
+		subagents:          make(map[string]*SubAgent),
+		maxActiveSubagents: cfg.MaxActiveSubagents,
+		tokenBudget:        budget,
+	}
+}
+
+// SetPlannerClient installs the high-reasoning client passed to subagents
+// spawned from here on. Already-spawned subagents keep the client they were
+// built with.
+func (s *Spawner) SetPlannerClient(c types.LLMClient) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.plannerClient = c
+}
+
+// SetShardProfileContext installs the per-persona profile passed to subagents
+// spawned from here on.
+func (s *Spawner) SetShardProfileContext(apply ShardProfileContext) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.shardProfileContext = apply
+}
+
+func (s *Spawner) currentShardProfileContext() ShardProfileContext {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.shardProfileContext
+}
+
+// plannerClientLocked reads the planner slot under the read lock.
+func (s *Spawner) currentPlannerClient() types.LLMClient {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.plannerClient
+}
+
+// SetProjectDoc attaches the workspace's parsed nerd.md so every subagent
+// spawned from here on inherits the parent Executor's project instructions.
+// Mirrors Executor.SetProjectDoc. A nil doc means "no nerd.md" and is a no-op
+// for spawned agents, preserving the existing behaviour when the file is absent.
+// Already-spawned subagents keep the doc they were built with.
+func (s *Spawner) SetProjectDoc(doc *projectdoc.Document) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.projectDoc = doc
+}
+
+// currentProjectDoc reads the project doc slot under the read lock.
+func (s *Spawner) currentProjectDoc() *projectdoc.Document {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.projectDoc
+}
+
+// SetFileContextProvider attaches the holographic per-file context provider so
+// every subagent spawned from here on inherits the parent's context. Mirrors
+// SetProjectDoc. A nil provider means subagents run without holographic context,
+// preserving current behaviour.
+func (s *Spawner) SetFileContextProvider(p FileContextProvider) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fileContext = p
+}
+
+// currentFileContext reads the file context slot under the read lock.
+func (s *Spawner) currentFileContext() FileContextProvider {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.fileContext
+}
+
+// SetIssueRetriever attaches the retrieval pass every subagent spawned from
+// here on inherits. Mirrors SetFileContextProvider.
+func (s *Spawner) SetIssueRetriever(r IssueRetriever) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.issueRetriever = r
+}
+
+// currentIssueRetriever reads the retrieval slot under the read lock.
+func (s *Spawner) currentIssueRetriever() IssueRetriever {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.issueRetriever
+}
+
+// SetReportJudge attaches the final-report reader every subagent spawned from
+// here on inherits. Mirrors SetIssueRetriever.
+func (s *Spawner) SetReportJudge(j *ReportJudge) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reportJudge = j
+}
+
+// currentReportJudge reads the report-judge slot under the read lock.
+func (s *Spawner) currentReportJudge() *ReportJudge {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.reportJudge
+}
+
+// SetCodeElementSource attaches the CodeDOM parser every subagent spawned from
+// here on inherits. Mirrors SetFileContextProvider. Nil means subagents run
+// with the CodeDOM fact layer empty, which is the behaviour before it existed.
+func (s *Spawner) SetCodeElementSource(src CodeElementSource) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.codeElements = src
+}
+
+// currentCodeElements reads the CodeDOM parser slot under the read lock.
+func (s *Spawner) currentCodeElements() CodeElementSource {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.codeElements
+}
+
+// SetExecutorConfig installs the executor config every subagent spawned from
+// here on will inherit. Already-spawned subagents keep the config they were
+// built with. A nil cfg is a no-op, preserving the existing
+// DefaultExecutorConfig behaviour when the caller never sets one.
+func (s *Spawner) SetExecutorConfig(cfg *ExecutorConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.executorConfig = cfg
+}
+
+// currentExecutorConfig reads the executor config slot under the read lock.
+func (s *Spawner) currentExecutorConfig() *ExecutorConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.executorConfig
+}
+
+// SetSessionID installs the session identifier every subagent spawned from
+// here on will inherit on its executor. Already-spawned subagents keep the ID
+// they were built with. Subagent executors have no persister, so the ID only
+// correlates audit boundaries and never records task turns as session turns.
+func (s *Spawner) SetSessionID(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessionID = id
+}
+
+// currentSessionID reads the session ID slot under the read lock.
+func (s *Spawner) currentSessionID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sessionID
+}
+
+// SetUsageTracker installs the usage meter every subagent spawned from here
+// on will inherit on its executor, so subagent turns read spend instead of
+// zeros. Already-spawned subagents keep the tracker they were built with.
+// Nil-safe: a nil tracker clears the slot instead of panicking.
+func (s *Spawner) SetUsageTracker(t *usage.Tracker) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.usageTracker = t
+}
+
+// currentUsageTracker reads the usage tracker slot under the read lock.
+func (s *Spawner) currentUsageTracker() *usage.Tracker {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.usageTracker
+}
+
+// SetApprovalBroker installs the human-approval broker every subagent spawned
+// from here on hands its executor. Nil clears it.
+func (s *Spawner) SetApprovalBroker(b *approval.Broker) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.approvals = b
+}
+
+func (s *Spawner) currentApprovalBroker() *approval.Broker {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.approvals
+}
+
+// SetOuroborosRegistry installs the generated-tool registry every subagent
+// spawned from here on will inherit on its executor. Already-spawned
+// subagents keep the registry they were built with. A nil registry clears
+// the slot instead of panicking.
+func (s *Spawner) SetOuroborosRegistry(registry *core.ToolRegistry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ouroborosRegistry = registry
+}
+
+// currentOuroborosRegistry reads the registry slot under the read lock.
+func (s *Spawner) currentOuroborosRegistry() *core.ToolRegistry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ouroborosRegistry
+}
+
+// SpawnRequest describes the parameters for spawning a subagent.
+type SpawnRequest struct {
+	// Name is the subagent name (e.g., "coder", "my-specialist")
+	Name string
+
+	// Task is the initial task for the subagent
+	Task string
+
+	// Type determines lifecycle behavior (ephemeral, persistent, system)
+	Type SubAgentType
+
+	// IntentVerb is used for JIT config generation
+	IntentVerb string
+
+	// IntentTarget is the resolved file or directory the verb acts on, empty
+	// when the task is prose rather than a target. Mirrors IntentVerb: when set,
+	// the subagent's preset intent carries the holographic per-file context target
+	// without inferring it from the task text.
+	IntentTarget string
+
+	// IntentConstraint is the routing layer's requirement for the task (a
+	// must / must-not rule), carried structurally beside the task text so the
+	// preset intent the subagent runs under holds it as the inline topology's
+	// does: retrieval and prompt assembly read intent.Constraint, and text
+	// alone leaves them blind to it.
+	IntentConstraint string
+
+	// Timeout is a caller's own limit on the subagent's execution. Zero means
+	// none: the subagent runs under the caller's context and stops when the
+	// working policy derives a stall.
+	Timeout time.Duration
+
+	// SessionContext provides shared state (e.g., DreamMode, Blackboard)
+	SessionContext *types.SessionContext
+}
+
+// Spawn creates and starts a new subagent based on the request.
+// The subagent's identity, tools, and policies are all JIT-compiled.
+func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error) {
+	// Phase 1: Check capacity & pre-reserve (lock held briefly)
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil, ErrSpawnerClosed
+	}
+	activeCount := s.countActive() + s.pendingSpawns
+	if activeCount >= s.maxActiveSubagents {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("max active subagents reached: %d", s.maxActiveSubagents)
+	}
+	s.pendingSpawns++
+	s.mu.Unlock()
+
+	var success bool
+	defer func() {
+		if !success {
+			s.mu.Lock()
+			s.pendingSpawns--
+			s.mu.Unlock()
+		}
+	}()
+
+	logging.Session("Spawning subagent: %s (type: %s, intent: %s)", req.Name, req.Type, req.IntentVerb)
+
+	// Phase 2: Generate JIT config (no lock - may involve IO/LLM calls)
+	EffectiveAgentRuntimeConfig, err := s.generateConfig(ctx, req)
+	if err != nil {
+		// A cancelled or expired context is the caller withdrawing the
+		// request, not a compile failure to degrade around: continuing here
+		// started an agent nobody was waiting for, on an empty config, after
+		// the deadline had passed. The deferred release above returns the
+		// capacity reservation.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			logging.Get(logging.CategorySession).Warn("Spawn of %s abandoned: %v", req.Name, ctxErr)
+			return nil, fmt.Errorf("spawn %s: %w", req.Name, ctxErr)
+		}
+		logging.Get(logging.CategorySession).Warn("Failed to generate config for %s: %v", req.Name, err)
+		// Continue with empty config - subagent can still function
+		EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{}
+	}
+
+	// Phase 3: Build subagent configuration
+	subCfg := SubAgentConfig{
+		ID:                          fmt.Sprintf("%s-%d-%d", req.Name, time.Now().UnixNano(), atomic.AddUint64(&spawnerCounter, 1)),
+		Name:                        req.Name,
+		Type:                        req.Type,
+		EffectiveAgentRuntimeConfig: EffectiveAgentRuntimeConfig,
+		IntentVerb:                  req.IntentVerb,
+		IntentTarget:                req.IntentTarget,
+		IntentConstraint:            req.IntentConstraint,
+		Timeout:                     req.Timeout,
+		SessionContext:              req.SessionContext,
+	}
+
+	// Phase 4: Create subagent
+	agent := NewSubAgent(
+		subCfg,
+		s.kernel,
+		s.virtualStore,
+		s.llmClient,
+		s.jitCompiler,
+		s.configFactory,
+		s.transducer,
+	)
+	agent.SetPlannerClient(s.currentPlannerClient())
+	agent.executor.SetRolePrompts(s.currentRolePrompts())
+	// Forward the parent's nerd.md project instructions. Executor.SetProjectDoc
+	// is nil-safe and withProjectInstructions is a no-op when doc is nil, so
+	// this preserves the existing behaviour when no nerd.md is present.
+	if doc := s.currentProjectDoc(); doc != nil {
+		agent.executor.SetProjectDoc(doc)
+	}
+	if fc := s.currentFileContext(); fc != nil {
+		agent.executor.SetFileContextProvider(fc)
+	}
+	if src := s.currentCodeElements(); src != nil {
+		agent.executor.SetCodeElementSource(src)
+	}
+	if r := s.currentIssueRetriever(); r != nil {
+		agent.executor.SetIssueRetriever(r)
+	}
+	if j := s.currentReportJudge(); j != nil {
+		agent.executor.SetReportJudge(j)
+	}
+	// Forward the parent session's executor config — the workspace the shard
+	// works in, its wall-clock constraints, its gates. Guard on whether one
+	// was actually supplied: a zero ExecutorConfig would clear the workspace
+	// root rather than preserve the defaults, and a shard with no declared
+	// workspace has no working set and so no continuation policy.
+	if cfg := s.currentExecutorConfig(); cfg != nil {
+		agent.executor.SetConfig(*cfg)
+	}
+	// Forward session identity and generated-tool registry. The subagent
+	// executor has no persister, so the inherited session ID only correlates
+	// audit boundaries and never records task turns as session turns.
+	if sid := s.currentSessionID(); sid != "" {
+		agent.executor.SetSessionID(sid)
+	}
+	// Forward the usage meter so subagent turns read spend instead of zeros.
+	if tr := s.currentUsageTracker(); tr != nil {
+		agent.executor.SetUsageTracker(tr)
+	}
+	agent.executor.SetToolMeter(s.currentToolMeter())
+	if apply := s.currentShardProfileContext(); apply != nil {
+		agent.executor.SetShardProfileContext(apply)
+	}
+	if reg := s.currentOuroborosRegistry(); reg != nil {
+		agent.executor.SetOuroborosRegistry(reg)
+	}
+	if b := s.currentApprovalBroker(); b != nil {
+		agent.executor.SetApprovalBroker(b)
+	}
+
+	// Phase 5: Register subagent (lock held briefly)
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil, ErrSpawnerClosed
+	}
+	// Re-check capacity after config generation (double-check active count only)
+	activeCount = s.countActive()
+	if activeCount >= s.maxActiveSubagents {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("max active subagents reached during spawn: %d", s.maxActiveSubagents)
+	}
+	// The reservation becomes the registration; a refused return above leaves
+	// it to the deferred release, which used to run a second time here.
+	s.pendingSpawns--
+	s.subagents[agent.GetID()] = agent
+	success = true
+	s.mu.Unlock()
+
+	logging.Session("Spawned subagent: %s (id: %s)", req.Name, agent.GetID())
+
+	return agent, nil
+}
+
+// SpawnForIntent spawns a subagent based on a parsed intent.
+// This is the primary entry point for intent-driven spawning.
+func (s *Spawner) SpawnForIntent(ctx context.Context, intent perception.Intent, task string) (*SubAgent, error) {
+	// Determine subagent type based on intent
+	agentType := s.determineAgentType(intent)
+
+	req := SpawnRequest{
+		Name:       agentName(intent.Verb),
+		Task:       task,
+		Type:       agentType,
+		IntentVerb: intent.Verb,
+	}
+
+	return s.Spawn(ctx, req)
+}
+
+// Get returns a subagent by ID.
+func (s *Spawner) Get(id string) (*SubAgent, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	agent, ok := s.subagents[id]
+	return agent, ok
+}
+
+// GetByName returns the first active subagent with the given name.
+func (s *Spawner) GetByName(name string) (*SubAgent, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, agent := range s.subagents {
+		if agent.GetName() != name {
+			continue
+		}
+		state := agent.GetState()
+		if state != SubAgentStateCompleted && state != SubAgentStateFailed {
+			return agent, true
+		}
+	}
+	return nil, false
+}
+
+// Stop stops a subagent by ID.
+func (s *Spawner) Stop(id string) error {
+	s.mu.Lock()
+	agent, ok := s.subagents[id]
+	s.mu.Unlock()
+
+	if !ok {
+		return fmt.Errorf("subagent not found: %s", id)
+	}
+
+	return agent.Stop()
+}
+
+// StopAll stops all active subagents.
+func (s *Spawner) StopAll() {
+	s.mu.Lock()
+	agents := make([]*SubAgent, 0, len(s.subagents))
+	for _, agent := range s.subagents {
+		agents = append(agents, agent)
+	}
+	s.mu.Unlock()
+
+	for _, agent := range agents {
+		if agent.GetState() == SubAgentStateRunning {
+			_ = agent.Stop()
+		}
+	}
+}
+
+// Cleanup removes completed subagents from tracking.
+func (s *Spawner) Cleanup() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	removed := 0
+	for id, agent := range s.subagents {
+		state := agent.GetState()
+		if state == SubAgentStateCompleted || state == SubAgentStateFailed {
+			delete(s.subagents, id)
+			removed++
+		}
+	}
+
+	if removed > 0 {
+		logging.SessionDebug("Cleaned up %d completed subagents", removed)
+	}
+
+	return removed
+}
+
+// Remove drops one terminal subagent from tracking, returning whether it was
+// removed. Running agents are never removed: only Completed and Failed carry
+// a final result, and dropping a live agent would orphan its execution while
+// leaving the caller waiting on an ID the spawner no longer knows.
+//
+// JITExecutor.GetResult calls this after caching a completed result, so the
+// registry holds an agent exactly until its result has a durable home. Without
+// that, completed agents accumulated forever — Cleanup exists but has no
+// production callers, and calling it blindly would drop results nobody had
+// retrieved yet.
+func (s *Spawner) Remove(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	agent, ok := s.subagents[id]
+	if !ok {
+		return false
+	}
+	state := agent.GetState()
+	if state != SubAgentStateCompleted && state != SubAgentStateFailed {
+		return false
+	}
+	delete(s.subagents, id)
+	return true
+}
+
+// ListActive returns all currently running subagents.
+func (s *Spawner) ListActive() []*SubAgent {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	active := make([]*SubAgent, 0)
+	for _, agent := range s.subagents {
+		if agent.GetState() == SubAgentStateRunning {
+			active = append(active, agent)
+		}
+	}
+	return active
+}
+
+// GetMetrics returns metrics for all subagents.
+func (s *Spawner) GetMetrics() []SubAgentMetrics {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	metrics := make([]SubAgentMetrics, 0, len(s.subagents))
+	for _, agent := range s.subagents {
+		metrics = append(metrics, agent.GetMetrics())
+	}
+	return metrics
+}
+
+// countActive returns the number of running subagents (caller must hold lock).
+func (s *Spawner) countActive() int {
+	count := 0
+	for _, agent := range s.subagents {
+		state := agent.GetState()
+		if state != SubAgentStateCompleted && state != SubAgentStateFailed {
+			count++
+		}
+	}
+	return count
+}
+
+// servingIdentity reports the provider and model the spawned subagent will run
+// on, for prompt-atom pinning.
+//
+// This reads the main client rather than routing per verb the way the executor
+// does: generateConfig compiles one config for the subagent as a whole, before
+// any particular verb is in hand, and the subagent resolves its own tier per
+// turn afterwards. The main client is the right approximation because it is the
+// tier a subagent stays on unless a verb pulls it to the planner.
+func (s *Spawner) servingIdentity() (provider, model string) {
+	s.mu.RLock()
+	client := s.llmClient
+	s.mu.RUnlock()
+
+	if client == nil {
+		return "", ""
+	}
+	var identifier types.ModelIdentifier
+	broker.Walk(client, func(layer types.LLMClient) bool {
+		if id, ok := layer.(types.ModelIdentifier); ok {
+			identifier = id
+			return false
+		}
+		return true
+	})
+	if identifier == nil {
+		logging.SessionDebug(
+			"LLM client %T does not report a model identity; provider/model-pinned prompt atoms will be skipped for spawned subagents",
+			client)
+		return "", ""
+	}
+	return identifier.ModelIdentity()
+}
+
+// generateConfig creates a JIT config for the subagent.
+func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config.EffectiveAgentRuntimeConfig, error) {
+	if s.configFactory == nil {
+		return &config.EffectiveAgentRuntimeConfig{}, nil
+	}
+
+	intentVerb := req.IntentVerb
+	if intentVerb == "" {
+		intentVerb = "/general"
+	}
+
+	// First compile a minimal prompt to get compilation result.
+	// TokenBudget comes from spawner config (set by the chat session
+	// from UserConfig.ContextWindow.MaxTokens). Hardcoded 8192 was the
+	// pre-fix bottleneck that silently stripped mandatory atoms.
+	budget := s.tokenBudget
+	if budget <= 0 {
+		budget = DefaultTokenBudget()
+	}
+	// A subagent served by a capped slot (a worker's max_input_tokens, which
+	// its client reports) is compiled for the window it will be sent, not the
+	// session's: the same min its executor applies to every request
+	// (slotCappedBudget). The client is the one servingIdentity names below.
+	s.mu.RLock()
+	served := s.llmClient
+	s.mu.RUnlock()
+	budget, _ = slotCappedBudget(budget, broker.InputWindow(served))
+	compilationCtx := &prompt.CompilationContext{
+		IntentVerb:      intentVerb,
+		OperationalMode: "/active",
+		TokenBudget:     budget,
+	}
+
+	// Name the serving LLM so provider/model-pinned atoms can match. Both are
+	// fail-closed regime dimensions, so omitting them blocks every pinned atom
+	// rather than admitting them all.
+	compilationCtx.Provider, compilationCtx.Model = s.servingIdentity()
+
+	// If dream mode, pass it to compilation context to potentially select different persona/skills
+	if req.SessionContext != nil && req.SessionContext.DreamMode {
+		compilationCtx.OperationalMode = "/dream"
+	}
+
+	var compileResult *prompt.CompilationResult
+	if s.jitCompiler == nil {
+		logging.Get(logging.CategorySession).Warn("JIT compiler unavailable, using empty subagent config")
+		return &config.EffectiveAgentRuntimeConfig{}, nil
+	}
+
+	// The tool envelope is derived BEFORE compiling, so the requires_tools
+	// gate selects against the catalog the subagent will actually hold.
+	// One derivation feeds both the prompt and cfg.AllowedTools below; a
+	// failed derivation fail-closes both (no tools, and the prompt compiled
+	// against none). No tools is not all tools.
+	tools, derr := s.deriveSpawnTools(ctx, intentVerb)
+	if derr != nil {
+		logging.Get(logging.CategorySession).Warn("turn catalog: %v; spawned config has no tools", derr)
+		tools = nil
+	}
+	compilationCtx.AvailableTools = tools
+
+	compileResult, err := s.jitCompiler.Compile(ctx, compilationCtx)
+	if err != nil {
+		// The caller's context ending is not a compile failure to retry
+		// around; the baseline retry would fail the same way and the empty
+		// config below would then start an agent after the deadline.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		// Fallback strategy: Retry once with baseline context, then return empty config
+		logging.Get(logging.CategorySession).Warn("JIT compilation failed, retrying with baseline: %v", err)
+
+		// Retry with minimal context (baseline fallback)
+		baselineCtx := &prompt.CompilationContext{
+			IntentVerb:      "/general",
+			OperationalMode: "/active",
+			TokenBudget:     budget, // The configured budget; a smaller fallback budget cut mandatory atoms
+			AvailableTools:  tools,  // The retry prompt gates on the same envelope the subagent holds.
+		}
+		baselineCtx.Provider, baselineCtx.Model = s.servingIdentity()
+		compileResult, err = s.jitCompiler.Compile(ctx, baselineCtx)
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
+			// Final fallback: return empty config, subagent will use defaults
+			logging.Get(logging.CategorySession).Warn("JIT baseline compilation also failed, using empty config: %v", err)
+			return &config.EffectiveAgentRuntimeConfig{}, nil
+		}
+	}
+
+	cfg, err := s.configFactory.Generate(ctx, compileResult, intentVerb)
+	if err != nil {
+		return nil, err
+	}
+	if cfg == nil {
+		return nil, fmt.Errorf("turn catalog: config factory returned a nil config for %s", intentVerb)
+	}
+	// The atom carries policies. The tool allowlist is the kernel's, the
+	// same projection the session turn uses, derived once above: the prompt
+	// already compiled against exactly this catalog, so the two cannot
+	// drift. A failed derivation left tools nil; the subagent still starts,
+	// and no tools is not all tools.
+	cfg.AllowedTools = tools
+	return cfg, nil
+}
+
+// determineAgentType maps intents to subagent types.
+func (s *Spawner) determineAgentType(intent perception.Intent) SubAgentType {
+	// Most tasks are ephemeral
+	switch intent.Category {
+	case "/system":
+		return SubAgentTypeSystem
+	default:
+		return SubAgentTypeEphemeral
+	}
+}

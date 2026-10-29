@@ -1,0 +1,640 @@
+// Package campaign provides multi-phase goal orchestration.
+// This file implements intelligence gathering from all available systems
+// to provide comprehensive context before campaign planning.
+package campaign
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"codenerd/internal/autopoiesis"
+	"codenerd/internal/consultation"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/mcp"
+	"codenerd/internal/store"
+	"codenerd/internal/types"
+	"codenerd/internal/world"
+
+	"golang.org/x/sync/errgroup"
+)
+
+// ConsultationProvider is specialist consultation as campaigns consume it:
+// one typed Entry per requested specialist, so a failed advisor never erases
+// another's answer. Implemented by consultation.Manager, the one engine every
+// production door constructs.
+type ConsultationProvider interface {
+	RequestBatchConsultation(ctx context.Context, request consultation.BatchRequest) consultation.Batch
+}
+
+// =============================================================================
+// INTELLIGENCE GATHERER
+// =============================================================================
+// Orchestrates pre-planning intelligence gathering from all 12 dormant systems.
+// This is the foundation of the "golden jewel" campaign planning system.
+
+// IntelligenceGatherer coordinates intelligence collection from multiple sources.
+type IntelligenceGatherer struct {
+	// Core dependencies
+	kernel core.Kernel
+
+	// workspace holds the campaigns this workspace has run
+	// (.nerd/campaigns/<id>.json): the previous campaigns planning learns from.
+	workspace string
+
+	// World Model (codebase awareness)
+	worldScanner *world.Scanner
+	holographic  *world.HolographicProvider
+
+	// Memory tiers
+	learningStore *store.LearningStore
+	localStore    *store.LocalStore
+
+	// Self-modification systems
+	toolGenerator *autopoiesis.ToolGenerator
+
+	// MCP tools
+	mcpStore *mcp.MCPToolStore
+
+	// Shard consultation
+	consultation ConsultationProvider
+
+	// Configuration
+	config IntelligenceConfig
+}
+
+// IntelligenceConfig is the gatherer's resolved knobs, mapped from
+// campaign.intelligence in .nerd/config.json (see intelligence_config.go).
+// There is no gather-wide timeout: that clock covered every system at once.
+// PerSystemTimeout bounds one system query. ConsultTimeout bounds one
+// shard consult.
+type IntelligenceConfig struct {
+	PerSystemTimeout time.Duration
+	ConsultTimeout   time.Duration
+
+	MaxChurnHotspots     int
+	MaxLearnings         int
+	MaxMCPTools          int
+	MaxPreviousCampaigns int
+	GitHistoryDepth      int
+
+	EnableWorldModel        bool
+	EnableGitHistory        bool
+	EnableLearningStore     bool
+	EnableKnowledgeGraph    bool
+	EnableColdStorage       bool
+	EnableSafetyCheck       bool
+	EnableAutopoiesis       bool
+	EnableMCPTools          bool
+	EnablePreviousCampaigns bool
+	EnableShardConsult      bool
+	EnableTestCoverage      bool
+	EnableCodePatterns      bool
+}
+
+// IntelligenceReport contains all gathered intelligence for campaign planning.
+type IntelligenceReport struct {
+	// Timestamp
+	GatheredAt time.Time     `json:"gathered_at"`
+	Duration   time.Duration `json:"duration"`
+
+	// World Model: Codebase structure
+	WorldFacts        []core.Fact         `json:"world_facts"`
+	FileTopology      map[string]FileInfo `json:"file_topology"`
+	SymbolGraph       []SymbolInfo        `json:"symbol_graph"`
+	LanguageBreakdown map[string]int      `json:"language_breakdown"`
+
+	// Git History: Churn analysis (Chesterton's Fence)
+	GitChurnHotspots []ChurnHotspot `json:"git_churn_hotspots"`
+	RecentCommits    []CommitInfo   `json:"recent_commits"`
+	HighChurnFiles   []string       `json:"high_churn_files"`
+
+	// Learning Store: Historical patterns
+	HistoricalPatterns []LearningPattern  `json:"historical_patterns"`
+	PreferenceSignals  []PreferenceSignal `json:"preference_signals"`
+
+	// Knowledge Graph: Entity relationships
+	KnowledgeLinks []store.KnowledgeLink `json:"knowledge_links"`
+	EntityClusters []EntityCluster       `json:"entity_clusters"`
+
+	// Cold Storage: Long-term context
+	ColdStorageFacts []store.StoredFact `json:"cold_storage_facts"`
+
+	// Holographic: per-target architectural context (package surface, type
+	// definitions, impact-ranked callers) for the campaign's target paths.
+	HolographicSections []HolographicSection `json:"holographic_sections,omitempty"`
+	// HolographicUnread are target paths gather stopped before rendering.
+	// A path the provider returned empty for is not listed: there was no
+	// section to withhold. formatIntelligenceContext names each path and the
+	// tools that read it.
+	HolographicUnread []string `json:"holographic_unread,omitempty"`
+
+	// Safety: Constitutional pre-check
+	SafetyWarnings []SafetyWarning `json:"safety_warnings"`
+	BlockedActions []string        `json:"blocked_actions"`
+
+	// Autopoiesis: Tool gaps
+	ToolGaps            []autopoiesis.ToolNeed `json:"tool_gaps"`
+	MissingCapabilities []string               `json:"missing_capabilities"`
+
+	// MCP: Available external tools
+	MCPToolsAvailable []MCPToolInfo     `json:"mcp_tools_available"`
+	MCPServerStatus   map[string]string `json:"mcp_server_status"`
+
+	// Previous Campaigns: Reusable artifacts
+	PreviousCampaigns []CampaignArtifact `json:"previous_campaigns"`
+	ReusablePatterns  []string           `json:"reusable_patterns"`
+
+	// Shard Consultation: Expert advice
+	ShardAdvice     []consultation.Response `json:"shard_advice"`
+	AdvisorySummary string                  `json:"advisory_summary"`
+
+	// Test Coverage: Current state
+	TestCoverage   map[string]float64 `json:"test_coverage"`
+	UncoveredPaths []string           `json:"uncovered_paths"`
+
+	// Code Patterns: Detected patterns
+	CodePatterns      []CodePattern `json:"code_patterns"`
+	ArchitectureHints []string      `json:"architecture_hints"`
+
+	// Pinned snapshot used by deterministic campaign risk scoring.
+	RiskInputs RiskInputSnapshot `json:"risk_inputs"`
+
+	// Errors during gathering (non-fatal)
+	GatheringErrors []string `json:"gathering_errors"`
+}
+
+// IsEmpty returns true if the intelligence report has no meaningful data.
+// HolographicSection is one target path's rendered holographic context.
+type HolographicSection struct {
+	Path    string `json:"path"`
+	Section string `json:"section"`
+}
+
+func (r *IntelligenceReport) IsEmpty() bool {
+	if r == nil {
+		return true
+	}
+	return len(r.FileTopology) == 0 &&
+		len(r.SymbolGraph) == 0 &&
+		len(r.WorldFacts) == 0 &&
+		len(r.GitChurnHotspots) == 0
+}
+
+// Supporting types for IntelligenceReport
+
+// FileInfo represents file topology information.
+type FileInfo struct {
+	Path         string    `json:"path"`
+	Hash         string    `json:"hash"`
+	Language     string    `json:"language"`
+	LineCount    int       `json:"line_count"`
+	IsTestFile   bool      `json:"is_test_file"`
+	LastModified time.Time `json:"last_modified"`
+}
+
+// SymbolInfo represents a code symbol.
+type SymbolInfo struct {
+	Name     string `json:"name"`
+	Kind     string `json:"kind"` // func, type, const, var
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Exported bool   `json:"exported"`
+}
+
+// ChurnHotspot represents a file with high churn rate.
+type ChurnHotspot struct {
+	Path       string    `json:"path"`
+	ChurnRate  int       `json:"churn_rate"`
+	LastChange time.Time `json:"last_change"`
+	Reason     string    `json:"reason"`
+	Warning    string    `json:"warning"` // Chesterton's Fence warning
+}
+
+// CommitInfo represents a recent git commit.
+type CommitInfo struct {
+	Hash    string    `json:"hash"`
+	Author  string    `json:"author"`
+	Message string    `json:"message"`
+	Time    time.Time `json:"time"`
+	Files   []string  `json:"files"`
+}
+
+// LearningPattern represents a learned pattern from previous sessions.
+type LearningPattern struct {
+	ShardType   string    `json:"shard_type"`
+	Predicate   string    `json:"predicate"`
+	Description string    `json:"description"`
+	Confidence  float64   `json:"confidence"`
+	LastUsed    time.Time `json:"last_used"`
+}
+
+// PreferenceSignal represents a user preference.
+type PreferenceSignal struct {
+	Category string  `json:"category"`
+	Signal   string  `json:"signal"`
+	Strength float64 `json:"strength"`
+}
+
+// EntityCluster represents a group of related entities.
+type EntityCluster struct {
+	ClusterID string   `json:"cluster_id"`
+	Entities  []string `json:"entities"`
+	Relation  string   `json:"relation"`
+}
+
+// SafetyWarning represents a constitutional safety warning.
+type SafetyWarning struct {
+	CampaignID   string `json:"campaign_id"`
+	Path         string `json:"path"`
+	Action       string `json:"action"`
+	RuleViolated string `json:"rule_violated"`
+	Severity     string `json:"severity"`
+	Remediation  string `json:"remediation"`
+}
+
+// MCPToolInfo represents an available MCP tool.
+type MCPToolInfo struct {
+	ToolID      string   `json:"tool_id"`
+	ServerID    string   `json:"server_id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Categories  []string `json:"categories"`
+	Affinity    float64  `json:"affinity"` // Relevance to current campaign
+}
+
+// CampaignArtifact represents a reusable artifact from previous campaigns.
+type CampaignArtifact struct {
+	CampaignID  string    `json:"campaign_id"`
+	Goal        string    `json:"goal"`
+	Phase       string    `json:"phase"`
+	TaskCount   int       `json:"task_count"`
+	SuccessRate float64   `json:"success_rate"`
+	CreatedAt   time.Time `json:"created_at"`
+	Patterns    []string  `json:"patterns"`
+}
+
+// CodePattern represents a detected code pattern.
+type CodePattern struct {
+	Name        string   `json:"name"`
+	Type        string   `json:"type"` // design, architecture, anti-pattern
+	Files       []string `json:"files"`
+	Confidence  float64  `json:"confidence"`
+	Description string   `json:"description"`
+}
+
+// NewIntelligenceGatherer creates a new intelligence gatherer.
+func NewIntelligenceGatherer(
+	workspace string,
+	kernel core.Kernel,
+	worldScanner *world.Scanner,
+	holographic *world.HolographicProvider,
+	learningStore *store.LearningStore,
+	localStore *store.LocalStore,
+	toolGenerator *autopoiesis.ToolGenerator,
+	mcpStore *mcp.MCPToolStore,
+	consultation ConsultationProvider,
+) *IntelligenceGatherer {
+	return &IntelligenceGatherer{
+		workspace:     workspace,
+		kernel:        kernel,
+		worldScanner:  worldScanner,
+		holographic:   holographic,
+		learningStore: learningStore,
+		localStore:    localStore,
+		toolGenerator: toolGenerator,
+		mcpStore:      mcpStore,
+		consultation:  consultation,
+		config:        DefaultIntelligenceConfig(),
+	}
+}
+
+// WithConfig sets the configuration for the gatherer.
+func (g *IntelligenceGatherer) WithConfig(config IntelligenceConfig) *IntelligenceGatherer {
+	g.config = config
+	return g
+}
+
+// Gather collects intelligence from all available systems.
+// This is the main entry point for pre-planning intelligence gathering.
+func (g *IntelligenceGatherer) Gather(ctx context.Context, goal string, targetPaths []string) (*IntelligenceReport, error) {
+	startTime := time.Now()
+	logging.Campaign("Intelligence gathering started for goal: %.50s...", goal)
+
+	// No clock on the gather. Each system bounds its own call
+	// (boundSystem / ConsultTimeout) and the gather returns when those
+	// calls return. A deadline on ctx still cancels them: the caller's
+	// context, not a phase budget.
+	report := &IntelligenceReport{
+		GatheredAt:        startTime,
+		FileTopology:      make(map[string]FileInfo),
+		LanguageBreakdown: make(map[string]int),
+		TestCoverage:      make(map[string]float64),
+		MCPServerStatus:   make(map[string]string),
+		GatheringErrors:   []string{},
+	}
+
+	// Use errgroup for parallel gathering with controlled concurrency
+	var mu sync.Mutex
+	var errorCount int
+	const maxGatherErrors = 100
+	addError := func(err string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if errorCount < maxGatherErrors {
+			report.GatheringErrors = append(report.GatheringErrors, err)
+			errorCount++
+		} else if errorCount == maxGatherErrors {
+			report.GatheringErrors = append(report.GatheringErrors, fmt.Sprintf("... and further errors suppressed (limit %d reached)", maxGatherErrors))
+			errorCount++
+		}
+	}
+
+	eg, egCtx := errgroup.WithContext(ctx)
+
+	// 1. World Model (codebase structure)
+	worldReady := make(chan struct{})
+	if g.config.EnableWorldModel && g.worldScanner != nil {
+		eg.Go(func() error {
+			defer close(worldReady)
+			g.gatherWorldModel(egCtx, report, targetPaths, addError)
+			return nil
+		})
+	} else {
+		close(worldReady)
+	}
+
+	// 2. Git History (Chesterton's Fence)
+	if g.config.EnableGitHistory {
+		eg.Go(func() error {
+			g.gatherGitHistory(egCtx, report, targetPaths, addError)
+			return nil
+		})
+	}
+
+	// 3. Learning Store (historical patterns)
+	if g.config.EnableLearningStore && g.learningStore != nil {
+		eg.Go(func() error {
+			g.gatherLearningPatterns(egCtx, report, addError)
+			return nil
+		})
+	}
+
+	// 4. Knowledge Graph (entity relationships)
+	if g.config.EnableKnowledgeGraph && g.localStore != nil {
+		eg.Go(func() error {
+			g.gatherKnowledgeGraph(egCtx, report, targetPaths, addError)
+			return nil
+		})
+	}
+
+	// 5. Cold Storage (long-term context)
+	if g.config.EnableColdStorage && g.localStore != nil {
+		eg.Go(func() error {
+			g.gatherColdStorage(egCtx, report, addError)
+			return nil
+		})
+	}
+
+	// 6. Safety Check (Constitutional Gate pre-check)
+	if g.config.EnableSafetyCheck && g.kernel != nil {
+		eg.Go(func() error {
+			g.gatherSafetyWarnings(egCtx, report, goal, targetPaths, addError)
+			return nil
+		})
+	}
+
+	// 7. MCP Tools (external capabilities)
+	if g.config.EnableMCPTools && g.mcpStore != nil {
+		eg.Go(func() error {
+			g.gatherMCPTools(egCtx, report, goal, addError)
+			return nil
+		})
+	}
+
+	// 7b. Holographic context for the campaign's targets.
+	//
+	// For the paths the campaign is aiming at, the package surface, the type
+	// definitions and the impact-ranked callers are the highest-signal context
+	// a decomposer can have. PromptSection renders each target whole: the
+	// campaign kernel does not load the session working set's
+	// holographic_render policy, so this gather has no derived count to slice
+	// to. The campaign context budget is what later decides what enters the
+	// planning prompt.
+	if len(targetPaths) > 0 && g.holographic != nil {
+		eg.Go(func() error {
+			g.gatherHolographicContext(egCtx, report, targetPaths, addError)
+			return nil
+		})
+	}
+
+	// 8. Previous Campaigns (reusable artifacts)
+	if g.config.EnablePreviousCampaigns {
+		eg.Go(func() error {
+			g.gatherPreviousCampaigns(egCtx, report, goal, addError)
+			return nil
+		})
+	}
+
+	// 9. Test Coverage
+	if g.config.EnableTestCoverage && g.kernel != nil {
+		eg.Go(func() error {
+			// FileTopology is populated by the scanner. Join that producer
+			// before reading the map or absence can become a false finding.
+			<-worldReady
+			g.gatherTestCoverage(egCtx, report, targetPaths, addError)
+			return nil
+		})
+	}
+
+	// 10. Code Patterns
+	if g.config.EnableCodePatterns && g.kernel != nil {
+		eg.Go(func() error {
+			<-worldReady
+			g.gatherCodePatterns(egCtx, report, targetPaths, addError)
+			return nil
+		})
+	}
+
+	// Wait for parallel gathering to complete
+	if err := eg.Wait(); err != nil {
+		logging.Campaign("Intelligence gathering had errors: %v", err)
+	}
+
+	// 11. Autopoiesis Tool Gaps (depends on world model)
+	if g.config.EnableAutopoiesis && g.toolGenerator != nil {
+		g.gatherToolGaps(ctx, report, goal, addError)
+	}
+
+	// 12. Shard Consultation (sequential, depends on gathered context)
+	if g.config.EnableShardConsult && g.consultation != nil {
+		g.gatherShardAdvice(ctx, report, goal, addError)
+	}
+
+	report.Duration = time.Since(startTime)
+	report.RiskInputs = deriveRiskInputSnapshotFromReport(report)
+	logging.Campaign("Intelligence gathering completed: %d world facts, %d churn hotspots, %d learnings, %d errors (took %v)",
+		len(report.WorldFacts), len(report.GitChurnHotspots), len(report.HistoricalPatterns),
+		len(report.GatheringErrors), report.Duration)
+
+	return report, nil
+}
+
+// =============================================================================
+// HELPER METHODS
+// =============================================================================
+
+func (g *IntelligenceGatherer) parseAtom(arg any) string {
+	if ma, ok := arg.(core.MangleAtom); ok {
+		return string(ma)
+	}
+	if s, ok := arg.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", arg)
+}
+
+func (g *IntelligenceGatherer) parseArg(arg any) string {
+	switch v := arg.(type) {
+	case string:
+		return v
+	case core.MangleAtom:
+		return string(v)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+func (g *IntelligenceGatherer) parseIntArg(arg any) int {
+	switch v := arg.(type) {
+	case int:
+		return v
+	case int64:
+		// Bounds check to prevent platform-dependent overflow on 32-bit
+		if v > math.MaxInt32 {
+			return math.MaxInt32
+		}
+		if v < math.MinInt32 {
+			return math.MinInt32
+		}
+		return int(v)
+	case float64:
+		if v > float64(math.MaxInt32) {
+			return math.MaxInt32
+		}
+		if v < float64(math.MinInt32) {
+			return math.MinInt32
+		}
+		return int(v)
+	default:
+		return 0
+	}
+}
+
+func (g *IntelligenceGatherer) parseFloatArg(arg any) float64 {
+	switch v := arg.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case string:
+		// Handle string-encoded floats from Mangle (e.g., "0.95")
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+		return 0.0
+	default:
+		return 0.0
+	}
+}
+
+func (g *IntelligenceGatherer) formatLearningDescription(learning types.ShardLearning) string {
+	// Format learning args into human-readable description
+	if len(learning.FactArgs) == 0 {
+		return learning.FactPredicate
+	}
+	args := make([]string, len(learning.FactArgs))
+	for i, arg := range learning.FactArgs {
+		args[i] = fmt.Sprintf("%v", arg)
+	}
+	return fmt.Sprintf("%s(%s)", learning.FactPredicate, strings.Join(args, ", "))
+}
+
+func (g *IntelligenceGatherer) calculateToolAffinity(tool *mcp.MCPTool, goal string) float64 {
+	// Simple keyword matching for affinity scoring
+	goalLower := strings.ToLower(goal)
+	descLower := strings.ToLower(tool.Description)
+	nameLower := strings.ToLower(tool.Name)
+
+	affinity := 0.0
+
+	// Check for keyword matches
+	keywords := strings.FieldsSeq(goalLower)
+	for kw := range keywords {
+		if len(kw) < 3 {
+			continue
+		}
+		if strings.Contains(descLower, kw) {
+			affinity += 0.1
+		}
+		if strings.Contains(nameLower, kw) {
+			affinity += 0.2
+		}
+	}
+
+	// Cap at 1.0
+	if affinity > 1.0 {
+		affinity = 1.0
+	}
+
+	return affinity
+}
+
+func (g *IntelligenceGatherer) detectArchitectureHints(topology map[string]FileInfo) []string {
+	var hints []string
+
+	// Count files by layer
+	layers := make(map[string]int)
+	for path := range topology {
+		if strings.Contains(path, "/cmd/") || strings.Contains(path, "\\cmd\\") {
+			layers["cmd"]++
+		}
+		if strings.Contains(path, "/internal/") || strings.Contains(path, "\\internal\\") {
+			layers["internal"]++
+		}
+		if strings.Contains(path, "/pkg/") || strings.Contains(path, "\\pkg\\") {
+			layers["pkg"]++
+		}
+		if strings.Contains(path, "/api/") || strings.Contains(path, "\\api\\") {
+			layers["api"]++
+		}
+	}
+
+	if layers["internal"] > 10 {
+		hints = append(hints, "Standard Go project structure with internal packages")
+	}
+	if layers["cmd"] > 0 {
+		hints = append(hints, fmt.Sprintf("%d CLI entrypoints detected", layers["cmd"]))
+	}
+	if layers["api"] > 0 {
+		hints = append(hints, "API layer present - consider API stability")
+	}
+
+	return hints
+}
+
+// boundSystem bounds one system query. The gather used to wrap every system
+// in one timeout, so a call that was still inside its own budget was cut
+// off because the phase was. The per-system budget is the call's bound.
+func (g *IntelligenceGatherer) boundSystem(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, g.config.PerSystemTimeout)
+}

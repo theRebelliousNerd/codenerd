@@ -1,0 +1,7 @@
+schema_version = 1
+id = "articulation"
+kind = "realized"
+source_roots = ["internal/articulation"]
+entrypoint = "README.md"
+implemented_spec = "IMPLEMENTED_SPEC.md"
+verified_on = "2026-07-13"

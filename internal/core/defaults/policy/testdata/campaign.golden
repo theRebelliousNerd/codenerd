@@ -1,0 +1,7 @@
+current_campaign(/c1).
+phase_eligible(/p1).
+current_phase(/p1).
+eligible_task(/t1).
+next_campaign_task(/t1).
+next_action(/campaign_create_file).
+delegate_task(/coder, "Task 1", /pending).

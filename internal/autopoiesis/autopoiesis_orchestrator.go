@@ -1,0 +1,465 @@
+package autopoiesis
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sync"
+	"time"
+
+	internalconfig "codenerd/internal/config"
+	"codenerd/internal/logging"
+	"codenerd/internal/tools/research"
+	"codenerd/internal/types"
+)
+
+// =============================================================================
+// AUTOPOIESIS ORCHESTRATOR
+// =============================================================================
+// The main coordinator for all self-modification capabilities.
+
+// Orchestrator coordinates all autopoiesis capabilities
+type Orchestrator struct {
+	mu                 sync.RWMutex
+	kernelListenerDone <-chan struct{}
+	config             Config
+	complexity         *ComplexityAnalyzer
+	toolGen            *ToolGenerator
+	persistence        *PersistenceAnalyzer
+	agentCreate        *AgentCreator
+	ouroboros          ToolSynthesizer // The Ouroboros Loop for tool self-generation
+	client             LLMClient
+
+	// Kernel Integration - Bridge to Mangle Logic Core
+	kernel types.Kernel // The Mangle kernel for fact assertion/query
+
+	// Feedback and Learning System
+	evaluator *QualityEvaluator // Assess tool output quality
+	patterns  *PatternDetector  // Detect recurring issues
+	refiner   *ToolRefiner      // Improve suboptimal tools
+	learnings *LearningStore    // Persist learnings
+	profiles  *ProfileStore     // Tool-specific quality profiles
+
+	// Tool Generation Audit and Logging System
+	traces      *TraceCollector // Capture reasoning during generation
+	logInjector *LogInjector    // Inject mandatory logging into tools
+
+	// JIT Prompt Compilation (Phase 5) - using interfaces to avoid import cycles
+	promptAssembler PromptAssembler // JIT-aware prompt assembler
+	// rolePrompts compiles the system prompt of every autopoiesis model call
+	// that is not tool code generation (role_prompts.go).
+	rolePrompts types.RolePromptCompiler
+
+	// Gemini advanced features (nil if not Gemini or features unavailable)
+	grounding *research.GroundingHelper // Google Search / URL Context grounding
+	thinking  *research.ThinkingHelper  // Thinking mode metadata capture
+
+	// Tool generation throttling (session-local)
+	toolsGenerated int
+	lastToolGen    time.Time
+
+	// Jev's autopoiesis checks (autopoiesis_jev.go): off when unset.
+	jev jevUse
+
+	// Handoff to the shard runtime for persistent agents. Installed by boot;
+	// see writeAgentPromptsYAML for why this is a seam and not an import.
+	agentDefWriter AgentDefinitionWriter
+}
+
+// llmClientWrapper adapts the local LLMClient interface to types.LLMClient
+// for use with research.GroundingHelper and research.ThinkingHelper.
+// It proxies grounding/thinking interfaces to the underlying client when available.
+type llmClientWrapper struct {
+	client LLMClient
+}
+
+// Unwrap exposes the wrapped client so broker.Base and broker.IsBrokered can
+// walk the decorator chain.
+//
+// This wrapper widens rather than decorates: its field is the narrow local
+// LLMClient (Complete and CompleteWithSystem only), so what it holds is not
+// always a full types.LLMClient. When it is -- which is every case where a real
+// brokered client was passed in -- handing it back keeps the metering visible
+// behind this type. When it is not, returning nil stops the walk here, which is
+// the honest answer and is what both Base and IsBrokered already expect.
+func (w *llmClientWrapper) Unwrap() types.LLMClient {
+	if full, ok := w.client.(types.LLMClient); ok {
+		return full
+	}
+	return nil
+}
+
+func (w *llmClientWrapper) Complete(ctx context.Context, prompt string) (string, error) {
+	return w.client.Complete(ctx, prompt)
+}
+
+func (w *llmClientWrapper) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return w.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+}
+
+func (w *llmClientWrapper) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	// Not used by grounding/thinking helpers, but needed for interface compliance
+	// The autopoiesis package doesn't use tool calling directly
+	return nil, fmt.Errorf("CompleteWithTools not supported in autopoiesis wrapper")
+}
+
+// GroundingController implementation - proxies to underlying client if available
+
+func (w *llmClientWrapper) GetLastGroundingSources() []string {
+	if gp, ok := w.client.(types.GroundingProvider); ok {
+		return gp.GetLastGroundingSources()
+	}
+	return nil
+}
+
+func (w *llmClientWrapper) IsWebSearchEnabled() bool {
+	if gp, ok := w.client.(types.GroundingProvider); ok {
+		return gp.IsWebSearchEnabled()
+	}
+	return false
+}
+
+func (w *llmClientWrapper) IsURLContextEnabled() bool {
+	if gp, ok := w.client.(types.GroundingProvider); ok {
+		return gp.IsURLContextEnabled()
+	}
+	return false
+}
+
+func (w *llmClientWrapper) SetEnableWebSearch(enable bool) {
+	if gc, ok := w.client.(types.GroundingController); ok {
+		gc.SetEnableWebSearch(enable)
+	}
+}
+
+func (w *llmClientWrapper) SetEnableURLContext(enable bool) {
+	if gc, ok := w.client.(types.GroundingController); ok {
+		gc.SetEnableURLContext(enable)
+	}
+}
+
+func (w *llmClientWrapper) SetURLContextURLs(urls []string) {
+	if gc, ok := w.client.(types.GroundingController); ok {
+		gc.SetURLContextURLs(urls)
+	}
+}
+
+// ThinkingProvider implementation - proxies to underlying client if available
+
+func (w *llmClientWrapper) GetLastThoughtSummary() string {
+	if tp, ok := w.client.(types.ThinkingProvider); ok {
+		return tp.GetLastThoughtSummary()
+	}
+	return ""
+}
+
+func (w *llmClientWrapper) GetLastThinkingTokens() int {
+	if tp, ok := w.client.(types.ThinkingProvider); ok {
+		return tp.GetLastThinkingTokens()
+	}
+	return 0
+}
+
+func (w *llmClientWrapper) IsThinkingEnabled() bool {
+	if tp, ok := w.client.(types.ThinkingProvider); ok {
+		return tp.IsThinkingEnabled()
+	}
+	return false
+}
+
+func (w *llmClientWrapper) GetThinkingLevel() string {
+	if tp, ok := w.client.(types.ThinkingProvider); ok {
+		return tp.GetThinkingLevel()
+	}
+	return ""
+}
+
+// ThoughtSignatureProvider implementation - proxies to underlying client if available
+
+func (w *llmClientWrapper) GetLastThoughtSignature() string {
+	if tsp, ok := w.client.(types.ThoughtSignatureProvider); ok {
+		return tsp.GetLastThoughtSignature()
+	}
+	return ""
+}
+
+// DefaultConfig returns default configuration
+func DefaultConfig(workspaceRoot string) Config {
+	cfg := Config{
+		ToolsDir:               filepath.Join(workspaceRoot, ".nerd", "tools"),
+		AgentsDir:              filepath.Join(workspaceRoot, ".nerd", "agents"),
+		MinConfidence:          0.6,
+		MinToolConfidence:      0.75,
+		EnableToolGeneration:   true,
+		MaxToolsPerSession:     3,
+		ToolGenerationCooldown: 0,
+		EnableLLM:              true,
+		// internalconfig.DefaultToolGenerationConfig() hardcodes windows/amd64.
+		// That is a fine *cross-compilation* preference to record in a config
+		// file, but it is not a default this process can run on: Ouroboros
+		// compiles a tool and then executes the resulting binary itself
+		// (RuntimeTool.Execute), so on any non-Windows host every generated
+		// tool compiled cleanly and then died with "exec format error" the
+		// first time the agent called it. Default to the machine that will run
+		// the binary; an explicit user setting below still wins.
+		TargetOS:      runtime.GOOS,
+		TargetArch:    runtime.GOARCH,
+		WorkspaceRoot: workspaceRoot,
+		// Safety: Explicit gas limit for Ouroboros self-generated logic.
+		// Prevents infinite recursion in self-modifying autopoiesis loops.
+		// This bounds the number of learning_event facts the kernel will retain.
+		MaxLearningFacts: 1000,
+	}
+
+	if userCfg, err := internalconfig.LoadUserConfig(internalconfig.DefaultUserConfigPath()); err == nil && userCfg != nil {
+		// Carried so the tool compile and the Thunderdome arena run under the
+		// same build environment as the rest of the agent (CGO flags, GOFLAGS,
+		// allowlisted env). Both used to pass nil and silently compiled with a
+		// different toolchain environment than internal/session verification.
+		cfg.UserConfig = userCfg
+
+		// Read the raw section, not GetToolGenerationConfig(): that accessor
+		// fills in the windows/amd64 defaults, so it can never report "the
+		// user did not choose a target".
+		if tg := userCfg.ToolGeneration; tg != nil {
+			if tg.TargetOS != "" {
+				cfg.TargetOS = tg.TargetOS
+			}
+			if tg.TargetArch != "" {
+				cfg.TargetArch = tg.TargetArch
+			}
+			// The per-workspace exec grant the safety docs describe. Nothing
+			// set this before, so the documented opt-in could not be taken:
+			// exec was off regardless of what the operator configured. It
+			// stays off by default — an allowlisted os/exec is an
+			// unrestricted shell for LLM-authored code — but "off unless you
+			// ask" and "off, and there is no way to ask" are different
+			// promises, and only the first one was written down.
+			cfg.AllowToolExec = tg.AllowToolExec
+		}
+	}
+
+	return cfg
+}
+
+// NewOrchestrator creates a new autopoiesis orchestrator
+func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
+	timer := logging.StartTimer(logging.CategoryAutopoiesis, "NewOrchestrator")
+	defer timer.Stop()
+
+	logging.Autopoiesis("Initializing Autopoiesis Orchestrator")
+	logging.AutopoiesisDebug("Config: ToolsDir=%s, AgentsDir=%s, MinConfidence=%.2f",
+		config.ToolsDir, config.AgentsDir, config.MinConfidence)
+	logging.AutopoiesisDebug("Target: OS=%s, Arch=%s", config.TargetOS, config.TargetArch)
+
+	// Create Ouroboros config from autopoiesis config: the package defaults,
+	// with this workspace's directories, target and grants over them. (This
+	// used to restate every default by hand beside DefaultOuroborosConfig.)
+	ouroborosConfig := DefaultOuroborosConfig(config.WorkspaceRoot)
+	ouroborosConfig.ToolsDir = config.ToolsDir
+	ouroborosConfig.CompiledDir = filepath.Join(config.ToolsDir, ".compiled")
+	// Exec is opt-in per workspace, not a default grant. See the audit note
+	// on Config.AllowToolExec: an allowlisted os/exec is an unrestricted
+	// shell in the user's workspace, and the import allowlist is the only
+	// thing standing in front of it.
+	ouroborosConfig.AllowExec = config.AllowToolExec
+	ouroborosConfig.TargetOS = config.TargetOS
+	ouroborosConfig.TargetArch = config.TargetArch
+	ouroborosConfig.UserConfig = config.UserConfig
+
+	logging.AutopoiesisDebug("Creating ToolGenerator")
+	toolGen := NewToolGenerator(client, config.ToolsDir)
+
+	// Note: JIT components will be attached later via SetJITComponents if available
+
+	learningsDir := filepath.Join(config.ToolsDir, ".learnings")
+	tracesDir := filepath.Join(config.ToolsDir, ".traces")
+	profilesDir := ProfilesDir(config.ToolsDir)
+
+	logging.AutopoiesisDebug("Creating ProfileStore: %s", profilesDir)
+	profileStore := NewProfileStore(profilesDir)
+
+	logging.AutopoiesisDebug("Creating subsystems: ComplexityAnalyzer, PersistenceAnalyzer, AgentCreator")
+
+	orch := &Orchestrator{
+		config:      config,
+		complexity:  NewComplexityAnalyzer(client),
+		toolGen:     toolGen,
+		persistence: NewPersistenceAnalyzer(client),
+		agentCreate: NewAgentCreator(client, config.AgentsDir),
+		ouroboros:   NewOuroborosLoop(client, ouroborosConfig),
+		client:      client,
+
+		// Initialize feedback and learning system
+		evaluator: NewQualityEvaluator(client, profileStore),
+		patterns:  NewPatternDetector(),
+		refiner:   NewToolRefiner(client, toolGen),
+		learnings: NewLearningStore(learningsDir),
+		profiles:  profileStore,
+
+		// Initialize tool-generation audit and logging system
+		traces:      NewTraceCollector(tracesDir, client),
+		logInjector: NewLogInjector(DefaultLoggingRequirements()),
+	}
+
+	// Initialize Gemini advanced features helpers
+	// The LLMClient interface in autopoiesis is a subset of types.LLMClient,
+	// so we wrap it to satisfy the full interface for the research helpers.
+	wrapper := &llmClientWrapper{client: client}
+	orch.grounding = research.NewGroundingHelper(wrapper)
+	orch.thinking = research.NewThinkingHelper(wrapper)
+
+	// Enable Google Search grounding for research-intensive tool generation
+	if orch.grounding.IsGroundingAvailable() {
+		orch.grounding.EnableGoogleSearch()
+		logging.Autopoiesis("Gemini grounding enabled for autopoiesis (Google Search active)")
+	}
+	if orch.thinking.IsThinkingAvailable() {
+		logging.AutopoiesisDebug("Gemini thinking mode active for autopoiesis (level=%s)", orch.thinking.GetThinkingLevel())
+	}
+
+	// Wire Ouroboros callback to propagate tool registration facts to parent kernel
+	orch.ouroboros.SetOnToolRegistered(func(tool *RuntimeTool) {
+		logging.AutopoiesisDebug("Ouroboros callback: tool %s registered, asserting to kernel", tool.Name)
+		orch.assertToolRegistered(tool)
+	})
+
+	// Jev reads requests and tool output when the typesafe section switches
+	// the autopoiesis checks on (autopoiesis_jev.go).
+	orch.jev = jevUseFrom(config.UserConfig)
+	orch.evaluator.SetOutputJudge(orch.toolOutputJudge())
+
+	// Prime the tool generators with any learnings restored from disk so the
+	// first generation pass in a new session benefits immediately.
+	orch.RefreshLearningsContext()
+
+	logging.Autopoiesis("Autopoiesis Orchestrator initialized successfully")
+	return orch
+}
+
+// SetPromptAssembler attaches the JIT-aware prompt assembler used by tool
+// generation and refinement paths.
+func (o *Orchestrator) SetPromptAssembler(assembler PromptAssembler) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.promptAssembler = assembler
+
+	// Wire the assembler to both tool generators (the orchestrator's and the
+	// Ouroboros loop's) and the ToolRefiner
+	if assembler != nil {
+		o.toolGen.SetPromptAssembler(assembler)
+		o.refiner.SetPromptAssembler(assembler)
+		if loop, ok := o.ouroboros.(*OuroborosLoop); ok {
+			loop.SetPromptAssembler(assembler)
+		}
+		logging.Autopoiesis("JIT prompt compiler attached to autopoiesis orchestrator")
+	}
+}
+
+// SetRolePrompts attaches the role prompt compiler every autopoiesis model
+// call other than tool code generation compiles its system prompt with: the
+// complexity and persistence analyzers, the agent prompt writer, the tool
+// spec, test and profile writers, the quality assessor and the PanicMaker.
+// Without one those calls are errors wrapping types.ErrRolePromptUnavailable.
+func (o *Orchestrator) SetRolePrompts(roles types.RolePromptCompiler) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.rolePrompts = roles
+	o.complexity.SetRolePrompts(roles)
+	o.persistence.SetRolePrompts(roles)
+	o.agentCreate.SetRolePrompts(roles)
+	o.toolGen.SetRolePrompts(roles)
+	o.evaluator.SetRolePrompts(roles)
+	if loop, ok := o.ouroboros.(*OuroborosLoop); ok {
+		loop.SetRolePrompts(roles)
+	}
+}
+
+// GetOuroborosLoop returns the Ouroboros Loop for tool self-generation.
+// This implements core.ToolGenerator interface for routing coder shard self-tools.
+func (o *Orchestrator) GetOuroborosLoop() ToolSynthesizer {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.ouroboros
+}
+
+// GetToolGenerator returns the ToolGenerator for campaign tool pregeneration.
+// Nil-safe: returns nil when the orchestrator or its generator is absent,
+// which is how the campaign path detects "autopoiesis disabled".
+func (o *Orchestrator) GetToolGenerator() *ToolGenerator {
+	if o == nil {
+		return nil
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.toolGen
+}
+
+// GetConcreteOuroborosLoop returns the Ouroboros loop as its concrete type for
+// campaign tool pregeneration, which requires *OuroborosLoop rather than the
+// ToolSynthesizer interface. Nil-safe: returns nil when the orchestrator holds
+// no loop or the loop is not a *OuroborosLoop.
+func (o *Orchestrator) GetConcreteOuroborosLoop() *OuroborosLoop {
+	if o == nil {
+		return nil
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.ouroboros == nil {
+		return nil
+	}
+	if loop, ok := o.ouroboros.(*OuroborosLoop); ok {
+		return loop
+	}
+	return nil
+}
+
+// CompileTool compiles an existing tool source file.
+// It reads the file from disk, runs it through safety checks, and compiles/registers it.
+func (o *Orchestrator) CompileTool(ctx context.Context, toolName string) (*RuntimeTool, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	// 1. Resolve tool path
+	toolPath := filepath.Join(o.config.ToolsDir, toolName+".go")
+
+	// 2. Read source code
+	codeBytes, err := os.ReadFile(toolPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read tool source for %s: %w", toolName, err)
+	}
+
+	// 3. Delegate to Ouroboros for Safety -> Write -> Compile -> Register
+	// We use "Manual Compilation" as purpose to distinguish in logs if needed.
+	success, _, _, errMsg := o.ouroboros.GenerateToolFromCode(
+		ctx,
+		toolName,
+		"Manual Compilation", // Purpose
+		string(codeBytes),
+		1.0,   // Confidence (manual override implies high confidence)
+		1.0,   // Priority
+		false, // isDiagnostic
+	)
+
+	if !success {
+		return nil, fmt.Errorf("compilation failed: %s", errMsg)
+	}
+
+	// 4. Retrieve registered tool to return
+	// We access the registry directly through Ouroboros via interface
+	if tool, exists := o.ouroboros.GetRuntimeTool(toolName); exists {
+		return tool, nil
+	}
+
+	return nil, fmt.Errorf("tool compiled successfully but not found in registry")
+}
+
+func (w *llmClientWrapper) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan types.StreamResult) {
+	// Synchronous completion published as one chunk in the autopoiesis
+	// orchestrator; the wrapped call validates and meters the answer.
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return w.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	})
+}

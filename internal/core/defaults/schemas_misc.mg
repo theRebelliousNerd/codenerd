@@ -1,0 +1,275 @@
+# Cortex 1.5.0 Schemas (EDB Declarations)
+# Version: 1.5.0
+# Philosophy: Logic determines Reality; the Model merely describes it.
+
+# Modular Schema: MISC
+# Sections: 43, 49, 50
+
+# =============================================================================
+# SECTION 43: NORTHSTAR VISION & SPECIFICATION
+# =============================================================================
+# The Northstar defines the project's grand vision, target users, capabilities,
+# risks, requirements, and constraints. Used by /northstar command.
+
+# -----------------------------------------------------------------------------
+# 43.1 Core Vision
+# -----------------------------------------------------------------------------
+
+# northstar_mission(ID, Statement) - The one-sentence mission
+Decl northstar_mission(ID, Statement) bound [/string, /string].
+
+# northstar_problem(ID, Description) - Problem being solved
+Decl northstar_problem(ID, Description) bound [/string, /string].
+
+# northstar_vision(ID, Description) - Grand vision of success
+Decl northstar_vision(ID, Description) bound [/string, /string].
+
+# -----------------------------------------------------------------------------
+# 43.2 Target Users (Personas)
+# -----------------------------------------------------------------------------
+
+# northstar_persona(PersonaID, Name) - Target user archetype
+Decl northstar_persona(PersonaID, Name) bound [/string, /string].
+
+# northstar_pain_point(PersonaID, PainPoint) - User pain points
+Decl northstar_pain_point(PersonaID, PainPoint) bound [/string, /string].
+
+# northstar_need(PersonaID, Need) - User needs
+Decl northstar_need(PersonaID, Need) bound [/string, /string].
+
+# -----------------------------------------------------------------------------
+# 43.3 Capabilities Roadmap
+# -----------------------------------------------------------------------------
+
+# northstar_capability(CapID, Description, Timeline, Priority)
+# Timeline: /now, /6mo, /1yr, /3yr, /moonshot
+# Priority: /critical, /high, /medium, /low
+Decl northstar_capability(CapID, Description, Timeline, Priority) bound [/string, /string, /name, /number].
+
+# northstar_serves(CapID, PersonaID) - Capability serves persona
+Decl northstar_serves(CapID, PersonaID) bound [/string, /string].
+
+# -----------------------------------------------------------------------------
+# 43.4 Risks & Mitigations (Red Teaming)
+# -----------------------------------------------------------------------------
+
+# northstar_risk(RiskID, Description, Likelihood, Impact)
+# Likelihood/Impact: /high, /medium, /low
+Decl northstar_risk(RiskID, Description, Likelihood, Impact) bound [/string, /string, /name, /number].
+
+# northstar_mitigation(RiskID, Strategy) - Risk mitigation strategy
+Decl northstar_mitigation(RiskID, Strategy) bound [/string, /name].
+
+# northstar_mitigation_text(RiskID, Text) - the mitigation in the operator's own words.
+# Strategy above is Decl'd /name and therefore cannot carry free text; it is a
+# /mit_<slug>_<hash> atom derived from this text (see MitigationStrategyAtom).
+# Rules that only need existence use northstar_mitigation; rules and prompt
+# context that need to SHOW the mitigation read this.
+Decl northstar_mitigation_text(RiskID, Text) bound [/string, /string].
+
+# northstar_mitigation_state(RiskID, State) - lifecycle of the mitigation.
+# State: /proposed | /implemented | /verified | /waived. Mitigation prose alone
+# projects /proposed; only a /verified state with fresh passing evidence
+# derives has_mitigation (prompt_northstar.mg).
+Decl northstar_mitigation_state(RiskID, State) bound [/string, /name].
+
+# northstar_mitigation_evidence(RiskID, Kind, Ref, Outcome, Revision) - one
+# typed check offered as evidence. Outcome: /passed | /failed | /skipped |
+# /cancelled | /unknown. Revision is the full commit SHA the check ran against.
+Decl northstar_mitigation_evidence(RiskID, Kind, Ref, Outcome, Revision) bound [/string, /name, /string, /name, /string].
+
+# northstar_risk_waiver(RiskID, Authority, Scope, Rationale, Expires) - the
+# record a /waived risk requires. Expires is Unix seconds, compared with
+# current_time. A waiver is never a mitigation.
+Decl northstar_risk_waiver(RiskID, Authority, Scope, Rationale, Expires) bound [/string, /string, /string, /string, /number].
+
+# -----------------------------------------------------------------------------
+# 43.5 Requirements
+# -----------------------------------------------------------------------------
+
+# northstar_requirement(ReqID, Type, Description, Priority)
+# Type: /functional, /non_functional, /constraint
+# Priority: /must_have, /should_have, /nice_to_have
+Decl northstar_requirement(ReqID, Type, Description, Priority) bound [/string, /name, /string, /number].
+
+# northstar_supports(ReqID, CapID) - Requirement supports capability
+Decl northstar_supports(ReqID, CapID) bound [/string, /string].
+
+# northstar_addresses(ReqID, RiskID) - Requirement addresses risk
+Decl northstar_addresses(ReqID, RiskID) bound [/string, /string].
+
+# -----------------------------------------------------------------------------
+# 43.6 Constraints
+# -----------------------------------------------------------------------------
+
+# northstar_constraint(ConstraintID, Description) - Hard project constraints
+Decl northstar_constraint(ConstraintID, Description) bound [/string, /string].
+
+# module_northstar(ModulePath, Purpose) - a module's declared purpose
+Decl module_northstar(ModulePath, Purpose) bound [/string, /string].
+
+# module_requirement(ModulePath, ID, Statement, Severity) - one requirement a module declares
+Decl module_requirement(ModulePath, ID, Statement, Severity) bound [/string, /string, /string, /name].
+
+# -----------------------------------------------------------------------------
+# 43.7 Derived Predicates
+# -----------------------------------------------------------------------------
+
+# northstar_defined() - True if northstar has been set
+Decl northstar_defined() bound [].
+
+# critical_capability(CapID) - Derived: capability is critical priority
+Decl critical_capability(CapID) bound [/string].
+
+# high_risk(RiskID) - Derived: risk has high likelihood AND impact
+Decl high_risk(RiskID) bound [/string].
+
+# fresh_mitigation_evidence(RiskID) - passing evidence bound to the current git HEAD
+Decl fresh_mitigation_evidence(RiskID) bound [/string].
+
+# failing_mitigation_evidence(RiskID) - non-passing evidence at the current git HEAD
+Decl failing_mitigation_evidence(RiskID) bound [/string].
+
+# verified_mitigation(RiskID) - /verified with fresh passing and no fresh failing evidence
+Decl verified_mitigation(RiskID) bound [/string].
+
+# active_risk_waiver(RiskID) - /waived with an unexpired waiver record
+Decl active_risk_waiver(RiskID) bound [/string].
+
+# has_mitigation(RiskID) - Helper: risk has a verified mitigation (prose alone never counts)
+Decl has_mitigation(RiskID) bound [/string].
+
+# unmitigated_risk(RiskID) - Derived: high risk with no verified mitigation and no active waiver
+Decl unmitigated_risk(RiskID) bound [/string].
+
+# capability_addresses_need(CapID, PersonaID, Need) - Capability serves persona need
+Decl capability_addresses_need(CapID, PersonaID, Need) bound [/string, /string, /string].
+
+# is_served_persona(PersonaID) - Helper: persona is served by at least one capability
+Decl is_served_persona(PersonaID) bound [/string].
+
+# capability_is_linked(CapID) - Helper: capability serves at least one persona
+Decl capability_is_linked(CapID) bound [/string].
+
+# unserved_persona(PersonaID, Name) - Persona with needs but no capabilities
+Decl unserved_persona(PersonaID, Name) bound [/string, /string].
+
+# orphan_capability(CapID, Desc) - Capability not linked to any persona
+Decl orphan_capability(CapID, Desc) bound [/string, /string].
+
+# must_have_requirement(ReqID, Desc) - Requirements with must_have priority
+Decl must_have_requirement(ReqID, Desc) bound [/string, /string].
+
+# is_supported_req(ReqID) - Helper: requirement is supported by at least one capability
+Decl is_supported_req(ReqID) bound [/string].
+
+# orphan_requirement(ReqID, Desc) - Requirement not linked to any capability
+Decl orphan_requirement(ReqID, Desc) bound [/string, /string].
+
+# risk_addressing_requirement(ReqID, RiskID) - Requirement that addresses high risk
+Decl risk_addressing_requirement(ReqID, RiskID) bound [/string, /string].
+
+# risk_is_addressed(RiskID) - Helper: risk is addressed by at least one requirement
+Decl risk_is_addressed(RiskID) bound [/string].
+
+# unaddressed_high_risk(RiskID, Desc) - High risk with no requirement addressing it
+Decl unaddressed_high_risk(RiskID, Desc) bound [/string, /string].
+
+# immediate_capability(CapID, Desc) - Capabilities with /now timeline
+Decl immediate_capability(CapID, Desc) bound [/string, /string].
+
+# near_term_capability(CapID, Desc) - Capabilities with /6mo timeline
+Decl near_term_capability(CapID, Desc) bound [/string, /string].
+
+# long_term_capability(CapID, Desc) - Capabilities with /1yr or /3yr timeline
+Decl long_term_capability(CapID, Desc) bound [/string, /string].
+
+# moonshot_capability(CapID, Desc) - Capabilities with /moonshot timeline
+Decl moonshot_capability(CapID, Desc) bound [/string, /string].
+
+# strategic_warning(Type, CapID, RiskID) - Strategic gaps and warnings
+Decl strategic_warning(Type, CapID, RiskID) bound [/name, /string, /string].
+
+# =============================================================================
+# SECTION 48: OBSERVATIONS
+# =============================================================================
+# observation(Key, Value) - free-form observations to capture learnings.
+Decl observation(Key, Value) bound [/string, /string].
+
+# =============================================================================
+# SECTION 49: CONTINUATION PROTOCOL (Multi-Step Task Execution)
+# =============================================================================
+# Enables natural multi-step task chaining in the TUI. The kernel signals
+# "there's more work to do" after each shard execution, and the TUI can
+# auto-continue based on user-selected mode (Auto/Confirm/Breakpoint).
+
+# -----------------------------------------------------------------------------
+# 49.1 Shard Result Tracking
+# -----------------------------------------------------------------------------
+
+# shard_result(TaskID, Status, ShardType, TaskDescription, ResultSummary)
+# TaskID: Unique identifier for this execution
+# Status: the producer's verdict for the step, from the kernel's turn outcome
+#   and the observed evidence (cmd/nerd/chat/process_continuation.go,
+#   shardResultStatus): /complete (verified), /incomplete (hollow -- the same
+#   shard owes the rest), /failed (error or failed verdict), /unverified (no
+#   verdict recorded). Work owed is NOT read from this word: obligations are
+#   pending_test / pending_fix, raised from evidence and discharged by the
+#   shard result that acted on them (policy/codedom_continuation.mg).
+# ShardType: /coder, /reviewer, /tester, /researcher
+# TaskDescription: What was requested
+# ResultSummary: Brief summary of output
+Decl shard_result(TaskID, Status, ShardType, TaskDescription, ResultSummary) bound [/string, /name, /name, /string, /string].
+
+# pending_test(TaskID, Description) - Test needs to be written for generated code
+Decl pending_test(TaskID, Description) bound [/string, /string].
+
+# pending_fix(TaskID, Description) - Structured findings were reported against
+# the change (the reviewer's, or the critic's on a write turn); the coder owes
+# a fix. Description names the work the findings were found in.
+Decl pending_fix(TaskID, Description) bound [/string, /string].
+
+# Discharge: a shard result for the obligation's own description.
+Decl test_obligation_discharged(Description) bound [/string].
+Decl fix_obligation_discharged(Description) bound [/string].
+# The same shard has produced two results for the same work already.
+Decl incomplete_step_retried(ShardType, Description) bound [/name, /string].
+
+# -----------------------------------------------------------------------------
+# 49.2 Continuation Signals (Derived in policy.mg)
+# -----------------------------------------------------------------------------
+
+# has_pending_subtask(TaskID, Description, ShardType) - Derived: there's more work
+# Populated by rules that detect incomplete workflows
+Decl has_pending_subtask(TaskID, Description, ShardType) bound [/string, /string, /name].
+
+# should_auto_continue/0 - Derived: continuation should proceed automatically
+# True when has_pending_subtask exists and no blocking conditions
+Decl should_auto_continue() bound [].
+
+# continuation_blocked(Reason) - Derived: continuation is blocked
+# Reason: /needs_clarification, /user_interrupted
+Decl continuation_blocked(Reason) bound [/name].
+
+# has_continuation_block/0 - Helper: true if any continuation block exists
+Decl has_continuation_block() bound [].
+
+# -----------------------------------------------------------------------------
+# 49.3 User Control
+# -----------------------------------------------------------------------------
+
+# interrupt_requested - User pressed Ctrl+X to stop execution
+Decl interrupt_requested() bound [].
+
+# continuation_step(StepNumber, TotalSteps) - Current progress
+Decl continuation_step(StepNumber, TotalSteps) bound [/number, /number].
+
+# =============================================================================
+# SECTION 50: BENCHMARK SCHEMAS (REFERENCE)
+# =============================================================================
+# Benchmark-specific predicates (SWE-bench, HumanEval, MBPP) are in:
+#   internal/core/defaults/benchmarks.mg
+#
+# This keeps the core schemas focused on general-purpose code assistance.
+# Load benchmarks.mg only when running benchmark evaluations.
+

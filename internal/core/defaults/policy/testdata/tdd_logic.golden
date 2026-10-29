@@ -1,0 +1,2 @@
+# Expected derived facts for tdd_logic.mg
+block_commit("build_errors").

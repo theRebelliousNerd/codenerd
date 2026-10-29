@@ -1,0 +1,207 @@
+//go:build !windows
+
+package browser
+
+// Process inspection is adapted from BrowserNERD's Apache-2.0 reaper.
+// Descendants are enumerated explicitly; unrelated process groups are never signaled.
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+
+	"codenerd/internal/config"
+)
+
+type unixProcessQuerier struct {
+	policy config.BrowserReaperConfig
+}
+
+func newProcessQuerier(policy config.BrowserReaperConfig) ProcessQuerier {
+	return &unixProcessQuerier{policy: policy}
+}
+
+func queryUnixProcesses(ctx context.Context) ([]ProcessInfo, error) {
+	cmd := exec.CommandContext(ctx, "ps", "-axww", "-o", "pid=,ppid=,args=")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("inspect Unix process table: %w", err)
+	}
+	return parsePsOutput(string(out))
+}
+
+func parsePsOutput(out string) ([]ProcessInfo, error) {
+	var processes []ProcessInfo
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			return nil, fmt.Errorf("incomplete Unix process row")
+		}
+		pid, pidErr := strconv.Atoi(fields[0])
+		ppid, parentErr := strconv.Atoi(fields[1])
+		if pidErr != nil || parentErr != nil || pid <= 0 || ppid < 0 {
+			return nil, fmt.Errorf("invalid Unix process identity")
+		}
+		command := strings.TrimSpace(strings.TrimPrefix(line, fields[0]))
+		command = strings.TrimSpace(strings.TrimPrefix(command, fields[1]))
+		processes = append(processes, ProcessInfo{PID: pid, PPID: ppid, CommandLine: command})
+	}
+	return processes, nil
+}
+
+func (q *unixProcessQuerier) QueryChromeProcesses(ctx context.Context) ([]ProcessInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, q.policy.Timeout())
+	defer cancel()
+	processes, err := queryUnixProcesses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var chrome []ProcessInfo
+	for _, process := range processes {
+		command := strings.TrimSpace(process.CommandLine)
+		if command == "" {
+			continue
+		}
+		first := strings.Fields(command)[0]
+		macApp := strings.HasPrefix(command, "/") && (strings.Contains(command, "/Google Chrome.app/Contents/") || strings.Contains(command, "/Chromium.app/Contents/"))
+		if !isChromeExecutableName(first) && !isChromeExecutableName(processExecutable(process.PID)) && !macApp {
+			continue
+		}
+		if macApp {
+			// Verify the executable separately: the flattened args column may
+			// contain an application path merely as another program's argument.
+			out, err := exec.CommandContext(ctx, "ps", "-p", strconv.Itoa(process.PID), "-o", "comm=").Output()
+			if err != nil {
+				if !q.IsProcessAlive(process.PID) {
+					continue
+				}
+				return nil, fmt.Errorf("verify Chrome executable: %w", err)
+			}
+			executable := strings.TrimSpace(string(out))
+			if !strings.Contains(executable, "/Google Chrome.app/Contents/") && !strings.Contains(executable, "/Chromium.app/Contents/") {
+				continue
+			}
+		}
+		// Linux's cmdline usually preserves argument boundaries. ps flattens
+		// paths with spaces, which must not become permission to kill a
+		// different profile.
+		if raw, readErr := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", process.PID)); readErr == nil {
+			var args []string
+			for _, arg := range procCmdlineArgs(raw) {
+				args = append(args, strconv.Quote(arg))
+			}
+			process.CommandLine = strings.Join(args, " ")
+		}
+		chrome = append(chrome, process)
+	}
+	return chrome, nil
+}
+
+// chromeExecutableNames are the browser binaries and the distribution wrapper
+// names Rod's LookPath launches. Google Chrome's Linux wrapper ends with
+// `exec -a "$0" .../chrome`, so the browser process keeps the wrapper's name
+// (google-chrome, google-chrome-stable) as argv[0] while /proc/PID/exe names
+// the real chrome binary; either must identify it, or the launched root is
+// invisible to cleanup and Shutdown refuses to reap it.
+var chromeExecutableNames = map[string]bool{
+	"chrome": true, "chromium": true, "chromium-browser": true,
+	"chrome-headless-shell": true, "headless_shell": true,
+	"google-chrome": true, "google-chrome-stable": true,
+	"google-chrome-beta": true, "google-chrome-unstable": true,
+	"msedge": true, "microsoft-edge": true, "microsoft-edge-stable": true,
+}
+
+func isChromeExecutableName(path string) bool {
+	if path == "" {
+		return false
+	}
+	return chromeExecutableNames[strings.ToLower(filepath.Base(path))]
+}
+
+// procCmdlineArgs splits /proc/<pid>/cmdline into arguments. Chrome
+// rewrites its own cmdline (SetProcessTitle) into ONE space-joined string
+// with no NUL separators, for the main process as well as children.
+// Splitting that on NUL alone yielded a single giant argument, so
+// extractUserDataDir never matched, cleanupBrowserProcess refused every
+// shutdown as "PID no longer carries its recorded profile", and Chrome
+// processes leaked by the hundreds. A single chunk containing spaces is
+// therefore split on whitespace instead: a profile path containing spaces
+// then extracts truncated and mismatches the recorded profile, which
+// fails safe (refusal), never into killing a different profile.
+func procCmdlineArgs(raw []byte) []string {
+	var args []string
+	for _, arg := range strings.Split(string(raw), "\x00") {
+		if arg != "" {
+			args = append(args, arg)
+		}
+	}
+	if len(args) == 1 && strings.Contains(args[0], " ") {
+		args = strings.Fields(args[0])
+	}
+	return args
+}
+
+// processExecutable is the kernel's record of the running binary, independent
+// of the argv[0] a wrapper chose. Empty where /proc is unavailable.
+func processExecutable(pid int) string {
+	exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSuffix(exe, " (deleted)")
+}
+
+func (q *unixProcessQuerier) IsProcessAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	if data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid)); err == nil {
+		// The command name can contain spaces and parentheses. The state
+		// follows the final closing parenthesis, not the fourth Fields token.
+		if end := strings.LastIndexByte(string(data), ')'); end >= 0 {
+			fields := strings.Fields(string(data[end+1:]))
+			if len(fields) > 0 && (fields[0] == "Z" || fields[0] == "X") {
+				return false
+			}
+		}
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || !errors.Is(err, syscall.ESRCH)
+}
+
+func (q *unixProcessQuerier) KillProcessTree(pid int) error {
+	if pid <= 1 || pid == os.Getpid() {
+		return fmt.Errorf("safety refusal: invalid process tree root %d", pid)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), q.policy.Timeout())
+	defer cancel()
+	processes, err := queryUnixProcesses(ctx)
+	if err != nil {
+		return err
+	}
+	var result error
+	pids := make(map[int]bool)
+	descendants := descendantPIDs(pid, processes)
+	for _, child := range descendants {
+		if child <= 1 || child == os.Getpid() {
+			return fmt.Errorf("safety refusal: protected PID in Chrome tree")
+		}
+	}
+	for _, child := range descendants {
+		if err := syscall.Kill(child, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			result = errors.Join(result, fmt.Errorf("terminate Chrome process %d: %w", child, err))
+		}
+		pids[child] = true
+	}
+	return errors.Join(result, waitProcessExit(ctx, q, pids, q.policy.PollInterval()))
+}

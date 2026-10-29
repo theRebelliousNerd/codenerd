@@ -1,0 +1,231 @@
+// Package embedding provides vector embedding generation for semantic search.
+// Supports multiple backends: Ollama (local) and Google GenAI (cloud).
+package embedding
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"math"
+	"strings"
+	"time"
+
+	"codenerd/internal/logging"
+)
+
+// =============================================================================
+// EMBEDDING ENGINE INTERFACE
+// =============================================================================
+
+// EmbeddingEngine generates vector embeddings for text.
+type EmbeddingEngine interface {
+	// Embed generates embeddings for a single text
+	Embed(ctx context.Context, text string) ([]float32, error)
+
+	// EmbedBatch generates embeddings for multiple texts
+	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
+
+	// Dimensions returns the dimensionality of embeddings
+	Dimensions() int
+
+	// Name returns the engine name
+	Name() string
+}
+
+// TaskTypeAwareEngine extends EmbeddingEngine with task-type-specific embedding.
+type TaskTypeAwareEngine interface {
+	EmbeddingEngine
+	// EmbedWithTask generates embeddings with a specific task type.
+	EmbedWithTask(ctx context.Context, text string, taskType string) ([]float32, error)
+}
+
+// TaskTypeBatchAwareEngine extends EmbeddingEngine with task-type-specific batch embedding.
+type TaskTypeBatchAwareEngine interface {
+	EmbeddingEngine
+	// EmbedBatchWithTask generates embeddings with a specific task type.
+	EmbedBatchWithTask(ctx context.Context, texts []string, taskType string) ([][]float32, error)
+}
+
+// HealthChecker is an optional interface for embedding engines that support
+// health checks. If an engine implements this interface, the system can
+// verify availability before attempting batch operations.
+type HealthChecker interface {
+	// HealthCheck verifies the embedding service is reachable.
+	// Returns nil if healthy, error otherwise.
+	HealthCheck(ctx context.Context) error
+}
+
+// =============================================================================
+// EMBEDDING CONFIGURATION
+// =============================================================================
+
+// Config holds embedding engine configuration.
+type Config struct {
+	// Provider: "ollama" or "genai"
+	Provider string `json:"provider"`
+
+	// Ollama Configuration
+	OllamaEndpoint string `json:"ollama_endpoint"` // Default: "http://localhost:11434"
+	OllamaModel    string `json:"ollama_model"`    // Required for provider=ollama; no default
+	// Dimensions is the vector length the Ollama model returns. Required for
+	// provider=ollama; no default.
+	Dimensions int `json:"dimensions"`
+	// OllamaKeepAlive is how long Ollama keeps the model loaded after each
+	// request (a Go duration such as "30m", or "-1" for until it is stopped).
+	OllamaKeepAlive string `json:"ollama_keep_alive"`
+
+	// GenAI Configuration
+	GenAIAPIKey string `json:"genai_api_key"`
+	GenAIModel  string `json:"genai_model"` // Required for provider=genai; no default
+
+	// TaskType for GenAI: "SEMANTIC_SIMILARITY", "RETRIEVAL_QUERY", "RETRIEVAL_DOCUMENT"
+	TaskType string `json:"task_type"`
+}
+
+// DefaultConfig returns sensible defaults.
+func DefaultConfig() Config {
+	return Config{
+		Provider:        "ollama", // Default to local Ollama
+		OllamaEndpoint:  "http://localhost:11434",
+		OllamaKeepAlive: "30m",
+		// No model: the workspace names one for its provider in
+		// .nerd/config.json, or NewEngine refuses.
+		TaskType: "SEMANTIC_SIMILARITY",
+	}
+}
+
+// =============================================================================
+// FACTORY
+// =============================================================================
+
+// NewEngine creates an embedding engine based on configuration.
+func NewEngine(cfg Config) (EmbeddingEngine, error) {
+	return NewEngineWithContext(context.Background(), cfg)
+}
+
+func NewEngineWithContext(ctx context.Context, cfg Config) (EmbeddingEngine, error) {
+	return newEngineWithStartupTimeout(ctx, cfg, 8*time.Second)
+}
+
+func newEngineWithStartupTimeout(ctx context.Context, cfg Config, startupTimeout time.Duration) (EmbeddingEngine, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	timer := logging.StartTimer(logging.CategoryEmbedding, "NewEngine")
+	defer timer.Stop()
+
+	logging.Embedding("Creating embedding engine with provider=%s", cfg.Provider)
+	logging.EmbeddingDebug("Engine config: provider=%s, ollama_endpoint=%s, ollama_model=%s, genai_model=%s, task_type=%s",
+		cfg.Provider, cfg.OllamaEndpoint, cfg.OllamaModel, cfg.GenAIModel, cfg.TaskType)
+
+	var engine EmbeddingEngine
+	var err error
+
+	switch cfg.Provider {
+	case "ollama":
+		logging.Embedding("Initializing Ollama embedding engine: endpoint=%s, model=%s", cfg.OllamaEndpoint, cfg.OllamaModel)
+		var oe *OllamaEngine
+		oe, err = NewOllamaEngine(cfg.OllamaEndpoint, cfg.OllamaModel, cfg.Dimensions)
+		if err == nil {
+			oe.keepAlive = cfg.OllamaKeepAlive
+			// Best-effort ensure at construction so first embed isn't the first
+			// time we discover a missing model. Short timeout so a down Ollama
+			// does not block boot; Embed will retry EnsureModel later.
+			ensureCtx, cancel := context.WithTimeout(ctx, startupTimeout)
+			if ensureErr := oe.EnsureModel(ensureCtx); ensureErr != nil {
+				logging.Get(logging.CategoryEmbedding).Warn(
+					"Ollama EnsureModel at init: %v (will retry on first Embed)", ensureErr)
+			} else {
+				logging.Embedding("Ollama model ready at init: %s", oe.Model())
+			}
+			cancel()
+			engine = oe
+		}
+	case "genai":
+		logging.Embedding("Initializing GenAI embedding engine: model=%s, task_type=%s", cfg.GenAIModel, cfg.TaskType)
+		engine, err = NewGenAIEngineWithContext(ctx, cfg.GenAIAPIKey, cfg.GenAIModel, cfg.TaskType)
+	default:
+		err = fmt.Errorf("unsupported embedding provider: %s (use 'ollama' or 'genai')", cfg.Provider)
+		logging.Get(logging.CategoryEmbedding).Error("Unsupported embedding provider: %s", cfg.Provider)
+		return nil, err
+	}
+
+	if cancelErr := ctx.Err(); cancelErr != nil {
+		if closer, ok := engine.(interface{ Close() error }); ok {
+			return nil, errors.Join(cancelErr, closer.Close())
+		}
+		return nil, cancelErr
+	}
+	if err != nil {
+		logging.Get(logging.CategoryEmbedding).Error("Failed to create embedding engine: %v", err)
+		return nil, err
+	}
+
+	logging.Embedding("Embedding engine created successfully: name=%s, dimensions=%d", engine.Name(), engine.Dimensions())
+	return engine, nil
+}
+
+// =============================================================================
+// INPUT AND RESPONSE VALIDATION
+// =============================================================================
+
+// ErrEmptyText is returned, before any provider call, for a text with nothing
+// to embed. Neither engine checked: Ollama answered an empty prompt with an
+// empty vector, which failed validation and was retried three times, and
+// Gemini refused it with a 400 -- a round trip (or four) to learn what the
+// caller could have been told.
+var ErrEmptyText = errors.New("embedding: the text is empty or whitespace")
+
+// checkEmbeddable rejects a text with nothing to embed.
+func checkEmbeddable(text string) error {
+	if strings.TrimSpace(text) == "" {
+		return ErrEmptyText
+	}
+	return nil
+}
+
+// checkEmbeddableBatch rejects a batch holding a text with nothing to embed,
+// naming its index: one empty text fails the provider's whole batch anyway.
+func checkEmbeddableBatch(texts []string) error {
+	for i, text := range texts {
+		if err := checkEmbeddable(text); err != nil {
+			return fmt.Errorf("text %d of %d: %w", i, len(texts), err)
+		}
+	}
+	return nil
+}
+
+func validateEmbeddingVector(values []float32) error {
+	if len(values) == 0 {
+		return fmt.Errorf("embedding vector is empty")
+	}
+	for i, value := range values {
+		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+			return fmt.Errorf("embedding vector contains non-finite value at index %d", i)
+		}
+	}
+	return nil
+}
+
+func validateEmbeddingBatchResponse(want int, embeddings [][]float32) error {
+	if len(embeddings) != want {
+		return fmt.Errorf("embedding batch returned %d vectors for %d inputs", len(embeddings), want)
+	}
+	if want == 0 {
+		return nil
+	}
+
+	dimensions := len(embeddings[0])
+	for i, values := range embeddings {
+		if err := validateEmbeddingVector(values); err != nil {
+			return fmt.Errorf("embedding %d: %w", i, err)
+		}
+		if len(values) != dimensions {
+			return fmt.Errorf("embedding %d has %d dimensions; want %d", i, len(values), dimensions)
+		}
+	}
+	return nil
+}

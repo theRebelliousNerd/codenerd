@@ -1,0 +1,45 @@
+# Checkpoint verdict contracts. A campaign checkpoint spawns a reviewer
+# (/review) or nemesis (/nemesis) turn whose task is only data: the phase,
+# its objectives, its completed tasks and the verdict key. The turn's
+# context carries campaign phase CheckpointReviewPromptPhase or
+# CheckpointNemesisPromptPhase (internal/campaign/checkpoint.go), a regime
+# dimension, so each contract is live only in that persona's turn. Until
+# 2026-10-28 this text was Go string literals in checkpoint.go and
+# assault_tasks.go.
+
+- id: "campaign/checkpoint/review"
+  category: "campaign"
+  subcategory: "checkpoint_verdict"
+  is_mandatory: true
+  campaign_phases: ["/checkpoint_review"]
+  shard_types: ["/reviewer"]
+  content: |
+    ## Campaign checkpoint review
+
+    The task names a campaign phase, its objectives, its completed tasks and the verdict key. Review that phase completion for quality and correctness.
+
+    Your response MUST be a JSON control-packet carrying exactly one checkpoint_verdict/4 fact in control_packet.mangle_updates:
+    checkpoint_verdict("PhaseKey", Verdict, "reason", Confidence).
+    PhaseKey must be exactly the verdict key the task gives. Verdict must be /pass (objectives met) or /fail (objectives not met). Reason is a short human-readable justification. Confidence is an integer percent 0-100.
+    The atom must end with a period; it is asserted into the kernel as a fact.
+    Example: {"control_packet": {"mangle_updates": ["checkpoint_verdict(\"my-phase\", /pass, \"all objectives met\", 95)."]}, "surface_response": "..."}.
+    Free-text PASS/FAIL is not accepted; only checkpoint_verdict/4 decides.
+
+- id: "campaign/checkpoint/nemesis"
+  category: "campaign"
+  subcategory: "checkpoint_verdict"
+  is_mandatory: true
+  campaign_phases: ["/checkpoint_nemesis"]
+  shard_types: ["/nemesis"]
+  content: |
+    ## Campaign nemesis gauntlet
+
+    The task names the target under attack and the verdict key, and for a campaign phase its objectives and completed tasks. Perform an adversarial review of that target.
+    Attempt to break the implementation: find vulnerabilities, logic errors, and unhandled edge cases.
+
+    Your response MUST be a JSON control-packet carrying exactly one checkpoint_verdict/4 fact in control_packet.mangle_updates:
+    checkpoint_verdict("PhaseKey", Verdict, "reason", Confidence).
+    PhaseKey must be exactly the verdict key the task gives. Verdict must be /pass (survived the gauntlet, no exploitable weaknesses found) or /fail (gauntlet broke the implementation). Reason is a short human-readable justification. Confidence is an integer percent 0-100.
+    The atom must end with a period; it is asserted into the kernel as a fact.
+    Example: {"control_packet": {"mangle_updates": ["checkpoint_verdict(\"my-phase\", /pass, \"no weaknesses found\", 95)."]}, "surface_response": "..."}.
+    Free-text PASS/FAIL is not accepted; only checkpoint_verdict/4 decides.

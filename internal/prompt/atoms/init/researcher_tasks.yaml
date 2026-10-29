@@ -1,0 +1,145 @@
+# The instructions and reply contracts of init's model calls
+# (internal/init: agents.go, strategic_documents.go, project_tools.go,
+# domain_experts.go), one phase each, compiled into the system prompt with the
+# init/researcher/mission persona. Until 2026-10-28 each was a Go format string
+# sent as the user message; the user message now carries only that call's data
+# (agent, document chunk, candidates, north star, limits), and the parsers in
+# those files still own the reply shapes these atoms describe.
+
+- id: "init/researcher/agent_methodology"
+  category: "init"
+  subcategory: "agent_prompts"
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/agent_methodology"]
+  depends_on: ["init/researcher/mission"]
+  content: |
+    Write the methodology atoms for the specialist the request names (role and research topics given).
+
+    Output markdown only: one `## ` section per atom, no YAML, no preamble. Each section becomes its own prompt atom, selected on its own, so each:
+    - states one instruction: how this specialist works in its domain, for one situation;
+    - is something a capable engineer in general would not do unprompted; general practice (read before changing, handle errors, write tests, clear names) is refused before it is stored;
+    - does not repeat another section;
+    - is at most the section limit the request gives, in characters, with no introduction, motivation or hedging.
+    Write as few sections as the domain needs.
+
+- id: "init/researcher/agent_domain"
+  category: "init"
+  subcategory: "agent_prompts"
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/agent_domain"]
+  depends_on: ["init/researcher/mission"]
+  content: |
+    Write the domain atoms for the specialist the request names (role and research topics given).
+
+    Output markdown only: one `## ` section per atom, no YAML, no preamble. Each section becomes its own prompt atom, selected on its own, so each:
+    - states one concept, pitfall or practice of these topics, concretely (names the API, flag, version or failure);
+    - is something a capable engineer in general would not know; general practice is refused before it is stored;
+    - does not repeat another section;
+    - is at most the section limit the request gives, in characters, with no introduction, motivation or hedging.
+    Prefer many small sections over a few large ones.
+
+- id: "init/researcher/doc_extraction"
+  category: "init"
+  subcategory: "documents"
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/doc_extraction"]
+  depends_on: ["init/researcher/mission"]
+  content: |
+    Extract key knowledge atoms from the documentation chunk in the request.
+
+    Extract the following as JSON array:
+    [
+      {"concept": "category/specific_topic", "content": "key insight or fact", "confidence": 0.0-1.0}
+    ]
+
+    Categories to use:
+    - "architecture/..." for structural patterns
+    - "philosophy/..." for design principles
+    - "pattern/..." for recurring patterns
+    - "capability/..." for system capabilities
+    - "constraint/..." for limitations or invariants
+    - "integration/..." for how components connect
+
+    Every atom must state something this chunk says. Be specific and extract only genuinely useful insights. Skip boilerplate. An empty array is a valid answer.
+
+- id: "init/researcher/kb_synthesis"
+  category: "init"
+  subcategory: "documents"
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/kb_complete"]
+  depends_on: ["init/researcher/mission"]
+  content: |
+    You are synthesizing extracted knowledge into strategic understanding. The request gives the processing stats and the extracted knowledge atoms.
+
+    ## Task
+    Synthesize these atoms into a coherent strategic knowledge structure.
+    Focus on:
+    1. The overarching PROJECT VISION and PHILOSOPHY
+    2. Key ARCHITECTURE patterns and decisions
+    3. Core CAPABILITIES and how they interconnect
+    4. Important CONSTRAINTS and safety invariants
+    5. How components COMMUNICATE and integrate
+
+    Respond with JSON matching this structure:
+    {
+      "project_vision": "synthesized vision statement",
+      "core_philosophy": "guiding principles",
+      "design_principles": ["principle 1", ...],
+      "architecture_style": "style name",
+      "key_components": [{"name": "...", "purpose": "...", "location": "...", "interfaces": "...", "depends_on": [...]}],
+      "data_flow_pattern": "how data moves",
+      "core_patterns": [{"name": "...", "description": "...", "used_in": "...", "why": "..."}],
+      "communication_flow": "how components communicate",
+      "core_capabilities": ["capability 1", ...],
+      "extension_points": ["extension 1", ...],
+      "safety_constraints": ["constraint 1", ...],
+      "limitations": ["limitation 1", ...],
+      "learning_mechanisms": ["mechanism 1", ...],
+      "future_directions": ["direction 1", ...]
+    }
+
+- id: "init/researcher/project_tools"
+  category: "init"
+  subcategory: "project_tools"
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/project_tools"]
+  depends_on: ["init/researcher/mission"]
+  content: |
+    Choose which of this repository's own commands an AI coding agent working in it should be able to run as tools. The request gives the project and every candidate: a command the repository declares, with where it is declared and what it runs.
+
+    Rules:
+    - Choose only commands from the list, copied exactly. Never invent, combine or edit a command.
+    - Choose commands that build, test, lint, format, type-check, generate code, manage dependencies or run the project locally.
+    - Do not choose commands that deploy, release, publish, push, upload, delete data, or need credentials or a remote service.
+    - Prefer the command the repository's own developers run; skip near-duplicates.
+
+    Respond with JSON only:
+    {"tools":[{"command":"<exact candidate command>","name":"<short snake_case name>","category":"<one of the categories the request lists>","description":"<one sentence: what the command does in this repository>"}]}
+    An empty list is a valid answer.
+
+- id: "init/researcher/domain_experts"
+  category: "init"
+  subcategory: "domain_experts"
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/domain_experts"]
+  depends_on: ["init/researcher/mission"]
+  content: |
+    Propose the domain experts this project needs for what it is trying to build.
+
+    A domain expert is a specialist agent with its own knowledge base. The stack experts the request lists already cover the languages and libraries; propose experts on the problem domain, its failure modes, the risks the north star names, and the practices that keep this kind of system working.
+
+    ## Rules
+    - Propose at most the request's expert limit, each with at most its topic limit of topics plus failure modes and at most its research-question limit of research questions.
+    - Name each expert in PascalCase (letters and digits). Reusing the exact name of an expert on the roster extends that expert instead of adding one.
+    - Every expert needs a "why" grounded in the north star or an oriented document, and "cites" naming its evidence: "north_star" or a document path exactly as listed. An expert with no valid citation is discarded.
+    - Research questions are answered by grounded web search: make each one a concrete, searchable question. Set "fast_moving" to true when the answer changes within months (model releases, agent techniques, provider capabilities).
+    - "core" may support SecurityAuditor or TestArchitect when the north star or a document calls for them, with the same why and cites.
+
+    Respond with JSON only:
+    {"experts":[{"name":"","mission":"","why":"","cites":[""],"topics":[""],"failure_modes":[""],"research":[{"question":"","fast_moving":false}]}],"core":[{"name":"","why":"","cites":[""]}]}

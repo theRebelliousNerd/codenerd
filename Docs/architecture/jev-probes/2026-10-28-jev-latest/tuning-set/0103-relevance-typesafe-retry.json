@@ -1,0 +1,132 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "request": "the typesafe client retries a 429 but gives up on a 400; where is that decided?"
+ },
+ "questions": {
+  "file_0": {
+   "type": "noul",
+   "instructions": {
+    "file": {
+     "head": "package typesafe\n\nimport (\n\t\"context\"\n\t\"net/http\"\n\t\"strconv\"\n\t\"strings\"\n\t\"time\"\n)\n\n// RetryPolicy bounds the retries of a 429 or 529. The wait before retry n is\n// Base*2^n up to Cap, or the reply's retry-after when it has one. A wait over\n// MaxWait is not slept: the error is returned instead of stalling the caller.\ntype RetryPolicy struct {\n\tMax     int // retries after the first attempt\n\tBase    time.Duration\n\tCap     time.Duration\n\tMaxWait time.Duration\n}\n\n// DefaultRetryPolicy is five attempts, one to eight seconds apart.\nvar DefaultRetryPolicy = RetryPolicy{Max: 4, Base: time.Second, Cap: 8 * time.Second, MaxWait: time.Minute}\n\nfunc (p RetryPolicy) backoff(retry int) time.Duration {\n\td := p.Base\n\tfor i := 0; i \u003c retry \u0026\u0026 d \u003c p.Cap; i++ {\n\t\td *= 2\n\t}\n\tif d \u003e p.Cap {\n\t\td = p.Cap\n\t}\n\treturn d\n}\n\n// wait is how long to sleep before retry number retry (from zero).\nfunc (p RetryPolicy) wait(retry int, e *APIError) time.Duration {\n\tif e.RetryAfter \u003e 0 {\n\t\treturn e.RetryAfter\n\t}\n\treturn p.backoff(retry)\n}\n\n// parseRetryAfter reads delta-seconds or an HTTP date; anything else is zero.\nfunc parseRetryAfter(h http.Header, now time.Time) time.Duration {\n\tv := strings.TrimSpace(h.Get(\"Retry-After\"))\n\tif v == \"\" {\n\t\treturn 0\n\t}\n\tif secs, err := strconv.Atoi(v); err == nil {\n\t\tif secs \u003c 0 {\n\t\t\treturn 0\n\t\t}\n\t\treturn time.Duration(secs) * time.Second\n\t}\n\tif t, err := http.ParseTime(v); err == nil {\n\t\tif d := t.Sub(now); d \u003e 0 {\n\t\t\treturn d\n\t\t}\n\t}\n\treturn 0\n}\n\nfunc sleepCtx(ctx context.Context, d time.Duration) error {\n\tt := time.NewTimer(d)\n\tdefer t.Stop()\n\tselect {\n\tcase \u003c-t.C:\n\t\treturn nil\n\tcase \u003c-ctx.Done():\n\t\treturn ctx.Err()\n\t}\n}\n",
+     "path": "internal/typesafe/retry.go"
+    },
+    "question": "Would reading this file help with `request`?"
+   },
+   "criteria": {
+    "true": "The file holds code, tests or docs the request is about, or code the request would have to change or call.",
+    "false": "The file only shares a word with the request, such as a common name, and is about something else."
+   }
+  },
+  "file_1": {
+   "type": "noul",
+   "instructions": {
+    "file": {
+     "head": "package typesafe\n\nimport (\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"strings\"\n\t\"time\"\n)\n\n// APIError is a non-200 reply. Detail names what the API objected to; for a\n// 422 it lists every offending field path.\ntype APIError struct {\n\tStatus     int\n\tDetail     string\n\tRetryAfter time.Duration // zero when the reply carried none\n}\n\nfunc (e *APIError) Error() string {\n\tif e.Detail == \"\" {\n\t\treturn fmt.Sprintf(\"typesafe: HTTP %d\", e.Status)\n\t}\n\treturn fmt.Sprintf(\"typesafe: HTTP %d: %s\", e.Status, e.Detail)\n}\n\n// retryable is the API's own list: rate limited or overloaded.\nfunc (e *APIError) retryable() bool { return e.Status == 429 || e.Status == 529 }\n\n// errorDetail renders the body of an error reply. It handles the three shapes\n// the spec gives (a string, an object, a list of located validation errors)\n// and falls back to the raw text, never to nothing.\nfunc errorDetail(body []byte) string {\n\tvar env struct {\n\t\tDetail json.RawMessage `json:\"detail\"`\n\t}\n\tif json.Unmarshal(body, \u0026env) != nil || len(env.Detail) == 0 {\n\t\treturn strings.TrimSpace(string(body))\n\t}\n\tvar s string\n\tif json.Unmarshal(env.Detail, \u0026s) == nil {\n\t\treturn s\n\t}\n\tvar fields []struct {\n\t\tLoc  []any  `json:\"loc\"`\n\t\tMsg  string `json:\"msg\"`\n\t\tType string `json:\"type\"`\n\t}\n\tif json.Unmarshal(env.Detail, \u0026fields) == nil \u0026\u0026 len(fields) \u003e 0 {\n\t\tparts := make([]string, 0, len(fields))\n\t\tfor _, f := range fields {\n\t\t\tloc := make([]string, len(f.Loc))\n\t\t\tfor i, l := range f.Loc {\n\t\t\t\tloc[i] = fmt.Sprint(l)\n\t\t\t}\n\t\t\tparts = append(parts, fmt.Sprintf(\"%s: %s (%s)\", strings.Join(loc, \".\"), f.Msg, f.Type))\n\t\t}\n\t\treturn strings.Join(parts, \"; \")\n\t}\n\treturn string(env.Detail)\n}\n",
+     "path": "internal/typesafe/apierror.go"
+    },
+    "question": "Would reading this file help with `request`?"
+   },
+   "criteria": {
+    "true": "The file holds code, tests or docs the request is about, or code the request would have to change or call.",
+    "false": "The file only shares a word with the request, such as a common name, and is about something else."
+   }
+  },
+  "file_2": {
+   "type": "noul",
+   "instructions": {
+    "file": {
+     "head": "package typesafe\n\nimport (\n\t\"bytes\"\n\t\"context\"\n\t\"encoding/json\"\n\t\"errors\"\n\t\"fmt\"\n\t\"io\"\n\t\"net/http\"\n\t\"strings\"\n\t\"time\"\n\n\t\"codenerd/internal/logging\"\n)\n\n// Request limits from the API spec (errors.md).\nconst (\n\tmaxBodyBytes = 32 \u003c\u003c 20\n\tmaxDepth     = 64\n\tuserAgent    = \"codenerd-typesafe\"\n)\n\n// Options builds a Client. Model, BaseURL and APIKey are required: nothing\n// here names a model or an endpoint.\ntype Options struct {\n\tModel       string\n\tBaseURL     string\n\tAPIKey      string\n\tLongContext bool          // sends TypeSafe-Danger-Zone-Long-Context\n\tTimeout     time.Duration // one call, retries included; 0 leaves it to the caller's context\n\tRetry       *RetryPolicy  // nil is DefaultRetryPolicy\n\tHTTPClient  *http.Client  // nil is a fresh client\n}\n\n// Client talks to one TypeSafe endpoint. It is safe for concurrent use.\ntype Client struct {\n\tmodel, baseURL, key string\n\tlongContext         bool\n\ttimeout             time.Duration\n\tretry               RetryPolicy\n\thttp                *http.Client\n\tsleep               func(context.Context, time.Duration) error\n}\n\n// NewClient validates the options. The key is held only for the header.\nfunc NewClient(o Options) (*Client, error) {\n\tswitch {\n\tcase strings.TrimSpace(o.Model) == \"\":\n\t\treturn nil, errors.New(\"typesafe: model is required\")\n\tcase strings.TrimSpace(o.BaseURL) == \"\":\n\t\treturn nil, errors.New(\"typesafe: base URL is required\")\n\tcase o.APIKey == \"\":\n\t\treturn nil, errors.New(\"typesafe: API key is required\")\n\tcase o.Timeout \u003c 0:\n\t\treturn nil, errors.New(\"typesafe: timeout is negative\")\n\t}\n\tc := \u0026Client{\n\t\tmodel:       o.Model,\n\t\tbaseURL:     strings.TrimRight(o.BaseURL, \"/\"),\n\t\tkey:         o.APIKey,\n\t\tlongContext: o.LongContext,\n\t\ttimeout:     o.Timeout,\n\t\tretry:       DefaultRetryPolicy,\n\t\thttp:        o.HTTPClient,\n\t\tsleep:       sleepCtx,\n\t}\n\tif o.Retry != nil {\n\t\tc.retry = *o.Retry\n\t}\n\tif c.http == nil {\n\t\tc.http = \u0026http.Client{}\n\t}\n\treturn c, nil\n}\n\n// Model is the configured model name, an alias or a versioned ID. The ID that\n// actually answered is Response.Model.\nfunc (c *Client) Model() string { return c.model }\n\n// Ask puts the questions about state. state is a string, an object or an\n// array. Any failure is an error and no Response; answers are read with\n// Response.Noul, Choice and Score, which fail on a missing or mistyped answer.\n// An answered call is reported to the usage tracker on ctx (usage.go), under\n// the operation WithOperation named.\nfunc (c *Client) Ask(ctx context.Context, state any, questions map[string]Question) (*Response, error) {\n\tbody, err := c.buildBody(state, questions)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tvar resp Response\n\tif err := c.do(ctx, http.MethodPost, \"/v1/systemone\", body, \u0026resp); err != nil {\n\t\treturn nil, err\n\t}\n\tc.recordUsage(ctx, \u0026resp)\n\treturn \u0026resp, nil\n}\n\n// Model describes one model or alias the account can name.\ntype Model struct {\n\tName        string `json:\"name\"`\n\tDescription string `json:\"description\"`\n\tReleaseDate string `json:\"releas",
+     "head_note": "the first 3000 of 8017 bytes",
+     "path": "internal/typesafe/client.go"
+    },
+    "question": "Would reading this file help with `request`?"
+   },
+   "criteria": {
+    "true": "The file holds code, tests or docs the request is about, or code the request would have to change or call.",
+    "false": "The file only shares a word with the request, such as a common name, and is about something else."
+   }
+  },
+  "file_3": {
+   "type": "noul",
+   "instructions": {
+    "file": {
+     "head": "package embedding\n\nimport (\n\t\"bytes\"\n\t\"context\"\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"io\"\n\t\"net/http\"\n\t\"strings\"\n\t\"sync\"\n\t\"time\"\n\t\"unicode/utf8\"\n\n\t\"codenerd/internal/logging\"\n)\n\n// =============================================================================\n// OLLAMA EMBEDDING ENGINE\n// =============================================================================\n\n// OllamaEngine generates embeddings using local Ollama server.\n// It runs exactly the configured model and never substitutes another: a\n// different embedding model returns vectors the index was not built with.\n//\n// A missing model is handled by:\n//  1. Matching the configured name against installed tags (bare = :latest)\n//  2. POST /api/pull for the configured name (once per process/engine)\n//  3. On embed 404 \"not found\", ensure+retry once\ntype OllamaEngine struct {\n\tendpoint string\n\tmodel    string\n\t// dimensions is the vector length the user configured for this model. It\n\t// used to be a literal 768 whatever the model was.\n\tdimensions int\n\tclient     *http.Client\n\n\tensureMu      sync.Mutex\n\tmodelReady    bool\n\tpullAttempted bool\n\n\t// ceiling is the model's input window as learned from its refusals; a\n\t// longer text is split and pooled (long_input.go).\n\tceiling inputCeiling\n\n\t// keepAlive is sent with every request (embedding.ollama_keep_alive):\n\t// how long Ollama keeps the model loaded after it. Ollama's own default\n\t// unloads it after five idle minutes, and the next embed then reloads it\n\t// (~2.6 s measured 2026-10-27) in the middle of a turn.\n\tkeepAlive string\n}\n\n// NewOllamaEngine creates a new Ollama embedding engine.\nfunc NewOllamaEngine(endpoint, model string, dimensions int) (*OllamaEngine, error) {\n\ttimer := logging.StartTimer(logging.CategoryEmbedding, \"NewOllamaEngine\")\n\tdefer timer.Stop()\n\n\tif endpoint == \"\" {\n\t\tendpoint = \"http://localhost:11434\"\n\t\tlogging.EmbeddingDebug(\"Ollama endpoint defaulted to: %s\", endpoint)\n\t}\n\tmodel = strings.TrimSpace(model)\n\tif model == \"\" {\n\t\t// No invented model. An embedding model that differs from the one the\n\t\t// stored vectors were built with returns wrong neighbours silently, so\n\t\t// a guess here is worse than a refusal.\n\t\treturn nil, fmt.Errorf(\"no Ollama embedding model configured: set embedding.ollama_model in .nerd/config.json\")\n\t}\n\tif dimensions \u003c= 0 {\n\t\t// It sizes the vector index, so a guess is a corrupt index.\n\t\treturn nil, fmt.Errorf(\"no embedding dimensions configured for Ollama model %q: set embedding.dimensions in .nerd/config.json to the length of the vectors it returns\", model)\n\t}\n\n\t// One embed HTTP call. The bound is embedding.request_timeout, published\n\t// into this package by config.SetEmbeddingRequestTimeout: this package\n\t// cannot import config, because config imports embedding. Zero means\n\t// nothing has been published yet, and the caller's context is then the\n\t// only bound. A model pull uses its own client in pullModel.\n\ttimeout := EmbedRequestTimeout()\n\tlogging.Embedding(\"Creating Ollama engine: endpoint=%s, model=",
+     "head_note": "the first 3000 of 25617 bytes",
+     "path": "internal/embedding/ollama.go"
+    },
+    "question": "Would reading this file help with `request`?"
+   },
+   "criteria": {
+    "true": "The file holds code, tests or docs the request is about, or code the request would have to change or call.",
+    "false": "The file only shares a word with the request, such as a common name, and is about something else."
+   }
+  },
+  "file_4": {
+   "type": "noul",
+   "instructions": {
+    "file": {
+     "head": "// Package verification runs a chat delegation to its end: it spawns the\n// persona's turn, reads the turn's kernel verdict, has an LLM judge look at an\n// attempt the kernel called done -- over a host-built evidence packet, under a\n// reply contract -- and asks the kernel what happens next (delegation_move,\n// policy/delegation.mg): accept, retry carrying the grounded defect, escalate\n// at the persona's cap, ask the judge again with the evidence it requested, or\n// fail closed when the attempt cannot be verified. The kernel's verdict\n// decides; the judge can only withhold (sweep finding F5), and a judge that\n// fails is never repaired by re-running the worker.\npackage verification\n\nimport (\n\t\"codenerd/internal/broker\"\n\t\"codenerd/internal/config\"\n\t\"codenerd/internal/logging\"\n\t\"codenerd/internal/observation\"\n\t\"codenerd/internal/perception\"\n\t\"codenerd/internal/prompt\"\n\t\"codenerd/internal/session\"\n\t\"codenerd/internal/store\"\n\t\"codenerd/internal/types\"\n\t\"context\"\n\t\"crypto/sha256\"\n\t\"encoding/hex\"\n\t\"encoding/json\"\n\t\"errors\"\n\t\"fmt\"\n\t\"math\"\n\t\"slices\"\n\t\"strings\"\n\t\"sync\"\n\t\"time\"\n)\n\n// ErrMaxRetriesExceeded is returned when verification fails after max retries.\nvar ErrMaxRetriesExceeded = errors.New(\"max retries exceeded - escalating to user\")\n\n// ErrVerificationUnavailable is returned when verification itself could not\n// run or could not settle the attempt (LLM failure, a reply that broke the\n// judge contract, missing client, evidence the judge could not get). It is a\n// fail-closed signal: the shard result is NOT verified and must not be treated\n// as a success. Callers should use errors.Is to detect it.\nvar ErrVerificationUnavailable = errors.New(\"verification unavailable\")\n\n// ExecutionError is a delegation attempt whose worker failed. It is the\n// worker's own error, unchanged for errors.Is and errors.As, together with the\n// observation the worker had produced by then: a worker that fails after tool\n// work has changed files, and the failure alone tells the caller nothing about\n// them. No judge ran and the kernel decided no move -- a failed execution is\n// not retried here (a blind retry would repeat effects the failed attempt may\n// already have had).\ntype ExecutionError struct {\n\t// Attempt is the attempt that failed, from 1.\n\tAttempt int64\n\t// Return is what the worker had observed about itself when it failed.\n\tReturn observation.Return\n\t// Err is the worker's error.\n\tErr error\n}\n\nfunc (e *ExecutionError) Error() string { return \"shard execution failed: \" + e.Err.Error() }\n\nfunc (e *ExecutionError) Unwrap() error { return e.Err }\n\n// QualityViolation represents a type of corner-cutting detected in code.\ntype QualityViolation string\n\nconst (\n\tMockCode        QualityViolation = \"mock_code\"        // func Mock..., // mock implementation\n\tPlaceholderCode QualityViolation = \"placeholder\"      // TODO, FIXME, placeholder, stub\n\tHallucinatedAPI QualityViolation = \"hallucinated_api\" // APIs that don't exist\n\tIncompleteImpl  QualityViolation = \"incomple",
+     "head_note": "the first 3000 of 26861 bytes",
+     "path": "internal/verification/verifier.go"
+    },
+    "question": "Would reading this file help with `request`?"
+   },
+   "criteria": {
+    "true": "The file holds code, tests or docs the request is about, or code the request would have to change or call.",
+    "false": "The file only shares a word with the request, such as a common name, and is about something else."
+   }
+  },
+  "file_5": {
+   "type": "noul",
+   "instructions": {
+    "file": {
+     "head": "package campaign\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"math\"\n\t\"sort\"\n\t\"strings\"\n\t\"time\"\n\n\t\"codenerd/internal/logging\"\n\t\"codenerd/internal/northstar\"\n\t\"codenerd/internal/projectdoc\"\n)\n\nconst (\n\tdefaultRiskGateThreshold       = 70\n\tdefaultRiskIntelligenceTimeout = 45 * time.Second\n)\n\n// riskCriticalPaths are the workspace's protected surfaces: its nerd.md\n// critical: list. This used to be a list of codeNERD's own packages, which in\n// any other workspace protected nothing that exists and left the workspace's\n// real critical paths unprotected. A nerd.md that does not parse protects\n// nothing extra, and the log says why.\nfunc riskCriticalPaths(workspace string) []string {\n\tcritical, err := projectdoc.CriticalPaths(workspace)\n\tif err != nil {\n\t\tlogging.CampaignWarn(\"campaign risk: nerd.md critical: list unreadable, no protected surfaces this run: %v\", err)\n\t\treturn nil\n\t}\n\treturn critical\n}\n\n// RiskGateMode controls override behavior for campaign risk gating.\ntype RiskGateMode string\n\nconst (\n\tRiskGateModeAuto       RiskGateMode = \"/auto\"\n\tRiskGateModeForceAllow RiskGateMode = \"/force_allow\"\n\tRiskGateModeForceBlock RiskGateMode = \"/force_block\"\n)\n\n// RiskGateToggle controls per-gate wiring.\ntype RiskGateToggle string\n\nconst (\n\tRiskGateToggleAuto     RiskGateToggle = \"/auto\"\n\tRiskGateToggleEnabled  RiskGateToggle = \"/enabled\"\n\tRiskGateToggleDisabled RiskGateToggle = \"/disabled\"\n)\n\n// RiskGateName identifies one strict gate.\ntype RiskGateName string\n\nconst (\n\tRiskGateNorthstar RiskGateName = \"/northstar\"\n\tRiskGateEdge      RiskGateName = \"/edge\"\n\tRiskGateAdvisory  RiskGateName = \"/advisory\"\n)\n\n// RiskGateOutcome describes a single gate result.\ntype RiskGateOutcome string\n\nconst (\n\tRiskGateOutcomePassed  RiskGateOutcome = \"/passed\"\n\tRiskGateOutcomeBlocked RiskGateOutcome = \"/blocked\"\n\tRiskGateOutcomeSkipped RiskGateOutcome = \"/skipped\"\n\t// RiskGateOutcomeInconclusive means the gate ran but produced no verdict\n\t// (e.g. the northstar alignment check had no LLM, errored, or got a\n\t// malformed answer). It is neither passed nor blocked: campaign_rules.mg\n\t// Section 13 makes it a hard stop on protected surfaces and a soft warning\n\t// elsewhere, so \"nobody assessed this\" can never read as \"assessed and fine\".\n\tRiskGateOutcomeInconclusive RiskGateOutcome = \"/inconclusive\"\n)\n\ntype riskGateResolved struct {\n\tAdvisory  bool\n\tEdge      bool\n\tNorthstar bool\n}\n\n// RiskInputSnapshot captures pinned inputs used by deterministic risk scoring.\ntype RiskInputSnapshot struct {\n\tCapturedAt time.Time `json:\"captured_at\"`\n\tSource     string    `json:\"source\"`\n\n\tTargetPathCount int `json:\"target_path_count\"`\n\tTotalPhases     int `json:\"total_phases\"`\n\tTotalTasks      int `json:\"total_tasks\"`\n\n\tMaxComplexity string `json:\"max_complexity\"`\n\n\tHighChurnFiles      int `json:\"high_churn_files\"`\n\tSafetyWarnings      int `json:\"safety_warnings\"`\n\tBlockedActions      int `json:\"blocked_actions\"`\n\tToolGaps            int `json:\"tool_gaps\"`\n\tMissingCapabilities int `json:\"missing_capabiliti",
+     "head_note": "the first 3000 of 37931 bytes",
+     "path": "internal/campaign/risk_scoring.go"
+    },
+    "question": "Would reading this file help with `request`?"
+   },
+   "criteria": {
+    "true": "The file holds code, tests or docs the request is about, or code the request would have to change or call.",
+    "false": "The file only shares a word with the request, such as a common name, and is about something else."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "file_0": {
+   "type": "noul",
+   "noul": 0.9
+  },
+  "file_1": {
+   "type": "noul",
+   "noul": 0.97
+  },
+  "file_2": {
+   "type": "noul",
+   "noul": 0.96
+  },
+  "file_3": {
+   "type": "noul",
+   "noul": 0.21
+  },
+  "file_4": {
+   "type": "noul",
+   "noul": 0.11
+  },
+  "file_5": {
+   "type": "noul",
+   "noul": 0.05
+  }
+ },
+ "usage": {
+  "input_tokens": 5388,
+  "output_tokens": 112
+ }
+}
+}

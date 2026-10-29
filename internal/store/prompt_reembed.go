@@ -1,0 +1,225 @@
+package store
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"codenerd/internal/embedding"
+	"codenerd/internal/logging"
+)
+
+// ReembedAllPromptAtomsForce regenerates embeddings for ALL prompt_atoms rows, overwriting existing ones.
+// This is required when switching embedding providers/models.
+// Returns the number of atoms re-embedded.
+func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "ReembedAllPromptAtomsForce")
+	defer timer.Stop()
+
+	s.mu.RLock()
+	engine := s.embeddingEngine
+	s.mu.RUnlock()
+	if engine == nil {
+		logging.Get(logging.CategoryStore).Error("Cannot force re-embed prompt atoms: no embedding engine configured")
+		return 0, fmt.Errorf("no embedding engine configured")
+	}
+
+	// The searcher accepts a vector only when its embedding_model equals the
+	// engine name, and a NULL stamp counts as "unstamped". A re-embed that
+	// did not stamp left every atom it had just embedded unusable: measured
+	// 2026-09-17, all 914 atoms in .nerd/prompts/corpus.db still NULL after
+	// /embedding reembed, and the vector tier had nothing to rank on the very
+	// turn meant to validate it. Older databases have no embedding_model
+	// column at all; it is added so they can be stamped too.
+	modelName := engine.Name()
+	if err := s.ensurePromptAtomEmbeddingModelColumn(); err != nil {
+		return 0, err
+	}
+
+	logging.Store("Starting force re-embedding prompt atoms in DB: %s (stamping %s)", s.dbPath, modelName)
+
+	rows, err := s.db.Query("SELECT atom_id, COALESCE(description, ''), content FROM prompt_atoms")
+	if err != nil {
+		// Some DBs may not have prompt_atoms (older or non-store DBs).
+		logging.Get(logging.CategoryStore).Debug("Skipping prompt_atoms re-embed (query failed): %v", err)
+		return 0, nil
+	}
+
+	var atoms []atomToEmbed
+	for rows.Next() {
+		var atomID, description, content string
+		if err := rows.Scan(&atomID, &description, &content); err != nil {
+			continue
+		}
+		text := textForAtomEmbedding(description, content)
+		if text == "" {
+			continue
+		}
+		atoms = append(atoms, atomToEmbed{atomID: atomID, text: text})
+	}
+	listErr := rows.Err()
+	rows.Close()
+	if listErr != nil {
+		return 0, fmt.Errorf("list prompt atoms for re-embed: %w", listErr)
+	}
+
+	if len(atoms) == 0 {
+		return 0, nil
+	}
+
+	logging.Store("Force re-embedding %d prompt atoms in DB: %s", len(atoms), s.dbPath)
+
+	taskTypeAware, hasTaskAware := engine.(embedding.TaskTypeAwareEngine)
+	taskTypeBatchAware, hasTaskBatchAware := engine.(embedding.TaskTypeBatchAwareEngine)
+	expectedTask := embedding.SelectTaskType(embedding.ContentTypePromptAtom, false)
+
+	// Embedding runs without the store lock; only the write transaction takes
+	// it. Holding s.mu across the network calls froze every reader.
+	batchSize := 32
+	totalBatches := (len(atoms) + batchSize - 1) / batchSize
+	totalEmbedded := 0
+	for i := 0; i < len(atoms); i += batchSize {
+		end := min(i+batchSize, len(atoms))
+		batch := atoms[i:end]
+		batchNum := (i / batchSize) + 1
+		logging.Store("ReembedAllPromptAtomsForce [%s]: batch %d/%d (%d atoms)",
+			s.dbPath, batchNum, totalBatches, len(batch))
+
+		var embeddings [][]float32
+
+		// If task-batch-aware, embed in batch with task type (FASTEST).
+		if hasTaskBatchAware {
+			texts := make([]string, len(batch))
+			for j, a := range batch {
+				texts[j] = a.text
+			}
+			vecs, err := taskTypeBatchAware.EmbedBatchWithTask(ctx, texts, expectedTask)
+			if err != nil {
+				return totalEmbedded, fmt.Errorf("failed to batch embed prompt atoms: %w", err)
+			}
+			embeddings = vecs
+		} else if hasTaskAware {
+			// If task-aware but not batch-aware, embed individually (SLOW).
+			embeddings = make([][]float32, len(batch))
+			for j, a := range batch {
+				vec, err := taskTypeAware.EmbedWithTask(ctx, a.text, expectedTask)
+				if err != nil {
+					return totalEmbedded, fmt.Errorf("failed to embed prompt atom %s: %w", a.atomID, err)
+				}
+				embeddings[j] = vec
+			}
+		} else {
+			texts := make([]string, len(batch))
+			for j, a := range batch {
+				texts[j] = a.text
+			}
+			vecs, err := engine.EmbedBatch(ctx, texts)
+			if err != nil {
+				logging.Get(logging.CategoryStore).Warn("Prompt atom batch embeddings failed for %s (batch %d/%d): %v; falling back to per-item embedding",
+					s.dbPath, batchNum, totalBatches, err)
+				vecs = make([][]float32, len(batch))
+				for j, a := range batch {
+					vec, embedErr := engine.Embed(ctx, a.text)
+					if embedErr != nil {
+						logging.Get(logging.CategoryStore).Warn("Failed to embed prompt atom %s in %s: %v", a.atomID, s.dbPath, embedErr)
+						continue
+					}
+					vecs[j] = vec
+				}
+			}
+			embeddings = vecs
+		}
+
+		embedded, err := s.applyPromptAtomEmbeddings(batch, embeddings, expectedTask, modelName)
+		if err != nil {
+			return totalEmbedded, err
+		}
+		totalEmbedded += embedded
+	}
+
+	// An atom whose embedding failed keeps its old vector and its old stamp,
+	// which the searcher refuses to rank (stamp != engine name). It is still a
+	// row the pass was responsible for: report it rather than count it away.
+	if totalEmbedded < len(atoms) {
+		return totalEmbedded, &IncompleteReembedError{
+			Table: "prompt_atoms", Target: modelName,
+			Total: int64(len(atoms)), Done: int64(totalEmbedded), Failed: int64(len(atoms) - totalEmbedded),
+		}
+	}
+	logging.Store("Force re-embedding prompt atoms complete: %d atoms processed", totalEmbedded)
+	return totalEmbedded, nil
+}
+
+// ensurePromptAtomEmbeddingModelColumn adds prompt_atoms.embedding_model to a
+// database created before the column existed, so a re-embed can stamp it.
+func (s *LocalStore) ensurePromptAtomEmbeddingModelColumn() error {
+	if columnExists(s.db, "prompt_atoms", "embedding_model") {
+		return nil
+	}
+	if _, err := s.db.Exec("ALTER TABLE prompt_atoms ADD COLUMN embedding_model TEXT"); err != nil {
+		return fmt.Errorf("add prompt_atoms.embedding_model: %w", err)
+	}
+	logging.Store("Added prompt_atoms.embedding_model to %s", s.dbPath)
+	return nil
+}
+
+// atomToEmbed is one prompt atom awaiting an embedding write.
+type atomToEmbed struct {
+	atomID string
+	text   string
+}
+
+// applyPromptAtomEmbeddings writes one batch of fresh atom embeddings under
+// the write lock. Empty slots (a failed per-item embed) are skipped.
+func (s *LocalStore) applyPromptAtomEmbeddings(batch []atomToEmbed, embeddings [][]float32, expectedTask, modelName string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Optimization: Use transaction for batch update
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	stmt, err := tx.Prepare("UPDATE prompt_atoms SET embedding = ?, embedding_task = ?, embedding_model = ? WHERE atom_id = ?")
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	embedded := 0
+	for j, a := range batch {
+		if j >= len(embeddings) || len(embeddings[j]) == 0 {
+			continue
+		}
+		blob := encodeFloat32Slice(embeddings[j])
+		if _, err := stmt.Exec(blob, expectedTask, modelName, a.atomID); err != nil {
+			return embedded, fmt.Errorf("failed to update prompt atom %s: %w", a.atomID, err)
+		}
+		embedded++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return embedded, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	committed = true
+	return embedded, nil
+}
+
+func textForAtomEmbedding(description, content string) string {
+	desc := strings.TrimSpace(description)
+	if desc != "" {
+		return desc
+	}
+	// The whole content: the embedding engine chunks and pools long input
+	// (internal/embedding/long_input.go). The first 500 runes alone made an
+	// atom's vector the vector of its opening, so selection matched atoms
+	// on how they start rather than what they say.
+	return strings.TrimSpace(content)
+}

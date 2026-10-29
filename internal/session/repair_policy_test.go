@@ -1,0 +1,138 @@
+package session
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	jitconfig "codenerd/internal/jit/config"
+	"codenerd/internal/prompt"
+	"codenerd/internal/tools"
+	"codenerd/internal/types"
+)
+
+// Two real runs of the same failure digest the same: the published text is
+// the Summary, which carries the failure and not the run's elapsed time.
+// A different message digests differently.
+func TestRepairFailureDigest_SameSummaryIsTheSameFailure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	files := func(msg string) map[string]string {
+		return map[string]string{
+			"calc.go": "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
+			"calc_test.go": "package verifyprobe\n\nimport \"testing\"\n\n" +
+				"func TestProbe(t *testing.T) { t.Errorf(\"" + msg + "\") }\n",
+		}
+	}
+	dir := jsonTestModule(t, files("broken"))
+	first := runJSONTest(t, dir, ".")
+	second := runJSONTest(t, dir, ".")
+	a := verificationOutput(parseJSONTest(t, dir, first))
+	b := verificationOutput(parseJSONTest(t, dir, second))
+	if repairFailureDigest(a) != repairFailureDigest(b) {
+		t.Fatalf("the same failure digested differently:\n%s\n---\n%s", a, b)
+	}
+	if strings.Contains(a, "--- FAIL:") || strings.Contains(a, `"Action"`) {
+		t.Fatalf("the digest input is raw runner text, not the Summary:\n%s", a)
+	}
+	if !strings.Contains(a, "broken") {
+		t.Fatalf("the Summary lost the failure message:\n%s", a)
+	}
+	otherDir := jsonTestModule(t, files("still broken"))
+	other := verificationOutput(parseJSONTest(t, otherDir, runJSONTest(t, otherDir, ".")))
+	if repairFailureDigest(a) == repairFailureDigest(other) {
+		t.Fatal("a different failure message digested the same")
+	}
+}
+
+// An edit that leaves exactly the failure an earlier edit left has not moved
+// the episode (sweep finding F10, repair_not_converging). The first time, the
+// episode restarts: its edits are undone and the next attempt is told to name
+// a different cause. When the failure repeats after that, the policy gives up
+// -- still before the cap. With a cap of five, a model that writes the same
+// broken file every attempt used to spend all five.
+func TestRepairLoop_TheSameFailureRestartsOnceThenGivesUpBeforeTheCap(t *testing.T) {
+	h := newRepairHarness(t, func(e *Executor) { e.config.RepairMaxAttempts = 5 })
+	h.initial = func() *types.LLMToolResponse {
+		return &types.LLMToolResponse{Text: "writing", ToolCalls: []types.ToolCall{
+			h.writeCall("c1", "write_file", filepath.Join(h.ws, "main.go"), repairMainGo),
+			h.writeCall("c2", "write_file", filepath.Join(h.ws, "main_test.go"), repairTestBroken),
+		}}
+	}
+	sawRestart := false
+	h.onRepair = func(call int, history []types.Message) *types.LLMToolResponse {
+		for _, m := range history {
+			sawRestart = sawRestart || strings.Contains(m.Text, repairRestartNote)
+		}
+		return &types.LLMToolResponse{Text: "attempt", ToolCalls: []types.ToolCall{
+			h.writeCall(fmt.Sprintf("r%d", call), "write_file", filepath.Join(h.ws, "main_test.go"), repairTestBroken),
+		}}
+	}
+	_, err := h.drive(t, "fix make the failing test pass")
+	if err == nil {
+		t.Fatal("expected the episode to give up")
+	}
+	if !sawRestart {
+		t.Error("the attempt after the restart was not told its edits were undone and to find a different cause")
+	}
+	if !strings.Contains(err.Error(), "after 4 attempts") || !strings.Contains(err.Error(), "before and after a restart") {
+		t.Fatalf("want a give-up after 4 attempts (two, a restart, two), got: %v", err)
+	}
+}
+
+// An attempt's rounds are the working policy's to end, not a count: an
+// attempt that checks seven things without writing and then makes the fix
+// converges in that one attempt. A six-call ceiling used to cut it and
+// start another attempt.
+func TestRepairLoop_AnAttemptIsNotCutAtACallCount(t *testing.T) {
+	const probe = "repair_probe_check"
+	allowed := []string{"write_file", "read_file", "edit_file", probe}
+	h := newRepairHarness(t, func(e *Executor) {
+		e.configFactory = &MockConfigFactory{
+			GenerateFunc: func(context.Context, *prompt.CompilationResult, ...string) (*jitconfig.EffectiveAgentRuntimeConfig, error) {
+				return &jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: allowed}, nil
+			},
+		}
+		e.EffectiveAgentRuntimeConfig = &jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: allowed}
+	})
+	// An execute-effect tool: the commit regime closes reading, not this.
+	registerTestTool(t, &tools.Tool{
+		Effect: tools.EffectExecute, Name: probe, Category: tools.CategoryGeneral,
+		Schema: tools.ToolSchema{Properties: map[string]tools.Property{"n": {Type: "integer"}}},
+		Execute: func(_ context.Context, args map[string]any) (string, error) {
+			return fmt.Sprintf("check %v: inconclusive", args["n"]), nil
+		},
+	})
+	h.initial = func() *types.LLMToolResponse {
+		return &types.LLMToolResponse{Text: "writing", ToolCalls: []types.ToolCall{
+			h.writeCall("c1", "write_file", filepath.Join(h.ws, "main.go"), repairMainGo),
+			h.writeCall("c2", "write_file", filepath.Join(h.ws, "main_test.go"), repairTestBroken),
+		}}
+	}
+	repairs := 0
+	h.onRepair = func(call int, history []types.Message) *types.LLMToolResponse {
+		repairs++
+		if repairs <= 7 {
+			return &types.LLMToolResponse{Text: "checking", ToolCalls: []types.ToolCall{
+				{ID: fmt.Sprintf("p%d", repairs), Name: probe, Input: map[string]any{"n": repairs}},
+			}}
+		}
+		return &types.LLMToolResponse{Text: "fixed", ToolCalls: []types.ToolCall{
+			h.writeCall(fmt.Sprintf("w%d", repairs), "write_file", filepath.Join(h.ws, "main_test.go"), repairTestFixed),
+		}}
+	}
+	result, err := h.drive(t, "fix make the failing test pass")
+	if err != nil {
+		t.Fatalf("ProcessWithIntent: %v", err)
+	}
+	rec := result.TestCheck.Repair
+	if rec == nil || !rec.Passed {
+		t.Fatalf("repair record = %+v, want passed", rec)
+	}
+	if rec.Cost.Attempts != 1 || rec.Attempts[0].LLMCalls != 8 {
+		t.Fatalf("attempts=%d llm_calls=%d, want one attempt of 8 calls (7 checks, then the fix)", rec.Cost.Attempts, rec.Attempts[0].LLMCalls)
+	}
+}

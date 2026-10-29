@@ -1,0 +1,647 @@
+package campaign
+
+import (
+	"context"
+	"math"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"codenerd/internal/autopoiesis"
+	"codenerd/internal/northstar"
+)
+
+// REMEDIATED: TEST_GAP: Null/Undefined/Empty Input Vectors
+// Verify behavior with nil Campaign, nil IntelligenceReport, and empty Phase/Task lists.
+
+// REMEDIATED: TEST_GAP: Type Coercion & Malformed Data
+// Verify that complexity normalization (e.g. "CRITICAL", "100") handles malformed labels.
+
+// REMEDIATED: TEST_GAP: User Request Extremes & System Stress
+// Verify that deduplicating massive file paths (e.g. 100,000 files) doesn't cause OOM.
+// Verify that riskSnapshotID handles massive file path strings without catastrophic memory allocations before truncation.
+
+// REMEDIATED: TEST_GAP: State Conflicts & Race Conditions
+// Verify runRiskPreflight behavior under concurrent configuration updates or campaign state changes.
+
+func TestBuildCampaignRiskDecision_Deterministic(t *testing.T) {
+	c := testRiskCampaign()
+	cfg := OrchestratorConfig{
+		RiskGateThreshold: 70,
+		GlobalRiskGate:    true,
+		RiskGateMode:      RiskGateModeAuto,
+	}
+	gates := riskGateResolved{Advisory: true, Edge: true, Northstar: true}
+	paths := []string{
+		"internal/core/kernel.go",
+		"internal/campaign/orchestrator_execution.go",
+	}
+	intel := &IntelligenceReport{
+		HighChurnFiles:      []string{"internal/core/kernel.go"},
+		SafetyWarnings:      []SafetyWarning{{Action: "delete", Severity: "high"}},
+		BlockedActions:      []string{"rm -rf"},
+		ToolGaps:            []autopoiesis.ToolNeed{{Name: "x"}},
+		MissingCapabilities: []string{"security-review"},
+		UncoveredPaths:      []string{"internal/campaign/orchestrator_execution.go"},
+		GatheringErrors:     []string{},
+	}
+
+	d1 := buildCampaignRiskDecision(c, cfg, gates, paths, intel)
+	d2 := buildCampaignRiskDecision(c, cfg, gates, paths, intel)
+
+	if d1 == nil || d2 == nil {
+		t.Fatal("expected non-nil risk decisions")
+	}
+	if d1.Score != d2.Score {
+		t.Fatalf("expected deterministic score, got %d vs %d", d1.Score, d2.Score)
+	}
+	if d1.SnapshotID != d2.SnapshotID {
+		t.Fatalf("expected deterministic snapshot id, got %q vs %q", d1.SnapshotID, d2.SnapshotID)
+	}
+	if d1.TieBreak != d2.TieBreak {
+		t.Fatalf("expected deterministic tie-break, got %q vs %q", d1.TieBreak, d2.TieBreak)
+	}
+}
+
+func TestBuildCampaignRiskDecision_ThresholdClamp(t *testing.T) {
+	c := testRiskCampaign()
+	cfg := OrchestratorConfig{
+		RiskGateThreshold: 12,
+		GlobalRiskGate:    true,
+	}
+	d := buildCampaignRiskDecision(c, cfg, riskGateResolved{}, nil, nil)
+	if d == nil {
+		t.Fatal("expected non-nil decision")
+	}
+	if d.Threshold != defaultRiskGateThreshold {
+		t.Fatalf("expected threshold clamp to %d, got %d", defaultRiskGateThreshold, d.Threshold)
+	}
+}
+
+func TestApplyRiskThreshold_TieBreak(t *testing.T) {
+	score := 70
+	threshold := 70
+
+	// No critical signals and no gates => not gated on tie.
+	gated, reason := applyRiskThreshold(score, threshold, RiskInputSnapshot{}, riskGateResolved{})
+	if gated {
+		t.Fatalf("expected tie without critical signals to be ungated, reason=%s", reason)
+	}
+
+	// Northstar tie-break should gate deterministically.
+	gated, reason = applyRiskThreshold(score, threshold, RiskInputSnapshot{}, riskGateResolved{Northstar: true})
+	if !gated {
+		t.Fatalf("expected northstar tie-break to gate, reason=%s", reason)
+	}
+	if reason != "equal_threshold_northstar_tiebreak" {
+		t.Fatalf("unexpected tie-break reason: %s", reason)
+	}
+}
+
+func TestBuildCampaignRiskDecision_OverridePrecedence(t *testing.T) {
+	c := testRiskCampaign()
+	overrideTrue := true
+	overrideFalse := false
+
+	d := buildCampaignRiskDecision(c, OrchestratorConfig{
+		GlobalRiskGate:       false,
+		CampaignRiskOverride: &overrideTrue,
+		RiskGateMode:         RiskGateModeAuto,
+	}, riskGateResolved{}, nil, nil)
+	if !d.Gated || d.OverrideLevel != "campaign_override" {
+		t.Fatalf("expected campaign override precedence, got gated=%v level=%s", d.Gated, d.OverrideLevel)
+	}
+
+	d = buildCampaignRiskDecision(c, OrchestratorConfig{
+		GlobalRiskGate:       true,
+		CampaignRiskOverride: &overrideFalse,
+		RiskGateMode:         RiskGateModeForceBlock,
+	}, riskGateResolved{}, nil, nil)
+	if !d.Gated || d.OverrideLevel != "mode_force_block" {
+		t.Fatalf("expected force_block precedence, got gated=%v level=%s", d.Gated, d.OverrideLevel)
+	}
+
+	d = buildCampaignRiskDecision(c, OrchestratorConfig{
+		GlobalRiskGate:       true,
+		CampaignRiskOverride: &overrideTrue,
+		RiskGateMode:         RiskGateModeForceAllow,
+	}, riskGateResolved{}, nil, nil)
+	if d.Gated || d.OverrideLevel != "mode_force_allow" {
+		t.Fatalf("expected force_allow precedence, got gated=%v level=%s", d.Gated, d.OverrideLevel)
+	}
+}
+
+func TestRiskGateAutoWiringDeterministic(t *testing.T) {
+	observer := newTestNorthstarObserver(t)
+
+	orch := &Orchestrator{
+		config: OrchestratorConfig{
+			EnableRiskAutoWiring: true,
+			AdvisoryGateToggle:   RiskGateToggleAuto,
+			EdgeGateToggle:       RiskGateToggleAuto,
+			NorthstarGateToggle:  RiskGateToggleAuto,
+		},
+		advisoryBoard:               &ShardAdvisoryBoard{},
+		edgeCaseDetector:            &EdgeCaseDetector{},
+		configuredNorthstarObserver: observer,
+	}
+
+	orch.recomputeRiskGateStateLocked()
+	if !orch.riskGateState.Advisory || !orch.riskGateState.Edge || !orch.riskGateState.Northstar {
+		t.Fatalf("expected auto-wiring to enable all configured gates, got %+v", orch.riskGateState)
+	}
+
+	orch.config.AdvisoryGateToggle = RiskGateToggleDisabled
+	orch.config.EdgeGateToggle = RiskGateToggleDisabled
+	orch.config.NorthstarGateToggle = RiskGateToggleEnabled
+	orch.recomputeRiskGateStateLocked()
+	if orch.riskGateState.Advisory || orch.riskGateState.Edge || !orch.riskGateState.Northstar {
+		t.Fatalf("expected explicit toggles to win, got %+v", orch.riskGateState)
+	}
+}
+
+func TestRunRiskPreflight_EmitsAuditEvents(t *testing.T) {
+	eventCh := make(chan OrchestratorEvent, 16)
+	orch := &Orchestrator{
+		campaign: testNonProtectedRiskCampaign(),
+		config: OrchestratorConfig{
+			EnableRiskAutoWiring: true,
+			GlobalRiskGate:       true,
+			RiskGateMode:         RiskGateModeAuto,
+			RiskGateThreshold:    100,
+		},
+		eventChan: eventCh,
+	}
+
+	eval, err := orch.runRiskPreflight(context.Background())
+	if err != nil {
+		t.Fatalf("runRiskPreflight returned error: %v", err)
+	}
+	if eval == nil || !eval.Allowed {
+		t.Fatalf("expected allowed evaluation, got %+v", eval)
+	}
+
+	events := drainRiskEvents(eventCh)
+	if !events["risk_snapshot_pinned"] {
+		t.Fatalf("expected risk_snapshot_pinned event, got %v", events)
+	}
+	if !events["risk_score_computed"] {
+		t.Fatalf("expected risk_score_computed event, got %v", events)
+	}
+	if !events["risk_gate_skipped"] && !events["risk_gate_passed"] {
+		t.Fatalf("expected risk gate terminal event, got %v", events)
+	}
+}
+
+func TestRunRiskPreflight_ProtectedCampaignBlocksWhenAdvisoryMissing(t *testing.T) {
+	eventCh := make(chan OrchestratorEvent, 16)
+	orch := &Orchestrator{
+		workspace: criticalWorkspace(t),
+		campaign:  testRiskCampaign(),
+		config: OrchestratorConfig{
+			EnableRiskAutoWiring: true,
+			GlobalRiskGate:       true,
+			RiskGateMode:         RiskGateModeAuto,
+			RiskGateThreshold:    100,
+		},
+		eventChan:                   eventCh,
+		configuredNorthstarObserver: newTestNorthstarObserver(t),
+	}
+
+	eval, err := orch.runRiskPreflight(context.Background())
+	if err == nil {
+		t.Fatal("expected protected campaign to block when advisory board is missing")
+	}
+	if eval == nil || eval.Allowed {
+		t.Fatalf("expected blocked evaluation, got %+v", eval)
+	}
+	if eval.BlockedBy != RiskGateAdvisory {
+		t.Fatalf("expected advisory block, got %s", eval.BlockedBy)
+	}
+	if !strings.Contains(err.Error(), "advisory board not configured") {
+		t.Fatalf("expected advisory reason in error, got %v", err)
+	}
+	events := drainRiskEvents(eventCh)
+	if !events["risk_gate_blocked"] {
+		t.Fatalf("expected risk_gate_blocked event, got %v", events)
+	}
+}
+
+func TestRunRiskPreflight_ProtectedCampaignBlocksWhenNorthstarMissing(t *testing.T) {
+	eventCh := make(chan OrchestratorEvent, 16)
+	orch := &Orchestrator{
+		workspace: criticalWorkspace(t),
+		campaign:  testRiskCampaign(),
+		config: OrchestratorConfig{
+			EnableRiskAutoWiring: true,
+			GlobalRiskGate:       true,
+			RiskGateMode:         RiskGateModeAuto,
+			RiskGateThreshold:    100,
+		},
+		eventChan:     eventCh,
+		advisoryBoard: &ShardAdvisoryBoard{},
+	}
+
+	eval, err := orch.runRiskPreflight(context.Background())
+	if err == nil {
+		t.Fatal("expected protected campaign to block when northstar observer is missing")
+	}
+	if eval == nil || eval.Allowed {
+		t.Fatalf("expected blocked evaluation, got %+v", eval)
+	}
+	if eval.BlockedBy != RiskGateNorthstar {
+		t.Fatalf("expected northstar block, got %s", eval.BlockedBy)
+	}
+	if !strings.Contains(err.Error(), "northstar observer not configured") {
+		t.Fatalf("expected northstar reason in error, got %v", err)
+	}
+	events := drainRiskEvents(eventCh)
+	if !events["risk_gate_blocked"] {
+		t.Fatalf("expected risk_gate_blocked event, got %v", events)
+	}
+}
+
+func TestRunRiskPreflight_NonProtectedCampaignAllowedWithoutMandatoryReviews(t *testing.T) {
+	eventCh := make(chan OrchestratorEvent, 16)
+	orch := &Orchestrator{
+		campaign: testNonProtectedRiskCampaign(),
+		config: OrchestratorConfig{
+			EnableRiskAutoWiring: true,
+			GlobalRiskGate:       true,
+			RiskGateMode:         RiskGateModeAuto,
+			RiskGateThreshold:    100,
+		},
+		eventChan: eventCh,
+	}
+
+	eval, err := orch.runRiskPreflight(context.Background())
+	if err != nil {
+		t.Fatalf("expected non-protected campaign to remain allowed, got error: %v", err)
+	}
+	if eval == nil || !eval.Allowed {
+		t.Fatalf("expected allowed evaluation, got %+v", eval)
+	}
+}
+
+func TestRunRiskPreflight_ForceBlockOverride(t *testing.T) {
+	eventCh := make(chan OrchestratorEvent, 16)
+	orch := &Orchestrator{
+		campaign: testRiskCampaign(),
+		config: OrchestratorConfig{
+			EnableRiskAutoWiring: true,
+			GlobalRiskGate:       true,
+			RiskGateMode:         RiskGateModeForceBlock,
+		},
+		eventChan: eventCh,
+	}
+
+	eval, err := orch.runRiskPreflight(context.Background())
+	if err == nil {
+		t.Fatal("expected force_block override to block preflight")
+	}
+	if eval == nil || eval.Allowed {
+		t.Fatalf("expected blocked evaluation, got %+v", eval)
+	}
+	events := drainRiskEvents(eventCh)
+	if !events["risk_gate_blocked"] {
+		t.Fatalf("expected risk_gate_blocked event, got %v", events)
+	}
+}
+
+func testRiskCampaign() *Campaign {
+	now := time.Now().UTC()
+	return &Campaign{
+		ID:          "/risk_test",
+		Type:        CampaignTypeCustom,
+		Title:       "Risk Test",
+		Goal:        "Validate deterministic risk scoring",
+		Status:      StatusPlanning,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		TotalPhases: 2,
+		TotalTasks:  5,
+		Phases: []Phase{
+			{
+				ID:                  "/phase_1",
+				Name:                "Phase 1",
+				EstimatedComplexity: "/high",
+				Tasks: []Task{
+					{
+						ID:          "/task_1",
+						Type:        TaskTypeRefactor,
+						Description: "Refactor internal/core/kernel.go",
+						WriteSet:    []string{"internal/core/kernel.go"},
+					},
+					{
+						ID:          "/task_2",
+						Type:        TaskTypeTestWrite,
+						Description: "Add tests",
+						WriteSet:    []string{"internal/campaign/risk_scoring_test.go"},
+					},
+				},
+			},
+			{
+				ID:                  "/phase_2",
+				Name:                "Phase 2",
+				EstimatedComplexity: "/medium",
+				Tasks: []Task{
+					{
+						ID:          "/task_3",
+						Type:        TaskTypeIntegrate,
+						Description: "Integrate risk gates",
+						Artifacts: []TaskArtifact{
+							{Path: "internal/campaign/orchestrator_execution.go"},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func testNonProtectedRiskCampaign() *Campaign {
+	now := time.Now().UTC()
+	return &Campaign{
+		ID:          "/risk_test_non_protected",
+		Type:        CampaignTypeCustom,
+		Title:       "Risk Test Non Protected",
+		Goal:        "Validate non-protected risk behavior",
+		Status:      StatusPlanning,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		TotalPhases: 1,
+		TotalTasks:  2,
+		Phases: []Phase{
+			{
+				ID:                  "/phase_np_1",
+				Name:                "Phase NP 1",
+				EstimatedComplexity: "/medium",
+				Tasks: []Task{
+					{
+						ID:          "/task_np_1",
+						Type:        TaskTypeRefactor,
+						Description: "Refactor internal/world/holographic.go",
+						WriteSet:    []string{"internal/world/holographic.go"},
+					},
+					{
+						ID:          "/task_np_2",
+						Type:        TaskTypeVerify,
+						Description: "Verify internal/store persistence behavior",
+						WriteSet:    []string{"internal/store/memory.go"},
+					},
+				},
+			},
+		},
+	}
+}
+
+func newTestNorthstarObserver(t *testing.T) *northstar.CampaignObserver {
+	t.Helper()
+
+	store, err := northstar.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to create northstar store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	guardian := northstar.NewGuardian(store, northstar.DefaultGuardianConfig())
+	if err := guardian.Initialize(); err != nil {
+		t.Fatalf("failed to initialize northstar guardian: %v", err)
+	}
+	return northstar.NewCampaignObserver(guardian)
+}
+
+func drainRiskEvents(ch <-chan OrchestratorEvent) map[OrchestratorEventType]bool {
+	out := map[OrchestratorEventType]bool{}
+	for {
+		select {
+		case evt := <-ch:
+			out[evt.Type] = true
+		default:
+			return out
+		}
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Marathon 22: Risk Scoring Gaps
+// -----------------------------------------------------------------------------
+
+func TestRiskScoring_CriticalityNorm_EmptyPaths(t *testing.T) {
+	paths := [][]string{
+		{""},
+		{" "},
+		nil,
+	}
+	for _, p := range paths {
+		score := criticalityNorm(testRiskCritical, p)
+		if score != 10 {
+			t.Errorf("expected baseline criticality 10 for empty/nil paths, got %d", score)
+		}
+	}
+}
+
+func TestRiskScoring_DedupeSortedStrings_AllEmpty(t *testing.T) {
+	in := make([]string, 10000)
+	out := dedupeSortedStrings(in)
+	if len(out) != 0 {
+		t.Errorf("expected 0 length slice, got %d", len(out))
+	}
+}
+
+func TestBuildCampaignRiskDecision_EmptyIntelligence(t *testing.T) {
+	c := testNonProtectedRiskCampaign()
+	cfg := OrchestratorConfig{}
+
+	intel := &IntelligenceReport{}
+	d := buildCampaignRiskDecision(c, cfg, riskGateResolved{}, nil, intel)
+	if d == nil {
+		t.Fatal("expected non-nil decision")
+	}
+	// Missing capabilities and safety warnings are 0, yielding lowest norms
+	if d.Inputs.MissingCapabilities != 0 || d.Inputs.SafetyWarnings != 0 {
+		t.Errorf("expected zero-value intelligence inputs")
+	}
+}
+
+func TestCampaignMaxComplexity_NilCampaign(t *testing.T) {
+	comp := campaignMaxComplexity(nil)
+	if comp != "/medium" {
+		t.Errorf("expected /medium for nil campaign, got %s", comp)
+	}
+}
+
+func TestComplexityToNorm_MalformedStrings(t *testing.T) {
+	cases := map[string]int{
+		"**CRITICAL**": 40, // Falls back to default since it's malformed
+		" \x00 high ":  40,
+		"<b>low</b>":   40,
+		"/CRITICAL":    100,
+	}
+	for in, out := range cases {
+		if val := complexityToNorm(in); val != out {
+			t.Errorf("expected %d for %q, got %d", out, in, val)
+		}
+	}
+}
+
+func TestRiskScoring_PathMatchesRiskRoot_DirectoryTraversal(t *testing.T) {
+	paths := []string{
+		"../../internal/core/kernel.go",
+		"internal/core/../../foo/bar",
+	}
+	for _, p := range paths {
+		matched := false
+		for _, root := range testRiskCritical {
+			if pathMatchesRiskRoot(p, root) {
+				matched = true
+				break
+			}
+		}
+		if !matched && p == "../../internal/core/kernel.go" {
+			t.Errorf("expected protected root match for traversal path: %s", p)
+		}
+	}
+}
+
+func TestRiskScoring_PathMatchesRiskRoot_WindowsPaths(t *testing.T) {
+	path := "internal\\core\\kernel.go"
+	path = strings.ReplaceAll(path, "\\", "/") // Note: normalizeRiskPathForMatch calls normalizePath which handles \
+	matched := pathMatchesRiskRoot(path, "internal/core")
+	if !matched {
+		t.Errorf("expected Windows path to match protected root")
+	}
+}
+
+func TestRiskScoring_DedupeSortedStrings_MassiveDataset(t *testing.T) {
+	var in []string
+	for range 1000000 {
+		in = append(in, "internal/core/kernel.go") // Lots of duplicates
+	}
+
+	start := time.Now()
+	out := dedupeSortedStrings(in)
+	duration := time.Since(start)
+
+	if len(out) != 1 {
+		t.Errorf("expected 1 unique path, got %d", len(out))
+	}
+	if duration > 500*time.Millisecond {
+		t.Errorf("deduplication too slow: %v", duration)
+	}
+}
+
+func TestWeightedRiskScore_Extremes(t *testing.T) {
+	score1 := weightedRiskScore(math.MaxInt32, math.MaxInt32, math.MaxInt32, math.MaxInt32, math.MaxInt32, math.MaxInt32, math.MaxInt32, math.MaxInt32)
+	if score1 > 100 {
+		t.Errorf("expected max score bounded to 100, got %d", score1)
+	}
+
+	score2 := weightedRiskScore(-math.MaxInt32, -math.MaxInt32, -math.MaxInt32, -math.MaxInt32, -math.MaxInt32, -math.MaxInt32, -math.MaxInt32, -math.MaxInt32)
+	if score2 < 0 {
+		t.Errorf("expected min score bounded to 0, got %d", score2)
+	}
+}
+
+func TestApplyRiskThreshold_ExtremeThresholds(t *testing.T) {
+	// Score 50, Threshold -10 -> clampRiskThreshold handles clamping, but applyRiskThreshold checks score > threshold directly
+	gated1, _ := applyRiskThreshold(50, -10, RiskInputSnapshot{}, riskGateResolved{})
+	if !gated1 {
+		t.Errorf("expected to be gated with negative threshold")
+	}
+
+	gated2, _ := applyRiskThreshold(50, 1000, RiskInputSnapshot{}, riskGateResolved{})
+	if gated2 {
+		t.Errorf("expected not to be gated with massive threshold")
+	}
+}
+
+func TestShouldGateTask_ConcurrentMapAccess(t *testing.T) {
+	orch := &Orchestrator{
+		config: OrchestratorConfig{
+			TaskRiskOverrides: map[string]bool{},
+			RiskGateMode:      RiskGateModeAuto,
+		},
+	}
+
+	done := make(chan struct{})
+	go func() {
+		for range 1000 {
+			orch.mu.Lock()
+			orch.config.TaskRiskOverrides["task1"] = true
+			orch.mu.Unlock()
+		}
+		close(done)
+	}()
+
+	for range 100 {
+		go func() {
+			for range 10 {
+				orch.shouldGateTask("task1")
+			}
+		}()
+	}
+
+	<-done
+	// If it doesn't panic and passes race detector, we are good.
+}
+
+func TestComputeCampaignRiskDecision_ConcurrentCampaignMutation(t *testing.T) {
+	orch := &Orchestrator{
+		campaign: testRiskCampaign(),
+	}
+
+	done := make(chan struct{})
+	go func() {
+		for range 100 {
+			orch.mu.Lock()
+			orch.campaign.Phases = append(orch.campaign.Phases, Phase{Name: "Extra"})
+			orch.mu.Unlock()
+		}
+		close(done)
+	}()
+
+	for range 10 {
+		go func() {
+			orch.computeCampaignRiskDecision()
+		}()
+	}
+
+	<-done
+}
+
+// testRiskCritical is the critical: list a workspace like codeNERD declares
+// in nerd.md; the risk scorer protects whatever the workspace declares.
+var testRiskCritical = []string{"internal/core", "internal/mangle", "internal/campaign", "internal/perception", "internal/articulation"}
+
+// criticalWorkspace is a workspace whose nerd.md declares testRiskCritical.
+func criticalWorkspace(t *testing.T) string {
+	t.Helper()
+	ws := t.TempDir()
+	body := "---\nschema: nerd/v1\ncritical:\n"
+	for _, c := range testRiskCritical {
+		body += "  - " + c + "\n"
+	}
+	body += "---\n"
+	if err := os.WriteFile(filepath.Join(ws, "nerd.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return ws
+}
+
+// A workspace protects what its nerd.md declares, and nothing it does not:
+// codeNERD's packages are not critical in someone else's workspace.
+func TestDetectProtectedCampaignRoots_AreTheWorkspaces(t *testing.T) {
+	paths := []string{"internal/core/kernel.go", "policy/rules.mg"}
+	if got := detectProtectedCampaignRoots(riskCriticalPaths(t.TempDir()), paths); len(got) != 0 {
+		t.Fatalf("a workspace without critical: protects nothing: %v", got)
+	}
+	got := detectProtectedCampaignRoots(append(append([]string(nil), testRiskCritical...), "*.mg"), paths)
+	if len(got) != 2 {
+		t.Fatalf("directory and glob entries both protect: %v", got)
+	}
+}

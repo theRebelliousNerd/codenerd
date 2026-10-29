@@ -1,0 +1,266 @@
+# internal/mcp/
+
+MCP (Model Context Protocol) client, and the control plane that turns any server
+it connects to into a progressively-disclosed context and tool surface.
+
+## Overview
+
+Two things live here, and they answer two different questions.
+
+The **client** connects to MCP servers over HTTP, stdio or SSE, discovers what
+they expose, analyzes it, and persists it with embeddings. The **control plane**
+decides what the model gets to see, and when.
+
+The control plane exists because of an economic problem. Rendering every
+discovered tool's schema into a prompt charges for the entire catalog on every
+turn, forever, whether or not the agent touches any of it. So the model is given
+a **fixed five-verb surface** whose size does not change when a twenty-tool
+server or a two-hundred-tool server connects, and everything that varies —
+which facets a server fills, what a tool's arguments are, how large its results
+run — is disclosed only to the turn that asks for it.
+
+Measured on a 26-tool fixture server: a compact atlas is 667 bytes against
+10,905 for the equivalent catalog dump (16.3x). A 74,723-byte result shapes to
+1,008 bytes (74x) while reporting its own structure and retaining the rest.
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                          CONTROL PLANE                               │
+├──────────────────────────────────────────────────────────────────────┤
+│  mcp_map      atlas: servers x facets x counts, no schemas           │
+│  mcp_probe    signatures for a facet; full schema for one named tool │
+│  mcp_call     invoke; validate -> gate -> dispatch -> shape          │
+│  mcp_expand   reopen a retained payload by JSON pointer              │
+│  mcp_context  ranked server resources and prompt templates           │
+├──────────────────────────────────────────────────────────────────────┤
+│  facets.go    annotations + name + schema -> facet, risk class       │
+│  digest.go    5-axis budget, adaptive shrink, one-line shape sketch  │
+│  handles.go   retained payloads; expansion never re-invokes          │
+│  signature.go signature lines; full schema on demand or on failure   │
+├──────────────────────────────────────────────────────────────────────┤
+│              MANGLE: mcp_tool_gated decides what needs confirming    │
+└──────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────┐
+│                        JIT TOOL COMPILER                             │
+├──────────────────────────────────────────────────────────────────────┤
+│  MCPClientManager → ToolAnalyzer → MCPToolStore → Mangle Facts       │
+│  TaskContext → Vector Search + Mangle Logic → Tool Selection         │
+│  ToolRenderer → Full/Condensed/Minimal → rendered block              │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+## Structure
+
+```
+internal/mcp/
+├── types.go             # Core type definitions, ToolSchemaHash
+├── client.go            # MCPClientManager: connect / discover / call
+├── transport_http.go    # HTTP JSON-RPC transport
+├── transport_stdio.go   # Subprocess JSON-RPC transport
+├── transport_sse.go     # Server-sent-events transport
+├── headers.go           # ExpandHeaderValues: ${VAR} / $VAR from env for HTTP/SSE auth
+├── store.go             # SQLite storage with embeddings (sqlite-vec optional)
+├── analyzer.go          # LLM + heuristic tool analysis
+├── facts.go             # FactEmitter: MCP state -> kernel EDB
+├── resources.go         # MCP resources and prompts support beyond tools
+├── facets.go            # Facet + risk classification, derived per tool
+├── digest.go            # Result shaping: byte budgets, shape sketch, elisions
+├── handles.go           # Retained payload store, RFC 6901 pointer expansion
+├── signature.go         # Signature lines, full schema, argument validation
+├── controlplane.go      # ControlPlane: Atlas, Probe, catalog cache
+├── controlplane_invoke.go # Call, Expand, Context, KernelRiskGate
+├── compiler.go          # JITToolCompiler: vector + Mangle selection
+├── renderer.go          # Tool set rendering for LLM context
+├── metrics.go           # MCP call metrics (latency / error counters)
+├── redact.go            # Log-bound server payloads through logging.RedactForLog
+├── integration.go       # MCPIntegrationBridge + IntegrationAdapter
+└── testdata/            # Golden fixtures for the selection policy
+```
+
+The Mangle files are **not** in this package. The kernel only loads what is
+embedded under `internal/core/defaults/`:
+
+| File | Role |
+|------|------|
+| `internal/core/defaults/schemas_mcp.mg` | Decls (EDB + IDB names), loaded by `kernel_init.go` |
+| `internal/core/defaults/policy/policy_mcp.mg` | Section 50 selection rules and 50.10 control-plane gating, loaded by the `defaults/policy/*.mg` sweep |
+| `internal/core/defaults/policy/constitution.mg` | `safe_action` for the five `mcp_*` verbs |
+| `internal/core/defaults/policy/intent_routing_rules.mg` | `envelope_tool` / `turn_tool_allowed` for the five verbs |
+
+The model-facing verbs are registered from `internal/tools/mcpctl/`, which
+imports this package. Nothing here imports it back.
+
+## Key Concepts
+
+### Skeleton/Flesh Bifurcation
+
+Mirrors the JIT Prompt Compiler pattern:
+
+| Type | Selection | Description |
+|------|-----------|-------------|
+| **Skeleton** | `mcp_tool_skeleton/1` | Mandatory: filesystem+read, search+search. Always full render, for every shard. |
+| **Flesh** | Hybrid scoring | Context-dependent, (Logic × 0.7) + (Vector × 0.3) |
+
+`ToolCompilationStats.SkeletonTools` / `.FleshTools` count these policy classes,
+not render tiers.
+
+### Fact emission
+
+`FactEmitter` (`facts.go`) mirrors runtime MCP state into the kernel so policy
+has something to reason over:
+
+| Event | Facts |
+|-------|-------|
+| Connect | `mcp_server_registered`, `mcp_server_name`, `mcp_server_capabilities`, `mcp_server_status(/connected)` |
+| Status change / disconnect | `mcp_server_status` replaced in place (cached tools stay available) |
+| Discover / analyze | `mcp_tool_registered`, `_name`, `_description`, `_condensed`, `_capability`, `_category`, `_domain`, `_shard_affinity`, `_analyzed` |
+| Tool call | `mcp_tool_usage`, `mcp_tool_last_used`, `mcp_tool_avg_latency` |
+| ConnectAll finished | `mcp_integration_ready(ServerCount, ToolCount)` |
+
+Emission is subject-keyed and replaces rather than appends: re-analysis of a
+tool retracts its previous facts first. The kernel adapter retracts by *exact*
+fact, so the emitter remembers the exact strings it asserted.
+
+### Resources and prompts
+
+Tools are one of three MCP primitives. `resources.go` adds the other two as
+*optional* transport interfaces (`ResourceCapableTransport`,
+`PromptCapableTransport`) rather than widening `MCPTransport`, which callers'
+fakes also implement. All three built-in transports satisfy both.
+
+| Manager method | Wire method | Facts emitted |
+|----------------|-------------|---------------|
+| `DiscoverResources` | `resources/list` | `mcp_resource_registered`, `_mime`, `_name` |
+| `ReadResource` | `resources/read` | — |
+| `DiscoverPrompts` | `prompts/list` | `mcp_prompt_registered`, `mcp_prompt_argument` |
+| `GetPrompt` | `prompts/get` | — |
+
+### Auth headers
+
+`MCPServerConfig.Headers` is attached to every HTTP/SSE request. Values are
+`${ENV_VAR}`-expanded at transport construction, and a header whose variable is
+unset is dropped rather than sent as a literal `${...}`. Stdio servers are
+configured through their command line and inherited environment instead.
+
+> Wiring note: `internal/config.MCPServerIntegration` does not yet carry a
+> `headers` field, so this is currently reachable only by callers that build
+> `mcp.MCPServerConfig` directly. The same is true of `Endpoint` (stdio).
+
+### Analysis cache invalidation
+
+`ToolSchemaHash` fingerprints the server-advertised name, description, and input
+/output schemas. Rediscovery with a different hash invalidates the cached LLM
+analysis and re-runs it; an unchanged hash reuses it. Rows written before the
+hash column existed are backfilled on first sight rather than re-analyzed.
+
+### Three-Tier Rendering
+
+| Tier | Score | Content |
+|------|-------|---------|
+| Full | ≥70 | Complete JSON schema, description, examples |
+| Condensed | 40-69 | Name + one-line description |
+| Minimal | 20-39 | Name only (available on request) |
+| Excluded | <20 | Not sent to LLM |
+
+## Mangle Integration
+
+```mangle
+# EDB (Facts)
+mcp_server_registered(ServerID, Endpoint, Protocol, RegisteredAt).
+mcp_tool_capability(ToolID, Capability).
+mcp_tool_shard_affinity(ToolID, ShardType, Score).
+
+# IDB (Derived)
+mcp_tool_available(ToolID).
+mcp_tool_selected(ShardType, ToolID, RenderMode).
+```
+
+## Configuration
+
+```json
+{
+  "integrations": {
+    "code_graph": {
+      "enabled": true,
+      "protocol": "http",
+      "base_url": "http://localhost:8080",
+      "auto_discover_tools": true
+    }
+  },
+  "tool_selection": {
+    "full_threshold": 70,
+    "condensed_threshold": 40,
+    "logic_weight": 0.7,
+    "vector_weight": 0.3,
+    "max_full_tools": 10
+  }
+}
+```
+
+## Usage Flow
+
+1. **Startup**: `MCPIntegrationBridge.ConnectAll` connects configured servers
+2. **Discovery**: `ListTools()` called, new tools sent to ToolAnalyzer
+3. **Analysis**: LLM extracts metadata, embeddings generated (heuristics if no LLM)
+4. **Storage**: Tools persisted to SQLite with embeddings; facts emitted to the kernel
+5. **Readiness**: `ConnectAll` returns only after initial discovery; `Ready()` /
+   `WaitReady(ctx)` expose the same signal, `mcp_integration_ready/2` exposes it
+   to Mangle
+6. **Compilation**: JITToolCompiler called during shard spawn
+7. **Selection**: vector scores asserted, `mcp_tool_selected/3` queried; Go
+   fallback only when the kernel derives nothing (logged at Info/Warn, and
+   reported as `ToolCompilationStats.SelectionPath`)
+8. **Rendering**: ToolRenderer produces LLM-consumable output
+
+## Operational notes
+
+### stdio sandbox expectations
+
+A stdio server's `endpoint` is split on whitespace and executed with
+`exec.Command`, inheriting this process's environment, working directory, and
+privileges. There is **no sandbox**. Treat `integrations.*.endpoint` as
+equivalent to a shell entry in the config: only configure commands you would run
+yourself. Prefer `http`/`sse` for anything not vendored with the workspace, and
+run untrusted servers inside an external sandbox (container, jail) whose entry
+command is what you configure here.
+
+### Secret redaction
+
+Tool arguments and outputs may carry credentials. `logging.RedactSecrets` (the
+redactor internal/logging owns and this package logs through) scrubs common
+token shapes (`Authorization` headers, `api_key`/`token`/`password`/`secret`
+fields, bearer tokens, AWS keys, PEM blocks, long high-entropy hex strings)
+before anything reaches a log line. Call sites that log call results must route
+through it — never log a raw `MCPCallResult.Output`.
+
+## Inspecting from the CLI
+
+```bash
+nerd mcp status                                  # servers + catalog size
+nerd mcp tools                                   # discovered tools
+nerd mcp select --shard coder --verb write       # what the KERNEL picks, and why-path
+nerd mcp metrics --prometheus                    # call counts, failures, latency
+```
+
+`nerd mcp select` boots a kernel, replays the persisted catalog as EDB facts,
+and reports whether the Mangle policy or the Go fallback made the decision —
+the fastest way to tell whether the executive path is live.
+
+## Testing
+
+```bash
+go test ./internal/mcp/...
+go test -race ./internal/mcp/ -run 'Concurrent'   # manager + store + emitter races
+```
+
+`policy_golden_test.go` runs the selection policy against
+`testdata/mcp_selection.edb` and compares to a golden file;
+`kernel_integration_test.go` boots a real kernel and proves the embedded policy
+is loaded and driven by emitted facts.
+
+---
+
+**Last Updated:** August 2026

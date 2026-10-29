@@ -1,0 +1,42 @@
+# Failure replan role (campaign.RoleFailureReplan): shard /planner, phase
+# /failure_replan. proposeReplans (internal/campaign/replan.go) sends this
+# system prompt when tasks fail or block; the user message is only the scope,
+# the campaign metadata and its current state. The reply is unmarshalled by
+# Go. Until 2026-10-28 this text was a Go string literal.
+
+- id: "campaign/failure_replan/contract"
+  category: "campaign"
+  subcategory: "failure_replan"
+  is_mandatory: true
+  shard_types: ["/planner"]
+  campaign_phases: ["/failure_replan"]
+  conflicts_with:
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    ## Campaign failure replanning
+
+    A campaign needs replanning. Analyze the issues and propose fixes. The scope, the campaign metadata and its current state follow.
+
+    For each failed/blocked task, determine:
+    1. Should we retry with modified approach?
+    2. Should we skip this task?
+    3. Should we add prerequisite tasks?
+    4. Should we modify dependencies?
+
+    Output JSON only:
+    {
+      "success": true,
+      "change_summary": "Brief description of changes",
+      "retry_tasks": [
+        {"task_id": "...", "new_approach": "Modified description/approach"}
+      ],
+      "skip_tasks": ["task_id1", "task_id2"],
+      "add_tasks": [
+        {"phase_id": "...", "description": "...", "type": "/file_create", "priority": "/high", "before_task": "task_id"}
+      ],
+      "modify_dependencies": [
+        {"task_id": "...", "remove_deps": ["dep_id"], "add_deps": ["dep_id"]}
+      ]
+    }

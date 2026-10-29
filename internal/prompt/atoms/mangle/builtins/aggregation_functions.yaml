@@ -1,0 +1,120 @@
+# Mangle aggregation (reducer) functions, rewritten 2026-09-18 from programs
+# evaluated on the pinned engine (codeberg.org/TauCeti/mangle-go v0.5.1 line)
+# with the M3 verifier. The previous version taught the reducers capitalized
+# (fn:count, fn:sum, ...) and marked the real names as mistakes; the engine
+# does not recognise the capitalized forms as reducers at all.
+
+- id: "language/mangle/docs/builtins/aggregation_functions"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Functions"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Mangle Aggregation Functions
+
+    Reducers run inside a transform: `Head :- Body |> do fn:group_by(Keys...), let V = fn:reducer(...).`
+    Every reducer below was evaluated on the pinned engine. Names are lowercase; a capitalized
+    name (`fn:sum`, `fn:count`) is NOT a reducer and fails analysis ("variable ... must be either
+    part of group_by or defined in the transform").
+
+    | Reducer | Arguments | Result (east rows: 10, 30, 20) |
+    |---|---|---|
+    | `fn:count()` | none | 3 (rows in the group) |
+    | `fn:sum(X)` | one number | 60 |
+    | `fn:min(X)` / `fn:max(X)` | one number | 10 / 30 |
+    | `fn:avg(X)` | one number | 20 (a float: declare its column `/float64`) |
+    | `fn:float:sum(X)` / `fn:float:max(X)` / `fn:float:min(X)` | one float | 1.5 + 2.5 -> 4 |
+    | `fn:collect(X)` | one or more | `[/a, /a, /b]`: keeps duplicates, order not guaranteed |
+    | `fn:collect_distinct(X)` | one or more | `[/b, /a]`: no duplicates, order not guaranteed |
+
+    Do not exist on this engine: `fn:mean` (use `fn:avg`), `fn:count_distinct` ("unknown
+    function"), `fn:CollectToMap`, `fn:pick_any`, `fn:map:get`.
+
+- id: "language/mangle/docs/builtins/aggregation_functions/the-shape"
+  section_of: "language/mangle/docs/builtins/aggregation_functions"
+  section_order: 1
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Functions: The shape"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Functions*
+
+    ## The shape
+
+    ```mangle
+    Decl sale(Region, Product, Amount) bound [/name, /name, /number].
+    Decl region_total(Region, Total) bound [/name, /number].
+    Decl sales_per_region(Region, N) bound [/name, /number].
+    Decl grand_total(Total) bound [/number].
+
+    region_total(Region, Total) :- sale(Region, Product, Amount)
+        |> do fn:group_by(Region), let Total = fn:sum(Amount).
+
+    sales_per_region(Region, N) :- sale(Region, Product, Amount)
+        |> do fn:group_by(Region), let N = fn:count().
+
+    grand_total(Total) :- sale(Region, Product, Amount)
+        |> do fn:group_by(), let Total = fn:sum(Amount).
+    ```
+
+- id: "language/mangle/docs/builtins/aggregation_functions/counting-distinct-values"
+  section_of: "language/mangle/docs/builtins/aggregation_functions"
+  section_order: 2
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Functions: Counting distinct values"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Functions*
+
+    ## Counting distinct values
+
+    There is no count-distinct reducer. Facts are a set, so project to the columns that define
+    "distinct" in a helper rule and count the projection:
+
+    ```mangle
+    Decl sale(Region, Product, Amount) bound [/name, /name, /number].
+    Decl region_product(Region, Product) bound [/name, /name].
+    Decl products_per_region(Region, N) bound [/name, /number].
+
+    region_product(Region, Product) :- sale(Region, Product, Amount).
+    products_per_region(Region, N) :- region_product(Region, Product)
+        |> do fn:group_by(Region), let N = fn:count().
+    ```
+
+- id: "language/mangle/docs/builtins/aggregation_functions/rules-that-keep-aggregation-correct"
+  section_of: "language/mangle/docs/builtins/aggregation_functions"
+  section_order: 3
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Functions: Rules that keep aggregation correct"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Mangle Aggregation Functions*
+
+    ## Rules that keep aggregation correct
+
+    - Name every body variable. Never `_` in the body of a `do`-transform rule: a single-atom
+      body keeps the wildcard column, so the reducer sees every stored row.
+    - Group keys must be bound by the body before `|>`.
+    - One aggregation per rule. Each is its own stratum; chain rules to aggregate an aggregate.
+    - An empty group derives nothing, not zero. The zero case is its own rule:
+
+    ```mangle
+    Decl region(R) bound [/name].
+    Decl sale(Region, Product, Amount) bound [/name, /name, /number].
+    Decl has_sale(R) bound [/name].
+    Decl sales_count(R, N) bound [/name, /number].
+
+    has_sale(R) :- sale(R, Product, Amount).
+    sales_count(R, N) :- sale(R, Product, Amount) |> do fn:group_by(R), let N = fn:count().
+    sales_count(R, 0) :- region(R), !has_sale(R).
+    ```
+
+    - A float result (`fn:avg`, `fn:float:*`) in a column declared `/number` aborts codeNERD's
+      fixpoint. Declare `/float64`, or keep scores as integers (0..100) and use `fn:sum`/`fn:count`.

@@ -1,0 +1,806 @@
+package store
+
+import (
+	"codenerd/internal/config"
+	"codenerd/internal/embedding"
+	"codenerd/internal/logging"
+	"database/sql"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+)
+
+// LocalStore is knowledge.db: the persistent tiers of the memory model, whose
+// RAM tier is the kernel's EDB. The original design named three of them
+// Shards B, C and D, and the per-file headers still carry those labels:
+//
+//   - vector tier ("Shard B", local_vector.go, vector_store.go): vectors, and
+//     vec_index for sqlite-vec ANN search;
+//   - knowledge graph ("Shard C", local_graph.go): knowledge_graph;
+//   - cold and archival tiers ("Shard D", local_cold.go): cold_storage,
+//     archived_facts.
+//
+// It has since grown the world cache (world_files, world_facts), sessions and
+// activation (session_history, compressed_states, activation_log), knowledge
+// atoms, prompt atoms, reasoning traces and task verifications, review
+// findings and learning candidates. GetStats counts every one of them
+// (statsTables); tools.db (ToolStore) and the learning stores are separate
+// databases.
+//
+// Storage Tiers:
+// - Cold Storage: Active facts with access tracking (last_accessed, access_count)
+// - Archival Storage: Old, rarely-accessed facts moved from cold storage
+//
+// Usage Example:
+//
+//	// Store facts
+//	store.StoreFact("user_preference", []interface{}{"theme", "dark"}, "preference", 10)
+//
+//	// Load facts (automatically tracks access)
+//	facts, _ := store.LoadFacts("user_preference")
+//
+//	// Periodic maintenance - archive old facts
+//	config := MaintenanceConfig{
+//	  ArchiveOlderThanDays: 90,        // Archive facts not accessed in 90 days
+//	  MaxAccessCount: 5,               // Only if accessed <= 5 times
+//	  PurgeArchivedOlderThanDays: 365, // Delete archived facts older than 1 year
+//	  CleanActivationLogDays: 30,      // Clean activation logs older than 30 days
+//	  VacuumDatabase: true,            // Reclaim disk space
+//	}
+//	stats, _ := store.MaintenanceCleanup(config)
+//
+//	// Restore archived fact if needed
+//	store.RestoreArchivedFact("user_preference", []interface{}{"theme", "dark"})
+type LocalStore struct {
+	db              *sql.DB
+	mu              sync.RWMutex
+	dbPath          string
+	embeddingEngine embedding.EmbeddingEngine // Optional embedding engine for semantic search
+	// vectorExt is atomic: search paths, re-embed workers and the background
+	// vec backfill read it without s.mu, while init/test paths flip it.
+	// A mutex-guarded bool raced (CI run 35130570857); plain-bool access is a
+	// data race by construction, so touch this only via Load/Store.
+	vectorExt      atomic.Bool
+	requireVec     bool        // require vec extension or fail fast
+	traceStore     *TraceStore // Dedicated trace store for self-learning
+	reflectionStop chan struct{}
+	reflectionDone chan struct{}
+	reflectionCfg  *config.ReflectionConfig
+	backfillMu     sync.Mutex
+	backfillDone   chan struct{} // Closed when the pending vec backfill finishes; nil when idle.
+	noticeMu       sync.Mutex
+	noticedSpace   string // Embedding space whose excluded-vector notice was already logged.
+}
+
+// NewLocalStore initializes the SQLite database at the given path.
+func NewLocalStore(path string) (*LocalStore, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "NewLocalStore")
+	defer timer.Stop()
+
+	logging.Store("Initializing LocalStore at path: %s", path)
+
+	// Ensure directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to create directory %s: %v", dir, err)
+		return nil, fmt.Errorf("failed to create directory: %w", err)
+	}
+	logging.StoreDebug("Created directory: %s", dir)
+
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to open database at %s: %v", path, err)
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	ApplyDefaultPragmas(db, ProfileHot)
+	logging.StoreDebug("Opened SQLite database connection")
+
+	store := &LocalStore{db: db, dbPath: path}
+	if err := store.initialize(); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to initialize schema: %v", err)
+		db.Close()
+		return nil, err
+	}
+	logging.StoreDebug("Database schema initialized successfully")
+
+	// Detect sqlite-vec extension availability
+	store.detectVecExtension()
+	store.requireVec = defaultRequireVec
+	if store.requireVec && !store.vectorExt.Load() {
+		logging.Get(logging.CategoryStore).Error("sqlite-vec extension not available")
+		db.Close()
+		return nil, fmt.Errorf("sqlite-vec extension not available; rebuild with -tags sqlite_vec and CGO_CFLAGS pointing at sqlite_headers to enable ANN search")
+	}
+	if store.vectorExt.Load() {
+		logging.Store("sqlite-vec extension detected and enabled")
+	} else {
+		logging.Get(logging.CategoryStore).Warn("sqlite-vec extension not available; continuing without ANN search")
+	}
+
+	// Initialize trace store for self-learning
+	traceStore, err := NewTraceStore(db, path)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to initialize trace store: %v", err)
+		db.Close()
+		return nil, fmt.Errorf("failed to initialize trace store: %w", err)
+	}
+	store.traceStore = traceStore
+	logging.StoreDebug("TraceStore initialized for self-learning")
+
+	// Backfill content_hash for any existing atoms missing it
+	if err := store.ensureContentHashes(); err != nil {
+		logging.Get(logging.CategoryStore).Warn("Content hash backfill had issues: %v", err)
+		// Don't fail - this is a non-critical maintenance operation
+	}
+
+	logging.Store("LocalStore initialization complete (RAM, Vector, Graph, Cold tiers ready)")
+	return store, nil
+}
+
+// initialize creates the required tables.
+func (s *LocalStore) initialize() error {
+	// Shard B: Vector Store (simplified - using keyword search without external vector lib)
+	// In production, use sqlite-vec extension
+	vectorTable := `
+	CREATE TABLE IF NOT EXISTS vectors (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		content TEXT NOT NULL,
+		embedding TEXT,
+		metadata TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_vectors_content ON vectors(content);
+	`
+
+	// Shard C: Knowledge Graph
+	graphTable := `
+	CREATE TABLE IF NOT EXISTS knowledge_graph (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		entity_a TEXT NOT NULL,
+		relation TEXT NOT NULL,
+		entity_b TEXT NOT NULL,
+		weight REAL DEFAULT 1.0,
+		metadata TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(entity_a, relation, entity_b)
+	);
+	CREATE INDEX IF NOT EXISTS idx_kg_entity_a ON knowledge_graph(entity_a);
+	CREATE INDEX IF NOT EXISTS idx_kg_entity_b ON knowledge_graph(entity_b);
+	CREATE INDEX IF NOT EXISTS idx_kg_relation ON knowledge_graph(relation);
+	`
+
+	// World Model Cache (Fast + Deep AST projections)
+	// These tables store per-file world facts so boot and incremental scans
+	// can rehydrate without reparsing unchanged files.
+	worldFilesTable := `
+	CREATE TABLE IF NOT EXISTS world_files (
+		path TEXT PRIMARY KEY,
+		lang TEXT,
+		size INTEGER,
+		modtime INTEGER,
+		hash TEXT,
+		fingerprint TEXT,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_world_files_fingerprint ON world_files(fingerprint);
+	CREATE INDEX IF NOT EXISTS idx_world_files_lang ON world_files(lang);
+	`
+
+	worldFactsTable := `
+	CREATE TABLE IF NOT EXISTS world_facts (
+		path TEXT NOT NULL,
+		depth TEXT NOT NULL, -- fast | deep
+		fingerprint TEXT NOT NULL,
+		predicate TEXT NOT NULL,
+		args TEXT NOT NULL,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY(path, depth, predicate, args)
+	);
+	CREATE INDEX IF NOT EXISTS idx_world_facts_predicate ON world_facts(predicate);
+	CREATE INDEX IF NOT EXISTS idx_world_facts_depth ON world_facts(depth);
+	CREATE INDEX IF NOT EXISTS idx_world_facts_path ON world_facts(path);
+	`
+
+	// Shard D: Cold Storage and Archival tier are created below with migration-aware logic
+
+	// Activation log for spreading activation
+	activationTable := `
+	CREATE TABLE IF NOT EXISTS activation_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		fact_id TEXT NOT NULL,
+		activation_score REAL NOT NULL,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_activation_fact ON activation_log(fact_id);
+	`
+
+	// Session history for context
+	// UNIQUE constraint on (session_id, turn_number) enables idempotent sync
+	sessionTable := `
+	CREATE TABLE IF NOT EXISTS session_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id TEXT NOT NULL,
+		turn_number INTEGER NOT NULL,
+		user_input TEXT,
+		intent_json TEXT,
+		response TEXT,
+		atoms_json TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(session_id, turn_number)
+	);
+	CREATE INDEX IF NOT EXISTS idx_session ON session_history(session_id);
+	`
+
+	// Compressed context state for infinite-context rehydration
+	// Stores semantic compression state per session/turn.
+	compressedStateTable := `
+	CREATE TABLE IF NOT EXISTS compressed_states (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id TEXT NOT NULL,
+		turn_number INTEGER NOT NULL,
+		state_json TEXT NOT NULL,
+		compression_ratio REAL DEFAULT 1.0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(session_id, turn_number)
+	);
+	CREATE INDEX IF NOT EXISTS idx_compressed_states_session ON compressed_states(session_id);
+	`
+
+	// Task verification history for learning from retry loops
+	verificationTable := `
+	CREATE TABLE IF NOT EXISTS task_verifications (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id TEXT NOT NULL,
+		turn_number INTEGER NOT NULL,
+		task TEXT NOT NULL,
+		shard_type TEXT NOT NULL,
+		attempt_number INTEGER NOT NULL,
+		success BOOLEAN NOT NULL,
+		confidence REAL,
+		reason TEXT,
+		quality_violations TEXT,
+		corrective_action TEXT,
+		evidence TEXT,
+		result_hash TEXT,
+		judge_contract TEXT,
+		judge_claimed TEXT,
+		judge_status TEXT,
+		judge_explanation TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_verifications_session ON task_verifications(session_id);
+	CREATE INDEX IF NOT EXISTS idx_verifications_success ON task_verifications(success);
+	CREATE INDEX IF NOT EXISTS idx_verifications_shard ON task_verifications(shard_type);
+	`
+
+	// Reasoning traces for shard LLM interactions (Task 4)
+	reasoningTracesTableOnly := `
+	CREATE TABLE IF NOT EXISTS reasoning_traces (
+		id TEXT PRIMARY KEY,
+		shard_id TEXT NOT NULL,
+		shard_type TEXT NOT NULL,
+                shard_category TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                task_context TEXT,
+                system_prompt TEXT NOT NULL,
+                user_prompt TEXT NOT NULL,
+                response TEXT NOT NULL,
+                model TEXT,
+                tokens_used INTEGER,
+                duration_ms INTEGER,
+                success BOOLEAN NOT NULL,
+                error_message TEXT,
+                quality_score REAL,
+                learning_notes TEXT,
+                summary_descriptor TEXT,
+                descriptor_version INTEGER DEFAULT 0,
+                descriptor_hash TEXT,
+                embedding BLOB,
+		embedding_model_id TEXT,
+		embedding_dim INTEGER,
+		embedding_task TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	`
+
+	// Review Findings (for persistent history and analysis)
+	reviewFindingsTable := `
+	CREATE TABLE IF NOT EXISTS review_findings (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		reviewed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		file_path TEXT NOT NULL,
+		line INTEGER,
+		severity TEXT,
+		category TEXT,
+		rule_id TEXT,
+		message TEXT,
+		project_root TEXT
+	);
+	CREATE INDEX IF NOT EXISTS idx_findings_path ON review_findings(file_path);
+	CREATE INDEX IF NOT EXISTS idx_findings_severity ON review_findings(severity);
+	`
+
+	// Learning Candidates (staged taxonomy learnings)
+	learningCandidatesTable := `
+	CREATE TABLE IF NOT EXISTS learning_candidates (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		phrase TEXT NOT NULL,
+		verb TEXT NOT NULL,
+		target TEXT,
+		reason TEXT,
+		count INTEGER DEFAULT 1,
+		status TEXT DEFAULT 'pending',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(phrase, verb, target, reason)
+	);
+	CREATE INDEX IF NOT EXISTS idx_learning_candidates_status ON learning_candidates(status);
+	CREATE INDEX IF NOT EXISTS idx_learning_candidates_phrase ON learning_candidates(phrase);
+	`
+
+	// Prompt Atoms (for Universal JIT Prompt Compiler)
+	// NOTE: Table creation WITHOUT indexes - indexes created after migrations
+	// Knowledge Atoms (for Type 3 Agents)
+	knowledgeAtomsTable := `
+		CREATE TABLE IF NOT EXISTS knowledge_atoms (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			concept TEXT NOT NULL,
+			content TEXT NOT NULL,
+			confidence REAL DEFAULT 1.0,
+			content_hash TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`
+	knowledgeAtomsIndex := `CREATE INDEX IF NOT EXISTS idx_atoms_concept ON knowledge_atoms(concept)`
+
+	promptAtomsTableOnly := `
+	CREATE TABLE IF NOT EXISTS prompt_atoms (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		atom_id TEXT NOT NULL UNIQUE,
+		version INTEGER DEFAULT 1,
+		content TEXT NOT NULL,
+		token_count INTEGER NOT NULL,
+		content_hash TEXT NOT NULL,
+
+		-- Polymorphism (for different verbosity levels)
+		description TEXT,
+		content_concise TEXT,
+		content_min TEXT,
+
+		-- Classification
+		category TEXT NOT NULL,
+		subcategory TEXT,
+
+		-- Contextual Selectors (JSON arrays)
+		operational_modes TEXT,
+		campaign_phases TEXT,
+		build_layers TEXT,
+		init_phases TEXT,
+		northstar_phases TEXT,
+		ouroboros_stages TEXT,
+		intent_verbs TEXT,
+		shard_types TEXT,
+		languages TEXT,
+		frameworks TEXT,
+		world_states TEXT,
+
+		-- Composition
+		priority INTEGER DEFAULT 50,
+		is_mandatory BOOLEAN DEFAULT FALSE,
+		is_exclusive TEXT,
+		depends_on TEXT,
+		conflicts_with TEXT,
+
+		-- Embeddings
+		embedding BLOB,
+		embedding_task TEXT DEFAULT 'RETRIEVAL_DOCUMENT',
+
+		-- Metadata
+		source_file TEXT,
+
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	`
+
+	// First, create tables WITHOUT indexes that depend on migrated columns
+	// Split cold_storage into table creation and index creation
+	coldTableOnly := `
+	CREATE TABLE IF NOT EXISTS cold_storage (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		predicate TEXT NOT NULL,
+		args TEXT NOT NULL,
+		fact_type TEXT DEFAULT 'fact',
+		priority INTEGER DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		last_accessed DATETIME DEFAULT CURRENT_TIMESTAMP,
+		access_count INTEGER DEFAULT 0,
+		UNIQUE(predicate, args)
+	);
+	CREATE INDEX IF NOT EXISTS idx_cold_predicate ON cold_storage(predicate);
+	CREATE INDEX IF NOT EXISTS idx_cold_type ON cold_storage(fact_type);
+	`
+
+	archivedTableOnly := `
+	CREATE TABLE IF NOT EXISTS archived_facts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		predicate TEXT NOT NULL,
+		args TEXT NOT NULL,
+		fact_type TEXT DEFAULT 'fact',
+		priority INTEGER DEFAULT 0,
+		created_at DATETIME,
+		updated_at DATETIME,
+		last_accessed DATETIME,
+		access_count INTEGER DEFAULT 0,
+		archived_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(predicate, args)
+	);
+	CREATE INDEX IF NOT EXISTS idx_archived_predicate ON archived_facts(predicate);
+	CREATE INDEX IF NOT EXISTS idx_archived_type ON archived_facts(fact_type);
+	CREATE INDEX IF NOT EXISTS idx_archived_at ON archived_facts(archived_at);
+	`
+
+	// Create base tables first (without columns that need migration)
+	for _, table := range []string{
+		vectorTable,
+		graphTable,
+		worldFilesTable,
+		worldFactsTable,
+		coldTableOnly,
+		archivedTableOnly,
+		activationTable,
+		sessionTable,
+		compressedStateTable,
+		verificationTable,
+		reasoningTracesTableOnly,
+		reviewFindingsTable,
+		learningCandidatesTable,
+		promptAtomsTableOnly,
+		knowledgeAtomsTable,
+	} {
+		if _, err := s.db.Exec(table); err != nil {
+			return fmt.Errorf("failed to create table: %w", err)
+		}
+	}
+	// Create knowledge atoms index
+	if _, err := s.db.Exec(knowledgeAtomsIndex); err != nil {
+		logging.Get(logging.CategoryStore).Warn("Failed to create knowledge atoms index: %v", err)
+	}
+
+	// Run schema migrations for existing databases (adds missing columns like last_accessed, description)
+	if err := RunMigrations(s.db); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+	if err := s.retireMislabelledDependencyEdges(); err != nil {
+		return fmt.Errorf("failed to retire mislabelled dependency edges: %w", err)
+	}
+
+	if err := s.adoptRememberedPreferences(); err != nil {
+		return fmt.Errorf("failed to adopt remembered preferences: %w", err)
+	}
+
+	ensureReasoningTraceIndexes(s.db)
+
+	// Now create indexes that depend on migrated columns
+	coldIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_cold_last_accessed ON cold_storage(last_accessed);
+	CREATE INDEX IF NOT EXISTS idx_cold_access_count ON cold_storage(access_count);
+	`
+	if _, err := s.db.Exec(coldIndexes); err != nil {
+		// Non-fatal: indexes improve performance but aren't required
+		logging.Get(logging.CategoryStore).Warn("Failed to create cold storage indexes: %v", err)
+	}
+
+	// Create prompt atoms indexes after migrations (description column added by migration)
+	promptAtomsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_category ON prompt_atoms(category);
+	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_hash ON prompt_atoms(content_hash);
+	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_mandatory ON prompt_atoms(is_mandatory);
+	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_description ON prompt_atoms(description);
+	`
+	if _, err := s.db.Exec(promptAtomsIndexes); err != nil {
+		// Non-fatal: indexes improve performance but aren't required
+		logging.Get(logging.CategoryStore).Warn("Failed to create prompt atoms indexes: %v", err)
+	}
+
+	if removed, err := s.dedupePredicateVectors(); err != nil {
+		logging.Get(logging.CategoryStore).Warn("Failed to dedupe predicate vectors: %v", err)
+	} else if removed > 0 {
+		logging.Store("Deduped %d predicate vectors", removed)
+	}
+	if err := s.ensurePredicateVectorUniqueIndex(); err != nil {
+		logging.Get(logging.CategoryStore).Warn("Failed to create predicate vector unique index: %v", err)
+	}
+
+	return nil
+}
+
+// GetTraceStore returns the dedicated trace store for self-learning operations.
+// This allows external components to access trace persistence separately.
+func (s *LocalStore) GetTraceStore() *TraceStore {
+	return s.traceStore
+}
+
+// Close closes the database connection.
+func (s *LocalStore) Close() error {
+	logging.Store("Closing LocalStore database connection")
+	s.stopReflectionWorker()
+	return s.db.Close()
+}
+
+// GetDB returns the underlying SQL database connection.
+func (s *LocalStore) GetDB() *sql.DB {
+	return s.db
+}
+
+// detectVecExtension attempts to create a vec0 virtual table to see if sqlite-vec is available.
+// Constructor audit (2026-08-10): There is a single public constructor for
+// LocalStore — NewLocalStore — and it runs the strict check via
+// defaultRequireVec. No alternate constructor bypasses the check, so the observed boot-success with vectorExt==false
+// is not due to an unchecked path. It means either (a) the binary was built without
+// the sqlite_vec tag so defaultRequireVec==false and the strict check is intentionally
+// lenient, or (b) the probe itself is failing for this handle. To make (b) visible,
+// this function now logs the underlying CREATE VIRTUAL TABLE error instead of discarding it.
+func (s *LocalStore) detectVecExtension() {
+	if s.db == nil {
+		return
+	}
+	// First try true sqlite-vec virtual table support.
+	if _, err := s.db.Exec("CREATE VIRTUAL TABLE IF NOT EXISTS vec_probe USING vec0(embedding float[4])"); err == nil {
+		s.vectorExt.Store(true)
+		_, _ = s.db.Exec("DROP TABLE IF EXISTS vec_probe")
+		return
+	} else {
+		logging.Get(logging.CategoryStore).Warn("sqlite-vec probe failed: CREATE VIRTUAL TABLE vec_probe USING vec0(embedding float[4]) failed: %v", err)
+	}
+
+	s.vectorExt.Store(false)
+}
+
+func getBatchCountQueryPiece(table string) string {
+	switch table {
+	case "vectors":
+		return "SELECT 'vectors' as tbl, COUNT(*) as cnt FROM vectors"
+	case "knowledge_graph":
+		return "SELECT 'knowledge_graph' as tbl, COUNT(*) as cnt FROM knowledge_graph"
+	case "cold_storage":
+		return "SELECT 'cold_storage' as tbl, COUNT(*) as cnt FROM cold_storage"
+	case "activation_log":
+		return "SELECT 'activation_log' as tbl, COUNT(*) as cnt FROM activation_log"
+	case "session_history":
+		return "SELECT 'session_history' as tbl, COUNT(*) as cnt FROM session_history"
+	case "compressed_states":
+		return "SELECT 'compressed_states' as tbl, COUNT(*) as cnt FROM compressed_states"
+	case "knowledge_atoms":
+		return "SELECT 'knowledge_atoms' as tbl, COUNT(*) as cnt FROM knowledge_atoms"
+	case "world_files":
+		return "SELECT 'world_files' as tbl, COUNT(*) as cnt FROM world_files"
+	case "world_facts":
+		return "SELECT 'world_facts' as tbl, COUNT(*) as cnt FROM world_facts"
+	case "learning_candidates":
+		return "SELECT 'learning_candidates' as tbl, COUNT(*) as cnt FROM learning_candidates"
+	case "reasoning_traces":
+		return "SELECT 'reasoning_traces' as tbl, COUNT(*) as cnt FROM reasoning_traces"
+	case "prompt_atoms":
+		return "SELECT 'prompt_atoms' as tbl, COUNT(*) as cnt FROM prompt_atoms"
+	case "task_verifications":
+		return "SELECT 'task_verifications' as tbl, COUNT(*) as cnt FROM task_verifications"
+	case "review_findings":
+		return "SELECT 'review_findings' as tbl, COUNT(*) as cnt FROM review_findings"
+	case "archived_facts":
+		return "SELECT 'archived_facts' as tbl, COUNT(*) as cnt FROM archived_facts"
+	default:
+		return ""
+	}
+}
+
+func getTableCountQuery(table string) string {
+	switch table {
+	case "vectors":
+		return "SELECT COUNT(*) FROM vectors"
+	case "knowledge_graph":
+		return "SELECT COUNT(*) FROM knowledge_graph"
+	case "cold_storage":
+		return "SELECT COUNT(*) FROM cold_storage"
+	case "activation_log":
+		return "SELECT COUNT(*) FROM activation_log"
+	case "session_history":
+		return "SELECT COUNT(*) FROM session_history"
+	case "compressed_states":
+		return "SELECT COUNT(*) FROM compressed_states"
+	case "knowledge_atoms":
+		return "SELECT COUNT(*) FROM knowledge_atoms"
+	case "world_files":
+		return "SELECT COUNT(*) FROM world_files"
+	case "world_facts":
+		return "SELECT COUNT(*) FROM world_facts"
+	case "learning_candidates":
+		return "SELECT COUNT(*) FROM learning_candidates"
+	case "reasoning_traces":
+		return "SELECT COUNT(*) FROM reasoning_traces"
+	case "prompt_atoms":
+		return "SELECT COUNT(*) FROM prompt_atoms"
+	case "task_verifications":
+		return "SELECT COUNT(*) FROM task_verifications"
+	case "review_findings":
+		return "SELECT COUNT(*) FROM review_findings"
+	case "archived_facts":
+		return "SELECT COUNT(*) FROM archived_facts"
+	default:
+		return ""
+	}
+}
+
+// statsTables are the tables GetStats counts. Until 2026-09-25 it counted the
+// first ten and left out the reasoning traces, the prompt atoms, the task
+// verifications, the review findings and the archive, so `nerd memory` could
+// not see most of what the store holds.
+var statsTables = []string{
+	"vectors", "knowledge_graph", "cold_storage", "activation_log", "session_history",
+	"compressed_states", "knowledge_atoms", "world_files", "world_facts", "learning_candidates",
+	"reasoning_traces", "prompt_atoms", "task_verifications", "review_findings", "archived_facts",
+}
+
+// Gauges GetStats reports beside the table counts. Each is present only when
+// it can be measured: the ANN drift needs the sqlite-vec index and an engine
+// to name its dimension, the reflection backlog needs an engine.
+const (
+	// StatVecIndexMissing is the number of embedded vectors rows ANN search
+	// cannot find: an embedding of the index's dimension and no vec_index row.
+	StatVecIndexMissing = "vec_index_missing"
+	// StatReflectionTraceBacklog is the number of reasoning traces the
+	// reflection worker has yet to describe or embed.
+	StatReflectionTraceBacklog = "reflection_trace_backlog"
+)
+
+// GetStats returns database statistics: a row count per table in statsTables,
+// plus the StatVecIndexMissing and StatReflectionTraceBacklog gauges when they
+// can be measured.
+func (s *LocalStore) GetStats() (map[string]int64, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetStats")
+	defer timer.Stop()
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	logging.StoreDebug("Computing database statistics")
+
+	stats := make(map[string]int64)
+	defer s.addStatsGaugesLocked(stats)
+	tables := statsTables
+
+	// Prepare a single query using UNION ALL to avoid N+1 queries.
+	var queryBuilder strings.Builder
+	for i, table := range tables {
+		if i > 0 {
+			queryBuilder.WriteString(" UNION ALL ")
+		}
+		piece := getBatchCountQueryPiece(table)
+		if piece == "" {
+			continue
+		}
+		queryBuilder.WriteString(piece)
+	}
+
+	rows, err := s.db.Query(queryBuilder.String())
+	if err != nil {
+		logging.StoreDebug("Batch count query failed (tables may not exist): %v", err)
+		// Fallback to individual queries if batch query fails (e.g., table missing)
+		for _, table := range tables {
+			var count int64
+			query := getTableCountQuery(table)
+			if query == "" {
+				continue
+			}
+			err := s.db.QueryRow(query).Scan(&count)
+			if err != nil {
+				logging.StoreDebug("Table %s count failed (may not exist): %v", table, err)
+				continue
+			}
+			stats[table] = count
+		}
+		return stats, nil
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var table string
+		var count int64
+		if err := rows.Scan(&table, &count); err == nil {
+			stats[table] = count
+		}
+	}
+
+	logging.StoreDebug("Database stats computed: tables=%d", len(stats))
+	return stats, nil
+}
+
+// addStatsGaugesLocked adds the gauges GetStats reports beside the table
+// counts. Call holding s.mu (read or write).
+func (s *LocalStore) addStatsGaugesLocked(stats map[string]int64) {
+	engine := s.embeddingEngine
+	if engine == nil {
+		return
+	}
+	if n, err := s.vecIndexMissingLocked(embeddingSpace(engine), engine.Dimensions()); err == nil && n >= 0 {
+		stats[StatVecIndexMissing] = n
+	} else if err != nil {
+		logging.StoreDebug("vec_index drift not measured: %v", err)
+	}
+	if s.traceStore != nil {
+		expectedTask := embedding.SelectTaskType(embedding.ContentTypeDocumentation, false)
+		if n, err := s.traceStore.CountTraceEmbeddingBacklog(engine.Name(), engine.Dimensions(), expectedTask); err == nil {
+			stats[StatReflectionTraceBacklog] = int64(n)
+		} else {
+			logging.StoreDebug("reflection backlog not measured: %v", err)
+		}
+	}
+}
+
+func (s *LocalStore) dedupePredicateVectors() (int64, error) {
+	result, err := s.db.Exec(`
+		DELETE FROM vectors
+		WHERE json_extract(metadata, '$.kind') = 'predicate'
+		  AND id NOT IN (
+			SELECT MAX(id)
+			FROM vectors
+			WHERE json_extract(metadata, '$.kind') = 'predicate'
+			GROUP BY content
+		  );`,
+	)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return rows, nil
+}
+
+func (s *LocalStore) ensurePredicateVectorUniqueIndex() error {
+	_, err := s.db.Exec(
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_vectors_predicate_content_unique ON vectors(content)
+		 WHERE json_extract(metadata, '$.kind') = 'predicate';`,
+	)
+	return err
+}
+
+// retireMislabelledDependencyEdges deletes the scanner-projected
+// knowledge_graph rows that can never join a policy rule, so each boot stops
+// re-asserting them into the kernel. Two shapes, both written until
+// 2026-09-10:
+//
+//   - relation "depends_on:<import path>": not a Mangle name, so the hydrated
+//     knowledge_link carried a string relation that policy/knowledge.mg's
+//     /depends_on rule could never match;
+//   - a defined_in / depends_on edge whose file end is an absolute path (a
+//     backslash, a drive letter, or a leading slash): every other file fact
+//     is keyed by the canonical workspace-relative path, so the edge named a
+//     file no fact identified. One live store held 9,378 such rows, most of
+//     them pointing at a crash dump that had been scanned as source.
+//
+// The next scan re-projects both shapes correctly (VirtualStore.PersistLinkFacts),
+// so nothing is lost by dropping them. Ingest edges (/has_file) are left
+// alone: no automatic path re-creates them.
+func (s *LocalStore) retireMislabelledDependencyEdges() error {
+	result, err := s.db.Exec(`
+		DELETE FROM knowledge_graph
+		WHERE relation LIKE 'depends_on:%'
+		   OR (relation IN ('depends_on', 'defined_in')
+		       AND (instr(entity_b, char(92)) > 0 OR entity_b LIKE '_:/%' OR entity_b LIKE '/%'
+		            OR instr(entity_a, char(92)) > 0 OR entity_a LIKE '_:/%' OR entity_a LIKE '/%'))`)
+	if err != nil {
+		return err
+	}
+	if n, err := result.RowsAffected(); err == nil && n > 0 {
+		logging.Store("Retired %d knowledge_graph rows that could not join (depends_on:<import> label or absolute-path file identity); the next scan re-projects them", n)
+	}
+	return nil
+}

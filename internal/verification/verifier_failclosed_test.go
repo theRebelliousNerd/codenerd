@@ -1,0 +1,294 @@
+package verification
+
+// Fail-closed verification tests.
+//
+// A verification that could not run (LLM failure, timeout, malformed
+// judgment, missing client) must never be recorded as a success. These tests
+// pin that contract: the verifier returns an error wrapping
+// ErrVerificationUnavailable, persists the attempt with success=false, runs
+// the shard exactly once (retrying cannot fix a broken verifier), and still
+// returns the shard's output so the caller can show it with a warning.
+
+import (
+	"codenerd/internal/config"
+	"codenerd/internal/core"
+	"codenerd/internal/observation"
+	"codenerd/internal/perception"
+	"codenerd/internal/session"
+	"codenerd/internal/store"
+	"codenerd/internal/types"
+	"context"
+	"errors"
+	"strings"
+	"testing"
+)
+
+// stubLLMClient is a minimal perception.LLMClient fake. Only
+// CompleteWithSystem is behaviour-driven; the rest report unimplemented.
+type stubLLMClient struct {
+	completeWithSystem func(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+}
+
+var _ perception.LLMClient = (*stubLLMClient)(nil)
+
+func (s *stubLLMClient) Complete(_ context.Context, _ string) (string, error) {
+	return "", errors.New("stubLLMClient: Complete not implemented")
+}
+
+func (s *stubLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if s.completeWithSystem != nil {
+		return s.completeWithSystem(ctx, systemPrompt, userPrompt)
+	}
+	return "", errors.New("stubLLMClient: CompleteWithSystem not implemented")
+}
+
+func (s *stubLLMClient) CompleteWithStreaming(_ context.Context, _, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(errors.New("stubLLMClient: CompleteWithStreaming not implemented"))
+}
+
+func (s *stubLLMClient) CompleteWithTools(_ context.Context, _, _ string, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	return nil, errors.New("stubLLMClient: CompleteWithTools not implemented")
+}
+
+// stubTaskExecutor is an observed task executor fake: it counts attempts,
+// records each attempt's task, and returns result with the turn verdict
+// outcomes[n] (outcome once they run out) and missing evidence.
+type stubTaskExecutor struct {
+	// sessionCtxs and priorities are what each attempt was handed.
+	sessionCtxs []*types.SessionContext
+	priorities  []types.SpawnPriority
+	calls       int
+	tasks       []string
+	result      string
+	outcome     string
+	outcomes    []string
+	missing     []string
+	err         error
+	// writes, changed and snapshot are each attempt's observed change set.
+	writes   []observation.FileWrite
+	changed  []string
+	snapshot string
+	// workspace is the tree each attempt names; newDelegationVerifier gives
+	// a stub without one a fresh, empty tree.
+	workspace string
+}
+
+var _ session.ObservedTaskExecutor = (*stubTaskExecutor)(nil)
+
+func (s *stubTaskExecutor) Execute(_ context.Context, _ session.TaskRequest) (string, error) {
+	return s.result, s.err
+}
+
+func (s *stubTaskExecutor) ExecuteObserved(_ context.Context, req session.TaskRequest) (observation.Return, error) {
+	outcome := s.outcome
+	if s.calls < len(s.outcomes) {
+		outcome = s.outcomes[s.calls]
+	}
+	s.calls++
+	s.tasks = append(s.tasks, req.Task)
+	ret := observation.Return{Output: s.result, Outcome: outcome, Writes: s.writes, Changed: s.changed, Snapshot: s.snapshot, Workspace: s.workspace}
+	if outcome != "/done" {
+		ret.Missing = s.missing
+	}
+	return ret, s.err
+}
+
+func (s *stubTaskExecutor) ExecuteObservedWithContext(ctx context.Context, req session.TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (observation.Return, error) {
+	s.sessionCtxs = append(s.sessionCtxs, sessionCtx)
+	s.priorities = append(s.priorities, priority)
+	return s.ExecuteObserved(ctx, req)
+}
+
+// newDelegationVerifier is a verifier on a real kernel loaded with the policy
+// corpus, which decides each delegation's attempts.
+func newDelegationVerifier(t *testing.T, client perception.LLMClient, db *store.LocalStore, exec *stubTaskExecutor) *TaskVerifier {
+	t.Helper()
+	k, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+	if exec.workspace == "" {
+		exec.workspace = t.TempDir()
+	}
+	v := NewTaskVerifier(client, db, newJudgeCompiler(t), config.DefaultJITConfig())
+	v.SetTaskExecutor(exec)
+	v.SetKernel(k)
+	return v
+}
+
+// delegation is a coder delegation with the delegation section's defaults.
+func delegation(task string, attempts int) Delegation {
+	return Delegation{Task: task, Persona: "coder", MaxAttempts: attempts, Config: config.DefaultDelegationConfig()}
+}
+
+func (s *stubTaskExecutor) ExecuteWithContext(ctx context.Context, req session.TaskRequest, _ *types.SessionContext, _ types.SpawnPriority) (string, error) {
+	return s.Execute(ctx, req)
+}
+
+func (s *stubTaskExecutor) ExecuteAsync(_ context.Context, _ session.TaskRequest) (string, error) {
+	return "", errors.New("stubTaskExecutor: ExecuteAsync not implemented")
+}
+
+func (s *stubTaskExecutor) GetResult(_ string) (string, bool, error) {
+	return "", false, errors.New("stubTaskExecutor: GetResult not implemented")
+}
+
+func (s *stubTaskExecutor) WaitForResult(_ context.Context, _ string) (string, error) {
+	return "", errors.New("stubTaskExecutor: WaitForResult not implemented")
+}
+
+func newFailClosedTestStore(t *testing.T) *store.LocalStore {
+	t.Helper()
+	db, err := store.NewLocalStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewLocalStore error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Logf("Close error: %v", err)
+		}
+	})
+	return db
+}
+
+func storedVerifications(t *testing.T, db *store.LocalStore, sessionID string) []store.VerificationRecord {
+	t.Helper()
+	recs, err := db.GetVerificationHistory(sessionID, 10)
+	if err != nil {
+		t.Fatalf("GetVerificationHistory error: %v", err)
+	}
+	return recs
+}
+
+func assertFailClosed(t *testing.T, result string, verification *VerificationResult, err error, exec *stubTaskExecutor) {
+	t.Helper()
+	if !errors.Is(err, ErrVerificationUnavailable) {
+		t.Fatalf("VerifyWithRetry error = %v, want it to wrap ErrVerificationUnavailable", err)
+	}
+	// The shard's actual output is still returned so the caller can show it.
+	if result != "shard output here" {
+		t.Fatalf("VerifyWithRetry result = %q, want shard output preserved", result)
+	}
+	if verification == nil {
+		t.Fatal("verification should not be nil")
+	}
+	if verification.Accepted {
+		t.Error("verification.Accepted = true, want false (fail closed)")
+	}
+	if verification.Judgment != nil {
+		t.Errorf("verification.Judgment = %+v, want none from a judge that could not be had", verification.Judgment)
+	}
+	if !strings.Contains(verification.Reason, "verification unavailable") {
+		t.Errorf("verification.Reason = %q, want it to report unavailability", verification.Reason)
+	}
+	// Re-running the shard cannot fix a broken verifier: exactly one run.
+	if exec.calls != 1 {
+		t.Errorf("shard executed %d times, want exactly 1 (no retry on verifier outage)", exec.calls)
+	}
+}
+
+func TestVerifyWithRetry_WhenVerificationErrors_ShouldFailClosed(t *testing.T) {
+	ctx := context.Background()
+	db := newFailClosedTestStore(t)
+	client := &stubLLMClient{
+		completeWithSystem: func(_ context.Context, _, _ string) (string, error) {
+			return "", errors.New("model overloaded")
+		},
+	}
+	exec := &stubTaskExecutor{outcome: "/done", result: "shard output here"}
+	v := newDelegationVerifier(t, client, db, exec)
+	v.SetSessionContext("failclosed-verify-error", 1)
+
+	result, verification, err := v.VerifyWithRetry(ctx, delegation("implement feature X", 3))
+	assertFailClosed(t, result, verification, err, exec)
+
+	// The outage must be persisted as a failure, never as a success.
+	recs := storedVerifications(t, db, "failclosed-verify-error")
+	if len(recs) != 1 {
+		t.Fatalf("stored %d verification records, want exactly 1", len(recs))
+	}
+	if recs[0].Success || recs[0].JudgeStatus != "unavailable" || !strings.Contains(recs[0].JudgeExplanation, "model overloaded") {
+		t.Errorf("stored record = %+v, want a failure recording the judge unavailable and why", recs[0])
+	}
+}
+
+func TestVerifyWithRetry_WhenNilClient_ShouldFailClosed(t *testing.T) {
+	ctx := context.Background()
+	db := newFailClosedTestStore(t)
+	exec := &stubTaskExecutor{outcome: "/done", result: "shard output here"}
+	v := newDelegationVerifier(t, nil, db, exec)
+	v.SetSessionContext("failclosed-nil-client", 1)
+
+	result, verification, err := v.VerifyWithRetry(ctx, delegation("implement feature X", 3))
+	assertFailClosed(t, result, verification, err, exec)
+
+	recs := storedVerifications(t, db, "failclosed-nil-client")
+	if len(recs) != 1 {
+		t.Fatalf("stored %d verification records, want exactly 1", len(recs))
+	}
+	if recs[0].Success {
+		t.Error("stored record Success = true, want false")
+	}
+}
+
+func TestVerifyWithRetry_WhenVerificationSucceeds_ShouldStoreSuccess(t *testing.T) {
+	ctx := context.Background()
+	db := newFailClosedTestStore(t)
+	client := &stubLLMClient{
+		completeWithSystem: func(_ context.Context, _, _ string) (string, error) {
+			return `{"contract":"judge/v2","status":"pass","confidence":0.9,"explanation":"clean implementation"}`, nil
+		},
+	}
+	exec := &stubTaskExecutor{outcome: "/done", result: "func Add(a, b int) int { return a + b }"}
+	v := newDelegationVerifier(t, client, db, exec)
+	v.SetSessionContext("failclosed-success", 1)
+
+	result, verification, err := v.VerifyWithRetry(ctx, delegation("implement feature X", 3))
+	if err != nil {
+		t.Fatalf("VerifyWithRetry error: %v", err)
+	}
+	if result != "func Add(a, b int) int { return a + b }" {
+		t.Fatalf("VerifyWithRetry result = %q, want shard output", result)
+	}
+	if verification == nil || !verification.Accepted || verification.Judgment == nil || verification.Judgment.Status != JudgePass {
+		t.Fatalf("verification = %#v, want an accepted attempt the judge passed", verification)
+	}
+	if exec.calls != 1 {
+		t.Errorf("shard executed %d times, want exactly 1", exec.calls)
+	}
+
+	recs := storedVerifications(t, db, "failclosed-success")
+	if len(recs) != 1 {
+		t.Fatalf("stored %d verification records, want exactly 1", len(recs))
+	}
+	if !recs[0].Success || recs[0].JudgeStatus != "pass" || recs[0].JudgeContract != JudgeContract || recs[0].JudgeExplanation != "clean implementation" {
+		t.Errorf("stored record = %+v, want the disposition and the judge's own pass beside it", recs[0])
+	}
+}
+
+func TestVerifyWithRetry_WhenVerificationKeepsFailing_ShouldExhaustRetries(t *testing.T) {
+	const maxRetries = 3
+	ctx := context.Background()
+	db := newFailClosedTestStore(t)
+	client := &stubLLMClient{
+		completeWithSystem: func(_ context.Context, _, _ string) (string, error) {
+			return `{"contract":"judge/v2","status":"defect","confidence":0.2,"explanation":"mock code found",` +
+				`"violations":["mock_code"],"citations":["E2"],` +
+				`"suggestions":["implement for real"]}`, nil
+		},
+	}
+	exec := &stubTaskExecutor{outcome: "/done", result: "func MockThing() {}"}
+	v := newDelegationVerifier(t, client, db, exec)
+	v.SetSessionContext("failclosed-max-retries", 1)
+
+	_, verification, err := v.VerifyWithRetry(ctx, delegation("implement feature X", maxRetries))
+	if !errors.Is(err, ErrMaxRetriesExceeded) {
+		t.Fatalf("VerifyWithRetry error = %v, want ErrMaxRetriesExceeded", err)
+	}
+	if verification == nil || verification.Accepted {
+		t.Fatalf("verification = %#v, want a failed verification", verification)
+	}
+	if exec.calls != maxRetries {
+		t.Errorf("shard executed %d times, want %d retries for a genuine verification failure", exec.calls, maxRetries)
+	}
+}

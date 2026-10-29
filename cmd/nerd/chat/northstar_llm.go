@@ -1,0 +1,124 @@
+// Package chat provides the interactive TUI chat interface for codeNERD.
+package chat
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"codenerd/internal/broker"
+	"codenerd/internal/northstar"
+	"codenerd/internal/types"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// northstarClient is the client north-star derivation runs on: the planner
+// slot the session booted, else the main client. It is the same work init's
+// north-star draft does on the planner, and its prompts are compiled for the
+// model that will read them.
+func (m Model) northstarClient() (types.LLMClient, northstar.PhasePrompt) {
+	client := m.cortex.PlannerLLM()
+	if client == nil {
+		client = m.client
+	}
+	if client == nil {
+		return nil, nil
+	}
+	provider, model := clientIdentity(client)
+	return client, northstar.PhasePromptFor(northstar.PhaseTarget{
+		Provider: provider, Model: model, InputWindow: broker.InputWindow(client),
+	})
+}
+
+func (m Model) generateRequirementsWithLLM() tea.Cmd {
+	// Every capability and risk needs its stable ID before the model is shown
+	// them: the links it returns name those IDs. Done here, on the caller's
+	// goroutine, not inside the command that runs concurrently with the UI.
+	if m.northstarWizard != nil {
+		m.northstarWizard.ensureIDs()
+	}
+	return func() tea.Msg {
+		client, phasePrompt := m.northstarClient()
+		if client == nil || m.northstarWizard == nil {
+			return requirementsGeneratedMsg{err: fmt.Errorf("northstar wizard or LLM client not available")}
+		}
+		budget, err := northstar.ResolveDeriveBudget(m.workspace)
+		if err != nil {
+			return requirementsGeneratedMsg{err: err}
+		}
+		reqs, err := northstar.DeriveRequirements(m.northstarContext(), client, phasePrompt, budget, northstarRequirementsInput(m.northstarWizard))
+		if err != nil {
+			return requirementsGeneratedMsg{err: err}
+		}
+		out := make([]NorthstarRequirement, 0, len(reqs))
+		for _, req := range reqs {
+			out = append(out, NorthstarRequirement{
+				ID: req.ID, Type: req.Type, Description: req.Description, Priority: req.Priority, Source: req.Source,
+				Supports: req.Supports, Addresses: req.Addresses,
+			})
+		}
+		return requirementsGeneratedMsg{requirements: out}
+	}
+}
+
+func (m Model) analyzeNorthstarDocs(docPaths []string) tea.Cmd {
+	return func() tea.Msg {
+		client, phasePrompt := m.northstarClient()
+		if client == nil {
+			return northstarDocsAnalyzedMsg{err: fmt.Errorf("LLM client not available")}
+		}
+		if len(docPaths) == 0 {
+			return northstarDocsAnalyzedMsg{err: fmt.Errorf("no documents supplied")}
+		}
+		docs := make([]northstar.SourceDocument, 0, len(docPaths))
+		for _, path := range docPaths {
+			readPath := path
+			if m.workspace != "" && !filepath.IsAbs(path) {
+				readPath = filepath.Join(m.workspace, path)
+			}
+			content, err := os.ReadFile(readPath)
+			if err != nil {
+				return northstarDocsAnalyzedMsg{err: fmt.Errorf("read northstar document %s: %w", path, err)}
+			}
+			docs = append(docs, northstar.SourceDocument{Path: path, Body: string(content)})
+		}
+		budget, err := northstar.ResolveDeriveBudget(m.workspace)
+		if err != nil {
+			return northstarDocsAnalyzedMsg{err: err}
+		}
+		class, err := northstar.ClassifyDocuments(m.northstarContext(), client, phasePrompt, budget, docs)
+		if err != nil {
+			return northstarDocsAnalyzedMsg{err: err}
+		}
+		return northstarDocsAnalyzedMsg{facts: class.Lines()}
+	}
+}
+
+func (m Model) northstarContext() context.Context {
+	if m.shutdownCtx != nil {
+		return m.shutdownCtx
+	}
+	return context.Background()
+}
+
+func northstarRequirementsInput(w *NorthstarWizardState) northstar.WizardRequirementsInput {
+	state := northstar.WizardRequirementsInput{
+		Mission: w.Mission, Problem: w.Problem, Vision: w.Vision,
+		Constraints: w.Constraints, ExtractedFacts: w.ExtractedFacts,
+	}
+	for _, p := range w.Personas {
+		state.Personas = append(state.Personas, northstar.WizardPersona{Name: p.Name, PainPoints: p.PainPoints, Needs: p.Needs})
+	}
+	for _, c := range w.Capabilities {
+		state.Capabilities = append(state.Capabilities, northstar.WizardCapability{ID: c.ID, Description: c.Description, Timeline: c.Timeline, Priority: c.Priority})
+	}
+	for _, r := range w.Risks {
+		state.Risks = append(state.Risks, northstar.WizardRisk{ID: r.ID, Description: r.Description, Likelihood: r.Likelihood, Impact: r.Impact, Mitigation: r.Mitigation})
+	}
+	for _, r := range w.Requirements {
+		state.ExistingRequirements = append(state.ExistingRequirements, northstar.WizardRequirement{ID: r.ID, Type: r.Type, Description: r.Description, Priority: r.Priority, Source: r.Source, Supports: r.Supports, Addresses: r.Addresses})
+	}
+	return state
+}

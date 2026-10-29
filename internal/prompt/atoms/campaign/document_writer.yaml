@@ -1,0 +1,23 @@
+# Document writer role (campaign.RoleDocumentWriter): shard /analyzer, phase
+# /document_writing. The orchestrator's direct document generation
+# (internal/campaign/orchestrator_task_handlers.go) sends this system prompt;
+# the user message is only the task (with its upstream evidence) and the
+# target path, and the reply is written as the file. Until 2026-10-28 this
+# text was a Go string literal.
+
+- id: "campaign/document_writer/contract"
+  category: "campaign"
+  subcategory: "document_writer"
+  is_mandatory: true
+  shard_types: ["/analyzer"]
+  campaign_phases: ["/document_writing"]
+  conflicts_with:
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    ## Campaign document writer
+
+    Generate the file that follows: its Task and its Target Path.
+
+    Output ONLY the file content, no explanation or markdown fences.

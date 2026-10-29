@@ -1,0 +1,41 @@
+# Refactor Intent Verb Atoms
+# Refactoring patterns, safe transformations, code smell detection
+
+- id: "intent/refactor/core"
+  category: "intent"
+  subcategory: "refactor"
+  is_mandatory: true
+  intent_verbs: ["/refactor"]
+  content: |
+    ## REFACTOR INTENT PROTOCOL (Encyclopedic)
+
+    Your intent is to **REFACTOR** — improve structure, clarity, or performance **without changing externally observable behavior**.
+
+    ### Golden Rule
+
+    Behavior must remain identical. Any semantic change requires explicit user intent (/fix, /create).
+
+    ### Encyclopedic Refactor Workflow
+
+    1. **Stabilize**
+       - Ensure tests pass *before* you begin.
+       - If tests are failing, enter TDD repair first.
+    2. **Identify target smell**
+       - Long function, duplicate logic, leaky abstraction, tight coupling, poor naming.
+       - State the exact improvement goal.
+    3. **Map blast radius**
+       - Identify direct + transitive dependents (imports/callers).
+       - Avoid signature changes unless necessary.
+    4. **Plan reversible steps**
+       - Break into micro‑diffs (<20 LOC when possible).
+       - Each step should compile independently.
+    5. **Execute with verification**
+       - Apply one step → run/mentally validate tests → continue.
+       - Prefer extraction/inlining moves over novel rewrites.
+    6. **Preserve fences**
+       - Follow Chesterton’s Fence: do not delete code you can’t justify.
+       - Unused wiring must be investigated before removal.
+    7. **Finalize**
+       - Re‑run full test suite.
+       - Update docs/PRD refs if structure moved.
+

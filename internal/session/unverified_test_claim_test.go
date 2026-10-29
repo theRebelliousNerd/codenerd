@@ -1,0 +1,179 @@
+package session
+
+import (
+	"strings"
+	"testing"
+
+	"codenerd/internal/core"
+)
+
+func TestResponsePresentsTestRunnerOutput(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{"go pass line", "--- PASS: TestFoo (0.00s)", true},
+		{"go fail line", "--- FAIL: TestFoo (0.00s)", true},
+		{"go run line", "=== RUN   TestFoo", true},
+		{"ok line tab", "ok  \tgithub.com/example/pkg 0.012s", true},
+		{"ok line spaces", "ok  github.com/example/pkg 0.012s", true},
+		{"pass arrow", "go test ./internal/world -run TestASTParser -v => PASS for all four", true},
+		{"fail arrow", "go test ./... => FAIL", true},
+		{"pass standalone", "PASS", true},
+		{"fail standalone", "FAIL", true},
+		{"pytest passed", "1 passed in 0.02s", true},
+		{"pytest failed", "2 failed in 0.05s", true},
+		{"jest passed", "Tests: 3 passed, 3 total", true},
+		{"jest suite failed", "Test Suites: 1 failed, 1 total", true},
+		{"pytest mixed summary", "=== 1 failed, 2 passed in 0.34s ===", true},
+		{"pytest short summary", "2 passed, 1 skipped", true},
+		{"browser stale ref rejected", "executed 1 operation(s): 0 succeeded, 1 failed", false},
+		{"browser successful actions", "executed 2 operation(s): 2 succeeded, 0 failed", false},
+		{"browser inline receipt", "`browser_act` -> `executed 1 operation(s): 0 succeeded, 1 failed`", false},
+		{"browser mixed with fabricated runner", "executed 1 operation(s): 0 succeeded, 1 failed\nTests: 3 passed, 3 total", true},
+		{"browser mixed with Go runner", "executed 1 operation(s): 0 succeeded, 1 failed\n--- PASS: TestClaim (0.01s)", true},
+		{"prose counted operations", "The browser performed 3 actions, 1 failed as expected.", false},
+		{"prose should pass", "tests should pass", false},
+		{"prose make sure", "make sure the tests pass", false},
+		{"prose did not run", "I did not run the tests", false},
+		{"prose will pass", "the tests will pass", false},
+		{"empty", "", false},
+		{"ok without path", "ok  ", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := responsePresentsTestRunnerOutput(c.text)
+			if got != c.want {
+				t.Errorf("responsePresentsTestRunnerOutput(%q)=%v want %v", c.text, got, c.want)
+			}
+		})
+	}
+}
+
+func newUnverifiedExec(t *testing.T) *Executor {
+	t.Helper()
+	k, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+	e := NewExecutor(k, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+	e.kernel = k
+	e.config.WorkspaceRoot = t.TempDir()
+	return e
+}
+
+func unverifiedResult(response string, testRunCalls int) *ExecutionResult {
+	res := &ExecutionResult{
+		Response:            response,
+		ToolCallsExecuted:   2,
+		SuccessfulToolCalls: 2,
+		WriteToolEffects:    1,
+		TestRunCalls:        testRunCalls,
+	}
+	res.Intent.Verb = "/fix"
+	res.Intent.Category = "/mutation"
+	return res
+}
+
+func TestUnverifiedClaimFailsWithoutTool(t *testing.T) {
+	e := newUnverifiedExec(t)
+	result := unverifiedResult("--- PASS: TestFoo", 0)
+	err := e.checkHollowSuccess(result)
+	if err == nil {
+		t.Fatal("expected hollow success when response presents test output but no test tool ran")
+	}
+	if !isHollowSuccessError(err) {
+		t.Fatalf("expected hollowSuccessError, got %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "test-runner output") {
+		t.Fatalf("error must mention test-runner output, got: %v", err)
+	}
+}
+
+func TestUnverifiedClaimPassesWithTool(t *testing.T) {
+	e := newUnverifiedExec(t)
+	result := unverifiedResult("--- PASS: TestFoo", 1)
+	if err := e.checkHollowSuccess(result); err != nil {
+		t.Fatalf("response with test output plus a test tool must pass, got: %v", err)
+	}
+}
+
+// The post-edit gate ran the tests and the model quoted their output: that
+// is not a fabricated claim (live 2026-09-17, the F-VERIFY-1b run failed
+// here). A gate that did not run still leaves the claim unbacked.
+func TestUnverifiedClaimPassesWithGateTestRun(t *testing.T) {
+	e := newUnverifiedExec(t)
+	result := unverifiedResult("ok  \tcodenerd/internal/session\t5.657s", 0)
+	result.TestCheck = TestVerification{Ran: true, OK: true, Outcome: VerifyPassed}
+	if err := e.checkHollowSuccess(result); err != nil {
+		t.Fatalf("output the gate's own test run produced must pass, got: %v", err)
+	}
+
+	skipped := unverifiedResult("ok  \tcodenerd/internal/session\t5.657s", 0)
+	skipped.TestCheck = TestVerification{Ran: false}
+	if err := e.checkHollowSuccess(skipped); !isHollowSuccessError(err) {
+		t.Fatalf("a gate that never ran backs no claim; want hollow success, got: %v", err)
+	}
+}
+
+func TestUnverifiedClaimProseDoesNotFail(t *testing.T) {
+	e := newUnverifiedExec(t)
+	result := unverifiedResult("make sure the tests pass", 0)
+	if err := e.checkHollowSuccess(result); err != nil {
+		t.Fatalf("prose must NOT fail, got: %v", err)
+	}
+	for _, prose := range []string{
+		"tests should pass",
+		"I did not run the tests",
+		"the tests will pass",
+	} {
+		result2 := unverifiedResult(prose, 0)
+		if err := e.checkHollowSuccess(result2); err != nil {
+			t.Fatalf("prose %q must not fail, got: %v", prose, err)
+		}
+	}
+}
+
+func TestUnverifiedClaimRetracted(t *testing.T) {
+	e := newUnverifiedExec(t)
+	result := unverifiedResult("--- PASS: TestFoo", 0)
+	if err := e.checkHollowSuccess(result); err == nil {
+		t.Fatal("first turn must fail")
+	}
+	for _, predicate := range []string{"turn_evidence", "hollow_success"} {
+		if facts, err := e.kernel.Query(predicate); err != nil {
+			t.Fatalf("query %s: %v", predicate, err)
+		} else if len(facts) != 0 {
+			t.Fatalf("%s must be retracted with the turn, got %v", predicate, facts)
+		}
+	}
+	clean := unverifiedResult("all good, no test output here", 0)
+	if err := e.checkHollowSuccess(clean); err != nil {
+		t.Fatalf("second turn must be clean, got: %v", err)
+	}
+}
+
+func TestUnverifiedClaimVariousOutputs(t *testing.T) {
+	e := newUnverifiedExec(t)
+	markers := []string{
+		"--- FAIL: TestBar",
+		"=== RUN   TestBaz",
+		"ok  \tgithub.com/example/project/pkg 0.123s",
+		"go test ./... => PASS",
+		"PASS",
+		"FAIL",
+		"3 passed in 0.12s",
+		"2 failed",
+	}
+	for _, marker := range markers {
+		result := unverifiedResult(marker, 0)
+		if err := e.checkHollowSuccess(result); err == nil {
+			t.Fatalf("marker %q with no test tool must fail", marker)
+		}
+		result2 := unverifiedResult(marker, 1)
+		if err := e.checkHollowSuccess(result2); err != nil {
+			t.Fatalf("marker %q with test tool must pass, got: %v", marker, err)
+		}
+	}
+}

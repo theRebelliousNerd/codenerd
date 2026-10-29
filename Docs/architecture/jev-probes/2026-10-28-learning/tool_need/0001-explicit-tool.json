@@ -1,0 +1,70 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "harness_capabilities": "codeNERD can already read, search, write and edit files in the workspace, run builds and tests, run allowed shell commands, query its code index, and write code to complete a task.",
+  "request": "build me a tool that converts Avro files to CSV"
+ },
+ "questions": {
+  "asks_for_tool": {
+   "type": "noul",
+   "instructions": "Is the user asking codeNERD to create a new tool?",
+   "criteria": {
+    "true": "The request asks for a tool, command or utility to be built, generated or added to codeNERD.",
+    "false": "The request asks for a task to be done (code written, a bug fixed, a question answered), not for a tool to be made."
+   }
+  },
+  "needs_missing_operation": {
+   "type": "noul",
+   "instructions": "Does `request` need an operation that neither `harness_capabilities` nor any of `generated_tools` provides?",
+   "criteria": {
+    "true": "Doing the request needs an operation the harness and the generated tools cannot perform at all, such as reading a format nothing parses or calling a service nothing reaches.",
+    "false": "The harness or a generated tool can already perform every operation the request needs, even if the task itself is large."
+   }
+  },
+  "tool_kind": {
+   "type": "choice",
+   "instructions": "What kind of tool would perform the operation `request` needs?",
+   "criteria": {
+    "analyzer": "Inspects code or data and reports what it finds.",
+    "converter": "Turns data from one format into another.",
+    "formatter": "Rewrites text or data into a required layout.",
+    "parser": "Reads structured data out of text, files or command output.",
+    "utility": "Some other single operation.",
+    "validator": "Checks whether data, a file or a config is valid."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "asks_for_tool": {
+   "type": "noul",
+   "noul": 0.97
+  },
+  "needs_missing_operation": {
+   "type": "noul",
+   "noul": 0.35
+  },
+  "tool_kind": {
+   "type": "choice",
+   "choice": "converter",
+   "confidence": 1.0,
+   "probabilities": {
+    "analyzer": 0.0,
+    "converter": 1.0,
+    "formatter": 0.0,
+    "parser": 0.0,
+    "utility": 0.0,
+    "validator": 0.0
+   }
+  }
+ },
+ "usage": {
+  "input_tokens": 676,
+  "output_tokens": 98
+ }
+}
+}

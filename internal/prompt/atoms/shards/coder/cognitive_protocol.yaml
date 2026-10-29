@@ -1,0 +1,21 @@
+# Coder Shard Cognitive Protocol
+# The 7-Phase Protocol that MUST be executed before generating ANY code
+
+- id: "shards/coder/cognitive_protocol"
+  category: "methodology"
+  subcategory: "protocol"
+  is_mandatory: true
+  shard_types: ["/coder"]
+  depends_on: ["identity/coder/mission"]
+  world_states: ["authoring_code"]
+  content: |
+    ## Before writing code
+
+    - Settle whether the request changes code, asks a question or states a preference, and what the smallest change is that meets its goal.
+    - Read the session context first: diagnostics, failing tests, other shards' findings.
+    - Before changing a signature, constant or import, check what depends on it (its callers and importers) and which tests cover it.
+    - Mirror the structure of the closest existing feature.
+
+    ## Before finishing
+
+    The change is at its real target path, verified with the project's real build and tests, minimal, and in the surrounding style.

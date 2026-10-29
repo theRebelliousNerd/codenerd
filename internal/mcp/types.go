@@ -1,0 +1,379 @@
+// Package mcp provides MCP (Model Context Protocol) client integration
+// with JIT-style tool compilation for intelligent tool serving.
+package mcp
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"time"
+)
+
+// ServerStatus represents the connection status of an MCP server.
+type ServerStatus string
+
+const (
+	ServerStatusUnknown      ServerStatus = "unknown"
+	ServerStatusConnecting   ServerStatus = "connecting"
+	ServerStatusConnected    ServerStatus = "connected"
+	ServerStatusDisconnected ServerStatus = "disconnected"
+	ServerStatusError        ServerStatus = "error"
+)
+
+// Protocol represents the MCP transport protocol.
+type Protocol string
+
+const (
+	ProtocolHTTP  Protocol = "http"
+	ProtocolStdio Protocol = "stdio"
+	ProtocolSSE   Protocol = "sse"
+)
+
+// RenderMode determines how a tool is rendered for LLM context.
+type RenderMode string
+
+const (
+	RenderModeFull      RenderMode = "full"      // Complete schema and description
+	RenderModeCondensed RenderMode = "condensed" // Name + one-liner
+	RenderModeMinimal   RenderMode = "minimal"   // Name only
+	RenderModeExcluded  RenderMode = "excluded"  // Not sent to LLM
+)
+
+// MCPServerConfig represents configuration for an MCP server from config.json.
+type MCPServerConfig struct {
+	ID                string `json:"id"`
+	Enabled           bool   `json:"enabled"`
+	Protocol          string `json:"protocol"`
+	BaseURL           string `json:"base_url"`
+	Endpoint          string `json:"endpoint,omitzero"` // For stdio protocol
+	Timeout           string `json:"timeout"`
+	AutoConnect       bool   `json:"auto_connect"`
+	AutoDiscoverTools bool   `json:"auto_discover_tools"`
+
+	// Headers are sent with every HTTP/SSE request. Values support
+	// ${ENV_VAR} and $ENV_VAR expansion so tokens live in the environment
+	// rather than in a checked-in config file. Ignored for stdio.
+	Headers map[string]string `json:"headers,omitzero"`
+
+	// Reviews are the operator's host reviews of this server's effects,
+	// from .nerd/config.json. They are the only production source of
+	// ReviewedToolEffect: discovery describes a tool, it never admits one.
+	// Each binds a schema hash, so a changed tool stops matching until it
+	// is reviewed again.
+	Reviews []ReviewedToolEffect `json:"reviews,omitzero"`
+}
+
+// MCPServer represents a connected MCP server.
+type MCPServer struct {
+	ID            string       `json:"server_id"`
+	Name          string       `json:"name"`
+	Version       string       `json:"version"`
+	Endpoint      string       `json:"endpoint"`
+	Protocol      Protocol     `json:"protocol"`
+	Status        ServerStatus `json:"status"`
+	Capabilities  []string     `json:"capabilities"`
+	DiscoveredAt  time.Time    `json:"discovered_at"`
+	LastConnected time.Time    `json:"last_connected"`
+	LastPing      time.Time    `json:"last_ping"`
+	RetryCount    int          `json:"retry_count"`
+	Config        string       `json:"config"` // JSON string for server-specific config
+}
+
+// MCPTool represents a tool discovered from an MCP server.
+type MCPTool struct {
+	// Identity
+	ToolID   string `json:"tool_id"`
+	ServerID string `json:"server_id"`
+	Name     string `json:"name"`
+
+	// Schema (from MCP server)
+	Description  string          `json:"description"`
+	InputSchema  json.RawMessage `json:"input_schema"`
+	OutputSchema json.RawMessage `json:"output_schema,omitzero"`
+
+	// LLM-extracted metadata
+	Categories      []string       `json:"categories"`       // ["filesystem", "code_analysis"]
+	Capabilities    []string       `json:"capabilities"`     // ["/read", "/write", "/search"]
+	Domain          string         `json:"domain"`           // "/go", "/python", "/general"
+	ShardAffinities map[string]int `json:"shard_affinities"` // {"coder": 90, "tester": 50}
+	UseCases        []string       `json:"use_cases"`
+	Condensed       string         `json:"condensed"` // One-line description (max 80 chars)
+
+	// Control-plane classification, derived at discovery from the server's own
+	// annotations plus the schema. Facet is the atlas bucket the tool appears
+	// under; Risk is the blast radius policy gates on. Both are derived rather
+	// than configured, because the whole point is that a server nobody has
+	// hand-described still arrives describable.
+	Facet       Facet                `json:"facet,omitzero"`
+	Risk        RiskClass            `json:"risk,omitzero"`
+	FacetSource ClassificationSource `json:"facet_source,omitzero"`
+	RiskSource  ClassificationSource `json:"risk_source,omitzero"`
+
+	// Annotations are the server's own behavioural declarations, retained so
+	// the atlas can say a risk class was declared rather than guessed.
+	Annotations MCPToolAnnotations `json:"annotations,omitzero"`
+
+	// Embedding
+	Embedding      []float32 `json:"embedding,omitzero"`
+	EmbeddingModel string    `json:"embedding_model,omitzero"`
+
+	// Usage statistics
+	UsageCount   int64     `json:"usage_count"`
+	SuccessCount int64     `json:"success_count"`
+	AvgLatencyMs int       `json:"avg_latency_ms"`
+	LastUsed     time.Time `json:"last_used"`
+
+	// SchemaHash fingerprints the server-advertised schema the analysis was
+	// derived from. A mismatch on rediscovery invalidates the cached analysis.
+	SchemaHash string `json:"schema_hash,omitzero"`
+
+	// Timestamps
+	RegisteredAt time.Time `json:"registered_at"`
+	AnalyzedAt   time.Time `json:"analyzed_at"`
+
+	// Runtime state (not persisted)
+	ServerStatus ServerStatus `json:"-"` // Cached from server
+}
+
+// MCPToolSchema represents the raw tool schema from an MCP server.
+type MCPToolSchema struct {
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	InputSchema  json.RawMessage `json:"inputSchema"`
+	OutputSchema json.RawMessage `json:"outputSchema,omitzero"`
+
+	// Annotations are the server's own declarations about the tool's behaviour.
+	// The three transports unmarshal tools/list straight into this struct, so
+	// naming the field is the whole of the wiring.
+	Annotations MCPToolAnnotations `json:"annotations,omitzero"`
+}
+
+// MCPToolAnnotations carries the behavioural hints an MCP server may attach to
+// a tool.
+//
+// These are the only place a server tells us what a tool DOES rather than what
+// it is called, which makes them the highest-quality signal available for
+// classifying blast radius — and a signal a control plane that has never seen
+// the server cannot get any other way. Every field is a pointer because absent
+// and false mean different things: "this server declares nothing" must not be
+// read as "this server declares it is not destructive".
+type MCPToolAnnotations struct {
+	Title           string `json:"title,omitzero"`
+	ReadOnlyHint    *bool  `json:"readOnlyHint,omitzero"`
+	DestructiveHint *bool  `json:"destructiveHint,omitzero"`
+	IdempotentHint  *bool  `json:"idempotentHint,omitzero"`
+	OpenWorldHint   *bool  `json:"openWorldHint,omitzero"`
+}
+
+func (a MCPToolAnnotations) readOnly() bool {
+	return a.ReadOnlyHint != nil && *a.ReadOnlyHint
+}
+
+// destructive follows the MCP spec's own conditioning: destructiveHint is only
+// meaningful on a tool that is not read-only.
+func (a MCPToolAnnotations) destructive() bool {
+	return !a.readOnly() && a.DestructiveHint != nil && *a.DestructiveHint
+}
+
+// IsZero lets encoding/json's omitzero drop the field entirely for the servers
+// — still the majority — that advertise no annotations at all.
+func (a MCPToolAnnotations) IsZero() bool {
+	return a.Title == "" && a.ReadOnlyHint == nil && a.DestructiveHint == nil &&
+		a.IdempotentHint == nil && a.OpenWorldHint == nil
+}
+
+// MCPCapabilities is the host's observation of a server's initialize result.
+//
+// The wire form is an object of object-valued capabilities; each boolean here
+// records only that the server declared that capability (an empty object still
+// counts). It is derived by parseInitializeResult and never decoded straight
+// from the wire, so a malformed envelope cannot become a valid empty set.
+type MCPCapabilities struct {
+	Tools     bool `json:"tools"`
+	Resources bool `json:"resources"`
+	Prompts   bool `json:"prompts"`
+	Logging   bool `json:"logging"`
+
+	// ProtocolVersion is the version the server selected and this client
+	// accepted. ServerName and ServerVersion are self-reported and descriptive
+	// only; they are not an identity.
+	ProtocolVersion string `json:"protocol_version,omitzero"`
+	ServerName      string `json:"server_name,omitzero"`
+	ServerVersion   string `json:"server_version,omitzero"`
+}
+
+// ToolAnalysis represents the LLM-extracted metadata for a tool.
+type ToolAnalysis struct {
+	ToolID          string         `json:"tool_id"`
+	Categories      []string       `json:"categories"`
+	Capabilities    []string       `json:"capabilities"`
+	Domain          string         `json:"domain"`
+	ShardAffinities map[string]int `json:"shard_affinities"`
+	UseCases        []string       `json:"use_cases"`
+	Condensed       string         `json:"condensed"`
+	Embedding       []float32      `json:"embedding,omitzero"`
+}
+
+// ToolCompilationContext provides context for JIT tool compilation.
+type ToolCompilationContext struct {
+	ShardType       string   `json:"shard_type"`
+	TaskDescription string   `json:"task_description"`
+	IntentVerb      string   `json:"intent_verb"`
+	TargetLanguage  string   `json:"target_language"`
+	CurrentFiles    []string `json:"current_files"`
+	TokenBudget     int      `json:"token_budget"`
+}
+
+// CompiledToolSet represents the result of JIT tool compilation.
+type CompiledToolSet struct {
+	FullTools      []MCPTool     `json:"full_tools"`      // Complete schema, high relevance
+	CondensedTools []ToolSummary `json:"condensed_tools"` // Name + one-liner
+	MinimalTools   []string      `json:"minimal_tools"`   // Just names
+
+	Stats ToolCompilationStats `json:"stats"`
+}
+
+// ToolSummary provides a condensed view of a tool.
+type ToolSummary struct {
+	Name      string `json:"name"`
+	Condensed string `json:"condensed"`
+	ServerID  string `json:"server_id"`
+}
+
+// Selection path values reported in ToolCompilationStats.SelectionPath.
+const (
+	SelectionPathMangle   = "mangle"
+	SelectionPathFallback = "fallback"
+)
+
+// ToolCompilationStats tracks JIT compilation performance.
+type ToolCompilationStats struct {
+	Duration time.Duration `json:"duration"`
+	// SelectionPath records whether the kernel decided the tool set
+	// ("mangle") or the Go heuristic did ("fallback").
+	SelectionPath string `json:"selection_path,omitzero"`
+	TotalTools    int    `json:"total_tools"`
+	SelectedTools int    `json:"selected_tools"`
+	// SkeletonTools counts policy-mandatory tools; FleshTools counts
+	// context-selected ones. These are policy classes, not render tiers.
+	SkeletonTools int   `json:"skeleton_tools"`
+	FleshTools    int   `json:"flesh_tools"`
+	VectorQueryMs int64 `json:"vector_query_ms"`
+	MangleQueryMs int64 `json:"mangle_query_ms"`
+	TokensUsed    int   `json:"tokens_used"`
+	TokenBudget   int   `json:"token_budget"`
+	CacheHit      bool  `json:"cache_hit"`
+}
+
+// ToolSelectionConfig holds the Go selection path's render tiers and budget.
+//
+// Which tools are selected, and at what tier, is policy_mcp.mg's decision
+// (sections 50.6-50.8); the Go path in compiler.go is its fallback mirror for
+// when the kernel query fails. The logic/vector weights and the skeleton rule
+// therefore live in the policy, not here. This struct used to carry
+// LogicWeight, VectorWeight and SkeletonThreshold as well: nothing read them
+// (the fallback hardcoded 7/10 and 3/10, and skeleton membership is
+// mcp_tool_skeleton), and a knob that moved only the fallback would have made
+// the two paths disagree about the same tools. The tier thresholds that remain
+// mirror the policy's 70/40/20 and are pinned to it by
+// TestFallbackSelection_ShouldMirrorPolicyWeightsAndTiers.
+type ToolSelectionConfig struct {
+	FullThreshold      int `json:"full_threshold"`      // Score for full render (default: 70)
+	CondensedThreshold int `json:"condensed_threshold"` // Score for condensed render (default: 40)
+	MinimalThreshold   int `json:"minimal_threshold"`   // Score for minimal render (default: 20)
+	MaxFullTools       int `json:"max_full_tools"`      // Max tools with full schema (default: 10)
+	MaxCondensedTools  int `json:"max_condensed_tools"` // Max tools with condensed info (default: 20)
+	TokenBudget        int `json:"token_budget"`        // Token budget for tool descriptions (default: 4000)
+}
+
+// DefaultToolSelectionConfig returns sensible defaults for tool selection.
+func DefaultToolSelectionConfig() ToolSelectionConfig {
+	return ToolSelectionConfig{
+		FullThreshold:      70,
+		CondensedThreshold: 40,
+		MinimalThreshold:   20,
+		MaxFullTools:       10,
+		MaxCondensedTools:  20,
+		TokenBudget:        4000,
+	}
+}
+
+// SelectedTool represents a tool selected by the JIT compiler.
+type SelectedTool struct {
+	ToolID      string     `json:"tool_id"`
+	RenderMode  RenderMode `json:"render_mode"`
+	LogicScore  int        `json:"logic_score"`
+	VectorScore int        `json:"vector_score"`
+	FinalScore  int        `json:"final_score"`
+	// Skeleton marks a policy-mandatory tool (mcp_tool_skeleton), as opposed
+	// to one that merely scored well for this context.
+	Skeleton bool `json:"skeleton,omitzero"`
+}
+
+// MCPCallResult represents the result of calling an MCP tool.
+//
+// Success is false for a JSON-RPC error, for a malformed result and for a
+// result whose isError is true. ToolError distinguishes the last: the remote
+// tool ran and reported failure, as opposed to the protocol failing. Output
+// keeps the remote's full result in every case.
+type MCPCallResult struct {
+	Success   bool            `json:"success"`
+	ToolError bool            `json:"tool_error,omitzero"`
+	Output    json.RawMessage `json:"output,omitzero"`
+	Error     string          `json:"error,omitzero"`
+	LatencyMs int64           `json:"latency_ms"`
+}
+
+// MCPTransport defines the interface for MCP protocol transports.
+type MCPTransport interface {
+	// Connect establishes the connection and completes the initialization
+	// handshake (initialize, version and capability validation, the initialized
+	// notification). It reports success only when all of it succeeded.
+	Connect(ctx context.Context) error
+
+	// Disconnect closes the connection.
+	Disconnect() error
+
+	// ListTools retrieves the server's tools across every page. A collection
+	// that stopped early returns the tools gathered together with an
+	// *IncompleteCatalogError.
+	ListTools(ctx context.Context) ([]MCPToolSchema, error)
+
+	// CallTool invokes a tool on the MCP server.
+	CallTool(ctx context.Context, name string, args map[string]any) (*MCPCallResult, error)
+
+	// GetCapabilities returns the capabilities the server declared during the
+	// initialization handshake that Connect performed. It does not re-probe.
+	GetCapabilities(ctx context.Context) (*MCPCapabilities, error)
+
+	// Ping checks if the server is responsive.
+	Ping(ctx context.Context) error
+
+	// IsConnected returns current connection status.
+	IsConnected() bool
+}
+
+// ToolSchemaHash fingerprints the parts of a server-advertised tool schema that
+// analysis depends on. Analysis is expensive (an LLM call plus an embedding),
+// so it is cached; the hash is what makes that cache safe to invalidate when a
+// server silently changes a tool's parameters or description.
+func ToolSchemaHash(schema MCPToolSchema) string {
+	h := sha256.New()
+	h.Write([]byte(schema.Name))
+	h.Write([]byte{0})
+	h.Write([]byte(schema.Description))
+	h.Write([]byte{0})
+	h.Write(schema.InputSchema)
+	h.Write([]byte{0})
+	h.Write(schema.OutputSchema)
+	// Annotations decide the derived risk class, so a server that flips
+	// readOnlyHint without touching anything else has changed what the control
+	// plane is allowed to do with the tool. Leaving them out of the fingerprint
+	// would keep the old, more permissive classification cached forever.
+	h.Write([]byte{0})
+	if annotations, err := json.Marshal(schema.Annotations); err == nil {
+		h.Write(annotations)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}

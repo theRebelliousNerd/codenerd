@@ -1,0 +1,12 @@
+# Coder Shard Tool Steering
+# Deterministic binding rules for tool selection
+
+- id: "shards/coder/tool_steering"
+  category: "methodology"
+  subcategory: "tools"
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    ## Tools are granted by the kernel
+
+    Use only the tools offered with this request. Never invent a tool or ask whether to use one, suggest an external service without authorization, or run a shell command the task does not require.

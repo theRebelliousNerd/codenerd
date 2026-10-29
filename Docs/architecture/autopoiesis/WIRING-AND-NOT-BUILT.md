@@ -1,0 +1,176 @@
+# autopoiesis: wiring and what is NOT built
+
+Verified 2026-09-20 against the `main` working tree (docs-only change; no
+Go files modified). Read from `internal/autopoiesis/` (façade files,
+`ouroboros.go`, `registry.go`, `toolgen.go`, `feedback.go`, `traces.go`,
+`thunderdome.go`, `panic_maker.go`) and the `prompt_evolution`
+subpackage.
+
+## Wired and reachable (inside the package)
+
+- Façade delegates: every `Orchestrator` method in
+  `autopoiesis_tools.go` forwards to an engine (`DetectToolNeed`, `:20`;
+  `GenerateTool`, `:49`; `ExecuteOuroborosLoop`, `:120`;
+  `WriteAndRegisterTool`, `:106`; `ExecuteGeneratedTool`, `:209`;
+  `CheckToolSafety`, `:240`; `ListGeneratedTools`, `:219`;
+  `HasGeneratedTool`, `:234`; `GetToolInfo`, `:229`;
+  `GetOuroborosStats`, `:214`). The feedback façade
+  (`autopoiesis_feedback.go`) does the same for record, evaluate, refine,
+  trace, and audit operations (`:18`-`:465`).
+- Learning round-trip: `RecordLearning` (`feedback.go:391`) →
+  `GetLearning` / `GetAllLearnings` (`:491` / `:498`) →
+  `AggregateLearningsForPrompt` (`autopoiesis_feedback.go:188`) →
+  `RefreshLearningsContext` (`:296`); kernel export via
+  `GenerateLearningFacts` (`:305`) and `SyncLearningsToKernel`
+  (`autopoiesis_kernel.go:291`).
+- Kernel fact interface: `GenerateMissingToolFacts` /
+  `GenerateToolCapabilityFacts` / `GenerateToolRegistrationFacts`
+  (`ouroboros.go:1299` / `:1306` / `:1318`) produce facts; `assertToKernel`
+  (`autopoiesis_kernel.go:180`) is the single write path behind
+  `assertToolRegistered` (`:198`), `assertMissingTool` (`:228`),
+  `assertToolHotReloaded` (`:236`), `assertToolLearning` (`:250`),
+  `assertToolKnownIssue` (`:256`), and `assertAgentCreated` (`:262`).
+  Policy reads back through `ShouldGenerateTool` (`:533`),
+  `ShouldRefineToolByKernel` (`:548`), `QueryNextAction` (`:507`), and the
+  `Query*` introspection methods (`:361`-`:443`). Existing tools sync at
+  startup (`syncExistingToolsToKernel`, `:33`) with drift reported by
+  `VerifyKernelToolParity` (`:110`) as a `ToolParityReport` (`:83`).
+- Disk to registry: `WriteTool` (`toolgen.go:63`) plus `writeFileAtomic`
+  (`:85`) → `RegisterTool` (`:101`) → `RuntimeRegistry.Register`
+  (`registry.go:127`); restarts rehydrate via `LoadExistingTools`
+  (`toolgen.go:122`) and `Restore` (`registry.go:207`); version swaps go
+  through `hotReload` (`ouroboros.go:983`) with versions from
+  `versionFromBinding` (`:1022`).
+- Adversarial results re-enter the loop as facts:
+  `buildThunderdomeResultFacts` (`ouroboros.go:1387`) via
+  `thunderdomeOutcomeAtom` (`:1378`); `Battle` (`thunderdome.go:108`)
+  consumes `AttackVector`s defined in `panic_maker.go:45`, so the
+  maker-to-arena path is type-checked, not conventional.
+- The package consumes `types.Kernel` (`SetKernel`,
+  `autopoiesis_kernel.go:21`) and an `LLMClient` (e.g.
+  `NewTraceCollector`, `traces.go:139`); it produces Mangle facts for the
+  kernel to decide on. Session and command wiring that triggers generation
+  lives outside this package and was not re-traced in this pass — the
+  seams listed above are the complete set it can hang off.
+
+## Exists but not pinned to a caller in this pass
+
+- Tracing variants `GenerateToolWithTracing`
+  (`autopoiesis_feedback.go:404`) and `ExecuteOuroborosLoopWithTracing`
+  (`:433`) sit beside the plain paths (`GenerateTool`,
+  `autopoiesis_tools.go:49`; `ExecuteOuroborosLoop`, `:120`); which
+  callers prefer them was not established here. Treat both as live.
+- Dual codegen backends (`generateToolCodeLegacy` vs
+  `generateToolCodeWithJIT`, `tool_generation.go:371` vs `:437`), dual
+  refiner paths (`refineLegacy` vs `refineWithJIT`, `feedback.go:128` vs
+  `:189`), and dual validators (`ValidateGoCode` vs
+  `validateGoCodeOffline`, `compiler.go:531` vs `:594`) all ship;
+  selection logic was not pinned to a caller in this pass.
+- `PanicMaker` and `Thunderdome` are fully wired internally, but whether
+  the main loop battles every generation was not pinned to the loop body
+  in this pass.
+- Agent management (`ListAgents`, `GetAgent`, `DeleteAgent`,
+  `UpdateAgentMemory`, `autopoiesis_agents.go:118` / `:151` / `:167` /
+  `:173`) persists specs and YAML (`writeAgentSpec`, `:20`;
+  `writeAgentPromptsYAML`, `:274`) with an `AgentDefinitionWriter` seam
+  (`:268`); no in-package caller drives the agent lifecycle — agents are
+  created through `executeAgentCreation` (`:238`) only when the analysis
+  stage emits that action.
+
+## Assumed by the design, not done by the code
+
+- `autopoiesis.go` is a stub: package doc (lines 1-6) plus
+  `var _ = time.Now` (line 32) keeping the `time` import alive. All
+  behaviour lives in the satellite files.
+- Its modularization note (lines 13-29) is stale and must not be quoted:
+  it sizes `autopoiesis_types.go` at "~170 lines" but declarations run
+  past line 335 (`LearnedPattern`, `autopoiesis_types.go:328-335`); it
+  sizes `autopoiesis_feedback.go` at "~380" but methods run past line 465
+  (`ExecuteOuroborosLoopWithTracing`, `:433-465`); it sizes
+  `autopoiesis_kernel.go` at "~380" but methods run to line 560
+  (`ShouldRefineToolByKernel`, `:548-560`); it sizes
+  `autopoiesis_agents.go` at "~210" but functions run past line 327
+  (`renderFallbackAgentPromptsYAML`, `:308-327`); it sizes
+  `autopoiesis_tools.go` at "~190" but methods run past line 242
+  (`CheckToolSafety`, `:240-242`).
+- `TestThunderdomeArena` (`thunderdome.go:293`) is a test function
+  committed inside a production file, so test-only code ships in the same
+  file as `Battle`.
+- Names promise autonomy; the code structures assistance. The loop
+  generates, checks, and refines, but every policy decision crosses the
+  kernel boundary (`ShouldGenerateTool`, `QueryNextAction`,
+  `autopoiesis_kernel.go:533`, `:507`) — with no kernel attached the
+  engines are libraries, not an agent. `LoopResult` and `OuroborosStats`
+  (`autopoiesis_types.go:89`, `:172`) report outcomes; they do not act.
+
+## Wave 2 reconciliation (2026-09-25, verified against the code)
+
+## Required generated execution and durable feedback
+
+Generated wrapper binaries use explicit host-owned stdin JSON protocol metadata;
+legacy registered command binaries retain argv semantics. Unknown or inconsistent
+protocol/identity refuses before start, and transport fallback never retries an
+already-started process. Preserve partial output, typed errors, attempts, starts,
+and successes as distinct evidence.
+
+The normal session/VirtualStore/factory path must evaluate and automatically record
+one correlated learning outcome for every started live execution, including failed
+and canceled executions; pre-execution refusal records none. An acknowledged
+receipt means synchronous atomic publication of actual LearningStore data, proven
+by reopening it. Existing void/best-effort feedback is not that acknowledgment.
+Persistence failure is visible without rerunning the binary. Keep legacy feedback
+APIs as wrappers while adding error-returning production receipt behavior.
+
+Factory lifetime owns execution and refinement admission, cancellation, and join.
+Close stops admission and drains both before dependencies close. Tests must prove
+this with blocked execution/refinement, failed durability, duplicate admission,
+actual quality validation, and real boot/Process. Live-call deduplication does not
+claim durable replay or crash/restart exactly-once; those remain separate gaps.
+
+Typed execution and publication are implemented across
+`internal/types/generated_tool.go:31`,
+`internal/core/virtual_store_generated.go:14`, and
+`internal/system/factory_tool_executor.go:66`. Focused native and factory tests
+pass process/feedback failures, publication-only retry, live deduplication, and
+shutdown drain. `internal/system/factory_generated_feedback_test.go:500` also
+passes normal Boot/Process with an observed effect and reopened learning.
+This does not establish the ten broader production pipeline obligations, live
+model dogfooding, or durable crash/restart exactly-once.
+
+| Claim above | Classification | Evidence |
+|---|---|---|
+| `autopoiesis.go` is a stub whose modularization note is stale | fixed | Commit bdf2213: the per-file line counts and the `var _ = time.Now` import keeper are gone; the package doc names the files by concern and says where policy decisions cross the kernel. |
+| `TestThunderdomeArena` is a test function committed in a production file | not true | It is text inside the harness template that `Thunderdome.generateTestHarnessWithCall` (`thunderdome.go`) returns; `prepareArena` writes that text into the arena's `harness_test.go` and `runAttack` runs it with `-test.run=TestThunderdomeArena`. No test function ships in the package. (The older `generateTestHarness` wrapper is on the dead-code baseline; `generateTestHarnessWithCall` is the live one.) |
+| Which callers use the tracing variants | pinned | `GenerateToolWithTracing` is called by the quality-profile path (`autopoiesis_profiles.go`) and itself calls `ExecuteOuroborosLoopWithTracing` (`autopoiesis_feedback.go`). |
+| Dual codegen / refiner / validator backends: selection not pinned | pinned | `generateToolCode` and `ToolRefiner.Refine` take the JIT path when `jitEnabled` and the assembler is `JITReady`, else the legacy prompt (`tool_generation.go`, `feedback.go`). `validateGoCodeOffline` no longer exists. |
+| Whether the main loop battles every generation | pinned: yes, when enabled | `ExecuteOuroborosLoop` enters the Thunderdome whenever the loop was built with `EnableThunderdome`, which the orchestrator sets when it builds the loop (`autopoiesis_orchestrator.go`) -- `ouroboros.go`, the `StageThunderdome` block: PanicMaker generates attacks, `Battle` runs them, and each result re-enters as `thunderdome_result` facts. A PanicMaker failure skips the battle with a warning. |
+| Agent management has no caller | still true, open | `ListAgents`, `GetAgent`, `DeleteAgent` and `UpdateAgentMemory` have no production caller. Agents are created by `executeAgentCreation` and then never listed, read, updated or deleted. Wiring them needs an operator surface (`cmd/nerd`, lane B) or a kernel-derived agent lifecycle; neither exists to wire to. |
+
+
+## Required contract: Generated tool publication atomicity
+
+Failed generated compilation/tests must preserve the prior committed source, tests, binary, identity and registry behavior; failed first generation must leave no loadable generated artifacts or registration. Successful commit must reload and execute the new version.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-AUTOPOIESIS-COMMIT-ROLLBACK | Generated tool publication atomicity | `commitTool` snapshots the prior source, test, binary, and identity before replacement and restores them on failure (`internal/autopoiesis/ouroboros.go:808`, `commitTool`; `internal/autopoiesis/commit_snapshot.go:22`, `snapshotGeneratedToolFiles`; `:76`, `restoreGeneratedToolFiles`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Failed replacement preserves old source/test/binary/registry execution, failed new tool leaves no artifacts, and successful replacement survives reload and executes new behavior. |
+
+
+## Required contract: Generated tool workspace identity
+
+Normal generated tool registration must pin OuroborosConfig.WorkspaceRoot into GeneratedToolIdentity.Workspace and durable identity. Registry restoration must retain that identity and execute the binary with its pinned working directory rather than inheriting the host process directory. Source-only/interpreted registration of an existing name must also persistently revoke its prior compiled host identity so a later Restore cannot resurrect stale binary permission. Preserve explicit interpreted-only behavior and do not add a default compiled fallback.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-AUTOPOIESIS-WORKSPACE-IDENTITY | Generated tool workspace identity and registration durability | Compiled registration persists `GeneratedToolIdentity.Workspace`; source-only registration removes the prior binary and identity sidecar before replacing the in-memory registration (`internal/autopoiesis/runtime_registry.go:81-88`, `:90-152`, `:154-170`). `Restore` uses the pinned identity when present and the configured workspace for legacy artifacts (`:227-310`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | `TestRuntimeRegistryGeneratedIdentity_PinsWorkspaceAcrossRestoreAndExecution` proves workspace retention and execution before/after reload (`internal/autopoiesis/runtime_output_test.go:179`); `TestRuntimeRegistrySourceOnlyRegistrationRevokesCompiledIdentityAcrossRestore` proves same-name source-only registration removes the binary and sidecar and prevents `Restore` from resurrecting execution identity (`:255`); persisted artifacts without a prior in-memory `Restore` and traversal/symlink controls are also covered (`:340`, `:401`, `:429`). |
+
+**Verified current:** `TestOuroborosCommitFailurePreservesCommittedToolAndNewFailureLeavesNoArtifacts` and `TestRestoreGeneratedToolFilesReportsFailureAndKeepsRecoveryCopy` pass (`internal/autopoiesis/commit_cleanup_test.go:16,152`); workspace pinning/reload, source-only same-name revocation across reload, persisted-artifact revocation without prior `Restore`, and traversal/symlink refusal pass (`internal/autopoiesis/runtime_output_test.go:179,255,340,401,429`). The full `internal/autopoiesis` package suite and focused rollback/workspace/registry race tests pass. Cross-platform execution remains unverified.
+
+
+## Required contract: Per-tool context-aware publication synchronization
+
+Generated publication and execution must synchronize by tool identity without serializing unrelated tools. Today the global `commitMu` spans compilation/publication and guards execution (`internal/autopoiesis/ouroboros.go:94-96`, `:808-810`, `:1087-1089`); a slow operation for tool A can block tool B, and lock acquisition does not promptly honor context cancellation. Replace that global wait with per-tool context-aware synchronization while preserving same-tool source/binary atomicity and rollback guarantees. A canceled waiter must return the context error promptly; it must not detach or corrupt the active operation. Deterministic tests block compile/execution for A, prove unrelated B proceeds, then cancel a waiter and prove it returns promptly. Run the affected race suite.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-AUTOPOIESIS-COMMIT-CONCURRENCY | Per-tool context-aware publication synchronization | `OuroborosLoop` now owns keyed `toolOperations`, and `commitTool`/`ExecuteTool` acquire the per-name context-aware lock before publication or execution (`internal/autopoiesis/ouroboros.go:92-96`, `:807-817`, `:1088-1096`; `internal/autopoiesis/tool_operation_lock.go:9-82`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing publication snapshot/rollback boundary | `TestToolOperationCoordination_IsPerToolAndCancellationAware` blocks A while compiling and running B, then verifies canceled same-tool execution and commit waiters return `context.Canceled` without writing before lock acquisition (`internal/autopoiesis/tool_operation_lock_test.go:17`); `TestExecuteGeneratedBackendWaitHonorsToolOperationCancellation` proves a canceled backend waiter returns before process start (`:182`). The lock implementation is exercised under the focused race suite; same-tool rollback and package tests pass. |

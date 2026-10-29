@@ -1,0 +1,623 @@
+package embedding
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+// =============================================================================
+// NewOllamaEngine Tests
+// =============================================================================
+
+// The endpoint has a default (Ollama's own port); the model does not. An
+// unconfigured model is refused: there is no model codeNERD picks for the user.
+func TestNewOllamaEngine_WhenNoModel_ShouldRefuse(t *testing.T) {
+	engine, err := NewOllamaEngine("", "", 768)
+	if err == nil {
+		t.Fatalf("NewOllamaEngine with no model built an engine running %q", engine.model)
+	}
+	if !strings.Contains(err.Error(), "embedding.ollama_model") {
+		t.Errorf("error does not name the config key to set: %v", err)
+	}
+}
+
+func TestNewOllamaEngine_WhenDefaultEndpoint_ShouldUseOllamaPort(t *testing.T) {
+	engine, err := NewOllamaEngine("", "test-model", 768)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+	if engine.endpoint != "http://localhost:11434" {
+		t.Errorf("endpoint = %q, want %q", engine.endpoint, "http://localhost:11434")
+	}
+}
+
+func TestNewOllamaEngine_WhenCustomParams_ShouldRetainValues(t *testing.T) {
+	engine, err := NewOllamaEngine("http://custom:9999", "custom-model", 768)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+	if engine.endpoint != "http://custom:9999" {
+		t.Errorf("endpoint = %q, want %q", engine.endpoint, "http://custom:9999")
+	}
+	if engine.model != "custom-model" {
+		t.Errorf("model = %q, want %q", engine.model, "custom-model")
+	}
+}
+
+func TestOllamaEngine_Dimensions_ShouldReturn768(t *testing.T) {
+	engine, err := NewOllamaEngine("", "test-model", 768)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+	if engine.Dimensions() != 768 {
+		t.Errorf("Dimensions() = %d, want 768", engine.Dimensions())
+	}
+}
+
+func TestOllamaEngine_Name_ShouldIncludeModel(t *testing.T) {
+	tests := []struct {
+		name     string
+		model    string
+		expected string
+	}{
+		// the configured name is used as written, never rewritten
+		{"bare embeddinggemma", "embeddinggemma", "ollama:embeddinggemma"},
+		{"custom model", "nomic-embed-text", "ollama:nomic-embed-text"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine, err := NewOllamaEngine("", tt.model, 768)
+			if err != nil {
+				t.Fatalf("NewOllamaEngine returned error: %v", err)
+			}
+			if engine.Name() != tt.expected {
+				t.Errorf("Name() = %q, want %q", engine.Name(), tt.expected)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Ollama Embed Tests (with httptest mock server)
+// =============================================================================
+
+// skipEnsure marks the engine as model-ready so unit tests that only mock
+// /api/embeddings are not forced through /api/tags + /api/pull.
+func skipEnsure(e *OllamaEngine) *OllamaEngine {
+	e.modelReady = true
+	return e
+}
+
+func TestOllamaEngine_Embed_WhenServerReturnsEmbedding_ShouldSucceed(t *testing.T) {
+	expectedEmb := []float32{0.1, 0.2, 0.3, 0.4, 0.5}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/embeddings" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if r.Method != "POST" {
+			t.Errorf("unexpected method: %s", r.Method)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Verify request body
+		var req ollamaEmbedRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("failed to decode request: %v", err)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if req.Model != "test-model" {
+			t.Errorf("request model = %q, want %q", req.Model, "test-model")
+		}
+		if req.Prompt != "hello world" {
+			t.Errorf("request prompt = %q, want %q", req.Prompt, "hello world")
+		}
+
+		resp := ollamaEmbedResponse{Embedding: expectedEmb}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 5)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+	skipEnsure(engine)
+
+	emb, err := engine.Embed(context.Background(), "hello world")
+	if err != nil {
+		t.Fatalf("Embed returned error: %v", err)
+	}
+	if len(emb) != len(expectedEmb) {
+		t.Fatalf("Embed returned %d dims, want %d", len(emb), len(expectedEmb))
+	}
+	for i, v := range emb {
+		if v != expectedEmb[i] {
+			t.Errorf("emb[%d] = %f, want %f", i, v, expectedEmb[i])
+		}
+	}
+}
+
+func TestOllamaEngine_Embed_WhenServerReturns500_ShouldRetryAndFail(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+	skipEnsure(engine)
+
+	emb, err := engine.Embed(context.Background(), "test")
+	if err == nil {
+		t.Fatal("Embed should return error on 500 response")
+	}
+	if emb != nil {
+		t.Errorf("Embed should return nil embedding on error, got %v", emb)
+	}
+	// Should have retried 3 times (maxRetries = 3)
+	if callCount != 3 {
+		t.Errorf("Expected 3 retries, got %d calls", callCount)
+	}
+}
+
+func TestOllamaEngine_Embed_WhenServerReturns400_ShouldNotRetry(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		http.Error(w, "bad request", http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+	skipEnsure(engine)
+
+	emb, err := engine.Embed(context.Background(), "test")
+	if err == nil {
+		t.Fatal("Embed should return error on 400 response")
+	}
+	if emb != nil {
+		t.Errorf("Embed should return nil embedding on error")
+	}
+	// 400 is not retryable, should only call once
+	if callCount != 1 {
+		t.Errorf("Expected 1 call (no retry for 400), got %d", callCount)
+	}
+}
+
+func TestOllamaEngine_Embed_WhenContextCancelled_ShouldReturnError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Slow handler - should be cancelled. A bare receive, not a select:
+		// with one case and no default they are the same block, and the select
+		// suggests an alternative that does not exist.
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+	skipEnsure(engine)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	emb, err := engine.Embed(ctx, "test")
+	if err == nil {
+		t.Fatal("Embed with cancelled context should return error")
+	}
+	if emb != nil {
+		t.Errorf("Embed should return nil on cancelled context")
+	}
+}
+
+func TestOllamaEngine_Embed_WhenInvalidJSON_ShouldRetryAndFail(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("not valid json{{{"))
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+	skipEnsure(engine)
+
+	emb, err := engine.Embed(context.Background(), "test")
+	if err == nil {
+		t.Fatal("Embed with invalid JSON response should return error")
+	}
+	if emb != nil {
+		t.Errorf("Embed should return nil on decode error")
+	}
+	// Invalid JSON is retried
+	if callCount != 3 {
+		t.Errorf("Expected 3 retries for decode error, got %d", callCount)
+	}
+}
+
+// Empty text is refused before the server. This test used to pin the opposite
+// (…_ShouldStillCallServer), against a stand-in server that answered an empty
+// prompt with a vector; an embedding of nothing is one point every empty
+// document collides on, and the real server's answer was an empty vector,
+// retried three times. Changed deliberately with ErrEmptyText.
+func TestOllamaEngine_Embed_WhenEmptyText_ShouldRefuseBeforeTheServer(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		resp := ollamaEmbedResponse{Embedding: []float32{0.0, 0.0}}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 2)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+	skipEnsure(engine)
+
+	if _, err := engine.Embed(context.Background(), ""); !errors.Is(err, ErrEmptyText) {
+		t.Fatalf("Embed with empty text: err = %v, want ErrEmptyText", err)
+	}
+	if called {
+		t.Error("the server was called for an empty text")
+	}
+}
+
+func TestOllamaEngine_Embed_WhenServerReturnsEmptyEmbedding_ShouldRetryAndFail(t *testing.T) {
+	var callCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		callCount++
+		_ = json.NewEncoder(w).Encode(ollamaEmbedResponse{})
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+	skipEnsure(engine)
+
+	embedding, err := engine.Embed(context.Background(), "test")
+	if err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("Embed error = %v, want empty-vector rejection", err)
+	}
+	if embedding != nil {
+		t.Fatalf("Embed returned invalid vector %v", embedding)
+	}
+	if callCount != 3 {
+		t.Fatalf("Embed made %d calls, want 3 bounded attempts", callCount)
+	}
+}
+
+func TestWaitForRetryHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	started := time.Now()
+	err := waitForRetry(ctx, time.Second)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("waitForRetry error = %v, want context.Canceled", err)
+	}
+	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
+		t.Fatalf("waitForRetry ignored cancellation for %v", elapsed)
+	}
+}
+
+func TestOllamaEngineModelAccessIsConcurrentSafe(t *testing.T) {
+	engine, err := NewOllamaEngine("http://localhost:11434", "model-a", 768)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const iterations = 1000
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			engine.ensureMu.Lock()
+			if i%2 == 0 {
+				engine.model = "model-a"
+			} else {
+				engine.model = "model-b"
+			}
+			engine.ensureMu.Unlock()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			_ = engine.Model()
+			_ = engine.Name()
+		}
+	}()
+	wg.Wait()
+}
+
+// =============================================================================
+// Ollama EmbedBatch Tests
+// =============================================================================
+
+func TestOllamaEngine_EmbedBatch_WhenEmpty_ShouldReturnNil(t *testing.T) {
+	engine, err := NewOllamaEngine("http://localhost:11434", "test-model", 768)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+
+	result, err := engine.EmbedBatch(context.Background(), []string{})
+	if err != nil {
+		t.Fatalf("EmbedBatch(empty) returned error: %v", err)
+	}
+	if result != nil {
+		t.Errorf("EmbedBatch(empty) should return nil, got %v", result)
+	}
+}
+
+func TestOllamaEngine_EmbedBatch_WhenMultipleTexts_ShouldCallEmbedForEach(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/embeddings" {
+			return
+		}
+		callCount++
+		resp := ollamaEmbedResponse{Embedding: []float32{float32(callCount), 0.0}}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 2)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+	skipEnsure(engine)
+
+	texts := []string{"text1", "text2", "text3"}
+	results, err := engine.EmbedBatch(context.Background(), texts)
+	if err != nil {
+		t.Fatalf("EmbedBatch returned error: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("EmbedBatch returned %d results, want 3", len(results))
+	}
+	if callCount != 3 {
+		t.Errorf("Expected 3 server calls, got %d", callCount)
+	}
+}
+
+// Modern Ollama serves a native batch endpoint. EmbedBatch must use it (one
+// request per chunk) rather than one HTTP round trip per text — the sequential
+// path blew a 5s caller budget at text 104 of 256 and discarded every vector.
+func TestOllamaEngine_EmbedBatch_WhenNativeEndpointAvailable_ShouldUseOneBatchRequest(t *testing.T) {
+	batchCalls, singleCalls := 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/embed":
+			batchCalls++
+			var req ollamaBatchEmbedRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("decode batch request: %v", err)
+			}
+			vecs := make([][]float32, len(req.Input))
+			for i := range req.Input {
+				vecs[i] = []float32{float32(i + 1), 0}
+			}
+			_ = json.NewEncoder(w).Encode(ollamaBatchEmbedResponse{Embeddings: vecs})
+		case "/api/embeddings":
+			singleCalls++
+			_ = json.NewEncoder(w).Encode(ollamaEmbedResponse{Embedding: []float32{9, 9}})
+		}
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 2)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine: %v", err)
+	}
+	skipEnsure(engine)
+
+	results, err := engine.EmbedBatch(context.Background(), []string{"a", "b", "c"})
+	if err != nil {
+		t.Fatalf("EmbedBatch: %v", err)
+	}
+	if batchCalls != 1 || singleCalls != 0 {
+		t.Errorf("batch calls=%d single calls=%d, want one native batch and no per-text calls", batchCalls, singleCalls)
+	}
+	if len(results) != 3 || results[0][0] != 1 || results[1][0] != 2 || results[2][0] != 3 {
+		t.Errorf("results = %v, want positional native vectors", results)
+	}
+}
+
+func TestOllamaEngine_EmbedBatch_WhenOneTextFails_ShouldReturnError(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/embeddings" {
+			return
+		}
+		callCount++
+		if callCount == 2 {
+			// Fail on second call (non-retryable)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		resp := ollamaEmbedResponse{Embedding: []float32{0.1, 0.2}}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+	skipEnsure(engine)
+
+	results, err := engine.EmbedBatch(context.Background(), []string{"a", "b", "c"})
+	if err == nil {
+		t.Fatal("EmbedBatch should return error when one embed fails")
+	}
+	if results != nil {
+		t.Errorf("EmbedBatch should return nil on error, got %v", results)
+	}
+}
+
+// =============================================================================
+// Ollama HealthCheck Tests
+// =============================================================================
+
+func TestOllamaEngine_HealthCheck_WhenHealthy_ShouldReturnNil(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tags" {
+			t.Errorf("HealthCheck called unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != "GET" {
+			t.Errorf("HealthCheck used unexpected method: %s", r.Method)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"models":[]}`))
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+
+	err = engine.HealthCheck(context.Background())
+	if err != nil {
+		t.Fatalf("HealthCheck returned error for healthy server: %v", err)
+	}
+}
+
+func TestOllamaEngine_HealthCheck_WhenUnhealthy_ShouldReturnError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+
+	err = engine.HealthCheck(context.Background())
+	if err == nil {
+		t.Fatal("HealthCheck should return error for unhealthy server")
+	}
+}
+
+func TestOllamaEngine_HealthCheck_WhenUnreachable_ShouldReturnError(t *testing.T) {
+	engine, err := NewOllamaEngine("http://127.0.0.1:1", "test-model", 768)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+
+	err = engine.HealthCheck(context.Background())
+	if err == nil {
+		t.Fatal("HealthCheck should return error for unreachable server")
+	}
+}
+
+// =============================================================================
+// Ollama HealthChecker Interface Compliance
+// =============================================================================
+
+// Compile-time, for the reason given on the GenAI assertions above: the
+// interface assignment is the proof, and a runtime nil check after it can never
+// fire.
+var (
+	_ HealthChecker   = (*OllamaEngine)(nil)
+	_ EmbeddingEngine = (*OllamaEngine)(nil)
+)
+
+// =============================================================================
+// Ollama Embed with "connection was forcibly closed" retry
+// =============================================================================
+
+func TestOllamaEngine_Embed_WhenForciblyClosedMessage_ShouldRetry(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if callCount < 3 {
+			// Return a 400 with "connection was forcibly closed" (special retryable case)
+			http.Error(w, "connection was forcibly closed by remote host", http.StatusBadRequest)
+			return
+		}
+		resp := ollamaEmbedResponse{Embedding: []float32{0.1, 0.2, 0.3}}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 3)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+
+	emb, err := engine.Embed(context.Background(), "test")
+	if err != nil {
+		t.Fatalf("Embed should succeed after retries: %v", err)
+	}
+	if len(emb) != 3 {
+		t.Errorf("Expected 3-dim embedding, got %d", len(emb))
+	}
+	if callCount != 3 {
+		t.Errorf("Expected 3 calls, got %d", callCount)
+	}
+}
+
+// An input longer than the model's context fails the same way every time, so
+// the same text is never sent twice: a refused text is split, and a model that
+// refuses even the smallest piece is an error naming the model.
+func TestOllamaEngine_Embed_WhenInputExceedsContext_ShouldNotRetry(t *testing.T) {
+	seen := map[string]int{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req ollamaEmbedRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		seen[req.Prompt]++
+		http.Error(w, `{"error":"the input length exceeds the context length"}`, http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model", 768)
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+	skipEnsure(engine)
+
+	_, err = engine.Embed(context.Background(), strings.Repeat("word ", 5000))
+	if err == nil || !strings.Contains(err.Error(), "exceeds the context length") || !strings.Contains(err.Error(), "test-model") {
+		t.Fatalf("err = %v, want a context-length error naming the model", err)
+	}
+	for prompt, n := range seen {
+		if n != 1 {
+			t.Errorf("a %d-character text was sent %d times; a text that cannot fit is not retried", len(prompt), n)
+		}
+	}
+}

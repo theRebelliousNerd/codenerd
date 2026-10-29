@@ -1,0 +1,23 @@
+- id: "campaign/extractor/hallucinations"
+  category: "campaign"
+  subcategory: "extractor"
+  is_mandatory: true
+  # "researcher" removed: this atom asserts "You are an extractor, not an author",
+  # a competing identity for a shard that has its own.
+  shard_types: ["extractor"]
+  campaign_phases: ["requirements", "northstar", "requirement_extraction"]
+  depends_on: ["campaign/extractor/methodology"]
+  description: "Anti-patterns and hallucination prevention for requirements extraction"
+  content: |
+    ## HALLUCINATIONS TO AVOID (extractor)
+
+    You are an extractor, not an author: every requirement must have a source sentence.
+
+    - **Scope Creep**: inventing requirements not in the text ("The system should probably have logging") is STRICTLY FORBIDDEN. Only extract what IS in the document.
+    - **Implementation Leak**: "Use a for-loop to iterate users" or "Use a HashMap for O(1) lookups" is implementation. REJECT it; requirements describe WHAT, not HOW ("Process all users", "The lookup operation must complete in constant time").
+    - **Vague Wave / Vague Promotion**: "Make it fast", "Make it user-friendly" -> REJECT or flag "needs clarification". If unclear, extract as "Performance optimization required (unquantified)". If you can't test it, it's not a requirement.
+    - **Duplicate Ghost**: the same requirement reworded and extracted twice; or "The usage guide" extracted as a requirement (a doc about usage is metadata unless it says "Must include usage guide"). Deduplicate by semantic meaning against previous extractions.
+
+    ## SELF-CORRECTION
+    Vague -> add clarification note or reject. Duplicate -> merge. Mixed concerns -> atomize. Format:
+    {"self_correction": {"original_extraction": "System must be fast and secure", "corrected_extractions": ["Performance must meet SLA", "Security audit required"], "reason": "Compound requirement atomized into two separate concerns"}}

@@ -1,0 +1,126 @@
+package shards
+
+import (
+	"testing"
+
+	"codenerd/internal/core"
+)
+
+// The additive match weights sum past 1.0 (0.5 + 0.3 + 0.4 + 0.3), but the
+// SpecialistMatch contract is 0.0-1.0: the kernel scales scores onto 0-100
+// for specialist_match/3, and an unclamped 1.5 would assert confidence 150.
+func TestCalculateMatchScore_CappedAtOne(t *testing.T) {
+	tech := TechnologyPattern{
+		ShardName:    "mangle",
+		FilePatterns: []string{".mg"},
+		ImportHints:  []string{"mangle:"},
+		ContentHints: []string{"decl", "query"},
+	}
+	score, matched := calculateMatchScore(
+		"mangle: something", "policy/shards.mg", "decl x query y", ".mg", tech)
+	if !matched {
+		t.Fatal("expected a match")
+	}
+	if score != 1.0 {
+		t.Errorf("all-weights score = %v, want exactly 1.0", score)
+	}
+}
+
+// MatchFacts clamps defensively: scores arrive in a struct anyone can fill,
+// and the rules compare against 0-100, so out-of-range values assert a
+// confidence the scale cannot mean.
+func TestMatchFacts_ClampsConfidence(t *testing.T) {
+	facts := MatchFacts("task", TaskComplexityNormal, []SpecialistMatch{
+		{AgentName: "Coder", Score: 1.5},
+		{AgentName: "Tester", Score: -0.2},
+		{AgentName: "Reviewer", Score: 0.755},
+	})
+	got := map[core.MangleAtom]int64{}
+	for _, f := range facts {
+		if f.Predicate == "specialist_match" {
+			got[f.Args[0].(core.MangleAtom)] = f.Args[2].(int64)
+		}
+	}
+	if got["/coder"] != 100 {
+		t.Errorf("1.5 -> %d, want 100", got["/coder"])
+	}
+	if got["/tester"] != 0 {
+		t.Errorf("-0.2 -> %d, want 0", got["/tester"])
+	}
+	if got["/reviewer"] != 76 {
+		t.Errorf("0.755 -> %d, want 76 (rounded)", got["/reviewer"])
+	}
+}
+
+// The advisor list feeds user-visible delegation output: map order would
+// shuffle the consultation phase from run to run.
+func TestGetStrategicAdvisorsFor_Sorted(t *testing.T) {
+	for i := 0; i < 5; i++ {
+		advisors := GetStrategicAdvisorsFor("coder")
+		for j := 1; j < len(advisors); j++ {
+			if advisors[j-1] > advisors[j] {
+				t.Fatalf("advisors not sorted: %v", advisors)
+			}
+		}
+	}
+}
+
+// finalizeMatches sorts score-descending with a name tiebreak: scores are
+// quantized weight sums, so ties are common, and the input map iterates
+// randomly — without the tiebreak the executive would see a different order
+// from run to run. Every qualifying match is returned; nothing is cut.
+func TestFinalizeMatches_TiebreakDeterministic(t *testing.T) {
+	mk := func(name string, score float64) *SpecialistMatch {
+		return &SpecialistMatch{AgentName: name, Score: score}
+	}
+	in := map[string]*SpecialistMatch{
+		"b": mk("b", 0.9),
+		"a": mk("a", 0.9),
+		"c": mk("c", 0.7),
+		"d": mk("d", 0.9),
+	}
+	want := []string{"a", "b", "d", "c"}
+	for i := 0; i < 10; i++ {
+		got := finalizeMatches(in)
+		if len(got) != len(want) {
+			t.Fatalf("run %d: got %d matches %v, want all %d in order %v", i, len(got), got, len(want), want)
+		}
+		for j, w := range want {
+			if got[j].AgentName != w {
+				t.Fatalf("run %d: got %v, want %v", i, got, want)
+			}
+		}
+	}
+}
+
+// The assessment Score documents 0-100: a model writing SCORE: 150 or
+// SCORE: -20 must be clamped onto the scale, not stored off it.
+func TestParseAssessment_ScoreClamped(t *testing.T) {
+	m := NewBackgroundObserverManager(nil)
+	event := ObserverEvent{Type: EventTaskCompleted, Target: "x"}
+	if got := m.parseAssessment("obs", event, "SCORE: 150").Score; got != 100 {
+		t.Errorf("150 -> %d, want 100", got)
+	}
+	if got := m.parseAssessment("obs", event, "SCORE: -20").Score; got != 0 {
+		t.Errorf("-20 -> %d, want 0", got)
+	}
+	if got := m.parseAssessment("obs", event, "SCORE: 75").Score; got != 75 {
+		t.Errorf("75 -> %d, want 75", got)
+	}
+}
+
+// GetActiveObservers reads a map registry: the list must come out sorted,
+// not in iteration order.
+func TestGetActiveObservers_Sorted(t *testing.T) {
+	m := NewBackgroundObserverManager(nil)
+	for _, name := range []string{"zebra", "alpha", "northstar"} {
+		m.observers[name] = &ObserverState{Name: name, Active: true}
+	}
+	m.observers["sleepy"] = &ObserverState{Name: "sleepy", Active: false}
+	for i := 0; i < 5; i++ {
+		got := m.GetActiveObservers()
+		if len(got) != 3 || got[0] != "alpha" || got[1] != "northstar" || got[2] != "zebra" {
+			t.Fatalf("got %v, want [alpha northstar zebra]", got)
+		}
+	}
+}

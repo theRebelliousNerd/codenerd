@@ -1,0 +1,480 @@
+package feedback
+
+import (
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"strings"
+)
+
+// factPatternRe is precompiled for extractRuleFromResponse (avoids per-call regexp compilation).
+var factPatternRe = regexp.MustCompile(`([a-z_][a-z0-9_]*\s*\([^)]*\)\.)`)
+
+// cleanQuotedAtomRe matches the same quoted-lowercase-identifier shape as the
+// pre-validator's QuickFix rewrite. It is hoisted to package scope: compiling
+// it on every cleanRuleCandidate call wastes a compile per LLM response.
+var cleanQuotedAtomRe = regexp.MustCompile(`"([a-z][a-z0-9_]*)"`)
+
+// ruleLabelRe matches a leading RULE: label, bare or bolded, and the bold
+// markers left in front of the rule when the label was cut off before it.
+var ruleLabelRe = regexp.MustCompile(`^[ \t]*\**(?:(?i:rule)\**:\**)?`)
+
+// proseFieldRe matches a line that opens a labelled prose field of the
+// structured reply ("CONFIDENCE: 0.9", "RATIONALE: ...", "**Explanation:**").
+// No Mangle clause line starts with a capitalised word and a colon, so the
+// rule ends where the first such line begins.
+var proseFieldRe = regexp.MustCompile(`(?m)^[ \t]*\**[A-Z][A-Za-z_ ]*\**:\**(?:[ \t]|$)`)
+
+// PromptBuilder constructs feedback prompts for LLM retry attempts.
+// Uses progressive strategy: more context and constraints on each retry.
+type PromptBuilder struct {
+	// MangleSyntaxReminder is included in all feedback prompts.
+	MangleSyntaxReminder string
+}
+
+// NewPromptBuilder creates a prompt builder with default syntax reminders.
+func NewPromptBuilder() *PromptBuilder {
+	return &PromptBuilder{
+		MangleSyntaxReminder: defaultSyntaxReminder,
+	}
+}
+
+const defaultSyntaxReminder = `## Mangle Syntax Reminders
+
+CRITICAL - Avoid these common mistakes:
+- Use /atom for identifiers, NOT "string" (e.g., /active not "active")
+- Negation: Use ! not \+ (e.g., !blocked(X) not \+ blocked(X))
+- Aggregation: source() |> do fn:group_by(X), let N = fn:count()
+- Variables: UPPERCASE (X, User), constants: /lowercase
+- End every rule with a period (.)
+- Bind variables in positive predicates BEFORE using in negation
+`
+
+// BuildFeedbackPrompt constructs a feedback prompt based on the validation context.
+func (pb *PromptBuilder) BuildFeedbackPrompt(ctx FeedbackContext) string {
+	var sb strings.Builder
+
+	// Header
+	sb.WriteString(fmt.Sprintf("\n## MANGLE VALIDATION ERROR (attempt %d/%d)\n\n",
+		ctx.AttemptNumber, ctx.MaxAttempts))
+
+	// Original output that failed
+	if ctx.OriginalRule != "" {
+		if ctx.OutputProtocol == OutputProtocolSynth {
+			sb.WriteString("Your previous JSON spec:\n```json\n")
+		} else {
+			sb.WriteString("Your previous rule:\n```mangle\n")
+		}
+		sb.WriteString(ctx.OriginalRule)
+		sb.WriteString("\n```\n\n")
+	}
+
+	// Errors with context
+	sb.WriteString("### Errors Found:\n\n")
+	for i, err := range ctx.Errors {
+		sb.WriteString(fmt.Sprintf("**Error %d**: ", i+1))
+		sb.WriteString(FormatErrorForFeedback(err))
+		sb.WriteString("\n\n")
+	}
+
+	// Syntax reminder
+	sb.WriteString(pb.MangleSyntaxReminder)
+	sb.WriteString("\n")
+
+	// Progressive constraints based on attempt number
+	if ctx.AttemptNumber >= 2 {
+		sb.WriteString(pb.buildAttempt2Additions(ctx))
+	}
+
+	if ctx.AttemptNumber >= ctx.MaxAttempts {
+		sb.WriteString(pb.buildFinalAttemptAdditions(ctx))
+	}
+
+	// Available predicates if provided
+	if len(ctx.AvailablePredicates) > 0 {
+		sb.WriteString("\n## Available Predicates (use ONLY these):\n")
+		for _, pred := range ctx.AvailablePredicates {
+			sb.WriteString("- ")
+			sb.WriteString(pred)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Valid examples if provided
+	if len(ctx.ValidExamples) > 0 {
+		sb.WriteString("\n## Valid Rule Examples:\n```mangle\n")
+		for _, ex := range ctx.ValidExamples {
+			sb.WriteString(ex)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("```\n")
+	}
+
+	// Final instruction
+	sb.WriteString("\nPlease regenerate the output, fixing the above errors.\n")
+	sb.WriteString(outputProtocolInstructions(ctx.OutputProtocol))
+
+	return sb.String()
+}
+
+func (pb *PromptBuilder) buildAttempt2Additions(ctx FeedbackContext) string {
+	var sb strings.Builder
+
+	sb.WriteString("\n## Additional Guidance (Attempt 2+):\n\n")
+
+	// Add specific guidance based on error types
+	hasAtomError := false
+	hasAggError := false
+	hasNegError := false
+
+	for _, err := range ctx.Errors {
+		switch err.Category {
+		case CategoryAtomString:
+			hasAtomError = true
+		case CategoryAggregation:
+			hasAggError = true
+		case CategoryUnboundNegation:
+			hasNegError = true
+		}
+	}
+
+	if hasAtomError {
+		sb.WriteString("### Atom vs String:\n")
+		sb.WriteString("```mangle\n")
+		sb.WriteString("# WRONG: status(X, \"active\")   <- String literal\n")
+		sb.WriteString("# CORRECT: status(X, /active)  <- Atom constant\n")
+		sb.WriteString("```\n\n")
+	}
+
+	if hasAggError {
+		sb.WriteString("### Aggregation Syntax:\n")
+		sb.WriteString("```mangle\n")
+		sb.WriteString("# WRONG: Total = sum(Amount)\n")
+		sb.WriteString("# CORRECT:\n")
+		sb.WriteString("count_by_type(Type, N) :-\n")
+		sb.WriteString("    item(Type, _) |>\n")
+		sb.WriteString("    do fn:group_by(Type),\n")
+		sb.WriteString("    let N = fn:count().\n")
+		sb.WriteString("```\n\n")
+	}
+
+	if hasNegError {
+		sb.WriteString("### Safe Negation:\n")
+		sb.WriteString("```mangle\n")
+		sb.WriteString("# WRONG: blocked(X) :- !permitted(X).  <- X unbound!\n")
+		sb.WriteString("# CORRECT: blocked(X) :- action(X), !permitted(X).  <- X bound first\n")
+		sb.WriteString("```\n\n")
+	}
+
+	return sb.String()
+}
+
+func (pb *PromptBuilder) buildFinalAttemptAdditions(ctx FeedbackContext) string {
+	var sb strings.Builder
+
+	sb.WriteString("\n## FINAL ATTEMPT - Simplification Required:\n\n")
+	sb.WriteString("This is your last attempt. Please:\n")
+	sb.WriteString("1. Use ONLY predicates from the 'Available Predicates' list\n")
+	sb.WriteString("2. Keep the rule as simple as possible\n")
+	sb.WriteString("3. If using aggregation, try rewriting WITHOUT aggregation\n")
+	sb.WriteString("4. Ensure all variables in the head appear in positive body predicates\n")
+	sb.WriteString("5. Double-check: use /atom not \"string\", ! not \\+, end with period\n\n")
+
+	return sb.String()
+}
+
+// BuildInitialPromptAdditions returns syntax guidance to add to initial prompts.
+func (pb *PromptBuilder) BuildInitialPromptAdditions(predicates []string, outputProtocol OutputProtocol) string {
+	var sb strings.Builder
+
+	sb.WriteString(pb.MangleSyntaxReminder)
+
+	if len(predicates) > 0 {
+		sb.WriteString("\n## Available Predicates:\n")
+		// List every predicate: this list is the model input it must choose from, so it must not be truncated.
+		for _, pred := range predicates {
+			sb.WriteString("- ")
+			sb.WriteString(pred)
+			sb.WriteString("\n")
+		}
+	}
+
+	if outputProtocol == OutputProtocolSynth {
+		sb.WriteString("\n## Output Format (MangleSynth JSON):\n")
+		sb.WriteString("```json\n")
+		sb.WriteString("{\n")
+		sb.WriteString("  \"format\": \"mangle_synth_v1\",\n")
+		sb.WriteString("  \"program\": {\n")
+		sb.WriteString("    \"clauses\": [\n")
+		sb.WriteString("      {\n")
+		sb.WriteString("        \"head\": {\"pred\": \"next_action\", \"args\": [{\"kind\": \"name\", \"value\": \"/run_tests\"}]},\n")
+		sb.WriteString("        \"body\": [\n")
+		sb.WriteString("          {\"kind\": \"atom\", \"atom\": {\"pred\": \"test_state\", \"args\": [{\"kind\": \"name\", \"value\": \"/failing\"}]}},\n")
+		sb.WriteString("          {\"kind\": \"not\", \"atom\": {\"pred\": \"build_state\", \"args\": [{\"kind\": \"name\", \"value\": \"/broken\"}]}}\n")
+		sb.WriteString("        ]\n")
+		sb.WriteString("      }\n")
+		sb.WriteString("    ]\n")
+		sb.WriteString("  }\n")
+		sb.WriteString("}\n")
+		sb.WriteString("```\n")
+		sb.WriteString("If Piggyback Protocol is active, the surface_response field must be this JSON object and nothing else.\n")
+	} else {
+		sb.WriteString("\n## Example Rules:\n")
+		sb.WriteString("```mangle\n")
+		sb.WriteString("# Derive action based on state\n")
+		sb.WriteString("next_action(/run_tests) :- test_state(/failing), !build_state(/broken).\n\n")
+		sb.WriteString("# Strategy activation\n")
+		sb.WriteString("active_strategy(/tdd_repair_loop) :- diagnostic(/error, _, _, _, _).\n\n")
+		sb.WriteString("# Block commit on condition\n")
+		sb.WriteString("block_commit(/unsafe_changes) :- modified(F), !test_coverage(F).\n")
+		sb.WriteString("```\n")
+	}
+
+	return sb.String()
+}
+
+func outputProtocolInstructions(protocol OutputProtocol) string {
+	if protocol == OutputProtocolSynth {
+		return "Respond with ONLY a MangleSynth JSON object (format mangle_synth_v1). If Piggyback Protocol is active, the surface_response field must contain the JSON object and nothing else. No explanation.\n"
+	}
+	return "Respond with ONLY the corrected Mangle rule. No explanation.\n"
+}
+
+func extractRuleFromJSON(response string) string {
+	trimmed := strings.TrimSpace(response)
+	if trimmed == "" {
+		return ""
+	}
+
+	// JSON string literal containing the rule.
+	if strings.HasPrefix(trimmed, "\"") && strings.HasSuffix(trimmed, "\"") {
+		var decoded string
+		if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
+			return extractRuleFromText(decoded)
+		}
+	}
+
+	// JSON object or array.
+	if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[") {
+		return ""
+	}
+
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &obj); err == nil {
+		return extractRuleString(obj)
+	}
+
+	var list []any
+	if err := json.Unmarshal([]byte(trimmed), &list); err == nil {
+		for _, item := range list {
+			switch typed := item.(type) {
+			case string:
+				if candidate := extractRuleFromText(typed); candidate != "" {
+					return candidate
+				}
+			case map[string]any:
+				if candidate := extractRuleString(typed); candidate != "" {
+					return candidate
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+func extractRuleString(payload map[string]any) string {
+	if payload == nil {
+		return ""
+	}
+
+	primaryKeys := []string{"rule", "result", "surface_response", "output", "response"}
+	for _, key := range primaryKeys {
+		if value, ok := payload[key]; ok {
+			switch typed := value.(type) {
+			case string:
+				// Keep scanning on empty: an empty "rule" key must not
+				// shadow a populated "output" key later in the list. A
+				// string field is a reply in its own right ("RULE: ...\n
+				// CONFIDENCE: ..." inside surface_response), so it goes
+				// through the same text extraction as a bare reply.
+				if candidate := extractRuleFromText(typed); candidate != "" {
+					return candidate
+				}
+			case map[string]any:
+				if candidate := extractRuleString(typed); candidate != "" {
+					return candidate
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+func cleanRuleCandidate(candidate string) string {
+	trimmed := strings.TrimSpace(candidate)
+	if trimmed == "" {
+		return ""
+	}
+
+	// The RULE: label itself, bare or bolded ("**RULE:**"), and the bold
+	// markers a "**RULE:** x :- y." line leaves behind after the label.
+	trimmed = strings.TrimSpace(ruleLabelRe.ReplaceAllString(trimmed, ""))
+
+	// Only the rule reaches the compiler: whatever path found the candidate
+	// (a code block, a JSON field, the bare reply), a labelled prose field
+	// after it is the model talking about the rule, not the rule. The
+	// 2026-10-28 dogfood session sent "CONFIDENCE: 0.8" and its rationale to
+	// the sandbox compiler from a JSON-wrapped reply.
+	if loc := proseFieldRe.FindStringIndex(trimmed); loc != nil {
+		trimmed = trimmed[:loc[0]]
+	}
+	// The bold markers of a "**CONFIDENCE:**" field cut mid-label.
+	trimmed = strings.TrimRight(trimmed, "* \t\r\n")
+
+	// Remove ALL backticks (not just outer ones) - fixes internal backtick artifacts
+	trimmed = strings.ReplaceAll(trimmed, "`", "")
+
+	// Remove leaked markdown language identifiers
+	trimmed = strings.TrimSpace(trimmed)
+	trimmed = strings.TrimPrefix(trimmed, "mangle")
+	trimmed = strings.TrimPrefix(trimmed, "datalog")
+	trimmed = strings.TrimPrefix(trimmed, "prolog")
+	trimmed = strings.TrimSpace(trimmed)
+
+	// Convert quoted atoms to /atoms: "compile" -> /compile
+	trimmed = cleanQuotedAtomRe.ReplaceAllString(trimmed, "/$1")
+
+	lines := strings.Split(trimmed, "\n")
+	for i, line := range lines {
+		leadingTrimmed := strings.TrimLeft(line, " \t")
+		if strings.HasPrefix(leadingTrimmed, "- ") || strings.HasPrefix(leadingTrimmed, "* ") ||
+			strings.HasPrefix(leadingTrimmed, "-\t") || strings.HasPrefix(leadingTrimmed, "*\t") {
+			lines[i] = strings.TrimLeft(leadingTrimmed, "-* \t")
+		} else {
+			lines[i] = line
+		}
+	}
+	trimmed = strings.TrimSpace(strings.Join(lines, "\n"))
+
+	return strings.TrimSpace(trimmed)
+}
+
+// ExtractRuleFromResponse extracts the Mangle rule from an LLM response.
+// It handles various response formats (markdown code blocks, plain text, etc.)
+// Also sanitizes common LLM artifacts like "RULE:" prefixes that would cause parse errors.
+func ExtractRuleFromResponse(response string) string {
+	response = strings.TrimSpace(response)
+	if response == "" {
+		return ""
+	}
+
+	if candidate := extractRuleFromJSON(response); candidate != "" {
+		return candidate
+	}
+	return extractRuleFromText(response)
+}
+
+// extractRuleFromText extracts the rule from a reply that is not JSON: the
+// structured RULE:/CONFIDENCE:/RATIONALE: format, a code block, a bare clause
+// or a fact.
+func extractRuleFromText(response string) string {
+	response = strings.TrimSpace(response)
+	if response == "" {
+		return ""
+	}
+
+	// First, handle structured output format: "RULE: <code>\nCONFIDENCE: ...\nRATIONALE: ..."
+	// This format is used by autopoiesis prompts in executive.go and constitution.go
+	if idx := strings.Index(response, "RULE:"); idx >= 0 {
+		// Find the rule content after "RULE:"
+		ruleStart := idx + len("RULE:")
+		ruleContent := response[ruleStart:]
+
+		// Find where the rule ends (at CONFIDENCE:, RATIONALE:, or end of string)
+		endMarkers := []string{"CONFIDENCE:", "RATIONALE:", "\n\n"}
+		ruleEnd := len(ruleContent)
+		for _, marker := range endMarkers {
+			if markerIdx := strings.Index(ruleContent, marker); markerIdx >= 0 && markerIdx < ruleEnd {
+				ruleEnd = markerIdx
+			}
+		}
+
+		rule := cleanRuleCandidate(ruleContent[:ruleEnd])
+		if rule != "" {
+			return rule
+		}
+	}
+
+	// Try to extract from markdown code block
+	codeBlockPattern := "```mangle"
+	if idx := strings.Index(response, codeBlockPattern); idx >= 0 {
+		start := idx + len(codeBlockPattern)
+		end := strings.Index(response[start:], "```")
+		if end > 0 {
+			return cleanRuleCandidate(response[start : start+end])
+		}
+	}
+
+	// Try generic code block
+	codeBlockPattern = "```"
+	if idx := strings.Index(response, codeBlockPattern); idx >= 0 {
+		start := idx + len(codeBlockPattern)
+		// Skip language identifier if present
+		if newline := strings.Index(response[start:], "\n"); newline >= 0 {
+			start += newline + 1
+		}
+		end := strings.Index(response[start:], "```")
+		if end > 0 {
+			return cleanRuleCandidate(response[start : start+end])
+		}
+	}
+
+	// Try to find rule pattern (head :- body.)
+	if idx := strings.Index(response, ":-"); idx >= 0 {
+		// Find the start (predicate name before the :-)
+		start := idx
+		for start > 0 && response[start-1] != '\n' && response[start-1] != '`' {
+			start--
+		}
+
+		// Find the end (period)
+		end := strings.Index(response[idx:], ".")
+		if end > 0 {
+			rule := strings.TrimSpace(response[start : idx+end+1])
+			return cleanRuleCandidate(rule)
+		}
+	}
+
+	// Try to find a fact pattern anywhere in the response
+	if match := factPatternRe.FindString(response); match != "" {
+		return cleanRuleCandidate(match)
+	}
+
+	// Return empty if nothing else worked
+	return ""
+}
+
+// ValidRuleExamples returns a list of valid rule examples for a given domain.
+func ValidRuleExamples(domain string) []string {
+	switch domain {
+	case "executive", "action":
+		return []string{
+			"next_action(/run_tests) :- test_state(/failing).",
+			"next_action(/fix_error) :- diagnostic(/error, _, _, _, _).",
+			"active_strategy(/tdd_repair_loop) :- user_intent(_, _, /fix, _, _).",
+		}
+	case "constitution", "safety":
+		return []string{
+			"dangerous_action(/git_push) :- requires_permission(/git_push).",
+			"block_commit(/unsafe) :- modified(F), !test_coverage(F).",
+		}
+	default:
+		return []string{
+			"result(X) :- source(X), condition(X).",
+			"derived(X, Y) :- base(X, Y), !excluded(X).",
+		}
+	}
+}

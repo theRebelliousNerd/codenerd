@@ -1,0 +1,244 @@
+# tactile feature cards
+
+> Sole authoritative `NERD_FEATURE` surface for the tactile corpus.
+
+## P0: Keep analyzer facts schema-safe and audit loss visible
+
+<!-- NERD_FEATURE
+id: tactile-audit-schema-integrity-v1
+owner: tactile
+status: verified
+kind: truth-gap
+depends_on: []
+affects: [tactile, core, mangle, observability]
+-->
+
+**Value.** Test/build summaries emitted by tactile are accepted by the live
+kernel without colliding with tester/world predicates, while persistent audit
+loss is visible and stored command evidence is bounded.
+
+**Evidence.** Dedicated `execution_*` Decls, including a request-correlated test
+state that cannot mutate the TDD state machine, match every analyzer fact.
+Completed `go test`/`go build` events append these facts automatically, and
+`virtual_store_tactile_audit_test.go` injects and queries that production event
+path through a real kernel. Audit tests cover handle replacement/rotation,
+fallback lifecycle events, redaction, output bounds, and sink-error metrics.
+
+**Negative acceptance.** Coverage never enters a `/number` slot as float64;
+Windows paths retain their drive letter; environment/stdin/known secret argv
+values and unbounded stdout are not written to the JSONL sink; an unaudited
+executor cannot silently produce zero lifecycle events; killed results remain
+killed even when the executor also returns a timeout error.
+
+## P0: Preserve requested isolation and construction configuration
+
+<!-- NERD_FEATURE
+id: tactile-failclosed-backend-selection-v1
+owner: tactile
+status: verified
+kind: truth-gap
+depends_on: []
+affects: [tactile, core, system]
+-->
+
+**Value.** A command that explicitly requests Docker, namespace, or Firejail can
+never run directly on the host because the requested backend is missing, and
+factory-created Docker executors retain the caller's limits.
+
+**Evidence and observed gap.** `internal/tactile/factory.go#CompositeExecutor.selectExecutor`
+previously returned the direct default for every unregistered mode, while
+`internal/tactile/factory.go#ExecutorFactory.CreateDocker` constructed default
+configuration. Both are now corrected; the earlier Docker probe amplification
+and composite configuration drift were already repaired in
+`internal/tactile/docker.go#DockerExecutor.detectDocker`.
+
+**Desired behavior.** Only absent/`none` isolation uses direct execution. An
+explicit unavailable mode returns a stable error. Every construction route
+preserves the supplied `ExecutorConfig`, and availability probes remain bounded.
+
+**Non-goals.** This does not make Docker mandatory, claim identical platform
+controls, or move permission decisions into tactile.
+
+**Affected contracts.** Composite selection, factory creation, VirtualStore
+modern execution, effective time/output/environment bounds.
+
+**Positive acceptance.** The focused tests in
+`internal/tactile/docker_detection_test.go` prove cached negative probes,
+composite config parity and explicit fail-closed selection; package and race
+gates pass.
+
+**Wave-3 update (2026-09-25).** The factory route this card cited is gone:
+`ExecutorFactory` had no production caller and was removed with its factory
+config-parity test. The route that does run every production command,
+VirtualStore's composite, did *not* preserve the caller's configuration -- it
+started from `DefaultExecutorConfig`, dropping `execution.default_timeout` and
+the project build environment. `internal/core/virtual_store.go#initModernExecutor`
+now starts from the injected executor's `tactile.ConfiguredExecutor.Config()`;
+`internal/core/virtual_store_executor_config_test.go#TestVirtualStoreModernExecutorInheritsCallerExecutorConfig`
+proves it (fails on the old code). Explicit isolation is now served where the
+host provides it: `registerPlatformIsolation` (`platform_linux.go`) registers
+probed Firejail/namespace backends and routes enforced-limit commands to the
+cgroup executor; an unprovided mode stays unregistered and fails closed
+(`platform_linux_isolation_test.go`).
+
+**Negative acceptance.** Omitted isolation still selects direct; unavailable
+Docker remains an error; no test invokes the real Docker daemon.
+
+**Rollback.** Revert selection/config/tests together only if every caller gains
+an equivalent typed preflight that cannot silently downgrade isolation.
+
+## P0: Govern every direct-executor bypass
+
+<!-- NERD_FEATURE
+id: tactile-direct-bypass-registry-v1
+owner: tactile
+status: verified
+kind: truth-gap
+depends_on: [tactile-failclosed-backend-selection-v1]
+affects: [tactile, core, system, cli, campaign]
+-->
+
+**Value.** Reviewers and operators can prove whether each host process launch
+crossed the constitutional and audited route.
+
+**Evidence and observed gap.** `internal/core/virtual_store.go#VirtualStore.initModernExecutor`
+builds the audited composite route, but `internal/system/factory.go#initExecutionLayer`,
+`cmd/nerd/chat/session_boot.go`, DOM commands, and campaign commands also
+construct direct executors. The live tree has no single typed exception registry
+that classifies their permission and audit boundaries.
+
+**Desired behavior.** Route production effect paths through VirtualStore, or
+register a narrow exception with owner, caller, permission proof, audit sink,
+limits, and removal/review date. Make unregistered direct construction fail a
+static or integration gate.
+
+**Non-goals.** Do not ban package-local tests, hide platform adapters, or require
+containers for harmless read-only probes.
+
+**Affected contracts.** Boot wiring, CLI commands, campaigns, action IDs,
+permission evidence, audit fact injection.
+
+**Positive acceptance.** A generated/live call-site inventory accounts for each
+production constructor; integration tests prove governed routes deny mismatched
+action/target/payload and emit correlated results.
+
+**Negative acceptance.** Adding a new production `NewDirectExecutor` without a
+registered contract fails CI; an exception cannot grant permission itself.
+
+**Rollback.** Keep adapters behind the registry while migrating consumers; do
+not restore an undocumented bypass.
+
+**Closed (2026-09-25).** `internal/tactile/direct_bypass.go#DirectBypassRegistry`
+records each production construction outside tactile (system boot, dom
+commands, campaign assault x2, campaign runner) with owner, reason, permission
+proof, audit sink, limits and review date.
+`direct_bypass_registry_test.go#TestDirectBypassRegistryMatchesProductionConstructors`
+parses every production file and fails on an unregistered construction, count
+drift, stale entry, missing field or passed review date. The two bypasses
+that ran commands invisibly now audit into their kernel through
+`tactile.NewFactAuditedExecutor` (`TestAssaultExecutorAuditsIntoTheCampaignKernel`),
+and boot's `Cortex.Executor` -- what chat and `nerd campaign` run on -- is
+`VirtualStore.AuditedExecutor`, not the bare direct executor
+(`TestVirtualStoreAuditedExecutorEmitsExecutionFacts`). Entries grant nothing.
+
+## P1: Emit one bounded execution receipt
+
+<!-- NERD_FEATURE
+id: tactile-effect-receipt-v1
+owner: tactile
+status: verified
+kind: leverage
+depends_on: [tactile-direct-bypass-registry-v1]
+affects: [tactile, core, observability, transparency, articulation]
+-->
+
+**Value.** One record answers what was authorized, which backend and effective
+limits were used, what completed, what was truncated, and which facts reached the
+kernel—without storing unbounded command output.
+
+**Evidence and observed gap.** `Command`, `ExecutionResult`, `AuditEvent`, and
+`FileAuditEvent` carry overlapping session/request/effect data, while
+`internal/tactile/audit.go#AuditEvent.ToFacts` emits several lifecycle facts.
+There is no versioned idempotent receipt joining the permission envelope to all
+of those observations.
+
+**Desired behavior.** Define a versioned receipt with action/request/session IDs,
+permission digest, backend, effective limits, timing, exit/kill/truncation class,
+output digests and bounded previews, fact-injection status, and idempotency key.
+
+**Non-goals.** Do not persist secrets, full stdout/stderr, environment values, or
+turn the receipt into authorization.
+
+**Affected contracts.** VirtualStore, tactile audit callbacks, logging,
+transparency, articulation, retention/redaction policy.
+
+**Positive acceptance.** Success, non-zero exit, cancellation, timeout,
+infrastructure failure, output truncation, and partial fact-injection fixtures
+produce one correlated receipt; duplicates converge by idempotency key.
+
+**Negative acceptance.** Denied actions have no execution receipt; previews stay
+bounded and redacted; receipt-write failure is visible but never re-executes an
+effect.
+
+**Rollback.** Dual-write existing facts and the receipt until parity is proven;
+disable receipt persistence without weakening execution bounds.
+
+**Closed (2026-09-25).** `internal/tactile/receipt.go#ExecutionReceipt`
+(`tactile-execution-receipt-v1`) is built by `AuditLogger.Log` on every
+terminal event: IDs, executor and backend, effective limits, timing, outcome
+class, exit/kill, truncation, output digests with 512-byte redacted previews,
+facts emitted/rejected (`SetFactSink`), idempotency key. Receipts are retained
+(last 256, deduplicated by key) and appended to the audit file when file
+logging is on; a write failure is a metric, never a re-execution. VirtualStore
+attaches the receipt to the exec action's result, correlated by action ID --
+the key of the permission the kernel granted (no separate permission digest).
+Proofs: `receipt_test.go` (all outcome classes, bounds/redaction, idempotency,
+rejected facts, persistence) and
+`internal/core/virtual_store_executor_config_test.go#TestExecActionCarriesItsReceiptAndDeniedActionHasNone`.
+
+## P2: Derive backend admission from typed requirements
+
+<!-- NERD_FEATURE
+id: tactile-mangle-admission-plan-v1
+owner: tactile
+status: proposed
+kind: north-star
+depends_on: [tactile-effect-receipt-v1]
+affects: [tactile, core, mangle, system]
+-->
+
+**Value.** The logic executive can prove that an available backend satisfies the
+exact isolation, network, time, memory, process, and output contract before any
+process starts.
+
+**Evidence and observed gap.** `internal/tactile/types.go#ExecutorCapabilities`
+reports coarse backend abilities and `ResourceLimits` describes requested
+bounds, but backend selection is a Go map lookup rather than a derived admission
+decision with provenance.
+
+**Desired behavior.** Assert typed execution requirements and observed backend
+capabilities, derive one exact short-lived admission plan in Mangle, and require
+the executor to verify the plan digest and effective limits. Default deny when a
+required control is unsupported.
+
+**Non-goals.** Mangle does not launch processes; tactile does not infer fuzzy
+requirements; missing host controls are not represented as success.
+
+**Affected contracts.** Mangle declarations/policy, executor capabilities,
+VirtualStore authorization, platform probes, execution receipts.
+
+**Positive acceptance.** Cross-platform matrices prove only satisfying backends
+are admitted; stale capability or plan facts, unsupported network isolation,
+excess limits, and mismatched payloads are denied before execution.
+
+**Negative acceptance.** An unavailable sandbox cannot fall back to host direct;
+capability observations expire; admission cannot outlive its action ID.
+
+**Rollback.** Retain the current fail-closed Go selection behind a feature gate;
+rollback removes derived admission but never restores isolation downgrade.
+
+**Open (2026-09-25).** Not built. The backends an admission plan would choose
+between are now registered from host probes (`registerPlatformIsolation`), but
+no production command requests isolation yet, and which actions *require*
+which isolation is a policy decision for the owner, not something to derive
+from nothing. The execution receipt it depends on now exists.

@@ -1,0 +1,39 @@
+# Debugging Methodology Atoms
+# These atoms define the systematic debugging approach
+
+- id: "methodology/debugging/core"
+  category: "methodology"
+  subcategory: "debugging"
+  is_mandatory: false
+  operational_modes: ["/debugging"]
+  intent_verbs: ["/debug", "/fix"]
+  content: |
+    ## SYSTEMATIC DEBUGGING PROTOCOL
+
+    Debugging is not guessing. It is the scientific method applied to code.
+
+    ### THE DEBUGGING LOOP
+    1. **OBSERVE**: Gather all available evidence
+       - Error messages and stack traces
+       - Log output
+       - System state at time of failure
+       - Steps to reproduce
+
+    2. **HYPOTHESIZE**: Form a theory
+       - What could cause this behavior?
+       - What changed recently?
+       - Where does the data flow break?
+
+    3. **PREDICT**: What would confirm the hypothesis?
+       - If X is true, then Y should happen
+       - Identify testable predictions
+
+    4. **TEST**: Verify the prediction
+       - Add logging or assertions
+       - Reproduce the issue
+       - Observe results
+
+    5. **CONCLUDE**: Accept or reject hypothesis
+       - If confirmed, proceed to fix
+       - If rejected, return to step 2
+

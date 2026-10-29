@@ -1,0 +1,989 @@
+// perception.go implements the Perception Firewall system shard.
+//
+// The Perception Firewall is the entry point for all user input:
+// - Transduces natural language to structured intent atoms
+// - Resolves fuzzy references to concrete paths
+// - Detects ambiguity and triggers clarification
+// - Emits user_intent, focus_resolution, and ambiguity_flag facts
+//
+// This shard is AUTO-START and runs continuously. It is LLM-PRIMARY,
+// using the model for semantic understanding with deterministic fallbacks.
+package system
+
+import (
+	"codenerd/internal/articulation"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/perception"
+	"codenerd/internal/types"
+	"context"
+	"fmt"
+	"regexp"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+)
+
+// Intent is the canonical perception intent type (re-exported for system shard compatibility).
+type Intent = perception.Intent
+
+// FocusResolution is the canonical focus resolution type (re-exported).
+type FocusResolution = perception.FocusResolution
+
+// PerceptionConfig holds configuration for the perception firewall.
+type PerceptionConfig struct {
+	// Thresholds
+	ConfidenceThreshold float64 // Below this, trigger clarification (default: 0.85)
+	AmbiguityThreshold  float64 // Below this, emit ambiguity_flag (default: 0.7)
+
+	// Performance
+	TickInterval time.Duration // How often to process pending inputs
+	MaxQueueSize int           // Max pending inputs to queue
+
+	// Fallback
+	UseFallbackParsing bool // Use regex fallback if LLM fails
+
+	// Learning candidates
+	LearningCandidateThreshold   int  // Repeats required before candidate (default: 3)
+	LearningCandidateAutoPromote bool // Require confirmation before promotion
+}
+
+// DefaultPerceptionConfig returns sensible defaults.
+func DefaultPerceptionConfig() PerceptionConfig {
+	return PerceptionConfig{
+		ConfidenceThreshold:          0.85,
+		AmbiguityThreshold:           0.7,
+		TickInterval:                 500 * time.Millisecond,
+		MaxQueueSize:                 100,
+		UseFallbackParsing:           true,
+		LearningCandidateThreshold:   3,
+		LearningCandidateAutoPromote: false,
+	}
+}
+
+// LearningCandidateStore records potential taxonomy learnings.
+type LearningCandidateStore interface {
+	RecordLearningCandidate(phrase, verb, target, reason string) (int, error)
+}
+
+// PerceptionFirewallShard transduces user input to structured atoms.
+type PerceptionFirewallShard struct {
+	*BaseSystemShard
+	mu sync.RWMutex
+
+	// Configuration
+	config PerceptionConfig
+
+	// Input queue
+	pendingInputs chan string
+
+	// State
+	intentsProcessed int
+	clarifications   int
+	lastInput        time.Time
+
+	// Verb corpus for fallback parsing
+	verbPatterns map[string]*regexp.Regexp
+
+	// Running state
+	running bool
+	// Note: patternSuccess, patternFailure, corrections, learningStore are inherited from BaseSystemShard
+
+	// JIT prompt compilation support
+	promptAssembler *articulation.PromptAssembler
+
+	// Canonical Perception transducer (NL -> Piggyback -> intent)
+	transducer perception.Transducer
+
+	// Optional learning candidate store (SQLite-backed)
+	candidateStore LearningCandidateStore
+
+	// NERD-EVOLVE-START: P1P2-model-tiering
+	// classificationClient, when non-nil, is used for intent classification instead of
+	// the main LLMClient set via SetLLMClient. This allows perception to run on a
+	// cheaper/faster model (e.g. Haiku, Gemini Flash) while main generation uses a
+	// larger model. Falls back to the base LLMClient when nil.
+	classificationClient perception.LLMClient
+	// NERD-EVOLVE-END: P1P2-model-tiering
+}
+
+// NewPerceptionFirewallShard creates a new Perception Firewall shard.
+func NewPerceptionFirewallShard() *PerceptionFirewallShard {
+	return NewPerceptionFirewallShardWithConfig(DefaultPerceptionConfig())
+}
+
+// NewPerceptionFirewallShardWithConfig creates a perception firewall with custom config.
+func NewPerceptionFirewallShardWithConfig(cfg PerceptionConfig) *PerceptionFirewallShard {
+	logging.SystemShards("[PerceptionFirewall] Initializing perception firewall shard")
+	base := NewBaseSystemShard("perception_firewall", StartupAuto)
+
+	// Configure permissions
+	base.Config.Permissions = []types.ShardPermission{
+		types.PermissionReadFile,
+		types.PermissionAskUser,
+	}
+	base.Config.Model = types.ModelConfig{
+		Capability: types.CapabilityBalanced, // Need good NL understanding
+	}
+
+	shard := &PerceptionFirewallShard{
+		BaseSystemShard: base,
+		config:          cfg,
+		pendingInputs:   make(chan string, cfg.MaxQueueSize),
+		verbPatterns:    globalVerbPatterns,
+		// patternSuccess, patternFailure, corrections are in BaseSystemShard
+	}
+
+	logging.SystemShardsDebug("[PerceptionFirewall] Config: confidence_threshold=%.2f, ambiguity_threshold=%.2f, queue_size=%d",
+		cfg.ConfidenceThreshold, cfg.AmbiguityThreshold, cfg.MaxQueueSize)
+	return shard
+}
+
+// SetLearningStore sets the learning store for persistent autopoiesis.
+// Delegates to BaseSystemShard which loads existing patterns.
+func (p *PerceptionFirewallShard) SetLearningStore(ls core.LearningStore) {
+	p.BaseSystemShard.SetLearningStore(ls)
+}
+
+// SetLearningCandidateStore wires a store for learning candidates (optional).
+func (p *PerceptionFirewallShard) SetLearningCandidateStore(store LearningCandidateStore) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.candidateStore = store
+}
+
+// NERD-EVOLVE-START: P1P2-model-tiering
+// SetClassificationClient sets a dedicated LLM client for intent classification.
+// When set, perception calls use this client instead of the main LLMClient, enabling
+// model tiering (e.g. faster/cheaper Haiku for classification, Sonnet for generation).
+// Thread-safe; resets the cached transducer so the new client takes effect on next call.
+func (p *PerceptionFirewallShard) SetClassificationClient(client perception.LLMClient) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.classificationClient = client
+	// Reset cached transducer so ensureTransducer picks up the new client.
+	p.transducer = nil
+}
+
+// NERD-EVOLVE-END: P1P2-model-tiering
+
+// SetPromptAssembler sets the JIT prompt assembler for dynamic prompt generation.
+// When set and ready, the shard will use JIT-compiled prompts instead of the legacy
+// constant prompts, falling back to legacy if JIT compilation fails.
+func (p *PerceptionFirewallShard) SetPromptAssembler(assembler *articulation.PromptAssembler) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	// Keep BaseSystemShard in sync for generic JIT helpers.
+	p.BaseSystemShard.SetPromptAssembler(assembler)
+	p.promptAssembler = assembler
+	if p.transducer != nil {
+		if assembler != nil {
+			p.transducer.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(assembler))
+		} else {
+			p.transducer.SetPromptAssembler(nil)
+		}
+	}
+	if assembler != nil {
+		logging.SystemShards("[PerceptionFirewall] PromptAssembler attached (JIT ready: %v)", assembler.JITReady())
+	}
+}
+
+// GetPromptAssembler returns the current prompt assembler, if any.
+func (p *PerceptionFirewallShard) GetPromptAssembler() *articulation.PromptAssembler {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.promptAssembler
+}
+
+// guardedPerceptionClient routes LLM calls through the BaseSystemShard cost guard.
+// This prevents Perception from bypassing system shard rate limits.
+type guardedPerceptionClient struct {
+	base *BaseSystemShard
+}
+
+func (g guardedPerceptionClient) Complete(ctx context.Context, prompt string) (string, error) {
+	if g.base == nil {
+		return "", fmt.Errorf("no base shard configured")
+	}
+	return g.base.GuardedLLMCall(ctx, "", prompt)
+}
+
+func (g guardedPerceptionClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if g.base == nil {
+		return "", fmt.Errorf("no base shard configured")
+	}
+	return g.base.GuardedLLMCall(ctx, systemPrompt, userPrompt)
+}
+
+func (g guardedPerceptionClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if g.base == nil {
+		return nil, fmt.Errorf("no base shard configured")
+	}
+	// Perception doesn't need tool calling - fall back to simple completion
+	text, err := g.base.GuardedLLMCall(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return nil, err
+	}
+	return &types.LLMToolResponse{
+		Text:       text,
+		StopReason: "end_turn",
+	}, nil
+}
+
+func (p *PerceptionFirewallShard) ensureTransducer() perception.Transducer {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.transducer != nil {
+		return p.transducer
+	}
+
+	// NERD-EVOLVE-START: P1P2-model-tiering
+	// When a classification client is available, use it directly for transduction.
+	// This bypasses the cost-guarded wrapper and routes to the tiered (faster) model.
+	// The guardedPerceptionClient is still used when no classification client is set,
+	// preserving existing cost-guard behavior for the fallback path.
+	var transducerClient perception.LLMClient
+	if p.classificationClient != nil {
+		transducerClient = p.classificationClient
+	} else {
+		transducerClient = guardedPerceptionClient{base: p.BaseSystemShard}
+	}
+	// NERD-EVOLVE-END: P1P2-model-tiering
+
+	t := perception.NewUnderstandingTransducer(transducerClient)
+	if p.promptAssembler != nil {
+		t.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(p.promptAssembler))
+	}
+	// The firewall's transducer reads the same kernel the firewall asserts
+	// into. Without it deriveRouting takes its no-kernel path: the model's
+	// suggested mode and shards pass through, no blocked tools are derived and
+	// no routing facts are published, on exactly the path chat prefers.
+	if tk, ok := t.(perception.TransducerWithKernel); ok && p.Kernel != nil {
+		tk.SetKernel(p.Kernel)
+	}
+	p.transducer = t
+	return t
+}
+
+func normalizeAtom(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return v
+	}
+	if v == "none" {
+		return v
+	}
+	if strings.HasPrefix(v, "/") {
+		return v
+	}
+	return "/" + v
+}
+
+func (p *PerceptionFirewallShard) applyPerceptionMangleUpdates(updates []string) {
+	if p.Kernel == nil || len(updates) == 0 {
+		return
+	}
+
+	// Perception is an untrusted boundary: only allow a conservative subset of facts.
+	policy := core.MangleUpdatePolicy{
+		AllowedPredicates: map[string]struct{}{
+			"ambiguity_flag":       {},
+			"clarification_needed": {},
+		},
+		MaxUpdates: 50,
+	}
+
+	facts, blocked := core.FilterMangleUpdates(p.Kernel, updates, policy)
+	for _, b := range blocked {
+		logging.SystemShardsDebug("[PerceptionFirewall] Blocked mangle_update %q: %s", b.Update, b.Reason)
+	}
+	if len(facts) > 0 {
+		_ = p.Kernel.AssertBatch(facts)
+	}
+}
+
+// trackSuccess records a successful parse pattern.
+func (p *PerceptionFirewallShard) trackSuccess(pattern string) {
+	p.BaseSystemShard.trackSuccess(pattern)
+}
+
+// trackFailure records a failed or ambiguous pattern.
+func (p *PerceptionFirewallShard) trackFailure(pattern string, reason string) {
+	p.BaseSystemShard.trackFailure(pattern, reason)
+}
+
+// trackCorrection records a user correction.
+func (p *PerceptionFirewallShard) trackCorrection(original, corrected string) {
+	p.BaseSystemShard.trackCorrection(original, corrected)
+}
+
+func (p *PerceptionFirewallShard) isVerbKnown(verb string) bool {
+	normalized := normalizeAtom(verb)
+	if normalized == "" || normalized == "none" {
+		return false
+	}
+	for _, entry := range perception.GetVerbCorpus() {
+		if normalizeAtom(entry.Verb) == normalized {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *PerceptionFirewallShard) isVerbActionMapped(verb string) (bool, error) {
+	if p.Kernel == nil {
+		return true, nil
+	}
+	results, err := p.Kernel.Query("action_mapping")
+	if err != nil {
+		return false, err
+	}
+	normalized := normalizeAtom(verb)
+	for _, fact := range results {
+		if len(fact.Args) < 2 {
+			continue
+		}
+		mappedVerb := normalizeAtom(types.ExtractString(fact.Args[0]))
+		if mappedVerb == normalized {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (p *PerceptionFirewallShard) classifyVerbMapping(verb string) (bool, string) {
+	normalized := normalizeAtom(verb)
+	if normalized == "" || normalized == "none" {
+		return false, "/no_verb_match"
+	}
+	known := p.isVerbKnown(normalized)
+	mapped, err := p.isVerbActionMapped(normalized)
+	if err != nil {
+		logging.SystemShardsDebug("[PerceptionFirewall] action_mapping query failed: %v", err)
+		return true, ""
+	}
+	if !known && mapped {
+		return true, ""
+	}
+	if !known {
+		return false, "/unknown_verb"
+	}
+	if !mapped {
+		return false, "/no_action_mapping"
+	}
+	return true, ""
+}
+
+func (p *PerceptionFirewallShard) recordLearningCandidate(phrase, verb, target, reason string) (int, error) {
+	p.mu.RLock()
+	store := p.candidateStore
+	p.mu.RUnlock()
+	if store == nil || strings.TrimSpace(phrase) == "" {
+		return 0, nil
+	}
+	return store.RecordLearningCandidate(phrase, verb, target, reason)
+}
+
+var (
+	globalVerbPatterns = map[string]*regexp.Regexp{
+		"explain":   regexp.MustCompile(`(?i)(explain|describe|what is|how does|tell me about)`),
+		"review":    regexp.MustCompile(`(?i)(review|check|analyze|audit|inspect)`),
+		"fix":       regexp.MustCompile(`(?i)(fix|repair|resolve|correct|patch)`),
+		"refactor":  regexp.MustCompile(`(?i)(refactor|clean up|improve|optimize)`),
+		"create":    regexp.MustCompile(`(?i)(create|make|generate|build|write|add)`),
+		"delete":    regexp.MustCompile(`(?i)(delete|remove|drop|clear)`),
+		"test":      regexp.MustCompile(`(?i)(test|verify|validate|check)`),
+		"search":    regexp.MustCompile(`(?i)(search|find|look for|locate|grep)`),
+		"debug":     regexp.MustCompile(`(?i)(debug|troubleshoot|diagnose|trace)`),
+		"implement": regexp.MustCompile(`(?i)(implement|build|develop|code)`),
+		"run":       regexp.MustCompile(`(?i)(run|execute|start|launch)`),
+		"research":  regexp.MustCompile(`(?i)(research|investigate|explore|learn about)`),
+	}
+	pathPattern = regexp.MustCompile(`(?:in\s+|at\s+|file\s+|path\s+)?([a-zA-Z0-9_\-./]+\.[a-zA-Z]+)`)
+)
+
+// Execute runs the Perception Firewall's continuous parsing loop.
+func (p *PerceptionFirewallShard) Execute(ctx context.Context, task string) (string, error) {
+	logging.SystemShards("[PerceptionFirewall] Starting continuous parsing loop")
+	p.SetState(types.ShardStateRunning)
+	p.mu.Lock()
+	p.running = true
+	p.StartTime = time.Now()
+	p.mu.Unlock()
+
+	defer func() {
+		p.SetState(types.ShardStateCompleted)
+		p.mu.Lock()
+		p.running = false
+		p.mu.Unlock()
+		logging.SystemShards("[PerceptionFirewall] Parsing loop terminated")
+	}()
+
+	// Initialize kernel if not set
+	if p.Kernel == nil {
+		logging.SystemShardsDebug("[PerceptionFirewall] Creating new kernel (none attached)")
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return "", fmt.Errorf("failed to create kernel: %w", err)
+		}
+		p.Kernel = kernel
+	}
+
+	// Perception is already event-driven via pendingInputs channel.
+	// This ticker is only for heartbeat emission — no polling needed.
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			logging.SystemShards("[PerceptionFirewall] Context cancelled, shutting down")
+			return p.generateShutdownSummary("context cancelled"), ctx.Err()
+		case <-p.StopCh:
+			logging.SystemShards("[PerceptionFirewall] Stop signal received")
+			return p.generateShutdownSummary("stopped"), nil
+		case input := <-p.pendingInputs:
+			// Process input
+			logging.SystemShardsDebug("[PerceptionFirewall] Processing input: %s", truncateForLog(input, 80))
+			if err := p.processInput(ctx, input); err != nil {
+				logging.Get(logging.CategorySystemShards).Error("[PerceptionFirewall] Error processing input: %v", err)
+				_ = p.Kernel.Assert(types.Fact{
+					Predicate: "perception_error",
+					Args:      []any{err.Error(), time.Now().Unix()},
+				})
+			}
+		case <-heartbeat.C:
+			// Heartbeat only — no polling
+			_ = p.EmitHeartbeat()
+		}
+	}
+}
+
+// SubmitInput queues user input for processing.
+func (p *PerceptionFirewallShard) SubmitInput(input string) error {
+	select {
+	case p.pendingInputs <- input:
+		return nil
+	default:
+		return fmt.Errorf("input queue full")
+	}
+}
+
+// processInput parses a single user input.
+func (p *PerceptionFirewallShard) processInput(ctx context.Context, input string) error {
+	timer := logging.StartTimer(logging.CategorySystemShards, "[PerceptionFirewall] processInput")
+	defer timer.Stop()
+
+	_, err := p.Perceive(ctx, input, nil)
+	return err
+}
+
+// Perceive parses user input into an intent and emits canonical facts into the parent kernel.
+//
+// This is the synchronous entry point used by interactive UIs. It is designed to be resilient:
+// if LLM parsing fails or is blocked by CostGuard, it degrades to deterministic fallback parsing.
+func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, history []perception.ConversationTurn) (Intent, error) {
+	timer := logging.StartTimer(logging.CategorySystemShards, "[PerceptionFirewall] Perceive")
+	defer timer.Stop()
+
+	p.mu.Lock()
+	p.lastInput = time.Now()
+	p.mu.Unlock()
+
+	// Ensure kernel is available.
+	if p.Kernel == nil {
+		logging.SystemShardsDebug("[PerceptionFirewall] Creating new kernel (none attached)")
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return Intent{}, fmt.Errorf("failed to create kernel: %w", err)
+		}
+		p.Kernel = kernel
+	}
+
+	transducer := p.ensureTransducer()
+
+	// Prefer GCD so control_packet.mangle_updates are syntax-validated.
+	maxRetries := 3
+	if p.CostGuard != nil && p.CostGuard.MaxValidationRetries > 0 {
+		maxRetries = p.CostGuard.MaxValidationRetries
+	}
+
+	intent, validatedUpdates, parseErr := transducer.ParseIntentWithGCD(ctx, input, history, maxRetries)
+	parseFailed := parseErr != nil
+	if parseErr != nil {
+		logging.SystemShardsDebug("[PerceptionFirewall] Transducer parse failed (degrading): %v", parseErr)
+		transducerErr := parseErr
+		if p.config.UseFallbackParsing {
+			intent = p.parseWithFallback(input)
+			validatedUpdates = nil
+			parseErr = nil
+		}
+		// A transducer that errors instead of degrading still reports why: the
+		// typed cause rides on the intent whether or not the regex fallback
+		// produced a guess. That guess is not an admitted interpretation.
+		intent.Outcome = perception.FailedOutcome(transducerErr, "", 0)
+	}
+
+	// Normalize category/verb to name constants (leading '/').
+	intent.Category = normalizeAtom(intent.Category)
+	intent.Verb = normalizeAtom(intent.Verb)
+	// NOTE: We intentionally leave intent.Response empty if perception didn't generate one.
+	// This forces articulation to generate a proper response. The old fallback of "Understood."
+	// was useless and would sometimes be returned directly to users, which is terrible UX.
+	// Articulation will always generate a meaningful response.
+
+	// Use a stable intent ID so policy can scope rules to the active user intent.
+	// This prevents stale intent accumulation across turns.
+	intentID := "/current_intent"
+	phrase := strings.TrimSpace(input)
+
+	// Clear stale Perception ephemera to avoid old ambiguity/clarification loops.
+	// Use a transaction to batch all retracts+asserts into a single rebuild.
+	tx := types.NewKernelTx(p.Kernel)
+	RetractPerceptionEphemera(tx, intentID)
+
+	if phrase != "" {
+		tx.Assert(types.Fact{
+			Predicate: "user_input_string",
+			Args:      []any{phrase},
+		})
+	}
+	// What happened when a model tried to read this turn. The kernel derives
+	// the turn's disposition from it (policy/perception_outcome.mg); a failed
+	// classification is not user ambiguity, so none of the intent_unknown or
+	// ambiguity reasoning below applies to it.
+	classificationFailed := intent.Outcome.Failed()
+	if fact, ok := intent.Outcome.Fact(intentID); ok {
+		tx.Assert(fact)
+	}
+	if err := tx.Commit(); err != nil {
+		logging.Get(logging.CategoryPerception).Error("perception ephemera cleanup failed: %v", err)
+	}
+
+	unknownReason := ""
+	if strings.TrimSpace(intent.Verb) == "" {
+		if !classificationFailed {
+			unknownReason = "/no_verb_match"
+		}
+		intent.Verb = "/explain"
+		if intent.Category == "" || intent.Category == "/instruction" {
+			intent.Category = "/query"
+		}
+		if intent.Confidence > 0.3 {
+			intent.Confidence = 0.3
+		}
+	} else if parseFailed {
+		if intent.Confidence > 0.4 {
+			intent.Confidence = 0.4
+		}
+	} else if !classificationFailed && intent.Confidence < p.config.AmbiguityThreshold {
+		unknownReason = "/heuristic_low"
+	}
+
+	if unknownReason != "" {
+		_ = p.Kernel.Assert(types.Fact{
+			Predicate: "intent_unknown",
+			Args: []any{
+				truncateForLog(input, 120),
+				types.MangleAtom(unknownReason),
+			},
+		})
+	}
+
+	if mapped, mapReason := p.classifyVerbMapping(intent.Verb); !mapped {
+		_ = p.Kernel.Assert(types.Fact{
+			Predicate: "intent_unmapped",
+			Args: []any{
+				types.MangleAtom(intent.Verb),
+				types.MangleAtom(mapReason),
+			},
+		})
+		if intent.Confidence > 0.4 {
+			intent.Confidence = 0.4
+		}
+		if count, err := p.recordLearningCandidate(phrase, intent.Verb, intent.Target, mapReason); err != nil {
+			logging.SystemShardsDebug("[PerceptionFirewall] Failed to record learning candidate: %v", err)
+		} else if p.config.LearningCandidateThreshold > 0 {
+			if p.Kernel != nil {
+				// Replace any stale count fact for this phrase.
+				if existing, err := p.Kernel.Query("learning_candidate_count"); err == nil {
+					for _, f := range existing {
+						if len(f.Args) < 2 {
+							continue
+						}
+						if existingPhrase, ok := f.Args[0].(string); ok && existingPhrase == phrase {
+							_ = p.Kernel.RetractFact(f)
+						}
+					}
+				}
+				_ = p.Kernel.Assert(types.Fact{
+					Predicate: "learning_candidate_count",
+					Args:      []any{phrase, count},
+				})
+			}
+			if count >= p.config.LearningCandidateThreshold {
+				_ = p.Kernel.Assert(types.Fact{
+					Predicate: "learning_candidate",
+					Args: []any{
+						phrase,
+						types.MangleAtom(intent.Verb),
+						intent.Target,
+						types.MangleAtom(mapReason),
+					},
+				})
+			}
+		}
+	}
+
+	// Emit user_intent/5
+	_ = p.Kernel.Assert(types.Fact{
+		Predicate: "user_intent",
+		Args: []any{
+			intentID,
+			types.MangleAtom(intent.Category),
+			types.MangleAtom(intent.Verb),
+			intent.Target,
+			intent.Constraint,
+		},
+	})
+
+	p.mu.Lock()
+	p.intentsProcessed++
+	p.mu.Unlock()
+
+	// Track success for high-confidence parses (autopoiesis)
+	if intent.Confidence >= p.config.ConfidenceThreshold {
+		pattern := fmt.Sprintf("%s:%s", intent.Verb, intent.Category)
+		p.trackSuccess(pattern)
+	}
+
+	// Ambiguity handling. A failed classification has confidence 0 because
+	// nothing was read, not because the user was unclear; it asks the user
+	// nothing and teaches the autopoiesis tracker nothing.
+	if !classificationFailed && intent.Confidence < p.config.AmbiguityThreshold {
+		logging.Get(logging.CategorySystemShards).Warn("[PerceptionFirewall] Ambiguous intent detected: confidence=%.2f", intent.Confidence)
+		_ = p.Kernel.Assert(types.Fact{
+			Predicate: "ambiguity_flag",
+			Args: []any{
+				intentID,
+				truncateForLog(input, 120),
+				fmt.Sprintf("confidence=%.2f", intent.Confidence),
+			},
+		})
+
+		// Track ambiguity pattern (autopoiesis)
+		pattern := fmt.Sprintf("ambiguous:%s", intent.Verb)
+		p.trackFailure(pattern, "low_confidence")
+	}
+
+	// Resolve focus if target present (drives clarification_needed/1 via policy)
+	if strings.TrimSpace(intent.Target) != "" && intent.Target != "none" {
+		resolution := p.resolveTarget(ctx, intent.Target)
+		logging.SystemShardsDebug("[PerceptionFirewall] Target resolution: raw=%s, resolved=%s, confidence=%d",
+			resolution.RawReference, resolution.ResolvedPath, resolution.ConfidencePercent)
+		_ = p.Kernel.Assert(resolution.ToFact())
+		if resolution.ConfidencePercent < 85 {
+			p.mu.Lock()
+			p.clarifications++
+			p.mu.Unlock()
+		}
+	}
+
+	// Apply a conservative subset of validated mangle_updates from the control packet.
+	p.applyPerceptionMangleUpdates(validatedUpdates)
+
+	// Mark as processed
+	_ = p.Kernel.Assert(types.Fact{
+		Predicate: "processed_intent",
+		Args:      []any{intentID},
+	})
+
+	logging.SystemShards("[PerceptionFirewall] Intent processed: id=%s, verb=%s", intentID, intent.Verb)
+	return intent, parseErr
+}
+
+// parseWithFallback uses regex patterns for parsing.
+func (p *PerceptionFirewallShard) parseWithFallback(input string) Intent {
+	intent := Intent{
+		Category:   "/instruction",
+		Confidence: 0.6, // Lower confidence for fallback
+	}
+
+	// Match verb patterns
+	for verb, pattern := range p.verbPatterns {
+		if pattern.MatchString(input) {
+			intent.Verb = normalizeAtom(verb)
+			break
+		}
+	}
+
+	// Extract potential target (file paths, symbols)
+	if matches := pathPattern.FindStringSubmatch(input); len(matches) > 1 {
+		intent.Target = matches[1]
+	}
+
+	// Determine category
+	switch intent.Verb {
+	case "/explain", "/search", "/review":
+		intent.Category = "/query"
+	case "/fix", "/refactor", "/create", "/delete", "/implement":
+		intent.Category = "/mutation"
+	default:
+		intent.Category = "/instruction"
+	}
+
+	// Store original as constraint if no specific constraint found
+	if intent.Constraint == "" {
+		intent.Constraint = input
+	}
+
+	return intent
+}
+
+// resolveTarget attempts to resolve a fuzzy reference to a concrete path.
+func (p *PerceptionFirewallShard) resolveTarget(ctx context.Context, target string) FocusResolution {
+	resolution := FocusResolution{
+		RawReference:      target,
+		ConfidencePercent: 50,
+	}
+
+	// Direct file path
+	if strings.Contains(target, "/") || strings.Contains(target, "\\") || strings.Contains(target, ".") {
+		resolution.ResolvedPath = target
+		resolution.ConfidencePercent = 90
+		return resolution
+	}
+
+	// Symbol / file resolution against the world model.
+	// NEVER pull the full symbol_graph (25k+ facts) for generic targets like
+	// "user" / greetings — that alone was multi-second under a dirty kernel.
+	target = strings.TrimSpace(target)
+	if target == "" || isNonResolvableTarget(target) {
+		resolution.ConfidencePercent = 30
+		return resolution
+	}
+
+	// Symbol reference: scan only until first exact name match, and bail if
+	// the result set is huge without a hit (avoid O(N) Go work on top of eval).
+	results, err := p.Kernel.Query("symbol_graph")
+	if err == nil {
+		const maxSymbolScan = 2000
+		for i, fact := range results {
+			if i >= maxSymbolScan {
+				break
+			}
+			if len(fact.Args) < 4 {
+				continue
+			}
+			if name, ok := fact.Args[0].(string); ok && strings.EqualFold(name, target) {
+				if path, ok := fact.Args[3].(string); ok {
+					resolution.ResolvedPath = path
+					resolution.SymbolName = target
+					resolution.ConfidencePercent = 85
+					return resolution
+				}
+			}
+		}
+	}
+
+	// Partial match via file_topology (cap scan the same way)
+	results, err = p.Kernel.Query("file_topology")
+	if err == nil {
+		const maxFileScan = 2000
+		lowerTarget := strings.ToLower(target)
+		for i, fact := range results {
+			if i >= maxFileScan {
+				break
+			}
+			if len(fact.Args) > 0 {
+				if path, ok := fact.Args[0].(string); ok {
+					if strings.Contains(strings.ToLower(path), lowerTarget) {
+						resolution.ResolvedPath = path
+						resolution.ConfidencePercent = 70
+						return resolution
+					}
+				}
+			}
+		}
+	}
+
+	// Unable to resolve - emit for clarification
+	resolution.ConfidencePercent = 30
+	return resolution
+}
+
+// isNonResolvableTarget returns true for pronouns / conversational fillers
+// and vague whole-repo references that must never trigger a full world-model
+// scan (symbol_graph / file_topology — 25k+ facts in live tests).
+func isNonResolvableTarget(target string) bool {
+	t := strings.ToLower(strings.TrimSpace(target))
+	switch t {
+	case "user", "me", "you", "we", "us", "it", "this", "that", "here", "there",
+		"hello", "hi", "hey", "thanks", "thank you", "ok", "okay", "yes", "no",
+		"codebase", "project", "workspace", "none", "null", "unknown",
+		"entire codebase", "the codebase", "the project", "the workspace",
+		"whole codebase", "whole project", "everything", "all files", "":
+		return true
+	default:
+		// Multi-word vague scopes still match via keyword.
+		if strings.Contains(t, "codebase") || strings.Contains(t, "entire project") ||
+			strings.Contains(t, "whole repo") || strings.Contains(t, "whole repository") {
+			return true
+		}
+		// Very short tokens are almost always noise for symbol lookup.
+		return len(t) < 2
+	}
+}
+
+// generateShutdownSummary creates a summary of the shard's activity.
+func (p *PerceptionFirewallShard) generateShutdownSummary(reason string) string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return fmt.Sprintf(
+		"Perception Firewall shutdown (%s). Intents: %d, Clarifications: %d, Runtime: %s",
+		reason,
+		p.intentsProcessed,
+		p.clarifications,
+		time.Since(p.StartTime).String(),
+	)
+}
+
+// GetStats returns parsing statistics.
+func (p *PerceptionFirewallShard) GetStats() map[string]int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return map[string]int{
+		"intents_processed": p.intentsProcessed,
+		"clarifications":    p.clarifications,
+	}
+}
+
+// RecordCorrection allows external systems to record when a user corrects an intent.
+// This enables the perception firewall to learn from mistakes.
+func (p *PerceptionFirewallShard) RecordCorrection(originalIntent, correctedIntent Intent) {
+	// Track the correction pattern
+	original := fmt.Sprintf("%s:%s:%s", originalIntent.Verb, originalIntent.Category, originalIntent.Target)
+	corrected := fmt.Sprintf("%s:%s:%s", correctedIntent.Verb, correctedIntent.Category, correctedIntent.Target)
+	p.trackCorrection(original, corrected)
+
+	// Also track specific verb corrections
+	if originalIntent.Verb != correctedIntent.Verb {
+		p.trackCorrection(
+			fmt.Sprintf("verb:%s", originalIntent.Verb),
+			fmt.Sprintf("verb:%s", correctedIntent.Verb),
+		)
+	}
+
+	// Track category corrections
+	if originalIntent.Category != correctedIntent.Category {
+		p.trackCorrection(
+			fmt.Sprintf("category:%s", originalIntent.Category),
+			fmt.Sprintf("category:%s", correctedIntent.Category),
+		)
+	}
+}
+
+// GetLearnedPatterns returns learned patterns for inclusion in LLM prompts.
+// Lists are sorted: the registries are maps, and prompt text assembled in
+// map order would shuffle from turn to turn for no reason.
+func (p *PerceptionFirewallShard) GetLearnedPatterns() map[string][]string {
+	// Use base class mutex for accessing learning maps
+	p.BaseSystemShard.mu.RLock()
+	defer p.BaseSystemShard.mu.RUnlock()
+
+	result := make(map[string][]string)
+
+	// Successful patterns
+	var successful []string
+	for pattern, count := range p.BaseSystemShard.patternSuccess {
+		if count >= 3 {
+			successful = append(successful, pattern)
+		}
+	}
+	slices.Sort(successful)
+	result["successful"] = successful
+
+	// Failed patterns
+	var failed []string
+	for pattern, count := range p.BaseSystemShard.patternFailure {
+		if count >= 2 {
+			failed = append(failed, pattern)
+		}
+	}
+	slices.Sort(failed)
+	result["failed"] = failed
+
+	// Corrections
+	var corrections []string
+	for pattern, count := range p.BaseSystemShard.corrections {
+		if count >= 2 {
+			corrections = append(corrections, pattern)
+		}
+	}
+	slices.Sort(corrections)
+	result["corrections"] = corrections
+
+	return result
+}
+
+// NOTE: Legacy perceptionSystemPrompt and perceptionUserPrompt constants have been DELETED.
+// Perception system prompts are now JIT-compiled from:
+//   internal/prompt/atoms/system/perception.yaml
+// The UnderstandingTransducer handles prompt assembly via its PromptAssembler.
+
+func (g guardedPerceptionClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		if g.base == nil {
+			return "", fmt.Errorf("no base shard configured")
+		}
+		return g.base.GuardedLLMCall(ctx, systemPrompt, userPrompt)
+	})
+}
+
+// PerceptionEphemera are the facts one turn's perception asserts about that
+// turn. Every path that starts a turn's intent retracts them first: the
+// firewall when it perceives, and chat's direct path when it asserts an intent
+// itself. An approved proposal reuses its held intent and skips the firewall;
+// without this retraction the "go" turn's intent_unmapped(/no_action_mapping)
+// for "approve" survived into the approved run and routed it to clarify.
+var PerceptionEphemera = []string{
+	"ambiguity_flag",
+	"clarification_needed",
+	"intent_unknown",
+	"classification_outcome",
+	"intent_unmapped",
+	"no_action_reason",
+	"clarification_question",
+	"clarification_option",
+	"learning_candidate",
+	"learning_candidate_fact",
+	"learning_candidate_count",
+	"awaiting_clarification",
+	"awaiting_user_input",
+	"campaign_awaiting_clarification",
+	"focus_resolution",
+	"user_input_string",
+}
+
+// PerceptionIntentFacts are retracted by the intent's id, not wholesale.
+var PerceptionIntentFacts = []string{"user_intent", "processed_intent", "executive_processed_intent"}
+
+// ephemeraRetractor is the part of a kernel transaction the retraction uses.
+type ephemeraRetractor interface {
+	Retract(predicate string)
+	RetractFact(fact types.Fact)
+}
+
+// RetractPerceptionEphemera queues the retraction of a turn's perception facts
+// and the intent's own facts.
+func RetractPerceptionEphemera(tx ephemeraRetractor, intentID string) {
+	for _, pred := range PerceptionEphemera {
+		tx.Retract(pred)
+	}
+	for _, pred := range PerceptionIntentFacts {
+		tx.RetractFact(types.Fact{Predicate: pred, Args: []any{intentID}})
+	}
+}

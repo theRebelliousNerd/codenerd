@@ -1,0 +1,444 @@
+package perception
+
+import (
+	"bytes"
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+)
+
+// OpenRouterClient implements LLMClient for OpenRouter API.
+// OpenRouter provides access to multiple LLM providers through a single API.
+type OpenRouterClient struct {
+	apiKey      string
+	baseURL     string
+	model       string
+	httpClient  *http.Client
+	mu          sync.Mutex
+	lastRequest time.Time
+	siteURL     string // Optional: Your site URL for rankings
+	siteName    string // Optional: Your app name for rankings
+	// maxOutputTokens is the completion ceiling sent on every request.
+	maxOutputTokens int
+}
+
+// DefaultOpenRouterConfig returns sensible defaults.
+func DefaultOpenRouterConfig(apiKey string) OpenRouterConfig {
+	return OpenRouterConfig{
+		APIKey:  apiKey,
+		BaseURL: "https://openrouter.ai/api/v1",
+		// No default model: the workspace names one in .nerd/config.json or the
+		// client factory refuses to build the client.
+		Timeout:  10 * time.Minute, // Large context models need extended timeout
+		SiteName: "codeNERD",
+	}
+}
+
+// NewOpenRouterClientWithConfig creates a new OpenRouter client with custom config.
+func NewOpenRouterClientWithConfig(config OpenRouterConfig) *OpenRouterClient {
+	return &OpenRouterClient{
+		apiKey:          config.APIKey,
+		baseURL:         config.BaseURL,
+		model:           config.Model,
+		siteURL:         config.SiteURL,
+		siteName:        config.SiteName,
+		httpClient:      NewSharedHTTPClient(config.Timeout),
+		maxOutputTokens: orDefaultTokens(config.MaxOutputTokens, 4096),
+	}
+}
+
+// rateLimit enforces minimum inter-request spacing to avoid 429 responses.
+// Must be called before each API request.
+func (c *OpenRouterClient) rateLimit() {
+	c.mu.Lock()
+	elapsed := time.Since(c.lastRequest)
+	if elapsed < 100*time.Millisecond {
+		time.Sleep(100*time.Millisecond - elapsed)
+	}
+	c.lastRequest = time.Now()
+	c.mu.Unlock()
+}
+
+// Complete sends a prompt and returns the completion.
+func (c *OpenRouterClient) Complete(ctx context.Context, prompt string) (string, error) {
+	return c.CompleteWithSystem(ctx, "", prompt)
+}
+
+// CompleteWithSystem sends a prompt with a system message.
+func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	// Auto-apply timeout if context has no deadline (centralized timeout handling)
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+		defer cancel()
+	}
+
+	startTime := time.Now()
+	logging.PerceptionDebug("[OpenRouter] CompleteWithSystem: model=%s system_len=%d user_len=%d", c.model, len(systemPrompt), len(userPrompt))
+
+	if c.apiKey == "" {
+		logging.PerceptionError("[OpenRouter] CompleteWithSystem: API key not configured")
+		return "", fmt.Errorf("API key not configured")
+	}
+
+	isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
+		strings.Contains(systemPrompt, "surface_response") ||
+		strings.Contains(userPrompt, "PiggybackEnvelope") ||
+		strings.Contains(userPrompt, "control_packet")
+
+	// Rate limiting
+	c.rateLimit()
+
+	messages := systemAndUserMessages(systemPrompt, userPrompt)
+
+	reqBody := OpenRouterRequest{
+		Model:       c.model,
+		Messages:    messages,
+		MaxTokens:   c.maxOutputTokens,
+		Temperature: types.TemperatureFor(ctx, 0.1),
+	}
+	if isPiggyback {
+		reqBody.ResponseFormat = BuildOpenRouterPiggybackEnvelopeSchema()
+	}
+
+	// Retry loop for rate limits
+	maxRetries := llmMaxRetries()
+	var lastErr error
+
+	for i := 0; i <= maxRetries; i++ {
+		if i > 0 {
+			// Context-aware backoff: a cancelled turn must exit during
+			// the sleep, not after it (matches ExecuteOpenAIRequest).
+			backoff := llmRetryBackoff(i)
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
+		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal request: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
+		if err != nil {
+			return "", fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		// OpenRouter-specific headers
+		req.Header.Set("HTTP-Referer", c.siteURL)
+		req.Header.Set("X-Title", c.siteName)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request failed: %w", err)
+			continue
+		}
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		resp.Body.Close()
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read response: %w", err)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			lastErr = fmt.Errorf("rate limit exceeded (429)")
+			continue
+		}
+
+		if isTransientHTTPStatus(resp.StatusCode) {
+			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			// Some providers/models reject response_format; retry once without it.
+			if isPiggyback && reqBody.ResponseFormat != nil && resp.StatusCode == http.StatusBadRequest {
+				bodyStr := string(body)
+				if strings.Contains(bodyStr, "response_format") || strings.Contains(bodyStr, "json_schema") {
+					reqBody.ResponseFormat = nil
+					lastErr = fmt.Errorf("request rejected structured output, retrying without response_format: %s", bodyStr)
+					continue
+				}
+			}
+			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var orResp OpenRouterResponse
+		if err := json.Unmarshal(body, &orResp); err != nil {
+			return "", fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if orResp.Error != nil {
+			return "", fmt.Errorf("API error: %s", orResp.Error.Message)
+		}
+
+		if len(orResp.Choices) == 0 {
+			logging.PerceptionError("[OpenRouter] CompleteWithSystem: no completion returned")
+			return "", fmt.Errorf("no completion returned")
+		}
+
+		reportUsage(ctx, c.model, ProviderOpenRouter, usageOpChat, orResp.Usage.metadata())
+
+		response := strings.TrimSpace(orResp.Choices[0].Message.Content)
+		if finish := orResp.Choices[0].FinishReason; types.LengthStop(finish) {
+			return "", outputTruncated(ProviderOpenRouter, c.model, "CompleteWithSystem", finish, response,
+				c.maxOutputTokens, orResp.Usage.CompletionTokens)
+		}
+		logging.Perception("[OpenRouter] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
+		return response, nil
+	}
+
+	logging.PerceptionError("[OpenRouter] CompleteWithSystem: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
+	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+// CompleteWithStreaming sends a prompt with streaming enabled.
+// Returns channels of incremental content deltas.
+func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	w, contentChan, doneChan := types.NewStream()
+
+	logging.PerceptionDebug("[OpenRouter] CompleteWithStreaming: starting streaming model=%s", c.model)
+
+	go func() {
+		defer w.Close()
+
+		// Auto-apply timeout if context has no deadline (centralized timeout handling)
+		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+			defer cancel()
+		}
+
+		startTime := time.Now()
+
+		if c.apiKey == "" {
+			logging.PerceptionError("[OpenRouter] CompleteWithStreaming: API key not configured")
+			w.Fail(fmt.Errorf("API key not configured"))
+			return
+		}
+
+		isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
+			strings.Contains(systemPrompt, "surface_response") ||
+			strings.Contains(userPrompt, "PiggybackEnvelope") ||
+			strings.Contains(userPrompt, "control_packet")
+
+		// Rate limiting
+		c.rateLimit()
+
+		messages := systemAndUserMessages(systemPrompt, userPrompt)
+
+		reqBody := OpenRouterRequest{
+			Model:       c.model,
+			Messages:    messages,
+			MaxTokens:   c.maxOutputTokens,
+			Temperature: types.TemperatureFor(ctx, 0.1),
+			Stream:      true,
+			StreamOptions: &OpenAIStreamOptions{
+				IncludeUsage: true,
+			},
+		}
+		if isPiggyback {
+			reqBody.ResponseFormat = BuildOpenRouterPiggybackEnvelopeSchema()
+		}
+
+		maxRetries := llmMaxRetries()
+		var lastErr error
+
+		for attempt := 0; attempt <= maxRetries; attempt++ {
+			if attempt > 0 {
+				// Context-aware backoff: a cancelled turn must exit during
+				// the sleep, not after it (matches ExecuteOpenAIRequest).
+				backoff := llmRetryBackoff(attempt)
+				select {
+				case <-ctx.Done():
+					w.Fail(fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err()))
+					return
+				case <-time.After(backoff):
+				}
+			}
+
+			jsonData, err := json.Marshal(reqBody)
+			if err != nil {
+				w.Fail(fmt.Errorf("failed to marshal request: %w", err))
+				return
+			}
+
+			req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
+			if err != nil {
+				w.Fail(fmt.Errorf("failed to create request: %w", err))
+				return
+			}
+
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+c.apiKey)
+			req.Header.Set("Accept", "text/event-stream")
+			req.Header.Set("HTTP-Referer", c.siteURL)
+			req.Header.Set("X-Title", c.siteName)
+
+			resp, err := c.httpClient.Do(req)
+			if err != nil {
+				lastErr = fmt.Errorf("request failed: %w", err)
+				continue
+			}
+
+			if resp.StatusCode == http.StatusTooManyRequests {
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+				resp.Body.Close()
+				lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
+				continue
+			}
+
+			if isTransientHTTPStatus(resp.StatusCode) {
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+				resp.Body.Close()
+				lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+				continue
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+				resp.Body.Close()
+
+				// Some providers/models reject response_format; retry once without it.
+				if isPiggyback && reqBody.ResponseFormat != nil && resp.StatusCode == http.StatusBadRequest {
+					bodyStr := string(body)
+					if strings.Contains(bodyStr, "response_format") || strings.Contains(bodyStr, "json_schema") {
+						reqBody.ResponseFormat = nil
+						lastErr = fmt.Errorf("request rejected structured output, retrying without response_format: %s", bodyStr)
+						continue
+					}
+				}
+
+				w.Fail(fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body)))
+				return
+			}
+
+			defer resp.Body.Close()
+			res := readChatStream(ctx, resp.Body, chatStreamProfile{provider: ProviderOpenRouter, model: c.model, limit: c.maxOutputTokens}, w)
+			reportUsage(ctx, c.model, ProviderOpenRouter, usageOpChat, res.Usage)
+			logStreamEnd("OpenRouter", startTime, res)
+			w.Finish(res)
+			return
+		}
+
+		logging.PerceptionError("[OpenRouter] CompleteWithStreaming: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
+		w.Fail(fmt.Errorf("max retries exceeded: %w", lastErr))
+	}()
+
+	return contentChan, doneChan
+}
+
+// SetModel changes the model used for completions.
+func (c *OpenRouterClient) SetModel(model string) {
+	c.model = model
+}
+
+// GetModel returns the current model.
+func (c *OpenRouterClient) GetModel() string {
+	return c.model
+}
+
+// CompleteWithTools sends a prompt with tool definitions.
+func (c *OpenRouterClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	openAITools := MapToolDefinitionsToOpenAI(tools)
+
+	reqBody := OpenAIRequest{
+		Model: c.model,
+		Messages: []OpenAIMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		Tools:      openAITools,
+		ToolChoice: "auto",
+		Stream:     false,
+	}
+
+	resp, err := ExecuteOpenAIRequest(ctx, c.httpClient, c.baseURL, c.apiKey, reqBody)
+	if err != nil {
+		return nil, err
+	}
+	reportUsage(ctx, c.model, ProviderOpenRouter, usageOpFor(len(tools)), resp.Usage.metadata())
+	return c.toToolResponse(resp, "CompleteWithTools")
+}
+
+// CompleteWithToolResults implements types.ToolResultsProvider: it continues a
+// multi-turn tool conversation by sending the accumulated history plus tool
+// definitions. Without this method broker.Wrap demotes the client to a bare
+// baseClient and every shard fails before its first call with "does not
+// implement ToolResultsProvider".
+func (c *OpenRouterClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []ToolDefinition) (*LLMToolResponse, error) {
+	messages, err := MapTypesHistoryToOpenAIMessages(systemPrompt, history)
+	if err != nil {
+		return nil, err
+	}
+
+	reqBody := OpenAIRequest{
+		Model:    c.model,
+		Messages: messages,
+		Tools:    MapToolDefinitionsToOpenAI(tools),
+		Stream:   false,
+	}
+	if len(reqBody.Tools) > 0 {
+		reqBody.ToolChoice = "auto"
+	}
+
+	resp, err := ExecuteOpenAIRequest(ctx, c.httpClient, c.baseURL, c.apiKey, reqBody)
+	if err != nil {
+		return nil, err
+	}
+	reportUsage(ctx, c.model, ProviderOpenRouter, usageOpFor(len(tools)), resp.Usage.metadata())
+	return c.toToolResponse(resp, "CompleteWithToolResults")
+}
+
+var _ types.ToolResultsProvider = (*OpenRouterClient)(nil)
+
+// toToolResponse converts a raw OpenAI-shaped response into the internal tool
+// shape. Shared by the single-turn and multi-turn tool paths; op names the
+// caller in truncation errors.
+func (c *OpenRouterClient) toToolResponse(resp *OpenAIResponse, op string) (*LLMToolResponse, error) {
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
+	}
+
+	choice := resp.Choices[0]
+	toolCalls, err := MapOpenAIToolCallsToInternal(choice.Message.ToolCalls)
+	if err != nil {
+		return nil, err
+	}
+
+	stopReason := choice.FinishReason
+	if types.LengthStop(stopReason) {
+		return nil, outputTruncated(ProviderOpenRouter, c.model, op, stopReason, choice.Message.Content,
+			c.maxOutputTokens, resp.Usage.CompletionTokens)
+	}
+	if stopReason == "tool_calls" {
+		stopReason = "tool_use"
+	}
+
+	return &LLMToolResponse{
+		Text:       choice.Message.Content,
+		ToolCalls:  toolCalls,
+		StopReason: stopReason,
+		Usage:      resp.Usage.metadata(),
+	}, nil
+}
+
+// ModelIdentity reports the provider and model this client serves, satisfying
+// types.ModelIdentifier. The model is the resolved one -- the vendor default
+// when config supplied no override -- which is what prompt-atom pinning must
+// key on.
+func (c *OpenRouterClient) ModelIdentity() (string, string) {
+	return string(ProviderOpenRouter), c.model
+}

@@ -1,0 +1,520 @@
+// Package main implements the codeNERD CLI - a high-assurance, neuro-symbolic CLI agent.
+//
+// This file serves as the entry point and command registration hub. The actual command
+// implementations are split across multiple cmd_*.go files for maintainability.
+//
+// # File Index
+//
+// Entry Point & Global State:
+//   - main.go            - Entry point, rootCmd, global flags, init()
+//
+// Core Commands:
+//   - cmd_instruction.go - runCmd, runInstruction() OODA loop
+//   - cmd_spawn.go       - defineAgentCmd, spawnCmd, defineAgent(), spawnShard()
+//   - cmd_init_scan.go   - initCmd, scanCmd, runInit(), runScan(), writeScanFacts()
+//
+// Direct Action Commands (TUI verb mirrors):
+//   - cmd_direct_actions.go - reviewCmd, fixCmd, testCmd, pushCmd, commitCmd,
+//     explainCmd, createCmd, refactorCmd, perceptionCmd,
+//     runDirectAction(), runPerceptionTest(), truncateResponse()
+//
+// Advanced Commands (Dream state, speculation):
+//   - cmd_advanced.go    - dreamCmd, shadowCmd, whatifCmd, logicCmd, agentsCmd,
+//     toolCmd, jitCmd, runDreamState(), runShadowSimulation(),
+//     runWhatIf(), runLogicQuery(), runAgentsList(),
+//     runToolCommand(), runJITStatus()
+//
+// Browser Automation:
+//   - cmd_browser.go     - browserCmd, browserLaunchCmd, browserSessionCmd,
+//     browserSnapshotCmd, getBrowserConfig(), browserLaunch(),
+//     browserSession(), browserSnapshot()
+//
+// Mangle Validation & LSP:
+//   - cmd_mangle_check.go - checkMangleCmd, runCheckMangle(), checkFile()
+//   - cmd_mangle_lsp.go   - mangleLSPCmd, runMangleLSP() (Language Server Protocol for IDE integration)
+//
+// Query & Status:
+//   - cmd_query.go       - queryCmd, statusCmd, whyCmd, queryFacts(), showStatus(),
+//     runWhy(), joinArgs(), sanitizeFactForMangle()
+//
+// Campaign Management:
+//   - cmd_campaign.go    - campaignCmd, campaignStartCmd, campaignStatusCmd,
+//     campaignPauseCmd, campaignResumeCmd, campaignListCmd
+//
+// Authentication:
+//   - cmd_auth.go        - authCmd, authClaudeCmd, authCodexCmd, authStatusCmd
+//
+// Context Testing:
+//   - cmd_test_context.go - testContextCmd
+//
+// Helpers:
+//   - operation_context.go - operationContext() (applies --timeout; unset means none)
+//   - system_results.go  - systemResultBaselines(), waitForSystemResults(), formatSystemResults()
+//   - stats.go           - computeStats()
+package main
+
+import (
+	"codenerd/cmd/nerd/chat"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+
+	"codenerd/internal/config"
+	"codenerd/internal/features"
+	"codenerd/internal/logging"
+	"codenerd/internal/observability"
+)
+
+var (
+	// Global flags
+	verbose   bool
+	yoloMode  bool
+	apiKey    string
+	workspace string
+	timeout   time.Duration
+	// System shards
+	disableSystemShards []string
+	// Init flags
+	forceInit      bool
+	cleanupBackups bool
+
+	// Logger
+	logger *zap.Logger
+)
+
+// campaignRetryFailed backs --retry-failed on `nerd campaign resume`.
+var campaignRetryFailed bool
+
+// campaignResumeID backs --campaign on `nerd campaign resume`: resume the
+// campaign whose ID contains this substring instead of the default pick.
+var campaignResumeID string
+
+// campaignAdoptSnapshot backs --adopt-snapshot on `nerd campaign resume`: the
+// operator admits a snapshot its journal does not vouch for as a new
+// provenance boundary. The kernel still decides (campaign_rules.mg Section 14).
+var campaignAdoptSnapshot bool
+
+// rootCmd represents the base command
+var rootCmd = &cobra.Command{
+	Use:   "nerd",
+	Short: "codeNERD - Logic-First CLI Agent (Cortex 1.5.0)",
+	Long: `codeNERD is a high-assurance, neuro-symbolic CLI agent.
+
+The model is the creative center: problem solving, synthesis and insight. A
+Mangle kernel -- a deductive database language -- is the executive: planning,
+memory, orchestration and safety are derived from facts, not left to the model.
+
+Architecture: Logic determines Reality; the Model merely describes it.
+
+Run without arguments to start the interactive chat interface.`,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		cmd.SilenceUsage = true
+		if err := startCPUProfile(); err != nil {
+			return err
+		}
+		// Interactive chat builds its own zap logger and UI. File logging
+		// still runs below: this is the first moment --workspace has been
+		// parsed, and a removed logging key has to stop the process before
+		// RunE starts the TUI.
+		interactive := cmd.Use == "nerd" && cmd.CalledAs() == "nerd"
+		if !interactive {
+			// Initialize zap logger for CLI output
+			zapConfig := zap.NewProductionConfig()
+			if verbose {
+				zapConfig.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+			}
+			var err error
+			logger, err = zapConfig.Build()
+			if err != nil {
+				return fmt.Errorf("failed to initialize logger: %w", err)
+			}
+		}
+
+		// File logging for telemetry. ws is the parsed --workspace flag.
+		// main may already have bound a different directory: Initialize
+		// rebinds on a new absolute path and closes the old sinks first.
+		ws := workspace
+		if ws == "" {
+			ws, _ = os.Getwd()
+		}
+		if err := logging.Initialize(ws); err != nil {
+			// logging.json_format is a removed key, so the process stops.
+			// A rebind closes every sink before this error comes back
+			// (logger.go); continuing would leave the run with file
+			// logging torn down. Permission and missing-file errors still
+			// warn and continue. Interactive chat prints that warning
+			// itself when its boot calls Initialize again.
+			if logging.IsRemovedKeyError(err) {
+				return err
+			}
+			if !interactive {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to initialize file logging (telemetry disabled): %v\n", err)
+			}
+		}
+
+		return nil
+	},
+	PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		stopCPUProfile()
+		if logger != nil {
+			_ = logger.Sync()
+		}
+		// Close internal file-based logging system
+		logging.CloseAll()
+	},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Interactive mode should honor --workspace.
+		// The Bubbletea chat UI uses os.Getwd() as its workspace root for `.nerd/` persistence.
+		ws := workspace
+		if ws == "" {
+			ws, _ = os.Getwd()
+		} else if abs, err := filepath.Abs(ws); err == nil {
+			ws = abs
+		}
+		if ws != "" {
+			if err := os.Chdir(ws); err != nil {
+				// Handle workspace permission errors gracefully
+				if os.IsPermission(err) {
+					return fmt.Errorf("cannot access workspace '%s': permission denied\n\nSuggestions:\n  - Check directory permissions with 'ls -la %s'\n  - Try running from a different directory\n  - Use --workspace with a writable path", ws, ws)
+				}
+				if os.IsNotExist(err) {
+					return fmt.Errorf("workspace '%s' does not exist\n\nSuggestions:\n  - Create the directory with 'mkdir -p %s'\n  - Use --workspace with an existing path", ws, ws)
+				}
+				return fmt.Errorf("cannot change to workspace '%s': %w", ws, err)
+			}
+		}
+
+		// Default behavior: launch interactive chat
+		return chat.RunInteractiveChat(chatLaunchConfig())
+	},
+}
+
+func init() {
+	// Global flags
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging")
+	rootCmd.PersistentFlags().BoolVar(&yoloMode, "yolo", false, "Autonomous mode: decide everything without asking (never overrides safety denials)")
+	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "",
+		"API key override for the configured provider (default: .nerd/config.json, then that provider's env var)")
+	rootCmd.PersistentFlags().StringVarP(&workspace, "workspace", "w", "", "Workspace directory (default: current)")
+	// --timeout is the user's own limit on a whole command; operationContext
+	// applies it. Unset means none.
+	rootCmd.PersistentFlags().DurationVar(&timeout, "timeout", 0,
+		"Wall-clock limit for the whole command, e.g. 2h (default: none; a run stops when it stops making progress)")
+
+	// Define-agent flags
+	var agentName, agentTopic string
+	defineAgentCmd.Flags().StringVar(&agentName, "name", "", "Agent name (required)")
+	defineAgentCmd.Flags().StringVar(&agentTopic, "topic", "", "Research topic (required)")
+	defineAgentCmd.MarkFlagRequired("name")
+	defineAgentCmd.MarkFlagRequired("topic")
+
+	// System shard controls
+	rootCmd.PersistentFlags().StringSliceVar(&disableSystemShards, "disable-system-shard", nil, "Disable a Type 1 system shard by name")
+	rootCmd.PersistentFlags().StringVar(&cpuProfilePath, "cpuprofile", "", "Write a pprof CPU profile of the command to this file (go tool pprof)")
+
+	// Interactive mode flag for direct action commands
+	// Enables multi-turn feedback loops with refine/redo/approve meta-commands
+	directActionCmds := []*cobra.Command{reviewCmd, fixCmd, testCmd, explainCmd, createCmd, refactorCmd}
+	fixCmd.Flags().String("acceptance", "", "Caller-authored Go bug-fix acceptance contract JSON (requires pre-existing failing regression tests)")
+	for _, cmd := range directActionCmds {
+		cmd.Flags().BoolVarP(&interactiveMode, "interactive", "i", false, "Enable interactive mode with feedback loop")
+	}
+
+	// Debug flags for direct action commands
+	// Enables kernel dump for post-execution inspection
+	registerDebugFlags(directActionCmds...)
+
+	// Init flags
+	initCmd.Flags().BoolVarP(&forceInit, "force", "f", false, "Force reinitialize (preserves learned preferences)")
+	initCmd.Flags().BoolVar(&cleanupBackups, "cleanup-backups", false, "Remove backup files from previous migrations")
+
+	// Browser subcommands
+	browserCmd.AddCommand(
+		browserLaunchCmd,
+		browserSessionCmd,
+		browserSnapshotCmd,
+	)
+
+	// Campaign subcommands
+	var campaignDocs []string
+	var campaignType string
+	campaignStartCmd.Flags().StringArrayVar(&campaignDocs, "docs", nil, "Paths to spec/requirement documents")
+	campaignStartCmd.Flags().StringVar(&campaignType, "type", "feature", "Campaign type (greenfield, feature, audit, migration, remediation)")
+	campaignStartCmd.Flags().String("accept", "", "Acceptance command, run in the workspace once every phase is done: exit 0 is the only pass, a failure appends a remediation phase with the command's output as its task, and the campaign cannot complete until it passes. Split on whitespace into an argv (no shell, no quoting); the binary must be in execution.allowed_binaries")
+	campaignResumeCmd.Flags().BoolVar(&campaignRetryFailed, "retry-failed", false, "Also resume a failed campaign that has no recorded block reason")
+	campaignResumeCmd.Flags().StringVar(&campaignResumeID, "campaign", "", "Resume the campaign whose ID contains this text (default: newest paused, then active, then blocked)")
+	campaignResumeCmd.Flags().BoolVar(&campaignAdoptSnapshot, "adopt-snapshot", false, "Admit a snapshot the campaign journal does not vouch for (recovery class /conflict_or_corruption) as a new provenance boundary")
+	campaignCmd.AddCommand(
+		campaignStartCmd,
+		campaignStatusCmd,
+		campaignPauseCmd,
+		campaignResumeCmd,
+		campaignListCmd,
+		campaignRecurseCmd,
+	)
+
+	// Auth subcommands
+	authCmd.AddCommand(
+		authClaudeCmd,
+		authCodexCmd,
+		authGrokCmd,
+		authStatusCmd,
+	)
+
+	// Add commands to root
+	rootCmd.AddCommand(
+		runCmd,
+		chatCmd,
+		defineAgentCmd,
+		spawnCmd,
+		browserCmd,
+		queryCmd,
+		statusCmd,
+		initCmd,
+		scanCmd,
+		whyCmd,
+		campaignCmd,
+		checkMangleCmd,
+		mangleLSPCmd,
+		authCmd,
+		logsCmd,
+		swebenchCmd,
+	)
+
+	// Direct action commands (mirror TUI verbs)
+	rootCmd.AddCommand(
+		reviewCmd,
+		fixCmd,
+		testCmd,
+		pushCmd,
+		commitCmd,
+		explainCmd,
+		createCmd,
+		refactorCmd,
+		perceptionCmd,
+		securityCmd, // security analysis
+		analyzeCmd,  // general analysis
+	)
+
+	// Advanced commands (dream state, shadow mode, etc.)
+	rootCmd.AddCommand(
+		dreamCmd,
+		shadowCmd,
+		whatifCmd,
+		logicCmd,
+		agentsCmd,
+		toolCmd,
+		jitCmd,
+		domCmd,
+		embeddingCmd,
+		configCmd,
+	)
+
+	// Strategic planning commands
+	rootCmd.AddCommand(
+		northstarCmd,
+	)
+
+	// System visibility commands
+	rootCmd.AddCommand(
+		mcpCmd,
+		autopoiesisCmd,
+		memoryCmd,
+		usageCmd,
+		regressionCmd,
+		featuresCmd,
+		snapshotCmd,
+		contextStatsCmd,
+		meterCmd,
+		auditCmd,
+		worldCmd,
+		retrieveCmd,
+		docsCmd,
+	)
+
+	// Session management commands
+	rootCmd.AddCommand(
+		sessionsCmd,
+	)
+
+	// Knowledge base commands
+	rootCmd.AddCommand(
+		knowledgeCmd,
+	)
+
+	// Transparency/introspection commands
+	rootCmd.AddCommand(
+		glassboxCmd,
+		transparencyCmd,
+		reflectionCmd,
+	)
+}
+
+// chatLaunchConfig is what the root flags ask of the interactive chat. --yolo
+// and --api-key are persistent root flags; until 2026-09-25 only
+// --disable-system-shard reached the chat and the other two were silently
+// dropped on the bare `nerd` path.
+func chatLaunchConfig() chat.Config {
+	return chat.Config{
+		DisableSystemShards: disableSystemShards,
+		Yolo:                yoloMode,
+		APIKey:              apiKey,
+	}
+}
+
+// isCampaignInvocation reports whether nerd was launched as a `campaign`
+// subcommand. Campaigns spawn thousands of short-lived subprocess goroutines,
+// each with a unique stack; the runtime execution tracer's stack table
+// (runtime.traceRegionAlloc) grows unbounded under that churn and eventually
+// throws "fatal error: traceRegion: out of memory", killing the whole process
+// (F-TRACE-1, observed live 2026-07-13 during a self-audit campaign). The
+// FlightRecorder is a post-mortem debug aid, not worth crashing a long campaign
+// for, so we skip starting it for campaign runs even when the feature flag is
+// enabled. Other commands (chat, one-shot) keep the recorder.
+func isCampaignInvocation() bool {
+	for _, a := range os.Args[1:] {
+		if len(a) > 0 && a[0] == '-' {
+			continue // skip global flags to reach the subcommand token
+		}
+		return a == "campaign" // first positional arg is the cobra subcommand
+	}
+	return false
+}
+
+// workspaceFromArgs is the --workspace/-w value in args. main calls it
+// before cobra parses argv. args is os.Args[1:], the same slice
+// invokesConfigCommand walks. The value may be a separate argument, joined
+// with '=', or joined to the short flag the way pflag parses -wVALUE. A
+// bare "--" ends the scan.
+func workspaceFromArgs(args []string) string {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			return ""
+		}
+		switch {
+		case arg == "-w" || arg == "--workspace":
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			return ""
+		case strings.HasPrefix(arg, "--workspace="):
+			return strings.TrimPrefix(arg, "--workspace=")
+		case strings.HasPrefix(arg, "-w="):
+			return strings.TrimPrefix(arg, "-w=")
+		case len(arg) > 2 && strings.HasPrefix(arg, "-w") && !strings.HasPrefix(arg, "-w="):
+			return arg[len("-w"):]
+		}
+	}
+	return ""
+}
+
+// bindEarlyFileLogging starts file logging before cobra parses argv, so the
+// boot category exists for the startup metrics main emits next.
+//
+// The workspace is --workspace/-w when args carries it, otherwise the
+// process working directory. Initialize rebinds on a different absolute
+// path and closes every sink first (logger.go). Binding the directory the
+// command will use means a leftover logging.json_format fails on that
+// directory's own config.
+//
+// A removed-key error is returned so main can exit. Any other error is
+// discarded: PersistentPreRunE warns and the command continues, and its
+// own Initialize call observes the same failure.
+func bindEarlyFileLogging(args []string) error {
+	ws := workspaceFromArgs(args)
+	if ws == "" {
+		var err error
+		ws, err = os.Getwd()
+		if err != nil || ws == "" {
+			return nil
+		}
+	}
+	err := logging.Initialize(ws)
+	if logging.IsRemovedKeyError(err) {
+		return err
+	}
+	return nil
+}
+
+func main() {
+	// File logging has to be up before startup metrics. The workspace is
+	// whatever --workspace names, read from argv because cobra has not
+	// parsed flags yet. A different absolute path rebinds and closes the
+	// sinks already open; it is not a process-wide sync.Once.
+	if err := bindEarlyFileLogging(os.Args[1:]); err != nil {
+		fmt.Fprintf(os.Stderr, "codeNERD will not start: %v\n", err)
+		os.Exit(2)
+	}
+
+	// Eagerly load .nerd/config.json so the internal/features registry is
+	// populated before any feature-gated boot check (FlightRecorder below,
+	// system shards in the chat session, etc.) reads it. Errors are
+	// tolerated — accessors fall back to compile-time defaults when no
+	// active config is present.
+	//
+	// A config that does not load stops the process. This used to print one
+	// "Warning: ... (using defaults)" line and run on defaults the user had
+	// never seen, which is how a file could be wrong for days with nothing
+	// said. `nerd config ...` alone still runs: it is how the file gets read.
+	if _, err := config.GlobalConfig(); err != nil && !invokesConfigCommand(os.Args[1:]) {
+		fmt.Fprintf(os.Stderr, "codeNERD will not start: %v\n", err)
+		os.Exit(2)
+	}
+
+	// F7+G2: one-shot runtime metrics snapshot + Green Tea GC verification.
+	observability.LogStartupMetrics()
+
+	// G1: optional process-lifetime trace ring buffer. Resolved via
+	// internal/features so .nerd/config.json's `features.flight_recorder`
+	// key or the NERD_FLIGHTREC env var (env wins) controls boot. Defaults
+	// OFF: it drives the execution tracer, which can OOM-crash the process
+	// under heavy/long runs (e.g. campaigns), so it is opt-in. When enabled
+	// it uses a 64 MiB / 30 s window and StartFlightRecorder installs a
+	// memory watchdog that stops the recorder before the tracer exhausts
+	// process memory. Campaigns additionally skip the recorder entirely
+	// (F-TRACE-1): they are the known worst case for tracer goroutine churn,
+	// so not starting it there is cheaper than relying on the watchdog.
+	// The runtime also stops the recorder automatically at process exit,
+	// so callers do not need to invoke Stop() for correctness.
+	if features.IsFlightRecorderEnabled() && !isCampaignInvocation() {
+		if err := observability.StartFlightRecorder(64<<20, 30*time.Second); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: flight recorder failed to start: %v\n", err)
+		} else {
+			// Stop the recorder and its memory watchdog on a normal return.
+			// Deferred before the panic handler below so it runs after it:
+			// a panic dumps the ring first, then the recorder stops.
+			defer func() { _ = observability.StopFlightRecorder() }()
+			// On panic in the root command, persist the trace ring to
+			// disk before unwinding so post-mortem analysis is possible.
+			defer func() {
+				if r := recover(); r != nil {
+					nerdDir := workspaceFromArgs(os.Args[1:])
+					if nerdDir == "" {
+						nerdDir, _ = os.Getwd()
+					}
+					if path, err := observability.DumpFlightRecord(nerdDir); err == nil {
+						fmt.Fprintf(os.Stderr, "Flight trace dumped to %s\n", path)
+					}
+					panic(r)
+				}
+			}()
+		}
+	}
+
+	// SilenceErrors, because main prints the error itself below. Without it
+	// cobra prints it too and every failed command emits the same message
+	// twice -- once with cobra's "Error:" prefix and once bare, which reads
+	// like two different things went wrong.
+	rootCmd.SilenceErrors = true
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}

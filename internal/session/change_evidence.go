@@ -1,0 +1,440 @@
+package session
+
+import (
+	"context"
+	"fmt"
+	"slices"
+	"strings"
+
+	"codenerd/internal/evidence"
+)
+
+// failedChecksSummary names what the final re-verification found failing: the
+// build's error lines and the tests that fail. The turn's error is what the
+// user and the verdict read; "failed mechanical checks" alone (ladder run
+// R1-4b) sent them to the session log to find out which.
+func failedChecksSummary(result *ExecutionResult) string {
+	var parts []string
+	if result.BuildCheck.Verdict() == VerifyFailed {
+		part := "build fails"
+		var errs []string
+		for _, line := range strings.Split(result.BuildCheck.Output, "\n") {
+			if line = strings.TrimSpace(line); vetFinding.MatchString(line) {
+				errs = append(errs, line)
+			}
+		}
+		if len(errs) > 0 {
+			part += ": " + strings.Join(errs, "; ")
+		} else if reason := strings.TrimSpace(result.BuildCheck.Reason); reason != "" {
+			part += ": " + reason
+		}
+		parts = append(parts, part)
+	}
+	// The run's Result already names the failures. Output is the Summary
+	// rendered from it; reading the names back out of that text would
+	// parse our own rendering. "tests fail" stays the own run's prefix:
+	// a skipped own run must not contain the word, and a closure whose
+	// only red suite is an importer's still has to name that suite.
+	nameFailures := func(label string, v TestVerification) string {
+		part := label
+		if names := failedTopLevels(v.Result); len(names) > 0 {
+			part += ": " + strings.Join(names, ", ")
+		} else if reason := strings.TrimSpace(v.Reason); reason != "" {
+			part += ": " + reason
+		}
+		return part
+	}
+	if result.TestCheck.Verdict() == VerifyFailed {
+		parts = append(parts, nameFailures("tests fail", result.TestCheck))
+	}
+	if result.ImporterCheck.Verdict() == VerifyFailed {
+		parts = append(parts, nameFailures("importer tests fail", result.ImporterCheck))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// closeChangeEvidence runs after the turn's last writer -- every repair round
+// and the critic's uplift -- and binds the evidence the verdict reads to the
+// workspace as it is now. A gate's verdict describes the revision it measured;
+// an edit after it turns that verdict into a statement about a workspace that
+// no longer exists. When anything changed after the gates began, or a change
+// cannot be ruled out, every gate the verdict reads is measured again here
+// (remeasureGates), with no model in the loop: build, tests, coverage, vet and
+// the test inventory then all describe one revision.
+//
+// External audit F3 (2026-09-19): this refreshed the build and the tests only,
+// and dropped the tests' coverage, so a later round could add a branch no test
+// runs, a vet finding, or delete a passing test, and the turn kept the earlier
+// clean coverage, vet and inventory verdicts -- or kept an earlier debt a
+// later round had paid.
+func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionResult, before string) error {
+	if result == nil {
+		return nil
+	}
+	workspace := e.workspaceForVerification()
+	if result.WriteToolEffects > 0 {
+		result.ChangeStage = "artifact_changed"
+		// The build round ran: the gates it and the rounds after it measured
+		// are this turn's evidence, remeasured on what the rounds left.
+		if result.roundsRan["/build"] {
+			after, err := evidence.Snapshot(ctx, workspace)
+			if err != nil || before == "" || after != before {
+				if err := e.remeasureGates(ctx, workspace, result); err != nil {
+					return err
+				}
+			}
+			current, currentErr := evidence.Snapshot(ctx, workspace)
+			// /build is the derived gate: a failing build whose diagnostics
+			// are all outside this turn derives no verdict, and this closure
+			// must not fail the turn for it. An attributed failure, including
+			// one that named no file, is still a failure. /test is the
+			// derived gate too. With no kernel the helpers are the raw exit
+			// and record no verdict.
+			buildRed := e.buildGateRed(ctx, result.turnAtom(), result)
+			testsPassed, testsRed := closingTestGate(e, result)
+			if err == nil && currentErr == nil && current == after &&
+				result.BuildCheck.Verdict() == VerifyPassed && testsPassed {
+				result.ChecksSnapshot = current
+				result.ChangeStage = "checks_passed"
+			}
+			// Only an affirmative failure fails the turn. A timeout or cancel is
+			// not proof of broken code: the stage stays artifact_changed and the
+			// turn is labeled unverified rather than failed. A build broken
+			// only outside this turn is not this turn's failure either.
+			if buildRed || testsRed {
+				return fmt.Errorf("%w: final workspace failed mechanical checks: %s", ErrVerificationFailed, failedChecksSummary(result))
+			}
+		}
+	}
+	if result.acceptanceTransaction != nil {
+		report := result.acceptanceTransaction.Verify(ctx)
+		result.Acceptance = &report
+		if report.Status == "verified" {
+			result.ChangeStage = "behavior_verified"
+		} else {
+			return fmt.Errorf("%w: %s", ErrVerificationFailed, report.Summary())
+		}
+	}
+	return nil
+}
+
+// remeasureGates measures again, on the workspace as it is now, every gate
+// whose round the schedule ran (result.roundsRan, recorded when the kernel's
+// turn_next_round named it), in the order the rounds run. Nothing here asks
+// the model anything or edits a file: the rounds are over, and this is what
+// they left. A deleted test fails the turn, as it does in its own round; the
+// other gates leave their findings on the result for the verdict to read.
+//
+// Which gates: the rounds that ran, not the config switches alone. Until
+// 2026-09-23 the switches decided here, so a turn the schedule owed no /test
+// or /vet round had one measured at the closure anyway -- a second answer to
+// turn_round_owed. A switch still turns a round's measurement off, here as in
+// the round.
+func (e *Executor) remeasureGates(ctx context.Context, workspace string, result *ExecutionResult) error {
+	cfg := e.configSnapshot()
+	ran := result.roundsRan
+	if ran["/build"] && cfg.VerifyBuildAfterEdits {
+		fresh := verifyBuild(ctx, workspace, nil)
+		fresh.Repair = inheritRepair(fresh.Verdict(), result.BuildCheck.Repair)
+		result.BuildCheck = fresh
+	}
+	// Coverage is owed exactly when the tests are (turn_rounds.mg), and is
+	// measured by the same run.
+	if ran["/test"] && cfg.VerifyTestsAfterEdits {
+		result.UntestedPaths = untestedWithoutCoverageOnDisk(workspace, result.WrittenPaths)
+		// Must stay the same helper the post-edit gate uses (gateTests), or a
+		// tag-gated package fails the turn twice over. With coverage: the
+		// blocks no test runs are this revision's too, whichever way they
+		// moved -- a later round can add one or pay one off.
+		fresh, uncovered := gateTests(ctx, workspace, result, true)
+		fresh.Repair = inheritRepair(fresh.Verdict(), result.TestCheck.Repair)
+		result.TestCheck = fresh
+		result.UncoveredBlocks = narrowToChangedLines(workspace, result, uncovered)
+		// The pinning gate, where the schedule ran its round
+		// (turn_round_ran), over the tests as they are now. A suite the
+		// derived /test gate charges to the turn leaves it unmeasured --
+		// the turn fails on the tests. The raw exit is not that charge:
+		// failures that already failed still fail the process, and skipping
+		// the pin run then left a check older than the code. turnTests
+		// drops those names from the pin run, so what is measured is the
+		// tests this turn wrote.
+		if ran["/pinned"] {
+			if passed, _ := closingTestGate(e, result); passed {
+				pin := verifyPinning(ctx, workspace, result, false)
+				pin.Repair = inheritRepair(pin.Verdict(), result.PinCheck.Repair)
+				result.PinCheck = pin
+			}
+		}
+	}
+	if ran["/vet"] && cfg.VerifyBuildAfterEdits {
+		fresh := verifyVet(ctx, workspace, result.WrittenPaths, result.PreWriteContents)
+		fresh.Repair = inheritRepair(fresh.Verdict(), result.VetCheck.Repair)
+		result.VetCheck = fresh
+	}
+	if ran["/removed_tests"] {
+		if removed := removedTestFunctions(workspace, result.WrittenPaths, result.PreWriteContents); e.removedTestsGateRed(result.turnAtom(), removed) {
+			return removedTestsError(removed)
+		}
+	}
+	return nil
+}
+
+// surfaceToolErrors records unrecovered tool failures as the turn's error.
+//
+// A tool error is an event inside the turn, not a verdict on it: the model may
+// run a build, see it fail, fix the code, and run it green. What decides
+// whether the failure survived is the CLOSING evidence, so that is what this
+// asks. The receiver is the executor that measured the run. A nil receiver
+// has no kernel: closingTestGate is then the raw suite exit and records nothing.
+//
+// It used to ask whether the final response was empty. Live (2026-09-18 00:05,
+// pid 054828, `nerd fix`): run_build failed mid-turn, the repair loop
+// converged over two attempts, and the post-edit build and tests both passed —
+// and the command still exited non-zero, because the response WAS empty. The
+// working policy had closed the turn before the model wrote its last sentence,
+// and appendEvidenceReport then glued the runtime's own "Evidence:
+// checks_passed" onto that empty string, so the user was shown a green
+// evidence line beside a failed exit. turn_cost recorded outcome=/failed with
+// every gate green.
+func (e *Executor) surfaceToolErrors(result *ExecutionResult, toolErrs []string) {
+	if result == nil || len(toolErrs) == 0 {
+		return
+	}
+	if e.turnRecoveredFromToolErrors(result) {
+		return
+	}
+	result.Error = fmt.Errorf("tool execution failed: %s", strings.Join(toolErrs, "; "))
+}
+
+// closingTestGate is the /test gate the closure reads. testGateRed and
+// testGatePassed sync this run and ask policy; they do not choose a second
+// verdict. With no kernel they are the raw suite exit and record nothing.
+// A pass and a fail derived together is red: one gate, one charge.
+func closingTestGate(e *Executor, result *ExecutionResult) (passed, red bool) {
+	if result == nil {
+		return false, false
+	}
+	turn := result.turn
+	if e != nil && e.kernel != nil {
+		turn = result.turnAtom()
+	}
+	if e.testGateRed(turn, result) {
+		return false, true
+	}
+	return e.testGatePassed(turn, result), false
+}
+
+// turnRecoveredFromToolErrors reports whether the closing evidence answers the
+// tool errors this turn hit on the way there. A nil receiver has no kernel:
+// the /test read is the raw suite exit and records no verdict.
+//
+// The order is the point. An affirmative gate failure is the tool error
+// confirmed; a gate that ran and passed is direct evidence about the final
+// workspace and outranks anything that failed earlier in the turn; and only
+// when no gate ran at all does the model's own closing answer decide, because
+// then it is the only signal there is. /build is the derived gate
+// (buildGateRed). /test is closingTestGate. A failing build this turn is
+// not charged for does not confirm the tool error and does not count as
+// recovered.
+func (e *Executor) turnRecoveredFromToolErrors(result *ExecutionResult) bool {
+	if result == nil {
+		return false
+	}
+	testsPassed, testsRed := closingTestGate(e, result)
+	// /build is the derived gate. The raw exit of a build broken only
+	// outside this turn must not confirm a tool error: that sets
+	// result.Error, and captureTurnOutcome then records /failed over the
+	// /unverified the unmet gate derives. It is not a green recovery
+	// either. The workspace build is still broken; the turn is not charged.
+	buildRed := false
+	if e != nil {
+		buildRed = e.buildGateRed(context.Background(), result.turnAtom(), result)
+	} else if result.BuildCheck.Verdict() == VerifyFailed {
+		buildRed = true
+	}
+	if buildRed || testsRed {
+		return false
+	}
+	if result.BuildCheck.Verdict() == VerifyPassed || testsPassed {
+		return true
+	}
+	if result.BuildCheck.Verdict() == VerifyFailed {
+		return true
+	}
+	return strings.TrimSpace(result.Response) != ""
+}
+
+// closeAcceptanceEvidence verifies, persists and arbitrates the acceptance
+// report, and re-arbitrates the checks snapshot for a write turn with no
+// contract. It runs BEFORE the hollow gate because it can set result.Error,
+// and an error already on the result outranks the hollow reason when the turn
+// closes (checkHollowSuccess runs on every path; its verdict is /failed for an
+// errored turn).
+//
+// It used to also write the closing sentence, and that is why the sentence was
+// a constant: at this point in the turn the kernel has not been asked anything
+// yet — assertTurnEvidence and the verdict read both happen inside
+// checkHollowSuccess, afterwards — so the only thing this function could
+// truthfully say was "unverified", and it said it unconditionally. The sentence
+// now lives in appendEvidenceSummary, which runs after the verdict.
+func (e *Executor) closeAcceptanceEvidence(ctx context.Context, result *ExecutionResult) {
+	if result == nil {
+		return
+	}
+	if result.acceptanceTransaction != nil && result.Acceptance == nil {
+		r := result.acceptanceTransaction.Unverified("turn did not reach acceptance verification")
+		result.Acceptance = &r
+	}
+	if result.Acceptance != nil {
+		current, err := evidence.Snapshot(ctx, e.workspaceForVerification())
+		if err != nil || current != result.Acceptance.After {
+			result.Acceptance.Status = "unverified"
+			result.Acceptance.Unknown = append(result.Acceptance.Unknown, "workspace changed after acceptance verification")
+			result.TurnOutcome = "/unverified"
+		}
+		if _, err := evidence.Persist(e.workspaceForVerification(), *result.Acceptance); err != nil {
+			result.Acceptance.Status = "unverified"
+			result.Acceptance.Unknown = append(result.Acceptance.Unknown, "could not persist acceptance report: "+err.Error())
+		}
+		if result.Acceptance.Status != "verified" && result.Error == nil {
+			result.Error = fmt.Errorf("%w: acceptance remains unverified", ErrVerificationFailed)
+		}
+		return
+	}
+	if result.WriteToolEffects > 0 && result.ChangeStage == "checks_passed" {
+		current, err := evidence.Snapshot(ctx, e.workspaceForVerification())
+		if err != nil || current != result.ChecksSnapshot {
+			result.ChangeStage = "artifact_changed"
+			result.ChecksSnapshot = ""
+		}
+	}
+}
+
+// appendEvidenceSummary writes the turn's closing evidence sentence. It runs
+// after checkHollowSuccess, so result.TurnOutcome and result.MissingEvidence
+// carry the kernel's verdict and the sentence is a function of it.
+//
+// Before this seam the sentence was the constant "Evidence: <stage>. Requested
+// behavior remains unverified (no acceptance contract)." on every write turn.
+// It was accidentally true — turn_done needed a contract, so nothing without
+// one ever WAS verified — and it would have become a lie the moment the corpus
+// could verify a turn from its gates. There are three states now, and the
+// sentence names which one the turn reached and, when it did not reach done,
+// which evidence the kernel found missing.
+func (e *Executor) appendEvidenceSummary(result *ExecutionResult) {
+	if result == nil {
+		return
+	}
+	// Verified by contract: the report states its own status, its snapshot and
+	// every obligation it ran, which is strictly more than a sentence could.
+	if result.Acceptance != nil {
+		result.Response += "\n\n" + result.Acceptance.Summary()
+		return
+	}
+	if result.WriteToolEffects == 0 {
+		return
+	}
+	stage := result.ChangeStage
+	if stage == "" {
+		stage = "artifact_changed"
+	}
+	written := "none"
+	if len(result.WrittenPaths) > 0 {
+		if len(result.WrittenPaths) > 10 {
+			written = strings.Join(result.WrittenPaths[:10], ", ") + fmt.Sprintf(" and %d more", len(result.WrittenPaths)-10)
+		} else {
+			written = strings.Join(result.WrittenPaths, ", ")
+		}
+	}
+	result.Response += fmt.Sprintf("\n\nWrote %d file(s): %s\nEvidence: %s. %s",
+		len(result.WrittenPaths), written, stage, verdictSentence(result))
+}
+
+// verdictSentence states the turn's verification in one sentence, derived from
+// the outcome the kernel produced. No branch here decides anything: each one
+// spells out an atom captureTurnOutcome already recorded.
+//
+// There is no acceptance branch. A turn with a report never reaches this —
+// appendEvidenceSummary prints Report.Summary() and returns — and a branch that
+// cannot be reached is a second answer to a question already answered, which is
+// how two spellings of "verified by contract" would drift apart.
+func verdictSentence(result *ExecutionResult) string {
+	if result == nil {
+		return "Unverified: the turn produced no verdict."
+	}
+	switch result.TurnOutcome {
+	case "/done":
+		return doneSentence(result)
+	case "/hollow":
+		return "Not verified: the turn claimed work it has no evidence for."
+	case "/failed":
+		return "Failed: the workspace did not pass its mechanical checks."
+	case "/unverified":
+		if clause := DescribeMissingEvidence(result.MissingEvidence); clause != "" {
+			if slices.Contains(result.MissingEvidence, "/change_unwitnessed") {
+				if named := DescribeUnwitnessed(result.UnwitnessedElements); named != "" {
+					clause += "; " + named
+				}
+			}
+			clause = nameForeignBuild(clause, result)
+			return "Unverified: " + clause + "."
+		}
+		return "Unverified: the evidence this turn owed was not produced."
+	default:
+		return "Unverified: the turn produced no verdict."
+	}
+}
+
+// nameForeignBuild spells the packages the kernel named onto the clause
+// missingEvidenceSentence left without them. The atom carries no package;
+// the result does, captured before the rows were retracted.
+func nameForeignBuild(clause string, result *ExecutionResult) string {
+	if result == nil || !slices.Contains(result.MissingEvidence, "/build_failure_foreign") {
+		return clause
+	}
+	base := missingEvidenceSentence("/build_failure_foreign")
+	pkgs := slices.Clone(result.BuildForeignPackages)
+	slices.Sort(pkgs)
+	pkgs = slices.Compact(pkgs)
+	return strings.Replace(clause, base, base+": "+strings.Join(pkgs, ", "), 1)
+}
+
+// owedGateNames spell the gates the corpus can owe, in the order the closing
+// sentence names what was measured.
+var owedGateNames = []struct{ gate, name string }{
+	{"/build", "the build"},
+	{"/test", "the tests"},
+	{"/test_run", "the workspace's test run"},
+	{"/pinned", "the check that the tests pin the change"},
+	{"/check", "the campaign acceptance check"},
+	{"/test_retention", "the check that no test was removed"},
+}
+
+// doneSentence says what a /done turn was measured on: the gates the corpus
+// derived it owed, each green after the final edit. A turn that owed none (a
+// document, say) is not said to have been built or tested.
+func doneSentence(result *ExecutionResult) string {
+	var names []string
+	for _, g := range owedGateNames {
+		if slices.Contains(result.OwedGates, g.gate) {
+			names = append(names, g.name)
+		}
+	}
+	for _, gate := range result.OwedGates {
+		if !slices.ContainsFunc(owedGateNames, func(g struct{ gate, name string }) bool { return g.gate == gate }) {
+			names = append(names, "the "+strings.TrimPrefix(gate, "/")+" gate")
+		}
+	}
+	switch len(names) {
+	case 0:
+		return "Done: nothing this turn wrote owes a build or a test (documentation); none was run, so none is claimed."
+	case 1:
+		return "Verified by evidence: " + names[0] + " was measured green after the final edit."
+	case 2:
+		if names[0] == "the build" && names[1] == "the tests" {
+			return "Verified by evidence: the build and the tests were both measured green after the final edit."
+		}
+	}
+	return "Verified by evidence: " + strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1] +
+		" were each measured green after the final edit."
+}

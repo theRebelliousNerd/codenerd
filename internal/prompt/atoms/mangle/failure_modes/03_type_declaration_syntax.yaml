@@ -1,0 +1,107 @@
+# Failure mode 3: declaration syntax. Rewritten 2026-09-18: the previous
+# version taught the Google 0.4.0 typed-variable form (Decl p(X.Type<int>)) as
+# the correct one; the pinned engine does not parse it. Every "correct" block
+# below passes `nerd check-mangle` on the pinned engine.
+
+- id: "language/mangle/docs/failure_modes/03_type_declaration_syntax"
+  category: "language"
+  subcategory: "mangle"
+  description: "Failure Mode 3: Type Declaration Syntax"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Failure Mode 3: Type Declaration Syntax
+
+    ## Category
+
+    Syntactic hallucination (Souffle, TypeScript and old-documentation bias)
+
+    ## Severity
+
+    HIGH - the program does not load
+
+    ## The form the engine accepts
+
+    `Decl <name>(<Var>, ...) descr [<items>] bound [<type>, ...].` The argument list holds
+    variable names only. Types go in `bound [...]`, one per argument, in order. `descr [...]`
+    is optional (`doc(...)`, `external()`, `mode(...)`). Every declaration ends with `.`.
+
+    Types: `/string`, `/name` (a name constant such as `/active`), `/number` (int64),
+    `/float64`, `/any`.
+
+    ## Wrong Code
+
+    ```mangle
+    # WRONG - Souffle syntax
+    .decl direct_dep(app: string, lib: string)
+
+    # WRONG - the Google 0.4.0 typed-variable form: the pinned engine does not
+    # parse it ("mismatched input '>' expecting '('")
+    Decl edge(X.Type<int>, Y.Type<int>).
+
+    # WRONG - lowercase 'decl'
+    decl parent(X, Y).
+
+    # WRONG - colon type annotations
+    Decl status(Entity: name, State: name).
+
+    # WRONG - missing the terminating period
+    Decl edge(X, Y) bound [/number, /number]
+    ```
+
+- id: "language/mangle/docs/failure_modes/03_type_declaration_syntax/failure-mode-3-type-declaration-syntax"
+  section_of: "language/mangle/docs/failure_modes/03_type_declaration_syntax"
+  section_order: 1
+  category: "language"
+  subcategory: "mangle"
+  description: "Failure Mode 3: Type Declaration Syntax: Failure Mode 3: Type Declaration Syntax Correct Code"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Failure Mode 3: Type Declaration Syntax*
+
+    ## Correct Code
+
+    ```mangle
+    Decl direct_dep(App, Lib) bound [/string, /string].
+    Decl status(Entity, State) bound [/name, /name].
+    Decl edge(From, To) bound [/number, /number].
+    Decl temperature(Sensor, Value) bound [/name, /float64].
+    Decl note(Text) descr [doc("free text the user attached")] bound [/string].
+    Decl anything(Value).
+    ```
+
+    An untyped `Decl anything(Value).` is valid; prefer `bound [...]` so a wrong-typed fact is
+    caught instead of silently never joining.
+
+    ## External (virtual) predicates
+
+    A predicate served by host code is declared with the `external()` descriptor and a mode per
+    argument (`'+'` input, `'-'` output), the form codeNERD's own policy corpus uses:
+
+    ```mangle
+    Decl recall_notes(Query, TopK, Note) descr [external(), mode('+', '+', '-')] bound [/string, /number, /string].
+    ```
+
+    Inputs of an external must be literal constants in the rule that calls it on the pinned
+    engine; a variable bound by an earlier atom panics the evaluation.
+
+- id: "language/mangle/docs/failure_modes/03_type_declaration_syntax/failure-mode-3-type-declaration-syntax-2"
+  section_of: "language/mangle/docs/failure_modes/03_type_declaration_syntax"
+  section_order: 2
+  category: "language"
+  subcategory: "mangle"
+  description: "Failure Mode 3: Type Declaration Syntax: Failure Mode 3: Type Declaration Syntax Checklist"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    *Part of: Failure Mode 3: Type Declaration Syntax*
+
+    ## Checklist
+
+    1. Does the line start with `Decl` (capital D)?
+    2. Are the arguments bare variable names (uppercase)?
+    3. Are the types in `bound [...]`, one per argument, in order?
+    4. Are descriptors inside `descr [...]`?
+    5. Does it end with `.`?
+    6. Is each predicate declared exactly once in everything loaded together?

@@ -1,0 +1,814 @@
+// world_model.go implements the World Model Ingestor system shard.
+//
+// The World Model Ingestor maintains the fact-based filesystem:
+// - file_topology facts (path, hash, language, modified time)
+// - diagnostic facts (errors, warnings from linters/build)
+// - symbol_graph facts (functions, classes, interfaces)
+// - dependency_link facts (import relationships)
+//
+// This shard is ON-DEMAND (starts when workspace is loaded) and HYBRID:
+// - Deterministic for fact generation (file watching, AST parsing)
+// - LLM for semantic interpretation of complex changes
+package system
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"codenerd/internal/config"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+	"codenerd/internal/workspace"
+	"codenerd/internal/world"
+)
+
+// FileInfo represents a tracked file.
+type FileInfo struct {
+	Path         string
+	Hash         string
+	Language     string
+	LastModified time.Time
+	IsTestFile   bool
+	Size         int64
+}
+
+// Diagnostic represents a code diagnostic (error, warning).
+type Diagnostic struct {
+	Severity string // "error", "warning", "info"
+	FilePath string
+	Line     int
+	Code     string
+	Message  string
+}
+
+// Symbol represents a code symbol.
+type Symbol struct {
+	ID         string
+	Type       string // "function", "class", "interface", "method", "variable"
+	Name       string
+	Visibility string // "public", "private", "internal"
+	FilePath   string
+	Line       int
+	Signature  string
+}
+
+// WorldModelConfig holds configuration for the world model ingestor.
+type WorldModelConfig struct {
+	// Workspace
+	RootPath        string   // Workspace root
+	IncludePatterns []string // File patterns to include
+	ExcludePatterns []string // File patterns to exclude
+
+	// Performance
+	TickInterval time.Duration // How often to scan for changes
+	// MaxFilesPerScan bounds the changed files processed per tick. Files past
+	// the cap keep their stale entries and are picked up on the next tick, so
+	// the cap defers work instead of dropping it. Non-positive means unbounded.
+	MaxFilesPerScan    int
+	HashOnlyLargeFiles bool  // Skip content analysis for large files
+	LargeFileThreshold int64 // Bytes threshold for "large"
+
+	// Features
+	EnableSymbolGraph  bool // Parse AST for symbols
+	EnableDiagnostics  bool // Run linters
+	EnableDependencies bool // Track imports
+}
+
+// DefaultWorldModelConfig returns sensible defaults.
+func DefaultWorldModelConfig() WorldModelConfig {
+	return WorldModelConfig{
+		RootPath:        ".",
+		IncludePatterns: parsedIncludeGlobs(),
+		// The one default name list. Scans ask workspace membership with
+		// these patterns; they are not matched by a second globber.
+		ExcludePatterns:    append([]string(nil), config.DefaultWorldConfig().IgnorePatterns...),
+		TickInterval:       5 * time.Second,
+		MaxFilesPerScan:    config.DefaultWorldConfig().ResolvedMaxFilesPerScan(),
+		HashOnlyLargeFiles: true,
+		LargeFileThreshold: 1024 * 1024, // 1MB
+		EnableSymbolGraph:  true,
+		EnableDiagnostics:  true,
+		EnableDependencies: true,
+	}
+}
+
+// WorldModelIngestorShard maintains the fact-based filesystem.
+type WorldModelIngestorShard struct {
+	*BaseSystemShard
+	mu sync.RWMutex
+
+	// Configuration
+	config WorldModelConfig
+
+	// State
+	files       map[string]FileInfo
+	symbols     map[string]Symbol
+	diagnostics []Diagnostic
+
+	parser *world.ASTParser
+
+	// Change tracking
+	lastScan     time.Time
+	changeCount  int
+	lastActivity time.Time
+
+	// Running state
+	running bool
+}
+
+// WorldModelConfigFor is the ingestor config at shard construction.
+// MaxFilesPerScan comes from the loaded world section: an absent key is the
+// default (100); a non-positive value stays unbounded.
+func WorldModelConfigFor(worldCfg config.WorldConfig) WorldModelConfig {
+	cfg := DefaultWorldModelConfig()
+	cfg.MaxFilesPerScan = worldCfg.ResolvedMaxFilesPerScan()
+	if len(worldCfg.IgnorePatterns) > 0 {
+		cfg.ExcludePatterns = append([]string(nil), worldCfg.IgnorePatterns...)
+	}
+	return cfg
+}
+
+// parsedIncludeGlobs is the extensions the world-model parsers understand,
+// plus the JS/TS/Python spellings those parsers do not register yet.
+// A nil receiver is enough: SupportedExtensions does not touch parser state.
+func parsedIncludeGlobs() []string {
+	exts := map[string]struct{}{}
+	add := func(list []string) {
+		for _, e := range list {
+			if e != "" {
+				exts[strings.ToLower(e)] = struct{}{}
+			}
+		}
+	}
+	add((*world.GoCodeParser)(nil).SupportedExtensions())
+	add((*world.MangleCodeParser)(nil).SupportedExtensions())
+	add((*world.PythonCodeParser)(nil).SupportedExtensions())
+	add((*world.TypeScriptCodeParser)(nil).SupportedExtensions())
+	add((*world.RustCodeParser)(nil).SupportedExtensions())
+	for _, e := range []string{".mjs", ".cjs", ".mts", ".cts", ".jsx", ".pyi"} {
+		exts[e] = struct{}{}
+	}
+	out := make([]string, 0, len(exts))
+	for e := range exts {
+		out = append(out, "*"+e)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// NewWorldModelIngestorShardWithConfig creates a world model ingestor with custom config.
+func NewWorldModelIngestorShardWithConfig(cfg WorldModelConfig) *WorldModelIngestorShard {
+	base := NewBaseSystemShard("world_model_ingestor", StartupOnDemand)
+
+	// Configure permissions
+	base.Config.Permissions = []types.ShardPermission{
+		types.PermissionReadFile,
+		types.PermissionExecCmd,
+		types.PermissionCodeGraph,
+	}
+	base.Config.Model = types.ModelConfig{
+		Capability: types.CapabilityHighSpeed, // Use fast model for interpretations
+	}
+
+	return &WorldModelIngestorShard{
+		BaseSystemShard: base,
+		config:          cfg,
+		files:           make(map[string]FileInfo),
+		symbols:         make(map[string]Symbol),
+		diagnostics:     make([]Diagnostic, 0),
+		parser:          world.NewASTParser(),
+		lastActivity:    time.Now(),
+	}
+}
+
+// Execute runs the World Model Ingestor's continuous scanning loop.
+func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (string, error) {
+	w.SetState(types.ShardStateRunning)
+	w.mu.Lock()
+	w.running = true
+	w.StartTime = time.Now()
+	w.lastActivity = time.Now()
+	w.mu.Unlock()
+
+	defer func() {
+		w.SetState(types.ShardStateCompleted)
+		w.mu.Lock()
+		w.running = false
+		if w.parser != nil {
+			w.parser.Close()
+		}
+		w.mu.Unlock()
+	}()
+
+	// Initialize kernel if not set
+	if w.Kernel == nil {
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return "", fmt.Errorf("failed to create kernel: %w", err)
+		}
+		w.Kernel = kernel
+	}
+
+	// A task that names an existing directory overrides the root path (ad-hoc
+	// scans); anything else is a lifecycle label like "system_start" or
+	// "on_demand_activation" and must NOT clobber the configured root. Walking
+	// a nonexistent directory silently yields zero files, so an unconditional
+	// assignment here turned every system-started ingestor into a shard that
+	// scans nothing and asserts nothing.
+	if task != "" {
+		if info, err := os.Stat(task); err == nil && info.IsDir() {
+			w.config.RootPath = task
+		} else {
+			logging.SystemShards("[WorldModel] task %q is not a directory; keeping root %q", task, w.config.RootPath)
+		}
+	}
+
+	// Initial full scan
+	if err := w.performFullScan(ctx); err != nil {
+		return "", fmt.Errorf("initial scan failed: %w", err)
+	}
+
+	// Event-driven: subscribe to world_model_updating facts instead of polling
+	factCh := w.SubscribeToFacts([]string{"world_model_updating"})
+	heartbeat := time.NewTicker(10 * time.Second)
+	defer heartbeat.Stop()
+
+	// Fallback ticker for when event bus is unavailable
+	var fallbackTicker *time.Ticker
+	if factCh == nil {
+		logging.SystemShards("[WorldModel] No event bus available, falling back to polling at %v", w.config.TickInterval)
+		fallbackTicker = time.NewTicker(w.config.TickInterval)
+		defer fallbackTicker.Stop()
+		factCh = make(chan core.FactEvent) // dummy channel that never fires
+	}
+	var fallbackCh <-chan time.Time
+	if fallbackTicker != nil {
+		fallbackCh = fallbackTicker.C
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return w.generateShutdownSummary("context cancelled"), ctx.Err()
+		case <-w.StopCh:
+			return w.generateShutdownSummary("stopped"), nil
+		case <-factCh:
+			// Event-driven: a world_model_updating fact was just asserted
+			logging.SystemShardsDebug("[WorldModel] Triggered by world_model_updating fact")
+			if err := w.performIncrementalScan(ctx); err != nil {
+				_ = w.Kernel.Assert(types.Fact{
+					Predicate: "world_model_error",
+					Args:      []any{err.Error(), time.Now().Unix()},
+				})
+			}
+			// Retract trigger
+			_ = w.Kernel.Retract("world_model_updating")
+			w.mu.Lock()
+			w.lastActivity = time.Now()
+			w.mu.Unlock()
+		case <-fallbackCh:
+			// Polling fallback: check for trigger fact (Fix 15.1: World Model Event-Loop Breakage)
+			updatingFacts, _ := w.Kernel.Query("world_model_updating")
+			if len(updatingFacts) > 0 {
+				logging.SystemShardsDebug("[WorldModel] Triggered by world_model_updating fact")
+				if err := w.performIncrementalScan(ctx); err != nil {
+					_ = w.Kernel.Assert(types.Fact{
+						Predicate: "world_model_error",
+						Args:      []any{err.Error(), time.Now().Unix()},
+					})
+				}
+				// Retract trigger
+				_ = w.Kernel.Retract("world_model_updating")
+				w.mu.Lock()
+				w.lastActivity = time.Now()
+				w.mu.Unlock()
+				continue
+			}
+
+			// Incremental scan
+			if err := w.performIncrementalScan(ctx); err != nil {
+				_ = w.Kernel.Assert(types.Fact{
+					Predicate: "world_model_error",
+					Args:      []any{err.Error(), time.Now().Unix()},
+				})
+			}
+
+			// Emit heartbeat
+			_ = w.Kernel.Assert(types.Fact{
+				Predicate: "world_model_heartbeat",
+				Args:      []any{w.ID, len(w.files), time.Now().Unix()},
+			})
+
+			// Check for autopoiesis
+			if w.Autopoiesis.ShouldPropose() {
+				w.handleAutopoiesis(ctx)
+			}
+		case <-heartbeat.C:
+			// Emit heartbeat
+			_ = w.Kernel.Assert(types.Fact{
+				Predicate: "world_model_heartbeat",
+				Args:      []any{w.ID, len(w.files), time.Now().Unix()},
+			})
+
+			// Check for autopoiesis
+			if w.Autopoiesis.ShouldPropose() {
+				w.handleAutopoiesis(ctx)
+			}
+		}
+	}
+}
+
+// resolvedRoot is the directory a scan walks. "." and "" mean "the kernel's
+// workspace", which is the real root once a shard is attached. An explicit
+// directory (a test fixture, or a task that names one) wins.
+func (w *WorldModelIngestorShard) resolvedRoot() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	root := strings.TrimSpace(w.config.RootPath)
+	if root == "" || root == "." {
+		if k := w.GetKernel(); k != nil {
+			if ws := strings.TrimSpace(k.GetWorkspace()); ws != "" {
+				w.config.RootPath = ws
+				root = ws
+			}
+		}
+	}
+	if root == "" {
+		root = "."
+	}
+	return root
+}
+
+func (w *WorldModelIngestorShard) scanMembership() (*workspace.Membership, error) {
+	root := w.resolvedRoot()
+	m, err := workspace.Open(root, w.config.ExcludePatterns)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.Refresh(); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// includedByPatterns reports whether a base file name matches any include glob.
+func includedByPatterns(base string, patterns []string) bool {
+	for _, pattern := range patterns {
+		if matched, _ := filepath.Match(pattern, base); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// performFullScan does a complete workspace scan.
+func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
+	w.mu.Lock()
+	w.files = make(map[string]FileInfo)
+	w.symbols = make(map[string]Symbol)
+	w.mu.Unlock()
+
+	batchFacts := make([]types.Fact, 0)
+	mem, err := w.scanMembership()
+	if err != nil {
+		return err
+	}
+
+	err = filepath.Walk(w.config.RootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip errors
+		}
+
+		// Check context
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		member, admErr := mem.Admit(path, info.IsDir())
+		if admErr != nil {
+			return admErr
+		}
+		if !member || info.IsDir() {
+			return nil
+		}
+
+		if !includedByPatterns(info.Name(), w.config.IncludePatterns) {
+			return nil
+		}
+
+		// Process file
+		fileInfo, facts, err := w.processFile(ctx, path, info)
+		if err != nil {
+			return nil // Skip errors
+		}
+
+		w.mu.Lock()
+		w.files[path] = fileInfo
+		w.mu.Unlock()
+
+		// Emit file_topology fact
+		normalizedPath := types.CanonicalPath(w.config.RootPath, fileInfo.Path)
+		ft := types.Fact{
+			Predicate: "file_topology",
+			Args: []any{
+				normalizedPath,
+				fileInfo.Hash,
+				types.Atom(fileInfo.Language), // declared /name: rules match /go, /mangle
+				fileInfo.LastModified.Unix(),
+				fileInfo.IsTestFile,
+			},
+		}
+		facts = append(facts, ft)
+
+		// Batch all facts for a single evaluation pass.
+		batchFacts = append(batchFacts, facts...)
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Persist all facts to knowledge.db in one batch after the scan
+	w.persistToKnowledge(batchFacts)
+
+	if len(batchFacts) > 0 {
+		return w.Kernel.AssertBatch(batchFacts)
+	}
+	return nil
+}
+
+// performIncrementalScan checks for changes since last scan.
+func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) error {
+	changedFiles := 0
+	deferredFiles := 0
+	batchFacts := make([]types.Fact, 0)
+	mem, err := w.scanMembership()
+	if err != nil {
+		return err
+	}
+
+	err = filepath.Walk(w.config.RootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			_, admErr := mem.Admit(path, true)
+			return admErr
+		}
+
+		// Check context
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		member, admErr := mem.Admit(path, false)
+		if admErr != nil {
+			return admErr
+		}
+		if !member {
+			return nil
+		}
+
+		// Same include gate as the full scan: without it, steady-state
+		// incrementals ingested files a restart's full scan would never
+		// include, so the world model depended on uptime instead of the
+		// workspace.
+		if !includedByPatterns(info.Name(), w.config.IncludePatterns) {
+			return nil
+		}
+
+		w.mu.RLock()
+		existing, exists := w.files[path]
+		w.mu.RUnlock()
+
+		// Check if file changed
+		if exists && existing.LastModified.Equal(info.ModTime()) {
+			return nil
+		}
+
+		// Bounded work per tick: past the cap the file is counted as
+		// deferred, not processed and not forgotten — its entry stays
+		// stale, so the next tick picks it up. The count is checked after
+		// the change test so unchanged files never consume the budget.
+		if w.config.MaxFilesPerScan > 0 && changedFiles >= w.config.MaxFilesPerScan {
+			deferredFiles++
+			return nil
+		}
+
+		// Process changed file
+		fileInfo, facts, err := w.processFile(ctx, path, info)
+		if err != nil {
+			return nil
+		}
+
+		w.mu.Lock()
+		w.files[path] = fileInfo
+		w.changeCount++
+		w.lastActivity = time.Now()
+		w.mu.Unlock()
+
+		changedFiles++
+
+		// Emit updated file_topology fact
+		normalizedPath := types.CanonicalPath(w.config.RootPath, fileInfo.Path)
+		ft := types.Fact{
+			Predicate: "file_topology",
+			Args: []any{
+				normalizedPath,
+				fileInfo.Hash,
+				types.Atom(fileInfo.Language), // declared /name: rules match /go, /mangle
+				fileInfo.LastModified.Unix(),
+				fileInfo.IsTestFile,
+			},
+		}
+		// Mark file as modified for impact analysis. Canonical, like every
+		// other path identity: the impact rules join modified/1 against
+		// dependency_link, and an absolute walk path matched no edge.
+		mod := types.Fact{
+			Predicate: "modified",
+			Args:      []any{normalizedPath},
+		}
+
+		facts = append(facts, ft, mod)
+		batchFacts = append(batchFacts, facts...)
+
+		return nil
+	})
+
+	w.mu.Lock()
+	w.lastScan = time.Now()
+	w.mu.Unlock()
+
+	if err != nil {
+		return err
+	}
+
+	// The remainder is deferred, not dropped: every file counted here kept a
+	// stale entry, so the next tick's change test still sees it as changed.
+	if deferredFiles > 0 {
+		logging.SystemShardsDebug("[WorldModel] incremental scan deferred %d changed files past MaxFilesPerScan=%d; the next tick picks them up",
+			deferredFiles, w.config.MaxFilesPerScan)
+	}
+
+	// Persist all facts to knowledge.db in one batch after the scan
+	w.persistToKnowledge(batchFacts)
+
+	if len(batchFacts) > 0 {
+		return w.Kernel.AssertBatch(batchFacts)
+	}
+	return nil
+}
+
+// processFile extracts information from a file.
+func (w *WorldModelIngestorShard) processFile(ctx context.Context, path string, info os.FileInfo) (FileInfo, []types.Fact, error) {
+	fi := FileInfo{
+		Path:         path,
+		LastModified: info.ModTime(),
+		Size:         info.Size(),
+		Language:     detectLanguage(path),
+		IsTestFile:   isTestFile(path),
+	}
+	var facts []types.Fact
+
+	// Compute hash
+	if w.config.HashOnlyLargeFiles && info.Size() > w.config.LargeFileThreshold {
+		// For large files, use size+mtime as pseudo-hash
+		fi.Hash = fmt.Sprintf("size:%d:mtime:%d", info.Size(), info.ModTime().Unix())
+	} else {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return fi, facts, err
+		}
+		hash := sha256.Sum256(content)
+		fi.Hash = hex.EncodeToString(hash[:])
+	}
+
+	// Parse AST for symbols/dependencies if enabled. The walk path is what
+	// the parser opens; the facts carry the canonical identity so they join
+	// the file_topology row emitted below and the scanners' rows for the
+	// same file.
+	if w.config.EnableSymbolGraph || w.config.EnableDependencies {
+		if w.parser != nil {
+			parsedFacts, err := w.parser.ParseAs(path, types.CanonicalPath(w.config.RootPath, path))
+			if err == nil && len(parsedFacts) > 0 {
+				facts = append(facts, parsedFacts...)
+			}
+		}
+	}
+
+	return fi, facts, nil
+}
+
+// detectLanguage determines the programming language from file extension.
+func detectLanguage(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".go":
+		return "go"
+	case ".py", ".pyi", ".pyw":
+		return "python"
+	case ".js", ".jsx", ".mjs", ".cjs":
+		return "javascript"
+	case ".ts", ".tsx", ".mts", ".cts":
+		return "typescript"
+	case ".mg", ".dl", ".mangle":
+		return "mangle"
+	case ".java":
+		return "java"
+	case ".rs":
+		return "rust"
+	case ".c", ".h":
+		return "c"
+	case ".cpp", ".hpp", ".cc":
+		return "cpp"
+	case ".rb":
+		return "ruby"
+	case ".php":
+		return "php"
+	case ".swift":
+		return "swift"
+	case ".kt":
+		return "kotlin"
+	case ".cs":
+		return "csharp"
+	case ".md":
+		return "markdown"
+	case ".json":
+		return "json"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".pdf":
+		return "pdf"
+	case ".txt":
+		return "text"
+	default:
+		return "unknown"
+	}
+}
+
+// isTestFile checks if a file is a test file.
+func isTestFile(path string) bool {
+	base := filepath.Base(path)
+	patterns := []string{
+		"_test.go",
+		"_test.py",
+		".test.js", ".test.ts", ".test.tsx",
+		".spec.js", ".spec.ts", ".spec.tsx",
+		"Test.java",
+		"_test.rs",
+	}
+	for _, pattern := range patterns {
+		if strings.HasSuffix(base, pattern) || strings.Contains(base, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// handleAutopoiesis uses LLM for semantic interpretation.
+func (w *WorldModelIngestorShard) handleAutopoiesis(ctx context.Context) {
+	cases := w.Autopoiesis.GetUnhandledCases()
+	if len(cases) == 0 {
+		return
+	}
+
+	if w.LLMClient == nil {
+		return
+	}
+
+	can, _ := w.CostGuard.CanCall()
+	if !can {
+		for _, cas := range cases {
+			w.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
+		}
+		return
+	}
+
+	// Use LLM to interpret complex changes
+	userPrompt := w.buildInterpretationPrompt(cases)
+
+	// Use JIT prompt compilation (no fallback - atoms in internal/prompt/atoms/system/autopoiesis.yaml)
+	systemPrompt, jitUsed := w.TryJITPrompt(ctx, "world_model_autopoiesis")
+	if !jitUsed || systemPrompt == "" {
+		logging.SystemShards("[WorldModel] [ERROR] JIT compilation failed - skipping autopoiesis (ensure system/autopoiesis atoms exist)")
+		for _, cas := range cases {
+			w.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
+		}
+		return
+	}
+	logging.SystemShards("[WorldModel] [JIT] Using JIT-compiled autopoiesis prompt")
+
+	result, err := w.GuardedLLMCall(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return
+	}
+
+	// Parse interpretation and emit facts
+	w.applyInterpretation(result)
+}
+
+// buildInterpretationPrompt creates a prompt for semantic interpretation.
+func (w *WorldModelIngestorShard) buildInterpretationPrompt(cases []UnhandledCase) string {
+	var sb strings.Builder
+	sb.WriteString("The following file changes need semantic interpretation:\n\n")
+
+	for i, cas := range cases {
+		sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, cas.Query))
+		for _, k := range slices.Sorted(maps.Keys(cas.Context)) {
+			sb.WriteString(fmt.Sprintf("   %s: %s\n", k, cas.Context[k]))
+		}
+	}
+
+	sb.WriteString("\nWhat facts should be derived from these changes?\n")
+	sb.WriteString("Format: FACT: predicate(arg1, arg2, ...)\n")
+
+	return sb.String()
+}
+
+// applyInterpretation parses LLM output and emits derived facts.
+func (w *WorldModelIngestorShard) applyInterpretation(output string) {
+	lines := strings.SplitSeq(output, "\n")
+	for line := range lines {
+		line = strings.TrimSpace(line)
+		if after, ok := strings.CutPrefix(line, "FACT:"); ok {
+			factStr := strings.TrimSpace(after)
+			// Parse and emit the fact (simplified parsing)
+			if idx := strings.Index(factStr, "("); idx > 0 {
+				predicate := factStr[:idx]
+				f := types.Fact{
+					Predicate: predicate,
+					Args:      []any{factStr}, // Store full fact string
+				}
+				_ = w.Kernel.Assert(f)
+				w.persistToKnowledge([]types.Fact{f})
+			}
+		}
+	}
+}
+
+// generateShutdownSummary creates a summary of the shard's activity.
+func (w *WorldModelIngestorShard) generateShutdownSummary(reason string) string {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	return fmt.Sprintf(
+		"World Model shutdown (%s). Files: %d, Symbols: %d, Changes: %d, Runtime: %s",
+		reason,
+		len(w.files),
+		len(w.symbols),
+		w.changeCount,
+		time.Since(w.StartTime).String(),
+	)
+}
+
+// GetFiles returns tracked files.
+func (w *WorldModelIngestorShard) GetFiles() map[string]FileInfo {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	result := make(map[string]FileInfo)
+	maps.Copy(result, w.files)
+	return result
+}
+
+// GetSymbols returns tracked symbols.
+func (w *WorldModelIngestorShard) GetSymbols() map[string]Symbol {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	result := make(map[string]Symbol)
+	maps.Copy(result, w.symbols)
+	return result
+}
+
+// persistToKnowledge stores derived facts in knowledge.db via VirtualStore when available.
+func (w *WorldModelIngestorShard) persistToKnowledge(facts []types.Fact) {
+	if len(facts) == 0 || w.VirtualStore == nil {
+		return
+	}
+	if err := w.VirtualStore.PersistFactsToKnowledge(facts, "fact", 6); err != nil {
+		fmt.Printf("[WorldModel] Knowledge persistence warning: %v\n", err)
+	}
+	// Also project dependency links into knowledge_graph for fast lookup
+	if err := w.VirtualStore.PersistLinkFacts(facts, "world_model"); err != nil {
+		fmt.Printf("[WorldModel] Knowledge graph warning: %v\n", err)
+	}
+}
+
+// NOTE: Legacy worldModelAutopoiesisPrompt constant has been DELETED.
+// World model autopoiesis prompts are now JIT-compiled from:
+//   internal/prompt/atoms/system/autopoiesis.yaml (id: system/autopoiesis/world_model)

@@ -1,0 +1,111 @@
+# Explain Intent Verb Atoms
+# Code explanation, architecture documentation, knowledge transfer
+
+- id: "intent/explain/core"
+  category: "intent"
+  subcategory: "explain"
+  is_mandatory: true
+  intent_verbs: ["/explain"]
+  content: |
+    ## EXPLAIN INTENT PROTOCOL (Encyclopedic)
+
+    Your intent is to **EXPLAIN** — make code understandable to a human by reconstructing *purpose, structure, and behavior* without inventing facts.
+
+    ### Prime Directive
+
+    An explanation is only good if it is **grounded in the code and its referenced docs**.
+    If you are uncertain, say so and point to the missing evidence.
+
+    ### Required Levels of Explanation
+
+    1. **Problem / Why**
+       - What user or system problem is this solving?
+       - What constraints shaped the design?
+    2. **Architecture / Where**
+       - How does this component fit into layers and subsystems?
+       - What are its dependencies and consumers?
+    3. **Algorithm / How**
+       - What sequence of steps does it execute?
+       - What invariants does it preserve?
+    4. **Implementation / What**
+       - Walk through the important branches and data transformations.
+       - Highlight tricky or non‑obvious code paths.
+
+- id: "intent/explain/core/encyclopedic-explain-workflow"
+  section_of: "intent/explain/core"
+  section_order: 1
+  category: "intent"
+  subcategory: "explain"
+  is_mandatory: false
+  intent_verbs: ["/explain"]
+  content: |
+    *Part of: EXPLAIN INTENT PROTOCOL (Encyclopedic)*
+
+    ### Encyclopedic Explain Workflow
+
+    1. **Locate the core surfaces**
+       - entrypoints, exported symbols, critical functions, main types.
+    2. **Map dependencies**
+       - who imports this file, what it imports, and why.
+    3. **Extract invariants**
+       - preconditions, postconditions, and error contracts.
+    4. **Describe flow**
+       - data in → transformation → data out.
+    5. **Relate to system**
+       - if codeNERD internal: tie to OODA, kernel policy, shards, memory tiers.
+
+    ### Output Guidance
+
+    - Use precise file paths / symbol names.
+    - Prefer small diagrams or bullet chains over prose walls.
+    - Separate *facts* from *interpretation* explicitly.
+    - End with “what to change if X needs to evolve” when useful.
+
+- id: "intent/explain/code"
+  category: "intent"
+  subcategory: "explain"
+  is_mandatory: false
+  intent_verbs: ["/explain"]
+  content: |
+    ## CODE EXPLANATION
+
+    ### FUNCTION EXPLANATION FORMAT
+    ```
+    [Function Name]
+    Purpose: Brief description
+    Parameters:
+      - param1: Description
+      - param2: Description
+    Returns: What it returns and when
+    Side effects: Any state changes
+    Error conditions: When/why it fails
+    ```
+
+    ### ALGORITHM EXPLANATION
+    ```
+    Algorithm: [Name]
+    1. First, we [initial step]
+    2. Then, we [next step]
+    3. For each [item], we [action]
+    4. Finally, we [conclusion]
+
+    Time complexity: O(n)
+    Space complexity: O(1)
+    ```
+
+    ### TRICKY CODE EXPLANATION
+    When code is non-obvious:
+    ```go
+    // This works because:
+    // 1. [Reason 1]
+    // 2. [Reason 2]
+    // Alternative approaches considered:
+    // - [Alternative 1]: Rejected because [reason]
+    ```
+
+    ### COMMON PATTERNS TO EXPLAIN
+    - Channel operations: Send/receive semantics
+    - Defer stack: LIFO execution order
+    - Interface satisfaction: Implicit implementation
+    - Context propagation: Cancellation and values
+    - Error wrapping: fmt.Errorf with %w

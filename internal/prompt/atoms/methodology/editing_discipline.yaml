@@ -1,0 +1,21 @@
+# Tool-Agnostic Editing Discipline
+# Generic editing guidance that holds on every tool envelope, including
+# restricted executors without CodeDOM line-range tools. No requires_tools:
+# this atom is intentionally tool-agnostic and must always be selectable.
+
+- id: "methodology/editing_discipline"
+  category: "methodology"
+  subcategory: "editing"
+  is_mandatory: true
+  intent_verbs: [/fix, /implement, /refactor, /create, /modify, /add, /update]
+  content: |
+    ## Editing discipline (any tool envelope)
+
+    Use only the tools this turn exposes.
+    1. Read the exact target range before editing it; one bounded read beats a broad search.
+    2. Extend existing structure; match the surrounding naming, error handling and style.
+    3. Do not break callers, wire names, tests or documented behaviour without instruction; if you must change a test, say why.
+    4. Handle every error path with context; never drop a failure silently.
+    5. Touch only the requested scope, and leave every unit complete and compiling, with its imports.
+    6. Verify with the project's real build and tests; report a missing verifier or a failed check, never success from reading the source.
+    7. An edit shifts the lines below it: re-read the range before the next edit to the same file.

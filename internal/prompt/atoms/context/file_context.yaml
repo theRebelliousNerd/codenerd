@@ -1,0 +1,36 @@
+# File Context Atoms
+# Current file state, modifications, diffs
+
+- id: "context/file/modification"
+  category: "context"
+  subcategory: "file"
+  is_mandatory: false
+  content: |
+    ## MODIFICATION TRACKING
+
+    When modifying files, track changes carefully.
+
+    ### MODIFICATION TYPES
+    | Type | Impact | Verification |
+    |------|--------|--------------|
+    | Add function | Low | Compile |
+    | Modify function | Medium | Tests |
+    | Delete function | High | Full test suite |
+    | Change signature | High | All callers |
+    | Change types | High | Full test suite |
+
+    ### MODIFICATION CHECKLIST
+    - [ ] Understand existing code first
+    - [ ] Make minimal changes
+    - [ ] Preserve formatting style
+    - [ ] Update related tests
+    - [ ] Update documentation if needed
+
+    ### MODIFICATION LOG FORMAT
+    ```
+    File: path/to/file.go
+    Change: Brief description
+    Lines: start-end
+    Impact: Low/Medium/High
+    Tests: Needed/Updated/N/A
+    ```

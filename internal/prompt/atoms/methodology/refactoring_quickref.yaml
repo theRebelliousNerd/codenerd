@@ -1,0 +1,201 @@
+# Refactoring Quick Reference
+# Condensed decision trees and checklists for rapid refactoring decisions
+# Use when token budget is constrained
+
+- id: "methodology/refactoring/quickref"
+  category: "methodology"
+  subcategory: "refactoring"
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## REFACTORING QUICK REFERENCE
+
+    ### Decision: Should I Refactor?
+    ```
+    Tests exist? ─NO──> Write tests first (Golden Master if needed)
+         │
+        YES
+         │
+    Tests pass? ─NO──> Fix tests first (not refactoring)
+         │
+        YES
+         │
+    Clear goal? ─NO──> Define specific improvement
+         │
+        YES
+         │
+    Deadline? ─YES──> Ship first, refactor later
+         │
+        NO
+         │
+    Code being replaced? ─YES──> Don't polish dead code
+         │
+        NO
+         │
+    PROCEED WITH REFACTORING
+    ```
+
+    ### Decision: Which Refactoring?
+
+    **Smell → Refactoring Map:**
+    | Smell | Primary Refactoring |
+    |-------|-------------------|
+    | Long Method | Extract Method |
+    | Large Class | Extract Class |
+    | Long Params | Introduce Parameter Object |
+    | Duplicate Code | Extract Method → Pull Up |
+    | Feature Envy | Move Method |
+    | Switch Statement | Replace with Polymorphism |
+    | Magic Number | Replace with Constant |
+    | Message Chain | Hide Delegate |
+    | Middle Man | Remove Middle Man |
+    | Data Clump | Extract Class |
+
+    ### Refactoring Safety Levels
+    ```
+    SAFE (AI can execute):
+    - Rename (variable, function, class)
+    - Extract Variable
+    - Inline Variable
+    - Remove Dead Code (static-verified)
+    - Replace Magic Number with Constant
+
+    MODERATE (verify with tests):
+    - Extract Method
+    - Move Method/Field
+    - Simplify Conditional
+    - Replace Conditional with Polymorphism
+
+    HIGH RISK (human review required):
+    - Change Function Signature
+    - Extract Class/Interface
+    - Replace Algorithm
+    - Large-scale migration
+    ```
+
+  content_concise: |
+    ## REFACTORING QUICK REFERENCE
+
+    **Checklist:** Tests pass? → Goal clear? → Not deadline? → Proceed
+
+    **Common Refactorings:**
+    - Long Method → Extract Method
+    - Long Params → Parameter Object
+    - Duplicate → Extract + Pull Up
+    - Feature Envy → Move Method
+    - Switch → Polymorphism
+
+    **Safety:** Rename/Extract Variable=Safe | Extract Method=Test | API Change=Review
+
+  content_min: |
+    Refactor: Tests first, small steps, verify each step, no behavior change.
+
+- id: "methodology/refactoring/legacy_quickref"
+  category: "methodology"
+  subcategory: "refactoring"
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## LEGACY CODE QUICK STRATEGIES
+
+    ### No Tests? Create Characterization Tests
+    1. Write test calling code with various inputs
+    2. Assert current output (whatever it is)
+    3. Run 10,000+ times with random inputs
+    4. Save outputs as "golden master"
+    5. Compare after refactoring
+
+    ### Mikado Method (Large Refactoring)
+    1. Try change naively
+    2. When it breaks, note prerequisite
+    3. REVERT changes
+    4. Work from leaf prerequisites
+    5. Build dependency graph
+    6. Never have broken code in main
+
+    ### Strangler Fig (System Migration)
+    ```
+    [Client] → [Facade] → [Old System]
+                  ↓
+              [New System]
+    ```
+    Route traffic gradually from old to new.
+
+    ### Creating Seams
+    ```
+    // Static call (untestable)
+    Database.Query(sql)
+
+    // With seam (testable)
+    s.db.Query(sql)  // s.db is interface
+    ```
+
+    **Seam Types:**
+    - Object: Interface + injection
+    - Link: Classpath manipulation
+    - Preprocessing: Build flags
+
+  content_concise: |
+    **No tests:** Golden Master (capture output, compare after)
+    **Large refactor:** Mikado (try→fail→note→revert→recurse from leaves)
+    **Migration:** Strangler Fig (facade routing old→new)
+    **Testability:** Extract interface + inject dependency
+
+- id: "methodology/refactoring/ai_checklist"
+  category: "methodology"
+  subcategory: "refactoring"
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## AI REFACTORING CHECKLIST
+
+    ### Before Starting
+    ```
+    [ ] Tests exist and pass
+    [ ] I understand what code does
+    [ ] I have specific improvement goal
+    [ ] Change is under 200 lines
+    [ ] No behavior change intended
+    ```
+
+    ### During Refactoring
+    ```
+    [ ] One refactoring type at a time
+    [ ] Each step compiles
+    [ ] Not adding features
+    [ ] Not fixing bugs
+    [ ] Not changing error messages
+    [ ] Not optimizing
+    [ ] Preserving public API
+    ```
+
+    ### After Refactoring
+    ```
+    [ ] All tests pass (unchanged)
+    [ ] No new warnings
+    [ ] Coverage same or better
+    [ ] Complexity reduced
+    [ ] Changes documented
+    ```
+
+    ### Stop If
+    - Test fails → Revert immediately
+    - Behavior change needed → Switch to /fix
+    - Scope growing → Propose separate changes
+    - Uncertainty → Ask before proceeding
+
+    ### Communication Template
+    ```
+    Refactoring: [Extract Method / Rename / etc.]
+    Goal: [Specific improvement]
+    Files: [List]
+    Lines changed: [Count]
+    Tests: [Passing/Updated]
+    ```
+
+  content_concise: |
+    **Before:** Tests pass, goal clear, <200 lines
+    **During:** One type, no features, no fixes, preserve API
+    **After:** Tests pass, no warnings, documented
+    **Stop if:** Test fails, behavior change, scope creep
+

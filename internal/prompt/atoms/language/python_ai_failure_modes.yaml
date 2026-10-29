@@ -1,0 +1,310 @@
+# Python AI Failure Modes - Encyclopedic Reference
+# Critical mistakes AI coding agents commonly make in Python
+
+- id: "language/python/ai_failures/late_binding"
+  category: "language"
+  subcategory: "python"
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    ## LATE BINDING CLOSURES (CRITICAL)
+
+    Closures capture variables by reference, not by value.
+    The variable's value is looked up when the closure is CALLED.
+
+    ### The Bug
+    ```python
+    # WRONG - All lambdas capture the SAME variable i
+    def create_multipliers():
+        return [lambda x: i * x for i in range(5)]
+
+    multipliers = create_multipliers()
+    print(multipliers[2](3))  # 12, not 6! i=4 for all lambdas
+
+    # WRONG - Same problem in loops
+    funcs = []
+    for i in range(3):
+        funcs.append(lambda: i)
+
+    print([f() for f in funcs])  # [2, 2, 2], not [0, 1, 2]
+    ```
+
+    ### The Fixes
+    ```python
+    # CORRECT - Capture value with default argument
+    def create_multipliers():
+        return [lambda x, i=i: i * x for i in range(5)]
+
+    # CORRECT - Using functools.partial
+    from functools import partial
+
+    def create_multipliers():
+        def multiply(i, x):
+            return i * x
+        return [partial(multiply, i) for i in range(5)]
+
+    # CORRECT - Closure over a new scope
+    def create_multipliers():
+        def make_multiplier(i):
+            return lambda x: i * x
+        return [make_multiplier(i) for i in range(5)]
+    ```
+
+    ### Why This Happens
+    Python closures capture variables, not values. The variable `i`
+    is shared across all lambdas. When you call the lambda, it looks
+    up the CURRENT value of `i`, which is the final loop value.
+
+  content_concise: |
+    ## Late Binding Closures
+    ```python
+    # WRONG - all lambdas see final value of i
+    [lambda x: i * x for i in range(5)]
+
+    # CORRECT - capture value with default arg
+    [lambda x, i=i: i * x for i in range(5)]
+    ```
+
+- id: "language/python/ai_failures/generator_exhaustion"
+  category: "language"
+  subcategory: "python"
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    ## GENERATOR EXHAUSTION
+
+    Generators can only be iterated ONCE.
+    AI agents often reuse generators expecting multiple iterations.
+
+    ### The Bug
+    ```python
+    # Generators can only be iterated ONCE
+    def count_to_three():
+        yield 1
+        yield 2
+        yield 3
+
+    gen = count_to_three()
+    print(list(gen))  # [1, 2, 3]
+    print(list(gen))  # [] - EMPTY! Generator exhausted
+
+    # WRONG - Trying to iterate twice
+    data = (x * 2 for x in range(10))
+    first_pass = sum(data)
+    second_pass = max(data)  # Returns nothing useful!
+    ```
+
+    ### The Fixes
+    ```python
+    # CORRECT - Convert to list if multiple iterations needed
+    data = list(x * 2 for x in range(10))
+    first_pass = sum(data)
+    second_pass = max(data)
+
+    # CORRECT - Create new generator each time
+    def get_data():
+        return (x * 2 for x in range(10))
+
+    first_pass = sum(get_data())
+    second_pass = max(get_data())
+
+    # CORRECT - Using itertools.tee for dual iteration
+    from itertools import tee
+    gen = (x * 2 for x in range(10))
+    gen1, gen2 = tee(gen, 2)
+    sum(gen1)
+    max(gen2)
+    ```
+
+    ### Iterator vs Iterable
+    ```python
+    # Iterable: Can create iterator (has __iter__)
+    # Iterator: Has state, can be exhausted (has __next__)
+
+    my_list = [1, 2, 3]  # Iterable - can iterate multiple times
+    my_gen = (x for x in [1, 2, 3])  # Iterator - one-time use
+
+    # Check if exhausted
+    def is_iterator_exhausted(it):
+        try:
+            next(it)
+            return False
+        except StopIteration:
+            return True
+    ```
+
+  content_concise: |
+    ## Generator Exhaustion
+    ```python
+    # Generators only iterate ONCE
+    gen = (x for x in range(10))
+    list(gen)  # [0, 1, ...]
+    list(gen)  # [] - exhausted!
+
+    # Convert to list for multiple iterations
+    data = list(x for x in range(10))
+    ```
+
+- id: "language/python/ai_failures/init_vs_new"
+  category: "language"
+  subcategory: "python"
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    ## __init__ vs __new__ CONFUSION
+
+    `__new__` creates the instance, `__init__` initializes it.
+    AI agents often misuse these, especially in Singletons.
+
+    ### Understanding the Difference
+
+    ```python
+    class MyClass:
+        def __new__(cls):
+            print("Creating instance")
+            instance = super().__new__(cls)
+            return instance
+
+        def __init__(self):
+            print("Initializing instance")
+
+    obj = MyClass()
+    # Output:
+    # Creating instance
+    # Initializing instance
+    ```
+
+    ### The Singleton Bug
+
+    ```python
+    # WRONG - __init__ runs every time, resetting state
+    class Singleton:
+        _instance = None
+
+        def __new__(cls):
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+            return cls._instance
+
+        def __init__(self):
+            self.value = 0  # Resets every call!
+
+    s1 = Singleton()
+    s1.value = 42
+    s2 = Singleton()  # __init__ runs again!
+    print(s2.value)  # 0, not 42!
+    ```
+  content_concise: |
+    ## __init__ vs __new__
+    - `__new__`: Creates instance (before __init__)
+    - `__init__`: Initializes instance (can run multiple times)
+    - Singleton bug: `__init__` resets state each call
+    - Fix: Guard `__init__` with initialization flag
+
+- id: "language/python/ai_failures/init_vs_new/correct-singleton"
+  section_of: "language/python/ai_failures/init_vs_new"
+  section_order: 1
+  category: "language"
+  subcategory: "python"
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    *Part of: __init__ vs __new__ CONFUSION*
+
+    ### Correct Singleton
+
+    ```python
+    # CORRECT - Guard __init__
+    class Singleton:
+        _instance = None
+        _initialized = False
+
+        def __new__(cls):
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+            return cls._instance
+
+        def __init__(self):
+            if not Singleton._initialized:
+                self.value = 0
+                Singleton._initialized = True
+    ```
+
+    ### When to Use __new__
+
+    ```python
+    # 1. Singletons
+    # 2. Subclassing immutable types
+    class MyStr(str):
+        def __new__(cls, value):
+            # str is immutable, must set value in __new__
+            return super().__new__(cls, value.upper())
+
+    # 3. Object caching/pooling
+    class CachedInt:
+        _cache = {}
+
+        def __new__(cls, value):
+            if value not in cls._cache:
+                cls._cache[value] = super().__new__(cls)
+            return cls._cache[value]
+    ```
+
+- id: "language/python/ai_failures/hallucinations"
+  category: "language"
+  subcategory: "python"
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    ## AI-SPECIFIC HALLUCINATIONS
+
+    Common patterns where AI agents generate non-existent code.
+
+    ### Hallucinated Imports
+
+    ```python
+    # WRONG - These don't exist!
+    import python_utils
+    from std.collections import OrderedDict  # Wrong path
+    from typing import JSONType  # Not a real type
+    from dataclasses import validate  # Doesn't exist
+    from functools import memoize  # It's lru_cache
+
+    # CORRECT versions
+    from collections import OrderedDict
+    from typing import Any  # Use Any for JSON
+    from functools import lru_cache
+    ```
+
+    ### Cross-Language Leakage
+
+    ```python
+    # JavaScript leakage
+    my_list.push(item)  # Use .append()
+    my_list.length  # Use len(my_list)
+    array.forEach(fn)  # Use for x in array: fn(x)
+    const x = 5  # Python has no const
+
+    # Java leakage
+    string.equals(other)  # Use ==
+    string.isEmpty()  # Use not string or len(string) == 0
+    list.size()  # Use len(list)
+    new MyClass()  # Just MyClass()
+
+    # Ruby leakage
+    array.each do |x|  # Use for x in array:
+    puts "hello"  # Use print("hello")
+    ```
+  content_concise: |
+    ## AI Hallucinations
+    - Hallucinated imports: `python_utils`, `typing.JSONType`
+    - JavaScript leakage: `.push()`, `.length`
+    - Java leakage: `.equals()`, `.isEmpty()`
+    - Placeholder code: `pass # TODO`
+    - Non-existent types: `typing.JSON`, `typing.URL`
+

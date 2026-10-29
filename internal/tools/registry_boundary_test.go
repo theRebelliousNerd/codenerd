@@ -1,0 +1,286 @@
+package tools
+
+import (
+	"context"
+	"errors"
+	"math"
+	"testing"
+)
+
+// TestRegistry_RegisterNilTool verifies that Register(nil) returns ErrToolNil
+// rather than panicking. Defends against bad callers passing nil tools (e.g.,
+// uninitialized factory output).
+//
+// QA boundary item: TestRegistry_RegisterNilTool.
+func TestRegistry_RegisterNilTool(t *testing.T) {
+	reg := NewRegistry()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Register(nil) panicked: %v", r)
+		}
+	}()
+
+	err := reg.Register(nil)
+	if err == nil {
+		t.Fatal("expected error for nil tool")
+	}
+	if !errors.Is(err, ErrToolNil) {
+		t.Errorf("expected ErrToolNil, got %v", err)
+	}
+
+	// Registry must still be empty / functional after a nil registration.
+	if reg.Count() != 0 {
+		t.Errorf("expected registry to remain empty after nil registration, got %d", reg.Count())
+	}
+}
+
+// TestRegistry_ExecuteNilContext verifies Execute and ExecuteTool gracefully
+// fall back to context.Background() when nil is passed.
+//
+// QA boundary item: TestRegistry_ExecuteNilContext.
+func TestRegistry_ExecuteNilContext(t *testing.T) {
+	reg := NewRegistry()
+
+	// Record the ctx the Execute function actually receives.
+	var seenCtx context.Context
+	tool := &Tool{
+		Effect:   EffectRead,
+		Name:     "ctx_probe",
+		Category: CategoryGeneral,
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
+			seenCtx = ctx
+			return "ok", nil
+		},
+	}
+	reg.MustRegister(tool)
+
+	// Must NOT panic on nil ctx.
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Execute panicked on nil ctx: %v", r)
+		}
+	}()
+
+	//nolint:staticcheck // intentionally passing nil to verify guard
+	//lint:ignore SA1012 this test exists to prove the callee rejects a nil Context; passing context.Background() would make it assert nothing.
+	result, err := reg.Execute(nil, "ctx_probe", map[string]any{})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Result != "ok" {
+		t.Errorf("expected ok result, got %q", result.Result)
+	}
+	if seenCtx == nil {
+		t.Error("expected tool to receive a non-nil context (fallback to Background)")
+	}
+
+	// And again via ExecuteTool directly.
+	//nolint:staticcheck // intentionally passing nil
+	//lint:ignore SA1012 this test exists to prove the callee rejects a nil Context; passing context.Background() would make it assert nothing.
+	if _, err := reg.ExecuteTool(nil, tool, map[string]any{}); err != nil {
+		t.Errorf("ExecuteTool with nil ctx returned error: %v", err)
+	}
+}
+
+// TestRegistry_FilterByIntent_Empty verifies that empty or unknown intent
+// strings return the safe fallback (all tools) rather than an empty slice
+// or a panic.
+//
+// QA boundary item: TestRegistry_FilterByIntent_Empty.
+func TestRegistry_FilterByIntent_Empty(t *testing.T) {
+	reg := NewRegistry()
+	tools := []*Tool{
+		{Name: "a", Category: CategoryResearch, Effect: EffectRead, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "b", Category: CategoryCode, Effect: EffectRead, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "c", Category: CategoryTest, Effect: EffectRead, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+	}
+	for _, tool := range tools {
+		reg.MustRegister(tool)
+	}
+
+	// Empty string -> All().
+	if got := reg.FilterByIntent(""); len(got) != 3 {
+		t.Errorf("FilterByIntent(\"\") = %d tools, want 3 (all)", len(got))
+	}
+
+	// Hallucinated intent -> All().
+	if got := reg.FilterByIntent("/hallucinated"); len(got) != 3 {
+		t.Errorf("FilterByIntent(hallucinated) = %d tools, want 3 (all)", len(got))
+	}
+
+	// Verify an empty registry returns an empty (but non-nil-panicking) slice.
+	emptyReg := NewRegistry()
+	if got := emptyReg.FilterByIntent(""); len(got) != 0 {
+		t.Errorf("FilterByIntent on empty registry = %d tools, want 0", len(got))
+	}
+}
+
+// TestRegistry_Execute_TypeMismatch verifies validateArgs rejects mismatched
+// types — e.g., an int passed for a string-schema property.
+//
+// QA boundary item: validate type mismatch in validateArgs.
+func TestRegistry_Execute_TypeMismatch(t *testing.T) {
+	reg := NewRegistry()
+	tool := &Tool{
+		Effect:   EffectRead,
+		Name:     "echo",
+		Category: CategoryGeneral,
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
+			return "ok", nil
+		},
+		Schema: ToolSchema{
+			Required:   []string{"message"},
+			Properties: map[string]Property{"message": {Type: "string"}},
+		},
+	}
+	reg.MustRegister(tool)
+
+	// int provided for string property — must reject.
+	_, err := reg.Execute(context.Background(), "echo", map[string]any{"message": 42})
+	if err == nil {
+		t.Fatal("expected type mismatch error for int->string")
+	}
+	if !errors.Is(err, ErrInvalidArgType) {
+		t.Errorf("expected ErrInvalidArgType, got %v", err)
+	}
+
+	// Correct string passes.
+	if _, err := reg.Execute(context.Background(), "echo", map[string]any{"message": "hi"}); err != nil {
+		t.Errorf("valid string arg unexpectedly errored: %v", err)
+	}
+}
+
+func TestRegistry_Execute_RejectsNullForTypedArguments(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		required []string
+		property string
+		typeName string
+	}{
+		{name: "required string", required: []string{"path"}, property: "path", typeName: "string"},
+		{name: "optional integer", property: "line", typeName: "integer"},
+		{name: "optional number", property: "score", typeName: "number"},
+		{name: "optional boolean", property: "enabled", typeName: "boolean"},
+		{name: "optional array", property: "items", typeName: "array"},
+		{name: "optional object", property: "options", typeName: "object"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := NewRegistry()
+			executed, guarded, recorded := false, false, false
+			reg.SetWriteGuard(func(context.Context, string, map[string]any) error {
+				guarded = true
+				return nil
+			})
+			reg.SetFactSink(func(context.Context, ExecutionRecord) { recorded = true })
+			reg.MustRegister(&Tool{
+				Name:     "typed_probe",
+				Effect:   EffectWrite,
+				Category: CategoryGeneral,
+				Execute: func(context.Context, map[string]any) (string, error) {
+					executed = true
+					return "should not run", nil
+				},
+				Schema: ToolSchema{
+					Required: tc.required,
+					Properties: map[string]Property{
+						tc.property: {Type: tc.typeName},
+					},
+				},
+			})
+
+			result, err := reg.Execute(context.Background(), "typed_probe", map[string]any{tc.property: nil})
+			if !errors.Is(err, ErrInvalidArgType) {
+				t.Fatalf("Execute error = %v, want ErrInvalidArgType", err)
+			}
+			if result == nil || !errors.Is(result.Error, ErrInvalidArgType) {
+				t.Fatalf("Execute result = %+v, want typed argument error", result)
+			}
+			if executed || guarded || recorded {
+				t.Fatalf("invalid arguments reached later stages: executed=%v guarded=%v recorded=%v", executed, guarded, recorded)
+			}
+		})
+	}
+}
+
+func TestRegistry_Execute_AllowsAbsentOptionalAndUntypedNull(t *testing.T) {
+	reg := NewRegistry()
+	var calls int
+	reg.MustRegister(&Tool{
+		Name:     "permissive_probe",
+		Effect:   EffectRead,
+		Category: CategoryGeneral,
+		Execute: func(context.Context, map[string]any) (string, error) {
+			calls++
+			return "ok", nil
+		},
+		Schema: ToolSchema{
+			Properties: map[string]Property{"untyped": {}},
+		},
+	})
+
+	for _, args := range []map[string]any{{}, {"untyped": nil}} {
+		if _, err := reg.Execute(context.Background(), "permissive_probe", args); err != nil {
+			t.Fatalf("Execute(%#v) error = %v, want nil", args, err)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("tool calls = %d, want 2", calls)
+	}
+}
+
+// TestRegistry_PrioritySorting_Extremes verifies that GetByCategory correctly
+// sorts tools when priorities are at extreme integer values.
+//
+// QA boundary item: TestRegistry_PrioritySorting_Extremes (MaxInt64, MinInt64).
+func TestRegistry_PrioritySorting_Extremes(t *testing.T) {
+	reg := NewRegistry()
+	tools := []*Tool{
+		{Name: "min", Effect: EffectRead, Category: CategoryCode, Priority: math.MinInt, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "max", Effect: EffectRead, Category: CategoryCode, Priority: math.MaxInt, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "mid", Effect: EffectRead, Category: CategoryCode, Priority: 50, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+	}
+	for _, tool := range tools {
+		reg.MustRegister(tool)
+	}
+
+	result := reg.GetByCategory(CategoryCode)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 tools, got %d", len(result))
+	}
+	// Expected order: max (MaxInt) > mid (50) > min (MinInt).
+	if result[0].Name != "max" {
+		t.Errorf("expected MaxInt-priority tool first, got %q", result[0].Name)
+	}
+	if result[2].Name != "min" {
+		t.Errorf("expected MinInt-priority tool last, got %q", result[2].Name)
+	}
+}
+
+// TestRegistry_Execute_NilArgs verifies Execute does not panic on nil args
+// (only missing required args should produce an error).
+func TestRegistry_Execute_NilArgs(t *testing.T) {
+	reg := NewRegistry()
+	tool := &Tool{
+		Effect:   EffectRead,
+		Name:     "noargs",
+		Category: CategoryGeneral,
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
+			return "ok", nil
+		},
+	}
+	reg.MustRegister(tool)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Execute panicked on nil args: %v", r)
+		}
+	}()
+
+	result, err := reg.Execute(context.Background(), "noargs", nil)
+	if err != nil {
+		t.Errorf("Execute(nil args) errored unexpectedly: %v", err)
+	}
+	if result == nil || result.Result != "ok" {
+		t.Errorf("expected ok result, got %+v", result)
+	}
+}

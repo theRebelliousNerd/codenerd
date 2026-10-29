@@ -1,0 +1,67 @@
+# Test Pattern Exemplars
+# Test pattern examples (table-driven, mocks)
+
+- id: "exemplar/test/testify"
+  category: "exemplar"
+  subcategory: "test"
+  is_mandatory: false
+  content: |
+    ## TESTIFY EXEMPLAR
+
+    ### ASSERT PACKAGE
+    ```go
+    import "github.com/stretchr/testify/assert"
+
+    func TestUser(t *testing.T) {
+        user, err := CreateUser("test@example.com")
+
+        assert.NoError(t, err)
+        assert.NotNil(t, user)
+        assert.Equal(t, "test@example.com", user.Email)
+        assert.True(t, user.IsActive())
+        assert.Contains(t, user.Email, "@")
+    }
+    ```
+
+    ### REQUIRE PACKAGE (FAILS FAST)
+    ```go
+    import "github.com/stretchr/testify/require"
+
+    func TestUserCreation(t *testing.T) {
+        user, err := CreateUser("test@example.com")
+        require.NoError(t, err)  // Stops test if error
+        require.NotNil(t, user)  // Stops test if nil
+
+        // Only runs if above passed
+        assert.Equal(t, "test@example.com", user.Email)
+    }
+    ```
+
+    ### TEST SUITE
+    ```go
+    import "github.com/stretchr/testify/suite"
+
+    type UserServiceSuite struct {
+        suite.Suite
+        svc  *UserService
+        repo *mockRepo
+    }
+
+    func (s *UserServiceSuite) SetupTest() {
+        s.repo = &mockRepo{}
+        s.svc = NewUserService(s.repo)
+    }
+
+    func (s *UserServiceSuite) TestGetUser_Success() {
+        s.repo.user = &User{ID: "123"}
+
+        user, err := s.svc.GetUser(context.Background(), "123")
+
+        s.NoError(err)
+        s.Equal("123", user.ID)
+    }
+
+    func TestUserServiceSuite(t *testing.T) {
+        suite.Run(t, new(UserServiceSuite))
+    }
+    ```

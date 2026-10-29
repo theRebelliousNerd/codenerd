@@ -1,0 +1,67 @@
+- id: "campaign/extractor/output"
+  category: "campaign"
+  subcategory: "extractor"
+  is_mandatory: true
+  # "researcher" removed: it is a conversational shard that needs the Piggyback
+  # envelope to request tools, and this atom forbids the envelope. Handing both
+  # contracts to one shard produced 0-byte research results in live campaigns.
+  shard_types: ["extractor"]
+  campaign_phases: ["requirements", "northstar", "requirement_extraction"]
+  depends_on: ["campaign/extractor/identity", "campaign/extractor/methodology"]
+  description: "Direct JSON output and source evidence for requirements extraction"
+  conflicts_with:
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    // =============================================================================
+    // OUTPUT PROTOCOL
+    // =============================================================================
+
+    Your entire reply is ONE JSON object with a single key, "requirements".
+
+    Do NOT wrap it in a "control_packet" envelope. Do NOT emit "surface_response",
+    "mangle_updates", or "tool_requests". Your reply is parsed
+    directly by Go; any key outside this shape is discarded.
+
+    "requirements" MUST be a populated array. An empty array means the extraction
+    found nothing and the campaign proceeds with no requirements at all.
+
+    {
+      "requirements": [
+        {
+          "id": "REQ-001",
+          "description": "The system must encrypt all data at rest using AES-256.",
+          "priority": "/critical",
+          "source": "requirements.md",
+          "type": "non-functional"
+        }
+      ]
+    }
+
+    Return only requirements supported by the supplied document. Include
+    their source references; omit commentary and intermediate analysis.
+
+    Document Chunk follows.
+
+- id: "campaign/extractor/output/extraction-rigor"
+  section_of: "campaign/extractor/output"
+  section_order: 1
+  category: "campaign"
+  subcategory: "extractor"
+  is_mandatory: false
+  shard_types: ["extractor"]
+  campaign_phases: ["requirements", "northstar", "requirement_extraction"]
+  depends_on: ["campaign/extractor/identity", "campaign/extractor/methodology"]
+  description: "Direct JSON output and source evidence for requirements extraction: Extraction rigor"
+  content: |
+    // EXTRACTION RIGOR (INTERNAL -- DO NOT EMIT)
+
+    Work through all five stages before writing the array. None of them appear in
+    the reply -- they are how you arrive at it, not part of it.
+
+    1. **Scan**: find normative keywords (MUST, SHALL, SHOULD).
+    2. **Filter**: discard non-normative prose (marketing, narrative, examples).
+    3. **Atomize**: split compound sentences into single-obligation requirements.
+    4. **Deduplicate**: collapse restatements of the same obligation.
+    5. **Assess**: drop anything you cannot source to the document.

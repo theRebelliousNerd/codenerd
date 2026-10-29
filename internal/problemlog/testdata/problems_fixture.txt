@@ -1,0 +1,23 @@
+ 903  func (m Model) leftover() {} // continuation of a record that began before this chunk
+2026/10/28 02:20:03.469014 [WARN] [kernel] admission: tool_capability/2 arg 1 is declared /name but its producer passed a bare Go string; it is stored as a string no /name rule can match — pass types.MangleAtom("/...") at the assert site
+2026/10/28 02:20:13.029163 [WARN] [performance] Slow Update() handler: chat.bootCompleteMsg took 371.977644ms (target: <100ms)
+2026/10/28 02:22:18.288391 [WARN] [kernel] admission: atom_category/2 arg 1 is declared /name but its producer passed a bare Go string; it is stored as a string no /name rule can match — pass types.MangleAtom("/...") at the assert site
+2026/10/28 02:22:50.214150 [WARN] [jit] Vector search skipped 578 atom vector(s) not embedded by ollama:embeddinggemma-2:latest (unstamped=578); run `nerd embedding reembed`
+2026/10/28 02:24:40.848805 [ERROR] [session] Tool call edit_element failed: modular tool execution failed: old does not occur in cmd/nerd/chat.Model.handleNorthstarSummary. Its text is:
+903  func (m Model) handleNorthstarSummary(input string) (tea.Model, tea.Cmd) {
+904  	lower := strings.ToLower(input)
+905  
+906  	switch lower {
+907  	case "save", "yes", "y":
+908  		return m.saveNorthstar(false)
+2026/10/28 02:24:41.000100 [DEBUG] [session] a level this log never mirrors
+ continuation of the debug record, which is not a problem
+2026/10/28 02:28:49.580154 [WARN] [virtual_store] Validation failed: action=action-fixture-0001 method=paranoid_validation error=write operation missing expected content in payload
+2026/10/28 02:30:12.100000 [WARN] [performance] Slow Update() handler: chat.bootCompleteMsg took 402.5ms (target: <100ms)
+2026/10/28 02:35:21.003602 [ERROR] [session] Tool call delete_file failed: tool call blocked by executive gate: dreamer safety gate: critical_path_missing
+2026/10/28 02:35:46.789257 [ERROR] [session] Tool call run_tests failed: modular tool execution failed: exit status 1
+2026/10/28 02:36:02.000001 [WARN] [performance] Slow Update() handler: chat.bootCompleteMsg took 311ms (target: <100ms)
+2026/10/28 02:40:34.272414 [ERROR] [session] Tool call edit_element failed: modular tool execution failed: old does not occur in cmd/nerd/chat.Model.saveNorthstar. Its text is:
+118  func (m Model) saveNorthstar(campaign bool) error {
+119  	return nil
+2026/10/28 02:41:00.000000 [WARN] [kernel] debug-self: 1 new error(s), 1 warning kind(s) since last turn — in context

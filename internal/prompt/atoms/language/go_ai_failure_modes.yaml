@@ -1,0 +1,63 @@
+# Go failure modes models still make: one rule per atom, no worked examples
+# (a capable model knows the code shape; the rule is what it forgets).
+# Served on Go-authoring compiles (world_states: authoring_go).
+
+- id: "language/go/ai_failures/loop_capture"
+  category: "language"
+  subcategory: "go"
+  is_mandatory: true
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
+  content: |
+    Since Go 1.22 every loop iteration declares a fresh loop variable, so a closure, goroutine or defer in the loop captures that iteration's value. Do not add `v := v` copies in a module whose go.mod says go 1.22 or later. Below 1.22, pass the variable as an argument or copy it before capturing.
+
+- id: "language/go/ai_failures/nil_interface"
+  category: "language"
+  subcategory: "go"
+  is_mandatory: true
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
+  content: |
+    An interface holding a typed nil pointer is not nil: `var e *MyErr; return e` from a func returning `error` makes `err != nil` true. Return a literal `nil` for an interface result; never return a typed nil pointer through an interface.
+
+- id: "language/go/ai_failures/defer_gotchas"
+  category: "language"
+  subcategory: "go"
+  is_mandatory: true
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
+  content: |
+    `defer` runs at function exit, not at the end of a loop iteration: release per-iteration resources in a helper function or explicitly. A deferred call's arguments are evaluated when the `defer` statement runs. A deferred closure can change named results. `recover` only catches a panic in its own goroutine.
+
+- id: "language/go/ai_failures/slice_append"
+  category: "language"
+  subcategory: "go"
+  is_mandatory: true
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
+  content: |
+    A sub-slice shares its parent's backing array, so `append` to `s[a:b]` can overwrite the parent's later elements. Before appending to a slice you do not own, cap it with a full slice expression (`s[a:b:b]`) or copy it.
+
+- id: "language/go/ai_failures/error_handling"
+  category: "language"
+  subcategory: "go"
+  is_mandatory: true
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
+  content: |
+    Check every returned error. Inside an `if` or block, `x, err := f()` declares a new `err` that shadows the outer one; assign with `=` when the outer `err` is returned later. Wrap with one `%w` per `fmt.Errorf` (`errors.Join` for several) and test with `errors.Is`/`errors.As`, never by comparing `err.Error()` strings.
+
+- id: "language/go/ai_failures/goroutine_leaks"
+  category: "language"
+  subcategory: "go"
+  is_mandatory: true
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  world_states: ["authoring_go"]
+  content: |
+    Every goroutine you start needs an exit path: a receiver (or buffer) for each send, a `ctx.Done()` case in its loop, and a context canceled when its parent returns (`ctx, cancel := context.WithCancel(ctx); defer cancel()`).

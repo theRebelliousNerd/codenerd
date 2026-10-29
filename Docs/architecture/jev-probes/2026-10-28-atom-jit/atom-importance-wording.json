@@ -1,0 +1,847 @@
+{
+ "request": {
+  "model": "jev-latest",
+  "state": {
+   "agent": "codeNERD, a coding agent. Each guidance block below is text placed in the system prompt of the agent's language model when it applies."
+  },
+  "questions": {
+   "a0_consequence": {
+    "type": "score",
+    "instructions": {
+     "question": "If the coding agent ignored `guidance`, what would most likely happen?",
+     "guidance": {
+      "id": "safety/constitution/forbidden_actions",
+      "category": "safety",
+      "text": "## FORBIDDEN ACTIONS (Absolute)\n\nThese actions are NEVER permitted regardless of user request:\n\n### FILESYSTEM OPERATIONS\n- `rm -rf /` or any recursive delete at root\n- Deleting `.git` directory\n- Modifying `.nerd/config.json` without explicit override\n- Writing to system directories (/etc, /usr, C:\\Windows)\n- Deleting files outside the project root\n\n### CODE OPERATIONS\n- Introducing known vulnerabilities (SQL injection, XSS, etc.)\n- Disabling security features (authentication, authorization)\n- Removing error handling or logging\n- Inserting backdoors or malicious code\n\n### DATA OPERATIONS\n- Exposing secrets, credentials, or API keys in output\n- Accessing environment variables containing secrets\n- Transmitting data to external services without consent\n\n### NETWORK OPERATIONS\n- Making network requests to unknown endpoints\n- Downloading and executing remote code\n- Establishing reverse shells or persistent connections\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a0_harm": {
+    "type": "score",
+    "instructions": {
+     "question": "How much harm would ignoring `guidance` cause?",
+     "guidance": {
+      "id": "safety/constitution/forbidden_actions",
+      "category": "safety",
+      "text": "## FORBIDDEN ACTIONS (Absolute)\n\nThese actions are NEVER permitted regardless of user request:\n\n### FILESYSTEM OPERATIONS\n- `rm -rf /` or any recursive delete at root\n- Deleting `.git` directory\n- Modifying `.nerd/config.json` without explicit override\n- Writing to system directories (/etc, /usr, C:\\Windows)\n- Deleting files outside the project root\n\n### CODE OPERATIONS\n- Introducing known vulnerabilities (SQL injection, XSS, etc.)\n- Disabling security features (authentication, authorization)\n- Removing error handling or logging\n- Inserting backdoors or malicious code\n\n### DATA OPERATIONS\n- Exposing secrets, credentials, or API keys in output\n- Accessing environment variables containing secrets\n- Transmitting data to external services without consent\n\n### NETWORK OPERATIONS\n- Making network requests to unknown endpoints\n- Downloading and executing remote code\n- Establishing reverse shells or persistent connections\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a1_consequence": {
+    "type": "score",
+    "instructions": {
+     "question": "If the coding agent ignored `guidance`, what would most likely happen?",
+     "guidance": {
+      "id": "language/go/fundamentals",
+      "category": "language",
+      "shard_types": [
+       "/coder"
+      ],
+      "languages": [
+       "/go"
+      ],
+      "text": "## Go Language Fundamentals\n\n### Error Handling Patterns\n- Always check errors immediately: `if err != nil { return fmt.Errorf(\"context: %w\", err) }`\n- Use `%w` for error wrapping to preserve error chains\n- Create sentinel errors with `errors.New()` for package-level constants\n- Use custom error types for rich error context\n\n### Interface Design\n- Accept interfaces, return structs\n- Keep interfaces small (1-3 methods ideal)\n- Define interfaces at point of use, not definition\n- Use `any` alias instead of `interface{}` for readability\n\n### Concurrency Patterns\n- Don't communicate by sharing memory; share memory by communicating\n- Always handle goroutine cleanup via `defer` or context cancellation\n- Use `context.Context` for cancellation propagation\n- Prefer channels for orchestration, mutexes for state protection\n- Never start goroutines without a clear shutdown strategy\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a1_harm": {
+    "type": "score",
+    "instructions": {
+     "question": "How much harm would ignoring `guidance` cause?",
+     "guidance": {
+      "id": "language/go/fundamentals",
+      "category": "language",
+      "shard_types": [
+       "/coder"
+      ],
+      "languages": [
+       "/go"
+      ],
+      "text": "## Go Language Fundamentals\n\n### Error Handling Patterns\n- Always check errors immediately: `if err != nil { return fmt.Errorf(\"context: %w\", err) }`\n- Use `%w` for error wrapping to preserve error chains\n- Create sentinel errors with `errors.New()` for package-level constants\n- Use custom error types for rich error context\n\n### Interface Design\n- Accept interfaces, return structs\n- Keep interfaces small (1-3 methods ideal)\n- Define interfaces at point of use, not definition\n- Use `any` alias instead of `interface{}` for readability\n\n### Concurrency Patterns\n- Don't communicate by sharing memory; share memory by communicating\n- Always handle goroutine cleanup via `defer` or context cancellation\n- Use `context.Context` for cancellation propagation\n- Prefer channels for orchestration, mutexes for state protection\n- Never start goroutines without a clear shutdown strategy\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a2_consequence": {
+    "type": "score",
+    "instructions": {
+     "question": "If the coding agent ignored `guidance`, what would most likely happen?",
+     "guidance": {
+      "id": "exemplar/review/constructive",
+      "category": "exemplar",
+      "intent_verbs": [
+       "/review"
+      ],
+      "text": "## CONSTRUCTIVE CRITICISM EXEMPLARS\n\n### QUESTIONING APPROACH\n```\nI'm curious about the decision to use a map here\ninstead of a slice. With the current access patterns,\na slice might be more cache-friendly.\n\nWas there a specific reason for choosing a map?\nHappy to discuss the tradeoffs.\n```\n\n### SUGGESTING ALTERNATIVES\n```\nThis works, but there might be a simpler approach.\nInstead of maintaining state across iterations:\n\nCurrent:\nvar result []int\nfor i, v := range items {\n    if i > 0 && items[i-1].Type == v.Type {\n        // complex logic\n    }\n}\n\nAlternative:\nresult := slices.CompactFunc(items, func(a, b Item) bool {\n    return a.Type == b.Type\n})\n\nWould this work for your use case?\n```\n\n### REQUESTING CLARIFICATION\n```\nI'm not sure I understand the intent of this block.\nCould you add a comment explaining when this branch\nwould be taken and why it returns early?\n\n// Why return here? Under what conditions?\nif x.State == StateUnknown {\n    return nil\n}\n```\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a2_harm": {
+    "type": "score",
+    "instructions": {
+     "question": "How much harm would ignoring `guidance` cause?",
+     "guidance": {
+      "id": "exemplar/review/constructive",
+      "category": "exemplar",
+      "intent_verbs": [
+       "/review"
+      ],
+      "text": "## CONSTRUCTIVE CRITICISM EXEMPLARS\n\n### QUESTIONING APPROACH\n```\nI'm curious about the decision to use a map here\ninstead of a slice. With the current access patterns,\na slice might be more cache-friendly.\n\nWas there a specific reason for choosing a map?\nHappy to discuss the tradeoffs.\n```\n\n### SUGGESTING ALTERNATIVES\n```\nThis works, but there might be a simpler approach.\nInstead of maintaining state across iterations:\n\nCurrent:\nvar result []int\nfor i, v := range items {\n    if i > 0 && items[i-1].Type == v.Type {\n        // complex logic\n    }\n}\n\nAlternative:\nresult := slices.CompactFunc(items, func(a, b Item) bool {\n    return a.Type == b.Type\n})\n\nWould this work for your use case?\n```\n\n### REQUESTING CLARIFICATION\n```\nI'm not sure I understand the intent of this block.\nCould you add a comment explaining when this branch\nwould be taken and why it returns early?\n\n// Why return here? Under what conditions?\nif x.State == StateUnknown {\n    return nil\n}\n```\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a3_consequence": {
+    "type": "score",
+    "instructions": {
+     "question": "If the coding agent ignored `guidance`, what would most likely happen?",
+     "guidance": {
+      "id": "language/mangle/docs/negation_safety/checklist-before-using-not",
+      "category": "language",
+      "languages": [
+       "/mangle"
+      ],
+      "text": "*Part of: Safe Negation in Mangle*\n\n## Checklist Before Using `not`\n\n1. Is every variable in the negated atom already bound?\n2. Is the binding from a POSITIVE atom (not another negation)?\n3. Is the binding BEFORE the negation in the rule body?\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a3_harm": {
+    "type": "score",
+    "instructions": {
+     "question": "How much harm would ignoring `guidance` cause?",
+     "guidance": {
+      "id": "language/mangle/docs/negation_safety/checklist-before-using-not",
+      "category": "language",
+      "languages": [
+       "/mangle"
+      ],
+      "text": "*Part of: Safe Negation in Mangle*\n\n## Checklist Before Using `not`\n\n1. Is every variable in the negated atom already bound?\n2. Is the binding from a POSITIVE atom (not another negation)?\n3. Is the binding BEFORE the negation in the rule body?\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a4_consequence": {
+    "type": "score",
+    "instructions": {
+     "question": "If the coding agent ignored `guidance`, what would most likely happen?",
+     "guidance": {
+      "id": "reviewer/methodology/systematic_review_process/pass-timing-guidance",
+      "category": "methodology",
+      "shard_types": [
+       "/reviewer"
+      ],
+      "intent_verbs": [
+       "/review",
+       "/audit",
+       "/check",
+       "/analyze",
+       "/inspect"
+      ],
+      "text": "*Part of: SYSTEMATIC CODE REVIEW PROCESS*\n\n### PASS TIMING GUIDANCE\n\n- Pass 1: 10-15% of review time\n- Pass 2: 35-40% of review time\n- Pass 3: 30-35% of review time\n- Pass 4: 15-20% of review time\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a4_harm": {
+    "type": "score",
+    "instructions": {
+     "question": "How much harm would ignoring `guidance` cause?",
+     "guidance": {
+      "id": "reviewer/methodology/systematic_review_process/pass-timing-guidance",
+      "category": "methodology",
+      "shard_types": [
+       "/reviewer"
+      ],
+      "intent_verbs": [
+       "/review",
+       "/audit",
+       "/check",
+       "/analyze",
+       "/inspect"
+      ],
+      "text": "*Part of: SYSTEMATIC CODE REVIEW PROCESS*\n\n### PASS TIMING GUIDANCE\n\n- Pass 1: 10-15% of review time\n- Pass 2: 35-40% of review time\n- Pass 3: 30-35% of review time\n- Pass 4: 15-20% of review time\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a5_consequence": {
+    "type": "score",
+    "instructions": {
+     "question": "If the coding agent ignored `guidance`, what would most likely happen?",
+     "guidance": {
+      "id": "hallucination/tester/missing_assertions",
+      "category": "hallucination",
+      "shard_types": [
+       "/tester"
+      ],
+      "text": "## HALLUCINATION PREVENTION: MISSING ASSERTIONS\n\nYou will be tempted to write tests without meaningful assertions.\n\n### WRONG\n```go\nfunc TestUserCreate(t *testing.T) {\n    user := NewUser(\"test\")\n    _ = user  // No assertion!\n}\n```\n\n### CORRECT\n```go\nfunc TestUserCreate(t *testing.T) {\n    user := NewUser(\"test\")\n    if user.Name != \"test\" {\n        t.Errorf(\"expected name 'test', got %q\", user.Name)\n    }\n}\n```\n\n### MITIGATION\n- Every test MUST have at least one assertion\n- Use t.Error, t.Errorf, t.Fatal, or t.Fatalf\n- Or use testify: assert.Equal, require.NoError\n- A test without assertions is not a test\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a5_harm": {
+    "type": "score",
+    "instructions": {
+     "question": "How much harm would ignoring `guidance` cause?",
+     "guidance": {
+      "id": "hallucination/tester/missing_assertions",
+      "category": "hallucination",
+      "shard_types": [
+       "/tester"
+      ],
+      "text": "## HALLUCINATION PREVENTION: MISSING ASSERTIONS\n\nYou will be tempted to write tests without meaningful assertions.\n\n### WRONG\n```go\nfunc TestUserCreate(t *testing.T) {\n    user := NewUser(\"test\")\n    _ = user  // No assertion!\n}\n```\n\n### CORRECT\n```go\nfunc TestUserCreate(t *testing.T) {\n    user := NewUser(\"test\")\n    if user.Name != \"test\" {\n        t.Errorf(\"expected name 'test', got %q\", user.Name)\n    }\n}\n```\n\n### MITIGATION\n- Every test MUST have at least one assertion\n- Use t.Error, t.Errorf, t.Fatal, or t.Fatalf\n- Or use testify: assert.Equal, require.NoError\n- A test without assertions is not a test\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a6_consequence": {
+    "type": "score",
+    "instructions": {
+     "question": "If the coding agent ignored `guidance`, what would most likely happen?",
+     "guidance": {
+      "id": "methodology/refactoring/smell_quickref",
+      "category": "methodology",
+      "intent_verbs": [
+       "/refactor",
+       "/review"
+      ],
+      "text": "## CODE SMELL QUICK DETECTION\n\n### Quantitative Thresholds\n| Metric | Warning | Critical |\n|--------|---------|----------|\n| Method lines | >30 | >50 |\n| Class lines | >300 | >500 |\n| Parameters | >4 | >7 |\n| Nesting depth | >3 | >5 |\n| Cyclomatic complexity | >10 | >20 |\n| Methods per class | >20 | >30 |\n| Fields per class | >10 | >15 |\n\n### Bloaters Quick Check\n- [ ] Any method > 30 lines?\n- [ ] Any class > 300 lines?\n- [ ] Any function > 4 params?\n- [ ] Same data group passed together 3+ times?\n- [ ] Primitive used for complex concept (phone, money, email)?\n\n### OO Abuser Quick Check\n- [ ] Switch on type in multiple places?\n- [ ] Subclass doesn't use parent methods?\n- [ ] Field only used in some methods?\n\n### Coupling Quick Check\n- [ ] Method uses other object's data more than its own?\n- [ ] Chain like `a.b.c.d.method()`?\n- [ ] Class mostly delegates to another?\n\n### Dispensables Quick Check\n- [ ] Comments explaining \"what\" not \"why\"?\n- [ ] Same code in multiple places?\n- [ ] Class does almost nothing?\n- [ ] Unreachable code?\n- [ ] Abstract class with 1 implementation?\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a6_harm": {
+    "type": "score",
+    "instructions": {
+     "question": "How much harm would ignoring `guidance` cause?",
+     "guidance": {
+      "id": "methodology/refactoring/smell_quickref",
+      "category": "methodology",
+      "intent_verbs": [
+       "/refactor",
+       "/review"
+      ],
+      "text": "## CODE SMELL QUICK DETECTION\n\n### Quantitative Thresholds\n| Metric | Warning | Critical |\n|--------|---------|----------|\n| Method lines | >30 | >50 |\n| Class lines | >300 | >500 |\n| Parameters | >4 | >7 |\n| Nesting depth | >3 | >5 |\n| Cyclomatic complexity | >10 | >20 |\n| Methods per class | >20 | >30 |\n| Fields per class | >10 | >15 |\n\n### Bloaters Quick Check\n- [ ] Any method > 30 lines?\n- [ ] Any class > 300 lines?\n- [ ] Any function > 4 params?\n- [ ] Same data group passed together 3+ times?\n- [ ] Primitive used for complex concept (phone, money, email)?\n\n### OO Abuser Quick Check\n- [ ] Switch on type in multiple places?\n- [ ] Subclass doesn't use parent methods?\n- [ ] Field only used in some methods?\n\n### Coupling Quick Check\n- [ ] Method uses other object's data more than its own?\n- [ ] Chain like `a.b.c.d.method()`?\n- [ ] Class mostly delegates to another?\n\n### Dispensables Quick Check\n- [ ] Comments explaining \"what\" not \"why\"?\n- [ ] Same code in multiple places?\n- [ ] Class does almost nothing?\n- [ ] Unreachable code?\n- [ ] Abstract class with 1 implementation?\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a7_consequence": {
+    "type": "score",
+    "instructions": {
+     "question": "If the coding agent ignored `guidance`, what would most likely happen?",
+     "guidance": {
+      "id": "language/mangle/docs/patterns_comprehensive/sql-equivalence-table",
+      "category": "language",
+      "languages": [
+       "/mangle"
+      ],
+      "text": "*Part of: Mangle Patterns - Comprehensive Catalog*\n\n## SQL Equivalence Table\n\n| SQL Pattern | Mangle Equivalent |\n|-------------|-------------------|\n| `SELECT DISTINCT col` | Rule head variables |\n| `WHERE condition` | Additional body atoms |\n| `JOIN` | Shared variables in body |\n| `LEFT JOIN ... WHERE B IS NULL` | Negation pattern |\n| `UNION` | Multiple rules for same predicate |\n| `GROUP BY` | `\\|> do fn:group_by()` |\n| `HAVING` | Filter on aggregated results |\n| `WITH RECURSIVE` | Recursive rules |\n| `NOT EXISTS` | Negation with generator |\n| `COUNT(*)` | `fn:count()` in pipeline |\n| `SUM(col)` | `fn:sum(Var)` in pipeline |\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a7_harm": {
+    "type": "score",
+    "instructions": {
+     "question": "How much harm would ignoring `guidance` cause?",
+     "guidance": {
+      "id": "language/mangle/docs/patterns_comprehensive/sql-equivalence-table",
+      "category": "language",
+      "languages": [
+       "/mangle"
+      ],
+      "text": "*Part of: Mangle Patterns - Comprehensive Catalog*\n\n## SQL Equivalence Table\n\n| SQL Pattern | Mangle Equivalent |\n|-------------|-------------------|\n| `SELECT DISTINCT col` | Rule head variables |\n| `WHERE condition` | Additional body atoms |\n| `JOIN` | Shared variables in body |\n| `LEFT JOIN ... WHERE B IS NULL` | Negation pattern |\n| `UNION` | Multiple rules for same predicate |\n| `GROUP BY` | `\\|> do fn:group_by()` |\n| `HAVING` | Filter on aggregated results |\n| `WITH RECURSIVE` | Recursive rules |\n| `NOT EXISTS` | Negation with generator |\n| `COUNT(*)` | `fn:count()` in pipeline |\n| `SUM(col)` | `fn:sum(Var)` in pipeline |\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a8_consequence": {
+    "type": "score",
+    "instructions": {
+     "question": "If the coding agent ignored `guidance`, what would most likely happen?",
+     "guidance": {
+      "id": "safety/honesty/no_unverified_claims",
+      "category": "safety",
+      "shard_types": [
+       "/coder",
+       "/tester",
+       "/reviewer",
+       "/researcher"
+      ],
+      "text": "## DO NOT ASSERT WHAT YOU HAVE NOT VERIFIED\n\nYour output is read later by someone who cannot re-derive it. A claim that looks checked but is not is worse than none, because it is believed.\n\n### NEVER WRITE THESE UNLESS YOU CHECKED THIS TURN\n- **An incident.** Do not narrate a bug, failure or observation as something that happened unless you saw it.\n- **A cross-reference.** Do not name a function, file, test, constant or line number you have not confirmed exists. If you did not open it, do not cite it.\n- **A test that covers something.** Do not write that code is \"tested\", \"exercised\" or \"covered\" unless you wrote or read the test that does it.\n- **A review.** Do not sign off work as reviewed, verified, audited or corrected. You are not the reviewer of your own turn.\n- **A measurement.** Do not state a timing, count, percentage or size you did not measure. A guessed \"~9s\" is a fabrication with a decimal point.\n\n### INSTEAD\nState what you did and what remains unknown: \"Not tested\" or \"Handles the empty case; behaviour on nil is untested\" beats a confident claim of completeness. To explain WHY code exists without knowing its history, describe the mechanism (what breaks without it, derived from code you can see); that is legitimate inference, unlike presenting it as a remembered event.\n\n### THE TEST\nBefore any sentence stating a fact about the system, ask: if a reader checked this right now, would it hold? If you cannot answer, cut the sentence or mark it as an assumption.\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a8_harm": {
+    "type": "score",
+    "instructions": {
+     "question": "How much harm would ignoring `guidance` cause?",
+     "guidance": {
+      "id": "safety/honesty/no_unverified_claims",
+      "category": "safety",
+      "shard_types": [
+       "/coder",
+       "/tester",
+       "/reviewer",
+       "/researcher"
+      ],
+      "text": "## DO NOT ASSERT WHAT YOU HAVE NOT VERIFIED\n\nYour output is read later by someone who cannot re-derive it. A claim that looks checked but is not is worse than none, because it is believed.\n\n### NEVER WRITE THESE UNLESS YOU CHECKED THIS TURN\n- **An incident.** Do not narrate a bug, failure or observation as something that happened unless you saw it.\n- **A cross-reference.** Do not name a function, file, test, constant or line number you have not confirmed exists. If you did not open it, do not cite it.\n- **A test that covers something.** Do not write that code is \"tested\", \"exercised\" or \"covered\" unless you wrote or read the test that does it.\n- **A review.** Do not sign off work as reviewed, verified, audited or corrected. You are not the reviewer of your own turn.\n- **A measurement.** Do not state a timing, count, percentage or size you did not measure. A guessed \"~9s\" is a fabrication with a decimal point.\n\n### INSTEAD\nState what you did and what remains unknown: \"Not tested\" or \"Handles the empty case; behaviour on nil is untested\" beats a confident claim of completeness. To explain WHY code exists without knowing its history, describe the mechanism (what breaks without it, derived from code you can see); that is legitimate inference, unlike presenting it as a remembered event.\n\n### THE TEST\nBefore any sentence stating a fact about the system, ask: if a reader checked this right now, would it hold? If you cannot answer, cut the sentence or mark it as an assumption.\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a9_consequence": {
+    "type": "score",
+    "instructions": {
+     "question": "If the coding agent ignored `guidance`, what would most likely happen?",
+     "guidance": {
+      "id": "framework/rod/async_patterns",
+      "category": "framework",
+      "shard_types": [
+       "/coder"
+      ],
+      "languages": [
+       "/go"
+      ],
+      "text": "## Rod Async and Error Handling\n\n### Must vs Try Pattern\n```go\n// Must* panics on error (good for simple scripts)\npage.MustElement(\"selector\")\n\n// Regular methods return error (better for production)\nel, err := page.Element(\"selector\")\nif err != nil {\n    return err\n}\n```\n\n### Error Handling\n- Use `rod.Try()` to catch panics from Must* methods\n- Convert Must* to regular with `.Do()` pattern\n- Handle timeout errors explicitly\n- Check element visibility before interaction\n\n### Wait Strategies\n```go\n// Wait for element to be visible\npage.MustElement(\"selector\").MustWaitVisible()\n\n// Wait for element to be stable (not moving)\npage.MustElement(\"selector\").MustWaitStable()\n\n// Custom wait condition\npage.MustWait(`() => document.querySelector('selector') !== null`)\n\n// Timeout context\npage.Timeout(time.Second * 10).MustElement(\"selector\")\n```\n\n### Race Conditions\n```go\nrace := page.Race()\nrace.Element(\"button.submit\")\nrace.Element(\"div.error\")\nel := race.MustDo()  // Wait for first match\n```\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   },
+   "a9_harm": {
+    "type": "score",
+    "instructions": {
+     "question": "How much harm would ignoring `guidance` cause?",
+     "guidance": {
+      "id": "framework/rod/async_patterns",
+      "category": "framework",
+      "shard_types": [
+       "/coder"
+      ],
+      "languages": [
+       "/go"
+      ],
+      "text": "## Rod Async and Error Handling\n\n### Must vs Try Pattern\n```go\n// Must* panics on error (good for simple scripts)\npage.MustElement(\"selector\")\n\n// Regular methods return error (better for production)\nel, err := page.Element(\"selector\")\nif err != nil {\n    return err\n}\n```\n\n### Error Handling\n- Use `rod.Try()` to catch panics from Must* methods\n- Convert Must* to regular with `.Do()` pattern\n- Handle timeout errors explicitly\n- Check element visibility before interaction\n\n### Wait Strategies\n```go\n// Wait for element to be visible\npage.MustElement(\"selector\").MustWaitVisible()\n\n// Wait for element to be stable (not moving)\npage.MustElement(\"selector\").MustWaitStable()\n\n// Custom wait condition\npage.MustWait(`() => document.querySelector('selector') !== null`)\n\n// Timeout context\npage.Timeout(time.Second * 10).MustElement(\"selector\")\n```\n\n### Race Conditions\n```go\nrace := page.Race()\nrace.Element(\"button.submit\")\nrace.Element(\"div.error\")\nel := race.MustDo()  // Wait for first match\n```\n"
+     }
+    },
+    "criteria": [
+     "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    ]
+   }
+  }
+ },
+ "response": {
+  "model": "jev-1.14.0",
+  "answers": {
+   "a0_consequence": {
+    "type": "score",
+    "score": 3.98,
+    "confidence": 1.0,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.0,
+     "1": 0.0,
+     "2": 0.0,
+     "3": 0.0,
+     "4": 1.0
+    }
+   },
+   "a0_harm": {
+    "type": "score",
+    "score": 3.99,
+    "confidence": 1.0,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.0,
+     "1": 0.0,
+     "2": 0.0,
+     "3": 0.0,
+     "4": 1.0
+    }
+   },
+   "a1_consequence": {
+    "type": "score",
+    "score": 2.11,
+    "confidence": 0.07,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.01,
+     "1": 0.41,
+     "2": 0.11,
+     "3": 0.41,
+     "4": 0.06
+    }
+   },
+   "a1_harm": {
+    "type": "score",
+    "score": 2.1,
+    "confidence": 0.06,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.01,
+     "1": 0.4,
+     "2": 0.16,
+     "3": 0.33,
+     "4": 0.1
+    }
+   },
+   "a2_consequence": {
+    "type": "score",
+    "score": 0.72,
+    "confidence": 0.6,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.38,
+     "1": 0.53,
+     "2": 0.08,
+     "3": 0.01,
+     "4": 0.0
+    }
+   },
+   "a2_harm": {
+    "type": "score",
+    "score": 0.6,
+    "confidence": 0.49,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.51,
+     "1": 0.38,
+     "2": 0.1,
+     "3": 0.01,
+     "4": 0.0
+    }
+   },
+   "a3_consequence": {
+    "type": "score",
+    "score": 3.01,
+    "confidence": 0.88,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.01,
+     "1": 0.01,
+     "2": 0.02,
+     "3": 0.89,
+     "4": 0.07
+    }
+   },
+   "a3_harm": {
+    "type": "score",
+    "score": 2.99,
+    "confidence": 0.85,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.01,
+     "1": 0.02,
+     "2": 0.03,
+     "3": 0.86,
+     "4": 0.08
+    }
+   },
+   "a4_consequence": {
+    "type": "score",
+    "score": 1.86,
+    "confidence": 0.87,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.02,
+     "1": 0.11,
+     "2": 0.86,
+     "3": 0.01,
+     "4": 0.0
+    }
+   },
+   "a4_harm": {
+    "type": "score",
+    "score": 1.84,
+    "confidence": 0.85,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.03,
+     "1": 0.11,
+     "2": 0.85,
+     "3": 0.01,
+     "4": 0.0
+    }
+   },
+   "a5_consequence": {
+    "type": "score",
+    "score": 2.39,
+    "confidence": 0.47,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.01,
+     "1": 0.17,
+     "2": 0.26,
+     "3": 0.56,
+     "4": 0.0
+    }
+   },
+   "a5_harm": {
+    "type": "score",
+    "score": 2.37,
+    "confidence": 0.46,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.01,
+     "1": 0.14,
+     "2": 0.34,
+     "3": 0.51,
+     "4": 0.0
+    }
+   },
+   "a6_consequence": {
+    "type": "score",
+    "score": 1.47,
+    "confidence": 0.56,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.03,
+     "1": 0.49,
+     "2": 0.46,
+     "3": 0.02,
+     "4": 0.0
+    }
+   },
+   "a6_harm": {
+    "type": "score",
+    "score": 1.39,
+    "confidence": 0.55,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.08,
+     "1": 0.47,
+     "2": 0.44,
+     "3": 0.01,
+     "4": 0.0
+    }
+   },
+   "a7_consequence": {
+    "type": "score",
+    "score": 2.39,
+    "confidence": 0.48,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.04,
+     "1": 0.17,
+     "2": 0.15,
+     "3": 0.63,
+     "4": 0.01
+    }
+   },
+   "a7_harm": {
+    "type": "score",
+    "score": 2.23,
+    "confidence": 0.37,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.12,
+     "1": 0.08,
+     "2": 0.23,
+     "3": 0.55,
+     "4": 0.01
+    }
+   },
+   "a8_consequence": {
+    "type": "score",
+    "score": 2.48,
+    "confidence": 0.54,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.01,
+     "1": 0.14,
+     "2": 0.22,
+     "3": 0.61,
+     "4": 0.02
+    }
+   },
+   "a8_harm": {
+    "type": "score",
+    "score": 2.57,
+    "confidence": 0.53,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.01,
+     "1": 0.1,
+     "2": 0.27,
+     "3": 0.56,
+     "4": 0.06
+    }
+   },
+   "a9_consequence": {
+    "type": "score",
+    "score": 2.64,
+    "confidence": 0.66,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.01,
+     "1": 0.07,
+     "2": 0.22,
+     "3": 0.6799999999999999,
+     "4": 0.02
+    }
+   },
+   "a9_harm": {
+    "type": "score",
+    "score": 2.5,
+    "confidence": 0.55,
+    "legend": {
+     "0": "Ignoring this guidance changes only style or wording; the work is still correct.",
+     "1": "Ignoring this guidance breaks a project convention or makes the result harder to review, but the result still works.",
+     "2": "Ignoring this guidance wastes turns, tool calls or tokens, or causes rework, but the end result can still be correct.",
+     "3": "Ignoring this guidance produces a wrong result: incorrect code, a failing test, a broken contract or a wrong answer.",
+     "4": "Ignoring this guidance breaks the build, loses or corrupts data, or violates safety or permissions."
+    },
+    "probabilities": {
+     "0": 0.01,
+     "1": 0.06,
+     "2": 0.37,
+     "3": 0.54,
+     "4": 0.02
+    }
+   }
+  },
+  "usage": {
+   "input_tokens": 8950,
+   "output_tokens": 334
+  }
+ }
+}

@@ -1,0 +1,1149 @@
+package prompt
+
+import (
+	"fmt"
+	"math"
+	"sort"
+	"sync"
+
+	"codenerd/internal/logging"
+)
+
+// maxAtomsInput caps the total number of atoms accepted by Fit().
+// Inputs larger than this are truncated to prevent excessive allocation
+// and sort cost. Chosen to comfortably exceed any realistic corpus size.
+const maxAtomsInput = 100000
+
+// BudgetPriority defines priority levels for category budget allocation.
+type BudgetPriority int
+
+const (
+	// PriorityMandatory items are always included regardless of budget.
+	PriorityMandatory BudgetPriority = iota
+
+	// PriorityHigh items are included first after mandatory.
+	PriorityHigh
+
+	// PriorityMedium items are included if budget allows.
+	PriorityMedium
+
+	// PriorityLow items are included last if space remains.
+	PriorityLow
+
+	// PriorityConditional items are only included if specific conditions are met.
+	PriorityConditional
+
+	// PriorityUnknown is the fallback for categories with no budget entry. It
+	// sorts after Conditional everywhere, so unbudgeted atoms are fitted last
+	// and shed first. Fit's internal getPriority and CategoryPriority must
+	// agree on this: they once returned Conditional+1 and Conditional
+	// respectively, and the comment claimed they matched.
+	PriorityUnknown
+)
+
+// String returns the string representation of BudgetPriority.
+func (p BudgetPriority) String() string {
+	switch p {
+	case PriorityMandatory:
+		return "mandatory"
+	case PriorityHigh:
+		return "high"
+	case PriorityMedium:
+		return "medium"
+	case PriorityLow:
+		return "low"
+	case PriorityConditional:
+		return "conditional"
+	case PriorityUnknown:
+		return "unbudgeted"
+	default:
+		return "unknown"
+	}
+}
+
+// CategoryBudget defines allocation parameters for a category.
+type CategoryBudget struct {
+	// Category this budget applies to
+	Category AtomCategory
+
+	// BasePercent is the target percentage of total budget (0.0-1.0)
+	BasePercent float64
+
+	// MinTokens is the minimum tokens to allocate (absolute floor)
+	MinTokens int
+
+	// MaxTokens is the maximum tokens to allocate (absolute ceiling)
+	MaxTokens int
+
+	// Priority determines allocation order
+	Priority BudgetPriority
+
+	// NOTE: there was a CanExceedMax bool here, documented as "allows this
+	// category to exceed MaxTokens if budget remains". It was set true on six
+	// categories and read by nothing. It was removed rather than implemented
+	// because Fit's second pass ALREADY provides exactly that behaviour, and
+	// provides it for every category: any atom rejected in pass 1 is retried
+	// against the global remaining budget with no reference to its category
+	// ceiling. Implementing the flag would have NARROWED that to six
+	// categories — a prompt-shrinking behaviour change wearing the costume of
+	// a bug fix.
+}
+
+// TokenBudgetManager allocates tokens across categories.
+// It implements a priority-based allocation strategy:
+// 1. Mandatory atoms are always included
+// 2. Categories are allocated in priority order
+// 3. High-scored atoms within categories are preferred
+// 4. Remaining budget is distributed to lower priorities
+type TokenBudgetManager struct {
+	mu      sync.RWMutex
+	budgets map[AtomCategory]CategoryBudget
+
+	// Allocation strategy
+	strategy AllocationStrategy
+
+	// Reserved headroom (tokens kept as buffer)
+	reservedHeadroom int
+	headroomExplicit bool
+}
+
+// AllocationStrategy defines how tokens are distributed.
+type AllocationStrategy int
+
+const (
+	// StrategyProportional distributes proportionally by BasePercent.
+	StrategyProportional AllocationStrategy = iota
+
+	// StrategyPriorityFirst fills higher priorities before moving to lower.
+	StrategyPriorityFirst
+
+	// StrategyBalanced attempts equal distribution then adds extras.
+	StrategyBalanced
+)
+
+// NewTokenBudgetManager creates a new budget manager with default allocations.
+func NewTokenBudgetManager() *TokenBudgetManager {
+	mgr := &TokenBudgetManager{
+		budgets:          make(map[AtomCategory]CategoryBudget),
+		strategy:         StrategyPriorityFirst,
+		reservedHeadroom: 500, // Keep 500 tokens as buffer
+	}
+
+	// Set default budgets for each category
+	mgr.setDefaultBudgets()
+
+	return mgr
+}
+
+// setDefaultBudgets configures default allocations per category.
+func (m *TokenBudgetManager) setDefaultBudgets() {
+	// Safety and identity are mandatory
+	m.budgets[CategorySafety] = CategoryBudget{
+		Category:    CategorySafety,
+		BasePercent: 0.05,
+		MinTokens:   500,
+		MaxTokens:   5000,
+		Priority:    PriorityMandatory,
+	}
+
+	m.budgets[CategoryIdentity] = CategoryBudget{
+		Category:    CategoryIdentity,
+		BasePercent: 0.08,
+		MinTokens:   1000,
+		MaxTokens:   8000,
+		Priority:    PriorityMandatory,
+	}
+
+	// Protocol and methodology are high priority
+	m.budgets[CategoryProtocol] = CategoryBudget{
+		Category:    CategoryProtocol,
+		BasePercent: 0.10,
+		MinTokens:   500,
+		MaxTokens:   10000,
+		Priority:    PriorityHigh,
+	}
+
+	m.budgets[CategoryMethodology] = CategoryBudget{
+		Category:    CategoryMethodology,
+		BasePercent: 0.08,
+		MinTokens:   500,
+		MaxTokens:   8000,
+		Priority:    PriorityHigh,
+	}
+
+	m.budgets[CategoryCapability] = CategoryBudget{
+		Category:    CategoryCapability,
+		BasePercent: 0.06,
+		MinTokens:   300,
+		MaxTokens:   6000,
+		Priority:    PriorityHigh,
+	}
+
+	m.budgets[CategoryHallucination] = CategoryBudget{
+		Category:    CategoryHallucination,
+		BasePercent: 0.05,
+		MinTokens:   500,
+		MaxTokens:   5000,
+		Priority:    PriorityHigh,
+	}
+
+	// Language and framework are medium priority (context-dependent)
+	m.budgets[CategoryLanguage] = CategoryBudget{
+		Category:    CategoryLanguage,
+		BasePercent: 0.15,
+		MinTokens:   1000,
+		MaxTokens:   15000,
+		Priority:    PriorityMedium,
+	}
+
+	m.budgets[CategoryFramework] = CategoryBudget{
+		Category:    CategoryFramework,
+		BasePercent: 0.10,
+		MinTokens:   500,
+		MaxTokens:   10000,
+		Priority:    PriorityMedium,
+	}
+
+	// Domain and context are medium priority
+	m.budgets[CategoryDomain] = CategoryBudget{
+		Category:    CategoryDomain,
+		BasePercent: 0.10,
+		MinTokens:   500,
+		MaxTokens:   10000,
+		Priority:    PriorityMedium,
+	}
+
+	m.budgets[CategoryContext] = CategoryBudget{
+		Category:    CategoryContext,
+		BasePercent: 0.15,
+		MinTokens:   500,
+		MaxTokens:   15000,
+		Priority:    PriorityMedium,
+	}
+
+	// Knowledge and build-layer/intent/world-state are medium/conditional priorities.
+	// These categories carry encyclopedic but selector-gated atoms.
+	m.budgets[CategoryKnowledge] = CategoryBudget{
+		Category:    CategoryKnowledge,
+		BasePercent: 0.05,
+		MinTokens:   300,
+		MaxTokens:   8000,
+		Priority:    PriorityMedium,
+	}
+
+	m.budgets[CategoryBuildLayer] = CategoryBudget{
+		Category:    CategoryBuildLayer,
+		BasePercent: 0.03,
+		MinTokens:   0,
+		MaxTokens:   3000,
+		Priority:    PriorityConditional,
+	}
+
+	m.budgets[CategoryIntent] = CategoryBudget{
+		Category:    CategoryIntent,
+		BasePercent: 0.03,
+		MinTokens:   0,
+		MaxTokens:   3000,
+		Priority:    PriorityConditional,
+	}
+
+	m.budgets[CategoryWorldState] = CategoryBudget{
+		Category:    CategoryWorldState,
+		BasePercent: 0.03,
+		MinTokens:   0,
+		MaxTokens:   3000,
+		Priority:    PriorityConditional,
+	}
+
+	// Reviewer-specific atoms are low priority; include if budget remains.
+	m.budgets[CategoryReviewer] = CategoryBudget{
+		Category:    CategoryReviewer,
+		BasePercent: 0.02,
+		MinTokens:   0,
+		MaxTokens:   2000,
+		Priority:    PriorityLow,
+	}
+
+	// Campaign and specialized phases are conditional
+	m.budgets[CategoryCampaign] = CategoryBudget{
+		Category:    CategoryCampaign,
+		BasePercent: 0.05,
+		MinTokens:   0,
+		MaxTokens:   5000,
+		Priority:    PriorityConditional,
+	}
+
+	m.budgets[CategoryInit] = CategoryBudget{
+		Category:    CategoryInit,
+		BasePercent: 0.03,
+		MinTokens:   0,
+		MaxTokens:   3000,
+		Priority:    PriorityConditional,
+	}
+
+	m.budgets[CategoryNorthstar] = CategoryBudget{
+		Category:    CategoryNorthstar,
+		BasePercent: 0.03,
+		MinTokens:   0,
+		MaxTokens:   3000,
+		Priority:    PriorityConditional,
+	}
+
+	m.budgets[CategoryOuroboros] = CategoryBudget{
+		Category:    CategoryOuroboros,
+		BasePercent: 0.03,
+		MinTokens:   0,
+		MaxTokens:   3000,
+		Priority:    PriorityConditional,
+	}
+
+	m.budgets[CategoryAutopoiesis] = CategoryBudget{
+		Category:    CategoryAutopoiesis,
+		BasePercent: 0.02,
+		MinTokens:   0,
+		MaxTokens:   3000,
+		Priority:    PriorityConditional,
+	}
+
+	m.budgets[CategoryEval] = CategoryBudget{
+		Category:    CategoryEval,
+		BasePercent: 0.02,
+		MinTokens:   0,
+		MaxTokens:   2000,
+		Priority:    PriorityConditional,
+	}
+
+	// Exemplars are low priority (only if space)
+	m.budgets[CategoryExemplar] = CategoryBudget{
+		Category:    CategoryExemplar,
+		BasePercent: 0.05,
+		MinTokens:   0,
+		MaxTokens:   5000,
+		Priority:    PriorityLow,
+	}
+
+	// Runtime system atoms (tool-call nudges, shard-identity guidance) are
+	// small and only present when their context matches, so when they do show
+	// up they are highly relevant. Without an entry they fell to the
+	// unbudgeted fallback and could only ever ride pass-2 leftovers.
+	m.budgets[CategorySystem] = CategoryBudget{
+		Category:    CategorySystem,
+		BasePercent: 0.03,
+		MinTokens:   0,
+		MaxTokens:   3000,
+		Priority:    PriorityHigh,
+	}
+}
+
+// SetCategoryBudget configures the budget for a specific category. BasePercent
+// outside 0..1 (including NaN, which would poison every normalized share) is
+// clamped, following the SetReservedHeadroom precedent.
+func (m *TokenBudgetManager) SetCategoryBudget(budget CategoryBudget) {
+	if math.IsNaN(budget.BasePercent) || budget.BasePercent < 0 {
+		logging.Get(logging.CategoryContext).Warn(
+			"SetCategoryBudget: BasePercent %v for %s clamped to 0", budget.BasePercent, budget.Category,
+		)
+		budget.BasePercent = 0
+	} else if budget.BasePercent > 1 {
+		logging.Get(logging.CategoryContext).Warn(
+			"SetCategoryBudget: BasePercent %v for %s clamped to 1", budget.BasePercent, budget.Category,
+		)
+		budget.BasePercent = 1
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.budgets[budget.Category] = budget
+}
+
+// SetStrategy sets the allocation strategy.
+func (m *TokenBudgetManager) SetStrategy(strategy AllocationStrategy) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.strategy = strategy
+}
+
+// SetReservedHeadroom sets the buffer tokens to keep as reserve.
+// Negative values are clamped to 0 (a negative buffer is nonsensical
+// and would silently inflate the available budget).
+func (m *TokenBudgetManager) SetReservedHeadroom(tokens int) {
+	if tokens < 0 {
+		logging.Get(logging.CategoryContext).Warn(
+			"SetReservedHeadroom: negative value %d clamped to 0", tokens,
+		)
+		tokens = 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reservedHeadroom = tokens
+	m.headroomExplicit = true
+}
+
+// TokenCounter charges an atom rendered in a render mode. A compile passes
+// its RenderSession.Tokens, so the fitter charges the expanded fragment the
+// assembler will emit; tokenCountForMode charges the declared per-mode count.
+type TokenCounter func(atom *PromptAtom, mode string) int
+
+// Fit selects atoms that fit within the total budget.
+// Implements the core budget allocation algorithm with polymorphism (Standard -> Concise -> Min).
+// count charges each atom in each candidate render mode.
+func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int, count TokenCounter) ([]*OrderedAtom, error) {
+
+	timer := logging.StartTimer(logging.CategoryContext, "TokenBudgetManager.Fit")
+	defer timer.Stop()
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if len(atoms) == 0 {
+		return nil, nil
+	}
+
+	// Bounds check input size up front to avoid pathological allocation /
+	// sort cost on adversarially large inputs. We truncate rather than error
+	// so callers degrade gracefully.
+	if len(atoms) > maxAtomsInput {
+		logging.Get(logging.CategoryContext).Warn(
+			"TokenBudgetManager.Fit: input atom count %d exceeds cap %d; truncating",
+			len(atoms), maxAtomsInput,
+		)
+		atoms = atoms[:maxAtomsInput]
+	}
+
+	headroom := m.reservedHeadroom
+	if !m.headroomExplicit && totalBudget <= 250 {
+		headroom = 0
+	}
+	availableBudget := totalBudget - headroom
+	if availableBudget <= 0 {
+		return nil, fmt.Errorf("total budget %d is less than reserved headroom %d",
+			totalBudget, m.reservedHeadroom)
+	}
+
+	// We'll work with a copy of the slice to avoid modifying the input order permanently
+	// (though modifying it might be safe, a copy is safer and cleaner).
+	sortedAtoms := make([]*OrderedAtom, 0, len(atoms))
+	for _, atom := range atoms {
+		if atom == nil || atom.Atom == nil {
+			continue
+		}
+		// Deep copy to prevent side-effects on the caller's shared PromptAtom objects
+		clonedAtom := *atom.Atom
+		if clonedAtom.TokenCount <= 0 {
+			clonedAtom.TokenCount = EstimateTokens(clonedAtom.Content)
+		}
+		clonedOrdered := *atom
+		clonedOrdered.Atom = &clonedAtom
+		sortedAtoms = append(sortedAtoms, &clonedOrdered)
+	}
+
+	// Sort atoms: Priority -> Category -> Score
+	// Use a helper closure to get priority safely
+	getPriority := func(cat AtomCategory) int {
+		if b, ok := m.budgets[cat]; ok {
+			return int(b.Priority)
+		}
+		// Categories without budget config come last
+		return int(PriorityUnknown)
+	}
+
+	sort.SliceStable(sortedAtoms, func(i, j int) bool {
+		catI := sortedAtoms[i].Atom.Category
+		catJ := sortedAtoms[j].Atom.Category
+
+		// If same category, sort by Score descending
+		if catI == catJ {
+			return sortedAtoms[i].Score > sortedAtoms[j].Score
+		}
+
+		prioI := getPriority(catI)
+		prioJ := getPriority(catJ)
+
+		if prioI != prioJ {
+			return prioI < prioJ
+		}
+
+		// Deterministic tie-break by category string
+		return catI < catJ
+	})
+
+	// Scan for present categories (lightweight set)
+	presentCategories := make(map[AtomCategory]bool)
+	for _, oa := range sortedAtoms {
+		presentCategories[oa.Atom.Category] = true
+	}
+
+	// Calculate category allocations
+	allocations := m.calculateAllocations(availableBudget, presentCategories)
+
+	// Select atoms.
+	// Pre-allocate slices using min(len(atoms), maxAtomsLimit) to avoid
+	// allocating very large backing arrays when callers pass enormous inputs.
+	const maxAtomsLimit = 5000
+	preAlloc := min(len(atoms), maxAtomsLimit)
+	result := make([]*OrderedAtom, 0, preAlloc)
+	unselected := make([]*OrderedAtom, 0, preAlloc)
+	var usedTokens int64 = 0
+	atomsIncluded := 0
+
+	// The caller's counter, shared with the assembler and the post-fit stats
+	// so emitted text and accounting agree.
+	getTokenCount := count
+	if getTokenCount == nil {
+		getTokenCount = tokenCountForMode
+	}
+
+	// Iterate through sorted atoms in contiguous category chunks
+	for i := 0; i < len(sortedAtoms); {
+		cat := sortedAtoms[i].Atom.Category
+
+		// Find range for this category
+		start := i
+		end := i + 1
+		for end < len(sortedAtoms) && sortedAtoms[end].Atom.Category == cat {
+			end++
+		}
+
+		// Move iterator
+		i = end
+
+		// Process chunk [start, end)
+		allocation, hasAlloc := allocations[cat]
+		if !hasAlloc {
+			// If no allocation, strictly 0 unless fillRemaining handles it later.
+			// Or Mandatory atoms?
+			// Existing behavior: Mandatory atoms in unbudgeted categories were skipped in Pass 1.
+			// We replicate this by setting allocation 0 and letting logic flow.
+			allocation = 0
+		}
+
+		var catTokens int64 = 0
+		for k := start; k < end; k++ {
+			if atomsIncluded >= maxAtomsLimit {
+				unselected = append(unselected, sortedAtoms[k])
+				continue
+			}
+
+			oa := sortedAtoms[k]
+			mode := "standard"
+			tokens := int64(getTokenCount(oa.Atom, mode))
+
+			if oa.Atom.IsMandatory {
+				// A mandatory atom goes in whole, in the largest rendering that
+				// fits what is left of the total budget: standard, then concise,
+				// then min. If none fits, the compile fails here. Until
+				// 2026-09-10 the atom was dropped with a warning and the compile
+				// reported success — a prompt shipped with part of its
+				// constitution missing, and nothing downstream could tell.
+				placed := false
+				smallest := tokens
+				for _, candidate := range []string{"standard", "concise", "min"} {
+					if candidate == "concise" && oa.Atom.ContentConcise == "" {
+						continue
+					}
+					if candidate == "min" && oa.Atom.ContentMin == "" {
+						continue
+					}
+					mode = candidate
+					tokens = int64(getTokenCount(oa.Atom, mode))
+					if tokens >= 0 && tokens < smallest {
+						smallest = tokens
+					}
+					if tokens < 0 || tokens > int64(totalBudget) ||
+						usedTokens > math.MaxInt64-tokens ||
+						usedTokens+tokens > int64(totalBudget) {
+						continue
+					}
+					placed = true
+					break
+				}
+				if !placed {
+					return nil, fmt.Errorf(
+						"prompt budget of %d tokens cannot hold the mandatory skeleton: atom %s needs %d tokens in its smallest rendering with %d already used by earlier mandatory atoms; raise context_window.max_tokens or jit.token_budget, or split the atom",
+						totalBudget, oa.Atom.ID, smallest, usedTokens)
+				}
+				oa.RenderMode = mode
+				result = append(result, oa)
+				catTokens += tokens
+				usedTokens += tokens
+				atomsIncluded++
+				continue
+			}
+
+			if !hasAlloc {
+				unselected = append(unselected, oa)
+				continue
+			}
+
+			// Try Standard. Guard against int64 overflow on catTokens/usedTokens
+			// before performing the inclusion check.
+			//
+			// The global usedTokens check is not redundant with the per-category
+			// one. calculateAllocations clamps every category to its MinTokens
+			// floor without consulting what is left (StrategyPriorityFirst's
+			// PriorityMandatory branch never decrements below zero, and the
+			// Medium branch clamps to Min before capping at remaining), so on a
+			// small budget the allocations SUM to more than the budget. Live
+			// case: subagents compile at a 4096-token budget (session/spawner.go)
+			// while the default category floors total ~6100. Without this guard
+			// pass 1 spends every category's floor and overruns the window; pass
+			// 2 has always checked availableBudget, so only pass 1 leaked.
+			// An atom that does not fit whole is not cut to fit: it falls
+			// through to its concise and min renderings, and if none of those
+			// fit it is omitted whole. A cut atom is an instruction with its
+			// ending missing, which is worse than no instruction.
+			if tokens >= 0 &&
+				catTokens <= math.MaxInt64-tokens &&
+				usedTokens <= math.MaxInt64-tokens &&
+				usedTokens+tokens <= int64(availableBudget) &&
+				catTokens+tokens <= int64(allocation) {
+				oa.RenderMode = mode
+				result = append(result, oa)
+				catTokens += tokens
+				usedTokens += tokens
+				atomsIncluded++
+				continue
+			}
+
+			// Try Concise
+			if oa.Atom.ContentConcise != "" {
+				mode = "concise"
+				tokens = int64(getTokenCount(oa.Atom, mode))
+				if tokens >= 0 &&
+					catTokens <= math.MaxInt64-tokens &&
+					usedTokens <= math.MaxInt64-tokens &&
+					usedTokens+tokens <= int64(availableBudget) &&
+					catTokens+tokens <= int64(allocation) {
+					oa.RenderMode = mode
+					result = append(result, oa)
+					catTokens += tokens
+					usedTokens += tokens
+					atomsIncluded++
+					continue
+				}
+			}
+
+			// Try Min
+			if oa.Atom.ContentMin != "" {
+				mode = "min"
+				tokens = int64(getTokenCount(oa.Atom, mode))
+				if tokens >= 0 &&
+					catTokens <= math.MaxInt64-tokens &&
+					usedTokens <= math.MaxInt64-tokens &&
+					usedTokens+tokens <= int64(availableBudget) &&
+					catTokens+tokens <= int64(allocation) {
+					oa.RenderMode = mode
+					result = append(result, oa)
+					catTokens += tokens
+					usedTokens += tokens
+					atomsIncluded++
+					continue
+				}
+			}
+
+			// Rejected
+			unselected = append(unselected, oa)
+		}
+
+		if hasAlloc {
+			logging.Get(logging.CategoryContext).Debug(
+				"Category %s: allocated %d tokens, used %d tokens",
+				cat, allocation, catTokens,
+			)
+		}
+	}
+
+	// Second pass: fill remaining budget with best remaining atoms
+	remaining := int64(availableBudget) - usedTokens
+	if remaining > 0 && len(unselected) > 0 {
+		// Sort unselected by Score descending
+		sort.SliceStable(unselected, func(i, j int) bool {
+			return unselected[i].Score > unselected[j].Score
+		})
+
+		for _, oa := range unselected {
+			if atomsIncluded >= maxAtomsLimit {
+				break
+			}
+
+			// Try Standard, whole or not at all.
+			tokens := int64(getTokenCount(oa.Atom, "standard"))
+			if tokens >= 0 && tokens <= remaining &&
+				usedTokens <= math.MaxInt64-tokens {
+				oa.RenderMode = "standard"
+				result = append(result, oa)
+				remaining -= tokens
+				atomsIncluded++
+				usedTokens += tokens
+				continue
+			}
+
+			// Try Concise
+			if oa.Atom.ContentConcise != "" {
+				tokens = int64(getTokenCount(oa.Atom, "concise"))
+				if tokens >= 0 && tokens <= remaining &&
+					usedTokens <= math.MaxInt64-tokens {
+					oa.RenderMode = "concise"
+					result = append(result, oa)
+					remaining -= tokens
+					atomsIncluded++
+					usedTokens += tokens
+					continue
+				}
+			}
+
+			// Try Min
+			if oa.Atom.ContentMin != "" {
+				tokens = int64(getTokenCount(oa.Atom, "min"))
+				if tokens >= 0 && tokens <= remaining &&
+					usedTokens <= math.MaxInt64-tokens {
+					oa.RenderMode = "min"
+					result = append(result, oa)
+					remaining -= tokens
+					atomsIncluded++
+					usedTokens += tokens
+					continue
+				}
+			}
+		}
+	}
+
+	logging.Get(logging.CategoryContext).Debug(
+		"Fitted %d atoms within budget of %d tokens (used %d)",
+		len(result), totalBudget, usedTokens,
+	)
+
+	return result, nil
+}
+
+// calculateAllocations determines token allocation per category.
+func (m *TokenBudgetManager) calculateAllocations(
+	totalBudget int,
+	presentCategories map[AtomCategory]bool,
+) map[AtomCategory]int {
+	allocations := make(map[AtomCategory]int)
+
+	// Iterate categories in a deterministic order. Go's map iteration is
+	// intentionally randomised, but the PriorityFirst / Balanced
+	// strategies decrement a shared `remaining` budget as they go — so
+	// the order categories are visited changes which ones win the
+	// last-few-tokens contention. That made allocation non-reproducible
+	// between runs (and between test invocations) which masked subtle
+	// budget regressions. Sorting by string makes the algorithm
+	// deterministic without altering the math.
+	orderedCats := make([]AtomCategory, 0, len(m.budgets))
+	for cat := range m.budgets {
+		orderedCats = append(orderedCats, cat)
+	}
+	sort.Slice(orderedCats, func(i, j int) bool {
+		return string(orderedCats[i]) < string(orderedCats[j])
+	})
+
+	var totalPercent float64
+	for _, cat := range orderedCats {
+		if presentCategories[cat] {
+			totalPercent += m.budgets[cat].BasePercent
+		}
+	}
+
+	switch m.strategy {
+	case StrategyProportional:
+		var remainder float64
+		for _, cat := range orderedCats {
+			budget := m.budgets[cat]
+			if !presentCategories[cat] {
+				continue
+			}
+
+			normalizedPercent := budget.BasePercent
+			if totalPercent > 0 {
+				normalizedPercent = budget.BasePercent / totalPercent
+			}
+
+			exact := float64(totalBudget)*normalizedPercent + remainder
+			allocation := int(math.Round(exact))
+			clampedAlloc := clamp(allocation, budget.MinTokens, budget.MaxTokens)
+			remainder = exact - float64(clampedAlloc)
+			allocations[cat] = clampedAlloc
+		}
+
+	case StrategyPriorityFirst:
+		remaining := totalBudget
+		var remainder float64
+
+		// Helper to allocate for a priority level
+		allocateForPriority := func(p BudgetPriority) {
+			for _, cat := range orderedCats {
+				budget := m.budgets[cat]
+				if budget.Priority != p {
+					continue
+				}
+				if !presentCategories[cat] {
+					continue
+				}
+
+				normalizedPercent := budget.BasePercent
+				if totalPercent > 0 {
+					normalizedPercent = budget.BasePercent / totalPercent
+				}
+
+				if p == PriorityMandatory {
+					exact := float64(totalBudget)*normalizedPercent + remainder
+					allocation := int(math.Round(exact))
+					clampedAlloc := clamp(allocation, budget.MinTokens, budget.MaxTokens)
+					remainder = exact - float64(clampedAlloc)
+					allocations[cat] = clampedAlloc
+					remaining -= clampedAlloc
+				} else {
+					if remaining <= 0 {
+						allocations[cat] = 0
+					} else {
+						exact := float64(totalBudget)*normalizedPercent + remainder
+						allocation := int(math.Round(exact))
+						clampedAlloc := clamp(allocation, budget.MinTokens, budget.MaxTokens)
+
+						if clampedAlloc > remaining {
+							clampedAlloc = remaining
+						}
+
+						remainder = exact - float64(clampedAlloc)
+						allocations[cat] = clampedAlloc
+						remaining -= clampedAlloc
+					}
+				}
+			}
+		}
+
+		allocateForPriority(PriorityMandatory)
+		allocateForPriority(PriorityHigh)
+		allocateForPriority(PriorityMedium)
+
+		// Low and conditional get what's left
+		for _, cat := range orderedCats {
+			budget := m.budgets[cat]
+			if budget.Priority != PriorityLow && budget.Priority != PriorityConditional {
+				continue
+			}
+			if !presentCategories[cat] {
+				continue
+			}
+			if remaining <= 0 {
+				allocations[cat] = 0
+				continue
+			}
+
+			normalizedPercent := budget.BasePercent
+			if totalPercent > 0 {
+				normalizedPercent = budget.BasePercent / totalPercent
+			}
+
+			exact := float64(totalBudget)*normalizedPercent + remainder
+			allocation := int(math.Round(exact))
+			clampedAlloc := clamp(allocation, budget.MinTokens, budget.MaxTokens)
+
+			if clampedAlloc > remaining {
+				clampedAlloc = remaining
+			}
+
+			remainder = exact - float64(clampedAlloc)
+			allocations[cat] = clampedAlloc
+			remaining -= clampedAlloc
+		}
+
+	case StrategyBalanced:
+		// Start with minimum allocations
+		remaining := totalBudget
+		for _, cat := range orderedCats {
+			budget := m.budgets[cat]
+			if !presentCategories[cat] {
+				continue
+			}
+			allocations[cat] = budget.MinTokens
+			remaining -= budget.MinTokens
+		}
+
+		// Distribute remaining proportionally
+		var remainder float64
+		for _, cat := range orderedCats {
+			budget := m.budgets[cat]
+			if !presentCategories[cat] {
+				continue
+			}
+
+			normalizedPercent := budget.BasePercent
+			if totalPercent > 0 {
+				normalizedPercent = budget.BasePercent / totalPercent
+			}
+
+			exact := float64(remaining)*normalizedPercent + remainder
+			extra := int(math.Round(exact))
+
+			alloc := allocations[cat] + extra
+			clamped := clamp(alloc, budget.MinTokens, budget.MaxTokens)
+
+			actualExtra := clamped - allocations[cat]
+			remainder = exact - float64(actualExtra)
+
+			allocations[cat] = clamped
+		}
+	}
+
+	return allocations
+}
+
+// clamp restricts a value to a range.
+func clamp(value, min, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+// BudgetReport summarizes budget allocation and usage.
+type BudgetReport struct {
+	TotalBudget      int
+	UsedTokens       int
+	RemainingTokens  int
+	CategoryUsage    map[AtomCategory]CategoryUsage
+	MandatoryTokens  int
+	OptionalTokens   int
+	OverBudgetAmount int
+}
+
+// CategoryUsage tracks usage for a single category.
+type CategoryUsage struct {
+	Allocated int
+	Used      int
+	AtomCount int
+	Priority  BudgetPriority
+}
+
+// GenerateReport creates a budget report for a set of fitted atoms.
+func (m *TokenBudgetManager) GenerateReport(atoms []*OrderedAtom, totalBudget int) BudgetReport {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	report := BudgetReport{
+		TotalBudget:   totalBudget,
+		CategoryUsage: make(map[AtomCategory]CategoryUsage),
+	}
+
+	for _, oa := range atoms {
+		if oa == nil || oa.Atom == nil {
+			continue
+		}
+		cat := oa.Atom.Category
+		usage := report.CategoryUsage[cat]
+		tokenCount := max(oa.Atom.TokenCount, 0)
+		usage.Used += tokenCount
+		usage.AtomCount++
+		if budget, ok := m.budgets[cat]; ok {
+			usage.Priority = budget.Priority
+		}
+		report.CategoryUsage[cat] = usage
+		report.UsedTokens += tokenCount
+
+		if oa.Atom.IsMandatory {
+			report.MandatoryTokens += tokenCount
+		} else {
+			report.OptionalTokens += tokenCount
+		}
+	}
+
+	report.RemainingTokens = totalBudget - report.UsedTokens
+	if report.RemainingTokens < 0 {
+		report.OverBudgetAmount = -report.RemainingTokens
+		report.RemainingTokens = 0
+	}
+
+	return report
+}
+
+// contentForMode returns the atom text the assembler must emit for a given
+// render mode, mirroring tokenCountForMode's variant selection. Fit records the
+// chosen RenderMode and charges the corresponding token count; the assembler and
+// the post-hoc token stats must render/count the SAME variant, or the emitted
+// prompt silently exceeds the budget accounting. Empty variants fall back to the
+// standard Content so text and count stay consistent.
+func contentForMode(atom *PromptAtom, mode string) string {
+	if atom == nil {
+		return ""
+	}
+	switch mode {
+	case "concise":
+		if atom.ContentConcise != "" {
+			return atom.ContentConcise
+		}
+	case "min":
+		if atom.ContentMin != "" {
+			return atom.ContentMin
+		}
+	}
+	return atom.Content
+}
+
+// tokenCountForMode returns the token count for an atom rendered in the given
+// mode, falling back to the standard TokenCount when the requested variant is
+// empty. Mirrors contentForMode so accounting matches emitted text.
+func tokenCountForMode(atom *PromptAtom, mode string) int {
+	if atom == nil {
+		return 0
+	}
+	var cnt int
+	switch mode {
+	case "concise":
+		if atom.ContentConcise != "" {
+			cnt = EstimateTokens(atom.ContentConcise)
+		} else {
+			cnt = atom.TokenCount
+		}
+	case "min":
+		if atom.ContentMin != "" {
+			cnt = EstimateTokens(atom.ContentMin)
+		} else {
+			cnt = atom.TokenCount
+		}
+	default:
+		cnt = atom.TokenCount
+	}
+	if cnt < 0 {
+		return 0
+	}
+	return cnt
+}
+
+// CategoryPriority returns the configured priority for a category, or
+// PriorityUnknown for a category with no budget entry (the same fallback
+// Fit's internal getPriority uses — an unbudgeted category is shed first).
+func (m *TokenBudgetManager) CategoryPriority(cat AtomCategory) BudgetPriority {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if b, ok := m.budgets[cat]; ok {
+		return b.Priority
+	}
+	return PriorityUnknown
+}
+
+// maxShedPasses bounds the assemble/measure/shed loop. Each pass removes at
+// least the measured overshoot's worth of atoms, so convergence is normally
+// immediate; the cap exists so a pathological template expansion (one that
+// grows faster than the atoms we remove) cannot spin. After the last pass the
+// caller refuses to compile if the mandatory skeleton still does not fit.
+const maxShedPasses = 4
+
+// ShedToFit enforces the token budget on the ASSEMBLED prompt rather than on
+// the sum of per-atom counts.
+//
+// Fit charges each atom the token count of its render-mode content, then the
+// assembler expands {{...}} placeholders and joins with separators. Both add
+// tokens Fit never saw: {{available_specialists}} interpolates the entire agent
+// registry in place of a 25-character placeholder. The compiler used to detect
+// the resulting overshoot (logCompilationStats, "budget breach") and ship the
+// over-budget prompt anyway, so the only consequence of blowing the context
+// window was a WARN line nobody read and a provider-side error later.
+//
+// Enforcement sheds whole atoms, lowest category priority first and lowest
+// score first within a priority, and re-assembles. Whole-atom eviction is
+// deliberate: half an exemplar or half a methodology is worse than none of it,
+// because the model cannot tell which half it is missing. Mandatory atoms
+// (identity, safety, the kernel-injected blocks) are never shed here — if the
+// mandatory skeleton alone overflows, that is a configuration fault and the
+// caller's final truncation makes it visible instead of silently dropping
+// safety text.
+//
+// Returns the surviving atoms and the re-assembled prompt. On any assembly
+// error it returns the inputs unchanged: a budget overshoot is a degradation,
+// a failed compile is an outage.
+func (m *TokenBudgetManager) ShedToFit(
+	atoms []*OrderedAtom,
+	prompt string,
+	budget int,
+	count TokenCounter,
+	assemble func([]*OrderedAtom) (string, error),
+) ([]*OrderedAtom, string, int) {
+	if count == nil {
+		count = tokenCountForMode
+	}
+	used := EstimateTokens(prompt)
+	if budget <= 0 || used <= budget || assemble == nil {
+		return atoms, prompt, used
+	}
+
+	// Shed order: least important first. Higher BudgetPriority value means
+	// lower importance (PriorityMandatory is 0), so descending priority value
+	// with ascending score puts the most expendable atom at index 0.
+	shed := make([]*OrderedAtom, 0, len(atoms))
+	// Resolve each category's priority once. CategoryPriority takes the
+	// manager's read lock, and a comparator calling it would take it
+	// O(n log n) times per shed.
+	prio := make(map[AtomCategory]BudgetPriority, 8)
+	for _, oa := range atoms {
+		if oa == nil || oa.Atom == nil || oa.Atom.IsMandatory {
+			continue
+		}
+		if _, ok := prio[oa.Atom.Category]; !ok {
+			prio[oa.Atom.Category] = m.CategoryPriority(oa.Atom.Category)
+		}
+		shed = append(shed, oa)
+	}
+	sort.SliceStable(shed, func(i, j int) bool {
+		pi, pj := prio[shed[i].Atom.Category], prio[shed[j].Atom.Category]
+		if pi != pj {
+			return pi > pj
+		}
+		return shed[i].Score < shed[j].Score
+	})
+
+	dropped := make(map[*OrderedAtom]struct{}, len(shed))
+	kept := atoms
+	next := 0
+
+	for pass := 0; pass < maxShedPasses && used > budget && next < len(shed); pass++ {
+		// Remove at least the measured overshoot. Per-atom counts understate
+		// the true cost (separators, expansion), so this converges downward.
+		freed := 0
+		overshoot := used - budget
+		// On the final allowed pass, drain every remaining optional atom.
+		// Reaching it means the per-atom estimate is badly wrong, and the
+		// alternative — falling through to whole-prompt truncation while
+		// low-priority atoms are still in the prompt — would shred a
+		// high-priority section to keep an exemplar. Drop the cheap text
+		// wholesale first; that is the ordering the budget contract promises.
+		if pass == maxShedPasses-1 {
+			overshoot = math.MaxInt32
+		}
+		for next < len(shed) && freed < overshoot {
+			victim := shed[next]
+			next++
+			dropped[victim] = struct{}{}
+			freed += count(victim.Atom, victim.RenderMode)
+		}
+
+		survivors := make([]*OrderedAtom, 0, len(atoms))
+		for _, oa := range atoms {
+			if _, gone := dropped[oa]; gone {
+				continue
+			}
+			survivors = append(survivors, oa)
+		}
+
+		reassembled, err := assemble(survivors)
+		if err != nil {
+			logging.Get(logging.CategoryContext).Warn(
+				"ShedToFit: re-assembly failed after dropping %d atoms, keeping over-budget prompt: %v",
+				len(dropped), err)
+			return atoms, prompt, used
+		}
+		kept = survivors
+		prompt = reassembled
+		used = EstimateTokens(prompt)
+	}
+
+	if len(dropped) > 0 {
+		logging.Get(logging.CategoryContext).Warn(
+			"ShedToFit: dropped %d optional atom(s) to fit assembled prompt into %d tokens (now %d)",
+			len(dropped), budget, used)
+	}
+	return kept, prompt, used
+}

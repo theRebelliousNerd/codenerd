@@ -1,0 +1,106 @@
+{
+  "_comment": "Malformed Piggyback JSON payloads for stress testing articulation layer",
+
+  "test_cases": [
+    {
+      "name": "truncated_json",
+      "description": "JSON that appears truncated mid-stream",
+      "payload": "{\"surface_response\": \"Hello\", \"control_packet\": {\"actions\": ["
+    },
+    {
+      "name": "missing_control_packet",
+      "description": "Valid JSON but missing control_packet field",
+      "payload": "{\"surface_response\": \"I completed the task successfully.\"}"
+    },
+    {
+      "name": "null_control_packet",
+      "description": "Control packet is null",
+      "payload": "{\"surface_response\": \"Done.\", \"control_packet\": null}"
+    },
+    {
+      "name": "empty_control_packet",
+      "description": "Control packet is empty object",
+      "payload": "{\"surface_response\": \"Done.\", \"control_packet\": {}}"
+    },
+    {
+      "name": "invalid_actions_type",
+      "description": "Actions is string instead of array",
+      "payload": "{\"surface_response\": \"Done.\", \"control_packet\": {\"actions\": \"not an array\"}}"
+    },
+    {
+      "name": "malformed_action",
+      "description": "Action missing required fields",
+      "payload": "{\"surface_response\": \"Done.\", \"control_packet\": {\"actions\": [{\"type\": \"write_file\"}]}}"
+    },
+    {
+      "name": "nested_json_escape",
+      "description": "Deeply nested escaped JSON",
+      "payload": "{\"surface_response\": \"{\\\"nested\\\": {\\\"deep\\\": {\\\"deeper\\\": \\\"{\\\\\\\"deepest\\\\\\\": true}\\\"}}}\", \"control_packet\": {\"actions\": []}}"
+    },
+    {
+      "name": "unicode_bomb",
+      "description": "Unicode characters that may cause parsing issues",
+      "payload": "{\"surface_response\": \"\u0000\u0001\u0002\u0003\u200b\u200c\u200d\ufeff\", \"control_packet\": {\"actions\": []}}"
+    },
+    {
+      "name": "huge_surface_response",
+      "description": "Surface response that's extremely large (placeholder - generate dynamically)",
+      "payload": "{\"surface_response\": \"PLACEHOLDER_REPEAT_10000_TIMES\", \"control_packet\": {\"actions\": []}}"
+    },
+    {
+      "name": "circular_reference",
+      "description": "JSON that would cause circular reference if parsed naively",
+      "payload": "{\"surface_response\": \"test\", \"control_packet\": {\"self\": \"$self\", \"actions\": []}}"
+    },
+    {
+      "name": "wrong_types",
+      "description": "Fields with wrong types",
+      "payload": "{\"surface_response\": 12345, \"control_packet\": \"not an object\"}"
+    },
+    {
+      "name": "extra_fields",
+      "description": "Unexpected extra fields",
+      "payload": "{\"surface_response\": \"Done.\", \"control_packet\": {\"actions\": []}, \"malicious\": \"<script>alert(1)</script>\", \"injection\": \"; DROP TABLE users;\"}"
+    },
+    {
+      "name": "markdown_wrapped_json",
+      "description": "JSON wrapped in markdown code block",
+      "payload": "```json\n{\"surface_response\": \"Done.\", \"control_packet\": {\"actions\": []}}\n```"
+    },
+    {
+      "name": "multiple_json_objects",
+      "description": "Multiple JSON objects concatenated",
+      "payload": "{\"surface_response\": \"First\"}{\"surface_response\": \"Second\"}"
+    },
+    {
+      "name": "bom_prefix",
+      "description": "JSON with UTF-8 BOM",
+      "payload": "\ufeff{\"surface_response\": \"Done.\", \"control_packet\": {\"actions\": []}}"
+    }
+  ],
+
+  "valid_baseline": {
+    "description": "A valid Piggyback envelope for comparison",
+    "payload": {
+      "surface_response": "I have completed the requested task successfully.",
+      "control_packet": {
+        "actions": [
+          {
+            "type": "assert_fact",
+            "predicate": "task_completed",
+            "args": ["test_task", "success"]
+          }
+        ],
+        "memory_operations": [
+          {
+            "operation": "store",
+            "tier": "ram",
+            "key": "last_action",
+            "value": "test"
+          }
+        ],
+        "self_correction": null
+      }
+    }
+  }
+}

@@ -1,0 +1,985 @@
+// Package campaign provides multi-phase goal orchestration.
+// This file implements edge case detection for file action decisions.
+// It determines whether files should be created, extended, modularized, or refactored first.
+package campaign
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/world"
+)
+
+// =============================================================================
+// EDGE CASE DETECTOR
+// =============================================================================
+// Analyzes files to determine the appropriate action before modification:
+// - Create: File doesn't exist, needs to be created
+// - Extend: File exists, add functionality
+// - Modularize: File too large, split into multiple files
+// - RefactorFirst: File has issues that should be addressed before adding features
+
+// FileAction represents the recommended action for a file.
+type FileAction int
+
+const (
+	// ActionCreate indicates the file should be created new.
+	ActionCreate FileAction = iota
+	// ActionExtend indicates the file should have functionality added.
+	ActionExtend
+	// ActionModularize indicates the file should be split into smaller files.
+	ActionModularize
+	// ActionRefactorFirst indicates the file needs cleanup before modification.
+	ActionRefactorFirst
+	// ActionSkip indicates the file should not be modified.
+	ActionSkip
+)
+
+func (a FileAction) String() string {
+	switch a {
+	case ActionCreate:
+		return "create"
+	case ActionExtend:
+		return "extend"
+	case ActionModularize:
+		return "modularize"
+	case ActionRefactorFirst:
+		return "refactor_first"
+	case ActionSkip:
+		return "skip"
+	default:
+		return "unknown"
+	}
+}
+
+// FileDecision contains the analysis and recommendation for a file.
+type FileDecision struct {
+	Path              string     `json:"path"`
+	RecommendedAction FileAction `json:"recommended_action"`
+	Reasoning         string     `json:"reasoning"`
+	Confidence        float64    `json:"confidence"` // 0.0-1.0
+
+	// Analysis data
+	Exists     bool    `json:"exists"`
+	Language   string  `json:"language"`
+	LineCount  int     `json:"line_count"`
+	ChurnRate  int     `json:"churn_rate"`
+	Complexity float64 `json:"complexity"` // Cyclomatic complexity estimate
+	TODOCount  int     `json:"todo_count"`
+	HasTests   bool    `json:"has_tests"`
+
+	// Dependencies
+	Dependencies []string `json:"dependencies"`
+	Dependents   []string `json:"dependents"`
+	ImpactScore  int      `json:"impact_score"`
+
+	// Suggestions
+	SuggestedSplits []SplitSuggestion `json:"suggested_splits,omitzero"`
+	RefactorReasons []string          `json:"refactor_reasons,omitzero"`
+	Warnings        []string          `json:"warnings,omitzero"`
+}
+
+// SplitSuggestion suggests how to split a large file.
+type SplitSuggestion struct {
+	NewFileName string   `json:"new_file_name"`
+	Functions   []string `json:"functions"`
+	Reason      string   `json:"reason"`
+}
+
+// EdgeCaseDetector analyzes files to determine appropriate actions.
+type EdgeCaseDetector struct {
+	kernel  core.Kernel
+	scanner *world.Scanner
+
+	// Configuration
+	config EdgeCaseConfig
+}
+
+// EdgeCaseConfig configures detection thresholds.
+type EdgeCaseConfig struct {
+	// Size thresholds
+	LargeFileLines      int // Lines to consider file "large" (default: 500)
+	VeryLargeFileLines  int // Lines requiring modularization (default: 1000)
+	MaxFunctionsPerFile int // Max functions before suggesting split (default: 20)
+
+	// Complexity thresholds
+	HighComplexity     float64 // Complexity requiring refactor (default: 10.0)
+	ModerateComplexity float64 // Complexity worth noting (default: 5.0)
+
+	// Churn thresholds
+	HighChurnRate     int // Commits suggesting caution (default: 10)
+	VeryHighChurnRate int // Commits requiring discussion (default: 20)
+
+	// Quality thresholds
+	MaxTODOsBeforeRefactor int // TODOs requiring cleanup (default: 5)
+
+	// Timeout
+	AnalysisTimeout time.Duration
+}
+
+// DefaultEdgeCaseConfig returns sensible defaults.
+func DefaultEdgeCaseConfig() EdgeCaseConfig {
+	return EdgeCaseConfig{
+		LargeFileLines:         500,
+		VeryLargeFileLines:     1000,
+		MaxFunctionsPerFile:    20,
+		HighComplexity:         10.0,
+		ModerateComplexity:     5.0,
+		HighChurnRate:          10,
+		VeryHighChurnRate:      20,
+		MaxTODOsBeforeRefactor: 5,
+		AnalysisTimeout:        30 * time.Second,
+	}
+}
+
+// NewEdgeCaseDetector creates a new edge case detector.
+func NewEdgeCaseDetector(kernel core.Kernel, scanner *world.Scanner) *EdgeCaseDetector {
+	return &EdgeCaseDetector{
+		kernel:  kernel,
+		scanner: scanner,
+		config:  DefaultEdgeCaseConfig(),
+	}
+}
+
+// WithConfig sets custom configuration.
+func (d *EdgeCaseDetector) WithConfig(config EdgeCaseConfig) *EdgeCaseDetector {
+	d.config = config
+	return d
+}
+
+// AnalyzeFiles analyzes multiple files and returns decisions for each.
+func (d *EdgeCaseDetector) AnalyzeFiles(ctx context.Context, paths []string, intelligence *IntelligenceReport) ([]FileDecision, error) {
+	logging.Campaign("Edge case analysis: analyzing %d files (thresholds: large=%d lines, high_churn=%d commits, high_complexity=%.1f)",
+		len(paths), d.config.LargeFileLines, d.config.HighChurnRate, d.config.HighComplexity)
+	timer := logging.StartTimer(logging.CategoryCampaign, "AnalyzeFiles")
+	defer timer.Stop()
+
+	// Pre-query and cache facts from the kernel once to avoid O(N*M) performance cliff
+	var cache *cachedFacts
+	if d.kernel != nil {
+		cache = d.precacheFacts(ctx)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, d.config.AnalysisTimeout*time.Duration(len(paths)))
+	defer cancel()
+
+	// Filter out empty paths first
+	validPaths := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if p != "" {
+			validPaths = append(validPaths, p)
+		}
+	}
+
+	if len(validPaths) == 0 {
+		return []FileDecision{}, nil
+	}
+
+	// 8-worker goroutine pool for high-concurrency safety and fast processing
+	numWorkers := min(len(validPaths), 8)
+
+	taskChan := make(chan string, len(validPaths))
+	resChan := make(chan FileDecision, len(validPaths))
+
+	// Start workers
+	for w := 0; w < numWorkers; w++ {
+		go func() {
+			for path := range taskChan {
+				decision := d.analyzeFileWithCache(ctx, path, intelligence, cache)
+				resChan <- decision
+			}
+		}()
+	}
+
+	// Send tasks
+	for _, path := range validPaths {
+		taskChan <- path
+	}
+	close(taskChan)
+
+	// Collect results
+	decisions := make([]FileDecision, 0, len(validPaths))
+	for i := 0; i < len(validPaths); i++ {
+		select {
+		case <-ctx.Done():
+			logging.Campaign("Edge case analysis interrupted: %d/%d files analyzed before timeout/cancellation", len(decisions), len(validPaths))
+			return decisions, ctx.Err()
+		case dec := <-resChan:
+			decisions = append(decisions, dec)
+		}
+	}
+
+	// Sort by priority: refactor_first > modularize > create > extend > skip
+	sort.Slice(decisions, func(i, j int) bool {
+		return d.actionPriority(decisions[i].RecommendedAction) > d.actionPriority(decisions[j].RecommendedAction)
+	})
+
+	// Log actionable summary
+	d.logDecisionSummary(decisions)
+
+	return decisions, nil
+}
+
+// logDecisionSummary logs a useful summary of analysis decisions.
+func (d *EdgeCaseDetector) logDecisionSummary(decisions []FileDecision) {
+	if len(decisions) == 0 {
+		logging.Campaign("Edge case analysis complete: no files to analyze")
+		return
+	}
+
+	// Count by action type
+	actionCounts := make(map[FileAction]int)
+	var highImpactCount, noTestCount, chestertonCount int
+	var chestertonFiles []string
+
+	for _, dec := range decisions {
+		actionCounts[dec.RecommendedAction]++
+		if dec.ImpactScore > 5 {
+			highImpactCount++
+		}
+		if !dec.HasTests && dec.Exists {
+			noTestCount++
+		}
+		if dec.ChurnRate >= d.config.HighChurnRate {
+			chestertonCount++
+			if len(chestertonFiles) < 3 {
+				chestertonFiles = append(chestertonFiles, filepath.Base(dec.Path))
+			}
+		}
+	}
+
+	// Main summary line
+	logging.Campaign("Edge case analysis complete: %d files → create=%d extend=%d modularize=%d refactor_first=%d",
+		len(decisions),
+		actionCounts[ActionCreate],
+		actionCounts[ActionExtend],
+		actionCounts[ActionModularize],
+		actionCounts[ActionRefactorFirst])
+
+	// Log blocking issues (these require attention before proceeding)
+	blockingCount := actionCounts[ActionModularize] + actionCounts[ActionRefactorFirst]
+	if blockingCount > 0 {
+		logging.Campaign("⚠️ PRE-WORK REQUIRED: %d files need modularization or refactoring before campaign can proceed safely",
+			blockingCount)
+	}
+
+	// Log Chesterton's Fence warnings (high-churn files)
+	if chestertonCount > 0 {
+		if len(chestertonFiles) < chestertonCount {
+			logging.Campaign("⚠️ CHESTERTON'S FENCE: %d high-churn files detected (e.g., %s, +%d more) - understand history before modifying",
+				chestertonCount, strings.Join(chestertonFiles, ", "), chestertonCount-len(chestertonFiles))
+		} else {
+			logging.Campaign("⚠️ CHESTERTON'S FENCE: %d high-churn files detected (%s) - understand history before modifying",
+				chestertonCount, strings.Join(chestertonFiles, ", "))
+		}
+	}
+
+	// Log risk indicators
+	if highImpactCount > 0 {
+		logging.CampaignDebug("Risk indicator: %d high-impact files (>5 dependents) - changes will cascade", highImpactCount)
+	}
+	if noTestCount > 0 {
+		logging.CampaignDebug("Risk indicator: %d existing files have no tests - consider adding coverage", noTestCount)
+	}
+}
+
+// queryDependencies gets file dependencies from the kernel.
+func (d *EdgeCaseDetector) queryDependencies(ctx context.Context, decision *FileDecision, path string) {
+	if err := ctx.Err(); err != nil {
+		return
+	}
+
+	// Query dependency_link for dependencies
+	facts, err := d.kernel.Query("dependency_link")
+	if err != nil {
+		return
+	}
+
+	for i, fact := range facts {
+		if i%100 == 0 {
+			if err := ctx.Err(); err != nil {
+				return
+			}
+		}
+		if len(fact.Args) >= 3 {
+			file := d.parseArg(fact.Args[0])
+			callee := d.parseArg(fact.Args[1])
+			imported := d.parseArg(fact.Args[2])
+
+			if file == callee || file == imported {
+				continue
+			}
+
+			if d.matchesPath(file, path) {
+				decision.Dependencies = append(decision.Dependencies, imported)
+			}
+			if d.matchesPath(callee, path) || strings.HasSuffix(imported, filepath.Base(path)) {
+				decision.Dependents = append(decision.Dependents, file)
+			}
+		}
+	}
+
+	// Calculate impact score based on dependents
+	decision.ImpactScore = len(decision.Dependents)
+}
+
+// queryComplexity estimates complexity from kernel facts.
+func (d *EdgeCaseDetector) queryComplexity(ctx context.Context, decision *FileDecision, path string) {
+	if err := ctx.Err(); err != nil {
+		return
+	}
+	if d.kernel == nil {
+		// Just estimate from line count if kernel is not available
+		decision.Complexity = 0
+		if decision.LineCount > 0 {
+			safeLineCount := min(decision.LineCount, 10000000)
+			decision.Complexity = float64(safeLineCount) / 50.0
+		}
+		return
+	}
+
+	// Query for complexity-related facts
+	facts, err := d.kernel.Query("cyclomatic_complexity")
+	if err != nil {
+		return
+	}
+
+	var (
+		maxComplexity float64
+		hasComplexity bool
+	)
+	for i, fact := range facts {
+		if i%100 == 0 {
+			if err := ctx.Err(); err != nil {
+				return
+			}
+		}
+		if len(fact.Args) >= 3 {
+			file := d.parseArg(fact.Args[0])
+			if d.matchesPath(file, path) {
+				if complexity, ok := d.parseNumber(fact.Args[2]); ok {
+					if !hasComplexity || complexity > maxComplexity {
+						maxComplexity = complexity
+					}
+					hasComplexity = true
+				}
+			}
+		}
+	}
+
+	// If no complexity data, estimate from line count
+	if hasComplexity {
+		decision.Complexity = maxComplexity
+	} else if decision.LineCount > 0 {
+		// Bounds check to prevent float64 precision issues or extreme values
+		safeLineCount := min(decision.LineCount, 10000000)
+		// Rough heuristic: 1 complexity point per 50 lines
+		decision.Complexity = float64(safeLineCount) / 50.0
+	}
+}
+
+// determineAction decides what action to take based on gathered metrics.
+func (d *EdgeCaseDetector) determineAction(decision FileDecision) (FileAction, string) {
+	var reasons []string
+
+	// Check for modularization need
+	if decision.LineCount >= d.config.VeryLargeFileLines {
+		reasons = append(reasons, fmt.Sprintf("File has %d lines (threshold: %d)", decision.LineCount, d.config.VeryLargeFileLines))
+		decision.SuggestedSplits = d.suggestSplits(decision)
+		return ActionModularize, strings.Join(reasons, "; ")
+	}
+
+	// Check for refactor-first scenarios
+	refactorReasons := d.checkRefactorReasons(decision)
+	if len(refactorReasons) >= 2 {
+		decision.RefactorReasons = refactorReasons
+		return ActionRefactorFirst, "Multiple quality issues: " + strings.Join(refactorReasons, "; ")
+	}
+
+	// Check for complexity issues
+	if decision.Complexity >= d.config.HighComplexity {
+		return ActionRefactorFirst, fmt.Sprintf("High complexity (%.1f) - refactor before adding features", decision.Complexity)
+	}
+
+	// Check for high churn (Chesterton's Fence)
+	if decision.ChurnRate >= d.config.VeryHighChurnRate {
+		return ActionRefactorFirst, fmt.Sprintf("Very high churn rate (%d commits) - understand before modifying", decision.ChurnRate)
+	}
+
+	// Default to extend for existing files
+	if decision.LineCount >= d.config.LargeFileLines {
+		return ActionExtend, fmt.Sprintf("Large file (%d lines) - extend carefully", decision.LineCount)
+	}
+
+	return ActionExtend, "File exists and is suitable for extension"
+}
+
+// checkRefactorReasons identifies reasons for refactoring.
+func (d *EdgeCaseDetector) checkRefactorReasons(decision FileDecision) []string {
+	var reasons []string
+
+	if decision.Complexity >= d.config.ModerateComplexity {
+		reasons = append(reasons, fmt.Sprintf("Moderate complexity (%.1f)", decision.Complexity))
+	}
+
+	if decision.ChurnRate >= d.config.HighChurnRate {
+		reasons = append(reasons, fmt.Sprintf("High churn rate (%d)", decision.ChurnRate))
+	}
+
+	if decision.TODOCount >= d.config.MaxTODOsBeforeRefactor {
+		reasons = append(reasons, fmt.Sprintf("Many TODOs (%d)", decision.TODOCount))
+	}
+
+	if !decision.HasTests && decision.ImpactScore > 3 {
+		reasons = append(reasons, "No tests for high-impact file")
+	}
+
+	if decision.LineCount >= d.config.LargeFileLines {
+		reasons = append(reasons, fmt.Sprintf("Large file (%d lines)", decision.LineCount))
+	}
+
+	return reasons
+}
+
+// suggestSplits suggests how to split a large file.
+func (d *EdgeCaseDetector) suggestSplits(decision FileDecision) []SplitSuggestion {
+	var suggestions []SplitSuggestion
+
+	baseName := strings.TrimSuffix(filepath.Base(decision.Path), filepath.Ext(decision.Path))
+	ext := filepath.Ext(decision.Path)
+	dir := filepath.Dir(decision.Path)
+
+	// Agnostic suffix split patterns
+	var patterns []struct {
+		suffix string
+		desc   string
+	}
+
+	lang := d.detectLanguage(decision.Path)
+	if lang == "go" || lang == "typescript" || lang == "javascript" {
+		patterns = []struct {
+			suffix string
+			desc   string
+		}{
+			{"_types", "Type definitions and interfaces"},
+			{"_helpers", "Helper functions and utilities"},
+			{"_handlers", "Request/response handlers"},
+		}
+	} else {
+		// Generic language-agnostic splits to prevent invalid syntax naming suggestions
+		patterns = []struct {
+			suffix string
+			desc   string
+		}{
+			{"_core", "Core implementation and logic"},
+			{"_utils", "Utility and helper functions"},
+			{"_part2", "Secondary logic partition"},
+		}
+	}
+
+	// Suggest at most 3 splits
+	for i, p := range patterns {
+		if i >= 3 {
+			break
+		}
+		suggestions = append(suggestions, SplitSuggestion{
+			NewFileName: filepath.Join(dir, baseName+p.suffix+ext),
+			Reason:      p.desc,
+		})
+	}
+
+	return suggestions
+}
+
+// addWarnings adds contextual warnings to the decision.
+func (d *EdgeCaseDetector) addWarnings(decision *FileDecision, intel *IntelligenceReport) {
+	if intel != nil && intel.IsEmpty() {
+		// Only warnings about missing intelligence are relevant, skip others
+		return
+	}
+	// Chesterton's Fence warning
+	if decision.ChurnRate >= d.config.HighChurnRate {
+		decision.Warnings = append(decision.Warnings,
+			fmt.Sprintf("⚠️ CHESTERTON'S FENCE: This file has changed %d times. Understand WHY before modifying.", decision.ChurnRate))
+	}
+
+	// No tests warning
+	if !decision.HasTests && decision.ImpactScore > 0 {
+		decision.Warnings = append(decision.Warnings,
+			"⚠️ No test file exists for this code. Consider adding tests first.")
+	}
+
+	// High impact warning
+	if decision.ImpactScore > 5 {
+		decision.Warnings = append(decision.Warnings,
+			fmt.Sprintf("⚠️ HIGH IMPACT: %d files depend on this code.", decision.ImpactScore))
+	}
+
+	// Check for safety warnings from intelligence
+	if intel != nil {
+		for _, warning := range intel.SafetyWarnings {
+			if warning.Path == decision.Path {
+				decision.Warnings = append(decision.Warnings,
+					fmt.Sprintf("⚠️ SAFETY: %s - %s", warning.Action, warning.RuleViolated))
+			}
+		}
+	}
+}
+
+// actionPriority returns the priority of an action (higher = more urgent).
+func (d *EdgeCaseDetector) actionPriority(action FileAction) int {
+	switch action {
+	case ActionRefactorFirst:
+		return 4
+	case ActionModularize:
+		return 3
+	case ActionCreate:
+		return 2
+	case ActionExtend:
+		return 1
+	case ActionSkip:
+		return 0
+	default:
+		return 0
+	}
+}
+
+// detectLanguage determines the language from file extension.
+func (d *EdgeCaseDetector) detectLanguage(path string) string {
+	if path == "" {
+		return "unknown"
+	}
+	ext := strings.ToLower(filepath.Ext(path))
+	langMap := map[string]string{
+		".go":   "go",
+		".py":   "python",
+		".js":   "javascript",
+		".ts":   "typescript",
+		".rs":   "rust",
+		".java": "java",
+		".mg":   "mangle",
+	}
+	if lang, ok := langMap[ext]; ok {
+		return lang
+	}
+	return "unknown"
+}
+
+func (d *EdgeCaseDetector) matchesPath(candidate, path string) bool {
+	if candidate == "" || path == "" {
+		return false
+	}
+	if candidate == path {
+		return true
+	}
+	return strings.HasSuffix(candidate, filepath.Base(path))
+}
+
+// parseArg safely extracts a string from an interface{}.
+func (d *EdgeCaseDetector) parseArg(arg any) string {
+	switch v := arg.(type) {
+	case string:
+		return v
+	case core.MangleAtom:
+		return string(v)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+func (d *EdgeCaseDetector) parseNumber(arg any) (float64, bool) {
+	switch v := arg.(type) {
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case float32:
+		return float64(v), true
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return 0, false
+		}
+		return v, true
+	default:
+		return 0, false
+	}
+}
+
+// =============================================================================
+// BATCH ANALYSIS
+// =============================================================================
+
+// AnalyzeForCampaign performs comprehensive analysis for a campaign.
+func (d *EdgeCaseDetector) AnalyzeForCampaign(ctx context.Context, targetPaths []string, intel *IntelligenceReport) (*EdgeCaseAnalysis, error) {
+	logging.Campaign("Starting comprehensive edge case analysis for campaign (%d target files)", len(targetPaths))
+	timer := logging.StartTimer(logging.CategoryCampaign, "AnalyzeForCampaign")
+	defer timer.Stop()
+
+	decisions, err := d.AnalyzeFiles(ctx, targetPaths, intel)
+	if err != nil {
+		logging.Campaign("Edge case analysis failed: %v", err)
+		return nil, err
+	}
+
+	analysis := &EdgeCaseAnalysis{
+		Decisions:       decisions,
+		ActionCounts:    make(map[FileAction]int),
+		ModularizeFiles: []string{},
+		RefactorFiles:   []string{},
+		CreateFiles:     []string{},
+		ExtendFiles:     []string{},
+		HighImpactFiles: []string{},
+		NoTestFiles:     []string{},
+	}
+
+	// Categorize decisions
+	for _, decision := range decisions {
+		analysis.ActionCounts[decision.RecommendedAction]++
+
+		switch decision.RecommendedAction {
+		case ActionModularize:
+			analysis.ModularizeFiles = append(analysis.ModularizeFiles, decision.Path)
+		case ActionRefactorFirst:
+			analysis.RefactorFiles = append(analysis.RefactorFiles, decision.Path)
+		case ActionCreate:
+			analysis.CreateFiles = append(analysis.CreateFiles, decision.Path)
+		case ActionExtend:
+			analysis.ExtendFiles = append(analysis.ExtendFiles, decision.Path)
+		}
+
+		if decision.ImpactScore > 5 {
+			analysis.HighImpactFiles = append(analysis.HighImpactFiles, decision.Path)
+		}
+
+		if !decision.HasTests && decision.Exists {
+			analysis.NoTestFiles = append(analysis.NoTestFiles, decision.Path)
+		}
+	}
+
+	// Calculate summary statistics
+	analysis.TotalFiles = len(decisions)
+	analysis.RequiresPrework = len(analysis.ModularizeFiles) + len(analysis.RefactorFiles)
+
+	// Log campaign readiness assessment
+	d.logCampaignReadiness(analysis)
+
+	return analysis, nil
+}
+
+// logCampaignReadiness logs whether campaign is ready to proceed or has blockers.
+func (d *EdgeCaseDetector) logCampaignReadiness(analysis *EdgeCaseAnalysis) {
+	if analysis.HasBlockingIssues() {
+		logging.Campaign("🛑 CAMPAIGN BLOCKED: %d files require pre-work before safe execution", analysis.RequiresPrework)
+		if len(analysis.ModularizeFiles) > 0 {
+			logging.Campaign("  → Modularization needed: %s", d.formatFileList(analysis.ModularizeFiles, 3))
+		}
+		if len(analysis.RefactorFiles) > 3 {
+			logging.Campaign("  → Refactoring needed: %s", d.formatFileList(analysis.RefactorFiles, 3))
+		}
+		preworkTasks := analysis.GetPreworkTasks()
+		logging.Campaign("  → %d pre-work tasks generated - run these before proceeding", len(preworkTasks))
+	} else if analysis.RequiresPrework > 0 {
+		logging.Campaign("⚠️ CAMPAIGN READY WITH CAUTION: %d files flagged for pre-work (below blocking threshold)",
+			analysis.RequiresPrework)
+	} else {
+		logging.Campaign("✅ CAMPAIGN READY: all %d files cleared for modification", analysis.TotalFiles)
+	}
+
+	// Log high-risk summary if applicable
+	if len(analysis.HighImpactFiles) > 0 {
+		logging.Campaign("📊 High-impact files (%d): changes will affect multiple dependents", len(analysis.HighImpactFiles))
+	}
+}
+
+// formatFileList formats a list of files for logging, truncating if too long.
+func (d *EdgeCaseDetector) formatFileList(files []string, maxShow int) string {
+	if len(files) == 0 {
+		return "(none)"
+	}
+
+	var names []string
+	for i, f := range files {
+		if i >= maxShow {
+			break
+		}
+		names = append(names, filepath.Base(f))
+	}
+
+	result := strings.Join(names, ", ")
+	if len(files) > maxShow {
+		result += fmt.Sprintf(" (+%d more)", len(files)-maxShow)
+	}
+	return result
+}
+
+// EdgeCaseAnalysis contains the full analysis results.
+type EdgeCaseAnalysis struct {
+	Decisions       []FileDecision     `json:"decisions"`
+	ActionCounts    map[FileAction]int `json:"action_counts"`
+	TotalFiles      int                `json:"total_files"`
+	RequiresPrework int                `json:"requires_prework"`
+
+	// Categorized file lists
+	ModularizeFiles []string `json:"modularize_files"`
+	RefactorFiles   []string `json:"refactor_files"`
+	CreateFiles     []string `json:"create_files"`
+	ExtendFiles     []string `json:"extend_files"`
+	HighImpactFiles []string `json:"high_impact_files"`
+	NoTestFiles     []string `json:"no_test_files"`
+}
+
+// HasBlockingIssues returns true if there are issues that should be resolved before proceeding.
+func (a *EdgeCaseAnalysis) HasBlockingIssues() bool {
+	return len(a.ModularizeFiles) > 0 || len(a.RefactorFiles) > 3
+}
+
+// GetPreworkTasks returns tasks that should be done before the main campaign.
+func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
+	var tasks []string
+
+	for _, file := range a.ModularizeFiles {
+		tasks = append(tasks, fmt.Sprintf("Modularize %s into smaller files", file))
+	}
+
+	for _, file := range a.RefactorFiles {
+		tasks = append(tasks, fmt.Sprintf("Refactor %s to address quality issues", file))
+	}
+
+	return tasks
+}
+
+// cachedFacts holds pre-queried and indexed facts to avoid N+1 query overhead.
+type cachedFacts struct {
+	dependencies map[string][]string
+	dependents   map[string][]string
+	complexity   map[string]float64
+}
+
+// precacheFacts queries kernel facts once and indexes them for fast lookup.
+func (d *EdgeCaseDetector) precacheFacts(ctx context.Context) *cachedFacts {
+	cache := &cachedFacts{
+		dependencies: make(map[string][]string),
+		dependents:   make(map[string][]string),
+		complexity:   make(map[string]float64),
+	}
+
+	// Query dependency_link
+	depFacts, err := d.kernel.Query("dependency_link")
+	if err == nil {
+		for _, fact := range depFacts {
+			if len(fact.Args) >= 3 {
+				file := d.parseArg(fact.Args[0])
+				callee := d.parseArg(fact.Args[1])
+				imported := d.parseArg(fact.Args[2])
+
+				if file == callee || file == imported {
+					continue
+				}
+
+				fileBase := filepath.Base(file)
+				calleeBase := filepath.Base(callee)
+				importedBase := filepath.Base(imported)
+
+				// dependencies mapping
+				cache.dependencies[file] = append(cache.dependencies[file], imported)
+				if fileBase != file {
+					cache.dependencies[fileBase] = append(cache.dependencies[fileBase], imported)
+				}
+
+				// dependents mapping
+				cache.dependents[callee] = append(cache.dependents[callee], file)
+				if calleeBase != callee {
+					cache.dependents[calleeBase] = append(cache.dependents[calleeBase], file)
+				}
+				cache.dependents[imported] = append(cache.dependents[imported], file)
+				if importedBase != imported {
+					cache.dependents[importedBase] = append(cache.dependents[importedBase], file)
+				}
+			}
+		}
+	}
+
+	// Query cyclomatic_complexity
+	compFacts, err := d.kernel.Query("cyclomatic_complexity")
+	if err == nil {
+		for _, fact := range compFacts {
+			if len(fact.Args) >= 3 {
+				file := d.parseArg(fact.Args[0])
+				fileBase := filepath.Base(file)
+				if complexity, ok := d.parseNumber(fact.Args[2]); ok {
+					// Keep max complexity
+					if current, exists := cache.complexity[file]; !exists || complexity > current {
+						cache.complexity[file] = complexity
+					}
+					if fileBase != file {
+						if current, exists := cache.complexity[fileBase]; !exists || complexity > current {
+							cache.complexity[fileBase] = complexity
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return cache
+}
+
+// analyzeFileWithCache performs analysis on a single file, using precached facts if available.
+func (d *EdgeCaseDetector) analyzeFileWithCache(ctx context.Context, path string, intel *IntelligenceReport, cache *cachedFacts) FileDecision {
+	if err := ctx.Err(); err != nil {
+		return FileDecision{Path: path, RecommendedAction: ActionSkip, Reasoning: "Analysis cancelled"}
+	}
+	decision := FileDecision{
+		Path:         path,
+		Language:     d.detectLanguage(path),
+		Confidence:   0.8, // Default confidence
+		Dependencies: []string{},
+		Dependents:   []string{},
+		Warnings:     []string{},
+	}
+
+	// Check if file exists (from intelligence report)
+	if intel != nil && !intel.IsEmpty() && len(intel.FileTopology) > 0 {
+		if fileInfo, exists := intel.FileTopology[path]; exists {
+			decision.Exists = true
+			decision.Language = fileInfo.Language
+		}
+	} else {
+		// Fallback to checking the file system directly if intel is missing or empty
+		if _, err := os.Stat(path); err == nil {
+			decision.Exists = true
+		}
+		if intel == nil || intel.IsEmpty() {
+			decision.Warnings = append(decision.Warnings, "⚠️ Missing intelligence data. File existence verified via filesystem.")
+		}
+	}
+
+	// Double check file existence with the filesystem to prevent race conditions
+	if decision.Exists {
+		if _, err := os.Stat(path); err != nil && os.IsNotExist(err) {
+			decision.Exists = false
+		}
+	}
+
+	// Verify against actual filesystem to avoid state conflicts
+	if decision.Exists {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			decision.Exists = false
+		}
+	} else if _, err := os.Stat(path); err == nil {
+		decision.Exists = true
+	}
+
+	// If file doesn't exist, recommend creation
+	if !decision.Exists {
+		decision.RecommendedAction = ActionCreate
+		decision.Reasoning = "File does not exist - creation required"
+		return decision
+	}
+
+	// Gather metrics from intelligence report and cache
+	d.gatherMetricsWithCache(ctx, &decision, path, intel, cache)
+
+	// Clamp LineCount to avoid float64 precision issues or overflow
+	if decision.LineCount < 0 {
+		decision.LineCount = 0
+	} else if decision.LineCount > 1000000 {
+		decision.LineCount = 1000000
+	}
+
+	// Robustness: handle NaN/Inf complexity
+	if math.IsNaN(decision.Complexity) || math.IsInf(decision.Complexity, 0) {
+		decision.Complexity = 0
+	}
+
+	// Apply decision logic
+	decision.RecommendedAction, decision.Reasoning = d.determineAction(decision)
+
+	// Add warnings for edge cases
+	d.addWarnings(&decision, intel)
+
+	return decision
+}
+
+// gatherMetricsWithCache populates decision metrics from intelligence data and caches.
+func (d *EdgeCaseDetector) gatherMetricsWithCache(ctx context.Context, decision *FileDecision, path string, intel *IntelligenceReport, cache *cachedFacts) {
+	if err := ctx.Err(); err != nil {
+		return
+	}
+	if intel != nil {
+		// Get churn rate from git history
+		for _, hotspot := range intel.GitChurnHotspots {
+			if hotspot.Path == path || strings.HasSuffix(hotspot.Path, filepath.Base(path)) {
+				decision.ChurnRate = hotspot.ChurnRate
+				break
+			}
+		}
+
+		// Count symbols in file
+		symbolCount := 0
+		for _, symbol := range intel.SymbolGraph {
+			if symbol.File == path || strings.HasSuffix(symbol.File, filepath.Base(path)) {
+				symbolCount++
+			}
+		}
+		// Estimate line count from symbol density
+		if symbolCount > math.MaxInt32/25 {
+			decision.LineCount = math.MaxInt32
+		} else {
+			decision.LineCount = symbolCount * 25 // Rough estimate
+		}
+
+		// Check for test file
+		if !strings.HasSuffix(path, "_test.go") {
+			testPath := strings.TrimSuffix(path, filepath.Ext(path)) + "_test" + filepath.Ext(path)
+			_, decision.HasTests = intel.FileTopology[testPath]
+		}
+	}
+
+	if strings.HasSuffix(path, "_test.go") {
+		decision.HasTests = true
+	}
+
+	// Query dependencies & complexity (either using cache or direct query)
+	if cache != nil {
+		pathBase := filepath.Base(path)
+
+		// Dependencies
+		if deps, ok := cache.dependencies[path]; ok {
+			decision.Dependencies = append(decision.Dependencies, deps...)
+		} else if deps, ok := cache.dependencies[pathBase]; ok {
+			decision.Dependencies = append(decision.Dependencies, deps...)
+		}
+		decision.Dependencies = dedupeSortedStrings(decision.Dependencies)
+
+		// Dependents
+		if deps, ok := cache.dependents[path]; ok {
+			decision.Dependents = append(decision.Dependents, deps...)
+		} else if deps, ok := cache.dependents[pathBase]; ok {
+			decision.Dependents = append(decision.Dependents, deps...)
+		}
+		decision.Dependents = dedupeSortedStrings(decision.Dependents)
+		decision.ImpactScore = len(decision.Dependents)
+
+		// Complexity
+		if comp, ok := cache.complexity[path]; ok {
+			decision.Complexity = comp
+		} else if comp, ok := cache.complexity[pathBase]; ok {
+			decision.Complexity = comp
+		} else if decision.LineCount > 0 {
+			decision.Complexity = float64(decision.LineCount) / 50.0
+		}
+	} else if d.kernel != nil {
+		// Fallback to direct queries
+		d.queryDependencies(ctx, decision, path)
+		d.queryComplexity(ctx, decision, path)
+	}
+}

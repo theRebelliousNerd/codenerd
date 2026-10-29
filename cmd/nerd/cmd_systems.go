@@ -1,0 +1,676 @@
+// Package main implements the codeNERD CLI commands.
+// This file provides CLI access to core system status and visibility.
+package main
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"codenerd/internal/config"
+	"codenerd/internal/features"
+	"codenerd/internal/mcp"
+	"codenerd/internal/store"
+	coresys "codenerd/internal/system"
+
+	"github.com/spf13/cobra"
+)
+
+// =============================================================================
+// MCP CLI COMMANDS
+// =============================================================================
+
+// mcpCmd is the parent command for MCP operations
+var mcpCmd = &cobra.Command{
+	Args:  cobra.NoArgs,
+	Use:   "mcp",
+	Short: "Model Context Protocol server management",
+	Long: `Manage MCP (Model Context Protocol) servers and tools.
+
+MCP servers provide external tools and resources that codeNERD can use
+during task execution.
+
+Examples:
+  nerd mcp list     # List connected MCP servers
+  nerd mcp tools    # Show available MCP tools
+  nerd mcp status   # Show MCP system status`,
+	RunE: parentGroupRunE,
+}
+
+// mcpListCmd lists connected MCP servers
+var mcpListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List connected MCP servers",
+	Long:  `Shows all MCP servers that are connected or configured.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := commandContext(cmd)
+		defer cancel()
+
+		fmt.Println("🔌 MCP Servers")
+		fmt.Println(strings.Repeat("─", 60))
+
+		servers, err := readMCPServers(ctx)
+		if err != nil {
+			return err
+		}
+
+		if len(servers) == 0 {
+			fmt.Println("No MCP servers recorded.")
+			// The key name matters more than usual here: LoadUserConfig decodes
+			// strictly, so an unknown top-level field is a hard load error, not
+			// a warning. This line used to say 'mcp_servers', which is not a
+			// field on UserConfig — following the instruction would have made
+			// codeNERD refuse to start. The real path is integrations.servers.
+			fmt.Println("\nConfigure servers in .nerd/config.json under 'integrations.servers':")
+			fmt.Println(`  "integrations": {`)
+			fmt.Println(`    "servers": {`)
+			fmt.Println(`      "my_server": {`)
+			fmt.Println(`        "enabled": true,`)
+			fmt.Println(`        "protocol": "stdio",`)
+			fmt.Println(`        "auto_connect": true`)
+			fmt.Println(`      }`)
+			fmt.Println(`    }`)
+			fmt.Println(`  }`)
+			return nil
+		}
+
+		for _, srv := range servers {
+			fmt.Printf("  - %s (%s) %s [%s]\n", srv.ID, srv.Protocol, srv.Endpoint, srv.Status)
+		}
+
+		fmt.Printf("\nTotal: %d servers\n", len(servers))
+		return nil
+	},
+}
+
+// mcpToolsCmd lists available MCP tools
+var mcpToolsCmd = &cobra.Command{
+	Use:   "tools",
+	Short: "Show available MCP tools",
+	Long:  `Lists all tools provided by connected MCP servers.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := commandContext(cmd)
+		defer cancel()
+
+		fmt.Println("🔧 MCP Tools")
+		fmt.Println(strings.Repeat("─", 60))
+
+		tools, err := readMCPTools(ctx)
+		if err != nil {
+			return err
+		}
+		if len(tools) == 0 {
+			fmt.Println("No MCP tools recorded.")
+			fmt.Println("Tools are discovered on connect; run 'nerd mcp list' to check for servers.")
+			return nil
+		}
+
+		reviews := configuredMCPReviews()
+		unreviewed := 0
+		for _, tool := range tools {
+			state, matched := mcpReviewState(tool, reviews)
+			if !matched {
+				unreviewed++
+			}
+			fmt.Printf("  - %s  [%s]\n    schema_hash: %s\n    %s\n", tool.ToolID, state, tool.SchemaHash, tool.Description)
+		}
+
+		// This is the recorded catalog against the configuration, read
+		// offline: a matching review is installed on connect, but whether a
+		// call is admitted is decided per call against the live connection.
+		fmt.Printf("\nTotal: %d tools, %d without a matching configured review (offline view; each call is admitted against the live connection)\n", len(tools), unreviewed)
+		if unreviewed > 0 {
+			fmt.Println(`Admit a tool under integrations.servers.<id>.reviews in .nerd/config.json:`)
+			fmt.Println(`  {"tool": "<name>", "effect": "read|write|delete|execute", "schema_hash": "<hash above>"}`)
+		}
+		return nil
+	},
+}
+
+// mcpStatusCmd shows MCP system status
+var mcpStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show MCP system status",
+	Long:  `Displays the overall status of the MCP integration layer.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := commandContext(cmd)
+		defer cancel()
+
+		fmt.Println("🔌 MCP Status")
+		fmt.Println(strings.Repeat("─", 60))
+
+		servers, err := readMCPServers(ctx)
+		if err != nil {
+			return err
+		}
+		tools, err := readMCPTools(ctx)
+		if err != nil {
+			return err
+		}
+
+		connected := 0
+		for _, s := range servers {
+			if s.Status == mcp.ServerStatusConnected {
+				connected++
+			}
+		}
+
+		fmt.Printf("Recorded Servers:  %d\n", len(servers))
+		fmt.Printf("Connected:         %d\n", connected)
+		fmt.Printf("Discovered Tools:  %d\n", len(tools))
+		fmt.Printf("Store:             %s\n", mcpStorePath())
+
+		switch {
+		case connected > 0:
+			fmt.Println("\nMCP Integration: Active")
+		case len(servers) > 0:
+			fmt.Println("\nMCP Integration: servers recorded but none currently connected")
+		default:
+			fmt.Println("\nMCP Integration: No servers configured")
+		}
+
+		return nil
+	},
+}
+
+// The three commands above read the persisted MCP store rather than the kernel.
+//
+// They used to query mcp_server_registered and mcp_tool_capability. Both are
+// declared in schemas_mcp.mg and neither has a producer anywhere in the repo —
+// the only MCP fact ever asserted is mcp_tool_vector_score
+// (internal/mcp/compiler.go:83). So all three commands reported zero
+// unconditionally, and would have kept reporting zero with servers connected
+// and tools discovered. Same family as F-GLASS-1 and F-LOGS-1.
+//
+// internal/mcp/store.go already persists both to .nerd/mcp_tools.db, which
+// survives the process, so it is also the right source for a CLI invocation
+// that boots a fresh kernel holding no session facts. Reading it by path rather
+// than through Cortex.mcpBridge (unexported, and nil when no servers are
+// configured) means the record is visible whether or not a bridge is live.
+
+// mcpStorePath returns the on-disk location of the MCP store, matching
+// NewMCPIntegrationBridge.
+func mcpStorePath() string {
+	root := workspace
+	if root == "" {
+		root = "."
+	}
+	return filepath.Join(root, ".nerd", "mcp_tools.db")
+}
+
+// openMCPStore opens the persisted MCP store read-only-ish. The constructor
+// creates its tables if absent, so a workspace that never ran MCP yields an
+// empty store rather than an error.
+func openMCPStore() (*mcp.MCPToolStore, error) {
+	store, err := mcp.NewMCPToolStore(mcpStorePath(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open the MCP store at %s: %w", mcpStorePath(), err)
+	}
+	return store, nil
+}
+
+func readMCPServers(ctx context.Context) ([]*mcp.MCPServer, error) {
+	store, err := openMCPStore()
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+
+	servers, err := store.GetAllServers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read MCP servers: %w", err)
+	}
+	return servers, nil
+}
+
+// configuredMCPReviews is the operator's reviews from .nerd/config.json, by
+// tool id. An unreadable config yields none: every tool then shows as not
+// admitted, which is what the runtime would do with it too.
+func configuredMCPReviews() map[string]mcp.ReviewedToolEffect {
+	out := map[string]mcp.ReviewedToolEffect{}
+	cfg, err := config.LoadUserConfig(filepath.Join(workspace, ".nerd", "config.json"))
+	if err != nil || cfg == nil {
+		return out
+	}
+	integrations := cfg.GetIntegrations()
+	for _, server := range integrations.ToMCPServerConfigs() {
+		for _, review := range server.Reviews {
+			out[review.ToolID] = review
+		}
+	}
+	return out
+}
+
+func readMCPTools(ctx context.Context) ([]*mcp.MCPTool, error) {
+	store, err := openMCPStore()
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+
+	tools, err := store.GetAllTools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read MCP tools: %w", err)
+	}
+	return tools, nil
+}
+
+// =============================================================================
+// AUTOPOIESIS CLI COMMANDS
+// =============================================================================
+
+// autopoiesisCmd is the parent command for autopoiesis operations
+var autopoiesisCmd = &cobra.Command{
+	Args:    cobra.NoArgs,
+	Use:     "autopoiesis",
+	Aliases: []string{"auto"},
+	Short:   "Self-modification and learning system",
+	Long: `View and manage codeNERD's self-modification capabilities.
+
+Autopoiesis encompasses:
+- Ouroboros Loop (tool generation)
+- Thunderdome (adversarial testing)
+- Prompt Evolution (system prompt learning)
+- Legislator (runtime rule creation)
+
+Examples:
+  nerd autopoiesis status   # Show autopoiesis status
+  nerd autopoiesis learning # Show learning history
+  nerd autopoiesis tools    # Show generated tools`,
+	RunE: parentGroupRunE,
+}
+
+// autopoiesisStatusCmd shows autopoiesis status
+var autopoiesisStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show autopoiesis system status",
+	Long:  `Displays the status of all self-modification subsystems.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := commandContext(cmd)
+		defer cancel()
+
+		key := resolveAPIKey(apiKey, workspace)
+
+		cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
+		if err != nil {
+			return fmt.Errorf("failed to boot cortex: %w", err)
+		}
+		defer cortex.Close()
+
+		fmt.Println("🧬 Autopoiesis Status")
+		fmt.Println(strings.Repeat("─", 60))
+
+		// Check subsystems
+		fmt.Print("Ouroboros Loop:    ")
+		tools, _ := cortex.Kernel.Query("tool_registered")
+		fmt.Printf("%d tools generated\n", len(tools))
+
+		// The producer gap this used to report is closed: the Cortex owns the
+		// evolver (internal/system/factory_learning.go), records every turn's
+		// outcome, and asserts prompt_evolved on promotion. Read the evolver
+		// directly rather than the fact, because the fact only exists after a
+		// promotion and the interesting state is what is accumulating before
+		// one.
+		fmt.Print("Prompt Evolution:  ")
+		if cortex.PromptEvolver == nil {
+			fmt.Println("unavailable (no evolver on this boot)")
+		} else if cortex.SessionExecutor != nil && !cortex.SessionExecutor.HasTurnRecorder() {
+			// The evolver exists but nothing feeds it. This is the shape the
+			// whole subsystem used to have on every headless path, and it is
+			// invisible from the atom counts alone — they just stay at zero.
+			fmt.Println("evolver present but NOT recording (no turn recorder on the session executor)")
+		} else {
+			stats := cortex.PromptEvolver.GetStats()
+			fmt.Printf("%d executions recorded, %d atoms quarantined / %d promoted, %d active trials, %d cycles\n",
+				stats.TotalExecutionsRecorded, stats.AtomsPending, stats.AtomsPromoted, stats.ActiveTrials, stats.TotalCycles)
+			fmt.Printf("  Recording:       %d persisted, %d duplicate, %d failed, %d rejected, %d abandoned\n",
+				stats.Recording.Persisted, stats.Recording.Duplicates, stats.Recording.Failed,
+				stats.Recording.RejectedFull+stats.Recording.RejectedClosed, stats.Recording.Abandoned)
+			for _, spend := range stats.Spend {
+				fmt.Printf("  Spend %-9s  %d calls (%d failed), %d unusable, %d discarded\n",
+					string(spend.Category)+":", spend.Calls, spend.FailedCalls, spend.Unusable, spend.Discarded)
+			}
+			fmt.Print("  Auto-evolution:  ")
+			if features.IsPromptEvolutionEnabled() {
+				fmt.Println("on")
+			} else {
+				fmt.Println("off (set features.prompt_evolution or CODENERD_PROMPT_EVOLUTION=1)")
+			}
+		}
+		fmt.Print("Context Feedback:  ")
+		switch {
+		case cortex.ContextFeedback == nil:
+			fmt.Println("unavailable (the model's ratings of its own context are discarded)")
+		case cortex.SessionExecutor != nil && !cortex.SessionExecutor.HasContextFeedbackRecorder():
+			fmt.Println("store open but NOT recording")
+		default:
+			total, avg, err := cortex.ContextFeedback.GetOverallStats()
+			if err != nil {
+				fmt.Printf("recording (stats unavailable: %v)\n", err)
+			} else {
+				fmt.Printf("%d ratings recorded, mean usefulness %.2f\n", total, avg)
+			}
+		}
+
+		// thunderdome_result is still declared and consumed by policy but never
+		// asserted — a producer gap, not a display choice.
+		fmt.Print("Thunderdome:       ")
+		fmt.Println("not instrumented (no producer for thunderdome_result)")
+
+		fmt.Print("Learning Store:    ")
+		successPatterns, _ := cortex.Kernel.Query("success_pattern")
+		failurePatterns, _ := cortex.Kernel.Query("failure_pattern")
+		fmt.Printf("%d success / %d failure patterns\n", len(successPatterns), len(failurePatterns))
+
+		// correction_pattern is asserted by Go but read by no policy rule, so a non-zero count means facts are being produced that nothing consumes.
+		fmt.Print("Corrections:       ")
+		corrections, _ := cortex.Kernel.Query("correction_pattern")
+		fmt.Printf("%d patterns\n", len(corrections))
+
+		// Check if orchestrator is active
+		if cortex.Orchestrator != nil {
+			fmt.Println("\nOrchestrator: Active")
+		} else {
+			fmt.Println("\nOrchestrator: Standby")
+		}
+
+		// The measurement that says whether any of the above is working. Every
+		// turn has been asserting turn_cost — "the per-turn cost denominator
+		// for tokens-per-verified-work" — and nothing ever divided by it, so a
+		// self-improving system had no way to show that it was improving.
+		fmt.Println("\nWork verified per token spent")
+		fmt.Println(strings.Repeat("─", 60))
+		fmt.Print(cortex.LearningReport().String())
+
+		return nil
+	},
+}
+
+// autopoiesisLearningCmd shows learning history
+var autopoiesisLearningCmd = &cobra.Command{
+	Use:   "learning",
+	Short: "Show learned patterns and preferences",
+	Long:  `Displays patterns that have been learned from execution feedback.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := commandContext(cmd)
+		defer cancel()
+
+		key := resolveAPIKey(apiKey, workspace)
+
+		cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
+		if err != nil {
+			return fmt.Errorf("failed to boot cortex: %w", err)
+		}
+		defer cortex.Close()
+
+		fmt.Println("📚 Learning History")
+		fmt.Println(strings.Repeat("─", 60))
+
+		// Query learned patterns
+		patterns, _ := cortex.Kernel.Query("learned_pattern")
+		if len(patterns) == 0 {
+			fmt.Println("No patterns learned yet.")
+			fmt.Println("\nPatterns are learned from repeated rejections/acceptances.")
+			return nil
+		}
+
+		fmt.Printf("Found %d learned patterns:\n\n", len(patterns))
+		for i, p := range patterns {
+			if i >= 20 {
+				fmt.Printf("... and %d more\n", len(patterns)-20)
+				break
+			}
+			fmt.Printf("  %s\n", p.String())
+		}
+
+		return nil
+	},
+}
+
+// autopoiesisToolsCmd shows generated tools
+var autopoiesisToolsCmd = &cobra.Command{
+	Use:   "tools",
+	Short: "Show tools generated by Ouroboros",
+	Long:  `Lists all tools that have been automatically generated.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := commandContext(cmd)
+		defer cancel()
+
+		key := resolveAPIKey(apiKey, workspace)
+
+		cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
+		if err != nil {
+			return fmt.Errorf("failed to boot cortex: %w", err)
+		}
+		defer cortex.Close()
+
+		fmt.Println("🔧 Generated Tools (Ouroboros)")
+		fmt.Println(strings.Repeat("─", 60))
+
+		// Query tool facts
+		tools, _ := cortex.Kernel.Query("tool_registered")
+		if len(tools) == 0 {
+			fmt.Println("No tools generated yet.")
+			fmt.Println("\nTools are generated when the Ouroboros Loop detects")
+			fmt.Println("missing capabilities during task execution.")
+			return nil
+		}
+
+		for _, tool := range tools {
+			if len(tool.Args) >= 1 {
+				fmt.Printf("  - %v\n", tool.Args[0])
+			}
+		}
+
+		fmt.Printf("\nTotal: %d tools\n", len(tools))
+
+		// Jev's value evidence (autopoiesis/tool_value.go): duplicates,
+		// tools the harness already covers, and whether calls hit the mark.
+		if cortex.Orchestrator != nil {
+			evidence, err := cortex.Orchestrator.JudgeToolValue(ctx)
+			switch {
+			case err != nil:
+				fmt.Printf("\nValue evidence unavailable: %v\n", err)
+			case len(evidence) == 0:
+				fmt.Println("\nValue evidence: none derived (Jev off, or no tool reads as duplicate, covered, or hitting/missing its calls).")
+			default:
+				fmt.Println("\nValue evidence (Jev observations, kernel-derived):")
+				for _, e := range evidence {
+					fmt.Printf("  - %s\n", e)
+				}
+			}
+		}
+		return nil
+	},
+}
+
+// =============================================================================
+// MEMORY/CONTEXT CLI COMMANDS
+// =============================================================================
+
+// memoryCmd is the parent command for memory operations
+var memoryCmd = &cobra.Command{
+	// A parent command with no Run silently prints help and exits 0 for an
+	// unrecognised subcommand, so `nerd memory stats` (the real one is
+	// `status`) looked exactly like success. NoArgs makes cobra reject the
+	// unknown argument instead; a bare invocation still prints help.
+	Args:  cobra.NoArgs,
+	Use:   "memory",
+	Short: "Memory tier and context management",
+	Long: `View and manage codeNERD's 4-tier memory system.
+
+Memory Tiers:
+  RAM    - In-memory working facts (session-scoped)
+  Vector - SQLite + embeddings (semantic search)
+  Graph  - Knowledge graph relationships
+  Cold   - Long-term learned preferences
+
+Examples:
+  nerd memory status   # Show memory statistics
+  nerd memory query    # Query specific memories`,
+	RunE: parentGroupRunE,
+}
+
+// memoryStatusCmd shows memory status
+var memoryStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show memory tier statistics",
+	Long:  `Displays statistics for each memory tier.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := commandContext(cmd)
+		defer cancel()
+
+		key := resolveAPIKey(apiKey, workspace)
+
+		cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
+		if err != nil {
+			return fmt.Errorf("failed to boot cortex: %w", err)
+		}
+		defer cortex.Close()
+
+		fmt.Println("🧠 Memory Status")
+		fmt.Println(strings.Repeat("─", 60))
+
+		// RAM tier - kernel facts
+		allFacts, _ := cortex.Kernel.Query("*")
+		fmt.Printf("RAM (Working Memory):  %d facts\n", len(allFacts))
+
+		// Store tiers. This printed the sum of every table under the
+		// label "Vector (Embeddings)" until 2026-09-25; the counts are per
+		// table now, with the ANN drift and the reflection backlog beside
+		// them when the store can measure them.
+		if cortex.LocalDB != nil {
+			stats, err := cortex.LocalDB.GetStats()
+			if err == nil {
+				fmt.Print(renderStoreStats(stats))
+			} else {
+				fmt.Printf("Store (knowledge.db):  unavailable: %v\n", err)
+			}
+		}
+
+		// Graph tier
+		graphEntries, _ := cortex.Kernel.Query("knowledge_edge")
+		fmt.Printf("Graph (Relationships): %d edges\n", len(graphEntries))
+
+		// Cold tier
+		coldEntries, _ := cortex.Kernel.Query("cold_storage_entry")
+		fmt.Printf("Cold (Long-term):      %d entries\n", len(coldEntries))
+
+		// Context compression stats
+		compressed, _ := cortex.Kernel.Query("compressed_context")
+		fmt.Printf("\nCompressed Contexts:   %d\n", len(compressed))
+
+		// Working-context archives (.nerd/context), one per working scope,
+		// with the retention policy's verdict. `nerd memory prune` acts on it.
+		ws := workspace
+		if strings.TrimSpace(ws) == "" {
+			ws = "."
+		}
+		if report, err := runMemoryPrune(ws, true); err == nil {
+			fmt.Printf("Working context:       %s\n", report)
+		} else {
+			fmt.Printf("Working context:       could not survey .nerd/context: %v\n", err)
+		}
+
+		return nil
+	},
+}
+
+// renderStoreStats renders LocalStore.GetStats for `nerd memory`: the vector
+// tier first, every other table by name, then the gauges.
+func renderStoreStats(stats map[string]int64) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Vector (Embeddings):   %d entries\n", stats["vectors"])
+	tables := make([]string, 0, len(stats))
+	for name := range stats {
+		switch name {
+		case "vectors", store.StatVecIndexMissing, store.StatReflectionTraceBacklog:
+			continue
+		}
+		tables = append(tables, name)
+	}
+	sort.Strings(tables)
+	b.WriteString("Store tables (knowledge.db):\n")
+	for _, name := range tables {
+		fmt.Fprintf(&b, "  %-22s %d\n", name+":", stats[name])
+	}
+	if n, ok := stats[store.StatVecIndexMissing]; ok {
+		fmt.Fprintf(&b, "ANN drift:             %d embedded rows missing from vec_index (healed by the maintenance cycle)\n", n)
+	}
+	if n, ok := stats[store.StatReflectionTraceBacklog]; ok {
+		fmt.Fprintf(&b, "Reflection backlog:    %d traces awaiting a descriptor or embedding\n", n)
+	}
+	return b.String()
+}
+
+func init() {
+	// MCP subcommands
+	mcpCmd.AddCommand(
+		mcpListCmd,
+		mcpToolsCmd,
+		mcpStatusCmd,
+	)
+
+	// Autopoiesis subcommands
+	autopoiesisCmd.AddCommand(
+		autopoiesisStatusCmd,
+		autopoiesisLearningCmd,
+		autopoiesisToolsCmd,
+	)
+
+	// Memory subcommands
+	memoryCmd.AddCommand(
+		memoryStatusCmd,
+		memoryPruneCmd,
+	)
+}
+
+// parentGroupRunE is the RunE for a command that exists only to hold
+// subcommands.
+//
+// Without it, cobra reaches `if !c.Runnable() { return flag.ErrHelp }` before it
+// validates arguments, and Execute treats ErrHelp as success. The result is that
+// `nerd memory stats` — the real subcommand is `status` — printed the group's
+// help text and exited 0, indistinguishable from a command that worked. Setting
+// Args: cobra.NoArgs does not fix it, because the runnable check comes first.
+//
+// A typo'd subcommand reporting success is the same false-success family as the
+// rest of this session's work: the caller cannot tell "did what you asked" from
+// "did nothing at all". Scripts, campaigns and shards all consume these exit
+// codes.
+//
+// Bare invocation still prints help and exits 0, which is the correct and
+// expected behaviour for a group.
+// Note on what actually does the work here: it is the mere PRESENCE of a RunE,
+// not this function's body. With one attached, cobra treats the command as
+// runnable, gets past the ErrHelp short-circuit, and emits its own
+// `unknown command "stats" for "nerd memory"` with a non-zero exit. Verified by
+// running it — the message on screen is cobra's, not one written here.
+//
+// So this body only ever runs for a bare invocation, and printing help is the
+// right response to that. An args branch was written first and then removed
+// once testing showed it unreachable; an unreachable branch with a confident
+// comment explaining what it handles is the failure mode the rest of this
+// session has been removing.
+func parentGroupRunE(cmd *cobra.Command, _ []string) error {
+	return cmd.Help()
+}
+
+// mcpReviewState is a recorded tool's standing against the configured
+// reviews: the schema hash is what a review in .nerd/config.json pins
+// (integrations.servers.<id>.reviews[].schema_hash). A tool with no matching
+// review is discovered but every remote call to it is refused. A match is a
+// configured review, not live admission.
+func mcpReviewState(tool *mcp.MCPTool, reviews map[string]mcp.ReviewedToolEffect) (state string, matched bool) {
+	review, ok := reviews[tool.ToolID]
+	switch {
+	case !ok:
+		return "NOT REVIEWED", false
+	case review.SchemaHash != tool.SchemaHash:
+		return "REVIEW STALE (schema changed)", false
+	default:
+		return "configured review: " + string(review.Effect), true
+	}
+}

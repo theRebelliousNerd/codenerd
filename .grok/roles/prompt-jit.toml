@@ -1,0 +1,4 @@
+description = "Prompt JIT / atom assembly specialist"
+default_capability_mode = "all"
+reasoning_effort = "high"
+default_fork_context = true

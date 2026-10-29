@@ -1,0 +1,669 @@
+package codedom
+
+import (
+	"context"
+	"fmt"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"strings"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/observation/precondition"
+	"codenerd/internal/projectdoc"
+	"codenerd/internal/tactile"
+	"codenerd/internal/tools"
+)
+
+// EditLinesTool returns a tool for editing specific lines in a file.
+func EditLinesTool() *tools.Tool {
+	return &tools.Tool{
+		Name:        "edit_lines",
+		Description: "Replace specific lines in a file",
+		Category:    tools.CategoryCode,
+		Priority:    80,
+		Execute:     executeEditLines,
+		Schema: tools.ToolSchema{
+			Required: []string{"path", "start_line", "end_line", "new_content"},
+			Properties: map[string]tools.Property{
+				"path": {
+					Type:        "string",
+					Description: "File path to edit",
+				},
+				"start_line": {
+					Type:        "integer",
+					Description: "Starting line number (1-indexed)",
+				},
+				"end_line": {
+					Type:        "integer",
+					Description: "Ending line number (inclusive)",
+				},
+				"new_content": {
+					Type:        "string",
+					Description: "New content to replace the lines with",
+				},
+				precondition.Arg: {
+					Type:        "string",
+					Description: precondition.ArgDescription,
+				},
+			},
+		},
+	}
+}
+
+func executeEditLines(ctx context.Context, args map[string]any) (string, error) {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	// Contain the path to the workspace.
+	//
+	// These three tools called os.ReadFile/os.WriteFile on the caller-supplied
+	// string directly — no root, no symlink resolution, no escape check — while
+	// the file_ops family next door routed every path through this same guard.
+	// Found by codeNERD's own security review of internal/tools/core/file_ops.go,
+	// which named the asymmetry as its highest finding. An absolute path also
+	// slips past the constitution's path_traversal_protection rule, which tests
+	// for a literal ".." and finds none in "C:\Users\...".
+	path, err := tools.ResolveWorkspacePath(ctx, "", rawPath)
+	if err != nil {
+		return "", err
+	}
+
+	startLine, ok := tools.ArgIntStrict(args, "start_line")
+	if !ok {
+		if _, present := args["start_line"]; present {
+			return "", fmt.Errorf("start_line must be integral, got %v", args["start_line"])
+		}
+		return "", fmt.Errorf("start_line is required")
+	}
+
+	endLine, ok := tools.ArgIntStrict(args, "end_line")
+	if !ok {
+		if _, present := args["end_line"]; present {
+			return "", fmt.Errorf("end_line must be integral, got %v", args["end_line"])
+		}
+		return "", fmt.Errorf("end_line is required")
+	}
+
+	newContent, _ := args["new_content"].(string)
+
+	logging.ToolsDebug("edit_lines: path=%s, start=%d, end=%d", path, startLine, endLine)
+
+	// Read the file
+	content, err := projectdoc.ReadFileForTool(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// Line numbers are the whole address of this edit, and they are the first
+	// thing an insertion above them invalidates. lineShiftNotice below warns
+	// the caller after a mutation; the precondition is the half that catches a
+	// mutation somebody else made between the read and this call, which no
+	// notice in this process can see.
+	staleWarning, err := preconditionWarning(args, path, content)
+	if err != nil {
+		return "", err
+	}
+	plan, err := planEditLines(path, content, startLine, endLine, newContent)
+	if err != nil {
+		return "", err
+	}
+	return publishLineEdit(ctx, "edit_lines", path, content, plan, staleWarning)
+}
+
+// planEditLines computes edit_lines' whole-file candidate from content
+// without writing it, so a batch can plan every entry before committing any.
+func planEditLines(path string, content []byte, startLine, endLine int, newContent string) (lineEditPlan, error) {
+	ending := tactile.DetectLineEnding(content)
+	lines := strings.Split(tactile.NormalizeLineEnding(string(content), "\n"), "\n")
+
+	// Validate line numbers
+	if startLine < 1 || startLine > len(lines) {
+		return lineEditPlan{}, fmt.Errorf("start_line %d out of range (file has %d lines)", startLine, len(lines))
+	}
+	if endLine < startLine || endLine > len(lines) {
+		return lineEditPlan{}, fmt.Errorf("end_line %d out of range", endLine)
+	}
+
+	// Convert to 0-indexed
+	startIdx := startLine - 1
+	endIdx := endLine
+
+	// Split new content into lines
+	newLines := strings.Split(tactile.NormalizeLineEnding(newContent, "\n"), "\n")
+
+	// Build new content
+	var result []string
+	result = append(result, lines[:startIdx]...)
+	result = append(result, newLines...)
+	result = append(result, lines[endIdx:]...)
+
+	// Refuse an edit that would leave the whole file delimiter-unbalanced.
+	// A span-level comparison refuses valid restructurings that move a block
+	// boundary: the replaced span and the new content legitimately hold
+	// different delimiter counts while the file as a whole stays balanced.
+	// Only the whole file decides, so build the candidate output first and
+	// judge that. Failing here costs one retry; not failing costs a corrupted
+	// file that looks like a successful write.
+	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
+	if err := checkDelimiterBalance(path, startLine, lines[startIdx:endIdx], string(content), output); err != nil {
+		return lineEditPlan{}, err
+	}
+	if err := tools.RejectGoSyntaxRegression(path, content, []byte(output)); err != nil {
+		return lineEditPlan{}, err
+	}
+
+	linesReplaced := endLine - startLine + 1
+	return lineEditPlan{
+		output: output,
+		summary: fmt.Sprintf("Replaced lines %d-%d (%d lines) with %d new lines in %s.%s",
+			startLine, endLine, linesReplaced, len(newLines), path,
+			lineShiftNotice(startLine, len(newLines)-linesReplaced, len(result))),
+		detail: fmt.Sprintf("\nReplaced (old lines %d-%d):\n%s",
+			startLine, endLine, numberedLines(lines[startIdx:endIdx], startLine)),
+	}, nil
+}
+
+// checkDelimiterBalance refuses an edit that would leave the whole file
+// delimiter-unbalanced.
+//
+// The failure this prevents: an edit_lines range that ends on a closing brace,
+// replaced by content that omits it. The write succeeds, the tool reports
+// success, and the file stops compiling somewhere far below the edit -- so the
+// error surfaces detached from its cause, often after several more edits have
+// been layered on top. That is the worst shape of bug for an unattended run.
+//
+// A span-level comparison cannot tell that failure apart from a valid
+// restructuring that moves a block boundary: the replaced span and the new
+// content legitimately hold different delimiter counts while the file as a
+// whole stays balanced. Only the whole file decides, so this judges the
+// candidate output, not the span delta.
+//
+// Only applied to source files whose delimiters are structural. Comments and
+// string literals are skipped so a brace inside them cannot trip the check.
+func checkDelimiterBalance(path string, startLine int, oldLines []string, beforeFull, afterFull string) error {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".go", ".java", ".c", ".h", ".cpp", ".hpp", ".cs", ".rs", ".js", ".jsx", ".ts", ".tsx", ".kt", ".swift", ".scala":
+	default:
+		return nil
+	}
+
+	// For Go the parser is authoritative for parseability: an edit whose
+	// result parses must be accepted even when the replaced span and the new
+	// content hold different numbers of delimiters (block boundaries move).
+	// The delimiter check remains as the refusal message for the common
+	// unbalanced case, and as the only guard for the fourteen non-Go
+	// extensions with no parser here.
+	if strings.EqualFold(filepath.Ext(path), ".go") {
+		if isGoParseable(afterFull) {
+			return nil
+		}
+		if !isGoParseable(beforeFull) {
+			// Already broken: allow incremental repair; the Go syntax
+			// regression guard decides (it permits invalid->invalid).
+			return nil
+		}
+		if delimitersBalanced(afterFull) {
+			// Balanced yet unparseable for a non-delimiter reason: let the
+			// Go syntax guard report the real parse error.
+			return nil
+		}
+	} else {
+		if delimitersBalanced(afterFull) {
+			return nil
+		}
+		if !delimitersBalanced(beforeFull) {
+			// Already unbalanced: allow incremental repair.
+			return nil
+		}
+	}
+
+	return fmt.Errorf("refusing edit: it changes delimiter balance in %s (whole-file result is delimiter-unbalanced).\n"+
+		"The lines you replaced were holding a delimiter your new content does not reproduce,\n"+
+		"which would leave the file unparseable below the edit.\n"+
+		"Replaced lines %d-%d were:\n%s",
+		path, startLine, startLine+len(oldLines)-1, numberedLines(oldLines, startLine))
+}
+
+func isGoParseable(src string) bool {
+	_, err := parser.ParseFile(token.NewFileSet(), "edit.go", src, parser.AllErrors)
+	return err == nil
+}
+
+// delimitersBalanced reports whether src has properly nested and ordered
+// delimiters when strings and comments are ignored. It is a whole-file
+// heuristic for the fourteen extensions with no parser here: net counts
+// alone accept misordered input such as "}{", so the stack matters.
+func delimitersBalanced(src string) bool {
+	var stack []rune
+	inLine, inBlock, inStr, inRune, inRaw, esc := false, false, false, false, false, false
+	runes := []rune(src)
+	for i := 0; i < len(runes); i++ {
+		c := runes[i]
+		if inLine {
+			if c == '\n' {
+				inLine = false
+			}
+			continue
+		}
+		if inBlock {
+			if c == '*' && i+1 < len(runes) && runes[i+1] == '/' {
+				inBlock = false
+				i++
+			}
+			continue
+		}
+		if inStr {
+			if esc {
+				esc = false
+				continue
+			}
+			if c == '\\' {
+				esc = true
+				continue
+			}
+			if c == '"' {
+				inStr = false
+			}
+			continue
+		}
+		if inRune {
+			if esc {
+				esc = false
+				continue
+			}
+			if c == '\\' {
+				esc = true
+				continue
+			}
+			if c == '\'' {
+				inRune = false
+			}
+			continue
+		}
+		if inRaw {
+			if c == '`' {
+				inRaw = false
+			}
+			continue
+		}
+		if c == '/' && i+1 < len(runes) {
+			if runes[i+1] == '/' {
+				inLine = true
+				i++
+				continue
+			}
+			if runes[i+1] == '*' {
+				inBlock = true
+				i++
+				continue
+			}
+		}
+		if c == '"' {
+			inStr = true
+			continue
+		}
+		if c == '\'' {
+			inRune = true
+			continue
+		}
+		if c == '`' {
+			inRaw = true
+			continue
+		}
+		switch c {
+		case '{', '[', '(':
+			stack = append(stack, c)
+		case '}', ']', ')':
+			if len(stack) == 0 {
+				return false
+			}
+			top := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if (c == '}' && top != '{') || (c == ']' && top != '[') || (c == ')' && top != '(') {
+				return false
+			}
+		}
+	}
+	if inBlock || inStr || inRune {
+		return false
+	}
+	return len(stack) == 0
+}
+
+// lineShiftNotice reports how a mutation moved every line below it, so the
+// caller's next edit does not land at coordinates the previous edit invalidated.
+//
+// This exists because the tool result is the only feedback an LLM gets between
+// two edits to the same file. Without it the model reuses line numbers from an
+// earlier get_elements, and a multi-edit session silently duplicates or shreds
+// declarations — observed live: two edits to spawner.go produced duplicate
+// SetProjectDoc and SpawnSpecialist definitions from stale offsets.
+//
+// firstShifted is the first line number whose position changed; delta is how
+// far every line at or after it moved (negative means the file got shorter).
+func lineShiftNotice(firstShifted, delta, newTotal int) string {
+	if delta == 0 {
+		return fmt.Sprintf(" File is still %d lines; line numbers are unchanged.", newTotal)
+	}
+
+	correction := "subtract"
+	magnitude := -delta
+	if delta > 0 {
+		correction = "add"
+		magnitude = delta
+	}
+
+	return fmt.Sprintf(
+		" File is now %d lines (%+d). WARNING: line numbers at or after %d from any earlier"+
+			" get_elements/get_element/read_file are now STALE — %s %d to reuse them, or"+
+			" re-run get_elements on this file before the next edit.",
+		newTotal, delta, firstShifted, correction, magnitude)
+}
+
+// InsertLinesTool returns a tool for inserting lines at a position.
+func InsertLinesTool() *tools.Tool {
+	return &tools.Tool{
+		Name:        "insert_lines",
+		Description: "Insert lines at a specific position in a file",
+		Category:    tools.CategoryCode,
+		Priority:    80,
+		Execute:     executeInsertLines,
+		Schema: tools.ToolSchema{
+			Required: []string{"path", "after_line", "content"},
+			Properties: map[string]tools.Property{
+				"path": {
+					Type:        "string",
+					Description: "File path to edit",
+				},
+				"after_line": {
+					Type:        "integer",
+					Description: "Insert after this line number (0 to insert at beginning)",
+				},
+				"content": {
+					Type:        "string",
+					Description: "Content to insert",
+				},
+				precondition.Arg: {
+					Type:        "string",
+					Description: precondition.ArgDescription,
+				},
+			},
+		},
+	}
+}
+
+func executeInsertLines(ctx context.Context, args map[string]any) (string, error) {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	// Contain the path to the workspace.
+	//
+	// These three tools called os.ReadFile/os.WriteFile on the caller-supplied
+	// string directly — no root, no symlink resolution, no escape check — while
+	// the file_ops family next door routed every path through this same guard.
+	// Found by codeNERD's own security review of internal/tools/core/file_ops.go,
+	// which named the asymmetry as its highest finding. An absolute path also
+	// slips past the constitution's path_traversal_protection rule, which tests
+	// for a literal ".." and finds none in "C:\Users\...".
+	path, err := tools.ResolveWorkspacePath(ctx, "", rawPath)
+	if err != nil {
+		return "", err
+	}
+
+	afterLine := 0
+	if _, present := args["after_line"]; present {
+		v, ok := tools.ArgIntStrict(args, "after_line")
+		if !ok {
+			return "", fmt.Errorf("after_line must be integral, got %v", args["after_line"])
+		}
+		afterLine = v
+	}
+
+	insertContent, _ := args["content"].(string)
+	if insertContent == "" {
+		return "", fmt.Errorf("content is required")
+	}
+
+	logging.ToolsDebug("insert_lines: path=%s, after=%d", path, afterLine)
+
+	// Read the file
+	content, err := projectdoc.ReadFileForTool(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	staleWarning, err := preconditionWarning(args, path, content)
+	if err != nil {
+		return "", err
+	}
+	plan, err := planInsertLines(path, content, afterLine, insertContent)
+	if err != nil {
+		return "", err
+	}
+	return publishLineEdit(ctx, "insert_lines", path, content, plan, staleWarning)
+}
+
+// planInsertLines computes insert_lines' whole-file candidate without
+// writing it.
+func planInsertLines(path string, content []byte, afterLine int, insertContent string) (lineEditPlan, error) {
+	ending := tactile.DetectLineEnding(content)
+	lines := strings.Split(tactile.NormalizeLineEnding(string(content), "\n"), "\n")
+
+	// Validate line number
+	if afterLine < 0 || afterLine > len(lines) {
+		return lineEditPlan{}, fmt.Errorf("after_line %d out of range (file has %d lines)", afterLine, len(lines))
+	}
+
+	// Split insert content into lines
+	newLines := strings.Split(tactile.NormalizeLineEnding(insertContent, "\n"), "\n")
+
+	// Build new content
+	var result []string
+	result = append(result, lines[:afterLine]...)
+	result = append(result, newLines...)
+	result = append(result, lines[afterLine:]...)
+
+	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
+	if err := tools.RejectGoSyntaxRegression(path, content, []byte(output)); err != nil {
+		return lineEditPlan{}, err
+	}
+	return lineEditPlan{
+		output: output,
+		summary: fmt.Sprintf("Inserted %d lines after line %d in %s.%s",
+			len(newLines), afterLine, path,
+			lineShiftNotice(afterLine+1, len(newLines), len(result))),
+	}, nil
+}
+
+// DeleteLinesTool returns a tool for deleting lines from a file.
+func DeleteLinesTool() *tools.Tool {
+	return &tools.Tool{
+		Name:        "delete_lines",
+		Description: "Delete a range of lines from a file",
+		Category:    tools.CategoryCode,
+		Priority:    75,
+		Execute:     executeDeleteLines,
+		Schema: tools.ToolSchema{
+			Required: []string{"path", "start_line", "end_line"},
+			Properties: map[string]tools.Property{
+				"path": {
+					Type:        "string",
+					Description: "File path to edit",
+				},
+				"start_line": {
+					Type:        "integer",
+					Description: "Starting line number (1-indexed)",
+				},
+				"end_line": {
+					Type:        "integer",
+					Description: "Ending line number (inclusive)",
+				},
+				precondition.Arg: {
+					Type:        "string",
+					Description: precondition.ArgDescription,
+				},
+			},
+		},
+	}
+}
+
+func executeDeleteLines(ctx context.Context, args map[string]any) (string, error) {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	// Contain the path to the workspace.
+	//
+	// These three tools called os.ReadFile/os.WriteFile on the caller-supplied
+	// string directly — no root, no symlink resolution, no escape check — while
+	// the file_ops family next door routed every path through this same guard.
+	// Found by codeNERD's own security review of internal/tools/core/file_ops.go,
+	// which named the asymmetry as its highest finding. An absolute path also
+	// slips past the constitution's path_traversal_protection rule, which tests
+	// for a literal ".." and finds none in "C:\Users\...".
+	path, err := tools.ResolveWorkspacePath(ctx, "", rawPath)
+	if err != nil {
+		return "", err
+	}
+
+	startLine, ok := tools.ArgIntStrict(args, "start_line")
+	if !ok {
+		if _, present := args["start_line"]; present {
+			return "", fmt.Errorf("start_line must be integral, got %v", args["start_line"])
+		}
+		return "", fmt.Errorf("start_line is required")
+	}
+
+	endLine, ok := tools.ArgIntStrict(args, "end_line")
+	if !ok {
+		if _, present := args["end_line"]; present {
+			return "", fmt.Errorf("end_line must be integral, got %v", args["end_line"])
+		}
+		return "", fmt.Errorf("end_line is required")
+	}
+
+	logging.ToolsDebug("delete_lines: path=%s, start=%d, end=%d", path, startLine, endLine)
+
+	// Read the file
+	content, err := projectdoc.ReadFileForTool(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	staleWarning, err := preconditionWarning(args, path, content)
+	if err != nil {
+		return "", err
+	}
+	plan, err := planDeleteLines(path, content, startLine, endLine)
+	if err != nil {
+		return "", err
+	}
+	return publishLineEdit(ctx, "delete_lines", path, content, plan, staleWarning)
+}
+
+// planDeleteLines computes delete_lines' whole-file candidate without
+// writing it.
+func planDeleteLines(path string, content []byte, startLine, endLine int) (lineEditPlan, error) {
+	ending := tactile.DetectLineEnding(content)
+	lines := strings.Split(tactile.NormalizeLineEnding(string(content), "\n"), "\n")
+
+	// Validate line numbers
+	if startLine < 1 || startLine > len(lines) {
+		return lineEditPlan{}, fmt.Errorf("start_line %d out of range (file has %d lines)", startLine, len(lines))
+	}
+	if endLine < startLine || endLine > len(lines) {
+		return lineEditPlan{}, fmt.Errorf("end_line %d out of range", endLine)
+	}
+
+	// Convert to 0-indexed
+	startIdx := startLine - 1
+	endIdx := endLine
+
+	// Build new content (skip the deleted lines)
+	var result []string
+	result = append(result, lines[:startIdx]...)
+	result = append(result, lines[endIdx:]...)
+
+	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
+	if err := tools.RejectGoSyntaxRegression(path, content, []byte(output)); err != nil {
+		return lineEditPlan{}, err
+	}
+	linesDeleted := endLine - startLine + 1
+	return lineEditPlan{
+		output: output,
+		summary: fmt.Sprintf("Deleted lines %d-%d (%d lines) from %s.%s",
+			startLine, endLine, linesDeleted, path,
+			lineShiftNotice(startLine, -linesDeleted, len(result))),
+		detail: fmt.Sprintf("\nDeleted (old lines %d-%d):\n%s",
+			startLine, endLine, numberedLines(lines[startIdx:endIdx], startLine)),
+	}, nil
+}
+
+// lineEditPlan is one line verb's candidate: the whole new file, and the
+// result the verb reports once it is written. A precondition caveat goes
+// between summary and detail.
+type lineEditPlan struct {
+	output  string
+	summary string
+	detail  string
+}
+
+// publishLineEdit writes a single line verb's plan and reports it. A refused
+// edit returns before the write and records nothing; element_modified is
+// asserted from the rows RecordChangedSource reports, and without them a turn
+// that edits with the line verbs leaves impacted_test and run_impacted_tests
+// empty.
+func publishLineEdit(ctx context.Context, verb, path string, content []byte, plan lineEditPlan, staleWarning string) (string, error) {
+	if err := commitLineEdit(ctx, path, content, plan.output); err != nil {
+		return "", err
+	}
+	tools.RecordChangedSource(ctx, path, string(content), plan.output)
+	logging.Tools("%s completed: %s", verb, plan.summary)
+	return plan.summary + staleNotice(staleWarning) + plan.detail, nil
+}
+
+// preconditionWarning checks a caller-supplied precondition against the bytes
+// this verb is about to modify.
+//
+// path is the resolved absolute the containment guard produced, which is what a
+// precondition is keyed on: these verbs and read_file are in different packages
+// and resolve the caller's argument through different call sites, and a
+// precondition is refused outright when the two names disagree. Keying on
+// anything a workspace root can change would make that refusal reachable for a
+// file nobody touched, which reads to the model as "the file changed" and sends
+// it off to re-read something already correct.
+func preconditionWarning(args map[string]any, path string, content []byte) (string, error) {
+	return precondition.Enforce(args, path, content)
+}
+
+// staleNotice appends a precondition warning to a verb's result.
+//
+// It is a suffix on the success message rather than a second return value
+// because the edit did happen: reporting it as a failure would send the caller
+// off to redo an edit that is already applied, which is how a duplicated block
+// gets written.
+func staleNotice(warning string) string {
+	if warning == "" {
+		return ""
+	}
+	return " " + warning
+}
+
+// numberedLines renders lines as "<n>| <text>" joined with "\n", numbered from
+// firstLineNo. It returns the whole text, without truncation: the working
+// context pages large tool results, and a refusal or a success notice that
+// silently elides the replaced lines is exactly what sent the model off to
+// guess the range a second time.
+func numberedLines(lines []string, firstLineNo int) string {
+	var sb strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		fmt.Fprintf(&sb, "%d| %s", firstLineNo+i, line)
+	}
+	return sb.String()
+}

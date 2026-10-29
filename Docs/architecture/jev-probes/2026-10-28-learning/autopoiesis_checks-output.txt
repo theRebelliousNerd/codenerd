@@ -1,0 +1,8 @@
+tool-output judgments, thresholds yes>=0.70 no<=0.30
+reports_error              right   7  wrong  0  unsettled  0
+reports_more_pages         right   4  wrong  0  unsettled  0
+reports_partial_results    right   2  wrong  0  unsettled  0
+reports_rate_limit         right   3  wrong  0  unsettled  0
+all right 16 of 16
+
+misses (x wrong, ~ unsettled):

@@ -1,0 +1,237 @@
+# Build Artifacts
+*.exe
+**/*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.a
+*.o
+*.obj
+*.test
+*.test.exe
+/nerd
+/nerd_new
+/nerd_test
+/query-kb
+/bin
+
+# Hidden/system files and folders (including all dot folders)
+.*
+!.gitignore
+!.nerd/
+# Runtime debris written by campaign tests running inside the package dir —
+# never repo content (the un-ignore above is for the real workspace .nerd/).
+internal/campaign/.nerd/
+!.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/codenerd-builder/
+.agents/skills/codenerd-builder/*
+!.agents/skills/codenerd-builder/SKILL.md
+!.agents/skills/codenerd-builder/references/
+.agents/skills/codenerd-builder/references/*
+!.agents/skills/codenerd-builder/references/skill-registry.md
+!.agents/skills/codenerd-codex-exec/
+!.agents/skills/codenerd-codex-exec/**
+!.agents/skills/arch-propose/
+!.agents/skills/arch-propose/**
+!.claude/
+.claude/*
+!.claude/agents/
+!.claude/agents/**
+!.claude/commands/
+!.claude/commands/**
+!.claude/hooks/
+!.claude/hooks/**
+!.claude/rules/
+!.claude/rules/**
+!.claude/agent-memory/
+!.claude/agent-memory/**
+!.claude/mangle-project.md
+!.claude/settings.json
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/codenerd-builder/
+.claude/skills/codenerd-builder/*
+!.claude/skills/codenerd-builder/SKILL.md
+!.claude/skills/codenerd-builder/references/
+.claude/skills/codenerd-builder/references/*
+!.claude/skills/codenerd-builder/references/skill-registry.md
+!.claude/skills/codenerd-dogfood/
+.claude/skills/codenerd-dogfood/*
+!.claude/skills/codenerd-dogfood/scripts/
+!.claude/skills/codenerd-dogfood/SKILL.md
+!.claude/skills/codenerd-dogfood/references/
+!.claude/skills/codenerd-dogfood/references/**
+!.codex/
+.codex/*
+!.codex/skills/
+.codex/skills/*
+!.codex/skills/codenerd-builder/
+.codex/skills/codenerd-builder/*
+!.codex/skills/codenerd-builder/SKILL.md
+!.codex/skills/codenerd-builder/references/
+.codex/skills/codenerd-builder/references/*
+!.codex/skills/codenerd-builder/references/skill-registry.md
+# Durable project-local Codex fleets. Keep personal config/hooks ignored, but
+# version the architecture/corpus agents and skills that define repo behavior.
+!.codex/agents/
+.codex/agents/*
+!.codex/agents/arch-propose-*.toml
+!.codex/agents/arch-writer.toml
+!.codex/agents/requirements-interrogator.toml
+!.codex/agents/stress-tester.toml
+!.codex/skills/arch-propose/
+!.codex/skills/arch-propose/**
+!.codex/skills/claude-to-codex-porter/
+!.codex/skills/claude-to-codex-porter/**
+!.codex/skills/requirements-interrogator/
+!.codex/skills/requirements-interrogator/**
+!.codex/skills/stress-tester/
+!.codex/skills/stress-tester/**
+!.grok/
+.grok/*
+!.grok/README.md
+!.grok/rules/
+!.grok/rules/**
+!.grok/agents/
+!.grok/agents/**
+!.grok/personas/
+!.grok/personas/**
+!.grok/roles/
+!.grok/roles/**
+!.grok/skills/
+!.grok/skills/**
+!.grok/commands/
+!.grok/commands/**
+!.grok/hooks/
+!.grok/hooks/**
+
+# OS noise
+Thumbs.db
+.DS_Store
+*.tmp
+*.temp
+nul
+*.log
+debug_output*.txt
+debug_program_ERROR*.mg
+
+# Caches
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.cache/
+
+# Temporary folders
+tmp/
+tmp_*/
+tmp*/
+
+# Research / planning scratch folders
+Docs/research/
+Docs/plans/
+
+# arch-propose run scratch (the skill owns the durable templates)
+.arch-propose/
+# mangle-programming experiment lab (scaffolded by the skill's new-lab.sh)
+_mangle_lab/
+Docs/Spec/
+/scratch_*/
+vet_output.txt
+
+# Local runtime / tooling state
+/conductor/
+/scripts/
+/script/
+/tools/
+/data/traces/
+
+# Hidden runtime/config paths — ignore contents, not the dir itself,
+# so we can negate .nerd/logs/ for diagnostic tracking.
+.nerd/*
+!.nerd/logs/
+
+# Ignore any config.json payload (and derivatives) to prevent secret leakage.
+**/config.json
+**/config.*.json
+config.json
+
+# Local model prompt files
+**/CLAUDE.md
+**/claude.md
+**/GEMINI.md
+**/gemini.md
+
+# SQLite/runtime artifacts
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite-journal
+*.sqlite3-journal
+*.backup_*
+!.quality_assurance/remediation/
+.quality_assurance/remediation/*
+!.quality_assurance/remediation/*.md
+
+# Campaign assault test scratch output (written by assault_tasks_test.go)
+internal/campaign/.nerd/campaigns/c_test_triage/
+
+!.claude/skills/arch-propose/
+!.claude/skills/arch-propose/**
+
+
+# stress-tester skill (CLI live matrix surfaces) — track core docs
+!.agents/skills/stress-tester/
+!.agents/skills/stress-tester/**
+!.claude/skills/stress-tester/
+!.claude/skills/stress-tester/SKILL.md
+!.claude/skills/stress-tester/references/
+!.claude/skills/stress-tester/references/**
+!.codex/skills/stress-tester/
+!.codex/skills/stress-tester/SKILL.md
+!.codex/skills/stress-tester/references/
+!.codex/skills/stress-tester/references/**
+
+
+!.agents/skills/requirements-interrogator/
+!.agents/skills/requirements-interrogator/**
+
+# Campaign test artifacts (written by internal/campaign tests)
+internal/campaign/campaigns/
+internal/campaign/log.txt
+
+# Agent-memory writes with an unresolved Windows path create a literal
+# "C:\..." directory at the repo root on Linux. It is not a real path and must
+# never be committed; the agent tooling owns the underlying bug.
+C:\\*
+
+# Scratch probes. Agents and reviewers write throwaway kernel/derivation probes
+# as zz*_test.go by convention while mutation-testing; they are measurement
+# scaffolding, never a deliverable, and a stray `git add -A` should not be able
+# to land one. No tracked file has ever used this prefix.
+zz*_test.go
+
+# Claude Code plugin state. A plugin (the Jules scheduler MCP server) launched with
+# its cwd at the repo root and an unexpanded ${CLAUDE_PLUGIN_ROOT}, so it keeps its
+# SQLite state in a directory literally named that. It is the plugin's, not codeNERD's.
+/${CLAUDE_PLUGIN_ROOT}/
+
+# Local build/test output never belongs at the repo root.
+/*.out
+/*.cover
+/cover
+/cover_*
+/coverage
+/coverage_*
+/mcp_cover
+/prompt_evolution
+/trace
+/*.txt
+/scan.json
+/*.zip
+/*.skill
+/bin/

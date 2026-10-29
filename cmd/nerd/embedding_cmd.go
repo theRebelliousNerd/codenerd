@@ -1,0 +1,230 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"codenerd/internal/config"
+	"codenerd/internal/embedding"
+	"codenerd/internal/store"
+
+	"github.com/spf13/cobra"
+)
+
+// embeddingCmd mirrors the TUI /embedding commands for non-interactive use.
+var embeddingCmd = &cobra.Command{
+	Use:   "embedding",
+	Short: "Embedding engine operations (set, stats, reembed)",
+	Long: `Manage vector embedding configuration and maintenance.
+
+This command mirrors the interactive TUI /embedding commands.`,
+	RunE: parentGroupRunE,
+}
+
+var embeddingSetCmd = &cobra.Command{
+	Use:   "set <ollama|genai> [api-key]",
+	Short: "Set embedding provider and model: `set ollama <model>` or `set genai <api-key> <model>`",
+	Args:  cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ws := workspace
+		if ws == "" {
+			ws, _ = os.Getwd()
+		}
+
+		cfgPath := filepath.Join(ws, ".nerd", "config.json")
+		cfg, err := config.LoadUserConfig(cfgPath)
+		if err != nil || cfg == nil {
+			cfg = config.DefaultUserConfig()
+		}
+		if cfg.Embedding == nil {
+			cfg.Embedding = &config.EmbeddingConfig{}
+		}
+
+		provider := args[0]
+		cfg.Embedding.Provider = provider
+		switch provider {
+		case "ollama":
+			if cfg.Embedding.OllamaEndpoint == "" {
+				cfg.Embedding.OllamaEndpoint = "http://localhost:11434"
+			}
+			if len(args) >= 2 {
+				cfg.Embedding.OllamaModel = args[1]
+			}
+		case "genai":
+			if len(args) >= 2 {
+				cfg.Embedding.GenAIAPIKey = args[1]
+			}
+			if len(args) >= 3 {
+				cfg.Embedding.GenAIModel = args[2]
+			}
+			if cfg.Embedding.TaskType == "" {
+				cfg.Embedding.TaskType = "SEMANTIC_SIMILARITY"
+			}
+		default:
+			return fmt.Errorf("unsupported provider %q (use ollama or genai)", provider)
+		}
+		// The model is the user's to name: nothing is written to config.json
+		// that they did not type or already have there.
+		if missing := cfg.Embedding.MissingModel(); missing != "" {
+			return fmt.Errorf("%s", missing)
+		}
+
+		if err := cfg.Save(cfgPath); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
+		}
+
+		fmt.Printf("✓ Embedding provider set to %s. Restart codeNERD to apply.\n", provider)
+		return nil
+	},
+}
+
+var embeddingStatsCmd = &cobra.Command{
+	Use:   "stats",
+	Short: "Show vector embedding statistics for knowledge.db",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ws := workspace
+		if ws == "" {
+			ws, _ = os.Getwd()
+		}
+
+		dbPath := filepath.Join(ws, ".nerd", "knowledge.db")
+		ls, err := store.NewLocalStore(dbPath)
+		if err != nil {
+			return err
+		}
+		defer ls.Close()
+
+		// Attach embedding engine from .nerd/config.json (authoritative).
+		cfgPath := filepath.Join(ws, ".nerd", "config.json")
+		cfg, _ := config.LoadUserConfig(cfgPath)
+		if cfg == nil {
+			cfg = config.DefaultUserConfig()
+		}
+		ucEmb := cfg.GetEmbeddingConfig()
+		embCfg := ucEmb.EngineConfig()
+		if engine, engErr := embedding.NewEngine(embCfg); engErr == nil {
+			ls.SetEmbeddingEngine(engine)
+		}
+
+		stats, err := ls.GetVectorStats()
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Embedding Statistics:\n  Total Vectors: %v\n  With Embeddings: %v\n  Without Embeddings: %v\n  Engine: %v\n  Dimensions: %v\n",
+			stats["total_vectors"],
+			stats["with_embeddings"],
+			stats["without_embeddings"],
+			stats["embedding_engine"],
+			stats["embedding_dimensions"],
+		)
+		// Present only with an engine attached: how much of the table that
+		// engine can rank, and why the rest cannot.
+		if eligible, ok := stats["eligible_vectors"]; ok {
+			fmt.Printf("  Rankable by this engine: %v\n  Not rankable, written before the embedding space was recorded: %v\n  Not rankable, embedded by another model: %v\n",
+				eligible, stats["unattributed_vectors"], stats["foreign_vectors"])
+			if stats["unattributed_vectors"] != int64(0) || stats["foreign_vectors"] != int64(0) {
+				fmt.Println("  Run `nerd embedding reembed` to bring them into this engine's space.")
+			}
+		}
+		return nil
+	},
+}
+
+var embeddingReembedCmd = &cobra.Command{
+	Use:   "reembed",
+	Short: "Force re-embed every database under .nerd",
+	RunE:  runEmbeddingReembed,
+}
+
+type embeddingReembedOps struct {
+	newEngine func(context.Context, embedding.Config) (embedding.EmbeddingEngine, error)
+	reembed   func(context.Context, []string, embedding.EmbeddingEngine, store.ReembedProgressFn) (store.ReembedResult, error)
+}
+
+func runEmbeddingReembed(cmd *cobra.Command, args []string) error {
+	return runEmbeddingReembedWithOps(cmd, args, embeddingReembedOps{
+		newEngine: embedding.NewEngineWithContext,
+		reembed:   store.ReembedAllDBsForce,
+	})
+}
+
+func runEmbeddingReembedWithOps(cmd *cobra.Command, _ []string, ops embeddingReembedOps) (outcome error) {
+	ctx, cancel := commandContext(cmd)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("embedding reembed: %w", err)
+	}
+
+	ws := workspace
+	if ws == "" {
+		ws, _ = os.Getwd()
+	}
+
+	// Always read model/provider from .nerd/config.json via GetEmbeddingConfig.
+	cfgPath := filepath.Join(ws, ".nerd", "config.json")
+	cfg, _ := config.LoadUserConfig(cfgPath)
+	if cfg == nil {
+		cfg = config.DefaultUserConfig()
+	}
+	ucEmb := cfg.GetEmbeddingConfig()
+	embCfg := ucEmb.EngineConfig()
+
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("embedding reembed: %w", err)
+	}
+	engine, err := ops.newEngine(ctx, embCfg)
+	if err != nil {
+		return err
+	}
+	if engine == nil {
+		return errors.New("embedding reembed: engine factory returned nil engine")
+	}
+	if closer, ok := engine.(interface{ Close() error }); ok {
+		defer func() {
+			if closeErr := closer.Close(); closeErr != nil {
+				outcome = errors.Join(outcome, fmt.Errorf("close embedding engine: %w", closeErr))
+			}
+		}()
+	}
+
+	roots := store.ReembedSearchRoots(ws)
+
+	fmt.Println("Re-embedding all databases (vectors + prompt atoms + traces + learnings)...")
+	res, err := ops.reembed(ctx, roots, engine, func(msg string) {
+		fmt.Println(msg)
+	})
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("embedding reembed: %w", err)
+	}
+
+	verdict := "Re-embedding complete."
+	if !res.Complete {
+		verdict = "Re-embedding INCOMPLETE: some rows are still outside the target embedding space."
+	}
+	fmt.Printf("\n%s\n  DBs processed: %d\n  Vectors re-embedded: %d\n  Prompt atoms re-embedded: %d\n  Traces re-embedded: %d\n  Learnings re-embedded: %d\n  Duration: %.2fs\n",
+		verdict, res.DBCount, res.VectorsDone, res.AtomsDone, res.TracesDone, res.LearningsDone, res.Duration.Seconds())
+	if res.Complete {
+		return nil
+	}
+	fmt.Println("\nNot migrated (re-run `nerd embedding reembed` to resume vectors where they stopped):")
+	for _, m := range res.Stores {
+		if m.Complete {
+			continue
+		}
+		fmt.Printf("  - %s [%s]: %s\n", m.Path, m.Table, m.Detail)
+	}
+	return errors.New("embedding reembed incomplete: see the list above")
+}
+
+func init() {
+	embeddingCmd.AddCommand(embeddingSetCmd)
+	embeddingCmd.AddCommand(embeddingStatsCmd)
+	embeddingCmd.AddCommand(embeddingReembedCmd)
+}

@@ -1,0 +1,1237 @@
+// constitution.go implements the Constitution Gate system shard.
+// This is the SAFETY-CRITICAL component of the codeNERD architecture.
+//
+// The Constitution Gate enforces:
+//   - permitted(Action) must be positively derived before any action executes
+//   - dangerous_action patterns are blocked unless a person approved the exact
+//     pending request (human_approval_granted, internal/approval)
+//   - network_policy restricts domains to allowlist
+//   - security_violation facts are emitted for audit trail
+//
+// This shard is AUTO-START and runs continuously. It is LOGIC-PRIMARY,
+// meaning it primarily uses deterministic Mangle rules with LLM only for:
+// - Proposing new safety rules via Autopoiesis
+// - Escalating ambiguous cases to human-in-the-loop
+package system
+
+import (
+	"context"
+	"fmt"
+	"maps"
+	"net"
+	"regexp"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
+	"codenerd/internal/config"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/mangle/feedback"
+	"codenerd/internal/prompt"
+	"codenerd/internal/types"
+)
+
+// ConstitutionConfig holds configuration for the constitution gate.
+type ConstitutionConfig struct {
+	// Safety thresholds
+	StrictMode          bool     // Block all actions not explicitly permitted (default: true)
+	AllowedDomains      []string // Network allowlist
+	DangerousPatterns   []string // Command patterns that trigger dangerous_action
+	EscalateOnAmbiguity bool     // Ask user for ambiguous cases (default: true)
+
+	// Performance
+	TickInterval time.Duration // How often to check pending actions (default: 50ms)
+}
+
+// DefaultConstitutionConfig returns sensible defaults.
+var (
+	regexCache sync.Map
+)
+
+func getCompiledRegex(pattern string) (*regexp.Regexp, error) {
+	if cached, ok := regexCache.Load(pattern); ok {
+		return cached.(*regexp.Regexp), nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+	regexCache.Store(pattern, re)
+	return re, nil
+}
+
+func DefaultConstitutionConfig() ConstitutionConfig {
+	return ConstitutionConfig{
+		StrictMode: true,
+		AllowedDomains: []string{
+			"github.com",
+			"golang.org",
+			"pkg.go.dev",
+			"docs.anthropic.com",
+			"developer.mozilla.org",
+		},
+		DangerousPatterns: []string{
+			`rm\s+-rf`,
+			`mkfs`,
+			`dd\s+if=`,
+			`chmod\s+777`,
+			`curl.*\|.*sh`,
+			`wget.*\|.*sh`,
+			`>.*\/etc\/`,
+			`sudo\s+rm`,
+		},
+		EscalateOnAmbiguity: true,
+		// 2s fallback when event bus is missing. 500ms was thrashing a dirty
+		// kernel (each poll → Query → 10–17s evaluate under large world EDBs).
+		TickInterval: 2 * time.Second,
+	}
+}
+
+// SecurityViolation represents a blocked action.
+type SecurityViolation struct {
+	Timestamp    time.Time
+	ActionType   string
+	Target       string
+	Reason       string
+	Context      map[string]string
+	WasEscalated bool
+	ActionID     string // Unique ID for appeal tracking
+}
+
+// AppealRequest represents a user's appeal of a blocked action.
+type AppealRequest struct {
+	ActionID       string
+	ActionType     string
+	Target         string
+	OriginalReason string
+	Justification  string
+	Requester      string
+	RequestedAt    time.Time
+}
+
+// AppealDecision represents the outcome of an appeal.
+type AppealDecision struct {
+	ActionID          string
+	Granted           bool
+	Approver          string // "user" or "admin" or specific username
+	Reason            string
+	DecidedAt         time.Time
+	TemporaryOverride bool          // If true, this is a one-time override
+	Duration          time.Duration // How long the override lasts (0 = permanent)
+}
+
+// ConstitutionGateShard is the safety enforcement system shard.
+// It runs continuously and gates all pending actions through constitutional checks.
+type ConstitutionGateShard struct {
+	*BaseSystemShard
+	mu sync.RWMutex
+
+	// Configuration
+	config ConstitutionConfig
+
+	// Compiled patterns
+	dangerousPatterns []*regexp.Regexp
+
+	// Mangle feedback loop for autopoiesis rule generation
+	feedbackLoop *feedback.FeedbackLoop
+
+	// predicateSelector retains the JIT predicate selector handed to the
+	// feedback loop, so a SetJITConfig that arrives after SetParentKernel
+	// (the production order: registration wires the kernel first) can
+	// still apply the configured bounds. predicateLimit/predicateVecLimit
+	// are the last configured bounds; non-positive means "no config
+	// arrived" and takes the JIT defaults.
+	predicateSelector *prompt.PredicateSelector
+	predicateLimit    int
+	predicateVecLimit int
+
+	// Audit trail
+	violations []SecurityViolation
+	permitted  []string // Actions that were permitted (for audit)
+
+	// Appeal system
+	pendingAppeals  map[string]*AppealRequest // actionID -> appeal
+	appealHistory   []AppealDecision          // Complete appeal history
+	activeOverrides map[string]AppealDecision // actionType -> active override
+
+	// State
+	running      bool
+	lastLogPrune time.Time
+
+	// shardManager reports which shards are running by config name.
+	// Nil means unknown — treated as dormant (no proven consumer).
+	shardManager shardLivenessChecker
+	// dormantLogged ensures the dormant-pipeline debug log fires once.
+	dormantLogged bool
+}
+
+// shardLivenessChecker reports whether a shard is running by config name.
+// *coreshards.ShardManager satisfies it; tests use a stub. It mirrors the
+// perception firewall lookup (cmd/nerd/chat/process.go via
+// GetRunningShardByConfigName) without importing the manager package here.
+type shardLivenessChecker interface {
+	GetRunningShardByConfigName(name string) (types.ShardAgent, bool)
+}
+
+// ownsPendingAction reports whether a pending_action ID was filed by the
+// ExecutivePolicyShard (or this gate) and is therefore owned by this gate.
+//
+// Provenance convention (single place of definition):
+//   - ExecutivePolicyShard mints "action-<nanotime>" (queryNextActions) and
+//     "delegate-<nanotime>" (queryDelegateActions); pre-seeded action_id
+//     payloads must follow the same prefixes to be owned.
+//   - The interactive session executor (internal/session/executor_tools.go
+//     checkSafetyWithGate) asserts pending_action with "exec-<toolUseID>"
+//     (LLM tool_use IDs such as "toolu_..."/"call_..." prefixed at assertion
+//     time) and queries permitted/3 synchronously before retracting itself.
+//
+// The gate skips (never processes, never retracts) any pending_action whose
+// ID does not carry an executive prefix, so it cannot race the executor's
+// assert→query→retract sequence on the interactive path.
+func ownsPendingAction(id string) bool {
+	return strings.HasPrefix(id, "action-") || strings.HasPrefix(id, "delegate-")
+}
+
+// SetShardManager injects the running-shard lookup used to gate the
+// permitted_action stream. Pass nil to mark the consumer as unknown/dormant.
+func (c *ConstitutionGateShard) SetShardManager(sm shardLivenessChecker) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.shardManager = sm
+}
+
+// isTactileRouterRunning reports whether the permitted_action consumer exists.
+// Nil manager means unknown — treated as dormant so no orphan stream accrues.
+func (c *ConstitutionGateShard) isTactileRouterRunning() bool {
+	c.mu.RLock()
+	mgr := c.shardManager
+	c.mu.RUnlock()
+	if mgr == nil {
+		return false
+	}
+	_, ok := mgr.GetRunningShardByConfigName("tactile_router")
+	return ok
+}
+
+// logRouterDormantOnce notes at Debug, once per shard, that the second
+// pipeline is dormant and permitted_action emission was skipped.
+func (c *ConstitutionGateShard) logRouterDormantOnce() {
+	c.mu.Lock()
+	already := c.dormantLogged
+	c.dormantLogged = true
+	c.mu.Unlock()
+	if !already {
+		logging.SystemShardsDebug("[ConstitutionGate] tactile_router dormant: skipping permitted_action emission")
+	}
+}
+
+// NewConstitutionGateShard creates a new Constitution Gate shard.
+func NewConstitutionGateShard() *ConstitutionGateShard {
+	return NewConstitutionGateShardWithConfig(DefaultConstitutionConfig())
+}
+
+// NewConstitutionGateShardWithConfig creates a constitution gate with custom config.
+func NewConstitutionGateShardWithConfig(cfg ConstitutionConfig) *ConstitutionGateShard {
+	logging.SystemShards("[ConstitutionGate] Initializing constitution gate shard (SAFETY-CRITICAL)")
+	base := NewBaseSystemShard("constitution_gate", StartupAuto)
+
+	// Override permissions for constitution gate - minimal footprint
+	base.Config.Permissions = []types.ShardPermission{
+		types.PermissionAskUser, // Only for escalation
+	}
+	base.Config.Model = types.ModelConfig{} // No LLM by default - pure logic
+
+	shard := &ConstitutionGateShard{
+		BaseSystemShard: base,
+		config:          cfg,
+		feedbackLoop:    feedback.NewFeedbackLoop(feedback.DefaultConfig()),
+		violations:      make([]SecurityViolation, 0),
+		permitted:       make([]string, 0),
+		pendingAppeals:  make(map[string]*AppealRequest),
+		appealHistory:   make([]AppealDecision, 0),
+		activeOverrides: make(map[string]AppealDecision),
+	}
+
+	// Compile dangerous patterns
+	shard.dangerousPatterns = make([]*regexp.Regexp, 0, len(cfg.DangerousPatterns))
+	for _, pattern := range cfg.DangerousPatterns {
+		if re, err := getCompiledRegex(pattern); err == nil {
+			shard.dangerousPatterns = append(shard.dangerousPatterns, re)
+		}
+	}
+
+	logging.SystemShardsDebug("[ConstitutionGate] Config: strict_mode=%v, escalate_on_ambiguity=%v, allowed_domains=%d, dangerous_patterns=%d",
+		cfg.StrictMode, cfg.EscalateOnAmbiguity, len(cfg.AllowedDomains), len(cfg.DangerousPatterns))
+	return shard
+}
+
+// SetParentKernel wires the kernel and configures context-aware predicate selection.
+func (c *ConstitutionGateShard) SetParentKernel(k types.Kernel) {
+	c.BaseSystemShard.SetParentKernel(k)
+	var rk *core.RealKernel
+	if kReal, ok := k.(*core.RealKernel); ok {
+		rk = kReal
+	} else if ck, ok := k.(*core.CortexKernel); ok {
+		rk = ck.GetPrimaryRealKernel()
+	}
+	if rk != nil {
+		if corpus := rk.GetPredicateCorpus(); corpus != nil {
+			selector := prompt.NewPredicateSelector(corpus)
+			c.applyPredicateLimits(selector)
+			c.predicateSelector = selector
+			c.feedbackLoop.SetPredicateSelector(selector)
+		}
+	}
+}
+
+// SetJITConfig stores the effective JIT configuration and applies the
+// configured predicate bounds to the attached selector. Registration wires
+// the kernel (and the selector) before it injects this config, so without
+// the re-application a configured jit.predicate_limit would never reach it.
+func (c *ConstitutionGateShard) SetJITConfig(cfg config.JITConfig) {
+	c.BaseSystemShard.SetJITConfig(cfg)
+	c.predicateLimit = cfg.PredicateLimit
+	c.predicateVecLimit = cfg.PredicateVecLimit
+	c.applyPredicateLimits(c.predicateSelector)
+}
+
+// applyPredicateLimits stamps the configured predicate bounds onto sel. A
+// non-positive bound means "no config arrived" (direct construction, or a
+// zero RegistryContext) and takes the JIT default — the same bound
+// NewPredicateSelector already carries, so the call is idempotent.
+func (c *ConstitutionGateShard) applyPredicateLimits(sel *prompt.PredicateSelector) {
+	if sel == nil {
+		return
+	}
+	limit, vec := c.predicateLimit, c.predicateVecLimit
+	if limit <= 0 {
+		limit = config.DefaultJITConfig().PredicateLimit
+	}
+	if vec <= 0 {
+		vec = config.DefaultJITConfig().PredicateVecLimit
+	}
+	sel.SetMaxPredicates(limit)
+	sel.SetVectorLimit(vec)
+}
+
+// Execute runs the Constitution Gate's continuous safety loop.
+// This shard is AUTO-START and runs for the entire session.
+func (c *ConstitutionGateShard) Execute(ctx context.Context, task string) (string, error) {
+	logging.SystemShards("[ConstitutionGate] Starting safety enforcement loop")
+	c.SetState(types.ShardStateRunning)
+	c.mu.Lock()
+	c.running = true
+	c.StartTime = time.Now()
+	c.mu.Unlock()
+
+	defer func() {
+		c.SetState(types.ShardStateCompleted)
+		c.mu.Lock()
+		c.running = false
+		c.mu.Unlock()
+		logging.SystemShards("[ConstitutionGate] Safety enforcement loop terminated")
+	}()
+
+	// Initialize kernel if not set
+	if c.Kernel == nil {
+		logging.SystemShardsDebug("[ConstitutionGate] Creating new kernel (none attached)")
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return "", fmt.Errorf("failed to create kernel: %w", err)
+		}
+		c.Kernel = kernel
+	}
+
+	// Event-driven: subscribe to pending_action facts instead of polling
+	factCh := c.SubscribeToFacts([]string{"pending_action"})
+	// 15s heartbeat (was 5s) — live test showed multi-shard 5s heartbeats
+	// stacking with 14–24s kernel evals. Existence-only health rules don't
+	// need sub-minute refresh.
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	// Fallback ticker for when event bus is unavailable
+	var fallbackTicker *time.Ticker
+	if factCh == nil {
+		logging.SystemShards("[ConstitutionGate] No event bus available, falling back to polling at %v", c.config.TickInterval)
+		fallbackTicker = time.NewTicker(c.config.TickInterval)
+		defer fallbackTicker.Stop()
+		factCh = make(chan core.FactEvent) // dummy channel that never fires
+	}
+	var fallbackCh <-chan time.Time
+	if fallbackTicker != nil {
+		fallbackCh = fallbackTicker.C
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			logging.SystemShards("[ConstitutionGate] Context cancelled, shutting down")
+			return c.generateShutdownSummary("context cancelled"), ctx.Err()
+		case <-c.StopCh:
+			logging.SystemShards("[ConstitutionGate] Stop signal received")
+			return c.generateShutdownSummary("stopped"), nil
+		case <-factCh:
+			// Event-driven: a pending_action fact was just asserted
+			if err := c.processPendingActions(ctx); err != nil {
+				logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Error processing pending actions: %v", err)
+				c.recordViolation("internal_error", "", err.Error(), nil, "")
+			}
+
+			// Process pending appeals from Mangle facts
+			if err := c.processPendingAppeals(ctx); err != nil {
+				logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Error processing appeals: %v", err)
+				c.recordViolation("appeal_error", "", err.Error(), nil, "")
+			}
+		case <-fallbackCh:
+			// Polling fallback: same work as event-driven case
+			if err := c.processPendingActions(ctx); err != nil {
+				logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Error processing pending actions: %v", err)
+				c.recordViolation("internal_error", "", err.Error(), nil, "")
+			}
+
+			// Process pending appeals from Mangle facts
+			if err := c.processPendingAppeals(ctx); err != nil {
+				logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Error processing appeals: %v", err)
+				c.recordViolation("appeal_error", "", err.Error(), nil, "")
+			}
+		case <-heartbeat.C:
+			// Heartbeat + periodic checks
+			_ = c.EmitHeartbeat()
+
+			// Check for autopoiesis opportunity
+			if c.Autopoiesis.ShouldPropose() {
+				logging.SystemShardsDebug("[ConstitutionGate] Triggering autopoiesis rule proposal")
+				c.handleAutopoiesis(ctx)
+			}
+		}
+	}
+}
+
+// processPendingActions checks all pending actions against constitutional rules.
+// processPendingActions checks all pending actions against constitutional rules.
+//
+// Ownership: this gate only processes pending_action facts filed by the
+// ExecutivePolicyShard (see ownsPendingAction). Facts filed by the interactive
+// session executor are skipped entirely — never processed, never retracted —
+// so this shard cannot race the executor's synchronous assert→query→retract
+// sequence on the interactive path.
+func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error {
+	if c.Kernel == nil {
+		return nil
+	}
+
+	// Query pending actions
+	pending, err := c.Kernel.Query("pending_action")
+	if err != nil {
+		return fmt.Errorf("failed to query pending_action: %w", err)
+	}
+
+	didWork := false
+	for _, fact := range pending {
+		if len(fact.Args) < 3 {
+			continue
+		}
+
+		// pending_action(ActionID, ActionType, Target, Payload, Timestamp)
+		actionID := types.ExtractString(fact.Args[0])
+		if !ownsPendingAction(actionID) {
+			continue
+		}
+		didWork = true
+
+		actionType := types.ExtractString(fact.Args[1])
+		target := types.ExtractString(fact.Args[2])
+		payload := map[string]any{}
+		if len(fact.Args) > 3 {
+			payload, _ = decodeActionPayload(fact.Args[3])
+		}
+
+		logging.SystemShardsDebug("[ConstitutionGate] Checking action: type=%s, target=%s", actionType, truncateForLog(target, 50))
+
+		// Check if action is permitted
+		permitted, reason := c.checkPermitted(ctx, actionType, target, payload)
+
+		if permitted {
+			logging.SystemShards("[ConstitutionGate] Action PERMITTED: type=%s", actionType)
+			ts := time.Now().Unix()
+			// Primary permitted stream for tactile router. Its only consumer is
+			// TactileRouterShard.processPermittedActions, and tactile_router is
+			// StartupOnDemand (never spawned in production), so emitting while
+			// dormant only grows an orphan stream nobody retracts. Gate it.
+			if c.isTactileRouterRunning() {
+				_ = c.Kernel.Assert(types.Fact{
+					Predicate: "permitted_action",
+					Args:      []any{actionID, actionType, target, encodeActionPayload(payload), ts},
+				})
+			} else {
+				c.logRouterDormantOnce()
+			}
+			// Emit canonical permission result for policy observability.
+			// Verified consumers: system_core.mg derives action_permitted,
+			// action_blocked, and ready_for_routing from this predicate, so it
+			// is retained even while the router pipeline is dormant. The
+			// transparency explainer bus does not consume it.
+			_ = c.Kernel.Assert(types.Fact{
+				Predicate: "permission_check_result",
+				Args:      []any{actionID, types.MangleAtom("/permit"), reason, ts},
+			})
+			// Constitutional gate verdict: recorded in the cross-package audit log every other gate writes to; the Mangle facts alongside serve policy rather than the audit trail.
+			logging.Audit().SafetyCheck(actionType+" "+target, true, reason)
+			c.mu.Lock()
+			c.permitted = append(c.permitted, actionType)
+			c.mu.Unlock()
+		} else {
+			logging.Get(logging.CategorySystemShards).Warn("[ConstitutionGate] Action BLOCKED: type=%s, reason=%s", actionType, reason)
+			// Record violation and get action ID for appeals
+			actionID = c.recordViolation(actionType, target, reason, nil, actionID)
+			logging.Audit().SafetyCheck(actionType+" "+target, false, reason)
+
+			// Emit canonical permission result for policy observability.
+			ts := time.Now().Unix()
+			_ = c.Kernel.Assert(types.Fact{
+				Predicate: "permission_check_result",
+				Args:      []any{actionID, types.MangleAtom("/deny"), reason, ts},
+			})
+
+			// Emit routing_result failure so waiting shards can observe denial
+			_ = c.Kernel.Assert(types.Fact{
+				Predicate: "routing_result",
+				Args:      []any{actionID, types.MangleAtom("/failure"), reason, ts},
+			})
+
+			// Emit security_violation fact
+			_ = c.Kernel.Assert(types.Fact{
+				Predicate: "security_violation",
+				Args:      []any{actionType, reason, time.Now().Unix()},
+			})
+
+			// Emit appeal_available fact for Mangle policies
+			_ = c.Kernel.Assert(types.Fact{
+				Predicate: "appeal_available",
+				Args:      []any{actionID, actionType, target, reason},
+			})
+
+			// Check if we should escalate to user
+			if c.config.EscalateOnAmbiguity && c.shouldEscalate(reason) {
+				logging.SystemShardsDebug("[ConstitutionGate] Escalating ambiguous case to user: %s", actionType)
+				c.escalateToUser(ctx, actionType, target, reason)
+			}
+		}
+
+		// Clear the owned pending action regardless of result (exact match).
+		// Unowned facts are never retracted here; their owner retracts them.
+		if c.Kernel != nil {
+			_ = c.Kernel.RetractExactFact(fact)
+		}
+	}
+
+	if didWork {
+		c.prunePermissionCheckResults()
+	}
+
+	return nil
+}
+
+func (c *ConstitutionGateShard) prunePermissionCheckResults() {
+	if c.Kernel == nil {
+		return
+	}
+
+	now := time.Now()
+	c.mu.Lock()
+	if !c.lastLogPrune.IsZero() && now.Sub(c.lastLogPrune) < 10*time.Second {
+		c.mu.Unlock()
+		return
+	}
+	c.lastLogPrune = now
+	c.mu.Unlock()
+
+	const retention = 15 * time.Minute
+	cutoff := now.Add(-retention).Unix()
+
+	results, err := c.Kernel.Query("permission_check_result")
+	if err == nil && len(results) > 0 {
+		toRemove := make([]types.Fact, 0, len(results)/4)
+		for _, f := range results {
+			ts, ok := unixSecondsArg(f, 3)
+			if !ok {
+				continue
+			}
+			if ts < cutoff {
+				toRemove = append(toRemove, f)
+			}
+		}
+
+		if len(toRemove) > 0 {
+			_ = c.Kernel.RetractExactFactsBatch(toRemove)
+		}
+	}
+
+	// Same 15-minute schedule for the permitted_action stream so it can never
+	// grow unbounded when a consumer was running at emission time but later
+	// went dormant. permitted_action(ActionID, ActionType, Target, Payload, Timestamp)
+	// carries its timestamp at arg index 4.
+	permitted, err := c.Kernel.Query("permitted_action")
+	if err != nil || len(permitted) == 0 {
+		return
+	}
+
+	toRemovePermitted := make([]types.Fact, 0, len(permitted)/4)
+	for _, f := range permitted {
+		ts, ok := unixSecondsArg(f, 4)
+		if !ok {
+			continue
+		}
+		if ts < cutoff {
+			toRemovePermitted = append(toRemovePermitted, f)
+		}
+	}
+
+	if len(toRemovePermitted) == 0 {
+		return
+	}
+	_ = c.Kernel.RetractExactFactsBatch(toRemovePermitted)
+}
+
+// checkPermitted determines if an action is permitted under constitutional rules.
+func (c *ConstitutionGateShard) checkPermitted(ctx context.Context, actionType, target string, payload map[string]any) (bool, string) {
+	// 0. Check for active overrides from appeals
+	c.mu.RLock()
+	if override, exists := c.activeOverrides[actionType]; exists {
+		// Check if override is still valid
+		if !override.TemporaryOverride || time.Since(override.DecidedAt) < override.Duration {
+			c.mu.RUnlock()
+			return true, fmt.Sprintf("permitted via appeal override by %s", override.Approver)
+		}
+		// Override expired, remove it
+		c.mu.RUnlock()
+		c.mu.Lock()
+		delete(c.activeOverrides, actionType)
+		c.mu.Unlock()
+		c.mu.RLock()
+	}
+	c.mu.RUnlock()
+
+	// 1. Check for dangerous patterns in target
+	if c.isDangerous(target) {
+		return false, "matches dangerous command pattern"
+	}
+
+	// 2. Check network policy for network actions
+	if actionType == "network" || actionType == "fetch" || actionType == "browse" {
+		if !c.isAllowedDomain(target) {
+			return false, fmt.Sprintf("domain not in allowlist: %s", target)
+		}
+	}
+
+	// 3. Query Mangle for permitted(Action, Target, Payload)
+	// The kernel derives permitted(Action...) from safe_action, a recoverable
+	// delete, or an exact request-bound human approval
+	// kernel.Query returns ALL permitted facts
+	allPermitted, err := c.Kernel.Query("permitted")
+	if err != nil {
+		// If query fails, default deny in strict mode
+		if c.config.StrictMode {
+			return false, "query failed and strict mode enabled"
+		}
+		// Record as unhandled for autopoiesis
+		c.Autopoiesis.RecordUnhandled(
+			fmt.Sprintf("permitted(%s)", actionType),
+			map[string]string{"action": actionType, "target": target},
+			nil,
+		)
+		return true, "" // Allow if not strict
+	}
+
+	// Filter to find permitted facts matching our actionType, target, and payload
+	found := false
+	for _, p := range allPermitted {
+		if len(p.Args) < 1 {
+			continue
+		}
+		argStr := types.ExtractString(p.Args[0])
+		// Match with or without leading /
+		if argStr != actionType && argStr != "/"+actionType {
+			continue
+		}
+
+		// Check Target if present (Args[1])
+		if len(p.Args) >= 2 {
+			factTarget := types.ExtractString(p.Args[1])
+			if factTarget != target && factTarget != "_" {
+				continue
+			}
+		}
+
+		// Check Payload if present (Args[2])
+		// Note: Exact map matching might be strict, but policy binds directly from pending_action
+		// so it should match exactly.
+		found = true
+		break
+	}
+
+	if !found {
+		if c.config.StrictMode {
+			// Record as unhandled for autopoiesis
+			c.Autopoiesis.RecordUnhandled(
+				fmt.Sprintf("permitted(%s)", actionType),
+				map[string]string{"action": actionType, "target": target},
+				nil,
+			)
+			return false, "not explicitly permitted (default deny)"
+		}
+		return true, ""
+	}
+
+	return true, ""
+}
+
+// isDangerous checks if a command matches dangerous patterns.
+func (c *ConstitutionGateShard) isDangerous(target string) bool {
+	for _, pattern := range c.dangerousPatterns {
+		if pattern.MatchString(target) {
+			return true
+		}
+	}
+	return false
+}
+
+// isAllowedDomain checks if a URL/domain is in the allowlist. The host is
+// extracted and matched exactly or as a subdomain: a substring check would
+// admit evil-github.com and github.com.evil.com, which merely contain an
+// allowed name.
+func (c *ConstitutionGateShard) isAllowedDomain(target string) bool {
+	host := strings.ToLower(strings.TrimSpace(target))
+	if i := strings.Index(host, "://"); i >= 0 {
+		host = host[i+3:]
+	}
+	if i := strings.IndexAny(host, "/?#"); i >= 0 {
+		host = host[:i]
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.TrimSuffix(host, ".")
+	for _, domain := range c.config.AllowedDomains {
+		d := strings.ToLower(strings.TrimSpace(domain))
+		if d == "" {
+			continue
+		}
+		if host == d || strings.HasSuffix(host, "."+d) {
+			return true
+		}
+	}
+	return false
+}
+
+// shouldEscalate determines if a violation should be escalated to the user.
+func (c *ConstitutionGateShard) shouldEscalate(reason string) bool {
+	// Escalate on ambiguous cases (not explicit violations)
+	ambiguousReasons := []string{
+		"not explicitly permitted",
+		"query failed",
+		"domain not in allowlist",
+	}
+	for _, r := range ambiguousReasons {
+		if strings.Contains(reason, r) {
+			return true
+		}
+	}
+	return false
+}
+
+// escalateToUser asks the user for permission on ambiguous cases.
+func (c *ConstitutionGateShard) escalateToUser(ctx context.Context, actionType, target, reason string) {
+	// Emit an escalation fact for the UI layer to handle
+	_ = c.Kernel.Assert(types.Fact{
+		Predicate: "escalation_needed",
+		Args: []any{
+			// Target is the /name slot of escalation_needed/3
+			// (schemas_shards.mg); a bare string would never unify with the
+			// name constants the policy corpus emits into the same relation.
+			types.MangleAtom("/constitution_gate"),
+			escalationSubject(actionType, target),
+			reason,
+		},
+	})
+}
+
+// recordViolation records a security violation for audit.
+func (c *ConstitutionGateShard) recordViolation(actionType, target, reason string, ctx map[string]string, providedID string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Generate unique action ID for appeal tracking
+	actionID := providedID
+	if actionID == "" {
+		actionID = fmt.Sprintf("action_%d_%s", time.Now().UnixNano(), actionType)
+	}
+
+	c.violations = append(c.violations, SecurityViolation{
+		Timestamp:  time.Now(),
+		ActionType: actionType,
+		Target:     target,
+		Reason:     reason,
+		Context:    ctx,
+		ActionID:   actionID,
+	})
+
+	return actionID
+}
+
+// handleAutopoiesis uses LLM with feedback loop to propose new constitutional rules.
+// The feedback loop validates generated Mangle rules via sandbox compilation,
+// automatically retrying with error context if validation fails.
+func (c *ConstitutionGateShard) handleAutopoiesis(ctx context.Context) {
+	cases := c.Autopoiesis.GetUnhandledCases()
+	if len(cases) == 0 {
+		return
+	}
+
+	// If no LLM, we can't propose rules - just log
+	if c.LLMClient == nil {
+		logging.SystemShardsDebug("[ConstitutionGate] Autopoiesis skipped: no LLM client")
+		return
+	}
+
+	// Ensure kernel is available for validation
+	if c.Kernel == nil {
+		logging.Get(logging.CategorySystemShards).Warn("[ConstitutionGate] Autopoiesis skipped: no kernel for validation")
+		return
+	}
+
+	// Check cost guard before attempting generation
+	can, reason := c.CostGuard.CanCall()
+	if !can {
+		logging.SystemShardsDebug("[ConstitutionGate] Autopoiesis blocked by cost guard: %s", reason)
+		// Put cases back for later
+		for _, cas := range cases {
+			c.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
+		}
+		return
+	}
+
+	// Build prompt for rule proposal
+	userPrompt := c.buildRuleProposalPrompt(cases)
+
+	canRetry, reason := c.feedbackLoop.CanRetryPrompt(userPrompt)
+	if !canRetry {
+		logging.SystemShardsDebug("[ConstitutionGate] Autopoiesis skipped: FeedbackLoop budget exhausted (%s)", reason)
+		return
+	}
+
+	// Use JIT prompt compilation (no fallback - atoms in internal/prompt/atoms/system/autopoiesis.yaml)
+	systemPrompt, jitUsed := c.TryJITPrompt(ctx, "constitution_autopoiesis")
+	if !jitUsed || systemPrompt == "" {
+		logging.SystemShards("[ConstitutionGate] [ERROR] JIT compilation failed - skipping autopoiesis (ensure atoms exist)")
+		return
+	}
+	logging.SystemShards("[ConstitutionGate] [JIT] Using JIT-compiled autopoiesis prompt")
+
+	// Create LLM client adapter for feedback loop
+	llmAdapter := &constitutionLLMAdapter{
+		client:    c.LLMClient,
+		costGuard: c.CostGuard,
+	}
+
+	// Use feedback loop for validated rule generation
+	logging.SystemShards("[ConstitutionGate] Starting autopoiesis with feedback loop for %d unhandled cases", len(cases))
+
+	result, err := c.feedbackLoop.GenerateAndValidate(
+		ctx,
+		llmAdapter,
+		c.Kernel, // RealKernel implements feedback.RuleValidator
+		systemPrompt,
+		userPrompt,
+		"constitution", // Domain for valid examples
+	)
+	if err != nil {
+		logging.Get(logging.CategorySystemShards).Warn("[ConstitutionGate] Autopoiesis generation failed: %v", err)
+		// Put cases back for later retry
+		for _, cas := range cases {
+			c.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
+		}
+		return
+	}
+
+	// Check if generation succeeded
+	if !result.Valid || result.Rule == "" {
+		logging.Get(logging.CategorySystemShards).Warn("[ConstitutionGate] Autopoiesis produced invalid rule after %d attempts", result.Attempts)
+		return
+	}
+
+	logging.SystemShards("[ConstitutionGate] Autopoiesis generated valid rule (attempts=%d, auto_fixed=%v)", result.Attempts, result.AutoFixed)
+
+	// Create proposed rule record
+	proposedRule := ProposedRule{
+		MangleCode: result.Rule,
+		Confidence: 0.9, // High confidence since feedback loop validated it
+		Rationale:  fmt.Sprintf("Auto-generated safety rule after %d validation attempts", result.Attempts),
+		BasedOn:    cases,
+		ProposedAt: time.Now(),
+	}
+
+	// If auto-fixed, lower confidence slightly
+	if result.AutoFixed {
+		proposedRule.Confidence = 0.75
+		proposedRule.Rationale += " (auto-repaired by sanitizer)"
+	}
+
+	c.Autopoiesis.RecordProposal(proposedRule)
+
+	// If high confidence, auto-apply; otherwise escalate for human approval
+	if proposedRule.Confidence >= c.Autopoiesis.RuleConfidence {
+		// Rule already validated by feedback loop, safe to apply
+		if err := c.Kernel.HotLoadLearnedRule(proposedRule.MangleCode); err == nil {
+			c.Autopoiesis.RecordApplied(proposedRule.MangleCode)
+			logging.SystemShards("[ConstitutionGate] Autopoiesis rule auto-applied: %s", truncateForLog(proposedRule.MangleCode, 80))
+		} else {
+			// This should not happen since feedback loop validated it, but handle gracefully
+			logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Failed to apply validated rule: %v", err)
+		}
+	} else {
+		// Escalate for human approval
+		if assertErr := c.Kernel.Assert(types.Fact{
+			Predicate: "rule_proposal_pending",
+			Args: []any{
+				"constitution_gate",
+				proposedRule.MangleCode,
+				proposedRule.Rationale,
+				proposedRule.Confidence,
+				time.Now().Unix(),
+			},
+		}); assertErr != nil {
+			logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Failed to assert rule proposal: %v", assertErr)
+		}
+		logging.SystemShards("[ConstitutionGate] Autopoiesis rule pending approval (confidence=%.2f)", proposedRule.Confidence)
+	}
+}
+
+// constitutionLLMAdapter wraps core.LLMClient to implement feedback.LLMClient.
+// This adapter integrates with the CostGuard for rate limiting.
+type constitutionLLMAdapter struct {
+	client    core.LLMClient
+	costGuard *CostGuard
+}
+
+// Complete implements feedback.LLMClient interface.
+func (a *constitutionLLMAdapter) Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if a.client == nil {
+		return "", fmt.Errorf("LLM client not configured")
+	}
+
+	// Check cost guard before each call (feedback loop may make multiple calls)
+	can, reason := a.costGuard.CanCall()
+	if !can {
+		return "", fmt.Errorf("LLM call blocked by cost guard: %s", reason)
+	}
+
+	result, err := a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		a.costGuard.RecordError()
+		return "", fmt.Errorf("LLM completion failed: %w", err)
+	}
+
+	a.costGuard.RecordCall()
+	return result, nil
+}
+
+func (a *constitutionLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return a.Complete(ctx, systemPrompt, userPrompt)
+}
+
+// CompleteWithTools implements types.LLMClient interface.
+// The constitution gate doesn't use tool-calling, so this delegates to the underlying client.
+func (a *constitutionLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if a.client == nil {
+		return nil, fmt.Errorf("LLM client not configured")
+	}
+
+	// Check cost guard
+	can, reason := a.costGuard.CanCall()
+	if !can {
+		return nil, fmt.Errorf("LLM call blocked by cost guard: %s", reason)
+	}
+
+	// Forward to underlying client if it supports tool calling
+	if toolClient, ok := a.client.(interface {
+		CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error)
+	}); ok {
+		result, err := toolClient.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+		if err != nil {
+			a.costGuard.RecordError()
+			return nil, err
+		}
+		a.costGuard.RecordCall()
+		return result, nil
+	}
+
+	return nil, fmt.Errorf("underlying client does not support CompleteWithTools")
+}
+
+// buildRuleProposalPrompt creates a prompt for the LLM to propose a new rule.
+func (c *ConstitutionGateShard) buildRuleProposalPrompt(cases []UnhandledCase) string {
+	var sb strings.Builder
+	sb.WriteString("The following actions were not handled by existing constitutional rules:\n\n")
+
+	for i, cas := range cases {
+		sb.WriteString(fmt.Sprintf("%d. Query: %s\n", i+1, cas.Query))
+		// Sorted: this prompt is hashed by CanRetryPrompt for per-prompt
+		// retry accounting, and map order would mint a fresh-looking prompt
+		// on every call, defeating the retry budget.
+		for _, k := range slices.Sorted(maps.Keys(cas.Context)) {
+			sb.WriteString(fmt.Sprintf("   %s: %s\n", k, cas.Context[k]))
+		}
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString("\nPropose a Mangle rule that would handle these cases safely.\n")
+	sb.WriteString("Format your response as:\n")
+	sb.WriteString("RULE: <mangle code>\n")
+	sb.WriteString("CONFIDENCE: <0.0-1.0>\n")
+	sb.WriteString("RATIONALE: <explanation>\n")
+
+	return sb.String()
+}
+
+// generateShutdownSummary creates a summary of the shard's activity.
+func (c *ConstitutionGateShard) generateShutdownSummary(reason string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return fmt.Sprintf(
+		"Constitution Gate shutdown (%s). Violations: %d, Permitted: %d, Runtime: %s",
+		reason,
+		len(c.violations),
+		len(c.permitted),
+		time.Since(c.StartTime).String(),
+	)
+}
+
+// GetViolations returns the audit trail of security violations.
+func (c *ConstitutionGateShard) GetViolations() []SecurityViolation {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	result := make([]SecurityViolation, len(c.violations))
+	copy(result, c.violations)
+	return result
+}
+
+// AddAllowedDomain adds a domain to the network allowlist.
+func (c *ConstitutionGateShard) AddAllowedDomain(domain string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.config.AllowedDomains = append(c.config.AllowedDomains, domain)
+}
+
+// AddDangerousPattern adds a pattern to the dangerous action list.
+func (c *ConstitutionGateShard) AddDangerousPattern(pattern string) error {
+	re, err := getCompiledRegex(pattern)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.config.DangerousPatterns = append(c.config.DangerousPatterns, pattern)
+	c.dangerousPatterns = append(c.dangerousPatterns, re)
+	return nil
+}
+
+// SubmitAppeal submits an appeal for a blocked action.
+// Returns an error if the actionID doesn't exist or appeal already pending.
+func (c *ConstitutionGateShard) SubmitAppeal(actionID, justification, requester string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Check if appeal already exists
+	if _, exists := c.pendingAppeals[actionID]; exists {
+		return fmt.Errorf("appeal already pending for action %s", actionID)
+	}
+
+	// Find the violation
+	var violation *SecurityViolation
+	for i := range c.violations {
+		if c.violations[i].ActionID == actionID {
+			violation = &c.violations[i]
+			break
+		}
+	}
+
+	if violation == nil {
+		return fmt.Errorf("no violation found for action ID %s", actionID)
+	}
+
+	// Create appeal request
+	appeal := &AppealRequest{
+		ActionID:       actionID,
+		ActionType:     violation.ActionType,
+		Target:         violation.Target,
+		OriginalReason: violation.Reason,
+		Justification:  justification,
+		Requester:      requester,
+		RequestedAt:    time.Now(),
+	}
+
+	c.pendingAppeals[actionID] = appeal
+
+	// Emit Mangle fact for appeal
+	if c.Kernel != nil {
+		_ = c.Kernel.Assert(types.Fact{
+			Predicate: "appeal_pending",
+			Args:      []any{actionID, violation.ActionType, justification, time.Now().Unix()},
+		})
+	}
+
+	return nil
+}
+
+// HandleAppeal processes an appeal request and returns the decision.
+// This method can be called by user interaction handlers or automated policy.
+func (c *ConstitutionGateShard) HandleAppeal(ctx context.Context, actionID string, grant bool, approver string, temporary bool, duration time.Duration) error {
+	c.mu.Lock()
+	appeal, exists := c.pendingAppeals[actionID]
+	if !exists {
+		c.mu.Unlock()
+		return fmt.Errorf("no pending appeal for action ID %s", actionID)
+	}
+
+	// Remove from pending
+	delete(c.pendingAppeals, actionID)
+	c.mu.Unlock()
+
+	// Create decision
+	decision := AppealDecision{
+		ActionID:          actionID,
+		Granted:           grant,
+		Approver:          approver,
+		DecidedAt:         time.Now(),
+		TemporaryOverride: temporary,
+		Duration:          duration,
+	}
+
+	if grant {
+		decision.Reason = fmt.Sprintf("Appeal granted: %s", appeal.Justification)
+
+		// Add to active overrides if granted
+		c.mu.Lock()
+		c.activeOverrides[appeal.ActionType] = decision
+		c.mu.Unlock()
+
+		// Emit Mangle facts
+		if c.Kernel != nil {
+			_ = c.Kernel.Assert(core.Fact{
+				Predicate: "appeal_granted",
+				Args:      []any{actionID, appeal.ActionType, approver, time.Now().Unix()},
+			})
+
+			// If temporary, emit expiration timestamp (computed: now + duration)
+			// NOTE: We store expiration directly to avoid arithmetic in Mangle rules
+			if temporary {
+				expirationTime := time.Now().Unix() + int64(duration.Seconds())
+				_ = c.Kernel.Assert(core.Fact{
+					Predicate: "temporary_override",
+					Args:      []any{appeal.ActionType, expirationTime},
+				})
+			}
+		}
+	} else {
+		decision.Reason = "Appeal denied by approver"
+
+		// Emit denial fact
+		if c.Kernel != nil {
+			_ = c.Kernel.Assert(core.Fact{
+				Predicate: "appeal_denied",
+				Args:      []any{actionID, appeal.ActionType, decision.Reason, time.Now().Unix()},
+			})
+		}
+	}
+
+	// Record in history
+	c.mu.Lock()
+	c.appealHistory = append(c.appealHistory, decision)
+	c.mu.Unlock()
+
+	return nil
+}
+
+// GetPendingAppeals returns all pending appeals.
+func (c *ConstitutionGateShard) GetPendingAppeals() []*AppealRequest {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	appeals := make([]*AppealRequest, 0, len(c.pendingAppeals))
+	for _, appeal := range c.pendingAppeals {
+		appeals = append(appeals, appeal)
+	}
+	return appeals
+}
+
+// GetAppealHistory returns the complete appeal decision history.
+func (c *ConstitutionGateShard) GetAppealHistory() []AppealDecision {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	history := make([]AppealDecision, len(c.appealHistory))
+	copy(history, c.appealHistory)
+	return history
+}
+
+// GetActiveOverrides returns all currently active overrides.
+func (c *ConstitutionGateShard) GetActiveOverrides() map[string]AppealDecision {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	overrides := make(map[string]AppealDecision, len(c.activeOverrides))
+	maps.Copy(overrides, c.activeOverrides)
+	return overrides
+}
+
+// processPendingAppeals checks for appeal-related facts and processes them.
+// This is called from the main Execute loop to handle appeals that come through Mangle.
+func (c *ConstitutionGateShard) processPendingAppeals(ctx context.Context) error {
+	if c.Kernel == nil {
+		return nil
+	}
+
+	// Query for appeal requests that may have been asserted via Mangle
+	requests, err := c.Kernel.Query("user_requests_appeal")
+	if err != nil {
+		return nil // Not an error if predicate doesn't exist
+	}
+
+	for _, fact := range requests {
+		if len(fact.Args) < 2 {
+			continue
+		}
+
+		actionID, ok1 := fact.Args[0].(string)
+		justification, ok2 := fact.Args[1].(string)
+
+		if !ok1 || !ok2 {
+			continue
+		}
+
+		// Extract requester if available
+		requester := "user"
+		if len(fact.Args) >= 3 {
+			if r, ok := fact.Args[2].(string); ok {
+				requester = r
+			}
+		}
+
+		// Submit the appeal
+		_ = c.SubmitAppeal(actionID, justification, requester)
+
+		// Retract the request
+		_ = c.Kernel.Retract("user_requests_appeal")
+	}
+
+	return nil
+}
+
+// NOTE: constitutionAutopoiesisPrompt constant DELETED (Dec 2024)
+// Prompt atoms now live in internal/prompt/atoms/system/autopoiesis.yaml
+// JIT compilation is required - no fallback.

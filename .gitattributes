@@ -1,0 +1,25 @@
+# Golden files are compared byte-for-byte against strings that tests build with
+# "\n". With core.autocrlf=true (the Windows default, and what this repo is
+# developed on) git rewrites them to CRLF on checkout, so the comparison fails
+# on line endings alone while every line matches. That is what broke
+# TestToFacts_EmittedPredicateArity_ShouldMatchGolden: 25 identical lines, 25
+# CRLF pairs, one failing test.
+#
+# Pinning eol=lf keeps golden files byte-stable on every platform.
+#
+# Note: .gitignore line 20 ignores all dotfiles ("(.*)"), which catches this
+# file too, so it had to be added with "git add -f".
+*.golden text eol=lf
+
+# The dead-code baseline is compared line by line; pin eol so a Windows
+# checkout does not read every entry as changed.
+scripts/testdata/deadcode-baseline.txt text eol=lf
+
+# cmd/nerd/chat/persona.go carries the architect's persona as a multi-line raw
+# string literal, and TestPersonaWordingUnchanged compares that literal
+# byte-for-byte against testdata/architect_persona.golden (pinned to LF above).
+# With core.autocrlf=true every newline INSIDE the backticks would become CRLF
+# on checkout while the golden stayed LF, so the two would differ on line
+# endings alone and the gate on the architect's own words would go red for a
+# reason that has nothing to do with his words. Pin the source file too.
+cmd/nerd/chat/persona.go text eol=lf

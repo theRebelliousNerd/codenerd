@@ -1,0 +1,9 @@
+campaign(/c_lock, /feature, "Lock Campaign", "", /active).
+campaign_phase(/p_lock, /c_lock, "Lock Phase", 1, /pending, "profile_lock").
+campaign_task(/t_backoff, /p_lock, "Wait for lock", /pending, /file_modify).
+campaign_task(/t_done, /p_lock, "Done task", /completed, /file_modify).
+task_priority(/t_backoff, /high).
+task_priority(/t_done, /normal).
+task_retry_at(/t_backoff, 2000000000).
+task_write_target(/t_backoff, "internal/conflict.go").
+task_write_target(/t_done, "internal/conflict.go").

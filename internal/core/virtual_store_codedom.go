@@ -1,0 +1,782 @@
+package core
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/tactile"
+	"codenerd/internal/tools"
+)
+
+// =============================================================================
+// CODE DOM HANDLERS
+// =============================================================================
+// These handlers enable structural code manipulation through the FileScope
+// and CodeDOM abstractions. They work at the level of functions, methods,
+// and types rather than raw text.
+
+// handleOpenFile opens a file and loads its 1-hop dependency scope.
+func (v *VirtualStore) handleOpenFile(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if scope == nil {
+		return ActionResult{Success: false, Error: "code scope not configured"}, nil
+	}
+
+	path := v.resolvePath(req.Target)
+	if err := scope.Open(path); err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+			FactsToAdd: []Fact{
+				{Predicate: "scope_open_failed", Args: []any{v.factPath(path), err.Error()}},
+			},
+		}, nil
+	}
+
+	// Replace previous Code DOM state with the new scope.
+	v.clearCodeDOMFacts()
+
+	facts := scope.ScopeFacts()
+
+	inScopeFiles := scope.GetInScopeFiles()
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Opened %s with %d files in scope", path, len(inScopeFiles)),
+		Metadata: map[string]any{
+			"active_file":    path,
+			"in_scope_count": len(inScopeFiles),
+			"in_scope":       inScopeFiles,
+		},
+		FactsToAdd: facts,
+	}, nil
+}
+
+// handleGetElements returns all elements in the current scope.
+func (v *VirtualStore) handleGetElements(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if scope == nil {
+		return ActionResult{Success: false, Error: "code scope not configured"}, nil
+	}
+
+	// Get elements, optionally filtered by file
+	var elements []CodeElement
+	if req.Target != "" {
+		path := v.resolvePath(req.Target)
+		elements = scope.GetCoreElementsByFile(path)
+	} else {
+		// Return all elements in scope - need to iterate files
+		for _, file := range scope.GetInScopeFiles() {
+			elements = append(elements, scope.GetCoreElementsByFile(file)...)
+		}
+	}
+
+	// Filter by type if specified
+	if elemType, ok := req.Payload["type"].(string); ok && elemType != "" {
+		var filtered []CodeElement
+		for _, e := range elements {
+			if e.Type == elemType {
+				filtered = append(filtered, e)
+			}
+		}
+		elements = filtered
+	}
+
+	output, _ := json.Marshal(elements)
+	return ActionResult{
+		Success: true,
+		Output:  string(output),
+		Metadata: map[string]any{
+			"count": len(elements),
+		},
+	}, nil
+}
+
+// handleGetElement returns a single element by ref.
+func (v *VirtualStore) handleGetElement(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if scope == nil {
+		return ActionResult{Success: false, Error: "code scope not configured"}, nil
+	}
+
+	ref := req.Target
+	elem := scope.GetCoreElement(ref)
+	if elem == nil {
+		return ActionResult{
+			Success: false,
+			Error:   fmt.Sprintf("element not found: %s", ref),
+		}, nil
+	}
+
+	// Include body if requested
+	includeBody, _ := req.Payload["include_body"].(bool)
+	if includeBody && elem.Body == "" {
+		elem.Body = scope.GetElementBody(ref)
+	}
+
+	output, _ := json.Marshal(elem)
+	return ActionResult{
+		Success: true,
+		Output:  string(output),
+		Metadata: map[string]any{
+			"ref":        elem.Ref,
+			"type":       elem.Type,
+			"file":       elem.File,
+			"start_line": elem.StartLine,
+			"end_line":   elem.EndLine,
+		},
+	}, nil
+}
+
+// handleEditElement replaces an element's body by ref.
+func (v *VirtualStore) handleEditElement(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	scope := v.codeScope
+	editor := v.fileEditor
+	v.mu.RUnlock()
+
+	if scope == nil {
+		return ActionResult{Success: false, Error: "code scope not configured"}, nil
+	}
+	if editor == nil {
+		return ActionResult{Success: false, Error: "file editor not configured"}, nil
+	}
+
+	ref := req.Target
+	newContent, ok := req.Payload["content"].(string)
+	if !ok {
+		return ActionResult{Success: false, Error: "edit_element requires 'content' in payload"}, nil
+	}
+
+	elem := scope.GetCoreElement(ref)
+	if elem == nil {
+		return ActionResult{
+			Success: false,
+			Error:   fmt.Sprintf("element not found: %s", ref),
+		}, nil
+	}
+
+	// Verify file hasn't been modified externally before editing
+	unchanged, hashErr := scope.VerifyFileHash(elem.File)
+	if hashErr != nil {
+		return ActionResult{
+			Success: false,
+			Error:   fmt.Sprintf("failed to verify file hash: %v", hashErr),
+			FactsToAdd: []Fact{
+				// element_edit_blocked(Ref, Reason) declares Reason /name. A bare
+				// Go string lands as a string constant, which never unifies with
+				// the /concurrent_modification the policy rules derive.
+				{Predicate: "element_edit_blocked", Args: []any{ref, MangleAtom("/hash_verification_failed")}},
+			},
+		}, nil
+	}
+	if !unchanged {
+		// File was modified externally - refresh scope first
+		if err := scope.RefreshWithRetry(3); err != nil {
+			return ActionResult{
+				Success: false,
+				Error:   "file was modified externally and refresh failed",
+				FactsToAdd: []Fact{
+					{Predicate: "element_edit_blocked", Args: []any{ref, MangleAtom("/concurrent_modification")}},
+					{Predicate: "file_modified_externally", Args: []any{v.factPath(elem.File)}},
+				},
+			}, nil
+		}
+		// Re-fetch element after refresh (line numbers may have changed)
+		elem = scope.GetCoreElement(ref)
+		if elem == nil {
+			return ActionResult{
+				Success: false,
+				Error:   fmt.Sprintf("element %s no longer exists after refresh", ref),
+				FactsToAdd: []Fact{
+					{Predicate: "element_stale", Args: []any{ref, "not_found_after_refresh"}},
+				},
+			}, nil
+		}
+	}
+
+	// Replace the element
+	result, err := editor.ReplaceElement(elem.File, elem.StartLine, elem.EndLine, newContent)
+	if err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	factsToAdd := make([]Fact, 0, len(result.Facts)+8)
+	factsToAdd = append(factsToAdd, result.Facts...)
+	factsToAdd = append(factsToAdd,
+		Fact{Predicate: "element_modified", Args: []any{ref, req.SessionID, time.Now().Unix()}},
+		Fact{Predicate: "modified", Args: []any{v.factPath(elem.File)}},
+	)
+	// Start the impact chain. impact.mg joins modified_function against
+	// code_calls to derive who is affected; without this fact the whole
+	// caller-impact analysis derives nothing. See codedom_modified_symbols.go.
+	factsToAdd = append(factsToAdd, modifiedSymbolFacts(elem, v.factPath(elem.File))...)
+
+	// Refresh scope to update line numbers with retry
+	if err := scope.RefreshWithRetry(3); err != nil {
+		factsToAdd = append(factsToAdd, Fact{
+			Predicate: "scope_refresh_failed",
+			Args:      []any{v.factPath(elem.File), err.Error()},
+		})
+	} else {
+		// Replace previous Code DOM state with the refreshed scope.
+		v.clearCodeDOMFacts()
+		factsToAdd = append(factsToAdd, scope.ScopeFacts()...)
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Replaced element %s (%d lines affected)", ref, result.LinesAffected),
+		Metadata: map[string]any{
+			"ref":            ref,
+			"file":           elem.File,
+			"lines_affected": result.LinesAffected,
+			"new_line_count": result.LineCount,
+		},
+		FactsToAdd: factsToAdd,
+	}, nil
+}
+
+// handleRefreshScope re-parses all in-scope files.
+func (v *VirtualStore) handleRefreshScope(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+	logging.VirtualStoreDebug("Refreshing scope (session: %s)", req.SessionID)
+
+	v.mu.RLock()
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if scope == nil {
+		return ActionResult{Success: false, Error: "code scope not configured"}, nil
+	}
+
+	if err := scope.Refresh(); err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	// Replace previous Code DOM state with the refreshed scope.
+	v.clearCodeDOMFacts()
+
+	facts := scope.ScopeFacts()
+
+	return ActionResult{
+		Success:    true,
+		Output:     "Scope refreshed",
+		FactsToAdd: facts,
+	}, nil
+}
+
+// handleCloseScope closes the current scope.
+func (v *VirtualStore) handleCloseScope(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+	logging.VirtualStoreDebug("Closing scope (session: %s)", req.SessionID)
+
+	v.mu.RLock()
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if scope == nil {
+		return ActionResult{Success: false, Error: "code scope not configured"}, nil
+	}
+
+	scope.Close()
+	v.clearCodeDOMFacts()
+
+	return ActionResult{
+		Success: true,
+		Output:  "Scope closed",
+		FactsToAdd: []Fact{
+			{Predicate: "scope_closed", Args: []any{}},
+		},
+	}, nil
+}
+
+// handleEditLines performs line-based file editing.
+func (v *VirtualStore) handleEditLines(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	editor := v.fileEditor
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if editor == nil {
+		return ActionResult{Success: false, Error: "file editor not configured"}, nil
+	}
+
+	path := v.resolvePath(req.Target)
+
+	// payloadInt, not a float64 assertion: Mangle-derived and Go-built payloads
+	// carry int/int64 line numbers, which the old assertion silently read as 0.
+	startLine, okStart := payloadInt(req.Payload["start_line"])
+	endLine, okEnd := payloadInt(req.Payload["end_line"])
+	newContent, _ := req.Payload["content"].(string)
+
+	if !okStart || !okEnd || startLine == 0 || endLine == 0 {
+		return ActionResult{Success: false, Error: "edit_lines requires 'start_line' and 'end_line' in payload"}, nil
+	}
+
+	// Split content into lines
+	var newLines []string
+	if newContent != "" {
+		newLines = strings.Split(strings.TrimSuffix(newContent, "\n"), "\n")
+	}
+
+	// Bytes, not the scope's line map. The scope refresh below moves every
+	// line number, and a deleted element is gone from the scope entirely.
+	before, canDiff := sourceForDiff(path)
+
+	result, err := editor.EditLines(path, startLine, endLine, newLines)
+	if err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	factsToAdd := make([]Fact, 0, len(result.Facts)+8)
+	factsToAdd = append(factsToAdd, result.Facts...)
+	factsToAdd = append(factsToAdd, v.factsFromChangedSource(ctx, req.SessionID, path, before, canDiff)...)
+
+	// Refresh scope if active with retry
+	if scope != nil && scope.IsInScope(path) {
+		if err := scope.RefreshWithRetry(3); err != nil {
+			factsToAdd = append(factsToAdd, Fact{
+				Predicate: "scope_refresh_failed",
+				Args:      []any{v.factPath(path), err.Error()},
+			})
+		} else {
+			// Replace previous Code DOM state with the refreshed scope.
+			v.clearCodeDOMFacts()
+			factsToAdd = append(factsToAdd, scope.ScopeFacts()...)
+		}
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Edited lines %d-%d in %s", startLine, endLine, path),
+		Metadata: map[string]any{
+			"path":           path,
+			"start_line":     startLine,
+			"end_line":       endLine,
+			"lines_affected": result.LinesAffected,
+		},
+		FactsToAdd: factsToAdd,
+	}, nil
+}
+
+// handleInsertLines inserts lines at a position.
+func (v *VirtualStore) handleInsertLines(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	editor := v.fileEditor
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if editor == nil {
+		return ActionResult{Success: false, Error: "file editor not configured"}, nil
+	}
+
+	path := v.resolvePath(req.Target)
+
+	// A missing after_line means 0 (insert at top), but a present garbage
+	// value must not silently become 0 and land the insert in the wrong place.
+	afterLine, okAfter := payloadInt(req.Payload["after_line"])
+	_, present := req.Payload["after_line"]
+	content, _ := req.Payload["content"].(string)
+
+	if content == "" {
+		return ActionResult{Success: false, Error: "insert_lines requires 'content' in payload"}, nil
+	}
+	if present && !okAfter {
+		return ActionResult{Success: false, Error: "insert_lines requires numeric 'after_line' in payload"}, nil
+	}
+
+	newLines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+
+	before, canDiff := sourceForDiff(path)
+
+	result, err := editor.InsertLines(path, afterLine, newLines)
+	if err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	factsToAdd := make([]Fact, 0, len(result.Facts)+8)
+	factsToAdd = append(factsToAdd, result.Facts...)
+	factsToAdd = append(factsToAdd, v.factsFromChangedSource(ctx, req.SessionID, path, before, canDiff)...)
+
+	// Refresh scope if active with retry
+	if scope != nil && scope.IsInScope(path) {
+		if err := scope.RefreshWithRetry(3); err != nil {
+			factsToAdd = append(factsToAdd, Fact{
+				Predicate: "scope_refresh_failed",
+				Args:      []any{v.factPath(path), err.Error()},
+			})
+		} else {
+			// Replace previous Code DOM state with the refreshed scope.
+			v.clearCodeDOMFacts()
+			factsToAdd = append(factsToAdd, scope.ScopeFacts()...)
+		}
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Inserted %d lines after line %d in %s", result.LinesAffected, afterLine, path),
+		Metadata: map[string]any{
+			"path":        path,
+			"after_line":  afterLine,
+			"lines_added": result.LinesAffected,
+		},
+		FactsToAdd: factsToAdd,
+	}, nil
+}
+
+// handleDeleteLines removes lines from a file.
+func (v *VirtualStore) handleDeleteLines(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	editor := v.fileEditor
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if editor == nil {
+		return ActionResult{Success: false, Error: "file editor not configured"}, nil
+	}
+
+	path := v.resolvePath(req.Target)
+
+	startLine, okStart := payloadInt(req.Payload["start_line"])
+	endLine, okEnd := payloadInt(req.Payload["end_line"])
+
+	if !okStart || !okEnd || startLine == 0 || endLine == 0 {
+		return ActionResult{Success: false, Error: "delete_lines requires 'start_line' and 'end_line' in payload"}, nil
+	}
+
+	before, canDiff := sourceForDiff(path)
+
+	result, err := editor.DeleteLines(path, startLine, endLine)
+	if err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	factsToAdd := make([]Fact, 0, len(result.Facts)+8)
+	factsToAdd = append(factsToAdd, result.Facts...)
+	factsToAdd = append(factsToAdd, v.factsFromChangedSource(ctx, req.SessionID, path, before, canDiff)...)
+
+	// Refresh scope if active with retry
+	if scope != nil && scope.IsInScope(path) {
+		if err := scope.RefreshWithRetry(3); err != nil {
+			factsToAdd = append(factsToAdd, Fact{
+				Predicate: "scope_refresh_failed",
+				Args:      []any{v.factPath(path), err.Error()},
+			})
+		} else {
+			// Replace previous Code DOM state with the refreshed scope.
+			v.clearCodeDOMFacts()
+			factsToAdd = append(factsToAdd, scope.ScopeFacts()...)
+		}
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Deleted lines %d-%d from %s", startLine, endLine, path),
+		Metadata: map[string]any{
+			"path":          path,
+			"start_line":    startLine,
+			"end_line":      endLine,
+			"lines_deleted": result.LinesAffected,
+		},
+		FactsToAdd: factsToAdd,
+	}, nil
+}
+
+// sourceForDiff reads the bytes RecordChangedSource diffs. A missing file is
+// an empty before-image, because insert_lines creates a file that was not
+// there. Any other read error means the before-image is unknown, and the
+// caller must not pretend the file was empty.
+func sourceForDiff(path string) (string, bool) {
+	b, err := os.ReadFile(path)
+	if err == nil {
+		return string(b), true
+	}
+	if os.IsNotExist(err) {
+		return "", true
+	}
+	return "", false
+}
+
+// factsFromChangedSource is the element_modified / modified_function /
+// modified batch for one line edit. impacted_test joins element_modified
+// (policy/test_impact.mg). The registry's edit_lines, insert_lines and
+// delete_lines produce that fact from RecordChangedSource, and these handlers
+// use the same diff (they once resolved a line range against the CodeDOM
+// scope and emitted modified_function alone, never element_modified).
+// editedElementFacts is what the registry sink asserts from the same slice,
+// so the two paths name the same elements.
+func (v *VirtualStore) factsFromChangedSource(ctx context.Context, sessionID, abs, before string, canDiff bool) []Fact {
+	if !canDiff {
+		return nil
+	}
+	after, ok := sourceForDiff(abs)
+	if !ok {
+		return nil
+	}
+	root := v.workspaceRoot
+	if root == "" {
+		root = v.workingDir
+	}
+	if root != "" {
+		if existing, has := ctx.Value(tools.CtxKeyWorkspaceRoot).(string); !has || existing == "" {
+			ctx = tools.WithWorkspaceRoot(ctx, root)
+		}
+	}
+	edits := tools.RecordChangedSource(ctx, abs, before, after)
+	if len(edits) == 0 {
+		return nil
+	}
+	return editedElementFacts(sessionID, time.Now().Unix(), edits)
+}
+
+// =============================================================================
+// AUTOPOIESIS HANDLERS - GENERATED TOOL EXECUTION
+// =============================================================================
+
+// handleExecTool executes a generated tool from the Ouroboros registry.
+func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleExecTool")
+	defer timer.Stop()
+
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	toolExec := v.toolExecutor
+	registry := v.toolRegistry
+	v.mu.RUnlock()
+
+	if toolExec == nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Tool executor not configured")
+		return ActionResult{
+			Success: false,
+			Error:   "tool executor not configured",
+			FactsToAdd: []Fact{
+				{Predicate: "tool_exec_failed", Args: []any{req.Target, "no_executor"}},
+			},
+		}, nil
+	}
+
+	toolName := req.Target
+	input, _ := req.Payload["input"].(string)
+
+	logging.VirtualStore("Executing tool: %s (input_len=%d)", toolName, len(input))
+
+	// Check if tool exists in registry first
+	var registeredTool *Tool
+	if registry != nil {
+		registeredTool, _ = registry.GetTool(toolName)
+	}
+
+	// Check if tool exists in executor
+	toolInfo, exists := toolExec.GetTool(toolName)
+	if !exists {
+		logging.Get(logging.CategoryVirtualStore).Warn("Tool not found: %s", toolName)
+		return ActionResult{
+			Success: false,
+			Error:   fmt.Sprintf("tool not found: %s", toolName),
+			FactsToAdd: []Fact{
+				{Predicate: "tool_not_found", Args: []any{toolName}},
+			},
+		}, nil
+	}
+
+	// Execute the tool
+	output, err := toolExec.ExecuteTool(ctx, toolName, input)
+
+	// Update execution count in registry
+	if registeredTool != nil && registry != nil {
+		registeredTool.ExecuteCount++
+	}
+
+	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Tool execution failed: %s - %v", toolName, err)
+		return ActionResult{
+			Success: false,
+			Output:  output, // Might have partial output
+			Error:   err.Error(),
+			FactsToAdd: []Fact{
+				{Predicate: "tool_exec_failed", Args: []any{toolName, err.Error()}},
+			},
+		}, nil
+	}
+
+	metadata := map[string]any{
+		"tool_name":     toolName,
+		"tool_hash":     toolInfo.Hash,
+		"execute_count": toolInfo.ExecuteCount + 1,
+	}
+
+	if registeredTool != nil {
+		metadata["shard_affinity"] = registeredTool.ShardAffinity
+		metadata["command"] = registeredTool.Command
+	}
+
+	logging.VirtualStore("Tool %s executed successfully: output_len=%d", toolName, len(output))
+	return ActionResult{
+		Success:  true,
+		Output:   output,
+		Metadata: metadata,
+		FactsToAdd: []Fact{
+			{Predicate: "tool_executed", Args: []any{toolName, output}},
+			{Predicate: "tool_exec_success", Args: []any{toolName}},
+		},
+	}, nil
+}
+
+// =============================================================================
+// FILE EDITOR ADAPTER
+// =============================================================================
+
+// TactileFileEditorAdapter wraps tactile.FileEditor to implement core.FileEditor.
+type TactileFileEditorAdapter struct {
+	editor *tactile.FileEditor
+}
+
+// NewTactileFileEditorAdapter creates a new adapter.
+func NewTactileFileEditorAdapter(editor *tactile.FileEditor) *TactileFileEditorAdapter {
+	return &TactileFileEditorAdapter{editor: editor}
+}
+
+func (a *TactileFileEditorAdapter) ReadFile(path string) ([]string, error) {
+	return a.editor.ReadFile(path)
+}
+
+func (a *TactileFileEditorAdapter) ReadLines(path string, startLine, endLine int) ([]string, error) {
+	return a.editor.ReadLines(path, startLine, endLine)
+}
+
+func (a *TactileFileEditorAdapter) WriteFile(path string, lines []string) (*FileEditResult, error) {
+	result, err := a.editor.WriteFile(path, lines)
+	if err != nil {
+		return nil, err
+	}
+	return a.convertResult(result), nil
+}
+
+func (a *TactileFileEditorAdapter) EditLines(path string, startLine, endLine int, newLines []string) (*FileEditResult, error) {
+	result, err := a.editor.EditLines(path, startLine, endLine, newLines)
+	if err != nil {
+		return nil, err
+	}
+	return a.convertResult(result), nil
+}
+
+func (a *TactileFileEditorAdapter) InsertLines(path string, afterLine int, newLines []string) (*FileEditResult, error) {
+	result, err := a.editor.InsertLines(path, afterLine, newLines)
+	if err != nil {
+		return nil, err
+	}
+	return a.convertResult(result), nil
+}
+
+func (a *TactileFileEditorAdapter) DeleteLines(path string, startLine, endLine int) (*FileEditResult, error) {
+	result, err := a.editor.DeleteLines(path, startLine, endLine)
+	if err != nil {
+		return nil, err
+	}
+	return a.convertResult(result), nil
+}
+
+func (a *TactileFileEditorAdapter) ReplaceElement(path string, startLine, endLine int, newContent string) (*FileEditResult, error) {
+	result, err := a.editor.ReplaceElement(path, startLine, endLine, newContent)
+	if err != nil {
+		return nil, err
+	}
+	return a.convertResult(result), nil
+}
+
+func (a *TactileFileEditorAdapter) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
+	if a.editor == nil {
+		return "", "", fmt.Errorf("file editor not configured")
+	}
+	return a.editor.Exec(ctx, cmd, env)
+}
+
+func (a *TactileFileEditorAdapter) convertResult(r *tactile.FileResult) *FileEditResult {
+	if r == nil {
+		return nil
+	}
+	// Convert tactile.Fact to core.Fact
+	facts := make([]Fact, len(r.Facts))
+	for i, f := range r.Facts {
+		facts[i] = Fact{
+			Predicate: f.Predicate,
+			Args:      f.Args,
+		}
+	}
+	return &FileEditResult{
+		Success:       r.Success,
+		Path:          r.Path,
+		LinesAffected: r.LinesAffected,
+		OldContent:    r.OldContent,
+		NewContent:    r.NewContent,
+		OldHash:       r.OldHash,
+		NewHash:       r.NewHash,
+		LineCount:     r.LineCount,
+		Facts:         facts,
+		Error:         r.Error,
+	}
+}

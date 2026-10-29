@@ -1,0 +1,100 @@
+package core
+
+import (
+	"context"
+	"fmt"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/projectdoc"
+	"codenerd/internal/tools"
+)
+
+// installToolWriteGuard makes nerd.md's forbidden-path protection and
+// fail-closed shell-effect denial enforceable at the tool layer.
+func (v *VirtualStore) installToolWriteGuard(registries ...*tools.Registry) {
+	guard := v.toolWriteGuard()
+	for _, r := range registries {
+		if r != nil {
+			r.SetWriteGuard(guard)
+		}
+	}
+}
+
+// toolWriteGuard builds the guard closure. Classification and target
+// extraction come from internal/projectdoc so this guard and the caller-side
+// gates cannot disagree. No baseline-aware exact-path authorization exists in
+// this pass, so shell mutations are fail-closed denied. Remaining gap:
+// immutable pre-task baseline + deterministic scope check for in-scope shell writes.
+func (v *VirtualStore) toolWriteGuard() tools.WriteGuard {
+	return func(ctx context.Context, toolName string, args map[string]any) error {
+		// Shell gate: lowest registry/VirtualStore chokepoint so direct
+		// tools.Global().Execute without the session executor cannot bypass.
+		if projectdoc.IsShellTool(toolName) {
+			kind, _, err := projectdoc.ValidateShellToolInvocation(toolName, args)
+			if err != nil {
+				// The user's own request for the turn can answer the refusal:
+				// the same decision the session executor's gate makes, from the
+				// scope on this call's context (projectdoc/shell_authority.go).
+				v.mu.RLock()
+				kernel := v.kernel
+				v.mu.RUnlock()
+				var authority projectdoc.ShellAuthority
+				if kernel != nil {
+					authority = kernel
+				}
+				step, authErr := projectdoc.AuthorizeShellMutation(ctx, authority, toolName, args, err)
+				if authErr != nil {
+					reason := fmt.Sprintf("%s effect=%s: %v", toolName, kind, authErr)
+					logging.Get(logging.CategoryVirtualStore).Warn("tool-layer shell guard blocked %s effect=%s", toolName, kind)
+					logging.Audit().SafetyCheck("shell_effect_guard", false, reason)
+					return authErr
+				}
+				logging.Audit().SafetyCheck("shell_effect_guard", true, fmt.Sprintf("%s %s authorized by the turn's request", toolName, step))
+			}
+		}
+		if !projectdoc.IsWriteMutationTool(toolName) {
+			return v.PreflightDestructiveToolCall(ctx, "registry-preflight", toolName, args)
+		}
+		targets, err := projectdoc.TargetPaths(args)
+		if err != nil {
+			return fmt.Errorf("blocked by nerd.md: %s has invalid target paths: %w", toolName, err)
+		}
+		if len(targets) == 0 {
+			return fmt.Errorf("blocked by nerd.md: %s has no recognized target path", toolName)
+		}
+		v.mu.RLock()
+		kernel := v.kernel
+		v.mu.RUnlock()
+		if kernel == nil {
+			return fmt.Errorf("blocked by nerd.md: write protection authority is unavailable for %s", targets[0])
+		}
+		for _, target := range targets {
+			reason, forbidden, queryErr := projectdoc.ForbiddenByKernel(kernel, target)
+			if queryErr != nil {
+				reason := fmt.Sprintf("write protection could not be evaluated: %v", queryErr)
+				logging.Get(logging.CategoryVirtualStore).Warn("nerd.md blocked %s on %s because protection could not be evaluated: %v", toolName, target, queryErr)
+				logging.Audit().SafetyCheck("nerd.md_write_guard", false, reason)
+				return fmt.Errorf("blocked by nerd.md: %s (%s)", target, reason)
+			}
+			if forbidden {
+				logging.Get(logging.CategoryVirtualStore).Warn("tool-layer guard blocked %s on %s: %s", toolName, target, reason)
+				return fmt.Errorf("blocked by nerd.md: %s is write-protected (%s)", target, reason)
+			}
+		}
+		// tools.Global().Execute reaches here with no session guardWrite.
+		// The projection lives in tools so core does not import session;
+		// both gates call it.
+		root := ""
+		if v != nil {
+			root = v.workspaceRoot
+			if root == "" {
+				root = v.workingDir
+			}
+		}
+		if err := tools.RefuseAddedBuildExclusion(toolName, args, root); err != nil {
+			logging.Get(logging.CategoryVirtualStore).Warn("tool-layer guard blocked %s: %v", toolName, err)
+			return err
+		}
+		return v.PreflightDestructiveToolCall(ctx, "registry-preflight", toolName, args)
+	}
+}

@@ -1,0 +1,17 @@
+# Coder Shard Session Context Utilization
+# How to interpret and use the injected SessionContext
+
+- id: "shards/coder/session_context"
+  category: "methodology"
+  subcategory: "context"
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    ## Session context, in priority order
+
+    1. Build or lint errors: fix them first; the codebase is broken until they are gone.
+    2. Failing tests: understand why before changing code. A TDD retry count above 1 means the previous fix was wrong.
+    3. Findings from other shards: address those on the code you are modifying.
+    4. Impacted files: when you change a signature, update the files listed as importing or calling it.
+    5. Git context: recent commits explain why code that looks wrong exists; do not "fix" what you do not understand.
+    6. Domain knowledge hints: follow them; they come from researched expertise.

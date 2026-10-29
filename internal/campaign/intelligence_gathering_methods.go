@@ -1,0 +1,769 @@
+package campaign
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"codenerd/internal/consultation"
+	"codenerd/internal/logging"
+	"codenerd/internal/world"
+)
+
+// =============================================================================
+// INDIVIDUAL GATHERING METHODS
+// =============================================================================
+
+func (g *IntelligenceGatherer) gatherWorldModel(ctx context.Context, report *IntelligenceReport, paths []string, addError func(string)) {
+	timer := logging.StartTimer(logging.CategoryCampaign, "gatherWorldModel")
+	defer timer.Stop()
+
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
+
+	// Determine root path for scanning
+	root := "."
+	if len(paths) > 0 {
+		root = paths[0] // Use first path as root
+	}
+
+	facts, err := g.worldScanner.ScanWorkspaceCtx(ctx, root)
+	if err != nil {
+		addError(fmt.Sprintf("World model scan failed: %v", err))
+		return
+	}
+
+	report.WorldFacts = facts
+
+	// Parse facts into structured data
+	for _, fact := range facts {
+		switch fact.Predicate {
+		case "file_topology":
+			if len(fact.Args) >= 5 {
+				path, _ := fact.Args[0].(string)
+				hash, _ := fact.Args[1].(string)
+				lang := g.parseAtom(fact.Args[2])
+				modTime, _ := fact.Args[3].(int64)
+				isTest := g.parseAtom(fact.Args[4]) == "/true"
+
+				report.FileTopology[path] = FileInfo{
+					Path:         path,
+					Hash:         hash,
+					Language:     strings.TrimPrefix(lang, "/"),
+					IsTestFile:   isTest,
+					LastModified: time.Unix(modTime, 0),
+				}
+				report.LanguageBreakdown[strings.TrimPrefix(lang, "/")]++
+			}
+		case "symbol_graph":
+			if len(fact.Args) >= 4 {
+				symbol := SymbolInfo{
+					File:     g.parseArg(fact.Args[0]),
+					Name:     g.parseArg(fact.Args[1]),
+					Kind:     g.parseArg(fact.Args[2]),
+					Exported: g.parseArg(fact.Args[3]) == "exported",
+				}
+				if len(fact.Args) >= 5 {
+					if line, ok := fact.Args[4].(int); ok {
+						symbol.Line = line
+					}
+				}
+				report.SymbolGraph = append(report.SymbolGraph, symbol)
+			}
+		case "code_defines":
+			// code_defines(File, Symbol, Type, StartLine, EndLine) has a
+			// different shape from symbol_graph and used to share its branch,
+			// which read every slot from the wrong position. In particular the
+			// line was taken from EndLine via fact.Args[4].(int); kernel numbers
+			// arrive as int64 (ast.Constant.NumValue), and the Cartographer
+			// emits int64 too, so that assertion never fired and Line stayed 0.
+			// parseIntArg accepts both widths. code_defines carries no
+			// visibility slot, so Exported is left unset rather than guessed.
+			if len(fact.Args) >= 3 {
+				symbol := SymbolInfo{
+					File: g.parseArg(fact.Args[0]),
+					Name: g.parseArg(fact.Args[1]),
+					Kind: strings.TrimPrefix(g.parseArg(fact.Args[2]), "/"),
+				}
+				if len(fact.Args) >= 4 {
+					symbol.Line = g.parseIntArg(fact.Args[3])
+				}
+				report.SymbolGraph = append(report.SymbolGraph, symbol)
+			}
+		}
+	}
+
+	logging.CampaignDebug("World model gathered: %d files, %d symbols", len(report.FileTopology), len(report.SymbolGraph))
+}
+
+func (g *IntelligenceGatherer) gatherGitHistory(ctx context.Context, report *IntelligenceReport, paths []string, addError func(string)) {
+	timer := logging.StartTimer(logging.CategoryCampaign, "gatherGitHistory")
+	defer timer.Stop()
+
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
+
+	root := "."
+	if len(paths) > 0 {
+		root = paths[0]
+	}
+
+	facts, err := world.ScanGitHistory(ctx, root, g.config.GitHistoryDepth)
+	if err != nil {
+		addError(fmt.Sprintf("Git history scan failed: %v", err))
+		return
+	}
+
+	// Parse git facts
+	churnMap := make(map[string]int)
+	for _, fact := range facts {
+		switch fact.Predicate {
+		case "churn_rate":
+			if len(fact.Args) >= 2 {
+				path, _ := fact.Args[0].(string)
+				rate, _ := fact.Args[1].(int)
+				churnMap[path] = rate
+			}
+		case "git_history":
+			if len(fact.Args) >= 5 {
+				commit := CommitInfo{
+					Files:   []string{g.parseArg(fact.Args[0])},
+					Hash:    g.parseArg(fact.Args[1]),
+					Author:  g.parseArg(fact.Args[2]),
+					Message: g.parseArg(fact.Args[4]),
+				}
+				if ts, ok := fact.Args[3].(int64); ok {
+					commit.Time = time.Unix(ts, 0)
+				}
+				report.RecentCommits = append(report.RecentCommits, commit)
+			}
+		}
+	}
+
+	// Convert churn map to hotspots with Chesterton's Fence warnings
+	for path, rate := range churnMap {
+		hotspot := ChurnHotspot{
+			Path:      path,
+			ChurnRate: rate,
+		}
+		if rate > 10 {
+			hotspot.Reason = "High churn rate"
+			hotspot.Warning = fmt.Sprintf("⚠️ CHESTERTON'S FENCE: This file has been modified %d times. Understand WHY before changing it.", rate)
+			report.HighChurnFiles = append(report.HighChurnFiles, path)
+		} else if rate > 5 {
+			hotspot.Reason = "Moderate churn rate"
+			hotspot.Warning = "Consider reviewing recent changes before modification."
+		}
+		report.GitChurnHotspots = append(report.GitChurnHotspots, hotspot)
+	}
+
+	// Sort by churn rate descending
+	sort.Slice(report.GitChurnHotspots, func(i, j int) bool {
+		return report.GitChurnHotspots[i].ChurnRate > report.GitChurnHotspots[j].ChurnRate
+	})
+
+	// Limit to configured max
+	if len(report.GitChurnHotspots) > g.config.MaxChurnHotspots {
+		report.GitChurnHotspots = report.GitChurnHotspots[:g.config.MaxChurnHotspots]
+	}
+
+	logging.CampaignDebug("Git history gathered: %d churn hotspots, %d high-churn files",
+		len(report.GitChurnHotspots), len(report.HighChurnFiles))
+}
+
+func (g *IntelligenceGatherer) gatherLearningPatterns(ctx context.Context, report *IntelligenceReport, addError func(string)) {
+	timer := logging.StartTimer(logging.CategoryCampaign, "gatherLearningPatterns")
+	defer timer.Stop()
+
+	// Load does not take a context, so this budget is observed between shard
+	// types: a load already in flight runs to completion, and the next one
+	// is not started after the budget.
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Learning patterns cancelled: %v", err))
+		return
+	}
+
+	shardTypes := []string{"coder", "tester", "reviewer", "researcher"}
+
+	for _, shardType := range shardTypes {
+		if err := ctx.Err(); err != nil {
+			addError(fmt.Sprintf("Learning patterns cancelled: %v", err))
+			return
+		}
+		learnings, err := g.learningStore.Load(shardType)
+		if err != nil {
+			addError(fmt.Sprintf("Learning store load failed for %s: %v", shardType, err))
+			continue
+		}
+
+		for _, learning := range learnings {
+			pattern := LearningPattern{
+				ShardType:   shardType,
+				Predicate:   learning.FactPredicate,
+				Confidence:  learning.Confidence,
+				LastUsed:    time.Unix(learning.Timestamp, 0),
+				Description: g.formatLearningDescription(learning),
+			}
+			report.HistoricalPatterns = append(report.HistoricalPatterns, pattern)
+		}
+	}
+
+	// Sort by confidence descending
+	sort.Slice(report.HistoricalPatterns, func(i, j int) bool {
+		return report.HistoricalPatterns[i].Confidence > report.HistoricalPatterns[j].Confidence
+	})
+
+	// Limit
+	if len(report.HistoricalPatterns) > g.config.MaxLearnings {
+		report.HistoricalPatterns = report.HistoricalPatterns[:g.config.MaxLearnings]
+	}
+
+	logging.CampaignDebug("Learning patterns gathered: %d patterns", len(report.HistoricalPatterns))
+}
+
+func (g *IntelligenceGatherer) gatherKnowledgeGraph(ctx context.Context, report *IntelligenceReport, paths []string, addError func(string)) {
+	timer := logging.StartTimer(logging.CategoryCampaign, "gatherKnowledgeGraph")
+	defer timer.Stop()
+
+	// QueryLinks does not take a context. The budget stops the loop from
+	// starting another path; the query in flight runs to completion.
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Knowledge graph gathering cancelled: %v", err))
+		return
+	}
+
+	// Query for entities related to target paths
+	for _, path := range paths {
+		// Check context cancellation inside the loop to bail early on large path sets
+		if err := ctx.Err(); err != nil {
+			addError(fmt.Sprintf("Knowledge graph gathering cancelled mid-loop: %v", err))
+			break
+		}
+		if strings.TrimSpace(path) == "" {
+			continue // skip empty/whitespace paths
+		}
+		links, err := g.localStore.QueryLinks(path, "both")
+		if err != nil {
+			addError(fmt.Sprintf("Knowledge graph query failed for %s: %v", path, err))
+			continue
+		}
+		report.KnowledgeLinks = append(report.KnowledgeLinks, links...)
+	}
+
+	// Cluster entities by relation
+	clusterMap := make(map[string][]string)
+	for _, link := range report.KnowledgeLinks {
+		key := link.Relation
+		clusterMap[key] = append(clusterMap[key], link.EntityB)
+	}
+
+	for relation, entities := range clusterMap {
+		report.EntityClusters = append(report.EntityClusters, EntityCluster{
+			ClusterID: relation,
+			Entities:  entities,
+			Relation:  relation,
+		})
+	}
+
+	logging.CampaignDebug("Knowledge graph gathered: %d links, %d clusters",
+		len(report.KnowledgeLinks), len(report.EntityClusters))
+}
+
+func (g *IntelligenceGatherer) gatherColdStorage(ctx context.Context, report *IntelligenceReport, addError func(string)) {
+	timer := logging.StartTimer(logging.CategoryCampaign, "gatherColdStorage")
+	defer timer.Stop()
+
+	// LoadFacts does not take a context. The budget is observed between
+	// predicates.
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Cold storage gathering cancelled: %v", err))
+		return
+	}
+
+	// Load campaign-relevant predicates from cold storage
+	predicates := []string{
+		"preference_signal",
+		"style_preference",
+		"avoid_pattern",
+		"learned_pattern",
+	}
+
+	for _, pred := range predicates {
+		if err := ctx.Err(); err != nil {
+			addError(fmt.Sprintf("Cold storage gathering cancelled: %v", err))
+			return
+		}
+		facts, err := g.localStore.LoadFacts(pred)
+		if err != nil {
+			addError(fmt.Sprintf("Cold storage load failed for %s: %v", pred, err))
+			continue
+		}
+		report.ColdStorageFacts = append(report.ColdStorageFacts, facts...)
+	}
+
+	logging.CampaignDebug("Cold storage gathered: %d facts", len(report.ColdStorageFacts))
+}
+
+func (g *IntelligenceGatherer) gatherSafetyWarnings(ctx context.Context, report *IntelligenceReport, goal string, paths []string, addError func(string)) {
+	timer := logging.StartTimer(logging.CategoryCampaign, "gatherSafetyWarnings")
+	defer timer.Stop()
+
+	// kernel.Query does not take a context. The budget is observed between
+	// the two queries.
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Safety warning gathering cancelled: %v", err))
+		return
+	}
+
+	// Query kernel for any pre-existing safety constraints
+	facts, err := g.kernel.Query("blocked_action")
+	if err != nil {
+		logging.CampaignDebug("No blocked_action facts: %v", err)
+		// Not an error, just means no pre-existing blocks
+	}
+
+	for _, fact := range facts {
+		if len(fact.Args) >= 2 {
+			report.BlockedActions = append(report.BlockedActions, g.parseArg(fact.Args[0]))
+		}
+	}
+
+	// Query for safety_warning predicate
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Safety warning gathering cancelled: %v", err))
+		return
+	}
+	safetyFacts, err := g.kernel.Query("safety_warning")
+	if err == nil {
+		for _, fact := range safetyFacts {
+			if len(fact.Args) >= 4 {
+				warning := SafetyWarning{
+					Path:         g.parseArg(fact.Args[0]),
+					Action:       g.parseArg(fact.Args[1]),
+					RuleViolated: g.parseArg(fact.Args[2]),
+					Severity:     g.parseArg(fact.Args[3]),
+				}
+				report.SafetyWarnings = append(report.SafetyWarnings, warning)
+			}
+		}
+	}
+
+	// Check for dangerous patterns in goal
+	dangerousPatterns := []string{"rm -rf", "drop database", "delete *", "format c:"}
+	goalLower := strings.ToLower(goal)
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(goalLower, pattern) {
+			report.SafetyWarnings = append(report.SafetyWarnings, SafetyWarning{
+				Action:       pattern,
+				RuleViolated: "dangerous_pattern",
+				Severity:     "critical",
+				Remediation:  "Review and confirm this action is intentional",
+			})
+		}
+	}
+
+	logging.CampaignDebug("Safety check: %d warnings, %d blocked actions",
+		len(report.SafetyWarnings), len(report.BlockedActions))
+}
+
+func (g *IntelligenceGatherer) gatherMCPTools(ctx context.Context, report *IntelligenceReport, goal string, addError func(string)) {
+	timer := logging.StartTimer(logging.CategoryCampaign, "gatherMCPTools")
+	defer timer.Stop()
+
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
+
+	// Get all available MCP tools
+	tools, err := g.mcpStore.GetAllTools(ctx)
+	if err != nil {
+		addError(fmt.Sprintf("MCP tool fetch failed: %v", err))
+		return
+	}
+
+	for _, tool := range tools {
+		if tool == nil {
+			continue
+		}
+		toolInfo := MCPToolInfo{
+			ToolID:      tool.ToolID,
+			ServerID:    tool.ServerID,
+			Name:        tool.Name,
+			Description: tool.Description,
+			Categories:  tool.Categories,
+			Affinity:    g.calculateToolAffinity(tool, goal),
+		}
+		report.MCPToolsAvailable = append(report.MCPToolsAvailable, toolInfo)
+	}
+
+	// Sort by affinity
+	sort.Slice(report.MCPToolsAvailable, func(i, j int) bool {
+		return report.MCPToolsAvailable[i].Affinity > report.MCPToolsAvailable[j].Affinity
+	})
+
+	// Limit
+	if len(report.MCPToolsAvailable) > g.config.MaxMCPTools {
+		report.MCPToolsAvailable = report.MCPToolsAvailable[:g.config.MaxMCPTools]
+	}
+
+	// Get server status
+	servers, err := g.mcpStore.GetAllServers(ctx)
+	if err == nil {
+		for _, server := range servers {
+			report.MCPServerStatus[server.ID] = string(server.Status)
+		}
+	}
+
+	logging.CampaignDebug("MCP tools gathered: %d tools, %d servers",
+		len(report.MCPToolsAvailable), len(report.MCPServerStatus))
+}
+
+// gatherPreviousCampaigns reports the campaigns this workspace has run to an
+// end, completed or failed, from their durable records (.nerd/campaigns/<id>.json),
+// newest first. It used to query a campaign_completed kernel fact that nothing
+// produced: the kernel does not outlive a process, and the only writer was a
+// Path-B stub (deleted 2026-09-23) that asserted two arguments where this read
+// four. Planning never saw a previous campaign.
+func (g *IntelligenceGatherer) gatherPreviousCampaigns(ctx context.Context, report *IntelligenceReport, goal string, addError func(string)) {
+	timer := logging.StartTimer(logging.CategoryCampaign, "gatherPreviousCampaigns")
+	defer timer.Stop()
+
+	// The directory reads do not take a context. The budget stops the loop
+	// from opening another file.
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Previous campaign gathering cancelled: %v", err))
+		return
+	}
+	logging.CampaignDebug("Gathering previous campaigns for goal: %s", goal)
+	if g.workspace == "" {
+		logging.CampaignDebug("No workspace: no previous campaigns to read")
+		return
+	}
+
+	dir := filepath.Join(g.workspace, ".nerd", "campaigns")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			addError(fmt.Sprintf("Previous campaigns: read %s: %v", dir, err))
+		}
+		return
+	}
+	type ended struct {
+		artifact CampaignArtifact
+		at       time.Time
+	}
+	var found []ended
+	for _, e := range entries {
+		if err := ctx.Err(); err != nil {
+			addError(fmt.Sprintf("Previous campaign gathering cancelled: %v", err))
+			return
+		}
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var c Campaign
+		if json.Unmarshal(data, &c) != nil || c.ID == "" {
+			continue
+		}
+		if c.Status != StatusCompleted && c.Status != StatusFailed {
+			continue
+		}
+		rate := 0.0
+		if c.TotalTasks > 0 {
+			rate = float64(c.CompletedTasks) / float64(c.TotalTasks)
+		}
+		found = append(found, ended{
+			artifact: CampaignArtifact{CampaignID: c.ID, Goal: c.Goal, TaskCount: c.TotalTasks, SuccessRate: rate, CreatedAt: c.CreatedAt},
+			at:       c.UpdatedAt,
+		})
+	}
+	sort.Slice(found, func(i, j int) bool { return found[i].at.After(found[j].at) })
+	for _, f := range found {
+		if len(report.PreviousCampaigns) >= g.config.MaxPreviousCampaigns {
+			break
+		}
+		report.PreviousCampaigns = append(report.PreviousCampaigns, f.artifact)
+	}
+
+	logging.CampaignDebug("Previous campaigns gathered: %d campaigns", len(report.PreviousCampaigns))
+}
+
+func (g *IntelligenceGatherer) gatherTestCoverage(ctx context.Context, report *IntelligenceReport, paths []string, addError func(string)) {
+	timer := logging.StartTimer(logging.CategoryCampaign, "gatherTestCoverage")
+	defer timer.Stop()
+
+	// The wait for the world-model scan is the caller's, before this method.
+	// This budget bounds the coverage query itself. kernel.Query does not
+	// take a context, so a query already in flight runs to completion.
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Test coverage gathering cancelled: %v", err))
+		return
+	}
+
+	// Query kernel for test_coverage facts
+	facts, err := g.kernel.Query("test_coverage")
+	if err != nil {
+		logging.CampaignDebug("No test coverage facts: %v", err)
+		return
+	}
+
+	for _, fact := range facts {
+		if len(fact.Args) >= 2 {
+			path := g.parseArg(fact.Args[0])
+			coverage := g.parseFloatArg(fact.Args[1])
+			report.TestCoverage[path] = coverage
+			if coverage < 0.5 {
+				report.UncoveredPaths = append(report.UncoveredPaths, path)
+			}
+		}
+	}
+
+	// Also check for test files corresponding to target paths
+	for _, path := range paths {
+		testPath := strings.TrimSuffix(path, ".go") + "_test.go"
+		if _, ok := report.FileTopology[testPath]; !ok {
+			report.UncoveredPaths = append(report.UncoveredPaths, path+" (no test file)")
+		}
+	}
+
+	logging.CampaignDebug("Test coverage gathered: %d entries, %d uncovered",
+		len(report.TestCoverage), len(report.UncoveredPaths))
+}
+
+func (g *IntelligenceGatherer) gatherCodePatterns(ctx context.Context, report *IntelligenceReport, paths []string, addError func(string)) {
+	timer := logging.StartTimer(logging.CategoryCampaign, "gatherCodePatterns")
+	defer timer.Stop()
+
+	// kernel.Query does not take a context. The budget is the call's; a
+	// query already in flight runs to completion.
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Code pattern gathering cancelled: %v", err))
+		return
+	}
+	logging.CampaignDebug("Gathering code patterns for %d paths", len(paths))
+
+	// Query kernel for detected patterns. anti_pattern is the only pattern
+	// predicate anything produces; design_pattern and architecture_pattern were
+	// queried here with no Decl and no producer anywhere, which returned nothing
+	// and logged a warning on every campaign.
+	patternPredicates := []string{"anti_pattern"}
+	for _, pred := range patternPredicates {
+		facts, err := g.kernel.Query(pred)
+		if err != nil {
+			continue
+		}
+		for _, fact := range facts {
+			if len(fact.Args) >= 3 {
+				pattern := CodePattern{
+					Name:        g.parseArg(fact.Args[0]),
+					Type:        pred,
+					Description: g.parseArg(fact.Args[2]),
+				}
+				if len(fact.Args) >= 4 {
+					pattern.Confidence = g.parseFloatArg(fact.Args[3])
+				}
+				report.CodePatterns = append(report.CodePatterns, pattern)
+			}
+		}
+	}
+
+	// Detect architecture hints from file structure
+	if len(report.FileTopology) > 0 {
+		hints := g.detectArchitectureHints(report.FileTopology)
+		report.ArchitectureHints = hints
+	}
+
+	logging.CampaignDebug("Code patterns gathered: %d patterns, %d architecture hints",
+		len(report.CodePatterns), len(report.ArchitectureHints))
+}
+
+func (g *IntelligenceGatherer) gatherToolGaps(ctx context.Context, report *IntelligenceReport, goal string, addError func(string)) {
+	timer := logging.StartTimer(logging.CategoryCampaign, "gatherToolGaps")
+	defer timer.Stop()
+
+	if g.toolGenerator == nil {
+		return
+	}
+
+	ctx, cancel := g.boundSystem(ctx)
+	defer cancel()
+
+	// Detect tool needs based on goal
+	need, err := g.toolGenerator.DetectToolNeed(ctx, goal, "")
+	if err != nil {
+		addError(fmt.Sprintf("Tool gap detection failed: %v", err))
+		return
+	}
+
+	if need != nil {
+		report.ToolGaps = append(report.ToolGaps, *need)
+		report.MissingCapabilities = append(report.MissingCapabilities, need.Purpose)
+	}
+
+	logging.CampaignDebug("Tool gaps gathered: %d gaps", len(report.ToolGaps))
+}
+
+func (g *IntelligenceGatherer) gatherShardAdvice(ctx context.Context, report *IntelligenceReport, goal string, addError func(string)) {
+	timer := logging.StartTimer(logging.CategoryCampaign, "gatherShardAdvice")
+	defer timer.Stop()
+
+	if g.consultation == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, g.config.ConsultTimeout)
+	defer cancel()
+
+	// Build context from already-gathered intelligence
+	contextBuilder := strings.Builder{}
+	contextBuilder.WriteString(fmt.Sprintf("Campaign Goal: %s\n\n", goal))
+
+	if len(report.HighChurnFiles) > 0 {
+		contextBuilder.WriteString("High Churn Files:\n")
+		for _, f := range report.HighChurnFiles[:min(5, len(report.HighChurnFiles))] {
+			contextBuilder.WriteString(fmt.Sprintf("- %s\n", f))
+		}
+		contextBuilder.WriteString("\n")
+	}
+
+	if len(report.SafetyWarnings) > 0 {
+		contextBuilder.WriteString("Safety Warnings:\n")
+		for _, w := range report.SafetyWarnings[:min(3, len(report.SafetyWarnings))] {
+			contextBuilder.WriteString(fmt.Sprintf("- %s: %s\n", w.Action, w.RuleViolated))
+		}
+		contextBuilder.WriteString("\n")
+	}
+
+	// Consult domain experts
+	request := consultation.BatchRequest{
+		Topic:       "Campaign Planning Review",
+		Question:    fmt.Sprintf("Review this campaign plan and provide your expert advice. What should we be careful about? What patterns should we follow? What are the risks?\n\nGoal: %s", goal),
+		Context:     contextBuilder.String(),
+		Specialists: []string{"coder", "tester", "reviewer", "researcher"},
+	}
+
+	// Each failed specialist is reported by name; every successful answer is
+	// kept whatever the others did.
+	batch := g.consultation.RequestBatchConsultation(ctx, request)
+	if batch.RequestErr != nil {
+		addError(fmt.Sprintf("Shard consultation failed: %v", batch.RequestErr))
+	}
+	for _, e := range batch.Failed() {
+		addError(fmt.Sprintf("Shard consultation with %s %s: %v", e.Specialist, e.Status, e.Err))
+	}
+	responses := batch.Succeeded()
+	if len(responses) == 0 {
+		return
+	}
+
+	report.ShardAdvice = responses
+
+	// Synthesize advisory summary
+	var summaryBuilder strings.Builder
+	summaryBuilder.WriteString("## Advisory Summary\n\n")
+	for _, resp := range responses {
+		if resp.Confidence > 0.5 {
+			summaryBuilder.WriteString(fmt.Sprintf("**%s** (%.0f%% confidence): %s\n\n",
+				resp.Specialist, resp.Confidence*100, resp.Advice))
+		}
+	}
+	report.AdvisorySummary = summaryBuilder.String()
+
+	logging.CampaignDebug("Shard advice gathered: %d responses", len(report.ShardAdvice))
+}
+
+// gatherHolographicContext renders per-target architectural context.
+//
+// The provider is nil-safe and returns "" for anything it cannot describe — a
+// missing file, a non-Go extension — so a target that yields nothing is
+// skipped rather than reported as an error. That absence is ordinary when the
+// campaign targets a directory rather than files, and it is not a cut: there
+// was no section to withhold. Every path that does describe something is kept
+// whole. PromptSection is called without a render budget because the campaign
+// kernel has no holographic_to_render policy (that decision is the session
+// working set's, internal/context/holographic_render.mg); the campaign's own
+// context budget decides later what of this report enters the planning prompt.
+//
+// A cancelled gather is the one case that leaves a target unrendered. Those
+// paths are named, with the tools that read them, both on the error and on
+// the report the model is shown.
+func (g *IntelligenceGatherer) gatherHolographicContext(ctx context.Context, report *IntelligenceReport, paths []string, addError func(string)) {
+	if g.holographic == nil {
+		return
+	}
+
+	sections := make([]HolographicSection, 0, len(paths))
+	var unread []string
+	for i, path := range paths {
+		if err := ctx.Err(); err != nil {
+			unread = append(unread, paths[i:]...)
+			addError(holographicCancelled(len(sections), len(paths), err, unread))
+			break
+		}
+		// One PromptSection is one request. A single budget for the target
+		// list would be a clock on the gather; each call carries
+		// per_system_timeout, and a call that stops names its path.
+		reqCtx, cancel := g.boundSystem(ctx)
+		section := g.holographic.PromptSection(reqCtx, path)
+		reqErr := reqCtx.Err()
+		cancel()
+		if strings.TrimSpace(section) == "" {
+			// PromptSection returns "" on cancellation as well as on a file it
+			// cannot describe. A parent cancellation stops the rest of the
+			// list. A per-call timeout withheld this path and the next call
+			// still gets its own budget.
+			if err := ctx.Err(); err != nil {
+				unread = append(unread, paths[i:]...)
+				addError(holographicCancelled(len(sections), len(paths), err, unread))
+				break
+			}
+			if reqErr != nil {
+				unread = append(unread, path)
+				addError(fmt.Sprintf("holographic context for %s stopped (%v); %s", path, reqErr, holographicUnreadLine(path)))
+				continue
+			}
+			continue
+		}
+		sections = append(sections, HolographicSection{Path: path, Section: section})
+	}
+
+	if len(sections) == 0 && len(unread) == 0 {
+		return
+	}
+	if len(sections) > 0 {
+		report.HolographicSections = sections
+	}
+	if len(unread) > 0 {
+		report.HolographicUnread = unread
+	}
+	logging.CampaignDebug("Holographic context gathered for %d/%d target(s)", len(sections), len(paths))
+}

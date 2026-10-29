@@ -1,0 +1,140 @@
+# Create Intent Verb Atoms
+# New file/feature creation, scaffolding, templates
+
+- id: "intent/create/core"
+  category: "intent"
+  subcategory: "create"
+  is_mandatory: true
+  intent_verbs: ["/create"]
+  content: |
+    ## CREATE INTENT PROTOCOL (Encyclopedic)
+
+    Your intent is to **CREATE**, but ONLY after verifying creation is truly necessary.
+
+    **Prime Directive: EXPLORE BEFORE YOU CREATE.** Most "create" tasks become "extend" or "modify" once you understand the codebase. New code is a last resort.
+
+    ### MANDATORY pre-creation exploration (do this first)
+    1. SEARCH for similar code: `glob("**/*{concept}*")`, `grep("{TypeName}|{FunctionName}")`.
+    2. EXPLORE: `list_files` at the root and likely parent directories; note patterns and conventions.
+    3. READ 3-5 adjacent files (organization, naming, structure).
+    4. DECIDE: can I add to an existing file? EXTEND. Can I follow an existing pattern exactly? MIRROR. Truly nothing similar (glob + grep actually run)? CREATE, with justification, following the nearest pattern. Similar code that cannot be extended: document why, then CREATE.
+
+    ### Workflow
+    Exploration (cannot skip) -> state the exact artifact and why existing code can't be extended -> match conventions EXACTLY -> create in the RIGHT existing directory (no parallel structures) -> wire into existing registration points -> test-first verification -> self-review for duplicates and convention drift.
+
+    ### Checklist
+    - [ ] glob + grep evidence; reason extending won't work
+    - [ ] existing directories, naming, layer placement and import boundaries followed
+    - [ ] public APIs documented; errors wrapped with context
+    - [ ] wired into entrypoints; tests cover happy, edge and error paths
+
+- id: "intent/create/scaffolding"
+  category: "intent"
+  subcategory: "create"
+  is_mandatory: false
+  intent_verbs: ["/create"]
+  depends_on: ["intent/create/core"]
+  content: |
+    ## SCAFFOLDING PATTERNS
+
+    ### NEW PACKAGE
+    ```go
+    // internal/newpkg/newpkg.go
+    package newpkg
+
+    // Package documentation goes here.
+    // Explain the purpose and how to use it.
+
+    // New creates a new instance of Service.
+    func New(deps Dependencies) *Service {
+        return &Service{deps: deps}
+    }
+
+    // Service provides newpkg functionality.
+    type Service struct {
+        deps Dependencies
+    }
+    ```
+
+    ### NEW INTERFACE IMPLEMENTATION
+    ```go
+    // 1. Define interface (if not existing)
+    type Repository interface {
+        Get(ctx context.Context, id string) (*Entity, error)
+        Save(ctx context.Context, e *Entity) error
+    }
+
+    // 2. Implement
+    type sqlRepository struct {
+        db *sql.DB
+    }
+
+    // 3. Compile-time verification
+    var _ Repository = (*sqlRepository)(nil)
+
+    func NewSQLRepository(db *sql.DB) Repository {
+        return &sqlRepository{db: db}
+    }
+    ```
+
+    ### NEW HANDLER
+    ```go
+    // internal/transport/http/new_handler.go
+    type NewHandler struct {
+        svc *service.NewService
+    }
+
+    func NewNewHandler(svc *service.NewService) *NewHandler {
+        return &NewHandler{svc: svc}
+    }
+
+    func (h *NewHandler) Handle(w http.ResponseWriter, r *http.Request) {
+        // Parse → Validate → Execute → Respond
+    }
+    ```
+
+- id: "intent/create/conventions"
+  category: "intent"
+  subcategory: "create"
+  is_mandatory: false
+  intent_verbs: ["/create"]
+  content: |
+    ## CREATION CONVENTIONS
+
+    ### FILE NAMING
+    - Go: `snake_case.go`
+    - Test: `snake_case_test.go`
+    - Internal: `internal/pkg/`
+    - Command: `cmd/name/main.go`
+
+    ### TYPE NAMING
+    - Interfaces: `-er` suffix (Reader, Writer, Handler)
+    - Implementations: descriptive (FileReader, HTTPHandler)
+    - Options: `Option` or `Config` suffix
+
+    ### FUNCTION NAMING
+    - Constructors: `New` + TypeName
+    - Getters: Just the field name (not `Get`)
+    - Setters: `Set` + FieldName (if needed)
+    - Boolean getters: `Is` or `Has` prefix
+
+    ### PACKAGE STRUCTURE
+    ```
+    internal/newfeature/
+    ├── newfeature.go      # Main types and New()
+    ├── newfeature_test.go # Tests
+    ├── options.go         # Configuration options
+    ├── errors.go          # Package-specific errors
+    └── doc.go             # Package documentation
+    ```
+
+    ### DOCUMENTATION
+    ```go
+    // Package newfeature provides functionality for X.
+    //
+    // Example usage:
+    //
+    //     svc := newfeature.New(deps)
+    //     result, err := svc.Process(ctx, input)
+    package newfeature
+    ```

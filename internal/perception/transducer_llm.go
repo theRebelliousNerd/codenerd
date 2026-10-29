@@ -1,0 +1,1076 @@
+package perception
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"codenerd/internal/broker"
+	"codenerd/internal/config"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+)
+
+// LLMTransducer implements LLM-first intent classification.
+// The LLM understands user intent; the harness routes based on that understanding.
+//
+// Philosophy: LLM describes → Harness determines
+type LLMTransducer struct {
+	client LLMClient
+	kernel RoutingKernel
+	prompt string
+	// thinking is whether the client runs with thinking enabled. A thinking
+	// model gets the thinking system prompt and, when the client enforces
+	// schemas, a schema-enforced attempt first (methodPlan). It is read from
+	// the client once, so every public entry point classifies one way.
+	thinking bool
+}
+
+// RoutingKernel is the interface for querying routing rules from Mangle.
+type RoutingKernel interface {
+	// QueryRouting queries the routing schema for affinity scores.
+	// predicate is one of: mode_from_semantic, context_affinity_semantic, etc.
+	// arg is the semantic type, action type, or domain.
+	// Returns a list of (target, weight) pairs.
+	QueryRouting(ctx context.Context, predicate string, arg string) ([]RoutingMatch, error)
+}
+
+// VocabularyAuditor is implemented by RoutingKernel adapters that can read the
+// kernel-derived vocabulary audit: understanding_vocab_miss(Field, Value) from
+// perception_routing.mg, computed over the current_understanding and
+// llm_suggested_mode facts this transducer asserts. Each miss is returned as
+// "field=value", sorted.
+type VocabularyAuditor interface {
+	VocabularyMisses() ([]string, error)
+}
+
+// NERD-EVOLVE-START: P3_routing_assertion
+// KernelAsserter is an optional interface implemented by RoutingKernel adapters
+// that support writing derived routing facts back into the Mangle kernel.
+// Type-assert the RoutingKernel to this interface before calling AssertRoutingFact.
+type KernelAsserter interface {
+	AssertRoutingFact(predicate string, args ...any) error
+	RetractRoutingPredicate(predicate string) error
+}
+
+// NERD-EVOLVE-END: P3_routing_assertion
+
+// RoutingMatch represents a routing query result.
+type RoutingMatch struct {
+	Target string
+	Weight int
+}
+
+// NewLLMTransducer creates a new LLM-first transducer.
+func NewLLMTransducer(client LLMClient, kernel RoutingKernel, prompt string) *LLMTransducer {
+	thinking := false
+	if tp, ok := client.(ThinkingProvider); ok {
+		thinking = tp.IsThinkingEnabled()
+	}
+	return &LLMTransducer{
+		client:   client,
+		kernel:   kernel,
+		prompt:   prompt,
+		thinking: thinking,
+	}
+}
+
+// Understand uses the LLM to interpret user intent.
+// This is the primary (and only) classification path: ParseIntent,
+// ParseIntentWithContext and ParseIntentWithGCD all end here. It returns the
+// admitted Understanding, or nil with the outcome that says why there is none.
+func (t *LLMTransducer) Understand(ctx context.Context, input string, history []ConversationTurn, semanticMatches []SemanticMatch, sessionCtx *types.SessionContext, strategicContext string) (*Understanding, ClassificationOutcome) {
+	// Attribute this call and everything under it to perception. The purpose
+	// travels on the context, so it survives into the client wrapper without
+	// any call site in between having to know the broker exists.
+	ctx = broker.WithPurpose(ctx, broker.PurposePerception)
+
+	understandStart := time.Now()
+	truncatedInput := input
+	if len(truncatedInput) > 80 {
+		truncatedInput = truncatedInput[:80] + "..."
+	}
+
+	// Log client type for diagnosis (which model/engine is handling this?)
+	clientType := fmt.Sprintf("%T", t.client)
+	thinkingInfo := "thinking=off"
+	if tp, ok := t.client.(ThinkingProvider); ok && tp.IsThinkingEnabled() {
+		thinkingInfo = fmt.Sprintf("thinking=on(level=%s)", tp.GetThinkingLevel())
+	}
+	hasKernel := t.kernel != nil
+	logging.Perception("[Understand] START input=%q len=%d historyTurns=%d semanticMatches=%d client=%s %s hasKernel=%v",
+		truncatedInput, len(input), len(history), len(semanticMatches), clientType, thinkingInfo, hasKernel)
+
+	// 1. Build the prompt with conversation history and new contexts
+	promptStart := time.Now()
+	fullPrompt := t.BuildPrompt(input, history, semanticMatches, sessionCtx, strategicContext)
+	// Estimate token counts (rough: 1 token ≈ 4 chars)
+	systemTokenEst := len(t.prompt) / 4
+	userTokenEst := len(fullPrompt) / 4
+	totalTokenEst := systemTokenEst + userTokenEst
+	// Log prompt composition breakdown
+	historyChars := 0
+	for _, h := range history {
+		historyChars += len(h.Content)
+	}
+	semanticChars := 0
+	for _, sm := range semanticMatches {
+		semanticChars += len(sm.TextContent) + len(sm.Verb) + len(sm.Target)
+	}
+	ambientChars := 0
+	if sessionCtx != nil && sessionCtx.Ambient != nil {
+		ambientChars = len(sessionCtx.Ambient.ActiveFile) + len(sessionCtx.Ambient.SelectedText)
+	}
+	logging.Perception("[Understand] prompt built: %dms | system=%d chars (~%d tok) | user=%d chars (~%d tok) | total ~%d tok | breakdown: input=%d history=%d semantic=%d ambient=%d strategic=%d",
+		time.Since(promptStart).Milliseconds(),
+		len(t.prompt), systemTokenEst,
+		len(fullPrompt), userTokenEst,
+		totalTokenEst,
+		len(input), historyChars, semanticChars, ambientChars, len(strategicContext))
+
+	// 2. Call the model and read its answer, by the methods this client
+	// supports (methodPlan).
+	plan := t.methodPlan()
+	var (
+		understanding *Understanding
+		outcome       ClassificationOutcome
+		llmDuration   time.Duration
+		parseStart    time.Time
+	)
+	for i, method := range plan {
+		llmStart := time.Now()
+		logging.Perception("[Understand] calling LLM method=%s attempt=%d/%d (~%d tok)...", method, i+1, len(plan), totalTokenEst)
+		response, err := t.send(ctx, method, fullPrompt)
+		llmDuration = time.Since(llmStart)
+		if err != nil {
+			logging.Perception("[Understand] LLM FAILED after %dms: %v | method=%s was sending ~%d tokens to %s",
+				llmDuration.Milliseconds(), err, method, totalTokenEst, clientType)
+			// Only a client that says it cannot enforce a schema moves a
+			// schema attempt to the free-form one. Every other call failure is
+			// terminal: an authentication failure, a cancellation, an outage or
+			// a rate limit does not change when the same request is sent a
+			// second way, and a second send would only spend the budget again.
+			if method == MethodSchema && errors.Is(err, core.ErrSchemaNotSupported) && i+1 < len(plan) {
+				logging.Perception("[Understand] client does not enforce schemas; falling back to the free-form completion")
+				continue
+			}
+			return nil, FailedOutcome(err, method, i+1)
+		}
+		// Extract thinking metrics if available (need full types.ThinkingProvider for post-call metrics)
+		thinkingLog := ""
+		if tp, ok := t.client.(types.ThinkingProvider); ok && tp.IsThinkingEnabled() {
+			thinkingTokens := tp.GetLastThinkingTokens()
+			thinkingLog = fmt.Sprintf(" thinkingTokens=%d", thinkingTokens)
+		}
+		logging.Perception("[Understand] LLM responded: %dms | responseLen=%d chars (~%d tok)%s",
+			llmDuration.Milliseconds(), len(response), len(response)/4, thinkingLog)
+		logging.PerceptionDebug("Raw LLM Response: %s", response)
+
+		// 3. Parse the response
+		parseStart = time.Now()
+		parsed, parseErr := t.parseResponse(response)
+		if parseErr != nil {
+			// Log the actual response that failed to parse so we can diagnose format issues
+			respPreview := response
+			if len(respPreview) > 500 {
+				respPreview = respPreview[:500] + "..."
+			}
+			logging.Perception("[Understand] parse FAILED after %dms: %v | method=%s responsePreview=%q",
+				time.Since(parseStart).Milliseconds(), parseErr, method, respPreview)
+			// A schema answer that is not a classification is a different
+			// request away from a readable one: the free-form completion is
+			// the next method. The last method's unreadable answer ends it.
+			if i+1 < len(plan) {
+				continue
+			}
+			return nil, FailedOutcome(parseErr, method, i+1)
+		}
+		understanding = parsed
+		outcome = admittedOutcome(method, i+1)
+		break
+	}
+	if understanding == nil {
+		return nil, FailedOutcome(errors.New("no classification method ran"), "", 0)
+	}
+	// Log the full understanding - every field matters for debugging
+	logging.Perception("[Understand] parsed: %dms | intent=%q semantic=%s action=%s domain=%s confidence=%.2f | scope={level=%s target=%q file=%q symbol=%q} | signals={question=%v hypothetical=%v multi_step=%v negated=%v confirm=%v urgency=%s} | constraints=%v | suggested={mode=%s shard=%s support=%v tools=%v context=%v}",
+		time.Since(parseStart).Milliseconds(),
+		understanding.PrimaryIntent, understanding.SemanticType, understanding.ActionType, understanding.Domain, understanding.Confidence,
+		understanding.Scope.Level, understanding.Scope.Target, understanding.Scope.File, understanding.Scope.Symbol,
+		understanding.Signals.IsQuestion, understanding.Signals.IsHypothetical, understanding.Signals.IsMultiStep,
+		understanding.Signals.IsNegated, understanding.Signals.RequiresConfirmation, understanding.Signals.Urgency,
+		understanding.UserConstraints,
+		understanding.SuggestedApproach.Mode, understanding.SuggestedApproach.PrimaryShard,
+		understanding.SuggestedApproach.SupportingShards, understanding.SuggestedApproach.ToolsNeeded,
+		understanding.SuggestedApproach.ContextNeeded)
+
+	// Vocabulary: the harness does not check the fields in Go. deriveRouting
+	// asserts them and the kernel derives understanding_vocab_miss for any
+	// value outside the routing vocabulary; the misses land on
+	// Routing.VocabularyMisses.
+
+	// 5. Derive routing from understanding
+	routeStart := time.Now()
+	t.deriveRouting(ctx, understanding)
+	var supportingShards string
+	if understanding.Routing != nil {
+		supportingShards = fmt.Sprintf("%v", understanding.Routing.SupportingShards)
+	}
+	logging.Perception("[Understand] routing derived: %dms | mode=%s primaryShard=%s supportingShards=%s | llmSuggestedMode=%s (overridden=%v)",
+		time.Since(routeStart).Milliseconds(),
+		understanding.Routing.Mode, understanding.Routing.PrimaryShard, supportingShards,
+		understanding.SuggestedApproach.Mode, understanding.Routing.Mode != understanding.SuggestedApproach.Mode)
+
+	logging.Perception("[Understand] COMPLETE: %dms total | prompt=%dms llm=%dms parse=%dms route=%dms | bottleneck=%s",
+		time.Since(understandStart).Milliseconds(),
+		time.Since(promptStart).Milliseconds()-llmDuration.Milliseconds(),
+		llmDuration.Milliseconds(),
+		time.Since(parseStart).Milliseconds(),
+		time.Since(routeStart).Milliseconds(),
+		identifyBottleneck(time.Since(promptStart).Milliseconds()-llmDuration.Milliseconds(), llmDuration.Milliseconds(), time.Since(parseStart).Milliseconds()))
+
+	return understanding, outcome
+}
+
+// thinkingSystemWrapper is prepended to the classification prompt for a client
+// with thinking enabled: the model reasons first, and the JSON object is the
+// last thing it writes, which is the shape parseResponse reads.
+const thinkingSystemWrapper = `
+IMPORTANT: You are a model with "Thinking" capabilities enabled.
+1. You MUST first think about the user's request, analyzing the nuance, intent, and constraints.
+2. Your output MUST contain your thoughts followed by the valid JSON object.
+3. The JSON object must be the LAST thing you output.
+4. Do NOT output markdown code blocks for the JSON (e.g. no triple backticks). Just the raw JSON object at the end.
+
+`
+
+// methodPlan is the ordered list of model operations this client supports for
+// one classification. It is the single place capability decides the method, so
+// every public entry point (ParseIntent, the history-aware method, the GCD
+// adaptation) classifies the same way for the same client. A thinking client
+// that enforces schemas tries the schema operation first and the free-form one
+// only if the client reports it cannot enforce a schema or the schema answer
+// is not a classification; every other client has one operation.
+func (t *LLMTransducer) methodPlan() []ClassificationMethod {
+	if !t.thinking {
+		return []ClassificationMethod{MethodGeneric}
+	}
+	if sc, ok := t.client.(schemaCapableClient); ok && sc.SchemaCapable() {
+		return []ClassificationMethod{MethodSchema, MethodFreeForm}
+	}
+	return []ClassificationMethod{MethodFreeForm}
+}
+
+// send runs one model operation of the plan.
+func (t *LLMTransducer) send(ctx context.Context, method ClassificationMethod, userPrompt string) (string, error) {
+	switch method {
+	case MethodSchema:
+		sc, ok := t.client.(schemaCapableClient)
+		if !ok {
+			return "", core.ErrSchemaNotSupported
+		}
+		return sc.CompleteWithSchema(ctx, thinkingSystemWrapper+t.prompt, userPrompt, understandingSchema)
+	case MethodFreeForm:
+		return t.client.CompleteWithSystem(ctx, thinkingSystemWrapper+t.prompt, userPrompt)
+	default:
+		return t.client.CompleteWithSystem(ctx, t.prompt, userPrompt)
+	}
+}
+
+// identifyBottleneck returns a human-readable label for which phase is the slowest.
+func identifyBottleneck(promptMs, llmMs, parseRouteMs int64) string {
+	if llmMs >= promptMs && llmMs >= parseRouteMs {
+		return fmt.Sprintf("LLM_API(%dms)", llmMs)
+	}
+	if promptMs >= llmMs && promptMs >= parseRouteMs {
+		return fmt.Sprintf("PROMPT_BUILD(%dms)", promptMs)
+	}
+	return fmt.Sprintf("PARSE_ROUTE(%dms)", parseRouteMs)
+}
+
+// BuildPrompt constructs the user prompt with conversation history, learned semantic matches,
+// ambient session context, and strategic guidance context.
+// Bounds on the classification prompt.
+//
+// Perception runs on EVERY turn before anything else, on the cheap model tier,
+// and its only job is to answer "what does the user want" in one JSON object.
+// Every byte here is spent before a single line of real work happens, and none
+// of it was capped: ParseIntentWithContext truncates `input` at 50 KB
+// (understanding_adapter.go) and then BuildPrompt appended an unbounded editor
+// selection, an unbounded strategic-context blob, and unbounded few-shot
+// exemplars. A chat session that had just pasted a 200 KB stack trace replayed
+// it into every subsequent classification call.
+//
+// The caps below are deliberately tight. Classification does not need the whole
+// selection; it needs enough to tell "fix this" from "explain this". Prior
+// turns are not in this list: they are evicted whole from
+// classification.history_turn_window and classification.history_char_budget
+// (selectClassificationHistory). A turn is never sliced.
+const (
+	// maxAmbientSelectionChars caps the editor selection. An IDE "select all"
+	// in a large file is one keystroke away, and the selection is verbatim
+	// source: high token cost, near-zero classification value past the first
+	// few hundred lines.
+	maxAmbientSelectionChars = 4 * 1024
+
+	// maxAmbientDiagnostics caps diagnostics listed for classification. gopls
+	// on a broken build emits hundreds; the first few establish the intent
+	// ("something is failing") and the rest are noise at this stage.
+	maxAmbientDiagnostics = 10
+
+	// maxAmbientDiagnosticChars caps one diagnostic line.
+	maxAmbientDiagnosticChars = 300
+
+	// maxStrategicContextChars caps injected strategic context (campaign
+	// goal, northstar framing). It is set by the campaign layer with no size
+	// contract of its own.
+	maxStrategicContextChars = 4 * 1024
+
+	// maxSemanticExemplars caps few-shot exemplars. Past a handful the model
+	// is pattern-matching against a corpus rather than reading the request.
+	maxSemanticExemplars = 8
+
+	// maxSemanticExemplarChars caps one exemplar's recalled user text. These
+	// come from the embedding store, which holds whatever was typed —
+	// including the last 50 KB paste.
+	maxSemanticExemplarChars = 500
+)
+
+func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, semanticMatches []SemanticMatch, sessionCtx *types.SessionContext, strategicContext string) string {
+	var sb strings.Builder
+
+	// Incorporate Ambient Workspace Context
+	if sessionCtx != nil && sessionCtx.Ambient != nil {
+		sb.WriteString("## Ambient Workspace Context\n\n")
+		if sessionCtx.Ambient.ActiveFile != "" {
+			sb.WriteString(fmt.Sprintf("- **Active File:** %s\n", sessionCtx.Ambient.ActiveFile))
+		}
+		if sessionCtx.Ambient.CursorLine > 0 {
+			sb.WriteString(fmt.Sprintf("- **Cursor Line:** %d\n", sessionCtx.Ambient.CursorLine))
+		}
+		if sessionCtx.Ambient.SelectedText != "" {
+			sb.WriteString(fmt.Sprintf("- **Selected Text:**\n```\n%s\n```\n",
+				types.ClampText(sessionCtx.Ambient.SelectedText, maxAmbientSelectionChars, "editor selection")))
+		}
+		if len(sessionCtx.Ambient.Diagnostics) > 0 {
+			sb.WriteString("- **Diagnostics:**\n")
+			shown := min(len(sessionCtx.Ambient.Diagnostics), maxAmbientDiagnostics)
+			for _, diag := range sessionCtx.Ambient.Diagnostics[:shown] {
+				sb.WriteString(fmt.Sprintf("  - %s\n",
+					types.ClampHead(diag, maxAmbientDiagnosticChars, "diagnostic")))
+			}
+			if notice := types.TruncationNotice(shown, len(sessionCtx.Ambient.Diagnostics), "diagnostics"); notice != "" {
+				sb.WriteString("  - " + notice + "\n")
+			}
+		}
+		sb.WriteString("\n---\n\n")
+	}
+
+	// Incorporate Strategic Context
+	if strategicContext != "" {
+		sb.WriteString("## Strategic Context\n\n")
+		sb.WriteString(types.ClampText(strategicContext, maxStrategicContextChars, "strategic context"))
+		sb.WriteString("\n\n---\n\n")
+	}
+
+	// Incorporate Learned Semantic Matches (Few-Shot Exemplars)
+	if len(semanticMatches) > 0 {
+		sb.WriteString("## Learned Semantic Matches\n\n")
+		sb.WriteString("These are similar past interactions that may guide your understanding:\n\n")
+		// The similarity gate is inside the loop, so count exemplars actually
+		// written rather than positions scanned; otherwise a run of
+		// low-similarity hits would burn the cap without emitting anything.
+		written := 0
+		eligible := 0
+		for _, match := range semanticMatches {
+			// Include high confidence matches as exemplars
+			if match.Similarity <= 0.8 {
+				continue
+			}
+			eligible++
+			if written >= maxSemanticExemplars {
+				continue
+			}
+			written++
+			sb.WriteString(fmt.Sprintf("- **User Input:** \"%s\"\n",
+				types.ClampHead(match.TextContent, maxSemanticExemplarChars, "exemplar")))
+			sb.WriteString(fmt.Sprintf("  **Mapped Intent:** Verb=%s, Target=%s, Constraint=%s (Similarity: %.2f)\n\n",
+				match.Verb, match.Target, match.Constraint, match.Similarity))
+		}
+		if notice := types.TruncationNotice(written, eligible, "exemplars"); notice != "" {
+			sb.WriteString(notice + "\n\n")
+		}
+		sb.WriteString("---\n\n")
+	}
+
+	// Prior turns, whole. The window and the byte budget come from
+	// classification.* (config.ResolvedClassificationHistory); the oldest
+	// turns that do not fit are named and left out, never sliced.
+	if kept, notice := classificationHistoryBlock(history); len(kept) > 0 {
+		sb.WriteString("## Recent Conversation\n\n")
+		if notice != "" {
+			sb.WriteString(notice)
+			sb.WriteString("\n\n")
+		}
+		for _, turn := range kept {
+			if turn.Content != "" {
+				sb.WriteString(fmt.Sprintf("**%s**: %s\n\n", turn.Role, turn.Content))
+			}
+		}
+		sb.WriteString("---\n\n")
+	}
+
+	// The running brief, so the model updates it rather than restarting it.
+	if sessionCtx != nil && sessionCtx.Brief != "" {
+		sb.WriteString("## Current Brief\n\n")
+		sb.WriteString(sessionCtx.Brief)
+		sb.WriteString("\n---\n\n")
+	}
+
+	sb.WriteString("## Current Request\n\n")
+	sb.WriteString(input)
+
+	return sb.String()
+}
+
+// classificationHistoryBlock is the prior-turn window BuildPrompt renders.
+//
+// The installed classification policy supplies the count and the byte
+// budget. Turns that do not fit are evicted whole, oldest first, and the
+// notice names them. The newest turn is kept even when it alone is over the
+// budget, and the notice says that too: this call cannot page history back,
+// and the turn a follow-up refers to is the newest one. A window of 0 sends
+// nothing and says nothing — the file asked for no prior turn, which is the
+// same rule the session generator uses for its own window.
+func classificationHistoryBlock(history []ConversationTurn) (kept []ConversationTurn, notice string) {
+	policy := config.ResolvedClassificationHistory()
+	kept, dropped, droppedChars, newestChars, newestExceeds := selectClassificationHistory(history, policy.TurnWindow, policy.CharBudget)
+	if len(kept) == 0 {
+		return nil, ""
+	}
+	return kept, classificationHistoryNotice(dropped, dropped+len(kept), droppedChars, newestChars, policy.CharBudget, newestExceeds)
+}
+
+// selectClassificationHistory keeps the newest prior turns that fit.
+// Empty visible turns are skipped and do not consume the window. window <= 0
+// sends none. The byte budget counts visible content only; provider summaries
+// are excluded. newestExceeds marks a retained turn that is itself over budget.
+func selectClassificationHistory(history []ConversationTurn, window, budget int) (kept []ConversationTurn, dropped, droppedChars, newestChars int, newestExceeds bool) {
+	if window <= 0 {
+		return nil, 0, 0, 0, false
+	}
+	var turns []ConversationTurn
+	for _, turn := range history {
+		if turn.Content == "" {
+			continue
+		}
+		turn.ThoughtSummary = "" // Provider summaries are not classification context.
+		turns = append(turns, turn)
+	}
+	if len(turns) == 0 {
+		return nil, 0, 0, 0, false
+	}
+	eligible := turns
+	if len(turns) > window {
+		eligible = turns[len(turns)-window:]
+	}
+	sizes := make([]int, len(eligible))
+	total := 0
+	for i, turn := range eligible {
+		sizes[i] = len(turn.Content)
+		total += sizes[i]
+	}
+	// Drop oldest until the remainder fits, but never the newest.
+	start := 0
+	for start < len(eligible)-1 && total > budget {
+		total -= sizes[start]
+		start++
+	}
+	kept = eligible[start:]
+	newestChars = sizes[len(sizes)-1]
+	newestExceeds = newestChars > budget
+	for _, turn := range turns[:len(turns)-len(kept)] {
+		dropped++
+		droppedChars += len(turn.Content)
+	}
+	return kept, dropped, droppedChars, newestChars, newestExceeds
+}
+
+// classificationHistoryNotice names what left the window. There is no recall
+// handle: classification does not run inside the working loop, so a handle
+// would name a verb this call cannot use.
+func classificationHistoryNotice(dropped, eligible, droppedChars, newestChars, budget int, newestExceeds bool) string {
+	if newestExceeds {
+		over := fmt.Sprintf("the newest prior turn is %d chars, over classification.history_char_budget %d, and is included whole", newestChars, budget)
+		if dropped > 0 {
+			over += fmt.Sprintf("; %d of %d prior turns (%d chars) were left out", dropped, eligible, droppedChars)
+		}
+		return types.TruncationMarker(over)
+	}
+	return types.DroppedNotice(dropped, eligible,
+		fmt.Sprintf("prior turns (%d chars) left out of classification; the session still holds them", droppedChars), "")
+}
+
+// normalizeLLMFields normalizes LLM-generated field values to lowercase
+// so they match the Mangle routing vocabulary. LLMs may return mixed-case
+// values like "Code_Generation" when the vocabulary expects "code_generation".
+func normalizeLLMFields(u *Understanding) {
+	if u == nil {
+		return
+	}
+	u.SemanticType = strings.ToLower(strings.TrimSpace(u.SemanticType))
+	u.ActionType = strings.ToLower(strings.TrimSpace(u.ActionType))
+	u.Domain = strings.ToLower(strings.TrimSpace(u.Domain))
+	if u.Scope.Level != "" {
+		u.Scope.Level = strings.ToLower(strings.TrimSpace(u.Scope.Level))
+	}
+	if u.SuggestedApproach.Mode != "" {
+		u.SuggestedApproach.Mode = strings.ToLower(strings.TrimSpace(u.SuggestedApproach.Mode))
+	}
+	// A confidence written as a percentage (85) is converted, not clamped:
+	// clamping 85 to 1 would turn a modest reading into maximal certainty.
+	// admitUnderstanding has already refused values outside 0..100.
+	if u.Confidence > 1 {
+		u.Confidence /= 100
+	}
+}
+
+// maxJSONCandidates caps the number of balanced {...}/[...] spans we keep
+// while scanning. A pathological response with thousands of nested or
+// sibling JSON-like fragments would otherwise allocate a candidate slice of
+// unbounded size. Since we want the LAST valid object/array, we only need
+// to retain the most recent spans — older ones can be dropped.
+const maxJSONCandidates = 1000
+
+// isJSONObject reports whether raw is a non-empty JSON object value.
+// The envelope probe uses it so `"understanding": null` (or a scalar)
+// falls through to the direct parse instead of yielding a zero struct.
+func isJSONObject(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 0 && trimmed[0] == '{'
+}
+
+// ExtractCleanJSON finds the last valid JSON object in the response.
+// This handles cases where the model outputs thinking logs or schema examples before the final JSON.
+// It scans from the end of the string to efficiently find the last valid object without O(N^2) overhead.
+func ExtractCleanJSON(response string) string {
+	// We need to tolerate:
+	// - pre/postamble text
+	// - nested objects/arrays
+	// - braces/brackets inside JSON strings
+	//
+	// Strategy: forward scan with string/escape tracking; record every balanced {...} or [...] span,
+	// including nested ones; return the last valid JSON object/array.
+	var (
+		inString   bool
+		escapeNext bool
+		stack      []int
+		bracket    []byte
+		candidates []string
+	)
+
+	// appendCandidate keeps the candidate slice bounded by dropping the
+	// oldest entry when the cap is reached. The reverse-scan below returns
+	// the last valid candidate, so dropping the oldest is safe.
+	appendCandidate := func(c string) {
+		if len(candidates) >= maxJSONCandidates {
+			copy(candidates, candidates[1:])
+			candidates = candidates[:len(candidates)-1]
+		}
+		candidates = append(candidates, c)
+	}
+
+	for i := 0; i < len(response); i++ {
+		b := response[i]
+
+		if escapeNext {
+			escapeNext = false
+			continue
+		}
+
+		if inString {
+			if b == '\\' {
+				escapeNext = true
+			} else if b == '"' {
+				inString = false
+			}
+			continue
+		}
+
+		switch b {
+		case '"':
+			inString = true
+		case '{', '[':
+			stack = append(stack, i)
+			bracket = append(bracket, b)
+		case '}':
+			for len(stack) > 0 {
+				start := stack[len(stack)-1]
+				typ := bracket[len(bracket)-1]
+				stack = stack[:len(stack)-1]
+				bracket = bracket[:len(bracket)-1]
+				if typ == '{' {
+					appendCandidate(response[start : i+1])
+					break
+				}
+			}
+		case ']':
+			for len(stack) > 0 {
+				start := stack[len(stack)-1]
+				typ := bracket[len(bracket)-1]
+				stack = stack[:len(stack)-1]
+				bracket = bracket[:len(bracket)-1]
+				if typ == '[' {
+					appendCandidate(response[start : i+1])
+					break
+				}
+			}
+		}
+	}
+
+	for i := len(candidates) - 1; i >= 0; i-- {
+		c := strings.TrimSpace(candidates[i])
+		if json.Valid([]byte(c)) {
+			return c
+		}
+	}
+
+	return ""
+}
+
+// deriveRouting uses Mangle rules to derive routing from understanding.
+func (t *LLMTransducer) deriveRouting(ctx context.Context, u *Understanding) {
+	if t.kernel == nil {
+		// No kernel, use LLM's suggestions directly
+		u.Routing = &Routing{
+			Mode:             u.SuggestedApproach.Mode,
+			PrimaryShard:     u.SuggestedApproach.PrimaryShard,
+			SupportingShards: u.SuggestedApproach.SupportingShards,
+		}
+		return
+	}
+
+	routing := &Routing{
+		ContextPriorities: make(map[string]int),
+		ToolPriorities:    make(map[string]int),
+	}
+
+	// Derive mode from semantic type and action
+	routing.Mode = t.deriveMode(ctx, u)
+
+	// Derive shard from action and domain
+	routing.PrimaryShard, routing.SupportingShards = t.deriveShards(ctx, u)
+
+	// Derive context priorities
+	routing.ContextPriorities = t.deriveContextPriorities(ctx, u)
+
+	// Derive tool priorities
+	routing.ToolPriorities = t.deriveToolPriorities(ctx, u)
+
+	// Apply constraint-based blocks
+	routing.BlockedTools = t.deriveBlockedTools(ctx, u)
+
+	u.Routing = routing
+
+	// NERD-EVOLVE-START: P3_routing_assertion
+	// Phase B: Assert derived routing facts back into the Mangle kernel so that
+	// C1/C4 composition rules (context selection, JIT prompt compilation) can
+	// consume them without a separate query round-trip.
+	if asserter, ok := t.kernel.(KernelAsserter); ok {
+		t.assertRoutingFacts(asserter, u, routing)
+	}
+	// NERD-EVOLVE-END: P3_routing_assertion
+
+	// A field outside the routing vocabulary joins no routing table, so its
+	// routing silently came from the LLM's suggestion instead. The kernel
+	// derives which fields those are; surface them rather than let the
+	// degrade pass as a normal turn.
+	if auditor, ok := t.kernel.(VocabularyAuditor); ok {
+		misses, err := auditor.VocabularyMisses()
+		if err != nil {
+			logging.Get(logging.CategoryPerception).Warn("vocabulary audit unavailable: %v", err)
+		} else if len(misses) > 0 {
+			routing.VocabularyMisses = misses
+			logging.Get(logging.CategoryPerception).Warn(
+				"understanding outside the routing vocabulary (%s): routing for those fields falls back to the LLM suggestion",
+				strings.Join(misses, ", "))
+		}
+	}
+}
+
+// NERD-EVOLVE-START: P3_routing_assertion
+// assertRoutingFacts writes the current turn's understanding and derived routing
+// into the Mangle EDB so downstream rules (JIT selection, context compilation)
+// can derive from them without re-querying.
+//
+// Derivation chain impact:
+//
+//	current_understanding → perception_routing.mg rules → derived_mode (IDB)
+//	llm_suggested_mode    → fallback rule in perception_routing.mg
+//	derived_primary_shard, derived_context_priority, derived_tool_priority →
+//	  consumed by context_compilation.mg and jit_selection.mg (C1/C4)
+//
+// Fact budget: 4 fixed facts + |ContextPriorities| + |ToolPriorities| per turn.
+// All are retracted at turn start (see process.go retraction block).
+func (t *LLMTransducer) assertRoutingFacts(asserter KernelAsserter, u *Understanding, routing *Routing) {
+	// Retract-before-assert: these predicates hold one turn's routing, and
+	// only the chat path retracts them per turn. Without this, session
+	// turns accumulate stale priorities that later turns join against.
+	for _, pred := range []string{
+		"current_understanding", "llm_suggested_mode", "derived_mode",
+		"derived_primary_shard", "derived_context_priority", "derived_tool_priority",
+	} {
+		_ = asserter.RetractRoutingPredicate(pred)
+	}
+
+	// current_understanding(SemanticType, ActionType, Domain, ScopeLevel)
+	scopeLevel := u.Scope.Level
+	if scopeLevel == "" {
+		scopeLevel = "function"
+	}
+	if sem, act, dom, lvl := cleanRoutingAtom(u.SemanticType), cleanRoutingAtom(u.ActionType), cleanRoutingAtom(u.Domain), cleanRoutingAtom(scopeLevel); sem != "" && act != "" && dom != "" && lvl != "" {
+		_ = asserter.AssertRoutingFact("current_understanding", sem, act, dom, lvl)
+	} else {
+		// A field that cannot be a name atom joins no routing table and
+		// escapes the kernel's vocabulary audit; say so instead of
+		// dropping the turn's understanding silently.
+		logging.Get(logging.CategoryPerception).Warn(
+			"understanding not assertable as routing atoms (semantic=%q action=%q domain=%q scope=%q); routing tables and the vocabulary audit cannot see it",
+			u.SemanticType, u.ActionType, u.Domain, scopeLevel)
+	}
+
+	// llm_suggested_mode(Mode) — the raw LLM suggestion before Mangle override
+	if mode := cleanRoutingAtom(u.SuggestedApproach.Mode); mode != "" {
+		_ = asserter.AssertRoutingFact("llm_suggested_mode", mode)
+	}
+
+	// derived_mode(Mode) — the final harness mode after Mangle derivation
+	if mode := cleanRoutingAtom(routing.Mode); mode != "" {
+		_ = asserter.AssertRoutingFact("derived_mode", mode)
+	}
+
+	// derived_primary_shard(ShardID)
+	if shard := cleanRoutingAtom(routing.PrimaryShard); shard != "" {
+		_ = asserter.AssertRoutingFact("derived_primary_shard", shard)
+	}
+
+	// derived_context_priority(Category, Priority)
+	for cat, priority := range routing.ContextPriorities {
+		if atom := cleanRoutingAtom(cat); atom != "" {
+			_ = asserter.AssertRoutingFact("derived_context_priority", atom, priority)
+		}
+	}
+
+	// derived_tool_priority(Tool, Priority)
+	for tool, priority := range routing.ToolPriorities {
+		if atom := cleanRoutingAtom(tool); atom != "" {
+			_ = asserter.AssertRoutingFact("derived_tool_priority", atom, priority)
+		}
+	}
+}
+
+// cleanRoutingAtom normalizes a model- or table-derived value into a Mangle
+// name atom ("/"-prefixed, no whitespace), or "" when the value cannot be
+// an atom. Callers skip empty results: asserting "/" or "/two words"
+// would degrade to a string constant that no /name rule can join.
+func cleanRoutingAtom(value string) string {
+	value = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(value), "/"))
+	if value == "" || strings.ContainsAny(value, " \t\r\n") {
+		return ""
+	}
+	return "/" + value
+}
+
+// NERD-EVOLVE-END: P3_routing_assertion
+
+// deriveMode determines the harness mode from understanding.
+func (t *LLMTransducer) deriveMode(ctx context.Context, u *Understanding) string {
+	// Check signal-based overrides first
+	if u.Signals.IsHypothetical {
+		return "dream"
+	}
+
+	// Query mode from semantic type
+	matches, _ := t.kernel.QueryRouting(ctx, "mode_from_semantic", u.SemanticType)
+	if len(matches) > 0 {
+		return matches[0].Target
+	}
+
+	// Query mode from action type
+	matches, _ = t.kernel.QueryRouting(ctx, "mode_from_action", u.ActionType)
+	if len(matches) > 0 {
+		return matches[0].Target
+	}
+
+	// Query mode from domain
+	matches, _ = t.kernel.QueryRouting(ctx, "mode_from_domain", u.Domain)
+	if len(matches) > 0 {
+		return matches[0].Target
+	}
+
+	// Use LLM's suggestion or default
+	if u.SuggestedApproach.Mode != "" {
+		return u.SuggestedApproach.Mode
+	}
+	return "normal"
+}
+
+// deriveShards determines which shards to use.
+func (t *LLMTransducer) deriveShards(ctx context.Context, u *Understanding) (string, []string) {
+	shardScores := make(map[string]int)
+	// What the request asks for outranks where it happens: on equal totals the
+	// shard its action type names is the primary, then the name. Without this
+	// the name decided, and "explain this git history" (reviewer 85 from the
+	// action, coder 85 from the domain) went to the coder.
+	actionScores := make(map[string]int)
+
+	// Score from action type
+	matches, _ := t.kernel.QueryRouting(ctx, "shard_affinity_action", u.ActionType)
+	for _, m := range matches {
+		shardScores[m.Target] += m.Weight
+		actionScores[m.Target] += m.Weight
+	}
+
+	// Score from domain
+	matches, _ = t.kernel.QueryRouting(ctx, "shard_affinity_domain", u.Domain)
+	for _, m := range matches {
+		shardScores[m.Target] += m.Weight
+	}
+
+	// Find best shard
+	var primary string
+	var primaryScore, primaryAction int
+	var supporting []string
+
+	keys := make([]string, 0, len(shardScores))
+	for k := range shardScores {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, shard := range keys {
+		score := shardScores[shard]
+		if score > primaryScore || (score == primaryScore && score > 0 && actionScores[shard] > primaryAction) {
+			if primary != "" {
+				supporting = append(supporting, primary)
+			}
+			primary = shard
+			primaryScore = score
+			primaryAction = actionScores[shard]
+		} else if score > 50 { // Threshold for supporting
+			supporting = append(supporting, shard)
+		} else if score == primaryScore && score > 0 { // For ties <= 50
+			supporting = append(supporting, shard)
+		}
+	}
+
+	// Fallback to LLM suggestion
+	if primary == "" {
+		primary = u.SuggestedApproach.PrimaryShard
+		supporting = u.SuggestedApproach.SupportingShards
+	}
+
+	return primary, supporting
+}
+
+// deriveContextPriorities determines what context to prioritize.
+func (t *LLMTransducer) deriveContextPriorities(ctx context.Context, u *Understanding) map[string]int {
+	priorities := make(map[string]int)
+
+	// From semantic type
+	matches, _ := t.kernel.QueryRouting(ctx, "context_affinity_semantic", u.SemanticType)
+	for _, m := range matches {
+		priorities[m.Target] = max(priorities[m.Target], m.Weight)
+	}
+
+	// From action type
+	matches, _ = t.kernel.QueryRouting(ctx, "context_affinity_action", u.ActionType)
+	for _, m := range matches {
+		priorities[m.Target] = max(priorities[m.Target], m.Weight)
+	}
+
+	// From domain
+	matches, _ = t.kernel.QueryRouting(ctx, "context_affinity_domain", u.Domain)
+	for _, m := range matches {
+		priorities[m.Target] = max(priorities[m.Target], m.Weight)
+	}
+
+	// Include LLM's suggestions with moderate priority
+	for _, need := range u.SuggestedApproach.ContextNeeded {
+		if priorities[need] == 0 {
+			priorities[need] = 70 // Default priority for LLM suggestions
+		}
+	}
+
+	return priorities
+}
+
+// deriveToolPriorities determines which tools to prioritize.
+func (t *LLMTransducer) deriveToolPriorities(ctx context.Context, u *Understanding) map[string]int {
+	priorities := make(map[string]int)
+
+	// From action type
+	matches, _ := t.kernel.QueryRouting(ctx, "tool_affinity_action", u.ActionType)
+	for _, m := range matches {
+		priorities[m.Target] = max(priorities[m.Target], m.Weight)
+	}
+
+	// From domain
+	matches, _ = t.kernel.QueryRouting(ctx, "tool_affinity_domain", u.Domain)
+	for _, m := range matches {
+		priorities[m.Target] = max(priorities[m.Target], m.Weight)
+	}
+
+	// Include LLM's suggestions
+	for _, tool := range u.SuggestedApproach.ToolsNeeded {
+		if priorities[tool] == 0 {
+			priorities[tool] = 70
+		}
+	}
+
+	return priorities
+}
+
+// deriveBlockedTools determines which tools are blocked by constraints.
+func (t *LLMTransducer) deriveBlockedTools(ctx context.Context, u *Understanding) []string {
+	var blocked []string
+
+	// Check each constraint
+	for _, constraint := range u.UserConstraints {
+		matches, _ := t.kernel.QueryRouting(ctx, "constraint_blocks_tool", constraint)
+		for _, m := range matches {
+			blocked = append(blocked, m.Target)
+		}
+	}
+
+	// Read-only mode blocks write tools
+	if u.IsReadOnly() {
+		blocked = append(blocked, "write_file", "edit_file", "git_commit", "git_push")
+	}
+
+	return blocked
+}
+
+// =============================================================================
+// RealKernelRouter - Adapts core.RealKernel to RoutingKernel interface
+// =============================================================================
+
+// RealKernelRouter adapts a core.RealKernel to implement the RoutingKernel interface.
+// This enables the UnderstandingTransducer to use the existing kernel for routing queries.
+type RealKernelRouter struct {
+	kernel *core.RealKernel
+}
+
+// NewRealKernelRouter creates a RoutingKernel backed by a RealKernel.
+func NewRealKernelRouter(kernel *core.RealKernel) *RealKernelRouter {
+	return &RealKernelRouter{kernel: kernel}
+}
+
+// QueryRouting queries the routing schema using the RealKernel's Query method.
+func (k *RealKernelRouter) QueryRouting(ctx context.Context, predicate string, arg string) ([]RoutingMatch, error) {
+	if k.kernel == nil {
+		return nil, nil
+	}
+
+	// Query the kernel for facts matching this predicate
+	facts, err := k.kernel.Query(predicate)
+	if err != nil {
+		return nil, err
+	}
+
+	var matches []RoutingMatch
+	for _, fact := range facts {
+		// Filter facts that match the argument
+		if len(fact.Args) < 2 {
+			continue
+		}
+
+		// First arg should be the query arg (semantic type, action, domain)
+		firstArg := types.ExtractString(fact.Args[0])
+		if firstArg != "/"+arg && firstArg != arg {
+			continue
+		}
+
+		// Second arg is the target (mode, context, shard, tool)
+		match := RoutingMatch{
+			Target: types.StripAtomPrefix(types.ExtractString(fact.Args[1])),
+		}
+
+		// Third arg (if present) is the weight
+		if len(fact.Args) >= 3 {
+			switch v := fact.Args[2].(type) {
+			case int:
+				match.Weight = v
+			case int64:
+				match.Weight = int(v)
+			case float64:
+				match.Weight = int(v)
+			}
+		}
+
+		if match.Target != "" {
+			matches = append(matches, match)
+		}
+	}
+
+	// Sort by weight descending
+	for i := 0; i < len(matches)-1; i++ {
+		for j := i + 1; j < len(matches); j++ {
+			if matches[j].Weight > matches[i].Weight {
+				matches[i], matches[j] = matches[j], matches[i]
+			}
+		}
+	}
+
+	return matches, nil
+}
+
+// VocabularyMisses implements VocabularyAuditor by reading the derived
+// understanding_vocab_miss relation.
+func (k *RealKernelRouter) VocabularyMisses() ([]string, error) {
+	if k.kernel == nil {
+		return nil, nil
+	}
+	facts, err := k.kernel.Query("understanding_vocab_miss")
+	if err != nil {
+		return nil, err
+	}
+	misses := make([]string, 0, len(facts))
+	for _, fact := range facts {
+		if len(fact.Args) < 2 {
+			continue
+		}
+		field := types.StripAtomPrefix(types.ExtractString(fact.Args[0]))
+		value := types.StripAtomPrefix(types.ExtractString(fact.Args[1]))
+		misses = append(misses, field+"="+value)
+	}
+	sort.Strings(misses)
+	return misses, nil
+}
+
+// NERD-EVOLVE-START: P3_routing_assertion
+// AssertRoutingFact implements KernelAsserter. It writes a derived routing fact
+// into the underlying RealKernel EDB so downstream Mangle rules can consume it.
+func (k *RealKernelRouter) AssertRoutingFact(predicate string, args ...any) error {
+	if k.kernel == nil {
+		return nil
+	}
+	return k.kernel.Assert(core.Fact{Predicate: predicate, Args: args})
+}
+
+// RetractRoutingPredicate implements KernelAsserter. It removes all EDB facts
+// with the given predicate, enabling per-turn cleanup.
+func (k *RealKernelRouter) RetractRoutingPredicate(predicate string) error {
+	if k.kernel == nil {
+		return nil
+	}
+	return k.kernel.Retract(predicate)
+}
+
+// NERD-EVOLVE-END: P3_routing_assertion

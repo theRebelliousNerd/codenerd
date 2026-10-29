@@ -1,0 +1,174 @@
+package world
+
+// World EDB ownership matrix.
+//
+// Several independent writers assert facts into the world EDB. Without a stated
+// owner per predicate, "replace everything the world model knows" is impossible
+// to implement correctly, and the previous single flat list made
+// ApplyIncrementalResult delete facts that its caller could not re-add:
+//
+//	writer                     owns                                   cadence
+//	------                     ----                                   -------
+//	Scanner (full/incremental) topology, symbols, imports, entry pts   every scan
+//	                             + test-impact file facts (file_package,
+//	                               is_test_file, file_imports)
+//	Cartographer / deep scan   code_defines/code_calls + data flow     on demand (/scan --deep)
+//	(reserved, no writer)      symbol_defined/referenced/diagnostics   never
+//	CodeDOM scope (session)    active_file, code_element, file_in_scope session lifetime
+//	                             + is_test_function (rides with code_element)
+//	session run (the focus)    code_element + element_* for the file a     per turn,
+//	                           turn is looking at (codedom_facts.go)        re-parsed on edit
+//	git scanner                git_history, churn_rate                 on demand
+//	WorldModelIngestorShard    file_topology, symbol_graph (background) shard lifetime
+//
+// The rule the matrix encodes: a writer may wipe a predicate only if the same
+// pass re-asserts it. A fast scan re-asserts scanner-owned predicates, so it
+// replaces them wholesale; it does NOT re-derive deep, LSP, git or scope facts,
+// so wiping those (which the old WorldPredicates replace-set did) destroyed
+// them with nothing to restore them — one `/scan` silently erased the entire
+// deep call graph and every LSP diagnostic until a deep scan happened to run
+// again.
+//
+// The WorldModelIngestorShard writes two predicates the Scanner also owns
+// (file_topology, symbol_graph). Resolution (also recorded in
+// Docs/architecture/world/OPEN-QUESTIONS.md Q1): the Scanner is the sole
+// authority. The shard's copies are background refreshes of the same facts and
+// must use the same canonical identity; where they disagree, the next scan wins
+// because the scan replaces the predicate wholesale. Nothing here can stop the
+// shard from writing — enforcement lives at the one choke point this package
+// owns, ApplyIncrementalResult — so the matrix is asserted as a test
+// (world_predicates_test.go) rather than as a hope.
+
+// ScannerPredicates are the predicates a fast scan (full or incremental)
+// re-derives from scratch on every pass. These, and only these, are safe to
+// replace wholesale when a full scan result is applied.
+var ScannerPredicates = []string{
+	"file_topology",
+	"directory",
+	"file_dir",
+	"test_file_for",
+	"symbol_graph",
+	"dependency_link",
+	"entry_point",
+	"project_language",
+	// Treatment coverage (treatment_enforce.go): the member files an
+	// operator-confirmed treatment kept the scan from reading. Re-derived
+	// from the walk by every scan, so a scope that stops being enforced
+	// loses its rows.
+	"file_metadata_only",
+	"treatment_scope",
+	// Test-impact file facts (test_impact_facts.go): re-derived by every
+	// full scan and per changed file by every delta scan. SessionScope
+	// must never claim these: the scope replace-set in
+	// internal/core/virtual_store.go wipes by predicate globally, so a
+	// dual listing would delete world knowledge on every open_file.
+	"file_package",
+	"is_test_file",
+	"file_imports",
+}
+
+// DeepPredicates are produced by the Cartographer (EnsureDeepFacts) and the
+// data-flow extractors. They are replaced per-file, keyed by fingerprint, by
+// the deep scan itself — never by a fast scan.
+var DeepPredicates = []string{
+	"code_defines",
+	"code_calls",
+	"assigns",
+	"guards_return",
+	"guards_block",
+	"guard_dominates",
+	"safe_access",
+	"uses",
+	"call_arg",
+	"error_checked_return",
+	"error_checked_block",
+	"function_scope",
+}
+
+// LSPPredicates are reserved for language-server projections. The projection
+// that was meant to write them (lsp.Manager) was deleted unwired on
+// 2026-09-25; language-server diagnostics now reach the critic as text instead.
+// The reservation stays so a future writer's facts are not deleted by a scan,
+// which cannot re-derive them.
+var LSPPredicates = []string{
+	"symbol_defined",
+	"symbol_referenced",
+	"code_diagnostic",
+	"symbol_completion",
+}
+
+// SessionScopePredicates are owned by the CodeDOM scope for the lifetime of a
+// session. They are deliberately ephemeral: they describe what the user is
+// looking at, not what is on disk, and are excluded from every replace-set.
+var SessionScopePredicates = []string{
+	"active_file",
+	"file_in_scope",
+	"code_element",
+	"is_test_function",
+}
+
+// GitPredicates are emitted by the git scanner on demand.
+var GitPredicates = []string{
+	"git_history",
+	"churn_rate",
+}
+
+// WorldPredicates enumerates every EDB predicate produced by the world model,
+// across all writers. Use it to recognise world facts (e.g. when filtering a
+// fact stream); do NOT use it as a replace-set — see ScannerReplaceSet.
+var WorldPredicates = concatPredicates(
+	ScannerPredicates,
+	DeepPredicates,
+	LSPPredicates,
+	SessionScopePredicates,
+	GitPredicates,
+)
+
+// ScannerReplaceSet is the set a full scan may clear before loading its
+// results: exactly the predicates that scan re-derives.
+func ScannerReplaceSet() map[string]struct{} {
+	return predicateSet(ScannerPredicates)
+}
+
+// SnapshotGlobalPredicates are whole-snapshot derivations that a delta scan
+// re-derives in full and must therefore drop first: asserting the new majority
+// language beside the old one leaves project_language ambiguous and every rule
+// reading it non-deterministic.
+//
+// entry_point is deliberately NOT here even though it is snapshot-derived. It
+// is attributed per file, so a changed file's entry_point is retracted with the
+// rest of that file's facts; wiping the whole relation on every delta would
+// instead drop entry points that only AST evidence proves (a `func main` in a
+// file not named main.go) for every file the delta did not happen to re-parse.
+var SnapshotGlobalPredicates = []string{
+	"directory",
+	"project_language",
+}
+
+// TreatmentPredicates are the scanner-owned rows describing enforced
+// treatment scopes. Every scan, including an unchanged one, replaces them
+// whole; they are never persisted in the world cache.
+var TreatmentPredicates = []string{
+	"file_metadata_only",
+	"treatment_scope",
+}
+
+func concatPredicates(groups ...[]string) []string {
+	total := 0
+	for _, g := range groups {
+		total += len(g)
+	}
+	out := make([]string, 0, total)
+	for _, g := range groups {
+		out = append(out, g...)
+	}
+	return out
+}
+
+func predicateSet(preds []string) map[string]struct{} {
+	m := make(map[string]struct{}, len(preds))
+	for _, p := range preds {
+		m[p] = struct{}{}
+	}
+	return m
+}

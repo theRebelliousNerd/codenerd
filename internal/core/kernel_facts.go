@@ -1,0 +1,1379 @@
+package core
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"iter"
+	"os"
+	"reflect"
+	"slices"
+	"sort"
+	"strconv"
+	"strings"
+
+	"codenerd/internal/logging"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/factstore"
+)
+
+// =============================================================================
+// FACT MANAGEMENT
+// =============================================================================
+
+// LoadFactsSeq adds facts to the EDB from an iterator and rebuilds the program.
+func (k *RealKernel) LoadFactsSeq(seq iter.Seq[Fact]) error {
+	timer := logging.StartTimer(logging.CategoryKernel, "LoadFactsSeq")
+
+	var added int
+	var prevCount int
+
+	k.mu.Lock()
+	prevCount = len(k.facts)
+	k.mu.Unlock()
+
+	for f := range seq {
+		f = sanitizeFactForNumericPredicates(f)
+		k.mu.Lock()
+		if k.addFactIfNewLocked(f) {
+			added++
+		}
+		k.mu.Unlock()
+	}
+
+	k.mu.RLock()
+	newCount := len(k.facts)
+	k.mu.RUnlock()
+
+	logging.KernelDebug("LoadFactsSeq: added %d facts, EDB: %d -> %d facts", added, prevCount, newCount)
+
+	if added > 0 {
+		k.mu.Lock()
+		err := k.rebuild()
+		k.mu.Unlock()
+		if err != nil {
+			logging.Get(logging.CategoryKernel).Error("LoadFactsSeq: rebuild failed: %v", err)
+			return err
+		}
+	}
+	timer.Stop()
+	return nil
+}
+
+// LoadFacts adds facts to the EDB and rebuilds the program.
+func (k *RealKernel) LoadFacts(facts []Fact) error {
+	if k == nil {
+		return fmt.Errorf("loadFacts: kernel is nil")
+	}
+	timer := logging.StartTimer(logging.CategoryKernel, "LoadFacts")
+	logging.Kernel("LoadFacts: loading %d facts into EDB", len(facts))
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	prevCount := len(k.facts)
+	sanitizedFacts := make([]Fact, len(facts))
+	for i, f := range facts {
+		sanitizedFacts[i] = sanitizeFactForNumericPredicates(f)
+	}
+	added := 0
+	loadedPreds := make(map[string]struct{})
+	for _, f := range sanitizedFacts {
+		if k.addFactIfNewLocked(f) {
+			added++
+			loadedPreds[f.Predicate] = struct{}{}
+		}
+	}
+	logging.KernelDebug("LoadFacts: added %d/%d facts, EDB: %d -> %d facts", added, len(sanitizedFacts), prevCount, len(k.facts))
+
+	// Count JIT-related facts for debugging
+	jitCounts := make(map[string]int)
+	for _, f := range sanitizedFacts {
+		switch f.Predicate {
+		case "is_mandatory", "atom_tag", "atom_importance", "current_context", "atom":
+			jitCounts[f.Predicate]++
+		}
+	}
+	if len(jitCounts) > 0 {
+		logging.Kernel("LoadFacts JIT: is_mandatory=%d atom_tag=%d atom_importance=%d current_context=%d atom=%d",
+			jitCounts["is_mandatory"], jitCounts["atom_tag"], jitCounts["atom_importance"],
+			jitCounts["current_context"], jitCounts["atom"])
+	}
+
+	// Log sample of facts being loaded (first 5)
+	if len(sanitizedFacts) > 0 && logging.IsDebugMode() {
+		sampleSize := min(len(sanitizedFacts), 5)
+		for i := range sampleSize {
+			logging.KernelDebug("  [%d] %s", i, sanitizedFacts[i].String())
+		}
+		if len(sanitizedFacts) > sampleSize {
+			logging.KernelDebug("  ... and %d more facts", len(sanitizedFacts)-sampleSize)
+		}
+	}
+
+	// If nothing new was added, skip rebuild.
+	if added == 0 {
+		timer.Stop()
+		return nil
+	}
+
+	// LoadFacts was historically eager (boot path) — evaluate immediately so
+	// the kernel is ready before any query. Bulk incremental scans now also
+	// use LoadFacts per file, so eager evaluation would pay a full fixpoint
+	// per file (O(N^2)). The lazy path is already built: ensureEvaluated()
+	// (called at the top of Query, QueryCallback, QueryAll and Explain)
+	// evaluates only when factsDirty is set, guaranteeing correct-on-read.
+	// Keep eager evaluation only when the kernel is not yet initialized
+	// (boot semantics); otherwise mark dirty and defer.
+	if k.initialized {
+		// Still invalidate cachedAtoms as the eager path did — the next
+		// evaluate will reconvert facts under the current Decls instead of
+		// reusing a stale cache. factsDirty signals ensureEvaluated to run
+		// the fixpoint before the next derived-fact read.
+		k.cachedAtoms = nil // Invalidate cache before deferred evaluation
+		k.markDirtyLocked(predicateNames(loadedPreds)...)
+		timer.Stop()
+		return nil
+	}
+
+	// Boot path (not yet initialized): evaluate eagerly to ensure the
+	// kernel is fully built before the first query.
+	k.cachedAtoms = nil // Invalidate cache before full re-evaluation
+	err := k.evaluate()
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("LoadFacts: evaluate failed: %v", err)
+		return err
+	}
+	k.factsDirty.Store(false)
+
+	timer.Stop()
+	return nil
+}
+
+// =============================================================================
+// Fact Deduplication Helpers
+// =============================================================================
+
+// canonFact returns a stable string key for a fact.
+func (k *RealKernel) canonFact(f Fact) string {
+	var sb strings.Builder
+	sb.WriteString(f.Predicate)
+	sb.WriteString("(")
+	for i, arg := range f.Args {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(canonValue(arg))
+	}
+	sb.WriteString(")")
+	return sb.String()
+}
+
+func canonValue(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return "null"
+	case MangleAtom:
+		return canonString(string(t))
+	case string:
+		return canonString(t)
+	case bool:
+		if t {
+			return "/true"
+		}
+		return "/false"
+	case int:
+		return strconv.FormatInt(int64(t), 10)
+	case int8:
+		return strconv.FormatInt(int64(t), 10)
+	case int16:
+		return strconv.FormatInt(int64(t), 10)
+	case int32:
+		return strconv.FormatInt(int64(t), 10)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	case uint:
+		return strconv.FormatUint(uint64(t), 10)
+	case uint8:
+		return strconv.FormatUint(uint64(t), 10)
+	case uint16:
+		return strconv.FormatUint(uint64(t), 10)
+	case uint32:
+		return strconv.FormatUint(uint64(t), 10)
+	case uint64:
+		return strconv.FormatUint(t, 10)
+	case float32:
+		return canonFloat64(float64(t))
+	case float64:
+		return canonFloat64(t)
+	case json.Number:
+		if i, err := t.Int64(); err == nil {
+			return strconv.FormatInt(i, 10)
+		}
+		if f, err := t.Float64(); err == nil {
+			return canonFloat64(f)
+		}
+		return strconv.Quote(t.String())
+	case []byte:
+		return strconv.Quote(string(t))
+	case []any:
+		return canonSliceInterface(t)
+	case []string:
+		return canonSliceString(t)
+	case []int:
+		return canonSliceInt(t)
+	case []int64:
+		return canonSliceInt64(t)
+	case []float64:
+		return canonSliceFloat64(t)
+	case map[string]any:
+		return canonMapStringInterface(t)
+	case map[string]string:
+		return canonMapStringString(t)
+	default:
+		rv := reflect.ValueOf(v)
+		if rv.IsValid() {
+			switch rv.Kind() {
+			case reflect.Slice, reflect.Array:
+				return canonSliceReflect(rv)
+			case reflect.Map:
+				return canonMapReflect(rv)
+			}
+		}
+		return strconv.Quote(fmt.Sprintf("%v", v))
+	}
+}
+
+func canonString(v string) string {
+	if isValidMangleNameConstant(v) {
+		return v
+	}
+	return strconv.Quote(v)
+}
+
+// canonFloat64 returns a canonical string representation of a float64 value.
+func canonFloat64(v float64) string {
+	return strconv.FormatFloat(v, 'g', -1, 64)
+}
+
+func canonSliceInterface(values []any) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, v := range values {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(canonValue(v))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func canonSliceString(values []string) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, v := range values {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(canonString(v))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func canonSliceInt(values []int) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, v := range values {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(strconv.FormatInt(int64(v), 10))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func canonSliceInt64(values []int64) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, v := range values {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(strconv.FormatInt(v, 10))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func canonSliceFloat64(values []float64) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, v := range values {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(canonFloat64(v))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func canonSliceReflect(value reflect.Value) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i := 0; i < value.Len(); i++ {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(canonValue(value.Index(i).Interface()))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func canonMapStringInterface(values map[string]any) string {
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var sb strings.Builder
+	sb.WriteString("{")
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(strconv.Quote(k))
+		sb.WriteString(":")
+		sb.WriteString(canonValue(values[k]))
+	}
+	sb.WriteString("}")
+	return sb.String()
+}
+
+func canonMapStringString(values map[string]string) string {
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var sb strings.Builder
+	sb.WriteString("{")
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(strconv.Quote(k))
+		sb.WriteString(":")
+		sb.WriteString(canonString(values[k]))
+	}
+	sb.WriteString("}")
+	return sb.String()
+}
+
+func canonMapReflect(value reflect.Value) string {
+	keys := value.MapKeys()
+	keyStrings := make([]string, 0, len(keys))
+	keyMap := make(map[string]reflect.Value, len(keys))
+	for _, k := range keys {
+		ks := fmt.Sprint(k.Interface())
+		keyStrings = append(keyStrings, ks)
+		keyMap[ks] = k
+	}
+	sort.Strings(keyStrings)
+	var sb strings.Builder
+	sb.WriteString("{")
+	for i, ks := range keyStrings {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(strconv.Quote(ks))
+		sb.WriteString(":")
+		sb.WriteString(canonValue(value.MapIndex(keyMap[ks]).Interface()))
+	}
+	sb.WriteString("}")
+	return sb.String()
+}
+
+// ensureFactIndexLocked initializes the fact index if needed.
+// Call only while holding k.mu.
+func (k *RealKernel) ensureFactIndexLocked() {
+	if k.factIndex == nil {
+		k.rebuildFactIndexLocked()
+	}
+}
+
+// rebuildFactIndexLocked rebuilds the dedupe index from current EDB.
+// Call only while holding k.mu.
+func (k *RealKernel) rebuildFactIndexLocked() {
+	k.factIndex = newEDBIndex()
+	for _, f := range k.facts {
+		k.factIndex.insert(k.canonFact(f), f)
+	}
+}
+
+// addFactIfNewLocked appends a fact only if it is not already present.
+// Returns true if added. Call only while holding k.mu.
+// OPTIMIZATION: Also caches the converted atom to avoid repeated ToAtom() calls.
+// SAFETY: Enforces MaxFactsInKernel limit and rejects facts that fail ToAtom().
+func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
+	added, _ := k.addFactIfNewLockedErr(f)
+	return added
+}
+
+// addFactIfNewLockedErr is addFactIfNewLocked plus the reason it said no.
+//
+// "Not added" carried two opposite meanings behind one bool: the fact was
+// already in the EDB (a no-op, entirely fine), or the fact was REJECTED and
+// will never be in the EDB. Assert read that bool as "duplicate" and returned
+// nil for both, so a fact the kernel threw out reported SUCCESS to its caller
+// and simply was not there afterwards.
+//
+// That is not hypothetical. coerceAtomToDeclLocked refuses a fractional float
+// in a slot the Decl bounds /number — it has to, because this Mangle fork's
+// comparison builtins are int64-only and one such fact aborts the entire
+// fixpoint. DreamRouter asserts dream_preference(Content, 0.85) and friends;
+// every one of those was dropped here and every one reported success, which is
+// how three Dream State learning predicates ended up with a Decl, a Go
+// producer, and no rows. Every `if err := kernel.Assert(f); err != nil` guard
+// in the tree was defeated by the same conflation.
+//
+// Duplicates still return (false, nil): a no-op is not a failure.
+func (k *RealKernel) addFactIfNewLockedErr(f Fact) (bool, error) {
+	// Enforce EDB size limit to prevent unbounded memory growth
+	maxFacts := k.effectiveMaxFactsLocked()
+	if len(k.facts) >= maxFacts {
+		logging.Get(logging.CategoryKernel).Warn("EDB fact limit reached (%d/%d), rejecting fact: %s",
+			len(k.facts), maxFacts, f.Predicate)
+		return false, fmt.Errorf("EDB fact limit reached (%d/%d), rejected %s", len(k.facts), maxFacts, f.Predicate)
+	}
+
+	// Intern predicate name + string args so repeated values across
+	// the EDB share a single backing string (stdlib unique.Handle).
+	f = internFact(f)
+
+	k.ensureFactIndexLocked()
+	key := k.canonFact(f)
+	if k.factIndex.has(f.Predicate, key) {
+		return false, nil
+	}
+
+	// Convert to atom once and cache it.
+	// SAFETY: Reject facts that fail conversion to prevent cache desync.
+	// Previously, failed facts were added to k.facts but skipped k.cachedAtoms,
+	// causing evaluate() to detect a length mismatch and attempt a full rebuild
+	// that could also fail, soft-bricking the kernel.
+	atom, err := k.factToAtomLocked(f)
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("addFactIfNewLocked: rejecting fact that fails ToAtom: %s - %v", f.Predicate, err)
+		return false, fmt.Errorf("fact %s rejected by the kernel: %w", f.Predicate, err)
+	}
+
+	cacheInSync := !k.atomCacheStale && k.cachedAtoms != nil && len(k.cachedAtoms) == len(k.facts)
+	k.facts = append(k.facts, f)
+	// cachedAtoms == nil means "invalid, evaluate must rebuild". Appending onto
+	// a nil cache after rebuild()/LoadFacts created a short slice of only the
+	// facts asserted since invalidation (live: atoms=25 facts=8529 after
+	// AssertBatch of 25). Keep the cache invalid so evaluate hits the empty
+	// rebuild, not a false desync WARN and a full ToAtom pass.
+	if cacheInSync {
+		k.cachedAtoms = append(k.cachedAtoms, atom)
+	} else {
+		k.cachedAtoms = nil
+	}
+	k.factIndex.insert(key, f)
+	k.warnIfUndeclaredLocked(f)
+	return true, nil
+}
+
+// noteMutationFailure reports a kernel write that did not land.
+//
+// Warn, not Debug: this is never routine. A failed assert means the kernel's
+// picture of the world is now missing something the caller believed it had told
+// it, and every rule downstream of that fact evaluates as though it were never
+// true. For a logic-first agent that is not a lost update, it is a conclusion
+// drawn from a world that does not exist.
+//
+// CortexKernel has had this since the silent-write audit. RealKernel had not,
+// and RealKernel is the one that is actually held: nothing in this repository
+// declares a *CortexKernel field, while seventy-nine declare a *RealKernel —
+// the chat model among them. So the reporting existed on the routing layer
+// while every direct caller, which is all of them, still failed in silence.
+//
+// A failure that arrives through CortexKernel is now logged twice, once at each
+// layer. That is worth the duplication: the cortex line names the routing
+// decision and this one names the fact.
+func (k *RealKernel) noteMutationFailure(op, predicate string, err error) error {
+	if err == nil {
+		return nil
+	}
+	logging.Get(logging.CategoryKernel).Warn(
+		"[kernel] %s of '%s' FAILED, the kernel does not hold it: %v", op, predicate, err)
+	return err
+}
+
+// Assert adds a single fact dynamically and re-evaluates derived facts.
+func (k *RealKernel) Assert(fact Fact) (err error) {
+	defer func() { err = k.noteMutationFailure("assert", fact.Predicate, err) }()
+	if k == nil {
+		return fmt.Errorf("assert %s: kernel is nil", fact.Predicate)
+	}
+
+	// Heartbeats are high-frequency (every few seconds × N system shards).
+	// Each used a unique timestamp, so they always dirtied the kernel and
+	// forced a full/diff re-eval of the entire EDB (10–17s with ~28k world
+	// facts). Policy only needs existence of system_heartbeat(Shard, _), so
+	// upsert-in-place without marking dirty after the first assert.
+	if fact.Predicate == "system_heartbeat" {
+		return k.assertHeartbeat(fact)
+	}
+
+	logging.KernelDebug("Assert: %s", fact.String())
+	logging.Audit().KernelAssert(fact.Predicate, len(fact.Args))
+
+	k.mu.Lock()
+
+	fact = sanitizeFactForNumericPredicates(fact)
+	added, addErr := k.addFactIfNewLockedErr(fact)
+	if addErr != nil {
+		// The fact is not in the EDB and never will be. Returning nil here made
+		// every Assert error check in the tree ornamental.
+		k.mu.Unlock()
+		return addErr
+	}
+	if !added {
+		// Duplicate assert is a no-op — suppress debug to avoid log spam
+		k.mu.Unlock()
+		return nil
+	}
+	k.markDirtyLocked(fact.Predicate)
+	logging.KernelDebug("Assert: fact added successfully, total facts=%d", len(k.facts))
+	k.mu.Unlock()
+
+	// Publish AFTER releasing lock to avoid holding mutex during channel sends
+	if k.eventBus != nil {
+		k.eventBus.Publish(fact.Predicate)
+	}
+	return nil
+}
+
+// assertHeartbeat upserts system_heartbeat(ShardName, Timestamp) by shard.
+// First heartbeat for a shard marks factsDirty (so system_shard_healthy can
+// derive). Subsequent refreshes replace the EDB row in place and do NOT
+// dirty — this stops the multi-second re-eval storm observed under load.
+func (k *RealKernel) assertHeartbeat(fact Fact) error {
+	k.mu.Lock()
+
+	fact = sanitizeFactForNumericPredicates(fact)
+	shardKey := ""
+	if len(fact.Args) > 0 {
+		shardKey = fmt.Sprint(fact.Args[0])
+	}
+
+	// Refresh existing heartbeat for this shard — no re-eval.
+	for i, existing := range k.facts {
+		if existing.Predicate != "system_heartbeat" || len(existing.Args) == 0 {
+			continue
+		}
+		if fmt.Sprint(existing.Args[0]) != shardKey {
+			continue
+		}
+		// Same timestamp → pure no-op
+		if len(existing.Args) > 1 && len(fact.Args) > 1 &&
+			fmt.Sprint(existing.Args[1]) == fmt.Sprint(fact.Args[1]) {
+			k.mu.Unlock()
+			return nil
+		}
+
+		oldKey := k.canonFact(existing)
+		fact = internFact(fact)
+		k.facts[i] = fact
+		// The evaluated store outlives a write now, so keep its copy of the row
+		// current as well; nothing derives from the timestamp.
+		if remover, ok := k.store.(factstore.FactStoreWithRemove); ok && k.initialized {
+			if oldAtom, err := k.factToAtomLocked(existing); err == nil {
+				if newAtom, err := k.factToAtomLocked(fact); err == nil && remover.Remove(oldAtom) {
+					k.store.Add(newAtom)
+				}
+			}
+		}
+		if k.cachedAtoms != nil && i < len(k.cachedAtoms) {
+			if atom, err := k.factToAtomLocked(fact); err == nil {
+				k.cachedAtoms[i] = atom
+			} else {
+				// Leaving the previous atom in place would desync it from
+				// k.facts[i]; make the next evaluate() reconvert and evict.
+				k.atomCacheStale = true
+			}
+		}
+		k.ensureFactIndexLocked()
+		k.factIndex.remove(existing.Predicate, oldKey)
+		k.factIndex.insert(k.canonFact(fact), fact)
+		// Intentionally NOT setting factsDirty — existence is unchanged.
+		k.mu.Unlock()
+		return nil
+	}
+
+	// First heartbeat for this shard. A rejection (EDB full, encoding
+	// failure) must surface: the shard would otherwise look dead while
+	// its reporter believes it is alive.
+	if added, addErr := k.addFactIfNewLockedErr(fact); addErr != nil {
+		k.mu.Unlock()
+		return addErr
+	} else if !added {
+		k.mu.Unlock()
+		return nil
+	}
+	k.markDirtyLocked(fact.Predicate)
+	k.mu.Unlock()
+
+	logging.Audit().KernelAssert(fact.Predicate, len(fact.Args))
+	if k.eventBus != nil {
+		k.eventBus.Publish(fact.Predicate)
+	}
+	return nil
+}
+
+// AssertBatch adds multiple facts and re-evaluates once.
+// OPTIMIZATION: This is significantly faster than calling Assert() in a loop.
+// For M assertions, Assert loop = O(M*N) evaluations, AssertBatch = O(N) evaluation.
+// A batch is a convenience, not a transaction: good facts land, rejections are
+// collected and returned so the caller can tell which facts did not land.
+func (k *RealKernel) AssertBatch(facts []Fact) (err error) {
+	defer func() { err = k.noteMutationFailure("assert batch", batchPredicates(facts), err) }()
+	if k == nil {
+		return fmt.Errorf("assertBatch: kernel is nil")
+	}
+
+	if len(facts) == 0 {
+		return nil
+	}
+
+	logging.KernelDebug("AssertBatch: asserting %d facts", len(facts))
+
+	k.mu.Lock()
+
+	// Rejections are collected, not swallowed: the good facts still land (a batch is a convenience, not a transaction) but the caller is told which ones did not, so a fallback loop or a retry has something to act on.
+	var rejected []error
+	addedCount := 0
+	addedPredicates := make(map[string]struct{}) // Track unique predicates for event bus
+	for _, fact := range facts {
+		fact = sanitizeFactForNumericPredicates(fact)
+		added, addErr := k.addFactIfNewLockedErr(fact)
+		if addErr != nil {
+			rejected = append(rejected, fmt.Errorf("%s: %w", fact.String(), addErr))
+			continue
+		}
+		if added {
+			addedCount++
+			addedPredicates[fact.Predicate] = struct{}{}
+			logging.Audit().KernelAssert(fact.Predicate, len(fact.Args))
+		}
+	}
+
+	if addedCount == 0 {
+		if len(rejected) > 0 {
+			k.mu.Unlock()
+			return fmt.Errorf("AssertBatch rejected all %d facts: %w", len(rejected), errors.Join(rejected...))
+		}
+		logging.KernelDebug("AssertBatch: all %d facts were duplicates", len(facts))
+		k.mu.Unlock()
+		return nil
+	}
+
+	// Mark dirty for lazy evaluation (single evaluate on next query)
+	k.markDirtyLocked(predicateNames(addedPredicates)...)
+
+	logging.KernelDebug("AssertBatch: successfully added %d/%d facts, total facts=%d",
+		addedCount, len(facts), len(k.facts))
+	k.mu.Unlock()
+
+	// Publish AFTER releasing lock — one event per unique predicate
+	if k.eventBus != nil {
+		for pred := range addedPredicates {
+			k.eventBus.Publish(pred)
+		}
+	}
+	if len(rejected) > 0 {
+		return fmt.Errorf("AssertBatch rejected %d of %d facts: %w", len(rejected), len(facts), errors.Join(rejected...))
+	}
+	return nil
+}
+
+// AssertString parses a Mangle fact string and asserts it.
+// Format: predicate(arg1, arg2, ...) where args can be:
+//   - Name constants: /foo, /bar
+//   - Strings: "quoted text"
+//   - Numbers: 42, 3.14
+func (k *RealKernel) AssertString(factStr string) error {
+	fact, err := ParseFactString(factStr)
+	if err != nil {
+		return fmt.Errorf("AssertString: failed to parse %q: %w", factStr, err)
+	}
+	return k.Assert(fact)
+}
+
+// AssertWithoutEval adds a fact without re-evaluating.
+// Use when batching many facts, then call Evaluate() once at the end.
+//
+// It distinguishes a duplicate from a capacity or encoding failure: a
+// duplicate is a nil no-op, while a rejection surfaces an error so callers
+// fail closed. Admission against the Decl is the same one every write path
+// runs (factToAtomLocked), so no path can stage a fact another would refuse.
+func (k *RealKernel) AssertWithoutEval(fact Fact) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	fact = sanitizeFactForNumericPredicates(fact)
+	added, err := k.addFactIfNewLockedErr(fact)
+	if err != nil {
+		return fmt.Errorf("stage %s: %w", fact.Predicate, err)
+	}
+	if !added {
+		return nil // duplicate: a no-op, nothing to stage
+	}
+	// Staged, not dirty: but the next evaluate(), whoever triggers it, must
+	// count this predicate as written or a cone would leave it out.
+	if !k.dirtyAll {
+		if k.dirtyPreds == nil {
+			k.dirtyPreds = make(map[string]struct{}, 1)
+		}
+		k.dirtyPreds[fact.Predicate] = struct{}{}
+	}
+	return nil
+}
+
+// EvaluatePending evaluates what AssertWithoutEval staged: only the cone of the
+// staged predicates when the kernel's store is current, the full fixpoint
+// otherwise. Unlike Evaluate it does not demand every rule, so a clone of an
+// evaluated kernel answers a what-if in the time of its change, not the time
+// of the whole program.
+func (k *RealKernel) EvaluatePending() error {
+	timer := logging.StartTimer(logging.CategoryKernel, "EvaluatePending")
+	defer timer.Stop()
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.initialized && !k.dirtyAll && len(k.dirtyPreds) == 0 && !k.factsDirty.Load() && !k.policyDirty {
+		return nil // nothing staged: the store is current
+	}
+	if err := k.evaluate(); err != nil {
+		return err
+	}
+	k.factsDirty.Store(false)
+	return nil
+}
+
+// Evaluate forces re-evaluation of all rules. Call after AssertWithoutEval batch.
+func (k *RealKernel) Evaluate() error {
+	timer := logging.StartTimer(logging.CategoryKernel, "Evaluate")
+	logging.KernelDebug("Evaluate: forcing re-evaluation of all rules")
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	// An explicit Evaluate is a request for every rule, not a cone.
+	k.dirtyAll = true
+	err := k.evaluate()
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("Evaluate: failed: %v", err)
+		return err
+	}
+	k.factsDirty.Store(false)
+
+	timer.Stop()
+	return nil
+}
+
+// compactFactsLocked removes every fact for which keep returns false, using an
+// in-place compaction that preserves EDB order, and zeroes the truncated
+// tail for GC. It does NOT rebuild the dedupe index: single-shot retracts
+// use filterFactsLocked, while multi-phase callers (transactions) compact
+// several times and rebuild once. Call only while holding k.mu.
+func (k *RealKernel) compactFactsLocked(keep func(Fact) bool) (removed int) {
+	prevCount := len(k.facts)
+	newLen := 0
+	for _, f := range k.facts {
+		if !keep(f) {
+			removed++
+			// The dedupe index follows the removal fact by fact: k.facts
+			// holds no two canonically equal facts (every write goes through
+			// the index), so the removed fact's key is free. Rebuilding the
+			// whole index after each retract re-canonicalized every
+			// remaining fact (7.9 s of one 52 s turn, measured 2026-10-27).
+			if k.factIndex != nil {
+				k.factIndex.remove(f.Predicate, k.canonFact(f))
+			}
+			continue
+		}
+		k.facts[newLen] = f
+		newLen++
+	}
+	if removed == 0 {
+		return 0
+	}
+	for i := newLen; i < prevCount; i++ {
+		k.facts[i] = Fact{}
+	}
+	k.facts = k.facts[:newLen]
+	return removed
+}
+
+// filterFactsLocked compacts the EDB by keep; compactFactsLocked keeps the
+// dedupe index in step. The atom cache is deliberately NOT maintained here:
+// every retract path funnels through rebuild(), which invalidates it. Call
+// only while holding k.mu.
+func (k *RealKernel) filterFactsLocked(keep func(Fact) bool) (removed int) {
+	return k.compactFactsLocked(keep)
+}
+
+// Retract removes all facts of a given predicate.
+func (k *RealKernel) Retract(predicate string) (err error) {
+	defer func() { err = k.noteMutationFailure("retract", predicate, err) }()
+	if k == nil {
+		return fmt.Errorf("retract %s: kernel is nil", predicate)
+	}
+
+	// Skip per-retract debug for high-frequency no-op retractions
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	prevCount := len(k.facts)
+	retractedCount := k.filterFactsLocked(func(f Fact) bool {
+		return f.Predicate != predicate
+	})
+
+	if retractedCount == 0 {
+		// Empty retract is a no-op — suppress debug to avoid log spam
+		return nil
+	}
+
+	logging.KernelDebug("Retract: removed %d facts (predicate=%s), EDB: %d -> %d facts",
+		retractedCount, predicate, prevCount, len(k.facts))
+
+	if err := k.rebuild(predicate); err != nil {
+		logging.Get(logging.CategoryKernel).Error("Retract: rebuild failed after retracting %s: %v", predicate, err)
+		return err
+	}
+	return nil
+}
+
+// RetractFact removes a specific fact by matching predicate and first argument.
+// This enables selective fact removal (e.g., removing all facts for a specific tool).
+func (k *RealKernel) RetractFact(fact Fact) (err error) {
+	defer func() { err = k.noteMutationFailure("retract fact", fact.Predicate, err) }()
+	if k == nil {
+		return fmt.Errorf("retractFact %s: kernel is nil", fact.Predicate)
+	}
+
+	logging.KernelDebug("RetractFact: removing fact matching predicate=%s, firstArg=%v", fact.Predicate, fact.Args)
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	if len(fact.Args) == 0 {
+		err := fmt.Errorf("fact must have at least one argument for matching")
+		logging.Get(logging.CategoryKernel).Error("RetractFact: %v", err)
+		return err
+	}
+
+	prevCount := len(k.facts)
+	retractedCount := k.filterFactsLocked(func(f Fact) bool {
+		// Keep facts that don't match predicate OR don't match first argument
+		if f.Predicate != fact.Predicate {
+			return true
+		}
+		// Same predicate - check first argument
+		if len(f.Args) > 0 && len(fact.Args) > 0 {
+			// Matching predicate and first arg - don't keep (retract it)
+			return !argsEqual(f.Args[0], fact.Args[0])
+		}
+		return true
+	})
+
+	if retractedCount == 0 {
+		firstArg := any(nil)
+		if len(fact.Args) > 0 {
+			firstArg = fact.Args[0]
+		}
+		logging.KernelDebug("RetractFact: no matching facts found (predicate=%s firstArg=%v)", fact.Predicate, firstArg)
+		return nil
+	}
+
+	logging.KernelDebug("RetractFact: removed %d facts, EDB: %d -> %d facts",
+		retractedCount, prevCount, len(k.facts))
+
+	if err := k.rebuild(fact.Predicate); err != nil {
+		logging.Get(logging.CategoryKernel).Error("RetractFact: rebuild failed: %v", err)
+		return err
+	}
+	return nil
+}
+
+// RetractExactFact removes facts that exactly match predicate and all arguments.
+// This is safer for multi-arity predicates where multiple facts may share a first arg.
+// It does NOT replace RetractFact, which intentionally matches only the first arg.
+func (k *RealKernel) RetractExactFact(fact Fact) (err error) {
+	defer func() { err = k.noteMutationFailure("retract exact fact", fact.Predicate, err) }()
+
+	logging.KernelDebug("RetractExactFact: removing exact fact predicate=%s args=%v", fact.Predicate, fact.Args)
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	if len(fact.Args) == 0 {
+		err := fmt.Errorf("fact must have at least one argument for exact matching")
+		logging.Get(logging.CategoryKernel).Error("RetractExactFact: %v", err)
+		return err
+	}
+
+	prevCount := len(k.facts)
+	retractedCount := k.filterFactsLocked(func(f Fact) bool {
+		return f.Predicate != fact.Predicate || !argsSliceEqual(f.Args, fact.Args)
+	})
+
+	logging.KernelDebug("RetractExactFact: removed %d facts, EDB: %d -> %d facts",
+		retractedCount, prevCount, len(k.facts))
+
+	// Only rebuild if something changed
+	if retractedCount > 0 {
+		if err := k.rebuild(fact.Predicate); err != nil {
+			logging.Get(logging.CategoryKernel).Error("RetractExactFact: rebuild failed: %v", err)
+			return err
+		}
+	}
+	return nil
+}
+
+// RetractExactFactsBatch removes a batch of exact facts and rebuilds once.
+// Useful for incremental world model updates on large repos.
+func (k *RealKernel) RetractExactFactsBatch(facts []Fact) (err error) {
+	defer func() { err = k.noteMutationFailure("retract exact batch", batchPredicates(facts), err) }()
+	if k == nil {
+		return fmt.Errorf("retractExactFactsBatch: kernel is nil")
+	}
+
+	if len(facts) == 0 {
+		return nil
+	}
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	toRemove := make(map[string]struct{}, len(facts))
+	for _, f := range facts {
+		toRemove[k.canonFact(f)] = struct{}{}
+	}
+
+	prevCount := len(k.facts)
+	retractedCount := k.filterFactsLocked(func(f Fact) bool {
+		_, ok := toRemove[k.canonFact(f)]
+		return !ok
+	})
+
+	logging.KernelDebug("RetractExactFactsBatch: removed %d facts, EDB: %d -> %d facts",
+		retractedCount, prevCount, len(k.facts))
+
+	if retractedCount > 0 {
+		batchPreds := make(map[string]struct{}, 4)
+		for _, f := range facts {
+			batchPreds[f.Predicate] = struct{}{}
+		}
+		if err := k.rebuild(predicateNames(batchPreds)...); err != nil {
+			logging.Get(logging.CategoryKernel).Error("RetractExactFactsBatch: rebuild failed: %v", err)
+			return err
+		}
+	}
+	return nil
+}
+
+// RemoveFactsByPredicateSet removes all facts whose predicate is in the given set.
+// Rebuilds once if anything was removed.
+func (k *RealKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
+	if k == nil {
+		return fmt.Errorf("removeFactsByPredicateSet: kernel is nil")
+	}
+	if len(predicates) == 0 {
+		return nil
+	}
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	prevCount := len(k.facts)
+	retractedCount := k.filterFactsLocked(func(f Fact) bool {
+		_, ok := predicates[f.Predicate]
+		return !ok
+	})
+
+	logging.KernelDebug("RemoveFactsByPredicateSet: removed %d facts, EDB: %d -> %d facts",
+		retractedCount, prevCount, len(k.facts))
+
+	if retractedCount > 0 {
+		if err := k.rebuild(predicateNames(predicates)...); err != nil {
+			logging.Get(logging.CategoryKernel).Error("RemoveFactsByPredicateSet: rebuild failed: %v", err)
+			return err
+		}
+	}
+	return nil
+}
+
+// =============================================================================
+// UTILITY FUNCTIONS
+// =============================================================================
+
+// =============================================================================
+// GENERAL UTILITY FUNCTIONS
+// =============================================================================
+
+// argsEqual compares two fact arguments for equality.
+// OPTIMIZATION: Uses type switches instead of expensive fmt.Sprintf fallback.
+func argsEqual(a, b any) bool {
+	// Check for nil
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+
+	// Use type switch to handle specific types (avoids panic on non-comparable types like maps)
+	switch av := a.(type) {
+	case string:
+		if bv, ok := b.(string); ok {
+			return av == bv
+		}
+		// Check for MangleAtom equality (symmetry)
+		if bv, ok := b.(MangleAtom); ok {
+			return av == string(bv)
+		}
+	case MangleAtom:
+		// MangleAtom is a string type alias, check both MangleAtom and string
+		if bv, ok := b.(MangleAtom); ok {
+			return av == bv
+		}
+		if bv, ok := b.(string); ok {
+			return string(av) == bv
+		}
+	case int:
+		// Handle int separately from int64
+		if bv, ok := b.(int); ok {
+			return av == bv
+		}
+		// Cross-compare with int64
+		if bv, ok := b.(int64); ok {
+			return int64(av) == bv
+		}
+	case int64:
+		if bv, ok := b.(int64); ok {
+			return av == bv
+		}
+		// Cross-compare with int
+		if bv, ok := b.(int); ok {
+			return av == int64(bv)
+		}
+	case uint:
+		if bv, ok := b.(uint); ok {
+			return av == bv
+		}
+		if bv, ok := b.(uint64); ok {
+			return uint64(av) == bv
+		}
+	case uint64:
+		if bv, ok := b.(uint64); ok {
+			return av == bv
+		}
+		if bv, ok := b.(uint); ok {
+			return av == uint64(bv)
+		}
+	case int32:
+		if bv, ok := b.(int32); ok {
+			return av == bv
+		}
+	case uint32:
+		if bv, ok := b.(uint32); ok {
+			return av == bv
+		}
+	case float64:
+		if bv, ok := b.(float64); ok {
+			return av == bv
+		}
+	case bool:
+		if bv, ok := b.(bool); ok {
+			return av == bv
+		}
+	case map[string]any:
+		// Maps are not comparable with ==, use reflect.DeepEqual
+		if bv, ok := b.(map[string]any); ok {
+			return reflect.DeepEqual(av, bv)
+		}
+	case []any:
+		// Slices are not comparable with ==, use reflect.DeepEqual
+		if bv, ok := b.([]any); ok {
+			return reflect.DeepEqual(av, bv)
+		}
+	default:
+		// SLOW PATH: Use reflect.DeepEqual for truly unknown types
+		// This handles any comparable and non-comparable types safely
+		return reflect.DeepEqual(a, b)
+	}
+
+	// Type mismatch (e.g., string vs int)
+	return false
+}
+
+// argsSliceEqual compares two argument slices for full equality.
+func argsSliceEqual(a, b []any) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !argsEqual(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func isValidMangleNameConstant(v string) bool {
+	if !strings.HasPrefix(v, "/") {
+		return false
+	}
+
+	// Whitespace is never valid in Mangle name constants.
+	if strings.ContainsAny(v, " \t\n\r") {
+		return false
+	}
+
+	// File paths should NOT be treated as name constants.
+	// More than 2 path segments indicates a file path.
+	if strings.Count(v, "/") > 2 {
+		return false
+	}
+
+	// Common file extensions indicate a file path.
+	if hasFileExtension(v) {
+		return false
+	}
+
+	_, err := ast.Name(v)
+	return err == nil
+}
+
+func hasFileExtension(v string) bool {
+	commonExts := []string{
+		".go", ".md", ".py", ".js", ".ts", ".tsx", ".jsx",
+		".yaml", ".yml", ".json", ".txt", ".mg", ".html", ".css",
+		".sh", ".bash", ".ps1", ".bat", ".exe", ".dll", ".so",
+		".c", ".h", ".cpp", ".hpp", ".rs", ".rb", ".java",
+		".xml", ".toml", ".ini", ".cfg", ".conf", ".log",
+	}
+	lowerV := strings.ToLower(v)
+	for _, ext := range commonExts {
+		if strings.HasSuffix(lowerV, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// sanitizeFactForNumericPredicates coerces common priority atoms to numbers
+// for predicates that participate in numeric comparisons.
+// This prevents evaluation failures like "value /high is not a number" when
+// LLMs emit priority atoms in numeric slots.
+//
+// Also performs poisoned-fact rescue: when a numeric slot contains a Go
+// pointer string leak (`0x7ff63be770e0` shape — see types.go ToAtom
+// guard for the upstream fix), the slot is rewritten to 0 with a Warn
+// log. This protects the kernel from crashing on facts that were
+// PERSISTED to shard knowledge DBs before the upstream fix landed; new
+// emissions go through types.go and never reach here.
+func sanitizeFactForNumericPredicates(f Fact) Fact {
+	switch f.Predicate {
+	case "agenda_item", "prompt_atom", "atom_importance":
+		// Rewrite a private copy: the caller owns f.Args, and the prompt
+		// selector shares one immutable Args slice across concurrent compiles.
+		f.Args = slices.Clone(f.Args)
+	default:
+		return f
+	}
+	switch f.Predicate {
+	case "agenda_item":
+		// agenda_item(ItemID, Description, Priority, Status, Timestamp)
+		if len(f.Args) > 2 {
+			f.Args[2] = coercePriorityAtomToNumber(f.Args[2])
+			f.Args[2] = scrubPointerLeak(f.Predicate, 2, f.Args[2])
+		}
+	case "prompt_atom":
+		// prompt_atom(AtomID, Category, TokenCount, IsMandatory)
+		if len(f.Args) > 2 {
+			f.Args[2] = scrubPointerLeak(f.Predicate, 2, f.Args[2])
+		}
+	case "atom_importance":
+		// atom_importance(AtomID, Level)
+		if len(f.Args) > 1 {
+			f.Args[1] = scrubPointerLeak(f.Predicate, 1, f.Args[1])
+		}
+	}
+	return f
+}
+
+// scrubPointerLeak detects strings that look like Go memory addresses
+// (`0x` + 6+ hex digits, no spaces, no other content) and rewrites them
+// to int64(0) with a one-line Warn. This is the persisted-fact
+// counterpart of the structured error in types.go ToAtom: that one
+// catches new leaks at the assertion site; this one catches facts
+// loaded from .nerd/shards/*.db that were poisoned BEFORE the upstream
+// fix. The warn includes predicate and arg-index so the offending row
+// can be located and cleaned out of the DB.
+func scrubPointerLeak(predicate string, argIdx int, v any) any {
+	s, ok := v.(string)
+	if !ok {
+		return v
+	}
+	if !looksLikePointerHex(s) {
+		return v
+	}
+	logging.Kernel("WARN: scrubbed pointer-leak %q from %s arg #%d (numeric slot); coerced to 0 — clean shard knowledge DBs to remove the root entry", s, predicate, argIdx)
+	return int64(0)
+}
+
+func looksLikePointerHex(s string) bool {
+	if len(s) < 8 || len(s) > 20 {
+		return false
+	}
+	if s[0] != '0' || (s[1] != 'x' && s[1] != 'X') {
+		return false
+	}
+	for i := 2; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= '0' && c <= '9':
+		case c >= 'a' && c <= 'f':
+		case c >= 'A' && c <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func coercePriorityAtomToNumber(v any) any {
+	switch t := v.(type) {
+	case string:
+		return parsePriorityString(t, v)
+	case MangleAtom:
+		return parsePriorityString(string(t), v)
+	default:
+		return v
+	}
+}
+
+func parsePriorityString(atom string, original any) any {
+	atom = strings.TrimSpace(atom)
+	if atom == "" {
+		return original
+	}
+	// Accept both "/high" and "high"
+	trimmed := strings.TrimPrefix(atom, "/")
+	switch trimmed {
+	case "critical":
+		return int64(100)
+	case "high":
+		return int64(80)
+	case "medium", "normal":
+		return int64(50)
+	case "low":
+		return int64(25)
+	case "lowest":
+		return int64(10)
+	default:
+		// Log unknown priority atoms for debugging (audit item 5.1)
+		logging.Kernel("WARN: unknown priority atom '%s', passing through unchanged", atom)
+		return original
+	}
+}
+
+// GetFactsSnapshotSeq returns an iterator of the current facts (thread-safe).
+func (k *RealKernel) GetFactsSnapshotSeq() iter.Seq[Fact] {
+	return func(yield func(Fact) bool) {
+		k.mu.RLock()
+		defer k.mu.RUnlock()
+		for _, f := range k.facts {
+			if !yield(f) {
+				return
+			}
+		}
+	}
+}
+
+// FactCount returns the number of facts in the EDB.
+func (k *RealKernel) FactCount() int {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return len(k.facts)
+}
+
+// GetAllFactsSeq returns all facts in the EDB as an iterator (thread-safe snapshot).
+func (k *RealKernel) GetAllFactsSeq() iter.Seq[Fact] {
+	return k.GetFactsSnapshotSeq()
+}
+
+// IsDirty returns whether the kernel's EDB has been mutated since the last evaluation.
+// When true, the next Query/QueryAll will trigger a lazy re-evaluation.
+func (k *RealKernel) IsDirty() bool {
+	return k.factsDirty.Load()
+}
+
+// LoadFactsFromFile loads facts from a .mg file and adds them to the EDB.
+func (k *RealKernel) LoadFactsFromFile(path string) error {
+	logging.KernelDebug("LoadFactsFromFile: loading facts from %s", path)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("LoadFactsFromFile: failed to read %s: %v", path, err)
+		return fmt.Errorf("failed to read file %s: %w", path, err)
+	}
+
+	facts, err := ParseFactsFromString(string(data))
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("LoadFactsFromFile: failed to parse facts from %s: %v", path, err)
+		return fmt.Errorf("failed to parse facts from %s: %w", path, err)
+	}
+
+	if len(facts) == 0 {
+		logging.KernelDebug("LoadFactsFromFile: no facts found in %s", path)
+		return nil
+	}
+
+	logging.Kernel("LoadFactsFromFile: parsed %d facts from %s", len(facts), path)
+	return k.LoadFacts(facts)
+}
+
+// batchPredicates names a batch's predicates for a failure message, bounded so
+// a failed ten-thousand-fact load reports what it was rather than filling the
+// log with it.
+func batchPredicates(facts []Fact) string {
+	seen := make(map[string]struct{}, 8)
+	var names []string
+	for _, f := range facts {
+		if _, dup := seen[f.Predicate]; dup {
+			continue
+		}
+		seen[f.Predicate] = struct{}{}
+		names = append(names, f.Predicate)
+		if len(names) == 8 {
+			names = append(names, "...")
+			break
+		}
+	}
+	if len(names) == 0 {
+		return "(empty batch)"
+	}
+	sort.Strings(names)
+	return strings.Join(names, ",")
+}

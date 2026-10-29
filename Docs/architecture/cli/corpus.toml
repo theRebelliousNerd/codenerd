@@ -1,0 +1,6 @@
+schema_version = 1
+id = "cli"
+kind = "realized"
+source_roots = ["cmd/nerd"]
+entrypoint = "README.md"
+verified_on = "2026-09-20"

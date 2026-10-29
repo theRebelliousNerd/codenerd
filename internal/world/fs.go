@@ -1,0 +1,713 @@
+package world
+
+import (
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/tools"
+	"codenerd/internal/types"
+	"codenerd/internal/workspace"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+)
+
+// Scanner handles file system indexing.
+type Scanner struct {
+	parserPool sync.Pool
+	config     ScannerConfig
+	// patternsFromWorkspace makes a scan read the target workspace's
+	// world.ignore_patterns. NewScanner sets it so init, scan and campaign
+	// — which construct a scanner with no config — still honour that list.
+	// NewScannerWithConfig uses the patterns it was given and does not
+	// re-read the file.
+	patternsFromWorkspace bool
+}
+
+// NewScanner creates a new filesystem Scanner.
+func NewScanner() *Scanner {
+	s := NewScannerWithConfig(DefaultScannerConfig())
+	s.patternsFromWorkspace = true
+	return s
+}
+
+// membership is the workspace member set for this scan. Refresh runs on
+// every scan tick so a .gitignore edit is visible without a new process.
+func (s *Scanner) membership(root string) (*workspace.Membership, error) {
+	var (
+		m   *workspace.Membership
+		err error
+	)
+	if s.patternsFromWorkspace {
+		m, err = workspace.For(root)
+	} else {
+		pats := s.config.IgnorePatterns
+		if pats == nil {
+			pats = []string{}
+		}
+		m, err = workspace.Open(root, pats)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := m.Refresh(); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// NewScannerWithConfig creates a new filesystem Scanner with custom config.
+func NewScannerWithConfig(cfg ScannerConfig) *Scanner {
+	logging.WorldDebug("Creating new filesystem Scanner")
+	if cfg.MaxConcurrency <= 0 {
+		cfg = DefaultScannerConfig()
+	}
+	return &Scanner{
+		config: cfg,
+		parserPool: sync.Pool{
+			New: func() any {
+				logging.WorldDebug("Creating new TreeSitterParser in pool")
+				return NewTreeSitterParser()
+			},
+		},
+	}
+}
+
+// ScanWorkspace scans the entire workspace and returns topology facts.
+func (s *Scanner) ScanWorkspace(root string) ([]core.Fact, error) {
+	return s.ScanWorkspaceCtx(context.Background(), root)
+}
+
+// ScanWorkspaceCtx scans the entire workspace with context support.
+func (s *Scanner) ScanWorkspaceCtx(ctx context.Context, root string) ([]core.Fact, error) {
+	logging.World("Starting workspace scan: %s", root)
+	timer := logging.StartTimer(logging.CategoryWorld, "ScanWorkspace")
+
+	result, err := s.ScanDirectory(ctx, root)
+	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("Workspace scan failed: %v", err)
+		return nil, err
+	}
+
+	elapsed := timer.StopWithInfo()
+	logging.World("Workspace scan completed: %d files, %d directories in %v", result.FileCount, result.DirectoryCount, elapsed)
+	return result.Facts, nil
+}
+
+// calculateHash computes a SHA256 hash of file content.
+func calculateHash(path string) (string, error) {
+	start := time.Now()
+	f, err := os.Open(path)
+	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("Failed to open file for hashing: %s - %v", path, err)
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		logging.Get(logging.CategoryWorld).Error("Failed to read file for hashing: %s - %v", path, err)
+		return "", err
+	}
+
+	hash := hex.EncodeToString(h.Sum(nil))
+	logging.WorldDebug("Hash calculated for %s: %s (took %v)", filepath.Base(path), hash[:16], time.Since(start))
+	return hash, nil
+}
+
+// ScanResult represents the result of a directory scan.
+type ScanResult struct {
+	FileCount      int
+	DirectoryCount int
+	Facts          []core.Fact
+	Languages      map[string]int // language -> count
+	TestFileCount  int
+
+	// ProjectLanguage is the majority language of the scanned snapshot, also
+	// emitted as a project_language fact in Facts.
+	ProjectLanguage string
+
+	// TreatmentShadow is the work orientation's treatment would have skipped.
+	// Shadow only: Facts are the same with or without it.
+	TreatmentShadow *TreatmentShadow
+}
+
+// ToFacts returns all facts from the scan result.
+func (r *ScanResult) ToFacts() []core.Fact {
+	return r.Facts
+}
+
+// fileScanResult is sent by worker goroutines to the aggregator.
+// OPTIMIZATION: Eliminates mutex convoy by using channel-based aggregation.
+type fileScanResult struct {
+	fact            core.Fact
+	additionalFacts []core.Fact
+	language        string
+	isTest          bool
+	cacheHit        bool
+}
+
+// dirScanResult is sent when a directory is discovered.
+type dirScanResult struct {
+	fact core.Fact
+}
+
+type fullScanOptions struct {
+	walk    func(string, filepath.WalkFunc) error
+	runFile func(string, func())
+}
+
+type preparedDirectoryScan struct {
+	result *ScanResult
+	cache  *FileCache
+}
+
+// ScanDirectory performs a comprehensive scan of a directory with context support.
+// OPTIMIZATION: Uses channel-based result aggregation to eliminate mutex convoy (2-4x speedup).
+func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, error) {
+	prepared, err := s.prepareDirectoryScan(ctx, root, fullScanOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := prepared.cache.Save(); err != nil {
+		return nil, err
+	}
+	return prepared.result, nil
+}
+
+func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options fullScanOptions) (*preparedDirectoryScan, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	canonical, canonicalErr := tools.CanonicalWorkspaceRoot(root)
+	if canonicalErr != nil {
+		return nil, canonicalErr
+	}
+	root = canonical
+
+	mem, err := s.membership(root)
+	if err != nil {
+		return nil, err
+	}
+
+	logging.World("Starting directory scan: %s", root)
+	timer := logging.StartTimer(logging.CategoryWorld, "ScanDirectory")
+	shadow := newTreatmentShadow(mem)
+
+	cache := NewFileCache(root)
+	if cache.Entries == nil {
+		cache.Entries = make(map[string]CacheEntry)
+	}
+	var failureMu sync.Mutex
+	var workerFailures []error
+	recordFailure := func(path string, failure error) {
+		failureMu.Lock()
+		defer failureMu.Unlock()
+		workerFailures = append(workerFailures, fmt.Errorf("scan file %s: %w", path, failure))
+	}
+
+	var wg sync.WaitGroup
+	maxConc := s.config.MaxConcurrency
+	if maxConc <= 0 {
+		maxConc = DefaultScannerConfig().MaxConcurrency
+	}
+	sem := make(chan struct{}, maxConc) // Limit concurrency
+
+	// OPTIMIZATION: Channel-based result aggregation (no mutex needed!)
+	fileResults := make(chan fileScanResult, maxConc)
+	dirResults := make(chan dirScanResult, 100)
+	var skippedDirs int
+
+	// Aggregator goroutine: collects results from worker goroutines
+	result := &ScanResult{
+		Facts:     make([]core.Fact, 0),
+		Languages: make(map[string]int),
+	}
+	var cacheHits, cacheMisses int
+	aggregatorDone := make(chan struct{})
+	go func() {
+		defer close(aggregatorDone)
+		dirCh := dirResults
+		fileCh := fileResults
+		for dirCh != nil || fileCh != nil {
+			select {
+			case dir, ok := <-dirCh:
+				if !ok {
+					dirCh = nil
+					continue
+				}
+				result.DirectoryCount++
+				result.Facts = append(result.Facts, dir.fact)
+
+			case file, ok := <-fileCh:
+				if !ok {
+					fileCh = nil
+					continue
+				}
+				result.FileCount++
+				result.Languages[file.language]++
+				if file.isTest {
+					result.TestFileCount++
+				}
+				if file.cacheHit {
+					cacheHits++
+				} else {
+					cacheMisses++
+				}
+				result.Facts = append(result.Facts, file.fact)
+				result.Facts = append(result.Facts, file.additionalFacts...)
+			}
+		}
+	}()
+
+	walk := options.walk
+	if walk == nil {
+		walk = filepath.Walk
+	}
+	err = walk(root, func(path string, info os.FileInfo, err error) error {
+		// Check for context cancellation
+		select {
+		case <-ctx.Done():
+			logging.World("Directory scan cancelled via context")
+			return ctx.Err()
+		default:
+		}
+
+		if err != nil {
+			logging.Get(logging.CategoryWorld).Warn("Walk error at %s: %v", path, err)
+			return err
+		}
+
+		member, admErr := mem.Admit(path, info.IsDir())
+		if admErr != nil {
+			if admErr == filepath.SkipDir {
+				logging.WorldDebug("Skipping non-member directory: %s", path)
+				skippedDirs++
+			}
+			return admErr
+		}
+		if !member {
+			return nil
+		}
+
+		if info.IsDir() {
+			name := info.Name()
+			// OPTIMIZATION: Send to channel instead of locking mutex.
+			// Store workspace-relative path as canonical identity so facts
+			// are portable across machines and don't bake in the scanner's
+			// absolute location.
+			dirResults <- dirScanResult{
+				fact: core.Fact{
+					Predicate: "directory",
+					Args:      []any{canonicalScanPath(root, path), name},
+				},
+			}
+			logging.WorldDebug("Indexed directory: %s", path)
+			return nil
+		}
+
+		// An operator-confirmed names-only or excluded scope is never hashed,
+		// read or parsed (treatment_enforce.go).
+		if shadow.claim(root, path, info) {
+			return nil
+		}
+
+		// CRITICAL FIX: Acquire semaphore BEFORE spawning goroutine
+		// This blocks filepath.Walk when worker pool is full, preventing unbounded goroutine spawning
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+
+		decision := shadow.decide(canonicalScanPath(root, path))
+		processFile := func() {
+			fileStart := time.Now()
+			bodyReads := 0
+
+			// "Hash-Thrashing" Fix: Use Cache
+			var hash string
+			var cacheHit bool
+			cachedHash, hit := cache.Get(path, info)
+			if hit {
+				hash = cachedHash
+				cacheHit = true
+				logging.WorldDebug("Cache hit for file: %s", filepath.Base(path))
+			} else {
+				h, err := calculateHash(path)
+				if err != nil {
+					recordFailure(path, err)
+					return
+				}
+				hash = h
+				cache.Update(path, info, hash)
+				cacheHit = false
+				logging.WorldDebug("Cache miss, hashed file: %s", filepath.Base(path))
+			}
+
+			ext := filepath.Ext(path)
+			lang := detectLanguage(ext, path)
+
+			// Cortex 1.5.0: IsTestFile Logic
+			isTest := isTestFile(path)
+			isTestStr := "/false"
+			if isTest {
+				isTestStr = "/true"
+				logging.WorldDebug("Detected test file: %s", filepath.Base(path))
+			}
+
+			// file_topology(Path, Hash, Language, LastModified, IsTestFile)
+			// Store workspace-relative path as canonical identity. Absolute
+			// scanner paths make the knowledge store machine-dependent and
+			// break session restore / cross-machine context reuse.
+			// LastModified is captured at nanosecond resolution so two writes
+			// to the same file within one second invalidate downstream caches.
+			// schemas_world.mg declares the slot bound /number, which Mangle
+			// treats as any int64; the value is not compared to thresholds in
+			// any policy rule, so widening the magnitude is safe.
+			canonical := canonicalScanPath(root, path)
+			fact := core.Fact{
+				Predicate: "file_topology",
+				Args: []any{
+					canonical,
+					hash,
+					core.MangleAtom("/" + lang),
+					info.ModTime().UnixNano(),
+					core.MangleAtom(isTestStr),
+				},
+			}
+
+			var additionalFacts []core.Fact
+
+			// file_dir(Path, Dir): the file's package directory, emitted as a
+			// companion to file_topology so relational rules (notably mock_file)
+			// can join a _test.go to the source files in its OWN package instead
+			// of forming a repo-wide Cartesian product (every test file x every
+			// source file), which overflowed the kernel fact limit on large
+			// repos. Uses the same canonical (workspace-relative) path as the
+			// join key so the values match file_topology exactly.
+			dir := canonicalDir(canonical)
+			additionalFacts = append(additionalFacts, core.Fact{
+				Predicate: "file_dir",
+				Args:      []any{canonical, dir},
+			})
+			// is_test_file: the scanner already classifies the file, and the
+			// test-impact chain negates this mark to keep coverage_gap from
+			// accusing the tests themselves. All languages: the predicate is
+			// language-agnostic and the classification is already done.
+			if isTest {
+				additionalFacts = append(additionalFacts, core.Fact{
+					Predicate: "is_test_file",
+					Args:      []any{canonical},
+				})
+			}
+			// test_file_for(TestFile, SourceFile): pairing computed by the world
+			// scanner because Mangle has no string manipulation for the x_test.go
+			// convention. Coverage is deliberately conservative: a source file
+			// covered only by a package-level test with another name is missed,
+			// which under-reports coverage and leaves the four gating rules
+			// cautious rather than falsely permissive — cautious is the correct
+			// direction to be wrong in for a rule that gates refactors and writes.
+			if strings.HasSuffix(canonical, "_test.go") {
+				sourceCanonical := strings.TrimSuffix(canonical, "_test.go") + ".go"
+				sourceAbs := strings.TrimSuffix(path, "_test.go") + ".go"
+				if _, err := os.Stat(sourceAbs); err == nil {
+					additionalFacts = append(additionalFacts, core.Fact{
+						Predicate: "test_file_for",
+						Args:      []any{types.MangleString(canonical), types.MangleString(sourceCanonical)},
+					})
+				}
+			}
+			// Test Go files skip the tree-sitter walker below, so their package
+			// row and import tokens come from a header-only parse instead: without
+			// the tokens, no file_imports edge ever leaves a test file and the
+			// file-import test_depends_on rule stays dead. Non-test files get both
+			// from ParseGo, spelled identically.
+			if isTest && lang == "go" {
+				bodyReads++
+				if content, err := os.ReadFile(path); err == nil {
+					additionalFacts = append(additionalFacts, goTestFileHeaderFacts(canonical, content)...)
+				} else {
+					recordFailure(path, err)
+					return
+				}
+			}
+			// If not a test file and supported language, extract symbols
+			if !isTest && (s.config.MaxASTFileBytes <= 0 || info.Size() <= s.config.MaxASTFileBytes) {
+				// Borrow a parser from the pool
+				parser := s.parserPool.Get().(*TreeSitterParser)
+				defer s.parserPool.Put(parser) // Return it when done
+
+				bodyReads++
+				content, err := os.ReadFile(path)
+				if err == nil {
+					parseStart := time.Now()
+					switch lang {
+					case "go":
+						if facts, parseErr := parser.ParseGo(canonical, content); parseErr == nil {
+							additionalFacts = append(additionalFacts, facts...)
+							logging.WorldDebug("Parsed Go file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
+						} else {
+							logging.Get(logging.CategoryWorld).Warn("Go parse failed: %s - %v", path, parseErr)
+						}
+					case "mangle":
+						facts := extractMangleSymbolFacts(canonical, string(content))
+						additionalFacts = append(additionalFacts, facts...)
+						logging.WorldDebug("Parsed Mangle file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
+					case "python":
+						if facts, parseErr := parser.ParsePython(canonical, content); parseErr == nil {
+							additionalFacts = append(additionalFacts, facts...)
+							logging.WorldDebug("Parsed Python file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
+						} else {
+							logging.Get(logging.CategoryWorld).Warn("Python parse failed: %s - %v", path, parseErr)
+						}
+					case "rust":
+						if facts, parseErr := parser.ParseRust(canonical, content); parseErr == nil {
+							additionalFacts = append(additionalFacts, facts...)
+							logging.WorldDebug("Parsed Rust file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
+						} else {
+							logging.Get(logging.CategoryWorld).Warn("Rust parse failed: %s - %v", path, parseErr)
+						}
+					case "javascript":
+						if facts, parseErr := parser.ParseJavaScript(canonical, content); parseErr == nil {
+							additionalFacts = append(additionalFacts, facts...)
+							logging.WorldDebug("Parsed JavaScript file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
+						} else {
+							logging.Get(logging.CategoryWorld).Warn("JavaScript parse failed: %s - %v", path, parseErr)
+						}
+					case "typescript":
+						if facts, parseErr := parser.ParseTypeScript(canonical, content); parseErr == nil {
+							additionalFacts = append(additionalFacts, facts...)
+							logging.WorldDebug("Parsed TypeScript file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
+						} else {
+							logging.Get(logging.CategoryWorld).Warn("TypeScript parse failed: %s - %v", path, parseErr)
+						}
+					}
+				} else {
+					recordFailure(path, err)
+					return
+				}
+			} else if !isTest && s.config.MaxASTFileBytes > 0 && info.Size() > s.config.MaxASTFileBytes {
+				logging.WorldDebug("Skipping fast AST parse for large file: %s (%d bytes)", filepath.Base(path), info.Size())
+			}
+
+			shadow.record(decision, info.Size(), !cacheHit, bodyReads)
+			// OPTIMIZATION: Send to channel instead of locking mutex
+			fileResults <- fileScanResult{
+				fact:            fact,
+				additionalFacts: additionalFacts,
+				language:        lang,
+				isTest:          isTest,
+				cacheHit:        cacheHit,
+			}
+
+			logging.WorldDebug("Indexed file: %s (lang=%s, symbols=%d, took %v)", filepath.Base(path), lang, len(additionalFacts), time.Since(fileStart))
+		}
+		wg.Go(func() {
+			defer func() { <-sem }()
+			if options.runFile != nil {
+				options.runFile(path, processFile)
+				return
+			}
+			processFile()
+		})
+
+		return nil
+	})
+
+	// Wait for all file processing goroutines to complete
+	wg.Wait()
+
+	// Close channels to signal aggregator we're done
+	close(fileResults)
+	close(dirResults)
+
+	// Wait for aggregator to finish processing
+	<-aggregatorDone
+	if scanErr := errors.Join(append(workerFailures, err, ctx.Err())...); scanErr != nil {
+		return nil, scanErr
+	}
+
+	// Import edges are resolved after the walk because resolution needs the
+	// whole file set: an import path only becomes a file->file edge once we
+	// know which scanned files implement it. Emitted here (rather than only on
+	// the incremental path) so `nerd scan` and chat rescan agree.
+	result.Facts = append(result.Facts, ResolveDependencyLinks(root, result.Facts)...)
+
+	// project_language and entry_point are derived from the whole snapshot, so
+	// they can only be computed once the walk has finished. They used to be
+	// added by the incremental scanner's first-run branch only, which meant
+	// `nerd scan` produced a world with no entry_point and no project_language
+	// at all — every rule keyed on them derived nothing.
+	if lang := detectProjectLanguage(result.Facts); lang != "" {
+		result.ProjectLanguage = lang
+		result.Facts = append(result.Facts, core.Fact{
+			Predicate: "project_language",
+			Args:      []any{core.MangleAtom("/" + lang)},
+		})
+	}
+	result.Facts = append(result.Facts, detectEntryPoints(result.Facts)...)
+	result.Facts = append(result.Facts, shadow.coverageFacts()...)
+	result.TreatmentShadow = shadow.finish()
+
+	elapsed := timer.Stop()
+	logging.World("Directory scan completed: %d files, %d dirs, %d skipped dirs, cache hits=%d misses=%d, %d facts generated in %v",
+		result.FileCount, result.DirectoryCount, skippedDirs, cacheHits, cacheMisses, len(result.Facts), elapsed)
+
+	cache.LogStats("full-scan")
+
+	// Log language breakdown
+	if len(result.Languages) > 0 {
+		logging.WorldDebug("Language breakdown: %v", result.Languages)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return &preparedDirectoryScan{result: result, cache: cache}, nil
+}
+
+// detectLanguage determines the programming language from file extension and path.
+func detectLanguage(ext, path string) string {
+	ext = strings.ToLower(ext)
+
+	langMap := map[string]string{
+		".go":     "go",
+		".mg":     "mangle",
+		".mangle": "mangle",
+		".dl":     "mangle",
+		".py":     "python",
+		".js":     "javascript",
+		".ts":     "typescript",
+		".tsx":    "typescript",
+		".jsx":    "javascript",
+		".rs":     "rust",
+		".java":   "java",
+		".kt":     "kotlin",
+		".rb":     "ruby",
+		".php":    "php",
+		".c":      "c",
+		".cpp":    "cpp",
+		".cc":     "cpp",
+		".h":      "c",
+		".hpp":    "cpp",
+		".cs":     "csharp",
+		".swift":  "swift",
+		".scala":  "scala",
+		".clj":    "clojure",
+		".ex":     "elixir",
+		".exs":    "elixir",
+		".erl":    "erlang",
+		".hs":     "haskell",
+		".ml":     "ocaml",
+		".lua":    "lua",
+		".r":      "r",
+		".sql":    "sql",
+		".sh":     "shell",
+		".bash":   "shell",
+		".zsh":    "shell",
+		".ps1":    "powershell",
+		".yaml":   "yaml",
+		".yml":    "yaml",
+		".json":   "json",
+		".xml":    "xml",
+		".html":   "html",
+		".css":    "css",
+		".scss":   "scss",
+		".sass":   "sass",
+		".less":   "less",
+		".md":     "markdown",
+		".rst":    "rst",
+		".txt":    "text",
+		".toml":   "toml",
+		".ini":    "ini",
+		".cfg":    "config",
+		".conf":   "config",
+	}
+
+	if lang, ok := langMap[ext]; ok {
+		return lang
+	}
+
+	// Check for special files
+	base := filepath.Base(path)
+	switch base {
+	case "Dockerfile", "dockerfile":
+		return "dockerfile"
+	case "Makefile", "makefile", "GNUmakefile":
+		return "makefile"
+	case "CMakeLists.txt":
+		return "cmake"
+	case "go.mod", "go.sum":
+		return "go_mod"
+	case "package.json":
+		return "npm"
+	case "Cargo.toml":
+		return "cargo"
+	case "requirements.txt", "setup.py", "pyproject.toml":
+		return "python_config"
+	}
+
+	return "unknown"
+}
+
+// isTestFile determines if a file is a test file.
+func isTestFile(path string) bool {
+	base := filepath.Base(path)
+	dir := filepath.Dir(path)
+
+	// Go tests
+	if strings.HasSuffix(path, "_test.go") {
+		return true
+	}
+
+	// Python tests
+	if strings.HasSuffix(path, "_test.py") || strings.HasPrefix(base, "test_") {
+		return true
+	}
+
+	dirParts := strings.Split(filepath.ToSlash(dir), "/")
+	inTestDir := false
+	for _, part := range dirParts {
+		if part == "tests" || part == "test" || part == "__tests__" {
+			inTestDir = true
+			break
+		}
+	}
+
+	if inTestDir {
+		ext := filepath.Ext(path)
+		if ext == ".py" || ext == ".js" || ext == ".ts" || ext == ".tsx" || ext == ".rs" {
+			return true
+		}
+	}
+
+	// JavaScript/TypeScript tests
+	if strings.HasSuffix(path, ".test.js") || strings.HasSuffix(path, ".test.ts") ||
+		strings.HasSuffix(path, ".spec.js") || strings.HasSuffix(path, ".spec.ts") ||
+		strings.HasSuffix(path, ".test.tsx") || strings.HasSuffix(path, ".spec.tsx") {
+		return true
+	}
+
+	// Java tests
+	if strings.HasSuffix(path, "Test.java") || strings.HasSuffix(path, "Tests.java") {
+		return true
+	}
+
+	// Rust tests
+	if strings.Contains(dir, "tests") && strings.HasSuffix(path, ".rs") {
+		return true
+	}
+
+	return false
+}

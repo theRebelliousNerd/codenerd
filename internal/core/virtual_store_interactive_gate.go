@@ -1,0 +1,452 @@
+package core
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/projectdoc"
+	"codenerd/internal/tools"
+	"codenerd/internal/types"
+)
+
+// This file wires the VirtualStore executive (Dreamer destructive-action gate
+// and the post-action validator registry) onto the *interactive* session
+// executor path (internal/session/executor.go), which executes modular tools
+// directly via tools.Global() and therefore bypasses RouteAction.
+//
+// We deliberately do NOT route interactive tool calls through RouteAction:
+// the executor has already run the tool via the modular registry, so
+// RouteAction's own executeAction switch would double-execute (or diverge).
+// Instead we expose two focused, idempotent capability methods that the
+// executor invokes around its existing executeToolCall:
+//
+//   - PreflightDestructiveToolCall: PRE-execution Dreamer simulation gate.
+//   - ValidateInteractiveToolResult: POST-execution validator pass + fact
+//     assertion to the kernel.
+//
+// Ordering is load-bearing: the Dreamer prevents unsafe writes, so it MUST run
+// before the tool executes; validators verify side effects actually landed, so
+// they MUST run after. The executor calls these at two distinct seams.
+
+// interactiveToolActionType maps a modular tool name (as registered by
+// internal/tools/{core,shell,codedom}.RegisterAll) to the ActionType the
+// Dreamer's isDestructiveAction switch and the ValidatorRegistry dispatch on.
+//
+// This is an EXPLICIT map, not name==ActionType identity, because:
+//   - isDestructiveAction(ActionType) returns false for unknown types, which
+//     would silently disable the Dreamer gate.
+//   - ValidatorRegistry.getValidatorsForType(ActionType) selects the right
+//     validator (FileWriteValidator, etc.) by ActionType; a mismatch yields a
+//     "skipped" (no-op) validation.
+//
+// Other registered tools use their explicit effect declaration. Unknown
+// effects are rejected, and executable/external effects take the generic gate.
+var interactiveToolActionType = map[string]ActionType{
+	// core filesystem tools (internal/tools/core/file_ops.go)
+	"read_file":   ActionReadFile,
+	"write_file":  ActionWriteFile,
+	"edit_file":   ActionEditFile,
+	"delete_file": ActionDeleteFile,
+	// shell execution tools (internal/tools/shell/execute.go)
+	"run_command":        ActionRunCommand,
+	"bash":               ActionBash,
+	"run_build":          ActionRunBuild,
+	"run_tests":          ActionRunTests,
+	"run_impacted_tests": ActionRunTests,
+	"git_operation":      ActionGitOperation,
+	// codedom line-edit tools (internal/tools/codedom/lines.go)
+	"edit_lines":   ActionEditLines,
+	"insert_lines": ActionInsertLines,
+	"delete_lines": ActionDeleteLines,
+	// codedom element edits (internal/tools/codedom/element_edit.go) share
+	// the line tools' destructive posture and take the CodeDOM and syntax
+	// validators wired for edit_element: each rewrites part of one file.
+	"edit_element":    ActionEditElement,
+	"replace_element": ActionEditElement,
+	"insert_element":  ActionEditElement,
+	"delete_element":  ActionEditElement,
+	// create_file writes a new file, exactly the write_file posture.
+	"create_file": ActionWriteFile,
+	// repoint rewrites uses across the files its paths declare. Like
+	// apply_edits it is gated and validated once per declared file, as an
+	// edit_file of that file.
+	"repoint": ActionEditFile,
+	// apply_edits is the multi-file transactional editor. It has no dedicated
+	// ActionType in VirtualStore routing, but it mutates files exactly like
+	// edit_file, so it takes the same Dreamer preflight and post-write
+	// validators. It was unmapped until 2026-09-04, which skipped both.
+	"apply_edits": ActionEditFile,
+}
+
+// isMultiFileTool reports a call that writes several files: apply_edits and
+// repoint always, and any edit whose args declare a paths write set
+// (delete_element with replace_with). Such a call is preflighted and
+// validated once per file, as an edit_file of that file, so every file it
+// touches gets the same gate a single-file edit would.
+func isMultiFileTool(toolName string, args map[string]any) bool {
+	switch toolName {
+	case "apply_edits", "repoint":
+		return true
+	}
+	if _, ok := args["paths"]; ok && projectdoc.IsWriteMutationTool(toolName) {
+		paths, err := projectdoc.TargetPaths(args)
+		return err == nil && len(paths) > 1
+	}
+	return false
+}
+
+// actionTypeForToolName resolves a modular tool name to its ActionType.
+// The bool is false when the tool lacks an effect declaration (fail closed).
+func actionTypeForToolName(toolName string) (ActionType, bool) {
+	at, ok := interactiveToolActionType[toolName]
+	if ok {
+		return at, true
+	}
+	effect, err := tools.LookupEffect(toolName)
+	if err != nil {
+		return "", false
+	}
+	if effect == tools.EffectRead {
+		return ActionReadFile, true
+	}
+	return ActionExecTool, true
+}
+
+// buildInteractiveActionRequest constructs the ActionRequest that the Dreamer
+// and validators expect from an interactive tool call. Target extraction
+// mirrors the executor's extractTarget heuristic (path/filename/.../target).
+func buildInteractiveActionRequest(actionID string, at ActionType, args map[string]any) ActionRequest {
+	if args == nil {
+		args = map[string]any{}
+	}
+	target := extractActionTarget(args)
+	// Copy args into Payload so validators that inspect e.g. "content" or
+	// "old_string" see the same data the tool received.
+	payload := make(map[string]any, len(args))
+	for k, v := range args {
+		payload[k] = v
+	}
+	return ActionRequest{
+		ActionID: actionID,
+		Type:     at,
+		Target:   target,
+		Payload:  payload,
+	}
+}
+
+// extractActionTarget mirrors session/executor.go:extractTarget so the Target
+// passed to the Dreamer/validators matches what the tool acted on.
+func extractActionTarget(args map[string]any) string {
+	for _, key := range []string{"path", "file_path", "filename", "filepath", "file", "command", "url", "target", "query"} {
+		if val, ok := args[key]; ok {
+			if s := extractStringArg(val); s != "" {
+				return s
+			}
+		}
+	}
+	return "unknown"
+}
+
+func extractStringArg(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+// PreflightDestructiveToolCall runs the Dreamer speculative safety gate for an
+// interactive tool call BEFORE it executes. It returns a non-nil error if the
+// action is unsafe and must be blocked.
+//
+// Fail-CLOSED policy: every mapped destructive tool requires a usable Dreamer.
+// Permission and speculative safety are independent gates; an allow decision
+// from checkSafety must never compensate for a missing simulation engine.
+func (v *VirtualStore) PreflightDestructiveToolCall(ctx context.Context, actionID, toolName string, args map[string]any) error {
+	if ctx == nil {
+		return &InteractiveGateError{Reason: "nil context"}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	at, ok := actionTypeForToolName(toolName)
+	if !ok && v != nil {
+		if registry := v.GetToolRegistry(); registry != nil {
+			if _, exists := registry.GetTool(toolName); exists {
+				at, ok = ActionExecTool, true
+			}
+		}
+	}
+	if !ok {
+		return &InteractiveGateError{Reason: "missing effect declaration for tool " + toolName}
+	}
+	if !isDestructiveAction(at) {
+		return nil
+	}
+	if v == nil {
+		return &InteractiveGateError{Reason: "dreamer unavailable: VirtualStore is nil"}
+	}
+	if isMultiFileTool(toolName, args) {
+		paths, err := projectdoc.TargetPaths(args)
+		if err != nil {
+			return err
+		}
+		if len(paths) == 0 {
+			return &InteractiveGateError{Reason: toolName + " has no targets"}
+		}
+		for i, path := range paths {
+			if err := v.preflightFile(ctx, fmt.Sprintf("%s:%d", actionID, i), path, args); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return v.dreamGate(ctx, actionID, toolName, at, args)
+}
+
+// preflightFile gates one file of a multi-file call as an edit_file of that
+// file. Its payload keeps the call's arguments but not its other targets, and
+// it goes straight to the Dreamer: it can never be multi-file itself.
+//
+// Until 2026-09-26 each file re-entered PreflightDestructiveToolCall with the
+// call's "paths" still in its payload, so an edit_file naming two or more
+// paths was multi-file again and recursed without end. The action ID grew by
+// ":0" per level and every level kept its own alive, so memory grew
+// quadratically: a two-file repoint -- or any write naming "paths" --
+// committed 200+ GiB and starved the machine (found by
+// TestE2E_InteractiveGate_Recovery_MultiFileTransaction).
+func (v *VirtualStore) preflightFile(ctx context.Context, actionID, path string, args map[string]any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	payload := make(map[string]any, len(args)+1)
+	for k, val := range args {
+		if k == "paths" || k == "edits" {
+			continue
+		}
+		payload[k] = val
+	}
+	payload["path"] = path
+	return v.dreamGate(ctx, actionID, "edit_file", ActionEditFile, payload)
+}
+
+// approvalLiftsDream reports whether an approval of this exact pending action
+// lifts the Dreamer's block: every panic reason must be liftable
+// (dream_reason_liftable, dreamer.mg) and a human_approval_granted row must
+// name this action. A failed or refused simulation has no panic reasons and is
+// never lifted.
+func (v *VirtualStore) approvalLiftsDream(actionID string, res DreamResult) bool {
+	if v == nil || v.kernel == nil || len(res.PanicReasons) == 0 {
+		return false
+	}
+	liftable, err := v.kernel.Query("dream_reason_liftable")
+	if err != nil {
+		return false
+	}
+	ok := map[string]bool{}
+	for _, f := range liftable {
+		if len(f.Args) == 1 {
+			ok[types.ExtractString(f.Args[0])] = true
+		}
+	}
+	for _, r := range res.PanicReasons {
+		if !ok[r] {
+			return false
+		}
+	}
+	grants, err := v.kernel.Query(types.HumanApprovalPredicate)
+	if err != nil {
+		return false
+	}
+	for _, g := range grants {
+		if len(g.Args) > 0 && types.ExtractString(g.Args[0]) == actionID {
+			return true
+		}
+	}
+	return false
+}
+
+// dreamGate is the speculative gate for one target: fail closed without a
+// Dreamer, block what it simulates as unsafe.
+func (v *VirtualStore) dreamGate(ctx context.Context, actionID, toolName string, at ActionType, args map[string]any) error {
+	req := buildInteractiveActionRequest(actionID, at, args)
+	dreamer := v.getDreamer()
+	if dreamer == nil {
+		reason := "dreamer unavailable for destructive interactive tool"
+		logging.Get(logging.CategoryVirtualStore).Error(
+			"Dreamer unavailable; BLOCKED interactive tool: %s on %s", toolName, req.Target)
+		v.injectFact(newSecurityViolationFact(req, reason))
+		return &InteractiveGateError{Reason: reason}
+	}
+
+	dreamResult := dreamer.SimulateAction(ctx, req)
+	if dreamResult.Unsafe && v.approvalLiftsDream(actionID, dreamResult) {
+		logging.Get(logging.CategoryVirtualStore).Warn(
+			"Dreamer flagged %s on %s (%s); the approval of this exact request lifts it",
+			toolName, req.Target, dreamResult.Reason)
+		v.injectFact(Fact{
+			Predicate: "dream_block_lifted",
+			Args:      []any{actionID, string(at), req.Target, dreamResult.Reason},
+		})
+		return nil
+	}
+	if dreamResult.Unsafe {
+		logging.Get(logging.CategoryVirtualStore).Warn(
+			"Dreamer BLOCKED interactive tool: %s on %s (reason: %s)",
+			toolName, req.Target, dreamResult.Reason)
+		v.injectFact(Fact{
+			Predicate: "dream_blocked_action",
+			Args:      []any{dreamResult.ActionID, string(at), req.Target, dreamResult.Reason},
+		})
+		v.injectFact(newSecurityViolationFact(req, "dreamer: "+dreamResult.Reason))
+		return &InteractiveGateError{Reason: "dreamer safety gate: " + dreamResult.Reason}
+	}
+	logging.VirtualStoreDebug("Dreamer approved interactive tool: %s on %s", toolName, req.Target)
+	return nil
+}
+
+// ValidateInteractiveToolResult runs the post-action validator registry for an
+// interactive tool call AFTER it has executed, asserts the validation facts to
+// the kernel (so policy — e.g. task_complete/1 — can reason over them), and
+// returns what the pass established, typed: verified, rejected (a definitive
+// failure anywhere in the pass), incomplete (a validator could not complete)
+// or unvalidated (no validator holds an opinion).
+//
+// It used to return an error only when the FIRST failed reading had
+// confidence >= 0.8, and nil for "verified or no opinion": a canceled
+// validator read as a pass to the session, and a low-confidence objection
+// ahead of a definitive failure hid it. The session decides from the state now,
+// and keeps the effect when the state is rejected: a failed postcondition is
+// not proof the bytes did not change.
+//
+// success reflects whether the tool reported a result; validators only run on
+// one. The session passes true for a failed handler that left an observed
+// change, so the change is measured rather than assumed.
+func (v *VirtualStore) ValidateInteractiveToolResult(ctx context.Context, actionID, toolName string, args map[string]any, output string, success bool) types.ToolValidation {
+	if v == nil {
+		return types.ToolValidation{State: types.ToolValidationIncomplete, Reason: "validator store unavailable"}
+	}
+	if !success {
+		return types.ToolValidation{State: types.ToolValidationNotRun, Reason: "the tool reported no result to validate"}
+	}
+	if v.validators == nil {
+		return types.ToolValidation{State: types.ToolValidationUnvalidated, Reason: "no validator registry"}
+	}
+	if isMultiFileTool(toolName, args) {
+		paths, err := projectdoc.TargetPaths(args)
+		if err != nil || len(paths) == 0 {
+			return types.ToolValidation{State: types.ToolValidationRejected, Reason: "invalid " + toolName + " validation targets"}
+		}
+		// apply_edits verifies staged replacements internally. Apply the
+		// post-write existence/syntax validators to every resulting file, and
+		// keep every file's reading: one rejected file must not hide behind
+		// the others.
+		var out types.ToolValidation
+		for i, path := range paths {
+			out = out.Merge(v.ValidateInteractiveToolResult(ctx, fmt.Sprintf("%s:%d", actionID, i), "edit_file", map[string]any{"path": path}, output, true))
+		}
+		return out
+	}
+	at, ok := actionTypeForToolName(toolName)
+	if !ok {
+		return types.ToolValidation{State: types.ToolValidationUnvalidated, Reason: "no validators for " + toolName}
+	}
+
+	req := buildInteractiveActionRequest(actionID, at, args)
+	req = v.requestForValidation(req)
+	res := ActionResult{
+		Success:  true,
+		Output:   output,
+		Metadata: map[string]any{"completed_at": time.Now().Unix()},
+	}
+
+	validations := v.validators.Validate(ctx, req, res)
+	// Assert validation facts to the kernel (reuses the same path RouteAction
+	// uses, so Step 2's task_complete/1 has facts to reason over).
+	v.processValidationResults(req, res, validations)
+
+	summary := SummarizeValidation(req.Target, validations)
+	if summary.State == types.ToolValidationRejected {
+		logging.Get(logging.CategoryVirtualStore).Warn(
+			"Post-action validation failed (interactive): %s on %s - %s",
+			toolName, req.Target, summary.Reason)
+	}
+	return summary
+}
+
+// InteractiveGateError marks an error originating from the interactive
+// executive gate so callers can distinguish a policy/validation block from a
+// tool execution error.
+type InteractiveGateError struct {
+	Reason string
+}
+
+func (e *InteractiveGateError) Error() string { return e.Reason }
+
+// generatedNamedValidator opts one host-registered executable into the real
+// interactive validator registry, without changing its authorization action.
+type generatedNamedValidator struct {
+	name      string
+	execution *ExecutionValidator
+	resolve   func(string) string
+}
+
+func (g *generatedNamedValidator) Name() string  { return "generated:" + g.name }
+func (g *generatedNamedValidator) Priority() int { return 10 }
+func (g *generatedNamedValidator) CanValidate(action ActionType) bool {
+	return string(action) == g.name
+}
+func (g *generatedNamedValidator) Validate(ctx context.Context, request ActionRequest, result ActionResult) ValidationResult {
+	validation := g.execution.Validate(ctx, request, result)
+	if !validation.Verified {
+		return validation
+	}
+	// A declared literal write is checked against the actual file, using the
+	// existing file validator. Other tools receive mechanical output validation.
+	if _, literal := request.Payload["content"].(string); literal && request.Target != "unknown" {
+		request.Target = g.resolve(request.Target)
+		return NewFileWriteValidator().Validate(ctx, request, result)
+	}
+	return validation
+}
+
+func (v *VirtualStore) ensureGeneratedValidator(name string) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.validators == nil {
+		return fmt.Errorf("generated interactive validators disconnected")
+	}
+	for _, validator := range v.validators.Validators() {
+		if validator.Name() == "generated:"+name {
+			return nil
+		}
+	}
+	v.validators.Register(&generatedNamedValidator{name: name, execution: NewExecutionValidator(), resolve: v.resolvePath})
+	return nil
+}
+
+func (v *VirtualStore) validateNamedGeneratedResult(ctx context.Context, request types.GeneratedToolRequest, args map[string]any, receipt types.GeneratedToolReceipt) error {
+	v.mu.RLock()
+	validators := v.validators
+	v.mu.RUnlock()
+	if validators == nil {
+		return fmt.Errorf("generated validators disconnected")
+	}
+	action := ActionRequest{ActionID: request.AuthorizationID, Type: ActionType(request.Tool.Name), Target: request.Target, Payload: args}
+	result := ActionResult{Success: receipt.BackendError == nil, Output: receipt.Output, Metadata: map[string]any{"exit_code": receipt.ExitCode}}
+	if receipt.BackendError != nil {
+		result.Error = receipt.BackendError.Error()
+	}
+	validations := validators.Validate(ctx, action, result)
+	v.processValidationResults(action, result, validations)
+	if len(validations) == 0 {
+		return fmt.Errorf("generated validation produced no result")
+	}
+	for _, validation := range validations {
+		if validation.Method == ValidationMethodSkipped || !validation.Verified {
+			return fmt.Errorf("generated validation failed: %s (%s)", validation.Error, validation.Method)
+		}
+	}
+	return nil
+}

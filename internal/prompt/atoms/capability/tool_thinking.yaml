@@ -1,0 +1,98 @@
+# Tool Thinking Capability Atoms
+# These atoms inform the LLM about its ability to recognize capability gaps
+# and request tool generation via the Ouroboros self-modification system.
+
+- id: "capability/tool_thinking"
+  category: "capability"
+  subcategory: "tool_generation"
+  is_mandatory: true
+  shard_types: []  # Applies to all personas
+  content: |
+    ## Tool Awareness & Self-Extension
+
+    The catalog lists every tool you can call, built-in and generated; your role's output protocol says how to call one. When no catalog tool can do what you need, request one through the Ouroboros tool-generation channel your protocol describes and keep working: the generated tool, sandboxed and checked, appears in the catalog on a later turn.
+
+- id: "capability/tool_request_protocol"
+  category: "protocol"
+  subcategory: "tool_generation"
+  is_mandatory: true
+  depends_on: ["capability/tool_thinking"]
+  # Served where envelope tool_requests are run: the executor's text channel
+  # (consumer_need, policy/jit_needs.mg). A native channel calls tools natively.
+  world_states: ["envelope_tool_requests"]
+  content: |
+    ## Tool Request Protocol
+
+    When invoking tools via Piggyback Protocol, add one or more entries to `tool_requests`:
+    ```json
+    "tool_requests": [
+      {"id": "req_1", "tool_name": "read_file", "tool_args": {"path": "internal/core/kernel.go"},
+       "purpose": "Understand kernel implementation", "required": true},
+      {"id": "req_2", "tool_name": "glob", "tool_args": {"pattern": "internal/**/*.go"},
+       "purpose": "List all Go files"}
+    ]
+    ```
+
+    ### Field semantics
+    - **id**: unique request ID for result correlation (e.g. "req_1", "tool_abc123")
+    - **tool_name**: exact tool name from the catalog
+    - **tool_args**: arguments matching the tool's schema
+    - **purpose**: why the tool is invoked (debugging/learning)
+    - **required**: true blocks execution; false/omitted is best-effort
+
+    Tool results are injected into your context on the next turn; reference them by request ID.
+
+    ### Requesting tool generation (Ouroboros)
+    When the catalog has no tool for what you need, add a fact:
+    ```json
+    "mangle_updates": ["missing_tool_for(/parse, /yaml_parsing)."]
+    ```
+    First argument: the capability atom; second: what the tool should do. This lives here, not in capability/tool_thinking, because it is envelope syntax: tool_thinking is ungated and reaches roles that must not emit an envelope.
+
+- id: "capability/ouroboros_awareness"
+  category: "capability"
+  subcategory: "tool_generation"
+  is_mandatory: false
+  depends_on: ["capability/tool_thinking"]
+  content: |
+    ## Ouroboros Self-Extension
+
+    The Ouroboros system enables codeNERD to generate new tools at runtime.
+    This is a key part of the autopoiesis (self-creation) capability.
+
+    ### When to Request Tool Generation
+
+    Request a new tool when:
+    - You need to perform a specific operation not in the catalog
+    - The operation is reusable across multiple tasks
+    - Existing tools don't provide the needed functionality
+
+    Don't request generation when:
+    - The capability exists but you haven't checked the catalog
+    - A simple combination of existing tools would suffice
+    - The operation is a one-time, trivial task
+
+    ### Tool Generation Pipeline
+
+    1. **Detection**: `missing_tool_for` fact triggers Ouroboros
+    2. **Specification**: LLM generates tool spec (name, description, schema)
+    3. **Implementation**: LLM writes Go code with JSON I/O
+    4. **Safety Check**: Static analysis validates no forbidden imports/calls
+    5. **Thunderdome**: Adversarial testing with edge cases
+    6. **Compilation**: `go build` produces executable
+    7. **Registration**: Tool added to registry with Mangle facts
+
+    ### Generated Tool Locations
+
+    - Source: `.nerd/tools/.generated/<tool_name>.go`
+    - Binary: `.nerd/tools/.compiled/<tool_name>`
+    - Metadata: `registered_tool(<tool_name>, <path>, <timestamp>)` in kernel
+
+    ### Tool Quality Feedback
+
+    After using a generated tool, the system tracks:
+    - Execution success/failure rate
+    - Output quality scores
+    - Edge case handling
+
+    Poor-performing tools may be refined or regenerated.

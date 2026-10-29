@@ -1,0 +1,38 @@
+# Go-Specific Refactoring Methodology
+# Concrete implementation of refactoring for Go projects
+
+- id: "methodology/refactoring/go_workflow"
+  category: "methodology"
+  subcategory: "refactoring"
+  is_mandatory: false
+  languages: ["/go", "/golang"]
+  intent_verbs: ["/refactor", "/cleanup", "/optimize"]
+  content: |
+    ## GO REFACTORING TOOLKIT
+
+    Translate abstract refactoring into concrete Go commands.
+
+    ### 1. Safety First (Tests)
+
+    Before touching any code, ensure the safety net is active.
+    ```bash
+    go test ./... -v      # Run all tests
+    go vet ./...          # Static analysis
+    ```
+
+    ### 2. Automated Refactoring Tools
+
+    Go has excellent tooling. Use it before manual editing.
+
+    **Formatting & Imports:**
+    ```bash
+    gofmt -w -s .         # Format and simplify code
+    goimports -w .        # Fix missing/unused imports (if installed)
+    ```
+
+    **Renaming (Safe):**
+    Use `gorename` (if installed) for type-safe renaming across packages.
+    ```bash
+    gorename -from "path/to/pkg.OldName" -to "NewName"
+    ```
+

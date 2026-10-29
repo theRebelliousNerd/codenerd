@@ -1,0 +1,1183 @@
+package articulation
+
+import (
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"strings"
+	"sync"
+	"unicode/utf8"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+)
+
+// looksLikePartialEnvelope reports whether a raw response appears to be a
+// piggyback envelope that the LLM started emitting but failed to complete.
+// We detect this by looking for JSON-start markers plus characteristic
+// envelope field names. Used to short-circuit the fallback path which
+// would otherwise dump the bare control_packet to the user.
+func looksLikePartialEnvelope(s string) bool {
+	trimmed := strings.TrimLeft(s, " \t\r\n")
+	if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "```") {
+		return false
+	}
+	return strings.Contains(trimmed, `"control_packet"`) ||
+		strings.Contains(trimmed, `"decision_summary"`) ||
+		strings.Contains(trimmed, `"intent_classification"`)
+}
+
+// salvageSurfaceFromPartial scans a malformed/truncated piggyback envelope
+// for a usable surface_response value. The key lookup skips mentions quoted
+// inside other strings, and the value scan shares scanJSONString with the
+// field extractor, so escapes — including \uXXXX — decode the same
+// everywhere. Returns "" if no usable value can be extracted.
+func salvageSurfaceFromPartial(raw string) string {
+	keyIdx := findKeyOutsideStrings(raw, "surface_response")
+	if keyIdx == -1 {
+		return ""
+	}
+	colonIdx := strings.IndexByte(raw[keyIdx:], ':')
+	if colonIdx == -1 {
+		return ""
+	}
+	colonIdx += keyIdx
+	quoteIdx := strings.IndexByte(raw[colonIdx:], '"')
+	if quoteIdx == -1 {
+		return ""
+	}
+	open := colonIdx + quoteIdx
+
+	if val, _, ok := scanJSONString(raw, open); ok {
+		return strings.TrimSpace(val)
+	}
+
+	// Closing quote never appeared — output was truncated mid-string. If we
+	// got at least a few meaningful characters, return what we have; the
+	// user is better off seeing the partial message than the raw envelope.
+	if val, ok := scanJSONStringPrefix(raw, open); ok {
+		salvaged := strings.TrimSpace(val)
+		if len(salvaged) >= 8 {
+			return salvaged + " […truncated]"
+		}
+	}
+	return ""
+}
+
+// truncatedEnvelopeMessage builds a friendly user-facing message when the
+// model produced a partial envelope with no recoverable surface_response.
+// If a decision_summary was captured before truncation, we surface it so
+// the user has some idea what the model had decided.
+func truncatedEnvelopeMessage(raw string) string {
+	summary := extractStringField(raw, "decision_summary")
+	if summary != "" {
+		// Rune cut: a byte cut can split a multi-byte rune and hand the
+		// user invalid UTF-8 in the one message meant to reassure them.
+		// The summary is meant to be two sentences; the cut only bounds a
+		// model that ignored that, and is marked with an ellipsis.
+		if runes := []rune(summary); len(runes) > 600 {
+			summary = string(runes[:600]) + "…"
+		}
+		return "_The model's response was cut off before it could write a reply (likely an output-token limit). It had decided:_\n\n> " + summary
+	}
+	return "_The model's response was cut off before it could write a reply (likely an output-token limit). Please ask again — possibly more narrowly._"
+}
+
+// extractStringField pulls the value of a JSON string field out of a possibly
+// malformed/truncated envelope. Used by truncatedEnvelopeMessage to recover
+// decision_summary. Returns "" if not found or the value is non-string. Shares
+// the key lookup and value scan with the surface salvager.
+func extractStringField(raw, field string) string {
+	keyIdx := findKeyOutsideStrings(raw, field)
+	if keyIdx == -1 {
+		return ""
+	}
+	colonIdx := strings.IndexByte(raw[keyIdx:], ':')
+	if colonIdx == -1 {
+		return ""
+	}
+	colonIdx += keyIdx
+	quoteIdx := strings.IndexByte(raw[colonIdx:], '"')
+	if quoteIdx == -1 {
+		return ""
+	}
+	open := colonIdx + quoteIdx
+
+	// A truncated envelope ends mid-value; the prefix scan recovers what
+	// arrived instead of failing the whole field.
+	if val, _, ok := scanJSONString(raw, open); ok {
+		return strings.TrimSpace(val)
+	}
+	if val, ok := scanJSONStringPrefix(raw, open); ok {
+		return strings.TrimSpace(val)
+	}
+	return ""
+}
+
+// =============================================================================
+// PIGGYBACK PROTOCOL - Dual-Channel Steganographic Control
+// =============================================================================
+// The Articulation layer handles LLM output → structured data extraction.
+// This implements the "Corpus Callosum" between surface text and logic atoms.
+
+// =============================================================================
+// RESPONSE PROCESSOR - The Full Articulation Pipeline
+// =============================================================================
+
+// ResponseProcessor handles the complete articulation pipeline:
+// LLM Raw Output → Parse → Validate → Extract → Return structured result
+type ResponseProcessor struct {
+	// Validation settings
+	RequireValidJSON     bool
+	AllowMarkdownWrapped bool
+	LogFallbackAsError   bool
+
+	// Statistics for monitoring
+	statsMu sync.Mutex
+	stats   ProcessorStats
+}
+
+// ProcessorStats tracks parsing statistics for monitoring.
+type ProcessorStats struct {
+	TotalProcessed     int
+	SuccessfulParses   int
+	FallbackParses     int
+	ValidationFailures int
+	SelfCorrections    int
+}
+
+// ArticulationResult is the complete output of the articulation layer.
+type ArticulationResult struct {
+	// Surface response for the user
+	Surface string
+
+	// Structured control data
+	Control ControlPacket
+
+	// Parsing metadata
+	ParseMethod string // "json", "json_markdown", "json_extracted", "fallback", "ambiguous"
+	Confidence  float64
+	Warnings    []string
+
+	// Admission is the host's reading of the reply: one envelope selected,
+	// plain text, an unfinished envelope, or an ambiguous one.
+	Admission AdmissionOutcome
+
+	// Dispositions records every control the parser removed before any policy
+	// saw it, by position in the list the model sent. Warnings carry the same
+	// facts as prose; this is the form a consumer can carry forward.
+	Dispositions []ControlDisposition
+
+	// MangleOrigins gives, for each update left in Control.MangleUpdates, its
+	// position in the list the model sent. The parser removes updates, so
+	// positions in the kept list are not positions in the model's list.
+	MangleOrigins []int
+
+	// Original raw response (for debugging)
+	RawResponse string
+}
+
+// NewResponseProcessor creates a new processor with default settings.
+func NewResponseProcessor() *ResponseProcessor {
+	logging.ArticulationDebug("Creating new ResponseProcessor with default settings")
+	rp := &ResponseProcessor{
+		RequireValidJSON:     false, // Allow fallback parsing
+		AllowMarkdownWrapped: true,
+		LogFallbackAsError:   true,
+	}
+	logging.ArticulationDebug("ResponseProcessor initialized: RequireValidJSON=%v, AllowMarkdownWrapped=%v",
+		rp.RequireValidJSON, rp.AllowMarkdownWrapped)
+	return rp
+}
+
+// Process parses an LLM response into a structured ArticulationResult.
+// This is the main entry point for the articulation layer.
+func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, error) {
+	timer := logging.StartTimer(logging.CategoryArticulation, "Process")
+	defer timer.Stop()
+
+	stats := rp.updateStats(func(stats *ProcessorStats) {
+		stats.TotalProcessed++
+	})
+	logging.Articulation("Processing LLM response (attempt #%d, length=%d bytes)",
+		stats.TotalProcessed, len(rawResponse))
+	logging.ArticulationDebug("Raw response preview: %.200s...", rawResponse)
+
+	result := &ArticulationResult{
+		RawResponse: rawResponse,
+		ParseMethod: "unknown",
+		Confidence:  0.0,
+		Warnings:    []string{},
+	}
+
+	// Track parse errors for diagnostic logging on fallback
+	var parseErrors []string
+	// Track the most useful error seen so strict-mode failures don't get masked by
+	// later "no embedded JSON found" fallbacks.
+	var bestErr error
+
+	// 1. Try direct JSON parsing
+	logging.ArticulationDebug("Attempting direct JSON parsing")
+	envelope, err := rp.parseJSON(rawResponse)
+	if err == nil {
+		result.Surface = envelope.Surface
+		result.Control = envelope.Control
+		result.ParseMethod = "json"
+		result.Admission = AdmissionAdmitted
+		result.Confidence = 1.0
+		rp.updateStats(func(stats *ProcessorStats) {
+			stats.SuccessfulParses++
+		})
+
+		logging.Articulation("Direct JSON parse successful (confidence=1.0, surface_length=%d)",
+			len(result.Surface))
+		logging.ArticulationDebug("Control packet: intent=%s/%s, mangle_updates=%d, memory_ops=%d",
+			envelope.Control.IntentClassification.Category,
+			envelope.Control.IntentClassification.Verb,
+			len(envelope.Control.MangleUpdates),
+			len(envelope.Control.MemoryOperations))
+
+		// Check for self-correction trigger
+		if envelope.Control.SelfCorrection != nil && envelope.Control.SelfCorrection.Triggered {
+			rp.updateStats(func(stats *ProcessorStats) {
+				stats.SelfCorrections++
+			})
+			logging.Articulation("Self-correction triggered: %s", envelope.Control.SelfCorrection.Hypothesis)
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("Self-correction triggered: %s", envelope.Control.SelfCorrection.Hypothesis))
+		}
+
+		rp.applyCaps(result)
+		return result, nil
+	}
+	if amb, ok := isAmbiguousEnvelope(err); ok {
+		return rp.rejectAmbiguous(result, amb)
+	}
+	parseErrors = append(parseErrors, fmt.Sprintf("direct: %v", err))
+	if bestErr == nil {
+		bestErr = err
+	}
+	logging.ArticulationDebug("Direct JSON parse failed: %v", err)
+
+	// 2. Try markdown-wrapped JSON
+	if rp.AllowMarkdownWrapped {
+		logging.ArticulationDebug("Attempting markdown-wrapped JSON parsing")
+		envelope, err = rp.parseMarkdownWrappedJSON(rawResponse)
+		if err == nil {
+			result.Surface = envelope.Surface
+			result.Control = envelope.Control
+			result.ParseMethod = "json_markdown"
+			result.Admission = AdmissionAdmitted
+			result.Confidence = 0.95
+			rp.updateStats(func(stats *ProcessorStats) {
+				stats.SuccessfulParses++
+			})
+			logging.Articulation("Markdown-wrapped JSON parse successful (confidence=0.95, surface_length=%d)",
+				len(result.Surface))
+			rp.applyCaps(result)
+			return result, nil
+		}
+		if amb, ok := isAmbiguousEnvelope(err); ok {
+			return rp.rejectAmbiguous(result, amb)
+		}
+		parseErrors = append(parseErrors, fmt.Sprintf("markdown: %v", err))
+		if bestErr == nil {
+			bestErr = err
+		}
+		logging.ArticulationDebug("Markdown-wrapped JSON parse failed: %v", err)
+	}
+
+	// 3. Try to extract JSON from mixed content
+	logging.ArticulationDebug("Attempting embedded JSON extraction")
+	envelope, err = rp.extractEmbeddedJSON(rawResponse)
+	if err == nil {
+		result.Surface = envelope.Surface
+		result.Control = envelope.Control
+		result.ParseMethod = "json_extracted"
+		result.Admission = AdmissionAdmitted
+		result.Confidence = 0.85
+		rp.updateStats(func(stats *ProcessorStats) {
+			stats.SuccessfulParses++
+		})
+		result.Warnings = append(result.Warnings,
+			"JSON extracted from mixed content: text outside the envelope was dropped")
+		logging.Articulation("Embedded JSON extraction successful (confidence=0.85, surface_length=%d)",
+			len(result.Surface))
+		logging.Get(logging.CategoryArticulation).Warn("JSON extracted from mixed content - LLM response was not clean")
+		rp.applyCaps(result)
+		return result, nil
+	}
+	if amb, ok := isAmbiguousEnvelope(err); ok {
+		return rp.rejectAmbiguous(result, amb)
+	}
+	parseErrors = append(parseErrors, fmt.Sprintf("embedded: %v", err))
+	if bestErr == nil {
+		bestErr = err
+	}
+	logging.ArticulationDebug("Embedded JSON extraction failed: %v", err)
+
+	// 4. Fallback: treat entire response as surface text
+	if !rp.RequireValidJSON {
+		raw := strings.TrimSpace(rawResponse)
+		result.Surface = raw
+		result.Control = ControlPacket{} // Empty control packet
+		result.ParseMethod = "fallback"
+		result.Admission = AdmissionPlainOnly
+		result.Confidence = 0.5
+		rp.updateStats(func(stats *ProcessorStats) {
+			stats.FallbackParses++
+		})
+
+		// Salvage path: if the raw text looks like a piggyback envelope
+		// (LLM started emitting JSON but never finished), we should not
+		// dump the bare control_packet to the user. That's the
+		// "{control_packet:..., tool_requests:" blob they were seeing.
+		// Try to extract surface_response heuristically; if that fails,
+		// substitute a friendly "model output was truncated" message
+		// with whatever reasoning we can recover.
+		if looksLikePartialEnvelope(raw) {
+			result.Admission = AdmissionMalformed
+			if salvaged := salvageSurfaceFromPartial(raw); salvaged != "" {
+				result.Surface = salvaged
+				result.Warnings = append(result.Warnings, "Recovered surface_response from partial JSON envelope")
+			} else {
+				friendly := truncatedEnvelopeMessage(raw)
+				result.Surface = friendly
+				result.Warnings = append(result.Warnings, "Model response was truncated before surface_response — showing fallback message")
+			}
+		} else {
+			result.Warnings = append(result.Warnings, "No valid JSON found, using raw response as surface")
+		}
+
+		// Log comprehensive diagnostic info for debugging Piggyback failures.
+		responsePreview := types.Ellipsize(rawResponse, 300)
+		if rp.LogFallbackAsError {
+			logging.Get(logging.CategoryArticulation).Error(
+				"Fallback parse: no valid Piggyback JSON found (len=%d, errors=[%s], preview=%q)",
+				len(rawResponse),
+				strings.Join(parseErrors, "; "),
+				responsePreview,
+			)
+		} else if strings.TrimSpace(rawResponse) == "" {
+			logging.Get(logging.CategoryArticulation).Warn(
+				"Fallback parse: empty response with no Piggyback JSON (errors=[%s])",
+				strings.Join(parseErrors, "; "),
+			)
+		} else {
+			logging.ArticulationDebug(
+				"Fallback parse: using raw response (len=%d, errors=[%s])",
+				len(rawResponse),
+				strings.Join(parseErrors, "; "),
+			)
+		}
+		logging.ArticulationDebug("Fallback surface length: %d bytes", len(result.Surface))
+		rp.applyCaps(result)
+		return result, nil
+	}
+
+	// 5. Strict mode: fail if no valid JSON
+	stats = rp.updateStats(func(stats *ProcessorStats) {
+		stats.ValidationFailures++
+	})
+	logging.Get(logging.CategoryArticulation).Error("Strict mode: failed to parse Piggyback JSON after all attempts")
+	logging.ArticulationDebug("Validation failure stats: total=%d, failures=%d",
+		stats.TotalProcessed, stats.ValidationFailures)
+	if bestErr == nil {
+		bestErr = err
+	}
+	return nil, fmt.Errorf("failed to parse Piggyback JSON: %w", bestErr)
+}
+
+// rejectAmbiguous ends Process for a reply with more than one reading of its
+// own envelope. Strict mode fails; the tolerant mode returns a result that
+// selects nothing: no control, and a host-written surface that says so. The
+// raw reply stays on the result for diagnosis.
+func (rp *ResponseProcessor) rejectAmbiguous(result *ArticulationResult, amb *ambiguousEnvelopeError) (*ArticulationResult, error) {
+	rp.updateStats(func(stats *ProcessorStats) {
+		stats.ValidationFailures++
+	})
+	logging.Get(logging.CategoryArticulation).Warn("Envelope rejected as ambiguous: %s", amb.reason)
+	if rp.RequireValidJSON {
+		return nil, fmt.Errorf("failed to parse Piggyback JSON: %w", amb)
+	}
+	result.Surface = admissionNotice(amb.reason)
+	result.Control = ControlPacket{}
+	result.ParseMethod = "ambiguous"
+	result.Admission = AdmissionAmbiguous
+	result.Confidence = 0
+	result.Warnings = append(result.Warnings, "Reply rejected as ambiguous: "+amb.reason)
+	return result, nil
+}
+
+// applyCaps validates the control packet and bounds the parts of it that are
+// not the answer: injected Mangle atoms and memory operations (defensive
+// against a hallucinated flood). The decision summary (telemetry) is left whole. The
+// surface response and the tool and knowledge requests are never cut here.
+// The surface is the answer, and an answer that does not fit the provider's
+// ceiling is sent back by the broker to be restated within it; the requests
+// are the model's plan, and the tool loop's continuation policy governs how
+// much of a plan runs, not a slice at the parser.
+func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
+	if result == nil {
+		return
+	}
+
+	// Control packet caps (defensive). Every control the parser removes keeps
+	// a disposition at its position in the list the model sent: a list limit
+	// applies a prefix, and the rest is recorded as rejected rather than
+	// vanishing into a warning.
+	const maxMangleUpdates = 2000
+	if len(result.Control.MangleUpdates) > maxMangleUpdates {
+		dropped := len(result.Control.MangleUpdates) - maxMangleUpdates
+		for i := maxMangleUpdates; i < len(result.Control.MangleUpdates); i++ {
+			result.Dispositions = append(result.Dispositions, ControlDisposition{
+				Kind: ControlMangleUpdate, Index: i, Stage: StageRejectedParse,
+				Detail: updateDetail(result.Control.MangleUpdates[i]),
+				Reason: fmt.Sprintf("past the %d-update limit", maxMangleUpdates),
+			})
+		}
+		result.Control.MangleUpdates = result.Control.MangleUpdates[:maxMangleUpdates]
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("Mangle updates truncated to %d atoms", maxMangleUpdates))
+		logging.ArticulationWarn("mangle updates truncated to %d atoms (dropped %d)", maxMangleUpdates, dropped)
+	}
+
+	// Content-level validation for MangleUpdates: reject oversized or syntactically
+	// invalid atoms to prevent Mangle injection from LLM hallucinations.
+	const maxSingleUpdateLen = 1000
+	validUpdates := make([]string, 0, len(result.Control.MangleUpdates))
+	origins := make([]int, 0, len(result.Control.MangleUpdates))
+	reject := func(i int, update, reason string) {
+		result.Dispositions = append(result.Dispositions, ControlDisposition{
+			Kind: ControlMangleUpdate, Index: i, Stage: StageRejectedParse,
+			Detail: updateDetail(update), Reason: reason,
+		})
+	}
+	for i, update := range result.Control.MangleUpdates {
+		trimmed := strings.TrimSpace(update)
+		if trimmed == "" {
+			logging.ArticulationWarn("mangle_update skipped (empty update)")
+			reject(i, update, "empty update")
+			continue
+		}
+		if len(trimmed) > maxSingleUpdateLen {
+			result.Warnings = append(result.Warnings, "Mangle update too long, skipped")
+			logging.ArticulationWarn("mangle_update skipped (too long, len=%d): %s", len(trimmed), truncateUTF8Bytes(trimmed, 120))
+			reject(i, update, fmt.Sprintf("longer than %d bytes", maxSingleUpdateLen))
+			continue
+		}
+		// Basic Mangle atom syntax: must contain '(' and end with '.'
+		if !strings.Contains(trimmed, "(") || !strings.HasSuffix(trimmed, ".") {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("Invalid Mangle update syntax skipped: %.40s...", trimmed))
+			reason := "invalid syntax"
+			if !strings.Contains(trimmed, "(") {
+				reason = "missing '('"
+			} else if !strings.HasSuffix(trimmed, ".") {
+				reason = "no trailing period"
+			}
+			logging.ArticulationWarn("mangle_update skipped (%s): %s", reason, truncateUTF8Bytes(trimmed, 120))
+			reject(i, update, reason)
+			continue
+		}
+		// Reject shell metacharacters around the atom's strings. & and <>
+		// matter too: && chains, & backgrounds, > redirects, and < feeds
+		// input. The strings themselves are checked by the kernel gate, which
+		// knows whether their predicate can reach an exec site.
+		if strings.ContainsAny(shellCheckedText(trimmed), "`$;|&<>") {
+			result.Warnings = append(result.Warnings, "Mangle update with shell metacharacters skipped")
+			logging.ArticulationWarn("mangle_update skipped (shell metacharacters): %s", truncateUTF8Bytes(trimmed, 120))
+			reject(i, update, "shell metacharacters outside the atom's strings")
+			continue
+		}
+		validUpdates = append(validUpdates, update)
+		origins = append(origins, i)
+	}
+	result.Control.MangleUpdates = validUpdates
+	result.MangleOrigins = origins
+
+	const maxMemoryOps = 500
+	if len(result.Control.MemoryOperations) > maxMemoryOps {
+		dropped := len(result.Control.MemoryOperations) - maxMemoryOps
+		for i := maxMemoryOps; i < len(result.Control.MemoryOperations); i++ {
+			result.Dispositions = append(result.Dispositions, ControlDisposition{
+				Kind: ControlMemoryOperation, Index: i, Stage: StageRejectedParse,
+				Detail: DescribeMemoryOperation(result.Control.MemoryOperations[i]),
+				Reason: fmt.Sprintf("past the %d-operation limit", maxMemoryOps),
+			})
+		}
+		result.Control.MemoryOperations = result.Control.MemoryOperations[:maxMemoryOps]
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("Memory operations truncated to %d items", maxMemoryOps))
+		logging.ArticulationWarn("memory operations truncated to %d items (dropped %d)", maxMemoryOps, dropped)
+	}
+
+	// The decision summary is the model's own output and stays whole: it is a
+	// slice of a response already held in memory, so a cut would bound nothing,
+	// and every reader (the chat's thought summary, the planner's log line)
+	// takes what it shows itself.
+}
+
+// updateDetail is the short Detail of a mangle update: its predicate name,
+// or the head of text that has none. Arguments stay out of notices.
+func updateDetail(update string) string {
+	trimmed := strings.TrimSpace(update)
+	if i := strings.Index(trimmed, "("); i > 0 {
+		return trimmed[:i]
+	}
+	return truncateUTF8Bytes(trimmed, 40)
+}
+
+func truncateUTF8Bytes(value string, maxBytes int) string {
+	if maxBytes <= 0 || len(value) <= maxBytes {
+		return value
+	}
+	end := maxBytes
+	for end > 0 && !utf8.ValidString(value[:end]) {
+		end--
+	}
+	return value[:end]
+}
+
+// schemaAllowedKeys defines the schema of allowed keys for PiggybackEnvelope recursive validation.
+var schemaAllowedKeys = map[string]any{
+	"control_packet": map[string]any{
+		"intent_classification": map[string]any{
+			"category":   nil,
+			"verb":       nil,
+			"target":     nil,
+			"constraint": nil,
+			"confidence": nil,
+		},
+		"mangle_updates": nil,
+		"memory_operations": map[string]any{
+			"op":    nil,
+			"key":   nil,
+			"value": nil,
+		},
+		"self_correction": map[string]any{
+			"triggered":  nil,
+			"hypothesis": nil,
+		},
+		"decision_summary": nil,
+		"knowledge_requests": map[string]any{
+			"specialist": nil,
+			"query":      nil,
+			"purpose":    nil,
+			"priority":   nil,
+		},
+		"context_feedback": map[string]any{
+			"overall_usefulness": nil,
+			"helpful_facts":      nil,
+			"noise_facts":        nil,
+			"missing_context":    nil,
+		},
+		"tool_requests": map[string]any{
+			"id":        nil,
+			"tool_name": nil,
+			"tool_args": nil, // Allow any keys inside tool_args
+			"purpose":   nil,
+			"required":  nil,
+		},
+	},
+	"surface_response": nil,
+}
+
+// checkUnknownFields recursively validates that the decoded generic JSON structure only contains keys
+// that exist in the allowed schema keys.
+func checkUnknownFields(val any, allowedKeys map[string]any) error {
+	if allowedKeys == nil {
+		return nil
+	}
+	switch v := val.(type) {
+	case map[string]any:
+		for k, item := range v {
+			allowedSub, exists := allowedKeys[k]
+			if !exists {
+				return fmt.Errorf("json: unknown field %q", k)
+			}
+			if allowedSub != nil {
+				if subMap, ok := allowedSub.(map[string]any); ok {
+					if err := checkUnknownFields(item, subMap); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if err := checkUnknownFields(item, allowedKeys); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// parseJSON admits s as exactly one envelope object: one value, nothing after
+// it, each member name once (admission.go). Text around an envelope is not
+// this reader's business; extractEmbeddedJSON owns that declared framing.
+func (rp *ResponseProcessor) parseJSON(s string) (PiggybackEnvelope, error) {
+	timer := logging.StartTimer(logging.CategoryArticulation, "parseJSON")
+	defer timer.Stop()
+
+	s = strings.TrimSpace(s)
+	logging.ArticulationDebug("parseJSON: input length=%d bytes", len(s))
+
+	var envelope PiggybackEnvelope
+
+	if err := scanEnvelope(s); err != nil {
+		logging.ArticulationDebug("parseJSON: admission scan failed: %v", err)
+		return PiggybackEnvelope{}, err
+	}
+
+	if rp.RequireValidJSON {
+		var generic any
+		if err := json.Unmarshal([]byte(s), &generic); err != nil {
+			return PiggybackEnvelope{}, err
+		}
+		if err := checkUnknownFields(generic, schemaAllowedKeys); err != nil {
+			return PiggybackEnvelope{}, err
+		}
+	}
+	decoder := json.NewDecoder(strings.NewReader(s))
+	if rp.RequireValidJSON {
+		decoder.DisallowUnknownFields()
+	}
+	if err := decoder.Decode(&envelope); err != nil {
+		logging.ArticulationDebug("parseJSON: decode failed: %v", err)
+		return PiggybackEnvelope{}, err
+	}
+
+	// Validate required fields (surface always required)
+	if envelope.Surface == "" {
+		logging.ArticulationDebug("parseJSON: validation failed - missing surface_response field")
+		return PiggybackEnvelope{}, fmt.Errorf("missing surface_response field")
+	}
+
+	// In strict mode, also require a minimally valid control packet.
+	if rp.RequireValidJSON {
+		ic := envelope.Control.IntentClassification
+		if ic.Category == "" || ic.Verb == "" {
+			return PiggybackEnvelope{}, fmt.Errorf("missing intent_classification fields")
+		}
+		if envelope.Control.MangleUpdates == nil {
+			// Tolerated: treat null/missing as empty list
+			envelope.Control.MangleUpdates = []string{}
+		}
+	}
+
+	logging.ArticulationDebug("parseJSON: successfully parsed envelope with surface_length=%d", len(envelope.Surface))
+	return envelope, nil
+}
+
+// parseMarkdownWrappedJSON handles ```json ... ``` wrapping.
+func (rp *ResponseProcessor) parseMarkdownWrappedJSON(s string) (PiggybackEnvelope, error) {
+	timer := logging.StartTimer(logging.CategoryArticulation, "parseMarkdownWrappedJSON")
+	defer timer.Stop()
+
+	s = strings.TrimSpace(s)
+	originalLen := len(s)
+
+	// Remove markdown code block markers
+	s = strings.TrimPrefix(s, "```json")
+	s = strings.TrimPrefix(s, "```JSON")
+	s = strings.TrimPrefix(s, "```")
+	s = strings.TrimSuffix(s, "```")
+	s = strings.TrimSpace(s)
+
+	strippedLen := len(s)
+	if strippedLen != originalLen {
+		logging.ArticulationDebug("parseMarkdownWrappedJSON: stripped markdown markers (original=%d, stripped=%d)",
+			originalLen, strippedLen)
+	} else {
+		logging.ArticulationDebug("parseMarkdownWrappedJSON: no markdown markers found")
+	}
+
+	return rp.parseJSON(s)
+}
+
+// extractEmbeddedJSON finds JSON within mixed content using a state-machine scanner.
+func (rp *ResponseProcessor) extractEmbeddedJSON(s string) (PiggybackEnvelope, error) {
+	timer := logging.StartTimer(logging.CategoryArticulation, "extractEmbeddedJSON")
+	defer timer.Stop()
+
+	logging.ArticulationDebug("extractEmbeddedJSON: searching in %d bytes of content", len(s))
+
+	candidates := findJSONCandidates(s)
+	if len(candidates) == 0 {
+		logging.ArticulationDebug("extractEmbeddedJSON: no JSON candidates found")
+		return PiggybackEnvelope{}, fmt.Errorf("no embedded JSON found")
+	}
+
+	logging.ArticulationDebug("extractEmbeddedJSON: found %d candidates", len(candidates))
+
+	// Keep track of the last error to provide better diagnostics if all fail
+	var lastErr error
+
+	// Every candidate that is a whole envelope counts. One is the reply's
+	// envelope; two or more is a reply that quotes an example beside its real
+	// answer, or corrects itself, and nothing says which is authoritative. The
+	// extractor used to take the last, which a quoted example could win just
+	// as easily as it took the first.
+	var admitted []PiggybackEnvelope
+	for i := range candidates {
+		envelope, err := rp.parseJSON(candidates[i])
+		if err != nil {
+			if amb, ok := isAmbiguousEnvelope(err); ok {
+				return PiggybackEnvelope{}, amb
+			}
+			lastErr = err
+			continue
+		}
+		admitted = append(admitted, envelope)
+	}
+	switch len(admitted) {
+	case 1:
+		return admitted[0], nil
+	case 0:
+	default:
+		return PiggybackEnvelope{}, &ambiguousEnvelopeError{
+			reason: fmt.Sprintf("it contains %d complete response envelopes and none is marked as the answer", len(admitted)),
+		}
+	}
+
+	logging.ArticulationDebug("extractEmbeddedJSON: all %d candidates failed", len(candidates))
+	if lastErr != nil {
+		return PiggybackEnvelope{}, fmt.Errorf("no embedded JSON found (last error: %w)", lastErr)
+	}
+	return PiggybackEnvelope{}, fmt.Errorf("no embedded JSON found")
+}
+
+// GetStats returns current processing statistics.
+func (rp *ResponseProcessor) GetStats() ProcessorStats {
+	rp.statsMu.Lock()
+	stats := rp.stats
+	rp.statsMu.Unlock()
+	logging.ArticulationDebug("GetStats: total=%d, success=%d, fallback=%d, failures=%d, self_corrections=%d",
+		stats.TotalProcessed, stats.SuccessfulParses, stats.FallbackParses,
+		stats.ValidationFailures, stats.SelfCorrections)
+	return stats
+}
+
+// ResetStats resets the processing statistics.
+func (rp *ResponseProcessor) ResetStats() {
+	logging.ArticulationDebug("ResetStats: clearing processor statistics")
+	rp.statsMu.Lock()
+	rp.stats = ProcessorStats{}
+	rp.statsMu.Unlock()
+}
+
+func (rp *ResponseProcessor) updateStats(update func(*ProcessorStats)) ProcessorStats {
+	rp.statsMu.Lock()
+	defer rp.statsMu.Unlock()
+	update(&rp.stats)
+	return rp.stats
+}
+
+// =============================================================================
+// EMITTER - Output Generation
+// =============================================================================
+
+// Emitter handles output generation and formatting.
+type Emitter struct {
+	processor *ResponseProcessor
+
+	// Output settings
+	PrettyPrint bool
+	IncludeRaw  bool
+}
+
+// NewEmitter creates a new Emitter with default settings.
+func NewEmitter() *Emitter {
+	logging.Articulation("Initializing new Emitter")
+	e := &Emitter{
+		processor:   NewResponseProcessor(),
+		PrettyPrint: true,
+		IncludeRaw:  false,
+	}
+	logging.ArticulationDebug("Emitter initialized: PrettyPrint=%v, IncludeRaw=%v", e.PrettyPrint, e.IncludeRaw)
+	return e
+}
+
+// Emit outputs the dual payload as JSON.
+func (e *Emitter) Emit(payload PiggybackEnvelope) error {
+	timer := logging.StartTimer(logging.CategoryArticulation, "Emit")
+	defer timer.Stop()
+
+	logging.Articulation("Emitting Piggyback envelope (surface_length=%d, mangle_updates=%d, memory_ops=%d)",
+		len(payload.Surface), len(payload.Control.MangleUpdates), len(payload.Control.MemoryOperations))
+	logging.ArticulationDebug("Emit: intent=%s/%s/%s, confidence=%.2f",
+		payload.Control.IntentClassification.Category,
+		payload.Control.IntentClassification.Verb,
+		payload.Control.IntentClassification.Target,
+		payload.Control.IntentClassification.Confidence)
+
+	var data []byte
+	var err error
+
+	if e.PrettyPrint {
+		logging.ArticulationDebug("Emit: using pretty-print format")
+		data, err = json.MarshalIndent(payload, "", "  ")
+	} else {
+		logging.ArticulationDebug("Emit: using compact format")
+		data, err = json.Marshal(payload)
+	}
+
+	if err != nil {
+		logging.Get(logging.CategoryArticulation).Error("Emit: failed to marshal envelope: %v", err)
+		return err
+	}
+
+	logging.ArticulationDebug("Emit: marshaled %d bytes", len(data))
+	fmt.Println(string(data))
+	logging.Articulation("Emit: successfully output %d bytes", len(data))
+	return nil
+}
+
+// EmitSurface outputs only the surface response.
+func (e *Emitter) EmitSurface(payload PiggybackEnvelope) {
+	logging.Articulation("EmitSurface: outputting surface channel only (length=%d)", len(payload.Surface))
+	logging.ArticulationDebug("EmitSurface: control packet discarded (mangle_updates=%d, memory_ops=%d)",
+		len(payload.Control.MangleUpdates), len(payload.Control.MemoryOperations))
+	fmt.Println(strings.TrimSpace(payload.Surface))
+}
+
+// ParseAndProcess parses raw LLM output and returns structured result.
+func (e *Emitter) ParseAndProcess(rawResponse string) (*ArticulationResult, error) {
+	logging.Articulation("ParseAndProcess: delegating to processor (input_length=%d)", len(rawResponse))
+	result, err := e.processor.Process(rawResponse)
+	if err != nil {
+		logging.Get(logging.CategoryArticulation).Error("ParseAndProcess: processing failed: %v", err)
+		return nil, err
+	}
+	logging.Articulation("ParseAndProcess: completed (method=%s, confidence=%.2f, warnings=%d)",
+		result.ParseMethod, result.Confidence, len(result.Warnings))
+	return result, nil
+}
+
+// CreateEnvelope creates a PiggybackEnvelope from components.
+func (e *Emitter) CreateEnvelope(surface string, intent IntentClassification, mangleUpdates []string, memOps []MemoryOperation) PiggybackEnvelope {
+	logging.Articulation("CreateEnvelope: assembling Piggyback envelope")
+	logging.ArticulationDebug("CreateEnvelope: surface_length=%d, intent=%s/%s, mangle_updates=%d, memory_ops=%d",
+		len(surface), intent.Category, intent.Verb, len(mangleUpdates), len(memOps))
+
+	envelope := PiggybackEnvelope{
+		Surface: surface,
+		Control: ControlPacket{
+			IntentClassification: intent,
+			MangleUpdates:        mangleUpdates,
+			MemoryOperations:     memOps,
+		},
+	}
+
+	logging.ArticulationDebug("CreateEnvelope: envelope assembled successfully")
+	return envelope
+}
+
+// MarshalEnvelope converts an envelope to JSON bytes.
+func (e *Emitter) MarshalEnvelope(envelope PiggybackEnvelope) ([]byte, error) {
+	timer := logging.StartTimer(logging.CategoryArticulation, "MarshalEnvelope")
+	defer timer.Stop()
+
+	logging.ArticulationDebug("MarshalEnvelope: serializing envelope (pretty=%v)", e.PrettyPrint)
+
+	var data []byte
+	var err error
+
+	if e.PrettyPrint {
+		data, err = json.MarshalIndent(envelope, "", "  ")
+	} else {
+		data, err = json.Marshal(envelope)
+	}
+
+	if err != nil {
+		logging.Get(logging.CategoryArticulation).Error("MarshalEnvelope: failed to marshal: %v", err)
+		return nil, err
+	}
+
+	logging.ArticulationDebug("MarshalEnvelope: serialized %d bytes", len(data))
+	return data, nil
+}
+
+// =============================================================================
+// CONSTITUTIONAL OVERRIDE - Safety Layer
+// =============================================================================
+
+// ConstitutionalOverride represents a kernel-mandated response modification.
+type ConstitutionalOverride struct {
+	OriginalSurface string
+	ModifiedSurface string
+	Reason          string
+	BlockedAtoms    []string
+}
+
+// ApplyConstitutionalOverride modifies the surface response based on kernel rules.
+// This allows the kernel to block or rewrite unsafe surface responses.
+func ApplyConstitutionalOverride(envelope *PiggybackEnvelope, blocked []string, reason string) *ConstitutionalOverride {
+	if envelope == nil {
+		logging.ArticulationWarn("ApplyConstitutionalOverride: nil envelope with blocked=%d reason=%q; nothing to override", len(blocked), reason)
+		return nil
+	}
+	if len(blocked) == 0 && reason == "" {
+		logging.ArticulationDebug("ApplyConstitutionalOverride: no override needed (blocked=%d, reason empty)", len(blocked))
+		return nil // No override needed
+	}
+
+	logging.Articulation("ApplyConstitutionalOverride: applying constitutional override (blocked=%d, reason=%q)",
+		len(blocked), reason)
+
+	override := &ConstitutionalOverride{
+		OriginalSurface: envelope.Surface,
+		BlockedAtoms:    blocked,
+		Reason:          reason,
+	}
+
+	// Modify surface if there's a safety concern
+	if reason != "" {
+		logging.Get(logging.CategoryArticulation).Warn("Constitutional safety override: %s", reason)
+		override.ModifiedSurface = fmt.Sprintf("[SAFETY NOTICE: %s]\n\n%s", reason, envelope.Surface)
+		envelope.Surface = override.ModifiedSurface
+		logging.ArticulationDebug("ApplyConstitutionalOverride: surface modified with safety notice")
+	}
+
+	// Filter blocked atoms from mangle_updates
+	if len(blocked) > 0 {
+		originalCount := len(envelope.Control.MangleUpdates)
+		filtered := make([]string, 0, len(envelope.Control.MangleUpdates))
+		blockedSet := make(map[string]bool)
+		for _, b := range blocked {
+			blockedSet[b] = true
+			logging.ArticulationDebug("ApplyConstitutionalOverride: blocking atom: %s", b)
+		}
+
+		for _, atom := range envelope.Control.MangleUpdates {
+			if !blockedSet[atom] {
+				filtered = append(filtered, atom)
+			}
+		}
+		envelope.Control.MangleUpdates = filtered
+		logging.Articulation("ApplyConstitutionalOverride: filtered mangle_updates from %d to %d atoms",
+			originalCount, len(filtered))
+	}
+
+	return override
+}
+
+// =============================================================================
+// UTILITY FUNCTIONS
+// =============================================================================
+
+// HasSelfCorrection checks if the response indicates self-correction was triggered.
+func HasSelfCorrection(envelope PiggybackEnvelope) bool {
+	triggered := envelope.Control.SelfCorrection != nil && envelope.Control.SelfCorrection.Triggered
+	if triggered {
+		logging.ArticulationDebug("HasSelfCorrection: self-correction detected (hypothesis=%s)",
+			envelope.Control.SelfCorrection.Hypothesis)
+	}
+	return triggered
+}
+
+// HasMemoryOperations checks if there are memory operations to process.
+func HasMemoryOperations(envelope PiggybackEnvelope) bool {
+	hasOps := len(envelope.Control.MemoryOperations) > 0
+	if hasOps {
+		logging.ArticulationDebug("HasMemoryOperations: %d memory operations present", len(envelope.Control.MemoryOperations))
+	}
+	return hasOps
+}
+
+// GetMemoryOperationsByType filters memory operations by operation type.
+func GetMemoryOperationsByType(envelope PiggybackEnvelope, opType string) []MemoryOperation {
+	logging.ArticulationDebug("GetMemoryOperationsByType: filtering for op_type=%q", opType)
+	result := make([]MemoryOperation, 0)
+	for _, op := range envelope.Control.MemoryOperations {
+		if op.Op == opType {
+			result = append(result, op)
+		}
+	}
+	logging.ArticulationDebug("GetMemoryOperationsByType: found %d operations of type %q", len(result), opType)
+	return result
+}
+
+// =============================================================================
+// SHARED PIGGYBACK PROCESSING FOR SHARDS
+// =============================================================================
+// All shards that use LLM responses MUST process them through this layer to:
+// 1. Extract and route control_packet data to the kernel
+// 2. Return only surface_response to the user
+// This prevents control data from leaking into user-facing output.
+
+// ProcessedLLMResponse contains the separated components of a Piggyback response.
+type ProcessedLLMResponse struct {
+	Surface     string         // User-facing text (safe for display)
+	Control     *ControlPacket // Control packet (route to kernel)
+	ParseMethod string         // How the response was parsed
+	Confidence  float64        // Parsing confidence
+	Warnings    []string       // Non-fatal notes from parsing/caps (e.g. skipped mangle updates)
+
+	// Admission is how the reply was classified. Control is nil unless it is
+	// AdmissionAdmitted; a plain, unfinished or ambiguous reply is display
+	// text only.
+	Admission AdmissionOutcome
+	// Dispositions records the controls the parser removed, by position.
+	Dispositions []ControlDisposition
+	// MangleOrigins maps each kept Control.MangleUpdates entry to its position
+	// in the list the model sent.
+	MangleOrigins []int
+}
+
+// placeholderSurfacePattern matches angle-bracket placeholders such as
+// <SURFACE_RESPONSE...> or <DECISION_SUMMARY...>. Schema examples use
+// angle-bracket instructions that must never be emitted verbatim.
+var placeholderSurfacePattern = regexp.MustCompile(`^<[A-Z_]+(:[^>]*)?>$`)
+
+const historicalPlaceholderSurface = "Human-readable response to the user"
+
+const historicalPlaceholderRefusal = "I cannot delete that directory because it's protected by the kernel's safety rules. If you need to delete it, you'll need to do so manually or grant explicit permission with /override."
+
+// isPlaceholderSurface reports whether s is parroted schema example text
+// rather than a real reply. It is true when the trimmed surface equals one
+// of the historical placeholders, matches ^<[A-Z_]+(:[^>]*)?>$, or starts
+// with <SURFACE_RESPONSE.
+func isPlaceholderSurface(s string) bool {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == historicalPlaceholderSurface || trimmed == historicalPlaceholderRefusal {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "<SURFACE_RESPONSE") {
+		return true
+	}
+	return placeholderSurfacePattern.MatchString(trimmed)
+}
+
+// isPlaceholderFeedback reports whether fb carries the schema's example
+// feedback values rather than a real assessment. It is true when
+// helpful_facts equals the historical example set exactly or when
+// missing_context starts with "<MISSING_CONTEXT".
+func isPlaceholderFeedback(fb *ContextFeedback) bool {
+	if fb == nil {
+		return false
+	}
+	if len(fb.HelpfulFacts) == 2 && fb.HelpfulFacts[0] == "file_topology" && fb.HelpfulFacts[1] == "test_state" {
+		return true
+	}
+	if strings.HasPrefix(fb.MissingContext, "<MISSING_CONTEXT") {
+		return true
+	}
+	return false
+}
+
+// ProcessLLMResponse is a convenience function for shards to process LLM responses.
+// It extracts the surface_response and control_packet from a Piggyback-formatted
+// LLM response. The surface is safe for user display; the control should be
+// routed to the kernel.
+//
+// Usage in any shard:
+//
+//	rawResponse, err := llmClient.Complete(ctx, prompt)
+//	processed := articulation.ProcessLLMResponse(rawResponse)
+//	// Display: processed.Surface
+//	// Route to kernel: processed.Control
+func ProcessLLMResponse(rawResponse string) *ProcessedLLMResponse {
+	return processLLMResponse("ProcessLLMResponse", rawResponse, true)
+}
+
+// ProcessLLMResponseAllowPlain treats non-Piggyback responses as expected output.
+// It avoids emitting error logs when the response is intentionally plain text.
+func ProcessLLMResponseAllowPlain(rawResponse string) *ProcessedLLMResponse {
+	return processLLMResponse("ProcessLLMResponseAllowPlain", rawResponse, false)
+}
+
+// processLLMResponse is the shared engine behind ProcessLLMResponse and
+// ProcessLLMResponseAllowPlain, which differed only in log labels and the
+// fallback log level. The two entry points stay so call sites keep declaring
+// whether plain text is an expected output or a degraded one.
+func processLLMResponse(name, rawResponse string, logFallbackAsError bool) *ProcessedLLMResponse {
+	logging.ArticulationDebug("%s: processing %d bytes", name, len(rawResponse))
+
+	processor := NewResponseProcessor()
+	processor.RequireValidJSON = false // Allow fallback to raw text
+	processor.LogFallbackAsError = logFallbackAsError
+
+	result, err := processor.Process(rawResponse)
+	if err != nil {
+		logging.Get(logging.CategoryArticulation).Warn("%s: parse failed, using raw: %v", name, err)
+		return &ProcessedLLMResponse{
+			Surface:     strings.TrimSpace(rawResponse),
+			Control:     nil,
+			ParseMethod: "fallback",
+			Confidence:  0.0,
+			Admission:   AdmissionPlainOnly,
+		}
+	}
+
+	logging.Articulation("%s: method=%s, confidence=%.2f, surface_len=%d",
+		name, result.ParseMethod, result.Confidence, len(result.Surface))
+
+	// Drop parroted schema placeholders so example text is never shown or learned from.
+	if isPlaceholderSurface(result.Surface) {
+		logging.Get(logging.CategoryArticulation).Warn("placeholder surface_response dropped")
+		result.Surface = ""
+		result.Warnings = append(result.Warnings, "placeholder surface_response dropped")
+	}
+	if isPlaceholderFeedback(result.Control.ContextFeedback) {
+		logging.Get(logging.CategoryArticulation).Warn("placeholder context_feedback dropped")
+		result.Control.ContextFeedback = nil
+		result.Warnings = append(result.Warnings, "placeholder context_feedback dropped")
+	}
+
+	processed := &ProcessedLLMResponse{
+		Surface:     result.Surface,
+		ParseMethod: result.ParseMethod,
+		Confidence:  result.Confidence,
+		Warnings:    result.Warnings,
+		Admission:   result.Admission,
+
+		Dispositions:  result.Dispositions,
+		MangleOrigins: result.MangleOrigins,
+	}
+
+	// Only an admitted envelope carries a control packet. A plain, unfinished
+	// or ambiguous reply is display text: nothing in it is a control.
+	if result.Admission == AdmissionAdmitted {
+		processed.Control = &result.Control
+	}
+
+	return processed
+}
+
+// shellCheckedText returns the part of a mangle update the emitter's
+// shell-metacharacter check applies to: the atom outside its string literals.
+// Outside a literal none of those characters belongs in a fact, so a hit there
+// is structure smuggled around the atom.
+//
+// What is inside a literal is the kernel gate's question
+// (core.FilterMangleUpdates), because whether a string may carry punctuation
+// is a property of its predicate -- can it reach an exec site -- and only the
+// kernel knows the predicate's declaration and the rules it feeds. This check
+// used to take the whole atom except for one predicate named in a Go list:
+// observed 2026-09-21 (campaign aab9612b) and 2026-09-22 (7b853890), a /fail
+// checkpoint verdict and a model observation were dropped for the semicolons
+// in their prose.
+func shellCheckedText(update string) string {
+	var sb strings.Builder
+	inString, escaped := false, false
+	for _, r := range update {
+		switch {
+		case escaped:
+			escaped = false
+		case inString && r == '\\':
+			escaped = true
+		case r == '"':
+			inString = !inString
+		case !inString:
+			sb.WriteRune(r)
+		}
+	}
+	if inString {
+		// An unterminated literal is not a string we can reason about.
+		return update
+	}
+	return sb.String()
+}

@@ -1,0 +1,228 @@
+// Package chat provides tests for session.go adapters and utilities.
+package chat
+
+import (
+	"codenerd/cmd/nerd/ui"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"codenerd/internal/session"
+	"codenerd/internal/store"
+)
+
+// =============================================================================
+// SESSION FUNCTION TESTS
+// =============================================================================
+
+func TestPersistAgentProfile(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	// Create .nerd directory structure is handled by the function
+	err := persistAgentProfile(tmpDir, "TestAgent", "specialist", "/path/to/kb", 1024, "active")
+	if err != nil {
+		t.Fatalf("persistAgentProfile failed: %v", err)
+	}
+
+	// Verify file created
+	agentsPath := filepath.Join(tmpDir, ".nerd", "agents.json")
+	if _, err := os.Stat(agentsPath); os.IsNotExist(err) {
+		t.Fatalf("agents.json not created")
+	}
+
+	// Verify content
+	data, err := os.ReadFile(agentsPath)
+	if err != nil {
+		t.Fatalf("Failed to read agents.json: %v", err)
+	}
+
+	var reg Registry
+	if err := json.Unmarshal(data, &reg); err != nil {
+		t.Fatalf("Failed to parse agents.json: %v", err)
+	}
+
+	if len(reg.Agents) != 1 {
+		t.Errorf("Expected 1 agent, got %d", len(reg.Agents))
+	} else {
+		agent := reg.Agents[0]
+		if agent.Name != "TestAgent" {
+			t.Errorf("Expected agent name 'TestAgent', got '%s'", agent.Name)
+		}
+		if agent.Type != "specialist" {
+			t.Errorf("Expected agent type 'specialist', got '%s'", agent.Type)
+		}
+		if agent.KBSize != 1024 {
+			t.Errorf("Expected KBSize 1024, got %d", agent.KBSize)
+		}
+	}
+
+	// Test update existing
+	err = persistAgentProfile(tmpDir, "TestAgent", "specialist", "/new/path", 2048, "inactive")
+	if err != nil {
+		t.Fatalf("persistAgentProfile update failed: %v", err)
+	}
+
+	data, _ = os.ReadFile(agentsPath)
+	_ = json.Unmarshal(data, &reg)
+
+	if len(reg.Agents) != 1 {
+		t.Errorf("Expected 1 agent after update, got %d", len(reg.Agents))
+	} else {
+		agent := reg.Agents[0]
+		if agent.KBSize != 2048 {
+			t.Errorf("Expected updated KBSize 2048, got %d", agent.KBSize)
+		}
+		if agent.Status != "inactive" {
+			t.Errorf("Expected updated Status 'inactive', got '%s'", agent.Status)
+		}
+	}
+}
+
+func TestSyncSessionToSQLite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping sync test in short mode")
+	}
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, ".nerd", "knowledge.db")
+	localDB, err := store.NewLocalStore(dbPath)
+	if err != nil {
+		t.Skipf("Failed to create LocalStore: %v", err)
+	}
+	defer localDB.Close()
+
+	m := Model{
+		sessionID: "test-sync-session",
+		localDB:   localDB,
+		history: []Message{
+			{Role: "user", Content: "User 1"},
+			{Role: "assistant", Content: "Asst 1"},
+			{Role: "user", Content: "User 2"}, // Unmatched
+		},
+	}
+
+	// Run sync
+	m.syncSessionToSQLite()
+
+	// We can try to store a duplicate turn and ensure it doesn't fail
+	m.syncSessionToSQLite()
+}
+
+func TestLoadSelectedSession(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	// Setup existing session
+	sessionID := "target-session"
+	hist := session.SessionHistory{
+		SessionID: sessionID,
+		CreatedAt: time.Now(),
+		Messages: []session.ChatMessage{
+			{Role: "user", Content: "History 1"},
+			{Role: "assistant", Content: "History 2"},
+		},
+	}
+	saveSessionHistory(t, tmpDir, sessionID, hist)
+
+	// Create model
+	m := Model{
+		styles:    ui.DefaultStyles(),
+		workspace: tmpDir,
+		sessionID: "current-session",
+		history:   []Message{},
+		textarea:  NewTestModel().textarea, // Need initialized textarea
+	}
+
+	// Create .nerd dir for saveSessionState to work
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".nerd"), 0755); err != nil {
+		t.Fatalf("Failed to create .nerd: %v", err)
+	}
+
+	// Run load
+	newModel, cmd := m.loadSelectedSession(sessionID)
+
+	// Type assert back to Model
+	m2, ok := newModel.(Model)
+	if !ok {
+		t.Fatalf("Result is not a Model")
+	}
+
+	// Verify switch
+	if m2.sessionID != sessionID {
+		t.Errorf("Expected session ID %s, got %s", sessionID, m2.sessionID)
+	}
+	if len(m2.history) < 2 { // +1 for system message
+		t.Errorf("Expected loaded history, got %d messages", len(m2.history))
+	}
+	if m2.history[0].Content != "History 1" {
+		t.Errorf("Expected first message 'History 1', got '%s'", m2.history[0].Content)
+	}
+
+	// Check for system message at end
+	lastMsg := m2.history[len(m2.history)-1]
+	if !strings.Contains(lastMsg.Content, "Loaded session") {
+		t.Errorf("Expected system message at end, got '%s'", lastMsg.Content)
+	}
+
+	// The assertion is that the call above returned without panicking; cmd may
+	// legitimately be nil or non-nil. An `if cmd != nil {}` branch checked
+	// nothing while looking like it did.
+	_ = cmd
+}
+
+func TestLoadSelectedSession_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	m := Model{
+		styles:    ui.DefaultStyles(),
+		workspace: tmpDir,
+		sessionID: "current",
+		textarea:  NewTestModel().textarea,
+	}
+
+	// Create .nerd dir
+	os.MkdirAll(filepath.Join(tmpDir, ".nerd"), 0755)
+
+	newModel, _ := m.loadSelectedSession("non-existent")
+	m2 := newModel.(Model)
+
+	// Should not have switched session ID
+	if m2.sessionID != "current" {
+		t.Errorf("Should not have switched session ID on failure")
+	}
+
+	// Should have error message
+	if len(m2.history) == 0 {
+		t.Error("Expected error message in history")
+	} else {
+		lastMsg := m2.history[len(m2.history)-1]
+		if !strings.Contains(lastMsg.Content, "Failed to load session") {
+			t.Errorf("Expected failure message, got: %s", lastMsg.Content)
+		}
+	}
+}
+
+// saveSessionHistory writes a session history where loadSelectedSession
+// (session.LoadSessionHistory) reads it: .nerd/sessions/<id>/session.json.
+func saveSessionHistory(t *testing.T, workspace, sessionID string, history session.SessionHistory) {
+	t.Helper()
+	sessionsDir := filepath.Join(workspace, ".nerd", "sessions", sessionID)
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
+	data, err := json.Marshal(history)
+	if err != nil {
+		t.Fatalf("Failed to marshal history: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionsDir, "session.json"), data, 0644); err != nil {
+		t.Fatalf("Failed to write history file: %v", err)
+	}
+}

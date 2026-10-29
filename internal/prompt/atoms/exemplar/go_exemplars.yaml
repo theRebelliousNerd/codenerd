@@ -1,0 +1,96 @@
+# Go Code Exemplars
+# Go code examples (error handling, goroutines, etc.)
+
+- id: "exemplar/go/concurrency"
+  category: "exemplar"
+  subcategory: "go"
+  is_mandatory: false
+  languages: ["/go"]
+  content: |
+    ## GO CONCURRENCY EXEMPLARS
+
+    ### GOROUTINE WITH WAITGROUP
+
+    ```go
+    func processItems(items []Item) error {
+        var wg sync.WaitGroup
+        errCh := make(chan error, len(items))
+
+        for _, item := range items {
+            wg.Add(1)
+            go func(item Item) {
+                defer wg.Done()
+                if err := process(item); err != nil {
+                    errCh <- err
+                }
+            }(item) // Pass item to avoid closure capture bug
+        }
+
+        wg.Wait()
+        close(errCh)
+
+        // Collect first error
+        for err := range errCh {
+            return err
+        }
+        return nil
+    }
+    ```
+
+    ### CONTEXT CANCELLATION
+
+    ```go
+    func worker(ctx context.Context) error {
+        for {
+            select {
+            case <-ctx.Done():
+                return ctx.Err()
+            case task := <-taskCh:
+                if err := process(task); err != nil {
+                    return err
+                }
+            }
+        }
+    }
+    ```
+
+- id: "exemplar/go/concurrency/channel-patterns"
+  section_of: "exemplar/go/concurrency"
+  section_order: 1
+  category: "exemplar"
+  subcategory: "go"
+  is_mandatory: false
+  languages: ["/go"]
+  content: |
+    *Part of: GO CONCURRENCY EXEMPLARS*
+
+    ### CHANNEL PATTERNS
+
+    ```go
+    // Fan-out: One to many
+    func fanOut(input <-chan int, workers int) []<-chan int {
+        outputs := make([]<-chan int, workers)
+        for i := 0; i < workers; i++ {
+            outputs[i] = process(input)
+        }
+        return outputs
+    }
+
+    // Fan-in: Many to one
+    func fanIn(inputs ...<-chan int) <-chan int {
+        out := make(chan int)
+        var wg sync.WaitGroup
+        for _, in := range inputs {
+            wg.Add(1)
+            go func(c <-chan int) {
+                defer wg.Done()
+                for v := range c {
+                    out <- v
+                }
+            }(in)
+        }
+        go func() { wg.Wait(); close(out) }()
+        return out
+    }
+    ```
+

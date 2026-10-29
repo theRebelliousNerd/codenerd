@@ -1,0 +1,584 @@
+package perception
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"codenerd/internal/config"
+	"codenerd/internal/logging"
+	"codenerd/internal/sessionlog"
+	"codenerd/internal/types"
+)
+
+var codexExecCommandContext = exec.CommandContext
+
+// CodexCLIClient implements LLMClient using the Codex CLI subprocess.
+//
+// IMPORTANT: codeNERD uses Codex CLI as a SUBPROCESS LLM API, NOT as an agent.
+// - Shell tool execution is disabled by default (codeNERD uses its own Tactile Layer)
+// - Single completion per call (no agentic loops)
+// - System prompt is embedded in user prompt via tags (Codex CLI has no --system flag)
+//
+// Implementation notes:
+//   - Uses `codex exec -` and relies on `--output-last-message` for the final message
+//     to avoid brittle JSONL event parsing across Codex CLI versions.
+//   - Optionally uses `--output-schema` to enforce Piggyback structured output when detected.
+type CodexCLIClient struct {
+	model         string
+	fallbackModel string
+	sandbox       string
+	timeout       time.Duration
+	streaming     bool
+
+	skillEnabled   bool
+	skillName      string
+	skillAvailable bool
+	skillPath      string
+	workspaceRoot  string
+	skillWarnOnce  sync.Once
+
+	disableShellTool   bool
+	enableOutputSchema bool
+
+	reasoningEffortDefault       string
+	reasoningEffortHighReasoning string
+	reasoningEffortBalanced      string
+	reasoningEffortHighSpeed     string
+
+	configOverrides map[string]string
+}
+
+// NewCodexCLIClient creates a new Codex CLI client.
+// If cfg is nil, defaults are applied (sandbox: "read-only", timeout: 300s).
+// There is no default model: an empty model sends no --model flag and the CLI
+// uses the model the user configured in Codex itself.
+func NewCodexCLIClient(cfg *config.CodexCLIConfig) *CodexCLIClient {
+	client := &CodexCLIClient{
+		sandbox:            "read-only",
+		timeout:            300 * time.Second,
+		skillEnabled:       true,
+		skillName:          config.DefaultCodexExecSkillName,
+		disableShellTool:   true,
+		enableOutputSchema: true,
+	}
+
+	if cfg != nil {
+		if cfg.Model != "" {
+			client.model = cfg.Model
+		}
+		if cfg.Timeout > 0 {
+			client.timeout = time.Duration(cfg.Timeout) * time.Second
+		}
+		client.fallbackModel = cfg.FallbackModel
+		client.streaming = cfg.Streaming
+		if cfg.SkillEnabled != nil {
+			client.skillEnabled = *cfg.SkillEnabled
+		}
+		if strings.TrimSpace(cfg.SkillName) != "" {
+			client.skillName = strings.TrimSpace(cfg.SkillName)
+		}
+
+		if cfg.EnableOutputSchema != nil {
+			client.enableOutputSchema = *cfg.EnableOutputSchema
+		}
+
+		client.reasoningEffortDefault = strings.TrimSpace(cfg.ReasoningEffortDefault)
+		client.reasoningEffortHighReasoning = strings.TrimSpace(cfg.ReasoningEffortHighReasoning)
+		client.reasoningEffortBalanced = strings.TrimSpace(cfg.ReasoningEffortBalanced)
+		client.reasoningEffortHighSpeed = strings.TrimSpace(cfg.ReasoningEffortHighSpeed)
+
+		if len(cfg.ConfigOverrides) > 0 {
+			client.configOverrides = make(map[string]string, len(cfg.ConfigOverrides))
+			for k, v := range cfg.ConfigOverrides {
+				key := strings.TrimSpace(k)
+				if !allowedCodexConfigOverride(key) {
+					logging.PerceptionWarn("Ignoring unsafe Codex CLI config override: %s", key)
+					continue
+				}
+				client.configOverrides[key] = strings.TrimSpace(v)
+			}
+		}
+	}
+
+	client.workspaceRoot = codexExecWorkspaceRoot()
+	client.skillPath, client.skillAvailable = codexExecSkillPath(client.workspaceRoot, client.skillName)
+	if client.skillEnabled {
+		if client.skillAvailable {
+			logging.Perception("Codex CLI skill injection enabled: skill=%s path=%s", client.skillName, client.skillPath)
+		} else {
+			logging.PerceptionWarn("Codex CLI skill enabled but missing: skill=%s root=%s", client.skillName, client.workspaceRoot)
+		}
+	} else {
+		logging.Perception("Codex CLI skill injection disabled: skill=%s", client.skillName)
+	}
+
+	return client
+}
+
+func allowedCodexConfigOverride(key string) bool {
+	switch key {
+	case "model_reasoning_effort", "model_verbosity", "personality":
+		return true
+	default:
+		return false
+	}
+}
+
+// Complete sends a prompt to Codex CLI and returns the completion.
+func (c *CodexCLIClient) Complete(ctx context.Context, prompt string) (string, error) {
+	return c.CompleteWithSystem(ctx, "", prompt)
+}
+
+// CompleteWithSystem sends a prompt with an optional system message to Codex CLI.
+func (c *CodexCLIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	combinedPrompt := c.buildPrompt(systemPrompt, userPrompt)
+	return c.executeWithFallback(ctx, combinedPrompt, nil)
+}
+
+// CompleteWithSchema sends a prompt with an explicit JSON schema for validation.
+func (c *CodexCLIClient) CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
+	combinedPrompt := c.buildPrompt(systemPrompt, userPrompt)
+
+	var schema map[string]any
+	if strings.TrimSpace(jsonSchema) != "" {
+		if err := json.Unmarshal([]byte(jsonSchema), &schema); err != nil {
+			return "", fmt.Errorf("invalid JSON schema for codex-cli: %w", err)
+		}
+	}
+
+	return c.executeWithFallback(ctx, combinedPrompt, schema)
+}
+
+// CompleteWithStreaming publishes the final message as one chunk. Codex CLI
+// emits JSONL events whose schemas change between releases; correctness rides
+// on --output-last-message, read by CompleteWithSystem, which also fails the
+// call when the CLI did not finish.
+func (c *CodexCLIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	})
+}
+
+func (c *CodexCLIClient) executeWithFallback(ctx context.Context, prompt string, schema map[string]any) (string, error) {
+	model := c.ModelForContext(ctx)
+	response, err := c.executeCLI(ctx, prompt, model, schema)
+	if err != nil {
+		var rateLimitErr *RateLimitError
+		if errors.As(err, &rateLimitErr) && c.fallbackModel != "" {
+			logging.PerceptionWarn("Codex CLI primary model rate-limited; trying fallback model=%s (primary=%s)", c.fallbackModel, model)
+			response, err = c.executeCLI(ctx, prompt, c.fallbackModel, schema)
+			if err != nil {
+				logging.PerceptionError("Codex CLI fallback model exhausted: model=%s error=%v", c.fallbackModel, err)
+				return "", fmt.Errorf("fallback model also failed: %w", err)
+			}
+			logging.Perception("Codex CLI fallback model succeeded: model=%s", c.fallbackModel)
+			return response, nil
+		}
+		return "", err
+	}
+	return response, nil
+}
+
+// buildPrompt combines system and user prompts.
+func (c *CodexCLIClient) buildPrompt(systemPrompt, userPrompt string) string {
+	var prompt string
+	if strings.TrimSpace(systemPrompt) != "" {
+		prompt = fmt.Sprintf("<system_instructions>\n%s\n</system_instructions>\n\n%s", systemPrompt, userPrompt)
+	} else {
+		prompt = userPrompt
+	}
+
+	if !c.skillEnabled {
+		return prompt
+	}
+	if !c.skillAvailable {
+		c.skillWarnOnce.Do(func() {
+			logging.PerceptionWarn("Codex CLI repo skill missing; falling back to legacy prompt path: skill=%s expected=%s", c.skillName, c.skillPath)
+		})
+		return prompt
+	}
+
+	return fmt.Sprintf("$%s\n\n%s", c.skillName, prompt)
+}
+
+// reasoningEffortForContext is the effort a Codex call is sent with: a shard
+// profile's on the context, else the configured per-capability effort for the
+// context's capability class, else the configured default (which config
+// resolves from the main slot when codex_cli names none).
+func (c *CodexCLIClient) reasoningEffortForContext(ctx context.Context) string {
+	if effort, ok := types.ReasoningEffortFromContext(ctx); ok {
+		return effort
+	}
+	capHint, _ := types.ModelCapabilityFromContext(ctx)
+
+	switch capHint {
+	case types.CapabilityHighReasoning:
+		if c.reasoningEffortHighReasoning != "" {
+			return c.reasoningEffortHighReasoning
+		}
+	case types.CapabilityHighSpeed:
+		if c.reasoningEffortHighSpeed != "" {
+			return c.reasoningEffortHighSpeed
+		}
+	case types.CapabilityBalanced:
+		if c.reasoningEffortBalanced != "" {
+			return c.reasoningEffortBalanced
+		}
+	}
+
+	if c.reasoningEffortDefault != "" {
+		return c.reasoningEffortDefault
+	}
+	return ""
+}
+
+// ModelForContext resolves the effective model for this request, preferring any
+// per-shard override carried in the context over the client's default model.
+func (c *CodexCLIClient) ModelForContext(ctx context.Context) string {
+	if model, ok := types.ModelNameFromContext(ctx); ok && strings.TrimSpace(model) != "" {
+		return strings.TrimSpace(model)
+	}
+	return c.model
+}
+
+func (c *CodexCLIClient) buildCLIArgs(ctx context.Context, model, outPath, schemaPath string) []string {
+	args := []string{
+		"exec", "-",
+	}
+	// An empty model is the CLI's own choice, not ours.
+	if strings.TrimSpace(model) != "" {
+		args = append(args, "--model", model)
+	}
+	args = append(args,
+		"--sandbox", "read-only",
+		"--color", "never",
+		"--output-last-message", outPath,
+		"--json",
+	)
+	if schemaPath != "" {
+		args = append(args, "--output-schema", schemaPath)
+	}
+	// Defense-in-depth: the subprocess is a completion backend. Effects must
+	// return through Piggyback and pass Mangle/VirtualStore authorization.
+	args = append(args, "--disable", "shell_tool")
+
+	// Build -c overrides (deterministic ordering for testability).
+	overrides := make(map[string]string, len(c.configOverrides)+1)
+	for k, v := range c.configOverrides {
+		if strings.TrimSpace(k) == "" || strings.TrimSpace(v) == "" {
+			continue
+		}
+		overrides[k] = v
+	}
+
+	// Per-shard reasoning multiplexing via context hint. Skip if user explicitly overrides.
+	if _, ok := overrides["model_reasoning_effort"]; !ok {
+		if effort := strings.TrimSpace(c.reasoningEffortForContext(ctx)); effort != "" {
+			overrides["model_reasoning_effort"] = strconv.Quote(effort)
+		}
+	}
+
+	keys := make([]string, 0, len(overrides))
+	for k := range overrides {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		args = append(args, "-c", fmt.Sprintf("%s=%s", k, overrides[k]))
+	}
+
+	return args
+}
+
+// executeCLI runs the codex CLI command with prompt piped to stdin and returns the last message.
+func (c *CodexCLIClient) executeCLI(ctx context.Context, prompt, model string, schema map[string]any) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	outFile, err := os.CreateTemp("", "codex-last-message-*.txt")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp output file: %w", err)
+	}
+	outPath := outFile.Name()
+	_ = outFile.Close()
+	defer os.Remove(outPath)
+
+	schemaPath := ""
+	if schema != nil {
+		f, err := os.CreateTemp("", "codex-output-schema-*.json")
+		if err != nil {
+			return "", fmt.Errorf("failed to create temp schema file: %w", err)
+		}
+		schemaPath = f.Name()
+		enc := json.NewEncoder(f)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(schema); err != nil {
+			f.Close()
+			os.Remove(schemaPath)
+			return "", fmt.Errorf("failed to write schema file: %w", err)
+		}
+		if err := f.Close(); err != nil {
+			os.Remove(schemaPath)
+			return "", fmt.Errorf("failed to close schema file: %w", err)
+		}
+		defer os.Remove(schemaPath)
+	}
+
+	args := c.buildCLIArgs(ctx, model, outPath, schemaPath)
+	cmd := codexExecCommandContext(ctx, "codex", args...)
+	if c.workspaceRoot != "" {
+		cmd.Dir = c.workspaceRoot
+	}
+	cmd.Stdin = strings.NewReader(prompt)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+
+	runStart := time.Now()
+	runErr := cmd.Run()
+	sessionlog.RecordExec(ctx, sessionlog.ExecRun{
+		Command: "codex", Args: args, Stdin: prompt, Stdout: stdout.String(), Stderr: stderr.String(),
+		ExitCode: sessionlog.ExitCode(cmd), Err: runErr, Started: runStart, Duration: time.Since(runStart),
+	})
+	// The CLI reports its own token accounting on stdout; it was billed
+	// whether or not the run succeeded.
+	c.reportCodexUsage(ctx, model, stdout.String())
+	if err := runErr; err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("codex CLI timed out after %v: %w", c.timeout, ctx.Err())
+		}
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return "", fmt.Errorf("codex CLI execution canceled: %w", ctx.Err())
+		}
+
+		stderrStr := strings.TrimSpace(stderr.String())
+		stdoutStr := strings.TrimSpace(stdout.String())
+		if isRateLimitError(stderrStr) {
+			return "", &RateLimitError{
+				Provider:    "codex-cli",
+				RawResponse: stderrStr,
+			}
+		}
+		if fallback := extractCodexExecAgentMessage(stdoutStr); strings.TrimSpace(fallback) != "" {
+			logging.PerceptionWarn("Codex CLI returned non-zero exit but emitted a final agent message; using stdout JSONL fallback")
+			return strings.TrimSpace(fallback), nil
+		}
+
+		diag := joinCodexExecDiagnostics(stderrStr, stdoutStr)
+		return "", fmt.Errorf("codex CLI execution failed: %w (%s)", err, diag)
+	}
+
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read codex last-message file: %w", err)
+	}
+	result := strings.TrimSpace(string(data))
+	if result == "" {
+		if fallback := extractCodexExecAgentMessage(stdout.String()); strings.TrimSpace(fallback) != "" {
+			logging.PerceptionWarn("Codex CLI wrote empty last-message output; recovered final agent message from stdout JSONL")
+			return strings.TrimSpace(fallback), nil
+		}
+		diag := joinCodexExecDiagnostics(strings.TrimSpace(stderr.String()), strings.TrimSpace(stdout.String()))
+		return "", fmt.Errorf("codex CLI produced empty last-message output (model=%s, %s)", model, diag)
+	}
+
+	return result, nil
+}
+
+// SchemaCapable reports whether the client can enforce response schemas.
+func (c *CodexCLIClient) SchemaCapable() bool {
+	return c.enableOutputSchema
+}
+
+// SetModel changes the model used for completions.
+func (c *CodexCLIClient) SetModel(model string) { c.model = model }
+
+// GetModel returns the current model.
+func (c *CodexCLIClient) GetModel() string { return c.model }
+
+// ModelIdentity implements types.ModelIdentifier.
+func (c *CodexCLIClient) ModelIdentity() (string, string) { return "codex-cli", c.model }
+
+// SetFallbackModel sets the fallback model for rate limit resilience.
+func (c *CodexCLIClient) SetFallbackModel(model string) { c.fallbackModel = model }
+
+// GetFallbackModel returns the fallback model.
+func (c *CodexCLIClient) GetFallbackModel() string { return c.fallbackModel }
+
+// SetSandbox is retained for compatibility. The Codex subprocess remains
+// read-only because codeNERD owns all effect execution.
+func (c *CodexCLIClient) SetSandbox(_ string) { c.sandbox = "read-only" }
+
+// GetSandbox returns the current sandbox mode.
+func (c *CodexCLIClient) GetSandbox() string { return c.sandbox }
+
+// SetTimeout changes the timeout for CLI execution.
+func (c *CodexCLIClient) SetTimeout(timeout time.Duration) { c.timeout = timeout }
+
+// GetTimeout returns the current timeout.
+func (c *CodexCLIClient) GetTimeout() time.Duration { return c.timeout }
+
+// SetStreaming enables or disables streaming mode (best-effort).
+func (c *CodexCLIClient) SetStreaming(streaming bool) { c.streaming = streaming }
+
+// GetStreaming returns whether streaming is enabled.
+func (c *CodexCLIClient) GetStreaming() bool { return c.streaming }
+
+// SkillEnabled reports whether repo-local Codex skill injection is enabled.
+func (c *CodexCLIClient) SkillEnabled() bool { return c.skillEnabled }
+
+// SkillName returns the configured Codex skill name.
+func (c *CodexCLIClient) SkillName() string { return c.skillName }
+
+// SkillPath returns the resolved repo-local skill path, if any.
+func (c *CodexCLIClient) SkillPath() string { return c.skillPath }
+
+// SkillAvailable reports whether the configured repo-local skill was found.
+func (c *CodexCLIClient) SkillAvailable() bool { return c.skillAvailable }
+
+// WorkspaceRoot returns the resolved workspace root for codex exec invocations.
+func (c *CodexCLIClient) WorkspaceRoot() string { return c.workspaceRoot }
+
+// CompleteWithTools sends a prompt with tool definitions.
+// Codex CLI is used as a backend here; tools are requested via Piggyback control_packet.tool_requests.
+//
+// # No content blocks reach this engine, and none can
+//
+// Same shape as claude-cli: the CLI takes a prompt and returns text, so there
+// is nowhere to put an ordered block list, a thinking signature or a tool-use
+// id. This client does not implement types.ToolResultsProvider, and prior
+// turns arrive as a rendered transcript. See the note on
+// ClaudeCodeCLIClient.CompleteWithTools for why that is a property of the
+// engine rather than a gap in this adapter.
+func (c *CodexCLIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return nil, err
+	}
+	return &LLMToolResponse{
+		Text:       text,
+		StopReason: "end_turn",
+	}, nil
+}
+
+// ShouldUsePiggybackTools returns true to instruct the system to use Piggyback Protocol
+// for tool invocation. This is required for Codex CLI since codeNERD owns tool execution.
+func (c *CodexCLIClient) ShouldUsePiggybackTools() bool { return true }
+
+func codexExecWorkspaceRoot() string {
+	root, err := config.FindWorkspaceRoot()
+	if err == nil && root != "" {
+		return root
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		return cwd
+	}
+	return ""
+}
+
+func codexExecSkillPath(workspaceRoot, skillName string) (string, bool) {
+	skillName = strings.TrimSpace(skillName)
+	if workspaceRoot == "" || skillName == "" {
+		return "", false
+	}
+
+	skillDir := filepath.Join(workspaceRoot, ".agents", "skills", skillName)
+	skillDoc := filepath.Join(skillDir, "SKILL.md")
+	if _, err := os.Stat(skillDoc); err != nil {
+		return skillDoc, false
+	}
+	return skillDoc, true
+}
+
+type codexExecJSONLEvent struct {
+	Type string `json:"type"`
+	Item *struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"item,omitzero"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error,omitzero"`
+	Message string `json:"message,omitzero"`
+}
+
+func extractCodexExecAgentMessage(stdout string) string {
+	stdout = strings.TrimSpace(stdout)
+	if stdout == "" {
+		return ""
+	}
+
+	last := ""
+	for line := range strings.SplitSeq(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+
+		var event codexExecJSONLEvent
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+		if event.Type == "item.completed" && event.Item != nil && event.Item.Type == "agent_message" && strings.TrimSpace(event.Item.Text) != "" {
+			last = strings.TrimSpace(event.Item.Text)
+		}
+	}
+
+	return last
+}
+
+func extractCodexExecFailureDetail(stdout string) string {
+	stdout = strings.TrimSpace(stdout)
+	if stdout == "" {
+		return ""
+	}
+
+	for line := range strings.SplitSeq(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+
+		var event codexExecJSONLEvent
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+		if event.Error != nil && strings.TrimSpace(event.Error.Message) != "" {
+			return strings.TrimSpace(event.Error.Message)
+		}
+		if strings.TrimSpace(event.Message) != "" && (strings.Contains(strings.ToLower(event.Type), "fail") || strings.Contains(strings.ToLower(event.Type), "error")) {
+			return strings.TrimSpace(event.Message)
+		}
+	}
+
+	return ""
+}
+
+func joinCodexExecDiagnostics(stderrStr, stdoutStr string) string {
+	parts := make([]string, 0, 2)
+	if stderrStr != "" {
+		parts = append(parts, fmt.Sprintf("stderr: %s", truncateString(stderrStr, 2000)))
+	}
+	if detail := extractCodexExecFailureDetail(stdoutStr); detail != "" {
+		parts = append(parts, fmt.Sprintf("stdout: %s", truncateString(detail, 2000)))
+	} else if stdoutStr != "" {
+		parts = append(parts, fmt.Sprintf("stdout: %s", truncateString(stdoutStr, 2000)))
+	}
+	if len(parts) == 0 {
+		return "no stderr/stdout diagnostics"
+	}
+	return strings.Join(parts, "; ")
+}

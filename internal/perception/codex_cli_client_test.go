@@ -1,0 +1,406 @@
+package perception
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"codenerd/internal/config"
+	"codenerd/internal/core"
+	"codenerd/internal/types"
+)
+
+func TestNewCodexCLIClient(t *testing.T) {
+	tests := []struct {
+		name        string
+		cfg         *config.CodexCLIConfig
+		wantModel   string
+		wantSandbox string
+		wantTimeout time.Duration
+	}{
+		{
+			name:        "nil config uses defaults and no model (the CLI decides)",
+			cfg:         nil,
+			wantModel:   "",
+			wantSandbox: "read-only",
+			wantTimeout: 300 * time.Second,
+		},
+		{
+			name: "custom model + sandbox + timeout",
+			cfg: &config.CodexCLIConfig{
+				Model:   "o4-mini",
+				Sandbox: "workspace-write",
+				Timeout: 600,
+			},
+			wantModel:   "o4-mini",
+			wantSandbox: "read-only",
+			wantTimeout: 600 * time.Second,
+		},
+		{
+			name: "empty model stays empty so the CLI's own model is used",
+			cfg: &config.CodexCLIConfig{
+				Model:   "",
+				Sandbox: "read-only",
+				Timeout: 120,
+			},
+			wantModel:   "",
+			wantSandbox: "read-only",
+			wantTimeout: 120 * time.Second,
+		},
+		{
+			name: "zero timeout uses default",
+			cfg: &config.CodexCLIConfig{
+				Model:   "o3",
+				Sandbox: "read-only",
+				Timeout: 0,
+			},
+			wantModel:   "o3",
+			wantSandbox: "read-only",
+			wantTimeout: 300 * time.Second,
+		},
+		{
+			name: "fallback model configured",
+			cfg: &config.CodexCLIConfig{
+				Model:         "gpt-5.4",
+				FallbackModel: "o4-mini",
+				Timeout:       300,
+			},
+			wantModel:   "gpt-5.4",
+			wantSandbox: "read-only",
+			wantTimeout: 300 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := NewCodexCLIClient(tt.cfg)
+
+			if client.GetModel() != tt.wantModel {
+				t.Errorf("GetModel() = %q, want %q", client.GetModel(), tt.wantModel)
+			}
+
+			if client.GetSandbox() != tt.wantSandbox {
+				t.Errorf("GetSandbox() = %q, want %q", client.GetSandbox(), tt.wantSandbox)
+			}
+
+			if client.GetTimeout() != tt.wantTimeout {
+				t.Errorf("GetTimeout() = %v, want %v", client.GetTimeout(), tt.wantTimeout)
+			}
+		})
+	}
+}
+
+func TestCodexCLIClient_SettersGetters(t *testing.T) {
+	client := NewCodexCLIClient(nil)
+
+	t.Run("SetModel and GetModel", func(t *testing.T) {
+		client.SetModel("o4-mini")
+		if got := client.GetModel(); got != "o4-mini" {
+			t.Errorf("GetModel() after SetModel(o4-mini) = %q, want o4-mini", got)
+		}
+	})
+
+	t.Run("SetFallbackModel and GetFallbackModel", func(t *testing.T) {
+		client.SetFallbackModel("o3-mini")
+		if got := client.GetFallbackModel(); got != "o3-mini" {
+			t.Errorf("GetFallbackModel() after SetFallbackModel(o3-mini) = %q, want o3-mini", got)
+		}
+	})
+
+	t.Run("SetSandbox and GetSandbox", func(t *testing.T) {
+		client.SetSandbox("workspace-write")
+		if got := client.GetSandbox(); got != "read-only" {
+			t.Errorf("GetSandbox() after SetSandbox(workspace-write) = %q, want read-only", got)
+		}
+	})
+
+	t.Run("SetTimeout and GetTimeout", func(t *testing.T) {
+		client.SetTimeout(60 * time.Second)
+		if got := client.GetTimeout(); got != 60*time.Second {
+			t.Errorf("GetTimeout() after SetTimeout(60s) = %v, want 60s", got)
+		}
+	})
+
+	t.Run("SetStreaming and GetStreaming", func(t *testing.T) {
+		client.SetStreaming(true)
+		if got := client.GetStreaming(); got != true {
+			t.Errorf("GetStreaming() after SetStreaming(true) = %v, want true", got)
+		}
+	})
+
+	t.Run("Skill getters", func(t *testing.T) {
+		if !client.SkillEnabled() {
+			t.Fatal("expected skill injection enabled by default")
+		}
+		if got := client.SkillName(); got != config.DefaultCodexExecSkillName {
+			t.Fatalf("SkillName() = %q, want %q", got, config.DefaultCodexExecSkillName)
+		}
+	})
+}
+
+func TestCodexCLIClient_buildPrompt(t *testing.T) {
+	skillEnabled := false
+	client := NewCodexCLIClient(&config.CodexCLIConfig{
+		SkillEnabled: &skillEnabled,
+	})
+
+	tests := []struct {
+		name         string
+		systemPrompt string
+		userPrompt   string
+		want         string
+	}{
+		{
+			name:         "no system prompt",
+			systemPrompt: "",
+			userPrompt:   "Hello",
+			want:         "Hello",
+		},
+		{
+			name:         "whitespace only system prompt",
+			systemPrompt: "   ",
+			userPrompt:   "Hello",
+			want:         "Hello",
+		},
+		{
+			name:         "with system prompt",
+			systemPrompt: "You are helpful.",
+			userPrompt:   "Hello",
+			want:         "<system_instructions>\nYou are helpful.\n</system_instructions>\n\nHello",
+		},
+		{
+			name:         "system prompt with newlines",
+			systemPrompt: "Line 1\nLine 2",
+			userPrompt:   "Question",
+			want:         "<system_instructions>\nLine 1\nLine 2\n</system_instructions>\n\nQuestion",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := client.buildPrompt(tt.systemPrompt, tt.userPrompt)
+			if got != tt.want {
+				t.Errorf("buildPrompt(%q, %q) = %q, want %q", tt.systemPrompt, tt.userPrompt, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCodexCLIClient_buildPrompt_WithSkillPrefix(t *testing.T) {
+	client := NewCodexCLIClient(nil)
+	client.skillEnabled = true
+	client.skillAvailable = true
+	client.skillName = "codenerd-codex-exec"
+
+	got := client.buildPrompt("You are helpful.", "Hello")
+	want := "$codenerd-codex-exec\n\n<system_instructions>\nYou are helpful.\n</system_instructions>\n\nHello"
+	if got != want {
+		t.Fatalf("buildPrompt with skill = %q, want %q", got, want)
+	}
+}
+
+func TestCodexCLIClient_buildPrompt_MissingSkillFallsBack(t *testing.T) {
+	client := NewCodexCLIClient(nil)
+	client.skillEnabled = true
+	client.skillAvailable = false
+	client.skillName = "codenerd-codex-exec"
+
+	got := client.buildPrompt("You are helpful.", "Hello")
+	want := "<system_instructions>\nYou are helpful.\n</system_instructions>\n\nHello"
+	if got != want {
+		t.Fatalf("buildPrompt missing skill = %q, want %q", got, want)
+	}
+}
+
+func TestCodexCLIClient_buildCLIArgs_DisableShellToolDefault(t *testing.T) {
+	client := NewCodexCLIClient(nil)
+
+	args := client.buildCLIArgs(context.Background(), client.GetModel(), "out.txt", "")
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--disable shell_tool") {
+		t.Fatalf("expected default args to disable shell_tool, got: %s", joined)
+	}
+}
+
+func TestCodexCLIClient_buildCLIArgs_DisableShellToolConfig(t *testing.T) {
+	disableShell := false
+	client := NewCodexCLIClient(&config.CodexCLIConfig{
+		Model:            "gpt-5.4",
+		DisableShellTool: &disableShell,
+	})
+
+	args := client.buildCLIArgs(context.Background(), client.GetModel(), "out.txt", "")
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--disable shell_tool") {
+		t.Fatalf("expected fail-closed args to disable shell_tool, got: %s", joined)
+	}
+}
+
+func TestCodexCLIClient_buildCLIArgs_FiltersEffectOverrides(t *testing.T) {
+	client := NewCodexCLIClient(&config.CodexCLIConfig{
+		Sandbox:          "workspace-write",
+		DisableShellTool: func() *bool { v := false; return &v }(),
+		ConfigOverrides: map[string]string{
+			"model_reasoning_effort":           "\"high\"",
+			"personality":                      "\"friendly\"",
+			"sandbox_mode":                     "\"danger-full-access\"",
+			"shell_environment_policy.inherit": "all",
+			"mcp_servers.rogue.command":        "\"powershell\"",
+		},
+	})
+
+	args := client.buildCLIArgs(context.Background(), client.GetModel(), "out.txt", "")
+	joined := strings.Join(args, " ")
+	for _, forbidden := range []string{"danger-full-access", "shell_environment_policy", "mcp_servers.rogue"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("unsafe override %q reached Codex CLI args: %s", forbidden, joined)
+		}
+	}
+	for _, required := range []string{"--sandbox read-only", "--disable shell_tool", "model_reasoning_effort=\"high\"", "personality=\"friendly\""} {
+		if !strings.Contains(joined, required) {
+			t.Fatalf("required safe argument %q missing: %s", required, joined)
+		}
+	}
+}
+
+func TestCodexCLIClient_buildCLIArgs_ReasoningEffortByCapability(t *testing.T) {
+	client := NewCodexCLIClient(&config.CodexCLIConfig{
+		Model:                        "gpt-5.4",
+		ReasoningEffortDefault:       "high",
+		ReasoningEffortHighSpeed:     "low",
+		ReasoningEffortBalanced:      "medium",
+		ReasoningEffortHighReasoning: "xhigh",
+	})
+
+	ctx := types.WithModelCapability(context.Background(), types.CapabilityHighReasoning)
+	args := client.buildCLIArgs(ctx, client.GetModel(), "out.txt", "")
+	joined := strings.Join(args, " ")
+
+	if !strings.Contains(joined, "model_reasoning_effort=\"xhigh\"") {
+		t.Fatalf("expected high_reasoning to select xhigh effort, got: %s", joined)
+	}
+}
+
+func TestCodexCLIClient_buildCLIArgs_ConfigOverridesWin(t *testing.T) {
+	client := NewCodexCLIClient(&config.CodexCLIConfig{
+		Model:                  "gpt-5.4",
+		ReasoningEffortDefault: "xhigh",
+		ConfigOverrides: map[string]string{
+			"model_reasoning_effort": "\"low\"",
+		},
+	})
+
+	ctx := types.WithModelCapability(context.Background(), types.CapabilityHighReasoning)
+	args := client.buildCLIArgs(ctx, client.GetModel(), "out.txt", "")
+	joined := strings.Join(args, " ")
+
+	// Should not add a second override; the explicit override should be used.
+	if strings.Count(joined, "model_reasoning_effort=") != 1 {
+		t.Fatalf("expected exactly one model_reasoning_effort override, got: %s", joined)
+	}
+	if !strings.Contains(joined, "model_reasoning_effort=\"low\"") {
+		t.Fatalf("expected explicit override to win, got: %s", joined)
+	}
+}
+
+func TestCodexCLIClient_buildCLIArgs_ConfigOverridesDeterministicOrder(t *testing.T) {
+	client := NewCodexCLIClient(&config.CodexCLIConfig{
+		Model: "gpt-5.4",
+		ConfigOverrides: map[string]string{
+			"personality":     "\"friendly\"",
+			"model_verbosity": "\"low\"",
+		},
+	})
+
+	args := client.buildCLIArgs(context.Background(), client.GetModel(), "out.txt", "")
+	joined := strings.Join(args, " ")
+
+	// We sort the safe allowlist, so model_verbosity precedes personality.
+	if !strings.Contains(joined, "model_verbosity=") || !strings.Contains(joined, "personality=") {
+		t.Fatalf("expected both overrides present, got: %s", joined)
+	}
+	if strings.Index(joined, "model_verbosity=") > strings.Index(joined, "personality=") {
+		t.Fatalf("expected deterministic ordering (model_verbosity before personality), got: %s", joined)
+	}
+}
+
+func TestCodexCLIClient_StreamingConfig(t *testing.T) {
+	cfg := &config.CodexCLIConfig{
+		Model:     "gpt-5.4",
+		Streaming: true,
+	}
+
+	client := NewCodexCLIClient(cfg)
+	if got := client.GetStreaming(); got != true {
+		t.Errorf("GetStreaming() = %v, want true", got)
+	}
+}
+
+// TestCodexCLIClient_LLMClientInterface verifies the client implements LLMClient.
+func TestCodexCLIClient_LLMClientInterface(t *testing.T) {
+	var _ LLMClient = (*CodexCLIClient)(nil)
+	var _ core.SchemaCapableLLMClient = (*CodexCLIClient)(nil)
+}
+
+func TestCodexCLIClient_SchemaCapable(t *testing.T) {
+	client := NewCodexCLIClient(nil)
+	if !client.SchemaCapable() {
+		t.Fatal("expected CodexCLIClient to report schema capability when output schema is enabled")
+	}
+}
+
+func TestCodexCLIClient_SchemaCapable_Disabled(t *testing.T) {
+	enableSchema := false
+	client := NewCodexCLIClient(&config.CodexCLIConfig{EnableOutputSchema: &enableSchema})
+	if client.SchemaCapable() {
+		t.Fatal("expected schema capability to be disabled when output schema is disabled")
+	}
+}
+
+func TestCodexCLIClient_ModelForContext(t *testing.T) {
+	client := NewCodexCLIClient(&config.CodexCLIConfig{Model: "gpt-5.4"})
+	ctx := types.WithModelName(context.Background(), "gpt-5.3-codex-spark")
+
+	if got := client.ModelForContext(ctx); got != "gpt-5.3-codex-spark" {
+		t.Fatalf("ModelForContext() = %q, want shard override", got)
+	}
+	if got := client.ModelForContext(context.Background()); got != "gpt-5.4" {
+		t.Fatalf("ModelForContext() without override = %q, want the configured model", got)
+	}
+	// With nothing configured there is nothing to fall back to: the CLI's
+	// own model runs, so no --model flag is sent.
+	if got := NewCodexCLIClient(nil).ModelForContext(context.Background()); got != "" {
+		t.Fatalf("ModelForContext() with no configured model = %q, want empty", got)
+	}
+}
+
+func TestCodexCLIClient_CompleteWithSchema_InvalidSchema(t *testing.T) {
+	client := NewCodexCLIClient(nil)
+	if _, err := client.CompleteWithSchema(context.Background(), "", "hello", "{not-json"); err == nil {
+		t.Fatal("expected invalid JSON schema to return an error")
+	}
+}
+
+func TestExtractCodexExecAgentMessage(t *testing.T) {
+	stdout := strings.Join([]string{
+		`{"type":"thread.started","thread_id":"abc"}`,
+		`{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Hello from Codex"}}`,
+		`{"type":"turn.completed"}`,
+	}, "\n")
+
+	if got := extractCodexExecAgentMessage(stdout); got != "Hello from Codex" {
+		t.Fatalf("extractCodexExecAgentMessage() = %q, want final agent message", got)
+	}
+}
+
+func TestExtractCodexExecFailureDetail(t *testing.T) {
+	stdout := strings.Join([]string{
+		`{"type":"thread.started","thread_id":"abc"}`,
+		`{"type":"turn.failed","message":"approval required for shell command"}`,
+	}, "\n")
+
+	if got := extractCodexExecFailureDetail(stdout); got != "approval required for shell command" {
+		t.Fatalf("extractCodexExecFailureDetail() = %q, want failure detail", got)
+	}
+}

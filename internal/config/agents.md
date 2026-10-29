@@ -1,0 +1,49 @@
+# Configuration maintenance guidance
+
+- Treat `.nerd/config.json` as executable policy: reject unknown fields and
+  trailing JSON instead of silently applying defaults.
+- Persist API keys and OAuth settings with owner-only permissions through the
+  atomic same-directory writer; never truncate a live config in place.
+- Configuration wizards merge their owned fields into the existing
+  `UserConfig`. They must not erase settings owned by another subsystem.
+- Raw LLM I/O tracing is explicit opt-in and its files are private because
+  prompts and responses can contain credentials or proprietary source.
+- Normal chat, campaign, and factory boot paths must consume the same execution
+  and provider settings. An invalid explicit config fails closed before ambient
+  environment detection.
+- Missing-file defaults and validated files use the same global policy
+  publication path. Invalid files publish nothing. Timeout singleton readers
+  receive detached, synchronized values; normalization preserves explicit zero
+  semantics rather than allowing concurrent loads to expose partial profiles.
+- A removed key stays removed. `rejectRemovedKeys` (`removed_keys.go`) fails
+  the load and names the key and why it went: the tool loop is not bounded by
+  counts (the working policy stops a stall) and runs are not bounded by wall
+  clocks. When you delete a key, add it to those maps; never reintroduce a
+  knob they name. The limits that remain reach chat, campaigns and spawned
+  agents alike. `TestAgentsGuide_TeachesNoRemovedKey` fails if this file names
+  a removed key again.
+- A section the kernel's rules read gives them `config_param` rows through a
+  `Params` method (`params.go`); a threshold that fails open when absent is
+  declared `config_param_required` next to its rule.
+- Every request has a reasoning effort: the slot's, else its default (main
+  medium, worker medium, planner high, classification the provider's lowest).
+  `Check` refuses a value the provider or model cannot take (Meta
+  `minimal|low|medium|high|xhigh`, Anthropic `low..max` on effort models), and
+  a profile's against every slot that may serve it. `nerd config full` shows
+  the resolved values (`withResolvedDefaults`).
+- No model or provider is ever chosen here: a used slot without a model is an
+  error, and capability tables (`anthropic.go`) never substitute one.
+- `max_input_tokens` (worker/planner) is 0 or at least `MinPromptTokens`.
+- Native browser settings live under the top-level `browser` block, separate
+  from `integrations.servers.browser` (an external MCP endpoint). Preserve
+  pointer semantics for `multi_tab_default` so explicit isolation is not
+  overwritten by shared-tab defaults.
+- Browser evidence settings govern a redacted, rotated, current-user-only JSONL
+  recorder under the workspace. Preserve default-on pointer semantics and hard
+  file-count/file-size ceilings when adding config migrations or wizards.
+- Native browser `specs` config is a nested bounded catalog. Preserve enabled
+  pointer semantics and workspace-only roots; configuration must not grant
+  arbitrary filesystem read authority.
+- `browser.reaper` bounds individual inspection/cleanup requests. Keep defaults
+  and validation in BrowserReaperConfig, and carry it through every native browser
+  configuration adapter; neither field is an agent-run timeout.

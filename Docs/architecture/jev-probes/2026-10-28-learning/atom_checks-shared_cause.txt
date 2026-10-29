@@ -1,0 +1,8 @@
+shared-cause probe (evolution trigger)
+same-hollow-claim    shares_one_cause=0.96 want=true
+same-edge-case       shares_one_cause=0.98 want=true
+unrelated            shares_one_cause=0.03 want=false
+provider-outages     shares_one_cause=0.04 want=false
+shares_one_cause           right   4  wrong  0  unsettled  0
+all right 4 of 4
+misses (x wrong, ~ unsettled):

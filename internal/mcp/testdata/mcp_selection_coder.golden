@@ -1,0 +1,34 @@
+# Expected mcp_tool_selected/3 facts for ShardType = /coder.
+# This is an EXACT set: a missing line and an extra line both fail.
+#
+# Score derivation (policy_mcp.mg section 50):
+#   fs/read_file  skeleton (filesystem + read)            -> /full
+#   fs/write_file 60 base + 30 intent(/write) + 20 domain(/go) = 110 logic
+#                 (110*7)/10 + (90*3)/10 = 77 + 27 = 104   -> /full
+#   fs/proven     45 base + 10 domain(/general) + 15 usage = 70 -> /full
+#   web/fetch     40 base + 10 domain(/general) = 50        -> /condensed
+#   fs/flaky      45 base + 10 domain(/general) - 20 usage = 35 -> /minimal
+#   dead/thing    server status /error -> not available     -> absent
+#
+# Threshold boundary probes (see the fixture): each scores its raw affinity, so
+# the render-mode cutoffs are pinned from both sides rather than left in the
+# 5-point gaps the original fixture had.
+#   fs/edge70     70 = the /full cutoff exactly              -> /full
+#   fs/edge69     69, one below it                           -> /condensed
+#   fs/edge40     40 = the /condensed cutoff exactly         -> /condensed
+#   fs/edge39     39, one below it                           -> /minimal
+#   fs/edge30     30 = the base-relevance floor exactly      -> /minimal
+#   fs/edge29     29, one below the floor: never scored      -> absent
+#   fs/edge20     40 - 20 unreliability = the /minimal floor -> /minimal
+#   fs/edge19     39 - 20 = 19, one below it                 -> absent
+mcp_tool_selected(/coder, "fs/read_file", /full).
+mcp_tool_selected(/coder, "fs/write_file", /full).
+mcp_tool_selected(/coder, "fs/proven", /full).
+mcp_tool_selected(/coder, "web/fetch", /condensed).
+mcp_tool_selected(/coder, "fs/flaky", /minimal).
+mcp_tool_selected(/coder, "fs/edge70", /full).
+mcp_tool_selected(/coder, "fs/edge69", /condensed).
+mcp_tool_selected(/coder, "fs/edge40", /condensed).
+mcp_tool_selected(/coder, "fs/edge39", /minimal).
+mcp_tool_selected(/coder, "fs/edge30", /minimal).
+mcp_tool_selected(/coder, "fs/edge20", /minimal).

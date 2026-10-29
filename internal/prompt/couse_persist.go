@@ -1,0 +1,148 @@
+package prompt
+
+import (
+	"time"
+
+	"codenerd/internal/jsonl"
+)
+
+// Co-use asks which atoms are selected together across real sessions, so the
+// evidence has to outlive the process that produced it. A settled selection is
+// appended to a rotating JSONL log; the readout replays the log into a fresh
+// recorder and analyses that.
+//
+// Selections are written at Settle rather than at Observe because an unsettled
+// selection is not evidence: the whole question is about turns that succeeded.
+
+// DefaultSelectionLogName is where selections land under the workspace .nerd dir.
+const DefaultSelectionLogName = "meter/atom-selections.jsonl"
+
+// RecordedAtom is one atom as it appeared in a selection.
+type RecordedAtom struct {
+	ID string `json:"id"`
+	// Category is the atom's category at selection time. It is written per
+	// record rather than kept in a sidecar so a log stays self-describing: a
+	// later corpus edit cannot retroactively recategorize evidence that was
+	// already gathered, and a half-copied pair of files cannot silently
+	// mismatch.
+	Category string `json:"category,omitempty"`
+}
+
+// SelectionRecord is one settled prompt compilation.
+type SelectionRecord struct {
+	At      time.Time      `json:"at"`
+	Outcome Outcome        `json:"outcome"`
+	Atoms   []RecordedAtom `json:"atoms"`
+}
+
+// SetLog installs a persistence log, closing whatever it replaces. Passing nil
+// detaches and closes the current one.
+//
+// The close is the whole point, and it was missing. CoUse() is a process-wide
+// singleton, so every boot in a process calls this, and a setter that dropped
+// the previous value on the floor leaked one open file per boot. On Linux that
+// is invisible: an unlinked-but-open file just goes away at exit. On Windows
+// the file cannot be deleted at all while a handle is open, which turned into
+// sixteen `internal/system` tests failing in CI with "The process cannot access
+// the file because it is being used by another process" on t.TempDir cleanup --
+// sixteen boots, sixteen leaked handles, sixteen temp directories that could
+// never be removed.
+//
+// The error is returned rather than swallowed so a caller that cares can see a
+// failed flush, but the new log is installed either way: refusing to swap
+// because the old one would not close would leave the recorder writing to a
+// file the caller has moved on from.
+func (r *CoUseRecorder) SetLog(log *jsonl.Appender) error {
+	if r == nil {
+		return nil
+	}
+	r.logMu.Lock()
+	previous := r.log
+	r.log = log
+	r.logMu.Unlock()
+
+	if previous != nil && previous != log {
+		return previous.Close()
+	}
+	return nil
+}
+
+// DetachLog removes and closes the log only if it is still the one the caller
+// installed, reporting whether it did.
+//
+// CoUse() is a process singleton and more than one Cortex can be live in a
+// process at once, so an unconditional detach on shutdown let one agent close
+// the selection log another was still writing to. A detached recorder drops
+// selections silently, which turns a shutdown into a second agent measuring
+// nothing.
+func (r *CoUseRecorder) DetachLog(installed *jsonl.Appender) (bool, error) {
+	if r == nil || installed == nil {
+		return false, nil
+	}
+	r.logMu.Lock()
+	if r.log != installed {
+		r.logMu.Unlock()
+		return false, nil
+	}
+	r.log = nil
+	r.logMu.Unlock()
+	return true, installed.Close()
+}
+
+// appendToLog writes one settled selection. Called without the tally mutex
+// held: writing to disk under the lock that every Observe contends on would
+// put file I/O on the compilation path.
+func (r *CoUseRecorder) appendToLog(atoms []string, outcome Outcome) {
+	r.logMu.RLock()
+	log := r.log
+	r.logMu.RUnlock()
+	if log == nil {
+		return
+	}
+
+	cats := r.Categories()
+	rec := SelectionRecord{At: time.Now().UTC(), Outcome: outcome, Atoms: make([]RecordedAtom, 0, len(atoms))}
+	for _, id := range atoms {
+		rec.Atoms = append(rec.Atoms, RecordedAtom{ID: id, Category: cats(id)})
+	}
+	log.Append(rec)
+}
+
+// LoadSelections replays a selection log into a fresh recorder.
+//
+// The replayed recorder is settled by construction: every record in the log was
+// written at Settle, so there is nothing pending and nothing to wait for. It
+// reports the number of generations that ended on a truncated line so a reader
+// can tell a short sample from a damaged one.
+func LoadSelections(path string) (*CoUseRecorder, int, error) {
+	records, truncated, err := jsonl.Read[SelectionRecord](path)
+	if err != nil {
+		return nil, truncated, err
+	}
+
+	rec := NewCoUseRecorder()
+	for i := range records {
+		record := &records[i]
+		if len(record.Atoms) == 0 {
+			continue
+		}
+		ids := make([]string, 0, len(record.Atoms))
+		for _, a := range record.Atoms {
+			if a.ID == "" {
+				continue
+			}
+			ids = append(ids, a.ID)
+			rec.noteCategory(a.ID, a.Category)
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		// Replay through the normal path so the loaded tallies are produced by
+		// the same code that produces live ones. A separate ingest path is how
+		// a readout starts disagreeing with the process it is reading.
+		turnID := "replay"
+		rec.Observe(turnID, ids)
+		rec.Settle(turnID, record.Outcome)
+	}
+	return rec, truncated, nil
+}

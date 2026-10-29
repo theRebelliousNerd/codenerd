@@ -1,0 +1,35 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "assistant": "codeNERD, a coding agent working in the user's repository",
+  "codenerd_reply": "Done. I changed Min in internal/stats/stats.go so it returns 0 for an empty slice, and added TestMinEmpty.",
+  "message": "no, I said Max, not Min",
+  "previous_request": "make Max return 0 for an empty slice"
+ },
+ "questions": {
+  "corrects_last_turn": {
+   "type": "noul",
+   "instructions": "In `message`, is the user telling codeNERD that something in `codenerd_reply` was wrong?",
+   "criteria": {
+    "true": "The user says codeNERD's last answer or action was mistaken: it misread the request, changed the wrong thing, gave a wrong answer, or did something other than what was asked.",
+    "false": "The user asks for new work, reports a bug in their own code or tests, asks codeNERD to stop running work, asks a question, or accepts the reply."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "corrects_last_turn": {
+   "type": "noul",
+   "noul": 0.98
+  }
+ },
+ "usage": {
+  "input_tokens": 469,
+  "output_tokens": 24
+ }
+}
+}

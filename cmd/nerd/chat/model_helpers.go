@@ -1,0 +1,577 @@
+package chat
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"codenerd/internal/broker"
+	"codenerd/internal/northstar"
+	"codenerd/internal/types"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// sanitizeCommandInput strips null bytes, ANSI escape sequences, and control
+// characters from command input. It does not cut the input: a slash command
+// carrying a pasted log (/spawn coder <task with the failure>) used to lose
+// everything past 10,000 characters without a word.
+func sanitizeCommandInput(input string) string {
+	var b strings.Builder
+	b.Grow(len(input))
+	for _, r := range input {
+		switch {
+		case r == 0: // null byte — corrupts SQLite and Mangle parser
+			continue
+		case r == 0x1b: // ANSI escape — hijacks terminal display
+			continue
+		case r < 0x20 && r != '\n' && r != '\r' && r != '\t': // other control chars
+			continue
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// findingLine matches the one-line finding format the reviewer atom specifies:
+//
+//   - [SEVERITY] path/to/file.go:123: message
+//
+// The line number is optional, because not every finding is about one line.
+// The file is captured non-greedily up to the ":<digits>:" so a Windows path
+// with a drive letter does not lose its prefix to the first colon.
+var findingLine = regexp.MustCompile(`^[-*\x{2022}]\s*\[([A-Za-z]+)\]\s*(.+?)(?::(\d+))?:\s*(.+)$`)
+
+// severityAliases maps every spelling in use onto the reviewer atom's four.
+//
+// The extractor and the atom used to disagree on the vocabulary itself: the
+// atom says CRITICAL/HIGH/MEDIUM/LOW and the extractor looked for
+// CRIT/ERR/WARN/INFO. A finding written exactly as instructed matched nothing.
+var severityAliases = map[string]string{
+	"crit": "critical", "critical": "critical",
+	"err": "high", "error": "high", "high": "high",
+	"warn": "medium", "warning": "medium", "medium": "medium",
+	"info": "low", "low": "low", "nit": "low",
+}
+
+// extractFindings parses a shard's output into structured findings.
+//
+// It emits file, line, message and severity -- not just the raw line -- because
+// that is what every consumer reads. Before this it set only "raw" and
+// "severity" while delegation.go read f["file"], f["line"] and f["message"], so
+// formatFindingsForTask produced an empty string and extractFileFromFindings
+// returned "" on every review. The reviewer-to-fixer delegation chain was
+// inert: it read findings, formatted nothing, and handed the fixer no file.
+//
+// A line that carries a severity marker but does not match the full shape is
+// still kept, with its raw text and severity. Dropping it would lose a real
+// finding to a formatting slip, and the consumers already tolerate a missing
+// file or message.
+func extractFindings(result string) []map[string]any {
+	var findings []map[string]any
+
+	for line := range strings.SplitSeq(result, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		if m := findingLine.FindStringSubmatch(line); m != nil {
+			finding := map[string]any{
+				"raw":      line,
+				"severity": normalizeSeverity(m[1]),
+				"file":     strings.TrimSpace(m[2]),
+				"message":  strings.TrimSpace(m[4]),
+			}
+			if m[3] != "" {
+				if n, err := strconv.Atoi(m[3]); err == nil {
+					finding["line"] = n
+				}
+			}
+			findings = append(findings, finding)
+			continue
+		}
+
+		// A severity marker with no parseable location. Keep it rather than
+		// lose a real finding to a formatting slip.
+		if sev, ok := severityMarkerIn(line); ok {
+			findings = append(findings, map[string]any{"raw": line, "severity": sev})
+		}
+	}
+
+	return findings
+}
+
+// normalizeSeverity maps a marker onto the reviewer atom's vocabulary, keeping
+// an unrecognized one lowercased rather than discarding it.
+func normalizeSeverity(marker string) string {
+	lower := strings.ToLower(strings.TrimSpace(marker))
+	if canonical, ok := severityAliases[lower]; ok {
+		return canonical
+	}
+	return lower
+}
+
+// severityMarkerIn finds a bracketed severity anywhere in a line.
+func severityMarkerIn(line string) (string, bool) {
+	upper := strings.ToUpper(line)
+	for alias, canonical := range severityAliases {
+		if strings.Contains(upper, "["+strings.ToUpper(alias)+"]") {
+			return canonical, true
+		}
+	}
+	return "", false
+}
+
+// extractMetrics parses metrics section from output.
+// Looks for patterns like "Key: Value" or "Key = Value"
+func extractMetrics(result string) map[string]any {
+	metrics := make(map[string]any)
+	// Look for common metric patterns
+	lines := strings.SplitSeq(result, "\n")
+	for line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "lines") || strings.Contains(line, "functions") ||
+			strings.Contains(line, "complexity") || strings.Contains(line, "nesting") {
+			// Parse "Key: Value" or "Key = Value" patterns
+			for _, sep := range []string{": ", "= ", "="} {
+				if strings.Contains(line, sep) {
+					parts := strings.SplitN(line, sep, 2)
+					if len(parts) == 2 {
+						key := strings.TrimSpace(parts[0])
+						value := strings.TrimSpace(parts[1])
+						metrics[key] = value
+					}
+					break
+				}
+			}
+		}
+	}
+	return metrics
+}
+
+// wrapText wraps s to width columns on word boundaries; only a single token
+// wider than the line (a long path, a URL) is split inside. Error text is
+// read, and a break inside "tool_calls" or "cmd/nerd" reads as two words.
+func wrapText(s string, width int) string {
+	if width < 1 || s == "" {
+		return s
+	}
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		var cur []rune
+		for _, word := range strings.Fields(line) {
+			w := []rune(word)
+			if len(cur) > 0 && len(cur)+1+len(w) > width {
+				out = append(out, string(cur))
+				cur = nil
+			}
+			for len(w) > width {
+				if len(cur) > 0 {
+					out = append(out, string(cur))
+					cur = nil
+				}
+				out = append(out, string(w[:width]))
+				w = w[width:]
+			}
+			if len(cur) > 0 {
+				cur = append(cur, ' ')
+			}
+			cur = append(cur, w...)
+		}
+		out = append(out, string(cur))
+	}
+	return strings.Join(out, "\n")
+}
+
+// refreshErrorViewport updates the error viewport content with wrapped text.
+// presentError is what the error panel shows for a failed turn. A broker
+// refusal carries its own explanation (explainAdmissionError). Anything else is
+// classified with a category and remediation steps when the operator has
+// transparency on with verbose_errors set; otherwise it is shown as raised.
+func (m Model) presentError(err error) error {
+	if _, ok := broker.IsAdmissionError(err); ok {
+		return explainAdmissionError(err)
+	}
+	return m.transparencyMgr.ExplainError(err)
+}
+
+func (m *Model) refreshErrorViewport() {
+	if m.err == nil {
+		m.errorVP.SetContent("")
+		return
+	}
+	width := max(m.errorVP.Width, 1)
+	m.errorVP.SetContent(wrapText(m.err.Error(), width))
+}
+
+// extractClarificationQuestion extracts the question from an error message
+func extractClarificationQuestion(errMsg string) string {
+	// Look for "USER_INPUT_REQUIRED:" prefix
+	if _, after, ok := strings.Cut(errMsg, "USER_INPUT_REQUIRED:"); ok {
+		return strings.TrimSpace(after)
+	}
+	// Fallback: return the full error message
+	return errMsg
+}
+
+// matchesAnyTrigger checks if input matches any trigger phrase with word-boundary awareness.
+// Single-word triggers use regex \b boundaries to prevent false positives (e.g., "correct" in "incorrect").
+// Multi-word triggers (containing spaces or punctuation) use substring match since phrases are inherently bounded.
+func matchesAnyTrigger(input string, triggers []string) bool {
+	lower := strings.ToLower(strings.TrimSpace(input))
+	if lower == "" {
+		return false
+	}
+	for _, t := range triggers {
+		// Slash-prefixed commands (e.g. /learn_yes) — exact match only
+		// \b doesn't work with "/" since it's a non-word character
+		if strings.HasPrefix(t, "/") {
+			if lower == t {
+				return true
+			}
+			continue
+		}
+		// Single-word triggers need word boundary matching
+		if !strings.ContainsAny(t, " ,:!") {
+			pattern := `\b` + regexp.QuoteMeta(t) + `\b`
+			if matched, _ := regexp.MatchString(pattern, lower); matched {
+				return true
+			}
+		} else {
+			// Multi-word phrases — substring is safe
+			if strings.Contains(lower, t) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isDreamConfirmation checks if user is confirming dream state learnings
+func isDreamConfirmation(input string) bool {
+	return matchesAnyTrigger(input, []string{
+		"correct!", "correct", "learn this", "learn that", "remember this",
+		"remember that", "yes, do that", "that's right", "exactly!",
+		"yes!", "perfect", "good approach", "sounds right",
+	})
+}
+
+// isDreamCorrection checks if user is correcting dream state learnings
+func isDreamCorrection(input string) bool {
+	return matchesAnyTrigger(input, []string{
+		"no, actually", "actually, we", "wrong, we", "instead, we",
+		"not that way", "we don't", "we always", "remember:",
+		"learn:", "actually:",
+	})
+}
+
+// isDreamExecutionTrigger checks if user wants to execute the dream plan.
+// DISTINCT from isDreamConfirmation (which persists learnings, not executes).
+func isDreamExecutionTrigger(input string) bool {
+	return matchesAnyTrigger(input, []string{
+		"do it", "execute that", "run the plan", "go ahead",
+		"make it so", "proceed", "execute the plan", "run that",
+		"let's do it", "implement that", "start execution",
+		"yes, do it", "yes, execute", "carry it out", "perform that",
+	})
+}
+
+// learningConfirmationAnswer reads the answer to "Should I learn it?". A
+// chosen option carries its command (/learn_yes, /learn_no), and the command
+// decides: the No option's label "No, do not learn this (/learn_no)" also
+// reads as affirmative ("learn this"), and until 2026-10-28 that learned the
+// mapping the user refused. Free text is read by the yes/no readers; an
+// answer that reads as both, or as neither, is a refusal: nothing is learned
+// without a clear yes.
+func learningConfirmationAnswer(response string) (confirmed, rejected bool) {
+	lower := strings.ToLower(response)
+	switch {
+	case strings.Contains(lower, "/learn_no"):
+		return false, true
+	case strings.Contains(lower, "/learn_yes"):
+		return true, false
+	}
+	yes, no := isAffirmativeResponse(response), isNegativeResponse(response)
+	if yes && !no {
+		return true, false
+	}
+	return false, true
+}
+
+func isAffirmativeResponse(input string) bool {
+	lower := strings.ToLower(strings.TrimSpace(input))
+	if lower == "" {
+		return false
+	}
+	// Exact match for very short responses
+	exactMatches := []string{"y", "yes", "ok", "okay", "yep", "yeah", "sure"}
+	if slices.Contains(exactMatches, lower) {
+		return true
+	}
+	// Prefix match: "yes I want to do that" starts with affirmative word
+	prefixWords := []string{"yes ", "yeah ", "yep ", "sure ", "ok ", "okay "}
+	for _, p := range prefixWords {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	return matchesAnyTrigger(input, []string{
+		"/learn_yes",
+		"correct", "learn this", "confirm", "do it",
+	})
+}
+
+func isNegativeResponse(input string) bool {
+	lower := strings.ToLower(strings.TrimSpace(input))
+	if lower == "" {
+		return false
+	}
+	// Exact match for very short responses
+	exactMatches := []string{"n", "no", "nope", "nah"}
+	if slices.Contains(exactMatches, lower) {
+		return true
+	}
+	return matchesAnyTrigger(input, []string{
+		"/learn_no",
+		"don't", "do not", "never",
+		"reject", "skip", "not now",
+	})
+}
+
+func escapeMangleString(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", "")
+	return s
+}
+
+func normalizeVerbAtom(verb string) string {
+	v := strings.TrimSpace(verb)
+	if v == "" || v == "none" || v == "_" {
+		return ""
+	}
+	if !strings.HasPrefix(v, "/") {
+		return "/" + v
+	}
+	return v
+}
+
+// extractCorrectionContent extracts the corrective content from user input
+func extractCorrectionContent(input string) string {
+	lower := strings.ToLower(input)
+
+	// Try to find correction markers
+	markers := []string{
+		"no, actually", "actually, we", "wrong, we", "instead, we",
+		"remember:", "learn:", "actually:",
+	}
+
+	for _, marker := range markers {
+		if idx := strings.Index(lower, marker); idx != -1 {
+			// Extract everything after the marker
+			content := strings.TrimSpace(input[idx+len(marker):])
+			if content != "" {
+				return content
+			}
+		}
+	}
+
+	// Fallback: return the full input
+	return input
+}
+
+// runAlignmentCheck runs a Northstar alignment check and returns the result.
+func (m *Model) runAlignmentCheck(subject string) tea.Cmd {
+	return func() tea.Msg {
+		// Get nerd directory
+		nerdDir := filepath.Join(m.workspace, ".nerd")
+
+		// Share the session's guardian instead of opening a second SQLite handle
+		// per /alignment invocation. Each ephemeral guardian used to cache its
+		// own GuardianState, so the checks it recorded left the boot guardian's
+		// TasksSinceCheck and drift count stale.
+		guardian, err := northstar.AcquireGuardian(nerdDir, northstar.GuardianConfigFor(m.workspace))
+		if err != nil {
+			return alignmentCheckMsg{
+				Subject: subject,
+				Result:  "error",
+				Err:     err,
+			}
+		}
+		defer func() { _ = northstar.ReleaseGuardian(guardian) }()
+
+		// Set LLM client if available
+		if m.client != nil {
+			guardian.SetLLMClient(m.client)
+		}
+
+		// Initialize the guardian
+		if err := guardian.Initialize(); err != nil {
+			return alignmentCheckMsg{
+				Subject: subject,
+				Result:  "error",
+				Err:     err,
+			}
+		}
+
+		// Check if vision is defined
+		if !guardian.HasVision() {
+			return alignmentCheckMsg{
+				Subject:     subject,
+				Result:      "skipped",
+				Explanation: "No vision defined. Use /northstar to define your project vision first.",
+			}
+		}
+
+		// Build context from session state
+		contextStr := m.buildAlignmentContext()
+
+		// Run alignment check with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		check, err := guardian.CheckAlignment(ctx, northstar.TriggerManual, subject, contextStr)
+		if err != nil {
+			return alignmentCheckMsg{
+				Subject: subject,
+				Result:  "error",
+				Err:     err,
+			}
+		}
+
+		return alignmentCheckMsg{
+			Subject:     check.Subject,
+			Result:      string(check.Result),
+			Score:       check.Score,
+			Explanation: check.Explanation,
+			Suggestions: check.Suggestions,
+		}
+	}
+}
+
+// buildAlignmentContext builds context for alignment check from current session state.
+func (m *Model) buildAlignmentContext() string {
+	var sb strings.Builder
+
+	// Add recent conversation context
+	if len(m.history) > 0 {
+		sb.WriteString("## Recent Conversation\n")
+		// Last 3 messages
+		start := max(len(m.history)-3, 0)
+		for i := start; i < len(m.history); i++ {
+			msg := m.history[i]
+			// Head and tail with the marker: the alignment check judges what
+			// was asked and done, and a silent 200-byte prefix hid both ends.
+			sb.WriteString(msg.Role + ": " + types.ClampText(msg.Content, 2000, msg.Role+" message") + "\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Add last shard result if available
+	if m.lastShardResult != nil {
+		sb.WriteString("## Recent Task\n")
+		sb.WriteString("Type: " + m.lastShardResult.ShardType + "\n")
+		sb.WriteString("Task: " + m.lastShardResult.Task + "\n")
+		sb.WriteString("\n")
+	}
+
+	// Add active campaign info if running
+	if m.activeCampaign != nil {
+		sb.WriteString("## Active Campaign\n")
+		sb.WriteString("Goal: " + m.activeCampaign.Goal + "\n")
+		if m.campaignProgress != nil {
+			sb.WriteString("Phase: " + m.campaignProgress.CurrentPhase + "\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+// formatAlignmentCheckResult formats an alignment check result for display.
+func (m *Model) formatAlignmentCheckResult(msg alignmentCheckMsg) string {
+	var sb strings.Builder
+	sb.WriteString("## Northstar Alignment Check\n\n")
+
+	// Result emoji and status
+	var emoji, color string
+	switch msg.Result {
+	case "passed":
+		emoji = "✅"
+		color = "green"
+	case "warning":
+		emoji = "⚠️"
+		color = "yellow"
+	case "failed":
+		emoji = "❌"
+		color = "red"
+	case "blocked":
+		emoji = "🚫"
+		color = "red"
+	case "skipped":
+		emoji = "⏭️"
+		color = "gray"
+	case "unknown":
+		emoji = "❔"
+		color = "gray"
+	default:
+		emoji = "❓"
+		color = "gray"
+	}
+	_ = color // For future styling
+
+	sb.WriteString("**Subject:** " + msg.Subject + "\n\n")
+	sb.WriteString("**Result:** " + emoji + " " + strings.ToUpper(msg.Result) + "\n\n")
+	// Skipped and unknown checks never produced a score; printing their zero
+	// (or the old placeholder) would present "not assessed" as a measurement.
+	if northstar.AlignmentResult(msg.Result).Assessed() {
+		sb.WriteString("**Alignment Score:** " + formatScore(msg.Score) + "\n\n")
+	} else {
+		sb.WriteString("**Alignment Score:** not assessed\n\n")
+	}
+
+	if msg.Explanation != "" {
+		sb.WriteString("**Explanation:** " + msg.Explanation + "\n\n")
+	}
+
+	if len(msg.Suggestions) > 0 {
+		sb.WriteString("**Suggestions:**\n")
+		for _, s := range msg.Suggestions {
+			sb.WriteString("- " + s + "\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Add hints based on result
+	switch msg.Result {
+	case "skipped":
+		sb.WriteString("*Tip: Run `/northstar` to define your project vision.*\n")
+	case "unknown":
+		sb.WriteString("*No assessment was made. This is not a pass: configure an LLM client or retry the check.*\n")
+	case "warning":
+		sb.WriteString("*Consider reviewing the suggestions above to improve alignment.*\n")
+	case "failed", "blocked":
+		sb.WriteString("*This indicates significant drift from your project vision. Review the suggestions carefully.*\n")
+	}
+
+	return sb.String()
+}
+
+// formatScore formats a 0.0-1.0 score as a percentage with visual bar.
+func formatScore(score float64) string {
+	pct := int(score * 100)
+
+	// Visual bar (10 chars)
+	filled := pct / 10
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", 10-filled)
+
+	return bar + " " + fmt.Sprintf("%d%%", pct)
+}

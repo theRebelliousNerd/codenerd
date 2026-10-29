@@ -1,0 +1,736 @@
+package core
+
+import (
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+// =============================================================================
+// TOOL REGISTRY - Integration with Kernel and Shards
+// =============================================================================
+// This registry bridges the gap between generated tools (Ouroboros),
+// the Mangle kernel (facts), and shards (execution).
+
+// Tool represents a registered tool with metadata
+type Tool struct {
+	Name          string                      `json:"name"`
+	Command       string                      `json:"command"`        // Path to binary or command to execute
+	ShardAffinity string                      `json:"shard_affinity"` // /coder, /tester, /reviewer, /researcher, /generalist, /all
+	Description   string                      `json:"description"`
+	Capabilities  []string                    `json:"capabilities"`
+	Hash          string                      `json:"hash"` // Binary hash for change detection
+	RegisteredAt  time.Time                   `json:"registered_at"`
+	ExecuteCount  int64                       `json:"execute_count"`
+	Protocol      types.GeneratedToolProtocol `json:"protocol,omitempty"`
+	AttemptCount  int64                       `json:"attempt_count"`
+	StartedCount  int64                       `json:"started_count"`
+	SuccessCount  int64                       `json:"success_count"`
+}
+
+// ToolRegistry manages registered tools and their integration with the kernel
+type ToolRegistry struct {
+	mu         sync.RWMutex
+	tools      map[string]*Tool
+	kernel     Kernel
+	workDir    string
+	identities map[string]types.GeneratedToolIdentity
+}
+
+func pinRegisteredBinary(tool *Tool) error {
+	path, err := exec.LookPath(tool.Command)
+	if err != nil {
+		return err
+	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	digest := sha256.Sum256(data)
+	hash := hex.EncodeToString(digest[:])
+	if tool.Hash != "" && tool.Hash != hash {
+		return fmt.Errorf("registered binary hash mismatch")
+	}
+	tool.Command, tool.Hash = path, hash
+	return nil
+}
+
+func (tr *ToolRegistry) GeneratedToolIdentity(name string) (types.GeneratedToolIdentity, error) {
+	tr.mu.RLock()
+	defer tr.mu.RUnlock()
+	tool, exists := tr.tools[name]
+	if !exists {
+		return types.GeneratedToolIdentity{}, fmt.Errorf("tool not registered: %s", name)
+	}
+	identity, pinned := tr.identities[name]
+	if !pinned || identity.Name != tool.Name || identity.BinaryPath != tool.Command || identity.BinaryHash != tool.Hash || identity.Protocol != tool.Protocol {
+		return identity, fmt.Errorf("registered tool identity changed or was never pinned")
+	}
+	if identity.Protocol != types.GeneratedStdinV1 && identity.Protocol != types.LegacyArgvV1 {
+		return identity, fmt.Errorf("unknown host protocol for %s", name)
+	}
+	if identity.BinaryHash == "" || !filepath.IsAbs(identity.BinaryPath) {
+		return identity, fmt.Errorf("missing pinned binary for %s", name)
+	}
+	return identity, nil
+}
+
+func (tr *ToolRegistry) rememberIdentity(tool *Tool) {
+	if tr.identities == nil {
+		tr.identities = make(map[string]types.GeneratedToolIdentity)
+	}
+	tr.identities[tool.Name] = types.GeneratedToolIdentity{Name: tool.Name, BinaryPath: tool.Command,
+		BinaryHash: tool.Hash, Protocol: tool.Protocol, Workspace: tr.workDir}
+}
+
+func (tr *ToolRegistry) recordGeneratedReceipt(receipt types.GeneratedToolReceipt) {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	tool := tr.tools[receipt.Request.Tool.Name]
+	if tool == nil || receipt.Replayed {
+		return
+	}
+	if receipt.Attempted {
+		tool.AttemptCount++
+	}
+	if receipt.ProcessStarted {
+		tool.StartedCount++
+		tool.ExecuteCount++
+	}
+	if receipt.ProcessStarted && receipt.BackendError == nil && receipt.ValidationPassed {
+		tool.SuccessCount++
+	}
+}
+
+// NewToolRegistry creates a new tool registry
+func NewToolRegistry(workDir string) *ToolRegistry {
+	return &ToolRegistry{
+		tools:   make(map[string]*Tool),
+		workDir: workDir,
+	}
+}
+
+// SetKernel sets the kernel for fact injection
+func (tr *ToolRegistry) SetKernel(k Kernel) {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	tr.kernel = k
+}
+
+// RegisterTool registers a tool and injects facts into the kernel
+func (tr *ToolRegistry) RegisterTool(name, command, shardAffinity string) error {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+
+	logging.ToolsDebug("RegisterTool: registering tool name=%s command=%s affinity=%s", name, command, shardAffinity)
+
+	if name == "" {
+		logging.ToolsError("RegisterTool: tool name cannot be empty")
+		return fmt.Errorf("tool name cannot be empty")
+	}
+	if command == "" {
+		logging.ToolsError("RegisterTool: tool command cannot be empty for %s", name)
+		return fmt.Errorf("tool command cannot be empty")
+	}
+
+	// Verify command exists if it's a file path
+	if !isCommandName(command) {
+		absPath := command
+		if !filepath.IsAbs(command) {
+			absPath = filepath.Join(tr.workDir, command)
+		}
+		if _, err := os.Stat(absPath); os.IsNotExist(err) {
+			logging.ToolsError("RegisterTool: tool binary not found: %s", absPath)
+			return fmt.Errorf("tool binary not found: %s", absPath)
+		}
+		command = absPath
+	}
+
+	// Create tool
+	tool := &Tool{
+		Name:          name,
+		Command:       command,
+		ShardAffinity: shardAffinity,
+		RegisteredAt:  time.Now(),
+		Protocol:      types.LegacyArgvV1,
+	}
+	// Preserve legacy catalogue registration for command names that are not
+	// installed yet. The typed execution route requires a resolved digest.
+	_ = pinRegisteredBinary(tool)
+
+	tr.tools[name] = tool
+	tr.rememberIdentity(tool)
+
+	// Inject facts into kernel (single tool, immediate evaluate)
+	if err := tr.injectToolFacts(tool); err != nil {
+		logging.ToolsError("RegisterTool: failed to inject facts for %s: %v", name, err)
+		return err
+	}
+
+	logging.Tools("RegisterTool: successfully registered tool %s (affinity=%s)", name, shardAffinity)
+	return nil
+}
+
+// RegisterToolWithInfo registers a tool with full metadata
+func (tr *ToolRegistry) RegisterToolWithInfo(tool *Tool) error {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+
+	if tool == nil || tool.Name == "" {
+		return fmt.Errorf("tool name cannot be empty")
+	}
+
+	if tool.RegisteredAt.IsZero() {
+		tool.RegisteredAt = time.Now()
+	}
+
+	copyTool := *tool
+	copyTool.Capabilities = append([]string(nil), tool.Capabilities...)
+	if copyTool.Protocol != "" {
+		if err := pinRegisteredBinary(&copyTool); err != nil {
+			return err
+		}
+	}
+	tr.tools[tool.Name] = &copyTool
+	tr.rememberIdentity(&copyTool)
+
+	// Inject facts into kernel
+	return tr.injectToolFacts(&copyTool)
+}
+
+// GetTool retrieves a registered tool by name
+func (tr *ToolRegistry) GetTool(name string) (*Tool, bool) {
+	tr.mu.RLock()
+	defer tr.mu.RUnlock()
+	tool, exists := tr.tools[name]
+	return tool, exists
+}
+
+// GetToolsForShard returns all tools that can be used by a specific shard type
+func (tr *ToolRegistry) GetToolsForShard(shardType string) []*Tool {
+	tr.mu.RLock()
+	defer tr.mu.RUnlock()
+
+	tools := make([]*Tool, 0)
+	for _, tool := range tr.tools {
+		if tool.ShardAffinity == "/all" || tool.ShardAffinity == shardType {
+			copyTool := *tool
+			copyTool.Capabilities = append([]string(nil), tool.Capabilities...)
+			tools = append(tools, &copyTool)
+		}
+	}
+	return tools
+}
+
+// ListTools returns all registered tools
+func (tr *ToolRegistry) ListTools() []*Tool {
+	tr.mu.RLock()
+	defer tr.mu.RUnlock()
+
+	tools := make([]*Tool, 0, len(tr.tools))
+	for _, tool := range tr.tools {
+		copyTool := *tool
+		copyTool.Capabilities = append([]string(nil), tool.Capabilities...)
+		tools = append(tools, &copyTool)
+	}
+	return tools
+}
+
+// ExecuteTool runs a registered tool with raw input (ToolExecutor interface).
+func (tr *ToolRegistry) ExecuteTool(ctx context.Context, toolName string, input string) (string, error) {
+	args := parseToolInput(input)
+	return tr.ExecuteRegisteredTool(ctx, toolName, args)
+}
+
+// ExecuteRegisteredTool executes a registered tool with the given arguments
+func (tr *ToolRegistry) ExecuteRegisteredTool(ctx context.Context, toolName string, args []string) (string, error) {
+	tool, exists := tr.GetTool(toolName)
+	if !exists {
+		logging.ToolsError("ExecuteRegisteredTool: tool not registered: %s", toolName)
+		return "", fmt.Errorf("tool not registered: %s", toolName)
+	}
+
+	// Update execution count
+	tr.mu.Lock()
+	tool.ExecuteCount++
+	execCount := tool.ExecuteCount
+	tr.mu.Unlock()
+
+	logging.Tools("ExecuteRegisteredTool: executing tool=%s exec_count=%d args=%v", toolName, execCount, args)
+
+	// Security Validation
+	if err := secureValidateCommand(tool.Command); err != nil {
+		logging.ToolsError("ExecuteRegisteredTool: security validation failed for command %s: %v", tool.Command, err)
+		return "", fmt.Errorf("security validation failed: %w", err)
+	}
+	if err := secureValidateArgs(args); err != nil {
+		logging.ToolsError("ExecuteRegisteredTool: security validation failed for args: %v", err)
+		return "", fmt.Errorf("security validation failed: %w", err)
+	}
+
+	startTime := time.Now()
+	/* #nosec G204 */
+	cmd := exec.CommandContext(ctx, tool.Command, args...)
+	if tr.workDir != "" {
+		cmd.Dir = tr.workDir
+	}
+	out, err := cmd.CombinedOutput()
+	duration := time.Since(startTime)
+	output := string(out)
+
+	if err != nil {
+		logging.ToolsError("ExecuteRegisteredTool: tool=%s failed after %v: %v (output_len=%d)", toolName, duration, err, len(output))
+		return output, fmt.Errorf("tool execution failed: %w", err)
+	}
+
+	logging.Tools("ExecuteRegisteredTool: tool=%s completed in %v (output_len=%d)", toolName, duration, len(output))
+	return output, nil
+}
+
+// UnregisterTool removes a tool from the registry and retracts its facts
+func (tr *ToolRegistry) UnregisterTool(name string) error {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+
+	logging.ToolsDebug("UnregisterTool: unregistering tool %s", name)
+
+	if _, exists := tr.tools[name]; !exists {
+		logging.ToolsError("UnregisterTool: tool not registered: %s", name)
+		return fmt.Errorf("tool not registered: %s", name)
+	}
+
+	delete(tr.tools, name)
+	delete(tr.identities, name)
+
+	// Retract only facts for this specific tool (not all tool facts)
+	if tr.kernel != nil {
+		var errs []error
+
+		// Retract facts specific to this tool using the tool name as first argument
+		if err := tr.kernel.RetractFact(Fact{Predicate: "registered_tool", Args: []any{name}}); err != nil {
+			errs = append(errs, fmt.Errorf("failed to retract registered_tool: %w", err))
+		}
+		if err := tr.kernel.RetractFact(Fact{Predicate: "tool_registered", Args: []any{name}}); err != nil {
+			errs = append(errs, fmt.Errorf("failed to retract tool_registered: %w", err))
+		}
+		if err := tr.kernel.RetractFact(Fact{Predicate: "tool_hash", Args: []any{name}}); err != nil {
+			errs = append(errs, fmt.Errorf("failed to retract tool_hash: %w", err))
+		}
+		if err := tr.kernel.RetractFact(Fact{Predicate: "tool_capability", Args: []any{name}}); err != nil {
+			errs = append(errs, fmt.Errorf("failed to retract tool_capability: %w", err))
+		}
+
+		if len(errs) > 0 {
+			logging.ToolsError("UnregisterTool: errors retracting facts for %s: %v", name, errs)
+			return fmt.Errorf("errors retracting tool facts: %v", errs)
+		}
+	}
+
+	logging.Tools("UnregisterTool: successfully unregistered tool %s", name)
+	return nil
+}
+
+// collectToolFacts returns the kernel facts for a tool WITHOUT asserting them.
+// Use this when batching facts across multiple tools to avoid per-tool evaluation.
+func collectToolFacts(tool *Tool) []Fact {
+	facts := []Fact{
+		{
+			// ShardAffinity and Capability are declared /name; a bare
+			// "validation" was stored as a string tool_routing.mg's
+			// tool_capability(ToolName, Cap) joins could never match.
+			Predicate: "registered_tool",
+			Args:      []any{tool.Name, tool.Command, types.Atom(tool.ShardAffinity)},
+		},
+		{
+			// tool_registered Decl (schemas_tools.mg:14) binds RegisteredAt as
+			// /number: epoch seconds, not a formatted string.
+			Predicate: "tool_registered",
+			Args:      []any{tool.Name, tool.RegisteredAt.Unix()},
+		},
+	}
+
+	if tool.Hash != "" {
+		facts = append(facts, Fact{
+			Predicate: "tool_hash",
+			Args:      []any{tool.Name, tool.Hash},
+		})
+	}
+
+	for _, cap := range tool.Capabilities {
+		facts = append(facts, Fact{
+			Predicate: "tool_capability",
+			Args:      []any{tool.Name, types.Atom(cap)},
+		})
+	}
+
+	return facts
+}
+
+// injectToolFacts injects tool registration facts into the kernel.
+// Each Assert triggers a Mangle fixpoint evaluation — use collectToolFacts + AssertBatch
+// for bulk registration to avoid O(N) evaluations.
+func (tr *ToolRegistry) injectToolFacts(tool *Tool) error {
+	if tr.kernel == nil {
+		return nil // No kernel configured, skip fact injection
+	}
+
+	facts := collectToolFacts(tool)
+	return tr.kernel.AssertBatch(facts)
+}
+
+// SyncFromOuroboros synchronizes tools from an Ouroboros registry.
+// Collects all tool facts into a single batch and evaluates once.
+func (tr *ToolRegistry) SyncFromOuroboros(toolExecutor ToolExecutor) error {
+	if toolExecutor == nil {
+		logging.ToolsDebug("SyncFromOuroboros: no tool executor provided, skipping")
+		return nil
+	}
+
+	tools := toolExecutor.ListTools()
+	logging.ToolsDebug("SyncFromOuroboros: syncing %d tools from Ouroboros", len(tools))
+
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+
+	var allFacts []Fact
+	syncedCount := 0
+
+	for _, toolInfo := range tools {
+		tool := &Tool{
+			Name:          toolInfo.Name,
+			Command:       toolInfo.BinaryPath,
+			ShardAffinity: "/all",
+			Description:   toolInfo.Description,
+			Hash:          toolInfo.Hash,
+			RegisteredAt:  toolInfo.RegisteredAt,
+			ExecuteCount:  toolInfo.ExecuteCount,
+		}
+		if identities, ok := toolExecutor.(types.GeneratedIdentityProvider); ok {
+			if identity, err := identities.GeneratedToolIdentity(toolInfo.Name); err == nil &&
+				identity.BinaryPath == toolInfo.BinaryPath && identity.BinaryHash == toolInfo.Hash {
+				tool.Protocol = identity.Protocol
+			}
+		}
+
+		if tool.Name == "" {
+			continue
+		}
+		if tool.RegisteredAt.IsZero() {
+			tool.RegisteredAt = time.Now()
+		}
+		if previous := tr.tools[tool.Name]; previous != nil && previous.Command == tool.Command && previous.Hash == tool.Hash && previous.Protocol == tool.Protocol {
+			tool.AttemptCount, tool.StartedCount, tool.SuccessCount = previous.AttemptCount, previous.StartedCount, previous.SuccessCount
+			if previous.ExecuteCount > tool.ExecuteCount {
+				tool.ExecuteCount = previous.ExecuteCount
+			}
+		}
+
+		tr.tools[tool.Name] = tool
+		tr.rememberIdentity(tool)
+		allFacts = append(allFacts, collectToolFacts(tool)...)
+		syncedCount++
+	}
+
+	// Single batch assert — one Mangle evaluation for all tools
+	if tr.kernel != nil && len(allFacts) > 0 {
+		if err := tr.kernel.AssertBatch(allFacts); err != nil {
+			logging.ToolsError("SyncFromOuroboros: batch assert failed for %d facts: %v", len(allFacts), err)
+			return fmt.Errorf("batch assert failed: %w", err)
+		}
+	}
+
+	logging.Tools("SyncFromOuroboros: synced %d tools (%d facts, 1 evaluation)", syncedCount, len(allFacts))
+	return nil
+}
+
+// RestoreFromDisk restores the registry from a directory of compiled tools.
+// Continues restoring even if individual tools fail, collecting all errors.
+func (tr *ToolRegistry) RestoreFromDisk(compiledDir string) error {
+	logging.ToolsDebug("RestoreFromDisk: restoring tools from %s", compiledDir)
+	entries, err := os.ReadDir(compiledDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logging.ToolsDebug("RestoreFromDisk: directory %s does not exist, skipping", compiledDir)
+			return nil
+		}
+		logging.ToolsError("RestoreFromDisk: failed to read directory %s: %v", compiledDir, err)
+		return fmt.Errorf("failed to read compiled tools directory: %w", err)
+	}
+
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+
+	var allFacts []Fact
+	restoredCount := 0
+	now := time.Now()
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(entry.Name(), ".identity.json") {
+			continue
+		}
+
+		name := entry.Name()
+		if ext := filepath.Ext(name); ext == ".exe" {
+			name = name[:len(name)-len(ext)]
+		}
+
+		binaryPath := filepath.Join(compiledDir, entry.Name())
+
+		tool := &Tool{
+			Name:          name,
+			Command:       binaryPath,
+			ShardAffinity: "/all",
+			Description:   "Restored from disk",
+			RegisteredAt:  now,
+		}
+		if data, err := os.ReadFile(binaryPath + ".identity.json"); err == nil {
+			var identity types.GeneratedToolIdentity
+			if json.Unmarshal(data, &identity) == nil && identity.Name == name && identity.BinaryPath == binaryPath {
+				tool.Protocol, tool.Hash = identity.Protocol, identity.BinaryHash
+			}
+		}
+
+		tr.tools[tool.Name] = tool
+		tr.rememberIdentity(tool)
+		allFacts = append(allFacts, collectToolFacts(tool)...)
+		restoredCount++
+	}
+
+	// Single batch assert — one Mangle evaluation for all tools
+	if tr.kernel != nil && len(allFacts) > 0 {
+		if err := tr.kernel.AssertBatch(allFacts); err != nil {
+			logging.ToolsError("RestoreFromDisk: batch assert failed: %v", err)
+			return fmt.Errorf("batch assert failed: %w", err)
+		}
+	}
+
+	logging.Tools("RestoreFromDisk: restored %d tools (%d facts, 1 evaluation) from %s", restoredCount, len(allFacts), compiledDir)
+	return nil
+}
+
+// StaticToolDef represents a tool definition loaded from available_tools.json.
+// This mirrors init.ToolDefinition but avoids import cycles.
+type StaticToolDef struct {
+	Name          string
+	Category      string
+	Description   string
+	Command       string
+	ShardAffinity string
+}
+
+// RestoreFromStaticDefs loads tools from a slice of StaticToolDef into the registry.
+// This is used to hydrate tools from available_tools.json at session boot.
+// Continues restoring even if individual tools fail, collecting all errors.
+func (tr *ToolRegistry) RestoreFromStaticDefs(defs []StaticToolDef) error {
+	logging.ToolsDebug("RestoreFromStaticDefs: restoring %d static tool definitions", len(defs))
+
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+
+	var allFacts []Fact
+	restoredCount := 0
+	now := time.Now()
+
+	for _, def := range defs {
+		affinity := def.ShardAffinity
+		if affinity == "" {
+			affinity = "/all"
+		} else if !strings.HasPrefix(affinity, "/") {
+			affinity = "/" + strings.ToLower(strings.TrimSuffix(affinity, "Shard"))
+		}
+
+		tool := &Tool{
+			Name:          def.Name,
+			Command:       def.Command,
+			ShardAffinity: affinity,
+			Description:   def.Description,
+			Capabilities:  []string{def.Category},
+			RegisteredAt:  now,
+			Protocol:      types.LegacyArgvV1,
+		}
+		// Unresolvable static definitions remain visible but cannot be admitted.
+		_ = pinRegisteredBinary(tool)
+
+		if tool.Name == "" {
+			continue
+		}
+
+		tr.tools[tool.Name] = tool
+		tr.rememberIdentity(tool)
+		allFacts = append(allFacts, collectToolFacts(tool)...)
+		restoredCount++
+	}
+
+	// Single batch assert — one Mangle evaluation for all tools
+	if tr.kernel != nil && len(allFacts) > 0 {
+		if err := tr.kernel.AssertBatch(allFacts); err != nil {
+			logging.ToolsError("RestoreFromStaticDefs: batch assert failed: %v", err)
+			return fmt.Errorf("batch assert failed: %w", err)
+		}
+	}
+
+	logging.Tools("RestoreFromStaticDefs: restored %d tools (%d facts, 1 evaluation)", restoredCount, len(allFacts))
+	return nil
+}
+
+// BuildToolCatalog creates a formatted tool catalog string for prompt injection.
+// This enables Piggyback++ architecture where tools are requested via structured
+// output (control_packet.tool_requests) instead of native LLM function calling.
+//
+// The catalog is organized by shard affinity and includes:
+// - Tool name and description
+// - Parameters with types and descriptions (from schema when available)
+// - Usage examples
+//
+// Parameters:
+//   - shardType: Filter tools by shard affinity ("/coder", "/tester", "/all", etc.)
+//     Pass empty string to include all tools.
+func (tr *ToolRegistry) BuildToolCatalog(shardType string) string {
+	tools := tr.GetToolsForShard(shardType)
+	if len(tools) == 0 {
+		// Also check for "/all" if specific shard has no tools
+		if shardType != "" && shardType != "/all" {
+			tools = tr.GetToolsForShard("/all")
+		}
+	}
+
+	if len(tools) == 0 {
+		return ""
+	}
+
+	var catalog strings.Builder
+	catalog.WriteString("\n## Available Tools\n\n")
+	catalog.WriteString("Request tools via `tool_requests` in control_packet:\n")
+	catalog.WriteString("```json\n")
+	catalog.WriteString("\"tool_requests\": [{\n")
+	catalog.WriteString("  \"id\": \"req_1\",\n")
+	catalog.WriteString("  \"tool_name\": \"<tool_name>\",\n")
+	catalog.WriteString("  \"tool_args\": { ... },\n")
+	catalog.WriteString("  \"purpose\": \"why this tool is needed\"\n")
+	catalog.WriteString("}]\n")
+	catalog.WriteString("```\n\n")
+
+	// Group tools by affinity for better organization
+	byAffinity := make(map[string][]*Tool)
+	for _, tool := range tools {
+		affinity := tool.ShardAffinity
+		if affinity == "" {
+			affinity = "/all"
+		}
+		byAffinity[affinity] = append(byAffinity[affinity], tool)
+	}
+
+	// Output tools grouped by affinity, in a stable order.
+	//
+	// This catalog is part of the system prompt, and by the epoch fingerprint's
+	// own design tool definitions are the FIRST thing in a provider's cacheable
+	// prefix. Ranging the map directly shuffled the section order on every call,
+	// so the prefix bytes differed run to run and a prefix cache could never hit
+	// across them — a cost paid on every request, to save a sort of half a dozen
+	// keys.
+	//
+	// It also makes the prompt diffable. Two runs that differ only in map order
+	// cannot be compared, which is exactly what someone needs to do when a
+	// prompt change makes the agent worse.
+	affinities := make([]string, 0, len(byAffinity))
+	for affinity := range byAffinity {
+		affinities = append(affinities, affinity)
+	}
+	sort.Strings(affinities)
+
+	for _, affinity := range affinities {
+		toolList := byAffinity[affinity]
+		// Within a section too. GetToolsForShard builds its slice by ranging
+		// the registry map, so the tools arrive in a different order on every
+		// call — sorting the sections alone would leave the same instability
+		// one level down, which is the sort of half-fix that reads as done.
+		sort.Slice(toolList, func(i, j int) bool { return toolList[i].Name < toolList[j].Name })
+
+		catalog.WriteString(fmt.Sprintf("### %s Tools\n\n", strings.TrimPrefix(affinity, "/")))
+		for _, tool := range toolList {
+			catalog.WriteString(fmt.Sprintf("**%s**\n", tool.Name))
+			if tool.Description != "" {
+				catalog.WriteString(fmt.Sprintf("%s\n", tool.Description))
+			}
+			if len(tool.Capabilities) > 0 {
+				catalog.WriteString(fmt.Sprintf("Capabilities: %s\n", strings.Join(tool.Capabilities, ", ")))
+			}
+			catalog.WriteString("\n")
+		}
+	}
+
+	// Add tool generation encouragement
+	catalog.WriteString("### Missing a Tool?\n\n")
+	catalog.WriteString("If you need a capability not available above, request tool generation:\n")
+	catalog.WriteString("1. Add a mangle_update: `missing_tool_for(\"<capability>\", \"<description>\")`\n")
+	catalog.WriteString("2. The Ouroboros system will generate, compile, and register the tool\n")
+	catalog.WriteString("3. The tool will be available in subsequent turns\n\n")
+
+	logging.ToolsDebug("BuildToolCatalog: built catalog with %d tools for shard %s (length=%d)", len(tools), shardType, catalog.Len())
+	return catalog.String()
+}
+
+// isCommandName checks if a string is a command name (not a path)
+// secureValidateCommand checks for common command injection and traversal vectors
+func secureValidateCommand(command string) error {
+	if strings.Contains(command, "..") {
+		return fmt.Errorf("security violation: command path contains traversal components")
+	}
+
+	normalized := strings.ReplaceAll(command, "\\", "/")
+	base := strings.ToLower(filepath.Base(normalized))
+	if ext := filepath.Ext(base); ext != "" {
+		base = strings.TrimSuffix(base, ext)
+	}
+
+	forbiddenShells := []string{"sh", "bash", "zsh", "cmd", "powershell", "pwsh", "csh", "ksh", "dash"}
+	for _, shell := range forbiddenShells {
+		if base == shell {
+			return fmt.Errorf("security violation: direct execution of shell (%s) is forbidden", base)
+		}
+	}
+	return nil
+}
+
+// secureValidateArgs checks arguments for dangerous payloads
+func secureValidateArgs(args []string) error {
+	for _, arg := range args {
+		if strings.ContainsRune(arg, '\x00') {
+			return fmt.Errorf("security violation: null byte in argument")
+		}
+	}
+	return nil
+}
+
+func isCommandName(s string) bool {
+	return !filepath.IsAbs(s) && !strings.Contains(s, string(filepath.Separator))
+}
+
+func parseToolInput(input string) []string {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return nil
+	}
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		return []string{trimmed}
+	}
+	return strings.Fields(trimmed)
+}

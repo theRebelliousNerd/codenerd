@@ -1,0 +1,534 @@
+package types
+
+import (
+	"codeberg.org/TauCeti/mangle-go/analysis"
+
+	"context"
+)
+
+// Kernel defines the interface for the logic core.
+type Kernel interface {
+	LoadFacts(facts []Fact) error
+	Query(predicate string) ([]Fact, error)
+	QueryAll() (map[string][]Fact, error)
+	Assert(fact Fact) error
+	AssertBatch(facts []Fact) error
+	Retract(predicate string) error
+	RetractFact(fact Fact) error
+	// UpdateSystemFacts updates system facts (time, etc.)
+	UpdateSystemFacts() error
+
+	// GetProgramInfo returns the analyzed program info
+	GetProgramInfo() *analysis.ProgramInfo
+
+	// Power-user features for advanced kernel control
+	// Reset clears all facts while keeping schemas and policies
+	Reset()
+	// AppendPolicy adds shard-specific policy rules to the kernel
+	AppendPolicy(policy string)
+
+	// Optimized batch operations (required by world scanner)
+	RetractExactFactsBatch(facts []Fact) error
+	RemoveFactsByPredicateSet(predicates map[string]struct{}) error
+}
+
+// LLMClient defines the interface for LLM interactions.
+type LLMClient interface {
+	Complete(ctx context.Context, prompt string) (string, error)
+	CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+	// CompleteWithStreaming sends a request with streaming enabled. Visible
+	// text arrives on the first channel as provisional chunks; the second
+	// carries exactly one StreamResult after the last chunk. A terminal
+	// channel that closes without a value is an incomplete stream (see
+	// stream.go).
+	CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan StreamResult)
+	// CompleteWithTools sends a prompt with tool definitions and returns response with tool calls.
+	// This enables agentic behavior where the LLM can invoke tools to complete tasks.
+	CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error)
+}
+
+// Message represents a turn in a multi-turn LLM conversation.
+//
+// A turn's content is an ORDERED list of typed blocks — text, thinking with
+// its signature, tool_use with its id, tool_result with the id it answers.
+// That list is the message's content and it lives in the unexported blocks
+// field; read it with Content and build it with NewMessage / NewUserMessage /
+// NewAssistantMessage / AssistantMessageFrom.
+//
+// Text, ToolCalls and ToolResults are a flat PROJECTION of that list, filled
+// once by the constructors. They cannot express the order between text and
+// tool calls, and they have no place at all for a thinking signature, which is
+// why they are a projection and not the content. They remain because most of
+// the tree still reads them, and because a message built as a plain literal —
+// which is legal and common — has no block list, and Content lifts one from
+// them in the fixed legacy order.
+//
+// The field is unexported so the two views cannot be set independently: a
+// literal can only produce the flat form, and the block form can only come
+// from a constructor that fills both. There is one hazard left, and it is
+// worth naming: MUTATING the flat fields on a message that was built from
+// blocks changes only the projection, and Content will keep returning the
+// original blocks. Nothing in internal/session edits a stored message in
+// place any more: the working ledger archives a large result behind its
+// recall handle instead of blanking it.
+type Message struct {
+	Role string // "user" or "assistant"
+
+	// blocks is the ordered native content. Empty for a literal-built message.
+	blocks []ContentBlock
+
+	Text        string       // Projection: concatenated text blocks
+	ToolCalls   []ToolCall   // Projection: tool-use blocks, order-free
+	ToolResults []ToolResult // Projection: tool_result blocks (paired by ToolUseID)
+}
+
+// ToolResult represents the result of executing a tool call, to be sent back
+// to the LLM. The ToolUseID must match the ID of the originating ToolCall so
+// Anthropic/OpenAI can pair the result with the request.
+type ToolResult struct {
+	ToolUseID string // Matches the ID of the originating ToolCall
+	Content   string // Tool output, whole; the working context pages oversize results
+	IsError   bool   // True if the tool execution failed
+}
+
+// ToolResultsProvider is an optional interface for LLM clients that natively
+// support multi-turn function calling: sending tool_result content blocks back
+// to the model and getting either more tool calls or a final answer.
+//
+// Providers that don't implement this fall back to single-turn CompleteWithTools.
+// Anthropic and OpenAI-style APIs implement this; Gemini Piggyback uses a
+// synthesized JSON envelope in the user prompt instead.
+//
+// Usage:
+//
+//	if trp, ok := client.(ToolResultsProvider); ok {
+//	    resp, _ := trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+//	}
+type ToolResultsProvider interface {
+	// CompleteWithToolResults continues a tool-using conversation by sending
+	// the accumulated history (user → assistant tool_use → user tool_result …)
+	// and returning the model's next response, which may include further
+	// tool calls or a final text answer.
+	CompleteWithToolResults(ctx context.Context, systemPrompt string, history []Message, tools []ToolDefinition) (*LLMToolResponse, error)
+}
+
+// ToolDefinition describes a tool that the LLM can invoke.
+type ToolDefinition struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"input_schema"` // JSON Schema for parameters
+}
+
+// ToolCall represents a tool invocation requested by the LLM.
+type ToolCall struct {
+	ID    string         `json:"id"`    // Unique ID for this tool use
+	Name  string         `json:"name"`  // Tool name to invoke
+	Input map[string]any `json:"input"` // Tool arguments
+
+	// ArgsError is set by a provider mapper when the model's argument text
+	// could not be decoded; the executor must not run such a call.
+	ArgsError string `json:"args_error,omitempty"`
+}
+
+// LLMToolResponse contains both text response and tool calls from the LLM.
+type LLMToolResponse struct {
+	Text       string        `json:"text"`        // Text response (may be empty if only tool calls)
+	ToolCalls  []ToolCall    `json:"tool_calls"`  // Tool invocations requested by LLM
+	StopReason string        `json:"stop_reason"` // "end_turn", "tool_use", etc.
+	Usage      UsageMetadata `json:"usage"`       // Token usage metrics
+
+	// Provider-supplied summary and continuity metadata
+	// ThoughtSummary is a provider-supplied summary; it is not input to task learning.
+	ThoughtSummary string `json:"thought_summary,omitempty"`
+	// ThoughtSignature is an encrypted blob for multi-turn function calling (Gemini 3)
+	// Must be passed back in subsequent turns for reasoning continuity
+	ThoughtSignature string `json:"thought_signature,omitempty"`
+
+	// Blocks is the response's ordered native content: text, thinking with
+	// its signature, and tool_use with its id, in the order the model emitted
+	// them. Text and ToolCalls above are the flat projection of it.
+	//
+	// Adapters for providers that return ordered blocks populate this; the
+	// rest leave it nil, and a nil Blocks means "this provider did not tell us
+	// the order", not "the turn was empty". Feed it forward with
+	// AssistantMessageFrom, which falls back to the flat fields when it is nil.
+	Blocks []ContentBlock `json:"blocks,omitempty"`
+
+	// ControlsApplied is set by the host once it has read this response's
+	// control envelope and applied its effects. Text is then display text (the
+	// envelope's surface) and must never be read as control input again: an
+	// answer that explains the Piggyback format can contain a well-formed
+	// envelope of its own. It is the host's mark, not wire data.
+	ControlsApplied bool `json:"-"`
+}
+
+// ShardAgent defines the interface for all agents.
+// Renamed from 'Shard' to match usage in registration.go.
+type ShardAgent interface {
+	Execute(ctx context.Context, task string) (string, error)
+	GetID() string
+	GetState() ShardState
+	GetConfig() ShardConfig
+	Stop() error
+
+	// Dependency Injection methods
+	SetParentKernel(k Kernel)
+	SetLLMClient(client LLMClient)
+	SetSessionContext(ctx *SessionContext) // For dream mode and session state
+}
+
+// ShardFactory is a function that creates a new shard instance.
+type ShardFactory func(id string, config ShardConfig) ShardAgent
+
+// PromptLoaderFunc is a callback for loading agent prompts from YAML files.
+type PromptLoaderFunc func(context.Context, string, string) (int, error)
+
+// JITDBRegistrar is a callback for registering agent knowledge DBs with the JIT prompt compiler.
+type JITDBRegistrar func(agentName string, dbPath string) error
+
+// JITDBUnregistrar is a callback for unregistering agent knowledge DBs from the JIT prompt compiler.
+type JITDBUnregistrar func(agentName string)
+
+// ReviewerFeedbackProvider defines the interface for reviewer validation.
+type ReviewerFeedbackProvider interface {
+	NeedsValidation(reviewID string) bool
+	GetSuspectReasons(reviewID string) []string
+	AcceptFinding(reviewID, file string, line int)
+	RejectFinding(reviewID, file string, line int, reason string)
+	GetAccuracyReport(reviewID string) string
+}
+
+// LimitsEnforcer defines the interface for resource limits.
+type LimitsEnforcer interface {
+	CheckShardLimit(activeCount int) error
+	CheckMemory() error
+	GetAvailableShardSlots(activeCount int) int
+}
+
+// ShardLearning represents a learned pattern or preference.
+type ShardLearning struct {
+	FactPredicate string  `json:"fact_predicate"`
+	FactArgs      []any   `json:"fact_args"`
+	Confidence    float64 `json:"confidence"`
+	Timestamp     int64   `json:"timestamp"`
+}
+
+// LearningStore defines the interface for persisting learned patterns.
+// Used by autopoiesis.
+type LearningStore interface {
+	Save(shardID, predicate string, args []any, source string) error
+	SaveBatch(shardID string, learnings []ShardLearning, source string) error
+	LoadByPredicate(shardID, predicate string) ([]ShardLearning, error)
+}
+
+// VirtualStore defines the interface for the virtual filesystem and execution environment.
+// This is a marker interface to break import cycles; implementation is *core.VirtualStore.
+//
+// Expansion policy (OPEN-QUESTIONS Q6, settled): a method is added here only
+// when at least TWO packages outside core need it, and only in the shape they
+// need — never mirrored from *core.VirtualStore for symmetry. Every method
+// added obliges each adapter (cmd/nerd.campaignVirtualStoreAdapter,
+// system.sessionVirtualStoreAdapter, and *core.VirtualStore itself) to
+// implement it, and an adapter that has nothing to return implements it as a
+// stub — which is how a single-consumer method becomes three silent nil paths.
+// A single consumer should type-assert the concrete store instead.
+type VirtualStore interface {
+	// Methods required by shards (see expansion policy above)
+	ReadFile(path string) ([]string, error)
+	WriteFile(path string, content []string) error
+	Exec(ctx context.Context, cmd string, env []string) (string, string, error)
+	// ReadRaw reads a file and returns its raw bytes (for YAML/JSON parsing)
+	ReadRaw(path string) ([]byte, error)
+}
+
+// GraphQuery defines the interface for querying the World Model graph.
+// This interface allows Mangle policies (via Virtual Predicates) to access
+// the dependency graph, AST, and file topology without direct coupling.
+// Moved from world package to break import cycles (core <-> world).
+type GraphQuery interface {
+	// QueryGraph performs a query against the world graph.
+	// queryType: e.g., "dependencies", "symbols", "callers"
+	// params: query-specific parameters
+	// Returns: structured result (e.g., []string, []Symbol, etc.)
+	QueryGraph(queryType string, params map[string]any) (any, error)
+}
+
+// GroundingProvider is an optional interface for LLM clients that support
+// grounding (web search, and on Gemini, URL Context). Use type assertion to
+// check if a client supports grounding:
+//
+//	if gp, ok := client.(types.GroundingProvider); ok {
+//	    sources := gp.GetLastGroundingSources()
+//	}
+type GroundingProvider interface {
+	// GetLastGroundingSources returns URLs used to ground the last response.
+	// Returns nil if no grounding was used or client doesn't support grounding.
+	GetLastGroundingSources() []string
+
+	// IsWebSearchEnabled returns whether web-search grounding is enabled.
+	IsWebSearchEnabled() bool
+
+	// IsURLContextEnabled returns whether URL Context grounding is enabled.
+	IsURLContextEnabled() bool
+}
+
+// GroundingController extends GroundingProvider with control methods.
+// Use this interface when you need to enable/disable grounding features:
+//
+//	if gc, ok := client.(types.GroundingController); ok {
+//	    gc.SetEnableWebSearch(true)
+//	    gc.SetURLContextURLs([]string{"https://docs.example.com"})
+//	}
+//
+// That assertion is conclusive only for a client nothing has wrapped. A
+// decorator may implement these methods for every client it meters; ask
+// GroundingCapable below when one might be in the way.
+type GroundingController interface {
+	GroundingProvider
+
+	// SetEnableWebSearch enables or disables web-search grounding.
+	SetEnableWebSearch(enable bool)
+
+	// SetEnableURLContext enables or disables URL Context grounding.
+	SetEnableURLContext(enable bool)
+
+	// SetURLContextURLs sets the URLs for URL Context grounding.
+	// Max 20 URLs, 34MB each per Gemini API limits.
+	SetURLContextURLs(urls []string)
+}
+
+// GroundingCapable is how a client that wraps another answers the capability
+// question truthfully.
+//
+// A decorator may forward the GroundingController setters unconditionally --
+// calling a setter that forwards to a client which ignores it is
+// indistinguishable from not calling it, which is the whole argument in
+// broker/passthrough.go. It may NOT answer the capability question that way:
+// that answer selects a control flow (fourteen call sites take a grounded path
+// on it, building documentation URL lists and calling CompleteWithGrounding
+// instead of Complete), and broker/optional.go states that capabilities which
+// select control flow must stay conditional.
+//
+// Implementing this lets a wrapper keep forwarding and still report what the
+// client underneath can actually do. A client nothing has wrapped does not
+// need it: its own method set is conclusive.
+type GroundingCapable interface {
+	// SupportsGrounding reports whether grounding actually reaches a client
+	// that can serve it.
+	SupportsGrounding() bool
+}
+
+// PiggybackToolProvider is an optional interface for LLM clients that should
+// use Piggyback Protocol for tool invocation instead of native function calling.
+// This is required for Gemini clients because native function calling conflicts
+// with built-in tools (Google Search, URL Context).
+//
+// Usage:
+//
+//	if ptp, ok := client.(types.PiggybackToolProvider); ok && ptp.ShouldUsePiggybackTools() {
+//	    // Use structured output with tool_requests in control_packet
+//	    // instead of native function calling
+//	}
+type PiggybackToolProvider interface {
+	// ShouldUsePiggybackTools returns true if this client should use
+	// Piggyback Protocol for tool invocation instead of native function calling.
+	// Typically true for Gemini clients when grounding (Google Search/URL Context) is enabled.
+	ShouldUsePiggybackTools() bool
+}
+
+// ModelIdentifier is an optional interface for LLM clients that can report
+// which provider and model they actually serve. Use a type assertion:
+//
+//	if mi, ok := client.(types.ModelIdentifier); ok {
+//	    provider, model := mi.ModelIdentity()
+//	}
+//
+// This is the authoritative source for prompt-atom pinning. Config is not:
+// UserConfig.Model is an optional override, and each client fills a
+// vendor-specific default when it is empty, so the model that actually served a
+// turn is known only to the client. Pinning on the config value would attach an
+// atom to "" on every setup that takes the vendor default -- the majority --
+// and a pin that names the wrong model is worse than no pin, because the JIT
+// compiler enforces it fail-closed.
+//
+// The returned strings are raw vendor spellings ("anthropic",
+// "claude-opus-4-20260501"); canonicalization into pin tokens happens in
+// internal/prompt/pinning.go.
+type ModelIdentifier interface {
+	ModelIdentity() (provider, model string)
+}
+
+// InputWindowReporter is an optional interface for LLM clients whose input is
+// capped below the session's budget: a worker or planner slot's
+// max_input_tokens. InputWindowTokens is that cap in the tokens
+// prompt.EstimateRequestTokens counts (the system prompt, the transcript and
+// the tool catalog, at prompt.EstimateTokens' bytes/4); 0 means the client
+// imposes none.
+//
+// A client that reports a cap refuses a larger request itself, before anything
+// is sent, and the session executor fits every request it sends that client to
+// the smaller of the cap and its own budget. Decorators do not forward it:
+// find it with broker.InputWindow, which walks the chain.
+type InputWindowReporter interface {
+	InputWindowTokens() int
+}
+
+// ThinkingProvider is an optional interface for LLM clients that support
+// explicit thinking/reasoning mode (Gemini 3 Thinking Mode, Claude extended thinking, etc.).
+// Use type assertion to check if a client supports thinking metadata:
+//
+//	if tp, ok := client.(types.ThinkingProvider); ok {
+//	    summary := tp.GetLastThoughtSummary()
+//	    tokens := tp.GetLastThinkingTokens()
+//	}
+//
+// This metadata is used by the System Prompt Learning (SPL) system to:
+// 1. Evaluate WHY a task succeeded or failed (reasoning quality)
+// 2. Learn from the model's decision-making process
+// 3. Generate better prompt atoms based on reasoning patterns
+type ThinkingProvider interface {
+	// GetLastThoughtSummary returns the provider-supplied summary from the last call.
+	// Returns empty string if thinking mode is disabled or client doesn't support it.
+	GetLastThoughtSummary() string
+
+	// GetLastThinkingTokens returns the number of tokens used for reasoning.
+	// Returns 0 if thinking mode is disabled or client doesn't support it.
+	GetLastThinkingTokens() int
+
+	// IsThinkingEnabled returns whether thinking mode is currently enabled.
+	IsThinkingEnabled() bool
+
+	// GetThinkingLevel returns the current thinking level (e.g., "minimal", "low", "medium", "high").
+	// Returns empty string if thinking mode uses token budget instead of levels.
+	GetThinkingLevel() string
+}
+
+// ThoughtSignatureProvider is an optional interface for LLM clients that support
+// multi-turn function calling with thought signatures (Gemini 3).
+//
+// When using function calling with thinking mode enabled, Gemini returns an encrypted
+// "thought signature" that must be passed back in subsequent turns to maintain
+// reasoning continuity. Without this, the model loses context about WHY it made
+// specific function calls.
+//
+// Usage pattern for multi-turn function calling:
+//
+//	// First turn: LLM returns tool calls + thought signature
+//	resp, _ := client.CompleteWithTools(ctx, system, user, tools)
+//
+//	// Capture signature after tool response
+//	var signature string
+//	if tsp, ok := client.(types.ThoughtSignatureProvider); ok {
+//	    signature = tsp.GetLastThoughtSignature()
+//	}
+//
+//	// Execute tools, then send results back with signature
+//	// (signature should be included in the function response content)
+//
+// This is critical for agentic workflows where:
+// 1. The LLM makes multiple tool calls
+// 2. Each tool's result informs subsequent reasoning
+// 3. The thinking chain must be preserved across turns
+type ThoughtSignatureProvider interface {
+	// GetLastThoughtSignature returns the encrypted thought signature from the last response.
+	// This signature must be passed back in subsequent function calling turns.
+	// Returns empty string if:
+	// - Thinking mode is disabled
+	// - The last response didn't include tool calls
+	// - The client doesn't support thought signatures
+	GetLastThoughtSignature() string
+}
+
+// FileProvider is an optional interface for LLM clients that support
+// file uploads (Gemini Files API, OpenAI Files, etc.).
+type FileProvider interface {
+	// UploadFile uploads a file to the provider's storage.
+	// mimeType is optional (detected if empty).
+	// returns file ID (URI) and error.
+	UploadFile(ctx context.Context, path string, mimeType string) (string, error)
+
+	// DeleteFile deletes a file from the provider's storage.
+	DeleteFile(ctx context.Context, fileID string) error
+
+	// ListFiles lists uploaded files.
+	// returns list of file IDs and error.
+	ListFiles(ctx context.Context) ([]string, error)
+
+	// GetFile retrieves metadata for an uploaded file.
+	GetFile(ctx context.Context, fileID string) (any, error)
+}
+
+// CacheProvider is an optional interface for LLM clients that support
+// context caching (Gemini Context Caching, Anthropic Message Caching).
+type CacheProvider interface {
+	// CreateCachedContent creates a cache for the given files/content.
+	// files is a list of file IDs/URIs.
+	// ttl is the time-to-live seconds.
+	// returns cache name (ID) and error.
+	CreateCachedContent(ctx context.Context, files []string, ttl int) (string, error)
+
+	// GetCachedContent retrieves metadata for a cached content.
+	GetCachedContent(ctx context.Context, cacheName string) (any, error)
+
+	// DeleteCachedContent deletes a context cache.
+	DeleteCachedContent(ctx context.Context, cacheName string) error
+
+	// ListCachedContent lists active context caches.
+	ListCachedContent(ctx context.Context) ([]string, error)
+
+	// SetCachedContent sets the active cached context for subsequent requests.
+	// Pass empty string to disable.
+	SetCachedContent(name string)
+}
+
+// TokenCounter is an optional interface for LLM clients that support
+// counting tokens before generation.
+type TokenCounter interface {
+	// CountTokens counts the total number of tokens for the given prompt.
+	CountTokens(ctx context.Context, systemPrompt, userPrompt string) (int, error)
+}
+
+// GroundedWebSearcher is an optional provider-neutral interface for LLM clients
+// that support native grounded web search (e.g., Meta /responses with web_search).
+// Use type assertion to detect capability:
+//
+//	if gws, ok := client.(types.GroundedWebSearcher); ok && gws.SupportsGroundedWebSearch() {
+//	    result, err := gws.GroundedWebSearch(ctx, "query")
+//	}
+type GroundedWebSearcher interface {
+	SupportsGroundedWebSearch() bool
+	GroundedWebSearch(ctx context.Context, query string) (*GroundedWebSearchResult, error)
+}
+
+// GroundedWebSearchResult contains the grounded answer, the citations the
+// answer annotated, the pages the search retrieved, and token usage.
+type GroundedWebSearchResult struct {
+	Text      string                 `json:"text"`
+	Citations []GroundedCitation     `json:"citations,omitempty"`
+	Results   []GroundedSearchResult `json:"results,omitempty"`
+	Usage     GroundedUsage          `json:"usage"`
+}
+
+// GroundedSearchResult is one page the provider's web search retrieved.
+// It is the search hit itself, distinct from a citation the answer annotated.
+type GroundedSearchResult struct {
+	Type    string `json:"type,omitempty"`
+	Title   string `json:"title,omitempty"`
+	URL     string `json:"url"`
+	Snippet string `json:"snippet,omitempty"`
+}
+
+// GroundedCitation represents a URL citation anchoring a segment of the grounded response.
+type GroundedCitation struct {
+	URL        string `json:"url"`
+	Title      string `json:"title,omitempty"`
+	StartIndex int    `json:"start_index"`
+	EndIndex   int    `json:"end_index"`
+}
+
+// GroundedUsage captures token usage for a grounded web search call.
+type GroundedUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+	TotalTokens  int `json:"total_tokens"`
+}

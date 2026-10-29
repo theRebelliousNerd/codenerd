@@ -1,0 +1,99 @@
+╔═══════════════════════════════════════════════════════════╗
+║          CAMPAIGN ORCHESTRATOR - INITIALIZING             ║
+╚═══════════════════════════════════════════════════════════╝
+
+Goal: Finish and harden the polystack multi-service monorepo in this workspace end-to-end:
+1) Go backend on :8080 with /health /echo /status /version, CORS, tests, go build green.
+2) React+Vite frontend that displays health and status from the API; build green.
+3) Rust sidecar :8081 GET /ping JSON ok/lang rust; cargo check green.
+4) Python sidecar :8082 GET /transform and /health; stdlib only; works.
+5) scripts/dev.ps1 to start all four services; README accurate.
+6) Integration: /status aggregates both sidecars when running.
+Do not stop at planning — implement real files and keep iterating until components build.
+Campaign Type: feature
+
+📋 Decomposing goal into phases and tasks...
+
+📊 Campaign Plan: Polystack Multi-Service Monorepo Hardening
+   Confidence: 92%
+   Phases: 9
+   Tasks: 38
+
+Phase 1: Discover Existing Layout (3 tasks)
+  ⏳ 1.1 Research monorepo root layout: list top-level dirs/files and locate go.mod, package.json, Cargo.toml, Python entrypoints, scripts/dev.ps1, README.
+  ⏳ 1.2 Research existing Go backend routes and package structure for /health /echo /status /version and CORS.
+  ⏳ 1.3 Research frontend, Rust sidecar, Python sidecar, and integration status aggregation patterns already present.
+Phase 2: Scaffold Project Foundations (5 tasks)
+  ⏳ 2.1 Create or modify Go module and backend package layout (cmd/server or equivalent) so the API can build on :8080.
+  ⏳ 2.2 Create or modify React+Vite frontend package.json, vite config, and src entry so npm/vite build is green.
+  ⏳ 2.3 Create or modify Rust sidecar Cargo.toml and src/main.rs skeleton for :8081 /ping.
+  ⏳ 2.4 Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform.
+  ⏳ 2.5 Create or modify scripts/dev.ps1 to start Go :8080, frontend, Rust :8081, and Python :8082.
+Phase 3: Domain Types and Contracts (3 tasks)
+  ⏳ 3.1 Research existing Go types for health/status/version/echo before creating new domain files.
+  ⏳ 3.2 Create or modify domain types for HealthResponse, VersionResponse, EchoRequest/Response, and StatusResponse including sidecar fields.
+  ⏳ 3.3 Create or modify sidecar client interfaces used by status aggregation (Rust ping, Python health/transform).
+Phase 4: Service Logic and Sidecar Clients (5 tasks)
+  ⏳ 4.1 Research existing service and HTTP client code for sidecar aggregation before writing service files.
+  ⏳ 4.2 Create or modify StatusService that probes Rust :8081 /ping and Python :8082 /health and aggregates into /status payload with graceful degradation.
+  ⏳ 4.3 Create or modify EchoService and Version/Health helpers used by transport handlers.
+  ⏳ 4.4 Write unit tests for status aggregation when sidecars are up, down, or timing out.
+  ⏳ 4.5 Run Go service package tests and fix failures until green.
+Phase 5: Go Transport Layer (6 tasks)
+  ⏳ 5.1 Research existing HTTP router, middleware, and handler files before modifying transport.
+  ⏳ 5.2 Create or modify CORS middleware allowing frontend origin and common methods/headers.
+  ⏳ 5.3 Create or modify handlers for GET /health, GET /version, POST or GET /echo, GET /status.
+  ⏳ 5.4 Create or modify Go server main to listen on :8080 and register routes with CORS.
+  ⏳ 5.5 Write handler/integration tests covering health, echo, version, status, and CORS headers.
+  ⏳ 5.6 Run go test and go build; iterate until both are green.
+Phase 6: Rust Sidecar Transport (3 tasks)
+  ⏳ 6.1 Research existing Rust sidecar dependencies and HTTP stack choice before editing.
+  ⏳ 6.2 Implement GET /ping JSON response ok/lang rust on :8081 in Rust main.
+  ⏳ 6.3 Run cargo check in Rust sidecar and fix compile errors until green.
+Phase 7: Python Sidecar Transport (3 tasks)
+  ⏳ 7.1 Research existing Python sidecar entrypoint and ensure stdlib-only constraint.
+  ⏳ 7.2 Implement GET /health and GET/POST /transform using http.server or equivalent stdlib only on :8082.
+  ⏳ 7.3 Verify Python sidecar starts and /health and /transform respond correctly.
+Phase 8: Frontend Health and Status UI (4 tasks)
+  ⏳ 8.1 Research frontend API base URL config and existing components before edits.
+  ⏳ 8.2 Create or modify API client for GET /health and GET /status against Go backend :8080.
+  ⏳ 8.3 Create or modify UI components/pages that display health and aggregated status including sidecar states.
+  ⏳ 8.4 Run frontend install/build and fix until Vite build is green.
+Phase 9: Integration Assembly and Docs (6 tasks)
+  ⏳ 9.1 Research current README and dev.ps1 claims versus actual ports, commands, and endpoints.
+  ⏳ 9.2 Harden scripts/dev.ps1 to start all four services with correct working directories, ports, and failure visibility.
+  ⏳ 9.3 Update README with accurate architecture, ports (:8080/:8081/:8082/frontend), endpoints, build commands, and dev.ps1 usage.
+  ⏳ 9.4 Verify Go /status aggregates Rust and Python sidecar health when both are running and degrades cleanly when not.
+  ⏳ 9.5 Run full verification matrix: go test, go build, cargo check, python health/transform smoke, frontend build.
+  ⏳ 9.6 Fix any remaining build/test/integration failures discovered in verification matrix until all components are green.
+🧠 Initializing intelligence gathering systems...
+   ✓ World scanner initialized
+   ✓ Intelligence gatherer initialized
+   ✓ Advisory board initialized
+   ✓ Edge case detector initialized
+   ⚠ Tool pregenerator pending (requires Ouroboros)
+   ✓ Intelligence systems initialized
+
+🚀 Starting campaign execution...
+   Press Ctrl+C to pause
+🔄 Research monorepo root layout: list top-level dirs/files and locate go.mod, package.json, Cargo.toml, Python entrypoints, scripts/dev.ps1, README.
+✅ Task completed
+🔄 Research existing Go backend routes and package structure for /health /echo /status /version and CORS.
+🔄 Research frontend, Rust sidecar, Python sidecar, and integration status aggregation patterns already present.
+✅ Task completed
+✅ Task completed
+🎉 Phase completed: Discover Existing Layout
+🔄 Create or modify Go module and backend package layout (cmd/server or equivalent) so the API can build on :8080.
+🔄 Create or modify React+Vite frontend package.json, vite config, and src entry so npm/vite build is green.
+🔄 Create or modify Rust sidecar Cargo.toml and src/main.rs skeleton for :8081 /ping.
+❌ micro-checkpoint missing mutated path c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/cmd/server/main.go: GetFileAttributesEx c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/cmd/server/main.go: The system cannot find the path specified.
+🔄 Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform.
+✅ Task completed
+❌ task /task_eae63fd5_1_5 missing write_set for mutating type /file_modify
+🔄 Verify scaffold builds: go build ./..., cargo check, python -m py_compile on sidecar, npm run build (or document missing deps).
+✅ Task completed
+❌ task /task_eae63fd5_1_5 missing write_set for mutating type /file_modify
+❌ micro-checkpoint missing mutated path c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/python/server.py: GetFileAttributesEx c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/python/server.py: The system cannot find the file specified.
+🔄 Verify scaffold builds: go build ./..., cargo check, python -m py_compile on sidecar, npm run build (or document missing deps).
+✅ Task completed
+✅ Task completed

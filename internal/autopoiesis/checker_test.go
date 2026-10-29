@@ -1,0 +1,159 @@
+package autopoiesis
+
+import (
+	"strings"
+	"testing"
+
+	"go.uber.org/goleak"
+)
+
+func TestSafetyChecker(t *testing.T) {
+	defer goleak.VerifyNone(t, goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"))
+	cfg := OuroborosConfig{
+		AllowFileSystem: false,
+		AllowNetworking: false,
+		AllowExec:       false,
+	}
+	checker := NewSafetyChecker(cfg)
+
+	// TODO: TEST_GAP: Null/Empty Inputs - Test checker.Check with an entirely empty string, null bytes, and whitespace-only strings.
+	// TODO: TEST_GAP: Type Coercion - Test describeViolation fallback when Mangle bindings return non-string types for 'V'.
+	// TODO: TEST_GAP: User Request Extremes - Test ExtractASTFacts with excessively deep ASTs to ensure ast.Walk does not trigger a stack overflow.
+	// TODO: TEST_GAP: User Request Extremes - Test engine fact accumulation when generated code exceeds the hardcoded cfg.FactLimit.
+	// TODO: TEST_GAP: State Conflicts - Test checker.Check behavior when goSafetyPolicy is empty, simulating load failure.
+	tests := []struct {
+		name        string
+		code        string
+		shouldPass  bool
+		violation   ViolationType
+		descContain string
+	}{
+		{
+			name: "Safe Simple Calculation",
+			code: `package main
+import "fmt"
+func main() { fmt.Println("Hello") }`,
+			shouldPass: true,
+		},
+		{
+			// os/exec is now reported as ViolationExec rather than the generic
+			// ViolationForbiddenImport: the category the enum already had for
+			// "this code shells out" was never produced by anything, so the
+			// feedback sent back to the LLM could not name the actual hazard.
+			name: "Forbidden Import (exec)",
+			code: `package main
+import "os/exec"
+func main() { exec.Command("whoami") }`,
+			shouldPass:  false,
+			violation:   ViolationExec,
+			descContain: "os/exec",
+		},
+		{
+			name: "Goroutine Leak (No Context)",
+			code: `package main
+func main() {
+	go func() { 
+		// forever
+	}()
+}`,
+			shouldPass:  false,
+			violation:   ViolationGoroutineLeak,
+			descContain: "spawn",
+		},
+		{
+			name: "Goroutine Safe (With Context)",
+			code: `package main
+import "context"
+func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func(ctx context.Context) {
+		<-ctx.Done()
+	}(ctx)
+}`,
+			shouldPass: true,
+		},
+		{
+			name: "Panic Usage",
+			code: `package main
+func main() {
+	panic("crash")
+}`,
+			shouldPass:  false,
+			violation:   ViolationPanic,
+			descContain: "panic",
+		},
+		{
+			name: "Panic Alias Usage",
+			code: `package main
+func main() {
+	var f = panic
+	f("crash")
+}`,
+			shouldPass:  false,
+			violation:   ViolationPanic,
+			descContain: "panic",
+		},
+		{
+			name: "Forbidden Import With Alias",
+			code: `package main
+import p "plugin"
+func main() {
+	_ = p.Open
+}`,
+			shouldPass:  false,
+			violation:   ViolationForbiddenImport,
+			descContain: "plugin",
+		},
+		{
+			name: "Panic Through Interface Method",
+			code: `package main
+type killer interface{ Kill() }
+type impl struct{}
+func (impl) Kill() { panic("boom") }
+func main() {
+	var k killer = impl{}
+	k.Kill()
+}`,
+			shouldPass:  false,
+			violation:   ViolationPanic,
+			descContain: "panic",
+		},
+		{
+			name: "Empty Function",
+			code: `package main
+func ok() {}`,
+			shouldPass: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			report := checker.Check(tt.code)
+			if tt.shouldPass && !report.Safe {
+				t.Errorf("Expected safe, got unsafe. Violations: %+v", report.Violations)
+			}
+			if !tt.shouldPass {
+				if report.Safe {
+					t.Errorf("Expected unsafe, got safe.")
+				} else {
+					found := false
+					for _, v := range report.Violations {
+						if v.Type == tt.violation {
+							if tt.descContain != "" {
+								if strings.Contains(v.Description, tt.descContain) || strings.Contains(v.Location, tt.descContain) {
+									found = true
+								}
+							} else {
+								found = true
+							}
+						}
+					}
+					if !found {
+						t.Errorf("Expected violation type %v with desc %q, got %+v", tt.violation, tt.descContain, report.Violations)
+					}
+				}
+			}
+		})
+	}
+}

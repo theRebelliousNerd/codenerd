@@ -1,0 +1,666 @@
+package perception
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+)
+
+// ReasoningTrace is the legacy name for an LLM interaction audit record.
+// Response contains ordinary assistant output, not native thinking blocks or
+// provider signatures. Learning uses visible task results and user corrections.
+type ReasoningTrace struct {
+	ID            string `json:"id"`
+	ShardID       string `json:"shard_id"`
+	ShardType     string `json:"shard_type"`
+	ShardCategory string `json:"shard_category"` // system, ephemeral, specialist
+	SessionID     string `json:"session_id"`
+	TaskContext   string `json:"task_context"`
+
+	// LLM Interaction
+	SystemPrompt string `json:"system_prompt"`
+	UserPrompt   string `json:"user_prompt"`
+	Response     string `json:"response"`
+
+	// Metadata
+	Model      string `json:"model,omitzero"`
+	TokensUsed int    `json:"tokens_used,omitzero"`
+	DurationMs int64  `json:"duration_ms"`
+
+	// Outcome (filled after shard completes)
+	Success      bool   `json:"success"`
+	ErrorMessage string `json:"error_message,omitzero"`
+
+	// Learning metadata (filled after analysis)
+	QualityScore  float64  `json:"quality_score,omitzero"`
+	LearningNotes []string `json:"learning_notes,omitzero"`
+
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// TraceStore defines storage for interaction audit records.
+// This abstraction allows different storage backends.
+type TraceStore interface {
+	StoreReasoningTrace(trace *ReasoningTrace) error
+}
+
+// TracingLLMClient wraps any LLMClient and captures all interactions.
+// All shard LLM calls flow through this wrapper for comprehensive tracing.
+type TracingLLMClient struct {
+	underlying LLMClient
+	store      TraceStore
+
+	// Current context (set before each shard execution)
+	shardID       string
+	shardType     string
+	shardCategory string // system, ephemeral, specialist
+	sessionID     string
+	taskContext   string
+
+	mu sync.RWMutex
+}
+
+// NewTracingLLMClient creates a tracing wrapper around an existing LLM client.
+func NewTracingLLMClient(underlying LLMClient, store TraceStore) *TracingLLMClient {
+	return &TracingLLMClient{
+		underlying: underlying,
+		store:      store,
+	}
+}
+
+// SetShardContext sets the current shard context for trace attribution.
+// Called by ShardManager before each shard execution.
+func (tc *TracingLLMClient) SetShardContext(shardID, shardType, shardCategory, sessionID, taskContext string) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.shardID = shardID
+	tc.shardType = shardType
+	tc.shardCategory = shardCategory
+	tc.sessionID = sessionID
+	tc.taskContext = taskContext
+}
+
+// ClearShardContext clears the current shard context after execution.
+func (tc *TracingLLMClient) ClearShardContext() {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.shardID = ""
+	tc.shardType = ""
+	tc.shardCategory = ""
+	tc.taskContext = ""
+}
+
+// GetCurrentContext returns the current shard context (for debugging/testing).
+func (tc *TracingLLMClient) GetCurrentContext() (shardID, shardType, shardCategory, sessionID, taskContext string) {
+	tc.mu.RLock()
+	defer tc.mu.RUnlock()
+	return tc.shardID, tc.shardType, tc.shardCategory, tc.sessionID, tc.taskContext
+}
+
+// DisableSemaphore forwards concurrency control to the underlying client when available.
+func (tc *TracingLLMClient) DisableSemaphore() {
+	if disabler, ok := tc.underlying.(interface{ DisableSemaphore() }); ok {
+		disabler.DisableSemaphore()
+	}
+}
+
+// Complete implements LLMClient.Complete with tracing.
+func (tc *TracingLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+	return tc.CompleteWithSystem(ctx, "", prompt)
+}
+
+// CompleteWithSystem implements LLMClient.CompleteWithSystem with tracing.
+func (tc *TracingLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if tc == nil || tc.underlying == nil {
+		return "", fmt.Errorf("tracing client has no underlying LLM client")
+	}
+
+	tctx := tc.snapshotTraceContext()
+
+	start := time.Now()
+	logging.API("LLM call started: shard=%s type=%s prompt_len=%d", tctx.shardID, tctx.shardType, len(userPrompt))
+
+	// Make the actual LLM call
+	response, err := tc.underlying.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+
+	duration := time.Since(start)
+	if err != nil {
+		logging.Get(logging.CategoryAPI).Error("LLM call failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+	} else {
+		logging.API("LLM call completed: shard=%s duration=%v response_len=%d", tctx.shardID, duration, len(response))
+	}
+
+	// Approximate/placeholder, real token tracking might vary by client
+	tokensUsed := thinkingTokensOf(tc.underlying)
+
+	// Update Metrics
+	RecordLLMCall(tctx.shardCategory, tctx.shardType, tokensUsed, duration.Milliseconds(), err)
+
+	trace := newReasoningTrace(tctx, resolveTraceModel(ctx, tc.underlying),
+		systemPrompt, userPrompt, response, tokensUsed, duration.Milliseconds(), err)
+	storeTraceAsync(tc.store, trace)
+
+	return response, err
+}
+
+// SchemaCapable reports whether the underlying client supports schema enforcement.
+func (tc *TracingLLMClient) SchemaCapable() bool {
+	if checker, ok := tc.underlying.(interface{ SchemaCapable() bool }); ok {
+		return checker.SchemaCapable()
+	}
+	_, ok := tc.underlying.(core.SchemaCapableLLMClient)
+	return ok
+}
+
+// CompleteWithSchema implements schema-enforced completion with trace capture.
+func (tc *TracingLLMClient) CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
+	if tc == nil || tc.underlying == nil {
+		return "", fmt.Errorf("tracing client has no underlying LLM client")
+	}
+
+	tctx := tc.snapshotTraceContext()
+
+	start := time.Now()
+	logging.API("LLM schema call started: shard=%s type=%s prompt_len=%d", tctx.shardID, tctx.shardType, len(userPrompt))
+
+	schemaClient, ok := core.AsSchemaCapable(tc.underlying)
+	if !ok {
+		return "", core.ErrSchemaNotSupported
+	}
+
+	// Make the actual LLM call
+	response, err := schemaClient.CompleteWithSchema(ctx, systemPrompt, userPrompt, jsonSchema)
+
+	duration := time.Since(start)
+	if err != nil {
+		if errors.Is(err, core.ErrSchemaNotSupported) {
+			logging.APIDebug("LLM schema call skipped: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+		} else {
+			logging.Get(logging.CategoryAPI).Error("LLM schema call failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+		}
+	} else {
+		logging.API("LLM schema call completed: shard=%s duration=%v response_len=%d", tctx.shardID, duration, len(response))
+	}
+
+	tokensUsed := thinkingTokensOf(tc.underlying)
+	RecordLLMCall(tctx.shardCategory, tctx.shardType, tokensUsed, duration.Milliseconds(), err)
+
+	trace := newReasoningTrace(tctx, resolveTraceModel(ctx, tc.underlying),
+		systemPrompt, userPrompt, response, tokensUsed, duration.Milliseconds(), err)
+	storeTraceAsync(tc.store, trace)
+
+	return response, err
+}
+
+type modelGetter interface {
+	GetModel() string
+}
+
+type contextualModelGetter interface {
+	ModelForContext(ctx context.Context) string
+}
+
+// CompleteWithStreaming implements streaming with trace capture.
+// The response is streamed to the caller while also being buffered for
+// persistence; the trace is stored, and the terminal published, once the
+// underlying terminal result is in.
+func (tc *TracingLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	if tc == nil || tc.underlying == nil {
+		return types.FailedStream(fmt.Errorf("tracing client has no underlying LLM client"))
+	}
+
+	tctx := tc.snapshotTraceContext()
+
+	start := time.Now()
+	logging.API("LLM streaming call started: shard=%s type=%s prompt_len=%d", tctx.shardID, tctx.shardType, len(userPrompt))
+
+	underContent, underDone := tc.underlying.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
+	w, outContent, outDone := types.NewStream()
+
+	go func() {
+		defer w.Close()
+
+		var full strings.Builder
+		res, _ := types.RelayStream(ctx, w, types.CaptureStream(underContent, &full), nil, underDone)
+
+		duration := time.Since(start)
+		if res.Err != nil {
+			logging.Get(logging.CategoryAPI).Error("LLM streaming call %s: shard=%s duration=%v error=%s", res.Outcome(), tctx.shardID, duration, res.Err.Error())
+		} else {
+			logging.API("LLM streaming call completed: shard=%s duration=%v response_len=%d", tctx.shardID, duration, full.Len())
+		}
+
+		tokensUsed := thinkingTokensOf(tc.underlying)
+		RecordLLMCall(tctx.shardCategory, tctx.shardType, tokensUsed, duration.Milliseconds(), res.Err)
+
+		trace := newReasoningTrace(tctx, resolveTraceModel(ctx, tc.underlying),
+			systemPrompt, userPrompt, full.String(), tokensUsed, duration.Milliseconds(), res.Err)
+		storeTraceAsync(tc.store, trace)
+		w.Finish(res)
+	}()
+
+	return outContent, outDone
+}
+
+// Unwrap exposes the wrapped client so broker.Base and broker.IsBrokered can
+// walk the decorator chain. Without it this type is opaque to both: Base stops
+// here instead of reaching the concrete client, and IsBrokered reports an
+// already-metered chain as un-metered.
+func (tc *TracingLLMClient) Unwrap() LLMClient { return tc.underlying }
+
+// SetModel changes the model used for completions on the underlying client.
+func (tc *TracingLLMClient) SetModel(model string) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	if setter, ok := tc.underlying.(interface{ SetModel(string) }); ok {
+		setter.SetModel(model)
+	}
+}
+
+// GetModel returns the model of the underlying client.
+func (tc *TracingLLMClient) GetModel() string {
+	tc.mu.RLock()
+	defer tc.mu.RUnlock()
+	if getter, ok := tc.underlying.(interface{ GetModel() string }); ok {
+		return getter.GetModel()
+	}
+	return ""
+}
+
+func resolveTraceModel(ctx context.Context, client LLMClient) string {
+	if resolver, ok := client.(contextualModelGetter); ok {
+		if model := strings.TrimSpace(resolver.ModelForContext(ctx)); model != "" {
+			return model
+		}
+	}
+	if mg, ok := client.(modelGetter); ok {
+		return mg.GetModel()
+	}
+	return ""
+}
+
+// traceContext snapshots the shard attribution held under tc.mu so every
+// traced method captures the same five fields the same way.
+type traceContext struct {
+	shardID, shardType, shardCategory, sessionID, taskContext string
+}
+
+func (tc *TracingLLMClient) snapshotTraceContext() traceContext {
+	tc.mu.RLock()
+	defer tc.mu.RUnlock()
+	return traceContext{
+		shardID:       tc.shardID,
+		shardType:     tc.shardType,
+		shardCategory: tc.shardCategory,
+		sessionID:     tc.sessionID,
+		taskContext:   tc.taskContext,
+	}
+}
+
+// thinkingTokensOf reads the underlying client's last thinking-token count
+// when it reports one. Every traced method meters with this.
+func thinkingTokensOf(client LLMClient) int {
+	if mg, ok := client.(interface{ GetLastThinkingTokens() int }); ok {
+		return mg.GetLastThinkingTokens()
+	}
+	return 0
+}
+
+// newReasoningTrace builds the stored trace for one LLM interaction. It is the
+// single construction site: previously each traced method built the struct by
+// hand, which is how CompleteWithTools silently dropped Model and most paths
+// dropped TokensUsed.
+func newReasoningTrace(tc traceContext, model, systemPrompt, userPrompt, response string, tokensUsed int, durationMs int64, err error) *ReasoningTrace {
+	trace := &ReasoningTrace{
+		ID:            fmt.Sprintf("trace_%d", time.Now().UnixNano()),
+		ShardID:       tc.shardID,
+		ShardType:     tc.shardType,
+		ShardCategory: tc.shardCategory,
+		SessionID:     tc.sessionID,
+		TaskContext:   tc.taskContext,
+		SystemPrompt:  systemPrompt,
+		UserPrompt:    userPrompt,
+		Response:      visibleTaskOutput(response),
+		Model:         model,
+		TokensUsed:    tokensUsed,
+		DurationMs:    durationMs,
+		Success:       err == nil,
+		Timestamp:     time.Now(),
+	}
+	if err != nil {
+		trace.ErrorMessage = err.Error()
+	}
+	return trace
+}
+
+// storeTraceAsync persists a trace off the hot path. A nil store is a no-op;
+// a store failure is logged, never returned, so tracing cannot fail a turn.
+func storeTraceAsync(store TraceStore, trace *ReasoningTrace) {
+	if store == nil {
+		return
+	}
+	go func() {
+		if storeErr := store.StoreReasoningTrace(trace); storeErr != nil {
+			logging.APIDebug("Failed to store interaction audit record: %v", storeErr)
+		}
+	}()
+}
+
+// lastUserText summarizes a tool-loop history for trace attribution: the last
+// user turn's text is the prompt that drove the turn.
+func lastUserText(history []types.Message) string {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == "user" && strings.TrimSpace(history[i].Text) != "" {
+			return history[i].Text
+		}
+	}
+	return ""
+}
+
+// CompleteWithTools implements LLMClient.CompleteWithTools with tracing.
+func (tc *TracingLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	if tc == nil || tc.underlying == nil {
+		return nil, fmt.Errorf("tracing client has no underlying LLM client")
+	}
+
+	tctx := tc.snapshotTraceContext()
+
+	start := time.Now()
+	logging.API("LLM tool call started: shard=%s type=%s tools=%d prompt_len=%d", tctx.shardID, tctx.shardType, len(tools), len(userPrompt))
+
+	// Make the actual LLM call
+	response, err := tc.underlying.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+
+	// A (nil, nil) return must not panic the log line below; the trace records
+	// the empty response the same way it records any other.
+	responseText := ""
+	toolCallCount := 0
+	if response != nil {
+		responseText = response.Text
+		toolCallCount = len(response.ToolCalls)
+	}
+
+	duration := time.Since(start)
+	if err != nil {
+		logging.Get(logging.CategoryAPI).Error("LLM tool call failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+	} else {
+		logging.API("LLM tool call completed: shard=%s duration=%v tool_calls=%d text_len=%d", tctx.shardID, duration, toolCallCount, len(responseText))
+	}
+
+	tokensUsed := thinkingTokensOf(tc.underlying)
+	RecordLLMCall(tctx.shardCategory, tctx.shardType, tokensUsed, duration.Milliseconds(), err)
+
+	trace := newReasoningTrace(tctx, resolveTraceModel(ctx, tc.underlying),
+		systemPrompt, userPrompt, responseText, tokensUsed, duration.Milliseconds(), err)
+	storeTraceAsync(tc.store, trace)
+
+	return response, err
+}
+
+// CompleteWithToolResults forwards multi-turn tool results to the underlying
+// client when it implements types.ToolResultsProvider (e.g. XAIClient).
+// Without this method the scheduler wrapper sees only TracingLLMClient and
+// aborts tool loops after the first batch ("does not implement ToolResultsProvider").
+func (tc *TracingLLMClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if tc == nil || tc.underlying == nil {
+		return nil, fmt.Errorf("tracing client has no underlying LLM client")
+	}
+	// Prefer types.ToolResultsProvider on the underlying client.
+	if trp, ok := tc.underlying.(interface {
+		CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error)
+	}); ok {
+		tctx := tc.snapshotTraceContext()
+		start := time.Now()
+		logging.API("LLM tool-results started: shard=%s history=%d tools=%d", tctx.shardID, len(history), len(tools))
+		resp, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+		duration := time.Since(start)
+		respText := ""
+		n := 0
+		if resp != nil {
+			respText = resp.Text
+			n = len(resp.ToolCalls)
+		}
+		if err != nil {
+			logging.Get(logging.CategoryAPI).Error("LLM tool-results failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+		} else {
+			logging.API("LLM tool-results completed: shard=%s duration=%v tool_calls=%d", tctx.shardID, duration, n)
+		}
+		// Tool-loop turns are the turns most worth learning from; they used
+		// to pass through this wrapper with no metrics and no trace.
+		tokensUsed := thinkingTokensOf(tc.underlying)
+		RecordLLMCall(tctx.shardCategory, tctx.shardType, tokensUsed, duration.Milliseconds(), err)
+		trace := newReasoningTrace(tctx, resolveTraceModel(ctx, tc.underlying),
+			systemPrompt, lastUserText(history), respText, tokensUsed, duration.Milliseconds(), err)
+		storeTraceAsync(tc.store, trace)
+		return resp, err
+	}
+	return nil, fmt.Errorf("LLM client %T does not implement ToolResultsProvider", tc.underlying)
+}
+
+// =============================================================================
+// INTERFACE PASS-THROUGHS
+// =============================================================================
+// The TracingLLMClient must implement all optional interfaces that the underlying
+// client might implement, to avoid "masking" capabilities like Thinking Mode.
+
+// -- ThinkingProvider --
+
+// IsThinkingEnabled uses the shared ThinkingProvider interface defined in understanding_adapter.go
+func (tc *TracingLLMClient) IsThinkingEnabled() bool {
+	if p, ok := tc.underlying.(ThinkingProvider); ok {
+		return p.IsThinkingEnabled()
+	}
+	return false
+}
+
+func (tc *TracingLLMClient) GetThinkingLevel() string {
+	if p, ok := tc.underlying.(interface{ GetThinkingLevel() string }); ok {
+		return p.GetThinkingLevel()
+	}
+	return ""
+}
+
+func (tc *TracingLLMClient) GetLastThoughtSummary() string {
+	if p, ok := tc.underlying.(interface{ GetLastThoughtSummary() string }); ok {
+		return p.GetLastThoughtSummary()
+	}
+	return ""
+}
+
+func (tc *TracingLLMClient) GetLastThinkingTokens() int {
+	if p, ok := tc.underlying.(interface{ GetLastThinkingTokens() int }); ok {
+		return p.GetLastThinkingTokens()
+	}
+	return 0
+}
+
+// -- ThoughtSignatureProvider --
+
+func (tc *TracingLLMClient) GetLastThoughtSignature() string {
+	if p, ok := tc.underlying.(interface{ GetLastThoughtSignature() string }); ok {
+		return p.GetLastThoughtSignature()
+	}
+	return ""
+}
+
+// -- GroundingProvider --
+
+func (tc *TracingLLMClient) GetLastGroundingSources() []string {
+	if p, ok := tc.underlying.(interface{ GetLastGroundingSources() []string }); ok {
+		return p.GetLastGroundingSources()
+	}
+	return nil
+}
+
+func (tc *TracingLLMClient) IsWebSearchEnabled() bool {
+	if p, ok := tc.underlying.(interface{ IsWebSearchEnabled() bool }); ok {
+		return p.IsWebSearchEnabled()
+	}
+	return false
+}
+
+func (tc *TracingLLMClient) IsURLContextEnabled() bool {
+	if p, ok := tc.underlying.(interface{ IsURLContextEnabled() bool }); ok {
+		return p.IsURLContextEnabled()
+	}
+	return false
+}
+
+// ShouldUsePiggybackTools forwards types.PiggybackToolProvider. The answer
+// selects the executor's tool channel, and boot puts this wrapper between the
+// scheduler (which forwards it) and the broker (which forwards it), so a wrapper
+// that swallowed it would send a CLI engine -- envelope-only -- down the native
+// tool path. No opinion answers false, as the unwrapped probe would.
+func (tc *TracingLLMClient) ShouldUsePiggybackTools() bool {
+	if tc == nil || tc.underlying == nil {
+		return false
+	}
+	if p, ok := tc.underlying.(types.PiggybackToolProvider); ok {
+		return p.ShouldUsePiggybackTools()
+	}
+	return false
+}
+
+// -- GroundedWebSearcher --
+
+var _ types.GroundedWebSearcher = (*TracingLLMClient)(nil)
+
+// SupportsGroundedWebSearch reports whether the underlying client supports grounded search.
+func (tc *TracingLLMClient) SupportsGroundedWebSearch() bool {
+	if tc == nil || tc.underlying == nil {
+		return false
+	}
+	if gws, ok := tc.underlying.(types.GroundedWebSearcher); ok {
+		return gws.SupportsGroundedWebSearch()
+	}
+	return false
+}
+
+// GroundedWebSearch forwards a grounded search to the underlying client with tracing.
+// It stores the grounded answer and usage in the trace but never fabricates or exposes hidden reasoning.
+func (tc *TracingLLMClient) GroundedWebSearch(ctx context.Context, query string) (*types.GroundedWebSearchResult, error) {
+	if tc == nil || tc.underlying == nil {
+		return nil, fmt.Errorf("tracing client has no underlying LLM client")
+	}
+	gws, ok := tc.underlying.(types.GroundedWebSearcher)
+	if !ok {
+		return nil, fmt.Errorf("underlying client does not implement GroundedWebSearcher")
+	}
+
+	tctx := tc.snapshotTraceContext()
+
+	start := time.Now()
+	logging.API("Grounded search started: shard=%s query_len=%d", tctx.shardID, len(query))
+	result, err := gws.GroundedWebSearch(ctx, query)
+	duration := time.Since(start)
+	if err != nil {
+		logging.Get(logging.CategoryAPI).Error("Grounded search failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+	} else if result != nil {
+		logging.API("Grounded search completed: shard=%s duration=%v text_len=%d citations=%d", tctx.shardID, duration, len(result.Text), len(result.Citations))
+	}
+
+	tokensUsed := 0
+	responseText := ""
+	if result != nil {
+		tokensUsed = result.Usage.TotalTokens
+		if tokensUsed == 0 {
+			tokensUsed = result.Usage.InputTokens + result.Usage.OutputTokens
+		}
+		responseText = result.Text
+	}
+	RecordLLMCall(tctx.shardCategory, tctx.shardType, tokensUsed, duration.Milliseconds(), err)
+
+	trace := newReasoningTrace(tctx, resolveTraceModel(ctx, tc.underlying),
+		"", query, responseText, tokensUsed, duration.Milliseconds(), err)
+	storeTraceAsync(tc.store, trace)
+	return result, err
+}
+
+// -- CacheProvider --
+
+func (tc *TracingLLMClient) CreateCachedContent(ctx context.Context, files []string, ttl int) (string, error) {
+	if p, ok := tc.underlying.(interface {
+		CreateCachedContent(ctx context.Context, files []string, ttl int) (string, error)
+	}); ok {
+		return p.CreateCachedContent(ctx, files, ttl)
+	}
+	return "", fmt.Errorf("underlying client does not implement CacheProvider")
+}
+
+func (tc *TracingLLMClient) GetCachedContent(ctx context.Context, cacheName string) (any, error) {
+	if p, ok := tc.underlying.(interface {
+		GetCachedContent(ctx context.Context, cacheName string) (any, error)
+	}); ok {
+		return p.GetCachedContent(ctx, cacheName)
+	}
+	return nil, fmt.Errorf("underlying client does not implement CacheProvider")
+}
+
+func (tc *TracingLLMClient) DeleteCachedContent(ctx context.Context, cacheName string) error {
+	if p, ok := tc.underlying.(interface {
+		DeleteCachedContent(ctx context.Context, cacheName string) error
+	}); ok {
+		return p.DeleteCachedContent(ctx, cacheName)
+	}
+	return fmt.Errorf("underlying client does not implement CacheProvider")
+}
+
+func (tc *TracingLLMClient) ListCachedContent(ctx context.Context) ([]string, error) {
+	if p, ok := tc.underlying.(interface {
+		ListCachedContent(ctx context.Context) ([]string, error)
+	}); ok {
+		return p.ListCachedContent(ctx)
+	}
+	return nil, fmt.Errorf("underlying client does not implement CacheProvider")
+}
+
+func (tc *TracingLLMClient) SetCachedContent(name string) {
+	if p, ok := tc.underlying.(interface{ SetCachedContent(string) }); ok {
+		p.SetCachedContent(name)
+	}
+}
+
+// -- FileProvider --
+
+func (tc *TracingLLMClient) UploadFile(ctx context.Context, path string, mimeType string) (string, error) {
+	if p, ok := tc.underlying.(interface {
+		UploadFile(ctx context.Context, path string, mimeType string) (string, error)
+	}); ok {
+		return p.UploadFile(ctx, path, mimeType)
+	}
+	return "", fmt.Errorf("underlying client does not implement FileProvider")
+}
+
+func (tc *TracingLLMClient) DeleteFile(ctx context.Context, fileID string) error {
+	if p, ok := tc.underlying.(interface {
+		DeleteFile(ctx context.Context, fileID string) error
+	}); ok {
+		return p.DeleteFile(ctx, fileID)
+	}
+	return fmt.Errorf("underlying client does not implement FileProvider")
+}
+
+func (tc *TracingLLMClient) ListFiles(ctx context.Context) ([]string, error) {
+	if p, ok := tc.underlying.(interface {
+		ListFiles(ctx context.Context) ([]string, error)
+	}); ok {
+		return p.ListFiles(ctx)
+	}
+	return nil, fmt.Errorf("underlying client does not implement FileProvider")
+}
+
+func (tc *TracingLLMClient) GetFile(ctx context.Context, fileID string) (any, error) {
+	if p, ok := tc.underlying.(interface {
+		GetFile(ctx context.Context, fileID string) (any, error)
+	}); ok {
+		return p.GetFile(ctx, fileID)
+	}
+	return nil, fmt.Errorf("underlying client does not implement FileProvider")
+}

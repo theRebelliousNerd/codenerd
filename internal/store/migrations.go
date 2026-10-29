@@ -1,0 +1,1013 @@
+// Package store provides database migrations for codeNERD knowledge bases.
+// This file implements a versioned schema migration system that safely upgrades
+// old databases to the new vectorstore format with sqlite-vec support.
+package store
+
+import (
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"codenerd/internal/logging"
+)
+
+// Schema versions:
+// v1: Basic knowledge_atoms table (concept, content, confidence, created_at)
+// v2: Added embedding column for vector search
+// v3: Added vec_index virtual table for sqlite-vec ANN
+// v4: Added content_hash column for deduplication
+const CurrentSchemaVersion = 4
+
+// MigrationResult holds the result of a migration operation.
+type MigrationResult struct {
+	FromVersion    int
+	ToVersion      int
+	MigrationsRun  int
+	BackupPath     string
+	HashesComputed int
+	Duration       time.Duration
+	Warnings       []string
+}
+
+// Migration defines a database schema migration.
+type Migration struct {
+	Table  string
+	Column string
+	Def    string
+}
+
+// pendingMigrations lists all schema migrations to apply.
+// These handle cases where tables exist but are missing newer columns.
+var pendingMigrations = []Migration{
+	// Cold storage access tracking columns (added for archival tier)
+	// SQLite rejects non-constant defaults when adding a column to a populated
+	// table. RunMigrations backfills this nullable field from the existing fact
+	// timestamps and StoreFact supplies values for future inserts.
+	{"cold_storage", "last_accessed", "DATETIME"},
+	{"cold_storage", "access_count", "INTEGER DEFAULT 0"},
+	// Archived facts access tracking columns (mirrored from cold_storage)
+	{"archived_facts", "last_accessed", "DATETIME"},
+	{"archived_facts", "access_count", "INTEGER DEFAULT 0"},
+	// Knowledge atoms extended fields (added for shared knowledge pool)
+	{"knowledge_atoms", "source", "TEXT DEFAULT ''"},
+	{"knowledge_atoms", "tags", "TEXT DEFAULT '[]'"},
+	// The embedding space a generic vector was produced in (the engine
+	// identity, embedding.EmbeddingEngine.Name). NULL on rows written before
+	// the column existed: they stay stored and lexically recallable but are
+	// never compared against a query (vector_identity.go).
+	{"vectors", "embedding_model", "TEXT"},
+	// Prompt atoms polymorphism columns (for different verbosity levels)
+	{"prompt_atoms", "description", "TEXT"},
+	{"prompt_atoms", "content_concise", "TEXT"},
+	{"prompt_atoms", "content_min", "TEXT"},
+	// Prompt atoms metadata column
+	{"prompt_atoms", "source_file", "TEXT"},
+	// Reasoning traces reflection columns
+	{"reasoning_traces", "summary_descriptor", "TEXT"},
+	{"reasoning_traces", "descriptor_version", "INTEGER DEFAULT 0"},
+	{"reasoning_traces", "descriptor_hash", "TEXT"},
+	{"reasoning_traces", "embedding", "BLOB"},
+	{"reasoning_traces", "embedding_model_id", "TEXT"},
+	{"reasoning_traces", "embedding_dim", "INTEGER"},
+	{"reasoning_traces", "embedding_task", "TEXT"},
+	// The judge's own judgment beside the kernel's disposition
+	// (internal/verification, storeVerification).
+	{"task_verifications", "judge_contract", "TEXT"},
+	{"task_verifications", "judge_claimed", "TEXT"},
+	{"task_verifications", "judge_status", "TEXT"},
+	{"task_verifications", "judge_explanation", "TEXT"},
+	// Learning store reflection columns
+	{"learnings", "semantic_handle", "TEXT"},
+	{"learnings", "handle_version", "INTEGER DEFAULT 0"},
+	{"learnings", "handle_hash", "TEXT"},
+	{"learnings", "embedding", "BLOB"},
+	{"learnings", "embedding_model_id", "TEXT"},
+	{"learnings", "embedding_dim", "INTEGER"},
+	{"learnings", "embedding_task", "TEXT"},
+}
+
+// RunMigrations applies schema migrations for existing databases.
+func RunMigrations(db *sql.DB) error {
+	timer := logging.StartTimer(logging.CategoryStore, "RunMigrations")
+	defer timer.Stop()
+
+	logging.Store("Running schema migrations (%d pending)", len(pendingMigrations))
+
+	// Pre-fetch schema information to avoid N+1 queries. A failed or partial
+	// schema read cannot be treated as an empty schema: doing so would make
+	// this function report success while leaving required columns absent.
+	existingTables, err := migrationTableNames(db)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query tables: %v", err)
+		return fmt.Errorf("failed to query tables: %w", err)
+	}
+
+	// Identify relevant tables from pending migrations
+	relevantTables := make(map[string]bool)
+	for _, m := range pendingMigrations {
+		relevantTables[m.Table] = true
+	}
+
+	// Pre-fetch columns for relevant tables
+	existingColumns := make(map[string]map[string]bool)
+	for table := range relevantTables {
+		if !existingTables[table] {
+			continue
+		}
+
+		cols, err := migrationTableColumns(db, table)
+		if err != nil {
+			return fmt.Errorf("failed to inspect migration table %s: %w", table, err)
+		}
+		existingColumns[table] = cols
+	}
+
+	appliedCount := 0
+	skippedCount := 0
+
+	for _, m := range pendingMigrations {
+		logging.StoreDebug("Checking migration: %s.%s", m.Table, m.Column)
+
+		// Check if table exists using cached map
+		if !existingTables[m.Table] {
+			logging.StoreDebug("Table missing, skipping migration: %s.%s", m.Table, m.Column)
+			skippedCount++
+			continue
+		}
+
+		// Check if column exists using the verified schema snapshot.
+		columns, ok := existingColumns[m.Table]
+		if !ok {
+			return fmt.Errorf("migration table %s was not inspected", m.Table)
+		}
+
+		if !columns[m.Column] {
+			query := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", m.Table, m.Column, m.Def)
+			logging.StoreDebug("Executing migration: %s", query)
+
+			if _, err := db.Exec(query); err != nil {
+				// Another opener may have added the column after our schema
+				// snapshot. Treat that race as idempotent only when a fresh,
+				// successful inspection proves that the desired column exists.
+				currentColumns, inspectErr := migrationTableColumns(db, m.Table)
+				if inspectErr != nil {
+					return errors.Join(
+						fmt.Errorf("migration failed for %s.%s: %w", m.Table, m.Column, err),
+						fmt.Errorf("failed to verify migration result for %s: %w", m.Table, inspectErr),
+					)
+				}
+				if currentColumns[m.Column] {
+					logging.StoreDebug("Migration column appeared concurrently: %s.%s", m.Table, m.Column)
+					existingColumns[m.Table] = currentColumns
+					skippedCount++
+					continue
+				}
+				logging.Get(logging.CategoryStore).Error("Migration failed: %s.%s: %v", m.Table, m.Column, err)
+				return fmt.Errorf("migration failed for %s.%s: %w", m.Table, m.Column, err)
+			} else {
+				logging.Store("Migration applied: added %s.%s", m.Table, m.Column)
+				appliedCount++
+
+				// Update cache in case future migrations check this column (unlikely for ADD COLUMN but correct)
+				if existingColumns[m.Table] == nil {
+					existingColumns[m.Table] = make(map[string]bool)
+				}
+				existingColumns[m.Table][m.Column] = true
+			}
+		} else {
+			logging.StoreDebug("Column already exists, skipping: %s.%s", m.Table, m.Column)
+			skippedCount++
+		}
+	}
+
+	// This is deliberately restartable and runs even when last_accessed already
+	// existed: if a prior migration added the column but failed during the
+	// backfill, the next open completes it before publishing the store.
+	if existingTables["cold_storage"] && existingColumns["cold_storage"]["last_accessed"] {
+		timestamps := make([]string, 0, 3)
+		if existingColumns["cold_storage"]["updated_at"] {
+			timestamps = append(timestamps, "updated_at")
+		}
+		if existingColumns["cold_storage"]["created_at"] {
+			timestamps = append(timestamps, "created_at")
+		}
+		timestamps = append(timestamps, "CURRENT_TIMESTAMP")
+		backfill := fmt.Sprintf(`UPDATE cold_storage
+			SET last_accessed = COALESCE(%s)
+			WHERE last_accessed IS NULL`, strings.Join(timestamps, ", "))
+		if _, err := db.Exec(backfill); err != nil {
+			return fmt.Errorf("backfill cold_storage.last_accessed: %w", err)
+		}
+	}
+
+	logging.Store("Schema migrations complete: applied=%d, skipped=%d", appliedCount, skippedCount)
+	return nil
+}
+
+func migrationTableNames(db *sql.DB) (tables map[string]bool, resultErr error) {
+	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table'")
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("close table listing: %w", err))
+		}
+	}()
+
+	tables = make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("scan table name: %w", err)
+		}
+		tables[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate table listing: %w", err)
+	}
+	return tables, nil
+}
+
+func migrationTableColumns(db *sql.DB, table string) (columns map[string]bool, resultErr error) {
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("close column listing for %s: %w", table, err))
+		}
+	}()
+
+	columns = make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue any
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			return nil, fmt.Errorf("scan column for %s: %w", table, err)
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate columns for %s: %w", table, err)
+	}
+	return columns, nil
+}
+
+// columnExists checks if a column exists in a table using PRAGMA table_info.
+func columnExists(db *sql.DB, table, column string) bool {
+	query := fmt.Sprintf("PRAGMA table_info(%s)", table)
+	rows, err := db.Query(query)
+	if err != nil {
+		logging.StoreDebug("PRAGMA table_info(%s) failed: %v", table, err)
+		return false
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue any
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			continue
+		}
+		if name == column {
+			logging.StoreDebug("Column exists: %s.%s (type=%s)", table, column, ctype)
+			return true
+		}
+	}
+	logging.StoreDebug("Column does not exist: %s.%s", table, column)
+	return false
+}
+
+// tableExists checks if a table exists in the database.
+func tableExists(db *sql.DB, table string) bool {
+	var count int
+	query := "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?"
+	if err := db.QueryRow(query, table).Scan(&count); err != nil {
+		logging.StoreDebug("Table existence check failed for %s: %v", table, err)
+		return false
+	}
+	exists := count > 0
+	logging.StoreDebug("Table %s exists: %v", table, exists)
+	return exists
+}
+
+func tableExistsStrict(db *sql.DB, table string) (bool, error) {
+	var count int
+	query := "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?"
+	if err := db.QueryRow(query, table).Scan(&count); err != nil {
+		return false, fmt.Errorf("check table %s: %w", table, err)
+	}
+	return count > 0, nil
+}
+
+func columnExistsStrict(db *sql.DB, table, column string) (bool, error) {
+	columns, err := migrationTableColumns(db, table)
+	if err != nil {
+		return false, fmt.Errorf("inspect table %s: %w", table, err)
+	}
+	return columns[column], nil
+}
+
+// GetSchemaVersion returns the current schema version of a database.
+// If no version table exists, it infers the version from table structure.
+func GetSchemaVersion(db *sql.DB) int {
+	logging.StoreDebug("Detecting schema version")
+	version, err := getSchemaVersion(db)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to detect schema version: %v", err)
+		return 0
+	}
+	logging.StoreDebug("Detected schema version: %d", version)
+	return version
+}
+
+func getSchemaVersion(db *sql.DB) (int, error) {
+	if db == nil {
+		return 0, fmt.Errorf("nil database")
+	}
+	exists, err := tableExistsStrict(db, "schema_versions")
+	if err != nil {
+		return 0, err
+	}
+	if exists {
+		var version int
+		query := "SELECT version FROM schema_versions ORDER BY applied_at DESC LIMIT 1"
+		err := db.QueryRow(query).Scan(&version)
+		if err == nil {
+			logging.StoreDebug("Schema version from schema_versions table: %d", version)
+			return version, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("read schema_versions: %w", err)
+		}
+		logging.StoreDebug("schema_versions table exists but no version record found")
+	}
+
+	return inferSchemaVersion(db)
+}
+
+// inferSchemaVersion determines schema version by examining table structure.
+func inferSchemaVersion(db *sql.DB) (int, error) {
+	logging.StoreDebug("Inferring schema version from table structure")
+
+	// Check if knowledge_atoms table exists
+	knowledgeAtomsExists, err := tableExistsStrict(db, "knowledge_atoms")
+	if err != nil {
+		return 0, err
+	}
+	if !knowledgeAtomsExists {
+		logging.StoreDebug("No knowledge_atoms table - version 0")
+		return 0, nil
+	}
+
+	// Check for v4: content_hash column
+	contentHashExists, err := columnExistsStrict(db, "knowledge_atoms", "content_hash")
+	if err != nil {
+		return 0, err
+	}
+	if contentHashExists {
+		logging.StoreDebug("Found content_hash column - version 4")
+		return 4, nil
+	}
+
+	// Check for v3: vec_index virtual table
+	vecIndexExists, err := tableExistsStrict(db, "vec_index")
+	if err != nil {
+		return 0, err
+	}
+	if vecIndexExists {
+		logging.StoreDebug("Found vec_index table - version 3")
+		return 3, nil
+	}
+
+	// Check for v2: embedding column
+	embeddingExists, err := columnExistsStrict(db, "knowledge_atoms", "embedding")
+	if err != nil {
+		return 0, err
+	}
+	if embeddingExists {
+		logging.StoreDebug("Found embedding column - version 2")
+		return 2, nil
+	}
+
+	// v1: Basic table
+	logging.StoreDebug("Basic table structure - version 1")
+	return 1, nil
+}
+
+// SetSchemaVersion records a new schema version in the database.
+func SetSchemaVersion(db *sql.DB, version int) error {
+	logging.StoreDebug("Setting schema version to %d", version)
+
+	createTable := `
+		CREATE TABLE IF NOT EXISTS schema_versions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			version INTEGER NOT NULL,
+			applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			description TEXT
+		)
+	`
+	if _, err := db.Exec(createTable); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to create schema_versions table: %v", err)
+		return fmt.Errorf("failed to create schema_versions table: %w", err)
+	}
+	logging.StoreDebug("schema_versions table ensured")
+
+	desc := fmt.Sprintf("Migrated to schema version %d", version)
+	_, err := db.Exec(
+		"INSERT INTO schema_versions (version, description) VALUES (?, ?)",
+		version, desc,
+	)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to record schema version %d: %v", version, err)
+		return fmt.Errorf("failed to record schema version: %w", err)
+	}
+
+	logging.Store("Schema version set to %d", version)
+	return nil
+}
+
+// MigrateV1ToV2 adds the embedding column for vector search.
+func MigrateV1ToV2(db *sql.DB) error {
+	timer := logging.StartTimer(logging.CategoryStore, "MigrateV1ToV2")
+	defer timer.Stop()
+
+	logging.Store("Migrating v1 -> v2: Adding embedding column")
+
+	if exists, err := columnExistsStrict(db, "knowledge_atoms", "embedding"); err != nil {
+		return fmt.Errorf("inspect knowledge_atoms.embedding: %w", err)
+	} else if exists {
+		logging.Store("Embedding column already exists, skipping")
+		return nil
+	}
+
+	query := "ALTER TABLE knowledge_atoms ADD COLUMN embedding BLOB"
+	logging.StoreDebug("Executing: %s", query)
+	if _, err := db.Exec(query); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to add embedding column: %v", err)
+		return fmt.Errorf("failed to add embedding column: %w", err)
+	}
+
+	logging.Store("Added embedding column to knowledge_atoms")
+	return nil
+}
+
+// MigrateV2ToV3 creates the vec_index virtual table for sqlite-vec ANN search.
+func MigrateV2ToV3(db *sql.DB) error {
+	timer := logging.StartTimer(logging.CategoryStore, "MigrateV2ToV3")
+	defer timer.Stop()
+
+	logging.Store("Migrating v2 -> v3: Creating vec_index table")
+
+	exists, err := tableExistsStrict(db, "vec_index")
+	if err != nil {
+		return fmt.Errorf("inspect vec_index: %w", err)
+	}
+	if exists {
+		logging.Store("vec_index table already exists, skipping")
+		return nil
+	}
+
+	// vec_index creation is now deferred to SetEmbeddingEngine dynamically
+	logging.Store("Skipping vec_index creation in migration; deferred to dynamic runtime creation")
+	return nil
+}
+
+// MigrateV3ToV4 adds the content_hash column for deduplication.
+func MigrateV3ToV4(db *sql.DB) error {
+	timer := logging.StartTimer(logging.CategoryStore, "MigrateV3ToV4")
+	defer timer.Stop()
+
+	logging.Store("Migrating v3 -> v4: Adding content_hash column")
+
+	if exists, err := columnExistsStrict(db, "knowledge_atoms", "content_hash"); err != nil {
+		return fmt.Errorf("inspect knowledge_atoms.content_hash: %w", err)
+	} else if exists {
+		logging.Store("content_hash column already exists, skipping")
+		return nil
+	}
+
+	query := "ALTER TABLE knowledge_atoms ADD COLUMN content_hash TEXT"
+	logging.StoreDebug("Executing: %s", query)
+	if _, err := db.Exec(query); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to add content_hash column: %v", err)
+		return fmt.Errorf("failed to add content_hash column: %w", err)
+	}
+
+	indexQuery := "CREATE INDEX IF NOT EXISTS idx_atoms_content_hash ON knowledge_atoms(content_hash)"
+	logging.StoreDebug("Creating index: %s", indexQuery)
+	if _, err := db.Exec(indexQuery); err != nil {
+		logging.Get(logging.CategoryStore).Warn("Failed to create content_hash index: %v", err)
+	}
+
+	logging.Store("Added content_hash column to knowledge_atoms")
+	return nil
+}
+
+// BackfillContentHashes computes SHA256 hashes for all atoms missing content_hash.
+func BackfillContentHashes(db *sql.DB) (int, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "BackfillContentHashes")
+	defer timer.Stop()
+
+	logging.Store("Backfilling content hashes for existing atoms")
+
+	query := "SELECT id, concept, content FROM knowledge_atoms WHERE content_hash IS NULL OR content_hash = ''"
+	logging.StoreDebug("Querying atoms without content_hash")
+
+	rows, err := db.Query(query)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query atoms for hash backfill: %v", err)
+		return 0, fmt.Errorf("failed to query atoms for hash backfill: %w", err)
+	}
+	defer rows.Close()
+
+	updated := 0
+	skipped := 0
+
+	// Read all data into memory first to avoid holding the read lock (rows)
+	// while opening a write transaction (tx), which can fail or deadlock in SQLite.
+	type atomRecord struct {
+		id      int64
+		concept string
+		content string
+	}
+	var records []atomRecord
+	for rows.Next() {
+		var r atomRecord
+		if err := rows.Scan(&r.id, &r.concept, &r.content); err != nil {
+			skipped++
+			continue
+		}
+		records = append(records, r)
+	}
+
+	// Close rows explicitly before starting the transaction
+	if err := rows.Err(); err != nil {
+		logging.Get(logging.CategoryStore).Error("Error iterating atoms during backfill: %v", err)
+		return 0, fmt.Errorf("error iterating atoms: %w", err)
+	}
+	rows.Close()
+
+	if len(records) > 0 {
+		tx, err := db.Begin()
+		if err != nil {
+			logging.Get(logging.CategoryStore).Error("Failed to begin transaction for hash backfill: %v", err)
+			return 0, fmt.Errorf("failed to begin transaction: %w", err)
+		}
+		defer tx.Rollback() // Safe to call if committed
+
+		updateQuery := "UPDATE knowledge_atoms SET content_hash = ? WHERE id = ?"
+		stmt, err := tx.Prepare(updateQuery)
+		if err != nil {
+			logging.Get(logging.CategoryStore).Error("Failed to prepare statement for hash backfill: %v", err)
+			return 0, fmt.Errorf("failed to prepare statement: %w", err)
+		}
+		defer stmt.Close()
+
+		for _, r := range records {
+			hash := ComputeContentHash(r.concept, r.content)
+
+			if _, err := stmt.Exec(hash, r.id); err != nil {
+				logging.Get(logging.CategoryStore).Warn("Failed to update hash for atom %d: %v", r.id, err)
+				skipped++
+				continue
+			}
+			updated++
+		}
+
+		if err := tx.Commit(); err != nil {
+			logging.Get(logging.CategoryStore).Error("Failed to commit transaction for hash backfill: %v", err)
+			return updated, fmt.Errorf("failed to commit transaction: %w", err)
+		}
+	}
+
+	logging.Store("Backfilled content hashes: updated=%d, skipped=%d", updated, skipped)
+	return updated, nil
+}
+
+// ComputeContentHash generates a SHA256 hash for a knowledge atom.
+func ComputeContentHash(concept, content string) string {
+	combined := concept + "::" + content
+	hash := sha256.Sum256([]byte(combined))
+	return hex.EncodeToString(hash[:])
+}
+
+// checkpointWAL forces pending WAL frames into the main database file so a
+// subsequent file copy is complete. Without it, a backup taken while the
+// writer is open misses every commit still sitting in the -wal file — the
+// copy opens fine but is silently stale, and a restore from it loses the
+// user's recent data while reporting success. A checkpoint failure never
+// fails the backup: it degrades to the old stale-but-valid copy with a
+// warning, which is strictly better than no backup at all.
+func checkpointWAL(dbPath string) {
+	if _, err := os.Stat(dbPath); err != nil {
+		return
+	}
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Warn("Pre-backup checkpoint skipped (open failed): %v", err)
+		return
+	}
+	defer db.Close()
+	// ProfileReadOnly, not a writable profile: its pragma set is
+	// connection-local only (busy_timeout, mmap, cache), while the writable
+	// profiles persist PRAGMA journal_mode = WAL onto the database. A
+	// pre-backup checkpoint must never flip the journal mode of the DB it
+	// is about to copy. This also subsumes the old manual busy_timeout.
+	ApplyDefaultPragmas(db, ProfileReadOnly)
+	if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		logging.Get(logging.CategoryStore).Warn("Pre-backup checkpoint failed, backup may be stale: %v", err)
+	}
+}
+
+// CreateBackup creates a backup copy of the database file.
+func CreateBackup(dbPath string) (string, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "CreateBackup")
+	defer timer.Stop()
+
+	timestamp := time.Now().Format("20060102_150405")
+	backupPath := dbPath + fmt.Sprintf(".backup_%s", timestamp)
+
+	logging.Store("Creating database backup: %s -> %s", dbPath, backupPath)
+
+	checkpointWAL(dbPath)
+
+	src, err := os.Open(dbPath)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to open source database for backup: %v", err)
+		return "", fmt.Errorf("failed to open source database: %w", err)
+	}
+	defer src.Close()
+
+	// Get source file size for logging
+	srcInfo, _ := src.Stat()
+	if srcInfo != nil {
+		logging.StoreDebug("Source database size: %d bytes", srcInfo.Size())
+	}
+
+	dst, err := os.Create(backupPath)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to create backup file: %v", err)
+		return "", fmt.Errorf("failed to create backup file: %w", err)
+	}
+	// Close errors on write paths must be checked: a deferred Close that
+	// swallows an EIO / disk-full would let CreateBackup return success
+	// while the backup file is truncated. We explicit-Close below and
+	// keep a deferred Close as a safety net (idempotent on already-closed
+	// *os.File — returns os.ErrClosed which we ignore).
+	closeErr := error(nil)
+	defer func() { _ = dst.Close() }()
+
+	bytesCopied, err := io.Copy(dst, src)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to copy database to backup: %v", err)
+		return "", fmt.Errorf("failed to copy database to backup: %w", err)
+	}
+
+	if err := dst.Sync(); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to sync backup to disk: %v", err)
+		return "", fmt.Errorf("failed to sync backup to disk: %w", err)
+	}
+
+	// Explicit Close BEFORE returning success — catches flush errors that
+	// deferred Close would silently swallow. Without this, a corrupted
+	// backup could be left on disk and the caller would never know.
+	if closeErr = dst.Close(); closeErr != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to close backup file (data may be unflushed): %v", closeErr)
+		return "", fmt.Errorf("failed to close backup file: %w", closeErr)
+	}
+
+	logging.Store("Database backup created: %s (%d bytes)", backupPath, bytesCopied)
+	return backupPath, nil
+}
+
+// RestoreBackup restores a database from a backup file.
+func RestoreBackup(dbPath, backupPath string) error {
+	timer := logging.StartTimer(logging.CategoryStore, "RestoreBackup")
+	defer timer.Stop()
+
+	logging.Store("Restoring database from backup: %s -> %s", backupPath, dbPath)
+
+	src, err := os.Open(backupPath)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to open backup file for restore: %v", err)
+		return fmt.Errorf("failed to open backup file: %w", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(dbPath)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to create database file during restore: %v", err)
+		return fmt.Errorf("failed to create database file: %w", err)
+	}
+	// Same explicit-Close pattern as CreateBackup: a flush failure on
+	// restore corrupts the live DB. Explicit Close below; deferred Close
+	// is the idempotent safety net.
+	defer func() { _ = dst.Close() }()
+
+	bytesCopied, err := io.Copy(dst, src)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to restore from backup: %v", err)
+		return fmt.Errorf("failed to restore from backup: %w", err)
+	}
+
+	if err := dst.Sync(); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to sync restored database: %v", err)
+		return fmt.Errorf("failed to sync restored database: %w", err)
+	}
+
+	if err := dst.Close(); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to close restored database file: %v", err)
+		return fmt.Errorf("failed to close restored database: %w", err)
+	}
+
+	// Drop the pre-restore WAL sidecars. They hold frames for the database
+	// bytes just overwritten; replaying them over the restored file would
+	// corrupt the restore. (SQLite would usually refuse via the salt check,
+	// but the restore must not depend on that luck.)
+	for _, sidecar := range []string{dbPath + "-wal", dbPath + "-shm"} {
+		if err := os.Remove(sidecar); err != nil && !os.IsNotExist(err) {
+			logging.Get(logging.CategoryStore).Warn("Failed to remove stale sidecar %s after restore: %v", sidecar, err)
+		}
+	}
+
+	logging.Store("Database restored from backup (%d bytes)", bytesCopied)
+	return nil
+}
+
+// RunAllMigrations runs all necessary migrations to bring the database to the target version.
+func RunAllMigrations(dbPath string, targetVersion int) (*MigrationResult, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "RunAllMigrations")
+	defer timer.Stop()
+
+	startTime := time.Now()
+	result := &MigrationResult{
+		Warnings: make([]string, 0),
+	}
+
+	logging.Store("Starting migration process for database: %s", dbPath)
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to open database for migration: %v", err)
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+	// closeDB is idempotent: a failed migration closes the handle before the
+	// restore overwrites the file under it (see the restore below).
+	dbClosed := false
+	closeDB := func() error {
+		if dbClosed {
+			return nil
+		}
+		dbClosed = true
+		return db.Close()
+	}
+	defer func() { _ = closeDB() }()
+	ApplyDefaultPragmas(db, ProfileBulkBuild)
+
+	currentVersion, err := getSchemaVersion(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect schema version: %w", err)
+	}
+	result.FromVersion = currentVersion
+	result.ToVersion = targetVersion
+
+	logging.Store("Database at version %d, target version %d", currentVersion, targetVersion)
+
+	if currentVersion >= targetVersion {
+		logging.Store("Database already at version %d, no migration needed", currentVersion)
+		result.Duration = time.Since(startTime)
+		return result, nil
+	}
+
+	// Create backup before migration
+	logging.StoreDebug("Creating pre-migration backup")
+	backupPath, err := CreateBackup(dbPath)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to create backup before migration: %v", err)
+		return nil, fmt.Errorf("failed to create backup: %w", err)
+	}
+	result.BackupPath = backupPath
+
+	migrationSuccess := false
+	defer func() {
+		if !migrationSuccess {
+			logging.Get(logging.CategoryStore).Warn("Migration failed, restoring from backup")
+			// Close first. The bulk-build handle runs in WAL with a wide
+			// checkpoint window and a large mmap: while it is open the failed
+			// migration's pages sit in its WAL, Windows refuses to truncate a
+			// mapped file, and a later Close would checkpoint those pages over
+			// the restored bytes.
+			if closeErr := closeDB(); closeErr != nil {
+				logging.Get(logging.CategoryStore).Error("Failed to close database before restore: %v", closeErr)
+			}
+			if restoreErr := RestoreBackup(dbPath, backupPath); restoreErr != nil {
+				logging.Get(logging.CategoryStore).Error("Failed to restore backup after migration failure: %v", restoreErr)
+			} else {
+				logging.Store("Database restored from backup after migration failure")
+			}
+		}
+	}()
+
+	// Non-knowledge DBs (e.g. *_learnings.db) have no knowledge_atoms table.
+	// They use LearningStore.initializeSchema, not knowledge migrations.
+	// Stamping current version avoids "unknown migration: v0 -> v1" + backup thrash.
+	knowledgeAtomsExists, err := tableExistsStrict(db, "knowledge_atoms")
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect knowledge_atoms table: %w", err)
+	}
+	if currentVersion == 0 && !knowledgeAtomsExists {
+		logging.Store("Skipping knowledge migrations for non-knowledge DB (no knowledge_atoms): %s", dbPath)
+		if err := SetSchemaVersion(db, targetVersion); err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("stamp version: %v", err))
+		}
+		migrationSuccess = true
+		result.Duration = time.Since(startTime)
+		return result, nil
+	}
+
+	// Run migrations sequentially
+	for v := currentVersion; v < targetVersion; v++ {
+		nextVersion := v + 1
+		logging.Store("Running migration v%d -> v%d", v, nextVersion)
+
+		var migrationErr error
+		switch nextVersion {
+		case 1:
+			// v0→v1: baseline knowledge schema already created by app bootstrap.
+			// No structural change required — just allow version to advance.
+			migrationErr = nil
+		case 2:
+			migrationErr = MigrateV1ToV2(db)
+		case 3:
+			migrationErr = MigrateV2ToV3(db)
+		case 4:
+			migrationErr = MigrateV3ToV4(db)
+		default:
+			migrationErr = fmt.Errorf("unknown migration: v%d -> v%d", v, nextVersion)
+		}
+
+		if migrationErr != nil {
+			logging.Get(logging.CategoryStore).Error("Migration v%d -> v%d failed: %v", v, nextVersion, migrationErr)
+			return nil, fmt.Errorf("migration v%d -> v%d failed: %w", v, nextVersion, migrationErr)
+		}
+
+		logging.StoreDebug("Migration v%d -> v%d completed successfully", v, nextVersion)
+		result.MigrationsRun++
+	}
+
+	migrationSuccess = true
+
+	// Record schema version
+	if err := SetSchemaVersion(db, targetVersion); err != nil {
+		logging.Get(logging.CategoryStore).Warn("Failed to record schema version: %v", err)
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to record schema version: %v", err))
+	}
+
+	// Backfill content hashes if we migrated to v4
+	if targetVersion >= 4 && currentVersion < 4 {
+		logging.StoreDebug("Backfilling content hashes for v4 migration")
+		hashCount, err := BackfillContentHashes(db)
+		if err != nil {
+			logging.Get(logging.CategoryStore).Warn("Hash backfill had issues: %v", err)
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Hash backfill had issues: %v", err))
+		}
+		result.HashesComputed = hashCount
+	}
+
+	result.Duration = time.Since(startTime)
+	logging.Store("Migration complete: v%d -> v%d in %v (migrations=%d, hashes=%d)",
+		currentVersion, targetVersion, result.Duration, result.MigrationsRun, result.HashesComputed)
+
+	return result, nil
+}
+
+// MigrateKnowledgeDB is the main entry point for migrating a knowledge database.
+func MigrateKnowledgeDB(dbPath string) (*MigrationResult, error) {
+	logging.Store("MigrateKnowledgeDB called for: %s (target=v%d)", dbPath, CurrentSchemaVersion)
+	return RunAllMigrations(dbPath, CurrentSchemaVersion)
+}
+
+// CheckMigrationNeeded returns true if the database needs migration.
+func CheckMigrationNeeded(dbPath string) (bool, int, error) {
+	logging.StoreDebug("Checking if migration needed for: %s", dbPath)
+
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		logging.StoreDebug("Database does not exist: %s", dbPath)
+		return false, 0, nil
+	}
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to open database for migration check: %v", err)
+		return false, 0, fmt.Errorf("failed to open database: %w", err)
+	}
+	defer db.Close()
+	ApplyDefaultPragmas(db, ProfileQuery)
+
+	currentVersion, err := getSchemaVersion(db)
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to inspect schema version: %w", err)
+	}
+	needed := currentVersion < CurrentSchemaVersion
+	logging.StoreDebug("Migration check: current=v%d, target=v%d, needed=%v", currentVersion, CurrentSchemaVersion, needed)
+	return needed, currentVersion, nil
+}
+
+// MigrateAllAgentDBs migrates all agent knowledge databases in the shards directory.
+func MigrateAllAgentDBs(nerdDir string) (map[string]*MigrationResult, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "MigrateAllAgentDBs")
+	defer timer.Stop()
+
+	shardsDir := filepath.Join(nerdDir, "shards")
+	results := make(map[string]*MigrationResult)
+
+	logging.Store("Scanning for agent databases in: %s", shardsDir)
+
+	if _, err := os.Stat(shardsDir); os.IsNotExist(err) {
+		logging.StoreDebug("Shards directory does not exist: %s", shardsDir)
+		return results, nil
+	}
+
+	entries, err := os.ReadDir(shardsDir)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to read shards directory: %v", err)
+		return nil, fmt.Errorf("failed to read shards directory: %w", err)
+	}
+
+	logging.StoreDebug("Found %d entries in shards directory", len(entries))
+
+	migratedCount := 0
+	skippedCount := 0
+	failedCount := 0
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if filepath.Ext(name) != ".db" {
+			continue
+		}
+		// Learning stores (*_learnings.db) are not knowledge schema DBs.
+		if strings.HasSuffix(name, "_learnings.db") {
+			logging.StoreDebug("Skipping learnings DB in knowledge migration scan: %s", name)
+			skippedCount++
+			continue
+		}
+
+		dbPath := filepath.Join(shardsDir, name)
+		agentName := name[:len(name)-3]
+
+		logging.StoreDebug("Checking agent database: %s", agentName)
+
+		needed, currentVersion, err := CheckMigrationNeeded(dbPath)
+		if err != nil {
+			logging.Get(logging.CategoryStore).Warn("Failed to check migration for %s: %v", name, err)
+			failedCount++
+			continue
+		}
+
+		if !needed {
+			logging.Store("Agent DB %s already at v%d, no migration needed", agentName, currentVersion)
+			skippedCount++
+			continue
+		}
+
+		logging.Store("Migrating agent DB %s from v%d to v%d", agentName, currentVersion, CurrentSchemaVersion)
+
+		result, err := MigrateKnowledgeDB(dbPath)
+		if err != nil {
+			logging.Get(logging.CategoryStore).Error("Migration failed for %s: %v", agentName, err)
+			results[agentName] = &MigrationResult{
+				FromVersion: currentVersion,
+				ToVersion:   CurrentSchemaVersion,
+				Warnings:    []string{fmt.Sprintf("Migration failed: %v", err)},
+			}
+			failedCount++
+			continue
+		}
+
+		results[agentName] = result
+		migratedCount++
+	}
+
+	logging.Store("Agent DB migration scan complete: migrated=%d, skipped=%d, failed=%d",
+		migratedCount, skippedCount, failedCount)
+
+	return results, nil
+}

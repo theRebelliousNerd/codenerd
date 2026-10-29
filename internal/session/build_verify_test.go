@@ -1,0 +1,129 @@
+package session
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// F-VERIFY-1: the executor never compiled its own edits, so a turn could write
+// four compile errors and still assert task_status(/manual_instruction,
+// /complete) with exit 0. These tests pin the gate that stops that.
+
+// A verification that did not run must never be reported as a pass. This is the
+// distinction that keeps the gate honest: BuildVerification{Ran:false} means
+// "unknown", and callers treat it as such.
+func TestVerifyBuild_EmptyWorkspaceDoesNotRun(t *testing.T) {
+	v := verifyBuild(context.Background(), "  ", nil)
+	if v.Ran {
+		t.Error("verifyBuild claimed to run against an empty workspace path")
+	}
+	if v.OK {
+		t.Error("a verification that did not run must not report OK")
+	}
+}
+
+// The real gate: a package that does not compile must come back Ran && !OK,
+// with the compiler's own message available to hand to the repair round.
+func TestVerifyBuild_DetectsBrokenPackage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles a throwaway package")
+	}
+	ws := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(ws, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	write("go.mod", "module verifyprobe\n\ngo 1.21\n")
+
+	write("main.go", "package main\n\nfunc main() {}\n")
+	if v := verifyBuild(context.Background(), ws, nil); !v.Ran || !v.OK {
+		t.Fatalf("healthy package reported Ran=%v OK=%v output=%q", v.Ran, v.OK, v.Output)
+	}
+
+	// Exactly the mistake observed live: a call to a helper that was planned
+	// but never written.
+	write("main.go", "package main\n\nfunc main() { neverWritten() }\n")
+	v := verifyBuild(context.Background(), ws, nil)
+	if !v.Ran {
+		t.Fatal("verification did not run against a broken package")
+	}
+	if v.OK {
+		t.Fatal("verification passed a package that does not compile")
+	}
+	if !strings.Contains(v.Output, "neverWritten") {
+		t.Errorf("compiler output does not name the offending symbol, so the repair round has nothing to work from: %q", v.Output)
+	}
+}
+
+func TestBuildRepairPrompt_CarriesTheCompilerOutput(t *testing.T) {
+	out := "cmd/nerd/cmd_instruction.go:362:23: undefined: regexp"
+	p := buildRepairPrompt(out, []string{"cmd/nerd/cmd_instruction.go"})
+
+	if !strings.Contains(p, out) {
+		t.Error("repair prompt drops the compiler output, which is the only thing that makes the round useful")
+	}
+	// The prompt must state the failure, not ask whether one occurred — the
+	// compiler already decided.
+	if !strings.Contains(strings.ToLower(p), "do not compile") {
+		t.Error("repair prompt does not state the failure as fact")
+	}
+	// Naming the three observed mistake classes is the difference between a
+	// generic retry and a targeted one.
+	for _, want := range []string{"imported and not used", "no new variables on left side of :=", "undefined:"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("repair prompt does not name the %q mistake class", want)
+		}
+	}
+}
+
+// Dogfood run 5: the repair edited another agent's files because the prompt
+// pointed it at the compiler's files with no notion of its own. The prompt
+// names the write set and says failures outside it are not the turn's to
+// fix; the episode's guard enforces the same boundary.
+func TestBuildRepairPrompt_NamesTheWriteSet(t *testing.T) {
+	p := buildRepairPrompt("other/other.go:1:1: undefined: x", []string{"mine/a.go", "mine/b.go"})
+	for _, want := range []string{"mine/a.go", "mine/b.go", "not this turn's to fix"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("repair prompt does not carry %q:\n%s", want, p)
+		}
+	}
+}
+
+// The gate must not be silently disabled by a construction site that forgets to
+// set WorkspaceRoot. Both campaign executors do exactly that, and campaigns are
+// where the write volume is — a bare field read would report "verification
+// skipped" forever while the feature looked enabled.
+func TestWorkspaceForVerification_FallsBackWhenConfigIsEmpty(t *testing.T) {
+	e := &Executor{config: DefaultExecutorConfig()}
+	if e.config.WorkspaceRoot != "" {
+		t.Fatalf("precondition: DefaultExecutorConfig should not carry a workspace, got %q", e.config.WorkspaceRoot)
+	}
+
+	got := e.workspaceForVerification()
+	if got == "" {
+		t.Fatal("workspaceForVerification returned empty from within a real workspace; the build gate would be inert on the campaign paths")
+	}
+	if _, err := os.Stat(filepath.Join(got, "go.mod")); err != nil {
+		t.Errorf("resolved workspace %q does not look like a Go module root: %v", got, err)
+	}
+}
+
+func TestWorkspaceForVerification_PrefersExplicitConfig(t *testing.T) {
+	want := t.TempDir()
+	cfg := DefaultExecutorConfig()
+	cfg.WorkspaceRoot = want
+	e := &Executor{config: cfg}
+
+	want, err := filepath.EvalSymlinks(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := e.workspaceForVerification(); got != want {
+		t.Errorf("workspaceForVerification() = %q; want the explicitly configured %q", got, want)
+	}
+}

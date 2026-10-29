@@ -1,0 +1,279 @@
+# Refactoring Anti-Hallucination Guards
+# Prevents common AI refactoring mistakes and hallucinations
+# Critical safety atoms for AI coding agents
+
+- id: "hallucination/refactoring/behavior_changes"
+  category: "hallucination"
+  subcategory: "refactoring"
+  is_mandatory: true
+  intent_verbs: ["/refactor"]
+  content: |
+    ## CRITICAL: REFACTORING IS NOT REWRITING
+
+    ### THE CARDINAL SIN: Changing Behavior During Refactoring
+    Refactoring MUST preserve observable behavior. If you change what the code does,
+    you are NOT refactoring - you are making a behavior change that requires:
+    - Explicit user approval
+    - Separate commit from structural changes
+    - Updated tests for new behavior
+
+    ### HALLUCINATION: "Improving" Error Messages
+    ```
+    // WRONG: This is a behavior change!
+    // Before
+    return errors.New("invalid input")
+    // "Refactored" (ACTUALLY CHANGED BEHAVIOR)
+    return fmt.Errorf("invalid input: expected positive number, got %d", n)
+    ```
+    Error messages are observable behavior. Changing them may break:
+    - Error parsing in callers
+    - Log monitoring alerts
+    - User-facing error displays
+    - Test assertions
+
+    ### HALLUCINATION: "Optimizing" While Refactoring
+    ```
+    // WRONG: This changes performance characteristics
+    // Before: Allocates new slice every call
+    func GetItems() []Item { return append([]Item{}, s.items...) }
+    // "Refactored" (ACTUALLY OPTIMIZATION)
+    func GetItems() []Item { return s.items }  // Now returns reference!
+    ```
+    - Refactoring is NOT optimization
+    - Performance changes are behavior changes
+    - Returning reference vs copy is semantically different
+
+- id: "hallucination/refactoring/behavior_changes/validation-and-edge-cases"
+  section_of: "hallucination/refactoring/behavior_changes"
+  section_order: 1
+  category: "hallucination"
+  subcategory: "refactoring"
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## CRITICAL: REFACTORING IS NOT REWRITING (continued)
+
+    ### HALLUCINATION: Adding "Missing" Validation
+    ```
+    // WRONG: Adding validation is adding behavior
+    // Before
+    func Process(items []Item) { for _, i := range items { ... } }
+    // "Refactored" (ACTUALLY NEW FEATURE)
+    func Process(items []Item) {
+        if len(items) == 0 { return }  // NEW BEHAVIOR!
+        for _, i := range items { ... }
+    }
+    ```
+
+    ### HALLUCINATION: "Fixing" Edge Cases
+    ```
+    // WRONG: Handling nil is a behavior change
+    // Before (panics on nil)
+    func (u *User) Name() string { return u.name }
+    // "Refactored" (ACTUALLY BUG FIX)
+    func (u *User) Name() string {
+        if u == nil { return "" }  // NEW BEHAVIOR!
+        return u.name
+    }
+    ```
+    If the original code panics on nil, the "refactored" version must too.
+    Fixing the panic requires explicit /fix intent, not /refactor.
+
+- id: "hallucination/refactoring/scope_creep"
+  category: "hallucination"
+  subcategory: "refactoring"
+  is_mandatory: true
+  intent_verbs: ["/refactor"]
+  content: |
+    ## HALLUCINATION: SCOPE CREEP IN REFACTORING
+
+    ### "While I'm Here" Anti-Pattern
+    NEVER make additional changes because you notice them while refactoring.
+    ```
+    // User asked: Rename function foo to bar
+    // WRONG response:
+    "I renamed foo to bar, and while I was there I:
+    - Fixed a typo in a comment
+    - Reformatted the file
+    - Added error handling
+    - Updated the tests to be cleaner"
+    ```
+    Each of these is a SEPARATE change requiring SEPARATE approval.
+
+    ### "Better Design" Over-Engineering
+    ```
+    // User asked: Extract method for validation logic
+    // WRONG response:
+    "I extracted the validation, and since we're refactoring I:
+    - Created a Validator interface
+    - Added a ValidatorFactory
+    - Implemented the Strategy pattern
+    - Added dependency injection"
+    ```
+    User asked for one thing. Deliver one thing.
+
+    ### "Cleanup" Without Permission
+    ```
+    // User asked: Simplify this conditional
+    // WRONG response:
+    "I simplified the conditional and also:
+    - Removed unused imports
+    - Deleted commented-out code
+    - Renamed variables for clarity"
+    ```
+    These may be good changes, but they weren't requested.
+
+    ### The Single Change Rule
+    Each refactoring request should result in:
+    - ONE type of change
+    - ONE commit (or atomic set of commits)
+    - ONE verification cycle
+
+    If you see other improvements, PROPOSE them separately.
+
+- id: "hallucination/refactoring/chesterton_fence"
+  category: "hallucination"
+  subcategory: "refactoring"
+  is_mandatory: true
+  intent_verbs: ["/refactor"]
+  content: |
+    ## HALLUCINATION: VIOLATING CHESTERTON'S FENCE
+
+    ### The Principle
+
+    "Don't remove a fence until you understand why it was put there."
+    - G.K. Chesterton
+
+    Applied to code: Don't remove/change code you don't understand.
+
+    ### HALLUCINATION: "Dead Code" That Isn't
+
+    ```
+    // WRONG assumption
+    // "This function is never called, deleting it"
+    func handleLegacyFormat(data []byte) { ... }
+
+    // Reality: Called via reflection, config, or external system
+    // Or: Required for backwards compatibility
+    // Or: Used in production but not in tests
+    ```
+
+    ### HALLUCINATION: "Unnecessary" Complexity
+
+    ```
+    // WRONG assumption
+    // "This nil check is unnecessary, simplifying"
+    if config != nil && config.EnableFeature {
+        // feature code
+    }
+    // "Refactored" to:
+    if config.EnableFeature {  // PANIC on nil!
+        // feature code
+    }
+    ```
+
+- id: "hallucination/refactoring/chesterton_fence/hallucination-unused-parameters"
+  section_of: "hallucination/refactoring/chesterton_fence"
+  section_order: 1
+  category: "hallucination"
+  subcategory: "refactoring"
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    *Part of: HALLUCINATION: VIOLATING CHESTERTON'S FENCE*
+
+    ### HALLUCINATION: "Unused" Parameters
+
+    ```
+    // WRONG assumption
+    // "ctx is never used, removing"
+    func Process(ctx context.Context, data []byte) error {
+        // ... (ctx not visibly used)
+        return doWork(data)
+    }
+
+    // Reality: ctx may be used for:
+    // - Future cancellation support
+    // - Interface compliance
+    // - Tracing/logging in production
+    // - Passed to dependencies
+    ```
+
+    ### The Investigation Protocol
+
+    Before removing "unnecessary" code:
+    1. Search for all references (including reflection, strings)
+    2. Check git blame for why it was added
+    3. Look for associated tests
+    4. Search for documentation/comments
+    5. Ask if unsure (propose removal, don't execute)
+
+    ### Safe vs Unsafe Removals
+
+    **Safe to remove:**
+    - Code in `if false { }` blocks
+    - Commented-out code (git has history)
+    - Functions that fail static unreachable analysis
+
+    **Unsafe to remove without investigation:**
+    - Exported functions (may have external callers)
+    - Functions matching interface methods
+    - Anything with `//nolint` or similar annotations
+    - Code with explanatory comments
+
+- id: "hallucination/refactoring/timing_semantics"
+  category: "hallucination"
+  subcategory: "refactoring"
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## HALLUCINATION: TIMING AND ORDERING CHANGES
+
+    ### Initialization Order
+
+    ```
+    // NOT equivalent
+    // Before
+    var (
+        config = loadConfig()
+        db = connectDB(config)
+    )
+
+    // "Refactored" (DIFFERENT order in some languages!)
+    var db = connectDB(config)
+    var config = loadConfig()
+    ```
+
+    ### Deferred Execution Order
+
+    ```
+    // Go defers execute LIFO
+    func Process() {
+        defer cleanup1()
+        defer cleanup2()
+        // cleanup2 runs first, then cleanup1
+    }
+
+    // "Refactored" (WRONG!)
+    func Process() {
+        defer func() {
+            cleanup1()
+            cleanup2()  // Now cleanup1 runs first!
+        }()
+    }
+    ```
+
+    ### Goroutine/Thread Creation
+
+    ```
+    // NOT equivalent
+    // Before: Sequential
+    result1 := compute1()
+    result2 := compute2()
+
+    // "Refactored" for "parallelism" (DIFFERENT!)
+    go func() { result1 = compute1() }()
+    go func() { result2 = compute2() }()
+    // Now order is non-deterministic!
+    ```
+

@@ -1,0 +1,107 @@
+package system_test
+
+import (
+	"codenerd/internal/core"
+	"codenerd/internal/system"
+	"codenerd/internal/tactile"
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestCodeDOM_Mangle_EndToEnd(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".nerd", "mangle"), 0755); err != nil {
+		t.Fatalf("mkdir .nerd: %v", err)
+	}
+
+	demoFile := filepath.Join(ws, "demo.mg")
+	demo := `Decl parent(A.Type<name>, B.Type<name>).
+parent(/a, /b).
+ancestor(X, Y) :-
+    parent(X, Y).
+`
+	if err := os.WriteFile(demoFile, []byte(demo), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	t.Chdir(ws)
+
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("kernel: %v", err)
+	}
+	kernel.SetWorkspace(ws)
+
+	executor := tactile.NewDirectExecutor()
+	vsCfg := core.DefaultVirtualStoreConfig()
+	vsCfg.WorkingDir = ws
+	vs := core.NewVirtualStoreWithConfig(executor, vsCfg)
+	vs.SetKernel(kernel)
+	vs.DisableBootGuard()
+
+	scope := system.NewHolographicCodeScope(ws, kernel, nil, 0)
+	vs.SetCodeScope(scope)
+
+	fileEditor := tactile.NewFileEditor()
+	fileEditor.SetWorkingDir(ws)
+	vs.SetFileEditor(core.NewTactileFileEditorAdapter(fileEditor))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if _, err := routePermittedAction(t, ctx, vs, kernel, core.Fact{Predicate: "next_action", Args: []any{"test-open", "/open_file", demoFile}}); err != nil {
+		t.Fatalf("open_file: %v", err)
+	}
+	if got := countFacts(t, kernel, "file_in_scope"); got < 1 {
+		t.Fatalf("expected file_in_scope >= 1, got %d", got)
+	}
+	if got := countFacts(t, kernel, "code_element"); got == 0 {
+		t.Fatalf("expected code_element > 0")
+	}
+
+	ref := "rule:ancestor/2#1"
+	newRule := "ancestor(X, Y) :-\n\tparent(X, Y).\n"
+	if _, err := routePermittedAction(t, ctx, vs, kernel, core.Fact{
+		Predicate: "next_action",
+		Args: []any{
+			"test-edit",
+			"/edit_element",
+			ref,
+			map[string]any{"content": newRule},
+		},
+	}); err != nil {
+		t.Fatalf("edit_element: %v", err)
+	}
+
+	afterJSON, err := routePermittedAction(t, ctx, vs, kernel, core.Fact{
+		Predicate: "next_action",
+		Args: []any{
+			"test-get",
+			"/get_element",
+			ref,
+			map[string]any{"include_body": true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("get_element: %v", err)
+	}
+	var after core.CodeElement
+	if err := json.Unmarshal([]byte(afterJSON), &after); err != nil {
+		t.Fatalf("unmarshal get_element: %v", err)
+	}
+	if !strings.Contains(after.Body, "\tparent(X, Y).") {
+		t.Fatalf("expected edited body to contain %q", "\tparent(X, Y).")
+	}
+
+	if _, err := routePermittedAction(t, ctx, vs, kernel, core.Fact{Predicate: "next_action", Args: []any{"test-close", "/close_scope", ""}}); err != nil {
+		t.Fatalf("close_scope: %v", err)
+	}
+	if got := countFacts(t, kernel, "code_element"); got != 0 {
+		t.Fatalf("expected code_element to be cleared after close_scope, got %d", got)
+	}
+}

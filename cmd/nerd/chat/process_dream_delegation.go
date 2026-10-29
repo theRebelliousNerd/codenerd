@@ -1,0 +1,555 @@
+package chat
+
+import (
+	"codenerd/internal/broker"
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"codenerd/internal/articulation"
+	"codenerd/internal/config"
+	"codenerd/internal/core"
+	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
+	"codenerd/internal/types"
+	"codenerd/internal/world"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// kernelClarification reads the question and options the kernel derived for
+// the current intent (clarification.mg), for a turn whose route is /clarify.
+// It decides nothing: whether to ask is the lane's.
+func (m Model) kernelClarification() (string, []string, bool) {
+	if m.kernel == nil {
+		return "", nil, false
+	}
+
+	intentID := "/current_intent"
+	question := ""
+	if facts, err := m.kernel.Query("clarification_question"); err == nil {
+		for _, f := range facts {
+			if len(f.Args) < 2 {
+				continue
+			}
+			if types.ExtractString(f.Args[0]) != intentID {
+				continue
+			}
+			if q, ok := f.Args[1].(string); ok {
+				question = q
+			} else {
+				question = types.ExtractString(f.Args[1])
+			}
+			break
+		}
+	}
+	if question == "" {
+		if facts, err := m.kernel.Query("awaiting_clarification"); err == nil && len(facts) > 0 {
+			if len(facts[0].Args) > 0 {
+				if q, ok := facts[0].Args[0].(string); ok {
+					question = q
+				} else {
+					question = types.ExtractString(facts[0].Args[0])
+				}
+			}
+		}
+	}
+	if question == "" {
+		return "", nil, false
+	}
+
+	options := make([]string, 0)
+	seen := make(map[string]struct{})
+	if facts, err := m.kernel.Query("clarification_option"); err == nil {
+		for _, f := range facts {
+			if len(f.Args) < 3 {
+				continue
+			}
+			if types.ExtractString(f.Args[0]) != intentID {
+				continue
+			}
+			verb := types.ExtractString(f.Args[1])
+			label := types.ExtractString(f.Args[2])
+			option := verb
+			if label != "" && label != "<nil>" {
+				option = fmt.Sprintf("%s (%s)", label, verb)
+			}
+			if _, ok := seen[option]; ok {
+				continue
+			}
+			seen[option] = struct{}{}
+			options = append(options, option)
+		}
+	}
+
+	return question, options, true
+}
+
+func (m Model) needsWorkspaceScanForDelegation(intent perception.Intent) bool {
+	if intent.Category != "/query" && intent.Category != "/mutation" {
+		return false
+	}
+	return perception.GetShardTypeForVerb(intent.Verb) != ""
+}
+
+func (m Model) loadWorkspaceFacts(ctx context.Context, intent perception.Intent, warnings *[]string) bool {
+	if m.scanner == nil || m.kernel == nil {
+		return false
+	}
+	if intent.Category != "/query" && intent.Category != "/mutation" {
+		return false
+	}
+
+	res, err := m.scanner.ScanWorkspaceIncremental(ctx, m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: true})
+	if err != nil {
+		if warnings != nil {
+			*warnings = append(*warnings, fmt.Sprintf("Workspace scan skipped: %v", err))
+		}
+		return false
+	}
+	if res == nil {
+		return true
+	}
+
+	if applyErr := world.ApplyIncrementalResult(m.kernel, res); applyErr != nil {
+		if warnings != nil {
+			*warnings = append(*warnings, fmt.Sprintf("Workspace apply skipped: %v", applyErr))
+		}
+		return true
+	}
+	if res.Unchanged || len(res.NewFacts) == 0 {
+		return true
+	}
+
+	if m.virtualStore != nil {
+		if err := m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 5); err != nil && warnings != nil {
+			*warnings = append(*warnings, fmt.Sprintf("Knowledge persistence warning: %v", err))
+		}
+		if err := m.virtualStore.PersistLinkFacts(res.NewFacts, "scan"); err != nil && warnings != nil {
+			*warnings = append(*warnings, fmt.Sprintf("Knowledge graph warning: %v", err))
+		}
+	}
+
+	return true
+}
+
+// systemExecutionResult holds the result of a system action execution.
+type systemExecutionResult struct {
+	ActionID   string
+	ActionType string
+	Target     string
+	Success    bool
+	Output     string
+	Timestamp  int64
+}
+
+// handleSystemDelegations turns the turn's system-action outcomes into a reply.
+// The second result is the typed blockers: actions whose routing failed and
+// which never ran. When no reply is produced they ride into the articulation
+// call as warnings, so the answer is not written as though the action ran.
+func (m Model) handleSystemDelegations(ctx context.Context, input string, intent perception.Intent, base systemResultBaseline) (tea.Msg, []string) {
+	if m.kernel == nil || m.shardMgr == nil {
+		return nil, nil
+	}
+
+	delegateFacts, _ := m.kernel.Query("delegate_task")
+	routingFacts := m.newSystemResults("routing_result", base)
+	execFacts := m.newSystemResults("execution_result", base)
+	if len(execFacts) == 0 && shouldWaitForSystemResults(intent, len(delegateFacts) > 0) {
+		routingFacts, execFacts = m.waitForSystemResults(ctx, base, 1200*time.Millisecond)
+	}
+	blockers := unroutedActions(routingFacts, execFacts)
+
+	executions := parseExecutionResults(execFacts)
+	if msg := m.buildResponseFromExecutions(ctx, input, intent, delegateFacts, executions, base); msg != nil {
+		return msg, nil
+	}
+
+	if len(delegateFacts) == 0 {
+		return nil, blockers
+	}
+
+	return m.executeDelegateTaskFallback(ctx, input, intent, delegateFacts, base), nil
+}
+
+func shouldWaitForSystemResults(intent perception.Intent, hasDelegations bool) bool {
+	if hasDelegations {
+		return true
+	}
+	if perception.GetShardTypeForVerb(intent.Verb) != "" {
+		return true
+	}
+	switch intent.Verb {
+	case "/read", "/search", "/run", "/test", "/diff", "/git", "/build":
+		return true
+	default:
+		return false
+	}
+}
+
+func (m Model) buildResponseFromExecutions(ctx context.Context, input string, intent perception.Intent, delegateFacts []core.Fact, executions []systemExecutionResult, base systemResultBaseline) tea.Msg {
+	if len(executions) == 0 {
+		return nil
+	}
+
+	sort.Slice(executions, func(i, j int) bool {
+		return executions[i].Timestamp > executions[j].Timestamp
+	})
+
+	for _, exec := range executions {
+		actionType := normalizeActionType(exec.ActionType)
+		if actionType == "" {
+			continue
+		}
+
+		if actionType == "run_tests" {
+			surface := m.formatInterpretedResult(ctx, input, "tester", "run_tests", exec.Output, "")
+			return assistantMsg{
+				Surface: m.appendSystemSummary(surface, m.collectSystemSummary(ctx, base)),
+			}
+		}
+
+		shardType := actionTypeToShardType(actionType, exec.Target)
+		if shardType == "" {
+			task := strings.TrimSpace(strings.Join([]string{actionType, exec.Target}, " "))
+			if task == "" {
+				task = "system_action"
+			}
+			surface := m.formatInterpretedResult(ctx, input, "system", task, exec.Output, "")
+			return assistantMsg{
+				Surface: m.appendSystemSummary(surface, m.collectSystemSummary(ctx, base)),
+			}
+		}
+
+		task := m.resolveDelegateTask(shardType, delegateFacts, intent, m.lastShardResult)
+		if task == "" {
+			task = exec.Target
+		}
+
+		surface := m.formatDelegationOutput(ctx, input, shardType, task, exec.Output)
+		payload := m.buildShardResultPayload(shardType, task, exec.Output, nil)
+		if payload != nil && m.kernel != nil && len(payload.Facts) > 0 {
+			_ = m.kernel.LoadFacts(payload.Facts)
+		}
+		return assistantMsg{
+			Surface:     m.appendSystemSummary(surface, m.collectSystemSummary(ctx, base)),
+			ShardResult: payload,
+		}
+	}
+
+	return nil
+}
+
+func (m Model) executeDelegateTaskFallback(ctx context.Context, input string, intent perception.Intent, delegateFacts []core.Fact, base systemResultBaseline) tea.Msg {
+	for _, fact := range delegateFacts {
+		shardType, taskDesc, pending := parseDelegateFact(fact)
+		if !pending || shardType == "" {
+			continue
+		}
+
+		task := m.resolveDelegateTask(shardType, delegateFacts, intent, m.lastShardResult)
+		if task == "" {
+			task = taskDesc
+		}
+		if task == "" {
+			task = "codebase"
+		}
+
+		sessionCtx := m.buildSessionContext(ctx)
+		ret, spawnErr := m.spawnTaskWithContext(ctx, shardTypeToTaskRequest(shardType, task), sessionCtx, types.PriorityHigh)
+		result := ret.Output
+		payload := m.buildShardResultPayload(shardType, task, result, spawnErr)
+		if payload != nil && m.kernel != nil && len(payload.Facts) > 0 {
+			_ = m.kernel.LoadFacts(payload.Facts)
+		}
+
+		if spawnErr != nil {
+			return errorMsg(failedDelegation("shard delegation failed", spawnErr, ret))
+		}
+
+		surface := m.formatDelegationOutput(ctx, input, shardType, task, result)
+		return assistantMsg{
+			Surface:     m.appendSystemSummary(surface, m.collectSystemSummary(ctx, base)),
+			ShardResult: payload,
+		}
+	}
+
+	return nil
+}
+
+func (m Model) buildShardResultPayload(shardType, task, result string, err error) *ShardResultPayload {
+	if m.shardMgr == nil {
+		return nil
+	}
+
+	shardID := fmt.Sprintf("%s-system-%d", shardType, time.Now().UnixNano())
+	facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
+	return &ShardResultPayload{
+		ShardType: shardType,
+		Task:      task,
+		Result:    result,
+		Facts:     facts,
+	}
+}
+
+func (m Model) formatDelegationOutput(ctx context.Context, input, shardType, task, result string) string {
+	if shardType == "reviewer" || shardType == "tester" {
+		return m.formatInterpretedResult(ctx, input, shardType, task, result, "")
+	}
+
+	header := fmt.Sprintf("## %s Result", titleWords(shardType))
+	if shardType == "" {
+		header = "## Delegated Result"
+	}
+	return fmt.Sprintf(`%s
+**Agent**: %s
+**Task**: %s
+
+### Output
+%s`, header, shardType, task, result)
+}
+
+// buildShardInterpretationPrompt is the translator's system prompt, compiled
+// from its atoms, and the user message carrying the shard's output. Without a
+// compiler, or when the compile fails, the translation cannot be asked:
+// types.ErrRolePromptUnavailable.
+func (m Model) buildShardInterpretationPrompt(ctx context.Context, input, shardType, task, result string) (string, string, error) {
+	userPrompt := fmt.Sprintf(`USER REQUEST (ANSWER THIS):
+%s
+
+You are translating shard output into a clear, user-facing answer.
+Requirements:
+- Start with a direct answer in 1-3 sentences.
+- If the request asks for the biggest/main issue, identify the single highest-impact issue (or say none found).
+- Summarize key evidence from the output without dumping raw logs.
+- Provide 3-7 concrete next steps or checks.
+- Call out uncertainty if the output is incomplete.
+
+SHARD TYPE: %s
+TASK: %s
+OUTPUT:
+%s
+`, input, shardType, task, result)
+
+	if m.jitCompiler == nil {
+		return "", "", fmt.Errorf("%w: shard output translator: no JIT compiler", types.ErrRolePromptUnavailable)
+	}
+	semanticQuery := fmt.Sprintf("Translate %s shard output into actionable summary", normalizeShardType(shardType))
+	// Derive the JIT budget from the user's actual context-window config
+	// instead of hardcoding 12000/2000. Earlier the hardcode produced
+	// AvailableTokens=10000 — too small to seat all mandatory atoms on
+	// a model like Gemini 3.5-flash (1M context, 65K output reserve),
+	// so mandatory atoms in late categories were being dropped at the
+	// "exceeds total budget" check (.nerd/logs/2026-05-28_context.log:138-186).
+	tokenBudget, reservedTokens := translatorJITBudget(m.Config)
+	cc := prompt.NewCompilationContext().
+		WithOperationalMode("/active").
+		WithIntent("/translate", "").
+		WithShard("/analysis_translator", "analysis_translator", "Analysis Translator").
+		WithTokenBudget(tokenBudget, reservedTokens).
+		WithSemanticQuery(semanticQuery, 8)
+
+	// AvailableTools stays empty on purpose: the translator never calls
+	// tools -- interpretShardOutput sends this prompt through
+	// CompleteWithSystem and publishes the answer as user-facing prose -- so
+	// tool-gated atoms would teach tool syntax to a prompt that cannot act
+	// on it. The empty catalog here is deliberate, not an omission.
+	res, err := m.jitCompiler.Compile(ctx, cc)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: shard output translator: %w", types.ErrRolePromptUnavailable, err)
+	}
+	if res == nil || strings.TrimSpace(res.Prompt) == "" {
+		return "", "", fmt.Errorf("%w: shard output translator compiled empty", types.ErrRolePromptUnavailable)
+	}
+	return res.Prompt, userPrompt, nil
+}
+
+// translatorJITBudget derives (TokenBudget, ReservedTokens) for the
+// analysis-translator JIT compilation from the user's loaded config so
+// the prompt can seat its full mandatory-atom skeleton on large-context
+// models like Gemini 3.5-flash. Falls back to a 60k/8k pair when no
+// config is loaded — same shape as the original 12k/2k hardcode but
+// large enough that all ~30 mandatory atoms fit.
+func translatorJITBudget(cfg *config.UserConfig) (int, int) {
+	const (
+		fallbackBudget   = 60000
+		fallbackReserved = 8000
+		maxBudget        = 200000 // cap so JIT doesn't try to fit 1M tokens
+	)
+	if cfg == nil {
+		return fallbackBudget, fallbackReserved
+	}
+	ctxCfg := cfg.GetContextWindowConfig()
+	if ctxCfg.MaxTokens <= 0 {
+		return fallbackBudget, fallbackReserved
+	}
+	// Use up to one-eighth of the input window for the translator prompt
+	// (translation summaries are short; we don't need the full window).
+	budget := ctxCfg.MaxTokens / 8
+	if budget > maxBudget {
+		budget = maxBudget
+	}
+	if budget < fallbackBudget {
+		budget = fallbackBudget
+	}
+	reserved := ctxCfg.OutputReserve / 8
+	if reserved < fallbackReserved {
+		reserved = fallbackReserved
+	}
+	if reserved >= budget {
+		reserved = budget / 10
+	}
+	return budget, reserved
+}
+
+func (m Model) interpretShardOutput(ctx context.Context, input, shardType, task, result string) (string, error) {
+	if m.client == nil {
+		return "", fmt.Errorf("LLM client not initialized")
+	}
+
+	// Rephrasing a shard's output for the user is articulation: its spend was
+	// booked as unattributed until it was tagged here.
+	ctx = broker.WithPurpose(ctx, broker.PurposeArticulation)
+	systemPrompt, userPrompt, err := m.buildShardInterpretationPrompt(ctx, input, shardType, task, result)
+	if err != nil {
+		return "", err
+	}
+	interpResp, err := m.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return "", err
+	}
+
+	// Extract grounding sources if client supports it (e.g., Gemini with Google Search)
+	var groundingSources []string
+	if gp, ok := m.client.(types.GroundingProvider); ok {
+		groundingSources = gp.GetLastGroundingSources()
+	}
+
+	var interpretation string
+	processor := articulation.NewResponseProcessor()
+	if processed, procErr := processor.Process(interpResp); procErr == nil && strings.TrimSpace(processed.Surface) != "" {
+		interpretation = processed.Surface
+	} else {
+		trimmed := strings.TrimSpace(interpResp)
+		if trimmed == "" {
+			return "", fmt.Errorf("empty interpretation response")
+		}
+		interpretation = trimmed
+	}
+
+	// Append grounding sources for transparency
+	if len(groundingSources) > 0 {
+		interpretation += "\n\n**Sources:**\n"
+		for _, src := range groundingSources {
+			interpretation += fmt.Sprintf("- %s\n", src)
+		}
+	}
+
+	return interpretation, nil
+}
+
+func (m Model) formatInterpretedResult(ctx context.Context, input, shardType, task, result, warning string) string {
+	interpretation, err := m.interpretShardOutput(ctx, input, shardType, task, result)
+	if err != nil {
+		interpretation = fmt.Sprintf("Unable to interpret shard output automatically (%v). Raw output below.", err)
+	}
+
+	warning = strings.TrimSpace(warning)
+	if warning != "" {
+		interpretation = fmt.Sprintf("%s\n\n%s", interpretation, warning)
+	}
+
+	return fmt.Sprintf("%s\n\n<details><summary>Raw Output</summary>\n\n%s\n\n</details>", interpretation, result)
+}
+
+func (m Model) collectTraceShardTypes() []string {
+	candidates := []string{"coder", "tester", "reviewer", "researcher", "planner", "security"}
+	if m.lastShardResult != nil && m.lastShardResult.ShardType != "" {
+		candidates = append(candidates, m.lastShardResult.ShardType)
+	}
+	for _, sr := range m.shardResultHistory {
+		if sr != nil && sr.ShardType != "" {
+			candidates = append(candidates, sr.ShardType)
+		}
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	unique := make([]string, 0, len(candidates))
+	for _, shard := range candidates {
+		normalized := normalizeShardType(shard)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		unique = append(unique, normalized)
+	}
+
+	return unique
+}
+
+func (m Model) resolveDelegateTask(shardType string, delegateFacts []core.Fact, intent perception.Intent, priorResult *ShardResult) string {
+	task := ""
+	for _, fact := range delegateFacts {
+		parsedShard, taskDesc, pending := parseDelegateFact(fact)
+		if !pending || parsedShard != shardType {
+			continue
+		}
+		task = taskDesc
+		break
+	}
+
+	task = strings.TrimSpace(task)
+	if task == "" {
+		task = strings.TrimSpace(intent.Target)
+	}
+
+	if task == "" {
+		return ""
+	}
+
+	if strings.Contains(task, ":") || strings.Contains(task, " ") {
+		return task
+	}
+
+	verb := defaultVerbForShard(shardType)
+	if verb == "" {
+		return task
+	}
+
+	return m.formatShardTaskWithContext(verb, task, intent.Constraint, m.workspace, priorResult)
+}
+
+func defaultVerbForShard(shardType string) string {
+	switch shardType {
+	case "reviewer":
+		return "/review"
+	case "tester":
+		return "/test"
+	case "researcher":
+		return "/research"
+	case "coder":
+		return "/fix"
+	default:
+		return ""
+	}
+}
+
+// clarifyFallbackQuestion is the question asked when the kernel derives
+// /clarify and no clarifier produced wording. It names what the perceived
+// intent is missing; it does not decide that anything is missing.
+func clarifyFallbackQuestion(intent perception.Intent) string {
+	verb := strings.TrimPrefix(strings.TrimSpace(intent.Verb), "/")
+	if verb == "" {
+		verb = "do"
+	}
+	target := strings.TrimSpace(intent.Target)
+	if target == "" || target == "none" {
+		return fmt.Sprintf("I can't tell what to %s yet. Which file, symbol or behavior do you mean, and what should be true when it's done?", verb)
+	}
+	return fmt.Sprintf("Before I %s %s: what exactly should change, and what should be true when it's done?", verb, target)
+}

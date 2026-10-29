@@ -1,0 +1,565 @@
+# Cortex 1.5.0 Schemas (EDB Declarations)
+# Version: 1.5.0
+# Philosophy: Logic determines Reality; the Model merely describes it.
+
+# Modular Schema: CAMPAIGN
+# Sections: 27
+
+# =============================================================================
+# SECTION 27: CAMPAIGN ORCHESTRATION (Long-Running Goal Execution)
+# =============================================================================
+# Campaigns are long-running, multi-phase goals that can span sessions.
+# Examples: greenfield builds, large features, stability audits, migrations
+
+# -----------------------------------------------------------------------------
+# 27.1 Campaign Identity
+# -----------------------------------------------------------------------------
+
+# campaign(CampaignID, Type, Title, SourceMaterial, Status)
+# Type: /greenfield, /feature, /audit, /migration, /remediation, /custom
+# Status: /planning, /decomposing, /validating, /active, /paused, /completed, /failed
+Decl campaign(CampaignID, Type, Title, SourceMaterial, Status) bound [/string, /name, /string, /string, /name].
+
+# campaign_metadata(CampaignID, CreatedAt, EstimatedPhases, Confidence)
+# Confidence: LLM's confidence in the plan (0-100 integer scale)
+Decl campaign_metadata(CampaignID, CreatedAt, EstimatedPhases, Confidence) bound [/string, /number, /number, /number].
+
+# campaign_goal(CampaignID, GoalDescription)
+# The high-level goal in natural language
+Decl campaign_goal(CampaignID, GoalDescription) bound [/string, /string].
+
+# The campaign's knobs reach its rules as config_param(/campaign_<field>, V)
+# (policy/config_params.mg), from the campaign section of .nerd/config.json.
+# campaign_config/5 and failed_campaign_task_count_computed/2 were a one-off
+# bridge whose values were Go defaults and a count Go kept itself; their only
+# reader was a replan_needed rule whose only reader was a Path-B stub.
+
+# -----------------------------------------------------------------------------
+# 27.2 Phase Decomposition (LLM + Mangle Collaboration)
+# -----------------------------------------------------------------------------
+
+# campaign_phase(PhaseID, CampaignID, Name, Order, Status, ContextProfile)
+# Status: /pending, /in_progress, /completed, /failed, /skipped
+# ContextProfile: ID referencing what context this phase needs
+Decl campaign_phase(PhaseID, CampaignID, Name, Order, Status, ContextProfile) bound [/string, /string, /string, /number, /name, /string].
+
+# phase_objective(PhaseID, ObjectiveType, Description, VerificationMethod)
+# ObjectiveType: /create, /modify, /test, /research, /validate, /integrate, /review
+# VerificationMethod: /tests_pass, /builds, /manual_review, /shard_validation, /none
+Decl phase_objective(PhaseID, ObjectiveType, Description, VerificationMethod) bound [/string, /name, /string, /name].
+
+# phase_category(PhaseID, Category) - architectural layer classification for build topology
+Decl phase_category(PhaseID, Category) bound [/string, /name].
+
+# build_phase_type(Category, Priority) - canonical build layers (lower number executes first)
+Decl build_phase_type(Category, Priority) bound [/name, /number].
+
+# phase_synonym(Category, Alias) - natural language aliases for categories
+Decl phase_synonym(Category, Alias) bound [/name, /string].
+
+# phase_precedence(PhaseID, PriorityScore) - derived precedence per phase
+Decl phase_precedence(PhaseID, PriorityScore) bound [/string, /number].
+
+# phase_dependency(PhaseID, DependsOnPhaseID, DependencyType)
+# DependencyType: /hard (must complete), /soft (preferred), /artifact (needs output)
+Decl phase_dependency(PhaseID, DependsOnPhaseID, DependencyType) bound [/string, /string, /name] inclusion [campaign_phase_id(PhaseID), campaign_phase_id(DependsOnPhaseID)].
+
+# phase_estimate(PhaseID, EstimatedTasks, EstimatedComplexity)
+# EstimatedComplexity: /low, /medium, /high, /critical
+Decl phase_estimate(PhaseID, EstimatedTasks, EstimatedComplexity) bound [/string, /number, /name].
+
+# architectural_violation(DownstreamPhase, UpstreamPhase, Reason) - build order inversion detection
+Decl architectural_violation(DownstreamPhase, UpstreamPhase, Reason) bound [/string, /string, /string].
+
+# suspicious_gap(DownstreamPhase, UpstreamPhase) - warns on skipping layers
+Decl suspicious_gap(DownstreamPhase, UpstreamPhase) bound [/string, /string].
+
+# -----------------------------------------------------------------------------
+# 27.3 Task Granularity (Atomic Work Units)
+# -----------------------------------------------------------------------------
+
+# campaign_task(TaskID, PhaseID, Description, Status, TaskType)
+# TaskType: /file_create, /file_modify, /test_write, /test_run, /research,
+#           /shard_spawn, /tool_create, /verify, /document, /refactor, /integrate
+# Status: /pending, /in_progress, /completed, /failed, /skipped, /blocked
+Decl campaign_task(TaskID, PhaseID, Description, Status, TaskType) bound [/string, /string, /string, /name, /name] inclusion [campaign_phase_id(PhaseID)].
+
+# Identity projections of a campaign plan: the closed reference domains the
+# plan's own edges must land in. The inclusion constraints on campaign_task,
+# task_dependency, task_soft_dependency, task_context_from and phase_dependency
+# are checked against them when a campaign snapshot is loaded or synced
+# (RealKernel.CheckBatchInclusion, kernel_inclusion.go): a plan whose edge
+# names a task or phase the plan does not hold is quarantined, not loaded.
+Decl campaign_task_id(TaskID) bound [/string].
+Decl campaign_phase_id(PhaseID) bound [/string].
+# eligible_task(TaskID) - derived: runnable tasks (deps met, no conflicts)
+Decl eligible_task(TaskID) bound [/string].
+# task_conflict(TaskID, OtherTaskID) - optional: tasks that must not run together
+Decl task_conflict(TaskID, OtherTaskID) bound [/string, /string].
+
+# task_priority(TaskID, Priority)
+# Priority: /critical, /high, /normal, /low
+Decl task_priority(TaskID, Priority) bound [/string, /name].
+
+# task_order(TaskID, OrderIndex) - stable ordering for deterministic scheduling
+Decl task_order(TaskID, OrderIndex) bound [/string, /number].
+
+# task_dependency(TaskID, DependsOnTaskID)
+Decl task_dependency(TaskID, DependsOnTaskID) bound [/string, /string] inclusion [campaign_task_id(TaskID), campaign_task_id(DependsOnTaskID)].
+
+# task_remediation_target(RemediationTaskID, OriginalTaskID, ViolationType)
+# Tracks which task a remediation fix is targeting and what violation it addresses
+Decl task_remediation_target(RemediationTaskID, OriginalTaskID, ViolationType) bound [/string, /string, /name].
+
+# task_artifact(TaskID, ArtifactType, Path, Hash)
+# ArtifactType: /source_file, /test_file, /config, /shard_agent, /knowledge_base, /doc
+Decl task_artifact(TaskID, ArtifactType, Path, Hash) bound [/string, /name, /string, /string].
+
+# task_write_target(TaskID, Path)
+# Canonical deterministic write_set declared by runtime/planner.
+Decl task_write_target(TaskID, Path) bound [/string, /string].
+
+# task_write_ext(TaskID, Ext) - the lower-cased extension of each path in the
+# task's write set (".go", ".md"); none for a directory target. Classed by
+# write_class (policy/coder_safety.mg).
+Decl task_write_ext(TaskID, Ext) bound [/string, /string].
+
+# generated_output_vocab(TaskID, Tokens, Words, Distinct) - Go's measurement
+# of a document a task generated: whitespace-separated tokens, the words among
+# them once counters and punctuation are stripped, and how many of those are
+# distinct. One row per task, replaced per generation.
+Decl generated_output_vocab(TaskID, Tokens, Words, Distinct) bound [/string, /number, /number, /number].
+# generated_output_degenerate(TaskID) - derived: the document is a repetition
+# loop (policy/campaign_decisions.mg).
+Decl generated_output_long_enough(TaskID) bound [/string].
+Decl generated_output_degenerate(TaskID) bound [/string].
+
+# task_write_path(TaskID, Path) - derived canonical path for conflict/activation rules
+Decl task_write_path(TaskID, Path) bound [/string, /string].
+
+# task_inference(TaskID, InferredFrom, Confidence, Reasoning)
+# Tracks WHERE this task came from (spec section, user intent, LLM inference)
+Decl task_inference(TaskID, InferredFrom, Confidence, Reasoning) bound [/string, /string, /number, /string].
+
+# task_attempt(TaskID, AttemptNumber, Outcome, Timestamp)
+# Outcome: /success, /failure, /partial
+Decl task_attempt(TaskID, AttemptNumber, Outcome, Timestamp) bound [/string, /number, /name, /number].
+
+# task_attempt_signal(TaskID, AttemptNumber, Signal) - a failed attempt's typed
+# failure signal (internal/campaign/failure_signals.go lists the vocabulary);
+# the task's next move is derived from them (policy/campaign_decisions.mg).
+Decl task_attempt_signal(TaskID, AttemptNumber, Signal) bound [/string, /number, /name].
+
+# task_replanned_at_cap(TaskID) - the failure-driven replanner already ran for
+# this task at its attempt cap (Task.ReplannedAtCap); it runs once per task.
+Decl task_replanned_at_cap(TaskID) bound [/string].
+
+# task_error(TaskID, ErrorType, ErrorMessage) - the task's last error, under
+# its last failed attempt's first signal (/unclassified when it had none).
+Decl task_error(TaskID, ErrorType, ErrorMessage) bound [/string, /name, /string].
+
+# -----------------------------------------------------------------------------
+# 27.4 Context Profiles (Phase-Aware Context Paging)
+# -----------------------------------------------------------------------------
+
+# context_profile(ProfileID, RequiredSchemas, RequiredTools, FocusPatterns)
+# RequiredSchemas: comma-separated schema sections (e.g., "file_topology,symbol_graph")
+# RequiredTools: comma-separated tools (e.g., "fs_read,fs_write,exec_cmd")
+# FocusPatterns: glob patterns for files to activate (e.g., "internal/core/*")
+Decl context_profile(ProfileID, RequiredSchemas, RequiredTools, FocusPatterns) bound [/string, /string, /string, /string].
+
+# tool_in_list(Tool, ToolList) - helper predicate to check if tool is in comma-separated list
+Decl tool_in_list(Tool, ToolList) bound [/name, /string].
+
+# phase_context_atom(PhaseID, FactPredicate, ActivationBoost)
+# Specific facts that should be boosted for this phase
+Decl phase_context_atom(PhaseID, FactPredicate, ActivationBoost) bound [/string, /string, /number].
+
+# context_compression(PhaseID, CompressedSummary, OriginalAtomCount, Timestamp)
+# When a phase completes, its verbose context is compressed to a summary
+Decl context_compression(PhaseID, CompressedSummary, OriginalAtomCount, Timestamp) bound [/string, /string, /number, /number].
+
+# context_window_state(CampaignID, UsedTokens, TotalBudget, Utilization)
+Decl context_window_state(CampaignID, UsedTokens, TotalBudget, Utilization) bound [/string, /number, /number, /number].
+
+# -----------------------------------------------------------------------------
+# 27.5 Progress & Verification
+# -----------------------------------------------------------------------------
+
+# campaign_progress(CampaignID, CompletedPhases, TotalPhases, CompletedTasks, TotalTasks)
+Decl campaign_progress(CampaignID, CompletedPhases, TotalPhases, CompletedTasks, TotalTasks) bound [/string, /number, /number, /number, /number].
+
+# campaign_heartbeat(CampaignID, Timestamp) - last heartbeat from orchestrator
+Decl campaign_heartbeat(CampaignID, Timestamp) bound [/string, /number].
+
+# task_retry_at(TaskID, RetryAt) - next allowed retry time for a task
+Decl task_retry_at(TaskID, RetryAt) bound [/string, /number].
+
+# task_in_backoff(TaskID) - derived: task not yet eligible to retry
+Decl task_in_backoff(TaskID) bound [/string].
+
+# phase_has_backoff_task(PhaseID) - helper: current phase has pending backoff-retry work
+Decl phase_has_backoff_task(PhaseID) bound [/string].
+
+# phase_checkpoint(PhaseID, CheckpointType, Passed, Details, Timestamp)
+# CheckpointType: /tests, /build, /lint, /coverage, /manual, /integration
+Decl phase_checkpoint(PhaseID, CheckpointType, Passed, Details, Timestamp) bound [/string, /name, /name, /string, /number].
+
+# campaign_milestone(CampaignID, MilestoneID, Description, ReachedAt)
+Decl campaign_milestone(CampaignID, MilestoneID, Description, ReachedAt) bound [/string, /string, /string, /number].
+
+# campaign_learning(CampaignID, LearningType, Pattern, Fact, AppliedAt)
+# Tracks what the system learned during execution (autopoiesis)
+# LearningType: /success_pattern, /failure_pattern, /preference, /optimization
+Decl campaign_learning(CampaignID, LearningType, Pattern, Fact, AppliedAt) bound [/string, /name, /string, /string, /number].
+
+# -----------------------------------------------------------------------------
+# 27.6 Replanning & Adaptation
+# -----------------------------------------------------------------------------
+
+# replan_trigger(CampaignID, Reason, TriggeredAt)
+# Reason: /task_failed, /new_requirement, /user_feedback, /dependency_change, /blocked
+Decl replan_trigger(CampaignID, Reason, TriggeredAt) bound [/string, /name, /number].
+
+# plan_revision(CampaignID, RevisionNumber, ChangeSummary, Timestamp)
+Decl plan_revision(CampaignID, RevisionNumber, ChangeSummary, Timestamp) bound [/string, /number, /string, /number].
+
+# plan_validation_issue(CampaignID, IssueType, Description)
+# IssueType: /missing_dependency, /circular_dependency, /unreachable_task, /ambiguous_goal
+Decl plan_validation_issue(CampaignID, IssueType, Description) bound [/string, /name, /string].
+
+# -----------------------------------------------------------------------------
+# 27.7 Campaign Shard Delegation
+# -----------------------------------------------------------------------------
+
+# campaign_shard(CampaignID, ShardID, ShardType, Task, Status)
+# Tracks shards spawned as part of campaign execution
+Decl campaign_shard(CampaignID, ShardID, ShardType, Task, Status) bound [/string, /string, /name, /string, /name].
+
+# campaign_intent_capture(CampaignID, Goal, ClarifierAnswers, AutonomyLevel, Constraints)
+# Captures the raw goal and clarifier responses used to launch a campaign
+Decl campaign_intent_capture(CampaignID, Goal, ClarifierAnswers, AutonomyLevel, Constraints) bound [/string, /string, /string, /name, /string].
+
+# shard_result_event(ShardID, ResultType, ResultData, Timestamp)
+# ResultType: /success, /failure, /partial, /knowledge
+Decl shard_result_event(ShardID, ResultType, ResultData, Timestamp) bound [/string, /name, /string, /number].
+
+# -----------------------------------------------------------------------------
+# 27.8 Source Material Ingestion
+# -----------------------------------------------------------------------------
+
+# source_document(CampaignID, DocPath, DocType, ParsedAt)
+# DocType: /spec, /requirements, /design, /readme, /api_doc, /tutorial
+Decl source_document(CampaignID, DocPath, DocType, ParsedAt) bound [/string, /string, /name, /number].
+
+# doc_metadata(CampaignID, Path, DocType, SizeBytes, ModifiedAt)
+Decl doc_metadata(CampaignID, Path, DocType, SizeBytes, ModifiedAt) bound [/string, /string, /name, /number, /number].
+# goal_topic(CampaignID, Topic) - topics extracted from goal text for selection.
+# Topic is a /name: Decomposer.seedDocFacts asserts fmt.Sprintf("/%s", topic)
+# (internal/campaign/decomposer_documents.go) over tokens that
+# extractTopicsFromGoal has already lower-cased and matched against [a-z0-9]+,
+# so types.Fact.ToAtom promotes every one of them to a name constant. The rules
+# in campaign_rules.mg match /migration, /refactor and /greenfield accordingly.
+Decl goal_topic(CampaignID, Topic) bound [/string, /name].
+
+# doc_tag(Path, Tag)
+# doc_tag(Path, Tag) - Tag is a /name for the same reason goal_topic/2 is:
+# Decomposer.seedDocFacts asserts fmt.Sprintf("/%s", tag), so every tag reaches
+# the kernel as a name constant. selection_policy.mg joins Tag directly against
+# goal_topic's Topic, so the two must agree.
+Decl doc_tag(Path, Tag) bound [/string, /name].
+
+# doc_reference(FromPath, ToPath)
+Decl doc_reference(FromPath, ToPath) bound [/string, /string].
+
+# doc_layer(Path, Layer, Confidence) - architectural layer classification
+Decl doc_layer(Path, Layer, Confidence) bound [/string, /name, /number].
+
+# layer_priority(Layer, Priority) - execution ordering for layers (lower runs first)
+Decl layer_priority(Layer, Priority) bound [/name, /number].
+
+# layer_distance(LayerA, LayerB, Distance) - computed layer separation
+Decl layer_distance(LayerA, LayerB, Distance) bound [/name, /name, /number].
+
+# doc_conflict(DocPath, LayerA, LayerB) - detects docs spanning distant layers
+Decl doc_conflict(DocPath, LayerA, LayerB) bound [/string, /name, /name].
+
+# active_layer(Layer) - derived: layer has confident docs
+Decl active_layer(Layer) bound [/name].
+
+# proposed_phase(Layer) - derived: active layer becomes a phase candidate
+Decl proposed_phase(Layer) bound [/name].
+
+# phase_dependency_generated(PhaseA, PhaseB) - derived ordering from taxonomy
+Decl phase_dependency_generated(PhaseA, PhaseB) bound [/name, /name].
+
+# phase_context_scope(Phase, DocPath) - derived: docs allowed for a phase
+Decl phase_context_scope(Phase, DocPath) bound [/name, /string].
+
+# source_requirement(CampaignID, ReqID, Description, Priority, Source)
+# Requirements extracted from source documents
+Decl source_requirement(CampaignID, ReqID, Description, Priority, Source) bound [/string, /string, /string, /number, /string].
+
+# requirement_coverage(ReqID, TaskID)
+# Maps requirements to tasks that fulfill them
+Decl requirement_coverage(ReqID, TaskID) bound [/string, /string].
+
+# -----------------------------------------------------------------------------
+# 27.9 Campaign Derived Predicates (Helpers)
+# -----------------------------------------------------------------------------
+
+# current_campaign(CampaignID) - derived: the active campaign
+Decl current_campaign(CampaignID) bound [/string].
+
+# current_phase(PhaseID) - derived: the current phase being executed
+Decl current_phase(PhaseID) bound [/string].
+
+# next_campaign_task(TaskID) - derived: the next task to execute
+Decl next_campaign_task(TaskID) bound [/string].
+
+# pending_task_priority(TaskID, PhaseID, Priority) - derived: pending task priority
+Decl pending_task_priority(TaskID, PhaseID, Priority) bound [/string, /string, /number].
+
+# phase_eligible(PhaseID) - derived: phase ready to start
+Decl phase_eligible(PhaseID) bound [/string].
+
+# phase_eligible_in_campaign(PhaseID, CampaignID) - derived: eligibility scoped to campaign
+Decl phase_eligible_in_campaign(PhaseID, CampaignID) bound [/string, /string].
+
+# has_incomplete_hard_dep_in_campaign(PhaseID, CampaignID) - helper: dependency check scoped to campaign
+Decl has_incomplete_hard_dep_in_campaign(PhaseID, CampaignID) bound [/string, /string].
+
+# goal_topic_count(CampaignID, Count) - derived: topic count for campaign goal
+Decl goal_topic_count(CampaignID, Count) bound [/string, /number].
+
+# campaign_type_count(Type, Count) - derived: completed campaign count per type
+Decl campaign_type_count(Type, Count) bound [/name, /number].
+
+# campaign_phase_count(CampaignID, Count) - derived: phase count per campaign
+Decl campaign_phase_count(CampaignID, Count) bound [/string, /number].
+
+# campaign_task_error(CampaignID, ErrorType) - derived: failed task errors within campaign
+Decl campaign_task_error(CampaignID, ErrorType) bound [/string, /name].
+
+# campaign_task_error_count(CampaignID, ErrorType, Count) - derived: error counts per campaign
+Decl campaign_task_error_count(CampaignID, ErrorType, Count) bound [/string, /name, /number].
+
+# systemic_error_detected(CampaignID, ErrorType) - derived: repeated errors within campaign
+Decl systemic_error_detected(CampaignID, ErrorType) bound [/string, /name].
+
+# phase_failed_task_count(PhaseID, Count) - derived: failed task count per phase
+Decl phase_failed_task_count(PhaseID, Count) bound [/string, /number].
+
+# shard_failure_count(ShardType, Count) - derived: shard failure count
+Decl shard_failure_count(ShardType, Count) bound [/name, /number].
+
+# Block/replan Reason slots are /name, uniformly across phase_blocked,
+# campaign_blocked and replan_needed. Every reason emitted anywhere in the
+# corpus is a closed-vocabulary token (/checkpoint_failed, /build_failed,
+# /no_eligible_phases, /task_failure_cascade), never free text; replan_trigger
+# below is already [/string, /name, /number] and unifies its Reason straight
+# into replan_needed; and the Go producer asserts "/new_requirement", which
+# types.Fact.ToAtom coerces to a name constant.
+# These three were previously split between /name and /string heads for the
+# SAME token, so campaign_core's /no_eligible_phases and campaign_phases'
+# "no_eligible_phases" were two different values in one relation.
+# Keep all three identical — a lone /string here is how that split regrows.
+
+# phase_blocked(PhaseID, Reason) - derived: phase cannot proceed
+Decl phase_blocked(PhaseID, Reason) bound [/string, /name].
+
+# campaign_blocked(CampaignID, Reason) - derived: campaign cannot proceed
+Decl campaign_blocked(CampaignID, Reason) bound [/string, /name].
+
+# has_unverified_phase(CampaignID) - derived: a phase of the campaign closed
+# /unverified (its checkpoint never passed within its attempts)
+Decl has_unverified_phase(CampaignID) bound [/string].
+
+# task_result(TaskID, Outcome, Summary) - the audit record of a completed task:
+# its outcome and the start of its result, marked where it was cut. It was
+# asserted with no Decl, so it was stored and could never be queried; its
+# producer's comment claimed the kernel derived completion from it, which no
+# rule does (completion is campaign_task's status).
+Decl task_result(TaskID, Outcome, Summary) bound [/string, /name, /string].
+
+# self_correction(Hypothesis, At) - the model's envelope reported a
+# self-correction: its stated hypothesis, and when (unix seconds). Asserted by
+# the session executor for autopoiesis tracking; until 2026-09-21 undeclared,
+# so no rule and no query could see one.
+Decl self_correction(Hypothesis, At) bound [/string, /number].
+
+# -----------------------------------------------------------------------------
+# Acceptance: the campaign's deterministic witness
+# -----------------------------------------------------------------------------
+# A campaign whose every task is model-judged can report success over failing
+# checks: observed 2026-09-21, "Campaign completed successfully" with 17
+# structural problems in the corpus it had just written, every /verify task
+# green. An acceptance command is a check no model judges: exit 0 or not.
+
+# campaign_acceptance(CampaignID, Command) - the user declared an acceptance
+# command for the campaign (nerd campaign start --accept). Command is its argv
+# joined for display; the orchestrator runs the argv, never a shell string.
+Decl campaign_acceptance(CampaignID, Command) bound [/string, /string].
+
+# campaign_acceptance_result(CampaignID, Round, Verdict) - the command ran once
+# all phases were done. Round counts from 1; Verdict is /pass or /fail.
+Decl campaign_acceptance_result(CampaignID, Round, Verdict) bound [/string, /number, /name].
+
+# The failed rounds after which the campaign is blocked rather than remediated
+# again are config_param(/campaign_acceptance_rounds, N): campaign.acceptance_rounds.
+
+Decl campaign_accepted(CampaignID) bound [/string].
+Decl campaign_acceptance_unmet(CampaignID) bound [/string].
+Decl campaign_acceptance_exhausted(CampaignID) bound [/string].
+# campaign_acceptance_due(CampaignID) - derived: every phase is done, acceptance
+# is declared and unmet, and the limit is not reached: run the command now.
+Decl campaign_acceptance_due(CampaignID) bound [/string].
+
+
+# Bound-negation helper. A negated literal containing an anonymous wildcard
+# excludes nothing in this Mangle build (see internal/core/bound_negation_test.go);
+# projecting the wildcard away makes the negation actually filter.
+Decl campaign_is_blocked(CampaignID) bound [/string].
+
+# task_type_persona(TaskType, Persona) - the persona a task type runs as
+# (campaign_rules.mg 8.1); task_delegation(TaskID, Verb) - the verb a task's
+# turn runs (8.3), read by the orchestrator's handlers.
+Decl task_type_persona(TaskType, Persona) bound [/name, /name].
+Decl task_type_known(TaskType) bound [/name].
+Decl task_persona(TaskID, Persona) bound [/string, /name].
+Decl task_creates_doc(TaskID) bound [/string].
+Decl task_delegation(TaskID, Verb) bound [/string, /name].
+
+# Bound-negation helper for final_shard_for_task; see bound_negation_test.go.
+Decl task_has_shard_override(TaskID) bound [/string].
+
+# validation_error(EntityID, IssueType, Message) - derived: validation issues found
+Decl validation_error(EntityID, IssueType, Message) bound [/string, /name, /string].
+
+# replan_needed(CampaignID, Reason) - derived: campaign needs replanning
+Decl replan_needed(CampaignID, Reason) bound [/string, /name].
+
+# phase_stuck(PhaseID) - derived: in-progress phase with no runnable work
+Decl phase_stuck(PhaseID) bound [/string].
+
+# Bound-negation helper. A negated literal containing an anonymous wildcard
+# excludes nothing in this Mangle build (see internal/core/bound_negation_test.go);
+# projecting the wildcard away makes the negation actually filter.
+Decl any_phase_stuck(Flag) bound [/name].
+
+# phase_waiting_for_retry(PhaseID) - derived: current phase waiting for retry window
+Decl phase_waiting_for_retry(PhaseID) bound [/string].
+
+# has_pending_tasks(PhaseID) - helper for safe negation
+Decl has_pending_tasks(PhaseID) bound [/string].
+
+# has_running_tasks(PhaseID) - helper for safe negation
+Decl has_running_tasks(PhaseID) bound [/string].
+
+# debug_why_blocked(TaskID, Dependency) - helper to explain blocking
+Decl debug_why_blocked(TaskID, Dependency) bound [/string, /string].
+
+# =============================================================================
+# CAMPAIGN RISK PREFLIGHT — hard vs soft advisory contract
+# =============================================================================
+# Go measures the preflight (gate outcomes, advisor severities, deterministic
+# score, protected surfaces) and asserts it as ground facts. The kernel decides
+# which of those results STOP a campaign. See campaign_rules.mg Section 13.
+
+# campaign_risk_gate_outcome(CampaignID, Gate, Outcome) - one strict gate result
+# Gate: /northstar | /edge | /advisory | /override
+# Outcome: /passed | /blocked | /skipped | /inconclusive (ran, no verdict)
+Decl campaign_risk_gate_outcome(CampaignID, Gate, Outcome) bound [/string, /name, /name].
+
+# campaign_risk_concern(CampaignID, Gate, Severity) - graded concern from a gate
+# Severity: /blocking | /requires_changes | /unapproved
+Decl campaign_risk_concern(CampaignID, Gate, Severity) bound [/string, /name, /name].
+
+# campaign_protected_surface(CampaignID, Root) - campaign targets a protected root
+Decl campaign_protected_surface(CampaignID, Root) bound [/string, /string].
+
+# campaign_risk_posture(CampaignID, Score, Threshold, Gated) - deterministic score
+# Gated: /true | /false
+Decl campaign_risk_posture(CampaignID, Score, Threshold, Gated) bound [/string, /number, /number, /name].
+
+# campaign_risk_signal(CampaignID, Signal, Count) - pinned intelligence signals
+# Signal: /safety_warnings | /blocked_actions | /gathering_errors | /tool_gaps
+Decl campaign_risk_signal(CampaignID, Signal, Count) bound [/string, /name, /number].
+
+# campaign_risk_override(CampaignID, Level) - /force_block | /force_allow
+Decl campaign_risk_override(CampaignID, Level) bound [/string, /name].
+
+# campaign_risk_critical_signal(CampaignID) - derived: safety-critical evidence
+Decl campaign_risk_critical_signal(CampaignID) bound [/string].
+
+# campaign_risk_block(CampaignID, Gate, Reason) - derived: HARD stop
+Decl campaign_risk_block(CampaignID, Gate, Reason) bound [/string, /name, /name].
+
+# campaign_risk_blocked_gate(CampaignID, Gate) - derived helper for safe negation
+Decl campaign_risk_blocked_gate(CampaignID, Gate) bound [/string, /name].
+
+# campaign_risk_warning(CampaignID, Gate, Reason) - derived: SOFT advisory
+Decl campaign_risk_warning(CampaignID, Gate, Reason) bound [/string, /name, /name].
+
+# campaign_risk_preflight_blocked(CampaignID) - derived: at least one hard block
+Decl campaign_risk_preflight_blocked(CampaignID) bound [/string].
+
+# campaign_risk_classification_ready(CampaignID) - derived readiness canary.
+# Go trusts kernel classification only when this derives; otherwise the rules
+# are not loaded and Go must fall back to its mirror of the same contract.
+Decl campaign_risk_classification_ready(CampaignID) bound [/string].
+
+# =============================================================================
+# CAMPAIGN RECOVERY ADMISSION — which durable generation may resume
+# =============================================================================
+# Go classifies the snapshot against the journal and asserts the class; the
+# kernel derives admission. See campaign_rules.mg Section 14.
+
+# campaign_recovery_class(CampaignID, Class) - observed recovery state
+# Class: /committed_match | /prepared_snapshot_present |
+#        /previous_generation_present | /conflict_or_corruption |
+#        /storage_unreadable | /legacy_unjournaled
+Decl campaign_recovery_class(CampaignID, Class) bound [/string, /name].
+
+# campaign_storage_uncertain(CampaignID, Checkpoint) - observed: the campaign's
+# last snapshot write failed (Checkpoint names the write), so progress since the
+# last durable generation exists only in memory. Asserted by the orchestrator on
+# a failed write and retracted by the next write that lands. See
+# policy/campaign_tasks.mg: new mutation dispatch holds while it stands.
+Decl campaign_storage_uncertain(CampaignID, Checkpoint) bound [/string, /string].
+
+# campaign_storage_hold() - derived helper: some campaign's storage is uncertain
+Decl campaign_storage_hold() bound [].
+
+# campaign_recovery_adopt(CampaignID) - operator policy: adopt a snapshot the
+# journal does not vouch for (nerd campaign resume --adopt-snapshot)
+Decl campaign_recovery_adopt(CampaignID) bound [/string].
+
+# campaign_recovery_admitted(CampaignID, Provenance) - derived: may resume
+# Provenance: /committed | /reconciled_publication | /previous_generation |
+#             /legacy_import | /operator_adopted
+Decl campaign_recovery_admitted(CampaignID, Provenance) bound [/string, /name].
+
+# campaign_recovery_decided(CampaignID) - derived helper for safe negation
+Decl campaign_recovery_decided(CampaignID) bound [/string].
+
+# campaign_recovery_refused(CampaignID, Class) - derived: must not resume
+Decl campaign_recovery_refused(CampaignID, Class) bound [/string, /name].
+
+# =============================================================================
+# TASK CONTRACT FACTS EMITTED BY Task.ToFacts WITH NO DECL UNTIL NOW
+# =============================================================================
+# internal/campaign/types.go has asserted all three of these since sub-campaign
+# support landed, and campaign_fact_sync.go retracts them on every task
+# transition — but without a Decl no rule could reference them, so soft
+# dependencies, resource semaphores and sub-campaign links were invisible to the
+# executive. Found by the ToFacts predicate/arity golden test.
+
+# task_soft_dependency(TaskID, DependsOnTaskID) - preference, not a hard edge
+Decl task_soft_dependency(TaskID, DependsOnTaskID) bound [/string, /string] inclusion [campaign_task_id(TaskID), campaign_task_id(DependsOnTaskID)].
+
+# requires_resource(TaskID, Resource) - named semaphore the task needs
+Decl requires_resource(TaskID, Resource) bound [/string, /string].
+
+# task_sub_campaign(TaskID, SubCampaignID) - /campaign_ref target
+Decl task_sub_campaign(TaskID, SubCampaignID) bound [/string, /string].

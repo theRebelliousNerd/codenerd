@@ -1,0 +1,69 @@
+# Predicates asserted from non-test Go that no .mg file declares.
+#
+# Each of these is a fact the code believes it recorded. Assert returns nil,
+# the fact lands in the EDB, and Query can never return it, because the
+# fixpoint only derives what the program declares.
+#
+# Fix one by declaring it AND giving it a consumer, or by dropping the assert.
+#
+# Declaring it alone is not the fix, and no gate will tell you so. A
+# predicate that is declared, written by Go, and read by no rule body is
+# the fourth direction (see starved_atom_value_test.go) and this package
+# deliberately does not measure it: it is NOT starved, which requires a
+# rule to read it, and it is no longer undeclared. It leaves this list and
+# arrives nowhere. Check the consumer yourself.
+#
+# Regenerate: CODENERD_UPDATE_UNDECLARED=1 go test ./internal/core/defaults/ -run TestUndeclaredAssertBudget
+active_task
+analyzing_root_cause
+anomaly_investigating
+atom_depends
+atom_exclusive
+browser_routing
+campaign_archived
+campaign_cleaned_up
+campaign_documenting
+campaign_final_verifying
+campaign_integrating
+campaign_interrupt_requested
+campaign_progress_requested
+campaign_refactoring
+campaign_status_requested
+campaign_step_verifying
+checkpoint_created
+commit_pending
+compression_requested
+context_compressing
+delegation_failed
+delegation_result
+deleted_file
+doc_ingestion
+error_log_empty
+error_log_read
+escalated
+escalated_to_user
+exec_result
+generating_patch
+git_result
+impact_radius
+interrogative_mode
+investigation_phase
+learned_intent
+ouroboros_phase
+ouroboros_register_failed
+refactored
+research_completed
+research_failed
+search_result
+search_results
+self_correction_triggered
+subclass_of
+systemic_investigating
+task_resumed
+tdd_phase
+test_written
+tool_detection_context
+tool_failed
+tool_generating
+tool_refining
+transaction_state

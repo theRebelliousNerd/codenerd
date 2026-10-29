@@ -1,0 +1,231 @@
+{
+  "created_at": "2026-09-08T03:08:12.768938+00:00",
+  "candidate_revision": "2dd7947e",
+  "baseline_revision": "6c8ce2f0",
+  "model": "muse-spark-1.3-contributor",
+  "limits": [
+    "three small private regression tasks; not a large-codebase benchmark",
+    "one run per condition; no statistical efficiency claim",
+    "shared workstation and provider variability",
+    "all failures and attempts retained",
+    "Model variance and unequal outcomes confound causal before/after token comparison",
+    "These task totals exclude earlier expert consultation/setup expenditure; retain that separately in whole-marathon accounting",
+    "Original sources and raw runtime logs retained locally under .nerd/marathon; this report contains only observed task counts and costs."
+  ],
+  "aggregate": {
+    "minimal": {
+      "attempts": 3,
+      "accepted": 3,
+      "total_tokens": 114630,
+      "total_seconds": 77.3839088,
+      "false_completions": 0,
+      "tokens_per_accepted_including_failed_attempts": 38210.0
+    },
+    "baseline_current": {
+      "attempts": 3,
+      "accepted": 2,
+      "total_tokens": 512743,
+      "total_seconds": 122.3589284,
+      "false_completions": 0,
+      "tokens_per_accepted_including_failed_attempts": 256371.5
+    },
+    "candidate_current": {
+      "attempts": 3,
+      "accepted": 3,
+      "total_tokens": 597110,
+      "total_seconds": 160.9871078,
+      "false_completions": 0,
+      "tokens_per_accepted_including_failed_attempts": 199036.66666666666
+    },
+    "candidate_evidence": {
+      "attempts": 3,
+      "accepted": 2,
+      "total_tokens": 547540,
+      "total_seconds": 167.76754749999998,
+      "false_completions": 0,
+      "tokens_per_accepted_including_failed_attempts": 273770.0
+    }
+  },
+  "trials": [
+    {
+      "task": "agent_identity",
+      "condition": "minimal",
+      "status": "verified",
+      "tokens": {
+        "input": 45545,
+        "output": 6233,
+        "total": 51778
+      },
+      "latency_seconds": 41.5043227,
+      "calls": 9,
+      "false_completion": false,
+      "error": "",
+      "acceptance_test_unchanged": true
+    },
+    {
+      "task": "agent_identity",
+      "condition": "baseline_current",
+      "status": "unverified",
+      "tokens": {
+        "input": 123071,
+        "output": 4417,
+        "total": 127488
+      },
+      "latency_seconds": 48.9138615,
+      "calls": 5,
+      "false_completion": false,
+      "error": "tool execution failed: default.grep: tool default.grep not allowed by effective JIT config",
+      "acceptance_test_unchanged": true
+    },
+    {
+      "task": "agent_identity",
+      "condition": "candidate_current",
+      "status": "verified",
+      "tokens": {
+        "input": 199989,
+        "output": 8216,
+        "total": 208205
+      },
+      "latency_seconds": 74.3538973,
+      "calls": 8,
+      "false_completion": false,
+      "error": "",
+      "acceptance_test_unchanged": true
+    },
+    {
+      "task": "agent_identity",
+      "condition": "candidate_evidence",
+      "status": "unverified",
+      "tokens": {
+        "input": 123233,
+        "output": 4474,
+        "total": 127707
+      },
+      "latency_seconds": 59.2331978,
+      "calls": 4,
+      "false_completion": false,
+      "error": "post-edit verification failed: Acceptance: unverified (snapshot 08824acfc6f2).\n- reproducer: failed\n- preservation: passed\n- Unverified: no artifact change\n- Unverified: reproducer: failed",
+      "acceptance_test_unchanged": true
+    },
+    {
+      "task": "execution_witness",
+      "condition": "minimal",
+      "status": "verified",
+      "tokens": {
+        "input": 21262,
+        "output": 1680,
+        "total": 22942
+      },
+      "latency_seconds": 13.4656594,
+      "calls": 8,
+      "false_completion": false,
+      "error": "",
+      "acceptance_test_unchanged": true
+    },
+    {
+      "task": "execution_witness",
+      "condition": "baseline_current",
+      "status": "verified",
+      "tokens": {
+        "input": 222135,
+        "output": 2644,
+        "total": 224779
+      },
+      "latency_seconds": 37.5675809,
+      "calls": 9,
+      "false_completion": false,
+      "error": "",
+      "acceptance_test_unchanged": true
+    },
+    {
+      "task": "execution_witness",
+      "condition": "candidate_current",
+      "status": "verified",
+      "tokens": {
+        "input": 223384,
+        "output": 3062,
+        "total": 226446
+      },
+      "latency_seconds": 40.3885067,
+      "calls": 9,
+      "false_completion": false,
+      "error": "",
+      "acceptance_test_unchanged": true
+    },
+    {
+      "task": "execution_witness",
+      "condition": "candidate_evidence",
+      "status": "verified",
+      "tokens": {
+        "input": 254577,
+        "output": 2188,
+        "total": 256765
+      },
+      "latency_seconds": 43.6534298,
+      "calls": 10,
+      "false_completion": false,
+      "error": "",
+      "acceptance_test_unchanged": true
+    },
+    {
+      "task": "verdict_identity",
+      "condition": "minimal",
+      "status": "verified",
+      "tokens": {
+        "input": 37010,
+        "output": 2900,
+        "total": 39910
+      },
+      "latency_seconds": 22.4139267,
+      "calls": 10,
+      "false_completion": false,
+      "error": "",
+      "acceptance_test_unchanged": true
+    },
+    {
+      "task": "verdict_identity",
+      "condition": "baseline_current",
+      "status": "verified",
+      "tokens": {
+        "input": 157615,
+        "output": 2861,
+        "total": 160476
+      },
+      "latency_seconds": 35.877486,
+      "calls": 7,
+      "false_completion": false,
+      "error": "",
+      "acceptance_test_unchanged": true
+    },
+    {
+      "task": "verdict_identity",
+      "condition": "candidate_current",
+      "status": "verified",
+      "tokens": {
+        "input": 159054,
+        "output": 3405,
+        "total": 162459
+      },
+      "latency_seconds": 46.2447038,
+      "calls": 7,
+      "false_completion": false,
+      "error": "",
+      "acceptance_test_unchanged": true
+    },
+    {
+      "task": "verdict_identity",
+      "condition": "candidate_evidence",
+      "status": "verified",
+      "tokens": {
+        "input": 159123,
+        "output": 3945,
+        "total": 163068
+      },
+      "latency_seconds": 64.8809199,
+      "calls": 7,
+      "false_completion": false,
+      "error": "",
+      "acceptance_test_unchanged": true
+    }
+  ]
+}

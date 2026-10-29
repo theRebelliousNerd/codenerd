@@ -1,0 +1,4 @@
+started=2026-07-13T07:46:52.8756064-04:00
+pid=83636
+goal_len=614
+workspace=C:\CodeProjects\codeNERD\.nerd\live_feature_matrix\polystack

@@ -1,0 +1,137 @@
+package articulation
+
+import (
+	"context"
+	"fmt"
+	"maps"
+
+	"codenerd/internal/types"
+)
+
+// =============================================================================
+// ADAPTER FOR PERCEPTION LAYER (breaks import cycle)
+// =============================================================================
+
+// PromptAssemblerAdapter wraps PromptAssembler to implement a simplified interface
+// that avoids import cycles with the perception package.
+type PromptAssemblerAdapter struct {
+	assembler *PromptAssembler
+}
+
+// NewPromptAssemblerAdapter creates an adapter for the PromptAssembler.
+func NewPromptAssemblerAdapter(assembler *PromptAssembler) *PromptAssemblerAdapter {
+	return &PromptAssemblerAdapter{assembler: assembler}
+}
+
+// AssembleSystemPrompt implements the simplified interface used by perception.
+func (a *PromptAssemblerAdapter) AssembleSystemPrompt(ctx context.Context, shardID, shardType string) (string, error) {
+	if a == nil || a.assembler == nil {
+		return "", fmt.Errorf("prompt assembler adapter is not initialized")
+	}
+	pc := &PromptContext{
+		ShardID:   shardID,
+		ShardType: shardType,
+	}
+	if sCtx := types.GetSessionContext(ctx); sCtx != nil {
+		pc.WithSessionContext(sCtx)
+	}
+	return a.assembler.AssembleSystemPrompt(ctx, pc)
+}
+
+// JITReady returns true if JIT compilation is available and enabled.
+func (a *PromptAssemblerAdapter) JITReady() bool {
+	if a == nil || a.assembler == nil {
+		return false
+	}
+	return a.assembler.JITReady()
+}
+
+// mapToPromptContext converts a generic map to a PromptContext.
+// This supports the interface-based dependency injection used by autopoiesis.
+func (pa *PromptAssembler) mapToPromptContext(m map[string]any) (*PromptContext, error) {
+	pc := &PromptContext{}
+
+	if v := types.ExtractString(m["shard_id"]); v != "" {
+		pc.ShardID = v
+	}
+	if v := types.ExtractString(m["shard_type"]); v != "" {
+		pc.ShardType = v
+	}
+	if v := types.ExtractString(m["campaign_id"]); v != "" {
+		pc.CampaignID = v
+	}
+	if v := types.ExtractString(m["semantic_query"]); v != "" {
+		pc.SemanticQuery = v
+	}
+	if v, ok := m["semantic_top_k"].(int); ok {
+		pc.SemanticTopK = v
+	}
+
+	// Handle complex types if passed
+	if v, ok := m["session_ctx"].(*types.SessionContext); ok {
+		pc.SessionCtx = v
+	}
+	if v, ok := m["user_intent"].(*types.StructuredIntent); ok {
+		pc.UserIntent = v
+	}
+
+	// For Ouroboros integration, we might receive extra fields that need to go into SessionContext.ExtraContext
+	// Since we can't modify SessionContext if it's nil, we create a partial one if needed.
+	extraContext := make(map[string]string)
+
+	// Map known Ouroboros fields to ExtraContext tags
+	keysToCheck := []string{"ouroboros_stage", "stage", "tool_name", "tool_purpose", "input_type", "output_type"}
+	for _, key := range keysToCheck {
+		if v := types.ExtractString(m[key]); v != "" {
+			extraContext[key] = v
+			// For "stage", map to "ouroboros_stage" as well if missing
+			if key == "stage" {
+				extraContext["ouroboros_stage"] = v
+			}
+		}
+	}
+
+	// Ouroboros describes the tool it wants in prose, but passed no semantic
+	// query, so both retrieval channels ran starved: atom selection
+	// (selector.go, keyed on SemanticQuery) had nothing at all, and the
+	// knowledge-base search saw only the underscore-joined shard ID.
+	//
+	// Observed live: asked to "count mangle predicates given a directory path",
+	// the generator produced a counter that strips // and /* */ comments —
+	// C syntax — in a repo with 244 .mg files where the comment character is #.
+	// It counted every commented-out "# Decl ..." line as a declaration and
+	// over-reported by 2.5x. The knowledge to avoid that is indexed; nothing
+	// asked for it.
+	if pc.SemanticQuery == "" {
+		if v := extraContext["tool_purpose"]; v != "" {
+			pc.SemanticQuery = v
+		} else if v := extraContext["tool_name"]; v != "" {
+			pc.SemanticQuery = v
+		}
+	}
+
+	if len(extraContext) > 0 {
+		if pc.SessionCtx == nil {
+			pc.SessionCtx = &types.SessionContext{
+				ExtraContext: extraContext,
+			}
+		} else {
+			// Merge into a COPY of the caller's ExtraContext. The SessionCtx
+			// pointer belongs to the caller and is often shared across
+			// compiles; writing the merge into it contaminated every later
+			// compile with this call's Ouroboros keys.
+			merged := make(map[string]string, len(pc.SessionCtx.ExtraContext)+len(extraContext))
+			maps.Copy(merged, pc.SessionCtx.ExtraContext)
+			maps.Copy(merged, extraContext)
+			sessionCopy := *pc.SessionCtx
+			sessionCopy.ExtraContext = merged
+			pc.SessionCtx = &sessionCopy
+		}
+	}
+
+	if pc.ShardID == "" || pc.ShardType == "" {
+		return nil, fmt.Errorf("missing required fields shard_id or shard_type")
+	}
+
+	return pc, nil
+}

@@ -1,0 +1,612 @@
+package core
+
+import (
+	"codenerd/internal/types"
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"testing"
+	"time"
+)
+
+// ============================================================================
+// Remediation for api_scheduler_test.go TEST_GAP markers (16 gaps total).
+// QA: api_scheduler_boundary_analysis
+// ============================================================================
+
+// ---------- Null/Empty Inputs ----------
+
+// TestAPISchedulerGap_RegisterShard_EmptyID verifies registering with empty shard ID is rejected.
+func TestAPISchedulerGap_RegisterShard_EmptyID(t *testing.T) {
+	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
+
+	state := scheduler.RegisterShard("", "test")
+	if state != nil {
+		t.Fatal("Expected nil state when registering empty shard ID")
+	}
+
+	// Should fail to acquire
+	ctx := context.Background()
+	err := scheduler.AcquireAPISlot(ctx, "")
+	if err == nil {
+		t.Fatal("Expected AcquireAPISlot to fail with unregistered empty ID")
+	}
+}
+
+// TestAPISchedulerGap_UnregisterShard_NonExistent verifies unregistering a non-existent shard.
+func TestAPISchedulerGap_UnregisterShard_NonExistent(t *testing.T) {
+	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
+
+	// Should not panic
+	scheduler.UnregisterShard("non-existent")
+	scheduler.UnregisterShard("")
+
+	// Verify metrics are unaffected
+	metrics := scheduler.GetMetrics()
+	if metrics.RegisteredShards != 0 {
+		t.Errorf("Expected 0 registered shards, got %d", metrics.RegisteredShards)
+	}
+}
+
+// TestAPISchedulerGap_AcquireSlot_NilContext verifies behavior with nil context.
+func TestAPISchedulerGap_AcquireSlot_NilContext(t *testing.T) {
+	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
+	scheduler.RegisterShard("test", "test")
+
+	//lint:ignore SA1012 this test exists to prove the callee rejects a nil Context; passing context.Background() would make it assert nothing.
+	err := scheduler.AcquireAPISlot(nil, "test") //nolint:staticcheck
+	if err == nil {
+		t.Fatal("Expected AcquireAPISlot to fail with nil context")
+	}
+}
+
+// ---------- Config Boundary Values ----------
+
+// TestAPISchedulerGap_NegativeConcurrency verifies zero/negative MaxConcurrentAPICalls are sanitized.
+func TestAPISchedulerGap_NegativeConcurrency(t *testing.T) {
+	tests := []struct {
+		name    string
+		maxConc int
+	}{
+		{"zero", 0},
+		{"negative", -5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheduler := NewAPIScheduler(APISchedulerConfig{
+				MaxConcurrentAPICalls: tt.maxConc,
+				SlotAcquireTimeout:    5 * time.Second,
+			})
+			if scheduler == nil {
+				t.Fatal("Expected scheduler to be non-nil")
+			}
+			metrics := scheduler.GetMetrics()
+			if metrics.MaxSlots <= 0 {
+				t.Errorf("Expected sanitized MaxSlots > 0, got %d", metrics.MaxSlots)
+			}
+		})
+	}
+}
+
+// TestAPISchedulerGap_ZeroTimeout verifies behavior with zero SlotAcquireTimeout.
+func TestAPISchedulerGap_ZeroTimeout(t *testing.T) {
+	scheduler := NewAPIScheduler(APISchedulerConfig{
+		MaxConcurrentAPICalls: 1,
+		SlotAcquireTimeout:    0, // Zero timeout
+	})
+	scheduler.RegisterShard("s1", "test")
+	scheduler.RegisterShard("s2", "test")
+
+	ctx := context.Background()
+
+	// First slot should always succeed
+	err := scheduler.AcquireAPISlot(ctx, "s1")
+	if err != nil {
+		t.Fatalf("First slot failed: %v", err)
+	}
+
+	// Second slot with zero timeout — context governs entirely
+	shortCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	err = scheduler.AcquireAPISlot(shortCtx, "s2")
+	if err == nil {
+		scheduler.ReleaseAPISlot("s2")
+		t.Log("Zero timeout: slot acquired (context timeout used instead)")
+	} else {
+		t.Logf("Zero timeout: slot acquisition failed as expected: %v", err)
+	}
+
+	scheduler.ReleaseAPISlot("s1")
+}
+
+// ---------- ScheduledLLMCall Edge Cases ----------
+
+// TestAPISchedulerGap_NilClient_PanicRecovery verifies behavior when Client is nil.
+func TestAPISchedulerGap_NilClient_PanicRecovery(t *testing.T) {
+	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
+	scheduler.RegisterShard("test", "test")
+
+	call := &ScheduledLLMCall{
+		Scheduler: scheduler,
+		ShardID:   "test",
+		Client:    nil, // nil client
+	}
+
+	ctx := context.Background()
+	_, err := call.Complete(ctx, "test")
+	if err == nil {
+		t.Fatal("Expected Complete to fail when Client is nil")
+	}
+}
+
+// ---------- Resource Exhaustion ----------
+
+// TestAPISchedulerGap_CheckpointMassivePayload verifies deep-copy with large checkpoints.
+func TestAPISchedulerGap_CheckpointMassivePayload(t *testing.T) {
+	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
+	scheduler.RegisterShard("test", "test")
+
+	// Store 1000 checkpoint entries
+	for i := range 1000 {
+		scheduler.SaveCheckpoint("test", fmt.Sprintf("key_%d", i), fmt.Sprintf("value_%d_data_%s", i, "padding"))
+	}
+
+	// Deep copy should succeed without OOM
+	state, ok := scheduler.GetShardState("test")
+	if !ok {
+		t.Fatal("Expected shard state")
+	}
+	if len(state.Checkpoint) != 1000 {
+		t.Errorf("Expected 1000 checkpoint entries, got %d", len(state.Checkpoint))
+	}
+
+	// Modify deep copy — should not affect original
+	state.Checkpoint["injected"] = true
+	_, exists := scheduler.LoadCheckpoint("test", "injected")
+	if exists {
+		t.Error("Deep copy mutation leaked to original")
+	}
+}
+
+// ---------- Concurrency ----------
+
+// TestAPISchedulerGap_Race_RegisterUnregister verifies concurrent register/unregister.
+func TestAPISchedulerGap_Race_RegisterUnregister(t *testing.T) {
+	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
+
+	var wg sync.WaitGroup
+
+	// Concurrent register/unregister for same IDs
+	for i := range 10 {
+		wg.Add(2)
+		id := fmt.Sprintf("shard_%d", i%3) // Overlapping IDs
+
+		go func(shardID string) {
+			defer wg.Done()
+			for range 20 {
+				scheduler.RegisterShard(shardID, "test")
+			}
+		}(id)
+
+		go func(shardID string) {
+			defer wg.Done()
+			for range 20 {
+				scheduler.UnregisterShard(shardID)
+			}
+		}(id)
+	}
+
+	wg.Wait()
+	// No panics or data races (run with -race)
+}
+
+// TestAPISchedulerGap_Race_ContextCancelVsSlotAcquire verifies the TOCTOU window
+// where context is cancelled precisely as a slot becomes available.
+func TestAPISchedulerGap_Race_ContextCancelVsSlotAcquire(t *testing.T) {
+	scheduler := NewAPIScheduler(APISchedulerConfig{
+		MaxConcurrentAPICalls: 1,
+		SlotAcquireTimeout:    5 * time.Second,
+	})
+
+	scheduler.RegisterShard("holder", "test")
+	scheduler.RegisterShard("racer", "test")
+
+	ctx := context.Background()
+
+	// Fill the slot
+	err := scheduler.AcquireAPISlot(ctx, "holder")
+	if err != nil {
+		t.Fatalf("Failed to acquire slot: %v", err)
+	}
+
+	// Start racer with cancellable context
+	cancelCtx, cancel := context.WithCancel(ctx)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- scheduler.AcquireAPISlot(cancelCtx, "racer")
+	}()
+
+	// Give racer time to enter wait state
+	time.Sleep(20 * time.Millisecond)
+
+	// Cancel AND release simultaneously to create TOCTOU race
+	cancel()
+	scheduler.ReleaseAPISlot("holder")
+
+	err = <-done
+	// Either the racer got the slot or was cancelled — both are valid
+	t.Logf("TOCTOU race result: err=%v", err)
+}
+
+// ---------- Extreme Load ----------
+
+// TestAPISchedulerGap_ExtremeLoad_ManyShards tests scheduler with many shards.
+func TestAPISchedulerGap_ExtremeLoad_ManyShards(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping extreme load test in short mode")
+	}
+
+	const numShards = 100
+	scheduler := NewAPIScheduler(APISchedulerConfig{
+		MaxConcurrentAPICalls: 3,
+		SlotAcquireTimeout:    30 * time.Second,
+	})
+
+	for i := range numShards {
+		scheduler.RegisterShard(fmt.Sprintf("shard_%d", i), "test")
+	}
+
+	var wg sync.WaitGroup
+	ctx := context.Background()
+
+	for i := range numShards {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			shardID := fmt.Sprintf("shard_%d", idx)
+			err := scheduler.AcquireAPISlot(ctx, shardID)
+			if err != nil {
+				return
+			}
+			// Brief simulated work
+			time.Sleep(time.Millisecond)
+			scheduler.ReleaseAPISlot(shardID)
+		}(i)
+	}
+
+	wg.Wait()
+
+	metrics := scheduler.GetMetrics()
+	if metrics.TotalAPICalls != numShards {
+		t.Errorf("Expected %d total API calls, got %d", numShards, metrics.TotalAPICalls)
+	}
+}
+
+// TestAPISchedulerGap_RetryExtremeMaxRetries verifies behavior with large maxRetries.
+func TestAPISchedulerGap_RetryExtremeMaxRetries(t *testing.T) {
+	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
+	scheduler.RegisterShard("retry", "test")
+
+	callCount := 0
+	mock := &mockLLMClient{
+		completeFunc: func(ctx context.Context, prompt string) (string, error) {
+			callCount++
+			if callCount <= 5 {
+				return "", fmt.Errorf("transient error %d", callCount)
+			}
+			return "success", nil
+		},
+	}
+
+	call := &ScheduledLLMCall{
+		Scheduler: scheduler,
+		ShardID:   "retry",
+		Client:    mock,
+	}
+
+	// Use a timeout to prevent infinite retry
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := call.CompleteWithRetry(ctx, "sys", "usr", 10)
+	if err != nil {
+		t.Fatalf("Expected success after retries, got: %v", err)
+	}
+	if result != "success" {
+		t.Errorf("Expected 'success', got %q", result)
+	}
+	if callCount != 6 {
+		t.Errorf("Expected 6 calls (5 failures + 1 success), got %d", callCount)
+	}
+}
+
+// TestAPISchedulerGap_DurationOverflow tests behavior with extremely large timeout.
+func TestAPISchedulerGap_DurationOverflow(t *testing.T) {
+	// Very large timeout — should not cause overflow or panic
+	scheduler := NewAPIScheduler(APISchedulerConfig{
+		MaxConcurrentAPICalls: 2,
+		SlotAcquireTimeout:    time.Duration(1<<62 - 1), // Near-max Duration
+	})
+
+	scheduler.RegisterShard("test", "test")
+
+	ctx := context.Background()
+	err := scheduler.AcquireAPISlot(ctx, "test")
+	if err != nil {
+		t.Fatalf("Expected slot acquisition with large timeout: %v", err)
+	}
+	scheduler.ReleaseAPISlot("test")
+}
+
+// ---------- Streaming Gaps ----------
+
+// mockStreamingClient scripts the underlying stream for scheduled-streaming tests.
+type mockStreamingClient struct {
+	mockLLMClient
+	streamFunc func(ctx context.Context, sys, usr string, think bool) (<-chan string, <-chan types.StreamResult)
+}
+
+func (m *mockStreamingClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	if m.streamFunc != nil {
+		return m.streamFunc(ctx, systemPrompt, userPrompt, enableThinking)
+	}
+	// Default: an empty, complete stream.
+	w, content, done := types.NewStream()
+	w.Finish(types.StreamResult{StopReason: "stop"})
+	return content, done
+}
+
+// TestAPISchedulerGap_Streaming_TerminalErrorPropagates checks that a failing
+// underlying terminal reaches the caller unchanged and the slot is released.
+// (Every LLMClient streams now; the old "streaming not supported" sentinel is
+// gone, so the meaningful failure is the provider's own terminal error.)
+func TestAPISchedulerGap_Streaming_TerminalErrorPropagates(t *testing.T) {
+	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
+	scheduler.RegisterShard("test", "test")
+
+	providerErr := errors.New("provider refused")
+	mock := &mockStreamingClient{
+		streamFunc: func(ctx context.Context, sys, usr string, think bool) (<-chan string, <-chan types.StreamResult) {
+			return types.FailedStream(providerErr)
+		},
+	}
+	call := &ScheduledLLMCall{Scheduler: scheduler, ShardID: "test", Client: mock}
+
+	ctx := context.Background()
+	contentCh, doneCh := call.CompleteWithStreaming(ctx, "sys", "usr", false)
+	text, res := types.CollectStream(ctx, contentCh, doneCh, nil)
+	if text != "" {
+		t.Errorf("expected no content, got %q", text)
+	}
+	if !errors.Is(res.Err, providerErr) {
+		t.Fatalf("expected the underlying terminal error, got: %v", res.Err)
+	}
+
+	slotCtx, slotCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer slotCancel()
+	if err := scheduler.AcquireAPISlot(slotCtx, "test"); err != nil {
+		t.Fatalf("Slot was leaked after a failed stream: %v", err)
+	}
+	scheduler.ReleaseAPISlot("test")
+}
+
+// TestAPISchedulerGap_Streaming_NilChannelsFromUnderlying tests when the underlying
+// streamer returns nil channels (edge case).
+// FIX VERIFIED: The forwarding goroutine now treats nil channels as immediately closed,
+// so it exits cleanly, closes output channels, and releases the API slot.
+func TestAPISchedulerGap_Streaming_NilChannelsFromUnderlying(t *testing.T) {
+	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
+	scheduler.RegisterShard("test", "test")
+
+	mock := &mockStreamingClient{
+		streamFunc: func(ctx context.Context, sys, usr string, think bool) (<-chan string, <-chan types.StreamResult) {
+			return nil, nil
+		},
+	}
+
+	call := &ScheduledLLMCall{
+		Scheduler: scheduler,
+		ShardID:   "test",
+		Client:    mock,
+	}
+
+	ctx := context.Background()
+	contentCh, doneCh := call.CompleteWithStreaming(ctx, "sys", "usr", false)
+
+	// Nil channels are treated as immediately closed, and a stream with no
+	// terminal result is incomplete — never a clean empty success.
+	text, res := types.CollectStream(ctx, contentCh, doneCh, nil)
+	if text != "" {
+		t.Error("Expected no content from nil underlying channel")
+	}
+	if !errors.Is(res.Err, types.ErrStreamIncomplete) {
+		t.Errorf("expected an incomplete stream, got: %v", res.Err)
+	}
+
+	// Verify slot was released by acquiring it again
+	slotCtx, slotCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer slotCancel()
+	err := scheduler.AcquireAPISlot(slotCtx, "test")
+	if err != nil {
+		t.Fatalf("Slot was leaked after nil-channel streaming: %v", err)
+	}
+	scheduler.ReleaseAPISlot("test")
+}
+
+// TestAPISchedulerGap_Streaming_RapidCancel tests that the forwarding goroutine
+// doesn't leak when context is cancelled while the underlying stream is active.
+func TestAPISchedulerGap_Streaming_RapidCancel(t *testing.T) {
+	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
+	scheduler.RegisterShard("test", "test")
+
+	// Underlying stream that sends data slowly
+	mock := &mockStreamingClient{
+		streamFunc: func(ctx context.Context, sys, usr string, think bool) (<-chan string, <-chan types.StreamResult) {
+			w, content, done := types.NewStream()
+			go func() {
+				defer w.Close()
+				for i := range 100 {
+					if err := w.Content(ctx, fmt.Sprintf("chunk_%d", i)); err != nil {
+						w.Fail(err)
+						return
+					}
+					time.Sleep(10 * time.Millisecond)
+				}
+				w.Finish(types.StreamResult{StopReason: "stop"})
+			}()
+			return content, done
+		},
+	}
+
+	call := &ScheduledLLMCall{
+		Scheduler: scheduler,
+		ShardID:   "test",
+		Client:    mock,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	contentCh, doneCh := call.CompleteWithStreaming(ctx, "sys", "usr", false)
+
+	// Read a few chunks then cancel rapidly
+	chunkCount := 0
+	for chunk := range contentCh {
+		chunkCount++
+		_ = chunk
+		if chunkCount >= 3 {
+			cancel()
+			break
+		}
+	}
+
+	// Drain remaining to avoid goroutine leak
+	for range contentCh {
+	}
+	if res := types.AwaitStreamResult(context.Background(), doneCh); res.Outcome() != types.StreamCanceled {
+		t.Errorf("expected a canceled terminal after cancel, got %s: %v", res.Outcome(), res.Err)
+	}
+
+	// Verify slot was released by acquiring it again
+	freshCtx, freshCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer freshCancel()
+	err := scheduler.AcquireAPISlot(freshCtx, "test")
+	if err != nil {
+		t.Fatalf("Slot was leaked after rapid cancel: %v", err)
+	}
+	scheduler.ReleaseAPISlot("test")
+
+	t.Logf("Rapid cancel: read %d chunks before cancellation, slot released cleanly", chunkCount)
+}
+
+// TestAPISchedulerGap_GlobalConfig_SyncOnce tests that ConfigureGlobalAPIScheduler
+// dynamically reconfigures the global instance even after GetAPIScheduler has been called.
+func TestAPISchedulerGap_GlobalConfig_SyncOnce(t *testing.T) {
+	scheduler := GetAPIScheduler()
+	if scheduler == nil {
+		t.Fatal("GetAPIScheduler returned nil")
+	}
+
+	originalMax := scheduler.config.MaxConcurrentAPICalls
+
+	// Attempt to reconfigure — should be applied dynamically!
+	ConfigureGlobalAPIScheduler(APISchedulerConfig{
+		MaxConcurrentAPICalls: originalMax + 2,
+		SlotAcquireTimeout:    99 * time.Second,
+	})
+
+	scheduler2 := GetAPIScheduler()
+	if scheduler2 != scheduler {
+		t.Error("GetAPIScheduler returned different instance after reconfigure attempt")
+	}
+	metrics := scheduler2.GetMetrics()
+	if metrics.MaxSlots != originalMax+2 {
+		t.Errorf("Config was not modified dynamically: expected %d, got %d",
+			originalMax+2, metrics.MaxSlots)
+	}
+
+	// Restore original config for cleanliness
+	ConfigureGlobalAPIScheduler(APISchedulerConfig{
+		MaxConcurrentAPICalls: originalMax,
+		SlotAcquireTimeout:    5 * time.Minute,
+	})
+}
+
+func (m *mockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	})
+}
+
+// TestAPIScheduler_NoRace_ReconfigDuringAcquire pins the fix for a data race
+// caught by the spawner/scheduler e2e suite under -race: AcquireAPISlot read
+// s.config.MaxConcurrentAPICalls for its waiting log line after releasing
+// s.mu, while UpdateMaxConcurrentAPICalls wrote it under the lock.
+//
+// Fifty sequential waiters each perform that post-unlock read while another
+// goroutine hammers the ceiling up and down; without the snapshot this fails
+// under -race, with it the run is clean.
+//
+// Three holders pin active=3 while the ceiling flips 2↔3, so every waiter is
+// guaranteed to enter the waiting branch (active >= max at both levels) and
+// every one of them performs the raced read against the tight write loop.
+func TestAPIScheduler_NoRace_ReconfigDuringAcquire(t *testing.T) {
+	cfg := DefaultAPISchedulerConfig()
+	cfg.MaxConcurrentAPICalls = 3
+	cfg.SlotAcquireTimeout = 5 * time.Second
+	scheduler := NewAPIScheduler(cfg)
+	defer scheduler.Stop()
+
+	for i := 0; i < 3; i++ {
+		id := fmt.Sprintf("holder_%d", i)
+		scheduler.RegisterShard(id, "test")
+		if err := scheduler.AcquireAPISlot(context.Background(), id); err != nil {
+			t.Fatalf("%s could not acquire: %v", id, err)
+		}
+	}
+	defer func() {
+		for i := 0; i < 3; i++ {
+			scheduler.ReleaseAPISlot(fmt.Sprintf("holder_%d", i))
+		}
+	}()
+
+	stop := make(chan struct{})
+	var updater sync.WaitGroup
+	updater.Add(1)
+	go func() {
+		defer updater.Done()
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if i%2 == 0 {
+				scheduler.UpdateMaxConcurrentAPICalls(2)
+			} else {
+				scheduler.UpdateMaxConcurrentAPICalls(3)
+			}
+		}
+	}()
+
+	const waiters = 50
+	for i := 0; i < waiters; i++ {
+		id := fmt.Sprintf("racer_%d", i)
+		scheduler.RegisterShard(id, "test")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+		err := scheduler.AcquireAPISlot(ctx, id)
+		cancel()
+		if err == nil {
+			scheduler.ReleaseAPISlot(id)
+			t.Fatalf("%s was granted a slot with 3 holders active", id)
+		}
+	}
+	close(stop)
+	updater.Wait()
+
+	if metrics := scheduler.GetMetrics(); metrics.WaitingForSlot != 0 {
+		t.Fatalf("waiters leaked in the queue: %+v", metrics)
+	}
+}

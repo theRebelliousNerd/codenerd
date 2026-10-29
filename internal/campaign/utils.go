@@ -1,0 +1,121 @@
+package campaign
+
+import (
+	"path/filepath"
+	"strings"
+)
+
+// chunkText splits text into chunks of approximately maxLen runes,
+// preferring to break on paragraph (\n\n), line (\n), or word (' ') boundaries
+// to preserve semantic integrity for embeddings and LLM context.
+func chunkText(text string, maxLen int) []string {
+	if maxLen <= 0 {
+		maxLen = 2000
+	}
+	if len(text) == 0 {
+		return nil
+	}
+
+	var chunks []string
+	remaining := text
+	for len(remaining) > 0 {
+		if len([]rune(remaining)) <= maxLen {
+			chunks = append(chunks, remaining)
+			break
+		}
+
+		rs := []rune(remaining)
+		limit := min(maxLen, len(rs))
+		candidate := string(rs[:limit])
+
+		splitIdx := -1
+		if idx := strings.LastIndex(candidate, "\n\n"); idx > 0 {
+			splitIdx = idx + 2
+		} else if idx := strings.LastIndex(candidate, "\n"); idx > 0 {
+			splitIdx = idx + 1
+		} else if idx := strings.LastIndex(candidate, " "); idx > 0 {
+			splitIdx = idx + 1
+		}
+
+		if splitIdx <= 0 {
+			splitIdx = len(candidate)
+		}
+
+		chunks = append(chunks, strings.TrimRight(remaining[:splitIdx], " "))
+		remaining = remaining[splitIdx:]
+		remaining = strings.TrimLeft(remaining, " ")
+	}
+	return chunks
+}
+
+// sanitizeCampaignID removes the leading slash and non-alphanum for filesystem safety.
+func sanitizeCampaignID(id string) string {
+	id = strings.TrimPrefix(id, "/")
+
+	// Fast path: check if we need to replace anything
+	needsReplace := false
+	for i := 0; i < len(id); i++ {
+		ch := id[i]
+		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-') {
+			needsReplace = true
+			break
+		}
+	}
+
+	if !needsReplace {
+		return id
+	}
+
+	var sb strings.Builder
+	sb.Grow(len(id))
+
+	inInvalidRun := false
+	for i := 0; i < len(id); i++ {
+		ch := id[i]
+		valid := (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-'
+		if valid {
+			sb.WriteByte(ch)
+			inInvalidRun = false
+		} else if !inInvalidRun {
+			sb.WriteByte('_')
+			inInvalidRun = true
+		}
+	}
+
+	return sb.String()
+}
+
+func isPathWithinWorkspace(workspace, target string) bool {
+	if workspace == "" || target == "" {
+		return true
+	}
+
+	workspaceAbs, err := filepath.Abs(workspace)
+	if err != nil {
+		workspaceAbs = filepath.Clean(workspace)
+	}
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		targetAbs = filepath.Clean(target)
+	}
+
+	rel, err := filepath.Rel(workspaceAbs, targetAbs)
+	if err != nil {
+		return false
+	}
+	rel = filepath.Clean(rel)
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// isSupportedDocExt filters to typical text docs.
+func isSupportedDocExt(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".md", ".mdx", ".txt", ".rst", ".adoc", ".asciidoc",
+		".yaml", ".yml", ".json", ".toml", ".ini", ".cfg",
+		".go", ".ts", ".tsx", ".js", ".jsx", ".cs", ".java", ".py":
+		return true
+	default:
+		return false
+	}
+}

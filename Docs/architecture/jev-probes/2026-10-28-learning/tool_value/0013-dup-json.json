@@ -1,0 +1,62 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "context": "codeNERD is a coding agent that writes small Go command-line tools for itself.",
+  "existing_tools": [
+   {
+    "does": "Checks a JSON file parses and reports the first syntax error.",
+    "name": "json_lint"
+   },
+   {
+    "does": "Counts the lines in a file.",
+    "name": "line_count"
+   }
+  ],
+  "request": {
+   "purpose": "Validates that a file is well-formed JSON."
+  }
+ },
+ "questions": {
+  "any_tool_does_this": {
+   "type": "noul",
+   "instructions": "Does one of `existing_tools` already do what `request` needs?",
+   "criteria": {
+    "true": "Running one of the existing tools, as it is, would give the user what the request asks for.",
+    "false": "Each existing tool does a different job, or only part of the job, or works on a different kind of input or output than the request needs."
+   }
+  },
+  "which_tool_does_this": {
+   "type": "choice",
+   "instructions": "Which of these existing tools comes closest to doing what `request` needs?",
+   "criteria": {
+    "json_lint": "Checks a JSON file parses and reports the first syntax error.",
+    "line_count": "Counts the lines in a file."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "any_tool_does_this": {
+   "type": "noul",
+   "noul": 0.85
+  },
+  "which_tool_does_this": {
+   "type": "choice",
+   "choice": "json_lint",
+   "confidence": 1.0,
+   "probabilities": {
+    "json_lint": 1.0,
+    "line_count": 0.0
+   }
+  }
+ },
+ "usage": {
+  "input_tokens": 536,
+  "output_tokens": 60
+ }
+}
+}

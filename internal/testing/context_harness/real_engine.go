@@ -1,0 +1,496 @@
+package context_harness
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
+
+	internalcontext "codenerd/internal/context"
+	"codenerd/internal/core"
+	"codenerd/internal/perception"
+	"codenerd/internal/store"
+)
+
+// RealIntegrationEngine uses real codeNERD components for integration testing.
+// It wires the real ActivationEngine, Compressor, and Kernel together.
+type RealIntegrationEngine struct {
+	kernel     *core.RealKernel
+	activation *internalcontext.ActivationEngine
+	compressor *internalcontext.Compressor
+	store      *store.LocalStore
+	llmClient  perception.LLMClient
+
+	// Stats tracking
+	mu               sync.Mutex
+	originalTokens   int
+	compressedTokens int
+	allFacts         []core.Fact
+	factScores       map[string]*ActivationBreakdown
+}
+
+// Ensure RealIntegrationEngine implements ContextEngine
+var _ ContextEngine = (*RealIntegrationEngine)(nil)
+
+// NewRealIntegrationEngine creates an engine using real codeNERD components.
+func NewRealIntegrationEngine(
+	kernel *core.RealKernel,
+	localStorage *store.LocalStore,
+	llmClient perception.LLMClient,
+	config internalcontext.CompressorConfig,
+) *RealIntegrationEngine {
+	return &RealIntegrationEngine{
+		kernel:     kernel,
+		activation: internalcontext.NewActivationEngine(config),
+		compressor: internalcontext.NewCompressor(kernel, localStorage, llmClient),
+		store:      localStorage,
+		llmClient:  llmClient,
+		allFacts:   make([]core.Fact, 0),
+		factScores: make(map[string]*ActivationBreakdown),
+	}
+}
+
+// CompressTurn compresses a single turn into semantic facts using real components.
+func (e *RealIntegrationEngine) CompressTurn(ctx context.Context, turn *Turn) ([]core.Fact, int, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	// Track original tokens
+	originalTokens := len(turn.Message) / 4
+	e.originalTokens += originalTokens
+
+	// Create Mangle facts from turn
+	facts := e.createFactsFromTurn(turn)
+
+	// Load facts into kernel
+	if err := e.kernel.LoadFacts(facts); err != nil {
+		return nil, 0, fmt.Errorf("failed to load facts: %w", err)
+	}
+
+	// Mark new facts for recency tracking
+	e.activation.MarkNewFacts(facts)
+
+	// Store facts for later retrieval
+	e.allFacts = append(e.allFacts, facts...)
+
+	// Estimate compressed tokens (~20 tokens per fact)
+	compressedTokens := len(facts) * 20
+	e.compressedTokens += compressedTokens
+
+	return facts, compressedTokens, nil
+}
+
+// createFactsFromTurn converts turn metadata into Mangle facts.
+func (e *RealIntegrationEngine) createFactsFromTurn(turn *Turn) []core.Fact {
+	facts := []core.Fact{
+		{
+			Predicate: "conversation_turn",
+			Args: []any{
+				turn.TurnID,
+				turn.Speaker,
+				turn.Message,
+				turn.Intent,
+			},
+		},
+	}
+
+	// Files referenced
+	for _, file := range turn.Metadata.FilesReferenced {
+		facts = append(facts, core.Fact{
+			Predicate: "turn_references_file",
+			Args:      []any{turn.TurnID, file},
+		})
+	}
+
+	// Symbols referenced
+	for _, symbol := range turn.Metadata.SymbolsReferenced {
+		facts = append(facts, core.Fact{
+			Predicate: "turn_references_symbol",
+			Args:      []any{turn.TurnID, symbol},
+		})
+	}
+
+	// Error messages
+	for _, errMsg := range turn.Metadata.ErrorMessages {
+		facts = append(facts, core.Fact{
+			Predicate: "turn_error_message",
+			Args:      []any{turn.TurnID, errMsg},
+		})
+	}
+
+	// Topics
+	for _, topic := range turn.Metadata.Topics {
+		facts = append(facts, core.Fact{
+			Predicate: "turn_topic",
+			Args:      []any{turn.TurnID, topic},
+		})
+	}
+
+	// Reference-back tracking
+	if turn.Metadata.IsQuestionReferringBack && turn.Metadata.ReferencesBackToTurn != nil {
+		facts = append(facts, core.Fact{
+			Predicate: "turn_references_back",
+			Args:      []any{turn.TurnID, *turn.Metadata.ReferencesBackToTurn},
+		})
+	}
+
+	// Campaign phase (for integration scenarios)
+	if turn.CampaignPhase != "" {
+		facts = append(facts, core.Fact{
+			Predicate: "turn_campaign_phase",
+			Args:      []any{turn.TurnID, turn.CampaignPhase},
+		})
+	}
+
+	return facts
+}
+
+// RetrieveContext retrieves relevant facts using real 9-component activation.
+func (e *RealIntegrationEngine) RetrieveContext(ctx context.Context, query string, tokenBudget int) ([]core.Fact, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if len(e.allFacts) == 0 {
+		return nil, nil
+	}
+
+	// Build back-reference context from turn_references_back facts
+	// This enables native back-reference scoring via computeBackReferenceScore()
+	referencedTurnsMap := make(map[int]bool)
+	var referencedTurnIDs []int
+	var referencedTopics []string
+	var referencedFiles []string
+	var referencedSymbols []string
+	var referencedErrors []string
+
+	for _, fact := range e.allFacts {
+		if fact.Predicate == "turn_references_back" && len(fact.Args) >= 2 {
+			if referencedTurn, ok := fact.Args[1].(int); ok {
+				if !referencedTurnsMap[referencedTurn] {
+					referencedTurnsMap[referencedTurn] = true
+					referencedTurnIDs = append(referencedTurnIDs, referencedTurn)
+				}
+			}
+		}
+	}
+
+	// If we have back-references, collect metadata from referenced turns
+	if len(referencedTurnIDs) > 0 {
+		for _, fact := range e.allFacts {
+			if len(fact.Args) < 2 {
+				continue
+			}
+			turnID, ok := fact.Args[0].(int)
+			if !ok || !referencedTurnsMap[turnID] {
+				continue
+			}
+			switch fact.Predicate {
+			case "turn_topic":
+				if topic, ok := fact.Args[1].(string); ok && topic != "" {
+					referencedTopics = append(referencedTopics, topic)
+				}
+			case "turn_references_file":
+				if file, ok := fact.Args[1].(string); ok && file != "" {
+					referencedFiles = append(referencedFiles, file)
+				}
+			case "turn_references_symbol":
+				if symbol, ok := fact.Args[1].(string); ok && symbol != "" {
+					referencedSymbols = append(referencedSymbols, symbol)
+				}
+			case "turn_error_message":
+				if errMsg, ok := fact.Args[1].(string); ok && errMsg != "" {
+					referencedErrors = append(referencedErrors, errMsg)
+				}
+			}
+		}
+
+		// Set back-reference context for native scoring
+		e.activation.SetBackReferenceContext(&internalcontext.BackReferenceActivationContext{
+			ReferencedTurnIDs: referencedTurnIDs,
+			ReferenceStrength: 1.0,
+			ReferencedTopics:  referencedTopics,
+			ReferencedFiles:   referencedFiles,
+			ReferencedSymbols: referencedSymbols,
+			ReferencedErrors:  referencedErrors,
+		})
+	} else {
+		e.activation.ClearBackReferenceContext()
+	}
+
+	// Create intent fact from query for activation scoring
+	intentFact := &core.Fact{
+		Predicate: "user_intent",
+		Args:      []any{"query", "retrieve", query, ""},
+	}
+
+	// Score all facts with real 9-component activation (including native back-reference scoring)
+	scored := e.activation.ScoreFacts(e.allFacts, intentFact)
+
+	// Store activation breakdowns for later inspection
+	// ScoredFact now exposes all 9 components
+	for _, sf := range scored {
+		factID := e.factID(sf.Fact)
+		e.factScores[factID] = &ActivationBreakdown{
+			FactID:             factID,
+			BaseScore:          sf.BaseScore,
+			RecencyBoost:       sf.RecencyScore,
+			RelevanceBoost:     sf.RelevanceScore,
+			DependencyBoost:    sf.DependencyScore,
+			CampaignBoost:      sf.CampaignScore,
+			SessionBoost:       sf.SessionScore,
+			IssueBoost:         sf.IssueScore,
+			FeedbackBoost:      sf.FeedbackScore,
+			BackReferenceBoost: sf.BackReferenceScore,
+			TotalScore:         sf.Score,
+		}
+	}
+
+	// Select within budget
+	selected := e.activation.SelectWithinBudget(scored, tokenBudget)
+
+	// Convert back to facts
+	result := make([]core.Fact, len(selected))
+	for i, sf := range selected {
+		result[i] = sf.Fact
+	}
+
+	return result, nil
+}
+
+// GetCompressionStats returns original and compressed token counts.
+func (e *RealIntegrationEngine) GetCompressionStats() (originalTokens, compressedTokens int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.originalTokens, e.compressedTokens
+}
+
+// GetActivationBreakdown returns the scoring breakdown the last retrieval
+// computed for fact.
+func (e *RealIntegrationEngine) GetActivationBreakdown(fact core.Fact) *ActivationBreakdown {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.factScores[e.factID(fact)]
+}
+
+// SeedFacts asserts a scenario's world facts into the kernel and adds them to
+// the pool the activation engine scores, marked new like a turn's facts.
+func (e *RealIntegrationEngine) SeedFacts(facts []core.Fact) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if err := e.kernel.LoadFacts(facts); err != nil {
+		return fmt.Errorf("failed to load seed facts: %w", err)
+	}
+	e.activation.MarkNewFacts(facts)
+	e.allFacts = append(e.allFacts, facts...)
+	return nil
+}
+
+// SetCampaignContext sets the campaign context for campaign-aware activation.
+func (e *RealIntegrationEngine) SetCampaignContext(ctx *internalcontext.CampaignActivationContext) {
+	e.activation.SetCampaignContext(ctx)
+}
+
+// SetIssueContext sets the issue context for issue-driven activation.
+func (e *RealIntegrationEngine) SetIssueContext(ctx *internalcontext.IssueActivationContext) {
+	e.activation.SetIssueContext(ctx)
+}
+
+// SetBackReferenceContext sets the back-reference context for follow-up question activation.
+func (e *RealIntegrationEngine) SetBackReferenceContext(ctx *internalcontext.BackReferenceActivationContext) {
+	e.activation.SetBackReferenceContext(ctx)
+}
+
+// Reset clears all state for a fresh test run.
+func (e *RealIntegrationEngine) Reset() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.originalTokens = 0
+	e.compressedTokens = 0
+	e.allFacts = make([]core.Fact, 0)
+	e.factScores = make(map[string]*ActivationBreakdown)
+
+	// Clear activation engine state
+	e.activation.ClearCampaignContext()
+	e.activation.ClearIssueContext()
+	e.activation.ClearBackReferenceContext()
+
+	return nil
+}
+
+// GetMode returns RealMode.
+func (e *RealIntegrationEngine) GetMode() EngineMode {
+	return RealMode
+}
+
+// factID keys a fact's activation breakdown. It is the whole fact: keying by
+// turn and predicate (or by predicate alone for a seeded fact) made two topics
+// of one turn, or two campaign_phase rows, share one breakdown -- whichever
+// was scored last.
+func (e *RealIntegrationEngine) factID(fact core.Fact) string {
+	return fact.String()
+}
+
+// LiveLLMResponse represents a response from the live LLM.
+type LiveLLMResponse struct {
+	SurfaceText     string
+	ContextFeedback *ContextFeedback
+	ResponseTokens  int
+}
+
+// GenerateAssistantResponse generates a real assistant response using the LLM.
+// This is used in live LLM mode to get real context_feedback from Gemini.
+func (e *RealIntegrationEngine) GenerateAssistantResponse(ctx context.Context, userMessage string, intent string, facts []core.Fact) (*LiveLLMResponse, error) {
+	if e.llmClient == nil {
+		return nil, fmt.Errorf("no LLM client configured for live mode")
+	}
+
+	// Build context from compressed facts
+	factContext := buildFactContext(facts)
+
+	// System prompt that requests piggyback-style response with context feedback
+	systemPrompt := fmt.Sprintf(`You are a coding assistant in a context harness test.
+
+## Context Facts
+%s
+
+## Instructions
+Respond to the user message. After your response, provide feedback on which context facts were helpful vs noise.
+
+Your response MUST be valid JSON with this structure:
+{
+  "surface_response": "Your helpful response to the user",
+  "control_packet": {
+    "intent_classification": {
+      "category": "code",
+      "verb": "%s",
+      "target": "",
+      "confidence": 0.95
+    },
+    "context_feedback": {
+      "overall_usefulness": 0.8,
+      "helpful_facts": ["fact_name_1", "fact_name_2"],
+      "noise_facts": ["noisy_fact_1"],
+      "missing_context": ""
+    }
+  }
+}
+
+Rate context usefulness from 0.0 to 1.0. List predicate names (like "turn_error_message", "file_topology", "test_state") that were helpful or noise.`, factContext, intent)
+
+	// Call the LLM
+	response, err := e.llmClient.CompleteWithSystem(ctx, systemPrompt, userMessage)
+	if err != nil {
+		return nil, fmt.Errorf("LLM call failed: %w", err)
+	}
+
+	// Parse the response
+	return parseLiveLLMResponse(response)
+}
+
+// buildFactContext formats facts for LLM context.
+func buildFactContext(facts []core.Fact) string {
+	if len(facts) == 0 {
+		return "(no context facts)"
+	}
+
+	var sb strings.Builder
+	for _, fact := range facts {
+		sb.WriteString(fmt.Sprintf("- %s(", fact.Predicate))
+		for i, arg := range fact.Args {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(fmt.Sprintf("%v", arg))
+		}
+		sb.WriteString(")\n")
+	}
+	return sb.String()
+}
+
+// parseLiveLLMResponse parses the JSON response from the LLM.
+func parseLiveLLMResponse(response string) (*LiveLLMResponse, error) {
+	// Try to extract JSON from response (may have markdown wrapper)
+	jsonStr := extractJSON(response)
+	if jsonStr == "" {
+		// Fallback: treat entire response as surface text
+		return &LiveLLMResponse{
+			SurfaceText:    response,
+			ResponseTokens: len(response) / 4,
+		}, nil
+	}
+
+	// Parse the JSON
+	var parsed struct {
+		SurfaceResponse string `json:"surface_response"`
+		ControlPacket   struct {
+			IntentClassification struct {
+				Category   string  `json:"category"`
+				Verb       string  `json:"verb"`
+				Target     string  `json:"target"`
+				Confidence float64 `json:"confidence"`
+			} `json:"intent_classification"`
+			ContextFeedback *struct {
+				OverallUsefulness float64  `json:"overall_usefulness"`
+				HelpfulFacts      []string `json:"helpful_facts"`
+				NoiseFacts        []string `json:"noise_facts"`
+				MissingContext    string   `json:"missing_context"`
+			} `json:"context_feedback"`
+		} `json:"control_packet"`
+	}
+
+	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
+		// Fallback on parse error
+		return &LiveLLMResponse{
+			SurfaceText:    response,
+			ResponseTokens: len(response) / 4,
+		}, nil
+	}
+
+	result := &LiveLLMResponse{
+		SurfaceText:    parsed.SurfaceResponse,
+		ResponseTokens: len(response) / 4,
+	}
+
+	if parsed.ControlPacket.ContextFeedback != nil {
+		result.ContextFeedback = &ContextFeedback{
+			OverallUsefulness: parsed.ControlPacket.ContextFeedback.OverallUsefulness,
+			HelpfulFacts:      parsed.ControlPacket.ContextFeedback.HelpfulFacts,
+			NoiseFacts:        parsed.ControlPacket.ContextFeedback.NoiseFacts,
+			MissingContext:    parsed.ControlPacket.ContextFeedback.MissingContext,
+		}
+	}
+
+	return result, nil
+}
+
+// extractJSON extracts JSON from a potentially markdown-wrapped response.
+func extractJSON(response string) string {
+	// Try to find JSON in code blocks
+	if start := strings.Index(response, "```json"); start != -1 {
+		start += 7
+		if end := strings.Index(response[start:], "```"); end != -1 {
+			return strings.TrimSpace(response[start : start+end])
+		}
+	}
+
+	// Try to find raw JSON (starts with {)
+	if start := strings.Index(response, "{"); start != -1 {
+		// Find matching closing brace
+		depth := 0
+		for i := start; i < len(response); i++ {
+			switch response[i] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					return response[start : i+1]
+				}
+			}
+		}
+	}
+
+	return ""
+}

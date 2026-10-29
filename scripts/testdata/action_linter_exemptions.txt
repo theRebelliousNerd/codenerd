@@ -1,0 +1,11 @@
+# Action-linter warning exemptions for the preflight gate.
+# One action glob per line. Both entries below are deliberate, documented in
+# .github/workflows/ci.yml next to the Action drift linter step: capability
+# questions for a person, not drift a gate should decide.
+# delete_file: registered but gated behind dangerous_action, whose only
+# permitted/3 consumer also requires signed_approval and admin_override that
+# production never asserts. Unreachable in practice, kept intentionally.
+delete_file
+# research: VirtualStore supports the action but policy never emits it.
+# Possible dead action or future capability; not drift.
+research

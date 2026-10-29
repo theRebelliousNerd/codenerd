@@ -1,0 +1,75 @@
+# Test-coverage mandate for every turn that writes code.
+#
+# is_mandatory: true + shard_types is the "mandatory FOR THESE SHARDS" idiom,
+# and it is the only reliable way in. The live selection ruleset is
+# internal/core/defaults/jit_compiler.mg (the Go selector queries
+# selected_result/3 there), where an atom becomes tentative via exactly two
+# routes: mandatory_selection — is_mandatory and not blocked_by_context — or a
+# vector_hit. The skeleton phase runs no vector search at all
+# (selector.go: "VectorScore: 0.0, // No vector search for skeleton"), so for a
+# skeleton-category atom is_mandatory is the ONLY route.
+#
+# is_mandatory does not mean "on every compile". /shard is a regime dimension
+# (jit_compiler.mg:114) and therefore fail-closed: an atom carrying shard_types
+# is blocked on any compile whose shard does not match. So this is paid for on
+# coder and tester compiles and nowhere else — not on perception, not on
+# /explain.
+#
+# And only on a compile that writes code: world_states: [authoring_code] is the
+# kernel's need (policy/jit_needs.mg, target_need) for a target in a code
+# language, or one whose language nothing could tell. A turn writing a
+# Markdown document is not handed a test mandate for code it will not write
+# (measured 2026-09-22 on the features-docs campaign, every round of every
+# task).
+#
+# This precision matters because the alternative was verified not to work. The
+# eight existing TDD atom files are gated on operational_modes: ["/tdd_repair"]
+# (a mode the session executor never sets — it hardcodes "/active") or on a
+# vector hit. A live /fix turn writing Go test code selected ZERO of them
+# (2026-08-08, JIT[coder] atoms=64 skel=32 flesh=32), and a first draft of this
+# atom with is_mandatory:false changed that count by exactly nothing. Methodology
+# that only appears when the dice land right is not a methodology.
+#
+# It is deliberately short. A mandatory atom is paid for on every write turn, so
+# it states the rule and the two ways agents evade it, and leaves the detailed
+# Go workflow to methodology/tdd/go_workflow. The test-placement rule lives here
+# for the same reason (it must reach every write turn).
+
+- id: "methodology/tdd/coverage_mandate"
+  category: "methodology"
+  subcategory: "tdd"
+  is_mandatory: true
+  shard_types: ["/coder", "/tester"]
+  world_states: ["authoring_code"]
+  content: |
+    ## Test coverage is part of the work
+
+    A turn that creates or changes behaviour also writes or updates the test that proves it; "tests can be added next" is an unfinished turn.
+    - New function, method or branch: a test that calls it.
+    - Bug fix: a test that fails before the fix and passes after; name the assertion that would have failed.
+    - Changed behaviour: update the existing test to the new contract.
+    - Pure rename, comment or formatting: no new test; say so.
+
+- id: "methodology/tdd/coverage_mandate/the-two-evasions-do-not-use-them"
+  section_of: "methodology/tdd/coverage_mandate"
+  section_order: 1
+  category: "methodology"
+  subcategory: "tdd"
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  world_states: ["authoring_code"]
+  content: |
+    Two evasions are not coverage:
+    1. A tautological test: one that mirrors the implementation, asserts on a mock you just configured, or cannot fail. Ask which wrong implementation it would catch.
+    2. Weakening a test to get green: deleting, loosening or skipping a failing test. If the test itself is wrong, say why before changing it.
+
+- id: "methodology/tdd/coverage_mandate/verification-is-automatic-so-do-not-guess"
+  section_of: "methodology/tdd/coverage_mandate"
+  section_order: 2
+  category: "methodology"
+  subcategory: "tdd"
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  world_states: ["authoring_code"]
+  content: |
+    Your edits are compiled and the affected packages tested after the turn whatever you report, so run the tests yourself before finishing. Cover the boundary and the error path, as table-driven tests with named cases. Extend the file under test's existing `<file>_test.go`; create a test file only when it has none. Name tests for the behaviour they pin (`TestParseAtom_RejectsTrailingDot`), never with step, wave, phase, shard, task, campaign or finding ids.

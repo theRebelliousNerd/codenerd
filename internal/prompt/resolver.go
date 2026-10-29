@@ -1,0 +1,524 @@
+package prompt
+
+import (
+	"fmt"
+	"math"
+	"sort"
+
+	"codenerd/internal/logging"
+)
+
+// OrderedAtom is an atom with its assembly order.
+// The order determines the position in the final prompt.
+type OrderedAtom struct {
+	Atom       *PromptAtom
+	Order      int
+	Score      float64 // Preserved from ScoredAtom
+	RenderMode string  // "standard", "concise", "min"
+	// Carried is judged flesh the task's previous compile also admitted
+	// (ScoredAtom.Carried); it assembles ahead of new flesh.
+	Carried bool
+}
+
+// DependencyResolver resolves atom dependencies and detects conflicts.
+// It performs:
+// 1. Dependency validation (all dependencies satisfied)
+// 2. Conflict detection (no conflicting atoms)
+// 3. Topological sorting (respecting dependencies)
+// 4. Cycle detection (preventing infinite loops)
+type DependencyResolver struct {
+	// allowMissingDeps allows atoms with missing dependencies to be included
+	allowMissingDeps bool
+}
+
+// NewDependencyResolver creates a new dependency resolver.
+func NewDependencyResolver() *DependencyResolver {
+	return &DependencyResolver{
+		allowMissingDeps: false,
+	}
+}
+
+// SetAllowMissingDeps controls whether atoms with missing dependencies are included.
+func (r *DependencyResolver) SetAllowMissingDeps(allow bool) {
+	r.allowMissingDeps = allow
+}
+
+// Resolve orders atoms by dependencies.
+// It assumes the input set is already valid (filtered by Mangle/JIT compiler).
+// It performs:
+// 1. Topological sorting (respecting dependencies)
+// 2. Cycle detection (preventing infinite loops)
+func (r *DependencyResolver) Resolve(atoms []*ScoredAtom) ([]*OrderedAtom, error) {
+	timer := logging.StartTimer(logging.CategoryContext, "DependencyResolver.Resolve")
+	defer timer.Stop()
+
+	if len(atoms) == 0 {
+		return nil, nil
+	}
+
+	// Build lookup map
+	atomMap := make(map[string]*ScoredAtom, len(atoms))
+	valid := make([]*ScoredAtom, 0, len(atoms))
+	for _, sa := range atoms {
+		if sa == nil || sa.Atom == nil || sa.Atom.ID == "" {
+			logging.Get(logging.CategoryContext).Warn("DependencyResolver.Resolve: skipping nil/invalid atom")
+			continue
+		}
+		atomMap[sa.Atom.ID] = sa
+		valid = append(valid, sa)
+	}
+	if len(valid) == 0 {
+		return nil, nil
+	}
+
+	// Prune atoms with missing dependencies transitively (fail-closed unless
+	// allowMissingDeps). This propagates capability gating: dependents of an
+	// omitted tool-gated atom are omitted rather than rendered dangling.
+	if !r.allowMissingDeps {
+		for {
+			present := make(map[string]struct{}, len(valid))
+			for _, sa := range valid {
+				present[sa.Atom.ID] = struct{}{}
+			}
+			kept := make([]*ScoredAtom, 0, len(valid))
+			changed := false
+			for _, sa := range valid {
+				missing := false
+				for _, depID := range sa.Atom.DependsOn {
+					if depID == "" {
+						continue
+					}
+					if _, ok := present[depID]; !ok {
+						missing = true
+						break
+					}
+				}
+				if missing {
+					changed = true
+					continue
+				}
+				kept = append(kept, sa)
+			}
+			valid = kept
+			atomMap = make(map[string]*ScoredAtom, len(valid))
+			for _, sa := range valid {
+				atomMap[sa.Atom.ID] = sa
+			}
+			if !changed || len(valid) == 0 {
+				break
+			}
+		}
+		if len(valid) == 0 {
+			return nil, nil
+		}
+	}
+
+	// Step 1: Topological sort
+	sorted, err := r.topologicalSort(valid, atomMap)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 2: Convert to OrderedAtom with sequential order
+	result := make([]*OrderedAtom, len(sorted))
+	for i, sa := range sorted {
+		result[i] = &OrderedAtom{
+			Atom:       sa.Atom,
+			Order:      i,
+			Score:      sa.Combined,
+			Carried:    sa.Carried,
+			RenderMode: "standard", // Default mode, can be adjusted by BudgetManager
+		}
+	}
+
+	logging.Get(logging.CategoryContext).Debug(
+		"Resolved %d atoms (from %d candidates)", len(result), len(atoms),
+	)
+
+	return result, nil
+}
+
+// scoredPeerLess orders ready peers for Kahn's algorithm in four tiers: a
+// NaN score never outranks a real one; then score; then build-time importance
+// (unscored last); then atom ID. Two NaNs are never ==, so they fall through rather than be
+// compared. One function serves both queue sorts: the re-sort after each pop
+// used to drop the priority tier and the NaN guards, so peers could reorder
+// mid-run relative to the initial queue.
+func scoredPeerLess(a, b *ScoredAtom) bool {
+	if a.Atom.IsMandatory != b.Atom.IsMandatory {
+		return a.Atom.IsMandatory
+	}
+	as, bs := a.Combined, b.Combined
+	aNaN, bNaN := math.IsNaN(as), math.IsNaN(bs)
+	switch {
+	case aNaN && bNaN: // tie: fall through to importance, then ID
+	case aNaN:
+		return false
+	case bNaN:
+		return true
+	case as != bs:
+		return as > bs
+	}
+	if a.Atom.Importance != b.Atom.Importance {
+		return a.Atom.Importance > b.Atom.Importance
+	}
+	return a.Atom.ID < b.Atom.ID
+}
+
+// topologicalSort orders atoms so dependencies come before dependents.
+// Uses Kahn's algorithm with cycle detection.
+func (r *DependencyResolver) topologicalSort(
+	atoms []*ScoredAtom,
+	atomMap map[string]*ScoredAtom,
+) ([]*ScoredAtom, error) {
+	// Build in-degree map (count of incoming edges)
+	inDegree := make(map[string]int, len(atoms))
+	for _, sa := range atoms {
+		if _, ok := inDegree[sa.Atom.ID]; !ok {
+			inDegree[sa.Atom.ID] = 0
+		}
+		seenDeps := make(map[string]bool)
+		for _, depID := range sa.Atom.DependsOn {
+			if depID == "" {
+				continue
+			}
+			if seenDeps[depID] {
+				continue
+			}
+			seenDeps[depID] = true
+			if _, ok := atomMap[depID]; ok {
+				inDegree[sa.Atom.ID]++
+			}
+		}
+	}
+
+	// Find all atoms with no dependencies (in-degree 0)
+	queue := make([]*ScoredAtom, 0, len(atoms))
+	for _, sa := range atoms {
+		if inDegree[sa.Atom.ID] == 0 {
+			queue = append(queue, sa)
+		}
+	}
+
+	// Sort queue by score for deterministic ordering among peers
+	sort.Slice(queue, func(i, j int) bool {
+		return scoredPeerLess(queue[i], queue[j])
+	})
+
+	// Build reverse dependency map (atom -> atoms that depend on it)
+	dependents := make(map[string][]*ScoredAtom)
+	for _, sa := range atoms {
+		seenDeps := make(map[string]bool)
+		for _, depID := range sa.Atom.DependsOn {
+			if depID == "" {
+				continue
+			}
+			if seenDeps[depID] {
+				continue
+			}
+			seenDeps[depID] = true
+			if _, ok := atomMap[depID]; ok {
+				dependents[depID] = append(dependents[depID], sa)
+			}
+		}
+	}
+
+	// Process queue
+	result := make([]*ScoredAtom, 0, len(atoms))
+	for len(queue) > 0 || len(result) < len(atoms) {
+		if len(queue) == 0 {
+			// Cycle detected! Break cycle deterministically by picking the remaining node with highest score
+			var bestNode *ScoredAtom
+			for _, sa := range atoms {
+				if inDegree[sa.Atom.ID] > 0 {
+					if bestNode == nil {
+						bestNode = sa
+					} else {
+						saIsNaN := math.IsNaN(sa.Combined)
+						bestIsNaN := math.IsNaN(bestNode.Combined)
+						if !saIsNaN && bestIsNaN {
+							bestNode = sa
+						} else if !saIsNaN && !bestIsNaN && sa.Combined > bestNode.Combined {
+							bestNode = sa
+						}
+					}
+				}
+			}
+			if bestNode != nil {
+				logging.Get(logging.CategoryContext).Warn("Dependency cycle detected, breaking cycle at atom: %s", bestNode.Atom.ID)
+				inDegree[bestNode.Atom.ID] = 0
+				queue = append(queue, bestNode)
+			} else {
+				break
+			}
+		}
+
+		// Pop front
+		current := queue[0]
+		queue = queue[1:]
+		result = append(result, current)
+
+		// Reduce in-degree for dependents
+		for _, dependent := range dependents[current.Atom.ID] {
+			inDegree[dependent.Atom.ID]--
+			if inDegree[dependent.Atom.ID] == 0 {
+				queue = append(queue, dependent)
+			}
+		}
+
+		// Re-sort queue after adding new items
+		sort.Slice(queue, func(i, j int) bool {
+			return scoredPeerLess(queue[i], queue[j])
+		})
+	}
+
+	return result, nil
+}
+
+// ValidateDependencies checks if all dependencies can be satisfied.
+// Returns a list of atoms with unmet dependencies.
+func (r *DependencyResolver) ValidateDependencies(atoms []*PromptAtom) []DependencyError {
+	atomSet := make(map[string]bool, len(atoms))
+	for _, atom := range atoms {
+		if atom == nil || atom.ID == "" {
+			continue
+		}
+		atomSet[atom.ID] = true
+	}
+
+	var errors []DependencyError
+	for _, atom := range atoms {
+		if atom == nil || atom.ID == "" {
+			continue
+		}
+		for _, depID := range atom.DependsOn {
+			if !atomSet[depID] {
+				errors = append(errors, DependencyError{
+					AtomID:       atom.ID,
+					MissingDepID: depID,
+					Type:         DependencyErrorMissing,
+				})
+			}
+		}
+	}
+
+	return errors
+}
+
+// DependencyErrorType categorizes dependency errors.
+type DependencyErrorType int
+
+const (
+	// DependencyErrorMissing means a required dependency is not present.
+	DependencyErrorMissing DependencyErrorType = iota
+
+	// DependencyErrorCycle means a dependency cycle was detected.
+	DependencyErrorCycle
+
+	// DependencyErrorConflict means conflicting atoms are both selected.
+	DependencyErrorConflict
+)
+
+// DependencyError describes a dependency resolution error.
+//
+// Only ONE of its three types is ever constructed. ValidateDependencies emits
+// DependencyErrorMissing and nothing else, so ConflictID and CycleIDs are
+// never filled and the two Error() branches that format them are unreachable —
+// which is why the dark-field gate reports both fields.
+//
+// That is a missing SOURCE rather than a missing wire, and the source moved on
+// purpose. Conflict detection is now Mangle's: atoms carry ConflictsWith,
+// selector.go feeds it to atom_conflicts() in jit_compiler.mg, and the kernel
+// resolves conflicts during selection rather than after it — which is the only
+// place it CAN be resolved, since two atoms only conflict once both have been
+// selected. DetectCycles here is still the cycle algorithm, and it returns its
+// path directly; nothing wraps that path into a DependencyError because
+// nothing needs the error type to carry it.
+//
+// Left rather than deleted: Error() is the documented rendering for all three
+// types, and a future caller that does want a typed cycle error should find
+// the shape already agreed rather than invent a second one.
+type DependencyError struct {
+	AtomID       string
+	MissingDepID string
+	ConflictID   string
+	CycleIDs     []string
+	Type         DependencyErrorType
+}
+
+// Error implements the error interface.
+func (e DependencyError) Error() string {
+	switch e.Type {
+	case DependencyErrorMissing:
+		return fmt.Sprintf("atom %s: missing dependency %s", e.AtomID, e.MissingDepID)
+	case DependencyErrorCycle:
+		return fmt.Sprintf("dependency cycle: %v", e.CycleIDs)
+	case DependencyErrorConflict:
+		return fmt.Sprintf("atom %s conflicts with %s", e.AtomID, e.ConflictID)
+	default:
+		return fmt.Sprintf("atom %s: unknown dependency error", e.AtomID)
+	}
+}
+
+// DetectCycles finds dependency cycles in a set of atoms.
+// Returns the cycle path if found, or nil if no cycle exists.
+func (r *DependencyResolver) DetectCycles(atoms []*PromptAtom) []string {
+
+	// Build adjacency list
+	graph := make(map[string][]string, len(atoms))
+	atomSet := make(map[string]bool, len(atoms))
+	for _, atom := range atoms {
+		if atom == nil || atom.ID == "" {
+			continue
+		}
+		atomSet[atom.ID] = true
+		graph[atom.ID] = append(graph[atom.ID], atom.DependsOn...)
+	}
+
+	// DFS with color marking
+	// white = unvisited, gray = in-progress, black = done
+	const (
+		white = 0
+		gray  = 1
+		black = 2
+	)
+
+	color := make(map[string]int, len(atoms))
+	parent := make(map[string]string, len(atoms))
+
+	var cyclePath []string
+
+	for _, atom := range atoms {
+		if atom == nil || atom.ID == "" {
+			continue
+		}
+
+		if color[atom.ID] != white {
+			continue
+		}
+
+		// Use iterative DFS
+		// Stack stores pairs of (node, neighbor_index)
+		type stackFrame struct {
+			node string
+			idx  int
+		}
+		stack := []stackFrame{{node: atom.ID, idx: 0}}
+		color[atom.ID] = gray
+
+		for len(stack) > 0 {
+			// Depth limit check replaced by iterative heap structure, safe against stack overflow.
+			// Optional: We can still impose a limit on len(stack) if we want to guard against OOM in truly massive/malicious graphs.
+			if len(stack) > 1000 {
+				logging.Get(logging.CategoryContext).Warn("DetectCycles: max iteration depth (1000) exceeded at node %s", stack[len(stack)-1].node)
+				break // Abort this path safely
+			}
+
+			currIdx := len(stack) - 1
+			curr := stack[currIdx]
+
+			neighbors := graph[curr.node]
+
+			// Find next valid neighbor
+			var nextNeighbor string
+			foundNext := false
+
+			for i := curr.idx; i < len(neighbors); i++ {
+				neighbor := neighbors[i]
+				if !atomSet[neighbor] {
+					continue
+				}
+
+				if color[neighbor] == gray {
+					// Found cycle - reconstruct path
+					cyclePath = []string{neighbor}
+					for cur := curr.node; cur != neighbor; cur = parent[cur] {
+						cyclePath = append([]string{cur}, cyclePath...)
+					}
+					cyclePath = append([]string{neighbor}, cyclePath...)
+					return cyclePath
+				}
+
+				if color[neighbor] == white {
+					nextNeighbor = neighbor
+					stack[currIdx].idx = i + 1 // update idx for when we return to this node
+					foundNext = true
+					break
+				}
+			}
+
+			if foundNext {
+				parent[nextNeighbor] = curr.node
+				color[nextNeighbor] = gray
+				stack = append(stack, stackFrame{node: nextNeighbor, idx: 0})
+			} else {
+				color[curr.node] = black
+				stack = stack[:len(stack)-1]
+			}
+		}
+	}
+
+	return nil
+}
+
+// SortByCategory groups and sorts atoms by category, then by score within category.
+func (r *DependencyResolver) SortByCategory(atoms []*OrderedAtom) []*OrderedAtom {
+	// Group by category
+	byCategory := make(map[AtomCategory][]*OrderedAtom)
+	for _, oa := range atoms {
+		if oa == nil || oa.Atom == nil {
+			continue
+		}
+		cat := oa.Atom.Category
+		byCategory[cat] = append(byCategory[cat], oa)
+	}
+
+	// Sort within each category by score
+	for cat := range byCategory {
+		sort.Slice(byCategory[cat], func(i, j int) bool {
+			a := byCategory[cat][i]
+			b := byCategory[cat][j]
+			aNaN, bNaN := math.IsNaN(a.Score), math.IsNaN(b.Score)
+			switch {
+			case aNaN && bNaN:
+			case aNaN:
+				return false
+			case bNaN:
+				return true
+			case a.Score != b.Score:
+				return a.Score > b.Score
+			}
+			return a.Atom.ID < b.Atom.ID
+		})
+	}
+
+	// Assemble in category order
+	result := make([]*OrderedAtom, 0, len(atoms))
+	categoryOrder := AllCategories() // Defined order
+
+	for _, cat := range categoryOrder {
+		if atoms, ok := byCategory[cat]; ok {
+			result = append(result, atoms...)
+			delete(byCategory, cat)
+		}
+	}
+
+	// Append any remaining categories not in standard order
+	unknownCats := make([]AtomCategory, 0, len(byCategory))
+	for cat := range byCategory {
+		unknownCats = append(unknownCats, cat)
+	}
+	sort.Slice(unknownCats, func(i, j int) bool {
+		return string(unknownCats[i]) < string(unknownCats[j])
+	})
+	for _, cat := range unknownCats {
+		result = append(result, byCategory[cat]...)
+	}
+
+	// Update order indices
+	for i := range result {
+		result[i].Order = i
+	}
+
+	return result
+}

@@ -1,0 +1,38 @@
+# sqlite-vec / SQLite Vector Store Atoms
+# Covers sqlite-vec-go-bindings + modernc.org/sqlite usage.
+
+- id: "framework/sqlite_vec/core"
+  category: "framework"
+  subcategory: "sqlite_vec"
+  is_mandatory: false
+  shard_types: ["/coder", "/researcher"]
+  frameworks: ["/sqlite-vec", "/sqlite"]
+  languages: ["/go"]
+  content: |
+    ## sqlite-vec + SQLite Integration
+
+    codeNERD uses SQLite as persistent memory with optional `sqlite-vec` for vector search.
+
+    ### Build invariants
+    - Vector support requires CGO headers from the workspace's own
+      `sqlite_headers` directory: `CGO_CFLAGS=-I<workspace root>/sqlite_headers`.
+    - Paths are workspace-relative. Never copy a drive path (`C:/...`) or another
+      machine's absolute path into a tool argument: run_build and run_tests take
+      `working_dir` relative to the workspace root (omit it for the root).
+
+    ### Load extension
+    - Ensure `sqlite-vec-go-bindings` is initialized before queries.
+    - Register vec functions once per DB connection.
+
+    ### Schema patterns
+    - Store embeddings as BLOB or vec column depending on extension support.
+    - Keep metadata columns explicit (source, shard_id, category, created_at).
+
+    ### Query patterns
+    - Always bind parameters; no string interpolation.
+    - Use vec distance functions for Top‑K similarity retrieval.
+
+    ### Failure modes
+    - Missing headers → build fails; surface actionable error.
+    - Extension not loaded → fallback to non‑vector retrieval and assert `jit_fallback/2`.
+

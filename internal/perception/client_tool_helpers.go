@@ -1,0 +1,446 @@
+package perception
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"math"
+	"net/http"
+	"strings"
+	"time"
+
+	"codenerd/internal/config"
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+)
+
+// MapToolDefinitionsToOpenAI converts generic tool definitions to OpenAI-compatible format.
+func MapToolDefinitionsToOpenAI(tools []ToolDefinition) []OpenAITool {
+	result := make([]OpenAITool, len(tools))
+	for i, t := range tools {
+		result[i] = OpenAITool{
+			Type: "function",
+			Function: OpenAIFunction{
+				Name:        t.Name,
+				Description: t.Description,
+				Parameters:  t.InputSchema,
+			},
+		}
+	}
+	return result
+}
+
+// MapOpenAIToolCallsToInternal converts OpenAI tool calls to generic tool calls.
+// The result aligns index-wise with the input: a skipped non-function call
+// leaves a zero-valued entry (pinned by contract test). Blank arguments
+// decode as an empty object: several providers serialize zero-arg calls as
+// "" instead of "{}", and failing the whole turn on that variance is worse
+// than calling with no args.
+//
+// Arguments that are present but not valid JSON do NOT fail the response:
+// the call is returned with an empty Input and ArgsError describing the
+// failure, so the executor can surface it to the model as a tool error and
+// the model can re-issue the call, instead of the whole turn dying.
+func MapOpenAIToolCallsToInternal(calls []OpenAIToolCall) ([]ToolCall, error) {
+	result := make([]ToolCall, len(calls))
+	for i, c := range calls {
+		if c.Type != "function" {
+			continue // Skip non-function tool calls (if any)
+		}
+
+		args := map[string]any{}
+		var argsErr string
+		if strings.TrimSpace(c.Function.Arguments) != "" {
+			if err := json.Unmarshal([]byte(c.Function.Arguments), &args); err != nil {
+				args = map[string]any{}
+				argsErr = fmt.Sprintf("arguments for %s were not valid JSON (%v; received %d characters)", c.Function.Name, err, len(c.Function.Arguments))
+			}
+		}
+
+		result[i] = ToolCall{
+			ID:        c.ID,
+			Name:      c.Function.Name,
+			Input:     args,
+			ArgsError: argsErr,
+		}
+	}
+	return result, nil
+}
+
+// systemAndUserMessages is the two-message chat body of a single-turn call.
+// The caller owns the system prompt: a blank one sends no system message, and
+// no client substitutes text of its own.
+func systemAndUserMessages(systemPrompt, userPrompt string) []OpenAIMessage {
+	msgs := make([]OpenAIMessage, 0, 2)
+	if strings.TrimSpace(systemPrompt) != "" {
+		msgs = append(msgs, OpenAIMessage{Role: "system", Content: systemPrompt})
+	}
+	return append(msgs, OpenAIMessage{Role: "user", Content: userPrompt})
+}
+
+// MapTypesHistoryToOpenAIMessages converts the multi-turn tool-calling history
+// used by types.ToolResultsProvider into OpenAI-compatible chat messages.
+//
+// Expected history shape (from session executor):
+//
+//	user(text) → assistant(tool_calls) → user(tool_results) → assistant(...) …
+//
+// # What this surface cannot represent
+//
+// Chat Completions gives an assistant turn one content string and one
+// tool_calls array. There is no place to say that prose came BETWEEN two tool
+// calls, so a turn of text → tool_use → text → tool_use is flattened to all
+// the text, then both calls. That is a limit of the wire format, not of the
+// block list: the ordering is read faithfully here and then collapsed on
+// purpose, because the alternative — splitting the turn into several assistant
+// messages — puts a tool_calls message somewhere other than immediately before
+// its tool results, which the endpoint rejects.
+//
+// Thinking blocks are dropped for the same kind of reason and it is worth
+// being precise about it: Chat Completions has no request-side field for
+// reasoning at all. Some vendors (DashScope/Qwen) RETURN reasoning_content;
+// none of them accept it back. A thinking block replayed here would have
+// nowhere to go, so it is counted out at the boundary rather than smuggled
+// into the content string, where it would corrupt structured-output parses.
+// See BlockFidelity in provider_fidelity.go for the machine-readable form.
+func MapTypesHistoryToOpenAIMessages(systemPrompt string, history []types.Message) ([]OpenAIMessage, error) {
+	msgs := make([]OpenAIMessage, 0, len(history)+1)
+	if strings.TrimSpace(systemPrompt) != "" {
+		msgs = append(msgs, OpenAIMessage{Role: "system", Content: systemPrompt})
+	}
+	for _, m := range history {
+		role := m.Role
+		if role == "" {
+			role = "user"
+		}
+
+		var text strings.Builder
+		var calls []OpenAIToolCall
+		var results []OpenAIMessage
+		droppedThinking := 0
+
+		for _, b := range m.Content() {
+			switch b.Kind {
+			case types.BlockText:
+				if len(calls) > 0 {
+					// Prose the model emitted AFTER a tool call. Chat
+					// Completions has one content string per assistant turn,
+					// so it lands ahead of the calls instead of between them.
+					logging.PerceptionDebug(
+						"chat-completions: interleaved text after %d tool call(s) collapsed to the front of the turn", len(calls))
+				}
+				text.WriteString(b.Text)
+
+			case types.BlockThinking:
+				// Unrepresentable here; see the note above.
+				droppedThinking++
+
+			case types.BlockToolUse:
+				argsJSON, err := json.Marshal(b.Input)
+				if err != nil {
+					return nil, fmt.Errorf("marshal tool args for %s: %w", b.Name, err)
+				}
+				calls = append(calls, OpenAIToolCall{
+					ID:   b.ID,
+					Type: "function",
+					Function: OpenAIFunctionCall{
+						Name:      b.Name,
+						Arguments: string(argsJSON),
+					},
+				})
+
+			case types.BlockToolResult:
+				// OpenAI expects one role=tool message per tool_result.
+				content := b.Text
+				if b.IsError && content != "" {
+					content = "ERROR: " + content
+				}
+				results = append(results, OpenAIMessage{
+					Role:       "tool",
+					Content:    content,
+					ToolCallID: b.ToolUseID,
+				})
+			}
+		}
+
+		if droppedThinking > 0 {
+			logging.PerceptionWarn(
+				"chat-completions: dropped %d thinking block(s) from a %s turn — the surface has no request-side field for reasoning, so continuity is lost for this turn",
+				droppedThinking, role)
+		}
+
+		msgs = append(msgs, results...)
+		switch {
+		case len(calls) > 0:
+			msgs = append(msgs, OpenAIMessage{
+				Role:      "assistant",
+				Content:   text.String(),
+				ToolCalls: calls,
+			})
+		case len(results) > 0:
+			// A turn that is nothing but tool results adds no further message.
+			// Text alongside them is rare and used to be discarded; it is now
+			// emitted after the results, where it reads as the user's own
+			// comment on them.
+			if strings.TrimSpace(text.String()) != "" {
+				msgs = append(msgs, OpenAIMessage{Role: role, Content: text.String()})
+			}
+		default:
+			msgs = append(msgs, OpenAIMessage{Role: role, Content: text.String()})
+		}
+	}
+	return msgs, nil
+}
+
+// OpenAIToolResponseFromResponse maps an OpenAI-compatible chat response into
+// the internal LLMToolResponse used by the session executor tool loop.
+func OpenAIToolResponseFromResponse(resp *OpenAIResponse) (*LLMToolResponse, error) {
+	if resp == nil || len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
+	}
+	c := resp.Choices[0]
+	toolCalls, err := MapOpenAIToolCallsToInternal(c.Message.ToolCalls)
+	if err != nil {
+		return nil, err
+	}
+	stopReason := c.FinishReason
+	if types.LengthStop(stopReason) {
+		return nil, outputTruncated("", resp.Model, "CompleteWithTools", stopReason, c.Message.Content, 0, resp.Usage.CompletionTokens)
+	}
+	if stopReason == "tool_calls" {
+		stopReason = "tool_use"
+	}
+	return &LLMToolResponse{
+		Text:       c.Message.Content,
+		ToolCalls:  toolCalls,
+		StopReason: stopReason,
+		Usage:      resp.Usage.metadata(),
+	}, nil
+}
+
+// isTransientHTTPStatus reports whether an HTTP status is a transient,
+// retryable server-side condition: 408 plus the 5xx family except 501
+// (500, 502, 503, 504, 529 "overloaded", and any other 5xx a vendor
+// invents). 501 Not Implemented is deterministic — the vendor does not
+// support the operation, so retrying identical bytes will never start
+// working (pinned by the compat and Gemini contracts).
+// This is the single transient policy shared by the OpenAI-compatible
+// helper, the OpenAI-compat vendor client, and the native vendor clients.
+// One vendor predicate lives outside it: ZAI's 429-inclusive
+// retry-after-aware predicate in client_zai_retry.go.
+func isTransientHTTPStatus(code int) bool {
+	return code == http.StatusRequestTimeout || (code >= 500 && code != http.StatusNotImplemented)
+}
+
+// llmMaxRetries is the retry count every adapter's own retry loop uses: the
+// configured llm_timeouts.max_retries (the value ExecuteOpenAIRequest already
+// honours). The adapters used to hardcode 3, so a user's setting reached only
+// the tools path. A negative value means no retries.
+func llmMaxRetries() int {
+	if n := config.GetLLMTimeouts().MaxRetries; n >= 0 {
+		return n
+	}
+	return 0
+}
+
+// llmRetryBackoff is the wait before retry number attempt (1-based): the
+// configured retry_backoff_base doubled per attempt and capped at
+// retry_backoff_max. With the defaults (1s, 30s) it is the 1s, 2s, 4s the
+// adapters used to hardcode.
+func llmRetryBackoff(attempt int) time.Duration {
+	t := config.GetLLMTimeouts()
+	base := t.RetryBackoffBase
+	if base <= 0 {
+		base = time.Second
+	}
+	if attempt < 1 {
+		attempt = 1
+	}
+	d := base << uint(attempt-1)
+	if t.RetryBackoffMax > 0 && d > t.RetryBackoffMax {
+		d = t.RetryBackoffMax
+	}
+	return d
+}
+
+// ExecuteOpenAIRequest performs a non-streaming OpenAI-compatible request.
+// Used by OpenAI, xAI, OpenRouter clients for tool calls.
+func ExecuteOpenAIRequest(ctx context.Context, client *http.Client, baseURL, apiKey string, reqBody OpenAIRequest) (*OpenAIResponse, error) {
+	// Retry loop, governed by the user's configured llm_timeouts
+	// (retry_backoff_base, retry_backoff_max, max_retries). If either
+	// configured delay is <= 0, fall back to today's 1s base and treat
+	// the cap as unbounded by the doubling rule.
+	t := config.GetLLMTimeouts()
+	maxRetries := t.MaxRetries
+	backoffBase := t.RetryBackoffBase
+	if backoffBase <= 0 {
+		backoffBase = time.Second
+	}
+	backoffMax := t.RetryBackoffMax
+	var lastErr error
+	var lastWasRateLimit bool
+	var lastRetryAfter time.Duration
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// Context-aware backoff: a cancelled turn must not sleep
+			// through the retry delays before noticing. The delay is
+			// derived from the PREVIOUS attempt's failure: a 429 that
+			// carried a Retry-After waits exactly that long, a 429
+			// without one waits the configured max (the provider said
+			// "retry shortly" — it is not ready one second later).
+			backoff := openAIRetryBackoff(attempt, backoffBase, backoffMax, lastWasRateLimit, lastRetryAfter)
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
+		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/chat/completions", bytes.NewReader(jsonData))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request failed: %w", err)
+			lastWasRateLimit = false
+			lastRetryAfter = 0
+			continue
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+			retryAfter := parseRetryAfter(resp)
+			resp.Body.Close()
+			if quotaErr := quotaOutlastsRetries(resp.Header, body, attempt, maxRetries, backoffBase, backoffMax); quotaErr != nil {
+				return nil, quotaErr
+			}
+			lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
+			lastWasRateLimit = true
+			lastRetryAfter = retryAfter
+			continue
+		}
+
+		// Transient 5xx (and 408) retry with the same backoff: a single
+		// overloaded-model response must not kill the turn. Anything else
+		// non-200 (auth, bad request) fails immediately — retrying those
+		// only burns quota.
+		if isTransientHTTPStatus(resp.StatusCode) {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+			resp.Body.Close()
+			lastErr = fmt.Errorf("transient status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			lastWasRateLimit = false
+			lastRetryAfter = 0
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+			resp.Body.Close()
+			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response body: %w", err)
+		}
+
+		var openAIResp OpenAIResponse
+		if err := json.Unmarshal(body, &openAIResp); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+		}
+
+		if openAIResp.Error != nil {
+			// OpenRouter returns HTTP 200 with an error object when the
+			// upstream provider fails mid-request. A numeric code inside a
+			// 200 body (e.g. 502, 429) is exactly as transient as the same
+			// HTTP status, which the loop above already retries.
+			code := openAIResp.Error.Code
+			if status, ok := code.HTTPStatus(); ok && (status == http.StatusTooManyRequests || isTransientHTTPStatus(status)) {
+				if status == http.StatusTooManyRequests {
+					if quotaErr := quotaOutlastsRetries(resp.Header, body, attempt, maxRetries, backoffBase, backoffMax); quotaErr != nil {
+						return nil, quotaErr
+					}
+				}
+				lastErr = fmt.Errorf("transient in-body error %s: %s", code, openAIResp.Error.Message)
+				// An in-body error carries no Retry-After header, so a delay
+				// remembered from an earlier header-bearing 429 must not leak
+				// into this retry.
+				lastWasRateLimit = status == http.StatusTooManyRequests
+				lastRetryAfter = 0
+				continue
+			}
+			return nil, fmt.Errorf("API error (code %s): %s", code, openAIResp.Error.Message)
+		}
+
+		return &openAIResp, nil
+	}
+
+	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+// openAIRetryBackoff computes the sleep before the next retry attempt. Ordinary
+// transients double exponentially from base, capped at max (max <= 0 means
+// unbounded by the doubling rule). After a 429 the response governs: honor a
+// Retry-After when the provider sent one, otherwise wait the configured max —
+// a provider that says "retry shortly" is not ready one second later. Both
+// 429 delays are also capped at max when max > 0.
+func openAIRetryBackoff(attempt int, base, max time.Duration, lastWasRateLimit bool, retryAfter time.Duration) time.Duration {
+	if lastWasRateLimit {
+		d := retryAfter
+		if d <= 0 {
+			d = max
+		}
+		if max > 0 && d > max {
+			d = max
+		}
+		return d
+	}
+	d := base << (attempt - 1)
+	if max > 0 && d > max {
+		d = max
+	}
+	return d
+}
+
+// remainingRetryWait sums the 429 backoff delays the retry loop could still
+// wait after the current attempt: openAIRetryBackoff(a, base, max, true, 0)
+// for a := attempt+1 .. maxRetries. A non-positive max means the 429 delay is
+// unbounded, so the sum is unbounded and the caller must not fail fast.
+func remainingRetryWait(attempt, maxRetries int, base, max time.Duration) time.Duration {
+	if max <= 0 {
+		return time.Duration(math.MaxInt64)
+	}
+	var total time.Duration
+	for a := attempt + 1; a <= maxRetries; a++ {
+		total += openAIRetryBackoff(a, base, max, true, 0)
+	}
+	return total
+}
+
+// quotaOutlastsRetries returns the exhausted-quota error when the quota's
+// reset lies beyond everything the remaining retries could wait, so the
+// caller fails now instead of spending the retries; nil otherwise.
+func quotaOutlastsRetries(header http.Header, body []byte, attempt, maxRetries int, base, max time.Duration) *QuotaExhaustedError {
+	now := time.Now()
+	if quotaErr, exhausted := quotaExhaustion(header, body, now); exhausted {
+		if quotaErr.ResetAt.Sub(now) > remainingRetryWait(attempt, maxRetries, base, max) {
+			logging.Get(logging.CategoryAPI).Warn("%s", quotaErr.Error())
+			return quotaErr
+		}
+	}
+	return nil
+}

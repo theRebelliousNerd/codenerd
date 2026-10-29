@@ -1,0 +1,899 @@
+package chat
+
+import (
+	"codenerd/internal/approval"
+	"codenerd/internal/turnjudge"
+	"context"
+	"sync"
+	"time"
+
+	"codenerd/cmd/nerd/ui"
+	"codenerd/internal/articulation"
+	"codenerd/internal/autopoiesis"
+	prompt_evolution "codenerd/internal/autopoiesis/prompt_evolution"
+	"codenerd/internal/browser"
+	"codenerd/internal/campaign"
+	"codenerd/internal/config"
+	"codenerd/internal/consultation"
+	ctxcompress "codenerd/internal/context"
+	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/embedding"
+	nerdinit "codenerd/internal/init"
+	"codenerd/internal/mangle"
+	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
+	"codenerd/internal/retrieval"
+	"codenerd/internal/session"
+	"codenerd/internal/shards"
+	"codenerd/internal/store"
+	nerdsystem "codenerd/internal/system"
+	"codenerd/internal/tactile"
+	"codenerd/internal/transparency"
+	"codenerd/internal/types"
+	"codenerd/internal/usage"
+	"codenerd/internal/ux"
+	"codenerd/internal/verification"
+	"codenerd/internal/world"
+
+	"charm.land/glamour/v2"
+	"github.com/charmbracelet/bubbles/filepicker"
+	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+const (
+	errorPanelViewportHeight = 4
+)
+
+// =============================================================================
+// CONFIGURATION
+// =============================================================================
+
+// Config holds configuration for initializing the chat interface.
+type Config struct {
+	// DisableSystemShards is a list of system shard names to disable.
+	DisableSystemShards []string
+
+	// Yolo is the --yolo flag: autonomy for this session. It is not written
+	// to .nerd/config.json -- the flag says "this run", /yolo on says "from
+	// now on" -- and /yolo off ends it.
+	Yolo bool
+
+	// APIKey is the --api-key flag, handed to boot as BootConfig.APIKey: the
+	// legacy fallback the factory uses only when config and environment name
+	// no client, exactly as the one-shot verbs use it.
+	APIKey string
+}
+
+// ViewMode determines which component is focused/active
+type ViewMode int
+
+const (
+	ChatView ViewMode = iota
+	ListView
+	FilePickerView
+	UsageView
+	CampaignPage
+	PromptInspector // JIT Prompt Inspector
+	AutopoiesisPage // Autopoiesis Dashboard
+	ShardPage       // Shard Console
+	// ApprovalView is the modal human-approval review (approval_host.go): it
+	// is shown while any request awaits the person and closes when none does.
+	ApprovalView
+)
+
+// InputMode represents the current input handling state.
+// This unifies the scattered awaiting* flags into a single state machine
+// to prevent inconsistent states and simplify Update() logic.
+type InputMode int
+
+const (
+	InputModeNormal        InputMode = iota // Default: process as chat input
+	InputModeClarification                  // Awaiting clarification response
+	InputModePatch                          // Awaiting patch input (--END-- terminated)
+	InputModeAgentWizard                    // Agent definition wizard active
+	InputModeConfigWizard                   // Config wizard active
+	InputModeNorthstar                      // Northstar / vision / spec wizard active
+	InputModeOnboarding                     // Onboarding wizard active (first-run experience)
+)
+
+// IsWizard reports whether the input mode is one of the multi-step modal wizards.
+// Wizards are mutually exclusive primary modes that consume textarea input.
+func (im InputMode) IsWizard() bool {
+	switch im {
+	case InputModeAgentWizard, InputModeConfigWizard, InputModeNorthstar, InputModeOnboarding:
+		return true
+	default:
+		return false
+	}
+}
+
+// setInputMode atomically transitions the model into the requested primary mode
+// and clears the per-wizard data carriers for OTHER (now-inactive) modes.
+//
+// It deliberately does not touch orthogonal overlay state
+// (awaitingKnowledge, launchClarifyPending, pendingKnowledge, knowledgeHistory)
+// — those are not primary modes and survive transitions.
+//
+// Pointer receiver so callers can write `m.setInputMode(...)` without re-binding.
+func (m *Model) setInputMode(mode InputMode) {
+	m.inputMode = mode
+
+	// Clear data carriers for modes that are no longer active.
+	if mode != InputModeAgentWizard {
+		m.agentWizard = nil
+	}
+	if mode != InputModeConfigWizard {
+		m.configWizard = nil
+	}
+	if mode != InputModeNorthstar {
+		m.northstarWizard = nil
+	}
+	if mode != InputModeOnboarding {
+		m.onboardingWizard = nil
+	}
+	if mode != InputModeClarification {
+		m.clarificationState = nil
+		m.selectedOption = 0
+	}
+	if mode != InputModePatch {
+		m.pendingPatchLines = nil
+	}
+}
+
+// BootStage represents the startup phase for the interactive UI.
+// While any boot stage is active, the chat input is hidden.
+type BootStage int
+
+const (
+	BootStageBooting BootStage = iota
+	BootStageScanning
+)
+
+// streamKind enumerates the kinds of chunks delivered on a streamChunkMsg.
+// Zero value is surface (i.e. visible response text) so any caller that
+// doesn't set kind explicitly gets the legacy behaviour.
+const (
+	streamKindSurface streamKind = iota
+	streamKindThought
+)
+
+// Subtask represents a pending subtask in the continuation queue
+type Subtask struct {
+	ID          string // Unique task identifier
+	Description string // What needs to be done
+	ShardType   string // Which shard to execute
+	IsMutation  bool   // True for write/run operations (propose pauses before these)
+}
+
+// sessionItem is a list item for the session list
+type sessionItem struct {
+	id, date, desc string
+}
+
+func (i sessionItem) Title() string       { return i.date }
+func (i sessionItem) Description() string { return "[" + i.id + "] " + i.desc }
+func (i sessionItem) FilterValue() string { return i.id + " " + i.desc }
+
+// =============================================================================
+// CORE TYPES
+// =============================================================================
+
+// ClarificationState represents a pending clarification request
+type ClarificationState struct {
+	Question      string
+	Options       []string
+	DefaultOption string
+	Context       string // Serialized kernel state
+	PendingIntent *perception.Intent
+}
+
+// activityPulse is one beat in the live activity trail shown above the input.
+// Newest events push older ones down so the user always sees motion.
+type activityPulse struct {
+	Summary  string
+	Category transparency.GlassBoxCategory
+	At       time.Time
+}
+
+// maxActivityTrail is how many recent pulses stay visible in the live panel.
+const maxActivityTrail = 4
+
+// Model is the main model for the interactive chat interface
+type Model struct {
+	// UI Components
+	textarea   textarea.Model
+	viewport   viewport.Model
+	errorVP    viewport.Model
+	spinner    spinner.Model
+	list       list.Model
+	filepicker filepicker.Model
+	styles     ui.Styles
+	renderer   *glamour.TermRenderer
+
+	viewMode ViewMode
+
+	// Split-pane TUI (Glass Box Interface)
+	splitPane         *ui.SplitPaneView
+	logicPane         *ui.LogicPane
+	showLogic         bool
+	paneMode          ui.PaneMode
+	showError         bool
+	focusError        bool
+	showSystemActions bool
+
+	// Streaming UI state
+	isStreaming   bool
+	currentStream string
+	// currentThought accumulates the model's streaming thinking trace
+	// (Gemini 3 thought parts) so the TUI can render reasoning as it
+	// arrives, above the visible answer. Cleared on streamEndMsg /
+	// streamErrorMsg the same way currentStream is.
+	currentThought string
+
+	// Usage Page
+	usagePage ui.UsagePageModel
+
+	// Campaign Page
+	campaignPage ui.CampaignPageModel
+
+	// JIT Inspector Page
+	jitPage ui.JITPageModel
+
+	// Autopoiesis Dashboard Page
+	autoPage ui.AutopoiesisPageModel
+
+	// Shard Console Page
+	shardPage ui.ShardPageModel
+
+	// Usage Tracking
+	usageTracker *usage.Tracker
+
+	// State
+	history   []Message
+	isLoading bool
+	err       error
+	width     int
+	height    int
+	ready     bool
+	Config    *config.UserConfig
+
+	// Layout (see layout.go): wrapWidth is the text width every renderer
+	// wraps to, derived by applyLayout from the frame size and open
+	// sidebars. campaignBeside records whether the campaign sidebar sits
+	// beside the chat column (width reserved) or stacks below it.
+	wrapWidth      int
+	campaignBeside bool
+
+	// Rendering Performance Cache
+	// Caches rendered markdown for messages to avoid O(N) re-renders.
+	// renderedCacheWidth is the wrapWidth the cached renders were made at:
+	// glamour wraps at render time, so a cache entry is only valid at the
+	// width it was rendered for.
+	renderedCache      map[int]string // Maps message index to rendered output
+	renderedCacheWidth int
+	cacheInvalidFrom   int // Index from which cache needs refresh (-1 = all valid)
+
+	// JIT Compiler — compiles this turn's chat skeleton (see persona.go).
+	jitCompiler *prompt.JITPromptCompiler
+
+	// turnIntentVerb is this turn's classified verb, set by processInput on its
+	// own copy of the model once perception has run and read by
+	// buildChatCompilationContext.
+	//
+	// It is carried on the model rather than passed as an argument because
+	// articulationSystemPrompt's signature is pinned by persona_test.go as the
+	// production entry point. Perception runs before articulation on every path
+	// that reaches it, so an empty verb here means "not classified", which
+	// buildChatCompilationContext reads as "admit every intent-gated atom" —
+	// the permissive reading jit_compiler.mg intends for /intent.
+	turnIntentVerb string
+
+	// Clarification Loop State (Pause/Resume Protocol)
+	clarificationState *ClarificationState
+	selectedOption     int // For option picker
+	pendingPatchLines  []string
+	lastClarifyInput   string // Track last input for clarification dedup
+	// pendingWork is work the kernel held until the user says go
+	// (route_decision(/hold), work_hold.go); newer held work replaces it.
+	pendingWork *pendingWork
+	// goAheadWork is set only on the command that runs an approved proposal:
+	// processInput reuses its intent and the turn carries /user_go_ahead.
+	goAheadWork *pendingWork
+	// background is the read-only work running off the turn (background.go),
+	// shared across Model copies.
+	background *backgroundJobs
+	// turn is the in-flight turn (side_turn.go), shared across Model copies.
+	turn *turnState
+	// selected is the session the chat has open (session_owner.go), shared
+	// across Model copies so a deferred save can tell its session was left.
+	selected *selectedSession
+	// jev asks the turn's typed judgments (jev_turn.go); nil when the
+	// typesafe config section is absent.
+	jev turnjudge.Asker
+	// delivery is the request the running continuation is delivering
+	// (request_delivery.go); nil outside one, or with Jev off.
+	delivery              *deliveryChain
+	lastDreamHypothetical string // Track last dream state hypothetical for learning follow-up
+
+	// Session State
+	sessionID string
+	turnCount int
+
+	// Backend
+	client              perception.LLMClient
+	kernel              chatKernel
+	shardMgr            *coreshards.ShardManager // For shard management (profiles, monitoring, lifecycle). Use taskExecutor for task execution.
+	taskExecutor        session.TaskExecutor     // For task execution (replaces direct shardMgr.Spawn calls)
+	shadowMode          *core.ShadowMode
+	transducer          perception.Transducer
+	executor            tactile.Executor
+	emitter             *articulation.Emitter
+	virtualStore        *core.VirtualStore
+	scanner             *world.Scanner
+	retriever           *retrieval.SparseRetriever           // Issue-seed sparse search: Cortex.Retriever, shared with the session executor; model_update.go copies it here
+	semanticSearcher    *retrieval.EmbeddingSemanticSearcher // Tier-4 vector cache, built lazily once embeddingEngine lands; a per-turn searcher re-embedded the corpus every turn
+	workspace           string
+	DisableSystemShards []string
+	// yoloFlag is session yolo (--yolo), never persisted;
+	// apiKeyFlag is --api-key.
+	yoloFlag   bool
+	apiKeyFlag string
+	// Debug-self (self_debug.go): the watcher is a pointer so its offset
+	// survives Model value copies across turns. Debug-self reports problems;
+	// it does not touch the work mode.
+	selfDebug        *selfDebugWatcher
+	browserMgr       *browser.SessionManager // Browser automation manager
+	browserCtxCancel context.CancelFunc      // Cancels browser manager goroutine
+
+	// Campaign Orchestration
+	activeCampaign       *campaign.Campaign
+	campaignOrch         *campaign.Orchestrator
+	campaignProgress     *campaign.Progress
+	campaignProgressChan chan campaign.Progress          // Real-time progress updates from orchestrator
+	campaignEventChan    chan campaign.OrchestratorEvent // Real-time events from orchestrator
+	showCampaignPanel    bool
+	recurse              *recurseState // Non-nil while a /recurse sweep runs
+
+	// Continuation Protocol (multi-step task execution). The work mode
+	// (work_mode.go) decides the pauses: yolo never, propose before each
+	// mutation, explicit after every step. Ctrl+X stops any of them.
+	continuationStep  int       // Current step number (1-indexed)
+	continuationTotal int       // Total steps detected
+	pendingSubtasks   []Subtask // Queue of pending work
+	isInterrupted     bool      // User pressed Ctrl+X
+
+	// Learning Store for Autopoiesis (§8.3)
+	learningStore   *store.LearningStore
+	embeddingEngine embedding.EmbeddingEngine
+	lastReflection  *ReflectionState
+
+	// Dream State Learning (§8.3.1) - Extracts learnings from multi-agent consultations
+	dreamCollector *core.DreamLearningCollector
+	dreamRouter    *core.DreamRouter
+
+	// Dream Plan Execution (§8.3.2) - Execute plans from Dream State consultations
+	dreamPlanManager *core.DreamPlanManager
+
+	// Local knowledge database for research persistence
+	localDB *store.LocalStore
+
+	// Semantic Compression (§8.2) - Infinite Context
+	compressor *ctxcompress.Compressor
+
+	// Context Feedback Store (§8.4) - Third feedback loop: learns which context facts are useful
+	feedbackStore *ctxcompress.ContextFeedbackStore
+
+	// The booted Cortex. Owns the kernel-side subsystems (usage tracker,
+	// local DB, shard manager, ToolStore, Ouroboros listener, browser) and
+	// closes them in Shutdown; the Model closes only what it created itself.
+	cortex *nerdsystem.Cortex
+
+	// Autopoiesis (§8.3) - Self-Modification
+	autopoiesis *autopoiesis.Orchestrator
+
+	// Prompt Evolution (SPL - System Prompt Learning)
+	promptEvolver *prompt_evolution.PromptEvolver
+
+	// Mangle File Watcher - monitors .nerd/mangle/*.mg for changes and triggers validation/repair
+	mangleWatcher *core.MangleWatcher
+
+	// Transparency Layer (Phase 4 UX) - Makes operations visible to users
+	transparencyMgr *transparency.TransparencyManager
+
+	// Background Observer Manager - runs observer specialists (Northstar) in background
+	observerMgr            *shards.BackgroundObserverManager
+	observerAssessmentChan chan shards.ObserverAssessment
+
+	// Consultation Manager - cross-specialist consultation protocol
+	consultationMgr *consultation.Manager
+
+	// User Preferences Manager: the one in-process writer of the UX
+	// journey metrics (ux_journey.go).
+	preferencesMgr *ux.PreferencesManager
+	// sessionOpenedAt is when openSessionRecord ran; zero until the session
+	// opens, which is what keeps a failed boot from recording a session end.
+	sessionOpenedAt time.Time
+
+	// Verification Loop (Quality-Enforcing)
+	verifier *verification.TaskVerifier
+
+	// Agent Wizard State (active when inputMode == InputModeAgentWizard)
+	agentWizard *AgentWizardState
+
+	// Config Wizard State (active when inputMode == InputModeConfigWizard)
+	configWizard *ConfigWizardState
+
+	// Northstar Wizard State (active when inputMode == InputModeNorthstar)
+	northstarWizard *NorthstarWizardState
+
+	// Onboarding Wizard State (active when inputMode == InputModeOnboarding)
+	onboardingWizard *OnboardingWizardState
+
+	// CLI Config
+	CLIConfig Config
+
+	// Status Tracking
+	statusMessage string      // Current operation description
+	statusChan    chan string // Channel for streaming status updates
+
+	// Live activity pulse (transient chrome above the input box).
+	// activityLine is the latest summary; activityTrail is a short
+	// ring of recent pings so the user sees motion, not a static wait.
+	activityLine   string
+	activityIconCh string // category key for the latest activity icon
+	activityAt     time.Time
+	activityTrail  []activityPulse // newest-first ring (capped)
+	turnStartedAt  time.Time       // when the current loading turn began
+
+	// Glass Box Debug Mode - shows system internals inline in chat
+	glassBoxEnabled   bool                              // Runtime toggle
+	glassBoxEventBus  *transparency.GlassBoxEventBus    // Event collection and dispatch
+	glassBoxEventChan <-chan transparency.GlassBoxEvent // Subscription channel
+	glassBoxEvents    []transparency.GlassBoxEvent      // Recent events buffer (capped)
+
+	// Tool Event Visibility - ALWAYS shows tool execution in chat (not gated by Glass Box)
+	toolEventBus  *transparency.ToolEventBus    // Tool event collection
+	toolEventChan <-chan transparency.ToolEvent // Tool event subscription channel
+
+	// Tool Execution Persistence - Stores full tool results in SQLite
+	toolStore *store.ToolStore // For querying past executions and cleanup
+
+	// Human approval (approval_host.go): this TUI is the broker's decision
+	// channel, and approvalView renders the requests it is offered.
+	approvalHost *approval.Host
+	// approvals is the broker the host is attached to; /approvals reads its
+	// record (read-only).
+	approvals    *approval.Broker
+	approvalView ui.DiffApprovalView
+	// approvalAside holds the IDs of requests the person closed the review
+	// on without deciding. Only a request outside it reopens the modal;
+	// "/approvals review" reopens it for these.
+	approvalAside map[string]bool
+
+	// Boot State
+	isBooting bool
+	bootStage BootStage
+
+	// Process memory usage (bytes). Updated periodically for UI.
+	memAllocBytes uint64
+	memSysBytes   uint64
+
+	// Input History
+	inputHistory []string
+	historyIndex int
+
+	// Campaign Launch State
+	launchClarifyPending bool
+	launchClarifyGoal    string
+	launchClarifyAnswers string
+
+	// Context State
+	lastShardResult    *ShardResult
+	shardResultHistory []*ShardResult
+
+	// Knowledge Discovery State (LLM-first knowledge gathering)
+	// Populated when the LLM emits knowledge_requests in control_packet
+	pendingKnowledge  []KnowledgeResult // Results from specialist consultations
+	knowledgeHistory  []KnowledgeResult // Historical knowledge for session
+	awaitingKnowledge bool              // True while gathering knowledge
+
+	// Unified Input Mode (replaces scattered awaiting* flags)
+	// Use this for new code; legacy flags preserved for compatibility during migration
+	inputMode InputMode
+
+	// Mouse capture toggle (Alt+M to toggle for text selection)
+	mouseEnabled bool
+
+	// Shutdown coordination
+	shutdownOnce   *sync.Once         // Ensures Shutdown() is only called once (pointer to allow Model copy without sync.Once copy)
+	shutdownCtx    context.Context    // Root context for all background operations
+	shutdownCancel context.CancelFunc // Cancels shutdownCtx on quit
+	goroutineWg    *sync.WaitGroup    // Tracks background goroutines for clean shutdown (pointer to share across value copies)
+}
+
+// ShardResult stores the full output from a shard execution for follow-up queries.
+// This enables conversational follow-ups like "show me more" or "what are the warnings?".
+type ShardResult struct {
+	ShardType  string           // "reviewer", "coder", "tester", "researcher"
+	Task       string           // Original task sent to the shard
+	RawOutput  string           // Full untruncated output
+	Timestamp  time.Time        // When the shard executed
+	TurnNumber int              // Which turn this was
+	Findings   []map[string]any // Structured findings (for reviewer)
+	Metrics    map[string]any   // Metrics (for reviewer)
+	ExtraData  map[string]any   // Any additional structured data
+}
+
+// KnowledgeResult holds the output from a specialist consultation or research request.
+// This is populated when the LLM emits knowledge_requests in the control_packet.
+type KnowledgeResult struct {
+	Specialist string    // Which specialist/shard was consulted
+	Query      string    // The original query/question
+	Purpose    string    // Why this knowledge was needed
+	Response   string    // The specialist's response
+	Timestamp  time.Time // When the knowledge was gathered
+	Error      error     // Any error that occurred (nil if successful)
+}
+
+// Message represents a single message in the chat history
+type Message struct {
+	Role           string // "user", "assistant", or "system" (Glass Box events)
+	Content        string
+	ThoughtSummary string // Brief decision explanation or provider-supplied summary
+	Time           time.Time
+
+	// Glass Box fields (only set when Role == "system")
+	GlassBoxCategory transparency.GlassBoxCategory // Event category for styling
+	IsCollapsed      bool                          // Whether details are collapsed
+}
+
+// Agent represents a defined agent in the registry
+type Agent struct {
+	Name          string   `json:"name"`
+	Type          string   `json:"type"`
+	KnowledgePath string   `json:"knowledge_path"`
+	KBSize        int      `json:"kb_size"`
+	Status        string   `json:"status"`
+	Keywords      []string `json:"keywords,omitempty"`
+}
+
+// Registry holds the list of defined agents
+type Registry struct {
+	Version   string  `json:"version"`
+	CreatedAt string  `json:"created_at"`
+	Agents    []Agent `json:"agents"`
+}
+
+// Preferences holds user preferences
+type Preferences struct {
+	RequireTests     bool   `json:"require_tests"`
+	RequireReview    bool   `json:"require_review"`
+	Verbosity        string `json:"verbosity"`
+	ExplanationLevel string `json:"explanation_level"`
+}
+
+// Session holds session state
+type Session struct {
+	SessionID    string `json:"session_id"`
+	StartedAt    string `json:"started_at"`
+	LastActiveAt string `json:"last_active_at"`
+	TurnCount    int    `json:"turn_count"`
+	Suspended    bool   `json:"suspended"`
+}
+
+// chatKernel is the kernel a chat session asks. In production it is the
+// Cortex (nerdsystem.Cortex.Kernel): a fact asserted here lands in the shard
+// that owns its predicate, and a shared per-turn fact (user_intent,
+// delegation_candidate, multi_step_signal, ...) in every shard, so rules in
+// every domain see the turn and every lane reads what the rest of the system
+// wrote. Until 2026-09-23 the session ran on the catch-all shard's kernel
+// (Cortex.RealKernel): chat's facts reached one shard of seven, and a fact
+// another component asserted into its owner's shard was invisible to chat.
+// Tests use a bare RealKernel, which is the whole store.
+type chatKernel interface {
+	core.Kernel
+	Evaluate() error
+	LoadFactsFromFile(path string) error
+	AssertString(fact string) error
+	TraceQuery(ctx context.Context, query string) (*mangle.DerivationTrace, error)
+	ExplainEnvelope(goal string, opts core.ExplainOptions) (*core.ExplanationEnvelope, error)
+	EnableProvenance()
+	DisableProvenance()
+	IsProvenanceEnabled() bool
+	// ShadowKernel is what a /shadow what-if copies: one kernel over every
+	// shard's facts (core.ShadowParent).
+	ShadowKernel() (*core.RealKernel, error)
+	// Transaction publishes a retract-and-assert as one change (the brief,
+	// a side turn's decision facts).
+	Transaction() types.KernelTransaction
+}
+
+var (
+	_ chatKernel = (*core.CortexKernel)(nil)
+	_ chatKernel = (*core.RealKernel)(nil)
+)
+
+// SystemComponents holds the initialized backend services
+type SystemComponents struct {
+	Kernel           chatKernel
+	ShardMgr         *coreshards.ShardManager // For shard management (profiles, monitoring). Use TaskExecutor for task execution.
+	TaskExecutor     session.TaskExecutor     // For task execution (replaces direct ShardMgr.Spawn calls)
+	VirtualStore     *core.VirtualStore
+	LLMClient        perception.LLMClient
+	LocalDB          *store.LocalStore
+	LearningStore    *store.LearningStore
+	EmbeddingEngine  embedding.EmbeddingEngine
+	Transducer       perception.Transducer
+	Executor         tactile.Executor
+	Scanner          *world.Scanner
+	Cortex           *nerdsystem.Cortex
+	Autopoiesis      *autopoiesis.Orchestrator
+	Verifier         *verification.TaskVerifier
+	Compressor       *ctxcompress.Compressor
+	FeedbackStore    *ctxcompress.ContextFeedbackStore // Third feedback loop: context usefulness learning
+	ShadowMode       *core.ShadowMode
+	InitialMessages  []Message
+	Client           perception.LLMClient
+	Emitter          *articulation.Emitter
+	SessionID        string
+	TurnCount        int
+	BrowserManager   *browser.SessionManager
+	BrowserCtxCancel context.CancelFunc // Cancels browser manager goroutine
+	Workspace        string
+	JITCompiler      *prompt.JITPromptCompiler
+	MangleWatcher    *core.MangleWatcher // Monitors .nerd/mangle/*.mg for changes
+	TransparencyMgr  *transparency.TransparencyManager
+	PreferencesMgr   *ux.PreferencesManager
+	Retriever        *retrieval.SparseRetriever
+	GlassBoxEventBus *transparency.GlassBoxEventBus  // Glass Box debug mode event bus
+	ToolEventBus     *transparency.ToolEventBus      // Always-visible tool execution event bus
+	ToolStore        *store.ToolStore                // Tool execution persistence store
+	PromptEvolver    *prompt_evolution.PromptEvolver // System Prompt Learning evolver
+	// Clean Loop Architecture (replaces hardcoded shard logic)
+	SessionExecutor *session.Executor // Clean execution loop (JIT-driven)
+	SessionSpawner  *session.Spawner  // JIT-driven subagent spawning
+	// Dream → Ouroboros bridge channel for tool need routing
+	DreamToolQ chan<- core.ToolNeed
+	// Background Observer Manager (Northstar, etc.)
+	ObserverMgr *shards.BackgroundObserverManager
+	// Consultation Manager for cross-specialist consultations
+	ConsultationMgr *consultation.Manager
+	// Approvals is the Cortex's human-approval broker; the TUI attaches its
+	// host to it at boot. Nil leaves approvable actions refused.
+	Approvals *approval.Broker
+}
+
+// OnboardingWizardStep represents the current phase of the onboarding wizard.
+type OnboardingWizardStep int
+
+const (
+	OnboardingStepWelcome    OnboardingWizardStep = iota // Show welcome message
+	OnboardingStepExperience                             // Ask about experience level
+	OnboardingStepAPICheck                               // Check/configure API
+	OnboardingStepWow                                    // Demonstrate unique capabilities
+	OnboardingStepComplete                               // Finish onboarding
+)
+
+// OnboardingWizardState tracks the state of the onboarding wizard.
+type OnboardingWizardState struct {
+	Step            OnboardingWizardStep
+	ExperienceLevel string // beginner, intermediate, advanced, expert
+	APIConfigured   bool
+	ShowedWow       bool
+	SkipRequested   bool
+}
+
+// continuationOutcome distinguishes how a multi-step continuation ended.
+//
+// The zero value is continuationUnverified, not completion. A producer that
+// does not state an outcome has not observed one, and rendering that under the
+// checkmark is exactly the failure this type exists to prevent: on 2026-09-17
+// a step that reported "Requested behavior remains unverified" was printed to
+// the user as "All 1 steps complete." two lines later.
+type continuationOutcome int
+
+const (
+	// continuationUnverified: the steps ran and nothing proved the work holds
+	// — the kernel's /unverified or /hollow verdict, or no verdict at all.
+	continuationUnverified continuationOutcome = iota
+	continuationCompleted
+	continuationFailed
+	continuationInterrupted
+)
+
+// Messages for tea updates
+type (
+	responseMsg        string
+	errorMsg           error
+	windowSizeMsg      tea.WindowSizeMsg
+	clarificationMsg   ClarificationState // Request for user clarification
+	clarificationReply string             // User's response to clarification
+
+	// ShardResultPayload carries a completed shard execution for cross-turn context.
+	ShardResultPayload struct {
+		ShardType string
+		Task      string
+		Result    string
+		Facts     []core.Fact
+	}
+
+	// ClarifyUpdate carries state updates for auto-clarification / launchcampaign flow.
+	ClarifyUpdate struct {
+		LastClarifyInput     string
+		LaunchClarifyPending bool
+		LaunchClarifyGoal    string
+		LaunchClarifyAnswers string
+	}
+
+	// assistantMsg is a richer response message that can also update model state.
+	assistantMsg struct {
+		Surface           string
+		ShardResult       *ShardResultPayload
+		ClarifyUpdate     *ClarifyUpdate
+		DreamHypothetical string
+		ThoughtSummary    string
+		// AwaitingKnowledge latches the knowledge-gathering re-entrancy guard
+		// on the Update thread (see process.go); set by the processInput result.
+		AwaitingKnowledge bool
+	}
+
+	// streamKind tags a streaming chunk so the TUI can render thought
+	// traces (model reasoning) differently from the visible surface
+	// response. The zero value (streamKindSurface) preserves the
+	// pre-thoughts behaviour for any code paths that don't set it.
+	streamKind uint8
+
+	// Streaming messages
+	streamStartMsg struct {
+		streamChan   chan string
+		thoughtsChan chan string // optional; nil if backend has no thoughts stream
+		resultChan   chan tea.Msg
+		errChan      chan error
+	}
+	streamChunkMsg struct {
+		chunk string
+		sub   chan string
+		// kind distinguishes thought-trace chunks (rendered dim/italic
+		// above the visible answer) from surface chunks (the actual
+		// response). Zero value = surface, for backward compatibility
+		// with the pre-thoughts code paths.
+		kind streamKind
+	}
+	streamEndMsg struct{}
+	cmdMsg       struct{ cmd tea.Cmd }
+
+	// Memory sampling message
+	memUsageMsg struct {
+		Alloc uint64
+		Sys   uint64
+	}
+
+	// Campaign messages
+	campaignStartedMsg struct {
+		campaign     *campaign.Campaign
+		orch         *campaign.Orchestrator
+		progressChan chan campaign.Progress
+		eventChan    chan campaign.OrchestratorEvent
+	}
+	campaignProgressMsg  *campaign.Progress
+	campaignEventMsg     campaign.OrchestratorEvent // Real-time event from orchestrator
+	campaignCompletedMsg *campaign.Campaign
+	campaignErrorMsg     struct{ err error }
+
+	// Continuation messages (multi-step task execution)
+	continueMsg struct {
+		subtaskID            string              // Unique identifier for this subtask
+		description          string              // What needs to be done
+		shardType            string              // Which shard to execute
+		isMutation           bool                // True for write/run operations (for Breakpoint mode)
+		totalSteps           int                 // Updated total steps if discovered (optional)
+		completedShardResult *ShardResultPayload // Result of the just-completed subtask (optional)
+	}
+	// continuationInitMsg starts a continuation chain with the first step's surface output.
+	continuationInitMsg struct {
+		completedSurface string
+		firstResult      *ShardResultPayload
+		next             continueMsg
+		totalSteps       int
+		// delivery is the request the chain delivers (request_delivery.go).
+		delivery *deliveryChain
+	}
+	interruptMsg        struct{} // User pressed Ctrl+X to stop
+	confirmContinueMsg  struct{} // User pressed Enter to continue (Confirm/Breakpoint mode)
+	continuationDoneMsg struct { // All steps completed
+		stepCount int
+		summary   string
+		// Result of the final completed subtask (optional)
+		completedShardResult *ShardResultPayload
+		// outcome distinguishes verified completion, unverified work,
+		// failure, and user interrupt. Zero value is continuationUnverified:
+		// a producer that states no outcome has not verified anything.
+		outcome continuationOutcome
+	}
+
+	// Northstar document analysis message
+	northstarDocsAnalyzedMsg struct {
+		facts []string
+		err   error
+	}
+
+	// Init messages
+	initCompleteMsg struct {
+		result        *nerdinit.InitResult
+		learningStore *store.LearningStore
+	}
+
+	// System Boot message
+	bootCompleteMsg struct {
+		components *SystemComponents
+		err        error
+	}
+
+	// statusMsg represents a status update from a background process
+	statusMsg string
+
+	// glassBoxEventMsg carries a Glass Box event for inline display
+	glassBoxEventMsg transparency.GlassBoxEvent
+
+	// observerAssessmentMsg carries a background observer assessment for inline display
+	observerAssessmentMsg shards.ObserverAssessment
+
+	// traceUpdateMsg carries Mangle derivation trace data for the logic pane
+	traceUpdateMsg struct {
+		Trace       *mangle.DerivationTrace
+		ShowInChat  bool   // If true, also show explanation in chat history
+		QuerySource string // Original query for context
+	}
+
+	// onboardingCompleteMsg signals the onboarding wizard has finished
+	onboardingCompleteMsg struct {
+		ExperienceLevel string
+		Skipped         bool
+	}
+
+	// onboardingCheckMsg triggers first-run detection after boot
+	onboardingCheckMsg struct {
+		IsFirstRun bool
+		Workspace  string
+	}
+
+	// knowledgeGatheredMsg signals that specialist consultations are complete.
+	// This triggers re-processing of the original input with enriched context.
+	knowledgeGatheredMsg struct {
+		Results         []KnowledgeResult // Results from all consulted specialists
+		OriginalInput   string            // The user input that triggered knowledge gathering
+		InterimResponse string            // The initial LLM response (may include "let me look that up")
+		// Parent is what the answering request of this turn was grounded
+		// in, frozen when the consultations started; synthesis renders it.
+		Parent knowledgeParent
+		// AwaitingKnowledge latches the re-entrancy guard on the Update thread.
+		// True while gathering was requested; cleared after synthesis.
+		AwaitingKnowledge bool
+	}
+
+	// alignmentCheckMsg carries the result of a Northstar alignment check
+	alignmentCheckMsg struct {
+		Subject     string   // What was checked
+		Result      string   // passed, warning, failed, blocked, skipped
+		Score       float64  // 0.0-1.0 alignment score
+		Explanation string   // Why this result
+		Suggestions []string // Improvement suggestions
+		Err         error    // Any error that occurred
+	}
+
+	// welcomeHealthCheckMsg carries the result of the post-boot LLM health check.
+	// On success, it contains a project-aware welcome message from the LLM.
+	// On failure, it contains the error so a graceful warning can be displayed.
+	// This doubles as a smoke test: if the LLM responds, the provider is working.
+	welcomeHealthCheckMsg struct {
+		welcome  string // LLM-generated welcome message (empty on error)
+		provider string // LLM provider that was tested (e.g. "gemini", "anthropic")
+		model    string // Model ID that was tested (e.g. "gemini-3-pro-preview")
+		err      error  // nil on success
+	}
+)

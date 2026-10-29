@@ -1,0 +1,642 @@
+package session
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"codenerd/internal/jit/config"
+	"codenerd/internal/perception"
+	"codenerd/internal/tools"
+	"codenerd/internal/types"
+)
+
+// When the tool loop runs out of iterations it makes one more call with the
+// exploration tools removed. Which tools survive that cut decides whether a
+// large task is truncated or made impossible.
+//
+// Stripping every tool is right for a query verb and wrong for a write verb.
+// Live: `nerd create <architecture doc>` spent 35 tool calls researching, hit
+// the ceiling, and the tool-free final call could only describe the file it had
+// been asked to write. The hollow-success guard then correctly failed the turn,
+// so the work was lost rather than merely incomplete.
+func TestWriteOnlyToolDefinitions_KeepsWritesDropsExploration(t *testing.T) {
+	defs := []types.ToolDefinition{
+		{Name: "read_file"}, {Name: "write_file"}, {Name: "grep"},
+		{Name: "edit_file"}, {Name: "glob"}, {Name: "list_files"},
+		{Name: "delete_file"}, {Name: "search_code"}, {Name: "run_tests"},
+	}
+
+	got := writeOnlyToolDefinitions(defs)
+
+	kept := map[string]bool{}
+	for _, d := range got {
+		kept[d.Name] = true
+	}
+
+	for _, want := range []string{"write_file", "edit_file", "delete_file"} {
+		if !kept[want] {
+			t.Errorf("%s was dropped; a write verb could then never land its deliverable", want)
+		}
+	}
+	// The budget was exhausted precisely because reading is the cheap, endless
+	// option. Handing read_file back guarantees the model spends the last call
+	// on more exploration.
+	for _, unwanted := range []string{"read_file", "grep", "glob", "list_files", "search_code", "run_tests"} {
+		if kept[unwanted] {
+			t.Errorf("%s survived the cut; the model will use it and the final call is wasted", unwanted)
+		}
+	}
+}
+
+func TestWriteOnlyToolDefinitions_EmptyInputIsEmptyOutput(t *testing.T) {
+	if got := writeOnlyToolDefinitions(nil); len(got) != 0 {
+		t.Errorf("writeOnlyToolDefinitions(nil) = %v, want empty", got)
+	}
+	readOnly := []types.ToolDefinition{{Name: "read_file"}, {Name: "grep"}}
+	if got := writeOnlyToolDefinitions(readOnly); len(got) != 0 {
+		t.Errorf("a read-only tool set must yield no write tools, got %v", got)
+	}
+}
+
+// The two nudges must differ in the one way that matters: the write nudge has to
+// forbid the specific failure it exists to prevent, which is answering with a
+// description of the artifact instead of writing it. Neither may tell the
+// model about a budget — exploration closed because the policy said so or the
+// turn's wall clock ran out, not because a counter reached a number.
+func TestExplorationClosedNudges_TellTheModelDifferentThings(t *testing.T) {
+	if readOnlyExplorationClosedNudge == writeExplorationClosedNudge {
+		t.Fatal("a write turn and a query turn need different final instructions")
+	}
+	if !containsAll(writeExplorationClosedNudge, "write tool", "NOW") {
+		t.Error("the write nudge must demand the artifact now, not a plan to produce it")
+	}
+	if !containsAll(readOnlyExplorationClosedNudge, "could not verify") {
+		t.Error("the read-only nudge must ask for an honest account of gaps rather than more tools")
+	}
+	for _, banned := range budgetVocabulary {
+		for _, nudge := range []string{readOnlyExplorationClosedNudge, writeExplorationClosedNudge} {
+			if strings.Contains(nudge, banned) {
+				t.Errorf("forced-final nudge %q still uses budget vocabulary %q", nudge, banned)
+			}
+		}
+	}
+}
+
+// A call the batch cannot run must still come back as a named error.
+// Cancellation is the only reason a call is skipped now: the per-turn ceiling
+// that used to skip them ("<name>: budget exceeded") is gone with the rest of
+// the counting. (This pinned the Piggyback batch, which ran the same batch and
+// discarded its result frames; both protocols now continue through
+// executeToolBatch.)
+func TestExecuteToolBatch_ReportsEverySkippedCall(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	executor := &Executor{config: ExecutorConfig{}}
+	result := &ExecutionResult{}
+	calls := []types.ToolCall{{ID: "skip-1", Name: "first"}, {ID: "skip-2", Name: "second"}}
+
+	_, errs := executor.executeToolBatch(ctx, calls, nil, result)
+	if len(errs) != len(calls) {
+		t.Fatalf("errors = %v, want one error for each skipped call", errs)
+	}
+	for i, name := range []string{"first", "second"} {
+		if !strings.Contains(errs[i], name) {
+			t.Errorf("error %d = %q, want it to name %s", i, errs[i], name)
+		}
+		if strings.Contains(errs[i], "budget") {
+			t.Errorf("error %d = %q still blames a budget", i, errs[i])
+		}
+	}
+	if result.ToolCallsExecuted != 0 {
+		t.Errorf("executed = %d, want 0", result.ToolCallsExecuted)
+	}
+}
+
+// Every call the model asks for is executed. The per-turn ceiling that used
+// to refuse calls past a count, handing back "tool call budget exceeded for
+// this turn", was deleted on 2026-09-18: whether a turn is finished is
+// derived from what the trace shows, never counted.
+func TestExecuteToolBatch_ExecutesEveryCallPastTheOldCeiling(t *testing.T) {
+	const toolName = "uncapped_batch_probe"
+	executions := 0
+	registerTestTool(t, &tools.Tool{
+		Effect: tools.EffectRead, Name: toolName, Category: tools.CategoryGeneral,
+		Execute: func(context.Context, map[string]any) (string, error) {
+			executions++
+			return "ran", nil
+		},
+	})
+	// 60 in one batch, past the 50 that was defaultMaxToolCalls.
+	const batch = 60
+	calls := make([]types.ToolCall, 0, batch)
+	for i := 0; i < batch; i++ {
+		calls = append(calls, types.ToolCall{ID: fmt.Sprintf("uncapped-%d", i), Name: toolName})
+	}
+	executor := &Executor{config: ExecutorConfig{}, virtualStore: &MockVirtualStore{}}
+	result := &ExecutionResult{}
+
+	results, errs := executor.executeToolBatch(context.Background(), calls,
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}}, result)
+
+	if len(errs) != 0 {
+		t.Fatalf("errors = %v, want none", errs)
+	}
+	if len(results) != batch || executions != batch || result.ToolCallsExecuted != batch {
+		t.Fatalf("results=%d executions=%d accounted=%d, want %d each", len(results), executions, result.ToolCallsExecuted, batch)
+	}
+	for _, r := range results {
+		if r.IsError || strings.Contains(r.Content, "budget") {
+			t.Fatalf("result = %#v, want every call executed with no budget refusal", r)
+		}
+	}
+}
+
+func TestExecuteToolBatch_ZeroConfigUsesSafeDefaults(t *testing.T) {
+	const toolName = "zero_config_probe"
+	registerTestTool(t, &tools.Tool{
+		Effect:   tools.EffectRead,
+		Name:     toolName,
+		Category: tools.CategoryGeneral,
+		Execute: func(ctx context.Context, _ map[string]any) (string, error) {
+			if err := ctx.Err(); err != nil {
+				t.Fatalf("zero ToolTimeout produced an already-expired context: %v", err)
+			}
+			return "ran", nil
+		},
+	})
+
+	executor := &Executor{config: ExecutorConfig{}, virtualStore: &MockVirtualStore{}}
+	result := &ExecutionResult{}
+	results, errs := executor.executeToolBatch(
+		context.Background(),
+		[]types.ToolCall{{ID: "zero-1", Name: toolName}},
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
+		result,
+	)
+	if len(errs) != 0 || len(results) != 1 || results[0].IsError {
+		t.Fatalf("zero config should use defaults, results=%v errors=%v", results, errs)
+	}
+	if result.ToolCallsExecuted != 1 {
+		t.Fatalf("executed = %d, want 1", result.ToolCallsExecuted)
+	}
+}
+
+func TestExecuteToolBatch_ArgsErrorReturnedToModelWithoutExecution(t *testing.T) {
+	const toolName = "args_error_probe"
+	invocations := 0
+	registerTestTool(t, &tools.Tool{
+		Effect:   tools.EffectRead,
+		Name:     toolName,
+		Category: tools.CategoryGeneral,
+		Execute: func(context.Context, map[string]any) (string, error) {
+			invocations++
+			return "ran", nil
+		},
+	})
+
+	executor := &Executor{config: ExecutorConfig{}, virtualStore: &MockVirtualStore{}}
+	result := &ExecutionResult{}
+	argsErr := "arguments for " + toolName + " were not valid JSON (unexpected end of JSON input; received 28 characters)"
+	results, errs := executor.executeToolBatch(
+		context.Background(),
+		[]types.ToolCall{{ID: "argserr-1", Name: toolName, ArgsError: argsErr}},
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
+		result,
+	)
+	if len(errs) != 1 || len(results) != 1 {
+		t.Fatalf("results=%v errs=%v, want one paired error result", results, errs)
+	}
+	if invocations != 0 {
+		t.Fatalf("tool invoked %d times, want 0: a call with undecodable arguments must not run", invocations)
+	}
+	if results[0].ToolUseID != "argserr-1" || !results[0].IsError {
+		t.Fatalf("result = %#v, want IsError paired to argserr-1", results[0])
+	}
+	if !strings.Contains(results[0].Content, argsErr) || !strings.Contains(results[0].Content, "Re-issue") {
+		t.Errorf("result content = %q, want the ArgsError text plus a re-issue instruction", results[0].Content)
+	}
+	if result.ToolCallsExecuted != 0 {
+		t.Errorf("executed=%d, want 0: nothing ran", result.ToolCallsExecuted)
+	}
+}
+
+func TestExecuteToolBatch_CancelledContextPairsEveryCallWithoutExecution(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	executor := &Executor{config: DefaultExecutorConfig()}
+	result := &ExecutionResult{}
+	calls := []types.ToolCall{{ID: "cancel-1", Name: "one"}, {ID: "cancel-2", Name: "two"}}
+
+	results, errs := executor.executeToolBatch(ctx, calls, nil, result)
+	if len(results) != len(calls) || len(errs) != len(calls) {
+		t.Fatalf("results=%v errors=%v, want one paired cancellation per call", results, errs)
+	}
+	if result.ToolCallsExecuted != 0 {
+		t.Fatalf("executed=%d, want 0", result.ToolCallsExecuted)
+	}
+	for i, result := range results {
+		if result.ToolUseID != calls[i].ID || !result.IsError {
+			t.Errorf("result %d = %#v, want paired cancellation for %s", i, result, calls[i].ID)
+		}
+	}
+}
+
+type finalToolCallProvider struct {
+	toolName string
+}
+
+type piggybackStaticClient struct{ *MockLLMClient }
+
+func (*piggybackStaticClient) ShouldUsePiggybackTools() bool { return true }
+
+// forcedFinalVerificationClient wrote once on the initial call and then only
+// reads, each round a different file so the trace never repeats. That is the
+// shape working_finalize(/verify_after_write) exists for: a change task that
+// wrote and then neither wrote nor verified for the finalize span. When the
+// exploration tools are gone it answers with text.
+type forcedFinalVerificationClient struct {
+	*MockLLMClient
+	writeTool string
+	readTool  string
+	rounds    int
+}
+
+func (c *forcedFinalVerificationClient) CompleteWithToolResults(
+	_ context.Context, _ string, _ []types.Message, available []types.ToolDefinition,
+) (*types.LLMToolResponse, error) {
+	if len(available) == 0 {
+		return &types.LLMToolResponse{Text: "forced final"}, nil
+	}
+	c.rounds++
+	if c.rounds == 1 {
+		return &types.LLMToolResponse{ToolCalls: []types.ToolCall{{
+			ID: "initial-write", Name: c.writeTool, Input: map[string]any{"path": "broken.go"},
+		}}}, nil
+	}
+	return &types.LLMToolResponse{ToolCalls: []types.ToolCall{{
+		ID:    fmt.Sprintf("drift-%d", c.rounds),
+		Name:  c.readTool,
+		Input: map[string]any{"path": fmt.Sprintf("probe-%d.go", c.rounds)},
+	}}}, nil
+}
+
+func TestRunToolLoop_PiggybackRunsPostEditBuildGate(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/piggyback\n\ngo 1.25\n"), 0o600); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "broken.go"), []byte("package broken\nfunc nope(\n"), 0o600); err != nil {
+		t.Fatalf("write broken.go: %v", err)
+	}
+
+	const toolName = "multi_edit"
+	registerTestTool(t, &tools.Tool{
+		Effect: tools.EffectRead,
+		Name:   toolName, Category: tools.CategoryCode,
+		Execute: func(context.Context, map[string]any) (string, error) { return "written", nil },
+	})
+
+	// The Piggyback channel continues the conversation now, so the model is
+	// asked again once it has its write's result; it answers with no further
+	// request. (Until 2026-09-25 the Piggyback path ran one batch and returned,
+	// and this client answered every call with the same write.)
+	client := &piggybackStaticClient{MockLLMClient: &MockLLMClient{
+		CompleteWithSystemFunc: func(_ context.Context, _ string, user string) (string, error) {
+			if strings.Contains(user, "tool_result id=piggy-write") {
+				return `{"control_packet":{"tool_requests":[]},"surface_response":"done"}`, nil
+			}
+			return `{"control_packet":{"tool_requests":[{"id":"piggy-write","tool_name":"multi_edit","tool_args":{"path":"broken.go"},"required":true}]},"surface_response":"writing"}`, nil
+		},
+	}}
+	// A real kernel: which post-edit rounds a write owes is its schedule
+	// (turn_next_round); MockKernel derives none, so no build would run.
+	executor := &Executor{
+		kernel:       realKernel(t),
+		virtualStore: &MockVirtualStore{},
+		llmClient:    client,
+		config:       DefaultExecutorConfig(),
+	}
+	executor.config.EnableSafetyGate = false
+	executor.config.VerifyTestsAfterEdits = false
+	executor.config.CriticReviewAfterEdits = false
+	executor.config.WorkspaceRoot = workspace
+
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/create"}}
+	_, _, err := executor.runToolLoop(
+		context.Background(), "system", "create it",
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}}, nil, result,
+	)
+	if err == nil || !strings.Contains(err.Error(), "edits broke the build") {
+		t.Fatalf("Piggyback write bypassed the build gate: %v", err)
+	}
+	if result.WriteToolEffects != 1 {
+		t.Fatalf("successful writes=%d, want 1", result.WriteToolEffects)
+	}
+}
+
+// The forced-final path is reached because the working policy derived a
+// working_finalize, not because a round counter ran out — and it still runs
+// the post-edit build gate. Until 2026-09-18 this test forced the path by
+// setting MaxToolIterations=1; there is no such field, and no count, any more.
+func TestRunToolLoop_ForcedFinalRunsPostEditBuildGate(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte("module example.com/forcedfinal\n\ngo 1.25\n"), 0o600); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "broken.go"), []byte("package broken\nfunc nope(\n"), 0o600); err != nil {
+		t.Fatalf("write broken.go: %v", err)
+	}
+
+	// EffectWrite, so the commit regime keeps it on offer when it closes
+	// reading at working_commit_rounds; a write tool registered as a read is
+	// withdrawn with everything else and the turn has no legal move left.
+	const writeTool = "multi_edit"
+	registerTestTool(t, &tools.Tool{
+		Effect: tools.EffectWrite,
+		Name:   writeTool, Category: tools.CategoryCode,
+		Execute: func(context.Context, map[string]any) (string, error) { return "written", nil },
+	})
+	const readTool = "forced_final_drift_probe"
+	registerTestTool(t, &tools.Tool{
+		Effect: tools.EffectRead, Name: readTool, Category: tools.CategoryGeneral,
+		Execute: func(context.Context, map[string]any) (string, error) { return "observed", nil },
+	})
+	client := &forcedFinalVerificationClient{MockLLMClient: &MockLLMClient{}, writeTool: writeTool, readTool: readTool}
+	executor := &Executor{
+		// An effectful tool needs the executive gate; without one the write is
+		// refused and this becomes the read-only stall test instead. A real
+		// kernel: the post-edit rounds a write owes are its schedule.
+		kernel: realKernel(t), virtualStore: &testExecutiveStore{}, llmClient: client,
+		config: DefaultExecutorConfig(),
+	}
+	executor.config.EnableSafetyGate = false
+	executor.config.VerifyTestsAfterEdits = false
+	executor.config.CriticReviewAfterEdits = false
+	executor.config.WorkspaceRoot = workspace
+
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/create"}}
+	_, _, err := executor.runToolLoop(
+		context.Background(), "system", "create it",
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool, readTool}}, nil, result,
+	)
+	if err == nil || !strings.Contains(err.Error(), "edits broke the build") {
+		t.Fatalf("forced final bypassed the build gate: %v", err)
+	}
+	if result.WriteToolEffects != 1 {
+		t.Fatalf("successful writes = %d, want 1: the write must have landed before the drift", result.WriteToolEffects)
+	}
+	// working_finalize_rounds(16) after the write, not a round ceiling.
+	if client.rounds < 17 {
+		t.Fatalf("only %d follow-up rounds: something ended the turn before the finalize span", client.rounds)
+	}
+}
+
+func (p finalToolCallProvider) CompleteWithToolResults(
+	context.Context, string, []types.Message, []types.ToolDefinition,
+) (*types.LLMToolResponse, error) {
+	return &types.LLMToolResponse{
+		Text: "finalized",
+		ToolCalls: []types.ToolCall{{
+			ID: p.toolName, Name: p.toolName,
+			Input: map[string]any{"path": "finalized.txt"},
+		}},
+	}, nil
+}
+
+func TestForceFinalAnswer_RefusesUnofferedToolCalls(t *testing.T) {
+	const toolName = "forced_final_probe"
+	executions := 0
+	registerTestTool(t, &tools.Tool{
+		Effect:   tools.EffectRead,
+		Name:     toolName,
+		Category: tools.CategoryGeneral,
+		Execute: func(context.Context, map[string]any) (string, error) {
+			executions++
+			return "done", nil
+		},
+	})
+
+	executor := &Executor{
+		config:       DefaultExecutorConfig(),
+		virtualStore: &MockVirtualStore{},
+	}
+	executor.config.EnableSafetyGate = false
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/review"}}
+	history := []types.Message{}
+	final, errs, err := executor.forceFinalAnswer(
+		context.Background(),
+		finalToolCallProvider{toolName: toolName},
+		"system",
+		&history,
+		&types.LLMToolResponse{},
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
+		result,
+	)
+	if err != nil {
+		t.Fatalf("forceFinalAnswer error=%v", err)
+	}
+	if executions != 0 {
+		t.Fatalf("unoffered tool executions = %d, want 0", executions)
+	}
+	if len(errs) != 1 || !strings.Contains(errs[0], "not offered") {
+		t.Fatalf("toolErrors=%v, want an explicit unoffered-tool refusal", errs)
+	}
+	if len(final.ToolCalls) != 0 {
+		t.Fatalf("returned response still advertises refused calls: %v", final.ToolCalls)
+	}
+	assertToolCallPaired(t, history, toolName, true)
+}
+
+func TestForceFinalAnswer_ExecutesOfferedWriteThenClearsIt(t *testing.T) {
+	// A write-mutation name no production tool registers: create_file was
+	// one until it became the real CodeDOM verb (2026-09-22), whose reviewed
+	// write effect overrides a stand-in's and requires the interactive gate.
+	const toolName = "multi_edit"
+	executions := 0
+	registerTestTool(t, &tools.Tool{
+		Effect:   tools.EffectRead,
+		Name:     toolName,
+		Category: tools.CategoryCode,
+		Execute: func(context.Context, map[string]any) (string, error) {
+			executions++
+			return "done", nil
+		},
+	})
+	executor := &Executor{kernel: &MockKernel{}, config: DefaultExecutorConfig(), virtualStore: &MockVirtualStore{}}
+	executor.config.EnableSafetyGate = false
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/create"}}
+	history := []types.Message{}
+	final, errs, err := executor.forceFinalAnswer(
+		context.Background(),
+		finalToolCallProvider{toolName: toolName},
+		"system",
+		&history,
+		&types.LLMToolResponse{},
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
+		result,
+	)
+	if err != nil || len(errs) != 0 {
+		t.Fatalf("forceFinalAnswer error=%v toolErrors=%v", err, errs)
+	}
+	if executions != 1 || result.WriteToolEffects != 1 {
+		t.Fatalf("executions=%d successfulWrites=%d, want 1/1", executions, result.WriteToolEffects)
+	}
+	if len(final.ToolCalls) != 0 {
+		t.Fatalf("returned response still advertises executed calls: %v", final.ToolCalls)
+	}
+	assertToolCallPaired(t, history, toolName, false)
+}
+
+type capturingProvider struct {
+	captured *[]types.Message
+	text     string
+}
+
+func (c *capturingProvider) CompleteWithToolResults(_ context.Context, _ string, history []types.Message, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	*c.captured = append([]types.Message(nil), history...)
+	return &types.LLMToolResponse{Text: c.text}, nil
+}
+
+func TestForceFinalAnswer_PendingCallPairedBeforeNudge(t *testing.T) {
+	const toolName = "pending_write_tool"
+	executions := 0
+	registerTestTool(t, &tools.Tool{
+		Effect:   tools.EffectRead,
+		Name:     toolName,
+		Category: tools.CategoryCode,
+		Execute: func(context.Context, map[string]any) (string, error) {
+			executions++
+			return "pending done", nil
+		},
+	})
+	pendingID := "pending-1"
+	pendingCall := types.ToolCall{ID: pendingID, Name: toolName, Input: map[string]any{"path": "pending.txt"}}
+	history := []types.Message{
+		{Role: "assistant", ToolCalls: []types.ToolCall{pendingCall}},
+	}
+	pending := &types.LLMToolResponse{ToolCalls: []types.ToolCall{pendingCall}}
+
+	var captured []types.Message
+	provider := &capturingProvider{captured: &captured, text: "final answer"}
+
+	executor := &Executor{kernel: &MockKernel{}, config: DefaultExecutorConfig(), virtualStore: &MockVirtualStore{}}
+	executor.config.EnableSafetyGate = false
+	result := &ExecutionResult{Intent: perception.Intent{Verb: "/review"}}
+	final, errs, err := executor.forceFinalAnswer(
+		context.Background(),
+		provider,
+		"system",
+		&history,
+		pending,
+		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{toolName}},
+		result,
+	)
+	if err != nil {
+		t.Fatalf("forceFinalAnswer error=%v", err)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("unexpected toolErrors=%v", errs)
+	}
+	if executions != 1 {
+		t.Fatalf("pending executions=%d, want 1", executions)
+	}
+	if final.Text != "final answer" {
+		t.Fatalf("final.Text=%q, want %q", final.Text, "final answer")
+	}
+	if len(final.ToolCalls) != 0 {
+		t.Fatalf("final.ToolCalls=%v, want empty", final.ToolCalls)
+	}
+	assertToolCallPaired(t, history, pendingID, false)
+	if len(captured) == 0 {
+		t.Fatalf("provider received no history")
+	}
+	callIdx, resultIdx, nudgeIdx := -1, -1, -1
+	for i, m := range captured {
+		for _, c := range m.ToolCalls {
+			if c.ID == pendingID {
+				callIdx = i
+			}
+		}
+		for _, r := range m.ToolResults {
+			if r.ToolUseID == pendingID {
+				resultIdx = i
+			}
+		}
+		if m.Role == "user" && m.Text != "" && strings.Contains(m.Text, "Exploration is closed for this turn") {
+			nudgeIdx = i
+		}
+	}
+	if callIdx == -1 || resultIdx == -1 || nudgeIdx == -1 {
+		t.Fatalf("captured history missing call (%d) result (%d) or nudge (%d): %#v", callIdx, resultIdx, nudgeIdx, captured)
+	}
+	if !(callIdx < resultIdx && resultIdx < nudgeIdx) {
+		t.Fatalf("ordering wrong: call %d result %d nudge %d, want call < result < nudge", callIdx, resultIdx, nudgeIdx)
+	}
+}
+
+func assertToolCallPaired(t *testing.T, history []types.Message, wantID string, wantIsError bool) {
+	t.Helper()
+	callCount := 0
+	callIdx := -1
+	for i, m := range history {
+		for _, c := range m.ToolCalls {
+			if c.ID == wantID {
+				if m.Role != "assistant" {
+					t.Fatalf("ToolCall %q found in Role %q, want assistant", wantID, m.Role)
+				}
+				callCount++
+				callIdx = i
+			}
+		}
+	}
+	if callCount != 1 {
+		t.Fatalf("want exactly one assistant ToolCall with ID %q, got %d in history %#v", wantID, callCount, history)
+	}
+	resultCount := 0
+	resultIdx := -1
+	var gotIsError bool
+	for i, m := range history {
+		for _, r := range m.ToolResults {
+			if r.ToolUseID == wantID {
+				resultCount++
+				resultIdx = i
+				gotIsError = r.IsError
+			}
+		}
+	}
+	if resultCount != 1 {
+		t.Fatalf("want exactly one ToolResult with ToolUseID %q, got %d in history %#v", wantID, resultCount, history)
+	}
+	if resultIdx <= callIdx {
+		t.Fatalf("ToolResult for %q at index %d must be after ToolCall at %d", wantID, resultIdx, callIdx)
+	}
+	if gotIsError != wantIsError {
+		t.Fatalf("ToolResult IsError for %q = %v, want %v", wantID, gotIsError, wantIsError)
+	}
+}
+
+func containsAll(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if !contains(s, sub) {
+			return false
+		}
+	}
+	return true
+}
+
+func contains(s, sub string) bool {
+	return len(sub) == 0 || (len(s) >= len(sub) && indexOf(s, sub) >= 0)
+}
+
+func indexOf(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
+}

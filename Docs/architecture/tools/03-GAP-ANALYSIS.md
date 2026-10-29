@@ -1,0 +1,154 @@
+# tools — Gap Analysis
+
+## Accepted existing-seed SQLite profile correction (2026-10-02)
+
+**PARTIAL — GAP-TOOLS-SEED-PRAGMAS:** dependent audit `artifact:.corpus-build/runs/all-features-20261002/round6-affected-full.receipt.json` finds the new `cmd/tools/prompt_builder/main.go#reconcilePromptSeed` SQL open at line219 lacks a centralized pragma profile. Complete embedding/perception/system/shards-system/CLI packages pass in that aggregate gate, but SQL profile inventory fails. The second site in unchanged `internal/init/phase_ecosystem.go` is separately preexisting and not owned by this correction.
+
+**PROPOSED UPLIFT:** after validating the existing target and before schema/reconciliation mutation, apply the centralized transactional existing-store profile. Do not reuse the destructive fresh bulk-build profile, tune an invalid target before validation, exempt the new site or weaken the inventory. Exit: independently observe the valid corpus profile; preserve exact vectors/task/project ownership, cancellation/rollback and invalid targets; complete builder tests pass; inventory no longer reports reconcilePromptSeed. Remaining baseline inventory failure stays visible.
+
+## Accepted prompt seed maintenance contract (2026-10-02)
+
+**PARTIAL — GAP-TOOLS-PROMPT-SEED-01:** `cmd/tools/prompt_builder/main.go#main` (`cmd/tools/prompt_builder/main.go:109`) now has an authored `-reconcile-embedded` branch; the root builder gate remains red because a valid-corpus fixture uses an illegal Windows filename. This helper belongs to the existing `tools` source roots, not `cli`. The initial operator target was accepted under GAP-CLI-PROMPT-SEED-01; implementation ownership is reconciled here before further source work. July claims below are historical, not new qualification.
+
+**PROPOSED UPLIFT:** explicit maintenance of an existing valid prompt corpus uses compiled canonical atoms and the production prompt schema/reconciler API without provider credentials, deletion/truncation/replacement or silently ignored custom input. Default generation remains unchanged. Report actual canonical upsert/delete and retained/cleared counts; preserve exact vector/task values for unchanged effective input and invalidate changed input. Missing, invalid or directory targets are refused without replacement. Project-owned rows and their tags/vector rows survive reconciliation under GAP-PROMPT-RECONCILE-PRESERVATION.
+
+Exit evidence is a root-run real SQLite builder gate covering legal Windows URI-sensitive paths, exact metadata/ownership, rollback and credential-free main; a guarded sqlite_vec build; and an owned candidate command receipt with integrity/content parity and per-atom retention checks. Those bounded maintenance controls now pass in `round5-reconciler-builder.receipt.json`; `round5-seed-retention.json` records 682 exact retained vectors and 29 changed-input invalidations across 923 rows before generated-asset publication. The first-boot prompt database carries the corrected perception row, but normal lifecycle remains red. Claiming semantic ANN parity additionally requires qualified vector namespace/task/index behavior; mixed legacy dimensions and unknown provenance are not made compatible by preserving bytes. See [operator contract and current receipts](../cli/07-PROMPT-SEED-MAINTENANCE.md). GAP-TOOLS-PROMPT-SEED-01 remains partial, not a global feature-completion claim.
+
+## Accepted ordered corpus oracle maintenance
+
+**PARTIAL — GAP-TOOLS-ATOM-GOLDEN-01:** the full root gate in `round5-prompt-perception-full.receipt.json` passes prompt/sync/perception/builder but fails `cmd/tools/validate_prompt_atoms/corpus_parity_test.go#TestCheckedInCorpusOrderedParity` (`cmd/tools/validate_prompt_atoms/corpus_parity_test.go:76`): its 917-ID golden predates six already-committed canonical atoms. Root independently reproduced the old 917-ID digest at 8c477797, then derived the current 923-ID digest and exact six additions with no removals in `round5-validator-golden-delta.json`. Added IDs are campaign/recurse/fix, campaign/recurse/improve and northstar/derive/classify, identity, requirements, vision. These are existing corpus additions, not newly introduced to satisfy the test.
+
+**PROPOSED UPLIFT:** refresh only the expected count/digest to the verified canonical corpus and retire the misleading inline count narrative. Preserve strict validation, no-migration assertions, independent filesystem/embedded route equality and ordered identity hashing. Do not derive the expected value from the runtime under test, skip entries, weaken assertions or change source atoms. Exit: the full validator package passes with the exact 923-ID oracle and the above verified provenance.
+
+> Last verified: **2026-08-15**
+
+## Spec vs reality matrix
+
+| Desired property | Reality | Severity | Priority |
+|------------------|---------|----------|----------|
+| All path tools contained in workspace | **Closed** — file ops, search, codedom | High | Done |
+| Shell cannot cwd outside workspace | **Closed** — `shell.resolveWorkingDir` | High | Done |
+| Default deny for tools | **Closed in tools** — `Registry.SetAllowlist`; session wiring pending | High | Wiring |
+| Mangle lists every registered tool | **Closed** — golden test in both directions | Medium | Done |
+| Single allowlist source | Config + soft FilterByIntent + Mangle | Medium | P1 |
+| Categories have tools | **Closed** — `Tool.AltCategories` | Low | Done |
+| codedom doc matches register | **Closed** — golden test pins doc lists | Low | Done |
+| Workspace root not env-global | **Closed in tools** — `Registry.SetWorkspaceRoot` → ctx; factory wiring pending | Medium | Wiring |
+| Tool results always feed multi-turn | Piggyback single pass; non-TRP clients | Medium | P1 (session) |
+| Search uses coerceInt for max_results | **Closed** — one shared `tools.CoerceInt` | Medium | Done |
+| Full AST codedom | Regex only | Low (by design) | — |
+| Persistent research cache | **Closed** — `.nerd/cache/research`; boot wiring pending | Low | Wiring |
+| Metrics on tool success rates | **Closed** — `Registry.AllMetrics()` | Low | Done |
+
+## Non-gaps (do not “fix”)
+
+| Observation | Why not a gap |
+|-------------|---------------|
+| No local `.mg` in package | Correct — policy lives in core/mangle corpora |
+| Dual VS + Global hydrate | Intentional for session vs VS consumers |
+| GroundingHelper not a Tool | Correct library design |
+| Ouroboros separate registry | Different lifecycle (compiled binaries) |
+| delete_file refuses directories | Intentional safety |
+
+## Priority backlog (compressed)
+
+Items 1-12 below are closed in `internal/tools`. What remains is **wiring**:
+each mechanism exists and is tested, but three of them have no caller yet, and
+a mechanism with no caller enforces nothing.
+
+### Remaining — wiring, owned outside this package
+
+- `internal/session`: call `tools.Registry.SetAllowlist(&tools.Allowlist{Enforced: cfg.EnableSafetyGate, Names: cfg.AllowedTools})` when the effective config changes, so the registry-level envelope binds to the JIT config.
+- `internal/system/factory.go`: call `tools.SetGlobalWorkspaceRoot(abs)` beside the existing `os.Setenv("CODENERD_WORKSPACE_ROOT", abs)`, so containment stops depending on process-global state.
+- `internal/core`: install a `tools.FactSink` that asserts `tool_execution(ToolName, Success, Timestamp)`, and call `research.EnableDiskCache(workspaceRoot)` at boot.
+- `internal/core/virtual_store_tools.go`: `HydrateModularTools` still registers every family into two registries; collapsing that removes the last dual-map drift risk.
+
+### Closed
+
+1. `resolveWorkspacePath` applied to glob/grep/codedom path args.  
+2. shell and git `working_dir` (and git pathspec) contained to the workspace.  
+3. Registry fails closed on an enforced-but-empty allowlist.  
+4. `intent_routing.mg` synced with the full RegisterAll catalog, pinned by a golden test.  
+5. One shared `tools.CoerceInt` for every numeric tool argument.  
+6. Workspace root threaded via registry -> context; env demoted to a fallback.  
+7. `Tool.AltCategories` so `/review` and `/attack` resolve to real tools.  
+8. `core/doc.go` and `shell/doc.go` realigned, pinned by a golden test.  
+9. `logging.Tools*` used throughout the package.  
+10. Disk-backed research cache under `.nerd/cache/research`.  
+11. `Registry.SetFactSink` emits one record per completed execution.  
+12. `Registry.Metrics` / `AllMetrics` track calls, successes, failures, durations.
+
+## Gap ownership
+
+Many “tool safety” gaps are **session/core contracts**, not pure tools bugs. Fixes may land in:
+
+- `internal/tools/core` (containment)  
+- `internal/session` (allowlist closed default)  
+- `internal/mangle` (catalog)  
+- `internal/jit/config` (AllowedTools population)
+
+## Impacted-test subprocess ownership
+
+**GAP-TOOLS-IMPACTED-CANCELLATION:** the production impacted-test runner must
+use the shared `processutil` ownership path rather than direct `CombinedOutput`.
+Keep the host environment, literal argv, working directory, output, and true test
+verdict. Caller cancellation must stop owned descendants and bound pipe collection;
+failure or cancellation cannot publish a passing verification receipt. Acceptance
+requires the actual runGoTests route with a descendant-holding-pipe fixture,
+synchronized cancellation, observed descendant exit, bounded return, and both
+normal-success and nonzero-exit controls on Windows and Linux where available.
+Auxiliary browser/Docker subprocesses remain separate lifecycle obligations.
+
+The native Windows route is covered by
+`internal/tools/codedom/run_impacted_tests_cancellation_test.go:315`: cancellation
+drains the admitted descendant, and retained-pipe collection failure cannot
+produce a passing receipt. Positive and nonzero controls also pass. Linux
+execution is still unverified; do not generalize the Windows receipt to another
+host or to unrelated process owners.
+
+
+## Required contract: Typed tool argument validation
+
+Explicit null for a declared nonempty property type must return ErrInvalidArgType before guard, handler or fact sink. Absent optional properties remain valid and untyped properties retain permissive semantics.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-TOOLS-TYPED-NULL | Typed tool argument validation | `Registry.validateArgs` rejects a present nil for a declared nonempty type before dispatch (`internal/tools/registry.go:462`, `validateArgs`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Production Registry.Execute tests reject required/optional typed null without effects and admit absent optional/untyped-null controls. |
+
+
+## Required contract: CodeDOM revision flow acceptance
+
+Registry-dispatched read/edit/read must carry the exact printed canonical reference and revision from get_element into edit_element, return refreshed source/revision, and reject previously read revisions after element or line mutation without changing bytes.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-TOOLS-CODEDOM-ROUNDTRIP | CodeDOM revision flow acceptance | Production element read/edit handlers exchange canonical refs and source revisions (`internal/tools/codedom/elements.go:742`, `executeGetElement`; `internal/tools/codedom/element_edit.go:331`, `executeEditElement`); the new registry tests carry them through the full round trip (`roundtrip_test.go:43`, `:87`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Real StructureIndex plus Registry.Execute read -> edit -> read verifies new source/revision; old revision is refused after element and line edits with no write. |
+
+
+## Required contract: Portable executable stress verification
+
+Stress validation and log analysis must run against shipped files from any cwd using repository marker discovery. Analyzer must parse the live logger JSON and text formats without an absent external parser, bound malformed input handling and honor timestamp filtering. Build/smoke/adversarial verification must build the sqlite_vec production variant with repository headers. Attached stress-agent skills must use portable repo-relative supported paths.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-TOOLS-STRESS-HARNESS | Portable executable stress verification | The local bounded parser handles live JSON/text records (`.codex/skills/stress-tester/scripts/log_parser.py:159`, `parse_log_file`); repository-root detection and CLI tools use marker discovery (`scripts/repo_paths.py`); production profiles build with `sqlite_vec`. | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Validator and tooling CLI fixture suite pass from foreign cwd, current-format log fixtures produce correct verdicts/filtering, build/adversarial commands include sqlite_vec, and skill attachment paths resolve in this checkout. |
+
+**Verified current:** `TestRegistry_Execute_RejectsNullForTypedArguments` and `TestRegistry_Execute_AllowsAbsentOptionalAndUntypedNull` (`internal/tools/registry_boundary_test.go:153`, `:205`) pass with the full `internal/tools` suite; the production `list_files` null-path guard also passes (`internal/tools/core/file_ops_edit_record_test.go`, `TestListFiles_RejectsNullPathBeforeDefaultingToWorkspaceRoot`).
+
+**Verified current:** `TestRegistryRoundTrip_ElementReadEditReadAndStaleRevision` and `TestRegistryRoundTrip_LineEditInvalidatesElementRevision` (`internal/tools/codedom/roundtrip_test.go:43`, `:87`) pass in the full `internal/tools/codedom` package. The registry/StructureIndex behavior is covered; broader session policy and live-provider wiring are outside this contract's gate.
+
+
+## Required contract: changed-element observations follow supported parsers
+
+GAP-TOOLS-CHANGED-LANGUAGES: ChangedElements must report edits for every language currently supported by codemodel.LanguageOf/Parse using that parser's canonical element identity and byte revisions. Languages without a parser return no invented spans. Acceptance covers real Python, TypeScript, TSX and JavaScript function edits plus Rust and unsupported-extension nil controls until a Rust parser is implemented; outdated tests must not erase supported functionality. This extends typed source-change observation acceptance and preserves multi-language CodeDOM capability.
+
+**Implemented; focused tests passed; aggregate verification pending.** `ChangedElements` parses supported source through the shared CodeDOM language mapping (`internal/tools/changed_elements.go:30`, `ChangedElements`). `TestChangedElements_SupportedScriptLanguagesTrackFunctionChanges` and `TestChangedElements_LanguagesWithoutParserReturnNil` (`internal/tools/changed_elements_test.go:169`, `:221`) pass in the full `internal/tools` suite.
+
+
+## Required contract: research search destination integrity
+
+GAP-TOOLS-RESEARCH-DESTINATION: DuckDuckGo redirect extraction must parse the outer query and decode only its uddg parameter, preserving the complete destination query and fragment while excluding redirect tracking parameters. Normal registered web_search dispatch through a local HTTP fixture must return exactly the target URL, including multiple destination query parameters, rather than truncate at an ampersand. Missing or malformed redirects must fail safely under the existing search contract.
+
+**Implemented; focused tests passed; aggregate verification pending.** `parseDuckDuckGoResults` decodes only the redirect's `uddg` query value (`internal/tools/research/web_search.go:138`). `TestParseDuckDuckGoResults_RedirectPreservesDestinationQueryAndFragment`, `TestParseDuckDuckGoResults_MissingOrMalformedRedirectDestinationIsSkipped`, and the registered local-HTTP dispatch round trip (`internal/tools/research/web_search_redirect_test.go:15`, `:32`, `:51`) pass with the full research package. The fixture does not qualify live provider HTML variants.
+
+**Verified current — stress tooling, static scope only:** 17 tooling tests pass, including foreign-working-directory CLIs, parser bounds, stage-manifest agreement, and build flags (`.codex/skills/stress-tester/tests/test_tooling.py:31-281`). Skill validators pass; structural, sqlite_vec build, and static adversarial profiles pass (24/24 assertions). The adversarial report explicitly excludes runtime hazards; executor termination containment and the broader smoke Go-test profile remain unverified.

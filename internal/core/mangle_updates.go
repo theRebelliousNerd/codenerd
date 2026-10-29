@@ -1,0 +1,512 @@
+package core
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/mangle"
+)
+
+// MangleUpdatePolicy constrains which control-packet updates may be asserted.
+type MangleUpdatePolicy struct {
+	AllowedPredicates map[string]struct{}
+	AllowedPrefixes   []string
+	MaxUpdates        int
+}
+
+// MangleUpdateBlock records a rejected update and the reason. Index is the
+// update's position in the list that was filtered, so a caller can tell two
+// equal updates apart and account for every position.
+type MangleUpdateBlock struct {
+	Index  int
+	Update string
+	Reason string
+}
+
+// ModelObservationPolicy is the one allowlist for facts a model volunteers
+// through control_packet.mangle_updates, shared by every surface that reads
+// an envelope (the session executor and the chat turn). A model may report
+// what it observed and what it did; it may not write the predicates the
+// kernel derives decisions from, and it may not witness its own completion
+// (see predicateAllowed).
+//
+// "test_state" was on this list until 2026-09-18, and the mandatory prompt atom
+// protocol/piggyback/mangle_updates taught the model to write it. That was
+// harmless while nothing read test_state as turn evidence; it stopped being
+// harmless when recordBuildState gave it a real producer and turn_verified
+// started reading it, because a model writing test_state(/passing) is a model
+// witnessing its own completion. It is now hard-blocked in predicateAllowed,
+// and the atom no longer teaches it.
+//
+// "failing_test" left with it. internal/testfacts measures it from
+// `go test -json`, and the gate and context rules read the turn-scoped
+// copy of that measurement. A model that writes the fact could invent or
+// hide a failure. It is a host witness, not an observation, and
+// the atom names it on the refused list next to build_state and test_state.
+//
+// The prompt atom protocol/piggyback/mangle_updates is meant to teach exactly
+// this set with its declared arities. Add a predicate here and there together.
+func ModelObservationPolicy() MangleUpdatePolicy {
+	return MangleUpdatePolicy{
+		AllowedPredicates: map[string]struct{}{
+			"missing_tool_for":  {},
+			"observation":       {},
+			"task_status":       {},
+			"task_completed":    {},
+			"diagnostic":        {},
+			"review_finding":    {},
+			"modified":          {},
+			"modified_function": {},
+			// checkpoint_verdict/4 is the campaign checkpoint's structured
+			// reviewer verdict. internal/campaign/checkpoint.go queries the
+			// kernel for it after the reviewer spawn and retracts it once
+			// read, so it decides one checkpoint and nothing else. Without
+			// this entry the verdict was blocked and every checkpoint
+			// failed closed (audit campaign 5a2f4c8d, 2026-09-04).
+			"checkpoint_verdict": {},
+		},
+		MaxUpdates: 100,
+	}
+}
+
+// FilterMangleUpdates parses and validates control-packet mangle_updates.
+// It rejects rules/decls/imports, enforces allowed predicates/prefixes, and
+// validates predicate declarations/arity when possible.
+func FilterMangleUpdates(kernel Kernel, updates []string, policy MangleUpdatePolicy) ([]Fact, []MangleUpdateBlock) {
+	if len(updates) == 0 {
+		return nil, nil
+	}
+
+	maxUpdates := policy.MaxUpdates
+	if maxUpdates <= 0 {
+		maxUpdates = len(updates)
+	}
+
+	factCap := min(len(updates), maxUpdates)
+	facts := make([]Fact, 0, factCap)
+	blocked := make([]MangleUpdateBlock, 0)
+
+	for i, update := range updates {
+		if i >= maxUpdates {
+			blocked = append(blocked, MangleUpdateBlock{
+				Index:  i,
+				Update: update,
+				Reason: "mangle_updates limit exceeded",
+			})
+			continue
+		}
+
+		trimmed := strings.TrimSpace(update)
+		if trimmed == "" {
+			continue
+		}
+
+		if strings.Contains(trimmed, ":-") {
+			blocked = append(blocked, MangleUpdateBlock{
+				Index:  i,
+				Update: update,
+				Reason: "rules are not allowed in mangle_updates",
+			})
+			continue
+		}
+
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, "decl ") || strings.HasPrefix(lower, "decl\t") {
+			blocked = append(blocked, MangleUpdateBlock{
+				Index:  i,
+				Update: update,
+				Reason: "Decl statements are not allowed in mangle_updates",
+			})
+			continue
+		}
+		if strings.HasPrefix(lower, "import ") || strings.HasPrefix(lower, "include ") {
+			blocked = append(blocked, MangleUpdateBlock{
+				Index:  i,
+				Update: update,
+				Reason: "imports are not allowed in mangle_updates",
+			})
+			continue
+		}
+
+		factText := strings.TrimSuffix(trimmed, ".")
+		fact, err := ParseFactString(factText)
+		if err != nil {
+			blocked = append(blocked, MangleUpdateBlock{
+				Index:  i,
+				Update: update,
+				Reason: fmt.Sprintf("parse error: %v", err),
+			})
+			continue
+		}
+
+		if !predicateAllowed(fact.Predicate, policy) {
+			blocked = append(blocked, MangleUpdateBlock{
+				Index:  i,
+				Update: update,
+				Reason: fmt.Sprintf("predicate %q not allowed in mangle_updates", fact.Predicate),
+			})
+			continue
+		}
+
+		if kernel != nil {
+			if ok, reason := validatePredicateDeclaration(kernel, fact.Predicate, len(fact.Args)); !ok {
+				blocked = append(blocked, MangleUpdateBlock{
+					Index:  i,
+					Update: update,
+					Reason: reason,
+				})
+				continue
+			}
+		}
+
+		if arg, found := shellEscapingArg(fact); found && !proseOnly(kernel, fact.Predicate) {
+			blocked = append(blocked, MangleUpdateBlock{
+				Index:  i,
+				Update: update,
+				Reason: fmt.Sprintf("shell metacharacters in a string argument of %s (%q), which is not prose_only", fact.Predicate, arg),
+			})
+			continue
+		}
+
+		facts = append(facts, fact)
+	}
+
+	return facts, blocked
+}
+
+// shellMetacharacters are the characters that let text escape into a shell:
+// substitution, chaining, backgrounding, pipes and redirects. (The airtight
+// fix lives at the exec site -- never interpolate a fact into a shell -- but a
+// hostile string should not reach the kernel unremarked on its way there.)
+const shellMetacharacters = "`$;|&<>"
+
+// shellEscapingArg returns the first string argument of fact that carries a
+// shell metacharacter. Names cannot carry one; composite constants arrive
+// rendered as strings and are checked whole.
+func shellEscapingArg(fact Fact) (string, bool) {
+	for _, arg := range fact.Args {
+		if s, ok := arg.(string); ok && strings.ContainsAny(s, shellMetacharacters) {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+// proseOnly reports whether a model may put shell metacharacters in the
+// string arguments of predicate. It is a property of the predicate, not a
+// list here: the policy declares it (prose_only/1, constitution.mg), and the
+// program must agree -- no rule may route the predicate into an exec_sink.
+// A declaration the rules contradict grants nothing, and anything the kernel
+// cannot answer is not prose.
+func proseOnly(kernel Kernel, predicate string) bool {
+	if kernel == nil {
+		return false
+	}
+	declared, err := kernel.Query(fmt.Sprintf("prose_only(/%s)", predicate))
+	if err != nil || len(declared) == 0 {
+		return false
+	}
+	// Declared but untraceable is a wiring fault, not an answer: a kernel
+	// wrapper that did not forward ExecSinksReachedBy turned every prose_only
+	// exemption off in production, without a word, until 2026-09-26.
+	graph, ok := kernel.(execReachability)
+	if !ok || graph == nil {
+		logging.Get(logging.CategoryKernel).Warn(
+			"prose_only(/%s) not granted: kernel %T cannot say where its facts flow; its strings stay checked", predicate, kernel)
+		return false
+	}
+	sinks, err := graph.ExecSinksReachedBy(predicate)
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Warn("prose_only(/%s) not granted: %v", predicate, err)
+		return false
+	}
+	if len(sinks) > 0 {
+		logging.Get(logging.CategoryKernel).Error(
+			"prose_only(/%s) is contradicted by the rules: its facts reach exec_sink %v; its strings stay checked", predicate, sinks)
+		return false
+	}
+	return true
+}
+
+// execReachability is a kernel that can say where a predicate's facts flow:
+// the single-store RealKernel and the sharded CortexKernel production runs.
+type execReachability interface {
+	ExecSinksReachedBy(predicate string) ([]string, error)
+}
+
+var (
+	_ execReachability = (*RealKernel)(nil)
+	_ execReachability = (*CortexKernel)(nil)
+)
+
+// ExecSinksReachedBy returns the exec_sink predicates (constitution.mg) that
+// facts of predicate can contribute to through the program's rules, the
+// predicate itself included when it is one. The walk is over the rule
+// dependency graph, negated premises included, so it over-approximates where a
+// string can flow; it never under-approximates.
+func (k *RealKernel) ExecSinksReachedBy(predicate string) ([]string, error) {
+	declared, err := k.Query("exec_sink")
+	if err != nil {
+		return nil, fmt.Errorf("exec_sink query: %w", err)
+	}
+	if len(declared) == 0 {
+		return nil, fmt.Errorf("the policy declares no exec_sink")
+	}
+	k.mu.RLock()
+	cone := k.cone
+	k.mu.RUnlock()
+	if cone == nil {
+		return nil, fmt.Errorf("no rule-dependency index")
+	}
+	reached := cone.downstream(predicate)
+	reached[predicate] = struct{}{}
+	var hit []string
+	for _, f := range declared {
+		if len(f.Args) == 0 {
+			continue
+		}
+		sink := strings.TrimPrefix(fmt.Sprint(f.Args[0]), "/")
+		if _, ok := reached[sink]; ok {
+			hit = append(hit, sink)
+		}
+	}
+	sort.Strings(hit)
+	return hit, nil
+}
+
+// hostWitnessPredicates are host witnesses and conclusions, never model
+// observations. Two gates read this one set, so they cannot drift apart:
+// predicateAllowed refuses them in a control packet, and the kernel's
+// learned-rule validator refuses them as the head of a learned rule
+// (installLearnedHeadProtection). A model that may not write
+// build_state(/passing) may not learn a rule that derives it either.
+//
+// build_state and test_state are on this list because they are what the
+// session executor's own post-edit gates recorded (recordBuildState, from
+// BuildCheck/TestCheck): the compiler and the test runner, measured by the
+// host. Since turn_verified reads them (coder_safety.mg), a model able to
+// write build_state(/passing) could manufacture its own completion. Two
+// routes existed: the SessionPlanner's "build_" prefix allowlist
+// (internal/shards/system/planner.go), and ModelObservationPolicy, which
+// named "test_state" outright on the two busiest surfaces there are — the
+// session executor and the chat turn.
+var hostWitnessPredicates = map[string]struct{}{
+	"turn_acceptance": {}, "turn_evidence": {}, "turn_executed": {}, "turn_done": {}, "turn_cost": {},
+	"turn_verified": {}, "turn_unverified": {}, "turn_wrote": {}, "turn_build_failed": {},
+	"turn_missing_evidence": {}, "turn_created_source": {}, "has_turn_acceptance": {},
+	"turn_gate": {}, "turn_build_green": {}, "turn_build_red": {}, "turn_tests_green": {}, "turn_tests_red": {},
+	"turn_untested": {}, "turn_has_untested": {},
+	"turn_uncovered": {}, "turn_has_uncovered": {}, "turn_vet_green": {}, "turn_vet_red": {},
+	"turn_created_test": {}, "turn_test_coverage": {}, "turn_missing_test": {},
+	// What a write owes (N01): write_class is the table a model could
+	// otherwise extend to reclassify its own code as documentation.
+	"turn_written": {}, "turn_changed_element": {}, "turn_element_uncovered": {}, "turn_element_measured": {}, "write_class": {}, "known_write_ext": {}, "has_turn_written": {}, "turn_write_class": {},
+	// The witness verdict (witness.mg): a model that could write witness_met
+	// could suppress turn_unwitnessed through its negation and manufacture
+	// its own completion.
+	"witness_executed": {}, "witness_met": {}, "turn_unwitnessed": {}, "turn_has_unwitnessed": {},
+	// Declared code families and their reviews (code_families.mg). A model
+	// that could write a family member, or a no-change decision, could
+	// dissolve the obligation its own change created.
+	"code_family": {}, "code_family_member": {}, "code_family_requirement": {}, "code_family_member_unresolved": {}, "turn_family_no_change": {},
+	"turn_family_member_changed": {}, "turn_family_obligation": {}, "turn_family_member_settled": {},
+	"turn_family_open": {}, "turn_has_open_family_obligation": {},
+	// This turn's `go test -json` rows (session/turn_test_facts.go). A model
+	// that could write them could name a failure the gate did not run, or
+	// hide one it did. The unscoped test_case predicates stay host witnesses
+	// too; these are the turn-keyed copies.
+	"turn_test_case": {}, "turn_test_failure_at": {}, "turn_test_build_failure": {},
+	"turn_test_output_repeat": {}, "turn_failing_test": {},
+	"turn_doc_write": {},
+	"turn_owes_gate": {}, "turn_unmet_gate": {}, "turn_red_gate": {}, "has_unmet_gate": {}, "has_red_gate": {},
+	// What a behaviour change owes (N22): the turn's intent and the table
+	// of intents that owe /pinned.
+	"turn_verb": {}, "behavior_change_intent": {},
+	// The campaign check a turn was handed (prepareTurnCatalog, from
+	// tools.CampaignCheckFrom) and each run_check receipt. A model that
+	// could write turn_declared_check could offer itself run_check; one
+	// that could write editing_persona could add its persona to the table
+	// that is offered the tool; one that could write turn_catalog could
+	// put a tool on a turn's envelope directly. turn_check_run is the
+	// host's receipt, not the model's.
+	"turn_declared_check": {}, "turn_check_run": {}, "editing_persona": {}, "turn_catalog": {},
+	// Measurements the three moved gates are derived from (coder_safety.mg).
+	// A model that could write them could mint a passing /test, /vet, /check
+	// or /test_run, or hide a failure the host measured. The derived helpers
+	// are the same conclusion: an asserted turn_own_test_failure or
+	// turn_last_check would be a second source for the gate.
+	"turn_test_failed_before": {}, "turn_test_measured": {},
+	"turn_own_test_failure": {}, "turn_has_own_test_failure": {}, "turn_has_failing_test": {},
+	// The importer run of the same /test gate. A model that could write
+	// these could mint or hide an importer charge, or withhold a pass by
+	// asserting /unfinished.
+	"turn_importer_measured": {}, "turn_importer_failing_test": {}, "turn_importer_failed_before": {},
+	"turn_importer_failure": {}, "turn_has_importer_failure": {}, "turn_has_importer_failing_test": {},
+	"turn_importer_blocks": {},
+	"turn_write_seq":       {}, "turn_test_run": {},
+	"turn_last_write":  {},
+	"turn_check_after": {}, "turn_check_after_seq": {}, "turn_last_check": {},
+	"turn_test_after": {}, "turn_test_after_seq": {}, "turn_last_test_run": {},
+	// The workspace's test plan and what is derived from it (coder_safety.mg).
+	// A model that could write an obligation's outcome could mint a pass for a
+	// check that never ran; one that could omit an obligation could shrink what
+	// the turn owes.
+	"turn_test_obligation": {}, "turn_test_obligation_run": {}, "turn_selected_run": {},
+	"turn_ob_after": {}, "turn_ob_after_seq": {}, "turn_ob_last": {}, "turn_ob_state": {},
+	"turn_has_test_plan": {}, "turn_test_ob_met": {}, "turn_test_ob_unmet": {},
+	"turn_has_test_ob_unmet": {}, "turn_test_plan_red": {},
+	"turn_vet_ran": {}, "turn_vet_finding": {}, "turn_vet_before": {},
+	"turn_vet_before_key": {}, "turn_vet_new": {}, "turn_has_vet_new": {},
+	// Measurements the /build gate is derived from (coder_safety.mg), and
+	// the conclusions that charge a failure to this turn. A model that
+	// could write the diagnostic or the import edge could hide a break it
+	// caused, or name another package's break as foreign. The closure and
+	// the verdict are the same conclusion: an asserted
+	// turn_build_failure_attributed would be a second source for the gate.
+	"turn_build_measured": {}, "turn_build_diagnostic": {},
+	"turn_pkg_imports": {}, "turn_written_package": {}, "turn_build_graph_unknown": {},
+	"turn_pkg_depends": {}, "turn_build_depends_on_written": {},
+	"turn_build_has_diagnostic": {}, "turn_build_failure_attributed": {},
+	"turn_build_failure_foreign": {}, "turn_has_build_failure_foreign": {},
+	// The retention gate and critic triage (coder_safety.mg). A model that
+	// could write the removal rows could turn /test_retention red; one that
+	// could write critic findings or their conclusions could force an uplift
+	// round the host's critic never asked for.
+	"turn_removed_test_ran": {}, "turn_removed_test": {}, "turn_has_removed_test": {},
+	"turn_critic_finding": {}, "turn_critic_actionable": {},
+	"turn_has_critic_actionable": {}, "turn_needs_uplift": {},
+	// The turn's own report admitting unfinished work (Q-14): a model able to
+	// retract or never assert it would decide its own verdict; asserting it
+	// only withholds, but it is the host's reading, not the model's.
+	"turn_self_reported_incomplete": {},
+	"turn_report_reading":           {},
+	"turn_finish_idle":              {},
+	// What the /unwired round measured (turn_unwired.mg) and Jev's reading
+	// of the model's reasons. A model that could write a use, an entry
+	// mark or an accepted reading could declare its own code wired; the
+	// conclusions are the same answer from a second source.
+	"turn_new_func": {}, "turn_new_func_entry": {}, "turn_new_func_generated": {},
+	"turn_new_func_unobserved": {}, "turn_func_use": {}, "turn_method_mentioned": {},
+	"turn_unused_reason_reading": {}, "turn_unused_reason_unread": {}, "turn_unwired_idle": {},
+	"turn_new_func_ref": {}, "turn_func_exempt": {}, "turn_func_reached": {}, "turn_func_unwired": {},
+	"turn_unused_reason_accepted": {}, "turn_func_settled": {}, "turn_func_unwired_open": {},
+	"turn_func_test_only": {}, "turn_unwired_open": {}, "turn_unwired_pushback": {},
+	// The pin gate's survivor count schedules the /survivors round.
+	"turn_pin_survivors": {},
+	// What the planner is spent on: the sites the host measured in the
+	// brief, and the conclusion drawn from them.
+	"turn_brief_site": {}, "turn_brief_site_count": {}, "turn_needs_step_plan": {},
+	// Planned-step retry and completeness (turn_steps.mg). A model that
+	// could write the pass's writes could skip the commit retry or close a
+	// step it never edited; one that could write the projections or the
+	// verdict could declare the plan complete.
+	"step_execution": {}, "step_no_change_evidence": {}, "step_retried": {}, "step_file_net": {},
+	"step_cover_candidate": {}, "step_file_covered": {},
+	"step_has_retried": {}, "step_has_no_change": {}, "step_has_cover": {},
+	"step_unresolved": {}, "step_reverted": {}, "step_next_action": {},
+	"turn_has_step": {}, "turn_has_unresolved_step": {}, "turn_steps_verdict": {},
+	// What a repair episode does next (repair_episode.mg): a model that
+	// could write repair_attempt could keep its own episode alive.
+	"repair_attempt": {}, "repair_attempt_count": {}, "repair_exhausted": {}, "repair_not_converging": {},
+	"repair_gives_up": {}, "repair_move": {}, "repair_closed": {},
+	// What a caller does with a delegated task whose turn did not end /done
+	// (task_verdict.mg): a model that could write task_dispatch or its gaps
+	// could mark its own dispatch done, or keep itself being sent back.
+	"task_dispatch": {}, "task_dispatch_gap": {}, "task_dispatch_blocked": {},
+	"task_dispatch_seq": {}, "task_dispatch_last": {}, "task_dispatch_has_gap": {},
+	"task_dispatch_verified": {}, "task_dispatch_open": {}, "task_dispatch_blocker": {},
+	"task_dispatch_unjudged": {}, "task_dispatch_moved": {}, "task_dispatch_stalled": {},
+	"task_loop_verdict": {},
+	// What a failed checkpoint leads to (campaign_decisions.mg): a model
+	// that could write phase_checkpoint_failure could close or keep open
+	// its own phase.
+	"phase_checkpoint_failure": {}, "phase_ckpt_failures": {}, "phase_ckpt_exhausted": {}, "phase_ckpt_move": {},
+	// The user's thresholds (config_params.mg): a model that could write
+	// config_param could raise its own attempt cap or lower a gate's bar.
+	"config_param": {}, "config_param_required": {},
+	"hollow_success": {}, "has_hollow_success": {}, "has_turn_tools": {}, "has_turn_write": {}, "has_turn_test": {},
+	"build_state": {}, "test_state": {},
+	// What `go test -json` measured (internal/testfacts), in the shape the
+	// host asserts turn-scoped: failing_test plus the four located
+	// predicates, one row per case, site, diagnostic, or repeated line. A
+	// model that writes any of them could invent or hide a failure.
+	"failing_test": {}, "test_case": {}, "test_failure_at": {},
+	"test_build_failure": {}, "test_output_repeat": {},
+	// What may carry unchecked strings, and what the host acts on: a
+	// model that could write either could exempt its own strings.
+	"prose_only": {}, "exec_sink": {},
+	// What a user agent was granted (intent_routing_rules.mg). A model
+	// that could write user_agent_declared_tool could put a tool on its
+	// own turn.
+	"user_agent_declared_tool": {},
+	// What a tool call changed and what its validation established
+	// (tool_effects.mg, validation.mg): a model that could write a receipt
+	// could hide a rejected change, or affirm a validation nothing ran.
+	"turn_tool_effect": {}, "turn_tool_validation": {}, "turn_tool_effect_superseded": {},
+	"turn_effect_last_seq": {}, "turn_effect_current": {}, "turn_tool_validated": {},
+	"turn_tool_validation_round": {}, "turn_tool_validation_state": {}, "turn_effect_unsettled": {},
+	"turn_has_rejected_effect": {}, "turn_has_unmeasured_effect": {}, "tool_effect_recovery": {},
+	"action_verified": {}, "action_validation_failed": {}, "action_validation_skipped": {},
+	"action_validation_unavailable": {},
+	// A delegation's attempts and the judge's host-validated judgment
+	// (delegation.mg): a model that could write judge_verdict could accept
+	// its own attempt.
+	"delegation_request": {}, "delegation_attempt": {}, "judge_verdict": {}, "judge_round": {},
+	"judge_evidence_requested": {}, "delegation_move": {},
+}
+
+func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {
+	// A host witness is refused BEFORE AllowedPredicates and AllowedPrefixes
+	// are read, precisely so no caller allowlist can delegate its authority.
+	if _, hostOnly := hostWitnessPredicates[predicate]; hostOnly {
+		return false
+	}
+	if len(policy.AllowedPredicates) == 0 && len(policy.AllowedPrefixes) == 0 {
+		return true
+	}
+	if _, ok := policy.AllowedPredicates[predicate]; ok {
+		return true
+	}
+	for _, prefix := range policy.AllowedPrefixes {
+		if strings.HasPrefix(predicate, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// validatePredicateDeclaration checks a model-written fact against the
+// program's declarations, read through the Kernel interface so it runs on the
+// sharded production kernel too. It used to type-assert *RealKernel and answer
+// "valid" for anything else -- which on CortexKernel was every model fact, so
+// arity and declaration were never checked in production (found 2026-09-23).
+func validatePredicateDeclaration(kernel Kernel, predicate string, arity int) (bool, string) {
+	programInfo := kernel.GetProgramInfo()
+	var schemaValidator *mangle.SchemaValidator
+	if rk, ok := kernel.(*RealKernel); ok && rk != nil {
+		rk.mu.RLock()
+		schemaValidator = rk.schemaValidator
+		rk.mu.RUnlock()
+	}
+
+	if programInfo != nil && programInfo.Decls != nil {
+		for predSym := range programInfo.Decls {
+			if predSym.Symbol != predicate {
+				continue
+			}
+			if predSym.Arity != arity {
+				return false, fmt.Sprintf("arity mismatch: %s expects %d args (got %d)", predicate, predSym.Arity, arity)
+			}
+			return true, ""
+		}
+		return false, fmt.Sprintf("predicate %q not declared", predicate)
+	}
+
+	if schemaValidator != nil && !schemaValidator.IsDeclared(predicate) {
+		return false, fmt.Sprintf("predicate %q not declared", predicate)
+	}
+
+	return true, ""
+}

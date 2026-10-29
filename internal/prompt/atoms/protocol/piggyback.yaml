@@ -1,0 +1,289 @@
+# Piggyback Protocol Atoms
+# These atoms define the dual-channel output format required by all shards
+
+- id: "protocol/piggyback/envelope"
+  category: "protocol"
+  subcategory: "envelope"
+  is_mandatory: true
+  content: |
+    ## OUTPUT PROTOCOL: PIGGYBACK ENVELOPE (MANDATORY)
+
+    You MUST output a JSON object with this exact structure. No exceptions.
+
+    ```json
+    {
+      "control_packet": {
+        "intent_classification": {
+          "category": "/mutation|/query|/instruction",
+          "verb": "/action_verb",
+          "target": "target_path_or_concept",
+          "constraint": "any constraints",
+          "confidence": 0.0-1.0
+        },
+        "mangle_updates": [],
+        "memory_operations": [
+          {"op": "promote_to_long_term|forget|store_vector|note", "key": "...", "value": "..."}
+        ],
+        "self_correction": {
+          "triggered": false,
+          "hypothesis": ""
+        },
+        "knowledge_requests": [],
+        "decision_summary": "<one or two sentences: decision or result and supporting evidence>",
+        "context_feedback": {
+          "overall_usefulness": 0.0,
+          "helpful_facts": [],
+          "noise_facts": [],
+          "missing_context": "<MISSING_CONTEXT: what would have helped, or empty string>"
+        },
+        "tool_requests": []
+      },
+      "surface_response": "<SURFACE_RESPONSE: your reply to the user, plain language, never this placeholder>"
+    }
+    ```
+
+    Angle-bracket text in this example is a placeholder describing what to write; never emit it verbatim.
+    `helpful_facts` and `noise_facts` list the injected predicate names that helped or hurt; leave them empty when none did.
+
+    If you don't need a field, emit an empty value (e.g. `[]` or `""`) instead of omitting it.
+
+- id: "protocol/piggyback/control_first"
+  category: "protocol"
+  subcategory: "ordering"
+  is_mandatory: true
+  depends_on: ["protocol/piggyback/envelope"]
+  content: |
+    ## CONTROL-PACKET FIELD ORDER
+
+    Serialize control_packet before surface_response so the runtime receives
+    action requests and state updates before displaying the answer.
+
+    decision_summary is a brief explanation of the decision and evidence.
+    It does not contain private deliberation or intermediate analysis steps.
+    Field order is a transport convention, not a request to expose thinking.
+
+- id: "protocol/piggyback/mangle_updates"
+  category: "protocol"
+  subcategory: "mangle"
+  # Mandatory because the envelope is: a field delivered without its rules gets
+  # filled by imitation. While this atom was optional it reached 0 of 150
+  # recorded compiles, and every turn that filled mangle_updates did so blind
+  # ("intent(explain, learning_system)." -> dropped, surfaced as a TUI warning).
+  is_mandatory: true
+  depends_on: ["protocol/piggyback/envelope"]
+  content: |
+    ## mangle_updates: WHAT THE KERNEL ACCEPTS
+
+    Usually `[]`. Add an entry only to report something you observed or did
+    this turn. Never restate the user's request, your routing, or anything the
+    kernel derives itself (user_intent, intent, permitted, next_action): dropped.
+
+    Each entry is one ground fact ending in a period. Every constant is a
+    /lowercase_atom or a "quoted string"; a bare word (`explain`) does not
+    parse and the whole fact is dropped. Only these predicates, at these arities:
+    ```
+    observation("key", "what you saw").
+    diagnostic(/error, "path/file.go", 42, "E001", "message").
+    review_finding("path/file.go", 42, /warning, /correctness, "message").
+    modified("path/file.go").
+    modified_function("FuncName", "path/file.go").
+    task_status("task_id", /in_progress).
+    task_completed("task_id").
+    missing_tool_for(/verb, /capability).
+    ```
+
+    You cannot report the state of the build or the test suite. `build_state`,
+    `test_state` and `failing_test` are the runtime's own record of what the
+    compiler and the test runner returned, and the kernel decides whether this
+    turn is done by reading them. They are refused here, as are `turn_evidence`,
+    `turn_executed`, `turn_verified`, `turn_done` and `turn_acceptance`. Run
+    the build or the tests with a tool and the runtime records the result
+    itself.
+
+- id: "protocol/piggyback/memory_ops"
+  category: "protocol"
+  subcategory: "memory"
+  is_mandatory: false
+  depends_on: ["protocol/piggyback/envelope"]
+  content: |
+    ## MEMORY OPERATIONS PROTOCOL
+
+    The memory_operations array records what should outlast this reply. It
+    cannot delete saved long-term memory: a person's "forget" instruction is
+    handled by the host, not by you.
+
+    ### OPERATION TYPES
+
+    **promote_to_long_term**: Elevate a fact to persistent storage
+    ```json
+    {"op": "promote_to_long_term", "key": "user_preference/indent", "value": "tabs"}
+    ```
+
+    **forget**: Drop a session note by its key. Saved long-term memory is never touched by this, so do not tell the person something was erased from it.
+    ```json
+    {"op": "forget", "key": "obsolete_pattern"}
+    ```
+
+    **store_vector**: Store content with embedding for semantic search
+    ```json
+    {"op": "store_vector", "key": "code_snippet/auth_pattern", "value": "...code..."}
+    ```
+
+    **note**: Short-term observation for session context
+    ```json
+    {"op": "note", "key": "current_focus", "value": "refactoring auth module"}
+    ```
+
+    ### USAGE GUIDELINES
+    - Use sparingly: not every response needs memory operations
+    - Be specific with keys: use hierarchical naming (category/subcategory/item)
+    - Include enough context in values for future retrieval
+
+- id: "protocol/piggyback/self_correction"
+  category: "protocol"
+  subcategory: "correction"
+  is_mandatory: false
+  depends_on: ["protocol/piggyback/envelope"]
+  content: |
+    ## SELF-CORRECTION PROTOCOL
+
+    If you detect issues in your analysis, you MUST self-correct before finalizing.
+
+    ### SELF-CORRECTION TRIGGERS
+    - Conflicting constraints detected
+    - Low confidence in initial assessment (< 0.70)
+    - Multiple valid interpretations exist
+    - New information contradicts earlier reasoning
+
+    ### SELF-CORRECTION FORMAT
+    Include in control_packet:
+    ```json
+    {
+      "self_correction": {
+        "triggered": true,
+        "hypothesis": "Brief description of the corrected result and the evidence for it"
+      }
+    }
+    ```
+
+    ### EXAMPLE
+    ```json
+    {
+      "self_correction": {
+        "triggered": true,
+        "hypothesis": "Initial assumption was based on filename; imports show DB wiring, so it's integration code"
+      }
+    }
+    ```
+
+- id: "protocol/piggyback/context_feedback"
+  category: "protocol"
+  subcategory: "feedback"
+  is_mandatory: false
+  depends_on: ["protocol/piggyback/envelope"]
+  content: |
+    ## CONTEXT FEEDBACK PROTOCOL (Encouraged on Every Turn)
+
+    Help improve future context selection by rating the usefulness of provided facts.
+    This creates a feedback loop that learns which predicates help for each task type.
+
+    ### WHEN TO INCLUDE
+
+    Include context_feedback on EVERY turn. This provides continuous learning signal
+    to improve spreading activation scoring over time.
+
+    ### CONTEXT FEEDBACK FORMAT
+
+    Include in control_packet:
+    ```json
+    {
+      "context_feedback": {
+        "overall_usefulness": 0.0,
+        "helpful_facts": [],
+        "noise_facts": [],
+        "missing_context": "<MISSING_CONTEXT: what would have helped, or empty string>"
+      }
+    }
+    ```
+
+- id: "protocol/piggyback/context_feedback/field-descriptions"
+  section_of: "protocol/piggyback/context_feedback"
+  section_order: 1
+  category: "protocol"
+  subcategory: "feedback"
+  is_mandatory: false
+  depends_on: ["protocol/piggyback/envelope"]
+  content: |
+    *Part of: CONTEXT FEEDBACK PROTOCOL (Encouraged on Every Turn)*
+
+    ### FIELD DESCRIPTIONS
+
+    **overall_usefulness** (0.0-1.0): How useful was the provided context?
+    - 1.0 = Exactly what was needed, couldn't have done better
+    - 0.7-0.9 = Very helpful, had most of what was needed
+    - 0.4-0.6 = Somewhat useful, but had to work around gaps
+    - 0.1-0.3 = Mostly irrelevant, only a few useful facts
+    - 0.0 = Completely irrelevant context
+
+    **helpful_facts** (array of predicate names): Which predicates were useful?
+    - Use predicate type names, not specific instances
+    - Examples: "file_topology", "test_state", "error_context", "symbol_graph"
+    - Only list predicates that meaningfully contributed to your response
+
+    **noise_facts** (array of predicate names): Which predicates were irrelevant?
+    - Predicates that added tokens but no value
+    - Examples: "dom_node" when doing Go debugging, "browser_state" for CLI work
+    - Helps prune future context windows
+
+    **missing_context** (string, optional): What would have helped?
+    - Describe what information you wished you had
+    - Examples: "needed call graph for this function", "needed test coverage data"
+    - Helps identify gaps in spreading activation
+
+- id: "protocol/piggyback/context_feedback/examples-by-task-type"
+  section_of: "protocol/piggyback/context_feedback"
+  section_order: 2
+  category: "protocol"
+  subcategory: "feedback"
+  is_mandatory: false
+  depends_on: ["protocol/piggyback/envelope"]
+  content: |
+    *Part of: CONTEXT FEEDBACK PROTOCOL (Encouraged on Every Turn)*
+
+    ### EXAMPLES BY TASK TYPE
+
+    **Debugging a test failure:**
+    ```json
+    {
+      "context_feedback": {
+        "overall_usefulness": 0.85,
+        "helpful_facts": ["test_state", "error_context", "file_topology"],
+        "noise_facts": ["browser_state", "campaign_context"],
+        "missing_context": "stack trace from the actual panic"
+      }
+    }
+    ```
+
+    **Code review:**
+    ```json
+    {
+      "context_feedback": {
+        "overall_usefulness": 0.7,
+        "helpful_facts": ["symbol_graph", "file_topology", "diagnostic_found"],
+        "noise_facts": ["session_context", "dom_node"],
+        "missing_context": "git blame for recently changed lines"
+      }
+    }
+    ```
+
+    **Research task:**
+    ```json
+    {
+      "context_feedback": {
+        "overall_usefulness": 0.6,
+        "helpful_facts": ["project_context", "dependency_link"],
+        "noise_facts": ["test_state", "error_context"],
+        "missing_context": "API documentation for external dependencies"
+      }
+    }
+    ```

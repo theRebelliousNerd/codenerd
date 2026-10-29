@@ -1,0 +1,153 @@
+package autopoiesis
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"codenerd/internal/logging"
+)
+
+// =============================================================================
+// ANALYSIS AND ACTION EXECUTION
+// =============================================================================
+
+// Analyze performs complete autopoiesis analysis on user input
+func (o *Orchestrator) Analyze(ctx context.Context, input string, target string) (*AnalysisResult, error) {
+	result := &AnalysisResult{
+		AnalyzedAt: time.Now(),
+		InputHash:  hashString(input),
+		Actions:    []AutopoiesisAction{},
+	}
+
+	// 1. Analyze complexity
+	if o.config.EnableLLM {
+		complexity, err := o.complexity.AnalyzeWithLLM(ctx, input)
+		if err != nil {
+			logging.Get(logging.CategoryAutopoiesis).Warn("Complexity analysis kept the heuristic result: %v", err)
+			complexity = o.complexity.Analyze(ctx, input, target)
+		}
+		result.Complexity = complexity
+	} else {
+		result.Complexity = o.complexity.Analyze(ctx, input, target)
+	}
+
+	result.NeedsCampaign = result.Complexity.NeedsCampaign
+	result.SuggestedPhases = result.Complexity.SuggestedPhases
+
+	// Add campaign action if needed
+	if result.NeedsCampaign {
+		result.Actions = append(result.Actions, AutopoiesisAction{
+			Type:        ActionStartCampaign,
+			Priority:    result.Complexity.Score,
+			Description: fmt.Sprintf("Start campaign with %d phases", len(result.Complexity.SuggestedPhases)),
+			Payload: CampaignPayload{
+				Phases:         result.Complexity.SuggestedPhases,
+				EstimatedFiles: result.Complexity.EstimatedFiles,
+				Reasons:        result.Complexity.Reasons,
+			},
+		})
+	}
+
+	// 2. Analyze persistence needs
+	if o.config.EnableLLM {
+		persistence, err := o.persistence.AnalyzeWithLLM(ctx, input)
+		if err != nil {
+			logging.Get(logging.CategoryAutopoiesis).Warn("Persistence analysis kept the heuristic result: %v", err)
+			persistence = o.persistence.Analyze(ctx, input)
+		}
+		result.Persistence = persistence
+	} else {
+		result.Persistence = o.persistence.Analyze(ctx, input)
+	}
+
+	result.NeedsPersistent = result.Persistence.NeedsPersistent
+
+	// Create agent specs for persistence needs
+	for _, need := range result.Persistence.Needs {
+		if need.Confidence >= o.config.MinConfidence {
+			spec, err := o.agentCreate.CreateFromNeed(ctx, need)
+			if err != nil {
+				logging.Get(logging.CategoryAutopoiesis).Warn("No %s agent suggested: %v", need.AgentType, err)
+				continue
+			}
+			result.SuggestedAgents = append(result.SuggestedAgents, *spec)
+
+			result.Actions = append(result.Actions, AutopoiesisAction{
+				Type:        ActionCreateAgent,
+				Priority:    need.Confidence,
+				Description: fmt.Sprintf("Create persistent %s agent", need.AgentType),
+				Payload:     spec,
+			})
+		}
+	}
+
+	// 3. Tool need detection (only if task seems to need new capability)
+	if o.config.EnableToolGeneration && shouldCheckToolNeed(input) {
+		toolNeed, err := o.DetectToolNeed(ctx, input)
+		if err == nil && toolNeed != nil && o.shouldGenerateToolNeed(toolNeed) {
+			result.ToolNeeds = append(result.ToolNeeds, *toolNeed)
+
+			result.Actions = append(result.Actions, AutopoiesisAction{
+				Type:        ActionGenerateTool,
+				Priority:    toolNeed.Priority,
+				Description: fmt.Sprintf("Generate tool: %s", toolNeed.Name),
+				Payload:     toolNeed,
+			})
+		}
+	}
+
+	// Sort actions by priority
+	sortActionsByPriority(result.Actions)
+
+	return result, nil
+}
+
+// ExecuteAction executes a single autopoiesis action
+func (o *Orchestrator) ExecuteAction(ctx context.Context, action AutopoiesisAction) error {
+	switch action.Type {
+	case ActionGenerateTool:
+		return o.executeToolGeneration(ctx, action)
+	case ActionCreateAgent:
+		return o.executeAgentCreation(ctx, action)
+	case ActionStartCampaign:
+		// Campaign starting is handled by the campaign orchestrator
+		return nil
+	default:
+		return fmt.Errorf("unknown action type: %v", action.Type)
+	}
+}
+
+// executeToolGeneration generates, hardens and registers a new tool.
+//
+// This runs the full Ouroboros pipeline. It previously did generate → write →
+// register with no safety audit at all: an ActionGenerateTool derived from
+// Analyze() wrote LLM-authored Go into .nerd/tools and registered it as an
+// available capability without go_safety.mg ever seeing it. Tool creation has
+// exactly one production route now, and it is the audited one.
+func (o *Orchestrator) executeToolGeneration(ctx context.Context, action AutopoiesisAction) error {
+	need, ok := action.Payload.(*ToolNeed)
+	if !ok {
+		return fmt.Errorf("invalid payload for tool generation")
+	}
+
+	result := o.ExecuteOuroborosLoop(ctx, need)
+	if result == nil {
+		return fmt.Errorf("ouroboros returned no result for %q", need.Name)
+	}
+	if !result.Success {
+		reason := result.Error
+		if reason == "" {
+			reason = "no reason reported"
+		}
+		return fmt.Errorf("tool %q rejected at stage %s: %s", need.Name, result.Stage, reason)
+	}
+
+	// Update throttling counters on success.
+	o.mu.Lock()
+	o.toolsGenerated++
+	o.lastToolGen = time.Now()
+	o.mu.Unlock()
+
+	return nil
+}

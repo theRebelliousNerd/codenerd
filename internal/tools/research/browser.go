@@ -1,0 +1,474 @@
+package research
+
+import (
+	"context"
+	"encoding/base64"
+	"fmt"
+	"unicode/utf8"
+
+	"codenerd/internal/browser"
+	"codenerd/internal/config"
+	"codenerd/internal/logging"
+	"codenerd/internal/tools"
+)
+
+// BrowserNavigateTool returns a tool for navigating to a URL with a browser.
+func BrowserNavigateTool() *tools.Tool {
+	return &tools.Tool{
+		Name:        "browser_navigate",
+		Description: "Navigate to a URL using a headless browser, useful for JavaScript-rendered pages",
+		Category:    tools.CategoryResearch,
+		Priority:    60,
+		Execute:     executeBrowserNavigate,
+		Schema: tools.ToolSchema{
+			Required: []string{"url"},
+			Properties: map[string]tools.Property{
+				"url": {
+					Type:        "string",
+					Description: "The URL to navigate to",
+				},
+				"wait_stable": {
+					Type:        "boolean",
+					Description: "Wait for page to be stable before returning (default: true)",
+					Default:     true,
+				},
+				"session_id": {
+					Type:        "string",
+					Description: "Optional session ID to reuse an existing browser session",
+				},
+			},
+		},
+	}
+}
+
+func executeBrowserNavigate(ctx context.Context, args map[string]any) (string, error) {
+	url, _ := args["url"].(string)
+	if url == "" {
+		return "", fmt.Errorf("url is required")
+	}
+
+	sessionID, _ := args["session_id"].(string)
+
+	mgr, boundErr := requireBoundBrowser()
+	if boundErr != nil {
+		return "", boundErr
+	}
+	safeURL := mgr.SanitizeForEvidence(url)
+	logging.BrowserDebug("Browser navigate: url=%s, session=%s", safeURL, sessionID)
+
+	// Start browser if needed
+	if err := mgr.Start(ctx); err != nil {
+		return "", fmt.Errorf("failed to start browser: %w", err)
+	}
+
+	var session *browser.Session
+	var err error
+
+	if sessionID != "" {
+		// Navigate existing session
+		err = mgr.Navigate(ctx, sessionID, url)
+		if err != nil {
+			return "", fmt.Errorf("failed to navigate: %w", err)
+		}
+		sess, ok := mgr.GetSession(sessionID)
+		if !ok {
+			return "", fmt.Errorf("session not found after navigation")
+		}
+		session = &sess
+	} else {
+		// Create new session
+		session, err = mgr.CreateSession(ctx, url)
+		if err != nil {
+			return "", fmt.Errorf("failed to create session: %w", err)
+		}
+	}
+
+	logging.Browser("Browser navigated to %s (session=%s)", safeURL, session.ID)
+
+	return fmt.Sprintf("Successfully navigated to %s\nSession ID: %s\nStatus: %s",
+		safeURL, session.ID, session.Status), nil
+}
+
+// BrowserExtract limits for bounded evidence reads come from the
+// installed research policy (research.browser_extract_max_chars[_cap]
+// and research.browser_extract_timeout), read at each call site below.
+// The window sizes one paging window, not the content: every rune
+// stays reachable via offset, so the window clamp is paging rather
+// than a cut.
+
+// BrowserExtractTool returns a tool for extracting content from a browser page.
+func BrowserExtractTool() *tools.Tool {
+	extract := config.ResolvedResearchPolicy()
+	return &tools.Tool{
+		Name:        "browser_extract",
+		Description: fmt.Sprintf("Extract bounded, redacted text from the current browser page. Extraction honors caller cancellation and a %s maximum duration. Combined text and optional HTML are returned through a max_chars window starting at offset; when content continues past the window the result names the remainder and the offset that reaches it.", extract.BrowserExtractTimeout),
+		Category:    tools.CategoryResearch,
+		Priority:    55,
+		Execute:     executeBrowserExtract,
+		Schema: tools.ToolSchema{
+			Required: []string{"session_id"},
+			Properties: map[string]tools.Property{
+				"session_id": {
+					Type:        "string",
+					Description: "The browser session ID",
+				},
+				"selector": {
+					Type:        "string",
+					Description: "Optional CSS selector to extract specific element (default: body)",
+					Default:     "body",
+				},
+				"include_html": {
+					Type:        "boolean",
+					Description: "Include bounded, redacted outer HTML after the text section (default: false)",
+					Default:     false,
+				},
+				"max_chars": {
+					Type:        "integer",
+					Description: fmt.Sprintf("Combined text/HTML window in runes, excluding the paging notice (default: %d, hard cap: %d)", extract.BrowserExtractMaxChars, extract.BrowserExtractMaxCharsCap),
+					Default:     extract.BrowserExtractMaxChars,
+				},
+				"offset": {
+					Type:        "integer",
+					Description: "Rune offset where the max_chars window starts (default: 0)",
+					Default:     0,
+				},
+			},
+		},
+	}
+}
+
+func executeBrowserExtract(ctx context.Context, args map[string]any) (string, error) {
+	sessionID, _ := args["session_id"].(string)
+	if sessionID == "" {
+		return "", fmt.Errorf("session_id is required")
+	}
+
+	selector := "body"
+	if sel, ok := args["selector"].(string); ok && sel != "" {
+		selector = sel
+	}
+	includeHTML := boolArg(args, "include_html", false)
+	maxChars := resolveBrowserExtractMaxChars(args)
+	offset := resolveBrowserExtractOffset(args)
+
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("browser extract cancelled: %w", err)
+	}
+
+	logging.BrowserDebug("Browser extract: session=%s, selector=%s", sessionID, selector)
+
+	mgr, err := requireBoundBrowser()
+	if err != nil {
+		return "", err
+	}
+
+	page, ok := mgr.Page(sessionID)
+	if !ok || page == nil {
+		return "", fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	lookupCtx, cancel := withBrowserExtractDeadline(ctx)
+	defer cancel()
+
+	// Propagate caller cancellation to the blocking lookup. Rod honors the
+	// page context. The child deadline also bounds a missing selector when the
+	// enclosing campaign has hours left to run.
+	el, err := page.Context(lookupCtx).Element(selector)
+	if err != nil {
+		if lookupErr := lookupCtx.Err(); lookupErr != nil {
+			return "", fmt.Errorf("browser extract lookup for %q: %w", selector, lookupErr)
+		}
+		return "", fmt.Errorf("browser extract lookup for %q: %w", selector, err)
+	}
+
+	text, err := el.Context(lookupCtx).Text()
+	if err != nil {
+		if lookupErr := lookupCtx.Err(); lookupErr != nil {
+			return "", fmt.Errorf("browser extract text for %q: %w", selector, lookupErr)
+		}
+		return "", fmt.Errorf("browser extract text for %q: %w", selector, err)
+	}
+
+	if includeHTML {
+		html, htmlErr := el.Context(lookupCtx).HTML()
+		if htmlErr != nil {
+			if lookupErr := lookupCtx.Err(); lookupErr != nil {
+				return "", fmt.Errorf("browser extract html for %q: %w", selector, lookupErr)
+			}
+			return "", fmt.Errorf("browser extract html for %q: %w", selector, htmlErr)
+		}
+		text += "\n\n--- html ---\n" + html
+	}
+
+	sanitized := mgr.SanitizeForEvidence(text)
+	window, end, totalRunes := boundBrowserExtractChars(sanitized, offset, maxChars)
+	result := window
+	truncated := end < totalRunes
+	if truncated {
+		result += fmt.Sprintf("\n...[showing runes %d-%d of %d; %d more chars, page with offset=%d]", offset, end, totalRunes, totalRunes-end, end)
+	} else if offset > 0 {
+		result += fmt.Sprintf("\n...[end of content, %d chars total]", totalRunes)
+	}
+
+	logging.Browser("Browser extract completed: %d chars (truncated=%v)", len(result), truncated)
+	return result, nil
+}
+
+// resolveBrowserExtractMaxChars clamps caller max_chars to the configured
+// default and hard cap (research.browser_extract_max_chars[_cap]).
+// Non-positive or missing values select the default.
+func resolveBrowserExtractMaxChars(args map[string]any) int {
+	policy := config.ResolvedResearchPolicy()
+	maxChars := intArg(args, "max_chars", policy.BrowserExtractMaxChars)
+	if maxChars <= 0 {
+		return policy.BrowserExtractMaxChars
+	}
+	if maxChars > policy.BrowserExtractMaxCharsCap {
+		return policy.BrowserExtractMaxCharsCap
+	}
+	return maxChars
+}
+
+// resolveBrowserExtractOffset reads the paging offset. Negative values
+// select the start; an offset past the end yields an empty window.
+func resolveBrowserExtractOffset(args map[string]any) int {
+	offset := intArg(args, "offset", 0)
+	if offset < 0 {
+		return 0
+	}
+	return offset
+}
+
+// withBrowserExtractDeadline caps the whole extraction while preserving any
+// earlier caller cancellation/deadline. It does not alter manager-owned pages.
+// The bound is research.browser_extract_timeout.
+func withBrowserExtractDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, config.ResolvedResearchPolicy().BrowserExtractTimeout)
+}
+
+// boundBrowserExtractChars windows value to the [offset, offset+maxChars)
+// rune range so multi-byte UTF-8 is never split. It returns the window,
+// the end rune offset for the paging hint, and the total rune count. Every
+// rune stays reachable by paging with offset: the window is paging, never
+// a cut (limits cleanup 2026-09-29).
+func boundBrowserExtractChars(value string, offset, maxChars int) (string, int, int) {
+	total := utf8.RuneCountInString(value)
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	end := total
+	if maxChars > 0 && offset+maxChars < total {
+		end = offset + maxChars
+	}
+	if offset == 0 && end == total {
+		return value, end, total
+	}
+	runes := []rune(value)
+	return string(runes[offset:end]), end, total
+}
+
+// BrowserScreenshotTool returns a tool for capturing screenshots.
+func BrowserScreenshotTool() *tools.Tool {
+	return &tools.Tool{
+		Name:        "browser_screenshot",
+		Description: "Capture a screenshot of the current browser page",
+		Category:    tools.CategoryResearch,
+		Priority:    50,
+		Execute:     executeBrowserScreenshot,
+		Schema: tools.ToolSchema{
+			Required: []string{"session_id"},
+			Properties: map[string]tools.Property{
+				"session_id": {
+					Type:        "string",
+					Description: "The browser session ID",
+				},
+				"full_page": {
+					Type:        "boolean",
+					Description: "Capture full page or just viewport (default: false)",
+					Default:     false,
+				},
+			},
+		},
+	}
+}
+
+func executeBrowserScreenshot(ctx context.Context, args map[string]any) (string, error) {
+	sessionID, _ := args["session_id"].(string)
+	if sessionID == "" {
+		return "", fmt.Errorf("session_id is required")
+	}
+
+	fullPage := false
+	if fp, ok := args["full_page"].(bool); ok {
+		fullPage = fp
+	}
+
+	logging.BrowserDebug("Browser screenshot: session=%s, full_page=%v", sessionID, fullPage)
+
+	mgr, err := requireBoundBrowser()
+	if err != nil {
+		return "", err
+	}
+
+	data, err := mgr.Screenshot(ctx, sessionID, fullPage)
+	if err != nil {
+		return "", fmt.Errorf("failed to capture screenshot: %w", err)
+	}
+
+	// Return base64-encoded image
+	encoded := base64.StdEncoding.EncodeToString(data)
+
+	logging.Browser("Browser screenshot captured: %d bytes", len(data))
+	return fmt.Sprintf("data:image/png;base64,%s", encoded), nil
+}
+
+// BrowserClickTool returns a tool for clicking elements.
+func BrowserClickTool() *tools.Tool {
+	return &tools.Tool{
+		Name:        "browser_click",
+		Description: "Click an element on the page",
+		Category:    tools.CategoryResearch,
+		Priority:    50,
+		Execute:     executeBrowserClick,
+		Schema: tools.ToolSchema{
+			Required: []string{"session_id", "selector"},
+			Properties: map[string]tools.Property{
+				"session_id": {
+					Type:        "string",
+					Description: "The browser session ID",
+				},
+				"selector": {
+					Type:        "string",
+					Description: "CSS selector for the element to click",
+				},
+			},
+		},
+	}
+}
+
+func executeBrowserClick(ctx context.Context, args map[string]any) (string, error) {
+	sessionID, _ := args["session_id"].(string)
+	if sessionID == "" {
+		return "", fmt.Errorf("session_id is required")
+	}
+
+	selector, _ := args["selector"].(string)
+	if selector == "" {
+		return "", fmt.Errorf("selector is required")
+	}
+
+	logging.BrowserDebug("Browser click: session=%s, selector=%s", sessionID, selector)
+
+	mgr, err := requireBoundBrowser()
+	if err != nil {
+		return "", err
+	}
+
+	if err := mgr.Click(ctx, sessionID, selector); err != nil {
+		return "", fmt.Errorf("failed to click: %w", err)
+	}
+
+	logging.Browser("Browser clicked: %s", selector)
+	return fmt.Sprintf("Clicked element: %s", selector), nil
+}
+
+// BrowserTypeTool returns a tool for typing into input fields.
+func BrowserTypeTool() *tools.Tool {
+	return &tools.Tool{
+		Name:        "browser_type",
+		Description: "Type text into an input field",
+		Category:    tools.CategoryResearch,
+		Priority:    50,
+		Execute:     executeBrowserType,
+		Schema: tools.ToolSchema{
+			Required: []string{"session_id", "selector", "text"},
+			Properties: map[string]tools.Property{
+				"session_id": {
+					Type:        "string",
+					Description: "The browser session ID",
+				},
+				"selector": {
+					Type:        "string",
+					Description: "CSS selector for the input element",
+				},
+				"text": {
+					Type:        "string",
+					Description: "Text to type",
+				},
+			},
+		},
+	}
+}
+
+func executeBrowserType(ctx context.Context, args map[string]any) (string, error) {
+	sessionID, _ := args["session_id"].(string)
+	if sessionID == "" {
+		return "", fmt.Errorf("session_id is required")
+	}
+
+	selector, _ := args["selector"].(string)
+	if selector == "" {
+		return "", fmt.Errorf("selector is required")
+	}
+
+	text, _ := args["text"].(string)
+	if text == "" {
+		return "", fmt.Errorf("text is required")
+	}
+
+	logging.BrowserDebug("Browser type: session=%s, selector=%s, text_len=%d", sessionID, selector, len(text))
+
+	mgr, err := requireBoundBrowser()
+	if err != nil {
+		return "", err
+	}
+
+	if err := mgr.Type(ctx, sessionID, selector, text); err != nil {
+		return "", fmt.Errorf("failed to type: %w", err)
+	}
+
+	logging.Browser("Browser typed %d chars into %s", len(text), selector)
+	return fmt.Sprintf("Typed %d characters into: %s", len(text), selector), nil
+}
+
+// BrowserCloseTool returns a tool for closing browser sessions.
+func BrowserCloseTool() *tools.Tool {
+	return &tools.Tool{
+		Name:        "browser_close",
+		Description: "Close a browser session",
+		Category:    tools.CategoryResearch,
+		Priority:    40,
+		Execute:     executeBrowserClose,
+		Schema: tools.ToolSchema{
+			Required: []string{"session_id"},
+			Properties: map[string]tools.Property{
+				"session_id": {
+					Type:        "string",
+					Description: "The browser session ID to close",
+				},
+			},
+		},
+	}
+}
+
+func executeBrowserClose(ctx context.Context, args map[string]any) (string, error) {
+	sessionID, _ := args["session_id"].(string)
+	if sessionID == "" {
+		return "", fmt.Errorf("session_id is required")
+	}
+
+	logging.BrowserDebug("Browser close: session=%s", sessionID)
+
+	mgr, err := requireBoundBrowser()
+	if err != nil {
+		return "", err
+	}
+	if err := mgr.CloseSession(ctx, sessionID); err != nil {
+		return "", fmt.Errorf("failed to close browser session: %w", err)
+	}
+	logging.Browser("Browser session closed: %s", sessionID)
+	return fmt.Sprintf("Session %s closed", sessionID), nil
+}

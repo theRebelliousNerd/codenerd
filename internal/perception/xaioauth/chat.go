@@ -1,0 +1,156 @@
+package xaioauth
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+)
+
+// OpenAI-compatible request/response types local to this package (no XAIClient coupling).
+
+type chatMessage struct {
+	Role string `json:"role"`
+	// Content must not use omitempty: xAI rejects assistant tool_call turns
+	// that omit the content field (HTTP 422 missing field `content`).
+	Content    string     `json:"content"`
+	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+}
+
+type toolCall struct {
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function toolFunction `json:"function"`
+}
+
+type toolFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type chatRequest struct {
+	Model       string        `json:"model"`
+	Messages    []chatMessage `json:"messages"`
+	MaxTokens   int           `json:"max_tokens,omitempty"`
+	Temperature float64       `json:"temperature,omitempty"`
+	Stream      bool          `json:"stream,omitempty"`
+	Tools       []chatTool    `json:"tools,omitempty"`
+	ToolChoice  any           `json:"tool_choice,omitempty"`
+}
+
+type chatTool struct {
+	Type     string       `json:"type"`
+	Function chatToolFunc `json:"function"`
+}
+
+type chatToolFunc struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Parameters  any    `json:"parameters,omitempty"`
+}
+
+type chatResponse struct {
+	Choices []struct {
+		Message      chatMessage `json:"message"`
+		FinishReason string      `json:"finish_reason"`
+	} `json:"choices"`
+	Usage *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage,omitempty"`
+	Error *struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	} `json:"error,omitempty"`
+}
+
+// Complete implements types.LLMClient.
+func (c *Client) Complete(ctx context.Context, prompt string) (string, error) {
+	return c.CompleteWithSystem(ctx, "", prompt)
+}
+
+// CompleteWithSystem implements types.LLMClient.
+func (c *Client) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.cfg.Timeout)
+		defer cancel()
+	}
+
+	start := time.Now()
+	logging.PerceptionDebug("[XAI-OAuth] CompleteWithSystem: model=%s system_len=%d user_len=%d",
+		c.cfg.Model, len(systemPrompt), len(userPrompt))
+
+	c.rateLimitPace()
+
+	messages := systemAndUserChatMessages(systemPrompt, userPrompt)
+
+	text, err := c.chatOnce(ctx, c.cfg.Model, messages, nil)
+	if err != nil {
+		// Fallback model on rate limit
+		// errors.As so a wrapped rate limit still selects the fallback model.
+		// A bare assertion here fails silently: the primary model stays rate
+		// limited, the fallback that exists to carry the turn is never tried,
+		// and the failure reads as the model being down.
+		var rateLimited *RateLimitedError
+		if errors.As(err, &rateLimited) && c.cfg.FallbackModel != "" && c.cfg.FallbackModel != c.cfg.Model {
+			logging.PerceptionWarn("[XAI-OAuth] primary rate limited; trying fallback model=%s", c.cfg.FallbackModel)
+			text, err = c.chatOnce(ctx, c.cfg.FallbackModel, messages, nil)
+		}
+	}
+	if err != nil {
+		logging.PerceptionError("[XAI-OAuth] CompleteWithSystem failed after %v: %v", time.Since(start), err)
+		return "", err
+	}
+	logging.Perception("[XAI-OAuth] CompleteWithSystem: completed in %v response_len=%d", time.Since(start), len(text))
+	return text, nil
+}
+
+func (c *Client) chatOnce(ctx context.Context, model string, messages []chatMessage, tools []chatTool) (string, error) {
+	model, err := requestModel(model)
+	if err != nil {
+		return "", err
+	}
+
+	reqBody := chatRequest{
+		Model:       model,
+		Messages:    messages,
+		MaxTokens:   c.cfg.MaxOutputTokens,
+		Temperature: types.TemperatureFor(ctx, 0.1),
+		Stream:      false,
+	}
+	if len(tools) > 0 {
+		reqBody.Tools = tools
+		reqBody.ToolChoice = "auto"
+	}
+
+	body, err := c.doChatRequest(ctx, reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	var resp chatResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("parse chat response: %w", err)
+	}
+	if resp.Error != nil {
+		return "", fmt.Errorf("API error: %s", resp.Error.Message)
+	}
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("no completion returned")
+	}
+	if finish := resp.Choices[0].FinishReason; types.LengthStop(finish) {
+		return "", &types.OutputTruncated{
+			Provider: "xai-oauth", Method: "CompleteWithSystem", Reason: finish,
+			Partial: strings.TrimSpace(resp.Choices[0].Message.Content),
+		}
+	}
+	return strings.TrimSpace(resp.Choices[0].Message.Content), nil
+}

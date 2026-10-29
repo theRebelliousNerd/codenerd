@@ -1,0 +1,207 @@
+package campaign
+
+import (
+	"codenerd/internal/config"
+	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/northstar"
+	"codenerd/internal/perception"
+	"codenerd/internal/session"
+	"codenerd/internal/tactile"
+	"context"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
+// Orchestrator runs the campaign execution loop.
+// It manages phase transitions, task execution, context paging, and checkpoints.
+type Orchestrator struct {
+	// rootBaseline is the workspace root as it looked before the campaign ran.
+	// Only files absent from it are candidates for the completion sweep, so a
+	// campaign can never move something it did not create.
+	rootBaseline map[string]bool
+
+	mu sync.RWMutex
+
+	// Core components
+	kernel      core.Kernel
+	kernelClock atomic.Int64 // the current_time second last fed to the kernel; see tickKernelClock
+	llmClient   perception.LLMClient
+	// planningClient serves the planning the orchestrator does itself (assault
+	// remediation planning); the decomposer and replanner hold the same one.
+	planningClient perception.LLMClient
+	shardMgr       *coreshards.ShardManager // For monitoring (GetActiveShards, GetBackpressureStatus). Use taskExecutor for task execution.
+	taskExecutor   session.TaskExecutor     // For task execution (replaces direct shardMgr.Spawn calls)
+	executor       tactile.Executor
+	virtualStore   *core.VirtualStore
+
+	// attempts is each open attempt's record -- its turns' writes and the
+	// leases its write guard took -- by task ID
+	// (orchestrator_attempt_writes.go). Guarded by mu.
+	attempts map[string]*attemptRecord
+
+	// Campaign-specific components
+	contextPager                *ContextPager
+	checkpoint                  *CheckpointRunner
+	replanner                   *Replanner
+	decomposer                  *Decomposer
+	promptProvider              PromptProvider
+	specialistKnowledgeProvider SpecialistKnowledgeProvider
+	northstarObserver           *northstar.CampaignObserver
+
+	// Intelligence integration (Campaign Intelligence Plan)
+	intelligenceGatherer *IntelligenceGatherer // Pre-planning intelligence from 12 systems
+	advisoryBoard        *ShardAdvisoryBoard   // Domain expert consultation
+	edgeCaseDetector     *EdgeCaseDetector     // File action decisions
+
+	// State
+	campaign     *Campaign
+	workspace    string
+	nerdDir      string
+	progressChan chan Progress
+	eventChan    chan OrchestratorEvent
+	lastPhaseID  string
+
+	// Execution tracking
+	isRunning bool
+	isPaused  bool
+	// pauseCh signals pause state transitions to the phase scheduler loop.
+	// Closed channel = running/resumed. Open channel = paused. Recreated by
+	// Pause(), closed by Resume(). Always read while holding o.mu.
+	pauseCh    chan struct{}
+	cancelFunc context.CancelFunc
+	lastError  error
+
+	// evidenceMu serializes the evidence measurement and the question that
+	// reads it (task_evidence.go): tasks running in parallel must not ask
+	// between another task's retraction and assertion of the same rows.
+	evidenceMu sync.Mutex
+	// citeCache holds each artifact's citations by file version (guarded by
+	// evidenceMu).
+	citeCache map[string]citeCacheEntry
+
+	// Task result storage for context injection between tasks
+	taskResults map[string]string
+	resultsMu   sync.RWMutex
+	// Insertion/LRU order for pruning task results
+	taskResultOrder []string
+
+	// Configuration (including timeouts)
+	config OrchestratorConfig
+	// policy is config.Campaign resolved: defaults filled, durations parsed,
+	// checked. Every campaign knob is read from here.
+	policy config.CampaignPolicy
+
+	// Deterministic write-set locking for mutating tasks.
+	writeSetLocks *writeSetLockManager
+
+	// Durable journal sequence for event-before-ack persistence. It advances
+	// only after an append is written and synced.
+	journalSeq atomic.Uint64
+	// journalUncertain is set when an append failed after it may have written
+	// bytes (write or sync error). No further append runs until
+	// reconcileJournalLocked has re-read the journal and re-synced it. Guarded
+	// by mu, like every journal append.
+	journalUncertain bool
+	// storageHeld is set while campaign_storage_uncertain stands in the kernel
+	// (storage_hold.go). Guarded by mu.
+	storageHeld bool
+
+	// owner is the cross-process ownership lock of the campaign this
+	// orchestrator publishes (campaign_owner.go). Released by Close.
+	owner *campaignOwnerLock
+
+	// Cached campaign risk decision for deterministic auto-wiring.
+	riskDecision *CampaignRiskDecision
+
+	// Resolved gate wiring (auto + overrides) used by deterministic risk gating.
+	riskGateState riskGateResolved
+
+	// Optional metrics sink. Nil = no observation (see metrics.go). Guarded by
+	// its own mutex because risk preflight observes while o.mu is held.
+	metricsMu   sync.RWMutex
+	metrics     MetricsSink
+	phaseStarts sync.Map // phaseID -> time.Time, only populated when metrics is set
+
+	// Preserves configured observer even when runtime gate disables northstar checks.
+	configuredNorthstarObserver *northstar.CampaignObserver
+}
+
+// OrchestratorEvent represents an event during campaign execution.
+type OrchestratorEvent struct {
+	Type      OrchestratorEventType `json:"type"` // task_started, task_completed, task_failed, phase_completed, checkpoint, replan, learning
+	Timestamp time.Time             `json:"timestamp"`
+	PhaseID   string                `json:"phase_id,omitzero"`
+	TaskID    string                `json:"task_id,omitzero"`
+	Message   string                `json:"message"`
+	Data      any                   `json:"data,omitzero"`
+}
+
+// OrchestratorConfig holds configuration for the orchestrator.
+type OrchestratorConfig struct {
+	Workspace string
+	Kernel    core.Kernel
+	// LLMClient serves the orchestrator's execution-side calls: context
+	// paging and the document fallback.
+	LLMClient perception.LLMClient
+	// PlanningLLMClient serves every planning role: decomposition (with its
+	// document taxonomy and requirement extraction), replanning, rolling-wave
+	// refinement and assault remediation planning. Callers resolve it from
+	// config.json: the planner slot when one is configured, else main
+	// (Cortex.PlanningLLM). Required, so a door that forgot it fails at
+	// construction instead of planning on the execution client unnoticed.
+	PlanningLLMClient perception.LLMClient
+	ShardManager      *coreshards.ShardManager // For monitoring. Use TaskExecutor for task execution.
+	TaskExecutor      session.TaskExecutor     // For task execution (replaces direct ShardManager.Spawn calls)
+	Executor          tactile.Executor
+	VirtualStore      *core.VirtualStore
+	ProgressChan      chan Progress
+	EventChan         chan OrchestratorEvent
+	// Campaign is the policy: every knob that decides how the campaign runs
+	// (attempts, backoffs, checkpoints, acceptance, scheduling, command
+	// limits, context budgets), from the user's .nerd/config.json
+	// (UserConfig.GetCampaignConfig). It is the only policy input, so every
+	// door a campaign starts through runs it the same way. A zero value is
+	// the config's defaults.
+	Campaign        config.CampaignConfig
+	CampaignTimeout time.Duration // Caller's own limit on the whole campaign; zero means none
+	TaskTimeout     time.Duration // Caller's own limit per task; zero means none
+	ContextBudget   int           // Token budget for context pager (default: from config.ContextWindow.MaxTokens)
+
+	// Deterministic risk gating.
+	EnableRiskAutoWiring bool // Enable deterministic risk gate enforcement (default: true)
+	RiskGateThreshold    int  // Score threshold to enable strict gates (default: 70)
+	GlobalRiskGate       bool // Global default gate toggle (default: true)
+	// CampaignRiskOverride and TaskRiskOverrides are an escape hatch, and no
+	// production caller sets either. That is the designed state rather than a
+	// missing wire: applyRiskDefaults reads them AS THE SIGNAL that a caller is
+	// in the zero-config path — "override is nil and there are no task
+	// overrides" is how it decides to turn auto-wiring and the global gate on
+	// by itself. A caller that sets one is asking to drive manually, and the
+	// defaults step back.
+	//
+	// Noted because the dark-field gate reports both and the reader has to
+	// decide which kind of dark they are. This is the kind where filling them
+	// in would be the bug.
+	CampaignRiskOverride    *bool           // Campaign-level gate override
+	TaskRiskOverrides       map[string]bool // Task-level gate overrides (highest precedence)
+	RiskGateMode            RiskGateMode    // /auto, /force_allow, /force_block (default: /auto)
+	AdvisoryGateToggle      RiskGateToggle  // /auto, /enabled, /disabled (default: /auto)
+	EdgeGateToggle          RiskGateToggle  // /auto, /enabled, /disabled (default: /auto)
+	NorthstarGateToggle     RiskGateToggle  // /auto, /enabled, /disabled (default: /auto)
+	RiskIntelligenceTimeout time.Duration   // Optional timeout for pre-run intelligence snapshot gathering
+
+	// Intelligence integration (Campaign Intelligence Plan)
+	IntelligenceGatherer *IntelligenceGatherer       // Pre-planning intelligence from 12 systems: the decomposer's Step 0 and the risk preflight
+	AdvisoryBoard        *ShardAdvisoryBoard         // Domain expert consultation for the risk preflight
+	EdgeCaseDetector     *EdgeCaseDetector           // File action decisions for the risk preflight
+	NorthstarObserver    *northstar.CampaignObserver // Vision guardian; required by the protected-surface risk gate. The orchestrator owns it: NewOrchestrator closes it on error, Close closes it.
+}
+
+// taskResult is used to collect async task outcomes in runPhase.
+type taskResult struct {
+	taskID string
+	result any
+	err    error
+}

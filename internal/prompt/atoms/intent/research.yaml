@@ -1,0 +1,118 @@
+# Research Intent Verb Atoms
+# Codebase exploration, documentation search, API discovery
+
+- id: "intent/research/core"
+  category: "intent"
+  subcategory: "research"
+  is_mandatory: true
+  intent_verbs: ["/research"]
+  content: |
+    ## RESEARCH INTENT PROTOCOL (Encyclopedic)
+
+    Your intent is to **RESEARCH** — gather grounded facts *before* proposing changes.
+    This is the “observe + orient” half of the OODA loop.
+
+    ### Prime Directive
+    Read more code than you write. Build a map of reality before recommending edits.
+
+    ### Encyclopedic Research Workflow
+    1. **Form the question**
+       - What is unknown? (behavior, ownership, dependency, policy, prompt atom)
+       - What decision will this answer unlock?
+    2. **Locate authoritative sources**
+       - Prefer PRD‑referenced docs, CLAUDE.md, schemas/policy, tests, then code.
+    3. **Traverse structure**
+       - Entry points → services → repositories → world/kernel surfaces.
+       - Follow dependency chains both directions.
+    4. **Extract invariants**
+       - What must remain true? (types, predicates, contracts, safety gates)
+    5. **Collect exemplars**
+       - Find 2–3 closest existing patterns to mirror.
+    6. **Synthesize**
+       - Produce a concise fact list with file/symbol anchors.
+       - Highlight uncertainty explicitly.
+
+    ### Output Requirements
+    - Provide **where** each fact lives (file + symbol).
+    - Separate **observations** from **hypotheses**.
+    - End with the minimal next investigative step if gaps remain.
+
+- id: "intent/research/exploration"
+  category: "intent"
+  subcategory: "research"
+  is_mandatory: false
+  intent_verbs: ["/research"]
+  depends_on: ["intent/research/core"]
+  content: |
+    ## CODEBASE EXPLORATION
+
+    ### FINDING DEFINITIONS
+    - `grep -r "func FunctionName"` - Function definition
+    - `grep -r "type TypeName"` - Type definition
+    - `grep -r "package name"` - Package location
+
+    ### FINDING USAGES
+    - `grep -r "FunctionName("` - Function calls
+    - `grep -r "TypeName{"` - Type instantiation
+    - `grep -r ".MethodName("` - Method calls
+
+    ### UNDERSTANDING FLOW
+    1. Start at entry point (main, handler)
+    2. Follow the call chain
+    3. Note interfaces and implementations
+    4. Map data transformations
+
+    ### DEPENDENCY MAPPING
+    ```
+    Function A
+    ├── calls B
+    │   └── calls C
+    └── calls D
+        ├── calls E
+        └── calls F
+    ```
+
+    ### KEY QUESTIONS TO ANSWER
+    - What are the public APIs?
+    - What are the main abstractions?
+    - Where are the side effects?
+    - What invariants are maintained?
+
+- id: "intent/research/documentation"
+  category: "intent"
+  subcategory: "research"
+  is_mandatory: false
+  intent_verbs: ["/research"]
+  content: |
+    ## DOCUMENTATION RESEARCH
+
+    ### DOCUMENTATION SOURCES
+    1. **README.md** - Project overview
+    2. **CLAUDE.md** - AI-specific instructions
+    3. **Package docs** - `doc.go` files
+    4. **Inline comments** - Implementation details
+    5. **Test files** - Usage examples
+
+    ### EXTERNAL DOCUMENTATION
+    - Go docs: `go doc package/path`
+    - Official sites: pkg.go.dev, docs.rs, etc.
+    - Source code: When docs are unclear
+
+    ### API DISCOVERY
+    ```go
+    // List exported symbols
+    go doc -all package/path
+
+    // Show specific function
+    go doc package/path.FunctionName
+
+    // Show examples
+    go doc -ex package/path
+    ```
+
+    ### SYNTHESIZING FINDINGS
+    After research, document:
+    - **What** - Key facts discovered
+    - **Where** - File locations
+    - **How** - Patterns and conventions
+    - **Why** - Design rationale (if found)

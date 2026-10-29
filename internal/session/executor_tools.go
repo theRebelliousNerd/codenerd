@@ -1,0 +1,3212 @@
+package session
+
+import (
+	"codenerd/internal/broker"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	nerdconfig "codenerd/internal/config"
+	"codenerd/internal/core"
+	"codenerd/internal/evidence"
+	"codenerd/internal/jit/config"
+	"codenerd/internal/logging"
+	"codenerd/internal/projectdoc"
+	"codenerd/internal/prompt"
+	"codenerd/internal/sessionlog"
+	"codenerd/internal/tools"
+	"codenerd/internal/types"
+)
+
+// ToolCall represents a tool invocation from the LLM.
+type ToolCall struct {
+	ID   string
+	Name string
+	Args map[string]any
+
+	// restrictedTurn is the turn whose restriction binds this call
+	// (turn_restriction.go), set by executeToolCall from the turn's context;
+	// empty when the turn carries none. It is the host's measurement of who
+	// owns the call, never something the model supplies.
+	restrictedTurn types.MangleAtom
+}
+
+// runToolLoop drives the LLM ↔ tools cycle. It performs the initial generation
+// and, when the model requests tools, executes them and feeds the results back
+// via ToolResultsProvider for as long as the working policy derives no stop
+// and the user's wall-clock constraints allow. No count of rounds or calls
+// ends it: a count is not a fact about whether the task is done.
+//
+// Returns the final LLM response, a slice of tool error messages encountered
+// across all iterations, and any fatal error.
+//
+// The continuation channel (toolResultsChannel):
+//   - A Piggyback Protocol client continues on the rendered envelope channel
+//     (piggybackChannel): same loop, same stops, same repair rounds.
+//   - A client implementing types.ToolResultsProvider continues natively.
+//   - Otherwise: one round of tool execution then return. Tool failures are
+//     still recorded for the caller to surface.
+//
+// A write-oriented turn is first divided into edit steps (see work_steps.go);
+// with two or more, each step runs as its own pass and the gate runs once at
+// the end. Otherwise the turn is one pass.
+func (e *Executor) runToolLoop(
+	ctx context.Context,
+	systemPrompt, userInput string,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	compilationCtx *prompt.CompilationContext,
+	result *ExecutionResult,
+) (*types.LLMToolResponse, []string, error) {
+	steps, err := e.planTurnSteps(ctx, e.llmForVerb(result.Intent.Verb), userInput, cfg, result)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(steps) > 1 {
+		return e.runPlannedSteps(ctx, systemPrompt, userInput, steps, cfg, compilationCtx, result)
+	}
+	return e.runToolLoopPass(ctx, systemPrompt, userInput, cfg, compilationCtx, result, toolLoopPass{verify: true})
+}
+
+// runToolLoopPass is one pass of the loop: a working loop on userInput, the
+// initial generation, the rounds, and, when pass.verify is set, the post-edit
+// gate at every terminal path.
+func (e *Executor) runToolLoopPass(
+	ctx context.Context,
+	systemPrompt, userInput string,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	compilationCtx *prompt.CompilationContext,
+	result *ExecutionResult,
+	pass toolLoopPass,
+) (*types.LLMToolResponse, []string, error) {
+	// Resolve the turn's model once. Everything below — the initial
+	// generation, the no-tool retry, and every tool-result follow-up — shares
+	// one conversation history, so they must all hit the same client.
+	client := e.llmForVerb(result.Intent.Verb)
+	ctx, closeWorking, workingErr := e.beginWorkingLoop(ctx, client, userInput, compilationCtx)
+	if workingErr != nil {
+		return nil, nil, workingErr
+	}
+	defer closeWorking()
+	if loop := activeWorkingLoop(ctx); loop != nil {
+		loop.result = result
+		if pass.regime != "" {
+			loop.regime = pass.regime
+		}
+	}
+
+	llmResponse, err := e.generateResponse(ctx, client, systemPrompt, userInput, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	if llmResponse == nil {
+		return nil, nil, errors.New("initial LLM generation returned a nil response")
+	}
+	e.promotePiggybackToolRequests(llmResponse, result)
+
+	// No tools requested.
+	//
+	// Previously this was an unconditional early-return: the model could
+	// reply with planning-only text ("I am creating the file...") and the
+	// loop would exit with that text as the final answer — the orchestrator
+	// would then mark the step "Complete" while no work had actually
+	// happened (.nerd/logs/2026-05-28 shows the symptom: a /create intent
+	// that produces zero side-effects and reports success).
+	//
+	// Mitigation, neuro-symbolic: ask the kernel whether the current
+	// intent's verb requires a tool_call (Mangle rule
+	// intent_requires_tool_call/1, derived from action_mapping/2 +
+	// side_effecting_action/1). If yes, recompile the prompt with the
+	// world_state "no_tool_call_retry" activation flag so the JIT injects
+	// the system/tool_nudge/no_tool_call_retry atom (which references the
+	// runtime's actually-allowed tools via {{available_tools}}, not a
+	// hardcoded Go string), then reissue once.
+	if len(llmResponse.ToolCalls) == 0 {
+		if e.intentRequiresToolCall(result.Intent.Verb) {
+			// A turn that must act, offered no tool, cannot act: nudging it is
+			// asking the model to call something that was never on the menu.
+			// Observed 2026-09-18: a full kernel rejected the turn's own facts,
+			// the runtime compiled zero tools, the nudge below fired, the model
+			// answered in prose again, and six runs were recorded hollow with
+			// nothing naming the cause. Name it.
+			if len(e.buildToolDefinitions(cfg)) == 0 {
+				return nil, nil, fmt.Errorf(
+					"no tools were offered to a turn that must act: intent_requires_tool_call(%s) derives but the runtime compiled zero tool definitions; check the boot log for rejected facts (EDB fact limit) and the compiled config's allowed tools",
+					result.Intent.Verb)
+			}
+			logging.Get(logging.CategorySession).Warn(
+				"runToolLoop: intent_requires_tool_call(%q) derived true but model returned no tool_calls; recompiling prompt with no-tool-retry nudge atom",
+				result.Intent.Verb,
+			)
+			retried, retryErr := e.retryWithNoToolNudge(ctx, client, userInput, cfg, compilationCtx)
+			if retryErr == nil && retried != nil {
+				// The retry ran under the more informative JIT prompt. Preserve it
+				// even if the model still chose a prose-only conclusion; returning
+				// the original planning text discards the entire retry.
+				llmResponse = retried
+				e.promotePiggybackToolRequests(llmResponse, result)
+				if len(retried.ToolCalls) == 0 {
+					return llmResponse, nil, nil
+				}
+			} else {
+				if retryErr != nil {
+					logging.Get(logging.CategorySession).Warn("runToolLoop: no-tool-retry path failed: %v", retryErr)
+				}
+				return llmResponse, nil, nil
+			}
+		} else {
+			return llmResponse, nil, nil
+		}
+	}
+
+	// One loop for both protocols. A native provider continues on its own
+	// tool-result channel; a Piggyback client continues on the rendered
+	// envelope channel (piggybackChannel), so its results come back to it and
+	// every stop, finalize and repair round below applies to it unchanged.
+	trp, supportsLoop := e.toolResultsChannel(client, cfg)
+	toolDefs := e.buildToolDefinitions(cfg)
+	executorCfg := e.configSnapshot()
+
+	// Seed the history with prior turns (so every follow-up round carries
+	// multi-turn memory) followed by the initial user turn and the
+	// assistant's first response (which contains the tool_use blocks).
+	// Seed order: prior..., user input, assistant first response.
+	prior := e.priorTurnMessages()
+	history := make([]types.Message, 0, len(prior)+2)
+	history = append(history, prior...)
+	history = append(history,
+		types.Message{Role: "user", Text: userInput},
+		// AssistantMessageFrom, not a literal built out of Text and ToolCalls:
+		// the literal is where the turn's ordering and its thinking signatures
+		// are dropped, and every adapter downstream is lossless only as far as
+		// what this loop hands it.
+		types.AssistantMessageFrom(llmResponse),
+	)
+
+	// The loop is bounded by what the working policy derives and by the user's
+	// own wall-clock constraints, never by a count of rounds or calls. When a
+	// working loop exists the meter measures the turn's shape for the policy;
+	// its repeat span is the policy's working_repeat_threshold, not a config
+	// key and not a Go constant.
+	workingLoop := activeWorkingLoop(ctx)
+	if workingLoop == nil {
+		// Nothing derives continuation, so there is nothing to keep this loop
+		// honest and nothing to end it. Refusing is the fail-closed answer;
+		// running an unbounded loop with no policy over it is the failure the
+		// count ceilings used to paper over.
+		return nil, nil, errors.New(
+			"tool loop requires a working continuation policy and this turn has none " +
+				"(no workspace root, so no working set could be built)")
+	}
+	threshold, thresholdErr := workingLoop.set.RepeatThreshold(ctx)
+	if thresholdErr != nil {
+		return nil, nil, fmt.Errorf("working continuation policy: %w", thresholdErr)
+	}
+	meter := newWorkingMeter(threshold)
+	failedRounds := 0
+	writeOriented := e.writeOrientedIntent(result.Intent.Verb)
+	// Set when the working policy ends exploration at a boundary; the loop
+	// then leaves the model's next batch pending for the forced-final path.
+	finalizeReason := ""
+	finalizationCutoff, finalizationReserve, hasFinalizationCutoff :=
+		toolExplorationCutoff(ctx, executorCfg.FinalAnswerReserve)
+	// A client that cannot consume tool results has no final follow-up phase to
+	// reserve; it retains the existing one-batch graceful-degradation behavior.
+	hasFinalizationCutoff = hasFinalizationCutoff && supportsLoop
+
+	var toolErrs []string
+	currentResponse := llmResponse
+	verifyTerminal := func(response *types.LLMToolResponse) (*types.LLMToolResponse, error) {
+		if !pass.verify {
+			return response, nil
+		}
+		verified, verifyErrs, verifyErr := e.verifyCompletedToolTurn(
+			ctx, trp, systemPrompt, history, response, toolDefs, cfg, result)
+		toolErrs = append(toolErrs, verifyErrs...)
+		return verified, verifyErr
+	}
+
+	// No count bounds this loop. It ends when the kernel derives a
+	// working_stop or a working_finalize, when the model stops asking for
+	// tools, when the turn's wall-clock reserve for a final answer is reached,
+	// or when the context is cancelled.
+	for iter := 0; ; iter++ {
+		if ctx.Err() != nil {
+			return currentResponse, toolErrs, ctx.Err()
+		}
+		if finalizeReason != "" {
+			// Policy ended exploration at the previous boundary. The batch the
+			// model requested since is still pending and runs inside the
+			// forced-final path, so a late verification call is not lost; what
+			// stops is the open-ended reading after it.
+			logging.Get(logging.CategorySession).Warn(
+				"Working policy finalized the turn (%s) after %d executed tool call(s); forcing a final answer",
+				finalizeReason, result.ToolCallsExecuted)
+			break
+		}
+
+		// The turn's wall clock is a user constraint, not a completion
+		// criterion. Keep its tail for a conclusion instead of starting
+		// another open-ended provider call that can only end in context
+		// deadline exceeded.
+		if hasFinalizationCutoff && !time.Now().Before(finalizationCutoff) {
+			final, finalErrs, finalErr := e.forceDeadlineFinalAnswer(
+				ctx, trp, systemPrompt, &history, currentResponse, cfg, result,
+				false, finalizationReserve)
+			toolErrs = append(toolErrs, finalErrs...)
+			if finalErr != nil {
+				return currentResponse, toolErrs, finalErr
+			}
+			verified, verifyErr := verifyTerminal(final)
+			return verified, toolErrs, verifyErr
+		}
+
+		explorationCtx := ctx
+		cancelExploration := func() {}
+		if hasFinalizationCutoff {
+			explorationCtx, cancelExploration = context.WithDeadline(ctx, finalizationCutoff)
+		}
+
+		// Execute all tool calls from this turn and collect tool_result blocks.
+		toolResults, batchErrs := e.executeToolBatch(explorationCtx, currentResponse.ToolCalls, cfg, result)
+		toolErrs = append(toolErrs, batchErrs...)
+		meter.observe(currentResponse.ToolCalls, toolResults)
+		failedRounds++
+		for _, r := range toolResults {
+			if !r.IsError {
+				failedRounds = 0
+				break
+			}
+		}
+		// The policy sees the whole-turn shape (write intent, rounds,
+		// writes, rounds since the last write and verification) and answers
+		// with a stop, a finalize, a nudge, or plain continuation. Before
+		// this it saw only a repeated-trace flag and a failure count, so an
+		// open loop on a change task could read for half an hour, write one
+		// line, and read on without ever running the test the task named.
+		progress := meter.workingProgress(writeOriented, failedRounds)
+		progress.Regime = workingLoop.regime
+		decision, policyErr := workingLoop.set.Continue(ctx, progress)
+		if policyErr != nil {
+			cancelExploration()
+			return currentResponse, toolErrs, fmt.Errorf("working continuation policy: %w", policyErr)
+		}
+		if !decision.Continue {
+			cancelExploration()
+			return currentResponse, toolErrs, errors.New(describeWorkingStop(decision.Stop, progress, result.ToolCallsExecuted))
+		}
+		finalizeReason = decision.Finalize
+		if decision.Nudge != "" {
+			toolResults = appendWorkingNudge(toolResults, workingNudgeText(decision.Nudge, progress))
+		}
+		if decision.SearchOpen && !workingLoop.searchOpen {
+			workingLoop.searchOpen = true
+			logging.Session("Working policy opened raw search after %d structural quer(ies), %d without an answer",
+				progress.StructuralAttempts, progress.StructuralMisses)
+			toolResults = appendWorkingNudge(toolResults, searchOpenedText)
+		}
+		if decision.Regime != workingLoop.regime {
+			workingLoop.regime = decision.Regime
+			if decision.Regime == commitRegime {
+				logging.Get(logging.CategorySession).Warn(
+					"Working policy closed exploration (commit regime) after %d executed tool call(s)", result.ToolCallsExecuted)
+			}
+			toolResults = appendWorkingNudge(toolResults, workingRegimeText(decision.Regime))
+		}
+		if ctx.Err() != nil {
+			cancelExploration()
+			return currentResponse, toolErrs, ctx.Err()
+		}
+
+		// If the client can't accept tool results back, we're done after the
+		// first execution pass. The model will not see the results this turn.
+		if !supportsLoop {
+			cancelExploration()
+			logging.Get(logging.CategorySession).Warn(
+				"LLM client does not implement ToolResultsProvider; tool results not fed back to model. Provider=%T", client)
+			verified, verifyErr := verifyTerminal(currentResponse)
+			return verified, toolErrs, verifyErr
+		}
+
+		// Append the user tool_result turn to history and re-invoke.
+		history = append(history, types.Message{
+			Role:        "user",
+			ToolResults: toolResults,
+		})
+
+		// A tool can itself reach the exploration cutoff. Its result (including
+		// any cancellation error) is already paired in history, so do not run
+		// it again on the forced-final path.
+		if hasFinalizationCutoff && explorationCtx.Err() != nil && ctx.Err() == nil {
+			cancelExploration()
+			final, finalErrs, finalErr := e.forceDeadlineFinalAnswer(
+				ctx, trp, systemPrompt, &history, currentResponse, cfg, result,
+				true, finalizationReserve)
+			toolErrs = append(toolErrs, finalErrs...)
+			if finalErr != nil {
+				return currentResponse, toolErrs, finalErr
+			}
+			verified, verifyErr := verifyTerminal(final)
+			return verified, toolErrs, verifyErr
+		}
+
+		nextResp, err := e.completeWithWorkingContext(explorationCtx, trp, systemPrompt, history, toolDefs)
+		plannedFinalization := hasFinalizationCutoff && errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil
+		cancelExploration()
+		if plannedFinalization {
+			final, finalErrs, finalErr := e.forceDeadlineFinalAnswer(
+				ctx, trp, systemPrompt, &history, currentResponse, cfg, result,
+				true, finalizationReserve)
+			toolErrs = append(toolErrs, finalErrs...)
+			if finalErr != nil {
+				return currentResponse, toolErrs, finalErr
+			}
+			verified, verifyErr := verifyTerminal(final)
+			return verified, toolErrs, verifyErr
+		}
+		if err != nil {
+			return currentResponse, toolErrs, describeToolLoopFailure(ctx, iter, len(toolResults), err)
+		}
+		if nextResp == nil {
+			return currentResponse, toolErrs, errors.New("tool-result follow-up returned a nil response")
+		}
+		e.promotePiggybackToolRequests(nextResp, result)
+		currentResponse = nextResp
+
+		// Append the next assistant turn to history (whether or not it has more
+		// tool calls), carrying its blocks: this is the turn the provider will
+		// be shown back as its own history on the very next round, so a
+		// signature lost here is lost while the reasoning it belongs to is
+		// still live.
+		//
+		// history stays whole. What a request carries of it is the context
+		// ledger's (working_compact, working_evict), rendered in
+		// prepareWorkingRequest. Until 2026-09-22 a cut here kept the last
+		// three messages, so the policy only ever saw two rounds: measured over
+		// 481 rounds, no request carried a third, the slack never ran, and no
+		// transcript byte was ever served from the provider cache.
+		history = append(history, types.AssistantMessageFrom(nextResp))
+
+		if len(nextResp.ToolCalls) == 0 {
+			verified, verifyErr := verifyTerminal(currentResponse)
+			return verified, toolErrs, verifyErr
+		}
+
+		// The model still has executable work at the current boundary and the
+		// policy derived no stop: the loop simply goes round again. There is
+		// nothing to extend, because there is no ceiling to extend from.
+	}
+
+	// The working policy finalized the turn — the only way out of the loop
+	// that is not a return. currentResponse still holds UNEXECUTED tool
+	// calls and, on every provider observed, no assistant text at all — a model
+	// that is still calling tools has not written its answer yet.
+	//
+	// Returning it here is how `nerd review internal/types/mangle_scale.go`
+	// printed "📋 Result:" followed by nothing after 16 successful tool calls and
+	// 2m42s of work, and exited 0. The exploration was fine; the harness simply
+	// walked away before asking for the conclusion.
+	//
+	// So spend one more call to collect it: execute the pending batch (keeping
+	// the tool_use/tool_result pairing every provider requires), then re-invoke
+	// with the EXPLORATION tools removed. Unable to read anything more, the
+	// model must work with what it has.
+	//
+	// Write tools survive that cut for a write-oriented intent. Stripping every
+	// tool made `nerd create <doc>` structurally impossible to complete: it
+	// spent 35 calls researching, hit the ceiling, and the tool-free final call
+	// could only describe the file it had been asked to write — which the
+	// hollow-success guard then correctly failed. "You have explored enough,
+	// now do the thing" is the instruction that turn needed; "you have explored
+	// enough, now describe the thing" is not.
+	final, finalErrs, finalErr := e.forceFinalAnswer(ctx, trp, systemPrompt, &history, currentResponse, cfg, result)
+	toolErrs = append(toolErrs, finalErrs...)
+	if finalErr != nil {
+		logging.Get(logging.CategorySession).Error(
+			"Forced final answer failed after the working policy finalized the turn (%s): %v", finalizeReason, finalErr)
+		return currentResponse, toolErrs, fmt.Errorf(
+			"working policy finalized the turn (%s) after %d executed tool call(s): forced final answer failed: %w",
+			strings.TrimPrefix(finalizeReason, "/"), result.ToolCallsExecuted, finalErr)
+	}
+	verified, verifyErr := verifyTerminal(final)
+	return verified, toolErrs, verifyErr
+}
+
+// verifyCompletedToolTurn is the transport-independent post-edit gate. Native
+// and Piggyback calls differ in how tool results return to the model, but both
+// must answer for their writes before the turn can report success, and both
+// repair through trp (a Piggyback client's is piggybackChannel). A caller with
+// no continuation channel passes nil, and hard-gate failures then remain
+// failures with the compiler/test output instead of being silently skipped.
+//
+// Which rounds run, and in what order, is the kernel's (turn_next_round,
+// policy/turn_rounds.mg): this runs the round it names, records
+// turn_round_ran, and asks again until none derives. Until 2026-09-23 the
+// rounds ran in a fixed Go order and six of them decided for themselves from
+// the written paths' extensions whether they applied, a second answer to
+// turn_owes_gate (sweep finding F4).
+func (e *Executor) verifyCompletedToolTurn(
+	ctx context.Context,
+	trp types.ToolResultsProvider,
+	systemPrompt string,
+	history []types.Message,
+	current *types.LLMToolResponse,
+	toolDefs []types.ToolDefinition,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+) (*types.LLMToolResponse, []string, error) {
+	if current == nil {
+		return nil, nil, errors.New("cannot verify a nil completed response")
+	}
+
+	var toolErrs []string
+	if result == nil {
+		return current, toolErrs, nil
+	}
+	// The write set a repair may name, and may not step outside, is the
+	// files this turn had written before the first gate ran. Rounds append
+	// their own files to WrittenPaths afterwards; the snapshot does not move.
+	// It has to be taken here, before the rounds map runs, because every
+	// round below closes over this ctx.
+	ctx = WithTurnWriteSet(ctx, result.WrittenPaths)
+	// Each round's driver. The critic's opinion is advisory: an uplift that
+	// breaks the suite is undone inside verifyAndUpliftWithCritic.
+	rounds := map[string]func() (*types.LLMToolResponse, []string, error){
+		"/build": func() (*types.LLMToolResponse, []string, error) {
+			repaired, errs, err := e.verifyAndRepairBuild(ctx, trp, systemPrompt, history, current, toolDefs, cfg, result)
+			if err == nil {
+				e.formatWrittenGo(result, "")
+			}
+			return repaired, errs, err
+		},
+		"/test": func() (*types.LLMToolResponse, []string, error) {
+			return e.verifyAndRepairTests(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+		},
+		"/critic": func() (*types.LLMToolResponse, []string, error) {
+			errs, err := e.verifyAndUpliftWithCritic(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+			return nil, errs, err
+		},
+		"/coverage": func() (*types.LLMToolResponse, []string, error) {
+			return e.verifyAndRepairCoverage(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+		},
+		"/pinned": func() (*types.LLMToolResponse, []string, error) {
+			return e.verifyAndRepairPinning(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+		},
+		"/survivors": func() (*types.LLMToolResponse, []string, error) {
+			errs, err := e.adviseOnSurvivors(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+			return nil, errs, err
+		},
+		"/vet": func() (*types.LLMToolResponse, []string, error) {
+			return e.verifyAndRepairVet(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+		},
+		"/removed_tests": func() (*types.LLMToolResponse, []string, error) {
+			return e.verifyAndRepairRemovedTests(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+		},
+		// current is read when the round runs, like /finish: the push-back's
+		// words are appended to the answer the earlier rounds left.
+		"/unwired": func() (*types.LLMToolResponse, []string, error) {
+			return e.wireUnreachedCode(ctx, trp, systemPrompt, history, current, toolDefs, cfg, result)
+		},
+		"/test_run": func() (*types.LLMToolResponse, []string, error) {
+			return e.verifyAndRepairTestRun(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+		},
+		// current is read when the round runs: the answer the earlier rounds
+		// left, which is the report the round reads.
+		"/finish": func() (*types.LLMToolResponse, []string, error) {
+			return e.finishUnfinishedWork(ctx, trp, systemPrompt, history, current, toolDefs, cfg, result)
+		},
+	}
+
+	before := ""
+	for {
+		next, err := e.nextPostEditRound(result)
+		if err != nil {
+			return current, toolErrs, err
+		}
+		if next == "" {
+			break
+		}
+		run, ok := rounds[next]
+		if !ok {
+			return current, toolErrs, fmt.Errorf("the policy owes the post-edit round %s, which this executor has no driver for", next)
+		}
+		if len(result.roundsRan) == 0 {
+			// What the workspace was before any round edited it: the closure
+			// remeasures when the rounds changed it.
+			before, _ = evidence.Snapshot(ctx, e.workspaceForVerification())
+		}
+		resp, errs, runErr := run()
+		toolErrs = append(toolErrs, errs...)
+		if runErr != nil {
+			return current, toolErrs, runErr
+		}
+		// A round's response is the turn's answer only when it says
+		// something. An attempt ends at its write, usually tool calls with
+		// no text; that replaced the model's answer with an empty one, which
+		// articulation then parsed as an empty response (problems log
+		// 2026-10-28).
+		if resp != nil && strings.TrimSpace(resp.Text) != "" {
+			current = resp
+		}
+		if err := e.markRoundRan(result, next); err != nil {
+			return current, toolErrs, err
+		}
+	}
+
+	// Any round after the build can write Go (the critic's uplift, coverage
+	// tests, a vet or removed-test repair), so format what the turn wrote
+	// again, last (2026-09-19: a coverage insert left a doubled blank line
+	// and the turn still ended checks_passed). gofmt starts no test process,
+	// so it never resets the run the test_run round asks for, and the closure
+	// remeasures on the workspace as it is now.
+	e.formatWrittenGo(result, " at turn end")
+
+	// Every round can edit; the closure measures what they left, all gates at
+	// one revision, with no model in the loop.
+	return current, toolErrs, e.closeChangeEvidence(ctx, result, before)
+}
+
+// formatWrittenGo gofmts the Go files the turn wrote; any other path is left
+// alone.
+func (e *Executor) formatWrittenGo(result *ExecutionResult, when string) {
+	workspace := e.workspaceForVerification()
+	if formatted := formatWrittenGoFiles(workspace, result.WrittenPaths); len(formatted) > 0 {
+		logging.Get(logging.CategorySession).Info("gofmt: formatted %d written file(s)%s: %s", len(formatted), when, strings.Join(formatted, ", "))
+		// gofmt rewrote these outside the tools: what the turn last wrote
+		// is the formatted bytes now, or the restore would read its own
+		// formatter's work as another agent's.
+		for _, path := range formatted {
+			recordLastWrittenPath(result, path, workspace)
+		}
+	}
+}
+
+// nextPostEditRound asserts what the turn has measured so far -- its verb,
+// its written paths, its write-tool count -- and returns the round the
+// kernel derives next (turn_next_round), or "" when none is owed. A turn that
+// wrote nothing owes nothing. With writes, a kernel that cannot be asked is
+// an error: the rounds are what make a write count.
+func (e *Executor) nextPostEditRound(result *ExecutionResult) (string, error) {
+	if result.WriteToolEffects == 0 {
+		return "", nil
+	}
+	if e.kernel == nil {
+		return "", errors.New("no kernel to derive the post-edit rounds this turn's writes owe")
+	}
+	turn := result.turnAtom()
+	e.assertTurnVerb(turn, result.Intent.Verb, result)
+	e.assertTurnWrites(turn, result)
+	if !result.writeToolsAsserted {
+		if !e.assertTurnFact(types.Fact{Predicate: "turn_write_tools", Args: []any{turn, int64(result.WriteToolEffects)}}) {
+			return "", errors.New("assert turn_write_tools")
+		}
+		result.writeToolsAsserted = true
+	}
+	// Survivors of a pin gate that passed: what the /survivors round answers.
+	// A failed pin gate already handed them to its own repair prompt.
+	if !result.survivorsAsserted && result.PinCheck.Verdict() == VerifyPassed && len(result.PinAdvisory) > 0 {
+		if !e.assertTurnFact(types.Fact{Predicate: "turn_pin_survivors", Args: []any{turn, int64(len(result.PinAdvisory))}}) {
+			return "", errors.New("assert turn_pin_survivors")
+		}
+		result.survivorsAsserted = true
+	}
+	rows, err := e.turnRows("turn_next_round", turn)
+	if err != nil {
+		return "", fmt.Errorf("query turn_next_round: %w", err)
+	}
+	switch len(rows) {
+	case 0:
+		return "", nil
+	case 1:
+		if len(rows[0].Args) < 2 {
+			return "", fmt.Errorf("malformed turn_next_round %v", rows[0].Args)
+		}
+		return types.ExtractString(rows[0].Args[1]), nil
+	default:
+		return "", fmt.Errorf("the kernel derived %d next post-edit rounds (%v); the policy must order them", len(rows), rows)
+	}
+}
+
+// markRoundRan records that round ran: turn_round_ran for the policy, and on
+// the result for the closure.
+func (e *Executor) markRoundRan(result *ExecutionResult, round string) error {
+	if !e.assertTurnFact(types.Fact{Predicate: "turn_round_ran", Args: []any{result.turnAtom(), types.MangleAtom(round)}}) {
+		return fmt.Errorf("record the post-edit round %s", round)
+	}
+	if result.roundsRan == nil {
+		result.roundsRan = map[string]bool{}
+	}
+	result.roundsRan[round] = true
+	return nil
+}
+
+// toolExplorationCutoff divides a deadline-bound turn into exploration and
+// finalization phases. Long turns reserve five minutes by default; short turns
+// reserve half of whatever remains so both phases retain a usable budget.
+func toolExplorationCutoff(ctx context.Context, configuredReserve time.Duration) (time.Time, time.Duration, bool) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return time.Time{}, 0, false
+	}
+
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return deadline, 0, true
+	}
+	if configuredReserve <= 0 {
+		configuredReserve = defaultSessionPolicy.FinalAnswerReserve
+	}
+	reserve := configuredReserve
+	if half := remaining / 2; reserve > half {
+		reserve = half
+	}
+	return deadline.Add(-reserve), reserve, true
+}
+
+// forceDeadlineFinalAnswer transitions from exploration to conclusion while
+// preserving provider tool-use/tool-result pairing. If a pending batch did not
+// run before the cutoff, it is paired with explicit cancellation results; the
+// model gets an honest gap instead of an invalid conversation or a duplicated
+// side effect.
+func (e *Executor) forceDeadlineFinalAnswer(
+	ctx context.Context,
+	trp types.ToolResultsProvider,
+	systemPrompt string,
+	history *[]types.Message,
+	pending *types.LLMToolResponse,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+	pendingResultsRecorded bool,
+	reserve time.Duration,
+) (*types.LLMToolResponse, []string, error) {
+	if history == nil {
+		empty := []types.Message{}
+		history = &empty
+	}
+	if !pendingResultsRecorded && pending != nil && len(pending.ToolCalls) > 0 {
+		results := make([]types.ToolResult, 0, len(pending.ToolCalls))
+		for _, call := range pending.ToolCalls {
+			results = append(results, types.ToolResult{
+				ToolUseID: call.ID,
+				Content:   "not executed: the turn entered its reserved final-answer window",
+				IsError:   true,
+			})
+		}
+		*history = append(*history, types.Message{Role: "user", ToolResults: results})
+	}
+
+	withoutPendingCalls := &types.LLMToolResponse{}
+	if pending != nil {
+		copy := *pending
+		// Both views: the tool_use blocks have to go with the flat calls, or
+		// the response still offers what this line is retracting.
+		copy.ClearToolCalls()
+		withoutPendingCalls = &copy
+	}
+
+	logging.Get(logging.CategorySession).Warn(
+		"Tool exploration reached its deadline boundary; reserving %s for a forced final answer after %d executed tool call(s)",
+		reserve.Round(time.Second), result.ToolCallsExecuted)
+	final, toolErrs, err := e.forceFinalAnswer(
+		ctx, trp, systemPrompt, history, withoutPendingCalls, cfg, result)
+	if err != nil {
+		return pending, toolErrs, fmt.Errorf(
+			"deadline-aware forced final answer failed with %s reserved: %w", reserve.Round(time.Second), err)
+	}
+	return final, toolErrs, nil
+}
+
+// Nudges appended as the final user turn when exploration closes — because
+// the working policy derived a working_finalize, or because the turn's
+// wall-clock reserve for a final answer was reached. Both are explicit that
+// partial evidence is acceptable: the alternative the model would otherwise
+// pick is another exploration call, which is exactly what it can no longer
+// make.
+//
+// Neither says "budget". They used to, and a count of remaining calls is not
+// a fact about the task — a model told what it has left optimizes for the
+// count instead of the work.
+const (
+	readOnlyExplorationClosedNudge = "Exploration is closed for this turn; no further tools are available. " +
+		"Write your final answer now using only the evidence you have already gathered. " +
+		"State explicitly what you could not verify rather than requesting more tools."
+
+	writeExplorationClosedNudge = "Exploration is closed for this turn. Only write tools remain: " +
+		"you cannot read, search, or list anything further. Produce the deliverable NOW with the write tool, " +
+		"using only the evidence you have already gathered. Note any uncertainty inside the artifact itself " +
+		"rather than deferring the write — describing what you would have written does not count as doing it."
+)
+
+// A turn whose exploration has closed still has to report what it did. Left
+// to the transcript alone the model has twice claimed "No changes were
+// applied" after writing a file, so the facts go in the prompt.
+func turnFactsForFinalAnswer(result *ExecutionResult) string {
+	if result == nil {
+		return ""
+	}
+	written := "none"
+	if len(result.WrittenPaths) > 0 {
+		written = strings.Join(result.WrittenPaths, ", ")
+	}
+	return fmt.Sprintf("Facts for this turn: files written: %s; write calls that changed or wrote files: %d; successful tool calls: %d. "+
+		"Your answer must agree with these facts: if files are listed, do not say nothing was written; if none are listed, do not claim an edit landed.",
+		written, result.WriteToolEffects, result.SuccessfulToolCalls)
+}
+
+// forceFinalAnswer executes any still-pending tool calls and then re-invokes the
+// model with exploration tools removed.
+//
+// For a read-oriented intent no tools survive, so the model must produce prose.
+// For a write-oriented intent the write tools survive, so it can still land the
+// artifact it was asked for; anything else makes a large task structurally
+// impossible to finish rather than merely truncated.
+func (e *Executor) forceFinalAnswer(
+	ctx context.Context,
+	trp types.ToolResultsProvider,
+	systemPrompt string,
+	history *[]types.Message,
+	pending *types.LLMToolResponse,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+) (*types.LLMToolResponse, []string, error) {
+	if trp == nil {
+		return pending, nil, errors.New("client does not support tool-result follow-up")
+	}
+	ctx = broker.WithPhase(ctx, broker.PhaseForcedFinal)
+	if pending == nil {
+		return nil, nil, errors.New("cannot force a final answer from a nil pending response")
+	}
+	if history == nil {
+		empty := []types.Message{}
+		history = &empty
+	}
+
+	var toolErrs []string
+	if len(pending.ToolCalls) > 0 {
+		toolResults, errs := e.executeToolBatch(ctx, pending.ToolCalls, cfg, result)
+		toolErrs = append(toolErrs, errs...)
+		*history = append(*history, types.Message{Role: "user", ToolResults: toolResults})
+	}
+
+	// Only intents whose terminal contract specifically requires a durable file
+	// mutation retain write tools. intentRequiresToolCall is broader: /commit,
+	// /test, and /research also require real tools, but offering write_file as
+	// their only final capability would not let them complete correctly.
+	needsWrite := e.writeOrientedIntent(result.Intent.Verb) && result.WriteToolEffects == 0
+
+	nudge := readOnlyExplorationClosedNudge
+	var finalTools []types.ToolDefinition
+	if needsWrite {
+		nudge = writeExplorationClosedNudge
+		finalTools = writeOnlyToolDefinitions(e.buildToolDefinitions(cfg))
+		logging.Get(logging.CategorySession).Warn(
+			"Retaining %d write tool(s) for the final call: %s requires a side effect and none has landed yet",
+			len(finalTools), result.Intent.Verb)
+	}
+	if facts := turnFactsForFinalAnswer(result); facts != "" {
+		nudge += " " + facts
+	}
+
+	*history = append(*history, types.Message{Role: "user", Text: nudge})
+
+	final, err := e.completeWithWorkingContext(ctx, trp, systemPrompt, *history, finalTools)
+	if err != nil {
+		return pending, toolErrs, fmt.Errorf("final completion failed: %w", err)
+	}
+	if final == nil {
+		return pending, toolErrs, errors.New("final completion returned nothing")
+	}
+	e.promotePiggybackToolRequests(final, result)
+
+	// Preserve original tool calls for history before clearing. The returned
+	// response must clear ToolCalls so callers do not replay them, but the
+	// conversation history must retain a balanced tool_use/tool_result pair
+	// for every call so that subsequent verification/repair calls are valid
+	// with strict providers (e.g. Meta: Missing tool response for tool_call_id).
+	//
+	// The snapshot is still needed below, to pair a result to every call in
+	// the order they were made. The history entry no longer needs it: the
+	// message AssistantMessageFrom builds holds its own copy of the calls, so
+	// final.ClearToolCalls() further down cannot reach into the transcript.
+	originalFinalCalls := append([]types.ToolCall(nil), final.ToolCalls...)
+	*history = append(*history, types.AssistantMessageFrom(final))
+
+	offered := make(map[string]struct{}, len(finalTools))
+	for _, definition := range finalTools {
+		offered[definition.Name] = struct{}{}
+	}
+	permittedFinalCalls := make([]types.ToolCall, 0, len(final.ToolCalls))
+	for _, call := range final.ToolCalls {
+		if _, ok := offered[call.Name]; !ok {
+			logging.Get(logging.CategorySession).Warn(
+				"Forced final answer requested unoffered tool %s; refusing execution", call.Name)
+			toolErrs = append(toolErrs, fmt.Sprintf(
+				"%s: not offered during forced finalization", call.Name))
+			continue
+		}
+		permittedFinalCalls = append(permittedFinalCalls, call)
+	}
+
+	hadPermittedFinalCalls := len(permittedFinalCalls) > 0
+	var permittedResults []types.ToolResult
+	if hadPermittedFinalCalls {
+		var errs []string
+		permittedResults, errs = e.executeToolBatch(ctx, permittedFinalCalls, cfg, result)
+		toolErrs = append(toolErrs, errs...)
+	}
+	// Build balanced ToolResults for every final call in original order:
+	// real executeToolBatch result for permitted writes, synthetic IsError
+	// for refused/unoffered calls.
+	if len(originalFinalCalls) > 0 {
+		permittedMap := make(map[string]types.ToolResult, len(permittedResults))
+		for _, r := range permittedResults {
+			permittedMap[r.ToolUseID] = r
+		}
+		finalResults := make([]types.ToolResult, 0, len(originalFinalCalls))
+		for _, call := range originalFinalCalls {
+			if r, ok := permittedMap[call.ID]; ok {
+				finalResults = append(finalResults, r)
+			} else {
+				// Refused/unoffered synthetic result.
+				finalResults = append(finalResults, types.ToolResult{
+					ToolUseID: call.ID,
+					Content:   fmt.Sprintf("%s: not offered during forced finalization", call.Name),
+					IsError:   true,
+				})
+			}
+		}
+		*history = append(*history, types.Message{Role: "user", ToolResults: finalResults})
+	}
+	// Offered calls have run; unoffered calls were refused. Neither is pending
+	// work for a caller to replay — from either view, so the tool_use blocks go
+	// with them. The history entry above was appended before this point and
+	// holds its own copy, which is what keeps the transcript's tool_use /
+	// tool_result pair balanced for strict providers.
+	final.ClearToolCalls()
+
+	if strings.TrimSpace(final.Text) == "" && !hadPermittedFinalCalls {
+		return pending, toolErrs, errors.New("final completion returned neither text nor a tool call")
+	}
+	return final, toolErrs, nil
+}
+
+// writeOnlyToolDefinitions keeps the write-mutation tools and drops the rest.
+//
+// The exploration tools have to go: a model given read_file back will use it,
+// and the budget was exhausted precisely because reading is the cheap, endless
+// option.
+func writeOnlyToolDefinitions(defs []types.ToolDefinition) []types.ToolDefinition {
+	writes := make([]types.ToolDefinition, 0, len(defs))
+	for _, def := range defs {
+		if isWriteMutationTool(def.Name) {
+			writes = append(writes, def)
+		}
+	}
+	return writes
+}
+
+// executeToolBatch runs one turn's worth of tool calls and returns the
+// tool_result blocks plus any error strings. Extracted from runToolLoop so the
+// forced-final-answer path produces byte-identical tool_result framing; a
+// hand-rolled second copy would drift on cancellation handling or ID pairing.
+//
+// It executes every call the model asked for. Until 2026-09-18 it refused
+// calls past a per-turn ceiling with "tool call budget exceeded for this
+// turn"; the ceiling is gone, because whether a turn is finished is derived
+// from what the trace shows, never counted.
+func (e *Executor) executeToolBatch(
+	ctx context.Context,
+	calls []types.ToolCall,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+) ([]types.ToolResult, []string) {
+	toolResults := make([]types.ToolResult, 0, len(calls))
+	var toolErrs []string
+	// The agent's transcript takes each result before the next call starts,
+	// so a run killed mid-batch has recorded the calls that finished.
+	transcript := sessionlog.TranscriptFrom(ctx)
+	names := make(map[string]string, len(calls))
+	for _, call := range calls {
+		names[call.ID] = call.Name
+	}
+	flushed := 0
+	flush := func() {
+		for ; flushed < len(toolResults); flushed++ {
+			r := toolResults[flushed]
+			transcript.ToolResult(ctx, names[r.ToolUseID], r.ToolUseID, r.Content, r.IsError)
+		}
+	}
+
+	for _, call := range calls {
+		flush()
+		if err := ctx.Err(); err != nil {
+			for _, skipped := range calls[len(toolResults):] {
+				toolResults = append(toolResults, types.ToolResult{
+					ToolUseID: skipped.ID,
+					Content:   "not executed: tool batch context ended: " + err.Error(),
+					IsError:   true,
+				})
+				toolErrs = append(toolErrs, fmt.Sprintf("%s: %v", skipped.Name, err))
+			}
+			break
+		}
+		if call.ArgsError != "" {
+			// The provider mapper could not decode this call's argument text, so
+			// there is nothing to execute. Hand the failure back to the model as a
+			// tool error so it can re-issue the call instead of the turn dying.
+			logging.Get(logging.CategorySession).Warn(
+				"tool call %s has undecodable arguments: %s", call.Name, call.ArgsError)
+			toolResults = append(toolResults, types.ToolResult{
+				ToolUseID: call.ID,
+				Content:   call.ArgsError + ". Re-issue the call with complete, valid JSON arguments.",
+				IsError:   true,
+			})
+			toolErrs = append(toolErrs, fmt.Sprintf("%s: %s", call.Name, call.ArgsError))
+			continue
+		}
+
+		out, execErr := e.executeAndRecordToolCall(ctx, call, cfg, result)
+
+		if execErr != nil {
+			logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, execErr)
+			toolErrs = append(toolErrs, fmt.Sprintf("%s: %v", call.Name, execErr))
+			content := execErr.Error()
+			if out != "" {
+				// The tool's captured output travels with the error. A failing
+				// run_build must reach the model as "exit status 1" plus the
+				// compiler's actual diagnostics, or the model can only re-run
+				// the build blind. Goes back whole: the working context pages
+				// large results rather than cutting them.
+				content = execErr.Error() + "\n\n" + out
+			}
+			toolResults = append(toolResults, types.ToolResult{
+				ToolUseID: call.ID,
+				Content:   content,
+				IsError:   true,
+			})
+			continue
+		}
+
+		logging.SessionDebug("Tool %s executed successfully: %d chars result", call.Name, len(out))
+		// The result goes back whole. Until 2026-09-10 it was cut at 16 KiB
+		// here, silently, before the model saw it; the working context now
+		// archives every result in full and hands the model a page plus a
+		// recall handle for anything over its inline threshold, so size is
+		// managed by selection, never by cutting.
+		toolResults = append(toolResults, types.ToolResult{
+			ToolUseID: call.ID,
+			Content:   out,
+			IsError:   false,
+		})
+	}
+
+	flush()
+	return toolResults, toolErrs
+}
+
+// executeAndRecordToolCall is the single accounting path shared by native and
+// Piggyback batches. The two transports frame results differently, but a call
+// attempt, successful effect, write count, and written path must never drift.
+func (e *Executor) executeAndRecordToolCall(
+	ctx context.Context,
+	call types.ToolCall,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+) (string, error) {
+	var guardErr error
+	var effectTargets []ResourceEffect
+	if isWriteMutationTool(call.Name) {
+		// A write the guard refuses never runs: no preimage, no write, no
+		// receipt.
+		workspace := e.workspaceForVerification()
+		if guardErr = guardWrite(ctx, call.Name, call.Input, workspace); guardErr == nil {
+			snapshotPreWriteContents(result, call.Input, workspace)
+			effectTargets = snapshotEffectTargets(call.Input, workspace)
+		}
+	}
+	toolCtx, testRuns := tools.WithTestRunLog(ctx)
+	toolCtx, checkRuns := tools.WithAcceptanceRunLog(toolCtx)
+	toolCtx, familyDecisions := tools.WithFamilyDecisionLog(toolCtx)
+	toolCtx, validationOf := withToolValidationLog(toolCtx)
+	toolCtx, consumedOf := tools.WithConsumptionLog(toolCtx)
+	started := time.Now()
+	// A test call that names no packages tests what this turn wrote, the same
+	// packages verifyTests runs after the turn, and not the whole module.
+	toolCtx = tools.WithTestScope(toolCtx, func() []string { return packagesForPaths(result.WrittenPaths) })
+	out, err := "", guardErr
+	if guardErr == nil {
+		out, err = e.executeToolCall(toolCtx, ToolCall{ID: call.ID, Name: call.Name, Args: call.Input}, cfg)
+	}
+	result.ToolCallsExecuted++
+	// A test execution is a test process the tool layer started and recorded
+	// (tools.TestRun), whether its tests passed or failed. A tool's name is
+	// not one: run_impacted_tests counted when it was a dry run or selected
+	// nothing (external audit N07, 2026-09-19).
+	if runs := testRuns(); len(runs) > 0 {
+		result.TestRunCalls++
+		last := runs[len(runs)-1]
+		result.TestRunSinceLastWrite = &last
+		// Every process, not only the last: the /test_run rule keeps the
+		// one whose seq is after the last write. A call that also writes
+		// records the run first, so the run's seq is the earlier one.
+		for _, run := range runs {
+			e.noteTestRun(result, run)
+		}
+	}
+	// A run_check is an acceptance command the tool layer started and
+	// recorded (tools.AcceptanceRun). Every one is a turn_check_run on the
+	// same clock. A run before a write stays in the receipt log; its seq is
+	// not after the last write, and the /check rule drops it.
+	if runs := checkRuns(); len(runs) > 0 {
+		for _, run := range runs {
+			e.noteCheckRun(result, run.ExitCode)
+		}
+	}
+	// A family_no_change decision settles that member's review
+	// (code_families.mg) for this turn only.
+	for _, d := range familyDecisions() {
+		e.noteFamilyDecision(result, d)
+	}
+	// The write's effect is accounted on every terminal path, before any
+	// post-action error is returned: a failed postcondition is not proof of
+	// no mutation (tool_effects.go).
+	out = e.settleToolEffects(ctx, call, effectTargets, out, err, validationOf, result)
+	// What the call cost and returned, for the tool ledger. The content is
+	// what the model is handed back: the output, with the error text on a
+	// failure.
+	content := out
+	if err != nil {
+		content = err.Error() + "\n\n" + out
+	}
+	consumed, reported := consumedOf()
+	e.noteToolCall(call, content, err, consumed, reported, started,
+		len(testRuns()) > 0 || len(checkRuns()) > 0, result)
+	memoryErr := e.recordWorkingResult(ctx, call, out, err)
+	if err != nil {
+		return out, errors.Join(err, memoryErr)
+	}
+	result.SuccessfulToolCalls++
+	return out, memoryErr
+}
+
+func recordWrittenPaths(result *ExecutionResult, args map[string]any, workspace string) error {
+	paths, err := projectdoc.TargetPaths(args)
+	if err != nil {
+		return err
+	}
+	for _, path := range paths {
+		normalized := canonicalizeWrittenPath(path, workspace)
+		if normalized != "" && !slices.Contains(result.WrittenPaths, normalized) {
+			result.WrittenPaths = append(result.WrittenPaths, normalized)
+		}
+	}
+	return nil
+}
+
+// snapshotPreWriteContents records what each target file held before the
+// turn's first write to it, so post-edit signals can be narrowed to the lines
+// the turn changed. It never fails a call: a missing snapshot only widens a
+// later signal.
+func snapshotPreWriteContents(result *ExecutionResult, args map[string]any, workspace string) {
+	paths, err := projectdoc.TargetPaths(args)
+	if err != nil {
+		return
+	}
+	for _, path := range paths {
+		normalized := canonicalizeWrittenPath(path, workspace)
+		if normalized == "" {
+			continue
+		}
+		if result.PreWriteContents == nil {
+			result.PreWriteContents = map[string]PreImage{}
+		}
+		if _, seen := result.PreWriteContents[normalized]; seen {
+			continue
+		}
+		target := normalized
+		if workspace != "" {
+			target = filepath.Join(workspace, filepath.FromSlash(normalized))
+		}
+		result.PreWriteContents[normalized] = readPreImage(target)
+	}
+}
+
+// recordLastWrittenContents records what the turn itself last wrote to each
+// target: the hash of the bytes on disk now, or a removal when the write
+// left no file. The restore compares against this before putting anything
+// back, so another agent's later edit is left as found instead of destroyed
+// (AG7 finding 7). It runs after a successful write mutation only, never
+// fails a call, and never invents a preimage: a path with no recorded entry
+// is skipped, not created.
+func recordLastWrittenContents(result *ExecutionResult, args map[string]any, workspace string) {
+	paths, err := projectdoc.TargetPaths(args)
+	if err != nil {
+		return
+	}
+	for _, path := range paths {
+		normalized := canonicalizeWrittenPath(path, workspace)
+		if normalized == "" {
+			continue
+		}
+		recordLastWrittenPath(result, normalized, workspace)
+	}
+}
+
+// recordLastWrittenPath re-reads one written path as the turn left it. The
+// entry must already exist (the pre-write snapshot made it): a path with no
+// recorded entry is skipped, not created, so the record never invents a
+// preimage.
+func recordLastWrittenPath(result *ExecutionResult, normalized, workspace string) {
+	before, recorded := result.PreWriteContents[normalized]
+	if !recorded {
+		return
+	}
+	data, readErr := os.ReadFile(turnFilePath(workspace, normalized))
+	switch {
+	case readErr == nil:
+		sum := sha256.Sum256(data)
+		before.LastWriteHash = hex.EncodeToString(sum[:])
+		before.LastWriteAbsent = false
+	case os.IsNotExist(readErr):
+		before.LastWriteHash = ""
+		before.LastWriteAbsent = true
+	default:
+		// The write succeeded but its result cannot be read: drop the
+		// record rather than keep a stale hash that would read as a
+		// conflict later. Unrecorded restores as before.
+		before.LastWriteHash = ""
+		before.LastWriteAbsent = false
+	}
+	result.PreWriteContents[normalized] = before
+}
+
+// intentRequiresToolCall asks the Mangle kernel whether the supplied intent
+// verb requires a real tool_call to make progress. The decision logic lives
+// entirely in the policy corpus (delegation.mg → intent_requires_tool_call/1
+// derived from action_mapping/2 + side_effecting_action/1) — this Go helper
+// just queries it. When the kernel is unavailable or the query fails, we
+// conservatively return false so we never block a final answer on missing
+// policy.
+func (e *Executor) intentRequiresToolCall(verb string) bool {
+	verb = strings.TrimSpace(verb)
+	validVerb := validMangleVerb(verb)
+	if e.kernel == nil || !validVerb {
+		// /consult/<specialist> is a routing verb, not a Mangle atom. It is
+		// rejected by validMangleVerb on purpose (second slash) so it is never
+		// interpolated into a query. That is not malformed user state.
+		if verb != "" && !validVerb && !isConsultIntentVerb(verb) {
+			logging.Get(logging.CategorySession).Warn(
+				"intentRequiresToolCall rejected malformed verb %q", verb)
+		}
+		return false
+	}
+	// Mangle atom constants are lowercase and slash-prefixed. The intent verb
+	// arrives here as "/create", "/document", etc. — exactly the form the
+	// policy expects.
+	q := fmt.Sprintf("intent_requires_tool_call(%s)", verb)
+	facts, err := e.kernel.Query(q)
+	if err != nil {
+		logging.Get(logging.CategorySession).Debug(
+			"intentRequiresToolCall: kernel query %q failed: %v (defaulting to false)", q, err,
+		)
+		return false
+	}
+	return len(facts) > 0
+}
+
+// validMangleVerb admits only the atom shape emitted by perception and used by
+// the policy corpus. Query helpers interpolate this value into Mangle source,
+// so accepting whitespace, delimiters, or a second slash would turn malformed
+// user state into a query-language fragment.
+func isConsultIntentVerb(verb string) bool {
+	after, ok := strings.CutPrefix(verb, "/consult/")
+	if !ok || after == "" {
+		return false
+	}
+	for i := 0; i < len(after); i++ {
+		c := after[i]
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func validMangleVerb(verb string) bool {
+	if len(verb) < 2 || verb[0] != '/' {
+		return false
+	}
+	for i := 1; i < len(verb); i++ {
+		c := verb[i]
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+var writeOrientedIntentFallback = map[string]struct{}{
+	"/create": {}, "/fix": {}, "/refactor": {}, "/write": {},
+	"/delete": {}, "/implement": {}, "/scaffold": {}, "/optimize": {},
+	"/document": {},
+}
+
+// isWriteOrientedIntent is the degraded-kernel fallback for the authoritative
+// write_oriented_intent/1 policy predicate. Keep it query-free so a write turn
+// still retains write tools while the kernel is unavailable; a real-kernel test
+// pins this set byte-for-byte to the policy facts.
+func isWriteOrientedIntent(verb string) bool {
+	_, ok := writeOrientedIntentFallback[strings.TrimSpace(verb)]
+	return ok
+}
+
+func (e *Executor) writeOrientedIntent(verb string) bool {
+	verb = strings.TrimSpace(verb)
+	if e.kernel != nil && validMangleVerb(verb) {
+		facts, err := e.kernel.Query(fmt.Sprintf("write_oriented_intent(%s)", verb))
+		if err == nil && len(facts) > 0 {
+			return true
+		}
+		if err != nil {
+			logging.Get(logging.CategorySession).Warn(
+				"write_oriented_intent query failed for %s; using pinned fallback: %v", verb, err)
+		}
+	}
+	// The pinned set is a conservative minimum, not an override of positive
+	// kernel policy. It preserves fail-safe hollow-success behavior if a test,
+	// partially initialized kernel, or older policy snapshot returns no facts.
+	return isWriteOrientedIntent(verb)
+}
+
+// isWriteMutationTool reports tools that land durable file/workspace changes.
+//
+// This list drives two things at once, so a missing entry fails in two ways:
+// checkHollowSuccess reports a successful edit as a failure, and
+// projectForbidsWrite lets a nerd.md-protected path be written by a tool it
+// does not recognize. The second is a hole in a safety gate, not a cosmetic bug.
+//
+// It must therefore cover every durable-write ActionType in
+// internal/core/virtual_store_types.go. It previously did not: edit_lines,
+// insert_lines and delete_lines (virtual_store_types.go:57-59, exposed as tools
+// at prompt/config_factory.go:195-197 and routed RequiresSafe at
+// shards/system/router.go:967-969) were all absent, while five names that are
+// not registered anywhere — apply_patch, str_replace, create_file,
+// replace_in_file, multi_edit — were present. The list had been written from
+// generic LLM tool vocabulary rather than from this codebase's registry.
+// Observed live: codeNERD landed a correct one-line insert via insert_lines and
+// the run failed with "write-oriented intent /fix completed without
+// write_file/edit_file (tool_calls=16)".
+//
+// TestIsWriteMutationTool_CoversEveryDurableWriteAction pins it to the registry.
+func isWriteMutationTool(name string) bool {
+	// Single source of truth: projectdoc.IsWriteMutationTool. Kept as a thin
+	// wrapper so this package's tests and call sites are unchanged, and so the
+	// session gate and the registry-level guard cannot drift apart.
+	return projectdoc.IsWriteMutationTool(name)
+}
+
+// SetProjectDoc attaches the workspace's parsed nerd.md.
+//
+// Only the prose rendering is held here. Write protection is enforced by
+// querying the kernel (see projectForbidsWrite), so a subagent that never
+// receives this pointer is still governed by the same rules — a safety gate
+// that depends on a field being wired at every construction site is a gate that
+// is off wherever someone forgot.
+func (e *Executor) SetProjectDoc(doc *projectdoc.Document) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.projectDoc = doc
+}
+
+// withProjectInstructions appends nerd.md's rendered instructions to a compiled
+// system prompt.
+//
+// The frontmatter is restated in prose even though it is already in the kernel:
+// the model cannot read the fact store, and learning that a path is protected
+// by being denied mid-edit costs a whole turn.
+func (e *Executor) withProjectInstructions(systemPrompt string) string {
+	e.mu.RLock()
+	doc := e.projectDoc
+	e.mu.RUnlock()
+
+	section := doc.PromptSection()
+	if section == "" {
+		return systemPrompt
+	}
+	logging.Session("Injected %s instructions into system prompt (%d chars)", doc.Path, len(section))
+	return systemPrompt + "\n\n" + section
+}
+
+// FileContextProvider is the narrow interface for per-file holographic context.
+//
+// Declared in package session so nothing needs to import internal/world and no
+// import cycle is possible. Mirrors HolographicProvider.PromptSection and its
+// budgeted sibling. The decider func is spelled literally because a named
+// world type on one side of this seam does not satisfy the other side; the
+// working set's DecideRenderCount is passed as the value. The dimension is
+// an argument, so this interface does not grow a method per block.
+type FileContextProvider interface {
+	PromptSection(ctx context.Context, filePath string) string
+	PromptSectionWithBudget(ctx context.Context, filePath string, budgetBytes int, decide func(ctx context.Context, dimension, target string, total, avgBytes, budgetBytes int) (int, error)) string
+}
+
+// SetFileContextProvider attaches the holographic per-file context provider.
+func (e *Executor) SetFileContextProvider(p FileContextProvider) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.fileContext = p
+}
+
+// withFileContext appends holographic per-file context to a compiled system
+// prompt. Mirrors withProjectInstructions: returns systemPrompt unchanged when
+// the provider is nil, the target is empty, or the rendered section is empty.
+// withCompiledFileContext adds the target's file context to a compiled system
+// prompt only when no working loop will render it. A working loop appends the
+// focused file's view to its context ledger itself (prepareWorkingRequest),
+// again whenever the focus or the file changes so its line ranges follow the
+// edits; adding it at compile time as well sent the same section twice on
+// every call. Observed 2026-09-18 on planned steps and the no-tool retry,
+// which appended it unconditionally while the turn-level compile already
+// skipped it: with the target's outline in the section, mean input per call
+// rose from 37.5k to 44.7k tokens.
+func (e *Executor) withCompiledFileContext(ctx context.Context, systemPrompt, target string) string {
+	if e.workingLoopAvailable() {
+		return systemPrompt
+	}
+	return e.withFileContext(ctx, systemPrompt, target)
+}
+
+func (e *Executor) withFileContext(ctx context.Context, systemPrompt, target string) string {
+	if strings.TrimSpace(target) == "" {
+		return systemPrompt
+	}
+	e.mu.RLock()
+	p := e.fileContext
+	e.mu.RUnlock()
+	if p == nil {
+		return systemPrompt
+	}
+	// Inside a working loop every counted block is sized by policy: the budget
+	// is this turn's token window in bytes (the same window prepareWorkingRequest
+	// measures the request against), and the loop's own engine derives each
+	// count from the measured pool. Outside a loop there is no engine, so the
+	// section renders whole rather than guessing a number.
+	section := ""
+	if loop := activeWorkingLoop(ctx); loop != nil && loop.set != nil {
+		section = p.PromptSectionWithBudget(ctx, target, e.holographicBudgetBytes(loop), loop.set.DecideRenderCount)
+	} else {
+		section = p.PromptSection(ctx, target)
+	}
+	if strings.TrimSpace(section) == "" {
+		return systemPrompt
+	}
+	logging.Session("Injected holographic context for %s into system prompt (%d chars)", target, len(section))
+	return systemPrompt + "\n\n" + section
+}
+
+// holographicBudgetBytes is the render budget the holographic policy divides:
+// the loop's token window in bytes. It is the window prepareWorkingRequest
+// measures the loop's requests against (inputBudgetFor, capped by the serving
+// slot's max_input_tokens) in the unit the renderer measures its lines in,
+// converted by the one BytesPerToken the ledger ceiling derives from, not a
+// second literal.
+func (e *Executor) holographicBudgetBytes(loop *workingLoop) int {
+	return e.inputBudgetFor(loop.inputCap).tokens * nerdconfig.BytesPerToken
+}
+
+// projectDocPathArgs are the argument names a write-mutation tool may use to
+// name its target. Tools disagree ("path", "file_path", "file", "filename"), so
+// the gate checks all of them rather than trusting one convention — a
+// write-protection rule that only fires for tools using the arg name we guessed
+// is a gate with holes in it.
+var projectDocPathArgs = projectdoc.PathArgs
+
+func canonicalizeWrittenPath(target, workspace string) string {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return ""
+	}
+	clean := filepath.Clean(target)
+	if !filepath.IsAbs(clean) {
+		return filepath.ToSlash(clean)
+	}
+	if workspace != "" {
+		ws := strings.TrimSpace(workspace)
+		if ws != "" {
+			if absWS, err := filepath.Abs(ws); err == nil {
+				absWS = filepath.Clean(absWS)
+				if rel, err := filepath.Rel(absWS, clean); err == nil {
+					if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+						return filepath.ToSlash(rel)
+					}
+				}
+			}
+			// The same file can be spelled through an alias of the workspace:
+			// a symlink, or on Windows an 8.3 short name (C:\Users\RUNNER~1\...).
+			// The verification workspace is the resolved root
+			// (tools.CanonicalWorkspaceRoot), so an alias-spelled target never
+			// shares a lexical prefix with it; left absolute, it became the
+			// package pattern "./C:/Users/..." and every build and test gate of
+			// the turn failed to set up. Resolve it the way the tools'
+			// containment check does and relativise against the resolved root.
+			if rel, ok := resolvedWorkspaceRel(ws, clean); ok {
+				return rel
+			}
+		}
+	}
+	return filepath.ToSlash(clean)
+}
+
+// resolvedWorkspaceRel returns target's workspace-relative, slash-separated
+// path after resolving aliases (symlinks, short names) in both the root and the
+// target, or false when it is not inside the workspace. A target that does not
+// exist yet is resolved through its nearest existing ancestor.
+func resolvedWorkspaceRel(workspace, target string) (string, bool) {
+	root, err := tools.CanonicalWorkspaceRoot(workspace)
+	if err != nil || root == "" {
+		return "", false
+	}
+	resolved, err := tools.ResolveWorkspacePath(context.Background(), root, target)
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
+}
+
+func projectDocTargetLabel(args map[string]any) string {
+	paths, err := projectdoc.TargetPaths(args)
+	if err != nil || len(paths) == 0 {
+		return "unknown"
+	}
+	return strings.Join(paths, ", ")
+}
+
+// pendingEditContentKeys are argument names that may carry the file content
+// for a write-mutation tool. Different tools use different conventions
+// ("content", "new_content", "text", etc.), so we check all known variants.
+var pendingEditContentKeys = []string{"content", "new_content", "newContent", "text", "body", "data", "patch", "edits"}
+
+// pendingEditContent extracts the content payload from a tool call's arguments.
+// Returns "" when no content key is present — e.g. delete_file/delete_lines
+// which intentionally carry no body.
+func pendingEditContent(args map[string]any) string {
+	for _, key := range pendingEditContentKeys {
+		if raw, ok := args[key]; ok {
+			if s, ok := raw.(string); ok {
+				return boundedPendingEditContent(s)
+			}
+			// Non-string payloads (e.g. JSON objects) — stringify for the fact.
+			if raw != nil {
+				if b, err := json.Marshal(raw); err == nil {
+					return boundedPendingEditContent(string(b))
+				}
+				return boundedPendingEditContent(fmt.Sprintf("%v", raw))
+			}
+		}
+	}
+	return ""
+}
+
+const maxPendingEditContentBytes = 16 * 1024
+
+// boundedPendingEditContent prevents a single file body from being copied into
+// the kernel's fact store. Current policy binds only FilePath and treats Content
+// as anonymous; retaining a digest preserves identity for diagnostics without
+// retaining an unbounded source blob.
+func boundedPendingEditContent(content string) string {
+	if len(content) <= maxPendingEditContentBytes {
+		return content
+	}
+	digest := sha256.Sum256([]byte(content))
+	return fmt.Sprintf("sha256:%x bytes:%d", digest, len(content))
+}
+
+// assertPendingEdits asserts pending_edit(FilePath, Content) for every target
+// in a write-mutation tool call. Paths and content are derived via the
+// existing path/content extraction helpers, and the classification reuses
+// isWriteMutationTool so the predicate stays in sync with the write-mutation
+// registry (see isWriteMutationTool godoc). The assertion is best-effort: kernel
+// absence or assertion errors are logged and do not block the tool execution.
+// It returns every asserted fact so the caller can defer matching retractions.
+// A pending_edit that is asserted and
+// never retracted is worse than one never asserted: the fact means "an edit is
+// in flight", so a stale one makes the 26 rules that read it reason about work
+// that finished long ago, and the facts accumulate without bound against the
+// kernel's fact ceiling.
+func (e *Executor) assertPendingEdits(call ToolCall) []types.Fact {
+	if !isWriteMutationTool(call.Name) {
+		return nil
+	}
+	if e.kernel == nil {
+		return nil
+	}
+	paths, err := projectdoc.TargetPaths(call.Args)
+	if err != nil || len(paths) == 0 {
+		logging.Get(logging.CategorySession).Warn(
+			"Refusing to assert pending_edit for %s without valid target paths: %v", call.Name, err)
+		return nil
+	}
+	content := pendingEditContent(call.Args)
+	facts := make([]types.Fact, 0, len(paths))
+	for _, filePath := range paths {
+		// Validate the path shape before it becomes a fact.
+		//
+		// core.ValidatePendingEditFilePath rejects absolute paths, ".."
+		// traversal and backslash separators — exactly the shapes
+		// VirtualStore.resolvePath and the policy rules that read pending_edit
+		// assume they will never see. It had no production caller; this path
+		// was writing the fact without any shape check at all, so a tool
+		// argument like "/etc/passwd" or "a/../../b" became a fact the rules
+		// then reasoned over.
+		//
+		// The fact itself is still built here rather than through
+		// core.NewPendingEditFact: that helper previews Content at 200
+		// characters, while boundedPendingEditContent above keeps up to 16 KiB
+		// and falls back to a sha256 digest plus byte count. The digest
+		// preserves identity for a large file, which a truncated prefix does
+		// not — two files sharing their first 200 characters would look
+		// identical in the EDB.
+		if err := core.ValidatePendingEditFilePath(filePath); err != nil {
+			logging.Get(logging.CategorySession).Warn(
+				"Refusing to assert pending_edit for %s: %v", call.Name, err)
+			continue
+		}
+		fact := types.Fact{Predicate: core.PendingEditFactName, Args: []any{filePath, content}}
+		if err := e.kernel.Assert(fact); err != nil {
+			logging.Get(logging.CategorySession).Warn("Failed to assert pending_edit for %s (%s): %v", call.Name, filePath, err)
+			continue
+		}
+		facts = append(facts, fact)
+	}
+	return facts
+}
+
+// retractPendingEdit removes the in-flight marker asserted by
+// assertPendingEdit. Callers defer it so it runs on every exit path — success,
+// tool error, gate refusal, timeout, or panic. Any path that can leave the fact
+// behind reintroduces the stale-fact problem the retraction exists to prevent.
+func (e *Executor) retractPendingEdit(fact types.Fact) {
+	if e.kernel == nil {
+		return
+	}
+	if err := e.kernel.RetractFact(fact); err != nil {
+		logging.Get(logging.CategorySession).Warn("Failed to retract pending_edit for %v: %v", fact.Args, err)
+	}
+}
+
+// projectForbidsWrite asks the kernel whether nerd.md protects this call's
+// target path.
+//
+// The kernel is the authority, not a cached Go struct: nerd.md facts are
+// asserted at boot like any other EDB, so policy, /query, and this gate all see
+// exactly the same rules. A parallel in-memory copy would be one refactor away
+// from disagreeing with what the kernel actually holds.
+//
+// Only write-mutation tools are gated. Reading a protected file is fine and
+// often necessary — the point is to stop the agent editing it.
+func (e *Executor) projectForbidsWrite(call ToolCall) (string, bool) {
+	if !isWriteMutationTool(call.Name) {
+		return "", false
+	}
+	paths, err := projectdoc.TargetPaths(call.Args)
+	if err != nil {
+		reason := fmt.Sprintf("invalid write targets: %v", err)
+		logging.Get(logging.CategorySession).Warn(
+			"nerd.md BLOCKED %s due to invalid targets: %v", call.Name, err)
+		logging.Audit().SafetyCheck("nerd.md_write_guard", false, reason)
+		return reason, true
+	}
+	if len(paths) == 0 {
+		return "write target is missing or uses an unrecognized path argument", true
+	}
+	if e.kernel == nil {
+		return "nerd.md write protection authority is unavailable", true
+	}
+
+	// Matching lives in projectdoc.ForbiddenByKernel so this gate and the
+	// VirtualStore's cannot drift apart. They used to be one gate and one hole:
+	// shards route writes through the VirtualStore, which checked nothing.
+	// Evaluate every target so one protected nested path blocks the entire call.
+	// Fail closed on parser error (above) or kernel evaluation error.
+	for _, target := range paths {
+		reason, forbidden, kerr := projectdoc.ForbiddenByKernel(e.kernel, target)
+		if kerr != nil {
+			// Fail closed. nerd.md's machine-readable protection is an executive
+			// constraint, and a kernel failure means the executor cannot prove that
+			// this write is allowed. Reads remain available for diagnosis.
+			reason := fmt.Sprintf("write protection could not be evaluated: %v", kerr)
+			logging.Get(logging.CategorySession).Warn(
+				"nerd.md BLOCKED %s because protection could not be evaluated: %v", target, kerr)
+			logging.Audit().SafetyCheck("nerd.md_write_guard", false, reason)
+			return reason, true
+		}
+		if forbidden {
+			return reason, true
+		}
+	}
+	return "", false
+}
+
+// writesPlaceholderTestFile is the mechanical guard against hollow success.
+//
+// Prose is a request the model complies with most of the time, while a fact
+// checked before the tool runs is one no amount of model conviction gets past.
+// A placeholder test is the purest form of hollow success — it makes
+// `go test` green while testing nothing.
+//
+// It mirrors projectForbidsWrite: consulted at the single chokepoint in
+// executeToolCall, after the nerd.md guard and before the Dreamer preflight,
+// so both guards live at one site rather than at call sites.
+func (e *Executor) writesPlaceholderTestFile(call ToolCall) (string, bool) {
+	if !isWriteMutationTool(call.Name) {
+		return "", false
+	}
+	paths, err := projectdoc.TargetPaths(call.Args)
+	if err != nil {
+		return "", false
+	}
+	var testPaths []string
+	for _, p := range paths {
+		if strings.HasSuffix(filepath.Base(p), "_test.go") {
+			testPaths = append(testPaths, p)
+		}
+	}
+	if len(testPaths) == 0 {
+		return "", false
+	}
+	content, present := placeholderTestContent(call.Args)
+	if !present {
+		return "", false
+	}
+	funcs := findPlaceholderTestFuncs(content)
+	if len(funcs) == 0 {
+		return "", false
+	}
+	allVacuous := true
+	var firstVacuous string
+	for _, fn := range funcs {
+		if !isVacuousTestBody(fn.body) {
+			allVacuous = false
+			break
+		}
+		if firstVacuous == "" {
+			firstVacuous = fn.name
+		}
+	}
+	if !allVacuous {
+		return "", false
+	}
+	reason := fmt.Sprintf("placeholder test %s in %s is vacuous (empty or only t.Skip/t.SkipNow/t.Skipf); write a test that fails before the fix and passes after", firstVacuous, testPaths[0])
+	return reason, true
+}
+
+// modularityGuard enforces the modularity standard at the single write choke point.
+//
+// Semantics: block only violations the write INTRODUCES:
+//   - If the target file does not exist yet, any violation in the proposed content blocks.
+//   - If the target already exists, block only violations present in the proposed content
+//     that were not already present for the same function+rule in the current file.
+//
+// Compare is by function name and rule, not counting, so shrinking one violation
+// while adding another still blocks.
+//
+// Applies only to Go source the tool is writing in full: skip when not .go,
+// skip when content does not parse, do not skip _test.go. When no kernel is
+// available the guard allows the write and logs at Debug; it is a standard,
+// not a safety interlock.
+func (e *Executor) modularityGuard(call ToolCall) (string, bool) {
+	if !isWriteMutationTool(call.Name) {
+		return "", false
+	}
+	paths, err := projectdoc.TargetPaths(call.Args)
+	if err != nil || len(paths) == 0 {
+		return "", false
+	}
+	var goPaths []string
+	for _, p := range paths {
+		if strings.HasSuffix(strings.ToLower(p), ".go") {
+			goPaths = append(goPaths, p)
+		}
+	}
+	if len(goPaths) == 0 {
+		return "", false
+	}
+	if e.kernel == nil {
+		logging.Get(logging.CategorySession).Debug("modularity guard skipped: kernel is nil for %s on %s", call.Name, strings.Join(goPaths, ", "))
+		return "", false
+	}
+	proposedContent := rawModularityContent(call.Args)
+	if strings.TrimSpace(proposedContent) == "" {
+		return "", false
+	}
+	for _, goPath := range goPaths {
+		proposedViolations, err := evaluateModularity(e.kernel, goPath, proposedContent)
+		if err != nil {
+			logging.Get(logging.CategorySession).Warn("modularity guard evaluation failed for proposed %s: %v", goPath, err)
+			continue
+		}
+		if len(proposedViolations) == 0 {
+			continue
+		}
+		// Resolve on-disk path for existing-file comparison.
+		fsPath := e.resolveModularityFilePath(goPath)
+		existingBytes, readErr := os.ReadFile(fsPath)
+		if readErr != nil && fsPath != goPath {
+			if altBytes, altErr := os.ReadFile(goPath); altErr == nil {
+				existingBytes = altBytes
+				readErr = nil
+			}
+		}
+		if readErr != nil {
+			// New file: any violation blocks.
+			reason := proposedViolations[0]
+			return reason, true
+		}
+		existingContent := string(existingBytes)
+		existingViolations, err := evaluateModularity(e.kernel, goPath, existingContent)
+		if err != nil {
+			logging.Get(logging.CategorySession).Warn("modularity guard evaluation failed for existing %s: %v", goPath, err)
+			// Fail open on existing evaluation failure? Treat as no existing violations
+			// so proposed violations block — conservative for correctness.
+			reason := proposedViolations[0]
+			return reason, true
+		}
+		existingSet := make(map[string]struct{}, len(existingViolations))
+		for _, v := range existingViolations {
+			existingSet[modularityViolationKey(v)] = struct{}{}
+		}
+		for _, v := range proposedViolations {
+			key := modularityViolationKey(v)
+			if _, ok := existingSet[key]; !ok {
+				return v, true
+			}
+		}
+		// All proposed violations were already present for this file — allow.
+	}
+	return "", false
+}
+
+// rawModularityContent extracts the full file content payload without the
+// 16KB truncation applied for kernel facts. A truncated hash does not parse as
+// Go and would make the guard silently allow large violating files.
+func rawModularityContent(args map[string]any) string {
+	for _, key := range pendingEditContentKeys {
+		if raw, ok := args[key]; ok {
+			if s, ok := raw.(string); ok {
+				return s
+			}
+			if raw != nil {
+				if b, err := json.Marshal(raw); err == nil {
+					return string(b)
+				}
+				return fmt.Sprintf("%v", raw)
+			}
+		}
+	}
+	return ""
+}
+
+// modularityViolationKey extracts the function+rule identity from the
+// evaluateModularity violation string "Func: predicate in file".
+func modularityViolationKey(v string) string {
+	colon := strings.Index(v, ":")
+	if colon == -1 {
+		return strings.TrimSpace(v)
+	}
+	funcPart := strings.TrimSpace(v[:colon])
+	rest := strings.TrimSpace(v[colon+1:])
+	if idx := strings.Index(rest, " in "); idx != -1 {
+		pred := strings.TrimSpace(rest[:idx])
+		return funcPart + ":" + pred
+	}
+	return funcPart + ":" + strings.TrimSpace(rest)
+}
+
+// resolveModularityFilePath maps a tool target path to a filesystem path for
+// the pre-existing-file comparison. Absolute targets are used directly;
+// relative targets are joined with the verification workspace when available.
+func (e *Executor) resolveModularityFilePath(p string) string {
+	if filepath.IsAbs(p) {
+		return p
+	}
+	if ws := e.workspaceForVerification(); ws != "" {
+		return filepath.Join(ws, p)
+	}
+	return p
+}
+
+// placeholderTestContent extracts the content payload from a tool call's
+// arguments using the same key set as pendingEditContent. It reports whether
+// a content argument was present at all, so a pure delete/rename with no body
+// is not misclassified as an empty placeholder.
+func placeholderTestContent(args map[string]any) (string, bool) {
+	for _, key := range pendingEditContentKeys {
+		if raw, ok := args[key]; ok {
+			if s, ok := raw.(string); ok {
+				return s, true
+			}
+			if raw != nil {
+				if b, err := json.Marshal(raw); err == nil {
+					return string(b), true
+				}
+				return fmt.Sprintf("%v", raw), true
+			}
+			return "", true
+		}
+	}
+	return "", false
+}
+
+type placeholderTestFunc struct {
+	name string
+	body string
+}
+
+var placeholderTestFuncRe = regexp.MustCompile(`func\s+(Test\w*)\s*\(\s*t\s+\*testing\.T\s*\)`)
+
+func findPlaceholderTestFuncs(content string) []placeholderTestFunc {
+	matches := placeholderTestFuncRe.FindAllStringSubmatchIndex(content, -1)
+	var out []placeholderTestFunc
+	for _, m := range matches {
+		if len(m) < 4 {
+			continue
+		}
+		nameStart, nameEnd := m[2], m[3]
+		if nameStart < 0 || nameEnd < 0 || nameStart >= len(content) || nameEnd > len(content) {
+			continue
+		}
+		name := content[nameStart:nameEnd]
+		matchEnd := m[1]
+		if matchEnd < 0 || matchEnd >= len(content) {
+			continue
+		}
+		braceIdx := strings.Index(content[matchEnd:], "{")
+		if braceIdx == -1 {
+			continue
+		}
+		openIdx := matchEnd + braceIdx
+		closeIdx := findPlaceholderMatchingBrace(content, openIdx)
+		if closeIdx == -1 {
+			continue
+		}
+		body := ""
+		if openIdx+1 <= closeIdx {
+			body = content[openIdx+1 : closeIdx]
+		}
+		out = append(out, placeholderTestFunc{name: name, body: body})
+	}
+	return out
+}
+
+func findPlaceholderMatchingBrace(s string, openIdx int) int {
+	if openIdx < 0 || openIdx >= len(s) || s[openIdx] != '{' {
+		return -1
+	}
+	depth := 1
+	i := openIdx + 1
+	inSingle := false
+	inDouble := false
+	inRaw := false
+	inLineComment := false
+	inBlockComment := false
+	for i < len(s) {
+		if inLineComment {
+			if s[i] == '\n' {
+				inLineComment = false
+			}
+			i++
+			continue
+		}
+		if inBlockComment {
+			if i+1 < len(s) && s[i] == '*' && s[i+1] == '/' {
+				inBlockComment = false
+				i += 2
+				continue
+			}
+			i++
+			continue
+		}
+		if inSingle {
+			if s[i] == '\\' && i+1 < len(s) {
+				i += 2
+				continue
+			}
+			if s[i] == '\'' {
+				inSingle = false
+			}
+			i++
+			continue
+		}
+		if inDouble {
+			if s[i] == '\\' && i+1 < len(s) {
+				i += 2
+				continue
+			}
+			if s[i] == '"' {
+				inDouble = false
+			}
+			i++
+			continue
+		}
+		if inRaw {
+			if s[i] == '`' {
+				inRaw = false
+			}
+			i++
+			continue
+		}
+		if i+1 < len(s) && s[i] == '/' && s[i+1] == '/' {
+			inLineComment = true
+			i += 2
+			continue
+		}
+		if i+1 < len(s) && s[i] == '/' && s[i+1] == '*' {
+			inBlockComment = true
+			i += 2
+			continue
+		}
+		if s[i] == '\'' {
+			inSingle = true
+			i++
+			continue
+		}
+		if s[i] == '"' {
+			inDouble = true
+			i++
+			continue
+		}
+		if s[i] == '`' {
+			inRaw = true
+			i++
+			continue
+		}
+		if s[i] == '{' {
+			depth++
+		} else if s[i] == '}' {
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+		i++
+	}
+	return -1
+}
+
+func stripPlaceholderComments(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inSingle := false
+	inDouble := false
+	inRaw := false
+	inLineComment := false
+	inBlockComment := false
+	for i := 0; i < len(s); {
+		if inLineComment {
+			if s[i] == '\n' {
+				inLineComment = false
+				b.WriteByte(s[i])
+				i++
+				continue
+			}
+			i++
+			continue
+		}
+		if inBlockComment {
+			if i+1 < len(s) && s[i] == '*' && s[i+1] == '/' {
+				inBlockComment = false
+				i += 2
+				b.WriteByte(' ')
+				continue
+			}
+			i++
+			continue
+		}
+		if inSingle {
+			b.WriteByte(s[i])
+			if s[i] == '\\' && i+1 < len(s) {
+				i++
+				b.WriteByte(s[i])
+				i++
+				continue
+			}
+			if s[i] == '\'' {
+				inSingle = false
+			}
+			i++
+			continue
+		}
+		if inDouble {
+			b.WriteByte(s[i])
+			if s[i] == '\\' && i+1 < len(s) {
+				i++
+				b.WriteByte(s[i])
+				i++
+				continue
+			}
+			if s[i] == '"' {
+				inDouble = false
+			}
+			i++
+			continue
+		}
+		if inRaw {
+			b.WriteByte(s[i])
+			if s[i] == '`' {
+				inRaw = false
+			}
+			i++
+			continue
+		}
+		if i+1 < len(s) && s[i] == '/' && s[i+1] == '/' {
+			inLineComment = true
+			i += 2
+			continue
+		}
+		if i+1 < len(s) && s[i] == '/' && s[i+1] == '*' {
+			inBlockComment = true
+			i += 2
+			continue
+		}
+		if s[i] == '\'' {
+			inSingle = true
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		if s[i] == '"' {
+			inDouble = true
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		if s[i] == '`' {
+			inRaw = true
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
+
+func isVacuousTestBody(body string) bool {
+	cleaned := stripPlaceholderComments(body)
+	trimmed := strings.TrimSpace(cleaned)
+	if trimmed == "" {
+		return true
+	}
+	normalized := strings.ReplaceAll(trimmed, ";", "\n")
+	lines := strings.Split(normalized, "\n")
+	skipRe := regexp.MustCompile(`^\s*t\.Skip(?:Now|f)?\s*\(.*\)\s*$`)
+	for _, line := range lines {
+		cur := strings.TrimSpace(line)
+		if cur == "" {
+			continue
+		}
+		if skipRe.MatchString(cur) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// checkShellEffect denies shell invocations whose effects are mutating,
+// ambiguous, or missing. Command text is only evidence about effect; it cannot
+// authorize itself. Read-only and explicit verification commands remain usable
+// while immutable task-baseline authorization is implemented.
+func (e *Executor) checkShellEffect(ctx context.Context, call ToolCall) error {
+	kind, _, err := projectdoc.ValidateShellToolInvocation(call.Name, call.Args)
+	if err == nil {
+		return nil
+	}
+	// The one thing that can answer the refusal is the user's own request for
+	// the turn (projectdoc/shell_authority.go); the kernel decides.
+	step, authErr := e.authorizeShellMutation(ctx, call, err)
+	if authErr == nil {
+		logging.Audit().SafetyCheck("shell_effect_gate", true, fmt.Sprintf("%s %s authorized by the turn's request", call.Name, step))
+		return nil
+	}
+	err = authErr
+
+	reason := fmt.Sprintf("%s effect=%s: %v", call.Name, kind, err)
+	actionName := strings.TrimSpace(call.Name)
+	if !strings.HasPrefix(actionName, "/") {
+		actionName = "/" + actionName
+	}
+	if validMangleActionAtom(actionName) {
+		e.assertSecurityViolation(types.MangleAtom(actionName), reason)
+	} else {
+		logging.Audit().SafetyCheck("shell_effect_gate", false, reason)
+	}
+	logging.Get(logging.CategorySession).Warn("shell-effect gate BLOCKED %s effect=%s", call.Name, kind)
+	return err
+}
+
+// describeToolLoopFailure explains a mid-loop failure in terms an operator can
+// act on.
+//
+// A bare "tool-result follow-up failed: context deadline exceeded" is
+// unactionable: it names neither the budget that expired, nor how much work was
+// already done, nor the flag that controls it. Observed live on
+// `nerd analyze internal/projectdoc` with an 8-minute budget — indistinguishable
+// from a broken shard, and the same shape already fixed for `nerd tool
+// generate` (describeStageTimeout) and `nerd dream` (dreamSummary). The
+// recurrence is the point: this is the third command where a timeout looked
+// like a defect.
+func describeToolLoopFailure(ctx context.Context, iteration, toolsThisRound int, err error) error {
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("tool-result follow-up failed: %w", err)
+	}
+
+	// The total budget is not recoverable here: only the deadline is in the
+	// context, and by the time this fires the remainder is negative. Saying
+	// "the operation budget ran out" is what can honestly be claimed; the
+	// caller knows the number it passed to --timeout.
+	overrun := ""
+	if deadline, ok := ctx.Deadline(); ok {
+		if over := time.Since(deadline).Round(time.Second); over > 0 {
+			overrun = fmt.Sprintf(" (overran by %s)", over)
+		}
+	}
+
+	return fmt.Errorf(
+		"tool-result follow-up failed after %d tool iteration(s), %d tool call(s) in the final round: %w — "+
+			"the work was progressing, not stuck; the operation budget ran out%s. Raise it with --timeout",
+		iteration+1, toolsThisRound, err, overrun)
+}
+
+// hollowSuccessPrefix is the stable error marker for hollow-completion failures.
+const hollowSuccessPrefix = "hollow success blocked:"
+
+type hollowSuccessError struct {
+	detail string
+}
+
+func (e *hollowSuccessError) Error() string {
+	return hollowSuccessPrefix + " " + e.detail
+}
+
+func newHollowSuccessError(format string, args ...any) error {
+	return &hollowSuccessError{detail: fmt.Sprintf(format, args...)}
+}
+
+// isHollowSuccessError reports whether err is a hollow-completion failure.
+func isHollowSuccessError(err error) bool {
+	var hollow *hollowSuccessError
+	return errors.As(err, &hollow)
+}
+
+// checkHollowSuccess fails when a side-effect-requiring intent finished
+// without performing the required work. Prevents one-shot CLI paths
+// (nerd create / fix / spawn) from printing success Result after planning-only
+// prose.
+//
+// Dream mode is exempt: speculative subagents must not be forced to mutate.
+func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
+	defer e.cleanupTurnFacts()
+	if result == nil {
+		return nil
+	}
+	if e.sessionContext != nil && e.sessionContext.DreamMode {
+		return nil
+	}
+	verb := strings.TrimSpace(result.Intent.Verb)
+	if verb == "" {
+		return nil
+	}
+
+	requiresTools := e.intentRequiresToolCall(verb) || e.writeOrientedIntent(verb)
+
+	// Turn evidence: Go measures, Mangle decides. Assert exactly one
+	// turn_evidence fact per turn BEFORE any verdict so the policy corpus
+	// derives hollow_success/turn_done for Go consumers. The canonical
+	// assert and consume helpers live in executor.go so the turn verdict
+	// has one home; this stays as the thin turn gate that sequences them.
+	// Imperative checks are fallback only inside consumeHollowSuccessVerdict
+	// for nil/degraded kernels and MockKernel unit tests whose policy lacks
+	// these predicates — they must not short-circuit before the assert or
+	// policy never decides and turn_done is never single.
+	//
+	// Evidence is asserted for EVERY turn, read-only verbs included. Until
+	// 2026-09-04 read-only turns returned before this point, so they never
+	// earned turn_done and every /explain or /review turn was recorded as
+	// /unverified in turn_cost — the denominator could not count read-only
+	// work as verified at all (seen live on both chat probes).
+	//
+	// Every fact of the verdict carries this turn's own key (the one a forcing
+	// round asked about, when one did): the kernel is shared with every
+	// executor CloneForTask made, and a concurrent turn with the same verb
+	// must neither read this turn's evidence nor lend it its own.
+	turn := result.turnAtom()
+	e.assertTurnEvidence(turn, verb, result)
+	hollowErr := e.consumeHollowSuccessVerdict(turn, verb, result)
+	// Capture the kernel's verdict BEFORE the deferred cleanup retracts
+	// turn_evidence — after that the derivation is gone and turn_cost could
+	// never record /done. captureTurnOutcome performs the single kernel read
+	// (consumeTurnDoneSignal) for turn_done, turn_build_failed and
+	// turn_missing_evidence; it runs on EVERY path, read-only verbs included,
+	// so no surface is left to invent an outcome of its own.
+	e.captureTurnOutcome(turn, result, hollowErr)
+	if !requiresTools {
+		// A read-only intent is measured but never failed for hollowness: an
+		// explain or review turn may legitimately quote test output it read.
+		// The verdict still lands in turn_cost so the denominator sees it.
+		if hollowErr != nil {
+			logging.Get(logging.CategorySession).Debug(
+				"checkHollowSuccess: read-only intent %s recorded hollow verdict without failing the turn: %v", verb, hollowErr)
+		}
+		return nil
+	}
+	if hollowErr != nil {
+		return hollowErr
+	}
+	return nil
+}
+
+// recordGoFileCreations records the Go files this turn created -- a source, or
+// a test with the source it pairs with by the x_test.go convention -- in the
+// executor's own per-turn record. assertTurnEvidence asserts them for the
+// turn's verdict, keyed by the turn.
+//
+// It used to assert created_source and test_file_for into the shared kernel
+// here. test_file_for is the world scanner's predicate, and the end-of-turn
+// cleanup retracted what this asserted and, on a turn that had asserted
+// nothing, every test_file_for fact there was: the world's test-to-source map
+// went with it (external audit F1, 2026-09-19).
+func (e *Executor) recordGoFileCreations(preExist map[string]bool, canonicalToPhys map[string]string) {
+	for canonical, existed := range preExist {
+		if existed {
+			continue
+		}
+		if phys, ok := canonicalToPhys[canonical]; ok && phys != "" {
+			if _, err := os.Stat(phys); err != nil {
+				continue
+			}
+		}
+		lower := strings.ToLower(canonical)
+		switch {
+		case strings.HasSuffix(lower, "_test.go"):
+			source := canonical[:len(canonical)-len("_test.go")] + ".go"
+			e.mu.Lock()
+			e.turnCreatedTests = append(e.turnCreatedTests, [2]string{canonical, source})
+			e.mu.Unlock()
+			logging.Get(logging.CategorySession).Debug("turn created test %q for %q", canonical, source)
+		case strings.HasSuffix(lower, ".go"):
+			e.mu.Lock()
+			e.turnCreatedSources = append(e.turnCreatedSources, canonical)
+			e.mu.Unlock()
+			logging.Get(logging.CategorySession).Debug("turn created source %q", canonical)
+		}
+	}
+}
+
+// cleanupTurnFacts retracts every fact this turn's verdict asserted and
+// clears the turn's record of the files it created. It retracts nothing it did
+// not assert: the kernel is shared, and another executor's live evidence or
+// the world scanner's facts are not orphans of this turn. An earlier version
+// swept whole predicate populations whenever the turn had tracked nothing,
+// which is what an early-return turn looks like -- and in that state it
+// retracted a concurrent turn's evidence and every test_file_for fact the
+// world held (external audit F1, 2026-09-19).
+func (e *Executor) cleanupTurnFacts() {
+	e.mu.Lock()
+	facts := e.turnFacts
+	e.turnFacts = nil
+	e.turnCreatedSources = nil
+	e.turnCreatedTests = nil
+	e.mu.Unlock()
+	if e.kernel == nil {
+		return
+	}
+	// A red build is evidence about THIS turn. Left asserted it would exclude
+	// turn_executed for every later turn in the session, so a single failed
+	// compile would make the session permanently unable to finish anything.
+	for _, f := range facts {
+		if err := e.kernel.RetractFact(f); err != nil {
+			logging.Get(logging.CategorySession).Warn("cleanupTurnFacts: failed to retract %s%v: %v", f.Predicate, f.Args, err)
+		}
+	}
+}
+
+// retryWithNoToolNudge recompiles the prompt with the world_state
+// "no_tool_call_retry" raised (and the actually-allowed tool list threaded
+// through) and reissues the LLM turn exactly once.
+//
+// The decision about what the retry says lives in the prompt-atom corpus
+// (system/tool_nudge/no_tool_call_retry.yaml), not in Go. The atom uses
+// {{available_tools}} to render the runtime's permitted-tool surface so the
+// model sees the real allowed set, not a hardcoded triple of
+// write_file/edit_file/run_command. Go's responsibility is limited to:
+//   - cloning the original CompilationContext,
+//   - setting the activation flag + AvailableTools slice,
+//   - asking the JIT compiler to recompile,
+//   - reissuing the LLM call.
+func (e *Executor) retryWithNoToolNudge(
+	ctx context.Context,
+	client types.LLMClient,
+	userInput string,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	compilationCtx *prompt.CompilationContext,
+) (*types.LLMToolResponse, error) {
+	if e.jitCompiler == nil || compilationCtx == nil {
+		return nil, errors.New("no-tool-retry path requires JIT compiler and compilation context")
+	}
+	ctx = broker.WithPhase(ctx, broker.PhaseNoToolRetry)
+
+	retryCtx := compilationCtx.Clone()
+	retryCtx.PreviousAttemptNoToolCall = true
+	if cfg != nil && len(cfg.AllowedTools) > 0 {
+		retryCtx.AvailableTools = slices.Clone(cfg.AllowedTools)
+	}
+
+	compileResult, err := e.jitCompiler.Compile(ctx, retryCtx)
+	if err != nil {
+		return nil, fmt.Errorf("no-tool-retry: JIT recompile failed: %w", err)
+	}
+	if compileResult == nil || strings.TrimSpace(compileResult.Prompt) == "" {
+		return nil, errors.New("no-tool-retry: JIT recompile produced empty prompt")
+	}
+
+	NoteCompile(ctx, compileResult)
+
+	// The retry must carry the SAME system prompt the first attempt did.
+	// compileResult.Prompt is raw JIT output; the live prompt is that plus
+	// nerd.md's rendered instructions and the target's holographic context
+	// (executor.go, after the JIT compile). Reissuing without them dropped the
+	// project's write-protection rules from the retry — on precisely the turn
+	// where the model has already shown it is confused about what it may do.
+	// That is a safety regression, not just a context one.
+	retryPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(compileResult.Prompt), retryCtx.IntentTarget)
+	return e.generateResponse(ctx, client, retryPrompt, userInput, cfg)
+}
+
+func effectiveToolTimeout(configured time.Duration) time.Duration {
+	if configured <= 0 {
+		return defaultSessionPolicy.ToolTimeout
+	}
+	return configured
+}
+
+// toolTimeoutGrace lets a tool's own deadline fire first, so its partial
+// output and its own timeout message reach the model instead of a bare
+// "context deadline exceeded". The parent ctx still bounds everything.
+const toolTimeoutGrace = 30 * time.Second
+
+// executeToolCall routes a tool call through the appropriate registry with safety checks.
+// It checks both registries in order:
+// 1. Modular tools (tools.Global()) - Go function handlers
+// 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
+func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *config.EffectiveAgentRuntimeConfig) (output string, err error) {
+	executorCfg := e.configSnapshot()
+	call, bindErr := bindRestriction(ctx, call)
+	if bindErr != nil {
+		return "", bindErr
+	}
+	// A human-approved call records its outcome on every exit: refused
+	// before dispatch is a known no-dispatch failure, anything after
+	// dispatch started is completed or unknown, never "nothing happened".
+	var approved *humanApproval
+	dispatched := false
+	defer func() {
+		if approved == nil {
+			return
+		}
+		if dispatched {
+			approved.grant.Finish(err)
+			return
+		}
+		reason := "refused before dispatch"
+		if err != nil {
+			reason = err.Error()
+		}
+		approved.grant.AdmissionFailed(reason)
+	}()
+	// The effective JIT allowlist is authoritative for every execution backend,
+	// and it is checked first: a tool this turn may not use is refused for that
+	// reason, before any backend (the generated-execution bridge included) is
+	// consulted. Registry membership only proves that a handler exists; it does
+	// not grant the current agent the capability to invoke that handler.
+	if !e.isToolAllowed(call.Name, cfg) {
+		return "", fmt.Errorf("tool %s not allowed by effective JIT config", call.Name)
+	}
+	e.mu.RLock()
+	generatedRegistry := e.ouroborosRegistry
+	e.mu.RUnlock()
+	generated := false
+	if generatedRegistry != nil && !tools.Global().Has(call.Name) {
+		_, generated = generatedRegistry.GetTool(call.Name)
+	}
+	canonicalArgs := ""
+	var generatedRequest types.GeneratedToolRequest
+	var generatedBridge types.GeneratedToolExecutor
+	if generated {
+		bridge, ok := e.virtualStore.(types.GeneratedToolExecutor)
+		if !ok || bridge == nil {
+			return "", fmt.Errorf("mandatory generated execution bridge disconnected")
+		}
+		generatedBridge = bridge
+		var err error
+		canonicalArgs, err = types.CanonicalGeneratedArgs(call.Args)
+		if err != nil {
+			return "", fmt.Errorf("canonical generated args: %w", err)
+		}
+		// Freeze a private copy before guards or authorization can observe it.
+		generatedRequest.CanonicalArgs = canonicalArgs
+		call.Args, err = generatedRequest.Args()
+		if err != nil {
+			return "", err
+		}
+		identity, err := generatedRegistry.GeneratedToolIdentity(call.Name)
+		if err != nil {
+			return "", err
+		}
+		scope := types.GeneratedCallScope(ctx)
+		if scope == "" {
+			scope = e.generatedScope()
+		}
+		generatedRequest = types.GeneratedToolRequest{ScopeID: scope, CallID: call.ID, AuthorizationID: "exec-" + call.ID,
+			Action: types.MangleAtom("/" + strings.TrimPrefix(call.Name, "/")), Target: e.extractTarget(call.Args), CanonicalArgs: canonicalArgs, Tool: identity}
+		if err := generatedRequest.Validate(); err != nil {
+			return "", err
+		}
+	}
+	var releaseAuthorization func()
+	defer func() {
+		if releaseAuthorization != nil {
+			releaseAuthorization()
+		}
+	}()
+	// Under the commit regime the read tools are withheld from the catalog; a
+	// call to one anyway is answered with the regime, not run, and not counted
+	// as a failure: it is steering, and the stall span still governs.
+	if loop := activeWorkingLoop(ctx); loop != nil && loop.regime == commitRegime && closedForReading(call.Name) {
+		return workingRegimeText(commitRegime), nil
+	}
+	// The same for a raw search tool the policy has not opened yet, when this
+	// agent holds the structural query that stands in for it.
+	if loop := activeWorkingLoop(ctx); loop != nil && !loop.searchOpen && tools.IsRawSearch(call.Name) &&
+		e.isToolAllowed("find_symbol", cfg) {
+		return structuralFirstText, nil
+	}
+
+	// Safety check via Constitutional Gate
+	if executorCfg.EnableSafetyGate || generated {
+		var lease *func()
+		if generated {
+			lease = &releaseAuthorization
+		}
+		verdict := e.checkSafetyWithLease(call, true, canonicalArgs, lease, nil)
+		if !verdict.allowed && verdict.approvable && !generated {
+			// The constitution says a person may approve this exact request.
+			// Block for the decision (no model turn, no fact or lease held),
+			// then rerun the gate with the claimed approval for this call.
+			claimed, approvalErr := e.awaitHumanApproval(ctx, call, cfg, canonicalArgs, verdict.reason, verdict.personRequired)
+			if approvalErr != nil {
+				return "", approvalErr
+			}
+			approved = claimed
+			verdict = e.checkSafetyWithLease(call, true, canonicalArgs, lease, approved)
+			if !verdict.allowed {
+				return "", fmt.Errorf("tool call blocked by safety gate after approval: action %s denied (%s); the person's approval does not override the other checks — identical retry will fail", call.Name, verdict.reason)
+			}
+		}
+		if ok, reason := verdict.allowed, verdict.reason; !ok {
+			// DENY PATH ONLY: ask the kernel whether this action atom
+			// requires explicit human permission. Hot path (allowed) is
+			// unaffected.
+			actionLabel := call.Name
+			if strings.TrimSpace(actionLabel) == "" {
+				actionLabel = "unknown"
+			}
+			target := e.extractTarget(call.Args)
+			actionAtom := actionLabel
+			if !strings.HasPrefix(actionAtom, "/") {
+				actionAtom = "/" + actionAtom
+			}
+			requiresPermission := false
+			if validMangleActionAtom(actionAtom) && e.kernel != nil {
+				grounded := fmt.Sprintf("requires_permission(%s)", actionAtom)
+				if facts, err := e.kernel.Query(grounded); err == nil && len(facts) > 0 {
+					requiresPermission = true
+				} else {
+					if facts2, err2 := e.kernel.Query("requires_permission"); err2 == nil {
+						for _, f := range facts2 {
+							if len(f.Args) == 0 {
+								continue
+							}
+							if types.ExtractString(f.Args[0]) == actionAtom {
+								requiresPermission = true
+								break
+							}
+						}
+					}
+				}
+			}
+			if requiresPermission {
+				return "", fmt.Errorf("tool call blocked by safety gate: action %s target %s denied (%s); this action requires permission no one can grant from here (policy declares no human approval for it, or its content is prohibited) and it cannot be self-authorized — do not retry the same call, it will fail identically; ask the user to perform it or accomplish the goal another way", actionLabel, target, reason)
+			}
+			return "", fmt.Errorf("tool call blocked by safety gate: action %s target %s denied (%s); constitution derived no permitted(...) fact for that action and target — identical retry will fail", actionLabel, target, reason)
+		}
+	}
+
+	// The constitutional gate classifies run_command as generally available;
+	// effect scope is a separate executive decision. This gate closes the path
+	// that previously let shell cleanup bypass write-mutation accounting.
+	if err := e.checkShellEffect(ctx, call); err != nil {
+		return "", err
+	}
+
+	// Project write protection declared in nerd.md.
+	//
+	// This is the line that makes nerd.md's frontmatter different in kind from
+	// CLAUDE.md. A "never touch config.json" written in prose is a request the
+	// model complies with most of the time; a project_forbidden_path fact is
+	// checked here, before the tool runs, and no amount of model conviction
+	// gets past it.
+	//
+	// It sits after checkSafety and before the Dreamer preflight on purpose:
+	// constitutional rules outrank project rules, and there is no reason to
+	// simulate the consequences of an action that is already denied.
+	if err := e.runWriteGuards(call); err != nil {
+		return "", err
+	}
+
+	// Capture pre-existence for .go creation tracking.
+	// For write-mutation tools targeting .go paths, note whether each file
+	// existed before the call so a successful creation can be asserted.
+	var preGoExistence map[string]bool
+	var canonicalToPhys map[string]string
+	if e.kernel != nil && isWriteMutationTool(call.Name) {
+		if paths, err := projectdoc.TargetPaths(call.Args); err == nil && len(paths) > 0 {
+			workspace := e.workspaceForVerification()
+			for _, p := range paths {
+				trimmed := strings.TrimSpace(p)
+				if trimmed == "" {
+					continue
+				}
+				if !strings.HasSuffix(strings.ToLower(trimmed), ".go") {
+					continue
+				}
+				canonical := canonicalizeWrittenPath(trimmed, workspace)
+				if canonical == "" {
+					canonical = filepath.ToSlash(filepath.Clean(trimmed))
+				}
+				phys := trimmed
+				if !filepath.IsAbs(trimmed) && workspace != "" {
+					phys = filepath.Join(workspace, trimmed)
+				}
+				existed := false
+				if _, err := os.Stat(phys); err == nil {
+					existed = true
+				} else if err != nil && !os.IsNotExist(err) {
+					logging.Get(logging.CategorySession).Debug("creation tracking: stat error for %s: %v", phys, err)
+					existed = true
+				}
+				if preGoExistence == nil {
+					preGoExistence = make(map[string]bool)
+					canonicalToPhys = make(map[string]string)
+				}
+				preGoExistence[canonical] = existed
+				canonicalToPhys[canonical] = phys
+			}
+		}
+	}
+
+	// PRE-execution executive gate: run the Dreamer destructive-action
+	// simulation before the tool mutates anything. This brings the VirtualStore
+	// safety gate (otherwise reachable only via RouteAction) onto the
+	// interactive coding path. Effectful tools require the gate interface.
+	effect, effectErr := tools.LookupEffect(call.Name)
+	if effectErr != nil {
+		e.mu.RLock()
+		registry := e.ouroborosRegistry
+		e.mu.RUnlock()
+		if registry != nil {
+			if _, exists := registry.GetTool(call.Name); exists {
+				// Every generated binary explicitly has arbitrary-code effects.
+				effect, effectErr = tools.EffectExecute, nil
+			}
+		}
+	}
+	if effectErr != nil {
+		return "", effectErr
+	}
+	if generated {
+		// VirtualStore owns generated preflight, validation and feedback around
+		// its single backend admission; no second action router is involved.
+	} else if gate, ok := e.interactiveGate(); ok {
+		if blockErr := gate.PreflightDestructiveToolCall(ctx, call.ID, call.Name, call.Args); blockErr != nil {
+			logging.Get(logging.CategorySession).Warn("Interactive executive gate BLOCKED tool %s: %v", call.Name, blockErr)
+			return "", fmt.Errorf("tool call blocked by executive gate: %w", blockErr)
+		}
+	} else if effect != tools.EffectRead {
+		return "", fmt.Errorf("tool call blocked: mandatory executive gate unavailable for %s (%s)", call.Name, effect)
+	}
+
+	// Assert pending_edit(FilePath, Content) immediately before any write-mutation
+	// tool execution, and retract it on every exit path. Reuses
+	// isWriteMutationTool so the classification stays consistent with the
+	// hollow-success and projectForbidsWrite gates.
+	//
+	// The deferred retraction is the load-bearing half: pending_edit means "an
+	// edit is in flight right now", and this function returns from many places
+	// (modular registry error, Ouroboros path, validator refusal, timeout). A
+	// fact left behind by any one of them would make every rule that reads it
+	// reason about an edit that already finished.
+	if pendingFacts := e.assertPendingEdits(call); len(pendingFacts) > 0 {
+		defer func() {
+			for _, fact := range pendingFacts {
+				e.retractPendingEdit(fact)
+			}
+		}()
+	}
+
+	// Compute the call budget: a tool that reports its own Timeout gets at
+	// least that long plus a grace period, so the executor never cuts a call
+	// off before the tool's own deadline fires.
+	budget := effectiveToolTimeout(executorCfg.ToolTimeout)
+	if tool := tools.Global().Get(call.Name); tool != nil && tool.Timeout != nil {
+		if requested := tool.Timeout(call.Args) + toolTimeoutGrace; requested > budget {
+			budget = requested
+		}
+	}
+	toolCtx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	toolCtx = tools.WithWorkspaceRoot(toolCtx, e.workspaceForVerification())
+
+	// Route to appropriate registry
+	// 1. Try modular tool registry first (Go function handlers)
+	modularRegistry := tools.Global()
+	if modularRegistry.Has(call.Name) {
+		logging.Session("Executing modular tool: %s with %d args", call.Name, len(call.Args))
+		if approved != nil {
+			// Durable before the effect: a crash from here on is an
+			// unknown outcome on restart, never a claim to run again.
+			if startErr := approved.grant.DispatchStarted(); startErr != nil {
+				return "", fmt.Errorf("approved call not dispatched: its dispatch record could not be made durable: %w", startErr)
+			}
+			dispatched = true
+		}
+		result, err := modularRegistry.Execute(toolCtx, call.Name, call.Args)
+		if err != nil {
+			// The tool may still have produced output (e.g. compiler or test
+			// stdout alongside a nonzero exit). Discarding it here is what made
+			// a failing run_build visible to the model only as "exit status 1",
+			// so return the output string together with the wrapped error.
+			if result != nil {
+				return result.Result, fmt.Errorf("modular tool execution failed: %w", err)
+			}
+			return "", fmt.Errorf("modular tool execution failed: %w", err)
+		}
+		if result == nil {
+			return "", fmt.Errorf("modular tool %s returned nil result", call.Name)
+		}
+		if result.Error != nil {
+			// Same rule as above: output captured before the failure goes back
+			// with the error, never thrown away.
+			if result.Result != "" {
+				return result.Result, fmt.Errorf("modular tool returned error: %w", result.Error)
+			}
+			return "", fmt.Errorf("modular tool returned error: %w", result.Error)
+		}
+
+		// Track creations for the turn: a file the call created that did not
+		// previously exist. Non-test .go → created_source, _test.go →
+		// test_file_for pairing exactly as the world scanner does. Recorded
+		// before the validation verdict: a rejected file still exists, and
+		// still owes its test.
+		e.recordGoFileCreations(preGoExistence, canonicalToPhys)
+		// POST-execution validation: verify the side effect actually landed
+		// (file written, build passed, etc.) and assert validation facts to the
+		// kernel so policy (e.g. task_complete/1) can reason over them. What it
+		// established is recorded for the call's receipt, whichever state it
+		// is. A rejection is surfaced as an error WITH the tool's output: the
+		// handler may well have changed the file, and the model needs to see
+		// what it did to repair it rather than re-run it blind.
+		if gate, ok := e.interactiveGate(); ok {
+			validation := gate.ValidateInteractiveToolResult(toolCtx, call.ID, call.Name, call.Args, result.Result, true)
+			recordToolValidation(ctx, validation)
+			if validation.State == types.ToolValidationRejected {
+				return result.Result, &PostconditionError{Validation: validation}
+			}
+		}
+		return result.Result, nil
+	}
+
+	// 2. Try Ouroboros registry (compiled binary tools)
+	e.mu.RLock()
+	ouroborosReg := e.ouroborosRegistry
+	e.mu.RUnlock()
+
+	if ouroborosReg != nil {
+		if _, exists := ouroborosReg.GetTool(call.Name); exists {
+			if generatedBridge == nil {
+				return "", fmt.Errorf("generated bridge unavailable; raw execution refused")
+			}
+			receipt, err := generatedBridge.ExecuteGeneratedToolCall(toolCtx, generatedRequest)
+			if err != nil {
+				return generatedObservation(receipt), err
+			}
+			if receipt.Err() != nil {
+				return generatedObservation(receipt), &types.GeneratedExecutionError{Receipt: receipt}
+			}
+			if receipt.Request != generatedRequest || !receipt.ProcessStarted || !receipt.ValidationCompleted || !receipt.ValidationPassed || !receipt.Feedback.Durable ||
+				receipt.Feedback.ExecutionID != generatedRequest.Key() || receipt.Feedback.Fingerprint != generatedRequest.Fingerprint() || receipt.Feedback.Path == "" || receipt.Feedback.CommittedAt.IsZero() {
+				return generatedObservation(receipt), fmt.Errorf("generated execution returned incomplete validation or durable feedback receipt")
+			}
+			e.recordGoFileCreations(preGoExistence, canonicalToPhys)
+			return generatedObservation(receipt), nil
+		}
+	}
+
+	return "", fmt.Errorf("tool %s not found in any registry", call.Name)
+}
+
+// isToolAllowed checks if a tool is in the effective JIT allowlist. Missing or
+// empty configs fail closed: an absent capability envelope must never mean
+// unrestricted execution.
+func (e *Executor) isToolAllowed(toolName string, cfg *config.EffectiveAgentRuntimeConfig) bool {
+	if cfg == nil || len(cfg.AllowedTools) == 0 {
+		return false
+	}
+
+	return slices.Contains(cfg.AllowedTools, toolName)
+}
+
+// assertSecurityViolation asserts a security_violation fact into the kernel to provide
+// context to the agent about why an action was blocked.
+func (e *Executor) assertSecurityViolation(actionAtom types.MangleAtom, reason string) {
+	// Record the denial durably before touching the kernel.
+	//
+	// The security_violation fact below is session-scoped: it dies with the
+	// process, so nothing about a refusal survived a run. logging.Audit()
+	// .SafetyCheck had no caller anywhere in the repo, so the safety_allow and
+	// safety_block families were declared and never written. For a system whose
+	// stated contract is "every action must derive permitted(...); default
+	// deny", the verdicts were the one thing no one could audit afterwards.
+	//
+	// Deliberately before the nil-kernel guard: a denial that happens because
+	// the kernel is missing is exactly the one worth having on disk.
+	logging.Audit().SafetyCheck(string(actionAtom), false, reason)
+
+	if e.kernel == nil {
+		return
+	}
+	fact := types.Fact{
+		Predicate: "security_violation",
+		Args:      []any{actionAtom, reason, time.Now().Unix()},
+	}
+	if err := e.kernel.Assert(fact); err != nil {
+		logging.Get(logging.CategorySession).Warn("Failed to assert security_violation: %v", err)
+	}
+}
+
+// MaxActionPayloadBytes caps the JSON-serialized action payload any caller
+// asserts into the Mangle kernel as pending_action/5 -- this executor, and the
+// campaign's direct-generation write. Large blobs (file dumps, base64 images)
+// bloat the fact store; a payload over the cap is refused, never truncated,
+// because permitted/3 is matched against the exact payload.
+const MaxActionPayloadBytes = 100 * 1024 // 100 KB
+
+// safetyVerdict is the constitutional gate's answer for one call.
+type safetyVerdict struct {
+	allowed bool
+	reason  string
+	// approvable is set on a denial the constitution marks
+	// human_approval_required for this exact pending action: a person may
+	// approve it. A hard prohibition never sets it.
+	approvable bool
+	// personRequired is set when the denial is the user's own "confirm first"
+	// on this request: only a person may approve it, and the operator's
+	// standing yolo instruction does not (approval.Broker.AwaitPerson).
+	personRequired bool
+}
+
+// checkSafetyWithLease asks the constitution about one call. With approved
+// set, the claimed human approval is asserted beside the exact pending_action
+// it names and retracted with it; every other check still runs.
+func (e *Executor) checkSafetyWithLease(call ToolCall, safetyGateEnabled bool, canonicalPayload string, lease *func(), approved *humanApproval) safetyVerdict {
+	if approved != nil {
+		humanApprovalAdmission.Lock()
+		defer humanApprovalAdmission.Unlock()
+	} else {
+		humanApprovalAdmission.RLock()
+		defer humanApprovalAdmission.RUnlock()
+	}
+	var approvable, personRequired bool
+	allowed, reason := e.admitToolCall(call, safetyGateEnabled, canonicalPayload, lease, approved, &approvable, &personRequired)
+	return safetyVerdict{allowed: allowed, reason: reason, approvable: approvable, personRequired: personRequired}
+}
+
+func (e *Executor) admitToolCall(call ToolCall, safetyGateEnabled bool, canonicalPayload string, lease *func(), approved *humanApproval, approvable, personRequired *bool) (allowed bool, reason string) {
+	if lease != nil {
+		e.generatedAuthorizationMu.Lock()
+		defer e.generatedAuthorizationMu.Unlock()
+	}
+	var cleanup []func()
+	release := func() {
+		for index := len(cleanup) - 1; index >= 0; index-- {
+			cleanup[index]()
+		}
+	}
+	var authorizationIdentity string
+	defer func() {
+		if allowed && lease != nil {
+			if e.generatedAuthorizations == nil {
+				e.generatedAuthorizations = make(map[string]*generatedAuthorizationLease)
+			}
+			shared := e.generatedAuthorizations[call.ID]
+			if shared == nil {
+				shared = &generatedAuthorizationLease{identity: authorizationIdentity}
+				e.generatedAuthorizations[call.ID] = shared
+			}
+			shared.references++
+			shared.cleanup = append(shared.cleanup, cleanup...)
+			var once sync.Once
+			*lease = func() {
+				once.Do(func() {
+					e.generatedAuthorizationMu.Lock()
+					defer e.generatedAuthorizationMu.Unlock()
+					shared.references--
+					if shared.references == 0 {
+						delete(e.generatedAuthorizations, call.ID)
+						for index := len(shared.cleanup) - 1; index >= 0; index-- {
+							shared.cleanup[index]()
+						}
+					}
+				})
+			}
+		} else {
+			release()
+		}
+	}()
+	// Categorically reject empty tool names — they would assert "/" as the
+	// action atom, which is meaningless and bypasses meaningful policy match.
+	if strings.TrimSpace(call.Name) == "" {
+		logging.Get(logging.CategorySession).Warn("Safety check denied: empty tool call name")
+		e.assertSecurityViolation(types.MangleAtom("/unknown"), "empty tool call name")
+		return false, "empty tool call name"
+	}
+
+	if e.kernel == nil {
+		// If the safety gate is enabled, missing kernel must FAIL CLOSED.
+		// Otherwise the agent effectively runs in "god mode" on kernel init failure.
+		if safetyGateEnabled {
+			logging.Get(logging.CategorySession).Error("Safety check failed closed: kernel is nil while EnableSafetyGate=true")
+			logging.Audit().SafetyCheck(call.Name, false, "failed closed: kernel is nil while EnableSafetyGate=true")
+			return false, "failed closed: kernel is nil while EnableSafetyGate=true"
+		}
+		// Running ungated is the single most important thing to find in an
+		// unattended run's log after the fact.
+		logging.Audit().SafetyCheck(call.Name, true, "safety gate disabled and kernel is nil")
+		return true, "" // Gate disabled: allow
+	}
+
+	// 1. Prepare Mangle terms
+	// Action names must be Mangle atoms (start with /)
+	actionName := call.Name
+	if !strings.HasPrefix(actionName, "/") {
+		actionName = "/" + actionName
+	}
+	if !validMangleActionAtom(actionName) {
+		logging.Get(logging.CategorySession).Warn(
+			"Safety check denied malformed action name %q", call.Name)
+		e.assertSecurityViolation(types.MangleAtom("/unknown"), "malformed tool action name")
+		return false, "malformed tool action name"
+	}
+	actionAtom := types.MangleAtom(actionName)
+
+	// Normalize nil Args to empty map so json.Marshal produces "{}" instead
+	// of "null" — the permitted facts written by policy use "{}" for no-arg
+	// actions, so matching depends on this consistency.
+	if call.Args == nil {
+		call.Args = map[string]any{}
+	}
+
+	// Extract target and serialize payload
+	target := e.extractTarget(call.Args)
+	payloadBytes := []byte(canonicalPayload)
+	var err error
+	if canonicalPayload == "" {
+		payloadBytes, err = json.Marshal(call.Args)
+	}
+	if err != nil {
+		logging.Get(logging.CategorySession).Error("Safety check failed: cannot marshal args: %v", err)
+		e.assertSecurityViolation(actionAtom, "cannot marshal args")
+		return false, "cannot marshal args"
+	}
+	// Reject oversized payloads outright. Truncating would silently break the
+	// permitted-fact comparison (truncated payload != permitted payload), so
+	// the safer contract is: refuse loudly.
+	if len(payloadBytes) > MaxActionPayloadBytes {
+		logging.Get(logging.CategorySession).Error(
+			"Safety check denied: payload too large for kernel (%d bytes > %d)",
+			len(payloadBytes), MaxActionPayloadBytes)
+		e.assertSecurityViolation(actionAtom, fmt.Sprintf("payload too large: %d > %d", len(payloadBytes), MaxActionPayloadBytes))
+		return false, fmt.Sprintf("payload too large: %d > %d", len(payloadBytes), MaxActionPayloadBytes)
+	}
+	payload := string(payloadBytes)
+	if lease != nil {
+		authorizationIdentity = actionName + "\x00" + target + "\x00" + payload
+		if shared := e.generatedAuthorizations[call.ID]; shared != nil {
+			if shared.identity != authorizationIdentity {
+				return false, "conflicting live generated authorization identity"
+			}
+			// VirtualStore still checks the current exact permitted tuple before
+			// admitting this duplicate to the factory's retained live result.
+			return true, ""
+		}
+	}
+	timestamp := time.Now().Unix()
+
+	// 2. Assert pending_action
+	// Decl pending_action(ActionID, ActionType, Target, Payload, Timestamp)
+	pendingFact := types.Fact{
+		Predicate: "pending_action",
+		Args: []any{
+			"exec-" + call.ID,
+			actionAtom,
+			target,
+			payload,
+			timestamp,
+		},
+	}
+
+	if err := e.kernel.Assert(pendingFact); err != nil {
+		logging.Get(logging.CategorySession).Error("Safety check failed: assertion error: %v", err)
+		e.assertSecurityViolation(actionAtom, "failed to assert pending_action")
+		return false, "failed to assert pending_action"
+	}
+
+	// Ensure cleanup of pending_action
+	cleanup = append(cleanup, func() {
+		if err := e.kernel.RetractFact(pendingFact); err != nil {
+			logging.Get(logging.CategorySession).Warn("Failed to retract pending_action: %v", err)
+		}
+	})
+
+	// 2-restriction. The turn's restriction binds this call: its owning turn
+	// and its tool's declared effect, retracted with the pending_action. A
+	// fact the kernel could not be told is a guard that did not run, so the
+	// call is refused (policy/constitution.mg, section 7D).
+	for _, fact := range callRestrictionFacts(call, "exec-"+call.ID) {
+		fact := fact
+		if err := e.kernel.Assert(fact); err != nil {
+			logging.Get(logging.CategorySession).Error("Safety check failed: could not assert %s: %v", fact.Predicate, err)
+			e.assertSecurityViolation(actionAtom, "failed to assert the turn restriction")
+			return false, "failed to assert the turn restriction"
+		}
+		cleanup = append(cleanup, func() {
+			if err := e.kernel.RetractFact(fact); err != nil {
+				logging.Get(logging.CategorySession).Warn("Failed to retract %s: %v", fact.Predicate, err)
+			}
+		})
+	}
+
+	// 2a. A claimed human approval names this exact pending action. It is
+	// asserted only now, beside the tuple it admits, and retracted with it.
+	if approved != nil {
+		consent, err := e.humanApprovalFact("exec-"+call.ID, actionAtom, target, payload, approved)
+		if err != nil {
+			e.assertSecurityViolation(actionAtom, err.Error())
+			return false, err.Error()
+		}
+		if err := e.kernel.Assert(consent); err != nil {
+			e.assertSecurityViolation(actionAtom, "failed to assert the human approval")
+			return false, "failed to assert the human approval"
+		}
+		cleanup = append(cleanup, func() {
+			if err := e.kernel.RetractFact(consent); err != nil {
+				logging.Get(logging.CategorySession).Warn("Failed to retract %s: %v", types.HumanApprovalPredicate, err)
+			}
+		})
+	}
+
+	// 2b. A delete git can undo is not the irreversible act the permission
+	// gate guards, so the constitution is told when that is the case and can
+	// derive permitted for exactly those. Everything else -- untracked, dirty,
+	// outside the workspace, or unknown -- asserts nothing and stays denied.
+	// See delete_recoverable.go for why this is narrowed rather than removed.
+	if recoverable, ok := e.recoverableDeleteFact(context.Background(), actionAtom, target); ok {
+		if err := e.kernel.Assert(recoverable); err != nil {
+			logging.Get(logging.CategorySession).Warn("Failed to assert file_recoverable: %v", err)
+		} else {
+			cleanup = append(cleanup, func() {
+				if err := e.kernel.RetractFact(recoverable); err != nil {
+					logging.Get(logging.CategorySession).Warn("Failed to retract file_recoverable: %v", err)
+				}
+			})
+		}
+	}
+
+	// 2c. A secret file's contents never reach a model. The measurement is
+	// asserted here and the refusal is the constitution's (secret_paths_gate.go).
+	secret, touchesSecret := secretPathFact(actionAtom, target, call.Args)
+	if touchesSecret {
+		if err := e.kernel.Assert(secret); err != nil {
+			// A guard that could not be told is a guard that did not run: fail
+			// closed rather than let the query below permit the call.
+			logging.Get(logging.CategorySession).Error("Failed to assert %s: %v", secretPathPredicate, err)
+			e.assertSecurityViolation(actionAtom, "failed to assert the secret-path measurement")
+			return false, "failed to assert the secret-path measurement"
+		}
+		cleanup = append(cleanup, func() {
+			if err := e.kernel.RetractFact(secret); err != nil {
+				logging.Get(logging.CategorySession).Warn("Failed to retract %s: %v", secretPathPredicate, err)
+			}
+		})
+	}
+
+	// 3. Query permitted(Action, Target, Payload) using the kernel's grounded
+	// pattern form. This avoids scanning the whole permitted relation on the
+	// normal allowed path. The bare-predicate fallback preserves compatibility
+	// with lightweight Kernel implementations that only support Query("name").
+	wantAction := string(actionAtom)
+	exactQuery := fmt.Sprintf("permitted(%s, %s, %s)",
+		wantAction, strconv.Quote(target), strconv.Quote(payload))
+	facts, exactErr := e.kernel.Query(exactQuery)
+	if exactErr != nil || len(facts) == 0 {
+		var fallbackErr error
+		facts, fallbackErr = e.kernel.Query("permitted")
+		if fallbackErr != nil {
+			if exactErr != nil {
+				fallbackErr = fmt.Errorf("exact query failed: %v; predicate query failed: %w", exactErr, fallbackErr)
+			}
+			logging.Get(logging.CategorySession).Error("Safety check failed: query error: %v", fallbackErr)
+			e.assertSecurityViolation(actionAtom, "failed to query permitted facts")
+			return false, "failed to query permitted facts"
+		}
+	}
+	if exactErr != nil {
+		logging.Get(logging.CategorySession).Debug(
+			"Kernel does not support grounded permitted query; used predicate fallback: %v", exactErr)
+	}
+	for _, f := range facts {
+		if len(f.Args) != 3 {
+			continue
+		}
+
+		// Check Action (Handle both MangleAtom and string types)
+		factAction := types.ExtractString(f.Args[0])
+		if factAction != wantAction {
+			continue
+		}
+
+		// Check Target
+		factTarget := types.ExtractString(f.Args[1])
+		if factTarget != target {
+			continue
+		}
+
+		// Check Payload
+		factPayload := types.ExtractString(f.Args[2])
+		if factPayload != payload {
+			continue
+		}
+
+		// Match found!
+		logging.Audit().SafetyCheck(wantAction, true, "matched permitted("+wantAction+", "+target+", payload)")
+		return true, ""
+	}
+
+	logging.Get(logging.CategorySession).Warn("Safety check denied action: %s (target: %s)", actionName, target)
+	// Ask, while this pending action is still asserted, whether a person may
+	// approve it. Only the constitution decides; a failed query is "no".
+	if approved == nil && approvable != nil {
+		rows, qErr := e.kernel.Query(fmt.Sprintf("human_approval_required(%s)", strconv.Quote("exec-"+call.ID)))
+		*approvable = qErr == nil && len(rows) > 0
+		if *approvable && personRequired != nil {
+			owed, oErr := e.kernel.Query(fmt.Sprintf("confirmation_owed(%s)", strconv.Quote("exec-"+call.ID)))
+			*personRequired = oErr == nil && len(owed) > 0
+		}
+	}
+	reason = fmt.Sprintf("action not permitted: target=%s", target)
+	if call.restrictedTurn != "" {
+		if rows, qErr := e.kernel.Query(fmt.Sprintf("restricted_action(%s)", strconv.Quote("exec-"+call.ID))); qErr == nil && len(rows) > 0 {
+			reason = restrictionDenial(call)
+		}
+	}
+	if touchesSecret {
+		// Say why, so the model does not try the same content another way.
+		reason = fmt.Sprintf("action not permitted: %s is a secret file (execution.secret_paths); no tool may read, write, copy or search its contents", target)
+	}
+	e.assertSecurityViolation(actionAtom, reason)
+	return false, reason
+}
+
+// validMangleActionAtom is intentionally a little broader than
+// validMangleVerb: legacy tool registries contain camelCase action names, while
+// perceived intent verbs are normalized lowercase. Both forms remain safe to
+// interpolate when restricted to one slash followed by ASCII alphanumerics or
+// underscores.
+func validMangleActionAtom(action string) bool {
+	if len(action) < 2 || action[0] != '/' {
+		return false
+	}
+	for i := 1; i < len(action); i++ {
+		c := action[i]
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') &&
+			(c < '0' || c > '9') && c != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// extractTarget attempts to identify the primary target of a tool call.
+func (e *Executor) extractTarget(args map[string]any) string {
+	// Path-bearing calls share the exact extraction contract used by nerd.md's
+	// write gate. Search/network tools then add their non-path target keys.
+	if target := projectdoc.TargetPath(args); target != "" {
+		return target
+	}
+	for _, key := range []string{"url", "query", "pattern", "glob", "dir", "directory", "session_id", "browser_id", "target_id"} {
+		if val, ok := args[key]; ok {
+			if target := strings.TrimSpace(types.ExtractString(val)); target != "" {
+				return target
+			}
+		}
+	}
+	return "unknown"
+}
+
+// Why the registry allowlist is NOT set from here.
+//
+// internal/tools grew Registry.SetAllowlist so a caller reaching
+// tools.Global().Execute directly is gated the same way the executor's own
+// isToolAllowed gates this path. Applying it per-turn from the executor looks
+// like the obvious wiring and is wrong: tools.Global() is a process-wide
+// singleton, so each turn's envelope becomes every other caller's envelope.
+// Concurrent shards hold different capability grants, and last-writer-wins
+// would let one shard's envelope decide what another may run — a safety
+// control that changes under you is worse than one that is merely narrow.
+//
+// It leaked immediately when tried: six session tests passed in isolation and
+// failed in the package run, because one test's enforced envelope persisted
+// into the next.
+//
+// The envelope belongs to whoever owns a registry, not to a turn. The correct
+// wiring is a per-session registry with SetAllowlist called once at
+// construction; until the executor owns one, isToolAllowed remains the gate
+// for this path and SetAllowlist is used by callers that do own a registry.

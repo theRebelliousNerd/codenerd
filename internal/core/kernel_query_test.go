@@ -1,0 +1,225 @@
+package core
+
+import (
+	"fmt"
+	"os"
+	"testing"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/factstore"
+)
+
+// REMEDIATED: All 6 TEST_GAP items — see kernel_query_gaps_test.go:
+//   TestKernelQueryGap_MassiveArity (User Extremes - high arity)
+//   TestKernelQueryGap_QueryAll_LargeEDB (User Extremes - large EDB)
+//   TestKernelQueryGap_LoadFactsFromFile_LargeFile (User Extremes - large files)
+//   TestKernelQueryGap_ParseFactString_DeepNesting (User Extremes - deep nesting)
+//   TestKernelQueryGap_Concurrency_ReadWriteStarvation (State Conflicts)
+//   TestKernelQueryGap_UpdateSystemFacts_MissingWorkspace (State Conflicts - git context)
+
+func TestKernelQuery_Parse(t *testing.T) {
+	k := setupMockKernel(t)
+	k.AppendPolicy("Decl foo(Name).")
+	k.Evaluate()
+
+	// 1. Parse valid query strings (explicitly WITHOUT final dot)
+	err := k.AssertString(`foo("bar")`)
+	if err != nil {
+		t.Errorf("Failed to parse valid fact string: %v", err)
+	}
+
+	// 2. Parse invalid query strings
+	err = k.AssertString(`foo(,,)`)
+	if err == nil {
+		t.Error("Expected error for invalid fact string, got nil")
+	}
+}
+
+func TestKernelQuery_Execute(t *testing.T) {
+	k := setupMockKernel(t)
+	k.AppendPolicy(`
+	Decl test_parent(Name, Child).
+	Decl test_ancestor(Name, Descendant).
+	
+	test_ancestor(X, Y) :- test_parent(X, Y).
+	test_ancestor(X, Z) :- test_parent(X, Y), test_ancestor(Y, Z).
+	`)
+	k.Evaluate()
+
+	k.Assert(Fact{Predicate: "test_parent", Args: []any{"alice", "bob"}})
+	k.Assert(Fact{Predicate: "test_parent", Args: []any{"bob", "charlie"}})
+
+	// 1. Execute complex query (recursive join)
+	err := k.Evaluate()
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+
+	results, err := k.Query("test_ancestor")
+	if err != nil {
+		t.Fatalf("Query test_ancestor failed: %v", err)
+	}
+
+	// Expect: alice->bob, bob->charlie, alice->charlie
+	if len(results) != 3 {
+		t.Errorf("Expected 3 test_ancestor facts, got %d", len(results))
+	}
+}
+
+// ----------------------------------------------------------------------
+// Remediation Tests: Null/Undefined/Empty boundaries
+// ----------------------------------------------------------------------
+
+func TestQuery_UninitializedKernel(t *testing.T) {
+	k := &RealKernel{
+		store:       nil,
+		programInfo: nil,
+		initialized: false, // Explicitly false
+	}
+	// Should fail cleanly without panicking on nil pointers
+	_, err := k.Query("test_predicate")
+	if err == nil {
+		t.Error("Expected error querying uninitialized kernel, got nil")
+	}
+}
+
+func TestQueryAll_ProgramInfoNil(t *testing.T) {
+	// Initialize the kernel but leave programInfo nil
+	store := factstore.NewSimpleInMemoryStore()
+	k := &RealKernel{
+		store:       store,
+		programInfo: nil,
+		initialized: true,
+	}
+	results, err := k.QueryAll()
+	if err != nil {
+		t.Fatalf("QueryAll failed with err: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("Expected empty results from nil programInfo, got %d", len(results))
+	}
+}
+
+func TestParseFactString_Empty(t *testing.T) {
+	_, err := ParseFactString("")
+	if err == nil {
+		t.Error("Expected error parsing empty fact string, got nil")
+	}
+
+	_, err = ParseFactString(".")
+	if err == nil {
+		t.Error("Expected error parsing just a period, got nil")
+	}
+}
+
+func TestLoadFactsFromFile_Empty(t *testing.T) {
+	k := setupMockKernel(t)
+	// Create empty file
+	file, err := os.CreateTemp("", "empty-*.mg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(file.Name())
+
+	// Write nothing to the file, size 0
+	err = k.LoadFactsFromFile(file.Name())
+	if err != nil {
+		t.Errorf("Expected nil error for empty file, got: %v", err)
+	}
+}
+
+func TestQuery_EmptyPredicate(t *testing.T) {
+	k := setupMockKernel(t)
+
+	_, err := k.Query("")
+	if err == nil {
+		t.Error("Expected error querying empty predicate, got nil")
+	}
+}
+
+// ----------------------------------------------------------------------
+// Remediation Tests: Type Coercion boundaries
+// ----------------------------------------------------------------------
+
+func TestBaseTermToValue_Fallback(t *testing.T) {
+	// A new AST node or boolean type might not be covered by baseTermToValue
+	// We simulate this by passing something unhandled.
+	val := baseTermToValue(ast.Constant{Type: 999, Symbol: "unknown_type"})
+	if val != "unknown_type" {
+		t.Errorf("Expected fallback to return 'unknown_type', got %v", val)
+	}
+}
+
+func TestQueryPatternPreservesMangleLiteralIdentity(t *testing.T) {
+	nameAtom, err := parseAtom(`bar(/alice)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stringAtom, err := parseAtom(`bar("/alice")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if atomMatchesQueryPattern(nameAtom, stringAtom) {
+		t.Fatal("a Mangle name atom matched a quoted string query")
+	}
+	if atomMatchesQueryPattern(stringAtom, nameAtom) {
+		t.Fatal("a quoted string matched a Mangle name query")
+	}
+	if !atomMatchesQueryPattern(nameAtom, nameAtom) || !atomMatchesQueryPattern(stringAtom, stringAtom) {
+		t.Fatal("typed query pattern failed to match an identical Mangle constant")
+	}
+}
+
+func TestQuery_NumericPrecision(t *testing.T) {
+	k := setupMockKernel(t)
+	k.AppendPolicy("Decl num_test(Float64).")
+	k.AppendPolicy(`num_test(3.14).`)
+	k.Evaluate()
+
+	results, err := k.Query("num_test")
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Expected 1 result, got %d", len(results))
+	}
+	val := results[0].Args[0]
+	if _, ok := val.(float64); !ok && fmt.Sprintf("%T", val) != "func() (float64, error)" {
+		t.Errorf("Expected float64, got %T: %v", val, val)
+	}
+}
+
+// ----------------------------------------------------------------------
+// Remediation Tests: TOCTOU boundaries
+// ----------------------------------------------------------------------
+
+func TestLoadFactsFromFile_TOCTOU(t *testing.T) {
+	k := setupMockKernel(t)
+
+	// Create a temporary directory
+	dir, err := os.MkdirTemp("", "toctou")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	// The file path we will try to read
+	filePath := dir + "/missing.mg"
+
+	// Call LoadFactsFromFile. The file does not exist, so it should return an error.
+	err = k.LoadFactsFromFile(filePath)
+	if err == nil {
+		t.Error("Expected error when reading non-existent file, got nil")
+	}
+
+	// Create it briefly and remove it before reading
+	file, err := os.Create(filePath)
+	if err == nil {
+		file.Close()
+		os.Remove(filePath)
+		err = k.LoadFactsFromFile(filePath)
+		if err == nil {
+			t.Error("Expected error when reading deleted file, got nil")
+		}
+	}
+}

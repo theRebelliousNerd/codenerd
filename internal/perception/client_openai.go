@@ -1,0 +1,441 @@
+package perception
+
+import (
+	"bytes"
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+)
+
+// OpenAIClient implements LLMClient for OpenAI API.
+type OpenAIClient struct {
+	apiKey     string
+	baseURL    string
+	model      string
+	httpClient *http.Client
+
+	// provider is the id usage accounting records this client under. It is a
+	// field rather than a constant because OllamaClient reuses this transport
+	// against a local endpoint; without it every locally served token would be
+	// billed to "openai" in the by-provider breakdown.
+	provider Provider
+
+	mu          sync.Mutex
+	lastRequest time.Time
+	// maxOutputTokens is the completion ceiling sent on every request.
+	maxOutputTokens int
+}
+
+// DefaultOpenAIConfig returns the endpoint and timeout defaults. It names no
+// model: the workspace's config does.
+func DefaultOpenAIConfig(apiKey string) OpenAIConfig {
+	return OpenAIConfig{
+		APIKey:  apiKey,
+		BaseURL: "https://api.openai.com/v1",
+		// No default model: the workspace names one in .nerd/config.json or the
+		// client factory refuses to build the client.
+		Timeout: 10 * time.Minute, // Large context models need extended timeout
+	}
+}
+
+// NewOpenAIClientWithConfig creates a new OpenAI client with custom config.
+func NewOpenAIClientWithConfig(config OpenAIConfig) *OpenAIClient {
+	return &OpenAIClient{
+		apiKey:          config.APIKey,
+		baseURL:         config.BaseURL,
+		model:           config.Model,
+		provider:        ProviderOpenAI,
+		httpClient:      NewSharedHTTPClient(config.Timeout),
+		maxOutputTokens: orDefaultTokens(config.MaxOutputTokens, 4096),
+	}
+}
+
+// rateLimit enforces minimum inter-request spacing to avoid 429 responses.
+// Must be called before each API request.
+func (c *OpenAIClient) rateLimit() {
+	c.mu.Lock()
+	elapsed := time.Since(c.lastRequest)
+	if elapsed < 100*time.Millisecond {
+		time.Sleep(100*time.Millisecond - elapsed)
+	}
+	c.lastRequest = time.Now()
+	c.mu.Unlock()
+}
+
+// Complete sends a prompt and returns the completion.
+func (c *OpenAIClient) Complete(ctx context.Context, prompt string) (string, error) {
+	return c.CompleteWithSystem(ctx, "", prompt)
+}
+
+// CompleteWithSystem sends a prompt with a system message.
+func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	// Auto-apply timeout if context has no deadline (centralized timeout handling)
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+		defer cancel()
+	}
+
+	startTime := time.Now()
+	logging.PerceptionDebug("[OpenAI] CompleteWithSystem: model=%s system_len=%d user_len=%d", c.model, len(systemPrompt), len(userPrompt))
+
+	if c.apiKey == "" {
+		logging.PerceptionError("[OpenAI] CompleteWithSystem: API key not configured")
+		return "", fmt.Errorf("API key not configured")
+	}
+
+	isPiggyback := !types.IsStructuredOutputOnlyCtx(ctx) &&
+		(strings.Contains(systemPrompt, "control_packet") ||
+			strings.Contains(systemPrompt, "surface_response") ||
+			strings.Contains(userPrompt, "PiggybackEnvelope") ||
+			strings.Contains(userPrompt, "control_packet"))
+
+	// Rate limiting
+	c.rateLimit()
+
+	messages := systemAndUserMessages(systemPrompt, userPrompt)
+
+	reqBody := OpenAIRequest{
+		Model:       c.model,
+		Messages:    messages,
+		MaxTokens:   c.maxOutputTokens,
+		Temperature: types.TemperatureFor(ctx, 0.1),
+	}
+	if isPiggyback {
+		reqBody.ResponseFormat = BuildOpenAIPiggybackEnvelopeSchema()
+	}
+
+	// Retry loop for rate limits
+	maxRetries := llmMaxRetries()
+	var lastErr error
+
+	for i := 0; i <= maxRetries; i++ {
+		if i > 0 {
+			// Context-aware backoff: a cancelled turn must exit during
+			// the sleep, not after it (matches ExecuteOpenAIRequest).
+			backoff := llmRetryBackoff(i)
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
+		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal request: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
+		if err != nil {
+			return "", fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request failed: %w", err)
+			continue
+		}
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		resp.Body.Close()
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read response: %w", err)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			lastErr = fmt.Errorf("rate limit exceeded (429)")
+			continue
+		}
+
+		if isTransientHTTPStatus(resp.StatusCode) {
+			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			// Some providers/models reject response_format; retry once without it.
+			if isPiggyback && reqBody.ResponseFormat != nil && resp.StatusCode == http.StatusBadRequest {
+				bodyStr := string(body)
+				if strings.Contains(bodyStr, "response_format") || strings.Contains(bodyStr, "json_schema") {
+					reqBody.ResponseFormat = nil
+					lastErr = fmt.Errorf("request rejected structured output, retrying without response_format: %s", bodyStr)
+					continue
+				}
+			}
+			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var openaiResp OpenAIResponse
+		if err := json.Unmarshal(body, &openaiResp); err != nil {
+			return "", fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if openaiResp.Error != nil {
+			return "", fmt.Errorf("API error: %s", openaiResp.Error.Message)
+		}
+
+		if len(openaiResp.Choices) == 0 {
+			logging.PerceptionError("[OpenAI] CompleteWithSystem: no completion returned")
+			return "", fmt.Errorf("no completion returned")
+		}
+
+		reportUsage(ctx, c.model, c.provider, usageOpChat, openaiResp.Usage.metadata())
+
+		response := strings.TrimSpace(openaiResp.Choices[0].Message.Content)
+		if finish := openaiResp.Choices[0].FinishReason; types.LengthStop(finish) {
+			return "", outputTruncated(c.provider, c.model, "CompleteWithSystem", finish, response,
+				c.maxOutputTokens, openaiResp.Usage.CompletionTokens)
+		}
+		logging.Perception("[OpenAI] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
+		return response, nil
+	}
+
+	logging.PerceptionError("[OpenAI] CompleteWithSystem: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
+	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+// CompleteWithStreaming sends a prompt with streaming enabled.
+// Returns channels of incremental content deltas.
+func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	w, contentChan, doneChan := types.NewStream()
+
+	logging.PerceptionDebug("[OpenAI] CompleteWithStreaming: starting streaming model=%s", c.model)
+
+	go func() {
+		defer w.Close()
+
+		// Auto-apply timeout if context has no deadline (centralized timeout handling)
+		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+			defer cancel()
+		}
+
+		startTime := time.Now()
+
+		if c.apiKey == "" {
+			logging.PerceptionError("[OpenAI] CompleteWithStreaming: API key not configured")
+			w.Fail(fmt.Errorf("API key not configured"))
+			return
+		}
+
+		isPiggyback := !types.IsStructuredOutputOnlyCtx(ctx) &&
+			(strings.Contains(systemPrompt, "control_packet") ||
+				strings.Contains(systemPrompt, "surface_response") ||
+				strings.Contains(userPrompt, "PiggybackEnvelope") ||
+				strings.Contains(userPrompt, "control_packet"))
+
+		// Rate limiting
+		c.rateLimit()
+
+		messages := systemAndUserMessages(systemPrompt, userPrompt)
+
+		reqBody := OpenAIRequest{
+			Model:       c.model,
+			Messages:    messages,
+			MaxTokens:   c.maxOutputTokens,
+			Temperature: types.TemperatureFor(ctx, 0.1),
+			Stream:      true,
+			StreamOptions: &OpenAIStreamOptions{
+				IncludeUsage: true,
+			},
+		}
+		if isPiggyback {
+			reqBody.ResponseFormat = BuildOpenAIPiggybackEnvelopeSchema()
+		}
+
+		// Retry loop for initial request setup / rate limits (before streaming begins).
+		maxRetries := llmMaxRetries()
+		var lastErr error
+
+		for attempt := 0; attempt <= maxRetries; attempt++ {
+			if attempt > 0 {
+				// Context-aware backoff: a cancelled turn must exit during
+				// the sleep, not after it (matches ExecuteOpenAIRequest).
+				backoff := llmRetryBackoff(attempt)
+				select {
+				case <-ctx.Done():
+					w.Fail(fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err()))
+					return
+				case <-time.After(backoff):
+				}
+			}
+
+			jsonData, err := json.Marshal(reqBody)
+			if err != nil {
+				w.Fail(fmt.Errorf("failed to marshal request: %w", err))
+				return
+			}
+
+			req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
+			if err != nil {
+				w.Fail(fmt.Errorf("failed to create request: %w", err))
+				return
+			}
+
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+c.apiKey)
+			req.Header.Set("Accept", "text/event-stream")
+
+			resp, err := c.httpClient.Do(req)
+			if err != nil {
+				lastErr = fmt.Errorf("request failed: %w", err)
+				continue
+			}
+
+			if resp.StatusCode == http.StatusTooManyRequests {
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+				resp.Body.Close()
+				lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
+				continue
+			}
+
+			if isTransientHTTPStatus(resp.StatusCode) {
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+				resp.Body.Close()
+				lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+				continue
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+				resp.Body.Close()
+
+				// Some providers/models reject response_format; retry once without it.
+				if isPiggyback && reqBody.ResponseFormat != nil && resp.StatusCode == http.StatusBadRequest {
+					bodyStr := string(body)
+					if strings.Contains(bodyStr, "response_format") || strings.Contains(bodyStr, "json_schema") {
+						reqBody.ResponseFormat = nil
+						lastErr = fmt.Errorf("request rejected structured output, retrying without response_format: %s", bodyStr)
+						continue
+					}
+				}
+
+				w.Fail(fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body)))
+				return
+			}
+
+			defer resp.Body.Close()
+			res := readChatStream(ctx, resp.Body, chatStreamProfile{provider: c.provider, model: c.model, limit: c.maxOutputTokens}, w)
+			reportUsage(ctx, c.model, c.provider, usageOpChat, res.Usage)
+			logStreamEnd("OpenAI", startTime, res)
+			w.Finish(res)
+			return
+		}
+
+		logging.PerceptionError("[OpenAI] CompleteWithStreaming: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
+		w.Fail(fmt.Errorf("max retries exceeded: %w", lastErr))
+	}()
+
+	return contentChan, doneChan
+}
+
+// SetModel changes the model used for completions.
+func (c *OpenAIClient) SetModel(model string) {
+	c.model = model
+}
+
+// GetModel returns the current model.
+func (c *OpenAIClient) GetModel() string {
+	return c.model
+}
+
+// CompleteWithTools sends a prompt with tool definitions.
+func (c *OpenAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	// Map generic tools to OpenAI tools
+	openAITools := MapToolDefinitionsToOpenAI(tools)
+
+	reqBody := OpenAIRequest{
+		Model:       c.model,
+		MaxTokens:   c.maxOutputTokens,
+		Temperature: types.TemperatureFor(ctx, 0),
+		Messages: []OpenAIMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		Tools:      openAITools,
+		ToolChoice: "auto", // Default to auto when tools are present
+		Stream:     false,  // Use non-streaming for simpler/safer tool parsing
+	}
+
+	resp, err := c.completeNonStreaming(ctx, reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
+	}
+
+	choice := resp.Choices[0]
+	toolCalls, err := MapOpenAIToolCallsToInternal(choice.Message.ToolCalls)
+	if err != nil {
+		return nil, err
+	}
+
+	// OpenAI uses "tool_calls" as finish_reason when tool calls are present
+	stopReason := choice.FinishReason
+	if types.LengthStop(stopReason) {
+		return nil, outputTruncated(c.provider, c.model, "CompleteWithTools", stopReason, choice.Message.Content,
+			c.maxOutputTokens, resp.Usage.CompletionTokens)
+	}
+	if stopReason == "tool_calls" {
+		stopReason = "tool_use" // Standardize on "tool_use"
+	}
+
+	return &LLMToolResponse{
+		Text:       choice.Message.Content,
+		ToolCalls:  toolCalls,
+		StopReason: stopReason,
+		Usage:      resp.Usage.metadata(),
+	}, nil
+}
+
+// completeNonStreaming performs a non-streaming completion request.
+//
+// The HTTP round-trip is the shared ExecuteOpenAIRequest helper — the
+// retry/backoff/parse contract lives there, once — and this only adds the
+// client's usage accounting. Previously this was a second copy of that
+// loop, minus transient-status retry and minus cancel-aware backoff, so
+// the OpenAI tools path was strictly less resilient than the xAI/OpenRouter
+// paths that already shared the helper.
+func (c *OpenAIClient) completeNonStreaming(ctx context.Context, reqBody OpenAIRequest) (*OpenAIResponse, error) {
+	if c.apiKey == "" {
+		return nil, fmt.Errorf("API key not configured")
+	}
+	openAIResp, err := ExecuteOpenAIRequest(ctx, c.httpClient, c.baseURL, c.apiKey, reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	// Tracked here rather than at each caller: this is the single
+	// non-streaming HTTP path on this client, so every billed request is
+	// counted exactly once even when a caller retries at a higher level.
+	reportUsage(ctx, reqBody.Model, c.provider, usageOpFor(len(reqBody.Tools)), openAIResp.Usage.metadata())
+
+	return openAIResp, nil
+}
+
+// ModelIdentity reports the provider and model this client serves, satisfying
+// types.ModelIdentifier. The provider is the recorded one rather than a
+// hardcoded "openai": this client also fronts OpenAI-compatible vendors, and
+// pinning an atom to the wrong vendor is exactly the leak pinning exists to
+// stop.
+func (c *OpenAIClient) ModelIdentity() (string, string) {
+	provider := string(c.provider)
+	if provider == "" {
+		provider = string(ProviderOpenAI)
+	}
+	return provider, c.model
+}

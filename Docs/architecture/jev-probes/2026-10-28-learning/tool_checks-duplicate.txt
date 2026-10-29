@@ -1,0 +1,10 @@
+duplicate check: any = P(one existing tool already does this); which = Choice top option (its probability)
+dup-json-valid     any=0.97 which=json_validator         (1.00) want=json_validator model=jev-1.14.0
+dup-yaml-json      any=0.80 which=yaml_to_json           (1.00) want=yaml_to_json model=jev-1.14.0
+dup-todos          any=0.97 which=todo_finder            (1.00) want=todo_finder model=jev-1.14.0
+dup-imports        any=0.85 which=go_import_lister       (1.00) want=go_import_lister model=jev-1.14.0
+hard-loc-per-pkg   any=0.07 which=line_counter           (0.92) want=(none) model=jev-1.14.0
+hard-local-links   any=0.07 which=markdown_link_checker  (1.00) want=(none) model=jev-1.14.0
+neg-json-yaml      any=0.05 which=yaml_to_json           (0.98) want=(none) model=jev-1.14.0
+neg-getenv         any=0.04 which=todo_finder            (0.81) want=(none) model=jev-1.14.0
+neg-complexity     any=0.02 which=todo_finder            (0.58) want=(none) model=jev-1.14.0

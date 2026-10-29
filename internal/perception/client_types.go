@@ -1,0 +1,858 @@
+package perception
+
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"time"
+
+	"codenerd/internal/config"
+	"codenerd/internal/types"
+)
+
+// APIErrorCode is an error code from an LLM API error body, which providers
+// (notably OpenRouter, whose upstream can fail mid-request and still return
+// HTTP 200) may emit as either a JSON string or a JSON number. Numeric codes
+// are stored as their decimal text.
+type APIErrorCode string
+
+// UnmarshalJSON accepts a JSON string, a JSON number, or null (stored empty).
+func (c *APIErrorCode) UnmarshalJSON(b []byte) error {
+	s := string(b)
+	if s == "null" {
+		*c = ""
+		return nil
+	}
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		var str string
+		if err := json.Unmarshal(b, &str); err != nil {
+			return fmt.Errorf("failed to unmarshal API error code: %w", err)
+		}
+		*c = APIErrorCode(str)
+		return nil
+	}
+	var num json.Number
+	if err := json.Unmarshal(b, &num); err != nil {
+		return fmt.Errorf("failed to unmarshal API error code: %w", err)
+	}
+	*c = APIErrorCode(num.String())
+	return nil
+}
+
+// HTTPStatus returns the integer HTTP status when the code is all digits.
+func (c APIErrorCode) HTTPStatus() (int, bool) {
+	if c == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(string(c))
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// LLMClient defines the interface for LLM providers.
+// This is an alias to types.LLMClient for backward compatibility within the perception package.
+type LLMClient = types.LLMClient
+
+// ToolDefinition describes a tool that the LLM can invoke.
+// Alias to types.ToolDefinition for package compatibility.
+type ToolDefinition = types.ToolDefinition
+
+// ToolCall represents a tool invocation requested by the LLM.
+// Alias to types.ToolCall for package compatibility.
+type ToolCall = types.ToolCall
+
+// ToolResult represents the result of executing a tool.
+type ToolResult struct {
+	ToolUseID string `json:"tool_use_id"` // Matches ToolCall.ID
+	Content   string `json:"content"`     // Result content
+	IsError   bool   `json:"is_error"`    // Whether this is an error result
+}
+
+// LLMToolResponse contains both text response and tool calls from the LLM.
+// Alias to types.LLMToolResponse for package compatibility.
+type LLMToolResponse = types.LLMToolResponse
+
+// Provider represents an LLM provider.
+type Provider string
+
+const (
+	ProviderZAI        Provider = "zai"
+	ProviderAnthropic  Provider = "anthropic"
+	ProviderOpenAI     Provider = "openai"
+	ProviderGemini     Provider = "gemini"
+	ProviderXAI        Provider = "xai"
+	ProviderOpenRouter Provider = "openrouter"
+	ProviderOllama     Provider = "ollama" // local Ollama chat (OpenAI-compatible /v1)
+
+	// OpenAI-compatible direct vendors. These share one client implementation
+	// (OpenAICompatClient) and differ only by base URL plus a small set of
+	// vendor-specific request/response fields.
+	ProviderDashScope Provider = "dashscope" // Alibaba Model Studio (Qwen)
+	ProviderMeta      Provider = "meta"      // Meta Model API (Muse Spark)
+	ProviderMoonshot  Provider = "moonshot"  // Moonshot AI (Kimi)
+)
+
+// ZAIConfig holds configuration for ZAI client.
+type ZAIConfig struct {
+	APIKey           string
+	BaseURL          string
+	Model            string
+	Timeout          time.Duration
+	DisableSemaphore bool // Set true when using external APIScheduler for concurrency control
+	MaxRetries       int
+	RetryBackoffBase time.Duration
+	RetryBackoffMax  time.Duration
+	RateLimitDelay   time.Duration
+	StreamingTimeout time.Duration
+	MaxOutputTokens  int // completion ceiling; zero uses the client default
+}
+
+// AnthropicConfig holds configuration for Anthropic client.
+type AnthropicConfig struct {
+	APIKey          string
+	BaseURL         string
+	Model           string
+	Timeout         time.Duration
+	MaxOutputTokens int // completion ceiling; zero uses the client default
+	// MaxInputTokens is the slot's input cap (max_input_tokens); zero is none.
+	// A larger request is refused before it is sent (admitInput).
+	MaxInputTokens  int
+	Options         config.AnthropicProviderConfig
+	ReasoningEffort string
+}
+
+// OpenAIConfig holds configuration for OpenAI client.
+type OpenAIConfig struct {
+	APIKey          string
+	BaseURL         string
+	Model           string
+	Timeout         time.Duration
+	MaxOutputTokens int // completion ceiling; zero uses the client default
+}
+
+// GeminiConfig holds configuration for Gemini client.
+type GeminiConfig struct {
+	APIKey          string
+	BaseURL         string
+	Model           string
+	Timeout         time.Duration
+	MaxOutputTokens int // Maximum tokens in response (default: 65536 for Gemini 3)
+
+	// Thinking mode settings (Gemini 3)
+	EnableThinking bool   // Set true to enable thinking/reasoning mode
+	ThinkingLevel  string // For Gemini 3: "minimal", "low", "medium" (API default), "high" — lowercase required
+
+	// Built-in tools
+	EnableGoogleSearch bool     // Enable Google Search grounding
+	EnableURLContext   bool     // Enable URL context tool
+	URLContextURLs     []string // URLs to include for context (max 20)
+}
+
+// XAIConfig holds configuration for xAI client.
+type XAIConfig struct {
+	APIKey          string
+	BaseURL         string
+	Model           string
+	Timeout         time.Duration
+	MaxOutputTokens int // completion ceiling; zero uses the client default
+}
+
+// OpenRouterConfig holds configuration for OpenRouter client.
+type OpenRouterConfig struct {
+	APIKey          string
+	BaseURL         string
+	Model           string
+	Timeout         time.Duration
+	SiteURL         string // Optional
+	SiteName        string // Optional
+	MaxOutputTokens int    // completion ceiling; zero uses the client default
+}
+
+// ZAIStreamOptions configures streaming behavior.
+type ZAIStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
+// ZAIResponseFormat enforces structured output (JSON schema).
+type ZAIResponseFormat struct {
+	Type       string         `json:"type"` // "json_schema"
+	JSONSchema *ZAIJSONSchema `json:"json_schema,omitzero"`
+}
+
+// ZAIJSONSchema defines the structured output schema.
+type ZAIJSONSchema struct {
+	Name   string         `json:"name"`
+	Strict bool           `json:"strict"`
+	Schema map[string]any `json:"schema"`
+}
+
+// ZAIThinking enables extended reasoning mode.
+type ZAIThinking struct {
+	Type         string `json:"type"`                   // "enabled"
+	BudgetTokens int    `json:"budget_tokens,omitzero"` // Optional token budget
+}
+
+// ZAIMessage represents a message in the conversation.
+type ZAIMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// ZAIRequest represents the API request structure (Enhanced for v1.2.0).
+type ZAIRequest struct {
+	Model          string             `json:"model"`
+	Messages       []ZAIMessage       `json:"messages"`
+	MaxTokens      int                `json:"max_tokens,omitzero"`
+	Temperature    float64            `json:"temperature,omitzero"`
+	TopP           float64            `json:"top_p,omitzero"`
+	Stream         bool               `json:"stream,omitzero"`
+	StreamOptions  *ZAIStreamOptions  `json:"stream_options,omitzero"`
+	ResponseFormat *ZAIResponseFormat `json:"response_format,omitzero"` // Structured output
+	Thinking       *ZAIThinking       `json:"thinking,omitzero"`        // Extended reasoning
+	Tools          []OpenAITool       `json:"tools,omitzero"`
+	ToolChoice     any                `json:"tool_choice,omitzero"`
+}
+
+// ZAIResponse represents the API response structure (Enhanced for v1.2.0).
+type ZAIResponse struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Created int64  `json:"created"`
+	Model   string `json:"model"`
+	Choices []struct {
+		Index   int `json:"index"`
+		Message struct {
+			Role      string           `json:"role"`
+			Content   string           `json:"content"`
+			ToolCalls []OpenAIToolCall `json:"tool_calls,omitzero"`
+		} `json:"message"`
+		Delta *struct { // For streaming
+			Role      string           `json:"role,omitzero"`
+			Content   string           `json:"content,omitzero"`
+			ToolCalls []OpenAIToolCall `json:"tool_calls,omitzero"`
+		} `json:"delta,omitzero"`
+		FinishReason string `json:"finish_reason"`
+	} `json:"choices"`
+	Usage chatUsage `json:"usage"`
+	Error *struct {
+		Message string       `json:"message"`
+		Type    string       `json:"type"`
+		Code    APIErrorCode `json:"code"`
+	} `json:"error,omitzero"`
+}
+
+// AnthropicMessage represents a message (supports both text and tool results).
+type AnthropicMessage struct {
+	Role    string `json:"role"`
+	Content any    `json:"content"` // Can be string or []AnthropicContentBlock
+}
+
+// AnthropicContentBlock represents a content block in a message.
+//
+// Thinking is carried in the vendor's own two shapes rather than one of ours.
+// A "thinking" block pairs the reasoning text with a `signature` that must be
+// replayed byte-for-byte and in position, and a "redacted_thinking" block has
+// no readable text at all — only an opaque `data` blob that must likewise be
+// replayed. Sending a thinking block back without its attestation, or after
+// the tool_use blocks it preceded, degrades or fails extended thinking.
+type AnthropicContentBlock struct {
+	Type      string         `json:"type"`                 // "text", "thinking", "redacted_thinking", "tool_use", "tool_result"
+	Text      string         `json:"text,omitzero"`        // For text blocks
+	Thinking  string         `json:"thinking,omitzero"`    // For thinking blocks
+	Signature string         `json:"signature,omitzero"`   // For thinking blocks: verbatim attestation
+	Data      string         `json:"data,omitzero"`        // For redacted_thinking blocks: opaque blob
+	ID        string         `json:"id,omitzero"`          // For tool_use blocks
+	Name      string         `json:"name,omitzero"`        // For tool_use blocks
+	Input     map[string]any `json:"input,omitzero"`       // For tool_use blocks
+	ToolUseID string         `json:"tool_use_id,omitzero"` // For tool_result blocks
+	Content   string         `json:"content,omitzero"`     // For tool_result blocks (result content)
+	IsError   bool           `json:"is_error,omitzero"`    // For tool_result blocks
+	// CacheControl marks the block as a prompt-cache breakpoint. The tool
+	// loop sets it on the last block of the newest turn only, never on a
+	// thinking block (the endpoint rejects it there).
+	CacheControl *AnthropicCacheControl `json:"cache_control,omitzero"`
+	// Citations are the sources a text block cites (a web search result, a
+	// fetched page). Read for grounding; a text block replayed from the
+	// conversation history carries none.
+	Citations []AnthropicCitation `json:"citations,omitzero"`
+
+	// ServerContent is a server tool result's content as returned: a list of
+	// results on success, an error object on failure (anthropicServerResults
+	// branches on which).
+	ServerContent json.RawMessage `json:"-"`
+	// Raw is a server-tool block, or a cited text block, exactly as the
+	// response carried it. It is what the block is sent back as, byte for
+	// byte (MarshalJSON).
+	Raw json.RawMessage `json:"-"`
+}
+
+// AnthropicCitation is one source a text block cites. Only the location is
+// read; the rest of the citation rides the response's raw block.
+type AnthropicCitation struct {
+	Type  string `json:"type,omitzero"`
+	URL   string `json:"url,omitzero"`
+	Title string `json:"title,omitzero"`
+}
+
+// anthropicServerBlockTypes are the content blocks Anthropic's server-side
+// tools produce inside a request. The endpoint ran them; codeNERD keeps them
+// verbatim and never executes them.
+var anthropicServerBlockTypes = map[string]bool{
+	"server_tool_use":        true,
+	"web_search_tool_result": true,
+	"web_fetch_tool_result":  true,
+}
+
+// UnmarshalJSON keeps a server-tool block whole: its result content is a list
+// or an object, which no field of a text or tool block can hold, and it must
+// be replayed exactly as it came. Every other block decodes field by field.
+func (b *AnthropicContentBlock) UnmarshalJSON(data []byte) error {
+	var head struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &head); err != nil {
+		return err
+	}
+	if anthropicServerBlockTypes[head.Type] {
+		var server struct {
+			ID        string          `json:"id"`
+			Name      string          `json:"name"`
+			ToolUseID string          `json:"tool_use_id"`
+			Content   json.RawMessage `json:"content"`
+		}
+		if err := json.Unmarshal(data, &server); err != nil {
+			return fmt.Errorf("decode Anthropic %s block: %w", head.Type, err)
+		}
+		*b = AnthropicContentBlock{
+			Type: head.Type, ID: server.ID, Name: server.Name, ToolUseID: server.ToolUseID,
+			ServerContent: server.Content,
+			Raw:           append(json.RawMessage(nil), data...),
+		}
+		return nil
+	}
+	type block AnthropicContentBlock
+	var decoded block
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	// A cited text block keeps its whole citations (cited text, encrypted
+	// index) only as returned, and a pause_turn resumption sends it back so.
+	if len(decoded.Citations) > 0 {
+		decoded.Raw = append(json.RawMessage(nil), data...)
+	}
+	*b = AnthropicContentBlock(decoded)
+	return nil
+}
+
+// MarshalJSON replays a server-tool block exactly as it was returned, and
+// preserves the required thinking field even when the provider returned an
+// empty summary (thinking.display=omitted). The signed block must be replayed
+// with its original empty text, rather than dropping the field.
+func (b AnthropicContentBlock) MarshalJSON() ([]byte, error) {
+	type block AnthropicContentBlock
+	if len(b.Raw) > 0 {
+		return b.Raw, nil
+	}
+	if b.Type == "thinking" {
+		return json.Marshal(struct {
+			block
+			Thinking string `json:"thinking"`
+		}{block: block(b), Thinking: b.Thinking})
+	}
+	return json.Marshal(block(b))
+}
+
+// AnthropicTool represents a tool definition for Anthropic API.
+type AnthropicTool struct {
+	// Type names a server tool's version (web_search_20250305, ...); a
+	// codeNERD tool has none.
+	Type        string         `json:"type,omitzero"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitzero"`
+	InputSchema map[string]any `json:"input_schema,omitzero"`
+	Strict      bool           `json:"strict,omitempty"`
+	// MaxUses caps a server tool's uses in one request.
+	MaxUses int `json:"max_uses,omitzero"`
+}
+
+type AnthropicThinking struct {
+	Type         string `json:"type"`
+	BudgetTokens int    `json:"budget_tokens,omitempty"`
+	Display      string `json:"display,omitempty"`
+	// BlockBinding says what the endpoint does with a replayed thinking block
+	// made under a different prefix (bindThinkingToPrefix).
+	BlockBinding *AnthropicBlockBinding `json:"block_binding,omitempty"`
+}
+
+// AnthropicBlockBinding is thinking.block_binding.
+type AnthropicBlockBinding struct {
+	PrefixMismatchBehavior string `json:"prefix_mismatch_behavior"`
+}
+
+type AnthropicOutputConfig struct {
+	Effort string                 `json:"effort,omitempty"`
+	Format *AnthropicOutputFormat `json:"format,omitempty"`
+}
+
+type AnthropicOutputFormat struct {
+	Type   string         `json:"type"`
+	Schema map[string]any `json:"schema"`
+}
+
+// AnthropicRequest represents the Anthropic API request.
+type AnthropicRequest struct {
+	Model        string                 `json:"model"`
+	MaxTokens    int                    `json:"max_tokens"`
+	System       string                 `json:"system,omitzero"`
+	Messages     []AnthropicMessage     `json:"messages"`
+	Tools        []AnthropicTool        `json:"tools,omitzero"`
+	Thinking     *AnthropicThinking     `json:"thinking,omitempty"`
+	OutputConfig *AnthropicOutputConfig `json:"output_config,omitempty"`
+	Stream       bool                   `json:"stream,omitzero"`
+}
+
+// NERD-EVOLVE-START: P1P2-prompt-caching
+// AnthropicCacheControl marks a content block as eligible for prompt caching.
+// Supported types: "ephemeral" (5-minute TTL, billed at 1.25x write / 0.1x read).
+type AnthropicCacheControl struct {
+	Type string `json:"type"` // "ephemeral"
+}
+
+// AnthropicSystemCacheBlock is a structured system content block with optional cache_control.
+// Used when the caller wants to cache the system prompt via the Anthropic prompt-caching API.
+// Per the Anthropic API spec, the "system" field accepts either a plain string or an array
+// of these blocks. The anthopicCachedRequest type handles the polymorphism.
+type AnthropicSystemCacheBlock struct {
+	Type         string                 `json:"type"` // always "text"
+	Text         string                 `json:"text"`
+	CacheControl *AnthropicCacheControl `json:"cache_control,omitzero"`
+}
+
+// anthropicCachedRequest is a variant of AnthropicRequest where System is replaced
+// by a structured []AnthropicSystemCacheBlock for prompt caching. It is only used
+// when building the actual HTTP payload — never exposed through public interfaces.
+type anthropicCachedRequest struct {
+	Model        string                      `json:"model"`
+	MaxTokens    int                         `json:"max_tokens"`
+	System       []AnthropicSystemCacheBlock `json:"system,omitzero"`
+	Messages     []AnthropicMessage          `json:"messages"`
+	Tools        []AnthropicTool             `json:"tools,omitzero"`
+	Thinking     *AnthropicThinking          `json:"thinking,omitempty"`
+	OutputConfig *AnthropicOutputConfig      `json:"output_config,omitempty"`
+	Stream       bool                        `json:"stream,omitzero"`
+}
+
+// NERD-EVOLVE-END: P1P2-prompt-caching
+
+// anthropicUsage is the usage block of a Messages response. Anthropic bills
+// the prompt in three parts: input_tokens is only the uncached remainder, and
+// the cache write and cache read are reported beside it.
+type anthropicUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitzero"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitzero"`
+	// ServerToolUse counts the server tools a request ran, which are billed
+	// per use on top of tokens.
+	ServerToolUse anthropicServerToolUse `json:"server_tool_use,omitzero"`
+}
+
+// anthropicServerToolUse is the usage block's count of server tool runs.
+type anthropicServerToolUse struct {
+	WebSearchRequests int `json:"web_search_requests,omitzero"`
+	WebFetchRequests  int `json:"web_fetch_requests,omitzero"`
+}
+
+// plus is the usage of two requests that served one turn (a pause_turn
+// resumption): each was billed, so every count adds.
+func (u anthropicUsage) plus(v anthropicUsage) anthropicUsage {
+	return anthropicUsage{
+		InputTokens:              u.InputTokens + v.InputTokens,
+		OutputTokens:             u.OutputTokens + v.OutputTokens,
+		CacheCreationInputTokens: u.CacheCreationInputTokens + v.CacheCreationInputTokens,
+		CacheReadInputTokens:     u.CacheReadInputTokens + v.CacheReadInputTokens,
+		ServerToolUse: anthropicServerToolUse{
+			WebSearchRequests: u.ServerToolUse.WebSearchRequests + v.ServerToolUse.WebSearchRequests,
+			WebFetchRequests:  u.ServerToolUse.WebFetchRequests + v.ServerToolUse.WebFetchRequests,
+		},
+	}
+}
+
+// promptTokens is the whole prompt the request carried: the uncached
+// remainder plus what was written to and read from the cache. The broker's
+// contract is that InputTokens includes cache reads (internal/broker/broker.go
+// settle), and Anthropic is the provider that reports them apart, so this is
+// the one place they are folded back together.
+func (u anthropicUsage) promptTokens() int {
+	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+}
+
+// usageMetadata projects the usage block onto the neutral shape: input is the
+// whole prompt, with the cache read and write recorded as sub-counts of it.
+// Anthropic always reports both cache categories (zero when no cache was
+// touched), so they are known whenever totals are. It reports no reasoning
+// sub-count: thinking is inside output_tokens and stays unknown.
+func (u anthropicUsage) usageMetadata() types.UsageMetadata {
+	in := u.promptTokens()
+	m := types.UsageMetadata{
+		InputTokens:         in,
+		OutputTokens:        u.OutputTokens,
+		TotalTokens:         in + u.OutputTokens,
+		CachedContentTokens: u.CacheReadInputTokens,
+		CacheWriteTokens:    u.CacheCreationInputTokens,
+	}
+	if in > 0 || u.OutputTokens > 0 {
+		m.Known = types.UsageTokens | types.UsageCacheRead | types.UsageCacheWrite
+	}
+	return m
+}
+
+// AnthropicResponse represents the API response.
+type AnthropicResponse struct {
+	ID      string                  `json:"id"`
+	Type    string                  `json:"type"`
+	Role    string                  `json:"role"`
+	Content []AnthropicContentBlock `json:"content"`
+	Model   string                  `json:"model"`
+	// StopReason: "end_turn" for normal completion, "tool_use" when tools are invoked
+	StopReason   string         `json:"stop_reason"`
+	StopSequence string         `json:"stop_sequence"`
+	Usage        anthropicUsage `json:"usage"`
+	Error        *struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	} `json:"error,omitzero"`
+}
+
+// OpenAITool represents a tool definition for OpenAI-compatible APIs.
+type OpenAITool struct {
+	Type     string         `json:"type"` // "function"
+	Function OpenAIFunction `json:"function"`
+}
+
+// OpenAIFunction represents the function definition.
+type OpenAIFunction struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitzero"`
+	Parameters  map[string]any `json:"parameters"`
+}
+
+// OpenAIToolCall represents a tool call invocation in the response.
+type OpenAIToolCall struct {
+	ID       string             `json:"id"`
+	Type     string             `json:"type"` // "function"
+	Function OpenAIFunctionCall `json:"function"`
+}
+
+// OpenAIFunctionCall represents the function call details.
+type OpenAIFunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"` // JSON string
+}
+
+// OpenAIStreamOptions configures streaming behavior.
+type OpenAIStreamOptions struct {
+	IncludeUsage bool `json:"include_usage,omitzero"`
+}
+
+// OpenAIMessage represents a message.
+// Tool-calling multi-turn fields follow the OpenAI Chat Completions schema
+// (also used by xAI and other OpenAI-compatible providers).
+type OpenAIMessage struct {
+	Role       string           `json:"role"`
+	Content    string           `json:"content"`
+	ToolCalls  []OpenAIToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
+	Name       string           `json:"name,omitempty"`
+}
+
+// OpenAIRequest represents the OpenAI API request.
+//
+// The trailing fields are optional extensions used by specific OpenAI-compatible
+// vendors. All are `omitzero`, so they are absent from the wire payload unless a
+// client explicitly sets them — providers that don't understand them never see them.
+type OpenAIRequest struct {
+	Model          string               `json:"model"`
+	Messages       []OpenAIMessage      `json:"messages"`
+	MaxTokens      int                  `json:"max_tokens,omitzero"`
+	Temperature    float64              `json:"temperature,omitzero"`
+	Stream         bool                 `json:"stream,omitzero"`
+	StreamOptions  *OpenAIStreamOptions `json:"stream_options,omitzero"`
+	ResponseFormat *ZAIResponseFormat   `json:"response_format,omitzero"`
+	Tools          []OpenAITool         `json:"tools,omitzero"`
+	ToolChoice     any                  `json:"tool_choice,omitzero"`
+
+	TopP float64 `json:"top_p,omitzero"`
+
+	// MaxCompletionTokens is the modern replacement for MaxTokens. Meta's Model
+	// API accepts both but documents max_tokens as deprecated.
+	MaxCompletionTokens int `json:"max_completion_tokens,omitzero"`
+
+	// ReasoningEffort selects how much the model thinks before answering.
+	// Meta Muse Spark accepts minimal|low|medium|high|xhigh — "none" is rejected
+	// with HTTP 400, so never emit it.
+	ReasoningEffort string `json:"reasoning_effort,omitzero"`
+
+	// EnableThinking / ThinkingBudget are Alibaba DashScope's reasoning controls.
+	// A pointer so that an explicit false ("thinking off") is distinguishable
+	// from "unset", which matters because the two produce different behavior.
+	EnableThinking *bool `json:"enable_thinking,omitzero"`
+	ThinkingBudget int   `json:"thinking_budget,omitzero"`
+}
+
+// OpenAIResponse represents the API response.
+type OpenAIResponse struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Created int64  `json:"created"`
+	Model   string `json:"model"`
+	Choices []struct {
+		Index   int `json:"index"`
+		Message struct {
+			Role      string           `json:"role"`
+			Content   string           `json:"content"`
+			ToolCalls []OpenAIToolCall `json:"tool_calls,omitzero"`
+			// ReasoningContent carries the model's thinking trace on vendors that
+			// return it out-of-band (DashScope/Qwen). It must never be folded into
+			// Content: callers parse Content as JSON for structured output, and
+			// prepending prose reasoning breaks that parse.
+			ReasoningContent string `json:"reasoning_content,omitzero"`
+		} `json:"message"`
+		Delta *struct { // For streaming
+			Role             string           `json:"role,omitzero"`
+			Content          string           `json:"content,omitzero"`
+			ToolCalls        []OpenAIToolCall `json:"tool_calls,omitzero"`
+			ReasoningContent string           `json:"reasoning_content,omitzero"`
+		} `json:"delta,omitzero"`
+		FinishReason string `json:"finish_reason"`
+	} `json:"choices"`
+	Usage chatUsage `json:"usage"`
+	Error *struct {
+		Message string       `json:"message"`
+		Type    string       `json:"type"`
+		Code    APIErrorCode `json:"code"`
+	} `json:"error,omitzero"`
+}
+
+// GeminiContent represents content in the request.
+type GeminiContent struct {
+	Role  string       `json:"role,omitzero"`
+	Parts []GeminiPart `json:"parts"`
+}
+
+// GeminiInlineData represents inline base64 data for multimodal inputs.
+type GeminiInlineData struct {
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"`
+}
+
+// GeminiFileData represents a GCS file reference for multimodal inputs.
+type GeminiFileData struct {
+	MimeType string `json:"mimeType"`
+	FileURI  string `json:"fileUri"`
+}
+
+// GeminiMediaResolution configures per-part media resolution.
+type GeminiMediaResolution struct {
+	Level string `json:"level,omitzero"` // media_resolution_low/medium/high/ultra_high
+}
+
+// GeminiPart represents a part of the content.
+type GeminiPart struct {
+	Text             string                  `json:"text,omitzero"`
+	Thought          bool                    `json:"thought,omitzero"` // True if this part contains thinking/reasoning content
+	InlineData       *GeminiInlineData       `json:"inlineData,omitzero"`
+	FileData         *GeminiFileData         `json:"fileData,omitzero"`
+	FunctionCall     *GeminiFunctionCall     `json:"functionCall,omitzero"`
+	FunctionResponse *GeminiFunctionResponse `json:"functionResponse,omitzero"`
+	ThoughtSignature string                  `json:"thoughtSignature,omitzero"`
+	MediaResolution  *GeminiMediaResolution  `json:"mediaResolution,omitzero"`
+}
+
+// GeminiFunctionCall represents a function call from the model.
+type GeminiFunctionCall struct {
+	Name             string         `json:"name"`
+	Args             map[string]any `json:"args"`
+	ThoughtSignature string         `json:"thoughtSignature,omitzero"`
+}
+
+// GeminiFunctionResponse represents a tool result sent back to the model.
+type GeminiFunctionResponse struct {
+	Name     string         `json:"name"`
+	Response map[string]any `json:"response"`
+}
+
+// GeminiThinkingConfig configures thinking/reasoning mode.
+type GeminiThinkingConfig struct {
+	IncludeThoughts bool   `json:"includeThoughts,omitzero"` // Enable thinking mode
+	ThinkingLevel   string `json:"thinkingLevel,omitzero"`   // Gemini 3: minimal/low/medium/high (lowercase)
+}
+
+// GeminiGenerationConfig represents generation parameters.
+type GeminiGenerationConfig struct {
+	Temperature      float64               `json:"temperature,omitzero"`
+	MaxOutputTokens  int                   `json:"maxOutputTokens,omitzero"`
+	ResponseMimeType string                `json:"responseMimeType,omitzero"`
+	ResponseSchema   map[string]any        `json:"responseJsonSchema,omitzero"`
+	ThinkingConfig   *GeminiThinkingConfig `json:"thinkingConfig,omitzero"` // Thinking mode settings
+}
+
+// GeminiRequest represents the Gemini API request.
+type GeminiRequest struct {
+	Contents          []GeminiContent        `json:"contents"`
+	SystemInstruction *GeminiContent         `json:"systemInstruction,omitzero"`
+	GenerationConfig  GeminiGenerationConfig `json:"generationConfig"`
+	Tools             []GeminiTool           `json:"tools,omitzero"`
+	// ThoughtSignature is required for multi-turn function calling (Gemini 3)
+	// Must be passed back in subsequent turns for reasoning continuity
+	ThoughtSignature string `json:"thoughtSignature,omitzero"`
+	SessionID        string `json:"sessionId,omitzero"`
+	// CachedContent is a resource name of cached context content
+	CachedContent string `json:"cachedContent,omitzero"`
+}
+
+// GeminiGoogleSearch represents the Google Search grounding tool.
+type GeminiGoogleSearch struct {
+	// Empty struct - Google Search is enabled by presence
+}
+
+// GeminiURLContext represents the URL context tool for grounding.
+type GeminiURLContext struct {
+	URLs []string `json:"urls,omitzero"` // Max 20 URLs, 34MB per URL
+}
+
+// GeminiTool represents a tool declaration for function calling or built-in tools.
+type GeminiTool struct {
+	FunctionDeclarations []GeminiFunctionDeclaration `json:"functionDeclarations,omitzero"`
+	GoogleSearch         *GeminiGoogleSearch         `json:"googleSearch,omitzero"` // Built-in Google Search
+	URLContext           *GeminiURLContext           `json:"urlContext,omitzero"`   // Built-in URL Context
+}
+
+// GeminiFunctionDeclaration represents a function declaration.
+type GeminiFunctionDeclaration struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters,omitzero"`
+}
+
+// GeminiGroundingChunk represents a chunk of grounding data from Google Search.
+type GeminiGroundingChunk struct {
+	Web *struct {
+		URI   string `json:"uri"`
+		Title string `json:"title"`
+	} `json:"web,omitzero"`
+}
+
+// GeminiGroundingSupport represents grounding support for a segment of text.
+type GeminiGroundingSupport struct {
+	Segment struct {
+		StartIndex int    `json:"startIndex"`
+		EndIndex   int    `json:"endIndex"`
+		Text       string `json:"text"`
+	} `json:"segment"`
+	GroundingChunkIndices []int     `json:"groundingChunkIndices"`
+	ConfidenceScores      []float64 `json:"confidenceScores"`
+}
+
+// GeminiSearchEntryPoint represents a search entry point for grounding.
+type GeminiSearchEntryPoint struct {
+	RenderedContent string `json:"renderedContent,omitzero"`
+	SDKBlob         string `json:"sdkBlob,omitzero"`
+}
+
+// GeminiGroundingMetadata contains grounding information from Google Search.
+type GeminiGroundingMetadata struct {
+	GroundingChunks   []GeminiGroundingChunk   `json:"groundingChunks,omitzero"`
+	GroundingSupports []GeminiGroundingSupport `json:"groundingSupports,omitzero"`
+	WebSearchQueries  []string                 `json:"webSearchQueries,omitzero"`
+	SearchEntryPoint  *GeminiSearchEntryPoint  `json:"searchEntryPoint,omitzero"`
+	RetrievalMetadata map[string]any           `json:"retrievalMetadata,omitzero"`
+}
+
+// GeminiResponseCandidate represents a single response candidate.
+type GeminiResponseCandidate struct {
+	Content struct {
+		Parts []GeminiResponsePart `json:"parts"`
+		Role  string               `json:"role"`
+	} `json:"content"`
+	FinishReason      string                   `json:"finishReason"`
+	GroundingMetadata *GeminiGroundingMetadata `json:"groundingMetadata,omitzero"`
+}
+
+// GeminiResponse represents the API response.
+type GeminiResponse struct {
+	Candidates    []GeminiResponseCandidate `json:"candidates"`
+	UsageMetadata geminiUsage               `json:"usageMetadata"`
+	// ThoughtSummary contains a provider-supplied summary, separate from task output.
+	ThoughtSummary string `json:"thoughtSummary,omitzero"`
+	// ThoughtSignature is an encrypted blob for multi-turn function calling (Gemini 3)
+	// Must be passed back in subsequent turns for the model to maintain reasoning context
+	ThoughtSignature string `json:"thoughtSignature,omitzero"`
+	Error            *struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Status  string `json:"status"`
+	} `json:"error,omitzero"`
+}
+
+// GeminiResponsePart represents a part of the response content.
+type GeminiResponsePart struct {
+	Text             string              `json:"text,omitzero"`
+	Thought          bool                `json:"thought,omitzero"` // True if this part contains thinking/reasoning content
+	InlineData       *GeminiInlineData   `json:"inlineData,omitzero"`
+	FileData         *GeminiFileData     `json:"fileData,omitzero"`
+	FunctionCall     *GeminiFunctionCall `json:"functionCall,omitzero"`
+	ThoughtSignature string              `json:"thoughtSignature,omitzero"`
+}
+
+// GeminiFile represents a file in the Gemini Files API.
+type GeminiFile struct {
+	Name        string `json:"name"` // Resource name: files/123...
+	DisplayName string `json:"displayName"`
+	MimeType    string `json:"mimeType"`
+	SizeBytes   int64  `json:"sizeBytes,string,omitzero"`
+	CreateTime  string `json:"createTime"`
+	UpdateTime  string `json:"updateTime"`
+	Expiration  string `json:"expirationTime"`
+	SHA256Hash  string `json:"sha256Hash"`
+	URI         string `json:"uri"`
+	State       string `json:"state"` // STATE_UNSPECIFIED, PROCESSING, ACTIVE, FAILED
+	Error       *struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	} `json:"error,omitzero"`
+}
+
+// GeminiCachedContent represents a context cache resource.
+type GeminiCachedContent struct {
+	Name        string          `json:"name"` // cachedContents/123...
+	DisplayName string          `json:"displayName"`
+	Model       string          `json:"model"`
+	CreateTime  string          `json:"createTime"`
+	UpdateTime  string          `json:"updateTime"`
+	ExpireTime  string          `json:"expireTime"`
+	TTL         string          `json:"ttl,omitzero"` // Input only (e.g. "3600s")
+	Contents    []GeminiContent `json:"contents,omitzero"`
+}
+
+// GeminiListFilesResponse represents the response from ListFiles.
+type GeminiListFilesResponse struct {
+	Files []GeminiFile `json:"files"`
+}
+
+// GeminiListCachedContentsResponse represents the response from ListContextCaches.
+type GeminiListCachedContentsResponse struct {
+	CachedContents []GeminiCachedContent `json:"cachedContents"`
+}
+
+// XAI uses OpenAI-compatible API format
+type XAIRequest = OpenAIRequest
+type XAIMessage = OpenAIMessage
+type XAIResponse = OpenAIResponse
+
+// OpenRouter uses OpenAI-compatible request/response format
+type OpenRouterRequest = OpenAIRequest
+type OpenRouterMessage = OpenAIMessage
+type OpenRouterResponse = OpenAIResponse

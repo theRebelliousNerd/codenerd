@@ -1,0 +1,652 @@
+package core
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/mangle"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/factstore"
+)
+
+// filterBootFacts removes ephemeral facts from boot facts to ensure quiescent boot.
+// This prevents stale user_intent, pending_action, etc. from triggering action derivation at boot.
+func filterBootFacts(bootFacts []Fact) []Fact {
+	if len(bootFacts) == 0 {
+		return bootFacts
+	}
+
+	persistentFacts := make([]Fact, 0, len(bootFacts))
+	filteredCount := 0
+	for _, fact := range bootFacts {
+		if IsEphemeral(fact.Predicate) {
+			logging.KernelDebug("Filtering ephemeral fact from boot: %s", fact.Predicate)
+			filteredCount++
+			continue
+		}
+		persistentFacts = append(persistentFacts, fact)
+	}
+	if filteredCount > 0 {
+		logging.Kernel("Filtered %d ephemeral facts from boot (quiescent boot)", filteredCount)
+	}
+	return persistentFacts
+}
+
+// newRealKernelBase builds the shared RealKernel skeleton. Every constructor
+// must start here so no kernel boots with a nil event bus, fact index, or
+// store. (NewRealKernelWithPath once skipped the event bus, leaving shard
+// kernels with a nil bus whose Subscribe would panic.)
+func newRealKernelBase() *RealKernel {
+	return &RealKernel{
+		facts:             make([]Fact, 0),
+		cachedAtoms:       make([]ast.Atom, 0), // OPTIMIZATION: Initialize atom cache
+		factIndex:         newEDBIndex(),
+		bootFacts:         make([]Fact, 0),
+		bootIntents:       make([]HybridIntent, 0),
+		bootPrompts:       make([]HybridPrompt, 0),
+		store:             factstore.NewSimpleInMemoryStore(),
+		loadedPolicyFiles: make(map[string]struct{}),
+		policyDirty:       true, // Need to parse on first use
+		eventBus:          NewFactEventBus(),
+	}
+}
+
+// injectBootFacts appends EDB facts extracted from hybrid .mg files before
+// first evaluation. QUIESCENT BOOT: ephemeral facts are filtered to prevent
+// stale actions at boot.
+func (k *RealKernel) injectBootFacts() {
+	// Boot facts join the EDB through the dedupe index like every other
+	// write, so k.facts never holds two canonically equal facts. Retraction
+	// relies on that: it drops a removed fact's key from the index instead of
+	// rebuilding the index over every remaining fact.
+	k.rebuildFactIndexLocked()
+	for _, f := range filterBootFacts(k.bootFacts) {
+		if !k.factIndex.insert(k.canonFact(f), f) {
+			continue
+		}
+		k.facts = append(k.facts, f)
+	}
+}
+
+// NewRealKernel creates a new kernel instance.
+// Returns an error if the embedded constitution fails to compile (e.g., corrupted binary).
+func NewRealKernel() (*RealKernel, error) {
+	timer := logging.StartTimer(logging.CategoryKernel, "NewRealKernel")
+	logging.Kernel("Initializing new RealKernel instance")
+
+	k := newRealKernelBase()
+	logging.KernelDebug("Kernel struct created, store initialized, policyDirty=true")
+
+	// Find and load mangle files from the project
+	if err := k.loadMangleFiles(); err != nil {
+		timer.Stop()
+		return nil, fmt.Errorf("failed to load mangle files: %w", err)
+	}
+
+	k.injectBootFacts()
+
+	// Force initial evaluation to boot the Mangle engine.
+	// The embedded core MUST compile, otherwise the binary is corrupt.
+	logging.Kernel("Booting Mangle engine with embedded constitution...")
+	if err := k.evaluate(); err != nil {
+		logging.Get(logging.CategoryKernel).Error("CRITICAL: Kernel boot failed: %v", err)
+		timer.Stop()
+		return nil, fmt.Errorf("kernel failed to boot embedded constitution: %w", err)
+	}
+
+	timer.StopWithInfo()
+	logging.Kernel("Kernel initialized successfully")
+	return k, nil
+}
+
+// NewRealKernelWithWorkspace creates a kernel rooted at an explicit workspace directory.
+// This ensures `.nerd/...` resolution is stable even when the process CWD is not the workspace root.
+func NewRealKernelWithWorkspace(workspaceRoot string) (*RealKernel, error) {
+	timer := logging.StartTimer(logging.CategoryKernel, "NewRealKernelWithWorkspace")
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	if workspaceRoot != "" {
+		if abs, err := filepath.Abs(workspaceRoot); err == nil {
+			workspaceRoot = abs
+		}
+	}
+	logging.Kernel("Initializing RealKernel with workspace root: %s", workspaceRoot)
+
+	k := newRealKernelBase()
+	k.workspaceRoot = workspaceRoot
+	logging.KernelDebug("Kernel struct created with workspaceRoot=%s, policyDirty=true", workspaceRoot)
+
+	// Find and load mangle files from the project
+	if err := k.loadMangleFiles(); err != nil {
+		timer.Stop()
+		return nil, fmt.Errorf("failed to load mangle files: %w", err)
+	}
+
+	k.injectBootFacts()
+
+	// Force initial evaluation to boot the Mangle engine.
+	// The embedded core MUST compile, otherwise the binary is corrupt.
+	logging.Kernel("Booting Mangle engine with embedded constitution...")
+	if err := k.evaluate(); err != nil {
+		logging.Get(logging.CategoryKernel).Error("CRITICAL: Kernel boot failed: %v", err)
+		timer.Stop()
+		return nil, fmt.Errorf("kernel failed to boot embedded constitution: %w", err)
+	}
+
+	timer.StopWithInfo()
+	logging.Kernel("Kernel initialized successfully")
+	return k, nil
+}
+
+// NewRealKernelWithPath creates a kernel with explicit mangle path.
+// Returns an error if the kernel fails to boot.
+func NewRealKernelWithPath(manglePath string) (*RealKernel, error) {
+	timer := logging.StartTimer(logging.CategoryKernel, "NewRealKernelWithPath")
+	logging.Kernel("Initializing RealKernel with explicit path: %s", manglePath)
+
+	k := newRealKernelBase()
+	k.manglePath = manglePath
+	logging.KernelDebug("Kernel struct created with manglePath=%s", manglePath)
+
+	if err := k.loadMangleFiles(); err != nil {
+		timer.Stop()
+		return nil, fmt.Errorf("failed to load mangle files: %w", err)
+	}
+
+	k.injectBootFacts()
+
+	// Force initial evaluation
+	logging.Kernel("Booting Mangle engine...")
+	if err := k.evaluate(); err != nil {
+		logging.Get(logging.CategoryKernel).Error("CRITICAL: Kernel boot failed (path: %s): %v", manglePath, err)
+		timer.Stop()
+		return nil, fmt.Errorf("kernel failed to boot (path: %s): %w", manglePath, err)
+	}
+
+	timer.StopWithInfo()
+	logging.Kernel("Kernel with path initialized successfully")
+	return k, nil
+}
+
+// SetWorkspace sets the explicit workspace root path for .nerd directory resolution.
+// Call it after kernel creation and before the kernel is shared across
+// goroutines: nerdPath reads the root without holding the kernel lock, so a
+// late write races with in-flight evaluations. Prefer
+// NewRealKernelWithWorkspace, which sets the root before boot.
+func (k *RealKernel) SetWorkspace(root string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.workspaceRoot = root
+}
+
+// GetWorkspace returns the workspace root, or empty string if not set.
+func (k *RealKernel) GetWorkspace() string {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.workspaceRoot
+}
+
+// defaultDerivedFactLimit is the inference ceiling when neither the kernel nor
+// the process has been given one. It is a backstop against a runaway rule, not
+// a working budget. At 500,000 (the value until 2026-09-18) this repository's
+// own world model put the dreamer's pre-write simulation at 500,016 facts and
+// the safety gate refused the edit ("fact size limit layer(File,Layer) 500016 >
+// 500000"): sixteen facts over, on a rule that was not at fault.
+const defaultDerivedFactLimit = 5_000_000
+
+// Process-wide fact ceilings, installed once at boot from
+// core_limits.max_facts_in_kernel and core_limits.max_derived_facts_limit by
+// ConfigureFactLimits. They are process-wide because the limits are system-wide
+// resource constraints and one process builds many kernels (the session kernel,
+// one per system shard, every trial and dream clone), so a per-kernel setter
+// left all of them on the constants: until 2026-09-18 no production code called
+// SetMaxFacts or SetDerivedFactLimit, and the two config keys bound nothing. A
+// kernel's own Set* value still wins (rule_court sizes its sandbox's ceiling to
+// the trial).
+var (
+	configuredMaxFacts         atomic.Int64
+	configuredDerivedFactLimit atomic.Int64
+)
+
+// ConfigureFactLimits installs the process-wide EDB and derived-fact ceilings.
+// A value <= 0 leaves that ceiling on its default.
+func ConfigureFactLimits(maxFacts, derivedFactLimit int) {
+	configuredMaxFacts.Store(int64(maxFacts))
+	configuredDerivedFactLimit.Store(int64(derivedFactLimit))
+}
+
+// effectiveDerivedFactLimitLocked resolves the inference ceiling: the kernel's
+// own, else the process-wide configured one, else the default.
+// The caller must hold k.mu for reading unless the kernel is not yet shared.
+func (k *RealKernel) effectiveDerivedFactLimitLocked() int {
+	if k.derivedFactLimit > 0 {
+		return k.derivedFactLimit
+	}
+	if configured := configuredDerivedFactLimit.Load(); configured > 0 {
+		return int(configured)
+	}
+	return defaultDerivedFactLimit
+}
+
+// effectiveMaxFactsLocked resolves the EDB ceiling the same way.
+// The caller must hold k.mu for reading unless the kernel is not yet shared.
+func (k *RealKernel) effectiveMaxFactsLocked() int {
+	if k.maxFacts > 0 {
+		return k.maxFacts
+	}
+	if configured := configuredMaxFacts.Load(); configured > 0 {
+		return int(configured)
+	}
+	return defaultMaxFacts
+}
+
+// SetDerivedFactLimit sets the maximum number of derived facts during evaluation.
+// Set to 0 or negative to use the process-wide configured limit, else the default.
+func (k *RealKernel) SetDerivedFactLimit(limit int) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.derivedFactLimit = limit
+}
+
+// GetDerivedFactLimit returns the current derived fact limit.
+func (k *RealKernel) GetDerivedFactLimit() int {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.effectiveDerivedFactLimitLocked()
+}
+
+// defaultMaxFacts is the EDB ceiling when neither the kernel nor the process
+// has been given one. It is an out-of-memory backstop, not a working budget:
+// at 250,000 (the value until 2026-09-18) one bulk hydration filled it at boot
+// and the turn's own facts -- user_intent, the allowed tools -- were the ones
+// rejected, because the ceiling refuses whatever arrives last.
+const defaultMaxFacts = 2_000_000
+
+// SetMaxFacts sets the maximum number of EDB facts the kernel will accept.
+// Set to 0 or negative to use the process-wide configured limit, else the default.
+func (k *RealKernel) SetMaxFacts(limit int) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.maxFacts = limit
+}
+
+// GetMaxFacts returns the current EDB fact limit.
+func (k *RealKernel) GetMaxFacts() int {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.effectiveMaxFactsLocked()
+}
+
+// SetRepairInterceptor sets the repair interceptor for learned rule validation.
+// The interceptor is called before any learned rule is persisted, allowing
+// the MangleRepairShard to validate and repair rules.
+func (k *RealKernel) SetRepairInterceptor(interceptor LearnedRuleInterceptor) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.repairInterceptor = interceptor
+	if interceptor != nil {
+		logging.Kernel("Repair interceptor attached to kernel")
+	}
+}
+
+// GetRepairInterceptor returns the current repair interceptor, or nil if not set.
+func (k *RealKernel) GetRepairInterceptor() LearnedRuleInterceptor {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.repairInterceptor
+}
+
+// nerdPath returns the correct path for a .nerd subdirectory.
+// Uses workspaceRoot if set, otherwise returns relative path (legacy behavior).
+func (k *RealKernel) nerdPath(subpath string) string {
+	if k.workspaceRoot != "" {
+		return filepath.Join(k.workspaceRoot, ".nerd", subpath)
+	}
+	return filepath.Join(".nerd", subpath)
+}
+
+// loadMangleFiles loads schemas and policy from the embedded core and user extensions.
+// Returns an error if critical embedded files cannot be loaded.
+func (k *RealKernel) loadMangleFiles() error {
+	timer := logging.StartTimer(logging.CategoryKernel, "loadMangleFiles")
+	logging.Kernel("Loading Mangle files (schemas, policy, learned rules)")
+
+	var schemasBuilder strings.Builder
+	var policyBuilder strings.Builder
+	var learnedBuilder strings.Builder
+
+	// 1. LOAD BAKED-IN CORE (Immutable Physics)
+	// Always load these. They are the "Constitution".
+	logging.KernelDebug("Loading baked-in core (Constitution)...")
+
+	// Load Core Schemas (Modular)
+	// Load the index file first (contains core predicates and documentation).
+	// Embedded misses are fatal: a skipped schema module removes Decls and the
+	// kernel would boot hollow, deriving nothing where it should derive.
+	data, err := readRequiredEmbeddedFile(coreLogic, "defaults/schemas.mg")
+	if err != nil {
+		return err
+	}
+	schemasBuilder.Write(data)
+	logging.KernelDebug("Loaded schema index (%d bytes)", len(data))
+
+	// Load all modular schema files (schemas_*.mg) plus learning schema.
+	// This allows selective loading and better organization (modular schemas under 600 lines).
+	schemaFiles := defaultSchemaFiles
+
+	loadedSchemaBytes := 0
+	for _, schemaFile := range schemaFiles {
+		path := "defaults/" + schemaFile
+		data, err := readRequiredEmbeddedFile(coreLogic, path)
+		if err != nil {
+			return err
+		}
+		schemasBuilder.WriteString("\n\n# Schema Module: ")
+		schemasBuilder.WriteString(schemaFile)
+		schemasBuilder.WriteString("\n")
+		schemasBuilder.Write(data)
+		loadedSchemaBytes += len(data)
+		logging.KernelDebug("Loaded schema module: %s (%d bytes)", schemaFile, len(data))
+	}
+	logging.KernelDebug("Loaded modular schemas (%d bytes from %d files)", loadedSchemaBytes, len(schemaFiles))
+
+	// Load Core Policy (Stratified)
+	// Iterate over the split policy files in defaults/policy/
+	policyDir := "defaults/policy"
+	policyEntries, err := coreLogic.ReadDir(policyDir)
+	if err == nil {
+		loadedPolicyBytes := 0
+		for _, entry := range policyEntries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".mg") {
+				path := policyDir + "/" + entry.Name()
+				data, err := readRequiredEmbeddedFile(coreLogic, path)
+				if err != nil {
+					return err
+				}
+				policyBuilder.WriteString("\n\n# Policy Module: ")
+				policyBuilder.WriteString(entry.Name())
+				policyBuilder.WriteString("\n")
+				policyBuilder.Write(data)
+				loadedPolicyBytes += len(data)
+				logging.KernelDebug("Loaded policy module: %s (%d bytes)", entry.Name(), len(data))
+			}
+		}
+		logging.KernelDebug("Loaded stratified policy (%d bytes from %d files)", loadedPolicyBytes, len(policyEntries))
+	} else {
+		// Policy directory is required — no fallback to monolithic policy.mg
+		logging.Get(logging.CategoryKernel).Error("Failed to read policy directory %s: %v", policyDir, err)
+		return fmt.Errorf("critical: failed to read policy directory: %w", err)
+	}
+
+	// Load other core modules into policy
+	coreModules := DefaultCorePolicyModules()
+
+	loadedModules := 0
+	for _, mod := range coreModules {
+		data, err := readRequiredEmbeddedFile(coreLogic, "defaults/"+mod)
+		if err != nil {
+			return err
+		}
+		policyBuilder.WriteString("\n\n")
+		policyBuilder.Write(data)
+		k.loadedPolicyFiles[strings.ToLower(mod)] = struct{}{}
+		loadedModules++
+		logging.KernelDebug("Loaded core module: %s (%d bytes)", mod, len(data))
+	}
+	logging.KernelDebug("Loaded %d/%d core modules", loadedModules, len(coreModules))
+
+	// Load embedded intent corpus facts for routing and semantic classification.
+	k.loadEmbeddedIntentFacts()
+
+	// Load base learned rules (if any)
+	if data, err := coreLogic.ReadFile("defaults/learned.mg"); err == nil {
+		learnedBuilder.Write(data)
+		logging.KernelDebug("Loaded base learned rules (%d bytes)", len(data))
+	} else {
+		logging.KernelDebug("No base learned rules found (this is normal for fresh installs)")
+	}
+
+	// 2. LOAD USER EXTENSIONS (Project Specifics)
+	// Look in the workspace's .nerd folder or explicit manglePath
+	logging.KernelDebug("Loading user extensions...")
+	workspacePaths := []string{
+		k.nerdPath("mangle"),
+		k.manglePath,
+	}
+	northstarLoaded := false
+	orientationLoaded := false
+	userExtensionsLoaded := 0
+	for _, wsPath := range workspacePaths {
+		if wsPath == "" {
+			continue
+		}
+		logging.KernelDebug("Checking user extension path: %s", wsPath)
+
+		// Append User Schemas (extensions.mg)
+		extPath := filepath.Join(wsPath, "extensions.mg")
+		if _, err := os.Stat(extPath); err == nil {
+			if res, err := LoadHybridMangleFile(extPath); err == nil {
+				schemasBuilder.WriteString("\n\n# User Extensions\n")
+				schemasBuilder.WriteString(res.Logic)
+				k.bootFacts = append(k.bootFacts, res.Facts...)
+				k.bootIntents = append(k.bootIntents, res.Intents...)
+				k.bootPrompts = append(k.bootPrompts, res.Prompts...)
+				userExtensionsLoaded++
+				logging.Kernel("Loaded user schema extensions from %s (%d bytes, %d data facts, %d intents, %d prompts)", extPath, len(res.Logic), len(res.Facts), len(res.Intents), len(res.Prompts))
+			} else {
+				logging.Get(logging.CategoryKernel).Warn("Failed to load hybrid extensions from %s: %v", extPath, err)
+			}
+		}
+
+		// Append User Policy (policy_overrides.mg)
+		policyPath := filepath.Join(wsPath, "policy_overrides.mg")
+		if _, err := os.Stat(policyPath); err == nil {
+			if res, err := LoadHybridMangleFile(policyPath); err == nil {
+				policyBuilder.WriteString("\n\n# User Policy Overrides\n")
+				policyBuilder.WriteString(res.Logic)
+				k.bootFacts = append(k.bootFacts, res.Facts...)
+				k.bootIntents = append(k.bootIntents, res.Intents...)
+				k.bootPrompts = append(k.bootPrompts, res.Prompts...)
+				userExtensionsLoaded++
+				logging.Kernel("Loaded user policy overrides from %s (%d bytes, %d data facts, %d intents, %d prompts)", policyPath, len(res.Logic), len(res.Facts), len(res.Intents), len(res.Prompts))
+			} else {
+				logging.Get(logging.CategoryKernel).Warn("Failed to load hybrid policy overrides from %s: %v", policyPath, err)
+			}
+		}
+
+		// Append Northstar Vision. It lives at .nerd/northstar.mg, one level
+		// above the .nerd/mangle directory the files above sit in, because both
+		// the TUI wizard and `nerd northstar load` write it there.
+		//
+		// res.Logic is what carries the vision. LoadHybridMangleFile only fills
+		// res.Facts from the TAXONOMY:/INTENT:/PROMPT: directives; ordinary
+		// ground facts like northstar_mission("global", ...) go to res.Logic.
+		// Appending only res.Facts therefore loaded the file and kept nothing —
+		// the log said "2839 bytes, 0 data facts" and `nerd query
+		// northstar_mission` still found nothing.
+		if !northstarLoaded {
+			northstarPath := k.nerdPath("northstar.mg")
+			if _, err := os.Stat(northstarPath); err == nil {
+				if res, err := LoadHybridMangleFile(northstarPath); err == nil {
+					schemasBuilder.WriteString("\n\n# Northstar Vision\n")
+					schemasBuilder.WriteString(res.Logic)
+					k.bootFacts = append(k.bootFacts, res.Facts...)
+					k.bootIntents = append(k.bootIntents, res.Intents...)
+					k.bootPrompts = append(k.bootPrompts, res.Prompts...)
+					userExtensionsLoaded++
+					northstarLoaded = true
+					logging.Kernel("Loaded northstar vision from %s (%d bytes, %d data facts, %d intents, %d prompts)", northstarPath, len(res.Logic), len(res.Facts), len(res.Intents), len(res.Prompts))
+				} else {
+					logging.Get(logging.CategoryKernel).Warn("Failed to load northstar vision from %s: %v", northstarPath, err)
+				}
+			}
+		}
+
+		if !orientationLoaded {
+			orientationLoaded = true
+			orientationPath := k.nerdPath(filepath.Join("orientation", "orientation.mg"))
+			// The kernel boots on the projection the last refresh saved. It
+			// is not refreshed here: a refresh after a new commit re-evaluates
+			// the whole orientation program (~55 s measured 2026-10-27) and
+			// every kernel waited on it. The cortex boot refreshes it in the
+			// background and applies the delta to the running kernels
+			// (system.refreshOrientationInBackground); a scan applies it too.
+			if _, err := os.Stat(orientationPath); err == nil {
+				if decls, facts, err := loadOrientationProjection(orientationPath); err == nil {
+					schemasBuilder.WriteString("\n\n# Repository Orientation\n")
+					schemasBuilder.WriteString(decls)
+					k.bootFacts = append(k.bootFacts, facts...)
+					userExtensionsLoaded++
+				} else {
+					logging.Get(logging.CategoryKernel).Warn("Failed to load repository orientation: %v", err)
+				}
+			}
+		}
+
+		// Append User Learned Rules (learned.mg)
+		learnedPath := filepath.Join(wsPath, "learned.mg")
+		if _, err := os.Stat(learnedPath); err == nil {
+			res, err := LoadHybridMangleFile(learnedPath)
+			if err != nil {
+				logging.Get(logging.CategoryKernel).Warn("Failed to load hybrid learned rules from %s: %v", learnedPath, err)
+				continue
+			}
+			userLearnedContent := res.Logic
+			k.bootFacts = append(k.bootFacts, res.Facts...)
+			k.bootIntents = append(k.bootIntents, res.Intents...)
+			k.bootPrompts = append(k.bootPrompts, res.Prompts...)
+			userExtensionsLoaded++
+			logging.Kernel("Loaded user learned rules from %s (%d bytes, %d data facts, %d intents, %d prompts)", learnedPath, len(userLearnedContent), len(res.Facts), len(res.Intents), len(res.Prompts))
+
+			// Track path and content for self-healing
+			k.userLearnedPath = learnedPath
+			// Finalize schemas and policy before validator usage
+			if learnedBuilder.Len() > 0 {
+				k.learned = learnedBuilder.String()
+			}
+			if schemasBuilder.Len() > 0 {
+				k.schemas = schemasBuilder.String()
+			}
+			if policyBuilder.Len() > 0 {
+				k.policy = policyBuilder.String()
+			}
+
+			// Initialize schema validator early so we can heal user rules before appending
+			if k.schemas != "" && k.schemaValidator == nil {
+				k.schemaValidator = mangle.NewSchemaValidator(k.schemas, learnedBuilder.String()+"\n"+userLearnedContent)
+				if err := k.schemaValidator.LoadDeclaredPredicates(); err != nil {
+					logging.Get(logging.CategoryKernel).Warn("Failed to load schema validator: %v", err)
+				}
+			}
+
+			// Self-heal user learned rules BEFORE appending to k.learned
+			if k.schemaValidator != nil {
+				userLearnedContent = k.healLearnedRules(userLearnedContent, learnedPath)
+			}
+
+			// Append healed user rules to base learned rules
+			learnedBuilder.WriteString("\n\n# User Learned Rules\n")
+			learnedBuilder.WriteString(userLearnedContent)
+		}
+	}
+	logging.KernelDebug("Loaded %d user extension files", userExtensionsLoaded)
+	// Finalize strings if not already done
+	if learnedBuilder.Len() > 0 {
+		k.learned = learnedBuilder.String()
+	}
+	if schemasBuilder.Len() > 0 {
+		k.schemas = schemasBuilder.String()
+	}
+	if policyBuilder.Len() > 0 {
+		k.policy = policyBuilder.String()
+	}
+
+	// Ensure schema validator reflects the final schemas + learned rules.
+
+	k.refreshSchemaValidatorLocked()
+
+	timer.Stop()
+	logging.Kernel("Mangle files loaded: schemas=%d bytes, policy=%d bytes, learned=%d bytes",
+		len(k.schemas), len(k.policy), len(k.learned))
+	return nil
+}
+
+// loadPredicateCorpus opens the baked-in predicate corpus for validation.
+// It is called through predicateCorpusOnce so ordinary kernel boot and clones do
+// not allocate a SQLite connection and temp file when no consumer needs corpus
+// metadata.
+func (k *RealKernel) loadPredicateCorpus() {
+	timer := logging.StartTimer(logging.CategoryKernel, "loadPredicateCorpus")
+	logging.Kernel("Loading baked-in predicate corpus...")
+
+	corpus, err := NewPredicateCorpus()
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Warn("Predicate corpus not available: %v", err)
+		timer.Stop()
+		return
+	}
+
+	k.mu.Lock()
+	k.predicateCorpus = corpus
+	k.mu.Unlock()
+	if stats, err := corpus.Stats(); err == nil {
+		logging.Kernel("Predicate corpus loaded: %d predicates, %d examples, %d error patterns",
+			stats["total_predicates"], stats["examples"], stats["error_patterns"])
+	} else {
+		logging.Kernel("Predicate corpus loaded (stats unavailable: %v)", err)
+	}
+	timer.Stop()
+}
+
+// GetPredicateCorpus returns the baked-in predicate corpus (may be nil if not loaded).
+func (k *RealKernel) GetPredicateCorpus() *PredicateCorpus {
+	k.mu.RLock()
+	corpus := k.predicateCorpus
+	k.mu.RUnlock()
+	if corpus != nil {
+		return corpus
+	}
+
+	k.predicateCorpusOnce.Do(k.loadPredicateCorpus)
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.predicateCorpus
+}
+
+// GetEventBus returns the kernel's fact event bus for pub/sub subscriptions.
+// System shards use this to subscribe to specific predicates instead of polling.
+func (k *RealKernel) GetEventBus() *FactEventBus {
+	return k.eventBus
+}
+
+// ConsumeBootPrompts returns any PROMPT directives extracted during boot
+// and clears the internal buffer to avoid double-ingest.
+func (k *RealKernel) ConsumeBootPrompts() []HybridPrompt {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if len(k.bootPrompts) == 0 {
+		return nil
+	}
+	out := make([]HybridPrompt, len(k.bootPrompts))
+	copy(out, k.bootPrompts)
+	k.bootPrompts = nil
+	return out
+}
+
+// ConsumeBootIntents returns any INTENT directives extracted during boot
+// and clears the internal buffer.
+func (k *RealKernel) ConsumeBootIntents() []HybridIntent {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if len(k.bootIntents) == 0 {
+		return nil
+	}
+	out := make([]HybridIntent, len(k.bootIntents))
+	copy(out, k.bootIntents)
+	k.bootIntents = nil
+	return out
+}

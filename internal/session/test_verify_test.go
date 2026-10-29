@@ -1,0 +1,661 @@
+package session
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+)
+
+// F-VERIFY-2: the repo compiled but had no test gate, so a turn could write
+// Go source with a logic error and still be reported as success. These tests
+// pin the test gate that stops that.
+
+// TestPackagesForPaths verifies the written-paths → package-pattern mapping.
+func TestPackagesForPaths(t *testing.T) {
+	cases := []struct {
+		name  string
+		paths []string
+		want  []string
+	}{
+		{"nothing written", nil, nil},
+		{"empty slice", []string{}, nil},
+		{"markdown only", []string{"Docs/architecture/README.md", ".nerd/notes.txt"}, nil},
+		{"one go file", []string{"internal/session/executor.go"}, []string{"./internal/session"}},
+		{"uppercase extension", []string{"cmd/nerd/Main.GO"}, []string{"./cmd/nerd"}},
+		{"whitespace padded", []string{"  internal/core/kernel.go  "}, []string{"./internal/core"}},
+		{"go in middle of name", []string{"internal/gopher/notes.md"}, nil},
+		{"non-go ignored among go", []string{"README.md", "internal/foo/bar.go", "assets/style.css"}, []string{"./internal/foo"}},
+		{"root file becomes dot", []string{"main.go"}, []string{"."}},
+		{"root file with dot-slash", []string{"./main.go"}, []string{"."}},
+		{"deduplicates same package", []string{"internal/foo/a.go", "internal/foo/b.go", "internal/foo/c_test.go"}, []string{"./internal/foo"}},
+		{"multiple packages sorted", []string{"internal/b/b.go", "internal/a/a.go", "internal/b/c.go"}, []string{"./internal/a", "./internal/b"}},
+		{"test file maps to its package", []string{"internal/foo/bar_test.go"}, []string{"./internal/foo"}},
+		{"mixed root and subpackage", []string{"main.go", "internal/foo/bar.go"}, []string{".", "./internal/foo"}},
+		{"skips whitespace-only entries", []string{"   ", "\t", "internal/foo/bar.go"}, []string{"./internal/foo"}},
+		{"already dot-prefixed", []string{"./internal/session/foo.go"}, []string{"./internal/session"}},
+		{"duplicate across prefixed and bare", []string{"internal/foo/a.go", "./internal/foo/b.go"}, []string{"./internal/foo"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := packagesForPaths(tc.paths)
+			// Normalise nil vs empty for comparison.
+			if len(got) == 0 && len(tc.want) == 0 {
+				return
+			}
+			sort.Strings(got)
+			want := append([]string(nil), tc.want...)
+			sort.Strings(want)
+			if len(got) != len(want) {
+				t.Fatalf("packagesForPaths(%v) = %v; want %v", tc.paths, got, want)
+			}
+			for i := range got {
+				if got[i] != want[i] {
+					t.Errorf("packagesForPaths(%v)[%d] = %q; want %q (full got=%v want=%v)", tc.paths, i, got[i], want[i], got, want)
+				}
+			}
+		})
+	}
+}
+
+// TestUntestedGoFiles verifies the "written Go files without a matching
+// _test.go written in the same turn" check.
+func TestUntestedGoFiles(t *testing.T) {
+	cases := []struct {
+		name  string
+		paths []string
+		want  []string
+	}{
+		{"nothing written", nil, nil},
+		{"non-go only", []string{"README.md", "docs/guide.md"}, nil},
+		{"test file alone not returned", []string{"internal/foo/bar_test.go"}, nil},
+		{"go file without test is untested", []string{"internal/foo/bar.go"}, []string{"internal/foo/bar.go"}},
+		{"go file with matching test is tested", []string{"internal/foo/bar.go", "internal/foo/bar_test.go"}, nil},
+		{"go file with test in different dir is untested", []string{"internal/foo/bar.go", "internal/other/bar_test.go"}, []string{"internal/foo/bar.go"}},
+		{"different base name not a match", []string{"internal/foo/bar.go", "internal/foo/other_test.go"}, []string{"internal/foo/bar.go"}},
+		{"multiple files mixed", []string{
+			"internal/foo/a.go", "internal/foo/a_test.go",
+			"internal/foo/b.go",
+			"internal/bar/c.go", "internal/bar/c_test.go",
+			"internal/bar/d.go",
+		}, []string{"internal/bar/d.go", "internal/foo/b.go"}},
+		{"non-go files never returned", []string{"internal/foo/bar.go", "internal/foo/readme.md"}, []string{"internal/foo/bar.go"}},
+		{"test files themselves never returned", []string{"internal/foo/bar.go", "internal/foo/bar_test.go", "internal/foo/baz_test.go"}, nil},
+		{"deduplicated", []string{"internal/foo/bar.go", "internal/foo/bar.go"}, []string{"internal/foo/bar.go"}},
+		{"whitespace trimmed", []string{"  internal/foo/bar.go  ", "  internal/foo/bar_test.go  "}, nil},
+		{"whitespace untested", []string{"  internal/foo/bar.go  "}, []string{"internal/foo/bar.go"}},
+		{"uppercase GO with matching test", []string{"internal/foo/Bar.GO", "internal/foo/Bar_test.go"}, nil},
+		{"root file without test", []string{"foo.go"}, []string{"foo.go"}},
+		{"root file with matching test", []string{"foo.go", "foo_test.go"}, nil},
+		{"dot-prefixed pair is tested", []string{"./internal/foo/bar.go", "./internal/foo/bar_test.go"}, nil},
+		{"dot-prefixed go without dot-prefixed test is untested", []string{"./internal/foo/bar.go", "internal/foo/bar_test.go"}, nil},
+		{"test written but source not written not returned", []string{"internal/foo/bar_test.go", "internal/foo/other.go"}, []string{"internal/foo/other.go"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := untestedGoFiles(tc.paths)
+			if len(got) == 0 && len(tc.want) == 0 {
+				return
+			}
+			sort.Strings(got)
+			want := append([]string(nil), tc.want...)
+			sort.Strings(want)
+			if len(got) != len(want) {
+				t.Fatalf("untestedGoFiles(%v) = %v; want %v", tc.paths, got, want)
+			}
+			for i := range got {
+				if got[i] != want[i] {
+					t.Errorf("untestedGoFiles(%v)[%d] = %q; want %q (full got=%v want=%v)", tc.paths, i, got[i], want[i], got, want)
+				}
+			}
+		})
+	}
+}
+
+// A verification that did not run must never be reported as a pass. Ran=false
+// means "unknown" — not "ok". Every early-exit path in verifyTests must honour
+// this, and callers must check Ran before OK.
+func TestTestVerification_DidNotRunIsNotAPass(t *testing.T) {
+	cases := []struct {
+		name      string
+		workspace string
+		packages  []string
+	}{
+		{"empty workspace", "  ", []string{"./internal/session"}},
+		{"empty packages", t.TempDir(), nil},
+		{"nil packages", t.TempDir(), []string{}},
+		{"whitespace packages", t.TempDir(), []string{"  ", "\t"}},
+		{"empty workspace and empty packages", "", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := verifyTests(context.Background(), tc.workspace, tc.packages)
+			if v.Ran {
+				t.Errorf("verifyTests(%q, %v) claimed to run; want Ran=false", tc.workspace, tc.packages)
+			}
+			if v.OK {
+				t.Error("a verification that did not run must not report OK (Ran=false must never be a pass)")
+			}
+			if v.Output != "" {
+				t.Errorf("a not-run verification should have empty output, got %q", v.Output)
+			}
+			// The gate predicate is Ran && OK. When Ran is false the predicate
+			// must be false regardless of OK.
+			if v.Ran && v.OK {
+				t.Error("Ran && OK must be false when Ran is false")
+			}
+		})
+	}
+}
+
+// Struct-level pin: even a hand-constructed TestVerification with Ran=false
+// must not be treated as a pass by any predicate callers use.
+func TestTestVerification_StructDidNotRunIsNotAPass(t *testing.T) {
+	cases := []struct {
+		name string
+		v    TestVerification
+	}{
+		{"zero value", TestVerification{}},
+		{"ran false ok false", TestVerification{Ran: false, OK: false}},
+		{"ran false ok true is still not a pass", TestVerification{Ran: false, OK: true}},
+		{"ran true ok false is failure not pass", TestVerification{Ran: true, OK: false}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			isPass := tc.v.Ran && tc.v.OK
+			if !tc.v.Ran && isPass {
+				t.Error("Ran=false must never satisfy the pass predicate (Ran && OK)")
+			}
+			if tc.name == "ran false ok true is still not a pass" && isPass {
+				t.Error("Ran=false with OK=true must still not be a pass; Ran is the gate")
+			}
+		})
+	}
+}
+
+// Integration: verifyTests against real throwaway modules. Mirrors
+// TestVerifyBuild_DetectsBrokenPackage but exercises `go test`.
+func TestVerifyTests_DetectsPassingAndFailingPackages(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles throwaway packages")
+	}
+	ws := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		p := filepath.Join(ws, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(p), err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	write("go.mod", "module verifyprobe\n\ngo 1.21\n")
+
+	// Healthy package: one exported function and a passing test.
+	write("calc.go", "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n")
+	write("calc_test.go", "package verifyprobe\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) { if Add(2,3) != 5 { t.Fatal(\"bad\") } }\n")
+	v := verifyTests(context.Background(), ws, []string{"."})
+	if !v.Ran || !v.OK {
+		t.Fatalf("healthy package reported Ran=%v OK=%v output=%q", v.Ran, v.OK, v.Output)
+	}
+	if v.Output != "" {
+		t.Errorf("passing tests should have empty output, got %q", v.Output)
+	}
+
+	// Break the test: same file, assertion now fails.
+	write("calc_test.go", "package verifyprobe\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) { if Add(2,3) != 999 { t.Fatal(\"intentional failure\") } }\n")
+	v = verifyTests(context.Background(), ws, []string{"."})
+	if !v.Ran {
+		t.Fatal("verification did not run against a failing package")
+	}
+	if v.OK {
+		t.Fatal("verification passed a package whose tests fail")
+	}
+	if !strings.Contains(v.Output, "intentional failure") && !strings.Contains(v.Output, "FAIL") {
+		t.Errorf("test output does not carry the failure, so a repair round has nothing to work from: %q", v.Output)
+	}
+}
+
+// verifyTests must run `go test` on exactly the packages it is given, not on
+// ./... and not on a default. A package outside the list whose tests fail must
+// not cause the verification to fail.
+func TestVerifyTests_RunsExactlyRequestedPackages(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles throwaway packages")
+	}
+	ws := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		p := filepath.Join(ws, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(p), err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	write("go.mod", "module verifyprobe\n\ngo 1.21\n")
+
+	write("good/good.go", "package good\n\nfunc Add(a, b int) int { return a + b }\n")
+	write("good/good_test.go", "package good\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) { if Add(1,2) != 3 { t.Fatal(\"bad\") } }\n")
+
+	write("bad/bad.go", "package bad\n\nfunc Add(a, b int) int { return a + b }\n")
+	write("bad/bad_test.go", "package bad\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) { t.Fatal(\"always fails\") }\n")
+
+	// Only the good package was touched: verification must pass.
+	v := verifyTests(context.Background(), ws, []string{"./good"})
+	if !v.Ran || !v.OK {
+		t.Fatalf("verification of ./good alone reported Ran=%v OK=%v output=%q (must not be polluted by ./bad)", v.Ran, v.OK, v.Output)
+	}
+
+	// Now include the bad package: must fail.
+	v = verifyTests(context.Background(), ws, []string{"./good", "./bad"})
+	if !v.Ran {
+		t.Fatal("verification did not run")
+	}
+	if v.OK {
+		t.Fatal("verification passed when the bad package was included")
+	}
+}
+
+// A failing test that prints a lot loses nothing. Output is the Summary,
+// whose size follows the content: a single long failure line is inlined
+// whole, never cut to fit, and the Result keeps every line for recall.
+// (A *repeated* flood collapses to one counted line instead; see
+// TestVerificationOutput_RepeatFloodIsOneLine.)
+func TestVerifyTests_KeepsLongOutputWhole(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles throwaway package with large output")
+	}
+	ws := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		p := filepath.Join(ws, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(p), err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	write("go.mod", "module verifyprobe\n\ngo 1.21\n")
+
+	// Print a payload well past the 6000 bytes the old cap kept, then fail.
+	write("big_test.go", "package verifyprobe\n\nimport (\n\"strings\"\n\"testing\"\n)\n\nfunc TestBig(t *testing.T) {\n t.Log(strings.Repeat(\"X\", 8000))\n t.Fatal(\"fail big\")\n}\n")
+	v := verifyTests(context.Background(), ws, []string{"."})
+	if !v.Ran {
+		t.Fatal("verification did not run")
+	}
+	if v.OK {
+		t.Fatal("verification passed a failing test")
+	}
+	// The 8000-byte line is the test's first failure, so the Summary leads
+	// with it whole: its size follows the content, never a cap. A repeated
+	// flood collapses instead (TestVerificationOutput_RepeatFloodIsOneLine);
+	// a single long failure line is inlined, not cut.
+	if strings.Count(v.Output, "X") < 8000 {
+		t.Errorf("the first failure's message was cut: %d bytes kept of a log longer than 8000", len(v.Output))
+	}
+	if !strings.Contains(v.Output, "big_test.go:9") {
+		t.Errorf("the Summary does not name the failure's file and line: %q", v.Output)
+	}
+	if strings.Contains(v.Output, "truncated") {
+		t.Errorf("output carries a truncation marker: %q", v.Output)
+	}
+	if v.Result == nil {
+		t.Fatal("the verification kept no Result; the full log is recallable from nowhere")
+	}
+	// The Summary leads with the first failure; the Result keeps every
+	// line, including the fatal at the end, for recall.
+	if full := v.Result.Output("verifyprobe", "TestBig"); !strings.Contains(full, "fail big") {
+		t.Errorf("recall lost the fatal at the end of the log: %q", full)
+	}
+}
+
+// The gate runs `go test -json` and publishes the Summary: the failure with
+// its file and message, no raw event lines, and the Result behind it.
+func TestVerifyTests_PublishesTheSummary(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles throwaway packages")
+	}
+	ws := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		p := filepath.Join(ws, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(p), err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	write("go.mod", "module verifyprobe\n\ngo 1.21\n")
+	write("calc.go", "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n")
+	write("calc_test.go", "package verifyprobe\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) { if Add(2,3) != 999 { t.Fatal(\"intentional failure\") } }\n")
+
+	v := verifyTests(context.Background(), ws, []string{"."})
+	if !v.Ran || v.OK {
+		t.Fatalf("Ran=%v OK=%v; want a run that failed", v.Ran, v.OK)
+	}
+	if v.Result == nil {
+		t.Fatal("the verification kept no Result")
+	}
+	if v.Output != verificationOutput(v.Result) {
+		t.Errorf("Output is not the Result's rendering:\n%q\nvs\n%q", v.Output, verificationOutput(v.Result))
+	}
+	for _, want := range []string{"FAIL verifyprobe TestAdd", "calc_test.go:5", "intentional failure"} {
+		if !strings.Contains(v.Output, want) {
+			t.Errorf("the Summary does not carry %q:\n%s", want, v.Output)
+		}
+	}
+	if strings.Contains(v.Output, `"Action"`) {
+		t.Errorf("the Summary leaks raw -json lines:\n%s", v.Output)
+	}
+	foundJSON := false
+	for _, arg := range v.Command {
+		foundJSON = foundJSON || arg == "-json"
+	}
+	if !foundJSON {
+		t.Errorf("the gate did not run go test -json: %q", v.Command)
+	}
+}
+
+// The repair prompt must forbid the cheapest way out. An agent told only "the
+// tests fail" will often delete or weaken the assertion, which turns red green
+// while destroying the thing that made the suite worth running.
+func TestTestRepairPrompt_ForbidsWeakeningTheTest(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	dir := jsonTestModule(t, map[string]string{
+		"calc.go": "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
+		"calc_test.go": "package verifyprobe\n\nimport \"testing\"\n\n" +
+			"func TestAdd(t *testing.T) { if Add(2, 3) != 999 { t.Fatal(\"intentional failure\") } }\n",
+	})
+	out := verificationOutput(parseJSONTest(t, dir, runJSONTest(t, dir, ".")))
+	p := testRepairPrompt(out, "")
+
+	if !strings.Contains(p, out) {
+		t.Error("repair prompt drops the test output, which is the only thing that makes the round useful")
+	}
+	for _, want := range []string{"delete the failing test", "weaken its assertion", "skip it"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("repair prompt does not forbid %q — the cheapest way to make a test pass", want)
+		}
+	}
+	// It must still leave an honest escape hatch for a genuinely wrong test,
+	// or the agent is forced to contort correct code to satisfy a bad spec.
+	if !strings.Contains(p, "incorrect") {
+		t.Error("repair prompt gives no path for a test that is genuinely wrong")
+	}
+}
+
+func TestTestBuildFailed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	broken := jsonTestModule(t, map[string]string{
+		"calc.go":        "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
+		"broken_test.go": "package verifyprobe\n\nimport \"testing\"\n\nfunc TestBroken(t *testing.T) { neverWritten() }\n",
+	})
+	failing := jsonTestModule(t, failingModule())
+	gated := jsonTestModule(t, map[string]string{
+		"gated/g_test.go": "//go:build integration\n\npackage gated\n\nimport \"testing\"\n\nfunc TestGated(t *testing.T) {}\n",
+	})
+	cases := []struct {
+		name string
+		dir  string
+		args []string
+		want bool
+	}{
+		{"live build failure", broken, []string{"."}, true},
+		{"ordinary test failure is not a build failure", failing, []string{"."}, false},
+		{"excluded-by-constraints setup failure counts as no test ran", gated, []string{"./gated/"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := parseTestJSON(tc.dir, []byte(runJSONTest(t, tc.dir, tc.args...)))
+			if got := testBuildFailed(res); got != tc.want {
+				t.Errorf("testBuildFailed = %v; want %v:\n%s", got, tc.want, res.Summary())
+			}
+		})
+	}
+	if testBuildFailed(nil) {
+		t.Error("testBuildFailed(nil) = true; want false")
+	}
+	if testBuildFailed(parseTestJSON("", nil)) {
+		t.Error("testBuildFailed on an empty stream = true; want false")
+	}
+}
+
+func TestTestRepairPrompt_BuildFailureBlamesTheTestFile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	dir := jsonTestModule(t, map[string]string{
+		"calc.go":        "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n",
+		"broken_test.go": "package verifyprobe\n\nimport \"testing\"\n\nfunc TestBroken(t *testing.T) { neverWritten() }\n",
+	})
+	out := verificationOutput(parseJSONTest(t, dir, runJSONTest(t, dir, ".")))
+	p := testRepairPrompt(out, "")
+
+	for _, want := range []string{"do not compile", "the test file is what is wrong", "Do NOT add, alias or re-export"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("build-failure repair prompt does not contain %q", want)
+		}
+	}
+	if strings.Contains(p, "Your edits compile but the tests fail") {
+		t.Error("build-failure repair prompt uses the passing-build text, which blames the code instead of the uncompilable test")
+	}
+}
+
+// Gating: the gate must not fire on turns it has no business running for.
+// Whether a turn owes the test round at all -- no writes, a markdown-only
+// turn -- is the kernel's schedule (post_edit_rounds_test.go); what is left
+// to the gate is its switch and a missing result.
+func TestVerifyAndRepairTests_SkipsWhenNotApplicable(t *testing.T) {
+	cases := []struct {
+		name   string
+		cfgOn  bool
+		result *ExecutionResult
+	}{
+		{"disabled by config", false, &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}}},
+		{"nil result", true, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultExecutorConfig()
+			cfg.VerifyTestsAfterEdits = tc.cfgOn
+			e := &Executor{config: cfg}
+
+			// A nil ToolResultsProvider would make any real repair round fail
+			// loudly, so reaching the end without error proves we short-circuited.
+			resp, errs, err := e.verifyAndRepairTests(
+				context.Background(), nil, "", nil, nil, nil, tc.result)
+			if err != nil {
+				t.Fatalf("gate should have skipped, got error: %v", err)
+			}
+			if resp != nil || errs != nil {
+				t.Errorf("gate should have skipped, got resp=%v errs=%v", resp, errs)
+			}
+		})
+	}
+}
+
+// The same-turn predicate is too eager to gate on. It flagged
+// internal/session/test_verify.go on two consecutive live turns (2026-08-08
+// 11:08 and 11:13) because neither turn rewrote test_verify_test.go — a file
+// sitting right next to it with 40 passing subtests. A gate that cries wolf
+// about tested code is one that gets ignored, then switched off.
+func TestUntestedWithoutCoverageOnDisk(t *testing.T) {
+	ws := t.TempDir()
+	mk := func(rel string) {
+		t.Helper()
+		p := filepath.Join(ws, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte("package p\n"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+
+	// covered/: source edited this turn, its own _test.go already on disk.
+	mk("covered/thing.go")
+	mk("covered/thing_test.go")
+	// sibling/: source edited this turn, no thing_test.go but the package has
+	// another test file. Go does not require one test file per source file.
+	mk("sibling/widget.go")
+	mk("sibling/other_test.go")
+	// bare/: source edited this turn, package has no test file at all.
+	mk("bare/lonely.go")
+
+	cases := []struct {
+		name    string
+		written []string
+		want    []string
+	}{
+		{"own test on disk is covered", []string{"covered/thing.go"}, nil},
+		{"package test file counts as covered", []string{"sibling/widget.go"}, nil},
+		{"no test anywhere is flagged", []string{"bare/lonely.go"}, []string{"bare/lonely.go"}},
+		{"test written this turn is covered", []string{"bare/lonely.go", "bare/lonely_test.go"}, nil},
+		{"non-go never flagged", []string{"bare/README.md"}, nil},
+		{
+			"mixed reports only the bare one",
+			[]string{"covered/thing.go", "sibling/widget.go", "bare/lonely.go"},
+			[]string{"bare/lonely.go"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := untestedWithoutCoverageOnDisk(ws, tc.written)
+			if len(got) != len(tc.want) {
+				t.Fatalf("untestedWithoutCoverageOnDisk(%v) = %v; want %v", tc.written, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("index %d = %q; want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+// An unreadable directory is not evidence that tests are missing. The gate
+// fails toward silence: a false "untested" claim is worse than a missed one.
+func TestPackageHasTestFile_UnreadableDirIsNotEvidence(t *testing.T) {
+	if !packageHasTestFile(filepath.Join(t.TempDir(), "does-not-exist")) {
+		t.Error("an unreadable directory was treated as proof of missing tests")
+	}
+}
+
+// F-GATE-TAGS part 2: a tag-gated package must be compile-checked with
+// `go vet -tags` instead of `go test` failing with "build constraints
+// exclude all Go files" (observed 2026-09-17: a turn edited tests/e2e/*_test.go
+// with //go:build integration and the gate treated the setup failure as the
+// turn's failure).
+func TestGateTests_TagGatedCompileErrorFails(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to go vet")
+	}
+	ws := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		p := filepath.Join(ws, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(p), err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	write("go.mod", "module verifyprobe\n\ngo 1.21\n")
+	write("pkg/ok.go", "package pkg\n")
+	write("e2e/x_test.go", "//go:build integration\n\npackage e2e\n\nvar _ int = \"x\"\n")
+	result := &ExecutionResult{WrittenPaths: []string{"e2e/x_test.go"}}
+	v, _ := gateTests(context.Background(), ws, result, false)
+	if v.Outcome != VerifyFailed {
+		t.Fatalf("gateTests on tag-gated compile error reported Outcome=%v Ran=%v OK=%v output=%q (want VerifyFailed)", v.Outcome, v.Ran, v.OK, v.Output)
+	}
+	if !strings.Contains(v.Output, "x_test.go") {
+		t.Errorf("vet output does not name the broken file, so a repair round has nothing to work from: %q", v.Output)
+	}
+	if strings.Contains(v.Output, "build constraints exclude all Go files") {
+		t.Errorf("gate ran go test without tags on a tag-gated package: %q", v.Output)
+	}
+	if len(v.Command) < 2 || v.Command[1] != "vet" {
+		t.Errorf("failing gate command should be go vet, got %q", v.Command)
+	}
+}
+
+func TestGateTests_TagGatedOnlyCleanIsSkippedNotPassed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to go vet")
+	}
+	ws := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		p := filepath.Join(ws, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(p), err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	write("go.mod", "module verifyprobe\n\ngo 1.21\n")
+	write("pkg/ok.go", "package pkg\n")
+	write("e2e/x_test.go", "//go:build integration\n\npackage e2e\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) {}\n")
+	result := &ExecutionResult{WrittenPaths: []string{"e2e/x_test.go"}}
+	v, _ := gateTests(context.Background(), ws, result, false)
+	if v.Outcome != VerifySkipped {
+		t.Fatalf("gateTests on clean tag-gated-only turn reported Outcome=%v Ran=%v OK=%v output=%q (want VerifySkipped)", v.Outcome, v.Ran, v.OK, v.Output)
+	}
+	if v.Ran {
+		t.Errorf("clean tag-gated-only turn ran no tests, so Ran must stay false; got Ran=true OK=%v output=%q", v.OK, v.Output)
+	}
+}
+
+func TestGateTests_MixedRunsTestsOnRunnable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to go test and go vet")
+	}
+	ws := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		p := filepath.Join(ws, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(p), err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	write("go.mod", "module verifyprobe\n\ngo 1.21\n")
+	write("pkg/ok.go", "package pkg\n")
+	write("pkg/ok_test.go", "package pkg\n\nimport \"testing\"\n\nfunc TestOk(t *testing.T) {}\n")
+	write("e2e/x_test.go", "//go:build integration\n\npackage e2e\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) {}\n")
+	result := &ExecutionResult{WrittenPaths: []string{"pkg/ok.go", "e2e/x_test.go"}}
+	v, _ := gateTests(context.Background(), ws, result, false)
+	if v.Outcome != VerifyPassed {
+		t.Fatalf("gateTests on mixed turn reported Outcome=%v Ran=%v OK=%v output=%q command=%q (want VerifyPassed)", v.Outcome, v.Ran, v.OK, v.Output, v.Command)
+	}
+	hasPkg, hasE2E := false, false
+	for _, arg := range v.Command {
+		if arg == "./pkg" {
+			hasPkg = true
+		}
+		if arg == "./e2e" {
+			hasE2E = true
+		}
+	}
+	if !hasPkg {
+		t.Errorf("mixed turn must run go test on the runnable package, got command %q", v.Command)
+	}
+	if hasE2E {
+		t.Errorf("tag-gated package must be vet-checked, not passed to go test without tags, got command %q", v.Command)
+	}
+}

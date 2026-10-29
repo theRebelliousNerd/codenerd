@@ -1,0 +1,269 @@
+package perception
+
+import (
+	"bytes"
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+)
+
+// XAIClient implements LLMClient for xAI (Grok) API.
+type XAIClient struct {
+	apiKey      string
+	baseURL     string
+	model       string
+	httpClient  *http.Client
+	mu          sync.Mutex
+	lastRequest time.Time
+	// maxOutputTokens is the completion ceiling sent on every request.
+	maxOutputTokens int
+}
+
+// DefaultXAIConfig returns sensible defaults.
+func DefaultXAIConfig(apiKey string) XAIConfig {
+	return XAIConfig{
+		APIKey:  apiKey,
+		BaseURL: "https://api.x.ai/v1",
+		// No default model: the workspace names one in .nerd/config.json or the
+		// client factory refuses to build the client.
+		Timeout: 10 * time.Minute, // Large context models need extended timeout
+	}
+}
+
+// NewXAIClient creates a new xAI client.
+func NewXAIClient(apiKey string) *XAIClient {
+	config := DefaultXAIConfig(apiKey)
+	return NewXAIClientWithConfig(config)
+}
+
+// NewXAIClientWithConfig creates a new xAI client with custom config.
+func NewXAIClientWithConfig(config XAIConfig) *XAIClient {
+	return &XAIClient{
+		apiKey:          config.APIKey,
+		baseURL:         config.BaseURL,
+		model:           config.Model,
+		httpClient:      NewSharedHTTPClient(config.Timeout),
+		maxOutputTokens: orDefaultTokens(config.MaxOutputTokens, 4096),
+	}
+}
+
+// rateLimit enforces minimum inter-request spacing to avoid 429 responses.
+// Must be called before each API request.
+func (c *XAIClient) rateLimit() {
+	c.mu.Lock()
+	elapsed := time.Since(c.lastRequest)
+	if elapsed < 100*time.Millisecond {
+		time.Sleep(100*time.Millisecond - elapsed)
+	}
+	c.lastRequest = time.Now()
+	c.mu.Unlock()
+}
+
+// Complete sends a prompt and returns the completion.
+func (c *XAIClient) Complete(ctx context.Context, prompt string) (string, error) {
+	return c.CompleteWithSystem(ctx, "", prompt)
+}
+
+// CompleteWithSystem sends a prompt with a system message.
+func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	// Auto-apply timeout if context has no deadline (centralized timeout handling)
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+		defer cancel()
+	}
+
+	startTime := time.Now()
+	logging.PerceptionDebug("[XAI] CompleteWithSystem: model=%s system_len=%d user_len=%d", c.model, len(systemPrompt), len(userPrompt))
+
+	if c.apiKey == "" {
+		logging.PerceptionError("[XAI] CompleteWithSystem: API key not configured")
+		return "", fmt.Errorf("API key not configured")
+	}
+
+	// Rate limiting
+	c.rateLimit()
+
+	messages := systemAndUserMessages(systemPrompt, userPrompt)
+
+	reqBody := XAIRequest{
+		Model:       c.model,
+		Messages:    messages,
+		MaxTokens:   c.maxOutputTokens,
+		Temperature: types.TemperatureFor(ctx, 0.1),
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Retry loop for rate limits
+	maxRetries := llmMaxRetries()
+	var lastErr error
+
+	for i := 0; i <= maxRetries; i++ {
+		if i > 0 {
+			// Context-aware backoff: a cancelled turn must exit during
+			// the sleep, not after it (matches ExecuteOpenAIRequest).
+			backoff := llmRetryBackoff(i)
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("request cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
+		if err != nil {
+			return "", fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request failed: %w", err)
+			continue
+		}
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		resp.Body.Close()
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read response: %w", err)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			lastErr = fmt.Errorf("rate limit exceeded (429)")
+			continue
+		}
+
+		if isTransientHTTPStatus(resp.StatusCode) {
+			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var xaiResp XAIResponse
+		if err := json.Unmarshal(body, &xaiResp); err != nil {
+			return "", fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if xaiResp.Error != nil {
+			return "", fmt.Errorf("API error: %s", xaiResp.Error.Message)
+		}
+
+		if len(xaiResp.Choices) == 0 {
+			logging.PerceptionError("[XAI] CompleteWithSystem: no completion returned")
+			return "", fmt.Errorf("no completion returned")
+		}
+
+		reportUsage(ctx, c.model, ProviderXAI, usageOpChat, xaiResp.Usage.metadata())
+
+		response := strings.TrimSpace(xaiResp.Choices[0].Message.Content)
+		if finish := xaiResp.Choices[0].FinishReason; types.LengthStop(finish) {
+			return "", outputTruncated(ProviderXAI, c.model, "CompleteWithSystem", finish, response,
+				c.maxOutputTokens, xaiResp.Usage.CompletionTokens)
+		}
+		logging.Perception("[XAI] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
+		return response, nil
+	}
+
+	logging.PerceptionError("[XAI] CompleteWithSystem: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
+	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+// SetModel changes the model used for completions.
+func (c *XAIClient) SetModel(model string) {
+	c.model = model
+}
+
+// GetModel returns the current model.
+func (c *XAIClient) GetModel() string {
+	return c.model
+}
+
+// CompleteWithTools sends a prompt with tool definitions.
+func (c *XAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	openAITools := MapToolDefinitionsToOpenAI(tools)
+
+	reqBody := OpenAIRequest{
+		Model:       c.model,
+		MaxTokens:   c.maxOutputTokens,
+		Temperature: types.TemperatureFor(ctx, 0),
+		Messages: []OpenAIMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		Tools:      openAITools,
+		ToolChoice: "auto",
+		Stream:     false,
+	}
+
+	resp, err := ExecuteOpenAIRequest(ctx, c.httpClient, c.baseURL, c.apiKey, reqBody)
+	if err != nil {
+		return nil, err
+	}
+	reportUsage(ctx, c.model, ProviderXAI, usageOpFor(len(tools)), resp.Usage.metadata())
+	return OpenAIToolResponseFromResponse(resp)
+}
+
+// CompleteWithToolResults continues a multi-turn tool-calling conversation
+// (OpenAI-compatible tool role messages). Required so the session executor can
+// feed tool results back to the model after the first tool_use turn.
+func (c *XAIClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	msgs, err := MapTypesHistoryToOpenAIMessages(systemPrompt, history)
+	if err != nil {
+		return nil, err
+	}
+	pTools := make([]ToolDefinition, len(tools))
+	for i, t := range tools {
+		pTools[i] = ToolDefinition(t)
+	}
+	reqBody := OpenAIRequest{
+		Model:       c.model,
+		MaxTokens:   c.maxOutputTokens,
+		Temperature: types.TemperatureFor(ctx, 0),
+		Messages:    msgs,
+		Tools:       MapToolDefinitionsToOpenAI(pTools),
+		ToolChoice:  "auto",
+		Stream:      false,
+	}
+	resp, err := ExecuteOpenAIRequest(ctx, c.httpClient, c.baseURL, c.apiKey, reqBody)
+	if err != nil {
+		return nil, err
+	}
+	reportUsage(ctx, c.model, ProviderXAI, usageOpFor(len(tools)), resp.Usage.metadata())
+	return OpenAIToolResponseFromResponse(resp)
+}
+
+// CompleteWithStreaming sends a prompt with streaming enabled.
+//
+// xAI has no streaming transport here: this delegates to CompleteWithSystem and
+// emits the whole answer as one chunk. Usage is therefore tracked by that call
+// and must not be tracked again here, or every xAI streaming turn would count
+// twice.
+func (c *XAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	})
+}
+
+// ModelIdentity reports the provider and model this client serves, satisfying
+// types.ModelIdentifier. The model is the resolved one -- the vendor default
+// when config supplied no override -- which is what prompt-atom pinning must
+// key on.
+func (c *XAIClient) ModelIdentity() (string, string) {
+	return string(ProviderXAI), c.model
+}

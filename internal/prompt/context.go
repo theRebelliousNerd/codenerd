@@ -1,0 +1,901 @@
+package prompt
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"maps"
+	"slices"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+)
+
+// CompilationContext holds all dimensions for prompt atom selection.
+// This structure captures the 10 contextual tiers that determine
+// which atoms should be included in a compiled prompt.
+//
+// The context flows from the kernel's current state and is used
+// to select the most relevant prompt atoms for the current situation.
+type CompilationContext struct {
+	// =========================================================================
+	// Tier 1: Operational Mode
+	// The high-level mode the agent is operating in.
+	// =========================================================================
+
+	// OperationalMode: /active, /dream, /debugging, /creative, /scaffolding, /shadow, /tdd_repair
+	OperationalMode string
+
+	// =========================================================================
+	// Tier 2: Campaign Phase
+	// Multi-phase goal orchestration state.
+	// =========================================================================
+
+	// CampaignPhase: /planning, /decomposing, /validating, /active, /completed, /paused, /failed, /recurse_fix, /recurse_improve
+	CampaignPhase string
+
+	// CampaignID is the unique identifier for the active campaign
+	CampaignID string
+
+	// CampaignName is the human-readable name of the campaign
+	CampaignName string
+
+	// =========================================================================
+	// Tier 3: Build Taxonomy
+	// The architectural layer being worked on.
+	// =========================================================================
+
+	// BuildLayer: /scaffold, /domain_core, /data_layer, /service, /transport, /integration
+	BuildLayer string
+
+	// =========================================================================
+	// Tier 4: Init Phase
+	// Project initialization phase (for /init command).
+	// =========================================================================
+
+	// InitPhase: /migration, /setup, /scanning, /analysis, /profile, /facts, /agents, /kb_agent, /kb_complete
+	InitPhase string
+
+	// =========================================================================
+	// Tier 5: Northstar Phase
+	// High-level planning/vision phase.
+	// =========================================================================
+
+	// NorthstarPhase: /doc_ingestion, /problem, /vision, /requirements, /architecture, /roadmap, /validation
+	NorthstarPhase string
+
+	// =========================================================================
+	// Tier 6: Ouroboros Stage
+	// Self-improvement/tool-generation stage.
+	// =========================================================================
+
+	// OuroborosStage: /detection, /specification, /safety_check, /simulation, /codegen, /testing, /deployment
+	OuroborosStage string
+
+	// =========================================================================
+	// Tier 7: Intent Verb
+	// The type of action being performed.
+	// =========================================================================
+
+	// IntentVerb: /fix, /debug, /refactor, /test, /review, /create, /research, /explain
+	IntentVerb string
+
+	// IntentTarget is what the intent is operating on (file, function, etc.)
+	IntentTarget string
+
+	// =========================================================================
+	// Tier 8: Shard Type
+	// The type of shard being configured.
+	// =========================================================================
+
+	// ShardType: /coder, /tester, /reviewer, /researcher, /librarian, /planner, /custom
+	ShardType string
+
+	// ShardID is the unique identifier for the shard
+	ShardID string
+
+	// ShardInstanceID is the unique identifier for this shard instance (may be ephemeral).
+	// Example: "coder-123", "campaign_abc_planner".
+	// This is NOT used for shard DB lookup; ShardID should be the stable agent name.
+	ShardInstanceID string
+
+	// ShardName is the human-readable name of the shard
+	ShardName string
+
+	// =========================================================================
+	// Tier 9: World Model State
+	// Current state of the codebase/environment.
+	// =========================================================================
+
+	// FailingTestCount is the number of currently failing tests
+	FailingTestCount int
+
+	// DiagnosticCount is the number of active diagnostics/errors
+	DiagnosticCount int
+
+	// IsLargeRefactor indicates a large-scale refactoring operation
+	IsLargeRefactor bool
+
+	// HasSecurityIssues indicates security vulnerabilities detected
+	HasSecurityIssues bool
+
+	// HasNewFiles indicates untracked files exist in the working tree.
+	//
+	// Not "created this session", which is what this said and is not what
+	// anything measures or what the atom gated on it describes -- its own
+	// text reads "Untracked files exist in the working directory". A file
+	// left untracked by an earlier session still needs reviewing, wiring and
+	// adding, which is what that atom asks for.
+	HasNewFiles bool
+
+	// IsHighChurn indicates high file modification frequency
+	IsHighChurn bool
+
+	// HasReflectionHits indicates System 2 reflection recall is present
+	HasReflectionHits bool
+
+	// =========================================================================
+	// Tier 10: Language & Framework
+	// Technology stack context.
+	// =========================================================================
+
+	// Language: /go, /python, /typescript, /rust, /java, /javascript, /mangle
+	Language string
+
+	// Frameworks: [/bubbletea, /gin], etc.
+	Frameworks []string
+
+	// =========================================================================
+	// Tier 11: Provider & Model Pinning
+	// Which LLM is about to consume this prompt.
+	// =========================================================================
+
+	// Provider is the LLM vendor serving this compile, as configured in
+	// LLMConfig.Provider ("anthropic", "openai", "zai", ...). It is normalized
+	// through NormalizeProviderToken before reaching the kernel.
+	//
+	// An atom carrying a `providers:` selector is admitted only when this
+	// matches. Leave empty only when the serving vendor is genuinely unknown:
+	// the dimension is fail-closed, so an empty Provider blocks every
+	// provider-pinned atom rather than admitting them all.
+	Provider string
+
+	// Model is the model identifier serving this compile, in whatever spelling
+	// the provider uses ("claude-opus-4-20260501", "anthropic/claude-opus-4",
+	// "gpt-4o"). ModelPinTokens normalizes it to an exact token plus a
+	// release-independent family token, and an atom pinned at either
+	// granularity matches.
+	Model string
+
+	// =========================================================================
+	// Budget Configuration
+	// =========================================================================
+
+	// TokenBudget is the maximum tokens allowed for the compiled prompt
+	TokenBudget int
+
+	// ReservedTokens is tokens reserved for response/output
+	ReservedTokens int
+
+	// ReservedTokensFallbackRatio is the ratio used to calculate reserved tokens when budget is exceeded
+	ReservedTokensFallbackRatio int
+
+	// =========================================================================
+	// Semantic Search
+	// =========================================================================
+
+	// SemanticQuery is the query text for vector-based atom retrieval
+	SemanticQuery string
+
+	// SemanticTopK is the number of semantic results to consider
+	SemanticTopK int
+
+	// VectorWeight is the weight of vector scores in combined calculation (0.0-1.0)
+	// If HasVectorWeight is true, this overrides the AtomSelector's default vector weight.
+	VectorWeight float64
+
+	// HasVectorWeight indicates if VectorWeight is explicitly set for this context
+	HasVectorWeight bool
+
+	// selectorVectorConfig is pinned by the compiler for one config generation.
+	// It keeps an in-flight compile from observing selector settings installed by
+	// a later SetConfig call. Direct selector callers leave it nil and use a
+	// snapshot captured at selection start.
+	selectorVectorConfig *selectorVectorConfig
+
+	// =========================================================================
+	// External References (opaque to avoid circular imports)
+	// =========================================================================
+
+	// SessionContext holds the current session context
+	// Type: *core.SessionContext
+	//
+	// Write-only baggage: the articulation adapter sets these for downstream
+	// consumers that do not exist yet. Nothing reads them, so they are
+	// correctly excluded from Hash; if a reader ever lands, hashing must be
+	// revisited or two contexts will share a cache entry they should not.
+	SessionContext any
+
+	// UserIntent holds the parsed user intent
+	// Type: *core.StructuredIntent
+	UserIntent any
+
+	// Kernel holds a reference to the Mangle kernel for queries
+	// Type: *core.RealKernel
+	Kernel                    any
+	kernelSnapshotFingerprint string
+
+	// =========================================================================
+	// Activation Scores (from Compression System)
+	// =========================================================================
+
+	// ActivatedFacts maps fact string representation to activation score
+	// (0.0-1.0), intended to boost atoms related to highly-activated facts.
+	//
+	// UNPOPULATED AND UNREAD, and not for want of wiring. Two earlier hazards
+	// are closed — it is part of Hash() so a populated map cannot serve a stale
+	// cached prompt, and it is deep-copied by Clone() so concurrent compiles
+	// cannot share one map — but two harder ones remain, and both must be
+	// answered before this is filled in.
+	//
+	// 1. There is no relation between facts and atoms. Every selector dimension
+	//    on PromptAtom is a *context* dimension: operational mode, campaign
+	//    phase, intent verb, shard type, language, framework, model, provider,
+	//    world state. None of them is fact-shaped. "Boost atoms related to hot
+	//    facts" needs a definition of "related" that does not exist anywhere in
+	//    the corpus schema, so populating this map hands the selector data it
+	//    has no rule to act on. Inventing that relation -- text-matching a
+	//    fact's predicate name against atom content, say -- is a design
+	//    decision, not a wiring task, and a plausible-looking heuristic here
+	//    would be indistinguishable from a working one for a long time.
+	//
+	// 2. It is in Hash(), and Hash() is the prompt cache key. Activation scores
+	//    are intent-dependent and move every turn, so populating this map with
+	//    live scores gives every compilation a unique cache key and turns the
+	//    prompt cache off. That is not a small regression: it converts every
+	//    turn into a full compile, and it would show up weeks later as "the
+	//    agent got slow" rather than as anything traceable to this field.
+	//    TestActivatedFactsWouldDefeatThePromptCache pins the behaviour so
+	//    whoever wires this meets the cost immediately. Quantizing scores into
+	//    coarse buckets, or carrying only the set of hot facts rather than
+	//    their exact scores, is the shape of the fix.
+	ActivatedFacts map[string]float64
+
+	// ActivationThreshold is the minimum score for a fact to be considered
+	// "hot". Default: 0.5. Read by nothing in this package today; it is part of
+	// Hash() and travels with ActivatedFacts above, and shares its blockers.
+	ActivationThreshold float64
+
+	// =========================================================================
+	// Dynamic Capability Injection
+	// =========================================================================
+
+	// AvailableSpecialists is a formatted list of domain specialists available
+	// for knowledge consultation. Populated at runtime from .nerd/agents.json.
+	// Used by the capability/knowledge_discovery atom template.
+	AvailableSpecialists string
+
+	// AvailableTools is the runtime-resolved list of tool names this turn is
+	// permitted to invoke (e.g. ["write_file", "edit_file", "run_command"]).
+	// Populated from EffectiveAgentRuntimeConfig.AllowedTools so prompt atoms
+	// can reference the actually-allowed surface via {{available_tools}}
+	// rather than hardcoding tool names in Go strings or atom YAML.
+	AvailableTools []string
+
+	// UnavailableTools is each name policy granted this turn that the
+	// request cannot carry, as "name: reason" (no backend on this runtime, or
+	// a generated tool on a native channel). It is kept out of
+	// AvailableTools so no atom treats it as callable, and rendered by
+	// {{available_tools}} so the model is not left to guess why it is absent.
+	UnavailableTools []string
+
+	// PreviousAttemptNoToolCall is set by the session executor when the model's
+	// previous turn produced narrative-only text for an intent that the kernel
+	// derived intent_requires_tool_call/1 for. Activates the
+	// world_state "no_tool_call_retry" so the JIT selects the
+	// system/tool_nudge/no_tool_call_retry atom.
+	PreviousAttemptNoToolCall bool
+
+	// DerivedNeeds are world states the KERNEL derived this compile will need
+	// (policy/jit_needs.mg: target_need/2 for the language of the file the
+	// compile is aimed at). They gate atoms exactly as the measured states
+	// above do -- an atom declaring world_states: [authoring_mangle] is served
+	// when, and only when, the kernel derives that need -- but Go does not
+	// decide them: the session executor asks the kernel at every compile
+	// boundary and copies the answer here. Values carry no leading slash.
+	DerivedNeeds []string
+}
+
+// derivedNeedsNotMeasured is DerivedNeeds normalized (no leading slash, no
+// empties) without the states the measured fields already produce, so a need
+// the kernel derived and a state the executor measured are one state, once.
+func (cc *CompilationContext) derivedNeedsNotMeasured() []string {
+	if len(cc.DerivedNeeds) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(cc.DerivedNeeds))
+	for _, raw := range cc.DerivedNeeds {
+		need := strings.TrimPrefix(strings.TrimSpace(raw), "/")
+		if need == "" || measuredWorldState(cc, need) || slices.Contains(out, need) {
+			continue
+		}
+		out = append(out, need)
+	}
+	return out
+}
+
+// NewCompilationContext creates a new CompilationContext with defaults.
+// Note: TokenBudget should be overridden by callers from config.ContextWindow.MaxTokens.
+func NewCompilationContext() *CompilationContext {
+	return &CompilationContext{
+		OperationalMode:             "/active",
+		TokenBudget:                 200000, // 200k tokens default - callers should override from config
+		ReservedTokens:              8000,   // Reserve 8k for response
+		ReservedTokensFallbackRatio: 10,     // Default 10 fallback ratio
+		SemanticTopK:                20,     // Top 20 semantic results
+		ActivationThreshold:         0.5,    // Default activation threshold
+	}
+}
+
+// WorldStates returns the world state strings for atom matching.
+// These are derived from the boolean/numeric world model fields.
+func (cc *CompilationContext) WorldStates() []string {
+	// Optimization: Pre-allocate with max possible capacity (8) to avoid reallocations
+	states := make([]string, 0, 8)
+
+	if cc.FailingTestCount > 0 {
+		states = append(states, "failing_tests")
+	}
+
+	if cc.DiagnosticCount > 0 {
+		states = append(states, "diagnostics")
+	}
+
+	if cc.IsLargeRefactor {
+		states = append(states, "large_refactor")
+	}
+
+	if cc.HasSecurityIssues {
+		states = append(states, "security_issues")
+	}
+
+	if cc.HasNewFiles {
+		states = append(states, "new_files")
+	}
+
+	if cc.IsHighChurn {
+		states = append(states, "high_churn")
+	}
+
+	if cc.HasReflectionHits {
+		states = append(states, "reflection_hits")
+	}
+
+	if cc.PreviousAttemptNoToolCall {
+		states = append(states, "no_tool_call_retry")
+	}
+
+	states = append(states, cc.derivedNeedsNotMeasured()...)
+
+	return states
+}
+
+// AvailableTokens returns the tokens available for prompt content.
+func (cc *CompilationContext) AvailableTokens() int {
+	available := cc.TokenBudget - cc.ReservedTokens
+	if available < 0 {
+		return 0
+	}
+	return available
+}
+
+// WithOperationalMode sets the operational mode and returns the context.
+func (cc *CompilationContext) WithOperationalMode(mode string) *CompilationContext {
+	cc.OperationalMode = mode
+	return cc
+}
+
+// WithCampaign sets campaign context and returns the context.
+func (cc *CompilationContext) WithCampaign(id, name, phase string) *CompilationContext {
+	cc.CampaignID = id
+	cc.CampaignName = name
+	cc.CampaignPhase = phase
+	return cc
+}
+
+// WithShard sets shard context and returns the context.
+func (cc *CompilationContext) WithShard(shardType, shardID, shardName string) *CompilationContext {
+	cc.ShardType = shardType
+	cc.ShardID = shardID
+	cc.ShardName = shardName
+	return cc
+}
+
+// WithProviderModel sets the serving provider and model and returns the
+// context. Both are stored verbatim; normalization happens at fact-generation
+// and matching time so the raw values stay available for logging.
+func (cc *CompilationContext) WithProviderModel(provider, model string) *CompilationContext {
+	cc.Provider = provider
+	cc.Model = model
+	return cc
+}
+
+// ProviderToken returns the canonical provider token for pin matching, or ""
+// when no provider is set.
+func (cc *CompilationContext) ProviderToken() string {
+	if cc == nil {
+		return ""
+	}
+	return NormalizeProviderToken(cc.Provider)
+}
+
+// ModelTokens returns the canonical model tokens this compile satisfies (exact
+// and, when distinct, family), or nil when no model is set.
+func (cc *CompilationContext) ModelTokens() []string {
+	if cc == nil {
+		return nil
+	}
+	return ModelPinTokens(cc.Model)
+}
+
+// WithLanguage sets language context and returns the context.
+func (cc *CompilationContext) WithLanguage(language string, frameworks ...string) *CompilationContext {
+	cc.Language = language
+	cc.Frameworks = frameworks
+	return cc
+}
+
+// WithIntent sets intent context and returns the context.
+func (cc *CompilationContext) WithIntent(verb, target string) *CompilationContext {
+	cc.IntentVerb = verb
+	cc.IntentTarget = target
+	return cc
+}
+
+// WithTokenBudget sets the token budget and returns the context.
+func (cc *CompilationContext) WithTokenBudget(budget, reserved int) *CompilationContext {
+	cc.TokenBudget = budget
+	cc.ReservedTokens = reserved
+	return cc
+}
+
+// WithVectorWeight sets the vector weight and returns the context.
+func (cc *CompilationContext) WithVectorWeight(weight float64) *CompilationContext {
+	if weight < 0 {
+		weight = 0
+	}
+	if weight > 1 {
+		weight = 1
+	}
+	cc.VectorWeight = weight
+	cc.HasVectorWeight = true
+	return cc
+}
+
+// WithSemanticQuery sets the semantic search query and returns the context.
+func (cc *CompilationContext) WithSemanticQuery(query string, topK int) *CompilationContext {
+	cc.SemanticQuery = query
+	if topK > 0 {
+		cc.SemanticTopK = topK
+	}
+	return cc
+}
+
+// Clone creates a deep copy of the compilation context.
+func (cc *CompilationContext) Clone() *CompilationContext {
+	clone := *cc
+
+	// Deep copy slices
+	if cc.Frameworks != nil {
+		clone.Frameworks = make([]string, len(cc.Frameworks))
+		copy(clone.Frameworks, cc.Frameworks)
+	}
+	if cc.AvailableTools != nil {
+		clone.AvailableTools = make([]string, len(cc.AvailableTools))
+		copy(clone.AvailableTools, cc.AvailableTools)
+	}
+	if cc.UnavailableTools != nil {
+		clone.UnavailableTools = append([]string(nil), cc.UnavailableTools...)
+	}
+	if cc.DerivedNeeds != nil {
+		clone.DerivedNeeds = slices.Clone(cc.DerivedNeeds)
+	}
+	// ActivatedFacts is a map, so `clone := *cc` copied the header and left
+	// both contexts pointing at one set of buckets. Compilation runs under
+	// singleflight with an errgroup, so two concurrent compiles sharing this
+	// map is a data race, not a theoretical one — and the field is documented
+	// as populated per-turn from the compressor, which is exactly the write
+	// that would collide. See TestCloneDeepCopiesActivatedFacts.
+	if cc.ActivatedFacts != nil {
+		clone.ActivatedFacts = make(map[string]float64, len(cc.ActivatedFacts))
+		maps.Copy(clone.ActivatedFacts, cc.ActivatedFacts)
+	}
+
+	return &clone
+}
+
+// Validate checks the context for consistency.
+func (cc *CompilationContext) Validate() error {
+	if cc.TokenBudget <= 0 {
+		return fmt.Errorf("token budget must be positive, got %d", cc.TokenBudget)
+	}
+
+	if cc.ReservedTokens < 0 {
+		return fmt.Errorf("reserved tokens cannot be negative, got %d", cc.ReservedTokens)
+	}
+
+	if cc.ReservedTokens >= cc.TokenBudget {
+		return fmt.Errorf("reserved tokens (%d) must be less than budget (%d)",
+			cc.ReservedTokens, cc.TokenBudget)
+	}
+
+	return nil
+}
+
+// String returns a human-readable summary of the context.
+func (cc *CompilationContext) String() string {
+	return fmt.Sprintf(
+		"CompilationContext{mode=%s, campaign=%s, campaign_id=%s, shard=%s, lang=%s, intent=%s, budget=%d, world_states=%v}",
+		cc.OperationalMode,
+		cc.CampaignPhase,
+		cc.CampaignID,
+		cc.ShardType,
+		cc.Language,
+		cc.IntentVerb,
+		cc.AvailableTokens(),
+		cc.WorldStates(),
+	)
+}
+
+// ToContextFacts generates Mangle facts representing this context.
+// These facts are formatted for the compile_context(Dimension, Value) schema
+// as declared in schemas.mg and consumed by jit_compiler.mg /
+// policy/jit_selection.mg for atom selection.
+
+func (cc *CompilationContext) ToContextFacts() []any {
+	return cc.GenerateFacts(FactStyle{
+		Predicate:  "compile_context",
+		UseShort:   false,
+		ForceAtoms: false,
+		AddDot:     true,
+	})
+}
+
+// ContextDimension represents a single dimension of context.
+type ContextDimension struct {
+	Name        string
+	Description string
+	Values      []string // Possible values for this dimension
+}
+
+// AllContextDimensions returns all context dimensions with their possible values.
+func AllContextDimensions() []ContextDimension {
+	return []ContextDimension{
+		{
+			Name:        "operational_mode",
+			Description: "High-level operational mode",
+			Values:      []string{"/active", "/dream", "/debugging", "/creative", "/scaffolding", "/shadow", "/tdd_repair"},
+		},
+		{
+			Name:        "campaign_phase",
+			Description: "Campaign orchestration phase",
+			Values:      []string{"/planning", "/decomposing", "/validating", "/active", "/completed", "/paused", "/failed", "/recurse_fix", "/recurse_improve"},
+		},
+		{
+			Name:        "build_layer",
+			Description: "Build taxonomy layer",
+			Values:      []string{"/scaffold", "/domain_core", "/data_layer", "/service", "/transport", "/integration"},
+		},
+		{
+			Name:        "init_phase",
+			Description: "Project initialization phase",
+			Values:      []string{"/migration", "/setup", "/scanning", "/analysis", "/profile", "/facts", "/agents", "/kb_agent", "/kb_complete"},
+		},
+		{
+			Name:        "northstar_phase",
+			Description: "Northstar planning phase",
+			Values:      []string{"/doc_ingestion", "/problem", "/vision", "/requirements", "/architecture", "/roadmap", "/validation"},
+		},
+		{
+			Name:        "ouroboros_stage",
+			Description: "Ouroboros self-improvement stage",
+			Values:      []string{"/detection", "/specification", "/safety_check", "/simulation", "/codegen", "/testing", "/deployment"},
+		},
+		{
+			Name:        "intent_verb",
+			Description: "User intent action type",
+			Values:      []string{"/fix", "/debug", "/refactor", "/test", "/review", "/create", "/research", "/explain"},
+		},
+		{
+			Name:        "shard_type",
+			Description: "Shard agent type",
+			Values:      []string{"/coder", "/tester", "/reviewer", "/researcher", "/librarian", "/planner", "/custom"},
+		},
+		{
+			Name:        "language",
+			Description: "Programming language",
+			Values:      []string{"/go", "/python", "/typescript", "/rust", "/java", "/javascript", "/mangle"},
+		},
+		{
+			Name:        "provider",
+			Description: "LLM vendor serving this compile (pin dimension, fail-closed)",
+			Values:      []string{"/anthropic", "/openai", "/google", "/zai", "/meta", "/mistral", "/ollama"},
+		},
+		{
+			Name: "model",
+			Description: "Model serving this compile, exact or family token " +
+				"(pin dimension, fail-closed). Open vocabulary: values are " +
+				"whatever NormalizeModelToken/ModelFamilyToken derive from the " +
+				"configured model id, so the list below is illustrative only.",
+			Values: []string{"/claude_opus_4", "/claude_sonnet_4", "/gpt_4o", "/gemini_3_pro"},
+		},
+		{
+			Name:        "world_state",
+			Description: "World model state indicators",
+			Values:      []string{"failing_tests", "diagnostics", "large_refactor", "security_issues", "new_files", "high_churn", "reflection_hits", "no_tool_call_retry", "authoring_mangle", "authoring_go", "authoring_code", "envelope_tool_requests", "envelope_knowledge_requests"},
+		},
+	}
+}
+
+// hashBufferPool is a sync.Pool for bytes.Buffer used in CompilationContext.Hash
+// to reduce GC pressure during high-frequency compilation requests.
+var hashBufferPool = sync.Pool{
+	New: func() any {
+		buf := new(bytes.Buffer)
+		buf.Grow(256)
+		return buf
+	},
+}
+
+// Hash generates a stable, versioned cache identity for every field that can
+// affect atom collection, selection, budgeting, or rendering. Set-like slices
+// are sorted and deduplicated without mutating the caller's context.
+func (cc *CompilationContext) Hash() string {
+	if cc == nil {
+		return "nil"
+	}
+
+	// Optimization: Use bytes.Buffer instead of strings.Builder to avoid
+	// string->[]byte allocation when passing to sha256.Sum256.
+	buf := hashBufferPool.Get().(*bytes.Buffer)
+	defer func() {
+		buf.Reset()
+		hashBufferPool.Put(buf)
+	}()
+
+	// Length-prefix each value so user-controlled strings cannot create
+	// delimiter collisions (for example, ["a,b", "c"] vs ["a", "b,c"]).
+	write := func(name, value string) {
+		buf.WriteString(name)
+		buf.WriteByte('=')
+		buf.WriteString(strconv.Itoa(len(value)))
+		buf.WriteByte(':')
+		buf.WriteString(value)
+		buf.WriteByte(';')
+	}
+	writeInt := func(name string, value int) {
+		write(name, strconv.Itoa(value))
+	}
+	writeBool := func(name string, value bool) {
+		write(name, strconv.FormatBool(value))
+	}
+	writeFloat := func(name string, value float64) {
+		write(name, strconv.FormatFloat(value, 'g', -1, 64))
+	}
+	writeSet := func(name string, values []string) {
+		canonical := canonicalStringSet(values)
+		writeInt(name+"_count", len(canonical))
+		for i, value := range canonical {
+			write(name+"_"+strconv.Itoa(i), value)
+		}
+	}
+
+	write("schema", "compilation-context-v5")
+	write("kernel_snapshot", cc.kernelSnapshotFingerprint)
+	write("operational_mode", cc.OperationalMode)
+	write("campaign_phase", cc.CampaignPhase)
+	write("campaign_id", cc.CampaignID)
+	write("campaign_name", cc.CampaignName)
+	write("build_layer", cc.BuildLayer)
+	write("init_phase", cc.InitPhase)
+	write("northstar_phase", cc.NorthstarPhase)
+	write("ouroboros_stage", cc.OuroborosStage)
+	write("intent_verb", cc.IntentVerb)
+	write("intent_target", cc.IntentTarget)
+	write("shard_type", cc.ShardType)
+	write("shard_id", cc.ShardID)
+	write("shard_instance_id", cc.ShardInstanceID)
+	write("shard_name", cc.ShardName)
+	write("language", cc.Language)
+	writeSet("framework", cc.Frameworks)
+
+	// Canonical tokens, not the raw strings: two spellings of one model
+	// ("gpt-4o" and "openai/gpt-4o") select identically, so they must share a
+	// cache entry. Schema was bumped to v3 for these two keys, and to v4 when
+	// ActivatedFacts joined cache identity below.
+	write("provider", cc.ProviderToken())
+	writeSet("model", cc.ModelTokens())
+
+	writeInt("failing_test_count", cc.FailingTestCount)
+	writeInt("diagnostic_count", cc.DiagnosticCount)
+	writeBool("large_refactor", cc.IsLargeRefactor)
+	writeBool("security_issues", cc.HasSecurityIssues)
+	writeBool("new_files", cc.HasNewFiles)
+	writeBool("high_churn", cc.IsHighChurn)
+	writeBool("reflection_hits", cc.HasReflectionHits)
+	writeBool("previous_attempt_no_tool_call", cc.PreviousAttemptNoToolCall)
+	writeSet("derived_needs", cc.derivedNeedsNotMeasured())
+
+	writeInt("token_budget", cc.TokenBudget)
+	writeInt("reserved_tokens", cc.ReservedTokens)
+	writeInt("reserved_tokens_fallback_ratio", cc.ReservedTokensFallbackRatio)
+	write("semantic_query", cc.SemanticQuery)
+	writeInt("semantic_top_k", cc.SemanticTopK)
+	if cc.HasVectorWeight {
+		writeFloat("vector_weight", cc.VectorWeight)
+	}
+	writeFloat("activation_threshold", cc.ActivationThreshold)
+	write("available_specialists", cc.AvailableSpecialists)
+	writeSet("available_tool", cc.AvailableTools)
+
+	// ActivatedFacts is part of cache identity because it is an input to
+	// selection. It was previously absent while activation_threshold above was
+	// present, so two turns with entirely different hot facts hashed
+	// identically and the second was served the first's compiled prompt. No
+	// error is raised on that path; the prompt is simply stale.
+	//
+	// Keys are sorted so an identical set hashes identically regardless of map
+	// iteration order, which is randomized in Go.
+	writeInt("activated_fact_count", len(cc.ActivatedFacts))
+	if len(cc.ActivatedFacts) > 0 {
+		keys := make([]string, 0, len(cc.ActivatedFacts))
+		for k := range cc.ActivatedFacts {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			write("activated_fact", k)
+			writeFloat("activated_score", cc.ActivatedFacts[k])
+		}
+	}
+
+	// Hash the content
+	hash := sha256.Sum256(buf.Bytes())
+	return hex.EncodeToString(hash[:])
+}
+
+func canonicalStringSet(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	canonical := append([]string(nil), values...)
+	sort.Strings(canonical)
+	result := canonical[:0]
+	for _, value := range canonical {
+		if len(result) == 0 || result[len(result)-1] != value {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+// FactStyle defines the formatting strategy for context facts.
+type FactStyle struct {
+	Predicate  string
+	UseShort   bool
+	ForceAtoms bool
+	AddDot     bool
+}
+
+func (cc *CompilationContext) GenerateFacts(style FactStyle) []any {
+	// 9 scalar dimensions + frameworks + 8 world states + provider + up to 2 model tokens.
+	capacity := 9 + len(cc.Frameworks) + 8 + 3
+	facts := make([]any, 0, capacity)
+
+	var fb factBuilder
+
+	add := func(longDim, shortDim, val string) {
+		if val == "" {
+			return
+		}
+
+		dim := longDim
+		if style.UseShort {
+			dim = shortDim
+		}
+
+		fb.Reset()
+
+		fb.WriteString(style.Predicate)
+		fb.WriteByte('(')
+
+		// Dimension is always an atom
+		if !fb.writeAtom(dim) {
+			return
+		}
+
+		fb.WriteString(", ")
+
+		if style.ForceAtoms {
+			if !fb.writeAtom(val) {
+				return
+			}
+		} else {
+			if len(val) > 0 && val[0] == '/' {
+				if !fb.writeAtom(val) {
+					return
+				}
+			} else {
+				// Quote as string
+				fb.writeStringLiteral(val)
+			}
+		}
+
+		fb.WriteByte(')')
+		if style.AddDot {
+			fb.WriteByte('.')
+		}
+		facts = append(facts, fb.String())
+	}
+
+	add("operational_mode", "mode", cc.OperationalMode)
+	add("campaign_phase", "phase", cc.CampaignPhase)
+	add("build_layer", "layer", cc.BuildLayer)
+	add("init_phase", "init_phase", cc.InitPhase)
+	add("northstar_phase", "northstar_phase", cc.NorthstarPhase)
+	add("ouroboros_stage", "ouroboros_stage", cc.OuroborosStage)
+	add("intent_verb", "intent", cc.IntentVerb)
+	add("shard_type", "shard", cc.ShardType)
+	add("language", "lang", cc.Language)
+
+	for _, fw := range cc.Frameworks {
+		add("framework", "framework", fw)
+	}
+
+	// Provider/model pins. Emitted as canonical tokens rather than the raw
+	// config spelling so that atom selectors and context land on the same
+	// Mangle name constant -- see internal/prompt/pinning.go. The leading
+	// slash is explicit because these vocabularies are open-ended (any model
+	// id a provider ships) rather than a fixed list like /go or /coder, so
+	// without it the ForceAtoms:false style would quote them into /string and
+	// they would never unify with the /name side of the rule.
+	if tok := cc.ProviderToken(); tok != "" {
+		add("provider", "provider", "/"+tok)
+	}
+	for _, tok := range cc.ModelTokens() {
+		add("model", "model", "/"+tok)
+	}
+
+	if cc.FailingTestCount > 0 {
+		add("world_state", "state", "failing_tests")
+	}
+	if cc.DiagnosticCount > 0 {
+		add("world_state", "state", "diagnostics")
+	}
+	if cc.IsLargeRefactor {
+		add("world_state", "state", "large_refactor")
+	}
+	if cc.HasSecurityIssues {
+		add("world_state", "state", "security_issues")
+	}
+	if cc.HasNewFiles {
+		add("world_state", "state", "new_files")
+	}
+	if cc.IsHighChurn {
+		add("world_state", "state", "high_churn")
+	}
+	if cc.HasReflectionHits {
+		add("world_state", "state", "reflection_hits")
+	}
+	if cc.PreviousAttemptNoToolCall {
+		add("world_state", "state", "no_tool_call_retry")
+	}
+	for _, need := range cc.derivedNeedsNotMeasured() {
+		add("world_state", "state", need)
+	}
+
+	return facts
+}

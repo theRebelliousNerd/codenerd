@@ -1,0 +1,111 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "assistant": "codeNERD, a coding agent working in the user's repository",
+  "held_work": {
+   "action": "fix",
+   "target": "README.md",
+   "handled_by": "coder",
+   "requested_as": "fix the typo in README.md"
+  },
+  "message": "go, and also add a test for it"
+ },
+ "questions": {
+  "about_codenerd": {
+   "type": "noul",
+   "instructions": "Is the user asking the assistant to investigate its own failures?",
+   "criteria": {
+    "true": "The user asks why the assistant failed, asks it to debug itself, or points it at its own logs.",
+    "false": "The user asks about their own code or project, even code that has bugs."
+   }
+  },
+  "adds_to_held_work": {
+   "type": "noul",
+   "instructions": "Does `message` ask for anything besides starting `held_work` exactly as it is?",
+   "criteria": {
+    "true": "The user adds, removes or changes something, such as 'go, and also add a test' or 'do it but skip the docs'.",
+    "false": "The user asks for nothing beyond starting it, such as 'go', 'yes do it' or 'ship it'."
+   }
+  },
+  "approves_held_work": {
+   "type": "noul",
+   "instructions": "Is the user telling the assistant to start `held_work` now?",
+   "criteria": {
+    "true": "The user says go, do it, yes, start, or otherwise approves starting the held work as it is.",
+    "false": "The user asks about the held work, changes it, declines it, or talks about something else."
+   }
+  },
+  "changes_files": {
+   "type": "noul",
+   "instructions": "Is the user asking for changes to files in their codebase?",
+   "criteria": {
+    "true": "The user wants code or files written, changed, fixed, refactored, renamed or removed.",
+    "false": "The user asks a question, wants something explained, found, reviewed or run, or is chatting."
+   }
+  },
+  "hypothetical": {
+   "type": "noul",
+   "instructions": "Is the user asking what would happen if something were done?",
+   "criteria": {
+    "true": "The user asks 'what if', 'what would happen', or how risky a change would be.",
+    "false": "The user asks for the change itself, or asks about the code as it is now."
+   }
+  },
+  "names_target": {
+   "type": "noul",
+   "instructions": "Does the user's request say which file, function or feature they want to work on?",
+   "criteria": {
+    "true": "A file, function, package or feature is named, or the conversation so far makes clear which one is meant.",
+    "false": "The request leaves open which code it is about, such as 'fix it' with nothing named before."
+   }
+  },
+  "rules_out_changes": {
+   "type": "noul",
+   "instructions": "Has the user said not to change any files for this request?",
+   "criteria": {
+    "true": "The user says to only look, read, explain or report, and not to change, edit, write or touch anything.",
+    "false": "The user asks for changes, allows them, or says nothing about whether files may change."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "about_codenerd": {
+   "type": "noul",
+   "noul": 0.05
+  },
+  "adds_to_held_work": {
+   "type": "noul",
+   "noul": 0.99
+  },
+  "approves_held_work": {
+   "type": "noul",
+   "noul": 0.65
+  },
+  "changes_files": {
+   "type": "noul",
+   "noul": 0.96
+  },
+  "hypothetical": {
+   "type": "noul",
+   "noul": 0.03
+  },
+  "names_target": {
+   "type": "noul",
+   "noul": 0.81
+  },
+  "rules_out_changes": {
+   "type": "noul",
+   "noul": 0.01
+  }
+ },
+ "usage": {
+  "input_tokens": 901,
+  "output_tokens": 135
+ }
+}
+}

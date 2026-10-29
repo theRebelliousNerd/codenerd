@@ -1,0 +1,866 @@
+package perception
+
+import (
+	"codenerd/internal/config"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/mangle"
+	"codenerd/internal/types"
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"sync"
+)
+
+type TaxonomyEngine struct {
+	mu            sync.Mutex
+	engine        *mangle.Engine
+	store         *TaxonomyStore
+	client        LLMClient
+	workspaceRoot string // Explicit workspace root (for .nerd paths)
+	learnedPath   string // Absolute path of loaded .nerd/mangle/learned.mg (if any)
+	worker        *ConsolidationWorker
+
+	// schemasLoaded indicates that the static taxonomy/intent/inference schemas
+	// have been loaded into t.engine. ClassifyInput uses this to avoid the
+	// previous behavior of Reset() + re-loading every embedded .mg on every call,
+	// which is a measurable hot-path cost (bug #18). Embedded schema content is
+	// baked in via go:embed and cannot change at runtime within a single process,
+	// so a one-shot load is correct.
+	schemasLoaded bool
+	regexCache    map[string]*regexp.Regexp
+
+	// rolePrompts compiles the learning critic's system prompt.
+	rolePrompts types.RolePromptCompiler
+}
+
+// taxonomySchemaFiles returns the ordered list of embedded schema/logic files
+// that must be loaded for ClassifyInput's Mangle inference to succeed.
+// Order matters: qualifier logic must precede inference logic, and the
+// schemas_intent module must precede schemas_learning.
+func taxonomySchemaFiles() []string {
+	files := []string{"schemas_intent.mg"}
+	files = append(files, core.DefaultIntentSchemaFiles()...)
+	files = append(files, "schemas_learning.mg")
+	files = append(files, "policy/taxonomy_qualifiers.mg")
+	files = append(files, "policy/taxonomy_inference.mg")
+	return files
+}
+
+// loadStaticSchemasLocked loads all static schema and logic content into the
+// engine exactly once per engine instance. The caller MUST hold t.mu.
+// Embedded content is immutable in-process, so we never need to reload.
+func (t *TaxonomyEngine) loadStaticSchemasLocked() error {
+	if t.schemasLoaded {
+		return nil
+	}
+
+	for _, file := range taxonomySchemaFiles() {
+		content, err := core.GetDefaultContent(file)
+		if err != nil {
+			// schemas_learning.mg has a documented fallback below; everything
+			// else is required for correct inference.
+			if file == "schemas_learning.mg" {
+				fmt.Printf("WARNING: learning.mg not found in embedded defaults: %v. Using fallback declaration.\n", err)
+				if ferr := t.engine.LoadSchemaString("Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence)."); ferr != nil {
+					return fmt.Errorf("failed to define fallback learned_exemplar: %w", ferr)
+				}
+				continue
+			}
+			return fmt.Errorf("failed to get embedded content for %s: %w", file, err)
+		}
+		if err := t.engine.LoadSchemaString(content); err != nil {
+			return fmt.Errorf("failed to load %s: %w", file, err)
+		}
+	}
+
+	t.schemasLoaded = true
+	return nil
+}
+
+// SharedTaxonomy is the global instance loaded on init.
+var SharedTaxonomy *TaxonomyEngine
+
+func init() {
+	var err error
+	SharedTaxonomy, err = NewTaxonomyEngine()
+	if err != nil {
+		fmt.Printf("CRITICAL: failed to init shared taxonomy: %v\n", err)
+	}
+}
+
+// NewTaxonomyEngine creates a new taxonomy engine with the default corpus.
+func NewTaxonomyEngine() (*TaxonomyEngine, error) {
+	cfg := mangle.DefaultConfig()
+	cfg.AutoEval = true
+
+	eng, err := mangle.NewEngine(cfg, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init taxonomy engine: %w", err)
+	}
+	t := &TaxonomyEngine{engine: eng, regexCache: make(map[string]*regexp.Regexp)}
+	t.worker = NewConsolidationWorker(t)
+	t.worker.Start()
+
+	// Load the full static schema/logic corpus exactly once. ClassifyInput
+	// will reuse these schemas across all calls (bug #18: previously these
+	// were reloaded per call after a Reset(), which was a hot-path bottleneck).
+	if err := t.loadStaticSchemasLocked(); err != nil {
+		return nil, err
+	}
+
+	// Populate default data (robustly via Go)
+	for _, entry := range DefaultTaxonomyData {
+		// verb_def
+		if err := eng.AddFact("verb_def", entry.Verb, entry.Category, entry.ShardType, entry.Priority); err != nil {
+			return nil, fmt.Errorf("failed to add verb_def %s: %w", entry.Verb, err)
+		}
+		// synonyms
+		for _, syn := range entry.Synonyms {
+			if err := eng.AddFact("verb_synonym", entry.Verb, syn); err != nil {
+				return nil, fmt.Errorf("failed to add synonym %s: %w", syn, err)
+			}
+		}
+		// patterns
+		for _, pat := range entry.Patterns {
+			if err := eng.AddFact("verb_pattern", entry.Verb, pat); err != nil {
+				return nil, fmt.Errorf("failed to add pattern %s: %w", pat, err)
+			}
+		}
+	}
+
+	// Load learned rules if available (workspace-aware; SetWorkspace() will re-attempt).
+	t.tryLoadLearned()
+	return t, nil
+}
+
+// SetStore attaches a persistence store to the taxonomy engine.
+func (t *TaxonomyEngine) SetStore(s *TaxonomyStore) {
+	t.store = s
+}
+
+// SetWorkspace sets the explicit workspace root path for .nerd directory resolution.
+// This MUST be called to ensure learned facts are persisted in the correct location.
+func (t *TaxonomyEngine) SetWorkspace(root string) {
+	t.mu.Lock()
+	t.workspaceRoot = root
+	t.tryLoadLearned()
+	t.mu.Unlock()
+}
+
+// HasWorkspace returns true if an explicit workspace root has been set.
+func (t *TaxonomyEngine) HasWorkspace() bool {
+	return t.workspaceRoot != ""
+}
+
+// QueueForLearning enqueues interaction records for background vocabulary pattern
+// extraction and reports whether the history was accepted. A rejected history
+// is a lost learning opportunity, never a silent success.
+func (t *TaxonomyEngine) QueueForLearning(traces []ReasoningTrace) Admission {
+	if t.worker == nil {
+		return AdmissionRejectedClosed
+	}
+	return t.worker.Enqueue(traces)
+}
+
+// StopWorker closes learning admission, drains every accepted history and
+// joins the consolidation worker, with no budget.
+func (t *TaxonomyEngine) StopWorker() {
+	if t.worker != nil {
+		t.worker.Stop()
+	}
+}
+
+// ShutdownWorker is StopWorker bounded by ctx: when the budget ends, the
+// in-flight history is cancelled, queued ones are abandoned and counted in the
+// returned *ShutdownIncompleteError, and the worker is joined either way.
+func (t *TaxonomyEngine) ShutdownWorker(ctx context.Context) error {
+	if t.worker == nil {
+		return nil
+	}
+	return t.worker.Shutdown(ctx)
+}
+
+// nerdPath returns the correct path for a .nerd subdirectory.
+// Uses workspaceRoot if set, otherwise returns relative path (legacy behavior).
+func (t *TaxonomyEngine) nerdPath(subpath string) string {
+	if t.workspaceRoot != "" {
+		return filepath.Join(t.workspaceRoot, ".nerd", subpath)
+	}
+	return filepath.Join(".nerd", subpath)
+}
+
+func (t *TaxonomyEngine) tryLoadLearned() {
+	// Taxonomy learns in its own schema file; do not load the kernel's learned.mg
+	// (which contains unrelated system rules and can break schema analysis here).
+	learnedPath := filepath.Join(t.nerdPath("mangle"), "learned_taxonomy.mg")
+	if abs, err := filepath.Abs(learnedPath); err == nil {
+		learnedPath = abs
+	}
+	if learnedPath == t.learnedPath {
+		return
+	}
+	if _, err := os.Stat(learnedPath); err != nil {
+		return
+	}
+	if err := t.engine.LoadSchema(learnedPath); err != nil {
+		fmt.Printf("WARNING: Failed to load learned taxonomy from %s: %v\n", learnedPath, err)
+		return
+	}
+	// Loaded facts are program clauses until an evaluation runs; without this
+	// the learned exemplars were invisible to the prompt tables (b72add22).
+	if err := t.engine.Evaluate(); err != nil {
+		fmt.Printf("WARNING: Failed to evaluate learned taxonomy from %s: %v\n", learnedPath, err)
+		return
+	}
+	t.learnedPath = learnedPath
+}
+
+// HydrateFromDB loads all taxonomy facts from the database into the engine.
+func (t *TaxonomyEngine) HydrateFromDB() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.hydrateFromDBLocked()
+}
+
+func (t *TaxonomyEngine) hydrateFromDBLocked() error {
+	if t.store == nil {
+		return fmt.Errorf("no store configured")
+	}
+	if err := t.store.HydrateEngine(t.engine); err != nil {
+		return err
+	}
+
+	// Keep the package-level VerbCorpus in sync after hydration so parsing reflects
+	// any newly learned verbs/synonyms/patterns persisted in SQLite.
+	if verbs, err := t.getVerbsLocked(); err == nil && len(verbs) > 0 {
+		SetVerbCorpus(verbs)
+	}
+
+	return nil
+}
+
+// EnsureDefaults merges the default taxonomy into the database, adding any
+// default verbs the DB lacks. A previous version returned early when the DB
+// held ANY facts, so workspaces with an older corpus never received new
+// verbs (their turns silently lost personas and classifier candidates).
+// The merge is additive only: verbs in the DB but not in the defaults
+// (user/learned additions) are never removed.
+func (t *TaxonomyEngine) EnsureDefaults() error {
+	if t.store == nil {
+		return fmt.Errorf("no store configured")
+	}
+
+	facts, err := t.store.LoadAllTaxonomyFacts()
+	if err != nil {
+		return err
+	}
+
+	have := make(map[string]bool, len(DefaultTaxonomyData))
+	for _, f := range facts {
+		if f.Predicate == "verb_def" && len(f.Args) > 0 {
+			if verb, ok := f.Args[0].(string); ok {
+				have[verb] = true
+			}
+		}
+	}
+
+	// Use defaults from Go struct
+	for _, entry := range DefaultTaxonomyData {
+		if have[entry.Verb] {
+			continue
+		}
+		if err := t.store.StoreVerbDef(entry.Verb, entry.Category, entry.ShardType, entry.Priority); err != nil {
+			return fmt.Errorf("failed to store verb def for %s: %w", entry.Verb, err)
+		}
+		for _, syn := range entry.Synonyms {
+			if err := t.store.StoreVerbSynonym(entry.Verb, syn); err != nil {
+				return fmt.Errorf("failed to store synonym %s for %s: %w", syn, entry.Verb, err)
+			}
+		}
+		for _, pat := range entry.Patterns {
+			if err := t.store.StoreVerbPattern(entry.Verb, pat); err != nil {
+				return fmt.Errorf("failed to store pattern %s for %s: %w", pat, entry.Verb, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// GetVerbs returns all defined verbs with their metadata.
+func (t *TaxonomyEngine) GetVerbs() ([]VerbEntry, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.getVerbsLocked()
+}
+
+func (t *TaxonomyEngine) getVerbsLocked() ([]VerbEntry, error) {
+	// Use GetFacts to access EDB directly
+	facts, err := t.engine.GetFacts("verb_def")
+	if err != nil {
+		return nil, err
+	}
+
+	var verbs []VerbEntry
+	for _, fact := range facts {
+		if len(fact.Args) != 4 {
+			continue
+		}
+		v := VerbEntry{
+			Verb:      types.ExtractString(fact.Args[0]),
+			Category:  types.ExtractString(fact.Args[1]),
+			ShardType: types.ExtractString(fact.Args[2]),
+			Priority:  toInt(fact.Args[3]),
+		}
+		// Normalize shard types to bare names ("reviewer", not "/reviewer").
+		// The taxonomy stores Mangle name constants, but every Go consumer
+		// (process.go shardType comparisons, the task executor's agentName,
+		// ShardResult payloads) expects the bare form. Without this,
+		// slash-prefixed values reached the task executor looking like intent
+		// verbs, so delegated tasks ran with a default persona instead of the
+		// shard the taxonomy mapped.
+		v.ShardType = strings.TrimPrefix(v.ShardType, "/")
+		if v.ShardType == "none" {
+			v.ShardType = ""
+		}
+
+		syns, _ := t.getSynonyms(v.Verb)
+		v.Synonyms = syns
+
+		patterns, _ := t.getPatterns(v.Verb)
+		for _, p := range patterns {
+			if re, ok := t.regexCache[p]; ok {
+				v.Patterns = append(v.Patterns, re)
+			} else if re, err := regexp.Compile(p); err == nil {
+				t.regexCache[p] = re
+				v.Patterns = append(v.Patterns, re)
+			}
+		}
+
+		verbs = append(verbs, v)
+	}
+
+	// Stable with a verb tiebreak: many verbs share a priority (50, 65, 70,
+	// 72, ...), and bare sort.Slice flips their order run to run. Corpus
+	// order feeds candidate order feeds the score aggregation's first-max
+	// scan, so an unstable sort here is nondeterministic classification.
+	sort.SliceStable(verbs, func(i, j int) bool {
+		if verbs[i].Priority != verbs[j].Priority {
+			return verbs[i].Priority > verbs[j].Priority
+		}
+		return verbs[i].Verb < verbs[j].Verb
+	})
+
+	return verbs, nil
+}
+
+func (t *TaxonomyEngine) getSynonyms(verb string) ([]string, error) {
+	facts, err := t.engine.GetFacts("verb_synonym")
+	if err != nil {
+		return nil, err
+	}
+
+	targetVerb := verb
+	if !strings.HasPrefix(targetVerb, "/") {
+		targetVerb = "/" + targetVerb
+	}
+
+	var syns []string
+	for _, fact := range facts {
+		if len(fact.Args) == 2 {
+			v := types.ExtractString(fact.Args[0])
+			if v == targetVerb || v == verb {
+				syn := types.ExtractString(fact.Args[1])
+				// Defense-in-depth: strip leading "/" from synonyms that were
+				// incorrectly stored as NameType atoms instead of strings.
+				// This handles legacy data from when verb_synonym was declared
+				// bound [/name, /name] instead of bound [/name, /string].
+				syn = strings.TrimPrefix(syn, "/")
+				syns = append(syns, syn)
+			}
+		}
+	}
+	return syns, nil
+}
+
+func (t *TaxonomyEngine) getPatterns(verb string) ([]string, error) {
+	facts, err := t.engine.GetFacts("verb_pattern")
+	if err != nil {
+		return nil, err
+	}
+
+	targetVerb := verb
+	if !strings.HasPrefix(targetVerb, "/") {
+		targetVerb = "/" + targetVerb
+	}
+
+	var pats []string
+	for _, fact := range facts {
+		if len(fact.Args) == 2 {
+			v := types.ExtractString(fact.Args[0])
+			if v == targetVerb || v == verb {
+				pats = append(pats, types.ExtractString(fact.Args[1]))
+			}
+		}
+	}
+	return pats, nil
+}
+
+func toInt(val any) int {
+	if i, ok := val.(int); ok {
+		return i
+	}
+	if i64, ok := val.(int64); ok {
+		return int(i64)
+	}
+	if f, ok := val.(float64); ok {
+		return int(f)
+	}
+	return 0
+}
+
+// ClassifyInputWithMatches scores candidates with neural matches bridged
+// into the engine. The taxonomy_inference rules JOIN semantic_match, but the
+// call below Clear()s the EDB first — so matches passed any other way
+// (cortex injection, pre-seeding) can never meet the rules. Bridging them
+// here, after Clear and before scoring, is the only path that works. When
+// matches is empty, the top regex candidates seed at fixed 50.0 similarity,
+// inert under the current rule thresholds but kept for transparency.
+func (t *TaxonomyEngine) ClassifyInputWithMatches(input string, candidates []VerbEntry, matches []SemanticMatch) (bestVerb string, bestConf float64, err error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// Defensive: if schemas were somehow not loaded (e.g. construction error
+	// was ignored), load them now. This is a no-op on the hot path.
+	if err := t.loadStaticSchemasLocked(); err != nil {
+		return "", 0, fmt.Errorf("failed to ensure static schemas: %w", err)
+	}
+
+	// Clear EDB facts (verb_def, verb_synonym, verb_pattern, context_token,
+	// candidate_intent, derived potential_score, ...) without disturbing the
+	// schema/rule graph. This is what makes the fix safe: every call starts
+	// from the same clean fact-store state it did under the old Reset() path,
+	// just without paying the ~17-file schema reload cost.
+	t.engine.Clear()
+
+	facts := []mangle.Fact{}
+
+	// Re-hydrate Verb Taxonomy (EDB facts). Mirrors the old behavior: prefer
+	// the persistent store when configured, otherwise fall back to defaults.
+	if t.store != nil {
+		if herr := t.hydrateFromDBLocked(); herr != nil {
+			// Match previous behavior (the old code ignored the error from
+			// hydrateFromDBLocked); just log it so we don't silently drop
+			// taxonomy on a transient DB hiccup.
+			logging.PerceptionDebug("hydrateFromDBLocked failed: %v", herr)
+		}
+	} else {
+		// Re-add defaults
+		for _, entry := range DefaultTaxonomyData {
+			facts = append(facts, mangle.Fact{Predicate: "verb_def", Args: []any{entry.Verb, entry.Category, entry.ShardType, entry.Priority}})
+			for _, syn := range entry.Synonyms {
+				facts = append(facts, mangle.Fact{Predicate: "verb_synonym", Args: []any{entry.Verb, syn}})
+			}
+			for _, pat := range entry.Patterns {
+				facts = append(facts, mangle.Fact{Predicate: "verb_pattern", Args: []any{entry.Verb, pat}})
+			}
+		}
+	}
+
+	// Note on learned facts: learned_taxonomy.mg contents are loaded via
+	// LoadSchema which stores them as schema fragments (rules/clauses), not as
+	// EDB facts. Clear() only wipes the EDB, so learned rules survive across
+	// ClassifyInput calls. This is at least as correct as the previous Reset()
+	// path, which wiped the learned schema fragment entirely and never
+	// restored it (so prior code only saw learned facts on the very first
+	// call, if at all).
+
+	rawTokens := strings.FieldsSeq(strings.ToLower(input))
+	for token := range rawTokens {
+		// Keep tokenization simple and stable: trim common punctuation and add a naive singular form.
+		token = strings.Trim(token, ".,!?;:\"'()[]{}<>")
+		if token == "" {
+			continue
+		}
+		facts = append(facts, mangle.Fact{Predicate: "context_token", Args: []any{token}})
+		if strings.HasSuffix(token, "s") && len(token) > 3 {
+			facts = append(facts, mangle.Fact{Predicate: "context_token", Args: []any{strings.TrimSuffix(token, "s")}})
+		}
+	}
+	// Inject full input string for exact/fuzzy matching against learned patterns
+	facts = append(facts, mangle.Fact{Predicate: "user_input_string", Args: []any{input}})
+
+	for _, cand := range candidates {
+		facts = append(facts, mangle.Fact{
+			Predicate: "candidate_intent",
+			Args:      []any{cand.Verb, int64(cand.Priority)},
+		})
+	}
+
+	// Bridge neural matches into semantic_match/6 AFTER Clear() (see method
+	// comment). Similarities scale to int64 0-100, exactly like injectFacts:
+	// the taxonomy_inference thresholds (>= 85 override, >= 70 boost, >= 60
+	// suggest) need percentage scale, and the /number Decl rejects float64.
+	// With no matches, the top regex candidates seed at 50 as the designed
+	// fallback — inert under the current thresholds, kept for transparency.
+	if len(matches) > 0 {
+		for i, m := range matches {
+			facts = append(facts, mangle.Fact{
+				Predicate: "semantic_match",
+				Args:      []any{input, m.TextContent, m.Verb, m.Target, int64(i + 1), int64(m.Similarity * 100)},
+			})
+		}
+	} else {
+		for rank, cand := range candidates {
+			if rank >= 5 {
+				break
+			}
+			facts = append(facts, mangle.Fact{
+				Predicate: "semantic_match",
+				Args:      []any{input, "", cand.Verb, "", int64(rank + 1), int64(50)},
+			})
+		}
+	}
+
+	if err := t.engine.AddFacts(facts); err != nil {
+		return "", 0, fmt.Errorf("failed to add facts: %w", err)
+	}
+
+	// Use GetFacts to get all derived potential scores and aggregate in Go
+	// This avoids "predicate potential_score has no modes declared" errors.
+	factsFromStore, err := t.engine.GetFacts("potential_score")
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to get potential_score facts: %w", err)
+	}
+
+	var bestScore float64 = -1.0
+
+	for _, fact := range factsFromStore {
+		if len(fact.Args) != 2 {
+			continue
+		}
+		verb, ok := fact.Args[0].(string)
+		if !ok {
+			continue
+		}
+
+		// Handle score which might be int64 or float64 depending on Mangle internal representation
+		var score float64
+		switch s := fact.Args[1].(type) {
+		case float64:
+			score = s
+		case int64:
+			score = float64(s)
+		case int:
+			score = float64(s)
+		default:
+			continue
+		}
+
+		if score > bestScore {
+			bestScore = score
+			bestVerb = verb
+		}
+	}
+
+	if bestVerb != "" {
+		return bestVerb, 1.0, nil
+	}
+
+	return "", 0, nil
+}
+
+// SetClient provides the taxonomy engine with an LLM client for the "Critic" loop.
+func (t *TaxonomyEngine) SetClient(client LLMClient) {
+	t.mu.Lock()
+	t.client = client
+	t.mu.Unlock()
+}
+
+// DefaultTaxonomyData defines the corpus in Go structures to avoid parsing fragility.
+type TaxonomyDef struct {
+	Verb      string
+	Category  string
+	ShardType string
+	Priority  int
+	Synonyms  []string
+	Patterns  []string
+}
+
+var DefaultTaxonomyData = []TaxonomyDef{
+	{
+		Verb: "/review", Category: "/query", ShardType: "/reviewer", Priority: 100,
+		Synonyms: []string{"review", "code review", "audit", "evaluate", "critique", "check code"},
+		Patterns: []string{"(?i)review.*(file|code|changes)", "(?i)check.*code"},
+	},
+	{
+		Verb: "/review_enhance", Category: "/query", ShardType: "/reviewer", Priority: 102,
+		Synonyms: []string{"review enhance", "review and enhance", "creative review", "suggest improvements", "enhance"},
+		Patterns: []string{"(?i)review.*enhance", "(?i)review.*suggest", "(?i)improve.*code", "(?i)creative.*feedback", "(?i)how.*make.*better"},
+	},
+	{
+		Verb: "/security", Category: "/query", ShardType: "/reviewer", Priority: 105,
+		Synonyms: []string{"security", "vulnerability", "injection", "xss", "scan"},
+		Patterns: []string{"(?i)security.*scan", "(?i)check.*for.*vuln", "(?i)find.*vuln"},
+	},
+	{
+		Verb: "/analyze", Category: "/query", ShardType: "/reviewer", Priority: 95,
+		Synonyms: []string{"analyze", "complexity", "lint", "code smell"},
+		Patterns: []string{"(?i)analy[sz]e.*code"},
+	},
+	{
+		Verb: "/explain", Category: "/query", ShardType: "/none", Priority: 80,
+		Synonyms: []string{"explain", "describe", "what is", "how does"},
+		Patterns: []string{"(?i)explain.*this", "(?i)tell.*me.*about"},
+	},
+	{
+		Verb: "/explore", Category: "/query", ShardType: "/researcher", Priority: 75,
+		Synonyms: []string{"explore", "browse", "structure", "list files"},
+		Patterns: []string{"(?i)show.*structure"},
+	},
+	{
+		Verb: "/search", Category: "/query", ShardType: "/researcher", Priority: 85,
+		Synonyms: []string{"search", "find", "grep", "occurrences"},
+		Patterns: []string{"(?i)search.*for", "(?i)find.*all"},
+	},
+	{
+		Verb: "/fix", Category: "/mutation", ShardType: "/coder", Priority: 90,
+		Synonyms: []string{"fix", "repair", "patch", "resolve", "bug fix"},
+		Patterns: []string{"(?i)fix.*bug", "(?i)resolve.*issue"},
+	},
+	{
+		Verb: "/refactor", Category: "/mutation", ShardType: "/coder", Priority: 88,
+		Synonyms: []string{"refactor", "clean up", "improve", "optimize"},
+		Patterns: []string{"(?i)refactor", "(?i)clean.*up"},
+	},
+	{
+		Verb: "/create", Category: "/mutation", ShardType: "/coder", Priority: 85,
+		Synonyms: []string{"create", "new", "add", "implement", "generate"},
+		Patterns: []string{"(?i)create.*new", "(?i)add.*new", "(?i)implement"},
+	},
+	{
+		Verb: "/write", Category: "/mutation", ShardType: "/coder", Priority: 70,
+		Synonyms: []string{"write", "save", "export"},
+		Patterns: []string{"(?i)write.*to"},
+	},
+	{
+		Verb: "/delete", Category: "/mutation", ShardType: "/coder", Priority: 85,
+		Synonyms: []string{"delete", "remove", "drop"},
+		Patterns: []string{"(?i)delete", "(?i)remove"},
+	},
+	{
+		Verb: "/debug", Category: "/query", ShardType: "/coder", Priority: 92,
+		Synonyms: []string{"debug", "troubleshoot", "diagnose", "root cause"},
+		Patterns: []string{"(?i)debug", "(?i)why.*fail"},
+	},
+	{
+		Verb: "/test", Category: "/mutation", ShardType: "/tester", Priority: 88,
+		// "add a test" and "write a test" name the test, not the adding: with
+		// only /create's "add" and /write's "write" a Choice over the verbs
+		// split "add a test for Max" 0.57/0.42 with /create and read "write
+		// table-driven tests" as /write; with them, 1.00 and 0.90 /test, and
+		// "add a Max function" stays /create (Jev 1.14, 2026-10-28).
+		Synonyms: []string{"test", "add a test", "write a test", "unit test", "run tests", "coverage"},
+		Patterns: []string{"(?i)run.*test", "(?i)test.*coverage"},
+	},
+	{
+		Verb: "/research", Category: "/query", ShardType: "/researcher", Priority: 75,
+		Synonyms: []string{"research", "learn", "docs", "documentation"},
+		Patterns: []string{"(?i)research", "(?i)learn.*about"},
+	},
+	{
+		Verb: "/init", Category: "/mutation", ShardType: "/researcher", Priority: 70,
+		Synonyms: []string{"init", "setup", "bootstrap"},
+		Patterns: []string{"(?i)^init"},
+	},
+	{
+		Verb: "/configure", Category: "/instruction", ShardType: "/none", Priority: 65,
+		Synonyms: []string{"configure", "config", "settings"},
+		Patterns: []string{"(?i)configure"},
+	},
+	{
+		Verb: "/campaign", Category: "/mutation", ShardType: "/coder", Priority: 95,
+		Synonyms: []string{"campaign", "epic", "feature"},
+		Patterns: []string{"(?i)start.*campaign"},
+	},
+	{
+		Verb: "/assault", Category: "/mutation", ShardType: "/none", Priority: 99,
+		Synonyms: []string{"assault", "assault campaign", "adversarial assault", "adversarial campaign", "gauntlet", "soak test", "stress test", "torture test", "adversarial sweep"},
+		Patterns: []string{
+			"(?i)\\bassault\\b",
+			"(?i)\\badversarial\\s+(assault|campaign|sweep)\\b",
+			"(?i)\\b(soak|stress|torture)\\s+test\\b",
+			"(?i)\\b(run|launch|start)\\s+(an\\s+)?assault\\b",
+			"(?i)\\bgauntlet\\b",
+		},
+	},
+	{
+		Verb: "/generate_tool", Category: "/mutation", ShardType: "/tool_generator", Priority: 95,
+		Synonyms: []string{"generate tool", "create tool", "need a tool", "build tool", "make tool", "implement tool"},
+		Patterns: []string{"(?i)create.*tool", "(?i)build.*tool", "(?i)make.*tool", "(?i)need.*tool", "(?i)tool.*for"},
+	},
+	// --- NEW DIRECT-RESPONSE VERBS ---
+	{
+		Verb: "/stats", Category: "/query", ShardType: "/none", Priority: 85,
+		Synonyms: []string{"stats", "statistics", "count", "breakdown", "how many", "file types", "totals", "metrics"},
+		Patterns: []string{"(?i)how many", "(?i)breakdown", "(?i)file types", "(?i)count.*files", "(?i)statistics", "(?i)codebase.*size"},
+	},
+	{
+		Verb: "/help", Category: "/query", ShardType: "/none", Priority: 60,
+		Synonyms: []string{"help", "capabilities", "can you", "what can", "features", "commands", "abilities"},
+		Patterns: []string{"(?i)what.*can.*you", "(?i)help.*me", "(?i)your.*capabilities", "(?i)available.*commands"},
+	},
+	{
+		Verb: "/greet", Category: "/query", ShardType: "/none", Priority: 50,
+		Synonyms: []string{"hello", "hi", "hey", "greetings", "good morning", "good evening"},
+		Patterns: []string{"(?i)^hello", "(?i)^hi$", "(?i)^hey", "(?i)good morning", "(?i)good evening"},
+	},
+	{
+		Verb: "/knowledge", Category: "/query", ShardType: "/none", Priority: 70,
+		Synonyms: []string{"knowledge", "memory", "remember", "learned", "preferences", "facts"},
+		Patterns: []string{"(?i)what.*remember", "(?i)what.*know", "(?i)your.*memory", "(?i)learned.*from"},
+	},
+	{
+		Verb: "/dream", Category: "/query", ShardType: "/none", Priority: 85,
+		Synonyms: []string{"dream", "what if", "imagine", "hypothetically", "walk me through", "think about", "how would you"},
+		Patterns: []string{"(?i)what.*if.*told", "(?i)imagine.*had.*to", "(?i)walk.*through", "(?i)think.*about.*how", "(?i)hypothetically", "(?i)how.*would.*you"},
+	},
+	{
+		Verb: "/shadow", Category: "/query", ShardType: "/none", Priority: 75,
+		Synonyms: []string{"shadow", "simulate", "dry run", "preview"},
+		Patterns: []string{"(?i)simulate", "(?i)dry.*run", "(?i)preview.*change", "(?i)would.*happen"},
+	},
+	{
+		Verb: "/git", Category: "/mutation", ShardType: "/coder", Priority: 90,
+		Synonyms: []string{"git", "commit", "push", "pull", "branch", "merge", "status", "github"},
+		Patterns: []string{"(?i)git.*status", "(?i)commit.*changes", "(?i)push.*to", "(?i)create.*branch", "(?i)push.*github", "(?i)push.*remote"},
+	},
+	{
+		Verb: "/read", Category: "/query", ShardType: "/none", Priority: 82,
+		Synonyms: []string{"read", "show", "display", "open", "view", "cat"},
+		Patterns: []string{"(?i)read.*file", "(?i)show.*contents", "(?i)display.*file", "(?i)open.*file"},
+	},
+	{
+		Verb: "/migrate", Category: "/mutation", ShardType: "/coder", Priority: 85,
+		Synonyms: []string{"migrate", "migration", "upgrade", "port", "convert", "transition"},
+		Patterns: []string{"(?i)migrate", "(?i)upgrade.*to", "(?i)port.*to", "(?i)convert.*from.*to"},
+	},
+	{
+		Verb: "/optimize", Category: "/mutation", ShardType: "/coder", Priority: 86,
+		Synonyms: []string{"optimize", "optimise", "speed up", "make faster", "improve performance"},
+		Patterns: []string{"(?i)optimize", "(?i)optimise", "(?i)speed.*up", "(?i)make.*faster", "(?i)improve.*perf"},
+	},
+	{
+		Verb: "/document", Category: "/mutation", ShardType: "/coder", Priority: 72,
+		Synonyms: []string{"document", "write docs", "add comments", "add documentation", "write readme"},
+		Patterns: []string{"(?i)document", "(?i)write.*doc", "(?i)add.*comment", "(?i)add.*doc", "(?i)write.*readme"},
+	},
+	{
+		Verb: "/benchmark", Category: "/query", ShardType: "/tester", Priority: 80,
+		Synonyms: []string{"benchmark", "bench", "perf test", "performance test", "load test"},
+		Patterns: []string{"(?i)benchmark", "(?i)bench\\b", "(?i)perf.*test", "(?i)load.*test"},
+	},
+	{
+		Verb: "/profile", Category: "/query", ShardType: "/tester", Priority: 78,
+		Synonyms: []string{"profile", "profiling", "cpu profile", "memory profile", "pprof", "trace"},
+		Patterns: []string{"(?i)profile", "(?i)profil", "(?i)pprof", "(?i)cpu.*usage", "(?i)memory.*usage"},
+	},
+	{
+		Verb: "/audit", Category: "/query", ShardType: "/reviewer", Priority: 90,
+		Synonyms: []string{"audit", "compliance", "security audit", "code audit"},
+		Patterns: []string{"(?i)audit", "(?i)compliance", "(?i)security.*check", "(?i)code.*audit"},
+	},
+	{
+		Verb: "/scaffold", Category: "/mutation", ShardType: "/coder", Priority: 75,
+		Synonyms: []string{"scaffold", "scaffolding", "boilerplate", "bootstrap", "generate project", "create project"},
+		Patterns: []string{"(?i)scaffold", "(?i)boilerplate", "(?i)bootstrap.*project", "(?i)generate.*project", "(?i)create.*project"},
+	},
+	{
+		Verb: "/lint", Category: "/query", ShardType: "/reviewer", Priority: 83,
+		Synonyms: []string{"lint", "linter", "static analysis", "check style", "code quality"},
+		Patterns: []string{"(?i)\\blint\\b", "(?i)linter", "(?i)static.*analysis", "(?i)check.*style", "(?i)code.*quality"},
+	},
+	{
+		Verb: "/format", Category: "/mutation", ShardType: "/coder", Priority: 70,
+		Synonyms: []string{"format", "fmt", "gofmt", "prettier", "auto-format", "fix formatting"},
+		Patterns: []string{"(?i)\\bformat\\b", "(?i)\\bfmt\\b", "(?i)gofmt", "(?i)prettier", "(?i)fix.*format"},
+	},
+	{
+		// Emitted by UnderstandingTransducer for action_type=remember.
+		// /none: memory ops ride the articulation control packet; no shard owns them.
+		Verb: "/remember", Category: "/instruction", ShardType: "/none", Priority: 65,
+		Synonyms: []string{"remember", "remember that", "keep in mind", "note that", "don't forget"},
+		Patterns: []string{"(?i)\\bremember\\b", "(?i)keep in mind", "(?i)don.?t forget", "(?i)^note that"},
+	},
+	{
+		// Emitted by UnderstandingTransducer for action_type=forget.
+		Verb: "/forget", Category: "/instruction", ShardType: "/none", Priority: 65,
+		Synonyms: []string{"forget", "forget that", "stop remembering", "unlearn", "drop that preference"},
+		Patterns: []string{"(?i)\\bforget\\b", "(?i)stop remembering", "(?i)unlearn", "(?i)drop that"},
+	},
+	{
+		// Emitted by UnderstandingTransducer for action_type=chat.
+		// /none: conversation is answered directly, never delegated.
+		// Greeting synonyms (hello/hi/hey) stay with /greet deliberately:
+		// sharing them would tie-break legacy classification by fact-store
+		// order instead of by rule.
+		Verb: "/converse", Category: "/query", ShardType: "/none", Priority: 50,
+		Synonyms: []string{"chat", "talk", "thanks", "thank you", "bye"},
+		Patterns: []string{"(?i)^thanks\\b", "(?i)\\bthank you\\b", "(?i)\\bbye\\b"},
+	},
+	{
+		// Emitted by UnderstandingTransducer for action_type=diagnose_self:
+		// codeNERD's own failures. /reviewer reads codeNERD's source for the
+		// root causes; the kernel lays out the chain (self_diagnosis.mg).
+		Verb: "/self_diagnose", Category: "/query", ShardType: "/reviewer", Priority: 96,
+		Synonyms: []string{"debug yourself", "diagnose yourself", "self debug", "what went wrong with you", "why did you fail"},
+		Patterns: []string{"(?i)\\b(debug|diagnose|fix) (yourself|itself|codenerd)\\b", "(?i)\\bwhy (did|do) you (fail|break|crash)"},
+	},
+	{
+		// Emitted by UnderstandingTransducer for action_type=approve: the
+		// user's go-ahead on work the assistant proposed. /none: it starts the
+		// proposal's own work, it is never a task of its own.
+		Verb: "/approve", Category: "/query", ShardType: "/none", Priority: 55,
+		Synonyms: []string{"go ahead", "go for it", "do it", "proceed", "approved", "start it", "sounds good"},
+		Patterns: []string{"(?i)^go\\b", "(?i)\\bgo ahead\\b", "(?i)^(yes|yep|ok|okay),? (do it|go|start|proceed)", "(?i)\\bproceed\\b"},
+	},
+	{
+		// Emitted by UnderstandingTransducer for action_type=deploy.
+		// /coder: releases execute through the coder's command/file tools.
+		Verb: "/deploy", Category: "/mutation", ShardType: "/coder", Priority: 72,
+		Synonyms: []string{"deploy", "release", "publish", "ship", "roll out", "push to prod"},
+		Patterns: []string{"(?i)\\bdeploy\\b", "(?i)\\brelease\\b", "(?i)\\bpublish\\b", "(?i)roll.?out", "(?i)push to prod"},
+	},
+}
+
+// ShutdownSharedTaxonomy closes admission on the global SharedTaxonomy worker
+// and joins it, so no accepted learning job is still using the classifier,
+// embedding engine or LocalStore when they close. It waits for the queue for
+// one critic call plus one embedding request (llm_timeouts.per_call_timeout +
+// embedding.request_timeout) and then cancels what is left; a nil error means
+// every accepted job was processed. Safe to invoke multiple times; a stopped
+// worker is never reopened, later submissions are rejected_closed.
+func ShutdownSharedTaxonomy() error {
+	if SharedTaxonomy == nil {
+		return nil
+	}
+	ctx, cancel := sharedTaxonomyDrainContext()
+	defer cancel()
+	return SharedTaxonomy.ShutdownWorker(ctx)
+}
+
+// sharedTaxonomyDrainContext is the budget ShutdownSharedTaxonomy gives the
+// accepted queue. Without a configured per-call timeout there is no clock to
+// derive one from, and the drain is unbounded.
+func sharedTaxonomyDrainContext() (context.Context, context.CancelFunc) {
+	perCall := config.GetLLMTimeouts().PerCallTimeout
+	if perCall <= 0 {
+		return context.WithCancel(context.Background())
+	}
+	return context.WithTimeout(context.Background(), perCall+config.EmbeddingRequestTimeout())
+}

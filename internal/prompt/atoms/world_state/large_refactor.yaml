@@ -1,0 +1,48 @@
+# Large Refactor World State Atoms
+# Multi-file changes, migration strategies, rollback
+
+- id: "world_state/large_refactor/strategy"
+  category: "world_state"
+  subcategory: "large_refactor"
+  is_mandatory: false
+  world_states: ["large_refactor"]
+  content: |
+    ## REFACTOR STRATEGIES
+
+    ### STRANGLER FIG PATTERN
+    Gradually replace old with new:
+    ```
+    1. Create new implementation alongside old
+    2. Route some traffic to new
+    3. Verify correctness
+    4. Route more traffic
+    5. Remove old implementation
+    ```
+
+    ### EXPAND-CONTRACT PATTERN
+    ```
+    1. EXPAND: Add new structure (keeping old)
+    2. MIGRATE: Update all consumers to use new
+    3. CONTRACT: Remove old structure
+    ```
+
+    ### PARALLEL CHANGE
+    ```go
+    // Step 1: Old function still works
+    func OldAPI(x int) int { return x * 2 }
+
+    // Step 2: Add new function
+    func NewAPI(x int) (int, error) { return x * 2, nil }
+
+    // Step 3: Update callers one by one
+    // Step 4: Deprecate OldAPI
+    // Step 5: Remove OldAPI
+    ```
+
+    ### BRANCH BY ABSTRACTION
+    1. Create abstraction layer
+    2. Implement for old code
+    3. Implement for new code
+    4. Switch implementations
+    5. Remove old implementation
+

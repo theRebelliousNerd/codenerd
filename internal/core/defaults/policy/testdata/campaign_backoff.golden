@@ -1,0 +1,8 @@
+current_campaign(/c_lock).
+phase_eligible(/p_lock).
+current_phase(/p_lock).
+task_in_backoff(/t_backoff).
+phase_has_backoff_task(/p_lock).
+phase_waiting_for_retry(/p_lock).
+has_next_campaign_task().
+task_conflict(/t_backoff, /t_done).

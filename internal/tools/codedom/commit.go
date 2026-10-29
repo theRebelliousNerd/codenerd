@@ -1,0 +1,206 @@
+package codedom
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+
+	"codenerd/internal/atomicfile"
+	"codenerd/internal/logging"
+	"codenerd/internal/projectdoc"
+)
+
+// commitMu serializes every codedom commit: apply_edits, the element verbs,
+// create_file and repoint. The preflight (read, stage, validate) runs
+// concurrently; the optimistic check, the writes and any rollback do not.
+var commitMu sync.Mutex
+
+// commitWriteFile is the write seam. Tests replace it to inject a failure
+// mid-commit and exercise rollback.
+var commitWriteFile = atomicfile.WriteFile
+
+// commitBeforeHook is a test seam run inside commitMu immediately before the
+// optimistic conflict check, so a test can change a file after its snapshot
+// and before the commit verifies it, deterministically.
+var commitBeforeHook func()
+
+// errOptimisticConflict marks a commit refused because a planned file no
+// longer holds the bytes its plan was computed from.
+var errOptimisticConflict = errors.New("optimistic conflict")
+
+// plannedWrite is one file a commit writes.
+type plannedWrite struct {
+	abs, rel string
+	// orig is what the file held when it was read. A create has none, and
+	// commits only while the file still does not exist.
+	orig   []byte
+	create bool
+	data   []byte
+	mode   os.FileMode
+}
+
+// commitLineEdit publishes one line verb's candidate through commitFiles.
+//
+// A line verb reads the whole file, checks the caller's precondition, and
+// builds a whole-file candidate from that read. Writing the candidate straight
+// to disk would overwrite anything another codedom writer committed after the
+// read, including a change to a different declaration, since the candidate
+// carries the old copy of the rest of the file. Under commitMu the bytes the
+// verb read are re-checked before the write, so an interleaved codedom commit
+// is a refusal to re-read, not a silent overwrite. Writers outside codedom are
+// not serialized by commitMu; for them the check narrows the window.
+func commitLineEdit(ctx context.Context, abs string, before []byte, output string) error {
+	mode := os.FileMode(0o644)
+	if info, err := os.Stat(abs); err == nil {
+		mode = info.Mode().Perm()
+	}
+	err := commitFiles(ctx, []plannedWrite{{abs: abs, rel: abs, orig: before, data: []byte(output), mode: mode}})
+	if errors.Is(err, errOptimisticConflict) {
+		return fmt.Errorf("%w; nothing was written. Read the file again and redo the edit against what it holds now", err)
+	}
+	return err
+}
+
+// readDependency is evidence an edit was planned from that its own writes do
+// not cover: the use set a delete found empty, the uses a repoint rewrote,
+// the declaration it points them at. Comparing the planned files' bytes
+// protects against a change after planning; it cannot see a file the plan
+// does not write gaining a use (Docs/audits/structure-coverage-and-refactor-
+// preconditions.md, S3). commitFiles re-establishes each dependency under
+// commitMu, so no other codedom commit interleaves between the check and the
+// writes. A writer outside codedom is not serialized by commitMu: for it the
+// check narrows the window, and the answer never claims atomicity.
+type readDependency func(ctx context.Context) error
+
+// commitFiles writes every planned file or none. Under commitMu it first
+// re-establishes the plan's read dependencies, then re-checks that each file
+// still holds exactly what was read (a concurrent writer is an optimistic
+// conflict, not something to overwrite), writes in order, and on a failure
+// restores what it wrote -- in reverse, and only files still holding what
+// this commit wrote, so a restore never clobbers someone else's write.
+func commitFiles(ctx context.Context, planned []plannedWrite, reads ...readDependency) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	commitMu.Lock()
+	defer commitMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if commitBeforeHook != nil {
+		commitBeforeHook()
+	}
+	for _, read := range reads {
+		if err := read(ctx); err != nil {
+			return err
+		}
+	}
+	unchanged := func(p plannedWrite) error {
+		if p.create {
+			if _, err := os.Stat(p.abs); err == nil {
+				return fmt.Errorf("%w: %s now exists", errOptimisticConflict, p.rel)
+			}
+			return nil
+		}
+		cur, err := projectdoc.ReadFileForTool(p.abs)
+		if err != nil {
+			return fmt.Errorf("%w: failed to re-read %s: %w", errOptimisticConflict, p.rel, err)
+		}
+		if !bytes.Equal(cur, p.orig) {
+			return fmt.Errorf("%w: file %s changed since snapshot", errOptimisticConflict, p.rel)
+		}
+		return nil
+	}
+	for _, p := range planned {
+		if err := unchanged(p); err != nil {
+			return err
+		}
+	}
+
+	var succeeded []plannedWrite
+	var commitErr error
+	failedIdx := -1
+	for idx, p := range planned {
+		if err := ctx.Err(); err != nil {
+			commitErr = err
+			break
+		}
+		if err := unchanged(p); err != nil {
+			commitErr = fmt.Errorf("%w immediately before write", err)
+			break
+		}
+		if p.create {
+			if err := os.MkdirAll(filepath.Dir(p.abs), 0o755); err != nil {
+				commitErr = fmt.Errorf("failed to create the directory of %s: %w", p.rel, err)
+				break
+			}
+		}
+		if err := commitWriteFile(p.abs, p.data, p.mode); err != nil {
+			commitErr = fmt.Errorf("failed to write %s: %w", p.rel, err)
+			failedIdx = idx
+			break
+		}
+		logging.Audit().FileOp(logging.AuditFileWrite, p.abs, int64(len(p.data)), true, "")
+		succeeded = append(succeeded, p)
+	}
+	if commitErr == nil {
+		return nil
+	}
+
+	var conflicts []string
+	restore := func(p plannedWrite) {
+		if p.create {
+			if err := os.Remove(p.abs); err != nil && !os.IsNotExist(err) {
+				conflicts = append(conflicts, p.rel+": restore failed: "+err.Error())
+			}
+			return
+		}
+		if err := commitWriteFile(p.abs, p.orig, p.mode); err != nil {
+			conflicts = append(conflicts, p.rel+": restore failed: "+err.Error())
+			return
+		}
+		after, err := projectdoc.ReadFileForTool(p.abs)
+		switch {
+		case err != nil:
+			conflicts = append(conflicts, p.rel+": restore failed: "+err.Error())
+		case !bytes.Equal(after, p.orig):
+			conflicts = append(conflicts, p.rel)
+		}
+	}
+	if failedIdx >= 0 {
+		// A write that failed part-way may have left partial bytes.
+		p := planned[failedIdx]
+		cur, err := projectdoc.ReadFileForTool(p.abs)
+		switch {
+		case p.create && err != nil:
+		case err != nil:
+			conflicts = append(conflicts, p.rel+": restore failed: "+err.Error())
+		case p.create || !bytes.Equal(cur, p.orig):
+			restore(p)
+		}
+	}
+	for j := len(succeeded) - 1; j >= 0; j-- {
+		p := succeeded[j]
+		cur, err := projectdoc.ReadFileForTool(p.abs)
+		if err != nil || !bytes.Equal(cur, p.data) {
+			conflicts = append(conflicts, p.rel)
+			continue
+		}
+		if p.create {
+			restore(p)
+			continue
+		}
+		if err := commitWriteFile(p.abs, p.orig, p.mode); err != nil {
+			conflicts = append(conflicts, p.rel+": restore failed: "+err.Error())
+		}
+	}
+	if len(conflicts) > 0 {
+		return fmt.Errorf("%w; rollback conflicts on: %s", commitErr, strings.Join(conflicts, ", "))
+	}
+	return commitErr
+}

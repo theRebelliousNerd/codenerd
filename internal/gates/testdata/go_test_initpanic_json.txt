@@ -1,0 +1,8 @@
+{"Time":"2026-09-29T05:11:10.1340799-04:00","Action":"start","Package":"example.com/r7b/initpanic"}
+{"Time":"2026-09-29T05:11:10.3284167-04:00","Action":"output","Package":"example.com/r7b/initpanic","Output":"panic: initboom\n"}
+{"Time":"2026-09-29T05:11:10.3284167-04:00","Action":"output","Package":"example.com/r7b/initpanic","Output":"\n"}
+{"Time":"2026-09-29T05:11:10.3284167-04:00","Action":"output","Package":"example.com/r7b/initpanic","Output":"goroutine 1 [running]:\n"}
+{"Time":"2026-09-29T05:11:10.3284167-04:00","Action":"output","Package":"example.com/r7b/initpanic","Output":"example.com/r7b/initpanic.init.0()\n"}
+{"Time":"2026-09-29T05:11:10.3284167-04:00","Action":"output","Package":"example.com/r7b/initpanic","Output":"\tC:/Users/smoor/AppData/Local/Temp/r7b-gates/initpanic/p.go:3 +0x25\n"}
+{"Time":"2026-09-29T05:11:10.3299919-04:00","Action":"output","Package":"example.com/r7b/initpanic","Output":"FAIL\texample.com/r7b/initpanic\t0.196s\n"}
+{"Time":"2026-09-29T05:11:10.3299919-04:00","Action":"fail","Package":"example.com/r7b/initpanic","Elapsed":0.196}

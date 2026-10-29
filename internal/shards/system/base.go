@@ -1,0 +1,848 @@
+// Package system implements Type 1 (Permanent) system shards for the codeNERD architecture.
+// System shards run continuously in the background, providing core OODA loop functionality:
+// - Perception (NL → atoms)
+// - Executive (strategy → action)
+// - Constitution (safety enforcement)
+// - Routing (action → tool)
+// - World Model (fact maintenance)
+// - Planning (session orchestration)
+//
+// Unlike Type 2 (ephemeral) shards that spawn → execute → die, system shards
+// run continuous loops and propagate facts to the parent kernel.
+package system
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"codenerd/internal/articulation"
+	"codenerd/internal/config"
+	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/logging"
+	"codenerd/internal/store"
+	"codenerd/internal/transparency"
+	"codenerd/internal/types"
+)
+
+// StartupMode determines when a system shard starts.
+type StartupMode int
+
+const (
+	// StartupAuto starts the shard when the application initializes.
+	StartupAuto StartupMode = iota
+	// StartupOnDemand starts the shard only when explicitly requested.
+	StartupOnDemand
+)
+
+// CostGuard backs off after a failed LLM call and bounds autopoiesis repair
+// retries. A run is not stopped by a call count or by sitting quiet: the
+// working-context policy (internal/context/working_set.mg) stops a run that
+// has stalled, and the API scheduler spaces outbound calls.
+type CostGuard struct {
+	mu sync.Mutex
+
+	// Validation budget for autopoiesis and Mangle-rule repair. These bound
+	// how many times one generated rule is rewritten, not how many tool
+	// calls a turn may make.
+	MaxValidationRetries  int // Per rule (default: 3)
+	ValidationBudget      int // Across the repair session (default: 20)
+	validationRetriesUsed int
+
+	consecutiveErrs int
+	cooldownUntil   time.Time
+}
+
+// NewCostGuard creates a CostGuard. The backoff after a failed call starts at
+// llm_timeouts.retry_backoff_base and is capped at retry_backoff_max.
+func NewCostGuard() *CostGuard {
+	return &CostGuard{
+		MaxValidationRetries: 3,
+		ValidationBudget:     20,
+	}
+}
+
+// CanRetryValidation checks if another validation retry is allowed.
+func (g *CostGuard) CanRetryValidation() (bool, string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.validationRetriesUsed >= g.ValidationBudget {
+		return false, "session validation budget exhausted"
+	}
+	return true, ""
+}
+
+// RecordValidationRetry records a validation retry attempt.
+func (g *CostGuard) RecordValidationRetry() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.validationRetriesUsed++
+}
+
+// ResetValidationBudget resets the validation retry counter.
+func (g *CostGuard) ResetValidationBudget() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.validationRetriesUsed = 0
+}
+
+// ValidationStats returns validation budget statistics.
+func (g *CostGuard) ValidationStats() (used, budget int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.validationRetriesUsed, g.ValidationBudget
+}
+
+// CanCall reports whether an LLM call is allowed. The only block is the
+// backoff that follows a failure.
+func (g *CostGuard) CanCall() (bool, string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if time.Now().Before(g.cooldownUntil) {
+		return false, fmt.Sprintf("in cooldown until %s", g.cooldownUntil.Format(time.RFC3339))
+	}
+	return true, ""
+}
+
+// RecordCall records a successful LLM call and clears the failure streak.
+// The cooldown itself is left alone: a success does not shorten a backoff
+// that is already in force.
+func (g *CostGuard) RecordCall() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.consecutiveErrs = 0
+}
+
+// RecordError records a failed LLM call and applies exponential backoff.
+// The shift stops at 6 so base<<shift cannot overflow a duration; that cap
+// is arithmetic, not a limit on how many calls the run may make.
+func (g *CostGuard) RecordError() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.consecutiveErrs++
+
+	timeouts := config.GetLLMTimeouts()
+	base := timeouts.RetryBackoffBase
+	maxBackoff := timeouts.RetryBackoffMax
+	if maxBackoff <= 0 {
+		maxBackoff = base
+	}
+	shift := min(g.consecutiveErrs-1, 6)
+	backoff := base << shift
+	if backoff <= 0 || backoff > maxBackoff {
+		backoff = maxBackoff
+	}
+	g.cooldownUntil = time.Now().Add(backoff)
+}
+
+// UnhandledCase represents a situation where Mangle rules couldn't derive a result.
+type UnhandledCase struct {
+	Timestamp   time.Time
+	Query       string            // The Mangle query that failed
+	Context     map[string]string // Relevant context
+	FactsAtTime []types.Fact      // Snapshot of facts when the case occurred
+}
+
+// ProposedRule represents an LLM-proposed Mangle rule for autopoiesis.
+type ProposedRule struct {
+	MangleCode string          // The proposed Mangle rule
+	Confidence float64         // LLM's confidence in the rule (0-1)
+	Rationale  string          // Why this rule was proposed
+	BasedOn    []UnhandledCase // Cases that led to this proposal
+	ProposedAt time.Time
+}
+
+// AutopoiesisLoop tracks unhandled cases and proposes new rules.
+type AutopoiesisLoop struct {
+	mu sync.Mutex
+
+	// Configuration
+	UnhandledThreshold int     // After N unhandled cases, invoke LLM (default: 3)
+	RuleConfidence     float64 // Min confidence to auto-apply rule (default: 0.8)
+
+	// State
+	UnhandledCases []UnhandledCase
+	ProposedRules  []ProposedRule
+	AppliedRules   []string // Rules that were auto-applied
+}
+
+// NewAutopoiesisLoop creates an AutopoiesisLoop with sensible defaults.
+func NewAutopoiesisLoop() *AutopoiesisLoop {
+	return &AutopoiesisLoop{
+		UnhandledThreshold: 3,
+		RuleConfidence:     0.8,
+		UnhandledCases:     make([]UnhandledCase, 0),
+		ProposedRules:      make([]ProposedRule, 0),
+		AppliedRules:       make([]string, 0),
+	}
+}
+
+// RecordUnhandled records an unhandled case.
+func (a *AutopoiesisLoop) RecordUnhandled(query string, ctx map[string]string, facts []types.Fact) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.UnhandledCases = append(a.UnhandledCases, UnhandledCase{
+		Timestamp:   time.Now(),
+		Query:       query,
+		Context:     ctx,
+		FactsAtTime: facts,
+	})
+}
+
+// ShouldPropose checks if enough cases have accumulated to propose a rule.
+func (a *AutopoiesisLoop) ShouldPropose() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.UnhandledCases) >= a.UnhandledThreshold
+}
+
+// GetUnhandledCases returns and clears the accumulated unhandled cases.
+func (a *AutopoiesisLoop) GetUnhandledCases() []UnhandledCase {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	cases := a.UnhandledCases
+	a.UnhandledCases = make([]UnhandledCase, 0)
+	return cases
+}
+
+// RecordProposal records a proposed rule.
+func (a *AutopoiesisLoop) RecordProposal(rule ProposedRule) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.ProposedRules = append(a.ProposedRules, rule)
+}
+
+// RecordApplied records a rule that was auto-applied.
+func (a *AutopoiesisLoop) RecordApplied(mangleCode string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.AppliedRules = append(a.AppliedRules, mangleCode)
+}
+
+// BaseSystemShard provides common functionality for all system shards.
+type BaseSystemShard struct {
+	mu sync.RWMutex
+
+	// Identity
+	ID     string
+	Config types.ShardConfig
+	State  types.ShardState
+
+	// Components
+	Kernel       *core.RealKernel
+	LLMClient    types.LLMClient
+	VirtualStore *core.VirtualStore
+	GlassBox     *transparency.GlassBoxEventBus // For Glass Box visibility events
+	ToolEventBus *transparency.ToolEventBus     // For always-visible tool execution events
+	ToolStore    *store.ToolStore               // For persisting full tool execution results
+
+	// JIT prompt assembly (Phase 5)
+	// Stored as interface{} to avoid import cycles - should be *articulation.PromptAssembler.
+	// Set via SetPromptAssembler() which accepts interface{}.
+	promptAssembler any
+	jitConfig       config.JITConfig
+
+	// System shard specific
+	StartupMode StartupMode
+	CostGuard   *CostGuard
+	Autopoiesis *AutopoiesisLoop
+
+	// Learning infrastructure for autopoiesis
+	learningStore   types.LearningStore
+	patternSuccess  map[string]int // Track successful patterns
+	patternFailure  map[string]int // Track failed patterns
+	corrections     map[string]int // Track user corrections
+	learningEnabled bool
+
+	// Lifecycle
+	StartTime time.Time
+	StopCh    chan struct{}
+
+	// Event-driven fact subscription (replaces polling)
+	eventCh chan core.FactEvent // Receives events when subscribed predicates are asserted
+}
+
+// NewBaseSystemShard creates a base system shard with given ID and startup mode.
+func NewBaseSystemShard(id string, mode StartupMode) *BaseSystemShard {
+	modeStr := "auto"
+	if mode == StartupOnDemand {
+		modeStr = "on-demand"
+	}
+	logging.SystemShards("[BaseSystemShard] Creating shard: id=%s, mode=%s", id, modeStr)
+
+	return &BaseSystemShard{
+		ID:              id,
+		Config:          coreshards.DefaultSystemConfig(id),
+		State:           types.ShardStateIdle,
+		StartupMode:     mode,
+		CostGuard:       NewCostGuard(),
+		Autopoiesis:     NewAutopoiesisLoop(),
+		patternSuccess:  make(map[string]int),
+		patternFailure:  make(map[string]int),
+		corrections:     make(map[string]int),
+		learningEnabled: true,
+		StopCh:          make(chan struct{}),
+	}
+}
+
+// GetID returns the shard ID.
+func (b *BaseSystemShard) GetID() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.ID
+}
+
+// GetState returns the current state.
+func (b *BaseSystemShard) GetState() types.ShardState {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.State
+}
+
+// SetState sets the shard state.
+func (b *BaseSystemShard) SetState(state types.ShardState) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	oldState := b.State
+	b.State = state
+	if oldState != state {
+		logging.SystemShardsDebug("[%s] State transition: %v -> %v", b.ID, oldState, state)
+	}
+}
+
+// GetConfig returns the shard configuration.
+func (b *BaseSystemShard) GetConfig() types.ShardConfig {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.Config
+}
+
+// Execute returns an error for the base shard; concrete shards must override.
+func (b *BaseSystemShard) Execute(ctx context.Context, task string) (string, error) {
+	_ = ctx
+	_ = task
+	return "", fmt.Errorf("execute not implemented for base system shard %s", b.ID)
+}
+
+// GetKernel returns the shard's kernel for fact propagation.
+func (b *BaseSystemShard) GetKernel() *core.RealKernel {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.Kernel
+}
+
+// Stop signals the shard to stop.
+func (b *BaseSystemShard) Stop() error {
+	// Flush learning patterns to SQLite before shutdown (§8.3 Autopoiesis).
+	// Called before acquiring the write lock because persistLearning() takes its own RLock.
+	if err := b.persistLearning(); err != nil {
+		logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to persist learning on shutdown: %v", b.ID, err)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.State == types.ShardStateRunning {
+		logging.SystemShards("[%s] Stopping shard (was running for %v)", b.ID, time.Since(b.StartTime))
+		close(b.StopCh)
+		b.State = types.ShardStateCompleted
+		// Unsubscribe from event bus if subscribed
+		if b.eventCh != nil && b.Kernel != nil {
+			if bus := b.Kernel.GetEventBus(); bus != nil {
+				bus.Unsubscribe(b.eventCh)
+			}
+			b.eventCh = nil
+		}
+	}
+	return nil
+}
+
+// SubscribeToFacts subscribes to fact events for the given predicates.
+// Returns the event channel that can be used in select statements.
+// If the kernel has no event bus (e.g., during tests), returns nil.
+func (b *BaseSystemShard) SubscribeToFacts(predicates []string) <-chan core.FactEvent {
+	if b.Kernel == nil {
+		return nil
+	}
+	bus := b.Kernel.GetEventBus()
+	if bus == nil {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.eventCh = bus.Subscribe(predicates)
+	logging.SystemShards("[%s] Subscribed to fact events: %v", b.ID, predicates)
+	return b.eventCh
+}
+
+// SetLLMClient sets the LLM client.
+func (b *BaseSystemShard) SetLLMClient(client types.LLMClient) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.LLMClient = client
+}
+
+// SetParentKernel sets the Mangle kernel.
+func (b *BaseSystemShard) SetParentKernel(k types.Kernel) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if k == nil {
+		logging.Get(logging.CategorySystemShards).Warn("[%s] SetParentKernel called with nil kernel", b.ID)
+		return
+	}
+	if rk, ok := k.(*core.RealKernel); ok {
+		b.Kernel = rk
+		logging.SystemShardsDebug("[%s] Parent kernel attached", b.ID)
+	} else if ck, ok := k.(*core.CortexKernel); ok {
+		b.Kernel = ck.GetPrimaryRealKernel()
+		logging.SystemShardsDebug("[%s] Parent kernel (unwrapped from CortexKernel) attached", b.ID)
+	} else {
+		logging.Get(logging.CategorySystemShards).Error("[%s] Invalid kernel type %T, requires *core.RealKernel — shard will run without kernel", b.ID, k)
+	}
+}
+
+// SetSessionContext sets the session context (for dream mode, etc.).
+func (b *BaseSystemShard) SetSessionContext(ctx *types.SessionContext) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.Config.SessionContext = ctx
+}
+
+// SetVirtualStore sets the virtual store.
+func (b *BaseSystemShard) SetVirtualStore(vs any) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if v, ok := vs.(*core.VirtualStore); ok {
+		b.VirtualStore = v
+		logging.SystemShardsDebug("[%s] VirtualStore attached", b.ID)
+	} else {
+		logging.Get(logging.CategorySystemShards).Error("[%s] Invalid VirtualStore type", b.ID)
+	}
+}
+
+// SetGlassBox sets the Glass Box event bus for visibility events.
+func (b *BaseSystemShard) SetGlassBox(bus *transparency.GlassBoxEventBus) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.GlassBox = bus
+	if bus != nil {
+		logging.SystemShardsDebug("[%s] GlassBox event bus attached", b.ID)
+	}
+}
+
+// SetToolEventBus sets the tool event bus for always-visible tool execution events.
+func (b *BaseSystemShard) SetToolEventBus(bus *transparency.ToolEventBus) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ToolEventBus = bus
+	if bus != nil {
+		logging.SystemShardsDebug("[%s] ToolEventBus attached", b.ID)
+	}
+}
+
+// SetToolStore sets the tool store for persisting full tool execution results.
+func (b *BaseSystemShard) SetToolStore(ts *store.ToolStore) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ToolStore = ts
+	if ts != nil {
+		logging.SystemShardsDebug("[%s] ToolStore attached", b.ID)
+	}
+}
+
+// truncateForLog limits string length for logging
+func truncateForLog(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	return s[:limit] + "..."
+}
+
+// SetPromptAssembler sets the prompt assembler for JIT compilation.
+// The assembler should be *articulation.PromptAssembler but is stored as interface{}
+// to avoid import cycles.
+func (b *BaseSystemShard) SetPromptAssembler(assembler any) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.promptAssembler = assembler
+	if assembler != nil {
+		logging.SystemShardsDebug("[%s] PromptAssembler attached", b.ID)
+	}
+}
+
+// SetJITConfig stores the effective JIT configuration for debug/trace gating.
+func (b *BaseSystemShard) SetJITConfig(cfg config.JITConfig) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.jitConfig = cfg
+}
+
+// TraceLLMIOEnabled returns true when raw prompt/response tracing is enabled.
+func (b *BaseSystemShard) TraceLLMIOEnabled() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.jitConfig.TraceLLMIO
+}
+
+// GetPromptAssembler returns the prompt assembler if set.
+func (b *BaseSystemShard) GetPromptAssembler() any {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.promptAssembler
+}
+
+// TryJITPrompt attempts to assemble a system prompt using the JIT compiler.
+// Returns the assembled prompt and true if JIT succeeded, or empty string and false if JIT
+// is not available or failed, in which case the caller should fall back to the legacy prompt.
+func (b *BaseSystemShard) TryJITPrompt(ctx context.Context, shardType string) (string, bool) {
+	b.mu.RLock()
+	pa := b.promptAssembler
+	shardID := b.ID
+	b.mu.RUnlock()
+
+	if pa == nil {
+		return "", false
+	}
+
+	// Type assert to actual PromptAssembler type
+	assembler, ok := pa.(*articulation.PromptAssembler)
+	if !ok {
+		return "", false
+	}
+
+	if !assembler.JITReady() {
+		return "", false
+	}
+
+	// Build proper PromptContext
+	promptCtx := &articulation.PromptContext{
+		ShardID:    shardID,
+		ShardType:  shardType,
+		SessionCtx: b.Config.SessionContext,
+	}
+
+	prompt, err := assembler.AssembleSystemPrompt(ctx, promptCtx)
+	if err != nil {
+		logging.SystemShards("[%s] JIT prompt assembly failed: %v", shardID, err)
+		return "", false
+	}
+
+	logging.SystemShards("[%s] [JIT] Prompt assembled successfully (%d bytes)", shardID, len(prompt))
+	return prompt, true
+}
+
+// SetLearningStore sets the learning store and loads existing patterns.
+func (b *BaseSystemShard) SetLearningStore(ls core.LearningStore) {
+	var facts []types.Fact
+	var kernel *core.RealKernel
+	func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.learningStore = ls
+		logging.SystemShardsDebug("[%s] Learning store attached, loading patterns...", b.ID)
+		// Load existing patterns from store
+		facts = b.loadLearnedPatterns()
+		kernel = b.Kernel
+	}()
+	if kernel != nil {
+		for _, fact := range facts {
+			if err := kernel.Assert(fact); err != nil {
+				logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to assert shard_pattern: %v", b.ID, err)
+			}
+		}
+	}
+}
+
+// loadLearnedPatterns loads existing patterns from LearningStore on initialization.
+// Must be called with lock held.
+func (b *BaseSystemShard) loadLearnedPatterns() []types.Fact {
+	if b.learningStore == nil {
+		return nil
+	}
+
+	timer := logging.StartTimer(logging.CategorySystemShards, fmt.Sprintf("[%s] Loading learned patterns", b.ID))
+	defer timer.Stop()
+
+	var facts []types.Fact
+
+	// Load success patterns
+	successLearnings, err := b.learningStore.LoadByPredicate(b.ID, "success_pattern")
+	if err == nil {
+		for _, learning := range successLearnings {
+			if len(learning.FactArgs) >= 1 {
+				pattern, _ := learning.FactArgs[0].(string)
+				// Initialize with threshold count to avoid re-learning
+				b.patternSuccess[pattern] = 3
+				facts = append(facts, types.Fact{
+					Predicate: "shard_pattern",
+					Args:      []any{types.MangleString(b.ID), types.MangleAtom("/success"), types.MangleString(pattern), 3},
+				})
+			}
+		}
+		logging.SystemShardsDebug("[%s] Loaded %d success patterns", b.ID, len(successLearnings))
+	} else {
+		logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to load success patterns: %v", b.ID, err)
+	}
+
+	// Load failure patterns
+	failureLearnings, err := b.learningStore.LoadByPredicate(b.ID, "failure_pattern")
+	if err == nil {
+		for _, learning := range failureLearnings {
+			if len(learning.FactArgs) >= 1 {
+				pattern, _ := learning.FactArgs[0].(string)
+				key := pattern
+				if len(learning.FactArgs) >= 2 {
+					if reason, ok := learning.FactArgs[1].(string); ok && reason != "" {
+						key = fmt.Sprintf("%s:%s", pattern, reason)
+					}
+				}
+				b.patternFailure[key] = 3
+				facts = append(facts, types.Fact{
+					Predicate: "shard_pattern",
+					Args:      []any{types.MangleString(b.ID), types.MangleAtom("/failure"), types.MangleString(pattern), 3},
+				})
+			}
+		}
+		logging.SystemShardsDebug("[%s] Loaded %d failure patterns", b.ID, len(failureLearnings))
+	} else {
+		logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to load failure patterns: %v", b.ID, err)
+	}
+
+	// Load correction patterns
+	correctionLearnings, err := b.learningStore.LoadByPredicate(b.ID, "correction_pattern")
+	if err == nil {
+		for _, learning := range correctionLearnings {
+			if len(learning.FactArgs) >= 1 {
+				pattern, _ := learning.FactArgs[0].(string)
+				b.corrections[pattern] = 3
+			}
+		}
+		logging.SystemShardsDebug("[%s] Loaded %d correction patterns", b.ID, len(correctionLearnings))
+	} else {
+		logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to load correction patterns: %v", b.ID, err)
+	}
+	return facts
+}
+
+// trackSuccess tracks a successful pattern for autopoiesis.
+func (b *BaseSystemShard) trackSuccess(pattern string) {
+	if !b.learningEnabled {
+		return
+	}
+
+	var fact *types.Fact
+	var kernel *core.RealKernel
+	var count int
+	func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.patternSuccess[pattern]++
+		count = b.patternSuccess[pattern]
+
+		// Persist to LearningStore if count exceeds threshold
+		if b.learningStore != nil && count >= 3 {
+			_ = b.learningStore.Save(b.ID, "success_pattern", []any{pattern}, "")
+		}
+		if count >= 3 {
+			kernel = b.Kernel
+			if kernel != nil {
+				f := types.Fact{
+					Predicate: "shard_pattern",
+					Args:      []any{types.MangleString(b.ID), types.MangleAtom("/success"), types.MangleString(pattern), count},
+				}
+				fact = &f
+			}
+		}
+	}()
+	if fact != nil && kernel != nil {
+		if err := kernel.Assert(*fact); err != nil {
+			logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to assert shard_pattern: %v", b.ID, err)
+		}
+	}
+}
+
+// trackFailure tracks a failed pattern for autopoiesis.
+func (b *BaseSystemShard) trackFailure(pattern string, reason string) {
+	if !b.learningEnabled {
+		return
+	}
+
+	var fact *types.Fact
+	var kernel *core.RealKernel
+	var count int
+	func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		key := fmt.Sprintf("%s:%s", pattern, reason)
+		b.patternFailure[key]++
+		count = b.patternFailure[key]
+
+		// Persist to LearningStore if count exceeds threshold
+		if b.learningStore != nil && count >= 2 {
+			_ = b.learningStore.Save(b.ID, "failure_pattern", []any{pattern, reason}, "")
+		}
+		if count >= 2 {
+			kernel = b.Kernel
+			if kernel != nil {
+				f := types.Fact{
+					Predicate: "shard_pattern",
+					Args:      []any{types.MangleString(b.ID), types.MangleAtom("/failure"), types.MangleString(pattern), count},
+				}
+				fact = &f
+			}
+		}
+	}()
+	if fact != nil && kernel != nil {
+		if err := kernel.Assert(*fact); err != nil {
+			logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to assert shard_pattern: %v", b.ID, err)
+		}
+	}
+}
+
+// trackCorrection tracks a user correction for autopoiesis.
+func (b *BaseSystemShard) trackCorrection(original, corrected string) {
+	if !b.learningEnabled {
+		return
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	key := fmt.Sprintf("%s→%s", original, corrected)
+	b.corrections[key]++
+
+	// Persist to LearningStore if count exceeds threshold
+	if b.learningStore != nil && b.corrections[key] >= 2 {
+		_ = b.learningStore.Save(b.ID, "correction_pattern", []any{original, corrected}, "")
+	}
+}
+
+// persistLearning forces immediate persistence of current learning state.
+func (b *BaseSystemShard) persistLearning() error {
+	if b.learningStore == nil {
+		return nil
+	}
+
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	var batch []types.ShardLearning
+
+	// Persist all patterns above threshold
+	for pattern, count := range b.patternSuccess {
+		if count >= 3 {
+			batch = append(batch, types.ShardLearning{
+				FactPredicate: "success_pattern",
+				FactArgs:      []any{pattern},
+			})
+		}
+	}
+
+	for pattern, count := range b.patternFailure {
+		if count >= 2 {
+			batch = append(batch, types.ShardLearning{
+				FactPredicate: "failure_pattern",
+				FactArgs:      []any{pattern},
+			})
+		}
+	}
+
+	for pattern, count := range b.corrections {
+		if count >= 2 {
+			batch = append(batch, types.ShardLearning{
+				FactPredicate: "correction_pattern",
+				FactArgs:      []any{pattern},
+			})
+		}
+	}
+
+	if len(batch) > 0 {
+		if err := b.learningStore.SaveBatch(b.ID, batch, ""); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// EmitHeartbeat emits a heartbeat fact to the kernel.
+// The kernel upserts by shard ID without re-evaluating after the first
+// assert (see RealKernel.assertHeartbeat) so N shards × 5s ticks cannot
+// thrash a large world-model EDB.
+//
+// ShardName is the /name slot of system_heartbeat/2 (schemas_shards.mg), the
+// same closed vocabulary activate_shard/1 and shard_startup/2 hold. b.ID for a
+// system shard is already the bare type name ("session_planner"), and a bare
+// name lands as a string constant that never unifies with the
+// /session_planner written by policy/system_shards.mg — which left every
+// !system_shard_healthy(...) guard permanently open. Same convention as the
+// escalation_needed Target in planner.go.
+func (b *BaseSystemShard) EmitHeartbeat() error {
+	if b.Kernel == nil {
+		return nil
+	}
+	return b.Kernel.Assert(types.Fact{
+		Predicate: "system_heartbeat",
+		Args:      []any{types.MangleAtom(shardNameConst(b.ID)), time.Now().Unix()},
+	})
+}
+
+// shardNameConst renders a system shard's registry name as a Mangle name
+// constant. Empty input yields "" so the caller degrades to a string constant
+// rather than emitting the invalid bare "/".
+func shardNameConst(id string) string {
+	if id == "" {
+		return ""
+	}
+	if strings.HasPrefix(id, "/") {
+		return id
+	}
+	return "/" + id
+}
+
+// GuardedLLMCall wraps an LLM call with cost guard checks and per-call timeout.
+func (b *BaseSystemShard) GuardedLLMCall(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if b.LLMClient == nil {
+		err := fmt.Errorf("no LLM client configured")
+		logging.Get(logging.CategorySystemShards).Error("[%s] GuardedLLMCall failed: %v", b.ID, err)
+		return "", err
+	}
+
+	can, reason := b.CostGuard.CanCall()
+	if !can {
+		err := fmt.Errorf("LLM call blocked: %s", reason)
+		logging.Get(logging.CategorySystemShards).Warn("[%s] GuardedLLMCall blocked: %s", b.ID, reason)
+		return "", err
+	}
+
+	// Apply per-call timeout if none exists
+	// Note: Uses centralized timeout config to avoid conflicts with HTTP client timeouts
+	timeouts := config.GetLLMTimeouts()
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeouts.PerCallTimeout)
+		defer cancel()
+	}
+
+	timer := logging.StartTimer(logging.CategorySystemShards, fmt.Sprintf("[%s] LLM call", b.ID))
+	result, err := b.LLMClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	elapsed := timer.Stop()
+
+	if err != nil {
+		// Log timeout specifically for debugging
+		if errors.Is(err, context.DeadlineExceeded) {
+			logging.Get(logging.CategorySystemShards).Warn("[%s] LLM call timed out after %v", b.ID, elapsed)
+		}
+		b.CostGuard.RecordError()
+		logging.Get(logging.CategorySystemShards).Error("[%s] LLM call failed after %v: %v", b.ID, elapsed, err)
+		return "", err
+	}
+
+	b.CostGuard.RecordCall()
+	logging.SystemShardsDebug("[%s] LLM call succeeded in %v, response_len=%d", b.ID, elapsed, len(result))
+	return result, nil
+}

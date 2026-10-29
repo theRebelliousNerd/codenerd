@@ -1,0 +1,750 @@
+package mcp
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"math"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"codenerd/internal/embedding"
+	"codenerd/internal/logging"
+	"codenerd/internal/sqlpragmas"
+)
+
+// MCPToolStore provides SQLite-backed storage for MCP servers and tools.
+type MCPToolStore struct {
+	mu sync.RWMutex
+
+	db        *sql.DB
+	embedder  embedding.EmbeddingEngine
+	vectorExt bool   // True if sqlite-vec extension is available
+	vecDims   int    // Vector dimensions
+	dbPath    string // Path to database file
+}
+
+// NewMCPToolStore creates a new MCP tool store.
+func NewMCPToolStore(dbPath string, embedder embedding.EmbeddingEngine) (*MCPToolStore, error) {
+	if dbPath == "" {
+		return nil, fmt.Errorf("dbPath cannot be empty")
+	}
+	// Ensure the parent directory exists for on-disk databases. SQLite will not
+	// create missing directories, so a caller passing e.g. "<ws>/.nerd/x.db" on a
+	// fresh workspace would otherwise fail with "unable to open database file".
+	// In-memory databases ("file::memory:" / ":memory:") have no directory.
+	if !strings.Contains(dbPath, ":memory:") {
+		if dir := filepath.Dir(dbPath); dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return nil, fmt.Errorf("failed to create database directory %s: %w", dir, err)
+			}
+		}
+	}
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
+
+	s := &MCPToolStore{
+		db:       db,
+		embedder: embedder,
+		dbPath:   dbPath,
+	}
+
+	if err := s.initialize(); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	return s, nil
+}
+
+// initialize creates the database schema.
+func (s *MCPToolStore) initialize() error {
+	// Create mcp_servers table
+	_, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS mcp_servers (
+			server_id TEXT PRIMARY KEY,
+			endpoint TEXT NOT NULL,
+			protocol TEXT NOT NULL,
+			name TEXT,
+			version TEXT,
+			status TEXT DEFAULT 'unknown',
+			capabilities TEXT,
+			discovered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			last_connected DATETIME,
+			config TEXT
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create mcp_servers table: %w", err)
+	}
+
+	// Create mcp_tools table
+	_, err = s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS mcp_tools (
+			tool_id TEXT PRIMARY KEY,
+			server_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			description TEXT,
+			input_schema TEXT,
+			output_schema TEXT,
+
+			categories TEXT,
+			capabilities TEXT,
+			domain TEXT,
+			shard_affinities TEXT,
+			use_cases TEXT,
+			condensed TEXT,
+
+			embedding BLOB,
+			embedding_model TEXT,
+
+			usage_count INTEGER DEFAULT 0,
+			success_count INTEGER DEFAULT 0,
+			avg_latency_ms INTEGER DEFAULT 0,
+			last_used DATETIME,
+
+			registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			analyzed_at DATETIME,
+
+			UNIQUE(server_id, name)
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create mcp_tools table: %w", err)
+	}
+
+	// Additive migrations for databases created before a column existed.
+	// SQLite has no "ADD COLUMN IF NOT EXISTS"; a duplicate-column error here
+	// simply means the migration already ran.
+	//
+	// The control-plane columns matter on restart: without them a reconnect
+	// re-derives every classification, which is cheap for one server and not
+	// for a fleet, and worse, an atlas rendered before rediscovery finishes
+	// would show every tool in the default facet.
+	for _, column := range []string{
+		"schema_hash TEXT",
+		"facet TEXT",
+		"risk TEXT",
+		"facet_source TEXT",
+		"risk_source TEXT",
+		"annotations TEXT",
+	} {
+		if _, err := s.db.Exec(`ALTER TABLE mcp_tools ADD COLUMN ` + column); err != nil &&
+			!strings.Contains(err.Error(), "duplicate column name") {
+			logging.Get(logging.CategoryTools).Debug("mcp_tools migration skipped (%s): %v", column, err)
+		}
+	}
+
+	// Create indexes
+	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_mcp_tools_server ON mcp_tools(server_id)`)
+	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_mcp_tools_category ON mcp_tools(categories)`)
+	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_mcp_tools_facet ON mcp_tools(facet)`)
+
+	// Try to initialize vector extension
+	s.initVectorExtension()
+
+	return nil
+}
+
+// initVectorExtension attempts to initialize sqlite-vec for vector search.
+func (s *MCPToolStore) initVectorExtension() {
+	if s.embedder == nil {
+		logging.Get(logging.CategoryTools).Debug("No embedder configured, vector search disabled")
+		return
+	}
+
+	dims := s.embedder.Dimensions()
+	s.vecDims = dims
+
+	// Test if sqlite-vec is available
+	testQuery := "CREATE VIRTUAL TABLE IF NOT EXISTS mcp_vec_probe USING vec0(embedding float[4])"
+	if _, err := s.db.Exec(testQuery); err != nil {
+		logging.Get(logging.CategoryTools).Debug("sqlite-vec not available: %v", err)
+		s.vectorExt = false
+		return
+	}
+	_, _ = s.db.Exec("DROP TABLE IF EXISTS mcp_vec_probe")
+
+	// Create vector index table
+	vecTable := fmt.Sprintf(`
+		CREATE VIRTUAL TABLE IF NOT EXISTS mcp_tool_vec USING vec0(
+			tool_id TEXT PRIMARY KEY,
+			embedding float[%d]
+		)
+	`, dims)
+
+	if _, err := s.db.Exec(vecTable); err != nil {
+		logging.Get(logging.CategoryTools).Warn("Failed to create mcp_tool_vec: %v", err)
+		s.vectorExt = false
+		return
+	}
+
+	s.vectorExt = true
+	logging.Get(logging.CategoryTools).Info("MCP tool vector index initialized (%d dimensions)", dims)
+}
+
+// Close closes the database connection.
+func (s *MCPToolStore) Close() error {
+	return s.db.Close()
+}
+
+// SaveServer persists an MCP server to the database.
+func (s *MCPToolStore) SaveServer(ctx context.Context, server *MCPServer) error {
+	if server == nil {
+		return fmt.Errorf("server cannot be nil")
+	}
+	if server.ID == "" || server.Endpoint == "" || server.Protocol == "" {
+		return fmt.Errorf("server ID, Endpoint, and Protocol cannot be empty")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	capsJSON, _ := json.Marshal(server.Capabilities)
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO mcp_servers (server_id, endpoint, protocol, name, version, status, capabilities, discovered_at, last_connected, config)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(server_id) DO UPDATE SET
+			endpoint = excluded.endpoint,
+			protocol = excluded.protocol,
+			name = excluded.name,
+			version = excluded.version,
+			status = excluded.status,
+			capabilities = excluded.capabilities,
+			last_connected = excluded.last_connected,
+			config = excluded.config
+	`,
+		server.ID, server.Endpoint, server.Protocol, server.Name, server.Version,
+		server.Status, string(capsJSON), server.DiscoveredAt, server.LastConnected, server.Config,
+	)
+	return err
+}
+
+// UpdateServerStatus updates the status of an MCP server.
+func (s *MCPToolStore) UpdateServerStatus(ctx context.Context, serverID string, status ServerStatus) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE mcp_servers SET status = ?, last_connected = ? WHERE server_id = ?
+	`, status, time.Now(), serverID)
+	return err
+}
+
+// GetServer retrieves an MCP server by ID.
+func (s *MCPToolStore) GetServer(ctx context.Context, serverID string) (*MCPServer, error) {
+	if serverID == "" {
+		return nil, fmt.Errorf("serverID cannot be empty")
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var server MCPServer
+	var capsJSON string
+	var discoveredAt, lastConnected sql.NullTime
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT server_id, endpoint, protocol, name, version, status, capabilities, discovered_at, last_connected, config
+		FROM mcp_servers WHERE server_id = ?
+	`, serverID).Scan(
+		&server.ID, &server.Endpoint, &server.Protocol, &server.Name, &server.Version,
+		&server.Status, &capsJSON, &discoveredAt, &lastConnected, &server.Config,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if capsJSON != "" {
+		_ = json.Unmarshal([]byte(capsJSON), &server.Capabilities)
+	}
+	if discoveredAt.Valid {
+		server.DiscoveredAt = discoveredAt.Time
+	}
+	if lastConnected.Valid {
+		server.LastConnected = lastConnected.Time
+	}
+
+	return &server, nil
+}
+
+// GetAllServers retrieves all MCP servers.
+func (s *MCPToolStore) GetAllServers(ctx context.Context) ([]*MCPServer, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT server_id, endpoint, protocol, name, version, status, capabilities, discovered_at, last_connected, config
+		FROM mcp_servers
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var servers []*MCPServer
+	for rows.Next() {
+		var server MCPServer
+		var capsJSON string
+		var discoveredAt, lastConnected sql.NullTime
+
+		if err := rows.Scan(
+			&server.ID, &server.Endpoint, &server.Protocol, &server.Name, &server.Version,
+			&server.Status, &capsJSON, &discoveredAt, &lastConnected, &server.Config,
+		); err != nil {
+			return nil, err
+		}
+
+		if capsJSON != "" {
+			_ = json.Unmarshal([]byte(capsJSON), &server.Capabilities)
+		}
+		if discoveredAt.Valid {
+			server.DiscoveredAt = discoveredAt.Time
+		}
+		if lastConnected.Valid {
+			server.LastConnected = lastConnected.Time
+		}
+
+		servers = append(servers, &server)
+	}
+
+	return servers, nil
+}
+
+// SaveTool persists an MCP tool to the database.
+func (s *MCPToolStore) SaveTool(ctx context.Context, tool *MCPTool) error {
+	if tool == nil {
+		return fmt.Errorf("tool cannot be nil")
+	}
+	if tool.ToolID == "" || tool.ServerID == "" || tool.Name == "" {
+		return fmt.Errorf("tool ID, ServerID, and Name cannot be empty")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	catsJSON, _ := json.Marshal(tool.Categories)
+	capsJSON, _ := json.Marshal(tool.Capabilities)
+	affinitiesJSON, _ := json.Marshal(tool.ShardAffinities)
+	useCasesJSON, _ := json.Marshal(tool.UseCases)
+	annotationsJSON, _ := json.Marshal(tool.Annotations)
+
+	var embeddingBlob []byte
+	if len(tool.Embedding) > 0 {
+		embeddingBlob = float32SliceToBytes(tool.Embedding)
+	}
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO mcp_tools (
+			tool_id, server_id, name, description, input_schema, output_schema,
+			categories, capabilities, domain, shard_affinities, use_cases, condensed,
+			embedding, embedding_model, registered_at, analyzed_at, schema_hash,
+			facet, risk, facet_source, risk_source, annotations
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(tool_id) DO UPDATE SET
+			schema_hash = excluded.schema_hash,
+			description = excluded.description,
+			input_schema = excluded.input_schema,
+			output_schema = excluded.output_schema,
+			categories = excluded.categories,
+			capabilities = excluded.capabilities,
+			domain = excluded.domain,
+			shard_affinities = excluded.shard_affinities,
+			use_cases = excluded.use_cases,
+			condensed = excluded.condensed,
+			embedding = excluded.embedding,
+			embedding_model = excluded.embedding_model,
+			analyzed_at = excluded.analyzed_at,
+			facet = excluded.facet,
+			risk = excluded.risk,
+			facet_source = excluded.facet_source,
+			risk_source = excluded.risk_source,
+			annotations = excluded.annotations
+	`,
+		tool.ToolID, tool.ServerID, tool.Name, tool.Description,
+		string(tool.InputSchema), string(tool.OutputSchema),
+		string(catsJSON), string(capsJSON), tool.Domain, string(affinitiesJSON),
+		string(useCasesJSON), tool.Condensed,
+		embeddingBlob, tool.EmbeddingModel, tool.RegisteredAt, tool.AnalyzedAt, tool.SchemaHash,
+		string(tool.Facet), string(tool.Risk), string(tool.FacetSource), string(tool.RiskSource),
+		string(annotationsJSON),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Update vector index if available
+	if s.vectorExt && len(tool.Embedding) > 0 {
+		s.updateVectorIndex(ctx, tool.ToolID, tool.Embedding)
+	}
+
+	return nil
+}
+
+// updateVectorIndex updates the vector index for a tool.
+func (s *MCPToolStore) updateVectorIndex(ctx context.Context, toolID string, embedding []float32) {
+	// Delete existing entry
+	_, _ = s.db.ExecContext(ctx, "DELETE FROM mcp_tool_vec WHERE tool_id = ?", toolID)
+
+	// Insert new entry
+	embeddingBlob := float32SliceToBytes(embedding)
+	_, err := s.db.ExecContext(ctx, "INSERT INTO mcp_tool_vec (tool_id, embedding) VALUES (?, ?)", toolID, embeddingBlob)
+	if err != nil {
+		logging.Get(logging.CategoryTools).Debug("Failed to update vector index for %s: %v", toolID, err)
+	}
+}
+
+// GetTool retrieves an MCP tool by ID.
+func (s *MCPToolStore) GetTool(ctx context.Context, toolID string) (*MCPTool, error) {
+	if toolID == "" {
+		return nil, fmt.Errorf("toolID cannot be empty")
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.getToolLocked(ctx, toolID)
+}
+
+// getToolLocked retrieves a tool (caller must hold lock).
+func (s *MCPToolStore) getToolLocked(ctx context.Context, toolID string) (*MCPTool, error) {
+	var tool MCPTool
+	var inputSchema, outputSchema, catsJSON, capsJSON, affinitiesJSON, useCasesJSON, schemaHash sql.NullString
+	var facet, risk, facetSource, riskSource, annotationsJSON sql.NullString
+	var embeddingBlob []byte
+	var registeredAt, analyzedAt, lastUsed sql.NullTime
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT tool_id, server_id, name, description, input_schema, output_schema,
+			categories, capabilities, domain, shard_affinities, use_cases, condensed,
+			embedding, embedding_model, usage_count, success_count, avg_latency_ms, last_used,
+			registered_at, analyzed_at, schema_hash,
+			facet, risk, facet_source, risk_source, annotations
+		FROM mcp_tools WHERE tool_id = ?
+	`, toolID).Scan(
+		&tool.ToolID, &tool.ServerID, &tool.Name, &tool.Description,
+		&inputSchema, &outputSchema, &catsJSON, &capsJSON, &tool.Domain,
+		&affinitiesJSON, &useCasesJSON, &tool.Condensed,
+		&embeddingBlob, &tool.EmbeddingModel, &tool.UsageCount, &tool.SuccessCount,
+		&tool.AvgLatencyMs, &lastUsed, &registeredAt, &analyzedAt, &schemaHash,
+		&facet, &risk, &facetSource, &riskSource, &annotationsJSON,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if inputSchema.Valid {
+		tool.InputSchema = json.RawMessage(inputSchema.String)
+	}
+	if outputSchema.Valid {
+		tool.OutputSchema = json.RawMessage(outputSchema.String)
+	}
+	if catsJSON.Valid {
+		_ = json.Unmarshal([]byte(catsJSON.String), &tool.Categories)
+	}
+	if capsJSON.Valid {
+		_ = json.Unmarshal([]byte(capsJSON.String), &tool.Capabilities)
+	}
+	if affinitiesJSON.Valid {
+		_ = json.Unmarshal([]byte(affinitiesJSON.String), &tool.ShardAffinities)
+	}
+	if useCasesJSON.Valid {
+		_ = json.Unmarshal([]byte(useCasesJSON.String), &tool.UseCases)
+	}
+	if schemaHash.Valid {
+		tool.SchemaHash = schemaHash.String
+	}
+	// A row written before classification existed has NULL here. Rather than
+	// leaving the zero value — which is not a valid facet and would land the
+	// tool in no atlas section at all — reclassify from what the row already
+	// carries. The result is identical to what discovery would derive, so the
+	// atlas is correct before any reconnect happens.
+	tool.Facet = Facet(facet.String)
+	tool.Risk = RiskClass(risk.String)
+	tool.FacetSource = ClassificationSource(facetSource.String)
+	tool.RiskSource = ClassificationSource(riskSource.String)
+	if annotationsJSON.Valid && annotationsJSON.String != "" {
+		_ = json.Unmarshal([]byte(annotationsJSON.String), &tool.Annotations)
+	}
+	if !tool.Facet.Valid() || !tool.Risk.Valid() {
+		restored := ClassifyTool(MCPToolSchema{
+			Name:         tool.Name,
+			Description:  tool.Description,
+			InputSchema:  tool.InputSchema,
+			OutputSchema: tool.OutputSchema,
+			Annotations:  tool.Annotations,
+		}, &ToolAnalysis{
+			ToolID:       tool.ToolID,
+			Categories:   tool.Categories,
+			Capabilities: tool.Capabilities,
+			Domain:       tool.Domain,
+		})
+		tool.Facet, tool.Risk = restored.Facet, restored.Risk
+		tool.FacetSource, tool.RiskSource = restored.FacetSource, restored.RiskSource
+	}
+	if len(embeddingBlob) > 0 {
+		tool.Embedding = bytesToFloat32Slice(embeddingBlob)
+	}
+	if registeredAt.Valid {
+		tool.RegisteredAt = registeredAt.Time
+	}
+	if analyzedAt.Valid {
+		tool.AnalyzedAt = analyzedAt.Time
+	}
+	if lastUsed.Valid {
+		tool.LastUsed = lastUsed.Time
+	}
+
+	return &tool, nil
+}
+
+// GetAllTools retrieves all MCP tools.
+func (s *MCPToolStore) GetAllTools(ctx context.Context) ([]*MCPTool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT tool_id FROM mcp_tools
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tools []*MCPTool
+	for rows.Next() {
+		var toolID string
+		if err := rows.Scan(&toolID); err != nil {
+			return nil, err
+		}
+		tool, err := s.getToolLocked(ctx, toolID)
+		if err != nil {
+			return nil, err
+		}
+		if tool != nil {
+			tools = append(tools, tool)
+		}
+	}
+
+	return tools, nil
+}
+
+// GetToolsByServer retrieves all tools for a specific server.
+func (s *MCPToolStore) GetToolsByServer(ctx context.Context, serverID string) ([]*MCPTool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT tool_id FROM mcp_tools WHERE server_id = ?
+	`, serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tools []*MCPTool
+	for rows.Next() {
+		var toolID string
+		if err := rows.Scan(&toolID); err != nil {
+			return nil, err
+		}
+		tool, err := s.getToolLocked(ctx, toolID)
+		if err != nil {
+			return nil, err
+		}
+		if tool != nil {
+			tools = append(tools, tool)
+		}
+	}
+
+	return tools, nil
+}
+
+// RecordToolUsage records a tool usage event.
+func (s *MCPToolStore) RecordToolUsage(ctx context.Context, toolID string, success bool, latencyMs int64) error {
+	if toolID == "" {
+		return fmt.Errorf("toolID cannot be empty")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	successInc := 0
+	if success {
+		successInc = 1
+	}
+
+	// Update counts and running average latency
+	// Use CAST to REAL to avoid integer overflow on massive latencyMs * usage_count
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE mcp_tools SET
+			usage_count = usage_count + 1,
+			success_count = success_count + ?,
+			avg_latency_ms = CAST(((CAST(avg_latency_ms AS REAL) * usage_count) + ?) / (usage_count + 1) AS INTEGER),
+			last_used = ?
+		WHERE tool_id = ?
+	`, successInc, latencyMs, time.Now(), toolID)
+	return err
+}
+
+// SemanticSearch finds tools semantically similar to the query.
+func (s *MCPToolStore) SemanticSearch(ctx context.Context, queryEmbedding []float32, topK int) ([]ToolSearchResult, error) {
+	if len(queryEmbedding) == 0 {
+		return nil, fmt.Errorf("queryEmbedding cannot be empty")
+	}
+	if topK <= 0 {
+		return nil, fmt.Errorf("topK must be > 0")
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.vectorExt {
+		return s.semanticSearchVec(ctx, queryEmbedding, topK)
+	}
+	return s.semanticSearchBruteForce(ctx, queryEmbedding, topK)
+}
+
+// ToolSearchResult represents a semantic search result.
+type ToolSearchResult struct {
+	ToolID string
+	Score  float64 // 0.0 to 1.0 similarity
+}
+
+// semanticSearchVec uses sqlite-vec for fast ANN search.
+func (s *MCPToolStore) semanticSearchVec(ctx context.Context, queryEmbedding []float32, topK int) ([]ToolSearchResult, error) {
+	embeddingBlob := float32SliceToBytes(queryEmbedding)
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT tool_id, vec_distance_cosine(embedding, ?) as distance
+		FROM mcp_tool_vec
+		ORDER BY distance
+		LIMIT ?
+	`, embeddingBlob, topK)
+	if err != nil {
+		logging.Get(logging.CategoryTools).Debug("vec search failed, falling back: %v", err)
+		return s.semanticSearchBruteForce(ctx, queryEmbedding, topK)
+	}
+	defer rows.Close()
+
+	var results []ToolSearchResult
+	for rows.Next() {
+		var toolID string
+		var distance float64
+		if err := rows.Scan(&toolID, &distance); err != nil {
+			continue
+		}
+		// Convert distance to similarity (1 - distance for cosine)
+		score := 1.0 - distance
+		if score < 0 {
+			score = 0
+		}
+		results = append(results, ToolSearchResult{
+			ToolID: toolID,
+			Score:  score,
+		})
+	}
+
+	return results, nil
+}
+
+// semanticSearchBruteForce uses brute-force cosine similarity.
+func (s *MCPToolStore) semanticSearchBruteForce(ctx context.Context, queryEmbedding []float32, topK int) ([]ToolSearchResult, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT tool_id, embedding FROM mcp_tools WHERE embedding IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []ToolSearchResult
+	for rows.Next() {
+		var toolID string
+		var embeddingBlob []byte
+		if err := rows.Scan(&toolID, &embeddingBlob); err != nil {
+			continue
+		}
+		if len(embeddingBlob) == 0 {
+			continue
+		}
+
+		embedding := bytesToFloat32Slice(embeddingBlob)
+		score := cosineSimilarity(queryEmbedding, embedding)
+		results = append(results, ToolSearchResult{
+			ToolID: toolID,
+			Score:  score,
+		})
+	}
+
+	// Sort by score descending
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
+
+	// Limit to topK
+	if len(results) > topK {
+		results = results[:topK]
+	}
+
+	return results, nil
+}
+
+// Helper functions for embedding serialization
+
+func float32SliceToBytes(floats []float32) []byte {
+	bytes := make([]byte, len(floats)*4)
+	for i, f := range floats {
+		bits := math.Float32bits(f)
+		bytes[i*4] = byte(bits)
+		bytes[i*4+1] = byte(bits >> 8)
+		bytes[i*4+2] = byte(bits >> 16)
+		bytes[i*4+3] = byte(bits >> 24)
+	}
+	return bytes
+}
+
+func bytesToFloat32Slice(bytes []byte) []float32 {
+	if len(bytes)%4 != 0 {
+		// Log or handle corrupt data. Return truncated or empty.
+		return nil
+	}
+	floats := make([]float32, len(bytes)/4)
+	for i := range floats {
+		bits := uint32(bytes[i*4]) | uint32(bytes[i*4+1])<<8 | uint32(bytes[i*4+2])<<16 | uint32(bytes[i*4+3])<<24
+		floats[i] = math.Float32frombits(bits)
+	}
+	return floats
+}
+
+func cosineSimilarity(a, b []float32) float64 {
+	if len(a) != len(b) {
+		return 0
+	}
+
+	var dotProduct, normA, normB float64
+	for i := range a {
+		dotProduct += float64(a[i]) * float64(b[i])
+		normA += float64(a[i]) * float64(a[i])
+		normB += float64(b[i]) * float64(b[i])
+	}
+
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+
+	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
+}

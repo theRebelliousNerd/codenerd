@@ -1,0 +1,528 @@
+[
+ {
+  "id": "fix-named",
+  "message": "fix the nil pointer in internal/session/executor.go",
+  "expect": {
+   "changes_files": true,
+   "names_target": true,
+   "hypothetical": false,
+   "about_codenerd": false,
+   "wants_to_stop": false
+  },
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ]
+ },
+ {
+  "id": "fix-it-cold",
+  "message": "fix it",
+  "expect": {
+   "changes_files": true,
+   "names_target": false,
+   "hypothetical": false
+  }
+ },
+ {
+  "id": "fix-it-context",
+  "message": "ok fix it",
+  "recent": [
+   {
+    "from": "user",
+    "text": "TestValidateToken fails with a nil map in auth/token.go"
+   },
+   {
+    "from": "assistant",
+    "text": "The map in NewValidator is never initialised."
+   }
+  ],
+  "expect": {
+   "changes_files": true,
+   "names_target": true
+  }
+ },
+ {
+  "id": "why-failing",
+  "message": "why is TestValidateToken failing?",
+  "expect": {
+   "changes_files": false,
+   "names_target": true,
+   "hypothetical": false
+  }
+ },
+ {
+  "id": "explain-file",
+  "message": "explain how internal/core/dreamer.go decides to block an action",
+  "expect": {
+   "changes_files": false,
+   "names_target": true
+  }
+ },
+ {
+  "id": "add-tests",
+  "message": "add table-driven tests for the retry policy",
+  "expect": {
+   "changes_files": true,
+   "names_target": true
+  }
+ },
+ {
+  "id": "run-tests",
+  "message": "run the tests in internal/session",
+  "expect": {
+   "changes_files": false,
+   "names_target": true
+  }
+ },
+ {
+  "id": "what-if-delete",
+  "message": "what would happen if I deleted the caching layer?",
+  "expect": {
+   "changes_files": false,
+   "hypothetical": true
+  }
+ },
+ {
+  "id": "risk-of-rename",
+  "message": "how risky would it be to rename Executor to Runner across the repo?",
+  "expect": {
+   "hypothetical": true,
+   "changes_files": false
+  }
+ },
+ {
+  "id": "rename-do",
+  "message": "rename Executor to Runner across the repo",
+  "expect": {
+   "hypothetical": false,
+   "changes_files": true,
+   "names_target": true
+  }
+ },
+ {
+  "id": "review",
+  "message": "review my changes in internal/approval",
+  "expect": {
+   "changes_files": false,
+   "names_target": true
+  }
+ },
+ {
+  "id": "where-config",
+  "message": "where do we load the routing thresholds?",
+  "expect": {
+   "changes_files": false
+  }
+ },
+ {
+  "id": "thanks",
+  "message": "thanks, that's great",
+  "expect": {
+   "changes_files": false,
+   "wants_to_stop": false,
+   "about_codenerd": false
+  },
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ]
+ },
+ {
+  "id": "debug-yourself",
+  "message": "debug yourself",
+  "expect": {
+   "about_codenerd": true
+  }
+ },
+ {
+  "id": "why-you-failed",
+  "message": "why did you crash on that last edit?",
+  "expect": {
+   "about_codenerd": true
+  }
+ },
+ {
+  "id": "read-your-logs",
+  "message": "look at your problems log and tell me what's broken in you",
+  "expect": {
+   "about_codenerd": true
+  }
+ },
+ {
+  "id": "user-bug-not-self",
+  "message": "my server keeps crashing on startup, can you find out why?",
+  "expect": {
+   "about_codenerd": false
+  }
+ },
+ {
+  "id": "stop",
+  "message": "stop, cancel that",
+  "expect": {
+   "wants_to_stop": true,
+   "changes_files": false
+  },
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ]
+ },
+ {
+  "id": "hold-on",
+  "message": "hold on, never mind the review",
+  "expect": {
+   "wants_to_stop": true
+  },
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ]
+ },
+ {
+  "id": "not-stop",
+  "message": "also check the auth package while you're at it",
+  "expect": {
+   "wants_to_stop": false
+  },
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ]
+ },
+ {
+  "id": "go-held",
+  "message": "go",
+  "held_work": {
+   "action": "fix",
+   "target": "README.md",
+   "handled_by": "coder",
+   "requested_as": "fix the typo in README.md"
+  },
+  "expect": {
+   "approves_held_work": true,
+   "adds_to_held_work": false
+  }
+ },
+ {
+  "id": "yes-do-it",
+  "message": "yes do it",
+  "held_work": {
+   "action": "refactor",
+   "target": "internal/retry",
+   "handled_by": "coder",
+   "requested_as": "make the retry policy configurable"
+  },
+  "expect": {
+   "approves_held_work": true,
+   "adds_to_held_work": false
+  }
+ },
+ {
+  "id": "ship-it",
+  "message": "looks good, ship it",
+  "held_work": {
+   "action": "implement",
+   "target": "rate limiting",
+   "handled_by": "coder",
+   "requested_as": "add rate limiting to the API"
+  },
+  "expect": {
+   "approves_held_work": true,
+   "adds_to_held_work": false
+  }
+ },
+ {
+  "id": "ask-about-held",
+  "message": "wait, which files would that touch?",
+  "held_work": {
+   "action": "refactor",
+   "target": "internal/retry",
+   "handled_by": "coder",
+   "requested_as": "make the retry policy configurable"
+  },
+  "expect": {
+   "approves_held_work": false
+  }
+ },
+ {
+  "id": "change-held",
+  "message": "actually make it a sliding window instead",
+  "held_work": {
+   "action": "implement",
+   "target": "rate limiting",
+   "handled_by": "coder",
+   "requested_as": "add a token bucket rate limiter"
+  },
+  "expect": {
+   "approves_held_work": false,
+   "changes_files": true,
+   "adds_to_held_work": true
+  }
+ },
+ {
+  "id": "decline-held",
+  "message": "no, don't do that",
+  "held_work": {
+   "action": "delete",
+   "target": "the legacy cache",
+   "handled_by": "coder",
+   "requested_as": "remove the old cache"
+  },
+  "expect": {
+   "approves_held_work": false
+  }
+ },
+ {
+  "id": "go-plus-change",
+  "message": "go, and also add a test for it",
+  "held_work": {
+   "action": "fix",
+   "target": "README.md",
+   "handled_by": "coder",
+   "requested_as": "fix the typo in README.md"
+  },
+  "expect": {
+   "changes_files": true,
+   "approves_held_work": true,
+   "adds_to_held_work": true
+  }
+ },
+ {
+  "id": "answer-open-q",
+  "message": "use a token bucket, 100 requests a minute",
+  "brief": {
+   "goal": "add rate limiting to the API",
+   "open_questions": [
+    "which algorithm?",
+    "what limit per minute?"
+   ]
+  },
+  "expect": {
+   "answered_0": true,
+   "answered_1": true
+  }
+ },
+ {
+  "id": "answer-one-q",
+  "message": "token bucket",
+  "brief": {
+   "goal": "add rate limiting to the API",
+   "open_questions": [
+    "which algorithm?",
+    "what limit per minute?"
+   ]
+  },
+  "expect": {
+   "answered_0": true,
+   "answered_1": false
+  }
+ },
+ {
+  "id": "dodge-open-q",
+  "message": "what do other projects usually do?",
+  "brief": {
+   "goal": "add rate limiting to the API",
+   "open_questions": [
+    "which algorithm?"
+   ]
+  },
+  "expect": {
+   "answered_0": false
+  }
+ },
+ {
+  "id": "scope-answer",
+  "message": "only the public endpoints, not the admin ones",
+  "brief": {
+   "goal": "add rate limiting to the API",
+   "open_questions": [
+    "should admin endpoints be limited too?"
+   ]
+  },
+  "expect": {
+   "answered_0": true
+  }
+ },
+ {
+  "id": "implement-feature",
+  "message": "implement a /health endpoint that returns build info",
+  "expect": {
+   "changes_files": true,
+   "names_target": true,
+   "hypothetical": false
+  }
+ },
+ {
+  "id": "should-i",
+  "message": "should I use channels or a mutex for the job queue?",
+  "expect": {
+   "changes_files": false
+  }
+ },
+ {
+  "id": "delete-file",
+  "message": "delete internal/legacy/cache.go, nothing uses it",
+  "expect": {
+   "changes_files": true,
+   "names_target": true
+  }
+ },
+ {
+  "id": "optimize-vague",
+  "message": "make it faster",
+  "expect": {
+   "changes_files": true,
+   "names_target": false
+  }
+ },
+ {
+  "id": "optimize-ctx",
+  "message": "make it faster",
+  "recent": [
+   {
+    "from": "user",
+    "text": "the sparse retriever takes 4 seconds per turn"
+   },
+   {
+    "from": "assistant",
+    "text": "Most of it is re-embedding the corpus each turn."
+   }
+  ],
+  "expect": {
+   "changes_files": true,
+   "names_target": true
+  }
+ },
+ {
+  "id": "bug-report-not-request",
+  "message": "fyi the build is red on windows",
+  "expect": {
+   "changes_files": false,
+   "wants_to_stop": false
+  },
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ]
+ },
+ {
+  "id": "find-usages",
+  "message": "find every caller of ResultToFacts",
+  "expect": {
+   "changes_files": false,
+   "names_target": true
+  }
+ },
+ {
+  "id": "commit",
+  "message": "commit this with a good message",
+  "expect": {
+   "changes_files": false,
+   "hypothetical": false
+  }
+ },
+ {
+  "id": "self-perf",
+  "message": "you've been really slow today, what's going on with you?",
+  "expect": {
+   "about_codenerd": true
+  }
+ },
+ {
+  "id": "go-skip-docs",
+  "message": "do it but skip the docs part",
+  "held_work": {
+   "action": "document",
+   "target": "and refactor internal/retry",
+   "handled_by": "coder",
+   "requested_as": "clean up the retry package and its docs"
+  },
+  "expect": {
+   "approves_held_work": true,
+   "adds_to_held_work": true
+  }
+ },
+ {
+  "id": "approve-terse",
+  "message": "yep",
+  "held_work": {
+   "action": "fix",
+   "target": "the flaky test in internal/campaign",
+   "handled_by": "tester",
+   "requested_as": "fix the flaky pause test"
+  },
+  "expect": {
+   "approves_held_work": true,
+   "adds_to_held_work": false
+  }
+ },
+ {
+  "id": "not-yet",
+  "message": "not yet, let me think",
+  "held_work": {
+   "action": "migrate",
+   "target": "the store to sqlite-vec",
+   "handled_by": "coder",
+   "requested_as": "move embeddings to sqlite-vec"
+  },
+  "expect": {
+   "approves_held_work": false
+  }
+ },
+ {
+  "id": "stop-bg-review",
+  "message": "forget the review, I fixed it myself",
+  "expect": {
+   "wants_to_stop": true
+  },
+  "running_work": [
+   "reviewer: review the internal/auth package"
+  ]
+ },
+ {
+  "id": "self-loop",
+  "message": "you keep asking me the same question over and over, why?",
+  "expect": {
+   "about_codenerd": true
+  }
+ },
+ {
+  "id": "hypo-perf",
+  "message": "if we switched the kernel to sharded evaluation, would routing get slower?",
+  "expect": {
+   "hypothetical": true,
+   "changes_files": false
+  }
+ },
+ {
+  "id": "look-dont-touch",
+  "message": "just look at the retry code and tell me what's wrong, don't change anything",
+  "expect": {
+   "rules_out_changes": true,
+   "changes_files": false
+  }
+ },
+ {
+  "id": "read-only-review",
+  "message": "review internal/auth, read-only please",
+  "expect": {
+   "rules_out_changes": true
+  }
+ },
+ {
+  "id": "fix-allowed",
+  "message": "fix the retry bug in internal/retry",
+  "expect": {
+   "rules_out_changes": false,
+   "changes_files": true
+  }
+ },
+ {
+  "id": "question-no-rule",
+  "message": "where do we configure the retry policy?",
+  "expect": {
+   "rules_out_changes": false
+  }
+ },
+ {
+  "id": "report-only",
+  "message": "don't fix it yet, just report what you find in the parser",
+  "expect": {
+   "rules_out_changes": true
+  }
+ }
+]

@@ -1,0 +1,349 @@
+package campaign
+
+import (
+	"codenerd/internal/config"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+	"context"
+	"fmt"
+	"strings"
+	"time"
+)
+
+// publishPolicyParams puts the campaign knobs the policy reads into the kernel
+// as config_param rows (config.CampaignPolicy.Params), replacing any earlier
+// value of each key. It is the one path from config.json to a campaign rule:
+// the retry cap, the checkpoint cap, the acceptance rounds and the rest are
+// never Mangle constants or Go literals.
+func (o *Orchestrator) publishPolicyParams() {
+	if o.kernel == nil {
+		return
+	}
+	for _, f := range config.ParamFacts(o.policy.Params()) {
+		_ = o.kernel.RetractFact(core.Fact{Predicate: f.Predicate, Args: []any{f.Args[0]}})
+		if err := o.kernel.Assert(f); err != nil {
+			logging.Get(logging.CategoryCampaign).Error("campaign policy param %v was not asserted: %v", f.Args[0], err)
+		}
+	}
+}
+
+// missingPolicyParams names the /campaign thresholds a rule requires and the
+// kernel does not hold (config_param_missing). A rule over a missing threshold
+// derives nothing, which for a cap fails open, so Run refuses to start.
+func (o *Orchestrator) missingPolicyParams() ([]string, error) {
+	facts, err := o.kernel.Query("config_param_missing")
+	if err != nil {
+		return nil, err
+	}
+	var missing []string
+	for _, f := range facts {
+		if len(f.Args) == 2 && types.ExtractString(f.Args[0]) == "/campaign" {
+			missing = append(missing, types.ExtractString(f.Args[1]))
+		}
+	}
+	return missing, nil
+}
+
+// runPhaseCheckpoint runs the checkpoint for a phase.
+func (o *Orchestrator) runPhaseCheckpoint(ctx context.Context, phase *Phase) (bool, string, error) {
+	logging.Campaign("Running checkpoint for phase: %s", phase.Name)
+	timer := logging.StartTimer(logging.CategoryCampaign, fmt.Sprintf("checkpoint(%s)", phase.Name))
+	defer timer.Stop()
+
+	allPassed := true
+	var failedSummaries []string
+
+	for _, obj := range phase.Objectives {
+		if obj.VerificationMethod == VerifyNone {
+			logging.CampaignDebug("Skipping verification (method=none) for objective: %s", obj.Description)
+			continue
+		}
+
+		logging.CampaignDebug("Running verification: %s", obj.VerificationMethod)
+		checkStart := time.Now()
+		passed, details, err := o.checkpoint.Run(ctx, phase, obj.VerificationMethod)
+		o.observeCheckpoint(phase.ID, string(obj.VerificationMethod), passed && err == nil, time.Since(checkStart))
+		if err != nil {
+			logging.Get(logging.CategoryCampaign).Error("Checkpoint error: %v", err)
+			return false, "", err
+		}
+
+		if passed {
+			logging.Campaign("Checkpoint PASSED: %s", obj.VerificationMethod)
+		} else {
+			logging.Get(logging.CategoryCampaign).Warn("Checkpoint FAILED: %s - %s", obj.VerificationMethod, details)
+			allPassed = false
+			// Keep summaries concise for replanning context.
+			short := details
+			if len(short) > 500 {
+				short = short[:500] + "..."
+			}
+			failedSummaries = append(failedSummaries, fmt.Sprintf("%s: %s", obj.VerificationMethod, short))
+		}
+
+		checkpoint := Checkpoint{
+			Type:      string(obj.VerificationMethod),
+			Passed:    passed,
+			Details:   details,
+			Timestamp: time.Now(),
+		}
+
+		o.mu.Lock()
+		for i := range o.campaign.Phases {
+			if o.campaign.Phases[i].ID == phase.ID {
+				o.campaign.Phases[i].Checkpoints = append(o.campaign.Phases[i].Checkpoints, checkpoint)
+				break
+			}
+		}
+		o.mu.Unlock()
+
+		// Record in kernel. A checkpoint verdict the kernel never receives is a
+		// verification that did not happen as far as every downstream rule is
+		// concerned, and the loop below still returns allPassed to the caller —
+		// so a dropped assert would let a phase advance on a checkpoint result
+		// nothing can audit. runPhaseCheckpoint's own verdict is unaffected, so
+		// this is logged rather than failing the checkpoint.
+		if err := o.kernel.Assert(core.Fact{
+			Predicate: "phase_checkpoint",
+			Args:      []any{phase.ID, string(obj.VerificationMethod), passed, details, time.Now().Unix()},
+		}); err != nil {
+			logging.Get(logging.CategoryCampaign).Error(
+				"Checkpoint %s for phase %s (passed=%v) was not recorded in the kernel: %v",
+				obj.VerificationMethod, phase.ID, passed, err)
+		}
+	}
+
+	return allPassed, strings.Join(failedSummaries, " | "), nil
+}
+
+// emitProgress sends progress update to channel.
+func (o *Orchestrator) emitProgress() {
+	if o.progressChan == nil {
+		return
+	}
+
+	select {
+	case o.progressChan <- o.GetProgress():
+	default:
+		// Channel full, skip
+	}
+}
+
+// emitEvent sends an event to the event channel.
+func (o *Orchestrator) emitEvent(eventType OrchestratorEventType, phaseID, taskID, message string, data any) {
+	if o.eventChan == nil {
+		return
+	}
+
+	event := OrchestratorEvent{
+		Type:      eventType,
+		Timestamp: time.Now(),
+		PhaseID:   phaseID,
+		TaskID:    taskID,
+		Message:   message,
+		Data:      data,
+	}
+
+	select {
+	case o.eventChan <- event:
+	default:
+		// Channel full, skip
+	}
+}
+
+// updateCampaignStatus sets the in-memory campaign status and refreshes the canonical kernel fact.
+func (o *Orchestrator) updateCampaignStatus(status CampaignStatus) {
+	if o.campaign == nil {
+		return
+	}
+
+	o.campaign.Status = status
+	campaignID := o.campaign.ID
+	cType := string(o.campaign.Type)
+	title := o.campaign.Title
+	source := ""
+	if len(o.campaign.SourceMaterial) > 0 {
+		source = o.campaign.SourceMaterial[0]
+	}
+
+	_ = o.kernel.RetractFact(core.Fact{
+		Predicate: "campaign",
+		Args:      []any{campaignID},
+	})
+	_ = o.kernel.Assert(core.Fact{
+		Predicate: "campaign",
+		Args:      []any{campaignID, cType, title, source, string(status)},
+	})
+	auditCampaignStatus(campaignID, status)
+}
+
+// auditCampaignStatus records a campaign's lifecycle in the audit trail
+// (campaign_event facts in `nerd audit facts`). Every status change passes
+// through updateCampaignStatus, so the trail sees each start, completion and
+// failure; before this it recorded no campaign event at all, so a forensic
+// read of a run could not say when a campaign began or how it ended. Planning
+// and pausing are not lifecycle ends and are not recorded.
+func auditCampaignStatus(campaignID string, status CampaignStatus) {
+	switch status {
+	case StatusActive:
+		logging.Audit().CampaignEvent(logging.AuditCampaignStart, campaignID, "", true)
+	case StatusCompleted:
+		logging.Audit().CampaignEvent(logging.AuditCampaignComplete, campaignID, "", true)
+	case StatusFailed:
+		logging.Audit().CampaignEvent(logging.AuditCampaignAbort, campaignID, "", false)
+	}
+}
+
+// failCampaign centralizes every path that marks a campaign failed on a block.
+// Caller holds o.mu, matching updateCampaignStatus (which assumes the lock is
+// held and performs kernel fact updates plus a locked save). It records the
+// block reason on the persisted campaign so resume can report it, sets the
+// in-memory lastError to the canonical "campaign blocked:" text, and saves.
+func (o *Orchestrator) failCampaign(reason string) {
+	if o.campaign == nil {
+		return
+	}
+	o.updateCampaignStatus(StatusFailed)
+	o.campaign.BlockReason = reason
+	o.lastError = fmt.Errorf("campaign blocked: %s", reason)
+	if err := o.saveCampaign(); err != nil {
+		logging.CampaignWarn("failed to save campaign after block: %v", err)
+	}
+}
+
+// determineConcurrencyLimit calculates the dynamic parallelism limit based on active workload.
+func (o *Orchestrator) determineConcurrencyLimit(active map[string]bool, phase *Phase) int {
+	// Base limit from config
+	limit := o.policy.MaxParallelTasks
+
+	// Check backpressure from spawn queue first
+	if o.shardMgr != nil {
+		if status := o.shardMgr.GetBackpressureStatus(); status != nil {
+			if status.QueueUtilization > 0.8 {
+				// High queue utilization, throttle down to single task
+				logging.Campaign("Throttling concurrency: spawn queue at %.0f%%", status.QueueUtilization*100)
+				return 1
+			} else if status.QueueUtilization > 0.5 {
+				// Moderate backpressure, reduce parallelism
+				limit = max(limit/2, 1)
+				logging.CampaignDebug("Reducing concurrency due to spawn queue pressure (%.0f%%)", status.QueueUtilization*100)
+			}
+		}
+	}
+
+	// Count active task types.
+	//
+	// This reads phase.Tasks while worker goroutines spawned by runPhase are
+	// concurrently writing task state through updateTaskStatus, which holds
+	// o.mu. Reading it unlocked was a real data race, caught by `go test -race`
+	// on the full package (it needs the scheduling pressure of the whole suite
+	// to surface, so the single test passes alone -- which is exactly why it
+	// survived).
+	//
+	// The lock is scoped to the read only: o.shardMgr.GetBackpressureStatus()
+	// above reaches into another subsystem and must not be called under o.mu.
+	researchCount, refactorCount, testCount := o.countActiveTaskTypes(active, phase)
+
+	// Adaptive Logic:
+	// 1. Refactoring is high-risk/CPU-heavy -> Throttle down
+	if refactorCount > 0 {
+		return 1 // Serial execution for refactoring to prevent race conditions/clobbering
+	}
+
+	// 2. Integration is complex -> Low parallelism
+	// (Handled by Refactor count above if we treat them similar, or separate)
+
+	// 3. Research/Tests are IO-bound -> Warning: Research spawns Shards which use memory.
+	// We can scale up, but let's be conservative.
+	if researchCount > 0 || testCount > 0 {
+		// Boost limit for IO heavy work
+		limit = min(o.policy.MaxParallelTasks*2, 10)
+	}
+
+	return limit
+}
+
+// countActiveTaskTypes tallies the task types currently running, holding the
+// read lock for the whole traversal of phase.Tasks.
+//
+// Split out of determineConcurrencyLimit so the critical section covers exactly
+// the shared-state read and nothing else — in particular not the backpressure
+// call, which reaches into ShardManager and could block while holding o.mu.
+func (o *Orchestrator) countActiveTaskTypes(active map[string]bool, phase *Phase) (research, refactor, test int) {
+	if phase == nil {
+		return 0, 0, 0
+	}
+
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+
+	for taskID := range active {
+		for i := range phase.Tasks {
+			if phase.Tasks[i].ID != taskID {
+				continue
+			}
+			switch phase.Tasks[i].Type {
+			case TaskTypeResearch, TaskTypeDocument:
+				research++
+			case TaskTypeRefactor, TaskTypeIntegrate:
+				refactor++
+			case TaskTypeTestRun, TaskTypeVerify:
+				test++
+			}
+			break
+		}
+	}
+	return research, refactor, test
+}
+
+// HandleNewRequirement integrates a requirement into the running campaign's
+// plan: the replanner adds or modifies tasks on the planning client
+// (ReplanForNewRequirement), and the revised plan is persisted. The chat's
+// `/campaign add <requirement>` calls it on the live orchestrator.
+func (o *Orchestrator) HandleNewRequirement(ctx context.Context, requirement string) error {
+	logging.Campaign("New requirement received: %s", requirement[:min(100, len(requirement))])
+	timer := logging.StartTimer(logging.CategoryCampaign, "HandleNewRequirement")
+	defer timer.Stop()
+
+	o.emitEvent(EventNewRequirementReceived, "", "", requirement, nil)
+
+	// Pause temporarily to safely modify plan.
+	// Manage both isPaused and pauseCh so the scheduler loop's select on
+	// pauseCh stays consistent with the boolean flag.
+	o.mu.Lock()
+	wasPaused := o.isPaused
+	if !o.isPaused {
+		// Transition resumed → paused: open a fresh pauseCh.
+		o.pauseCh = make(chan struct{})
+	}
+	o.isPaused = true
+	logging.CampaignDebug("Temporarily pausing campaign to integrate new requirement")
+	o.mu.Unlock()
+
+	defer func() {
+		o.mu.Lock()
+		// Restore previous state. If we were the ones that paused, close pauseCh.
+		if !wasPaused && o.isPaused && o.pauseCh != nil {
+			close(o.pauseCh)
+		}
+		o.isPaused = wasPaused
+		logging.CampaignDebug("Resuming campaign after requirement integration")
+		o.mu.Unlock()
+	}()
+
+	// Call the previously unwired Replanner method
+	if err := o.replanner.ReplanForNewRequirement(ctx, o.campaign, requirement); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to integrate new requirement: %v", err)
+		o.emitEvent(EventNewRequirementFailed, "", "", err.Error(), nil)
+		return err
+	}
+
+	o.mu.Lock()
+	o.persistCampaign("new requirement")
+	o.mu.Unlock()
+
+	logging.Campaign("New requirement successfully integrated into plan")
+	o.emitEvent(EventNewRequirementDone, "", "", "Plan updated with new requirement", nil)
+	return nil
+}

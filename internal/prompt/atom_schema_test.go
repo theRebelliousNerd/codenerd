@@ -1,0 +1,178 @@
+package prompt
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestParsePromptAtomYAML_StrictCanonicalSchema(t *testing.T) {
+	data := []byte(`- schema_version: 1
+  version: 2
+  id: test/canonical
+  category: methodology
+  is_mandatory: false
+  shard_types: [/coder]
+  world_states: [reflection_hits, no_tool_call_retry]
+  content: canonical body
+`)
+
+	parsed, migrations, err := ParsePromptAtomYAML(data, "canonical.yaml", nil)
+	if err != nil {
+		t.Fatalf("parse canonical atom: %v", err)
+	}
+	if len(migrations) != 0 {
+		t.Fatalf("canonical atom unexpectedly migrated: %+v", migrations)
+	}
+	if len(parsed) != 1 {
+		t.Fatalf("got %d atoms, want 1", len(parsed))
+	}
+	atom := parsed[0].Atom
+	if atom.Version != 2 {
+		t.Fatalf("version = %d, want 2", atom.Version)
+	}
+	if len(atom.ShardTypes) != 1 || atom.ShardTypes[0] != "coder" {
+		t.Fatalf("selectors were not normalized: %#v", atom.ShardTypes)
+	}
+}
+
+func TestParsePromptAtomYAML_BoundedLegacyMigrations(t *testing.T) {
+	data := []byte(`id: test/legacy
+category: intent
+name: Intent Understanding
+version: 1.0.0
+agent_types: [/coder]
+selectors:
+  - always: true
+content: legacy body
+`)
+
+	parsed, migrations, err := ParsePromptAtomYAML(data, "legacy.yaml", nil)
+	if err != nil {
+		t.Fatalf("parse legacy atom: %v", err)
+	}
+	if len(parsed) != 1 {
+		t.Fatalf("got %d atoms, want 1", len(parsed))
+	}
+	atom := parsed[0].Atom
+	if atom.Subcategory != "intent_understanding" {
+		t.Fatalf("subcategory = %q", atom.Subcategory)
+	}
+	if len(atom.ShardTypes) != 1 || atom.ShardTypes[0] != "coder" {
+		t.Fatalf("agent_types migration lost selector: %#v", atom.ShardTypes)
+	}
+	if atom.Importance != ImportanceUnscored || atom.IsMandatory {
+		t.Fatalf("legacy defaults changed: importance=%v mandatory=%v", atom.Importance, atom.IsMandatory)
+	}
+
+	wantCodes := []string{
+		"legacy-semver-version",
+		"legacy-name",
+		"agent-types-alias",
+		"legacy-selectors",
+		"legacy-mandatory-default",
+	}
+	for _, code := range wantCodes {
+		found := false
+		for _, migration := range migrations {
+			if migration.Code == code {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("missing migration %s in %+v", code, migrations)
+		}
+	}
+}
+
+func TestParsePromptAtomYAML_FailsWholeDocument(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "unknown field",
+			yaml: "id: test/unknown\ncategory: identity\nis_mandatory: false\ncontent: body\ntyop: true\n",
+			want: "field tyop not found",
+		},
+		// TODO: Test Null/Undefined/Empty: ID field empty/whitespace
+		// TODO: Test Null/Undefined/Empty: Category field empty
+		// TODO: Test Null/Undefined/Empty: Missing Priority
+		// TODO: Test Null/Undefined/Empty: Whitespace-only Content
+		// TODO: Test Null/Undefined/Empty: Empty string in requires_tools array
+		// TODO: Test Type Coercion/Boundary: Priority below 0 (-1)
+		// TODO: Test Type Coercion/Boundary: Priority above 100 (101)
+		// TODO: Test Type Coercion/Boundary: Version 0
+		// TODO: Test Type Coercion/Boundary: Version -1
+		// TODO: Test State/Conflicts: Both content and content_file provided
+		// TODO: Test State/Conflicts: Neither content nor content_file provided
+		// TODO: Test State/Conflicts: content_file uses absolute path
+		// TODO: Test State/Conflicts: Duplicate entries in requires_tools
+		// TODO: Test User Request Extremes: Invalid tool format in requires_tools (e.g. /grep)
+		{
+			name: "future schema",
+			yaml: "schema_version: 2\nid: test/future\ncategory: identity\nis_mandatory: false\ncontent: body\n",
+			want: "unsupported schema_version",
+		},
+		{
+			name: "alias collision",
+			yaml: "id: test/collision\ncategory: identity\nis_mandatory: false\nagent_types: [/coder]\nshard_types: [/tester]\ncontent: body\n",
+			want: "cannot both be set",
+		},
+		{
+			name: "unknown world state",
+			yaml: "id: test/world\ncategory: identity\nis_mandatory: false\nworld_states: [invented]\ncontent: body\n",
+			want: "unknown value",
+		},
+		{
+			name: "one invalid item rejects sequence",
+			yaml: "- id: test/good\n  category: identity\n  is_mandatory: false\n  content: body\n- id: test/bad\n  category: identity\n  is_mandatory: false\n  content: ''\n",
+			want: "missing required field",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, _, err := ParsePromptAtomYAML([]byte(test.yaml), "test.yaml", nil)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want containing %q", err, test.want)
+			}
+			if len(parsed) != 0 {
+				t.Fatalf("partial atoms escaped failed document: %d", len(parsed))
+			}
+		})
+	}
+}
+
+func TestKnownWorldStatesFollowLiveContextVocabulary(t *testing.T) {
+	known := KnownWorldStates()
+	for _, value := range []string{"reflection_hits", "no_tool_call_retry"} {
+		if _, ok := known[value]; !ok {
+			t.Errorf("live world state %q missing from schema vocabulary", value)
+		}
+	}
+}
+
+// TestParsePromptAtomYAML_PriorityIsIgnoredNotRead: the hand-set priority was
+// replaced by Jev's build-time importance. A project atom that still carries
+// it parses through an observable migration and the value reaches nothing;
+// the atom is unscored until the ledger scores it.
+func TestParsePromptAtomYAML_PriorityIsIgnoredNotRead(t *testing.T) {
+	data := []byte(`- id: test/old
+  category: methodology
+  priority: 95
+  is_mandatory: false
+  content: body
+`)
+	parsed, migrations, err := ParsePromptAtomYAML(data, "old.yaml", nil)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(migrations) != 1 || migrations[0].Code != "legacy-priority-ignored" {
+		t.Fatalf("migrations = %+v, want only legacy-priority-ignored", migrations)
+	}
+	if got := parsed[0].Atom.Importance; got != ImportanceUnscored {
+		t.Fatalf("importance = %v, want unscored: priority must not become a level", got)
+	}
+}

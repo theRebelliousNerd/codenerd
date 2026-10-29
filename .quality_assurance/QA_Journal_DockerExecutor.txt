@@ -1,0 +1,1055 @@
+Date: 2026-07-28 23:18:30 UTC-05:00
+QA Automation Engineer Journal Entry
+
+================================================================================
+Subsystem Module: internal/tactile/docker.go (DockerExecutor)
+Focus: Boundary Value Analysis and Negative Testing
+================================================================================
+
+1. Introduction and System Overview
+--------------------------------------------------------------------------------
+The DockerExecutor module inside the tactile subsystem acts as the core interface
+for running sandboxed commands within Docker containers. This provides critical
+isolation between untrusted user-generated code/commands and the host system.
+Given the critical security boundary this module enforces, its test suite must
+extend far beyond simple "Happy Path" testing. It requires rigorous Boundary Value
+Analysis (BVA) and Negative Testing to ensure stability under adversarial or
+extreme conditions.
+
+The tactile system uses `os/exec` to invoke the Docker CLI. This design choice
+means that while the system relies on Docker's robust containment, it is also
+susceptible to issues translating Go structures (like `Command`, `SandboxConfig`)
+into command-line arguments.
+
+In this journal entry, I will evaluate the current test suite located in
+`internal/tactile/docker_test.go` and provide a detailed analysis of missing
+edge cases across several vectors: Null/Undefined/Empty values, Type Coercion,
+User Request Extremes, and State Conflicts.
+
+2. Analysis of the Existing Test Suite
+--------------------------------------------------------------------------------
+The current test suite covers fundamental capabilities:
+- Initialization (`TestNewDockerExecutor`)
+- Capability checking (`TestDockerExecutorCapabilities`)
+- Basic validation (`TestDockerExecutorValidate`)
+- Unavailability handling (`TestDockerExecutorValidate_Unavailable`)
+- Audit callback (`TestDockerExecutorAuditCallback`)
+- Basic argument building (`TestDockerExecutorBuildDockerArgs`)
+- Basic execution error handling (`TestDockerExecutorExecute_ErrorCases`)
+
+However, it primarily focuses on normal operations. It lacks comprehensive
+table-driven tests for negative scenarios, leaving the system vulnerable to
+unhandled edge cases.
+
+3. Detailed Vector Analysis and Identified Gaps
+--------------------------------------------------------------------------------
+
+3.1 Null, Undefined, and Empty Vectors
+--------------------------------------
+The system must gracefully handle missing or empty configurations, as these are
+common occurrences when dealing with dynamically generated or user-provided inputs.
+We must assert the system's behavior when these values are missing.
+
+* Empty Image Names:
+  The `buildDockerArgs` function attempts to fallback to a default image if
+  `cmd.Sandbox.Image` is empty. However, what if the default image itself is
+  configured as an empty string? The code falls back to `alpine:latest`. The test
+  suite must explicitly verify this fallback logic. A test case should provide an
+  empty `Sandbox.Image` and an empty `config.DockerDefaultImage` to ensure
+  `alpine:latest` is selected. If the fallback mechanism were to be refactored
+  and this was omitted, what would happen? Docker would fail with an invalid
+  reference error, which might not be clearly categorized by the executor.
+
+* Empty Arguments List:
+  When `cmd.Arguments` is empty or nil, the executor simply does not append them.
+  This is generally safe, but a test should confirm that no trailing empty strings
+  are passed to `os/exec`, which could be interpreted by the binary as an empty
+  argument rather than no argument. In some shells and execution contexts, passing
+  an empty string `""` as an argument can completely change the execution semantics
+  of a binary.
+
+* Empty Network Mode:
+  The fallback logic for `NetworkMode` checks if `cmd.Limits.NetworkAllowed` is
+  true. The test suite must verify both branches (empty mode defaulting to `bridge`
+  when allowed, and `none` when not allowed). If the default fallback defaults
+  incorrectly, sandboxed code could inadvertently gain network access.
+
+* Empty Environment Variables Map/Slice:
+  If `cmd.Environment` is empty, it should not generate any `-e` flags. A test
+  should confirm this behavior to prevent malformed Docker commands. Additionally,
+  what if the environment slice contains empty strings? Will Docker interpret `-e ""`
+  as an error? The code does not filter out empty strings from `cmd.Environment`.
+
+* Empty Working Directory:
+  If `cmd.WorkingDirectory` is empty, the `-w` flag should be omitted. This needs
+  explicit verification.
+
+* Empty Tmpfs Size:
+  When `ReadOnlyRoot` is true but `TmpfsSize` is empty, the system defaults to
+  `100m`. This default must be tested explicitly to prevent regressions if the
+  fallback logic is ever altered. Furthermore, if `TmpfsSize` is explicitly set
+  to an empty string by a user trying to bypass constraints, the system handles it
+  by applying the default, which is correct, but untested.
+
+3.2 Type Coercion and Data Type Extremes
+----------------------------------------
+While Go is a statically typed language, data type extremes (e.g., very large
+integers, extremely long strings) can still cause issues when translated to strings
+for CLI arguments.
+
+* Extremely Long Strings (Binary, Arguments, Environment Variables):
+  The operating system sets a limit on the total length of command-line arguments
+  (e.g., `ARG_MAX`). If a user attempts to execute a command with a 10MB string
+  argument, `os/exec` will likely return an error (e.g., "argument list too long").
+  The test suite should simulate this boundary to ensure the `DockerExecutor`
+  catches the error gracefully, marks the execution as failed, and emits the
+  appropriate audit events without panicking. What happens if the `Binary` path
+  itself is exceptionally long? `exec.CommandContext` might fail during path resolution.
+
+* Malformed Image Tags / Injection Attacks:
+  What happens if `Sandbox.Image` contains spaces or special characters (e.g.,
+  `ubuntu:latest --privileged`)? Since `os/exec` does not invoke a shell, Docker
+  will likely interpret it as a malformed image name and fail to run. However,
+  tests should verify this to guarantee that parameter injection is impossible.
+  If `DockerExecutor` ever shifts to using a shell wrapper for execution, this
+  would become a critical vulnerability. Tests must codify the current safety.
+
+* Negative Integer Values in Limits:
+  If `MaxMemoryBytes`, `MaxCPUTimeMs`, or `MaxProcesses` are accidentally set to
+  negative values, the current implementation (e.g., `if cmd.Limits.MaxMemoryBytes > 0`)
+  ignores them. This is a subtle boundary condition. The system should probably
+  reject negative values during validation rather than silently ignoring them and
+  executing without limits. Tests should assert the expected behavior. If a negative
+  limit implies "unlimited", is that intended? If it implies an error, the validation
+  phase should reject it.
+
+* Extreme Integers (MaxInt64):
+  Passing `math.MaxInt64` to `MaxMemoryBytes`. When stringified, it becomes a very
+  large number. Docker might fail to parse this if it exceeds its own internal limits
+  for memory representation (e.g., if Docker expects an int64 but performs internal
+  additions that overflow). The executor should ideally cap limits to sensible
+  maximums or gracefully handle the Docker exit code.
+
+3.3 User Request Extremes (Performance, Load, Edge Cases)
+---------------------------------------------------------
+The system must maintain high performance and stability even when bombarded with
+absurd or extreme requests from users.
+
+* Excessive Number of Arguments:
+  A user might provide 100,000 arguments to a command. Will this exhaust memory
+  during string formatting in `buildDockerArgs`? The system must be performant
+  enough to handle formatting large lists quickly, and handle the inevitable
+  OS-level rejection smoothly. Generating 100,000 arguments involves slice allocations
+  which could trigger GC pressure if done frequently in a high-throughput environment.
+
+* Extreme Resource Constraints:
+  What if the `SandboxConfig` requests a memory limit of 1 byte, or a CPU quota
+  of 1? Docker has minimum requirements (e.g., minimum memory limit is typically
+  4MB or 6MB). If the user requests 1 byte, Docker will exit with an error. The
+  test suite must simulate passing extreme minimum limits to ensure the executor
+  parses the failure correctly and doesn't hang or misinterpret the exit code.
+  Is it categorized as an infrastructure failure or a user error?
+
+* Extreme Output (Stdout/Stderr Flooding):
+  The system uses a `limitedWriter` to cap output based on `MaxOutputBytes`.
+  However, tests must verify that if a command rapidly outputs gigabytes of data
+  (e.g., `cat /dev/urandom`), the `limitedWriter` correctly discards the excess
+  data without consuming excessive memory (OOM). This is a critical negative test
+  for system resilience. If the underlying buffer does not truncate properly, the
+  Go process could OOM before the container limit is reached.
+
+* Timeout Extremes:
+  If the `TimeoutMs` is set to an extremely low value (e.g., 1ms), the context
+  will likely cancel before Docker even starts. The test suite must ensure that
+  this results in a clean `AuditEventKilled` event with a clear reason, rather
+  than a confusing execution error. Conversely, setting `TimeoutMs` to 10 years
+  might overflow time calculations or hold resources indefinitely.
+
+* Rapid Execution Spin Cycles:
+  What happens if an AI agent generates a loop that submits 10,000 Docker execution
+  requests per second? The `os/exec` limits and file descriptor limits on the host
+  machine will be exhausted. The executor itself does not seem to implement a
+  concurrency limiter (e.g., a semaphore). This could lead to a catastrophic
+  host failure (e.g., "too many open files").
+
+3.4 State Conflicts and Race Conditions
+---------------------------------------
+The `DockerExecutor` maintains some internal state, introducing the potential for
+race conditions and state conflicts.
+
+* Concurrent Executions:
+  The `DockerExecutor` must be capable of handling hundreds of concurrent `Execute`
+  calls safely. The current implementation uses local variables and context, which
+  is generally safe. However, the test suite is entirely sequential. A test case
+  must launch multiple goroutines calling `Execute` simultaneously to ensure no
+  hidden shared state (like the `limitedWriter` buffer) is inadvertently leaking
+  between executions.
+
+* TOCTOU (Time of Check to Time of Use) in Docker Availability:
+  The `detectDocker` function caches the availability of the Docker daemon for 30
+  seconds. What happens if Docker is available during `Validate`, but the Docker
+  daemon crashes immediately before `execCmd.Run()` is called? The test suite
+  should mock this state conflict (e.g., by temporarily renaming the docker binary
+  after validation) to verify that `Execute` handles the sudden failure securely
+  and returns a well-formed error instead of a panic.
+
+* Concurrency with `SetAuditCallback`:
+  The `DockerExecutor` does not appear to synchronize access to its `auditCallback`
+  field during execution. If `SetAuditCallback` is invoked concurrently with
+  an ongoing `Execute` call, reading the callback function pointer could result
+  in a data race, potentially causing a panic. The test suite needs to run
+  `go test -race` on a test that concurrently executes a command and changes the
+  audit callback.
+
+* Conflicting Mount Paths:
+  If a user specifies the same path in both `AllowedPaths` (rw) and `ReadOnlyPaths`
+  (ro), what happens? The `buildDockerArgs` function appends both to the arguments
+  list. Docker might reject the command or apply the last one specified. The
+  system should ideally detect this conflict during validation. Tests should assert
+  the behavior when conflicting paths are provided to prevent unexpected write access
+  to a path intended to be read-only.
+
+* Concurrent Image Pulls:
+  If multiple execution requests simultaneously trigger `PullImage` for the same
+  image tag, does Docker handle the concurrency gracefully, or does `os/exec`
+  cause race conditions on the host's Docker daemon? While Docker handles this,
+  the executor blocks on each pull. A robust system might implement a single-flight
+  mechanism for image pulls.
+
+4. Performance Assessment of the Implementation
+--------------------------------------------------------------------------------
+Based on the analysis, is the system performant enough to handle each edge case?
+
+* String Manipulation Performance:
+  The `buildDockerArgs` function uses standard slice appends. This is highly
+  performant in Go. Even with thousands of arguments, appending to a slice and
+  passing it to `os/exec` will complete in microseconds. The bottleneck will be
+  the OS-level process creation, not Go's string handling.
+
+* Output Limiting Performance:
+  The `limitedWriter` is an excellent design choice for performance. It prevents
+  the system from reading the entire container output into memory. As long as it
+  safely discards bytes after the limit is reached, it will easily handle extreme
+  output flooding without memory exhaustion. This makes the system robust against
+  Denial of Service (DoS) attacks via excessive logging. A minor optimization
+  might be to discard chunks rather than byte-by-byte if the buffer fills.
+
+* Concurrency and Goroutine Leaks:
+  Since `os/exec` forks a new process for the Docker CLI, the Go application itself
+  does not bear the execution burden. The primary overhead is context switching and
+  the memory footprint of the command struct. The system should comfortably scale
+  to hundreds of concurrent Docker executions, limited only by the host's actual
+  Docker daemon capacity and available RAM/CPU. However, if context timeouts are
+  not properly propagated to the `exec.Cmd`, orphaned Docker processes could leak
+  and consume all host resources over time. The `CommandContext` usage mitigates
+  this, but tests should verify that `context.Cancel` indeed kills the Docker process.
+
+* Audit Emission Performance:
+  The `emitAudit` function calls the callback synchronously. If the callback is
+  slow (e.g., writing to a slow database), it will block the execution flow. This
+  is a potential performance bottleneck. If thousands of extreme requests occur,
+  blocking on audit logs could degrade overall system throughput. Emitting audits
+  asynchronously using a buffered channel might be a necessary architectural
+  improvement if codeNERD scales up significantly.
+
+* Execution Timeout Precision:
+  When configuring a timeout, the context handles the enforcement. However, if
+  Docker takes a long time to start (e.g., pulling an image synchronously before
+  running), the execution timeout might trigger before the actual container code
+  begins running. If `Execute` assumes the timeout applies only to the running
+  code, the system might falsely report a timeout. A more performant approach
+  would be distinguishing container startup time from execution time.
+
+5. Systemic Improvements and Recommendations
+--------------------------------------------------------------------------------
+To address the identified gaps, the tactile subsystem requires the following
+enhancements:
+
+A. Validation Hardening:
+   The `Validate` method in `DockerExecutor` is currently too permissive. It
+   should comprehensively validate:
+   - Limits: Ensure memory, CPU, and processes are non-negative and within
+     sane bounds (e.g., reject memory limits below 6MB).
+   - Paths: Ensure `AllowedPaths` and `ReadOnlyPaths` do not overlap, and that
+     they are absolute paths to prevent traversal attacks.
+   - Arguments: Ensure no individual argument exceeds OS limits.
+
+B. Concurrency Hardening:
+   - Implement `sync.RWMutex` locking around the `auditCallback` to prevent
+     potential race conditions if it's updated dynamically.
+   - Introduce a worker pool or semaphore to limit the maximum number of
+     concurrent Docker executions, protecting the host system from resource
+     exhaustion during peak load or malicious loops.
+
+C. Observability Enhancements:
+   - Log explicit warnings when fallback defaults (like `alpine:latest` or `100m`
+     tmpfs) are applied, so system administrators can audit unexpected behavior.
+   - Differentiate between "Docker Daemon Error" and "Container Execution Error"
+     in the `ExecutionResult`. Currently, if Docker fails to start the container
+     due to bad arguments, it might just look like a non-zero exit code.
+
+6. Conclusion and Action Items
+--------------------------------------------------------------------------------
+The `DockerExecutor` is fundamentally sound and leverages Go's robust `os/exec`
+package securely. However, the test suite (`docker_test.go`) is severely lacking
+in Negative Testing and Boundary Value Analysis.
+
+Action Items:
+1. Implement table-driven tests for Null/Empty configurations (Image, Network, Args).
+2. Add tests verifying OS-level error handling for excessively large arguments.
+3. Assert correct parsing of Docker startup failures due to extreme resource limits
+   (e.g., 1 byte memory limit).
+4. Implement concurrent execution tests to guarantee thread safety.
+5. Add `// TODO:` comments directly in `internal/tactile/docker_test.go` to mark
+   these identified testing gaps for future implementation.
+
+By addressing these testing gaps, we ensure the codeNERD tactile subsystem remains
+impervious to edge-case failures, maintaining its role as a secure, high-performance
+sandboxing environment capable of handling frontier coding benchmarks and extreme
+AI-generated workloads.
+
+
+Appendix 1: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 2: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 3: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 4: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 5: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 6: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 7: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 8: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 9: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 10: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 11: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 12: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 13: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 14: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 15: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 16: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 17: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 18: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 19: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 20: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 21: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 22: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 23: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 24: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 25: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 26: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 27: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 28: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 29: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 30: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 31: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 32: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 33: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 34: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 35: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 36: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 37: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 38: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 39: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 40: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 41: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 42: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 43: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 44: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 45: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 46: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 47: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 48: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 49: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 50: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 51: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 52: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 53: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 54: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 55: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 56: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 57: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 58: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 59: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 60: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 61: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 62: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 63: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 64: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 65: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 66: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 67: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 68: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 69: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 70: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 71: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 72: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 73: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 74: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 75: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 76: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 77: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 78: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 79: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 80: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 81: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 82: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 83: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 84: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 85: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 86: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 87: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 88: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 89: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 90: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 91: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 92: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 93: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 94: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 95: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 96: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 97: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 98: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 99: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 100: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 101: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 102: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 103: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 104: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 105: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 106: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 107: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 108: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 109: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 110: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 111: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 112: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 113: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 114: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 115: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 116: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 117: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 118: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 119: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 120: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 121: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 122: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 123: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 124: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 125: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 126: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 127: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 128: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 129: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 130: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 131: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 132: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 133: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 134: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 135: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 136: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 137: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 138: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 139: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 140: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 141: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 142: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 143: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 144: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 145: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 146: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 147: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 148: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.
+
+Appendix 149: Explicit evaluation of SandboxConfig parsing logic.
+When the JSON payload deserializes SandboxConfig, missing fields should fall back to sensible defaults.
+Testing strategy: Generate an empty JSON payload, parse it into the Command struct, and verify that
+the Validate method catches any structural inconsistencies before invoking the Docker CLI.

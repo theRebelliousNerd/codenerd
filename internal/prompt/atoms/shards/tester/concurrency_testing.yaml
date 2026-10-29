@@ -1,0 +1,76 @@
+# Tester Shard Concurrency Testing
+# Go-specific patterns for testing concurrent code
+
+- id: "shards/tester/concurrency_testing"
+  category: "methodology"
+  subcategory: "concurrency"
+  is_mandatory: false
+  shard_types: ["/tester"]
+  languages: ["/go"]
+  content: |
+    ## CONCURRENCY TESTING (GO-SPECIFIC)
+
+    ### RACE DETECTION
+    - Always run tests with -race flag: `go test -race ./...`
+    - Design tests that exercise concurrent access patterns
+
+    ### GOROUTINE LEAK DETECTION
+    ```go
+    func TestFunction_NoGoroutineLeak(t *testing.T) {
+        before := runtime.NumGoroutine()
+
+        // Run the function that spawns goroutines
+        ctx, cancel := context.WithCancel(context.Background())
+        Function(ctx)
+        cancel()
+
+        // Give time for cleanup
+        time.Sleep(100 * time.Millisecond)
+
+        after := runtime.NumGoroutine()
+        if after > before {
+            t.Errorf("goroutine leak: before=%d, after=%d", before, after)
+        }
+    }
+    ```
+
+    ### CONCURRENT ACCESS TEST
+    ```go
+    func TestMap_ConcurrentAccess_NoRace(t *testing.T) {
+        m := NewSafeMap()
+        var wg sync.WaitGroup
+
+        for i := 0; i < 100; i++ {
+            wg.Add(1)
+            go func(i int) {
+                defer wg.Done()
+                m.Set(fmt.Sprintf("key%d", i), i)
+                _ = m.Get(fmt.Sprintf("key%d", i))
+            }(i)
+        }
+
+        wg.Wait()
+    }
+    ```
+
+    ### CHANNEL DEADLOCK TESTING
+    ```go
+    func TestChannel_NoDeadlock(t *testing.T) {
+        done := make(chan struct{})
+
+        go func() {
+            defer close(done)
+            // Function under test
+            result := ProcessWithChannel()
+            _ = result
+        }()
+
+        select {
+        case <-done:
+            // Success - function completed
+        case <-time.After(5 * time.Second):
+            t.Fatal("deadlock detected: function did not complete")
+        }
+    }
+    ```
+

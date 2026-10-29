@@ -1,0 +1,13 @@
+# Baseline for cmd/tools/audit_parallel_globals: tests that call
+# t.Parallel() and then read or write process-global state.
+#
+# Unlike the dead-code and JSON budgets, this one is meant to stay EMPTY.
+# A parallel test reading runtime.NumGoroutine or runtime.ReadMemStats is
+# measuring its neighbours, and one writing os.Setenv or os.Chdir is
+# changing them. The fix is available in every case: drop t.Parallel().
+#
+# An entry here is a claim that a test is right to be both parallel and
+# global, which is a claim that needs a reason in the commit that adds it.
+#
+# Regenerate with: go run ./cmd/tools/audit_parallel_globals -update
+# Format: package<TAB>function<TAB>call

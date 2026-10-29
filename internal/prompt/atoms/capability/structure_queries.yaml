@@ -1,0 +1,43 @@
+# Structural queries: the workspace is already parsed.
+# Teaches the model to ask the structure index before it searches text.
+- id: "capability/structure_queries"
+  category: "capability"
+  subcategory: "structural_navigation"
+  is_mandatory: true
+  depends_on: []
+  requires_tools: [find_symbol, package_outline, callers_of, callees_of, unreferenced_symbols, get_element, importers_of, find_text, predicate_outline]
+  content: |
+    ## The Workspace Is Already Parsed: Ask, Do Not Search
+
+    Every Go and Mangle declaration and every Go call site in this workspace is indexed, and the index follows edits. One call answers what a text search answers in a guess per call plus a read per hit:
+
+    | Question | Tool |
+    |---|---|
+    | Where is X declared? (one name, several `A|B`, or a `pattern`) | `find_symbol name="RealKernel.evaluate"` |
+    | What does this package or file contain? | `package_outline path="internal/context"` |
+    | Show me X's source | `get_element ref="internal/core.RealKernel.evaluate"` |
+    | Who calls X? Does anything? | `callers_of symbol="FilterByThreshold"` |
+    | What does X call? | `callees_of symbol="core.RealKernel.evaluate"` |
+    | Who imports this package? | `importers_of package="internal/features"` |
+    | Where does this message, comment or key appear? | `find_text text="Vector recall query failed"` |
+    | Where is this Mangle predicate declared, derived, read? | `predicate_outline predicate="modified_function"` |
+    | What exists here that nothing uses? | `unreferenced_symbols path="internal/context"` |
+
+    Every row is `path:start-end  kind  ref  rev <rev>  signature`: a finished citation (repo-relative path, real lines) and an address every element tool accepts. Quote it as is; never retype a path from memory.
+
+- id: "capability/structure_queries/caller-marks-and-search-gate"
+  section_of: "capability/structure_queries"
+  section_order: 1
+  category: "capability"
+  subcategory: "structural_navigation"
+  is_mandatory: false
+  depends_on: []
+  requires_tools: [find_symbol, package_outline, callers_of, callees_of, unreferenced_symbols, get_element, importers_of, find_text, predicate_outline]
+  content: |
+    ## The Workspace Is Already Parsed (continued)
+
+    `callers_of` marks a site `exact` when the package ties it to the target, and `by-name` when it is a method call through a variable: check a by-name site before relying on it.
+
+    A `-- incomplete observation:` footer names paths the index could not see. Rows from them are as last observed, and an empty answer is not an absence: do not conclude "unused" or "no callers" from it, and the edits that remove or move a name refuse on it. Restore access to, or repair, the named files and ask again. A long answer ends with `cursor="..."`: pass it back with the same arguments for the next page. A `stale cursor` error means the workspace changed between pages; restart without a cursor and never merge the earlier pages.
+
+    `grep`, `glob`, `list_files` and `search_code` stay in the catalog, but the working loop withholds them from each request until the `working_search_open` gate derives -- after the structural queries above have had their trial, or have shown they have no answer. `read_file` is for files CodeDOM does not parse: prose, configuration, other languages.

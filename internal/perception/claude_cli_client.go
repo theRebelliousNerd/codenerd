@@ -1,0 +1,526 @@
+package perception
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os/exec"
+	"strings"
+	"time"
+
+	"codenerd/internal/config"
+	"codenerd/internal/sessionlog"
+	"codenerd/internal/types"
+)
+
+// RateLimitError indicates the LLM provider returned a rate limit response.
+// Callers can use errors.As to detect this error type and implement backoff.
+type RateLimitError struct {
+	Provider    string
+	RetryAfter  time.Duration
+	RawResponse string
+}
+
+// Error implements the error interface.
+func (e *RateLimitError) Error() string {
+	if e.RetryAfter > 0 {
+		return fmt.Sprintf("%s rate limit exceeded, retry after %v", e.Provider, e.RetryAfter)
+	}
+	return fmt.Sprintf("%s rate limit exceeded", e.Provider)
+}
+
+// ClaudeCodeCLIClient implements LLMClient using the Claude Code CLI subprocess.
+// It executes `claude -p --output-format json --model <model>` and parses the JSON response.
+//
+// IMPORTANT: This uses Claude CLI as a SUBPROCESS LLM API, NOT as an agent.
+// - Claude Code tools are DISABLED (codeNERD has its own tools)
+// - Single completion per call (--max-turns 1)
+// - System prompt REPLACES Claude Code instructions
+//
+// Enhanced features (Claude CLI exclusive):
+// - JSON Schema validation for structured output (Piggyback Protocol)
+// - Fallback model for rate limit resilience (handled in Go code)
+type ClaudeCodeCLIClient struct {
+	model         string
+	fallbackModel string
+	timeout       time.Duration
+	maxTurns      int
+	streaming     bool
+}
+
+// claudeCLIResponse represents the JSON output from `claude --output-format json`.
+// The result field can be either:
+// - A string (when tools are disabled via --tools "")
+// - An object with content[].text (when tools are enabled)
+// When using --json-schema, the output is in structured_output instead.
+type claudeCLIResponse struct {
+	Type    string          `json:"type"`             // "result" for success
+	Subtype string          `json:"subtype,omitzero"` // "success" or "error"
+	IsError bool            `json:"is_error,omitzero"`
+	Result  json.RawMessage `json:"result"` // string OR object with content[]
+	Error   *struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	} `json:"error,omitzero"`
+	// Rate limit indicator in error response
+	IsRateLimited bool `json:"is_rate_limited,omitzero"`
+	// JSON Schema output - present when --json-schema flag is used
+	StructuredOutput json.RawMessage `json:"structured_output,omitzero"`
+	// Usage carries the CLI's own token accounting. `claude --output-format json`
+	// has always reported it; it was simply never parsed, which is why the
+	// CLI engines showed no spend.
+	Usage *struct {
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitzero"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens,omitzero"`
+	} `json:"usage,omitzero"`
+	// ModelUsage breaks the same accounting down by the ACTUAL model id the
+	// CLI ran. It is the only place that id appears: the configured model
+	// may be a CLI alias ("opus") or empty (CLI's own default), and
+	// metering under the alias priced an opus-5-5 run as generic opus —
+	// or recorded it under an empty/"unknown" model entirely.
+	ModelUsage map[string]struct {
+		InputTokens              int `json:"inputTokens"`
+		OutputTokens             int `json:"outputTokens"`
+		CacheCreationInputTokens int `json:"cacheCreationInputTokens,omitzero"`
+		CacheReadInputTokens     int `json:"cacheReadInputTokens,omitzero"`
+	} `json:"modelUsage,omitzero"`
+}
+
+// claudeCLIResultObject is the structured result when tools are enabled.
+type claudeCLIResultObject struct {
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content"`
+}
+
+// NewClaudeCodeCLIClient creates a new Claude Code CLI client.
+// If cfg is nil, defaults are applied (timeout: 600s, maxTurns: 1). There is
+// no default model: an empty model sends no --model flag and the CLI uses the
+// model the user configured in Claude Code itself.
+func NewClaudeCodeCLIClient(cfg *config.ClaudeCLIConfig) *ClaudeCodeCLIClient {
+	// Apply defaults
+	client := &ClaudeCodeCLIClient{
+		timeout:  600 * time.Second,
+		maxTurns: 1, // Single completion, no agentic loops
+	}
+
+	if cfg != nil {
+		if cfg.Model != "" {
+			client.model = cfg.Model
+		}
+		if cfg.Timeout > 0 {
+			client.timeout = time.Duration(cfg.Timeout) * time.Second
+		}
+		if cfg.MaxTurns > 0 {
+			client.maxTurns = cfg.MaxTurns
+		}
+		client.fallbackModel = cfg.FallbackModel
+		client.streaming = cfg.Streaming
+	}
+
+	return client
+}
+
+// Complete sends a prompt to Claude Code CLI and returns the completion.
+func (c *ClaudeCodeCLIClient) Complete(ctx context.Context, prompt string) (string, error) {
+	return c.CompleteWithSystem(ctx, "", prompt)
+}
+
+// CompleteWithSystem sends a prompt with an optional system message to Claude Code CLI.
+// The system prompt is passed via --system-prompt flag for proper handling. The
+// caller owns the system prompt: an empty one passes no flag, and the client
+// never substitutes text of its own.
+func (c *ClaudeCodeCLIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	opts := &ExecutionOptions{
+		SystemPrompt: systemPrompt,
+	}
+	return c.executeWithOptions(ctx, userPrompt, opts)
+}
+
+// CompleteWithSchema sends a prompt and validates the response against a JSON schema.
+// This is useful for Piggyback Protocol to ensure structured output.
+//
+// Example schema for Piggyback Protocol:
+//
+//	{
+//	  "type": "object",
+//	  "properties": {
+//	    "surface": {"type": "string"},
+//	    "control": {"type": "array", "items": {"type": "string"}}
+//	  },
+//	  "required": ["surface", "control"]
+//	}
+func (c *ClaudeCodeCLIClient) CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
+	opts := &ExecutionOptions{
+		SystemPrompt: systemPrompt,
+		JSONSchema:   jsonSchema,
+	}
+	return c.executeWithOptions(ctx, userPrompt, opts)
+}
+
+// CompleteWithStreaming publishes the validated completion as one chunk.
+//
+// The CLI's stream-json events carry no top-level text field, so the old
+// line-by-line adapter forwarded nothing from a real CLI and reported success
+// on any clean exit. CompleteWithSystem reads the CLI's final result object,
+// rejects an error or an empty result, and reports usage, which is the
+// terminal evidence this engine has.
+func (c *ClaudeCodeCLIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	})
+}
+
+// ExecutionOptions configures a single execution.
+type ExecutionOptions struct {
+	SystemPrompt string
+	JSONSchema   string
+}
+
+// executeWithOptions runs the CLI with the given options.
+func (c *ClaudeCodeCLIClient) executeWithOptions(ctx context.Context, prompt string, opts *ExecutionOptions) (string, error) {
+	// Try primary model first
+	response, err := c.executeCLI(ctx, prompt, c.model, opts)
+	if err != nil {
+		// If rate limited and we have a fallback, try it
+		var rateLimitErr *RateLimitError
+		if errors.As(err, &rateLimitErr) && c.fallbackModel != "" {
+			response, err = c.executeCLI(ctx, prompt, c.fallbackModel, opts)
+			if err != nil {
+				return "", fmt.Errorf("fallback model also failed: %w", err)
+			}
+			return response, nil
+		}
+		return "", err
+	}
+	return response, nil
+}
+
+// executeCLI runs the claude CLI command and parses the JSON response.
+func (c *ClaudeCodeCLIClient) executeCLI(ctx context.Context, prompt, model string, opts *ExecutionOptions) (string, error) {
+	// Apply timeout to context
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	// Build command arguments
+	args := c.buildArgs(model, opts)
+
+	// Create command with context for cancellation support
+	// #nosec G204 -- command arguments are built securely and passed directly without shell invocation
+	cmd := exec.CommandContext(ctx, "claude", args...)
+	cmd.Stdin = strings.NewReader(prompt)
+
+	// Capture stdout and stderr
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	// Execute the command
+	runStart := time.Now()
+	err := cmd.Run()
+	sessionlog.RecordExec(ctx, sessionlog.ExecRun{
+		Command: "claude", Args: args, Stdin: prompt, Stdout: stdout.String(), Stderr: stderr.String(),
+		ExitCode: sessionlog.ExitCode(cmd), Err: err, Started: runStart, Duration: time.Since(runStart),
+	})
+	if err != nil {
+		// Check for context cancellation
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("claude CLI timed out after %v: %w", c.timeout, ctx.Err())
+		}
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return "", fmt.Errorf("claude CLI execution canceled: %w", ctx.Err())
+		}
+
+		// Check if stderr contains rate limit information
+		stderrStr := stderr.String()
+		if isRateLimitError(stderrStr) {
+			return "", &RateLimitError{
+				Provider:    "claude-cli",
+				RawResponse: stderrStr,
+			}
+		}
+
+		// Return detailed error with stderr content
+		return "", fmt.Errorf("claude CLI execution failed: %w (stderr: %s)", err, stderrStr)
+	}
+
+	// Parse the JSON response
+	response, err := c.parseResponse(ctx, stdout.Bytes())
+	if err != nil {
+		return "", fmt.Errorf("failed to parse claude CLI response: %w", err)
+	}
+
+	return response, nil
+}
+
+// buildArgs constructs the CLI arguments.
+// CRITICAL: This configures Claude CLI as a SUBPROCESS LLM API, not as an agent.
+// - Tools are DISABLED (codeNERD has its own tools)
+// - Max turns is 1 (single completion, no agentic loops) - bumped to 3 for JSON schema
+// - System prompt REPLACES Claude Code instructions
+func (c *ClaudeCodeCLIClient) buildArgs(model string, opts *ExecutionOptions) []string {
+	// Determine max turns: JSON schema validation requires extra turns internally
+	// The schema tool call counts as a turn, plus the final output
+	maxTurns := c.maxTurns
+	if opts != nil && opts.JSONSchema != "" && maxTurns < 3 {
+		maxTurns = 3 // JSON schema uses internal tool calls that count as turns
+	}
+	args := []string{
+		// -p selects non-interactive print mode: one completion, then exit.
+		// Required: without it the CLI may run conversationally and the
+		// output is no longer parseable JSON.
+		"-p",
+		"--max-turns", fmt.Sprintf("%d", maxTurns),
+	}
+	// An empty model is the CLI's own choice, not ours.
+	if strings.TrimSpace(model) != "" {
+		args = append(args, "--model", model)
+	}
+
+	// DISABLE all Claude Code tools UNLESS using JSON schema
+	// The JSON schema feature uses an internal tool, so we can't fully disable tools
+	if opts == nil || opts.JSONSchema == "" {
+		args = append(args, "--tools", "") // DISABLE all Claude Code tools - codeNERD has its own
+	}
+
+	// Output format: one JSON result object, whose usage and error fields
+	// are the call's terminal evidence.
+	args = append(args, "--output-format", "json")
+
+	// System prompt REPLACES Claude Code instructions (not appends)
+	if opts != nil && strings.TrimSpace(opts.SystemPrompt) != "" {
+		args = append(args, "--system-prompt", opts.SystemPrompt)
+	}
+
+	// JSON Schema for structured output (Piggyback Protocol)
+	if opts != nil && opts.JSONSchema != "" {
+		args = append(args, "--json-schema", opts.JSONSchema)
+	}
+
+	return args
+}
+
+// parseResponse extracts the assistant message text from the JSON response.
+// Handles two formats:
+// - String result (when tools disabled): {"result": "text here"}
+// - Object result (when tools enabled): {"result": {"content": [{"type": "text", "text": "..."}]}}
+func (c *ClaudeCodeCLIClient) parseResponse(ctx context.Context, data []byte) (string, error) {
+	if len(data) == 0 {
+		return "", errors.New("empty response from claude CLI")
+	}
+
+	var resp claudeCLIResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal JSON response: %w (raw: %s)", err, truncateString(string(data), 500))
+	}
+
+	// Check for rate limit error in response
+	if resp.IsRateLimited {
+		return "", &RateLimitError{
+			Provider:    "claude-cli",
+			RawResponse: string(data),
+		}
+	}
+
+	// Check for error in response
+	if resp.Error != nil {
+		// Check if error indicates rate limiting
+		if strings.Contains(strings.ToLower(resp.Error.Message), "rate limit") ||
+			strings.Contains(strings.ToLower(resp.Error.Type), "rate_limit") {
+			return "", &RateLimitError{
+				Provider:    "claude-cli",
+				RawResponse: resp.Error.Message,
+			}
+		}
+		return "", fmt.Errorf("claude CLI error: %s (type: %s)", resp.Error.Message, resp.Error.Type)
+	}
+
+	// Check if response indicates error via is_error field
+	if resp.IsError {
+		return "", fmt.Errorf("claude CLI returned error (type: %s, subtype: %s)", resp.Type, resp.Subtype)
+	}
+
+	// Record CLI token usage. The CLI reports Anthropic's usage block, in which
+	// input_tokens is only the uncached remainder; Claude Code caches heavily,
+	// so metering that field alone under-counted the prompt and taught the
+	// calibrator the wrong ratio. The broker's contract is that input includes
+	// cache reads (internal/broker/broker.go settle), and the API client folds
+	// them the same way (anthropicUsage.promptTokens), so the two engines' rows
+	// stay reconcilable.
+	if len(resp.ModelUsage) > 0 {
+		// Per-model accounting with real model ids: strictly better than
+		// the aggregate block under the configured alias.
+		for model, mu := range resp.ModelUsage {
+			u := anthropicUsage{
+				InputTokens:              mu.InputTokens,
+				OutputTokens:             mu.OutputTokens,
+				CacheCreationInputTokens: mu.CacheCreationInputTokens,
+				CacheReadInputTokens:     mu.CacheReadInputTokens,
+			}
+			reportUsage(ctx, model, ProviderAnthropic, usageOpChat, u.usageMetadata())
+		}
+	} else if resp.Usage != nil {
+		u := anthropicUsage{
+			InputTokens:              resp.Usage.InputTokens,
+			OutputTokens:             resp.Usage.OutputTokens,
+			CacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     resp.Usage.CacheReadInputTokens,
+		}
+		reportUsage(ctx, c.model, ProviderAnthropic, usageOpChat, u.usageMetadata())
+	}
+
+	// Priority 1: Check for structured_output (JSON Schema mode)
+	// This is set when --json-schema flag is used
+	if len(resp.StructuredOutput) > 0 {
+		// Return the raw JSON string - caller is responsible for parsing
+		return string(resp.StructuredOutput), nil
+	}
+
+	// Priority 2: Try to extract from result field
+	if len(resp.Result) == 0 {
+		return "", errors.New("no result in claude CLI response")
+	}
+
+	// First, try to unmarshal as a string (tools disabled format)
+	var stringResult string
+	if err := json.Unmarshal(resp.Result, &stringResult); err == nil {
+		text := strings.TrimSpace(stringResult)
+		if text == "" {
+			return "", errors.New("empty string result in claude CLI response")
+		}
+		return text, nil
+	}
+
+	// If not a string, try to unmarshal as an object with content array (tools enabled format)
+	var objResult claudeCLIResultObject
+	if err := json.Unmarshal(resp.Result, &objResult); err != nil {
+		return "", fmt.Errorf("failed to parse result field: %w (raw: %s)", err, truncateString(string(resp.Result), 200))
+	}
+
+	// Extract text from content blocks
+	var result strings.Builder
+	for _, content := range objResult.Content {
+		if content.Type == "text" {
+			result.WriteString(content.Text)
+		}
+	}
+
+	text := strings.TrimSpace(result.String())
+	if text == "" {
+		return "", errors.New("no text content in claude CLI response")
+	}
+
+	return text, nil
+}
+
+// SetModel changes the model used for completions.
+func (c *ClaudeCodeCLIClient) SetModel(model string) {
+	c.model = model
+}
+
+// GetModel returns the current model.
+func (c *ClaudeCodeCLIClient) GetModel() string {
+	return c.model
+}
+
+// ModelIdentity implements types.ModelIdentifier.
+func (c *ClaudeCodeCLIClient) ModelIdentity() (string, string) { return "claude-cli", c.model }
+
+// SetFallbackModel sets the fallback model for rate limit resilience.
+func (c *ClaudeCodeCLIClient) SetFallbackModel(model string) {
+	c.fallbackModel = model
+}
+
+// GetFallbackModel returns the current fallback model.
+func (c *ClaudeCodeCLIClient) GetFallbackModel() string {
+	return c.fallbackModel
+}
+
+// SetTimeout changes the timeout for CLI execution.
+func (c *ClaudeCodeCLIClient) SetTimeout(timeout time.Duration) {
+	c.timeout = timeout
+}
+
+// GetTimeout returns the current timeout.
+func (c *ClaudeCodeCLIClient) GetTimeout() time.Duration {
+	return c.timeout
+}
+
+// SetStreaming enables or disables streaming mode.
+func (c *ClaudeCodeCLIClient) SetStreaming(enabled bool) {
+	c.streaming = enabled
+}
+
+// IsStreaming returns whether streaming is enabled.
+func (c *ClaudeCodeCLIClient) IsStreaming() bool {
+	return c.streaming
+}
+
+// SetMaxTurns sets the maximum number of agentic turns (default: 1).
+// For codeNERD, this should always be 1 (single completion).
+func (c *ClaudeCodeCLIClient) SetMaxTurns(turns int) {
+	c.maxTurns = turns
+}
+
+// GetMaxTurns returns the current max turns setting.
+func (c *ClaudeCodeCLIClient) GetMaxTurns() int {
+	return c.maxTurns
+}
+
+// CompleteWithTools sends a prompt with tool definitions.
+// Claude CLI is used as a backend here; tools are requested via Piggyback Protocol.
+//
+// # No content blocks reach this engine, and none can
+//
+// The CLI takes a prompt on stdin and returns text. There is no history
+// parameter, no content-block array, and no field for a thinking signature or
+// a tool-use id anywhere in its interface — which is why this client does not
+// implement types.ToolResultsProvider and why the session executor renders
+// prior turns into a plain transcript before calling it.
+//
+// So every block property this branch exists to preserve — the order between
+// text and tool calls, the signature attesting a thinking block, the id
+// pairing a tool_use to its result — is flattened to prose at the boundary.
+// That is a property of shelling out to an agent that manages its own
+// conversation, not something an adapter here can fix: the CLI has its own
+// session and its own tool loop, and codeNERD is talking to that agent rather
+// than to the model behind it.
+func (c *ClaudeCodeCLIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	// Execute simple completion, Piggyback++ extracts tool_requests later.
+	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return nil, err
+	}
+	return &LLMToolResponse{
+		Text:       text,
+		StopReason: "end_turn",
+	}, nil
+}
+
+// isRateLimitError checks if the error message indicates a rate limit.
+func isRateLimitError(errMsg string) bool {
+	lower := strings.ToLower(errMsg)
+	return strings.Contains(lower, "rate limit") ||
+		strings.Contains(lower, "rate_limit") ||
+		strings.Contains(lower, "too many requests") ||
+		strings.Contains(lower, "429")
+}
+
+// truncateString truncates a string to maxLen characters, adding "..." if truncated.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}
+
+// ShouldUsePiggybackTools returns true to instruct the system to use Piggyback Protocol
+// for tool invocation, since the Claude CLI does not natively support tool calling.
+func (c *ClaudeCodeCLIClient) ShouldUsePiggybackTools() bool {
+	return true
+}

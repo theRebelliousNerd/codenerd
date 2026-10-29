@@ -1,0 +1,108 @@
+# Init Phase 7b: Agent-Specific Knowledge Base Creation
+# This atom guides research and KB hydration for individual Type 3 agents
+
+- id: "init/kb_agent/research"
+  category: "init"
+  subcategory: "kb_agent"
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/kb_creation", "/kb_agent"]
+  content: |
+    You are researching and hydrating a knowledge base for a specific Type 3 agent.
+
+    ## Agent KB purpose
+    Specialist domain knowledge: language idioms, framework patterns, common pitfalls, library/API examples, performance techniques, security considerations.
+
+    ## Research strategy
+    1. **Context7 priority**: use the Context7 API for LLM-optimized, structured documentation when available; fall back to web search only if it is unavailable.
+    2. **Concept-aware**: analyze existing atoms to avoid redundancy; skip topics already covered in depth; focus on gaps.
+    3. **Graceful degradation**: Context7 fails -> web search -> model training knowledge. Prefer authoritative sources over speculation.
+
+    ## Quality targets
+    Excellent (90-100%): comprehensive, authoritative. Good (75-89%): solid, some gaps. Adequate (60-74%): basic, incomplete. Needs Improvement (<60%): significant gaps, recommend re-research.
+
+    ## Topics and atoms
+    Per topic (3-5 per agent): official documentation first, practical examples, version-specific notes, common gotchas and anti-patterns.
+    Generate 10-30 knowledge atoms per agent: 2-3 identity atoms (who the agent is, what it knows), 8-25 specialist atoms, cross-references to related concepts, a confidence score on each.
+
+    ## Constraints
+    Finish in 90-120 seconds per agent. Breadth over depth (overview > exhaustive detail). Actionable knowledge (what the agent needs to DO), no tutorial-style content (assume technical competence).
+
+- id: "init/kb_agent/quality"
+  category: "init"
+  subcategory: "kb_agent"
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/kb_creation", "/kb_agent"]
+  depends_on: ["init/kb_agent/research"]
+  content: |
+    ## Knowledge Base Quality Assurance
+
+    ### Coverage Assessment
+    After researching each topic:
+    - Verify all requested topics have knowledge atoms
+    - Check for balance (no single topic dominates)
+    - Ensure foundational concepts are present
+    - Identify any critical gaps
+
+    ### Content Quality
+    Each atom should:
+    - Be factually accurate (cite sources when possible)
+    - Be concise but complete (no fluff, no missing context)
+    - Be actionable (agent can apply this knowledge)
+    - Be current (avoid deprecated practices)
+
+    ### Version Awareness
+    - Note which language/framework versions knowledge applies to
+    - Flag breaking changes between major versions
+    - Include migration guidance for version upgrades when relevant
+
+    ### Anti-Pattern Detection
+    Include "what NOT to do" knowledge:
+    - Common mistakes in this domain
+    - Deprecated patterns to avoid
+    - Security pitfalls specific to this technology
+    - Performance anti-patterns
+
+    ### Quality Metrics
+    Report quality score based on:
+    - Topic coverage: Did we cover all requested topics?
+    - Source quality: Did we use authoritative sources?
+    - Depth: Is the knowledge actionable and complete?
+    - Relevance: Is this knowledge useful for code generation?
+
+    A quality score below 75% should trigger a warning.
+
+- id: "init/kb_agent/storage"
+  category: "init"
+  subcategory: "kb_agent"
+  is_mandatory: false
+  shard_types: ["/researcher"]
+  init_phases: ["/kb_creation", "/kb_agent"]
+  content: |
+    ## Knowledge Storage Strategy
+
+    ### Deduplication
+    - Compute content hash for each atom before storage
+    - Skip atoms that duplicate existing knowledge
+    - Track skipped duplicates for reporting
+
+    ### Semantic Organization
+    - Use clear concept categories (e.g., "best_practice", "idiom", "anti_pattern")
+    - Tag atoms with relevant keywords for retrieval
+    - Link related atoms via concept hierarchies
+
+    ### Embedding Preparation
+    - Store atoms in SQLite with sqlite-vec support
+    - Generate embeddings for semantic search
+    - Index by concept, content, and metadata
+
+    ### Upgrade Mode
+    - When upgrading existing KB, preserve user-added atoms
+    - Add only new knowledge not already present
+    - Track before/after counts for transparency
+
+    ### Validation
+    - Verify atoms are well-formed before storage
+    - Check confidence scores are in valid range (0.0-1.0)
+    - Ensure concept names are consistent and normalized

@@ -1,0 +1,168 @@
+{
+  "status": "bounded live performance observation; no token efficiency claim",
+  "baseline_revision": "c6e94816",
+  "candidate": "c6e94816 plus indexed full-evaluation store and native verification changes",
+  "ordering": "indexed then scan",
+  "baseline": [
+    {
+      "gc_count": 107,
+      "heap_alloc_bytes": 292329984,
+      "kernel_reported_fact_count": 55503,
+      "operation": "production_boot",
+      "seconds": 232.5994166,
+      "total_alloc_bytes": 4576625448
+    },
+    {
+      "facts": 0,
+      "iteration": 0,
+      "operation": "user_intent",
+      "seconds": 0.0641605
+    },
+    {
+      "facts": 0,
+      "iteration": 1,
+      "operation": "user_intent",
+      "seconds": 0.0005145
+    },
+    {
+      "facts": 0,
+      "iteration": 2,
+      "operation": "user_intent",
+      "seconds": 0
+    },
+    {
+      "facts": 0,
+      "iteration": 0,
+      "operation": "next_action",
+      "seconds": 32.5057931
+    },
+    {
+      "facts": 0,
+      "iteration": 1,
+      "operation": "next_action",
+      "seconds": 0.0626702
+    },
+    {
+      "facts": 0,
+      "iteration": 2,
+      "operation": "next_action",
+      "seconds": 0
+    },
+    {
+      "facts": 0,
+      "iteration": 0,
+      "operation": "permitted",
+      "seconds": 0
+    },
+    {
+      "facts": 0,
+      "iteration": 1,
+      "operation": "permitted",
+      "seconds": 0
+    },
+    {
+      "facts": 0,
+      "iteration": 2,
+      "operation": "permitted",
+      "seconds": 0
+    },
+    {
+      "facts": 4167,
+      "operation": "stable_world_digest",
+      "predicate": "file_topology",
+      "sha256": "fdebfdbf82d8ac33e26d6610eb4638b9b8b30dddc258ced1c872c2a5ce4dae5f"
+    },
+    {
+      "facts": 4167,
+      "operation": "stable_world_digest",
+      "predicate": "file_exists",
+      "sha256": "791e30c845777d6e1ffa35db72c1ca40b5fd38aa3d2f6b04d5ab33551770da40"
+    }
+  ],
+  "indexed": [
+    {
+      "gc_count": 108,
+      "heap_alloc_bytes": 330035464,
+      "kernel_reported_fact_count": 55522,
+      "operation": "production_boot",
+      "seconds": 15.4974576,
+      "total_alloc_bytes": 5251797624
+    },
+    {
+      "facts": 0,
+      "iteration": 0,
+      "operation": "user_intent",
+      "seconds": 0.0707295
+    },
+    {
+      "facts": 0,
+      "iteration": 1,
+      "operation": "user_intent",
+      "seconds": 0
+    },
+    {
+      "facts": 0,
+      "iteration": 2,
+      "operation": "user_intent",
+      "seconds": 0
+    },
+    {
+      "facts": 0,
+      "iteration": 0,
+      "operation": "next_action",
+      "seconds": 1.3606796
+    },
+    {
+      "facts": 0,
+      "iteration": 1,
+      "operation": "next_action",
+      "seconds": 0.0693041
+    },
+    {
+      "facts": 0,
+      "iteration": 2,
+      "operation": "next_action",
+      "seconds": 0.0005153
+    },
+    {
+      "facts": 0,
+      "iteration": 0,
+      "operation": "permitted",
+      "seconds": 0
+    },
+    {
+      "facts": 0,
+      "iteration": 1,
+      "operation": "permitted",
+      "seconds": 0
+    },
+    {
+      "facts": 0,
+      "iteration": 2,
+      "operation": "permitted",
+      "seconds": 0
+    },
+    {
+      "facts": 4167,
+      "operation": "stable_world_digest",
+      "predicate": "file_topology",
+      "sha256": "fdebfdbf82d8ac33e26d6610eb4638b9b8b30dddc258ced1c872c2a5ce4dae5f"
+    },
+    {
+      "facts": 4167,
+      "operation": "stable_world_digest",
+      "predicate": "file_exists",
+      "sha256": "791e30c845777d6e1ffa35db72c1ca40b5fd38aa3d2f6b04d5ab33551770da40"
+    }
+  ],
+  "world_digests_match": true,
+  "boot_speed_ratio": 15.00887581715339,
+  "live_heap_ratio": 1.128982595230464,
+  "allocation_ratio": 1.1475262032410916,
+  "limitations": [
+    "shared workstation, two observation pairs",
+    "transient EDB counts differ by 19; stable world digest identical",
+    "heap is sampled after boot, not peak RSS",
+    "not a coding acceptance rate or token savings measurement"
+  ]
+}

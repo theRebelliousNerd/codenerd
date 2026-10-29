@@ -1,0 +1,796 @@
+package session
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"codenerd/internal/types"
+	"strings"
+	"testing"
+	"time"
+)
+
+// F-CRITIC: the build and test gates prove edits compile and were executed;
+// neither asks whether the edits are right. An adversarial reviewer closes
+// that gap, but a reviewer rewarded for activity invents defects in sound
+// code — which is worse than missing one. These tests pin the pure half of
+// that reviewer: prompt construction and response parsing. Triage is
+// derived (turn_needs_uplift) and pinned in critic_triage_test.go.
+
+func TestBuildCriticPrompt(t *testing.T) {
+	cases := []struct {
+		name             string
+		writtenFiles     map[string]string
+		uncoveredSummary string
+		wantContains     []string
+		wantNotContains  []string
+	}{
+		{
+			name:             "empty map no file blocks",
+			writtenFiles:     map[string]string{},
+			uncoveredSummary: "",
+			wantNotContains: []string{
+				"File:",
+			},
+		},
+		{
+			name: "single file embedded in fenced block",
+			writtenFiles: map[string]string{
+				"internal/foo/bar.go": "package foo\nfunc Foo() {}\n",
+			},
+			uncoveredSummary: "",
+			wantContains: []string{
+				"File: internal/foo/bar.go",
+				"package foo",
+				"func Foo()",
+				"```",
+			},
+		},
+		{
+			name: "multiple files sorted deterministically",
+			writtenFiles: map[string]string{
+				"z/last.go":  "package last\n",
+				"a/first.go": "package first\n",
+				"m/mid.go":   "package mid\n",
+			},
+			uncoveredSummary: "",
+			wantContains: []string{
+				"File: a/first.go",
+				"File: m/mid.go",
+				"File: z/last.go",
+			},
+		},
+		{
+			name: "content without trailing newline still fenced",
+			writtenFiles: map[string]string{
+				"foo.go": "package foo",
+			},
+			uncoveredSummary: "",
+			wantContains: []string{
+				"File: foo.go",
+				"package foo",
+				"```",
+			},
+		},
+		{
+			name: "uncovered summary included when non-empty",
+			writtenFiles: map[string]string{
+				"foo.go": "package foo\n",
+			},
+			uncoveredSummary: "uncovered: foo.go:10",
+			wantContains: []string{
+				"uncovered: foo.go:10",
+				"Uncovered code summary",
+			},
+		},
+		{
+			name: "uncovered summary whitespace only not included",
+			writtenFiles: map[string]string{
+				"foo.go": "package foo\n",
+			},
+			uncoveredSummary: "   \n\t  ",
+			wantNotContains: []string{
+				"Uncovered code summary",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildCriticPrompt(tc.writtenFiles, nil, tc.uncoveredSummary, "")
+			for _, want := range tc.wantContains {
+				if !strings.Contains(got, want) {
+					t.Errorf("buildCriticPrompt() missing %q\nprompt:\n%s", want, got)
+				}
+			}
+			for _, notWant := range tc.wantNotContains {
+				if strings.Contains(got, notWant) {
+					t.Errorf("buildCriticPrompt() should not contain %q\nprompt:\n%s", notWant, got)
+				}
+			}
+			// Multiple files must appear in sorted order so the prompt is
+			// deterministic and cacheable. Check ordering when applicable.
+			if tc.name == "multiple files sorted deterministically" {
+				idxFirst := strings.Index(got, "File: a/first.go")
+				idxMid := strings.Index(got, "File: m/mid.go")
+				idxLast := strings.Index(got, "File: z/last.go")
+				if !(idxFirst < idxMid && idxMid < idxLast) {
+					t.Errorf("files not in sorted order: first=%d mid=%d last=%d", idxFirst, idxMid, idxLast)
+				}
+			}
+		})
+	}
+}
+
+func TestParseCriticFindings(t *testing.T) {
+	cases := []struct {
+		name     string
+		response string
+		want     []CriticFinding
+		wantNil  bool
+	}{
+		{
+			name:     "empty response",
+			response: "",
+			wantNil:  true,
+		},
+		{
+			name:     "whitespace only",
+			response: "   \n\t\n  ",
+			wantNil:  true,
+		},
+		{
+			name:     "NO FINDINGS alone",
+			response: "NO FINDINGS",
+			wantNil:  true,
+		},
+		{
+			name:     "NO FINDINGS with surrounding whitespace",
+			response: "  NO FINDINGS  \n",
+			wantNil:  true,
+		},
+		{
+			name:     "NO FINDINGS among other lines still nil",
+			response: "FINDING foo.go:10 high: real defect\nNO FINDINGS\nFINDING bar.go:20 low: something",
+			wantNil:  true,
+		},
+		{
+			name:     "NO FINDINGS embedded in chatter",
+			response: "I reviewed the code.\nNO FINDINGS\nLooks good.",
+			wantNil:  true,
+		},
+		{
+			name:     "single high severity",
+			response: "FINDING internal/foo/bar.go:42 high: nil dereference",
+			want:     []CriticFinding{{File: "internal/foo/bar.go", Line: 42, Severity: "high", Claim: "nil dereference"}},
+		},
+		{
+			name:     "single medium severity",
+			response: "FINDING foo.go:10 medium: unchecked error",
+			want:     []CriticFinding{{File: "foo.go", Line: 10, Severity: "medium", Claim: "unchecked error"}},
+		},
+		{
+			name:     "single low severity",
+			response: "FINDING foo.go:1 low: style nit",
+			want:     []CriticFinding{{File: "foo.go", Line: 1, Severity: "low", Claim: "style nit"}},
+		},
+		{
+			name:     "severity case insensitive high",
+			response: "FINDING foo.go:5 HIGH: uppercase severity",
+			want:     []CriticFinding{{File: "foo.go", Line: 5, Severity: "high", Claim: "uppercase severity"}},
+		},
+		{
+			name:     "severity case insensitive mixed",
+			response: "FINDING foo.go:5 Medium: mixed case\nFINDING bar.go:6 Low: low mixed\nFINDING baz.go:7 High: high mixed",
+			want: []CriticFinding{
+				{File: "foo.go", Line: 5, Severity: "medium", Claim: "mixed case"},
+				{File: "bar.go", Line: 6, Severity: "low", Claim: "low mixed"},
+				{File: "baz.go", Line: 7, Severity: "high", Claim: "high mixed"},
+			},
+		},
+		{
+			name:     "malformed lines ignored",
+			response: "this is not a finding\nFINDING foo.go:10 high: valid\nnot FINDING bar.go:20 medium: also invalid\nalso bad",
+			want:     []CriticFinding{{File: "foo.go", Line: 10, Severity: "high", Claim: "valid"}},
+		},
+		{
+			name:     "invalid severity ignored",
+			response: "FINDING foo.go:10 critical: unknown severity\nFINDING bar.go:20 high: valid one",
+			want:     []CriticFinding{{File: "bar.go", Line: 20, Severity: "high", Claim: "valid one"}},
+		},
+		{
+			name:     "missing line number ignored",
+			response: "FINDING foo.go: high: missing line\nFINDING bar.go:20 high: valid",
+			want:     []CriticFinding{{File: "bar.go", Line: 20, Severity: "high", Claim: "valid"}},
+		},
+		{
+			name:     "missing claim colon ignored",
+			response: "FINDING foo.go:10 high missing colon\nFINDING bar.go:20 high: valid",
+			want:     []CriticFinding{{File: "bar.go", Line: 20, Severity: "high", Claim: "valid"}},
+		},
+		{
+			name:     "malformed severity typo ignored",
+			response: "FINDING foo.go:10 hihg: typo\n",
+			wantNil:  true,
+		},
+		{
+			name:     "mixed valid and malformed",
+			response: "preamble text\nFINDING a.go:1 high: first\nbad line\nFINDING b.go:2 medium: second\nFINDING c.go: bad: no line\nFINDING d.go:3 low: third\ntrailing chatter",
+			want: []CriticFinding{
+				{File: "a.go", Line: 1, Severity: "high", Claim: "first"},
+				{File: "b.go", Line: 2, Severity: "medium", Claim: "second"},
+				{File: "d.go", Line: 3, Severity: "low", Claim: "third"},
+			},
+		},
+		{
+			name:     "claim with colons preserved",
+			response: "FINDING foo.go:10 high: something: with colon: and more",
+			want:     []CriticFinding{{File: "foo.go", Line: 10, Severity: "high", Claim: "something: with colon: and more"}},
+		},
+		{
+			name:     "multiple findings all severities",
+			response: "FINDING a.go:1 high: h1\nFINDING b.go:2 medium: m1\nFINDING c.go:3 low: l1\nFINDING d.go:4 HIGH: h2",
+			want: []CriticFinding{
+				{File: "a.go", Line: 1, Severity: "high", Claim: "h1"},
+				{File: "b.go", Line: 2, Severity: "medium", Claim: "m1"},
+				{File: "c.go", Line: 3, Severity: "low", Claim: "l1"},
+				{File: "d.go", Line: 4, Severity: "high", Claim: "h2"},
+			},
+		},
+		{
+			name:     "no valid findings returns nil not empty slice",
+			response: "hello world\nnothing here matches",
+			wantNil:  true,
+		},
+		{
+			name:     "severity trimmed and lowercased",
+			response: "FINDING foo.go:10 HIGH: claim",
+			want:     []CriticFinding{{File: "foo.go", Line: 10, Severity: "high", Claim: "claim"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseCriticFindings(tc.response)
+			if tc.wantNil {
+				if got != nil {
+					t.Fatalf("parseCriticFindings(%q) = %v; want nil", tc.response, got)
+				}
+				return
+			}
+			if got == nil && tc.want != nil {
+				t.Fatalf("parseCriticFindings(%q) = nil; want %v", tc.response, tc.want)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("parseCriticFindings(%q) len=%d want %d; got=%v want=%v", tc.response, len(got), len(tc.want), got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("parseCriticFindings(%q)[%d] = %+v; want %+v", tc.response, i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestCriticFinding_Fields(t *testing.T) {
+	// Pin the struct shape: the four fields the spec requires must exist
+	// and round-trip through construction. A coverage gate checks the type
+	// is exercised.
+	f := CriticFinding{
+		File:     "internal/foo/bar.go",
+		Line:     42,
+		Severity: "high",
+		Claim:    "nil dereference",
+	}
+	if f.File != "internal/foo/bar.go" || f.Line != 42 || f.Severity != "high" || f.Claim != "nil dereference" {
+		t.Fatalf("CriticFinding fields not stored correctly: %+v", f)
+	}
+}
+
+func TestParseAndUpliftIntegration(t *testing.T) {
+	// End-to-end: parse then triage through the kernel — low findings are
+	// dropped for uplift.
+	resp := "FINDING a.go:1 high: h1\nFINDING b.go:2 low: l1\nFINDING c.go:3 medium: m1"
+	parsed := parseCriticFindings(resp)
+	if len(parsed) != 3 {
+		t.Fatalf("parseCriticFindings integration: got %d want 3: %v", len(parsed), parsed)
+	}
+	e := &Executor{kernel: realKernel(t)}
+	uplift := e.actionableCriticFindings(types.MangleAtom("/turn_uplift_integration"), parsed)
+	if len(uplift) != 2 {
+		t.Fatalf("actionableCriticFindings integration: got %d want 2: %v", len(uplift), uplift)
+	}
+	for _, f := range uplift {
+		if f.Severity != "high" && f.Severity != "medium" {
+			t.Errorf("uplift should only contain high/medium, got %q", f.Severity)
+		}
+	}
+}
+
+func TestBuildCriticPrompt_RoundTripWithParser(t *testing.T) {
+	// The role prompt's documented output format must be parseable by the
+	// parser. If it says 'FINDING file.go:123 severity: claim text' and the
+	// parser expects something else, the reviewer gate is wired to nothing.
+	if !strings.Contains(buildCriticContract(t), "FINDING file.go:123 severity: claim text") {
+		t.Fatal("the critic's role prompt does not carry the documented finding format")
+	}
+	// Simulate a reviewer response using the exact format the prompt specifies.
+	response := "FINDING foo.go:10 high: example defect"
+	findings := parseCriticFindings(response)
+	if len(findings) != 1 || findings[0].File != "foo.go" || findings[0].Line != 10 {
+		t.Fatalf("round-trip failed: prompt format not parseable: %v", findings)
+	}
+}
+
+// The coverage gate reported critic.go:153-154 as the only unexecuted block on
+// the turn that created this file: the branch that rejects a FINDING line whose
+// severity is not high/medium/low. `go test` was green at the same moment.
+//
+// The branch matters. Severity is what turn_needs_uplift triages on, so a
+// reviewer that invents a severity ("critical", "warn", "P0") must not have its
+// finding silently admitted with an unrecognised level and then be triaged as
+// if it were low.
+func TestParseCriticFindings_RejectsUnknownSeverity(t *testing.T) {
+	cases := []struct {
+		name     string
+		response string
+		want     int
+	}{
+		{"critical is not a severity", "FINDING a.go:1 critical: boom", 0},
+		{"warn is not a severity", "FINDING a.go:1 warn: boom", 0},
+		{"P0 is not a severity", "FINDING a.go:1 P0: boom", 0},
+		{"empty-ish severity token does not match the format", "FINDING a.go:1 : boom", 0},
+		{"valid severity still parses", "FINDING a.go:1 high: boom", 1},
+		{
+			"a bad severity does not poison the good lines beside it",
+			"FINDING a.go:1 critical: boom\nFINDING b.go:2 medium: real one",
+			1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseCriticFindings(tc.response)
+			if len(got) != tc.want {
+				t.Fatalf("parseCriticFindings(%q) returned %d findings (%+v); want %d",
+					tc.response, len(got), got, tc.want)
+			}
+		})
+	}
+}
+
+// A line number that is not a number must be dropped, not defaulted to 0. A
+// finding pointing at line 0 sends a reader to the top of the file.
+func TestParseCriticFindings_RejectsNonNumericLine(t *testing.T) {
+	if got := parseCriticFindings("FINDING a.go:notanumber high: boom"); len(got) != 0 {
+		t.Errorf("expected a non-numeric line to be dropped, got %+v", got)
+	}
+}
+
+// The critic gate must skip the turns it has no business reviewing. An LLM call
+// on a markdown-only edit is a tax on every doc change.
+func TestVerifyAndUpliftWithCritic_SkipsWhenNotApplicable(t *testing.T) {
+	cases := []struct {
+		name   string
+		cfgOn  bool
+		result *ExecutionResult
+	}{
+		{"disabled by config", false, &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}}},
+		{"nil result", true, nil},
+		{"no successful writes", true, &ExecutionResult{WriteToolEffects: 0, WrittenPaths: []string{"a.go"}}},
+		{"wrote no Go", true, &ExecutionResult{WriteToolEffects: 2, WrittenPaths: []string{"README.md"}}},
+		{"only test files", true, &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a_test.go"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultExecutorConfig()
+			cfg.CriticReviewAfterEdits = tc.cfgOn
+			e := &Executor{config: cfg}
+
+			// A nil client would panic if the gate got as far as calling the
+			// model, so reaching the end proves we short-circuited.
+			errs, err := e.verifyAndUpliftWithCritic(
+				context.Background(), stubToolResults{}, "", nil, nil, nil, tc.result)
+			if err != nil {
+				t.Fatalf("gate should have skipped, got error: %v", err)
+			}
+			if errs != nil {
+				t.Errorf("gate should have skipped, got errs=%v", errs)
+			}
+		})
+	}
+}
+
+type stubToolResults struct{}
+
+func (stubToolResults) CompleteWithToolResults(
+	_ context.Context, _ string, _ []types.Message, _ []types.ToolDefinition,
+) (*types.LLMToolResponse, error) {
+	return nil, nil
+}
+
+// Test files are excluded from review on purpose: including them invites the
+// critic to review the tests instead of the code, which is both lower value and
+// the easiest place to generate plausible nitpicks.
+func TestReadWrittenFilesForReview(t *testing.T) {
+	ws := t.TempDir()
+	mk := func(rel, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(ws, rel), []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mk("real.go", "package p\n\nfunc A() {}\n")
+	mk("real_test.go", "package p\n")
+	mk("notes.md", "# hi\n")
+	mk("big.go", "package p\n"+strings.Repeat("// filler\n", 5000))
+	mk("app.py", "def f():\n    return 1\n")
+	mk("test_app.py", "def test_f():\n    pass\n")
+	mk("app.test.ts", "test('x', () => {})\n")
+
+	got := readWrittenFilesForReview(ws, []string{
+		"real.go", "real_test.go", "notes.md", "missing.go", "big.go", "  ",
+		"app.py", "test_app.py", "app.test.ts",
+	})
+
+	if _, ok := got["app.py"]; !ok {
+		t.Error("production Python file was not offered for review")
+	}
+	for _, test := range []string{"test_app.py", "app.test.ts"} {
+		if _, ok := got[test]; ok {
+			t.Errorf("%s is a test by its language's convention and was offered for review", test)
+		}
+	}
+
+	if _, ok := got["real.go"]; !ok {
+		t.Error("production Go file was not offered for review")
+	}
+	if _, ok := got["real_test.go"]; ok {
+		t.Error("test file was offered for review; the critic should review code, not tests")
+	}
+	if _, ok := got["notes.md"]; ok {
+		t.Error("a non-source file was offered for review")
+	}
+	if _, ok := got["missing.go"]; ok {
+		t.Error("unreadable file was offered for review")
+	}
+	// Offered whole: the review view bounds what the critic sees, and it needs
+	// the whole file to find the regions the turn changed.
+	if body, ok := got["big.go"]; !ok {
+		t.Error("large file was dropped entirely")
+	} else if !strings.HasSuffix(body, "// filler\n") {
+		t.Errorf("large file was cut before the view could find its changes: %d bytes", len(body))
+	}
+}
+
+// The uplift prompt must leave room to reject a finding. The reviewer is
+// another fallible model, and forcing a "fix" for a mistaken finding makes the
+// code worse than leaving it alone.
+func TestFormatUpliftPrompt_AllowsRejectingAFinding(t *testing.T) {
+	p := formatUpliftPrompt([]CriticFinding{
+		{File: "a.go", Line: 12, Severity: "high", Claim: "nil deref on empty input"},
+	})
+	for _, want := range []string{"a.go", "12", "high", "nil deref on empty input"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("uplift prompt drops %q, so the model cannot act on the finding", want)
+		}
+	}
+	if !strings.Contains(p, "finding is wrong") {
+		t.Error("uplift prompt does not let the model reject a mistaken finding")
+	}
+}
+
+// A stalled reviewer must yield the turn, not block it. This drives the gate
+// with a client that never returns and asserts it gives up.
+func TestVerifyAndUpliftWithCritic_AbandonsAStalledReview(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package p\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	cfg := DefaultExecutorConfig()
+	cfg.WorkspaceRoot = ws
+	e := &Executor{config: cfg, llmClient: hangingLLM{}, rolePrompts: &fakeRolePrompts{}}
+
+	// A context the caller cancels is the mechanism that must win. Without the
+	// bound inside the gate, this call would never return.
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		e.verifyAndUpliftWithCritic(ctx, stubToolResults{}, "", nil, nil, nil,
+			&ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("critic gate did not return after its context expired; it can hang a turn")
+	}
+}
+
+// hangingLLM never answers, which is what the live stall looked like.
+type hangingLLM struct{}
+
+func (hangingLLM) Complete(ctx context.Context, _ string) (string, error) {
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+func (h hangingLLM) CompleteWithSystem(ctx context.Context, _, _ string) (string, error) {
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+func (hangingLLM) CompleteWithStreaming(ctx context.Context, _, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return nil, nil
+}
+func (hangingLLM) CompleteWithTools(ctx context.Context, _, _ string, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// Evidence in the prompt is worthless if nothing tells the reviewer to use it.
+// Without an instruction naming the uncovered and static-analysis sections, a
+// reviewer reads them as background and reports on the source alone — wasting
+// the one signal in the prompt produced by a tool rather than a model. The
+// evidence rides in the message; the instruction is the role prompt's.
+func TestBuildCriticPrompt_InstructsOnUncoveredEvidence(t *testing.T) {
+	files := map[string]string{"a.go": "package p\n"}
+
+	withEvidence := buildCriticPrompt(files, nil, "a.go:10-12", "")
+	if !strings.Contains(withEvidence, "Uncovered code summary:\na.go:10-12") {
+		t.Error("uncovered summary is not embedded in the prompt under its heading")
+	}
+	contract := buildCriticContract(t)
+	if !strings.Contains(contract, "tool output, not opinion") {
+		t.Error("the role prompt does not tell the reviewer the evidence is tool output")
+	}
+	if !strings.Contains(contract, "so a test gets written for it") {
+		t.Error("the role prompt does not ask for uncovered logic to be reported, so coverage never improves")
+	}
+	// It must also permit declining: demanding a test for every uncovered block
+	// would manufacture tests for unreachable defensive branches.
+	if !strings.Contains(contract, "not worth a test") {
+		t.Error("the role prompt gives no way to skip a block that genuinely does not need a test")
+	}
+}
+
+// Comments that lie are a defect class neither the compiler nor the tests can
+// see, and the critic is the only stage that reads prose and code together.
+// F-DOC-1 recorded four real instances in two turns, so the reviewer is told to
+// look for them explicitly.
+func TestBuildCriticPrompt_AsksAboutCommentClaims(t *testing.T) {
+	p := buildCriticContract(t)
+
+	for _, want := range []string{
+		"Check the comments against the code",
+		"does not exist",
+		"claims something is tested or verified",
+		"narrates an incident",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("critic prompt does not ask about %q, so a fabricated comment passes every gate", want)
+		}
+	}
+}
+
+// A removed doc-comment line is invisible in the post-edit file, so the
+// reviewer never sees it unless turnRemovals reports it. F-TOOL-2b lost the
+// first line of workStepReport's doc comment this way while every gate
+// stayed green.
+func TestTurnRemovals(t *testing.T) {
+	before := "a\n// doc one\n// doc two\nfunc F() {}\n"
+	after := "a\n// doc two\nfunc F() {}\n"
+	got := turnRemovals(before, after)
+	if !strings.Contains(got, "    2| // doc one") {
+		t.Errorf("turnRemovals missed the deleted doc line: %q", got)
+	}
+	if strings.Contains(got, "doc two") {
+		t.Errorf("turnRemovals reported a kept line as removed: %q", got)
+	}
+
+	if same := turnRemovals(before, before); same != "" {
+		t.Errorf("identical texts should give no removals, got %q", same)
+	}
+
+	tail := turnRemovals("x\ny\nz\n", "x\n")
+	if !strings.Contains(tail, "    2| y") || !strings.Contains(tail, "    3| z") {
+		t.Errorf("turnRemovals should list both trailing removals with before numbers, got %q", tail)
+	}
+
+	split := turnRemovals("1\n2\n3\n4\n", "2\n3\n")
+	first := strings.Index(split, "    1| 1")
+	ellipsis := strings.Index(split, "...")
+	last := strings.Index(split, "    4| 4")
+	if first < 0 || last < 0 {
+		t.Errorf("turnRemovals should number non-adjacent removals in before lines, got %q", split)
+	} else if ellipsis < 0 || !(first < ellipsis && ellipsis < last) {
+		t.Errorf("turnRemovals should separate non-adjacent runs with ..., got %q", split)
+	}
+}
+
+func TestTurnRemovals_LargeFileReportsOnlyRealRemoval(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package p\n// keep me\n// delete me\n")
+	for i := 0; i < 3000; i++ {
+		fmt.Fprintf(&b, "var v%04d = %d\n", i, i)
+	}
+	before := b.String()
+	after := strings.Replace(before, "// delete me\n", "", 1)
+	if got := turnRemovals(before, after); got != "    3| // delete me" {
+		t.Errorf("turnRemovals on large input = %q, want %q", got, "    3| // delete me")
+	}
+}
+
+func TestBuildCriticPrompt_ShowsTurnRemovals(t *testing.T) {
+	files := map[string]string{"a.go": "package a\n"}
+	removals := map[string]string{"a.go": "    2| // gone\n"}
+	got := buildCriticPrompt(files, removals, "", "")
+
+	for _, want := range []string{
+		"Lines this turn removed from a.go",
+		"// gone",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("buildCriticPrompt with removals missing %q\nprompt:\n%s", want, got)
+		}
+	}
+
+	plain := buildCriticPrompt(files, nil, "", "")
+	if !strings.Contains(buildCriticContract(t), "Every one must be accounted for") {
+		t.Error("the role prompt does not ask the reviewer to account for every removed line")
+	}
+
+	for _, notWant := range []string{
+		"Lines this turn removed from",
+		"// gone",
+	} {
+		if strings.Contains(plain, notWant) {
+			t.Errorf("buildCriticPrompt with nil removals should not contain %q\nprompt:\n%s", notWant, plain)
+		}
+	}
+}
+
+// scriptedCriticLLM returns a fixed review, so the uplift path can be driven
+// without depending on a live model happening to find something.
+type scriptedCriticLLM struct {
+	review string
+	calls  int
+	prompt string // the last review prompt, as sent
+}
+
+func (s *scriptedCriticLLM) Complete(context.Context, string) (string, error) { return "", nil }
+func (s *scriptedCriticLLM) CompleteWithSystem(_ context.Context, _, prompt string) (string, error) {
+	s.calls++
+	s.prompt = prompt
+	return s.review, nil
+}
+func (s *scriptedCriticLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan types.StreamResult) {
+	return nil, nil
+}
+func (s *scriptedCriticLLM) CompleteWithTools(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	return nil, nil
+}
+
+// recordingToolResults captures the uplift turn so the test can assert what the
+// model was actually asked, and returns a response with no tool calls so the
+// gate finishes without needing the full tool-execution machinery.
+type recordingToolResults struct {
+	calls    int
+	lastText string
+}
+
+func (r *recordingToolResults) CompleteWithToolResults(
+	_ context.Context, _ string, history []types.Message, _ []types.ToolDefinition,
+) (*types.LLMToolResponse, error) {
+	r.calls++
+	if len(history) > 0 {
+		r.lastText = history[len(history)-1].Text
+	}
+	return &types.LLMToolResponse{Text: "fixed"}, nil
+}
+
+// The uplift round had never been observed firing in a live run, because every
+// clean run had nothing to report. This drives it deterministically: a scripted
+// reviewer returns a high-severity finding, and the test asserts the model is
+// actually asked to act on it.
+func TestVerifyAndUpliftWithCritic_FiresUpliftOnHighSeverityFinding(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.go"),
+		[]byte("package p\n\nfunc Add(a, b int) int { return a - b }\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	critic := &scriptedCriticLLM{review: "FINDING a.go:3 high: Add subtracts instead of adding"}
+	trp := &recordingToolResults{}
+
+	cfg := DefaultExecutorConfig()
+	cfg.WorkspaceRoot = ws
+	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t), rolePrompts: &fakeRolePrompts{}}
+
+	result := &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}}
+
+	_, err := e.verifyAndUpliftWithCritic(
+		context.Background(), trp, "sys", nil, nil, nil, result)
+	if err != nil {
+		t.Fatalf("uplift returned an error: %v", err)
+	}
+
+	if critic.calls != 1 {
+		t.Errorf("critic was called %d times; want exactly 1", critic.calls)
+	}
+	if trp.calls != 1 {
+		t.Fatalf("uplift round fired %d times; want exactly 1 — the finding must reach the model", trp.calls)
+	}
+	if len(result.CriticFindings) != 1 {
+		t.Fatalf("findings not recorded on the result: %+v", result.CriticFindings)
+	}
+	if result.CriticFindings[0].Severity != "high" {
+		t.Errorf("severity = %q; want high", result.CriticFindings[0].Severity)
+	}
+
+	// The uplift turn must carry the finding and permit rejecting it.
+	if !strings.Contains(trp.lastText, "Add subtracts instead of adding") {
+		t.Errorf("uplift prompt does not carry the finding: %q", trp.lastText)
+	}
+	if !strings.Contains(trp.lastText, "finding is wrong") {
+		t.Error("uplift prompt does not let the model reject a mistaken finding")
+	}
+}
+
+// A low-severity-only review must NOT pay for an uplift round. Low output from
+// a reviewer told to look hard is mostly style, and a model round per write turn
+// for that is how a signal becomes a tax.
+func TestVerifyAndUpliftWithCritic_LowSeverityDoesNotFireUplift(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package p\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	critic := &scriptedCriticLLM{review: "FINDING a.go:1 low: consider renaming this"}
+	trp := &recordingToolResults{}
+
+	cfg := DefaultExecutorConfig()
+	cfg.WorkspaceRoot = ws
+	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t), rolePrompts: &fakeRolePrompts{}}
+	result := &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}}
+
+	if _, err := e.verifyAndUpliftWithCritic(context.Background(), trp, "sys", nil, nil, nil, result); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if trp.calls != 0 {
+		t.Errorf("uplift fired %d times for a low-severity-only review; want 0", trp.calls)
+	}
+	// It must still be recorded — advisory, but not discarded.
+	if len(result.CriticFindings) != 1 {
+		t.Errorf("low-severity finding was not recorded: %+v", result.CriticFindings)
+	}
+}
+
+// NO FINDINGS must cost nothing beyond the review itself. This is the property
+// most at risk in the whole design: a reviewer that must produce something will.
+func TestVerifyAndUpliftWithCritic_NoFindingsCostsNothingExtra(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package p\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	critic := &scriptedCriticLLM{review: "NO FINDINGS"}
+	trp := &recordingToolResults{}
+
+	cfg := DefaultExecutorConfig()
+	cfg.WorkspaceRoot = ws
+	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t), rolePrompts: &fakeRolePrompts{}}
+	result := &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}}
+
+	errs, err := e.verifyAndUpliftWithCritic(context.Background(), trp, "sys", nil, nil, nil, result)
+	if err != nil || errs != nil {
+		t.Fatalf("a clean review must be a no-op, got errs=%v err=%v", errs, err)
+	}
+	if trp.calls != 0 {
+		t.Errorf("uplift fired %d times on NO FINDINGS; want 0", trp.calls)
+	}
+	if len(result.CriticFindings) != 0 {
+		t.Errorf("NO FINDINGS recorded findings: %+v", result.CriticFindings)
+	}
+}

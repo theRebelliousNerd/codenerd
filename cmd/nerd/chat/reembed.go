@@ -1,0 +1,79 @@
+package chat
+
+import (
+	"context"
+	"time"
+
+	"codenerd/internal/config"
+	"codenerd/internal/embedding"
+	"codenerd/internal/store"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// reembedCompleteMsg is sent when re-embedding finishes.
+type reembedCompleteMsg struct {
+	dbCount       int
+	vectorsDone   int
+	atomsDone     int
+	tracesDone    int
+	learningsDone int
+	skipped       []string
+	duration      time.Duration
+	err           error
+}
+
+// runReembedAllDBs force re-embeds vectors and prompt atoms across all .db files
+// in .nerd/ and internal/. Re-embedding can take minutes; it must honor the
+// TUI shutdown context so quitting the chat session cancels in-flight work
+// rather than letting it run on detached.
+func (m Model) runReembedAllDBs() tea.Cmd {
+	return func() tea.Msg {
+		// Use the model's shutdown context so a quit during re-embed
+		// cancels the work cleanly. Fall back to Background only if the
+		// model was built without one (defensive — production paths set it).
+		ctx := m.shutdownCtx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+
+		m.ReportStatus("Re-embedding all databases...")
+
+		// Build embedding engine from .nerd/config.json (authoritative).
+		cfg, _ := config.GlobalConfig()
+		ucEmb := config.DefaultUserConfig().GetEmbeddingConfig()
+		if cfg != nil {
+			ucEmb = cfg.GetEmbeddingConfig()
+		}
+		embCfg := ucEmb.EngineConfig()
+
+		engine, err := embedding.NewEngine(embCfg)
+		if err != nil {
+			return reembedCompleteMsg{err: err}
+		}
+
+		searchRoots := store.ReembedSearchRoots(m.workspace)
+
+		res, err := store.ReembedAllDBsForce(
+			ctx,
+			searchRoots,
+			engine,
+			func(msg string) { m.ReportStatus(msg) },
+		)
+		if err != nil {
+			return reembedCompleteMsg{err: err}
+		}
+
+		m.ReportStatus("Re-embedding complete")
+
+		return reembedCompleteMsg{
+			dbCount:       res.DBCount,
+			vectorsDone:   res.VectorsDone,
+			atomsDone:     res.AtomsDone,
+			tracesDone:    res.TracesDone,
+			learningsDone: res.LearningsDone,
+			skipped:       res.Skipped,
+			duration:      res.Duration,
+		}
+	}
+}

@@ -1,0 +1,27 @@
+- id: "campaign/extractor/methodology"
+  category: "campaign"
+  subcategory: "extractor"
+  is_mandatory: true
+  shard_types: ["extractor", "researcher"]
+  campaign_phases: ["requirements", "northstar", "requirement_extraction"]
+  depends_on: ["campaign/extractor/identity"]
+  description: "Extraction protocol, deduplication, atomization rules, and ambiguity handling for requirements extraction"
+  content: |
+    // EXTRACTION PROTOCOL
+    You are reading a "Chunk" of a larger document. Scan it with a fine-toothed extraction algorithm.
+
+    1. **Noise filtering**: ignore marketing fluff, Table of Contents, Revision History (unless it has recent requirement changes), generic introductions.
+    2. **Sentence analysis**, "Keywords of Power": MUST, SHALL, REQUIRED, WILL (strong normative); SHOULD, RECOMMENDED (weak); "needs to", "has to", "is critical that" (natural language).
+    3. **Atomization**: split compound sentences. "The system must encrypt data and backup hourly." -> "System must encrypt data." and "System must backup hourly."
+    4. **Priority inference** when not explicit: MUST/SHALL -> /critical or /high; SHOULD -> /normal; MAY -> /low.
+
+    // DEDUPLICATION & IDEMPOTENCY
+    No duplicates within a chunk; a repeated requirement is emitted once with the highest detected priority.
+
+    // HANDLING AMBIGUITY (Conservative Interpretation Guideline)
+    1. Implied but not mandated ("It would be nice if...") -> ignore.
+    2. Current behavior ("The system currently does X") -> NOT a requirement, unless the doc is a "Current State Assessment" implying "Maintain this behavior."
+    3. User story ("As a user, I want...") -> Functional Requirement.
+
+    // FORMATTING
+    Complete sentences, capitalized, ending with a period; no Markdown in the 'description' field.

@@ -1,0 +1,120 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "assistant": "codeNERD, a coding agent working in the user's repository",
+  "message": "thanks, that worked",
+  "recent_turns": [
+   {
+    "from": "user",
+    "text": "fix the nil check in parser.go"
+   },
+   {
+    "from": "assistant",
+    "text": "Fixed the nil check in parser.go:42 and the tests pass."
+   }
+  ]
+ },
+ "questions": {
+  "about_codenerd": {
+   "type": "noul",
+   "instructions": "Is the user asking the assistant to investigate its own failures?",
+   "criteria": {
+    "true": "The user asks why the assistant failed, asks it to debug itself, or points it at its own logs.",
+    "false": "The user asks about their own code or project, even code that has bugs."
+   }
+  },
+  "changes_files": {
+   "type": "noul",
+   "instructions": "Is the user asking for changes to files in their codebase?",
+   "criteria": {
+    "true": "The user wants code or files written, changed, fixed, refactored, renamed or removed.",
+    "false": "The user asks a question, wants something explained, found, reviewed or run, or is chatting."
+   }
+  },
+  "conversation_act": {
+   "type": "choice",
+   "instructions": "What is the user doing in `message`?",
+   "criteria": {
+    "correction_of_codenerd": "The user says codeNERD's last reply or action was wrong or not what they asked for.",
+    "feedback_on_codenerd": "The user says what they think of how codeNERD behaved or how it is built, and asks for nothing to be done.",
+    "question_about_codenerd": "The user asks about codeNERD's own state in this session: its mode or settings, what it can see or access, or what it did or was doing.",
+    "reply_to_codenerd": "The user answers a question codeNERD just asked or picks from a choice it offered, such as 'yes', '1', 'skip' or 'done'.",
+    "request_for_work": "The user asks codeNERD to do something: read, find, explain, review, change, fix, run or investigate something, in their code or in codeNERD itself.",
+    "shared_material": "The user gives codeNERD text, logs or a file path to keep in mind, and asks for nothing to be done with it.",
+    "small_talk": "The user greets codeNERD, thanks it, or chats.",
+    "stop_request": "The user tells codeNERD to stop, cancel or wait."
+   }
+  },
+  "hypothetical": {
+   "type": "noul",
+   "instructions": "Is the user asking what would happen if something were done?",
+   "criteria": {
+    "true": "The user asks 'what if', 'what would happen', or how risky a change would be.",
+    "false": "The user asks for the change itself, or asks about the code as it is now."
+   }
+  },
+  "names_target": {
+   "type": "noul",
+   "instructions": "Does the user's request say which file, function or feature they want to work on?",
+   "criteria": {
+    "true": "A file, function, package or feature is named, or the conversation so far makes clear which one is meant.",
+    "false": "The request leaves open which code it is about, such as 'fix it' with nothing named before."
+   }
+  },
+  "rules_out_changes": {
+   "type": "noul",
+   "instructions": "Has the user said not to change any files for this request?",
+   "criteria": {
+    "true": "The user says to only look, read, explain or report, and not to change, edit, write or touch anything.",
+    "false": "The user asks for changes, allows them, or says nothing about whether files may change."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "about_codenerd": {
+   "type": "noul",
+   "noul": 0.02
+  },
+  "changes_files": {
+   "type": "noul",
+   "noul": 0.42
+  },
+  "conversation_act": {
+   "type": "choice",
+   "choice": "small_talk",
+   "confidence": 0.87,
+   "probabilities": {
+    "correction_of_codenerd": 0.0,
+    "feedback_on_codenerd": 0.1,
+    "question_about_codenerd": 0.0,
+    "reply_to_codenerd": 0.01,
+    "request_for_work": 0.0,
+    "shared_material": 0.0,
+    "small_talk": 0.89,
+    "stop_request": 0.0
+   }
+  },
+  "hypothetical": {
+   "type": "noul",
+   "noul": 0.03
+  },
+  "names_target": {
+   "type": "noul",
+   "noul": 0.94
+  },
+  "rules_out_changes": {
+   "type": "noul",
+   "noul": 0.02
+  }
+ },
+ "usage": {
+  "input_tokens": 1084,
+  "output_tokens": 191
+ }
+}
+}

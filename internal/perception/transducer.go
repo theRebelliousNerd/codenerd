@@ -1,0 +1,474 @@
+package perception
+
+import (
+	"context"
+	"regexp"
+	"strings"
+	"sync"
+
+	"codenerd/internal/articulation"
+	"codenerd/internal/config"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+)
+
+// The Unified Piggyback Protocol types are NOT re-exported here. They are
+// canonically defined in the articulation package and every caller, inside
+// this package and outside it, names them from there. Five aliases used to
+// stand here "for backward compatibility and convenience", which is the
+// forwarding shim the NO SHIMS rule forbids: they broke no import cycle --
+// this package already imports articulation directly -- so all they bought
+// was a second spelling of one truth. transducer_noshim_test.go turns red if
+// any of them comes back.
+
+// =============================================================================
+// VERB CORPUS - Comprehensive Natural Language Understanding
+// =============================================================================
+// This corpus provides reliable mapping from natural language to intent verbs.
+// Each verb has synonyms, patterns, and category information for robust parsing.
+
+// VerbEntry defines a canonical verb with its synonyms and patterns.
+type VerbEntry struct {
+	Verb      string           // Canonical verb (e.g., "/review")
+	Category  string           // Default category (/query, /mutation, /instruction)
+	Synonyms  []string         // Words that map to this verb
+	Patterns  []*regexp.Regexp // Regex patterns that indicate this verb
+	Priority  int              // Higher priority wins in ambiguous cases
+	ShardType string           // Which shard handles this (reviewer, coder, tester, researcher)
+}
+
+// verbCorpus is the comprehensive mapping of natural language to verbs.
+// It is populated dynamically from the Mangle taxonomy engine on startup.
+// Access must go through GetVerbCorpus/SetVerbCorpus to avoid data races.
+var verbCorpus []VerbEntry
+var verbCorpusMu sync.RWMutex
+
+// GetVerbCorpus returns a snapshot of the current verb corpus (safe for concurrent use).
+// The slice is copied: returning the live slice would share the backing array
+// with writers under SetVerbCorpus.
+func GetVerbCorpus() []VerbEntry {
+	verbCorpusMu.RLock()
+	defer verbCorpusMu.RUnlock()
+	out := make([]VerbEntry, len(verbCorpus))
+	copy(out, verbCorpus)
+	return out
+}
+
+// SetVerbCorpus replaces the verb corpus atomically (safe for concurrent use).
+func SetVerbCorpus(v []VerbEntry) {
+	verbCorpusMu.Lock()
+	defer verbCorpusMu.Unlock()
+	verbCorpus = v
+}
+
+func init() {
+	// Robust initialization from the SharedTaxonomy
+	// This satisfies the requirement to "use Mangle to create the corpus"
+	if SharedTaxonomy != nil {
+		verbs, err := SharedTaxonomy.GetVerbs()
+		if err != nil {
+			logging.Get(logging.CategoryPerception).Error("Failed to load verb taxonomy from Mangle: %v", err)
+			// Fallback to a minimal safe mode to prevent crash
+			SetVerbCorpus([]VerbEntry{
+				{
+					Verb:      "/explain",
+					Category:  "/query",
+					Synonyms:  []string{"explain", "help"},
+					Patterns:  []*regexp.Regexp{regexp.MustCompile(`(?i)explain`)},
+					Priority:  1,
+					ShardType: "",
+				},
+			})
+			logging.Perception("Initialized VerbCorpus with fallback (1 verb)")
+		} else {
+			SetVerbCorpus(verbs)
+			logging.Perception("Initialized VerbCorpus from Mangle taxonomy (%d verbs)", len(verbs))
+		}
+	} else {
+		logging.Get(logging.CategoryPerception).Error("SharedTaxonomy is nil - cannot load verb taxonomy")
+	}
+}
+
+// truncateForLog truncates a string for logging purposes.
+// Uses rune-aware truncation to avoid splitting multi-byte UTF-8 characters.
+func truncateForLog(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return safeTruncate(s, maxLen) + "..."
+}
+
+// safeTruncate performs a UTF-8 safe truncation of a string to avoid
+// slicing halfway through a multi-byte character.
+func safeTruncate(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+
+	// Walk backwards from limit to find the start of a valid UTF-8 rune boundary.
+	for i := limit; i > 0; i-- {
+		if (s[i] & 0xC0) != 0x80 {
+			return s[:i]
+		}
+	}
+	// Fallback if somehow invalid UTF-8 byte stream
+	return s[:limit]
+}
+
+// matchVerbFromCorpus finds the best matching verb using Regex Candidates + Semantic + Mangle Inference.
+// The classification flow is:
+//  1. Get regex candidates (fast path)
+//  2. Semantic classification via vector search (injects semantic_match facts into kernel)
+//  3. Mangle inference (sees both regex candidates and semantic signals)
+//  4. Fallback to best regex score
+func matchVerbFromCorpus(ctx context.Context, input string) (verb string, category string, confidence float64, shardType string) {
+	timer := logging.StartTimer(logging.CategoryPerception, "matchVerbFromCorpus")
+	defer timer.Stop()
+
+	logging.PerceptionDebug("Matching verb for input: %q", truncateForLog(input, 100))
+
+	// 1. Get Candidates via Regex (Fast)
+	corpus := GetVerbCorpus()
+	candidates := getRegexCandidates(input, corpus)
+	logging.PerceptionDebug("Regex candidates found: %d", len(candidates))
+
+	// 2. Semantic classification - vector-based similarity signals.
+	// The matches ride into ClassifyInputWithMatches below, which bridges them
+	// into the taxonomy engine AFTER its EDB Clear. (Classify also injects them
+	// into the cortex kernel for grounding, but the taxonomy_inference rules
+	// that join semantic_match run in the taxonomy engine — pre-seeding here
+	// would be wiped by Clear before scoring.)
+	var matches []SemanticMatch
+	if SharedSemanticClassifier != nil {
+		var err error
+		matches, err = SharedSemanticClassifier.Classify(ctx, input)
+		if err != nil {
+			logging.PerceptionDebug("Semantic classification error (non-fatal): %v - regex-only match", err)
+			matches = nil
+		} else if len(matches) > 0 {
+			logging.PerceptionDebug("Semantic matches found: %d (top: %s %.2f)",
+				len(matches), matches[0].Verb, matches[0].Similarity)
+		} else {
+			logging.PerceptionDebug("Semantic classification returned no matches - regex-only match")
+		}
+	}
+
+	// 3. Refine via Mangle Inference (Smart)
+	// This applies the "sentence level" logic and context rules.
+	// Now includes semantic_match facts bridged from the classifier above.
+	// Always run inference, even if no candidates, to support pure interrogative logic.
+	if SharedTaxonomy != nil {
+		bestVerb, conf, err := SharedTaxonomy.ClassifyInputWithMatches(input, candidates, matches)
+		if err == nil && bestVerb != "" {
+			logging.PerceptionDebug("Mangle inference selected verb: %s (confidence: %.2f)", bestVerb, conf)
+			// Find the candidate entry to get category/shard details
+			for _, c := range candidates {
+				if c.Verb == bestVerb {
+					logging.Perception("Matched verb %s (category: %s, shard: %s, confidence: %.2f)", c.Verb, c.Category, c.ShardType, conf)
+					return c.Verb, c.Category, conf, c.ShardType
+				}
+			}
+			// If not found in candidates (rare), find in corpus
+			for _, entry := range corpus {
+				if entry.Verb == bestVerb {
+					logging.Perception("Matched verb %s from corpus (category: %s, shard: %s, confidence: %.2f)", entry.Verb, entry.Category, entry.ShardType, conf)
+					return entry.Verb, entry.Category, conf, entry.ShardType
+				}
+			}
+		} else if err != nil {
+			logging.PerceptionDebug("Mangle inference error: %v", err)
+		}
+	}
+
+	logging.Get(logging.CategoryPerception).Warn("No verb match found for input, defaulting to /explain")
+	return "/explain", "/query", 0.3, ""
+}
+
+// maxRegexInputLen caps the input length fed to regex matching.
+// Go's regexp uses Thompson NFA (linear time), but there's no reason to
+// run the full VerbCorpus against a 100KB paste. The first 2000 chars
+// contain all meaningful verb/intent signals.
+const maxRegexInputLen = 2000
+
+// getRegexCandidates returns all verbs that match the input via regex or synonyms.
+func getRegexCandidates(input string, corpus []VerbEntry) []VerbEntry {
+	// Truncate to prevent linear-cost amplification on massive inputs
+	truncated := input
+	if len(truncated) > maxRegexInputLen {
+		truncated = truncated[:maxRegexInputLen]
+	}
+	lower := strings.ToLower(truncated)
+	var candidates []VerbEntry
+	seen := make(map[string]bool)
+
+	for _, entry := range corpus {
+		matched := false
+		// Check patterns
+		for _, pattern := range entry.Patterns {
+			if pattern.MatchString(lower) {
+				matched = true
+				break
+			}
+		}
+		// Check synonyms if no pattern match
+		if !matched {
+			for _, synonym := range entry.Synonyms {
+				if strings.Contains(lower, synonym) {
+					matched = true
+					break
+				}
+			}
+		}
+
+		if matched {
+			if !seen[entry.Verb] {
+				candidates = append(candidates, entry)
+				seen[entry.Verb] = true
+			}
+		}
+	}
+	return candidates
+}
+
+// Intent represents the parsed user intent (Cortex 1.5.0 §3.1).
+type Intent struct {
+	Category         string                         // /query, /mutation, /instruction
+	Verb             string                         // /explain, /refactor, /debug, /generate, /init, /research, /remember, etc.
+	Target           string                         // Primary target of the action
+	Constraint       string                         // Constraints on the action
+	Confidence       float64                        // Confidence score for the intent
+	Ambiguity        []string                       // Ambiguous parts that need clarification
+	Response         string                         // Natural language response (Piggyback Protocol)
+	MemoryOperations []articulation.MemoryOperation // Memory operations for learning/forgetting (Cold Storage)
+
+	// Outcome is what happened when a model tried to classify this turn
+	// (classification_outcome.go). A failed classification still returns a
+	// degraded /explain Intent with a nil error -- the graceful-degradation
+	// contract callers rely on -- and Outcome is the typed cause that
+	// projection used to lose to one transient bit: provider failure class,
+	// stage, and method. The zero value means no model classified this intent
+	// (a delegated task's preset, a blank input).
+	Outcome ClassificationOutcome
+
+	// IsQuestion is true when the user is asking a question (wants an answer)
+	// rather than requesting an action (wants work done). Carried from the
+	// Understanding signals so routing arbitration can send questions to a
+	// direct answer instead of shard delegation. "Can you review my code?" is
+	// a request for action (false); "what is the JIT system?" is a question
+	// (true).
+	IsQuestion bool
+
+	// ScopeLevel and ScopeFile carry the Understanding's scope (level
+	// "file", the file path it named). Routing arbitration receives them as
+	// intent_signal rows: a question whose answer lives in a named file
+	// cannot be answered from prose knowledge, and sending it down the
+	// direct-answer lane made the model reply that it had no filesystem
+	// access (2026-10-27: "how many problems are in <problems.log>?").
+	ScopeLevel string
+	ScopeFile  string
+
+	// ToolsNeeded carries the Understanding's suggested tools (read_file,
+	// search, ...). A non-empty list is perception stating the turn needs
+	// workspace evidence; routing treats it the same as a file scope.
+	ToolsNeeded []string
+
+	// Brief is the running brief perception returned with this turn
+	// (brief.go); nil keeps the brief the kernel holds.
+	Brief *Brief
+
+	// Restriction is the limit the user put on this request (read-only,
+	// dry run, what-if, confirm first), recognised by perception and carried
+	// with the intent so execution, delegation and action admission see it
+	// (restriction.go). Zero means none recognised.
+	Restriction Restriction
+
+	// Authorization is what the user's own words allowed beyond the edits
+	// ("then commit it"), read from the message and carried like Restriction
+	// (authorization.go). It grants nothing by itself; the kernel derives
+	// what it covers. Zero means none.
+	Authorization Authorization
+}
+
+// ConversationTurn represents a single turn in conversation history.
+// Used to pass context to the perception layer.
+type ConversationTurn struct {
+	Role             string // "user" or "assistant"
+	Content          string
+	ThoughtSignature string // For multi-turn reasoning continuity
+	ThoughtSummary   string // Provider-supplied summary, separate from visible task output
+}
+
+// sanitizeFactArg strips control characters and caps length for user/LLM-derived
+// strings embedded as fact arguments. Mangle metacharacters ( ) . , / are
+// deliberately PRESERVED: string args are quoted by the engine, so they cannot
+// inject, and stripping them would destroy file paths like "auth.go".
+func sanitizeFactArg(s string) string {
+	const maxFactArgLen = 2048
+	if len(s) > maxFactArgLen {
+		s = s[:maxFactArgLen]
+	}
+	// Strip characters that have syntactic meaning in Mangle:
+	// ( ) . , / :- ; could terminate atoms or inject new rules
+	// Also strip null bytes and control characters
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r == 0: // null byte
+			continue
+		case r < 0x20 && r != '\n' && r != '\r' && r != '\t': // control chars (keep newlines/tabs)
+			continue
+		case r == 0x1b: // ANSI escape
+			continue
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// ToFact converts the intent to a Mangle Fact.
+func (i Intent) ToFact() core.Fact {
+	return core.Fact{
+		Predicate: "user_intent",
+		Args: []any{
+			core.MangleAtom("/current_intent"), // ID as name constant
+			core.MangleAtom(i.Category),
+			core.MangleAtom(i.Verb),
+			sanitizeFactArg(i.Target),
+			sanitizeFactArg(i.Constraint),
+		},
+	}
+}
+
+// FocusResolution represents a resolved reference (Cortex 1.5.0 §3.2).
+type FocusResolution struct {
+	RawReference string
+	ResolvedPath string
+	SymbolName   string
+	// ConfidencePercent is 0-100 (integer) to keep Mangle numeric comparisons stable.
+	// The kernel policy uses integer thresholds (e.g. Score < 85).
+	ConfidencePercent int64
+}
+
+// ToFact converts focus resolution to a Mangle Fact.
+func (f FocusResolution) ToFact() core.Fact {
+	return core.Fact{
+		Predicate: "focus_resolution",
+		Args: []any{
+			f.RawReference,
+			f.ResolvedPath,
+			f.SymbolName,
+			f.ConfidencePercent,
+		},
+	}
+}
+
+// PromptAssembler provides JIT compilation capability.
+type PromptAssembler interface {
+	AssembleSystemPrompt(ctx context.Context, shardID, shardType string) (string, error)
+	JITReady() bool
+}
+
+// Transducer defines the interface for the perception layer.
+// UnderstandingTransducer is the canonical LLM-first implementation.
+type Transducer interface {
+	// ParseIntent parses user input into an Intent without conversation history.
+	ParseIntent(ctx context.Context, input string) (Intent, error)
+
+	// ParseIntentWithContext parses user input with conversation history.
+	// This is the primary method used by the chat loop.
+	ParseIntentWithContext(ctx context.Context, input string, history []ConversationTurn) (Intent, error)
+
+	// ParseIntentWithGCD parses user input with Grammar-Constrained Decoding.
+	// Returns the intent, validated Mangle updates, and any error.
+	// For LLM-first transducers, this is equivalent to ParseIntentWithContext with empty updates.
+	ParseIntentWithGCD(ctx context.Context, input string, history []ConversationTurn, maxRetries int) (Intent, []string, error)
+
+	// ResolveFocus resolves ambiguous references to specific candidates.
+	ResolveFocus(ctx context.Context, reference string, candidates []string) (FocusResolution, error)
+
+	// SetPromptAssembler sets the prompt assembler for JIT compilation.
+	SetPromptAssembler(pa PromptAssembler)
+
+	// SetStrategicContext injects strategic knowledge about the codebase.
+	SetStrategicContext(context string)
+}
+
+// TransducerWithKernel extends Transducer with kernel integration for routing.
+type TransducerWithKernel interface {
+	Transducer
+
+	// SetKernel sets the Mangle kernel for routing queries.
+	SetKernel(kernel *core.RealKernel)
+}
+
+// GetShardTypeForVerb returns the shard type associated with a canonical verb.
+// Returns empty string if verb is not found in the VerbCorpus.
+func GetShardTypeForVerb(verb string) string {
+	corpus := GetVerbCorpus()
+	for _, entry := range corpus {
+		if entry.Verb == verb {
+			return entry.ShardType
+		}
+	}
+	return ""
+}
+
+// =============================================================================
+// PERCEPTION LAYER INITIALIZATION
+// =============================================================================
+
+func InitPerceptionLayerWithContext(ctx context.Context, kernel core.Kernel, cfg *config.UserConfig) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	timer := logging.StartTimer(logging.CategoryPerception, "InitPerceptionLayer")
+	defer timer.Stop()
+
+	logging.Perception("Initializing perception layer components")
+
+	// Initialize semantic classifier
+	// GetEmbeddingConfig() returns defaults if not explicitly configured,
+	// so we always attempt initialization and let it fail gracefully if
+	// the embedding engine cannot connect (e.g., Ollama not running).
+	embedCfg := cfg.GetEmbeddingConfig()
+	logging.PerceptionDebug("Embedding config: provider=%s", embedCfg.Provider)
+
+	if err := InitSemanticClassifierWithContext(ctx, kernel, cfg); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		// Non-fatal: classification works without semantic layer
+		logging.Get(logging.CategoryPerception).Warn("Semantic classifier init failed: %v (continuing with regex-only)", err)
+	} else {
+		logging.Perception("SemanticClassifier initialized successfully")
+	}
+
+	logging.Perception("Perception layer initialization complete")
+	return nil
+}
+
+// ClosePerceptionLayer releases resources held by perception components.
+// Should be called during graceful shutdown.
+func ClosePerceptionLayer() error {
+	logging.Perception("Closing perception layer components")
+
+	// The consolidation worker persists through the classifier and the stores
+	// closed below, so it is joined first. Chat stops it earlier still; this
+	// covers headless exits, and a second stop is a no-op.
+	if err := ShutdownSharedTaxonomy(); err != nil {
+		logging.Get(logging.CategoryPerception).Warn("Consolidation worker did not drain before close: %v", err)
+	}
+
+	if err := CloseSemanticClassifier(); err != nil {
+		logging.Get(logging.CategoryPerception).Warn("Error closing SemanticClassifier: %v", err)
+		return err
+	}
+
+	logging.Perception("Perception layer closed")
+	return nil
+}

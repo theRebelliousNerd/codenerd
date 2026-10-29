@@ -1,0 +1,233 @@
+package tools
+
+import (
+	"context"
+	"testing"
+)
+
+// TODO: TEST_GAP: Null/Undefined/Empty - What happens if a nil tool is registered? Does it panic?
+// TODO: TEST_GAP: Null/Undefined/Empty - What if nil context or nil args are passed to Execute?
+// TODO: TEST_GAP: Type Coercion - What happens when an integer is passed for a string property in args?
+// TODO: TEST_GAP: User Request Extremes - Test priority sorting in GetByCategory with math.MaxInt64 and math.MinInt64.
+// TODO: TEST_GAP: User Request Extremes - What if FilterByIntent is called with an empty string, or an unknown hallucinated intent?
+// TODO: TEST_GAP: State Conflicts - Are there race conditions when concurrently calling Register, Get, and Execute across multiple goroutines?
+
+// TODO: QA Issue: Null/Undefined/Empty - Registering a nil *Tool pointer causes a panic before validation.
+// TODO: QA Issue: Null/Undefined/Empty - Passing nil context or nil args to Execute can crash underlying tools.
+// TODO: QA Issue: Type Coercion - validateArgs only checks for key existence, completely ignoring tool.Schema.Properties type definitions, leading to silent type assertion failures in tools.
+// TODO: QA Issue: State Conflicts - GetByCategory returns a shallow copy of tool pointers. Mutating a tool after retrieval causes data races.
+
+func TestNewRegistry(t *testing.T) {
+	reg := NewRegistry()
+	if reg == nil {
+		t.Fatal("NewRegistry returned nil")
+	}
+	if reg.Count() != 0 {
+		t.Errorf("new registry should be empty, got %d tools", reg.Count())
+	}
+}
+
+func TestRegisterAndGet(t *testing.T) {
+	reg := NewRegistry()
+
+	tool := &Tool{
+		Effect:      EffectRead,
+		Name:        "test_tool",
+		Description: "A test tool",
+		Category:    CategoryGeneral,
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
+			return "success", nil
+		},
+		Schema: ToolSchema{
+			Required: []string{},
+		},
+	}
+
+	if err := reg.Register(tool); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+
+	got := reg.Get("test_tool")
+	if got == nil {
+		t.Fatal("Get returned nil for registered tool")
+	}
+	if got.Name != "test_tool" {
+		t.Errorf("got name %q, want %q", got.Name, "test_tool")
+	}
+}
+
+func TestRegisterDuplicate(t *testing.T) {
+	reg := NewRegistry()
+
+	tool := &Tool{
+		Effect:   EffectRead,
+		Name:     "dupe",
+		Category: CategoryGeneral,
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
+			return "", nil
+		},
+	}
+
+	if err := reg.Register(tool); err != nil {
+		t.Fatalf("first Register failed: %v", err)
+	}
+
+	err := reg.Register(tool)
+	if err == nil {
+		t.Fatal("expected error for duplicate registration")
+	}
+}
+
+func TestRegisterValidation(t *testing.T) {
+	reg := NewRegistry()
+
+	tests := []struct {
+		name    string
+		tool    *Tool
+		wantErr error
+	}{
+		{
+			name:    "empty name",
+			tool:    &Tool{Name: "", Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+			wantErr: ErrToolNameEmpty,
+		},
+		{
+			name:    "nil execute",
+			tool:    &Tool{Name: "test", Execute: nil},
+			wantErr: ErrToolExecuteNil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := reg.Register(tt.tool)
+			if err == nil {
+				t.Errorf("expected error %v, got nil", tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGetByCategory(t *testing.T) {
+	reg := NewRegistry()
+
+	tools := []*Tool{
+		{Name: "research1", Effect: EffectRead, Category: CategoryResearch, Priority: 80, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "research2", Effect: EffectRead, Category: CategoryResearch, Priority: 60, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "code1", Effect: EffectRead, Category: CategoryCode, Priority: 50, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+	}
+
+	for _, tool := range tools {
+		reg.MustRegister(tool)
+	}
+
+	research := reg.GetByCategory(CategoryResearch)
+	if len(research) != 2 {
+		t.Errorf("expected 2 research tools, got %d", len(research))
+	}
+
+	// Should be sorted by priority (highest first)
+	if research[0].Name != "research1" {
+		t.Errorf("expected research1 first (priority 80), got %s", research[0].Name)
+	}
+}
+
+func TestExecute(t *testing.T) {
+	reg := NewRegistry()
+
+	tool := &Tool{
+		Effect:   EffectRead,
+		Name:     "echo",
+		Category: CategoryGeneral,
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
+			msg, _ := args["message"].(string)
+			return "Echo: " + msg, nil
+		},
+		Schema: ToolSchema{
+			Required:   []string{"message"},
+			Properties: map[string]Property{"message": {Type: "string"}},
+		},
+	}
+
+	reg.MustRegister(tool)
+
+	// Test successful execution
+	result, err := reg.Execute(context.Background(), "echo", map[string]any{"message": "hello"})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if result.Result != "Echo: hello" {
+		t.Errorf("got result %q, want %q", result.Result, "Echo: hello")
+	}
+	if !result.IsSuccess() {
+		t.Error("expected IsSuccess to be true")
+	}
+
+	// Test missing required arg
+	_, err = reg.Execute(context.Background(), "echo", map[string]any{})
+	if err == nil {
+		t.Error("expected error for missing required arg")
+	}
+
+	// Test tool not found
+	_, err = reg.Execute(context.Background(), "nonexistent", map[string]any{})
+	if err == nil {
+		t.Error("expected error for nonexistent tool")
+	}
+}
+
+func TestFilterByIntent(t *testing.T) {
+	reg := NewRegistry()
+
+	tools := []*Tool{
+		{Name: "context7", Effect: EffectRead, Category: CategoryResearch, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+		{Name: "file_write", Effect: EffectRead, Category: CategoryCode, Execute: func(ctx context.Context, args map[string]any) (string, error) { return "", nil }},
+	}
+
+	for _, tool := range tools {
+		reg.MustRegister(tool)
+	}
+
+	research := reg.FilterByIntent("/research")
+	if len(research) != 1 || research[0].Name != "context7" {
+		t.Errorf("FilterByIntent(/research) returned wrong tools: %v", research)
+	}
+
+	code := reg.FilterByIntent("/fix")
+	if len(code) != 1 || code[0].Name != "file_write" {
+		t.Errorf("FilterByIntent(/fix) returned wrong tools: %v", code)
+	}
+}
+
+func TestGlobalRegistry(t *testing.T) {
+	// Reset global registry for test. SwapGlobal restores it afterwards so this
+	// test cannot leave the package's global in a state a later test observes —
+	// which is the whole hazard SwapGlobal exists to remove.
+	t.Cleanup(SwapGlobal(NewRegistry()))
+
+	tool := &Tool{
+		Effect:   EffectRead,
+		Name:     "global_test",
+		Category: CategoryGeneral,
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
+			return "global", nil
+		},
+	}
+
+	if err := Global().Register(tool); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+
+	got := Global().Get("global_test")
+	if got == nil {
+		t.Fatal("Get returned nil for globally registered tool")
+	}
+
+	result, err := Global().Execute(context.Background(), "global_test", map[string]any{})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if result.Result != "global" {
+		t.Errorf("got result %q, want %q", result.Result, "global")
+	}
+}

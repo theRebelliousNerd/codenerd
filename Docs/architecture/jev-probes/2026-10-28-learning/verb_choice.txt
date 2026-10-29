@@ -1,0 +1,10 @@
+verb choice probe: learned when fits>=0.70 and confidence>=0.70
+  fix       /fix           conf=1.00 fits=0.75 want="/fix"
+  refactor  /refactor      conf=1.00 fits=0.79 want="/refactor"
+  review    /review        conf=0.97 fits=0.92 want="/review"
+  explain   /explain       conf=0.97 fits=0.78 want="/explain"
+  tool      /generate_tool conf=1.00 fits=0.87 want="/generate_tool"
+x stats     /stats         conf=1.00 fits=0.66 want="/stats"
+  self      /self_diagnose conf=0.86 fits=0.91 want="/self_diagnose"
+  none-yes  /approve       conf=1.00 fits=0.25 want=""
+  none-mode /self_diagnose conf=0.64 fits=0.50 want=""

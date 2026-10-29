@@ -1,0 +1,752 @@
+package core
+
+import (
+	"codenerd/internal/logging"
+	"codenerd/internal/projectdoc"
+	"codenerd/internal/types"
+	"context"
+	"fmt"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
+)
+
+// DreamResult captures the speculative evaluation of a single action.
+type DreamResult struct {
+	ActionID       string
+	Request        ActionRequest
+	ProjectedFacts []Fact
+	Unsafe         bool
+	Reason         string
+	// PanicReasons are the panic_state reasons that made the action unsafe,
+	// sorted; empty when the block came from a failed or refused simulation
+	// rather than a rule. Only rule reasons can ever be weighed against a
+	// human approval (VirtualStore.dreamGate).
+	PanicReasons []string
+}
+
+// Dreamer simulates the impact of actions before execution.
+type Dreamer struct {
+	mu                 sync.RWMutex
+	kernel             *RealKernel
+	criticalPathsReady bool                    // every critical_path_prefix fact landed in kernel; SimulateAction refuses to run blind without them
+	critical           []string                // alwaysCritical plus the workspace's nerd.md critical: list
+	router             *DreamRouter            // Routes confirmed learnings to persistence stores
+	planManager        *DreamPlanManager       // Manages dream plan lifecycle and execution state
+	learningCollector  *DreamLearningCollector // Extracts learnings from dream consultations
+}
+
+// NewDreamer creates a Dreamer backed by the provided kernel. critical are the
+// workspace's own catastrophic paths (nerd.md critical:, see
+// projectdoc.CriticalPaths); .git and .nerd are always among them.
+func NewDreamer(kernel *RealKernel, critical ...string) *Dreamer {
+	logging.Dream("Creating new Dreamer instance")
+	d := &Dreamer{
+		kernel:            kernel,
+		critical:          append(append([]string(nil), alwaysCritical...), critical...),
+		learningCollector: NewDreamLearningCollector(),
+	}
+	d.assertCriticalPathFacts()
+	return d
+}
+
+// SetDreamRouter connects a DreamRouter for persisting confirmed learnings.
+func (d *Dreamer) SetDreamRouter(router *DreamRouter) {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.router = router
+	logging.Dream("Dreamer: DreamRouter connected for learning persistence")
+}
+
+// GetDreamRouter returns the Dreamer's learning router, if connected.
+func (d *Dreamer) GetDreamRouter() *DreamRouter {
+	if d == nil {
+		return nil
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.router
+}
+
+// SetDreamPlanManager connects a DreamPlanManager for plan lifecycle tracking.
+func (d *Dreamer) SetDreamPlanManager(pm *DreamPlanManager) {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.planManager = pm
+	logging.Dream("Dreamer: DreamPlanManager connected for plan lifecycle")
+}
+
+// GetDreamPlanManager returns the Dreamer's plan manager, if connected.
+func (d *Dreamer) GetDreamPlanManager() *DreamPlanManager {
+	if d == nil {
+		return nil
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.planManager
+}
+
+// GetLearningCollector returns the Dreamer's learning extractor.
+func (d *Dreamer) GetLearningCollector() *DreamLearningCollector {
+	if d == nil {
+		return nil
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.learningCollector
+}
+
+// SetKernel updates the kernel reference (used when the virtual store swaps kernels).
+func (d *Dreamer) SetKernel(kernel *RealKernel) {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.kernel = kernel
+	logging.DreamDebug("Dreamer: kernel reference updated")
+	// Re-assert critical path facts into the new kernel
+	d.assertCriticalPathFactsLocked()
+}
+
+// alwaysCritical are catastrophic to delete in every workspace: its history
+// and the agent's own state. Everything else a workspace deems critical it
+// declares in nerd.md (critical:) -- this list used to name codeNERD's own
+// packages, which in any other workspace protected paths that do not exist.
+// A Dreamer's list is the source of truth for both criticalPrefix and the
+// Mangle critical_path_prefix facts.
+var alwaysCritical = []string{".git", ".nerd"}
+
+// assertCriticalPathFacts populates the Mangle critical_path_prefix(Prefix) schema
+// from the Go hardcoded constants, giving policy rules visibility into critical paths.
+func (d *Dreamer) assertCriticalPathFacts() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.assertCriticalPathFactsLocked()
+}
+
+// assertCriticalPathFactsLocked does the actual assertion without locking.
+// Caller must hold d.mu (write: it records criticalPathsReady).
+//
+// A dropped critical_path_prefix fact blinds every panic_state rule that
+// joins on it, so deletions of catastrophic paths would simulate as safe.
+// Staging is checked, not fire-and-forget: any failure clears
+// criticalPathsReady and SimulateAction refuses to run until a kernel with
+// the full set is attached.
+func (d *Dreamer) assertCriticalPathFactsLocked() {
+	d.criticalPathsReady = false
+	if d.kernel == nil {
+		return
+	}
+	for _, prefix := range d.critical {
+		if err := d.kernel.AssertWithoutEval(Fact{
+			Predicate: "critical_path_prefix",
+			Args:      []any{prefix},
+		}); err != nil {
+			logging.Get(logging.CategoryDream).Error(
+				"Dreamer: critical_path_prefix %q rejected by kernel: %v; simulations refused until repaired",
+				prefix, err)
+			return
+		}
+	}
+	if err := d.kernel.EvaluatePending(); err != nil {
+		logging.Get(logging.CategoryDream).Error(
+			"Dreamer: evaluating critical_path_prefix facts failed: %v; simulations refused until repaired", err)
+		return
+	}
+	d.criticalPathsReady = true
+	logging.DreamDebug("Dreamer: asserted %d critical_path_prefix facts", len(d.critical))
+}
+
+// SimulateAction performs a speculative evaluation of a single action.
+// It returns a DreamResult with any panic_state detections.
+// Safety verdicts are deliberately not reused. The kernel has no revision
+// contract covering facts, policy and external predicates; a TTL or request
+// hash alone cannot make an authorization cache sound.
+func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamResult {
+	if ctx == nil {
+		return DreamResult{
+			ActionID: fmt.Sprintf("dream:%s:%d", req.Type, time.Now().UnixNano()),
+			Request:  req,
+			Unsafe:   true,
+			Reason:   "nil context provided",
+		}
+	}
+
+	timer := logging.StartTimer(logging.CategoryDream, fmt.Sprintf("SimulateAction(%s)", req.Type))
+	actionID := fmt.Sprintf("dream:%s:%d", req.Type, time.Now().UnixNano())
+	logging.Dream("SimulateAction: starting simulation for %s (target=%s)", req.Type, req.Target)
+
+	result := DreamResult{
+		ActionID: actionID,
+		Request:  req,
+	}
+	if err := ctx.Err(); err != nil {
+		result.Unsafe, result.Reason = true, err.Error()
+		timer.Stop()
+		return result
+	}
+	if d == nil {
+		result.Unsafe, result.Reason = true, "dreamer unavailable"
+		timer.Stop()
+		return result
+	}
+
+	// Enforce strict target path length limit (4096 bytes) and action validations.
+	// Earlier these rejections returned silently; the downstream "ACTION
+	// BLOCKED" path logs, but the validation-stage reject left no trail,
+	// which made the Dreamer look dormant in the logs.
+	if len(req.Target) > 4096 {
+		result.Unsafe = true
+		result.Reason = "target path exceeds maximum length of 4096 bytes"
+		logging.Get(logging.CategoryDream).Warn(
+			"SimulateAction REJECTED at validation: actionID=%s type=%s target_len=%d reason=target_too_long",
+			actionID, req.Type, len(req.Target))
+		timer.Stop()
+		return result
+	}
+
+	if req.Type == "" {
+		result.Unsafe = true
+		result.Reason = "empty action type"
+		logging.Get(logging.CategoryDream).Warn(
+			"SimulateAction REJECTED at validation: actionID=%s target=%s reason=empty_type",
+			actionID, req.Target)
+		timer.Stop()
+		return result
+	}
+
+	// Safely retrieve the kernel pointer under a read lock
+	d.mu.RLock()
+	kernel := d.kernel
+	d.mu.RUnlock()
+
+	// No kernel available -> fail closed (safety system must not default-allow on internal failure).
+	if kernel == nil {
+		result.Unsafe = true
+		result.Reason = "dreamer kernel unavailable"
+		logging.Get(logging.CategoryDream).Error("SimulateAction: %s", result.Reason)
+		timer.Stop()
+		return result
+	}
+
+	// Critical-path facts missing -> fail closed. Without them the
+	// panic_state rules that guard catastrophic deletions match nothing
+	// and every deletion simulates as safe.
+	d.mu.RLock()
+	ready := d.criticalPathsReady
+	d.mu.RUnlock()
+	if !ready {
+		result.Unsafe = true
+		result.Reason = "dreamer critical path facts missing; refusing blind simulation"
+		logging.Get(logging.CategoryDream).Error("SimulateAction: %s", result.Reason)
+		timer.Stop()
+		return result
+	}
+
+	// Build projected facts for this action
+	logging.DreamDebug("SimulateAction: projecting effects for action %s", actionID)
+	projected := d.projectEffects(kernel, actionID, req)
+	result.ProjectedFacts = projected
+	logging.DreamDebug("SimulateAction: projected %d facts", len(projected))
+
+	// Allow cancellation (Fail Closed)
+	select {
+	case <-ctx.Done():
+		logging.Get(logging.CategoryDream).Warn("SimulateAction: context canceled for %s", actionID)
+		result.Unsafe = true
+		result.Reason = ctx.Err().Error()
+		timer.Stop()
+		return result
+	default:
+	}
+
+	logging.DreamDebug("SimulateAction: evaluating projection for safety")
+	unsafe, reason, panics := d.evaluateProjection(kernel, actionID, projected)
+	result.Unsafe = unsafe
+	result.Reason = reason
+	result.PanicReasons = panics
+
+	if unsafe {
+		logging.Dream("SimulateAction: ACTION BLOCKED - %s on %s (reason: %s)", req.Type, req.Target, reason)
+	} else {
+		logging.Dream("SimulateAction: action %s deemed safe", req.Type)
+	}
+
+	// Cancellation during evaluation must not return an allow verdict either.
+	if err := ctx.Err(); err != nil {
+		result.Unsafe, result.Reason = true, err.Error()
+	}
+
+	timer.Stop()
+	return result
+}
+
+// evaluateProjection loads projected facts into a sandboxed kernel and queries panic_state.
+func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projected []Fact) (bool, string, []string) {
+	timer := logging.StartTimer(logging.CategoryDream, "evaluateProjection")
+	logging.DreamDebug("evaluateProjection: cloning kernel for sandbox evaluation")
+	cloneStarted := time.Now()
+	clone := kernel.Clone()
+	cloneDuration := time.Since(cloneStarted)
+
+	// Assert projected facts into the sandbox clone so panic_state rules can fire.
+	// Without this, the clone has no projected_action facts for rules to match against.
+	for _, fact := range projected {
+		if err := clone.AssertWithoutEval(fact); err != nil {
+			logging.Get(logging.CategoryDream).Error(
+				"evaluateProjection: failed to stage projected fact %s: %v",
+				fact.Predicate, err)
+			timer.Stop()
+			return true, fmt.Sprintf("dream projection rejected %s: %v", fact.Predicate, err), nil
+		}
+	}
+
+	logging.DreamDebug("evaluateProjection: evaluating sandbox kernel with %d projected facts", len(projected))
+	// Only the cone of the projected predicates is re-derived: the clone
+	// carries its parent's evaluated store (Clone).
+	if err := clone.EvaluatePending(); err != nil {
+		// If evaluation fails, treat as unsafe to be conservative
+		logging.Get(logging.CategoryDream).Error("evaluateProjection: sandbox evaluation failed: %v", err)
+		timer.Stop()
+		return true, fmt.Sprintf("dream evaluation failed: %v", err), nil
+	}
+	// Attribute the check's cost (KERNEL-PERF-01): the clone, then the
+	// evaluation split into store preparation and the engine's fixpoint.
+	if ev := clone.LastEvaluation(); logging.IsDebugMode() {
+		logging.DreamDebug("evaluateProjection: clone=%v eval=%s store=%s prepare=%v engine=%v rules=%d strata=%d removed=%d restored=%d fallback=%q",
+			cloneDuration, ev.Mode, ev.StoreKind, ev.PrepareDuration, ev.EngineDuration, ev.Rules, ev.Strata, ev.RemovedFacts, ev.RestoredFacts, ev.ConeFallback)
+	}
+
+	// Ensure panic_state is declared (Fail Closed contract)
+	hasPanicState := false
+	if clone.programInfo != nil && clone.programInfo.Decls != nil {
+		for pred := range clone.programInfo.Decls {
+			if pred.Symbol == "panic_state" {
+				hasPanicState = true
+				break
+			}
+		}
+	}
+	if !hasPanicState {
+		timer.Stop()
+		return true, "dream query failed: panic_state predicate not declared", nil
+	}
+
+	logging.DreamDebug("evaluateProjection: querying panic_state predicate")
+	results, err := clone.Query("panic_state")
+	if err != nil {
+		// Conservative: if we can't query panic_state, we can't prove safety.
+		logging.Get(logging.CategoryDream).Error("evaluateProjection: panic_state query failed: %v", err)
+		timer.Stop()
+		return true, fmt.Sprintf("dream query failed: %v", err), nil
+	}
+
+	logging.DreamDebug("evaluateProjection: found %d panic_state results", len(results))
+	// Every reason, not the first: a block a human approval may lift must be
+	// one whose reasons are ALL liftable (VirtualStore.dreamGate).
+	seen := map[string]bool{}
+	var panics []string
+	for _, fact := range results {
+		if len(fact.Args) == 0 {
+			continue
+		}
+		id, ok := fact.Args[0].(string)
+		if !ok || id != actionID {
+			continue
+		}
+		reason := ""
+		if len(fact.Args) > 1 {
+			reason = types.ExtractString(fact.Args[1])
+		}
+		if !seen[reason] {
+			seen[reason] = true
+			panics = append(panics, reason)
+		}
+	}
+	timer.Stop()
+	if len(panics) > 0 {
+		sort.Strings(panics)
+		reason := strings.Join(panics, ", ")
+		logging.Dream("evaluateProjection: UNSAFE - panic_state detected for %s: %s", actionID, reason)
+		return true, reason, panics
+	}
+	logging.DreamDebug("evaluateProjection: no panic_state detected, action is safe")
+	return false, "", nil
+}
+
+// projectEffects converts an ActionRequest into a set of projected facts.
+func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req ActionRequest) []Fact {
+	logging.DreamDebug("projectEffects: projecting effects for action %s (type=%s, target=%s)", actionID, req.Type, req.Target)
+
+	path := strings.TrimSpace(req.Target)
+	projected := []Fact{
+		{
+			// Counterfactual inputs belong only to the sandbox clone. Asserting
+			// them into the live kernel would let a safety check mutate executive
+			// truth and leak state into later decisions.
+			Predicate: "hypothetical",
+			Args:      []any{fmt.Sprintf("%s:%s", req.Type, req.Target)},
+		},
+		{
+			Predicate: "projected_action",
+			Args: []any{
+				actionID,
+				MangleAtom("/" + string(req.Type)),
+				path,
+			},
+		},
+	}
+
+	switch req.Type {
+	case ActionDeleteFile:
+		logging.DreamDebug("projectEffects: projecting delete_file effects for %s", path)
+		projected = append(projected, Fact{
+			Predicate: "projected_fact",
+			Args: []any{
+				actionID,
+				MangleAtom("/file_missing"),
+				path,
+			},
+		})
+		if prefix := d.criticalPrefix(path); prefix != "" {
+			logging.DreamDebug("projectEffects: critical path detected: %s", prefix)
+			projected = append(projected, Fact{
+				Predicate: "projected_fact",
+				Args: []any{
+					actionID,
+					MangleAtom("/critical_path_hit"),
+					prefix,
+				},
+			})
+		}
+		projected = append(projected, d.codeGraphProjections(kernel, actionID, path)...)
+
+	case ActionWriteFile, ActionEditFile, ActionEditLines, ActionInsertLines, ActionDeleteLines, ActionEditElement,
+		// Campaign writers delegate to the file handlers and land the same
+		// bytes, so they project the same effects. Without this they were
+		// simulated (they are destructive) with generic-only projections and
+		// no /modified fact for panic_state rules to match.
+		ActionCampaignCreateFile, ActionCampaignModifyFile, ActionCampaignWriteTest, ActionCampaignDocument:
+		logging.DreamDebug("projectEffects: projecting file modification effects for %s", path)
+		projected = append(projected, Fact{
+			Predicate: "projected_fact",
+			Args: []any{
+				actionID,
+				MangleAtom("/modified"),
+				path,
+			},
+		})
+		projected = append(projected, Fact{
+			Predicate: "projected_fact",
+			Args: []any{
+				actionID,
+				MangleAtom("/file_exists"),
+				path,
+			},
+		})
+		// Critical prefixes guard against *removal* (schemas_dreamer.mg:
+		// "paths that should never be removed recursively"). Editing a source
+		// file under internal/core or cmd/nerd is ordinary work — codeNERD must
+		// be able to modify its own kernel and CLI — so a modification only
+		// projects a critical hit for the repository's own metadata.
+		if prefix := d.criticalPrefix(path); prefix != "" && criticalForModification(prefix) {
+			logging.DreamDebug("projectEffects: critical path detected: %s", prefix)
+			projected = append(projected, Fact{
+				Predicate: "projected_fact",
+				Args: []any{
+					actionID,
+					MangleAtom("/critical_path_hit"),
+					prefix,
+				},
+			})
+		}
+		projected = append(projected, d.codeGraphProjections(kernel, actionID, path)...)
+
+	case ActionExecCmd, ActionRunCommand, ActionBash, ActionRunBuild, ActionRunTests, ActionExecTool, ActionGitOperation,
+		ActionCampaignRunTest:
+		logging.DreamDebug("projectEffects: projecting exec_cmd effects for command: %s", path)
+		projected = append(projected, Fact{
+			Predicate: "projected_fact",
+			Args: []any{
+				actionID,
+				MangleAtom("/exec_cmd"),
+				path,
+			},
+		})
+		if isDangerousCommand(path) {
+			logging.Dream("projectEffects: DANGEROUS COMMAND detected: %s", path)
+			projected = append(projected, Fact{
+				Predicate: "projected_fact",
+				Args: []any{
+					actionID,
+					MangleAtom("/exec_danger"),
+					path,
+				},
+			})
+		}
+
+	default:
+		logging.DreamDebug("projectEffects: no special projections for action type %s", req.Type)
+	}
+
+	logging.DreamDebug("projectEffects: generated %d projected facts", len(projected))
+	return projected
+}
+
+// codeGraphProjections emits projections based on the code graph for a file path:
+// - touches_symbol(Symbol)
+// - impacts_test(TestSymbol) when a touched symbol is called by a test
+func (d *Dreamer) codeGraphProjections(kernel *RealKernel, actionID, path string) []Fact {
+	logging.DreamDebug("codeGraphProjections: analyzing code graph for %s", path)
+
+	if kernel == nil {
+		logging.DreamDebug("codeGraphProjections: no kernel, skipping")
+		return nil
+	}
+
+	// Lock kernel for direct store access to avoid O(N) allocations in QueryCallback
+	kernel.mu.RLock()
+	defer kernel.mu.RUnlock()
+
+	programInfo := kernel.programInfo
+	if programInfo == nil {
+		return nil
+	}
+
+	// Find code_defines predicate
+	var codeDefinesPred ast.PredicateSym
+	foundDefines := false
+	for pred := range programInfo.Decls {
+		// code_defines is currently declared as /5 (File, Symbol, Type, StartLine, EndLine).
+		// Be tolerant of older arities to avoid schema drift breakage.
+		if pred.Symbol == "code_defines" && (pred.Arity == 5 || pred.Arity == 2) {
+			codeDefinesPred = pred
+			foundDefines = true
+			break
+		}
+	}
+
+	if !foundDefines {
+		logging.DreamDebug("codeGraphProjections: code_defines predicate not found")
+		return nil
+	}
+
+	symbolsInFile := make(map[string]bool)
+	testSymbols := make(map[string]bool)
+
+	// OPTIMIZATION: Direct store access avoids converting every fact to Go types.
+	// We iterate ast.Atom directly and filter using fast checks.
+	pathClean := filepath.Clean(path)
+
+	err := kernel.store.GetFacts(ast.NewQuery(codeDefinesPred), func(a ast.Atom) error {
+		if len(a.Args) < 2 {
+			return nil
+		}
+
+		// Check file (arg 0)
+		fileTerm := a.Args[0]
+		fileStr, ok := fastTermToString(fileTerm)
+		if !ok {
+			return nil
+		}
+
+		// Check if file matches target path
+		if filepath.Clean(fileStr) == pathClean {
+			if sym, ok := fastTermToString(a.Args[1]); ok {
+				symbolsInFile[sym] = true
+			}
+		}
+
+		// Check if file is a test file
+		if strings.Contains(fileStr, "_test.go") {
+			if sym, ok := fastTermToString(a.Args[1]); ok {
+				testSymbols[sym] = true
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		logging.DreamDebug("codeGraphProjections: error querying code_defines: %v", err)
+	}
+
+	if len(symbolsInFile) == 0 {
+		logging.DreamDebug("codeGraphProjections: no symbols found in file %s", path)
+		return nil
+	}
+
+	logging.DreamDebug("codeGraphProjections: found %d symbols in file %s", len(symbolsInFile), path)
+
+	// Build projected facts
+	var projected []Fact
+	for sym := range symbolsInFile {
+		projected = append(projected, Fact{
+			Predicate: "projected_fact",
+			Args: []any{
+				actionID,
+				MangleAtom("/touches_symbol"),
+				sym,
+			},
+		})
+	}
+
+	// Find code_calls predicate
+	var codeCallsPred ast.PredicateSym
+	foundCalls := false
+	for pred := range programInfo.Decls {
+		if pred.Symbol == "code_calls" && pred.Arity == 2 {
+			codeCallsPred = pred
+			foundCalls = true
+			break
+		}
+	}
+
+	if !foundCalls {
+		logging.DreamDebug("codeGraphProjections: code_calls predicate not found")
+		return projected
+	}
+
+	// Stream code_calls to find impacts
+	impactedTests := 0
+	err = kernel.store.GetFacts(ast.NewQuery(codeCallsPred), func(a ast.Atom) error {
+		if len(a.Args) != 2 {
+			return nil
+		}
+
+		// Check callee (arg 1) first as filter
+		calleeStr, ok := fastTermToString(a.Args[1])
+		if !ok || !symbolsInFile[calleeStr] {
+			return nil
+		}
+
+		// Check caller (arg 0)
+		callerStr, ok := fastTermToString(a.Args[0])
+		if !ok {
+			return nil
+		}
+
+		// Check if caller is a test symbol
+		if testSymbols[callerStr] {
+			impactedTests++
+			projected = append(projected, Fact{
+				Predicate: "projected_fact",
+				Args: []any{
+					actionID,
+					MangleAtom("/impacts_test"),
+					callerStr,
+				},
+			})
+		}
+		return nil
+	})
+
+	if err != nil {
+		logging.DreamDebug("codeGraphProjections: error querying code_calls: %v", err)
+	}
+
+	if impactedTests > 0 {
+		logging.DreamDebug("codeGraphProjections: detected %d impacted tests", impactedTests)
+	}
+
+	logging.DreamDebug("codeGraphProjections: returning %d total projections", len(projected))
+	return projected
+}
+
+// isDangerousCommand flags obviously destructive commands.
+// It normalizes whitespace to prevent bypass via extra spaces/tabs
+// and checks comprehensive patterns including flag reordering.
+func isDangerousCommand(cmd string) bool {
+	// Normalize: lowercase + collapse whitespace runs to single space
+	lc := strings.ToLower(cmd)
+	// Replace tabs with spaces first
+	lc = strings.ReplaceAll(lc, "\t", " ")
+	// Collapse multiple spaces into one
+	for strings.Contains(lc, "  ") {
+		lc = strings.ReplaceAll(lc, "  ", " ")
+	}
+	lc = strings.TrimSpace(lc)
+
+	dangerous := []string{
+		// rm variants: -rf, -fr, -r -f, -f -r, plus --recursive --force
+		"rm -rf",
+		"rm -fr",
+		"rm -r -f",
+		"rm -f -r",
+		"rm -r",
+		"rm --recursive",
+		"rm --force",
+		// git reset
+		"git reset --hard",
+		// terraform
+		"terraform destroy",
+		// dd
+		"dd if=",
+		// format/wipe
+		"mkfs.",
+		"format c:",
+		// chmod/chown -R on root
+		"chmod -r 777 /",
+		"chown -r",
+	}
+	for _, token := range dangerous {
+		if strings.Contains(lc, token) {
+			return true
+		}
+	}
+	return false
+}
+
+// criticalPrefix returns the critical entry path falls under, or "". The
+// match is segment-aware: "internal/core/kernel.go" and
+// "C:/repo/internal/core/kernel.go" hit "internal/core", "internal/corex/a.go"
+// does not; a glob entry ("*.mg") matches by name.
+func (d *Dreamer) criticalPrefix(path string) string {
+	if d == nil {
+		return ""
+	}
+	prefix, _ := projectdoc.MatchPaths(d.critical, path)
+	return prefix
+}
+
+// criticalForModification reports whether writing or editing under a critical
+// prefix is itself catastrophic. Only the repository's own metadata qualifies:
+// a write into .git corrupts history. Source trees and .nerd are protected
+// against removal by criticalPrefix, and .nerd's sensitive files by the
+// session write guards — a modification there is legitimate work.
+func criticalForModification(prefix string) bool {
+	return prefix == ".git"
+}
+
+// toString converts a fact argument to string, handling MangleAtom.
+func toString(arg any) string {
+	switch v := arg.(type) {
+	case string:
+		return v
+	case MangleAtom:
+		return string(v)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// fastTermToString extracts a string from a BaseTerm if it's a name or string constant.
+// This avoids interface conversion and allocation for non-matching types.
+func fastTermToString(term ast.BaseTerm) (string, bool) {
+	if c, ok := term.(ast.Constant); ok {
+		if c.Type == ast.NameType || c.Type == ast.StringType {
+			return c.Symbol, true
+		}
+	}
+	return "", false
+}

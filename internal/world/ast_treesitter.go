@@ -1,0 +1,829 @@
+package world
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"codenerd/internal/logging"
+
+	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/golang"
+	"github.com/smacker/go-tree-sitter/javascript"
+	"github.com/smacker/go-tree-sitter/python"
+	"github.com/smacker/go-tree-sitter/rust"
+	"github.com/smacker/go-tree-sitter/typescript/typescript"
+)
+
+// TreeSitterParser handles AST parsing using tree-sitter
+type TreeSitterParser struct {
+	goParser     *sitter.Parser
+	pythonParser *sitter.Parser
+	rustParser   *sitter.Parser
+	jsParser     *sitter.Parser
+	tsParser     *sitter.Parser
+}
+
+// NewTreeSitterParser creates a new tree-sitter parser
+func NewTreeSitterParser() *TreeSitterParser {
+	logging.WorldDebug("Creating new TreeSitterParser")
+	return &TreeSitterParser{
+		goParser:     sitter.NewParser(),
+		pythonParser: sitter.NewParser(),
+		rustParser:   sitter.NewParser(),
+		jsParser:     sitter.NewParser(),
+		tsParser:     sitter.NewParser(),
+	}
+}
+
+// Close releases resources held by the parser
+func (p *TreeSitterParser) Close() {
+	logging.WorldDebug("Closing TreeSitterParser")
+	p.goParser.Close()
+	p.pythonParser.Close()
+	p.rustParser.Close()
+	p.jsParser.Close()
+	p.tsParser.Close()
+}
+
+// ParseGo parses Go code using tree-sitter
+func (p *TreeSitterParser) ParseGo(path string, content []byte) ([]Fact, error) {
+	start := time.Now()
+	logging.WorldDebug("TreeSitter: parsing Go file: %s (%d bytes)", filepath.Base(path), len(content))
+
+	p.goParser.SetLanguage(golang.GetLanguage())
+	tree, err := p.goParser.ParseCtx(context.Background(), nil, content)
+	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("TreeSitter: Go parse failed: %s - %v", path, err)
+		return nil, err
+	}
+	defer tree.Close()
+
+	var facts []Fact
+	root := tree.RootNode()
+
+	// Walk the tree and extract symbols
+	facts = append(facts, p.extractGoSymbols(root, path, string(content))...)
+
+	logging.WorldDebug("TreeSitter: Go parsed %s - %d facts in %v", filepath.Base(path), len(facts), time.Since(start))
+	return facts, nil
+}
+
+// childOfType returns the first named child of n with the given node type, or
+// nil. Tree-sitter distinguishes a node's TYPE from the FIELD its parent binds
+// it to, and a grammar is free to give a child a type and no field —
+// package_clause -> package_identifier is exactly that shape. Asking
+// ChildByFieldName for a type name is not an error; it is a silent nil, which
+// is how a whole extraction branch went dead without anything failing.
+func childOfType(n *sitter.Node, want string) *sitter.Node {
+	for i := 0; i < int(n.NamedChildCount()); i++ {
+		if c := n.NamedChild(i); c != nil && c.Type() == want {
+			return c
+		}
+	}
+	return nil
+}
+
+// extractGoSymbols walks the Go AST and extracts symbols
+func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content string) []Fact {
+	var facts []Fact
+
+	// Helper to get node text
+	getText := func(n *sitter.Node) string {
+		return n.Content([]byte(content))
+	}
+
+	// Recursive walker
+	var walk func(*sitter.Node)
+	walk = func(n *sitter.Node) {
+		nodeType := n.Type()
+
+		switch nodeType {
+		case "package_clause":
+			// package_identifier is a node TYPE, not a field name, so
+			// ChildByFieldName("package_identifier") returned nil on every Go
+			// file ever parsed and this branch never emitted a single fact.
+			// The tree-sitter Go grammar gives package_clause an unnamed
+			// "package" keyword child followed by the identifier, and names
+			// neither, so the identifier has to be found by type.
+			nameNode := childOfType(n, "package_identifier")
+			if nameNode != nil {
+				name := getText(nameNode)
+				id := fmt.Sprintf("package:%s", name)
+				facts = append(facts, Fact{
+					Predicate: "symbol_graph",
+					Args:      []any{id, "/package", "/public", path, fmt.Sprintf("package %s", name)},
+				})
+				// file_package is the same clause as a file key: the test-impact
+				// chain (test_impact.mg test_func_package) and coder_impact.mg's
+				// cross-package check join File against code_element's file slot,
+				// so path here must stay the canonical identity every caller
+				// passes in. Test files skip this walker in the fast scans, and
+				// their row comes from goTestFileHeaderFacts with this spelling.
+				facts = append(facts, Fact{
+					Predicate: "file_package",
+					Args:      []any{path, name},
+				})
+			}
+
+		case "function_declaration":
+			nameNode := n.ChildByFieldName("name")
+			if nameNode != nil {
+				name := getText(nameNode)
+				id := fmt.Sprintf("func:%s", name)
+
+				paramsNode := n.ChildByFieldName("parameters")
+				resultNode := n.ChildByFieldName("result")
+				var sigBuilder strings.Builder
+				sigBuilder.WriteString("func ")
+				sigBuilder.WriteString(name)
+				if paramsNode != nil {
+					sigBuilder.WriteString(getText(paramsNode))
+				}
+				if resultNode != nil {
+					sigBuilder.WriteString(" ")
+					sigBuilder.WriteString(getText(resultNode))
+				}
+				signature := sigBuilder.String()
+
+				visibility := "private"
+				if len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z' {
+					visibility = "public"
+				}
+
+				facts = append(facts, Fact{
+					Predicate: "symbol_graph",
+					Args:      []any{id, "/function", "/" + strings.TrimPrefix(visibility, "/"), path, signature},
+				})
+			}
+
+		case "method_declaration":
+			nameNode := n.ChildByFieldName("name")
+			receiverNode := n.ChildByFieldName("receiver")
+			if nameNode != nil && receiverNode != nil {
+				name := getText(nameNode)
+				receiver := getText(receiverNode)
+				id := fmt.Sprintf("method:%s.%s", receiver, name)
+
+				paramsNode := n.ChildByFieldName("parameters")
+				resultNode := n.ChildByFieldName("result")
+				var sigBuilder strings.Builder
+				sigBuilder.WriteString("func ")
+				sigBuilder.WriteString(receiver)
+				sigBuilder.WriteString(" ")
+				sigBuilder.WriteString(name)
+				if paramsNode != nil {
+					sigBuilder.WriteString(getText(paramsNode))
+				}
+				if resultNode != nil {
+					sigBuilder.WriteString(" ")
+					sigBuilder.WriteString(getText(resultNode))
+				}
+				signature := sigBuilder.String()
+
+				visibility := "private"
+				if len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z' {
+					visibility = "public"
+				}
+
+				facts = append(facts, Fact{
+					Predicate: "symbol_graph",
+					Args:      []any{id, "/method", "/" + strings.TrimPrefix(visibility, "/"), path, signature},
+				})
+			}
+
+		case "type_declaration":
+			for i := 0; i < int(n.NamedChildCount()); i++ {
+				spec := n.NamedChild(i)
+				if spec.Type() == "type_spec" {
+					nameNode := spec.ChildByFieldName("name")
+					typeNode := spec.ChildByFieldName("type")
+
+					if nameNode != nil {
+						name := getText(nameNode)
+						kind := "type"
+						signature := fmt.Sprintf("type %s", name)
+						visibility := "private"
+						if len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z' {
+							visibility = "public"
+						}
+
+						// Struct fields and interface methods are emitted as individual
+						// facts below rather than accumulated here. Two slices used to
+						// collect them and were never read.
+
+						if typeNode != nil {
+							if typeNode.Type() == "struct_type" {
+								kind = "struct"
+								signature += " struct"
+								// Extract fields
+								block := typeNode.ChildByFieldName("fields")
+								if block != nil {
+									for j := 0; j < int(block.NamedChildCount()); j++ {
+										fieldDecl := block.NamedChild(j)
+										if fieldDecl.Type() == "field_declaration" {
+											fieldNameNode := fieldDecl.ChildByFieldName("name")
+											fieldTypeNode := fieldDecl.ChildByFieldName("type")
+											var fieldName, fieldType string
+											if fieldNameNode != nil {
+												fieldName = getText(fieldNameNode)
+											}
+											if fieldTypeNode != nil {
+												fieldType = getText(fieldTypeNode)
+											}
+											if fieldName != "" {
+												// Emit field fact
+												fieldID := fmt.Sprintf("field:%s.%s", name, fieldName)
+												fieldVis := "private"
+												if len(fieldName) > 0 && fieldName[0] >= 'A' && fieldName[0] <= 'Z' {
+													fieldVis = "public"
+												}
+												facts = append(facts, Fact{
+													Predicate: "symbol_graph",
+													Args:      []any{fieldID, "/field", "/" + strings.TrimPrefix(fieldVis, "/"), path, fmt.Sprintf("%s %s", fieldName, fieldType)},
+												})
+											}
+										}
+									}
+								}
+							} else if typeNode.Type() == "interface_type" {
+								kind = "interface"
+								signature += " interface"
+								// Extract methods
+								// methods are direct children of interface_type
+								for j := 0; j < int(typeNode.NamedChildCount()); j++ {
+									methodSpec := typeNode.NamedChild(j)
+									if methodSpec.Type() == "method_spec" {
+										methodNameNode := methodSpec.ChildByFieldName("name")
+										paramsNode := methodSpec.ChildByFieldName("parameters")
+										resultNode := methodSpec.ChildByFieldName("result")
+
+										if methodNameNode != nil {
+											methodName := getText(methodNameNode)
+											var paramsText, resultText string
+											if paramsNode != nil {
+												paramsText = getText(paramsNode)
+											}
+											if resultNode != nil {
+												resultText = getText(resultNode)
+											}
+
+											var sb strings.Builder
+											sb.Grow(len(methodName) + len(paramsText) + len(resultText) + 1)
+											sb.WriteString(methodName)
+											if paramsText != "" {
+												sb.WriteString(paramsText)
+											}
+											if resultText != "" {
+												sb.WriteString(" ")
+												sb.WriteString(resultText)
+											}
+											methodSig := sb.String()
+											// Emit interface method fact
+											methodID := fmt.Sprintf("iface_method:%s.%s", name, methodName)
+											methodVis := "private"
+											if len(methodName) > 0 && methodName[0] >= 'A' && methodName[0] <= 'Z' {
+												methodVis = "public"
+											}
+											facts = append(facts, Fact{
+												Predicate: "symbol_graph",
+												Args:      []any{methodID, "/interface_method", "/" + strings.TrimPrefix(methodVis, "/"), path, methodSig},
+											})
+										}
+									}
+								}
+							}
+						}
+
+						id := fmt.Sprintf("%s:%s", kind, name)
+						facts = append(facts, Fact{
+							Predicate: "symbol_graph",
+							Args:      []any{id, "/" + strings.TrimPrefix(kind, "/"), "/" + strings.TrimPrefix(visibility, "/"), path, signature},
+						})
+					}
+				}
+			}
+
+		case "import_declaration":
+			// A grouped `import ( ... )` nests its specs one level deeper, in an
+			// import_spec_list. Only scanning the declaration's direct children
+			// (as this did) therefore found imports solely in the rare
+			// single-line `import "x"` form, so almost every Go file in a real
+			// repo contributed no dependency_link at all.
+			var collectSpecs func(*sitter.Node)
+			collectSpecs = func(parent *sitter.Node) {
+				for i := 0; i < int(parent.NamedChildCount()); i++ {
+					child := parent.NamedChild(i)
+					switch child.Type() {
+					case "import_spec":
+						if pathNode := child.ChildByFieldName("path"); pathNode != nil {
+							importPath := strings.Trim(getText(pathNode), "\"")
+							facts = append(facts, Fact{
+								Predicate: "dependency_link",
+								Args:      []any{path, fmt.Sprintf("pkg:%s", importPath), importPath},
+							})
+						}
+					case "import_spec_list":
+						collectSpecs(child)
+					}
+				}
+			}
+			collectSpecs(n)
+		}
+
+		for i := 0; i < int(n.ChildCount()); i++ {
+			walk(n.Child(i))
+		}
+	}
+
+	walk(node)
+	return facts
+}
+
+// ParsePython parses Python code using tree-sitter
+func (p *TreeSitterParser) ParsePython(path string, content []byte) ([]Fact, error) {
+	start := time.Now()
+	logging.WorldDebug("TreeSitter: parsing Python file: %s (%d bytes)", filepath.Base(path), len(content))
+
+	p.pythonParser.SetLanguage(python.GetLanguage())
+	tree, err := p.pythonParser.ParseCtx(context.Background(), nil, content)
+	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("TreeSitter: Python parse failed: %s - %v", path, err)
+		return nil, err
+	}
+	defer tree.Close()
+
+	var facts []Fact
+	root := tree.RootNode()
+
+	facts = append(facts, p.extractPythonSymbols(root, path, string(content))...)
+	logging.WorldDebug("TreeSitter: Python parsed %s - %d facts in %v", filepath.Base(path), len(facts), time.Since(start))
+	return facts, nil
+}
+
+// extractPythonSymbols walks the Python AST and extracts symbols
+func (p *TreeSitterParser) extractPythonSymbols(node *sitter.Node, path, content string) []Fact {
+	var facts []Fact
+	getText := func(n *sitter.Node) string { return n.Content([]byte(content)) }
+
+	var walk func(*sitter.Node)
+	walk = func(n *sitter.Node) {
+		nodeType := n.Type()
+
+		switch nodeType {
+		case "class_definition":
+			nameNode := n.ChildByFieldName("name")
+			if nameNode != nil {
+				name := getText(nameNode)
+				id := fmt.Sprintf("class:%s", name)
+				// The header, body excluded, with no length cut. A 100-character
+				// slice stored "..." in the signature slot, so two long bases
+				// became one symbol_graph fact. The slot is a /string; the
+				// kernel ceiling, not a prefix, bounds how large a fact may be.
+				signature := pythonClassSignature(n, content)
+				visibility := "public"
+				if strings.HasPrefix(name, "_") {
+					visibility = "protected"
+				}
+				if strings.HasPrefix(name, "__") {
+					visibility = "private"
+				}
+
+				facts = append(facts, Fact{
+					Predicate: "symbol_graph",
+					Args:      []any{id, "/class", "/" + strings.TrimPrefix(visibility, "/"), path, signature},
+				})
+			}
+		case "function_definition":
+			nameNode := n.ChildByFieldName("name")
+			if nameNode != nil {
+				name := getText(nameNode)
+				id := fmt.Sprintf("func:%s", name)
+				paramsNode := n.ChildByFieldName("parameters")
+
+				var paramsText string
+				if paramsNode != nil {
+					paramsText = getText(paramsNode)
+				}
+
+				var sb strings.Builder
+				sb.Grow(4 + len(name) + len(paramsText))
+				sb.WriteString("def ")
+				sb.WriteString(name)
+				if paramsText != "" {
+					sb.WriteString(paramsText)
+				}
+				signature := sb.String()
+				visibility := "public"
+				if strings.HasPrefix(name, "_") {
+					visibility = "protected"
+				}
+				if strings.HasPrefix(name, "__") {
+					visibility = "private"
+				}
+
+				facts = append(facts, Fact{
+					Predicate: "symbol_graph",
+					Args:      []any{id, "/function", "/" + strings.TrimPrefix(visibility, "/"), path, signature},
+				})
+			}
+		case "import_statement", "import_from_statement":
+			for i := 0; i < int(n.NamedChildCount()); i++ {
+				child := n.NamedChild(i)
+				if child.Type() == "dotted_name" {
+					moduleName := getText(child)
+					facts = append(facts, Fact{
+						Predicate: "dependency_link",
+						Args:      []any{path, fmt.Sprintf("mod:%s", moduleName), moduleName},
+					})
+				}
+			}
+		}
+
+		for i := 0; i < int(n.ChildCount()); i++ {
+			walk(n.Child(i))
+		}
+	}
+	walk(node)
+	return facts
+}
+
+// pythonClassSignature is the class header, body excluded.
+//
+// symbol_graph's Signature slot is a string. The previous cut kept 100
+// characters and wrote "...", so two classes with a long shared base list
+// stored the same signature. The header is kept whole; the kernel's fact
+// ceiling is what refuses a fact that does not fit.
+func pythonClassSignature(n *sitter.Node, content string) string {
+	if n == nil {
+		return ""
+	}
+	start := int(n.StartByte())
+	end := int(n.EndByte())
+	if body := n.ChildByFieldName("body"); body != nil {
+		if b := int(body.StartByte()); b >= start {
+			end = b
+		}
+	}
+	if start < 0 || end < start || end > len(content) {
+		return ""
+	}
+	return strings.TrimSpace(content[start:end])
+}
+
+// ParseRust parses Rust code using tree-sitter
+func (p *TreeSitterParser) ParseRust(path string, content []byte) ([]Fact, error) {
+	start := time.Now()
+	logging.WorldDebug("TreeSitter: parsing Rust file: %s (%d bytes)", filepath.Base(path), len(content))
+
+	p.rustParser.SetLanguage(rust.GetLanguage())
+	tree, err := p.rustParser.ParseCtx(context.Background(), nil, content)
+	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("TreeSitter: Rust parse failed: %s - %v", path, err)
+		return nil, err
+	}
+	defer tree.Close()
+
+	var facts []Fact
+	root := tree.RootNode()
+
+	facts = append(facts, p.extractRustSymbols(root, path, string(content))...)
+	logging.WorldDebug("TreeSitter: Rust parsed %s - %d facts in %v", filepath.Base(path), len(facts), time.Since(start))
+	return facts, nil
+}
+
+// extractRustSymbols walks the Rust AST and extracts symbols
+func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content string) []Fact {
+	var facts []Fact
+	getText := func(n *sitter.Node) string { return n.Content([]byte(content)) }
+	hasPubVisibility := func(n *sitter.Node) bool {
+		for i := 0; i < int(n.ChildCount()); i++ {
+			if n.Child(i).Type() == "visibility_modifier" && getText(n.Child(i)) == "pub" {
+				return true
+			}
+		}
+		return false
+	}
+
+	var walk func(*sitter.Node)
+	walk = func(n *sitter.Node) {
+		nodeType := n.Type()
+
+		switch nodeType {
+		case "function_item":
+			nameNode := n.ChildByFieldName("name")
+			if nameNode != nil {
+				name := getText(nameNode)
+				id := "fn:" + name
+				paramsNode := n.ChildByFieldName("parameters")
+				var sigBuilder strings.Builder
+				sigBuilder.WriteString("fn ")
+				sigBuilder.WriteString(name)
+				if paramsNode != nil {
+					sigBuilder.WriteString(getText(paramsNode))
+				}
+				signature := sigBuilder.String()
+
+				visibility := "private"
+				if hasPubVisibility(n) {
+					visibility = "public"
+				}
+
+				facts = append(facts, Fact{
+					Predicate: "symbol_graph",
+					Args:      []any{id, "/function", "/" + strings.TrimPrefix(visibility, "/"), path, signature},
+				})
+			}
+		case "struct_item":
+			nameNode := n.ChildByFieldName("name")
+			if nameNode != nil {
+				name := getText(nameNode)
+				id := "struct:" + name
+				signature := "struct " + name
+				visibility := "private"
+				if hasPubVisibility(n) {
+					visibility = "public"
+				}
+
+				facts = append(facts, Fact{
+					Predicate: "symbol_graph",
+					Args:      []any{id, "/struct", "/" + strings.TrimPrefix(visibility, "/"), path, signature},
+				})
+			}
+		case "enum_item":
+			nameNode := n.ChildByFieldName("name")
+			if nameNode != nil {
+				name := getText(nameNode)
+				id := "enum:" + name
+				signature := "enum " + name
+				visibility := "private"
+				if hasPubVisibility(n) {
+					visibility = "public"
+				}
+				facts = append(facts, Fact{
+					Predicate: "symbol_graph",
+					Args:      []any{id, "/enum", "/" + strings.TrimPrefix(visibility, "/"), path, signature},
+				})
+			}
+		case "mod_item":
+			nameNode := n.ChildByFieldName("name")
+			if nameNode != nil {
+				name := getText(nameNode)
+				id := fmt.Sprintf("mod:%s", name)
+				signature := fmt.Sprintf("mod %s", name)
+				visibility := "private"
+				if hasPubVisibility(n) {
+					visibility = "public"
+				}
+				facts = append(facts, Fact{
+					Predicate: "symbol_graph",
+					Args:      []any{id, "/module", "/" + strings.TrimPrefix(visibility, "/"), path, signature},
+				})
+			}
+		case "use_declaration":
+			useTree := n.ChildByFieldName("argument")
+			if useTree != nil {
+				usePath := getText(useTree)
+				parts := strings.Split(usePath, "::")
+				if len(parts) > 0 {
+					crateName := parts[0]
+					facts = append(facts, Fact{
+						Predicate: "dependency_link",
+						Args:      []any{path, fmt.Sprintf("crate:%s", crateName), usePath},
+					})
+				}
+			}
+		}
+		for i := 0; i < int(n.ChildCount()); i++ {
+			walk(n.Child(i))
+		}
+	}
+	walk(node)
+	return facts
+}
+
+// ParseJavaScript parses JavaScript code using tree-sitter
+func (p *TreeSitterParser) ParseJavaScript(path string, content []byte) ([]Fact, error) {
+	start := time.Now()
+	logging.WorldDebug("TreeSitter: parsing JavaScript file: %s (%d bytes)", filepath.Base(path), len(content))
+
+	p.jsParser.SetLanguage(javascript.GetLanguage())
+	tree, err := p.jsParser.ParseCtx(context.Background(), nil, content)
+	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("TreeSitter: JavaScript parse failed: %s - %v", path, err)
+		return nil, err
+	}
+	defer tree.Close()
+
+	var facts []Fact
+	root := tree.RootNode()
+
+	facts = append(facts, p.extractJSSymbols(root, path, string(content))...)
+	logging.WorldDebug("TreeSitter: JavaScript parsed %s - %d facts in %v", filepath.Base(path), len(facts), time.Since(start))
+	return facts, nil
+}
+
+// extractJSSymbols walks the JavaScript AST and extracts symbols
+func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content string) []Fact {
+	var facts []Fact
+	getText := func(n *sitter.Node) string { return n.Content([]byte(content)) }
+	hasExport := func(n *sitter.Node) bool {
+		parent := n.Parent()
+		if parent != nil && parent.Type() == "export_statement" {
+			return true
+		}
+		return false
+	}
+
+	var walk func(*sitter.Node)
+	walk = func(n *sitter.Node) {
+		nodeType := n.Type()
+
+		switch nodeType {
+		case "class_declaration":
+			nameNode := n.ChildByFieldName("name")
+			if nameNode != nil {
+				name := getText(nameNode)
+				id := fmt.Sprintf("class:%s", name)
+				signature := fmt.Sprintf("class %s", name)
+				visibility := "private"
+				if hasExport(n) {
+					visibility = "public"
+				}
+				facts = append(facts, Fact{
+					Predicate: "symbol_graph",
+					Args:      []any{id, "/class", "/" + visibility, path, signature},
+				})
+			}
+		case "function_declaration":
+			nameNode := n.ChildByFieldName("name")
+			if nameNode != nil {
+				name := getText(nameNode)
+				id := fmt.Sprintf("func:%s", name)
+				paramsNode := n.ChildByFieldName("parameters")
+				signature := fmt.Sprintf("function %s", name)
+				if paramsNode != nil {
+					signature += getText(paramsNode)
+				}
+				visibility := "private"
+				if hasExport(n) {
+					visibility = "public"
+				}
+				facts = append(facts, Fact{
+					Predicate: "symbol_graph",
+					Args:      []any{id, "/function", "/" + visibility, path, signature},
+				})
+			}
+		case "lexical_declaration":
+			for i := 0; i < int(n.NamedChildCount()); i++ {
+				child := n.NamedChild(i)
+				if child.Type() == "variable_declarator" {
+					nameNode := child.ChildByFieldName("name")
+					valueNode := child.ChildByFieldName("value")
+					if nameNode != nil && valueNode != nil {
+						if valueNode.Type() == "arrow_function" || valueNode.Type() == "function" {
+							name := getText(nameNode)
+							id := fmt.Sprintf("func:%s", name)
+							signature := fmt.Sprintf("const %s = ...", name)
+							visibility := "private"
+							if hasExport(n) {
+								visibility = "public"
+							}
+							facts = append(facts, Fact{
+								Predicate: "symbol_graph",
+								Args:      []any{id, "/function", "/" + visibility, path, signature},
+							})
+						}
+					}
+				}
+			}
+		case "import_statement":
+			sourceNode := n.ChildByFieldName("source")
+			if sourceNode != nil {
+				source := strings.Trim(getText(sourceNode), "\"'")
+				facts = append(facts, Fact{
+					Predicate: "dependency_link",
+					Args:      []any{path, fmt.Sprintf("mod:%s", source), source},
+				})
+			}
+		}
+		for i := 0; i < int(n.ChildCount()); i++ {
+			walk(n.Child(i))
+		}
+	}
+	walk(node)
+	return facts
+}
+
+// ParseTypeScript parses TypeScript code using tree-sitter
+func (p *TreeSitterParser) ParseTypeScript(path string, content []byte) ([]Fact, error) {
+	start := time.Now()
+	logging.WorldDebug("TreeSitter: parsing TypeScript file: %s (%d bytes)", filepath.Base(path), len(content))
+
+	p.tsParser.SetLanguage(typescript.GetLanguage())
+	tree, err := p.tsParser.ParseCtx(context.Background(), nil, content)
+	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("TreeSitter: TypeScript parse failed: %s - %v", path, err)
+		return nil, err
+	}
+	defer tree.Close()
+
+	var facts []Fact
+	root := tree.RootNode()
+
+	facts = append(facts, p.extractTSSymbols(root, path, string(content))...)
+	logging.WorldDebug("TreeSitter: TypeScript parsed %s - %d facts in %v", filepath.Base(path), len(facts), time.Since(start))
+	return facts, nil
+}
+
+// extractTSSymbols walks the TypeScript AST and extracts symbols
+func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content string) []Fact {
+	var facts []Fact
+	getText := func(n *sitter.Node) string { return n.Content([]byte(content)) }
+	hasExport := func(n *sitter.Node) bool {
+		parent := n.Parent()
+		if parent != nil && parent.Type() == "export_statement" {
+			return true
+		}
+		return false
+	}
+
+	var walk func(*sitter.Node)
+	walk = func(n *sitter.Node) {
+		nodeType := n.Type()
+
+		switch nodeType {
+		case "class_declaration":
+			nameNode := n.ChildByFieldName("name")
+			if nameNode != nil {
+				name := getText(nameNode)
+				id := fmt.Sprintf("class:%s", name)
+				signature := fmt.Sprintf("class %s", name)
+				visibility := "private"
+				if hasExport(n) {
+					visibility = "public"
+				}
+				facts = append(facts, Fact{
+					Predicate: "symbol_graph",
+					Args:      []any{id, "/class", "/" + visibility, path, signature},
+				})
+			}
+		case "function_declaration":
+			nameNode := n.ChildByFieldName("name")
+			if nameNode != nil {
+				name := getText(nameNode)
+				id := fmt.Sprintf("func:%s", name)
+				paramsNode := n.ChildByFieldName("parameters")
+				var sb strings.Builder
+				sb.Grow(9 + len(name))
+				sb.WriteString("function ")
+				sb.WriteString(name)
+				if paramsNode != nil {
+					paramsText := getText(paramsNode)
+					sb.Grow(len(paramsText))
+					sb.WriteString(paramsText)
+				}
+				signature := sb.String()
+				visibility := "private"
+				if hasExport(n) {
+					visibility = "public"
+				}
+				facts = append(facts, Fact{
+					Predicate: "symbol_graph",
+					Args:      []any{id, "/function", "/" + visibility, path, signature},
+				})
+			}
+		case "interface_declaration":
+			nameNode := n.ChildByFieldName("name")
+			if nameNode != nil {
+				name := getText(nameNode)
+				id := fmt.Sprintf("interface:%s", name)
+				signature := fmt.Sprintf("interface %s", name)
+				visibility := "private"
+				if hasExport(n) {
+					visibility = "public"
+				}
+				facts = append(facts, Fact{
+					Predicate: "symbol_graph",
+					Args:      []any{id, "/interface", "/" + visibility, path, signature},
+				})
+			}
+		case "import_statement":
+			sourceNode := n.ChildByFieldName("source")
+			if sourceNode != nil {
+				source := strings.Trim(getText(sourceNode), "\"'")
+				facts = append(facts, Fact{
+					Predicate: "dependency_link",
+					Args:      []any{path, fmt.Sprintf("mod:%s", source), source},
+				})
+			}
+		}
+		for i := 0; i < int(n.ChildCount()); i++ {
+			walk(n.Child(i))
+		}
+	}
+	walk(node)
+	return facts
+}

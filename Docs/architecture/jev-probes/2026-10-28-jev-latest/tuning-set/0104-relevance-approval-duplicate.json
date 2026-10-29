@@ -1,0 +1,115 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "request": "the approval broker opens a second request when the same call arrives twice"
+ },
+ "questions": {
+  "file_0": {
+   "type": "noul",
+   "instructions": {
+    "file": {
+     "head": "package approval\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"strings\"\n\t\"sync\"\n\t\"time\"\n\n\t\"github.com/google/uuid\"\n)\n\n// Options configures a Broker. TTL, PreviewMaxBytes and JournalRetention come\n// from the `approval` section of .nerd/config.json (config.ApprovalPolicy).\ntype Options struct {\n\tTTL              time.Duration\n\tPreviewMaxBytes  int\n\tJournalRetention time.Duration\n\t// JournalPath is where transitions are recorded. Empty keeps the\n\t// lifecycle in memory only (tests, and hosts with no workspace).\n\tJournalPath string\n\t// Now is the clock; nil means time.Now.\n\tNow func() time.Time\n}\n\n// Broker owns every approval request in the process. It is the only writer of\n// request state; the executor holds Grants and the UI holds a Host, and both\n// act only through the broker's checked transitions.\ntype Broker struct {\n\tmu        sync.Mutex\n\topts      Options\n\tnow       func() time.Time\n\tjournal   *journal\n\trequests  map[string]*Request\n\teventSeen map[string]string // decision event ID → request ID\n\thost      *Host\n\t// changed is closed and replaced on every transition, waking every\n\t// waiter to re-read the record it cares about.\n\tchanged chan struct{}\n\tclosed  bool\n\t// autonomous is the operator's standing yolo instruction (autonomy.go):\n\t// Await decides as AutonomyActor instead of asking a person.\n\tautonomous bool\n}\n\n// NewBroker builds a broker, replaying and reconciling its journal when one is\n// configured.\nfunc NewBroker(opts Options) (*Broker, error) {\n\tif opts.TTL \u003c= 0 {\n\t\treturn nil, fmt.Errorf(\"approval request TTL must be positive\")\n\t}\n\tif opts.PreviewMaxBytes \u003c= 0 {\n\t\treturn nil, fmt.Errorf(\"approval preview limit must be positive\")\n\t}\n\tif opts.JournalRetention \u003c= 0 {\n\t\treturn nil, fmt.Errorf(\"approval journal retention must be positive\")\n\t}\n\tnow := opts.Now\n\tif now == nil {\n\t\tnow = time.Now\n\t}\n\tb := \u0026Broker{\n\t\topts:      opts,\n\t\tnow:       now,\n\t\trequests:  map[string]*Request{},\n\t\teventSeen: map[string]string{},\n\t\tchanged:   make(chan struct{}),\n\t}\n\tif opts.JournalPath != \"\" {\n\t\tj, records, err := openJournal(opts.JournalPath, now(), opts.JournalRetention)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tb.journal = j\n\t\tb.requests = records\n\t\tfor _, r := range records {\n\t\t\tif r.Decision != nil {\n\t\t\t\tb.eventSeen[r.Decision.EventID] = r.ID\n\t\t\t}\n\t\t}\n\t}\n\treturn b, nil\n}\n\n// PreviewMaxBytes is the bound a caller builds previews with.\nfunc (b *Broker) PreviewMaxBytes() int { return b.opts.PreviewMaxBytes }\n\n// Close releases the journal. Every waiter is woken and every open request is\n// canceled, so no call stays blocked on a broker that is gone.\nfunc (b *Broker) Close() error {\n\tb.mu.Lock()\n\tdefer b.mu.Unlock()\n\tif b.closed {\n\t\treturn nil\n\t}\n\tfor _, r := range b.requests {\n\t\tif r.Status == StatusAwaitingHuman || r.Status == StatusApproved {\n\t\t\tb.transitionLocked(r, StatusCanceled, \"approval broker closed\")\n\t\t}\n\t}\n\tb.closed = true\n\tb.broadcastLocked()\n\treturn b.journal.close()\n}\n\n// HostAttached reports whether a person can currently be asked. Headles",
+     "head_note": "the first 3000 of 20338 bytes",
+     "path": "internal/approval/broker.go"
+    },
+    "question": "Would reading this file help with `request`?"
+   },
+   "criteria": {
+    "true": "The file holds code, tests or docs the request is about, or code the request would have to change or call.",
+    "false": "The file only shares a word with the request, such as a common name, and is about something else."
+   }
+  },
+  "file_1": {
+   "type": "noul",
+   "instructions": {
+    "file": {
+     "head": "// Package approval is the host-owned human-approval lifecycle: a request that\n// freezes exactly the operation a person reviews, a decision bound to that\n// request's digest, and a one-shot execution claim that the executor takes\n// before dispatching through its ordinary gates.\n//\n// Human consent satisfies one obligation and nothing else. It never bypasses\n// the JIT allowlist, the constitution's content checks, project write\n// protection or the Dreamer preflight: the executor reruns all of them after\n// approval, and the kernel derives permitted/3 from the exact tuple the host\n// asserts (human_approval_granted/5) only while that admission runs. See\n// Docs/audits/request-bound-human-approval.md.\n//\n// Nothing here is reachable from a model. A decision is created only through a\n// Host, which the interactive UI attaches at boot; a tool, a prompt, a file or\n// MCP's confirm_risk flag cannot reach it.\npackage approval\n\nimport (\n\t\"crypto/sha256\"\n\t\"encoding/hex\"\n\t\"encoding/json\"\n\t\"errors\"\n\t\"fmt\"\n\t\"sort\"\n\t\"strings\"\n\t\"time\"\n\t\"unicode/utf8\"\n)\n\n// CanonicalizationVersion names the encoding the request digest is computed\n// over. A request persisted under another version is never reused: replay\n// marks it superseded rather than silently comparing hashes made by different\n// rules.\nconst CanonicalizationVersion = \"approval-request/v1\"\n\n// digestDomain separates request digests from every other sha256 in the\n// process, so a digest of some other structure can never be presented as one.\nconst digestDomain = \"codenerd.approval.request\"\n\n// Status is a request's lifecycle state. Transitions are atomic under the\n// broker's lock and checked against allowedTransitions.\ntype Status string\n\nconst (\n\tStatusAwaitingHuman   Status = \"awaiting_human\"\n\tStatusApproved        Status = \"approved\"\n\tStatusRejected        Status = \"rejected\"\n\tStatusCanceled        Status = \"canceled\"\n\tStatusExpired         Status = \"expired\"\n\tStatusSuperseded      Status = \"superseded\"\n\tStatusReserved        Status = \"reserved\"\n\tStatusAdmissionFailed Status = \"admission_failed\"\n\tStatusDispatchStarted Status = \"dispatch_started\"\n\tStatusCompleted       Status = \"completed\"\n\tStatusOutcomeUnknown  Status = \"outcome_unknown\"\n)\n\n// allowedTransitions is the lifecycle in the doc's §4, with the execution\n// claim folded into the request record: approved → reserved is the claim.\n// Nothing leads back to approved, so a rejected, canceled, expired or\n// superseded request cannot become eligible again by any later event.\nvar allowedTransitions = map[Status][]Status{\n\tStatusAwaitingHuman:   {StatusApproved, StatusRejected, StatusCanceled, StatusExpired, StatusSuperseded},\n\tStatusApproved:        {StatusReserved, StatusExpired, StatusSuperseded, StatusCanceled},\n\tStatusReserved:        {StatusDispatchStarted, StatusAdmissionFailed},\n\tStatusDispatchStarted: {StatusCompleted, StatusOutcomeUnknown},\n}\n\n// Terminal reports whether no further transition is possible.\nfunc (s Status) Terminal() bool {\n\t",
+     "head_note": "the first 3000 of 11427 bytes",
+     "path": "internal/approval/request.go"
+    },
+    "question": "Would reading this file help with `request`?"
+   },
+   "criteria": {
+    "true": "The file holds code, tests or docs the request is about, or code the request would have to change or call.",
+    "false": "The file only shares a word with the request, such as a common name, and is about something else."
+   }
+  },
+  "file_2": {
+   "type": "noul",
+   "instructions": {
+    "file": {
+     "head": "package mangle\n\nimport (\n\t\"codenerd/internal/types\"\n\t\"crypto/sha256\"\n\t\"errors\"\n\t\"fmt\"\n\t\"sort\"\n\t\"strings\"\n\t\"sync\"\n\n\t\"codeberg.org/TauCeti/mangle-go/ast\"\n)\n\n// =============================================================================\n// THE CONSTITUTIONAL GRANT PATH\n// =============================================================================\n// Learning a new predicate is legitimate; learning new authority is not. A\n// learned rule (or fact) that adds facts to permitted/3, or to anything\n// permitted/3 is derived from, widens what the constitution lets through\n// without anyone having written that into the constitution.\n//\n// forbiddenLearnedHeads names seven of those predicates by hand, and until\n// 2026-09-25 that list was the whole defence. It was incomplete: the appeal\n// path in constitution.mg derives permitted from has_active_override, which is\n// derived from appeal_granted and temporary_override, and none of the three was\n// on it. A learned fact such as\n//\n//\tappeal_granted(\"a1\", /exec_cmd, \"x\", \"y\").\n//\n// passed ValidateLearnedRule, compiled in the sandbox, was persisted to\n// learned.mg, and permitted every pending /exec_cmd from then on. The same held\n// for file_recoverable (delete permission) and for the world-model predicates\n// safe_action reads.\n//\n// So the grant path is derived, not listed. GrantPathOf walks the program's\n// rules backwards from each grant root, tracking polarity: a positive premise\n// of a rule whose head can widen a root can widen it too; a negated premise\n// can only narrow it, unless it sits under another negation. A learned rule may\n// define a predicate that narrows a grant (dangerous_action, block_action, a\n// fresh classifier), never one on the grant path. A new rule added to the\n// constitution is covered the moment it is written.\n\n// grantRoots are the predicates whose facts are authority. permitted/3 is the\n// constitutional gate: every action must derive it (default deny).\nvar grantRoots = []string{\"permitted\"}\n\n// grantConsent are premises that stand for an explicit human authorization.\n// A rule that requires one widens its head only with that human's consent, so\n// its other positive premises are not on the grant path through it. The\n// consent predicates themselves always are on the path, so no learned rule or\n// fact can produce one.\n//\n// human_approval_granted is the request-bound approval the host asserts for\n// one exact pending_action (internal/approval); it replaced the action-type\n// signed_approval/admin_override pair on 2026-10-27.\n//\n// Leaving a consent predicate off this list can only protect more, never less:\n// the premises it would have guarded become grant path instead.\nvar grantConsent = map[string]bool{\n\ttypes.HumanApprovalPredicate: true,\n}\n\n// GrantPath maps each predicate whose facts can widen a grant root to the head\n// of the rule through which they do (a root maps to itself).\ntype GrantPath map[string]string\n\n// Contains reports whether pred is on the grant path,",
+     "head_note": "the first 3000 of 7729 bytes",
+     "path": "internal/mangle/grant_path.go"
+    },
+    "question": "Would reading this file help with `request`?"
+   },
+   "criteria": {
+    "true": "The file holds code, tests or docs the request is about, or code the request would have to change or call.",
+    "false": "The file only shares a word with the request, such as a common name, and is about something else."
+   }
+  },
+  "file_3": {
+   "type": "noul",
+   "instructions": {
+    "file": {
+     "head": "package browser\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"net/url\"\n\t\"os\"\n\t\"sort\"\n\t\"strings\"\n\n\tbrowsersecurity \"codenerd/internal/browser/security\"\n)\n\n// AuditFindingKind distinguishes what the audit actually knows. The spec\n// requires observation, inference, skipped work, approval-gated work,\n// execution failure and confirmed contract mismatch to remain separable,\n// so a reader is never left guessing whether a finding was seen or\n// deduced.\ntype AuditFindingKind string\n\nconst (\n\tAuditObservation      AuditFindingKind = \"observation\"\n\tAuditInference        AuditFindingKind = \"inference\"\n\tAuditSkipped          AuditFindingKind = \"skipped\"\n\tAuditApprovalRequired AuditFindingKind = \"approval_required\"\n\tAuditExecutionFailure AuditFindingKind = \"execution_failure\"\n\tAuditContractMismatch AuditFindingKind = \"contract_mismatch\"\n)\n\n// AuditFinding is a classified observation or plan entry from the audit.\ntype AuditFinding struct {\n\tKind    AuditFindingKind\n\tSubject string\n\tDetail  string\n\tSources []string\n}\n\nconst minAuditNeedleLength = 4\nconst maxAuditNeedles = 24\n\nvar auditNoiseSegments = map[string]struct{}{\n\t\"api\":   {},\n\t\"v1\":    {},\n\t\"v2\":    {},\n\t\"www\":   {},\n\t\"http\":  {},\n\t\"https\": {},\n}\n\nfunc isAuditNoise(s string) bool {\n\t_, ok := auditNoiseSegments[s]\n\treturn ok\n}\n\nfunc isNumericOnly(s string) bool {\n\tif s == \"\" {\n\t\treturn false\n\t}\n\tfor _, r := range s {\n\t\tif r \u003c '0' || r \u003e '9' {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn true\n}\n\nfunc shouldDropAuditTerm(term string) bool {\n\tif len(term) \u003c minAuditNeedleLength {\n\t\treturn true\n\t}\n\tif isNumericOnly(term) {\n\t\treturn true\n\t}\n\tif isAuditNoise(term) {\n\t\treturn true\n\t}\n\treturn false\n}\n\nfunc stripQueryFragment(s string) string {\n\tif idx := strings.Index(s, \"?\"); idx != -1 {\n\t\ts = s[:idx]\n\t}\n\tif idx := strings.Index(s, \"#\"); idx != -1 {\n\t\ts = s[:idx]\n\t}\n\treturn s\n}\n\nfunc splitPath(p string) []string {\n\tp = stripQueryFragment(p)\n\tparts := strings.Split(p, \"/\")\n\tvar res []string\n\tfor _, part := range parts {\n\t\tpart = strings.TrimSpace(part)\n\t\tif part == \"\" {\n\t\t\tcontinue\n\t\t}\n\t\tres = append(res, part)\n\t}\n\treturn res\n}\n\nfunc extractURLPath(raw string) string {\n\tu, err := url.Parse(raw)\n\tif err == nil {\n\t\treturn u.Path\n\t}\n\tp := stripQueryFragment(raw)\n\tif idx := strings.Index(p, \"://\"); idx != -1 {\n\t\tafter := p[idx+3:]\n\t\tif slash := strings.Index(after, \"/\"); slash != -1 {\n\t\t\treturn after[slash:]\n\t\t}\n\t\treturn \"\"\n\t}\n\treturn p\n}\n\nfunc pathSegments(raw string) []string {\n\traw = strings.TrimSpace(raw)\n\tif raw == \"\" {\n\t\treturn nil\n\t}\n\tif strings.Contains(raw, \"://\") {\n\t\treturn splitPath(extractURLPath(raw))\n\t}\n\treturn splitPath(raw)\n}\n\nfunc urlPathSegments(raw string) []string {\n\traw = strings.TrimSpace(raw)\n\tif raw == \"\" {\n\t\treturn nil\n\t}\n\tpath := extractURLPath(raw)\n\treturn splitPath(path)\n}\n\n// auditNeedles derives repository search terms from page facts. Terms are\n// deduplicated, lowercased, and filtered: a term shorter than\n// minAuditNeedleLength matches almost every file and would turn a bounded\n// scan into noise, so it is dr",
+     "head_note": "the first 3000 of 9301 bytes",
+     "path": "internal/browser/contract_audit.go"
+    },
+    "question": "Would reading this file help with `request`?"
+   },
+   "criteria": {
+    "true": "The file holds code, tests or docs the request is about, or code the request would have to change or call.",
+    "false": "The file only shares a word with the request, such as a common name, and is about something else."
+   }
+  },
+  "file_4": {
+   "type": "noul",
+   "instructions": {
+    "file": {
+     "head": "package usage\n\nimport (\n\t\"sort\"\n\t\"strings\"\n\t\"sync\"\n)\n\n// Price is the USD cost per one million tokens for a model family.\n//\n// Prices are list prices and change often. They exist to give an operator an\n// order-of-magnitude answer to \"what did this session cost\", not an invoice.\n// TokenCounts.Cost is always an estimate; the provider's billing is the record.\ntype Price struct {\n\tInputPerMTok  float64\n\tOutputPerMTok float64\n\t// CacheReadPerMTok/CacheWritePerMTok price the cached sub-counts of\n\t// input. Zero means \"no separate cache rate on record\": those tokens\n\t// are then priced at the plain input rate, which overestimates rather\n\t// than silently dropping spend.\n\tCacheReadPerMTok  float64\n\tCacheWritePerMTok float64\n}\n\n// CostDetailed prices input split into uncached, cache-read and cache-write\n// parts. cacheRead/cacheWrite are sub-counts of input; any excess over\n// input is clamped so a provider miscount can never price negative tokens.\nfunc (p Price) CostDetailed(input, output, cacheRead, cacheWrite int64) float64 {\n\tif cacheRead \u003c 0 {\n\t\tcacheRead = 0\n\t}\n\tif cacheWrite \u003c 0 {\n\t\tcacheWrite = 0\n\t}\n\tif cacheRead+cacheWrite \u003e input {\n\t\tcacheWrite = max(input-cacheRead, 0)\n\t\tif cacheRead \u003e input {\n\t\t\tcacheRead = input\n\t\t\tcacheWrite = 0\n\t\t}\n\t}\n\treadRate := p.CacheReadPerMTok\n\tif readRate == 0 {\n\t\treadRate = p.InputPerMTok\n\t}\n\twriteRate := p.CacheWritePerMTok\n\tif writeRate == 0 {\n\t\twriteRate = p.InputPerMTok\n\t}\n\tuncached := input - cacheRead - cacheWrite\n\treturn (float64(uncached)/1e6)*p.InputPerMTok +\n\t\t(float64(cacheRead)/1e6)*readRate +\n\t\t(float64(cacheWrite)/1e6)*writeRate +\n\t\t(float64(output)/1e6)*p.OutputPerMTok\n}\n\n// priceTable maps a lowercase model-name prefix to its price. Lookup picks the\n// longest matching prefix, so \"claude-opus-4-5-20260101\" resolves through\n// \"claude-opus-4-5\" rather than the shorter \"claude-opus\".\n//\n// Unknown models resolve to no price and contribute zero cost, which is why\n// Stats reports CostKnown alongside Cost: a $0.00 total means \"nothing priced\",\n// not \"nothing spent\".\nvar priceTable = map[string]Price{\n\t// Anthropic (Haiku 5.5's rate holds for prompts up to 100K tokens; above\n\t// that it is $0.50/$2.50, which this table does not model)\n\t\"claude-fable-5\":   {InputPerMTok: 10, OutputPerMTok: 50.00, CacheReadPerMTok: 1, CacheWritePerMTok: 12.5},\n\t\"claude-opus-5-5\":  {InputPerMTok: 4, OutputPerMTok: 20.00, CacheReadPerMTok: 0.4, CacheWritePerMTok: 5},\n\t\"claude-opus-5\":    {InputPerMTok: 5, OutputPerMTok: 25.00, CacheReadPerMTok: 0.5, CacheWritePerMTok: 6.25},\n\t\"claude-opus-4-8\":  {InputPerMTok: 5, OutputPerMTok: 25.00, CacheReadPerMTok: 0.5, CacheWritePerMTok: 6.25},\n\t\"claude-opus-4-7\":  {InputPerMTok: 5, OutputPerMTok: 25.00, CacheReadPerMTok: 0.5, CacheWritePerMTok: 6.25},\n\t\"claude-opus-4-6\":  {InputPerMTok: 5, OutputPerMTok: 25.00, CacheReadPerMTok: 0.5, CacheWritePerMTok: 6.25},\n\t\"claude-sonnet-5\":  {InputPerMTok: 2, OutputPerMTok: 10.00, CacheReadPerMTok: 0.2, CacheWritePerMTok: 2.5},\n\t\"claude-haiku-5",
+     "head_note": "the first 3000 of 8751 bytes",
+     "path": "internal/usage/pricing.go"
+    },
+    "question": "Would reading this file help with `request`?"
+   },
+   "criteria": {
+    "true": "The file holds code, tests or docs the request is about, or code the request would have to change or call.",
+    "false": "The file only shares a word with the request, such as a common name, and is about something else."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "file_0": {
+   "type": "noul",
+   "noul": 0.95
+  },
+  "file_1": {
+   "type": "noul",
+   "noul": 0.89
+  },
+  "file_2": {
+   "type": "noul",
+   "noul": 0.06
+  },
+  "file_3": {
+   "type": "noul",
+   "noul": 0.1
+  },
+  "file_4": {
+   "type": "noul",
+   "noul": 0.02
+  }
+ },
+ "usage": {
+  "input_tokens": 5360,
+  "output_tokens": 94
+ }
+}
+}

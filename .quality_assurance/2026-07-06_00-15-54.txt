@@ -1,0 +1,144 @@
+# QA Journal Entry
+Date/Time: 2026-07-06 00:15:54 EST
+Module Evaluated: `internal/campaign/orchestrator_phases.go`
+Tests Evaluated: `internal/campaign/orchestrator_phases_test.go`
+
+## Overview
+This QA journal evaluates the `orchestrator_phases.go` module and its associated test suite. The focus is specifically on Boundary Value Analysis and Negative Testing, identifying gaps where the tests only verify the "Happy Path." The analysis evaluates how the module behaves under various edge case vectors: Null/Undefined/Empty values, Type Coercion anomalies (Atom vs. String dissonance), Extreme states (performance scaling), and State Conflicts (Race Conditions and Deadlocks).
+
+## 1. Null/Undefined/Empty Cases
+
+### Analysis of Gaps
+The current test suite verifies the basic behaviors of extracting current phases, checking completeness, and matching eligible tasks. However, it fails to rigorously test nil or empty state boundaries.
+- **`GetCurrentPhase`**: The tests cover a non-existent phase but don't explicitly verify what happens when `o.campaign.Phases` itself is completely nil or an empty slice. The underlying implementation loops over `o.campaign.Phases`. If this is nil, the `range` simply exits safely and returns `nil`. While inherently safe in Go, the absence of an explicit test hides this assumption.
+- **`GetEligibleTasks` and `GetNextTask`**: What happens when the pointer to `phase` passed to these functions is `nil`? The implementation explicitly checks `if phase == nil { return nil }`. However, what if `phase.Tasks` is an empty slice? The system queries the kernel and attempts to iterate. The tests are lacking assertions around an empty task list resulting in 0 matches without panics.
+- **`IsCampaignComplete` and `IsPhaseComplete`**: If `o.campaign.Phases` or `phase.Tasks` is empty, what should the result be? The implementation currently iterates over the elements. If empty, the loops are bypassed, and the functions return `true` immediately (vacuous truth). This may be semantically incorrect if an empty campaign shouldn't be considered "complete".
+
+### System Performant Enough?
+Yes, the underlying Go loops correctly handle nil or empty slices gracefully. However, semantically, an empty campaign defaulting to `true` for `isCampaignComplete()` could cause unexpected orchestration behavior. Tests must define the expected semantic behavior and guard against future refactors inadvertently throwing index panics.
+
+### Expanded Analysis: Null/Undefined/Empty Strings in Data Structures
+A critical oversight in the current testing strategy lies in how the orchestrator handles empty string identifiers (e.g., `""` as an ID).
+If `o.campaign.ID` or a `Phase.ID` is initialized as an empty string, Mangle queries may begin returning matched facts with empty strings, leading to ambiguous states. The Mangle kernel itself does not explicitly disallow empty string atoms unless schemas strongly enforce non-empty invariants, which is not verified at the orchestrator level.
+- **Impact**: If an empty string is propagated to the `HolographicContext`, it could cause path resolution failures or cache collisions in the underlying subsystems.
+- **Recommendations**: Test exactly how `types.ExtractString` interprets nil elements or zero-value atoms. Ensure that functions like `GetCurrentPhase` return a safe zero-value or error when processing empty identifiers.
+
+### Expanded Analysis: Missing Fact Assertions
+What happens when `eligible_task` facts do not explicitly map back to valid Tasks within `phase.Tasks`? The nested loop quietly bypasses unmatched facts. Is this silent dropping intended, or should it trigger a logging warning for "zombie facts" that linger in the Mangle virtual store from previous corrupted state transitions? Testing must inject unmatched facts into the `MockKernel` and ensure the function behaves expectedly without performance penalties.
+
+---
+
+## 2. Type Coercion (Atom vs String Dissonance)
+
+### Analysis of Gaps
+Mangle (the declarative kernel language used in codeNERD) strictly differentiates between Atoms (`/phase_1`) and Strings (`"phase_1"`).
+- **`GetCurrentPhase`**: The kernel returns facts like `current_phase(/phase_1)`. The code invokes `types.ExtractString(facts[0].Args[0])` to extract the ID. The test currently injects a plain Go string (which gets wrapped differently in the mock) as `Args: []any{"/phase_1"}`. If the Mangle kernel is misconfigured or a bug occurs, and it yields an Integer or a complex type for `current_phase`, `ExtractString` may panic or return a corrupted string value.
+- **`GetNextTask` & `GetEligibleTasks`**: Similar to the above, `taskID := types.ExtractString(fact.Args[0])`. The tests do not assert what happens when `Args[0]` contains nested atoms, numbers, or nil values.
+- **`GetCampaignBlockReason`**: The code parses the block reason from `facts[0].Args[1]`. What happens if the Mangle rule defines the block reason as a number (e.g., an error code instead of a descriptive atom)? Does `types.ExtractString` safely coerce this to `"404"` or fail?
+
+### System Performant Enough?
+If `types.ExtractString` relies strictly on type assertions (e.g., `arg.(string)`), passing incorrect Mangle types will result in a Go runtime panic. Given the neuro-symbolic architecture where LLMs could generate hallucinated prompt atoms that influence the kernel's deduced facts, strict type validation (or safe fallbacks returning an empty string) is critical. Testing is missing.
+
+### Expanded Analysis: The Hallucinated Type Attack Vector
+As defined in the project memory guidelines: "The most common AI failure is the 'Atom/String Dissonance'."
+Consider a scenario where an LLM is responsible for deducing an intent or a target resource and it incorrectly outputs `"phase_1"` (a raw string) instead of `/phase_1` (an atom).
+- If the testing suite only utilizes plain Go strings `("phase_1")`, it completely masks the real-world behavior where joins might fail silently because `Atom("phase_1") != String("phase_1")`.
+- **Improvement Needed**: The tests must explicitly construct `ast.Name("phase_1")` vs `ast.String("phase_1")` to simulate these type coercion issues precisely. The test must assert that `GetEligibleTasks` correctly ignores `fact.Args[0]` if it's evaluated as a raw string when an atom is strictly expected, and prevents a runtime panic.
+
+### Expanded Analysis: Implicit Coercions in Event Emission
+When `completePhase` executes `o.emitEvent("phase_completed", phase.ID, "", phase.Name, nil)`, the types are assumed to be safe strings. If `phase.ID` was derived from a corrupted atom containing unescaped sequences or non-UTF-8 bytes, how does the logging subsystem handle this? Test coverage must simulate garbage binary data passed into `phase.ID` and observe whether the event pipeline chokes or safely encodes the output.
+
+---
+
+## 3. Extremes (Frontier-Level Benchmarks, Big Monorepos)
+
+### Analysis of Gaps
+The context of codeNERD involves working with vast repositories ("50 million line monorepos"). This generates massive numbers of facts and tasks within a campaign.
+- **`GetEligibleTasks`**: This function gets *all* eligible facts from the kernel. It then uses an $O(N \times M)$ nested loop to cross-reference `phase.Tasks` ($N$) with `facts` ($M$).
+  ```go
+  for i := range phase.Tasks {
+      for _, fact := range facts {
+          taskID := types.ExtractString(fact.Args[0])
+          if phase.Tasks[i].ID == taskID {
+  ```
+  If a campaign has 100,000 tasks (an Extreme scenario), this nested loop performs $10,000,000,000$ iterations. This will severely degrade performance.
+
+### System Performant Enough?
+No. The current implementation of `GetEligibleTasks` is structurally unsuited for extreme edge cases.
+**Improvement:** The test suite must simulate massive arrays (e.g., `benchmarkGetEligibleTasks` or `TestGetEligibleTasks_Extremes`) to enforce bounded execution times. The underlying implementation should be refactored to populate a `map[string]struct{}` from `facts` (an $O(M)$ operation), and then iterate `phase.Tasks` checking the map (an $O(N)$ operation). This reduces $O(N \times M)$ to $O(N + M)$, ensuring codeNERD remains performant on laptops with 8GB RAM processing large contexts.
+
+### Expanded Analysis: The Token Budget Extinction Event
+When dealing with an Extreme scenario where a phase has 100,000 tasks, the `ContextPager` budget will instantly be exhausted if `phase.Tasks` data is forcefully serialized.
+If `orchestrator.getEligibleTasks()` yields 10,000 eligible tasks, what limits are in place to ensure we do not OOM the Transducer or JIT Prompt compiler? The Orchestrator module must implement a `MaxTasksPerPhase` governor or a hard pagination mechanism. The tests completely lack validation for how the system handles returning 5,000+ eligible tasks—does it silently truncate? Does it paginate? Does it just return all 5,000 and hope downstream memory managers survive?
+
+### Expanded Analysis: Kernel Query Bottlenecks
+In `getCurrentPhase()`, the system queries `current_phase` from the kernel. Mangle is highly efficient, but querying over a factstore that holds a graph of 500,000 interrelated `eligible_task` states may introduce millisecond-level latency. In a tight `JIT Clean Loop` executing 50 times a second, this latency multiplies. Performance tests must measure the precise overhead of `o.kernel.Query("eligible_task")` with a fully saturated factstore, not just an empty test mock.
+
+---
+
+## 4. State Conflicts (Race Conditions and Deadlocks)
+
+### Analysis of Gaps
+The codeNERD system uses concurrent SubAgents and working memory. The `Orchestrator` implements mutexes (`o.mu.Lock()`) to protect `o.campaign.Phases`.
+- **`StartNextPhase`**:
+  ```go
+  o.mu.Lock()
+  defer o.mu.Unlock()
+  // ... loop over phases ...
+  if o.northstarObserver != nil {
+      check, err := o.northstarObserver.OnPhaseStart(...)
+  ```
+  The Orchestrator holds `o.mu` exclusively while invoking a potentially slow, external or asynchronous call `o.northstarObserver.OnPhaseStart`. If `northstarObserver` blocks waiting for a channel, a network request, or attempts to read from the Orchestrator (calling a method that also requests `o.mu.RLock()`), a deadlock will instantly occur.
+- **`CompletePhase`**: Similarly, `completePhase` holds `o.mu.Lock()` while calling `o.northstarObserver.OnPhaseComplete()`, introducing the exact same deadlock/blocking vector.
+
+### System Performant Enough?
+No. State management in concurrent systems is a frequent AI failure mode ("The Forgotten Sender"). Holding a mutex while making external observer calls violates standard concurrent programming hygiene.
+**Improvement:** The tests must explicitly construct a `MockNorthstarObserver` that yields or introduces a delay, and spawn Goroutines attempting to read from the orchestrator concurrently. This will expose the lock contention or deadlock. The implementation must be updated to copy the necessary state under the lock, release the lock, and *then* call the observer.
+
+### Expanded Analysis: Fact Retraction State Dissonance
+Look closely at `CompletePhase` logic:
+```go
+_ = o.kernel.RetractFact(core.Fact{
+    Predicate: "campaign_phase",
+    Args:      []any{phase.ID},
+})
+```
+What if `RetractFact` fails because the factstore is currently locked by a concurrently executing SubAgent or Dreamer simulating an action? The error is completely ignored via `_ =`. If retraction fails, and then an `Assert` happens immediately after, the system will possess TWO contradictory `campaign_phase` facts for the exact same phase. The fixpoint engine will immediately crash or spiral into a logical paradox during the next `JIT Clean Loop`.
+Tests must simulate `RetractFact` failures and verify whether the orchestrator panics, retries, or corrupts the internal state.
+
+### Expanded Analysis: Race Conditions During Cancellation Contexts
+In `StartNextPhase`:
+```go
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+```
+This is a shallow context check. Right after `default:`, `o.kernel.Query("phase_eligible")` runs. If the user sends a `SIGINT` halfway through that kernel query, the execution proceeds, a lock is acquired, facts are mutated, and the `northstarObserver` is triggered, entirely ignoring the cancellation context that might have been tripped a microsecond earlier. Tests must inject a delayed context cancellation to verify that state mutations remain atomic or roll back properly when the execution window is aborted abruptly.
+
+---
+
+## Additional Vector Analyses
+
+### 5. Malicious Prompt Injection (Adversarial Contexts)
+Can an LLM inject a Mangle Fact via the Piggyback protocol that hijacks `next_campaign_task`?
+If the output transducer allows the model to emit a fact like `next_campaign_task(/task_999_root_shell)`, the `Orchestrator.getNextTask` method will obediently read this fact. Although it checks if `task_999` exists in `phase.Tasks`, what if the model *also* managed to inject a task definition?
+Tests need to ensure that the orchestration loop is strictly walled off from the ephemeral `VirtualStore` facts injected by JIT responses.
+
+### 6. SubAgent "Death-Rattle" Events
+If an ephemeral subagent (e.g., `SubAgentTypeEphemeral`) panics and dies, its context is lost. If the subagent died while holding a task lock in `PhaseInProgress`, does the orchestrator have a timeout or heartbeat monitor to reset the task status?
+The test suite completely ignores Task timeouts. There must be an orchestrator sweep test that verifies tasks in `TaskInProgress` state for > 600 seconds are safely marked as `TaskFailed` or reverted to `TaskPending`.
+
+### 7. File System Sync Discrepancies
+Although `orchestrator_phases.go` operates on in-memory representations of Tasks, those tasks often correlate to file artifacts generated by `tools/core/write_file`.
+If `isPhaseComplete` returns true, it assumes all task modifications have been persisted via `fsync`. However, FUSE or NFS filesystems (as explicitly highlighted in memory context) can delay syncs. The orchestrator must not flag a phase as complete and move to the next phase before `d.Sync()` successfully confirms artifact creation, or the next SubAgent will read a stale codebase.
+
+## Final Summary & Action Items
+1. Rewrite `GetEligibleTasks` to eliminate the $O(N \times M)$ loop to prevent catastrophic performance degradation on large-scale brownfield monorepos.
+2. Refactor mutex locking in `StartNextPhase` and `CompletePhase` to avoid executing Northstar observers within critical sections.
+3. Remove error suppression (`_ =`) on `RetractFact` operations to prevent 'ghost facts' from contaminating fixpoint logic.
+4. Introduce robust `MockKernel` implementations in the tests that deliberately return unexpected schema types (float64, maps, nil) to ensure `types.ExtractString` handles failures gracefully instead of triggering Go panics.
+5. Enhance edge-case context checks to ensure subagent cancellations properly halt state mutations mid-function.
+
+End of Extended QA Journal.

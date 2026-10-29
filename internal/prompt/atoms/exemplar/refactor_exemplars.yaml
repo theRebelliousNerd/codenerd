@@ -1,0 +1,47 @@
+# Refactor Exemplars
+# Before/after refactoring examples
+
+- id: "exemplar/refactor/extract_method"
+  category: "exemplar"
+  subcategory: "refactor"
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## EXTRACT METHOD EXEMPLAR
+
+    ### BEFORE
+
+    ```go
+    func ProcessOrder(order *Order) error {
+        // Validate order
+        if order.CustomerID == "" {
+            return errors.New("customer ID required")
+        }
+        if len(order.Items) == 0 {
+            return errors.New("order must have items")
+        }
+        for _, item := range order.Items {
+            if item.Quantity <= 0 {
+                return errors.New("invalid quantity")
+            }
+            if item.Price < 0 {
+                return errors.New("invalid price")
+            }
+        }
+
+        // Calculate total
+        var total float64
+        for _, item := range order.Items {
+            total += float64(item.Quantity) * item.Price
+        }
+        if order.DiscountCode != "" {
+            discount := lookupDiscount(order.DiscountCode)
+            total = total * (1 - discount)
+        }
+        order.Total = total
+
+        // Process payment
+        // ... more code
+    }
+    ```
+

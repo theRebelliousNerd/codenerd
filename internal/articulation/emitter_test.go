@@ -1,0 +1,664 @@
+package articulation
+
+import (
+	"fmt"
+	"strings"
+	"sync"
+	"testing"
+)
+
+func TestResponseProcessor_Process_JSON(t *testing.T) {
+	rp := NewResponseProcessor()
+
+	raw := `{
+	  "control_packet": {
+	    "intent_classification": {
+	      "category": "/query",
+	      "verb": "/explain",
+	      "target": "x",
+	      "constraint": "none",
+	      "confidence": 0.9
+	    },
+	    "mangle_updates": ["a()."],
+	    "memory_operations": []
+	  },
+	  "surface_response": "hello"
+	}`
+
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if res.ParseMethod != "json" {
+		t.Fatalf("ParseMethod = %q, want json", res.ParseMethod)
+	}
+	if res.Surface != "hello" {
+		t.Fatalf("Surface = %q, want hello", res.Surface)
+	}
+	if len(res.Control.MangleUpdates) != 1 {
+		t.Fatalf("MangleUpdates = %d, want 1", len(res.Control.MangleUpdates))
+	}
+}
+
+func TestResponseProcessor_Process_MarkdownWrapped(t *testing.T) {
+	rp := NewResponseProcessor()
+
+	raw := "```json\n" + `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"mangle_updates":[],"memory_operations":[]},"surface_response":"ok"}` + "\n```"
+
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if res.ParseMethod != "json_markdown" && res.ParseMethod != "json" {
+		t.Fatalf("ParseMethod = %q, want json_markdown or json", res.ParseMethod)
+	}
+	if res.Surface != "ok" {
+		t.Fatalf("Surface = %q, want ok", res.Surface)
+	}
+}
+
+func TestResponseProcessor_extractEmbeddedJSON_OrderAgnostic(t *testing.T) {
+	rp := NewResponseProcessor()
+
+	raw := `prefix {"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"mangle_updates":[],"memory_operations":[]},"surface_response":"hi"} suffix`
+
+	env, err := rp.extractEmbeddedJSON(raw)
+	if err != nil {
+		t.Fatalf("extractEmbeddedJSON() error = %v", err)
+	}
+	if env.Surface != "hi" {
+		t.Fatalf("Surface = %q, want hi", env.Surface)
+	}
+}
+
+func TestResponseProcessor_Process_StrictValidation(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.RequireValidJSON = true
+
+	_, err := rp.Process(`{"control_packet":{},"surface_response":"hi"}`)
+	if err == nil {
+		t.Fatal("expected error in strict mode, got nil")
+	}
+}
+
+// The surface is the answer and is never cut by the parser: a long answer is
+// returned whole. The provider's ceiling is the only limit, and the broker
+// sends an answer that hits it back to be restated, so a parser cap would
+// only ever cut an answer that already fit.
+func TestResponseProcessor_Process_SurfaceIsNeverTruncated(t *testing.T) {
+	rp := NewResponseProcessor()
+	long := strings.Repeat("é", 120000)
+	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"mangle_updates":[],"memory_operations":[]},"surface_response":"` + long + `"}`
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if res.Surface != long {
+		t.Fatalf("surface was altered: len=%d want %d", len(res.Surface), len(long))
+	}
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "truncated") {
+			t.Fatalf("a whole answer produced a truncation warning: %q", w)
+		}
+	}
+}
+
+func TestResponseProcessor_ConcurrentStats(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.LogFallbackAsError = false
+	const workers = 64
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			if _, err := rp.Process("plain response"); err != nil {
+				t.Errorf("Process() error = %v", err)
+			}
+			_ = rp.GetStats()
+		}()
+	}
+	wg.Wait()
+
+	stats := rp.GetStats()
+	if stats.TotalProcessed != workers || stats.FallbackParses != workers {
+		t.Fatalf("stats = %+v; want total=%d fallback=%d", stats, workers, workers)
+	}
+}
+
+func TestResponseProcessor_Process_ControlCaps(t *testing.T) {
+	rp := NewResponseProcessor()
+
+	updates := make([]string, 2001)
+	for i := range updates {
+		updates[i] = "a()."
+	}
+	var sb strings.Builder
+	sb.WriteString(`{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"mangle_updates":[`)
+	for i, u := range updates {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(`"` + u + `"`)
+	}
+	sb.WriteString(`],"memory_operations":[]},"surface_response":"ok"}`)
+
+	res, err := rp.Process(sb.String())
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if len(res.Control.MangleUpdates) != 2000 {
+		t.Fatalf("MangleUpdates = %d, want 2000", len(res.Control.MangleUpdates))
+	}
+	foundWarn := false
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "Mangle updates truncated") {
+			foundWarn = true
+			break
+		}
+	}
+	if !foundWarn {
+		t.Fatalf("expected truncation warning, got %v", res.Warnings)
+	}
+}
+
+func FuzzResponseProcessor_Process(f *testing.F) {
+	seeds := []string{
+		`{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"mangle_updates":[],"memory_operations":[]},"surface_response":"ok"}`,
+		"```json\n{\"control_packet\":{},\"surface_response\":\"hi\"}\n```",
+		"noise {\"control_packet\":{},\"surface_response\":\"mixed\"} tail",
+	}
+	for _, s := range seeds {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, raw string) {
+		rp := NewResponseProcessor()
+		rp.RequireValidJSON = false
+		_, _ = rp.Process(raw)
+	})
+}
+
+func TestResponseProcessor_Process_NullFields(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.RequireValidJSON = true
+
+	// JSON with explicit nulls for array/pointer fields
+	raw := `{
+	  "control_packet": {
+	    "intent_classification": {
+	      "category": "/query",
+	      "verb": "/explain",
+	      "target": "x",
+	      "constraint": "none",
+	      "confidence": 0.9
+	    },
+	    "mangle_updates": null,
+	    "memory_operations": null,
+	    "tool_requests": null,
+	    "self_correction": null,
+        "context_feedback": null,
+        "knowledge_requests": null
+	  },
+	  "surface_response": "hello"
+	}`
+
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+
+	if len(res.Control.MangleUpdates) != 0 {
+		t.Errorf("Expected MangleUpdates to be nil or empty, got %v", res.Control.MangleUpdates)
+	}
+	if len(res.Control.MemoryOperations) != 0 {
+		t.Errorf("Expected MemoryOperations to be nil or empty, got %v", res.Control.MemoryOperations)
+	}
+	if len(res.Control.ToolRequests) != 0 {
+		t.Errorf("Expected ToolRequests to be nil or empty, got %v", res.Control.ToolRequests)
+	}
+	if res.Control.SelfCorrection != nil {
+		t.Errorf("Expected SelfCorrection to be nil, got %v", res.Control.SelfCorrection)
+	}
+	if res.Control.ContextFeedback != nil {
+		t.Errorf("Expected ContextFeedback to be nil, got %v", res.Control.ContextFeedback)
+	}
+	if len(res.Control.KnowledgeRequests) != 0 {
+		t.Errorf("Expected KnowledgeRequests to be nil or empty, got %v", res.Control.KnowledgeRequests)
+	}
+
+	if res.Surface != "hello" {
+		t.Errorf("Surface = %q, want hello", res.Surface)
+	}
+}
+
+func TestResponseProcessor_Process_TypeCoercion(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.RequireValidJSON = true
+
+	// Case 1: String for float
+	raw1 := `{
+	  "control_packet": {
+	    "intent_classification": {
+	      "category": "/query",
+	      "verb": "/explain",
+	      "target": "x",
+	      "constraint": "none",
+	      "confidence": "0.9"
+	    },
+	    "mangle_updates": [],
+	    "memory_operations": []
+	  },
+	  "surface_response": "hello"
+	}`
+
+	res1, err := rp.Process(raw1)
+	if err != nil {
+		t.Fatalf("Expected no error for stringified float, got: %v", err)
+	}
+	if res1.Control.IntentClassification.Confidence != 0.9 {
+		t.Errorf("Expected confidence 0.9, got %v", res1.Control.IntentClassification.Confidence)
+	}
+
+	// Case 2: String for array
+	raw2 := `{
+	  "control_packet": {
+	    "intent_classification": {
+	      "category": "/query",
+	      "verb": "/explain",
+	      "target": "x",
+	      "constraint": "none",
+	      "confidence": 0.9
+	    },
+	    "mangle_updates": "a().",
+	    "memory_operations": []
+	  },
+	  "surface_response": "hello"
+	}`
+
+	res2, err := rp.Process(raw2)
+	if err != nil {
+		t.Fatalf("Expected no error for stringified array, got: %v", err)
+	}
+	if len(res2.Control.MangleUpdates) != 1 || res2.Control.MangleUpdates[0] != "a()." {
+		t.Errorf("Expected mangle_updates [a().], got %v", res2.Control.MangleUpdates)
+	}
+
+	// Case 3: Descriptive string for float
+	raw3 := `{
+	  "control_packet": {
+	    "intent_classification": {
+	      "category": "/query",
+	      "verb": "/explain",
+	      "confidence": "high"
+	    }
+	  },
+	  "surface_response": "hello"
+	}`
+	res3, err := rp.Process(raw3)
+	if err != nil {
+		t.Fatalf("Expected no error for descriptive float, got: %v", err)
+	}
+	if res3.Control.IntentClassification.Confidence != 0.9 {
+		t.Errorf("Expected confidence 0.9 for 'high', got %v", res3.Control.IntentClassification.Confidence)
+	}
+
+	// Case 4: Stringified boolean in ToolRequests
+	raw4 := `{
+	  "control_packet": {
+	    "intent_classification": {
+	      "category": "/query",
+	      "verb": "/explain"
+	    },
+	    "tool_requests": [
+	      {
+	        "id": "req_1",
+	        "tool_name": "read_file",
+	        "tool_args": {},
+	        "required": "true"
+	      }
+	    ]
+	  },
+	  "surface_response": "hello"
+	}`
+	res4, err := rp.Process(raw4)
+	if err != nil {
+		t.Fatalf("Expected no error for stringified bool, got: %v", err)
+	}
+	if len(res4.Control.ToolRequests) != 1 || !res4.Control.ToolRequests[0].Required {
+		t.Errorf("Expected ToolRequest Required to be true, got false or missing")
+	}
+}
+
+func TestResponseProcessor_Process_MassiveDecisionSummary(t *testing.T) {
+	rp := NewResponseProcessor()
+
+	// Create a 50MB decision summary
+	massiveTrace := strings.Repeat("A", 50*1024*1024)
+	raw := fmt.Sprintf(`{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"decision_summary":"%s"},"surface_response":"hi"}`, massiveTrace)
+
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+
+	// The model's own output is never cut: the whole trace survives parsing.
+	if res.Control.DecisionSummary != massiveTrace {
+		t.Fatalf("DecisionSummary was altered: len=%d, want %d", len(res.Control.DecisionSummary), len(massiveTrace))
+	}
+}
+
+func TestResponseProcessor_Process_RecursionDepth(t *testing.T) {
+	rp := NewResponseProcessor()
+
+	// Create deeply nested JSON
+	depth := 10000
+	var sb strings.Builder
+	for range depth {
+		sb.WriteString(`{"a":`)
+	}
+	sb.WriteString(`1`)
+	for range depth {
+		sb.WriteString(`}`)
+	}
+
+	// This will likely fail to parse, but shouldn't stack overflow
+	raw := fmt.Sprintf(`{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"decision_summary":%s},"surface_response":"hi"}`, sb.String())
+
+	_, _ = rp.Process(raw) // We just want to ensure it doesn't crash
+}
+
+func TestResponseProcessor_Process_DuplicateKeys(t *testing.T) {
+	rp := NewResponseProcessor()
+
+	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"first","surface_response":"second"}`
+
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if res.Admission != AdmissionAmbiguous {
+		t.Fatalf("a duplicated surface_response must be ambiguous, got admission %q surface %q", res.Admission, res.Surface)
+	}
+}
+
+func TestResponseProcessor_ExtractEmbeddedJSON_CatastrophicBacktracking(t *testing.T) {
+	rp := NewResponseProcessor()
+
+	// Benchmark extractEmbeddedJSON with lots of braces
+	massiveNoise := strings.Repeat("{ } ", 10000)
+	raw := massiveNoise + `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"hi"}` + massiveNoise
+
+	_, err := rp.extractEmbeddedJSON(raw)
+	if err != nil {
+		t.Fatalf("extractEmbeddedJSON() error = %v", err)
+	}
+}
+
+func TestResponseProcessor_ExtractEmbeddedJSON_DecoyInjection(t *testing.T) {
+	rp := NewResponseProcessor()
+
+	// An example envelope before the real one: two complete envelopes, so the
+	// reply is ambiguous rather than resolved by position.
+	raw := `Example: {"control_packet":{"intent_classification":{"category":"/decoy","verb":"/decoy","target":"x","constraint":"none","confidence":1}},"surface_response":"decoy"}
+Real: {"control_packet":{"intent_classification":{"category":"/real","verb":"/real","target":"x","constraint":"none","confidence":1}},"surface_response":"real"}`
+
+	_, err := rp.extractEmbeddedJSON(raw)
+	if _, ok := isAmbiguousEnvelope(err); !ok {
+		t.Fatalf("extractEmbeddedJSON() error = %v, want an ambiguous-envelope error", err)
+	}
+}
+
+func TestResponseProcessor_Process_HallucinatedKeys(t *testing.T) {
+	rpStrict := NewResponseProcessor()
+	rpStrict.RequireValidJSON = true
+
+	// "control_packets" instead of "control_packet"
+	raw := `{"control_packets":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"hi"}`
+
+	_, err := rpStrict.Process(raw)
+	if err == nil {
+		t.Fatalf("Expected strict processor to fail on hallucinated keys")
+	}
+
+	rpLoose := NewResponseProcessor()
+	rpLoose.RequireValidJSON = false
+	res, err := rpLoose.Process(raw)
+	if err != nil {
+		t.Fatalf("Loose processor should not fail")
+	}
+	// In loose mode, it parses successfully but the missing fields are default-zero.
+	if res.ParseMethod != "json" {
+		t.Fatalf("Expected json parsing for loose processor, got %s", res.ParseMethod)
+	}
+	if res.Control.IntentClassification.Category != "" {
+		t.Fatalf("Expected empty category due to hallucinated key, got %q", res.Control.IntentClassification.Category)
+	}
+}
+
+func TestResponseProcessor_ExtractEmbeddedJSON_DOS(t *testing.T) {
+	rp := NewResponseProcessor()
+
+	// Create 10,000 JSON objects that are NOT valid Piggyback Envelopes
+	var sb strings.Builder
+	for range 10000 {
+		sb.WriteString(`{"a": 1} `)
+	}
+	sb.WriteString(`{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"hi"}`)
+
+	// Must not take too long
+	_, err := rp.extractEmbeddedJSON(sb.String())
+	if err != nil {
+		t.Fatalf("extractEmbeddedJSON() error = %v", err)
+	}
+}
+
+func TestResponseProcessor_Process_MalformedHiding(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.RequireValidJSON = false // Allow fallback
+
+	// Real is missing a brace, so it's malformed. Decoy follows it.
+	raw := `Real: {"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"hi"
+Decoy: {"control_packet":{"intent_classification":{"category":"/decoy","verb":"/decoy","target":"x","constraint":"none","confidence":1}},"surface_response":"decoy"}`
+
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+
+	// Because of brace counting, the entire block is seen as one malformed candidate.
+	// It should fallback to parsing the entire text as surface response rather than
+	// getting confused and picking up the decoy.
+	if res.ParseMethod != "fallback" {
+		t.Fatalf("Expected fallback for malformed hiding, got %q", res.ParseMethod)
+	}
+}
+
+func TestResponseProcessor_Process_NonASCII(t *testing.T) {
+	rp := NewResponseProcessor()
+
+	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"decision_summary":"🤔💡"},"surface_response":"こんにちは"}`
+
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+
+	if res.Surface != "こんにちは" {
+		t.Fatalf("Expected Japanese surface, got %q", res.Surface)
+	}
+	if res.Control.DecisionSummary != "🤔💡" {
+		t.Fatalf("Expected Emoji decision summary, got %q", res.Control.DecisionSummary)
+	}
+}
+
+func TestResponseProcessor_ExtractEmbeddedJSON_BraceImbalance(t *testing.T) {
+	rp := NewResponseProcessor()
+
+	raw := strings.Repeat("{", 1000) + `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"hi"}` + strings.Repeat("}", 1000)
+
+	// The scanner may or may not find it depending on how it handles depth.
+	// The goal is just to ensure it doesn't hang/OOM.
+	_, _ = rp.extractEmbeddedJSON(raw)
+}
+
+func TestResponseProcessor_Process_TypeCoercionResilience(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.RequireValidJSON = false
+
+	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":"0.95"}},"surface_response":"hi"}`
+
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Expected process to succeed, got: %v", err)
+	}
+	if res.ParseMethod != "json" {
+		t.Fatalf("Expected json parsing for string-to-float coercion, got %s", res.ParseMethod)
+	}
+	if res.Control.IntentClassification.Confidence != 0.95 {
+		t.Fatalf("Expected coerced confidence 0.95, got %v", res.Control.IntentClassification.Confidence)
+	}
+}
+
+func TestResponseProcessor_StrictSchemaUnknownFields(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.RequireValidJSON = true
+
+	// Strict mode with unknown fields inside control_packet
+	raw := `{
+	  "control_packet": {
+	    "intent_classification": {
+	      "category": "/query",
+	      "verb": "/explain"
+	    },
+	    "hacker_injected_field": "exploit"
+	  },
+	  "surface_response": "hello"
+	}`
+
+	_, err := rp.Process(raw)
+	if err == nil {
+		t.Fatal("Expected strict mode to fail with unknown fields, but it succeeded")
+	}
+	if !strings.Contains(err.Error(), "unknown field") {
+		t.Errorf("Expected error to mention unknown field, got: %v", err)
+	}
+}
+
+// TestResponseProcessor_DecisionSummaryReplacesReasoningTrace pins the
+// control packet's rename: decision_summary is read into DecisionSummary, and
+// the retired reasoning_trace is an unknown field that strict mode refuses,
+// with no fallback that still accepts the old name.
+func TestResponseProcessor_DecisionSummaryReplacesReasoningTrace(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.RequireValidJSON = true
+
+	const summary = "Read auth.go before editing because the nil check may already exist."
+	ok := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"decision_summary":"` + summary + `"},"surface_response":"hi"}`
+	res, err := rp.Process(ok)
+	if err != nil {
+		t.Fatalf("decision_summary envelope rejected: %v", err)
+	}
+	if res.Control.DecisionSummary != summary {
+		t.Fatalf("DecisionSummary = %q, want %q", res.Control.DecisionSummary, summary)
+	}
+
+	retired := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"reasoning_trace":"old"},"surface_response":"hi"}`
+	if _, err := rp.Process(retired); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("strict mode must refuse the retired reasoning_trace field, got err=%v", err)
+	}
+	if !strings.Contains(PiggybackEnvelopeSchema, `"decision_summary"`) || strings.Contains(PiggybackEnvelopeSchema, "reasoning_trace") {
+		t.Fatal("PiggybackEnvelopeSchema must name decision_summary and not reasoning_trace")
+	}
+}
+
+// TODO: Scenario: Explicit Null Surface Response
+// TODO: Scenario: Empty String Surface Response
+// TODO: Scenario: Missing Surface Response Key
+// TODO: Scenario: Null Control Packet
+// TODO: Scenario: Empty Object Control Packet
+// TODO: Scenario: Null Intent Classification
+// TODO: Scenario: Empty Intent Category
+// TODO: Scenario: Null Mangle Updates
+// TODO: Scenario: Empty Array Mangle Updates
+// TODO: Scenario: Empty String in Mangle Updates
+// TODO: Scenario: Null Memory Operations
+// TODO: Scenario: Empty String Payload
+// TODO: Scenario: Whitespace Only Payload
+// TODO: Scenario: Null Bytes Injection
+// TODO: Scenario: Undefined Fields
+// TODO: Scenario: Surface Response as Array
+// TODO: Scenario: Surface Response as Object
+// TODO: Scenario: Surface Response as Boolean
+// TODO: Scenario: Surface Response as Number
+// TODO: Scenario: Confidence as Array
+// TODO: Scenario: Confidence as String with Chars
+// TODO: Scenario: Confidence Overflow
+// TODO: Scenario: Category as Number
+// TODO: Scenario: Mangle Updates as String
+// TODO: Scenario: Mangle Updates containing Objects
+// TODO: Scenario: Memory Operations as String
+// TODO: Scenario: Control Packet as Array
+// TODO: Scenario: Nested Stringified JSON
+// TODO: Scenario: Mixed Type Array
+// TODO: Scenario: Scientific Notation in Strings
+// TODO: Scenario: Deeply Nested Decoy Envelopes
+// TODO: Scenario: Catastrophic Backtracking
+// TODO: Scenario: Extreme Payload Length
+// TODO: Scenario: Unbalanced Braces with Quotes
+// TODO: Scenario: Escaped Quote Injection
+// TODO: Scenario: Unicode Bomb
+// TODO: Scenario: Newline Injection
+// TODO: Scenario: Markdown Wrapped Decoy
+// TODO: Scenario: Language Evasion
+// TODO: Scenario: Control Character Flooding
+// TODO: Scenario: Extremely Long Keys
+// TODO: Scenario: Deep Recursion in Arrays
+// TODO: Scenario: Massive Mangle Updates
+// TODO: Scenario: Self-Correction Loop
+// TODO: Scenario: Reasoning Trace Bomb
+// TODO: Scenario: Mutex Contention on Stats
+// TODO: Scenario: Panic Under Lock
+// TODO: Scenario: Concurrent Map Writes
+// TODO: Scenario: Shared Buffer Corruption
+// TODO: Scenario: Race on Configuration
+// TODO: Scenario: Stale Stats Reads
+// TODO: Scenario: Context Cancellation Mid-Parse
+// TODO: Scenario: Goroutine Leaks
+// TODO: Scenario: Global State Mutation
+// TODO: Scenario: OOM Killer Race
+// TODO: Scenario: File Descriptor Exhaustion
+// TODO: Scenario: Cache Poisoning
+// TODO: Scenario: Init Race
+// TODO: Scenario: Stat Overflow
+// TODO: Scenario: Deadlock in Fallback
+// TODO: Scenario: Unclosed Atom
+// TODO: Scenario: Missing Period
+// TODO: Scenario: Invalid Characters in Predicate
+// TODO: Scenario: Excessive Arguments
+// TODO: Scenario: Deeply Nested Terms
+// TODO: Scenario: String Literal Escaping
+// TODO: Scenario: Unicode in Atoms
+// TODO: Scenario: Null Bytes in Atoms
+// TODO: Scenario: Empty Arguments
+// TODO: Scenario: Reserved Words
+// TODO: Scenario: Negative Numbers
+// TODO: Scenario: Floating Point Precision
+// TODO: Scenario: Boolean Values
+// TODO: Scenario: Variables in Updates
+// TODO: Scenario: Anonymous Variables
+// TODO: Scenario: Invalid Operation Type
+// TODO: Scenario: Missing Key
+// TODO: Scenario: Null Value
+// TODO: Scenario: Extreme Value Length
+// TODO: Scenario: Duplicate Keys in Same Payload
+// TODO: Scenario: Conflicting Operations
+// TODO: Scenario: Non-String Keys
+// TODO: Scenario: Complex Values
+// TODO: Scenario: Empty Key
+// TODO: Scenario: Reserved Keys
+// TODO: Scenario: Too Many Operations
+// TODO: Scenario: Cross-Session Memory Access
+// TODO: Scenario: Recursive Memory Values
+// TODO: Scenario: Encoding Issues in Values
+// TODO: Scenario: Concurrent Modifications

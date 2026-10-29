@@ -1,0 +1,616 @@
+// Package main implements an action drift linter for codeNERD.
+//
+// It cross-checks:
+// - Mangle policy-emitted actions (next_action/*_next_action)
+// - Router default route patterns
+// - VirtualStore supported ActionType values
+//
+// Usage:
+//
+//	go run ./cmd/tools/action_linter -mg-root internal/core/defaults -virtual-store internal/core/virtual_store_types.go
+package main
+
+import (
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+
+	"codenerd/internal/shards/system"
+	"codenerd/internal/tools"
+	"codenerd/internal/tools/catalog"
+)
+
+type issueSeverity string
+
+const (
+	severityError   issueSeverity = "error"
+	severityWarning issueSeverity = "warning"
+)
+
+type issue struct {
+	Severity issueSeverity
+	Action   string
+	Message  string
+	Sources  []string
+}
+
+func main() {
+	mgRoot := flag.String("mg-root", "internal/core/defaults", "Root directory to scan for .mg policy files")
+	virtualStoreFile := flag.String("virtual-store", "internal/core/virtual_store_types.go", "Path to internal/core/virtual_store_types.go")
+	failOnWarn := flag.Bool("fail-on-warn", false, "Exit non-zero if warnings are present")
+	warnUnusedExecutors := flag.Bool("warn-unused-executors", true, "Warn when VirtualStore action types are never emitted by policy")
+	exemptFile := flag.String("exempt-file", "", "Optional path to file containing action exemptions (one glob per line, comments with #)")
+	flag.Parse()
+
+	routerRoutes := system.DefaultRouterConfig().DefaultRoutes
+
+	policyActions, err := extractPolicyActions(*mgRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "action_linter: failed to scan mg files: %v\n", err)
+		os.Exit(2)
+	}
+
+	virtualActions, err := extractVirtualStoreActionTypes(*virtualStoreFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "action_linter: failed to parse virtual store actions: %v\n", err)
+		os.Exit(2)
+	}
+
+	exemptions, err := loadExemptions(*exemptFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "action_linter: failed to load exemptions: %v\n", err)
+		os.Exit(2)
+	}
+
+	registeredTools, err := getRegisteredToolNames()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "action_linter: failed to get registered tools: %v\n", err)
+		os.Exit(2)
+	}
+
+	safeActions, err := extractSafeActions(*mgRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "action_linter: failed to scan safe_action: %v\n", err)
+		os.Exit(2)
+	}
+
+	requiresPermission, err := extractRequiresPermission(*mgRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "action_linter: failed to scan requires_permission: %v\n", err)
+		os.Exit(2)
+	}
+	humanApprovable, err := extractHumanApprovable(*mgRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "action_linter: failed to scan human_approvable: %v\n", err)
+		os.Exit(2)
+	}
+
+	issues := lint(policyActions, routerRoutes, virtualActions, *warnUnusedExecutors, exemptions, registeredTools, safeActions, requiresPermission, humanApprovable)
+
+	sort.Slice(issues, func(i, j int) bool {
+		if issues[i].Severity != issues[j].Severity {
+			return issues[i].Severity < issues[j].Severity
+		}
+		if issues[i].Action != issues[j].Action {
+			return issues[i].Action < issues[j].Action
+		}
+		return issues[i].Message < issues[j].Message
+	})
+
+	var errCount, warnCount int
+	for _, it := range issues {
+		switch it.Severity {
+		case severityError:
+			errCount++
+		case severityWarning:
+			warnCount++
+		}
+	}
+
+	fmt.Printf("Actions: policy=%d, virtual_store=%d, router_routes=%d, registered_tools=%d, safe_actions=%d, requires_permission=%d\n", len(policyActions), len(virtualActions), len(routerRoutes), len(registeredTools), len(safeActions), len(requiresPermission))
+	if errCount == 0 && warnCount == 0 {
+		fmt.Println("OK: no issues found")
+		return
+	}
+
+	fmt.Printf("Issues: %d errors, %d warnings\n", errCount, warnCount)
+	for _, it := range issues {
+		loc := it.Action
+		if len(it.Sources) > 0 {
+			loc = fmt.Sprintf("%s (%s)", it.Action, strings.Join(it.Sources, ", "))
+		}
+		fmt.Printf("- %s: %s: %s\n", it.Severity, loc, it.Message)
+	}
+
+	if errCount > 0 || (*failOnWarn && warnCount > 0) {
+		os.Exit(1)
+	}
+}
+
+type actionSources struct {
+	Action     string
+	Sources    []string
+	Predicates map[string]struct{}
+}
+
+type exemptions struct {
+	Patterns []string
+}
+
+func loadExemptions(path string) (exemptions, error) {
+	if strings.TrimSpace(path) == "" {
+		return exemptions{}, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return exemptions{}, err
+	}
+	lines := strings.Split(string(data), "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		trimmed = strings.TrimPrefix(trimmed, "/")
+		out = append(out, trimmed)
+	}
+	return exemptions{Patterns: uniqueSorted(out)}, nil
+}
+
+func (e exemptions) isExempt(action string) bool {
+	if len(e.Patterns) == 0 {
+		return false
+	}
+	action = strings.TrimPrefix(strings.TrimSpace(action), "/")
+	if action == "" {
+		return false
+	}
+	for _, patt := range e.Patterns {
+		patt = strings.TrimPrefix(strings.TrimSpace(patt), "/")
+		if patt == "" {
+			continue
+		}
+		if ok, _ := filepath.Match(patt, action); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func extractPolicyActions(root string) (map[string]actionSources, error) {
+	info, err := os.Stat(root)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("mg-root is not a directory: %s", root)
+	}
+
+	// Executive consumes these predicates in queryNextActions().
+	actionPredicates := map[string]struct{}{
+		"next_action":          {},
+		"tdd_next_action":      {},
+		"campaign_next_action": {},
+		"repair_next_action":   {},
+	}
+
+	// Capture predicate + leading name constant.
+	re := regexp.MustCompile(`(?m)\b(next_action|tdd_next_action|campaign_next_action|repair_next_action)\(\s*(/[^,\s\)]+)`)
+	// Capture action_mapping(/verb, /action) -> /action is a policy-emitted action via next_action(Action) rules.
+	reMapping := regexp.MustCompile(`(?m)\baction_mapping\(\s*/[^,\s\)]+\s*,\s*(/[^,\s\)]+)`)
+
+	out := make(map[string]actionSources)
+	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".mg" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		matches := re.FindAllStringSubmatch(string(data), -1)
+		mappingMatches := reMapping.FindAllStringSubmatch(string(data), -1)
+		if len(matches) == 0 && len(mappingMatches) == 0 {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+
+		for _, m := range matches {
+			if len(m) < 3 {
+				continue
+			}
+			pred := m[1]
+			if _, ok := actionPredicates[pred]; !ok {
+				continue
+			}
+			raw := strings.TrimSpace(m[2])
+			normalized := strings.TrimPrefix(raw, "/")
+			if normalized == "" {
+				continue
+			}
+			rec, ok := out[normalized]
+			if !ok {
+				rec = actionSources{
+					Action:     "/" + normalized,
+					Sources:    nil,
+					Predicates: make(map[string]struct{}),
+				}
+			}
+			rec.Predicates[pred] = struct{}{}
+			rec.Sources = append(rec.Sources, fmt.Sprintf("%s:%s", filepath.ToSlash(rel), pred))
+			out[normalized] = rec
+		}
+
+		for _, m := range mappingMatches {
+			if len(m) < 2 {
+				continue
+			}
+			raw := strings.TrimSpace(m[1])
+			normalized := strings.TrimPrefix(raw, "/")
+			if normalized == "" {
+				continue
+			}
+			rec, ok := out[normalized]
+			if !ok {
+				rec = actionSources{
+					Action:     "/" + normalized,
+					Sources:    nil,
+					Predicates: make(map[string]struct{}),
+				}
+			}
+			rec.Predicates["action_mapping"] = struct{}{}
+			rec.Sources = append(rec.Sources, fmt.Sprintf("%s:%s", filepath.ToSlash(rel), "action_mapping"))
+			out[normalized] = rec
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+
+	for k, rec := range out {
+		rec.Sources = uniqueSorted(rec.Sources)
+		out[k] = rec
+	}
+
+	return out, nil
+}
+
+func extractVirtualStoreActionTypes(path string) (map[string]struct{}, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	// Match: ActionFoo ActionType = "foo_bar"
+	re := regexp.MustCompile(`(?m)^\s*Action[A-Za-z0-9_]+\s+ActionType\s*=\s*"([a-zA-Z0-9_]+)"`)
+	matches := re.FindAllStringSubmatch(string(data), -1)
+	out := make(map[string]struct{}, len(matches))
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		val := strings.TrimSpace(m[1])
+		if val == "" {
+			continue
+		}
+		out[val] = struct{}{}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no ActionType constants found in %s", path)
+	}
+	return out, nil
+}
+
+// getRegisteredToolNames is catalog.Names: the tools HydrateModularTools
+// can install, including mcpctl and grounded_web_search. A hand-written
+// RegisterAll walk here omitted both.
+func getRegisteredToolNames() (map[string]struct{}, error) {
+	names, err := catalog.Names()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		out[n] = struct{}{}
+	}
+	return out, nil
+}
+
+func extractSafeActions(root string) (map[string]struct{}, error) {
+	info, err := os.Stat(root)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("mg-root is not a directory: %s", root)
+	}
+	re := regexp.MustCompile(`(?m)\bsafe_action\s*\(\s*/([a-zA-Z0-9_]+)\s*\)`)
+	out := make(map[string]struct{})
+	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".mg" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		clean := stripMangleComments(string(data))
+		matches := re.FindAllStringSubmatch(clean, -1)
+		for _, m := range matches {
+			if len(m) < 2 {
+				continue
+			}
+			name := strings.TrimSpace(m[1])
+			if name == "" {
+				continue
+			}
+			out[name] = struct{}{}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	return out, nil
+}
+
+func extractRequiresPermission(root string) (map[string]struct{}, error) {
+	return extractUnaryActionFacts(root, "requires_permission")
+}
+
+// extractHumanApprovable collects human_approvable(/action) facts: the
+// requires_permission actions a person may approve one exact request of.
+func extractHumanApprovable(root string) (map[string]struct{}, error) {
+	return extractUnaryActionFacts(root, "human_approvable")
+}
+
+func extractUnaryActionFacts(root, predicate string) (map[string]struct{}, error) {
+	info, err := os.Stat(root)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("mg-root is not a directory: %s", root)
+	}
+	re := regexp.MustCompile(`(?m)\b` + regexp.QuoteMeta(predicate) + `\s*\(\s*/([a-zA-Z0-9_]+)\s*\)`)
+	out := make(map[string]struct{})
+	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".mg" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		clean := stripMangleComments(string(data))
+		matches := re.FindAllStringSubmatch(clean, -1)
+		for _, m := range matches {
+			if len(m) < 2 {
+				continue
+			}
+			name := strings.TrimSpace(m[1])
+			if name == "" {
+				continue
+			}
+			out[name] = struct{}{}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	return out, nil
+}
+
+func lint(policyActions map[string]actionSources, routes []system.ToolRoute, virtualActions map[string]struct{}, warnUnusedExecutors bool, exemptions exemptions, registeredTools map[string]struct{}, safeActions map[string]struct{}, requiresPermission map[string]struct{}, humanApprovable map[string]struct{}) []issue {
+	issues := make([]issue, 0, 64)
+
+	// Policy -> router -> virtual store
+	for normalized, rec := range policyActions {
+		route, ok := bestRouteForAction("/"+normalized, routes)
+		if !ok {
+			issues = append(issues, issue{
+				Severity: severityError,
+				Action:   rec.Action,
+				Message:  "policy emits action but router has no matching route",
+				Sources:  rec.Sources,
+			})
+			continue
+		}
+
+		_, hasExecutor := virtualActions[normalized]
+		if route.ToolName == "kernel_internal" && hasExecutor {
+			issues = append(issues, issue{
+				Severity: severityError,
+				Action:   rec.Action,
+				Message:  "router routes this action to kernel_internal, but VirtualStore has an executor (action will be dropped)",
+				Sources:  rec.Sources,
+			})
+			continue
+		}
+
+		if route.ToolName != "kernel_internal" && !hasExecutor {
+			issues = append(issues, issue{
+				Severity: severityError,
+				Action:   rec.Action,
+				Message:  fmt.Sprintf("router routes this action to %q, but VirtualStore has no executor", route.ToolName),
+				Sources:  rec.Sources,
+			})
+		}
+	}
+
+	if warnUnusedExecutors {
+		// VirtualStore action types that policy never emits (potential dead code / drift).
+		for action := range virtualActions {
+			if _, ok := policyActions[action]; ok {
+				continue
+			}
+			if exemptions.isExempt(action) {
+				continue
+			}
+			// Modular tools are reachable via tools.Global() and the tool loop,
+			// bypassing RouteAction (see internal/session/executor.go:55 and :1052).
+			// They never need a policy next_action emitter, so don't warn about them.
+			if _, ok := registeredTools[action]; ok {
+				continue
+			}
+			issues = append(issues, issue{
+				Severity: severityWarning,
+				Action:   "/" + action,
+				Message:  "VirtualStore supports action, but policy never emits it (possible dead action or future capability)",
+			})
+		}
+	}
+
+	for toolName := range registeredTools {
+		if _, ok := safeActions[toolName]; ok {
+			continue
+		}
+		if _, ok := requiresPermission[toolName]; ok {
+			// A human_approvable action is reachable one exact request at a
+			// time, with a person attached (constitution.mg's request-bound
+			// approval arm); that is the design, not drift.
+			if _, approvable := humanApprovable[toolName]; approvable {
+				continue
+			}
+			if exemptions.isExempt(toolName) {
+				continue
+			}
+			issues = append(issues, issue{
+				Severity: severityWarning,
+				Action:   "/" + toolName,
+				Message:  "tool is registered but gated behind dangerous_action via requires_permission and is not human_approvable, so no permitted/3 rule can admit it: the tool is unreachable in practice (no safe_action entry)",
+			})
+			continue
+		}
+		if exemptions.isExempt(toolName) {
+			continue
+		}
+		// A tool the constitution denies ON PURPOSE is not drift. This used to
+		// be the linter's only error, which is why nobody could put it in CI:
+		// it reported a deliberate, tested policy decision as a failure. The
+		// reason lives with the decision rather than here, so the linter and
+		// the parity test in internal/tools cannot disagree about the same
+		// tool.
+		if tools.IsPolicyDeniedByDesign(toolName) {
+			continue
+		}
+		issues = append(issues, issue{
+			Severity: severityError,
+			Action:   "/" + toolName,
+			Message:  "tool is registered but the constitution can never permit it (no safe_action entry)",
+		})
+	}
+
+	return issues
+}
+
+func bestRouteForAction(actionType string, routes []system.ToolRoute) (system.ToolRoute, bool) {
+	normalizedAction := strings.TrimPrefix(actionType, "/")
+	if normalizedAction == "" {
+		return system.ToolRoute{}, false
+	}
+
+	const (
+		matchNone     = 0
+		matchContains = 1
+		matchPrefix   = 2
+		matchExact    = 3
+	)
+
+	bestScore := matchNone
+	bestLen := -1
+	bestPattern := ""
+	bestRoute := system.ToolRoute{}
+
+	for _, route := range routes {
+		pattern := strings.TrimPrefix(route.ActionPattern, "/")
+		if pattern == "" {
+			continue
+		}
+
+		score := matchNone
+		switch {
+		case normalizedAction == pattern:
+			score = matchExact
+		case strings.HasPrefix(normalizedAction, pattern):
+			score = matchPrefix
+		case strings.Contains(normalizedAction, pattern):
+			score = matchContains
+		default:
+			continue
+		}
+
+		if score > bestScore ||
+			(score == bestScore && len(pattern) > bestLen) ||
+			(score == bestScore && len(pattern) == bestLen && pattern < bestPattern) {
+			bestScore = score
+			bestLen = len(pattern)
+			bestPattern = pattern
+			bestRoute = route
+		}
+	}
+
+	if bestScore == matchNone {
+		return system.ToolRoute{}, false
+	}
+	return bestRoute, true
+}
+
+func uniqueSorted(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func stripMangleComments(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if idx := strings.Index(line, "#"); idx != -1 {
+			lines[i] = line[:idx]
+		}
+	}
+	return strings.Join(lines, "\n")
+}

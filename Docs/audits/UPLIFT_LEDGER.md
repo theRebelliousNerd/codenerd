@@ -1,0 +1,3856 @@
+# Uplift Ledger
+
+File-by-file: uplift, wiring, .mg correctness, modularity, brutal behavioral integration tests.
+Checked = audited and uplifted (or verified sound) with behavioral coverage.
+
+## Go files (2362)
+### .agent (5)
+- [ ] `.agent/skills/log-analyzer/scripts/logquery/main.go`
+- [ ] `.agent/skills/mangle-programming/assets/go-integration/main.go`
+- [ ] `.agent/skills/rod-builder/scripts/chrome_launcher.go`
+- [ ] `.agent/skills/rod-builder/scripts/scraper_template.go`
+- [ ] `.agent/skills/rod-builder/scripts/session_manager.go`
+
+### .agents (7)
+- [ ] `.agents/skills/antigravity-auth/assets/templates/auth_handler.go`
+- [ ] `.agents/skills/antigravity-auth/assets/templates/client.go`
+- [ ] `.agents/skills/log-analyzer/scripts/logquery/main.go`
+- [ ] `.agents/skills/mangle-programming/assets/go-integration/main.go`
+- [ ] `.agents/skills/rod-builder/scripts/chrome_launcher.go`
+- [ ] `.agents/skills/rod-builder/scripts/scraper_template.go`
+- [ ] `.agents/skills/rod-builder/scripts/session_manager.go`
+
+### .claude (7)
+- [ ] `.claude/skills/antigravity-auth/assets/templates/auth_handler.go`
+- [ ] `.claude/skills/antigravity-auth/assets/templates/client.go`
+- [ ] `.claude/skills/log-analyzer/scripts/logquery/main.go`
+- [ ] `.claude/skills/mangle-programming/assets/go-integration/main.go`
+- [ ] `.claude/skills/rod-builder/scripts/chrome_launcher.go`
+- [ ] `.claude/skills/rod-builder/scripts/scraper_template.go`
+- [ ] `.claude/skills/rod-builder/scripts/session_manager.go`
+
+### .codex (5)
+- [ ] `.codex/skills/log-analyzer/scripts/logquery/main.go`
+- [ ] `.codex/skills/mangle-programming/assets/go-integration/main.go`
+- [ ] `.codex/skills/rod-builder/scripts/chrome_launcher.go`
+- [ ] `.codex/skills/rod-builder/scripts/scraper_template.go`
+- [ ] `.codex/skills/rod-builder/scripts/session_manager.go`
+
+### .gemini (1)
+- [ ] `.gemini/skills/log-analyzer/scripts/logquery/main.go`
+
+### .nerd (18)
+- [ ] `.nerd/marathon-supervision/negative-kernel_eval.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/negative-risk_scoring.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/negative-rule_court.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/negative-test_output_detector.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/persist_compact_learning.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/phase3-learning-negative/budget.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/profile_runtime.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/rejected-proposal/decomposer_planning.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/rejected-proposal/orchestrator_task_handlers.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/rejected-proposal/pause_durable.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/rejected-proposal/task_effect_contract.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/snapshot_helper.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/tools/count_mangle_predicates_given_a_directory_path_s.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/tools/count_mangle_predicates_given_a_directory_path_s_test.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/tools/count_the_number_of_mangle_decl_statements_in_a.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/tools/count_the_number_of_mangle_decl_statements_in_a_test.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/tools/given_a_file_path_as_input_return_the_total_numb.go` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/tools/given_a_file_path_as_input_return_the_total_numb_test.go` <!-- runtime state, untracked; never uplifted -->
+
+### cmd/nerd (247)
+- [x] `cmd/nerd/acceptance_args_test.go`
+- [x] `cmd/nerd/apikey.go`
+- [x] `cmd/nerd/apikey_test.go`
+- [x] `cmd/nerd/campaign_outcome_test.go`
+- [x] `cmd/nerd/chat/activity_pulse_test.go`
+- [x] `cmd/nerd/chat/admission_error.go`
+- [x] `cmd/nerd/chat/admission_error_test.go`
+- [x] `cmd/nerd/chat/agent_wizard.go`
+- [x] `cmd/nerd/chat/agent_wizard_test.go`
+- [x] `cmd/nerd/chat/async_test.go`
+- [x] `cmd/nerd/chat/boot_benchmark_test.go`
+- [x] `cmd/nerd/chat/browser_test.go`
+- [x] `cmd/nerd/chat/campaign.go`
+- [x] `cmd/nerd/chat/campaign_assault.go`
+- [x] `cmd/nerd/chat/campaign_assault_test.go`
+- [x] `cmd/nerd/chat/campaign_consultation_adapter.go`
+- [x] `cmd/nerd/chat/campaign_jit_provider.go`
+- [x] `cmd/nerd/chat/campaign_recurse.go`
+- [x] `cmd/nerd/chat/campaign_recurse_test.go`
+- [x] `cmd/nerd/chat/campaign_risk_test.go`
+- [x] `cmd/nerd/chat/chat_loop_contract_e2e_test.go`
+- [x] `cmd/nerd/chat/cmd_explain.go`
+- [x] `cmd/nerd/chat/cmd_explain_test.go`
+- [x] `cmd/nerd/chat/command_categories.go`
+- [x] `cmd/nerd/chat/command_categories_test.go`
+- [x] `cmd/nerd/chat/commands.go`
+- [x] `cmd/nerd/chat/commands_evolution.go`
+- [x] `cmd/nerd/chat/commands_handlers.go`
+- [x] `cmd/nerd/chat/commands_handlers_analysis.go`
+- [x] `cmd/nerd/chat/commands_handlers_evolution.go`
+- [x] `cmd/nerd/chat/commands_handlers_features.go`
+- [x] `cmd/nerd/chat/commands_handlers_features_test.go`
+- [x] `cmd/nerd/chat/commands_handlers_files.go`
+- [x] `cmd/nerd/chat/commands_handlers_misc.go`
+- [x] `cmd/nerd/chat/commands_test.go`
+- [x] `cmd/nerd/chat/commands_tools.go`
+- [x] `cmd/nerd/chat/config_path.go`
+- [x] `cmd/nerd/chat/config_wizard.go`
+- [x] `cmd/nerd/chat/config_wizard_save_test.go`
+- [x] `cmd/nerd/chat/config_wizard_steps.go`
+- [x] `cmd/nerd/chat/continuation_done_test.go`
+- [x] `cmd/nerd/chat/delegation.go`
+- [x] `cmd/nerd/chat/delegation_modes.go`
+- [x] `cmd/nerd/chat/delegation_multistep.go`
+- [x] `cmd/nerd/chat/delegation_roundtrip_test.go`
+- [x] `cmd/nerd/chat/delegation_routing.go`
+- [x] `cmd/nerd/chat/delegation_routing_resolve_test.go`
+- [x] `cmd/nerd/chat/findings_test.go`
+- [x] `cmd/nerd/chat/glass_box.go`
+- [x] `cmd/nerd/chat/glass_box_stream_test.go`
+- [x] `cmd/nerd/chat/harness_test.go`
+- [x] `cmd/nerd/chat/help_renderer.go`
+- [x] `cmd/nerd/chat/helpers.go`
+- [x] `cmd/nerd/chat/helpers_articulation.go`
+- [x] `cmd/nerd/chat/helpers_files.go`
+- [x] `cmd/nerd/chat/helpers_scan.go`
+- [x] `cmd/nerd/chat/helpers_test.go`
+- [x] `cmd/nerd/chat/helpers_tools.go`
+- [x] `cmd/nerd/chat/ingest.go`
+- [x] `cmd/nerd/chat/integration_test.go`
+- [x] `cmd/nerd/chat/knowledge_format.go`
+- [x] `cmd/nerd/chat/knowledge_synthesis_test.go`
+- [x] `cmd/nerd/chat/live_integration_test.go`
+- [x] `cmd/nerd/chat/live_kernel_test.go`
+- [x] `cmd/nerd/chat/model.go`
+- [x] `cmd/nerd/chat/model_handlers.go`
+- [x] `cmd/nerd/chat/model_helpers.go`
+- [x] `cmd/nerd/chat/model_helpers_test.go`
+- [x] `cmd/nerd/chat/model_key_handler.go`
+- [x] `cmd/nerd/chat/model_lifecycle.go`
+- [x] `cmd/nerd/chat/model_session_context.go`
+- [x] `cmd/nerd/chat/model_types.go`
+- [x] `cmd/nerd/chat/model_update.go`
+- [x] `cmd/nerd/chat/model_update_persist_test.go`
+- [x] `cmd/nerd/chat/multistep_corpus.go`
+- [x] `cmd/nerd/chat/multistep_decomposer.go`
+- [x] `cmd/nerd/chat/northstar_adapter_test.go`
+- [x] `cmd/nerd/chat/northstar_llm.go`
+- [x] `cmd/nerd/chat/northstar_llm_live_test.go`
+- [x] `cmd/nerd/chat/northstar_navigation.go`
+- [x] `cmd/nerd/chat/northstar_persistence.go`
+- [x] `cmd/nerd/chat/northstar_persistence_test.go`
+- [x] `cmd/nerd/chat/northstar_types.go`
+- [x] `cmd/nerd/chat/northstar_types_test.go`
+- [x] `cmd/nerd/chat/northstar_utils.go`
+- [x] `cmd/nerd/chat/northstar_utils_test.go`
+- [x] `cmd/nerd/chat/northstar_wizard.go`
+- [x] `cmd/nerd/chat/onboarding_wizard.go`
+- [x] `cmd/nerd/chat/perception_regression_test.go`
+- [x] `cmd/nerd/chat/performance_test.go`
+- [x] `cmd/nerd/chat/persistence.go`
+- [x] `cmd/nerd/chat/process.go`
+- [x] `cmd/nerd/chat/process_continuation.go`
+- [x] `cmd/nerd/chat/process_dream.go`
+- [x] `cmd/nerd/chat/process_dream_delegation.go`
+- [x] `cmd/nerd/chat/process_dream_parsing.go`
+- [x] `cmd/nerd/chat/process_follow_up.go`
+- [x] `cmd/nerd/chat/process_helpers.go`
+- [x] `cmd/nerd/chat/process_knowledge.go`
+- [x] `cmd/nerd/chat/process_seed.go`
+- [x] `cmd/nerd/chat/process_sync.go`
+- [x] `cmd/nerd/chat/process_test.go`
+- [x] `cmd/nerd/chat/reembed.go`
+- [x] `cmd/nerd/chat/reflection.go`
+- [x] `cmd/nerd/chat/review_aggregator.go`
+- [x] `cmd/nerd/chat/review_aggregator_specialists_test.go`
+- [x] `cmd/nerd/chat/review_aggregator_test.go`
+- [x] `cmd/nerd/chat/routing_arbitration_roundtrip_test.go`
+- [x] `cmd/nerd/chat/routing_performance_contract_e2e_test.go`
+- [x] `cmd/nerd/chat/scan_identity_test.go`
+- [x] `cmd/nerd/chat/session.go`
+- [x] `cmd/nerd/chat/session_adapters.go`
+- [x] `cmd/nerd/chat/session_adapters_test.go`
+- [x] `cmd/nerd/chat/session_boot_helpers.go`
+- [x] `cmd/nerd/chat/session_functions_test.go`
+- [x] `cmd/nerd/chat/session_language_test.go`
+- [x] `cmd/nerd/chat/session_persistence.go`
+- [x] `cmd/nerd/chat/session_persistence_test.go`
+- [x] `cmd/nerd/chat/session_shared_boot.go`
+- [x] `cmd/nerd/chat/shadow.go`
+- [x] `cmd/nerd/chat/shadow_test.go`
+- [x] `cmd/nerd/chat/specialist_policy_test.go`
+- [x] `cmd/nerd/chat/task_routing_arbitration_e2e_test.go`
+- [x] `cmd/nerd/chat/test_state_test.go`
+- [x] `cmd/nerd/chat/testutil_test.go`
+- [x] `cmd/nerd/chat/tips.go`
+- [x] `cmd/nerd/chat/tui_frame_contract_e2e_test.go`
+- [x] `cmd/nerd/chat/update_test.go`
+- [x] `cmd/nerd/chat/view.go`
+- [x] `cmd/nerd/chat/warnings_render_order_test.go`
+- [x] `cmd/nerd/chat/welcome.go`
+- [x] `cmd/nerd/chat/wizard_test.go`
+- [x] `cmd/nerd/chat/yolo.go`
+- [x] `cmd/nerd/chat/yolo_kernel_test.go`
+- [x] `cmd/nerd/chat/yolo_test.go`
+- [x] `cmd/nerd/cli_test.go`
+- [x] `cmd/nerd/cmd_advanced.go`
+- [x] `cmd/nerd/cmd_advanced_dream_test.go`
+- [x] `cmd/nerd/cmd_audit.go`
+- [x] `cmd/nerd/cmd_audit_test.go`
+- [x] `cmd/nerd/cmd_auth.go`
+- [x] `cmd/nerd/cmd_browser.go`
+- [x] `cmd/nerd/cmd_browser_config_test.go`
+- [x] `cmd/nerd/cmd_browser_snapshot_test.go`
+- [x] `cmd/nerd/cmd_campaign.go`
+- [x] `cmd/nerd/cmd_campaign_assault.go`
+- [x] `cmd/nerd/cmd_campaign_assault_test.go`
+- [x] `cmd/nerd/cmd_campaign_cortex_test.go`
+- [x] `cmd/nerd/cmd_campaign_journal.go`
+- [x] `cmd/nerd/cmd_campaign_recurse.go`
+- [x] `cmd/nerd/cmd_campaign_recurse_test.go`
+- [x] `cmd/nerd/cmd_campaign_resume_boot_test.go`
+- [x] `cmd/nerd/cmd_campaign_resume_select_test.go`
+- [x] `cmd/nerd/cmd_campaign_tool_budget_test.go`
+- [x] `cmd/nerd/cmd_chat.go`
+- [x] `cmd/nerd/cmd_chat_test.go`
+- [x] `cmd/nerd/cmd_context_stats.go`
+- [x] `cmd/nerd/cmd_context_stats_test.go`
+- [x] `cmd/nerd/cmd_debug.go`
+- [x] `cmd/nerd/cmd_direct_actions.go`
+- [x] `cmd/nerd/cmd_direct_actions_heartbeat_test.go`
+- [x] `cmd/nerd/cmd_direct_actions_root_test.go`
+- [x] `cmd/nerd/cmd_dream_learning_test.go`
+- [x] `cmd/nerd/cmd_features.go`
+- [x] `cmd/nerd/cmd_features_test.go`
+- [x] `cmd/nerd/cmd_flags_test.go`
+- [x] `cmd/nerd/cmd_init_scan.go`
+- [x] `cmd/nerd/cmd_init_scan_test.go`
+- [x] `cmd/nerd/cmd_instruction.go`
+- [x] `cmd/nerd/cmd_instruction_context_test.go`
+- [x] `cmd/nerd/cmd_instruction_fact_test.go`
+- [x] `cmd/nerd/cmd_instruction_guard_fix_test.go`
+- [x] `cmd/nerd/cmd_instruction_prohibition_test.go`
+- [x] `cmd/nerd/cmd_instruction_stopwords_test.go`
+- [x] `cmd/nerd/cmd_instruction_subtask_test.go`
+- [x] `cmd/nerd/cmd_interactive.go`
+- [x] `cmd/nerd/cmd_interactive_test.go`
+- [x] `cmd/nerd/cmd_knowledge.go`
+- [x] `cmd/nerd/cmd_logs.go`
+- [x] `cmd/nerd/cmd_mangle_check.go`
+- [x] `cmd/nerd/cmd_mangle_lsp.go`
+- [x] `cmd/nerd/cmd_mcp_select.go`
+- [x] `cmd/nerd/cmd_mcp_select_test.go`
+- [x] `cmd/nerd/cmd_meter.go`
+- [x] `cmd/nerd/cmd_meter_test.go`
+- [x] `cmd/nerd/cmd_northstar.go`
+- [x] `cmd/nerd/cmd_query.go`
+- [x] `cmd/nerd/cmd_regression.go`
+- [x] `cmd/nerd/cmd_regression_test.go`
+- [x] `cmd/nerd/cmd_retrieve.go`
+- [x] `cmd/nerd/cmd_retrieve_test.go`
+- [x] `cmd/nerd/cmd_sessions.go`
+- [x] `cmd/nerd/cmd_snapshot.go`
+- [x] `cmd/nerd/cmd_snapshot_test.go`
+- [x] `cmd/nerd/cmd_spawn.go`
+- [x] `cmd/nerd/cmd_swebench.go`
+- [x] `cmd/nerd/cmd_swebench_test.go`
+- [x] `cmd/nerd/cmd_systems.go`
+- [x] `cmd/nerd/cmd_systems_mcp_test.go`
+- [x] `cmd/nerd/cmd_test_context.go`
+- [x] `cmd/nerd/cmd_transparency.go`
+- [x] `cmd/nerd/cmd_usage.go`
+- [x] `cmd/nerd/cmd_world.go`
+- [x] `cmd/nerd/cmd_world_test.go`
+- [x] `cmd/nerd/dom_apply_cmd.go`
+- [x] `cmd/nerd/dom_cmd.go`
+- [x] `cmd/nerd/dom_replace_cmd.go`
+- [x] `cmd/nerd/dom_replace_cmd_test.go`
+- [x] `cmd/nerd/dom_utils.go`
+- [x] `cmd/nerd/dom_utils_test.go`
+- [x] `cmd/nerd/embedding_cmd.go`
+- [x] `cmd/nerd/main.go`
+- [x] `cmd/nerd/main_test.go`
+- [x] `cmd/nerd/parent_group_test.go`
+- [x] `cmd/nerd/pending_action.go`
+- [x] `cmd/nerd/pending_action_failure_test.go`
+- [x] `cmd/nerd/stats.go`
+- [x] `cmd/nerd/system_results.go`
+- [x] `cmd/nerd/ui/autopoiesis_page.go`
+- [x] `cmd/nerd/ui/campaign_page.go`
+- [x] `cmd/nerd/ui/debounce.go`
+- [x] `cmd/nerd/ui/debounce_test.go`
+- [x] `cmd/nerd/ui/diffview.go`
+- [x] `cmd/nerd/ui/diffview_scrolling_test.go`
+- [x] `cmd/nerd/ui/diffview_test.go`
+- [x] `cmd/nerd/ui/jit_page.go`
+- [x] `cmd/nerd/ui/jit_page_test.go`
+- [x] `cmd/nerd/ui/keyboard_navigation_test.go`
+- [x] `cmd/nerd/ui/layout.go`
+- [x] `cmd/nerd/ui/pages_test.go`
+- [x] `cmd/nerd/ui/render_cache.go`
+- [x] `cmd/nerd/ui/render_cache_benchmark_test.go`
+- [x] `cmd/nerd/ui/render_cache_test.go`
+- [x] `cmd/nerd/ui/resources.go`
+- [x] `cmd/nerd/ui/shard_page.go`
+- [x] `cmd/nerd/ui/simple_table.go`
+- [x] `cmd/nerd/ui/simple_table_test.go`
+- [x] `cmd/nerd/ui/splitpane.go`
+- [x] `cmd/nerd/ui/splitpane_filter_test.go`
+- [x] `cmd/nerd/ui/splitpane_test.go`
+- [x] `cmd/nerd/ui/styles.go`
+- [x] `cmd/nerd/ui/styles_json_test.go`
+- [x] `cmd/nerd/ui/styles_options_test.go`
+- [x] `cmd/nerd/ui/styles_test.go`
+- [x] `cmd/nerd/ui/usage_page.go`
+- [x] `cmd/nerd/ui/word_diff_test.go`
+- [x] `cmd/nerd/ui/word_highlight_test.go`
+
+### cmd/query-kb (3)
+- [x] `cmd/query-kb/deep_query.go`
+- [x] `cmd/query-kb/main.go`
+- [x] `cmd/query-kb/main_test.go`
+
+### cmd/tools/action_linter (2)
+- [x] `cmd/tools/action_linter/main.go`
+- [x] `cmd/tools/action_linter/main_test.go`
+
+### cmd/tools/audit_committed_binaries (1)
+- [x] `cmd/tools/audit_committed_binaries/main.go`
+
+### cmd/tools/audit_json_errors (2)
+- [x] `cmd/tools/audit_json_errors/main.go`
+- [x] `cmd/tools/audit_json_errors/main_test.go`
+
+### cmd/tools/audit_test_bodies (2)
+- [x] `cmd/tools/audit_test_bodies/main.go`
+- [x] `cmd/tools/audit_test_bodies/main_test.go`
+
+### cmd/tools/audit_tiebreak (2)
+- [x] `cmd/tools/audit_tiebreak/main.go`
+- [x] `cmd/tools/audit_tiebreak/main_test.go`
+
+### cmd/tools/change_benchmark (1)
+- [x] `cmd/tools/change_benchmark/main.go`
+
+### cmd/tools/corpus_builder (5)
+- [x] `cmd/tools/corpus_builder/extract_test.go`
+- [x] `cmd/tools/corpus_builder/helpers_test.go`
+- [x] `cmd/tools/corpus_builder/main.go`
+- [x] `cmd/tools/corpus_builder/main_test.go`
+- [x] `cmd/tools/corpus_builder/sqlite_vec.go`
+
+### cmd/tools/mangle_check (2)
+- [x] `cmd/tools/mangle_check/inspect_clause.go`
+- [x] `cmd/tools/mangle_check/inspect_clause_test.go`
+
+### cmd/tools/predicate_corpus_builder (5)
+- [x] `cmd/tools/predicate_corpus_builder/check.go`
+- [x] `cmd/tools/predicate_corpus_builder/main.go`
+- [x] `cmd/tools/predicate_corpus_builder/main_test.go`
+- [x] `cmd/tools/predicate_corpus_builder/parse_test.go`
+- [x] `cmd/tools/predicate_corpus_builder/schema_parsing.go`
+
+### cmd/tools/prompt_builder (5)
+- [x] `cmd/tools/prompt_builder/createdb_test.go`
+- [x] `cmd/tools/prompt_builder/helpers_test.go`
+- [x] `cmd/tools/prompt_builder/main.go`
+- [x] `cmd/tools/prompt_builder/main_test.go`
+- [x] `cmd/tools/prompt_builder/sqlite_vec.go`
+
+### cmd/tools/validate_prompt_atoms (4)
+- [x] `cmd/tools/validate_prompt_atoms/corpus_parity_test.go`
+- [x] `cmd/tools/validate_prompt_atoms/main.go`
+- [x] `cmd/tools/validate_prompt_atoms/main_test.go`
+- [x] `cmd/tools/validate_prompt_atoms/validate_test.go`
+
+### cmd/tools/verify_taxonomy (2)
+- [x] `cmd/tools/verify_taxonomy/main.go`
+- [x] `cmd/tools/verify_taxonomy/main_test.go`
+
+### internal/articulation (20)
+- [x] `internal/articulation/emitter.go`
+- [x] `internal/articulation/emitter_boundary_test.go`
+- [x] `internal/articulation/emitter_extra_test.go`
+- [x] `internal/articulation/emitter_helpers_test.go`
+- [x] `internal/articulation/emitter_placeholder_test.go`
+- [x] `internal/articulation/emitter_test.go`
+- [x] `internal/articulation/emitter_warnings_test.go`
+- [x] `internal/articulation/json_scanner.go`
+- [x] `internal/articulation/json_scanner_test.go`
+- [x] `internal/articulation/kernel_context.go`
+- [x] `internal/articulation/language_precedence_test.go`
+- [x] `internal/articulation/prompt_assembler.go`
+- [x] `internal/articulation/prompt_assembler_adapter.go`
+- [x] `internal/articulation/prompt_assembler_ouroboros_test.go`
+- [x] `internal/articulation/prompt_assembler_test.go`
+- [x] `internal/articulation/protocol_types.go`
+- [x] `internal/articulation/schema.go`
+- [x] `internal/articulation/session_context_bounds_test.go`
+- [x] `internal/articulation/stream_parser.go`
+- [x] `internal/articulation/articulation_uplift_test.go`
+- [x] `internal/articulation/stream_parser_test.go`
+
+### internal/atomicfile (6)
+- [x] `internal/atomicfile/atomicfile.go`
+- [x] `internal/atomicfile/atomicfile_test.go`
+- [x] `internal/atomicfile/open_other.go`
+- [x] `internal/atomicfile/open_windows.go`
+- [x] `internal/atomicfile/replace_other.go`
+- [x] `internal/atomicfile/replace_windows.go`
+
+### internal/autopoiesis (96)
+- [x] `internal/autopoiesis/agent_handoff_test.go`
+- [x] `internal/autopoiesis/analysis_heuristics_test.go`
+- [x] `internal/autopoiesis/autopoiesis.go`
+- [x] `internal/autopoiesis/autopoiesis_agents.go`
+- [x] `internal/autopoiesis/autopoiesis_agents_test.go`
+- [x] `internal/autopoiesis/autopoiesis_analysis.go`
+- [x] `internal/autopoiesis/autopoiesis_analysis_kernel_test.go`
+- [x] `internal/autopoiesis/autopoiesis_delegation.go`
+- [x] `internal/autopoiesis/autopoiesis_feedback.go`
+- [x] `internal/autopoiesis/autopoiesis_helpers.go`
+- [x] `internal/autopoiesis/autopoiesis_kernel.go`
+- [x] `internal/autopoiesis/autopoiesis_orchestrator.go`
+- [x] `internal/autopoiesis/autopoiesis_profiles.go`
+- [x] `internal/autopoiesis/autopoiesis_profiles_test.go`
+- [x] `internal/autopoiesis/autopoiesis_tools.go`
+- [x] `internal/autopoiesis/autopoiesis_types.go`
+- [x] `internal/autopoiesis/build_env_threading_test.go`
+- [x] `internal/autopoiesis/checker.go`
+- [x] `internal/autopoiesis/checker_failclosed_test.go`
+- [x] `internal/autopoiesis/checker_test.go`
+- [x] `internal/autopoiesis/complexity.go`
+- [x] `internal/autopoiesis/complexity_test.go`
+- [x] `internal/autopoiesis/delegation_test.go`
+- [x] `internal/autopoiesis/execution_policy_test.go`
+- [x] `internal/autopoiesis/feedback.go`
+- [x] `internal/autopoiesis/feedback_load_test.go`
+- [x] `internal/autopoiesis/feedback_test.go`
+- [x] `internal/autopoiesis/helpers_coverage_test.go`
+- [x] `internal/autopoiesis/kernel_listener_lifecycle_test.go`
+- [x] `internal/autopoiesis/kernel_listener_wiring_test.go`
+- [x] `internal/autopoiesis/kernel_parity_test.go`
+- [x] `internal/autopoiesis/metrics.go`
+- [x] `internal/autopoiesis/metrics_test.go`
+- [x] `internal/autopoiesis/mocks_test.go`
+- [x] `internal/autopoiesis/orchestrator_test.go`
+- [x] `internal/autopoiesis/ouroboros.go`
+- [x] `internal/autopoiesis/ouroboros_multistage_e2e_test.go`
+- [x] `internal/autopoiesis/ouroboros_panic_test.go`
+- [x] `internal/autopoiesis/ouroboros_test.go`
+- [x] `internal/autopoiesis/ouroboros_tool_test.go`
+- [x] `internal/autopoiesis/ouroboros_version_test.go`
+- [x] `internal/autopoiesis/ouroboros_wrapper_test.go`
+- [x] `internal/autopoiesis/panic_maker.go`
+- [x] `internal/autopoiesis/patterns.go`
+- [x] `internal/autopoiesis/patterns_coverage_test.go`
+- [x] `internal/autopoiesis/persistence.go`
+- [x] `internal/autopoiesis/persistence_test.go`
+- [x] `internal/autopoiesis/profiles.go`
+- [x] `internal/autopoiesis/prompt_evolution/atom_generator.go`
+- [x] `internal/autopoiesis/prompt_evolution/atom_promoted_callback_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/classifier.go`
+- [x] `internal/autopoiesis/prompt_evolution/classifier_bench_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/evolver.go`
+- [x] `internal/autopoiesis/prompt_evolution/feedback_collector.go`
+- [x] `internal/autopoiesis/prompt_evolution/feedback_collector_migration_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/feedback_collector_stats_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/judge.go`
+- [x] `internal/autopoiesis/prompt_evolution/pinning_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/promotion_gate_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/prompt_evolution_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/strategy_atoms.go`
+- [x] `internal/autopoiesis/prompt_evolution/strategy_atoms_test.go`
+- [x] `internal/autopoiesis/prompt_evolution/strategy_store.go`
+- [x] `internal/autopoiesis/prompt_evolution/types.go`
+- [x] `internal/autopoiesis/quality.go`
+- [x] `internal/autopoiesis/quality_test.go`
+- [x] `internal/autopoiesis/runtime_output_test.go`
+- [x] `internal/autopoiesis/runtime_registry.go`
+- [x] `internal/autopoiesis/safety_adversarial_test.go`
+- [x] `internal/autopoiesis/should_generate_tool_test.go`
+- [x] `internal/autopoiesis/stability_score_test.go`
+- [x] `internal/autopoiesis/stage_budget_test.go`
+- [x] `internal/autopoiesis/templates_coverage_test.go`
+- [x] `internal/autopoiesis/thunderdome.go`
+- [x] `internal/autopoiesis/thunderdome_harness_test.go`
+- [x] `internal/autopoiesis/thunderdome_normalize_test.go`
+- [x] `internal/autopoiesis/thunderdome_result_test.go`
+- [x] `internal/autopoiesis/tool_compiler.go`
+- [x] `internal/autopoiesis/tool_compiler_gating_test.go`
+- [x] `internal/autopoiesis/tool_compiler_test.go`
+- [x] `internal/autopoiesis/tool_creation_routing_test.go`
+- [x] `internal/autopoiesis/tool_detection.go`
+- [x] `internal/autopoiesis/tool_detection_coercion_test.go`
+- [x] `internal/autopoiesis/tool_generation.go`
+- [x] `internal/autopoiesis/tool_generation_contract_test.go`
+- [x] `internal/autopoiesis/tool_templates.go`
+- [x] `internal/autopoiesis/tool_validation.go`
+- [x] `internal/autopoiesis/toolgen.go`
+- [x] `internal/autopoiesis/toolgen_gaps_test.go`
+- [x] `internal/autopoiesis/toolgen_test.go`
+- [x] `internal/autopoiesis/traces.go`
+- [x] `internal/autopoiesis/traces_bench_test.go`
+- [x] `internal/autopoiesis/traces_benchmark_test.go`
+- [x] `internal/autopoiesis/types_coverage_test.go`
+- [x] `internal/autopoiesis/utils_coverage_test.go`
+- [x] `internal/autopoiesis/yaegi_executor.go`
+
+### internal/broker (44)
+- [x] `internal/broker/broker.go`
+- [x] `internal/broker/broker_test.go`
+- [x] `internal/broker/calibration.go`
+- [x] `internal/broker/calibration_test.go`
+- [x] `internal/broker/compression.go`
+- [x] `internal/broker/compression_test.go`
+- [x] `internal/broker/context.go`
+- [x] `internal/broker/counter.go`
+- [x] `internal/broker/counter_anthropic.go`
+- [x] `internal/broker/counter_anthropic_test.go`
+- [x] `internal/broker/decorator_audit_test.go`
+- [x] `internal/broker/default.go`
+- [x] `internal/broker/doc.go`
+- [x] `internal/broker/epoch.go`
+- [x] `internal/broker/epoch_method_test.go`
+- [x] `internal/broker/epoch_test.go`
+- [x] `internal/broker/errors.go`
+- [x] `internal/broker/extrasink_handle_test.go`
+- [x] `internal/broker/fakes_test.go`
+- [x] `internal/broker/filesink.go`
+- [x] `internal/broker/filesink_test.go`
+- [x] `internal/broker/helpers_test.go`
+- [x] `internal/broker/integrity_test.go`
+- [x] `internal/broker/ledger.go`
+- [x] `internal/broker/ledger_test.go`
+- [x] `internal/broker/ledger_uplift_test.go`
+- [x] `internal/broker/measure.go`
+- [x] `internal/broker/measure_test.go`
+- [x] `internal/broker/optional.go`
+- [x] `internal/broker/passthrough.go`
+- [x] `internal/broker/passthrough_test.go`
+- [x] `internal/broker/purpose_wiring_test.go`
+- [x] `internal/broker/receipt.go`
+- [x] `internal/broker/reconcile.go`
+- [x] `internal/broker/reconcile_test.go`
+- [x] `internal/broker/shapes_test.go`
+- [x] `internal/broker/stream.go`
+- [x] `internal/broker/stream_test.go`
+- [x] `internal/broker/text.go`
+- [x] `internal/broker/text_default_test.go`
+- [x] `internal/broker/types.go`
+- [x] `internal/broker/wiring_test.go`
+- [x] `internal/broker/wrap.go`
+- [x] `internal/broker/wrap_test.go`
+
+### internal/browser (60)
+- [x] `internal/browser/browser_integration_test.go`
+- [x] `internal/browser/contract_audit.go`
+- [x] `internal/browser/contract_audit_facts.go`
+- [x] `internal/browser/contract_audit_facts_test.go`
+- [x] `internal/browser/contract_audit_report.go`
+- [x] `internal/browser/contract_audit_report_test.go`
+- [x] `internal/browser/contract_audit_test.go`
+- [x] `internal/browser/declarative_matcher.go`
+- [x] `internal/browser/declarative_matcher_test.go`
+- [x] `internal/browser/docker_correlation.go`
+- [x] `internal/browser/docker_correlation_test.go`
+- [x] `internal/browser/docker_correlation_wiring_test.go`
+- [x] `internal/browser/docker_fetcher.go`
+- [x] `internal/browser/docker_fetcher_test.go`
+- [x] `internal/browser/dom_policy_derivation_test.go`
+- [x] `internal/browser/element_registry.go`
+- [x] `internal/browser/element_registry_test.go`
+- [x] `internal/browser/fact_epoch.go`
+- [x] `internal/browser/fact_epoch_test.go`
+- [x] `internal/browser/fact_redaction.go`
+- [x] `internal/browser/fact_redaction_test.go`
+- [x] `internal/browser/flight_recorder.go`
+- [x] `internal/browser/flight_recorder_test.go`
+- [x] `internal/browser/honeypot.go`
+- [x] `internal/browser/honeypot_coverage_test.go`
+- [x] `internal/browser/honeypot_gate.go`
+- [x] `internal/browser/honeypot_gate_live_test.go`
+- [x] `internal/browser/honeypot_policy_test.go`
+- [x] `internal/browser/honeypot_test.go`
+- [x] `internal/browser/kernel_bridge.go`
+- [x] `internal/browser/kernel_bridge_test.go`
+- [x] `internal/browser/lifecycle_coverage_test.go`
+- [x] `internal/browser/progressive_action.go`
+- [x] `internal/browser/progressive_action_test.go`
+- [x] `internal/browser/progressive_observe.go`
+- [x] `internal/browser/repo_trace.go`
+- [x] `internal/browser/repo_trace_test.go`
+- [x] `internal/browser/schema_contract_test.go`
+- [x] `internal/browser/security/path_policy.go`
+- [x] `internal/browser/security/path_policy_test.go`
+- [x] `internal/browser/security/private_permissions_unix.go`
+- [x] `internal/browser/security/private_permissions_windows.go`
+- [x] `internal/browser/security/redactor.go`
+- [x] `internal/browser/security/redactor_test.go`
+- [x] `internal/browser/session_lifecycle.go`
+- [x] `internal/browser/session_lifecycle_test.go`
+- [x] `internal/browser/session_list_test.go`
+- [x] `internal/browser/session_manager.go`
+- [x] `internal/browser/session_manager_coverage_test.go`
+- [x] `internal/browser/session_manager_dom.go`
+- [x] `internal/browser/specs/catalog.go`
+- [x] `internal/browser/specs/catalog_alias_test.go`
+- [x] `internal/browser/specs/catalog_test.go`
+- [x] `internal/browser/specs/parser.go`
+- [x] `internal/browser/specs/parser_test.go`
+- [x] `internal/browser/specs/types.go`
+- [x] `internal/browser/start_coverage_test.go`
+- [x] `internal/browser/testspec/parser.go`
+- [x] `internal/browser/testspec/parser_test.go`
+- [x] `internal/browser/testspec/types.go`
+
+### internal/build (7)
+- [x] `internal/build/env.go`
+- [x] `internal/build/env_features_test.go`
+- [x] `internal/build/env_gaps_test.go`
+- [x] `internal/build/env_test.go`
+- [x] `internal/build/go_invocation_inventory_test.go`
+- [x] `internal/build/tags.go`
+- [x] `internal/build/tags_test.go`
+
+### internal/campaign/assault_campaign.go (1)
+- [x] `internal/campaign/assault_campaign.go`
+
+### internal/campaign/assault_helpers_test.go (1)
+- [x] `internal/campaign/assault_helpers_test.go`
+
+### internal/campaign/assault_prompts.go (1)
+- [x] `internal/campaign/assault_prompts.go`
+
+### internal/campaign/assault_report.go (1)
+- [x] `internal/campaign/assault_report.go`
+
+### internal/campaign/assault_report_test.go (1)
+- [x] `internal/campaign/assault_report_test.go`
+
+### internal/campaign/assault_tasks.go (1)
+- [x] `internal/campaign/assault_tasks.go`
+
+### internal/campaign/assault_tasks_test.go (1)
+- [x] `internal/campaign/assault_tasks_test.go`
+
+### internal/campaign/assault_types.go (1)
+- [x] `internal/campaign/assault_types.go`
+
+### internal/campaign/campaign_fact_sync.go (1)
+- [x] `internal/campaign/campaign_fact_sync.go`
+
+### internal/campaign/campaign_prompts.go (1)
+- [x] `internal/campaign/campaign_prompts.go`
+
+### internal/campaign/campaign_prompts_atoms_test.go (1)
+- [x] `internal/campaign/campaign_prompts_atoms_test.go`
+
+### internal/campaign/campaign_ref_e2e_test.go (1)
+- [x] `internal/campaign/campaign_ref_e2e_test.go`
+
+### internal/campaign/checkpoint.go (1)
+- [x] `internal/campaign/checkpoint.go`
+
+### internal/campaign/checkpoint_failclosed_test.go (1)
+- [x] `internal/campaign/checkpoint_failclosed_test.go`
+
+### internal/campaign/checkpoint_gotest_json_test.go (1)
+- [x] `internal/campaign/checkpoint_gotest_json_test.go`
+
+### internal/campaign/checkpoint_integration_test.go (1)
+- [x] `internal/campaign/checkpoint_integration_test.go`
+
+### internal/campaign/checkpoint_manual_review_test.go (1)
+- [x] `internal/campaign/checkpoint_manual_review_test.go`
+
+### internal/campaign/checkpoint_parsers_test.go (1)
+- [x] `internal/campaign/checkpoint_parsers_test.go`
+
+### internal/campaign/checkpoint_phase_completion_test.go (1)
+- [x] `internal/campaign/checkpoint_phase_completion_test.go`
+
+### internal/campaign/checkpoint_test.go (1)
+- [x] `internal/campaign/checkpoint_test.go`
+
+### internal/campaign/checkpoint_verdict_contract_test.go (1)
+- [x] `internal/campaign/checkpoint_verdict_contract_test.go`
+
+### internal/campaign/checkpoint_verdict_test.go (1)
+- [x] `internal/campaign/checkpoint_verdict_test.go`
+
+### internal/campaign/config_wiring_test.go (1)
+- [x] `internal/campaign/config_wiring_test.go`
+
+### internal/campaign/context_pager.go (1)
+- [x] `internal/campaign/context_pager.go`
+
+### internal/campaign/context_pager_bench_test.go (1)
+- [x] `internal/campaign/context_pager_bench_test.go`
+
+### internal/campaign/context_pager_test.go (1)
+- [x] `internal/campaign/context_pager_test.go`
+
+### internal/campaign/decomposer.go (1)
+- [x] `internal/campaign/decomposer.go`
+
+### internal/campaign/decomposer_documents.go (1)
+- [x] `internal/campaign/decomposer_documents.go`
+
+### internal/campaign/decomposer_helpers_test.go (1)
+- [x] `internal/campaign/decomposer_helpers_test.go`
+
+### internal/campaign/decomposer_planning.go (1)
+- [x] `internal/campaign/decomposer_planning.go`
+
+### internal/campaign/decomposer_requirements.go (1)
+- [x] `internal/campaign/decomposer_requirements.go`
+
+### internal/campaign/decomposer_requirements_test.go (1)
+- [x] `internal/campaign/decomposer_requirements_test.go`
+
+### internal/campaign/decomposer_retype_test.go (1)
+- [x] `internal/campaign/decomposer_retype_test.go`
+
+### internal/campaign/decomposer_test.go (1)
+- [x] `internal/campaign/decomposer_test.go`
+
+### internal/campaign/document_ingestor.go (1)
+- [x] `internal/campaign/document_ingestor.go`
+
+### internal/campaign/edge_case_detector.go (1)
+- [x] `internal/campaign/edge_case_detector.go`
+
+### internal/campaign/edge_case_detector_gaps_test.go (1)
+- [x] `internal/campaign/edge_case_detector_gaps_test.go`
+
+### internal/campaign/edge_case_detector_test.go (1)
+- [x] `internal/campaign/edge_case_detector_test.go`
+
+### internal/campaign/edge_case_helpers_test.go (1)
+- [x] `internal/campaign/edge_case_helpers_test.go`
+
+### internal/campaign/errors.go (1)
+- [x] `internal/campaign/errors.go`
+
+### internal/campaign/failure_classification_test.go (1)
+- [x] `internal/campaign/failure_classification_test.go`
+
+### internal/campaign/file_task_target_test.go (1)
+- [x] `internal/campaign/file_task_target_test.go`
+
+### internal/campaign/holographic_gathering_test.go (1)
+- [x] `internal/campaign/holographic_gathering_test.go`
+
+### internal/campaign/intelligence_formatting.go (1)
+- [x] `internal/campaign/intelligence_formatting.go`
+
+### internal/campaign/intelligence_gatherer.go (1)
+- [x] `internal/campaign/intelligence_gatherer.go`
+
+### internal/campaign/intelligence_gatherer_gaps_test.go (1)
+- [x] `internal/campaign/intelligence_gatherer_gaps_test.go`
+
+### internal/campaign/intelligence_gatherer_test.go (1)
+- [x] `internal/campaign/intelligence_gatherer_test.go`
+
+### internal/campaign/intelligence_gathering_methods.go (1)
+- [x] `internal/campaign/intelligence_gathering_methods.go`
+
+### internal/campaign/journal_ops.go (1)
+- [x] `internal/campaign/journal_ops.go`
+
+### internal/campaign/journal_ops_test.go (1)
+- [x] `internal/campaign/journal_ops_test.go`
+
+### internal/campaign/kernel_assert.go (1)
+- [x] `internal/campaign/kernel_assert.go`
+
+### internal/campaign/kernel_assert_test.go (1)
+- [x] `internal/campaign/kernel_assert_test.go`
+
+### internal/campaign/main_test.go (1)
+- [x] `internal/campaign/main_test.go`
+
+### internal/campaign/metrics.go (1)
+- [x] `internal/campaign/metrics.go`
+
+### internal/campaign/micro_checkpoint.go (1)
+- [x] `internal/campaign/micro_checkpoint.go`
+
+### internal/campaign/micro_checkpoint_test.go (1)
+- [x] `internal/campaign/micro_checkpoint_test.go`
+
+### internal/campaign/mocks_test.go (1)
+- [x] `internal/campaign/mocks_test.go`
+
+### internal/campaign/normalization.go (1)
+- [x] `internal/campaign/normalization.go`
+
+### internal/campaign/northstar_wiring_test.go (1)
+- [x] `internal/campaign/northstar_wiring_test.go`
+
+### internal/campaign/orchestrator.go (1)
+- [x] `internal/campaign/orchestrator.go`
+
+### internal/campaign/orchestrator_behavior_test.go (1)
+- [x] `internal/campaign/orchestrator_behavior_test.go`
+
+### internal/campaign/orchestrator_blockreason_cap_test.go (1)
+- [x] `internal/campaign/orchestrator_blockreason_cap_test.go`
+
+### internal/campaign/orchestrator_callsite_test.go (1)
+- [x] `internal/campaign/orchestrator_callsite_test.go`
+
+### internal/campaign/orchestrator_control.go (1)
+- [x] `internal/campaign/orchestrator_control.go`
+
+### internal/campaign/orchestrator_di_test.go (1)
+- [x] `internal/campaign/orchestrator_di_test.go`
+
+### internal/campaign/orchestrator_doc_degeneracy_test.go (1)
+- [x] `internal/campaign/orchestrator_doc_degeneracy_test.go`
+
+### internal/campaign/orchestrator_durable_artifact_test.go (1)
+- [x] `internal/campaign/orchestrator_durable_artifact_test.go`
+
+### internal/campaign/orchestrator_events.go (1)
+- [x] `internal/campaign/orchestrator_events.go`
+
+### internal/campaign/orchestrator_events_test.go (1)
+- [x] `internal/campaign/orchestrator_events_test.go`
+
+### internal/campaign/orchestrator_execution.go (1)
+- [x] `internal/campaign/orchestrator_execution.go`
+
+### internal/campaign/orchestrator_execution_test.go (1)
+- [x] `internal/campaign/orchestrator_execution_test.go`
+
+### internal/campaign/orchestrator_failure.go (1)
+- [x] `internal/campaign/orchestrator_failure.go`
+
+### internal/campaign/orchestrator_failure_test.go (1)
+- [x] `internal/campaign/orchestrator_failure_test.go`
+
+### internal/campaign/orchestrator_fallback_test.go (1)
+- [x] `internal/campaign/orchestrator_fallback_test.go`
+
+### internal/campaign/orchestrator_init.go (1)
+- [x] `internal/campaign/orchestrator_init.go`
+
+### internal/campaign/orchestrator_init_validation_test.go (1)
+- [x] `internal/campaign/orchestrator_init_validation_test.go`
+
+### internal/campaign/orchestrator_journal.go (1)
+- [x] `internal/campaign/orchestrator_journal.go`
+
+### internal/campaign/orchestrator_journal_test.go (1)
+- [x] `internal/campaign/orchestrator_journal_test.go`
+
+### internal/campaign/orchestrator_lifecycle.go (1)
+- [x] `internal/campaign/orchestrator_lifecycle.go`
+
+### internal/campaign/orchestrator_phases.go (1)
+- [x] `internal/campaign/orchestrator_phases.go`
+
+### internal/campaign/orchestrator_phases_test.go (1)
+- [x] `internal/campaign/orchestrator_phases_test.go`
+
+### internal/campaign/orchestrator_resume.go (1)
+- [x] `internal/campaign/orchestrator_resume.go`
+
+### internal/campaign/orchestrator_resume_test.go (1)
+- [x] `internal/campaign/orchestrator_resume_test.go`
+
+### internal/campaign/orchestrator_retry_replan_regression_test.go (1)
+- [x] `internal/campaign/orchestrator_retry_replan_regression_test.go`
+
+### internal/campaign/orchestrator_sched_regression_test.go (1)
+- [x] `internal/campaign/orchestrator_sched_regression_test.go`
+
+### internal/campaign/orchestrator_task_context_test.go (1)
+- [x] `internal/campaign/orchestrator_task_context_test.go`
+
+### internal/campaign/orchestrator_task_handlers.go (1)
+- [x] `internal/campaign/orchestrator_task_handlers.go`
+
+### internal/campaign/orchestrator_task_handlers_bench_test.go (1)
+- [x] `internal/campaign/orchestrator_task_handlers_bench_test.go`
+
+### internal/campaign/orchestrator_task_handlers_test.go (1)
+- [x] `internal/campaign/orchestrator_task_handlers_test.go`
+
+### internal/campaign/orchestrator_task_results.go (1)
+- [x] `internal/campaign/orchestrator_task_results.go`
+
+### internal/campaign/orchestrator_task_transaction.go (1)
+- [x] `internal/campaign/orchestrator_task_transaction.go`
+
+### internal/campaign/orchestrator_task_transaction_test.go (1)
+- [x] `internal/campaign/orchestrator_task_transaction_test.go`
+
+### internal/campaign/orchestrator_taskexecutor_callsite_test.go (1)
+- [x] `internal/campaign/orchestrator_taskexecutor_callsite_test.go`
+
+### internal/campaign/orchestrator_tasks.go (1)
+- [x] `internal/campaign/orchestrator_tasks.go`
+
+### internal/campaign/orchestrator_types.go (1)
+- [x] `internal/campaign/orchestrator_types.go`
+
+### internal/campaign/orchestrator_utils.go (1)
+- [x] `internal/campaign/orchestrator_utils.go`
+
+### internal/campaign/orchestrator_write_set_gating_test.go (1)
+- [x] `internal/campaign/orchestrator_write_set_gating_test.go`
+
+### internal/campaign/pause_durable.go (1)
+- [x] `internal/campaign/pause_durable.go`
+
+### internal/campaign/pause_durable_test.go (1)
+- [x] `internal/campaign/pause_durable_test.go`
+
+### internal/campaign/persist_campaign_test.go (1)
+- [x] `internal/campaign/persist_campaign_test.go`
+
+### internal/campaign/prompts.go (1)
+- [x] `internal/campaign/prompts.go`
+
+### internal/campaign/recurse_dag.go (1)
+- [x] `internal/campaign/recurse_dag.go`
+
+### internal/campaign/recurse_dag_test.go (1)
+- [x] `internal/campaign/recurse_dag_test.go`
+
+### internal/campaign/recurse_plan.go (1)
+- [x] `internal/campaign/recurse_plan.go`
+
+### internal/campaign/recurse_plan_test.go (1)
+- [x] `internal/campaign/recurse_plan_test.go`
+
+### internal/campaign/recurse_runner.go (1)
+- [x] `internal/campaign/recurse_runner.go`
+
+### internal/campaign/recurse_runner_test.go (1)
+- [x] `internal/campaign/recurse_runner_test.go`
+
+### internal/campaign/replan.go (1)
+- [x] `internal/campaign/replan.go`
+
+### internal/campaign/replan_retype_test.go (1)
+- [x] `internal/campaign/replan_retype_test.go`
+
+### internal/campaign/replan_test.go (1)
+- [x] `internal/campaign/replan_test.go`
+
+### internal/campaign/replanner_fix_test.go (1)
+- [x] `internal/campaign/replanner_fix_test.go`
+
+### internal/campaign/risk_gate_contract.go (1)
+- [x] `internal/campaign/risk_gate_contract.go`
+
+### internal/campaign/risk_gate_contract_test.go (1)
+- [x] `internal/campaign/risk_gate_contract_test.go`
+
+### internal/campaign/risk_scoring.go (1)
+- [x] `internal/campaign/risk_scoring.go`
+
+### internal/campaign/risk_scoring_test.go (1)
+- [x] `internal/campaign/risk_scoring_test.go`
+
+### internal/campaign/root_write_report_test.go (1)
+- [x] `internal/campaign/root_write_report_test.go`
+
+### internal/campaign/shard_advisory_board.go (1)
+- [x] `internal/campaign/shard_advisory_board.go`
+
+### internal/campaign/shard_advisory_board_test.go (1)
+- [x] `internal/campaign/shard_advisory_board_test.go`
+
+### internal/campaign/shard_manifest_contract_test.go (1)
+- [x] `internal/campaign/shard_manifest_contract_test.go`
+
+### internal/campaign/specialist_knowledge.go (1)
+- [x] `internal/campaign/specialist_knowledge.go`
+
+### internal/campaign/task_dedup_test.go (1)
+- [x] `internal/campaign/task_dedup_test.go`
+
+### internal/campaign/task_effect_contract.go (1)
+- [x] `internal/campaign/task_effect_contract.go`
+
+### internal/campaign/task_effect_contract_test.go (1)
+- [x] `internal/campaign/task_effect_contract_test.go`
+
+### internal/campaign/task_mutation_types.go (1)
+- [x] `internal/campaign/task_mutation_types.go`
+
+### internal/campaign/test_failure_summary_test.go (1)
+- [x] `internal/campaign/test_failure_summary_test.go`
+
+### internal/campaign/thunderdome_verdict_test.go (1)
+- [x] `internal/campaign/thunderdome_verdict_test.go`
+
+### internal/campaign/tool_pregenerator.go (1)
+- [x] `internal/campaign/tool_pregenerator.go`
+
+### internal/campaign/tool_pregenerator_test.go (1)
+- [x] `internal/campaign/tool_pregenerator_test.go`
+
+### internal/campaign/topology_contract_test.go (1)
+- [x] `internal/campaign/topology_contract_test.go`
+
+### internal/campaign/types.go (1)
+- [x] `internal/campaign/types.go`
+
+### internal/campaign/types_test.go (1)
+- [x] `internal/campaign/types_test.go`
+
+### internal/campaign/types_tofacts_golden_test.go (1)
+- [x] `internal/campaign/types_tofacts_golden_test.go`
+
+### internal/campaign/upstream_context.go (1)
+- [x] `internal/campaign/upstream_context.go`
+
+### internal/campaign/upstream_context_test.go (1)
+- [x] `internal/campaign/upstream_context_test.go`
+
+### internal/campaign/utils.go (1)
+- [x] `internal/campaign/utils.go`
+
+### internal/campaign/utils_test.go (1)
+- [x] `internal/campaign/utils_test.go`
+
+### internal/campaign/write_set_lock_manager.go (1)
+- [x] `internal/campaign/write_set_lock_manager.go`
+
+### internal/campaign/write_set_lock_manager_test.go (1)
+- [x] `internal/campaign/write_set_lock_manager_test.go`
+
+### internal/config (34)
+- [x] `internal/config/browser_config_test.go`
+- [x] `internal/config/browser_correlation_test.go`
+- [x] `internal/config/build.go`
+- [x] `internal/config/config_comprehensive_test.go`
+- [x] `internal/config/config_defaults_test.go`
+- [x] `internal/config/config_security_test.go`
+- [x] `internal/config/config_test.go`
+- [x] `internal/config/core_limits_load_test.go`
+- [x] `internal/config/execution.go`
+- [x] `internal/config/integrations.go`
+- [x] `internal/config/jit.go`
+- [x] `internal/config/limits.go`
+- [x] `internal/config/limits_tool_budget_test.go`
+- [x] `internal/config/llm.go`
+- [x] `internal/config/llm_timeouts.go`
+- [x] `internal/config/llm_timeouts_config.go`
+- [x] `internal/config/llm_timeouts_config_test.go`
+- [x] `internal/config/logging.go`
+- [x] `internal/config/mangle.go`
+- [x] `internal/config/memory.go`
+- [x] `internal/config/ollama_worker_config_test.go`
+- [x] `internal/config/persistence.go`
+- [x] `internal/config/persistence_replace_other.go`
+- [x] `internal/config/persistence_replace_windows.go`
+- [x] `internal/config/reflection.go`
+- [x] `internal/config/reflection_test.go`
+- [x] `internal/config/shard.go`
+- [x] `internal/config/tool_generation.go`
+- [x] `internal/config/tool_generation_test.go`
+- [x] `internal/config/user_config.go`
+- [x] `internal/config/user_config_api_key_test.go`
+- [x] `internal/config/ux.go`
+- [x] `internal/config/world.go`
+- [x] `internal/config/yolo_test.go`
+
+### internal/context (30)
+- [x] `internal/context/activation.go`
+- [x] `internal/context/activation_caps_test.go`
+- [x] `internal/context/activation_race_test.go`
+- [x] `internal/context/activation_scoring.go`
+- [x] `internal/context/activation_setters_test.go`
+- [x] `internal/context/activation_test.go`
+- [x] `internal/context/budget_helpers_test.go`
+- [x] `internal/context/chat_history_parity_test.go`
+- [x] `internal/context/compressor.go`
+- [x] `internal/context/compressor_accessors_test.go`
+- [x] `internal/context/compressor_metrics.go`
+- [x] `internal/context/compressor_race_test.go`
+- [x] `internal/context/compressor_test.go`
+- [x] `internal/context/compressor_turns.go`
+- [x] `internal/context/feedback_store.go`
+- [x] `internal/context/feedback_store_scoring_test.go`
+- [x] `internal/context/feedback_store_test.go`
+- [x] `internal/context/kernel_context_test.go`
+- [x] `internal/context/long_session_test.go`
+- [x] `internal/context/memory_op_coverage_test.go`
+- [x] `internal/context/mocks_test.go`
+- [x] `internal/context/serializer.go`
+- [x] `internal/context/serializer_bounds_test.go`
+- [x] `internal/context/serializer_test.go`
+- [x] `internal/context/token_counter_extra_test.go`
+- [x] `internal/context/tokens.go`
+- [x] `internal/context/types.go`
+- [x] `internal/context/working_set.go`
+- [x] `internal/context/working_set_test.go`
+- [x] `internal/context/working_store.go`
+- [x] `internal/context/context_unit1_uplift_test.go`
+- [x] `internal/context/context_unit2_uplift_test.go`
+- [x] `internal/context/context_unit3_uplift_test.go`
+
+### internal/core/action_validator.go (1)
+- [x] `internal/core/action_validator.go`
+
+### internal/core/action_validator_gaps_test.go (1)
+- [x] `internal/core/action_validator_gaps_test.go`
+
+### internal/core/action_validator_test.go (1)
+- [x] `internal/core/action_validator_test.go`
+
+### internal/core/api_scheduler.go (1)
+- [x] `internal/core/api_scheduler.go` (post-uplift: fixed -race config read/write race via snapshots + minCallSpacing RLock)
+
+### internal/core/api_scheduler_gaps_test.go (1)
+- [x] `internal/core/api_scheduler_gaps_test.go` (post-uplift: +NoRace_ReconfigDuringAcquire red/green pin)
+
+### internal/core/api_scheduler_more_coverage_test.go (1)
+- [x] `internal/core/api_scheduler_more_coverage_test.go`
+
+### internal/core/api_scheduler_slot_leak_test.go (1)
+- [x] `internal/core/api_scheduler_slot_leak_test.go`
+
+### internal/core/api_scheduler_test.go (1)
+- [x] `internal/core/api_scheduler_test.go`
+
+### internal/core/bound_negation_test.go (1)
+- [x] `internal/core/bound_negation_test.go`
+
+### internal/core/build_tool_env_test.go (1)
+- [x] `internal/core/build_tool_env_test.go`
+
+### internal/core/campaign_phase_category_test.go (1)
+- [x] `internal/core/campaign_phase_category_test.go`
+
+### internal/core/canary_helpers_test.go (1)
+- [x] `internal/core/canary_helpers_test.go`
+
+### internal/core/codedom_modified_symbols.go (1)
+- [x] `internal/core/codedom_modified_symbols.go`
+
+### internal/core/codedom_modified_symbols_test.go (1)
+- [x] `internal/core/codedom_modified_symbols_test.go`
+
+### internal/core/codedom_reason_atom_unification_test.go (1)
+- [x] `internal/core/codedom_reason_atom_unification_test.go`
+
+### internal/core/consistency_test.go (1)
+- [x] `internal/core/consistency_test.go`
+
+### internal/core/cortex_derivation_wiring_test.go (1)
+- [x] `internal/core/cortex_derivation_wiring_test.go`
+
+### internal/core/cortex_kernel.go (1)
+- [x] `internal/core/cortex_kernel.go`
+
+### internal/core/cortex_kernel_extra_test.go (1)
+- [x] `internal/core/cortex_kernel_extra_test.go`
+
+### internal/core/cortex_kernel_query_fanout_test.go (1)
+- [x] `internal/core/cortex_kernel_query_fanout_test.go`
+
+### internal/core/cortex_kernel_test.go (1)
+- [x] `internal/core/cortex_kernel_test.go`
+
+### internal/core/cortex_uplift_test.go (1)
+- [x] `internal/core/cortex_uplift_test.go`
+
+### internal/core/cortex_kernel_transaction_test.go (1)
+- [x] `internal/core/cortex_kernel_transaction_test.go`
+
+### internal/core/cortex_mutation_failure_test.go (1)
+- [x] `internal/core/cortex_mutation_failure_test.go`
+
+### internal/core/cortex_split_join_test.go (1)
+- [x] `internal/core/cortex_split_join_test.go`
+
+### internal/core/coverage_boost_test.go (1)
+- [x] `internal/core/coverage_boost_test.go`
+
+### internal/core/defaults (18)
+- [x] `internal/core/defaults/build_topology_test.go`
+- [x] `internal/core/defaults/corpus_float_comparison_test.go`
+- [x] `internal/core/defaults/corpus_test.go`
+- [x] `internal/core/defaults/intent_corpus.go`
+- [x] `internal/core/defaults/policy/browser_honeypot_test.go`
+- [x] `internal/core/defaults/policy/browser_reasoning_test.go`
+- [x] `internal/core/defaults/policy/logic_test.go`
+- [x] `internal/core/defaults/policy/main_test.go`
+- [x] `internal/core/defaults/policy/safety_exec_test.go`
+- [x] `internal/core/defaults/policy/safety_test.go`
+- [x] `internal/core/defaults/policy/tdd_logic_test.go`
+- [x] `internal/core/defaults/predicate_corpus.go`
+- [x] `internal/core/defaults/prompt_corpus.go`
+- [x] `internal/core/defaults/query_only_predicate_test.go`
+- [x] `internal/core/defaults/schema_duplicate_decl_test.go`
+- [x] `internal/core/defaults/starved_atom_value_test.go`
+- [x] `internal/core/defaults/starved_predicate_test.go`
+- [x] `internal/core/defaults/undeclared_assert_test.go`
+
+### internal/core/dependency_reachability_test.go (1)
+- [x] `internal/core/dependency_reachability_test.go`
+
+### internal/core/derivation_map.go (1)
+- [x] `internal/core/derivation_map.go`
+
+### internal/core/derivation_map_test.go (1)
+- [x] `internal/core/derivation_map_test.go`
+
+### internal/core/dream_learning.go (1)
+- [x] `internal/core/dream_learning.go`
+
+### internal/core/dream_learning_test.go (1)
+- [x] `internal/core/dream_learning_test.go`
+
+### internal/core/dream_plan.go (1)
+- [x] `internal/core/dream_plan.go`
+
+### internal/core/dream_plan_extractor.go (1)
+- [x] `internal/core/dream_plan_extractor.go`
+
+### internal/core/dream_plan_extractor_test.go (1)
+- [x] `internal/core/dream_plan_extractor_test.go`
+
+### internal/core/dream_plan_gaps_test.go (1)
+- [x] `internal/core/dream_plan_gaps_test.go`
+
+### internal/core/dream_plan_manager.go (1)
+- [x] `internal/core/dream_plan_manager.go`
+
+### internal/core/dream_plan_manager_test.go (1)
+- [x] `internal/core/dream_plan_manager_test.go`
+
+### internal/core/dream_plan_test.go (1)
+- [x] `internal/core/dream_plan_test.go`
+
+### internal/core/dream_router.go (1)
+- [x] `internal/core/dream_router.go`
+
+### internal/core/dream_router_persist_test.go (1)
+- [x] `internal/core/dream_router_persist_test.go`
+
+### internal/core/dream_router_test.go (1)
+- [x] `internal/core/dream_router_test.go`
+
+### internal/core/dream_singleton_test.go (1)
+- [x] `internal/core/dream_singleton_test.go`
+
+### internal/core/dreamer.go (1)
+- [x] `internal/core/dreamer.go`
+
+### internal/core/dreamer_authorization_test.go (1)
+- [x] `internal/core/dreamer_authorization_test.go`
+
+### internal/core/dreamer_benchmark_test.go (1)
+- [x] `internal/core/dreamer_benchmark_test.go`
+
+### internal/core/dreamer_gaps_test.go (1)
+- [x] `internal/core/dreamer_gaps_test.go`
+
+### internal/core/dreamer_perf_test.go (1)
+- [x] `internal/core/dreamer_perf_test.go`
+
+### internal/core/dreamer_test.go (1)
+- [x] `internal/core/dreamer_test.go`
+
+### internal/core/external_predicates.go (1)
+- [x] `internal/core/external_predicates.go`
+
+### internal/core/external_predicates_coverage_test.go (1)
+- [x] `internal/core/external_predicates_coverage_test.go`
+
+### internal/core/fact_categories.go (1)
+- [x] `internal/core/fact_categories.go`
+
+### internal/core/fact_categories_coverage_test.go (1)
+- [x] `internal/core/fact_categories_coverage_test.go`
+
+### internal/core/fact_event_bus.go (1)
+- [x] `internal/core/fact_event_bus.go`
+
+### internal/core/fact_event_bus_test.go (1)
+- [x] `internal/core/fact_event_bus_test.go`
+
+### internal/core/hybrid_loader.go (1)
+- [x] `internal/core/hybrid_loader.go`
+
+### internal/core/hybrid_loader_test.go (1)
+- [x] `internal/core/hybrid_loader_test.go`
+
+### internal/core/integration_path.go (1)
+- [x] `internal/core/integration_path.go`
+
+### internal/core/intent_coverage_test.go (1)
+- [x] `internal/core/intent_coverage_test.go`
+
+### internal/core/intent_decl_interning_test.go (1)
+- [x] `internal/core/intent_decl_interning_test.go`
+
+### internal/core/intent_defaults.go (1)
+- [x] `internal/core/intent_defaults.go`
+
+### internal/core/intent_identity_atom_unification_test.go (1)
+- [x] `internal/core/intent_identity_atom_unification_test.go`
+
+### internal/core/intent_inference.go (1)
+- [x] `internal/core/intent_inference.go`
+
+### internal/core/intent_inference_test.go (1)
+- [x] `internal/core/intent_inference_test.go`
+
+### internal/core/intent_loader.go (1)
+- [x] `internal/core/intent_loader.go`
+
+### internal/core/intent_uplift_test.go (1)
+- [x] `internal/core/intent_uplift_test.go`
+
+### internal/core/intent_schema_files_test.go (1)
+- [x] `internal/core/intent_schema_files_test.go`
+
+### internal/core/jit_pinning_test.go (1)
+- [x] `internal/core/jit_pinning_test.go`
+
+### internal/core/jit_retrieved_context_test.go (1)
+- [x] `internal/core/jit_retrieved_context_test.go`
+
+### internal/core/jit_supersession_test.go (1)
+- [x] `internal/core/jit_supersession_test.go`
+
+### internal/core/kernel.go (1)
+- [x] `internal/core/kernel.go`
+
+### internal/core/kernel_accessors.go (1)
+- [x] `internal/core/kernel_accessors.go`
+
+### internal/core/kernel_assert_rejection_test.go (1)
+- [x] `internal/core/kernel_assert_rejection_test.go`
+
+### internal/core/kernel_cache_sync_test.go (1)
+- [x] `internal/core/kernel_cache_sync_test.go`
+
+### internal/core/kernel_eval.go (1)
+- [x] `internal/core/kernel_eval.go`
+
+### internal/core/kernel_eval_demote_test.go (1)
+- [x] `internal/core/kernel_eval_demote_test.go`
+
+### internal/core/kernel_eval_large_test.go (1)
+- [x] `internal/core/kernel_eval_large_test.go`
+
+### internal/core/kernel_eval_test.go (1)
+- [x] `internal/core/kernel_eval_test.go`
+
+### internal/core/kernel_fact_decl.go (1)
+- [x] `internal/core/kernel_fact_decl.go`
+
+### internal/core/kernel_fact_decl_test.go (1)
+- [x] `internal/core/kernel_fact_decl_test.go`
+
+### internal/core/kernel_facts.go (1)
+- [x] `internal/core/kernel_facts.go`
+
+### internal/core/kernel_facts_gaps_test.go (1)
+- [x] `internal/core/kernel_facts_gaps_test.go`
+
+### internal/core/kernel_facts_intern.go (1)
+- [x] `internal/core/kernel_facts_intern.go`
+
+### internal/core/kernel_facts_intern_test.go (1)
+- [x] `internal/core/kernel_facts_intern_test.go`
+
+### internal/core/kernel_facts_scrub_test.go (1)
+- [x] `internal/core/kernel_facts_scrub_test.go`
+
+### internal/core/kernel_facts_test.go (1)
+- [x] `internal/core/kernel_facts_test.go`
+
+### internal/core/kernel_features_test.go (1)
+- [x] `internal/core/kernel_features_test.go`
+
+### internal/core/kernel_heartbeat_test.go (1)
+- [x] `internal/core/kernel_heartbeat_test.go`
+
+### internal/core/kernel_indexed_store_test.go (1)
+- [x] `internal/core/kernel_indexed_store_test.go`
+
+### internal/core/kernel_init.go (1)
+- [x] `internal/core/kernel_init.go`
+
+### internal/core/kernel_init_bench_test.go (1)
+- [x] `internal/core/kernel_init_bench_test.go`
+
+### internal/core/kernel_intelligence_test.go (1)
+- [x] `internal/core/kernel_intelligence_test.go`
+
+### internal/core/kernel_loadfacts_lazy_test.go (1)
+- [x] `internal/core/kernel_loadfacts_lazy_test.go`
+
+### internal/core/kernel_policy.go (1)
+- [x] `internal/core/kernel_policy.go`
+
+### internal/core/kernel_policy_test.go (1)
+- [x] `internal/core/kernel_policy_test.go`
+
+### internal/core/kernel_policy_uplift_test.go (1)
+- [x] `internal/core/kernel_policy_uplift_test.go`
+
+### internal/core/kernel_provenance.go (1)
+- [x] `internal/core/kernel_provenance.go`
+
+### internal/core/kernel_provenance_test.go (1)
+- [x] `internal/core/kernel_provenance_test.go`
+
+### internal/core/kernel_query.go (1)
+- [x] `internal/core/kernel_query.go`
+
+### internal/core/kernel_query_gaps_test.go (1)
+- [x] `internal/core/kernel_query_gaps_test.go`
+
+### internal/core/kernel_query_multi_arity_test.go (1)
+- [x] `internal/core/kernel_query_multi_arity_test.go`
+
+### internal/core/kernel_query_security_test.go (1)
+- [x] `internal/core/kernel_query_security_test.go`
+
+### internal/core/kernel_query_test.go (1)
+- [x] `internal/core/kernel_query_test.go`
+
+### internal/core/kernel_safe_action.go (1)
+- [x] `internal/core/kernel_safe_action.go`
+
+### internal/core/kernel_safe_action_test.go (1)
+- [x] `internal/core/kernel_safe_action_test.go`
+
+### internal/core/kernel_sandbox_logging_test.go (1)
+- [x] `internal/core/kernel_sandbox_logging_test.go`
+
+### internal/core/kernel_shard.go (1)
+- [x] `internal/core/kernel_shard.go`
+
+### internal/core/kernel_step_predicates_test.go (1)
+- [x] `internal/core/kernel_step_predicates_test.go`
+
+### internal/core/kernel_test.go (1)
+- [x] `internal/core/kernel_test.go`
+
+### internal/core/kernel_transactions.go (1)
+- [x] `internal/core/kernel_transactions.go`
+
+### internal/core/kernel_transactions_uplift_test.go (1)
+- [x] `internal/core/kernel_transactions_uplift_test.go`
+
+### internal/core/kernel_types.go (1)
+- [x] `internal/core/kernel_types.go`
+
+### internal/core/kernel_undeclared.go (1)
+- [x] `internal/core/kernel_undeclared.go`
+
+### internal/core/kernel_undeclared_test.go (1)
+- [x] `internal/core/kernel_undeclared_test.go`
+
+### internal/core/kernel_utils.go (1)
+- [x] `internal/core/kernel_utils.go`
+
+### internal/core/kernel_validation.go (1)
+- [x] `internal/core/kernel_validation.go`
+
+### internal/core/kernel_validation_absurd_test.go (1)
+- [x] `internal/core/kernel_validation_absurd_test.go`
+
+### internal/core/kernel_validation_gaps_test.go (1)
+- [x] `internal/core/kernel_validation_gaps_test.go`
+
+### internal/core/kernel_validation_test.go (1)
+- [x] `internal/core/kernel_validation_test.go`
+
+### internal/core/kernel_virtual.go (1)
+- [x] `internal/core/kernel_virtual.go`
+
+### internal/core/kernel_workspace_constructor_test.go (1)
+- [x] `internal/core/kernel_workspace_constructor_test.go`
+
+### internal/core/knowledge_graph_test.go (1)
+- [x] `internal/core/knowledge_graph_test.go`
+
+### internal/core/learning.go (1)
+- [x] `internal/core/learning.go`
+
+### internal/core/limits.go (1)
+- [x] `internal/core/limits.go`
+
+### internal/core/limits_coverage_test.go (1)
+- [x] `internal/core/limits_coverage_test.go`
+
+### internal/core/limits_test.go (1)
+- [x] `internal/core/limits_test.go`
+
+### internal/core/line_ending.go (1)
+- [x] `internal/core/line_ending.go`
+
+### internal/core/line_ending_test.go (1)
+- [x] `internal/core/line_ending_test.go`
+
+### internal/core/llm_client.go (1)
+- [x] `internal/core/llm_client.go`
+
+### internal/core/llm_client_test.go (1)
+- [x] `internal/core/llm_client_test.go`
+
+### internal/core/manager_routing_test.go (1)
+- [x] `internal/core/manager_routing_test.go`
+
+### internal/core/mangle_evidence_authority_test.go (1)
+- [x] `internal/core/mangle_evidence_authority_test.go`
+
+### internal/core/mangle_updates.go (1)
+- [x] `internal/core/mangle_updates.go`
+
+### internal/core/mangle_updates_test.go (1)
+- [x] `internal/core/mangle_updates_test.go`
+
+### internal/core/mangle_watcher.go (1)
+- [x] `internal/core/mangle_watcher.go`
+
+### internal/core/mangle_watcher_test.go (1)
+- [x] `internal/core/mangle_watcher_test.go`
+
+### internal/core/mg_decl_body_literal_wiring_test.go (1)
+- [x] `internal/core/mg_decl_body_literal_wiring_test.go`
+
+### internal/core/mg_decl_literal_conformance_test.go (1)
+- [x] `internal/core/mg_decl_literal_conformance_test.go`
+
+### internal/core/ondemand_watcher.go (1)
+- [x] `internal/core/ondemand_watcher.go`
+
+### internal/core/ondemand_watcher_test.go (1)
+- [x] `internal/core/ondemand_watcher_test.go`
+
+### internal/core/parse_serial.go (1)
+- [x] `internal/core/parse_serial.go`
+
+### internal/core/pending_edit.go (1)
+- [x] `internal/core/pending_edit.go`
+
+### internal/core/performance_bench_test.go (1)
+- [x] `internal/core/performance_bench_test.go`
+
+### internal/core/policy_inventory.go (1)
+- [x] `internal/core/policy_inventory.go`
+
+### internal/core/policy_inventory_test.go (1)
+- [x] `internal/core/policy_inventory_test.go`
+
+### internal/core/predicate_corpus.go (1)
+- [x] `internal/core/predicate_corpus.go`
+
+### internal/core/predicate_corpus_extra_test.go (1)
+- [x] `internal/core/predicate_corpus_extra_test.go`
+
+### internal/core/predicate_corpus_test.go (1)
+- [x] `internal/core/predicate_corpus_test.go`
+
+### internal/core/query_differential_test.go (1)
+- [x] `internal/core/query_differential_test.go`
+
+### internal/core/query_pattern_test.go (1)
+- [x] `internal/core/query_pattern_test.go`
+
+### internal/core/routing_performance_test.go (1)
+- [x] `internal/core/routing_performance_test.go`
+
+### internal/core/rule_court.go (1)
+- [x] `internal/core/rule_court.go`
+
+### internal/core/rule_court_coverage_test.go (1)
+- [x] `internal/core/rule_court_coverage_test.go`
+
+### internal/core/rule_court_gaps_test.go (1)
+- [x] `internal/core/rule_court_gaps_test.go`
+
+### internal/core/rule_court_test.go (1)
+- [x] `internal/core/rule_court_test.go`
+
+### internal/core/scheduled_grounded_test.go (1)
+- [x] `internal/core/scheduled_grounded_test.go`
+
+### internal/core/scheduled_llm_client.go (1)
+- [x] `internal/core/scheduled_llm_client.go`
+
+### internal/core/scheduled_llm_client_coverage_test.go (1)
+- [x] `internal/core/scheduled_llm_client_coverage_test.go`
+
+### internal/core/scheduled_llm_client_trace_test.go (1)
+- [x] `internal/core/scheduled_llm_client_trace_test.go`
+
+### internal/core/scheduled_llm_tool_results_test.go (1)
+- [x] `internal/core/scheduled_llm_tool_results_test.go`
+
+### internal/core/self_healing.go (1)
+- [x] `internal/core/self_healing.go`
+
+### internal/core/self_healing_test.go (1)
+- [x] `internal/core/self_healing_test.go`
+
+### internal/core/shadow_failclosed_test.go (1)
+- [x] `internal/core/shadow_failclosed_test.go`
+
+### internal/core/shadow_mode.go (1)
+- [x] `internal/core/shadow_mode.go`
+
+### internal/core/shadow_mode_assert_test.go (1)
+- [x] `internal/core/shadow_mode_assert_test.go`
+
+### internal/core/shadow_mode_gaps_test.go (1)
+- [x] `internal/core/shadow_mode_gaps_test.go`
+
+### internal/core/shadow_mode_test.go (1)
+- [x] `internal/core/shadow_mode_test.go`
+
+### internal/core/shard_fact_router.go (1)
+- [x] `internal/core/shard_fact_router.go`
+
+### internal/core/shard_fact_router_test.go (1)
+- [x] `internal/core/shard_fact_router_test.go`
+
+### internal/core/shards (23)
+- [x] `internal/core/shards/agents.go`
+- [x] `internal/core/shards/agents_test.go`
+- [x] `internal/core/shards/base_agent_test.go`
+- [x] `internal/core/shards/config.go`
+- [x] `internal/core/shards/config_test.go`
+- [x] `internal/core/shards/hollow_spawn_test.go`
+- [x] `internal/core/shards/image_generator.go`
+- [x] `internal/core/shards/image_generator_test.go`
+- [x] `internal/core/shards/manager.go`
+- [x] `internal/core/shards/manager_accessors_test.go`
+- [x] `internal/core/shards/manager_facts_test.go`
+- [x] `internal/core/shards/manager_ondemand.go`
+- [x] `internal/core/shards/manager_ondemand_test.go`
+- [x] `internal/core/shards/manager_spawn.go`
+- [x] `internal/core/shards/manager_spawn_context_test.go`
+- [x] `internal/core/shards/manager_test.go`
+- [x] `internal/core/shards/manager_tools.go`
+- [x] `internal/core/shards/queue_stress_test.go`
+- [x] `internal/core/shards/review_feedback_test.go`
+- [x] `internal/core/shards/shards_coverage_test.go`
+- [x] `internal/core/shards/spawn_queue.go`
+- [x] `internal/core/shards/spawn_queue_test.go`
+- [x] `internal/core/shards/transparency_feed_test.go`
+
+### internal/core/shards_decl_atom_unification_test.go (1)
+- [x] `internal/core/shards_decl_atom_unification_test.go`
+
+### internal/core/stage_context_test.go (1)
+- [x] `internal/core/stage_context_test.go`
+
+### internal/core/task_stage_test.go (1)
+- [x] `internal/core/task_stage_test.go`
+
+### internal/core/tdd_loop.go (1)
+- [x] `internal/core/tdd_loop.go`
+
+### internal/core/tdd_loop_test.go (1)
+- [x] `internal/core/tdd_loop_test.go`
+
+### internal/core/test_helpers_test.go (1)
+- [x] `internal/core/test_helpers_test.go`
+
+### internal/core/tool_registry.go (1)
+- [x] `internal/core/tool_registry.go`
+
+### internal/core/tool_registry_test.go (1)
+- [x] `internal/core/tool_registry_test.go`
+
+### internal/core/trace.go (1)
+- [x] `internal/core/trace.go`
+
+### internal/core/trace_classification_test.go (1)
+- [x] `internal/core/trace_classification_test.go`
+
+### internal/core/trace_coverage_test.go (1)
+- [x] `internal/core/trace_coverage_test.go`
+
+### internal/core/trace_test.go (1)
+- [x] `internal/core/trace_test.go`
+
+### internal/core/transaction_atomic_test.go (1)
+- [x] `internal/core/transaction_atomic_test.go`
+
+### internal/core/transaction_manager.go (1)
+- [x] `internal/core/transaction_manager.go`
+
+### internal/core/transaction_manager_gaps_test.go (1)
+- [x] `internal/core/transaction_manager_gaps_test.go`
+
+### internal/core/transaction_manager_test.go (1)
+- [x] `internal/core/transaction_manager_test.go`
+
+### internal/core/transparency_deny_test.go (1)
+- [x] `internal/core/transparency_deny_test.go`
+
+### internal/core/validation_reason_vocabulary_test.go (1)
+- [x] `internal/core/validation_reason_vocabulary_test.go`
+
+### internal/core/validator_codedom.go (1)
+- [x] `internal/core/validator_codedom.go`
+
+### internal/core/validator_codedom_crlf_test.go (1)
+- [x] `internal/core/validator_codedom_crlf_test.go`
+
+### internal/core/validator_codedom_delete_lines_test.go (1)
+- [x] `internal/core/validator_codedom_delete_lines_test.go`
+
+### internal/core/validator_dir.go (1)
+- [x] `internal/core/validator_dir.go`
+
+### internal/core/validator_edit_enhanced.go (1)
+- [x] `internal/core/validator_edit_enhanced.go`
+
+### internal/core/validator_exec.go (1)
+- [x] `internal/core/validator_exec.go`
+
+### internal/core/validator_exec_gaps_test.go (1)
+- [x] `internal/core/validator_exec_gaps_test.go`
+
+### internal/core/validator_exec_test.go (1)
+- [x] `internal/core/validator_exec_test.go`
+
+### internal/core/validator_file.go (1)
+- [x] `internal/core/validator_file.go`
+
+### internal/core/validator_file_integration_test.go (1)
+- [x] `internal/core/validator_file_integration_test.go`
+
+### internal/core/validator_paranoid.go (1)
+- [x] `internal/core/validator_paranoid.go`
+
+### internal/core/validator_paranoid_test.go (1)
+- [x] `internal/core/validator_paranoid_test.go`
+
+### internal/core/validator_registry.go (1)
+- [x] `internal/core/validator_registry.go`
+
+### internal/core/validator_registry_test.go (1)
+- [x] `internal/core/validator_registry_test.go`
+
+### internal/core/validator_syntax.go (1)
+- [x] `internal/core/validator_syntax.go`
+
+### internal/core/validator_syntax_gaps_test.go (1)
+- [x] `internal/core/validator_syntax_gaps_test.go`
+
+### internal/core/validator_syntax_test.go (1)
+- [x] `internal/core/validator_syntax_test.go`
+
+### internal/core/validator_tool_contract_test.go (1)
+- [x] `internal/core/validator_tool_contract_test.go`
+
+### internal/core/verification_host_test.go (1)
+- [x] `internal/core/verification_host_test.go`
+
+### internal/core/virtual_store.go (1)
+- [x] `internal/core/virtual_store.go`
+
+### internal/core/virtual_store_actions.go (1)
+- [x] `internal/core/virtual_store_actions.go`
+
+### internal/core/virtual_store_actions_coverage_test.go (1)
+- [x] `internal/core/virtual_store_actions_coverage_test.go`
+
+### internal/core/virtual_store_cli_fact_test.go (1)
+- [x] `internal/core/virtual_store_cli_fact_test.go`
+
+### internal/core/virtual_store_codedom.go (1)
+- [x] `internal/core/virtual_store_codedom.go`
+
+### internal/core/virtual_store_codedom_coverage_test.go (1)
+- [x] `internal/core/virtual_store_codedom_coverage_test.go`
+
+### internal/core/virtual_store_codedom_test.go (1)
+- [x] `internal/core/virtual_store_codedom_test.go`
+
+### internal/core/virtual_store_command_guard_test.go (1)
+- [x] `internal/core/virtual_store_command_guard_test.go`
+
+### internal/core/virtual_store_constitution.go (1)
+- [x] `internal/core/virtual_store_constitution.go`
+
+### internal/core/virtual_store_delegate_codec_test.go (1)
+- [x] `internal/core/virtual_store_delegate_codec_test.go`
+
+### internal/core/virtual_store_denial_feedback_test.go (1)
+- [x] `internal/core/virtual_store_denial_feedback_test.go`
+
+### internal/core/virtual_store_file_actions.go (1)
+- [x] `internal/core/virtual_store_file_actions.go`
+
+### internal/core/virtual_store_gaps_test.go (1)
+- [x] `internal/core/virtual_store_gaps_test.go`
+
+### internal/core/virtual_store_graph.go (1)
+- [x] `internal/core/virtual_store_graph.go`
+
+### internal/core/virtual_store_grounded_test.go (1)
+- [x] `internal/core/virtual_store_grounded_test.go`
+
+### internal/core/virtual_store_integration_test.go (1)
+- [x] `internal/core/virtual_store_integration_test.go`
+
+### internal/core/virtual_store_interactive_gate.go (1)
+- [x] `internal/core/virtual_store_interactive_gate.go`
+
+### internal/core/virtual_store_interactive_gate_test.go (1)
+- [x] `internal/core/virtual_store_interactive_gate_test.go`
+
+### internal/core/virtual_store_interface_test.go (1)
+- [x] `internal/core/virtual_store_interface_test.go`
+
+### internal/core/virtual_store_link_facts_test.go (1)
+- [x] `internal/core/virtual_store_link_facts_test.go`
+
+### internal/core/virtual_store_mcp_proxy.go (1)
+- [x] `internal/core/virtual_store_mcp_proxy.go`
+
+### internal/core/virtual_store_mcp_wiring_test.go (1)
+- [x] `internal/core/virtual_store_mcp_wiring_test.go`
+
+### internal/core/virtual_store_predicates.go (1)
+- [x] `internal/core/virtual_store_predicates.go`
+
+### internal/core/virtual_store_predicates_coverage_test.go (1)
+- [x] `internal/core/virtual_store_predicates_coverage_test.go`
+
+### internal/core/virtual_store_projectdoc.go (1)
+- [x] `internal/core/virtual_store_projectdoc.go`
+
+### internal/core/virtual_store_projectdoc_test.go (1)
+- [x] `internal/core/virtual_store_projectdoc_test.go`
+
+### internal/core/virtual_store_python.go (1)
+- [x] `internal/core/virtual_store_python.go`
+
+### internal/core/virtual_store_python_test.go (1)
+- [x] `internal/core/virtual_store_python_test.go`
+
+### internal/core/virtual_store_routing.go (1)
+- [x] `internal/core/virtual_store_routing.go`
+
+### internal/core/virtual_store_safety_test.go (1)
+- [x] `internal/core/virtual_store_safety_test.go`
+
+### internal/core/virtual_store_tactile_audit_test.go (1)
+- [x] `internal/core/virtual_store_tactile_audit_test.go`
+
+### internal/core/virtual_store_test.go (1)
+- [x] `internal/core/virtual_store_test.go`
+
+### internal/core/virtual_store_tool_facts.go (1)
+- [x] `internal/core/virtual_store_tool_facts.go`
+
+### internal/core/virtual_store_tools.go (1)
+- [x] `internal/core/virtual_store_tools.go`
+
+### internal/core/virtual_store_types.go (1)
+- [x] `internal/core/virtual_store_types.go`
+
+### internal/core/virtual_store_uplift_test.go (1)
+- [x] `internal/core/virtual_store_uplift_test.go`
+
+### internal/core/virtual_store_workflows.go (1)
+- [x] `internal/core/virtual_store_workflows.go`
+
+### internal/core/virtual_store_workflows_coverage_test.go (1)
+- [x] `internal/core/virtual_store_workflows_coverage_test.go`
+
+### internal/core/virtual_store_workflows_test.go (1)
+- [x] `internal/core/virtual_store_workflows_test.go`
+
+### internal/core/virtual_store_write_guard.go (1)
+- [x] `internal/core/virtual_store_write_guard.go`
+
+### internal/core/yolo_policy_test.go (1)
+- [x] `internal/core/yolo_policy_test.go`
+
+### internal/diff (7)
+- [x] `internal/diff/benchmark_test.go`
+- [x] `internal/diff/cache.go`
+- [x] `internal/diff/cache_test.go`
+- [x] `internal/diff/diff.go`
+- [x] `internal/diff/diff_comprehensive_test.go`
+- [x] `internal/diff/diff_test.go`
+- [x] `internal/diff/word_span_test.go`
+
+### internal/embedding (15)
+- [x] `internal/embedding/engine.go`
+- [x] `internal/embedding/engine_coverage_test.go`
+- [x] `internal/embedding/genai.go`
+- [x] `internal/embedding/genai_bench_test.go`
+- [x] `internal/embedding/genai_coverage_test.go`
+- [x] `internal/embedding/genai_test.go`
+- [x] `internal/embedding/math_amd64.go`
+- [x] `internal/embedding/math_generic.go`
+- [x] `internal/embedding/ollama.go`
+- [x] `internal/embedding/ollama_coverage_test.go`
+- [x] `internal/embedding/ollama_ensure_test.go`
+- [x] `internal/embedding/ollama_test.go`
+- [x] `internal/embedding/task_selector.go`
+- [x] `internal/embedding/task_selector_coverage_test.go`
+- [x] `internal/embedding/task_selector_test.go`
+
+### internal/evidence (3)
+- [x] `internal/evidence/change.go`
+- [x] `internal/evidence/change_test.go`
+- [x] `internal/evidence/context.go`
+
+### internal/features (8)
+- [x] `internal/features/config_roundtrip_test.go`
+- [x] `internal/features/features.go`
+- [x] `internal/features/features_defaults_test.go`
+- [x] `internal/features/features_test.go`
+- [x] `internal/features/migration_test.go`
+- [x] `internal/features/resolved_test.go`
+- [x] `internal/features/schema.go`
+- [x] `internal/features/schema_test.go`
+
+### internal/init (37)
+- [x] `internal/init/agent_generation_contract_test.go`
+- [x] `internal/init/agents.go`
+- [x] `internal/init/agents_curation.go`
+- [x] `internal/init/agents_curation_test.go`
+- [x] `internal/init/agents_knowledge.go`
+- [x] `internal/init/agents_knowledge_helpers_test.go`
+- [x] `internal/init/agents_prompts_test.go`
+- [x] `internal/init/agents_registration.go`
+- [x] `internal/init/discovered_agent_store_test.go`
+- [x] `internal/init/eta_tracker.go`
+- [x] `internal/init/init_coverage_test.go`
+- [x] `internal/init/init_test.go`
+- [x] `internal/init/initializer.go`
+- [x] `internal/init/initializer_truth_test.go`
+- [x] `internal/init/interactive.go`
+- [x] `internal/init/interactive_display_test.go`
+- [x] `internal/init/jit_integration.go`
+- [x] `internal/init/jit_kernel_verify_test.go`
+- [x] `internal/init/modules_test.go`
+- [x] `internal/init/preferences_preservation_test.go`
+- [x] `internal/init/profile.go`
+- [x] `internal/init/profile_detection_test.go`
+- [x] `internal/init/prompt_deadline_test.go`
+- [x] `internal/init/scanner.go`
+- [x] `internal/init/scanner_dependencies.go`
+- [x] `internal/init/scanner_dependencies_test.go`
+- [x] `internal/init/scanner_determinism_test.go`
+- [x] `internal/init/scanner_test.go`
+- [x] `internal/init/shared_kb.go`
+- [x] `internal/init/strategic_documents.go`
+- [x] `internal/init/strategic_knowledge.go`
+- [x] `internal/init/strategic_knowledge_parsing_test.go`
+- [x] `internal/init/tool_target_test.go`
+- [x] `internal/init/tools.go`
+- [x] `internal/init/typeu_agents.go`
+- [x] `internal/init/typeu_coverage_test.go`
+- [x] `internal/init/validation.go`
+
+### internal/jit (2)
+- [x] `internal/jit/config/types.go`
+- [x] `internal/jit/config/types_test.go`
+
+### internal/jsonl (2)
+- [x] `internal/jsonl/jsonl.go`
+- [x] `internal/jsonl/jsonl_test.go`
+
+### internal/logging (32)
+- [x] `internal/logging/audit.go`
+- [x] `internal/logging/audit_benchmark_test.go`
+- [x] `internal/logging/audit_concurrency_test.go`
+- [x] `internal/logging/audit_coverage_test.go`
+- [x] `internal/logging/audit_facts.go`
+- [x] `internal/logging/audit_facts_test.go`
+- [x] `internal/logging/audit_reader.go`
+- [x] `internal/logging/audit_reader_test.go`
+- [x] `internal/logging/category_inventory_test.go`
+- [x] `internal/logging/config_schema_test.go`
+- [x] `internal/logging/coverage_boost_test.go`
+- [x] `internal/logging/fresh_run.go`
+- [x] `internal/logging/fresh_run_substantive_test.go`
+- [x] `internal/logging/fresh_run_test.go`
+- [x] `internal/logging/init_rebind_test.go`
+- [x] `internal/logging/late_config_test.go`
+- [x] `internal/logging/llm_io_logger.go`
+- [x] `internal/logging/llm_io_trace_test.go`
+- [x] `internal/logging/logger.go`
+- [x] `internal/logging/logger_convenience.go`
+- [x] `internal/logging/logger_test.go`
+- [x] `internal/logging/logging_comprehensive_test.go`
+- [x] `internal/logging/problems_log_test.go`
+- [x] `internal/logging/redact.go`
+- [x] `internal/logging/redact_test.go`
+- [x] `internal/logging/request_logger_fields_test.go`
+- [x] `internal/logging/rotate.go`
+- [x] `internal/logging/rotate_test.go`
+- [x] `internal/logging/safety_callsite_audit_test.go`
+- [x] `internal/logging/sink_lifecycle_test.go`
+- [x] `internal/logging/structured_decorators_test.go`
+- [x] `internal/logging/testsupport_test.go`
+
+### internal/mangle/differential.go (1)
+- [x] `internal/mangle/differential.go`
+
+### internal/mangle/differential_test.go (1)
+- [x] `internal/mangle/differential_test.go`
+
+### internal/mangle/engine.go (1)
+- [x] `internal/mangle/engine.go`
+
+### internal/mangle/engine_behavior_regression_test.go (1)
+- [x] `internal/mangle/engine_behavior_regression_test.go`
+
+### internal/mangle/engine_clear_query_test.go (1)
+- [x] `internal/mangle/engine_clear_query_test.go`
+
+### internal/mangle/engine_control_facts_test.go (1)
+- [x] `internal/mangle/engine_control_facts_test.go`
+
+### internal/mangle/engine_coverage_regression_test.go (1)
+- [x] `internal/mangle/engine_coverage_regression_test.go`
+
+### internal/mangle/engine_evaluate_test.go (1)
+- [x] `internal/mangle/engine_evaluate_test.go`
+
+### internal/mangle/engine_fact_arg_encode_test.go (1)
+- [x] `internal/mangle/engine_fact_arg_encode_test.go`
+
+### internal/mangle/engine_fact_string_test.go (1)
+- [x] `internal/mangle/engine_fact_string_test.go`
+
+### internal/mangle/engine_failclosed_test.go (1)
+- [x] `internal/mangle/engine_failclosed_test.go`
+
+### internal/mangle/engine_gap_survey_test.go (1)
+- [x] `internal/mangle/engine_gap_survey_test.go`
+
+### internal/mangle/engine_harden_gap_regression_test.go (1)
+- [x] `internal/mangle/engine_harden_gap_regression_test.go`
+
+### internal/mangle/engine_harden_step2_final_regression_test.go (1)
+- [x] `internal/mangle/engine_harden_step2_final_regression_test.go`
+
+### internal/mangle/engine_harden_step2b_regression_test.go (1)
+- [x] `internal/mangle/engine_harden_step2b_regression_test.go`
+
+### internal/mangle/engine_harden_step2c_regression_test.go (1)
+- [x] `internal/mangle/engine_harden_step2c_regression_test.go`
+
+### internal/mangle/engine_harden_step2e_regression_test.go (1)
+- [x] `internal/mangle/engine_harden_step2e_regression_test.go`
+
+### internal/mangle/engine_mode_synth_test.go (1)
+- [x] `internal/mangle/engine_mode_synth_test.go`
+
+### internal/mangle/engine_step1_gap_probe_test.go (1)
+- [x] `internal/mangle/engine_step1_gap_probe_test.go`
+
+### internal/mangle/engine_step2_gap_regression_test.go (1)
+- [x] `internal/mangle/engine_step2_gap_regression_test.go`
+
+### internal/mangle/engine_step2_regression_test.go (1)
+- [x] `internal/mangle/engine_step2_regression_test.go`
+
+### internal/mangle/engine_test.go (1)
+- [x] `internal/mangle/engine_test.go`
+
+### internal/mangle/engine_uplift_test.go (1)
+- [x] `internal/mangle/engine_uplift_test.go`
+- [x] `internal/mangle/doc600_pin_test.go`
+- [x] `internal/mangle/corpus_gate_test.go`
+- [x] `internal/core/kernel_boot_uplift_test.go`
+- [x] `internal/core/kernel_facts_uplift_test.go`
+- [x] `internal/core/kernel_sysfacts.go`
+- [x] `internal/core/kernel_query_uplift_test.go`
+- [x] `internal/core/kernel_eval_uplift_test.go`
+
+### internal/mangle/fact_store_proxy_test.go (1)
+- [x] `internal/mangle/fact_store_proxy_test.go`
+
+### internal/mangle/feedback (18)
+- [x] `internal/mangle/feedback/error_classifier.go`
+- [x] `internal/mangle/feedback/error_classifier_benchmark_test.go`
+- [x] `internal/mangle/feedback/error_classifier_test.go`
+- [x] `internal/mangle/feedback/feedback_test.go`
+- [x] `internal/mangle/feedback/jit_test.go`
+- [x] `internal/mangle/feedback/loop.go`
+- [x] `internal/mangle/feedback/loop_test.go`
+- [x] `internal/mangle/feedback/normalize.go`
+- [x] `internal/mangle/feedback/normalize_test.go`
+- [x] `internal/mangle/feedback/pre_validator.go`
+- [x] `internal/mangle/feedback/pre_validator_bench_test.go`
+- [x] `internal/mangle/feedback/pre_validator_benchmark_test.go`
+- [x] `internal/mangle/feedback/pre_validator_test.go`
+- [x] `internal/mangle/feedback/prompt_builder.go`
+- [x] `internal/mangle/feedback/prompt_builder_test.go`
+- [x] `internal/mangle/feedback/types.go`
+- [x] `internal/mangle/feedback/types_test.go`
+- [x] `internal/mangle/feedback/uplift_test.go`
+
+### internal/mangle/grammar.go (1)
+- [x] `internal/mangle/grammar.go`
+
+### internal/mangle/grammar_argtype_test.go (1)
+- [x] `internal/mangle/grammar_argtype_test.go`
+
+### internal/mangle/grammar_fuzz_test.go (1)
+- [x] `internal/mangle/grammar_fuzz_test.go`
+
+### internal/mangle/grammar_helpers_test.go (1)
+- [x] `internal/mangle/grammar_helpers_test.go`
+
+### internal/mangle/grammar_internal_test.go (1)
+- [x] `internal/mangle/grammar_internal_test.go`
+
+### internal/mangle/grammar_test.go (1)
+- [x] `internal/mangle/grammar_test.go`
+
+### internal/mangle/inspect_test.go (1)
+- [x] `internal/mangle/inspect_test.go`
+
+### internal/mangle/intent_imports_test.go (1)
+- [x] `internal/mangle/intent_imports_test.go`
+
+### internal/mangle/intent_wiring_test.go (1)
+- [x] `internal/mangle/intent_wiring_test.go`
+
+### internal/mangle/lsp.go (1)
+- [x] `internal/mangle/lsp.go`
+
+### internal/mangle/lsp_helpers_test.go (1)
+- [x] `internal/mangle/lsp_helpers_test.go`
+
+### internal/mangle/lsp_test.go (1)
+- [x] `internal/mangle/lsp_test.go`
+
+### internal/mangle/mangle_validation_test.go (1)
+- [x] `internal/mangle/mangle_validation_test.go`
+
+### internal/mangle/parse_callers_integration_test.go (1)
+- [x] `internal/mangle/parse_callers_integration_test.go`
+
+### internal/mangle/parse_lock.go (1)
+- [x] `internal/mangle/parse_lock.go`
+
+### internal/mangle/parse_lock_test.go (1)
+- [x] `internal/mangle/parse_lock_test.go`
+
+### internal/mangle/proof_tree.go (1)
+- [x] `internal/mangle/proof_tree.go`
+
+### internal/mangle/proof_tree_test.go (1)
+- [x] `internal/mangle/proof_tree_test.go`
+
+### internal/mangle/proof_tree_uplift_test.go (1)
+- [x] `internal/mangle/proof_tree_uplift_test.go`
+
+### internal/mangle/schema_validator.go (1)
+- [x] `internal/mangle/schema_validator.go`
+
+### internal/mangle/schema_validator_program_test.go (1)
+- [x] `internal/mangle/schema_validator_program_test.go`
+
+### internal/mangle/schema_validator_test.go (1)
+- [x] `internal/mangle/schema_validator_test.go`
+
+### internal/mangle/schema_validator_uplift_test.go (1)
+- [x] `internal/mangle/schema_validator_uplift_test.go`
+
+### internal/mangle/simd_intersect_generic.go (1)
+- [x] `internal/mangle/simd_intersect_generic.go`
+
+### internal/mangle/simd_intersect_generic_test.go (1)
+- [x] `internal/mangle/simd_intersect_generic_test.go`
+
+### internal/mangle/simd_intersect_test.go (1)
+- [x] `internal/mangle/simd_intersect_test.go`
+
+### internal/mangle/synth (14)
+- [x] `internal/mangle/synth/compile.go`
+- [x] `internal/mangle/synth/compile_test.go`
+- [x] `internal/mangle/synth/decoder.go`
+- [x] `internal/mangle/synth/decoder_fromresponse_test.go`
+- [x] `internal/mangle/synth/decoder_more_test.go`
+- [x] `internal/mangle/synth/decoder_test.go`
+- [x] `internal/mangle/synth/schema.go`
+- [x] `internal/mangle/synth/schema_test.go`
+- [x] `internal/mangle/synth/spec.go`
+- [x] `internal/mangle/synth/spec_test.go`
+- [x] `internal/mangle/synth/synth_test.go`
+- [x] `internal/mangle/synth/validate.go`
+- [x] `internal/mangle/synth/validate_test.go`
+- [x] `internal/mangle/synth/uplift_test.go`
+
+### internal/mangle/torture_test.go (1)
+- [x] `internal/mangle/torture_test.go`
+
+### internal/mangle/transpiler (4)
+- [x] `internal/mangle/transpiler/sanitizer.go`
+- [x] `internal/mangle/transpiler/sanitizer_atoms_test.go`
+- [x] `internal/mangle/transpiler/sanitizer_test.go`
+- [x] `internal/mangle/transpiler/uplift_test.go`
+
+### internal/mangle/verification_logic_test.go (1)
+- [x] `internal/mangle/verification_logic_test.go`
+
+### internal/mcp (52)
+- [x] `internal/mcp/analyzer.go`
+- [x] `internal/mcp/analyzer_coverage_test.go`
+- [x] `internal/mcp/analyzer_test.go`
+- [x] `internal/mcp/client.go`
+- [x] `internal/mcp/client_boundary_test.go`
+- [x] `internal/mcp/client_coverage_test.go`
+- [x] `internal/mcp/client_test.go`
+- [x] `internal/mcp/compiler.go`
+- [x] `internal/mcp/compiler_select_test.go`
+- [x] `internal/mcp/compiler_test.go`
+- [x] `internal/mcp/concurrency_test.go`
+- [x] `internal/mcp/controlplane.go`
+- [x] `internal/mcp/controlplane_invoke.go`
+- [x] `internal/mcp/controlplane_test.go`
+- [x] `internal/mcp/digest.go`
+- [x] `internal/mcp/digest_test.go`
+- [x] `internal/mcp/expand_brutal_test.go`
+- [x] `internal/mcp/export_test.go`
+- [x] `internal/mcp/facets.go`
+- [x] `internal/mcp/facets_test.go`
+- [x] `internal/mcp/facts.go`
+- [x] `internal/mcp/facts_lifecycle_test.go`
+- [x] `internal/mcp/fake_server_test.go`
+- [x] `internal/mcp/handles.go`
+- [x] `internal/mcp/handles_test.go`
+- [x] `internal/mcp/headers.go`
+- [x] `internal/mcp/integration.go`
+- [x] `internal/mcp/integration_bridge_test.go`
+- [x] `internal/mcp/integration_coverage_test.go`
+- [x] `internal/mcp/integration_test.go`
+- [x] `internal/mcp/kernel_integration_test.go`
+- [x] `internal/mcp/mcp_client_integration_test.go`
+- [x] `internal/mcp/metrics.go`
+- [x] `internal/mcp/metrics_test.go`
+- [x] `internal/mcp/policy_golden_test.go`
+- [x] `internal/mcp/redact.go`
+- [x] `internal/mcp/redact_test.go`
+- [x] `internal/mcp/renderer.go`
+- [x] `internal/mcp/renderer_coverage_test.go`
+- [x] `internal/mcp/resources.go`
+- [x] `internal/mcp/signature.go`
+- [x] `internal/mcp/signature_test.go`
+- [x] `internal/mcp/store.go`
+- [x] `internal/mcp/store_coverage_test.go`
+- [x] `internal/mcp/store_query_test.go`
+- [x] `internal/mcp/store_test.go`
+- [x] `internal/mcp/transport_http.go`
+- [x] `internal/mcp/transport_http_test.go`
+- [x] `internal/mcp/transport_sse.go`
+- [x] `internal/mcp/transport_stdio.go`
+- [x] `internal/mcp/types.go`
+- [x] `internal/mcp/types_coverage_test.go`
+
+### internal/northstar (25)
+- [x] `internal/northstar/alignment_prompt.go`
+- [x] `internal/northstar/alignment_prompt_test.go`
+- [x] `internal/northstar/bridge.go`
+- [x] `internal/northstar/bridge_test.go`
+- [x] `internal/northstar/campaign_observer.go`
+- [x] `internal/northstar/docs.go`
+- [x] `internal/northstar/docs_test.go`
+- [x] `internal/northstar/facts_links_test.go`
+- [x] `internal/northstar/guardian.go`
+- [x] `internal/northstar/guardian_querier_wiring_test.go`
+- [x] `internal/northstar/guardian_test.go`
+- [x] `internal/northstar/guardian_warn_test.go`
+- [x] `internal/northstar/guardian_wiring_test.go`
+- [x] `internal/northstar/kernel_integration_test.go`
+- [x] `internal/northstar/module.go`
+- [x] `internal/northstar/module_test.go`
+- [x] `internal/northstar/ns6_diag_test.go`
+- [x] `internal/northstar/observer.go`
+- [x] `internal/northstar/observer_test.go`
+- [x] `internal/northstar/registry.go`
+- [x] `internal/northstar/store.go`
+- [x] `internal/northstar/store_test.go`
+- [x] `internal/northstar/types.go`
+- [x] `internal/northstar/types_facts_test.go`
+- [x] `internal/northstar/types_test.go`
+
+### internal/observability (6)
+- [x] `internal/observability/flight_recorder.go`
+- [x] `internal/observability/flight_recorder_lifecycle_test.go`
+- [x] `internal/observability/flight_recorder_test.go`
+- [x] `internal/observability/flight_recorder_watchdog_test.go`
+- [x] `internal/observability/runtime_metrics.go`
+- [x] `internal/observability/runtime_metrics_test.go`
+
+### internal/observation (8)
+- [x] `internal/observation/codesearch.go`
+- [x] `internal/observation/codesearch_test.go`
+- [x] `internal/observation/doc.go`
+- [x] `internal/observation/fileread.go`
+- [x] `internal/observation/fileread_test.go`
+- [x] `internal/observation/precondition/precondition.go`
+- [x] `internal/observation/precondition/precondition_test.go`
+- [x] `internal/observation/subagent.go` (post-uplift B1: Verification.Outcome + indeterminate/canceled rendering)
+
+### internal/perception (131)
+- [x] `internal/perception/assault_verb_test.go`
+- [x] `internal/perception/benchmark_test.go`
+- [x] `internal/perception/break_test.go`
+- [x] `internal/perception/broker_install.go`
+- [x] `internal/perception/broker_sentinel_test.go`
+- [x] `internal/perception/claude_cli_client.go`
+- [x] `internal/perception/claude_cli_client_test.go`
+- [x] `internal/perception/cli_client_identity_test.go`
+- [x] `internal/perception/client.go`
+- [x] `internal/perception/client_anthropic.go`
+- [x] `internal/perception/client_fallback.go` (F-CLASS-2 follow-up: Unwrap for broker chain walks)
+- [x] `internal/perception/client_fallback_test.go`
+- [x] `internal/perception/client_factory.go`
+- [x] `internal/perception/client_factory_extra_test.go`
+- [x] `internal/perception/client_factory_test.go`
+- [x] `internal/perception/client_gemini.go`
+- [x] `internal/perception/client_gemini_files.go`
+- [x] `internal/perception/client_gemini_files_uplift_test.go`
+- [x] `internal/perception/client_gemini_files_test.go`
+- [x] `internal/perception/client_gemini_getters_test.go`
+- [x] `internal/perception/client_gemini_http_test.go`
+- [x] `internal/perception/client_gemini_schema_test.go`
+- [x] `internal/perception/client_gemini_streaming.go`
+- [x] `internal/perception/client_gemini_streaming_uplift_test.go`
+- [x] `internal/perception/client_gemini_test.go`
+- [x] `internal/perception/client_gemini_toolcalls_test.go`
+- [x] `internal/perception/client_gemini_tools.go`
+- [x] `internal/perception/client_gemini_tools_uplift_test.go`
+- [x] `internal/perception/client_meta_model_test.go`
+- [x] `internal/perception/client_meta_piggyback_test.go`
+- [x] `internal/perception/client_meta_responses.go`
+- [x] `internal/perception/client_meta_responses_uplift_test.go`
+- [x] `internal/perception/client_meta_responses_concurrency_test.go`
+- [x] `internal/perception/client_meta_responses_dedup_test.go`
+- [x] `internal/perception/client_meta_responses_retry_test.go`
+- [x] `internal/perception/client_ollama.go`
+- [x] `internal/perception/client_ollama_test.go`
+- [x] `internal/perception/client_openai.go`
+- [x] `internal/perception/client_openai_compat.go`
+- [x] `internal/perception/client_openai_compat_allow_empty_test.go`
+- [x] `internal/perception/client_openai_compat_empty_retry_test.go`
+- [x] `internal/perception/client_openai_compat_grounded_supports_test.go`
+- [x] `internal/perception/client_openai_compat_grounding.go`
+- [x] `internal/perception/client_openai_compat_grounding_uplift_test.go`
+- [x] `internal/perception/client_openai_compat_grounding_test.go`
+- [x] `internal/perception/client_openai_compat_live_test.go`
+- [x] `internal/perception/client_openai_compat_meta_tools_test.go`
+- [x] `internal/perception/client_openai_compat_test.go`
+- [x] `internal/perception/client_openai_compat_truncation_test.go`
+- [x] `internal/perception/client_openai_http_test.go`
+- [x] `internal/perception/client_openrouter.go`
+- [x] `internal/perception/client_openrouter_uplift_test.go`
+- [x] `internal/perception/client_planner_slot_test.go`
+- [x] `internal/perception/client_schema.go`
+- [x] `internal/perception/client_schema_strict_test.go`
+- [x] `internal/perception/client_tool_helpers.go`
+- [x] `internal/perception/client_tool_helpers_test.go`
+- [x] `internal/perception/client_types.go`
+- [x] `internal/perception/client_worker_providers_test.go`
+- [x] `internal/perception/client_xai.go`
+- [x] `internal/perception/client_zai.go`
+- [x] `internal/perception/client_zai_retry.go`
+- [x] `internal/perception/client_zai_retry_test.go`
+- [x] `internal/perception/client_zai_streaming.go`
+- [x] `internal/perception/client_zai_streaming_uplift_test.go`
+- [x] `internal/perception/client_zai_test.go`
+- [x] `internal/perception/codex_cli_client.go`
+- [x] `internal/perception/codex_cli_client_test.go`
+- [x] `internal/perception/codex_cli_probe.go`
+- [x] `internal/perception/codex_cli_probe_test.go`
+- [x] `internal/perception/codex_exec_client.go`
+- [x] `internal/perception/consolidation.go`
+- [x] `internal/perception/context_token_phrase_unification_test.go`
+- [x] `internal/perception/debug.go`
+- [x] `internal/perception/gemini_live_test.go`
+- [x] `internal/perception/gemini_structured_test.go`
+- [x] `internal/perception/gemini_thinking_test.go`
+- [x] `internal/perception/learning.go`
+- [x] `internal/perception/learning_test.go`
+- [x] `internal/perception/metrics.go`
+- [x] `internal/perception/piggyback_contract_test.go`
+- [x] `internal/perception/scanner_pool.go`
+- [x] `internal/perception/semantic_classifier.go`
+- [x] `internal/perception/semantic_classifier_test.go`
+- [x] `internal/perception/taxonomy.go`
+- [x] `internal/perception/taxonomy_benchmark_test.go`
+- [x] `internal/perception/taxonomy_extra_test.go`
+- [x] `internal/perception/taxonomy_persistence.go`
+- [x] `internal/perception/taxonomy_persistence_test.go`
+- [x] `internal/perception/taxonomy_test.go`
+- [x] `internal/perception/tracing_client.go`
+- [x] `internal/perception/tracing_client_uplift_test.go`
+- [x] `internal/perception/tracing_client_extra_test.go`
+- [x] `internal/perception/tracing_client_test.go`
+- [x] `internal/perception/tracing_grounded_test.go`
+- [x] `internal/perception/tracing_tool_results_test.go`
+- [x] `internal/perception/transducer.go`
+- [x] `internal/perception/transducer_coverage_test.go`
+- [x] `internal/perception/transducer_extra_test.go`
+- [x] `internal/perception/transducer_gemini.go`
+- [x] `internal/perception/transducer_gemini_extra_test.go`
+- [x] `internal/perception/transducer_llm.go`
+- [x] `internal/perception/transducer_llm_extra2_test.go`
+- [x] `internal/perception/transducer_llm_test.go`
+- [x] `internal/perception/transducer_prompt_bounds_test.go`
+- [x] `internal/perception/transducer_unit_test.go`
+- [x] `internal/perception/transport.go`
+- [x] `internal/perception/transport_pool_test.go`
+- [x] `internal/perception/truncation.go`
+- [x] `internal/perception/understanding.go`
+- [x] `internal/perception/understanding_adapter.go`
+- [x] `internal/perception/understanding_adapter_extra_test.go`
+- [x] `internal/perception/understanding_adapter_test.go`
+- [x] `internal/perception/understanding_adapter_transient_test.go`
+- [x] `internal/perception/understanding_verbs_test.go`
+- [x] `internal/perception/usage_track.go`
+- [x] `internal/perception/usage_track_test.go`
+- [x] `internal/perception/utils.go`
+- [x] `internal/perception/utils_coverage_test.go`
+- [x] `internal/perception/xai_torture_test.go`
+- [x] `internal/perception/xaioauth/auth_device.go`
+- [x] `internal/perception/xaioauth/chat.go`
+- [x] `internal/perception/xaioauth/chat_test.go`
+- [x] `internal/perception/xaioauth/classification_test.go`
+- [x] `internal/perception/xaioauth/client.go`
+- [x] `internal/perception/xaioauth/config.go`
+- [x] `internal/perception/xaioauth/doc.go`
+- [x] `internal/perception/xaioauth/errors.go`
+- [x] `internal/perception/xaioauth/errors_test.go`
+- [x] `internal/perception/xaioauth/grok_auth_import.go`
+- [x] `internal/perception/xaioauth/probe.go`
+- [x] `internal/perception/xaioauth/store.go`
+- [x] `internal/perception/xaioauth/store_test.go`
+- [x] `internal/perception/xaioauth/streaming.go`
+- [x] `internal/perception/xaioauth/token.go`
+- [x] `internal/perception/xaioauth/token_quarantine_test.go`
+- [x] `internal/perception/xaioauth/token_test.go`
+- [x] `internal/perception/xaioauth/tools.go`
+- [x] `internal/perception/xaioauth/transport.go`
+- [x] `internal/perception/xaioauth/uplift_test.go`
+- [x] `internal/perception/zai_live_test.go`
+
+### internal/persist (10)
+- [x] `internal/persist/doc.go`
+- [x] `internal/persist/factsnap/codec_parity_test.go`
+- [x] `internal/persist/factsnap/factsnap.go`
+- [x] `internal/persist/factsnap/factsnap_codec_test.go`
+- [x] `internal/persist/factsnap/factsnap_robustness_test.go`
+- [x] `internal/persist/factsnap/factsnap_test.go`
+- [x] `internal/persist/factsnap/legacy_test.go`
+- [x] `internal/persist/snapshot/kernel_roundtrip_test.go`
+- [x] `internal/persist/snapshot/snapshot.go`
+- [x] `internal/persist/snapshot/snapshot_test.go`
+
+### internal/processutil (5)
+- [x] `internal/processutil/cancellation_test.go`
+- [x] `internal/processutil/command.go`
+- [x] `internal/processutil/command_test.go`
+- [x] `internal/processutil/proc_tree_other.go`
+- [x] `internal/processutil/proc_tree_windows.go`
+
+### internal/projectdoc (12)
+- [x] `internal/projectdoc/facts.go`
+- [x] `internal/projectdoc/gate.go`
+- [x] `internal/projectdoc/gofmt_gate_test.go`
+- [x] `internal/projectdoc/loadall_test.go`
+- [x] `internal/projectdoc/nerdmd.go`
+- [x] `internal/projectdoc/nerdmd_test.go`
+- [x] `internal/projectdoc/northstar_facts_test.go`
+- [x] `internal/projectdoc/northstar_schema_test.go`
+- [x] `internal/projectdoc/prompt_section_bounds_test.go`
+- [x] `internal/projectdoc/readfile_tool_test.go`
+- [x] `internal/projectdoc/tool_gate.go`
+- [x] `internal/projectdoc/tool_gate_test.go`
+
+### internal/prompt (105)
+- [x] `internal/prompt/assembler.go`
+- [x] `internal/prompt/assembler_gaps_test.go`
+- [x] `internal/prompt/assembler_test.go`
+- [x] `internal/prompt/atom_pinning_test.go`
+- [x] `internal/prompt/atom_schema.go`
+- [x] `internal/prompt/atom_schema_test.go`
+- [x] `internal/prompt/atoms.go`
+- [x] `internal/prompt/atoms_placeholder_test.go`
+- [x] `internal/prompt/atoms_test.go`
+- [x] `internal/prompt/atoms_verification_test.go`
+- [x] `internal/prompt/baseline.go`
+- [x] `internal/prompt/budget.go`
+- [x] `internal/prompt/budget_enforcement_test.go`
+- [x] `internal/prompt/budget_test.go`
+- [x] `internal/prompt/capability_gating_test.go`
+- [x] `internal/prompt/codedom_policy_test.go`
+- [x] `internal/prompt/compile_shard_test.go`
+- [x] `internal/prompt/compiler.go`
+- [x] `internal/prompt/compiler_boundary_test.go`
+- [x] `internal/prompt/compiler_db.go`
+- [x] `internal/prompt/compiler_expert_knowledge_test.go`
+- [x] `internal/prompt/compiler_gaps_test.go`
+- [x] `internal/prompt/compiler_kernel_atoms_test.go`
+- [x] `internal/prompt/compiler_options.go`
+- [x] `internal/prompt/compiler_scope_test.go`
+- [x] `internal/prompt/compiler_shutdown_test.go`
+- [x] `internal/prompt/compiler_specialists.go`
+- [x] `internal/prompt/compiler_test.go`
+- [x] `internal/prompt/config_defaults.go`
+- [x] `internal/prompt/config_factory.go`
+- [x] `internal/prompt/config_factory_all_verbs_test.go`
+- [x] `internal/prompt/config_factory_mcp_test.go`
+- [x] `internal/prompt/config_factory_taxonomy_test.go`
+- [x] `internal/prompt/config_factory_test.go`
+- [x] `internal/prompt/config_generation_test.go`
+- [x] `internal/prompt/config_policy_registry_test.go`
+- [x] `internal/prompt/config_registry.go`
+- [x] `internal/prompt/config_registry_test.go`
+- [x] `internal/prompt/context.go`
+- [x] `internal/prompt/context_hash_test.go`
+- [x] `internal/prompt/context_test.go`
+- [x] `internal/prompt/couse.go`
+- [x] `internal/prompt/couse_default.go`
+- [x] `internal/prompt/couse_log_handle_test.go`
+- [x] `internal/prompt/couse_persist.go`
+- [x] `internal/prompt/couse_report.go`
+- [x] `internal/prompt/couse_test.go`
+- [x] `internal/prompt/couse_wiring_test.go`
+- [x] `internal/prompt/debugging_atoms_test.go`
+- [x] `internal/prompt/default_corpus.go`
+- [x] `internal/prompt/default_corpus_benchmark_test.go`
+- [x] `internal/prompt/embedded.go`
+- [x] `internal/prompt/embedded_test.go`
+- [x] `internal/prompt/evolved_atoms.go`
+- [x] `internal/prompt/grounded_web_search_test.go`
+- [x] `internal/prompt/kernel_injection_bounds_test.go`
+- [x] `internal/prompt/learning_evidence_test.go`
+- [x] `internal/prompt/limits.go`
+- [x] `internal/prompt/limits_test.go`
+- [x] `internal/prompt/loader.go`
+- [x] `internal/prompt/loader_bench_test.go`
+- [x] `internal/prompt/loader_embedding.go`
+- [x] `internal/prompt/loader_example_test.go`
+- [x] `internal/prompt/loader_test.go`
+- [x] `internal/prompt/loader_yaml_fields_test.go`
+- [x] `internal/prompt/manifest.go`
+- [x] `internal/prompt/marathon/marathon.go`
+- [x] `internal/prompt/marathon/marathon_test.go`
+- [x] `internal/prompt/marathon/optimize.go`
+- [x] `internal/prompt/marathon/research.go`
+- [x] `internal/prompt/marathon/types.go`
+- [x] `internal/prompt/minify_whitespace_perf_test.go`
+- [x] `internal/prompt/output_mode.go`
+- [x] `internal/prompt/output_mode_campaign_test.go`
+- [x] `internal/prompt/pinning.go`
+- [x] `internal/prompt/pinning_test.go`
+- [x] `internal/prompt/predicate_selector.go`
+- [x] `internal/prompt/predicate_selector_test.go`
+- [x] `internal/prompt/prompt_core_uplift_test.go`
+- [x] `internal/prompt/prompt_loader_uplift_test.go`
+- [x] `internal/prompt/prompt_gaps_test.go`
+- [x] `internal/prompt/query_expansion.go`
+- [x] `internal/prompt/query_expansion_semantic_test.go`
+- [x] `internal/prompt/query_expansion_test.go`
+- [x] `internal/prompt/reconciler.go`
+- [x] `internal/prompt/reconciler_test.go`
+- [x] `internal/prompt/refactoring_atoms_test.go`
+- [x] `internal/prompt/reload_failure_contract_test.go`
+- [x] `internal/prompt/render_mode_test.go`
+- [x] `internal/prompt/resolver.go`
+- [x] `internal/prompt/resolver_gaps_test.go`
+- [x] `internal/prompt/resolver_test.go`
+- [x] `internal/prompt/selector.go`
+- [x] `internal/prompt/selector_gaps_test.go`
+- [x] `internal/prompt/selector_test.go`
+- [x] `internal/prompt/selector_vector_score_test.go`
+- [x] `internal/prompt/shard_gating_test.go`
+- [x] `internal/prompt/specialist_benchmark_test.go`
+- [x] `internal/prompt/strategy_atoms.go`
+- [x] `internal/prompt/strategy_atoms_test.go`
+- [x] `internal/prompt/structured_output_corpus_test.go`
+- [x] `internal/prompt/sync/synchronizer.go`
+- [x] `internal/prompt/sync/synchronizer_test.go`
+- [x] `internal/prompt/vector_searcher.go`
+- [x] `internal/prompt/verify_pe1_test.go`
+
+### internal/regression (7)
+- [x] `internal/regression/battery.go`
+- [x] `internal/regression/battery_features_test.go`
+- [x] `internal/regression/battery_test.go`
+- [x] `internal/regression/policy.go`
+- [x] `internal/regression/policy_test.go`
+- [x] `internal/regression/seed.go`
+- [x] `internal/regression/seed_test.go`
+
+### internal/retain (3)
+- [x] `internal/retain/retain.go`
+- [x] `internal/retain/retain_brutal_test.go`
+- [x] `internal/retain/retain_test.go`
+
+### internal/retrieval (20)
+- [x] `internal/retrieval/backend.go`
+- [x] `internal/retrieval/bounds_test.go`
+- [x] `internal/retrieval/facts.go`
+- [x] `internal/retrieval/facts_test.go`
+- [x] `internal/retrieval/go_imports.go`
+- [x] `internal/retrieval/invalidation.go`
+- [x] `internal/retrieval/metrics.go`
+- [x] `internal/retrieval/scanner_generic.go`
+- [x] `internal/retrieval/semantic.go`
+- [x] `internal/retrieval/semantic_tier_test.go`
+- [x] `internal/retrieval/sparse.go`
+- [x] `internal/retrieval/sparse_bench_test.go`
+- [x] `internal/retrieval/sparse_integration_test.go`
+- [x] `internal/retrieval/sparse_search_test.go`
+- [x] `internal/retrieval/sparse_test.go`
+- [x] `internal/retrieval/tiered_context.go`
+- [x] `internal/retrieval/tiered_context_coverage_test.go`
+- [x] `internal/retrieval/tiered_context_test.go`
+- [x] `internal/retrieval/retrieval_uplift_test.go`
+- [x] `internal/retrieval/wiring_test.go`
+
+### internal/session (95)
+- [x] `internal/session/build_repair_regime_test.go`
+- [x] `internal/session/build_verify.go` (post-uplift B1: explicit Outcome gates, retain failure until affirmative pass; C1: repairLoop specs, uplift re-verify inherits Repair)
+- [x] `internal/session/build_verify_test.go`
+- [x] `internal/session/change_evidence.go` (post-uplift B1: checks_passed/fail branch on Verdict; C1: final re-verify inherits Repair)
+- [x] `internal/session/check_safety_real_kernel_test.go`
+- [x] `internal/session/check_safety_write_large_test.go`
+- [x] `internal/session/coverage_profile.go`
+- [x] `internal/session/coverage_profile_test.go`
+- [x] `internal/session/critic.go`
+- [x] `internal/session/critic_test.go`
+- [x] `internal/session/executor.go` (post-uplift: config-factory panic recovery fail-closed to empty config/catalog; C1: RepairMaxAttempts/RepairWallClock)
+- [x] `internal/session/executor_boundary_test.go`
+- [x] `internal/session/executor_budget_exhaustion_test.go`
+- [x] `internal/session/executor_capability_test.go`
+- [x] `internal/session/executor_gate_test.go`
+- [x] `internal/session/executor_history_test.go`
+- [x] `internal/session/executor_learning.go`
+- [x] `internal/session/executor_learning_e2e_test.go`
+- [x] `internal/session/executor_learning_test.go`
+- [x] `internal/session/executor_mangle_test.go`
+- [x] `internal/session/executor_mangle_updates_test.go`
+- [x] `internal/session/executor_memory.go`
+- [x] `internal/session/executor_memory_test.go`
+- [x] `internal/session/executor_no_tool_retry_test.go`
+- [x] `internal/session/executor_planner_routing_test.go`
+- [x] `internal/session/executor_process_test.go`
+- [x] `internal/session/executor_projectdoc_test.go`
+- [x] `internal/session/executor_retrieval_context_test.go`
+- [x] `internal/session/executor_test.go`
+- [x] `internal/session/executor_tool_context_test.go`
+- [x] `internal/session/executor_tool_loop_timeout_test.go`
+- [x] `internal/session/executor_tools.go`
+- [x] `internal/session/executor_usage_tracker_test.go`
+- [x] `internal/session/file_context_injection_test.go`
+- [x] `internal/session/gate_names.go`
+- [x] `internal/session/gate_names_test.go`
+- [x] `internal/session/history_bounds_test.go`
+- [x] `internal/session/hollow_success_test.go`
+- [x] `internal/session/journey_adversarial_test.go`
+- [x] `internal/session/journey_planned_steps_test.go`
+- [x] `internal/session/lsp_diagnostics.go`
+- [x] `internal/session/lsp_diagnostics_test.go`
+- [x] `internal/session/mocks_test.go` (C1: MockToolResultsLLM split, MockLLMClient stays single-batch)
+- [x] `internal/session/modularity.go`
+- [x] `internal/session/modularity_guard_verify_test.go`
+- [x] `internal/session/modularity_test.go`
+- [x] `internal/session/observed_return.go` (post-uplift B1: projects Outcome verdict)
+- [x] `internal/session/pending_edit_path_validation_test.go`
+- [x] `internal/session/pending_edit_test.go`
+- [x] `internal/session/persistence.go`
+- [x] `internal/session/persistence_uplift_test.go`
+- [x] `internal/session/piggyback_promotion.go`
+- [x] `internal/session/piggyback_promotion_test.go`
+- [x] `internal/session/placeholder_test_guard_test.go`
+- [x] `internal/session/repair_loop.go` (C1: bounded evidence-driven repair episode, cost/attempt ledger, inheritRepair)
+- [x] `internal/session/repair_loop_test.go` (C1: 6 behavioral repair tests incl. real go build/test convergence)
+- [x] `internal/session/semantic_compressor.go`
+- [x] `internal/session/semantic_compressor_test.go`
+- [x] `internal/session/session_uplift_test.go`
+- [x] `internal/session/session_wiring_test.go`
+- [x] `internal/session/severity.go`
+- [x] `internal/session/severity_test.go`
+- [x] `internal/session/shell_gate_test.go`
+- [x] `internal/session/spawner.go`
+- [x] `internal/session/spawner_executor_config_test.go`
+- [x] `internal/session/spawner_gaps_test.go`
+- [x] `internal/session/spawner_improvements_test.go`
+- [x] `internal/session/spawner_test.go`
+- [x] `internal/session/subagent.go`
+- [x] `internal/session/subagent_test.go`
+- [x] `internal/session/subagent_tool_error_test.go`
+- [x] `internal/session/task_executor.go`
+- [x] `internal/session/task_executor_test.go`
+- [x] `internal/session/test_output_detector.go`
+- [x] `internal/session/test_verify.go` (post-uplift B1: explicit Outcome + supervisor wiring; C1: TestVerification.Repair)
+- [x] `internal/session/test_verify_test.go`
+- [x] `internal/session/testtool_test.go`
+- [x] `internal/session/tool_budget_controller.go`
+- [x] `internal/session/tool_budget_controller_test.go`
+- [x] `internal/session/tool_gate_contract_test.go`
+- [x] `internal/session/turn_done_test.go`
+- [x] `internal/session/turn_summary.go`
+- [x] `internal/session/turn_summary_test.go`
+- [x] `internal/session/unverified_test_claim_test.go`
+- [x] `internal/session/user_agent_wiring_test.go`
+- [x] `internal/session/verify_created2_test.go`
+- [x] `internal/session/verify_outcome.go` (B1: VerifyOutcome, runner seams, cancel/deadline supervisor)
+- [x] `internal/session/verify_outcome_test.go` (B1: 11 behavioral outcome/cancel/budget tests)
+- [x] `internal/session/work_steps.go`
+- [x] `internal/session/work_steps_test.go`
+- [x] `internal/session/working_context.go`
+- [x] `internal/session/working_context_test.go`
+- [x] `internal/session/working_loop_gating_test.go`
+- [x] `internal/session/wrap_tool_loop_error_test.go`
+- [x] `internal/session/write_guards.go`
+- [x] `internal/session/write_mutation_tool_test.go`
+- [x] `internal/session/written_path_test.go`
+
+### internal/shards/consultation.go (1)
+- [x] `internal/shards/consultation.go`
+
+### internal/shards/consultation_test.go (1)
+- [x] `internal/shards/consultation_test.go`
+
+### internal/shards/integration_path_test.go (1)
+- [x] `internal/shards/integration_path_test.go`
+
+### internal/shards/matching.go (1)
+- [x] `internal/shards/matching.go`
+
+### internal/shards/matching_classification_test.go (1)
+- [x] `internal/shards/matching_classification_test.go`
+
+### internal/shards/matching_test.go (1)
+- [x] `internal/shards/matching_test.go`
+
+### internal/shards/observer_integration_test.go (1)
+- [x] `internal/shards/observer_integration_test.go`
+
+### internal/shards/observer_manager.go (1)
+- [x] `internal/shards/observer_manager.go`
+
+### internal/shards/observer_manager_accessors_test.go (1)
+- [x] `internal/shards/observer_manager_accessors_test.go`
+
+### internal/shards/observer_manager_test.go (1)
+- [x] `internal/shards/observer_manager_test.go`
+
+### internal/shards/registration.go (1)
+- [x] `internal/shards/registration.go`
+
+### internal/shards/registration_manifest_test.go (1)
+- [x] `internal/shards/registration_manifest_test.go`
+
+### internal/shards/registration_test.go (1)
+- [x] `internal/shards/registration_test.go`
+
+### internal/shards/requirements_interrogator.go (1)
+- [x] `internal/shards/requirements_interrogator.go`
+
+### internal/shards/requirements_interrogator_test.go (1)
+- [x] `internal/shards/requirements_interrogator_test.go`
+
+### internal/shards/shard_join_audit_test.go (1)
+- [x] `internal/shards/shard_join_audit_test.go`
+
+### internal/shards/shards_uplift_test.go (1)
+- [x] `internal/shards/shards_uplift_test.go`
+
+### internal/shards/specialist_facts.go (1)
+- [x] `internal/shards/specialist_facts.go`
+
+### internal/shards/system (43)
+- [x] `internal/shards/system/action_pipeline_test.go`
+- [x] `internal/shards/system/base.go`
+- [x] `internal/shards/system/base_coverage_test.go`
+- [x] `internal/shards/system/base_shard_pattern_test.go`
+- [x] `internal/shards/system/campaign_runner.go`
+- [x] `internal/shards/system/campaign_runner_test.go`
+- [x] `internal/shards/system/constitution.go`
+- [x] `internal/shards/system/constitution_coverage_test.go`
+- [x] `internal/shards/system/constitution_ownership_test.go`
+- [x] `internal/shards/system/escalation_target_atom_test.go`
+- [x] `internal/shards/system/executive.go`
+- [x] `internal/shards/system/executive_autopoiesis.go`
+- [x] `internal/shards/system/executive_bench_test.go`
+- [x] `internal/shards/system/executive_coverage_test.go`
+- [x] `internal/shards/system/executive_helpers_test.go`
+- [x] `internal/shards/system/executive_intent.go`
+- [x] `internal/shards/system/executive_learning_test.go`
+- [x] `internal/shards/system/executive_ooda_test.go`
+- [x] `internal/shards/system/learning_test.go`
+- [x] `internal/shards/system/legislator.go`
+- [x] `internal/shards/system/mangle_repair.go`
+- [x] `internal/shards/system/mangle_repair_bench_test.go`
+- [x] `internal/shards/system/mangle_repair_test.go`
+- [x] `internal/shards/system/payloads.go`
+- [x] `internal/shards/system/perception.go`
+- [x] `internal/shards/system/perception_transient_test.go`
+- [x] `internal/shards/system/perception_validation_test.go`
+- [x] `internal/shards/system/planner.go`
+- [x] `internal/shards/system/planner_activation_test.go`
+- [x] `internal/shards/system/planner_test.go`
+- [x] `internal/shards/system/policy_action_routes_test.go`
+- [x] `internal/shards/system/policy_audit_route_test.go`
+- [x] `internal/shards/system/policy_mock_file_scale_test.go`
+- [x] `internal/shards/system/policy_optimize_route_test.go`
+- [x] `internal/shards/system/policy_query_verb_route_test.go`
+- [x] `internal/shards/system/policy_reasoning_model_test.go`
+- [x] `internal/shards/system/router.go`
+- [x] `internal/shards/system/router_escalation_test.go`
+- [x] `internal/shards/system/router_route_selection_test.go`
+- [x] `internal/shards/system/system_helpers_test.go`
+- [x] `internal/shards/system/system_uplift_test.go`
+- [x] `internal/shards/system/world_model.go`
+- [x] `internal/shards/system/world_model_rootpath_test.go`
+
+### internal/sqlpragmas (12)
+- [x] `internal/sqlpragmas/connector.go`
+- [x] `internal/sqlpragmas/corpus_coverage_test.go`
+- [x] `internal/sqlpragmas/features_test.go`
+- [x] `internal/sqlpragmas/golden_test.go`
+- [x] `internal/sqlpragmas/hostclass.go`
+- [x] `internal/sqlpragmas/imports_test.go`
+- [x] `internal/sqlpragmas/metrics.go`
+- [x] `internal/sqlpragmas/modernc_integration_test.go`
+- [x] `internal/sqlpragmas/open_site_audit_test.go`
+- [x] `internal/sqlpragmas/pragma_integration_test.go`
+- [x] `internal/sqlpragmas/pragmas.go`
+- [x] `internal/sqlpragmas/pragmas_test.go`
+
+### internal/store (96)
+- [x] `internal/store/archival_test.go`
+- [x] `internal/store/cold_storage_integration_test.go`
+- [x] `internal/store/corpus_search_boundaries_test.go`
+- [x] `internal/store/embedded_store.go`
+- [x] `internal/store/foundation_uplift_test.go`
+- [x] `internal/store/fact_codec.go`
+- [x] `internal/store/fact_codec_int64_test.go`
+- [x] `internal/store/fact_codec_test.go`
+- [x] `internal/store/indexes.go`
+- [x] `internal/store/init_sqlite.go`
+- [x] `internal/store/init_vec.go`
+- [x] `internal/store/knowledge_lexical_db.go`
+- [x] `internal/store/local_domains_a_uplift_test.go`
+- [x] `internal/store/knowledge_lexical_db_test.go`
+- [x] `internal/store/learned_store.go`
+- [x] `internal/store/learning.go`
+- [x] `internal/store/learning_bench_test.go`
+- [x] `internal/store/learning_candidates.go`
+- [x] `internal/store/learning_candidates_test.go`
+- [x] `internal/store/learning_content_test.go`
+- [x] `internal/store/learning_recall_regression_test.go`
+- [x] `internal/store/learning_reflection.go`
+- [x] `internal/store/learned_uplift_test.go`
+- [x] `internal/store/learning_stats_test.go`
+- [x] `internal/store/local.go`
+- [x] `internal/store/local_cold.go`
+- [x] `internal/store/local_cold_extra_test.go`
+- [x] `internal/store/local_core.go`
+- [x] `internal/store/local_core_test.go`
+- [x] `internal/store/local_graph.go`
+- [x] `internal/store/local_graph_benchmark_test.go`
+- [x] `internal/store/local_graph_extra_test.go`
+- [x] `internal/store/local_graph_integration_test.go`
+- [x] `internal/store/local_graph_migration_test.go`
+- [x] `internal/store/local_graph_query.go`
+- [x] `internal/store/local_graph_test.go`
+- [x] `internal/store/local_knowledge.go`
+- [x] `internal/store/local_knowledge_benchmark_test.go`
+- [x] `internal/store/local_knowledge_extra_test.go`
+- [x] `internal/store/local_knowledge_recent_test.go`
+- [x] `internal/store/local_prompt.go`
+- [x] `internal/store/local_prompt_extra_test.go`
+- [x] `internal/store/local_prompt_selector_test.go`
+- [x] `internal/store/local_review.go`
+- [x] `internal/store/local_review_extra_test.go`
+- [x] `internal/store/local_session.go`
+- [x] `internal/store/local_session_extra_test.go`
+- [x] `internal/store/local_session_integration_test.go`
+- [x] `internal/store/local_session_test.go`
+- [x] `internal/store/local_vector.go`
+- [x] `internal/store/local_vector_test.go`
+- [x] `internal/store/local_verification.go`
+- [x] `internal/store/local_verification_extra_test.go`
+- [x] `internal/store/local_world.go`
+- [x] `internal/store/local_world_extra_test.go`
+- [x] `internal/store/migrations.go`
+- [x] `internal/store/migrations_benchmark_test.go`
+- [x] `internal/store/migrations_test.go`
+- [x] `internal/store/mocks_test.go`
+- [x] `internal/store/pragmas.go`
+- [x] `internal/store/prompt_reembed.go`
+- [x] `internal/store/prompt_reembed_benchmark_test.go`
+- [x] `internal/store/reembed_all.go`
+- [x] `internal/store/reembed_all_test.go`
+- [x] `internal/store/reflection_reembed.go`
+- [x] `internal/store/reflection_reembed_test.go`
+- [x] `internal/store/reflection_search.go`
+- [x] `internal/store/reflection_search_extra_test.go`
+- [x] `internal/store/reflection_utils.go`
+- [x] `internal/store/reflection_utils_test.go`
+- [x] `internal/store/reflection_worker.go`
+- [x] `internal/store/vector_uplift_test.go`
+- [x] `internal/store/local_domains_b_uplift_test.go`
+- [x] `internal/store/local_store_unit_c_uplift_test.go`
+- [x] `internal/store/reflection_worker_test.go`
+- [x] `internal/store/serialization_test.go`
+- [x] `internal/store/tool_cleanup.go`
+- [x] `internal/store/tool_cleanup_extra_test.go`
+- [x] `internal/store/tool_cleanup_test.go`
+- [x] `internal/store/tool_store.go`
+- [x] `internal/store/tool_store_test.go`
+- [x] `internal/store/trace_reflection.go`
+- [x] `internal/store/trace_reflection_extra_test.go`
+- [x] `internal/store/trace_store.go`
+- [x] `internal/store/trace_store_integration_test.go`
+- [x] `internal/store/trace_store_test.go`
+- [x] `internal/store/vec_probe_test.go`
+- [x] `internal/store/vec_support_disabled.go`
+- [x] `internal/store/vec_support_enabled.go`
+- [x] `internal/store/vector_backfill_race_test.go`
+- [x] `internal/store/vector_boundary_test.go`
+- [x] `internal/store/vector_e2e_test.go`
+- [x] `internal/store/vector_store.go`
+- [x] `internal/store/vector_store_batch_test.go`
+- [x] `internal/store/vector_store_benchmark_test.go`
+- [x] `internal/store/vector_store_brute_test.go`
+- [x] `internal/store/vector_store_bruteforce.go`
+- [x] `internal/store/vector_store_extra_test.go`
+- [x] `internal/store/vector_store_reembed.go`
+- [x] `internal/store/vector_store_search_test.go`
+- [x] `internal/store/vector_store_test.go`
+- [x] `internal/store/vector_utils.go`
+- [x] `internal/store/vector_utils_test.go`
+
+### internal/system (59)
+- [x] `internal/system/agent_definition.go`
+- [x] `internal/system/agent_registry.go`
+- [x] `internal/system/agent_registry_coverage_test.go`
+- [x] `internal/system/boot_test.go`
+- [x] `internal/system/broker_meter.go`
+- [x] `internal/system/browser_wiring_test.go`
+- [x] `internal/system/close_releases_handles_test.go`
+- [x] `internal/system/containment_binding_test.go`
+- [x] `internal/system/cortex_close.go`
+- [x] `internal/system/cortex_close_test.go`
+- [x] `internal/system/cortex_permission_routing_test.go`
+- [x] `internal/system/decorator_chain_test.go`
+- [x] `internal/system/dom_demo_test.go`
+- [x] `internal/system/dom_mangle_test.go`
+- [x] `internal/system/expert_knowledge_integration_test.go`
+- [x] `internal/system/factory.go`
+- [x] `internal/system/factory_adapters.go`
+- [x] `internal/system/factory_adapters_float_test.go`
+- [x] `internal/system/factory_adapters_test.go`
+- [x] `internal/system/factory_adapters_usage_test.go`
+- [x] `internal/system/factory_boot_test.go`
+- [x] `internal/system/factory_cache_test.go`
+- [x] `internal/system/factory_classification_test.go`
+- [x] `internal/system/factory_execution.go`
+- [x] `internal/system/factory_execution_base_env_test.go`
+- [x] `internal/system/factory_execution_test.go`
+- [x] `internal/system/factory_gate_test.go`
+- [x] `internal/system/factory_helpers_test.go`
+- [x] `internal/system/factory_kernel_shards_test.go`
+- [x] `internal/system/factory_learning.go`
+- [x] `internal/system/factory_learning_test.go`
+- [x] `internal/system/factory_ouroboros_toolstore_test.go`
+- [x] `internal/system/factory_projectdoc_test.go`
+- [x] `internal/system/factory_rollback_test.go`
+- [x] `internal/system/factory_test.go`
+- [x] `internal/system/factory_tool_executor.go`
+- [x] `internal/system/factory_world_refresh_test.go`
+- [x] `internal/system/holographic_code_scope.go`
+- [x] `internal/system/impact_chain_e2e_test.go`
+- [x] `internal/system/learning_report.go`
+- [x] `internal/system/learning_report_test.go`
+- [x] `internal/system/maintenance_schedule_test.go`
+- [x] `internal/system/mocks_test.go`
+- [x] `internal/system/nontest_callers_test.go`
+- [x] `internal/system/ondemand_e2e_test.go`
+- [x] `internal/system/planner_e2e_test.go`
+- [x] `internal/system/planning_factory_ownership_test.go`
+- [x] `internal/system/prompt_capability_production_test.go`
+- [x] `internal/system/prompt_kernel_scope_test.go`
+- [x] `internal/system/router_e2e_test.go`
+- [x] `internal/system/session_kernel_adapter_test.go`
+- [x] `internal/system/session_wiring_test.go`
+- [x] `internal/system/system_shards_switch_test.go`
+- [x] `internal/system/test_impact_provider.go`
+- [x] `internal/system/test_impact_provider_test.go`
+- [x] `internal/system/tool_compilation_test.go`
+- [x] `internal/system/user_agent_prompt_test.go`
+- [x] `internal/system/virtual_store_test_helpers_test.go`
+- [x] `internal/system/workspace_root_env_test.go`
+- [x] `internal/system/world_shard_eval_bench_test.go`
+
+### internal/tactile (35)
+- [x] `internal/tactile/audit.go`
+- [x] `internal/tactile/audit_test.go`
+- [x] `internal/tactile/base_env_test.go`
+- [x] `internal/tactile/coverage_boost_test.go`
+- [x] `internal/tactile/direct.go`
+- [x] `internal/tactile/direct_test.go`
+- [x] `internal/tactile/docker.go`
+- [x] `internal/tactile/docker_detection_test.go`
+- [x] `internal/tactile/docker_platform_test.go`
+- [x] `internal/tactile/docker_platform_windows_test.go`
+- [x] `internal/tactile/docker_test.go`
+- [x] `internal/tactile/execution_boundaries_test.go`
+- [x] `internal/tactile/executor_interface.go`
+- [x] `internal/tactile/factory.go`
+- [x] `internal/tactile/files.go`
+- [x] `internal/tactile/files_test.go`
+- [x] `internal/tactile/line_ending.go`
+- [x] `internal/tactile/line_ending_test.go`
+- [x] `internal/tactile/persistent_docker.go`
+- [x] `internal/tactile/platform_darwin.go`
+- [x] `internal/tactile/platform_linux.go`
+- [x] `internal/tactile/platform_linux_executor_test.go`
+- [x] `internal/tactile/platform_linux_firejail.go`
+- [x] `internal/tactile/platform_unix.go`
+- [x] `internal/tactile/platform_windows.go`
+- [x] `internal/tactile/python/environment.go`
+- [x] `internal/tactile/python/environment_test.go`
+- [x] `internal/tactile/swebench/coverage_boost_test.go`
+- [x] `internal/tactile/swebench/harness.go`
+- [x] `internal/tactile/swebench/harness_extra_test.go`
+- [x] `internal/tactile/swebench/instance.go`
+- [x] `internal/tactile/swebench/instance_test.go`
+- [x] `internal/tactile/tactile_test.go`
+- [x] `internal/tactile/timeout_kill_test.go` (new: grandchild-kill regression pins)
+- [x] `internal/tactile/types.go`
+- [x] `internal/tactile/types_coverage_test.go`
+
+### internal/testing (29)
+- [x] `internal/testing/context_harness/activation_tracer.go`
+- [x] `internal/testing/context_harness/compression_viz.go`
+- [x] `internal/testing/context_harness/engine_interface.go`
+- [x] `internal/testing/context_harness/fact_seeder.go`
+- [x] `internal/testing/context_harness/feedback_test.go`
+- [x] `internal/testing/context_harness/feedback_tracer.go`
+- [x] `internal/testing/context_harness/file_logger.go`
+- [x] `internal/testing/context_harness/file_logger_test.go`
+- [x] `internal/testing/context_harness/harness.go`
+- [x] `internal/testing/context_harness/helpers_extra_test.go`
+- [x] `internal/testing/context_harness/inspector.go`
+- [x] `internal/testing/context_harness/jit_tracer.go`
+- [x] `internal/testing/context_harness/metrics.go`
+- [x] `internal/testing/context_harness/metrics_test.go`
+- [x] `internal/testing/context_harness/mock_engine.go`
+- [x] `internal/testing/context_harness/piggyback_tracer.go`
+- [x] `internal/testing/context_harness/real_engine.go`
+- [x] `internal/testing/context_harness/reporter.go`
+- [x] `internal/testing/context_harness/reporter_test.go`
+- [x] `internal/testing/context_harness/scenarios.go`
+- [x] `internal/testing/context_harness/scenarios_integration.go`
+- [x] `internal/testing/context_harness/seeder_logger_test.go`
+- [x] `internal/testing/context_harness/simulator.go`
+- [x] `internal/testing/context_harness/simulator_test.go`
+- [x] `internal/testing/context_harness/test_kernel_factory.go`
+- [x] `internal/testing/context_harness/tracer_helpers_test.go`
+- [x] `internal/testing/context_harness/types.go`
+- [x] `internal/testing/doc.go`
+- [x] `internal/testing/harness_subsystem.go`
+
+### internal/testoutput (2)
+- [x] `internal/testoutput/testoutput.go`
+- [x] `internal/testoutput/testoutput_test.go`
+
+### internal/tools/allowlist_test.go (1)
+- [x] `internal/tools/allowlist_test.go`
+
+### internal/tools/args.go (1)
+- [x] `internal/tools/args.go`
+
+### internal/tools/args_test.go (1)
+- [x] `internal/tools/args_test.go`
+
+### internal/tools/catalog_golden_test.go (1)
+- [x] `internal/tools/catalog_golden_test.go`
+
+### internal/tools/catalog_policy_parity_test.go (1)
+- [x] `internal/tools/catalog_policy_parity_test.go`
+
+### internal/tools/codedom (22)
+- [x] `internal/tools/codedom/apply_edits.go`
+- [x] `internal/tools/codedom/apply_edits_test.go`
+- [x] `internal/tools/codedom/benchmark_test.go`
+- [x] `internal/tools/codedom/directory_error_test.go`
+- [x] `internal/tools/codedom/doc.go`
+- [x] `internal/tools/codedom/edited_refs_test.go`
+- [x] `internal/tools/codedom/elements.go`
+- [x] `internal/tools/codedom/elements_containment_test.go`
+- [x] `internal/tools/codedom/elements_test.go`
+- [x] `internal/tools/codedom/extent_realfile_test.go`
+- [x] `internal/tools/codedom/impact_test.go`
+- [x] `internal/tools/codedom/line_ending_test.go`
+- [x] `internal/tools/codedom/lines.go`
+- [x] `internal/tools/codedom/lines_balance_test.go`
+- [x] `internal/tools/codedom/lines_precondition_test.go`
+- [x] `internal/tools/codedom/lines_shift_test.go`
+- [x] `internal/tools/codedom/lines_test.go`
+- [x] `internal/tools/codedom/register.go`
+- [x] `internal/tools/codedom/register_test.go`
+- [x] `internal/tools/codedom/run_impacted_tests.go`
+- [x] `internal/tools/codedom/run_impacted_tests_extra_test.go`
+- [x] `internal/tools/codedom/workspace_ctx_test.go`
+
+### internal/tools/context_recall.go (1)
+- [x] `internal/tools/context_recall.go`
+
+### internal/tools/core (24)
+- [x] `internal/tools/core/context_recall.go`
+- [x] `internal/tools/core/context_recall_test.go`
+- [x] `internal/tools/core/doc.go`
+- [x] `internal/tools/core/file_ops.go`
+- [x] `internal/tools/core/file_ops_delete_confirm_test.go`
+- [x] `internal/tools/core/file_ops_lines_test.go`
+- [x] `internal/tools/core/file_ops_notfound_test.go`
+- [x] `internal/tools/core/file_ops_test.go`
+- [x] `internal/tools/core/line_ending_test.go`
+- [x] `internal/tools/core/read_codec_test.go`
+- [x] `internal/tools/core/read_file_directory_test.go`
+- [x] `internal/tools/core/register.go`
+- [x] `internal/tools/core/register_test.go`
+- [x] `internal/tools/core/search.go`
+- [x] `internal/tools/core/search_codec_test.go`
+- [x] `internal/tools/core/search_containment_test.go`
+- [x] `internal/tools/core/search_default_path_test.go`
+- [x] `internal/tools/core/search_numeric_coercion_test.go`
+- [x] `internal/tools/core/search_test.go`
+- [x] `internal/tools/core/subagent.go`
+- [x] `internal/tools/core/tools_core_uplift_test.go`
+- [x] `internal/tools/core/workspace_guard.go`
+- [x] `internal/tools/core/workspace_guard_test.go`
+- [x] `internal/tools/core/workspace_relative_test.go`
+
+### internal/tools/effects.go (1)
+- [x] `internal/tools/effects.go`
+
+### internal/tools/effects_catalog_test.go (1)
+- [x] `internal/tools/effects_catalog_test.go`
+
+### internal/tools/effects_conformance_test.go (1)
+- [x] `internal/tools/effects_conformance_test.go`
+
+### internal/tools/effects_test.go (1)
+- [x] `internal/tools/effects_test.go`
+
+### internal/tools/errors.go (1)
+- [x] `internal/tools/errors.go`
+
+### internal/tools/framework.go (1)
+- [x] `internal/tools/framework.go`
+
+### internal/tools/framework_test.go (1)
+- [x] `internal/tools/framework_test.go`
+
+### internal/tools/mcpctl (5)
+- [x] `internal/tools/mcpctl/mcpctl.go`
+- [x] `internal/tools/mcpctl/register.go`
+- [x] `internal/tools/mcpctl/tools.go`
+- [x] `internal/tools/mcpctl/tools_mcpctl_uplift_test.go`
+- [x] `internal/tools/mcpctl/tools_test.go`
+
+### internal/tools/policy_exceptions.go (1)
+- [x] `internal/tools/policy_exceptions.go`
+
+### internal/tools/registry.go (1)
+- [x] `internal/tools/registry.go`
+
+### internal/tools/registry_allowlist_test.go (1)
+- [x] `internal/tools/registry_allowlist_test.go`
+
+### internal/tools/registry_boundary_test.go (1)
+- [x] `internal/tools/registry_boundary_test.go`
+
+### internal/tools/registry_extra_test.go (1)
+- [x] `internal/tools/registry_extra_test.go`
+
+### internal/tools/registry_test.go (1)
+- [x] `internal/tools/registry_test.go`
+
+### internal/tools/registry_unregister_test.go (1)
+- [x] `internal/tools/registry_unregister_test.go`
+
+### internal/tools/registry_write_guard_test.go (1)
+- [x] `internal/tools/registry_write_guard_test.go`
+
+### internal/tools/research (37)
+- [x] `internal/tools/research/browser.go`
+- [x] `internal/tools/research/browser_audit.go`
+- [x] `internal/tools/research/browser_audit_test.go`
+- [x] `internal/tools/research/browser_binding_test.go`
+- [x] `internal/tools/research/browser_declarative.go`
+- [x] `internal/tools/research/browser_evidence.go`
+- [x] `internal/tools/research/browser_evidence_test.go`
+- [x] `internal/tools/research/browser_extract_test.go`
+- [x] `internal/tools/research/browser_progressive.go`
+- [x] `internal/tools/research/browser_progressive_live_test.go`
+- [x] `internal/tools/research/browser_reasoning.go`
+- [x] `internal/tools/research/browser_reasoning_container_test.go`
+- [x] `internal/tools/research/browser_reasoning_live_test.go`
+- [x] `internal/tools/research/browser_reasoning_test.go`
+- [x] `internal/tools/research/browser_specs.go`
+- [x] `internal/tools/research/browser_specs_test.go`
+- [x] `internal/tools/research/browser_test_test.go`
+- [x] `internal/tools/research/cache.go`
+- [x] `internal/tools/research/cache_disk.go`
+- [x] `internal/tools/research/cache_disk_test.go`
+- [x] `internal/tools/research/context7.go`
+- [x] `internal/tools/research/context7_no_docs_test.go`
+- [x] `internal/tools/research/context7_tool_test.go`
+- [x] `internal/tools/research/doc.go`
+- [x] `internal/tools/research/fetch_tool_test.go`
+- [x] `internal/tools/research/grounded_web_search.go`
+- [x] `internal/tools/research/grounded_web_search_test.go`
+- [x] `internal/tools/research/grounding.go`
+- [x] `internal/tools/research/numeric_args.go`
+- [x] `internal/tools/research/numeric_args_test.go`
+- [x] `internal/tools/research/register.go`
+- [x] `internal/tools/research/research_coverage_test.go`
+- [x] `internal/tools/research/research_test.go`
+- [x] `internal/tools/research/thinking.go`
+- [x] `internal/tools/research/tools_research_uplift_test.go`
+- [x] `internal/tools/research/web_fetch.go`
+- [x] `internal/tools/research/web_search.go`
+
+### internal/tools/shell (21)
+- [x] `internal/tools/shell/builtins.go`
+- [x] `internal/tools/shell/builtins_containment_test.go`
+- [x] `internal/tools/shell/builtins_test.go`
+- [x] `internal/tools/shell/command_semantics.go`
+- [x] `internal/tools/shell/command_semantics_test.go`
+- [x] `internal/tools/shell/command_timeout.go`
+- [x] `internal/tools/shell/command_timeout_test.go`
+- [x] `internal/tools/shell/doc.go`
+- [x] `internal/tools/shell/execute.go`
+- [x] `internal/tools/shell/execute_extra_test.go`
+- [x] `internal/tools/shell/execute_test.go`
+- [x] `internal/tools/shell/proc_tree_other.go`
+- [x] `internal/tools/shell/proc_tree_windows.go`
+- [x] `internal/tools/shell/register.go`
+- [x] `internal/tools/shell/register_test.go`
+- [x] `internal/tools/shell/shell_integration_test.go`
+- [x] `internal/tools/shell/tools_shell_uplift_test.go`
+- [x] `internal/tools/shell/verification.go`
+- [x] `internal/tools/shell/verification_test.go`
+- [x] `internal/tools/shell/waitdelay_test.go`
+- [x] `internal/tools/shell/workspace_containment_test.go`
+
+### internal/tools/types.go (1)
+- [x] `internal/tools/types.go`
+
+### internal/tools/workspace_guard.go (1)
+- [x] `internal/tools/workspace_guard.go`
+
+### internal/tools/workspace_guard_hardening_test.go (1)
+- [x] `internal/tools/workspace_guard_hardening_test.go`
+
+### internal/tools/workspace_identity_test.go (1)
+- [x] `internal/tools/workspace_identity_test.go`
+
+### internal/transparency (23)
+- [x] `internal/transparency/doc.go`
+- [x] `internal/transparency/error_classifier.go`
+- [x] `internal/transparency/error_classifier_test.go`
+- [x] `internal/transparency/event_bus.go`
+- [x] `internal/transparency/event_bus_category_test.go`
+- [x] `internal/transparency/event_bus_test.go`
+- [x] `internal/transparency/explainer.go`
+- [x] `internal/transparency/explainer_test.go`
+- [x] `internal/transparency/glass_box_events.go`
+- [x] `internal/transparency/glass_box_events_test.go`
+- [x] `internal/transparency/glass_box_helpers_test.go`
+- [x] `internal/transparency/ndjson_sink.go`
+- [x] `internal/transparency/observability_test.go`
+- [x] `internal/transparency/process.go`
+- [x] `internal/transparency/process_test.go`
+- [x] `internal/transparency/safety_reporter.go`
+- [x] `internal/transparency/safety_reporter_test.go`
+- [x] `internal/transparency/shard_observer.go`
+- [x] `internal/transparency/shard_observer_test.go`
+- [x] `internal/transparency/transparency.go`
+- [x] `internal/transparency/transparency_comprehensive_test.go`
+- [x] `internal/transparency/transparency_test.go`
+- [x] `internal/transparency/wiring_test.go`
+
+### internal/types (28)
+- [x] `internal/types/atom.go`
+- [x] `internal/types/atom_test.go`
+- [x] `internal/types/container_toatom_test.go`
+- [x] `internal/types/ctxkeys.go`
+- [x] `internal/types/ctxkeys_test.go`
+- [x] `internal/types/example_test.go`
+- [x] `internal/types/extract.go`
+- [x] `internal/types/extract_test.go`
+- [x] `internal/types/fact_conventions_guard_test.go`
+- [x] `internal/types/fact_text.go`
+- [x] `internal/types/fact_text_test.go`
+- [x] `internal/types/interfaces.go`
+- [x] `internal/types/kernel_transactor_guard_test.go`
+- [x] `internal/types/mangle_roundtrip_external_test.go`
+- [x] `internal/types/mangle_scale.go`
+- [x] `internal/types/mangle_scale_test.go`
+- [x] `internal/types/mangle_string_test.go`
+- [x] `internal/types/path_identity.go`
+- [x] `internal/types/shard.go`
+- [x] `internal/types/shard_test.go`
+- [x] `internal/types/transaction.go`
+- [x] `internal/types/transparency.go`
+- [x] `internal/types/truncation.go`
+- [x] `internal/types/types.go`
+- [x] `internal/types/types_comprehensive_test.go`
+- [x] `internal/types/types_test.go`
+- [x] `internal/types/typestest/mockkernel.go`
+- [x] `internal/types/typestest/mockkernel_test.go`
+
+### internal/usage (17)
+- [x] `internal/usage/crossprocess_test.go`
+- [x] `internal/usage/durability_test.go`
+- [x] `internal/usage/filelock_other.go`
+- [x] `internal/usage/filelock_test.go`
+- [x] `internal/usage/filelock_windows.go`
+- [x] `internal/usage/observer.go`
+- [x] `internal/usage/pricing.go`
+- [x] `internal/usage/pricing_test.go`
+- [x] `internal/usage/shared_ownership_test.go`
+- [x] `internal/usage/shared_tracker_test.go`
+- [x] `internal/usage/turn_tokens_test.go`
+- [x] `internal/usage/usage_comprehensive_test.go`
+- [x] `internal/usage/usage_tracker.go`
+- [x] `internal/usage/usage_tracker_context_test.go`
+- [x] `internal/usage/usage_tracker_test.go`
+- [x] `internal/usage/usage_types.go`
+- [x] `internal/usage/usage_types_test.go`
+
+### internal/ux (8)
+- [x] `internal/ux/doc.go`
+- [x] `internal/ux/migration.go`
+- [x] `internal/ux/migration_extra_test.go`
+- [x] `internal/ux/migration_test.go`
+- [x] `internal/ux/preferences.go`
+- [x] `internal/ux/preferences_test.go`
+- [x] `internal/ux/user_state.go`
+- [x] `internal/ux/user_state_test.go`
+
+### internal/verification (5)
+- [x] `internal/verification/verifier.go`
+- [x] `internal/verification/verifier_failclosed_test.go`
+- [x] `internal/verification/verifier_gaps_test.go`
+- [x] `internal/verification/verifier_normalize_test.go`
+- [x] `internal/verification/verifier_test.go`
+
+### internal/world (105)
+- [x] `internal/world/apply_incremental.go`
+- [x] `internal/world/apply_incremental_test.go`
+- [x] `internal/world/ast.go`
+- [x] `internal/world/ast_test.go`
+- [x] `internal/world/ast_treesitter.go`
+- [x] `internal/world/ast_treesitter_bench_test.go`
+- [x] `internal/world/ast_treesitter_package_test.go`
+- [x] `internal/world/cache.go`
+- [x] `internal/world/cache_metrics_test.go`
+- [x] `internal/world/cache_test.go`
+- [x] `internal/world/canonical_path.go`
+- [x] `internal/world/canonical_path_test.go`
+- [x] `internal/world/cartographer.go`
+- [x] `internal/world/cartographer_multilang.go`
+- [x] `internal/world/cartographer_multilang_test.go`
+- [x] `internal/world/cartographer_test.go`
+- [x] `internal/world/code_elements.go`
+- [x] `internal/world/code_elements_extra_test.go`
+- [x] `internal/world/code_elements_mangle.go`
+- [x] `internal/world/code_elements_mangle_test.go`
+- [x] `internal/world/code_elements_patterns_test.go`
+- [x] `internal/world/code_elements_test.go`
+- [x] `internal/world/dataflow.go`
+- [x] `internal/world/dataflow_cache.go`
+- [x] `internal/world/dataflow_cache_test.go`
+- [x] `internal/world/dataflow_javascript.go`
+- [x] `internal/world/dataflow_multilang.go`
+- [x] `internal/world/dataflow_multilang_test.go`
+- [x] `internal/world/dataflow_python.go`
+- [x] `internal/world/dataflow_python_test.go`
+- [x] `internal/world/dataflow_rust.go`
+- [x] `internal/world/dataflow_test.go`
+- [x] `internal/world/decl_conformance_test.go`
+- [x] `internal/world/deep_scan.go`
+- [x] `internal/world/deep_scan_test.go`
+- [x] `internal/world/deleted_file_retraction_test.go`
+- [x] `internal/world/dependency_links.go`
+- [x] `internal/world/dependency_links_test.go`
+- [x] `internal/world/fs.go`
+- [x] `internal/world/fs_cache_test.go`
+- [x] `internal/world/fs_canonical_join_test.go`
+- [x] `internal/world/fs_test.go`
+- [x] `internal/world/git_scanner.go`
+- [x] `internal/world/git_scanner_test.go`
+- [x] `internal/world/go_parser.go`
+- [x] `internal/world/go_parser_test.go`
+- [x] `internal/world/graph_interface.go`
+- [x] `internal/world/graph_interface_test.go`
+- [x] `internal/world/holographic.go`
+- [x] `internal/world/holographic_cache.go`
+- [x] `internal/world/holographic_cache_test.go`
+- [x] `internal/world/holographic_dependencies.go`
+- [x] `internal/world/holographic_dependencies_test.go`
+- [x] `internal/world/holographic_formatting.go`
+- [x] `internal/world/holographic_formatting_test.go`
+- [x] `internal/world/holographic_impact.go`
+- [x] `internal/world/holographic_impact_chain_test.go`
+- [x] `internal/world/holographic_perf_test.go`
+- [x] `internal/world/holographic_querier_test.go`
+- [x] `internal/world/holographic_ranking_test.go`
+- [x] `internal/world/holographic_test.go`
+- [x] `internal/world/incremental_canonical_test.go`
+- [x] `internal/world/incremental_retire_test.go`
+- [x] `internal/world/incremental_scan.go`
+- [x] `internal/world/incremental_scan_test.go`
+- [x] `internal/world/lsp/client.go`
+- [x] `internal/world/lsp/client_test.go`
+- [x] `internal/world/lsp/manager.go`
+- [x] `internal/world/lsp/manager_extra_test.go`
+- [x] `internal/world/lsp/manager_initialize_test.go`
+- [x] `internal/world/lsp/manager_test.go`
+- [x] `internal/world/mangle_fastparse.go`
+- [x] `internal/world/mangle_fastparse_test.go`
+- [x] `internal/world/mangle_parser.go`
+- [x] `internal/world/parser_factory.go`
+- [x] `internal/world/parser_factory_test.go`
+- [x] `internal/world/parser_interface.go`
+- [x] `internal/world/parser_test.go`
+- [x] `internal/world/persist.go`
+- [x] `internal/world/persist_test.go`
+- [x] `internal/world/python_parser.go`
+- [x] `internal/world/reviewer_capabilities_test.go`
+- [x] `internal/world/runbook.go`
+- [x] `internal/world/rust_parser.go`
+- [x] `internal/world/scan_edge_test.go`
+- [x] `internal/world/scan_nerd_artifacts_test.go`
+- [x] `internal/world/scanner_config.go`
+- [x] `internal/world/scope.go`
+- [x] `internal/world/scope_identity_test.go`
+- [x] `internal/world/scope_mangle_test.go`
+- [x] `internal/world/scope_package_test.go`
+- [x] `internal/world/scope_predicates_conformance_test.go`
+- [x] `internal/world/scope_test.go`
+- [x] `internal/world/symbol_graph_atom_test.go`
+- [x] `internal/world/test_dependency.go`
+- [x] `internal/world/test_dependency_elements.go`
+- [x] `internal/world/test_dependency_test.go`
+- [x] `internal/world/test_file_for_test.go`
+- [x] `internal/world/testdata/large_file.go`
+- [x] `internal/world/types.go`
+- [x] `internal/world/typescript_parser.go`
+- [x] `internal/world/world_fact_path_test.go`
+- [x] `internal/world/world_ownership_test.go`
+- [x] `internal/world/world_predicates.go`
+- [x] `internal/world/world_predicates_test.go`
+
+### scratch_omitzero (1)
+- [ ] `scratch_omitzero/main.go`
+
+### scripts (3)
+- [ ] `scripts/probe_safety/main.go`
+- [ ] `scripts/torture_live/main.go`
+- [x] `scripts/torture_live/main_test.go`
+
+### tests (39)
+- [ ] `tests/e2e/SessionExecutor_VirtualStore_Kernel_integration_test.go`
+- [ ] `tests/e2e/Session_Kernel_Boundary_integration_test.go`
+- [ ] `tests/e2e/autopoiesis_kernel_ouroboros_integration_test.go`
+- [ ] `tests/e2e/campaign_decomposer_orchestrator_integration_test.go`
+- [ ] `tests/e2e/campaign_session_integration_test.go`
+- [x] `tests/e2e/cross_boundary_integration_test.go` (8/8; deterministic pins, no vacuous branches)
+- [ ] `tests/e2e/dreamer_kernelclone_integration_test.go`
+- [ ] `tests/e2e/dreamer_verdict_freshness_integration_test.go`
+- [ ] `tests/e2e/dreamer_virtualstore_integration_test.go`
+- [ ] `tests/e2e/intent_mangle_routing_integration_test.go`
+- [ ] `tests/e2e/jit_kernel_context_cleanup_test.go`
+- [ ] `tests/e2e/kernelquery_virtualstore_integration_test.go`
+- [ ] `tests/e2e/mcp_virtualstore_integration_test.go`
+- [ ] `tests/e2e/orchestrator_executor_integration_test.go`
+- [ ] `tests/e2e/orchestrator_executor_race_integration_test.go`
+- [ ] `tests/e2e/perception_adversarial_e2e_test.go`
+- [ ] `tests/e2e/perception_contract_e2e_test.go`
+- [ ] `tests/e2e/perception_stateful_e2e_test.go`
+- [ ] `tests/e2e/piggyback_control_packet_boundary_test.go`
+- [ ] `tests/e2e/piggyback_executor_full_boundary_test.go`
+- [x] `tests/e2e/prompt_kernel_e2e_test.go` (shared real-kernel JIT helper; coverage via prompt e2e suites)
+- [ ] `tests/e2e/prompt_compiler_llm_integration_test.go`
+- [ ] `tests/e2e/promptcompiler_llmclient_integration_test.go`
+- [ ] `tests/e2e/rulecourt_feedback_integration_test.go`
+- [x] `tests/e2e/scheduler_session_llm_integration_test.go` (16/16; dead harness removed, priority preemption + nil-config degradation behavioral)
+- [x] `tests/e2e/session_clean_loop_integration_test.go` (19/19 + race; vacuous log-only branches pinned to real contracts; exposed + fixed factory-panic crash)
+- [x] `tests/e2e/session_context_isolation_test.go` (2/2 + race; echo mocks prove per-task/per-context ownership, clone history isolation)
+- [ ] `tests/e2e/session_executor_kernel_integration_test.go`
+- [ ] `tests/e2e/session_kernel_vstore_integration_test.go`
+- [x] `tests/e2e/session_spawner_config_integration_test.go` (17/17; vacuous tests made behavioral)
+- [ ] `tests/e2e/shadowmode_commit_safety_boundary_test.go`
+- [x] `tests/e2e/spawner_apischeduler_integration_test.go` (17/17 + race; strict metric pins, real spawns, ctx-priority order proof; exposed + fixed scheduler data race)
+- [x] `tests/e2e/task_executor_async_lifecycle_test.go` (7/7 + race; strict lifecycle contracts, echo markers, deterministic polling)
+- [x] `tests/e2e/tddloop_executor_integration_test.go` (18/18 green; hang fixed, stalls real)
+- [ ] `tests/e2e/tool_safety_fallback_config_test.go`
+- [ ] `tests/e2e/virtualstore_dreamer_integration_test.go`
+- [ ] `tests/e2e/virtualstore_graphquery_integration_test.go`
+- [ ] `tests/e2e/virtualstore_interactive_gate_integration_test.go`
+- [ ] `tests/e2e/write_turn_fixture_test.go`
+
+### tools (3)
+- [x] `tools/count_lines.go` <!-- sample package; tested, green, no production callers by design -->
+- [x] `tools/count_lines_test.go`
+- [x] `tools/registry.go` <!-- sample package; tested, green, no production callers by design -->
+
+## Mangle files (278)
+### .agent (35)
+- [x] `.agent/skills/log-analyzer/assets/log-schema.mg`
+- [x] `.agent/skills/log-analyzer/scripts/logquery/schema.mg`
+- [x] `.agent/skills/mangle-programming/assets/codenerd-schemas.mg`
+- [x] `.agent/skills/mangle-programming/assets/examples/access-control.mg`
+- [x] `.agent/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
+- [x] `.agent/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
+- [x] `.agent/skills/mangle-programming/assets/starter-policy.mg`
+- [x] `.agent/skills/mangle-programming/assets/starter-schema.mg`
+- [x] `.agent/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
+- [x] `.agent/skills/stress-tester/assets/cyclic_rules.mg`
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/cartesian_explosion.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/direct_self_reference.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/mutual_recursion.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/loops/unbounded_counter.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/safety/anonymous_misuse.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/safety/negation_order.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/safety/stratification_cycles.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/safety/unbound_head_vars.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/safety/unsafe_negation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/structures/bracket_notation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/structures/dot_notation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/structures/json_syntax.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/assignment_operators.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/atom_string_confusion.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/inline_aggregation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/lowercase_vars.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/missing_periods.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/souffle_syntax.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/string_predicate.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/syntactic/wrong_comments.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/types/atom_vs_string.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/types/hallucinated_functions.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/types/int_vs_float.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/mangle-adversarial/types/list_in_scalar.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.agent/skills/stress-tester/assets/stress_queries.mg`
+
+### .agents (9)
+- [x] `.agents/skills/log-analyzer/assets/log-schema.mg`
+- [x] `.agents/skills/log-analyzer/scripts/logquery/schema.mg`
+- [x] `.agents/skills/mangle-programming/assets/codenerd-schemas.mg`
+- [x] `.agents/skills/mangle-programming/assets/examples/access-control.mg`
+- [x] `.agents/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
+- [x] `.agents/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
+- [x] `.agents/skills/mangle-programming/assets/starter-policy.mg`
+- [x] `.agents/skills/mangle-programming/assets/starter-schema.mg`
+- [x] `.agents/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
+
+### .claude (9)
+- [x] `.claude/skills/log-analyzer/assets/log-schema.mg`
+- [x] `.claude/skills/log-analyzer/scripts/logquery/schema.mg`
+- [x] `.claude/skills/mangle-programming/assets/codenerd-schemas.mg`
+- [x] `.claude/skills/mangle-programming/assets/examples/access-control.mg`
+- [x] `.claude/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
+- [x] `.claude/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
+- [x] `.claude/skills/mangle-programming/assets/starter-policy.mg`
+- [x] `.claude/skills/mangle-programming/assets/starter-schema.mg`
+- [x] `.claude/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
+
+### .codex (35)
+- [x] `.codex/skills/log-analyzer/assets/log-schema.mg`
+- [x] `.codex/skills/log-analyzer/scripts/logquery/schema.mg`
+- [x] `.codex/skills/mangle-programming/assets/codenerd-schemas.mg`
+- [x] `.codex/skills/mangle-programming/assets/examples/access-control.mg`
+- [x] `.codex/skills/mangle-programming/assets/examples/aggregation-patterns.mg`
+- [x] `.codex/skills/mangle-programming/assets/examples/vulnerability-scanner.mg`
+- [x] `.codex/skills/mangle-programming/assets/starter-policy.mg`
+- [x] `.codex/skills/mangle-programming/assets/starter-schema.mg`
+- [x] `.codex/skills/mangle-programming/scripts/examples/performance_antipatterns.mg`
+- [x] `.codex/skills/stress-tester/assets/cyclic_rules.mg`
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/cartesian_explosion.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/direct_self_reference.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/mutual_recursion.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/loops/unbounded_counter.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/safety/anonymous_misuse.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/safety/negation_order.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/safety/stratification_cycles.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/safety/unbound_head_vars.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/safety/unsafe_negation.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/structures/bracket_notation.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/structures/dot_notation.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/structures/json_syntax.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/assignment_operators.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/atom_string_confusion.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/inline_aggregation.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/lowercase_vars.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/missing_periods.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/souffle_syntax.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/string_predicate.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/syntactic/wrong_comments.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/types/atom_vs_string.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/types/hallucinated_functions.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/types/int_vs_float.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/mangle-adversarial/types/list_in_scalar.mg` <!-- pinned: adversarial gate table -->
+- [x] `.codex/skills/stress-tester/assets/stress_queries.mg`
+
+### .gemini (28)
+- [x] `.gemini/skills/log-analyzer/assets/log-schema.mg`
+- [x] `.gemini/skills/log-analyzer/scripts/logquery/schema.mg`
+- [x] `.gemini/skills/stress-tester/assets/cyclic_rules.mg`
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/loops/cartesian_explosion.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/loops/direct_self_reference.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/loops/mutual_recursion.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/loops/unbounded_counter.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/safety/anonymous_misuse.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/safety/negation_order.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/safety/stratification_cycles.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/safety/unbound_head_vars.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/safety/unsafe_negation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/structures/bracket_notation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/structures/dot_notation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/structures/json_syntax.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/assignment_operators.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/atom_string_confusion.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/inline_aggregation.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/lowercase_vars.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/missing_periods.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/souffle_syntax.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/string_predicate.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/syntactic/wrong_comments.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/types/atom_vs_string.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/types/hallucinated_functions.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/types/int_vs_float.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/mangle-adversarial/types/list_in_scalar.mg` <!-- ignored mirror, synced with .codex -->
+- [x] `.gemini/skills/stress-tester/assets/stress_queries.mg`
+
+### .nerd (12)
+- [ ] `.nerd/agents/GofmtExpert/gofmt_windows_line_endings.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/browser/snapshots/083e619b-8447-476f-b218-40932e0141fc_1786230728.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/browser/snapshots/6cf237f9-9394-4f2f-801c-898e8cfc6a7c_1786230231.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/browser/snapshots/95f21c42-3133-4d0c-ac21-a589ea64cffc_1786506804.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/mangle/extensions.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/mangle/learned.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/mangle/learned_taxonomy.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/mangle/policy_overrides.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/mangle/scan.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/marathon-supervision/phase3-control-jit_compiler.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/northstar.mg` <!-- runtime state, untracked; never uplifted -->
+- [ ] `.nerd/profile.mg` <!-- runtime state, untracked; never uplifted -->
+
+### cmd/nerd (2)
+- [x] `cmd/nerd/.nerd/debug/debug_program_ERROR.mg`
+- [x] `cmd/nerd/chat/.nerd/debug/debug_program_ERROR.mg`
+
+### internal/campaign/.nerd (1)
+- [x] `internal/campaign/.nerd/debug/debug_program_ERROR.mg`
+
+### internal/context (2)
+- [ ] `internal/context/.nerd/debug/debug_program_ERROR.mg` <!-- crash debris, untracked, left for user -->
+- [x] `internal/context/working_set.mg`
+
+### internal/core/.nerd (1)
+- [ ] `internal/core/.nerd/debug/debug_program_ERROR.mg` <!-- crash debris, untracked, left for user -->
+
+### internal/core/defaults (134)
+- [x] `internal/core/defaults/benchmarks.mg`
+- [x] `internal/core/defaults/build_topology.mg`
+- [x] `internal/core/defaults/campaign_rules.mg`
+- [x] `internal/core/defaults/chaos.mg`
+- [x] `internal/core/defaults/doc_taxonomy.mg`
+- [x] `internal/core/defaults/go_safety.mg`
+- [x] `internal/core/defaults/inference.mg`
+- [x] `internal/core/defaults/jit_compiler.mg`
+- [x] `internal/core/defaults/learned.mg`
+- [x] `internal/core/defaults/policy/activation.mg`
+- [x] `internal/core/defaults/policy/autopoiesis.mg`
+- [x] `internal/core/defaults/policy/bridge.mg`
+- [x] `internal/core/defaults/policy/browser.mg`
+- [x] `internal/core/defaults/policy/browser_honeypot.mg`
+- [x] `internal/core/defaults/policy/campaign_autopoiesis.mg`
+- [x] `internal/core/defaults/policy/campaign_context.mg`
+- [x] `internal/core/defaults/policy/campaign_core.mg`
+- [x] `internal/core/defaults/policy/campaign_phases.mg`
+- [x] `internal/core/defaults/policy/campaign_planning.mg`
+- [x] `internal/core/defaults/policy/campaign_tasks.mg`
+- [x] `internal/core/defaults/policy/capabilities.mg`
+- [x] `internal/core/defaults/policy/clarification.mg`
+- [x] `internal/core/defaults/policy/codedom_continuation.mg`
+- [x] `internal/core/defaults/policy/codedom_core.mg`
+- [x] `internal/core/defaults/policy/codedom_edit.mg`
+- [x] `internal/core/defaults/policy/codedom_safety.mg`
+- [x] `internal/core/defaults/policy/coder_build.mg`
+- [x] `internal/core/defaults/policy/coder_campaign.mg`
+- [x] `internal/core/defaults/policy/coder_classification.mg`
+- [x] `internal/core/defaults/policy/coder_context.mg`
+- [x] `internal/core/defaults/policy/coder_diagnostics.mg`
+- [x] `internal/core/defaults/policy/coder_impact.mg`
+- [x] `internal/core/defaults/policy/coder_language.mg`
+- [x] `internal/core/defaults/policy/coder_learning.mg`
+- [x] `internal/core/defaults/policy/coder_observability.mg`
+- [x] `internal/core/defaults/policy/coder_patterns.mg`
+- [x] `internal/core/defaults/policy/coder_quality.mg`
+- [x] `internal/core/defaults/policy/coder_safety.mg`
+- [x] `internal/core/defaults/policy/coder_tdd.mg`
+- [x] `internal/core/defaults/policy/coder_workflow.mg`
+- [x] `internal/core/defaults/policy/commit_gate.mg`
+- [x] `internal/core/defaults/policy/constitution.mg`
+- [x] `internal/core/defaults/policy/context_compilation.mg`
+- [x] `internal/core/defaults/policy/data_flow.mg`
+- [x] `internal/core/defaults/policy/delegation.mg`
+- [x] `internal/core/defaults/policy/dreamer.mg`
+- [x] `internal/core/defaults/policy/git_safety.mg`
+- [x] `internal/core/defaults/policy/impact.mg`
+- [x] `internal/core/defaults/policy/intelligence.mg`
+- [x] `internal/core/defaults/policy/intent_routing_rules.mg`
+- [x] `internal/core/defaults/policy/jit_config.mg`
+- [x] `internal/core/defaults/policy/jit_logic.mg`
+- [x] `internal/core/defaults/policy/jit_selection.mg`
+- [x] `internal/core/defaults/policy/knowledge.mg`
+- [x] `internal/core/defaults/policy/learning.mg`
+- [x] `internal/core/defaults/policy/perception_routing.mg`
+- [x] `internal/core/defaults/policy/policy_mcp.mg`
+- [x] `internal/core/defaults/policy/prioritization.mg`
+- [x] `internal/core/defaults/policy/projectdoc.mg`
+- [x] `internal/core/defaults/policy/prompt_context.mg`
+- [x] `internal/core/defaults/policy/prompt_northstar.mg`
+- [x] `internal/core/defaults/policy/regression_battery.mg`
+- [x] `internal/core/defaults/policy/routing_arbitration.mg`
+- [x] `internal/core/defaults/policy/schemas_perception_latency.mg`
+- [x] `internal/core/defaults/policy/shadow_mode.mg`
+- [x] `internal/core/defaults/policy/shards.mg`
+- [x] `internal/core/defaults/policy/stage_context.mg`
+- [x] `internal/core/defaults/policy/strategy.mg`
+- [x] `internal/core/defaults/policy/system_autopoiesis.mg`
+- [x] `internal/core/defaults/policy/system_config.mg`
+- [x] `internal/core/defaults/policy/system_core.mg`
+- [x] `internal/core/defaults/policy/system_ooda.mg`
+- [x] `internal/core/defaults/policy/system_routing.mg`
+- [x] `internal/core/defaults/policy/system_session.mg`
+- [x] `internal/core/defaults/policy/system_shards.mg`
+- [x] `internal/core/defaults/policy/system_world.mg`
+- [x] `internal/core/defaults/policy/task_stage.mg`
+- [x] `internal/core/defaults/policy/taxonomy_inference.mg`
+- [x] `internal/core/defaults/policy/taxonomy_qualifiers.mg`
+- [x] `internal/core/defaults/policy/tdd_logic.mg`
+- [x] `internal/core/defaults/policy/tdd_loop.mg`
+- [x] `internal/core/defaults/policy/test_impact.mg`
+- [x] `internal/core/defaults/policy/tool_routing.mg`
+- [x] `internal/core/defaults/policy/trace_logic.mg`
+- [x] `internal/core/defaults/policy/validation.mg`
+- [x] `internal/core/defaults/policy/verification.mg`
+- [x] `internal/core/defaults/reviewer.mg`
+- [x] `internal/core/defaults/schema/intent_campaign.mg`
+- [x] `internal/core/defaults/schema/intent_code_mutations.mg`
+- [x] `internal/core/defaults/schema/intent_code_review.mg`
+- [x] `internal/core/defaults/schema/intent_conversational.mg`
+- [x] `internal/core/defaults/schema/intent_index.mg`
+- [x] `internal/core/defaults/schema/intent_instructions.mg`
+- [x] `internal/core/defaults/schema/intent_multi_step.mg`
+- [x] `internal/core/defaults/schema/intent_mutations.mg`
+- [x] `internal/core/defaults/schema/intent_operations.mg`
+- [x] `internal/core/defaults/schema/intent_qualifiers.mg`
+- [x] `internal/core/defaults/schema/intent_queries.mg`
+- [x] `internal/core/defaults/schema/intent_routing.mg`
+- [x] `internal/core/defaults/schema/intent_stats.mg`
+- [x] `internal/core/defaults/schema/intent_system.mg`
+- [x] `internal/core/defaults/schema/intent_testing.mg`
+- [x] `internal/core/defaults/schema/prompts.mg`
+- [x] `internal/core/defaults/schemas.mg`
+- [x] `internal/core/defaults/schemas_analysis.mg`
+- [x] `internal/core/defaults/schemas_browser.mg`
+- [x] `internal/core/defaults/schemas_campaign.mg`
+- [x] `internal/core/defaults/schemas_codedom.mg`
+- [x] `internal/core/defaults/schemas_codedom_polyglot.mg`
+- [x] `internal/core/defaults/schemas_coder.mg`
+- [x] `internal/core/defaults/schemas_context.mg`
+- [x] `internal/core/defaults/schemas_dreamer.mg`
+- [x] `internal/core/defaults/schemas_execution.mg`
+- [x] `internal/core/defaults/schemas_intelligence.mg`
+- [x] `internal/core/defaults/schemas_intent.mg`
+- [x] `internal/core/defaults/schemas_knowledge.mg`
+- [x] `internal/core/defaults/schemas_learning.mg`
+- [x] `internal/core/defaults/schemas_mcp.mg`
+- [x] `internal/core/defaults/schemas_memory.mg`
+- [x] `internal/core/defaults/schemas_misc.mg`
+- [x] `internal/core/defaults/schemas_project.mg`
+- [x] `internal/core/defaults/schemas_projectdoc.mg`
+- [x] `internal/core/defaults/schemas_prompts.mg`
+- [x] `internal/core/defaults/schemas_reviewer.mg`
+- [x] `internal/core/defaults/schemas_safety.mg`
+- [x] `internal/core/defaults/schemas_shards.mg`
+- [x] `internal/core/defaults/schemas_state.mg`
+- [x] `internal/core/defaults/schemas_testing.mg`
+- [x] `internal/core/defaults/schemas_tools.mg`
+- [x] `internal/core/defaults/schemas_world.mg`
+- [x] `internal/core/defaults/selection_policy.mg`
+- [x] `internal/core/defaults/taxonomy.mg`
+- [x] `internal/core/defaults/tester.mg`
+- [x] `internal/core/defaults/topology_planner.mg`
+
+### internal/init (1)
+- [x] `internal/init/.nerd/debug/debug_program_ERROR.mg`
+
+### internal/mcp (1)
+- [x] `internal/mcp/.nerd/debug/debug_program_ERROR.mg`
+
+### internal/northstar (1)
+- [x] `internal/northstar/.nerd/debug/debug_program_ERROR.mg`
+
+### internal/persist (1)
+- [x] `internal/persist/snapshot/.nerd/debug/debug_program_ERROR.mg`
+
+### internal/retrieval (1)
+- [ ] `internal/retrieval/.nerd/debug/debug_program_ERROR.mg` <!-- crash debris, untracked, left for user -->
+
+### internal/session (1)
+- [ ] `internal/session/.nerd/debug/debug_program_ERROR.mg` <!-- crash debris, untracked, left for user -->
+
+### internal/shards/system (1)
+- [ ] `internal/shards/system/.nerd/debug/debug_program_ERROR.mg` <!-- crash debris, untracked, left for user -->
+
+### internal/system (1)
+- [x] `internal/system/.nerd/debug/debug_program_ERROR.mg`
+
+### internal/testing (1)
+- [x] `internal/testing/context_harness/.nerd/debug/debug_program_ERROR.mg`
+
+### internal/world (1)
+- [ ] `internal/world/.nerd/debug/debug_program_ERROR.mg` <!-- crash debris, untracked, left for user -->
+
+### test_init (3)
+- [x] `test_init/.nerd/mangle/extensions.mg` <!-- tracked fixture, corpus-gate verified -->
+- [x] `test_init/.nerd/mangle/policy_overrides.mg` <!-- tracked fixture, corpus-gate verified -->
+- [x] `test_init/.nerd/profile.mg` <!-- tracked fixture, corpus-gate verified -->
+
+**Progress: 2584/2683**

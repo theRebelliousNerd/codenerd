@@ -1,0 +1,177 @@
+package system
+
+import (
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/store"
+	"codenerd/internal/types"
+	"codenerd/internal/world"
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sync"
+)
+
+// HolographicCodeScope wraps world.FileScope and ensures deep (Cartographer) facts are
+// incrementally maintained in the kernel for the current in-scope files.
+//
+// Why this exists:
+//   - core.VirtualStore cannot import world (cycle), but policies depend on deep facts like
+//     code_defines/5 and code_calls/2 ("Holographic Retrieval").
+//   - world.EnsureDeepFacts already supports caching + retraction, but had no wiring.
+type HolographicCodeScope struct {
+	scope       *world.FileScope
+	kernel      core.Kernel
+	localDB     *store.LocalStore
+	deepWorkers int
+
+	mu         sync.Mutex
+	memCache   map[string]deepCacheEntry
+	cartograph *world.Cartographer
+}
+
+type deepCacheEntry struct {
+	fingerprint string
+	facts       []core.Fact
+}
+
+// NewHolographicCodeScope constructs a CodeScope that keeps deep facts in sync.
+// deepWorkers <= 0 uses a small CPU-based default.
+func NewHolographicCodeScope(projectRoot string, kernel core.Kernel, localDB *store.LocalStore, deepWorkers int) *HolographicCodeScope {
+	if deepWorkers <= 0 {
+		deepWorkers = max(min(runtime.NumCPU(), 8), 2)
+	}
+	return &HolographicCodeScope{
+		scope:       world.NewFileScope(projectRoot),
+		kernel:      kernel,
+		localDB:     localDB,
+		deepWorkers: deepWorkers,
+		memCache:    make(map[string]deepCacheEntry),
+		cartograph:  world.NewCartographer(),
+	}
+}
+
+// Open opens a file and loads its 1-hop dependency scope, then ensures deep facts.
+func (h *HolographicCodeScope) Open(path string) error {
+	if err := h.scope.Open(path); err != nil {
+		return err
+	}
+	h.ensureDeepFacts(context.Background(), h.scope.GetInScopeFiles())
+	return nil
+}
+
+// Refresh re-parses all in-scope files and ensures deep facts.
+func (h *HolographicCodeScope) Refresh() error {
+	if err := h.scope.Refresh(); err != nil {
+		return err
+	}
+	h.ensureDeepFacts(context.Background(), h.scope.GetInScopeFiles())
+	return nil
+}
+
+// Close clears the current scope.
+func (h *HolographicCodeScope) Close() { h.scope.Close() }
+
+func (h *HolographicCodeScope) GetCoreElement(ref string) *core.CodeElement {
+	return h.scope.GetCoreElement(ref)
+}
+
+func (h *HolographicCodeScope) GetElementBody(ref string) string { return h.scope.GetElementBody(ref) }
+
+func (h *HolographicCodeScope) GetCoreElementsByFile(path string) []core.CodeElement {
+	return h.scope.GetCoreElementsByFile(path)
+}
+
+func (h *HolographicCodeScope) IsInScope(path string) bool { return h.scope.IsInScope(path) }
+
+func (h *HolographicCodeScope) ScopeFacts() []core.Fact { return h.scope.ScopeFacts() }
+
+func (h *HolographicCodeScope) GetActiveFile() string { return h.scope.GetActiveFile() }
+
+func (h *HolographicCodeScope) GetInScopeFiles() []string { return h.scope.GetInScopeFiles() }
+
+func (h *HolographicCodeScope) VerifyFileHash(path string) (bool, error) {
+	return h.scope.VerifyFileHash(path)
+}
+
+func (h *HolographicCodeScope) RefreshWithRetry(maxRetries int) error {
+	var lastErr error
+	for range maxRetries {
+		if err := h.Refresh(); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
+func (h *HolographicCodeScope) ensureDeepFacts(ctx context.Context, paths []string) {
+	if h.kernel == nil || len(paths) == 0 {
+		return
+	}
+
+	if h.localDB != nil {
+		res, err := world.EnsureDeepFactsInRoot(ctx, h.scope.ProjectRoot, paths, h.localDB, h.deepWorkers)
+		if err != nil || res == nil {
+			if err != nil {
+				logging.Get(logging.CategoryWorld).Warn("Deep scan failed: %v", err)
+			}
+			return
+		}
+		if len(res.RetractFacts) > 0 {
+			_ = h.kernel.RetractExactFactsBatch(res.RetractFacts)
+		}
+		if len(res.NewFacts) > 0 {
+			_ = h.kernel.LoadFacts(res.NewFacts)
+		}
+		return
+	}
+
+	// No LocalStore available (still keep deep facts consistent within this
+	// session). Same identity split as the store-backed branch: the scope
+	// hands over absolute paths, which open the file; the facts and the cache
+	// key carry the canonical identity so they agree with the scanners' rows.
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for _, fsPath := range paths {
+		if filepath.Ext(fsPath) != ".go" {
+			continue
+		}
+		info, err := os.Stat(fsPath)
+		if err != nil {
+			continue
+		}
+		fp := fmt.Sprintf("%d:%d", info.Size(), info.ModTime().Unix())
+		path := types.CanonicalPath(h.scope.ProjectRoot, fsPath)
+
+		if prev, ok := h.memCache[path]; ok && prev.fingerprint == fp {
+			continue
+		}
+
+		var oldFacts []core.Fact
+		if prev, ok := h.memCache[path]; ok {
+			oldFacts = prev.facts
+		}
+
+		newFacts, err := h.cartograph.MapFileAs(fsPath, path)
+		if err != nil {
+			continue
+		}
+
+		if len(oldFacts) > 0 {
+			_ = h.kernel.RetractExactFactsBatch(oldFacts)
+		}
+		if len(newFacts) > 0 {
+			_ = h.kernel.LoadFacts(newFacts)
+		}
+
+		h.memCache[path] = deepCacheEntry{
+			fingerprint: fp,
+			facts:       newFacts,
+		}
+	}
+}

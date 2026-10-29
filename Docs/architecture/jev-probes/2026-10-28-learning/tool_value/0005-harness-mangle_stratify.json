@@ -1,0 +1,36 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "harness_capabilities": "codeNERD can already read, search, write and edit files in the workspace, run builds and tests, run allowed shell commands, query its code index, and write code to complete a task.",
+  "tool": {
+   "does": "Parses a Mangle program and reports its strata and every negation cycle.",
+   "name": "mangle_stratify"
+  }
+ },
+ "questions": {
+  "harness_covers": {
+   "type": "noul",
+   "instructions": "Could `harness_capabilities`, or one ordinary shell command, already do what `tool` does?",
+   "criteria": {
+    "true": "The tool repeats something the harness does directly or one standard command does (grep, find, wc, jq, go vet, a test run).",
+    "false": "The tool performs an operation the harness lacks, or does in one call what would take many harness steps."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "harness_covers": {
+   "type": "noul",
+   "noul": 0.08
+  }
+ },
+ "usage": {
+  "input_tokens": 449,
+  "output_tokens": 24
+ }
+}
+}

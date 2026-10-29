@@ -1,0 +1,882 @@
+// Package prompt implements the JIT Prompt Compiler for codeNERD.
+// This system compiles optimal system prompts from atomic prompt fragments
+// based on the current compilation context (operational mode, campaign phase,
+// shard type, language, etc.).
+//
+// The JIT compiler achieves "infinite" effective prompt length through:
+// 1. Atomic decomposition - prompts are stored as small, reusable atoms
+// 2. Context-aware selection - only relevant atoms are selected
+// 3. Vector-augmented retrieval - semantic search for domain-specific atoms
+// 4. Budget-constrained assembly - fits within token limits
+package prompt
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"codenerd/internal/core"
+)
+
+// AtomCategory represents the category of a prompt atom.
+// Categories organize atoms by their role in the system prompt.
+type AtomCategory string
+
+const (
+	// CategoryIdentity defines who the agent is and its core capabilities.
+	CategoryIdentity AtomCategory = "identity"
+
+	// CategoryProtocol defines operational protocols (Piggyback, OODA, etc.).
+	CategoryProtocol AtomCategory = "protocol"
+
+	// CategorySafety defines constitutional safety constraints.
+	CategorySafety AtomCategory = "safety"
+
+	// CategoryMethodology defines how to approach problems (TDD, etc.).
+	CategoryMethodology AtomCategory = "methodology"
+
+	// CategoryCapability defines tool- and system-capability guidance.
+	CategoryCapability AtomCategory = "capability"
+
+	// CategoryHallucination contains anti-hallucination guardrails.
+	CategoryHallucination AtomCategory = "hallucination"
+
+	// CategoryLanguage contains language-specific guidance (Go, Python, etc.).
+	CategoryLanguage AtomCategory = "language"
+
+	// CategoryFramework contains framework-specific guidance (Bubbletea, etc.).
+	CategoryFramework AtomCategory = "framework"
+
+	// CategoryDomain contains domain-specific knowledge (project context).
+	CategoryDomain AtomCategory = "domain"
+
+	// CategoryCampaign contains campaign/goal-specific context.
+	CategoryCampaign AtomCategory = "campaign"
+
+	// CategoryInit contains initialization phase guidance.
+	CategoryInit AtomCategory = "init"
+
+	// CategoryNorthstar contains northstar planning guidance.
+	CategoryNorthstar AtomCategory = "northstar"
+
+	// CategoryOuroboros contains self-improvement/tool-generation guidance.
+	CategoryOuroboros AtomCategory = "ouroboros"
+
+	// CategoryAutopoiesis contains self-learning and prompt evolution guidance.
+	CategoryAutopoiesis AtomCategory = "autopoiesis"
+
+	// CategoryContext contains dynamic context atoms (files, symbols, etc.).
+	CategoryContext AtomCategory = "context"
+
+	// CategoryExemplar contains few-shot examples and demonstrations.
+	CategoryExemplar AtomCategory = "exemplar"
+
+	// CategoryReviewer contains reviewer-specific atoms for code review enhancement.
+	CategoryReviewer AtomCategory = "reviewer"
+
+	// CategoryEval contains evaluation/judge-mode atoms.
+	CategoryEval AtomCategory = "eval"
+
+	// CategoryKnowledge contains knowledge extraction and management atoms.
+	CategoryKnowledge AtomCategory = "knowledge"
+
+	// CategoryBuildLayer contains build layer guidance (scaffold, domain_core, etc.).
+	CategoryBuildLayer AtomCategory = "build_layer"
+
+	// CategoryIntent contains intent-specific guidance for user intent classification.
+	CategoryIntent AtomCategory = "intent"
+
+	// CategoryWorldState contains world state awareness atoms (diagnostics, errors, etc.).
+	CategoryWorldState AtomCategory = "world_state"
+
+	// CategorySystem contains runtime system atoms (tool-call nudges, executor
+	// retries). Lives under internal/prompt/atoms/system/ — must be listed here
+	// or Validate() rejects them with "unknown category system".
+	CategorySystem AtomCategory = "system"
+)
+
+// AllCategories returns all defined atom categories.
+func AllCategories() []AtomCategory {
+	return []AtomCategory{
+		CategoryIdentity,
+		CategoryProtocol,
+		CategorySafety,
+		CategoryMethodology,
+		CategoryCapability,
+		CategoryHallucination,
+		CategoryLanguage,
+		CategoryFramework,
+		CategoryDomain,
+		CategoryCampaign,
+		CategoryInit,
+		CategoryNorthstar,
+		CategoryOuroboros,
+		CategoryAutopoiesis,
+		CategoryContext,
+		CategoryExemplar,
+		CategoryReviewer,
+		CategoryEval,
+		CategoryKnowledge,
+		CategoryBuildLayer,
+		CategorySystem,
+		CategoryIntent,
+		CategoryWorldState,
+	}
+}
+
+// PromptAtom represents a single atomic prompt fragment.
+// Atoms are the fundamental building blocks of compiled prompts.
+// Each atom is self-contained and can be independently selected,
+// composed, and assembled into a final prompt.
+type PromptAtom struct {
+	// Unique identifier for this atom (e.g., "go-error-handling-v2")
+	ID string `json:"id"`
+
+	// Version number for tracking updates
+	Version int `json:"version"`
+
+	// The actual prompt content (markdown/text)
+	Content string `json:"content"`
+
+	// Estimated token count (cached for budget calculations)
+	TokenCount int `json:"token_count"`
+
+	// SHA256 hash of Content for deduplication and cache invalidation
+	ContentHash string `json:"content_hash"`
+
+	// Classification
+	Category    AtomCategory `json:"category"`
+	Subcategory string       `json:"subcategory,omitempty"`
+
+	// =========================================================================
+	// Contextual Selectors (JSON arrays in DB)
+	// These define WHEN this atom should be included in a prompt.
+	// An atom matches if ANY selector in a non-empty list matches.
+	// Empty lists mean "always match" for that dimension.
+	// =========================================================================
+
+	// OperationalModes: /active, /dream, /debugging, /creative, /scaffolding, /shadow, /tdd_repair
+	OperationalModes []string `json:"operational_modes,omitempty"`
+
+	// CampaignPhases: /planning, /decomposing, /validating, /active, /completed, /paused, /failed
+	CampaignPhases []string `json:"campaign_phases,omitempty"`
+
+	// BuildLayers: /scaffold, /domain_core, /data_layer, /service, /transport, /integration
+	BuildLayers []string `json:"build_layers,omitempty"`
+
+	// InitPhases: /migration, /setup, /scanning, /analysis, /profile, /facts, /agents, /kb_*
+	InitPhases []string `json:"init_phases,omitempty"`
+
+	// NorthstarPhases: /doc_ingestion, /problem, /vision, /requirements, /architecture, /roadmap
+	NorthstarPhases []string `json:"northstar_phases,omitempty"`
+
+	// OuroborosStages: /detection, /specification, /safety_check, /simulation, /codegen, /testing
+	OuroborosStages []string `json:"ouroboros_stages,omitempty"`
+
+	// IntentVerbs: /fix, /debug, /refactor, /test, /review, /create, /research, /explain
+	IntentVerbs []string `json:"intent_verbs,omitempty"`
+
+	// ShardTypes: /coder, /tester, /reviewer, /researcher, /librarian, /planner, /custom
+	ShardTypes []string `json:"shard_types,omitempty"`
+
+	// Languages: /go, /python, /typescript, /rust, /java, /javascript, /mangle
+	Languages []string `json:"languages,omitempty"`
+
+	// Frameworks: /bubbletea, /gin, /react, /django, /rod, /lipgloss
+	Frameworks []string `json:"frameworks,omitempty"`
+
+	// Models: /muse_spark_1_2_contributor, /gpt_4o, /claude_3_5_sonnet
+	Models []string `json:"models,omitempty"`
+
+	// Providers: /meta, /openai, /anthropic
+	Providers []string `json:"providers,omitempty"`
+
+	// WorldStates: failing_tests, diagnostics, large_refactor, security_issues, new_files, high_churn
+	WorldStates []string `json:"world_states,omitempty"`
+
+	// =========================================================================
+	// Composition Rules
+	// =========================================================================
+
+	// Importance is Jev's build-time judgment of the harm in ignoring this
+	// guidance (importance.go); ImportanceUnscored when no current score
+	// exists. It orders and arbitrates conflicts; it never admits an atom.
+	Importance ImportanceLevel `json:"importance"`
+
+	// IsMandatory means this atom MUST be included if it matches context
+	IsMandatory bool `json:"is_mandatory"`
+
+	// IsExclusive is an exclusion group ID. Only one atom per group is selected.
+	IsExclusive string `json:"is_exclusive,omitempty"`
+
+	// DependsOn lists atom IDs that must be present for this atom to be selected
+	DependsOn []string `json:"depends_on,omitempty"`
+
+	// SectionOf names the head atom this one continues: one instruction
+	// authored as a head plus ordered sections. A section is selected with
+	// its head (in SectionOrder) while the budget allows and never without
+	// it; SectionOf implies a hard dependency on the head.
+	SectionOf    string `json:"section_of,omitempty"`
+	SectionOrder int    `json:"section_order,omitempty"`
+
+	// ConflictsWith lists atom IDs that cannot be present with this atom
+	ConflictsWith []string `json:"conflicts_with,omitempty"`
+
+	// RequiresTools lists executable tool names that must be present in the
+	// effective tool catalog for this atom's guidance to be valid. Empty means
+	// tool-agnostic (safety/protocol/methodology/identity and generic editing
+	// guidance) and is never gated. Non-empty gates selection via Mangle
+	// blocked_by_missing_tool against CompilationContext.AvailableTools.
+	// Never widen execution authority to satisfy this; omit the atom instead.
+	RequiresTools []string `json:"requires_tools,omitempty"`
+
+	// =========================================================================
+	// Embedding for Vector Search
+	// =========================================================================
+
+	// Embedding is the vector representation (3072-dim for Gemini)
+	// Not serialized to JSON to avoid bloating API responses
+	// TODO: OPTIMIZATION: Use quantized embeddings (int8 or binary) here to reduce memory usage and database size.
+	// 3072 floats = 12KB per atom. 10k atoms = 120MB. Quantization can reduce this by 4x-32x with minimal accuracy loss.
+	Embedding []float32 `json:"-"`
+
+	// EmbeddingTask records which task type was used for embedding
+	EmbeddingTask string `json:"embedding_task,omitempty"`
+
+	// Description used for semantic search (embedded instead of Content)
+	Description string `json:"description"`
+
+	// RetrievedContext marks ephemeral knowledge or learning that a bounded
+	// runtime lookup already matched to this compilation. It is not authorable
+	// through YAML and is not a vector similarity or mandatory-safety override.
+	RetrievedContext bool `json:"-"`
+
+	// KernelInjected marks an atom the compiler rendered from the kernel's
+	// facts for this compile (injectable_context, specialist_knowledge). Its
+	// bytes change with the facts, so the assembler places it after the
+	// skeleton (atomAssemblyTier). Not authorable through YAML.
+	KernelInjected bool `json:"-"`
+
+	// Concise version for tight token budgets
+	ContentConcise string `json:"content_concise,omitempty"`
+
+	// Minimal version (emergency fallback)
+	ContentMin string `json:"content_min,omitempty"`
+
+	// CreatedAt tracks when this atom was created
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// EstimateTokens estimates the token count for content using chars/4 approximation.
+// This is a fast heuristic; actual tokenization may vary by model.
+func EstimateTokens(content string) int {
+	if content == "" {
+		return 0
+	}
+	// chars/4 is a reasonable approximation for English text
+	// Adjust for code which tends to be more token-dense
+	return (len(content) + 3) / 4
+}
+
+// HashContent computes a SHA256 hash of content for deduplication.
+func HashContent(content string) string {
+	if content == "" {
+		return ""
+	}
+	hash := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(hash[:])
+}
+
+// NewPromptAtom creates a new PromptAtom with computed fields.
+func NewPromptAtom(id string, category AtomCategory, content string) *PromptAtom {
+	atom := &PromptAtom{
+		ID:          id,
+		Version:     1,
+		Category:    category,
+		Content:     content,
+		TokenCount:  EstimateTokens(content),
+		ContentHash: HashContent(content),
+		CreatedAt:   time.Now(),
+	}
+	atom.NormalizeSelectors()
+	return atom
+}
+
+// NormalizeSelectors normalizes all selector dimensions by removing leading slashes.
+// This is pre-computed to optimize MatchesContext performance.
+func (a *PromptAtom) NormalizeSelectors() {
+	normalizeList(a.OperationalModes)
+	normalizeList(a.CampaignPhases)
+	normalizeList(a.BuildLayers)
+	normalizeList(a.InitPhases)
+	normalizeList(a.NorthstarPhases)
+	normalizeList(a.OuroborosStages)
+	normalizeList(a.IntentVerbs)
+	normalizeList(a.ShardTypes)
+	normalizeList(a.Languages)
+	normalizeList(a.Frameworks)
+
+	// Pin dimensions get canonical tokens rather than a bare slash strip: an
+	// author writing `models: [claude-opus-4]` and a runtime reporting
+	// "anthropic/claude-opus-4-20260501" have to reach the same Mangle name
+	// constant, and '-' vs '_' alone is enough to make them disjoint. Entries
+	// that sanitize to nothing are dropped so they cannot become an empty
+	// selector that silently matches everything.
+	a.Models = normalizePinList(a.Models, NormalizeModelToken)
+	a.Providers = normalizePinList(a.Providers, NormalizeProviderToken)
+}
+
+// normalizePinList canonicalizes every entry through normalize, dropping empties
+// and duplicates while preserving order.
+func normalizePinList(list []string, normalize func(string) string) []string {
+	if len(list) == 0 {
+		return list
+	}
+	seen := make(map[string]struct{}, len(list))
+	out := list[:0]
+	for _, v := range list {
+		token := normalize(v)
+		if token == "" {
+			continue
+		}
+		if _, dup := seen[token]; dup {
+			continue
+		}
+		seen[token] = struct{}{}
+		out = append(out, token)
+	}
+	return out
+}
+
+func normalizeList(list []string) {
+	for i, v := range list {
+		if len(v) > 0 && v[0] == '/' {
+			list[i] = v[1:]
+		}
+	}
+}
+
+// AtomTag binds one selector value to its persistence dimension. The
+// dimension vocabulary here is shared by every SQLite writer (loader,
+// reconciler, corpus hydration, the prompt_builder tool) and by the
+// compiler_db.go reader; a dimension missing from either side silently
+// drops on round-trip, which for models/providers/requires_tool is a
+// fail-open leak (an unpinned atom matches every vendor).
+type AtomTag struct {
+	Dimension string
+	Tag       string
+}
+
+// ContextTags returns every selector binding in canonical dimension order.
+// This is the single producer all tag-table writers iterate; adding a
+// selector dimension to PromptAtom requires adding it here and to the
+// appendTag reader, pinned by TestContextTags_ReaderParity.
+func (a *PromptAtom) ContextTags() []AtomTag {
+	if a == nil {
+		return nil
+	}
+	dims := []struct {
+		name   string
+		values []string
+	}{
+		{"mode", a.OperationalModes},
+		{"phase", a.CampaignPhases},
+		{"layer", a.BuildLayers},
+		{"init_phase", a.InitPhases},
+		{"northstar_phase", a.NorthstarPhases},
+		{"ouroboros_stage", a.OuroborosStages},
+		{"intent", a.IntentVerbs},
+		{"shard", a.ShardTypes},
+		{"lang", a.Languages},
+		{"framework", a.Frameworks},
+		{"model", a.Models},
+		{"provider", a.Providers},
+		{"state", a.WorldStates},
+		{"depends_on", a.DependsOn},
+		{"conflicts_with", a.ConflictsWith},
+		{"requires_tool", a.RequiresTools},
+		{"section_of", sectionTag(a)},
+	}
+	total := 0
+	for _, d := range dims {
+		total += len(d.values)
+	}
+	tags := make([]AtomTag, 0, total)
+	for _, d := range dims {
+		for _, v := range d.values {
+			tags = append(tags, AtomTag{Dimension: d.name, Tag: v})
+		}
+	}
+	return tags
+}
+
+// sectionTag encodes the section relation as one tag, "head#order".
+func sectionTag(a *PromptAtom) []string {
+	if a.SectionOf == "" {
+		return nil
+	}
+	return []string{a.SectionOf + "#" + strconv.Itoa(a.SectionOrder)}
+}
+
+// MatchesContext checks if this atom should be included for the given context.
+// Returns true if the atom matches ALL non-empty selector dimensions.
+// Empty selector lists are treated as "match any".
+func (a *PromptAtom) MatchesContext(cc *CompilationContext) bool {
+	if a == nil {
+		return false
+	}
+	if cc == nil {
+		return true
+	}
+
+	// Check each selector dimension
+	// For each dimension: if the selector list is non-empty, the context value must be in it
+
+	if !matchSelector(a.OperationalModes, cc.OperationalMode) {
+		return false
+	}
+
+	if !matchSelector(a.CampaignPhases, cc.CampaignPhase) {
+		return false
+	}
+
+	if !matchSelector(a.BuildLayers, cc.BuildLayer) {
+		return false
+	}
+
+	if !matchSelector(a.InitPhases, cc.InitPhase) {
+		return false
+	}
+
+	if !matchSelector(a.NorthstarPhases, cc.NorthstarPhase) {
+		return false
+	}
+
+	if !matchSelector(a.OuroborosStages, cc.OuroborosStage) {
+		return false
+	}
+
+	if !matchSelector(a.IntentVerbs, cc.IntentVerb) {
+		return false
+	}
+
+	if !matchSelector(a.ShardTypes, cc.ShardType) {
+		return false
+	}
+
+	if !matchSelector(a.Languages, cc.Language) {
+		return false
+	}
+
+	// Frameworks: match if ANY framework in context matches ANY in selector
+	if len(a.Frameworks) > 0 && len(cc.Frameworks) > 0 {
+		found := false
+		for _, af := range a.Frameworks {
+			for _, cf := range cc.Frameworks {
+				ncf := cf
+				if len(cf) > 0 && cf[0] == '/' {
+					ncf = cf[1:]
+				}
+				if af == ncf || af == cf {
+					found = true
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	// Provider/model pins. Fail-closed like every other constrained dimension:
+	// matchSelector returns false when the atom carries a constraint and the
+	// context has no value, so an atom pinned to a vendor never leaks onto a
+	// compile whose serving vendor is unknown. Both sides are canonicalized
+	// through pinning.go so "gpt-4o" and "openai/gpt-4o" compare equal.
+	if !matchSelector(a.Providers, cc.ProviderToken()) {
+		return false
+	}
+
+	// Models: the context satisfies a pin at either exact or family
+	// granularity, so this matches if ANY context token is in the atom's list.
+	if len(a.Models) > 0 {
+		tokens := cc.ModelTokens()
+		if len(tokens) == 0 {
+			return false
+		}
+		found := false
+		for _, tok := range tokens {
+			if matchSelector(a.Models, tok) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	// WorldStates: match if ANY required world state is present
+	if len(a.WorldStates) > 0 {
+		found := false
+		for _, ws := range a.WorldStates {
+			if hasWorldState(cc, ws) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	return true
+}
+
+// hasWorldState checks if a world state is active in the context: measured by
+// the executor, or derived by the kernel as a need (DerivedNeeds).
+// optimized to avoid allocating a slice of strings.
+func hasWorldState(cc *CompilationContext, state string) bool {
+	if measuredWorldState(cc, state) {
+		return true
+	}
+	for _, need := range cc.DerivedNeeds {
+		if strings.TrimPrefix(strings.TrimSpace(need), "/") == state {
+			return true
+		}
+	}
+	return false
+}
+
+// measuredWorldState reports the world states the executor measured.
+func measuredWorldState(cc *CompilationContext, state string) bool {
+	switch state {
+	case "failing_tests":
+		return cc.FailingTestCount > 0
+	case "diagnostics":
+		return cc.DiagnosticCount > 0
+	case "large_refactor":
+		return cc.IsLargeRefactor
+	case "security_issues":
+		return cc.HasSecurityIssues
+	case "new_files":
+		return cc.HasNewFiles
+	case "high_churn":
+		return cc.IsHighChurn
+	case "reflection_hits":
+		return cc.HasReflectionHits
+	case "no_tool_call_retry":
+		return cc.PreviousAttemptNoToolCall
+	}
+	return false
+}
+
+// matchSelector checks if a value matches a selector list.
+// Assumes the selector list is already normalized (leading slashes removed).
+// Empty selector list means "match any". Empty value matches empty list only.
+func matchSelector(selector []string, value string) bool {
+	if len(selector) == 0 {
+		return true // No constraint = match all
+	}
+	if value == "" {
+		return false // Has constraint but no value = no match
+	}
+
+	normalizedValue := value
+	if len(value) > 0 && value[0] == '/' {
+		normalizedValue = value[1:]
+	}
+
+	for _, s := range selector {
+		if s == normalizedValue || s == value {
+			return true
+		}
+	}
+	return false
+}
+
+// ToFact converts this atom to a Mangle fact for kernel queries.
+// Format: prompt_atom(ID, Category, TokenCount, IsMandatory), the schema's
+// order (schemas_prompts.mg). Importance is its own fact, atom_importance,
+// present only for a scored atom.
+func (a *PromptAtom) ToFact() core.Fact {
+	mandatory := "/false"
+	if a.IsMandatory {
+		mandatory = "/true"
+	}
+	return core.Fact{
+		Predicate: "prompt_atom",
+		Args: []any{
+			a.ID,
+			"/" + string(a.Category),
+			a.TokenCount,
+			core.MangleAtom(mandatory),
+		},
+	}
+}
+
+// ToSelectorFact generates a selector fact for Mangle matching.
+// Format: atom_selector(ID, Dimension, Value).
+func (a *PromptAtom) ToSelectorFacts() []core.Fact {
+	var facts []core.Fact
+
+	addSelectorFacts := func(dimension string, values []string) {
+		for _, v := range values {
+			facts = append(facts, core.Fact{
+				Predicate: "atom_selector",
+				Args:      []any{a.ID, "/" + dimension, v},
+			})
+		}
+	}
+
+	addSelectorFacts("operational_mode", a.OperationalModes)
+	addSelectorFacts("campaign_phase", a.CampaignPhases)
+	addSelectorFacts("build_layer", a.BuildLayers)
+	addSelectorFacts("init_phase", a.InitPhases)
+	addSelectorFacts("northstar_phase", a.NorthstarPhases)
+	addSelectorFacts("ouroboros_stage", a.OuroborosStages)
+	addSelectorFacts("intent_verb", a.IntentVerbs)
+	addSelectorFacts("shard_type", a.ShardTypes)
+	addSelectorFacts("language", a.Languages)
+	addSelectorFacts("framework", a.Frameworks)
+	addSelectorFacts("model", a.Models)
+	addSelectorFacts("provider", a.Providers)
+	addSelectorFacts("world_state", a.WorldStates)
+
+	return facts
+}
+
+// ToDependencyFacts generates dependency facts for Mangle.
+// Format: atom_depends(ID, DependencyID).
+func (a *PromptAtom) ToDependencyFacts() []core.Fact {
+	var facts []core.Fact
+
+	for _, dep := range a.DependsOn {
+		facts = append(facts, core.Fact{
+			Predicate: "atom_depends",
+			Args:      []any{a.ID, dep},
+		})
+	}
+
+	return facts
+}
+
+// ToConflictFacts generates conflict facts for Mangle.
+// Format: atom_conflicts(ID1, ID2).
+func (a *PromptAtom) ToConflictFacts() []core.Fact {
+	var facts []core.Fact
+
+	for _, conflict := range a.ConflictsWith {
+		facts = append(facts, core.Fact{
+			Predicate: "atom_conflicts",
+			Args:      []any{a.ID, conflict},
+		})
+	}
+
+	return facts
+}
+
+// ToExclusionFact generates an exclusion group fact if applicable.
+// Format: atom_exclusive(ID, GroupID).
+func (a *PromptAtom) ToExclusionFact() *core.Fact {
+	if a.IsExclusive == "" {
+		return nil
+	}
+
+	return &core.Fact{
+		Predicate: "atom_exclusive",
+		Args:      []any{a.ID, a.IsExclusive},
+	}
+}
+
+// Validate checks the atom for consistency errors.
+func (a *PromptAtom) Validate() error {
+	if a.ID == "" {
+		return fmt.Errorf("atom ID is required")
+	}
+
+	if a.Content == "" {
+		return fmt.Errorf("atom content is required for atom %q", a.ID)
+	}
+
+	if a.Category == "" {
+		return fmt.Errorf("atom category is required for atom %q", a.ID)
+	}
+
+	// Validate category is known
+	validCategory := slices.Contains(AllCategories(), a.Category)
+	if !validCategory {
+		return fmt.Errorf("unknown category %q for atom %q", a.Category, a.ID)
+	}
+
+	// Check for self-dependency
+	if slices.Contains(a.DependsOn, a.ID) {
+		return fmt.Errorf("atom %q cannot depend on itself", a.ID)
+	}
+
+	// Check for self-conflict
+	if slices.Contains(a.ConflictsWith, a.ID) {
+		return fmt.Errorf("atom %q cannot conflict with itself", a.ID)
+	}
+
+	return nil
+}
+
+// Clone creates a deep copy of the atom.
+func (a *PromptAtom) Clone() *PromptAtom {
+	clone := *a
+
+	// Deep copy slices
+	clone.OperationalModes = copyStringSlice(a.OperationalModes)
+	clone.CampaignPhases = copyStringSlice(a.CampaignPhases)
+	clone.BuildLayers = copyStringSlice(a.BuildLayers)
+	clone.InitPhases = copyStringSlice(a.InitPhases)
+	clone.NorthstarPhases = copyStringSlice(a.NorthstarPhases)
+	clone.OuroborosStages = copyStringSlice(a.OuroborosStages)
+	clone.IntentVerbs = copyStringSlice(a.IntentVerbs)
+	clone.ShardTypes = copyStringSlice(a.ShardTypes)
+	clone.Languages = copyStringSlice(a.Languages)
+	clone.Frameworks = copyStringSlice(a.Frameworks)
+	clone.Models = copyStringSlice(a.Models)
+	clone.Providers = copyStringSlice(a.Providers)
+	clone.WorldStates = copyStringSlice(a.WorldStates)
+	clone.DependsOn = copyStringSlice(a.DependsOn)
+	clone.ConflictsWith = copyStringSlice(a.ConflictsWith)
+	clone.RequiresTools = copyStringSlice(a.RequiresTools)
+
+	// Deep copy embedding if present
+	if a.Embedding != nil {
+		clone.Embedding = make([]float32, len(a.Embedding))
+		copy(clone.Embedding, a.Embedding)
+	}
+
+	return &clone
+}
+
+// copyStringSlice creates a deep copy of a string slice.
+func copyStringSlice(s []string) []string {
+	if s == nil {
+		return nil
+	}
+	c := make([]string, len(s))
+	copy(c, s)
+	return c
+}
+
+// availableToolSet normalizes CompilationContext.AvailableTools into a lookup
+// set. Nil/empty means fail-closed: every tool-gated atom is blocked.
+func availableToolSet(cc *CompilationContext) map[string]struct{} {
+	if cc == nil || len(cc.AvailableTools) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(cc.AvailableTools))
+	for _, t := range cc.AvailableTools {
+		if t == "" {
+			continue
+		}
+		set[t] = struct{}{}
+	}
+	return set
+}
+
+// atomToolSatisfied reports whether the effective catalog satisfies the atom's
+// RequiresTools. Tool-agnostic atoms (empty RequiresTools) always pass, so
+// constitutional, evidence and general identity guidance is retained on every
+// catalog. An explicit requires_tools entry means the same thing in every
+// selection path (skeleton and flesh): the atom is omitted when any required
+// tool is absent. Never widen execution authority to satisfy this.
+func atomToolSatisfied(atom *PromptAtom, available map[string]struct{}) bool {
+	if atom == nil || len(atom.RequiresTools) == 0 {
+		return true
+	}
+	for _, tool := range atom.RequiresTools {
+		if _, ok := available[tool]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// EmbeddedCorpus holds the embedded (baked-in) prompt atoms.
+// These are loaded at compile time and cannot be modified.
+type EmbeddedCorpus struct {
+	atoms      map[string]*PromptAtom
+	cachedAll  []*PromptAtom
+	byCategory map[AtomCategory][]*PromptAtom
+}
+
+// NewEmbeddedCorpus creates a new embedded corpus from a slice of atoms.
+func NewEmbeddedCorpus(atoms []*PromptAtom) *EmbeddedCorpus {
+	corpus := &EmbeddedCorpus{
+		atoms:      make(map[string]*PromptAtom, len(atoms)),
+		cachedAll:  make([]*PromptAtom, len(atoms)),
+		byCategory: make(map[AtomCategory][]*PromptAtom),
+	}
+	for i, atom := range atoms {
+		corpus.atoms[atom.ID] = atom
+		corpus.cachedAll[i] = atom
+		corpus.byCategory[atom.Category] = append(corpus.byCategory[atom.Category], atom)
+	}
+	return corpus
+}
+
+// Get retrieves an atom by ID.
+func (c *EmbeddedCorpus) Get(id string) (*PromptAtom, bool) {
+	atom, ok := c.atoms[id]
+	return atom, ok
+}
+
+// GetByCategory returns all atoms in a category.
+// Optimized to use pre-built index (O(1) lookup vs O(N) scan).
+func (c *EmbeddedCorpus) GetByCategory(category AtomCategory) []*PromptAtom {
+	src := c.byCategory[category]
+	// Return a copy to ensure thread safety and immutability of the internal cache.
+	result := make([]*PromptAtom, len(src))
+	copy(result, src)
+	return result
+}
+
+// AppendAll appends all atoms in the corpus to the provided slice.
+// This avoids allocating an intermediate slice like All() does.
+func (c *EmbeddedCorpus) AppendAll(dst []*PromptAtom) []*PromptAtom {
+	return append(dst, c.cachedAll...)
+}
+
+// All returns all atoms in the corpus.
+// It returns a copy of the slice to prevent mutation of the internal cache.
+func (c *EmbeddedCorpus) All() []*PromptAtom {
+	// Return a copy to ensure thread safety and immutability of the cache.
+	// This is O(N) allocation but safer than returning the internal slice reference,
+	// and still significantly faster than map iteration (O(N) random access).
+	result := make([]*PromptAtom, len(c.cachedAll))
+	copy(result, c.cachedAll)
+	return result
+}
+
+// Count returns the number of atoms in the corpus.
+func (c *EmbeddedCorpus) Count() int {
+	return len(c.atoms)
+}
+
+// AtomStore defines the interface for loading atoms from various sources.
+type AtomStore interface {
+	// LoadAtoms loads all atoms from this store.
+	LoadAtoms(ctx context.Context) ([]*PromptAtom, error)
+
+	// GetAtom retrieves a specific atom by ID.
+	GetAtom(ctx context.Context, id string) (*PromptAtom, error)
+
+	// SaveAtom persists an atom to the store.
+	SaveAtom(ctx context.Context, atom *PromptAtom) error
+
+	// DeleteAtom removes an atom from the store.
+	DeleteAtom(ctx context.Context, id string) error
+}

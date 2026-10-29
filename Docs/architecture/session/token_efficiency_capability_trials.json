@@ -1,0 +1,459 @@
+{
+  "observed_date": "2026-09-08",
+  "implementation_revision": "72c08292b5d5c58f7f97bed5262dbaa32c6c9d5e",
+  "baseline_revision": "049c424d04ac2fd8415a19092e0b018b332dd3df",
+  "baseline_binary_sha256": "C36B87399AD99357CE2803715619EEC8D3AB738A9ED0583F3652329D6B8F6A2B",
+  "candidate_binary_sha256": "7A5768AA4AB4FC9CF7162D50744938339B8004C9343F81C65192E2B79D8106D0",
+  "provenance": "Measured candidate built before commit; exact runtime source hashes checked unchanged into 72c08292. Subsequent learning repair was not part of these trials.",
+  "harness": "cmd/tools/change_benchmark",
+  "mode": "current",
+  "model": "muse-spark-1.3-contributor",
+  "budget": {
+    "llm_calls": 10,
+    "timeout_minutes": 5,
+    "output_tokens": 2048,
+    "tool_calls": 16
+  },
+  "catalog": [
+    "read_file",
+    "list_files",
+    "write_file",
+    "edit_file",
+    "run_tests"
+  ],
+  "plan_created_utc": "2026-09-08T15:47:12.0057642Z",
+  "acceptance": [
+    "Candidate accepted count must not fall below baseline overall or for any task",
+    "No false completion; all caller tests, modules and contracts unchanged",
+    "Total tokens including failed trials must decrease by at least 15 percent",
+    "No post-hoc exclusions; all auxiliary development and expert costs reported separately",
+    "Capability, persistence, safety and dependency negative controls must pass"
+  ],
+  "decision": {
+    "predeclared_acceptance_met": true,
+    "trials": 18,
+    "reduction_percent": 20.06684303196694,
+    "baseline_tokens": 1600466.0,
+    "candidate_tokens": 1279303.0,
+    "baseline_accepted": 8,
+    "candidate_accepted": 9
+  },
+  "totals": [
+    {
+      "condition": "baseline",
+      "accepted": 8,
+      "tokens": 1600466.0,
+      "seconds": 505.93293579999994
+    },
+    {
+      "condition": "candidate",
+      "accepted": 9,
+      "tokens": 1279303.0,
+      "seconds": 515.1258991
+    }
+  ],
+  "rows": [
+    {
+      "id": "agent_identity-1-baseline",
+      "task": "agent_identity",
+      "repeat": 1,
+      "condition": "baseline",
+      "tokens": 218962,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 72.5095918,
+      "integrity": true
+    },
+    {
+      "id": "agent_identity-1-candidate",
+      "task": "agent_identity",
+      "repeat": 1,
+      "condition": "candidate",
+      "tokens": 137840,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 86.6267715,
+      "integrity": true
+    },
+    {
+      "id": "agent_identity-2-candidate",
+      "task": "agent_identity",
+      "repeat": 2,
+      "condition": "candidate",
+      "tokens": 133260,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 66.8664821,
+      "integrity": true
+    },
+    {
+      "id": "agent_identity-2-baseline",
+      "task": "agent_identity",
+      "repeat": 2,
+      "condition": "baseline",
+      "tokens": 115744,
+      "accepted": false,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 59.6595915,
+      "integrity": true
+    },
+    {
+      "id": "agent_identity-3-baseline",
+      "task": "agent_identity",
+      "repeat": 3,
+      "condition": "baseline",
+      "tokens": 217119,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 91.6253931,
+      "integrity": true
+    },
+    {
+      "id": "agent_identity-3-candidate",
+      "task": "agent_identity",
+      "repeat": 3,
+      "condition": "candidate",
+      "tokens": 113794,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 81.3810434,
+      "integrity": true
+    },
+    {
+      "id": "execution_witness-1-baseline",
+      "task": "execution_witness",
+      "repeat": 1,
+      "condition": "baseline",
+      "tokens": 206421,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 44.7112373,
+      "integrity": true
+    },
+    {
+      "id": "execution_witness-1-candidate",
+      "task": "execution_witness",
+      "repeat": 1,
+      "condition": "candidate",
+      "tokens": 129471,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 39.2681081,
+      "integrity": true
+    },
+    {
+      "id": "execution_witness-2-candidate",
+      "task": "execution_witness",
+      "repeat": 2,
+      "condition": "candidate",
+      "tokens": 197829,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 41.7536895,
+      "integrity": true
+    },
+    {
+      "id": "execution_witness-2-baseline",
+      "task": "execution_witness",
+      "repeat": 2,
+      "condition": "baseline",
+      "tokens": 176544,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 40.212321,
+      "integrity": true
+    },
+    {
+      "id": "execution_witness-3-baseline",
+      "task": "execution_witness",
+      "repeat": 3,
+      "condition": "baseline",
+      "tokens": 206734,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 42.6345983,
+      "integrity": true
+    },
+    {
+      "id": "execution_witness-3-candidate",
+      "task": "execution_witness",
+      "repeat": 3,
+      "condition": "candidate",
+      "tokens": 150540,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 36.447006,
+      "integrity": true
+    },
+    {
+      "id": "verdict_identity-1-baseline",
+      "task": "verdict_identity",
+      "repeat": 1,
+      "condition": "baseline",
+      "tokens": 152224,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 56.8310517,
+      "integrity": true
+    },
+    {
+      "id": "verdict_identity-1-candidate",
+      "task": "verdict_identity",
+      "repeat": 1,
+      "condition": "candidate",
+      "tokens": 113618,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 55.9251625,
+      "integrity": true
+    },
+    {
+      "id": "verdict_identity-2-candidate",
+      "task": "verdict_identity",
+      "repeat": 2,
+      "condition": "candidate",
+      "tokens": 188999,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 62.0637941,
+      "integrity": true
+    },
+    {
+      "id": "verdict_identity-2-baseline",
+      "task": "verdict_identity",
+      "repeat": 2,
+      "condition": "baseline",
+      "tokens": 154906,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 53.019576,
+      "integrity": true
+    },
+    {
+      "id": "verdict_identity-3-baseline",
+      "task": "verdict_identity",
+      "repeat": 3,
+      "condition": "baseline",
+      "tokens": 151812,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 44.7295751,
+      "integrity": true
+    },
+    {
+      "id": "verdict_identity-3-candidate",
+      "task": "verdict_identity",
+      "repeat": 3,
+      "condition": "candidate",
+      "tokens": 113952,
+      "accepted": true,
+      "false_completion": false,
+      "missing_result": false,
+      "seconds": 44.7938419,
+      "integrity": true
+    }
+  ],
+  "input_identities": [
+    {
+      "id": "agent_identity-1-baseline",
+      "source_sha256": "A07D9F39AEF7CE168368245E1C2508CA71AC1DE7CC8EFEEB78A3359A96018A0A",
+      "test_sha256": "C49476C0D9308648911D6F1F2422D1D864FCC23B13FCE54A34747213E5EF6619",
+      "module_sha256": "79048E4D3A58752348B2CABC2EDB8D8AB07A7B8F74317083D17247E011FA1C0C",
+      "contract_sha256": "9774757DEE0627E2FD83241A94943A5A8820E8307CD1B51145359515FA3AAE11"
+    },
+    {
+      "id": "agent_identity-1-candidate",
+      "source_sha256": "A07D9F39AEF7CE168368245E1C2508CA71AC1DE7CC8EFEEB78A3359A96018A0A",
+      "test_sha256": "C49476C0D9308648911D6F1F2422D1D864FCC23B13FCE54A34747213E5EF6619",
+      "module_sha256": "79048E4D3A58752348B2CABC2EDB8D8AB07A7B8F74317083D17247E011FA1C0C",
+      "contract_sha256": "9774757DEE0627E2FD83241A94943A5A8820E8307CD1B51145359515FA3AAE11"
+    },
+    {
+      "id": "agent_identity-2-candidate",
+      "source_sha256": "A07D9F39AEF7CE168368245E1C2508CA71AC1DE7CC8EFEEB78A3359A96018A0A",
+      "test_sha256": "C49476C0D9308648911D6F1F2422D1D864FCC23B13FCE54A34747213E5EF6619",
+      "module_sha256": "79048E4D3A58752348B2CABC2EDB8D8AB07A7B8F74317083D17247E011FA1C0C",
+      "contract_sha256": "9774757DEE0627E2FD83241A94943A5A8820E8307CD1B51145359515FA3AAE11"
+    },
+    {
+      "id": "agent_identity-2-baseline",
+      "source_sha256": "A07D9F39AEF7CE168368245E1C2508CA71AC1DE7CC8EFEEB78A3359A96018A0A",
+      "test_sha256": "C49476C0D9308648911D6F1F2422D1D864FCC23B13FCE54A34747213E5EF6619",
+      "module_sha256": "79048E4D3A58752348B2CABC2EDB8D8AB07A7B8F74317083D17247E011FA1C0C",
+      "contract_sha256": "9774757DEE0627E2FD83241A94943A5A8820E8307CD1B51145359515FA3AAE11"
+    },
+    {
+      "id": "agent_identity-3-baseline",
+      "source_sha256": "A07D9F39AEF7CE168368245E1C2508CA71AC1DE7CC8EFEEB78A3359A96018A0A",
+      "test_sha256": "C49476C0D9308648911D6F1F2422D1D864FCC23B13FCE54A34747213E5EF6619",
+      "module_sha256": "79048E4D3A58752348B2CABC2EDB8D8AB07A7B8F74317083D17247E011FA1C0C",
+      "contract_sha256": "9774757DEE0627E2FD83241A94943A5A8820E8307CD1B51145359515FA3AAE11"
+    },
+    {
+      "id": "agent_identity-3-candidate",
+      "source_sha256": "A07D9F39AEF7CE168368245E1C2508CA71AC1DE7CC8EFEEB78A3359A96018A0A",
+      "test_sha256": "C49476C0D9308648911D6F1F2422D1D864FCC23B13FCE54A34747213E5EF6619",
+      "module_sha256": "79048E4D3A58752348B2CABC2EDB8D8AB07A7B8F74317083D17247E011FA1C0C",
+      "contract_sha256": "9774757DEE0627E2FD83241A94943A5A8820E8307CD1B51145359515FA3AAE11"
+    },
+    {
+      "id": "execution_witness-1-baseline",
+      "source_sha256": "266FF6CC9E533A63CBD8BCEFABAC6E7D0F895F45E67FBDB1A77EFC9E482B8A9B",
+      "test_sha256": "6C8188B3103AF89F0BDE0103B485F2FD2EA92D399C2FA7667DF1DAE0D9E87BF0",
+      "module_sha256": "E3D6CAFC3FE260A988C1A584709CC637F1C0F1DCC0E734796FAE25244F42E5D4",
+      "contract_sha256": "967349ECA49009A45AB194A303AC335C61E6BCF6B8F0FC7A409B48E405623473"
+    },
+    {
+      "id": "execution_witness-1-candidate",
+      "source_sha256": "266FF6CC9E533A63CBD8BCEFABAC6E7D0F895F45E67FBDB1A77EFC9E482B8A9B",
+      "test_sha256": "6C8188B3103AF89F0BDE0103B485F2FD2EA92D399C2FA7667DF1DAE0D9E87BF0",
+      "module_sha256": "E3D6CAFC3FE260A988C1A584709CC637F1C0F1DCC0E734796FAE25244F42E5D4",
+      "contract_sha256": "967349ECA49009A45AB194A303AC335C61E6BCF6B8F0FC7A409B48E405623473"
+    },
+    {
+      "id": "execution_witness-2-candidate",
+      "source_sha256": "266FF6CC9E533A63CBD8BCEFABAC6E7D0F895F45E67FBDB1A77EFC9E482B8A9B",
+      "test_sha256": "6C8188B3103AF89F0BDE0103B485F2FD2EA92D399C2FA7667DF1DAE0D9E87BF0",
+      "module_sha256": "E3D6CAFC3FE260A988C1A584709CC637F1C0F1DCC0E734796FAE25244F42E5D4",
+      "contract_sha256": "967349ECA49009A45AB194A303AC335C61E6BCF6B8F0FC7A409B48E405623473"
+    },
+    {
+      "id": "execution_witness-2-baseline",
+      "source_sha256": "266FF6CC9E533A63CBD8BCEFABAC6E7D0F895F45E67FBDB1A77EFC9E482B8A9B",
+      "test_sha256": "6C8188B3103AF89F0BDE0103B485F2FD2EA92D399C2FA7667DF1DAE0D9E87BF0",
+      "module_sha256": "E3D6CAFC3FE260A988C1A584709CC637F1C0F1DCC0E734796FAE25244F42E5D4",
+      "contract_sha256": "967349ECA49009A45AB194A303AC335C61E6BCF6B8F0FC7A409B48E405623473"
+    },
+    {
+      "id": "execution_witness-3-baseline",
+      "source_sha256": "266FF6CC9E533A63CBD8BCEFABAC6E7D0F895F45E67FBDB1A77EFC9E482B8A9B",
+      "test_sha256": "6C8188B3103AF89F0BDE0103B485F2FD2EA92D399C2FA7667DF1DAE0D9E87BF0",
+      "module_sha256": "E3D6CAFC3FE260A988C1A584709CC637F1C0F1DCC0E734796FAE25244F42E5D4",
+      "contract_sha256": "967349ECA49009A45AB194A303AC335C61E6BCF6B8F0FC7A409B48E405623473"
+    },
+    {
+      "id": "execution_witness-3-candidate",
+      "source_sha256": "266FF6CC9E533A63CBD8BCEFABAC6E7D0F895F45E67FBDB1A77EFC9E482B8A9B",
+      "test_sha256": "6C8188B3103AF89F0BDE0103B485F2FD2EA92D399C2FA7667DF1DAE0D9E87BF0",
+      "module_sha256": "E3D6CAFC3FE260A988C1A584709CC637F1C0F1DCC0E734796FAE25244F42E5D4",
+      "contract_sha256": "967349ECA49009A45AB194A303AC335C61E6BCF6B8F0FC7A409B48E405623473"
+    },
+    {
+      "id": "verdict_identity-1-baseline",
+      "source_sha256": "14E3C14730960C45EA5C55CD1238581339E4100E42D2B12AEA8DCB26691C93DE",
+      "test_sha256": "8BFA23E0CA5EF371FE169E4CC6C3C9F476244A766B3633F388CB50558A1F4861",
+      "module_sha256": "A17AEF67E2C48AF491E8A235A35A6D46BC7C1E27636C530A87640BE1385AC936",
+      "contract_sha256": "6E6AA3541BEDDF82CBA91FBFA4D21F4A20D21E296475E73D64F8F46AB42A4666"
+    },
+    {
+      "id": "verdict_identity-1-candidate",
+      "source_sha256": "14E3C14730960C45EA5C55CD1238581339E4100E42D2B12AEA8DCB26691C93DE",
+      "test_sha256": "8BFA23E0CA5EF371FE169E4CC6C3C9F476244A766B3633F388CB50558A1F4861",
+      "module_sha256": "A17AEF67E2C48AF491E8A235A35A6D46BC7C1E27636C530A87640BE1385AC936",
+      "contract_sha256": "6E6AA3541BEDDF82CBA91FBFA4D21F4A20D21E296475E73D64F8F46AB42A4666"
+    },
+    {
+      "id": "verdict_identity-2-candidate",
+      "source_sha256": "14E3C14730960C45EA5C55CD1238581339E4100E42D2B12AEA8DCB26691C93DE",
+      "test_sha256": "8BFA23E0CA5EF371FE169E4CC6C3C9F476244A766B3633F388CB50558A1F4861",
+      "module_sha256": "A17AEF67E2C48AF491E8A235A35A6D46BC7C1E27636C530A87640BE1385AC936",
+      "contract_sha256": "6E6AA3541BEDDF82CBA91FBFA4D21F4A20D21E296475E73D64F8F46AB42A4666"
+    },
+    {
+      "id": "verdict_identity-2-baseline",
+      "source_sha256": "14E3C14730960C45EA5C55CD1238581339E4100E42D2B12AEA8DCB26691C93DE",
+      "test_sha256": "8BFA23E0CA5EF371FE169E4CC6C3C9F476244A766B3633F388CB50558A1F4861",
+      "module_sha256": "A17AEF67E2C48AF491E8A235A35A6D46BC7C1E27636C530A87640BE1385AC936",
+      "contract_sha256": "6E6AA3541BEDDF82CBA91FBFA4D21F4A20D21E296475E73D64F8F46AB42A4666"
+    },
+    {
+      "id": "verdict_identity-3-baseline",
+      "source_sha256": "14E3C14730960C45EA5C55CD1238581339E4100E42D2B12AEA8DCB26691C93DE",
+      "test_sha256": "8BFA23E0CA5EF371FE169E4CC6C3C9F476244A766B3633F388CB50558A1F4861",
+      "module_sha256": "A17AEF67E2C48AF491E8A235A35A6D46BC7C1E27636C530A87640BE1385AC936",
+      "contract_sha256": "6E6AA3541BEDDF82CBA91FBFA4D21F4A20D21E296475E73D64F8F46AB42A4666"
+    },
+    {
+      "id": "verdict_identity-3-candidate",
+      "source_sha256": "14E3C14730960C45EA5C55CD1238581339E4100E42D2B12AEA8DCB26691C93DE",
+      "test_sha256": "8BFA23E0CA5EF371FE169E4CC6C3C9F476244A766B3633F388CB50558A1F4861",
+      "module_sha256": "A17AEF67E2C48AF491E8A235A35A6D46BC7C1E27636C530A87640BE1385AC936",
+      "contract_sha256": "6E6AA3541BEDDF82CBA91FBFA4D21F4A20D21E296475E73D64F8F46AB42A4666"
+    }
+  ],
+  "trial_manual_fixes": 0,
+  "baseline_failure": "agent_identity-2-baseline: hollow success blocked after five tool calls without recognized write; all 115744 tokens retained",
+  "latency_improved": false,
+  "authoring": {
+    "actual_codenerd_turns": 3,
+    "root_intervention": "Independent acceptance tests, feedback, Mangle mandatory-selection fix, integration adapters, generic guidance cleanup, corpus golden and docs",
+    "tokens": 16575066,
+    "autonomous": false
+  },
+  "auxiliary": {
+    "excludes": "Root Codex, earlier marathon and any unallocated usage; not a complete project cost ledger",
+    "paired_symbolic_expert_recall_tokens": 31582,
+    "new_learning_fixed_recall_tokens": 17407,
+    "evaluation_expert_review_tokens": 37177,
+    "identified_phase_total_tokens": 19556817,
+    "new_learning_failed_recall_tokens": 15816
+  },
+  "learning": {
+    "initial_attempt": {
+      "tools": 0,
+      "tokens": 15816,
+      "session": "session-1788886249274912200",
+      "passed": false
+    },
+    "repair_attempt": {
+      "fact_and_all_requested_qualifications_in_system_prompt": true,
+      "binary_sha256": "463AE407005BDC56DBFFBEA73EACDA17ABB2A41EB1057BE601C487A94011BADE",
+      "session": "session-1788886887745673000",
+      "prompt_witness": "20260908_170123.243149900_099276_000001_97020d_llm_io.log:750",
+      "passed": true,
+      "tools": 0,
+      "tokens": 17407,
+      "response_log": "phase3-fresh-learning-recall-fixed.log"
+    },
+    "promotion": "Root reviewed and saved through production LearningStore; autonomous extraction remains unverified"
+  },
+  "validation": {
+    "integration_tag_limit": "Pre-existing integration-tag tests reference removed Dreamer.InvalidateCache; default full suite and new production integration tests pass",
+    "source_ci": {
+      "conclusion": "success",
+      "revision": "72c08292",
+      "run": 34252659467
+    },
+    "production": "SQLite-backed factory, persisted requires_tools and raw Mangle selection passed",
+    "local_full_suite": "go test ./... passed at measured implementation",
+    "negative_controls": "Old mandatory policy, unavailable catalog, missing persisted requirement, and old learning budget each fail their corresponding behavioral checks",
+    "shard_audits": "Python and Go standing audits passed",
+    "focused_race": "prompt, sync, executor envelope and session concurrency checks passed"
+  },
+  "limitations": [
+    "Three small private tasks with three repeats per condition; not a 10M LOC benchmark",
+    "Shared host and provider variability; descriptive paired observations, no broad statistical claim",
+    "Fresh deliberately defective source fixtures; acceptance tests reused byte-for-byte from v2",
+    "Two individual candidate pairs cost more; no claim of universal per-task savings",
+    "16.58M authoring tokens exceed measured runtime savings; not a net token-saving development run",
+    "No latency improvement, unattended autonomy or full 55-task campaign completion",
+    "New learning repair validated separately; its runtime token effect is not inferred from the frozen trials"
+  ]
+}

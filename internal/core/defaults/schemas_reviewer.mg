@@ -1,0 +1,469 @@
+# Cortex 1.5.0 Schemas (EDB Declarations)
+# Version: 1.5.0
+# Philosophy: Logic determines Reality; the Model merely describes it.
+
+# Modular Schema: REVIEWER
+# Sections: 41, 47
+
+# =============================================================================
+# SECTION 41: MISSING DECLARATIONS (Cross-Module Support)
+# =============================================================================
+# Predicates used by policy.mg rules or Go code that were previously undeclared.
+
+# -----------------------------------------------------------------------------
+# 41.1 Policy Helper Predicates
+# -----------------------------------------------------------------------------
+
+# has_projection_violation(ActionID) - helper for safe negation in shadow mode
+Decl has_projection_violation(ActionID) bound [/string].
+
+# is_mutation_approved(MutationID) - helper for safe negation in diff approval
+Decl is_mutation_approved(MutationID) bound [/string].
+
+# has_pending_checkpoint(PhaseID) - helper for checkpoint verification
+Decl has_pending_checkpoint(PhaseID) bound [/string].
+
+# action_ready_for_routing(ActionID) - derived: action ready for tactile router
+Decl action_ready_for_routing(ActionID) bound [/string].
+
+# -----------------------------------------------------------------------------
+# 41.2 Shard Configuration Predicates
+# -----------------------------------------------------------------------------
+
+# shard_type(Type, Lifecycle, Characteristic) - shard taxonomy configuration
+# Type: /system, /ephemeral, /persistent, /user
+# Lifecycle: /permanent, /spawn_die, /long_running, /explicit
+# Characteristic: /high_reliability, /speed_optimized, /adaptive, /user_defined
+Decl shard_type(Type, Lifecycle, Characteristic) bound [/name, /name, /name].
+
+# shard_model_config(ShardType, ModelType) - model capability mapping for shards
+# ShardType: /system, /ephemeral, /persistent, /user
+# ModelType: /high_reasoning, /high_speed, /balanced
+Decl shard_model_config(ShardType, ModelType) bound [/name, /name].
+
+# -----------------------------------------------------------------------------
+# 41.3 Perception / Taxonomy Predicates
+# -----------------------------------------------------------------------------
+
+# NOTE: context_token(Token) is declared in inference.mg
+
+# user_input_string(Input) - raw user input string for NL processing
+# Decl user_input_string imported from schema/intent_core.mg
+
+# NOTE: string_contains(Haystack, Needle) is now declared in schemas_safety.mg to be universally accessible.
+
+# is_relevant(Path) - derived: path is relevant to current campaign/intent
+Decl is_relevant(Path) bound [/string].
+
+# -----------------------------------------------------------------------------
+# 41.4 Reviewer Shard Predicates
+# -----------------------------------------------------------------------------
+
+# active_finding(File, Line, Severity, Category, RuleID, Message)
+# Filtered findings after Mangle rules suppress noisy or irrelevant entries
+Decl active_finding(File, Line, Severity, Category, RuleID, Message) bound [/string, /number, /name, /name, /string, /string].
+
+# raw_finding(File, Line, Severity, Category, RuleID, Message)
+# Unfiltered findings from static analysis before Mangle processing
+Decl raw_finding(File, Line, Severity, Category, RuleID, Message) bound [/string, /number, /name, /name, /string, /string].
+
+# -----------------------------------------------------------------------------
+# 41.5 Tool Generator / Ouroboros Predicates
+# -----------------------------------------------------------------------------
+
+# tool_generated(ToolName, Timestamp) - successfully generated tool
+Decl tool_generated(ToolName, Timestamp) bound [/string, /number].
+
+# tool_trace(ToolName, TraceID) - reasoning trace for tool generation
+Decl tool_trace(ToolName, TraceID) bound [/string, /string].
+
+# tool_generation_failed(ToolName, ErrorMessage) - tool generation failure record
+Decl tool_generation_failed(ToolName, ErrorMessage) bound [/string, /string].
+
+# tool_issue_pattern(ToolName, IssueType, Occurrences, Confidence)
+# Detected patterns from tool learning (pagination, incomplete, rate_limit, timeout)
+Decl tool_issue_pattern(ToolName, IssueType, Occurrences, Confidence) bound [/string, /name, /number, /number].
+
+# -----------------------------------------------------------------------------
+# 41.6 Campaign / Requirement Predicates
+# -----------------------------------------------------------------------------
+
+# requirement_task_link(RequirementID, TaskID, Strength)
+# Links requirements to tasks that fulfill them with strength score
+Decl requirement_task_link(RequirementID, TaskID, Strength) bound [/string, /string, /number].
+
+# -----------------------------------------------------------------------------
+# 41.7 Git Context Predicates (Chesterton's Fence)
+# -----------------------------------------------------------------------------
+
+# git_branch(Branch) - current git branch name
+Decl git_branch(Branch) bound [/string].
+
+# recent_commit(Hash, Message, Author, Timestamp)
+# Recent commit history for Chesterton's Fence analysis
+Decl recent_commit(Hash, Message, Author, Timestamp) bound [/string, /string, /string, /number].
+
+
+
+# cyclomatic_complexity(File, Function, Complexity)
+# Cyclomatic complexity score for a function
+Decl cyclomatic_complexity(File, Function, Complexity) bound [/string, /string, /number].
+
+# nesting_depth(File, Function, Depth)
+# Maximum nesting depth in a function
+Decl nesting_depth(File, Function, Depth) bound [/string, /string, /number].
+
+# -----------------------------------------------------------------------------
+# 41.8 Test State Predicates
+# -----------------------------------------------------------------------------
+
+# failing_test(Pkg, TestName, ErrorMessage) - details of failing tests, the
+# shape internal/testfacts measures. The host asserts it turn-scoped, as
+# turn_failing_test (coder_safety.mg); this Decl names the measurement so a
+# model write of it is refused (core.ModelObservationPolicy). TestName is
+# empty when the package failed before any test ran (a build failure or an
+# init panic). The message is then the first compiler diagnostic, or the
+# panic text.
+Decl failing_test(Pkg, TestName, ErrorMessage) bound [/string, /string, /string].
+
+# test_case(Pkg, Test, Status, ElapsedMs)
+# One row per test that reached a verdict. Status is /pass, /fail, or /skip.
+# ElapsedMs is whole milliseconds. Measured by `go test -json`.
+# The package column is Pkg: Package is a Mangle keyword.
+Decl test_case(Pkg, Test, Status, ElapsedMs) bound [/string, /string, /name, /number].
+
+# test_failure_at(Pkg, Test, File, Line, Message, Count)
+# One row per distinct failure (package, test, file, line, message).
+# File is the workspace-relative canonical path (absolute slash only when
+# the file is outside the workspace) so it joins file_topology. Test is ""
+# for a package-level init panic. Count is how many times that same line
+# was printed.
+Decl test_failure_at(Pkg, Test, File, Line, Message, Count) bound [/string, /string, /string, /number, /string, /number].
+
+# test_build_failure(Pkg, File, Line, Message)
+# One compiler diagnostic. File is the same canonical identity as
+# test_failure_at. The column stays on the Go result for the summary; the
+# fact joins on the file.
+Decl test_build_failure(Pkg, File, Line, Message) bound [/string, /string, /number, /string].
+
+# test_output_repeat(Line, Count)
+# One output line printed more than once, with the full count. The line is
+# the raw text, kept for recall; nothing is cut.
+Decl test_output_repeat(Line, Count) bound [/string, /number].
+
+# -----------------------------------------------------------------------------
+# 41.9 Constitutional Safety Predicates
+# -----------------------------------------------------------------------------
+
+# blocked_action(Action, Reason) - action blocked by constitutional rules
+# Reason: /safety_violation (closed vocabulary, see codedom_safety.mg)
+Decl blocked_action(Action, Reason) bound [/name, /name].
+
+# safety_warning(Warning) - active safety concern/warning message
+Decl safety_warning(Warning) bound [/string].
+
+# -----------------------------------------------------------------------------
+# 41.10 Execution & Context Predicates
+# -----------------------------------------------------------------------------
+
+# execution_result(ActionID, Type, Target, Success, Output, Timestamp) - from virtual store
+Decl execution_result(ActionID, Type, Target, Success, Output, Timestamp) bound [/string, /name, /string, /name, /string, /number].
+
+# context_to_inject(Fact) - derived: facts selected for LLM context injection
+Decl context_to_inject(Fact) bound [/string].
+
+# final_system_prompt(Prompt) - derived: assembled system prompt for LLM
+Decl final_system_prompt(Prompt) bound [/string].
+
+# -----------------------------------------------------------------------------
+# 41.11 Recursive Helper Predicates
+# -----------------------------------------------------------------------------
+
+# parent(Child, Parent) - direct parent-child relationship (recursive base case)
+Decl parent(Child, Parent) bound [/string, /string].
+
+# ancestor(Descendant, Ancestor) - transitive ancestor relationship (recursive closure)
+Decl ancestor(Descendant, Ancestor) bound [/string, /string].
+
+# =============================================================================
+# SECTION 47: STATIC ANALYSIS - DATA FLOW PREDICATES (ReviewerShard Beyond-SOTA)
+# =============================================================================
+# Advanced static analysis predicates for differential nil-pointer detection,
+# error handling verification, and data flow tracking. These enable the
+# ReviewerShard to perform precise diff-aware analysis using guard-based
+# reasoning.
+
+# -----------------------------------------------------------------------------
+# 47.1 Data Flow Predicates - Variable Tracking
+# -----------------------------------------------------------------------------
+
+# assigns(Var, ValueType, File, Line) - Variable assignment tracking
+# Var: Variable name (string)
+# ValueType: Type of value assigned (e.g., /pointer, /interface, /value, /error)
+# File: Source file path
+# Line: Line number of assignment
+Decl assigns(Var, ValueType, File, Line) bound [/name, /name, /string, /number].
+
+# uses(File, Func, Var, Line) - Variable read sites
+# File: Source file path
+# Func: Function containing the use
+# Var: Variable being read
+# Line: Line number of use
+Decl uses(File, Func, Var, Line) bound [/string, /name, /name, /number].
+
+# call_arg(CallSite, ArgPos, VarRef, File, Line) - Function call argument tracking
+# CallSite: Identifier for the call (e.g., "foo.Bar")
+# ArgPos: Argument position (0-indexed integer)
+# VarRef: Variable reference passed as argument
+# File: Source file path
+# Line: Line number
+Decl call_arg(CallSite, ArgPos, VarRef, File, Line) bound [/name, /number, /name, /string, /number].
+
+# -----------------------------------------------------------------------------
+# 47.2 Guard Predicates - Two Types for Go's Idiomatic Patterns
+# -----------------------------------------------------------------------------
+# Go uses two distinct guard patterns:
+# 1. Block guards: if x != nil { /* x is safe here */ }
+# 2. Return guards: if x == nil { return } /* x is safe after */
+
+# guards_block(Var, CheckType, File, ScopeStart, ScopeEnd) - Block-scoped guards
+# Var: Variable being guarded
+# CheckType: Type of check (/nil_check, /len_check, /type_assert, /ok_check)
+# File: Source file path
+# ScopeStart: Starting line of guarded scope
+# ScopeEnd: Ending line of guarded scope
+Decl guards_block(Var, CheckType, File, ScopeStart, ScopeEnd) bound [/name, /name, /string, /number, /number].
+
+# guards_return(Var, CheckType, File, Line) - Return-based guards (dominator guards)
+# Var: Variable being guarded
+# CheckType: Type of check (/nil_check, /zero_check, /err_check)
+# File: Source file path
+# Line: Line of the guard check (all lines after are guarded)
+Decl guards_return(Var, CheckType, File, Line) bound [/name, /name, /string, /number].
+
+# -----------------------------------------------------------------------------
+# 47.3 Error Handling Predicates
+# -----------------------------------------------------------------------------
+
+# error_checked_block(Var, File, ScopeStart, ScopeEnd) - Block-scoped error handling
+# Var: Error variable being checked
+# File: Source file path
+# ScopeStart: Start of error handling scope
+# ScopeEnd: End of error handling scope
+Decl error_checked_block(Var, File, ScopeStart, ScopeEnd) bound [/name, /string, /number, /number].
+
+# error_checked_return(Var, File, Line) - Return-based error handling
+# Var: Error variable being checked
+# File: Source file path
+# Line: Line of error check (typically: if err != nil { return err })
+Decl error_checked_return(Var, File, Line) bound [/name, /string, /number].
+
+# -----------------------------------------------------------------------------
+# 47.4 Function Metadata
+# -----------------------------------------------------------------------------
+
+# nil_returns(File, Func, Line) - Functions that can return nil
+# File: Source file path
+# Func: Function name
+# Line: Line number where nil is returned
+Decl nil_returns(File, Func, Line) bound [/string, /string, /number].
+
+# modified_function(Func, File) - Functions changed in the current diff
+# Func: Function name
+# File: Source file path
+Decl modified_function(Func, File) bound [/string, /string].
+
+# modified_interface(Interface, File) - Interfaces changed in the current diff
+# Interface: Interface name
+# File: Source file path
+Decl modified_interface(Interface, File) bound [/string, /string].
+
+# -----------------------------------------------------------------------------
+# 47.5 Scope Tracking (for dominator guard analysis)
+# -----------------------------------------------------------------------------
+
+# same_scope(Var, File, Line1, Line2) - Lines in same function scope
+# Var: Variable name (for context)
+# File: Source file path
+# Line1: First line number
+# Line2: Second line number
+# Used to determine if a guard at Line1 protects a use at Line2
+Decl same_scope(Var, File, Line1, Line2) bound [/string, /string, /number, /number].
+
+# -----------------------------------------------------------------------------
+# 47.6 Suppression Predicates (for Autopoiesis - False Positive Learning)
+# -----------------------------------------------------------------------------
+
+# suppression(DiagnosticID, Reason) - User-suppressed diagnostic warnings
+# DiagnosticID: ID of the diagnostic being suppressed
+# Reason: User-provided reason for suppression
+Decl suppression(DiagnosticID, Reason) bound [/string, /string].
+
+# suppressed_rule(RuleType, File, Line, Reason) - Manually suppressed findings
+# RuleType: Type of rule suppressed (e.g., /nil_deref, /unchecked_error)
+# File: Source file path
+# Line: Line number of suppression
+# Reason: User-provided reason for suppression
+Decl suppressed_rule(RuleType, File, Line, Reason) bound [/name, /string, /number, /string].
+
+# suppression_confidence(RuleType, File, Line, Score) - Learned suppression confidence
+# RuleType: Type of rule
+# File: Source file path
+# Line: Line number
+# Score: Confidence score (0-100) that this is a false positive
+Decl suppression_confidence(RuleType, File, Line, Score) bound [/name, /string, /number, /number].
+
+# -----------------------------------------------------------------------------
+# 47.7 Priority and Risk Predicates
+# -----------------------------------------------------------------------------
+
+# type_priority(Type, Priority) - Severity priority by type
+# Type: Finding type (e.g., /nil_deref, /unchecked_error, /race_condition)
+# Priority: Priority level (1=critical, 2=high, 3=medium, 4=low)
+Decl type_priority(Type, Priority) bound [/name, /number].
+
+# bug_history(File, Count) - Historical bug count per file
+# File: Source file path
+# Count: Number of bugs historically found in this file
+# Used for risk-based prioritization
+Decl bug_history(File, Count) bound [/string, /number].
+
+# -----------------------------------------------------------------------------
+# 47.8 Derived Predicates for Data Flow Analysis
+# -----------------------------------------------------------------------------
+
+# guarded_use(Var, File, Line) - Derived: variable use is protected by a guard
+Decl guarded_use(Var, File, Line) bound [/string, /string, /number].
+
+# unguarded_use(Var, File, Line) - Derived: variable use lacks guard protection
+Decl unguarded_use(Var, File, Line) bound [/string, /string, /number].
+
+# error_ignored(Var, File, Line) - Derived: error variable is not checked
+Decl error_ignored(Var, File, Line) bound [/string, /string, /number].
+
+# nil_deref_risk(Var, File, Line, RiskLevel) - Derived: potential nil dereference
+# RiskLevel: /high (no guard), /medium (conditional guard), /low (likely safe)
+Decl nil_deref_risk(Var, File, Line, RiskLevel) bound [/string, /string, /number, /name].
+
+# in_modified_code(File, Line) - Derived: line is within modified diff hunks
+Decl in_modified_code(File, Line) bound [/string, /number].
+
+# diff_introduces_risk(File, Line, RiskType) - Derived: diff introduces new risk
+# RiskType: /nil_deref, /unchecked_error, /race_condition
+Decl diff_introduces_risk(File, Line, RiskType) bound [/string, /number, /name].
+
+# has_guard(Var, File, Line) - Helper: variable has any guard at this point
+Decl has_guard(Var, File, Line) bound [/string, /string, /number].
+
+# is_suppressed(RuleType, File, Line) - Helper: finding is suppressed
+Decl is_suppressed(RuleType, File, Line) bound [/name, /string, /number].
+
+# -----------------------------------------------------------------------------
+# 47.9 Data Flow Safety Derived Predicates (IDB - from policy.mg Section 47)
+# -----------------------------------------------------------------------------
+
+# is_guarded(Var, File, Line) - Derived: variable is protected at this point
+# Computed from guards_block and guards_return
+Decl is_guarded(Var, File, Line) bound [/string, /string, /number].
+
+# unsafe_deref(File, Var, Line) - Derived: nullable dereference without guard
+Decl unsafe_deref(File, Var, Line) bound [/string, /string, /number].
+
+# is_error_checked(Var, File, Line) - Derived: error variable is checked
+Decl is_error_checked(Var, File, Line) bound [/string, /string, /number].
+
+# unchecked_error(File, Func, Line) - Derived: error assigned but not checked
+Decl unchecked_error(File, Func, Line) bound [/string, /string, /number].
+
+# -----------------------------------------------------------------------------
+# 47.10 Impact Analysis Derived Predicates (IDB - from policy.mg Section 48)
+# -----------------------------------------------------------------------------
+
+# impact_caller(TargetFunc, CallerFunc) - Direct callers of modified function
+Decl impact_caller(TargetFunc, CallerFunc) bound [/string, /string].
+
+# impact_implementer(ImplFile, Struct) - Implementers of modified interface
+Decl impact_implementer(ImplFile, Struct) bound [/string, /string].
+
+# impact_graph(Target, Caller, Depth) - Transitive impact with depth (max 3)
+Decl impact_graph(Target, Caller, Depth) bound [/string, /string, /number].
+
+# relevant_context_file(File) - Files to fetch for review context
+Decl relevant_context_file(File) bound [/string].
+
+# context_priority_file(File, Func, Priority) - Priority-ordered context files
+Decl context_priority_file(File, Func, Priority) bound [/string, /string, /number].
+
+# -----------------------------------------------------------------------------
+# 47.11 Hypothesis Management (IDB - from policy.mg Sections 49-50)
+# -----------------------------------------------------------------------------
+
+# active_hypothesis(Type, File, Line, Var) - Post-suppression hypotheses
+Decl active_hypothesis(Type, File, Line, Var) bound [/name, /string, /number, /string].
+
+# priority_boost(File, Boost) - Additional priority for risky files
+Decl priority_boost(File, Boost) bound [/string, /number].
+
+# prioritized_hypothesis(Type, File, Line, Var, Priority) - Final prioritized findings
+Decl prioritized_hypothesis(Type, File, Line, Var, Priority) bound [/name, /string, /number, /string, /number].
+
+# -----------------------------------------------------------------------------
+# 47.12 Helper Predicates for Safe Negation (IDB)
+# -----------------------------------------------------------------------------
+# These helpers enable safe negation by ensuring variables are bound before
+# negation is applied. Required by Mangle's safety constraints.
+
+# has_guard_at(Var, File, Line) - Helper for guarded variable check
+Decl has_guard_at(Var, File, Line) bound [/string, /string, /number].
+
+# has_error_check_at(Var, File, Line) - Helper for error check presence
+Decl has_error_check_at(Var, File, Line) bound [/string, /string, /number].
+
+# has_suppression_unsafe_deref(File, Line) - Helper for suppression check
+Decl has_suppression_unsafe_deref(File, Line) bound [/string, /number].
+
+# has_suppression_unchecked_error(File, Line) - Helper for suppression check
+Decl has_suppression_unchecked_error(File, Line) bound [/string, /number].
+
+# has_test_coverage(Ref) - declared in schemas_codedom_polyglot.mg
+# (previously duplicated here, removed to avoid conflict)
+
+# has_bug_history(File) - Helper: file has bug history (count > 0)
+Decl has_bug_history(File) bound [/string].
+
+# has_priority_boost(File) - Helper: file has any priority boost
+Decl has_priority_boost(File) bound [/string].
+
+# -----------------------------------------------------------------------------
+# 47.13 Multi-Language Data Flow Predicates
+# -----------------------------------------------------------------------------
+# These predicates support data flow analysis across multiple languages
+# (Go, Python, TypeScript, JavaScript, Rust) using Tree-sitter parsing.
+
+# function_scope(File, Func, Start, End) - Function scope boundaries
+# File: Source file path
+# Func: Function name
+# Start: Starting line number
+# End: Ending line number
+# Used to determine scope for guard domination
+Decl function_scope(File, Func, Start, End) bound [/string, /name, /number, /number].
+
+# guard_dominates(File, Func, GuardLine, EndLine) - Guard domination for early returns
+# File: Source file path
+# Func: Function containing the guard
+# GuardLine: Line of the guard check (e.g., if x == nil { return })
+# EndLine: Last line of the function (guard protects all subsequent lines)
+# Early return guards dominate all code after them in the same scope
+Decl guard_dominates(File, Func, GuardLine, EndLine) bound [/string, /name, /number, /number].
+
+# safe_access(Var, AccessType, File, Line) - Language-specific safe access patterns
+# Var: Variable being accessed
+# AccessType: Type of safe access pattern:
+#   /optional_chain - JavaScript/TypeScript x?.foo
+#   /if_let - Rust if let Some(x) = ...
+#   /match_exhaustive - Rust match expression (exhaustive)
+#   /walrus - Python x := (assignment expression)
+# File: Source file path
+# Line: Line number
+# These accesses are inherently safe by the language's semantics
+Decl safe_access(Var, AccessType, File, Line) bound [/name, /name, /string, /number].

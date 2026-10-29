@@ -1,0 +1,1347 @@
+package campaign
+
+import (
+	"codenerd/internal/config"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/perception"
+	"codenerd/internal/tools/research"
+	"codenerd/internal/types"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+)
+
+// Replanner handles campaign replanning when things go wrong.
+// It uses LLM + Mangle collaboration to adapt the plan.
+type Replanner struct {
+	mu             sync.Mutex
+	kernel         core.Kernel
+	llmClient      perception.LLMClient
+	promptProvider PromptProvider // compiles every role's system prompt; nil fails each model call
+	workspace      string         // Campaign workspace for filesystem-backed type defenses (see applyTaskTypeDefenses)
+
+	// Gemini grounding (nil if the client cannot ground)
+	grounding *research.GroundingHelper // Google Search / URL Context grounding
+
+	// limits bound the replan context: campaign.replan_context_* in the
+	// user's config (SetContextLimits). Guarded by limitsMu, not mu: the
+	// context is built while Replan holds mu.
+	limitsMu sync.RWMutex
+	limits   replanContextLimits
+}
+
+// replanContextLimits is how much of the campaign's failure history the
+// replanner's prompt carries.
+type replanContextLimits struct {
+	tasks     int // failed/blocked tasks and triggers listed
+	attempts  int // latest attempts shown per failed task
+	textBytes int // each quoted description or error
+	bytes     int // the whole section
+}
+
+// SetContextLimits takes the replan context bounds from the campaign policy.
+func (r *Replanner) SetContextLimits(p config.CampaignPolicy) {
+	r.limitsMu.Lock()
+	defer r.limitsMu.Unlock()
+	r.limits = replanContextLimits{
+		tasks:     p.ReplanContextTasks,
+		attempts:  p.ReplanContextAttempts,
+		textBytes: p.ReplanContextTextBytes,
+		bytes:     p.ReplanContextBytes,
+	}
+}
+
+// NewReplanner creates a new replanner.
+//
+// The workspace scopes filesystem-backed type defenses (see
+// applyTaskTypeDefenses) to the campaign workspace, the same way NewDecomposer
+// carries its workspace. When empty, relative paths resolve against the
+// process working directory; the pathless-file retype needs no filesystem
+// access and still applies.
+func NewReplanner(kernel core.Kernel, llmClient perception.LLMClient, workspace string) *Replanner {
+	r := &Replanner{
+		kernel:    kernel,
+		llmClient: llmClient,
+		workspace: workspace,
+	}
+	// The config's defaults until the orchestrator sets the user's
+	// (SetContextLimits): one source for both.
+	if def, err := config.DefaultCampaignConfig().Resolve(); err == nil {
+		r.SetContextLimits(def)
+	}
+
+	// Ground replanning calls in Google Search when the client can.
+	if llmClient != nil {
+		r.grounding = research.NewGroundingHelper(llmClient)
+		if r.grounding.IsGroundingAvailable() {
+			r.grounding.EnableGoogleSearch()
+			logging.CampaignDebug("Gemini grounding enabled for replanner (Google Search active)")
+		}
+	}
+
+	return r
+}
+
+// SetPromptProvider sets the provider that compiles the replanner's role
+// prompts (phase refinement, a new requirement, failure fixes). Without one
+// every replanning model call reports types.ErrRolePromptUnavailable.
+func (r *Replanner) SetPromptProvider(provider PromptProvider) {
+	r.promptProvider = provider
+}
+
+// completeWithGrounding sends a role's system prompt and its data, grounded
+// when the client can ground. The reply is unmarshalled directly, so it is
+// never constrained to the Piggyback envelope.
+func (r *Replanner) completeWithGrounding(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	ctx = types.WithStructuredOutputOnly(ctx)
+	if r.grounding != nil && r.grounding.IsGroundingAvailable() {
+		response, sources, err := r.grounding.CompleteWithSystemAndGrounding(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			return "", err
+		}
+		if len(sources) > 0 {
+			logging.CampaignDebug("Replanner LLM call grounded with %d sources", len(sources))
+		}
+		return response, nil
+	}
+	if r.llmClient == nil {
+		return "", fmt.Errorf("%w: replanner requires llm client", ErrNilDependency)
+	}
+	return r.llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+}
+
+// ReplanReason represents why a replan was triggered.
+type ReplanReason string
+
+const (
+	ReplanTaskFailed       ReplanReason = "/task_failed"
+	ReplanNewRequirement   ReplanReason = "/new_requirement"
+	ReplanUserFeedback     ReplanReason = "/user_feedback"
+	ReplanDependencyChange ReplanReason = "/dependency_change"
+	ReplanBlocked          ReplanReason = "/blocked"
+)
+
+// ReplanResult represents the outcome of replanning.
+type ReplanResult struct {
+	Success              bool
+	ChangeSummary        string
+	AddedTasks           []Task
+	RemovedTasks         []string
+	ModifiedTasks        []Task
+	ModifiedDependencies []struct {
+		TaskID     string
+		RemoveDeps []string
+		AddDeps    []string
+	}
+	NewPhases []Phase
+}
+
+// truncateForPrompt fits one replan context field into maxLen bytes, the
+// replan's per-field and total budgets (replanContextLimits). The cut is on a
+// rune boundary and the marker inside the bound says how much was dropped.
+func truncateForPrompt(text string, maxLen int) string {
+	text = strings.TrimSpace(text)
+	if maxLen <= 0 || len(text) <= maxLen {
+		return text
+	}
+	marker := fmt.Sprintf(" [truncated %d of %d bytes]", len(text), len(text))
+	if maxLen <= len(marker) {
+		return types.Ellipsize(text, maxLen)
+	}
+	keep := maxLen - len(marker)
+	for keep > 0 && !utf8.RuneStart(text[keep]) {
+		keep--
+	}
+	return text[:keep] + fmt.Sprintf(" [truncated %d of %d bytes]", len(text)-keep, len(text))
+}
+
+func appendReplanContextLine(sb *strings.Builder, line string, limit int) bool {
+	if line == "" {
+		return true
+	}
+
+	if sb.Len() >= limit {
+		return false
+	}
+
+	remaining := limit - sb.Len()
+	if len(line) > remaining {
+		if remaining <= 0 {
+			return false
+		}
+		line = truncateForPrompt(line, remaining)
+	}
+	sb.WriteString(line)
+	return sb.Len() < limit
+}
+
+// Replan adapts the campaign plan based on current state and failures.
+// failedTaskID is optional; if provided, replanning is scoped to that task's subtree.
+func (r *Replanner) Replan(ctx context.Context, campaign *Campaign, failedTaskID string) error {
+	if campaign == nil {
+		return ErrNilCampaign
+	}
+	if strings.TrimSpace(campaign.ID) == "" {
+		return fmt.Errorf("invalid campaign ID")
+	}
+	if r.kernel == nil {
+		return ErrNilKernel
+	}
+	failedTaskID = strings.TrimSpace(failedTaskID)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// 1. Gather context about what went wrong
+	failedTasks := r.getFailedTasks(campaign)
+	blockedTasks := r.getBlockedTasks(campaign)
+	replanTriggers := r.getReplanTriggers(campaign.ID)
+
+	if len(failedTasks) == 0 && len(blockedTasks) == 0 && len(replanTriggers) == 0 && failedTaskID == "" {
+		return nil // Nothing to replan
+	}
+	if r.llmClient == nil {
+		return fmt.Errorf("%w: replanner requires llm client", ErrNilDependency)
+	}
+
+	// 2. Build context for LLM
+	// If failedTaskID is set, we could filter context to relevant subtree,
+	// but for now we provide full context for global consistency.
+	contextSummary := r.buildReplanContext(campaign, failedTasks, blockedTasks, replanTriggers)
+
+	// 3. Ask LLM to propose fixes
+	fixes, err := r.proposeReplans(ctx, campaign, contextSummary, failedTaskID)
+	if err != nil {
+		return fmt.Errorf("failed to propose replans: %w", err)
+	}
+
+	// 4. Apply fixes
+	workingCampaign, err := cloneCampaign(campaign)
+	if err != nil {
+		return err
+	}
+	if err := r.applyFixes(workingCampaign, fixes); err != nil {
+		return fmt.Errorf("failed to apply fixes: %w", err)
+	}
+
+	// 5. Record revision
+	workingCampaign.RevisionNumber++
+	workingCampaign.LastRevision = strings.TrimSpace(fixes.ChangeSummary)
+	if workingCampaign.LastRevision == "" {
+		workingCampaign.LastRevision = "Applied replan updates"
+	}
+
+	// 6. Reload campaign into kernel
+	if err := syncCampaignFacts(r.kernel, campaign, workingCampaign, workingCampaign.LastRevision); err != nil {
+		return fmt.Errorf("failed to reload campaign: %w", err)
+	}
+
+	campaign.Phases = workingCampaign.Phases
+	campaign.RevisionNumber = workingCampaign.RevisionNumber
+	campaign.LastRevision = workingCampaign.LastRevision
+	campaign.TotalTasks = workingCampaign.TotalTasks
+	campaign.CompletedTasks = workingCampaign.CompletedTasks
+
+	// 7. The triggers this revision planned from are consumed.
+	if len(replanTriggers) > 0 {
+		if err := r.clearReplanTriggers(campaign.ID); err != nil {
+			// The revision stands; a trigger left behind only repeats in the
+			// next replan's context.
+			logging.Get(logging.CategoryCampaign).Warn("Replan: revision %d applied but its %d trigger(s) were not cleared: %v",
+				campaign.RevisionNumber, len(replanTriggers), err)
+		}
+	}
+
+	return nil
+}
+
+// ReplanForNewRequirement adds tasks for a new requirement.
+func (r *Replanner) ReplanForNewRequirement(ctx context.Context, campaign *Campaign, requirement string) error {
+	if campaign == nil {
+		return ErrNilCampaign
+	}
+	requirement = strings.TrimSpace(requirement)
+	if requirement == "" {
+		return ErrEmptyRequirement
+	}
+	if r.kernel == nil {
+		return ErrNilKernel
+	}
+	if r.llmClient == nil {
+		return fmt.Errorf("%w: replanner requires llm client", ErrNilDependency)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// 2. Ask LLM to incorporate new requirement
+	systemPrompt, err := rolePrompt(ctx, r.promptProvider, RoleRequirementReplan, campaign.ID, r.llmClient)
+	if err != nil {
+		return err
+	}
+	userPrompt := fmt.Sprintf("Current Campaign: %s\nCurrent Phase: %d of %d\nCompleted Tasks: %d of %d\n\nNew Requirement: %s\n",
+		campaign.Title, campaign.CompletedPhases, campaign.TotalPhases, campaign.CompletedTasks, campaign.TotalTasks, requirement)
+
+	resp, err := r.completeWithGrounding(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return err
+	}
+
+	// 3. Parse and apply changes
+	resp = cleanJSONResponse(resp)
+	var changes struct {
+		NewTasks []struct {
+			PhaseOrder   int             `json:"phase_order"`
+			Description  string          `json:"description"`
+			Type         string          `json:"type"`
+			Priority     string          `json:"priority"`
+			DependsOn    flexStringSlice `json:"depends_on"`
+			ContextFrom  flexStringSlice `json:"context_from"`
+			Dependencies flexStringSlice `json:"dependencies"`
+		} `json:"new_tasks"`
+		ModifiedTasks []struct {
+			TaskID         string `json:"task_id"`
+			NewDescription string `json:"new_description"`
+			Reason         string `json:"reason"`
+		} `json:"modified_tasks"`
+		Summary string `json:"summary"`
+	}
+
+	if err := json.Unmarshal([]byte(resp), &changes); err != nil {
+		return fmt.Errorf("failed to parse replan response: %w", err)
+	}
+
+	workingCampaign, err := cloneCampaign(campaign)
+	if err != nil {
+		return err
+	}
+
+	// 4. Add new tasks — with per-phase duplicate guard and dependency context
+	// Mirrors decomposer's seenTaskKeys logic: build from tasks ALREADY in phase.
+	seenByPhase := make(map[int]map[string]bool)
+	for _, newTask := range changes.NewTasks {
+		if newTask.PhaseOrder < 0 || newTask.PhaseOrder >= len(workingCampaign.Phases) {
+			continue
+		}
+		phase := &workingCampaign.Phases[newTask.PhaseOrder]
+		if strings.TrimSpace(newTask.Description) == "" {
+			continue
+		}
+		key := normalizedTaskKey(newTask.Description)
+		if key != "" {
+			seen, ok := seenByPhase[newTask.PhaseOrder]
+			if !ok {
+				seen = make(map[string]bool, len(phase.Tasks))
+				for _, t := range phase.Tasks {
+					if k := normalizedTaskKey(t.Description); k != "" {
+						seen[k] = true
+					}
+				}
+				seenByPhase[newTask.PhaseOrder] = seen
+			}
+			if seen[key] {
+				logging.CampaignWarn("Planner emitted a duplicate task in phase %s; dropping it: %.80q", phase.ID, newTask.Description)
+				continue
+			}
+			seen[key] = true
+		}
+		taskID := fmt.Sprintf("/task_%s_%d_%d", campaignSlug(workingCampaign.ID), newTask.PhaseOrder, len(phase.Tasks))
+		var deps []string
+		deps = append(deps, []string(newTask.DependsOn)...)
+		deps = append(deps, []string(newTask.ContextFrom)...)
+		deps = append(deps, []string(newTask.Dependencies)...)
+		ctxFrom := resolveReplannerContextFrom(phase, deps)
+		task := Task{
+			ID:          taskID,
+			PhaseID:     phase.ID,
+			Description: newTask.Description,
+			Status:      TaskPending,
+			Type:        normalizeTaskType(newTask.Type, defaultTaskTypeForCategory(phase.Category)),
+			Priority:    normalizeTaskPriority(newTask.Priority),
+			Order:       len(phase.Tasks),
+			ContextFrom: ctxFrom,
+		}
+
+		phase.Tasks = append(phase.Tasks, task)
+		workingCampaign.TotalTasks++
+	}
+
+	// 5. Modify existing tasks
+	for _, mod := range changes.ModifiedTasks {
+		for i := range workingCampaign.Phases {
+			for j := range workingCampaign.Phases[i].Tasks {
+				if workingCampaign.Phases[i].Tasks[j].ID == mod.TaskID {
+					if desc := strings.TrimSpace(mod.NewDescription); desc != "" {
+						workingCampaign.Phases[i].Tasks[j].Description = desc
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// 6. Record revision
+	workingCampaign.RevisionNumber++
+	workingCampaign.LastRevision = strings.TrimSpace(changes.Summary)
+	if workingCampaign.LastRevision == "" {
+		workingCampaign.LastRevision = "Applied new requirement updates"
+	}
+
+	if err := syncCampaignFacts(r.kernel, campaign, workingCampaign, workingCampaign.LastRevision); err != nil {
+		return fmt.Errorf("failed to reload campaign after new requirement: %w", err)
+	}
+	if err := r.kernel.Assert(core.Fact{
+		Predicate: "replan_trigger",
+		Args:      []any{workingCampaign.ID, "/new_requirement", time.Now().Unix()},
+	}); err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("ReplanForNewRequirement: failed to assert replan_trigger: %v", err)
+	}
+
+	campaign.Phases = workingCampaign.Phases
+	campaign.RevisionNumber = workingCampaign.RevisionNumber
+	campaign.LastRevision = workingCampaign.LastRevision
+	campaign.TotalTasks = workingCampaign.TotalTasks
+	campaign.CompletedTasks = workingCampaign.CompletedTasks
+
+	return nil
+}
+
+// TaskResults looks up what a completed task returned: the output the
+// orchestrator kept for it. Nil means none are available.
+type TaskResults func(taskID string) (string, bool)
+
+// canonicalTaskID spells a task ID the way the decomposer does: a Mangle name
+// constant with its leading slash. A model asked to return an existing ID
+// returns it without the slash about as often as with it.
+func canonicalTaskID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" || strings.HasPrefix(id, "/") {
+		return id
+	}
+	return "/" + id
+}
+
+// sameTaskID compares two task IDs by what they name, not how they are
+// spelled. Campaign 440585a6: the refinement returned "task_440585a6_1_1" for
+// "/task_440585a6_1_1", the exact-string match missed, the update fell through
+// to "add", and a finished three-task phase ran again as six.
+func sameTaskID(a, b string) bool {
+	a, b = canonicalTaskID(a), canonicalTaskID(b)
+	return a != "" && a == b
+}
+
+// RefineNextPhase performs rolling-wave planning: after completing a phase, we
+// refresh the next phase based on the latest artifacts and failures.
+//
+// The refinement is shown what it needs to correct the next phase against what
+// the campaign has learned (ladder C1): each completed task's result, and each
+// upcoming task's ID and write set, every path marked present or absent on
+// disk. Until 2026-09-19 it saw descriptions and statuses only -- no result, no
+// ID, no write set -- so a target the research proved wrong could not be
+// corrected: an update names a task by ID, an update to an ID it was never
+// shown matched nothing and was added as a new task, and the near-duplicate
+// guard below dropped it.
+func (r *Replanner) RefineNextPhase(ctx context.Context, campaign *Campaign, completedPhase *Phase, results TaskResults) error {
+	if campaign == nil || completedPhase == nil {
+		return nil
+	}
+	if r.kernel == nil {
+		return ErrNilKernel
+	}
+	if r.llmClient == nil {
+		return fmt.Errorf("%w: replanner requires llm client", ErrNilDependency)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Identify the next phase by order
+	var nextPhase *Phase
+	for i := range campaign.Phases {
+		if campaign.Phases[i].Order == completedPhase.Order+1 {
+			nextPhase = &campaign.Phases[i]
+			break
+		}
+	}
+	if nextPhase == nil {
+		return nil // No further phases to refine
+	}
+
+	workingCampaign, err := cloneCampaign(campaign)
+	if err != nil {
+		return err
+	}
+	var workingNextPhase *Phase
+	for i := range workingCampaign.Phases {
+		if workingCampaign.Phases[i].Order == completedPhase.Order+1 {
+			workingNextPhase = &workingCampaign.Phases[i]
+			break
+		}
+	}
+	if workingNextPhase == nil {
+		return nil
+	}
+
+	// Summaries for prompt
+	var completedTasksSummary strings.Builder
+	for _, t := range completedPhase.Tasks {
+		completedTasksSummary.WriteString(fmt.Sprintf("- %s [%s]\n", t.Description, t.Status))
+		if results == nil {
+			continue
+		}
+		if result, ok := results(t.ID); ok && strings.TrimSpace(result) != "" {
+			completedTasksSummary.WriteString("  Result:\n")
+			for _, line := range strings.Split(strings.TrimRight(result, "\n"), "\n") {
+				completedTasksSummary.WriteString("    " + line + "\n")
+			}
+		}
+	}
+
+	var upcomingTasks strings.Builder
+	for _, t := range nextPhase.Tasks {
+		upcomingTasks.WriteString(fmt.Sprintf("- [%s] %s (%s)\n", t.ID, t.Description, t.Type))
+		for _, path := range t.DeterministicWriteSet() {
+			state := "exists"
+			if !r.pathExists(path) {
+				state = "ABSENT"
+			}
+			upcomingTasks.WriteString(fmt.Sprintf("    write_set: %s (%s)\n", path, state))
+		}
+	}
+
+	systemPrompt, err := rolePrompt(ctx, r.promptProvider, RoleReplanner, campaign.ID, r.llmClient)
+	if err != nil {
+		return err
+	}
+	userPrompt := fmt.Sprintf(`Campaign Goal: %s
+Completed Phase: %s (order %d)
+Completed Tasks:
+%s
+
+Upcoming Phase: %s (order %d)
+Current Tasks:
+%s`, campaign.Goal, completedPhase.Name, completedPhase.Order, completedTasksSummary.String(), nextPhase.Name, nextPhase.Order, upcomingTasks.String())
+
+	resp, err := r.completeWithGrounding(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return err
+	}
+
+	resp = cleanJSONResponse(resp)
+	var changes struct {
+		Tasks []struct {
+			TaskID       string          `json:"task_id"`
+			Artifacts    flexStringSlice `json:"artifacts"`
+			WriteSet     flexStringSlice `json:"write_set"`
+			Description  string          `json:"description"`
+			Type         string          `json:"type"`
+			Priority     string          `json:"priority"`
+			Action       string          `json:"action"`
+			DependsOn    flexStringSlice `json:"depends_on"`
+			ContextFrom  flexStringSlice `json:"context_from"`
+			Dependencies flexStringSlice `json:"dependencies"`
+		} `json:"tasks"`
+		Summary string `json:"summary"`
+	}
+
+	// Try parsing as object first, then fall back to array
+	if err := json.Unmarshal([]byte(resp), &changes); err != nil {
+		// LLM might have returned just an array instead of {tasks: [], summary: ""}
+		var tasksOnly []struct {
+			TaskID       string          `json:"task_id"`
+			Artifacts    flexStringSlice `json:"artifacts"`
+			WriteSet     flexStringSlice `json:"write_set"`
+			Description  string          `json:"description"`
+			Type         string          `json:"type"`
+			Priority     string          `json:"priority"`
+			Action       string          `json:"action"`
+			DependsOn    flexStringSlice `json:"depends_on"`
+			ContextFrom  flexStringSlice `json:"context_from"`
+			Dependencies flexStringSlice `json:"dependencies"`
+		}
+		if arrErr := json.Unmarshal([]byte(resp), &tasksOnly); arrErr != nil {
+			logging.Get(logging.CategoryCampaign).Error("RefineNextPhase: failed to parse refinement response as object or array: object_err=%v, array_err=%v, response=%s", err, arrErr, resp)
+			return fmt.Errorf("failed to parse refinement response: %w", err)
+		}
+		// Successfully parsed as array - convert to expected format
+		changes.Tasks = tasksOnly
+		changes.Summary = "Rolling-wave refinement (tasks only)"
+		logging.CampaignDebug("RefineNextPhase: parsed %d tasks from array response", len(tasksOnly))
+	}
+
+	// Per-phase duplicate guard — mirror decomposer's seenTaskKeys logic.
+	// Build from tasks ALREADY in the phase as well as those added in this call.
+	seenTaskKeys := make(map[string]bool, len(workingNextPhase.Tasks))
+	for _, t := range workingNextPhase.Tasks {
+		if k := normalizedTaskKey(t.Description); k != "" {
+			seenTaskKeys[k] = true
+		}
+	}
+
+	// Near-duplicate guard (campaign 5a2f4c8d, 2026-09-04): the refinement
+	// restated an existing task with its target path appended, which the
+	// exact-match guard above cannot see. Maps the suffix-insensitive
+	// replanDedupeKey to the task ID that claimed it so the drop can name
+	// both tasks. Scoped to this phase only, like the exact-match guard.
+	seenReplanKeys := make(map[string]string, len(workingNextPhase.Tasks))
+	for _, t := range workingNextPhase.Tasks {
+		if k := replanDedupeKey(t.Description); k != "" {
+			if _, ok := seenReplanKeys[k]; !ok {
+				seenReplanKeys[k] = t.ID
+			}
+		}
+	}
+
+	// Apply changes
+	for _, t := range changes.Tasks {
+		action := strings.ToLower(strings.TrimSpace(t.Action))
+		switch action {
+		case "remove":
+			for i := range workingNextPhase.Tasks {
+				if sameTaskID(workingNextPhase.Tasks[i].ID, t.TaskID) {
+					workingNextPhase.Tasks = append(workingNextPhase.Tasks[:i], workingNextPhase.Tasks[i+1:]...)
+					break
+				}
+			}
+		case "add":
+			if strings.TrimSpace(t.Description) == "" {
+				continue
+			}
+			if key := normalizedTaskKey(t.Description); key != "" {
+				if seenTaskKeys[key] {
+					logging.CampaignWarn("Planner emitted a duplicate task in phase %s; dropping it: %.80q", workingNextPhase.ID, t.Description)
+					continue
+				}
+				seenTaskKeys[key] = true
+			}
+			newID := canonicalTaskID(t.TaskID)
+			if newID == "" {
+				newID = fmt.Sprintf("/task_%s_%d_%d", campaignSlug(campaign.ID), workingNextPhase.Order, len(workingNextPhase.Tasks))
+			} else {
+				// Ensure uniqueness
+				for idIdx := 1; ; idIdx++ {
+					exists := false
+					for _, existing := range workingNextPhase.Tasks {
+						if sameTaskID(existing.ID, newID) {
+							exists = true
+							break
+						}
+					}
+					if !exists {
+						break
+					}
+					newID = fmt.Sprintf("%s_%d", t.TaskID, idIdx)
+				}
+			}
+			if rkey := replanDedupeKey(t.Description); rkey != "" {
+				if existingID, ok := seenReplanKeys[rkey]; ok {
+					logging.CampaignWarn("Planner emitted a near-duplicate task %s of %s in phase %s; dropping it: %.80q", newID, existingID, workingNextPhase.ID, t.Description)
+					continue
+				}
+				seenReplanKeys[rkey] = newID
+			}
+			var deps []string
+			deps = append(deps, []string(t.DependsOn)...)
+			deps = append(deps, []string(t.ContextFrom)...)
+			deps = append(deps, []string(t.Dependencies)...)
+			ctxFrom := resolveReplannerContextFrom(workingNextPhase, deps)
+			task := Task{
+				ID:          newID,
+				PhaseID:     workingNextPhase.ID,
+				Description: t.Description,
+				Status:      TaskPending,
+				Type:        normalizeTaskType(t.Type, defaultTaskTypeForCategory(workingNextPhase.Category)),
+				Priority:    normalizeTaskPriority(t.Priority),
+				Order:       len(workingNextPhase.Tasks),
+				ContextFrom: ctxFrom,
+			}
+			applyRefinedTargets(r.workspace, &task, t.Artifacts, t.WriteSet)
+			oldTaskType := task.Type
+			if changed, reason := applyTaskTypeDefenses(r.workspace, &task); changed {
+				logging.CampaignWarn("Retyped task %s from %s to %s: %s",
+					task.ID, oldTaskType, task.Type, reason)
+			}
+			workingNextPhase.Tasks = append(workingNextPhase.Tasks, task)
+		default: // update
+			updated := false
+			for i := range workingNextPhase.Tasks {
+				if sameTaskID(workingNextPhase.Tasks[i].ID, t.TaskID) {
+					if t.Description != "" {
+						workingNextPhase.Tasks[i].Description = t.Description
+					}
+					if workingNextPhase.Tasks[i].PlannedType == "" {
+						workingNextPhase.Tasks[i].PlannedType = workingNextPhase.Tasks[i].Type
+					}
+					applyRefinedTargets(r.workspace, &workingNextPhase.Tasks[i], t.Artifacts, t.WriteSet)
+					if t.Type != "" {
+						workingNextPhase.Tasks[i].Type = normalizeTaskType(t.Type, workingNextPhase.Tasks[i].Type)
+					}
+					if t.Priority != "" {
+						workingNextPhase.Tasks[i].Priority = normalizeTaskPriority(t.Priority)
+					}
+					updated = true
+					break
+				}
+			}
+			if !updated && t.Description != "" {
+				if strings.TrimSpace(t.Description) == "" {
+					continue
+				}
+				if key := normalizedTaskKey(t.Description); key != "" {
+					if seenTaskKeys[key] {
+						logging.CampaignWarn("Planner emitted a duplicate task in phase %s; dropping it: %.80q", workingNextPhase.ID, t.Description)
+						continue
+					}
+					seenTaskKeys[key] = true
+				}
+				newID := canonicalTaskID(t.TaskID)
+				if newID == "" {
+					newID = fmt.Sprintf("/task_%s_%d_%d", campaignSlug(campaign.ID), workingNextPhase.Order, len(workingNextPhase.Tasks))
+				} else {
+					// Ensure uniqueness
+					for idIdx := 1; ; idIdx++ {
+						exists := false
+						for _, existing := range workingNextPhase.Tasks {
+							if sameTaskID(existing.ID, newID) {
+								exists = true
+								break
+							}
+						}
+						if !exists {
+							break
+						}
+						newID = fmt.Sprintf("%s_%d", t.TaskID, idIdx)
+					}
+				}
+				if rkey := replanDedupeKey(t.Description); rkey != "" {
+					if existingID, ok := seenReplanKeys[rkey]; ok {
+						logging.CampaignWarn("Planner emitted a near-duplicate task %s of %s in phase %s; dropping it: %.80q", newID, existingID, workingNextPhase.ID, t.Description)
+						continue
+					}
+					seenReplanKeys[rkey] = newID
+				}
+				var deps []string
+				deps = append(deps, []string(t.DependsOn)...)
+				deps = append(deps, []string(t.ContextFrom)...)
+				deps = append(deps, []string(t.Dependencies)...)
+				ctxFrom := resolveReplannerContextFrom(workingNextPhase, deps)
+				task := Task{
+					ID:          newID,
+					PhaseID:     workingNextPhase.ID,
+					Description: t.Description,
+					Status:      TaskPending,
+					Type:        normalizeTaskType(t.Type, defaultTaskTypeForCategory(workingNextPhase.Category)),
+					Priority:    normalizeTaskPriority(t.Priority),
+					Order:       len(workingNextPhase.Tasks),
+					ContextFrom: ctxFrom,
+				}
+				applyRefinedTargets(r.workspace, &task, t.Artifacts, t.WriteSet)
+				oldTaskType := task.Type
+				if changed, reason := applyTaskTypeDefenses(r.workspace, &task); changed {
+					logging.CampaignWarn("Retyped task %s from %s to %s: %s",
+						task.ID, oldTaskType, task.Type, reason)
+				}
+				workingNextPhase.Tasks = append(workingNextPhase.Tasks, task)
+			}
+		}
+	}
+
+	for n := range workingNextPhase.Tasks {
+		if err := validateTaskEffect(&workingNextPhase.Tasks[n]); err != nil {
+			return err
+		}
+	}
+	orderVerificationAfterEdits(workingNextPhase)
+
+	// Recompute totals
+	var totalTasks, completedTasks int
+	for i := range workingCampaign.Phases {
+		for _, t := range workingCampaign.Phases[i].Tasks {
+			totalTasks++
+			if t.Status == TaskCompleted || t.Status == TaskSkipped {
+				completedTasks++
+			}
+		}
+	}
+	workingCampaign.TotalTasks = totalTasks
+	workingCampaign.CompletedTasks = completedTasks
+	workingCampaign.RevisionNumber++
+	workingCampaign.LastRevision = strings.TrimSpace(changes.Summary)
+	if workingCampaign.LastRevision == "" {
+		workingCampaign.LastRevision = "Rolling-wave refinement"
+	}
+
+	// Refresh facts in kernel
+	if err := syncCampaignFacts(r.kernel, campaign, workingCampaign, workingCampaign.LastRevision); err != nil {
+		return err
+	}
+
+	campaign.Phases = workingCampaign.Phases
+	campaign.RevisionNumber = workingCampaign.RevisionNumber
+	campaign.LastRevision = workingCampaign.LastRevision
+	campaign.TotalTasks = workingCampaign.TotalTasks
+	campaign.CompletedTasks = workingCampaign.CompletedTasks
+
+	return nil
+}
+
+func defaultPriority(p string) string {
+	return string(normalizeTaskPriority(p))
+}
+
+// getFailedTasks returns all failed tasks in the campaign.
+func (r *Replanner) getFailedTasks(campaign *Campaign) []Task {
+	if campaign == nil {
+		return nil
+	}
+	var failed []Task
+	for _, phase := range campaign.Phases {
+		for _, task := range phase.Tasks {
+			if task.Status == TaskFailed {
+				failed = append(failed, task)
+			}
+		}
+	}
+	return failed
+}
+
+// getBlockedTasks returns all blocked tasks in the campaign.
+func (r *Replanner) getBlockedTasks(campaign *Campaign) []Task {
+	if campaign == nil {
+		return nil
+	}
+	var blocked []Task
+	for _, phase := range campaign.Phases {
+		for _, task := range phase.Tasks {
+			if task.Status == TaskBlocked {
+				blocked = append(blocked, task)
+			}
+		}
+	}
+	return blocked
+}
+
+// getReplanTriggers returns replan triggers from the kernel.
+func (r *Replanner) getReplanTriggers(campaignID string) []ReplanTrigger {
+	if r.kernel == nil {
+		return nil
+	}
+	facts, err := r.kernel.Query("replan_trigger")
+	if err != nil {
+		return nil
+	}
+
+	var triggers []ReplanTrigger
+	for _, fact := range facts {
+		if len(fact.Args) >= 3 {
+			if types.ExtractString(fact.Args[0]) == campaignID {
+				ts := int64(0)
+				if t, ok := fact.Args[2].(int64); ok {
+					ts = t
+				}
+				triggers = append(triggers, ReplanTrigger{
+					CampaignID:  campaignID,
+					Reason:      types.ExtractString(fact.Args[1]),
+					TriggeredAt: time.Unix(ts, 0),
+				})
+			}
+		}
+	}
+	return triggers
+}
+
+// buildReplanContext builds a context string for the LLM.
+func (r *Replanner) buildReplanContext(campaign *Campaign, failedTasks, blockedTasks []Task, triggers []ReplanTrigger) string {
+	if campaign == nil {
+		return ""
+	}
+	r.limitsMu.RLock()
+	lim := r.limits
+	r.limitsMu.RUnlock()
+	var sb strings.Builder
+	line := func(s string) bool { return appendReplanContextLine(&sb, s, lim.bytes) }
+
+	line(fmt.Sprintf("Campaign: %s\n", truncateForPrompt(campaign.Title, lim.textBytes)))
+	line(fmt.Sprintf("Status: %s\n", campaign.Status))
+	line(fmt.Sprintf("Progress: %d/%d phases, %d/%d tasks\n\n", campaign.CompletedPhases, campaign.TotalPhases, campaign.CompletedTasks, campaign.TotalTasks))
+
+	if len(failedTasks) > 0 {
+		if !line("Failed Tasks:\n") {
+			return sb.String()
+		}
+		for idx, task := range failedTasks {
+			if idx >= lim.tasks {
+				line(fmt.Sprintf("... %d additional failed tasks omitted\n", len(failedTasks)-idx))
+				break
+			}
+			if !line(fmt.Sprintf("- [%s] %s\n", task.ID, truncateForPrompt(task.Description, lim.textBytes))) {
+				return sb.String()
+			}
+			if task.LastError != "" {
+				if !line(fmt.Sprintf("  Error: %q\n", truncateForPrompt(task.LastError, lim.textBytes))) {
+					return sb.String()
+				}
+			}
+			start := 0
+			if len(task.Attempts) > lim.attempts {
+				start = len(task.Attempts) - lim.attempts
+			}
+			for _, attempt := range task.Attempts[start:] {
+				if !line(fmt.Sprintf("  Attempt %d: %s - %q\n", attempt.Number, attempt.Outcome, truncateForPrompt(attempt.Error, lim.textBytes))) {
+					return sb.String()
+				}
+			}
+		}
+		if !line("\n") {
+			return sb.String()
+		}
+	}
+
+	if len(blockedTasks) > 0 {
+		if !line("Blocked Tasks:\n") {
+			return sb.String()
+		}
+		for idx, task := range blockedTasks {
+			if idx >= lim.tasks {
+				line(fmt.Sprintf("... %d additional blocked tasks omitted\n", len(blockedTasks)-idx))
+				break
+			}
+			if !line(fmt.Sprintf("- [%s] %s (depends on: %v)\n", task.ID, truncateForPrompt(task.Description, lim.textBytes), task.DependsOn)) {
+				return sb.String()
+			}
+		}
+		if !line("\n") {
+			return sb.String()
+		}
+	}
+
+	if len(triggers) > 0 {
+		if !line("Replan Triggers:\n") {
+			return sb.String()
+		}
+		for idx, trigger := range triggers {
+			if idx >= lim.tasks {
+				line(fmt.Sprintf("... %d additional triggers omitted\n", len(triggers)-idx))
+				break
+			}
+			if !line(fmt.Sprintf("- %s at %s\n", trigger.Reason, trigger.TriggeredAt.Format(time.RFC3339))) {
+				return sb.String()
+			}
+		}
+	}
+
+	return sb.String()
+}
+
+// proposeReplans asks LLM to propose fixes for the campaign.
+func (r *Replanner) proposeReplans(ctx context.Context, campaign *Campaign, context string, scopeTaskID string) (*ReplanResult, error) {
+	systemPrompt, err := rolePrompt(ctx, r.promptProvider, RoleFailureReplan, campaign.ID, r.llmClient)
+	if err != nil {
+		return nil, err
+	}
+	// Campaign metadata gives the model the campaign the failures belong to.
+	userPrompt := fmt.Sprintf(`Scope: %s
+
+Campaign Metadata:
+Campaign: %s (ID: %s)
+Goal: %s
+Phases: %d, Completed Tasks: %d/%d
+
+Current State:
+%s`,
+		scopeTaskID,
+		campaign.Title, campaign.ID, campaign.Goal,
+		len(campaign.Phases), campaign.CompletedTasks, campaign.TotalTasks,
+		context)
+
+	resp, err := r.completeWithGrounding(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse response
+	resp = cleanJSONResponse(resp)
+	var parsed struct {
+		Success       bool   `json:"success"`
+		ChangeSummary string `json:"change_summary"`
+		RetryTasks    []struct {
+			TaskID      string `json:"task_id"`
+			NewApproach string `json:"new_approach"`
+		} `json:"retry_tasks"`
+		SkipTasks []string `json:"skip_tasks"`
+		AddTasks  []struct {
+			PhaseID     string `json:"phase_id"`
+			Description string `json:"description"`
+			Type        string `json:"type"`
+			Priority    string `json:"priority"`
+			BeforeTask  string `json:"before_task"`
+		} `json:"add_tasks"`
+		ModifyDependencies []struct {
+			TaskID     string   `json:"task_id"`
+			RemoveDeps []string `json:"remove_deps"`
+			AddDeps    []string `json:"add_deps"`
+		} `json:"modify_dependencies"`
+	}
+
+	if err := json.Unmarshal([]byte(resp), &parsed); err != nil {
+		return nil, fmt.Errorf("failed to parse replan response: %w", err)
+	}
+
+	result := &ReplanResult{
+		Success:       parsed.Success,
+		ChangeSummary: parsed.ChangeSummary,
+		RemovedTasks:  parsed.SkipTasks,
+	}
+
+	// Build modified tasks
+	for _, retry := range parsed.RetryTasks {
+		result.ModifiedTasks = append(result.ModifiedTasks, Task{
+			ID:          retry.TaskID,
+			Description: retry.NewApproach,
+			Status:      TaskPending, // Reset to pending
+		})
+	}
+
+	// Build added tasks
+	for _, add := range parsed.AddTasks {
+		result.AddedTasks = append(result.AddedTasks, Task{
+			PhaseID:     add.PhaseID,
+			Description: add.Description,
+			Type:        normalizeTaskType(add.Type, TaskTypeFileModify),
+			Priority:    normalizeTaskPriority(add.Priority),
+			Status:      TaskPending,
+		})
+	}
+
+	for _, mod := range parsed.ModifyDependencies {
+		result.ModifiedDependencies = append(result.ModifiedDependencies, struct {
+			TaskID     string
+			RemoveDeps []string
+			AddDeps    []string
+		}{
+			TaskID:     mod.TaskID,
+			RemoveDeps: mod.RemoveDeps,
+			AddDeps:    mod.AddDeps,
+		})
+	}
+
+	return result, nil
+}
+
+// applyFixes applies the replan fixes to the campaign.
+func (r *Replanner) applyFixes(campaign *Campaign, fixes *ReplanResult) error {
+	if campaign == nil {
+		return ErrNilCampaign
+	}
+	if fixes == nil {
+		return nil
+	}
+
+	if len(fixes.AddedTasks) > 100 {
+		return fmt.Errorf("replan exceeds maximum allowed tasks (100): proposed %d", len(fixes.AddedTasks))
+	}
+
+	// 1. Skip tasks
+	for _, skipID := range fixes.RemovedTasks {
+		for i := range campaign.Phases {
+			for j := range campaign.Phases[i].Tasks {
+				if campaign.Phases[i].Tasks[j].ID == skipID {
+					campaign.Phases[i].Tasks[j].Status = TaskSkipped
+					break
+				}
+			}
+		}
+	}
+
+	// 2. Modify tasks
+	for _, mod := range fixes.ModifiedTasks {
+		for i := range campaign.Phases {
+			for j := range campaign.Phases[i].Tasks {
+				if campaign.Phases[i].Tasks[j].ID == mod.ID {
+					campaign.Phases[i].Tasks[j].Description = mod.Description
+					campaign.Phases[i].Tasks[j].Status = TaskPending
+					campaign.Phases[i].Tasks[j].Attempts = nil // Reset attempts
+					campaign.Phases[i].Tasks[j].LastError = ""
+					break
+				}
+			}
+		}
+	}
+
+	// 3. Add tasks
+	for _, add := range fixes.AddedTasks {
+		for i := range campaign.Phases {
+			if campaign.Phases[i].ID == add.PhaseID {
+				taskID := fmt.Sprintf("/task_%s_%d_%d", campaignSlug(campaign.ID), i, len(campaign.Phases[i].Tasks))
+				newTask := add
+				newTask.ID = taskID
+				campaign.Phases[i].Tasks = append(campaign.Phases[i].Tasks, newTask)
+				campaign.TotalTasks++
+				break
+			}
+		}
+	}
+
+	// 4. Modify dependencies
+	for _, mod := range fixes.ModifiedDependencies {
+		for i := range campaign.Phases {
+			for j := range campaign.Phases[i].Tasks {
+				if campaign.Phases[i].Tasks[j].ID == mod.TaskID {
+					// Remove deps
+					if len(mod.RemoveDeps) > 0 {
+						var newDeps []string
+						for _, dep := range campaign.Phases[i].Tasks[j].DependsOn {
+							keep := !slices.Contains(mod.RemoveDeps, dep)
+							if keep {
+								newDeps = append(newDeps, dep)
+							}
+						}
+						campaign.Phases[i].Tasks[j].DependsOn = newDeps
+					}
+					// Add deps
+					for _, add := range mod.AddDeps {
+						exists := slices.Contains(campaign.Phases[i].Tasks[j].DependsOn, add)
+						if !exists {
+							campaign.Phases[i].Tasks[j].DependsOn = append(campaign.Phases[i].Tasks[j].DependsOn, add)
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// 5. Cycle check
+	if err := checkCampaignCycles(campaign); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func checkCampaignCycles(campaign *Campaign) error {
+	// Simple DFS cycle detection
+	adj := make(map[string][]string)
+	for _, p := range campaign.Phases {
+		for _, t := range p.Tasks {
+			adj[t.ID] = t.DependsOn
+		}
+	}
+
+	visited := make(map[string]int) // 0=unvisited, 1=visiting, 2=visited
+	var dfs func(node string) error
+	dfs = func(node string) error {
+		visited[node] = 1
+		for _, dep := range adj[node] {
+			if visited[dep] == 1 {
+				return fmt.Errorf("circular dependency detected involving %s and %s", node, dep)
+			}
+			if visited[dep] == 0 {
+				if err := dfs(dep); err != nil {
+					return err
+				}
+			}
+		}
+		visited[node] = 2
+		return nil
+	}
+
+	for node := range adj {
+		if visited[node] == 0 {
+			if err := dfs(node); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// flexStringSlice handles dependency fields that may be encoded as []string,
+// []int, or mixed []any by the LLM. This keeps the replanner tolerant of
+// variance while still mapping to string task identifiers.
+type flexStringSlice []string
+
+func (f *flexStringSlice) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		*f = nil
+		return nil
+	}
+	var s []string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*f = flexStringSlice(s)
+		return nil
+	}
+	var ints []int
+	if err := json.Unmarshal(data, &ints); err == nil {
+		out := make([]string, len(ints))
+		for i, v := range ints {
+			out[i] = strconv.Itoa(v)
+		}
+		*f = flexStringSlice(out)
+		return nil
+	}
+	var anySlice []any
+	if err := json.Unmarshal(data, &anySlice); err == nil {
+		out := make([]string, 0, len(anySlice))
+		for _, v := range anySlice {
+			switch x := v.(type) {
+			case string:
+				out = append(out, x)
+			case float64:
+				out = append(out, strconv.Itoa(int(x)))
+			case int:
+				out = append(out, strconv.Itoa(x))
+			case int64:
+				out = append(out, strconv.FormatInt(x, 10))
+			}
+		}
+		*f = flexStringSlice(out)
+		return nil
+	}
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*f = flexStringSlice([]string{single})
+		return nil
+	}
+	var singleInt int
+	if err := json.Unmarshal(data, &singleInt); err == nil {
+		*f = flexStringSlice([]string{strconv.Itoa(singleInt)})
+		return nil
+	}
+	return fmt.Errorf("cannot unmarshal flexStringSlice from %s", string(data))
+}
+
+// replanDedupeKey normalizes a task description for the rolling-wave
+// near-duplicate guard: the exact-match normalizedTaskKey with a trailing
+// " in <path>" suffix removed.
+//
+// Observed live 2026-09-04 on campaign 5a2f4c8d: the refinement restated an
+// existing task with its target path appended ("Research correctness in
+// internal/retrieval" for an existing "Research correctness"). The
+// exact-match dedupe saw different strings, the duplicate ran, and the phase
+// burned its budget re-proving work already done. Comparing with the location
+// suffix stripped catches the restatement.
+//
+// Conservative: the suffix is only stripped when it is a single token
+// containing a path separator or dot, so "Research in depth" keeps its ending
+// while "Research correctness in internal/retrieval" compares as "research
+// correctness". Pure: no logging here — the caller logs the drop.
+func replanDedupeKey(desc string) string {
+	key := normalizedTaskKey(desc)
+	if key == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(key, " in "); idx > 0 {
+		suffix := strings.TrimSpace(key[idx+len(" in "):])
+		if suffix != "" && !strings.Contains(suffix, " ") &&
+			(strings.Contains(suffix, "/") || strings.Contains(suffix, ".")) {
+			key = strings.TrimSpace(key[:idx])
+		}
+	}
+	if !strings.ContainsFunc(key, func(r rune) bool {
+		return (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+	}) {
+		return ""
+	}
+	return key
+}
+
+// resolveReplannerContextFrom maps named dependencies to task IDs in the phase.
+// It mirrors the decomposer's wiring step: explicit context_from indices are
+// resolved to IDs, and here dependency strings are resolved via exact ID,
+// numeric index, or normalized description match. If no dependency names are
+// provided it returns nil rather than inventing edges. Duplicates are removed
+// while preserving stable order.
+func resolveReplannerContextFrom(phase *Phase, deps []string) []string {
+	if len(deps) == 0 {
+		return nil
+	}
+	idSet := make(map[string]struct{}, len(phase.Tasks))
+	for _, t := range phase.Tasks {
+		idSet[t.ID] = struct{}{}
+	}
+	descKeyToID := make(map[string]string)
+	for _, t := range phase.Tasks {
+		if k := normalizedTaskKey(t.Description); k != "" {
+			if _, ok := descKeyToID[k]; !ok {
+				descKeyToID[k] = t.ID
+			}
+		}
+	}
+	seen := make(map[string]struct{})
+	var out []string
+	for _, dep := range deps {
+		dep = strings.TrimSpace(dep)
+		if dep == "" {
+			continue
+		}
+		var resolved string
+		if _, ok := idSet[dep]; ok {
+			resolved = dep
+		} else if idx, err := strconv.Atoi(dep); err == nil && idx >= 0 && idx < len(phase.Tasks) {
+			resolved = phase.Tasks[idx].ID
+		} else if k := normalizedTaskKey(dep); k != "" {
+			if id, ok := descKeyToID[k]; ok {
+				resolved = id
+			} else {
+				for _, t := range phase.Tasks {
+					if strings.EqualFold(strings.TrimSpace(t.Description), dep) {
+						resolved = t.ID
+						break
+					}
+				}
+			}
+		} else {
+			// Fallback: try exact ID without normalization (covers edge cases)
+			for _, t := range phase.Tasks {
+				if t.ID == dep {
+					resolved = t.ID
+					break
+				}
+			}
+		}
+		if resolved == "" {
+			continue
+		}
+		if _, exists := seen[resolved]; exists {
+			continue
+		}
+		seen[resolved] = struct{}{}
+		out = append(out, resolved)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// clearReplanTriggers retracts every replan trigger of a campaign. Replan
+// calls it once the triggers it planned from are in the new revision: a
+// trigger is an event to plan from once, not a standing order to re-read in
+// every later replan.
+func (r *Replanner) clearReplanTriggers(campaignID string) error {
+	if r.kernel == nil {
+		return ErrNilKernel
+	}
+	return r.kernel.RetractFact(core.Fact{
+		Predicate: "replan_trigger",
+		Args:      []any{campaignID},
+	})
+}
+
+// pathExists reports whether a write-set path exists in the campaign's
+// workspace.
+func (r *Replanner) pathExists(path string) bool {
+	p := path
+	if !filepath.IsAbs(p) && r.workspace != "" {
+		p = filepath.Join(r.workspace, p)
+	}
+	_, err := os.Stat(p)
+	return err == nil
+}

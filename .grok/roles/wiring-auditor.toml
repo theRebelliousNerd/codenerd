@@ -1,0 +1,4 @@
+description = "Read-only integration wiring auditor"
+default_capability_mode = "read-only"
+reasoning_effort = "high"
+default_fork_context = true

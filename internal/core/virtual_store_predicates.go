@@ -1,0 +1,1170 @@
+package core
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
+)
+
+// =============================================================================
+// VIRTUAL PREDICATES - Knowledge Query Handlers
+// =============================================================================
+// These methods implement virtual predicates for the Mangle kernel,
+// enabling logic rules to query the knowledge.db (LocalStore).
+// Used during OODA Observe phase to hydrate learned facts into the kernel.
+
+// QueryLearned queries cold_storage for learned facts by predicate name.
+// Implements: query_learned(Predicate, Args) Bound
+func (v *VirtualStore) QueryLearned(predicate string) ([]Fact, error) {
+	logging.VirtualStoreDebug("QueryLearned: predicate=%s", predicate)
+
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("QueryLearned: no knowledge database configured")
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	storedFacts, err := db.LoadFacts(predicate)
+	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("QueryLearned failed: %v", err)
+		return nil, fmt.Errorf("failed to query learned facts: %w", err)
+	}
+
+	facts := make([]Fact, 0, len(storedFacts))
+	for _, sf := range storedFacts {
+		facts = append(facts, Fact{
+			Predicate: sf.Predicate,
+			Args:      sf.Args,
+		})
+	}
+
+	logging.VirtualStoreDebug("QueryLearned: found %d facts for predicate %s", len(facts), predicate)
+	return facts, nil
+}
+
+// QueryAllLearned queries all facts from cold_storage.
+// Returns facts grouped by fact_type (preference, constraint, fact).
+func (v *VirtualStore) QueryAllLearned(factType string) ([]Fact, error) {
+	logging.VirtualStoreDebug("QueryAllLearned: factType=%s", factType)
+
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	storedFacts, err := db.LoadAllFacts(factType)
+	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("QueryAllLearned failed: %v", err)
+		return nil, fmt.Errorf("failed to query all learned facts: %w", err)
+	}
+
+	facts := make([]Fact, 0, len(storedFacts))
+	for _, sf := range storedFacts {
+		facts = append(facts, Fact{
+			Predicate: sf.Predicate,
+			Args:      sf.Args,
+		})
+	}
+
+	logging.VirtualStoreDebug("QueryAllLearned: found %d facts of type %s", len(facts), factType)
+	return facts, nil
+}
+
+// PersistFactsToKnowledge stores a batch of facts into knowledge.db cold_storage.
+// This is used to mirror on-disk/AST projections into the learning store so
+// HydrateLearnings can re-assert them for Mangle logic.
+func (v *VirtualStore) PersistFactsToKnowledge(facts []Fact, factType string, priority int) error {
+	logging.VirtualStoreDebug("PersistFactsToKnowledge: %d facts, type=%s, priority=%d", len(facts), factType, priority)
+
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		logging.VirtualStoreDebug("PersistFactsToKnowledge: no database, skipping")
+		return nil
+	}
+	if factType == "" {
+		factType = "fact"
+	}
+	if priority <= 0 {
+		priority = 5
+	}
+
+	for _, f := range facts {
+		if err := db.StoreFact(f.Predicate, f.Args, factType, priority); err != nil {
+			logging.Get(logging.CategoryVirtualStore).Error("Failed to persist fact %s: %v", f.Predicate, err)
+			return fmt.Errorf("persist fact %s: %w", f.Predicate, err)
+		}
+	}
+
+	logging.VirtualStoreDebug("PersistFactsToKnowledge: persisted %d facts", len(facts))
+	return nil
+}
+
+// PersistLink stores a relationship into the knowledge graph table.
+func (v *VirtualStore) PersistLink(entityA, relation, entityB string, weight float64, meta map[string]any) error {
+	logging.VirtualStoreDebug("PersistLink: %s -[%s]-> %s (weight=%.2f)", entityA, relation, entityB, weight)
+
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		return nil
+	}
+	if weight <= 0 {
+		weight = 1.0
+	}
+
+	if err := db.StoreLink(entityA, relation, entityB, weight, meta); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to persist link: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+// PersistLinkFacts projects the graph-shaped world facts in facts into the
+// knowledge graph: dependency_link(From, To, Import) becomes a depends_on edge
+// and symbol_graph(Symbol, _, _, File, _) a defined_in edge, with source (which
+// scanner produced it) in the edge metadata. Facts of any other predicate are
+// ignored, so a whole scan result can be handed over.
+//
+// This is the one projection for every producer: full, incremental, deep,
+// partial and directory scans, and the world-model shard. The six copies it
+// replaces each labelled the dependency edge "depends_on:<import path>", a
+// token that is not a Mangle name, so HydrateKnowledgeGraph landed it as a
+// string constant and the /depends_on activation rule in policy/knowledge.mg
+// matched none of them. The import path now rides in the metadata, readable
+// but no longer part of the edge's identity.
+func (v *VirtualStore) PersistLinkFacts(facts []Fact, source string) error {
+	var errs []error
+	for _, f := range facts {
+		switch f.Predicate {
+		case "dependency_link":
+			if len(f.Args) < 2 {
+				continue
+			}
+			from := types.ExtractString(f.Args[0])
+			to := types.ExtractString(f.Args[1])
+			meta := map[string]any{"source": source}
+			if len(f.Args) >= 3 {
+				if imp := types.ExtractString(f.Args[2]); imp != "" {
+					meta["import"] = imp
+				}
+			}
+			if err := v.PersistLink(from, "depends_on", to, 1.0, meta); err != nil {
+				errs = append(errs, fmt.Errorf("depends_on %s -> %s: %w", from, to, err))
+			}
+		case "symbol_graph":
+			if len(f.Args) < 4 {
+				continue
+			}
+			symbol := types.ExtractString(f.Args[0])
+			file := types.ExtractString(f.Args[3])
+			if err := v.PersistLink(symbol, "defined_in", file, 1.0, map[string]any{"source": source}); err != nil {
+				errs = append(errs, fmt.Errorf("defined_in %s -> %s: %w", symbol, file, err))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// QueryKnowledgeGraph queries the knowledge graph for entity relationships.
+// Implements: query_knowledge_graph(EntityA, Relation, EntityB) Bound
+func (v *VirtualStore) QueryKnowledgeGraph(entity, direction string) ([]Fact, error) {
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	links, err := db.QueryLinks(entity, direction)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query knowledge graph: %w", err)
+	}
+
+	facts := make([]Fact, 0, len(links))
+	for _, link := range links {
+		// Relation is the /name slot of knowledge_link/3 (schemas_memory.mg).
+		// Stored labels may be bare ("related_to") when they came from a free
+		// text memory operation; prefix them so they reach the kernel as the
+		// /related_to and /depends_on that policy/knowledge.mg matches. A "/"
+		// prefixed string that is not a legal name still degrades to a string
+		// constant rather than failing conversion.
+		relation := link.Relation
+		if relation != "" && relation[0] != '/' {
+			relation = "/" + relation
+		}
+		facts = append(facts, Fact{
+			Predicate: "knowledge_link",
+			Args:      []any{link.EntityA, relation, link.EntityB},
+		})
+	}
+	return facts, nil
+}
+
+// QueryActivations queries the activation log for recent activation scores.
+// Implements: query_activations(FactID, Score) Bound
+func (v *VirtualStore) QueryActivations(limit int, minScore float64) ([]Fact, error) {
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	activations, err := db.GetRecentActivations(limit, minScore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query activations: %w", err)
+	}
+
+	type activation struct {
+		factID string
+		score  float64
+	}
+	ordered := make([]activation, 0, len(activations))
+	for factID, score := range activations {
+		ordered = append(ordered, activation{factID: factID, score: score})
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].score == ordered[j].score {
+			return ordered[i].factID < ordered[j].factID
+		}
+		return ordered[i].score > ordered[j].score
+	})
+
+	facts := make([]Fact, 0, len(ordered))
+	for _, item := range ordered {
+		facts = append(facts, Fact{
+			Predicate: "activation",
+			Args:      []any{item.factID, types.PercentFromRatio(item.score)},
+		})
+	}
+	return facts, nil
+}
+
+// RecallSimilar performs semantic search on the vectors table.
+// Implements: recall_similar(Query, TopK, Results) Bound
+//
+// Until 2026-09-21 this called the keyword path (one LIKE per word of the
+// query, OR-ed), so it was semantic in name only, and a several-paragraph
+// campaign goal exceeded SQLite's expression depth on every hydrate
+// ("Expression tree is too large (maximum depth 1000)"). VectorRecallSemantic
+// embeds the query, which has no such limit, and falls back to the bounded
+// keyword search itself when the store has no embedding engine.
+func (v *VirtualStore) RecallSimilar(ctx context.Context, query string, topK int) ([]Fact, error) {
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	entries, err := db.VectorRecallSemantic(ctx, query, topK)
+	if err != nil {
+		return nil, fmt.Errorf("failed semantic recall: %w", err)
+	}
+
+	facts := make([]Fact, 0, len(entries))
+	for i, entry := range entries {
+		facts = append(facts, Fact{
+			Predicate: "similar_content",
+			Args:      []any{i, entry.Content},
+		})
+	}
+	return facts, nil
+}
+
+// QuerySession queries session history for conversation turns.
+// Implements: query_session(SessionID, TurnNumber, UserInput) Bound
+func (v *VirtualStore) QuerySession(sessionID string, limit int) ([]Fact, error) {
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	history, err := db.GetSessionHistory(sessionID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query session: %w", err)
+	}
+
+	facts := make([]Fact, 0, len(history))
+	for index, turn := range history {
+		turnNum, ok := storedInt64(turn["turn_number"])
+		if !ok {
+			return nil, fmt.Errorf("session %q history row %d has invalid turn_number type %T", sessionID, index, turn["turn_number"])
+		}
+		userInput, _ := turn["user_input"].(string)
+		response, _ := turn["response"].(string)
+		facts = append(facts, Fact{
+			Predicate: "session_turn",
+			Args:      []any{sessionID, turnNum, userInput, response},
+		})
+	}
+	return facts, nil
+}
+
+// HasLearned checks if any facts with the given predicate exist in cold_storage.
+// Implements: has_learned(Predicate) Bound
+func (v *VirtualStore) HasLearned(predicate string) (bool, error) {
+	facts, err := v.QueryLearned(predicate)
+	if err != nil {
+		return false, err
+	}
+	return len(facts) > 0, nil
+}
+
+// QueryTraces queries reasoning_traces for shard execution history.
+// Implements: query_traces(ShardType, Limit, TraceID, Success, DurationMs) Bound
+func (v *VirtualStore) QueryTraces(shardType string, limit int) ([]Fact, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "QueryTraces")
+	defer timer.Stop()
+
+	logging.VirtualStoreDebug("QueryTraces: shardType=%s limit=%d", shardType, limit)
+
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("QueryTraces: no knowledge database configured")
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	traces, err := db.GetShardTraces(shardType, limit)
+	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("QueryTraces failed: %v", err)
+		return nil, fmt.Errorf("failed to query traces: %w", err)
+	}
+
+	facts := make([]Fact, 0, len(traces))
+	for _, trace := range traces {
+		shardAtom := mangleNameOrUnknown(trace.ShardType)
+		categoryAtom := mangleNameOrUnknown(trace.ShardCategory)
+
+		facts = append(facts, Fact{
+			Predicate: "reasoning_trace",
+			Args: []any{
+				trace.ID,
+				shardAtom,
+				categoryAtom,
+				trace.SessionID,
+				trace.Success,
+				trace.DurationMs,
+			},
+		})
+	}
+
+	logging.VirtualStoreDebug("QueryTraces: found %d traces for shardType=%s", len(facts), shardType)
+	return facts, nil
+}
+
+// QueryTraceStats retrieves aggregate statistics for a shard type.
+// Implements: query_trace_stats(ShardType, SuccessCount, FailCount, AvgDuration) Bound
+func (v *VirtualStore) QueryTraceStats(shardType string) ([]Fact, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "QueryTraceStats")
+	defer timer.Stop()
+
+	shardType = strings.TrimSpace(strings.TrimPrefix(shardType, "/"))
+	if shardType == "" {
+		return nil, fmt.Errorf("shard type is required")
+	}
+	logging.VirtualStoreDebug("QueryTraceStats: shardType=%s", shardType)
+
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("QueryTraceStats: no knowledge database configured")
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	stats, err := db.GetTraceStatsForType(shardType)
+	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("QueryTraceStats failed: %v", err)
+		return nil, fmt.Errorf("failed to query trace stats: %w", err)
+	}
+
+	shardAtom := "/" + shardType
+
+	facts := []Fact{
+		{
+			Predicate: "trace_stats",
+			Args: []any{
+				MangleAtom(shardAtom),
+				stats.SuccessCount,
+				stats.FailCount,
+				stats.AvgDurationMs,
+			},
+		},
+	}
+
+	logging.VirtualStoreDebug("QueryTraceStats: shardType=%s total=%d success=%d fail=%d avgDur=%d",
+		shardType, stats.TotalCount, stats.SuccessCount, stats.FailCount, stats.AvgDurationMs)
+	return facts, nil
+}
+
+func storedInt64(value any) (int64, bool) {
+	switch number := value.(type) {
+	case int:
+		return int64(number), true
+	case int8:
+		return int64(number), true
+	case int16:
+		return int64(number), true
+	case int32:
+		return int64(number), true
+	case int64:
+		return number, true
+	case uint:
+		if uint64(number) > uint64(^uint64(0)>>1) {
+			return 0, false
+		}
+		return int64(number), true
+	case uint8:
+		return int64(number), true
+	case uint16:
+		return int64(number), true
+	case uint32:
+		return int64(number), true
+	case uint64:
+		if number > uint64(^uint64(0)>>1) {
+			return 0, false
+		}
+		return int64(number), true
+	default:
+		return 0, false
+	}
+}
+
+// toAtomOrString converts string to MangleAtom if it starts with /.
+func toAtomOrString(v any) any {
+	if s, ok := v.(string); ok && strings.HasPrefix(s, "/") {
+		return MangleAtom(s)
+	}
+	return v
+}
+
+// LearnedProjection is the kernel fact a stored row becomes when hydrated:
+// metaPred(Predicate, Args) with Args collapsed to one /string. Hydration
+// asserts it and a forget retracts exactly it, so the two cannot disagree
+// about which kernel fact a stored row is.
+func LearnedProjection(metaPred string, stored Fact) Fact {
+	return Fact{
+		Predicate: metaPred,
+		Args:      []any{toAtomOrString(stored.Predicate), learnedArgsValue(stored.Args)},
+	}
+}
+
+// learnedArgsValue is the /string value the Args slot of a learned_* fact
+// carries: the bare value when the stored row has exactly one string argument
+// (the common case -- a preference is one sentence), "" when it has none, and
+// otherwise the arguments JSON-encoded so nothing is lost.
+func learnedArgsValue(args []any) string {
+	switch len(args) {
+	case 0:
+		return ""
+	case 1:
+		if s, ok := args[0].(string); ok {
+			return s
+		}
+	}
+	encoded, err := json.Marshal(args)
+	if err != nil {
+		return fmt.Sprint(args)
+	}
+	return string(encoded)
+}
+
+// HydrateKnowledgeGraph loads EVERY knowledge graph entry from LocalStore into
+// the kernel as knowledge_link facts. It is not on the boot path (see
+// HydrateLearnings): on a real repository the graph is larger than the EDB
+// ceiling, and the rules that read the graph go through the external
+// query_knowledge_graph instead. It remains for callers that hold a small,
+// bounded graph and want it resident; a caller with an unbounded one gets the
+// EDB limit error the kernel returns.
+func (v *VirtualStore) HydrateKnowledgeGraph(ctx context.Context) (int, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "HydrateKnowledgeGraph")
+	defer timer.Stop()
+
+	logging.VirtualStoreDebug("HydrateKnowledgeGraph: starting")
+
+	v.mu.RLock()
+	db := v.localDB
+	kernel := v.kernel
+	v.mu.RUnlock()
+
+	if db == nil {
+		logging.VirtualStoreDebug("HydrateKnowledgeGraph: no database, skipping")
+		return 0, nil // No database, nothing to hydrate
+	}
+	if kernel == nil {
+		logging.Get(logging.CategoryVirtualStore).Error("HydrateKnowledgeGraph: no kernel configured")
+		return 0, fmt.Errorf("no kernel configured")
+	}
+
+	// Create assertion function that wraps kernel.Assert
+	assertFunc := func(predicate string, args []any) error {
+		// Convert args to MangleAtom if needed
+		safeArgs := make([]any, len(args))
+		for i, arg := range args {
+			safeArgs[i] = toAtomOrString(arg)
+		}
+		return kernel.Assert(Fact{
+			Predicate: predicate,
+			Args:      safeArgs,
+		})
+	}
+
+	// Delegate to LocalStore's HydrateKnowledgeGraph
+	count, err := db.HydrateKnowledgeGraph(assertFunc)
+	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("HydrateKnowledgeGraph failed: %v", err)
+		return 0, fmt.Errorf("failed to hydrate knowledge graph: %w", err)
+	}
+
+	logging.VirtualStoreDebug("HydrateKnowledgeGraph: hydrated %d links", count)
+	return count, nil
+}
+
+// HydrateLearnings loads all learned facts from knowledge.db and asserts them into the kernel.
+// This should be called during OODA Observe phase to make learned knowledge available to rules.
+func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "HydrateLearnings")
+	defer timer.Stop()
+
+	logging.VirtualStore("Hydrating learnings from knowledge.db")
+
+	v.mu.RLock()
+	db := v.localDB
+	kernel := v.kernel
+	v.mu.RUnlock()
+
+	if db == nil {
+		logging.VirtualStoreDebug("HydrateLearnings: no database, skipping")
+		return 0, nil // No database, nothing to hydrate
+	}
+	if kernel == nil {
+		logging.Get(logging.CategoryVirtualStore).Error("HydrateLearnings: no kernel configured")
+		return 0, fmt.Errorf("no kernel configured")
+	}
+
+	count := 0
+	var hydrationErrs []error
+
+	// learned_preference, learned_fact and learned_constraint are declared
+	// (Predicate, Args) bound [/string, /string] in schemas_memory.mg, and the
+	// rules that read them treat Args as one value: knowledge.mg binds it
+	// straight into a Reason and into fn:pair. A stored row's args are a
+	// []any, and asserting that slice into the /string slot was rejected the
+	// moment Decl type checks went live -- every preference, fact and
+	// constraint in the store, on every boot: "hydrate learnings incomplete
+	// after 249 facts: ... arg 1 declared /string, got []interface {}".
+	assertLearned := func(metaPred string, fact Fact) error {
+		return kernel.Assert(LearnedProjection(metaPred, fact))
+	}
+
+	// 1. Load all preferences (highest priority)
+	preferences, err := v.QueryAllLearned("preference")
+	if err != nil {
+		hydrationErrs = append(hydrationErrs, fmt.Errorf("query preferences: %w", err))
+	} else {
+		for _, fact := range preferences {
+			if err := assertLearned("learned_preference", fact); err != nil {
+				hydrationErrs = append(hydrationErrs, fmt.Errorf("assert preference %s: %w", fact.Predicate, err))
+				continue
+			}
+			count++
+		}
+	}
+
+	// 2. Load all user facts
+	userFacts, err := v.QueryAllLearned("user_fact")
+	if err != nil {
+		hydrationErrs = append(hydrationErrs, fmt.Errorf("query user facts: %w", err))
+	} else {
+		for _, fact := range userFacts {
+			if err := assertLearned("learned_fact", fact); err != nil {
+				hydrationErrs = append(hydrationErrs, fmt.Errorf("assert user fact %s: %w", fact.Predicate, err))
+				continue
+			}
+			count++
+		}
+	}
+
+	// 3. Load all constraints
+	constraints, err := v.QueryAllLearned("constraint")
+	if err != nil {
+		hydrationErrs = append(hydrationErrs, fmt.Errorf("query constraints: %w", err))
+	} else {
+		for _, fact := range constraints {
+			if err := assertLearned("learned_constraint", fact); err != nil {
+				hydrationErrs = append(hydrationErrs, fmt.Errorf("assert constraint %s: %w", fact.Predicate, err))
+				continue
+			}
+			count++
+		}
+	}
+
+	// The knowledge graph is NOT hydrated here. It is the world's symbol map
+	// (defined_in, depends_on: 307,455 rows on this repository on 2026-09-18)
+	// and loading it whole filled the kernel's EDB ceiling (250,000 facts) at
+	// boot, so the turn's own facts -- user_intent, the allowed tools -- were
+	// rejected and every `nerd fix` that day ran with zero tools and a 1.6k
+	// token prompt, then failed as hollow. The graph is served on demand by
+	// the external predicate query_knowledge_graph(EntityA, Relation, EntityB)
+	// (external_predicates.go, mode +,-,-), which policy/knowledge.mg's
+	// activation rules read with EntityA already bound. Domain knowledge is
+	// mounted, not bulk-loaded: that is what the deductive database is for.
+
+	// 5. Load recent activations (top 50 with score > 0.3)
+	activations, err := v.QueryActivations(50, 0.3)
+	if err != nil {
+		hydrationErrs = append(hydrationErrs, fmt.Errorf("query activations: %w", err))
+	} else {
+		for _, fact := range activations {
+			// Activations are direct facts, not meta-facts
+			safeArgs := make([]any, len(fact.Args))
+			for i, arg := range fact.Args {
+				safeArgs[i] = toAtomOrString(arg)
+			}
+			if err := kernel.Assert(Fact{
+				Predicate: fact.Predicate,
+				Args:      safeArgs,
+			}); err != nil {
+				hydrationErrs = append(hydrationErrs, fmt.Errorf("assert activation %v: %w", fact.Args[0], err))
+				continue
+			}
+			count++
+		}
+	}
+
+	if err := errors.Join(hydrationErrs...); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("HydrateLearnings incomplete after %d facts: %v", count, err)
+		return count, fmt.Errorf("hydrate learnings incomplete after %d facts: %w", count, err)
+	}
+	logging.VirtualStore("HydrateLearnings completed: %d facts hydrated", count)
+	return count, nil
+}
+
+// HydrateSessionContext loads short-term context (session turns, similar content, traces)
+// into the kernel for the current turn. This bridges dynamic query_* data into the EDB.
+func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, query string, shardTypes []string) (int, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "HydrateSessionContext")
+	defer timer.Stop()
+
+	v.mu.RLock()
+	db := v.localDB
+	kernel := v.kernel
+	v.mu.RUnlock()
+
+	if db == nil {
+		logging.VirtualStoreDebug("HydrateSessionContext: no database, skipping")
+		return 0, nil
+	}
+	if kernel == nil {
+		logging.Get(logging.CategoryVirtualStore).Error("HydrateSessionContext: no kernel configured")
+		return 0, fmt.Errorf("no kernel configured")
+	}
+	if _, ok := kernel.(types.KernelTransactor); !ok {
+		return 0, fmt.Errorf("hydrate session context: kernel does not support transactions")
+	}
+
+	count := 0
+	var queryErrs []error
+
+	// Collect all facts to hydrate before touching the kernel.
+	var allFacts []Fact
+
+	if strings.TrimSpace(sessionID) != "" {
+		if turns, err := v.QuerySession(sessionID, defaultSessionLimit); err == nil && len(turns) > 0 {
+			allFacts = append(allFacts, turns...)
+			count += len(turns)
+		} else if err != nil {
+			logging.VirtualStoreDebug("HydrateSessionContext: session turns failed: %v", err)
+			queryErrs = append(queryErrs, fmt.Errorf("query session turns: %w", err))
+		}
+	}
+
+	if strings.TrimSpace(query) != "" {
+		if matches, err := v.RecallSimilar(ctx, query, defaultRecallTopK); err == nil && len(matches) > 0 {
+			allFacts = append(allFacts, matches...)
+			count += len(matches)
+		} else if err != nil {
+			logging.VirtualStoreDebug("HydrateSessionContext: recall failed: %v", err)
+			queryErrs = append(queryErrs, fmt.Errorf("recall similar content: %w", err))
+		}
+	}
+
+	for _, shardType := range shardTypes {
+		normalized := strings.TrimSpace(shardType)
+		if normalized == "" {
+			continue
+		}
+		if traces, err := v.QueryTraces(normalized, defaultTraceLimit); err == nil && len(traces) > 0 {
+			allFacts = append(allFacts, traces...)
+			count += len(traces)
+		} else if err != nil {
+			logging.VirtualStoreDebug("HydrateSessionContext: traces failed for %s: %v", normalized, err)
+			queryErrs = append(queryErrs, fmt.Errorf("query traces for %s: %w", normalized, err))
+		}
+	}
+
+	queryErr := errors.Join(queryErrs...)
+
+	// Atomic retract + assert: clear stale context and load new facts in one rebuild.
+	tx := types.NewKernelTx(kernel)
+	tx.RetractPredicateSet(hydratedSessionPredicates)
+	tx.LoadFacts(allFacts)
+	if err := tx.Commit(); err != nil {
+		logging.Get(logging.CategoryKernel).Warn("HydrateSessionContext: transaction commit failed: %v", err)
+		return 0, fmt.Errorf("hydrate session context transaction: %w", err)
+	}
+	if queryErr != nil {
+		return count, fmt.Errorf("hydrate session context committed partial snapshot: %w", queryErr)
+	}
+
+	logging.VirtualStore("HydrateSessionContext completed: %d facts hydrated", count)
+	return count, nil
+}
+
+// hydratedSessionPredicates are the predicates HydrateSessionContext owns: each
+// hydration replaces all three whole. One predicate-set retraction lets a
+// sharded kernel route the set to the shards holding it in a single pass
+// (CortexTransaction), instead of three separately routed retractions.
+var hydratedSessionPredicates = map[string]struct{}{
+	"session_turn":    {},
+	"similar_content": {},
+	"reasoning_trace": {},
+}
+
+// =============================================================================
+// VIRTUAL PREDICATE ATOM HELPERS
+// =============================================================================
+
+const (
+	defaultRecallTopK      = 5
+	defaultSessionLimit    = 50
+	defaultActivationLimit = 100
+	defaultActivationMin   = 0.0
+	defaultTraceLimit      = 50
+)
+
+func (v *VirtualStore) getQueryLearnedAtoms(query ast.Atom) ([]ast.Atom, error) {
+	predRaw, predName, ok := boundNameArg(query.Args, 0)
+	if ok {
+		facts, err := v.QueryLearned(predName)
+		if err != nil {
+			return nil, err
+		}
+		atoms := make([]ast.Atom, 0, len(facts))
+		for _, f := range facts {
+			atoms = appendAtom(atoms, "query_learned", predRaw, f.Args)
+		}
+		return atoms, nil
+	}
+
+	facts, err := v.QueryAllLearned("")
+	if err != nil {
+		return nil, err
+	}
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		atoms = appendAtom(atoms, "query_learned", f.Predicate, f.Args)
+	}
+	return atoms, nil
+}
+
+func (v *VirtualStore) getHasLearnedAtoms(query ast.Atom) ([]ast.Atom, error) {
+	predRaw, predName, ok := boundNameArg(query.Args, 0)
+	if ok {
+		learned, err := v.HasLearned(predName)
+		if err != nil {
+			return nil, err
+		}
+		if !learned {
+			return nil, nil
+		}
+		atoms := make([]ast.Atom, 0, 1)
+		atoms = appendAtom(atoms, "has_learned", predRaw)
+		return atoms, nil
+	}
+
+	facts, err := v.QueryAllLearned("")
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(facts))
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if _, exists := seen[f.Predicate]; exists {
+			continue
+		}
+		seen[f.Predicate] = struct{}{}
+		atoms = appendAtom(atoms, "has_learned", f.Predicate)
+	}
+	return atoms, nil
+}
+
+func (v *VirtualStore) getQuerySessionAtoms(query ast.Atom) ([]ast.Atom, error) {
+	sessionRaw, sessionID, ok := boundNameArg(query.Args, 0)
+	if !ok {
+		return nil, nil
+	}
+
+	facts, err := v.QuerySession(sessionID, defaultSessionLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) < 3 {
+			continue
+		}
+		atoms = appendAtom(atoms, "query_session", sessionRaw, f.Args[1], f.Args[2])
+	}
+	return atoms, nil
+}
+
+func (v *VirtualStore) getRecallSimilarAtoms(query ast.Atom) ([]ast.Atom, error) {
+	queryRaw, queryText, ok := boundNameArg(query.Args, 0)
+	if !ok {
+		return nil, nil
+	}
+
+	topK := defaultRecallTopK
+	if requested, ok := queryArgInt(query.Args, 1); ok && requested > 0 {
+		topK = requested
+	}
+
+	facts, err := v.RecallSimilar(context.Background(), queryText, topK)
+	if err != nil {
+		return nil, err
+	}
+
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) < 2 {
+			continue
+		}
+		atoms = appendAtom(atoms, "recall_similar", queryRaw, topK, f.Args[1])
+	}
+	return atoms, nil
+}
+
+func (v *VirtualStore) getQueryKnowledgeGraphAtoms(query ast.Atom) ([]ast.Atom, error) {
+	entityRaw, entity, ok := boundNameArg(query.Args, 0)
+	if !ok {
+		return nil, nil
+	}
+
+	facts, err := v.QueryKnowledgeGraph(entity, "both")
+	if err != nil {
+		return nil, err
+	}
+
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) < 3 {
+			continue
+		}
+		entityOut := f.Args[0]
+		if entityRaw != "" && toString(entityOut) == entity {
+			entityOut = entityRaw
+		}
+		atoms = appendAtom(atoms, "query_knowledge_graph", entityOut, f.Args[1], f.Args[2])
+	}
+	return atoms, nil
+}
+
+func (v *VirtualStore) getQueryActivationsAtoms(query ast.Atom) ([]ast.Atom, error) {
+	if len(query.Args) > 0 {
+		logging.VirtualStoreDebug("query_activations: ignoring %d arguments", len(query.Args))
+	}
+	facts, err := v.QueryActivations(defaultActivationLimit, defaultActivationMin)
+	if err != nil {
+		return nil, err
+	}
+
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) < 2 {
+			continue
+		}
+		atoms = appendAtom(atoms, "query_activations", f.Args...)
+	}
+	return atoms, nil
+}
+
+func (v *VirtualStore) getQueryTracesAtoms(query ast.Atom) ([]ast.Atom, error) {
+	shardRaw, shardType, ok := boundNameArg(query.Args, 0)
+	if !ok {
+		return nil, nil
+	}
+
+	limit := defaultTraceLimit
+	if requested, ok := queryArgInt(query.Args, 1); ok && requested > 0 {
+		limit = requested
+	}
+
+	facts, err := v.QueryTraces(shardType, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) < 6 {
+			continue
+		}
+		traceID := f.Args[0]
+		shardOut := f.Args[1]
+		success := f.Args[4]
+		duration := f.Args[5]
+		if shardRaw != "" {
+			shardOutStr := strings.TrimPrefix(toString(shardOut), "/")
+			if shardOutStr == shardType {
+				shardOut = shardRaw
+			}
+		}
+		atoms = appendAtom(atoms, "query_traces", shardOut, limit, traceID, success, duration)
+	}
+	return atoms, nil
+}
+
+func (v *VirtualStore) getQueryTraceStatsAtoms(query ast.Atom) ([]ast.Atom, error) {
+	shardRaw, shardType, ok := boundNameArg(query.Args, 0)
+	if !ok {
+		return nil, nil
+	}
+
+	facts, err := v.QueryTraceStats(shardType)
+	if err != nil {
+		return nil, err
+	}
+
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) < 4 {
+			continue
+		}
+		shardOut := f.Args[0]
+		if shardRaw != "" && strings.TrimPrefix(toString(shardOut), "/") == shardType {
+			shardOut = shardRaw
+		}
+		atoms = appendAtom(atoms, "query_trace_stats", shardOut, f.Args[1], f.Args[2], f.Args[3])
+	}
+	return atoms, nil
+}
+
+// getStringContainsAtoms is commented out as we transitioned to native :string:contains.
+/*
+func (v *VirtualStore) getStringContainsAtoms(query ast.Atom) ([]ast.Atom, error) {
+	if len(query.Args) != 2 {
+		return nil, nil
+	}
+	haystack, ok := queryArgStringRaw(query.Args, 0)
+	if !ok {
+		return nil, nil
+	}
+	needle, ok := queryArgStringRaw(query.Args, 1)
+	if !ok {
+		return nil, nil
+	}
+	if !strings.Contains(haystack, needle) {
+		return nil, nil
+	}
+	atoms := make([]ast.Atom, 0, 1)
+	atoms = appendAtom(atoms, "string_contains", haystack, needle)
+	return atoms, nil
+}
+*/
+
+func boundNameArg(args []ast.BaseTerm, idx int) (string, string, bool) {
+	raw, ok := queryArgStringRaw(args, idx)
+	if !ok {
+		return "", "", false
+	}
+	return raw, strings.TrimPrefix(raw, "/"), true
+}
+
+func queryArgStringRaw(args []ast.BaseTerm, idx int) (string, bool) {
+	if idx < 0 || idx >= len(args) {
+		return "", false
+	}
+	value := baseTermToValue(args[idx])
+	s, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	s = strings.TrimSpace(s)
+	if s == "" || strings.HasPrefix(s, "?") {
+		return "", false
+	}
+	return s, true
+}
+
+func queryArgInt(args []ast.BaseTerm, idx int) (int, bool) {
+	if idx < 0 || idx >= len(args) {
+		return 0, false
+	}
+	value := baseTermToValue(args[idx])
+	switch v := value.(type) {
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	case string:
+		s := strings.TrimSpace(v)
+		if s == "" || strings.HasPrefix(s, "?") {
+			return 0, false
+		}
+		parsed, err := strconv.Atoi(s)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	default:
+		return 0, false
+	}
+}
+
+func appendAtom(atoms []ast.Atom, predicate string, args ...any) []ast.Atom {
+	atom, err := Fact{Predicate: predicate, Args: args}.ToAtom()
+	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("Virtual predicate %s atom conversion failed: %v", predicate, err)
+		return atoms
+	}
+	return append(atoms, atom)
+}
+
+func mangleNameOrUnknown(value string) MangleAtom {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return MangleAtom("/unknown")
+	}
+	if !strings.HasPrefix(value, "/") {
+		value = "/" + value
+	}
+	return MangleAtom(value)
+}
+
+// =============================================================================
+// STRATEGIC KNOWLEDGE VIRTUAL PREDICATES
+// =============================================================================
+// These methods enable the main agent to query deep philosophical and
+// architectural knowledge about the codebase generated during /init.
+
+// QueryStrategicKnowledge queries knowledge atoms with a strategic/* concept.
+// Returns atoms like vision, philosophy, patterns, components, etc.
+func (v *VirtualStore) QueryStrategicKnowledge(category string) ([]Fact, error) {
+	logging.VirtualStoreDebug("QueryStrategicKnowledge: category=%s", category)
+
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("QueryStrategicKnowledge: no knowledge database configured")
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	// Build the concept prefix based on category
+	var prefix string
+	if category == "" || category == "all" {
+		prefix = "strategic/"
+	} else {
+		prefix = "strategic/" + category
+	}
+
+	atoms, err := db.GetKnowledgeAtomsByPrefix(prefix)
+	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("QueryStrategicKnowledge failed: %v", err)
+		return nil, fmt.Errorf("failed to query strategic knowledge: %w", err)
+	}
+
+	facts := make([]Fact, 0, len(atoms))
+	for _, atom := range atoms {
+		// Extract the subcategory from the concept (e.g., "strategic/vision" -> "vision")
+		subcategory := strings.TrimSpace(strings.TrimPrefix(atom.Concept, "strategic/"))
+		if subcategory == "" {
+			return nil, fmt.Errorf("strategic knowledge atom %q has no category", atom.Concept)
+		}
+		facts = append(facts, Fact{
+			Predicate: "strategic_knowledge",
+			Args:      []any{MangleAtom("/" + subcategory), atom.Content, types.PercentFromRatio(atom.Confidence)},
+		})
+	}
+
+	logging.VirtualStoreDebug("QueryStrategicKnowledge: found %d facts for category=%s", len(facts), category)
+	return facts, nil
+}
+
+// getQueryStrategicAtoms implements the query_strategic virtual predicate.
+// Usage: query_strategic(Category, Content, Confidence)
+// - Category bound: returns strategic knowledge for that category
+// - Category unbound: returns all strategic knowledge
+func (v *VirtualStore) getQueryStrategicAtoms(query ast.Atom) ([]ast.Atom, error) {
+	// Check if first arg (category) is bound
+	_, category, ok := boundNameArg(query.Args, 0)
+
+	if ok {
+		// Category specified - query that specific category
+		facts, err := v.QueryStrategicKnowledge(category)
+		if err != nil {
+			return nil, err
+		}
+		atoms := make([]ast.Atom, 0, len(facts))
+		for _, f := range facts {
+			if len(f.Args) >= 3 {
+				atoms = appendAtom(atoms, "query_strategic", f.Args[0], f.Args[1], f.Args[2])
+			}
+		}
+		return atoms, nil
+	}
+
+	// No category - return all strategic knowledge
+	facts, err := v.QueryStrategicKnowledge("")
+	if err != nil {
+		return nil, err
+	}
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) >= 3 {
+			atoms = appendAtom(atoms, "query_strategic", f.Args[0], f.Args[1], f.Args[2])
+		}
+	}
+	return atoms, nil
+}

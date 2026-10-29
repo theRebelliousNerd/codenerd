@@ -1,0 +1,94 @@
+- id: "campaign/librarian/protocol"
+  category: "campaign"
+  subcategory: "librarian"
+  is_mandatory: true
+  shard_types: ["librarian"]
+  campaign_phases: ["doc_classification"]
+  conflicts_with:
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  description: "Cognitive protocol - the classification algorithm decision tree for analyzing imports, structure, usage, and filenames"
+  content: |
+    // =============================================================================
+    // VIII. OUTPUT PROTOCOL
+    // =============================================================================
+
+    Your entire reply is ONE JSON object with exactly these three keys.
+
+    Do NOT wrap it in a "control_packet" envelope. Do NOT emit "surface_response",
+    "mangle_updates", or "tool_requests". Your reply is parsed
+    directly by Go; any key outside this shape is discarded.
+
+    {
+      "layer": "/service",
+      "confidence": 0.95,
+      "reasoning": "File defines 'UserService' struct with 'Register' method. Imports 'domain' package but no 'http' or 'sql' packages. Contains business validation logic."
+    }
+
+    In "reasoning", give a brief justification citing observable imports,
+    declarations, or usages. State uncertainty when evidence is incomplete.
+    Do not include private deliberation or intermediate analysis steps.
+
+- id: "campaign/librarian/protocol/classification-algorithm"
+  section_of: "campaign/librarian/protocol"
+  section_order: 1
+  category: "campaign"
+  subcategory: "librarian"
+  is_mandatory: false
+  shard_types: ["librarian"]
+  campaign_phases: ["doc_classification"]
+  description: "Cognitive protocol - the classification algorithm decision tree for analyzing imports, structure, usage, and filenames: Classification algorithm"
+  content: |
+    // =============================================================================
+    // III. COGNITIVE PROTOCOL (THE CLASSIFICATION ALGORITHM)
+    // =============================================================================
+    You must follow this decision tree exactly:
+
+    1.  **Analyze Imports**:
+        *   Does it import 'net/http'? -> Extremely likely **/transport** (or /integration).
+        *   Does it import 'database/sql'? -> Extremely likely **/data_layer** (or /integration).
+        *   Does it import nothing but 'time' and 'strings'? -> Likely **/domain_core** or **/service**.
+
+    2.  **Analyze Structure**:
+        *   Is it an 'interface' definition? -> **/domain_core**.
+        *   Is it a struct with tags like 'json:"..."' only? -> **/transport** (DTO) or **/domain_core**.
+        *   Is it a struct with tags like 'db:"..."'? -> **/data_layer**.
+
+    3.  **Analyze Usage**:
+        *   Does it call 'Rows.Scan'? -> **/data_layer**.
+        *   Does it call 'json.NewEncoder'? -> **/transport**.
+        *   Does it enforce business rules (ifs and loops on data)? -> **/service**.
+
+    4.  **Analyze Filename**:
+        *   '*_test.go': Classify based on the file being tested, but categorize as the same layer.
+        *   'Dockerfile': **/scaffold**.
+        *   'main.go': **/integration**.
+
+- id: "campaign/librarian/protocol/self-correction-and-reasoning"
+  section_of: "campaign/librarian/protocol"
+  section_order: 2
+  category: "campaign"
+  subcategory: "librarian"
+  is_mandatory: false
+  shard_types: ["librarian"]
+  campaign_phases: ["doc_classification"]
+  description: "Cognitive protocol - the classification algorithm decision tree for analyzing imports, structure, usage, and filenames: Classification accuracy and evidence"
+  content: |
+    // =============================================================================
+    // IX. SELF-CORRECTION PROTOCOL
+    // =============================================================================
+
+    If you detect uncertainty in your classification, you MUST self-correct:
+
+    ## SELF-CORRECTION TRIGGERS
+    - Imports suggest multiple layers (e.g., both http and sql) -> Likely /integration
+    - File has no clear layer indicators -> Request more context or classify as /scaffold
+    - Classification confidence < 0.70 -> Include uncertainty in response
+
+    Keep the same three-key output shape. Put the final layer in "layer",
+    the confidence in "confidence", and a short evidence-based justification
+    in "reasoning". Do not emit a separate self_correction object.
+
+    Cite concrete imports, declarations, or usages that support the layer.
+    No minimum word count or intermediate analysis transcript is required.

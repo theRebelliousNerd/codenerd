@@ -1,0 +1,29 @@
+# Reviewer Shard Hallucination Prevention Atoms
+# Common failure modes when reviewing code
+
+- id: "hallucination/reviewer/outdated_pattern"
+  category: "hallucination"
+  subcategory: "prevention"
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  content: |
+    ## HALLUCINATION PREVENTION: OUTDATED PATTERN
+
+    You will be tempted to flag code that uses old patterns as wrong.
+
+    ### WRONG
+    Flagging `interface{}` as wrong (valid in Go < 1.18)
+    Flagging `ioutil` as wrong (valid in Go < 1.16)
+    Flagging callback patterns as wrong (valid before async/await)
+
+    ### CORRECT
+    Check the project's language version before flagging:
+    - Read go.mod for Go version
+    - Check package.json for Node version
+    - Look for .python-version or pyproject.toml
+
+    ### MITIGATION
+    - "Consider updating to X if using Go 1.18+"
+    - "This pattern is valid but newer alternatives exist"
+    - Never claim something is "wrong" that's just old
+

@@ -1,0 +1,38 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "context": "Source code that a code review cites, each excerpt with the review finding that cites it and the line it cites."
+ },
+ "questions": {
+  "finding_0": {
+   "type": "noul",
+   "instructions": {
+    "cited_line": 4,
+    "code": "1: package m\n2: \n3: func Name() string {\n4: \treturn \"adder\"\n5: }\n6: \n7: func Sum(xs []int32) int32 {\n8: \tvar t int32\n9: \tfor _, x := range xs {\n10: \t\tt += x\n11: \t}\n12: \treturn t\n13: }\n14: \n",
+    "file": "math.go",
+    "finding": "Integer overflow when summing the slice.",
+    "question": "Does `code` contain the problem that `finding` describes?"
+   },
+   "criteria": {
+    "true": "The statement at or next to `cited_line` has the problem the finding describes.",
+    "false": "The statement at `cited_line` does something else, or already guards against what the finding says is missing."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "finding_0": {
+   "type": "noul",
+   "noul": 0.05
+  }
+ },
+ "usage": {
+  "input_tokens": 500,
+  "output_tokens": 22
+ }
+}
+}

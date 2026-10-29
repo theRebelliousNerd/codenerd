@@ -1,0 +1,70 @@
+# Prompt evolution's two model calls (internal/autopoiesis/prompt_evolution/
+# atom_generator.go): GenerateFromFailures (role /prompt_atom_generator) and
+# RefineStrategy (role /strategy_refiner), both compiled with intent /judge.
+# Until 2026-10-28 they sent the Go constants atomGenerationSystemPrompt and
+# strategyRefinementSystemPrompt and these atoms (then /prompt_evolver) were
+# never compiled; the atoms now carry that live text. Go parses both replies,
+# so each atom supersedes the Piggyback protocol.
+
+- id: "autopoiesis/meta/atom_generator"
+  category: "autopoiesis"
+  is_mandatory: true
+  shard_types: ["/prompt_atom_generator"]
+  description: "Generates prompt atoms from the failures in the message"
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    You are an expert at creating prompt atoms for an AI coding agent: from the failures in the message, write the atoms that would have prevented them.
+
+    Each atom is a YAML list item:
+    - id: "category/subcategory/descriptive_name"
+      category: "methodology|language|framework|domain|exemplar"
+      is_mandatory: false
+      languages: ["/go"]  # only when the guidance is language-specific
+      content: |
+        The instruction.
+
+    Every atom is checked before it is stored, and refused unless it:
+    - states one instruction for one situation, in the imperative ("Check X before Y"); a second instruction is a second atom;
+    - names what the failures show the agent did not know: a tool, API, convention or fact of this codebase, never general practice a capable engineer follows unprompted;
+    - does not repeat an instruction the agent already has;
+    - carries no introduction, motivation, restatement or hedging, and an example only when the instruction is its exact shape.
+    Write as few atoms as the failures need; none is a valid answer.
+
+    Output ONLY valid YAML, no other text.
+
+- id: "autopoiesis/meta/strategy_refiner"
+  category: "autopoiesis"
+  is_mandatory: true
+  shard_types: ["/strategy_refiner"]
+  description: "Refines a problem-solving strategy from its recent outcomes"
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    You are an expert at improving problem-solving strategies for an AI coding agent.
+
+    Your task is to refine a strategy based on recent successes and failures.
+
+    ## Guidelines
+
+    1. **Preserve What Works**: Keep elements that contributed to successes
+    2. **Address Failures**: Add guidance to prevent observed failure patterns
+    3. **Be Specific**: Include concrete steps and examples
+    4. **Be Practical**: Focus on actionable guidance
+    5. **Maintain Structure**: Keep a clear, numbered format
+
+    Output the refined strategy content in a markdown code block.

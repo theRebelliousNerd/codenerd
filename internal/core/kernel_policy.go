@@ -1,0 +1,608 @@
+package core
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/mangle/feedback"
+	"codenerd/internal/types"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/factstore"
+)
+
+// checkUnsafeNegation rejects a candidate rule that negates an atom with an
+// anonymous variable (!active_shard(_, Type)): the wildcard is unbound, which
+// violates Mangle's negation safety requirement.
+//
+// It reads the parsed clauses. The regex it replaces matched any "_" between
+// the parentheses of a negated atom, so the name constant in
+// !executive_processed_intent(/current_intent) was refused as an "anonymous
+// variable" and a valid candidate never reached the sandbox. A rule that does
+// not parse is left to the sandbox compiler, which reports the parse error.
+func checkUnsafeNegation(rule string) error {
+	unit, err := parseUnit(strings.NewReader(rule))
+	if err != nil {
+		return nil
+	}
+	var offending []string
+	for _, clause := range unit.Clauses {
+		for _, premise := range clause.Premises {
+			neg, ok := premise.(ast.NegAtom)
+			if !ok {
+				continue
+			}
+			for _, arg := range neg.Atom.Args {
+				if v, isVar := arg.(ast.Variable); isVar && v.Symbol == "_" {
+					offending = append(offending, neg.String())
+					break
+				}
+			}
+		}
+	}
+	if len(offending) > 0 {
+		return fmt.Errorf("unsafe negation pattern detected: %v - anonymous variables in negated atoms are unbound. Use a helper predicate instead (e.g., has_active_shard(Type) instead of !active_shard(_, Type))", offending)
+	}
+	return nil
+}
+
+// =============================================================================
+// POLICY MANAGEMENT
+// =============================================================================
+
+// SetPolicy allows loading custom policy rules (for shard specialization).
+func (k *RealKernel) SetPolicy(policy string) {
+	logging.KernelDebug("SetPolicy: loading custom policy (%d bytes)", len(policy))
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.policy = policy
+	k.loadedPolicyFiles = make(map[string]struct{})
+	k.markPolicyDirtyLocked()
+	logging.KernelDebug("SetPolicy: policyDirty set to true")
+}
+
+// AppendPolicy appends additional policy rules (for shard-specific policies).
+func (k *RealKernel) AppendPolicy(additionalPolicy string) {
+	if k == nil {
+		logging.Get(logging.CategoryKernel).Error("AppendPolicy: kernel is nil, dropping %d bytes of policy", len(additionalPolicy))
+		return
+	}
+	logging.KernelDebug("AppendPolicy: appending %d bytes to existing policy", len(additionalPolicy))
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	prevLen := len(k.policy)
+	k.policy = k.policy + "\n\n# Appended Policy\n" + additionalPolicy
+	k.markPolicyDirtyLocked()
+	logging.KernelDebug("AppendPolicy: policy grew from %d to %d bytes, policyDirty=true", prevLen, len(k.policy))
+}
+
+// LoadPolicyFile loads policy rules from a file and appends them.
+func (k *RealKernel) LoadPolicyFile(path string) error {
+	logging.KernelDebug("LoadPolicyFile: attempting to load %s", path)
+	baseName := filepath.Base(path)
+	key := strings.ToLower(baseName)
+
+	k.mu.RLock()
+	if _, ok := k.loadedPolicyFiles[key]; ok {
+		k.mu.RUnlock()
+		logging.KernelDebug("LoadPolicyFile: already loaded (skipping append): %s", baseName)
+		return nil
+	}
+	k.mu.RUnlock()
+
+	var (
+		data       []byte
+		sourceDesc string
+	)
+
+	// 1. Try Embedded Core first
+	if bytes, err := coreLogic.ReadFile("defaults/" + baseName); err == nil {
+		data = bytes
+		sourceDesc = "embedded core: " + baseName
+	}
+
+	// 2. Try User Workspace (.nerd/mangle)
+	if data == nil {
+		userPath := filepath.Join(k.nerdPath("mangle"), baseName)
+		if bytes, err := os.ReadFile(userPath); err == nil {
+			data = bytes
+			sourceDesc = "user workspace: " + userPath
+		}
+	}
+
+	// 3. Try explicitly provided path
+	if data == nil {
+		if bytes, err := os.ReadFile(path); err == nil {
+			data = bytes
+			sourceDesc = "explicit path: " + path
+		}
+	}
+
+	// 4. Try legacy search paths (fallback for existing behavior)
+	if data == nil {
+		searchPaths := []string{
+			filepath.Join("internal/mangle", baseName),
+			filepath.Join("../internal/mangle", baseName),
+			filepath.Join("../../internal/mangle", baseName),
+		}
+
+		for _, p := range searchPaths {
+			bytes, err := os.ReadFile(p)
+			if err == nil {
+				data = bytes
+				sourceDesc = "legacy path: " + p
+				break
+			}
+		}
+	}
+
+	if data == nil {
+		logging.Get(logging.CategoryKernel).Error("LoadPolicyFile: policy file not found: %s", path)
+		return fmt.Errorf("policy file not found: %s", path)
+	}
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.loadedPolicyFiles == nil {
+		k.loadedPolicyFiles = make(map[string]struct{})
+	}
+	if _, ok := k.loadedPolicyFiles[key]; ok {
+		logging.KernelDebug("LoadPolicyFile: already loaded after read (skipping append): %s", baseName)
+		return nil
+	}
+
+	logging.Kernel("LoadPolicyFile: loaded from %s (%d bytes)", sourceDesc, len(data))
+	prevLen := len(k.policy)
+	k.policy = k.policy + "\n\n# Appended Policy (" + baseName + ")\n" + string(data)
+	k.loadedPolicyFiles[key] = struct{}{}
+	k.markPolicyDirtyLocked()
+	logging.KernelDebug("LoadPolicyFile: policy grew from %d to %d bytes, policyDirty=true", prevLen, len(k.policy))
+	return nil
+}
+
+// GetPolicy returns the current policy.
+func (k *RealKernel) GetPolicy() string {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.policy
+}
+
+// =============================================================================
+// LEARNED RULES & AUTOPOIESIS
+// =============================================================================
+
+// HotLoadRule VALIDATES a single Mangle rule. It does not load it.
+//
+// The name and the comment that used to sit here both said otherwise — "loads a
+// single Mangle rule at runtime... used by Autopoiesis to add new rules without
+// restarting" — which describes HotLoadLearnedRule, the function below that
+// really does install a rule and persist it to learned.mg. This one compiles the
+// candidate against a sandbox kernel and returns whether it is acceptable. Both
+// production callers use it exactly that way and are correct:
+// feedback/loop.go calls it as "Phase 3: Sandbox compilation" and
+// shards/system/mangle_repair.go as "Phase 1: Syntax check via kernel".
+//
+// The comment was not harmless. A test in tests/e2e hot-loaded a panic_state
+// rule, got nil back, and then asserted on a derivation that could never
+// happen — the rule had been validated and discarded. It took a kernel probe to
+// see it, because every signal available to the caller said the rule was in.
+// Use AppendPolicy for a rule the kernel should actually evaluate, or
+// HotLoadLearnedRule for one that should also survive a restart.
+//
+// FIX for Bug #8 (Suicide Rule): the sandbox compile is what keeps an invalid
+// candidate from bricking the kernel, and it stays.
+func (k *RealKernel) HotLoadRule(rule string) error {
+	timer := logging.StartTimer(logging.CategoryKernel, "HotLoadRule")
+
+	if rule == "" {
+		err := fmt.Errorf("empty rule")
+		logging.Get(logging.CategoryKernel).Error("HotLoadRule: %v", err)
+		return err
+	}
+
+	normalizedRule := feedback.NormalizeRuleInput(rule)
+	if normalizedRule != rule {
+		logging.KernelDebug("HotLoadRule: normalized rule input for parser compatibility")
+	}
+	rule = normalizedRule
+
+	// Pre-validation: Check for unsafe negation patterns (unbound variables in negation)
+	// Pattern: !predicate(..., _) where _ is an anonymous variable that would be unbound
+	if err := checkUnsafeNegation(rule); err != nil {
+		logging.Get(logging.CategoryKernel).Error("HotLoadRule: %v", err)
+		return err
+	}
+
+	logging.Kernel("HotLoadRule: attempting to load rule (%d bytes)", len(rule))
+
+	// Log the rule being loaded (truncated for readability)
+	logging.KernelDebug("HotLoadRule: rule preview: %s", types.Ellipsize(rule, 100))
+
+	k.mu.RLock()
+	schemas := k.schemas
+	policy := k.policy
+	learned := k.learned
+	k.mu.RUnlock()
+
+	// 1. Validate with a sandbox kernel (memory-only)
+	logging.KernelDebug("HotLoadRule: creating sandbox kernel for validation")
+	logging.KernelDebug("HotLoadRule: validating rule in sandbox...")
+	if err := validateRuleSandbox(rule, schemas, policy, learned); err != nil {
+		// Warn, not Error: rejecting a candidate rule is this gate working.
+		// The caller (Legislator) repairs and retries, and typically ratifies
+		// on the next attempt. Logged at ERROR it was indistinguishable from
+		// the production corpus failing to parse.
+		logging.Get(logging.CategoryKernel).Warn("HotLoadRule: candidate rule rejected by sandbox compiler (caller may repair and retry): %v", err)
+		return fmt.Errorf("rule rejected by sandbox compiler: %w", err)
+	}
+	logging.KernelDebug("HotLoadRule: sandbox validation passed")
+
+	if err := k.checkCandidateBoundsAgainstProgram(rule); err != nil {
+		logging.Get(logging.CategoryKernel).Warn("HotLoadRule: candidate rule rejected by static bounds check (caller may repair and retry): %v", err)
+		return err
+	}
+
+	timer.StopWithInfo()
+	logging.Kernel("HotLoadRule: rule validated successfully")
+	return nil
+}
+
+// GenerateValidatedRule uses an LLM to generate a Mangle rule and validates it
+// through the feedback loop system. This method implements the neuro-symbolic
+// pattern: LLM creativity + deterministic validation.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout propagation
+//   - llmClient: Client that implements feedback.LLMClient interface
+//   - purpose: Description of what the rule should accomplish
+//   - contextMap: Additional context for rule generation (injected into prompt)
+//   - domain: Rule domain for example selection (e.g., "executive", "action", "selection")
+//
+// Returns the validated rule string or an error if generation/validation fails.
+func (k *RealKernel) GenerateValidatedRule(
+	ctx context.Context,
+	llmClient feedback.LLMClient,
+	purpose string,
+	contextMap map[string]string,
+	domain string,
+) (string, error) {
+	timer := logging.StartTimer(logging.CategoryKernel, "GenerateValidatedRule")
+	logging.Kernel("GenerateValidatedRule: generating rule for purpose=%q domain=%q", purpose, domain)
+
+	if purpose == "" {
+		return "", fmt.Errorf("purpose cannot be empty")
+	}
+
+	if llmClient == nil {
+		return "", fmt.Errorf("llmClient cannot be nil")
+	}
+
+	// The generator's persona, syntax rules and reply contract are its role
+	// atoms; the syntax reminder and the declared predicates are appended to
+	// them. A rule generator with no prompt is an error, not a rule written
+	// from some other text.
+	base, err := k.ruleGeneratorSystemPrompt(ctx)
+	if err != nil {
+		return "", fmt.Errorf("rule generation: %w", err)
+	}
+	predicates := k.GetDeclaredPredicates()
+	systemPrompt := feedback.BuildEnhancedSystemPrompt(base, predicates)
+	userPrompt := ruleGeneratorMessage(purpose, contextMap)
+	logging.KernelDebug("GenerateValidatedRule: user prompt length=%d, available predicates=%d",
+		len(userPrompt), len(predicates))
+
+	// Create feedback loop with default config
+	feedbackLoop := feedback.NewFeedbackLoop(feedback.DefaultConfig())
+	feedbackLoop.UpdateFromProgramInfo(k.GetProgramInfo())
+
+	// Run generation with validation
+	result, err := feedbackLoop.GenerateAndValidate(
+		ctx,
+		llmClient,
+		k, // RealKernel implements RuleValidator via HotLoadRule and GetDeclaredPredicates
+		systemPrompt,
+		userPrompt,
+		domain,
+	)
+	if err != nil {
+		attempts := 0
+		if result != nil {
+			attempts = result.Attempts
+		}
+		logging.Get(logging.CategoryKernel).Error("GenerateValidatedRule: generation failed after %d attempts: %v",
+			attempts, err)
+		return "", fmt.Errorf("rule generation failed: %w", err)
+	}
+
+	if result == nil || !result.Valid {
+		errorCount := 0
+		if result != nil {
+			errorCount = len(result.Errors)
+		}
+		logging.Get(logging.CategoryKernel).Error("GenerateValidatedRule: validation failed, errors=%d",
+			errorCount)
+		return "", fmt.Errorf("generated rule failed validation")
+	}
+
+	timer.StopWithInfo()
+	logging.Kernel("GenerateValidatedRule: success after %d attempts, autoFixed=%v",
+		result.Attempts, result.AutoFixed)
+
+	return result.Rule, nil
+}
+
+// ruleGeneratorRole is the role GenerateValidatedRule's system prompt compiles
+// under: its atoms (atoms/system/mangle_rule_generator.yaml) declare
+// shard_types ["/mangle_rule_generator"]. The judge intent keeps worker intent
+// atoms out of a compile whose reply is one rule.
+const (
+	ruleGeneratorRole   = "mangle_rule_generator"
+	ruleGeneratorIntent = "judge"
+)
+
+// SetRolePrompts installs the compiler of the kernel's role prompts (the rule
+// generator's). Nil leaves GenerateValidatedRule reporting
+// types.ErrRolePromptUnavailable.
+func (k *RealKernel) SetRolePrompts(c types.RolePromptCompiler) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.rolePrompts = c
+}
+
+// ruleGeneratorSystemPrompt compiles the rule generator's role prompt.
+func (k *RealKernel) ruleGeneratorSystemPrompt(ctx context.Context) (string, error) {
+	k.mu.RLock()
+	rp := k.rolePrompts
+	k.mu.RUnlock()
+	if rp == nil {
+		return "", fmt.Errorf("%w: no role prompt compiler for the %s", types.ErrRolePromptUnavailable, ruleGeneratorRole)
+	}
+	return rp.CompileRolePrompt(ctx, types.RolePromptRequest{Role: ruleGeneratorRole, Intent: ruleGeneratorIntent})
+}
+
+// ruleGeneratorMessage is the rule generator's user message: the purpose and
+// the additional context, the data its role prompt says it is given.
+func ruleGeneratorMessage(purpose string, contextMap map[string]string) string {
+	var b strings.Builder
+	b.WriteString("Purpose:\n")
+	b.WriteString(purpose)
+	if len(contextMap) > 0 {
+		b.WriteString("\n\n## Additional Context:\n")
+		contextKeys := make([]string, 0, len(contextMap))
+		for key := range contextMap {
+			contextKeys = append(contextKeys, key)
+		}
+		sort.Strings(contextKeys)
+		// Sorted: this builds a prompt, and a prompt whose lines reorder
+		// between runs cannot be matched by a provider's prefix cache or
+		// diffed by a person trying to find out why the agent got worse.
+		for _, key := range contextKeys {
+			fmt.Fprintf(&b, "- %s: %s\n", key, contextMap[key])
+		}
+	}
+	return b.String()
+}
+
+// HotLoadLearnedRule dynamically loads a learned rule and persists it to learned.mg.
+// This is the primary method for Autopoiesis to add new learned rules.
+// It validates the rule, loads it into memory, and writes it to disk for persistence.
+// Empty rules are rejected before the interceptor runs: there is nothing
+// to repair, and a successful return must never persist a junk entry.
+func (k *RealKernel) HotLoadLearnedRule(rule string) error {
+	logging.Kernel("HotLoadLearnedRule: loading and persisting learned rule")
+
+	if strings.TrimSpace(rule) == "" {
+		err := fmt.Errorf("empty rule")
+		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: %v", err)
+		return err
+	}
+
+	// 0. If repair interceptor is set, use it for validation and repair FIRST
+	// This allows MangleRepairShard to fix rules before we even try to load them
+	k.mu.RLock()
+	interceptor := k.repairInterceptor
+	k.mu.RUnlock()
+
+	if interceptor != nil {
+		logging.Kernel("HotLoadLearnedRule: invoking repair interceptor")
+		ctx := context.Background()
+		repairedRule, err := interceptor.InterceptLearnedRule(ctx, rule)
+		if err != nil {
+			logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: repair interceptor rejected rule: %v", err)
+			return fmt.Errorf("rule rejected by repair interceptor: %w", err)
+		}
+		if repairedRule != rule {
+			logging.Kernel("HotLoadLearnedRule: rule was repaired by interceptor")
+			rule = repairedRule
+		}
+	}
+
+	normalizedRule := feedback.NormalizeRuleInput(rule)
+	if normalizedRule != rule {
+		logging.KernelDebug("HotLoadLearnedRule: normalized rule input for parser compatibility")
+	}
+	rule = normalizedRule
+
+	if err := checkUnsafeNegation(rule); err != nil {
+		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: %v", err)
+		return err
+	}
+
+	k.mu.RLock()
+	schemas := k.schemas
+	policy := k.policy
+	learned := k.learned
+	k.mu.RUnlock()
+
+	// 1. Validate using sandbox (compile-only)
+	if err := validateRuleSandbox(rule, schemas, policy, learned); err != nil {
+		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: validation failed: %v", err)
+		return err
+	}
+	if err := k.checkCandidateBoundsAgainstProgram(rule); err != nil {
+		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: %v", err)
+		return err
+	}
+
+	// 1b. Learned-rule validation: every body predicate is declared (no
+	// schema drift), and no head is protected -- the static list, the
+	// constitution's grant path, or a host witness. The error goes back to
+	// the proposer as-is, so it must say which of those it was.
+	if err := k.ValidateLearnedRule(rule); err != nil {
+		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: learned-rule validation failed: %v", err)
+		return fmt.Errorf("learned rule rejected: %w", err)
+	}
+	logging.KernelDebug("HotLoadLearnedRule: schema validation passed")
+
+	// 1c. Pathological pattern check - prevent infinite loop rules
+	// This catches rules like "next_action(X) :- current_time(_)" that always fire
+	if loopErr := k.checkInfiniteLoopRisk(rule); loopErr != "" {
+		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: pathological pattern detected: %s", loopErr)
+		return fmt.Errorf("pathological rule rejected: %s", loopErr)
+	}
+	logging.KernelDebug("HotLoadLearnedRule: pathological pattern check passed")
+
+	// 2. Persist to learned.mg file
+	if err := k.appendToLearnedFile(rule); err != nil {
+		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: failed to persist rule: %v", err)
+		return err
+	}
+
+	k.mu.Lock()
+	k.applyLearnedRuleLocked(rule)
+	k.refreshSchemaValidatorLocked()
+	k.mu.Unlock()
+
+	logging.Kernel("HotLoadLearnedRule: rule loaded and persisted successfully")
+	return nil
+}
+
+func validateRuleSandbox(rule, schemas, policy, learned string) error {
+	sandbox := &RealKernel{
+		store:             factstore.NewSimpleInMemoryStore(),
+		loadedPolicyFiles: make(map[string]struct{}),
+		policyDirty:       true,
+		sandbox:           true,
+	}
+	sandbox.schemas = schemas
+	sandbox.policy = policy
+	sandbox.learned = learned
+	if rule != "" {
+		if sandbox.learned != "" {
+			sandbox.learned = sandbox.learned + "\n\n# Sandbox Validation\n" + rule
+		} else {
+			sandbox.learned = "# Sandbox Validation\n" + rule
+		}
+	}
+	return sandbox.rebuildProgram()
+}
+
+func (k *RealKernel) applyLearnedRuleLocked(rule string) {
+	if rule == "" {
+		return
+	}
+	if k.learned != "" {
+		k.learned = k.learned + "\n\n# HotLoaded Rule\n" + rule
+	} else {
+		k.learned = "# HotLoaded Rule\n" + rule
+	}
+	k.markPolicyDirtyLocked()
+}
+
+// appendToLearnedFile appends a rule to learned.mg on disk.
+func (k *RealKernel) appendToLearnedFile(rule string) error {
+	logging.KernelDebug("appendToLearnedFile: persisting rule to disk")
+
+	// Determine workspace path for persistence
+	// Priority: explicit manglePath > workspace-based .nerd/mangle > relative .nerd/mangle
+	targetDir := k.nerdPath("mangle")
+	if k.manglePath != "" {
+		targetDir = k.manglePath
+	}
+	logging.KernelDebug("appendToLearnedFile: target directory: %s", targetDir)
+
+	// Ensure directory exists
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		logging.Get(logging.CategoryKernel).Error("appendToLearnedFile: failed to create directory: %v", err)
+		return fmt.Errorf("failed to create directory for learned rules: %w", err)
+	}
+
+	learnedPath := filepath.Join(targetDir, "learned.mg")
+
+	// Append rule to file
+	f, err := os.OpenFile(learnedPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("appendToLearnedFile: failed to open learned.mg: %v", err)
+		return fmt.Errorf("failed to open learned.mg: %w", err)
+	}
+	defer f.Close()
+
+	// Write rule with proper formatting
+	_, err = f.WriteString(fmt.Sprintf("\n# Autopoiesis-learned rule (added %s)\n%s\n",
+		time.Now().Format("2006-01-02 15:04:05"), rule))
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("appendToLearnedFile: failed to write: %v", err)
+		return fmt.Errorf("failed to write to learned.mg: %w", err)
+	}
+
+	logging.Kernel("appendToLearnedFile: rule persisted to %s", learnedPath)
+	return nil
+}
+
+// GetLearned returns the current learned rules.
+func (k *RealKernel) GetLearned() string {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.learned
+}
+
+// SetLearned allows loading custom learned rules (for testing).
+func (k *RealKernel) SetLearned(learned string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.learned = learned
+	k.markPolicyDirtyLocked()
+	k.refreshSchemaValidatorLocked()
+}
+
+// -----------------------------------------------------------------------------
+// Schema / policy content setters
+// -----------------------------------------------------------------------------
+
+// LoadSchemas replaces the kernel's schema content and marks it for reparse.
+// This is used by KernelShard to load domain-specific schemas.
+func (k *RealKernel) LoadSchemas(schemaContent string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.schemas = schemaContent
+	k.markPolicyDirtyLocked() // Force reparse since schemas changed
+	logging.KernelDebug("LoadSchemas: replaced schemas (%d bytes), policyDirty=true", len(schemaContent))
+}
+
+// AppendSchema appends additional schema declarations to the kernel's existing schemas.
+// Unlike LoadSchemas, this preserves all existing schemas (e.g., the 277KB Cortex defaults)
+// and adds new declarations on top. Use this for tests or extensions that need to add
+// one or two predicates without wiping out the entire schema corpus.
+func (k *RealKernel) AppendSchema(schemaContent string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.schemas += "\n" + schemaContent
+	k.markPolicyDirtyLocked() // Force reparse since schemas changed
+	logging.KernelDebug("AppendSchema: appended %d bytes to schemas (total %d bytes), policyDirty=true", len(schemaContent), len(k.schemas))
+}
+
+// LoadPolicy replaces the kernel's policy content and marks it for reparse.
+// This is used by KernelShard to load domain-specific policy rules.
+func (k *RealKernel) LoadPolicy(policyContent string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.policy = policyContent
+	k.markPolicyDirtyLocked() // Force reparse since policy changed
+	logging.KernelDebug("LoadPolicy: replaced policy (%d bytes), policyDirty=true", len(policyContent))
+}

@@ -1,0 +1,63 @@
+jev_probe: 51 case(s) x 2 run(s), thresholds yes>=0.70 no<=0.30, 76584 input tokens, 7.217s
+
+about_codenerd       right  16  wrong   0  unsettled   0  (100%)
+adds_to_held_work    right  14  wrong   0  unsettled   0  (100%)
+answered_0           right   8  wrong   0  unsettled   0  (100%)
+answered_1           right   4  wrong   0  unsettled   0  (100%)
+approves_held_work   right  16  wrong   2  unsettled   2  (80%)
+changes_files        right  54  wrong   0  unsettled   0  (100%)
+hypothetical         right  18  wrong   0  unsettled   0  (100%)
+names_target         right  26  wrong   0  unsettled   2  (93%)
+rules_out_changes    right  10  wrong   0  unsettled   0  (100%)
+wants_to_stop        right  14  wrong   0  unsettled   0  (100%)
+all                  right 180 of 186 (97%)
+
+misses (x wrong, ~ unsettled):
+  x go-skip-docs           approves_held_work p=0.25 want=true  "do it but skip the docs part"
+  x go-skip-docs           approves_held_work p=0.26 want=true  "do it but skip the docs part"
+  ~ go-plus-change         approves_held_work p=0.56 want=true  "go, and also add a test for it"
+  ~ go-plus-change         approves_held_work p=0.65 want=true  "go, and also add a test for it"
+  ~ review                 names_target       p=0.56 want=true  "review my changes in internal/approval"
+  ~ review                 names_target       p=0.58 want=true  "review my changes in internal/approval"
+
+retrieval relevance (repo files, head 3000 bytes)
+ typesafe-retry: "the typesafe client retries a 429 but gives up on a 400; where is that decided?"
+   ok     p=0.90 want=true  retry.go
+   ok     p=0.97 want=true  apierror.go
+   ok     p=0.96 want=true  client.go
+   ok     p=0.21 want=false ollama.go
+   ok     p=0.11 want=false verifier.go
+   ok     p=0.05 want=false risk_scoring.go
+ approval-duplicate: "the approval broker opens a second request when the same call arrives twice"
+   ok     p=0.95 want=true  broker.go
+   ok     p=0.89 want=true  request.go
+   ok     p=0.06 want=false grant_path.go
+   ok     p=0.10 want=false contract_audit.go
+   ok     p=0.02 want=false pricing.go
+ usage-unpriced: "how is a model with no entry in the price table billed?"
+   ok     p=0.97 want=true  pricing.go
+   ~      p=0.31 want=true  usage.go
+   ok     p=0.04 want=false journal.go
+   ok     p=0.06 want=false engine.go
+
+review finding checks
+   ok     p=0.88 want=true  nil-map-real
+   ok     p=0.04 want=false nil-map-guarded
+   ok     p=0.98 want=true  sql-concat-real
+   ok     p=0.02 want=false sql-parameterised
+   ok     p=0.96 want=true  unclosed-file-real
+   ok     p=0.05 want=false unclosed-file-deferred
+   ok     p=0.05 want=false wrong-place
+
+self-diagnosis triage (defect = a bug in codeNERD's code)
+   ok     p=0.84 want=true  nil-deref
+   hard   p=0.55 want=?     mangle-parse
+   ok     p=0.83 want=true  unbound-var
+   ok     p=0.80 want=true  index-range
+   ok     p=0.07 want=false io-timeout
+   ok     p=0.07 want=false rate-limit
+   ok     p=0.10 want=false missing-key
+   ok     p=0.07 want=false missing-tool
+   ok     p=0.04 want=false disk-full
+   hard   p=0.17 want=?     deadline
+   hard   p=0.26 want=?     slow-eval

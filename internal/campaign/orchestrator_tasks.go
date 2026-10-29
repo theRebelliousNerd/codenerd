@@ -1,0 +1,924 @@
+package campaign
+
+import (
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/sessionlog"
+	"codenerd/internal/types"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
+
+// incrementCheckpointFailures bumps and returns the failure counter for the phase
+// with the given ID in the live campaign. The counter is the campaign's durable
+// record; syncCheckpointFailures mirrors it to the kernel, where the policy
+// decides what the failure leads to (phase_ckpt_move).
+func (o *Orchestrator) incrementCheckpointFailures(phaseID string) int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.campaign == nil {
+		return 0
+	}
+	for i := range o.campaign.Phases {
+		if o.campaign.Phases[i].ID == phaseID {
+			o.campaign.Phases[i].CheckpointFailures++
+			return o.campaign.Phases[i].CheckpointFailures
+		}
+	}
+	return 0
+}
+
+// syncCheckpointFailures makes the kernel's phase_checkpoint_failure rows for
+// the phase the runs 1..n, replacing whatever it held: the policy counts those
+// rows (phase_ckpt_failures), so they are the campaign's own record, never an
+// append that a re-armed phase (n = 0) would inherit.
+func (o *Orchestrator) syncCheckpointFailures(phaseID string, n int) {
+	if o.kernel == nil {
+		return
+	}
+	_ = o.kernel.RetractFact(core.Fact{Predicate: "phase_checkpoint_failure", Args: []any{phaseID}})
+	for run := 1; run <= n; run++ {
+		if err := o.kernel.Assert(core.Fact{Predicate: "phase_checkpoint_failure", Args: []any{phaseID, run}}); err != nil {
+			logging.Get(logging.CategoryCampaign).Error(
+				"Checkpoint failure %d of phase %s was not recorded in the kernel: %v", run, phaseID, err)
+		}
+	}
+}
+
+// runPhase executes all tasks in a phase with bounded parallelism, checkpoints,
+// and rolling-wave refinement of the next phase once complete.
+func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
+	if phase == nil {
+		return nil
+	}
+	// The phase is an agent of its own in the session log: its folder holds the
+	// model calls the orchestrator makes for it and a transcript of the phase.
+	_, err := sessionlog.RunAgent(ctx, "campaign-phase", phase.ID,
+		fmt.Sprintf("campaign phase %q: %d task(s)", phase.Name, len(phase.Tasks)),
+		func(ctx context.Context) (string, error) {
+			err := o.runPhaseTasks(ctx, phase)
+			return fmt.Sprintf("phase %q ended", phase.Name), err
+		})
+	return err
+}
+
+// runPhaseTasks is the phase's scheduling loop.
+func (o *Orchestrator) runPhaseTasks(ctx context.Context, phase *Phase) error {
+
+	phaseTimer := logging.StartTimer(logging.CategoryCampaign, fmt.Sprintf("runPhase(%s)", phase.Name))
+	defer phaseTimer.StopWithInfo()
+
+	logging.Campaign("Executing phase: %s (tasks=%d)", phase.Name, len(phase.Tasks))
+
+	active := make(map[string]bool)
+	results := make(chan taskResult, o.policy.MaxParallelTasks*2)
+
+	// drainActive joins in-flight task goroutines after context cancellation.
+	// Deterministic contract: on cancellation, stop scheduling and drain results
+	// and join worker owners before another process can reuse the checkpoint.
+	drainActive := func() {
+		if len(active) == 0 {
+			return
+		}
+		// Cancellation must join task owners before returning a reusable checkpoint.
+		// Returning after a timer leaves ghost writers racing the next process.
+		for len(active) > 0 {
+			res := <-results
+			delete(active, res.taskID)
+		}
+
+	}
+
+	for {
+		// Re-bind to the live phase each iteration. A concurrent task rollback
+		// (assault), replan, or rolling-wave can swap o.campaign.Phases to a
+		// freshly cloned backing array, orphaning this cached pointer; reading a
+		// stale phase makes already-completed tasks look perpetually pending and
+		// drives the F-SCHED-2 infinite completion→re-dispatch loop. If the phase
+		// was removed entirely, hand control back to the main Run loop.
+		if live := o.livePhaseByID(phase.ID); live != nil {
+			phase = live
+		} else {
+			logging.Campaign("Phase %s no longer present in campaign; returning to main loop", phase.ID)
+			return nil
+		}
+
+		// Respect cancellation — drain in-flight workers before returning.
+		select {
+		case <-ctx.Done():
+			logging.Campaign("Phase %s cancelled", phase.Name)
+			drainActive()
+			return ctx.Err()
+		default:
+		}
+
+		// Respect pause (no new work scheduled while paused).
+		// Snapshot pauseCh under the same lock that guards isPaused; on
+		// resume the channel is closed, which wakes the select below.
+		o.mu.RLock()
+		paused := o.isPaused
+		pauseCh := o.pauseCh
+		o.mu.RUnlock()
+		if paused {
+			select {
+			case <-ctx.Done():
+				logging.Campaign("Phase %s cancelled during pause", phase.Name)
+				drainActive()
+				return ctx.Err()
+			case <-pauseCh:
+				// Resumed; fall through to schedule
+			}
+			continue
+		}
+
+		// Drain any completed tasks
+		for {
+			select {
+			case res := <-results:
+				logging.CampaignDebug("Task result received: %s (err=%v)", res.taskID, res.err)
+				delete(active, res.taskID)
+			default:
+				goto schedule
+			}
+		}
+
+	schedule:
+		// Nothing running and the kernel derives every task done: run the
+		// checkpoint and finish. The kernel is asked only when nothing is
+		// running, not on every poll.
+		if len(active) == 0 && o.phaseTasksDone(phase) {
+			logging.Campaign("Phase %s complete, running checkpoint", phase.Name)
+			allPassed, failedSummary, err := o.runPhaseCheckpoint(ctx, phase)
+			if err != nil {
+				logging.Get(logging.CategoryCampaign).Error("Checkpoint errored for phase %s: %v", phase.ID, err)
+				o.emitEvent(EventCheckpointFailed, phase.ID, "", err.Error(), nil)
+			}
+
+			// A failed checkpoint keeps the phase open; what it leads to is the
+			// policy's (campaign_decisions.mg phase_ckpt_move): a replan, a
+			// recheck, or -- at campaign.max_checkpoint_attempts -- closing the
+			// phase unverified.
+			if !allPassed {
+				attempts := o.incrementCheckpointFailures(phase.ID)
+				o.syncCheckpointFailures(phase.ID, attempts)
+				o.emitEvent(EventCheckpointFailed, phase.ID, "", failedSummary, nil)
+				move, moveErr := o.oneDerivedFor("phase_ckpt_move", phase.ID)
+				if moveErr != nil {
+					// No answer closes the phase unverified: it is not
+					// completed, so nothing built on it runs, and it does not
+					// spin failure -> checkpoint on a policy that cannot say
+					// when to stop.
+					logging.Get(logging.CategoryCampaign).Error("Phase %s: %v; it closes UNVERIFIED", phase.ID, moveErr)
+					move = "/close_unverified"
+				}
+				logging.Get(logging.CategoryCampaign).Warn("Phase %s checkpoint failure %d/%d (%s): %s",
+					phase.ID, attempts, o.policy.MaxCheckpointAttempts, move, failedSummary)
+
+				// Bounded retry (F-CKPT-2): a checkpoint that keeps failing — a tool
+				// error, or a review that a replan cannot fix — must not spin the
+				// phase in an endless failure→replan→re-checkpoint loop (each attempt
+				// is a full LLM checkpoint call). At the cap the phase closes
+				// /unverified: not completed, so its hard dependents stay blocked
+				// and, when nothing else can run, the campaign ends blocked on it
+				// by name. It used to be completed here -- /completed in the
+				// kernel, a completed-phase count, a success to the Northstar
+				// observer -- so a known failed checkpoint unlocked the phases
+				// built on it (external audit N03, 2026-09-19).
+				switch move {
+				case "/close_unverified":
+					logging.Get(logging.CategoryCampaign).Warn("Phase %s exhausted %d checkpoint attempts; it closes UNVERIFIED and its hard dependents stay blocked", phase.ID, attempts)
+					o.emitEvent(EventCheckpointExhausted, phase.ID, "", failedSummary, map[string]any{
+						"attempts": attempts,
+						"max":      o.policy.MaxCheckpointAttempts,
+					})
+					o.closePhaseUnverified(phase, failedSummary)
+					return nil
+				case "/recheck":
+					// campaign.replan_on_checkpoint_failure is off: the phase
+					// stays open and its checkpoint runs again.
+					return nil
+				}
+
+				// /replan: the phase gains the work its checkpoint found
+				// missing, briefed with the checkpoint's findings whole
+				// (appendCheckpointRemediation), and stays open.
+				if err := o.appendCheckpointRemediation(phase.ID); err != nil {
+					logging.Get(logging.CategoryCampaign).Error("Phase %s: checkpoint remediation not appended: %v", phase.ID, err)
+					o.emitEvent(EventReplanFailed, phase.ID, "", err.Error(), nil)
+				}
+
+				// Return to main loop; policy will keep current phase active.
+				return nil
+			}
+
+			logging.CampaignDebug("Compressing phase context: %s", phase.ID)
+			if summary, count, compressedAt, err := o.contextPager.CompressPhase(ctx, phase); err != nil {
+				logging.Get(logging.CategoryCampaign).Warn("Context compression error: %v", err)
+				o.emitEvent(EventCompressionError, phase.ID, "", err.Error(), nil)
+			} else {
+				logging.CampaignDebug("Phase compressed: atoms=%d, summary_len=%d", count, len(summary))
+				o.mu.Lock()
+				phase.CompressedSummary = summary
+				phase.OriginalAtomCount = count
+				phase.CompressedAt = compressedAt
+				if err := o.saveCampaign(); err != nil {
+					logging.CampaignWarn("failed to save campaign after compression: %v", err)
+				}
+				o.mu.Unlock()
+			}
+			o.completePhase(phase)
+			o.triggerRollingWave(ctx, phase)
+			return nil
+		}
+
+		var runnable []*Task
+
+		// Calculate adaptive concurrency limit
+		currentLimit := o.determineConcurrencyLimit(active, phase)
+		logging.CampaignDebug("Concurrency: active=%d, limit=%d", len(active), currentLimit)
+
+		// Schedule eligible tasks up to the concurrency limit. waitingForSlot
+		// records eligible work the limit holds back: the limit follows spawn
+		// backpressure, so it can rise without any task finishing.
+		waitingForSlot := len(active) >= currentLimit
+		if !waitingForSlot {
+			runnable = o.getEligibleTasks(phase)
+			for _, task := range runnable {
+				if len(active) >= currentLimit {
+					waitingForSlot = true
+					break
+				}
+				if active[task.ID] || task.Status != TaskPending {
+					continue
+				}
+
+				lease, lockErr := o.acquireWriteSetLease(ctx, phase.ID, task)
+				if lockErr != nil {
+					if errors.Is(lockErr, ErrWriteSetLockTimeout) {
+						continue
+					}
+					if errors.Is(lockErr, context.Canceled) || errors.Is(lockErr, context.DeadlineExceeded) {
+						drainActive()
+						return lockErr
+					}
+					logging.Get(logging.CategoryCampaign).Error("Write-set lock error for task %s: %v", task.ID, lockErr)
+					o.handleTaskFailure(ctx, phase, task, lockErr)
+					continue
+				}
+
+				logging.Campaign("Scheduling task: %s (type=%s)", task.Description[:min(50, len(task.Description))], task.Type)
+				active[task.ID] = true
+				o.updateTaskStatus(task, TaskInProgress)
+				go o.runSingleTask(ctx, phase, task, lease, results)
+			}
+		}
+
+		// If nothing is running or eligible, we may be blocked
+		if len(active) == 0 {
+			if runnable == nil {
+				runnable = o.getEligibleTasks(phase)
+			}
+			if len(runnable) == 0 {
+				if reason := o.getCampaignBlockReason(); reason != "" {
+					logging.Get(logging.CategoryCampaign).Error("Phase blocked: %s", reason)
+					o.emitEvent(EventCampaignBlocked, phase.ID, "", reason, nil)
+					o.mu.Lock()
+					o.failCampaign(reason)
+					o.mu.Unlock()
+					return fmt.Errorf("phase blocked: %s", reason)
+				}
+			}
+		}
+
+		// Wait for activity: a result, or whatever else can change what runs.
+		select {
+		case <-ctx.Done():
+			drainActive()
+			return ctx.Err()
+		case res := <-results:
+			delete(active, res.taskID)
+		case <-o.eligibilityWake(phase, len(active) > 0 && !waitingForSlot):
+		}
+	}
+}
+
+// eligibilityWake is when the task loop looks again without a result. A quiet
+// loop -- tasks running, none eligible left waiting for a slot -- has nothing
+// a timer can change except a withheld task's retry coming due (a failure's
+// backoff and a write-set lock timeout both set NextRetryAt), so it wakes then,
+// or never (a nil channel) and waits for a result. Any other state polls.
+//
+// Until 2026-09-24 every state polled at 200 ms: while one task ran and the
+// rest waited on it, the loop queried eligible_task and wrote two debug lines
+// five times a second (campaign 7b853890: most of campaign.log's 7,861 lines).
+func (o *Orchestrator) eligibilityWake(phase *Phase, quiet bool) <-chan time.Time {
+	if !quiet {
+		return time.After(200 * time.Millisecond)
+	}
+	now := time.Now()
+	var next time.Time
+	o.mu.RLock()
+	for i := range phase.Tasks {
+		t := &phase.Tasks[i]
+		if t.Status == TaskPending && t.NextRetryAt.After(now) && (next.IsZero() || t.NextRetryAt.Before(next)) {
+			next = t.NextRetryAt
+		}
+	}
+	o.mu.RUnlock()
+	if next.IsZero() {
+		return nil
+	}
+	return time.After(next.Sub(now))
+}
+
+// triggerRollingWave refreshes downstream plans after a phase completes.
+func (o *Orchestrator) triggerRollingWave(ctx context.Context, completedPhase *Phase) {
+	logging.Campaign("Rolling-wave refinement triggered after phase: %s", completedPhase.Name)
+	timer := logging.StartTimer(logging.CategoryCampaign, "triggerRollingWave")
+	defer timer.Stop()
+
+	// Optional: refresh the world model / holographic graph after edits.
+	// We rely on the VirtualStore scopes to refresh after writes; this hook
+	// keeps the policy facts in sync across phases.
+	if o.virtualStore != nil {
+		logging.CampaignDebug("Refreshing world model scope")
+		// The constitution permits a safe action only as a pending_action
+		// with the exact target and payload it is routed with (the canonical
+		// JSON of the payload; "{}" for none). This routed refresh_scope bare,
+		// so every rolling-wave refresh was denied ("policy DENY
+		// action=refresh_scope", 2026-09-21) and no campaign ever refreshed the
+		// world model between phases: each phase planned against the code as it
+		// was before the phase before it.
+		actionID := fmt.Sprintf("rolling-wave-%d", time.Now().UnixNano())
+		if o.kernel != nil {
+			pending := core.Fact{
+				Predicate: "pending_action",
+				Args:      []any{actionID, core.MangleAtom("/refresh_scope"), o.workspace, "{}", time.Now().Unix()},
+			}
+			if err := o.kernel.Assert(pending); err != nil {
+				logging.CampaignWarn("rolling-wave scope refresh: assert pending_action: %v", err)
+			} else {
+				defer func() { _ = o.kernel.RetractFact(pending) }()
+			}
+		}
+		if _, err := o.virtualStore.RouteAction(ctx, core.Fact{
+			Predicate: "next_action",
+			Args:      []any{actionID, "/refresh_scope", o.workspace},
+		}); err != nil {
+			logging.CampaignWarn("rolling-wave scope refresh failed: %v", err)
+		}
+	}
+
+	if o.replanner != nil {
+		logging.CampaignDebug("Refining next phase based on completed phase: %s", completedPhase.ID)
+		if err := o.replanner.RefineNextPhase(ctx, o.campaign, completedPhase, o.getTaskResult); err != nil {
+			logging.Get(logging.CategoryCampaign).Warn("Rolling-wave refinement failed: %v", err)
+			o.emitEvent(EventReplanFailed, completedPhase.ID, "", err.Error(), nil)
+			return
+		}
+
+		// Reload campaign facts after refinement to keep Mangle view up to date
+		logging.CampaignDebug("Reloading campaign facts after refinement")
+		o.kernel.Retract("campaign_phase")
+		o.kernel.Retract("campaign_task")
+		if err := o.kernel.LoadFacts(o.campaign.ToFacts()); err != nil {
+			logging.CampaignWarn("failed to reload campaign facts after refinement: %v", err)
+		}
+
+		logging.Campaign("Rolling-wave refinement applied (revision=%d)", o.campaign.RevisionNumber)
+		o.emitEvent(EventReplan, completedPhase.ID, "", "Rolling-wave refinement applied", map[string]any{
+			"revision": o.campaign.RevisionNumber,
+		})
+	}
+}
+
+// runSingleTask executes a task and sends the result back to the phase loop.
+func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Task, lease *writeSetLockLease, results chan<- taskResult) {
+	if lease != nil {
+		defer lease.release()
+	}
+
+	// Apply task-level timeout
+	if o.config.TaskTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, o.config.TaskTimeout)
+		defer cancel()
+	}
+
+	taskTimer := logging.StartTimer(logging.CategoryCampaign, fmt.Sprintf("task(%s)", task.ID))
+
+	logging.Campaign("Task started: %s (type=%s, phase=%s)", task.ID, task.Type, phase.Name)
+	logging.CampaignDebug("Task description: %s", task.Description)
+
+	o.emitEvent(EventTaskStarted, phase.ID, task.ID, task.Description, nil)
+
+	// Snapshot the workspace root so out-of-scope writes become visible.
+	//
+	// Task.WriteSet exists, but its only consumer is the lock manager above,
+	// which serialises tasks that touch the same file. Nothing checks that a
+	// write actually LANDS inside the declared set, so a task is free to create
+	// whatever it likes wherever it likes.
+	//
+	// Observed live on campaign fc6472c2 (2026-08-08): a campaign asked only to
+	// add a doc comment also produced TEST_REPORT.md and
+	// research_runToolLoop_verification_gates.md in the repository root. No task
+	// requested either, and nothing reported that they appeared.
+	//
+	// This reports rather than blocks, deliberately. WriteSet is inferred by the
+	// decomposer from artifacts and description text, so it is not reliable
+	// enough to fail a task on — a wrong block would kill legitimate work, and
+	// this session already has the coverage gate crying wolf as a live lesson in
+	// what over-eager gating costs. Making the writes visible is the honest
+	// first step; enforcement can follow once the signal shows the inference is
+	// trustworthy.
+	rootBefore := o.snapshotWorkspaceRoot()
+
+	startedAt := time.Now()
+	result, err := o.executeTaskWithRollback(ctx, task)
+	elapsed := time.Since(startedAt)
+
+	o.reportUnexpectedRootWrites(task, rootBefore)
+	if err != nil {
+		o.observeTaskDuration(phase.ID, task, "failed", elapsed)
+		logging.Get(logging.CategoryCampaign).Error("Task failed: %s - %v", task.ID, err)
+		taskTimer.Stop()
+		o.handleTaskFailure(ctx, phase, task, err)
+		results <- taskResult{taskID: task.ID, err: err}
+		return
+	}
+
+	taskTimer.StopWithInfo()
+	logging.Campaign("Task completed: %s", task.ID)
+	o.observeTaskDuration(phase.ID, task, "completed", elapsed)
+
+	o.completeTask(task, result)
+	o.emitEvent(EventTaskCompleted, phase.ID, task.ID, "Task completed", result)
+	o.applyLearnings(ctx, task, result)
+	o.emitProgress()
+
+	o.mu.Lock()
+	o.saveCampaign()
+	o.mu.Unlock()
+
+	results <- taskResult{taskID: task.ID, result: result}
+}
+
+func (o *Orchestrator) acquireWriteSetLease(ctx context.Context, phaseID string, task *Task) (*writeSetLockLease, error) {
+	if task == nil || o.writeSetLocks == nil {
+		return nil, nil
+	}
+
+	writeSet := o.resolveTaskWriteSet(task)
+	if len(writeSet) == 0 {
+		if isMutatingTaskType(task.Type) {
+			// Decomposer sometimes omits write_set/artifacts for file_modify tasks.
+			// Blocking forever is worse than concurrent-edit risk: proceed unlocked
+			// and let micro-checkpoint / hollow-success catch missing writes.
+			logging.Get(logging.CategoryCampaign).Warn(
+				"task %s (type=%s) missing write_set; proceeding without write-set lease",
+				task.ID, task.Type,
+			)
+			o.emitEvent(EventTaskWriteSetMissing, phaseID, task.ID,
+				"missing write_set; executing without lease", nil)
+			return nil, nil
+		}
+		return nil, nil
+	}
+
+	timeout := o.policy.WriteSetLockTimeout
+
+	lockCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	lease, err := o.writeSetLocks.acquire(lockCtx, task.ID, writeSet, o.policy.WriteSetLockPoll)
+	if err == nil {
+		return lease, nil
+	}
+
+	if errors.Is(err, ErrWriteSetLockTimeout) {
+		retryDelay := o.computeWriteSetLockRetryDelay(ctx, timeout)
+		if retryDelay <= 0 {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
+			retryDelay = 10 * time.Millisecond
+		}
+		nextRetryAt := time.Now().Add(retryDelay)
+		o.setTaskRetryAt(task.ID, nextRetryAt)
+		o.emitEvent(EventTaskLockTimeout, phaseID, task.ID, "write_set lock timeout", map[string]any{
+			"write_set":       writeSet,
+			"timeout_ms":      timeout.Milliseconds(),
+			"next_retry_unix": nextRetryAt.Unix(),
+		})
+		logging.CampaignDebug("Write-set lock timeout for task %s (write_set=%v)", task.ID, writeSet)
+	}
+
+	return nil, err
+}
+
+func (o *Orchestrator) computeWriteSetLockRetryDelay(ctx context.Context, lockTimeout time.Duration) time.Duration {
+	retryDelay := o.policy.WriteSetLockRetry
+
+	const (
+		minRetryDelay = 10 * time.Millisecond
+		maxRetryDelay = 2 * time.Second
+	)
+
+	if retryDelay < minRetryDelay {
+		retryDelay = minRetryDelay
+	}
+	if retryDelay > maxRetryDelay {
+		retryDelay = maxRetryDelay
+	}
+	if lockTimeout > 0 && retryDelay > lockTimeout {
+		retryDelay = lockTimeout
+	}
+
+	if ctx != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return 0
+		}
+		if deadline, ok := ctx.Deadline(); ok {
+			remaining := time.Until(deadline)
+			if remaining <= 0 {
+				return 0
+			}
+			if retryDelay > remaining {
+				retryDelay = remaining
+			}
+		}
+	}
+
+	return retryDelay
+}
+
+func (o *Orchestrator) resolveTaskWriteSet(task *Task) []string {
+	if task == nil {
+		return nil
+	}
+	if len(task.WriteSet) == 0 && !isMutatingTaskType(task.Type) {
+		return nil
+	}
+
+	candidates := make([]string, 0, len(task.WriteSet)+len(task.Artifacts)+1)
+	candidates = append(candidates, task.WriteSet...)
+	if len(candidates) == 0 {
+		for _, artifact := range task.Artifacts {
+			if artifact.Path != "" {
+				candidates = append(candidates, artifact.Path)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		if inferred := extractPathFromDescription(task.Description); inferred != "" {
+			candidates = append(candidates, inferred)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	return normalizeWriteSetPaths(o.workspace, candidates)
+}
+
+func (o *Orchestrator) setTaskRetryAt(taskID string, retryAt time.Time) {
+	if o.campaign == nil {
+		return
+	}
+
+	o.mu.Lock()
+	for i := range o.campaign.Phases {
+		for j := range o.campaign.Phases[i].Tasks {
+			if o.campaign.Phases[i].Tasks[j].ID == taskID {
+				o.campaign.Phases[i].Tasks[j].NextRetryAt = retryAt
+				break
+			}
+		}
+	}
+	o.mu.Unlock()
+
+	_ = o.kernel.RetractFact(core.Fact{
+		Predicate: "task_retry_at",
+		Args:      []any{taskID},
+	})
+	_ = o.kernel.Assert(core.Fact{
+		Predicate: "task_retry_at",
+		Args:      []any{taskID, retryAt.Unix()},
+	})
+}
+
+// updateTaskStatus updates task status in campaign and kernel.
+func (o *Orchestrator) updateTaskStatus(task *Task, status TaskStatus) {
+	logging.CampaignDebug("Task status update: %s -> %s", task.ID, status)
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	for i := range o.campaign.Phases {
+		for j := range o.campaign.Phases[i].Tasks {
+			if o.campaign.Phases[i].Tasks[j].ID == task.ID {
+				o.campaign.Phases[i].Tasks[j].Status = status
+				break
+			}
+		}
+	}
+
+	// Update kernel
+	if err := o.kernel.RetractFact(core.Fact{
+		Predicate: "campaign_task",
+		Args:      []any{task.ID},
+	}); err != nil {
+		logging.CampaignWarn("failed to retract campaign_task for %s: %v", task.ID, err)
+	}
+	if err := o.kernel.Assert(core.Fact{
+		Predicate: "campaign_task",
+		Args:      []any{task.ID, task.PhaseID, task.Description, string(status), string(task.Type)},
+	}); err != nil {
+		logging.CampaignWarn("failed to assert campaign_task for %s: %v", task.ID, err)
+	}
+}
+
+// completeTask marks a task as complete.
+func (o *Orchestrator) completeTask(task *Task, result any) {
+	o.updateTaskStatus(task, TaskCompleted)
+
+	o.mu.Lock()
+	o.campaign.CompletedTasks++
+	o.mu.Unlock()
+
+	// Record task result for learning and audit trail
+	resultSummary := ""
+	if result != nil {
+		if data, err := json.Marshal(result); err == nil {
+			// The kernel keeps the head of the result, and says it is the
+			// head: the whole result is stored for dependents below.
+			resultSummary = types.ClampText(string(data), 1000, "task result")
+		}
+	}
+	// task_result is the kernel's audit record of a completed task. No rule
+	// derives completion from it -- that is campaign_task's status -- but it is
+	// the one place a query can see what a task returned. completeTask has no
+	// error to return, so a rejected assert is logged at Error.
+	if err := o.kernel.Assert(core.Fact{
+		Predicate: "task_result",
+		Args:      []any{task.ID, "/success", resultSummary},
+	}); err != nil {
+		logging.Get(logging.CategoryCampaign).Error(
+			"Task %s completed but its task_result fact was rejected; the kernel still sees it unfinished: %v",
+			task.ID, err)
+	}
+
+	// Store result for context injection into dependent tasks.
+	//
+	// The projection, not resultSummary. Those are two different consumers with
+	// two different needs: task_result above is an audit record the kernel
+	// derives completion from and is left exactly as it was, while this string
+	// is pasted into a DEPENDENT AGENT'S PROMPT, where a head-truncated JSON
+	// blob of one shard's prose is the most expensive and least useful thing
+	// the next shard could be handed.
+	o.storeTaskResult(task.ID, o.projectTaskReturn(task, result))
+
+	// Northstar alignment check on task completion
+	if o.northstarObserver != nil {
+		// Collect modified file paths from task artifacts
+		filePaths := make([]string, 0)
+		for _, a := range task.Artifacts {
+			if a.Path != "" {
+				filePaths = append(filePaths, a.Path)
+			}
+		}
+		_, _ = o.northstarObserver.OnTaskComplete(context.Background(), task.ID, task.Description, resultSummary, filePaths)
+	}
+}
+
+// applyLearnings applies autopoiesis learnings from task execution.
+func (o *Orchestrator) applyLearnings(ctx context.Context, task *Task, result any) {
+	// Check for cancellation before applying learnings
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
+	// Query for learnings to apply
+	facts, err := o.kernel.Query("promote_to_long_term")
+	if err != nil {
+		return
+	}
+
+	if len(facts) == 0 {
+		return
+	}
+
+	logging.CampaignDebug("Applying %d learnings from task %s", len(facts), task.ID)
+
+	// Summarize result for learning context
+	resultContext := ""
+	if result != nil {
+		if data, err := json.Marshal(result); err == nil {
+			// The fact-argument bound, with its marker: a 500-byte cut of
+			// JSON was not JSON and said nothing about what was dropped.
+			resultContext = types.TruncateFactText(string(data))
+		}
+	}
+
+	o.mu.Lock()
+	for _, fact := range facts {
+		// Combine task description with result context for richer learning
+		factStr := task.Description
+		if resultContext != "" {
+			factStr = fmt.Sprintf("%s [result: %s]", task.Description, resultContext)
+		}
+		learning := Learning{
+			Type:      "/success_pattern",
+			Pattern:   types.ExtractString(fact.Args[0]),
+			Fact:      factStr,
+			AppliedAt: time.Now(),
+		}
+		o.campaign.Learnings = append(o.campaign.Learnings, learning)
+		logging.CampaignDebug("Learning captured: %s", learning.Pattern)
+	}
+	o.mu.Unlock()
+
+	logging.Campaign("Captured %d learnings (total=%d)", len(facts), len(o.campaign.Learnings))
+}
+
+// snapshotWorkspaceRoot lists the files directly in the workspace root.
+//
+// Root level only: a task creating internal/foo/bar.go is doing its job, while
+// a task creating REPORT.md at the top of the repository is almost always
+// scratch nobody asked for. Directories are ignored — creating one is not the
+// pattern this watches for.
+func (o *Orchestrator) snapshotWorkspaceRoot() map[string]bool {
+	root := o.config.Workspace
+	if strings.TrimSpace(root) == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			seen[e.Name()] = true
+		}
+	}
+	return seen
+}
+
+// reportUnexpectedRootWrites names files a task created in the workspace root
+// that its declared write set does not account for.
+func (o *Orchestrator) reportUnexpectedRootWrites(task *Task, before map[string]bool) {
+	if before == nil || task == nil {
+		return
+	}
+	after := o.snapshotWorkspaceRoot()
+	if after == nil {
+		return
+	}
+
+	declared := make(map[string]bool)
+	for _, p := range o.resolveTaskWriteSet(task) {
+		declared[filepath.Base(filepath.ToSlash(p))] = true
+	}
+
+	var unexpected []string
+	for name := range after {
+		if !before[name] && !declared[name] {
+			unexpected = append(unexpected, name)
+		}
+	}
+	if len(unexpected) == 0 {
+		return
+	}
+	sort.Strings(unexpected)
+
+	logging.CampaignWarn(
+		"Task %s created %d file(s) in the workspace root that its write set does not account for: %s",
+		task.ID, len(unexpected), strings.Join(unexpected, ", "))
+}
+
+// recordRootBaseline captures the workspace root as it looked before the
+// campaign ran. Only files absent from this baseline are ever candidates for
+// the completion sweep, so a campaign can never move something it did not
+// create.
+func (o *Orchestrator) recordRootBaseline() {
+	o.mu.Lock()
+	if o.campaign != nil && o.campaign.RootBaseline != nil {
+		baseline := make(map[string]bool, len(o.campaign.RootBaseline))
+		for _, name := range o.campaign.RootBaseline {
+			baseline[name] = true
+		}
+		o.rootBaseline = baseline
+		o.mu.Unlock()
+		return
+	}
+	snap := o.snapshotWorkspaceRoot()
+	o.rootBaseline = snap
+	var campaignID string
+	var didPersist bool
+	if o.campaign != nil && snap != nil {
+		toSave := make([]string, 0, len(snap))
+		for name := range snap {
+			toSave = append(toSave, name)
+		}
+		sort.Strings(toSave)
+		o.campaign.RootBaseline = toSave
+		campaignID = o.campaign.ID
+		didPersist = true
+	}
+	o.mu.Unlock()
+	if didPersist {
+		if err := o.saveCampaign(); err != nil {
+			logging.CampaignWarn("Failed to persist root baseline for campaign %s: %v", campaignID, err)
+		}
+	}
+}
+
+// sweepUndeclaredRootWrites moves scratch the campaign left in the workspace
+// root into the campaign's own artifacts directory.
+//
+// Three conditions must all hold before a file is moved, and each rules out a
+// different way this could destroy something:
+//
+//   - It was absent when the campaign started, so the campaign created it.
+//   - No task declared it in a write set, so nobody asked for it to be there.
+//   - It is a file at the root, not a directory and not source in a package.
+//
+// The file is MOVED, never deleted. If the judgement here is wrong the content
+// is still on disk under the campaign that produced it.
+func (o *Orchestrator) sweepUndeclaredRootWrites() {
+	o.mu.RLock()
+	baseline := o.rootBaseline
+	campaign := o.campaign
+	o.mu.RUnlock()
+
+	if baseline == nil || campaign == nil {
+		return
+	}
+	root := strings.TrimSpace(o.config.Workspace)
+	if root == "" {
+		return
+	}
+
+	declared := make(map[string]bool)
+	for _, phase := range campaign.Phases {
+		for i := range phase.Tasks {
+			for _, p := range o.resolveTaskWriteSet(&phase.Tasks[i]) {
+				declared[filepath.Base(filepath.ToSlash(p))] = true
+			}
+		}
+	}
+
+	after := o.snapshotWorkspaceRoot()
+	var strays []string
+	for name := range after {
+		if !baseline[name] && !declared[name] {
+			strays = append(strays, name)
+		}
+	}
+	if len(strays) == 0 {
+		return
+	}
+	sort.Strings(strays)
+
+	dest := filepath.Join(root, ".nerd", "campaigns", shortCampaignID(campaign.ID), "artifacts")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		logging.CampaignWarn("Cannot sweep %d stray root file(s); artifacts dir unavailable: %v", len(strays), err)
+		return
+	}
+
+	moved := make([]string, 0, len(strays))
+	for _, name := range strays {
+		from := filepath.Join(root, name)
+		to := filepath.Join(dest, name)
+		if err := os.Rename(from, to); err != nil {
+			// Leaving it in place is the safe failure: the repository stays
+			// dirty, which is visible, rather than the content going missing.
+			logging.CampaignWarn("Could not move stray root file %s into the campaign artifacts: %v", name, err)
+			continue
+		}
+		moved = append(moved, name)
+	}
+	if len(moved) > 0 {
+		logging.CampaignWarn(
+			"Campaign %s created %d file(s) in the repository root that no task declared; moved into %s: %s",
+			campaign.ID, len(moved), dest, strings.Join(moved, ", "))
+	}
+}
+
+// shortCampaignID trims the leading atom marker and any prefix so the artifacts
+// path matches the directory the /document path already writes to.
+func shortCampaignID(id string) string {
+	s := strings.TrimPrefix(strings.TrimSpace(id), "/")
+	if i := strings.LastIndex(s, "_"); i >= 0 && i < len(s)-1 {
+		s = s[i+1:]
+	}
+	return s
+}

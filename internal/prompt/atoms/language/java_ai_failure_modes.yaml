@@ -1,0 +1,242 @@
+# Java AI Failure Modes - Encyclopedic Reference
+# Critical mistakes AI coding agents commonly make in Java
+
+- id: "language/java/ai_failures/generics"
+  category: "language"
+  subcategory: "java"
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## GENERICS AND TYPE ERASURE MISTAKES
+
+    ### FAILURE: Using Raw Types
+
+    ```java
+    // WRONG - raw type (pre-generics style)
+    List list = new ArrayList();
+    list.add("string");
+    list.add(42);  // No compile error!
+
+    String s = (String) list.get(1);  // ClassCastException at runtime!
+
+    // CORRECT - parameterized type
+    List<String> list = new ArrayList<>();
+    list.add("string");
+    list.add(42);  // Compile error - caught early!
+    ```
+
+    ### FAILURE: Mixing Raw and Parameterized
+
+    ```java
+    // WRONG - mixing types
+    List<String> strings = new ArrayList<>();
+    List raw = strings;  // Warning only
+    raw.add(42);  // No error!
+    String s = strings.get(0);  // ClassCastException!
+
+    // CORRECT - maintain type safety
+    List<String> strings = new ArrayList<>();
+    List<?> wildcard = strings;  // Safe - can't add
+    ```
+  content_concise: |
+    ## Generics Mistakes
+    - Never use raw types: `List` → `List<String>`
+    - Can't check `instanceof T` - use Class token
+    - Can't create `new T[]` - use Array.newInstance
+    - PECS: Producer Extends, Consumer Super
+
+- id: "language/java/ai_failures/generics/failure-instanceof-with-generics"
+  section_of: "language/java/ai_failures/generics"
+  section_order: 1
+  category: "language"
+  subcategory: "java"
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: GENERICS AND TYPE ERASURE MISTAKES*
+
+    ### FAILURE: instanceof with Generics
+
+    ```java
+    // WRONG - type erasure prevents this
+    public <T> boolean isInstance(Object obj) {
+        return obj instanceof T;  // Compile error!
+    }
+
+    // CORRECT - use Class token
+    public <T> boolean isInstance(Object obj, Class<T> type) {
+        return type.isInstance(obj);
+    }
+    ```
+
+    ### FAILURE: Generic Array Creation
+
+    ```java
+    // WRONG - cannot create generic array
+    T[] array = new T[10];  // Compile error!
+
+    // CORRECT - use Array.newInstance with Class token
+    @SuppressWarnings("unchecked")
+    public <T> T[] createArray(Class<T> type, int size) {
+        return (T[]) Array.newInstance(type, size);
+    }
+
+    // Or use List instead
+    List<T> list = new ArrayList<>(10);
+    ```
+
+    ### FAILURE: Overloading by Generic Type
+
+    ```java
+    // WRONG - same erasure
+    public void process(List<String> strings) { }
+    public void process(List<Integer> integers) { }  // Compile error!
+
+    // CORRECT - different method names
+    public void processStrings(List<String> strings) { }
+    public void processIntegers(List<Integer> integers) { }
+    ```
+
+- id: "language/java/ai_failures/streams"
+  category: "language"
+  subcategory: "java"
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## STREAM MISTAKES
+
+    ### FAILURE: Stream Reuse
+
+    ```java
+    // WRONG - IllegalStateException
+    Stream<String> stream = list.stream()
+        .filter(s -> s.startsWith("A"));
+
+    long count = stream.count();
+    List<String> result = stream.toList();  // BOOM! Stream already consumed
+
+    // CORRECT - create new stream each time
+    long count = list.stream().filter(s -> s.startsWith("A")).count();
+    List<String> result = list.stream().filter(s -> s.startsWith("A")).toList();
+
+    // BETTER - use Supplier for reusable pipeline
+    Supplier<Stream<String>> streamSupplier = () ->
+        list.stream().filter(s -> s.startsWith("A"));
+
+    long count = streamSupplier.get().count();
+    List<String> result = streamSupplier.get().toList();
+    ```
+
+    ### FAILURE: Side Effects in Streams
+
+    ```java
+    // WRONG - shared mutable state
+    List<String> results = new ArrayList<>();
+    stream.forEach(item -> results.add(item));  // Not thread-safe!
+
+    // CORRECT - use collect
+    List<String> results = stream.collect(Collectors.toList());
+    ```
+  content_concise: |
+    ## Stream Mistakes
+    - Streams can only be consumed ONCE
+    - Use `Supplier<Stream>` for reusable pipelines
+    - No mutable state in parallel streams
+    - `peek()` is for debugging only, not side effects
+
+- id: "language/java/ai_failures/streams/failure-stateful-lambda-in-parallel-stream"
+  section_of: "language/java/ai_failures/streams"
+  section_order: 1
+  category: "language"
+  subcategory: "java"
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    *Part of: STREAM MISTAKES*
+
+    ### FAILURE: Stateful Lambda in Parallel Stream
+
+    ```java
+    // WRONG - race condition in parallel
+    AtomicInteger counter = new AtomicInteger(0);
+    list.parallelStream()
+        .map(item -> item + counter.incrementAndGet())  // Non-deterministic!
+        .toList();
+
+    // CORRECT - use IntStream for indexed operations
+    IntStream.range(0, list.size())
+        .mapToObj(i -> list.get(i) + i)
+        .toList();
+    ```
+
+    ### FAILURE: peek() for Side Effects
+
+    ```java
+    // WRONG - peek may not execute if terminal op short-circuits
+    stream.peek(item -> save(item))  // May not save all!
+          .findFirst();
+
+    // CORRECT - use forEach for side effects
+    list.forEach(item -> save(item));
+
+    // Or if you need stream result
+    List<String> result = stream.toList();
+    result.forEach(item -> save(item));
+    ```
+
+- id: "language/java/ai_failures/strings"
+  category: "language"
+  subcategory: "java"
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## STRING MISTAKES
+
+    ### FAILURE: Concatenation in Loop
+
+    ```java
+    // WRONG - O(n^2) performance
+    String result = "";
+    for (String item : items) {
+        result += item + ", ";  // Creates new String each iteration!
+    }
+
+    // CORRECT - O(n) with StringBuilder
+    StringBuilder sb = new StringBuilder();
+    for (String item : items) {
+        sb.append(item).append(", ");
+    }
+    String result = sb.toString();
+
+    // BETTER - with estimated capacity
+    StringBuilder sb = new StringBuilder(items.size() * 20);
+
+    // BEST - use String.join or Collectors
+    String result = String.join(", ", items);
+    String result = items.stream().collect(Collectors.joining(", "));
+    ```
+
+    ### FAILURE: Substring Memory Leak (Pre-Java 7u6)
+
+    ```java
+    // In older JVMs, substring kept reference to original char[]
+    String huge = readHugeFile();
+    String small = huge.substring(0, 10);
+    huge = null;  // Memory not freed - small still references it!
+
+    // Fixed in Java 7u6+ - substring creates new char[]
+    // But good practice to be explicit:
+    String small = new String(huge.substring(0, 10));
+    ```
+  content_concise: |
+    ## String Mistakes
+    - Never concatenate in loops - use StringBuilder
+    - Use `String.join()` or `Collectors.joining()` for collections
+    - Use `isBlank()` (Java 11+) for empty/whitespace check
+    - Use `Objects.equals()` for null-safe comparison
+

@@ -1,0 +1,101 @@
+# Python Advanced Language Prompt Atoms
+# Advanced patterns for production Python code
+
+- id: "language/python/async"
+  category: "language"
+  subcategory: "python"
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/python"]
+  content: |
+    ## Python Async Patterns
+
+    ### Async Basics
+    - `async def` defines coroutine
+    - `await` suspends until complete
+    - `asyncio.run()` runs event loop
+    - Never mix sync/async without bridge
+
+    ### Concurrency Patterns
+    ```python
+    # Run concurrently
+    results = await asyncio.gather(
+        fetch_a(),
+        fetch_b(),
+        return_exceptions=True
+    )
+
+    # First to complete
+    done, pending = await asyncio.wait(
+        tasks,
+        return_when=asyncio.FIRST_COMPLETED
+    )
+
+    # With timeout
+    try:
+        result = await asyncio.wait_for(coro, timeout=5.0)
+    except asyncio.TimeoutError:
+        handle_timeout()
+    ```
+
+    ### Best Practices
+    - Use `async with` for context managers
+    - Use `async for` for async iteration
+    - Cancel pending tasks on shutdown
+    - Use `TaskGroup` (3.11+) for structured concurrency
+
+- id: "language/python/testing"
+  category: "language"
+  subcategory: "python"
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  content: |
+    ## Python Testing Advanced Patterns
+
+    ### Pytest Features
+    ```python
+    import pytest
+
+    # Fixtures with scope
+    @pytest.fixture(scope="module")
+    def database():
+        db = connect()
+        yield db
+        db.close()
+
+    # Parametrized tests
+    @pytest.mark.parametrize("input,expected", [
+        ("abc", 3),
+        ("", 0),
+        (None, TypeError),
+    ])
+    def test_length(input, expected):
+        if isinstance(expected, type):
+            with pytest.raises(expected):
+                len(input)
+        else:
+            assert len(input) == expected
+
+    # Async tests
+    @pytest.mark.asyncio
+    async def test_async_operation():
+        result = await async_func()
+        assert result.success
+    ```
+
+    ### Mocking Patterns
+    ```python
+    from unittest.mock import Mock, patch, AsyncMock
+
+    # Patch at import site
+    @patch("mymodule.external_service")
+    def test_with_mock(mock_service):
+        mock_service.fetch.return_value = {"data": "test"}
+        result = my_function()
+        assert result == expected
+
+    # Async mocking
+    mock = AsyncMock(return_value=42)
+    result = await mock()
+    ```

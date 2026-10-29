@@ -1,0 +1,84 @@
+package session
+
+import (
+	"regexp"
+	"strings"
+)
+
+// responsePresentsTestRunnerOutput reports whether text presents test-runner output.
+// It matches only strings that look like quoted runner output, not prose.
+//
+// This path only has text: a model quoted a run (the gate's Summary, or a
+// classic transcript). The gate that produced a run holds the Result and
+// reads names from it; nothing here recovers names or locations.
+// Required markers, case-sensitive where shown:
+//   - a line beginning with 'ok  ' followed by a package path
+//   - '--- PASS:'
+//   - '--- FAIL:'
+//   - a gate Summary line ('FAIL <pkg> Test...', 'build-failed <pkg>...',
+//     'repeated Nx: ...'), which is the text the test gate now publishes
+//   - '=== RUN'
+//   - 'PASS' as a standalone token on its own line or after '=>'
+//   - 'FAIL' likewise
+//   - pytest count summaries (standalone, timed, or delimited)
+//   - Jest counts following Tests:, Test Suites:, or Snapshots:
+//
+// Deliberately does NOT match ordinary prose such as 'tests should pass',
+// 'make sure tests pass', 'I did not run the tests', or 'the tests will pass'.
+func responsePresentsTestRunnerOutput(text string) bool {
+	if strings.Contains(text, "--- PASS:") {
+		return true
+	}
+	if strings.Contains(text, "--- FAIL:") {
+		return true
+	}
+	if summaryFailRe.MatchString(text) || summaryBuildRe.MatchString(text) || summaryRepeatRe.MatchString(text) {
+		return true
+	}
+	if strings.Contains(text, "=== RUN") {
+		return true
+	}
+	if okLineRe.MatchString(text) {
+		return true
+	}
+	if passOnlyLineRe.MatchString(text) {
+		return true
+	}
+	if failOnlyLineRe.MatchString(text) {
+		return true
+	}
+	if passArrowRe.MatchString(text) {
+		return true
+	}
+	if failArrowRe.MatchString(text) {
+		return true
+	}
+	if pytestSummaryRe.MatchString(text) || pytestTimedRe.MatchString(text) {
+		return true
+	}
+	if jestSummaryRe.MatchString(text) {
+		return true
+	}
+	return false
+}
+
+var (
+	// Summary lines the test gate publishes (testfacts.Summary). The second
+	// field of a FAIL line is the sanitized test name, so it starts with
+	// Test, Example, Benchmark, or Fuzz; prose such as "FAIL the build"
+	// does not.
+	summaryFailRe   = regexp.MustCompile(`(?m)^FAIL \S+ (?:Test|Example|Benchmark|Fuzz)\S*`)
+	summaryBuildRe  = regexp.MustCompile(`(?m)^build-failed \S+`)
+	summaryRepeatRe = regexp.MustCompile(`(?m)^repeated \d+x: `)
+	okLineRe        = regexp.MustCompile(`(?m)^ok  \s*\S+`)
+	passOnlyLineRe  = regexp.MustCompile(`(?m)^\s*PASS\s*$`)
+	failOnlyLineRe  = regexp.MustCompile(`(?m)^\s*FAIL\s*$`)
+	passArrowRe     = regexp.MustCompile(`=>\s*PASS\b`)
+	failArrowRe     = regexp.MustCompile(`=>\s*FAIL\b`)
+	// A bare count anywhere in prose is not a test-runner signature. Browser
+	// actions also report "0 succeeded, 1 failed", including expected stale-ref
+	// rejections. Require the count grammar or a runner-specific context.
+	pytestSummaryRe = regexp.MustCompile(`(?m)^[\t =]*\d+ (?:passed|failed)(?:, \d+ (?:passed|failed|skipped|deselected|xfailed|xpassed|warnings?|errors?))*[\t =]*$`)
+	pytestTimedRe   = regexp.MustCompile(`\b\d+ (?:passed|failed)(?:, \d+ (?:passed|failed|skipped|deselected|xfailed|xpassed|warnings?|errors?))* in \d+(?:\.\d+)?s\b`)
+	jestSummaryRe   = regexp.MustCompile(`(?m)\b(?:Tests|Test Suites|Snapshots):[^\r\n]*\b\d+ (?:passed|failed)\b`)
+)

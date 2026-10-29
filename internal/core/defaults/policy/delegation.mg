@@ -1,0 +1,714 @@
+# Shard Delegation & Tool Mapping
+# Section 8 and 10 of Cortex Executive Policy
+
+
+# Section 8: Shard Delegation
+#
+# Every user_intent-driven delegation is guarded by !wants_direct_answer()
+# (policy/routing_arbitration.mg): when the user is asking a QUESTION, the
+# kernel must not derive shard delegations from the same intent — the turn
+# terminates in prose. Without this guard, "what is X?" classified as
+# /research or /analyze spawned researcher/reviewer shards through the
+# handleSystemDelegations path even after routing chose a direct answer.
+
+# Delegate to researcher for init/explore
+delegate_task(/researcher, "Initialize codebase analysis", /pending) :-
+    user_intent(/current_intent, _, /init, _, _),
+    !wants_direct_answer().
+
+delegate_task(/researcher, Task, /pending) :-
+    user_intent(/current_intent, _, /research, Task, _),
+    !wants_direct_answer().
+
+delegate_task(/researcher, Task, /pending) :-
+    user_intent(/current_intent, /query, /explore, Task, _),
+    !wants_direct_answer().
+
+# Delegate to coder for coding tasks
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, /mutation, /implement, Task, _),
+    !wants_direct_answer().
+
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, /mutation, /refactor, Task, _),
+    !wants_direct_answer().
+
+# /create, /fix, /write, /delete, /debug, /commit, /git also map to
+# next_action(/delegate_coder) via action_mapping. Without matching
+# delegate_task rules, `nerd run` printed "Next action: /delegate_coder"
+# and exited 0 without ever spawning the coder (hollow success).
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /create, Task, _),
+    !wants_direct_answer().
+
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /fix, Task, _),
+    !wants_direct_answer().
+
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /write, Task, _),
+    !wants_direct_answer().
+
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /delete, Task, _),
+    !wants_direct_answer().
+
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /debug, Task, _),
+    !wants_direct_answer().
+
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /commit, Task, _),
+    !wants_direct_answer().
+
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /git, Task, _),
+    !wants_direct_answer().
+
+# /deploy is a /mutation verb the understanding adapter emits (action_type
+# deploy). Without this, `nerd run "deploy ..."` derived no delegate_task.
+# /configure intentionally has a mapping but no delegate_task rule:
+# conversational_verb(/configure) makes wants_direct_answer() derive, so a
+# guarded rule here would be dead on arrival. Configure turns still reach
+# the coder through the next_action handoff and still require tool calls.
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /deploy, Task, _),
+    !wants_direct_answer().
+
+# Delegate to tester for test tasks
+delegate_task(/tester, Task, /pending) :-
+    user_intent(/current_intent, _, /test, Task, _),
+    !wants_direct_answer().
+
+# /assault (action_type attack) probes execute; they are not prose. No nemesis
+# executor exists (delegation has no /delegate_nemesis and the executive
+# drops unknown shards), so adversarial probing runs through the tester,
+# which owns execution with tools.
+delegate_task(/tester, Task, /pending) :-
+    user_intent(/current_intent, _, /assault, Task, _),
+    !wants_direct_answer().
+
+delegate_task(/tester, "Generate tests for impacted code", /pending) :-
+    impacted(File),
+    !test_coverage(File).
+
+# Delegate to reviewer for review tasks
+delegate_task(/reviewer, Task, /pending) :-
+    user_intent(/current_intent, _, /review, Task, _),
+    !wants_direct_answer().
+
+# Section 10: Tool Capability Mapping & Action Mapping
+
+# Tool capabilities for spreading activation
+tool_capabilities(/fs_read, /read).
+tool_capabilities(/fs_write, /write).
+tool_capabilities(/exec_cmd, /execute).
+tool_capabilities(/browser, /navigate).
+tool_capabilities(/browser, /click).
+tool_capabilities(/browser, /type).
+tool_capabilities(/code_graph, /analyze).
+tool_capabilities(/code_graph, /dependencies).
+
+# Goal capability requirements
+goal_requires(Goal, /read) :-
+    user_intent(/current_intent, /query, _, Goal, _).
+
+goal_requires(Goal, /write) :-
+    user_intent(/current_intent, /mutation, _, Goal, _).
+
+goal_requires(Goal, /execute) :-
+    user_intent(/current_intent, _, /run, Goal, _).
+
+goal_requires(Goal, /analyze) :-
+    user_intent(/current_intent, _, /explain, Goal, _).
+
+# Action Mappings: Map intent verbs to executable actions
+# Core actions
+action_mapping(/explain, /analyze_code).
+action_mapping(/read, /fs_read).
+action_mapping(/search, /search_files).
+action_mapping(/run, /exec_cmd).
+action_mapping(/test, /run_tests).
+
+# Code review & analysis actions (delegate to reviewer shard)
+action_mapping(/review, /delegate_reviewer).
+action_mapping(/review_enhance, /delegate_reviewer).
+action_mapping(/self_diagnose, /delegate_reviewer).
+action_mapping(/security, /delegate_reviewer).
+action_mapping(/analyze, /delegate_reviewer).
+# F-ROUTE-3 (residual): /lint (taxonomy.go:790, Category /query, ShardType
+# /reviewer) is the exact analog of /audit — static analysis whose findings
+# are a valid prose terminal response. Without this it derived no next_action
+# ("no action derived from policy", exit 1). /delegate_reviewer is intentionally
+# NOT side_effecting, so a prose lint report needs no tool_call (same as /review).
+action_mapping(/lint, /delegate_reviewer).
+# /audit is a workhorse_verb (routing_arbitration.mg) — the taxonomy maps
+# "analyze/audit X" to /audit — but it had no action_mapping, so the nerd-run
+# one-shot path derived no next_action and hard-failed ("no action derived from
+# policy"). It is an inspection verb like /review and /analyze; route it to the
+# reviewer. Non-side-effecting (a prose audit is a valid terminal answer), so it
+# stays out of side_effecting_action below, matching /analyze.
+action_mapping(/audit, /delegate_reviewer).
+
+# Code mutation actions (delegate to coder shard)
+action_mapping(/fix, /delegate_coder).
+action_mapping(/refactor, /delegate_coder).
+# F-ROUTE-3: /optimize, /migrate, /format, /scaffold are the /mutation verbs
+# perception routes to the coder (taxonomy.go: /migrate:755, /optimize:760,
+# /scaffold:785, /format:795 — all Category /mutation, ShardType /coder), yet
+# none had an action_mapping. So `nerd run "optimize/migrate/format/scaffold
+# ..."` derived no next_action and died with "no action derived from policy"
+# (exit 1) — the same F-ROUTE gap /audit had. (/document is /mutation /coder
+# too but is intentionally mapped to /delegate_researcher above.) Each routes
+# to the coder via the next_action handoff (cmd_instruction.go:223-237) and,
+# because /delegate_coder is a side_effecting_action, makes
+# intent_requires_tool_call true so the coder must emit a tool_call rather than
+# prose-only (anti-hollow).
+action_mapping(/optimize, /delegate_coder).
+action_mapping(/migrate, /delegate_coder).
+action_mapping(/format, /delegate_coder).
+action_mapping(/scaffold, /delegate_coder).
+action_mapping(/create, /delegate_coder).
+action_mapping(/delete, /delegate_coder).
+action_mapping(/write, /fs_write).
+# /document is documentation/prose, not code generation. Earlier this
+# routed to /delegate_coder which contradicted persona(/researcher) :-
+# user_intent(_, _, /document, _, _) in internal/mangle/intent_routing.mg
+# and produced a planning-only failure: the coder shard tried to "plan
+# how to document" a non-existent file instead of writing the markdown.
+# Routing to /delegate_researcher matches the persona rule and uses the
+# researcher shard's write_file allowance for prose output.
+action_mapping(/document, /delegate_researcher).
+action_mapping(/commit, /delegate_coder).
+# /configure and /deploy need the coder's tools (setup/release), and the
+# mapping makes intent_requires_tool_call true so prose-only turns fail.
+action_mapping(/configure, /delegate_coder).
+action_mapping(/deploy, /delegate_coder).
+
+# File-mutation terminal contracts. This is deliberately narrower than
+# side_effecting_action: /commit, /test, and /research require real tools but do
+# not require write_file/edit_file. internal/session queries this relation and
+# carries a tested static fallback only for degraded-kernel operation.
+write_oriented_intent(/create).
+write_oriented_intent(/fix).
+write_oriented_intent(/refactor).
+write_oriented_intent(/write).
+write_oriented_intent(/delete).
+write_oriented_intent(/implement).
+write_oriented_intent(/scaffold).
+write_oriented_intent(/optimize).
+write_oriented_intent(/document).
+
+# Debug actions
+action_mapping(/debug, /delegate_coder).
+
+# Git actions (delegate to coder shard for safe git operations)
+action_mapping(/git, /delegate_coder).
+
+# Test/measurement actions (delegate to tester shard). F-ROUTE-3 (residual):
+# /benchmark (taxonomy.go:770) and /profile (775) are Category /query,
+# ShardType /tester. They had no action_mapping, so `nerd run "benchmark ..."`
+# derived no next_action and died "no action derived from policy" (exit 1).
+# nextActionToShardType maps /delegate_tester -> "tester" (cmd_instruction.go).
+# Unlike /test (which uses /run_tests directly), these route through the tester
+# shard; /delegate_tester is marked side_effecting below because benchmarking
+# and profiling must EXECUTE measurement, not answer in prose.
+action_mapping(/benchmark, /delegate_tester).
+action_mapping(/profile, /delegate_tester).
+# /assault routes through the tester (see delegate_task above); the tester
+# is side_effecting, so adversarial probes must execute tools to count.
+action_mapping(/assault, /delegate_tester).
+
+# Research actions (delegate to researcher shard)
+action_mapping(/research, /delegate_researcher).
+action_mapping(/explore, /delegate_researcher).
+
+# Autopoiesis/Tool generation actions (delegate to tool_generator shard)
+action_mapping(/generate_tool, /delegate_tool_generator).
+action_mapping(/refine_tool, /delegate_tool_generator).
+action_mapping(/list_tools, /delegate_tool_generator).
+action_mapping(/tool_status, /delegate_tool_generator).
+
+# Diff actions
+action_mapping(/diff, /show_diff).
+
+# =============================================================================
+# Side-effecting actions: producing file/process/system mutations or requiring
+# real tool execution to make any observable progress. The executor uses this
+# set (via intent_requires_tool_call/1) to decide whether the LLM's
+# narrative-only first turn is acceptable. Delegation actions are included
+# because the delegated shard's purpose is to mutate state — the orchestrating
+# turn must still emit a tool_call (write_file / edit_file / run_command /
+# delegate_*). The tester EXECUTES (runs tests/benchmarks/profiles), so
+# /delegate_tester is included. /delegate_reviewer is the deliberate exception:
+# the reviewer ANALYZES and a prose verdict (/review, /analyze, /audit, /lint)
+# is a valid terminal response — so it stays out of this set.
+side_effecting_action(/delegate_coder).
+side_effecting_action(/delegate_researcher).
+side_effecting_action(/delegate_tool_generator).
+side_effecting_action(/delegate_tester).
+side_effecting_action(/fs_write).
+side_effecting_action(/exec_cmd).
+side_effecting_action(/run_tests).
+side_effecting_action(/show_diff).
+
+# Derive whether the current intent's verb requires a tool_call this turn.
+# Used by internal/session/executor.go:runToolLoop to gate the no-tool retry.
+intent_requires_tool_call(Verb) :-
+    action_mapping(Verb, Action),
+    side_effecting_action(Action).
+
+# =============================================================================
+# Reasoning-intensive work: which turns deserve the expensive model.
+#
+# This is the model-routing decision, and it is policy, not plumbing — which is
+# why it lives here rather than as a Go switch. A two-tier stack (a strong
+# reasoning model plus a cheap high-volume model) is only worth having if the
+# split is principled: cost follows the work whose QUALITY compounds, not the
+# work that merely happens most often.
+#
+# Note this is orthogonal to side_effecting_action/1 above. /delegate_reviewer
+# is deliberately NOT side-effecting (a prose verdict is a valid terminal
+# answer) and IS reasoning-intensive (the verdict's quality is the product).
+# /delegate_coder is the mirror image on the first axis and stays cheap on this
+# one, because a coder turn's correctness is checked by tests and the tool loop,
+# not by the model's unaided judgement.
+#
+# /analyze_code (the /explain mapping) is left out on purpose: explanation is
+# the single highest-volume verb in an interactive session, so routing it to the
+# reasoning tier would spend most of the budget on the cheapest-to-get-right
+# task and defeat the split.
+reasoning_intensive_action(/delegate_reviewer).
+
+# Verbs with no action_mapping, or whose planning happens before any action is
+# derived. /campaign and /assault decompose goals into phase/task DAGs;
+# /dream and /shadow run speculative alternatives whose whole value is the
+# quality of the road not taken. /generate_tool authors compiled Go that then
+# executes with real permissions — the most expensive place to be wrong.
+reasoning_intensive_verb(/campaign).
+reasoning_intensive_verb(/assault).
+reasoning_intensive_verb(/dream).
+reasoning_intensive_verb(/shadow).
+reasoning_intensive_verb(/generate_tool).
+
+# Derive whether this turn should be served by the planner LLM slot.
+# Queried once per turn by internal/session/executor.go:llmForVerb; the whole
+# tool loop then runs on the resolved client so the initial generation and its
+# tool-result follow-ups can never land on different models.
+intent_requires_reasoning_model(Verb) :-
+    action_mapping(Verb, Action),
+    reasoning_intensive_action(Action).
+
+intent_requires_reasoning_model(Verb) :-
+    reasoning_intensive_verb(Verb).
+
+# Step 6: TOOL-LOOP TERMINATION stays in Go — deliberately NOT migrated.
+# runToolLoop's three control branch points are all mechanical loop counters,
+# not policy decisions:
+#   (1) len(ToolCalls)==0        -> model-driven natural exit (final answer);
+#   (2) iter < MaxToolIterations -> the iteration ceiling (Go for-loop bound);
+#   (3) ToolCallsExecuted >= MaxToolCalls -> the per-call budget.
+# Encoding (2)/(3) as a should_retry_tool_loop(Attempt, Max) rule would force a
+# fast-changing counter fact (tool_loop_state) into the deductive store. That is
+# the classic Datalog counter fallacy (unbounded/monotonic store growth) AND it
+# is unsafe here specifically: SubAgents (internal/session/subagent.go) each
+# build their own Executor over the SINGLE shared kernel passed by the Spawner
+# (internal/session/spawner.go), and run their tool loops concurrently. A 0-ary
+# should_retry_tool_loop() gate cannot discriminate which loop a tool_loop_state
+# fact belongs to, so concurrent loops would clobber each other's counter — a
+# cross-goroutine race that retract-before-assert cannot fix.
+# The ONLY genuine policy decision in runToolLoop — whether a no-tool first turn
+# is acceptable — is already migrated above (intent_requires_tool_call/1,
+# queried at executor.go:intentRequiresToolCall). The Go `for iter < maxIter`
+# bound remains the hard, race-free termination backstop. There is nothing
+# sound left to migrate, so no rule is written (per the repo guardrail against
+# unbounded recursion / counter facts, and to avoid a consumer-less dead rule).
+
+# Step 4: DELEGATION DECISION. Go computes the verb->shard lookup and the
+# perception confidence and asserts delegation_candidate(/current_intent,
+# ShardType, Conf). This rule applies the gate: delegate only to a real shard
+# (not /none) when the confidence is at least routing.delegation_min_confidence
+# (a percent, from .nerd/config.json). The verb->shard LOOKUP stays in Go
+# (GetShardTypeForVerb) because its source data (verb_def) is siloed in the
+# perception taxonomy engine, not this kernel. The DECISION is only here: chat
+# kept a Go copy (confidence >= 0.5) that answered in place of this rule's
+# "no" until 2026-09-23 (sweep finding F12). The lane is read through
+# route_decision (routing_arbitration.mg).
+config_param_required(/routing, /routing_delegation_min_confidence).
+
+should_delegate(Persona) :-
+    delegation_candidate(/current_intent, Candidate, Conf),
+    /none != Candidate,
+    config_param(/routing_delegation_min_confidence, Min),
+    Conf >= Min,
+    delegation_persona(Candidate, Persona).
+
+# WHO TAKES THE TURN. The candidate is where the shard came from -- the verb
+# corpus, perception's derived affinity, or a model's suggestion -- and none of
+# those knows what the persona's turn will be judged as. A persona runs its
+# persona_verb (below), and a write-oriented verb ends a turn that wrote
+# nothing in the hollow-success guard. So an admitted /query is never handed to
+# a persona whose verb is write-oriented: the reviewer, which investigates with
+# the same read tools and a /review turn, takes it. One rule over every
+# candidate source; it does not depend on how the candidate was found. A
+# /mutation keeps its candidate.
+query_needs_reader(Candidate) :-
+    user_intent(/current_intent, /query, _, _, _),
+    persona_verb(Candidate, Verb),
+    write_oriented_intent(Verb).
+
+delegation_persona(Candidate, /reviewer) :-
+    delegation_candidate(/current_intent, Candidate, _),
+    query_needs_reader(Candidate).
+
+delegation_persona(Candidate, Candidate) :-
+    delegation_candidate(/current_intent, Candidate, _),
+    !query_needs_reader(Candidate).
+
+# Step 4b: A CHAT DELEGATION'S ATTEMPTS (sweep finding F5). A delegated
+# mutation used to take an LLM judge's word as its verdict: the verifier
+# spawned through the string-only executor, so the turn's kernel verdict
+# (/unverified with /tests_not_written, say) was dropped, a judge answering
+# "success" completed the request, and an LLM advisor picked who retried.
+# The turn's verdict decides now. The judge looks only at an attempt the
+# kernel called done, and can only withhold it; the cap is the persona's
+# shard_profiles.<persona>.max_retries, asserted with the request.
+config_param_required(/delegation, /delegation_judge_reject_confidence).
+
+delegation_judge_due(Root, A) :-
+    delegation_attempt(Root, A, /done).
+
+# Whose output the judge reads as analysis rather than implementation: a
+# reviewer reporting that code is incomplete has done its job.
+analysis_persona(/reviewer).
+
+delegation_judge_rubric(Root, /review) :-
+    delegation_request(Root, Persona, Cap),
+    analysis_persona(Persona).
+
+delegation_judge_rubric(Root, /implementation) :-
+    delegation_request(Root, Persona, Cap),
+    !analysis_persona(Persona).
+
+# The judge's verdict is asserted only after the host held its reply to the
+# judge/v2 contract and grounded it in the attempt's frozen evidence packet
+# (internal/verification/judge_contract.go): /pass, /defect (cited evidence the
+# packet still supports), or /insufficient_evidence (including a defect whose
+# citations resolved to nothing, and a bare suspicion). A reply that broke the
+# contract never becomes a verdict: the judge was unavailable, and the
+# delegation fails closed without re-running the worker. Until 2026-10-27 the
+# verdict was /pass or /fail from an unvalidated reply, so "{}" was a failure
+# at confidence 0 and an omitted confidence a genuine one.
+config_param_required(/delegation, /delegation_judge_evidence_rounds).
+
+judge_rejects(Root, A) :-
+    judge_verdict(Root, A, /defect, Confidence),
+    config_param(/delegation_judge_reject_confidence, Min),
+    Confidence >= Min.
+
+# The judge could not settle the attempt from the evidence. That is the
+# judge's limit, not the worker's defect: it is never a retry.
+judge_unresolved(Root, A) :-
+    judge_verdict(Root, A, /insufficient_evidence, Confidence).
+
+# A further round over the same frozen packet, supplying the evidence the
+# judge requested (judge_evidence_requested: the host found it can expand at
+# least one requested item), while the rounds used are within
+# delegation.judge_evidence_rounds. judge_round(Root, A, R) is each round the
+# judge was asked, from 1.
+judge_last_round(Root, A, Last) :-
+    judge_round(Root, A, R)
+    |> do fn:group_by(Root, A), let Last = fn:max(R).
+
+# Applicability: whatever the judge said, the host measures after each round
+# whether the packet still describes the workspace
+# (internal/verification/applicability.go). A pass cites nothing, so
+# grounding never checked it: until 2026-10-28 a pass over a tree another
+# writer had since changed was accepted. Evidence that is superseded, or whose
+# currency cannot be established, is historical: it is never accepted, never
+# a worker retry (the worker did nothing wrong), and buys no further evidence
+# rounds -- the attempt is unverifiable for the workspace as it is now.
+judge_evidence_current(Root, A) :-
+    judge_evidence_applicability(Root, A, /current).
+
+judge_evidence_historical(Root, A) :-
+    judge_evidence_applicability(Root, A, Applicability),
+    /current != Applicability.
+
+judge_may_acquire(Root, A) :-
+    judge_unresolved(Root, A),
+    !judge_evidence_historical(Root, A),
+    judge_evidence_requested(Root, A),
+    judge_last_round(Root, A, Last),
+    config_param(/delegation_judge_evidence_rounds, Rounds),
+    Last <= Rounds.
+
+delegation_attempt_accepted(Root, A) :-
+    delegation_attempt(Root, A, /done),
+    judge_evidence_current(Root, A),
+    !judge_rejects(Root, A),
+    !judge_unresolved(Root, A).
+
+# Not accepted for a reason the worker owns: its turn did not end /done, or
+# the judge grounded a defect at the threshold.
+delegation_attempt_failed(Root, A) :-
+    delegation_attempt(Root, A, Outcome),
+    !delegation_attempt_accepted(Root, A),
+    !judge_unresolved(Root, A),
+    !judge_evidence_historical(Root, A).
+
+delegation_attempt_count(Root, N) :-
+    delegation_attempt(Root, A, Outcome)
+    |> do fn:group_by(Root), let N = fn:count().
+
+delegation_move(Root, A, /accept) :-
+    delegation_attempt_accepted(Root, A).
+
+delegation_move(Root, A, /retry) :-
+    delegation_attempt_failed(Root, A),
+    delegation_attempt_count(Root, N),
+    delegation_request(Root, Persona, Cap),
+    N < Cap.
+
+delegation_move(Root, A, /escalate) :-
+    delegation_attempt_failed(Root, A),
+    delegation_attempt_count(Root, N),
+    delegation_request(Root, Persona, Cap),
+    N >= Cap.
+
+delegation_move(Root, A, /acquire_evidence) :-
+    judge_may_acquire(Root, A).
+
+# Out of evidence rounds, or nothing requested the host can supply: the
+# attempt cannot be verified. Unknown is never accepted, and the worker is
+# not paid to repair the judge.
+delegation_move(Root, A, /unverifiable) :-
+    judge_unresolved(Root, A),
+    !judge_may_acquire(Root, A).
+
+delegation_move(Root, A, /unverifiable) :-
+    judge_evidence_historical(Root, A).
+
+# ONE PERSONA -> VERB TABLE (sweep finding F6). A persona name ("coder", or
+# "/coder" from a delegate_task fact) becomes the verb its turn runs, and the
+# verb decides the turn's atoms, tools and owed gates. Chat, the delegation
+# verifier and the task executor each kept their own copy and they disagreed:
+# nemesis ran /attack from chat and /review through the executor, and
+# generalist, specialist and tool_generator existed in one copy only. The task
+# executor, which every delegation passes through, is the one reader
+# (internal/session/task_executor.go intentFor).
+persona_verb(/coder, /fix).
+persona_verb(/tester, /test).
+persona_verb(/reviewer, /review).
+persona_verb(/researcher, /research).
+persona_verb(/nemesis, /attack).
+persona_verb(/librarian, /learn).
+persona_verb(/planner, /plan).
+persona_verb(/legislator, /legislate).
+persona_verb(/constitution, /audit).
+persona_verb(/generalist, /implement).
+persona_verb(/specialist, /research).
+persona_verb(/tool_generator, /generate_tool).
+
+# Verbs whose turn runs as an isolated subagent rather than inline on a clone
+# of the session executor: long or multi-turn work. Read by the task executor
+# (was a Go map, needsSubagent).
+verb_isolated(/research).
+verb_isolated(/implement).
+verb_isolated(/refactor).
+verb_isolated(/campaign).
+
+# Step 5: MULTI-STEP CLASSIFICATION (decision moves to policy; extraction stays
+# in Go). Go's detectMultiStepTask computes the individual signals from the
+# (quote-stripped) input — campaign verb, multi-step keyword match, verb-count
+# >= 3, compound-pattern regex — and asserts one multi_step_signal fact per
+# detected signal. The regex/keyword/verb-count MATCHING itself stays in Go
+# (Mangle is not used for fuzzy/NL pattern banks per the repo guardrails); only
+# the combination DECISION lives here, and route_decision reads it
+# (routing_arbitration.mg). Go has no copy of the combination.
+#
+# Tuned (routing reliability): the original rule ORed ALL signals, so a single
+# weak keyword hit ("also", "then ", a numbered list in pasted text) decomposed
+# trivial requests into multi-step shard pipelines. Strong signals (an explicit
+# campaign verb, a compound action pattern like "fix X and test it") decide
+# alone; the weak keyword signal only counts when corroborated by a high verb
+# count.
+is_multi_step() :-
+    multi_step_signal(/campaign_verb).
+
+is_multi_step() :-
+    multi_step_signal(/compound_pattern).
+
+is_multi_step() :-
+    multi_step_signal(/keyword_match),
+    multi_step_signal(/verb_count_high).
+
+# The decomposition corpus's clause patterns ("review X and fix any issues",
+# "analyze X and optimize") -- a signal only since 2026-09-23; until then only
+# the decomposer read the corpus, after this rule had decided. The patterns
+# also fit single requests ("explain what happens next in this function"), so
+# a match counts when the request carries several action verbs too.
+is_multi_step() :-
+    multi_step_signal(/corpus_pattern),
+    multi_step_signal(/verb_count_high).
+
+# Derive next_action from intent and mapping
+# Guard: Only derive if intent hasn't been processed by executive (prevents infinite loop)
+next_action(Action) :-
+    user_intent(/current_intent, _, Verb, _, _),
+    action_mapping(Verb, Action),
+    !executive_processed_intent(/current_intent).
+
+# Specific file system actions (with same guard)
+next_action(/fs_read) :-
+    user_intent(/current_intent, _, /read, _, _),
+    !executive_processed_intent(/current_intent).
+
+next_action(/fs_write) :-
+    user_intent(/current_intent, _, /write, _, _),
+    !executive_processed_intent(/current_intent).
+
+# Review delegation - high confidence triggers immediate delegation
+delegate_task(/reviewer, Target, /pending) :-
+    user_intent(/current_intent, _, /review, Target, _),
+    !wants_direct_answer().
+
+delegate_task(/reviewer, Target, /pending) :-
+    user_intent(/current_intent, _, /security, Target, _),
+    !wants_direct_answer().
+
+delegate_task(/reviewer, Target, /pending) :-
+    user_intent(/current_intent, _, /analyze, Target, _),
+    !wants_direct_answer().
+
+# Tool generator delegation - autopoiesis operations
+delegate_task(/tool_generator, Target, /pending) :-
+    user_intent(/current_intent, _, /generate_tool, Target, _).
+
+delegate_task(/tool_generator, Target, /pending) :-
+    user_intent(/current_intent, _, /refine_tool, Target, _).
+
+delegate_task(/tool_generator, "", /pending) :-
+    user_intent(/current_intent, _, /list_tools, _, _).
+
+delegate_task(/tool_generator, Target, /pending) :-
+    user_intent(/current_intent, _, /tool_status, Target, _).
+
+# Auto-delegate when missing capability detected (implicit tool generation)
+delegate_task(/tool_generator, Cap, /pending) :-
+    missing_tool_for(_, Cap),
+    !tool_generation_blocked(Cap).
+
+# -----------------------------------------------------------------------------
+# Which file a fixer is sent to after a review.
+#
+# Go used to rank findings in a map (delegation.go extractFileFromFindings):
+# most citations, then the worst severity, then the earliest index. The map
+# iteration was the bug the index exists to close — a count tie used to
+# dispatch the fixer to whichever key Go's randomised order reached first.
+#
+# Go now asserts one review_finding_citation per finding that names a file
+# and reads delegation_target_file. The severity word is parsed into an atom
+# in Go; the number it sorts as is severity_rank, not a Go switch.
+#
+# The three keys are applied as successive aggregates, not one comparison.
+# Count first: best_citation_count is the max count in the review, and only
+# files at that count survive. Among those, best_citation_rank is the max of
+# their worst ranks. Among those, best_citation_index is the min first index.
+# Checked on the pinned engine (nerd check-mangle --standalone --eval,
+# 2026-09-29): one group_by may bind fn:count, fn:max and fn:min together,
+# and this chain yields exactly one delegation_target_file per review for a
+# clear count winner, a count tie broken by severity, and a full tie broken
+# by index.
+#
+# The index is the finding's position in the review. Each citation has its
+# own, so two files cannot share one, and the minimum among the survivors is
+# a single file. A further tie on the path string is not available: the same
+# probe evaluated `A < B` on two strings and the engine rejected it ("value
+# "b" (1) is not a number").
+# -----------------------------------------------------------------------------
+
+severity_rank(/critical, 4).
+severity_rank(/high, 3).
+severity_rank(/medium, 2).
+severity_rank(/low, 1).
+severity_rank(/unknown, 0).
+
+citation_ranked(ReviewID, File, Rank, Index) :-
+    review_finding_citation(ReviewID, File, Sev, Index),
+    severity_rank(Sev, Rank).
+
+file_citation_summary(ReviewID, File, Count, MaxRank, MinIndex) :-
+    citation_ranked(ReviewID, File, Rank, Index)
+    |> do fn:group_by(ReviewID, File), let Count = fn:count(), let MaxRank = fn:max(Rank), let MinIndex = fn:min(Index).
+
+# Project before the next aggregate. A count that is not grouped and not
+# reduced is rejected, and collapsing to (ReviewID, Count) is safe: fn:max
+# does not care that two files with the same count became one row.
+citation_count_value(ReviewID, Count) :-
+    file_citation_summary(ReviewID, _, Count, _, _).
+
+best_citation_count(ReviewID, Best) :-
+    citation_count_value(ReviewID, Count)
+    |> do fn:group_by(ReviewID), let Best = fn:max(Count).
+
+count_winner(ReviewID, File, MaxRank, MinIndex) :-
+    file_citation_summary(ReviewID, File, Count, MaxRank, MinIndex),
+    best_citation_count(ReviewID, Count).
+
+citation_rank_value(ReviewID, MaxRank) :-
+    count_winner(ReviewID, _, MaxRank, _).
+
+best_citation_rank(ReviewID, Best) :-
+    citation_rank_value(ReviewID, MaxRank)
+    |> do fn:group_by(ReviewID), let Best = fn:max(MaxRank).
+
+rank_winner(ReviewID, File, MinIndex) :-
+    count_winner(ReviewID, File, MaxRank, MinIndex),
+    best_citation_rank(ReviewID, MaxRank).
+
+citation_index_value(ReviewID, MinIndex) :-
+    rank_winner(ReviewID, _, MinIndex).
+
+best_citation_index(ReviewID, Best) :-
+    citation_index_value(ReviewID, MinIndex)
+    |> do fn:group_by(ReviewID), let Best = fn:min(MinIndex).
+
+delegation_target_file(ReviewID, File) :-
+    rank_winner(ReviewID, File, MinIndex),
+    best_citation_index(ReviewID, MinIndex).
+
+# -----------------------------------------------------------------------------
+# Coordination topology per verb.
+#
+# This is the table DefaultVerbConfigs[verb].Mode held, including the two
+# rows an earlier audit sketch dropped: /test and /debug are /parallel and
+# /advisory. A verb that is not in the table used to take the map's miss
+# branch, ModeParallel (matching.go GetExecutionMode), and the chat switch's
+# default branch was the same topology. The miss is the second rule. It is
+# not a Go default.
+#
+# The negation goes through has_configured_execution_mode. Negating
+# configured_execution_mode(Verb, _) directly did not see the ground fact on
+# the pinned engine: asking /fix derived both /advisory_with_critique and
+# /parallel (same probe, 2026-09-29). The unary projection is what /fix
+# fails, so a configured verb keeps the one mode the table names.
+# -----------------------------------------------------------------------------
+
+configured_execution_mode(/review, /parallel).
+configured_execution_mode(/security, /parallel).
+configured_execution_mode(/test, /parallel).
+configured_execution_mode(/create, /advisory).
+configured_execution_mode(/debug, /advisory).
+configured_execution_mode(/fix, /advisory_with_critique).
+configured_execution_mode(/refactor, /advisory_with_critique).
+
+has_configured_execution_mode(Verb) :-
+    configured_execution_mode(Verb, _).
+
+execution_mode(Verb, Mode) :-
+    configured_execution_mode(Verb, Mode).
+
+execution_mode(Verb, /parallel) :-
+    asked_delegation_verb(Verb),
+    !has_configured_execution_mode(Verb).

@@ -1,0 +1,176 @@
+package prompt
+
+import (
+	"strings"
+	"testing"
+)
+
+// Every campaign role's LLM output is json.Unmarshal'd by Go, so none of them
+// may be told the Piggyback envelope is mandatory. Two mandatory output
+// contracts in one prompt is a silent failure, not a style problem: the model
+// picks one, the parser expects the other, and the fallback path makes the
+// result look like success.
+//
+// The shard-type strings here must match campaign.GetShardTypeForRole. They are
+// literals rather than an import because internal/campaign imports this package.
+func TestIsStructuredOutputOnly_CoversEveryCampaignRole(t *testing.T) {
+	// role -> shard type, from campaign.GetShardTypeForRole.
+	roles := map[string]string{
+		"librarian": "librarian",
+		"extractor": "extractor",
+		"analysis":  "analyzer",
+		"assault":   "analyzer",
+		"planner":   "planner",
+		"taxonomy":  "planner",
+		"replanner": "planner",
+	}
+
+	for role, shardType := range roles {
+		t.Run(role, func(t *testing.T) {
+			if !IsStructuredOutputOnly(shardType) {
+				t.Errorf("campaign role %q compiles as shard %q, whose output is json.Unmarshal'd, "+
+					"but it is not structured-output-only — its prompt will carry "+
+					"\"OUTPUT PROTOCOL: PIGGYBACK ENVELOPE (MANDATORY)\" alongside the schema it "+
+					"actually needs, and the model will obey the wrong one", role, shardType)
+			}
+		})
+	}
+}
+
+// The slash-prefixed form is what CompilationContext.ShardType carries.
+func TestIsStructuredOutputOnly_AcceptsSlashPrefixedShardTypes(t *testing.T) {
+	for _, shardType := range []string{"/planner", "/librarian", "/extractor", "/analyzer", "/mangle_repair", "/legislator"} {
+		if !IsStructuredOutputOnly(shardType) {
+			t.Errorf("IsStructuredOutputOnly(%q) = false; the compilation context stores shard types slash-prefixed", shardType)
+		}
+	}
+}
+
+// Conversational shards still need the envelope — it is how they request tools.
+// Over-applying this would strip the tool protocol from the coding path.
+func TestIsStructuredOutputOnly_LeavesConversationalShardsAlone(t *testing.T) {
+	for _, shardType := range []string{"coder", "reviewer", "tester", "researcher", "nemesis", ""} {
+		if IsStructuredOutputOnly(shardType) {
+			t.Errorf("IsStructuredOutputOnly(%q) = true; that shard needs the Piggyback envelope to request tools", shardType)
+		}
+	}
+}
+
+// filterAtomsForStructuredOutput is the mechanism the flag drives. If it stops
+// removing protocol atoms, the flag becomes decorative.
+//
+// campaign/taxonomist/output_protocol is the case that broke the ID-prefix
+// version of this filter: it is gated shard_types: ["taxonomist", "planner"], so
+// it reaches the Decomposer's compile carrying "# OUTPUT PROTOCOL (PIGGYBACK
+// ENVELOPE) — You must ALWAYS output a JSON object with this exact structure. No
+// exceptions." Its ID starts with "campaign/", not "protocol/", so the prefix
+// match sailed past it and the planner kept returning control_packets.
+func TestFilterAtomsForStructuredOutput_RemovesBothProtocolFamilies(t *testing.T) {
+	atoms := []*PromptAtom{
+		{ID: "protocol/piggyback/envelope"},
+		{ID: "protocol/decision_summary/trace"},
+		{ID: "campaign/taxonomist/output_protocol", Category: CategoryProtocol},
+		{ID: "campaign/taxonomist/reasoning_trace", Category: CategoryProtocol},
+		{ID: "safety/constitutional/default_deny", Category: CategorySafety},
+		{ID: "identity/planner/mission", Category: CategoryIdentity},
+	}
+
+	cc := NewCompilationContext()
+	cc.ShardType = "/planner"
+
+	kept := filterAtomsForStructuredOutput(atoms, cc)
+
+	var ids []string
+	for _, a := range kept {
+		ids = append(ids, a.ID)
+	}
+	joined := strings.Join(ids, ",")
+
+	if strings.Contains(joined, "protocol/piggyback/") {
+		t.Error("a piggyback protocol atom survived into a structured-output compile")
+	}
+	if strings.Contains(joined, "protocol/decision_summary/") {
+		t.Error("a reasoning protocol atom survived into a structured-output compile")
+	}
+	if strings.Contains(joined, "campaign/taxonomist/output_protocol") {
+		t.Error("a CategoryProtocol atom whose ID is not under protocol/ survived; " +
+			"filtering must be by category, because that is the atom that kept the planner " +
+			"returning control_packets after the first fix")
+	}
+	if strings.Contains(joined, "campaign/taxonomist/reasoning_trace") {
+		t.Error("a CategoryProtocol reasoning atom survived into a structured-output compile")
+	}
+	if !strings.Contains(joined, "safety/constitutional/default_deny") {
+		t.Error("safety atoms must survive; structured output does not mean unconstrained")
+	}
+	if !strings.Contains(joined, "identity/planner/mission") {
+		t.Error("the shard's own identity must survive")
+	}
+}
+
+func TestFilterAtomsForStructuredOutput_LeavesOtherShardsUntouched(t *testing.T) {
+	atoms := []*PromptAtom{
+		{ID: "protocol/piggyback/envelope"},
+		{ID: "protocol/decision_summary/trace"},
+	}
+	cc := NewCompilationContext()
+	cc.ShardType = "/coder"
+
+	if got := filterAtomsForStructuredOutput(atoms, cc); len(got) != len(atoms) {
+		t.Errorf("a conversational compile kept %d of %d protocol atoms; it needs all of them", len(got), len(atoms))
+	}
+}
+
+func TestFilterAtomsForStructuredOutput_PerceptionKeepsItsOwnerAndClosure(test *testing.T) {
+	atoms := []*PromptAtom{
+		{ID: "dependent/transitive", Category: CategoryMethodology, DependsOn: []string{"dependent/direct"}},
+		{ID: "dependent/direct", Category: CategoryIdentity, DependsOn: []string{"protocol/piggyback/envelope"}},
+		{ID: "system/perception/verb_categories", Category: CategoryDomain, DependsOn: []string{"system/perception/output_format"}},
+		{ID: "system/perception/output_format", Category: CategoryProtocol, DependsOn: []string{"system/perception/identity"}},
+		{ID: "system/perception/identity", Category: CategoryIdentity},
+		{ID: "system/perception/precision", Category: CategoryMethodology},
+		{ID: "perception_understanding", Category: CategoryIntent},
+		{ID: "protocol/piggyback/envelope", Category: CategoryProtocol},
+		{ID: "protocol/decision_summary/trace", Category: CategoryProtocol},
+		{ID: "foreign/output_contract", Category: CategoryProtocol},
+		{ID: "perception/transducer/intent_library", Category: CategoryIdentity},
+		{ID: "dependent/legacy", Category: CategoryMethodology, DependsOn: []string{"perception/transducer/intent_library"}},
+		{ID: "safety/constitutional/default_deny", Category: CategorySafety},
+	}
+	for _, shard := range []string{"perception", "/perception", "perception_firewall", " /PERCEPTION_FIREWALL "} {
+		test.Run(shard, func(test *testing.T) {
+			cc := NewCompilationContext()
+			cc.ShardType = shard
+			kept := filterAtomsForStructuredOutput(atoms, cc)
+			ids := make(map[string]bool, len(kept))
+			for _, atom := range kept {
+				ids[atom.ID] = true
+			}
+			for _, id := range []string{"system/perception/identity", "system/perception/output_format", "system/perception/verb_categories", "system/perception/precision", "perception_understanding", "safety/constitutional/default_deny"} {
+				if !ids[id] {
+					test.Errorf("canonical perception support %q was removed", id)
+				}
+			}
+			for _, id := range []string{"protocol/piggyback/envelope", "protocol/decision_summary/trace", "foreign/output_contract", "perception/transducer/intent_library", "dependent/direct", "dependent/transitive", "dependent/legacy"} {
+				if ids[id] {
+					test.Errorf("incompatible instruction or dependent %q survived", id)
+				}
+			}
+			if errs := NewDependencyResolver().ValidateDependencies(kept); len(errs) != 0 {
+				test.Fatalf("canonical dependency closure is broken: %v", errs)
+			}
+		})
+	}
+}
+
+func TestFilterAtomsForStructuredOutput_LegacyTransducerStillUsesPiggyback(test *testing.T) {
+	atoms := []*PromptAtom{
+		{ID: "perception/transducer/intent_library", Category: CategoryIdentity},
+		{ID: "protocol/piggyback/envelope", Category: CategoryProtocol},
+	}
+	cc := NewCompilationContext()
+	cc.ShardType = "/transducer"
+	if kept := filterAtomsForStructuredOutput(atoms, cc); len(kept) != len(atoms) {
+		test.Fatalf("legacy transducer lost its separate contract: got %d atoms, want %d", len(kept), len(atoms))
+	}
+}

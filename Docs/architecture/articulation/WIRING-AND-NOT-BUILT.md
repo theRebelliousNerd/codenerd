@@ -1,0 +1,108 @@
+# articulation wiring — and what is NOT built
+
+What is connected, what exists but nothing calls, and what the design
+assumes that the code does not do. What the package is: README.md. How it
+works: INTERNALS.md.
+
+Re-verified 2026-09-25 (lane A build-out); first written 2026-09-20 against
+`456e5217`. Line numbers below were re-read on 2026-09-25.
+
+## Wired and reachable
+
+| Symbol | Production caller |
+|---|---|
+| `ApplyConstitutionalOverride` (`emitter.go:850`) | `internal/session/executor.go:1754` — after `core.FilterMangleUpdates` (`:1747`) blocked atoms, marks the surface and drops them |
+| `NewEmitter` + `Emit` (`emitter.go:725`, `:737`) | `cmd/nerd/cmd_instruction.go:78,96,370` — one-shot instruction path writes the envelope to stdout |
+| `SetJITBudgets` + `EnableJIT` | `cmd/nerd/chat/campaign.go`, `cmd/nerd/chat/campaign_assault.go`, `cmd/nerd/chat/campaign_recurse.go`, `internal/shards/registration.go`, `internal/system/factory.go` |
+| `SetJITCompiler` | `internal/shards/registration.go`, `internal/system/factory.go` |
+| `NewPromptAssemblerAdapter` | `internal/shards/system/perception.go`, `internal/system/factory.go` |
+| `mapToPromptContext` | inside `AssembleSystemPrompt` |
+| `PiggybackEnvelopeSchema` | `internal/perception/client_schema.go:23` |
+| `NewPromptAssemblerWithJIT` | `cmd/nerd/chat/campaign.go`, `cmd/nerd/chat/campaign_assault.go`, `cmd/nerd/chat/campaign_recurse.go`, `cmd/nerd/cmd_campaign.go` |
+| `ProcessLLMResponse` (`emitter.go:1027`) | `internal/session/executor.go`, `internal/shards/system/planner.go` |
+| `ProcessLLMResponseAllowPlain` (`emitter.go:1033`) | `internal/session/executor.go`, `internal/session/piggyback_promotion.go`, `internal/shards/requirements_interrogator.go`, `internal/shards/system/legislator.go`, `internal/shards/system/mangle_repair.go`, `cmd/nerd/chat/delegation.go`, `cmd/nerd/chat/helpers.go` |
+| `HasSelfCorrection`, `HasMemoryOperations`, `GetMemoryOperationsByType` | `internal/session/executor.go` |
+| `NewStreamParser` | `cmd/nerd/chat/helpers_articulation.go` |
+
+**Every path that applies `mangle_updates` to a kernel filters them first.**
+The session executor (`executor.go:1747`), the session planner
+(`internal/shards/system/planner.go:1081`) and the perception firewall
+(`internal/shards/system/perception.go:291`) all go through
+`core.FilterMangleUpdates`; the executor additionally marks the surface via
+`ApplyConstitutionalOverride`. The display helpers that skip it
+(`ExtractSurfaceOnly`, `MustExtractSurface`) have no production caller and
+apply nothing to a kernel.
+
+**The envelope's three descriptions are held together by a test.** The JSON
+Schema the model is held to (`PiggybackEnvelopeSchema`, `schema.go`), the
+structs responses decode into (`protocol_types.go`), and the key set strict
+decoding accepts (`schemaAllowedKeys`, `emitter.go:454`) agree at every level
+today; `TestEnvelopeShape_SchemaStructAndStrictKeysAgree`
+(`envelope_shape_agreement_test.go`) fails, naming the path, when one drifts
+(checked by dropping `priority` from `schemaAllowedKeys`).
+
+## Exists but nothing calls it
+
+Each was re-checked with a whole-repo grep on 2026-09-25. No wiring gap was
+found for any of them: nothing in production needs what they do and does it
+another, worse way. Deleting them is a maintainer call; they are listed in
+`scripts/testdata/deadcode-baseline.txt` where noted.
+
+- `Emitter.EmitSurface` (`emitter.go:772`): no callers. No CLI flag asks for
+  surface-only output.
+- `Emitter.ParseAndProcess` (`emitter.go:780`): no callers.
+- `Emitter.CreateEnvelope` (`emitter.go:793`) and `Emitter.MarshalEnvelope`
+  (`emitter.go:812`): tests only. `cmd_instruction.go` builds the envelope
+  literally and `Emit` marshals it itself.
+- `PromptAssembler.BuildContextSection` (`kernel_context.go`): no production
+  callers. `GetKernelContext` and `AssembleQuickPrompt`, the other two
+  entries listed here, were deleted on 2026-09-25 (the JIT compiler
+  assembles prompts; nothing called either).
+- `GetStats` / `ResetStats` (`emitter.go:686`, `:697`): tests only.
+- `MustExtractSurface` and `ExtractSurfaceOnly`: deleted 2026-09-25 (no
+  production callers).
+- `AppendReasoningDirective` and its two directive constants, listed here on
+  2026-09-20, are gone: deleted in `a5e12f0` ("the model's reasoning trace is
+  kept whole; the dead directive is gone"). The deadcode baseline still names
+  `AppendReasoningDirective` and needs a refresh.
+
+## Assumed by the design, not done by the code
+
+- Strict validation is available but off: `ResponseProcessor.RequireValidJSON`
+  (`emitter.go:128`) is false on every production path
+  (`processLLMResponse`, `emitter.go:1045`). Declined: a response that does not
+  parse falls back to plain text with a nil control packet, so nothing from
+  it reaches a kernel; strict mode would turn a model's plain answer into an
+  error without a safety gain.
+- `ApplyConstitutionalOverride` mutates the envelope in place and returns an
+  audit record (`ConstitutionalOverride`), so callers must treat the pointer
+  as mutated.
+- `GetStats` / `ResetStats` expose in-memory `ProcessorStats` counters; nothing
+  persists or exports them. Declined: no consumer wants them.
+- `Emit`'s error is ignored at both call sites in `cmd/nerd/cmd_instruction.go`
+  (`:96`, `:370`). `json.Marshal` fails only on a non-finite
+  `IntentClassification.Confidence`, and the LLM transducer clamps NaN and
+  out-of-range confidence before it reaches an intent
+  (`internal/perception/transducer_llm.go:417`), so the failure is not
+  reachable from `nerd run` today. A new perception path that skips the clamp
+  would make `nerd run` print nothing; checking the error at the call site is
+  the cheap guard if that changes.
+
+## Closed in this pass (2026-09-25)
+
+| Item (2026-09-20 wording) | Verdict | Evidence |
+|---|---|---|
+| Display paths never pass through `ApplyConstitutionalOverride` | stale as a risk: those helpers have no production caller; every kernel-applying path filters | `FilterMangleUpdates` call sites above |
+| Three places must agree on the envelope shape, manually | built: an agreement test | `envelope_shape_agreement_test.go` |
+| `AppendReasoningDirective` unused | stale: deleted in `a5e12f0` | `grep` finds no definition |
+
+
+## Required contract: Streaming envelope partition invariance
+
+Every chunk partition of a valid envelope must emit exactly its decoded top-level string surface_response once, including splits within key, colon, whitespace and escape sequences. Non-string, nested and malformed decoys must not expose control-channel text.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-ARTICULATION-STREAM-PARTITIONS | Streaming envelope partition invariance | `StreamParser.ProcessChunk` carries incomplete top-level surface-key state across chunks (`internal/articulation/stream_parser.go:47`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | All split positions and byte-at-a-time input match the nonstream ResponseProcessor surface, with malformed/nested/non-string negative controls. |
+
+**Verified current:** `TestStreamParser_RecognizesSurfaceKeyAcrossChunkBoundaries` (`internal/articulation/articulation_uplift_test.go:42`), `TestStreamParser_IgnoresDecoyMarker` (`:29`), and `TestStreamParser_NonStringValueStreamsNothing` (`:89`) pass in the focused articulation suite. The full articulation package and focused race suite also pass; the separate chat-consumer round trip remains outside this contract's verification.

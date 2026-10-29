@@ -1,0 +1,571 @@
+package session
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"codenerd/internal/jit/config"
+	"codenerd/internal/logging"
+	"codenerd/internal/observation"
+	"codenerd/internal/perception"
+	"codenerd/internal/sessionlog"
+	"codenerd/internal/types"
+)
+
+// SubAgentState represents the lifecycle state of a subagent.
+type SubAgentState int32
+
+const (
+	SubAgentStateIdle SubAgentState = iota
+	SubAgentStateRunning
+	SubAgentStateCompleted
+	SubAgentStateFailed
+)
+
+func (s SubAgentState) String() string {
+	switch s {
+	case SubAgentStateIdle:
+		return "idle"
+	case SubAgentStateRunning:
+		return "running"
+	case SubAgentStateCompleted:
+		return "completed"
+	case SubAgentStateFailed:
+		return "failed"
+	default:
+		return "unknown"
+	}
+}
+
+// SubAgentType determines the persistence and lifecycle behavior.
+type SubAgentType string
+
+// Compressor defines the interface for memory compression.
+// This allows the session package to work with compressors without importing internal/context.
+type Compressor interface {
+	Compress(ctx context.Context, turns []perception.ConversationTurn) (string, error)
+}
+
+const (
+	// SubAgentTypeEphemeral dies after task completion.
+	SubAgentTypeEphemeral SubAgentType = "ephemeral"
+
+	// SubAgentTypePersistent survives across sessions with compressed memory.
+	SubAgentTypePersistent SubAgentType = "persistent"
+
+	// SubAgentTypeSystem runs continuously in the background.
+	SubAgentTypeSystem SubAgentType = "system"
+)
+
+// SubAgentConfig configures a subagent's behavior.
+type SubAgentConfig struct {
+	// ID is the unique identifier for this subagent instance.
+	ID string
+
+	// Name is the human-readable name (e.g., "coder", "my-specialist").
+	Name string
+
+	// Type determines lifecycle behavior.
+	Type SubAgentType
+
+	// EffectiveAgentRuntimeConfig from JIT provides identity, tools, and policies.
+	EffectiveAgentRuntimeConfig *config.EffectiveAgentRuntimeConfig
+
+	// IntentVerb is the already-classified intent this subagent serves (e.g.
+	// "/review"). When set, the executor runs with a preset intent instead of
+	// re-perceiving the machine-generated task string — saving one
+	// classification LLM call per task and pinning the JIT persona to the
+	// verb the routing layer actually chose.
+	IntentVerb string
+
+	// IntentTarget is the resolved file or directory the verb acts on, empty
+	// when the task is prose rather than a target. Mirrors IntentVerb: when set,
+	// the subagent's preset intent carries the holographic per-file context target
+	// without inferring it from the task text.
+	IntentTarget string
+
+	// IntentConstraint is the routing layer's requirement for the task (a
+	// must / must-not rule), carried structurally beside the task text so the
+	// preset intent the subagent runs under holds it as the inline topology's
+	// does: retrieval and prompt assembly read intent.Constraint, and text
+	// alone leaves them blind to it.
+	IntentConstraint string
+
+	// Timeout is a caller's own limit on the subagent's execution. Zero means
+	// none: the subagent runs under the caller's context and stops when the
+	// working policy derives a stall.
+	Timeout time.Duration
+
+	// SessionContext provides shared state (e.g., DreamMode, Blackboard)
+	SessionContext *types.SessionContext
+}
+
+// SubAgent is a context-isolated instance of the clean execution loop.
+//
+// Each subagent has:
+//   - Its own LLM conversation history (context isolation)
+//   - JIT-provided identity and tools (no hardcoded behavior)
+//   - Memory compression for long-running tasks
+//
+// SubAgents replace the old shard architecture. The difference:
+//   - OLD: CoderShard with 600 lines of hardcoded Go
+//   - NEW: SubAgent with same ~50-line loop, all behavior from JIT
+type SubAgent struct {
+	mu sync.RWMutex
+
+	// Configuration
+	config SubAgentConfig
+
+	// Execution components
+	executor *Executor // Uses the same clean loop
+
+	// Context isolation - own conversation history
+	conversationHistory []perception.ConversationTurn
+
+	// Memory compression for long-running agents
+	compressor Compressor
+
+	// State tracking
+	state     int32 // atomic SubAgentState
+	startTime time.Time
+	endTime   time.Time
+	turnCount int
+
+	// Results
+	result string
+	err    error
+
+	// observed is what the executor recorded about this run — write set, build
+	// and test verdicts, critic findings — captured at the one moment it is
+	// still in hand. execute() used to return result.Response and let the rest
+	// of ExecutionResult fall out of scope, so every consumer downstream had to
+	// re-derive from prose what the runtime had already measured.
+	observed observation.Return
+
+	// Cancellation. stopRequested latches a Stop that arrives before Run has
+	// installed cancel: Run checks it under the same lock that installs
+	// cancel, so a stop between the state transition and the install is
+	// honoured instead of lost.
+	cancel        context.CancelFunc
+	stopRequested bool
+
+	// done is closed once the terminal result is stored; onTerminal (set
+	// before Run) is called once after that, outside every lock, so the
+	// owner settles the result without anyone polling for it.
+	done       chan struct{}
+	onTerminal func()
+	finishOnce sync.Once
+}
+
+// NewSubAgent creates a new subagent with the given configuration.
+func NewSubAgent(
+	cfg SubAgentConfig,
+	kernel types.Kernel,
+	virtualStore types.VirtualStore,
+	llmClient types.LLMClient,
+	jitCompiler JITCompiler,
+	configFactory ConfigFactory,
+	transducer perception.Transducer,
+) *SubAgent {
+	logging.Session("Creating SubAgent: %s (type: %s)", cfg.Name, cfg.Type)
+
+	// Create executor for this subagent
+	executor := NewExecutor(kernel, virtualStore, llmClient, jitCompiler, configFactory, transducer)
+
+	// Set session context if provided in config
+	if cfg.SessionContext != nil {
+		executor.SetSessionContext(cfg.SessionContext)
+	}
+
+	// Apply agent config to executor if provided
+	if cfg.EffectiveAgentRuntimeConfig != nil {
+		// The executor will use this config for all operations
+		logging.SessionDebug("SubAgent %s configured with %d tools", cfg.Name, len(cfg.EffectiveAgentRuntimeConfig.AllowedTools))
+	}
+
+	return &SubAgent{
+		config:              cfg,
+		executor:            executor,
+		conversationHistory: make([]perception.ConversationTurn, 0),
+		compressor:          NewSemanticCompressor(llmClient),
+		state:               int32(SubAgentStateIdle),
+		done:                make(chan struct{}),
+	}
+}
+
+// Done is closed when the subagent has reached a terminal state and its
+// result is readable.
+func (s *SubAgent) Done() <-chan struct{} { return s.done }
+
+// SetOnTerminal installs the owner's settlement callback. It must be set
+// before Run; it runs once, after the terminal result is stored.
+func (s *SubAgent) SetOnTerminal(fn func()) {
+	s.mu.Lock()
+	s.onTerminal = fn
+	s.mu.Unlock()
+}
+
+// finish stores the terminal result and state, closes done and runs the
+// owner's callback, exactly once.
+func (s *SubAgent) finish(result string, err error) {
+	s.finishOnce.Do(func() {
+		s.mu.Lock()
+		s.result = result
+		s.err = err
+		s.endTime = time.Now()
+		onTerminal := s.onTerminal
+		s.mu.Unlock()
+		if err != nil {
+			atomic.StoreInt32(&s.state, int32(SubAgentStateFailed))
+		} else {
+			atomic.StoreInt32(&s.state, int32(SubAgentStateCompleted))
+		}
+		close(s.done)
+		if onTerminal != nil {
+			onTerminal()
+		}
+	})
+}
+
+// SetPlannerClient forwards the high-reasoning client to this subagent's
+// executor so its turns route by verb like the session's do.
+func (s *SubAgent) SetPlannerClient(c types.LLMClient) {
+	if c == nil || s.executor == nil {
+		return
+	}
+	s.executor.SetPlannerClient(c)
+}
+
+// GetID returns the subagent's unique identifier.
+func (s *SubAgent) GetID() string {
+	return s.config.ID
+}
+
+// GetName returns the subagent's name.
+func (s *SubAgent) GetName() string {
+	return s.config.Name
+}
+
+// GetState returns the current state.
+func (s *SubAgent) GetState() SubAgentState {
+	return SubAgentState(atomic.LoadInt32(&s.state))
+}
+
+// GetResult returns the final result and error after completion.
+func (s *SubAgent) GetResult() (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.result, s.err
+}
+
+// ObservedReturn returns the raw observation of this subagent's run: the whole
+// output plus what the executor measured about it.
+//
+// It is a separate accessor rather than a wider GetResult because the string is
+// what the user sees and must stay exactly what it was; this is what the
+// PARENT's reasoning gets, which is a different question with a different
+// answer.
+func (s *SubAgent) ObservedReturn() observation.Return {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.observed
+}
+
+// Run executes the subagent's task asynchronously.
+// Returns immediately; use Wait() or GetResult() for results.
+//
+// A second call while the agent is already started is a no-op: two Run
+// goroutines would share result, error and history with no coordination, and
+// the corruption would be silent.
+func (s *SubAgent) Run(ctx context.Context, task string) {
+	if !atomic.CompareAndSwapInt32(&s.state, int32(SubAgentStateIdle), int32(SubAgentStateRunning)) {
+		logging.Session("SubAgent %s Run called while %s; ignoring second start", s.config.Name, s.GetState())
+		return
+	}
+	// Create cancellable context
+	ctx, cancel := context.WithCancel(ctx)
+	s.mu.Lock()
+	if s.stopRequested {
+		s.mu.Unlock()
+		cancel()
+		logging.Session("SubAgent %s stopped before it started", s.config.Name)
+		s.finish("", fmt.Errorf("subagent %s was stopped before it started: %w", s.config.Name, context.Canceled))
+		return
+	}
+	s.cancel = cancel
+	s.startTime = time.Now()
+	s.mu.Unlock()
+	logging.Session("SubAgent %s starting task: %s", s.config.Name, types.Ellipsize(task, 100))
+
+	go func() {
+		// Per-agent capability hint for shared LLM clients (e.g. Codex CLI reasoning multiplexing).
+		// Only set if the caller didn't provide an explicit hint.
+		if _, ok := types.ModelCapabilityFromContext(ctx); !ok {
+			ctx = types.WithModelCapability(ctx, capabilityHintForAgentName(s.config.Name))
+		}
+
+		// A caller's own limit, when it set one.
+		if s.config.Timeout > 0 {
+			var timeoutCancel context.CancelFunc
+			ctx, timeoutCancel = context.WithTimeout(ctx, s.config.Timeout)
+			defer timeoutCancel()
+		}
+
+		// Run the task. The transcript is the harness's: it records the task,
+		// the answers, the tool calls and results, and the outcome whatever the
+		// model does or however the run ends.
+		result, err := sessionlog.RunAgent(ctx, s.config.Name, s.config.ID, task, func(ctx context.Context) (string, error) {
+			return s.execute(ctx, task)
+		})
+		// A subagent runs one task (Run starts only from idle), so its
+		// executor's working archives cannot be redeemed after this.
+		s.executor.RetireWorkingScopes()
+
+		if err != nil {
+			logging.Get(logging.CategorySession).Error("SubAgent %s failed: %v", s.config.Name, err)
+		} else {
+			logging.Session("SubAgent %s completed successfully", s.config.Name)
+		}
+		s.finish(result, err)
+	}()
+}
+
+// execute runs the clean loop for this subagent.
+func (s *SubAgent) execute(ctx context.Context, task string) (string, error) {
+	// Inject compiled EffectiveAgentRuntimeConfig and current history into the executor
+	s.mu.RLock()
+	if s.config.EffectiveAgentRuntimeConfig != nil {
+		s.executor.SetAgentConfig(s.config.EffectiveAgentRuntimeConfig)
+	}
+	s.executor.SetHistory(s.conversationHistory)
+	intentVerb := s.config.IntentVerb
+	intentTarget := s.config.IntentTarget
+	intentConstraint := s.config.IntentConstraint
+	s.mu.RUnlock()
+
+	// For single-turn execution, process the task. When the spawner recorded
+	// the routed intent verb, run with a preset intent — no re-perception.
+	preset := presetIntentForTask(intentVerb, task, intentTarget)
+	if preset != nil {
+		preset.Constraint = strings.TrimSpace(intentConstraint)
+	}
+	result, err := s.executor.ProcessWithIntent(ctx, task, preset)
+
+	// Capture the structured return before anything narrows it to a string.
+	// This is the only point at which the write set, the build verdict and the
+	// test verdict for this run are all in scope together.
+	s.mu.Lock()
+	s.observed = withTurnWrites(observedReturn(s.config.Name, task, result), s.executor.workspaceForVerification(), result)
+	if s.observed.Failure == "" && err != nil {
+		s.observed.Failure = err.Error()
+	}
+	s.mu.Unlock()
+
+	// Sync history back from executor
+	s.mu.Lock()
+	s.conversationHistory = s.executor.GetHistory()
+	s.turnCount++
+	s.mu.Unlock()
+
+	// Perform memory compression if needed (threshold 10)
+	_ = s.CompressMemory(ctx, 10)
+
+	if err != nil {
+		// A failed turn that was admitted keeps what it can truthfully say --
+		// the step ledger and the evidence sentence -- the same as the inline
+		// topology does; a turn refused before admission has no result.
+		if result != nil {
+			return result.Response, err
+		}
+		return "", err
+	}
+	if result != nil && result.Error != nil {
+		return result.Response, result.Error
+	}
+	if result == nil {
+		return "", nil
+	}
+
+	return result.Response, nil
+}
+
+func capabilityHintForAgentName(name string) types.ModelCapability {
+	switch strings.TrimSpace(strings.ToLower(name)) {
+	case "coder", "reviewer", "nemesis", "legislator":
+		return types.CapabilityHighReasoning
+	case "tester":
+		return types.CapabilityHighSpeed
+	case "researcher", "librarian", "planner":
+		return types.CapabilityBalanced
+	default:
+		// Custom specialists typically benefit from deeper reasoning.
+		return types.CapabilityHighReasoning
+	}
+}
+
+// Stop cancels the subagent's execution.
+func (s *SubAgent) Stop() error {
+	s.mu.Lock()
+	cancel := s.cancel
+	s.stopRequested = true
+	s.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+		logging.Session("SubAgent %s stop requested", s.config.Name)
+	}
+
+	return nil
+}
+
+// Wait blocks until the subagent completes.
+func (s *SubAgent) Wait() (string, error) {
+	return s.WaitWithContext(context.Background())
+}
+
+// WaitWithContext blocks until the subagent completes or context is cancelled.
+func (s *SubAgent) WaitWithContext(ctx context.Context) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-s.done:
+		return s.GetResult()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// GetMetrics returns execution metrics for this subagent.
+func (s *SubAgent) GetMetrics() SubAgentMetrics {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	duration := time.Duration(0)
+	if !s.startTime.IsZero() {
+		if !s.endTime.IsZero() {
+			duration = s.endTime.Sub(s.startTime)
+		} else {
+			duration = time.Since(s.startTime)
+		}
+	}
+
+	return SubAgentMetrics{
+		ID:        s.config.ID,
+		Name:      s.config.Name,
+		Type:      s.config.Type,
+		State:     s.GetState(),
+		TurnCount: s.turnCount,
+		Duration:  duration,
+	}
+}
+
+// SubAgentMetrics holds execution metrics.
+type SubAgentMetrics struct {
+	ID        string
+	Name      string
+	Type      SubAgentType
+	State     SubAgentState
+	TurnCount int
+	Duration  time.Duration
+}
+
+// CompressMemory compresses the conversation history if it exceeds threshold.
+func (s *SubAgent) CompressMemory(ctx context.Context, threshold int) error {
+	s.mu.Lock()
+
+	if threshold <= 0 {
+		threshold = 10 // Sensible default if 0 is passed
+	}
+
+	if len(s.conversationHistory) <= threshold {
+		s.mu.Unlock()
+		return nil
+	}
+
+	if s.compressor == nil {
+		// No compressor configured
+		s.mu.Unlock()
+		return nil
+	}
+
+	logging.SessionDebug("SubAgent %s compressing memory: %d turns (threshold: %d)", s.config.Name, len(s.conversationHistory), threshold)
+
+	// Strategy:
+	// 1. Keep the most recent (threshold/2) turns intact (recency bias).
+	// 2. Compress the older turns into a single summary.
+	// 3. New History = [Summary] + [Recent Turns]
+
+	// Determine split point
+	keepCount := max(threshold/2, 1)
+
+	// Index of the first item to KEEP
+	splitIndex := len(s.conversationHistory) - keepCount
+	if splitIndex <= 0 {
+		// Unreachable under the entry check above, but a defensive return
+		// that skips the unlock is a deadlock trap, not safety.
+		s.mu.Unlock()
+		return nil
+	}
+
+	// Slice and dice
+	toCompress := s.conversationHistory[:splitIndex]
+	recentTurns := s.conversationHistory[splitIndex:]
+
+	// Release lock during LLM operation!
+	s.mu.Unlock()
+
+	// Run compression
+	summary, err := s.compressor.Compress(ctx, toCompress)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// A failed compression, and a "summary" no shorter than the turns it
+	// summarizes, leave the history as it is: nothing is lost, and the
+	// executor already bounds what a request replays of it
+	// (session.history_turn_window, history_char_budget). Until 2026-09-23 a
+	// failure dropped every turn past the threshold unrecorded, and a long
+	// summary was cut at 4096 bytes -- mid-rune, with no word of what went.
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("SubAgent %s memory compression failed; history kept whole: %v", s.config.Name, err)
+		return nil
+	}
+	summarized := 0
+	for _, turn := range toCompress {
+		summarized += len(turn.Content)
+	}
+	if len(summary) >= summarized {
+		logging.Get(logging.CategorySession).Warn("SubAgent %s memory compression returned %d bytes for %d bytes of turns; history kept whole",
+			s.config.Name, len(summary), summarized)
+		return nil
+	}
+
+	// Create summary turn
+	// We use "assistant" role with a specific prefix so the model understands this is context
+	summaryTurn := perception.ConversationTurn{
+		Role:    "assistant",
+		Content: fmt.Sprintf("[MEMORY SUMMARY] Previous context: %s", summary),
+	}
+
+	// Reconstruct history
+	newHistory := make([]perception.ConversationTurn, 0, len(recentTurns)+1)
+	newHistory = append(newHistory, summaryTurn)
+	newHistory = append(newHistory, recentTurns...)
+
+	s.conversationHistory = newHistory
+	logging.Session("SubAgent %s memory compressed: %d -> %d turns", s.config.Name, len(toCompress)+len(recentTurns), len(newHistory))
+
+	return nil
+}
+
+// SetCompressor sets the memory compressor for long-running agents.
+func (s *SubAgent) SetCompressor(c Compressor) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.compressor = c
+}

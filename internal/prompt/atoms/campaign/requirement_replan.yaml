@@ -1,0 +1,33 @@
+# Requirement replan role (campaign.RoleRequirementReplan): shard /planner,
+# phase /requirement_replan. AddRequirement (internal/campaign/replan.go)
+# sends this system prompt when a requirement is added to a running campaign;
+# the user message is only the campaign, its progress and the requirement.
+# The reply is unmarshalled by Go. Until 2026-10-28 this text was a Go string
+# literal.
+
+- id: "campaign/requirement_replan/contract"
+  category: "campaign"
+  subcategory: "requirement_replan"
+  is_mandatory: true
+  shard_types: ["/planner"]
+  campaign_phases: ["/requirement_replan"]
+  conflicts_with:
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    ## Campaign requirement intake
+
+    A campaign is in progress and a new requirement has been added. The current campaign, its phase and task progress, and the new requirement follow.
+
+    Determine what new tasks need to be added and which phase they belong to.
+    Output JSON only:
+    {
+      "new_tasks": [
+        {"phase_order": 0, "description": "...", "type": "/file_create|/file_modify|/test_write", "priority": "/high"}
+      ],
+      "modified_tasks": [
+        {"task_id": "existing_id", "new_description": "...", "reason": "..."}
+      ],
+      "summary": "Brief explanation of changes"
+    }

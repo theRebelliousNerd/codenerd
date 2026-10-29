@@ -1,0 +1,623 @@
+package autopoiesis
+
+import (
+	"codenerd/internal/types"
+	"context"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"codenerd/internal/logging"
+)
+
+// GeneratedTool contains the generated tool code and metadata
+type GeneratedTool struct {
+	Name         string     // Tool name (e.g., "json_validator")
+	Package      string     // Go package name
+	Description  string     // Human-readable description
+	Code         string     // Generated Go code
+	TestCode     string     // Generated test code
+	Schema       ToolSchema // JSON schema for inputs
+	Dependencies []string   // Required imports
+	FilePath     string     // Where to write the tool
+	Validated    bool       // Whether code has been validated
+	Errors       []string   // Any validation errors
+}
+
+// ToolSchema defines the input/output schema for a tool
+type ToolSchema struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]ParamSchema `json:"parameters"`
+	Required    []string               `json:"required"`
+	Returns     string                 `json:"returns"`
+}
+
+// ParamSchema defines a single parameter
+type ParamSchema struct {
+	Type        string   `json:"type"`
+	Description string   `json:"description"`
+	Enum        []string `json:"enum,omitempty"`
+	Default     any      `json:"default,omitempty"`
+}
+
+// enforceToolNeedContract is the choke-point that normalizes a ToolNeed to the
+// compiler's string contract. It is called at the top of GenerateTool so every
+// generation path — regardless of where the ToolNeed was constructed — inherits
+// the correct contract. ToolNeed is constructed in several packages, notably
+// cmd/nerd/cmd_advanced.go:buildCLIToolNeed for explicit `nerd tool generate`
+// requests, which previously left InputType/OutputType empty. The compiler's
+// entry point in tool_compiler.go:isExactEntryPoint plus writeWrapper admit only
+// func(context.Context, string) (string, error), so any other I/O types fail
+// compilation with "no suitable entry point...".
+func enforceToolNeedContract(need *ToolNeed) error {
+	if need == nil {
+		return errors.New("tool need is nil")
+	}
+	coerceToolNeedTypes(need)
+	return nil
+}
+
+// GenerateTool creates a new tool based on the detected need
+func (tg *ToolGenerator) GenerateTool(ctx context.Context, need *ToolNeed) (*GeneratedTool, error) {
+	// Choke-point enforcement: ToolNeed is constructed in several packages and
+	// callers can bypass the detection-site coercion. cmd/nerd/cmd_advanced.go:buildCLIToolNeed
+	// for explicit `nerd tool generate` requests left InputType/OutputType empty,
+	// so the prompt contained empty types and the model invented its own contract
+	// (e.g. struct input / int output) that tool_compiler.go:isExactEntryPoint plus
+	// writeWrapper reject — they admit only func(context.Context, string) (string, error).
+	// Coercing here guarantees every generation path inherits the correct string
+	// contract regardless of origin, including construction sites that do not exist yet.
+	if err := enforceToolNeedContract(need); err != nil {
+		return nil, err
+	}
+
+	timer := logging.StartTimer(logging.CategoryAutopoiesis, "GenerateTool")
+	defer timer.Stop()
+
+	logging.Autopoiesis("Generating tool: %s (purpose: %s)", need.Name, need.Purpose)
+	logging.AutopoiesisDebug("Tool specs: input=%s, output=%s, confidence=%.2f",
+		need.InputType, need.OutputType, need.Confidence)
+	// Generate the tool code using LLM
+	logging.AutopoiesisDebug("Generating tool code via LLM")
+	codeTimer := logging.StartTimer(logging.CategoryAutopoiesis, "LLMCodeGeneration")
+	// Half the budget at most. The other half is reserved so validation has a
+	// verdict AND regeneration can act on it -- measured live, generation
+	// otherwise consumes 100% and regeneration runs for 0ms.
+	genCtx, genCancel := stageBudget(ctx, "code generation", 0.5)
+	code, err := tg.generateToolCode(genCtx, need)
+	genCancel()
+	genElapsed := codeTimer.Stop()
+	if err != nil {
+		err = describeStageTimeout("tool code generation", genElapsed, err)
+		logging.Get(logging.CategoryAutopoiesis).Error("Failed to generate tool code: %v", err)
+		return nil, fmt.Errorf("failed to generate tool code: %w", err)
+	}
+	logging.AutopoiesisDebug("Generated tool code: %d bytes", len(code))
+
+	// Generate test code (a failed model reply falls back to template tests;
+	// a test writer prompt that cannot be compiled fails the generation)
+	logging.AutopoiesisDebug("Generating test code")
+	testCode, err := tg.generateTestCode(ctx, need, code)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate test code: %w", err)
+	}
+	logging.AutopoiesisDebug("Generated test code: %d bytes", len(testCode))
+
+	// Generate schema
+	schema := tg.generateSchema(need)
+
+	// Determine file path
+	filePath := filepath.Join(tg.toolsDir, fmt.Sprintf("%s.go", need.Name))
+
+	tool := &GeneratedTool{
+		Name:        need.Name,
+		Package:     "tools",
+		Description: need.Purpose,
+		Code:        code,
+		TestCode:    testCode,
+		Schema:      schema,
+		FilePath:    filePath,
+		Validated:   false,
+	}
+
+	// Validate the generated code
+	logging.AutopoiesisDebug("Validating generated code")
+	if err := tg.validateCode(tool); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Code validation warning: %v", err)
+		tool.Errors = append(tool.Errors, err.Error())
+	} else {
+		tool.Validated = true
+		logging.AutopoiesisDebug("Code validation passed")
+	}
+
+	logging.Autopoiesis("Tool generated successfully: %s (validated=%v, warnings=%d)",
+		tool.Name, tool.Validated, len(tool.Errors))
+	return tool, nil
+}
+
+// RegenerateWithFeedback generates a new version of a tool incorporating error feedback.
+// This is used by the Ouroboros retry loop when safety checks fail.
+func (tg *ToolGenerator) RegenerateWithFeedback(
+	ctx context.Context,
+	need *ToolNeed,
+	previousTool *GeneratedTool,
+	violations []SafetyViolation,
+) (*GeneratedTool, error) {
+	timer := logging.StartTimer(logging.CategoryAutopoiesis, "RegenerateWithFeedback")
+	defer timer.Stop()
+
+	logging.Autopoiesis("Regenerating tool with feedback: %s (%d violations to address)",
+		need.Name, len(violations))
+	for i, v := range violations {
+		logging.AutopoiesisDebug("  Violation %d: type=%s, desc=%s", i+1, v.Type.String(), v.Description)
+	}
+
+	// Format violations for LLM feedback
+	feedback := FormatViolationsForFeedback(violations)
+
+	// Create enhanced need with feedback context
+	enhancedNeed := &ToolNeed{
+		Name:       need.Name,
+		Purpose:    need.Purpose,
+		InputType:  need.InputType,
+		OutputType: need.OutputType,
+		Triggers:   need.Triggers,
+		Priority:   need.Priority,
+		Confidence: need.Confidence * 0.9, // Reduce confidence on retry
+		Reasoning:  need.Reasoning,
+	}
+	logging.AutopoiesisDebug("Reduced confidence from %.2f to %.2f on retry",
+		need.Confidence, enhancedNeed.Confidence)
+
+	// Generate new code with feedback-aware system prompt
+	logging.AutopoiesisDebug("Regenerating code with safety feedback")
+	regenTimer := logging.StartTimer(logging.CategoryAutopoiesis, "LLMCodeRegeneration")
+	regenCtx, regenCancel := stageBudget(ctx, "code regeneration", 0.6)
+	code, err := tg.regenerateToolCodeWithFeedback(regenCtx, enhancedNeed, previousTool.Code, feedback)
+	regenCancel()
+	regenElapsed := regenTimer.Stop()
+	if err != nil {
+		err = describeStageTimeout("tool code regeneration", regenElapsed, err)
+		logging.Get(logging.CategoryAutopoiesis).Error("Failed to regenerate tool code: %v", err)
+		return nil, fmt.Errorf("failed to regenerate tool code: %w", err)
+	}
+	logging.AutopoiesisDebug("Regenerated tool code: %d bytes", len(code))
+
+	// Generate test code (a failed model reply falls back to template tests;
+	// a test writer prompt that cannot be compiled fails the regeneration)
+	testCode, err := tg.generateTestCode(ctx, enhancedNeed, code)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate test code: %w", err)
+	}
+
+	// Generate schema
+	schema := tg.generateSchema(enhancedNeed)
+
+	// Determine file path
+	filePath := filepath.Join(tg.toolsDir, fmt.Sprintf("%s.go", enhancedNeed.Name))
+
+	tool := &GeneratedTool{
+		Name:        enhancedNeed.Name,
+		Package:     "tools",
+		Description: enhancedNeed.Purpose,
+		Code:        code,
+		TestCode:    testCode,
+		Schema:      schema,
+		FilePath:    filePath,
+		Validated:   false,
+	}
+
+	// Validate the generated code
+	logging.AutopoiesisDebug("Validating regenerated code")
+	if err := tg.validateCode(tool); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Regenerated code validation warning: %v", err)
+		tool.Errors = append(tool.Errors, err.Error())
+	} else {
+		tool.Validated = true
+		logging.AutopoiesisDebug("Regenerated code validation passed")
+	}
+
+	logging.Autopoiesis("Tool regenerated: %s (validated=%v)", tool.Name, tool.Validated)
+	return tool, nil
+}
+
+// regenerateToolCodeWithFeedback regenerates code with safety violation
+// feedback. Its system prompt is the Ouroboros /refinement stage compiled
+// through the JIT assembler; without one it is an error, not other text.
+func (tg *ToolGenerator) regenerateToolCodeWithFeedback(
+	ctx context.Context,
+	need *ToolNeed,
+	previousCode string,
+	feedback string,
+) (string, error) {
+	const stage = "/refinement"
+	logging.AutopoiesisDebug("Regenerating tool code with JIT for stage=%s", stage)
+
+	// Build prompt context for this Ouroboros refinement stage
+	pc := map[string]any{
+		"shard_id":        "tool_generator_" + need.Name + "_refinement",
+		"shard_type":      "tool_generator",
+		"stage":           stage,
+		"ouroboros_stage": stage,
+		"tool_name":       need.Name,
+		"tool_purpose":    need.Purpose,
+	}
+
+	systemPrompt, err := assembleOuroborosPrompt(ctx, tg.promptAssembler, pc)
+	if err != nil {
+		return "", err
+	}
+
+	logging.AutopoiesisDebug("JIT-compiled refinement prompt: %d bytes", len(systemPrompt))
+
+	// Build user prompt with feedback
+	userPrompt := fmt.Sprintf(`Your previous code had safety violations that need to be fixed.
+
+--- SAFETY VIOLATIONS ---
+%s
+
+--- PREVIOUS CODE (DO NOT REPEAT THESE MISTAKES) ---
+%s
+
+--- TOOL SPECIFICATIONS ---
+Tool Name: %s
+Purpose: %s
+Input Type: %s
+Output Type: %s
+
+Generate CORRECTED Go code that:
+1. Fixes ALL the safety violations listed above
+2. Uses only safe imports (no os/exec, syscall, unsafe, plugin)
+3. Returns errors instead of using panic()
+4. Passes context to goroutines for cancellation
+5. Is in package "tools"
+
+Generate complete, compilable, SAFE Go code:`,
+		feedback, previousCode,
+		need.Name, need.Purpose, need.InputType, need.OutputType)
+
+	code, err := tg.client.CompleteWithSystem(types.WithStructuredOutputOnly(ctx), systemPrompt, userPrompt)
+	if err != nil {
+		return "", err
+	}
+
+	// Extract code block from response
+	return extractCodeBlock(code, "go"), nil
+}
+
+// Every LLM call in this file returns raw Go inside a markdown fence, pulled out
+// by extractCodeBlock. None of them is a Piggyback envelope, so all three declare
+// types.WithStructuredOutputOnly.
+//
+// Without that declaration the client decides by searching the prompt for
+// "control_packet". The JIT-assembled tool_generator prompt contains it —
+// tool_generator is not in prompt.IsStructuredOutputOnly, so the piggyback atoms
+// compile in — and the client attaches the envelope JSON schema. A strict schema
+// is not advice: the model must then emit an envelope instead of code,
+// extractCodeBlock finds no fence, and the run burns the whole
+// ouroboros_timeout. Observed live: "specification failed: failed to generate
+// tool code: context deadline exceeded" after 10 minutes.
+
+// generateToolCode generates the tool's Go code. Its system prompt is the
+// Ouroboros /specification stage compiled through the JIT assembler; without
+// one it is an error, not other text.
+func (tg *ToolGenerator) generateToolCode(ctx context.Context, need *ToolNeed) (string, error) {
+	const stage = "/specification"
+	logging.AutopoiesisDebug("Generating tool code with JIT for stage=%s", stage)
+
+	// Build prompt context for this Ouroboros stage
+	pc := map[string]any{
+		"shard_id":        "tool_generator_" + need.Name,
+		"shard_type":      "tool_generator",
+		"stage":           stage,
+		"ouroboros_stage": stage,
+		"tool_name":       need.Name,
+		"tool_purpose":    need.Purpose,
+		"input_type":      need.InputType,
+		"output_type":     need.OutputType,
+	}
+
+	systemPrompt, err := assembleOuroborosPrompt(ctx, tg.promptAssembler, pc)
+	if err != nil {
+		return "", err
+	}
+
+	logging.AutopoiesisDebug("JIT-compiled system prompt: %d bytes", len(systemPrompt))
+
+	// Build user prompt with tool specifications
+	userPrompt := fmt.Sprintf(`Generate a Go tool with these specifications:
+
+Tool Name: %s
+Purpose: %s
+Input Type: %s
+Output Type: %s
+
+The tool should be in package "tools" and include:
+1. Main tool function: %s(ctx context.Context, input %s) (%s, error)
+2. Tool description constant (e.g., const ToolDescription%s = "...")
+
+IMPORTANT: Generate ONLY standalone code. Do NOT generate registration functions or reference any types like ToolRegistry or Tool that aren't defined in this file.`,
+		need.Name, need.Purpose, need.InputType, need.OutputType,
+		toCamelCase(need.Name), need.InputType, need.OutputType,
+		toPascalCase(need.Name))
+
+	// Inject learnings context if available
+	if tg.learningsContext != "" {
+		userPrompt += fmt.Sprintf(`
+
+LEARNINGS FROM PAST TOOL GENERATION:
+%s
+
+Apply these learnings to generate better code.`, tg.learningsContext)
+		logging.AutopoiesisDebug("Injected learnings into JIT generation prompt")
+	}
+
+	userPrompt += "\n\nGenerate complete, compilable Go code:"
+
+	code, err := tg.client.CompleteWithSystem(types.WithStructuredOutputOnly(ctx), systemPrompt, userPrompt)
+	if err != nil {
+		return "", err
+	}
+
+	// Extract code block from response
+	return extractCodeBlock(code, "go"), nil
+}
+
+// generateTestCode generates tests for the tool. Its system prompt is the
+// tool_test_writer role's atoms; the message is the tool's code. A prompt
+// that cannot be compiled is an error; a failed or thin model reply falls
+// back to the template tests.
+func (tg *ToolGenerator) generateTestCode(ctx context.Context, need *ToolNeed, code string) (string, error) {
+	systemPrompt, err := compileRolePrompt(ctx, tg.rolePrompts, roleToolTestWriter)
+	if err != nil {
+		return "", err
+	}
+
+	testCode, err := tg.client.CompleteWithSystem(types.WithStructuredOutputOnly(ctx), systemPrompt, "Tool Code:\n"+code)
+	if err != nil {
+		// Use comprehensive fallback test generation
+		return tg.generateFallbackTests(need, code), nil
+	}
+
+	extracted := extractCodeBlock(testCode, "go")
+	if extracted == "" || len(extracted) < 50 {
+		// LLM response was insufficient, use fallback
+		return tg.generateFallbackTests(need, code), nil
+	}
+
+	return extracted, nil
+}
+
+// generateFallbackTests creates comprehensive test templates when LLM is unavailable
+func (tg *ToolGenerator) generateFallbackTests(need *ToolNeed, code string) string {
+	funcName := toCamelCase(need.Name)
+	pascalName := toPascalCase(need.Name)
+
+	// Extract function signatures from the code for more accurate tests
+	funcs := extractFunctionSignatures(code)
+
+	var sb strings.Builder
+	sb.WriteString(`package tools
+
+import (
+	"context"
+	"testing"
+	"time"
+)
+
+`)
+
+	// Generate test for main tool function
+	sb.WriteString(fmt.Sprintf(`// Test%s tests the main tool function
+func Test%s(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		input   %s
+		wantErr bool
+	}{
+		{
+			name:    "valid input",
+			input:   %s,
+			wantErr: false,
+		},
+		{
+			name:    "empty input",
+			input:   %s,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := %s(ctx, tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("%s() error = %%v, wantErr %%v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && result == %s {
+				t.Error("%s() returned zero value for valid input")
+			}
+		})
+	}
+}
+
+`,
+		pascalName,
+		pascalName,
+		need.InputType,
+		getTestValue(need.InputType, true),
+		getTestValue(need.InputType, false),
+		funcName,
+		funcName,
+		getZeroValue(need.OutputType),
+		funcName,
+	))
+
+	// Generate benchmark test
+	sb.WriteString(fmt.Sprintf(`// Benchmark%s benchmarks the tool performance
+func Benchmark%s(b *testing.B) {
+	ctx := context.Background()
+	input := %s
+
+	for i := 0; i < b.N; i++ {
+		_, _ = %s(ctx, input)
+	}
+}
+
+`,
+		pascalName,
+		pascalName,
+		getTestValue(need.InputType, true),
+		funcName,
+	))
+
+	// Generate context cancellation test
+	sb.WriteString(fmt.Sprintf(`// Test%s_ContextCancellation tests context cancellation handling
+func Test%s_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err := %s(ctx, %s)
+	if err == nil {
+		t.Log("Warning: function does not check context cancellation")
+	}
+}
+
+`,
+		pascalName,
+		pascalName,
+		funcName,
+		getTestValue(need.InputType, true),
+	))
+
+	// Generate timeout test
+	sb.WriteString(fmt.Sprintf(`// Test%s_Timeout tests timeout handling
+func Test%s_Timeout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	_, err := %s(ctx, %s)
+	if err != nil {
+		t.Logf("Function completed with error (may be expected): %%v", err)
+	}
+}
+
+`,
+		pascalName,
+		pascalName,
+		funcName,
+		getTestValue(need.InputType, true),
+	))
+
+	// Generate tests for any additional functions found
+	for _, fn := range funcs {
+		if fn.Name == funcName || fn.Name == "main" || strings.HasPrefix(fn.Name, "Register") {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf(`// Test%s tests the %s helper function
+func Test%s(t *testing.T) {
+	tests := []struct {
+		name    string
+		wantErr bool
+	}{
+		{
+			name:    "basic functionality",
+			wantErr: false,
+		},
+		{
+			name:    "edge case",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Call %s with appropriate test inputs
+			// Verify the result matches expectations
+			t.Logf("Testing %%s: %%s", "%s", tt.name)
+		})
+	}
+}
+
+`,
+			fn.Name,
+			fn.Name,
+			fn.Name,
+			fn.Name,
+			fn.Name,
+		))
+	}
+
+	return sb.String()
+}
+
+// generateSchema creates a JSON schema for the tool
+func (tg *ToolGenerator) generateSchema(need *ToolNeed) ToolSchema {
+	return ToolSchema{
+		Name:        need.Name,
+		Description: need.Purpose,
+		Parameters: map[string]ParamSchema{
+			"input": {
+				Type:        need.InputType,
+				Description: "Input for " + need.Name,
+			},
+		},
+		Required: []string{"input"},
+		Returns:  need.OutputType,
+	}
+}
+
+// stageBudget caps a single Ouroboros LLM stage so one slow call cannot consume
+// the whole run's budget and starve the stages after it.
+//
+// Measured live on qwen3.8-max: one code-generation call took 597s, a second
+// took 410s, GenerateTool as a whole consumed the entire 20-minute deadline —
+// and LLMCodeRegeneration then ran for 0ms because the context was already
+// dead. The pipeline could not succeed at ANY total budget, because generation
+// always ate all of it before validation had a verdict to act on.
+//
+// fraction is the share of the ORIGINAL budget this stage may use, not of what
+// happens to be left, so an early overrun cannot silently borrow from later
+// stages. Returns a cancel func the caller must defer.
+func stageBudget(ctx context.Context, stage string, fraction float64) (context.Context, context.CancelFunc) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return ctx, func() {} // no budget to divide
+	}
+
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return ctx, func() {}
+	}
+
+	slice := time.Duration(float64(remaining) * fraction)
+	const floor = 90 * time.Second
+	if slice < floor {
+		// Too little left to be worth subdividing; let the stage race the
+		// parent deadline rather than guaranteeing it fails.
+		return ctx, func() {}
+	}
+
+	logging.AutopoiesisDebug("Ouroboros stage %s budgeted %s of %s remaining", stage, slice.Round(time.Second), remaining.Round(time.Second))
+	return context.WithTimeout(ctx, slice)
+}
+
+// describeStageTimeout turns a bare "context deadline exceeded" into something
+// an unattended run can act on: which stage ran out, and how long it had.
+// Without it the operator cannot tell a too-small budget from a broken feature
+// — the two produce byte-identical errors.
+func describeStageTimeout(stage string, budget time.Duration, err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%s exceeded its %s budget (raise --timeout; generation on a reasoning model routinely needs 10+ minutes per call): %w",
+			stage, budget.Round(time.Second), err)
+	}
+	return err
+}

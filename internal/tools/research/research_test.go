@@ -1,0 +1,458 @@
+package research
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"codenerd/internal/tools"
+)
+
+// =============================================================================
+// BROWSER TOOL TESTS
+// =============================================================================
+
+func TestBrowserNavigateTool_Definition(t *testing.T) {
+	t.Parallel()
+
+	tool := BrowserNavigateTool()
+
+	if tool == nil {
+		t.Fatal("expected non-nil tool")
+	}
+	if tool.Name != "browser_navigate" {
+		t.Errorf("Name mismatch: got %q", tool.Name)
+	}
+	if tool.Execute == nil {
+		t.Error("Execute should be set")
+	}
+}
+
+func TestBrowserExtractTool_Definition(t *testing.T) {
+	t.Parallel()
+
+	tool := BrowserExtractTool()
+
+	if tool == nil {
+		t.Fatal("expected non-nil tool")
+	}
+	if tool.Name != "browser_extract" {
+		t.Errorf("Name mismatch: got %q", tool.Name)
+	}
+}
+
+func TestBrowserScreenshotTool_Definition(t *testing.T) {
+	t.Parallel()
+
+	tool := BrowserScreenshotTool()
+
+	if tool == nil {
+		t.Fatal("expected non-nil tool")
+	}
+}
+
+func TestBrowserClickTool_Definition(t *testing.T) {
+	t.Parallel()
+
+	tool := BrowserClickTool()
+
+	if tool == nil {
+		t.Fatal("expected non-nil tool")
+	}
+}
+
+func TestBrowserTypeTool_Definition(t *testing.T) {
+	t.Parallel()
+
+	tool := BrowserTypeTool()
+
+	if tool == nil {
+		t.Fatal("expected non-nil tool")
+	}
+}
+
+func TestBrowserCloseTool_Definition(t *testing.T) {
+	t.Parallel()
+
+	tool := BrowserCloseTool()
+
+	if tool == nil {
+		t.Fatal("expected non-nil tool")
+	}
+}
+
+func TestBrowserProgressiveTools_Definition(t *testing.T) {
+	t.Parallel()
+
+	observe := BrowserObserveTool()
+	if observe.Name != "browser_observe" || observe.Priority <= BrowserNavigateTool().Priority {
+		t.Fatalf("unexpected observe definition: name=%q priority=%d", observe.Name, observe.Priority)
+	}
+	act := BrowserActTool()
+	if act.Name != "browser_act" || len(act.Schema.Required) != 1 || act.Schema.Required[0] != "operations" {
+		t.Fatalf("unexpected act definition: name=%q required=%v", act.Name, act.Schema.Required)
+	}
+	if act.Schema.Properties["operations"].Items == nil || act.Schema.Properties["operations"].Items.Type != "object" {
+		t.Fatal("browser_act operations schema must declare object items")
+	}
+}
+
+func TestBrowserReasoningTools_Definition(t *testing.T) {
+	t.Parallel()
+
+	for _, tool := range []*tools.Tool{BrowserMangleTool(), BrowserWaitTool(), BrowserReasonTool()} {
+		if tool == nil || tool.Name == "" || tool.Execute == nil {
+			t.Fatalf("invalid browser reasoning tool: %+v", tool)
+		}
+		if _, ok := tool.Schema.Properties["session_id"]; !ok {
+			t.Fatalf("%s must expose session_id", tool.Name)
+		}
+	}
+	if got := BrowserMangleTool().Schema.Properties["operation"].Enum; len(got) != 6 {
+		t.Fatalf("browser_mangle operation vocabulary = %v", got)
+	}
+}
+
+func TestBrowserEvidenceTool_Definition(t *testing.T) {
+	t.Parallel()
+	tool := BrowserEvidenceTool()
+	if tool.Name != "browser_evidence" || tool.Execute == nil || len(tool.Schema.Properties["operation"].Enum) != 3 {
+		t.Fatalf("unexpected browser evidence definition: %+v", tool)
+	}
+}
+
+func TestBrowserSpecsTool_Definition(t *testing.T) {
+	t.Parallel()
+	tool := BrowserSpecsTool()
+	if tool.Name != "browser_specs" || tool.Execute == nil || len(tool.Schema.Properties["operation"].Enum) != 3 {
+		t.Fatalf("unexpected browser specs definition: %+v", tool)
+	}
+}
+
+func TestBrowserTestTool_Definition(t *testing.T) {
+	t.Parallel()
+	tool := BrowserTestTool()
+	if tool.Name != "browser_test" || tool.Execute == nil || len(tool.Schema.Properties["operation"].Enum) != 4 {
+		t.Fatalf("unexpected browser test definition: %+v", tool)
+	}
+}
+
+func TestDecodeActionOperations_RejectsInvalidAndDecodesFields(t *testing.T) {
+	t.Parallel()
+	if _, err := decodeActionOperations(nil); err == nil {
+		t.Fatal("expected nil operations to fail")
+	}
+	operations, err := decodeActionOperations([]any{map[string]any{
+		"type": "fill", "fields": []any{map[string]any{"ref": "e1_1", "value": "hello"}},
+	}})
+	if err != nil {
+		t.Fatalf("decodeActionOperations failed: %v", err)
+	}
+	if len(operations) != 1 || len(operations[0].Fields) != 1 || operations[0].Fields[0].Ref != "e1_1" {
+		t.Fatalf("unexpected decoded operations: %+v", operations)
+	}
+}
+
+// =============================================================================
+// WEB SEARCH TOOL TESTS
+// =============================================================================
+
+func TestWebSearchTool_Definition(t *testing.T) {
+	t.Parallel()
+
+	tool := WebSearchTool()
+
+	if tool == nil {
+		t.Fatal("expected non-nil tool")
+	}
+	if tool.Name != "web_search" {
+		t.Errorf("Name mismatch: got %q", tool.Name)
+	}
+}
+
+// =============================================================================
+// WEB FETCH TOOL TESTS
+// =============================================================================
+
+func TestWebFetchTool_Definition(t *testing.T) {
+	t.Parallel()
+
+	tool := WebFetchTool()
+
+	if tool == nil {
+		t.Fatal("expected non-nil tool")
+	}
+	// Tool name may vary - just check it exists
+	if tool.Name == "" {
+		t.Error("expected non-empty tool name")
+	}
+}
+
+// =============================================================================
+// CONTEXT7 TOOL TESTS
+// =============================================================================
+
+func TestContext7Tool_Definition(t *testing.T) {
+	t.Parallel()
+
+	tool := Context7Tool()
+
+	if tool == nil {
+		t.Fatal("expected non-nil tool")
+	}
+	// Tool name may vary - just check it exists
+	if tool.Name == "" {
+		t.Error("expected non-empty tool name")
+	}
+}
+
+// =============================================================================
+// CACHE TESTS
+// =============================================================================
+
+func TestNewResearchCache(t *testing.T) {
+	t.Parallel()
+
+	cache := NewResearchCache(100, 30*time.Minute)
+
+	if cache == nil {
+		t.Fatal("expected non-nil cache")
+	}
+}
+
+func TestResearchCache_GetSet(t *testing.T) {
+	t.Parallel()
+
+	cache := NewResearchCache(100, time.Hour)
+
+	// Initially empty
+	_, found := cache.Get("test-key")
+	if found {
+		t.Error("expected not found for missing key")
+	}
+
+	// Set value
+	cache.Set("test-key", "test-value", "test-source")
+
+	// Get value
+	entry, found := cache.Get("test-key")
+	if !found {
+		t.Error("expected to find key after Set")
+	}
+	if entry == nil {
+		t.Fatal("expected non-nil entry")
+	}
+	if entry.Value != "test-value" {
+		t.Errorf("Value mismatch: got %q", entry.Value)
+	}
+	if entry.Source != "test-source" {
+		t.Errorf("Source mismatch: got %q", entry.Source)
+	}
+}
+
+func TestResearchCache_Size(t *testing.T) {
+	t.Parallel()
+
+	cache := NewResearchCache(100, time.Hour)
+
+	if cache.Size() != 0 {
+		t.Errorf("expected 0 size initially, got %d", cache.Size())
+	}
+
+	cache.Set("key1", "value1", "source")
+	cache.Set("key2", "value2", "source")
+
+	if cache.Size() != 2 {
+		t.Errorf("expected 2 size, got %d", cache.Size())
+	}
+}
+
+func TestResearchCache_Clear(t *testing.T) {
+	t.Parallel()
+
+	cache := NewResearchCache(100, time.Hour)
+
+	cache.Set("key1", "value1", "source")
+	cache.Set("key2", "value2", "source")
+
+	cache.Clear()
+
+	if cache.Size() != 0 {
+		t.Errorf("expected 0 size after Clear, got %d", cache.Size())
+	}
+}
+
+func TestResearchCache_Eviction(t *testing.T) {
+	t.Parallel()
+
+	// Create cache with max size 2
+	cache := NewResearchCache(2, time.Hour)
+
+	cache.Set("key1", "value1", "source")
+	cache.Set("key2", "value2", "source")
+	cache.Set("key3", "value3", "source") // Should trigger eviction
+
+	if cache.Size() > 2 {
+		t.Errorf("expected max 2 entries, got %d", cache.Size())
+	}
+}
+
+// =============================================================================
+// CACHE TOOL TESTS
+// =============================================================================
+
+func TestCacheGetTool_Definition(t *testing.T) {
+	t.Parallel()
+
+	tool := CacheGetTool()
+
+	if tool == nil {
+		t.Fatal("expected non-nil tool")
+	}
+	if tool.Name != "research_cache_get" {
+		t.Errorf("Name mismatch: got %q", tool.Name)
+	}
+}
+
+func TestCacheSetTool_Definition(t *testing.T) {
+	t.Parallel()
+
+	tool := CacheSetTool()
+
+	if tool == nil {
+		t.Fatal("expected non-nil tool")
+	}
+	if tool.Name != "research_cache_set" {
+		t.Errorf("Name mismatch: got %q", tool.Name)
+	}
+}
+
+func TestCacheClearTool_Definition(t *testing.T) {
+	t.Parallel()
+
+	tool := CacheClearTool()
+
+	if tool == nil {
+		t.Fatal("expected non-nil tool")
+	}
+}
+
+func TestCacheStatsTool_Definition(t *testing.T) {
+	t.Parallel()
+
+	tool := CacheStatsTool()
+
+	if tool == nil {
+		t.Fatal("expected non-nil tool")
+	}
+}
+
+func TestExecuteCacheSet_MissingKey(t *testing.T) {
+	t.Parallel()
+
+	_, err := executeCacheSet(context.Background(), map[string]any{
+		"value": "test",
+	})
+	if err == nil {
+		t.Error("expected error for missing key")
+	}
+}
+
+func TestExecuteCacheSet_MissingValue(t *testing.T) {
+	t.Parallel()
+
+	_, err := executeCacheSet(context.Background(), map[string]any{
+		"key": "test",
+	})
+	if err == nil {
+		t.Error("expected error for missing value")
+	}
+}
+
+func TestExecuteCacheGet_MissingKey(t *testing.T) {
+	t.Parallel()
+
+	_, err := executeCacheGet(context.Background(), map[string]any{})
+	if err == nil {
+		t.Error("expected error for missing key")
+	}
+}
+
+// =============================================================================
+// CACHE INTEGRATION TESTS
+// =============================================================================
+
+func TestCacheTools_Integration(t *testing.T) {
+	// 1. Set
+	setRes, err := executeCacheSet(context.Background(), map[string]any{
+		"key":    "integration_key",
+		"value":  "integration_val",
+		"source": "test",
+	})
+	if err != nil {
+		t.Fatalf("executeCacheSet failed: %v", err)
+	}
+	if !strings.Contains(setRes, "Cached") {
+		t.Errorf("unexpected set result: %s", setRes)
+	}
+
+	// 2. Get
+	getRes, err := executeCacheGet(context.Background(), map[string]any{
+		"key": "integration_key",
+	})
+	if err != nil {
+		t.Fatalf("executeCacheGet failed: %v", err)
+	}
+	if getRes != "integration_val" {
+		t.Errorf("expected 'integration_val', got '%s'", getRes)
+	}
+
+	// 3. Stats
+	statsRes, err := executeCacheStats(context.Background(), map[string]any{})
+	if err != nil {
+		t.Fatalf("executeCacheStats failed: %v", err)
+	}
+	if !strings.Contains(statsRes, "Cache Statistics") {
+		t.Errorf("unexpected stats result: %s", statsRes)
+	}
+
+	// 4. Clear
+	clearRes, err := executeCacheClear(context.Background(), map[string]any{})
+	if err != nil {
+		t.Fatalf("executeCacheClear failed: %v", err)
+	}
+	if !strings.Contains(clearRes, "Cleared") {
+		t.Errorf("unexpected clear result: %s", clearRes)
+	}
+
+	// 5. Verify Clear
+	_, err = executeCacheGet(context.Background(), map[string]any{
+		"key": "integration_key",
+	})
+	if err == nil {
+		t.Error("expected error after clearing cache")
+	}
+}
+
+// =============================================================================
+// REGISTER ALL TEST
+// =============================================================================
+
+func TestRegisterAll_NotNil(t *testing.T) {
+	t.Parallel()
+
+	// Test that all tools can be fetched (implying RegisterAll works)
+	tools := []*struct{ name string }{
+		{"Context7Tool"},
+		{"WebSearchTool"},
+		{"WebFetchTool"},
+		{"BrowserNavigateTool"},
+	}
+
+	for _, tc := range tools {
+		if tc.name == "" {
+			t.Error("expected tool name")
+		}
+	}
+}

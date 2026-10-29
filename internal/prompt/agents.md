@@ -1,0 +1,95 @@
+# Prompt subsystem guidance
+
+- JIT atoms are the source of truth for new model-facing behavior; do not add a parallel hardcoded prompt path.
+- Compiler shutdown must stop admission, cancel active compilation, join it, and
+  close owned databases. Do not race WaitGroup admission against shutdown or
+  replace joined cleanup with a timer that abandons live database handles.
+- Dynamic prompt cache identity must come from the private kernel snapshot used
+  for selection and rendered injections, or from its memo keyed by a reusable
+  kernel identity (instance + generation, no external premises). A scope cloned
+  at another identity re-snapshots. Missing or failed snapshots must not serve
+  stale prompts. Shared work owns its scope until completion, independently of
+  any one caller's cancellation.
+- Every non-kernel source enters cache identity through the source vector
+  (`compiler_generation.go`). Publish only when the vector is fully tracked,
+  unchanged after collection, and no source degraded.
+- `atom_schema.go#AtomDefinition` and `ParsePromptAtomYAML` own the YAML contract for filesystem loading, embedding, synchronization, and validation.
+- Canonical agent selectors use `shard_types`. `agent_types`, legacy metadata, and nested `selectors` exist only as bounded, observable compatibility migrations scheduled for removal on 2027-01-01.
+- Built-in atoms under `atoms/` must parse without migrations. Unknown fields and invalid records fail the complete document; never log-and-skip a bad atom.
+- Closed selector vocabulary comes from live typed context definitions (`AllContextDimensions`), not a validator-local list.
+- SQLite tag persistence has one producer: `PromptAtom.ContextTags` feeds every tag-table writer (loader, reconciler) and `appendTag` reads them back. A selector dimension added to one side but not the other silently drops on round-trip (unpinned atoms match every vendor); `TestContextTags_ReaderParity` pins the pairing.
+- Keep runtime selector values normalized without `/`; YAML authoring uses `/` for non-world-state selectors.
+- After atom/schema changes run:
+  - `go run ./cmd/tools/validate_prompt_atoms -root internal/prompt/atoms -fail-on-warn`
+  - `go test -count=1 ./internal/prompt ./internal/prompt/sync ./cmd/tools/validate_prompt_atoms`
+  - `go test -race -count=1 ./internal/prompt ./internal/prompt/sync`
+- Browser observe/act guidance lives in
+  `atoms/capability/browser_progressive.yaml`; keep it ref-first, bounded, and
+  free of raw selector or arbitrary-JavaScript instructions.
+- Browser wait/reason/read-only-Mangle guidance lives in
+  `atoms/capability/browser_reasoning.yaml`; keep waits fresh by default and do
+  not teach rule/fact mutation through the browser surface.
+- Browser flight-recorder guidance lives in
+  `atoms/capability/browser_evidence.yaml`; preserve provenance, truncation,
+  redaction, owner-only persistence, and writable-root confinement.
+- Browser spec guidance lives in `atoms/capability/browser_specs.yaml`; keep
+  delivery workspace-confined and invariant checks read-only against the live
+  Cortex browser allowlist.
+- Browser declarative-test guidance lives in
+  `atoms/capability/browser_tests.yaml`; keep fixtures semantic-targeted,
+  credential-free, bounded, and limited to live-kernel single-atom assertions.
+- Grounded web search guidance lives at
+  `atoms/capability/grounded_web_search.yaml`; select it only when
+  `grounded_web_search` is in the effective JIT catalog, never for ordinary
+  `/test`, `/benchmark`, or `/profile` intents.
+
+- `ReloadAllPrompts` aggregates discovered-agent failures for its caller; a partial atom count must not hide a missing or invalid expert database.
+- Knowledge retrieval combines project knowledge with only the selected expert's
+  registered database. Keep queries bounded and cancellable, preserve source and
+  confidence in compiled context, and never close a borrowed handle. Test both
+  missing-source controls and actual compiled inclusion; a stored row alone is
+  not evidence that an expert consumed it.
+- Ephemeral lookup results emit `retrieved_context` for Mangle selection. Keep
+  that witness distinct from vector similarity and mandatory atoms; context,
+  conflict, dependency, and token-budget rules still apply.
+- Learning recall merges bounded lexical and semantic results, with explicit
+  task terms first and `(shard, learning ID)` identity. Hydrate saved facts;
+  search handles are truncated descriptors, not evidence. Retrieved context
+  must fit whole or be omitted, including in the budget manager's second pass.
+
+- Capability gating is envelope-first: `requires_tools` on an atom declares
+  the executable tools its guidance is valid for; `CompilationContext.AvailableTools`
+  carries the effective catalog resolved BEFORE selection. An explicit
+  requirement means the same thing in every selection path (skeleton and
+  flesh) via Mangle `blocked_by_missing_tool` plus the Go
+  `atomToolSatisfied` filter; never widen execution authority to satisfy a
+  requirement — omit the atom instead. Tool-agnostic constitutional,
+  evidence, general identity (`mission`, `investigate_first`,
+  `constraints`, `quality_principles`, `tool_usage`) and generic editing
+  (`methodology/editing_discipline`) atoms carry no `requires_tools` and are
+  retained on every catalog. CodeDOM tool-specific guidance
+  (`identity/coder/codedom_premier`, `capability/codedom_core`,
+  `capability/codedom_selection`, `capability/codedom_impact`,
+  `capability/codedom_workflow`, `capability/codedom_first`,
+  `capability/codedom_tools`, `exemplar/codedom_*`) requires the CodeDOM
+  line-range bundle and is omitted on restricted envelopes. Dependents of a
+  blocked atom are pruned transitively by the resolver (`DependsOn` closure).
+  `AvailableTools` participates in the compilation cache hash, so a catalog
+  change is a different compile; empty/available/empty sequences must gate
+  identically with no lingering facts (`atom_requires_tool`,
+  `available_tool` are ephemeral and retracted/scoped per compile).
+  Validate atoms after edits with the commands above; `requires_tools`
+  values are bare `[a-z0-9_]+` tool names, never slash-prefixed, never
+  empty, never duplicated. Do not present CodeDOM capability instructions
+  as generic to leave them ungated.
+
+- Atom importance is Jev's build-time Score (`importance.go`, ledger
+  `atom_importance.json`); never author a priority or a level by hand. After
+  editing or adding atoms run
+  `go run ./cmd/tools/prompt_builder -score-importance` then
+  `-reconcile-embedded`; `TestEmbeddedLedgerCoversEveryAtom` fails until you do.
+  Unscored is a real state, not a default level.
+- Flesh relevance is Jev's per-turn Noul over the vector recall pool
+  (`relevance.go`, `internal/atomjudge`); the admission decision is the
+  `flesh_admitted`/`flesh_refused` table in `jit_compiler.mg`, never Go. A
+  failed or late judgment asserts nothing.

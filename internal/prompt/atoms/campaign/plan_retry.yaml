@@ -1,0 +1,45 @@
+# Plan retry role (campaign.RolePlanRetry): shard /planner, phase /plan_retry.
+# When the planner's reply is not a plan, executePlanProposalWithRetry
+# (internal/campaign/decomposer_planning.go) asks once more with this system
+# prompt; the user message is only the Goal and the planning Context. The
+# reply is unmarshalled into RawPlan, so no tool or OODA atom rides along.
+# Until 2026-10-28 this text was Go string literals in the decomposer.
+
+- id: "campaign/plan_retry/contract"
+  category: "campaign"
+  subcategory: "plan_retry"
+  is_mandatory: true
+  shard_types: ["/planner"]
+  campaign_phases: ["/plan_retry"]
+  conflicts_with:
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    ## Campaign plan retry
+
+    You output ONLY valid JSON matching the campaign plan schema.
+
+    Your previous response could not be used as a plan. Output ONLY a JSON object.
+
+    Do NOT wrap it in "control_packet". Do NOT include "tool_requests" or
+    "surface_response". "phases" must contain at least one real phase.
+
+    Required structure:
+    {
+      "title": "REPLACE_WITH_ACTUAL_CAMPAIGN_TITLE",
+      "confidence": 0.9,
+      "phases": [
+        {
+          "name": "REPLACE_WITH_PHASE_NAME",
+          "order": 0,
+          "category": "/scaffold",
+          "description": "REPLACE_WITH_WHAT_THIS_PHASE_ACCOMPLISHES",
+          "tasks": [
+            {"description": "REPLACE_WITH_A_SPECIFIC_ACTIONABLE_TASK", "type": "/file_create", "order": 0}
+          ]
+        }
+      ]
+    }
+
+    The Goal and the Context follow. Output ONLY the JSON.

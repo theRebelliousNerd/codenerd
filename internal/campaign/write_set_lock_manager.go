@@ -1,0 +1,312 @@
+package campaign
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+const defaultWriteSetLockPollInterval = 10 * time.Millisecond
+
+var ErrWriteSetLockTimeout = errors.New("write_set lock acquisition timed out")
+
+type ownerState struct {
+	taskID string
+	count  int
+}
+
+// writeSetLockManager coordinates deterministic file-level write locks.
+// Paths are normalized to absolute canonical form and sorted before acquisition.
+type writeSetLockManager struct {
+	workspace string
+
+	mu      sync.Mutex
+	owners  map[string]*ownerState // normalized absolute path -> ownerState
+	waitChs []chan struct{}
+}
+
+func newWriteSetLockManager(workspace string) *writeSetLockManager {
+	return &writeSetLockManager{
+		workspace: workspace,
+		owners:    make(map[string]*ownerState),
+	}
+}
+
+// writeSetLockLease represents an acquired lock set.
+// Release is idempotent.
+type writeSetLockLease struct {
+	manager *writeSetLockManager
+	taskID  string
+	paths   []string
+	once    sync.Once
+}
+
+func (l *writeSetLockLease) release() {
+	if l == nil || l.manager == nil {
+		return
+	}
+	l.once.Do(func() {
+		l.manager.releasePaths(l.taskID, l.paths)
+	})
+}
+
+func (m *writeSetLockManager) acquire(
+	ctx context.Context,
+	taskID string,
+	writeSet []string,
+	pollInterval time.Duration,
+) (*writeSetLockLease, error) {
+	if m == nil {
+		return nil, fmt.Errorf("lock manager is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(taskID) == "" {
+		return nil, fmt.Errorf("write_set lock acquisition requires non-empty task id")
+	}
+
+	if err := m.refuseOutsideWorkspace(writeSet); err != nil {
+		return nil, err
+	}
+
+	paths := normalizeWriteSetPaths(m.workspace, writeSet)
+	if len(paths) == 0 {
+		return nil, nil
+	}
+
+	if pollInterval <= 0 {
+		pollInterval = defaultWriteSetLockPollInterval
+	}
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	// Create and register a waiter channel for immediate wake-ups
+	waitCh := make(chan struct{}, 1)
+	m.mu.Lock()
+	m.waitChs = append(m.waitChs, waitCh)
+	m.mu.Unlock()
+
+	defer func() {
+		m.mu.Lock()
+		for i, ch := range m.waitChs {
+			if ch == waitCh {
+				m.waitChs = append(m.waitChs[:i], m.waitChs[i+1:]...)
+				break
+			}
+		}
+		m.mu.Unlock()
+	}()
+
+	for {
+		if m.claim(taskID, paths) == "" {
+			return &writeSetLockLease{
+				manager: m,
+				taskID:  taskID,
+				paths:   paths,
+			}, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return nil, fmt.Errorf("%w: task=%s", ErrWriteSetLockTimeout, taskID)
+			}
+			return nil, ctx.Err()
+		case <-waitCh:
+			// Lock released elsewhere, wake up and try immediately
+		case <-ticker.C:
+			// Fallback periodic check to ensure zero deadlock
+		}
+	}
+}
+
+// refuseOutsideWorkspace returns an error naming the first path in writeSet
+// that resolves outside the workspace. Empty and NUL-carrying entries are
+// skipped here; normalizeWriteSetPaths drops them.
+func (m *writeSetLockManager) refuseOutsideWorkspace(writeSet []string) error {
+	for _, raw := range writeSet {
+		if strings.TrimSpace(raw) == "" || strings.ContainsRune(raw, '\x00') {
+			continue
+		}
+		path := raw
+		if !filepath.IsAbs(path) && m.workspace != "" {
+			path = filepath.Join(m.workspace, path)
+		}
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			abs = filepath.Clean(path)
+		}
+		normalized := filepath.ToSlash(filepath.Clean(abs))
+		if runtime.GOOS == "windows" {
+			normalized = strings.ToLower(normalized)
+		}
+		if m.workspace != "" && !isPathWithinWorkspace(m.workspace, normalized) {
+			return fmt.Errorf("path %s is outside workspace %s", raw, m.workspace)
+		}
+	}
+	return nil
+}
+
+// tryAcquire takes writeSet for taskID when no other task holds any of it --
+// the same path, or a directory above or below any of it -- and otherwise
+// returns, without waiting, the task that does. A write taken at the moment
+// it happens cannot wait: two tasks each holding a path the other is about
+// to write would wait on each other forever. The directory checks are what
+// make a directory write set cover its files in either direction: the
+// declared lease is keyed by the directory, and a file under it has a key
+// of its own.
+func (m *writeSetLockManager) tryAcquire(taskID string, writeSet []string) (lease *writeSetLockLease, heldBy string, err error) {
+	if m == nil {
+		return nil, "", fmt.Errorf("lock manager is nil")
+	}
+	if strings.TrimSpace(taskID) == "" {
+		return nil, "", fmt.Errorf("write_set lock acquisition requires non-empty task id")
+	}
+	if err := m.refuseOutsideWorkspace(writeSet); err != nil {
+		return nil, "", err
+	}
+	paths := normalizeWriteSetPaths(m.workspace, writeSet)
+	if len(paths) == 0 {
+		return nil, "", nil
+	}
+	if holder := m.claim(taskID, paths); holder != "" {
+		return nil, holder, nil
+	}
+	return &writeSetLockLease{manager: m, taskID: taskID, paths: paths}, "", nil
+}
+
+// claim takes every path for taskID, or none of them: it returns the task
+// holding the first path another task has -- the same path, or a directory
+// above or below one inside the workspace -- and "" when it took them all.
+// A task re-entering its own paths counts each again, so its releases
+// balance.
+func (m *writeSetLockManager) claim(taskID string, paths []string) (heldBy string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	root := normalizeAbsolutePath(m.workspace, m.workspace)
+	held := make([]string, 0, len(m.owners))
+	for key := range m.owners {
+		held = append(held, key)
+	}
+	sort.Strings(held)
+	for _, p := range paths {
+		for key := p; ; {
+			if state, ok := m.owners[key]; ok && state.taskID != taskID {
+				return state.taskID
+			}
+			if key == root {
+				break
+			}
+			parent := key[:max(strings.LastIndexByte(key, '/'), 0)]
+			if parent == "" || parent == key || len(parent) < len(root) {
+				break
+			}
+			key = parent
+		}
+		prefix := p + "/"
+		for _, key := range held {
+			if strings.HasPrefix(key, prefix) {
+				if state := m.owners[key]; state.taskID != taskID {
+					return state.taskID
+				}
+			}
+		}
+	}
+	for _, p := range paths {
+		if state, held := m.owners[p]; held {
+			state.count++
+		} else {
+			m.owners[p] = &ownerState{taskID: taskID, count: 1}
+		}
+	}
+	return ""
+}
+
+func (m *writeSetLockManager) releasePaths(taskID string, paths []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, p := range paths {
+		if state, held := m.owners[p]; held && state.taskID == taskID {
+			state.count--
+			if state.count <= 0 {
+				delete(m.owners, p)
+			}
+		}
+	}
+
+	// Notify all waiters that locks were released
+	for _, ch := range m.waitChs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func normalizeWriteSetPaths(workspace string, writeSet []string) []string {
+	if len(writeSet) == 0 {
+		return nil
+	}
+
+	normalized := make(map[string]struct{}, len(writeSet))
+	for _, raw := range writeSet {
+		path := normalizeAbsolutePath(workspace, raw)
+		if path == "" {
+			continue
+		}
+		normalized[path] = struct{}{}
+	}
+
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(normalized))
+	for p := range normalized {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func normalizeAbsolutePath(workspace, rawPath string) string {
+	path := strings.TrimSpace(rawPath)
+	if path == "" {
+		return ""
+	}
+	// Filter out null bytes or unprintable bizarre strings
+	if strings.ContainsRune(path, '\x00') {
+		return ""
+	}
+
+	if !filepath.IsAbs(path) && workspace != "" {
+		path = filepath.Join(workspace, path)
+	}
+
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = filepath.Clean(path)
+	}
+
+	normalized := filepath.ToSlash(filepath.Clean(abs))
+	if runtime.GOOS == "windows" {
+		normalized = strings.ToLower(normalized)
+	}
+	if workspace != "" && !isPathWithinWorkspace(workspace, normalized) {
+		return ""
+	}
+	return normalized
+}

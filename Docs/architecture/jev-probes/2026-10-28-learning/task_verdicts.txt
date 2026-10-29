@@ -1,0 +1,21 @@
+task verdict probe: 10 records, thresholds yes>=0.70 no<=0.30
+hollow-test-claim  did=0.02 early=0.95 kind=instruction_miss(0.61) fits=0.89 files=[]
+provider-timeout   did=0.01 early=0.98 kind=instruction_miss(0.45) fits=0.12 files=[]
+rate-limit         did=0.01 early=0.97 kind=api_misuse(0.61) fits=0.16 files=[]
+syntax             did=0.03 early=0.96 kind=syntax_error(1.00) fits=0.99 files=[]
+wrong-function     did=0.02 early=0.96 kind=instruction_miss(0.94) fits=0.98 files=[]
+edge-case          did=0.35 early=0.79 kind=edge_case(1.00) fits=0.98 files=[]
+clean-pass         did=0.92 early=0.03 kind=instruction_miss(0.34) fits=0.08 files=[0.99]
+stray-file         did=0.85 early=0.03 kind=instruction_miss(0.83) fits=0.50 files=[0.99 0.04]
+stopped-early      did=0.03 early=0.97 kind=instruction_miss(0.99) fits=0.91 files=[0.84]
+validator-rejected did=0.04 early=0.96 kind=syntax_error(0.44) fits=0.68 files=[]
+did_what_was_asked         right   7  wrong  0  unsettled  0
+failure_kind               right   3  wrong  0  unsettled  0
+failure_kind_fits          right   6  wrong  0  unsettled  1
+file_needed(README.md)     right   2  wrong  0  unsettled  0
+file_needed(internal/core/kernel.go) right   1  wrong  0  unsettled  0
+file_needed(internal/store/schema.sql) right   1  wrong  0  unsettled  0
+stopped_early              right   2  wrong  0  unsettled  0
+all right 22 of 23
+misses (x wrong, ~ unsettled):
+  ~ validator-rejected       failure_kind_fits          p=0.68 want=true  "fix all known bugs in internal/verification"

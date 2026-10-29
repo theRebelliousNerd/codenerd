@@ -1,0 +1,1286 @@
+// Package chat provides the interactive TUI chat interface for codeNERD.
+// This file contains input processing and intent handling.
+//
+// # File Index
+//
+// Input Processing:
+//   - process.go            - Main processInput(), seed functions
+//
+// Dream State:
+//   - process_dream.go      - handleDreamState(), formatDreamStateResponse(), system delegation
+//
+// Conversation Helpers:
+//   - process_follow_up.go  - getRecentTurns()
+//
+// Continuation Protocol:
+//   - process_continuation.go - checkContinuation(), executeSubtask(), isMutationOperation()
+//
+// Knowledge Handling:
+//   - process_knowledge.go  - handleKnowledgeRequests(), synthesizeWithKnowledge(), matchSpecialistForQuery()
+package chat
+
+import (
+	"codenerd/internal/articulation"
+	ctxcompress "codenerd/internal/context"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/observation"
+	"codenerd/internal/perception"
+	"codenerd/internal/sessionlog"
+	"codenerd/internal/transparency"
+	"codenerd/internal/types"
+	"codenerd/internal/usage"
+	"codenerd/internal/verification"
+	"context"
+	"errors"
+	"fmt"
+	"runtime/debug"
+	"strings"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// =============================================================================
+// INPUT PROCESSING
+// =============================================================================
+
+func (m Model) processInput(input string) tea.Cmd {
+	// The execution is accepted now, on the caller's thread, so a stop
+	// that comes before it starts is not lost (turnState).
+	turnID := m.turn.accept()
+	return func() (result tea.Msg) {
+		// Every exit, the guards below included, releases the slot.
+		defer m.turn.end(turnID)
+		// Panic recovery: this closure runs as a fire-and-forget goroutine in the
+		// Bubbletea runtime. An unrecovered panic here kills the entire process.
+		// We use a named return so the deferred recover can set the return value
+		// to an errorMsg, ensuring the UI returns to idle state instead of
+		// hanging with isLoading=true.
+		defer func() {
+			if r := recover(); r != nil {
+				stack := debug.Stack()
+				logging.API("PANIC in processInput (recovered): %v\n%s", r, stack)
+				result = errorMsg(fmt.Errorf("internal error (recovered panic): %v", r))
+			}
+		}()
+
+		// Guard: ensure transducer is initialized
+		if m.transducer == nil {
+			return errorMsg(fmt.Errorf("system not ready: transducer not initialized (boot may still be in progress)"))
+		}
+		if m.client == nil {
+			return errorMsg(fmt.Errorf("system not ready: LLM client not initialized"))
+		}
+
+		// Use shutdownCtx as parent so Ctrl+X cancels in-flight LLM calls cleanly
+		baseCtx := m.shutdownCtx
+		if baseCtx == nil {
+			baseCtx = context.Background()
+		}
+		ctx, cancel := context.WithCancel(baseCtx)
+		if m.usageTracker != nil {
+			ctx = usage.NewContext(ctx, m.usageTracker)
+		}
+		ctx = usage.WithSessionID(ctx, m.sessionID)
+		// The chat is the main agent: its model calls file under chat/ in this
+		// session's folder (exchange files, debug mode only).
+		sessionlog.Current().Adopt(m.sessionID)
+		ctx = sessionlog.WithTurn(sessionlog.WithChat(ctx), m.turnCount+1)
+		defer cancel()
+		// Ctrl+X and a side turn's stop reach this turn through m.turn.
+		m.turn.begin(turnID, cancel)
+
+		oodaStart := time.Now()
+		trimmed := strings.TrimSpace(input)
+		// Log rich system state at OODA entry so we can diagnose slow turns
+		transducerType := fmt.Sprintf("%T", m.transducer)
+		clientType := fmt.Sprintf("%T", m.client)
+		historyLen := len(m.history)
+		hasKernel := m.kernel != nil
+		hasCampaign := m.activeCampaign != nil
+		logging.Routing("[processInput] OODA START input=%q len=%d | transducer=%s client=%s historyLen=%d hasKernel=%v hasCampaign=%v turnCount=%d",
+			oneLine(trimmed), len(trimmed), transducerType, clientType, historyLen, hasKernel, hasCampaign, m.turnCount)
+
+		// Clarifier answers are accumulated on the Update thread; see model_handlers.go.
+
+		var warnings []string
+		workspaceScanned := false
+
+		// Debug-self: collect codenerd's own new log problems at the start
+		// of the turn. The batch is delivered (and consumed) at articulation
+		// below; zero new problems injects and announces nothing.
+		selfProblems := pendingSelfProblemsForTurn(m)
+
+		// Rows standing when the turn began, by identity (turn_results.go). It
+		// is taken again below, after the stale-fact clear, so the clear
+		// cannot make this turn's own first result look old.
+		resultBase := m.snapshotSystemResults()
+
+		// NOTE: the pre-perception follow-up substring detector that used to
+		// live here was removed deliberately. It hijacked any input containing
+		// "what is the"/"that"/"this" whenever a shard had run earlier in the
+		// session, answering about the LAST SHARD RESULT instead of the actual
+		// question — identical inputs routed differently depending on hidden
+		// state. Follow-ups now flow through perception (which sees the
+		// conversation history) and the articulation path (which carries
+		// lastShardResult in ConversationContext), so they still work — through
+		// the same single pipeline as everything else.
+
+		// A greeting goes through perception like any other input; the kernel's
+		// perception_answer lane returns perception's own reply. Until
+		// 2026-09-23 six literal words ("hi", "hello", ...) were matched here in
+		// Go and answered with a canned string before perception ran.
+
+		// 1. PERCEPTION (Transducer) - with conversation history for context
+		perceptionStart := time.Now()
+		m.ReportStatus("Perception: parsing intent...")
+		logging.Routing("[processInput] PERCEPTION phase starting")
+
+		// Disable boot guards on first user interaction.
+		// This signals that the system is ready for normal operation and allows
+		// action execution (prevents startup action spam from session rehydration).
+		if m.shardMgr != nil {
+			m.shardMgr.DisableExecutiveBootGuard()
+		}
+		if m.virtualStore != nil {
+			m.virtualStore.DisableBootGuard()
+		}
+
+		// Perception gets the whole conversation and selects from it once,
+		// under its own window and budget (classification.history_turn_window,
+		// history_char_budget), whose notice then counts everything it left
+		// out. Perception renders no compressed history, so cutting to the
+		// compressor's window here only removed turns, and the notice could
+		// not say so.
+		var historyForPerception []perception.ConversationTurn
+		for _, msg := range m.history {
+			historyForPerception = append(historyForPerception, perception.ConversationTurn{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+
+		// Last turn's routing facts leave before perception publishes this
+		// turn's (clearStaleRoutingFacts); the stale-fact clear after
+		// perception must not be the one that removes them.
+		m.clearStaleRoutingFacts()
+
+		intentHandledBySystem := false
+		var intent perception.Intent
+		var err error
+
+		// An approved proposal runs with the intent perception read when it was
+		// proposed: the "go" that approved it is not the request. user_intent
+		// is asserted from it below, as for any intent no shard asserted.
+		reusedIntent := m.goAheadWork != nil
+		if reusedIntent {
+			intent = m.goAheadWork.Intent
+		}
+
+		// Jev's judgments run beside perception (jev_turn.go). A go-ahead turn
+		// asks none: the held intent is the request, not the word "go".
+		var judged <-chan judgedTurn
+		var correction <-chan judgedCorrection
+		if !reusedIntent {
+			judged = m.startTurnJudgments(ctx, input, historyForPerception)
+			correction = m.startCorrectionJudgment(ctx, input)
+		}
+
+		// Prefer the always-on PerceptionFirewall system shard when available.
+		// This ensures Perception emits canonical facts (user_intent, processed_intent,
+		// focus_resolution, ambiguity_flag) into the shared kernel and uses JIT prompts.
+		if !reusedIntent && m.shardMgr != nil {
+			if shard, ok := m.shardMgr.GetRunningShardByConfigName("perception_firewall"); ok {
+				type perceiver interface {
+					Perceive(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error)
+				}
+				if pf, ok := shard.(perceiver); ok {
+					intent, err = pf.Perceive(m.briefContext(ctx), input, historyForPerception)
+					intentHandledBySystem = err == nil
+				}
+			}
+		}
+
+		// Fallback: direct transducer parsing (legacy / when system shards are disabled).
+		if !reusedIntent && !intentHandledBySystem {
+			intent, err = m.transducer.ParseIntentWithContext(m.briefContext(ctx), input, historyForPerception)
+		}
+		if err != nil {
+			return errorMsg(fmt.Errorf("perception error: %w", err))
+		}
+		if strings.TrimSpace(intent.Response) == "" {
+			warnings = append(warnings, "Perception response was empty; falling back to articulation")
+		}
+		// The brief perception returned replaces the kernel's before routing
+		// reads it (brief.mg); a go-ahead run keeps the brief it was held under.
+		if !reusedIntent {
+			m.recordBrief(intent.Brief)
+		}
+		m.recordTurnJudgments(ctx, judged)
+		// A correction to codeNERD's last turn is learned from in the
+		// background while the turn runs as asked, when the kernel derives one
+		// (jev_correction.go, learning_auto.go, policy/jev_learning.mg). A
+		// go-ahead turn is not a correction.
+		if !reusedIntent {
+			if source, ok := m.recordCorrection(ctx, input, correction); ok {
+				logging.Routing("[processInput] learning_correction(/%s): learning beside the turn", source)
+				m.learnFromCorrection(lastExchange(m.history, input).PreviousRequest, source)
+			}
+		}
+		// The limit the user put on this request (read-only, dry run, what-if,
+		// confirm first) rides the turn's context, so every delegation,
+		// preset task and subagent this turn starts runs under it and none can
+		// drop it (perception/restriction.go; policy/constitution.mg, section 7D).
+		intent.Restriction = intent.Restriction.Merge(m.jevRestriction())
+		ctx = perception.WithRestriction(ctx, intent.Restriction)
+		// What the message allowed beyond the edits ("then commit it") rides the
+		// same context and the same held intent, so a task delegated from this
+		// turn, or work approved later with a bare "go", holds it
+		// (perception/authorization.go; constitution.mg, section 7E).
+		intent.Authorization = intent.Authorization.Merge(m.jevAuthorization())
+		ctx = perception.WithAuthorization(ctx, intent.Authorization)
+		for _, job := range m.stopRequestedBackground() {
+			warnings = append(warnings, fmt.Sprintf("Stopping background %s: %s", job.Shard, oneLine(job.Task)))
+		}
+		m.ReportStatus(fmt.Sprintf("Orient: %s", intent.Verb))
+		// Log rich perception result with routing-actionable data.
+		// Use resolveShardTypeForIntent so LLM-suggested primary_shard (e.g.
+		// researcher for "teach me the codebase") is not dropped.
+		// Whether the turn delegates is the kernel's route decision (1.3.5),
+		// logged there; this line records only what perception produced.
+		shardType := resolveShardTypeForIntent(intent)
+		logging.Routing("[processInput] PERCEPTION complete: %dms | verb=%s category=%s target=%q confidence=%.2f | candidate shard=%s system_shard=%v | response_len=%d ambiguity=%v",
+			time.Since(perceptionStart).Milliseconds(), intent.Verb, intent.Category,
+			oneLine(intent.Target), intent.Confidence,
+			shardType, intentHandledBySystem,
+			len(intent.Response), intent.Ambiguity)
+
+		// Glass Box: Emit perception event (immediate → chat stream)
+		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+			summary := fmt.Sprintf("Intent: %s%s → %s (%.0f%%)",
+				intent.Category, intent.Verb, oneLine(intent.Target), intent.Confidence*100)
+			details := fmt.Sprintf("Category: %s\nVerb: %s\nTarget: %s\nConstraint: %s",
+				intent.Category, intent.Verb, intent.Target, intent.Constraint)
+			m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
+				Timestamp: time.Now(),
+				Category:  transparency.CategoryPerception,
+				Summary:   summary,
+				Details:   details,
+				TurnID:    m.turnCount,
+			})
+		}
+
+		// Seed the shared kernel immediately so system shards can begin deriving actions.
+		if m.kernel != nil {
+			m.clearStaleKernelFacts()
+			// What running background work has done so far, for this turn's context.
+			m.refreshJobProgress(time.Now())
+			resultBase = m.snapshotSystemResults()
+			// Only assert user_intent ourselves if the PerceptionFirewall shard didn't already do it.
+			if !intentHandledBySystem {
+				warnings = append(warnings, m.assertDirectIntent(intent)...)
+
+				// Glass Box: Emit kernel event
+				if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+					m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
+						Timestamp: time.Now(),
+						Category:  transparency.CategoryKernel,
+						Summary:   fmt.Sprintf("Asserted: user_intent(%s, %s, %s)", intent.Category, intent.Verb, oneLine(intent.Target)),
+						TurnID:    m.turnCount,
+					})
+				}
+			} else {
+				// Glass Box: Emit kernel event (handled by system shard)
+				if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+					m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
+						Timestamp: time.Now(),
+						Category:  transparency.CategoryKernel,
+						Summary:   fmt.Sprintf("Intent handled by PerceptionFirewall: %s%s", intent.Category, intent.Verb),
+						TurnID:    m.turnCount,
+					})
+				}
+			}
+		}
+
+		// =====================================================================
+		// ROUTING ARBITRATION (Kernel) -- the single DECIDE point
+		// =====================================================================
+		// The kernel derives one lane for this turn at most
+		// (policy/routing_arbitration.mg): perception_answer, dream,
+		// respond_directly, clarify, multi_step, or delegate. It is asked as
+		// soon as user_intent is in, before the slower ORIENT work below, so a
+		// turn perception already answered returns without it. RouteNone (no
+		// lane derived, or no kernel to ask) delegates and decomposes nothing:
+		// articulation answers. Until 2026-09-23 the conversational fast path,
+		// the /dream check and two clarifiers decided in Go before this was
+		// asked.
+		route := m.decideRoute(input, intent, shardType)
+		logging.Routing("[processInput] ROUTE decision: %s shard=%q | verb=%s category=%s question=%v confidence=%.2f | elapsed=%dms",
+			route.Kind, route.Shard, intent.Verb, intent.Category, intent.IsQuestion, intent.Confidence, time.Since(oodaStart).Milliseconds())
+		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+			m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
+				Timestamp: time.Now(),
+				Category:  transparency.CategoryKernel,
+				Summary:   fmt.Sprintf("Route: %s (verb=%s, question=%v)", route.Kind, intent.Verb, intent.IsQuestion),
+				Details:   "Kernel routing arbitration (route_decision/2, policy/routing_arbitration.mg)",
+				TurnID:    m.turnCount,
+			})
+		}
+
+		// A turn no model read ends with the kernel's notice for its cause, before
+		// any lane acts on the compatibility intent a failed classification
+		// leaves behind. Held work's go-ahead keeps its precedence in the policy.
+		if reply, stopped := m.classificationStop(intent, warnings); stopped {
+			return reply
+		}
+
+		// Work the work mode holds (route_decision(/hold)): state it and keep
+		// the conversation open until the user says go.
+		if route.Kind == RouteHold {
+			work := &pendingWork{Input: input, Intent: intent, Route: route, At: time.Now()}
+			return holdMsg{Work: work, Surface: holdSurface(intent, route, m.workMode(), m.currentBrief())}
+		}
+		// The user's go-ahead on the held proposal.
+		if route.Kind == RouteApprovePending {
+			return approveWorkMsg{}
+		}
+
+		// The perception pass already answered: its reply is the answer.
+		if route.Kind == RoutePerceptionAnswer {
+			logging.Routing("[processInput] PERCEPTION ANSWER: verb=%s | responseLen=%d | OODA total=%dms",
+				intent.Verb, len(intent.Response), time.Since(oodaStart).Milliseconds())
+			return responseMsg(m.appendSystemSummary(intent.Response, m.collectSystemSummary(ctx, resultBase)))
+		}
+
+		if m.kernel != nil {
+			// If this is an issue-driven request, seed issue facts for activation and JIT selection.
+			// The turn context bounds the sparse-retrieval pass this now runs.
+			m.seedIssueFacts(ctx, intent, input)
+
+			// GAP-002 FIX: Seed campaign facts if there's an active campaign.
+			// This enables the activation engine and JIT compiler to be campaign-aware.
+			m.seedCampaignFacts()
+		}
+		logging.Routing("[processInput] ORIENT (kernel assertions): %dms", time.Since(perceptionStart).Milliseconds())
+
+		if reflection := m.performReflection(ctx, input, intent); reflection != nil {
+			m.lastReflection = reflection
+			if len(reflection.Warnings) > 0 {
+				warnings = append(warnings, reflection.Warnings...)
+			}
+		} else {
+			m.lastReflection = nil
+		}
+
+		// 1.3.1 MEMORY OPERATIONS
+		m.processMemoryOperations(intent, &warnings)
+
+		// 1.3.2 DREAM STATE: the kernel derived the /dream lane -- consult the
+		// shards on a hypothetical without executing anything.
+		if route.Kind == RouteDream {
+			logging.Routing("[processInput] DECIDE: dream mode, total so far %dms", time.Since(oodaStart).Milliseconds())
+			m.ReportStatus("Dream: consulting shards...")
+			return m.handleDreamState(ctx, intent, input)
+		}
+
+		// 1.3.3 ASSAULT CAMPAIGN: the kernel derived the /assault lane -- an
+		// adversarial campaign on the workspace. Its scope, includes and flags
+		// are read from the request ("run an assault on package internal/core
+		// with -race").
+		if route.Kind == RouteAssault {
+			m.ReportStatus("Assault: starting campaign...")
+			cmd := m.startAssaultCampaign(assaultArgs(m.workspace, input, intent))
+			return cmd()
+		}
+
+		// Questions and conversation terminate in prose: no clarifier shards,
+		// no decomposition, no delegation, no autopoiesis analysis.
+		answerDirectly := route.Kind == RouteRespondDirectly
+		routeWantsClarify := route.Kind == RouteClarify
+
+		// 1.4 CLARIFICATION: the derived /clarify lane asks before acting. The
+		// kernel's own question comes first when it has one (clarification.mg:
+		// an unknown or unmapped verb, an unreachable model), then the
+		// clarifier shard's, then the fallback below. Until 2026-09-23 two Go
+		// heuristics (shouldAutoClarify, a keyword match over the raw input;
+		// shouldClarifyIntent) could clarify on any turn not answered
+		// directly, over a derived /delegate.
+		logging.Routing("[processInput] DECIDE phase starting at %dms", time.Since(oodaStart).Milliseconds())
+		if routeWantsClarify {
+			if question, options, ok := m.kernelClarification(); ok {
+				return clarificationMsg{
+					Question:      question,
+					Options:       options,
+					Context:       input,
+					PendingIntent: &intent,
+				}
+			}
+			m.ReportStatus("Clarifier: generating questions...")
+			if res, err := m.runClarifierShard(ctx, input); err == nil && res != "" {
+				surface := m.appendSystemSummary(
+					res+"\n\nReply with answers, then use `/launchcampaign <goal>` when you are ready to start.",
+					m.collectSystemSummary(ctx, resultBase),
+				)
+				return assistantMsg{
+					Surface: surface,
+					ClarifyUpdate: &ClarifyUpdate{
+						LastClarifyInput:     input,
+						LaunchClarifyPending: true,
+						LaunchClarifyGoal:    input,
+						LaunchClarifyAnswers: "",
+					},
+				}
+			} else if err != nil {
+				warnings = append(warnings, fmt.Sprintf("Clarifier shard unavailable: %v", err))
+			}
+		}
+
+		// 1.4.3 THE DERIVED /clarify LANE IS BINDING. route_decision(/clarify, /none)
+		// means the kernel judged the request too ambiguous to act on. Until
+		// 2026-09-18 that judgement held only while a clarifier shard answered:
+		// when the shard was unavailable and the kernel had no canned question,
+		// every gate above fell through with a warning and the turn streamed an
+		// ordinary answer to a request the executive had just refused to act on
+		// (found by the test nerd fix wrote for this lane). The shard supplies
+		// better wording; it does not decide whether the question is asked.
+		if routeWantsClarify {
+			logging.Routing("[processInput] DECIDE: /clarify derived and no clarifier answered; asking the fallback question")
+			return clarificationMsg{
+				Question:      clarifyFallbackQuestion(intent),
+				Options:       []string{},
+				Context:       input,
+				PendingIntent: &intent,
+			}
+		}
+
+		// 1.5 MULTI-STEP: autonomous multi-step execution without campaigns,
+		// when the kernel derived the /multi_step lane -- which it does only
+		// for a plan of two steps or more, each with a shard. Until 2026-09-23
+		// the lane derived without the plan, a plan of one step fell through
+		// here, and the turn was neither decomposed nor delegated.
+		if route.Kind == RouteMultiStep {
+			m.turn.setWorking(turnID, fmt.Sprintf("%d steps: %s", len(route.Steps), oneLine(input)))
+			m.ReportStatus(fmt.Sprintf("Multi-step: %d steps...", len(route.Steps)))
+			cmd := m.executeMultiStepTask(ctx, intent, input, route.Steps)
+			return cmd()
+		}
+
+		// 1.6 DELEGATION: the kernel's /delegate lane names the shard, and
+		// only that lane delegates. Uses the verification loop to ensure
+		// quality (no mock code, no placeholders).
+		shardType = resolveShardTypeForIntent(intent)
+		delegateNow := route.Kind == RouteDelegate
+		if delegateNow {
+			shardType = route.Shard
+		}
+
+		// Glass Box: Emit routing decision
+		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+			if shardType != "" {
+				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryKernel,
+					Summary:   fmt.Sprintf("Routing: %s → %s shard (confidence: %.0f%%)", intent.Verb, shardType, intent.Confidence*100),
+					TurnID:    m.turnCount,
+				})
+			} else {
+				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryKernel,
+					Summary:   fmt.Sprintf("Routing: %s → no shard delegation", intent.Verb),
+					TurnID:    m.turnCount,
+				})
+			}
+		}
+
+		if delegateNow {
+			needsWsScan := m.needsWorkspaceScanForDelegation(intent)
+			logging.Routing("[processInput] ACT: delegating | shard=%s verb=%s target=%q confidence=%.2f | needsWorkspaceScan=%v alreadyScanned=%v | elapsed=%dms",
+				shardType, intent.Verb, intent.Target, intent.Confidence, needsWsScan, workspaceScanned, time.Since(oodaStart).Milliseconds())
+			if needsWsScan && !workspaceScanned {
+				// The return value is deliberately dropped: this call's purpose
+				// is loading facts into the kernel, and the delegation path
+				// returns without reading the flag again.
+				_ = m.loadWorkspaceFacts(ctx, intent, &warnings)
+			}
+			// Read-only work runs off the turn (route_background): the chat
+			// answers now and stays open; the result arrives as its own message.
+			if route.Background {
+				job := backgroundJob{
+					ID:         fmt.Sprintf("%s-bg-%d", shardType, time.Now().UnixNano()),
+					Shard:      shardType,
+					Task:       m.backgroundTask(intent),
+					Target:     intent.Target,
+					Constraint: taskConstraint(intent.Constraint),
+					Request:    input,
+					Started:    time.Now(),
+				}
+				if route.SelfDiagnosis {
+					diag, ok, reason := m.selfDiagnosisJob(ctx, shardType)
+					if !ok {
+						return responseMsg("Nothing to diagnose: " + reason)
+					}
+					job = diag
+				}
+				return backgroundStartMsg{Surface: backgroundStartSurface(intent.Response, job), Job: job}
+			}
+			m.turn.setWorking(turnID, shardType+": "+oneLine(intent.Verb+" "+intent.Target))
+			m.ReportStatus(fmt.Sprintf("Act: delegating to %s...", shardType))
+			// Format task based on verb and target, with prior shard context (blackboard pattern)
+			// This enables cross-shard context: reviewer findings -> coder, test errors -> debugger
+			task := m.formatShardTaskWithContext(intent.Verb, intent.Target, intent.Constraint, m.workspace, m.lastShardResult)
+
+			// Build session context for shard injection (Blackboard Pattern)
+			sessionCtx := m.buildSessionContext(ctx)
+
+			// A mutation is never delegated unless the kernel derived its
+			// verification obligation and the verifier is wired. Falling through
+			// to the ordinary response formatter would describe an unverified
+			// shard return as a completed fix/refactor.
+			if intent.Category == "/mutation" && !route.Verify {
+				return assistantMsg{Surface: m.appendSystemSummary(
+					formatUnverifiedDelegationResponse(intent, shardType, "the kernel did not derive the required verification obligation", false),
+					m.collectSystemSummary(ctx, resultBase),
+				)}
+			}
+			if route.Verify && m.verifier == nil {
+				return assistantMsg{Surface: m.appendSystemSummary(
+					formatUnverifiedDelegationResponse(intent, shardType, "no task verifier is configured for this session", false),
+					m.collectSystemSummary(ctx, resultBase),
+				)}
+			}
+
+			// The verification loop (the persona's attempts, each judged) when
+			// the kernel derived route_verifies: a delegated mutation.
+			if route.Verify {
+				// Set session context for verification persistence
+				m.verifier.SetSessionContext(m.sessionID, m.turnCount)
+
+				result, verdict, verifyErr := m.verifier.VerifyWithRetry(ctx, verification.Delegation{
+					Task:        task,
+					Persona:     shardType,
+					Target:      intent.Target,
+					Constraint:  taskConstraint(intent.Constraint),
+					Request:     input,
+					MaxAttempts: m.shardMaxRetries(shardType),
+					Config:      m.Config.GetDelegationConfig(),
+					// The blackboard and priority the unverified path uses.
+					SessionContext: sessionCtx,
+					Priority:       types.PriorityHigh,
+				})
+
+				// CRITICAL FIX: Inject verified shard results as facts for cross-turn context
+				shardID := fmt.Sprintf("%s-verified-%d", shardType, time.Now().UnixNano())
+				facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, verifyErr)
+				if m.kernel != nil && len(facts) > 0 {
+					_ = m.kernel.LoadFacts(facts)
+				}
+
+				srPayload := &ShardResultPayload{
+					ShardType: shardType,
+					Task:      task,
+					Result:    result,
+					Facts:     facts,
+				}
+
+				if verifyErr != nil {
+					// The persona's attempts are spent: escalate to the user.
+					if errors.Is(verifyErr, verification.ErrMaxRetriesExceeded) {
+						response := formatVerificationEscalation(task, shardType, verdict)
+						return assistantMsg{
+							Surface:     m.appendSystemSummary(response, m.collectSystemSummary(ctx, resultBase)),
+							ShardResult: srPayload,
+						}
+					}
+					return errorMsg(failedVerifiedDelegation("verified execution failed", verifyErr))
+				}
+				if verdict == nil || !verdict.Accepted {
+					response := formatUnverifiedDelegationResponse(intent, shardType, "the verifier returned no successful verdict", true)
+					return assistantMsg{
+						Surface:     m.appendSystemSummary(response, m.collectSystemSummary(ctx, resultBase)),
+						ShardResult: srPayload,
+					}
+				}
+
+				// Format response with verification confidence
+				response := formatVerifiedResponse(intent, shardType, task, result, verdict)
+				surface := m.appendSystemSummary(response, m.collectSystemSummary(ctx, resultBase))
+
+				// A verified attempt can still have done only part of the
+				// request: a missing part goes on as a continuation step.
+				dc := m.startDelivery(input, shardType)
+				cont, delivered := m.checkContinuation(ctx, dc, shardType, task, observation.Return{Output: result, Outcome: "/done"})
+				if cont != nil {
+					return continuationInitMsg{
+						completedSurface: surface,
+						firstResult:      srPayload,
+						next:             *cont,
+						delivery:         dc,
+					}
+				}
+				return assistantMsg{
+					Surface:     withDeliveryNote(surface, delivered),
+					ShardResult: srPayload,
+				}
+			}
+
+			// Shard spawn with queue backpressure management (user-initiated = high priority)
+			// Glass Box: Emit shard spawn event
+			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryShard,
+					Summary:   fmt.Sprintf("Spawning: %s (task: %s)", shardType, oneLine(task)),
+					Source:    shardType,
+					TurnID:    m.turnCount,
+				})
+			}
+
+			ret, spawnErr := m.spawnTaskWithContext(ctx, intentTaskRequest(shardType, task, intent, input), sessionCtx, types.PriorityHigh)
+			result := ret.Output
+
+			// Glass Box: Emit shard completion event
+			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+				status := "completed"
+				if spawnErr != nil {
+					status = "failed"
+				}
+				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryShard,
+					Summary:   fmt.Sprintf("Shard %s: %s (result: %d chars)", shardType, status, len(result)),
+					Source:    shardType,
+					TurnID:    m.turnCount,
+				})
+
+				// Glass Box: Emit JIT compilation stats if available
+				if m.jitCompiler != nil {
+					if jitResult := m.jitCompiler.GetLastResult(); jitResult != nil && jitResult.Stats != nil {
+						stats := jitResult.Stats
+						m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
+							Timestamp: time.Now(),
+							Category:  transparency.CategoryJIT,
+							Summary:   fmt.Sprintf("JIT: %d atoms (%d skel + %d flesh), %d/%d tokens (%.0f%%)", stats.AtomsSelected, stats.SkeletonAtoms, stats.FleshAtoms, stats.TokensUsed, stats.TokenBudget, stats.BudgetUtilization*100),
+							Duration:  stats.Duration,
+							TurnID:    m.turnCount,
+						})
+					}
+				}
+			}
+
+			// CRITICAL FIX: Inject shard results as facts for cross-turn context
+			// This enables the main agent to reference shard outputs in future turns
+			shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
+			facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, spawnErr)
+			if m.kernel != nil && len(facts) > 0 {
+				if loadErr := m.kernel.LoadFacts(facts); loadErr != nil {
+					warnings = append(warnings, fmt.Sprintf("[ShardFacts] Warning: %v", loadErr))
+				}
+			}
+
+			srPayload := &ShardResultPayload{
+				ShardType: shardType,
+				Task:      task,
+				Result:    result,
+				Facts:     facts,
+			}
+
+			if spawnErr != nil {
+				return errorMsg(failedDelegation("shard delegation failed", spawnErr, ret))
+			}
+
+			// 1.6.1 AUTO-INTERPRETATION: For Reviewer/Tester shards, explain the findings
+			if interpretsOutput(shardType) {
+				// 1.6.2 REVIEWER VALIDATION CHECK: Self-correction feedback loop
+				// Check if the review shows signs of inaccuracy and flag for user attention
+				var validationWarning string
+				if shardType == "reviewer" {
+					// Jev checks each finding against the code it cites first, so a
+					// refuted one is among the reasons below (jev_evidence.mg).
+					refuted := m.checkReviewFindings(ctx, shardID, result)
+					if m.shardMgr.CheckReviewNeedsValidation(shardID) {
+						reasons := m.shardMgr.GetReviewSuspectReasons(shardID)
+						if len(reasons) > 0 {
+							validationWarning = "**Review Validation Alert**: This review may contain inaccuracies.\n"
+							validationWarning += "Reasons: " + strings.Join(reasons, ", ") + "\n"
+							validationWarning += "Please verify findings before acting on them. "
+							validationWarning += "Use `/reject-finding <file>:<line> <reason>` to help the system learn from mistakes."
+							validationWarning += refuted
+							warnings = append(warnings, "Review flagged for validation: "+strings.Join(reasons, ", "))
+						}
+					}
+				}
+
+				response := m.formatInterpretedResult(ctx, input, shardType, task, result, validationWarning)
+				surface := m.appendSystemSummary(response, m.collectSystemSummary(ctx, resultBase))
+
+				// CONTINUATION PROTOCOL: the next step is an obligation the
+				// kernel derives, or a part of the request not yet delivered.
+				dc := m.startDelivery(input, shardType)
+				cont, delivered := m.checkContinuation(ctx, dc, shardType, task, ret)
+				if cont != nil {
+					return continuationInitMsg{
+						completedSurface: surface,
+						firstResult:      srPayload,
+						next:             *cont,
+						totalSteps:       0,
+						delivery:         dc,
+					}
+				}
+				surface = withDeliveryNote(surface, delivered)
+
+				return assistantMsg{
+					Surface:     surface,
+					ShardResult: srPayload,
+				}
+			}
+
+			// Format a rich response combining LLM surface response and shard result
+			response := formatDelegatedResponse(intent, shardType, task, result)
+			surface := m.appendSystemSummary(response, m.collectSystemSummary(ctx, resultBase))
+
+			// CONTINUATION PROTOCOL: the next step is an obligation the kernel
+			// derives, or a part of the request not yet delivered.
+			dc := m.startDelivery(input, shardType)
+			cont, delivered := m.checkContinuation(ctx, dc, shardType, task, ret)
+			if cont != nil {
+				return continuationInitMsg{
+					completedSurface: surface,
+					firstResult:      srPayload,
+					next:             *cont,
+					totalSteps:       0,
+					delivery:         dc,
+				}
+			}
+			surface = withDeliveryNote(surface, delivered)
+
+			return assistantMsg{
+				Surface:     surface,
+				ShardResult: srPayload,
+			}
+		}
+
+		// 1.7 STATS: Deterministic codebase/file statistics (no LLM follow-up).
+		if shardType == "" && intent.Verb == "/stats" {
+			m.ReportStatus("Stats: computing...")
+			statsResp, err := m.handleStatsIntent(ctx, intent)
+			if err != nil {
+				return responseMsg(m.appendSystemSummary(
+					fmt.Sprintf("Stats error: %v", err),
+					m.collectSystemSummary(ctx, resultBase),
+				))
+			}
+			return responseMsg(m.appendSystemSummary(statsResp, m.collectSystemSummary(ctx, resultBase)))
+		}
+
+		// 1.8 AUTOPOIESIS CHECK: whether this request warrants a campaign or a
+		// persistent agent is the kernel's (policy/jev_autopoiesis.mg): Jev
+		// reads the request, and the keyword heuristic decides only a request
+		// Jev did not judge (autopoiesis.Orchestrator.SuggestForRequest).
+		// Skipped for direct-answer turns: a question never warrants campaign
+		// suggestions or clarifier shard spawns.
+		if m.autopoiesis != nil && !answerDirectly {
+			suggestion := m.autopoiesis.SuggestForRequest(m.jevContext(ctx), input, intent.Target)
+
+			// A campaign the kernel derives runs the Requirements Interrogator
+			// once, in place of the turn, unless a campaign is already active.
+			if suggestion.Campaign && m.activeCampaign == nil {
+				warnings = append(warnings, fmt.Sprintf("Complex task detected (%s): %s", suggestion.CampaignSource, suggestion.CampaignReason))
+				warnings = append(warnings, "Consider using `/campaign start` for multi-phase execution")
+				warnings = append(warnings, "Use `/clarify <goal>` to gather requirements before starting the campaign")
+
+				if clarifierMsg, err := m.runClarifierShard(ctx, input); err == nil && clarifierMsg != "" {
+					// Return immediately with clarifying questions; user can answer then start campaign
+					return responseMsg(m.appendSystemSummary(
+						clarifierMsg+"\n\nReply with answers, then run `/campaign start <goal>` to kick off the plan.",
+						m.collectSystemSummary(ctx, resultBase),
+					))
+				} else if err != nil {
+					warnings = append(warnings, fmt.Sprintf("Clarifier shard unavailable: %v", err))
+				}
+			}
+
+			if need := suggestion.Persistent; need != nil {
+				warnings = append(warnings, fmt.Sprintf("Persistent agent recommended (%s): %s (%s)", suggestion.PersistentSource, need.AgentType, need.Purpose))
+				warnings = append(warnings, "Use `/define-agent` to create a persistent specialist")
+			}
+		}
+
+		// 2. CONTEXT LOADING (Scanner)
+		// Load workspace facts only if intent requires it (optimization).
+		// Use incremental scan to avoid reparsing unchanged repos.
+		logging.Routing("[processInput] context loading phase at %dms", time.Since(oodaStart).Milliseconds())
+		if !workspaceScanned {
+			// Same as the delegation path above: the kernel side effect is the
+			// point, and nothing reads the flag after this.
+			_ = m.loadWorkspaceFacts(ctx, intent, &warnings)
+		}
+
+		// 3. STATE UPDATE (Kernel)
+		// user_intent was asserted earlier; now refresh system facts and shard facts.
+		// Fix Bug #7: Update system facts (Time, etc.)
+		if m.kernel != nil {
+			if err := m.kernel.UpdateSystemFacts(); err != nil {
+				return errorMsg(fmt.Errorf("system facts update error: %w", err))
+			}
+			if m.shardMgr != nil {
+				_ = m.kernel.LoadFacts(m.shardMgr.ToFacts())
+			}
+		}
+		// Hydrate learned facts from knowledge.db so logic can use persisted context
+		if m.virtualStore != nil {
+			if _, err := m.virtualStore.HydrateLearnings(ctx); err != nil {
+				warnings = append(warnings, fmt.Sprintf("Hydrate learnings warning: %v", err))
+			}
+			if _, err := m.virtualStore.HydrateSessionContext(ctx, m.sessionID, input, m.collectTraceShardTypes()); err != nil {
+				warnings = append(warnings, fmt.Sprintf("Hydrate session context warning: %v", err))
+			}
+		}
+
+		// 4. DECISION & ACTION (Kernel -> Executor)
+		// Query for actions derived from the intent
+		var actions []core.Fact
+		kernelStart := time.Now()
+		if m.kernel != nil {
+			actions, _ = m.kernel.Query("next_action")
+		}
+		kernelDur := time.Since(kernelStart)
+		if m.glassBoxEventBus != nil {
+			summary := fmt.Sprintf("next_action: %d derived", len(actions))
+			if len(actions) == 0 {
+				summary = "next_action: no actions"
+			} else if len(actions) > 0 {
+				first := nextActionName(actions[0])
+				if first != "" {
+					summary = fmt.Sprintf("next_action: %s (+%d)", first, len(actions)-1)
+				}
+			}
+			m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
+				Timestamp: time.Now(),
+				Category:  transparency.CategoryKernel,
+				Summary:   summary,
+				Source:    intent.Verb,
+				Duration:  kernelDur,
+				TurnID:    m.turnCount,
+			})
+		}
+
+		// Surface denied actions distinctly — these matter for trust.
+		if m.kernel != nil && m.glassBoxEventBus != nil {
+			if denied, derr := m.kernel.Query("action_denied"); derr == nil && len(denied) > 0 {
+				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryKernel,
+					Summary:   fmt.Sprintf("action_denied: %d blocked", len(denied)),
+					TurnID:    m.turnCount,
+				})
+			}
+		}
+
+		executionResults, mangleUpdates, evidence := m.executeInfoGatheringActions(ctx, input, intent, actions, &warnings)
+		// The kernel derived that this turn needs the workspace and no shard
+		// can take it (route_decision(/gather_evidence)): read what it names
+		// here, so the answer is written from evidence or from an honest
+		// "none was obtained", never from prose as though the file were seen.
+		if route.Kind == RouteGatherEvidence {
+			evidence = append(evidence, gatherWorkspaceEvidence(m.workspace, intent, evidence)...)
+		}
+		// Feed execution results back into kernel for re-evaluation
+		if len(executionResults) > 0 {
+			if m.kernel != nil {
+				_ = m.kernel.LoadFacts(executionResults)
+			}
+			// Re-query context to inject (now that we have new facts)
+		}
+
+		// 4.5 SYSTEM ACTION HANDLING: Surface kernel-driven delegations and execution results.
+		// Skipped for direct-answer turns: delegate_task cannot derive for them
+		// (wants_direct_answer guard in delegation.mg) and the handler's
+		// result-poll would add up to 1.2s of dead wait before articulation.
+		if !answerDirectly {
+			msg, blockers := m.handleSystemDelegations(ctx, input, intent, resultBase)
+			if msg != nil {
+				return msg
+			}
+			warnings = append(warnings, blockers...)
+		}
+
+		// 5. ARTICULATION (Response Generation)
+		//
+		// The architect's persona at offset 0, then the JIT-compiled chat
+		// skeleton, under one budget. Both halves live in
+		// cmd/nerd/chat/persona.go so there is exactly one place the persona can
+		// be lost from, one place the compile happens, and one test for each.
+		//
+		// The verb travels on the model because the compile reads it: /intent is
+		// permissive in jit_compiler.mg, so an unset verb admits every
+		// intent-gated atom in the corpus at once.
+		m.turnIntentVerb = intent.Verb
+		systemPrompt := m.articulationSystemPrompt()
+
+		// Build conversation context for fluid chat experience
+		// This enables the LLM to understand recent turns and reference previous outputs
+		// Now includes compressed session context (Blackboard Pattern + Infinite Context)
+		var compressedCtx string
+		var recentTurnsForArticulation []Message
+		if m.compressor != nil && m.compressor.IsCompressionActive() {
+			// Compression active: use recent window + compressed context for
+			// older turns. When the compressed view cannot be built, the
+			// window still bounds the request, and the reply is told the
+			// older turns are not in it rather than left to assume they are.
+			recentTurnsForArticulation = m.getRecentTurns(m.compressor.GetRecentTurnWindow())
+			ctxStr, err := m.compressor.GetContextString(ctx)
+			compressedCtx = articulationHistoryView(ctxStr, err, len(m.history)-len(recentTurnsForArticulation))
+			m.noteArticulationContext(ctx, len(recentTurnsForArticulation), err)
+		} else {
+			// No compression yet: pass ALL history so LLM has full context
+			recentTurnsForArticulation = m.history
+		}
+		convCtx := &ConversationContext{
+			RecentTurns:     recentTurnsForArticulation,
+			LastShardResult: m.lastShardResult,
+			TurnNumber:      m.turnCount,
+			ShardHistory:    m.shardResultHistory, // Blackboard: all recent shard results
+			CompressedCtx:   compressedCtx,        // Infinite context: compressed session (empty if not active)
+			Evidence:        evidence,
+		}
+		if !selfProblems.Empty() {
+			convCtx.DebugSelfReport = selfProblems.Render()
+			m.consumeSelfProblems()
+		}
+
+		// Use full articulation output to capture MemoryOperations
+		// Now with conversation context for fluid follow-up handling
+		streamChan := make(chan string, 100)
+		thoughtsChan := make(chan string, 100)
+		resultChan := make(chan tea.Msg, 1)
+		errChan := make(chan error, 1)
+
+		// IMPORTANT: the streaming articulation runs in a goroutine that
+		// outlives this function. We CANNOT share the parent's `ctx`, because
+		// `defer cancel()` at the top of processInput fires the moment we
+		// return streamStartMsg below — instantly cancelling the LLM call
+		// the goroutine just started. That's the source of every
+		// "articulation failed: context canceled" the user has been hitting.
+		streamCtx, streamRelease := detachFromTurn(ctx, m.shutdownCtx)
+
+		go func() {
+			defer streamRelease()
+			artOutput, err := articulateWithConversation(streamCtx, m.client, intent, payloadForArticulation(intent, mangleUpdates), warnings, systemPrompt, convCtx, streamChan, thoughtsChan)
+			close(streamChan)
+			close(thoughtsChan)
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			response := artOutput.Surface
+
+			// Add any articulation warnings to the flow
+			if len(artOutput.Warnings) > 0 {
+				for _, w := range artOutput.Warnings {
+					warnings = append(warnings, fmt.Sprintf("[Articulation] %s", w))
+				}
+			}
+
+			// Add grounding sources as a "Sources:" section for transparency
+			if len(artOutput.GroundingSources) > 0 {
+				response += "\n\n**Sources:**\n"
+				for _, src := range artOutput.GroundingSources {
+					response += fmt.Sprintf("- %s\n", src)
+				}
+			}
+
+			// CONTEXT FEEDBACK STORAGE
+			if artOutput.ContextFeedback != nil && m.feedbackStore != nil {
+				manifestHash := ""
+				if m.jitCompiler != nil {
+					if jitResult := m.jitCompiler.GetLastResult(); jitResult != nil && jitResult.Manifest != nil {
+						manifestHash = jitResult.Manifest.ContextHash
+					}
+				}
+
+				if err := m.feedbackStore.StoreFeedback(
+					m.turnCount,
+					manifestHash,
+					artOutput.ContextFeedback.OverallUsefulness,
+					intent.Verb,
+					len(warnings) == 0,
+					artOutput.ContextFeedback.HelpfulFacts,
+					artOutput.ContextFeedback.NoiseFacts,
+				); err != nil {
+					logging.Get(logging.CategoryContext).Warn("Failed to store context feedback: %v", err)
+				}
+			}
+
+			// Apply articulation effects before knowledge consultation. The
+			// compressor records the sanitized metadata through its
+			// already-applied-controls path and does not repeat any effect.
+			applied := m.applyArticulationControlPacket(artOutput)
+			warnings = append(warnings, applied.Warnings...)
+			if !selfProblems.Empty() {
+				// One visible line via the system-warnings path. Appended
+				// here, not before articulation, so it is not also fed to
+				// the model as a generic warning; the watcher filters the
+				// WARN line this rendering logs (selfDebugMarker).
+				warnings = append(warnings, selfProblems.SummaryLine())
+			}
+			response += renderSystemWarnings(warnings)
+
+			// Semantic compression records every completed articulation turn.
+			// Only the sanitized controls are retained; the compressor skips
+			// their effects because the governed chat path applied them above.
+			if m.compressor != nil {
+				controlPacket := compressionControlPacket(intent, applied)
+				turn := ctxcompress.Turn{
+					Number:          m.turnCount,
+					Role:            "assistant",
+					UserInput:       input,
+					SurfaceResponse: response,
+					ControlPacket:   controlPacket,
+					ControlOutcomes: applied.NotApplied,
+					Timestamp:       time.Now(),
+				}
+				go m.compressor.ProcessTurnWithAppliedControls(dialogueCompressionContext(m.shutdownCtx), turn)
+			}
+
+			// Knowledge consultation runs only after control effects above have
+			// landed. Synthesis does not re-enter this turn pipeline.
+			if len(artOutput.KnowledgeRequests) > 0 && !m.awaitingKnowledge {
+				logging.Get(logging.CategoryContext).Info(
+					"LLM requested knowledge: %d specialists to consult",
+					len(artOutput.KnowledgeRequests),
+				)
+				resultChan <- m.handleKnowledgeRequests(streamCtx, artOutput.KnowledgeRequests, input, response, knowledgeParentOf(convCtx))
+				return
+			}
+
+			thoughtSummary := artOutput.Envelope.Control.DecisionSummary
+
+			var srPayload *ShardResultPayload
+			// If we had a recent payload we could attach it, but typically articulation doesn't return one directly here.
+
+			resultChan <- assistantMsg{
+				Surface:           m.appendSystemSummary(response, m.collectSystemSummary(streamCtx, resultBase)),
+				ShardResult:       srPayload,
+				DreamHypothetical: m.lastDreamHypothetical,
+				ThoughtSummary:    thoughtSummary,
+			}
+		}()
+
+		return streamStartMsg{
+			streamChan:   streamChan,
+			thoughtsChan: thoughtsChan,
+			resultChan:   resultChan,
+			errChan:      errChan,
+		}
+	}
+}
+
+// applyArticulationControlPacket is the only chat consumer for model-authored
+// control effects. Observations are policy-filtered before Assert; candidate
+// actions are temporary proposals checked by the constitution; memory
+// operations use the shared scoped implementation; self-correction has its
+// own structured field. The compressor records the turn separately and never
+// receives these effects.
+func (m Model) applyArticulationControlPacket(output *ArticulationOutput) appliedControls {
+	if output == nil {
+		return appliedControls{}
+	}
+
+	var warnings []string
+	var recordedUpdates []string
+	recordedSet := make(map[string]struct{}, len(output.MangleUpdates))
+	recordUpdate := func(fact core.Fact) {
+		serialized := fact.String()
+		if _, seen := recordedSet[serialized]; seen {
+			return
+		}
+		recordedSet[serialized] = struct{}{}
+		recordedUpdates = append(recordedUpdates, serialized)
+	}
+	var observationUpdates []string
+	var candidateUpdates []string
+	for _, update := range output.MangleUpdates {
+		fact, err := core.ParseSingleFact(update)
+		if err == nil && fact.Predicate == "candidate_action" {
+			candidateUpdates = append(candidateUpdates, update)
+			continue
+		}
+		observationUpdates = append(observationUpdates, update)
+	}
+
+	if len(observationUpdates) > 0 {
+		if m.kernel == nil {
+			for _, update := range observationUpdates {
+				warnings = append(warnings, fmt.Sprintf("[Kernel] Mangle update dropped: %q: no chat kernel is configured", update))
+			}
+		} else {
+			facts, blocked := core.FilterMangleUpdates(m.kernel, observationUpdates, core.ModelObservationPolicy())
+			for _, b := range blocked {
+				warnings = append(warnings, fmt.Sprintf("[Kernel] Mangle update dropped: %q: %s", b.Update, b.Reason))
+			}
+			for _, fact := range facts {
+				if err := m.kernel.Assert(fact); err != nil {
+					warnings = append(warnings, fmt.Sprintf("[Kernel] Mangle update rejected: %s: %v", fact.Predicate, err))
+				} else {
+					recordUpdate(fact)
+				}
+			}
+		}
+	}
+
+	if len(candidateUpdates) > 0 {
+		if m.kernel == nil {
+			for _, update := range candidateUpdates {
+				warnings = append(warnings, fmt.Sprintf("[Stratified Trust] candidate proposal dropped: %q: no chat kernel is configured", update))
+			}
+		} else {
+			candidatePolicy := core.MangleUpdatePolicy{
+				AllowedPredicates: map[string]struct{}{"candidate_action": {}},
+				MaxUpdates:        100,
+			}
+			proposals, blocked := core.FilterMangleUpdates(m.kernel, candidateUpdates, candidatePolicy)
+			for _, b := range blocked {
+				warnings = append(warnings, fmt.Sprintf("[Stratified Trust] candidate proposal dropped: %q: %s", b.Update, b.Reason))
+			}
+
+			existing, queryErr := m.kernel.Query("candidate_action")
+			if queryErr != nil {
+				warnings = append(warnings, fmt.Sprintf("[Stratified Trust] candidate proposals could not be checked: %v", queryErr))
+			} else {
+				existingByFact := make(map[string]struct{}, len(existing))
+				for _, fact := range existing {
+					existingByFact[fact.String()] = struct{}{}
+				}
+
+				var temporary []core.Fact
+				var proposalsToValidate []core.Fact
+				for _, proposal := range proposals {
+					proposalsToValidate = append(proposalsToValidate, proposal)
+					if _, found := existingByFact[proposal.String()]; found {
+						continue
+					}
+					if err := m.kernel.Assert(proposal); err != nil {
+						warnings = append(warnings, fmt.Sprintf("[Stratified Trust] candidate proposal rejected: %v", err))
+						proposalsToValidate = proposalsToValidate[:len(proposalsToValidate)-1]
+						continue
+					}
+					temporary = append(temporary, proposal)
+				}
+
+				if len(proposalsToValidate) > 0 {
+					validated, validationErr := m.kernel.Query("final_action")
+					denied, denialErr := m.kernel.Query("action_denied")
+					if validationErr != nil {
+						warnings = append(warnings, fmt.Sprintf("[Stratified Trust] candidate validation query failed: %v", validationErr))
+					}
+					if denialErr != nil {
+						warnings = append(warnings, fmt.Sprintf("[Stratified Trust] candidate denial query failed: %v", denialErr))
+					}
+					if validationErr == nil && denialErr == nil {
+						validatedCount, deniedCount, unvalidatedCount := 0, 0, 0
+						for _, proposal := range proposalsToValidate {
+							proposalKey := fmt.Sprint(proposal.Args[0])
+							isDenied := false
+							for _, fact := range denied {
+								if len(fact.Args) > 0 && fmt.Sprint(fact.Args[0]) == proposalKey {
+									isDenied = true
+									break
+								}
+							}
+							if isDenied {
+								deniedCount++
+								continue
+							}
+							isValidated := false
+							for _, fact := range validated {
+								if len(fact.Args) > 0 && fmt.Sprint(fact.Args[0]) == proposalKey {
+									isValidated = true
+									break
+								}
+							}
+							if isValidated {
+								validatedCount++
+								recordUpdate(proposal)
+							} else {
+								unvalidatedCount++
+							}
+						}
+						if validatedCount > 0 {
+							warnings = append(warnings, fmt.Sprintf("[Stratified Trust] %d learned actions validated", validatedCount))
+						}
+						if deniedCount > 0 {
+							warnings = append(warnings, fmt.Sprintf("[Stratified Trust] %d learned actions BLOCKED by Constitution", deniedCount))
+						}
+						if unvalidatedCount > 0 {
+							warnings = append(warnings, fmt.Sprintf("[Stratified Trust] %d candidate proposals were not validated", unvalidatedCount))
+						}
+					}
+				}
+
+				if len(temporary) > 0 {
+					for _, proposal := range temporary {
+						if err := m.kernel.RetractFact(proposal); err != nil {
+							warnings = append(warnings, fmt.Sprintf("[Stratified Trust] temporary candidate cleanup failed: %v", err))
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if output.SelfCorrection != nil && output.SelfCorrection.Triggered {
+		if m.kernel == nil {
+			warnings = append(warnings, "[Kernel] Self-correction hypothesis dropped: no chat kernel is configured")
+		} else {
+			// The declared self_correction(Hypothesis, At), the same fact the
+			// session executor asserts for the same envelope field. The chat
+			// path asserted an undeclared self_correction_hypothesis/1 that
+			// no rule could read and Query never returned.
+			hypothesis := core.Fact{
+				Predicate: "self_correction",
+				Args:      []any{output.SelfCorrection.Hypothesis, time.Now().Unix()},
+			}
+			if err := m.kernel.Assert(hypothesis); err != nil {
+				warnings = append(warnings, fmt.Sprintf("[Kernel] Self-correction hypothesis rejected: %v", err))
+			}
+		}
+	}
+
+	// Memory operations: each one's outcome decides what is told to the user
+	// and what history keeps. The packet's list is not a record of what was
+	// remembered.
+	memory := m.applyMemoryOperations(output.MemoryOperations)
+
+	return appliedControls{
+		Warnings:        append(warnings, memory.warnings...),
+		RecordedUpdates: recordedUpdates,
+		RecordedMemory:  memory.applied,
+		NotApplied:      append(append([]articulation.ControlDisposition(nil), output.Dispositions...), memory.notApplied...),
+	}
+}
+
+func formatUnverifiedDelegationResponse(intent perception.Intent, shardType, reason string, attempted bool) string {
+	status := "was not started"
+	title := "## Verification Required"
+	next := "Configure a task verifier and retry."
+	if attempted {
+		status = "could not be verified"
+		title = "## Verification Incomplete"
+		next = "Review the result and run the required checks before treating the task as complete."
+	}
+	return fmt.Sprintf("%s\n\nThe %s request for %s %s because %s. No completion is claimed. %s",
+		title, strings.TrimPrefix(intent.Verb, "/"), shardType, status, reason, next)
+}
+
+// dialogueCompressionContext is the context for background turn compression.
+// The session's shutdownCtx is cancelled on quit. A nil shutdown context
+// (a partially built model) has nothing to cancel against.
+func dialogueCompressionContext(shutdownCtx context.Context) context.Context {
+	if shutdownCtx == nil {
+		return context.Background()
+	}
+	return shutdownCtx
+}

@@ -1,0 +1,41 @@
+# Tester Shard Hallucination Prevention Atoms
+# These atoms prevent common failure modes specific to test generation
+
+- id: "hallucination/tester/global_pollution"
+  category: "hallucination"
+  subcategory: "prevention"
+  is_mandatory: true
+  shard_types: ["/tester"]
+  content: |
+    ## HALLUCINATION PREVENTION: GLOBAL POLLUTION
+
+    You will be tempted to modify global state without cleanup.
+
+    ### WRONG
+    ```go
+    func TestWithEnvVar(t *testing.T) {
+        os.Setenv("CONFIG_PATH", "/test")  // Modified global state!
+        result := LoadConfig()
+        // ENV var left polluted for other tests
+    }
+    ```
+
+    ### CORRECT
+    ```go
+    func TestWithEnvVar(t *testing.T) {
+        original := os.Getenv("CONFIG_PATH")
+        t.Cleanup(func() {
+            os.Setenv("CONFIG_PATH", original)
+        })
+
+        os.Setenv("CONFIG_PATH", "/test")
+        result := LoadConfig()
+    }
+    ```
+
+    ### MITIGATION
+    - Save state before, restore after (even on failure)
+    - Use t.Cleanup for automatic teardown
+    - Use defer for cleanup in helper functions
+    - Run tests with -shuffle=on to catch pollution
+

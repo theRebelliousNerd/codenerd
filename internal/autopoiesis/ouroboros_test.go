@@ -1,0 +1,825 @@
+// Package autopoiesis implements self-modification capabilities for codeNERD.
+// This file contains comprehensive tests for the Ouroboros Loop and Safety Checker.
+package autopoiesis
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+// =============================================================================
+// OUROBOROS LOOP TESTS
+// =============================================================================
+
+func TestNewOuroborosLoop(t *testing.T) {
+	client := &MockLLMClient{}
+	config := DefaultOuroborosConfig("/tmp/workspace")
+
+	loop := NewOuroborosLoop(client, config)
+
+	if loop == nil {
+		t.Fatal("NewOuroborosLoop returned nil")
+	}
+	if loop.toolGen == nil {
+		t.Error("toolGen not initialized")
+	}
+	if loop.safetyChecker == nil {
+		t.Error("safetyChecker not initialized")
+	}
+	if loop.compiler == nil {
+		t.Error("compiler not initialized")
+	}
+	if loop.registry == nil {
+		t.Error("registry not initialized")
+	}
+}
+
+func TestDefaultOuroborosConfig(t *testing.T) {
+	config := DefaultOuroborosConfig("/test/workspace")
+
+	if config.ToolsDir == "" {
+		t.Error("ToolsDir should not be empty")
+	}
+	if config.CompiledDir == "" {
+		t.Error("CompiledDir should not be empty")
+	}
+	if config.MaxToolSize == 0 {
+		t.Error("MaxToolSize should not be zero")
+	}
+	if config.CompileTimeout == 0 {
+		t.Error("CompileTimeout should not be zero")
+	}
+	if config.ExecuteTimeout == 0 {
+		t.Error("ExecuteTimeout should not be zero")
+	}
+	if config.AllowNetworking {
+		t.Error("AllowNetworking should be false by default")
+	}
+	if !config.AllowFileSystem {
+		t.Error("AllowFileSystem should be true by default")
+	}
+	// Was "AllowExec should be true by default". That default put os/exec on
+	// the safety allowlist for every generated tool in every workspace, and
+	// go_safety.mg has no call-level rule narrowing what such a tool may
+	// spawn — so the import allowlist was the only gate and it was open.
+	// Exec is now granted per workspace through Config.AllowToolExec.
+	if config.AllowExec {
+		t.Error("AllowExec should be false by default")
+	}
+}
+
+func TestLoopStage_String(t *testing.T) {
+	tests := []struct {
+		stage LoopStage
+		want  string
+	}{
+		{StageDetection, "detection"},
+		{StageSpecification, "specification"},
+		{StageSafetyCheck, "safety_check"},
+		{StageCompilation, "compilation"},
+		{StageRegistration, "registration"},
+		{StageExecution, "execution"},
+		{StageComplete, "complete"},
+		{LoopStage(99), "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			if got := tt.stage.String(); got != tt.want {
+				t.Errorf("LoopStage.String() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetStats(t *testing.T) {
+	client := &MockLLMClient{}
+	config := DefaultOuroborosConfig("/tmp/workspace")
+	loop := NewOuroborosLoop(client, config)
+
+	stats := loop.GetStats()
+
+	// Initial stats should be zero
+	if stats.ToolsGenerated != 0 {
+		t.Errorf("ToolsGenerated = %d, want 0", stats.ToolsGenerated)
+	}
+	if stats.ToolsCompiled != 0 {
+		t.Errorf("ToolsCompiled = %d, want 0", stats.ToolsCompiled)
+	}
+	if stats.SafetyViolations != 0 {
+		t.Errorf("SafetyViolations = %d, want 0", stats.SafetyViolations)
+	}
+}
+
+func TestOuroborosLoop_Execute_HappyPath(t *testing.T) {
+	// Setup
+	mockLLM := &MockLLMClient{
+		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
+			// Return valid Go code for a tool
+			return `package tools
+import "context"
+func SimpleTool(ctx context.Context, input string) (string, error) {
+	return "result", nil
+}
+`, nil
+		},
+	}
+
+	tmpDir := t.TempDir()
+	config := DefaultOuroborosConfig(tmpDir)
+	// Disable Thunderdome to simplify test
+	config.EnableThunderdome = false
+
+	loop := NewOuroborosLoop(mockLLM, config)
+
+	need := &ToolNeed{
+		Name:       "simple_tool",
+		Purpose:    "Do simple thing",
+		InputType:  "string",
+		OutputType: "string",
+		Confidence: 0.9,
+	}
+
+	// Execute
+	result := loop.Execute(context.Background(), need)
+
+	// Verify
+	if result == nil {
+		t.Fatal("Execute returned nil")
+	}
+
+	// It might fail compilation (no go.mod), but it should reach StageCompilation or StageRegistration
+	// If it fails at compilation, Success is false, but Stage is StageCompilation
+
+	t.Logf("Result: Success=%v, Stage=%s, Error=%v", result.Success, result.Stage, result.Error)
+
+	if result.Stage == StageDetection {
+		t.Error("Loop did not progress past detection")
+	}
+
+	// Check that code generation happened (MockLLM called)
+	// We can't check mockLLM call count easily without adding tracking to MockLLM,
+	// but result state implies it.
+}
+
+// =============================================================================
+// SAFETY CHECKER TESTS
+// =============================================================================
+
+func TestNewSafetyChecker(t *testing.T) {
+	config := DefaultOuroborosConfig("/tmp/workspace")
+	checker := NewSafetyChecker(config)
+
+	if checker == nil {
+		t.Fatal("NewSafetyChecker returned nil")
+	}
+	if len(checker.allowedPkgs) == 0 {
+		t.Error("allowedPkgs should not be empty")
+	}
+	if checker.policy == "" {
+		t.Error("policy should be loaded")
+	}
+}
+
+func TestSafetyChecker_Check_SafeCode(t *testing.T) {
+	config := DefaultOuroborosConfig("/tmp/workspace")
+	checker := NewSafetyChecker(config)
+
+	safeCode := `package tools
+
+import (
+	"context"
+	"fmt"
+)
+
+func SafeTool(ctx context.Context, input string) (string, error) {
+	if input == "" {
+		return "", fmt.Errorf("empty input")
+	}
+	return "processed: " + input, nil
+}
+`
+
+	report := checker.Check(safeCode)
+
+	if !report.Safe {
+		t.Errorf("Expected safe code, got violations: %v", report.Violations)
+	}
+	if report.Score != 1.0 {
+		t.Errorf("Expected perfect safety score, got %f", report.Score)
+	}
+}
+
+func TestSafetyChecker_Check_ForbiddenImports(t *testing.T) {
+	config := DefaultOuroborosConfig("/tmp/workspace")
+	checker := NewSafetyChecker(config)
+
+	tests := []struct {
+		name       string
+		importPkg  string
+		shouldFail bool
+	}{
+		{"unsafe", "unsafe", true},
+		{"syscall", "syscall", true},
+		{"runtime/cgo", "runtime/cgo", true},
+		{"plugin", "plugin", true},
+		{"debug/pprof", "debug/pprof", true},
+		{"net/http disallowed by default", "net/http", true},
+		{"fmt", "fmt", false},
+		{"encoding/json", "encoding/json", false},
+		// Was "os/exec allowed by config": DefaultOuroborosConfig used to set
+		// AllowExec: true, so every generated tool in every workspace could
+		// shell out. The import allowlist is the only gate in front of that
+		// (go_safety.mg has no call-level exec rule), so the default is now
+		// deny and exec is granted per workspace via Config.AllowToolExec.
+		// The grant path is covered by
+		// TestSafetyChecker_WhenExecExplicitlyGranted_ShouldAllowOsExec.
+		{"os/exec denied by default", "os/exec", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code := `package tools
+import "` + tt.importPkg + `"
+func Test() { _ = "` + tt.importPkg + `" }
+`
+			report := checker.Check(code)
+
+			if tt.shouldFail && report.Safe {
+				t.Errorf("Expected %s import to be blocked", tt.importPkg)
+			}
+			if !tt.shouldFail && !report.Safe {
+				t.Errorf("Expected %s import to be allowed, got violations: %v", tt.importPkg, report.Violations)
+			}
+		})
+	}
+}
+
+func TestSafetyChecker_Check_Panic(t *testing.T) {
+	config := DefaultOuroborosConfig("/tmp/workspace")
+	checker := NewSafetyChecker(config)
+
+	code := `package tools
+func Boom() { panic("boom") }`
+
+	report := checker.Check(code)
+	if report.Safe {
+		t.Fatal("panic should be blocked")
+	}
+	found := false
+	for _, v := range report.Violations {
+		if v.Type == ViolationPanic {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected ViolationPanic in violations: %+v", report.Violations)
+	}
+}
+
+func TestSafetyChecker_Check_GoroutineCancellation(t *testing.T) {
+	config := DefaultOuroborosConfig("/tmp/workspace")
+	checker := NewSafetyChecker(config)
+
+	t.Run("missing cancellation", func(t *testing.T) {
+		code := `package tools
+func Work() { go doThing() }
+func doThing() {}`
+		report := checker.Check(code)
+		if report.Safe {
+			t.Fatalf("expected goroutine without cancellation to be unsafe")
+		}
+	})
+
+	t.Run("with context", func(t *testing.T) {
+		code := `package tools
+import "context"
+func Work(ctx context.Context) { go doThing(ctx) }
+func doThing(ctx context.Context) {}`
+		report := checker.Check(code)
+		if !report.Safe {
+			t.Fatalf("expected goroutine with context to be safe, got %v", report.Violations)
+		}
+	})
+}
+
+func TestSafetyChecker_Check_ParseError(t *testing.T) {
+	config := DefaultOuroborosConfig("/tmp/workspace")
+	checker := NewSafetyChecker(config)
+
+	invalidCode := `package tools
+
+func broken( {
+	// Syntax error
+`
+
+	report := checker.Check(invalidCode)
+
+	if report.Safe {
+		t.Error("Expected unparseable code to be unsafe")
+	}
+	if report.Score != 0.0 {
+		t.Errorf("Expected score 0.0 for parse error, got %f", report.Score)
+	}
+}
+
+func TestSafetyChecker_ScoreBinary(t *testing.T) {
+	config := DefaultOuroborosConfig("/tmp/workspace")
+	checker := NewSafetyChecker(config)
+
+	safe := `package tools
+func ok() {}`
+	report := checker.Check(safe)
+	if report.Score != 1.0 {
+		t.Fatalf("expected safe score 1.0, got %f", report.Score)
+	}
+
+	unsafe := `package tools
+func bad() { panic("nope") }`
+	report = checker.Check(unsafe)
+	if report.Score != 0.0 {
+		t.Fatalf("expected unsafe score 0.0, got %f", report.Score)
+	}
+}
+
+func TestViolationType_String(t *testing.T) {
+	tests := []struct {
+		vtype ViolationType
+		want  string
+	}{
+		{ViolationForbiddenImport, "forbidden_import"},
+		{ViolationDangerousCall, "dangerous_call"},
+		{ViolationUnsafePointer, "unsafe_pointer"},
+		{ViolationReflection, "reflection"},
+		{ViolationCGO, "cgo"},
+		{ViolationExec, "exec"},
+		{ViolationPanic, "panic"},
+		{ViolationGoroutineLeak, "goroutine_leak"},
+		{ViolationParseError, "parse_error"},
+		{ViolationPolicy, "policy_violation"},
+		{ViolationType(99), "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			if got := tt.vtype.String(); got != tt.want {
+				t.Errorf("ViolationType.String() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// RUNTIME REGISTRY TESTS
+// =============================================================================
+
+func TestNewRuntimeRegistry(t *testing.T) {
+	registry := NewRuntimeRegistry()
+
+	if registry == nil {
+		t.Fatal("NewRuntimeRegistry returned nil")
+	}
+	if registry.tools == nil {
+		t.Error("tools map not initialized")
+	}
+}
+
+func TestRuntimeRegistry_Register(t *testing.T) {
+	workspace := t.TempDir()
+	registry := NewRuntimeRegistry(workspace)
+	binaryPath, hash := writeRegistryBinaryFixture(t, workspace, "test_tool")
+
+	tool := &GeneratedTool{
+		Name:        "test_tool",
+		Description: "A test tool",
+		Schema: ToolSchema{
+			Name:        "test_tool",
+			Description: "A test tool",
+		},
+	}
+
+	compiled := &CompileResult{
+		Success:    true,
+		OutputPath: binaryPath,
+		Hash:       hash,
+	}
+
+	handle, err := registry.Register(tool, compiled)
+	if err != nil {
+		t.Fatalf("Register error: %v", err)
+	}
+
+	if handle.Name != "test_tool" {
+		t.Errorf("Name = %q, want %q", handle.Name, "test_tool")
+	}
+	if handle.BinaryPath != binaryPath {
+		t.Errorf("BinaryPath = %q, want %q", handle.BinaryPath, binaryPath)
+	}
+	if handle.Hash != hash {
+		t.Errorf("Hash = %q, want %q", handle.Hash, hash)
+	}
+	if handle.Workspace != workspace {
+		t.Errorf("Workspace = %q, want %q", handle.Workspace, workspace)
+	}
+	if handle.RegisteredAt.IsZero() {
+		t.Error("RegisteredAt should be set")
+	}
+}
+
+func TestRuntimeRegistry_Get(t *testing.T) {
+	workspace := t.TempDir()
+	registry := NewRuntimeRegistry(workspace)
+
+	// Register a tool
+	tool := &GeneratedTool{Name: "existing_tool"}
+	binaryPath, hash := writeRegistryBinaryFixture(t, workspace, "existing_tool")
+	compiled := &CompileResult{Success: true, OutputPath: binaryPath, Hash: hash}
+	if _, err := registry.Register(tool, compiled); err != nil {
+		t.Fatal(err)
+	}
+
+	// Get existing tool
+	handle, exists := registry.Get("existing_tool")
+	if !exists {
+		t.Error("Expected tool to exist")
+	}
+	if handle == nil {
+		t.Error("Expected handle to be returned")
+	}
+
+	// Get non-existing tool
+	_, exists = registry.Get("nonexistent")
+	if exists {
+		t.Error("Expected tool to not exist")
+	}
+}
+
+func TestRuntimeRegistry_List(t *testing.T) {
+	workspace := t.TempDir()
+	registry := NewRuntimeRegistry(workspace)
+
+	// Register multiple tools
+	for i := range 3 {
+		name := "tool_" + string(rune('a'+i))
+		tool := &GeneratedTool{Name: name}
+		binaryPath, hash := writeRegistryBinaryFixture(t, workspace, name)
+		compiled := &CompileResult{Success: true, OutputPath: binaryPath, Hash: hash}
+		if _, err := registry.Register(tool, compiled); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tools := registry.List()
+	if len(tools) != 3 {
+		t.Errorf("Expected 3 tools, got %d", len(tools))
+	}
+}
+
+func writeRegistryBinaryFixture(t *testing.T, workspace, name string) (string, string) {
+	t.Helper()
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiledDir := filepath.Join(workspace, "compiled")
+	if err := os.MkdirAll(compiledDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(compiledDir, name)
+	if runtime.GOOS == "windows" {
+		path += ".exe"
+	}
+	if err := os.WriteFile(path, data, 0700); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(data)
+	return path, hex.EncodeToString(digest[:])
+}
+
+// =============================================================================
+// TOOL COMPILER TESTS
+// =============================================================================
+
+func TestNewToolCompiler(t *testing.T) {
+	config := DefaultOuroborosConfig("/tmp/workspace")
+	compiler := NewToolCompiler(config)
+
+	if compiler == nil {
+		t.Fatal("NewToolCompiler returned nil")
+	}
+}
+
+// =============================================================================
+// MANGLE FACT GENERATORS TESTS
+// =============================================================================
+
+// =============================================================================
+// BOUNDARY VALUE ANALYSIS TESTS
+// =============================================================================
+
+func compileRuntimeTool(t *testing.T, source, name string) string {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	mainPath := filepath.Join(tmpDir, "main.go")
+	if err := os.WriteFile(mainPath, []byte(source), 0644); err != nil {
+		t.Fatalf("failed to write tool source: %v", err)
+	}
+	mod := fmt.Sprintf("module %s\n\ngo 1.26.0\n", strings.ReplaceAll(name, "-", "_"))
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(mod), 0644); err != nil {
+		t.Fatalf("failed to write go.mod: %v", err)
+	}
+
+	out := filepath.Join(tmpDir, name)
+	if runtime.GOOS == "windows" {
+		out += ".exe"
+	}
+	cmd := exec.Command("go", "build", "-o", out, ".")
+	cmd.Dir = tmpDir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("tool build failed: %v\n%s", err, output)
+	}
+	return out
+}
+
+func registerRuntimeToolForLoop(t *testing.T, loop *OuroborosLoop, name, binaryPath string) {
+	t.Helper()
+	content, err := os.ReadFile(binaryPath)
+	if err != nil {
+		t.Fatalf("failed to read runtime test binary: %v", err)
+	}
+	digest := sha256.Sum256(content)
+	_, err = loop.registry.Register(
+		&GeneratedTool{
+			Name:        name,
+			Description: "runtime test tool",
+			Schema:      ToolSchema{Name: name},
+		},
+		&CompileResult{
+			Success:    true,
+			OutputPath: binaryPath,
+			Hash:       hex.EncodeToString(digest[:]),
+		},
+	)
+	if err != nil {
+		t.Fatalf("failed to register runtime tool: %v", err)
+	}
+}
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify ExecuteWithConfig handles MaxIters=0 or negative correctly without infinite looping or false success.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify ExecuteWithConfig rejects or sanitizes need.Name if it consists entirely of zero-width characters (e.g., \u200B).
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify ExecuteWithConfig properly aborts if the context is already canceled before execution begins.
+// TODO: TEST_GAP: [Type Coercion] Verify SafetyChecker handles invalid UTF-8 byte sequences gracefully without crashing parser.ParseFile.
+// TODO: TEST_GAP: [Type Coercion] Verify state updates handle tool names with hyphens/spaces gracefully without Mangle Atom syntax errors.
+// TODO: TEST_GAP: [User Request Extremes] Verify ExecuteWithConfig handles a 50MB need.Purpose string without causing OOM or massive I/O blocks.
+// TODO: TEST_GAP: [User Request Extremes] Verify SafetyChecker completes within a strict timeout when fed a 5MB Go source string AST, avoiding CPU exhaustion.
+// TODO: TEST_GAP: [User Request Extremes] Verify ExecuteTool uses an io.LimitReader to cap output if a generated tool streams infinite garbage bytes to stdout.
+// TODO: TEST_GAP: [State Conflicts] Verify ExecuteWithConfig correctly handles 50 concurrent goroutines attempting to generate the exact same tool.
+// TODO: TEST_GAP: [State Conflicts] Verify ExecuteTool safely completes execution even if a concurrent ExecuteWithConfig hot-reloads the tool binary mid-execution.
+
+func TestOuroborosLoop_Execute_NilNeed(t *testing.T) {
+	loop := NewOuroborosLoop(&MockLLMClient{}, DefaultOuroborosConfig(t.TempDir()))
+	result := loop.Execute(context.Background(), nil)
+	if result == nil {
+		t.Fatal("Execute returned nil result for nil need")
+	}
+	if result.Success {
+		t.Fatal("expected nil need execution to fail")
+	}
+	if !strings.Contains(result.Error, "nil") {
+		t.Fatalf("expected nil-need error, got: %q", result.Error)
+	}
+}
+
+func TestOuroborosLoop_Execute_EmptyNeed(t *testing.T) {
+	loop := NewOuroborosLoop(&MockLLMClient{}, DefaultOuroborosConfig(t.TempDir()))
+	result := loop.Execute(context.Background(), &ToolNeed{})
+	if result == nil {
+		t.Fatal("Execute returned nil result for empty need")
+	}
+	if result.Success {
+		t.Fatal("expected empty need execution to fail")
+	}
+	if !strings.Contains(strings.ToLower(result.Error), "name") {
+		t.Fatalf("expected name validation error, got: %q", result.Error)
+	}
+}
+
+func TestOuroborosLoop_ExecuteTool_Concurrent(t *testing.T) {
+	source := `package main
+import (
+	"encoding/json"
+	"os"
+)
+type In struct { Input string ` + "`json:\"input\"`" + ` }
+type Out struct { Output string ` + "`json:\"output\"`" + `; Error string ` + "`json:\"error,omitempty\"`" + ` }
+func main() {
+	var in In
+	_ = json.NewDecoder(os.Stdin).Decode(&in)
+	_ = json.NewEncoder(os.Stdout).Encode(Out{Output: in.Input})
+}`
+
+	cfg := DefaultOuroborosConfig(t.TempDir())
+	// This checks concurrent result isolation, not scheduler latency under a full-suite build.
+	// Deadline enforcement is independently pinned by InfiniteLoopTimeout.
+	cfg.ExecuteTimeout = 15 * time.Second
+	loop := NewOuroborosLoop(&MockLLMClient{}, cfg)
+
+	bin := compileRuntimeTool(t, source, "concurrent_echo_tool")
+	registerRuntimeToolForLoop(t, loop, "concurrent_echo_tool", bin)
+
+	const workers = 20
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+
+	for i := range workers {
+		wg.Go(func() {
+			want := fmt.Sprintf("msg-%d", i)
+			got, err := loop.ExecuteTool(context.Background(), "concurrent_echo_tool", want)
+			if err != nil {
+				errs <- err
+				return
+			}
+			if got != want {
+				errs <- fmt.Errorf("mismatch: got=%q want=%q", got, want)
+			}
+		})
+	}
+
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent execute failed: %v", err)
+	}
+}
+
+func TestOuroborosLoop_ExecuteTool_GarbageOutput(t *testing.T) {
+	source := `package main
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+)
+type Out struct { Output string ` + "`json:\"output\"`" + `; Error string ` + "`json:\"error,omitempty\"`" + ` }
+func main() {
+	fmt.Println("debug: entering tool")
+	_ = json.NewEncoder(os.Stdout).Encode(Out{Output: "ok"})
+}`
+
+	loop := NewOuroborosLoop(&MockLLMClient{}, DefaultOuroborosConfig(t.TempDir()))
+	bin := compileRuntimeTool(t, source, "garbage_output_tool")
+	registerRuntimeToolForLoop(t, loop, "garbage_output_tool", bin)
+
+	_, err := loop.ExecuteTool(context.Background(), "garbage_output_tool", "x")
+	if err == nil {
+		t.Fatal("expected parse error for non-JSON-prefixed output")
+	}
+	var syntaxErr *json.SyntaxError
+	if !strings.Contains(err.Error(), "invalid generated output envelope") || !errors.As(err, &syntaxErr) {
+		t.Fatalf("expected typed invalid-envelope syntax error, got: %v", err)
+	}
+}
+
+func TestOuroborosLoop_ExecuteTool_InfiniteLoopTimeout(t *testing.T) {
+	source := `package main
+func main() {
+	for {
+	}
+}`
+	cfg := DefaultOuroborosConfig(t.TempDir())
+	cfg.ExecuteTimeout = 250 * time.Millisecond
+	loop := NewOuroborosLoop(&MockLLMClient{}, cfg)
+
+	bin := compileRuntimeTool(t, source, "infinite_loop_tool")
+	registerRuntimeToolForLoop(t, loop, "infinite_loop_tool", bin)
+
+	_, err := loop.ExecuteTool(context.Background(), "infinite_loop_tool", "x")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected identifiable deadline for infinite loop, got %v", err)
+	}
+}
+
+func TestOuroborosLoop_HotReload_LockedBinary(t *testing.T) {
+	source := `package main
+import (
+	"encoding/json"
+	"os"
+	"time"
+)
+type Out struct { Output string ` + "`json:\"output\"`" + `; Error string ` + "`json:\"error,omitempty\"`" + ` }
+func main() {
+	time.Sleep(300 * time.Millisecond)
+	_ = json.NewEncoder(os.Stdout).Encode(Out{Output: "ok"})
+}`
+
+	cfg := DefaultOuroborosConfig(t.TempDir())
+	cfg.ExecuteTimeout = 2 * time.Second
+	loop := NewOuroborosLoop(&MockLLMClient{}, cfg)
+
+	bin := compileRuntimeTool(t, source, "hotreload_tool")
+	registerRuntimeToolForLoop(t, loop, "hotreload_tool", bin)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := loop.ExecuteTool(context.Background(), "hotreload_tool", "x")
+		done <- err
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("hotReload panicked while tool running: %v", r)
+			}
+		}()
+		loop.hotReload("hotreload_tool")
+		loop.hotReload("hotreload_tool")
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("execution failed unexpectedly: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for hotreload test execution")
+	}
+}
+
+func TestOuroborosLoop_Mangle_TypeMismatch(t *testing.T) {
+	loop := NewOuroborosLoop(&MockLLMClient{}, DefaultOuroborosConfig(t.TempDir()))
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("type mismatch handling panicked: %v", r)
+		}
+	}()
+
+	err := loop.engine.AddFact("state", "/step_bad", "not-a-float", "not-an-int")
+	if err == nil {
+		// If engine accepts it, it still must remain query-safe.
+		_, _ = loop.engine.Query(context.Background(), "should_halt(/step_bad)")
+	} else {
+		t.Logf("engine rejected mismatched types as expected: %v", err)
+	}
+}
+
+func TestOuroborosLoop_FileSystem_Sandbox(t *testing.T) {
+	cfg := DefaultOuroborosConfig(t.TempDir())
+	cfg.AllowFileSystem = false
+	checker := NewSafetyChecker(cfg)
+
+	code := `package tools
+import (
+	"context"
+	"os"
+)
+func Bad(ctx context.Context, input string) (string, error) {
+	_ = os.RemoveAll("danger")
+	return "nope", nil
+}`
+
+	report := checker.Check(code)
+	if report.Safe {
+		t.Fatalf("expected strict sandbox safety check to fail, got safe report")
+	}
+}
+
+func TestRuntimeTool_Execute_PathTraversal(t *testing.T) {
+	// Attempt to use a relative path that searches PATH or tries traversal
+	rt := &RuntimeTool{
+		Name:       "bad_tool",
+		BinaryPath: "bash",
+	}
+
+	_, err := rt.Execute(context.Background(), "test")
+	if err == nil {
+		t.Fatal("Expected error when using relative binary path, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "absolute for security") {
+		t.Errorf("Expected absolute path security error, got: %v", err)
+	}
+
+	// Attempt path traversal with absolute path but it should be clean?
+	// Note: filepath.Clean and filepath.IsAbs will allow absolute paths with .. if they resolve to an absolute path,
+	// but since our fix guarantees it evaluates as absolute and we check os.Stat, it limits arbitrary execution from PATH or CWD.
+	// We're specifically testing the relative path fix here.
+}

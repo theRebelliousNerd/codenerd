@@ -1,0 +1,38 @@
+{
+"status": 200,
+"request": {
+ "model": "jev-latest",
+ "state": {
+  "context": "Source code that a code review cites, each excerpt with the review finding that cites it and the line it cites."
+ },
+ "questions": {
+  "finding_0": {
+   "type": "noul",
+   "instructions": {
+    "cited_line": 6,
+    "code": "1: package x\n2: \n3: import \"os\"\n4: \n5: func Size(path string) (int64, error) {\n6: \tf, err := os.Open(path)\n7: \tif err != nil {\n8: \t\treturn 0, err\n9: \t}\n10: \tdefer f.Close()\n11: \tinfo, err := f.Stat()\n12: \tif err != nil {\n13: \t\treturn 0, err\n14: \t}\n15: \treturn info.Size(), nil\n16: }\n17: \n",
+    "file": "read.go",
+    "finding": "The file opened here is never closed.",
+    "question": "Does `code` contain the problem that `finding` describes?"
+   },
+   "criteria": {
+    "true": "The statement at or next to `cited_line` has the problem the finding describes.",
+    "false": "The statement at `cited_line` does something else, or already guards against what the finding says is missing."
+   }
+  }
+ }
+},
+"reply": {
+ "model": "jev-1.14.0",
+ "answers": {
+  "finding_0": {
+   "type": "noul",
+   "noul": 0.05
+  }
+ },
+ "usage": {
+  "input_tokens": 537,
+  "output_tokens": 22
+ }
+}
+}

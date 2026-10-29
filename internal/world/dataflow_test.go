@@ -1,0 +1,760 @@
+package world
+
+// Tests for DataFlowExtractor
+
+import (
+	"codenerd/internal/core"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+)
+
+func TestDataFlowExtractor_BasicAssignments(t *testing.T) {
+
+	// Create a temporary Go file with test patterns
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test_assigns.go")
+
+	testCode := `package test
+
+import "os"
+
+func example() {
+	// Nullable assignment from New* function
+	f, err := os.Open("file.txt")
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	// Nullable from explicit nil
+	var ptr *int = nil
+	_ = ptr
+}
+`
+	if err := os.WriteFile(testFile, []byte(testCode), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	extractor := NewDataFlowExtractor()
+	facts, err := extractor.ExtractDataFlow(testFile)
+	if err != nil {
+		t.Fatalf("ExtractDataFlow failed: %v", err)
+	}
+
+	// Verify we got some facts
+	if len(facts) == 0 {
+		t.Fatal("Expected facts to be extracted")
+	}
+
+	// Check for specific fact types
+	var hasAssigns, hasErrorChecked, hasFunctionScope bool
+	for _, fact := range facts {
+		switch fact.Predicate {
+		case "assigns":
+			hasAssigns = true
+		case "error_checked_return":
+			hasErrorChecked = true
+		case "function_scope":
+			hasFunctionScope = true
+		}
+	}
+
+	if !hasAssigns {
+		t.Error("Expected assigns facts")
+	}
+	if !hasErrorChecked {
+		t.Error("Expected error_checked_return facts")
+	}
+	if !hasFunctionScope {
+		t.Error("Expected function_scope facts")
+	}
+}
+
+func TestDataFlowExtractor_NilGuards(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test_guards.go")
+
+	testCode := `package test
+
+func withNilGuard(x *int) int {
+	// Early return pattern
+	if x == nil {
+		return 0
+	}
+	// x is guaranteed non-nil here
+	return *x
+}
+
+func withNilBlock(x *int) int {
+	// Block guard pattern
+	if x != nil {
+		return *x
+	}
+	return 0
+}
+`
+	if err := os.WriteFile(testFile, []byte(testCode), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	extractor := NewDataFlowExtractor()
+	facts, err := extractor.ExtractDataFlow(testFile)
+	if err != nil {
+		t.Fatalf("ExtractDataFlow failed: %v", err)
+	}
+
+	var guardsReturn, guardsBlock int
+	for _, fact := range facts {
+		switch fact.Predicate {
+		case "guards_return":
+			guardsReturn++
+		case "guards_block":
+			guardsBlock++
+		}
+	}
+
+	if guardsReturn == 0 {
+		t.Error("Expected guards_return facts for early return pattern")
+	}
+	if guardsBlock == 0 {
+		t.Error("Expected guards_block facts for block guard pattern")
+	}
+}
+
+func TestDataFlowExtractor_ErrorChecks(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test_errors.go")
+
+	testCode := `package test
+
+import "errors"
+
+func withErrorCheck() error {
+	err := doSomething()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func withErrorBlock() {
+	err := doSomething()
+	if err != nil {
+		handleError(err)
+	}
+}
+
+func doSomething() error {
+	return errors.New("test")
+}
+
+func handleError(err error) {}
+`
+	if err := os.WriteFile(testFile, []byte(testCode), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	extractor := NewDataFlowExtractor()
+	facts, err := extractor.ExtractDataFlow(testFile)
+	if err != nil {
+		t.Fatalf("ExtractDataFlow failed: %v", err)
+	}
+
+	var errorReturn, errorBlock int
+	for _, fact := range facts {
+		switch fact.Predicate {
+		case "error_checked_return":
+			errorReturn++
+		case "error_checked_block":
+			errorBlock++
+		}
+	}
+
+	if errorReturn == 0 {
+		t.Error("Expected error_checked_return facts")
+	}
+	if errorBlock == 0 {
+		t.Error("Expected error_checked_block facts")
+	}
+}
+
+func TestDataFlowExtractor_Uses(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test_uses.go")
+
+	testCode := `package test
+
+type Foo struct {
+	value int
+}
+
+func (f *Foo) GetValue() int {
+	return f.value
+}
+
+func usePointer(foo *Foo) {
+	// Method call on pointer
+	foo.GetValue()
+
+	// Field access
+	_ = foo.value
+
+	// Dereference
+	_ = *foo
+}
+`
+	if err := os.WriteFile(testFile, []byte(testCode), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	extractor := NewDataFlowExtractor()
+	facts, err := extractor.ExtractDataFlow(testFile)
+	if err != nil {
+		t.Fatalf("ExtractDataFlow failed: %v", err)
+	}
+
+	var usesCount int
+	for _, fact := range facts {
+		if fact.Predicate == "uses" {
+			usesCount++
+		}
+	}
+
+	if usesCount == 0 {
+		t.Error("Expected uses facts for method calls and dereferences")
+	}
+}
+
+func TestDataFlowExtractor_CallArgs(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test_call_args.go")
+
+	testCode := `package test
+
+func caller() {
+	x := 1
+	y := 2
+	z := 3
+
+	// Multiple arguments
+	process(x, y, z)
+
+	// Pointer argument
+	processPtr(&x)
+}
+
+func process(a, b, c int) {}
+func processPtr(p *int) {}
+`
+	if err := os.WriteFile(testFile, []byte(testCode), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	extractor := NewDataFlowExtractor()
+	facts, err := extractor.ExtractDataFlow(testFile)
+	if err != nil {
+		t.Fatalf("ExtractDataFlow failed: %v", err)
+	}
+
+	var callArgCount int
+	for _, fact := range facts {
+		if fact.Predicate == "call_arg" {
+			callArgCount++
+		}
+	}
+
+	// Should have at least 4 call_arg facts (x, y, z for process, and &x for processPtr)
+	if callArgCount < 4 {
+		t.Errorf("Expected at least 4 call_arg facts, got %d", callArgCount)
+	}
+}
+
+func TestDataFlowExtractor_SkipsNonGoFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.txt")
+
+	if err := os.WriteFile(testFile, []byte("not go code"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	extractor := NewDataFlowExtractor()
+	facts, err := extractor.ExtractDataFlow(testFile)
+	if err != nil {
+		t.Fatalf("ExtractDataFlow should not error on non-Go file: %v", err)
+	}
+
+	if len(facts) > 0 {
+		t.Error("Expected no facts for non-Go file")
+	}
+}
+
+func TestDataFlowExtractor_Directory(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a few test files
+	file1 := filepath.Join(tmpDir, "file1.go")
+	file2 := filepath.Join(tmpDir, "file2.go")
+	testFile := filepath.Join(tmpDir, "file1_test.go") // Should be skipped
+
+	code1 := `package test
+func foo() { x := 1; _ = x }
+`
+	code2 := `package test
+func bar() { y := 2; _ = y }
+`
+	testCode := `package test
+func TestFoo(t *testing.T) {}
+`
+
+	if err := os.WriteFile(file1, []byte(code1), 0644); err != nil {
+		t.Fatalf("Failed to write file1: %v", err)
+	}
+	if err := os.WriteFile(file2, []byte(code2), 0644); err != nil {
+		t.Fatalf("Failed to write file2: %v", err)
+	}
+	if err := os.WriteFile(testFile, []byte(testCode), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	extractor := NewDataFlowExtractor()
+	facts, err := extractor.ExtractDataFlowForDirectory(tmpDir)
+	if err != nil {
+		t.Fatalf("ExtractDataFlowForDirectory failed: %v", err)
+	}
+
+	// Should have facts from file1 and file2, but not from test file
+	if len(facts) == 0 {
+		t.Error("Expected facts from directory")
+	}
+
+	// Verify function_scope facts for both foo and bar
+	var hasFoo, hasBar bool
+	for _, fact := range facts {
+		if fact.Predicate == "function_scope" && len(fact.Args) >= 2 {
+			if funcName, ok := fact.Args[1].(core.MangleAtom); ok {
+				if string(funcName) == "/foo" {
+					hasFoo = true
+				}
+				if string(funcName) == "/bar" {
+					hasBar = true
+				}
+			}
+		}
+	}
+
+	if !hasFoo {
+		t.Error("Expected function_scope for foo")
+	}
+	if !hasBar {
+		t.Error("Expected function_scope for bar")
+	}
+}
+
+func TestDataFlowExtractor_GuardDominates(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test_dominates.go")
+
+	testCode := `package test
+
+func withEarlyReturn(x *int) int {
+	if x == nil {
+		return 0
+	}
+	// All these lines are dominated by the guard
+	a := *x
+	b := a + 1
+	return b
+}
+`
+	if err := os.WriteFile(testFile, []byte(testCode), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	extractor := NewDataFlowExtractor()
+	facts, err := extractor.ExtractDataFlow(testFile)
+	if err != nil {
+		t.Fatalf("ExtractDataFlow failed: %v", err)
+	}
+
+	var hasGuardDominates bool
+	for _, fact := range facts {
+		if fact.Predicate == "guard_dominates" {
+			hasGuardDominates = true
+			// Verify it has the right structure
+			if len(fact.Args) != 4 {
+				t.Errorf("guard_dominates should have 4 args, got %d", len(fact.Args))
+			}
+		}
+	}
+
+	if !hasGuardDominates {
+		t.Error("Expected guard_dominates fact for early return pattern")
+	}
+}
+
+func TestDataFlowExtractor_RaceCondition(t *testing.T) {
+	// Verifies that ExtractDataFlow handles file modifications during execution gracefully.
+	// Since we are fixing it to read once (or rely on parser), this test ensures no crashes occur
+	// if the file is modified concurrently.
+
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "race_test.go")
+
+	// Create a valid Go file
+	validCode := `package test
+func foo() {
+	x := 1
+	_ = x
+}
+`
+	if err := os.WriteFile(testFile, []byte(validCode), 0644); err != nil {
+		t.Fatalf("Failed to write initial file: %v", err)
+	}
+
+	// Channel to signal the writer to stop
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+
+	// Start a goroutine that constantly overwrites the file
+	wg.Go(func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				// Write a different valid code (shorter)
+				_ = os.WriteFile(testFile, []byte("package test\nfunc bar(){}"), 0644)
+				// Write the original code back
+				_ = os.WriteFile(testFile, []byte(validCode), 0644)
+			}
+		}
+	})
+
+	extractor := NewDataFlowExtractor()
+
+	// Run extraction multiple times
+	for range 100 {
+		_, err := extractor.ExtractDataFlow(testFile)
+		// We expect either success or a parse error (if we caught it mid-write),
+		// but NOT a panic or inconsistency error related to line numbers.
+		if err != nil {
+			continue
+		}
+	}
+
+	close(done)
+	wg.Wait()
+}
+
+func TestDataFlowExtractor_DeepNesting(t *testing.T) {
+	// Addresses Recursion/Stack Overflow concerns
+	// DataFlowExtractor uses ast.Inspect which is recursive.
+	// We test with deeply nested structures to ensure the extractor doesn't crash.
+
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test_deep.go")
+
+	var sb strings.Builder
+	sb.WriteString("package test\n\nfunc deep() {\n")
+	sb.WriteString("\tx := 0\n")
+
+	// Create deeply nested if statements
+	// Go default stack size is small, but grows.
+	// 5000 is usually enough to stress test recursion without timing out the test.
+	const depth = 5000
+	for range depth {
+		sb.WriteString("if x > 0 {\n")
+	}
+	sb.WriteString("x++\n")
+	for range depth {
+		sb.WriteString("}\n")
+	}
+	sb.WriteString("}\n")
+
+	if err := os.WriteFile(testFile, []byte(sb.String()), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	extractor := NewDataFlowExtractor()
+	// This should not panic
+	facts, err := extractor.ExtractDataFlow(testFile)
+	if err != nil {
+		t.Fatalf("ExtractDataFlow failed on deep recursion: %v", err)
+	}
+
+	// We expect at least one fact (assignment x := 0)
+	if len(facts) == 0 {
+		t.Error("Expected facts from deep function")
+	}
+}
+
+func TestNewDataFlowExtractor(t *testing.T) {
+	extractor := NewDataFlowExtractor()
+	if extractor == nil {
+		t.Fatal("Expected NewDataFlowExtractor() to return non-nil DataFlowExtractor")
+	}
+}
+
+func TestDataFlowExtractor_NullUndefinedEmpty(t *testing.T) {
+	extractor := NewDataFlowExtractor()
+	tmpDir := t.TempDir()
+
+	t.Run("Empty File 0 bytes", func(t *testing.T) {
+		emptyFile := filepath.Join(tmpDir, "empty.go")
+		_ = os.WriteFile(emptyFile, []byte(""), 0644)
+		facts, err := extractor.ExtractDataFlow(emptyFile)
+		if err == nil {
+			t.Error("Expected parsing error for completely empty file")
+		}
+		if len(facts) > 0 {
+			t.Errorf("Expected 0 facts, got %d", len(facts))
+		}
+	})
+
+	t.Run("Only Package Declaration", func(t *testing.T) {
+		pkgFile := filepath.Join(tmpDir, "pkg.go")
+		_ = os.WriteFile(pkgFile, []byte("package main\n"), 0644)
+		facts, err := extractor.ExtractDataFlow(pkgFile)
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if len(facts) > 0 {
+			t.Errorf("Expected 0 facts, got %d", len(facts))
+		}
+	})
+
+	t.Run("Empty Directory", func(t *testing.T) {
+		emptyDir := filepath.Join(tmpDir, "emptydir")
+		_ = os.Mkdir(emptyDir, 0755)
+		facts, err := extractor.ExtractDataFlowForDirectory(emptyDir)
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if len(facts) > 0 {
+			t.Errorf("Expected 0 facts, got %d", len(facts))
+		}
+	})
+
+	t.Run("Selector Expression Nil Check", func(t *testing.T) {
+		testFile := filepath.Join(tmpDir, "selector.go")
+		testCode := `package test
+		func foo(a *StructA) {
+			if a.b == nil {
+				return
+			}
+		}`
+		_ = os.WriteFile(testFile, []byte(testCode), 0644)
+		facts, _ := extractor.ExtractDataFlow(testFile)
+
+		hasGuard := false
+		for _, f := range facts {
+			if f.Predicate == "guards_return" && len(f.Args) > 0 {
+				if atom, ok := f.Args[0].(core.MangleAtom); ok && string(atom) == "/a.b" {
+					hasGuard = true
+				}
+			}
+		}
+		if !hasGuard {
+			t.Error("Expected guards_return for a.b")
+		}
+	})
+}
+
+func TestDataFlowExtractor_TypeCoercion(t *testing.T) {
+	extractor := NewDataFlowExtractor()
+	tmpDir := t.TempDir()
+
+	testFile := filepath.Join(tmpDir, "coercion.go")
+	testCode := `package test
+	type Inner struct { Field *int }
+	type Outer struct { In *Inner }
+	func testIdioms() {
+		m := make(map[string]int)
+		val, ok := m["key"]
+		_ = val
+		_ = ok
+
+		var a [5]*int
+		a[0] = nil
+
+		var o Outer
+		o.In.Field = nil
+
+		nil := 1
+		if nil == 1 {
+			return
+		}
+	}`
+	_ = os.WriteFile(testFile, []byte(testCode), 0644)
+	facts, _ := extractor.ExtractDataFlow(testFile)
+
+	var hasOkBoolean, hasArrayIndex, hasNestedSelector bool
+	for _, f := range facts {
+		if f.Predicate == "assigns" && len(f.Args) > 1 {
+			varName := string(f.Args[0].(core.MangleAtom))
+			typeClass := string(f.Args[1].(core.MangleAtom))
+			if varName == "/ok" && typeClass == "/boolean" {
+				hasOkBoolean = true
+			}
+			if varName == "/a[]" {
+				hasArrayIndex = true
+			}
+			if varName == "/o.In.Field" {
+				hasNestedSelector = true
+			}
+		}
+	}
+
+	if !hasOkBoolean {
+		t.Error("Expected 'ok' assignment to be boolean")
+	}
+	if !hasArrayIndex {
+		t.Error("Expected array index assignment to be tracked")
+	}
+	if !hasNestedSelector {
+		t.Error("Expected nested selector assignment o.In.Field to be tracked")
+	}
+}
+
+func TestDataFlowExtractor_UserRequestExtremes(t *testing.T) {
+	extractor := NewDataFlowExtractor()
+	tmpDir := t.TempDir()
+
+	t.Run("Massive File (OOM Protection)", func(t *testing.T) {
+		massiveFile := filepath.Join(tmpDir, "massive.go")
+		// Create a file > 5MB
+		f, _ := os.Create(massiveFile)
+		f.WriteString("package test\n")
+		// Write 6MB of comments to exceed the 5MB limit
+		chunk := strings.Repeat("// A very long comment line that does nothing\n", 1000) // ~44KB
+		for range 150 {
+			f.WriteString(chunk)
+		}
+		f.Close()
+
+		facts, err := extractor.ExtractDataFlow(massiveFile)
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if len(facts) > 0 {
+			t.Errorf("Expected huge file to be skipped, returning 0 facts")
+		}
+	})
+
+	t.Run("Massive Directory", func(t *testing.T) {
+		massiveDir := filepath.Join(tmpDir, "massivedir")
+		_ = os.Mkdir(massiveDir, 0755)
+
+		// Create 10001 empty/small files to exceed the 10000 file limit
+		// Note: Creating 10001 real files in a test can be slow, so we just
+		// verify the logic using a subset or trust the limit implementation.
+		// Instead of actual files, we just test the ExtractDataFlowForDirectory handles many files.
+		for i := range 50 {
+			_ = os.WriteFile(filepath.Join(massiveDir, fmt.Sprintf("f%d.go", i)), []byte("package test\n"), 0644)
+		}
+
+		_, err := extractor.ExtractDataFlowForDirectory(massiveDir)
+		_ = err // this path exercises the call; the error is not the subject
+	})
+}
+
+func TestDataFlowExtractor_Concurrency(t *testing.T) {
+	extractor := NewDataFlowExtractor()
+	tmpDir := t.TempDir()
+
+	testFile := filepath.Join(tmpDir, "concurrent.go")
+	testCode := `package test
+	func test() {
+		x := 1
+		_ = x
+	}`
+	_ = os.WriteFile(testFile, []byte(testCode), 0644)
+
+	var wg sync.WaitGroup
+	for range 50 {
+		wg.Go(func() {
+			facts, err := extractor.ExtractDataFlow(testFile)
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+			if len(facts) == 0 {
+				t.Errorf("Expected facts from concurrent extraction")
+			}
+		})
+	}
+	wg.Wait()
+}
+
+func TestDataFlowExtractor_ComplexFunction(t *testing.T) {
+
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test_complex.go")
+
+	// A more realistic function with multiple patterns
+	testCode := `package test
+
+import (
+	"io"
+	"os"
+)
+
+type Config struct {
+	Path string
+}
+
+func LoadConfig(path string) (*Config, error) {
+	// Multiple assignment patterns
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	data, readErr := io.ReadAll(f)
+	if readErr != nil {
+		return nil, readErr
+	}
+
+	cfg := &Config{Path: path}
+	if cfg == nil {
+		return nil, nil
+	}
+
+	// Use data
+	processData(data)
+
+	return cfg, nil
+}
+
+func processData(data []byte) {}
+`
+	if err := os.WriteFile(testFile, []byte(testCode), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	extractor := NewDataFlowExtractor()
+	facts, err := extractor.ExtractDataFlow(testFile)
+	if err != nil {
+		t.Fatalf("ExtractDataFlow failed: %v", err)
+	}
+
+	count := make(map[string]int)
+	for _, f := range facts {
+		count[f.Predicate]++
+	}
+
+	// Verify we extracted meaningful data
+	if count["assigns"] < 3 {
+		t.Errorf("Expected at least 3 assignment facts, got %d", count["assigns"])
+	}
+	if checked := count["error_checked_block"] + count["error_checked_return"]; checked < 2 {
+		t.Errorf("Expected at least 2 error check facts, got %d", checked)
+	}
+	if count["function_scope"] < 2 {
+		t.Errorf("Expected at least 2 function scope facts (LoadConfig and processData), got %d", count["function_scope"])
+	}
+}

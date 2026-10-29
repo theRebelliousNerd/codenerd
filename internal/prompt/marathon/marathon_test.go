@@ -1,0 +1,495 @@
+package marathon
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"codenerd/internal/atomjudge"
+	"codenerd/internal/prompt"
+	"codenerd/internal/types"
+	"codenerd/internal/typesafe"
+)
+
+// ---------------------------------------------------------------------------
+// Fakes
+// ---------------------------------------------------------------------------
+
+type fakeClient struct {
+	provider string
+	model    string
+
+	supports bool
+
+	searchResult *types.GroundedWebSearchResult
+	searchErr    error
+
+	completion  string
+	completeErr error
+}
+
+func (c *fakeClient) Complete(ctx context.Context, p string) (string, error) { return "", nil }
+func (c *fakeClient) CompleteWithSystem(ctx context.Context, sys, user string) (string, error) {
+	return c.completion, c.completeErr
+}
+func (c *fakeClient) CompleteWithStreaming(ctx context.Context, sys, user string, thinking bool) (<-chan string, <-chan types.StreamResult) {
+	return types.FailedStream(errors.New("fakeClient does not stream"))
+}
+func (c *fakeClient) CompleteWithTools(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	return nil, nil
+}
+
+// identifyingClient is the fake plus ModelIdentity, so a bare fakeClient still
+// exercises the "client cannot report its model" path.
+type identifyingClient struct{ *fakeClient }
+
+func (c identifyingClient) ModelIdentity() (string, string) { return c.provider, c.model }
+
+type groundingClient struct{ identifyingClient }
+
+func (c groundingClient) SupportsGroundedWebSearch() bool { return c.supports }
+func (c groundingClient) GroundedWebSearch(ctx context.Context, q string) (*types.GroundedWebSearchResult, error) {
+	return c.searchResult, c.searchErr
+}
+
+func groundedResult(text string, urls ...string) *types.GroundedWebSearchResult {
+	r := &types.GroundedWebSearchResult{Text: text}
+	for _, u := range urls {
+		r.Citations = append(r.Citations, types.GroundedCitation{URL: u, Title: "doc"})
+	}
+	return r
+}
+
+// ---------------------------------------------------------------------------
+// Hard-fail gates
+// ---------------------------------------------------------------------------
+
+func TestServingIdentityIsRequired(t *testing.T) {
+	// A client that cannot say which model it serves.
+	_, _, err := ServingIdentity(&fakeClient{})
+	if !errors.Is(err, ErrNoModelIdentity) {
+		t.Errorf("expected ErrNoModelIdentity, got %v", err)
+	}
+
+	// One that can, but reports nothing.
+	blank := identifyingClient{&fakeClient{}}
+	if _, _, err := ServingIdentity(blank); !errors.Is(err, ErrNoModelIdentity) {
+		t.Errorf("expected ErrNoModelIdentity for a blank identity, got %v", err)
+	}
+
+	ok := identifyingClient{&fakeClient{provider: "anthropic", model: "claude-opus-4"}}
+	provider, model, err := ServingIdentity(ok)
+	if err != nil || provider != "anthropic" || model != "claude-opus-4" {
+		t.Errorf("ServingIdentity = (%q, %q, %v)", provider, model, err)
+	}
+}
+
+func TestResearcherRequiresGroundedSearch(t *testing.T) {
+	// Does not implement the interface at all.
+	if _, err := NewResearcher(&fakeClient{}); !errors.Is(err, ErrNoGroundedSearch) {
+		t.Errorf("expected ErrNoGroundedSearch, got %v", err)
+	}
+
+	// Implements it but reports grounding unavailable. This is the case that
+	// would otherwise produce an empty profile much later.
+	unavailable := groundingClient{identifyingClient{&fakeClient{supports: false}}}
+	if _, err := NewResearcher(unavailable); !errors.Is(err, ErrNoGroundedSearch) {
+		t.Errorf("expected ErrNoGroundedSearch for unavailable grounding, got %v", err)
+	}
+}
+
+// The load-bearing gate: grounded search answers from the model's own priors
+// when retrieval finds nothing, so prose without citations must NOT count as
+// documentation.
+func TestResearchFailsOnProseWithoutCitations(t *testing.T) {
+	client := groundingClient{identifyingClient{&fakeClient{
+		supports:     true,
+		searchResult: groundedResult("Here is some confident advice about prompting."),
+	}}}
+
+	r, err := NewResearcher(client)
+	if err != nil {
+		t.Fatalf("NewResearcher: %v", err)
+	}
+
+	_, err = r.Research(context.Background(), "anthropic", "claude-opus-4")
+	if !errors.Is(err, ErrNoModelDocs) {
+		t.Errorf("uncited prose was accepted as documentation; got %v", err)
+	}
+}
+
+func TestResearchFailsWhenSearchErrors(t *testing.T) {
+	client := groundingClient{identifyingClient{&fakeClient{
+		supports:  true,
+		searchErr: errors.New("upstream unavailable"),
+	}}}
+
+	r, _ := NewResearcher(client)
+	if _, err := r.Research(context.Background(), "anthropic", "claude-opus-4"); !errors.Is(err, ErrNoModelDocs) {
+		t.Errorf("expected ErrNoModelDocs when every query failed, got %v", err)
+	}
+}
+
+func TestResearchSucceedsWithCitations(t *testing.T) {
+	client := groundingClient{identifyingClient{&fakeClient{
+		supports:     true,
+		searchResult: groundedResult("Use XML tags for structure.", "https://docs.example/claude"),
+	}}}
+
+	r, _ := NewResearcher(client)
+	profile, err := r.Research(context.Background(), "anthropic", "anthropic/claude-opus-4-20260501")
+	if err != nil {
+		t.Fatalf("Research: %v", err)
+	}
+	if !profile.HasDocs() {
+		t.Error("profile reports no docs despite citations")
+	}
+	if profile.ProviderPin != "anthropic" {
+		t.Errorf("ProviderPin = %q, want anthropic", profile.ProviderPin)
+	}
+	// Family granularity, so the overlay survives the vendor's next snapshot.
+	if profile.ModelPin != "claude_opus_4" {
+		t.Errorf("ModelPin = %q, want claude_opus_4 (family, not the dated snapshot)", profile.ModelPin)
+	}
+}
+
+func TestOptimizerRefusesUnsourcedProfile(t *testing.T) {
+	_, err := NewOptimizer(&fakeClient{}, &ModelDocProfile{Guidance: "words, no sources"})
+	if !errors.Is(err, ErrNoModelDocs) {
+		t.Errorf("optimizer accepted an unsourced profile; got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Variant construction
+// ---------------------------------------------------------------------------
+
+func testProfile() *ModelDocProfile {
+	return &ModelDocProfile{
+		Provider:    "anthropic",
+		Model:       "claude-opus-4-20260501",
+		ProviderPin: "anthropic",
+		ModelPin:    "claude_opus_4",
+		Guidance:    "Prefer XML tags.",
+		Citations:   []Citation{{URL: "https://docs.example/claude"}},
+	}
+}
+
+func baseAtom() *prompt.PromptAtom {
+	a := &prompt.PromptAtom{
+		ID:          "methodology/tdd",
+		Category:    prompt.CategoryMethodology,
+		Content:     "Write the failing test first.",
+		ShardTypes:  []string{"coder"},
+		Importance:  70,
+		IsMandatory: true,
+	}
+	a.ContentHash = prompt.HashContent(a.Content)
+	return a
+}
+
+func TestVariantIsPinnedAndSupersedesBase(t *testing.T) {
+	o, err := NewOptimizer(&fakeClient{}, testProfile())
+	if err != nil {
+		t.Fatalf("NewOptimizer: %v", err)
+	}
+
+	base := baseAtom()
+	variant := o.buildVariant(base, "<task>Write the failing test first.</task>")
+
+	if variant.ID != "methodology/tdd@claude_opus_4" {
+		t.Errorf("variant ID = %q", variant.ID)
+	}
+	if len(variant.Providers) != 1 || variant.Providers[0] != "anthropic" {
+		t.Errorf("Providers = %v, want [anthropic]", variant.Providers)
+	}
+	if len(variant.Models) != 1 || variant.Models[0] != "claude_opus_4" {
+		t.Errorf("Models = %v, want [claude_opus_4]", variant.Models)
+	}
+
+	// Supersession, one direction. A mutual pair cancels both atoms in the
+	// kernel and deletes the guidance outright.
+	if len(variant.ConflictsWith) != 1 || variant.ConflictsWith[0] != base.ID {
+		t.Errorf("ConflictsWith = %v, want [%s]", variant.ConflictsWith, base.ID)
+	}
+
+	// The variant must be selected wherever the base would have been, or it is
+	// not a replacement.
+	if variant.Category != base.Category {
+		t.Errorf("category drifted: %q vs %q", variant.Category, base.Category)
+	}
+	if variant.IsMandatory != base.IsMandatory {
+		t.Error("mandatory flag drifted; the variant would not stand in for the base")
+	}
+	if strings.Join(variant.ShardTypes, ",") != strings.Join(base.ShardTypes, ",") {
+		t.Errorf("shard selectors drifted: %v vs %v", variant.ShardTypes, base.ShardTypes)
+	}
+
+	// The base must be untouched by variant construction.
+	if len(base.Providers) != 0 || len(base.Models) != 0 || len(base.ConflictsWith) != 0 {
+		t.Error("buildVariant mutated the shipped atom")
+	}
+	if base.Content != "Write the failing test first." {
+		t.Error("buildVariant rewrote the shipped atom's content")
+	}
+
+	// Stale concise/min bodies describe the old text and must not survive.
+	if variant.ContentConcise != "" || variant.ContentMin != "" {
+		t.Error("variant kept the base's concise/min bodies, which describe different text")
+	}
+	if variant.ContentHash == base.ContentHash {
+		t.Error("variant kept the base content hash")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Optimizer response handling
+// ---------------------------------------------------------------------------
+
+func TestOptimizeReturnsNilWhenUnchanged(t *testing.T) {
+	client := &fakeClient{completion: "changed: false\nrationale: \"documentation says nothing relevant\"\n"}
+	o, _ := NewOptimizer(client, testProfile())
+
+	got, err := o.Optimize(context.Background(), baseAtom())
+	if err != nil {
+		t.Fatalf("Optimize: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected no variant for an unchanged atom, got %+v", got.Atom.ID)
+	}
+}
+
+// "changed: true" with no content is a malformed answer, not an instruction to
+// emit an empty atom.
+func TestOptimizeIgnoresChangedWithEmptyContent(t *testing.T) {
+	client := &fakeClient{completion: "changed: true\nrationale: \"x\"\ncontent: \"\"\n"}
+	o, _ := NewOptimizer(client, testProfile())
+
+	got, err := o.Optimize(context.Background(), baseAtom())
+	if err != nil {
+		t.Fatalf("Optimize: %v", err)
+	}
+	if got != nil {
+		t.Error("an empty rewrite was emitted as a variant")
+	}
+}
+
+func TestOptimizeParsesFencedYAML(t *testing.T) {
+	client := &fakeClient{completion: "```yaml\nchanged: true\nrationale: \"tags\"\ncontent: |\n  <task>go</task>\n```"}
+	o, _ := NewOptimizer(client, testProfile())
+
+	got, err := o.Optimize(context.Background(), baseAtom())
+	if err != nil {
+		t.Fatalf("Optimize: %v", err)
+	}
+	if got == nil {
+		t.Fatal("fenced YAML was not parsed")
+	}
+	if !strings.Contains(got.Atom.Content, "<task>go</task>") {
+		t.Errorf("content = %q", got.Atom.Content)
+	}
+	if got.BaseID != "methodology/tdd" {
+		t.Errorf("BaseID = %q", got.BaseID)
+	}
+	if len(got.Citations) == 0 {
+		t.Error("variant carries no citations; provenance is lost")
+	}
+}
+
+func TestOptimizeSurfacesClientErrors(t *testing.T) {
+	client := &fakeClient{completeErr: errors.New("rate limited")}
+	o, _ := NewOptimizer(client, testProfile())
+
+	if _, err := o.Optimize(context.Background(), baseAtom()); err == nil {
+		t.Error("client error was swallowed; the atom would be checkpointed as decided")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Base selection
+// ---------------------------------------------------------------------------
+
+// Already-pinned atoms must be skipped: optimizing one produces a variant of a
+// variant, pinned to the same model, superseding an atom that already
+// supersedes the original.
+func TestSelectBasesSkipsPinnedAtoms(t *testing.T) {
+	all := []*prompt.PromptAtom{
+		{ID: "a", Content: "x", Category: prompt.CategoryMethodology},
+		{ID: "b", Content: "x", Category: prompt.CategoryMethodology, Models: []string{"claude_opus_4"}},
+		{ID: "c", Content: "x", Category: prompt.CategoryMethodology, Providers: []string{"anthropic"}},
+		{ID: "d", Content: "   ", Category: prompt.CategoryMethodology},
+	}
+
+	got := selectBases(all, nil)
+	if len(got) != 1 || got[0].ID != "a" {
+		ids := make([]string, 0, len(got))
+		for _, a := range got {
+			ids = append(ids, a.ID)
+		}
+		t.Errorf("selectBases = %v, want [a]", ids)
+	}
+}
+
+func TestSelectBasesFiltersByCategoryAndSortsStably(t *testing.T) {
+	all := []*prompt.PromptAtom{
+		{ID: "z", Content: "x", Category: prompt.CategoryMethodology},
+		{ID: "a", Content: "x", Category: prompt.CategoryMethodology},
+		{ID: "m", Content: "x", Category: prompt.CategorySafety},
+	}
+
+	got := selectBases(all, []prompt.AtomCategory{prompt.CategoryMethodology})
+	if len(got) != 2 || got[0].ID != "a" || got[1].ID != "z" {
+		t.Errorf("expected [a z] from the methodology category, got %d atoms", len(got))
+	}
+}
+
+func TestOverlayAtomID(t *testing.T) {
+	if got := OverlayAtomID("methodology/tdd", "claude_opus_4"); got != "methodology/tdd@claude_opus_4" {
+		t.Errorf("OverlayAtomID = %q", got)
+	}
+	// Without a model pin there is nothing to distinguish the variant by, so it
+	// must not silently collide with the base ID under a different name.
+	if got := OverlayAtomID("methodology/tdd", ""); got != "methodology/tdd" {
+		t.Errorf("OverlayAtomID with no pin = %q", got)
+	}
+}
+
+// End to end through a fake client: research gates on citations, the optimizer
+// rewrites, and the emitted variants land in the workspace overlay CARRYING
+// their pins. The pins are the whole point of the overlay -- a variant without
+// a model/provider tag is served to every model, silently replacing the
+// shipped atom it was meant to stand in for on one model only.
+func TestRun_EmitsPinnedVariantsToOverlay(t *testing.T) {
+	workspace := t.TempDir()
+	fc := &fakeClient{
+		provider: "anthropic", model: "claude-opus-4-20260501", supports: true,
+		searchResult: groundedResult("Use clear instructions.", "https://docs.example.com/prompting"),
+		completion:   "changed: true\nrationale: \"tightened per docs\"\ncontent: |\n  REWRITTEN ATOM BODY\n",
+	}
+	client := groundingClient{identifyingClient{fc}}
+	var ticks []Progress
+	res, err := Run(context.Background(), Config{
+		Workspace: workspace, Client: client, MaxAtoms: 2, Resume: false,
+		Admission: atomjudge.Admission{MaxChars: 1500},
+		Progress:  func(p Progress) { ticks = append(ticks, p) },
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.AtomsOptimized != 2 || res.AtomsFailed != 0 {
+		t.Fatalf("optimized=%d failed=%d errors=%v, want 2/0", res.AtomsOptimized, res.AtomsFailed, res.Errors)
+	}
+	if len(ticks) != 2 {
+		t.Fatalf("progress ticks = %d, want 2", len(ticks))
+	}
+	for _, tick := range ticks {
+		if !tick.Optimized || tick.Err != nil {
+			t.Errorf("tick %+v must report success", tick)
+		}
+	}
+
+	db, err := sql.Open("sqlite3", filepath.Join(workspace, ".nerd", "prompts", "corpus.db"))
+	if err != nil {
+		t.Fatalf("open overlay: %v", err)
+	}
+	defer db.Close()
+	var variants int
+	if err := db.QueryRow("SELECT COUNT(*) FROM prompt_atoms WHERE atom_id LIKE '%@%'").Scan(&variants); err != nil {
+		t.Fatalf("count variants: %v", err)
+	}
+	if variants != 2 {
+		t.Fatalf("overlay variants = %d, want 2", variants)
+	}
+	rows, err := db.Query("SELECT DISTINCT dimension FROM atom_context_tags WHERE atom_id LIKE '%@%'")
+	if err != nil {
+		t.Fatalf("variant dims: %v", err)
+	}
+	defer rows.Close()
+	dims := map[string]bool{}
+	for rows.Next() {
+		var dim string
+		if err := rows.Scan(&dim); err != nil {
+			t.Fatalf("scan dim: %v", err)
+		}
+		dims[dim] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows: %v", err)
+	}
+	for _, dim := range []string{"model", "provider"} {
+		if !dims[dim] {
+			t.Errorf("overlay variants carry no %q tag (dims %v); variants would serve every model", dim, dims)
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(workspace, ".nerd", "prompts", "marathon_checkpoint.json")); err != nil {
+		t.Fatalf("checkpoint missing: %v", err)
+	}
+
+	// A resumed run skips the decided atoms and continues with the next ones.
+	res2, err := Run(context.Background(), Config{Workspace: workspace, Client: client, MaxAtoms: 2, Resume: true, Admission: atomjudge.Admission{MaxChars: 1500}})
+	if err != nil {
+		t.Fatalf("resume Run: %v", err)
+	}
+	if res2.AtomsResumed != 2 || res2.AtomsOptimized != 2 {
+		t.Errorf("resume: resumed=%d optimized=%d, want 2/2", res2.AtomsResumed, res2.AtomsOptimized)
+	}
+}
+
+// knownAsker reads every variant as known by default: all of it is ordinary
+// practice (the known Score's top level).
+type knownAsker struct{}
+
+func (knownAsker) Ask(_ context.Context, _ any, questions map[string]typesafe.Question) (*typesafe.Response, error) {
+	answers := map[string]json.RawMessage{}
+	for name := range questions {
+		score := 0.2
+		if name == atomjudge.QuestionKnown {
+			score = 3.9
+		}
+		answers[name] = json.RawMessage(fmt.Sprintf(`{"type":"score","score":%g,"confidence":0.9,"legend":{"0":"a"},"probabilities":{"0":1}}`, score))
+	}
+	raw, _ := json.Marshal(map[string]any{"model": "jev-test", "answers": answers, "usage": map[string]int{"input_tokens": 1, "output_tokens": 0}})
+	var r typesafe.Response
+	return &r, json.Unmarshal(raw, &r)
+}
+
+// A variant the admission check refuses is not stored, is counted and named,
+// and is decided: a resumed run does not pay to regenerate it.
+func TestRun_RefusedVariantIsNotStored(t *testing.T) {
+	workspace := t.TempDir()
+	fc := &fakeClient{
+		provider: "anthropic", model: "claude-opus-4-20260501", supports: true,
+		searchResult: groundedResult("Use clear instructions.", "https://docs.example.com/prompting"),
+		completion:   "changed: true\nrationale: \"tightened per docs\"\ncontent: |\n  Write clear names.\n",
+	}
+	client := groundingClient{identifyingClient{fc}}
+	adm := atomjudge.Admission{Asker: knownAsker{}, MaxChars: 1500, Yes: 0.7}
+	res, err := Run(context.Background(), Config{Workspace: workspace, Client: client, MaxAtoms: 1, Admission: adm})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.AtomsRefused != 1 || res.AtomsOptimized != 0 || len(res.Refusals) != 1 || !strings.Contains(res.Refusals[0], atomjudge.KnownByDefault) {
+		t.Fatalf("refused=%d optimized=%d refusals=%v", res.AtomsRefused, res.AtomsOptimized, res.Refusals)
+	}
+	res2, err := Run(context.Background(), Config{Workspace: workspace, Client: client, MaxAtoms: 1, Resume: true, Admission: adm})
+	if err != nil {
+		t.Fatalf("resume Run: %v", err)
+	}
+	if res2.AtomsResumed != 1 {
+		t.Fatalf("resume: resumed=%d, want the refused atom decided", res2.AtomsResumed)
+	}
+}
+
+func TestRun_RequiresAnAdmissionBound(t *testing.T) {
+	client := groundingClient{identifyingClient{&fakeClient{provider: "anthropic", model: "claude-opus-4-20260501", supports: true}}}
+	if _, err := Run(context.Background(), Config{Workspace: t.TempDir(), Client: client}); err == nil || !strings.Contains(err.Error(), "atom_max_chars") {
+		t.Fatalf("Run without a bound: %v", err)
+	}
+}

@@ -1,0 +1,361 @@
+name: CI
+
+# Runs on Windows because that is the platform this repo is developed and
+# tested on, and several tests are genuinely platform-specific: atomic replace
+# goes through ReplaceFileW, path containment has Windows-only cases, and the
+# monotonic clock granularity here is ~0.5ms. A Linux-only pipeline would pass
+# while leaving exactly the class of defect this repo keeps finding.
+
+on:
+  # Not on every push: main is pushed many times a day, and a full run per
+  # push burned runner minutes on commits nobody read the result of. CI runs
+  # on pull requests, on demand (`gh workflow run CI`), and once a night when
+  # main has new commits since the last nightly.
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 7 * * *"
+
+# A superseded PR run has been made irrelevant by a newer commit on the same
+# branch, so it is cancelled. Nightly and manual runs on main are not.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # internal/store/vec_support_enabled.go is behind `sqlite_vec && cgo`.
+  # Without the tag the binary silently falls back from ANN to lexical search,
+  # so every job here builds with it. The headers are vendored in-repo.
+  CGO_CFLAGS: -I${{ github.workspace }}/sqlite_headers
+
+jobs:
+  changes:
+    # The nightly run is skipped when main has no commit in the last 24h.
+    name: changed since last nightly
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+      - id: check
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ] || [ -n "$(git log --since='24 hours ago' --format=%H -1)" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-test:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    name: build + test
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build
+        run: go build -tags sqlite_vec ./...
+      - name: Vet
+        run: go vet -tags sqlite_vec ./...
+      - name: Reject empty and log-only tests
+        run: go run ./cmd/tools/audit_test_bodies .
+      # Two compiled executables were tracked at the repository root -- a 9 MB
+      # `main` and a 24 MB `predicate_corpus_builder` -- landed by a commit
+      # whose message is about versioning a documentation file. Together they
+      # were roughly half the weight of .git, in every clone, stale from the
+      # moment their source changed.
+      #
+      # `go build ./cmd/tools/foo` writes its output to the working directory,
+      # so running it once at the root leaves an executable there and the next
+      # `git add -A` sweeps it up. Review cannot see it: a binary diff is one
+      # line saying the binary changed, sitting under the files the reviewer
+      # came for.
+      - name: No compiled binaries in git
+        run: go run ./cmd/tools/audit_committed_binaries
+      # A budget on JSON calls whose error is discarded, in the same spirit as
+      # the dead-code job below: the baseline is a measurement, not a target of
+      # zero, and it fails when the number moves either way.
+      #
+      # One sweep found this defect four times in four unrelated packages, and
+      # not one had a symptom near its cause. json.Marshal returns nil on
+      # failure and string(nil) is "", which downstream meant a row SQLite
+      # rejects with the bare message "malformed JSON", an embedding column
+      # that leaves its row selected by every recall query and then unparseable
+      # so the row is unsearchable while the write reports success, a DELETE
+      # reading `fact_args = ''` that matches nothing and tells its caller a
+      # fact was retracted, and ast.String(""), a valid Mangle constant
+      # asserted into the kernel in place of the argument that failed to
+      # encode. The last is the reason this is gated rather than noted: the
+      # kernel then derives, soundly, from a value that is not the value.
+      - name: Discarded JSON errors budget
+        run: go run ./cmd/tools/audit_json_errors
+      # The struct-field half of the dead-code budget. An unreachable FUNCTION
+      # at least shows up as unreachable; a field nobody writes is perfectly
+      # reachable and just always empty, which is why every instance of this
+      # found so far was found by hand.
+      #
+      # One branch produced five: TestState and FailingTests (the pair that
+      # drives /tdd_repair), TDDRetryCount (which prints "fix the root cause,
+      # not symptoms"), HasNewFiles (gating a MANDATORY atom), and ShardSource
+      # (which names the reviewer that produced a finding). Every one had
+      # readers in the prompt assembler, the most-exercised code in the tree,
+      # and every one had tests -- of the reader. That is the trap: the reader
+      # is what gets tested, so the feature looks covered while the field reads
+      # as its zero value forever, which is not an error, does not log, and is
+      # indistinguishable from a legitimate "nothing to report".
+      - name: Dark-field budget
+        run: go run ./cmd/tools/audit_dark_fields
+      # A test that calls t.Parallel() and then reads runtime.NumGoroutine, or
+      # writes os.Setenv, is measuring or mutating its neighbours rather than
+      # its subject. This job went red on exactly that:
+      #
+      #   --- FAIL: TestUpdate_NoGoroutineLeakOnQuit
+      #       Possible goroutine leak: before=68 after=88
+      #
+      # with no leak to find -- the subject creates no goroutines at all, and
+      # cmd/nerd/chat has 176 parallel tests. Three properties make it worse
+      # than an ordinary flake: it passes locally and on most runs, the message
+      # names the innocent test, and both halves review clean because only the
+      # PAIR is wrong and no diff shows a pair.
+      #
+      # Go already panics on t.Setenv in a parallel test, so the language
+      # authors consider this worth runtime enforcement; that guard sees one
+      # function. This is the rest. The baseline is empty and meant to stay
+      # empty, because the fix -- drop t.Parallel() -- is always available and
+      # costs a second of wall clock.
+      - name: Parallel tests and process-global state
+        run: go run ./cmd/tools/audit_parallel_globals
+      # cmd/tools/action_linter cross-checks the three places an action name
+      # has to agree: the Mangle policy that emits it, the router that routes
+      # it, and the VirtualStore that executes it. It has existed unrun, which
+      # is the repo's own signature defect turned on its tooling -- a drift
+      # linter that never runs is drift.
+      #
+      # It was unrunnable rather than merely unrun. Its single error was
+      # /research_cache_clear, "registered but the constitution can never
+      # permit it", which is an accurate description of a decision that was
+      # made ON PURPOSE and recorded in three separate places. A gate that
+      # fails on day one for a non-bug does not get switched on, and then the
+      # real drift it was written to catch goes unseen too. The deliberate
+      # denials now live in tools.PolicyDeniedByDesign, which the linter and
+      # the catalog parity test both read.
+      #
+      # It still reports two warnings and exits 0 on them, deliberately: one
+      # says /delete_file is gated behind a permission nothing asserts, the
+      # other that policy never emits /research. Both are capability
+      # questions for a person, not drift a gate should decide.
+      # A loop that ranges key and value and records the KEY as a running best
+      # inside an inequality. Over a map that is a coin flip — Go randomises
+      # iteration deliberately, so a tie is settled by whichever key the
+      # runtime reached first, and the program answers differently on
+      # different runs with nothing to explain it.
+      #
+      # Five were live here, none cosmetic: which file the fixer is sent to,
+      # the workspace's primary language in two separate scans (which decides
+      # the build and test commands the agent reaches for), the most common
+      # decision per topic recorded as a LEARNED preference, and a task's
+      # problem category which drives prompt evolution. All five now sort
+      # first. The baseline is empty and the gate holds it there.
+      #
+      # It works on syntax with no type information, so it cannot tell a map
+      # from a slice; a legitimate slice case is recorded in the baseline with
+      # its reason. That limit is in the tool's doc rather than left to be
+      # discovered.
+      - name: Tie-break determinism
+        run: go run ./cmd/tools/audit_tiebreak
+      - name: Action drift linter
+        run: go run ./cmd/tools/action_linter -mg-root internal/core/defaults -virtual-store internal/core/virtual_store_types.go
+      # predicate_corpus.db is generated from the .mg corpus and embedded into
+      # the binary, where it tells a model which predicates exist and what shape
+      # they are. It had drifted seven weeks: eight browser predicates recorded
+      # one argument short, and 150 declarations missing. Feeding a model an
+      # arity the schema does not have invites a duplicate Decl, which takes the
+      # kernel down at boot. Rows carry a build timestamp, so `git diff` cannot
+      # gate it — the check compares name/arity/type instead.
+      - name: Predicate corpus is current
+        run: go run ./cmd/tools/predicate_corpus_builder -check
+      - name: Test through Windows path aliases
+        run: ./scripts/test_windows_path_identity.ps1 -Full
+
+  formatting:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    name: gofmt
+    # Linux, not the Windows runner the rest of this file uses.
+    #
+    # .gitattributes records that this repo is developed with core.autocrlf=true
+    # and pins eol=lf only for golden files and the dead-code baseline, so .go
+    # files are checked out CRLF on Windows. gofmt normalises to LF, which makes
+    # every one of the 2049 files "not gofmt-clean" — the gate reported the whole
+    # tree as drifted while `gofmt -l` on Linux reported nothing.
+    #
+    # Pinning *.go to eol=lf would fix it and would also change what every
+    # Windows contributor gets on checkout, which is not this gate's call to
+    # make. Formatting has no platform-specific content, so it is checked where
+    # gofmt's own newline convention holds.
+    #
+    # 53 files had drifted out of gofmt by 2026-09. Drift is cheap to fix and
+    # expensive to leave: it grows silently, and once nobody runs gofmt on the
+    # whole tree, every real diff carries formatting noise. Fixed in one
+    # mechanical commit and gated here so it cannot come back.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Formatting
+        shell: bash
+        run: |
+          # testdata is excluded the way the Go toolchain excludes it: those
+          # files exist to be malformed. gofmt exits non-zero on a file it
+          # cannot parse, so without this the gate fails on a fixture rather
+          # than on formatting.
+          #
+          # The list goes through xargs, not "${files[@]}". Expanding ~2000
+          # paths into one argv exceeded the command-line limit on the Windows
+          # runner this step used to live on, and the step died with "Argument
+          # list too long" before gofmt ran a single file — a gate that never
+          # executed while looking like it had.
+          list="$(mktemp)"
+          trap 'rm -f "$list"' EXIT
+          find internal cmd -name '*.go' -not -path '*/testdata/*' -print0 > "$list"
+          count="$(tr -cd '\0' < "$list" | wc -c | tr -d ' ')"
+          if [[ "$count" -eq 0 ]]; then
+            echo "Found no Go files to check — the find expression is wrong."
+            exit 1
+          fi
+          unformatted="$(xargs -0 gofmt -l < "$list")"
+          if [[ -n "$unformatted" ]]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            echo
+            echo "Fix with: gofmt -w internal cmd"
+            exit 1
+          fi
+          echo "gofmt clean ($count files)."
+
+  deadcode:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    # The Go half of this repo's recurring defect: a function defined and
+    # exported that nothing calls. Its Mangle twin — a predicate declared and
+    # read by rules that nothing produces — is gated by
+    # TestStarvedPredicateBudget, which the test job already runs.
+    #
+    # Both are budgets, not targets of zero. They fail when the number moves in
+    # either direction, so the baseline stays a measurement instead of rotting
+    # into a file nobody trusts.
+    #
+    # The script still normalises path separators and line endings, because it
+    # is run by hand on Windows too.
+    name: dead-code budget
+    # Linux, while every other job here is Windows.
+    #
+    # The baseline is a per-GOOS measurement: a file excluded by build tag is
+    # not analysed at all, so checking a Linux-recorded baseline on Windows
+    # reported 38 platform_linux/platform_unix functions as "no longer
+    # unreachable" when nothing had changed. Pinning GOOS inside the script
+    # cannot fix that from a Windows host, because cross-compiling disables cgo
+    # and this module needs it (go-tree-sitter). So the gate runs where its
+    # baseline was taken.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Dead-code budget
+        shell: bash
+        run: ./scripts/deadcode-budget.sh
+
+  runonce:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    # The repeat-run defect: a test that passes once and fails the second time
+    # in the same process, because it reads process-global state as if it were
+    # fresh. `go test` runs each test once, so it never shows.
+    #
+    # 34 of these were found in one 2026-09 pass, and the shape was always the
+    # same. internal/session tests registered probe tools into the
+    # process-wide registry and discarded Register's error; Register rejects
+    # duplicates, so the second run kept the FIRST run's Execute closure —
+    # incrementing a counter the second run could not see, which then read
+    # zero. Two more turned up in internal/tools.
+    #
+    # Scoped to the packages that hold process-global state rather than the
+    # whole tree, the same way the race job is scoped: a tool registry, the
+    # prompt co-use recorder, the default meter, and the boot singletons. That
+    # is where the defect can exist at all, and it keeps this job at a couple
+    # of minutes instead of doubling the whole suite.
+    #
+    # Linux, and not because of any filesystem behaviour — the defect is about
+    # state held in one process, which is identical on both platforms. It runs
+    # here because it is cheap here and the Windows job is already the long
+    # pole.
+    name: repeat-run (shared state)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run each test twice in one process
+        run: go test -count=2 ./internal/session/ ./internal/tools/ ./internal/prompt/ ./internal/broker/ ./internal/system/ ./internal/perception/
+
+  race:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    # Closes the mcp backlog item "-race CI for manager+store". Scoped to those
+    # two packages rather than the whole tree: -race is slow, and these are the
+    # ones with concurrent manager state worth pinning.
+    name: race (mcp + store)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Race detector
+        run: go test -race -tags sqlite_vec ./internal/mcp/... ./internal/store/...
+
+  simd:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    # Builds and tests the GOEXPERIMENT=simd configuration the binaries ship
+    # with. The experiment alone selects internal/embedding's AVX2+FMA cosine
+    # kernel (math_amd64.go, build constraint goexperiment.simd && amd64);
+    # without this job that file is never compiled, which is how the earlier
+    # archsimd code rotted against a toolchain upgrade.
+    name: simd (experiment)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOEXPERIMENT: simd
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build with the simd experiment
+        run: go build -tags sqlite_vec ./...
+      - name: Test the SIMD kernel against the scalar reference
+        run: go test -tags sqlite_vec ./internal/embedding/... ./internal/retrieval/...

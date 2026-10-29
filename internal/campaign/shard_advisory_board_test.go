@@ -1,0 +1,618 @@
+package campaign
+
+import (
+	"context"
+	"math"
+	"strings"
+	"testing"
+	"time"
+
+	"codenerd/internal/consultation"
+)
+
+func TestNewShardAdvisoryBoard(t *testing.T) {
+	// Test with nil consultation provider
+	board := NewShardAdvisoryBoard(nil)
+	if board == nil {
+		t.Fatal("NewShardAdvisoryBoard returned nil")
+	}
+
+	// Check default config was applied
+	if board.config.MinApprovalRatio != 0.5 {
+		t.Errorf("expected MinApprovalRatio 0.5, got %f", board.config.MinApprovalRatio)
+	}
+	if board.config.MinConfidence != 0.5 {
+		t.Errorf("expected MinConfidence 0.5, got %f", board.config.MinConfidence)
+	}
+	if !board.config.RequireCriticalApproval {
+		t.Error("expected RequireCriticalApproval true")
+	}
+	if len(board.config.EnabledAdvisors) != 4 {
+		t.Errorf("expected 4 enabled advisors, got %d", len(board.config.EnabledAdvisors))
+	}
+}
+
+func TestDefaultAdvisoryConfig(t *testing.T) {
+	cfg := DefaultAdvisoryConfig()
+
+	if cfg.ConsultTimeout != 2*time.Minute {
+		t.Errorf("expected ConsultTimeout 2m, got %v", cfg.ConsultTimeout)
+	}
+	if cfg.MinApprovalRatio != 0.5 {
+		t.Errorf("expected MinApprovalRatio 0.5, got %f", cfg.MinApprovalRatio)
+	}
+	if cfg.MinConfidence != 0.5 {
+		t.Errorf("expected MinConfidence 0.5, got %f", cfg.MinConfidence)
+	}
+	if cfg.RequireUnanimous {
+		t.Error("expected RequireUnanimous false")
+	}
+	if !cfg.RequireCriticalApproval {
+		t.Error("expected RequireCriticalApproval true")
+	}
+
+	expectedAdvisors := []string{"coder", "tester", "reviewer", "researcher"}
+	if len(cfg.EnabledAdvisors) != len(expectedAdvisors) {
+		t.Errorf("expected %d advisors, got %d", len(expectedAdvisors), len(cfg.EnabledAdvisors))
+	}
+}
+
+func TestShardAdvisoryBoard_WithConfig(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+
+	customConfig := AdvisoryConfig{
+		ConsultTimeout:   5 * time.Minute,
+		MinApprovalRatio: 0.75,
+		RequireUnanimous: true,
+		EnabledAdvisors:  []string{"coder"},
+	}
+
+	result := board.WithConfig(customConfig)
+
+	if result != board {
+		t.Error("WithConfig should return same board for chaining")
+	}
+	if board.config.ConsultTimeout != 5*time.Minute {
+		t.Errorf("expected ConsultTimeout 5m, got %v", board.config.ConsultTimeout)
+	}
+	if board.config.MinApprovalRatio != 0.75 {
+		t.Errorf("expected MinApprovalRatio 0.75, got %f", board.config.MinApprovalRatio)
+	}
+	if !board.config.RequireUnanimous {
+		t.Error("expected RequireUnanimous true")
+	}
+}
+
+func TestSynthesizeVotes_NoResponses(t *testing.T) {
+	// Updated behavior: zero responses must FAIL CLOSED. Previously this path
+	// auto-approved (a security bypass identified by boundary analysis).
+	board := NewShardAdvisoryBoard(nil)
+
+	synthesis := board.SynthesizeVotes([]AdvisoryResponse{})
+
+	if synthesis.Approved {
+		t.Error("empty responses must fail-closed (not approve)")
+	}
+	if !strings.Contains(synthesis.Summary, "fail-closed") {
+		t.Errorf("expected fail-closed summary, got: %s", synthesis.Summary)
+	}
+}
+
+func TestSynthesizeVotes_AllApprove(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+
+	responses := []AdvisoryResponse{
+		{AdvisorName: "coder", Vote: VoteApprove, Confidence: 0.9},
+		{AdvisorName: "tester", Vote: VoteApprove, Confidence: 0.85},
+		{AdvisorName: "reviewer", Vote: VoteApprove, Confidence: 0.8},
+	}
+
+	synthesis := board.SynthesizeVotes(responses)
+
+	if !synthesis.Approved {
+		t.Error("all approvals should result in approved synthesis")
+	}
+	if synthesis.ApprovalRatio != 1.0 {
+		t.Errorf("expected approval ratio 1.0, got %f", synthesis.ApprovalRatio)
+	}
+	if len(synthesis.BlockingConcerns) != 0 {
+		t.Errorf("expected no blocking concerns, got %d", len(synthesis.BlockingConcerns))
+	}
+}
+
+func TestSynthesizeVotes_CriticalReject(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+
+	responses := []AdvisoryResponse{
+		{AdvisorName: "coder", Vote: VoteReject, Confidence: 0.9, Reasoning: "Code quality issues"},
+		{AdvisorName: "tester", Vote: VoteApprove, Confidence: 0.85},
+		{AdvisorName: "reviewer", Vote: VoteApprove, Confidence: 0.8},
+	}
+
+	synthesis := board.SynthesizeVotes(responses)
+
+	// Coder is critical - rejection should block
+	if synthesis.Approved {
+		t.Error("critical advisor rejection should block approval")
+	}
+	if len(synthesis.BlockingConcerns) != 1 {
+		t.Errorf("expected 1 blocking concern, got %d", len(synthesis.BlockingConcerns))
+	}
+	if synthesis.BlockingConcerns[0].Advisor != "coder" {
+		t.Errorf("expected blocking concern from coder, got %s", synthesis.BlockingConcerns[0].Advisor)
+	}
+}
+
+func TestSynthesizeVotes_NonCriticalReject(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+
+	responses := []AdvisoryResponse{
+		{AdvisorName: "coder", Vote: VoteApprove, Confidence: 0.9},
+		{AdvisorName: "tester", Vote: VoteApprove, Confidence: 0.85},
+		{AdvisorName: "researcher", Vote: VoteReject, Confidence: 0.8, Reasoning: "Not enough research"},
+	}
+
+	synthesis := board.SynthesizeVotes(responses)
+
+	// Researcher is not critical - majority still approves
+	if !synthesis.Approved {
+		t.Error("non-critical rejection with majority approval should pass")
+	}
+	// Researcher rejection shouldn't be blocking
+	for _, concern := range synthesis.BlockingConcerns {
+		if concern.Advisor == "researcher" {
+			t.Error("researcher rejection should not be blocking")
+		}
+	}
+}
+
+func TestSynthesizeVotes_LowConfidenceIgnored(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+
+	responses := []AdvisoryResponse{
+		{AdvisorName: "coder", Vote: VoteApprove, Confidence: 0.9},
+		{AdvisorName: "tester", Vote: VoteReject, Confidence: 0.3}, // Low confidence - should be ignored
+		{AdvisorName: "reviewer", Vote: VoteApprove, Confidence: 0.8},
+	}
+
+	synthesis := board.SynthesizeVotes(responses)
+
+	// Tester's low-confidence rejection should be ignored
+	if !synthesis.Approved {
+		t.Error("low confidence votes should be ignored")
+	}
+	// Only 2 valid votes (coder and reviewer)
+	if synthesis.ApprovalRatio != 1.0 {
+		t.Errorf("expected approval ratio 1.0 (2/2 valid votes), got %f", synthesis.ApprovalRatio)
+	}
+}
+
+func TestSynthesizeVotes_Abstain(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+
+	responses := []AdvisoryResponse{
+		{AdvisorName: "coder", Vote: VoteApprove, Confidence: 0.9},
+		{AdvisorName: "tester", Vote: VoteAbstain, Confidence: 0.8},
+		{AdvisorName: "reviewer", Vote: VoteApprove, Confidence: 0.8},
+	}
+
+	synthesis := board.SynthesizeVotes(responses)
+
+	if !synthesis.Approved {
+		t.Error("abstentions should not count against approval")
+	}
+	// Only 2 counted votes (coder and reviewer)
+	if synthesis.ApprovalRatio != 1.0 {
+		t.Errorf("expected approval ratio 1.0, got %f", synthesis.ApprovalRatio)
+	}
+}
+
+func TestSynthesizeVotes_ApproveWithNotes(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+
+	responses := []AdvisoryResponse{
+		{AdvisorName: "coder", Vote: VoteApproveWithNotes, Confidence: 0.9, Suggestions: []string{"Add more tests"}},
+		{AdvisorName: "tester", Vote: VoteApprove, Confidence: 0.85},
+	}
+
+	synthesis := board.SynthesizeVotes(responses)
+
+	if !synthesis.Approved {
+		t.Error("approve with notes should count as approval")
+	}
+	if len(synthesis.AllSuggestions) != 1 {
+		t.Errorf("expected 1 suggestion, got %d", len(synthesis.AllSuggestions))
+	}
+}
+
+func TestSynthesizeVotes_RequestChanges(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+
+	responses := []AdvisoryResponse{
+		{AdvisorName: "coder", Vote: VoteRequestChanges, Confidence: 0.9, Reasoning: "Need refactoring"},
+		{AdvisorName: "tester", Vote: VoteApprove, Confidence: 0.85},
+	}
+
+	synthesis := board.SynthesizeVotes(responses)
+
+	// Coder is critical, request_changes should block
+	if synthesis.Approved {
+		t.Error("request_changes from critical advisor should block")
+	}
+	if len(synthesis.BlockingConcerns) != 1 {
+		t.Errorf("expected 1 blocking concern, got %d", len(synthesis.BlockingConcerns))
+	}
+	if synthesis.BlockingConcerns[0].Severity != "requires_changes" {
+		t.Errorf("expected severity 'requires_changes', got %s", synthesis.BlockingConcerns[0].Severity)
+	}
+}
+
+func TestSynthesizeVotes_UnanimousRequired(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+	board.config.RequireUnanimous = true
+	board.config.RequireCriticalApproval = false // Only test unanimous
+
+	responses := []AdvisoryResponse{
+		{AdvisorName: "coder", Vote: VoteApprove, Confidence: 0.9},
+		{AdvisorName: "tester", Vote: VoteApprove, Confidence: 0.85},
+		{AdvisorName: "researcher", Vote: VoteReject, Confidence: 0.8},
+	}
+
+	synthesis := board.SynthesizeVotes(responses)
+
+	if synthesis.Approved {
+		t.Error("unanimous requirement not met - should not approve")
+	}
+}
+
+func TestVoteType_Constants(t *testing.T) {
+	// Verify vote type constants
+	if VoteApprove != "approve" {
+		t.Errorf("expected VoteApprove 'approve', got %s", VoteApprove)
+	}
+	if VoteApproveWithNotes != "approve_with_notes" {
+		t.Errorf("expected VoteApproveWithNotes 'approve_with_notes', got %s", VoteApproveWithNotes)
+	}
+	if VoteRequestChanges != "request_changes" {
+		t.Errorf("expected VoteRequestChanges 'request_changes', got %s", VoteRequestChanges)
+	}
+	if VoteReject != "reject" {
+		t.Errorf("expected VoteReject 'reject', got %s", VoteReject)
+	}
+	if VoteAbstain != "abstain" {
+		t.Errorf("expected VoteAbstain 'abstain', got %s", VoteAbstain)
+	}
+}
+
+func TestIsCriticalAdvisor(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+
+	criticalTests := []struct {
+		name     string
+		expected bool
+	}{
+		{"coder", true},
+		{"tester", true},
+		{"reviewer", false},
+		{"researcher", false},
+		{"Coder", true},  // Case insensitive
+		{"TESTER", true}, // Case insensitive
+		{"unknown", false},
+	}
+
+	for _, tc := range criticalTests {
+		result := board.isCriticalAdvisor(tc.name)
+		if result != tc.expected {
+			t.Errorf("isCriticalAdvisor(%s): expected %v, got %v", tc.name, tc.expected, result)
+		}
+	}
+}
+
+// =============================================================================
+// -----------------------------------------------------------------------------
+// Marathon 21: Shard Advisory Board Gaps
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: Zero-Vote Fail-Closed Logic. Verify that passing an empty slice of responses to SynthesizeVotes correctly evaluates to false (fail-closed) rather than true (auto-approve), preventing security bypasses when LLMs fail to respond.
+// TODO: TEST_GAP: Regex Vote Extraction vs Word Salad. Verify that parseAdvisoryResponse accurately extracts the correct vote from a verbose or adversarial response containing multiple conflicting vote keywords (e.g., "I reject the premise... I approve"), rather than relying on loose string matching.
+// TODO: TEST_GAP: OOM Prevention on Massive RawPlan. Verify that buildConsultationContext can safely truncate an extremely large RawPlan string (e.g., 50MB) without causing excessive memory allocation during `[]rune` conversion by using `utf8.DecodeRuneInString`.
+// TODO: TEST_GAP: List Parsing Resilience. Verify that parseAdvisoryResponse can successfully extract numbered lists (e.g., "1. Do this") from the suggestions/concerns blocks, rather than silently dropping them due to strict hyphen-only checks.
+// TODO: TEST_GAP: Duplicate Advisor Prevention. Verify that SynthesizeVotes handles multiple responses from the same advisor gracefully (e.g., by deduplication or rejecting the plan) rather than blindly double-counting their votes.
+func TestShardAdvisoryBoard_NullEmptyInputs(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+
+	// nil responses now fail-closed instead of auto-approving.
+	synthesis := board.SynthesizeVotes(nil)
+	if synthesis.Approved {
+		t.Errorf("Expected nil responses to fail-closed, not approve")
+	}
+
+	// buildConsultationContext must not panic on empty struct fields.
+	req := AdvisoryRequest{}
+	ctxStr := board.buildConsultationContext(req)
+	if !strings.Contains(ctxStr, "**Campaign ID:** ") {
+		t.Errorf("Expected context to handle empty fields safely")
+	}
+}
+
+func TestShardAdvisoryBoard_TypeCoercion(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+
+	// Malformed vote string
+	cr := consultation.Response{Specialist: "coder", Raw: "VOTE: MAYBE\nREASONING: Not sure", Confidence: 0.8}
+	resp := board.parseAdvisoryResponse(cr)
+	// An invalid vote is unknown, never an approval, whatever the confidence.
+	if resp.Vote != VoteUnknown {
+		t.Errorf("Expected VoteUnknown for unparsable vote, got %v", resp.Vote)
+	}
+
+	// Out-of-bounds confidence (-0.5, 1.5)
+	responses := []AdvisoryResponse{
+		{AdvisorName: "tester", Vote: VoteApprove, Confidence: -0.5},
+		{AdvisorName: "coder", Vote: VoteApprove, Confidence: 1.5},
+	}
+	synthesis := board.SynthesizeVotes(responses)
+	if synthesis.ApprovalRatio != 1.0 {
+		t.Errorf("Expected only valid votes to count (negative is ignored, >1.0 is counted as >Min)")
+	}
+}
+
+func TestShardAdvisoryBoard_UserExtremes(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+
+	// Massive phases array
+	var massivePhases []AdvisoryPhase
+	for range 10000 {
+		massivePhases = append(massivePhases, AdvisoryPhase{Name: "Phase"})
+	}
+	req1 := AdvisoryRequest{Phases: massivePhases}
+	ctx1 := board.buildConsultationContext(req1)
+	if len(ctx1) > 50000 {
+		t.Errorf("Context string too large: %d chars", len(ctx1))
+	}
+	if !strings.Contains(ctx1, "more phases") {
+		t.Errorf("Expected truncation message for massive phases")
+	}
+
+	// Manifest text with multi-byte UTF-8 survives rendering intact
+	req2 := AdvisoryRequest{Manifest: PlanManifest{Tasks: []ManifestTask{{ID: "/t1", Description: strings.Repeat("a", 2999) + "🚀"}}}}
+	ctx2 := board.buildConsultationContext(req2)
+	// It should correctly parse runes without breaking UTF8
+	if strings.Contains(ctx2, "\ufffd") {
+		t.Errorf("Found replacement character, UTF-8 was corrupted")
+	}
+}
+
+func TestShardAdvisoryBoard_StateConflicts(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+
+	// Duplicate AdvisorNames (it currently counts both, which we just verify)
+	responses := []AdvisoryResponse{
+		{AdvisorName: "coder", Vote: VoteReject, Confidence: 0.9, Reasoning: "bad"},
+		{AdvisorName: "coder", Vote: VoteReject, Confidence: 0.9, Reasoning: "worse"},
+	}
+	synthesis := board.SynthesizeVotes(responses)
+	if len(synthesis.BlockingConcerns) != 2 {
+		t.Errorf("Expected 2 blocking concerns from duplicates, got %d", len(synthesis.BlockingConcerns))
+	}
+
+	// Conflicting config (RequireUnanimous=true but MinApprovalRatio=0.0)
+	board.config.RequireUnanimous = true
+	board.config.MinApprovalRatio = 0.0
+	res := []AdvisoryResponse{
+		{AdvisorName: "coder", Vote: VoteApprove, Confidence: 0.9},
+		{AdvisorName: "tester", Vote: VoteReject, Confidence: 0.9},
+	}
+	s := board.SynthesizeVotes(res)
+	if s.Approved {
+		t.Errorf("Expected RequireUnanimous to override MinApprovalRatio=0.0")
+	}
+}
+
+// TestZeroVotesFailsClosed verifies the new fail-closed behavior for the
+// zero-vote scenarios identified by boundary analysis. Both an empty
+// responses slice and a slice where every response is filtered out by the
+// minimum-confidence threshold must result in a non-approved synthesis.
+func TestZeroVotesFailsClosed(t *testing.T) {
+	t.Run("nil responses fail closed", func(t *testing.T) {
+		board := NewShardAdvisoryBoard(nil)
+		synthesis := board.SynthesizeVotes(nil)
+		if synthesis.Approved {
+			t.Fatal("nil responses must fail-closed (not auto-approve)")
+		}
+		if !strings.Contains(synthesis.Summary, "fail-closed") {
+			t.Errorf("expected fail-closed summary, got: %s", synthesis.Summary)
+		}
+	})
+
+	t.Run("empty responses fail closed", func(t *testing.T) {
+		board := NewShardAdvisoryBoard(nil)
+		synthesis := board.SynthesizeVotes([]AdvisoryResponse{})
+		if synthesis.Approved {
+			t.Fatal("empty responses must fail-closed")
+		}
+	})
+
+	t.Run("all-low-confidence fails closed", func(t *testing.T) {
+		// Every response is below MinConfidence (0.5 by default), so validVotes
+		// becomes zero. Previously this auto-approved; now it must fail-closed.
+		board := NewShardAdvisoryBoard(nil)
+		responses := []AdvisoryResponse{
+			{AdvisorName: "coder", Vote: VoteApprove, Confidence: 0.1},
+			{AdvisorName: "tester", Vote: VoteApprove, Confidence: 0.2},
+			{AdvisorName: "reviewer", Vote: VoteApprove, Confidence: 0.3},
+		}
+		synthesis := board.SynthesizeVotes(responses)
+		if synthesis.Approved {
+			t.Fatal("all-low-confidence responses must fail-closed")
+		}
+	})
+
+	t.Run("all-abstain fails closed", func(t *testing.T) {
+		// Abstain votes decrement validVotes back to zero, which must now
+		// fail-closed.
+		board := NewShardAdvisoryBoard(nil)
+		responses := []AdvisoryResponse{
+			{AdvisorName: "coder", Vote: VoteAbstain, Confidence: 0.9},
+			{AdvisorName: "tester", Vote: VoteAbstain, Confidence: 0.9},
+		}
+		synthesis := board.SynthesizeVotes(responses)
+		if synthesis.Approved {
+			t.Fatal("all-abstain responses must fail-closed")
+		}
+	})
+}
+
+// TestDuplicateAdvisors documents and locks in the current behavior when
+// the same advisor name appears multiple times in a response set. Duplicates
+// are not deduplicated; their votes are counted independently. This test
+// pins that contract so future deduplication work explicitly invalidates it.
+func TestDuplicateAdvisors(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+	board.config.RequireCriticalApproval = false // isolate vote counting
+
+	t.Run("duplicate approvals are double-counted", func(t *testing.T) {
+		responses := []AdvisoryResponse{
+			{AdvisorName: "coder", Vote: VoteApprove, Confidence: 0.9},
+			{AdvisorName: "coder", Vote: VoteApprove, Confidence: 0.9},
+			{AdvisorName: "tester", Vote: VoteReject, Confidence: 0.9},
+		}
+		synthesis := board.SynthesizeVotes(responses)
+		// 2 approvals out of 3 valid votes = 0.666 >= 0.5 MinApprovalRatio
+		if !synthesis.Approved {
+			t.Fatal("duplicate approvals should still produce approval")
+		}
+		if synthesis.ApprovalRatio < 0.66 || synthesis.ApprovalRatio > 0.67 {
+			t.Errorf("expected ApprovalRatio ~0.666, got %v", synthesis.ApprovalRatio)
+		}
+	})
+
+	t.Run("duplicate critical rejections produce duplicate blocking concerns", func(t *testing.T) {
+		board.config.RequireCriticalApproval = true
+		responses := []AdvisoryResponse{
+			{AdvisorName: "coder", Vote: VoteReject, Confidence: 0.9, Reasoning: "first reject"},
+			{AdvisorName: "coder", Vote: VoteReject, Confidence: 0.9, Reasoning: "second reject"},
+		}
+		synthesis := board.SynthesizeVotes(responses)
+		if synthesis.Approved {
+			t.Fatal("duplicate critical rejections must block approval")
+		}
+		if len(synthesis.BlockingConcerns) != 2 {
+			t.Errorf("expected 2 blocking concerns from duplicate rejections, got %d",
+				len(synthesis.BlockingConcerns))
+		}
+	})
+}
+
+// TestConfidenceClamping verifies that parseAdvisoryResponse clamps the raw
+// ConsultationResponse.Confidence into the valid [0.0, 1.0] range. This
+// prevents negative or >1.0 confidences from polluting downstream ratio
+// calculations.
+func TestConfidenceClamping(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+
+	cases := []struct {
+		name     string
+		raw      float64
+		expected float64
+	}{
+		{"negative clamped to zero", -0.5, 0.0},
+		{"large negative clamped to zero", -100.0, 0.0},
+		{"above one clamped to one", 1.5, 1.0},
+		{"large positive clamped to one", 100.0, 1.0},
+		{"zero passes through", 0.0, 0.0},
+		{"one passes through", 1.0, 1.0},
+		{"mid range passes through", 0.42, 0.42},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cr := consultation.Response{Specialist: "coder", Raw: "VOTE: APPROVE", Confidence: tc.raw}
+			resp := board.parseAdvisoryResponse(cr)
+			if resp.Confidence != tc.expected {
+				t.Errorf("Confidence=%v: expected clamp to %v, got %v",
+					tc.raw, tc.expected, resp.Confidence)
+			}
+		})
+	}
+
+	t.Run("NaN is normalized to zero", func(t *testing.T) {
+		nan := math.NaN()
+		cr := consultation.Response{Specialist: "coder", Raw: "VOTE: APPROVE", Confidence: nan}
+		resp := board.parseAdvisoryResponse(cr)
+		if resp.Confidence != 0.0 {
+			t.Errorf("NaN: expected normalization to 0.0, got %v", resp.Confidence)
+		}
+	})
+
+	// Verify clamping also keeps the synthesis ratio sane when raw responses
+	// come through parseAdvisoryResponse.
+	t.Run("synthesis with clamped responses", func(t *testing.T) {
+		raw := []consultation.Response{
+			{Specialist: "coder", Raw: "VOTE: APPROVE", Confidence: -1.0}, // becomes 0.0 (below MinConfidence)
+			{Specialist: "tester", Raw: "VOTE: APPROVE", Confidence: 2.0}, // becomes 1.0 (counted)
+		}
+		responses := make([]AdvisoryResponse, 0, len(raw))
+		for _, r := range raw {
+			responses = append(responses, board.parseAdvisoryResponse(r))
+		}
+		synthesis := board.SynthesizeVotes(responses)
+		// Only the second response should count (1.0 >= MinConfidence 0.5).
+		if synthesis.ApprovalRatio != 1.0 {
+			t.Errorf("expected ApprovalRatio 1.0 with one valid clamped vote, got %v",
+				synthesis.ApprovalRatio)
+		}
+	})
+}
+
+// TestConsultAdvisors_ValidatesRequest verifies that ConsultAdvisors rejects
+// requests with empty CampaignID or Goal before incurring LLM cost.
+func TestConsultAdvisors_ValidatesRequest(t *testing.T) {
+	// Use a recording stub provider so we can verify it is never invoked when
+	// validation fails.
+	stub := &stubConsultationProvider{}
+	board := NewShardAdvisoryBoard(stub)
+
+	t.Run("empty CampaignID is rejected", func(t *testing.T) {
+		_, err := board.ConsultAdvisors(context.Background(), AdvisoryRequest{
+			CampaignID: "",
+			Goal:       "Refactor module X",
+		})
+		if err == nil {
+			t.Fatal("expected validation error for empty CampaignID")
+		}
+		if !strings.Contains(err.Error(), "CampaignID") {
+			t.Errorf("expected CampaignID error, got %v", err)
+		}
+		if stub.calls != 0 {
+			t.Errorf("expected zero LLM calls on validation failure, got %d", stub.calls)
+		}
+	})
+
+	t.Run("whitespace-only Goal is rejected", func(t *testing.T) {
+		_, err := board.ConsultAdvisors(context.Background(), AdvisoryRequest{
+			CampaignID: "/campaign_abc",
+			Goal:       "   ",
+		})
+		if err == nil {
+			t.Fatal("expected validation error for empty Goal")
+		}
+		if !strings.Contains(err.Error(), "Goal") {
+			t.Errorf("expected Goal error, got %v", err)
+		}
+		if stub.calls != 0 {
+			t.Errorf("expected zero LLM calls on validation failure, got %d", stub.calls)
+		}
+	})
+}
+
+// stubConsultationProvider is a minimal ConsultationProvider used only to
+// confirm that validation short-circuits before any provider calls happen.
+type stubConsultationProvider struct {
+	calls int
+}
+
+func (s *stubConsultationProvider) RequestBatchConsultation(ctx context.Context, req consultation.BatchRequest) consultation.Batch {
+	s.calls++
+	return consultation.Batch{}
+}

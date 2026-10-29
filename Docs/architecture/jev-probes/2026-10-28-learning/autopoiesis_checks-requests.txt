@@ -1,0 +1,25 @@
+request judgments, thresholds yes>=0.70 no<=0.30
+continues_after_request    right  13  wrong  0  unsettled  0
+many_files                 right   6  wrong  0  unsettled  0
+ordered_stages             right   3  wrong  0  unsettled  0
+several_deliverables       right   8  wrong  0  unsettled  1
+all right 30 of 31
+
+every case:
+  oauth-full           deliverables=0.98 stages=0.85 many_files=0.93 continues=0.05  "add OAuth login: a token store, the login and callback endpoints, middleware on the API routes, tests and docs"
+  migrate-staged       deliverables=0.87 stages=0.96 many_files=0.89 continues=0.06  "migrate the session store from bbolt to SQLite: write the schema, copy the existing data, then switch the readers over and delete the old code"
+  fix-one-nil          deliverables=0.04 stages=0.27 many_files=0.10 continues=0.04  "fix the nil pointer in internal/session/executor.go"
+  rename-everywhere    deliverables=0.04 stages=0.36 many_files=0.84 continues=0.04  "rename Executor to Runner across the whole codebase"
+  epic-keyword         deliverables=0.21 stages=0.88 many_files=0.89 continues=0.08  "implement a complete feature for billing"
+  explain-two          deliverables=0.34 stages=0.31 many_files=0.05 continues=0.04  "explain how the JIT compiler selects atoms and how the kernel ranks them"
+  two-small            deliverables=0.96 stages=0.09 many_files=0.11 continues=0.03  "add a test for Max with an empty slice and fix the typo in the README"
+  watch-tests          deliverables=0.07 stages=0.54 many_files=0.16 continues=0.97  "watch internal/core for changes and tell me when a test starts failing"
+  lint-every-commit    deliverables=0.07 stages=0.51 many_files=0.33 continues=0.96  "run the linter on every commit"
+  nightly-rebuild      deliverables=0.04 stages=0.62 many_files=0.26 continues=0.97  "set up a nightly job that rebuilds the predicate corpus"
+  monitor-question     deliverables=0.03 stages=0.11 many_files=0.04 continues=0.03  "what does the monitor package do?"
+  noisy-alert-fix      deliverables=0.04 stages=0.24 many_files=0.19 continues=0.21  "the alert when the build fails is too noisy, make it quieter"
+  always-tabs          deliverables=0.02 stages=0.13 many_files=0.72 continues=0.86  "from now on, always use tabs in Go files"
+  keep-checking-flaky  deliverables=0.05 stages=0.19 many_files=0.14 continues=0.97  "keep checking the flaky TestMangleWatcher tests in the background while I work"
+
+misses (x wrong, ~ unsettled):
+  ~ explain-two              several_deliverables       p=0.34 want=false  "explain how the JIT compiler selects atoms and how the kernel ranks them"

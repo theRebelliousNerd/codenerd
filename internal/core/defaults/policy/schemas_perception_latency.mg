@@ -1,0 +1,65 @@
+# Perception Latency Schemas (P3: Routing Assertion)
+# Declares predicates written by the transducer into the EDB each turn
+# so that C1/C4 composition rules can derive from them without a query round-trip.
+#
+# Stratum: EDB-only (all facts asserted from Go; no rules derive these directly).
+# Per-turn lifecycle: retracted at turn start in process.go, reasserted by deriveRouting.
+
+# NERD-EVOLVE-START: P3_schema_decls
+
+# current_understanding(SemanticType, ActionType, Domain, ScopeLevel)
+# Asserted once per turn with the LLM's normalised understanding.
+Decl current_understanding(SemanticType, ActionType, Domain, ScopeLevel).
+
+# llm_suggested_mode(Mode)
+# The raw mode suggested by the LLM before Mangle override.
+Decl llm_suggested_mode(Mode).
+
+# candidate_mode(Mode, Source, Priority)
+# Collected from EDB routing facts; used by perception_routing.mg to select best mode.
+Decl candidate_mode(Mode, Source, Priority).
+
+# Bound-negation helper. A negated literal containing an anonymous wildcard
+# excludes nothing in this Mangle build (see internal/core/bound_negation_test.go);
+# projecting the wildcard away makes the negation actually filter.
+Decl any_candidate_mode(Flag) bound [/name].
+
+# best_candidate_priority(MaxPriority)
+# Aggregated maximum priority across all candidate_mode facts.
+Decl best_candidate_priority(MaxPriority).
+
+# derived_mode(Mode)
+# The final harness mode after Mangle selection (or LLM fallback).
+Decl derived_mode(Mode).
+
+# derived_primary_shard(ShardID)
+# The primary shard selected by the harness for this turn.
+Decl derived_primary_shard(ShardID).
+
+# derived_context_priority(Category, Priority)
+# Per-category context priorities derived from routing affinity rules.
+Decl derived_context_priority(Category, Priority).
+
+# derived_tool_priority(Tool, Priority)
+# Per-tool priorities derived from routing affinity rules.
+Decl derived_tool_priority(Tool, Priority).
+
+# understanding_vocab_miss(Field, Value)
+# Derived (perception_routing.mg): a field of this turn's understanding holds a
+# value outside the routing vocabulary (valid_* in schema/intent_routing.mg).
+# Such a value joins no routing-table row, so routing for that field falls back
+# to the LLM's own suggestion. Field is one of /semantic_type, /action_type,
+# /domain, /scope_level, /mode. Read by the perception transducer, which
+# surfaces the degrade on Routing.VocabularyMisses.
+Decl understanding_vocab_miss(Field, Value) bound [/name, /name].
+
+# Projections of the valid_* vocabulary to one column. A negated literal with an
+# anonymous wildcard excludes nothing in this Mangle build
+# (internal/core/bound_negation_test.go), so the audit negates these instead.
+Decl vocab_semantic_type(Value) bound [/name].
+Decl vocab_action_type(Value) bound [/name].
+Decl vocab_domain(Value) bound [/name].
+Decl vocab_scope_level(Value) bound [/name].
+Decl vocab_mode(Value) bound [/name].
+
+# NERD-EVOLVE-END: P3_schema_decls

@@ -1,0 +1,622 @@
+package prompt
+
+import (
+	"fmt"
+	"maps"
+	"slices"
+	"sort"
+	"strings"
+	"sync"
+
+	"codenerd/internal/logging"
+)
+
+// FinalAssembler concatenates atoms into the final prompt string.
+// It handles:
+// 1. Category ordering (defined sequence)
+// 2. Section headers and separators
+// 3. Token counting verification
+// 4. Dynamic context injection
+type FinalAssembler struct {
+	mu sync.RWMutex
+
+	// categoryOrder defines the sequence of categories in the final prompt
+	categoryOrder []AtomCategory
+
+	// addSectionHeaders adds markdown headers between categories
+	addSectionHeaders bool
+
+	// sectionSeparator is inserted between sections
+	sectionSeparator string
+
+	// atomSeparator is inserted between atoms within a section
+	atomSeparator string
+
+	// templateEngine for dynamic content injection
+	templateEngine *TemplateEngine
+}
+
+// NewFinalAssembler creates a new assembler with default settings.
+func NewFinalAssembler() *FinalAssembler {
+	return &FinalAssembler{
+		categoryOrder:     defaultCategoryOrder(),
+		addSectionHeaders: false, // Default: no headers for cleaner prompts
+		sectionSeparator:  "\n\n",
+		atomSeparator:     "\n\n",
+		templateEngine:    NewTemplateEngine(),
+	}
+}
+
+// defaultCategoryOrder returns the standard category sequence.
+// Order is extremely important for Prefix Caching: static categories first (Head),
+// highly dynamic JIT context last (Tail).
+func defaultCategoryOrder() []AtomCategory {
+	return []AtomCategory{
+		// Level 0: The Core Identity (Never Changes)
+		CategoryIdentity,
+		CategorySafety,
+		CategoryProtocol,
+		CategoryHallucination,
+		CategoryMethodology,
+		CategoryCapability,
+
+		// Level 1: Stack & Knowledge (Changes rarely / per project)
+		CategoryLanguage,
+		CategoryFramework,
+		CategoryDomain,
+		CategoryKnowledge,
+
+		// Level 2: Goal Context (Changes per phase)
+		CategoryCampaign,
+		CategoryNorthstar,
+		CategoryInit,
+		CategoryBuildLayer,
+		CategoryOuroboros,
+		CategoryAutopoiesis,
+
+		// Level 3: Mode Context (Changes per task)
+		CategoryReviewer,
+		CategoryEval,
+		CategoryExemplar,
+
+		// Level 4: JIT Working Memory (Changes EVERY turn) - THE TAIL
+		CategoryIntent,
+		CategoryWorldState,
+
+		// Runtime system atoms (tool-call nudges, executor retries) are
+		// conditionally present but stable in content, so they sit ahead of
+		// context, whose values change every turn. Context stays last: the
+		// tail position is pinned by TestDefaultCategoryOrder. System must be
+		// listed at all: unlisted categories fall to the unknown-category
+		// path, which historically emitted in map order.
+		CategorySystem,
+		CategoryContext,
+	}
+}
+
+// assemblyTier places an atom in the prompt by what its presence and bytes
+// depend on, most stable first, so the longest prefix two compiles share is as
+// long as the atoms they share. Category order applies within a tier.
+//
+// Measured 2026-09-22 (context sweep, C6): two turns of one campaign whose
+// compiled prompts were 94.5% identical shared only their first 53%. A turn's
+// vector hits sat among the skeleton atoms of their category, and retrieved
+// knowledge (with per-turn 16-digit confidences) sat at "Level 1" of the
+// category order, mid-prompt -- so a new turn's first round reused ~17k cached
+// tokens instead of ~29k.
+//
+// The tiers read only what is on the atom:
+//   - tierPersona: mandatory, gated on nothing a turn changes -- persona,
+//     operational mode, the serving provider and model.
+//   - tierTurn: mandatory, gated on what the turn is -- verb, language,
+//     frameworks, world states and derived needs, tool catalog, a phase.
+//   - tierCarried: flesh this task's previous compile also admitted, in that
+//     compile's order (relevance.go carryMemory): stable across the task.
+//   - tierRelevance: admitted by a vector hit on this turn's query (flesh).
+//   - tierInjected: rendered from the kernel's facts for this compile
+//     (injectable_context, specialist_knowledge).
+//   - tierRetrieved: this turn's knowledge and learning lookups.
+type assemblyTier int
+
+const (
+	tierPersona assemblyTier = iota
+	tierTurn
+	tierCarried
+	tierRelevance
+	tierInjected
+	tierRetrieved
+	tierCount
+)
+
+func atomAssemblyTier(a *PromptAtom) assemblyTier {
+	switch {
+	case a.RetrievedContext:
+		return tierRetrieved
+	case a.KernelInjected:
+		return tierInjected
+	case !a.IsMandatory:
+		return tierRelevance
+	case len(a.IntentVerbs) > 0 || len(a.Languages) > 0 || len(a.Frameworks) > 0 ||
+		len(a.WorldStates) > 0 || len(a.RequiresTools) > 0 || len(a.CampaignPhases) > 0 ||
+		len(a.BuildLayers) > 0 || len(a.InitPhases) > 0 || len(a.NorthstarPhases) > 0 ||
+		len(a.OuroborosStages) > 0:
+		return tierTurn
+	default:
+		return tierPersona
+	}
+}
+
+// SetCategoryOrder sets a custom category ordering.
+func (a *FinalAssembler) SetCategoryOrder(order []AtomCategory) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.categoryOrder = order
+}
+
+// SetSectionHeaders controls whether section headers are added.
+func (a *FinalAssembler) SetSectionHeaders(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.addSectionHeaders = enabled
+}
+
+// SetSeparators configures the separators between sections and atoms.
+func (a *FinalAssembler) SetSeparators(section, atom string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.sectionSeparator = section
+	a.atomSeparator = atom
+}
+
+// Assemble combines ordered atoms into a single prompt string.
+func (a *FinalAssembler) Assemble(atoms []*OrderedAtom, cc *CompilationContext) (string, error) {
+	return a.NewRenderSession(cc).Assemble(atoms)
+}
+
+// RenderSession renders atom fragments once for one compilation context and
+// assembles any subset of them.
+//
+// The budget fitter, the assembler and the shed-to-fit loop all need the same
+// rendered text. Before the session each of them re-expanded placeholders on
+// every pass -- per atom, then again over the whole joined prompt, then again
+// on every shed pass -- and the fitter charged the PRE-expansion size, so the
+// {{available_specialists}} roster was invisible to it. A session renders each
+// (atom, mode) fragment once, charges its actual size, and reuses it on every
+// reassembly.
+type RenderSession struct {
+	a                 *FinalAssembler
+	cc                *CompilationContext
+	categoryOrder     []AtomCategory
+	addSectionHeaders bool
+	sectionSeparator  string
+	atomSeparator     string
+	funcs             map[string]TemplateFunc
+
+	mu        sync.Mutex
+	values    map[string]string
+	fragments map[renderFragmentKey]string
+}
+
+type renderFragmentKey struct {
+	atom *PromptAtom
+	mode string
+}
+
+// NewRenderSession snapshots the assembler's configuration and template
+// functions, and resolves the specialist roster once, so every fragment and
+// every reassembly in the session sees one consistent context.
+func (a *FinalAssembler) NewRenderSession(cc *CompilationContext) *RenderSession {
+	a.mu.RLock()
+	session := &RenderSession{
+		a:                 a,
+		cc:                cc,
+		categoryOrder:     slices.Clone(a.categoryOrder),
+		addSectionHeaders: a.addSectionHeaders,
+		sectionSeparator:  a.sectionSeparator,
+		atomSeparator:     a.atomSeparator,
+		values:            make(map[string]string),
+		fragments:         make(map[renderFragmentKey]string),
+	}
+	a.mu.RUnlock()
+	session.funcs = a.templateEngine.snapshot()
+	if cc != nil && strings.TrimSpace(cc.AvailableSpecialists) == "" {
+		if err := InjectAvailableSpecialists(cc, ""); err != nil {
+			logging.Get(logging.CategoryJIT).Debug("Failed to inject available specialists: %v", err)
+		}
+	}
+	return session
+}
+
+// Fragment returns the rendered text of atom in mode: the render-mode variant
+// Fit selected, with its placeholders expanded once.
+func (s *RenderSession) Fragment(atom *PromptAtom, mode string) string {
+	if atom == nil {
+		return ""
+	}
+	key := renderFragmentKey{atom: atom, mode: mode}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if fragment, ok := s.fragments[key]; ok {
+		return fragment
+	}
+	content := contentForMode(atom, mode)
+	if s.cc != nil {
+		content = expandTemplate(content, func(name string) (string, bool) {
+			if value, ok := s.values[name]; ok {
+				return value, true
+			}
+			fn, ok := s.funcs[name]
+			if !ok {
+				return "", false
+			}
+			value := fn(s.cc)
+			s.values[name] = value
+			return value, true
+		})
+	}
+	s.fragments[key] = content
+	return content
+}
+
+// Tokens charges atom in mode at its rendered size. The declared per-mode
+// count is the floor: corpora declare sizes the estimator would undercount,
+// and the session must never charge less than the fitter used to.
+func (s *RenderSession) Tokens(atom *PromptAtom, mode string) int {
+	declared := tokenCountForMode(atom, mode)
+	if atom == nil {
+		return declared
+	}
+	if rendered := EstimateTokens(s.Fragment(atom, mode)); rendered > declared {
+		return rendered
+	}
+	return declared
+}
+
+// Assemble joins the rendered fragments of atoms in tier/category order.
+func (s *RenderSession) Assemble(atoms []*OrderedAtom) (string, error) {
+	timer := logging.StartTimer(logging.CategoryContext, "FinalAssembler.Assemble")
+	defer timer.Stop()
+
+	if len(atoms) == 0 {
+		return "", nil
+	}
+
+	// Group atoms by assembly tier, then by category within the tier.
+	byTier := make([]map[AtomCategory][]*OrderedAtom, tierCount)
+	for i := range byTier {
+		byTier[i] = make(map[AtomCategory][]*OrderedAtom)
+	}
+	for _, oa := range atoms {
+		if oa == nil || oa.Atom == nil {
+			continue
+		}
+		tier := atomAssemblyTier(oa.Atom)
+		if oa.Carried && tier == tierRelevance {
+			tier = tierCarried
+		}
+		cat := oa.Atom.Category
+		byTier[tier][cat] = append(byTier[tier][cat], oa)
+	}
+
+	// Sort atoms within each category by order index (preserved from resolver)
+	for _, byCategory := range byTier {
+		for cat := range byCategory {
+			sort.Slice(byCategory[cat], func(i, j int) bool {
+				return byCategory[cat][i].Order < byCategory[cat][j].Order
+			})
+		}
+	}
+
+	catOrderSet := make(map[AtomCategory]struct{}, len(s.categoryOrder))
+	for _, c := range s.categoryOrder {
+		catOrderSet[c] = struct{}{}
+	}
+
+	// Build the prompt tier by tier, each tier in category order. Categories
+	// not in the standard order follow their tier's known ones, sorted for
+	// determinism: map iteration would shuffle these sections run to run and
+	// churn the prefix cache.
+	var sections []string
+	for _, byCategory := range byTier {
+		cats := make([]AtomCategory, 0, len(byCategory))
+		for _, cat := range s.categoryOrder {
+			if len(byCategory[cat]) > 0 {
+				cats = append(cats, cat)
+			}
+		}
+		unknownCats := make([]AtomCategory, 0)
+		for cat := range byCategory {
+			if _, inOrder := catOrderSet[cat]; !inOrder {
+				unknownCats = append(unknownCats, cat)
+			}
+		}
+		slices.Sort(unknownCats)
+		for _, cat := range append(cats, unknownCats...) {
+			if section := s.section(cat, byCategory[cat]); section != "" {
+				sections = append(sections, section)
+			}
+		}
+	}
+
+	prompt := strings.Join(sections, s.sectionSeparator)
+	logging.Get(logging.CategoryContext).Debug(
+		"Assembled prompt: %d sections, %d chars, ~%d tokens",
+		len(sections), len(prompt), EstimateTokens(prompt),
+	)
+	return prompt, nil
+}
+
+// section builds one category section from rendered fragments.
+func (s *RenderSession) section(category AtomCategory, atoms []*OrderedAtom) string {
+	if len(atoms) == 0 {
+		return ""
+	}
+	var parts []string
+	if s.addSectionHeaders {
+		if header := categoryHeader(category); header != "" {
+			parts = append(parts, header)
+		}
+	}
+	for _, oa := range atoms {
+		if oa == nil || oa.Atom == nil {
+			continue
+		}
+		// Emit the render-mode variant the budget manager selected in Fit
+		// (concise/min under budget pressure). Emitting the full standard
+		// Content while Fit charged the smaller variant silently overflows the
+		// token budget and makes the flight-recorder manifest misreport.
+		parts = append(parts, s.Fragment(oa.Atom, oa.RenderMode))
+	}
+	return strings.Join(parts, s.atomSeparator)
+}
+
+// categoryHeader returns a markdown header for a category.
+func categoryHeader(cat AtomCategory) string {
+	names := map[AtomCategory]string{
+		CategoryIdentity:      "## Identity",
+		CategorySafety:        "## Safety & Constraints",
+		CategoryProtocol:      "## Protocols",
+		CategoryCapability:    "## Capabilities",
+		CategoryMethodology:   "## Methodology",
+		CategoryHallucination: "## Guardrails",
+		CategoryLanguage:      "## Language Guidelines",
+		CategoryFramework:     "## Framework Guidelines",
+		CategoryDomain:        "## Domain Context",
+		CategoryKnowledge:     "## Knowledge Base",
+		CategoryCampaign:      "## Campaign Context",
+		CategoryNorthstar:     "## Planning",
+		CategoryInit:          "## Initialization",
+		CategoryBuildLayer:    "## Build Layer Guidance",
+		CategoryOuroboros:     "## Self-Improvement",
+		CategoryAutopoiesis:   "## Autopoiesis",
+		CategoryReviewer:      "## Reviewer Guidance",
+		CategoryEval:          "## Evaluation",
+		CategoryExemplar:      "## Examples",
+		CategoryIntent:        "## User Intent",
+		CategoryWorldState:    "## World State",
+		CategoryContext:       "## Current Context",
+		CategorySystem:        "## Runtime System",
+	}
+
+	if name, ok := names[cat]; ok {
+		return name
+	}
+	return fmt.Sprintf("## %s", cat)
+}
+
+// TemplateEngine handles dynamic content injection in prompts.
+// Supports simple {{variable}} substitution from CompilationContext.
+type TemplateEngine struct {
+	mu sync.RWMutex
+	// Custom functions for template processing
+	functions map[string]TemplateFunc
+}
+
+// TemplateFunc is a function that can be called in templates.
+type TemplateFunc func(cc *CompilationContext, args ...string) string
+
+// NewTemplateEngine creates a new template engine with default functions.
+func NewTemplateEngine() *TemplateEngine {
+	te := &TemplateEngine{
+		functions: make(map[string]TemplateFunc),
+	}
+
+	// Register default functions
+	te.registerDefaults()
+
+	return te
+}
+
+// registerDefaults adds the standard template functions.
+func (te *TemplateEngine) registerDefaults() {
+	// {{language}} - current language
+	te.functions["language"] = func(cc *CompilationContext, args ...string) string {
+		if cc == nil || cc.Language == "" {
+			return "unknown"
+		}
+		return strings.TrimPrefix(cc.Language, "/")
+	}
+
+	// {{shard_type}} - current shard type
+	te.functions["shard_type"] = func(cc *CompilationContext, args ...string) string {
+		if cc == nil || cc.ShardType == "" {
+			return "agent"
+		}
+		return strings.TrimPrefix(cc.ShardType, "/")
+	}
+
+	// {{operational_mode}} - current mode
+	te.functions["operational_mode"] = func(cc *CompilationContext, args ...string) string {
+		if cc == nil || cc.OperationalMode == "" {
+			return "active"
+		}
+		return strings.TrimPrefix(cc.OperationalMode, "/")
+	}
+
+	// {{campaign_phase}} - current campaign phase
+	te.functions["campaign_phase"] = func(cc *CompilationContext, args ...string) string {
+		if cc == nil || cc.CampaignPhase == "" {
+			return ""
+		}
+		return strings.TrimPrefix(cc.CampaignPhase, "/")
+	}
+
+	// {{intent_verb}} - current intent
+	te.functions["intent_verb"] = func(cc *CompilationContext, args ...string) string {
+		if cc == nil || cc.IntentVerb == "" {
+			return ""
+		}
+		return strings.TrimPrefix(cc.IntentVerb, "/")
+	}
+
+	// {{frameworks}} - comma-separated frameworks
+	te.functions["frameworks"] = func(cc *CompilationContext, args ...string) string {
+		if cc == nil || len(cc.Frameworks) == 0 {
+			return ""
+		}
+		var clean []string
+		for _, fw := range cc.Frameworks {
+			clean = append(clean, strings.TrimPrefix(fw, "/"))
+		}
+		return strings.Join(clean, ", ")
+	}
+
+	// {{token_budget}} - available tokens
+	te.functions["token_budget"] = func(cc *CompilationContext, args ...string) string {
+		if cc == nil {
+			return "unknown"
+		}
+		return fmt.Sprintf("%d", cc.AvailableTokens())
+	}
+
+	// {{world_states}} - current world state indicators
+	te.functions["world_states"] = func(cc *CompilationContext, args ...string) string {
+		if cc == nil {
+			return ""
+		}
+		states := cc.WorldStates()
+		if len(states) == 0 {
+			return "normal"
+		}
+		return strings.Join(states, ", ")
+	}
+
+	// {{available_specialists}} - formatted specialist list for knowledge discovery
+	te.functions["available_specialists"] = func(cc *CompilationContext, args ...string) string {
+		if cc == nil || strings.TrimSpace(cc.AvailableSpecialists) == "" {
+			return "- **researcher**: Deep web research and documentation gathering\n- **reviewer**: Code review and analysis"
+		}
+		return cc.AvailableSpecialists
+	}
+
+	// {{available_tools}} - bullet list of tool names this turn is permitted to
+	// invoke. Sourced from CompilationContext.AvailableTools, which the
+	// session executor populates from EffectiveAgentRuntimeConfig.AllowedTools.
+	// Prompt atoms (e.g. system/tool_nudge/no_tool_call_retry) reference this
+	// so the model sees the actual allowed surface — not a hardcoded list.
+	te.functions["available_tools"] = func(cc *CompilationContext, args ...string) string {
+		if cc == nil {
+			return "- (no tools were resolved for this turn — emit a final answer)"
+		}
+		var b strings.Builder
+		if len(cc.AvailableTools) == 0 {
+			b.WriteString("- (no tools were resolved for this turn — emit a final answer)")
+		}
+		b.Grow(len(cc.AvailableTools) * 24)
+		for i, t := range cc.AvailableTools {
+			if i > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString("- `")
+			b.WriteString(t)
+			b.WriteByte('`')
+		}
+		// A granted tool the request cannot carry is named with its reason,
+		// never listed as callable.
+		if len(cc.UnavailableTools) > 0 {
+			b.WriteString("\nGranted but not callable this turn:")
+			for _, u := range cc.UnavailableTools {
+				b.WriteString("\n- ")
+				b.WriteString(u)
+			}
+		}
+		return b.String()
+	}
+}
+
+// RegisterFunction adds a custom template function.
+func (te *TemplateEngine) RegisterFunction(name string, fn TemplateFunc) {
+	te.mu.Lock()
+	defer te.mu.Unlock()
+	te.functions[name] = fn
+}
+
+// snapshot copies the registered functions under the read lock.
+func (te *TemplateEngine) snapshot() map[string]TemplateFunc {
+	te.mu.RLock()
+	defer te.mu.RUnlock()
+	funcs := make(map[string]TemplateFunc, len(te.functions))
+	maps.Copy(funcs, te.functions)
+	return funcs
+}
+
+// Process applies template substitutions to content.
+func (te *TemplateEngine) Process(content string, cc *CompilationContext) string {
+	if !strings.Contains(content, "{{") {
+		return content // Fast path: no templates
+	}
+	funcs := te.snapshot()
+	return expandTemplate(content, func(name string) (string, bool) {
+		fn, ok := funcs[name]
+		if !ok {
+			return "", false
+		}
+		return fn(cc), true
+	})
+}
+
+// expandTemplate replaces each {{name}} in content, left to right, with
+// lookup(name). It is one pass over the SOURCE text: a substituted value is
+// data and is never scanned again, so a placeholder that arrives inside an
+// inserted value (an agent description in the specialist roster, say) stays
+// literal text instead of becoming an instruction. Unknown names are left as
+// written. The previous implementation iterated a map, so whether a
+// placeholder inside an inserted value expanded depended on map order, and
+// the assembler then re-expanded the whole joined prompt a second time.
+func expandTemplate(content string, lookup func(name string) (string, bool)) string {
+	if !strings.Contains(content, "{{") {
+		return content
+	}
+	var b strings.Builder
+	b.Grow(len(content))
+	rest := content
+	for {
+		open := strings.Index(rest, "{{")
+		if open < 0 {
+			b.WriteString(rest)
+			break
+		}
+		closing := strings.Index(rest[open+2:], "}}")
+		if closing < 0 {
+			b.WriteString(rest)
+			break
+		}
+		name := rest[open+2 : open+2+closing]
+		if strings.Contains(name, "{{") {
+			// "{{ ... {{name}}": the first opener is literal text; resume
+			// scanning at the inner one.
+			inner := open + 2 + strings.Index(name, "{{")
+			b.WriteString(rest[:inner])
+			rest = rest[inner:]
+			continue
+		}
+		b.WriteString(rest[:open])
+		if value, ok := lookup(name); ok {
+			b.WriteString(value)
+		} else {
+			b.WriteString(rest[open : open+2+closing+2])
+		}
+		rest = rest[open+2+closing+2:]
+	}
+	return b.String()
+}

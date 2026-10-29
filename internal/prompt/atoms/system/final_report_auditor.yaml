@@ -1,0 +1,24 @@
+# The final-report audit (internal/session/admission_audit.go,
+# auditFinalReport): reads a write turn's final report and answers one word,
+# INCOMPLETE or COMPLETE; an INCOMPLETE withholds /done
+# (turn_self_reported_incomplete). Compiled for role /final_report_auditor,
+# intent /judge; the message is the task and the report. Until 2026-10-28 this
+# was finalReportAuditSystem plus the question finalReportAuditPrompt appended.
+
+- id: "system/final_report_auditor/contract"
+  category: "protocol"
+  is_mandatory: true
+  shard_types: ["/final_report_auditor"]
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+    - "capability/tool_thinking"
+    - "capability/codedom_safety"
+  content: |
+    You read an agent's final report on a task and answer with exactly one word: INCOMPLETE or COMPLETE. The message gives the task, when there is one, and the final report.
+
+    Does the report itself say that part of the requested work was not done, could not be finished, or was left for another run? Answer INCOMPLETE if it says so. Answer COMPLETE if it reports the work as done, including when it adds caveats, says it could not run a check itself, or suggests optional follow-up work.

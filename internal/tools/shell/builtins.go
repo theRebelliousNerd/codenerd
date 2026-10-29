@@ -1,0 +1,574 @@
+package shell
+
+import (
+	"bufio"
+	"container/list"
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+
+	"codenerd/internal/tools"
+	"codenerd/internal/workspace"
+)
+
+// psVerbs is the set of PowerShell approved-verb prefixes we recognize, used to
+// decide whether a not-found "Verb-Noun" command is a PowerShell cmdlet worth
+// re-routing through PowerShell (rather than a hyphenated unix binary).
+
+type grepLruEntry struct {
+	key string
+	re  *regexp.Regexp
+}
+
+var (
+	grepRegexCacheMu sync.Mutex
+	grepRegexCache   = make(map[string]*list.Element)
+	grepRegexCacheLL = list.New()
+	grepRegexMax     = 512
+)
+
+func getGrepRegex(pattern string) (*regexp.Regexp, error) {
+	grepRegexCacheMu.Lock()
+	if elem, ok := grepRegexCache[pattern]; ok {
+		grepRegexCacheLL.MoveToFront(elem)
+		re := elem.Value.(*grepLruEntry).re
+		grepRegexCacheMu.Unlock()
+		return re, nil
+	}
+	grepRegexCacheMu.Unlock()
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	grepRegexCacheMu.Lock()
+	defer grepRegexCacheMu.Unlock()
+
+	if elem, ok := grepRegexCache[pattern]; ok {
+		grepRegexCacheLL.MoveToFront(elem)
+		return elem.Value.(*grepLruEntry).re, nil
+	}
+
+	elem := grepRegexCacheLL.PushFront(&grepLruEntry{key: pattern, re: re})
+	grepRegexCache[pattern] = elem
+	if grepRegexCacheLL.Len() > grepRegexMax {
+		back := grepRegexCacheLL.Back()
+		if back != nil {
+			grepRegexCacheLL.Remove(back)
+			delete(grepRegexCache, back.Value.(*grepLruEntry).key)
+		}
+	}
+
+	return re, nil
+}
+
+var psVerbs = map[string]bool{
+	"get": true, "set": true, "new": true, "remove": true, "select": true,
+	"where": true, "foreach": true, "sort": true, "measure": true, "test": true,
+	"resolve": true, "format": true, "out": true, "write": true, "add": true,
+	"clear": true, "copy": true, "move": true, "rename": true, "invoke": true,
+	"start": true, "stop": true, "import": true, "export": true, "join": true,
+	"split": true, "compare": true, "group": true, "convertto": true,
+	"convertfrom": true, "read": true, "show": true,
+}
+
+// commonPSAliases are bare PowerShell command names (not Verb-Noun) the model
+// commonly emits that are not standalone binaries.
+var commonPSAliases = map[string]bool{
+	"get-childitem": true, "select-string": true, "get-content": true,
+	"measure-object": true, "where-object": true, "select-object": true,
+	"foreach-object": true, "sort-object": true, "get-item": true,
+	"test-path": true, "resolve-path": true, "get-location": true,
+	"write-output": true, "write-host": true, "format-table": true,
+	"format-list": true, "out-string": true, "get-childitems": true,
+}
+
+// isLikelyPowerShell reports whether cmd looks like a PowerShell cmdlet, so a
+// not-found command can be re-routed through PowerShell on Windows instead of
+// failing with "executable file not found". Matches the known alias set plus the
+// Verb-Noun cmdlet shape gated on an approved PowerShell verb (so a hyphenated
+// unix binary that merely isn't installed is not misrouted).
+func isLikelyPowerShell(cmd string) bool {
+	lc := strings.ToLower(strings.TrimSuffix(cmd, ".exe"))
+	if commonPSAliases[lc] {
+		return true
+	}
+	i := strings.IndexByte(lc, '-')
+	if i <= 0 || i >= len(lc)-1 {
+		return false
+	}
+	verb, noun := lc[:i], lc[i+1:]
+	return psVerbs[verb] && isAlphaWord(verb) && isAlphaWord(noun)
+}
+
+// isAlphaWord reports whether s is non-empty and all ASCII letters.
+func isAlphaWord(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+			return false
+		}
+	}
+	return true
+}
+
+// runBuiltinFallback serves a small set of ubiquitous, read-only shell commands
+// with cross-platform Go implementations. It is invoked by executeRunCommand
+// ONLY when the requested binary is not found on PATH — so a real installed tool
+// always takes precedence and behavior is unchanged on systems that have these
+// commands.
+//
+// Why this exists (F-CMD-2 / contract #4): campaign checkpoint reviewers and
+// shards habitually reach for unix coreutils (rg, grep, ls, wc, cat, head,
+// tail) to inspect the tree. On Windows those binaries are absent, so
+// run_command hard-failed ("exec: rg: executable file not found") and the
+// /shard_validation checkpoint could never complete its analysis — it exhausted
+// its retries and advanced UNVERIFIED (observed live 2026-07-13, campaigns
+// e6f9b0eb and 70bdd472). Serving real results for these read-only commands lets
+// verification actually run on any platform.
+//
+// It returns (output, true) when it handled the command, or ("", false) to let
+// the caller fall through to the normal exec path (which preserves the prior
+// not-found error for genuinely unavailable commands). All builtins are
+// strictly read-only.
+func runBuiltinFallback(ctx context.Context, argv []string, root, workingDir string) (string, bool) {
+	if len(argv) == 0 {
+		return "", false
+	}
+	name := strings.ToLower(filepath.Base(argv[0]))
+	// Strip a Windows .exe suffix the model may append.
+	name = strings.TrimSuffix(name, ".exe")
+	args := argv[1:]
+
+	scope := builtinScope{ctx: ctx, root: root, dir: workingDir}
+	if scope.dir == "" {
+		scope.dir = root
+	}
+
+	switch name {
+	case "pwd":
+		return builtinPwd(scope.dir), true
+	case "echo":
+		return strings.Join(args, " "), true
+	case "ls", "dir":
+		return builtinLs(args, scope), true
+	case "cat":
+		return builtinCat(args, scope), true
+	case "head":
+		return builtinHeadTail(args, scope, true), true
+	case "tail":
+		return builtinHeadTail(args, scope, false), true
+	case "wc":
+		return builtinWc(args, scope), true
+	case "grep", "rg", "egrep", "fgrep":
+		// rg defaults to recursive; grep only recurses with -r/-R. We honor an
+		// explicit path and recurse into directories in both cases, which
+		// matches how the model uses them for code search.
+		return builtinGrep(name, args, scope), true
+	default:
+		return "", false
+	}
+}
+
+// builtinScope is the filesystem view one builtin invocation may touch: shell
+// semantics for relative operands (they join onto the command working dir)
+// with workspace containment for the result. Every operand passes through the
+// same guard as the file tools, because a read-only builtin that honors
+// absolute paths and ".." is a containment bypass wearing a safe label: the
+// permission gate approved a workspace search, not /etc/passwd.
+type builtinScope struct {
+	ctx  context.Context
+	root string
+	dir  string
+}
+
+// resolve joins a possibly-relative operand against the command working dir
+// (shell semantics) and contains the result to the workspace root: symlinks
+// resolved, escapes rejected. It returns the canonical admitted path.
+func (s builtinScope) resolve(p string) (string, error) {
+	if p == "" {
+		p = "."
+	}
+	candidate := p
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(s.dir, candidate)
+	}
+	return tools.ResolveWorkspacePath(s.ctx, s.root, candidate)
+}
+
+// splitFlags separates leading -flags from positional operands. Values that
+// look like combined short flags (e.g. -ln) are returned as a set of runes.
+func splitFlags(args []string) (flags map[rune]bool, flagVals map[string]string, operands []string) {
+	flags = map[rune]bool{}
+	flagVals = map[string]string{}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			operands = append(operands, args[i+1:]...)
+			return
+		case strings.HasPrefix(a, "-") && len(a) > 1:
+			// -n <num> style (consume next arg for n/A/B/C)
+			body := strings.TrimLeft(a, "-")
+			if (body == "n" || body == "A" || body == "B" || body == "C" || body == "m") && i+1 < len(args) {
+				flagVals[body] = args[i+1]
+				i++
+				continue
+			}
+			// -n5 style
+			if len(body) > 1 && (body[0] == 'n' || body[0] == 'm') {
+				if _, err := strconv.Atoi(body[1:]); err == nil {
+					flagVals[string(body[0])] = body[1:]
+					continue
+				}
+			}
+			for _, r := range body {
+				flags[r] = true
+			}
+		default:
+			operands = append(operands, a)
+		}
+	}
+	return
+}
+
+func builtinPwd(workingDir string) string {
+	if workingDir != "" {
+		abs, err := filepath.Abs(workingDir)
+		if err == nil {
+			return abs
+		}
+		return workingDir
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return "."
+}
+
+func builtinLs(args []string, scope builtinScope) string {
+	flags, _, operands := splitFlags(args)
+	if len(operands) == 0 {
+		operands = []string{"."}
+	}
+	showAll := flags['a']
+	var out strings.Builder
+	multi := len(operands) > 1
+	for idx, target := range operands {
+		full, err := scope.resolve(target)
+		if err != nil {
+			fmt.Fprintf(&out, "ls: cannot access '%s': %v\n", target, err)
+			continue
+		}
+		info, err := os.Stat(full)
+		if err != nil {
+			fmt.Fprintf(&out, "ls: cannot access '%s': %v\n", target, err)
+			continue
+		}
+		if !info.IsDir() {
+			out.WriteString(target + "\n")
+			continue
+		}
+		if multi {
+			if idx > 0 {
+				out.WriteString("\n")
+			}
+			out.WriteString(target + ":\n")
+		}
+		entries, err := os.ReadDir(full)
+		if err != nil {
+			fmt.Fprintf(&out, "ls: cannot open directory '%s': %v\n", target, err)
+			continue
+		}
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			if !showAll && strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			name := e.Name()
+			if e.IsDir() {
+				name += "/"
+			}
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			out.WriteString(n + "\n")
+		}
+	}
+	return strings.TrimRight(out.String(), "\n")
+}
+
+func builtinCat(args []string, scope builtinScope) string {
+	_, _, operands := splitFlags(args)
+	if len(operands) == 0 {
+		return ""
+	}
+	var out strings.Builder
+	for _, f := range operands {
+		full, err := scope.resolve(f)
+		if err != nil {
+			fmt.Fprintf(&out, "cat: %s: %v\n", f, err)
+			continue
+		}
+		data, err := os.ReadFile(full)
+		if err != nil {
+			fmt.Fprintf(&out, "cat: %s: %v\n", f, err)
+			continue
+		}
+		out.Write(data)
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			out.WriteByte('\n')
+		}
+	}
+	return strings.TrimRight(out.String(), "\n")
+}
+
+func builtinHeadTail(args []string, scope builtinScope, head bool) string {
+	flags, flagVals, operands := splitFlags(args)
+	_ = flags
+	n := 10
+	if v, ok := flagVals["n"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			n = parsed
+		}
+	}
+	if len(operands) == 0 {
+		return ""
+	}
+	var out strings.Builder
+	for _, f := range operands {
+		full, err := scope.resolve(f)
+		if err != nil {
+			fmt.Fprintf(&out, "%s: %s: %v\n", map[bool]string{true: "head", false: "tail"}[head], f, err)
+			continue
+		}
+		data, err := os.ReadFile(full)
+		if err != nil {
+			fmt.Fprintf(&out, "%s: %s: %v\n", map[bool]string{true: "head", false: "tail"}[head], f, err)
+			continue
+		}
+		lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+		if head {
+			if n < len(lines) {
+				lines = lines[:n]
+			}
+		} else {
+			if n < len(lines) {
+				lines = lines[len(lines)-n:]
+			}
+		}
+		out.WriteString(strings.Join(lines, "\n"))
+		out.WriteString("\n")
+	}
+	return strings.TrimRight(out.String(), "\n")
+}
+
+func builtinWc(args []string, scope builtinScope) string {
+	flags, _, operands := splitFlags(args)
+	onlyLines := flags['l'] && !flags['w'] && !flags['c']
+	onlyWords := flags['w'] && !flags['l'] && !flags['c']
+	onlyBytes := flags['c'] && !flags['l'] && !flags['w']
+	if len(operands) == 0 {
+		return "wc: no input files"
+	}
+	var out strings.Builder
+	for _, f := range operands {
+		full, err := scope.resolve(f)
+		if err != nil {
+			fmt.Fprintf(&out, "wc: %s: %v\n", f, err)
+			continue
+		}
+		data, err := os.ReadFile(full)
+		if err != nil {
+			fmt.Fprintf(&out, "wc: %s: %v\n", f, err)
+			continue
+		}
+		lineCount := strings.Count(string(data), "\n")
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			lineCount++ // count a final line without trailing newline
+		}
+		wordCount := len(strings.Fields(string(data)))
+		byteCount := len(data)
+		switch {
+		case onlyLines:
+			fmt.Fprintf(&out, "%d %s\n", lineCount, f)
+		case onlyWords:
+			fmt.Fprintf(&out, "%d %s\n", wordCount, f)
+		case onlyBytes:
+			fmt.Fprintf(&out, "%d %s\n", byteCount, f)
+		default:
+			fmt.Fprintf(&out, "%d %d %d %s\n", lineCount, wordCount, byteCount, f)
+		}
+	}
+	return strings.TrimRight(out.String(), "\n")
+}
+
+// builtinGrep implements a read-only grep/rg over files and directories.
+func builtinGrep(name string, args []string, scope builtinScope) string {
+	flags, flagVals, operands := splitFlags(args)
+	if len(operands) == 0 {
+		return fmt.Sprintf("%s: no pattern given", name)
+	}
+	patternStr := operands[0]
+	paths := operands[1:]
+	if len(paths) == 0 {
+		paths = []string{"."} // rg/grep -r style: default to cwd
+	}
+
+	ignoreCase := flags['i']
+	showLineNum := flags['n'] || name == "rg" // rg shows line numbers by default
+	filesOnly := flags['l']
+	maxCount := 0
+	if v, ok := flagVals["m"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			maxCount = parsed
+		}
+	}
+
+	reStr := patternStr
+	if ignoreCase {
+		reStr = "(?i)" + reStr
+	}
+	re, err := getGrepRegex(reStr)
+	if err != nil {
+		// Fall back to a literal match if the pattern isn't a valid regex.
+		lit := regexp.QuoteMeta(patternStr)
+		if ignoreCase {
+			lit = "(?i)" + lit
+		}
+		re, err = getGrepRegex(lit)
+		if err != nil {
+			return fmt.Sprintf("%s: invalid pattern: %v", name, patternStr)
+		}
+	}
+
+	memRoot := scope.root
+	if strings.TrimSpace(memRoot) == "" {
+		memRoot = scope.dir
+	}
+	mem, memErr := workspace.For(memRoot)
+	if memErr != nil {
+		return fmt.Sprintf("%s: %v", name, memErr)
+	}
+	if memErr = mem.Refresh(); memErr != nil {
+		return fmt.Sprintf("%s: %v", name, memErr)
+	}
+
+	var out strings.Builder
+	// No match cap: grep prints every hit whole and the working context
+	// ledger archives large tool results behind recall handles. The old
+	// 2000-match ceiling with "...[truncated]" silently lost the matches
+	// the model never saw.
+
+	// Display paths stay relative to the command working dir. The base is
+	// symlink-resolved because every admitted path is canonical; without that,
+	// a working dir reached through a link (e.g. /tmp on macOS) would break
+	// every Rel and print absolute paths.
+	displayBase := scope.dir
+	if resolved, err := filepath.EvalSymlinks(scope.dir); err == nil {
+		displayBase = resolved
+	}
+
+	searchFile := func(path string) {
+		f, err := os.Open(path)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		rel := path
+		if r, err := filepath.Rel(displayBase, path); err == nil {
+			rel = filepath.ToSlash(r)
+		}
+		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+		lineNo := 0
+		fileHits := 0
+		for scanner.Scan() {
+			lineNo++
+			line := scanner.Text()
+			if re.MatchString(line) {
+				if filesOnly {
+					out.WriteString(rel + "\n")
+					return
+				}
+				if showLineNum {
+					fmt.Fprintf(&out, "%s:%d:%s\n", rel, lineNo, line)
+				} else {
+					fmt.Fprintf(&out, "%s:%s\n", rel, line)
+				}
+				fileHits++
+				// maxCount is the model's own -m flag: caller-set paging,
+				// not a cut. There is no other ceiling here.
+				if maxCount > 0 && fileHits >= maxCount {
+					return
+				}
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			// The 4MB line ceiling only bites on lines that are not
+			// line-shaped — minified bundles, embedded assets. Stopping
+			// silently would read as "no more matches below", so the skip
+			// is announced on the output it shortens.
+			fmt.Fprintf(&out, "%s: rest of file skipped (%v)\n", rel, err)
+		}
+	}
+
+	for _, p := range paths {
+		full, err := scope.resolve(p)
+		if err != nil {
+			fmt.Fprintf(&out, "%s: %s: %v\n", name, p, err)
+			continue
+		}
+		info, err := os.Stat(full)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() {
+			_ = filepath.WalkDir(full, func(walkPath string, d os.DirEntry, err error) error {
+				if err != nil {
+					return nil
+				}
+				member, admErr := mem.Admit(walkPath, d.IsDir())
+				if admErr != nil {
+					return admErr
+				}
+				if !member || d.IsDir() {
+					return nil
+				}
+				// The walk is lexical: a symlink inside the tree can point
+				// outside it, and opening it would read past containment.
+				// Admit every walked file through the guard; skips stay
+				// silent the way permission errors do.
+				if admitted, err := scope.resolve(walkPath); err == nil {
+					searchFile(admitted)
+				}
+				return nil
+			})
+		} else {
+			ok, admErr := mem.Admit(full, false)
+			if admErr != nil || !ok {
+				continue
+			}
+			searchFile(full)
+		}
+	}
+
+	res := strings.TrimRight(out.String(), "\n")
+	if res == "" {
+		// grep/rg convention: no matches => empty output (exit 1), but tools
+		// here return strings; an explicit note is friendlier to the LLM.
+		return ""
+	}
+	return res
+}
