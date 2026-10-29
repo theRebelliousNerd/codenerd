@@ -139,7 +139,7 @@
 "capability/knowledge_protocol":{"content_hash":"e2c5000565ce2009bff41c8fd958559dc3a66e94457a663c54861213b8b217f3","level":3,"score":2.35,"probabilities":[0.01,0.05,0.53,0.41,0]},
 "capability/ouroboros_awareness":{"content_hash":"be4b8a31cd693e0aeb548a59797524c0a34142a62031c741af3dc3b08122f8a2","level":3,"score":2.31,"probabilities":[0.01,0.04,0.69,0.15,0.11]},
 "capability/run_check":{"content_hash":"8ad200d7ce60db481b06e5a63a0190f7ffee20283f7f03b3dcd9a0508862e010","level":4,"score":2.81,"probabilities":[0,0.01,0.18,0.8,0.01]},
-"capability/run_lint":{"content_hash":"19cc6349f45f01fe3fa865f864a51903a0c4d66cd095a5c542f91f46dda8c306","level":3,"score":2.47,"probabilities":[0,0.03,0.48,0.48,0.01]},
+"capability/run_lint":{"content_hash":"d75648eb9ec850f065cd4a12ab1c987c9bfa0525693bccb6d4fa597334dcdb96","level":3,"score":2.46,"probabilities":[0,0.03,0.49,0.46,0.02]},
 "capability/specialist_fallback":{"content_hash":"5a5498ac0b749be18ba932691dd2e1c36a13dfebd859019991f360fea48f4aff","level":3,"score":2.09,"probabilities":[0.01,0.08,0.71,0.2,0]},
 "capability/structure_queries":{"content_hash":"c692303ae0293508d5dd6bdc48524189bfa803df281d8d2fadf611f8537d1ed5","level":3,"score":2.03,"probabilities":[0,0.01,0.95,0.04,0]},
 "capability/structure_queries/caller-marks-and-search-gate":{"content_hash":"a7547fb4d17a59b5a3c8a2c4161b74cd545916b8182418100f82814c37649cd6","level":4,"score":2.57,"probabilities":[0,0,0.43,0.56,0.01]},
