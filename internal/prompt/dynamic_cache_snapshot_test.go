@@ -76,24 +76,24 @@ func (scope *dynamicScopeReceipt) Query(predicate string) ([]prompt.Fact, error)
 	return scope.scope.Query(predicate)
 }
 
-func (scope *dynamicScopeReceipt) QueryAll() (map[string][]prompt.Fact, error) {
+func (scope *dynamicScopeReceipt) ContentFingerprint() (string, error) {
 	scope.active.Add(1)
 	defer scope.active.Add(-1)
 	if scope.isClosed.Load() {
-		return nil, errors.New("dynamic snapshot queried after release")
+		return "", errors.New("dynamic snapshot queried after release")
 	}
 	if scope.probe.failure.Load() == 3 {
-		return nil, errors.New("dynamic complete snapshot failure")
+		return "", errors.New("dynamic complete snapshot failure")
 	}
-	snapshot, ok := scope.scope.(prompt.KernelFactSnapshotQuerier)
+	snapshot, ok := scope.scope.(prompt.KernelContentFingerprinter)
 	if !ok {
-		return nil, errors.New("production KernelAdapter scope does not expose QueryAll")
+		return "", errors.New("production KernelAdapter scope does not expose ContentFingerprint")
 	}
-	facts, err := snapshot.QueryAll()
+	fingerprint, err := snapshot.ContentFingerprint()
 	if err == nil {
 		scope.probe.snapshotted <- scope.sequence
 	}
-	return facts, err
+	return fingerprint, err
 }
 
 func (scope *dynamicScopeReceipt) AssertBatch(facts []any) error {

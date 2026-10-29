@@ -2,45 +2,30 @@ package system
 
 import (
 	"fmt"
-	"reflect"
-	"slices"
 
 	"codenerd/internal/prompt"
 )
 
 var (
-	_ prompt.KernelFactSnapshotQuerier = (*KernelAdapter)(nil)
-	_ prompt.KernelFactSnapshotQuerier = (*kernelCompilationScope)(nil)
+	_ prompt.KernelContentFingerprinter = (*KernelAdapter)(nil)
+	_ prompt.KernelContentFingerprinter = (*kernelCompilationScope)(nil)
 )
 
-func (adapter *KernelAdapter) QueryAll() (map[string][]prompt.Fact, error) {
+// ContentFingerprint names the adapted kernel's complete evaluated content
+// for the prompt compiler's cache identity (core.RealKernel.ContentFingerprint).
+// Only a RealKernel can name its content; any other kernel is an error, not
+// an identity that could match a different state.
+func (adapter *KernelAdapter) ContentFingerprint() (string, error) {
 	if adapter == nil {
-		return nil, fmt.Errorf("query prompt kernel snapshot: nil adapter")
+		return "", fmt.Errorf("fingerprint prompt kernel snapshot: nil adapter")
 	}
-	if adapter.kernel == nil {
-		return nil, fmt.Errorf("query prompt kernel snapshot: nil kernel")
+	live := adapter.liveRealKernel()
+	if live == nil {
+		return "", fmt.Errorf("fingerprint prompt kernel snapshot: kernel %T has no RealKernel (nil or unsupported)", adapter.kernel)
 	}
-	kernelValue := reflect.ValueOf(adapter.kernel)
-	switch kernelValue.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		if kernelValue.IsNil() {
-			return nil, fmt.Errorf("query prompt kernel snapshot: nil kernel")
-		}
-	}
-	facts, err := adapter.kernel.QueryAll()
+	fingerprint, err := live.ContentFingerprint()
 	if err != nil {
-		return nil, fmt.Errorf("query prompt kernel snapshot: %w", err)
+		return "", fmt.Errorf("fingerprint prompt kernel snapshot: %w", err)
 	}
-	snapshot := make(map[string][]prompt.Fact, len(facts))
-	for predicate, rows := range facts {
-		var converted []prompt.Fact
-		if rows != nil {
-			converted = make([]prompt.Fact, len(rows))
-		}
-		for index, fact := range rows {
-			converted[index] = prompt.Fact{Predicate: fact.Predicate, Args: slices.Clone(fact.Args)}
-		}
-		snapshot[predicate] = converted
-	}
-	return snapshot, nil
+	return fingerprint, nil
 }

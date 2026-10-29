@@ -123,12 +123,13 @@ func (k *RealKernel) rebuildProgram() error {
 
 	var compiled compiledProgram
 	var err error
+	programKey := programCacheKey(programStr)
 	if k.sandbox {
 		// A sandbox trial program is a throwaway: never cached or shared.
 		compiled, err = compileProgram(programStr, true)
 	} else {
 		var reused bool
-		compiled, reused, err = compileShared(programCacheKey(programStr), programStr)
+		compiled, reused, err = compileShared(programKey, programStr)
 		if err == nil && reused {
 			logging.KernelDebug("rebuildProgram: reused analyzed program from cache")
 		}
@@ -151,6 +152,7 @@ func (k *RealKernel) rebuildProgram() error {
 	// old strata and cone, with policyDirty already cleared.
 	programInfo := compiled.info
 	k.programInfo = programInfo
+	k.programKey = programKey
 	k.policyDirty = false
 	// New Decls may declare different bounds than the ones cachedAtoms were
 	// converted under, so force one reconversion. Also covers the boot case
@@ -595,7 +597,8 @@ func (k *RealKernel) cloneLocked() *RealKernel {
 		simulateCommitErr: k.simulateCommitErr,
 		eventBus:          NewFactEventBus(), // Fresh bus: every kernel needs a non-nil one
 		cone:              k.cone,            // Share the dependency index (immutable)
-		dirtyAll:          true,              // The clone has no store; its first evaluate is a full one
+		programKey:        k.programKey,
+		dirtyAll:          true, // The clone has no store; its first evaluate is a full one
 		// Deliberately fresh: diff engine state (rebuilt lazily), proof
 		// recorder (sharing it would race), lastEvaluation, undeclared
 		// warnings (re-warn on the clone is benign).

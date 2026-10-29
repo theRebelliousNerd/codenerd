@@ -64,8 +64,8 @@ func (s *identityScope) Query(predicate string) ([]Fact, error) {
 }
 func (s *identityScope) AssertBatch([]any) error { return nil }
 func (s *identityScope) Close() error            { return nil }
-func (s *identityScope) QueryAll() (map[string][]Fact, error) {
-	return map[string][]Fact{"marker": {{Predicate: "marker", Args: []any{s.injected}}}}, nil
+func (s *identityScope) ContentFingerprint() (string, error) {
+	return "marker:" + s.injected, nil
 }
 func (s *identityScope) BaseIdentity() (KernelSnapshotIdentity, bool) { return s.base, true }
 

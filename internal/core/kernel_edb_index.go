@@ -36,6 +36,9 @@ type edbIndex struct {
 	// delta is what changed since the store was last evaluated
 	// (kernel_edb_delta.go).
 	delta edbDelta
+	// content is the multiset hash of the held facts
+	// (kernel_content_fingerprint.go).
+	content [2]uint64
 }
 
 // admittedAtom is a fact's store atom as admitted under one program.
@@ -72,6 +75,7 @@ func (x *edbIndex) insert(key string, f Fact) bool {
 	bucket[key] = f
 	x.forgetAtom(f.Predicate, key)
 	x.delta.noteInsert(f.Predicate, key)
+	x.addContent(f.Predicate, key)
 	arities := x.arities[f.Predicate]
 	if arities == nil {
 		arities = make(map[int]struct{}, 1)
@@ -93,6 +97,7 @@ func (x *edbIndex) remove(pred, key string) {
 	x.delta.noteRemove(pred, key, f, atom, hadAtom)
 	delete(bucket, key)
 	x.forgetAtom(pred, key)
+	x.subtractContent(pred, key)
 	x.size--
 	if len(bucket) == 0 {
 		delete(x.buckets, pred)
@@ -154,6 +159,7 @@ func (x *edbIndex) clone() *edbIndex {
 		arities: make(map[string]map[int]struct{}, len(x.arities)),
 		atoms:   make(map[string]map[string]admittedAtom, len(x.atoms)),
 		delta:   x.delta.clone(),
+		content: x.content,
 		size:    x.size,
 	}
 	for pred, memo := range x.atoms {

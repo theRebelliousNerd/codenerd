@@ -2,31 +2,16 @@ package prompt
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
-
-	"codenerd/internal/core"
 
 	"github.com/stretchr/testify/require"
 )
 
-func (querier *realKernelQuerier) QueryAll() (map[string][]Fact, error) {
-	return promptSnapshotFacts(querier.k)
-}
-
-func promptSnapshotFacts(kernel *core.RealKernel) (map[string][]Fact, error) {
-	rows, err := kernel.QueryAll()
-	if err != nil {
-		return nil, err
-	}
-	snapshot := make(map[string][]Fact, len(rows))
-	for predicate, facts := range rows {
-		snapshot[predicate] = make([]Fact, 0, len(facts))
-		for _, fact := range facts {
-			snapshot[predicate] = append(snapshot[predicate], Fact{Predicate: fact.Predicate, Args: fact.Args})
-		}
-	}
-	return snapshot, nil
+func (querier *realKernelQuerier) ContentFingerprint() (string, error) {
+	return querier.k.ContentFingerprint()
 }
 
 func TestDynamicKernelFingerprint_CanonicalContent(test *testing.T) {
@@ -73,8 +58,16 @@ type snapshotPredicateKernel struct {
 	*predicateKernel
 }
 
-func (kernel *snapshotPredicateKernel) QueryAll() (map[string][]Fact, error) {
-	return kernel.facts, nil
+// ContentFingerprint names the mock's rows as a set: the same rows in any
+// order and with repeats name the same content, as a kernel's would.
+func (kernel *snapshotPredicateKernel) ContentFingerprint() (string, error) {
+	var rows []string
+	for predicate, facts := range kernel.facts {
+		for _, fact := range facts {
+			rows = append(rows, fmt.Sprintf("%s %q %v", predicate, fact.Predicate, fact.Args))
+		}
+	}
+	return HashContent(strings.Join(canonicalStringSet(rows), "\n")), nil
 }
 
 // predicateKernel is a minimal kernel mock that returns facts by predicate.

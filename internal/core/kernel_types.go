@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
 	"fmt"
 	"path"
@@ -94,6 +95,9 @@ type RealKernel struct {
 	// storeShared: a clone reads the (plain) evaluated store as its base, so
 	// the next in-place write wraps it first (kernel_overlay_store.go).
 	storeShared atomic.Bool
+	// programKey hashes the program text the kernel last compiled: half of
+	// its content fingerprint (kernel_content_fingerprint.go).
+	programKey [sha256.Size]byte
 	// factsDirty is atomic so Query/QueryCallback/QueryAll can fast-path without
 	// holding the kernel mutex when no facts have changed since the last evaluate.
 	// Use ensureEvaluated() (kernel_eval.go) to drive lazy re-eval safely.

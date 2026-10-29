@@ -105,10 +105,12 @@ type KernelScopeIdentity interface {
 	BaseIdentity() (KernelSnapshotIdentity, bool)
 }
 
-// KernelFactSnapshotQuerier exposes the complete evaluated facts of an owned
-// compilation scope, including inputs to selection outside the injection rows.
-type KernelFactSnapshotQuerier interface {
-	QueryAll() (map[string][]Fact, error)
+// KernelContentFingerprinter names the complete evaluated content of an owned
+// compilation scope -- every fact, including inputs to selection outside the
+// injection rows -- without listing it. Equal fingerprints answer every query
+// alike (core.RealKernel.ContentFingerprint).
+type KernelContentFingerprinter interface {
+	ContentFingerprint() (string, error)
 }
 
 var promptEphemeralPredicates = []string{

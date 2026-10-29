@@ -173,36 +173,22 @@ func (c *JITPromptCompiler) collectDynamicKernelSnapshotWithConfig(kernel Kernel
 	if err != nil {
 		return nil, "", err
 	}
-	records := make([]string, 0, len(atoms))
-	if snapshot, available := kernel.(KernelFactSnapshotQuerier); available {
-		facts, queryErr := snapshot.QueryAll()
-		if queryErr != nil {
-			return nil, "", fmt.Errorf("query complete kernel snapshot: %w", queryErr)
+	records := make([]string, 0, len(atoms)+1)
+	// The scope's whole content is part of the cache identity. The kernel
+	// names it without listing it: listing and encoding every fact was ~1 s
+	// of each compile against a 345k-fact world kernel (2026-10-29).
+	if content, available := kernel.(KernelContentFingerprinter); available {
+		fingerprint, fpErr := content.ContentFingerprint()
+		if fpErr != nil {
+			return nil, "", fmt.Errorf("fingerprint complete kernel snapshot: %w", fpErr)
 		}
-		for predicate, rows := range facts {
-			encodedPredicate, encodeErr := json.Marshal([]string{"predicate", predicate})
-			if encodeErr != nil {
-				return nil, "", encodeErr
-			}
-			records = append(records, string(encodedPredicate))
-			for _, fact := range rows {
-				arguments := make([]any, 0, len(fact.Args))
-				for _, argument := range fact.Args {
-					value := argument
-					if printable, supported := argument.(fmt.Stringer); supported {
-						value = printable.String()
-					}
-					arguments = append(arguments, []any{fmt.Sprintf("%T", argument), value})
-				}
-				encoded, encodeErr := json.Marshal([]any{"fact", predicate, fact.Predicate, arguments})
-				if encodeErr != nil {
-					return nil, "", fmt.Errorf("encode kernel snapshot %s: %w", predicate, encodeErr)
-				}
-				records = append(records, string(encoded))
-			}
+		encoded, encodeErr := json.Marshal([]string{"kernel", fingerprint})
+		if encodeErr != nil {
+			return nil, "", encodeErr
 		}
+		records = append(records, string(encoded))
 	} else if _, scoped := c.kernel.(KernelScopeProvider); scoped {
-		return nil, "", fmt.Errorf("isolated kernel scope must expose QueryAll for dynamic cache identity")
+		return nil, "", fmt.Errorf("isolated kernel scope must expose ContentFingerprint for dynamic cache identity")
 	}
 	for _, atom := range atoms {
 		encoded, encodeErr := json.Marshal([]string{"injection", atom.ID, atom.Content})

@@ -39,33 +39,21 @@ type northstarJITCompilationScope struct {
 }
 
 var (
-	_ prompt.KernelFactSnapshotQuerier = (*northstarJITKernelAdapter)(nil)
-	_ prompt.KernelFactSnapshotQuerier = (*northstarJITCompilationScope)(nil)
-	_ prompt.KernelQuerier             = (*northstarJITKernelAdapter)(nil)
-	_ prompt.KernelRetracter           = (*northstarJITKernelAdapter)(nil)
-	_ prompt.KernelScopeProvider       = (*northstarJITKernelAdapter)(nil)
-	_ prompt.KernelCompilationScope    = (*northstarJITCompilationScope)(nil)
+	_ prompt.KernelContentFingerprinter = (*northstarJITKernelAdapter)(nil)
+	_ prompt.KernelContentFingerprinter = (*northstarJITCompilationScope)(nil)
+	_ prompt.KernelQuerier              = (*northstarJITKernelAdapter)(nil)
+	_ prompt.KernelRetracter            = (*northstarJITKernelAdapter)(nil)
+	_ prompt.KernelScopeProvider        = (*northstarJITKernelAdapter)(nil)
+	_ prompt.KernelCompilationScope     = (*northstarJITCompilationScope)(nil)
 )
 
-func (adapter *northstarJITKernelAdapter) QueryAll() (map[string][]prompt.Fact, error) {
+// ContentFingerprint names the kernel's complete content for the prompt
+// compiler's cache identity (core.RealKernel.ContentFingerprint).
+func (adapter *northstarJITKernelAdapter) ContentFingerprint() (string, error) {
 	if adapter == nil || adapter.kernel == nil {
-		return nil, fmt.Errorf("northstar JIT kernel adapter has nil kernel")
+		return "", fmt.Errorf("northstar JIT kernel adapter has nil kernel")
 	}
-	facts, err := adapter.kernel.QueryAll()
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[string][]prompt.Fact, len(facts))
-	for predicate, rows := range facts {
-		converted := make([]prompt.Fact, len(rows))
-		for index, fact := range rows {
-			arguments := make([]any, len(fact.Args))
-			copy(arguments, fact.Args)
-			converted[index] = prompt.Fact{Predicate: fact.Predicate, Args: arguments}
-		}
-		result[predicate] = converted
-	}
-	return result, nil
+	return adapter.kernel.ContentFingerprint()
 }
 
 func (a *northstarJITKernelAdapter) Query(predicate string) ([]prompt.Fact, error) {
