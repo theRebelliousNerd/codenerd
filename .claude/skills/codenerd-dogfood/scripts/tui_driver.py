@@ -144,7 +144,12 @@ def cmd_say(argv):
     state["said_at"] = time.time()
     state["count_before"] = len(messages(state))
     save_state(state)
-    tmux("send-keys", "-t", TMUX_SESSION, "-l", text)
+    # A bracketed paste, the way a terminal delivers pasted text: the TUI
+    # receives it as one paste. Typing it as keys (send-keys -l) arrived
+    # reordered and with characters dropped twice on 2026-10-28, while tmux
+    # itself delivered the same keys to `cat` intact.
+    subprocess.run(["tmux", "load-buffer", "-b", "nerd-dogfood-say", "-"], input=text, text=True, check=True)
+    tmux("paste-buffer", "-p", "-d", "-b", "nerd-dogfood-say", "-t", TMUX_SESSION)
     tmux("send-keys", "-t", TMUX_SESSION, "Enter")
     print("sent")
     return 0
