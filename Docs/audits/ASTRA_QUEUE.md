@@ -18,6 +18,7 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 | `responses-assistant-phase-replay` | `research-main-20261029-1950` | fixed `89e4a65c2` |
 | `exact-model-pin-tag-identity` | `research-main-20261029-1018` | open |
 | `streaming-grounding-source-ownership` | `research-main-20261029-1018` | open |
+| `ollama-shard-model-override` | `research-main-20261029-2152` | open |
 
 ## Lane A: experts, JIT, then session verdicts and test gates
 
@@ -41,6 +42,7 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 | `revision-sentinel-build-exclusion-parity` | `research-main-20261029-1018` | open |
 | `omitted-argument-admission-order` | `research-main-20261029-1018` | open |
 | `system-execution-outcome-projection` | `research-main-20261029-1018` | open |
+| `expert-lending-dependency-contract` | `research-main-20261029-2152` | open |
 
 ## Lane B: campaign and verification, then the Mangle kernel and world model
 
@@ -62,6 +64,7 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 | `world-cache-rolling-format-admission` | `research-main-20261029-1018` | open |
 | `scanner-graph-source-retirement` | `research-main-20261029-1018` | open |
 | `symbol-focus-identity-continuity` | `research-main-20261029-1018` | open |
+| `run_lint describes its build tags` (root finding, R1-27 rerun: the model believed run_lint takes no tags; it applies the workspace build env) | -- | open |
 
 ## codeNERD ladder runs: store, learning and memory, then chat and TUI
 
