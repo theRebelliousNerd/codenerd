@@ -217,13 +217,14 @@ func (m Model) processInput(input string) tea.Cmd {
 			m.recordBrief(intent.Brief)
 		}
 		m.recordTurnJudgments(ctx, judged)
-		// A correction to codeNERD's last turn runs the learning loop in place
-		// of the turn, when the kernel derives one (jev_correction.go,
-		// policy/jev_learning.mg). A go-ahead turn is not a correction.
+		// A correction to codeNERD's last turn is learned from in the
+		// background while the turn runs as asked, when the kernel derives one
+		// (jev_correction.go, learning_auto.go, policy/jev_learning.mg). A
+		// go-ahead turn is not a correction.
 		if !reusedIntent {
 			if source, ok := m.recordCorrection(ctx, input, correction); ok {
-				logging.Routing("[processInput] learning_correction(/%s): the learning loop replaces the turn", source)
-				return learningCorrectionMsg{input: input, source: source}
+				logging.Routing("[processInput] learning_correction(/%s): learning beside the turn", source)
+				m.learnFromCorrection(lastExchange(m.history, input).PreviousRequest, source)
 			}
 		}
 		// The limit the user put on this request (read-only, dry run, what-if,

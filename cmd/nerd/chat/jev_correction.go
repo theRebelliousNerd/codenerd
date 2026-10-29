@@ -17,8 +17,8 @@ import (
 // perception, whether the latest message tells codeNERD its last reply or
 // action was wrong (learnjudge.JudgeCorrection); the rebuke-phrase reading
 // (perception.IsRebuke) is asserted beside it as fallback evidence. The kernel
-// derives learning_correction, and only then does the learning loop run in
-// place of the turn. Until 2026-10-28 handleSubmit matched keywords before
+// derives learning_correction, and only then is the correction learned from,
+// beside the turn (learning_auto.go). Until 2026-10-28 handleSubmit matched keywords before
 // perception, so "stop" or "wrong" in a short message was a correction.
 
 // judgedCorrection is the outcome of one turn's correction question. asked is
@@ -28,13 +28,6 @@ type judgedCorrection struct {
 	asked bool
 	err   error
 	took  time.Duration
-}
-
-// learningCorrectionMsg carries a turn the kernel derived as a correction to
-// the Update loop, which runs the learning loop in its place.
-type learningCorrectionMsg struct {
-	input  string
-	source string
 }
 
 // startCorrectionJudgment asks Jev about the turn in the background and

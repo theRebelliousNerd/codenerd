@@ -14,9 +14,9 @@ import (
 	"codenerd/internal/typesafe"
 )
 
-// jev_correction_test.go: the learning loop replaces a turn only when the
-// kernel derives learning_correction (jev_correction.go,
-// policy/jev_learning.mg). Jev's judgment outranks the rebuke-phrase reading;
+// jev_correction_test.go: a turn is learned from only when the kernel derives
+// learning_correction (jev_correction.go, policy/jev_learning.mg), and the
+// turn itself still runs (learning_auto.go). Jev's judgment outranks the rebuke-phrase reading;
 // a turn Jev did not judge falls back to it.
 
 // correctionJev answers corrects_last_turn with p and every other noul 0.5,
@@ -90,11 +90,15 @@ func correctionModel(t *testing.T, input string) Model {
 	return m
 }
 
+// correctionSource runs the turn and returns the kernel's correction
+// decision. The turn's own reply is never replaced by the learning loop.
 func correctionSource(t *testing.T, m Model, input string) (string, bool) {
 	t.Helper()
 	msg := awaitProcessStream(t, m.processInput(input)())
-	lc, ok := msg.(learningCorrectionMsg)
-	return lc.source, ok
+	if _, ok := msg.(errorMsg); ok {
+		t.Fatalf("the turn failed: %v", msg)
+	}
+	return m.learningCorrection()
 }
 
 func TestCorrection_TruthTable(t *testing.T) {
@@ -127,7 +131,7 @@ func TestCorrection_TruthTable(t *testing.T) {
 			}
 			source, ok := correctionSource(t, m, tc.input)
 			if tc.want == "" && ok {
-				t.Fatalf("turn became the learning loop (source %s), want it routed as usual", source)
+				t.Fatalf("turn was read as a correction (source %s), want no learning", source)
 			}
 			if tc.want != "" && (!ok || source != tc.want) {
 				t.Fatalf("learning_correction = %q (%v), want %q", source, ok, tc.want)
@@ -138,18 +142,6 @@ func TestCorrection_TruthTable(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// The kernel's decision runs the learning loop through Update.
-func TestCorrection_MessageStartsTheLearningLoop(t *testing.T) {
-	m := correctionModel(t, "no, I said Max")
-	next, cmd := m.Update(learningCorrectionMsg{input: "no, I said Max", source: "jev"})
-	if cmd == nil {
-		t.Fatal("the learning loop issued no command")
-	}
-	if got := lastAssistant(next.(Model)); got == "" || got == "Done: Min in stats.go now returns 0 for an empty slice." {
-		t.Fatalf("the learning loop did not tell the user it is learning: %q", got)
 	}
 }
 
