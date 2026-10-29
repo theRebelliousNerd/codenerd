@@ -432,6 +432,14 @@ func (j *JITExecutor) executeObserved(ctx context.Context, req TaskRequest, sess
 	if preset != nil {
 		preset.Constraint = strings.TrimSpace(req.Constraint)
 	}
+	// Inline delegation is a new task boundary too, even when its persona
+	// matches the parent. Do not inherit a named parent's accounting scope.
+	name := turnUserAgent(req.IntentVerb)
+	if name == "" {
+		name = agentName(req.IntentVerb)
+	}
+	ctx = withShardUsage(ctx, req.IntentVerb, name)
+
 	// The delegated task is an agent of its own in the session log: its model
 	// calls, tool results and outcome file under <role>-<id>/.
 	var result *ExecutionResult
@@ -518,8 +526,12 @@ func (j *JITExecutor) executeAsyncInternal(ctx context.Context, req TaskRequest,
 	// context (the user's --timeout, when set) and stops when the working
 	// policy derives a stall, never on a clock of the harness's own (the
 	// 30-minute shard ceiling was removed 2026-09-19).
+	name := turnUserAgent(req.IntentVerb)
+	if name == "" {
+		name = agentName(req.IntentVerb)
+	}
 	spawnReq := SpawnRequest{
-		Name:             agentName(req.IntentVerb),
+		Name:             name,
 		Task:             req.TaskText(),
 		Type:             SubAgentTypeEphemeral,
 		IntentVerb:       req.IntentVerb,

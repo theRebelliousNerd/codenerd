@@ -30,6 +30,14 @@ Package slogan (from `executor.go` package comment):
 
 In practice, **spawn and factories still exist** as higher-level surfaces (`Spawner`, `ConfigFactory` interface), but domain behavior no longer lives as giant Go shard classes. Specialization is JIT config + prompt atoms.
 
+### Shard usage attribution contract
+
+Model usage during a persona turn must carry the active persona's type and stable name through prompt/config compilation, model/tool rounds, critique, and nested work. A consultation or subagent establishes its own identity rather than inheriting its caller's bucket; named workers retain their configured name. Session and per-turn accounting remain independent. Calls outside shard work retain the `unknown` bucket (also used by historical unattributed records); existing totals must not be relabeled without evidence.
+
+Regression checks must exercise the executor, inline delegation, consultation, and subagent entry paths, including setup calls, failed calls with reported usage, and concurrent work. The persisted `by_shard_type` and `by_shard_name` totals must reconcile with the project total.
+
+Wiring: `internal/session/executor.go:816` resolves accounting identity; `internal/session/executor.go:1194` applies it to persona turns; `internal/session/task_executor.go:354`, `internal/session/spawner.go:421`, and `internal/session/subagent.go:279` establish delegated scopes. Regression tests in `internal/session/executor_usage_tracker_test.go` check persisted entry-path attribution, concurrent turns sharing one tracker, and follow-up/critic calls during an editing turn (including a critic provider failure after reporting usage). Direct user-agent verbs keep the agent's name on asynchronous tasks rather than using the generic executor name.
+
 ### 1.1 Key characteristics
 
 | Property | Value |

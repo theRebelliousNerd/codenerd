@@ -1,6 +1,9 @@
 package shards
 
-import "testing"
+import (
+	"codenerd/internal/core"
+	"testing"
+)
 
 func TestDefaultShardPredicateManifestsAreUnambiguous(t *testing.T) {
 	manifests := DefaultShardPredicateManifests()
@@ -101,4 +104,21 @@ func TestDefaultShardPredicateManifestsAreUnambiguous(t *testing.T) {
 	if owner, owned := owners["next_action"]; owned {
 		t.Fatalf("next_action must be unowned so queries fan out to every shard that derives it, got owner %q", owner)
 	}
+}
+
+// Cleanup's completion witness must reach the same kernel shard as campaign,
+// for both the positive archive join and the cleanup rule's negation.
+func TestCampaignCleanup_CompletionChangesTheShardedAction(t *testing.T) {
+	cortex := bootGateCortex(t)
+	single, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	both := gatePair{t: t, cortex: cortex, single: single}
+	both.assert(gf("campaign", ms("finished-campaign"), ma("/feature"), ms("Finished"), ms("brief"), ma("/completed")))
+	both.has("next_action", "/campaign_cleanup", "")
+	both.lacks("next_action", "/archive_campaign", "")
+	both.assert(gf("campaign_cleaned_up", ms("finished-campaign")))
+	both.lacks("next_action", "/campaign_cleanup", "")
+	both.has("next_action", "/archive_campaign", "")
 }

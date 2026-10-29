@@ -14,6 +14,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/sessionlog"
 	"codenerd/internal/types"
+	"codenerd/internal/usage"
 )
 
 // SubAgentState represents the lifecycle state of a subagent.
@@ -285,6 +286,14 @@ func (s *SubAgent) Run(ctx context.Context, task string) {
 	if !atomic.CompareAndSwapInt32(&s.state, int32(SubAgentStateIdle), int32(SubAgentStateRunning)) {
 		logging.Session("SubAgent %s Run called while %s; ignoring second start", s.config.Name, s.GetState())
 		return
+	}
+	// Run may receive the parent's original context rather than Spawn's
+	// setup context. Re-establish the child's identity for execution and
+	// post-turn memory compression, including direct NewSubAgent callers.
+	ctx = withShardUsage(ctx, s.config.IntentVerb, s.config.Name)
+	ctx = s.executor.meteredContext(ctx)
+	if usage.SessionIDFromContext(ctx) == "" {
+		ctx = usage.WithSessionID(ctx, s.executor.SessionID())
 	}
 	// Create cancellable context
 	ctx, cancel := context.WithCancel(ctx)

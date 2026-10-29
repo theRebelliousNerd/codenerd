@@ -346,6 +346,9 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 			// campaign package (orchestrator, decomposer, checkpoint, pager).
 			OwnedPredicates: []string{
 				"campaign",
+				// Cleanup completion is joined (and negated) beside campaign
+				// in campaign_rules.mg; a catch-all owner splits both rules.
+				"campaign_cleaned_up",
 				// The acceptance witness (Acceptance.ToFacts): its rules join
 				// current_campaign and has_incomplete_phase, which derive here.
 				"campaign_acceptance",

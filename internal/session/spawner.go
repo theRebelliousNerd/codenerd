@@ -446,6 +446,18 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 
 	logging.Session("Spawning subagent: %s (type: %s, intent: %s)", req.Name, req.Type, req.IntentVerb)
 
+	// Configuration can itself call models. Scope and meter it as the child,
+	// not as the parent turn that requested the spawn.
+	ctx = withShardUsage(ctx, req.IntentVerb, req.Name)
+	if usage.SessionIDFromContext(ctx) == "" {
+		ctx = usage.WithSessionID(ctx, s.currentSessionID())
+	}
+	if usage.FromContext(ctx) == nil {
+		if tr := s.currentUsageTracker(); tr != nil {
+			ctx = usage.NewContext(ctx, tr)
+		}
+	}
+
 	// Phase 2: Generate JIT config (no lock - may involve IO/LLM calls)
 	EffectiveAgentRuntimeConfig, err := s.generateConfig(ctx, req)
 	if err != nil {
@@ -568,8 +580,12 @@ func (s *Spawner) SpawnForIntent(ctx context.Context, intent perception.Intent, 
 	// Determine subagent type based on intent
 	agentType := s.determineAgentType(intent)
 
+	name := turnUserAgent(intent.Verb)
+	if name == "" {
+		name = agentName(intent.Verb)
+	}
 	req := SpawnRequest{
-		Name:       agentName(intent.Verb),
+		Name:       name,
 		Task:       task,
 		Type:       agentType,
 		IntentVerb: intent.Verb,

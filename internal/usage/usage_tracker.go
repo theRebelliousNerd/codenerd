@@ -905,9 +905,8 @@ func addUsageToMap(m map[string]TokenCounts, key string, u types.UsageMetadata, 
 	m[key] = entry
 }
 
-// shardMetaFromContext reads shard metadata, preferring the typed key and
-// falling back to the legacy raw string key so contexts built by older callers
-// still resolve.
+// shardMetaFromContext reads typed shard metadata. Missing or empty values
+// are retained as unknown rather than inferred from unrelated context keys.
 func shardMetaFromContext(ctx context.Context, key shardMetaKey) string {
 	if ctx == nil {
 		return "unknown"
@@ -940,6 +939,17 @@ func WithShardContext(ctx context.Context, name, typeName, sessionID string) con
 	ctx = context.WithValue(ctx, shardTypeKey, typeName)
 	ctx = context.WithValue(ctx, sessionIDKey, sessionID)
 	return ctx
+}
+
+// ShardFromContext returns the active shard's stable name and type, or empty
+// strings when no shard identity is attached. Session identity is independent.
+func ShardFromContext(ctx context.Context) (name, typeName string) {
+	if ctx == nil {
+		return "", ""
+	}
+	name, _ = ctx.Value(shardNameKey).(string)
+	typeName, _ = ctx.Value(shardTypeKey).(string)
+	return name, typeName
 }
 
 // WithSessionID tags ctx with the session identity only, leaving any shard

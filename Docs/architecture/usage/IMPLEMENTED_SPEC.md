@@ -45,7 +45,7 @@ Usage never asserts facts, never queries the kernel, never routes VirtualStore a
 | `Close`/`Flush` on shutdown | **Implemented** | Cortex close + chat shutdown |
 | Refcounted single owner per workspace | **Implemented** | `Shared` registry; last `Close` shuts down |
 | Context attach / retrieve | **Implemented** | Typed key for tracker |
-| Shard attribution helpers | **Implemented** | Typed keys, legacy string keys still read |
+| Shard attribution helpers | **Implemented** | Typed `WithShardContext` / `ShardFromContext`; session persona turns, inline delegation, spawn setup and subagent execution establish scope before model work. Calls without a shard retain `unknown`; historical totals are not relabeled. |
 | Stats defensive copy | **Implemented** | |
 | Cortex boot wiring | **Implemented** | `system/factory.go` via `Shared` |
 | CLI/chat context attach | **Implemented** | Multiple cmd + chat files |
@@ -178,18 +178,24 @@ Uses unexported `type contextKey struct{}` — only `NewContext`/`FromContext` c
 
 ### Attribution keys (typed)
 
-`WithShardContext` writes private `shardMetaKey` values, not raw strings, so no
-other package can collide with or read them. Track still falls back to the
-legacy raw-string key on read for contexts built before the change; nothing in
-the tree writes those any more.
+`WithShardContext` writes private `shardMetaKey` values, not raw strings. The
+tracker reads these typed values; `ShardFromContext` returns an empty identity
+outside shard work, which the recorder aggregates as `unknown`.
 
 | Key | Set by | Read by |
 |-----|--------|---------|
-| `shardMetaKey{"shard_name"}` | `WithShardContext` | Track → `ByShardName` |
-| `shardMetaKey{"shard_type"}` | `WithShardContext` | Track → `ByShardType` |
-| `shardMetaKey{"session_id"}` | `WithShardContext` | Track → `BySession` |
+| `shardMetaKey{"shard_name"}` | `WithShardContext` | Record → `ByShardName` |
+| `shardMetaKey{"shard_type"}` | `WithShardContext` | Record → `ByShardType` |
+| `shardMetaKey{"session_id"}` | `WithShardContext`, `WithSessionID` | Record → `BySession` |
 
-**Live setter:** `internal/core/shards/manager_spawn.go` before shard goroutine.
+**Live setters:** session persona turns, inline tasks, spawn setup and subagent
+execution establish scope before model work. The registered-factory path in
+`internal/core/shards/manager_spawn.go:388` records the requested persona/profile
+as type (not the ephemeral/persistent/user/system lifecycle), its configured name,
+and the caller's session when supplied. The persisted regression test is
+`internal/core/shards/manager_spawn_context_test.go:245`. Existing historical
+`unknown` totals are not relabeled; new unscoped calls remain separate from shard
+rows.
 
 ---
 

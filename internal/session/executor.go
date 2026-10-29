@@ -809,6 +809,45 @@ func (e *Executor) meteredContext(ctx context.Context) context.Context {
 	return usage.NewContext(ctx, e.usageTracker)
 }
 
+// shardUsageScopeKey marks an explicitly named task boundary. Perception may
+// classify its work, but must not rename the worker or consult that owns it.
+type shardUsageScopeKey struct{}
+
+// withShardUsage establishes the active persona's accounting scope, independently
+// of model selection and lifecycle type (ephemeral/persistent). Nested work must
+// replace the parent's identity; a turn inside a named worker keeps that name.
+func withShardUsage(ctx context.Context, verb, name string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if name == "" {
+		if scoped, _ := ctx.Value(shardUsageScopeKey{}).(bool); scoped {
+			return ctx
+		}
+	} else {
+		ctx = context.WithValue(ctx, shardUsageScopeKey{}, true)
+	}
+	shardType := strings.TrimPrefix(perception.GetShardTypeForVerb(verb), "/")
+	if shardType == "" || shardType == "none" {
+		shardType = turnUserAgent(verb)
+	}
+	if shardType == "" {
+		if name == "" {
+			return ctx
+		}
+		shardType = name
+	}
+	if name == "" {
+		previousName, previousType := usage.ShardFromContext(ctx)
+		if previousType == shardType && previousName != "" {
+			name = previousName
+		} else {
+			name = shardType
+		}
+	}
+	return usage.WithShardContext(ctx, name, shardType, usage.SessionIDFromContext(ctx))
+}
+
 // ExecutionResult holds the result of processing user input.
 type ExecutionResult struct {
 	// Acceptance is populated only by caller-authorized, revision-bound checks.
@@ -1264,6 +1303,12 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 		}
 		prompt.CoUse().Settle(coUseTurnID, outcome)
 	}()
+	// Preset tasks already know their persona: account even hydration/setup
+	// calls to it, before compilation. Interactive perception remains unscoped
+	// until it has actually selected a persona.
+	if preset != nil {
+		ctx = withShardUsage(ctx, preset.Verb, "")
+	}
 	e.hydrateMemory(ctx, input)
 	usageBefore := snapshotTurnUsage(ctx, e.SessionID())
 
@@ -1278,6 +1323,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 		}
 		intent = observed
 	}
+	ctx = withShardUsage(ctx, intent.Verb, "")
 	// The limit the user put on this request: from the intent perception
 	// returned, and from the turn that spawned this one. A delegated task adds
 	// to its parent's restriction and never drops it, and it is not

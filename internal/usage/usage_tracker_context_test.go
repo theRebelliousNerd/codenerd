@@ -169,3 +169,22 @@ func TestTrackDetailedFromContext_CacheSubCounts(t *testing.T) {
 		t.Errorf("BySession[session-42].Input = %d, want 1000", got)
 	}
 }
+
+func TestShardFromContext(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		ctx                context.Context
+		wantName, wantType string
+	}{
+		{name: "nil"},
+		{name: "outside shard", ctx: WithSessionID(context.Background(), "session")},
+		{name: "named worker", ctx: WithShardContext(context.Background(), "review-worker", "reviewer", "session"), wantName: "review-worker", wantType: "reviewer"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			name, typ := ShardFromContext(tc.ctx)
+			if name != tc.wantName || typ != tc.wantType {
+				t.Fatalf("identity=(%q,%q), want (%q,%q)", name, typ, tc.wantName, tc.wantType)
+			}
+		})
+	}
+}

@@ -385,7 +385,12 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	if sessionID == "" {
 		sessionID = "current-session"
 	}
-	ctx = usage.WithShardContext(ctx, config.Name, string(config.Type), sessionID)
+	// Type identifies the persona/profile, not its lifecycle (ephemeral,
+	// persistent, user or system). Keep a caller's session correlation.
+	if callerSession := usage.SessionIDFromContext(ctx); callerSession != "" {
+		sessionID = callerSession
+	}
+	ctx = usage.WithShardContext(ctx, config.Name, typeName, sessionID)
 	// A spawned shard's spend is the parent's spend. Tagging it subagent is
 	// what separates "the turn cost 40k" from "the turn cost 40k, of which 31k
 	// was three shards you did not know you were paying for".
