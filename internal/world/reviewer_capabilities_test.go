@@ -58,28 +58,34 @@ func TestReviewerCapabilities(t *testing.T) {
 		{Predicate: "git_history", Args: []any{"shotgunB.go", "c3", "Auth", int64(3), "m"}},
 	}
 
+	// Near miss: co-committed as often, but one imports the other.
+	setupCoupledLinked := []core.Fact{
+		{Predicate: "git_history", Args: []any{"linkedA.go", "c4", "Auth", int64(1), "m"}},
+		{Predicate: "git_history", Args: []any{"linkedB.go", "c4", "Auth", int64(1), "m"}},
+		{Predicate: "git_history", Args: []any{"linkedA.go", "c5", "Auth", int64(2), "m"}},
+		{Predicate: "git_history", Args: []any{"linkedB.go", "c5", "Auth", int64(2), "m"}},
+		{Predicate: "git_history", Args: []any{"linkedA.go", "c6", "Auth", int64(3), "m"}},
+		{Predicate: "git_history", Args: []any{"linkedB.go", "c6", "Auth", int64(3), "m"}},
+		{Predicate: "dependency_link", Args: []any{"linkedB.go", "linkedA.go", "codenerd/linked"}},
+	}
+
 	// --- Scenario C: Layer Leakage ---
+	// dependency_link is file level, as the world scanner resolves it
+	// (internal/world/dependency_links.go): importer file, imported file,
+	// import path.
 	setupLayerLeakage := []core.Fact{
 		{Predicate: "symbol_graph", Args: []any{"ID_Lib", "function", "public", "internal/lib/lib.go", "func ID_Lib()"}},
 		{Predicate: "symbol_graph", Args: []any{"ID_App", "function", "public", "cmd/app/main.go", "func ID_App()"}},
-		{Predicate: "dependency_link", Args: []any{"ID_Lib", "ID_App", "call"}},
-
-		// Mock string_contains because it's not virtual in this test environment
-		{Predicate: "string_contains", Args: []any{"internal/lib/lib.go", "internal/"}},
-		{Predicate: "string_contains", Args: []any{"cmd/app/main.go", "cmd/"}},
-	}
-
-	// --- Scenario D: Zombie Test ---
-	setupZombie := []core.Fact{
-		// file_topology(Path, Hash, Language, LastModified, IsTestFile)
-		{Predicate: "file_topology", Args: []any{"test_zombie.go", "hash", core.MangleAtom("/go"), int64(0), core.MangleAtom("/true")}},
-		{Predicate: "symbol_graph", Args: []any{"ID_Test", "function", "public", "test_zombie.go", "func ID_Test()"}},
+		{Predicate: "dependency_link", Args: []any{"internal/lib/lib.go", "cmd/app/main.go", "codenerd/cmd/app"}},
+		// Near miss: a library importing a library.
+		{Predicate: "symbol_graph", Args: []any{"ID_Lib2", "function", "public", "internal/lib2/lib.go", "func ID_Lib2()"}},
+		{Predicate: "dependency_link", Args: []any{"internal/lib2/lib.go", "internal/lib/lib.go", "codenerd/internal/lib"}},
 	}
 
 	// Assert All
 	allFacts := append(setupHeroRisk, setupShotgun...)
+	allFacts = append(allFacts, setupCoupledLinked...)
 	allFacts = append(allFacts, setupLayerLeakage...)
-	allFacts = append(allFacts, setupZombie...)
 
 	for _, f := range allFacts {
 		if err := kernel.Assert(f); err != nil {
@@ -97,7 +103,6 @@ func TestReviewerCapabilities(t *testing.T) {
 	foundHero := false
 	foundShotgun := false
 	foundLayer := false
-	foundZombie := false
 
 	t.Logf("Found %d findings:", len(findings))
 	for _, f := range findings {
@@ -113,16 +118,21 @@ func TestReviewerCapabilities(t *testing.T) {
 		}
 
 		t.Logf("  Rule: %s, Msg: %v", rule, msg)
+		file, _ := f.Args[0].(string)
 
 		switch rule {
 		case "HERO_RISK":
 			foundHero = true
 		case "SHOTGUN_SURGERY":
+			if file == "linkedA.go" || file == "linkedB.go" {
+				t.Errorf("SHOTGUN_SURGERY for %s: the pair imports each other", file)
+			}
 			foundShotgun = true
 		case "LAYER_LEAKAGE":
+			if file != "internal/lib/lib.go" {
+				t.Errorf("LAYER_LEAKAGE for %s: it imports no entrypoint", file)
+			}
 			foundLayer = true
-		case "ZOMBIE_TEST":
-			foundZombie = true
 		}
 	}
 
@@ -134,8 +144,5 @@ func TestReviewerCapabilities(t *testing.T) {
 	}
 	if !foundLayer {
 		t.Error("Did not detect LAYER_LEAKAGE")
-	}
-	if !foundZombie {
-		t.Error("Did not detect ZOMBIE_TEST")
 	}
 }

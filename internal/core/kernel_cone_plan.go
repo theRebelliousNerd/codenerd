@@ -27,9 +27,10 @@ import (
 // A plan holds no facts and no answers: it is the physical shape of the
 // re-derivation (which rules, which strata in which order), keyed by the
 // program it was cut from (it lives on that program's coneIndex) and the exact
-// written-predicate set. Strata keep their original order and are never split:
-// a stratum is a strongly connected component, so the soundness argument in
-// kernel_eval_cone.go is unchanged.
+// written-predicate set. Strata keep their original order. A stratum is a
+// layer of independent components (mangle.LayerStrata) and the plan keeps the
+// cone's members of it, which are whole components, so the soundness argument
+// in kernel_eval_cone.go is unchanged.
 
 // conePlanCacheMax bounds the plans one program keeps. Write sets recur (the
 // hot predicates are a few dozen), so a small cache holds the working set; on
@@ -125,15 +126,30 @@ func (c *coneIndex) buildPlan(written map[string]struct{}) *conePlan {
 		order = append(order, s)
 	}
 	sort.Ints(order)
+	// A stratum is a layer of independent components (mangle.LayerStrata);
+	// the cone keeps only its own members of each, whole components all.
 	strata := make([]analysis.Nodeset, len(order))
 	predToStratum := make(map[ast.PredicateSym]int)
 	for i, s := range order {
-		strata[i] = c.strata[s]
-		for sym := range c.strata[s] {
+		strata[i] = coneMembers(c.strata[s], cone)
+		for sym := range strata[i] {
 			predToStratum[sym] = i
 		}
 	}
 	return &conePlan{cone: cone, touched: touched, rules: rules, strata: strata, predToStratum: predToStratum}
+}
+
+// coneMembers is the part of a stratum the cone re-derives. A cone holds
+// whole components: one member depending on a written predicate means every
+// member does.
+func coneMembers(stratum analysis.Nodeset, cone map[string]struct{}) analysis.Nodeset {
+	out := make(analysis.Nodeset)
+	for sym := range stratum {
+		if _, ok := cone[sym.Symbol]; ok {
+			out[sym] = struct{}{}
+		}
+	}
+	return out
 }
 
 // topDownClosure is every predicate the engine evaluates top-down while

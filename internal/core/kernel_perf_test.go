@@ -122,7 +122,7 @@ func TestConeRemovesRetractedUndeclaredArity(t *testing.T) {
 }
 
 // coneScanReference is the cone preparation the plan replaced: a scan of
-// every rule and stratum for members of the cone.
+// every rule and stratum (layer) for members of the cone.
 func coneScanReference(k *RealKernel, cone map[string]struct{}) ([]ast.Clause, []analysis.Nodeset) {
 	var rules []ast.Clause
 	for _, rule := range k.programInfo.Rules {
@@ -132,11 +132,14 @@ func coneScanReference(k *RealKernel, cone map[string]struct{}) ([]ast.Clause, [
 	}
 	var strata []analysis.Nodeset
 	for _, stratum := range k.strata {
+		members := make(analysis.Nodeset)
 		for sym := range stratum {
 			if _, ok := cone[sym.Symbol]; ok {
-				strata = append(strata, stratum)
-				break
+				members[sym] = struct{}{}
 			}
+		}
+		if len(members) > 0 {
+			strata = append(strata, members)
 		}
 	}
 	return rules, strata

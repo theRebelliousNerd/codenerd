@@ -10,14 +10,17 @@
 # -----------------------------------------------------------------------------
 # "Recursive Logic Bomb" Fix: Bounded recursion depth (3 levels)
 
+# Each hop leads with the impacted side and looks its importers up:
+# dependency_link holds every file import edge, the frontier a handful.
+
 # Direct impact (1-hop)
-coder_impacted_1(X) :- dependency_link(X, Y, _), modified(Y).
+coder_impacted_1(X) :- modified(Y), dependency_link(X, Y, _).
 
 # Transitive impact (2-hop)
-coder_impacted_2(X) :- dependency_link(X, Z, _), coder_impacted_1(Z).
+coder_impacted_2(X) :- coder_impacted_1(Z), dependency_link(X, Z, _).
 
 # Deep impact (3-hop)
-coder_impacted_3(X) :- dependency_link(X, Z, _), coder_impacted_2(Z).
+coder_impacted_3(X) :- coder_impacted_2(Z), dependency_link(X, Z, _).
 
 # Union of all levels
 coder_impacted(X) :- coder_impacted_1(X).

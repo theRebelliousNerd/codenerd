@@ -486,6 +486,7 @@ func (k *RealKernel) addFactIfNewLockedErr(f Fact) (bool, error) {
 		k.cachedAtoms = nil
 	}
 	k.factIndex.insert(key, f)
+	k.factIndex.rememberAtom(f.Predicate, key, atom, k.programInfo)
 	k.warnIfUndeclaredLocked(f)
 	return true, nil
 }

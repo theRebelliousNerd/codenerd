@@ -58,15 +58,19 @@ Decl next_action(Action).
 			// main.go imports helper.go
 			{"file_imports", []any{targetFile, importedFile}},
 
-			// Both files exist
+			// Near miss: an import edge of some other file.
+			{"file_imports", []any{"other.go", "unrelated.go"}},
+
+			// Every file exists
 			{"file_exists", []any{targetFile}},
 			{"file_exists", []any{importedFile}},
+			{"file_exists", []any{"unrelated.go"}},
 		}
 
-		// Query context_priority for the imported file
-		// Expected rule in intent_routing.mg:
-		// context_priority(Path, 50) :- user_intent(..., Target, ...), imports(Target, Path), file_exists(Path).
-		// And imports(Target, Path) :- file_imports(Target, Path). (MISSING)
+		// context_priority(Path, 50) :- user_intent(_, _, _, Target, _),
+		//     file_imports(Target, Path), file_exists(Path).
+		// The rule reads file_imports with Target bound; there is no
+		// materialized copy of the whole import relation.
 
 		result := evaluateAndQuery(t, program, facts, "context_priority")
 
@@ -79,7 +83,9 @@ Decl next_action(Action).
 
 				if ok1 && ok2 && path == importedFile && prio == 50 {
 					found = true
-					break
+				}
+				if ok1 && ok2 && path == "unrelated.go" && prio == 50 {
+					t.Errorf("context_priority(unrelated.go, 50): a file imported by a non-target was prioritized")
 				}
 			}
 		}

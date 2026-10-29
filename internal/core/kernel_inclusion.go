@@ -374,21 +374,19 @@ func (c *inclusionClosure) derive(info *analysis.ProgramInfo, strata []analysis.
 	}
 	var sub []analysis.Nodeset
 	predToStratum := make(map[ast.PredicateSym]int)
+	// A stratum is a layer of independent components (mangle.Stratify); the
+	// closure keeps its own members of each.
 	for _, stratum := range strata {
-		keep := false
+		members := make(analysis.Nodeset)
 		for sym := range stratum {
 			if hasKey(c.derived, sym) {
-				keep = true
-				break
+				members[sym] = struct{}{}
+				predToStratum[sym] = len(sub)
 			}
 		}
-		if !keep {
-			continue
+		if len(members) > 0 {
+			sub = append(sub, members)
 		}
-		for sym := range stratum {
-			predToStratum[sym] = len(sub)
-		}
-		sub = append(sub, stratum)
 	}
 	prog := &analysis.ProgramInfo{
 		EdbPredicates: info.EdbPredicates,

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/mangle"
 
 	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codeberg.org/TauCeti/mangle-go/ast"
@@ -187,15 +188,13 @@ func (k *RealKernel) rebuildProgram() error {
 	}
 	analyzeTimer.Stop()
 
-	// Cache stratification for EvalStratifiedProgramWithStats. Nothing is
-	// installed until it succeeds: a program that analyzes but does not
-	// stratify must not leave the new rules beside the old strata and cone,
-	// with policyDirty already cleared.
-	strata, predToStratum, err := analysis.Stratify(analysis.Program{
-		EdbPredicates: programInfo.EdbPredicates,
-		IdbPredicates: programInfo.IdbPredicates,
-		Rules:         programInfo.Rules,
-	})
+	// Cache stratification for EvalStratifiedProgramWithStats, layered: a
+	// layer evaluates many independent components at once, and the engine's
+	// per-call cost grows with strata x predicates (internal/mangle
+	// strata_layers.go). Nothing is installed until it succeeds: a program
+	// that analyzes but does not stratify must not leave the new rules beside
+	// the old strata and cone, with policyDirty already cleared.
+	strata, predToStratum, err := mangle.Stratify(programInfo)
 	if err != nil {
 		logging.Get(logging.CategoryKernel).Error("rebuildProgram: stratification failed: %v", err)
 		return fmt.Errorf("failed to stratify program: %w", err)
