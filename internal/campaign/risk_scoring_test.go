@@ -134,6 +134,7 @@ func TestBuildCampaignRiskDecision_OverridePrecedence(t *testing.T) {
 }
 
 func TestRiskGateAutoWiringDeterministic(t *testing.T) {
+	t.Parallel()
 	observer := newTestNorthstarObserver(t)
 
 	orch := &Orchestrator{
@@ -196,6 +197,7 @@ func TestRunRiskPreflight_EmitsAuditEvents(t *testing.T) {
 }
 
 func TestRunRiskPreflight_ProtectedCampaignBlocksWhenAdvisoryMissing(t *testing.T) {
+	t.Parallel()
 	eventCh := make(chan OrchestratorEvent, 16)
 	orch := &Orchestrator{
 		workspace: criticalWorkspace(t),

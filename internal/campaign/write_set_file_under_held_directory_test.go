@@ -13,6 +13,7 @@ import (
 // released. Until then the file's lease was granted at once, both tasks ran,
 // and the second one's first write was refused as held by the first.
 func TestWriteSetLockManager_AFileUnderAHeldDirectoryWaitsForIt(t *testing.T) {
+	t.Parallel()
 	manager := newWriteSetLockManager(t.TempDir())
 	dir, err := manager.acquire(context.Background(), "/task_dir", []string{"internal/foo"}, time.Millisecond)
 	if err != nil || dir == nil {

@@ -21,6 +21,7 @@ import (
 // Contract: never invoke failure-driven Replanner while the failed task is still
 // retryable/pending; replan only after terminal failure.
 func TestHandleTaskFailure_RetryableDoesNotReplanNorDuplicate(t *testing.T) {
+	t.Parallel()
 	orch, kernel := newPolicyFailureOrchestrator(t, func(c *config.CampaignConfig) { c.MaxTaskAttempts = 4 }, Task{
 		ID: "/task_mutate_1", Description: "Modify internal/foo/bar.go to add doc comment", Type: TaskTypeFileModify,
 	})
@@ -69,6 +70,7 @@ func TestHandleTaskFailure_RetryableDoesNotReplanNorDuplicate(t *testing.T) {
 // allowed and can insert its replacement. This prevents the retry gate from
 // permanently disabling replanning.
 func TestHandleTaskFailure_TerminalCanStillReplan(t *testing.T) {
+	t.Parallel()
 	orch, kernel := newPolicyFailureOrchestrator(t, func(c *config.CampaignConfig) { c.MaxTaskAttempts = 1 }, Task{
 		ID: "/task_mutate_1", Description: "Modify internal/foo/bar.go to add doc comment", Type: TaskTypeFileModify,
 	})

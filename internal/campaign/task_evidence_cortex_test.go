@@ -19,6 +19,7 @@ import (
 // the same. Package campaign's own tests run on a single-store RealKernel,
 // which cannot show a split join (and cannot import internal/system).
 func TestTaskEvidence_OnTheProductionKernel(t *testing.T) {
+	t.Parallel()
 	ck, err := nerdsystem.NewDomainCortex(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewDomainCortex: %v", err)

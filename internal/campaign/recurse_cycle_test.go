@@ -118,6 +118,7 @@ func headSubject(t *testing.T, root string) string {
 // A fixing attempt is kept and committed on the loop's branch, with the
 // trailers a resumed run reads.
 func TestRecurseCycles_AFixIsKeptAndCommitted(t *testing.T) {
+	t.Parallel()
 	root := recurseFixture(t, nil)
 	var attempts []RecurseAttempt
 	res, err := runRecurse(t, context.Background(), root, 1, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
@@ -153,6 +154,7 @@ func TestRecurseCycles_AFixIsKeptAndCommitted(t *testing.T) {
 // Fixing the target while breaking another gate is worse, not better: the
 // whole attempt is reverted, the other node's file included.
 func TestRecurseCycles_AFixThatBreaksAnotherGateIsReverted(t *testing.T) {
+	t.Parallel()
 	root := recurseFixture(t, nil)
 	res, err := runRecurse(t, context.Background(), root, 1, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
 		write(t, root, "store/store.go", fixedStore)
@@ -177,6 +179,7 @@ func TestRecurseCycles_AFixThatBreaksAnotherGateIsReverted(t *testing.T) {
 // An attempt that does nothing is reverted; when the next pass's attempt ends
 // the same way, the finding stalls and the third pass leaves it alone.
 func TestRecurseCycles_ANoOpAttemptStallsItsFinding(t *testing.T) {
+	t.Parallel()
 	root := recurseFixture(t, nil)
 	calls := 0
 	res, err := runRecurse(t, context.Background(), root, 3, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {
@@ -197,6 +200,7 @@ func TestRecurseCycles_ANoOpAttemptStallsItsFinding(t *testing.T) {
 // An attempt that writes a path nerd.md forbids is refused -- reverted and
 // never retried -- even when it fixed its target.
 func TestRecurseCycles_AForbiddenWriteIsRefused(t *testing.T) {
+	t.Parallel()
 	root := recurseFixture(t, map[string]string{
 		"nerd.md": "---\nschema: nerd/v1\nforbid:\n  - match: web/web.go\n    reason: the loop must not edit it\n---\n",
 	})
@@ -224,6 +228,7 @@ func TestRecurseCycles_AForbiddenWriteIsRefused(t *testing.T) {
 
 // Stopping the loop mid-attempt puts the tree back before it returns.
 func TestRecurseCycles_StoppedMidAttemptRevertsBeforeReturning(t *testing.T) {
+	t.Parallel()
 	root := recurseFixture(t, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -251,6 +256,7 @@ func TestRecurseCycles_StoppedMidAttemptRevertsBeforeReturning(t *testing.T) {
 // start: the attempt's writes are put back, the owner's are not touched, the
 // cycle count continues, and the interrupted pass resumes where it was.
 func TestRecurseCycles_ResumeSettlesAKilledAttempt(t *testing.T) {
+	t.Parallel()
 	root := recurseFixture(t, nil)
 	g := recurseGit{root: root}
 	if err := g.prepare(context.Background(), DefaultRecurseBranch); err != nil {
@@ -311,6 +317,7 @@ func TestRecurseCycles_ResumeSettlesAKilledAttempt(t *testing.T) {
 // A run killed after its commit landed but before the journal heard of it is
 // settled as kept: the change is neither lost nor repeated.
 func TestRecurseCycles_ResumeFindsAKeptCommitTheJournalMissed(t *testing.T) {
+	t.Parallel()
 	root := recurseFixture(t, nil)
 	g := recurseGit{root: root}
 	ctx := context.Background()
@@ -347,6 +354,7 @@ func TestRecurseCycles_ResumeFindsAKeptCommitTheJournalMissed(t *testing.T) {
 // A workspace in another language gets the same loop: the gates are the
 // workspace's, not Go's.
 func TestRecurseCycles_ANonGoWorkspaceUsesItsDeclaredGates(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")
 	}
@@ -377,6 +385,7 @@ func TestRecurseCycles_ANonGoWorkspaceUsesItsDeclaredGates(t *testing.T) {
 }
 
 func TestRecurseCycles_RefusesADirtyCheckout(t *testing.T) {
+	t.Parallel()
 	root := recurseFixture(t, nil)
 	write(t, root, "web/web.go", "package web\n// the owner's uncommitted work\n")
 	_, err := runRecurse(t, context.Background(), root, 1, func(ctx context.Context, a RecurseAttempt) error {
@@ -414,6 +423,7 @@ func TestInFlight_RoundTrips(t *testing.T) {
 // angle. One that adds a passing test is kept; one that moves nothing is
 // reverted. Cross-cutting nodes have no metrics of their own and are skipped.
 func TestRecurseCycles_EveryVisitImprovesAndKeepsOnlyMeasuredGains(t *testing.T) {
+	t.Parallel()
 	root := recurseFixture(t, nil)
 	var seen []string
 	res, err := runRecurse(t, context.Background(), root, 1, func(ctx context.Context, a RecurseAttempt) error {
@@ -457,6 +467,7 @@ func TestRecurseCycles_EveryVisitImprovesAndKeepsOnlyMeasuredGains(t *testing.T)
 // The simplify pass keeps a change that drops a node's lines at equal
 // behaviour, and reverts one that gets there by deleting tests.
 func TestRecurseCycles_SimplifyKeepsFewerLinesButNeverFewerTests(t *testing.T) {
+	t.Parallel()
 	root := recurseFixture(t, map[string]string{
 		"store/store.go":  "package store\n\nfunc Get() int { return 2 }\n\nfunc unused() int {\n\treturn 3\n}\n",
 		"web/web_test.go": "package web\n\nimport \"testing\"\n\nfunc TestPage(t *testing.T) {\n\tif Page() != 2 {\n\t\tt.Fatal(\"Page\")\n\t}\n}\n",
@@ -531,6 +542,7 @@ func TestRecurseOpen_SkipsWholeTreeRepeatsOfPerNodeGates(t *testing.T) {
 // journal. Before 2026-09-26 the diff was discarded at the revert and a retry
 // started from nothing.
 func TestRecurseCycles_ARevertedAttemptIsToldToTheNextOne(t *testing.T) {
+	t.Parallel()
 	root := recurseFixture(t, nil)
 	wrongFix := "package store\n\nfunc Get() int { return 3 }\n"
 	if _, err := runRecurse(t, context.Background(), root, 1, onlyFixes(func(ctx context.Context, a RecurseAttempt) error {

@@ -27,6 +27,7 @@ type wiringRequirement struct {
 // with a single table-driven walk. Every non-empty keyed literal of the
 // required type must set the required field, or campaigns silently break.
 func TestConfigWiring(t *testing.T) {
+	t.Parallel()
 	requirements := []wiringRequirement{
 		{
 			TypeName:  "OrchestratorConfig",
@@ -159,6 +160,7 @@ func wiringRepoRoot(t *testing.T) string {
 // resolveRiskGateEnabled keys off availability — with the edge risk gate
 // silently disabled.
 func TestNewOrchestrator_WhenKernelIsReal_ShouldDefaultWireIntelligence(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Skipf("real kernel unavailable: %v", err)
@@ -194,6 +196,7 @@ func TestNewOrchestrator_WhenKernelIsReal_ShouldDefaultWireIntelligence(t *testi
 
 // An explicitly supplied component must win over the default.
 func TestNewOrchestrator_WhenIntelligenceSupplied_ShouldNotOverrideIt(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Skipf("real kernel unavailable: %v", err)

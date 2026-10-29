@@ -30,6 +30,7 @@ import (
 // passed throughout, because the wiring function was never the broken part. The
 // call sites were. That is why this test reads the call sites.
 func TestOrchestratorConfigLiterals_AllSetNorthstarObserver(t *testing.T) {
+	t.Parallel()
 	root := repoRoot(t)
 
 	var checked int

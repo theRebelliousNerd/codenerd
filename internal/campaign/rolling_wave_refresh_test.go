@@ -14,6 +14,7 @@ import (
 // without it, it does not (every refresh was denied before 2026-09-21, so no
 // campaign refreshed its world model between phases).
 func TestRollingWaveScopeRefreshIsPermittedOnlyAsAPendingAction(t *testing.T) {
+	t.Parallel()
 	workspace := t.TempDir()
 	kernel, err := core.NewRealKernelWithWorkspace(workspace)
 	if err != nil {

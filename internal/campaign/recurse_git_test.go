@@ -81,6 +81,7 @@ func TestRecurseGit_PrepareOwnsABranchAndRefusesADirtyCheckout(t *testing.T) {
 // changed names exactly what an attempt did: edits, deletions, new files --
 // not the owner's untracked files and not ignored output.
 func TestRecurseGit_ChangedKeepCommitRevert(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	g := gitFixture(t, map[string]string{
 		"keep.txt": "v1\n", "edit.txt": "v1\n", "gone.txt": "here\n", ".gitignore": "out/\n",

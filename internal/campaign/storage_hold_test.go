@@ -11,6 +11,7 @@ import (
 // (has_next_campaign_task: a wait, not /all_tasks_blocked); the next write that
 // lands releases it. The kernel decides; Go only reports the storage.
 func TestStorageHold_AFailedSnapshotHoldsDispatchUntilAWriteLands(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	c := eligibilityCampaign(Task{ID: "/task_ready", Status: TaskPending})
 	c.Phases[0].Status = PhaseInProgress

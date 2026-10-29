@@ -207,6 +207,7 @@ func (g *gatingTaskExecutor) ExecuteObservedWithContext(ctx context.Context, req
 }
 
 func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {
+	t.Parallel()
 	mockKernel := &safeKernel{}
 	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_1"}})
 	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_2"}})

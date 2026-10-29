@@ -51,6 +51,7 @@ func journalOpsCampaign(id string) *Campaign {
 }
 
 func TestVerifyCampaignJournal_WhenIntact_ShouldReportHealthy(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	orch := journalOpsOrchestrator(t, ws)
 	c := journalOpsCampaign("/campaign_journal_ok")
@@ -92,6 +93,7 @@ func TestVerifyCampaignJournal_WhenIntact_ShouldReportHealthy(t *testing.T) {
 // 7b853890, 2026-09-24). The fixtures used slash-less IDs no campaign has,
 // which is why no test saw it. A journal from another campaign still fails.
 func TestVerifyCampaignJournal_AcceptsTheIDsTheOperatorCanType(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	orch := journalOpsOrchestrator(t, ws)
 	c := journalOpsCampaign("/campaign_journal_named")
@@ -221,6 +223,7 @@ func TestSaveCampaign_WhenKilledDuringSnapshotRename_ShouldLeavePreviousSnapshot
 }
 
 func TestVerifyCampaignJournal_WhenTailCorrupt_ShouldReportChecksumMismatch(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	orch := journalOpsOrchestrator(t, ws)
 	c := journalOpsCampaign("/campaign_journal_corrupt")
@@ -261,6 +264,7 @@ func TestVerifyCampaignJournal_WhenTailCorrupt_ShouldReportChecksumMismatch(t *t
 }
 
 func TestListCampaignJournals_ShouldFindWrittenCampaigns(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	orch := journalOpsOrchestrator(t, ws)
 	for _, id := range []string{"campaign_list_a", "campaign_list_b"} {
@@ -279,6 +283,7 @@ func TestListCampaignJournals_ShouldFindWrittenCampaigns(t *testing.T) {
 }
 
 func TestVerifyCampaignJournal_WhenSnapshotEditedOutsideOrchestrator_ShouldReportMismatch(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	orch := journalOpsOrchestrator(t, ws)
 	c := journalOpsCampaign("/campaign_journal_edited")

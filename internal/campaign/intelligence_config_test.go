@@ -14,6 +14,7 @@ import (
 // CLI site constructs, then hands over — does not keep those defaults once
 // the section says otherwise.
 func TestNewOrchestrator_MaxChurnHotspotsReachesTheGatherer(t *testing.T) {
+	t.Parallel()
 	off := false
 	section := testCampaignConfig(func(c *config.CampaignConfig) {
 		c.Intelligence.MaxChurnHotspots = 17

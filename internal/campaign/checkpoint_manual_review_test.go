@@ -112,6 +112,7 @@ func TestManualReviewCheckpoint_CancelledContext(t *testing.T) {
 }
 
 func TestManualReviewCheckpoint_EscalatesToShardValidation(t *testing.T) {
+	t.Parallel()
 	// When a TaskExecutor is present, manual review should delegate to
 	// shard validation and the prefix should remain visible even on success.
 	executor := &MockTaskExecutor{

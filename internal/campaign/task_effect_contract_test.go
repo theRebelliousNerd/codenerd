@@ -22,6 +22,7 @@ func (e *witnessExecutor) Execute(ctx context.Context, cmd tactile.Command) (*ta
 	return e.res, e.err
 }
 func TestTestRunRequiresHostWitness(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"passed", "infra_failure", "failed_with_PASS_prose", "changed_snapshot", "explicit_shard"} {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()

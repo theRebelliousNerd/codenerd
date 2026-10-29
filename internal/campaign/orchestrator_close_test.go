@@ -10,6 +10,7 @@ import (
 )
 
 func TestNewOrchestrator_ClosesObserverOnInvalidConfig(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	nerdDir := filepath.Join(ws, ".nerd")
 	obs := northstar.BuildCampaignObserver(ws, nil, nil)
@@ -29,6 +30,7 @@ func TestNewOrchestrator_ClosesObserverOnInvalidConfig(t *testing.T) {
 }
 
 func TestOrchestrator_CloseReleasesObserver(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	nerdDir := filepath.Join(ws, ".nerd")
 	obs := northstar.BuildCampaignObserver(ws, nil, nil)

@@ -220,6 +220,7 @@ func TestWriteSetLockManager_StateConflicts(t *testing.T) {
 }
 
 func TestWriteSetLockManager_ConcurrentMutualExclusion(t *testing.T) {
+	t.Parallel()
 	manager := newWriteSetLockManager(t.TempDir())
 
 	var active int32

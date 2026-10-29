@@ -228,6 +228,7 @@ func completionOrchestrator(t *testing.T, c *Campaign) *Orchestrator {
 }
 
 func TestOrchestrator_CampaignPhasesDoneIsTheKernels(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name     string
 		statuses []PhaseStatus
@@ -259,6 +260,7 @@ func TestOrchestrator_CampaignPhasesDoneIsTheKernels(t *testing.T) {
 }
 
 func TestOrchestrator_PhaseTasksDoneIsTheKernels(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name     string
 		statuses []TaskStatus
@@ -364,6 +366,7 @@ func TestOrchestrator_GetCampaignBlockReason(t *testing.T) {
 }
 
 func TestOrchestrator_CompletePhase_KernelAssertFailure(t *testing.T) {
+	t.Parallel()
 	mockKernel := &MockKernel{
 		AssertErr: errors.New("kernel assert failed"),
 	}

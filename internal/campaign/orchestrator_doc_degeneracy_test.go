@@ -47,6 +47,7 @@ func repetitionLoop() string {
 }
 
 func TestGeneratedOutputDegenerate_CatchesRepetitionLoop(t *testing.T) {
+	t.Parallel()
 	if !degenerate(t, config.CampaignConfig{}, repetitionLoop()) {
 		t.Fatalf("expected degenerate repetition loop to be flagged")
 	}
@@ -55,6 +56,7 @@ func TestGeneratedOutputDegenerate_CatchesRepetitionLoop(t *testing.T) {
 // The thresholds are the campaign section's: a floor on length the loop does
 // not reach judges nothing.
 func TestGeneratedOutputDegenerate_ThresholdsAreTheConfigs(t *testing.T) {
+	t.Parallel()
 	if degenerate(t, config.CampaignConfig{DegenerateMinTokens: 100000}, repetitionLoop()) {
 		t.Fatalf("a document below degenerate_min_tokens was judged a loop")
 	}
@@ -63,6 +65,7 @@ func TestGeneratedOutputDegenerate_ThresholdsAreTheConfigs(t *testing.T) {
 // TestGeneratedOutputDegenerate_AllCounters flags output that is nothing but numeric
 // counters and punctuation (zero real words).
 func TestGeneratedOutputDegenerate_AllCounters(t *testing.T) {
+	t.Parallel()
 	var b strings.Builder
 	for i := 1; i <= 400; i++ {
 		b.WriteString(itoa(i))
@@ -77,6 +80,7 @@ func TestGeneratedOutputDegenerate_AllCounters(t *testing.T) {
 // technical document — guarding against false positives that would fail a good
 // deliverable.
 func TestGeneratedOutputDegenerate_AllowsRealProse(t *testing.T) {
+	t.Parallel()
 	doc := `# Ranked Risk Report: internal/prompt/compiler.go
 
 ## R1 (High) — Unbounded atom expansion in CompilePrompt
@@ -102,6 +106,7 @@ assembly.`
 // TestGeneratedOutputDegenerate_AllowsShort never flags short outputs regardless of
 // repetition (below the token floor).
 func TestGeneratedOutputDegenerate_AllowsShort(t *testing.T) {
+	t.Parallel()
 	if degenerate(t, config.CampaignConfig{}, "done done done done done") {
 		t.Fatalf("short output should not be flagged")
 	}

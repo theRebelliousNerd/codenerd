@@ -35,6 +35,7 @@ func (s *stubLLM) CompleteWithStreaming(ctx context.Context, systemPrompt, userP
 // config_param rows, and the rules read those rows: nothing about how a
 // campaign runs is a Go literal or a Mangle constant.
 func TestOrchestrator_PublishesTheCampaignPolicyAsConfigParams(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -94,6 +95,7 @@ func TestOrchestrator_PublishesTheCampaignPolicyAsConfigParams(t *testing.T) {
 // A threshold a rule needs and the kernel does not hold is named, so the
 // orchestrator can refuse to run instead of running on a rule that fails open.
 func TestKernel_AMissingCampaignThresholdIsNamed(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -115,6 +117,7 @@ func TestKernel_AMissingCampaignThresholdIsNamed(t *testing.T) {
 }
 
 func TestContextPager_ResetPhaseContextClearsFacts(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)

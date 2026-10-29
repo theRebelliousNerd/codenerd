@@ -106,6 +106,7 @@ func kernelHoldsCampaign(t *testing.T, kernel core.Kernel) bool {
 }
 
 func TestResumeCampaign_CommittedMatchIsAdmitted(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	seedCommittedCampaign(t, ws, StatusPaused)
 
@@ -134,6 +135,7 @@ func TestResumeCampaign_CommittedMatchIsAdmitted(t *testing.T) {
 }
 
 func TestResumeCampaign_InterruptedPublicationIsReconciled(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	seedCommittedCampaign(t, ws, StatusActive)
 	_, snapshot, _ := admissionPaths(ws)
@@ -174,6 +176,7 @@ func TestResumeCampaign_InterruptedPublicationIsReconciled(t *testing.T) {
 }
 
 func TestResumeCampaign_UnpublishedWriteKeepsPreviousGeneration(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	seedCommittedCampaign(t, ws, StatusActive)
 	next := admissionCampaign(StatusActive)
@@ -203,6 +206,7 @@ func TestResumeCampaign_UnpublishedWriteKeepsPreviousGeneration(t *testing.T) {
 // The old CLI resume rewrote the snapshot outside the journal before Cortex
 // boot; a failed boot left exactly this. It must not hydrate or be overwritten.
 func TestResumeCampaign_UnjournaledRewriteIsRefusedUntilAdopted(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	seedCommittedCampaign(t, ws, StatusPaused)
 	_, snapshot, _ := admissionPaths(ws)
@@ -245,6 +249,7 @@ func TestResumeCampaign_UnjournaledRewriteIsRefusedUntilAdopted(t *testing.T) {
 }
 
 func TestResumeCampaign_UnreadableStorageIsNeverAdmitted(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	seedCommittedCampaign(t, ws, StatusPaused)
 	_, snapshot, _ := admissionPaths(ws)
@@ -263,6 +268,7 @@ func TestResumeCampaign_UnreadableStorageIsNeverAdmitted(t *testing.T) {
 }
 
 func TestResumeCampaign_LegacySnapshotIsImportedWithProvenance(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	dir, snapshot, journal := admissionPaths(ws)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -290,6 +296,7 @@ func TestResumeCampaign_LegacySnapshotIsImportedWithProvenance(t *testing.T) {
 // the verified temp file not yet renamed in. Neither discovery nor admission
 // may skip the campaign; the newer, complete generation wins and is restored.
 func TestResumeCampaign_ReplacementLeftoversAreFoundAndRestored(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	seedCommittedCampaign(t, ws, StatusActive)
 	dir, snapshot, _ := admissionPaths(ws)
@@ -321,6 +328,7 @@ func TestResumeCampaign_ReplacementLeftoversAreFoundAndRestored(t *testing.T) {
 }
 
 func TestResumeCampaign_DamagedJournalIsPreservedBeforeRepair(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	seedCommittedCampaign(t, ws, StatusPaused)
 	_, _, journal := admissionPaths(ws)
@@ -353,6 +361,7 @@ func TestResumeCampaign_DamagedJournalIsPreservedBeforeRepair(t *testing.T) {
 }
 
 func TestCampaignOwnership_SecondPublisherRefused(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	seedCommittedCampaign(t, ws, StatusPaused)
 
@@ -376,6 +385,7 @@ func TestCampaignOwnership_SecondPublisherRefused(t *testing.T) {
 }
 
 func TestSetCampaign_RefusesACampaignWithDurableHistory(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	seedCommittedCampaign(t, ws, StatusPaused)
 	orch, _ := newAdmissionOrchestrator(t, ws)

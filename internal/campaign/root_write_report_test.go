@@ -116,6 +116,7 @@ func TestReportUnexpectedRootWrites_QuietWhenNothingNew(t *testing.T) {
 // The completion sweep must move ONLY files the campaign itself created and
 // that no task declared. Every other file must be left exactly where it is.
 func TestSweepUndeclaredRootWrites(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	touch := func(name string) {
 		t.Helper()
@@ -212,6 +213,7 @@ func TestShortCampaignID(t *testing.T) {
 }
 
 func TestRecordRootBaseline_SnapshotsAndPersists(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	nerdDir := t.TempDir()
 	for _, name := range []string{"go.mod", "README.md", "main.go"} {

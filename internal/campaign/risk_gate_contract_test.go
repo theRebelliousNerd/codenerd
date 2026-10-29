@@ -79,6 +79,7 @@ func newRiskContractKernel(t *testing.T) core.Kernel {
 
 // A blocked gate on an ordinary surface is advice: the campaign runs.
 func TestRiskClassification_WhenGateBlockedOnOrdinarySurface_ShouldBeSoft(t *testing.T) {
+	t.Parallel()
 	kernel := newRiskContractKernel(t)
 	c := riskContractCampaign("/campaign_soft", "internal/widgets/thing.go")
 	orch := riskContractOrchestrator(t, kernel, c)
@@ -110,6 +111,7 @@ func TestRiskClassification_WhenGateBlockedOnOrdinarySurface_ShouldBeSoft(t *tes
 
 // The same blocked gate on a protected surface is a hard stop.
 func TestRiskClassification_WhenGateBlockedOnProtectedSurface_ShouldBeHard(t *testing.T) {
+	t.Parallel()
 	kernel := newRiskContractKernel(t)
 	c := riskContractCampaign("/campaign_protected", "internal/core/kernel_init.go")
 	orch := riskContractOrchestrator(t, kernel, c)
@@ -139,6 +141,7 @@ func TestRiskClassification_WhenGateBlockedOnProtectedSurface_ShouldBeHard(t *te
 
 // A critical advisor voting REJECT is hard everywhere; requesting changes is not.
 func TestRiskClassification_AdvisorySeverities_ShouldGradeIndependently(t *testing.T) {
+	t.Parallel()
 	kernel := newRiskContractKernel(t)
 
 	cases := []struct {
@@ -183,6 +186,7 @@ func TestRiskClassification_AdvisorySeverities_ShouldGradeIndependently(t *testi
 // Safety signals escalate an ordinary blocked gate once the deterministic score
 // is already over the threshold.
 func TestRiskClassification_WhenGatedWithCriticalSignals_ShouldBeHard(t *testing.T) {
+	t.Parallel()
 	kernel := newRiskContractKernel(t)
 	c := riskContractCampaign("/campaign_signals", "internal/widgets/thing.go")
 	orch := riskContractOrchestrator(t, kernel, c)
@@ -212,6 +216,7 @@ func TestRiskClassification_WhenGatedWithCriticalSignals_ShouldBeHard(t *testing
 // same verdict the kernel would. A silent divergence would make safety policy
 // depend on whether a policy file happened to load.
 func TestRiskClassification_KernelAndMirror_ShouldAgree(t *testing.T) {
+	t.Parallel()
 	kernel := newRiskContractKernel(t)
 
 	scenarios := []struct {
@@ -330,6 +335,7 @@ func describeFindings(findings []RiskFinding) string {
 
 // A stale evaluation must not leak into the next run's grading.
 func TestRiskClassification_WhenRerun_ShouldNotGradeAgainstPreviousMeasurements(t *testing.T) {
+	t.Parallel()
 	kernel := newRiskContractKernel(t)
 	c := riskContractCampaign("/campaign_rerun", "internal/core/kernel_init.go")
 	orch := riskContractOrchestrator(t, kernel, c)
@@ -364,6 +370,7 @@ func TestRiskClassification_WhenRerun_ShouldNotGradeAgainstPreviousMeasurements(
 // Run must refuse to start on a hard finding, and the error must carry the
 // evaluation so operator surfaces can render more than a sentence.
 func TestRun_WhenRiskPreflightHardBlocks_ShouldReturnRenderableError(t *testing.T) {
+	t.Parallel()
 	kernel := newRiskContractKernel(t)
 	c := riskContractCampaign("/campaign_run_block", "internal/core/kernel_init.go")
 	orch := riskContractOrchestrator(t, kernel, c)
@@ -402,6 +409,7 @@ func TestRun_WhenRiskPreflightHardBlocks_ShouldReturnRenderableError(t *testing.
 
 // A campaign that starts must still surface its advisory findings.
 func TestRun_WhenOnlySoftFindings_ShouldStartAndEmitAdvisories(t *testing.T) {
+	t.Parallel()
 	kernel := newRiskContractKernel(t)
 	c := riskContractCampaign("/campaign_run_soft", "internal/widgets/thing.go")
 	orch := riskContractOrchestrator(t, kernel, c)
@@ -438,6 +446,7 @@ func TestRun_WhenOnlySoftFindings_ShouldStartAndEmitAdvisories(t *testing.T) {
 // a "running" campaign that had already ended, and the persisted snapshot
 // described a runnable campaign that could only be refused again.
 func TestRun_WhenRiskPreflightHardBlocks_ShouldRecordTerminalFailure(t *testing.T) {
+	t.Parallel()
 	kernel := newRiskContractKernel(t)
 	c := riskContractCampaign("/campaign_run_refused", "internal/core/kernel_init.go")
 	orch := riskContractOrchestrator(t, kernel, c)

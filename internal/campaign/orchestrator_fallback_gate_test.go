@@ -59,6 +59,7 @@ func fallbackGateFixture(t *testing.T, coderErr error) (o *Orchestrator, root st
 }
 
 func TestFileTask_CoderStoppedOnCodeFailsTheTaskWithItsReason(t *testing.T) {
+	t.Parallel()
 	coderErr := errors.New("execution failed: hollow success blocked: turn created Go source internal/x/checker.go without a test file (verb /fix)")
 	o, root, generated := fallbackGateFixture(t, coderErr)
 	task := &Task{ID: "/task_gate_code", Type: TaskTypeFileCreate, Description: "Create the checker", WriteSet: []string{"internal/x/checker.go"}}
@@ -84,6 +85,7 @@ func TestFileTask_CoderStoppedOnCodeFailsTheTaskWithItsReason(t *testing.T) {
 // The refusal of an existing target (the one that fired in 1284b6bb) keeps the
 // coder's reason too: that refusal is not why the work stopped.
 func TestFileTask_RefusalOverAnExistingTargetKeepsTheCodersReason(t *testing.T) {
+	t.Parallel()
 	coderErr := errors.New("execution failed: hollow success blocked: turn created Go source internal/x/checker.go without a test file (verb /fix)")
 	o, root, generated := fallbackGateFixture(t, coderErr)
 	full := filepath.Join(root, "internal", "x", "checker.go")
@@ -113,6 +115,7 @@ func TestFileTask_RefusalOverAnExistingTargetKeepsTheCodersReason(t *testing.T) 
 // store does accept writes, so the code test's missing file is the refusal, not
 // the store.
 func TestFileTask_CoderFailureOnADocumentStillFallsBack(t *testing.T) {
+	t.Parallel()
 	o, root, generated := fallbackGateFixture(t, errors.New("coder explored without writing"))
 	task := &Task{ID: "/task_gate_doc", Type: TaskTypeFileCreate, Description: "Write the report", WriteSet: []string{"docs/report.md"}}
 
@@ -133,6 +136,7 @@ func TestFileTask_CoderFailureOnADocumentStillFallsBack(t *testing.T) {
 // truncated one could never be permitted, and an oversized one is never
 // asserted into the kernel.
 func TestFileTask_FallbackDocumentOverThePayloadCapIsRefused(t *testing.T) {
+	t.Parallel()
 	o, root, generated := fallbackGateFixture(t, errors.New("coder explored without writing"))
 	o.llmClient = &MockLLMClient{CompleteFunc: func(context.Context, string) (string, error) {
 		*generated++
@@ -160,6 +164,7 @@ func TestFileTask_FallbackDocumentOverThePayloadCapIsRefused(t *testing.T) {
 // to be re-generated with a Go-written prompt and, still looping, replaced by
 // a placeholder the task counted as done.
 func TestFileTask_FallbackRepetitionLoopFailsTheAttempt(t *testing.T) {
+	t.Parallel()
 	o, root, generated := fallbackGateFixture(t, errors.New("coder explored without writing"))
 	policy, err := config.DefaultCampaignConfig().Resolve()
 	if err != nil {

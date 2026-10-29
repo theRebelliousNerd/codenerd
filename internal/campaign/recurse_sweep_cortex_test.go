@@ -15,6 +15,7 @@ import (
 // then b before c, then d. Nodes waiting on a dependency are
 // recurse_sweep_stuck until it is visited; the pass completes only once d is.
 func TestRecurseSweep_OnProductionCortex(t *testing.T) {
+	t.Parallel()
 	ck, err := nerdsystem.NewDomainCortex(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewDomainCortex: %v", err)

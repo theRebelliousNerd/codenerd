@@ -49,6 +49,7 @@ func TestPersistCampaign_EmitsAnEventWhenTheSnapshotCannotBeWritten(t *testing.T
 }
 
 func TestPersistCampaign_StaysSilentOnSuccess(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	events := make(chan OrchestratorEvent, 4)
 	o := &Orchestrator{

@@ -311,6 +311,7 @@ func TestCompressPhase(t *testing.T) {
 // TODO: TEST_GAP: Area 5 - User Request Extremes - CompressPhase LLM returns empty string ("") or 20MB garbage payload, verify fallback and truncation behavior.
 // TODO: TEST_GAP: Area 5 - State Conflicts - CompressPhase goroutine leaks if context is cancelled mid-flight but the LLM client hangs.
 func TestCompressPhase_MassiveAccomplishments(t *testing.T) {
+	t.Parallel()
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {

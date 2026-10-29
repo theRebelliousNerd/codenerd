@@ -776,6 +776,7 @@ func sampleRawPlanJSON(title string) string {
 }
 
 func TestDecompose_LLMTotalFailure(t *testing.T) {
+	t.Parallel()
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 			return "", errors.New("simulated LLM timeout")
@@ -907,6 +908,7 @@ func TestIngestSourceDocuments_Cancellation(t *testing.T) {
 }
 
 func TestRefinePlan_TxCommitFail(t *testing.T) {
+	t.Parallel()
 	client := &mockLLMClient{
 		completeFunc: func(ctx context.Context, prompt string) (string, error) {
 			if strings.Contains(prompt, "fix the plan") || strings.Contains(prompt, "fix these issues") {
@@ -951,6 +953,7 @@ func TestRefinePlan_TxCommitFail(t *testing.T) {
 
 // TODO: Add test for 0-byte files and files with only whitespace in SourcePaths
 func TestDecompose_EmptySourcePaths(t *testing.T) {
+	t.Parallel()
 	// Empty/whitespace-only SourcePaths entries are rejected up front to
 	// prevent ingesting the workspace root or current working directory.
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
@@ -1005,6 +1008,7 @@ func TestDecompose_EmptySourcePaths(t *testing.T) {
 // Decompose after SetIntelligenceGatherer(nil) does not panic with a nil
 // pointer dereference at the Step 0 intelligence gathering call site.
 func TestDecompose_SetIntelligenceGatherer_NilDereference(t *testing.T) {
+	t.Parallel()
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 			return sampleRawPlanJSON("Nil Intel Setter"), nil
@@ -1035,6 +1039,7 @@ func TestDecompose_SetIntelligenceGatherer_NilDereference(t *testing.T) {
 }
 
 func TestDecompose_ZeroContextBudget(t *testing.T) {
+	t.Parallel()
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 			return sampleRawPlanJSON("Zero Budget Plan"), nil
@@ -1053,6 +1058,7 @@ func TestDecompose_ZeroContextBudget(t *testing.T) {
 }
 
 func TestDecompose_NilIntelligence(t *testing.T) {
+	t.Parallel()
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 			return sampleRawPlanJSON("Nil Intel Plan"), nil
@@ -1076,6 +1082,7 @@ func TestDecompose_NilIntelligence(t *testing.T) {
 
 // TODO: Expand JSON coercion tests to cover nested field type mismatches, especially stringified booleans and integers
 func TestDecompose_JSONTypeCoercion(t *testing.T) {
+	t.Parallel()
 	client := &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 			return `{"title":"bad types","phases":{"not_an_array": true}}`, nil
@@ -1098,6 +1105,7 @@ func TestDecompose_JSONTypeCoercion(t *testing.T) {
 
 // TODO: Test adversarial strings in Goal, file names, and UserHints that contain Mangle logic programming syntax (e.g., "), malicious_fact(X). %")
 func TestDecompose_MangleFactSanitization(t *testing.T) {
+	t.Parallel()
 	mockKernel := &MockKernel{}
 	d := NewDecomposer(mockKernel, &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
@@ -1132,6 +1140,7 @@ func TestDecompose_MangleFactSanitization(t *testing.T) {
 
 // TODO: Add a performance/stress test generating a massive DAG of tasks and ensure validatePlan completes without OOM or timeouts
 func TestDecompose_MassiveGoal(t *testing.T) {
+	t.Parallel()
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 			return sampleRawPlanJSON("Massive Goal Plan"), nil
@@ -1171,6 +1180,7 @@ func TestCleanJSONResponse_MassiveMalformedInput(t *testing.T) {
 }
 
 func TestDecompose_HugeSourcePaths(t *testing.T) {
+	t.Parallel()
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 			return sampleRawPlanJSON("Huge Paths Plan"), nil
@@ -1195,6 +1205,7 @@ func TestDecompose_HugeSourcePaths(t *testing.T) {
 }
 
 func TestDecompose_DeepNestedJSON(t *testing.T) {
+	t.Parallel()
 	var sb strings.Builder
 	depth := 1000
 	for range depth {
@@ -1224,6 +1235,7 @@ func TestDecompose_DeepNestedJSON(t *testing.T) {
 }
 
 func TestDecompose_ContextBudgetExceeded(t *testing.T) {
+	t.Parallel()
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 			return sampleRawPlanJSON("Small Budget Plan"), nil
@@ -1243,6 +1255,7 @@ func TestDecompose_ContextBudgetExceeded(t *testing.T) {
 }
 
 func TestDecompose_ContextCancelledDuringLLM(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
@@ -1309,6 +1322,7 @@ func TestDecompose_SpecialInfiniteFiles(t *testing.T) {
 // TODO: Test forced collision of campaignID to verify knowledge store/kernel state integrity
 // TODO: Add test verifying UserHints: nil and empty slice behaves gracefully without prompt injection issues
 func TestDecompose_ConcurrentDecompose(t *testing.T) {
+	t.Parallel()
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 			time.Sleep(10 * time.Millisecond)

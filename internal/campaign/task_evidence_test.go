@@ -101,6 +101,7 @@ func evidenceChainFixture(t *testing.T) (*Orchestrator, *Task, map[string]string
 }
 
 func TestTaskEvidence_DerivedByDependencyNameAndDistance(t *testing.T) {
+	t.Parallel()
 	o, task, paths := evidenceChainFixture(t)
 	section, err := o.taskContextSection(context.Background(), task)
 	if err != nil {
@@ -158,6 +159,7 @@ type noTxKernel struct{ core.Kernel }
 // On a kernel without transactions the measurements are replaced one
 // operation at a time, and a re-measurement leaves no stale row behind.
 func TestTaskEvidence_AKernelWithoutTransactionsMeasuresTheSame(t *testing.T) {
+	t.Parallel()
 	o, task, paths := evidenceChainFixture(t)
 	o.kernel = noTxKernel{o.kernel}
 	if _, ok := o.kernel.(types.KernelTransactor); ok {
@@ -191,6 +193,7 @@ func TestTaskEvidence_AKernelWithoutTransactionsMeasuresTheSame(t *testing.T) {
 // campaign.upstream_inline_max_bytes is digested, never cut, and its whole
 // text is one recall_context away.
 func TestTaskEvidence_OverTheInlineCeilingIsADigestTheModelCanRecall(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	big := markedBody("BIG-HEAD", "BIG-TAIL", 400)
 	rel := writeEvidenceDoc(t, ws, ".nerd/campaigns/big/artifacts/up.md", big)
@@ -223,6 +226,7 @@ func TestTaskEvidence_OverTheInlineCeilingIsADigestTheModelCanRecall(t *testing.
 // What a task writes is not its evidence, even when its brief names it and a
 // completed task declared it first.
 func TestTaskEvidence_ATasksOwnOutputIsNotItsEvidence(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	rel := writeEvidenceDoc(t, ws, "Docs/spec/OPEN-QUESTIONS.md", markedBody("OQ-HEAD", "OQ-TAIL", 5))
 	c := &Campaign{ID: "/campaign_own", Phases: []Phase{{ID: "/phase_0", Order: 0, Tasks: []Task{
@@ -301,6 +305,7 @@ func TestTaskEvidence_ADocumentTheBriefNamesArrives(t *testing.T) {
 // package directory it writes -- arrives whole, where position alone would
 // have made it a handle.
 func TestTaskEvidence_AnArtifactCitingTheTasksTargetIsNeeded(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	writeEvidenceDoc(t, ws, "pkg/widget/widget.go", widgetSource)
 	writeEvidenceDoc(t, ws, "pkg/other/other.go", "package other\n")
@@ -349,6 +354,7 @@ func TestTaskEvidence_AnArtifactCitingTheTasksTargetIsNeeded(t *testing.T) {
 // research task's findings arrive once, the file task's return -- what it
 // changed and checked, with no /doc behind it -- still arrives.
 func TestTaskEvidence_AContextEdgesReturnIsNotRepeated(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	r := writeEvidenceDoc(t, ws, ".nerd/campaigns/cf/artifacts/r.md", markedBody("R-DOC-HEAD", "R-DOC-TAIL", 5))
 	f := writeEvidenceDoc(t, ws, "out/data.json", "{}\n")
@@ -375,6 +381,7 @@ func TestTaskEvidence_AContextEdgesReturnIsNotRepeated(t *testing.T) {
 }
 
 func TestTaskEvidence_ATaskOutsideTheCampaignHasNone(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	c := &Campaign{ID: "/campaign_solo", Phases: []Phase{{ID: "/phase_0", Order: 0, Tasks: []Task{
 		{ID: "/task_0", PhaseID: "/phase_0", Type: TaskTypeResearch, Status: TaskPending, Description: "Solo research"},
@@ -389,6 +396,7 @@ func TestTaskEvidence_ATaskOutsideTheCampaignHasNone(t *testing.T) {
 }
 
 func TestTaskEvidence_CyclicPhasesTerminateWithoutSelfEvidence(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	relA := writeEvidenceDoc(t, ws, ".nerd/campaigns/cyc/artifacts/a.md", markedBody("CYC-A", "CYC-A-END", 3))
 	relB := writeEvidenceDoc(t, ws, ".nerd/campaigns/cyc/artifacts/b.md", markedBody("CYC-B", "CYC-B-END", 3))
@@ -447,6 +455,7 @@ func hollowVerifyFixture(t *testing.T, reportBody string) (*Orchestrator, *Task,
 }
 
 func TestVerifyHollowReport_AReportUnderTheFloorWhileItsProducerWasOwedEvidenceFails(t *testing.T) {
+	t.Parallel()
 	o, task, report := hollowVerifyFixture(t, "No findings. "+strings.Repeat("x", 280))
 	_, err := o.executeVerifyTask(context.Background(), task)
 	if err == nil {
@@ -462,6 +471,7 @@ func TestVerifyHollowReport_AReportUnderTheFloorWhileItsProducerWasOwedEvidenceF
 // Words are not the measure: a report at the floor passes the check whatever
 // it says, and the reviewer judges what it says.
 func TestVerifyHollowReport_AReportAtTheFloorPassesWhateverItSays(t *testing.T) {
+	t.Parallel()
 	o, task, _ := hollowVerifyFixture(t, "No findings. "+strings.Repeat("x", 1024))
 	if err := o.checkVerifyHollowReport(task); err != nil {
 		t.Fatalf("a report at the floor is not hollow: %v", err)
@@ -472,6 +482,7 @@ func TestVerifyHollowReport_AReportAtTheFloorPassesWhateverItSays(t *testing.T) 
 // previous clean review ("No findings") is not a report it checks: the old
 // phrase matcher failed the retry of every clean review.
 func TestVerifyHollowReport_TheVerifysOwnCleanReviewIsNotItsReport(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	relA := writeEvidenceDoc(t, ws, ".nerd/campaigns/r/artifacts/a.md", markedBody("UP", "UP-END", 10))
 	own := writeEvidenceDoc(t, ws, ".nerd/campaigns/r/artifacts/task_v.md", "# Verify\n\nNo findings.\n")
@@ -490,6 +501,7 @@ func TestVerifyHollowReport_TheVerifysOwnCleanReviewIsNotItsReport(t *testing.T)
 }
 
 func TestVerifyHollowReport_NoUpstreamKeepsTheBuildRoute(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	c := &Campaign{ID: "/campaign_build", Phases: []Phase{{ID: "/phase_b", Order: 0, Tasks: []Task{
 		{ID: "/task_code", PhaseID: "/phase_b", Type: TaskTypeFileModify, Status: TaskCompleted, Description: "change the scanner", WriteSet: []string{"internal/world/scan.go"}},

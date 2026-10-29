@@ -28,6 +28,7 @@ func verdictFact(key, verdict, reason string, confidence int64) core.Fact {
 // derived by policy/campaign_decisions.mg, never decided in Go. Prose, bare
 // atoms outside the envelope and a verdict for another phase fail closed.
 func TestRunShardValidationCheckpoint_VerdictIsDerived(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		surface     string // what Execute returns on the live path (surface_response only)
@@ -136,6 +137,7 @@ func TestRunShardValidationCheckpoint_VerdictIsDerived(t *testing.T) {
 // Phase names are not unique; the verdict is keyed by the phase ID. A verdict
 // the reviewer keyed by the phase's name does not settle it.
 func TestRunShardValidationCheckpoint_TheVerdictIsKeyedByPhaseID(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		key  string
 		pass bool
@@ -167,6 +169,7 @@ func TestRunShardValidationCheckpoint_TheVerdictIsKeyedByPhaseID(t *testing.T) {
 // A method the runner cannot run is unverified, not passed; it used to return
 // passed with "Unknown verification method, skipping".
 func TestCheckpointRunner_AnUnknownMethodFailsClosed(t *testing.T) {
+	t.Parallel()
 	cr := NewCheckpointRunner(nil, nil, t.TempDir(), policyKernel(t, nil))
 	passed, details, err := cr.Run(context.Background(), &Phase{ID: "/phase_x", Name: "x"}, VerificationMethod("/bogus"))
 	if passed || err == nil {
@@ -177,6 +180,7 @@ func TestCheckpointRunner_AnUnknownMethodFailsClosed(t *testing.T) {
 // The policy blocks a campaign whose phase names a method the runner cannot
 // run, by name, instead of letting it reach a checkpoint that cannot pass.
 func TestPolicy_APhaseWithAnUnknownMethodBlocksTheCampaign(t *testing.T) {
+	t.Parallel()
 	c := &Campaign{
 		ID: "/campaign_um", Type: CampaignTypeFeature, Title: "unknown method", Status: StatusActive,
 		Phases: []Phase{{
@@ -210,6 +214,7 @@ func TestPolicy_APhaseWithAnUnknownMethodBlocksTheCampaign(t *testing.T) {
 // one Run can run but the policy does not know blocks a campaign that could
 // have been verified.
 func TestPolicy_TheKnownVerificationMethodsAreTheOnesRunRuns(t *testing.T) {
+	t.Parallel()
 	fset := token.NewFileSet()
 	declared := map[string]string{} // constant name -> value
 	typesFile, err := parser.ParseFile(fset, "types.go", nil, 0)

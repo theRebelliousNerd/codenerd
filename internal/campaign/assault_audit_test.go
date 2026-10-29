@@ -12,6 +12,7 @@ import (
 // commands outside VirtualStore. Its commands used to leave nothing in the
 // kernel; through auditedExecutor each one lands as execution facts.
 func TestAssaultExecutorAuditsIntoTheCampaignKernel(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

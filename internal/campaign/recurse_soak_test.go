@@ -62,6 +62,7 @@ func buildSoakGate(t *testing.T) string {
 // by a few hundred bytes a cycle under its own cap. The default is a short
 // soak for CI; set CODENERD_RECURSE_SOAK=1000 (or any count) for a long one.
 func TestRecurseCycles_ALongRunLeavesBoundedState(t *testing.T) {
+	t.Parallel()
 	cycles := 100
 	if v := os.Getenv("CODENERD_RECURSE_SOAK"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -180,6 +181,7 @@ func TestRecurseCycles_ALongRunLeavesBoundedState(t *testing.T) {
 // An attempt's campaign leaves nothing behind once released: not its files,
 // not its facts; another campaign's are untouched.
 func TestReleaseRecurseAttempt_DropsTheAttemptsCampaign(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	c := RecurseAttemptCampaign(ws, RecurseAttempt{Cycle: 1, Node: SubsystemNode{ID: "store", Title: "store", Paths: []string{"store"}}, Angle: "stabilize"})
 	other := RecurseAttemptCampaign(ws, RecurseAttempt{Cycle: 2, Node: SubsystemNode{ID: "web", Title: "web", Paths: []string{"web"}}, Angle: "stabilize"})

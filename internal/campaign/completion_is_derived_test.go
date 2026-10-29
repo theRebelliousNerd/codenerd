@@ -50,6 +50,7 @@ func TestCompletionIsNotDecidedInGo(t *testing.T) {
 // row to be incomplete). The orchestrator reloads the campaign's facts before
 // it trusts either answer.
 func TestCompletion_AKernelMissingRowsIsReloadedNotBelieved(t *testing.T) {
+	t.Parallel()
 	c := &Campaign{ID: "/campaign_missing", Title: "missing", Status: StatusActive, Phases: []Phase{{
 		ID: "/phase_missing", CampaignID: "/campaign_missing", Name: "p", Status: PhaseInProgress,
 		Tasks: []Task{

@@ -72,6 +72,7 @@ func (s *scriptedTurns) calls() []string {
 // first attempt, because the file existed and the string route carried no
 // verdict. The attempt fails now, and the retry is told why.
 func TestRunPhase_AnUnverifiedTurnFailsItsAttemptAndTheRetryIsToldWhy(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("the shipped corpus must load: %v", err)

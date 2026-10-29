@@ -98,6 +98,7 @@ func manifestCampaign() *Campaign {
 // the risk gate's grading. One advisor's timeout must not reduce the coder's
 // rejection to a generic missing-review concern.
 func TestRunAdvisoryRiskGate_RejectionSurvivesTimeoutAndReportsCoverage(t *testing.T) {
+	t.Parallel()
 	board := NewShardAdvisoryBoard(consultation.New(rejectAndTimeoutSpawner{}))
 	cfg := DefaultAdvisoryConfig()
 	cfg.ConsultTimeout = 50 * time.Millisecond
