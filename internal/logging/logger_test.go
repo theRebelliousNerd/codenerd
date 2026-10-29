@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -223,7 +222,6 @@ func TestDebugModeDisabled(t *testing.T) {
 	workspace = ""
 	configLoaded = false
 	config = loggingConfig{} // Reset config to avoid state leakage from previous tests
-	initOnce = sync.Once{}   // Reset sync.Once to allow re-initialization
 	initErr = nil
 	initialized = false
 	auditLogger = nil
@@ -326,7 +324,6 @@ func TestCategoryToggle(t *testing.T) {
 	workspace = ""
 	configLoaded = false
 	config = loggingConfig{} // Reset config to avoid state leakage from previous tests
-	initOnce = sync.Once{}   // Reset sync.Once to allow re-initialization
 	initErr = nil
 	initialized = false
 	auditLogger = nil

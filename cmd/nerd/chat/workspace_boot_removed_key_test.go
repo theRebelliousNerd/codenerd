@@ -14,13 +14,10 @@ import (
 // performSystemBootShared printed the rejection and booted on with file
 // logging torn down. The boot message must carry an error naming the key.
 //
-// Filename ordering is load-bearing, not cosmetic: a failed Initialize bricks
-// later Initialize calls process-wide (the sync.Once is consumed and
-// initialized stays false, so every later call returns the stale error), and
-// this test fails an Initialize on purpose. diagnostics_test.go and
-// system_warnings_test.go are the other logging.Initialize callers here and
-// both sort before this file. yolo_*_test.go sorts after and does not touch
-// logging.
+// This test fails an Initialize on purpose. A failed Initialize is retried by
+// the next call, not latched (TestInitialize_AFailedInitIsRetriedNotLatched),
+// so the other logging.Initialize callers here do not depend on running
+// before it.
 func TestSharedBoot_RemovedLoggingKeyFailsTheBoot(t *testing.T) {
 	bad := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(bad, ".nerd"), 0o755); err != nil {

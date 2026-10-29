@@ -23,7 +23,6 @@ func resetLoggingState(t *testing.T) {
 	workspace = ""
 	configLoaded = false
 	config = loggingConfig{}
-	initOnce = sync.Once{}
 	initErr = nil
 	initialized = false
 	auditLogger = nil

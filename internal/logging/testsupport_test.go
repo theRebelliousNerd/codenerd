@@ -3,7 +3,6 @@ package logging
 import (
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 )
 
@@ -30,7 +29,6 @@ func resetAllLoggingState(t *testing.T) {
 	logsDir = ""
 	workspace = ""
 	boundWorkspace = ""
-	initOnce = sync.Once{}
 	initErr = nil
 	initialized = false
 	initMu.Unlock()

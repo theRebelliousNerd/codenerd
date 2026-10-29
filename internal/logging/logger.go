@@ -132,7 +132,6 @@ var (
 	logLevel     int // 0=debug, 1=info, 2=warn, 3=error
 
 	// Initialization guard (Bug #1 fix)
-	initOnce    sync.Once
 	initErr     error
 	initialized bool
 
@@ -179,17 +178,17 @@ func Initialize(ws string) error {
 	initMu.Lock()
 	defer initMu.Unlock()
 
-	// Use sync.Once for the first init so the "already initialized" fast path
-	// stays exactly as cheap as before.
-	initOnce.Do(func() {
-		initErr = initializeInternal(target)
-		if initErr == nil {
-			initialized = true
-			boundWorkspace = target
-		}
-	})
+	// A first init that fails is not latched: the next call tries again. It
+	// was a sync.Once, so one refused config (a removed key) consumed it and
+	// every later Initialize -- a corrected config, another workspace --
+	// returned that stale error for the life of the process. initMu already
+	// serializes the calls.
 	if !initialized {
-		return initErr
+		if initErr = initializeInternal(target); initErr != nil {
+			return initErr
+		}
+		initialized = true
+		boundWorkspace = target
 	}
 	if boundWorkspace == target {
 		// Boot can inject enabled logging after an earlier disabled init.
