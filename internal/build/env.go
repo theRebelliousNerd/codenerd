@@ -230,9 +230,14 @@ func isRepoBoundary(dir string) bool {
 //  1. GOTRACEBACK=all — a panic in a background goroutine otherwise prints only
 //     the panicking goroutine, and the verification parsers cannot attribute
 //     the failure to a package.
-//  2. -count=1 folded into GOFLAGS — the toolchain will happily replay a cached
-//     PASS for a package whose source the agent just rewrote, which reports
-//     green for code that was never run. Unknown flags in GOFLAGS are ignored
+//  2. -count=1 folded into GOFLAGS — a test run is verdict evidence. Go's test
+//     cache keys on the test binary and the files and env vars the test
+//     process itself read, not on state a test reaches through git, a
+//     subprocess or a live endpoint, so a cached PASS can replay for a
+//     world that changed under it. (A rewritten package is a new binary and
+//     is never served from cache.) Repeated measurement of an unchanged turn
+//     is the session gate's memo (internal/session/gate_memo.go), not the
+//     cache. Unknown flags in GOFLAGS are ignored
 //     by subcommands that do not define them, so this stays safe if a caller
 //     reuses the slice for a non-test command.
 //  3. Test-relevant ambient vars that the build filter drops. Suites branch on
