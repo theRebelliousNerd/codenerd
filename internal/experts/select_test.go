@@ -54,6 +54,9 @@ func TestSelectReadsTheKernelsDecisionAndRetracts(t *testing.T) {
 		t.Errorf("bubbletea need = %+v", tea)
 	}
 	mg := sel.Needs[1]
+	if !tea.Critique {
+		t.Errorf("a /fix (advise, execute, critique) owes the spawned expert's critique: %+v", tea)
+	}
 	if tea.Spawn != SpawnLead {
 		t.Errorf("an executor routed to execute is consulted to lead; spawn = %q", tea.Spawn)
 	}

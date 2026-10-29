@@ -405,6 +405,18 @@ type TransducerWithKernel interface {
 
 // GetShardTypeForVerb returns the shard type associated with a canonical verb.
 // Returns empty string if verb is not found in the VerbCorpus.
+// IsTaxonomyVerb reports whether the built-in verb taxonomy defines verb,
+// whatever its shard type (a ShardType /none verb such as /explain is still a
+// taxonomy verb, never a user agent's name).
+func IsTaxonomyVerb(verb string) bool {
+	for _, entry := range GetVerbCorpus() {
+		if entry.Verb == verb {
+			return true
+		}
+	}
+	return false
+}
+
 func GetShardTypeForVerb(verb string) string {
 	corpus := GetVerbCorpus()
 	for _, entry := range corpus {

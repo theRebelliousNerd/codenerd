@@ -976,27 +976,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		grounding += "Static analysis (language servers) reported:\n" + diags
 	}
 
-	// Each file is reviewed as the change this turn made to it: the changed
-	// regions, the lines it removed, and the windows a finding must fall in.
-	views := make(map[string]string, len(files))
-	removals := make(map[string]string, len(files))
-	windows := make(map[string][]criticSpan, len(files))
-	for path, content := range files {
-		before := ""
-		if pre, ok := result.PreWriteContents[canonicalizeWrittenPath(path, workspace)]; ok {
-			before = pre.Content
-		}
-		changed := changedSpans(before, content)
-		if len(changed) == 0 {
-			continue // written back as it was: nothing to review
-		}
-		if before != "" {
-			if r := turnRemovals(before, content); r != "" {
-				removals[path] = r
-			}
-		}
-		views[path], windows[path] = criticFileView(path, content, changed)
-	}
+	views, removals, windows := turnChangeViews(workspace, files, result)
 	if len(views) == 0 {
 		return nil, nil
 	}
@@ -1212,4 +1192,31 @@ func (e *Executor) criticClient() types.LLMClient {
 		return e.plannerClient
 	}
 	return e.llmClient
+}
+
+// turnChangeViews is each written file as the change this turn made to it:
+// the changed regions (views), the lines it removed (removals), and the
+// windows a finding must fall in to be charged to the turn. The build critic
+// and the shard agents' critique review the same views.
+func turnChangeViews(workspace string, files map[string]string, result *ExecutionResult) (map[string]string, map[string]string, map[string][]criticSpan) {
+	views := make(map[string]string, len(files))
+	removals := make(map[string]string, len(files))
+	windows := make(map[string][]criticSpan, len(files))
+	for path, content := range files {
+		before := ""
+		if pre, ok := result.PreWriteContents[canonicalizeWrittenPath(path, workspace)]; ok {
+			before = pre.Content
+		}
+		changed := changedSpans(before, content)
+		if len(changed) == 0 {
+			continue // written back as it was: nothing to review
+		}
+		if before != "" {
+			if r := turnRemovals(before, content); r != "" {
+				removals[path] = r
+			}
+		}
+		views[path], windows[path] = criticFileView(path, content, changed)
+	}
+	return views, removals, windows
 }

@@ -242,6 +242,9 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"shard_agent", "shard_agent_domain", "technology_import_exact", "technology_import_prefix",
 				"shard_agent_recorded", "expert_task", "expert_task_target",
 				"expert_task_speaker", "task_complexity",
+				// The turn's shard-agent critique (turn_rounds.mg), beside
+				// turn_wrote, which the round's owing joins.
+				"turn_expert_critic", "turn_expert_finding",
 			},
 		},
 		{

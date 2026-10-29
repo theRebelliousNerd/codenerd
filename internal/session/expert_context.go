@@ -24,7 +24,7 @@ func (e *Executor) selectExperts(verb, target string) experts.Selection {
 		Verb:      verb,
 		Targets:   []string{target},
 		Workspace: e.workspaceForVerification(),
-		Speaker:   turnSpeakerAgent(verb),
+		Speaker:   turnUserAgent(verb),
 	})
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("expert selection for %s %s failed: %v", verb, target, err)
@@ -41,12 +41,15 @@ func (e *Executor) neededExperts(verb, target string) []string {
 	return e.selectExperts(verb, target).Agents()
 }
 
-// turnSpeakerAgent is the shard agent a verb runs the turn as -- the same
-// test buildCompilationContext applies to choose the persona: a verb the
-// taxonomy does not know that addresses a user agent ("/consult/goexpert",
-// "/goexpert") -- or "" for a built-in persona's verb.
-func turnSpeakerAgent(verb string) string {
-	if perception.GetShardTypeForVerb(verb) != "" {
+// turnUserAgent is the shard agent a verb runs the turn as: a verb the
+// taxonomy does not define that addresses a user agent ("/consult/goexpert",
+// "/goexpert"), or "" for every taxonomy verb. buildCompilationContext and
+// the expert selection both ask it. It used to test only for a shard type,
+// so a taxonomy verb whose shard type is /none (/explain, /configure,
+// /assault, /stats, /help, /greet, /knowledge) ran as a phantom agent named
+// after the verb.
+func turnUserAgent(verb string) string {
+	if perception.IsTaxonomyVerb(verb) {
 		return ""
 	}
 	return UserAgentFromIntentVerb(verb)

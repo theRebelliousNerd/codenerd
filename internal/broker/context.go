@@ -69,6 +69,9 @@ const (
 	// PhaseSurvivors is the advisory round on the pin gate's surviving
 	// condition mutants.
 	PhaseSurvivors Phase = "survivors"
+	// PhaseExpertRepair is the round that hands the shard agents' review of
+	// the turn's change (/expert_critique) back to the model.
+	PhaseExpertRepair Phase = "expert_repair"
 )
 
 // WithPhase tags ctx with the phase of the work under it. Like a purpose, the

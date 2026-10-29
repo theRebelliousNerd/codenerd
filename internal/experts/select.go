@@ -65,6 +65,9 @@ type Need struct {
 	// Spawn is the consultation the kernel derived for the agent before the
 	// task's turn (expert_spawn): SpawnLead, SpawnAdvise, or "" for none.
 	Spawn string
+	// Critique reports expert_critique: the agent also reviews the turn's
+	// change before its verdict (the verb's mode is /advisory_with_critique).
+	Critique bool
 }
 
 // Selection is the kernel's answer for one task.
@@ -221,6 +224,18 @@ func read(kernel types.Kernel, id string) (Selection, error) {
 		return sel, fmt.Errorf("query specialist_should_advise: %w", err)
 	}
 	markRouting(rows, id, needs, func(n *Need) { n.Advise = true })
+
+	if rows, err = kernel.Query("expert_critique"); err != nil {
+		return sel, fmt.Errorf("query expert_critique: %w", err)
+	}
+	for _, f := range rows {
+		if len(f.Args) < 2 || types.ExtractString(f.Args[0]) != id {
+			continue
+		}
+		if n, ok := needs[agentKey(f.Args[1])]; ok {
+			n.Critique = true
+		}
+	}
 
 	if rows, err = kernel.Query("expert_spawn"); err != nil {
 		return sel, fmt.Errorf("query expert_spawn: %w", err)

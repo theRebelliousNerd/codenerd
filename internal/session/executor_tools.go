@@ -496,6 +496,10 @@ func (e *Executor) verifyCompletedToolTurn(
 			errs, err := e.verifyAndUpliftWithCritic(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
 			return nil, errs, err
 		},
+		"/expert_critique": func() (*types.LLMToolResponse, []string, error) {
+			errs, err := e.reviewWithShardExperts(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+			return nil, errs, err
+		},
 		"/coverage": func() (*types.LLMToolResponse, []string, error) {
 			return e.verifyAndRepairCoverage(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
 		},

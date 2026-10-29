@@ -164,3 +164,22 @@ task_complexity(Task, /high) :- expert_task_complex(Task).
 task_complexity(Task, /normal) :-
     expert_task(Task, _),
     !expert_task_complex(Task).
+
+# --- Critique ------------------------------------------------------------------
+# A verb whose topology is advise, execute, critique (/fix, /refactor) has the
+# shard agents it spawned review the change before the turn's verdict, through
+# the same consultation path. The review is a post-edit round
+# (/expert_critique, policy/turn_rounds.mg); its on-change findings at or above
+# the critic's bar go back to the model as one repair round, exactly as the
+# build critic's do (turn_critic_actionable, coder_safety.mg).
+
+expert_critique(Task, Agent) :-
+    expert_spawn(Task, Agent, _),
+    expert_task(Task, Verb),
+    execution_mode(Verb, /advisory_with_critique).
+
+turn_expert_actionable(Turn, Idx) :-
+    turn_expert_finding(Turn, _, Idx, Sev),
+    severity_rank(Sev, Rank),
+    severity_rank(/medium, Bar),
+    Rank >= Bar.

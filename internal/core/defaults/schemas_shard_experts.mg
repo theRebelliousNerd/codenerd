@@ -137,3 +137,23 @@ Decl expert_task_file_symbols(Task, File, N) bound [/string, /string, /number].
 
 # expert_task_complex(Task) - some measure makes the task complex.
 Decl expert_task_complex(Task) bound [/string].
+
+# --- Critique (per task, then per turn) -------------------------------------
+
+# expert_critique(Task, Agent) - a shard agent the task spawns must also
+# review the change before the turn's verdict: the verb's execution mode is
+# /advisory_with_critique (policy/delegation.mg). Read by internal/experts.
+Decl expert_critique(Task, Agent) bound [/string, /name].
+
+# turn_expert_critic(Turn, Agent) - this turn owes the agent's review: the
+# executor records it from the turn's selection (expert_critique) when the
+# turn starts. Producer: internal/session (Executor.recordExpertCritics).
+Decl turn_expert_critic(Turn, Agent) bound [/name, /name].
+
+# turn_expert_finding(Turn, Agent, Idx, Severity) - one finding of an agent's
+# review that cites a line the turn changed, by its index in the round.
+# Producer: internal/session (Executor.reviewWithShardExperts).
+Decl turn_expert_finding(Turn, Agent, Idx, Severity) bound [/name, /name, /number, /name].
+
+# turn_expert_actionable(Turn, Idx) - a finding the repair round carries.
+Decl turn_expert_actionable(Turn, Idx) bound [/name, /number].

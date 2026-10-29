@@ -29,7 +29,9 @@ Decl turn_pin_survivors(Turn, Count) bound [/name, /number].
 # (compiler errors are a better repair signal than test output wrapped
 # around them); the critic once the change compiles and passes, and before
 # the rounds that answer for its edits; coverage before pinning, which counts
-# the tests coverage asks for, and before vet, which vets them; removed tests
+# the tests coverage asks for, and before vet, which vets them; the shard
+# agents' critique beside the build critic, for the same reason (its repair is
+# measured by the coverage and vet rounds after it); removed tests
 # after the test gate; /unwired after the gates, so the code it asks about
 # compiles, and before the test run, because its push-back writes and re-arms
 # the gates (turn_unwired.mg); the test run after them, because a write after
@@ -38,14 +40,15 @@ Decl turn_pin_survivors(Turn, Count) bound [/name, /number].
 round_order(/build, 1).
 round_order(/test, 2).
 round_order(/critic, 3).
-round_order(/coverage, 4).
-round_order(/pinned, 5).
-round_order(/survivors, 6).
-round_order(/vet, 7).
-round_order(/removed_tests, 8).
-round_order(/unwired, 9).
-round_order(/test_run, 10).
-round_order(/finish, 11).
+round_order(/expert_critique, 4).
+round_order(/coverage, 5).
+round_order(/pinned, 6).
+round_order(/survivors, 7).
+round_order(/vet, 8).
+round_order(/removed_tests, 9).
+round_order(/unwired, 10).
+round_order(/test_run, 11).
+round_order(/finish, 12).
 
 turn_round_owed(Turn, /build) :- turn_owes_gate(Turn, /build).
 turn_round_owed(Turn, /test) :- turn_owes_gate(Turn, /test).
@@ -56,6 +59,11 @@ turn_round_owed(Turn, /critic) :- turn_write_class(Turn, /go).
 # the critic cannot read (a YAML file, say) costs nothing: it offers no file
 # and the round ends without a call.
 turn_round_owed(Turn, /critic) :- turn_write_class(Turn, /other).
+# A turn whose selection spawned shard agents with critique owes their review
+# of the change (policy/shard_experts.mg, expert_critique).
+turn_round_owed(Turn, /expert_critique) :-
+    turn_expert_critic(Turn, _),
+    turn_wrote(Turn).
 turn_round_owed(Turn, /coverage) :- turn_owes_gate(Turn, /test).
 turn_round_owed(Turn, /pinned) :- turn_owes_gate(Turn, /pinned).
 # The pin gate's surviving condition mutants are the best defect locator the

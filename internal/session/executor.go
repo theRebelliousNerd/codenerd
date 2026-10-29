@@ -995,6 +995,9 @@ type ExecutionResult struct {
 	// low-severity items that did not trigger an uplift round. Advisory only —
 	// nothing here fails a turn.
 	CriticFindings []CriticFinding
+	// ExpertFindings are the shard agents' review of this turn's change (the
+	// /expert_critique round): every on-change finding, by agent.
+	ExpertFindings []ExpertFinding
 
 	// StaticDiagnostics is gopls output for this turn's files, when gopls is
 	// installed. It reports a class of defect the compiler is deliberately
@@ -1446,8 +1449,10 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// the atom selector has no way to score a document it has never seen, and
 	// budget-driven eviction could silently drop the project's own rules.
 	systemPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(compileResult.Prompt), intent.Target)
-	// 4c. Spawn second: the consultations the kernel derived (expert_spawn).
+	// 4c. Spawn second: the consultations the kernel derived (expert_spawn),
+	// and the reviews the turn owes after its writes (expert_critique).
 	systemPrompt = e.withExpertConsultations(ctx, systemPrompt, intent, input, expertSel)
+	e.recordExpertCritics(result, expertSel)
 
 	// 5+6. LLM ↔ tools loop. The model may request tools, we execute them, then
 	// feed the results back as a new turn — repeated until the model returns a
@@ -1618,7 +1623,7 @@ func (e *Executor) buildCompilationContextWith(ctx context.Context, intent perce
 		// ShardID selects the per-shard atom DB and must be the bare agent
 		// name, not an instance id.
 		cc.ShardID = strings.TrimPrefix(shardType, "/")
-	} else if agent := UserAgentFromIntentVerb(intent.Verb); agent != "" {
+	} else if agent := turnUserAgent(intent.Verb); agent != "" {
 		// The verb is not in the built-in taxonomy, which leaves exactly one
 		// population: user-defined agents from .nerd/agents/<name>/prompts.yaml,
 		// reached as "/consult/<name>" (chat delegation) or "/<name>"
