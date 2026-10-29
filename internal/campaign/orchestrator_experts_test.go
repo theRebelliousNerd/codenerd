@@ -86,7 +86,12 @@ func runExpertTask(t *testing.T, target string, world []types.Fact) []session.Ta
 		{Predicate: "shard_agent", Args: []any{types.MangleAtom("/bubbleteaexpert")}},
 		{Predicate: "shard_agent_domain", Args: []any{types.MangleAtom("/mangleexpert"), types.MangleAtom("/mangle"), types.MangleAtom("/registry")}},
 		{Predicate: "shard_agent_domain", Args: []any{types.MangleAtom("/bubbleteaexpert"), types.MangleAtom("/bubbletea"), types.MangleAtom("/registry")}},
-		{Predicate: "technology_import_root", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
+		{Predicate: "technology_import_exact", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
+		// An advisor-classified agent (policy/shards.mg) with import evidence
+		// advises: a language-only match lends knowledge and spawns nothing.
+		{Predicate: "shard_agent", Args: []any{types.MangleAtom("/testarchitect")}},
+		{Predicate: "shard_agent_domain", Args: []any{types.MangleAtom("/testarchitect"), types.MangleAtom("/testify"), types.MangleAtom("/registry")}},
+		{Predicate: "technology_import_exact", Args: []any{"github.com/stretchr/testify", types.MangleAtom("/testify")}},
 	}
 	if err := kernel.AssertBatch(append(roster, world...)); err != nil {
 		t.Fatalf("assert roster: %v", err)
@@ -131,25 +136,28 @@ func runExpertTask(t *testing.T, target string, world []types.Fact) []session.Ta
 	return log.all()
 }
 
-// A campaign task on a Mangle file needs the Mangle expert at language
-// strength: specialist_should_advise. The agent is consulted before the turn,
-// on the campaign's own task executor, and the turn carries its advice and
-// aims at the file, so its compile carries the expert's knowledge.
+// A campaign task on a file importing testify needs the test architect, an
+// advisor by classification, at import strength: specialist_should_advise. The
+// agent is consulted before the turn, on the campaign's own task executor, and
+// the turn carries its advice and aims at the file, so its compile carries the
+// expert's knowledge.
 func TestCampaignTask_AnAdvisingShardAgentIsConsultedFirst(t *testing.T) {
 	t.Parallel()
-	const target = "internal/policy/rules.mg"
-	reqs := runExpertTask(t, target, nil)
+	const target = "internal/policy/rules_test.go"
+	reqs := runExpertTask(t, target, []types.Fact{
+		{Predicate: "dependency_link", Args: []any{target, "pkg:github.com/stretchr/testify", "github.com/stretchr/testify"}},
+	})
 	if len(reqs) != 2 {
 		t.Fatalf("requests = %+v, want a consultation then the task's turn", reqs)
 	}
 	consult, turn := reqs[0], reqs[1]
-	if consult.IntentVerb != "/consult/mangleexpert" || !strings.Contains(consult.Task, target) {
-		t.Fatalf("first request = %+v, want the Mangle expert consulted on %s", consult, target)
+	if consult.IntentVerb != "/consult/testarchitect" || !strings.Contains(consult.Task, target) {
+		t.Fatalf("first request = %+v, want the test architect consulted on %s", consult, target)
 	}
 	if turn.Target != target {
 		t.Fatalf("the task's turn aims at %q, want %s", turn.Target, target)
 	}
-	if !strings.Contains(turn.Task, "ADVICE FROM SHARD AGENT mangleexpert") || !strings.Contains(turn.Task, "Keep every negation bound") {
+	if !strings.Contains(turn.Task, "ADVICE FROM SHARD AGENT testarchitect") || !strings.Contains(turn.Task, "Keep every negation bound") {
 		t.Fatalf("the task's turn does not carry the agent's advice:\n%s", turn.Task)
 	}
 }
@@ -183,7 +191,7 @@ func TestCampaignTask_SelectsFromTheKernelDecision(t *testing.T) {
 	if err := kernel.AssertBatch([]types.Fact{
 		{Predicate: "shard_agent", Args: []any{types.MangleAtom("/bubbleteaexpert")}},
 		{Predicate: "shard_agent_domain", Args: []any{types.MangleAtom("/bubbleteaexpert"), types.MangleAtom("/bubbletea"), types.MangleAtom("/registry")}},
-		{Predicate: "technology_import_root", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
+		{Predicate: "technology_import_exact", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
 		{Predicate: "dependency_link", Args: []any{"cmd/app/view.go", "pkg:bubbletea", "github.com/charmbracelet/bubbletea"}},
 	}); err != nil {
 		t.Fatal(err)
