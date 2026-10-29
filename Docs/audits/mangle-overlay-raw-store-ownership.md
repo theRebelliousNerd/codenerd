@@ -1,5 +1,7 @@
 # Overlay clone isolation must close the raw-store escape
 
+> **Main update, 2026-10-29 10:09 UTC:** The overlay optimization has landed on [main at `9dcb01b`](https://github.com/theRebelliousNerd/codenerd/commit/9dcb01b9736bf4763aa3ac391d29f133d73c6611). The raw getter and clean-clone sharing still support the sequential witness below; ordinary mutation paths retain their ownership checks. No production caller was identified in the prior source search or in the changed non-test Go files through this head. This remains a latent API-contract concern, not a demonstrated production failure. The original branch comparison and links below preserve the earlier historical freeze.
+
 ## Decision and evidence boundary
 
 Preserve the new read-through clone optimization, but close or explicitly narrow the public `RealKernel.GetStore` capability before treating an overlay's base as immutable. The getter returns the real mutable store. A retained handle can change that store after cloning without passing through the new copy-on-write boundary, and the clone can observe the new membership.
@@ -83,5 +85,5 @@ Retaining a raw pointer **before** cloning is the important control: making only
 - Test argument ownership separately from membership so fixes for one cannot mask the other. Include the supported reader/writer/callback contract and a concurrency check only after that contract is defined.
 - Measure advanced-read snapshot allocations/latency, regular clone and cone latency, lock hold, retained bases and GC. Compare equal isolation semantics; a cheaper clone that accepts post-snapshot rows is not a valid faster baseline.
 
-**Exit condition:** every publicly obtainable store capability has an explicit ownership/lifetime contract, an issued capability cannot mutate a shared base, and ordinary clone performance retains the overlay optimization. Until a real caller or authorized reproduction is established, keep the finding labeled a branch-only API boundary refinement.
+**Exit condition:** every publicly obtainable store capability has an explicit ownership/lifetime contract, an issued capability cannot mutate a shared base, and ordinary clone performance retains the overlay optimization. Until a real caller or authorized reproduction is established, keep the finding labeled a latent API boundary refinement, now present on main.
 
