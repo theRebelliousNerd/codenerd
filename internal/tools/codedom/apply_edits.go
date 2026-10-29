@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"codenerd/internal/logging"
@@ -22,7 +23,7 @@ const maxAggregateInputBytes = 1 << 20 // 1 MiB
 func ApplyEditsTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "apply_edits",
-		Description: "Transactionally apply 1-16 line edits across distinct existing files. Each entry is one of edit_lines, insert_lines, or delete_lines with the same arguments as the single-file tools, including precondition: a supplied read handle is checked against the file before anything is planned, exactly as the single-file tool checks it. Every edit is planned and validated before commit; optimistic conflict checks and best-effort rollback protect against partial writes.",
+		Description: "Transactionally apply 1-16 line edits to existing files; several may edit one file, each addressing its lines as they are before the batch (entries that touch the same lines are refused). Each entry is one of edit_lines, insert_lines, or delete_lines with the same arguments as the single-file tools, including precondition: a supplied read handle is checked against the file before anything is planned, exactly as the single-file tool checks it. Every edit is planned and validated before commit; optimistic conflict checks and best-effort rollback protect against partial writes.",
 		Category:    tools.CategoryCode,
 		Priority:    80,
 		Execute:     executeApplyEdits,
@@ -31,7 +32,7 @@ func ApplyEditsTool() *tools.Tool {
 			Properties: map[string]tools.Property{
 				"edits": {
 					Type:        "array",
-					Description: "Array of 1-16 edit objects, each with operation and path plus operation-specific fields, one distinct existing file per edit. Each object may carry " + precondition.Arg + ": " + precondition.ArgDescription,
+					Description: "Array of 1-16 edit objects, each with operation and path plus operation-specific fields, each on an existing file; line numbers are the file's before the batch. Each object may carry " + precondition.Arg + ": " + precondition.ArgDescription,
 					Items:       &tools.PropertyItems{Type: "object"},
 				},
 			},
@@ -205,13 +206,19 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 	type snapshot struct {
 		absPath string
 		relPath string
-		orig    []byte
-		mode    os.FileMode
 		edit    parsedEdit
 	}
 	var snaps []snapshot
 	conditions := make([]entryPrecondition, 0, len(parsed))
-	absSeen := make(map[string]int)
+	// One snapshot per file: several entries may edit one file, and every
+	// entry addresses its lines as they are before the batch.
+	type fileSnap struct {
+		orig []byte
+		mode os.FileMode
+		rel  string
+	}
+	files := make(map[string]*fileSnap)
+	var fileOrder []string
 	for i, pe := range parsed {
 		if err := ctx.Err(); err != nil {
 			return "", err
@@ -234,14 +241,17 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 		if err != nil {
 			return "", fmt.Errorf("edits[%d] path %q: %w", i, pe.rawPath, err)
 		}
-		if prev, ok := absSeen[abs]; ok {
-			return "", fmt.Errorf("duplicate canonical path %q in edits[%d] and edits[%d]", rel, prev, i)
+		fs, seen := files[abs]
+		if !seen {
+			data, err := projectdoc.ReadFileForTool(abs)
+			if err != nil {
+				return "", fmt.Errorf("failed to read %q: %w", pe.rawPath, err)
+			}
+			fs = &fileSnap{orig: data, mode: info.Mode(), rel: filepath.ToSlash(rel)}
+			files[abs] = fs
+			fileOrder = append(fileOrder, abs)
 		}
-		absSeen[abs] = i
-		data, err := projectdoc.ReadFileForTool(abs)
-		if err != nil {
-			return "", fmt.Errorf("failed to read %q: %w", pe.rawPath, err)
-		}
+		data := fs.orig
 		// The caller's observation is checked on the original identity and the
 		// exact bytes this batch will transform, before anything is planned. A
 		// refused entry refuses the whole batch: no file has changed yet.
@@ -263,38 +273,62 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 		snaps = append(snaps, snapshot{
 			absPath: abs,
 			relPath: filepath.ToSlash(rel),
-			orig:    data,
-			mode:    info.Mode(),
 			edit:    parsed[i],
 		})
 	}
-	// Every entry is planned in memory against its snapshot with the same
-	// planner its single-file verb uses, so all validation precedes any write
-	// and nothing is reported as changed until the commit lands.
-	writes := make([]plannedWrite, 0, len(snaps))
+	// Every entry is planned in memory with the same planner its single-file
+	// verb uses, so all validation precedes any write and nothing is reported
+	// as changed until the commit lands. A file's entries are applied from
+	// its last lines to its first, so each one's line numbers -- read off the
+	// file before the batch -- still address the lines it meant; entries that
+	// touch the same lines are refused, since no order makes both mean what
+	// they say. Until 2026-10-29 a second entry for one file was refused
+	// outright ("duplicate canonical path"), and the model, which had sent
+	// two hunks of one file, spent a round sending them again one by one.
+	byFile := make(map[string][]int, len(fileOrder))
 	for i, sn := range snaps {
+		byFile[sn.absPath] = append(byFile[sn.absPath], i)
+	}
+	writes := make([]plannedWrite, 0, len(fileOrder))
+	for _, abs := range fileOrder {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		var plan lineEditPlan
-		var planErr error
-		switch sn.edit.operation {
-		case "edit_lines":
-			plan, planErr = planEditLines(sn.absPath, sn.orig, sn.edit.startLine, sn.edit.endLine, sn.edit.newContent)
-		case "insert_lines":
-			plan, planErr = planInsertLines(sn.absPath, sn.orig, sn.edit.afterLine, sn.edit.content)
-		case "delete_lines":
-			plan, planErr = planDeleteLines(sn.absPath, sn.orig, sn.edit.startLine, sn.edit.endLine)
-		default:
-			planErr = fmt.Errorf("unknown operation %q", sn.edit.operation)
+		fs := files[abs]
+		entries := byFile[abs]
+		sort.SliceStable(entries, func(a, b int) bool { return editLow(snaps[entries[a]].edit) < editLow(snaps[entries[b]].edit) })
+		for k := 1; k < len(entries); k++ {
+			prev, cur := snaps[entries[k-1]].edit, snaps[entries[k]].edit
+			if editLow(cur) <= editHigh(prev) {
+				return "", fmt.Errorf("edits[%d] and edits[%d] both touch %s around line %d; one batch cannot apply two edits to the same lines -- merge them into one entry",
+					entries[k-1], entries[k], fs.rel, int(editLow(cur)))
+			}
 		}
-		if planErr != nil {
-			return "", fmt.Errorf("preflight edits[%d] %s on %s failed: %w", i, sn.edit.operation, sn.edit.rawPath, planErr)
+		current := fs.orig
+		for k := len(entries) - 1; k >= 0; k-- {
+			i := entries[k]
+			sn := snaps[i]
+			var plan lineEditPlan
+			var planErr error
+			switch sn.edit.operation {
+			case "edit_lines":
+				plan, planErr = planEditLines(abs, current, sn.edit.startLine, sn.edit.endLine, sn.edit.newContent)
+			case "insert_lines":
+				plan, planErr = planInsertLines(abs, current, sn.edit.afterLine, sn.edit.content)
+			case "delete_lines":
+				plan, planErr = planDeleteLines(abs, current, sn.edit.startLine, sn.edit.endLine)
+			default:
+				planErr = fmt.Errorf("unknown operation %q", sn.edit.operation)
+			}
+			if planErr != nil {
+				return "", fmt.Errorf("preflight edits[%d] %s on %s failed: %w", i, sn.edit.operation, sn.edit.rawPath, planErr)
+			}
+			if plan.output == string(current) {
+				return "", fmt.Errorf("edits[%d] %s on %s produces no change", i, sn.edit.operation, sn.relPath)
+			}
+			current = []byte(plan.output)
 		}
-		if plan.output == string(sn.orig) {
-			return "", fmt.Errorf("edits[%d] %s on %s produces no change", i, sn.edit.operation, sn.relPath)
-		}
-		writes = append(writes, plannedWrite{abs: sn.absPath, rel: sn.relPath, orig: sn.orig, data: []byte(plan.output), mode: sn.mode})
+		writes = append(writes, plannedWrite{abs: abs, rel: fs.rel, orig: fs.orig, data: current, mode: fs.mode})
 	}
 	if err := commitFiles(ctx, writes); err != nil {
 		return "", err
@@ -319,6 +353,24 @@ func executeApplyEdits(ctx context.Context, args map[string]any) (string, error)
 	}
 	logging.Tools("apply_edits completed: %d files (%s)", len(changed), strings.Join(changed, ", "))
 	return string(b), nil
+}
+
+// editLow and editHigh are the lines an entry touches, as positions on the
+// file before the batch: an edit or delete its range, an insert the gap after
+// its line (after_line + 0.5), so an insert never overlaps the line it follows
+// or the one it precedes.
+func editLow(e parsedEdit) float64 {
+	if e.operation == "insert_lines" {
+		return float64(e.afterLine) + 0.5
+	}
+	return float64(e.startLine)
+}
+
+func editHigh(e parsedEdit) float64 {
+	if e.operation == "insert_lines" {
+		return float64(e.afterLine) + 0.5
+	}
+	return float64(e.endLine)
 }
 
 // applyCoerceInt reads edit line addresses through the canonical strict helper.

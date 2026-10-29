@@ -178,22 +178,44 @@ func TestApplyEdits_PreflightDelimiterBalanceChangesNeitherFile(t *testing.T) {
 	}
 }
 
-func TestApplyEdits_DuplicateCanonicalRejected(t *testing.T) {
+// Several entries may edit one file. Each addresses the file's lines as they
+// are before the batch -- a model reads once and sends its hunks -- so the
+// result is what applying each to the original would mean, whatever order the
+// entries came in. Two entries for one file used to be refused as a
+// duplicate path, which cost the model a round of sending them one by one.
+func TestApplyEdits_SeveralEditsToOneFileAddressItsLinesBeforeTheBatch(t *testing.T) {
 	dir := t.TempDir()
 	aRel := "a.txt"
-	writeFixture(t, dir, aRel, "one\ntwo\n")
+	aAbs := writeFixture(t, dir, aRel, "one\ntwo\nthree\nfour\n")
 	ctx := ctxForDir(dir)
-	_, err := executeApplyEdits(ctx, map[string]any{
+	out, err := executeApplyEdits(ctx, map[string]any{
 		"edits": []any{
-			map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 1, "end_line": 1, "new_content": "ONE"},
-			map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 2, "end_line": 2, "new_content": "TWO"},
+			map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 1, "end_line": 1, "new_content": "ONE\nONE-B"},
+			map[string]any{"operation": "delete_lines", "path": aRel, "start_line": 4, "end_line": 4},
+			map[string]any{"operation": "insert_lines", "path": aRel, "after_line": 2, "content": "after-two"},
+			map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 3, "end_line": 3, "new_content": "THREE"},
 		},
 	})
-	if err == nil {
-		t.Fatal("expected duplicate error")
+	if err != nil {
+		t.Fatalf("executeApplyEdits: %v", err)
 	}
-	if !strings.Contains(strings.ToLower(err.Error()), "duplicate") {
-		t.Fatalf("expected duplicate mention, got %v", err)
+	if got, want := readFile(t, aAbs), "ONE\nONE-B\ntwo\nafter-two\nTHREE\n"; got != want {
+		t.Fatalf("file = %q, want %q (result %s)", got, want, out)
+	}
+
+	// Entries that touch the same lines are refused, and nothing changes.
+	before := readFile(t, aAbs)
+	_, err = executeApplyEdits(ctx, map[string]any{
+		"edits": []any{
+			map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 1, "end_line": 2, "new_content": "X"},
+			map[string]any{"operation": "edit_lines", "path": aRel, "start_line": 2, "end_line": 3, "new_content": "Y"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "both touch a.txt") {
+		t.Fatalf("overlapping entries: err = %v, want a refusal naming the file", err)
+	}
+	if readFile(t, aAbs) != before {
+		t.Fatal("a refused batch changed the file")
 	}
 }
 
@@ -213,11 +235,9 @@ func TestApplyEdits_DuplicateViaSymlink(t *testing.T) {
 			map[string]any{"operation": "edit_lines", "path": linkRel, "start_line": 1, "end_line": 1, "new_content": "ONE2"},
 		},
 	})
-	if err == nil {
-		t.Fatal("expected duplicate via symlink")
-	}
-	if !strings.Contains(strings.ToLower(err.Error()), "duplicate") {
-		t.Fatalf("expected duplicate, got %v", err)
+	// The link and its target are one file: both entries edit its line 1.
+	if err == nil || !strings.Contains(err.Error(), "both touch a.txt") {
+		t.Fatalf("expected the two entries on one canonical file to be refused, got %v", err)
 	}
 	_ = aAbs
 }
