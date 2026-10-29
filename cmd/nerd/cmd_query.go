@@ -219,19 +219,9 @@ func runWhy(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	query := buildWhyQuery(predicate, kern.GetDeclaredPredicates())
-	fmt.Printf("Tracing query: %s\n", query)
-
-	// RealKernel.Query is store-scan based: bare predicate name is most reliable
-	// (free-var patterns like next_action(Var0) may be misparsed as constants).
-	tracePred := whyTracePredicate(query)
-	trace, err := kern.TraceQuery(ctx, tracePred)
+	trace, query, err := traceWhy(ctx, kern, predicate)
 	if err != nil {
-		// Fallback: hollow engine tracer with mode synthesis for free-var queries.
-		trace, err = runWhyViaHollowTracer(ctx, kern, query)
-		if err != nil {
-			return fmt.Errorf("trace failed: %w", err)
-		}
+		return err
 	}
 
 	if trace == nil || len(trace.RootNodes) == 0 {
@@ -244,13 +234,40 @@ func runWhy(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// whyTracePredicate returns the store-scan form of a why query (bare name).
-func whyTracePredicate(query string) string {
-	q := strings.TrimSpace(query)
-	if i := strings.Index(q, "("); i > 0 {
-		return strings.TrimSpace(q[:i])
+// traceWhy traces predicate on kern and returns the trace and the query it ran.
+//
+// The query the trace runs is the one the user asked for. A pattern keeps its
+// arguments: `safe_action(/read_file)` roots only that row, and a goal with no
+// match has no roots. It used to be cut at the first parenthesis, so every row
+// of the relation came back (audit why-query-scope-preservation); Query's
+// typed pattern path matches variables as wildcards and constants by Mangle
+// type and value, so the old reason for cutting no longer holds. A bare
+// predicate means the whole relation, every arity. A pattern that does not
+// parse is refused rather than traced as its bare predicate.
+//
+// Only when the store trace fails does the hollow engine tracer run, on the
+// same pattern, or on a free-variable atom built for a bare predicate (it
+// synthesizes modes from the atom).
+func traceWhy(ctx context.Context, kern *core.RealKernel, predicate string) (*mangle.DerivationTrace, string, error) {
+	query := strings.TrimSpace(predicate)
+	if query == "" {
+		query = "next_action"
 	}
-	return q
+	if strings.Contains(query, "(") {
+		if _, err := mangle.ParseAtom(query); err != nil {
+			return nil, query, fmt.Errorf("%q is not a query pattern: %w", query, err)
+		}
+	}
+	fmt.Printf("Tracing query: %s\n", query)
+
+	trace, err := kern.TraceQuery(ctx, query)
+	if err != nil {
+		trace, err = runWhyViaHollowTracer(ctx, kern, buildWhyQuery(query, kern.GetDeclaredPredicates()))
+		if err != nil {
+			return nil, query, fmt.Errorf("trace failed: %w", err)
+		}
+	}
+	return trace, query, nil
 }
 
 // buildWhyQuery turns a bare predicate name into a Mangle query atom with free vars.
