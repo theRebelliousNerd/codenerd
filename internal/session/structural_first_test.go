@@ -10,6 +10,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/tools"
+	"codenerd/internal/types"
 )
 
 // stubNamedTool puts a stub under a real tool name for one test, whatever ran
@@ -47,27 +48,41 @@ func runStructuralLoop(t *testing.T, asked string, rounds int, allowed []string)
 	return client
 }
 
-// The raw search tools are withheld until the structural queries have been
-// given a real trial: four that ran, per working_structural_trials.
+// requireStableCatalog fails unless every request of a loop offered the same
+// tools: the list precedes every message in a provider's cached prefix, so a
+// change re-bills the whole request. The working policy withholds at
+// dispatch, not by changing the list.
+func requireStableCatalog(t *testing.T, catalogs [][]string) {
+	t.Helper()
+	for i, names := range catalogs {
+		if !slices.Equal(names, catalogs[0]) {
+			t.Fatalf("request %d offered %v, request 1 %v: the catalog must not change within a loop", i+1, names, catalogs[0])
+		}
+	}
+}
+
+// searchOpenedAt is the first request whose history carries the note that raw
+// search opened, or -1.
+func searchOpenedAt(histories [][]types.Message) int {
+	for i := range histories {
+		if anyContains(toolResultContents(histories[i:i+1]), "Raw search (grep, glob, list_files, search_code) is now open") {
+			return i
+		}
+	}
+	return -1
+}
+
+// Raw search stays closed until the structural queries have been given a real
+// trial: four that ran, per working_structural_trials. The catalog is the
+// same throughout; the opening is told to the model.
 func TestStructuralFirst_SearchOpensAfterTheStructuralTrial(t *testing.T) {
 	stubNamedTool(t, "find_symbol", tools.EffectRead, func() string { return "a.go:1-2  function  p.F\n-- 1 rows, complete\n" })
 	stubNamedTool(t, "grep", tools.EffectRead, func() string { return "grep ran" })
 
 	client := runStructuralLoop(t, "find_symbol", 6, []string{"find_symbol", "grep"})
-	for i, names := range client.catalogs {
-		offered := slices.Contains(names, "grep")
-		if i < 4 && offered {
-			t.Fatalf("request %d offers grep before four structural queries ran (%v)", i+1, names)
-		}
-		if i >= 4 && !offered {
-			t.Fatalf("request %d still withholds grep after four structural queries (%v)", i+1, names)
-		}
-		if !slices.Contains(names, "find_symbol") {
-			t.Fatalf("request %d dropped find_symbol (%v)", i+1, names)
-		}
-	}
-	if !anyContains(toolResultContents(client.histories), "Raw search (grep, glob, list_files, search_code) is now offered") {
-		t.Fatal("the model was never told that raw search opened")
+	requireStableCatalog(t, client.catalogs)
+	if at := searchOpenedAt(client.histories); at != 4 {
+		t.Fatalf("raw search opened at request %d, want 5: after four structural queries", at+1)
 	}
 }
 
@@ -78,14 +93,9 @@ func TestStructuralFirst_SearchOpensEarlyWhenTheIndexHasNoAnswer(t *testing.T) {
 	stubNamedTool(t, "grep", tools.EffectRead, func() string { return "grep ran" })
 
 	client := runStructuralLoop(t, "find_symbol", 4, []string{"find_symbol", "grep"})
-	for i, names := range client.catalogs {
-		offered := slices.Contains(names, "grep")
-		if i < 2 && offered {
-			t.Fatalf("request %d offers grep before two misses (%v)", i+1, names)
-		}
-		if i >= 2 && !offered {
-			t.Fatalf("request %d still withholds grep after two structural misses (%v)", i+1, names)
-		}
+	requireStableCatalog(t, client.catalogs)
+	if at := searchOpenedAt(client.histories); at != 2 {
+		t.Fatalf("raw search opened at request %d, want 3: after two structural misses", at+1)
 	}
 }
 
@@ -104,10 +114,9 @@ func TestStructuralFirst_WithheldSearchIsAnsweredNotRun(t *testing.T) {
 	if !anyContains(results, "find_symbol locates a declaration by name") {
 		t.Fatalf("a withheld search must be answered with the structural tools; results: %q", results)
 	}
-	for i, names := range client.catalogs {
-		if slices.Contains(names, "grep") {
-			t.Fatalf("request %d offers grep though no structural query ever ran (%v)", i+1, names)
-		}
+	requireStableCatalog(t, client.catalogs)
+	if at := searchOpenedAt(client.histories); at != -1 {
+		t.Fatalf("raw search opened at request %d though no structural query ever ran", at+1)
 	}
 }
 

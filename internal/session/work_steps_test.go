@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -324,15 +323,8 @@ func TestRunToolLoop_PlannedSteps_RetriesAStepThatMadeNoEditWithReadingClosed(t 
 	if !anyContains(client.anchors, "This step's first pass made no edit. Reading is closed") {
 		t.Fatalf("no retry anchor seen; anchors: %q", client.anchors)
 	}
-	closed := false
-	for _, catalog := range client.catalogs {
-		if !slices.Contains(catalog, readTool) && slices.Contains(catalog, writeTool) {
-			closed = true
-		}
-	}
-	if !closed {
-		t.Fatalf("no pass was offered a catalog without the read tool; catalogs: %v", client.catalogs)
-	}
+	// Reading closes at dispatch; every pass is offered the same catalog.
+	requireStableCatalog(t, client.catalogs)
 	if n := commitRetryAnchors(client.anchors); n != 1 {
 		t.Fatalf("commit-regime retries = %d, want exactly one; anchors: %q", n, client.anchors)
 	}
