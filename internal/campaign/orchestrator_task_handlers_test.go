@@ -21,65 +21,6 @@ import (
 // Marathon 19: Task Handler Gaps (Gaps 1-14)
 // -----------------------------------------------------------------------------
 
-// TODO: Add negative test case for Null/Empty inputs: empty string, string containing only spaces, and string containing only a null byte ("\x00").
-// TODO: Add negative test case for Type/Data Coercion: invalid UTF-8 sequences and unprintable characters simulating binary data being passed as a string.
-// TODO: Add negative test case for User Request Extremes: open fence without closing fence in massive 50MB string, extremely long language name (e.g., 100,000 characters), and completely fabricated language names with unusual characters.
-// TODO: Add negative test case for State Conflicts: orchestrator resource exhaustion during parallel extraction of extremely large malformed documents without closing fences.
-func TestExtractCodeBlock_EdgeCases(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		lang     string
-		expected string
-	}{
-		{
-			name:     "standard markdown",
-			input:    "Here is the code:\n```go\npackage main\nfunc main() {}\n```",
-			lang:     "go",
-			expected: "package main\nfunc main() {}",
-		},
-		{
-			name:     "no fences",
-			input:    "package main\nfunc main() {}",
-			lang:     "go",
-			expected: "package main\nfunc main() {}",
-		},
-		{
-			name:     "multiple blocks",
-			input:    "Block 1:\n```go\nfunc one() {}\n```\nBlock 2:\n```go\nfunc two() {}\n```",
-			lang:     "go",
-			expected: "func one() {}",
-		},
-		{
-			name:     "nested backticks inside code",
-			input:    "```go\nfmt.Println(\"`backticks`\")\n```",
-			lang:     "go",
-			expected: "fmt.Println(\"`backticks`\")",
-		},
-		{
-			name:     "language mismatch (should return original)",
-			input:    "```python\nprint('hello')\n```",
-			lang:     "go",
-			expected: "```python\nprint('hello')\n```",
-		},
-		{
-			name:     "bare fences",
-			input:    "```\nfunc main() {}\n```",
-			lang:     "go",
-			expected: "func main() {}",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := extractCodeBlock(tc.input, tc.lang)
-			if got != tc.expected {
-				t.Errorf("extractCodeBlock(%q, %q) = %q; want %q", tc.input, tc.lang, got, tc.expected)
-			}
-		})
-	}
-}
-
 func TestExtractPathFromDescription_EdgeCases(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -579,22 +520,23 @@ func TestTypeCoercion(t *testing.T) {
 		t.Errorf("Expected path traversal error, got %v", err)
 	}
 
-	// extractCodeBlock pathological
+	// A four-backtick opener is not closed by three: the reply is not one
+	// fenced block, and it is the document as it came back.
 	input := "````go\ncode\n```\n``` "
-	extracted := extractCodeBlock(input, "go")
-	if !strings.Contains(extracted, "code") {
-		t.Errorf("extractCodeBlock failed on nested fences: %s", extracted)
+	if got := unwrapReplyFence(input); got != input {
+		t.Errorf("unwrapReplyFence(%q) = %q, want it unchanged", input, got)
 	}
 }
 
 // TODO: Test extreme file sizes (10GB+), 1 million lines of base64 data, completely fabricated programming languages, and massive un-parseable JSON.
 func TestUserRequestExtremes(t *testing.T) {
-	// Massive string for extractCodeBlock
 	massive := strings.Repeat("a", 50*1024*1024)
 	start := time.Now()
-	extractCodeBlock(massive, "go")
+	if got := unwrapReplyFence(massive); len(got) != len(massive) {
+		t.Errorf("unwrapReplyFence changed an unfenced reply: %d -> %d bytes", len(massive), len(got))
+	}
 	if time.Since(start) > 2*time.Second {
-		t.Errorf("extractCodeBlock too slow on massive string")
+		t.Errorf("unwrapReplyFence too slow on massive string")
 	}
 }
 
