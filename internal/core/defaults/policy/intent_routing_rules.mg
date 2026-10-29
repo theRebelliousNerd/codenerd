@@ -46,7 +46,6 @@ Decl target_word_count(Target, Cnt).
 Decl tests_run_recently() bound [].
 Decl test_passed_after_fix() bound [].
 Decl verb_has_specialist(Verb).
-Decl imports(Target, Path).
 Decl test_failed(Path, TestName, Reason).
 Decl diagnostic_active(Path, Line, Severity, Message).
 
@@ -583,7 +582,7 @@ context_priority(Path, 70) :-
 # Lower priority: imported files
 context_priority(Path, 50) :-
     user_intent(_, _, _, Target, _),
-    imports(Target, Path),
+    file_imports(Target, Path),
     file_exists(Path).
 
 # Lowest priority: test files for non-test intents
@@ -664,5 +663,3 @@ code_quality_issue(/diagnostic, Message) :-
 # Used for TDD loop state transitions (/red state)
 test_failed(Path, Name, Msg) :- pytest_failure(Name, _, Path, _, Msg).
 
-# Map file imports to context scope
-imports(Target, Path) :- file_imports(Target, Path).

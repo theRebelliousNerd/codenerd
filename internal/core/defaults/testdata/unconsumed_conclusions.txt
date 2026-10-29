@@ -246,7 +246,6 @@ unconsumed impact_warning
 unconsumed impacted_test
 unconsumed impacted_test_file
 unconsumed impacted_test_package
-unconsumed imports
 unconsumed in_campaign_context
 unconsumed include_in_context
 unconsumed instruction_mentions_architecture
@@ -483,6 +482,7 @@ unconsumed suggest_use_specialist
 unconsumed suppressed_finding
 unconsumed suspicious_gap
 unconsumed swebench_patch_failed
+unconsumed symbol_file
 unconsumed symbol_reachable
 unconsumed symbol_reachable_safe
 unconsumed system_invariant_violated

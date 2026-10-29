@@ -549,9 +549,14 @@ configured_layer_pattern("cli/", /entrypoint).
 configured_layer_pattern("/bin/", /entrypoint).
 configured_layer_pattern("bin/", /entrypoint).
 
-# Derive Layer from Configuration
+# Derive Layer from Configuration, once per file: symbol_graph has a row per
+# symbol (22k on this repository), so matching patterns per row repeated
+# every string test for each symbol of a file.
+Decl symbol_file(File) bound [/string].
+symbol_file(File) :- symbol_graph(_, _, _, File, _).
+
 layer(File, Layer) :-
-    symbol_graph(_, _, _, File, _),
+    symbol_file(File),
     configured_layer_pattern(Pattern, Layer),
     :string:contains(File, Pattern).
 
