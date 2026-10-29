@@ -107,11 +107,13 @@ func (v *VirtualStore) PersistFactsToKnowledge(facts []Fact, factType string, pr
 		priority = 5
 	}
 
-	for _, f := range facts {
-		if err := db.StoreFact(f.Predicate, f.Args, factType, priority); err != nil {
-			logging.Get(logging.CategoryVirtualStore).Error("Failed to persist fact %s: %v", f.Predicate, err)
-			return fmt.Errorf("persist fact %s: %w", f.Predicate, err)
-		}
+	batch := make([]store.ColdFact, len(facts))
+	for i, f := range facts {
+		batch[i] = store.ColdFact{Predicate: f.Predicate, Args: f.Args}
+	}
+	if err := db.StoreFacts(batch, factType, priority); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to persist %d facts: %v", len(facts), err)
+		return fmt.Errorf("persist facts: %w", err)
 	}
 
 	logging.VirtualStoreDebug("PersistFactsToKnowledge: persisted %d facts", len(facts))

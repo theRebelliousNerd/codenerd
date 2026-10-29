@@ -45,38 +45,59 @@ type KnowledgeLink struct {
 
 // StoreLink stores a knowledge graph edge.
 func (s *LocalStore) StoreLink(entityA, relation, entityB string, weight float64, metadata map[string]any) error {
-	timer := logging.StartTimer(logging.CategoryStore, "StoreLink")
+	return s.StoreLinks([]KnowledgeLink{{EntityA: entityA, Relation: relation, EntityB: entityB, Weight: weight, Metadata: metadata}})
+}
+
+// StoreLinks stores knowledge graph edges in one transaction, all or none.
+// A scan projects tens of thousands of edges at once (61,710 in one
+// 2026-10-29 chat scan); stored one statement each, they cost ~7.7 s.
+func (s *LocalStore) StoreLinks(links []KnowledgeLink) error {
+	if len(links) == 0 {
+		return nil
+	}
+	timer := logging.StartTimer(logging.CategoryStore, "StoreLinks")
 	defer timer.Stop()
 
-	// Validate inputs to avoid polluting the graph with ghost nodes or undefined weights.
-	if entityA == "" || relation == "" || entityB == "" {
-		return fmt.Errorf("invalid knowledge graph link: entityA/relation/entityB must be non-empty")
-	}
-	if math.IsNaN(weight) || math.IsInf(weight, 0) {
-		return fmt.Errorf("invalid knowledge graph link weight: %v", weight)
-	}
-
-	metaJSON, err := json.Marshal(metadata)
-	if err != nil {
-		return fmt.Errorf("failed to marshal knowledge graph metadata: %w", err)
+	metas := make([]string, len(links))
+	for i, l := range links {
+		// Validate inputs to avoid polluting the graph with ghost nodes or undefined weights.
+		if l.EntityA == "" || l.Relation == "" || l.EntityB == "" {
+			return fmt.Errorf("invalid knowledge graph link: entityA/relation/entityB must be non-empty")
+		}
+		if math.IsNaN(l.Weight) || math.IsInf(l.Weight, 0) {
+			return fmt.Errorf("invalid knowledge graph link weight: %v", l.Weight)
+		}
+		metaJSON, err := json.Marshal(l.Metadata)
+		if err != nil {
+			return fmt.Errorf("failed to marshal knowledge graph metadata: %w", err)
+		}
+		metas[i] = string(metaJSON)
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	logging.StoreDebug("Storing graph link: %s -[%s]-> %s (weight=%.2f)", entityA, relation, entityB, weight)
-
-	_, err = s.db.Exec(
-		`INSERT OR REPLACE INTO knowledge_graph (entity_a, relation, entity_b, weight, metadata)
-		 VALUES (?, ?, ?, ?, ?)`,
-		entityA, relation, entityB, weight, string(metaJSON),
-	)
+	tx, err := s.db.Begin()
 	if err != nil {
-		logging.Get(logging.CategoryStore).Error("Failed to store graph link: %v", err)
 		return err
 	}
-
-	logging.StoreDebug("Graph link stored successfully")
+	defer tx.Rollback()
+	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO knowledge_graph (entity_a, relation, entity_b, weight, metadata)
+		 VALUES (?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for i, l := range links {
+		if _, err := stmt.Exec(l.EntityA, l.Relation, l.EntityB, l.Weight, metas[i]); err != nil {
+			logging.Get(logging.CategoryStore).Error("Failed to store graph link: %v", err)
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	logging.StoreDebug("Stored %d graph links", len(links))
 	return nil
 }
 

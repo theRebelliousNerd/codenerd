@@ -62,36 +62,60 @@ type MaintenanceStats struct {
 
 // StoreFact persists a fact to cold storage.
 func (s *LocalStore) StoreFact(predicate string, args []any, factType string, priority int) error {
-	timer := logging.StartTimer(logging.CategoryStore, "StoreFact")
+	return s.StoreFacts([]ColdFact{{Predicate: predicate, Args: args}}, factType, priority)
+}
+
+// ColdFact is one fact for StoreFacts.
+type ColdFact struct {
+	Predicate string
+	Args      []any
+}
+
+// StoreFacts upserts facts into cold storage in one transaction, all or none,
+// with one fact type and priority. A scan mirrors its whole result here
+// (69,540 facts in one 2026-10-29 run), one statement each until then.
+func (s *LocalStore) StoreFacts(facts []ColdFact, factType string, priority int) error {
+	if len(facts) == 0 {
+		return nil
+	}
+	timer := logging.StartTimer(logging.CategoryStore, "StoreFacts")
 	defer timer.Stop()
+
+	encoded := make([]string, len(facts))
+	for i, f := range facts {
+		argsJSON, err := encodeFactArgs(f.Args)
+		if err != nil {
+			logging.Get(logging.CategoryStore).Error("Failed to encode fact args for %s: %v", f.Predicate, err)
+			return err
+		}
+		encoded[i] = argsJSON
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	logging.StoreDebug("Storing fact to cold storage: %s/%d args (type=%s, priority=%d)", predicate, len(args), factType, priority)
-
-	argsJSON, err := encodeFactArgs(args)
+	tx, err := s.db.Begin()
 	if err != nil {
-		logging.Get(logging.CategoryStore).Error("Failed to encode fact args for %s: %v", predicate, err)
 		return err
 	}
-
-	_, err = s.db.Exec(
-		`INSERT INTO cold_storage (predicate, args, fact_type, priority, updated_at, last_accessed)
+	defer tx.Rollback()
+	stmt, err := tx.Prepare(`INSERT INTO cold_storage (predicate, args, fact_type, priority, updated_at, last_accessed)
 		 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		 ON CONFLICT(predicate, args) DO UPDATE SET
 		 fact_type = excluded.fact_type,
 		 priority = excluded.priority,
-		 updated_at = CURRENT_TIMESTAMP`,
-		predicate, string(argsJSON), factType, priority,
-	)
+		 updated_at = CURRENT_TIMESTAMP`)
 	if err != nil {
-		logging.Get(logging.CategoryStore).Error("Failed to store fact %s: %v", predicate, err)
 		return err
 	}
-
-	logging.StoreDebug("Fact stored successfully in cold storage")
-	return nil
+	defer stmt.Close()
+	for i, f := range facts {
+		if _, err := stmt.Exec(f.Predicate, encoded[i], factType, priority); err != nil {
+			logging.Get(logging.CategoryStore).Error("Failed to store fact %s: %v", f.Predicate, err)
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // LoadFacts retrieves facts by predicate and updates access tracking.
