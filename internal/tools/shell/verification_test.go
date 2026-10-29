@@ -279,12 +279,16 @@ func TestTypedVerification_NullLikePackagesBranches(t *testing.T) {
 		}
 		return root
 	}
-	// Sentinel string packages: omitted, so the build runs the module.
+	// Sentinel string packages: the registry leaves the array argument out
+	// (tools.withoutOmittedOptionals), so the build runs the module.
+	reg := tools.NewRegistry()
+	if err := RegisterAll(reg); err != nil {
+		t.Fatal(err)
+	}
 	for _, sentinel := range []string{"null", "none", "nil", "undefined", "", "NULL", "  null  "} {
 		root := newMainModule(t)
 		ctx := shellWsCtx(root)
-		_, err := executeTypedVerification(ctx, map[string]any{"working_dir": root, "packages": sentinel}, false)
-		if err != nil {
+		if _, err := reg.Execute(ctx, "run_build", map[string]any{"working_dir": root, "packages": sentinel}); err != nil {
 			t.Errorf("packages %q: want omitted (build runs), got error %v", sentinel, err)
 		}
 	}

@@ -358,6 +358,10 @@ func (r *Registry) ExecuteTool(ctx context.Context, tool *Tool, args map[string]
 	}
 	start := time.Now()
 
+	// An optional argument the model sent as "no value" is left out, as the
+	// model meant (omitted_args.go), before anything reads the arguments.
+	args = withoutOmittedOptionals(tool, args)
+
 	// Validate required arguments
 	if err := r.validateArgs(tool, args); err != nil {
 		rejected := time.Since(start)

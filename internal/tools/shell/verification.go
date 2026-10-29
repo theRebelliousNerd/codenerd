@@ -87,13 +87,8 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 		var packages []string
 		switch v := args["packages"].(type) {
 		case nil:
-		case string:
-			// A model spelling of "not given" (null/none/nil/undefined/"")
-			// arrives decoded as a string when the caller formats the value.
-			// It means omitted, not a package named "null".
-			if !tools.IsOmittedOptionalPath(v) {
-				return "", fmt.Errorf("packages must be an array")
-			}
+			// A model's "null" for the list is dropped before the tool runs
+			// (tools.withoutOmittedOptionals): packages is declared an array.
 		case []string:
 			packages = optionalPackages(v)
 		case []any:

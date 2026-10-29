@@ -150,6 +150,51 @@ func TestRegistry_Execute_TypeMismatch(t *testing.T) {
 	}
 }
 
+// An optional argument sent as null, or as a model's string spelling of no
+// value where the argument is not a string, is the argument left out: the
+// tool runs without it. (These were rejected as type errors, and each cost
+// the model a round to resend the call without the argument.) A string
+// argument keeps "None": an edit may mean the Python value.
+func TestRegistry_Execute_AnOptionalArgumentSentAsNoValueIsLeftOut(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		property string
+		typeName string
+		value    any
+		kept     bool
+	}{
+		{name: "null integer", property: "line", typeName: "integer", value: nil},
+		{name: "null number", property: "score", typeName: "number", value: nil},
+		{name: "null boolean", property: "enabled", typeName: "boolean", value: nil},
+		{name: "null array", property: "items", typeName: "array", value: nil},
+		{name: "null object", property: "options", typeName: "object", value: nil},
+		{name: "\"None\" array", property: "items", typeName: "array", value: "None"},
+		{name: "\"null\" integer", property: "line", typeName: "integer", value: "null"},
+		{name: "null string", property: "path", typeName: "string", value: nil},
+		{name: "\"None\" string", property: "new", typeName: "string", value: "None", kept: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := NewRegistry()
+			var got map[string]any
+			reg.MustRegister(&Tool{
+				Name: "typed_probe", Effect: EffectRead, Category: CategoryGeneral,
+				Execute: func(_ context.Context, args map[string]any) (string, error) {
+					got = args
+					return "ok", nil
+				},
+				Schema: ToolSchema{Properties: map[string]Property{tc.property: {Type: tc.typeName}}},
+			})
+			if _, err := reg.Execute(context.Background(), "typed_probe", map[string]any{tc.property: tc.value}); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			_, present := got[tc.property]
+			if present != tc.kept {
+				t.Fatalf("argument %s present=%v, want %v (args %v)", tc.property, present, tc.kept, got)
+			}
+		})
+	}
+}
+
 func TestRegistry_Execute_RejectsNullForTypedArguments(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -158,11 +203,8 @@ func TestRegistry_Execute_RejectsNullForTypedArguments(t *testing.T) {
 		typeName string
 	}{
 		{name: "required string", required: []string{"path"}, property: "path", typeName: "string"},
-		{name: "optional integer", property: "line", typeName: "integer"},
-		{name: "optional number", property: "score", typeName: "number"},
-		{name: "optional boolean", property: "enabled", typeName: "boolean"},
-		{name: "optional array", property: "items", typeName: "array"},
-		{name: "optional object", property: "options", typeName: "object"},
+		{name: "required integer", required: []string{"line"}, property: "line", typeName: "integer"},
+		{name: "required array", required: []string{"items"}, property: "items", typeName: "array"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			reg := NewRegistry()

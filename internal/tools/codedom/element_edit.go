@@ -186,22 +186,12 @@ func checkRevision(re *resolvedElement, rev string) error {
 		RefOf(re.file.rel, re.elem, re.refs), re.elem.Revision, rev, re.model.NumberedLines(re.elem.StartLine, re.elem.EndLine))
 }
 
-// isMissingRevision reports whether a revision argument carries no precondition.
-// The model signals "no revision" as an empty value, a JSON null, or the
-// literal strings "None"/"null"/"nil"/"undefined" (case-insensitive, with
-// surrounding whitespace and "<nil>" from Go formatting included). None of
-// those names a revision, so none of them may be reported as a concurrent
-// change: the edit proceeds without a revision check.
+// isMissingRevision reports whether a revision argument carries no precondition:
+// empty, or a model's spelling of no value (tools.IsOmittedSentinel, the one
+// list). None of those names a revision, so none of them may be reported as a
+// concurrent change: the edit proceeds without a revision check.
 func isMissingRevision(rev string) bool {
-	trimmed := strings.TrimSpace(rev)
-	if trimmed == "" {
-		return true
-	}
-	switch strings.ToLower(trimmed) {
-	case "none", "null", "nil", "<nil>", "undefined", "n/a", "na", "-", "null-value":
-		return true
-	}
-	return false
+	return tools.IsOmittedSentinel(rev)
 }
 
 // importResolver is the workspace's resolver for imports in rel, or nil when
