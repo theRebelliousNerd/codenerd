@@ -77,6 +77,7 @@ func learnedValues(t *testing.T, k types.Kernel) []string {
 // removes the one record and its live copy: not every preference, and not the
 // session note a forget used to drop in its place.
 func TestForgetUserMemory_RemovesTheOneRecordAndItsLiveCopy(t *testing.T) {
+	t.Parallel()
 	r := newForgetRig(t)
 	r.remember(t, "I prefer tabs over spaces")
 	r.remember(t, "always run the race detector")
@@ -116,6 +117,7 @@ func TestForgetUserMemory_RemovesTheOneRecordAndItsLiveCopy(t *testing.T) {
 }
 
 func TestForgetUserMemory_NeverDeletesOnAGuess(t *testing.T) {
+	t.Parallel()
 	r := newForgetRig(t)
 	r.remember(t, "use tabs in Go files")
 	r.remember(t, "use tabs in Makefiles")
@@ -142,6 +144,7 @@ func TestForgetUserMemory_NeverDeletesOnAGuess(t *testing.T) {
 
 // The generic key every remembered sentence shares never selects by itself.
 func TestForgetUserMemory_TheGenericKeyIsNotAnIdentity(t *testing.T) {
+	t.Parallel()
 	r := newForgetRig(t)
 	r.remember(t, "use tabs")
 	r.remember(t, "use go 1.24")
@@ -160,6 +163,7 @@ func TestForgetUserMemory_TheGenericKeyIsNotAnIdentity(t *testing.T) {
 // A model's control packet cannot address durable memory: its forget has no
 // domain, drops a session note, and says durable memory was not touched.
 func TestForget_ModelPacketIsSessionOnlyAndSaysSo(t *testing.T) {
+	t.Parallel()
 	r := newForgetRig(t)
 	r.remember(t, "use tabs")
 	ApplyMemoryOperation(r.kernel, r.db, articulation.MemoryOperation{Op: "note", Key: "use tabs", Value: "x"})
@@ -183,6 +187,7 @@ func TestForget_ModelPacketIsSessionOnlyAndSaysSo(t *testing.T) {
 }
 
 func TestForgetUserMemory_UnsupportedWithoutAStoreThatCanRemove(t *testing.T) {
+	t.Parallel()
 	k, _ := core.NewRealKernelWithWorkspace(t.TempDir())
 	d := ApplyMemoryOperation(k, nil, articulation.MemoryOperation{Op: "forget", Key: "tabs please", Domain: articulation.MemoryDomainUserMemory})
 	if d.Stage != articulation.StageUnsupported {
@@ -193,6 +198,7 @@ func TestForgetUserMemory_UnsupportedWithoutAStoreThatCanRemove(t *testing.T) {
 type noExactKernel struct{ MemoryKernel }
 
 func TestForgetUserMemory_ALiveCopyThatCannotBeRetiredIsPartial(t *testing.T) {
+	t.Parallel()
 	r := newForgetRig(t)
 	r.remember(t, "use tabs")
 	d := ApplyMemoryOperation(noExactKernel{r.kernel}, r.db, articulation.MemoryOperation{Op: "forget", Key: "use tabs", Domain: articulation.MemoryDomainUserMemory})

@@ -16,6 +16,7 @@ import (
 // Opening it fills a short ordinal per scope, in step order, and a second
 // open does not renumber the rows the model may already have been shown.
 func TestWorkingStore_LegacyArchiveGainsShortHandles(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "legacy.db")
 	db, err := sqlpragmas.OpenWithPragmas("sqlite3", filepath.ToSlash(path)+"?_busy_timeout=5000&_journal_mode=WAL", sqlpragmas.ProfileHot)
 	require.NoError(t, err)
@@ -58,6 +59,7 @@ func workingHandles(t *testing.T, db *sql.DB) map[string]string {
 // The ordinal is per stored observation. Saving the same id again keeps the
 // handle the model was shown, and the storage id is not a handle.
 func TestWorkingStore_ASecondSaveKeepsTheOrdinal(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0o600))
 	w, err := NewWorkingSet(root, "handles", config.DefaultWorkingConfig())

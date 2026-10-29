@@ -58,6 +58,7 @@ func observe(t *testing.T, w *WorkingSet, id, entity, kind string, round, bytes 
 // was that window again: five live reads over a 4096-byte ceiling dropped
 // three, and the model had to recall them to keep working.
 func TestWorkingLedger_CompactsOnlyPastTheCeiling(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 4096, 2, "a_test.go", "b.go", "c.go", "d.go")
 	var entries []LedgerEntry
 	for i, name := range []string{"a_test.go", "b.go", "c.go", "d.go"} {
@@ -79,6 +80,7 @@ func TestWorkingLedger_CompactsOnlyPastTheCeiling(t *testing.T) {
 // covered by a later read of the same span, and a repeated body. Outside a
 // compaction they stay, so the request's prefix does not change.
 func TestWorkingLedger_CompactionMovesCoveredAndRepeatedReadsOut(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 4096, 3, "a.go", "b.go")
 	entries := []LedgerEntry{
 		observe(t, w, "narrow", "a.go", "read_file/narrow", 2, 100, 760, 830),
@@ -104,6 +106,7 @@ func TestWorkingLedger_CompactionMovesCoveredAndRepeatedReadsOut(t *testing.T) {
 // revision is replaced on every call: when revisions accumulated, every
 // observation made after the first edit read as stale against the old one.
 func TestWorkingLedger_RestatesAStaleObservationOncePerRevision(t *testing.T) {
+	t.Parallel()
 	w, root := ledgerSet(t, 1<<20, 2, "a.go")
 	path := filepath.Join(root, "a.go")
 	entries := []LedgerEntry{observe(t, w, "before", "a.go", "read_file/x", 1, 100, 0, 0)}
@@ -131,6 +134,7 @@ func TestWorkingLedger_RestatesAStaleObservationOncePerRevision(t *testing.T) {
 // A stale observation a compaction moves out is not restated: it is gone from
 // the request, and its handle's recall reports it stale.
 func TestWorkingLedger_AnEvictedStaleObservationIsNotRestated(t *testing.T) {
+	t.Parallel()
 	w, root := ledgerSet(t, 4096, 2, "a.go")
 	entries := []LedgerEntry{observe(t, w, "old", "a.go", "read_file/x", 3, 5000, 0, 0)}
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a // edited"), 0600))
@@ -151,6 +155,7 @@ func TestWorkingLedger_AnEvictedStaleObservationIsNotRestated(t *testing.T) {
 // The ceiling and the kept rounds are the working section's keys, read by the
 // policy as config_param rows -- not Go constants.
 func TestWorkingLedger_ReadsTheConfiguredKnobs(t *testing.T) {
+	t.Parallel()
 	for _, keep := range []int{1, 3} {
 		w, _ := ledgerSet(t, 4096, keep, "a.go")
 		var entries []LedgerEntry
@@ -182,6 +187,7 @@ func TestWorkingLedger_ReadsTheConfiguredKnobs(t *testing.T) {
 // With whole-file revisions every edit staled every observation of every
 // function in the file.
 func TestWorkingLedger_AnEditToOneElementLeavesTheOthersCurrent(t *testing.T) {
+	t.Parallel()
 	w, root := ledgerSet(t, 1<<20, 2)
 	path := filepath.Join(root, "a.go")
 	write := func(aBody string) {
@@ -217,6 +223,7 @@ func TestWorkingLedger_AnEditToOneElementLeavesTheOthersCurrent(t *testing.T) {
 // not exempt: once the colder result does not cover the excess, the oldest
 // hot live result leaves too. The newest kept round stays either way.
 func TestWorkingLedger_PinsCurrentObservationsOfHotFiles(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 4096, 1, "edit.go", "other.go", "late.go")
 	entries := []LedgerEntry{
 		observe(t, w, "edit", "edit.go", "read_file/edit", 1, 1000, 0, 0),
@@ -239,6 +246,7 @@ func TestWorkingLedger_PinsCurrentObservationsOfHotFiles(t *testing.T) {
 // ceiling. The live read that covers it stays, even though it is older than
 // the keep window: it is not stale, and the excess is already gone.
 func TestWorkingLedger_DropsSupersededBeforeAnyLiveResult(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 4096, 1, "a.go")
 	entries := []LedgerEntry{
 		observe(t, w, "narrow", "a.go", "read_file/narrow", 1, 3000, 10, 20),
@@ -254,6 +262,7 @@ func TestWorkingLedger_DropsSupersededBeforeAnyLiveResult(t *testing.T) {
 // otherwise be enough, and a live result leaves only for the excess that
 // remains. The old rule dropped every aged row.
 func TestWorkingLedger_DropsStaleBeforeSheddingLive(t *testing.T) {
+	t.Parallel()
 	w, root := ledgerSet(t, 5000, 1, "a.go", "b.go")
 	entries := []LedgerEntry{
 		observe(t, w, "stale", "a.go", "read_file/stale", 1, 2000, 0, 0),
@@ -271,6 +280,7 @@ func TestWorkingLedger_DropsStaleBeforeSheddingLive(t *testing.T) {
 // even when it is the oldest aged result and the ledger is over the ceiling.
 // The next oldest live result leaves instead.
 func TestWorkingLedger_ARecalledLiveResultIsNotShed(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 4000, 1, "a.go")
 	entries := []LedgerEntry{
 		observe(t, w, "a", "a.go", "read_file/a", 1, 3000, 0, 0),
@@ -286,6 +296,7 @@ func TestWorkingLedger_ARecalledLiveResultIsNotShed(t *testing.T) {
 // A recall does not keep a result that is no longer current. Stale evidence
 // does not stand as the file.
 func TestWorkingLedger_ARecalledStaleResultStillDrops(t *testing.T) {
+	t.Parallel()
 	w, root := ledgerSet(t, 4096, 2, "a.go")
 	entries := []LedgerEntry{observe(t, w, "old", "a.go", "read_file/x", 3, 5000, 0, 0)}
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a // edited"), 0600))
@@ -298,6 +309,7 @@ func TestWorkingLedger_ARecalledStaleResultStillDrops(t *testing.T) {
 // Unavailable/absent revisions cannot make a recalled observation live and
 // hold it out of eviction. Stable nonfile and unchanged file revisions can.
 func TestWorkingLedger_ARecalledUnresolvableResultStillDrops(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name        string
 		entity      string
@@ -339,6 +351,7 @@ func TestWorkingLedger_ARecalledUnresolvableResultStillDrops(t *testing.T) {
 // A ledger row with no observation is not live. It leaves before an older
 // live result of a hot file: liveness is the fact, not the age.
 func TestWorkingLedger_AnUnobservedRowLeavesBeforeALiveOne(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 4096, 1, "a.go")
 	entries := []LedgerEntry{
 		observe(t, w, "live", "a.go", "read_file/live", 1, 1000, 0, 0),
@@ -354,6 +367,7 @@ func TestWorkingLedger_AnUnobservedRowLeavesBeforeALiveOne(t *testing.T) {
 // call-a ahead of call-z; the measurement is the order the rows were handed
 // to the ledger.
 func TestWorkingLedger_ShedsInArrivalOrderWithinARound(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 4096, 1, "a.go")
 	entries := []LedgerEntry{
 		observe(t, w, "z", "a.go", "read_file/z", 1, 1000, 0, 0),
@@ -390,6 +404,7 @@ func measuredReads(t *testing.T, w *WorkingSet) []LedgerEntry {
 // 16 reads fit, so the model never has to recall one to continue. At a ceiling
 // the 16 exceed, only the oldest live results the excess needs leave.
 func TestWorkingLedger_ReplayOfTheMeasuredReadOnlyStall(t *testing.T) {
+	t.Parallel()
 	sum := 0
 	for _, n := range measuredReadSizes {
 		sum += n

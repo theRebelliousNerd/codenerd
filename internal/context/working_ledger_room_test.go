@@ -12,6 +12,7 @@ import (
 // compacted, while each request past the input window had its budget guard
 // archive one more result from its middle -- a cache break every round.
 func TestWorkingLedger_TheRequestsRoomIsALimitToo(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 1<<20, 1, "a.go", "b.go", "c.go", "d.go")
 	var entries []LedgerEntry
 	for i, name := range []string{"a.go", "b.go", "c.go", "d.go"} {
@@ -32,6 +33,7 @@ func TestWorkingLedger_TheRequestsRoomIsALimitToo(t *testing.T) {
 // the limit again. Shed only to the limit, every round after the first
 // crossing compacted again.
 func TestWorkingLedger_ACompactionLeavesHeadroomForTheNextRounds(t *testing.T) {
+	t.Parallel()
 	const room, bytes = 10000, 1000
 	var files []string
 	for round := 1; round <= 30; round++ {
@@ -70,6 +72,7 @@ func TestWorkingLedger_ACompactionLeavesHeadroomForTheNextRounds(t *testing.T) {
 }
 
 func TestWorkingLedger_NegativeRoomIsRefused(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 4096, 1, "a.go")
 	_, err := w.Ledger(t.Context(), LedgerRound{Room: -1, Round: 1})
 	require.Error(t, err)

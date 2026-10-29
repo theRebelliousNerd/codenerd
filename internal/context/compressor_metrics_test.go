@@ -29,6 +29,7 @@ func collectMaskIDs(t *testing.T, comp *Compressor, pred string) map[string]bool
 }
 
 func TestObservationMaskingDerivation_MaskingBoundary(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	comp.turnNumber = 40
 	// age 1 -> /recent, age 8 -> /mid, age 9 -> /old, age 39 -> /ancient.
@@ -73,6 +74,7 @@ func TestObservationMaskingDerivation_MaskingBoundary(t *testing.T) {
 }
 
 func TestObservationMaskingDerivation_CompressionPathQueriesReturnRows(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	comp.turnNumber = 40
 	comp.recentTurns = []CompressedTurn{

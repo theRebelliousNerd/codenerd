@@ -25,6 +25,7 @@ func randomScored(n int, seed int64) []ScoredFact {
 // The cached-key sort orders exactly as the comparator that rendered both
 // facts on every comparison did.
 func TestSortScoredFactsDescMatchesTheRenderingComparator(t *testing.T) {
+	t.Parallel()
 	got := randomScored(5000, 7)
 	want := append([]ScoredFact(nil), got...)
 	sort.SliceStable(want, func(i, j int) bool {

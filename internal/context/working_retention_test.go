@@ -49,6 +49,7 @@ func archiveNames(r WorkingArchiveReport) []string {
 // removed one (program of work item 15). The retention policy keeps exactly
 // the archives something can still redeem a handle into.
 func TestWorkingRetention_KeepsWhatCanBeRedeemedAndPrunesTheRest(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 
 	// A scope this process is using: opened through the real store, so its
@@ -108,6 +109,7 @@ func TestWorkingRetention_KeepsWhatCanBeRedeemedAndPrunesTheRest(t *testing.T) {
 // goes with it: a campaign mints one per task, and waiting for the process to
 // die would keep thousands for the length of a campaign.
 func TestRetireWorkingScope_RemovesTheArchiveItsExecutorIsDoneWith(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	for _, scope := range []string{"session/task/done", "session/root/kept"} {
 		s, err := OpenWorkingStore(ws, scope)

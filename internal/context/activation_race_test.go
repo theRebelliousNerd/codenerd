@@ -10,6 +10,7 @@ import (
 // TestActivationEngine_ConcurrentScoreNoRace reproduces the production crash
 // (concurrent map read/write on reverseDependencies) under the race detector.
 func TestActivationEngine_ConcurrentScoreNoRace(t *testing.T) {
+	t.Parallel()
 	ae := NewActivationEngine(DefaultConfig())
 	facts := make([]core.Fact, 0, 200)
 	for i := 0; i < 100; i++ {

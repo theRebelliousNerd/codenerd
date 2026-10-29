@@ -15,6 +15,7 @@ import (
 // and dropped with a warning. Now it is session_note(Key, Value) in the kernel,
 // and the kernel's relevance policy puts it in the window.
 func TestNoteMemoryOp_ReachesTheNextContextThroughTheKernel(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	turn := func(n int, ops ...articulation.MemoryOperation) {
 		t.Helper()
@@ -60,6 +61,7 @@ func TestNoteMemoryOp_ReachesTheNextContextThroughTheKernel(t *testing.T) {
 }
 
 func TestNoteMemoryOp_WithoutAKeyIsDroppedNotStored(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	comp.processMemoryOperation(articulation.MemoryOperation{Op: "note", Key: "  ", Value: "orphan"})
 	if notes, _ := comp.kernel.Query(sessionNotePredicate); len(notes) != 0 {
@@ -73,6 +75,7 @@ func TestNoteMemoryOp_WithoutAKeyIsDroppedNotStored(t *testing.T) {
 // violation from the kernel: executive state deleted by control data that
 // never met the mangle_updates filter.
 func TestForgetMemoryOp_CannotRetractAPredicateItNames(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	violation := fact("security_violation", types.MangleAtom("/write_file"), "blocked by the constitution", int64(1))
 	if err := comp.kernel.Assert(violation); err != nil {

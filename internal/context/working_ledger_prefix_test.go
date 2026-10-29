@@ -86,6 +86,7 @@ func referenceEvict(rows []genRow, now, keep, ceiling int) []string {
 // rows, stale rows and every ceiling from far under to far over -- the
 // reference the all-prior relation it replaced also met.
 func TestWorkingLedger_PrefixScanMatchesTheOrderedPrefixReference(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewSource(20261027))
 	const maxRows = 24
 	for trial := range 60 {
@@ -152,6 +153,7 @@ func TestWorkingLedger_PrefixScanMatchesTheOrderedPrefixReference(t *testing.T) 
 // none at all below the ceiling. The all-prior relation it replaced held
 // m(m-1)/2 pairs for m candidates.
 func TestWorkingLedger_PrefixScanIsLinearAndOnlyPastTheCeiling(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 1000, 1)
 	var entries []LedgerEntry
 	for i := range 40 {
@@ -171,6 +173,7 @@ func TestWorkingLedger_PrefixScanIsLinearAndOnlyPastTheCeiling(t *testing.T) {
 
 // The exact threshold: a candidate whose prefix equals the excess stays.
 func TestWorkingLedger_PrefixEqualToTheExcessStays(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 1000, 1)
 	entries := []LedgerEntry{
 		{Call: "a", ID: "ua", Bytes: 300, Round: 1},
@@ -189,6 +192,7 @@ func TestWorkingLedger_PrefixEqualToTheExcessStays(t *testing.T) {
 
 // The host half of the scan's contract is enforced, not assumed.
 func TestWorkingLedger_RefusesALedgerThatBreaksTheShedContract(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 1000, 1)
 	for name, entries := range map[string][]LedgerEntry{
 		"duplicate call":  {{Call: "a", ID: "x", Bytes: 1, Round: 1}, {Call: "a", ID: "y", Bytes: 1, Round: 1}},

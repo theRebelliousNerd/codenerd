@@ -13,6 +13,7 @@ import (
 // (WIRING-AND-NOT-BUILT: "persistence is assumed durable but coded
 // best-effort"), so a session that could never be rehydrated said nothing.
 func TestProcessTurn_WhenTheStoreRefusesTheState_ShouldCountTheFailure(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	healthy := func() int { return comp.GetMetrics()["persist_failures"].(int) }
 

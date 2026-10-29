@@ -23,6 +23,7 @@ import (
 // must stay bounded. A regression in either shows up here rather than in a
 // four-hour session nobody re-runs.
 func TestProcessTurn_OverLongSession_ShouldHoldTargetCompressionRatio(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("long-session compression gate")
 	}
@@ -103,6 +104,7 @@ func TestProcessTurn_OverLongSession_ShouldHoldTargetCompressionRatio(t *testing
 }
 
 func TestRebuildRollingSummaryText_WhenBlockOutgrowsReserve_ShouldMergeOldestSegments(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	comp.config.HistoryReserve = 40 // tiny reserve forces merging
 
