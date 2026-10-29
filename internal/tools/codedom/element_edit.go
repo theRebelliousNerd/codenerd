@@ -430,7 +430,51 @@ func anchor(f *codemodel.File, spanStart, spanEnd int, old, where string) (int, 
 		}
 	}
 	e := f.LineOf(spanStart)
-	return 0, 0, fmt.Errorf("old does not occur in %s. Its text is:\n%s", where, f.NumberedLines(e, f.LineOf(max(spanEnd-1, spanStart))))
+	return 0, 0, fmt.Errorf("old does not occur in %s.%s Its text is:\n%s", where, missDiagnosis(f, spanStart, spanEnd, old), f.NumberedLines(e, f.LineOf(max(spanEnd-1, spanStart))))
+}
+
+// missDiagnosis says why old is not in the span, when the file can tell: the
+// text is in the file but runs past the element (an edit of two elements was
+// sent to one), or old agrees with the element's lines up to a line where
+// they differ. Recorded 2026-10-29: four edit_element calls failed with only
+// the element's text to go on -- two whose old ran into the next
+// declaration, two whose old had one line wrong -- and each cost a round of
+// re-reading before the edit that worked.
+func missDiagnosis(f *codemodel.File, spanStart, spanEnd int, old string) string {
+	startLine, endLine := f.LineOf(spanStart), f.LineOf(max(spanEnd-1, spanStart))
+	if n := strings.Count(f.Source, old); n == 1 {
+		i := strings.Index(f.Source, old)
+		from, to := f.LineOf(i), f.LineOf(max(i+len(old)-1, i))
+		if i+len(old) <= spanStart || i >= spanEnd {
+			return fmt.Sprintf(" It occurs once in the file, at lines %d-%d, outside this element (lines %d-%d): it is another declaration's text; address that one.", from, to, startLine, endLine)
+		}
+		return fmt.Sprintf(" It occurs once in the file, at lines %d-%d, which runs past this element (lines %d-%d): a change to more than one declaration is edit_file's, or one edit per element.", from, to, startLine, endLine)
+	}
+	want := trimmedLines(old)
+	if len(want) == 0 {
+		return ""
+	}
+	bestLine, bestLen := 0, 0
+	for l := startLine; l <= endLine; l++ {
+		k := 0
+		for k < len(want) && l+k <= endLine && strings.TrimSpace(f.LineText(l+k, l+k)) == want[k] {
+			k++
+		}
+		if k > bestLen {
+			bestLine, bestLen = l, k
+		}
+	}
+	switch {
+	case bestLen == 0:
+		return ""
+	case bestLen == len(want):
+		return " Its lines, whitespace aside, occur more than once here; extend old until it is unique."
+	case bestLine+bestLen > endLine:
+		return fmt.Sprintf(" Its first %d line(s) match lines %d-%d, where the element ends; old goes on with %q.", bestLen, bestLine, endLine, want[bestLen])
+	default:
+		at := bestLine + bestLen
+		return fmt.Sprintf(" Its first %d line(s) match from line %d; line %d differs: the file has %q, old has %q.", bestLen, bestLine, at, strings.TrimSpace(f.LineText(at, at)), want[bestLen])
+	}
 }
 
 func trimmedLines(s string) []string {
