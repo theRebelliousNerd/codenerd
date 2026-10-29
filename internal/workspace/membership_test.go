@@ -2,10 +2,13 @@ package workspace
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -290,7 +293,8 @@ func TestUserPatternsOnTopOfGit(t *testing.T) {
 	runGit(t, root, "add", "-f", "keep.go", "vendor/v.go", ".nerd/agents/a.md")
 	runGit(t, root, "commit", "-m", "init")
 
-	m, err := Open(root, append([]string(nil), config.DefaultWorldConfig().IgnorePatterns...))
+	// Exercise a caller-supplied exclusion, not a filled-in default list.
+	m, err := Open(root, []string{"vendor"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,5 +460,520 @@ func TestGateAndAdmit(t *testing.T) {
 	ok, err = m.Admit(filepath.Join(root, "node_modules"), true)
 	if ok || err != fs.SkipDir {
 		t.Fatalf("Admit dir: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestDefaultIgnoresPreserveTrackedPackages(t *testing.T) {
+	root := t.TempDir()
+	sources := []string{"internal/build/no_hardcoded_models_test.go", "build/source.go", "src/dist/source.go", "src/target/source.go", "src/bin/source.go", "src/obj/source.go", "src/node_modules/source.go", "src/vendor/source.go"}
+	outputs := []string{"build/output/generated.go", "dist/generated.go", "nested/build/generated.go", "target/generated.go", "bin/generated.go", "obj/generated.go", "node_modules/generated.go"}
+	for _, rel := range append(append([]string(nil), sources...), outputs...) {
+		writeFile(t, filepath.Join(root, filepath.FromSlash(rel)), "package source\n")
+	}
+	runGit(t, root, "init")
+	runGit(t, root, append([]string{"add"}, sources...)...)
+	m, err := For(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := m.Files()
+	for _, rel := range sources {
+		t.Run(rel, func(t *testing.T) {
+			if !m.Includes(rel) {
+				t.Errorf("tracked source %s excluded by implicit defaults", rel)
+			}
+			if !m.IncludesDir(filepath.ToSlash(filepath.Dir(rel))) {
+				t.Errorf("tracked source directory %s pruned", rel)
+			}
+			if !slices.Contains(files, rel) {
+				t.Errorf("Files omitted tracked source %s: %v", rel, files)
+			}
+		})
+	}
+	var opened, walked []string
+	m.readDir = func(p string) ([]os.DirEntry, error) {
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return nil, err
+		}
+		opened = append(opened, filepath.ToSlash(rel))
+		return os.ReadDir(p)
+	}
+	if err := m.Walk(context.Background(), func(rel string, d os.DirEntry) error {
+		if !d.IsDir() {
+			walked = append(walked, rel)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range sources {
+		if !slices.Contains(walked, rel) {
+			t.Errorf("Walk omitted tracked source %s", rel)
+		}
+	}
+	for _, rel := range outputs {
+		if m.Includes(rel) || slices.Contains(files, rel) || slices.Contains(walked, rel) {
+			t.Errorf("output %s was admitted", rel)
+		}
+		dir := filepath.ToSlash(filepath.Dir(rel))
+		if m.IncludesDir(dir) || slices.Contains(opened, dir) {
+			t.Errorf("opened output directory %s", dir)
+		}
+	}
+	// A filled-in copy of the defaults is still implicit unless the operator
+	// actually wrote the exclusions in the workspace configuration.
+	copied, err := Open(root, append([]string(nil), config.DefaultWorldConfig().IgnorePatterns...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !copied.Includes(sources[0]) || !copied.IncludesDir("internal/build") {
+		t.Fatal("copied defaults excluded a tracked source package")
+	}
+	// A newly tracked package must stop being hidden without reopening m.
+	later := "nested/build/generated.go"
+	runGit(t, root, "add", later)
+	if err := m.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	if !m.Includes(later) || !m.IncludesDir("nested/build") || !slices.Contains(m.Files(), later) {
+		t.Fatal("refresh did not update tracked exceptions")
+	}
+	runGit(t, root, "rm", "--cached", later)
+	if err := m.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	if m.Includes(later) || m.IncludesDir("nested/build") {
+		t.Fatal("refresh retained an untracked exception")
+	}
+}
+
+func TestMembershipDefaultPatternProvenance(t *testing.T) {
+	defaults := config.DefaultWorldConfig().IgnorePatterns
+	encoded, err := json.Marshal(map[string]any{"world": map[string]any{"ignore_patterns": defaults}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name     string
+		body     string
+		explicit bool
+	}{
+		{name: "no config file"},
+		{name: "world absent", body: `{}`},
+		{name: "patterns absent", body: `{"world":{}}`},
+		{name: "patterns null", body: `{"world":{"ignore_patterns":null}}`},
+		{name: "patterns empty", body: `{"world":{"ignore_patterns":[]}}`},
+		{name: "operator build exclusion", body: `{"world":{"ignore_patterns":["build"]}}`, explicit: true},
+		{name: "operator wrote default list", body: string(encoded), explicit: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			const source = "internal/build/env.go"
+			const keep = "internal/source.go"
+			outputs := []string{"build/output/generated.go", "nested/build/generated.go"}
+			for _, rel := range append([]string{source, keep}, outputs...) {
+				writeFile(t, filepath.Join(root, filepath.FromSlash(rel)), "package source\n")
+			}
+			configPath := filepath.Join(root, ".nerd", "config.json")
+			if tc.body != "" {
+				writeFile(t, configPath, tc.body)
+			}
+			runGit(t, root, "init")
+			runGit(t, root, "add", source, keep)
+			cfg, err := config.LoadUserConfig(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			loaded := cfg.GetWorldConfig().IgnorePatterns
+			if !tc.explicit && !slices.Equal(loaded, defaults) {
+				t.Fatalf("config loader defaults = %v, want %v", loaded, defaults)
+			}
+			for _, entry := range []struct {
+				name string
+				open func() (*Membership, error)
+			}{
+				{name: "Open copied defaults", open: func() (*Membership, error) {
+					return Open(root, append([]string(nil), defaults...))
+				}},
+				{name: "For", open: func() (*Membership, error) { return For(root) }},
+				{name: "Open nil", open: func() (*Membership, error) { return Open(root, nil) }},
+				{name: "Open loaded config", open: func() (*Membership, error) {
+					return Open(root, append([]string(nil), loaded...))
+				}},
+			} {
+				t.Run(entry.name, func(t *testing.T) {
+					m, err := entry.open()
+					if err != nil {
+						t.Fatal(err)
+					}
+					wantSource := !tc.explicit
+					if got := m.Includes(source); got != wantSource {
+						t.Errorf("Includes(%q) = %t, want %t", source, got, wantSource)
+					}
+					if got := m.IncludesDir("internal/build"); got != wantSource {
+						t.Errorf("IncludesDir(internal/build) = %t, want %t", got, wantSource)
+					}
+					files := m.Files()
+					if got := slices.Contains(files, source); got != wantSource {
+						t.Errorf("Files contains tracked source = %t, want %t", got, wantSource)
+					}
+					abs := filepath.Join(root, filepath.FromSlash(source))
+					gateErr := m.Gate(abs, false)
+					if wantSource && gateErr != nil {
+						t.Errorf("Gate rejected tracked source: %v", gateErr)
+					} else if !wantSource && !errors.Is(gateErr, ErrNotMember) {
+						t.Errorf("Gate error = %v, want ErrNotMember", gateErr)
+					}
+					if admitted, err := m.Admit(abs, false); err != nil || admitted != wantSource {
+						t.Errorf("Admit = (%t, %v), want (%t, nil)", admitted, err, wantSource)
+					}
+					var opened, walked []string
+					originalReadDir := m.readDir
+					t.Cleanup(func() { m.readDir = originalReadDir })
+					m.readDir = func(p string) ([]os.DirEntry, error) {
+						rel, err := filepath.Rel(root, p)
+						if err != nil {
+							return nil, err
+						}
+						opened = append(opened, filepath.ToSlash(rel))
+						return os.ReadDir(p)
+					}
+					if err := m.Walk(context.Background(), func(rel string, d os.DirEntry) error {
+						if !d.IsDir() {
+							walked = append(walked, rel)
+						}
+						return nil
+					}); err != nil {
+						t.Fatal(err)
+					}
+					if got := slices.Contains(walked, source); got != wantSource {
+						t.Errorf("Walk contains tracked source = %t, want %t", got, wantSource)
+					}
+					if !m.Includes(keep) || !slices.Contains(files, keep) || !slices.Contains(walked, keep) {
+						t.Error("unrelated tracked source was excluded")
+					}
+					for _, rel := range outputs {
+						if m.Includes(rel) || slices.Contains(files, rel) || slices.Contains(walked, rel) {
+							t.Errorf("build output %s was admitted", rel)
+						}
+						dir := filepath.ToSlash(filepath.Dir(rel))
+						if m.IncludesDir(dir) || slices.Contains(opened, dir) {
+							t.Errorf("build output directory %s was opened", dir)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestIgnorePatternFallbackPreservesTrackedSource(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		body     string
+		explicit bool
+	}{
+		{name: "world is an array", body: `{"world":[]}`},
+		{name: "world is a string", body: `{"world":"invalid"}`},
+		{name: "patterns missing", body: `{"world":{}}`},
+		{name: "patterns null", body: `{"world":{"ignore_patterns":null}}`},
+		{name: "patterns is an object", body: `{"world":{"ignore_patterns":{}}}`},
+		{name: "patterns contains a number", body: `{"world":{"ignore_patterns":["build",7]}}`},
+		{name: "patterns empty", body: `{"world":{"ignore_patterns":[]}}`},
+		{name: "explicit exclusion", body: `{"world":{"ignore_patterns":["build"]}}`, explicit: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			const source = "internal/build/source.go"
+			writeFile(t, filepath.Join(root, filepath.FromSlash(source)), "package build\n")
+			writeFile(t, filepath.Join(root, "build", "generated.go"), "package generated\n")
+			writeFile(t, filepath.Join(root, ".nerd", "config.json"), tc.body)
+			runGit(t, root, "init")
+			runGit(t, root, "add", source)
+			patterns := loadIgnorePatterns(root)
+			if tc.explicit {
+				if !slices.Equal(patterns, []string{"build"}) {
+					t.Fatalf("explicit patterns = %v, want [build]", patterns)
+				}
+			} else if patterns != nil {
+				t.Fatalf("fallback patterns = %#v, want nil to preserve implicit-default provenance", patterns)
+			}
+			m, err := For(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantSource := !tc.explicit
+			if got := m.Includes(source); got != wantSource {
+				t.Errorf("Includes(%q) = %t, want %t", source, got, wantSource)
+			}
+			if got := m.IncludesDir("internal/build"); got != wantSource {
+				t.Errorf("IncludesDir(internal/build) = %t, want %t", got, wantSource)
+			}
+			if got := slices.Contains(m.Files(), source); got != wantSource {
+				t.Errorf("Files contains tracked source = %t, want %t", got, wantSource)
+			}
+			if m.Includes("build/generated.go") || m.IncludesDir("build") {
+				t.Error("fallback admitted an untracked build-output tree")
+			}
+		})
+	}
+}
+
+func TestSnapshotDropsTrackedDescendantsOfConflictedGitlink(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "keep.go"), "package keep\n")
+	runGit(t, root, "init")
+	runGit(t, root, "add", "keep.go")
+	runGit(t, root, "commit", "-m", "fixture")
+	commit := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
+	blob := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD:keep.go"))
+	// An unmerged directory/file conflict can retain a gitlink at one stage
+	// and a tracked descendant at another. Neither source admission nor its
+	// ancestor exceptions may cross that repository boundary.
+	index := "160000 " + commit + " 1\tbuild\n100644 " + blob + " 2\tbuild/source.go\n"
+	out, code, err := gitRun(root, []byte(index), "update-index", "--index-info")
+	if err != nil {
+		t.Fatalf("create conflicted index: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("create conflicted index exited %d: %s", code, out)
+	}
+	staged := runGit(t, root, "ls-files", "--stage")
+	if !strings.Contains(staged, "160000 "+commit+" 1\tbuild\n") || !strings.Contains(staged, "100644 "+blob+" 2\tbuild/source.go\n") {
+		t.Fatalf("fixture does not contain the cross-stage boundary conflict: %s", staged)
+	}
+	snap, err := loadSnapshot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := snap.boundaries["build"]; !ok {
+		t.Fatal("gitlink did not establish a boundary")
+	}
+	if _, ok := snap.tracked["build/source.go"]; ok {
+		t.Fatal("tracked descendant survived repository boundary filtering")
+	}
+	if _, ok := snap.files["build/source.go"]; ok {
+		t.Fatal("member descendant survived repository boundary filtering")
+	}
+	if _, ok := snap.tracked["keep.go"]; !ok {
+		t.Fatal("unrelated tracked source was discarded")
+	}
+	m, err := For(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Includes("build/source.go") || m.IncludesDir("build") || slices.Contains(m.Files(), "build/source.go") {
+		t.Fatal("implicit-default exceptions exposed a descendant of the gitlink")
+	}
+	m.mu.Lock()
+	_, leakedAncestor := m.trackedDirs["build"]
+	m.mu.Unlock()
+	if leakedAncestor {
+		t.Fatal("boundary descendant established a tracked-directory exception")
+	}
+	if !m.Includes("keep.go") {
+		t.Fatal("unrelated source is not readable")
+	}
+}
+
+func TestMembershipCacheSeparatesImplicitDefaultsAndExplicitEmptyPatterns(t *testing.T) {
+	for _, implicitFirst := range []bool{true, false} {
+		name := "explicit first"
+		if implicitFirst {
+			name = "implicit first"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			writeFile(t, filepath.Join(root, "build", "generated.go"), "package generated\n")
+			var implicit, explicit *Membership
+			openImplicit := func() {
+				t.Helper()
+				var err error
+				implicit, err = For(root)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			openExplicit := func() {
+				t.Helper()
+				var err error
+				explicit, err = Open(root, []string{})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if implicitFirst {
+				openImplicit()
+				openExplicit()
+			} else {
+				openExplicit()
+				openImplicit()
+			}
+			if implicit == explicit {
+				t.Fatal("implicit defaults and an explicit empty list share cached authority")
+			}
+			if implicit.Includes("build/generated.go") || implicit.IncludesDir("build") {
+				t.Error("implicit defaults admitted build output")
+			}
+			if !explicit.Includes("build/generated.go") || !explicit.IncludesDir("build") {
+				t.Error("explicit empty exclusions inherited implicit build exclusions")
+			}
+			for _, tc := range []struct {
+				patterns []string
+				want     *Membership
+			}{{nil, implicit}, {[]string{}, explicit}} {
+				again, err := Open(root, tc.patterns)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if again != tc.want {
+					t.Errorf("Open(%#v) did not reuse its own cached authority", tc.patterns)
+				}
+			}
+		})
+	}
+}
+
+func TestMembershipExplicitPatternsDistinguishFilesAndTraversableDirectories(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "build"), "ordinary file, not a directory\n")
+	writeFile(t, filepath.Join(root, "hidden", "keep.go"), "package keep\n")
+	writeFile(t, filepath.Join(root, "hidden", "drop.go"), "package drop\n")
+	m, err := Open(root, []string{"build/", "hidden", "!hidden/keep.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.Includes("build") {
+		t.Error("directory-only exclusion hid an ordinary file named build")
+	}
+	if !m.IncludesDir("hidden") {
+		t.Error("negated descendant needs its excluded parent traversed")
+	}
+	if m.Includes("hidden/drop.go") {
+		t.Error("traversable parent re-included an excluded sibling")
+	}
+	var files []string
+	if err := m.Walk(context.Background(), func(rel string, d os.DirEntry) error {
+		if !d.IsDir() {
+			files = append(files, rel)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(files, []string{"build", "hidden/keep.go"}) {
+		t.Fatalf("Walk = %v, want ordinary build file and only the re-included descendant", files)
+	}
+}
+
+func TestWalkBatchesOnlyUndecidedNonExcludedPaths(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "seed.go"), "package seed\n")
+	runGit(t, root, "init")
+	runGit(t, root, "add", "seed.go")
+	m, err := For(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// These entries postdate the census. Walk must classify all unknown
+	// siblings before delivering the first callback, but must not ask git
+	// about paths already excluded by the default output heuristics.
+	writeFile(t, filepath.Join(root, "a_new.go"), "package fresh\n")
+	writeFile(t, filepath.Join(root, "z_new.go"), "package fresh\n")
+	writeFile(t, filepath.Join(root, "fresh", "new.go"), "package fresh\n")
+	writeFile(t, filepath.Join(root, "build", "generated.go"), "package generated\n")
+	writeFile(t, filepath.Join(root, "dist"), "output file\n")
+	var files []string
+	checkedBatch := false
+	if err := m.Walk(context.Background(), func(rel string, d os.DirEntry) error {
+		if rel == "a_new.go" {
+			checkedBatch = true
+			m.mu.Lock()
+			for _, sibling := range []struct {
+				path string
+				dir  bool
+			}{{"a_new.go", false}, {"z_new.go", false}, {"fresh", true}} {
+				admitted, decided := m.decided[decideKey(sibling.path, sibling.dir)]
+				if !decided || !admitted {
+					t.Errorf("sibling %s not batched before first callback", sibling.path)
+				}
+			}
+			m.mu.Unlock()
+		}
+		if !d.IsDir() {
+			files = append(files, rel)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !checkedBatch {
+		t.Fatal("Walk did not reach the new file")
+	}
+	if !slices.Equal(files, []string{"a_new.go", "fresh/new.go", "seed.go", "z_new.go"}) {
+		t.Errorf("Walk = %v, want all new source files and no output files", files)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, excluded := range []struct {
+		path string
+		dir  bool
+	}{{"build", true}, {"dist", false}, {"build/generated.go", false}} {
+		if _, asked := m.decided[decideKey(excluded.path, excluded.dir)]; asked {
+			t.Errorf("Walk asked git about already-excluded path %s", excluded.path)
+		}
+	}
+}
+
+func TestNeedsAskUsesTrackedExceptionsWithoutACensusHit(t *testing.T) {
+	root := t.TempDir()
+	const source = "internal/build/source.go"
+	writeFile(t, filepath.Join(root, filepath.FromSlash(source)), "package build\n")
+	runGit(t, root, "init")
+	runGit(t, root, "add", source)
+	for _, tc := range []struct {
+		name     string
+		patterns []string
+		wantAsk  bool
+	}{
+		{name: "implicit defaults yield to tracking evidence", wantAsk: true},
+		{name: "explicit exclusions remain authoritative", patterns: []string{"build"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := newMembership(root, tc.patterns)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Isolate the query-admission decision from the census fast path.
+			// Keep the independently loaded git tracking evidence, but make
+			// these paths unknown to the member census and dynamic-answer cache.
+			// With a census hit, needsAsk returns false in both implementations
+			// and cannot distinguish default heuristics from explicit exclusions.
+			m.files = map[string]struct{}{}
+			m.dirs = map[string]struct{}{}
+			for _, path := range []struct {
+				rel string
+				dir bool
+			}{
+				{source, false}, {"internal/build", true},
+			} {
+				if got := m.needsAsk(path.rel, path.dir); got != tc.wantAsk {
+					t.Errorf("needsAsk(%q, %t) = %t, want %t: tracking evidence must exempt implicit defaults, not explicit exclusions", path.rel, path.dir, got, tc.wantAsk)
+				}
+			}
+			// Tracking exceptions are path-specific, not permission to ask
+			// git about every output path with the same directory name.
+			for _, path := range []struct {
+				rel string
+				dir bool
+			}{
+				{"build/generated.go", false}, {"build", true},
+			} {
+				if m.needsAsk(path.rel, path.dir) {
+					t.Errorf("needsAsk admitted excluded output %q", path.rel)
+				}
+			}
+		})
 	}
 }

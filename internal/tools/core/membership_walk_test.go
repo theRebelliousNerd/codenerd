@@ -61,13 +61,65 @@ func TestGrepGlobListFilesHonorGitignore(t *testing.T) {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
+	guardPath := "internal/build/no_hardcoded_models_test.go"
+	guardToken := "TRACKED_GUARD_" + "TOKEN"
+	write(guardPath, "package build\n// "+guardToken+"\nfunc GuardVisible() {}\n")
+	outputToken := "OUTPUT_" + "TOKEN"
+	write("build/generated.go", "package output\n// "+outputToken+"\n")
+	write("nested/build/generated.go", "package output\n// "+outputToken+"\n")
 	git("init")
-	git("add", ".gitignore", "keep.go", ".hidden/h.go")
+	git("add", ".gitignore", "keep.go", ".hidden/h.go", guardPath)
 	git("commit", "-m", "init")
 
 	t.Setenv("CODENERD_WORKSPACE_ROOT", root)
 	t.Chdir(root)
 	ctx := tools.WithWorkspaceRoot(context.Background(), root)
+
+	for name, check := range map[string]struct {
+		run  func(context.Context, map[string]any) (string, error)
+		args map[string]any
+		want string
+	}{
+		"read":        {executeReadFile, map[string]any{"path": guardPath}, guardToken},
+		"glob":        {executeGlob, map[string]any{"pattern": "**/*hardcoded*"}, "no_hardcoded_models_test.go"},
+		"grep":        {executeGrep, map[string]any{"pattern": guardToken}, "no_hardcoded_models_test.go"},
+		"search_code": {executeSearchCode, map[string]any{"pattern": "GuardVisible"}, "GuardVisible"},
+		"list":        {executeListFiles, map[string]any{"path": "internal/build"}, "no_hardcoded_models_test.go"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := check.run(ctx, check.args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out, check.want) || strings.Contains(out, "not workspace files") {
+				t.Fatalf("%s missed tracked guard: %s", name, out)
+			}
+		})
+	}
+	for _, search := range []func(context.Context, map[string]any) (string, error){executeGrep, executeSearchCode} {
+		out, err := search(ctx, map[string]any{"pattern": outputToken})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, "No matches found") {
+			t.Fatalf("search returned build output: %s", out)
+		}
+	}
+	for _, walk := range []struct {
+		run  func(context.Context, map[string]any) (string, error)
+		args map[string]any
+	}{
+		{executeGlob, map[string]any{"pattern": "**/*.go"}},
+		{executeListFiles, map[string]any{"recursive": true}},
+	} {
+		out, err := walk.run(ctx, walk.args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(out, "generated.go") {
+			t.Fatalf("walk returned build output: %s", out)
+		}
+	}
 
 	grepOut, err := executeGrep(ctx, map[string]any{"pattern": token})
 	if err != nil {

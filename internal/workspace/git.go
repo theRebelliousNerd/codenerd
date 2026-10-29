@@ -80,6 +80,7 @@ func workTree(root string) (bool, error) {
 
 type gitSnapshot struct {
 	files      map[string]struct{}
+	tracked    map[string]struct{}
 	boundaries map[string]struct{}
 	stamps     snapStamps
 	paths      gitPaths
@@ -111,8 +112,7 @@ func loadSnapshot(root string) (gitSnapshot, error) {
 			continue
 		}
 		if dirEntry {
-			// A trailing slash is git's listing of a nested repository: the
-			// directory is one untracked entry and its children are not members.
+			// A nested repository is a boundary, not a member subtree.
 			bounds[p] = struct{}{}
 			continue
 		}
@@ -125,6 +125,7 @@ func loadSnapshot(root string) (gitSnapshot, error) {
 	if code != 0 {
 		return gitSnapshot{}, fmt.Errorf("git ls-files -s in %s exited %d", root, code)
 	}
+	tracked := make(map[string]struct{})
 	for _, raw := range splitNUL(staged) {
 		mode, p, ok := parseStageRecord(raw)
 		if !ok {
@@ -133,11 +134,18 @@ func loadSnapshot(root string) (gitSnapshot, error) {
 		if mode == "160000" {
 			bounds[p] = struct{}{}
 			delete(files, p)
+		} else {
+			tracked[p] = struct{}{}
 		}
 	}
 	for f := range files {
 		if underBoundary(f, bounds) {
 			delete(files, f)
+		}
+	}
+	for f := range tracked {
+		if underBoundary(f, bounds) {
+			delete(tracked, f)
 		}
 	}
 	gp, gpErr := resolveGitPaths(root)
@@ -147,7 +155,7 @@ func loadSnapshot(root string) (gitSnapshot, error) {
 		st, refName, refPath = stampCached(root, gp, "", "")
 	}
 	return gitSnapshot{
-		files: files, boundaries: bounds, stamps: st,
+		files: files, tracked: tracked, boundaries: bounds, stamps: st,
 		paths: gp, pathsOK: gpErr == nil, refName: refName, refPath: refPath,
 	}, nil
 }

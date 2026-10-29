@@ -132,11 +132,7 @@ func (m *Membership) needsAsk(rel string, asDir bool) bool {
 	if self || under {
 		return false
 	}
-	if asDir {
-		if m.patterns.blocksDir(rel) {
-			return false
-		}
-	} else if m.patterns.excluded(rel, false) {
+	if m.patternsExclude(rel, asDir) {
 		return false
 	}
 	m.mu.Lock()

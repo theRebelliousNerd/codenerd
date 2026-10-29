@@ -105,7 +105,8 @@ If `root` is not a git repository (e.g. an unpacked source archive):
 ### User Extra Exclusions Overlay
 In **both git and non-git modes**, user-configured `world.ignore_patterns` are applied on top of git truth as extra exclusions.
 - If a repository tracks large fixture files that an operator wishes to hide from codeNERD, adding those paths to `.nerd/config.json` under `world.ignore_patterns` causes `Includes` and `IncludesDir` to return `false`, pruning them from the workspace.
-
+- Implicit defaults are traversal heuristics, not operator exclusions. In a git work tree, tracked files and their ancestor directories survive those defaults regardless of names (including `build`, `dist`, `bin`, and `target`). Untracked build-output trees still match the defaults and must not be opened. `.git`, `.nerd`, repository boundaries, and explicit operator exclusions remain authoritative. Refresh updates the tracked exceptions together with the git snapshot.
+- Regression checks must assert direct membership, file enumeration, directory pruning, and tool-facing reading/searching of a tracked `internal/build/no_hardcoded_models_test.go`, plus excluded output controls.
 ---
 
 ## 4. Semantic Discernment Overlay Integration

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -30,6 +31,10 @@ var ErrNotMember = errors.New("workspace: path is not a member")
 type Membership struct {
 	root     string
 	patterns patternSet
+	// implicitDefaults distinguishes fallback heuristics from operator exclusions.
+	implicitDefaults bool
+	tracked          map[string]struct{}
+	trackedDirs      map[string]struct{}
 
 	refreshMu sync.Mutex
 	mu        sync.Mutex
@@ -68,15 +73,17 @@ func For(root string) (*Membership, error) {
 }
 
 // Open returns the membership of root using patterns as the extra exclusions.
-// A nil slice reads the workspace file, the same as For. An empty non-nil
-// slice adds no extra patterns: .gitignore (in a work tree) and the
-// always-excluded .git and .nerd directories still apply.
+// A nil slice or a copy of the default list reads the workspace file, the same
+// as For, so filled-in defaults do not become explicit operator exclusions.
+// A list written in the workspace file remains explicit, even if it equals the
+// defaults. An empty non-nil slice adds no extra patterns: .gitignore (in a work
+// tree) and the always-excluded .git and .nerd directories still apply.
 func Open(root string, patterns []string) (*Membership, error) {
 	root, err := canonicalRoot(root)
 	if err != nil {
 		return nil, err
 	}
-	if patterns == nil {
+	if patterns == nil || slices.Equal(patterns, config.DefaultWorldConfig().IgnorePatterns) {
 		return For(root)
 	}
 	return openCanonical(root, patterns)
@@ -106,6 +113,12 @@ func openCanonical(root string, patterns []string) (*Membership, error) {
 
 func cacheKey(root string, patterns []string) string {
 	h := sha256.New()
+	// Nil means implicit defaults; an explicit empty list means no patterns.
+	if patterns == nil {
+		h.Write([]byte{1})
+	} else {
+		h.Write([]byte{0})
+	}
 	for _, p := range patterns {
 		h.Write([]byte(p))
 		h.Write([]byte{0})
@@ -137,11 +150,16 @@ func canonicalRoot(root string) (string, error) {
 }
 
 func newMembership(root string, patterns []string) (*Membership, error) {
+	implicit := patterns == nil
+	if implicit {
+		patterns = config.DefaultWorldConfig().IgnorePatterns
+	}
 	m := &Membership{
-		root:     root,
-		patterns: compilePatterns(patterns),
-		decided:  map[string]bool{},
-		readDir:  os.ReadDir,
+		root:             root,
+		patterns:         compilePatterns(patterns),
+		implicitDefaults: implicit,
+		decided:          map[string]bool{},
+		readDir:          os.ReadDir,
 	}
 	inside, err := workTree(root)
 	if err != nil {
@@ -165,6 +183,8 @@ func newMembership(root string, patterns []string) (*Membership, error) {
 // published m yet.
 func (m *Membership) storeSnap(snap gitSnapshot) {
 	m.files = snap.files
+	m.tracked = snap.tracked
+	m.trackedDirs = ancestorDirs(snap.tracked)
 	m.boundaries = snap.boundaries
 	m.dirs = ancestorDirs(snap.files)
 	m.stamps = snap.stamps
@@ -284,7 +304,7 @@ func (m *Membership) Includes(rel string) bool {
 	if under {
 		return false
 	}
-	if m.patterns.excluded(rel, false) {
+	if m.patternsExclude(rel, false) {
 		return false
 	}
 	if self {
@@ -328,7 +348,7 @@ func (m *Membership) IncludesDir(rel string) bool {
 	if self || under {
 		return false
 	}
-	if m.patterns.blocksDir(rel) {
+	if m.patternsExclude(rel, true) {
 		return false
 	}
 	if !m.git {
@@ -384,6 +404,32 @@ func (m *Membership) Files() []string {
 	return append([]string(nil), list...)
 }
 
+// patternsExclude applies explicit exclusions even to tracked files. Only
+// implicit defaults yield to tracked paths and the directories needed to reach them.
+func (m *Membership) patternsExclude(rel string, isDir bool) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.patternsExcludeLocked(rel, isDir)
+}
+
+// patternsExcludeLocked requires m.mu so exceptions and patterns are evaluated
+// against one snapshot, including while constructing the cached file list.
+func (m *Membership) patternsExcludeLocked(rel string, isDir bool) bool {
+	if m.implicitDefaults {
+		paths := m.tracked
+		if isDir {
+			paths = m.trackedDirs
+		}
+		if _, ok := paths[rel]; ok {
+			return false
+		}
+	}
+	if isDir {
+		return m.patterns.blocksDir(rel)
+	}
+	return m.patterns.excluded(rel, false)
+}
+
 func (m *Membership) snapshotFiles() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -392,7 +438,7 @@ func (m *Membership) snapshotFiles() []string {
 	}
 	out := make([]string, 0, len(m.files))
 	for f := range m.files {
-		if alwaysExcluded(f) || m.patterns.excluded(f, false) {
+		if alwaysExcluded(f) || m.patternsExcludeLocked(f, false) {
 			continue
 		}
 		if _, bound := m.boundaries[f]; bound {
@@ -596,44 +642,44 @@ func cleanRel(rel string) (string, bool) {
 	return c, true
 }
 
-// loadIgnorePatterns reads only world.ignore_patterns. Invalid JSON, an
-// absent key, and an empty array all use the default list. The file body is
-// not logged. This is not LoadUserConfig: that call has process-wide effects.
+// loadIgnorePatterns reads only world.ignore_patterns. Nil identifies implicit
+// defaults, so they can yield to tracked files without weakening explicit lists.
+// Invalid JSON, an absent key, and an empty array all use those defaults.
+// The file body is not logged; LoadUserConfig has process-wide effects.
 func loadIgnorePatterns(root string) []string {
-	defaults := append([]string(nil), config.DefaultWorldConfig().IgnorePatterns...)
 	p := filepath.Join(root, ".nerd", "config.json")
 	b, err := os.ReadFile(p)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Printf("workspace: ignore_patterns: cannot read %s: %v", p, err)
 		}
-		return defaults
+		return nil
 	}
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(b, &top); err != nil {
 		log.Printf("workspace: ignore_patterns: %s is not valid JSON", p)
-		return defaults
+		return nil
 	}
 	raw, ok := top["world"]
 	if !ok {
-		return defaults
+		return nil
 	}
 	var world map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &world); err != nil {
 		log.Printf("workspace: ignore_patterns: %s world is not an object", p)
-		return defaults
+		return nil
 	}
 	ip, ok := world["ignore_patterns"]
 	if !ok || string(ip) == "null" {
-		return defaults
+		return nil
 	}
 	var list []string
 	if err := json.Unmarshal(ip, &list); err != nil {
 		log.Printf("workspace: ignore_patterns: %s world.ignore_patterns is not a string array", p)
-		return defaults
+		return nil
 	}
 	if len(list) == 0 {
-		return defaults
+		return nil
 	}
 	return list
 }

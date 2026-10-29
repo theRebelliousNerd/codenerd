@@ -61,7 +61,11 @@
 // For reads the workspace's .nerd/config.json only far enough to decode
 // world.ignore_patterns. An absent file, an absent key, an empty array, and
 // invalid JSON all use config.DefaultWorldConfig's list (the same rule as
-// GetWorldConfig). The file is not logged. Open with a non-nil slice does
+// GetWorldConfig). These implicit defaults skip untracked output trees, but
+// cannot hide tracked files or the ancestor directories needed to reach them.
+// Refresh replaces these tracked exceptions along with the member snapshot.
+// Explicit lists remain exclusions even for tracked paths. The two modes have
+// separate cache identities. The file is not logged. Open with a non-nil slice does
 // not read the file: a nil slice means For, and an empty slice means no
 // extra patterns.
 package workspace
