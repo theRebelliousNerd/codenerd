@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -745,7 +746,7 @@ func executeGitLog(ctx context.Context, args map[string]any) (string, error) {
 func GitOperationTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "git_operation",
-		Description: "Execute git operations like status, add, commit, checkout, branch, push, pull",
+		Description: "Execute git operations: " + strings.Join(gitOperations(), ", "),
 		Category:    tools.CategoryCode,
 		Priority:    70,
 		Execute:     executeGitOperation,
@@ -754,7 +755,7 @@ func GitOperationTool() *tools.Tool {
 			Properties: map[string]tools.Property{
 				"operation": {
 					Type:        "string",
-					Description: "Git operation: status, add, commit, checkout, branch, push, pull, fetch, stash, reset",
+					Description: "Git operation: " + strings.Join(gitOperations(), ", "),
 				},
 				"args": {
 					Type:        "string",
@@ -822,6 +823,31 @@ func splitModelArgs(s string) ([]string, error) {
 	return quoted, nil
 }
 
+// gitPassThroughOps are the git operations that take their arguments as given
+// (args).
+var gitPassThroughOps = map[string]bool{
+	"push": true, "pull": true, "fetch": true, "stash": true, "reset": true,
+}
+
+// gitReadingTools answers an operation git_operation does not run but a read
+// tool does. Reading git is git_diff's and git_log's, which the working
+// policy withholds with the other read tools when it closes reading; running
+// it through git_operation would reopen reading by another door. A model that
+// asked git_operation for a diff was told only "unsupported git operation:
+// diff", twice in one session (2026-10-29), and tried again.
+var gitReadingTools = map[string]string{"diff": "git_diff", "log": "git_log", "show": "git_log"}
+
+// gitOperations names every operation git_operation runs, for its description
+// and its refusal.
+func gitOperations() []string {
+	ops := []string{"status", "add", "commit", "checkout", "branch"}
+	for op := range gitPassThroughOps {
+		ops = append(ops, op)
+	}
+	sort.Strings(ops[5:])
+	return ops
+}
+
 func executeGitOperation(ctx context.Context, args map[string]any) (string, error) {
 	operation, _ := args["operation"].(string)
 	if operation == "" {
@@ -883,53 +909,22 @@ func executeGitOperation(ctx context.Context, args map[string]any) (string, erro
 			}
 			cmdArgs = append(cmdArgs, extra...)
 		}
-	case "push":
-		cmdArgs = []string{"push"}
-		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
-			var extra []string
-			if extra, err = splitModelArgs(extraArgs); err != nil {
-				return "", err
-			}
-			cmdArgs = append(cmdArgs, extra...)
-		}
-	case "pull":
-		cmdArgs = []string{"pull"}
-		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
-			var extra []string
-			if extra, err = splitModelArgs(extraArgs); err != nil {
-				return "", err
-			}
-			cmdArgs = append(cmdArgs, extra...)
-		}
-	case "fetch":
-		cmdArgs = []string{"fetch"}
-		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
-			var extra []string
-			if extra, err = splitModelArgs(extraArgs); err != nil {
-				return "", err
-			}
-			cmdArgs = append(cmdArgs, extra...)
-		}
-	case "stash":
-		cmdArgs = []string{"stash"}
-		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
-			var extra []string
-			if extra, err = splitModelArgs(extraArgs); err != nil {
-				return "", err
-			}
-			cmdArgs = append(cmdArgs, extra...)
-		}
-	case "reset":
-		cmdArgs = []string{"reset"}
-		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
-			var extra []string
-			if extra, err = splitModelArgs(extraArgs); err != nil {
-				return "", err
-			}
-			cmdArgs = append(cmdArgs, extra...)
-		}
 	default:
-		return "", fmt.Errorf("unsupported git operation: %s", operation)
+		if !gitPassThroughOps[operation] {
+			reading := ""
+			if tool, ok := gitReadingTools[operation]; ok {
+				reading = fmt.Sprintf(" Reading git is %s's, when this turn offers it; it is a read tool and is withheld while reading is closed.", tool)
+			}
+			return "", fmt.Errorf("unsupported git operation: %s; git_operation runs %s.%s", operation, strings.Join(gitOperations(), ", "), reading)
+		}
+		cmdArgs = []string{operation}
+		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
+			var extra []string
+			if extra, err = splitModelArgs(extraArgs); err != nil {
+				return "", err
+			}
+			cmdArgs = append(cmdArgs, extra...)
+		}
 	}
 
 	command := "git " + strings.Join(cmdArgs, " ")
