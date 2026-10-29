@@ -18,6 +18,10 @@ import (
 // This drives the real logging system against a real workspace and reads the
 // file back: no stub, no injected writer.
 func TestRenderSystemWarnings_WritesEveryWarningToTheLog(t *testing.T) {
+	t.Parallel()
+	if inOwnProcess(t) {
+		return
+	}
 	ws := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(ws, ".nerd"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)

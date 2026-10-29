@@ -50,6 +50,10 @@ func selfProblemKernelRows(t *testing.T, k core.Kernel, pred string) []types.Fac
 // does), asserts debug_self_active, and the hot problems come out as
 // injectable_context lines. The per-turn digest keeps working beside it.
 func TestDebugSelf_ProjectsProblemsLogIntoKernel(t *testing.T) {
+	t.Parallel()
+	if inOwnProcess(t) {
+		return
+	}
 	debugSelfWorkspace(t)
 	klog := logging.Get(logging.CategorySession)
 	klog.Error("Tool call run_tests failed: exit status %d", 1)
