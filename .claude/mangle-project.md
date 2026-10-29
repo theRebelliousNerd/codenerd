@@ -46,6 +46,13 @@ Shipped Mangle-only features here become the public examples.
 - Store: `SimpleInMemoryStore`, which has `Remove`, so lattices work. No
   temporal store. Fact limit `WithCreatedFactLimit`. Cone evaluation
   (`kernel_eval_cone.go`) must stay identical to the full fixpoint.
+- Strata come from `mangle.Stratify` (`internal/mangle/strata_layers.go`):
+  1,315 components layered into 16 (the engine's per-call cost is
+  strata x predicates). `mangle.Engine` wraps its store in
+  `ConcurrentFactStore`, where a merge lattice deadlocks: no lattices there.
+- Cost: measure on the real world EDB (`LoadAllWorldFacts("fast")` from a
+  copy of `.nerd/knowledge.db`, 345k facts; dependency_link is file level,
+  162k rows) per component with fine strata; boot-EDB numbers hide joins.
 - Proofs: `kernel_explanation.go` (`provenance.Explain`). Recorder mode is
   needed for `do`/`let` evidence; don't put it on a hot path unmeasured.
 - Retraction rebuilds from a fresh EDB. Never reuse derived facts.
