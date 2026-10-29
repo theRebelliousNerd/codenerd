@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/experts"
 	"codenerd/internal/logging"
 	"codenerd/internal/shards"
 	"codenerd/internal/sqlpragmas"
@@ -65,9 +66,7 @@ type AgentRegistry struct {
 // RegisteredAgent represents an agent in the registry.
 //
 // KBSize and Status are read from the same .nerd/agents.json the rest of the
-// system uses. Status in particular is load-bearing: shards.MatchSpecialistsForTask
-// only considers agents marked "ready", so decoding the registry without it
-// silently made every agent unavailable for matching.
+// system uses.
 type RegisteredAgent struct {
 	Name          string   `json:"name"`
 	Type          string   `json:"type"`
@@ -104,62 +103,33 @@ type SpecialistTask struct {
 // SPECIALIST MATCHING
 // =============================================================================
 
-// matchSpecialistsForReview returns the registered specialists whose expertise
-// the files under review actually touch.
-//
-// This used to `return nil` unconditionally, under a comment saying the JIT
-// executor dispatches specialists directly. It does not. spawnMultiShardReview
-// calls this, ranges over the result and spawns one shard per match, so an empty
-// return meant /review ran the generic reviewer alone on every project — while
-// logging "Matched 0 specialists for review", which reads as "none applied"
-// rather than "the matcher is a stub". The matcher it deferred to is
-// shards.MatchSpecialistsForTask: real, tested, and already driving /fix,
-// /refactor and /create through spawnShardWithSpecialists. /review now uses the
-// same one, with the "/review" verb config (min confidence 0.3, parallel);
-// every match that clears the confidence bar reaches policy.
-func matchSpecialistsForReview(ctx context.Context, files []string, registry *AgentRegistry) []SpecialistMatch {
-	if registry == nil || len(registry.Agents) == 0 || len(files) == 0 {
+// matchSpecialistsForReview returns the shard agents the kernel derived the
+// files under review need (expert_needed, policy/shard_experts.mg, through
+// selectShardExperts), with each agent's knowledge DB from the registry for
+// the review brief. /review asks the same derivation every executor compile
+// and every other delegation asks; there is no second matcher for reviews.
+func (m Model) matchSpecialistsForReview(files []string, registry *AgentRegistry) []SpecialistMatch {
+	if len(files) == 0 {
 		return nil
 	}
-	if ctx.Err() != nil {
-		return nil
+	sel := m.selectShardExperts("/review", files, shards.TaskComplexity("review", len(files)))
+	knowledge := map[string]string{}
+	if registry != nil {
+		for _, agent := range registry.Agents {
+			knowledge[experts.AgentKey(agent.Name)] = agent.KnowledgePath
+		}
 	}
-
-	matches := shards.MatchSpecialistsForTask(ctx, "/review", files, toShardsAgentRegistry(registry))
-	logging.Shards("matchSpecialistsForReview: %d agents, %d files -> %d specialists",
-		len(registry.Agents), len(files), len(matches))
-
-	out := make([]SpecialistMatch, 0, len(matches))
-	for _, m := range matches {
+	out := make([]SpecialistMatch, 0, len(sel.Needs))
+	for _, need := range sel.Needs {
 		out = append(out, SpecialistMatch{
-			AgentName:     m.AgentName,
-			KnowledgePath: m.KnowledgePath,
-			Files:         m.Files,
-			Score:         m.Score,
+			AgentName:     need.Agent,
+			KnowledgePath: knowledge[need.Agent],
+			Files:         need.Files,
+			Score:         float64(need.Confidence) / 100,
 		})
 	}
+	logging.Shards("matchSpecialistsForReview: %d files -> %d shard agents", len(files), len(out))
 	return out
-}
-
-// toShardsAgentRegistry adapts the chat-local registry shape to the one
-// internal/shards matches against. Both are decoded from the same
-// .nerd/agents.json; only the field set differs.
-func toShardsAgentRegistry(registry *AgentRegistry) *shards.AgentRegistry {
-	agents := make([]shards.RegisteredAgent, 0, len(registry.Agents))
-	for _, a := range registry.Agents {
-		agents = append(agents, shards.RegisteredAgent{
-			Name:          a.Name,
-			Type:          a.Type,
-			KnowledgePath: a.KnowledgePath,
-			KBSize:        a.KBSize,
-			Status:        a.Status,
-		})
-	}
-	return &shards.AgentRegistry{
-		Version:   registry.Version,
-		CreatedAt: registry.CreatedAt.Format(time.RFC3339),
-		Agents:    agents,
-	}
 }
 
 // specialistKnowledgeAtomLimit is the lexical search's top-k: how many of an
@@ -490,7 +460,7 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 		registry := m.loadAgentRegistry()
 
 		// 3. Match specialists BEFORE review
-		specialists := matchSpecialistsForReview(ctx, absFiles, registry)
+		specialists := m.matchSpecialistsForReview(absFiles, registry)
 		logging.Shards("Matched %d specialists for review", len(specialists))
 
 		// 4. Track results and failures

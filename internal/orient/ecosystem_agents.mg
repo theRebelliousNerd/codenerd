@@ -113,6 +113,12 @@ Decl orient_agent_topic(Name, Topic) bound [/string, /string].
 Decl orient_agent_description(Name, Description) bound [/string, /string].
 Decl orient_agent_permission(Name, Perm) bound [/string, /string].
 Decl orient_agent_priority(Name, Priority) bound [/string, /number].
+# orient_agent_domain(Name, Key) - the catalog key that created a stack agent
+# ("go", "bubbletea"): the technology it is expert in. Init writes it into
+# .nerd/agents.json `domains`; the session kernel's expert_needed
+# (internal/core/defaults/policy/shard_experts.mg) joins it with the
+# technologies of a task's files.
+Decl orient_agent_domain(Name, Key) bound [/string, /string].
 Decl orient_agent_knowledge(Name, SourceID) bound [/string, /string].
 Decl orient_research_topic(Name, Topic) bound [/string, /string].
 Decl orient_agent_prompt_candidate(Name, ID) bound [/string, /string].
@@ -793,6 +799,10 @@ orient_agent_topic(Name, Topic) :-
     profile_signal(Kind, Key),
     profile_agent(Kind, Key, Name, _),
     profile_agent_topic(Name, Topic).
+
+orient_agent_domain(Name, Key) :-
+    profile_signal(Kind, Key),
+    profile_agent(Kind, Key, Name, _).
 
 orient_agent_topic(Name, Topic) :-
     core_agent_supported(Name),

@@ -262,6 +262,7 @@ var defaultSchemaFiles = []string{
 	"schemas_prompts.mg",          // Dynamic Prompt Composition & JIT
 	"schemas_reviewer.mg",         // Static Analysis & Data Flow
 	"schemas_shards.mg",           // Shard Delegation & Coordination
+	"schemas_shard_experts.mg",    // Shard agents a task needs (expert_needed)
 	"schemas_coder.mg",            // Coder Shard Declarations
 	"schemas_projectdoc.mg",       // nerd.md project instructions (see internal/projectdoc)
 	// NERD-EVOLVE-START: context_compilation_schemas_c1_c4

@@ -462,7 +462,6 @@ unconsumed specialist_allowed_tools
 unconsumed specialist_assists
 unconsumed specialist_context_source
 unconsumed specialist_outperforms
-unconsumed specialist_should_advise
 unconsumed stage_forbidden_active
 unconsumed stage_permits_capability
 unconsumed stage_permits_category

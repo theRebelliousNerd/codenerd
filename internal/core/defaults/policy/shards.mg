@@ -150,13 +150,11 @@ escalation_needed(/system_health, ShardType, "System shard failure") :-
 
 # Specialist Knowledge Hydration from Traces
 
-# Specialist with good traces should be preferred for similar tasks
-# Reordered: bind Task from user_intent first, then check specialist capabilities
-delegate_task(SpecialistName, Task, /pending) :-
-    user_intent(/current_intent, _, _, Task, _),
-    shard_performing_well(SpecialistName),
-    shard_profile(SpecialistName, /specialist, _),
-    shard_can_handle(SpecialistName, TaskType).
+# Which shard agent a task needs is expert_needed (policy/shard_experts.mg),
+# from the agent's declared technologies and the task's files. A rule here
+# delegated the current intent to any specialist with five good traces that
+# could handle SOME task type (TaskType was bound to nothing in the head), and
+# trace_task_type has no producer, so it never fired.
 
 # Learn which tasks specialists handle well
 shard_can_handle(ShardType, TaskType) :-
@@ -225,11 +223,11 @@ specialist_can_execute(Specialist) :-
 
 # Determine if specialist should execute directly
 # High confidence (>0.8) on an executor specialist triggers direct execution.
-# Inputs are asserted by the Go matcher (internal/shards/specialist_facts.go):
-# specialist_classification from DefaultSpecialistClassifications,
-# specialist_match and task_complexity per delegated task. The chat
-# delegation path reads specialist_should_execute / strategic_advisor_required
-# back instead of deciding in Go.
+# specialist_match is derived from expert_needed (policy/shard_experts.mg);
+# specialist_classification is the table above; task_complexity is asserted
+# with the task by internal/experts. internal/experts reads
+# specialist_should_execute / specialist_should_advise /
+# strategic_advisor_required back for chat delegation instead of deciding in Go.
 specialist_should_execute(Specialist, Task) :-
     specialist_match(Specialist, Task, Confidence),
     specialist_can_execute(Specialist),

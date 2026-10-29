@@ -21,15 +21,14 @@ func (m Model) executeParallelMode(ctx context.Context, verb, shardType, task, t
 	resultsChan := make(chan spawnResult, len(specialists)+1)
 	var wg sync.WaitGroup
 
-	// Spawn generic shard
-	if shards.ShouldIncludeGenericShard(verb) {
-		wg.Go(func() {
-			shardStart := time.Now()
-			result, err := m.spawnTask(ctx, shardType, task)
-			duration := time.Since(shardStart)
-			resultsChan <- spawnResult{Name: shardType, Result: result, Err: err, Task: task, Duration: duration}
-		})
-	}
+	// Spawn the generic shard beside the specialists: they add their domain
+	// to its pass, never replace it.
+	wg.Go(func() {
+		shardStart := time.Now()
+		result, err := m.spawnTask(ctx, shardType, task)
+		duration := time.Since(shardStart)
+		resultsChan <- spawnResult{Name: shardType, Result: result, Err: err, Task: task, Duration: duration}
+	})
 
 	// Spawn specialists in parallel
 	for _, spec := range specialists {
@@ -224,7 +223,7 @@ func (m Model) executeAdvisoryWithCritiqueMode(ctx context.Context, verb, shardT
 // executeSpecialistDirectMode handles high-confidence executor specialists directly.
 // When a specialist has ShouldExecute=true and is an Executor, they handle the task
 // without going through the generic shard. This implements specialist_should_execute.
-func (m Model) executeSpecialistDirectMode(ctx context.Context, verb string, specialist shards.SpecialistMatch, task, target, complexity string, startTime time.Time) tea.Msg {
+func (m Model) executeSpecialistDirectMode(ctx context.Context, verb string, specialist shards.SpecialistMatch, task, target string, strategicAdvisorRequired bool, startTime time.Time) tea.Msg {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("## %s via Specialist Executor\n\n", titleWords(strings.TrimPrefix(verb, "/"))))
 	sb.WriteString(fmt.Sprintf("**Target**: %s\n", target))
@@ -251,9 +250,9 @@ Do NOT just advise - implement the solution.`,
 		strings.Join(specialist.Files, ", "),
 		specialist.Reason)
 
-	// Strategic advisory: strategic_advisor_required (policy/shards.mg) over
-	// the task_complexity fact asserted when this task was matched.
-	if m.strategicAdvisorRequired(task, complexity, specialist) {
+	// Strategic advisory: strategic_advisor_required (policy/shards.mg), read
+	// with the selection over the task_complexity it was asserted with.
+	if strategicAdvisorRequired {
 		advisors := shards.GetStrategicAdvisorsFor(specialist.AgentName)
 		if len(advisors) > 0 {
 			m.ReportStatus("Consulting strategic advisors for complex task...")

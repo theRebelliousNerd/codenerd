@@ -233,6 +233,14 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"turn_unused_reason_reading", "turn_unused_reason_unread", "turn_unwired_idle",
 				"turn_untested",
 				"turn_uncovered",
+				// Shard experts (shard_experts.mg): which shard agent a task
+				// needs joins the task's targets with file_extension,
+				// file_dir, file_topology and dependency_link, all homed
+				// here; a catch-all home would split the join and no task
+				// would ever need an expert. task_complexity rides with the
+				// task for strategic_advisor_required.
+				"shard_agent", "shard_agent_domain", "technology_import_root",
+				"expert_task", "expert_task_target", "task_complexity",
 			},
 		},
 		{

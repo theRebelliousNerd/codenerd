@@ -306,6 +306,14 @@ type CompilationContext struct {
 	// decide them: the session executor asks the kernel at every compile
 	// boundary and copies the answer here. Values carry no leading slash.
 	DerivedNeeds []string
+
+	// Experts are the shard agents the KERNEL derived this compile needs
+	// (expert_needed, policy/shard_experts.mg, read through internal/experts),
+	// by the key their knowledge DB is registered under ("bubbleteaexpert").
+	// Their knowledge is pushed into the compile whoever is speaking, minus
+	// their identity (compiler_experts.go). The session executor asks at every
+	// compile boundary; Go does not choose them.
+	Experts []string
 }
 
 // derivedNeedsNotMeasured is DerivedNeeds normalized (no leading slash, no
@@ -502,6 +510,9 @@ func (cc *CompilationContext) Clone() *CompilationContext {
 	if cc.DerivedNeeds != nil {
 		clone.DerivedNeeds = slices.Clone(cc.DerivedNeeds)
 	}
+	if cc.Experts != nil {
+		clone.Experts = slices.Clone(cc.Experts)
+	}
 	// ActivatedFacts is a map, so `clone := *cc` copied the header and left
 	// both contexts pointing at one set of buckets. Compilation runs under
 	// singleflight with an errgroup, so two concurrent compiles sharing this
@@ -692,7 +703,7 @@ func (cc *CompilationContext) Hash() string {
 		}
 	}
 
-	write("schema", "compilation-context-v5")
+	write("schema", "compilation-context-v6")
 	write("kernel_snapshot", cc.kernelSnapshotFingerprint)
 	write("operational_mode", cc.OperationalMode)
 	write("campaign_phase", cc.CampaignPhase)
@@ -727,6 +738,7 @@ func (cc *CompilationContext) Hash() string {
 	writeBool("reflection_hits", cc.HasReflectionHits)
 	writeBool("previous_attempt_no_tool_call", cc.PreviousAttemptNoToolCall)
 	writeSet("derived_needs", cc.derivedNeedsNotMeasured())
+	writeSet("expert", cc.Experts)
 
 	writeInt("token_budget", cc.TokenBudget)
 	writeInt("reserved_tokens", cc.ReservedTokens)

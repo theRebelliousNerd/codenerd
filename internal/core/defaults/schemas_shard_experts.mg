@@ -1,0 +1,83 @@
+# Shard experts: which shard agent a task needs, decided by the kernel.
+#
+# A shard agent is a user-defined specialist: .nerd/agents/<name>/prompts.yaml
+# synced into .nerd/shards/<name>_knowledge.db and listed in .nerd/agents.json.
+# Go measures the roster, each agent's declared technologies, the task's verb
+# and the files it targets; policy/shard_experts.mg derives expert_needed, and
+# the executor and chat delegation obey it (internal/experts).
+
+# --- Measured by Go (EDB) ---------------------------------------------------
+
+# shard_agent(Agent) - a ready shard agent from .nerd/agents.json. Agent is the
+# lower-cased registry name as a name constant (/goexpert), the same identity
+# specialist_classification and specialist_match key on.
+# Producer: internal/system/shard_expert_facts.go at boot.
+Decl shard_agent(Agent) bound [/name].
+
+# shard_agent_domain(Agent, Technology, Source) - a technology the agent is
+# expert in. Technology is a lower-case technology key as a name constant
+# (/go, /mangle, /bubbletea): the same keys detected_language derives and the
+# init catalog creates agents for. Source says where the claim came from:
+#   /registry       - the agent's `domains` in .nerd/agents.json (init writes
+#                     the catalog key that created the agent)
+#   /knowledge_base - a languages:/frameworks: tag on an atom in the agent's KB
+# Producer: internal/system/shard_expert_facts.go at boot.
+Decl shard_agent_domain(Agent, Technology, Source) bound [/name, /name, /name].
+
+# technology_import_root(Root, Technology) - an import path prefix that marks a
+# file as using Technology. Producer: internal/system/shard_expert_facts.go
+# from init's dependency vocabulary (nerdinit.TechnologyImportRoots), so the
+# key a go.mod dependency created an agent for is the key a file's import
+# matches.
+Decl technology_import_root(Root, Technology) bound [/string, /name].
+
+# expert_task(Task, Verb) - a task about to run, by an id unique to it, and the
+# verb it runs as. Asserted for the duration of one selection, then retracted.
+# Producer: internal/experts.Open.
+Decl expert_task(Task, Verb) bound [/string, /name].
+
+# expert_task_target(Task, Path) - a workspace path the task names: a file or
+# a package directory, in canonical (workspace-relative, slash) form, the
+# identity file_topology, file_dir and dependency_link carry.
+# Producer: internal/experts.Open.
+Decl expert_task_target(Task, Path) bound [/string, /string].
+
+# --- Derived (IDB, policy/shard_experts.mg) ----------------------------------
+
+# expert_task_file(Task, File) - a file the task is about: the target itself,
+# or a scanned file in the target directory.
+Decl expert_task_file(Task, File) bound [/string, /string].
+
+# task_technology(Task, File, Technology, Via) - a technology a task file uses.
+# Via: /language (the file's language) or /import (an import under a
+# technology_import_root).
+Decl task_technology(Task, File, Technology, Via) bound [/string, /string, /name, /name].
+
+# reads_code_verb(Verb) - a conversational verb whose answer still reads the
+# target's code (explaining a policy file needs the engine's rules).
+Decl reads_code_verb(Verb) bound [/name].
+
+# expert_blind_verb(Verb) - a verb whose answer reads no code, so no shard
+# agent's knowledge is needed for it whatever its target.
+Decl expert_blind_verb(Verb) bound [/name].
+
+# expert_needed(Task, Agent, Reason) - the task needs this shard agent. Reason
+# is the technology that joins the task's files to the agent's domain.
+# Consumers: internal/experts (session executor compile, chat delegation).
+Decl expert_needed(Task, Agent, Reason) bound [/string, /name, /name].
+
+# expert_file(Task, Agent, File) - a task file the agent's domain covers.
+Decl expert_file(Task, Agent, File) bound [/string, /name, /string].
+
+# expert_evidence_confidence(Via, Confidence) - how strongly one kind of
+# evidence ties a file to an expert, 0-100. A framework import names the
+# expert's exact subject; a language match is the expert's broad field.
+Decl expert_evidence_confidence(Via, Confidence) bound [/name, /number].
+
+# expert_evidence(Task, Agent, Technology, Confidence) - one piece of evidence
+# for expert_needed, scored.
+Decl expert_evidence(Task, Agent, Technology, Confidence) bound [/string, /name, /name, /number].
+
+# expert_confidence(Task, Agent, Confidence) - the strongest evidence for the
+# expert on this task. specialist_match (schemas_tools.mg) is its projection.
+Decl expert_confidence(Task, Agent, Confidence) bound [/string, /name, /number].
