@@ -117,11 +117,44 @@ func (e *Executor) recoverableDeleteFact(ctx context.Context, actionAtom types.M
 	if string(actionAtom) != "/delete_file" {
 		return types.Fact{}, false
 	}
-	if !gitRestoresExactly(ctx, e.workspaceForVerification(), target) {
-		return types.Fact{}, false
+	if gitRestoresExactly(ctx, e.workspaceForVerification(), target) {
+		return types.Fact{
+			Predicate: deleteRecoverablePredicate,
+			Args:      []any{target},
+		}, true
 	}
-	return types.Fact{
-		Predicate: deleteRecoverablePredicate,
-		Args:      []any{target},
-	}, true
+	if e.sameTurnCreatedFile(target) {
+		return types.Fact{
+			Predicate: deleteRecoverablePredicate,
+			Args:      []any{target},
+		}, true
+	}
+	return types.Fact{}, false
+}
+
+// sameTurnCreatedFile reports whether the turn itself created target, so
+// deleting it restores the workspace to exactly the state the turn found.
+// The executor records Go creations in turnCreatedSources and
+// turnCreatedTests as write calls succeed; a path there was absent before the
+// turn's first write to it. A file that existed before the turn is never
+// listed, so its deletion stays governed exactly as now.
+func (e *Executor) sameTurnCreatedFile(target string) bool {
+	workspace := e.workspaceForVerification()
+	canonical := canonicalizeWrittenPath(target, workspace)
+	if canonical == "" {
+		return false
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	for _, s := range e.turnCreatedSources {
+		if s == canonical {
+			return true
+		}
+	}
+	for _, p := range e.turnCreatedTests {
+		if p[0] == canonical {
+			return true
+		}
+	}
+	return false
 }

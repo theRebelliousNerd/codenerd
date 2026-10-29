@@ -6043,3 +6043,23 @@ sentinel list ("latest") still gets the old message; checking a revision's shape
 general fix. Process note: the root committed two Docs/audits files mid-run; nothing the run read
 or changed. Request delivery read "where to get it" and "keep go vet" as unsettled: the brief
 offered two outcomes and codeNERD took the other one, and vet was never claimed. **Streak 1.**
+
+## R1-23, delete_file: a turn could not delete a file it created -- landed assisted (2026-10-29, 02:18-03:11)
+
+Brief (symptom only): a coder turn created a scratch test file to run a function once and was
+refused `/delete_file` on it before finishing, so it reported the stray file as left behind. Entry
+point: one chat request in the TUI (`--yolo`), on a fresh build of `aab323b01`. 53 minutes, one
+coder step; build, test, coverage, pinning and `/test_run` rounds.
+
+**Landed assisted** (`internal/session/delete_recoverable.go` and its test): `recoverableDeleteFact`
+also grants recovery when the target is in the turn's own record of created files. Review: the
+two same-turn tests fail with only the fix reverted and pass with it; a pre-existing file is still
+refused; G1 and G2 green. G3 failed one guard, `TestExecutiveLiteralBudget` (internal/session 46 vs
+45): the fix's `len(p) == 2` on a `[2]string` is always true; removed by hand, so the run does not
+count. Two further gaps, each briefed: the created-file record holds only Go files, so a scratch
+non-Go file is still refused; and a Go source the turn created and then deleted still raises
+`turn_missing_test`. Harness findings from the log: an `.mg` insert the turn later deleted (net
+unchanged) still made it owe a `/test_run` round (about five minutes); `run_build` read the path
+`null` as a directory; the importer test gate never runs a guard test that reads a package's source
+without importing it, which is how the literal-budget failure got past codeNERD's own gates.
+**Streak 0.**
