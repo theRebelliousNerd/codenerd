@@ -197,20 +197,7 @@ func (s *LocalStore) initialize() error {
 	CREATE INDEX IF NOT EXISTS idx_world_files_lang ON world_files(lang);
 	`
 
-	worldFactsTable := `
-	CREATE TABLE IF NOT EXISTS world_facts (
-		path TEXT NOT NULL,
-		depth TEXT NOT NULL, -- fast | deep
-		fingerprint TEXT NOT NULL,
-		predicate TEXT NOT NULL,
-		args TEXT NOT NULL,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		PRIMARY KEY(path, depth, predicate, args)
-	);
-	CREATE INDEX IF NOT EXISTS idx_world_facts_predicate ON world_facts(predicate);
-	CREATE INDEX IF NOT EXISTS idx_world_facts_depth ON world_facts(depth);
-	CREATE INDEX IF NOT EXISTS idx_world_facts_path ON world_facts(path);
-	`
+	worldFactsTable := worldFactsSchema("world_facts") + worldFactsIndexes
 
 	// Shard D: Cold Storage and Archival tier are created below with migration-aware logic
 
@@ -477,6 +464,10 @@ func (s *LocalStore) initialize() error {
 	// Create knowledge atoms index
 	if _, err := s.db.Exec(knowledgeAtomsIndex); err != nil {
 		logging.Get(logging.CategoryStore).Warn("Failed to create knowledge atoms index: %v", err)
+	}
+
+	if err := s.migrateWorldFactsToBinary(); err != nil {
+		return fmt.Errorf("failed to convert the world cache: %w", err)
 	}
 
 	// Run schema migrations for existing databases (adds missing columns like last_accessed, description)
