@@ -235,7 +235,12 @@ type BaseSystemShard struct {
 	State  types.ShardState
 
 	// Components
-	Kernel       *core.RealKernel
+	Kernel *core.RealKernel
+	// parent is the kernel SetParentKernel was given. On a sharded boot it is
+	// the CortexKernel and Kernel is only its catch-all shard, which holds no
+	// world facts (symbol_graph, file_topology live on the world shard):
+	// world reads go through queryParent so they reach their owner.
+	parent       types.Kernel
 	LLMClient    types.LLMClient
 	VirtualStore *core.VirtualStore
 	GlassBox     *transparency.GlassBoxEventBus // For Glass Box visibility events
@@ -395,6 +400,7 @@ func (b *BaseSystemShard) SetParentKernel(k types.Kernel) {
 		logging.Get(logging.CategorySystemShards).Warn("[%s] SetParentKernel called with nil kernel", b.ID)
 		return
 	}
+	b.parent = k
 	if rk, ok := k.(*core.RealKernel); ok {
 		b.Kernel = rk
 		logging.SystemShardsDebug("[%s] Parent kernel attached", b.ID)
@@ -404,6 +410,22 @@ func (b *BaseSystemShard) SetParentKernel(k types.Kernel) {
 	} else {
 		logging.Get(logging.CategorySystemShards).Error("[%s] Invalid kernel type %T, requires *core.RealKernel — shard will run without kernel", b.ID, k)
 	}
+}
+
+// queryParent reads predicate through the parent kernel, so a predicate
+// another shard owns is read from its owner; without a parent it reads
+// Kernel.
+func (b *BaseSystemShard) queryParent(predicate string) ([]types.Fact, error) {
+	b.mu.RLock()
+	parent, kernel := b.parent, b.Kernel
+	b.mu.RUnlock()
+	if parent != nil {
+		return parent.Query(predicate)
+	}
+	if kernel != nil {
+		return kernel.Query(predicate)
+	}
+	return nil, fmt.Errorf("query %s: shard %s has no kernel", predicate, b.ID)
 }
 
 // SetSessionContext sets the session context (for dream mode, etc.).

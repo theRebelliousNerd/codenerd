@@ -16,6 +16,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
+	"codenerd/internal/world"
 	"context"
 	"fmt"
 	"regexp"
@@ -765,31 +766,26 @@ func (p *PerceptionFirewallShard) resolveTarget(ctx context.Context, target stri
 		return resolution
 	}
 
-	// Symbol reference: scan only until first exact name match, and bail if
-	// the result set is huge without a hit (avoid O(N) Go work on top of eval).
-	results, err := p.Kernel.Query("symbol_graph")
+	// Symbol reference. World facts are read through the parent kernel: on
+	// a sharded boot p.Kernel is the catch-all shard, which holds none.
+	results, err := p.queryParent("symbol_graph")
 	if err == nil {
-		const maxSymbolScan = 2000
-		for i, fact := range results {
-			if i >= maxSymbolScan {
-				break
-			}
-			if len(fact.Args) < 4 {
-				continue
-			}
-			if name, ok := fact.Args[0].(string); ok && strings.EqualFold(name, target) {
-				if path, ok := fact.Args[3].(string); ok {
-					resolution.ResolvedPath = path
-					resolution.SymbolName = target
-					resolution.ConfidencePercent = 85
-					return resolution
-				}
-			}
+		id, path, ambiguous := resolveSymbolTarget(results, target)
+		if ambiguous {
+			// No filename guess either: the name is known, its file is not.
+			resolution.ConfidencePercent = 30
+			return resolution
+		}
+		if path != "" {
+			resolution.ResolvedPath = path
+			resolution.SymbolName = id
+			resolution.ConfidencePercent = 85
+			return resolution
 		}
 	}
 
 	// Partial match via file_topology (cap scan the same way)
-	results, err = p.Kernel.Query("file_topology")
+	results, err = p.queryParent("file_topology")
 	if err == nil {
 		const maxFileScan = 2000
 		lowerTarget := strings.ToLower(target)
@@ -812,6 +808,62 @@ func (p *PerceptionFirewallShard) resolveTarget(ctx context.Context, target stri
 	// Unable to resolve - emit for clarification
 	resolution.ConfidencePercent = 30
 	return resolution
+}
+
+// resolveSymbolTarget finds the symbol a bare target names among
+// symbol_graph rows. The scanner's SymbolID is namespaced (func:ComputeTotal,
+// method:Ledger.Settle) and the user says ComputeTotal, so a target matches a
+// row by its whole id or by its bare name (world.SymbolBareName). Comparing
+// the target with the id alone left a unique, current function unresolved
+// and cost the focus-driven context rules their file seed (audit
+// symbol-focus-identity-continuity).
+//
+// Every row is examined: Query has already materialized them, and a match is
+// only safe to report when it is the only one. Go identifiers are
+// case-sensitive, so exact-case matches are taken first and a case-folded
+// match only when no exact one exists. Matches in more than one file are
+// ambiguous and resolve nothing: the policy asks rather than picking a file.
+// One file with several matching symbols resolves the file; the symbol is
+// named only when it is the single match.
+//
+// It returns the file (and the symbol id when unique), or ambiguous when the
+// name is defined in more than one file; neither means no symbol matched.
+func resolveSymbolTarget(rows []types.Fact, target string) (id, path string, ambiguous bool) {
+	type match struct{ id, path string }
+	var exact, folded []match
+	for _, fact := range rows {
+		if len(fact.Args) < 4 {
+			continue
+		}
+		symbolID, isID := fact.Args[0].(string)
+		file, isPath := fact.Args[3].(string)
+		if !isID || !isPath || file == "" {
+			continue
+		}
+		bare := world.SymbolBareName(symbolID)
+		switch {
+		case symbolID == target || bare == target:
+			exact = append(exact, match{symbolID, file})
+		case strings.EqualFold(symbolID, target) || strings.EqualFold(bare, target):
+			folded = append(folded, match{symbolID, file})
+		}
+	}
+	matches := exact
+	if len(matches) == 0 {
+		matches = folded
+	}
+	if len(matches) == 0 {
+		return "", "", false
+	}
+	for _, m := range matches[1:] {
+		if m.path != matches[0].path {
+			return "", "", true
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0].id, matches[0].path, false
+	}
+	return "", matches[0].path, false
 }
 
 // isNonResolvableTarget returns true for pronouns / conversational fillers

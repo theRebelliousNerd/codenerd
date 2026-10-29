@@ -61,7 +61,8 @@ var (
 	tsTestFuncPattern = regexp.MustCompile(`^(test|it|describe|suite)([^a-z]|$)`)
 )
 
-// refSymbolName returns the bare symbol name from a CodeDOM ref.
+// SymbolBareName returns the bare symbol name from a CodeDOM ref or a
+// symbol_graph SymbolID (func:Name, method:Recv.Name, field:Type.Name).
 //
 // Refs come in three shapes across the parsers:
 //
@@ -73,7 +74,7 @@ var (
 // of a Rust path; taking the text after the last '.' strips package and
 // receiver qualification. What is left is the name a naming convention is
 // actually about.
-func refSymbolName(ref string) string {
+func SymbolBareName(ref string) string {
 	if i := strings.LastIndex(ref, ":"); i >= 0 {
 		ref = ref[i+1:]
 	}
@@ -222,7 +223,7 @@ func (b *TestDependencyBuilder) identifyTestFunctions(ctx context.Context) error
 // first. Matching the raw ref made every Go and Python check fail — see
 // goTestFuncPattern.
 func (b *TestDependencyBuilder) isTestFunction(ref, file string) bool {
-	name := refSymbolName(ref)
+	name := SymbolBareName(ref)
 	if name == "" {
 		return false
 	}
