@@ -74,33 +74,18 @@ func (o *Orchestrator) taskTargets(task *Task) []string {
 	return out
 }
 
-// taskComplexity is the estimate of the task's phase (/low .. /critical),
-// which strategic_advisor_required reads; "" when the phase has none.
-func (o *Orchestrator) taskComplexity(task *Task) string {
-	o.mu.RLock()
-	defer o.mu.RUnlock()
-	if o.campaign == nil || task == nil {
-		return ""
-	}
-	for i := range o.campaign.Phases {
-		if o.campaign.Phases[i].ID == task.PhaseID {
-			return o.campaign.Phases[i].EstimatedComplexity
-		}
-	}
-	return ""
-}
-
 // selectTaskExperts asks the kernel which shard agents the task's files need.
 // A kernel that cannot answer leaves the task without one, and says so.
 func (o *Orchestrator) selectTaskExperts(task *Task, verb string, targets []string) experts.Selection {
 	if o.kernel == nil || len(targets) == 0 {
 		return experts.Selection{}
 	}
+	// Complexity is the kernel's (task_complexity in policy/shard_experts.mg,
+	// derived from the task's files and verb), not the phase's estimate.
 	sel, err := experts.Select(o.kernel, experts.Task{
-		Verb:       verb,
-		Targets:    targets,
-		Workspace:  o.workspace,
-		Complexity: o.taskComplexity(task),
+		Verb:      verb,
+		Targets:   targets,
+		Workspace: o.workspace,
 	})
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("shard expert selection for task %s failed: %v", task.ID, err)
