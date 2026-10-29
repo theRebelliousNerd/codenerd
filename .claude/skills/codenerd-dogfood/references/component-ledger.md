@@ -6137,3 +6137,22 @@ its last round stopped trimming whitespace, so a valid revision with stray space
 Other log findings: `read_file`'s did-you-mean offered `.env`; every boot re-fails to embed a zero-byte ecosystem
 paragraph, one from a deleted worktree (R1-28). Lanes merged meanwhile: B (V1 `97fc8f379`, C3/C4 tests
 `2fd4024a0`), A (kernel-decided shard-agent selection `ea95c9740`). **Streak 0.**
+
+## R1-30, workspace tools: a tracked package hidden by a default ignore name -- landed, three files (2026-10-29, 16:38-17:10)
+
+Brief (symptom only): a coder turn could not read `internal/build/no_hardcoded_models_test.go`, a tracked file,
+because "it is not a workspace file (gitignored or in world.ignore_patterns)". Entry point: one chat request in
+the TUI (`--yolo`) on a build of `bc610aeb9` (lanes A and B slice 1 merged). 20 minutes, 37 model calls, then
+one review turn.
+
+**Landed, does not count** (`f767cca33`): implicit default ignore names yield to tracked files and the
+directories reaching them; a list an operator wrote still excludes. First verdict `/done` on measured evidence
+(build, suite, pinning, removed-tests). Review by the root: `workspace.Open(root, <copy of the defaults>)` still
+hid the package, which is the world-model scan's path; the review turn fixed it (a filled-in copy of the
+defaults counts as implicit) and then the turn failed in the harness: `planned step 1
+(internal/workspace/workspace.go): final file-state measurement failed: no first-write preimage was recorded`.
+The step planner had guessed a target that does not exist; the model edited the right files. That failure was
+also never written to the session record, so the driver's `wait` hung (R1-31 and a second finding). Fail-before:
+`TestGrepGlobListFilesHonorGitignore` fails with the production files reverted; the workspace package's own new
+tests fail to compile without them. Three production files (membership.go, git.go, walk.go). My log watcher
+missed this run (it globbed an unpadded PID). **Streak 0.**

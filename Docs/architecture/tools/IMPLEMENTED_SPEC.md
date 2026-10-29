@@ -602,3 +602,21 @@ verification attribution, offer split), `tools/consumption_test.go` and
 | [TODO.md](TODO.md) | Backlog |
 | [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) | Open design Qs |
 | [_progress.md](_progress.md) | Rebuild log |
+
+### run_lint (as built 2026-10-29)
+
+`run_lint` (`internal/tools/shell/run_lint.go`) is the model's static gate. Argument `gate` is one of vet,
+staticcheck or golangci-lint; `packages` are workspace-relative patterns (default: the turn's written Go
+packages via `tools.TestScopeFrom`; none written gives status `nothing_written`; outside a session, `./...`).
+The argv is the repository's: `go vet -json` (env and argv from `build.GoInvocation`), `staticcheck -f json`,
+`golangci-lint run --output.json.path stdout --show-stats=false --max-issues-per-linter=0 --max-same-issues=0`
+(env from `build.GoToolEnv`, which carries `GOFLAGS -tags=sqlite_vec` and `CGO_CFLAGS` on a tree with
+`sqlite_headers`). Reports are parsed by `internal/lintreport` into findings (file, line, column, check,
+message); a compile error is check `compile` at each position the compiler named. Statuses: clean, findings,
+failed (non-zero exit with no finding, output whole, error returned), unavailable (binary not on PATH; nothing
+downloaded or run). Effect execute, capability overlapping, `safe_action(/run_lint)`, offered to coder,
+tester, verify, reviewer and nemesis (`intent_routing_rules.mg`). Policy: `tool_capabilities(/run_lint, ...)` in
+`delegation.mg` names go_vet, vet, lint, staticcheck, golangci_lint and static_analysis, and
+`autopoiesis.mg`'s `tool_generation_block_reason` / `tool_generation_blocked` keep a capability a registered
+tool provides from being delegated to the tool generator, including one a turn asserts in its control packet
+as `missing_tool_for`.

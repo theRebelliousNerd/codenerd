@@ -43,6 +43,13 @@ the protocol for a run, and the status of each rung with the run that moved it.
   `world.ignore_patterns`' default `build` hiding the tracked `internal/build/` from workspace tools
   (R1-30). Its last round also stopped trimming whitespace, refusing a padded valid revision
   (criterion 7). First run with the coder shard on `gpt-6.1-sol`. **R1 streak 0.**
+- **R1-30 landed, three files** (2026-10-29, `f767cca33`): `world.ignore_patterns`' default names no
+  longer hide a tracked file (the guard package `internal/build/` was invisible to every workspace
+  tool). Two turns: the brief, then a review turn after the root measured that a filled-in copy of
+  the defaults still counted as an operator's list. The first verdict was `/done` on measured
+  evidence; the review turn's verdict was lost to a harness defect (R1-31: a planned step's guessed
+  target that was never written failed the whole turn). Fail-before checked
+  (`TestGrepGlobListFilesHonorGitignore`). Three production files, so it does not count. **R1 streak 0.**
 - last updated: 2026-09-19 20:25
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
@@ -153,11 +160,9 @@ the protocol for a run, and the status of each rung with the run that moved it.
 - open: the external audit of 2026-09-19 -- 23 findings, verified against the code and routed in
   `07-external-audit-2026-09-19.md` (F7 `247a2402` and F6 `ac5c9b03` landed; F2 and F4 are C3/C4
   below); the harness defects below (C1-C4, V1); G6 needs a toolchain download
-  (asked); codeNERD cannot run the gates it will be asked to clear -- no typed tool runs `go vet`,
-  staticcheck or golangci-lint for the model (the forcing gate runs vet itself, the model cannot),
-  and `nerd fix --acceptance` takes failing tests, not a gate. G4/G5 items are therefore not rung-1
-  probes (criterion 5), and R5 (clear a class of findings) and R7 (measure the gates, pick the
-  next item) need that tool first.
+  (asked); **landed `abb741281`**: `run_lint` runs G2/G4/G5 for the model with typed findings, so
+  G4/G5 items are rung-1 probes under criterion 5. `nerd fix --acceptance` still takes failing tests,
+  not a gate.
 
 ### Harness defects to fix before R2
 
@@ -272,7 +277,7 @@ is the finding.
 | R4 Ten files | two landings of ten-file changes (an API migration, a cross-cutting fix) carried out through CodeDOM multi-file edits, not hand-edited file by file | a change with a blast radius is executed by a tool | **1 of 2 landed 2026-09-20** (`231cfa7c`, 11 files, assisted) |
 | R5 Fifty files | one landing of a fifty-file change from a single prompt: an optimisation quest or a sweep that clears a whole class of gate findings | long-horizon work without drift | **PASSED 2026-09-20** (`540e15a5`, 189 files, 189/189 correct) |
 | R6 The architecture docs | codeNERD rewrites every document in `Docs/architecture` from the code (never from the old docs), every claim citing a path and symbol that exist, links and symbols verified by a checker, and the reviewer, reading a sample of each package's docs against the code, finds nothing false and nothing important missing | the harness can hold a whole codebase in view and write the truth about it |
-| R7 Recursion | `nerd campaign recurse` (or its successor) runs unattended for N cycles: measures the gates, picks the next failing item, fixes it, proves it, and each cycle leaves the gates strictly better and nothing worse | it improves itself |
+| R7 Recursion | `nerd campaign recurse` (or its successor) runs unattended for N cycles: measures the gates, picks the next failing item, fixes it, proves it, and each cycle leaves the gates strictly better and nothing worse | it improves itself | **Instrument landed `e52bd94a4`**: `nerd gates measure`/`diff` measure G1-G8 and G10 as typed snapshots, policy/gates.mg judges a pair (`cycle_keepable`), and `nerd campaign recurse --gates` reverts any cycle that leaves a gate worse; picking the next item from gate findings is in progress |
 | R8 CodeDOM only | every model-facing way of reading, searching or editing source as raw text (`read_file`, `grep`, `glob`, `edit_lines`, `write_file` on a file CodeDOM parses) is gone from the model's tool surface, a repository test keeps it gone, and a fixed replay set of briefs that already landed (at least R1-3, R1-7, R3-3, R4-1, R5-5) lands as often as before with no more tool calls or input tokens | the harness knows the code structurally and never has to grep around; the structure is the only view of code, not the preferred one |
 | R9 Disciplined specs | a codeNERD-native successor to `/arch-propose`: an idea goes through ideation (competing candidates, including ones that challenge the premise), selection and interrogation, and ends as spec atoms in a Mangle DAG (requirement -> decision -> work item, each work item with a witness command). The DAG lives in the store, not in a conversation: killed at any point it resumes at the last committed node with nothing lost or done twice; another agent or terminal editing a file in a node's write set is detected before that node writes, and the node re-plans instead of overwriting; and codeNERD then builds one feature from its own DAG until every witness passes | codeNERD shines by being disciplined when its users, teams or neighbouring agents are not (Steve, 2026-09-22) |
 

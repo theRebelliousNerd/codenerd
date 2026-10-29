@@ -245,6 +245,37 @@ Proof: `TestBootAssertsShardExpertRosterAndTheCompileCarriesIt`,
 `TestShardExpertPolicyDerivesExpertNeeded`,
 `TestCompilationContextCarriesTheKernelsNeededExperts`.
 
+Domains heal at boot. An agents.json entry without `domains` is healed by
+`refreshShardRoster` (`internal/system/shard_expert_facts.go`) from the saved
+orientation's catalog key (`internal/orient/agent_domains.go` `AgentDomains`)
+and the KB's lang/framework tags, asserted as
+`shard_agent_domain(Agent, Tech, /catalog | /knowledge_base)` and recorded
+through `recordAgentDomains` (an empty list means none was found).
+`Cortex.ActivateAgent` (`internal/system/agent_activation.go`) brings an agent
+created mid-session into the running roster.
+
+Spawn second. `expert_spawn(Task, Agent, /lead | /advise)` derives from
+`specialist_should_execute` / `specialist_should_advise` unless the task already
+runs as a roster shard agent. `session.Executor.withExpertConsultations`
+(`internal/session/expert_spawn.go`) runs each consultation through
+`JITExecutor.SpawnConsultation`, wired in `internal/system/factory.go`, and adds
+the answer to the turn's system prompt; the turn keeps its verb's persona, tools
+and gates. Language evidence scores 40 (JIT knowledge only), import evidence 90.
+Chat's expert-led mode (`cmd/nerd/chat/delegation_modes.go`
+`executeExpertLedMode`) runs such a task under its own verb and target, so chat
+and executor share one decision and one consultation path.
+
+Init's technology vocabulary (`internal/init/technology_vocabulary.go`) is the one
+package-to-technology table for Go, npm, Python and Rust; every dependency
+scanner reads it (including `requirements.txt`, `pyproject.toml` and
+`Cargo.toml`, `internal/init/scanner_manifests.go`). Boot asserts it as
+`technology_import_exact` / `technology_import_prefix`, the prefix carrying the
+ecosystem's separator. The world model records ES imports, CommonJS `require()`
+(`internal/world/ast_treesitter.go` `requireSpecifier`), Python imports and Rust
+`use` paths as `dependency_link`. `task_complexity(Task, Level)` is derived in
+`policy/shard_experts.mg` from `complex_verb`, the task's file count and the
+symbols its files define; `experts.Select` returns it as `Selection.Complexity`.
+
 ### 6.2 Consultation
 
 `ConsultationManager` stores pending requests, delegates through a spawner,

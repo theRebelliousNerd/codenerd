@@ -120,3 +120,17 @@ lives in `orchestrator_document_fallback.go`: it writes the reply as generated a
 unwraps it only when the whole reply is one fenced block (`unwrapReplyFence`).
 The VirtualStore never rewrites content (`handleWriteFile`,
 `internal/core/virtual_store_file_actions.go`).
+
+## Shard agents and tool-create tasks (as built 2026-10-29)
+
+`spawnTask` asks `internal/experts.Select` with the task's declared files (artifacts and write set, globs
+excluded) (`internal/campaign/orchestrator_experts.go`). The turn's `TaskRequest.Target` is the task's primary
+file, so the session executor's compile derives the same experts and carries their knowledge. An advising agent
+is consulted before the turn and its advice, or that it failed or gave none, is appended to the turn's input
+(event `specialist_consulted`); an executing agent owns the turn through the compile and keeps the task's verb,
+tools and gates (event `specialist_executes`). `campaign_rules.mg` holds no specialist rules of its own; the ones
+that joined `shard_can_handle` were deleted. Tool-create tasks (`orchestrator_tool_create.go`) read
+`tool_generation_block_reason` (`policy/autopoiesis.mg`): `/provided` resolves the task at once to the
+registered tool that provides the capability, `/dangerous` fails it with the reason; otherwise the task waits
+for `tool_registered` or `has_capability`, ends with an error on `tool_generation_failed`, and fails after 30
+minutes.

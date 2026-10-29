@@ -347,3 +347,20 @@ go test ./internal/verification/...
 go test -count=1 ./internal/verification/...
 go test -race ./internal/verification/...
 ```
+
+## Error-free gates as data (as built 2026-10-29)
+
+`nerd gates measure` (`cmd/nerd/cmd_gates.go`, `internal/gates/errorfree*.go`) runs the ladder's gate table into
+a snapshot saved at `.nerd/gates/gates_<UTC>.json`: G1 `go build`, G2 `go vet -json`, G3 `go test -json`
+(`--tests` scopes it), G4 `staticcheck -f json`, G5 golangci-lint (JSON, no issue caps), G6 `govulncheck -json`,
+G10 gofmt (go/format over the module's files, skipping dot, underscore, testdata and vendor directories), and on
+codeNERD's tree G7 (check-mangle in-process over `internal/core/defaults/{,policy/,schema/}*.mg`) and G8
+(`prompt.CountMangleExamples` over `internal/prompt/atoms`). Each measurement has a status (pass, fail,
+unavailable, unverified), a count and `lintreport.Finding` values; `internal/lintreport` is the parser
+`run_lint` also uses. Snapshots project `gate_snapshot`, `gate_measured` and `gate_finding` (keyed by file,
+check and message). `policy/gates.mg` (Decls in `schemas_gates.mg`) derives `gate_change` (better, worse, same),
+`gate_regressed`, `gate_finding_new`, `gate_finding_gone` and `cycle_keepable` for a compared pair;
+`gates.Compare` asserts the pair and reads them, and `nerd gates diff` exits 1 when a gate got worse. With
+`nerd campaign recurse --gates`, `RecurseCycleConfig.MeasureGates` measures a baseline and a snapshot after
+every changed attempt; `policy/recurse.mg`'s `recurse_cycle_worse` rule over `recurse_cycle_snapshots` and
+`gate_regressed` makes the ratchet revert the cycle.
