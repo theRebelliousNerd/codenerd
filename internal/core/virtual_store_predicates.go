@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/store"
 	"codenerd/internal/types"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
@@ -106,11 +107,13 @@ func (v *VirtualStore) PersistFactsToKnowledge(facts []Fact, factType string, pr
 		priority = 5
 	}
 
-	for _, f := range facts {
-		if err := db.StoreFact(f.Predicate, f.Args, factType, priority); err != nil {
-			logging.Get(logging.CategoryVirtualStore).Error("Failed to persist fact %s: %v", f.Predicate, err)
-			return fmt.Errorf("persist fact %s: %w", f.Predicate, err)
-		}
+	batch := make([]store.ColdFact, len(facts))
+	for i, f := range facts {
+		batch[i] = store.ColdFact{Predicate: f.Predicate, Args: f.Args}
+	}
+	if err := db.StoreFacts(batch, factType, priority); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to persist %d facts: %v", len(facts), err)
+		return fmt.Errorf("persist facts: %w", err)
 	}
 
 	logging.VirtualStoreDebug("PersistFactsToKnowledge: persisted %d facts", len(facts))
@@ -154,34 +157,56 @@ func (v *VirtualStore) PersistLink(entityA, relation, entityB string, weight flo
 // matched none of them. The import path now rides in the metadata, readable
 // but no longer part of the edge's identity.
 func (v *VirtualStore) PersistLinkFacts(facts []Fact, source string) error {
-	var errs []error
+	var links []store.KnowledgeLink
 	for _, f := range facts {
 		switch f.Predicate {
 		case "dependency_link":
 			if len(f.Args) < 2 {
 				continue
 			}
-			from := types.ExtractString(f.Args[0])
-			to := types.ExtractString(f.Args[1])
 			meta := map[string]any{"source": source}
 			if len(f.Args) >= 3 {
 				if imp := types.ExtractString(f.Args[2]); imp != "" {
 					meta["import"] = imp
 				}
 			}
-			if err := v.PersistLink(from, "depends_on", to, 1.0, meta); err != nil {
-				errs = append(errs, fmt.Errorf("depends_on %s -> %s: %w", from, to, err))
-			}
+			links = append(links, store.KnowledgeLink{
+				EntityA: types.ExtractString(f.Args[0]), Relation: "depends_on", EntityB: types.ExtractString(f.Args[1]),
+				Weight: 1.0, Metadata: meta,
+			})
 		case "symbol_graph":
 			if len(f.Args) < 4 {
 				continue
 			}
-			symbol := types.ExtractString(f.Args[0])
-			file := types.ExtractString(f.Args[3])
-			if err := v.PersistLink(symbol, "defined_in", file, 1.0, map[string]any{"source": source}); err != nil {
-				errs = append(errs, fmt.Errorf("defined_in %s -> %s: %w", symbol, file, err))
-			}
+			links = append(links, store.KnowledgeLink{
+				EntityA: types.ExtractString(f.Args[0]), Relation: "defined_in", EntityB: types.ExtractString(f.Args[3]),
+				Weight: 1.0, Metadata: map[string]any{"source": source},
+			})
 		}
+	}
+	// A link with an empty end is refused on its own, as it always was; the
+	// rest are stored in one transaction (store.StoreLinks).
+	var errs []error
+	valid := links[:0]
+	for _, l := range links {
+		if l.EntityA == "" || l.EntityB == "" {
+			errs = append(errs, fmt.Errorf("%s %q -> %q: invalid knowledge graph link: entityA/relation/entityB must be non-empty", l.Relation, l.EntityA, l.EntityB))
+			continue
+		}
+		valid = append(valid, l)
+	}
+	if len(valid) == 0 {
+		return errors.Join(errs...)
+	}
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+	if db == nil {
+		return errors.Join(errs...)
+	}
+	if err := db.StoreLinks(valid); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to persist %d links: %v", len(valid), err)
+		errs = append(errs, fmt.Errorf("persist %d knowledge graph links: %w", len(valid), err))
 	}
 	return errors.Join(errs...)
 }
