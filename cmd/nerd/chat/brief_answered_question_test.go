@@ -13,6 +13,7 @@ import (
 // A brief question Jev judges answered stops holding the work (brief_ready),
 // and the brief shown to the model agrees: it is not rendered as open.
 func TestBrief_AnAnsweredQuestionIsNotShownAsOpen(t *testing.T) {
+	t.Parallel()
 	m := admissionModel(t, config.WorkModeYolo, &perception.Brief{Goal: "fix a README typo", OpenQuestions: []string{"which typo?", "which branch?"}, Ready: true})
 	if err := config.EnsureParams(m.kernel, (&config.TypeSafeConfig{}).Params()); err != nil {
 		t.Fatal(err)

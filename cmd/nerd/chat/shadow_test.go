@@ -16,6 +16,7 @@ import (
 // =============================================================================
 
 func TestShadow_RenderLogicPane_NilPane(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping shadow test requiring kernel in short mode")
 	}
@@ -32,6 +33,7 @@ func TestShadow_RenderLogicPane_NilPane(t *testing.T) {
 }
 
 func TestShadow_RenderLogicPane_WithPane(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping shadow test requiring kernel in short mode")
 	}
@@ -52,6 +54,7 @@ func TestShadow_RenderLogicPane_WithPane(t *testing.T) {
 }
 
 func TestShadow_UpdateLogicPane_NilPane(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping shadow test requiring kernel in short mode")
 	}
@@ -66,6 +69,7 @@ func TestShadow_UpdateLogicPane_NilPane(t *testing.T) {
 }
 
 func TestShadow_UpdateLogicPane_WithPane(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping shadow test requiring kernel in short mode")
 	}
@@ -110,6 +114,7 @@ func TestShadow_RunShadowSimulation_NilShadowMode(t *testing.T) {
 }
 
 func TestShadow_RunShadowSimulation_WithShadowMode(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping shadow simulation test in short mode")
 	}
@@ -167,6 +172,7 @@ func TestShadow_RunWhatIfQuery_NilShadowMode(t *testing.T) {
 }
 
 func TestShadow_RunWhatIfQuery_WithShadowMode(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping what-if query test in short mode")
 	}
@@ -253,6 +259,7 @@ func TestShadow_CommandIntegration_Why(t *testing.T) {
 // =============================================================================
 
 func TestShadow_EmptyAction(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping shadow test in short mode")
 	}
@@ -276,6 +283,7 @@ func TestShadow_EmptyAction(t *testing.T) {
 }
 
 func TestShadow_LongAction(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping shadow test in short mode")
 	}
@@ -300,6 +308,7 @@ func TestShadow_LongAction(t *testing.T) {
 }
 
 func TestShadow_SpecialCharactersInAction(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping shadow test in short mode")
 	}
@@ -332,6 +341,7 @@ func TestShadow_SpecialCharactersInAction(t *testing.T) {
 // =============================================================================
 
 func TestShadow_Performance_RenderLogicPane(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping performance test in short mode")
 	}
@@ -355,6 +365,7 @@ func TestShadow_Performance_RenderLogicPane(t *testing.T) {
 // =============================================================================
 
 func TestShadow_SimulationResultFormat(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping shadow result format test in short mode")
 	}
@@ -394,6 +405,7 @@ func TestShadow_SimulationResultFormat(t *testing.T) {
 }
 
 func TestShadow_WhatIfResultFormat(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping what-if result format test in short mode")
 	}

@@ -80,6 +80,7 @@ func assertClose(t *testing.T, ids []string) {
 // imports, and the entry point last. This is what recurse did not know when
 // its DAG was a table of codeNERD's packages.
 func TestDeriveWorkspaceDAG_GoModuleSweepsLeavesFirst(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("no go toolchain")
 	}
@@ -112,6 +113,7 @@ func TestDeriveWorkspaceDAG_GoModuleSweepsLeavesFirst(t *testing.T) {
 // resolve to the workspace's own package directories; third-party imports do
 // not add edges.
 func TestDeriveWorkspaceDAG_PythonImportsOrderThePackages(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{
 		"src/shop/__init__.py":        "",
@@ -134,6 +136,7 @@ func TestDeriveWorkspaceDAG_PythonImportsOrderThePackages(t *testing.T) {
 // paths, index files and the .js-for-.ts ESM convention; bare specifiers are
 // dependencies.
 func TestDeriveWorkspaceDAG_TypeScriptRelativeImportsOrderTheDirectories(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{
 		"src/lib/util.ts":        "export const x = 1\n",
@@ -159,6 +162,7 @@ func TestDeriveWorkspaceDAG_TypeScriptRelativeImportsOrderTheDirectories(t *test
 
 // Rust: one node per crate, ordered by path dependencies.
 func TestDeriveWorkspaceDAG_RustCratesOrderByPathDependencies(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{
 		"Cargo.toml":              "[workspace]\nmembers = [\"crates/*\"]\n",
@@ -181,6 +185,7 @@ func TestDeriveWorkspaceDAG_RustCratesOrderByPathDependencies(t *testing.T) {
 // A cycle (legal in Python) collapses into one node rather than failing the
 // order or dropping an edge.
 func TestDeriveWorkspaceDAG_AnImportCycleBecomesOneNode(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{
 		"a/__init__.py": "from b import thing\n",
@@ -199,6 +204,7 @@ func TestDeriveWorkspaceDAG_AnImportCycleBecomesOneNode(t *testing.T) {
 // A workspace with nothing the scanners read is swept as one node, not
 // refused: recurse still has somewhere to start.
 func TestDeriveWorkspaceDAG_AnUnreadableWorkspaceIsOneNode(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{"README.md": "# hi\n"})
 	ids := sweepOrder(t, root)
@@ -211,6 +217,7 @@ func TestDeriveWorkspaceDAG_AnUnreadableWorkspaceIsOneNode(t *testing.T) {
 // The sweep is the workspace's own: a Python workspace's order names its
 // packages, not codeNERD's.
 func TestRecurseSweepOrder_IsTheWorkspacesOwn(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{
 		"pkg/core/__init__.py": "",

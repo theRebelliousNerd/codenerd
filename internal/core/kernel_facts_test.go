@@ -6,6 +6,7 @@ import (
 )
 
 func TestKernelFacts_Index(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	// Inject schema declarations
 	k.AppendPolicy(`
@@ -34,6 +35,7 @@ func TestKernelFacts_Index(t *testing.T) {
 }
 
 func TestKernelFacts_Retract(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy(`
 	Decl temp(Name).
@@ -64,6 +66,7 @@ func TestKernelFacts_Retract(t *testing.T) {
 }
 
 func TestKernelFacts_RetractFact(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl tag(Name, Label).")
 	k.Evaluate()
@@ -92,6 +95,7 @@ func TestKernelFacts_RetractFact(t *testing.T) {
 // =============================================================================
 
 func TestAddFactIfNew_MaxFactsEnforcement(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	// Record baseline count (kernel boots with some facts from embedded .mg files)
@@ -122,6 +126,7 @@ func TestAddFactIfNew_MaxFactsEnforcement(t *testing.T) {
 }
 
 func TestSetMaxFacts_DefaultValue(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	if k.GetMaxFacts() != defaultMaxFacts {
 		t.Errorf("default maxFacts should be %d, got %d", defaultMaxFacts, k.GetMaxFacts())
@@ -129,6 +134,7 @@ func TestSetMaxFacts_DefaultValue(t *testing.T) {
 }
 
 func TestSetMaxFacts_CustomValue(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.SetMaxFacts(100)
 	if k.GetMaxFacts() != 100 {
@@ -137,6 +143,7 @@ func TestSetMaxFacts_CustomValue(t *testing.T) {
 }
 
 func TestSetMaxFacts_ZeroUsesDefault(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.SetMaxFacts(0)
 	if k.GetMaxFacts() != defaultMaxFacts {

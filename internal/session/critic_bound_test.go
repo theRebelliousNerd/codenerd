@@ -46,6 +46,7 @@ func (d *deadlineUplift) CompleteWithToolResults(ctx context.Context, _ string, 
 // round are bounded as every request is: by the caller's context and the
 // client's own bound, not by a constant of their own.
 func TestVerifyAndUpliftWithCritic_AddsNoClockOfItsOwn(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package p\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)

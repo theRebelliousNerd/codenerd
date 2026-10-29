@@ -35,6 +35,7 @@ func TestCriticSeverityAtom(t *testing.T) {
 // an uplift round, in the reviewer's order; low and unknown severities are
 // not. Pinned through a real kernel.
 func TestActionableCriticFindings_Derived(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		findings []CriticFinding

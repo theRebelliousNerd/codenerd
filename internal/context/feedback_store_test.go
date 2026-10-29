@@ -29,6 +29,7 @@ func TestContextFeedbackStore_PersistsTaskSucceeded(t *testing.T) {
 }
 
 func TestContextFeedbackStore_QueryHelpersReturnWithoutRecursiveLocking(t *testing.T) {
+	t.Parallel()
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "feedback_helpers.db")
 

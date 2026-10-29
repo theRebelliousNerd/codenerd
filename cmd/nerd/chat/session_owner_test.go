@@ -65,6 +65,7 @@ func assertConversationDetached(t *testing.T, m Model) {
 }
 
 func TestNewSession_StartsFresh(t *testing.T) {
+	t.Parallel()
 	m := ownedSessionModel(t)
 	next, _ := m.handleCmdNewSession("/new-session", []string{"/new-session"})
 	m = next.(Model)
@@ -94,6 +95,7 @@ func TestNewSession_StartsFresh(t *testing.T) {
 }
 
 func TestLoadSession_DetachesTheOutgoingConversation(t *testing.T) {
+	t.Parallel()
 	m := ownedSessionModel(t)
 	if err := session.SaveSessionHistory(m.workspace, "sess_b", []session.ChatMessage{{Role: "user", Content: "parse CSV"}}); err != nil {
 		t.Fatal(err)
@@ -108,6 +110,7 @@ func TestLoadSession_DetachesTheOutgoingConversation(t *testing.T) {
 
 // A compressed row stored under B that holds A's memory is not loaded as B's.
 func TestLoadSession_RefusesAnotherSessionsStoredMemory(t *testing.T) {
+	t.Parallel()
 	m := ownedSessionModel(t)
 	data, err := ctxcompress.MarshalCompressedState(m.compressor.GetState())
 	if err != nil {
@@ -125,6 +128,7 @@ func TestLoadSession_RefusesAnotherSessionsStoredMemory(t *testing.T) {
 // A save deferred under A that runs after the switch to B writes nothing:
 // not A's older history over the switch's save, not B's memory under A.
 func TestDeferredSave_AfterTheSwitchWritesNothing(t *testing.T) {
+	t.Parallel()
 	m := ownedSessionModel(t)
 	stale := m.saveSessionStateCmd()
 	m.history = append(m.history, Message{Role: "user", Content: "one more"}, Message{Role: "assistant", Content: "ok"})

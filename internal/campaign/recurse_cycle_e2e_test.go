@@ -137,6 +137,7 @@ func (r *recordingExecutor) Validate(cmd tactile.Command) error { return r.inner
 // and breaks the importer's build. The witness still passes; the ratchet
 // derives revert and the tree returns to the planted failure.
 func TestRecurseCycle_EndToEndOneCycle(t *testing.T) {
+	t.Parallel()
 	t.Run("keep", func(t *testing.T) { runRecurseEndToEnd(t, false) })
 	t.Run("revert", func(t *testing.T) { runRecurseEndToEnd(t, true) })
 }
@@ -440,6 +441,7 @@ func assertAttemptAcceptancePassed(t *testing.T, ctx context.Context, tk *tracin
 // codes. The package's test fails; an interpreter that cannot import pytest
 // fails the same gate, and that result carries the same codes.
 func TestRecurseCycle_PytestOKExitsTravelWithTheCheck(t *testing.T) {
+	t.Parallel()
 	root := gitFixture(t, map[string]string{
 		".gitignore":       ".nerd/\n__pycache__/\n*.pyc\n.pytest_cache/\n",
 		"pytest.ini":       "[pytest]\n",

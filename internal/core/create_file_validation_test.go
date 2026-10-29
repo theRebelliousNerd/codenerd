@@ -12,6 +12,7 @@ import (
 // create_file writes its source formatted, so the paranoid validator must not
 // compare the payload to the bytes on disk: that rejected every create.
 func TestValidateInteractive_CreateFileIsNotRejectedForFormatting(t *testing.T) {
+	t.Parallel()
 	vs := gateStore(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x_test.go")

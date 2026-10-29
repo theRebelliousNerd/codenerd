@@ -17,6 +17,7 @@ func TestToolValue_WithoutAutopoiesisSaysNoLedgerIsKept(t *testing.T) {
 }
 
 func TestToolValue_RendersTheKernelsClassification(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatal(err)
@@ -32,6 +33,7 @@ func TestToolValue_RendersTheKernelsClassification(t *testing.T) {
 // Nothing is withdrawn without a derived proposal: an unknown name, or a
 // built-in, is refused before anybody is asked.
 func TestRetireTool_RefusesWithoutAProposal(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatal(err)

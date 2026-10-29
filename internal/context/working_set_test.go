@@ -14,6 +14,7 @@ import (
 // Eviction is not deletion: a result a compaction moved out of the ledger is
 // recalled whole from the archive, and only by its own scope.
 func TestWorkingSetEvictionRecallAndRevision(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "b.go"), []byte("package b"), 0600))
@@ -34,7 +35,7 @@ func TestWorkingSetEvictionRecallAndRevision(t *testing.T) {
 		require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: fmt.Sprint(i), Entity: entity, Revision: w.Revision(entity), Kind: fmt.Sprint(i), Step: int64(i), Body: body}))
 		entries = append(entries, LedgerEntry{Call: fmt.Sprintf("call-%d", i), ID: fmt.Sprint(i), Bytes: len(body), Round: i + 1})
 	}
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 120})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 120})
 	require.NoError(t, err)
 	require.Contains(t, decision.Evict, "call-0", "the first round's result leaves a ledger far over its ceiling")
 	// The first save is handle "1". The storage id "0" is not a handle.
@@ -62,6 +63,7 @@ func TestWorkingSetEvictionRecallAndRevision(t *testing.T) {
 // and line, then read on for the rest of a 30-minute ceiling without running
 // the test the task named.
 func TestWorkingSetContinuePolicy(t *testing.T) {
+	t.Parallel()
 	w, err := NewWorkingSet(t.TempDir(), "policy", config.DefaultWorkingConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
@@ -112,6 +114,7 @@ func TestWorkingSetContinuePolicy(t *testing.T) {
 // and reports where the next page would start. The default page was 2000
 // characters, which handed a 14 KB read back seven calls at a time.
 func TestWorkingSetRecallReturnsTheWholeBodyUnlessPaged(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0600))
 	w, err := NewWorkingSet(root, "task", config.DefaultWorkingConfig())
@@ -145,6 +148,7 @@ func TestWorkingSetRecallReturnsTheWholeBodyUnlessPaged(t *testing.T) {
 // multi-KB reads — and the model concluded its archive was empty and re-read
 // the same files until its budget ran out.
 func TestWorkingSetSearchReportsBodyCharsNotAnEmptyBody(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "executor_tools.go"), []byte("package session"), 0600))
 	w, err := NewWorkingSet(root, "search", config.DefaultWorkingConfig())
@@ -176,6 +180,7 @@ func TestWorkingSetSearchReportsBodyCharsNotAnEmptyBody(t *testing.T) {
 // be checked. Non-file observations have an explicit stable revision and keep
 // their existing semantics.
 func TestWorkingSetRecall_UnresolvableRevisionIsStale(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a\nfunc Present() {}\n"), 0o600))
 	w, err := NewWorkingSet(root, "unresolvable-recall", config.DefaultWorkingConfig())

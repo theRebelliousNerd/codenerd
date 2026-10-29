@@ -143,6 +143,7 @@ func TestFinishRound_UnfinishedWorkIsPushedBack(t *testing.T) {
 // A /finish write re-arms the gate rounds, so what it finished is built and
 // tested; the advisory rounds are not repeated.
 func TestFinishRound_AWriteRearmsTheGates(t *testing.T) {
+	t.Parallel()
 	e := roundsExecutor(t)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}, WriteToolEffects: 1, WrittenPaths: []string{"internal/x/x.go"}}
 	schedule(t, e, result)
@@ -156,6 +157,7 @@ func TestFinishRound_AWriteRearmsTheGates(t *testing.T) {
 
 // The kernel's truth table for the push-back (policy/turn_finish.mg).
 func TestFinishPolicy_PushbackTruthTable(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name                string
 		unfinished, blocked int64

@@ -56,6 +56,7 @@ func TestProcessMangleUpdates_CheckpointVerdictReachesKernel(t *testing.T) {
 // that can say where the predicate's facts flow, so this runs on the sharded
 // kernel production boots, not a mock.
 func TestProcessMangleUpdates_AProseVerdictKeepsItsPunctuationOnTheShardedKernel(t *testing.T) {
+	t.Parallel()
 	cortex := core.NewCortexKernel("cortex")
 	for _, cfg := range []core.KernelShardConfig{
 		{Domain: "policy", OwnedPredicates: []string{"pending_action", "permitted"}},

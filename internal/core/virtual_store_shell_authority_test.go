@@ -16,6 +16,7 @@ import (
 // call's context and the turn's authorization in the kernel, decided by
 // constitution.mg section 7E. A direct call with no turn scope stays refused.
 func TestVirtualStore_ToolWriteGuardHonoursTheTurnsCommitAuthorization(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	for _, args := range [][]string{{"init", "-q"}, {"config", "user.email", "t@example.com"}, {"config", "user.name", "t"}} {
 		if out, err := exec.Command("git", append([]string{"-C", ws}, args...)...).CombinedOutput(); err != nil {

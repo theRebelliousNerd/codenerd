@@ -28,6 +28,7 @@ import (
 // TestCodedomReasonProducersEmitAtoms is the Go half; the two together are the
 // claim this file's header used to make on its own.
 func TestCodedomReasonAtomsUnify(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)

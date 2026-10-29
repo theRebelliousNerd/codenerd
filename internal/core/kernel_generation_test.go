@@ -3,6 +3,7 @@ package core
 import "testing"
 
 func TestSnapshotIdentity_AdvancesOnEveryWriteAndNotOnReads(t *testing.T) {
+	t.Parallel()
 	k := newConeKernel(t)
 	start := k.SnapshotIdentity()
 	if start.Instance == 0 {
@@ -35,6 +36,7 @@ func TestSnapshotIdentity_AdvancesOnEveryWriteAndNotOnReads(t *testing.T) {
 }
 
 func TestCloneWithIdentity_NamesTheClonedStateAndIsolatesInstances(t *testing.T) {
+	t.Parallel()
 	k := newConeKernel(t)
 	before := k.SnapshotIdentity()
 	clone, id := k.CloneWithIdentity()
@@ -53,6 +55,7 @@ func TestCloneWithIdentity_NamesTheClonedStateAndIsolatesInstances(t *testing.T)
 }
 
 func TestSnapshotIdentity_ExternalPremisesAreNotReusable(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	// setupMockKernel's schema already declares query_learned as external.
 	k.AppendPolicy(`
@@ -68,6 +71,7 @@ func TestSnapshotIdentity_ExternalPremisesAreNotReusable(t *testing.T) {
 }
 
 func TestSnapshotIdentity_PendingProgramChangeIsNotReusable(t *testing.T) {
+	t.Parallel()
 	k := newConeKernel(t)
 	k.AppendPolicy(`Decl cn_extra(Id).`)
 	if k.SnapshotIdentity().Reusable {

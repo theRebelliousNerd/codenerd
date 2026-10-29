@@ -17,6 +17,7 @@ import (
 // does the measuring; the span it measures against is the policy's, from
 // config (sweep finding F8).
 func TestRepeatThreshold_IsTheWorkingSectionsKey(t *testing.T) {
+	t.Parallel()
 	for _, want := range []int{2, 3} {
 		spans := config.DefaultWorkingConfig()
 		spans.RepeatThreshold = want
@@ -54,6 +55,7 @@ func TestWorkingSection_SuppliesEveryRequiredSpan(t *testing.T) {
 // The policy decides with the section's values: a read task is nudged to
 // conclude at the section's nudge span, not the default's.
 func TestWorkingSection_ThePolicyReadsTheConfiguredSpans(t *testing.T) {
+	t.Parallel()
 	spans := config.DefaultWorkingConfig()
 	spans.NudgeRounds = 3
 	w, err := NewWorkingSet(t.TempDir(), "spans", spans)

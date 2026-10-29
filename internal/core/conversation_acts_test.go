@@ -101,6 +101,7 @@ var (
 )
 
 func TestConversationAct_RoutesTheTurnsTaskVerbsMisread(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		turn        actTurn
@@ -174,6 +175,7 @@ func TestConversationAct_RoutesTheTurnsTaskVerbsMisread(t *testing.T) {
 // The lattice keeps one top option per question, a tie as two, and the
 // readings name what was settled and what was not.
 func TestConversationAct_LatticeReading(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		act  map[string]int64

@@ -14,6 +14,7 @@ import (
 // run of the tests that already existed derived turn_verified. The harness
 // forces the test; it does not ask for it.
 func TestTurnThatWroteUntestedProductionCodeIsNotDone(t *testing.T) {
+	t.Parallel()
 	t.Run("untestedWriteIsUnverifiedAndNamed", func(t *testing.T) {
 		e := newObligationExec(t)
 

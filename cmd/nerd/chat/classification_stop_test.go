@@ -28,6 +28,7 @@ func classifierOutage() error       { return errors.New("transient server error 
 // notice for the cause. It does not route as an ordinary /explain answer: the
 // articulation model is never asked, and no task runs.
 func TestClassificationFailure_EndsTheTurnWithTheCauseSpecificNotice(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		err    error
@@ -62,6 +63,7 @@ func TestClassificationFailure_EndsTheTurnWithTheCauseSpecificNotice(t *testing.
 // The controls: a read-and-uncertain turn, and a turn no model classified,
 // are not stopped.
 func TestClassificationFailure_DoesNotStopAdmittedOrPresetTurns(t *testing.T) {
+	t.Parallel()
 	uncertain := perception.Intent{
 		Category: "/query", Verb: "/converse", Target: "none", Confidence: 0.2,
 		Response: "Hello!",
@@ -80,6 +82,7 @@ func TestClassificationFailure_DoesNotStopAdmittedOrPresetTurns(t *testing.T) {
 // from Jev's independent judgment alone. The failed classification is not
 // relabeled successful, and the work runs under its own held intent.
 func TestClassificationFailure_HeldWorkGoAheadStillApproves(t *testing.T) {
+	t.Parallel()
 	fix := perception.Intent{
 		Category: "/mutation", Verb: "/fix", Target: "README.md", Confidence: 0.95,
 		Response: "I can fix the typo in README.md.",
@@ -102,6 +105,7 @@ func TestClassificationFailure_HeldWorkGoAheadStillApproves(t *testing.T) {
 // With no go-ahead evidence, pending work does not let a failed classification
 // through.
 func TestClassificationFailure_PendingWorkAloneDoesNotClearIt(t *testing.T) {
+	t.Parallel()
 	fix := perception.Intent{
 		Category: "/mutation", Verb: "/fix", Target: "README.md", Confidence: 0.95,
 		Response: "I can fix the typo in README.md.",
@@ -124,6 +128,7 @@ func TestClassificationFailure_PendingWorkAloneDoesNotClearIt(t *testing.T) {
 // can settle the failure it waits for the running turn, and the reply is the
 // kernel's notice for the cause.
 func TestSideTurn_RetryableFailureQueuesTheMessage(t *testing.T) {
+	t.Parallel()
 	m, ctx := busyModel(t, failedIntent(classifierOutage()))
 	m, cmd := typeAndEnter(t, m, "also add a CHANGELOG entry")
 	m = runSideTurn(t, m, cmd)
@@ -142,6 +147,7 @@ func TestSideTurn_RetryableFailureQueuesTheMessage(t *testing.T) {
 // A blocker queues nothing -- the same message fails the same way -- and says
 // what to change.
 func TestSideTurn_BlockerIsNotQueued(t *testing.T) {
+	t.Parallel()
 	m, _ := busyModel(t, failedIntent(classifierUnauthorized()))
 	m, cmd := typeAndEnter(t, m, "also add a CHANGELOG entry")
 	m = runSideTurn(t, m, cmd)
@@ -156,6 +162,7 @@ func TestSideTurn_BlockerIsNotQueued(t *testing.T) {
 // Jev's stop is independent evidence: a primary classification failure does not
 // stop the user from stopping the work.
 func TestSideTurn_StopSurvivesAFailedClassification(t *testing.T) {
+	t.Parallel()
 	m, ctx := busyModel(t, failedIntent(classifierUnauthorized()))
 	m = withJev(t, m, &fakeJevServer{probs: map[string]float64{"wants_to_stop": 0.97, "changes_files": 0.03}})
 	m, cmd := typeAndEnter(t, m, "stop")
@@ -170,6 +177,7 @@ func TestSideTurn_StopSurvivesAFailedClassification(t *testing.T) {
 
 // The error branch keeps its promise and never shows a provider body.
 func TestSideTurn_ErrorBranchQueuesAndStaysSafe(t *testing.T) {
+	t.Parallel()
 	m, _ := busyModel(t, failedIntent(classifierOutage()))
 	slot := m.turn.reserve("also add a CHANGELOG entry")
 	m = m.applySideTurn(sideTurnMsg{Input: "also add a CHANGELOG entry", Slot: slot, Err: errors.New("API request failed with status 401: sk-live-secret-body")})
@@ -191,6 +199,7 @@ func TestSideTurn_ErrorBranchQueuesAndStaysSafe(t *testing.T) {
 // failure state, and the failed turn was not mistaken for a clarification the
 // retry answered.
 func TestClassificationFailure_RetryAfterOutageIsAFreshTurn(t *testing.T) {
+	t.Parallel()
 	chat := perception.Intent{
 		Category: "/query", Verb: "/converse", Target: "none", Confidence: 0.9,
 		Response: "It is the second line.",
@@ -216,6 +225,7 @@ func TestClassificationFailure_RetryAfterOutageIsAFreshTurn(t *testing.T) {
 // A stop Jev read while the classification failed was acted on before the
 // turn ended; the user is told, not left to find the job gone.
 func TestClassificationFailure_NoticeCarriesTheTurnsWarnings(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModeYolo, failedIntent(classifierUnauthorized()))
 	failed := failedIntent(classifierUnauthorized())
 	if err := perception.PublishClassificationOutcome(m.kernel, "/current_intent", failed.Outcome); err != nil {

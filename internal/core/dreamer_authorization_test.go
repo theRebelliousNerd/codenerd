@@ -7,6 +7,7 @@ import (
 )
 
 func TestDreamerNeverReusesAnAuthorization(t *testing.T) {
+	t.Parallel()
 	d, k := setupTestDreamer(t)
 	req := ActionRequest{Type: ActionWriteFile, Target: "scratch.txt", Payload: map[string]any{"content": "first"}}
 	if got := d.SimulateAction(context.Background(), req); got.Unsafe {
@@ -28,6 +29,7 @@ func TestDreamerNeverReusesAnAuthorization(t *testing.T) {
 }
 
 func TestDreamerCancellationCannotHitWarmVerdict(t *testing.T) {
+	t.Parallel()
 	d, _ := setupTestDreamer(t)
 	req := ActionRequest{Type: ActionReadFile, Target: "scratch.txt"}
 	if got := d.SimulateAction(context.Background(), req); got.Unsafe {

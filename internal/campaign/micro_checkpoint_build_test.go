@@ -40,6 +40,7 @@ func (b *buildRecorder) Execute(_ context.Context, cmd tactile.Command) (*tactil
 // environment, a tree that may hold a sibling's half-finished edits -- turned
 // such a task into a failure and rolled its change back.
 func TestRunPhase_ADoneTurnIsNotFailedByASecondBuild(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("the shipped corpus must load: %v", err)

@@ -31,7 +31,6 @@ import (
 func TestImpactChain_EndToEndThroughVirtualStore(t *testing.T) {
 	ws := t.TempDir()
 	writeImpactModule(t, ws)
-	t.Chdir(ws)
 
 	kernel, err := core.NewRealKernel()
 	if err != nil {

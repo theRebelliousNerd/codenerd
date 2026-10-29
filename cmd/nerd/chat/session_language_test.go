@@ -26,6 +26,7 @@ import (
 // and asserts it into the kernel as a whole-snapshot property. Nothing
 // downstream had ever read it back.
 func TestSessionContextCarriesTheProjectLanguage(t *testing.T) {
+	t.Parallel()
 	m, _ := SetupLiveModel(t)
 	if err := m.kernel.Assert(core.Fact{
 		Predicate: "project_language",
@@ -53,6 +54,7 @@ func TestSessionContextCarriesTheProjectLanguage(t *testing.T) {
 // on advice for the wrong ecosystem, and unlike the empty case nothing about
 // the prompt would look wrong.
 func TestSessionContextOmitsLanguageWhenTheKernelHasNone(t *testing.T) {
+	t.Parallel()
 	m, _ := SetupLiveModel(t)
 	sessionCtx := m.buildSessionContext(context.Background())
 	if sessionCtx == nil {
@@ -74,6 +76,7 @@ func TestSessionContextOmitsLanguageWhenTheKernelHasNone(t *testing.T) {
 // `nerd init` writes project_framework into .nerd/profile.mg and chat loads that
 // file at boot, so the fact was already there to be read.
 func TestSessionContextCarriesProjectFrameworks(t *testing.T) {
+	t.Parallel()
 	m, _ := SetupLiveModel(t)
 
 	for _, fw := range []string{"/cobra", "/bubbletea"} {
@@ -101,6 +104,7 @@ func TestSessionContextCarriesProjectFrameworks(t *testing.T) {
 // project_framework facts reach ExtraContext["frameworks"] as a comma-joined list
 // with no empty element, because prompt_assembler splits that value on commas.
 func TestProjectFrameworksReachTheSessionContext(t *testing.T) {
+	t.Parallel()
 	m, _ := SetupLiveModel(t)
 
 	if err := m.kernel.Assert(core.Fact{

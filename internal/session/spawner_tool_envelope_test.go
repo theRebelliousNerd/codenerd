@@ -35,6 +35,7 @@ func codedomCoreRequires(t *testing.T) []string {
 // both the compile and AllowedTools, so a requires_tools gate (the CodeDOM
 // guidance) is not stripped from a prompt for tools the subagent holds.
 func TestSpawnerFixPromptCompiledAgainstItsTools(t *testing.T) {
+	t.Parallel()
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

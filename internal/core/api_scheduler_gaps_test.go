@@ -92,6 +92,7 @@ func TestAPISchedulerGap_NegativeConcurrency(t *testing.T) {
 
 // TestAPISchedulerGap_ZeroTimeout verifies behavior with zero SlotAcquireTimeout.
 func TestAPISchedulerGap_ZeroTimeout(t *testing.T) {
+	t.Parallel()
 	scheduler := NewAPIScheduler(APISchedulerConfig{
 		MaxConcurrentAPICalls: 1,
 		SlotAcquireTimeout:    0, // Zero timeout
@@ -287,6 +288,7 @@ func TestAPISchedulerGap_ExtremeLoad_ManyShards(t *testing.T) {
 
 // TestAPISchedulerGap_RetryExtremeMaxRetries verifies behavior with large maxRetries.
 func TestAPISchedulerGap_RetryExtremeMaxRetries(t *testing.T) {
+	t.Parallel()
 	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
 	scheduler.RegisterShard("retry", "test")
 
@@ -439,6 +441,7 @@ func TestAPISchedulerGap_Streaming_NilChannelsFromUnderlying(t *testing.T) {
 // TestAPISchedulerGap_Streaming_RapidCancel tests that the forwarding goroutine
 // doesn't leak when context is cancelled while the underlying stream is active.
 func TestAPISchedulerGap_Streaming_RapidCancel(t *testing.T) {
+	t.Parallel()
 	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
 	scheduler.RegisterShard("test", "test")
 
@@ -553,6 +556,7 @@ func (m *mockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt,
 // guaranteed to enter the waiting branch (active >= max at both levels) and
 // every one of them performs the raced read against the tight write loop.
 func TestAPIScheduler_NoRace_ReconfigDuringAcquire(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultAPISchedulerConfig()
 	cfg.MaxConcurrentAPICalls = 3
 	cfg.SlotAcquireTimeout = 5 * time.Second

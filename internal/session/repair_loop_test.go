@@ -27,6 +27,7 @@ import (
 // carry failing output) get fix responses, post-batch turns conclude.
 type repairHarness struct {
 	executor   *Executor
+	reg        *tools.Registry // the executor's modular tools
 	ws         string
 	calls      int
 	sysCalls   int
@@ -38,16 +39,14 @@ type repairHarness struct {
 func newRepairHarness(t *testing.T, configure func(*Executor)) *repairHarness {
 	t.Helper()
 	h := &repairHarness{}
-	// Isolated tool registry with the real file tools: production boot
+	// The executor's own registry with the real file tools: production boot
 	// registers them in VirtualStore setup, which tests never run.
 	reg := tools.NewRegistry()
 	if err := toolscore.RegisterAll(reg); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(tools.SwapGlobal(reg))
 	ws := t.TempDir()
 	h.ws = ws
-	t.Setenv("CODENERD_WORKSPACE_ROOT", ws)
 	if err := os.WriteFile(filepath.Join(ws, "go.mod"), []byte("module repairprobe\n\ngo 1.25\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +111,8 @@ func newRepairHarness(t *testing.T, configure func(*Executor)) *repairHarness {
 	// repair_move's decision (repair_episode.mg), and a kernel that derives
 	// nothing gives up after the first attempt.
 	h.executor = NewExecutor(realKernel(t), &testExecutiveStore{}, mockLLM, &MockJITCompiler{}, mockCfgFactory, mockTransducer)
+	h.executor.SetModularTools(reg)
+	h.reg = reg
 	h.executor.config.WorkspaceRoot = ws
 	h.executor.config.EnableSafetyGate = false
 	h.executor.EffectiveAgentRuntimeConfig = &jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: []string{"write_file", "read_file", "edit_file"}}
@@ -152,6 +153,7 @@ const repairMainTypeFixed = "package main\n\nvar x int = 3\n\nfunc main() {}\n"
 // A broken change converges: the repair episode fixes the failing test and
 // the turn verifies TestsPass with attempts>=1 and a costed record.
 func TestRepairLoop_FixesFailingTests(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, nil)
 	h.initial = func() *types.LLMToolResponse {
 		return &types.LLMToolResponse{Text: "writing", ToolCalls: []types.ToolCall{
@@ -238,6 +240,7 @@ func TestRepairLoop_FixesFailingTests(t *testing.T) {
 // episode must converge on that ONE attempt with the cost ledger covering
 // every round (llm_calls=2, both tool runs recorded, tokens summed).
 func TestRepairLoop_ReadThenEditConverges(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, nil)
 	h.initial = func() *types.LLMToolResponse {
 		return &types.LLMToolResponse{Text: "writing", ToolCalls: []types.ToolCall{
@@ -338,6 +341,7 @@ func TestRepairLoop_ReadThenEditConverges(t *testing.T) {
 // A fix that needs two rounds converges on the second: the loop iterates
 // instead of dying after one shot.
 func TestRepairLoop_ConvergesOnSecondAttempt(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, nil)
 	h.initial = func() *types.LLMToolResponse {
 		return &types.LLMToolResponse{Text: "writing", ToolCalls: []types.ToolCall{
@@ -375,6 +379,7 @@ func TestRepairLoop_ConvergesOnSecondAttempt(t *testing.T) {
 // The attempt budget is hard: with one round allowed, a two-round fix gives
 // up with outcome false and actionable follow-ups.
 func TestRepairLoop_RespectsAttemptBudget(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, func(e *Executor) { e.config.RepairMaxAttempts = 1 })
 	h.initial = func() *types.LLMToolResponse {
 		return &types.LLMToolResponse{Text: "writing", ToolCalls: []types.ToolCall{
@@ -409,6 +414,7 @@ func TestRepairLoop_RespectsAttemptBudget(t *testing.T) {
 // A type error (parses, does not compile) exercises the build gate: the
 // syntax gate lets it through, the repair loop fixes it.
 func TestRepairLoop_FixesBuildBreak(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, nil)
 	// The package exists; this turn's edit is what breaks it. (A /fix that
 	// created main.go would owe it a test first: turn_missing_test.)

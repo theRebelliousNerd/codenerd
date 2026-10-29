@@ -16,6 +16,7 @@ import (
 // Package campaign's own recurse tests run on a single-store RealKernel,
 // which cannot show a split join.
 func TestRecurseCycles_OnTheProductionKernel(t *testing.T) {
+	t.Parallel()
 	for _, tool := range []string{"git", "go"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Skipf("no %s", tool)

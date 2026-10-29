@@ -12,6 +12,7 @@ import (
 // the removed tests and reads the verdict instead of failing from the
 // listing. Pinned from a real removal on a throwaway module.
 func TestRemovedTestsGate_DerivedFromRealRemoval(t *testing.T) {
+	t.Parallel()
 	const kept = "package main\n\nimport \"testing\"\n\nfunc TestKept(t *testing.T) {}\n"
 	const gone = "\nfunc TestGone(t *testing.T) {}\n"
 	ws := t.TempDir()
@@ -66,6 +67,7 @@ func TestRemovedTestsGate_DerivedFromRealRemoval(t *testing.T) {
 // were never measured owes no retention verdict, so fixtures that predate
 // the gate keep their verdicts.
 func TestRemovedTestsGate_UnmeasuredTurnOwesNothing(t *testing.T) {
+	t.Parallel()
 	e := NewExecutor(realKernel(t), &testExecutiveStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
 	turn := types.MangleAtom("/turn_retention_unmeasured")
 	if gateFact(t, e, "turn_owes_gate", turn, "/test_retention") {
@@ -80,6 +82,7 @@ func TestRemovedTestsGate_UnmeasuredTurnOwesNothing(t *testing.T) {
 // one lets an otherwise green turn verify. The closure is a green build, a
 // green suite, and the retention measurement.
 func TestRemovedTestsGate_BlocksTheVerdict(t *testing.T) {
+	t.Parallel()
 	e := NewExecutor(realKernel(t), &testExecutiveStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
 	turn := types.MangleAtom("/turn_retention_verdict")
 	closure := []types.Fact{

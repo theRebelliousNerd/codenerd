@@ -22,6 +22,7 @@ import (
 // rule bodies that consume them, and the negative controls that prove a string
 // with the same characters is a different value.
 func TestIntentIdentityAtomsUnify(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v (a Decl bound-type change broke analysis)", err)
@@ -136,6 +137,7 @@ func TestIntentIdentityAtomsUnify(t *testing.T) {
 // (session/executor.go ProcessWithIntent). Those ids are name constants too, and
 // they must stay out of every /current_intent-scoped rule.
 func TestTaskIntentIDIsANameAndDoesNotAliasCurrentIntent(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -169,6 +171,7 @@ func TestTaskIntentIDIsANameAndDoesNotAliasCurrentIntent(t *testing.T) {
 // would have broken the fifteen capabilities.mg rules that match it as a quoted
 // string, so the literals were quoted instead. Prove they now route.
 func TestCampaignStatusQueryRoutesOnStringTarget(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)

@@ -205,6 +205,7 @@ func TestBlocksInChangedLines_KeepsOnlyTouchedBlocks(t *testing.T) {
 // paid on every edit -- and buy nothing, since `go test -coverprofile`
 // already reports pass/fail.
 func TestVerifyTestsWithCoverage_OneRunGivesBothSignals(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("compiles and tests a throwaway package")
 	}

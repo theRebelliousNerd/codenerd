@@ -6,6 +6,7 @@ import (
 )
 
 func TestShadowMode_New(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	shadow := NewShadowMode(k)
@@ -15,6 +16,7 @@ func TestShadowMode_New(t *testing.T) {
 }
 
 func TestShadowMode_StartSimulation(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 
@@ -39,6 +41,7 @@ func TestShadowMode_StartSimulation(t *testing.T) {
 }
 
 func TestShadowMode_SimulateAction(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 
@@ -66,6 +69,7 @@ func TestShadowMode_SimulateAction(t *testing.T) {
 }
 
 func TestShadowMode_IsShadowModeActive(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 
@@ -82,6 +86,7 @@ func TestShadowMode_IsShadowModeActive(t *testing.T) {
 }
 
 func TestShadowMode_AbortSimulation(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 
@@ -96,6 +101,7 @@ func TestShadowMode_AbortSimulation(t *testing.T) {
 }
 
 func TestShadowMode_CommitSimulation(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 
@@ -109,6 +115,7 @@ func TestShadowMode_CommitSimulation(t *testing.T) {
 }
 
 func TestShadowMode_GetSimulation(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 
@@ -126,6 +133,7 @@ func TestShadowMode_GetSimulation(t *testing.T) {
 }
 
 func TestShadowMode_GetActiveSimulation(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 

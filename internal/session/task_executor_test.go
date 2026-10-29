@@ -12,6 +12,7 @@ import (
 )
 
 func TestJITExecutor_Execute_InlineExecution(t *testing.T) {
+	t.Parallel()
 	// Inline path (needsSubagent=false). Use /review so prose-only is valid;
 	// /fix is write-oriented and would hard-fail hollow success without tools.
 	mockLLM := &MockLLMClient{
@@ -61,6 +62,7 @@ func TestJITExecutor_Execute_InlineExecution(t *testing.T) {
 }
 
 func TestJITExecutor_ExecuteWithContext_PresetIntentSkipsPerception(t *testing.T) {
+	t.Parallel()
 	var llmUserPrompt string
 	transducerCalls := 0
 
@@ -120,6 +122,7 @@ func TestJITExecutor_ExecuteWithContext_PresetIntentSkipsPerception(t *testing.T
 }
 
 func TestJITExecutor_ExecuteWithContext_InlineRunIsIsolated(t *testing.T) {
+	t.Parallel()
 	mockLLM := &MockLLMClient{
 		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 			return &types.LLMToolResponse{Text: "done"}, nil
@@ -163,6 +166,7 @@ func TestJITExecutor_ExecuteWithContext_InlineRunIsIsolated(t *testing.T) {
 }
 
 func TestJITExecutor_Execute_SubagentExecution(t *testing.T) {
+	t.Parallel()
 	// Setup
 	mockLLM := &MockLLMClient{
 		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
@@ -321,6 +325,7 @@ func TestJITExecutor_NullUndefinedEmpty(t *testing.T) {
 	}
 }
 func TestJITExecutor_TypeCoercion(t *testing.T) {
+	t.Parallel()
 	mockLLM := &MockLLMClient{
 		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
 			return "processed", nil
@@ -361,6 +366,7 @@ func TestJITExecutor_TypeCoercion(t *testing.T) {
 	}
 }
 func TestJITExecutor_UserRequestExtremes(t *testing.T) {
+	t.Parallel()
 	mockLLM := &MockLLMClient{
 		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
 			time.Sleep(10 * time.Millisecond) // Slow down to ensure exhaustion is hit
@@ -545,6 +551,7 @@ func TestTaskRequest_TaskTextCarriesThePersonsRequest(t *testing.T) {
 }
 
 func TestJITExecutor_Execute_SlashedCoderIsMutation(t *testing.T) {
+	t.Parallel()
 	// "/coder" (the policy atom form) must behave exactly like bare "coder":
 	// write-oriented, so a prose-only reply is hollow and must fail.
 	mockLLM := &MockLLMClient{
@@ -576,6 +583,7 @@ func TestJITExecutor_Execute_SlashedCoderIsMutation(t *testing.T) {
 }
 
 func TestJITExecutor_Execute_ConstraintReachesPrompt(t *testing.T) {
+	t.Parallel()
 	// The routing-layer constraint must reach the agent prompt: without it a
 	// delegated fix arrives as a bare noun phrase and gets analyzed, not done.
 	var seen []string

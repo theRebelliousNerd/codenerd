@@ -10,6 +10,7 @@ import (
 // asserts the verb as a name constant; the schema declared it /string, so the
 // kernel refused each one ("Auto-learning candidate staging failed").
 func TestStageLearningCandidate_AcceptedByTheRealKernel(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModePropose)
 	m.localDB = nil
 	fact := `learned_exemplar("make it faster", /optimize, "the retriever", "", 0.9).`

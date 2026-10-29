@@ -70,6 +70,7 @@ func TestOpenAIStreaming_CancelledBackoffExitsFast(t *testing.T) {
 // retried rather than failing the turn. The old private loop failed
 // immediately on any 5xx.
 func TestOpenAICompleteWithTools_RetriesTransientThenSucceeds(t *testing.T) {
+	fastRetries(t)
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if hits.Add(1) <= 2 {

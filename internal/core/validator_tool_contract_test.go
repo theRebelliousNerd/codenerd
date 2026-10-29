@@ -11,6 +11,7 @@ import (
 )
 
 func TestFileValidatorMatchesRealToolLineEndingContract(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	path := filepath.Join(root, "value.go")
 	if err := os.WriteFile(path, []byte("package fixture\r\nconst Value = 1\r\n"), 0600); err != nil {

@@ -18,6 +18,7 @@ import (
 // The shipped policy never retains less than the constitutional floor. A policy
 // edit that drops one of these would take a safety fact out of every prompt.
 func TestRetentionPolicy_KeepsTheConstitutionalFloor(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	rows, err := comp.kernel.Query("context_must_retain")
 	if err != nil {
@@ -37,6 +38,7 @@ func TestRetentionPolicy_KeepsTheConstitutionalFloor(t *testing.T) {
 // A predicate the policy retains is retained, whatever Go thinks: the proof
 // that the decision moved into the kernel.
 func TestGetCoreFacts_RetainsWhatTheKernelDecides(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	comp.kernel.AppendPolicy(`
 Decl ctx_test_invariant(Note) bound [/string].
@@ -67,6 +69,7 @@ context_must_retain(/ctx_test_invariant).
 
 // A kernel that decides nothing gets the floor, and says so once.
 func TestGetCoreFacts_WhenTheKernelDecidesNoRetention_ShouldRetainTheFloorAndCountIt(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	comp.SetKernelReader(&fakeReader{
 		rows: map[string][]core.Fact{"block_commit": {fact("block_commit", "floor still holds")}},
@@ -93,6 +96,7 @@ func TestGetCoreFacts_WhenTheKernelDecidesNoRetention_ShouldRetainTheFloorAndCou
 // domain Cortex and the compressor's own kernel is the catch-all shard, which
 // does not hold facts other shards own or derive.
 func TestGetCoreFacts_ReadsThroughTheKernelReader(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	comp.SetKernelReader(&fakeReader{
 		fallback: comp.kernel,
@@ -111,6 +115,7 @@ func TestGetCoreFacts_ReadsThroughTheKernelReader(t *testing.T) {
 // The rendered block says who chose and ordered its active facts, exactly
 // once (TODO-CTX-06C).
 func TestSerializeCompressedContext_SaysWhoOrderedTheActiveBlock(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	// A fact no inclusion rule fires on alone: the Go fallback picks it.
 	if err := comp.kernel.Assert(fact("test_state", "/failing")); err != nil {

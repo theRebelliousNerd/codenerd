@@ -92,6 +92,7 @@ func TestNilKernel_VoidAndGetterMethodsSafe(t *testing.T) {
 // The normalizer used to truncate every float, so Query("p(3.14)") matched
 // stored p(3) and vice versa.
 func TestQueryPattern_FloatPrecision(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("boot: %v", err)
@@ -133,6 +134,7 @@ func TestQueryPattern_FloatPrecision(t *testing.T) {
 // In a directory that is not a git checkout, UpdateSystemFacts must assert
 // the clock but no git facts — never a fabricated unstaged_count("0").
 func TestUpdateSystemFacts_NonGitDir(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernelWithWorkspace(t.TempDir())
 	if err != nil {
 		t.Fatalf("boot: %v", err)

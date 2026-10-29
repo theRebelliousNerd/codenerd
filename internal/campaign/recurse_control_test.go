@@ -32,6 +32,7 @@ func TestRecurseLock_OneLoopPerWorkspace(t *testing.T) {
 }
 
 func TestRunRecurseCycles_RefusesWhileAnotherLoopRuns(t *testing.T) {
+	t.Parallel()
 	root := recurseFixture(t, nil)
 	release, err := acquireRecurseLock(root)
 	if err != nil {
@@ -51,6 +52,7 @@ func TestRunRecurseCycles_RefusesWhileAnotherLoopRuns(t *testing.T) {
 // judged, then ends the loop cleanly; the next run resumes, and status reads
 // the ledger.
 func TestRunRecurseCycles_StopRequestEndsAfterTheAttemptIsJudged(t *testing.T) {
+	t.Parallel()
 	root := recurseFixture(t, map[string]string{
 		"lib/lib.go":      "package lib\n\nfunc L() int { return 1 }\n",
 		"lib/lib_test.go": "package lib\n\nimport \"testing\"\n\nfunc TestL(t *testing.T) {\n\tif L() != 0 {\n\t\tt.Fatal(\"L() != 0\")\n\t}\n}\n",

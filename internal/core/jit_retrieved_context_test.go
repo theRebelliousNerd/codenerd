@@ -3,6 +3,7 @@ package core
 import "testing"
 
 func TestJITRetrievedContextRequiresWitnessAndRespectsScope(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatal(err)

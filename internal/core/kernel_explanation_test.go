@@ -21,6 +21,7 @@ reach(A, C) :- edge(A, B), reach(B, C).`)
 }
 
 func TestExplainEnvelope_ArmedButUnrecordedIsNotNoProof(t *testing.T) {
+	t.Parallel()
 	k := explanationKernel(t)
 	require.NoError(t, k.Assert(Fact{Predicate: "edge", Args: []any{MangleAtom("/a"), MangleAtom("/b")}}))
 	_, err := k.Query("reach")
@@ -66,6 +67,7 @@ func TestExplainEnvelope_ArmedButUnrecordedIsNotNoProof(t *testing.T) {
 }
 
 func TestExplainEnvelope_BudgetsTruncateAndMarkPartial(t *testing.T) {
+	t.Parallel()
 	k := explanationKernel(t)
 	k.EnableProvenance()
 	chain := []string{"/a", "/b", "/c", "/d", "/e", "/f"}
@@ -132,6 +134,7 @@ func TestCapabilityManifest_TeachesOnlyWhatTheHostPreserves(t *testing.T) {
 }
 
 func TestCapabilityManifest_StampsTheLoadedProgram(t *testing.T) {
+	t.Parallel()
 	k := explanationKernel(t)
 	m := k.CapabilityManifest()
 	require.Equal(t, "RealKernel", m.HostPath)

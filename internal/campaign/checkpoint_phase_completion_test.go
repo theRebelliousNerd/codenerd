@@ -145,6 +145,7 @@ func drainEventTypes(ch chan OrchestratorEvent) map[OrchestratorEventType]int {
 }
 
 func TestRunPhase_WhenCheckpointFails_ShouldNotCompletePhase(t *testing.T) {
+	t.Parallel()
 	orch, events := newCheckpointRegressionOrchestrator(t, "FAIL: the artifact was never written")
 
 	if err := orch.runPhase(context.Background(), &orch.campaign.Phases[0]); err != nil {
@@ -175,6 +176,7 @@ func TestRunPhase_WhenCheckpointFails_ShouldNotCompletePhase(t *testing.T) {
 }
 
 func TestRunPhase_WhenCheckpointPasses_ShouldCompletePhase(t *testing.T) {
+	t.Parallel()
 	orch, _ := newCheckpointRegressionOrchestrator(t, `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"phase_ckpt_0\", /pass, \"everything verified\", 95)"]}, "surface_response": "done"}`)
 
 	if err := orch.runPhase(context.Background(), &orch.campaign.Phases[0]); err != nil {
@@ -229,6 +231,7 @@ func phaseStatusRows(t *testing.T, orch *Orchestrator) []string {
 // the phases built on it. The phase closes /unverified now: announced, and not
 // completed anywhere.
 func TestRunPhase_WhenCheckpointExhausted_ThePhaseClosesUnverified(t *testing.T) {
+	t.Parallel()
 	orch, events := newCheckpointRegressionOrchestrator(t, "FAIL: still broken")
 	exhaustCheckpoints(t, orch)
 
@@ -269,6 +272,7 @@ func TestRunPhase_WhenCheckpointExhausted_ThePhaseClosesUnverified(t *testing.T)
 // attempt budget, still not completed -- the debt survives -- and only a
 // passing checkpoint completes it.
 func TestPrepareResume_ReArmsAnUnverifiedPhase(t *testing.T) {
+	t.Parallel()
 	orch, _ := newCheckpointRegressionOrchestrator(t, "FAIL: still broken")
 	exhaustCheckpoints(t, orch)
 	// What the loop does when campaign_blocked(/phase_unverified) derives.
@@ -304,6 +308,7 @@ func TestPrepareResume_ReArmsAnUnverifiedPhase(t *testing.T) {
 // only, the kernel still held it /unverified, and the resumed campaign blocked
 // on /phase_unverified before any work (campaign 7b853890, 2026-09-26).
 func TestPrepareResume_TheKernelNoLongerBlocksARearmedPhase(t *testing.T) {
+	t.Parallel()
 	orch, _ := newCheckpointRegressionOrchestrator(t, "FAIL: still broken")
 	exhaustCheckpoints(t, orch)
 	orch.campaign.Status = StatusFailed
@@ -329,6 +334,7 @@ func TestPrepareResume_TheKernelNoLongerBlocksARearmedPhase(t *testing.T) {
 // failure closes it. A Go const of 3 decided this while the config key was
 // published to the kernel and read by nothing (sweep finding F3).
 func TestRunPhase_TheCheckpointCapIsTheUsersConfig(t *testing.T) {
+	t.Parallel()
 	orch, events := newCheckpointPolicyOrchestrator(t, "FAIL: still broken", func(c *config.CampaignConfig) {
 		c.MaxCheckpointAttempts = 1
 	})
@@ -348,6 +354,7 @@ func TestRunPhase_TheCheckpointCapIsTheUsersConfig(t *testing.T) {
 // remediation could not see what was at fault (campaign 7b853890: rounds 4
 // and 5 failed identically on files its brief never named).
 func TestRunPhase_AFailedVerdictBriefsTheRemediationWithTheReviewersReport(t *testing.T) {
+	t.Parallel()
 	review := `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"phase_ckpt_0\", /fail, \"missing front-matter\", 90)."]}, ` +
 		`"surface_response": "Verdict: FAIL. Docs/INTERNALS.md and Docs/WIRING.md lack the required front-matter."}`
 	orch, _ := newCheckpointRegressionOrchestrator(t, review)
@@ -372,6 +379,7 @@ func TestRunPhase_AFailedVerdictBriefsTheRemediationWithTheReviewersReport(t *te
 // (campaign.replan_on_checkpoint_failure, read by phase_ckpt_move). Off, the
 // phase stays open for its checkpoint to run again over the same work.
 func TestRunPhase_ReplanOnCheckpointFailureIsTheUsersConfig(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		replan bool
 		want   int
@@ -395,6 +403,7 @@ func TestRunPhase_ReplanOnCheckpointFailureIsTheUsersConfig(t *testing.T) {
 // task without a target is refused before it runs: none is appended, so the
 // phase is not blocked on a task that can never run.
 func TestRunPhase_ACheckpointRemediationNeedsADeclaredTarget(t *testing.T) {
+	t.Parallel()
 	orch, events := newCheckpointRegressionOrchestrator(t, "FAIL: still broken")
 	orch.campaign.Phases[0].Tasks[0].WriteSet = nil
 
@@ -418,6 +427,7 @@ func TestRunPhase_ACheckpointRemediationNeedsADeclaredTarget(t *testing.T) {
 // characters the summary line keeps -- and its objectives, scoped to what the
 // phase's tasks write, and the phase stays open.
 func TestRunPhase_WhenCheckpointFails_ItsFindingsBecomeThePhasesWork(t *testing.T) {
+	t.Parallel()
 	findings := "FAIL: the corpus is not assembled.\n- [CRITICAL] Docs/a.md:22: claims a slot the file does not have\n" +
 		strings.Repeat("- [MINOR] Docs/b.md: a sentence the standard does not allow\n", 12) +
 		"- [CRITICAL] Docs/INTERNALS.md: no front-matter (the last finding)"

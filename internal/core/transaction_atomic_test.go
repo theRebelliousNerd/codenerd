@@ -122,6 +122,7 @@ func TestTransactionWriteReplacesTheInodeRatherThanTruncating(t *testing.T) {
 }
 
 func TestTransactionWriteLeavesNoTempFilesBeside(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "source.go")
 

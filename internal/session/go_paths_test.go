@@ -62,6 +62,7 @@ func TestGoOverlayKey_EverySpellingOfTheWorkspaceNamesTheResolvedFile(t *testing
 // measured the tree as the turn left it, and whatever the turn broke read as
 // already broken: vet, the importer gate and test attribution all passed.
 func TestGates_AWorkspaceReachedThroughALinkKeepsItsVerdicts(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}

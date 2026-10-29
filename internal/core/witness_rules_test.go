@@ -131,6 +131,7 @@ func assertWitnessRows(t *testing.T, what string, got []types.Fact, want ...stri
 // executes -- gains a candidate. Helper is the gap case: owed, with no
 // candidate, which is the silence the later verdict lane reads.
 func TestWitness_WhenTurnChangedElements_ShouldDeriveOwedAndCandidates(t *testing.T) {
+	t.Parallel()
 	turn := types.MangleAtom("/turn_witness")
 	cortex := newWitnessCortex(t)
 	for _, f := range witnessSeedFacts(turn) {
@@ -161,6 +162,7 @@ func TestWitness_WhenTurnChangedElements_ShouldDeriveOwedAndCandidates(t *testin
 // conjunct in witness_owed: a changed element with no writing turn behind it
 // owes no witness.
 func TestWitness_WhenTurnDidNotWrite_ShouldOweNothing(t *testing.T) {
+	t.Parallel()
 	cortex := newWitnessCortex(t)
 	cortexAssert(t, cortex, "code_element", "fn:p.Target", "/function", "p/app.go", int64(1), int64(5))
 	cortexAssert(t, cortex, "turn_changed_element", types.MangleAtom("/turn_nowrite"), types.MangleString("fn:p.Target"))
@@ -176,6 +178,7 @@ func TestWitness_WhenTurnDidNotWrite_ShouldOweNothing(t *testing.T) {
 // on another shard, the sharded side goes quiet here while the single side
 // keeps deriving.
 func TestWitness_WhenSharded_ShouldMatchSingleKernel(t *testing.T) {
+	t.Parallel()
 	turn := types.MangleAtom("/turn_witness")
 	seed := witnessSeedFacts(turn)
 	single, err := NewRealKernel()

@@ -9,6 +9,7 @@ import (
 // queryable after Evaluate. Unit tests cover the predicate set; this covers
 // the behavior (files present, parseable, admitted by the allow-list).
 func TestIntentCorpus_BootFactsQueryable(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	if err := k.Evaluate(); err != nil {
 		t.Fatalf("Evaluate: %v", err)

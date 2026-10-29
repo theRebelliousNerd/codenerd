@@ -314,6 +314,7 @@ func TestReplan_PromptInjectionInErrors(t *testing.T) {
 }
 
 func TestReplan_MassiveTaskGeneration(t *testing.T) {
+	t.Parallel()
 	// Generate a massive JSON response
 	var massiveTasks []string
 	for i := range 50000 {

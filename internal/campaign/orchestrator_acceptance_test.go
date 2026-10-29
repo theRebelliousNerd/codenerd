@@ -74,6 +74,7 @@ func acceptanceOrchestrator(t *testing.T, accept *Acceptance, exec tactile.Execu
 // No witness declared: the phases being done is the campaign being done, and
 // nothing is run. This is every campaign that existed before --accept.
 func TestAcceptance_UndeclaredChangesNothing(t *testing.T) {
+	t.Parallel()
 	exec := &scriptedAcceptance{exits: []int{1}}
 	orch := acceptanceOrchestrator(t, nil, exec)
 
@@ -93,6 +94,7 @@ func TestAcceptance_UndeclaredChangesNothing(t *testing.T) {
 // model-judged task green, "Campaign completed successfully", 17 failing
 // checks. With a witness declared, done phases do not derive completion.
 func TestAcceptance_AFailingWitnessHoldsCompletionAndBriefsARemediation(t *testing.T) {
+	t.Parallel()
 	report := "diff   16 md    2 problems\n    adr/ADR-001.md: no witness line\n    03-GAP-ANALYSIS.md: row G2 has a vague exit"
 	exec := &scriptedAcceptance{exits: []int{1}, output: report}
 	orch := acceptanceOrchestrator(t, &Acceptance{Command: []string{"python", "scripts/check.py", "diff"}}, exec)
@@ -142,6 +144,7 @@ func TestAcceptance_AFailingWitnessHoldsCompletionAndBriefsARemediation(t *testi
 }
 
 func TestAcceptance_APassingWitnessCompletes(t *testing.T) {
+	t.Parallel()
 	exec := &scriptedAcceptance{exits: []int{0}, output: "diff   16 md    0 problems"}
 	orch := acceptanceOrchestrator(t, &Acceptance{Command: []string{"python", "scripts/check.py"}}, exec)
 
@@ -166,6 +169,7 @@ func TestAcceptance_APassingWitnessCompletes(t *testing.T) {
 // remediation is planned: a campaign that cannot satisfy its witness stops and
 // says so, where it used to say "completed successfully".
 func TestAcceptance_ExhaustedRoundsBlockByName(t *testing.T) {
+	t.Parallel()
 	exec := &scriptedAcceptance{exits: []int{1}, output: "still 2 problems"}
 	orch := acceptanceOrchestrator(t, &Acceptance{Command: []string{"python", "scripts/check.py"}}, exec)
 
@@ -206,6 +210,7 @@ func TestAcceptance_ExhaustedRoundsBlockByName(t *testing.T) {
 // rule when the finding's gate carried the codes: exit 5 is accepted, and
 // no remediation round is appended.
 func TestAcceptance_AGateOKExitIsAPass(t *testing.T) {
+	t.Parallel()
 	exec := &scriptedAcceptance{exits: []int{5}, output: "no tests ran in 0.01s"}
 	orch := acceptanceOrchestrator(t, &Acceptance{
 		Command:     []string{"python", "-m", "pytest", "-q", "pkg"},
@@ -238,6 +243,7 @@ func TestAcceptance_AGateOKExitIsAPass(t *testing.T) {
 // An exit the gate did not list is still a failure, and the remediation is
 // told the gate's list rather than "exit 0 is the only pass".
 func TestAcceptance_AnExitOutsideTheGatesOKCodesRemediates(t *testing.T) {
+	t.Parallel()
 	exec := &scriptedAcceptance{exits: []int{2}, output: "2 failed"}
 	orch := acceptanceOrchestrator(t, &Acceptance{
 		Command:     []string{"python", "-m", "pytest", "-q", "pkg"},
@@ -267,6 +273,7 @@ func TestAcceptance_AnExitOutsideTheGatesOKCodesRemediates(t *testing.T) {
 // A witness with no codes keeps the old rule: exit 5 is a failure. The
 // codes have to be carried with the check; they are not assumed.
 func TestAcceptance_ExitFiveWithoutOKCodesIsAFailure(t *testing.T) {
+	t.Parallel()
 	exec := &scriptedAcceptance{exits: []int{5}, output: "no tests ran"}
 	orch := acceptanceOrchestrator(t, &Acceptance{
 		Command: []string{"python", "-m", "pytest", "-q", "pkg"},
@@ -288,6 +295,7 @@ func TestAcceptance_ExitFiveWithoutOKCodesIsAFailure(t *testing.T) {
 // A witness that cannot be run is a failed round with the reason as its
 // output. It must not read as a pass, and it must not spin.
 func TestAcceptance_ACommandThatCannotRunIsAFailedRound(t *testing.T) {
+	t.Parallel()
 	orch := acceptanceOrchestrator(t, &Acceptance{Command: []string{"no-such-binary"}},
 		&mockTactileExecutor{err: os.ErrNotExist})
 

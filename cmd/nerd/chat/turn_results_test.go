@@ -40,6 +40,7 @@ func resultIDs(facts []core.Fact) string {
 // baseline (1) would have returned nothing for one new row and dropped one of
 // two; identity returns every row the turn produced.
 func TestSystemResults_ClearThenNewRowsAreAllVisible(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	assertAll(t, m, execRow("prev-1"))
 
@@ -63,6 +64,7 @@ func TestSystemResults_ClearThenNewRowsAreAllVisible(t *testing.T) {
 // A row that stood when the turn began is never the turn's, however the kernel
 // orders or prunes the rest.
 func TestSystemResults_StandingRowsAreExcludedByIdentity(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	assertAll(t, m, execRow("old-1"), execRow("old-2"), routeRow("old-1", "/success", "x"))
 	base := m.snapshotSystemResults()
@@ -82,6 +84,7 @@ func TestSystemResults_StandingRowsAreExcludedByIdentity(t *testing.T) {
 // waitForSystemResults returns on the first new row of either predicate and
 // reports an empty timeout as nothing observed.
 func TestWaitForSystemResults_ReturnsNewRowsAndTimesOutEmpty(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	base := m.snapshotSystemResults()
 

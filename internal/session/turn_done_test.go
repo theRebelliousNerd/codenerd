@@ -64,6 +64,7 @@ func queryCount(t *testing.T, e *Executor, predicate string) int {
 // A /create with tool calls but no write-mutation tool is hollow, so done
 // must not derive.
 func TestTurnDone_NoWriteCannotDeriveDone(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	assertTurnEvidence(t, e, "/create", turnCounts{tools: 1})
 
@@ -80,6 +81,7 @@ func TestTurnDone_NoWriteCannotDeriveDone(t *testing.T) {
 // A /create whose writes landed but whose build is red is not done either,
 // even though no hollow_success fires.
 func TestTurnDone_FailedBuildCannotDeriveDone(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	assertBuildFailing(t, e, "/create")
 	assertTurnEvidence(t, e, "/create", turnCounts{tools: 1, writes: 1})
@@ -98,6 +100,7 @@ func TestTurnDone_FailedBuildCannotDeriveDone(t *testing.T) {
 // two gates above block for the right reason rather than turn_done never
 // firing at all.
 func TestTurnDone_CleanCreateDerivesDone(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	if err := e.kernel.Assert(types.Fact{Predicate: "turn_acceptance", Args: []any{testTurn, "caller-contract", "current-snapshot"}}); err != nil {
 		t.Fatal(err)
@@ -118,6 +121,7 @@ func TestTurnDone_CleanCreateDerivesDone(t *testing.T) {
 }
 
 func TestTurnDone_ExecutedIsNotVerified(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	assertTurnEvidence(t, e, "/create", turnCounts{tools: 1, writes: 1})
 	if queryCount(t, e, "turn_executed") != 1 {

@@ -28,6 +28,7 @@ func admissionModel(t *testing.T, mode config.WorkMode, brief *perception.Brief)
 }
 
 func TestWorkAdmission_ModesAndBrief(t *testing.T) {
+	t.Parallel()
 	ready := &perception.Brief{Goal: "fix the README typo", Ready: true}
 	open := &perception.Brief{Goal: "fix the README typo", OpenQuestions: []string{"which typo?"}, Ready: true}
 	notReady := &perception.Brief{Goal: "fix the README typo"}
@@ -61,6 +62,7 @@ func TestWorkAdmission_ModesAndBrief(t *testing.T) {
 }
 
 func TestWorkAdmission_ReadOnlyWorkIsNeverHeld(t *testing.T) {
+	t.Parallel()
 	m := admissionModel(t, config.WorkModeExplicit, nil)
 	intent := perception.Intent{Category: "/query", Verb: "/review", Target: "internal/auth", Confidence: 0.95}
 	assertRouteIntent(t, m, intent)
@@ -70,6 +72,7 @@ func TestWorkAdmission_ReadOnlyWorkIsNeverHeld(t *testing.T) {
 }
 
 func TestWorkAdmission_GoAheadRunsHeldWork(t *testing.T) {
+	t.Parallel()
 	m := admissionModel(t, config.WorkModePropose, nil)
 	intent := fixReadme()
 	m.goAheadWork = &pendingWork{Input: "fix the typo in README.md", Intent: intent}
@@ -80,6 +83,7 @@ func TestWorkAdmission_GoAheadRunsHeldWork(t *testing.T) {
 }
 
 func TestWorkAdmission_ApproveVerbTakesThePendingLane(t *testing.T) {
+	t.Parallel()
 	m := admissionModel(t, config.WorkModePropose, nil)
 	m.pendingWork = &pendingWork{Input: "fix the typo in README.md", Intent: fixReadme()}
 	approve := perception.Intent{Category: "/query", Verb: "/approve", Target: "none", Confidence: 0.9}
@@ -97,6 +101,7 @@ func TestWorkAdmission_ApproveVerbTakesThePendingLane(t *testing.T) {
 }
 
 func TestBrief_KernelRoundTripAndGrounding(t *testing.T) {
+	t.Parallel()
 	brief := &perception.Brief{
 		Goal:          "add rate limiting to the API",
 		Constraints:   []string{"keep the public API"},
@@ -158,6 +163,7 @@ func TestHoldSurface_SaysWhatIsHeldAndHowToStart(t *testing.T) {
 // with it; they routed the approved fix to clarify ("I recognize the action
 // but don't have a mapping for it"), while /go, which runs no turn, worked.
 func TestWorkAdmission_ApprovedRunIsNotClarifiedByTheGoTurn(t *testing.T) {
+	t.Parallel()
 	m := admissionModel(t, config.WorkModePropose, nil)
 	approve := perception.Intent{Category: "/instruction", Verb: "/approve", Target: "the held fix", Confidence: 0.4}
 	assertRouteIntent(t, m, approve)

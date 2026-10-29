@@ -13,6 +13,7 @@ import (
 // action is pronounced safe precisely because the evidence against it was lost.
 
 func TestStartSimulation_FailsWhenShadowStateCannotBeAsserted(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	// Cap the EDB at its current size so the next assert is rejected.
 	k.SetMaxFacts(k.FactCount())
@@ -38,6 +39,7 @@ func TestStartSimulation_FailsWhenShadowStateCannotBeAsserted(t *testing.T) {
 }
 
 func TestSimulateAction_FailsWhenAProjectedEffectCannotBeAsserted(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	sm := NewShadowMode(k)
 

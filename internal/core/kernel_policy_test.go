@@ -5,6 +5,7 @@ import (
 )
 
 func TestKernelPolicy_Append(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	// Append a policy fragment
@@ -36,6 +37,7 @@ func TestKernelPolicy_Append(t *testing.T) {
 }
 
 func TestKernelPolicy_Conflict(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	// Test if appending conflicting policies causes issues

@@ -14,6 +14,7 @@ import (
 //
 // Skeptic repro: ~5/2000 iterations left currentlyExecuting=1 with waitErr=canceled.
 func TestAPIScheduler_CancelVsGrant_NoSlotLeak(t *testing.T) {
+	t.Parallel()
 	const iterations = 2000
 
 	for i := 0; i < iterations; i++ {
@@ -72,6 +73,7 @@ func TestAPIScheduler_CancelVsGrant_NoSlotLeak(t *testing.T) {
 // TestAPIScheduler_CancelVsGrant_SpacingAlsoReclaims covers forceReleaseSlot's
 // grant path (spacing cancel) under the same cancel/grant race.
 func TestAPIScheduler_CancelVsGrant_SpacingAlsoReclaims(t *testing.T) {
+	t.Parallel()
 	const iterations = 500
 
 	for i := 0; i < iterations; i++ {

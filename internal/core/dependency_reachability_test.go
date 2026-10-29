@@ -47,6 +47,7 @@ func denseImportGraph(layers, width int) []types.Fact {
 // safe_action is the canary on purpose: it has nothing to do with dependency
 // links, which is exactly why its collapse is the thing worth asserting.
 func TestDependencyReachability_WhenGraphIsDense_ShouldNotKillTheKernel(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernelWithWorkspace(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewRealKernelWithWorkspace: %v", err)
@@ -77,6 +78,7 @@ func TestDependencyReachability_WhenGraphIsDense_ShouldNotKillTheKernel(t *testi
 // reachability_query seed they cost nothing, which is what lets a dense graph
 // sit in the EDB harmlessly.
 func TestDependencyReachability_WhenUnseeded_ShouldDeriveNothing(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernelWithWorkspace(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewRealKernelWithWorkspace: %v", err)
@@ -101,6 +103,7 @@ func TestDependencyReachability_WhenUnseeded_ShouldDeriveNothing(t *testing.T) {
 // fix from being a silent removal. Making a closure derive nothing is trivial
 // and would have passed both tests above; the capability has to still work.
 func TestDependencyReachability_WhenSeeded_ShouldAnswer(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernelWithWorkspace(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewRealKernelWithWorkspace: %v", err)

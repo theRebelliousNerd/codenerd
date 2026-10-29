@@ -15,6 +15,7 @@ import (
 // the failed shard. Per-shard commit order is map order, so the test retries
 // until the healthy shard demonstrably lands first (2^-10 flake odds).
 func TestCortexTransaction_NoCrossShardRollback(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	good := setupTestShard(t, "good", []string{"good_pred"})
 	broken, err := NewKernelShard(KernelShardConfig{
@@ -62,6 +63,7 @@ func TestCortexTransaction_NoCrossShardRollback(t *testing.T) {
 // panic_state rules (proving the projection reaches evaluation, not just
 // the fact list).
 func TestDreamer_CampaignProjections(t *testing.T) {
+	t.Parallel()
 	d, _ := setupTestDreamer(t)
 	ctx := context.Background()
 

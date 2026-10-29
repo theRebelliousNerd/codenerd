@@ -19,6 +19,7 @@ import (
 // now asks through the Cortex (newSessionCompressor, the constructor boot
 // uses).
 func TestSessionCompressor_RetainsFactsOtherShardsDerive(t *testing.T) {
+	t.Parallel()
 	ck, err := nerdsystem.NewDomainCortex(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewDomainCortex: %v", err)

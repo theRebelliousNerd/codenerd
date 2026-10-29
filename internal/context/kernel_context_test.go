@@ -39,6 +39,7 @@ func fact(pred string, args ...any) core.Fact {
 // =============================================================================
 
 func TestAssertTurnAgeCategories_WhenCompressing_ShouldReachKernel(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	comp.turnNumber = 40
 
@@ -59,6 +60,7 @@ func TestAssertTurnAgeCategories_WhenCompressing_ShouldReachKernel(t *testing.T)
 }
 
 func TestMaskedObservationTurns_WhenKernelMarksOldTurns_ShouldReturnThoseTurns(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	comp.turnNumber = 40
 	comp.assertTurnAgeCategories([]CompressedTurn{
@@ -77,6 +79,7 @@ func TestMaskedObservationTurns_WhenKernelMarksOldTurns_ShouldReturnThoseTurns(t
 }
 
 func TestCompress_WhenKernelMasksObservations_ShouldDropResultsAndKeepReasoning(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	comp.turnNumber = 60 // every synthesized turn is /ancient
 
@@ -120,6 +123,7 @@ func TestCompress_WhenKernelMasksObservations_ShouldDropResultsAndKeepReasoning(
 }
 
 func TestGenerateObservationMaskedSummary_WhenNothingMasked_ShouldMatchSimpleSummary(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	intent := fact("user_intent", "i", "/cat", "/fix", "auth.go", "none")
 	turns := []CompressedTurn{{
@@ -149,6 +153,7 @@ func TestMaskedObservationTurns_WhenNoKernel_ShouldReturnNil(t *testing.T) {
 // =============================================================================
 
 func TestBuildContext_WhenKernelDerivesInclusion_ShouldUseKernelSelection(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 
 	// These EDB facts drive context_compilation.mg's C1 rules:
@@ -184,6 +189,7 @@ func TestBuildContext_WhenKernelDerivesInclusion_ShouldUseKernelSelection(t *tes
 }
 
 func TestBuildContext_WhenKernelDerivesNothing_ShouldFallBackToGoActivation(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 
 	if _, err := comp.BuildContext(context.Background()); err != nil {
@@ -200,6 +206,7 @@ func TestBuildContext_WhenKernelDerivesNothing_ShouldFallBackToGoActivation(t *t
 }
 
 func TestGetSelectionStats_WhenBothPathsRun_ShouldTrackInclusionRate(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 
 	// Build 1: no kernel opinion -> Go fallback.
@@ -229,6 +236,7 @@ func TestGetSelectionStats_WhenBothPathsRun_ShouldTrackInclusionRate(t *testing.
 }
 
 func TestBuildKernelDerivedContext_WhenEntityNamesNoFact_ShouldReturnNil(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 
 	kernelFacts := []core.Fact{fact("should_include_context", "ghost_entity_that_exists_nowhere", "/p100")}
@@ -238,6 +246,7 @@ func TestBuildKernelDerivedContext_WhenEntityNamesNoFact_ShouldReturnNil(t *test
 }
 
 func TestBuildKernelDerivedContext_WhenEntityIsFactArgument_ShouldResolveToFacts(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 
 	all := []core.Fact{
@@ -266,6 +275,7 @@ func TestBuildKernelDerivedContext_WhenEntityIsFactArgument_ShouldResolveToFacts
 // =============================================================================
 
 func TestLoadState_WhenCalledWithoutRefreshBudget_ShouldStillUpdateBudget(t *testing.T) {
+	t.Parallel()
 	src := newKernelBackedCompressor(t)
 	big := strings.Repeat("word ", 400)
 	if _, err := src.ProcessTurn(context.Background(), Turn{Number: 1, Role: "user", UserInput: big, Timestamp: time.Now()}); err != nil {
@@ -291,6 +301,7 @@ func TestLoadState_WhenCalledWithoutRefreshBudget_ShouldStillUpdateBudget(t *tes
 }
 
 func TestRefreshBudget_WhenCalledAfterLoadState_ShouldBeIdempotent(t *testing.T) {
+	t.Parallel()
 	src := newKernelBackedCompressor(t)
 	if _, err := src.ProcessTurn(context.Background(), Turn{Number: 1, Role: "user", UserInput: strings.Repeat("w ", 200)}); err != nil {
 		t.Fatalf("ProcessTurn: %v", err)

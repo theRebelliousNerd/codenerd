@@ -36,6 +36,7 @@ func verifyRouteCampaign(verifyDesc string, writes ...Task) *Campaign {
 }
 
 func TestPolicy_AVerifyTaskIsABuildOnlyWhereItsPhaseWroteCode(t *testing.T) {
+	t.Parallel()
 	doc := Task{ID: "/task_vr_doc", Type: TaskTypeFileCreate, WriteSet: []string{"docs/x.md"}}
 	code := Task{ID: "/task_vr_code", Type: TaskTypeFileModify, WriteSet: []string{"internal/x/x.go"}}
 	dir := Task{ID: "/task_vr_dir", Type: TaskTypeFileModify, WriteSet: []string{"internal/mangle"}}
@@ -69,6 +70,7 @@ func TestPolicy_AVerifyTaskIsABuildOnlyWhereItsPhaseWroteCode(t *testing.T) {
 // the Go router looked for, so a Markdown phase was "verified" by `go build
 // ./...` in 14 seconds. Its phase wrote documents: it is a review.
 func TestExecuteVerifyTask_AMarkdownPhaseIsReviewedNeverBuilt(t *testing.T) {
+	t.Parallel()
 	c := verifyRouteCampaign("Verify x.md declares status",
 		Task{ID: "/task_vr_doc", Type: TaskTypeFileCreate, WriteSet: []string{"docs/x.md"}})
 
@@ -111,6 +113,7 @@ func TestExecuteVerifyTask_AMarkdownPhaseIsReviewedNeverBuilt(t *testing.T) {
 // Where the phase wrote Go the build is the evidence, and only exit 0 passes:
 // the executor reports a failed command as a non-zero exit, not an error.
 func TestExecuteVerifyTask_ACodePhaseIsBuiltAndAFailedBuildFails(t *testing.T) {
+	t.Parallel()
 	c := verifyRouteCampaign("Verify the change",
 		Task{ID: "/task_vr_code", Type: TaskTypeFileModify, WriteSet: []string{"internal/x/x.go"}})
 	exit := 0

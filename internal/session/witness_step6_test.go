@@ -61,6 +61,7 @@ func witnessVerdict(t *testing.T, testFile string) (*Executor, *ExecutionResult)
 // block sits inside a changed element, so /changed_code_unexecuted must not
 // name it too.
 func TestWitnessStep6_PartialExecutionWithholdsVerification(t *testing.T) {
+	t.Parallel()
 	e, result := witnessVerdict(t, witnessTestAdd)
 
 	if result.TurnOutcome != types.MangleAtom("/unverified") {
@@ -89,6 +90,7 @@ func TestWitnessStep6_PartialExecutionWithholdsVerification(t *testing.T) {
 // Changed Add+Sub, the passing run executes both: the witness is met and the
 // turn verifies.
 func TestWitnessStep6_FullExecutionVerifies(t *testing.T) {
+	t.Parallel()
 	_, result := witnessVerdict(t, witnessTestBoth)
 
 	if result.TurnOutcome != types.MangleAtom("/done") {

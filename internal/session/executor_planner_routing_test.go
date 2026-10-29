@@ -111,6 +111,7 @@ func newRoutingExecutor(t *testing.T) (*Executor, *recordingLLMClient, *recordin
 // slot at a cheap bulk model also demotes /review and /audit — the exact turns
 // the expensive model exists for.
 func TestLLMForVerb_RoutesReasoningIntentsToPlanner(t *testing.T) {
+	t.Parallel()
 	e, worker, planner := newRoutingExecutor(t)
 
 	for _, verb := range []string{"/review", "/audit", "/analyze", "/campaign", "/generate_tool"} {
@@ -129,6 +130,7 @@ func TestLLMForVerb_RoutesReasoningIntentsToPlanner(t *testing.T) {
 // with no planner slot configured, routing is a no-op and behaviour is
 // byte-identical to the single-tier executor.
 func TestLLMForVerb_NoPlannerKeepsEverythingOnDefault(t *testing.T) {
+	t.Parallel()
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -147,6 +149,7 @@ func TestLLMForVerb_NoPlannerKeepsEverythingOnDefault(t *testing.T) {
 // slots resolve to the same client: routing would then be pure overhead, and a
 // nil planner short-circuits the per-turn kernel query.
 func TestSetPlannerClient_IgnoresSameClient(t *testing.T) {
+	t.Parallel()
 	e, worker, _ := newRoutingExecutor(t)
 	e.SetPlannerClient(worker)
 	if e.plannerClient != nil {

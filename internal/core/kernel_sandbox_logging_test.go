@@ -50,6 +50,7 @@ Decl dream_block(ActionID, Reason) bound [/string, /name].
 // The marker must be set on the throwaway kernel and nowhere else: its zero
 // value is what keeps every production kernel logging these at ERROR.
 func TestSandboxMarker_DefaultsOffForOrdinaryKernels(t *testing.T) {
+	t.Parallel()
 	k := &RealKernel{
 		store:             factstore.NewSimpleInMemoryStore(),
 		loadedPolicyFiles: make(map[string]struct{}),

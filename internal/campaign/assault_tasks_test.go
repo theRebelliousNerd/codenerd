@@ -17,6 +17,7 @@ import (
 )
 
 func TestOrchestrator_ExecuteAssaultDiscoverTask(t *testing.T) {
+	t.Parallel()
 	// Setup temporary workspace
 	tempDir, err := os.MkdirTemp("", "assault_test")
 	if err != nil {
@@ -218,6 +219,7 @@ func TestRunCommandStage_EmptyCommand_FailsGracefully(t *testing.T) {
 }
 
 func TestDiscoverGoTargets_EmptyIncludesExcludes_Ignored(t *testing.T) {
+	t.Parallel()
 	orch := &Orchestrator{
 		workspace: ".",
 	}
@@ -335,6 +337,7 @@ func TestAssaultTarget_SpecialCharacters_MangleSafe(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestDiscoverAssaultTargets_MassiveScaleOOMPrevention(t *testing.T) {
+	t.Parallel()
 	targets := make([]string, 500000)
 	for i := range targets {
 		targets[i] = fmt.Sprintf("target_%d", i)

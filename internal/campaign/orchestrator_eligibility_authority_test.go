@@ -69,6 +69,7 @@ func realKernelFor(t *testing.T, c *Campaign, load bool) core.Kernel {
 // task_conflict_active. The kernel holds both tasks, so its empty answer is a
 // decision, and the orchestrator must not schedule the task anyway.
 func TestGetEligibleTasks_AKernelThatHoldsTheTasksAndSchedulesNoneIsObeyed(t *testing.T) {
+	t.Parallel()
 	shared := []TaskArtifact{{Type: "/source_file", Path: "internal/foo/foo.go"}}
 	c := eligibilityCampaign(
 		Task{ID: "/task_writing", Status: TaskInProgress, Artifacts: shared},
@@ -85,6 +86,7 @@ func TestGetEligibleTasks_AKernelThatHoldsTheTasksAndSchedulesNoneIsObeyed(t *te
 // chat last refreshed the clock stayed in backoff for the rest of the run.
 // The orchestrator feeds the kernel the wall clock before it asks.
 func TestGetEligibleTasks_ARetryIsJudgedOnTheWallClock(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	c := eligibilityCampaign(
 		Task{ID: "/task_due", Status: TaskPending, NextRetryAt: now.Add(-5 * time.Second)},
@@ -108,6 +110,7 @@ func TestGetEligibleTasks_ARetryIsJudgedOnTheWallClock(t *testing.T) {
 // phase's tasks (a resume whose facts were not loaded). That is missing state,
 // not a decision -- the orchestrator reloads the campaign and asks again.
 func TestGetEligibleTasks_AKernelMissingTheCampaignIsReloadedAndAsked(t *testing.T) {
+	t.Parallel()
 	c := eligibilityCampaign(Task{ID: "/task_resumed", Status: TaskPending})
 	o := &Orchestrator{kernel: realKernelFor(t, c, false), campaign: c}
 

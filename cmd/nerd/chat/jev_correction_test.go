@@ -102,6 +102,7 @@ func correctionSource(t *testing.T, m Model, input string) (string, bool) {
 }
 
 func TestCorrection_TruthTable(t *testing.T) {
+	t.Parallel()
 	failing := func() *correctionJev { return &correctionJev{fail: true} }
 	cases := []struct {
 		name    string
@@ -147,6 +148,7 @@ func TestCorrection_TruthTable(t *testing.T) {
 
 // A first message has no reply to correct: nothing is asked.
 func TestCorrection_FirstTurnAsksNothing(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModeYolo, perception.Intent{Category: "/query", Verb: "/converse", Target: "none", Confidence: 0.9, Response: "Hi."})
 	m.history = []Message{{Role: "user", Content: "wrong", Time: time.Now()}}
 	jev := &correctionJev{p: 0.99}

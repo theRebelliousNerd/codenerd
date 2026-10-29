@@ -67,6 +67,7 @@ func (k *countingKernel) Query(predicate string) ([]types.Fact, error) {
 // second. Measured 2026-09-24: 2 eligible_task queries across this phase with
 // the quiet wait, 9-10 with the 200 ms poll it replaced.
 func TestRunPhase_WhileTheOnlyRunnableTaskRunsTheLoopDoesNotPoll(t *testing.T) {
+	t.Parallel()
 	workspace := t.TempDir()
 	real, err := core.NewRealKernelWithWorkspace(workspace)
 	if err != nil {

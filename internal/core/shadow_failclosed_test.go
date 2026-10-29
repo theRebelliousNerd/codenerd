@@ -57,6 +57,7 @@ func TestQueryOrBlock_NilQuerierBlocks(t *testing.T) {
 // empty result must still mean "the kernel answered and found nothing", or the
 // fail-closed change would refuse every simulation.
 func TestQueryOrBlock_HealthyKernelIsSilent(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("kernel: %v", err)
@@ -73,6 +74,7 @@ func TestQueryOrBlock_HealthyKernelIsSilent(t *testing.T) {
 // TestCheckViolations_HealthyKernelIsSilent exercises the real call path so a
 // refactor that stops threading the querier through is caught here.
 func TestCheckViolations_HealthyKernelIsSilent(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("kernel: %v", err)

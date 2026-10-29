@@ -226,6 +226,7 @@ func TestHydrateLearnings_ArgsSlotIsOneString(t *testing.T) {
 // seen in a live chat session 2026-09-17. Nothing the user had taught the
 // system reached the kernel. This drives the real kernel with its real Decls.
 func TestHydrateLearnings_RealKernelAcceptsEveryLearnedShape(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	db, err := store.NewLocalStore(filepath.Join(dir, "knowledge.db"))
 	if err != nil {
@@ -397,6 +398,7 @@ func TestPermissionCacheIsClassificationOnly(t *testing.T) {
 }
 
 func TestRouteActionReadFile_PersistsContentFacts(t *testing.T) {
+	t.Parallel()
 	workspace := t.TempDir()
 	filename := "sample.go"
 	absPath := filepath.Join(workspace, filename)

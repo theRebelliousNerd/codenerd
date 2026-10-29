@@ -114,6 +114,7 @@ func runCampaignRefPhase(t *testing.T, orch *Orchestrator) {
 }
 
 func TestCampaignRef_WhenSubCampaignFailedWithPropagate_ShouldFailParentTask(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Skipf("real kernel unavailable: %v", err)
@@ -144,6 +145,7 @@ func TestCampaignRef_WhenSubCampaignFailedWithPropagate_ShouldFailParentTask(t *
 }
 
 func TestCampaignRef_WhenSubCampaignFailedWithAbsorb_ShouldCompleteParentTask(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Skipf("real kernel unavailable: %v", err)
@@ -167,6 +169,7 @@ func TestCampaignRef_WhenSubCampaignFailedWithAbsorb_ShouldCompleteParentTask(t 
 }
 
 func TestCampaignRef_WhenSubCampaignFailedWithTransform_ShouldCompleteAndRecordLearning(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Skipf("real kernel unavailable: %v", err)
@@ -189,6 +192,7 @@ func TestCampaignRef_WhenSubCampaignFailedWithTransform_ShouldCompleteAndRecordL
 // Testing it directly keeps the mapping honest even when the scheduler around
 // it changes.
 func TestCampaignRef_FailurePolicyEnvelope_ShouldMapChildFailure(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Skipf("real kernel unavailable: %v", err)
@@ -266,6 +270,7 @@ func TestCampaignRef_FailurePolicyEnvelope_ShouldMapChildFailure(t *testing.T) {
 // A /campaign_ref task with no target is a planning bug, and executing it as a
 // no-op would silently drop whatever work the sub-campaign was meant to do.
 func TestCampaignRef_WhenSubCampaignIDMissing_ShouldFail(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Skipf("real kernel unavailable: %v", err)
@@ -282,6 +287,7 @@ func TestCampaignRef_WhenSubCampaignIDMissing_ShouldFail(t *testing.T) {
 // A child that has not failed must be linked with its live status, not treated
 // as an absorbed failure.
 func TestCampaignRef_WhenSubCampaignActive_ShouldLinkWithLiveLifecycle(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Skipf("real kernel unavailable: %v", err)

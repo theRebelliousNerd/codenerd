@@ -12,9 +12,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// unboundedRoom is a request window that never binds: the ledger's limit is
+// its configured ceiling.
+const unboundedRoom = 1 << 40
+
 // ledgerSet builds a working set whose ledger compacts past ceiling bytes and
-// keeps keep rounds whole, over a workspace holding the named files.
+// keeps keep rounds whole, over a workspace holding the named files. A
+// compaction sheds to the ceiling itself (low water 100); the low-water
+// target has its own tests.
 func ledgerSet(t *testing.T, ceiling, keep int, files ...string) (*WorkingSet, string) {
+	t.Helper()
+	return ledgerSetLowWater(t, ceiling, keep, 100, files...)
+}
+
+func ledgerSetLowWater(t *testing.T, ceiling, keep, lowWater int, files ...string) (*WorkingSet, string) {
 	t.Helper()
 	root := t.TempDir()
 	for _, name := range files {
@@ -23,6 +34,7 @@ func ledgerSet(t *testing.T, ceiling, keep int, files ...string) (*WorkingSet, s
 	spans := config.DefaultWorkingConfig()
 	spans.LedgerCeilingBytes = ceiling
 	spans.LedgerKeepRounds = keep
+	spans.LedgerLowWaterPercent = lowWater
 	w, err := NewWorkingSet(root, "ledger", spans)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
@@ -46,17 +58,18 @@ func observe(t *testing.T, w *WorkingSet, id, entity, kind string, round, bytes 
 // was that window again: five live reads over a 4096-byte ceiling dropped
 // three, and the model had to recall them to keep working.
 func TestWorkingLedger_CompactsOnlyPastTheCeiling(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 4096, 2, "a_test.go", "b.go", "c.go", "d.go")
 	var entries []LedgerEntry
 	for i, name := range []string{"a_test.go", "b.go", "c.go", "d.go"} {
 		entries = append(entries, observe(t, w, name, name, "read_file/"+name, i+1, 1000, 0, 0))
 	}
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 4})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 4})
 	require.NoError(t, err)
 	require.Empty(t, decision.Evict, "4000 bytes is under a 4096-byte ceiling: nothing moves, whatever file it came from")
 
 	entries = append(entries, observe(t, w, "e", "d.go", "outline/d", 5, 1000, 0, 0))
-	decision, err = w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 5})
+	decision, err = w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 5})
 	require.NoError(t, err)
 	// 5000 bytes, ceiling 4096, keep 2: rounds 1-3 are aged, the excess is 904,
 	// and the oldest 1000 covers it. The other two aged live results stay.
@@ -67,6 +80,7 @@ func TestWorkingLedger_CompactsOnlyPastTheCeiling(t *testing.T) {
 // covered by a later read of the same span, and a repeated body. Outside a
 // compaction they stay, so the request's prefix does not change.
 func TestWorkingLedger_CompactionMovesCoveredAndRepeatedReadsOut(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 4096, 3, "a.go", "b.go")
 	entries := []LedgerEntry{
 		observe(t, w, "narrow", "a.go", "read_file/narrow", 2, 100, 760, 830),
@@ -74,14 +88,14 @@ func TestWorkingLedger_CompactionMovesCoveredAndRepeatedReadsOut(t *testing.T) {
 		observe(t, w, "apart", "a.go", "read_file/apart", 3, 100, 1, 50),
 		observe(t, w, "b1", "b.go", "read_file/b-1-40", 4, 100, 0, 0),
 	}
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 4})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 4})
 	require.NoError(t, err)
 	require.Empty(t, decision.Evict, "under the ceiling a covered read stays in the ledger")
 
 	// The same body read again under another request: one observation.
 	require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: "b2", Entity: "b.go", Revision: w.Revision("b.go"), Kind: "read_file/b-2-40", Step: 5, Body: "body of b1"}))
 	entries = append(entries, LedgerEntry{Call: "call-b2", ID: "b2", Bytes: 5000, Round: 4})
-	decision, err = w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 4})
+	decision, err = w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 4})
 	require.NoError(t, err)
 	require.Equal(t, []string{"call-b1", "call-narrow"}, decision.Evict, "within the kept rounds only the covered read and the earlier copy of a repeated body move out")
 }
@@ -92,26 +106,27 @@ func TestWorkingLedger_CompactionMovesCoveredAndRepeatedReadsOut(t *testing.T) {
 // revision is replaced on every call: when revisions accumulated, every
 // observation made after the first edit read as stale against the old one.
 func TestWorkingLedger_RestatesAStaleObservationOncePerRevision(t *testing.T) {
+	t.Parallel()
 	w, root := ledgerSet(t, 1<<20, 2, "a.go")
 	path := filepath.Join(root, "a.go")
 	entries := []LedgerEntry{observe(t, w, "before", "a.go", "read_file/x", 1, 100, 0, 0)}
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 1})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 1})
 	require.NoError(t, err)
 	require.Empty(t, decision.Restate, "a current observation is not restated")
 
 	require.NoError(t, os.WriteFile(path, []byte("package a // v2"), 0600))
 	entries = append(entries, observe(t, w, "after", "a.go", "read_file/y", 2, 100, 0, 0))
-	decision, err = w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 2})
+	decision, err = w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 2})
 	require.NoError(t, err)
 	require.Equal(t, []string{"before"}, decision.Restate, "the pre-edit read is restated; the post-edit read is current")
 
 	restated := map[string]string{"before": w.Revision("a.go")}
-	decision, err = w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 2, Restated: restated})
+	decision, err = w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 2, Restated: restated})
 	require.NoError(t, err)
 	require.Empty(t, decision.Restate, "restated at this revision: not again")
 
 	require.NoError(t, os.WriteFile(path, []byte("package a // v3"), 0600))
-	decision, err = w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 3, Restated: restated})
+	decision, err = w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 3, Restated: restated})
 	require.NoError(t, err)
 	require.Equal(t, []string{"after", "before"}, decision.Restate, "a later revision restates both")
 }
@@ -119,10 +134,11 @@ func TestWorkingLedger_RestatesAStaleObservationOncePerRevision(t *testing.T) {
 // A stale observation a compaction moves out is not restated: it is gone from
 // the request, and its handle's recall reports it stale.
 func TestWorkingLedger_AnEvictedStaleObservationIsNotRestated(t *testing.T) {
+	t.Parallel()
 	w, root := ledgerSet(t, 4096, 2, "a.go")
 	entries := []LedgerEntry{observe(t, w, "old", "a.go", "read_file/x", 3, 5000, 0, 0)}
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a // edited"), 0600))
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 3})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 3})
 	require.NoError(t, err)
 	require.Equal(t, []string{"call-old"}, decision.Evict, "past the ceiling a stale result moves out even within the kept rounds")
 	require.Empty(t, decision.Restate)
@@ -139,13 +155,14 @@ func TestWorkingLedger_AnEvictedStaleObservationIsNotRestated(t *testing.T) {
 // The ceiling and the kept rounds are the working section's keys, read by the
 // policy as config_param rows -- not Go constants.
 func TestWorkingLedger_ReadsTheConfiguredKnobs(t *testing.T) {
+	t.Parallel()
 	for _, keep := range []int{1, 3} {
 		w, _ := ledgerSet(t, 4096, keep, "a.go")
 		var entries []LedgerEntry
 		for round := 1; round <= 4; round++ {
 			entries = append(entries, observe(t, w, fmt.Sprint(round), "a.go", fmt.Sprintf("read_file/%d", round), round, 2000, 0, 0))
 		}
-		decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 4})
+		decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 4})
 		require.NoError(t, err)
 		// 8000 bytes, ceiling 4096, excess 3904. Each row is 2000 and live.
 		// keep 1 ages rounds 1-3 and sheds the first two (4000 covers 3904);
@@ -170,6 +187,7 @@ func TestWorkingLedger_ReadsTheConfiguredKnobs(t *testing.T) {
 // With whole-file revisions every edit staled every observation of every
 // function in the file.
 func TestWorkingLedger_AnEditToOneElementLeavesTheOthersCurrent(t *testing.T) {
+	t.Parallel()
 	w, root := ledgerSet(t, 1<<20, 2)
 	path := filepath.Join(root, "a.go")
 	write := func(aBody string) {
@@ -185,12 +203,12 @@ func TestWorkingLedger_AnEditToOneElementLeavesTheOthersCurrent(t *testing.T) {
 		observe(t, w, "read-b", b, "get_element/b", 2, 100, 0, 0),
 		observe(t, w, "read-file", "a.go", "read_file/x", 3, 100, 0, 0),
 	}
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 3})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 3})
 	require.NoError(t, err)
 	require.Empty(t, decision.Restate)
 
 	write("return 3")
-	decision, err = w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 3})
+	decision, err = w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 3})
 	require.NoError(t, err)
 	require.Equal(t, []string{"read-a", "read-file"}, decision.Restate, "the edited element and the whole file changed; B did not")
 
@@ -205,20 +223,21 @@ func TestWorkingLedger_AnEditToOneElementLeavesTheOthersCurrent(t *testing.T) {
 // not exempt: once the colder result does not cover the excess, the oldest
 // hot live result leaves too. The newest kept round stays either way.
 func TestWorkingLedger_PinsCurrentObservationsOfHotFiles(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 4096, 1, "edit.go", "other.go", "late.go")
 	entries := []LedgerEntry{
 		observe(t, w, "edit", "edit.go", "read_file/edit", 1, 1000, 0, 0),
 		observe(t, w, "other", "other.go", "read_file/other", 1, 1000, 0, 0),
 		observe(t, w, "late", "late.go", "read_file/late", 3, 2500, 0, 0),
 	}
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 3, Hot: []string{"edit.go"}})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 3, Hot: []string{"edit.go"}})
 	require.NoError(t, err)
 	require.Equal(t, []string{"call-other"}, decision.Evict, "the hot file's current read stays; the cold one of the same age goes")
 
 	// The cold result is 1000 and the excess is 2404, so the oldest hot live
 	// result leaves too. The round inside the keep window does not.
 	entries[0].Bytes = 3000
-	decision, err = w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 3, Hot: []string{"edit.go"}})
+	decision, err = w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 3, Hot: []string{"edit.go"}})
 	require.NoError(t, err)
 	require.Equal(t, []string{"call-edit", "call-other"}, decision.Evict, "once the cold result does not cover the excess, the oldest hot live result leaves too")
 }
@@ -227,13 +246,14 @@ func TestWorkingLedger_PinsCurrentObservationsOfHotFiles(t *testing.T) {
 // ceiling. The live read that covers it stays, even though it is older than
 // the keep window: it is not stale, and the excess is already gone.
 func TestWorkingLedger_DropsSupersededBeforeAnyLiveResult(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 4096, 1, "a.go")
 	entries := []LedgerEntry{
 		observe(t, w, "narrow", "a.go", "read_file/narrow", 1, 3000, 10, 20),
 		observe(t, w, "wide", "a.go", "read_file/wide", 2, 1000, 1, 100),
 		observe(t, w, "late", "a.go", "read_file/late", 3, 1000, 0, 0),
 	}
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 3, Hot: []string{"a.go"}})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 3, Hot: []string{"a.go"}})
 	require.NoError(t, err)
 	require.Equal(t, []string{"call-narrow"}, decision.Evict, "the covered read leaves; the live read that covers it stays")
 }
@@ -242,6 +262,7 @@ func TestWorkingLedger_DropsSupersededBeforeAnyLiveResult(t *testing.T) {
 // otherwise be enough, and a live result leaves only for the excess that
 // remains. The old rule dropped every aged row.
 func TestWorkingLedger_DropsStaleBeforeSheddingLive(t *testing.T) {
+	t.Parallel()
 	w, root := ledgerSet(t, 5000, 1, "a.go", "b.go")
 	entries := []LedgerEntry{
 		observe(t, w, "stale", "a.go", "read_file/stale", 1, 2000, 0, 0),
@@ -250,7 +271,7 @@ func TestWorkingLedger_DropsStaleBeforeSheddingLive(t *testing.T) {
 		observe(t, w, "live4", "b.go", "read_file/4", 4, 2000, 0, 0),
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a // edited"), 0600))
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 4, Hot: []string{"b.go"}})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 4, Hot: []string{"b.go"}})
 	require.NoError(t, err)
 	require.Equal(t, []string{"call-live2", "call-stale"}, decision.Evict, "stale leaves, then only the oldest live result the remaining excess needs")
 }
@@ -259,6 +280,7 @@ func TestWorkingLedger_DropsStaleBeforeSheddingLive(t *testing.T) {
 // even when it is the oldest aged result and the ledger is over the ceiling.
 // The next oldest live result leaves instead.
 func TestWorkingLedger_ARecalledLiveResultIsNotShed(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 4000, 1, "a.go")
 	entries := []LedgerEntry{
 		observe(t, w, "a", "a.go", "read_file/a", 1, 3000, 0, 0),
@@ -266,7 +288,7 @@ func TestWorkingLedger_ARecalledLiveResultIsNotShed(t *testing.T) {
 		observe(t, w, "c", "a.go", "read_file/c", 3, 3000, 0, 0),
 		observe(t, w, "d", "a.go", "read_file/d", 4, 3000, 0, 0),
 	}
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 4, Hot: []string{"a.go"}, Recalled: []string{"a"}})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 4, Hot: []string{"a.go"}, Recalled: []string{"a"}})
 	require.NoError(t, err)
 	require.Equal(t, []string{"call-b", "call-c"}, decision.Evict, "the recalled live result stays; the next oldest live results cover the excess")
 }
@@ -274,10 +296,11 @@ func TestWorkingLedger_ARecalledLiveResultIsNotShed(t *testing.T) {
 // A recall does not keep a result that is no longer current. Stale evidence
 // does not stand as the file.
 func TestWorkingLedger_ARecalledStaleResultStillDrops(t *testing.T) {
+	t.Parallel()
 	w, root := ledgerSet(t, 4096, 2, "a.go")
 	entries := []LedgerEntry{observe(t, w, "old", "a.go", "read_file/x", 3, 5000, 0, 0)}
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a // edited"), 0600))
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 3, Hot: []string{"a.go"}, Recalled: []string{"old"}})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 3, Hot: []string{"a.go"}, Recalled: []string{"old"}})
 	require.NoError(t, err)
 	require.Equal(t, []string{"call-old"}, decision.Evict)
 	require.Empty(t, decision.Restate)
@@ -286,6 +309,7 @@ func TestWorkingLedger_ARecalledStaleResultStillDrops(t *testing.T) {
 // Unavailable/absent revisions cannot make a recalled observation live and
 // hold it out of eviction. Stable nonfile and unchanged file revisions can.
 func TestWorkingLedger_ARecalledUnresolvableResultStillDrops(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name        string
 		entity      string
@@ -309,7 +333,7 @@ func TestWorkingLedger_ARecalledUnresolvableResultStillDrops(t *testing.T) {
 				Kind: "read_file/observation", Step: 1, Body: "historical bytes",
 			}))
 
-			decision, err := w.Ledger(t.Context(), LedgerRound{Entries: []LedgerEntry{{
+			decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: []LedgerEntry{{
 				Call: "call-" + id, ID: id, Bytes: 5000, Round: 1,
 			}}, Round: 2, Recalled: []string{id}})
 			require.NoError(t, err)
@@ -327,13 +351,14 @@ func TestWorkingLedger_ARecalledUnresolvableResultStillDrops(t *testing.T) {
 // A ledger row with no observation is not live. It leaves before an older
 // live result of a hot file: liveness is the fact, not the age.
 func TestWorkingLedger_AnUnobservedRowLeavesBeforeALiveOne(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 4096, 1, "a.go")
 	entries := []LedgerEntry{
 		observe(t, w, "live", "a.go", "read_file/live", 1, 1000, 0, 0),
 		{Call: "call-orphan", ID: "missing", Bytes: 2000, Round: 2},
 		observe(t, w, "late", "a.go", "read_file/late", 3, 2500, 0, 0),
 	}
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 3, Hot: []string{"a.go"}})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 3, Hot: []string{"a.go"}})
 	require.NoError(t, err)
 	require.Equal(t, []string{"call-orphan"}, decision.Evict, "the row the task did not observe leaves first, even though it is newer")
 }
@@ -342,13 +367,14 @@ func TestWorkingLedger_AnUnobservedRowLeavesBeforeALiveOne(t *testing.T) {
 // call-a ahead of call-z; the measurement is the order the rows were handed
 // to the ledger.
 func TestWorkingLedger_ShedsInArrivalOrderWithinARound(t *testing.T) {
+	t.Parallel()
 	w, _ := ledgerSet(t, 4096, 1, "a.go")
 	entries := []LedgerEntry{
 		observe(t, w, "z", "a.go", "read_file/z", 1, 1000, 0, 0),
 		observe(t, w, "a", "a.go", "read_file/a", 1, 1000, 0, 0),
 		observe(t, w, "late", "a.go", "read_file/late", 3, 2500, 0, 0),
 	}
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 3, Hot: []string{"a.go"}})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 3, Hot: []string{"a.go"}})
 	require.NoError(t, err)
 	require.Equal(t, []string{"call-z"}, decision.Evict, "the earlier arrival leaves; the later one of the same round stays")
 }
@@ -378,6 +404,7 @@ func measuredReads(t *testing.T, w *WorkingSet) []LedgerEntry {
 // 16 reads fit, so the model never has to recall one to continue. At a ceiling
 // the 16 exceed, only the oldest live results the excess needs leave.
 func TestWorkingLedger_ReplayOfTheMeasuredReadOnlyStall(t *testing.T) {
+	t.Parallel()
 	sum := 0
 	for _, n := range measuredReadSizes {
 		sum += n
@@ -395,14 +422,14 @@ func TestWorkingLedger_ReplayOfTheMeasuredReadOnlyStall(t *testing.T) {
 		w, err := NewWorkingSet(root, "replay-default", spans)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = w.Close() })
-		decision, err := w.Ledger(t.Context(), LedgerRound{Entries: measuredReads(t, w), Round: 16, Hot: []string{"main.go"}})
+		decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: measuredReads(t, w), Round: 16, Hot: []string{"main.go"}})
 		require.NoError(t, err)
 		require.Empty(t, decision.Evict, "16 live reads of one target fit the derived ceiling; a recall is not required to continue")
 	})
 
 	t.Run("a tight ceiling sheds only the oldest live results", func(t *testing.T) {
 		w, _ := ledgerSet(t, 50000, 2, "main.go")
-		decision, err := w.Ledger(t.Context(), LedgerRound{Entries: measuredReads(t, w), Round: 16, Hot: []string{"main.go"}})
+		decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: measuredReads(t, w), Round: 16, Hot: []string{"main.go"}})
 		require.NoError(t, err)
 		// Excess is 6012. The oldest result is 310, the next is 7359.
 		// 310 does not cover it; 310+7359 does. The other 12 aged live
@@ -412,7 +439,7 @@ func TestWorkingLedger_ReplayOfTheMeasuredReadOnlyStall(t *testing.T) {
 
 	t.Run("recalling the oldest live result sheds the next one instead", func(t *testing.T) {
 		w, _ := ledgerSet(t, 50000, 2, "main.go")
-		decision, err := w.Ledger(t.Context(), LedgerRound{Entries: measuredReads(t, w), Round: 16, Hot: []string{"main.go"}, Recalled: []string{"r01"}})
+		decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: measuredReads(t, w), Round: 16, Hot: []string{"main.go"}, Recalled: []string{"r01"}})
 		require.NoError(t, err)
 		require.Equal(t, []string{"call-r02"}, decision.Evict, "the recalled result stays live in the request")
 	})

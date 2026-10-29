@@ -33,6 +33,7 @@ const (
 )
 
 func TestVerifyPinning_ADirectionInsideAChangedFunctionIsRecordedNotCharged(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -65,6 +66,7 @@ func TestVerifyPinning_ADirectionInsideAChangedFunctionIsRecordedNotCharged(t *t
 // The closure re-measures the gate without the advisory question: nothing
 // reads its answer there, and it costs a test run for every decision.
 func TestVerifyPinning_TheAdvisoryQuestionIsAskedOnlyWhenItIsWanted(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}

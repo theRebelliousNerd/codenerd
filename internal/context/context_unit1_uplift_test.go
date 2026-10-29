@@ -98,6 +98,7 @@ func TestCountFact_MangleAtomScalesWithText(t *testing.T) {
 }
 
 func TestWorkingStore_SaveRejectsEmptyID(t *testing.T) {
+	t.Parallel()
 	w, err := NewWorkingSet(t.TempDir(), "ids", config.DefaultWorkingConfig())
 	if err != nil {
 		t.Fatal(err)
@@ -111,6 +112,7 @@ func TestWorkingStore_SaveRejectsEmptyID(t *testing.T) {
 // Two stop reasons derived at once must resolve to the same decision every
 // time: the harness reports the reason, and a flapping reason is a lying one.
 func TestWorkingSetContinue_MultiStopIsDeterministic(t *testing.T) {
+	t.Parallel()
 	w, err := NewWorkingSet(t.TempDir(), "stops", config.DefaultWorkingConfig())
 	if err != nil {
 		t.Fatal(err)

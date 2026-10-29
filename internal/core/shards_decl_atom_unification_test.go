@@ -24,6 +24,7 @@ import (
 // joins, which is where this bug class actually costs something — so those are
 // what this test pins.
 func TestShardsDeclAtomsUnify(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v (a Decl bound-type change broke analysis)", err)
@@ -190,6 +191,7 @@ func TestShardsDeclAtomsUnify(t *testing.T) {
 // `value "TODO|FIXME" (1) is not a number`, including the unbound
 // Query("style_rule"), which is the blast radius that makes this worth a test.
 func TestStyleRuleThresholdIsNumericallyComparable(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)

@@ -29,6 +29,7 @@ func inclusionTestCampaign() *Campaign {
 // is quarantined: the sync fails naming the edge and the kernel keeps the
 // previous plan's rows.
 func TestSyncCampaignFacts_DanglingDependencyIsQuarantined(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatal(err)

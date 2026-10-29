@@ -110,6 +110,7 @@ func TestParanoidValidator_ValidateMismatch(t *testing.T) {
 }
 
 func TestParanoidValidator_ValidateStale(t *testing.T) {
+	t.Parallel()
 	v := NewParanoidFileValidator()
 	v.MaxStaleSeconds = 1 // 1 second max
 

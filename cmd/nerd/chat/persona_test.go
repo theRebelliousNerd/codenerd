@@ -74,6 +74,7 @@ func TestPersonaWordingUnchanged(t *testing.T) {
 // is what the code did before this seam existed minus the append) turns both
 // subtests red on "does not carry the architect persona at all".
 func TestMainChatSystemPrompt_AlwaysCarriesArchitectPersona(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		cfg  *config.UserConfig

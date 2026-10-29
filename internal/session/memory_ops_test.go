@@ -33,6 +33,7 @@ func (p *memoryPersister) StoreVector(content string, _ map[string]any) error {
 // the note the model was told would stay in session context was stored where
 // no rule or query could read it, and a promotion never reached the store.
 func TestPiggybackMemoryOperationsLandInKernelAndStore(t *testing.T) {
+	t.Parallel()
 	kernel := realKernel(t)
 	persister := &memoryPersister{}
 	executor := &Executor{kernel: kernel, config: DefaultExecutorConfig()}

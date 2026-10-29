@@ -11,6 +11,7 @@ import (
 // A verb the policy gates must return true here (prose-only turns retry),
 // and a prose-terminal verb must return false (direct answers pass through).
 func TestIntentRequiresToolCall_AdapterVerbs(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

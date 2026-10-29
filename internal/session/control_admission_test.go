@@ -58,6 +58,7 @@ func notesOf(t *testing.T, e *Executor) []types.Fact {
 // finalization does. The task tail used to parse that surface and apply the
 // example envelope inside it. The mark on the response is what stops it.
 func TestAdmitResponseControls_SurfaceTextIsNeverReadAsControlInput(t *testing.T) {
+	t.Parallel()
 	executor := &Executor{kernel: realKernel(t), config: DefaultExecutorConfig()}
 	result := &ExecutionResult{}
 
@@ -81,6 +82,7 @@ func TestAdmitResponseControls_SurfaceTextIsNeverReadAsControlInput(t *testing.T
 
 // The same guarantee without promotion: a response read once is not read again.
 func TestAdmitResponseControls_AppliesAnEnvelopeExactlyOnce(t *testing.T) {
+	t.Parallel()
 	persister := &memoryPersister{}
 	executor := &Executor{kernel: realKernel(t), config: DefaultExecutorConfig()}
 	executor.SetSessionPersister(persister)
@@ -101,6 +103,7 @@ func TestAdmitResponseControls_AppliesAnEnvelopeExactlyOnce(t *testing.T) {
 // "I saved your preference" while the store refused it: the user learns that
 // from a host-written notice, not from a log line.
 func TestAdmitResponseControls_FailedMemoryWriteReachesTheUser(t *testing.T) {
+	t.Parallel()
 	executor := &Executor{kernel: realKernel(t), config: DefaultExecutorConfig()}
 	executor.SetSessionPersister(&refusingPersister{})
 	result := &ExecutionResult{}
@@ -129,6 +132,7 @@ func TestAdmitResponseControls_FailedMemoryWriteReachesTheUser(t *testing.T) {
 
 // Controls the parser removed keep their place in the answer too.
 func TestAdmitResponseControls_ParserRemovalsReachTheUser(t *testing.T) {
+	t.Parallel()
 	executor := &Executor{kernel: realKernel(t), config: DefaultExecutorConfig()}
 	result := &ExecutionResult{}
 	envelope := `{"control_packet":{"mangle_updates":["observation(\"a\", \"b\").","not an atom"]},"surface_response":"done"}`
@@ -142,6 +146,7 @@ func TestAdmitResponseControls_ParserRemovalsReachTheUser(t *testing.T) {
 // A reply with two readings of its envelope selects neither: no controls, and
 // the text is the host's notice.
 func TestAdmitResponseControls_AmbiguousReplyAppliesNothing(t *testing.T) {
+	t.Parallel()
 	executor := &Executor{kernel: realKernel(t), config: DefaultExecutorConfig()}
 	a := `{"control_packet":{"memory_operations":[{"op":"note","key":"a","value":"1"}]},"surface_response":"A"}`
 	b := `{"control_packet":{"memory_operations":[{"op":"note","key":"b","value":"2"}]},"surface_response":"B"}`
@@ -160,6 +165,7 @@ func TestAdmitResponseControls_AmbiguousReplyAppliesNothing(t *testing.T) {
 
 // Kernel assertions that fail are dispositions, not log lines.
 func TestProcessMangleUpdates_RecordsPolicyRefusalAndAppliedByPosition(t *testing.T) {
+	t.Parallel()
 	executor := &Executor{kernel: realKernel(t), config: DefaultExecutorConfig()}
 	env := &articulation.PiggybackEnvelope{Control: articulation.ControlPacket{MangleUpdates: []string{
 		`observation("a", "b").`,
@@ -186,6 +192,7 @@ func TestProcessMangleUpdates_NoKernelIsUnsupportedNotSilent(t *testing.T) {
 // A parser removal and a policy refusal are numbered in one space: the
 // position in the list the model sent, not in the list left after the parser.
 func TestApplyPiggybackControls_PositionsAreTheModelsOwn(t *testing.T) {
+	t.Parallel()
 	executor := &Executor{kernel: realKernel(t), config: DefaultExecutorConfig()}
 	raw := `{"control_packet":{"mangle_updates":["no atom here","observation(\"a\", \"b\").","test_state(/passing)."]},"surface_response":"x"}`
 	_, ds := executor.applyPiggybackControls(articulation.ProcessLLMResponseAllowPlain(raw))

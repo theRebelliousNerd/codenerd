@@ -12,6 +12,7 @@ import (
 // campaign_rules.mg when that file's verification loop -- whose inputs nothing
 // asserted -- was deleted; it was the one rule there a live input reached.
 func TestCampaign_AnExhaustedCriticalTaskEscalatesToTheUser(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		priority string
 		want     bool

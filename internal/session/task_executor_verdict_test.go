@@ -91,6 +91,7 @@ func verdictJIT(t *testing.T, kernel types.Kernel, prompts *[]string) *JITExecut
 // answer is the verified turn's. Driven through the production executor
 // constructor over the shipped kernel.
 func TestJITExecutor_Execute_AnUnverifiedTurnIsSentBackWithTheGap(t *testing.T) {
+	t.Parallel()
 	var prompts []string
 	jit := verdictJIT(t, &verdictScript{Kernel: realKernel(t), unverifiedRuns: 1, gap: "/tests_not_green"}, &prompts)
 
@@ -117,6 +118,7 @@ func TestJITExecutor_Execute_AnUnverifiedTurnIsSentBackWithTheGap(t *testing.T) 
 // A turn that is never verified and makes no progress is an error, not an
 // answer; the observed API still returns the turn as it ended.
 func TestJITExecutor_Execute_ATurnThatStaysUnverifiedIsAnError(t *testing.T) {
+	t.Parallel()
 	var prompts []string
 	jit := verdictJIT(t, &verdictScript{Kernel: realKernel(t), unverifiedRuns: 100, gap: "/tests_not_green"}, &prompts)
 

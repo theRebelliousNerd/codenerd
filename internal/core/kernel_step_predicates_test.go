@@ -54,6 +54,7 @@ func routingKernel(t *testing.T, minConfidence int) *RealKernel {
 // -----------------------------------------------------------------------------
 
 func TestStep4_ShouldDelegate_ConfidenceGate(t *testing.T) {
+	t.Parallel()
 	// delegation_candidate(/current_intent, ShardType, Conf) is the EDB the Go
 	// shouldDelegate helper asserts. Mirror its exact arg types: arg1 plain
 	// string, ShardType as MangleAtom, Conf as int64 (confidence*100).
@@ -92,6 +93,7 @@ func TestStep4_ShouldDelegate_ConfidenceGate(t *testing.T) {
 // The threshold is the config's, and without it nothing is delegated: the
 // kernel names the missing key instead.
 func TestStep4_ShouldDelegate_ThresholdIsTheConfigs(t *testing.T) {
+	t.Parallel()
 	k := routingKernel(t, 70)
 	mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(60))
 	if queryDerived(t, k, "should_delegate") {
@@ -116,6 +118,7 @@ func TestStep4_ShouldDelegate_ThresholdIsTheConfigs(t *testing.T) {
 // TestStep4_ShouldDelegate_BindsShardType confirms the derived fact carries the
 // candidate's shard (not /none, not a wildcard) so the consumer can read it.
 func TestStep4_ShouldDelegate_BindsShardType(t *testing.T) {
+	t.Parallel()
 	k := routingKernel(t, 50)
 	if err := k.Assert(Fact{
 		Predicate: "delegation_candidate",
@@ -141,6 +144,7 @@ func TestStep4_ShouldDelegate_BindsShardType(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestStep5_IsMultiStep_SignalCombination(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name      string
 		signals   []string
@@ -182,6 +186,7 @@ func TestStep5_IsMultiStep_SignalCombination(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestStep2_ActionCompleteVerified_RequiresPositiveValidation(t *testing.T) {
+	t.Parallel()
 	const id = "act-1"
 
 	// Q4 SOUNDNESS CASE (the hole this rule closes): a side-effecting action
@@ -241,6 +246,7 @@ func TestStep2_ActionCompleteVerified_RequiresPositiveValidation(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestStep3_UnvalidatedSideEffect_NoOpinionPartition(t *testing.T) {
+	t.Parallel()
 	// Base no-opinion case (positive control for the whole table): a
 	// side-effecting action ran at conf 50 (attempted=true, validated=false,
 	// not failed, not escalated) -> in validation limbo -> derives.
@@ -304,6 +310,7 @@ func TestStep3_UnvalidatedSideEffect_NoOpinionPartition(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestValidation_UnresolvedFailure_ExcludesEscalated(t *testing.T) {
+	t.Parallel()
 	// Positive control: a genuine unresolved failure — validation failed, the
 	// action is neither validated/healed (so !action_resolved holds) nor
 	// escalated. unresolved_failure MUST derive. This also proves the test fact
@@ -357,6 +364,7 @@ func assertIntent(t *testing.T, k *RealKernel, category, verb, target string) {
 // JIT system?" — a /query question that perception may classify as /explain,
 // /analyze, or /research — must terminate in prose, never in shard delegation.
 func TestRouting_QuestionAnswersDirectly(t *testing.T) {
+	t.Parallel()
 	for _, verb := range []string{"/explain", "/analyze", "/research", "/explore"} {
 		t.Run(verb, func(t *testing.T) {
 			k := routingKernel(t, 50)
@@ -384,6 +392,7 @@ func TestRouting_QuestionAnswersDirectly(t *testing.T) {
 // TestRouting_ConversationalVerbsAlwaysDirect: greetings/help answer directly
 // even without the is_question signal.
 func TestRouting_ConversationalVerbsAlwaysDirect(t *testing.T) {
+	t.Parallel()
 	for _, verb := range []string{"/greet", "/converse", "/help", "/knowledge", "/explain"} {
 		t.Run(verb, func(t *testing.T) {
 			k := routingKernel(t, 50)
@@ -398,6 +407,7 @@ func TestRouting_ConversationalVerbsAlwaysDirect(t *testing.T) {
 // TestRouting_WorkhorseQuestionStillDelegates: "can you review my code?" is an
 // action request despite the question phrasing — workhorse verbs delegate.
 func TestRouting_WorkhorseQuestionStillDelegates(t *testing.T) {
+	t.Parallel()
 	k := routingKernel(t, 50)
 	assertIntent(t, k, "/query", "/review", "internal/core/kernel.go")
 	mustAssert(t, k, "intent_signal", types.MangleAtom("/is_question"))
@@ -414,6 +424,7 @@ func TestRouting_WorkhorseQuestionStillDelegates(t *testing.T) {
 // TestRouting_MutationLanes: delegation for confident mutations, clarification
 // for uncertain ones, decomposition for multi-step ones.
 func TestRouting_MutationLanes(t *testing.T) {
+	t.Parallel()
 	t.Run("confident_mutation_delegates", func(t *testing.T) {
 		k := routingKernel(t, 50)
 		assertIntent(t, k, "/mutation", "/fix", "README.md")
@@ -484,6 +495,7 @@ func TestRouting_MutationLanes(t *testing.T) {
 // TestRouting_ClarifiesAnInputOnce: the input the last clarification asked
 // about, sent again, is not clarified again.
 func TestRouting_ClarifiesAnInputOnce(t *testing.T) {
+	t.Parallel()
 	k := routingKernel(t, 50)
 	assertIntent(t, k, "/mutation", "/fix", "none")
 	mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(40))
@@ -500,6 +512,7 @@ func TestRouting_ClarifiesAnInputOnce(t *testing.T) {
 // for several lanes holds one route_decision row -- respond_directly >
 // multi_step > delegate > clarify.
 func TestRouting_OneLaneAtMost(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		conf int64

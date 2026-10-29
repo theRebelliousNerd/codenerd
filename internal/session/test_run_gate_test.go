@@ -144,6 +144,7 @@ func TestAssertTurnEvidence_MarksWritesUnderADeclaredDocsPath(t *testing.T) {
 // is done on a passing test run after it and names the run it lacks otherwise,
 // and the model can neither assert a write nor reclassify its extension.
 func TestTurnOutcome_AWriteTheGoGatesDoNotCoverHasACompletionPath(t *testing.T) {
+	t.Parallel()
 	missing := func(result *ExecutionResult, atom string) bool {
 		return slices.Contains(result.MissingEvidence, atom)
 	}

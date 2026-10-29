@@ -21,6 +21,7 @@ import (
 // new code, and the guard failed the turn on the spot -- fourteen minutes of
 // work that had passed build, tests, coverage and vet, refused with no round.
 func TestRemovedTestsRound_TheModelRestoresThemOrTheTurnFails(t *testing.T) {
+	t.Parallel()
 	const code = "package main\n\nfunc Double(x int) int {\n\treturn x * 2\n}\n\nfunc main() {}\n"
 	const before = `package main
 
@@ -166,6 +167,7 @@ func TestZero(t *testing.T) {
 // With no model to ask, a deletion fails the turn at once, naming the test --
 // what the guard did before the round existed.
 func TestVerifyAndRepairRemovedTests_NoModelToAskFailsNamingThem(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, nil)
 	const kept = "package main\n\nimport \"testing\"\n\nfunc TestKept(t *testing.T) {}\n"
 	if err := os.WriteFile(filepath.Join(h.ws, "x_test.go"), []byte(kept), 0o600); err != nil {
@@ -213,6 +215,7 @@ func TestRemovedTestListing(t *testing.T) {
 // its edit, and gave up at the attempt cap after ~1M tokens on a suite whose
 // deleted test it had restored on the first attempt.
 func TestRemovedTestsRound_APreExistingFailureDoesNotKeepTheRoundOpen(t *testing.T) {
+	t.Parallel()
 	const code = "package main\n\nfunc Double(x int) int {\n\treturn x * 2\n}\n\nfunc main() {}\n"
 	const before = "package main\n\nimport \"testing\"\n\nfunc TestDouble(t *testing.T) {\n\tif Double(2) != 4 {\n\t\tt.Fatal(\"Double(2) != 4\")\n\t}\n}\n\nfunc TestZero(t *testing.T) {\n\tif Double(0) != 0 {\n\t\tt.Fatal(\"Double(0) != 0\")\n\t}\n}\n"
 	const rewritten = "package main\n\nimport \"testing\"\n\nfunc TestDouble(t *testing.T) {\n\tif Double(2) != 4 {\n\t\tt.Fatal(\"Double(2) != 4\")\n\t}\n}\n\nfunc TestNegative(t *testing.T) {\n\tif Double(-1) != -2 {\n\t\tt.Fatal(\"Double(-1) != -2\")\n\t}\n}\n"

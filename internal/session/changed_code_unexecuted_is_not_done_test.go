@@ -16,6 +16,7 @@ import (
 // about the change the turn made, so both reach the corpus, and the verdict
 // names whichever is missing.
 func TestTurnWhoseChangedCodeIsUnexecutedOrVetRedIsNotDone(t *testing.T) {
+	t.Parallel()
 	missing := func(result *ExecutionResult, atom string) bool {
 		for _, m := range result.MissingEvidence {
 			if m == atom {

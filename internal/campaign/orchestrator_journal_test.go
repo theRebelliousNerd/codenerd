@@ -13,6 +13,7 @@ import (
 )
 
 func TestOrchestratorJournal_Gaps(t *testing.T) {
+	t.Parallel()
 	t.Run("Scanner Limit Exceeded", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		o := &Orchestrator{
@@ -229,6 +230,7 @@ func TestOrchestratorJournal_ChecksumNilPayload(t *testing.T) {
 }
 
 func TestOrchestratorJournal_SequenceMismatchTruncation(t *testing.T) {
+	t.Parallel()
 	// Setup orchestrator with a temporary workspace
 	tmpDir := t.TempDir()
 
@@ -315,6 +317,7 @@ func TestOrchestratorJournal_SequenceMismatchTruncation(t *testing.T) {
 }
 
 func TestOrchestratorJournal_CorruptLineTruncation(t *testing.T) {
+	t.Parallel()
 	// Setup orchestrator with a temporary workspace
 	tmpDir := t.TempDir()
 

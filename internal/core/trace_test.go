@@ -6,6 +6,7 @@ import (
 )
 
 func TestTrace_Query(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	// Use unique predicate names to avoid schema conflicts
@@ -45,6 +46,7 @@ func TestTrace_Query(t *testing.T) {
 }
 
 func TestTrace_Heuristics(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	// Use unique predicate names

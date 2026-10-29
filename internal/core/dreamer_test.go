@@ -29,6 +29,7 @@ var testCriticalPaths = []string{"internal/mangle", "internal/core", "cmd/nerd"}
 // NOTE: Dreamer now has sync.RWMutex protecting the kernel pointer.
 
 func TestDreamer_SimulateAction_Safe(t *testing.T) {
+	t.Parallel()
 	d, _ := setupTestDreamer(t)
 	ctx := context.Background()
 
@@ -50,6 +51,7 @@ func TestDreamer_SimulateAction_Safe(t *testing.T) {
 }
 
 func TestDreamer_SimulateAction_DoesNotMutateLiveHypotheticals(t *testing.T) {
+	t.Parallel()
 	d, k := setupTestDreamer(t)
 
 	before, err := k.Query("hypothetical")
@@ -83,6 +85,7 @@ func TestDreamer_SimulateAction_DoesNotMutateLiveHypotheticals(t *testing.T) {
 }
 
 func TestDreamer_EvaluateProjectionFailsClosedAtFactLimit(t *testing.T) {
+	t.Parallel()
 	d, k := setupTestDreamer(t)
 	k.SetMaxFacts(k.FactCount())
 
@@ -99,6 +102,7 @@ func TestDreamer_EvaluateProjectionFailsClosedAtFactLimit(t *testing.T) {
 }
 
 func TestDreamer_EvaluateProjectionFailsClosedOnInvalidFact(t *testing.T) {
+	t.Parallel()
 	d, k := setupTestDreamer(t)
 
 	unsafe, reason, _ := d.evaluateProjection(k, "dream:invalid", []Fact{{
@@ -116,6 +120,7 @@ func TestDreamer_EvaluateProjectionFailsClosedOnInvalidFact(t *testing.T) {
 // REMEDIATED: Type Safety - see TestDreamerGap_MangleAtomVsStringMismatch + TestDreamerGap_AtomVsStringDissonance in dreamer_gaps_test.go
 
 func TestDreamer_SimulateAction_Unsafe(t *testing.T) {
+	t.Parallel()
 	d, k := setupTestDreamer(t)
 	ctx := context.Background()
 
@@ -194,6 +199,7 @@ func TestIsDangerousCommand_BypassAttempts(t *testing.T) {
 // REMEDIATED: Input Extremes - see TestDreamerGap_PathTraversalBypass in dreamer_gaps_test.go
 
 func TestDreamer_ProjectEffects(t *testing.T) {
+	t.Parallel()
 	d, _ := setupTestDreamer(t)
 
 	req := ActionRequest{

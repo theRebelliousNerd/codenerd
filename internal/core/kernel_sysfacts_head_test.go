@@ -12,6 +12,7 @@ import (
 // revision that revision-bound evidence (northstar mitigation evidence in
 // prompt_northstar.mg) is compared against.
 func TestUpdateSystemFacts_AssertsHeadSHA(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}

@@ -69,6 +69,7 @@ func assertRouteIntent(t *testing.T, m Model, intent perception.Intent) {
 }
 
 func TestDecideRoute_QuestionAnswersDirectly(t *testing.T) {
+	t.Parallel()
 	// The headline regression: a /query question classified as /explain,
 	// /analyze, or /research must route to a direct answer — never to the
 	// reviewer/researcher delegation that turned questions into 20-minute
@@ -110,6 +111,7 @@ func TestDecideRoute_QuestionAnswersDirectly(t *testing.T) {
 // Perception's evidence signals (file scope, suggested tools) must keep the
 // turn out of the direct-answer lane; it delegates to a shard with tools.
 func TestDecideRoute_FileScopeQuestionDelegates(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		extra func(*perception.Intent)
@@ -147,6 +149,7 @@ func TestDecideRoute_FileScopeQuestionDelegates(t *testing.T) {
 }
 
 func TestDecideRoute_ConversationalVerbAlwaysDirect(t *testing.T) {
+	t.Parallel()
 	// /greet is conversational even without the is_question signal.
 	m := newRoundtripModel(t)
 	intent := perception.Intent{
@@ -165,6 +168,7 @@ func TestDecideRoute_ConversationalVerbAlwaysDirect(t *testing.T) {
 }
 
 func TestDecideRoute_WorkhorseQuestionDelegates(t *testing.T) {
+	t.Parallel()
 	// "Can you review my code?" — question phrasing, workhorse verb. The
 	// question mark is politeness; the review must still run.
 	m := newRoundtripModel(t)
@@ -187,6 +191,7 @@ func TestDecideRoute_WorkhorseQuestionDelegates(t *testing.T) {
 }
 
 func TestDecideRoute_MutationLanes(t *testing.T) {
+	t.Parallel()
 	t.Run("confident_mutation_delegates", func(t *testing.T) {
 		m := newRoundtripModel(t)
 		intent := perception.Intent{
@@ -253,6 +258,7 @@ func TestDecideRoute_NilKernelDecidesNothing(t *testing.T) {
 // kernel's "no" is the answer (sweep finding F12: chat replaced it with
 // confidence >= 0.5, so a 0.6 turn delegated under a threshold of 70).
 func TestDecideRoute_DelegationThresholdIsTheConfigs(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	m.Config = &config.UserConfig{Routing: &config.RoutingConfig{DelegationMinConfidence: 70}}
 
@@ -288,6 +294,7 @@ func TestDecideRoute_DelegationThresholdIsTheConfigs(t *testing.T) {
 // mutation also decomposes. Before the precedence moved into the policy both
 // rows derived and a Go switch picked.
 func TestDecideRoute_OneLaneAtMost(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	intent := perception.Intent{Category: "/mutation", Verb: "/create", Target: "auth middleware", Confidence: 0.95}
 	assertRouteIntent(t, m, intent)
@@ -307,6 +314,7 @@ func TestDecideRoute_OneLaneAtMost(t *testing.T) {
 // clarification, the request is not asked about again: no lane derives, and
 // articulation answers. Until 2026-09-23 the lane asked forever.
 func TestDecideRoute_ClarifiesAnInputOnce(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	intent := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "none", Confidence: 0.4}
 	assertRouteIntent(t, m, intent)
@@ -327,6 +335,7 @@ func TestDecideRoute_ClarifiesAnInputOnce(t *testing.T) {
 // read only after the route was decided, the kernel never heard of it, and
 // the request went whole to one shard: the fix never ran.
 func TestDecideRoute_ACorpusCompoundDecomposes(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	intent := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "internal/session/executor.go", Confidence: 0.95}
 	assertRouteIntent(t, m, intent)
@@ -348,6 +357,7 @@ func TestDecideRoute_ACorpusCompoundDecomposes(t *testing.T) {
 // one-step plan, fell through, and the turn was neither decomposed nor
 // delegated.
 func TestDecideRoute_AOneStepPlanIsDelegatedWhole(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	intent := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "oauth", Confidence: 0.95}
 	assertRouteIntent(t, m, intent)
@@ -368,6 +378,7 @@ func TestDecideRoute_AOneStepPlanIsDelegatedWhole(t *testing.T) {
 // parsing makes "/the" and "/greet" (the synonym "hi" inside "this") out of a
 // single request; the request is delegated whole.
 func TestDecideRoute_APlanWithAnUnroutedStepIsDelegatedWhole(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	intent := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "the diff", Confidence: 0.95}
 	assertRouteIntent(t, m, intent)
@@ -393,6 +404,7 @@ func TestDecideRoute_APlanWithAnUnroutedStepIsDelegatedWhole(t *testing.T) {
 // fix. If turn 1's signals lingered, turn 2 would decompose too. Only
 // decideRoute's in-method retract protects turn 2.
 func TestDecideRoute_MultiStepSignalsDoNotCarryOver(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	create := perception.Intent{Category: "/mutation", Verb: "/create", Target: "auth middleware", Confidence: 0.95}
 	assertRouteIntent(t, m, create)
@@ -416,6 +428,7 @@ func TestDecideRoute_MultiStepSignalsDoNotCarryOver(t *testing.T) {
 // could suppress turn 2's delegation. Only decideRoute's in-method retract
 // protects turn 2 — no manual cleanup between calls.
 func TestDecideRoute_NoContaminationAcrossTurns(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 
 	q := perception.Intent{
@@ -460,6 +473,7 @@ func TestDecideRoute_NoContaminationAcrossTurns(t *testing.T) {
 // asked, and keyword-matched a /campaign turn's raw input for "stress test"
 // or "adversarial".
 func TestDecideRoute_AnAssaultIsItsOwnLane(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		input   string
@@ -491,6 +505,7 @@ func TestDecideRoute_AnAssaultIsItsOwnLane(t *testing.T) {
 // the judged attempts. It was shouldVerifyDelegation, a Go test of the intent
 // category, until 2026-09-24.
 func TestDecideRoute_ADelegatedMutationVerifies(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		input  string

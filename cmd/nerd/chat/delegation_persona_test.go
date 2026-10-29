@@ -33,6 +33,7 @@ func personaCandidates() map[string]perception.Intent {
 }
 
 func TestDecideRoute_AQueryNeverGoesToAWritingPersona(t *testing.T) {
+	t.Parallel()
 	for name, intent := range personaCandidates() {
 		t.Run(name, func(t *testing.T) {
 			if got := resolveShardTypeForIntent(intent); got != "coder" {
@@ -49,6 +50,7 @@ func TestDecideRoute_AQueryNeverGoesToAWritingPersona(t *testing.T) {
 // The persona the kernel picks must itself run a verb that finishes without a
 // write, or the redirect only moves the failure.
 func TestDelegationPersona_TheReaderRunsAReadVerb(t *testing.T) {
+	t.Parallel()
 	m := newRoundtripModel(t)
 	verbs, err := m.kernel.Query("persona_verb")
 	if err != nil {
@@ -77,6 +79,7 @@ func TestDelegationPersona_TheReaderRunsAReadVerb(t *testing.T) {
 // Controls: authorised mutations keep the coder and their verification; a
 // query a read-only persona already takes is unchanged.
 func TestDecideRoute_PersonaControls(t *testing.T) {
+	t.Parallel()
 	t.Run("a mutation /debug stays with the coder under verification", func(t *testing.T) {
 		intent := perception.Intent{Category: "/mutation", Verb: "/debug", Target: "Mean in stats.go", Confidence: 0.96}
 		got := routeFor(t, "fix Mean", intent)

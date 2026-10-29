@@ -106,6 +106,7 @@ func TestUsed(t *testing.T) {
 // path is recorded in the host's spelling (a backslash on Windows, where the
 // tools record one); the fact and the match use slashes.
 func TestTurnElementUncovered_RealRunNamesTheMissedElements(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("compiles and tests a throwaway package")
 	}
@@ -191,6 +192,7 @@ func TestTurnElementUncovered_RealRunNamesTheMissedElements(t *testing.T) {
 }
 
 func TestTurnElementUncovered_NotInventedWithoutAProfile(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	result := writeTurnResult()
 	result.UncoveredBlocks = []UncoveredBlock{{File: "pkg/foo.go", StartLine: 1, EndLine: 2, NumStmts: 1}}

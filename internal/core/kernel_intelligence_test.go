@@ -7,6 +7,7 @@ import (
 )
 
 func TestIntelligenceWiring(t *testing.T) {
+	t.Parallel()
 	// Initialize kernel
 	k, err := NewRealKernel()
 	require.NoError(t, err)

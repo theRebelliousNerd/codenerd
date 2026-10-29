@@ -20,6 +20,7 @@ import (
 // observed via a fake TaskExecutor that records its TaskRequest — the same
 // observation technique used by the existing checkpoint tests.
 func TestTypeRoutedContextInjection_FileDocument(t *testing.T) {
+	t.Parallel()
 	t.Run("file task receives context from dependency", func(t *testing.T) {
 		workspace := t.TempDir()
 		var captured session.TaskRequest
@@ -184,6 +185,7 @@ func TestTypeRoutedContextInjection_FileDocument(t *testing.T) {
 }
 
 func TestTypeRoutedContextInjection_Research(t *testing.T) {
+	t.Parallel()
 	t.Run("research task receives context from dependency", func(t *testing.T) {
 		var captured session.TaskRequest
 		executor := &MockTaskExecutor{
@@ -264,6 +266,7 @@ func TestTypeRoutedContextInjection_Research(t *testing.T) {
 }
 
 func TestTypeRoutedContextInjection_TestHandlers(t *testing.T) {
+	t.Parallel()
 	t.Run("test_write receives context", func(t *testing.T) {
 		var captured session.TaskRequest
 		executor := &MockTaskExecutor{
@@ -383,6 +386,7 @@ func TestTypeRoutedContextInjection_TestHandlers(t *testing.T) {
 // whose result is not in taskResults does not produce an empty header — the
 // context block is only emitted when a real result exists.
 func TestTypeRoutedContextInjection_MissingDep(t *testing.T) {
+	t.Parallel()
 	var captured session.TaskRequest
 	executor := &MockTaskExecutor{
 		ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {

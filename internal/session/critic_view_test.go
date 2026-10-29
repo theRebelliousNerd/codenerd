@@ -96,6 +96,7 @@ func TestFindingsOnChange(t *testing.T) {
 // touch. A finding outside the changed windows is recorded but does not buy an
 // uplift round, and the review is told what the change was for.
 func TestVerifyAndUpliftWithCritic_WhenTheFindingIsInUntouchedCode_ShouldNotFireUplift(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	var before strings.Builder
 	before.WriteString("package p\n")
@@ -130,6 +131,7 @@ func TestVerifyAndUpliftWithCritic_WhenTheFindingIsInUntouchedCode_ShouldNotFire
 }
 
 func TestBuildCriticPrompt_WhenGivenTheRequest_ShouldAskTheReviewToJudgeAgainstIt(t *testing.T) {
+	t.Parallel()
 	p := buildCriticPrompt(map[string]string{"a.go": "    1| package p\n"}, nil, "", "make Add handle overflow")
 	if !strings.Contains(p, "The change was made for this request:\n```\nmake Add handle overflow") {
 		t.Errorf("the prompt does not carry the request:\n%s", p)

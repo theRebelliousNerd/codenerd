@@ -60,6 +60,7 @@ func researchJob(t *testing.T, returns ...observation.Return) (Model, *verdictEx
 // missing, and reported finished only when the turn is verified. It used to be
 // reported "finished" whatever the verdict said.
 func TestBackground_AnUnverifiedResultIsSentBackWithTheGap(t *testing.T) {
+	t.Parallel()
 	m, exec, done := researchJob(t,
 		observation.Return{Output: "I read half of it.", Outcome: "/unverified", Missing: []string{"/self_reported_incomplete"}},
 		observation.Return{Output: "Found the retry policy in pool.go.", Outcome: "/done"},
@@ -85,6 +86,7 @@ func TestBackground_AnUnverifiedResultIsSentBackWithTheGap(t *testing.T) {
 // A job that stays unverified and makes no progress is a failure naming the gap
 // that shows what the worker last said; it is not "finished".
 func TestBackground_AStalledUnverifiedResultFailsNamingTheGap(t *testing.T) {
+	t.Parallel()
 	stuck := observation.Return{Output: "I could not find it.", Outcome: "/unverified", Missing: []string{"/self_reported_incomplete"}}
 	m, exec, done := researchJob(t, stuck, stuck, stuck)
 	if !errors.Is(done.Err, session.ErrNotVerified) {

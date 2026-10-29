@@ -16,6 +16,7 @@ const witnessTestBothFailing = witnessTestAdd + "\nfunc TestSub(t *testing.T) {\
 // debt is empty -- which is what makes this the gate's case and not the
 // coverage's.
 func TestWitnessStep6_FailingRunWithholdsViaTheRedGate(t *testing.T) {
+	t.Parallel()
 	e, result := witnessVerdict(t, witnessTestBothFailing)
 
 	if result.TurnOutcome != types.MangleAtom("/unverified") {
@@ -54,6 +55,7 @@ const (
 // fn:<pkg>.init would name them all), so the witness owes nothing for it and
 // turn_uncovered still names the file. The witness names nothing.
 func TestWitnessStep6_InitBodyStaysFileLevel(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("compiles and tests a throwaway package")
 	}
@@ -102,6 +104,7 @@ func TestWitnessStep6_InitBodyStaysFileLevel(t *testing.T) {
 // A write that changed no element owes no witness: docs-only and test-only
 // turns verify on their gates with no witness rows at all.
 func TestWitnessStep6_NonElementWriteOwesNoWitness(t *testing.T) {
+	t.Parallel()
 	for _, written := range []string{"Docs/guide.md", "sub/calc_test.go"} {
 		e := newObligationExec(t)
 		result := writeTurnResult()

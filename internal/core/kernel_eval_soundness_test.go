@@ -17,6 +17,7 @@ import (
 // `s23_discharged(/o1)` forever. The full path rebuilds the store from the
 // EDB on every evaluate and is sound.
 func TestKernelEvalUnDerivesUnderNegation(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy(`
 	Decl s23_raised(Id).
@@ -64,6 +65,7 @@ func TestKernelEvalUnDerivesUnderNegation(t *testing.T) {
 // so the kernel reported two mutually contradictory counts at once and every
 // `Count >= N` rule downstream fired on the stale one.
 func TestKernelEvalReplacesAggregateResult(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy(`
 	Decl s23_item(Name).

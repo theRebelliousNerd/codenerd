@@ -13,6 +13,7 @@ import (
 // (the anti-hollow gate). Before the /configure, /deploy, and /assault
 // mappings, `nerd run "deploy X"` died with "no action derived from policy".
 func TestDelegationContract_AdapterVerbsDelegate(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		verb      string
 		category  string
@@ -103,6 +104,7 @@ func TestDelegationContract_AdapterVerbsDelegate(t *testing.T) {
 // must NOT require tool calls. /converse answers directly; /remember and
 // /forget ride the articulation control packet, not shards.
 func TestDelegationContract_ProseVerbsStayProse(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		verb     string
 		category string
@@ -158,6 +160,7 @@ func TestDelegationContract_ProseVerbsStayProse(t *testing.T) {
 // teaches the model to emit. A gap here means the harness cannot validate
 // (or route affinities for) a classification it explicitly solicited.
 func TestRoutingVocabulary_CoversPromptActions(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -195,6 +198,7 @@ func TestRoutingVocabulary_CoversPromptActions(t *testing.T) {
 // actions carry shard, tool, and context affinities so routing lookups for
 // them hit instead of silently falling back.
 func TestRoutingAffinity_NewActionsHaveAffinities(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -238,6 +242,7 @@ func TestRoutingAffinity_NewActionsHaveAffinities(t *testing.T) {
 // targeting a known in-scope element. A /query filing would derive
 // /query_elements instead and the turn could never edit through CodeDOM.
 func TestCodeDOMEdit_MutationCategoryGatesEdits(t *testing.T) {
+	t.Parallel()
 	newKernelWithElement := func(t *testing.T, category string) *RealKernel {
 		t.Helper()
 		k, err := NewRealKernel()

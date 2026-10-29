@@ -27,6 +27,7 @@ import (
 //
 // Every other site must set TaskExecutor.
 func TestOrchestratorTaskExecutorCallsite(t *testing.T) {
+	t.Parallel()
 	root := repoRoot(t)
 
 	var checked int

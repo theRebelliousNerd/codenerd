@@ -57,6 +57,7 @@ func loopKernel(t *testing.T) types.Kernel {
 
 // The kernel's truth table for the last dispatch (policy/task_verdict.mg).
 func TestTaskVerdictPolicy_TruthTable(t *testing.T) {
+	t.Parallel()
 	type dispatch struct {
 		outcome string
 		changed int64

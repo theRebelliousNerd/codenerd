@@ -57,6 +57,7 @@ func TestAPIScheduler_PriorityContext(t *testing.T) {
 }
 
 func TestAPIScheduler_StopInterrupted(t *testing.T) {
+	t.Parallel()
 	s := NewAPIScheduler(APISchedulerConfig{
 		MaxConcurrentAPICalls: 1,
 		SlotAcquireTimeout:    time.Second,

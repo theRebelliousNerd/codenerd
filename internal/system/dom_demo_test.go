@@ -24,8 +24,6 @@ func TestCodeDOM_EndToEnd(t *testing.T) {
 		t.Fatalf("write demo module: %v", err)
 	}
 
-	t.Chdir(ws)
-
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("kernel: %v", err)

@@ -15,6 +15,7 @@ import (
 // /current_intent), not by a Go switch on the verb, and it keeps one live chat
 // issue: a second /fix turn replaces the first turn's evidence.
 func TestSeedIssueFacts_KernelGatesAndOneIssueStaysLive(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	for name, body := range map[string]string{
 		"ledger.go":  "package pay\n\nfunc ProcessRefund(amount int) int { return amount }\n",

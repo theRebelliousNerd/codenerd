@@ -119,6 +119,7 @@ func fixReadmeTurn(response string, brief *perception.Brief) perception.Intent {
 // "ship it" that perception reads as another fix still approves the held
 // work, because Jev says it approves it and adds nothing.
 func TestJevJourney_MisreadGoAheadStillApprovesTheHeldWork(t *testing.T) {
+	t.Parallel()
 	ready := &perception.Brief{Goal: "fix the README typo", Ready: true}
 	m, _ := journeyModel(t, config.WorkModePropose, fixReadmeTurn("I can fix it.", ready), fixReadmeTurn("Fixing it.", ready))
 	jev := &fakeJevServer{probs: map[string]float64{"changes_files": 0.9, "names_target": 0.9}}
@@ -139,6 +140,7 @@ func TestJevJourney_MisreadGoAheadStillApprovesTheHeldWork(t *testing.T) {
 // A confident mutation that Jev reads as not asking for any change asks
 // first instead of running, even in yolo.
 func TestJevJourney_DisputedMutationAsksFirst(t *testing.T) {
+	t.Parallel()
 	m, exec := journeyModel(t, config.WorkModeYolo, fixReadmeTurn("Fixing it.", nil))
 	m = withJev(t, m, &fakeJevServer{probs: map[string]float64{"changes_files": 0.08, "names_target": 0.9, "hypothetical": 0.1}})
 	intent := fixReadmeTurn("", nil)
@@ -156,6 +158,7 @@ func TestJevJourney_DisputedMutationAsksFirst(t *testing.T) {
 // Jev reads a request to change files that names no code. It asks first
 // instead of letting a reviewer run on a guess.
 func TestJevJourney_UnnamedChangeRequestAsksFirstWhateverPerceptionCalledIt(t *testing.T) {
+	t.Parallel()
 	m, exec := journeyModel(t, config.WorkModeYolo, perception.Intent{})
 	m = withJev(t, m, &fakeJevServer{probs: map[string]float64{"changes_files": 0.88, "names_target": 0.09}})
 	intent := perception.Intent{Category: "/query", Verb: "/review", Target: "word handling", Confidence: 0.45, IsQuestion: true}
@@ -172,6 +175,7 @@ func TestJevJourney_UnnamedChangeRequestAsksFirstWhateverPerceptionCalledIt(t *t
 // Perception kept an open question that the user's message answers: Jev's
 // judgment closes it, and yolo starts the work instead of holding.
 func TestJevJourney_AnsweredOpenQuestionUnblocksYolo(t *testing.T) {
+	t.Parallel()
 	open := &perception.Brief{Goal: "fix a README typo", OpenQuestions: []string{"which typo?"}, Ready: true}
 	m, _ := journeyModel(t, config.WorkModeYolo, fixReadmeTurn("Which typo?", open), fixReadmeTurn("On it.", open))
 	jev := &fakeJevServer{probs: map[string]float64{"changes_files": 0.9, "names_target": 0.9}}
@@ -192,6 +196,7 @@ func TestJevJourney_AnsweredOpenQuestionUnblocksYolo(t *testing.T) {
 // "Stop" while a background job runs cancels it, and the job reports back as
 // stopped.
 func TestJevJourney_StopCancelsBackgroundWork(t *testing.T) {
+	t.Parallel()
 	chat := perception.Intent{Category: "/query", Verb: "/converse", Target: "none", Confidence: 0.9, Response: "Stopping it."}
 	m, _ := journeyModel(t, config.WorkModePropose, chat)
 	m = withJev(t, m, &fakeJevServer{probs: map[string]float64{"wants_to_stop": 0.96, "changes_files": 0.05}})
@@ -220,6 +225,7 @@ func TestJevJourney_StopCancelsBackgroundWork(t *testing.T) {
 // A failed Jev call leaves no evidence: the turn routes exactly as it would
 // have without Jev.
 func TestJevJourney_FailedCallChangesNothing(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModeYolo, fixReadmeTurn("Fixing it.", &perception.Brief{Goal: "fix the typo", Ready: true}))
 	jev := &fakeJevServer{fail: true}
 	m = withJev(t, m, jev)
@@ -267,6 +273,7 @@ func (e *blockingExecutor) WaitForResult(context.Context, string) (string, error
 // A background review whose finding Jev cannot see in the cited code comes
 // back flagged, and the kernel marks the review for validation.
 func TestJevJourney_RefutedReviewFindingIsFlagged(t *testing.T) {
+	t.Parallel()
 	m, exec := journeyModel(t, config.WorkModePropose)
 	m = withJev(t, m, &fakeJevServer{probs: map[string]float64{"finding_0": 0.06}})
 	if err := os.WriteFile(filepath.Join(m.workspace, "calc.go"), []byte("package calc\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n"), 0o644); err != nil {
@@ -301,6 +308,7 @@ func (m Model) shardMgrOrKernelSaysSuspect(t *testing.T, reviewID string) bool {
 // missed still restricts the turn: Jev's rules_out_changes adds read_only,
 // and its what-if judgment adds hypothetical. Jev only ever adds limits.
 func TestJevJourney_RuledOutChangesRestrictsTheTurn(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModeYolo)
 	m = withJev(t, m, &fakeJevServer{probs: map[string]float64{"rules_out_changes": 0.94, "hypothetical": 0.1}})
 	m.recordTurnJudgments(m.shutdownCtx, m.startTurnJudgments(m.shutdownCtx, "look at the retry code, don't change anything", nil))

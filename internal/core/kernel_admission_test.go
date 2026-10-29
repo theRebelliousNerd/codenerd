@@ -24,6 +24,7 @@ func admissionKernel(t *testing.T, decls string) *RealKernel {
 // Bound alternatives are tuples, not per-column unions: (success, witness) or
 // (failure, diagnostic) must not admit (success, diagnostic).
 func TestAdmission_AlternativeTuplesAreNotFlattened(t *testing.T) {
+	t.Parallel()
 	k := admissionKernel(t, `Decl evidence_row(Status, Payload) bound [/name, /number] bound [/string, /string].`)
 
 	require.NoError(t, k.Assert(Fact{Predicate: "evidence_row", Args: []any{MangleAtom("/success"), 7}}), "first alternative")
@@ -43,6 +44,7 @@ func TestAdmission_AlternativeTuplesAreNotFlattened(t *testing.T) {
 // A plain Go string ToAtom read as a name ("/tmp") is a string to a /string
 // slot. A MangleAtom there meant a name and is refused.
 func TestAdmission_PlainStringInStringSlotStaysAString(t *testing.T) {
+	t.Parallel()
 	k := admissionKernel(t, `Decl path_seen(Path) bound [/string].
 path_is_tmp() :- path_seen("/tmp").
 Decl path_is_tmp() bound [].`)
@@ -58,6 +60,7 @@ Decl path_is_tmp() bound [].`)
 // A bare Go string is tolerated against a bare /name bound (documented in
 // kernel_fact_decl.go), but an explicit MangleString is not.
 func TestAdmission_BareStringNameToleranceIsNarrow(t *testing.T) {
+	t.Parallel()
 	k := admissionKernel(t, `Decl role_of(Who) bound [/name].`)
 	require.NoError(t, k.Assert(Fact{Predicate: "role_of", Args: []any{"coder"}}))
 	require.Error(t, k.Assert(Fact{Predicate: "role_of", Args: []any{types.MangleString("tester")}}))
@@ -67,6 +70,7 @@ func TestAdmission_BareStringNameToleranceIsNarrow(t *testing.T) {
 // Durations and times in a /number slot are their nanosecond counts, not a
 // duration constant the int64-only comparisons would abort on.
 func TestAdmission_DurationAndTimeNarrowToNumber(t *testing.T) {
+	t.Parallel()
 	k := admissionKernel(t, `Decl took(Op, Nanos) bound [/string, /number].
 slow(Op) :- took(Op, N), N > 1000.
 Decl slow(Op) bound [/string].`)
@@ -81,6 +85,7 @@ Decl slow(Op) bound [/string].`)
 // Every write path runs the same admission: a transaction used to skip the
 // Decl check entirely.
 func TestAdmission_TransactionAssertsAreAdmitted(t *testing.T) {
+	t.Parallel()
 	k := admissionKernel(t, `Decl typed_tx(N) bound [/number].`)
 	tx := k.Transaction()
 	tx.Assert(Fact{Predicate: "typed_tx", Args: []any{"not a number"}})
@@ -97,6 +102,7 @@ func TestAdmission_TransactionAssertsAreAdmitted(t *testing.T) {
 // declared predicate of the production corpus: same verdict for a sample of
 // well-typed and ill-typed tuples per Decl.
 func TestTypedAdmissionAgreesWithUpstreamTypeChecker(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	require.NoError(t, err)
 	require.NoError(t, k.Evaluate())
@@ -137,6 +143,7 @@ func TestTypedAdmissionAgreesWithUpstreamTypeChecker(t *testing.T) {
 // hold is quarantined, with the dangling edge named; a closed, consistent plan
 // passes regardless of the order its rows arrive in.
 func TestCheckBatchInclusion_CampaignPlanEdges(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	require.NoError(t, err)
 
@@ -175,6 +182,7 @@ func TestCheckBatchInclusion_CampaignPlanEdges(t *testing.T) {
 
 // A reference whose domain the batch does not hold is unresolved, not false.
 func TestCheckBatchInclusion_OpenDomainIsUnresolved(t *testing.T) {
+	t.Parallel()
 	k := admissionKernel(t, `Decl known_check(C) bound [/string].
 Decl check_result(C, Ok) bound [/string, /name] inclusion [known_check(C)].`)
 	batch := []Fact{{Predicate: "check_result", Args: []any{"lint", MangleAtom("/true")}}}

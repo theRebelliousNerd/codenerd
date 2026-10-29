@@ -14,6 +14,7 @@ import (
 // tool results, without adding a turn: two user turns in a row is not accepted
 // by every provider. The caller's history is not written through.
 func TestPrepareWorkingRequest_AppendsTheHarnessTextToTheRoundsLastTurn(t *testing.T) {
+	t.Parallel()
 	e, ctx, history, _ := oneWorkingRound(t, 200000)
 	e.SetFileContextProvider(&stubFileContext{section: "outline of target.go"})
 

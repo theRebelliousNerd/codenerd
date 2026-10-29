@@ -16,6 +16,7 @@ import (
 // silently deriving nothing in production. These are the db869152 cases; the
 // decider now takes the dimension and the numbers are unchanged.
 func TestDecideRenderCount_Callers(t *testing.T) {
+	t.Parallel()
 	spans := config.DefaultWorkingConfig()
 	spans.HolographicCallersSharePercent = 10
 	w, err := NewWorkingSet(t.TempDir(), "render", spans)
@@ -45,6 +46,7 @@ func TestDecideRenderCount_Callers(t *testing.T) {
 // The share the policy divides by is the config's, not a literal in the
 // rule: the same pool and budget render differently under two shares.
 func TestDecideRenderCount_CallerShareComesFromConfig(t *testing.T) {
+	t.Parallel()
 	decide := func(t *testing.T, share int) int {
 		t.Helper()
 		spans := config.DefaultWorkingConfig()
@@ -67,6 +69,7 @@ func TestDecideRenderCount_CallerShareComesFromConfig(t *testing.T) {
 // the entries kept, and never goes below the floor. A character allowance is
 // not clamped to the entry count: two entries can keep 250 runes each.
 func TestDecideRenderCount_RuleTable(t *testing.T) {
+	t.Parallel()
 	t.Run("shares are independent", func(t *testing.T) {
 		spans := config.DefaultWorkingConfig()
 		spans.HolographicCallersSharePercent = 10

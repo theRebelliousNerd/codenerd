@@ -786,6 +786,7 @@ func TestGroundedWebSearch_MaliciousCodeTypeWithIllegalCharsIsDropped(t *testing
 }
 
 func TestGroundedWebSearch_TransportErrorDoesNotLeakApiKeyAndPreservesContext(t *testing.T) {
+	fastRetries(t)
 	const apiKey = "test-key"
 	c := newTestCompatClient(t, ProviderMeta, "http://example.invalid")
 
@@ -793,8 +794,9 @@ func TestGroundedWebSearch_TransportErrorDoesNotLeakApiKeyAndPreservesContext(t 
 	c.httpClient.Transport = roundTripperFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("boom transport failure key=" + apiKey + " secret-reasoning-trace")
 	})
-	// Transport failures are retried (1s+2s+4s backoff); the timeout must
-	// outlive all four attempts so the terminal error is the generic one.
+	// Transport failures are retried (fastRetries keeps the backoff in
+	// milliseconds); the timeout must outlive all four attempts so the
+	// terminal error is the generic one.
 	c.httpClient.Timeout = 30 * time.Second
 
 	_, err := c.GroundedWebSearch(context.Background(), "q")

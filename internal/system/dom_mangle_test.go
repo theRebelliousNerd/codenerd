@@ -29,8 +29,6 @@ ancestor(X, Y) :-
 		t.Fatalf("write: %v", err)
 	}
 
-	t.Chdir(ws)
-
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("kernel: %v", err)

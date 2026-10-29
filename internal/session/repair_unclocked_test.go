@@ -18,6 +18,7 @@ import (
 // round made no edit and the change went out unverified. The turn's own
 // deadline, the user's constraint, is the only one a repair call runs under.
 func TestRepairLoop_AModelCallRunsUnderTheTurnsDeadlineOnly(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, func(e *Executor) { e.config.RepairMaxAttempts = 1 })
 	testPath := filepath.Join(h.ws, "main_test.go")
 	initial := func() *types.LLMToolResponse {
@@ -73,6 +74,7 @@ func TestRepairLoop_AModelCallRunsUnderTheTurnsDeadlineOnly(t *testing.T) {
 // The attempts bound the episode, not the time they take: every attempt the
 // budget allows runs, however long the ones before it thought.
 func TestRepairLoop_EveryAttemptRunsHoweverLongTheModelThinks(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, func(e *Executor) { e.config.RepairMaxAttempts = 3 })
 	testPath := filepath.Join(h.ws, "main_test.go")
 	h.initial = func() *types.LLMToolResponse {

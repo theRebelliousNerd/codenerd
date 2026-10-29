@@ -57,6 +57,7 @@ func TestVirtualStoreWorkflows_ActionTypes(t *testing.T) {
 // TestVirtualStoreWorkflows_Integration requires a real kernel.
 // We can do a smoke test if setupMockKernel is available.
 func TestVirtualStoreWorkflows_Integration(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	if k == nil {
 		t.Skip("Mock kernel not available")

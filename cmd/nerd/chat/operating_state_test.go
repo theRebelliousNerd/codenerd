@@ -15,6 +15,7 @@ import (
 // is debug-self on?" is answered from facts. Dogfooding, it said "I'm in
 // perception mode, not in debug-self mode" while both were otherwise.
 func TestOperatingState_ReachesTheMainAgentsContext(t *testing.T) {
+	t.Parallel()
 	m := admissionModel(t, config.WorkModePropose, nil)
 	if err := m.kernel.Assert(core.Fact{Predicate: problemlog.DebugSelfActivePredicate}); err != nil {
 		t.Fatal(err)
@@ -39,6 +40,7 @@ func TestOperatingState_ReachesTheMainAgentsContext(t *testing.T) {
 // conversation_acts.mg), and still starts the diagnosis when Jev says it is
 // about its failures.
 func TestSelfDiagnoseQuestion_JevDecidesBetweenAnswerAndDiagnosis(t *testing.T) {
+	t.Parallel()
 	question := perception.Intent{Category: "/query", Verb: "/self_diagnose", Target: "debug-self mode", Confidence: 0.9, IsQuestion: true}
 	for _, tc := range []struct {
 		name     string

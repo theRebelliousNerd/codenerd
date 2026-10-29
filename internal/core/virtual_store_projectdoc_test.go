@@ -172,6 +172,7 @@ func TestVirtualStore_ToolWriteGuardBlocksWithoutKernel(t *testing.T) {
 }
 
 func TestVirtualStore_ToolWriteGuardStopsShellIncidentAtRegistry(t *testing.T) {
+	t.Parallel()
 	v := &VirtualStore{dreamer: NewDreamer(setupMockKernel(t))}
 	registry := tools.NewRegistry()
 	v.installToolWriteGuard(registry)

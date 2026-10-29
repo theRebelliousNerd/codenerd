@@ -28,6 +28,7 @@ func newCortexModel(t *testing.T) (Model, *core.CortexKernel) {
 // the tactile router it re-registered read permitted_action -- owned by the
 // policy shard -- where no such row ever lands.
 func TestSessionKernels_TheSessionAsksTheCortex(t *testing.T) {
+	t.Parallel()
 	ck, err := nerdsystem.NewDomainCortex(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -52,6 +53,7 @@ func TestSessionKernels_TheSessionAsksTheCortex(t *testing.T) {
 // reach the shards whose rules join them: the turn's intent is in shards
 // other than the catch-all.
 func TestDecideRoute_OnTheProductionKernel(t *testing.T) {
+	t.Parallel()
 	m, ck := newCortexModel(t)
 	intent := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "internal/session/executor.go", Confidence: 0.95}
 	assertRouteIntent(t, m, intent)

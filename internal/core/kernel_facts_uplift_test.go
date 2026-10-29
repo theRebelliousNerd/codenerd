@@ -22,6 +22,7 @@ func squeezeKernel(t *testing.T) *RealKernel {
 // A rejected first heartbeat must surface: the shard would otherwise look
 // dead while its reporter believes it is alive.
 func TestHeartbeat_RejectionSurfaces(t *testing.T) {
+	t.Parallel()
 	k := squeezeKernel(t)
 	err := k.Assert(Fact{Predicate: "system_heartbeat", Args: []any{"shard-a", "t1"}})
 	if err == nil {
@@ -68,6 +69,7 @@ func queryCount(t *testing.T, k *RealKernel, pred string) int {
 // All five retract paths must agree on the surviving set, and derived reads
 // must reflect the removal (not just the EDB slice).
 func TestRetract_AllPathsAgree(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		retract     func(k *RealKernel) error
@@ -117,6 +119,7 @@ func TestRetract_AllPathsAgree(t *testing.T) {
 // simulate rather than run blind (every guarded-deletion rule would match
 // nothing and report safe).
 func TestDreamer_RefusesBlindSimulation(t *testing.T) {
+	t.Parallel()
 	k := squeezeKernel(t)
 	d := NewDreamer(k)
 	res := d.SimulateAction(context.Background(), ActionRequest{Type: ActionDeleteFile, Target: ".git/config"})
@@ -130,6 +133,7 @@ func TestDreamer_RefusesBlindSimulation(t *testing.T) {
 
 // Healthy control: the gate must not false-refuse a normal dreamer.
 func TestDreamer_HealthySimulates(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("boot: %v", err)

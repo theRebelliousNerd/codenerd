@@ -15,6 +15,7 @@ import (
 // unsynchronized write of budget.used against a live turn. Run the whole
 // rehydrate/observe/process surface concurrently under -race.
 func TestCompressor_WhenBudgetRefreshedDuringTurns_ShouldNotRace(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	input := strings.Repeat("word ", 50)
 
@@ -70,6 +71,7 @@ func TestCompressor_WhenBudgetRefreshedDuringTurns_ShouldNotRace(t *testing.T) {
 }
 
 func TestCompressor_WhenStateReloadedDuringTurns_ShouldNotRace(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	if _, err := comp.ProcessTurn(context.Background(), Turn{Number: 1, Role: "user", UserInput: "seed"}); err != nil {
 		t.Fatalf("seed turn: %v", err)

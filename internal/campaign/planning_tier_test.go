@@ -209,6 +209,7 @@ func TestNewOrchestrator_WiresEachTierToItsComponents(t *testing.T) {
 // Decomposition runs on the planning client, and its prompts are compiled for
 // that client; the execution client and the worker see nothing.
 func TestOrchestratorDecompose_RunsOnThePlanningClient(t *testing.T) {
+	t.Parallel()
 	execution := &tierLLM{}
 	planning := &tierLLM{system: func(string, string) string { return sampleRawPlanJSON("Tier routing plan") }}
 	var workerCalls atomic.Int32
@@ -248,6 +249,7 @@ func TestOrchestratorDecompose_RunsOnThePlanningClient(t *testing.T) {
 
 // A terminal task failure replans on the planning client.
 func TestHandleTaskFailure_ReplansOnThePlanningClient(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernelWithWorkspace(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewRealKernelWithWorkspace: %v", err)
@@ -439,6 +441,7 @@ func TestNewJITPromptProvider_NilAssemblerIsNoProvider(t *testing.T) {
 // client and persisted; the replan trigger it records is consumed by the
 // next replan instead of riding along in every later one.
 func TestHandleNewRequirement_PlansOnThePlanningClientAndTheNextReplanConsumesItsTrigger(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernelWithWorkspace(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewRealKernelWithWorkspace: %v", err)

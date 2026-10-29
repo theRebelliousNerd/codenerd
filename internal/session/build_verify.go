@@ -530,13 +530,45 @@ func gateTests(ctx context.Context, workspace string, result *ExecutionResult, w
 		}
 		return v, uncovered
 	}
+	key := gateKey("importers", goWorkspace(workspace), result)
+	if run, ok := recalledGate(result, key); ok {
+		result.ImporterCheck = run.v
+		return v, uncovered
+	}
 	result.ImporterCheck = verifyImporters(ctx, workspace, result)
+	rememberGate(result, key, result.ImporterCheck, nil)
 	return v, uncovered
 }
 
-// gateOwnTests is the gate over the turn's own packages.
+// gateOwnTests is the gate over the turn's own packages. The same measurement
+// on the same writes is answered once (gate_memo.go); a coverage run answers a
+// request without coverage too, being the same run with a profile.
 func gateOwnTests(ctx context.Context, workspace string, result *ExecutionResult, withCoverage bool) (TestVerification, []UncoveredBlock) {
 	workspace = goWorkspace(workspace)
+	covered := gateKey("own+coverage", workspace, result)
+	if run, ok := recalledGate(result, covered); ok {
+		if withCoverage {
+			return run.v, run.uncovered
+		}
+		return run.v, nil
+	}
+	plain := gateKey("own", workspace, result)
+	if !withCoverage {
+		if run, ok := recalledGate(result, plain); ok {
+			return run.v, nil
+		}
+	}
+	v, uncovered := measureOwnTests(ctx, workspace, result, withCoverage)
+	if withCoverage {
+		rememberGate(result, covered, v, uncovered)
+	} else {
+		rememberGate(result, plain, v, nil)
+	}
+	return v, uncovered
+}
+
+// measureOwnTests runs the gate over the turn's own packages.
+func measureOwnTests(ctx context.Context, workspace string, result *ExecutionResult, withCoverage bool) (TestVerification, []UncoveredBlock) {
 	runnable, gated := splitTagGatedPackages(workspace, packagesForPaths(result.WrittenPaths))
 	if len(gated) > 0 {
 		if failed, ok := vetTagGatedPackages(ctx, workspace, gated); !ok {

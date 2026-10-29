@@ -62,6 +62,7 @@ func cleanSource() string {
 }
 
 func TestModularity_TooLong(t *testing.T) {
+	t.Parallel()
 	k := newRealKernelForModularity(t)
 	path := "a/b.go"
 	src := longFuncSource("LongFunc", 120)
@@ -108,6 +109,7 @@ func factFile(v any) string {
 // the parameter limit: its signature belongs to the interface it implements.
 // The same six parameters on a plain function in the same file still violate.
 func TestModularity_ManyParamsMethodNotCharged(t *testing.T) {
+	t.Parallel()
 	k := newRealKernelForModularity(t)
 	path := "a/gate_fake_test.go"
 	src := "package p\n" +
@@ -136,6 +138,7 @@ func TestModularity_ManyParamsMethodNotCharged(t *testing.T) {
 }
 
 func TestModularity_ManyParams(t *testing.T) {
+	t.Parallel()
 	k := newRealKernelForModularity(t)
 	path := "a/b.go"
 	src := manyParamsSource("ManyParams", 7)
@@ -162,6 +165,7 @@ func TestModularity_ManyParams(t *testing.T) {
 }
 
 func TestModularity_DeepNesting(t *testing.T) {
+	t.Parallel()
 	k := newRealKernelForModularity(t)
 	path := "a/b.go"
 	src := deepNestingSource("DeepFunc", 6)
@@ -188,6 +192,7 @@ func TestModularity_DeepNesting(t *testing.T) {
 }
 
 func TestModularity_CleanFunction(t *testing.T) {
+	t.Parallel()
 	k := newRealKernelForModularity(t)
 	path := "a/b.go"
 	src := cleanSource()
@@ -207,6 +212,7 @@ func TestModularity_CleanFunction(t *testing.T) {
 }
 
 func TestModularity_Unparseable(t *testing.T) {
+	t.Parallel()
 	k := newRealKernelForModularity(t)
 	path := "a/b.go"
 	src := "this is not go {{{ !@#"
@@ -226,6 +232,7 @@ func TestModularity_Unparseable(t *testing.T) {
 }
 
 func TestModularity_LeavesKernelClean(t *testing.T) {
+	t.Parallel()
 	k := newRealKernelForModularity(t)
 	path := "a/b.go"
 

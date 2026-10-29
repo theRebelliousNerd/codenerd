@@ -13,6 +13,7 @@ import (
 // verdict on a single kernel and not on the one that ships. External test
 // package: shards transitively imports session.
 func TestStepPlan_MatchesOnShardedKernel(t *testing.T) {
+	t.Parallel()
 	cortex := bootRetentionCortex(t)
 	single, err := core.NewRealKernel()
 	if err != nil {

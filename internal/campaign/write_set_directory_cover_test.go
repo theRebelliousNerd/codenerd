@@ -37,6 +37,7 @@ func TestWriteSetLockManager_DirectoryBlockedByHeldFile(t *testing.T) {
 // Error branch of the same descendant conflict: a blocking acquire waits and
 // then reports ErrWriteSetLockTimeout instead of granting.
 func TestWriteSetLockManager_DirectoryAcquireTimesOutWhileFileHeld(t *testing.T) {
+	t.Parallel()
 	manager := newWriteSetLockManager(t.TempDir())
 
 	fileLease, err := manager.acquire(context.Background(), "holder-a", []string{"internal/foo/x.go"}, time.Millisecond)
@@ -63,6 +64,7 @@ func TestWriteSetLockManager_DirectoryAcquireTimesOutWhileFileHeld(t *testing.T)
 // Waiting branch: the directory requester blocks while the file is held and
 // is granted once the file is released.
 func TestWriteSetLockManager_DirectoryWaitsThenProceedsAfterFileRelease(t *testing.T) {
+	t.Parallel()
 	manager := newWriteSetLockManager(t.TempDir())
 
 	fileLease, err := manager.acquire(context.Background(), "holder-a", []string{"internal/foo/x.go"}, time.Millisecond)

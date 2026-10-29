@@ -104,6 +104,7 @@ func TestTruncateFact_RuneSafe(t *testing.T) {
 // LoadState refuses what it cannot restore, and neither direction of the
 // state round-trip aliases engine memory.
 func TestCompressor_LoadStateGuardsAndIsolation(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	if err := comp.LoadState(nil); err == nil {
 		t.Error("LoadState(nil): expected an error, got nil")
@@ -154,6 +155,7 @@ func TestCompressor_LoadStateGuardsAndIsolation(t *testing.T) {
 // A missing kernel is an error from BuildContext, and a hostile window
 // configuration must not panic any turn or build path.
 func TestCompressor_NilKernelAndNegativeWindow(t *testing.T) {
+	t.Parallel()
 	bare := NewCompressor(nil, nil, nil)
 	if _, err := bare.BuildContext(context.Background()); err == nil {
 		t.Error("BuildContext without a kernel: expected an error, got nil")
@@ -175,6 +177,7 @@ func TestCompressor_NilKernelAndNegativeWindow(t *testing.T) {
 // Feedback written outside [0,1] is clamped at the door, and blank predicate
 // names never become phantom aggregation rows.
 func TestFeedbackStore_ClampsAndSkipsBlanks(t *testing.T) {
+	t.Parallel()
 	store, err := NewContextFeedbackStore(filepath.Join(t.TempDir(), "fb.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -211,6 +214,7 @@ func TestFeedbackStore_ClampsAndSkipsBlanks(t *testing.T) {
 // refresh must skip it instead of inventing a referenced turn. A numeric
 // string counts as its number — the schema declares these slots /string.
 func TestBackReference_SkipsNonNumericTurnIDs(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	byPred := map[string][]core.Fact{
 		// int IDs like the session recorder emits, plus one bogus value.

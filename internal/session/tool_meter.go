@@ -129,7 +129,7 @@ func definitionTokens(def types.ToolDefinition) int {
 // toolChannelOf names the path a call arrived on: a generated tool, an MCP
 // verb, or the model's native or Piggyback tool channel.
 func (e *Executor) toolChannelOf(name string, result *ExecutionResult) (types.ToolChannel, types.ToolOrigin) {
-	if !tools.Global().Has(name) {
+	if !e.modularTools().Has(name) {
 		e.mu.RLock()
 		reg := e.ouroborosRegistry
 		e.mu.RUnlock()

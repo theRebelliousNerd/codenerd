@@ -28,6 +28,7 @@ const upliftRule = `derived_val(X) :- base_val(X).`
 // must leave neither memory nor disk touched: a nil error used to persist
 // a junk comment block to learned.mg.
 func TestHotLoadLearnedRule_RejectsEmpty(t *testing.T) {
+	t.Parallel()
 	k, dir := seedLearnedKernel(t)
 	baseline := k.GetLearned()
 	for _, rule := range []string{"", "   ", "\n\t\n"} {
@@ -48,6 +49,7 @@ func TestHotLoadLearnedRule_RejectsEmpty(t *testing.T) {
 // A valid learned rule is installed AND persisted: after Evaluate, the
 // derivation is queryable, and learned.mg contains the rule for reboot.
 func TestHotLoadLearnedRule_PersistsAndDerives(t *testing.T) {
+	t.Parallel()
 	k, dir := seedLearnedKernel(t)
 	if err := k.HotLoadLearnedRule(upliftRule); err != nil {
 		t.Fatalf("HotLoadLearnedRule: %v", err)
@@ -78,6 +80,7 @@ func TestHotLoadLearnedRule_PersistsAndDerives(t *testing.T) {
 // contract so a future "fix" cannot silently turn validation into a load
 // (or vice versa) without breaking this test.
 func TestHotLoadRule_ValidatesWithoutInstalling(t *testing.T) {
+	t.Parallel()
 	k, _ := seedLearnedKernel(t)
 	if err := k.HotLoadRule(upliftRule); err != nil {
 		t.Fatalf("HotLoadRule: %v", err)

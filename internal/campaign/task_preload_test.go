@@ -53,6 +53,7 @@ func preloadCampaign(tasks ...Task) *Campaign {
 }
 
 func TestTaskPreload_TheBriefsNamedElementsAndTargetArriveWithRevisions(t *testing.T) {
+	t.Parallel()
 	ws := preloadWorkspace(t)
 	c := preloadCampaign(Task{
 		ID: "/task_fix", Type: TaskTypeFileModify, Status: TaskPending,
@@ -117,6 +118,7 @@ func TestTaskPreload_TheBriefsNamedElementsAndTargetArriveWithRevisions(t *testi
 // Over the configured sizes, a file is named with its count and an element
 // with its outline row: never a cut body.
 func TestTaskPreload_OverTheSizesIsACountOrASignature(t *testing.T) {
+	t.Parallel()
 	ws := preloadWorkspace(t)
 	c := preloadCampaign(Task{
 		ID: "/task_fix", Type: TaskTypeFileModify, Status: TaskPending,
@@ -146,6 +148,7 @@ func TestTaskPreload_OverTheSizesIsACountOrASignature(t *testing.T) {
 // The code a task's dependency wrote is preloaded even when its brief does not
 // name it; a directory the brief names is preloaded as the package outline.
 func TestTaskPreload_ADependencysCodeAndANamedPackageArrive(t *testing.T) {
+	t.Parallel()
 	ws := preloadWorkspace(t)
 	c := preloadCampaign(
 		Task{ID: "/task_util", Type: TaskTypeFileCreate, Status: TaskCompleted, Description: "Create the escape helper",
@@ -186,6 +189,7 @@ func TestTaskPreload_ADependencysCodeAndANamedPackageArrive(t *testing.T) {
 // A short name two packages declare is an element only where the brief's own
 // files decide which; otherwise it is a search, and nothing is preloaded.
 func TestTaskPreload_AnAmbiguousNameResolvesInTheBriefsFilesOnly(t *testing.T) {
+	t.Parallel()
 	ws := preloadWorkspace(t)
 	writeEvidenceDoc(t, ws, "pkg/other/other.go", "package other\n\n// NewWidget is another constructor.\nfunc NewWidget() int { return 1 }\n")
 	c := preloadCampaign(

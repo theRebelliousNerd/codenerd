@@ -163,6 +163,7 @@ func TestListSafeActions_SortedCanonicalDeduped(t *testing.T) {
 }
 
 func TestSafeActionProjection_LiveKernel(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel error = %v", err)

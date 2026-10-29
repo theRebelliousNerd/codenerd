@@ -16,6 +16,7 @@ import (
 // is compared, so a split join in the last-two aggregation shows as a
 // mismatch. Expected values pin the behavior on both.
 func TestRecursePolicy_OnProductionCortex(t *testing.T) {
+	t.Parallel()
 	ck, err := nerdsystem.NewDomainCortex(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewDomainCortex: %v", err)

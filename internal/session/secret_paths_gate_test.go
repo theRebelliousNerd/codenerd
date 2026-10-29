@@ -11,6 +11,7 @@ import (
 // kernel: the measured fact is asserted after pending_action, the order
 // production uses, and the constitution must still deny.
 func TestCheckSafety_RefusesEveryToolOnASecretFile(t *testing.T) {
+	t.Parallel()
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatal(err)
@@ -50,6 +51,7 @@ func TestCheckSafety_RefusesEveryToolOnASecretFile(t *testing.T) {
 }
 
 func TestCheckSafety_SecretRefusalSaysWhy(t *testing.T) {
+	t.Parallel()
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatal(err)

@@ -37,6 +37,7 @@ func (e *failingObservedExecutor) ExecuteObservedWithContext(context.Context, se
 // A background job whose worker fails after tool work tells the user what it
 // had already done, not only that it stopped.
 func TestJourney_AFailedBackgroundJobSaysWhatItHadDone(t *testing.T) {
+	t.Parallel()
 	research := perception.Intent{
 		Category: "/query", Verb: "/research", Target: "retry policy", Confidence: 0.9,
 		Response: "I'll have the researcher look.",

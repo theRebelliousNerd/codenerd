@@ -79,6 +79,7 @@ func TestUndoAttemptWrites_PutsBackOnlyWhatTheAttemptStillOwns(t *testing.T) {
 // The retry must find that file as it was -- not importing a file the
 // rollback removed.
 func TestRunPhase_AFailedAttemptsWriteOutsideItsWriteSetIsUndone(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("the shipped corpus must load: %v", err)

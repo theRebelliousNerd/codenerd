@@ -23,6 +23,7 @@ func realKernel(t *testing.T) *core.RealKernel {
 // has no row for keeps the project's language (""). The measurement is
 // transient: nothing about the asked-about file is left in the kernel.
 func TestLanguageOfFile_TheKernelNamesTheLanguage(t *testing.T) {
+	t.Parallel()
 	k := realKernel(t)
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
 

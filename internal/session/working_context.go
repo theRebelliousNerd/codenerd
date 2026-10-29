@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"codenerd/internal/broker"
+	nerdconfig "codenerd/internal/config"
 	working "codenerd/internal/context"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
@@ -95,11 +96,11 @@ const repairRegime = "repair"
 // recovers evidence the loop already gathered rather than exploring for more.
 // External tools are exploration too: observed 2026-09-11, a model under the
 // regime reached for mcp_context and mcp_map instead of writing.
-func closedForReading(name string) bool {
+func (e *Executor) closedForReading(name string) bool {
 	if name == "recall_context" {
 		return false
 	}
-	effect, err := tools.LookupEffect(name)
+	effect, err := e.modularTools().LookupEffect(name)
 	return err == nil && (effect == tools.EffectRead || effect == tools.EffectExternal)
 }
 
@@ -141,10 +142,10 @@ const structuralFirstText = "Raw search (grep, glob, list_files, search_code) is
 const searchOpenedText = "Raw search (grep, glob, list_files, search_code) is now offered as well. Prefer the structural queries where they answer; search text where they cannot."
 
 // commitRegimeDefinitions is the catalog offered under the commit regime.
-func commitRegimeDefinitions(definitions []types.ToolDefinition) []types.ToolDefinition {
+func (e *Executor) commitRegimeDefinitions(definitions []types.ToolDefinition) []types.ToolDefinition {
 	kept := make([]types.ToolDefinition, 0, len(definitions))
 	for _, def := range definitions {
-		if !closedForReading(def.Name) {
+		if !e.closedForReading(def.Name) {
 			kept = append(kept, def)
 		}
 	}
@@ -424,7 +425,7 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	// admission.md, Finding one). It is filed as a non-file observation: its
 	// revision is stable, so it is historical evidence of what was fetched,
 	// and a later fetch of the same arguments supersedes it.
-	if observed == "" && (entity != "" || !remoteObservation(call.Name)) {
+	if observed == "" && (entity != "" || !e.remoteObservation(call.Name)) {
 		observed = loop.focus
 	}
 	revision := loop.set.Revision(observed)
@@ -443,7 +444,7 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	loop.handles[id] = handle
 	loop.remember(call.ID, id)
 	if toolErr == nil {
-		if effect, err := tools.LookupEffect(call.Name); err == nil && effect == tools.EffectWrite {
+		if effect, err := e.modularTools().LookupEffect(call.Name); err == nil && effect == tools.EffectWrite {
 			if loop.written == nil {
 				loop.written = make(map[string]bool)
 			}
@@ -593,30 +594,27 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		return history, nil
 	}
 	start := ledgerStart(history)
-	if err := e.updateLedger(ctx, loop, history, start); err != nil {
+	window := e.inputBudgetFor(loop.inputCap)
+	// What the window leaves once this round's request, as the ledger stands
+	// before the policy decides, is counted. The policy's limit is measured
+	// against it (working_ledger_room), so a ledger that outgrows the request
+	// is compacted by the policy, once an epoch, and not cut by the guard
+	// below at a different place every round.
+	messages, err := loop.assemble(ctx, history, start)
+	if err != nil {
+		return nil, err
+	}
+	free, err := workingWindowRemaining(window.tokens, system, messages, definitions)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.updateLedger(ctx, loop, history, start, free-workingInputReserve); err != nil {
+		return nil, err
+	}
+	if messages, err = loop.assemble(ctx, history, start); err != nil {
 		return nil, err
 	}
 
-	messages := append([]types.Message(nil), loop.prior...)
-	messages = append(messages, types.Message{Role: "user", Text: loop.anchor}.WithTrailingText(loop.appended[anchorLedgerKey]))
-	for i := start; i < len(history); i++ {
-		// WithToolResults, not a field assignment: a block-built turn sends
-		// its blocks, so a copy made on the flat field alone would share (and
-		// let the archive below miss) the payload.
-		results := append([]types.ToolResult(nil), history[i].ToolResults...)
-		for j := range results {
-			if loop.evicted[results[j].ToolUseID] {
-				handle, err := loop.modelHandle(ctx, loop.observations[results[j].ToolUseID])
-				if err != nil {
-					return nil, err
-				}
-				results[j].Content = compactedResultHandle(results[j].Content, handle)
-			}
-		}
-		messages = append(messages, history[i].WithToolResults(results).WithTrailingText(loop.appended[ledgerKey(i)]))
-	}
-
-	window := e.inputBudgetFor(loop.inputCap)
 	remaining, err := workingWindowRemaining(window.tokens, system, messages, definitions)
 	if err != nil {
 		return nil, err
@@ -651,6 +649,31 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		if remaining, err = workingWindowRemaining(window.tokens, system, messages, definitions); err != nil {
 			return nil, err
 		}
+	}
+	return messages, nil
+}
+
+// assemble is the request the loop sends as its ledger now stands: the prior
+// turns, the anchor and every round since, each evicted result rendered as
+// its recall handle and the harness text appended where it arose.
+func (loop *workingLoop) assemble(ctx context.Context, history []types.Message, start int) ([]types.Message, error) {
+	messages := append([]types.Message(nil), loop.prior...)
+	messages = append(messages, types.Message{Role: "user", Text: loop.anchor}.WithTrailingText(loop.appended[anchorLedgerKey]))
+	for i := start; i < len(history); i++ {
+		// WithToolResults, not a field assignment: a block-built turn sends
+		// its blocks, so a copy made on the flat field alone would share (and
+		// let the archive in prepareWorkingRequest miss) the payload.
+		results := append([]types.ToolResult(nil), history[i].ToolResults...)
+		for j := range results {
+			if loop.evicted[results[j].ToolUseID] {
+				handle, err := loop.modelHandle(ctx, loop.observations[results[j].ToolUseID])
+				if err != nil {
+					return nil, err
+				}
+				results[j].Content = compactedResultHandle(results[j].Content, handle)
+			}
+		}
+		messages = append(messages, history[i].WithToolResults(results).WithTrailingText(loop.appended[ledgerKey(i)]))
 	}
 	return messages, nil
 }
@@ -754,7 +777,11 @@ func ledgerStart(history []types.Message) int {
 // focus view when the focus or its file changed, a notice for every carried
 // observation whose file changed -- to the request's last user turn. Go
 // measures (sizes, rounds, revisions) and renders; the policy decides.
-func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history []types.Message, start int) error {
+//
+// free is how many tokens the request as it stands leaves in its input
+// window beyond the guard's reserve (negative when it is over). The room the
+// policy compacts against is the ledger's own bytes plus that much more.
+func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history []types.Message, start, free int) error {
 	round := 0
 	var entries []working.LedgerEntry
 	for i := start; i < len(history); i++ {
@@ -774,12 +801,17 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 		}
 	}
 	entries = mergeRepeatedCalls(entries)
+	room := free * nerdconfig.BytesPerToken
+	for _, entry := range entries {
+		room += entry.Bytes
+	}
 	decision, err := loop.set.Ledger(ctx, working.LedgerRound{
 		Entries: entries, Round: round, Restated: loop.restated,
 		Hot: loop.hotFiles(), Recalled: loop.recalledIDs(),
 		// The focus view's revision comes from the same epoch the policy
 		// decided on, not from a second read of the file.
 		Observe: []string{loop.focus},
+		Room:    max(room, 0),
 	})
 	if err != nil {
 		return fmt.Errorf("working ledger: %w", err)
@@ -980,7 +1012,7 @@ func (e *Executor) completeWithWorkingContext(ctx context.Context, provider type
 	}
 	if loop != nil {
 		if loop.regime == commitRegime {
-			definitions = commitRegimeDefinitions(definitions)
+			definitions = e.commitRegimeDefinitions(definitions)
 		}
 		if !loop.searchOpen {
 			definitions = structuralFirstDefinitions(definitions)
@@ -995,7 +1027,7 @@ func (e *Executor) completeWithWorkingContext(ctx context.Context, provider type
 
 // remoteObservation reports a tool whose result is acquired from outside the
 // workspace (tools.EffectExternal): it has no workspace revision to inherit.
-func remoteObservation(name string) bool {
-	effect, err := tools.LookupEffect(name)
+func (e *Executor) remoteObservation(name string) bool {
+	effect, err := e.modularTools().LookupEffect(name)
 	return err == nil && effect == tools.EffectExternal
 }

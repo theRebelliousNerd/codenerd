@@ -96,6 +96,7 @@ func with(base map[string]float64, key string, p float64) map[string]float64 {
 }
 
 func TestJevAuthorization_ThenCommitItReachesTheDelegatedTask(t *testing.T) {
+	t.Parallel()
 	m, probe, _ := authJourney(t, config.WorkModeYolo, fixAndCommit)
 	say(t, m, "fix the typo in README.md, then commit it")
 	if got := probe.lastAuthorization(t); !got.Has(perception.AuthorizeCommit) || len(got.Kinds()) != 1 {
@@ -104,6 +105,7 @@ func TestJevAuthorization_ThenCommitItReachesTheDelegatedTask(t *testing.T) {
 }
 
 func TestJevAuthorization_NoCommitWordGrantsNothing(t *testing.T) {
+	t.Parallel()
 	for name, jev := range map[string]map[string]float64{
 		"jev says no":           with(fixAndCommit, "asks_to_commit", 0.03),
 		"jev unsettled":         with(fixAndCommit, "asks_to_commit", 0.5),
@@ -137,6 +139,7 @@ func TestJevAuthorization_NoCommitWordGrantsNothing(t *testing.T) {
 
 // Jev off or failing is no evidence: the turn runs as before, holding nothing.
 func TestJevAuthorization_JevFailureGrantsNothing(t *testing.T) {
+	t.Parallel()
 	m, probe, server := authJourney(t, config.WorkModeYolo, fixAndCommit)
 	server.fail = true
 	say(t, m, "fix the typo in README.md, then commit it")
@@ -147,6 +150,7 @@ func TestJevAuthorization_JevFailureGrantsNothing(t *testing.T) {
 
 // Last turn's judgment does not leak into the next turn's authorization.
 func TestJevAuthorization_DoesNotOutliveItsTurn(t *testing.T) {
+	t.Parallel()
 	m, probe, server := authJourney(t, config.WorkModeYolo, fixAndCommit)
 	m, _, _ = say(t, m, "fix the typo in README.md, then commit it")
 	if !probe.lastAuthorization(t).Has(perception.AuthorizeCommit) {
@@ -163,6 +167,7 @@ func TestJevAuthorization_DoesNotOutliveItsTurn(t *testing.T) {
 // Work held for a go-ahead keeps the authorization its request earned: the
 // "go" that approves it asks no judgments, and the held intent is the request.
 func TestJevAuthorization_HeldWorkKeepsItsRequestsAuthorizationThroughGo(t *testing.T) {
+	t.Parallel()
 	m, probe, server := authJourney(t, config.WorkModePropose, fixAndCommit)
 	m, msg, _ := say(t, m, "fix the typo in README.md, then commit it")
 	if _, ok := msg.(holdMsg); !ok {
@@ -183,6 +188,7 @@ func TestJevAuthorization_HeldWorkKeepsItsRequestsAuthorizationThroughGo(t *test
 
 // A held request that earned no authorization does not gain one from "go".
 func TestJevAuthorization_GoCannotGrantWhatTheRequestDidNot(t *testing.T) {
+	t.Parallel()
 	m, probe, server := authJourney(t, config.WorkModePropose, with(fixAndCommit, "asks_to_commit", 0.02))
 	m, _, _ = say(t, m, "fix the typo in README.md")
 	server.set(with(fixAndCommit, "asks_to_commit", 0.99)) // the word "go" judged as a commit would be a bug

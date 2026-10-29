@@ -57,6 +57,7 @@ func queryRows(t *testing.T, e *Executor, predicate string) []types.Fact {
 }
 
 func TestSettleTurn_HardLoopErrorKeepsTheMeasuredWork(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, nil)
 	followUps := failAfterWrite(h, func(context.Context) error { return errProviderDown })
 
@@ -97,6 +98,7 @@ func TestSettleTurn_HardLoopErrorKeepsTheMeasuredWork(t *testing.T) {
 }
 
 func TestSettleTurn_EveryConsumerReadsTheSameFailure(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, nil)
 	failAfterWrite(h, func(context.Context) error { return errProviderDown })
 
@@ -134,6 +136,7 @@ func TestSettleTurn_EveryConsumerReadsTheSameFailure(t *testing.T) {
 }
 
 func TestSettleTurn_RetiresExactlyTheTurnsFacts(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, nil)
 	failAfterWrite(h, func(context.Context) error { return errProviderDown })
 
@@ -180,6 +183,7 @@ func TestSettleTurn_RetiresExactlyTheTurnsFacts(t *testing.T) {
 }
 
 func TestSettleTurn_ACanceledTurnIsStillAccountedFor(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -208,6 +212,7 @@ func TestSettleTurn_ACanceledTurnIsStillAccountedFor(t *testing.T) {
 }
 
 func TestSettleTurn_FirstProviderCallFailingIsAFailedTurnWithNoEffects(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, nil)
 	h.executor.llmClient = &MockToolResultsLLM{
 		MockLLMClient: &MockLLMClient{
@@ -237,6 +242,7 @@ func TestSettleTurn_FirstProviderCallFailingIsAFailedTurnWithNoEffects(t *testin
 }
 
 func TestSettleTurn_ATurnRefusedBeforeAdmissionHasNoResult(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, nil)
 	result, err := h.executor.ProcessWithIntent(context.Background(), "   ", nil)
 	if err == nil || result != nil {
@@ -266,6 +272,7 @@ func TestTurnSucceeded_ReadsWhatWasReturned(t *testing.T) {
 // The inline task topology returns the failure and the worker's observation
 // together.
 func TestSettleTurn_InlineTaskKeepsPartialStateOnError(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, nil)
 	failAfterWrite(h, func(context.Context) error { return errProviderDown })
 	exec := NewJITExecutor(h.executor, nil, &MockTransducer{})
@@ -337,6 +344,7 @@ func TestSubagent_PresetIntentCarriesTheRoutedConstraint(t *testing.T) {
 // asserted. Its catalog facts are recorded before the prompt compiles; a
 // baseline that cannot be assembled used to return without retiring them.
 func TestSettleTurn_AnEarlyExitRetiresTheCatalogFacts(t *testing.T) {
+	t.Parallel()
 	h := newRepairHarness(t, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

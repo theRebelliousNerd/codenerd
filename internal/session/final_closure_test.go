@@ -63,6 +63,7 @@ func laterWrite(t *testing.T, e *Executor, name, content string) {
 }
 
 func TestCloseChangeEvidence_ALaterBranchNoTestRunsIsNamed(t *testing.T) {
+	t.Parallel()
 	e, result := verifyGateExecutor(t)
 	before := closureWorkspace(t, e, map[string]string{"main.go": closureDouble, "main_test.go": closureTestDouble})
 	result.PreWriteContents = map[string]PreImage{"main.go": {}}
@@ -84,6 +85,7 @@ func TestCloseChangeEvidence_ALaterBranchNoTestRunsIsNamed(t *testing.T) {
 }
 
 func TestCloseChangeEvidence_ALaterRoundThatPaysTheDebtClearsIt(t *testing.T) {
+	t.Parallel()
 	e, result := verifyGateExecutor(t)
 	before := closureWorkspace(t, e, map[string]string{"main.go": closureHalf, "main_test.go": closureTestDouble})
 	result.WrittenPaths = []string{"main.go", "main_test.go"}
@@ -101,6 +103,7 @@ func TestCloseChangeEvidence_ALaterRoundThatPaysTheDebtClearsIt(t *testing.T) {
 }
 
 func TestCloseChangeEvidence_ALaterVetFindingIsNamed(t *testing.T) {
+	t.Parallel()
 	e, result := verifyGateExecutor(t)
 	before := closureWorkspace(t, e, map[string]string{"main.go": closureDouble, "main_test.go": closureTestDouble})
 	result.PreWriteContents = map[string]PreImage{"main.go": {}}
@@ -123,6 +126,7 @@ func TestCloseChangeEvidence_ALaterVetFindingIsNamed(t *testing.T) {
 // vet check it has, though a later write would now fail vet. Until 2026-09-23
 // the switches decided here -- a second answer to turn_round_owed.
 func TestCloseChangeEvidence_OnlyTheRoundsThatRanAreRemeasured(t *testing.T) {
+	t.Parallel()
 	e, result := verifyGateExecutor(t)
 	before := closureWorkspace(t, e, map[string]string{"main.go": closureDouble, "main_test.go": closureTestDouble})
 	result.PreWriteContents = map[string]PreImage{"main.go": {}}
@@ -142,6 +146,7 @@ func TestCloseChangeEvidence_OnlyTheRoundsThatRanAreRemeasured(t *testing.T) {
 }
 
 func TestCloseChangeEvidence_ALaterDeletedTestFailsTheTurn(t *testing.T) {
+	t.Parallel()
 	e, result := verifyGateExecutor(t)
 	before := closureWorkspace(t, e, map[string]string{"main.go": closureDouble, "main_test.go": closureTestBoth})
 	result.WrittenPaths = []string{"main.go", "main_test.go"}
@@ -217,6 +222,7 @@ const upliftAsk = "An adversarial review of the code you just wrote"
 // The critic's uplift adds code no test runs. It comes before the coverage
 // round now, so that round hands the model the new lines like any others.
 func TestCriticUplift_ItsNewCodeGetsTheCoverageRound(t *testing.T) {
+	t.Parallel()
 	coveragePrompt := ""
 	_, result, err := criticTurn(t, nil,
 		map[string]string{"main.go": closureDouble, "main_test.go": closureTestDouble},
@@ -244,6 +250,7 @@ func TestCriticUplift_ItsNewCodeGetsTheCoverageRound(t *testing.T) {
 // The critic's opinion is advisory: an uplift that breaks the tests is
 // undone, and the change that was green without it stays green.
 func TestCriticUplift_ThatBreaksTheTestsIsUndone(t *testing.T) {
+	t.Parallel()
 	h, result, err := criticTurn(t, nil,
 		map[string]string{"main.go": closureDouble, "main_test.go": closureTestDouble},
 		func(prompt string) map[string]string {
@@ -269,6 +276,7 @@ func TestCriticUplift_ThatBreaksTheTestsIsUndone(t *testing.T) {
 // The critic's uplift deletes a test the workspace had before the turn. The
 // deleted-test round comes after the critic now, and hands the test back.
 func TestCriticUplift_ADeletedTestIsHandedBack(t *testing.T) {
+	t.Parallel()
 	restorePrompt := ""
 	// main.go exists before the turn, as the package its tests test does;
 	// the turn edits it. A turn that created it would owe it a test of its

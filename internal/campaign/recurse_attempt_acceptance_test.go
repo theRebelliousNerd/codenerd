@@ -127,6 +127,7 @@ func acceptanceVerdict(t *testing.T, orch *Orchestrator) string {
 // The model's "done" with the check still failing is not accepted: the
 // witness runs, fails, and holds completion with a remediation phase.
 func TestRecurseAttempt_AFailingCheckIsNotAccepted(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("no go toolchain")
 	}
@@ -154,6 +155,7 @@ func TestRecurseAttempt_AFailingCheckIsNotAccepted(t *testing.T) {
 // The same attempt with the check passing is accepted: one round, a /pass
 // fact, and completion derives.
 func TestRecurseAttempt_APassingCheckIsAccepted(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("no go toolchain")
 	}

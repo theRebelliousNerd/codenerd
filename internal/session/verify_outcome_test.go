@@ -124,6 +124,22 @@ func (p *verifyProseRepair) CompleteWithToolResults(_ context.Context, _ string,
 	return &types.LLMToolResponse{Text: "repaired in prose"}, nil
 }
 
+// verifyEditingRepair is a repair model whose every round changes path on
+// disk, as an edit would, and answers in prose.
+type verifyEditingRepair struct {
+	*MockLLMClient
+	path  string
+	calls int
+}
+
+func (p *verifyEditingRepair) CompleteWithToolResults(_ context.Context, _ string, _ []types.Message, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	p.calls++
+	if err := os.WriteFile(p.path, []byte("package main // repair "+strings.Repeat("+", p.calls)+"\n"), 0o644); err != nil {
+		return nil, err
+	}
+	return &types.LLMToolResponse{Text: "repaired"}, nil
+}
+
 func snapshotForTest(ws string) (string, error) {
 	return evidence.Snapshot(context.Background(), ws)
 }
@@ -254,7 +270,9 @@ func TestVerifyAndRepairTests_RecheckTimeoutRetainsOriginalFailure(t *testing.T)
 	stubVerifySeams(t, time.Minute, 40*time.Millisecond, builds.runWithCtx, tests.runWithCtx)
 
 	e, result := verifyGateExecutor(t)
-	trp := &verifyProseRepair{}
+	// The repair changes the file, so the recheck measures a new revision
+	// (an unchanged tree would be answered by the first run, gate_memo.go).
+	trp := &verifyEditingRepair{path: filepath.Join(e.config.WorkspaceRoot, "main.go")}
 	jitCfg := &jitconfig.EffectiveAgentRuntimeConfig{}
 
 	_, _, err := e.verifyAndRepairTests(inTurnWorkingLoop(t, e), trp, "system", nil, nil, jitCfg, result)

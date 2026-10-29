@@ -100,6 +100,7 @@ func lastAssistant(m Model) string {
 // the work as a proposal, the conversation continues, and "go" starts exactly
 // the held work under its own intent.
 func TestJourney_ProposeHoldsUntilGoThenRunsTheHeldWork(t *testing.T) {
+	t.Parallel()
 	fix := perception.Intent{
 		Category: "/mutation", Verb: "/fix", Target: "README.md", Confidence: 0.95,
 		Response: "I can fix the typo in README.md.",
@@ -159,6 +160,7 @@ func TestJourney_ProposeHoldsUntilGoThenRunsTheHeldWork(t *testing.T) {
 // Yolo mode: the agent's readiness judgment gates the start. An open question
 // holds the work; once the answer settles it, the same request runs.
 func TestJourney_YoloWaitsOnAnOpenQuestionThenRuns(t *testing.T) {
+	t.Parallel()
 	asks := perception.Intent{
 		Category: "/mutation", Verb: "/fix", Target: "README.md", Confidence: 0.95,
 		Response: "Which typo do you mean?",
@@ -190,6 +192,7 @@ func TestJourney_YoloWaitsOnAnOpenQuestionThenRuns(t *testing.T) {
 // once, the shard's result arrives as its own message, and the kernel names
 // the job while it runs.
 func TestJourney_ReviewRunsInTheBackgroundAndReportsBack(t *testing.T) {
+	t.Parallel()
 	review := perception.Intent{
 		Category: "/query", Verb: "/research", Target: "retry policy", Confidence: 0.9,
 		Response: "I'll have the researcher look.",
@@ -251,6 +254,7 @@ func runBatchFor[T tea.Msg](t *testing.T, cmd tea.Cmd) T {
 // root-causes the hot problems in the background, and its findings come back
 // as a fix that the work mode holds as a proposal.
 func TestJourney_DebugYourselfChainEndsInAProposedFix(t *testing.T) {
+	t.Parallel()
 	diagnose := perception.Intent{
 		Category: "/query", Verb: "/self_diagnose", Target: "codenerd", Confidence: 0.92,
 		Response: "Let me look at my own logs.",

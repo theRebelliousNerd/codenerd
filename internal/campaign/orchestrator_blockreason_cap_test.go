@@ -15,6 +15,7 @@ import (
 // runPhase marked the campaign failed without persisting BlockReason, leaving
 // status /failed with an empty block_reason so resume could not prefer it.
 func TestFailCampaign_PersistsBlockReasonFromTaskLoop(t *testing.T) {
+	t.Parallel()
 	kernel := &MockKernel{}
 	_ = kernel.Assert(core.Fact{
 		Predicate: "campaign_blocked",
@@ -86,6 +87,7 @@ func TestFailCampaign_PersistsBlockReasonFromTaskLoop(t *testing.T) {
 // fire, and never again for the same task: the kernel derives
 // task_next_move(/replan) once, then /fail once task_replanned_at_cap holds.
 func TestAttemptCap_TriggersReplanBeforeBlock(t *testing.T) {
+	t.Parallel()
 	orch, kernel := newPolicyFailureOrchestrator(t, func(c *config.CampaignConfig) { c.MaxTaskAttempts = 1 }, Task{
 		ID: "/task_mutate_1", Description: "Modify internal/foo/bar.go to add doc comment", Type: TaskTypeFileModify,
 	})

@@ -28,6 +28,7 @@ func (h *historyCapture) ParseIntentWithContext(ctx context.Context, in string, 
 // it renders no compressed history, so the host's cut only removed turns,
 // and its own selection's notice could not count them.
 func TestPerception_GetsTheWholeConversationOnceCompressionIsActive(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModePropose)
 	capture := &historyCapture{scriptedTransducer: scriptedTransducer{intents: []perception.Intent{
 		{Category: "/query", Verb: "/converse", Target: "none", Confidence: 0.9, Response: "Option two was the cache."},

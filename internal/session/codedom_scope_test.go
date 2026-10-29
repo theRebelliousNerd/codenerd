@@ -54,6 +54,7 @@ func mentions(rows []types.Fact, want string) bool {
 // CodeDOM scope. The file a turn is looking at now has its elements in the
 // kernel, keyed by the workspace-canonical path the working context queries by.
 func TestCodedomScope_TheFocusFilesElementsReachTheKernel(t *testing.T) {
+	t.Parallel()
 	scope, kernel, ws := scopeProbe(t)
 	src := filepath.Join(ws, "widget.go")
 	if err := os.WriteFile(src, []byte("package widget\n\nfunc Encode() error { return nil }\n"), 0o644); err != nil {
@@ -86,6 +87,7 @@ func TestCodedomScope_TheFocusFilesElementsReachTheKernel(t *testing.T) {
 // the same failure shape as the working_revision accumulation fixed on
 // 2026-09-11.
 func TestCodedomScope_AnEditReplacesTheFilesElements(t *testing.T) {
+	t.Parallel()
 	scope, kernel, ws := scopeProbe(t)
 	src := filepath.Join(ws, "widget.go")
 	if err := os.WriteFile(src, []byte("package widget\n\nfunc Encode() error { return nil }\n"), 0o644); err != nil {
@@ -113,6 +115,7 @@ func TestCodedomScope_AnEditReplacesTheFilesElements(t *testing.T) {
 // Re-parsing a file on every tool call would put a parse in the hot loop of
 // the turn. The content digest is the guard: an unchanged file is scoped once.
 func TestCodedomScope_AnUnchangedFileIsParsedOnce(t *testing.T) {
+	t.Parallel()
 	scope, kernel, ws := scopeProbe(t)
 	src := filepath.Join(ws, "widget.go")
 	if err := os.WriteFile(src, []byte("package widget\n\nfunc Encode() error { return nil }\n"), 0o644); err != nil {
@@ -142,6 +145,7 @@ func (c *countingElements) FileFacts(path string) ([]types.Fact, error) {
 // Nothing about the scope may stop a turn: a directory, a missing file, a
 // binary, and the workspace-root focus all have to be quiet no-ops.
 func TestCodedomScope_UnparseableFocusIsAQuietNoOp(t *testing.T) {
+	t.Parallel()
 	scope, kernel, ws := scopeProbe(t)
 	if err := os.WriteFile(filepath.Join(ws, "notes.txt"), []byte("not source"), 0o644); err != nil {
 		t.Fatal(err)

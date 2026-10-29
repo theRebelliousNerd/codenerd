@@ -15,6 +15,7 @@ import (
 // "no eligible phases" -- which is the reason the orchestrator records when it
 // fails the campaign.
 func TestCampaignPolicy_AnUnverifiedPhaseBlocksItsDependentsByName(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		status       string
 		wantEligible bool

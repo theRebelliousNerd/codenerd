@@ -150,6 +150,7 @@ func TestPlannedStep_KeepsTheTurnsPromptWhenItsOwnDoesNotCompile(t *testing.T) {
 // a prose key, so the project's code corpus stays out of its turn; a file the
 // policy has no row for keeps the project's language ("").
 func TestTurnAimedAtAPolicyFileCompilesForMangle(t *testing.T) {
+	t.Parallel()
 	e := &Executor{kernel: realKernel(t)}
 	for target, want := range map[string]string{
 		"internal/context/working_set.mg": "/mangle",

@@ -56,6 +56,7 @@ func toolHelperServer(t *testing.T, script []int) (*httptest.Server, *int32) {
 // TestExecuteOpenAIRequest_RetriesTransient pins that 429/5xx/408 ride the
 // backoff and a later 200 wins — while 400 fails on the first attempt.
 func TestExecuteOpenAIRequest_RetriesTransient(t *testing.T) {
+	fastRetries(t)
 	srv, hits := toolHelperServer(t, []int{500, 429, 200})
 	resp, err := ExecuteOpenAIRequest(context.Background(), srv.Client(), srv.URL, "k", OpenAIRequest{Model: "m"})
 	if err != nil {
@@ -82,6 +83,7 @@ func TestExecuteOpenAIRequest_RetriesTransient(t *testing.T) {
 // aborts the retry sleep instead of riding up to 7s of backoff: the error
 // names cancellation and the call returns far below the full schedule.
 func TestExecuteOpenAIRequest_CancelledBackoff(t *testing.T) {
+	withRetryBackoff(t, time.Second, 30*time.Second)
 	srv, _ := toolHelperServer(t, []int{500})
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {

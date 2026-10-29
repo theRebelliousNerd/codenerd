@@ -113,6 +113,7 @@ func lastToolResult(t *testing.T, history []types.Message) string {
 // fixed 16 KB observation budget, leaving zero; and any result over 8000
 // characters was archived out of the current pair regardless of the window.
 func TestPrepareWorkingRequest_CarriesTheCurrentResultWholeUnderAProductionCatalog(t *testing.T) {
+	t.Parallel()
 	e, ctx, history, body := oneWorkingRound(t, 200000)
 	defs := aProductionSizedCatalog()
 	if encoded, _ := json.Marshal(defs); len(encoded) <= 16384 {
@@ -163,6 +164,7 @@ func TestPrepareWorkingRequest_CarriesTheCurrentResultWholeUnderAProductionCatal
 // otherwise fit the configured input window, and the pointer then says how
 // large the body is so the model pages it instead of asking for it again.
 func TestPrepareWorkingRequest_ArchivesOnlyWhatTheWindowCannotCarry(t *testing.T) {
+	t.Parallel()
 	e, ctx, history, body := oneWorkingRound(t, 3000)
 
 	provider := &captureProvider{MockLLMClient: &MockLLMClient{}}
@@ -211,6 +213,7 @@ func TestNormalizeWorkingEntity_PhraseTargetIsTheWorkspaceRoot(t *testing.T) {
 // insertion point" and never wrote; a sliding window of three rounds after
 // that still dropped a turn's early reads.
 func TestPrepareWorkingRequest_CarriesEveryRoundUntilTheCeiling(t *testing.T) {
+	t.Parallel()
 	e := newWorkingLoopExecutor(t, &MockLLMClient{})
 	e.config.TokenBudget = 200000
 	if err := os.WriteFile(filepath.Join(e.config.WorkspaceRoot, "target.go"), []byte("package target\n"), 0o600); err != nil {
@@ -258,6 +261,7 @@ func TestPrepareWorkingRequest_CarriesEveryRoundUntilTheCeiling(t *testing.T) {
 // and stopped at the read-only stall with nothing written. The ledger carries
 // every file's reads whole until its ceiling, whatever the focus.
 func TestPrepareWorkingRequest_KeepsEarlierFilesInViewAfterTheFocusMoves(t *testing.T) {
+	t.Parallel()
 	e := newWorkingLoopExecutor(t, &MockLLMClient{})
 	e.config.TokenBudget = 200000
 	for _, name := range []string{"loop_test.go", "loop.go", "context.go"} {
@@ -312,6 +316,7 @@ func TestPrepareWorkingRequest_KeepsEarlierFilesInViewAfterTheFocusMoves(t *test
 // 2026-09-19: bodies of a test file and executor_tools.go, recalled while the
 // focus was working_context.go, were shown as working_context.go observations.
 func TestRecordWorkingResult_RecallRestoresTheOriginalObservation(t *testing.T) {
+	t.Parallel()
 	e := newWorkingLoopExecutor(t, &MockLLMClient{})
 	e.config.TokenBudget = 200000
 	for _, name := range []string{"loop_test.go", "loop.go"} {
@@ -372,6 +377,7 @@ func TestRecordWorkingResult_RecallRestoresTheOriginalObservation(t *testing.T) 
 // request rendered working_meter.go, then a read-only stall. The request
 // after a recall renders the recalled file.
 func TestCompleteWithWorkingContext_RendersTheRecalledFileUnderTheCommitRegime(t *testing.T) {
+	t.Parallel()
 	e := newWorkingLoopExecutor(t, &MockLLMClient{})
 	e.config.TokenBudget = 200000
 	for _, name := range []string{"fix.go", "defs.go"} {
@@ -464,6 +470,7 @@ func TestWorkingLoop_AWriteMakesItsFileHot(t *testing.T) {
 // block: a history carrying a huge fetched page fit a window it overran, and
 // the provider refused it after the fact.
 func TestPrepareWorkingRequest_FitsToReplayedServerContent(t *testing.T) {
+	t.Parallel()
 	// The turn that searched also called a tool: one assistant message whose
 	// blocks are the server result and the tool call, as a provider returns it.
 	fetch := func(call types.ToolCall, page string) types.Message {

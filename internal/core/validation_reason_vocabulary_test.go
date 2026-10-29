@@ -19,6 +19,7 @@ import (
 // validationReasonPrefixes, or add a reason atom without a rule, and it fails here
 // rather than silently degrading recovery to escalation in production.
 func TestValidationReason_WhenToFactsCategorizes_ShouldDriveTheSameStrategyAsSelfHealer(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name     string
 		errText  string
@@ -97,6 +98,7 @@ func TestValidationReason_WhenToFactsCategorizes_ShouldDriveTheSameStrategyAsSel
 // /migration, /refactor and /greenfield - a disagreement no head-only scan could
 // see, since goal_topic has no head anywhere in the corpus.
 func TestGoalTopic_WhenAssertedAsTheDecomposerBuildsIt_ShouldMatchTheCampaignRules(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernelWithWorkspace(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewRealKernelWithWorkspace: %v", err)

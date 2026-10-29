@@ -74,6 +74,7 @@ func TestWrapToolLoopError_NilStaysNil(t *testing.T) {
 // as LLM failures. Drives verifyAndRepairBuild against a throwaway broken
 // package with a nil repair channel: no provider calls, one `go build`.
 func TestVerifyAndRepairBuild_FailureCarriesSentinel(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("compiles a throwaway package")
 	}

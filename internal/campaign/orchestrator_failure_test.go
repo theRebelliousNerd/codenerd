@@ -85,6 +85,7 @@ func reproTasks(orch *Orchestrator) []Task {
 // retry. A repro is owed only by a task that writes code; a document task never
 // owes one, whatever its failure said.
 func TestHandleTaskFailure_ADocumentTaskNeverOwesARepro(t *testing.T) {
+	t.Parallel()
 	orch, _ := newPolicyFailureOrchestrator(t, nil, Task{
 		ID: "/task_doc", Description: "write the gap analysis", Type: TaskTypeFileCreate,
 		WriteSet: []string{"Docs/architecture/features/03-GAP-ANALYSIS.md"},
@@ -107,6 +108,7 @@ func TestHandleTaskFailure_ADocumentTaskNeverOwesARepro(t *testing.T) {
 // A task that writes Go and fails on a red suite repro_after_failures times gets
 // one repro task first, depends on it, and further failures reuse it.
 func TestHandleTaskFailure_ACodeTaskOnARedSuiteGetsOneRepro(t *testing.T) {
+	t.Parallel()
 	orch, kernel := newPolicyFailureOrchestrator(t, func(c *config.CampaignConfig) {
 		c.MaxTaskAttempts = 5
 		c.ReproAfterFailures = 2
@@ -149,6 +151,7 @@ func TestHandleTaskFailure_ACodeTaskOnARedSuiteGetsOneRepro(t *testing.T) {
 
 // A failure that is not a red suite never owes a repro, on a code task either.
 func TestHandleTaskFailure_ACodeTaskFailingOtherwiseOwesNoRepro(t *testing.T) {
+	t.Parallel()
 	orch, _ := newPolicyFailureOrchestrator(t, func(c *config.CampaignConfig) { c.MaxTaskAttempts = 5 }, Task{
 		ID: "/task_code", Description: "fix the pool", Type: TaskTypeFileModify,
 		WriteSet: []string{"internal/pool/pool.go"},
@@ -163,6 +166,7 @@ func TestHandleTaskFailure_ACodeTaskFailingOtherwiseOwesNoRepro(t *testing.T) {
 
 // A repro task that fails does not get a repro of its own.
 func TestHandleTaskFailure_AReproNeverOwesARepro(t *testing.T) {
+	t.Parallel()
 	orch, _ := newPolicyFailureOrchestrator(t, func(c *config.CampaignConfig) { c.MaxTaskAttempts = 5 }, Task{
 		ID: "/task_code/repro_002", Description: reproDiagnosticDescriptionPrefix + " reproduce", Type: TaskTypeTestRun,
 		InferredFrom: "/task_code", InferenceConf: 1, InferenceReason: reproInferenceReason,
@@ -180,6 +184,7 @@ func TestHandleTaskFailure_AReproNeverOwesARepro(t *testing.T) {
 // A refusal is waited out on the full backoff; any other failure retries on
 // the shorter one.
 func TestHandleTaskFailure_ARefusalWaitsLongerThanAFailure(t *testing.T) {
+	t.Parallel()
 	edit := func(c *config.CampaignConfig) {
 		c.RetryBackoffBase = "20s"
 		c.RetryBackoffMax = "10m"
@@ -206,6 +211,7 @@ func TestHandleTaskFailure_ARefusalWaitsLongerThanAFailure(t *testing.T) {
 // At the attempt cap a task fails; with replan_at_attempt_cap off it fails
 // outright.
 func TestHandleTaskFailure_TheCapFailsTheTask(t *testing.T) {
+	t.Parallel()
 	no := false
 	orch, _ := newPolicyFailureOrchestrator(t, func(c *config.CampaignConfig) {
 		c.MaxTaskAttempts = 1
@@ -313,6 +319,7 @@ func TestOrchestratorFailure_NullEmptyPointers(t *testing.T) {
 }
 
 func TestOrchestratorFailure_NilError(t *testing.T) {
+	t.Parallel()
 	orch, _, _ := newFailureTestOrchestrator(t, 5)
 	phase := &orch.campaign.Phases[0]
 	task := &orch.campaign.Phases[0].Tasks[0]
@@ -340,6 +347,7 @@ func TestOrchestratorFailure_NegativeBackoffIsRefused(t *testing.T) {
 }
 
 func TestOrchestratorFailure_MassiveErrorString(t *testing.T) {
+	t.Parallel()
 	orch, _, _ := newFailureTestOrchestrator(t, 5)
 	phase := &orch.campaign.Phases[0]
 	task := &orch.campaign.Phases[0].Tasks[0]
@@ -352,6 +360,7 @@ func TestOrchestratorFailure_MassiveErrorString(t *testing.T) {
 }
 
 func TestOrchestratorFailure_StateConflicts_Concurrency(t *testing.T) {
+	t.Parallel()
 	orch, _, _ := newFailureTestOrchestrator(t, 5)
 	phase := &orch.campaign.Phases[0]
 	task := &orch.campaign.Phases[0].Tasks[0]
@@ -387,6 +396,7 @@ func TestOrchestratorFailure_StateConflicts_Concurrency(t *testing.T) {
 // TODO: Gap - State Conflicts: Pass an already canceled context.Context to handleTaskFailure and verify if o.saveCampaign() blocks or correctly handles the cancellation.
 
 func TestOrchestratorFailure_EmptyTaskID(t *testing.T) {
+	t.Parallel()
 	orch, _, _ := newFailureTestOrchestrator(t, 5)
 	phase := &orch.campaign.Phases[0]
 	task := &orch.campaign.Phases[0].Tasks[0]
@@ -421,6 +431,7 @@ func TestOrchestratorFailure_RetryBackoff_Overflow(t *testing.T) {
 }
 
 func TestOrchestratorFailure_AdversarialErrorString(t *testing.T) {
+	t.Parallel()
 	orch, _, _ := newFailureTestOrchestrator(t, 5)
 	phase := &orch.campaign.Phases[0]
 	task := &orch.campaign.Phases[0].Tasks[0]
@@ -439,6 +450,7 @@ func TestOrchestratorFailure_AdversarialErrorString(t *testing.T) {
 }
 
 func TestOrchestratorFailure_CanceledContext(t *testing.T) {
+	t.Parallel()
 	orch, _, _ := newFailureTestOrchestrator(t, 5)
 	phase := &orch.campaign.Phases[0]
 	task := &orch.campaign.Phases[0].Tasks[0]

@@ -87,6 +87,7 @@ func assertConsumerCopies(t *testing.T, shards map[string]*KernelShard, predicat
 }
 
 func TestCortexPredicateConsumerRoutes_PlaceRuleAndMirrorEveryMutationPath(t *testing.T) {
+	t.Parallel()
 	kernel, shards, routes := newConsumerRouteTestCortex(t)
 	dm := kernel.derivationMap
 	for _, predicate := range []string{"consumer_route_source", "consumer_route_aux"} {
@@ -197,6 +198,7 @@ func TestCortexPredicateConsumerRoutes_PlaceRuleAndMirrorEveryMutationPath(t *te
 }
 
 func TestCortexPredicateConsumerRoutes_ShardRouterMirrorsOwnerAndCatchAllWrites(t *testing.T) {
+	t.Parallel()
 	kernel, shards, _ := newConsumerRouteTestCortex(t)
 	kernel.SetFactRouter(NewShardFactRouter())
 
@@ -245,6 +247,7 @@ func TestCortexPredicateConsumerRoutes_FeatureFlagInstallsDirectRouter(t *testin
 }
 
 func TestCortexPredicateConsumerRoutes_RejectInvalidDestinations(t *testing.T) {
+	t.Parallel()
 	kernel, _, _ := newConsumerRouteTestCortex(t)
 	if err := kernel.SetPredicateConsumerRoutes([]PredicateConsumerRoute{{Predicate: "consumer_route_source", Consumer: "missing"}}); err == nil {
 		t.Fatal("missing consumer was accepted")

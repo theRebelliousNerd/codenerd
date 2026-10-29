@@ -40,6 +40,7 @@ import (
 // constant, so a new event type has to be added to the list — and therefore
 // considered by the UIs — before it can ship.
 func TestOrchestratorEventTypes_AreClosedSet(t *testing.T) {
+	t.Parallel()
 	pkgDir := filepath.Join(repoRoot(t), "internal", "campaign")
 
 	known := make(map[string]bool, len(orchestratorEventTypes))
@@ -277,6 +278,7 @@ func TestOrchestratorEventTypes_ListIsSortedAndUnique(t *testing.T) {
 // Metrics hooks must observe real work without the engine depending on any
 // particular backend.
 func TestMetricsSink_ShouldObserveTaskAndCheckpointDurations(t *testing.T) {
+	t.Parallel()
 	orch, _ := newCheckpointRegressionOrchestrator(t, `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"phase_ckpt_0\", /pass, \"verified\", 95)"]}, "surface_response": "done"}`)
 	metrics := NewInMemoryMetrics()
 	orch.SetMetricsSink(metrics)
@@ -340,6 +342,7 @@ func TestInMemoryMetricsSummary_IsSortedAndEmptyWhenNothingRan(t *testing.T) {
 // A nil sink must cost nothing and never panic — that is the whole reason the
 // hooks are optional rather than a hard dependency.
 func TestMetricsSink_WhenUnset_ShouldBeInert(t *testing.T) {
+	t.Parallel()
 	orch, _ := newCheckpointRegressionOrchestrator(t, `{"control_packet": {"mangle_updates": ["checkpoint_verdict(\"phase_ckpt_0\", /pass, \"verified\", 95)"]}, "surface_response": "done"}`)
 
 	orch.markPhaseStart("/phase_ckpt_0")

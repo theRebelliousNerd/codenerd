@@ -49,6 +49,7 @@ func makeShardForRouter(t *testing.T, domain string, owned []string) *KernelShar
 // router is installed. Without the router, assert-on-wrong-shard would
 // silently corrupt the partition.
 func TestShardFactRouter_TwoShard_FanOut(t *testing.T) {
+	t.Parallel()
 	shardA := makeShardForRouter(t, "shard_a", []string{"pred_a"})
 	shardB := makeShardForRouter(t, "shard_b", []string{"pred_b"})
 
@@ -119,6 +120,7 @@ func TestShardFactRouter_TwoShard_FanOut(t *testing.T) {
 // happily asserts whatever predicate it's given into its inner kernel, no
 // dispatch. This is the byte-identical "flag off" guarantee.
 func TestShardFactRouter_OffPath_NilRouter(t *testing.T) {
+	t.Parallel()
 	shard := makeShardForRouter(t, "solo", []string{"pred_x", "pred_y"})
 
 	// No SetRouter call — router stays nil.
@@ -153,6 +155,7 @@ func TestShardFactRouter_OffPath_NilRouter(t *testing.T) {
 // The non-owned-but-declared predicate is what triggers the router; since
 // no owner is registered with the router, the assert falls back to local.
 func TestShardFactRouter_UnknownPredicate_FallsBackLocal(t *testing.T) {
+	t.Parallel()
 	shard := makeShardForRouter(t, "lonely", []string{"owned_pred"})
 	// Declare a second predicate that the shard does NOT claim ownership of.
 	shard.kernel.AppendPolicy("Decl unowned_pred(Value).")
@@ -186,6 +189,7 @@ func TestShardFactRouter_UnknownPredicate_FallsBackLocal(t *testing.T) {
 // for shardB) in a single AssertBatch on shardA; both must land in their
 // correct stores.
 func TestShardFactRouter_BatchPartitions(t *testing.T) {
+	t.Parallel()
 	shardA := makeShardForRouter(t, "batch_a", []string{"ba_pred"})
 	shardB := makeShardForRouter(t, "batch_b", []string{"bb_pred"})
 
@@ -225,6 +229,7 @@ func TestShardFactRouter_BatchPartitions(t *testing.T) {
 // This is the path the cortex itself would use if the feature flag flipped
 // at runtime, and it's what the production wiring will rely on.
 func TestShardFactRouter_CortexAutoWiring(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("cortex")
 
 	shardA := makeShardForRouter(t, "ca_a", []string{"ca_pred_a"})

@@ -38,6 +38,7 @@ func TestGoplsDiagnostics_SilentWhenNotApplicable(t *testing.T) {
 // compilable defect must produce output naming that file. This is the class of
 // problem the build gate cannot see -- the package compiles fine.
 func TestGoplsDiagnostics_ReportsOnCompilableCode(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("runs gopls over a throwaway module")
 	}

@@ -41,6 +41,7 @@ func txItemCount(t *testing.T, k *RealKernel) int {
 // derived reads — and the commit must publish asserted predicates so
 // subscribers observe transactional writes like any other Assert.
 func TestTransaction_MixedCommit(t *testing.T) {
+	t.Parallel()
 	k := seedTxKernel(t)
 	ch := k.GetEventBus().Subscribe([]string{"tx_item"})
 	defer k.GetEventBus().Unsubscribe(ch)
@@ -66,6 +67,7 @@ func TestTransaction_MixedCommit(t *testing.T) {
 
 // Exact and predicate-set phases agree with their standalone counterparts.
 func TestTransaction_RetractPhases(t *testing.T) {
+	t.Parallel()
 	t.Run("exact", func(t *testing.T) {
 		k := seedTxKernel(t)
 		tx := k.Transaction()
@@ -105,6 +107,7 @@ func TestTransaction_RetractPhases(t *testing.T) {
 // silently removing a predicate is exactly what standalone RetractFact
 // refuses to do.
 func TestTransaction_NoArgsRetractFactRejected(t *testing.T) {
+	t.Parallel()
 	k := seedTxKernel(t)
 	before := k.FactCount()
 	tx := k.Transaction()
@@ -128,6 +131,7 @@ func TestTransaction_NoArgsRetractFactRejected(t *testing.T) {
 // Assert rejections surface AssertBatch-style: good facts land, the error
 // names the rejected ones.
 func TestTransaction_AssertRejectionsReported(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("boot: %v", err)
@@ -157,6 +161,7 @@ func TestTransaction_AssertRejectionsReported(t *testing.T) {
 
 // Double commit and nil kernels fail closed, never panic.
 func TestTransaction_CommitGuards(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("boot: %v", err)

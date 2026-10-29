@@ -75,6 +75,7 @@ var boundList = regexp.MustCompile(`bound\s*\[([^\]]*)\]`)
 var atomStart = regexp.MustCompile(`(^|[^A-Za-z0-9_:])([a-z][A-Za-z0-9_]*)\s*\(`)
 
 func TestMangleDecls_WhenAHeadUsesALiteral_ShouldMatchTheDeclaredBoundType(t *testing.T) {
+	t.Parallel()
 	root := "defaults"
 
 	var files []string

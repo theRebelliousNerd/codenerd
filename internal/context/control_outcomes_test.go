@@ -134,6 +134,7 @@ func TestApplyMemoryOperations_IndexesByPositionInTheModelsList(t *testing.T) {
 // landed as the turn's memory, and keeps the rest as outcomes, so compressed
 // history never says "remembered" for a failed write.
 func TestProcessTurn_FailedMemoryOperationIsRecordedAsFailedNotRemembered(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	comp.store = nil
 	good := articulation.MemoryOperation{Op: "note", Key: "focus", Value: "auth"}
@@ -162,6 +163,7 @@ func TestProcessTurn_FailedMemoryOperationIsRecordedAsFailedNotRemembered(t *tes
 // compressor retains them without reapplying, and they reach both renderings
 // of the history the model reads.
 func TestProcessTurnWithAppliedControls_RetainsOutcomesInBothRenderings(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	outcome := articulation.ControlDisposition{
 		Kind: articulation.ControlMemoryOperation, Index: 0, Stage: articulation.StageFailed,

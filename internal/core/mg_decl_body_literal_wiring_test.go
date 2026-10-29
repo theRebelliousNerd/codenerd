@@ -43,6 +43,7 @@ func mustAssertFact(t *testing.T, k *RealKernel, pred string, args ...any) {
 // the negation could never be satisfied, so the guard was decorative and
 // activate_shard fired on every campaign whether the planner was alive or not.
 func TestSystemShardHealthy_HeartbeatClosesTheActivationGuard(t *testing.T) {
+	t.Parallel()
 	t.Run("no heartbeat activates", func(t *testing.T) {
 		k := setupMockKernel(t)
 		mustAssertFact(t, k, "current_campaign", "camp-1")
@@ -91,6 +92,7 @@ func TestSystemShardHealthy_HeartbeatClosesTheActivationGuard(t *testing.T) {
 // shard_executed(ShardID, _, /success, _), but ShardManager.ResultToFacts puts
 // the task DESCRIPTION in arg 3 and reports the outcome as shard_success/1.
 func TestHasSuccessfulShard_ReadsShardSuccessNotTheTaskSlot(t *testing.T) {
+	t.Parallel()
 	// ResultToFacts's exact output for one successful "coder" run.
 	seedExecuted := func(t *testing.T, k *RealKernel) {
 		t.Helper()
@@ -148,6 +150,7 @@ func TestHasSuccessfulShard_ReadsShardSuccessNotTheTaskSlot(t *testing.T) {
 // name constants. Decomposer.seedIntelligenceFacts previously passed both the
 // specialist and the ballot through as bare strings.
 func TestIntelligenceAdvisoryBoard_VotesAreNameConstants(t *testing.T) {
+	t.Parallel()
 	advise := func(t *testing.T, k *RealKernel, shard, vote string, conf int64) {
 		t.Helper()
 		mustAssertFact(t, k, "intelligence_shard_advice", "camp-1",
@@ -194,6 +197,7 @@ func TestIntelligenceAdvisoryBoard_VotesAreNameConstants(t *testing.T) {
 // stored labels so a relation that came from a free text memory operation
 // still reaches the kernel as /related_to.
 func TestKnowledgeLink_RelationIsANameConstant(t *testing.T) {
+	t.Parallel()
 	t.Run("related_to spreads activation", func(t *testing.T) {
 		k := setupMockKernel(t)
 		mustAssertFact(t, k, "activation", "internal/core/kernel.go", int64(90))
@@ -230,6 +234,7 @@ func TestKnowledgeLink_RelationIsANameConstant(t *testing.T) {
 // .seedDocFacts asserts fmt.Sprintf("/%s", tag), which types.Fact.ToAtom
 // promotes to a name constant, so the Decl had to follow.
 func TestDocTag_TagIsANameConstant(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	mustAssertFact(t, k, "doc_tag", "Docs/architecture/spike.md", types.MangleAtom("/experimental"))
 
@@ -251,6 +256,7 @@ func TestDocTag_TagIsANameConstant(t *testing.T) {
 // cold_storage rows, and those keys never carry a leading "/", so they arrive
 // as string constants.
 func TestLearnedPreference_KeyIsAString(t *testing.T) {
+	t.Parallel()
 	seedTool := func(t *testing.T, k *RealKernel) {
 		t.Helper()
 		mustAssertFact(t, k, "tool_capabilities", types.MangleAtom("/write_file"), types.MangleAtom("/code_generation"))

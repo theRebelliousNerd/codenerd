@@ -10,6 +10,7 @@ import (
 // This addresses the "split brain" problem by ensuring that multiple components (shards)
 // updating the kernel simultaneously do not corrupt the state.
 func TestKernelConcurrency(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -61,6 +62,7 @@ func TestKernelConcurrency(t *testing.T) {
 // under mixed read/write loads, preventing "split brain" views where queries
 // might miss recently added facts.
 func TestKernelDataConsistency(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -113,6 +115,7 @@ func TestKernelDataConsistency(t *testing.T) {
 // TestKernelIdempotencyUnderLoad checks that concurrent assertions of the same fact
 // do not result in duplicates (Fact Index integrity).
 func TestKernelIdempotencyUnderLoad(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -145,6 +148,7 @@ func TestKernelIdempotencyUnderLoad(t *testing.T) {
 // assert conflicting state, and verifies that the kernel resolves it (last write wins or both exist).
 // Mangle allows multiple facts, so "conflict" here implies presence of multiple facts.
 func TestSplitBrainScenarios(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)

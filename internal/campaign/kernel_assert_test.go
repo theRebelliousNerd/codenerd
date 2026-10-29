@@ -22,6 +22,7 @@ func newAssertTestKernel(t *testing.T) *core.RealKernel {
 }
 
 func TestAssertFactsWithFallback_GoodFactsLandWhenTheBatchIsRejected(t *testing.T) {
+	t.Parallel()
 	k := newAssertTestKernel(t)
 
 	// dream_preference's second slot is bound /number; a fractional float is
@@ -44,6 +45,7 @@ func TestAssertFactsWithFallback_GoodFactsLandWhenTheBatchIsRejected(t *testing.
 }
 
 func TestAssertFactsWithFallback_NilKernelAndEmptyBatchAreNoOps(t *testing.T) {
+	t.Parallel()
 	assertFactsWithFallback(nil, []core.Fact{{Predicate: "dream_preference", Args: []any{"x", int64(1)}}}, "nil kernel")
 	assertFactsWithFallback(newAssertTestKernel(t), nil, "empty batch")
 }

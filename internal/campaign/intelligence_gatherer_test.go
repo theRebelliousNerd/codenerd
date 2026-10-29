@@ -128,6 +128,7 @@ func TestIntelligenceGatherer_Gather_NilDependencies(t *testing.T) {
 }
 
 func TestIntelligenceGatherer_Gather_WithKernel(t *testing.T) {
+	t.Parallel()
 	// Create a minimal kernel for testing
 	kern, err := core.NewRealKernel()
 	if err != nil {

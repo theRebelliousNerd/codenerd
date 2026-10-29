@@ -39,6 +39,7 @@ func createTestCompressor(t *testing.T, llm *MockLLMClient) *Compressor {
 }
 
 func TestNewCompressor_Defaults(t *testing.T) {
+	t.Parallel()
 	comp := createTestCompressor(t, &MockLLMClient{})
 
 	if comp == nil {
@@ -56,6 +57,7 @@ func TestNewCompressor_Defaults(t *testing.T) {
 }
 
 func TestProcessTurn_HappyPath(t *testing.T) {
+	t.Parallel()
 	comp := createTestCompressor(t, &MockLLMClient{})
 
 	turn := Turn{
@@ -81,6 +83,7 @@ func TestProcessTurn_HappyPath(t *testing.T) {
 }
 
 func TestProcessTurn_CompressionTrigger(t *testing.T) {
+	t.Parallel()
 	mockLLM := &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return "Summarized content", nil
@@ -124,6 +127,7 @@ func TestProcessTurn_CompressionTrigger(t *testing.T) {
 }
 
 func TestProcessTurn_CompressionFallback(t *testing.T) {
+	t.Parallel()
 	mockLLM := &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return "", fmt.Errorf("API Error")
@@ -146,6 +150,7 @@ func TestProcessTurn_CompressionFallback(t *testing.T) {
 }
 
 func TestBuildContext(t *testing.T) {
+	t.Parallel()
 	comp := createTestCompressor(t, &MockLLMClient{})
 
 	// Add some context
@@ -169,6 +174,7 @@ func TestBuildContext(t *testing.T) {
 }
 
 func TestPersistence(t *testing.T) {
+	t.Parallel()
 	comp := createTestCompressor(t, &MockLLMClient{})
 	comp.ProcessTurn(context.Background(), Turn{Number: 1, UserInput: "Test"})
 
@@ -188,6 +194,7 @@ func TestPersistence(t *testing.T) {
 }
 
 func TestAtomExtractionAndKernel(t *testing.T) {
+	t.Parallel()
 	comp := createTestCompressor(t, &MockLLMClient{})
 
 	// Turn with control packet atoms

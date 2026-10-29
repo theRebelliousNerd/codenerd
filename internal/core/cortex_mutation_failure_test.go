@@ -18,6 +18,7 @@ import (
 // kernel, a fact that does not land is a decision that will not be made, and
 // the symptom is always "the agent just didn't do the thing".
 func TestFailedAssertIsCountedNotSwallowed(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("shard_a")
 	shard := setupTestShard(t, "shard_a", []string{"owned_pred"})
 	if err := cortex.RegisterShard(shard); err != nil {
@@ -48,6 +49,7 @@ func TestFailedAssertIsCountedNotSwallowed(t *testing.T) {
 // The counter must not move when nothing failed, or it is noise rather than a
 // signal and the stats line stops meaning anything.
 func TestSuccessfulAssertDoesNotCountAsFailure(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("shard_a")
 	shard := setupTestShard(t, "shard_a", []string{"owned_pred"})
 	if err := cortex.RegisterShard(shard); err != nil {

@@ -60,6 +60,7 @@ func overlayPair() []string {
 }
 
 func TestSupersession_VariantReplacesBaseOnItsOwnModel(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -85,6 +86,7 @@ func TestSupersession_VariantReplacesBaseOnItsOwnModel(t *testing.T) {
 // compile must not take its base down with it -- otherwise optimizing for one
 // model would silently delete that guidance for every other model.
 func TestSupersession_BaseSurvivesWhenVariantIsBlocked(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -111,6 +113,7 @@ func TestSupersession_BaseSurvivesWhenVariantIsBlocked(t *testing.T) {
 // what the kernel actually does if that rule is broken, so the consequence is
 // documented rather than discovered in a prompt.
 func TestSupersession_MutualConflictCancelsBoth(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -134,6 +137,7 @@ func TestSupersession_MutualConflictCancelsBoth(t *testing.T) {
 // Supersession must not resurrect an atom that context already blocked, and must
 // not fire from a superseding atom nobody selected.
 func TestSupersession_InertWithoutConflicts(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)

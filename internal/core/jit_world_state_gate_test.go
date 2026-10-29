@@ -10,6 +10,7 @@ import "testing"
 // state at all admitted every gated atom -- the need mechanism gated nothing
 // on such a compile.
 func TestWorldStateGatedAtomIsBlockedWhenTheStateDoesNotHold(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name    string
 		context []string

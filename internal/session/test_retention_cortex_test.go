@@ -16,6 +16,7 @@ import (
 // single kernel and not on the one that ships. External test package: shards
 // transitively imports session, so an internal test would cycle.
 func TestRemovedTestsGate_MatchesOnShardedKernel(t *testing.T) {
+	t.Parallel()
 	cortex := bootRetentionCortex(t)
 	single, err := core.NewRealKernel()
 	if err != nil {

@@ -68,6 +68,7 @@ func (*campaignControlExecutor) WaitForResult(context.Context, string) (string, 
 }
 
 func TestCampaignSlashPauseResumeControlsLiveOrchestrator(t *testing.T) {
+	t.Parallel()
 	workspace := t.TempDir()
 	realKernel, err := core.NewRealKernelWithWorkspace(workspace)
 	if err != nil {
@@ -177,6 +178,7 @@ func TestCampaignSlashPauseResumeControlsLiveOrchestrator(t *testing.T) {
 }
 
 func TestCampaignSlashPauseResumeDoNotClaimMissingTransitions(t *testing.T) {
+	t.Parallel()
 	t.Run("no active campaign", func(t *testing.T) {
 		m := NewTestModel()
 		for _, command := range []string{"/campaign pause", "/campaign resume"} {

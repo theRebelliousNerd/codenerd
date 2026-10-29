@@ -21,6 +21,7 @@ import (
 // content-bearing segment. A silent cut added tomorrow fails here even if no
 // per-site test knows it exists.
 func TestNoSilentCutsInAssembledMessages(t *testing.T) {
+	t.Parallel()
 	t.Run("a tool-loop turn", func(t *testing.T) {
 		assertNoSilentCutsInToolLoopTurn(t)
 	})
@@ -189,6 +190,7 @@ func windowAnnouncesACut(system string, msgs []types.Message) bool {
 // both ways: a marker on intact content teaches the model to distrust a
 // complete record, which costs exactly as much as a missing one.
 func TestNoSilentCutsInAssembledMessages_LeavesAnIntactTurnAlone(t *testing.T) {
+	t.Parallel()
 	e := newWorkingLoopExecutor(t, &MockLLMClient{})
 	e.config.TokenBudget = 200000
 

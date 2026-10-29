@@ -7,7 +7,6 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
-	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
 
@@ -40,8 +39,8 @@ func (e *Executor) assertTurnRestriction(turn types.MangleAtom, r perception.Res
 
 // effectAtom is a tool's declared effect as a name constant; a tool with none
 // is /unknown, which the policy bars like a write.
-func effectAtom(tool string) types.MangleAtom {
-	effect, err := tools.LookupEffect(strings.TrimPrefix(tool, "/"))
+func (e *Executor) effectAtom(tool string) types.MangleAtom {
+	effect, err := e.modularTools().LookupEffect(strings.TrimPrefix(tool, "/"))
 	if err != nil || effect == "" {
 		return "/unknown"
 	}
@@ -66,7 +65,7 @@ func (e *Executor) restrictionWithheldTools(turn types.MangleAtom, r perception.
 			continue
 		}
 		if !e.assertTurnFact(types.Fact{Predicate: "restriction_tool_effect",
-			Args: []any{turn, types.MangleAtom("/" + name), effectAtom(name)}}) {
+			Args: []any{turn, types.MangleAtom("/" + name), e.effectAtom(name)}}) {
 			return candidates
 		}
 	}
@@ -100,13 +99,13 @@ func (e *Executor) restrictionWithheldTools(turn types.MangleAtom, r perception.
 // restriction: the owning turn and the tool's declared effect. The caller
 // asserts them beside the pending_action and retracts them with it. Nil when
 // the call's turn carries no restriction.
-func callRestrictionFacts(call ToolCall, actionID string) []types.Fact {
+func (e *Executor) callRestrictionFacts(call ToolCall, actionID string) []types.Fact {
 	if call.restrictedTurn == "" {
 		return nil
 	}
 	return []types.Fact{
 		{Predicate: "pending_action_turn", Args: []any{actionID, call.restrictedTurn}},
-		{Predicate: "pending_action_effect", Args: []any{actionID, effectAtom(call.Name)}},
+		{Predicate: "pending_action_effect", Args: []any{actionID, e.effectAtom(call.Name)}},
 	}
 }
 
@@ -128,7 +127,7 @@ func bindRestriction(ctx context.Context, call ToolCall) (ToolCall, error) {
 
 // restrictionDenial is the reason a call the restriction bars is refused,
 // worded so the model does not retry it another way.
-func restrictionDenial(call ToolCall) string {
+func (e *Executor) restrictionDenial(call ToolCall) string {
 	return fmt.Sprintf("action not permitted: the user's request restricts this turn, and %s has %s effect; it is withheld for the whole request — do not retry it or work around it, report what you found instead",
-		call.Name, strings.TrimPrefix(string(effectAtom(call.Name)), "/"))
+		call.Name, strings.TrimPrefix(string(e.effectAtom(call.Name)), "/"))
 }

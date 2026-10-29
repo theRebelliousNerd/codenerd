@@ -22,6 +22,14 @@ type WorkingConfig struct {
 	// enough older live results to fit. Zero means "derive it" (see
 	// GetWorkingConfig); an explicit value wins.
 	LedgerCeilingBytes int `json:"ledger_ceiling_bytes,omitempty"`
+	// LedgerLowWaterPercent is where a compaction leaves the ledger, as a
+	// percent of the limit that triggered it -- the ceiling, or what the
+	// request's input window leaves for results when that is smaller
+	// (working_ledger_target). A compaction breaks the provider's prompt cache
+	// from its first change on; shedding only to the limit left the next
+	// round's results over it again, so the cache broke every round. 100 is
+	// that old behavior.
+	LedgerLowWaterPercent int `json:"ledger_low_water_percent,omitempty"`
 	// LedgerKeepRounds is how many of the latest rounds a compaction leaves
 	// in place while they are live (working_ledger_keep_rounds). Stale and
 	// superseded results are not protected by the window.
@@ -141,6 +149,7 @@ func LedgerCeilingBytesFromContext(window ContextWindowConfig) int {
 func DefaultWorkingConfig() WorkingConfig {
 	return WorkingConfig{
 		LedgerCeilingBytes:                LedgerCeilingBytesFromContext(DefaultContextWindowConfig()),
+		LedgerLowWaterPercent:             70,
 		LedgerKeepRounds:                  2,
 		NudgeRounds:                       8,
 		CommitRounds:                      16,
@@ -190,6 +199,7 @@ func (c WorkingConfig) WithDefaults() WorkingConfig {
 	d := DefaultWorkingConfig()
 	for _, f := range []struct{ v, def *int }{
 		{&c.LedgerCeilingBytes, &d.LedgerCeilingBytes},
+		{&c.LedgerLowWaterPercent, &d.LedgerLowWaterPercent},
 		{&c.LedgerKeepRounds, &d.LedgerKeepRounds},
 		{&c.NudgeRounds, &d.NudgeRounds},
 		{&c.CommitRounds, &d.CommitRounds},
@@ -229,6 +239,15 @@ func (c WorkingConfig) Check(prefix string) []Problem {
 		}
 	}
 	atLeast("ledger_ceiling_bytes", c.LedgerCeilingBytes, 4096, "below one large read, every round would compact and nothing would stay cached")
+	atLeast("ledger_low_water_percent", c.LedgerLowWaterPercent, 1, "a compaction that leaves nothing moves out the rounds the model just read")
+	if c.LedgerLowWaterPercent > 100 {
+		out = append(out, Problem{
+			Severity: SeverityError,
+			Path:     prefix + ".ledger_low_water_percent",
+			Message:  fmt.Sprintf("%d is above 100: a compaction would leave the ledger over the limit that triggered it", c.LedgerLowWaterPercent),
+			Fix:      "a percent between 1 and 100, or remove the key for the default",
+		})
+	}
 	atLeast("ledger_keep_rounds", c.LedgerKeepRounds, 1, "a compaction keeps at least the round the request answers")
 	atLeast("nudge_rounds", c.NudgeRounds, 1, "a span is a count of rounds")
 	atLeast("commit_rounds", c.CommitRounds, 1, "a span is a count of rounds")
@@ -279,6 +298,7 @@ func (c WorkingConfig) Params() []Param {
 	c = c.WithDefaults()
 	return []Param{
 		{Key: "/working_ledger_ceiling", Value: int64(c.LedgerCeilingBytes)},
+		{Key: "/working_ledger_low_water_percent", Value: int64(c.LedgerLowWaterPercent)},
 		{Key: "/working_ledger_keep_rounds", Value: int64(c.LedgerKeepRounds)},
 		{Key: "/working_nudge_rounds", Value: int64(c.NudgeRounds)},
 		{Key: "/working_commit_rounds", Value: int64(c.CommitRounds)},

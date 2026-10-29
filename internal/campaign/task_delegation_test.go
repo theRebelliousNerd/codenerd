@@ -8,6 +8,7 @@ import "testing"
 // task_delegation: the task type's persona through the one persona table,
 // except that a new document is created.
 func TestTaskVerb_IsTheKernels(t *testing.T) {
+	t.Parallel()
 	o := &Orchestrator{kernel: newAssertTestKernel(t), campaign: &Campaign{ID: "/campaign_verbs"}}
 	for _, tc := range []struct {
 		task Task

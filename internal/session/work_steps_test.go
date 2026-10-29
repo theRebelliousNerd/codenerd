@@ -574,6 +574,7 @@ func TestRunPlannedSteps_FinalRepairRestoreIsIncomplete(t *testing.T) {
 }
 
 func TestAssertPlannedStepFileNetComparesExistenceAndBytes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		before PreImage
@@ -617,6 +618,7 @@ func TestAssertPlannedStepFileNetComparesExistenceAndBytes(t *testing.T) {
 }
 
 func TestAssertPlannedStepFileNetFailsClosedWithoutACompleteMeasurement(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		before  map[string]PreImage

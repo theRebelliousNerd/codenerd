@@ -20,6 +20,7 @@ func chainJob(id string) backgroundJob {
 }
 
 func TestBackground_ABusyChatQueuesTheNextStep(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModePropose)
 	job := chainJob("bg-busy")
 	m.background.add(job, nil)
@@ -38,6 +39,7 @@ func TestBackground_ABusyChatQueuesTheNextStep(t *testing.T) {
 }
 
 func TestBackground_TwoChainsFinishingTogetherKeepBothNextSteps(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModePropose)
 	a, b := chainJob("bg-a"), chainJob("bg-b")
 	m.background.add(a, nil)
@@ -52,6 +54,7 @@ func TestBackground_TwoChainsFinishingTogetherKeepBothNextSteps(t *testing.T) {
 // A stop that came after the work returned: the result stands, the next
 // step does not start.
 func TestBackground_AStopAfterTheWorkReturnedCancelsTheNextStep(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModePropose)
 	job := chainJob("bg-stop-late")
 	m.background.add(job, func() {})
@@ -67,6 +70,7 @@ func TestBackground_AStopAfterTheWorkReturnedCancelsTheNextStep(t *testing.T) {
 }
 
 func TestBackground_ADuplicateDoneSettlesOnce(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModePropose)
 	job := chainJob("bg-dup")
 	m.background.add(job, nil)
@@ -83,6 +87,7 @@ func TestBackground_ADuplicateDoneSettlesOnce(t *testing.T) {
 // A job started in session A finishes while session B is open: A gets the
 // result, B gets a notice, and B does not run A's next step.
 func TestBackground_AResultSettlesInTheSessionThatStartedIt(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModePropose)
 	if err := session.SaveSessionHistory(m.workspace, "sess_a", []session.ChatMessage{{Role: "user", Content: "diagnose yourself"}}); err != nil {
 		t.Fatal(err)
@@ -115,6 +120,7 @@ func TestBackground_AResultSettlesInTheSessionThatStartedIt(t *testing.T) {
 
 // The completion is saved like any other assistant message.
 func TestBackground_CompletionSchedulesASessionSave(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModePropose)
 	m.sessionID = "sess_save"
 	job := backgroundJob{ID: "bg-save", Shard: "researcher", Task: "survey", Started: time.Now()}

@@ -6,6 +6,7 @@ import (
 )
 
 func TestVirtualStoreCodeDOM_HandleOpenFile(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
 
@@ -27,6 +28,7 @@ func TestVirtualStoreCodeDOM_HandleOpenFile(t *testing.T) {
 }
 
 func TestVirtualStoreCodeDOM_HandleGetElements(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
 
@@ -44,6 +46,7 @@ func TestVirtualStoreCodeDOM_HandleGetElements(t *testing.T) {
 }
 
 func TestVirtualStoreCodeDOM_HandleEditLines(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
 
@@ -67,6 +70,7 @@ func TestVirtualStoreCodeDOM_HandleEditLines(t *testing.T) {
 }
 
 func TestVirtualStoreCodeDOM_HandleInsertLines(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
 
@@ -89,6 +93,7 @@ func TestVirtualStoreCodeDOM_HandleInsertLines(t *testing.T) {
 }
 
 func TestVirtualStoreCodeDOM_HandleDeleteLines(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
 
@@ -111,6 +116,7 @@ func TestVirtualStoreCodeDOM_HandleDeleteLines(t *testing.T) {
 }
 
 func TestVirtualStoreCodeDOM_HandleCloseScope(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
 

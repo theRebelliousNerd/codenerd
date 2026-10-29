@@ -15,6 +15,7 @@ import (
 // never fire, with no error to say so. The reasons are name constants now, and
 // they read back from the kernel as the names the Decl promises.
 func TestFileActionReasons_ShouldBeNameConstantsTheKernelKeeps(t *testing.T) {
+	t.Parallel()
 	vs, dir := createActionsTestVS(t)
 	path := filepath.Join(dir, "reason.go")
 	if err := os.WriteFile(path, []byte("package p\n"), 0o644); err != nil {

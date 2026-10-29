@@ -27,6 +27,7 @@ func finding(id, node string, kind gates.Kind) gates.Finding {
 // The pick: a red build before a red test before a regression before the
 // rest, only on the node being visited, lowest ID among equals.
 func TestRecursePolicy_PicksByKindThenRegressionOnTheVisitedNode(t *testing.T) {
+	t.Parallel()
 	p := newRecursePolicy(t)
 	open := []gates.Finding{
 		finding("lint-a", "store", gates.Lint),
@@ -64,6 +65,7 @@ func TestRecursePolicy_PicksByKindThenRegressionOnTheVisitedNode(t *testing.T) {
 // change to the node lifts it; a refusal takes the finding out until the
 // owner acts.
 func TestRecursePolicy_StallIsARepeatedFailureNotACounter(t *testing.T) {
+	t.Parallel()
 	p := newRecursePolicy(t)
 	open := []gates.Finding{finding("t1", "store", gates.Test), finding("t2", "store", gates.Test)}
 	if err := p.visit("store", open, nil); err != nil {
@@ -105,6 +107,7 @@ func TestRecursePolicy_StallIsARepeatedFailureNotACounter(t *testing.T) {
 // The stall is the last two attempts, not any two: a failure that repeats
 // with a different failure between is new evidence, not a stall.
 func TestRecursePolicy_StallNeedsTheLastTwoToAgree(t *testing.T) {
+	t.Parallel()
 	p := newRecursePolicy(t)
 	must := func(err error) {
 		t.Helper()
@@ -127,6 +130,7 @@ func TestRecursePolicy_StallNeedsTheLastTwoToAgree(t *testing.T) {
 }
 
 func TestRecursePolicy_RatchetKeepsOnlyAResolvedTargetWithNothingWorse(t *testing.T) {
+	t.Parallel()
 	p := newRecursePolicy(t)
 	gate := func(name, before, after string, bc, ac int) ratchetGate {
 		return ratchetGate{Gate: name, Before: before, After: after, BeforeCount: bc, AfterCount: ac}
@@ -165,6 +169,7 @@ func TestRecursePolicy_RatchetKeepsOnlyAResolvedTargetWithNothingWorse(t *testin
 }
 
 func TestRecursePolicy_RatchetKinds(t *testing.T) {
+	t.Parallel()
 	kinds, err := newRecursePolicy(t).ratchetKinds()
 	if err != nil {
 		t.Fatal(err)
@@ -177,6 +182,7 @@ func TestRecursePolicy_RatchetKinds(t *testing.T) {
 // Each pass leads with one angle, in rotation, on nodes where its metric can
 // be measured.
 func TestRecursePolicy_ImprovementAngleRotatesByPass(t *testing.T) {
+	t.Parallel()
 	p := newRecursePolicy(t)
 	measurable := map[string]int{gates.MetricTests: 10, gates.MetricLines: 300}
 	var got []string
@@ -201,6 +207,7 @@ func TestRecursePolicy_ImprovementAngleRotatesByPass(t *testing.T) {
 // no guard metric moved the wrong way; a fix that deletes tests is reverted
 // even though its finding is gone.
 func TestRecursePolicy_ImprovementKeptOnlyOnAMeasuredMove(t *testing.T) {
+	t.Parallel()
 	p := newRecursePolicy(t)
 	m := func(kv ...int) map[string]int {
 		return map[string]int{gates.MetricTests: kv[0], gates.MetricLines: kv[1], gates.MetricCoverage: kv[2]}
@@ -240,6 +247,7 @@ func TestRecursePolicy_ImprovementKeptOnlyOnAMeasuredMove(t *testing.T) {
 // stall by the rule, not by retiring facts; only the node's latest kept
 // change is kept.
 func TestRecursePolicy_AttemptHistoryIsFactsTheKernelReads(t *testing.T) {
+	t.Parallel()
 	p := newRecursePolicy(t)
 	count := func(pred string) int {
 		rows, err := p.k.Query(pred)
@@ -308,6 +316,7 @@ func TestRecursePolicy_AttemptHistoryIsFactsTheKernelReads(t *testing.T) {
 // An improvement no test gate ran on is not kept, whatever its metrics say:
 // counting test functions says tests were added, not that they pass.
 func TestRecursePolicy_AnImprovementNeedsATestVerdict(t *testing.T) {
+	t.Parallel()
 	p := newRecursePolicy(t)
 	in := ratchetInput{
 		Cycle: 300, Improve: "stabilize", Changed: true,

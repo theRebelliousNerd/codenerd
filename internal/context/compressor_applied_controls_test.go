@@ -10,6 +10,7 @@ import (
 )
 
 func TestProcessTurnWithAppliedControlsRetainsMetadataWithoutReapplying(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	hostKernel, err := core.NewRealKernelWithWorkspace(t.TempDir())
 	if err != nil {

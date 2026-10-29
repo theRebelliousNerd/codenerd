@@ -169,6 +169,7 @@ func TestAnthropicReasoning_SendsTheConfiguredEffortOnly(t *testing.T) {
 }
 
 func TestAnthropicSchema_EnforcesOriginalConstraintsAndRejectsOpenMaps(t *testing.T) {
+	fastRetries(t)
 	for _, tc := range []struct {
 		answer  string
 		wantErr bool

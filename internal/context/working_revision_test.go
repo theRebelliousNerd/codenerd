@@ -82,6 +82,7 @@ func elementKeys(t *testing.T, file, src string) []string {
 // element revisions, absent keys, a partly parsed file's retained elements,
 // unsupported languages, missing files, escapes and the nonfile entity.
 func TestWorkingRevisions_BatchEqualsOneAtATime(t *testing.T) {
+	t.Parallel()
 	w, root := ledgerSet(t, 4096, 1)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte(revisionFixtureGo), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "b.go"), []byte(revisionFixtureBroken), 0600))
@@ -119,6 +120,7 @@ func TestWorkingRevisions_BatchEqualsOneAtATime(t *testing.T) {
 // An edit elsewhere in the file leaves an element's revision alone; removing
 // the element makes it absent -- observed in one batch, as one at a time.
 func TestWorkingRevisions_ElementIdentitySurvivesUnrelatedEdits(t *testing.T) {
+	t.Parallel()
 	w, root := ledgerSet(t, 4096, 1)
 	path := filepath.Join(root, "a.go")
 	require.NoError(t, os.WriteFile(path, []byte(revisionFixtureGo), 0600))
@@ -154,6 +156,7 @@ func TestWorkingRevisions_ElementIdentitySurvivesUnrelatedEdits(t *testing.T) {
 
 // A canceled epoch claims no revision it did not read.
 func TestWorkingRevisions_CanceledEpochIsUnavailable(t *testing.T) {
+	t.Parallel()
 	w, root := ledgerSet(t, 4096, 1)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte(revisionFixtureGo), 0600))
 	ctx, cancel := context.WithCancel(t.Context())
@@ -168,6 +171,7 @@ func TestWorkingRevisions_CanceledEpochIsUnavailable(t *testing.T) {
 // policy judged staleness against, and the extra entities the harness asked
 // to observe beside them (the focus).
 func TestWorkingLedger_ReturnsTheEpochItDecidedOn(t *testing.T) {
+	t.Parallel()
 	w, root := ledgerSet(t, 1<<20, 1, "a.go", "focus.go")
 	keys := elementKeys(t, "a.go", revisionFixtureGo)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte(revisionFixtureGo), 0600))
@@ -175,7 +179,7 @@ func TestWorkingLedger_ReturnsTheEpochItDecidedOn(t *testing.T) {
 	for i, key := range keys {
 		entries = append(entries, observe(t, w, fmt.Sprintf("e%d", i), ElementEntity("a.go", key), "get_element/"+key, 1, 10, 0, 0))
 	}
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 1, Observe: []string{"focus.go"}})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 1, Observe: []string{"focus.go"}})
 	require.NoError(t, err)
 	for _, key := range keys {
 		entity := ElementEntity("a.go", key)

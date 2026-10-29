@@ -42,6 +42,7 @@ func (b *generatedCoreBackend) ExecuteGenerated(ctx context.Context, request typ
 }
 
 func TestGeneratedVirtualStoreExactEnvelopeAndRealValidation(t *testing.T) {
+	t.Parallel()
 	workspace := t.TempDir()
 	kernel, err := NewRealKernel()
 	if err != nil {

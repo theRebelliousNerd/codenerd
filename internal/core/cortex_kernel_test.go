@@ -38,6 +38,7 @@ func setupTestShard(t *testing.T, domain string, predicates []string) *KernelSha
 // =============================================================================
 
 func TestKernelShard_WhenCreated_ShouldHaveDomain(t *testing.T) {
+	t.Parallel()
 	shard, err := NewKernelShard(KernelShardConfig{
 		Domain: "test_domain",
 	})
@@ -58,6 +59,7 @@ func TestKernelShard_WhenEmptyDomain_ShouldError(t *testing.T) {
 }
 
 func TestKernelShard_WhenOwnsPredicate_ShouldReturnTrue(t *testing.T) {
+	t.Parallel()
 	shard, err := NewKernelShard(KernelShardConfig{
 		Domain:          "routing",
 		OwnedPredicates: []string{"user_intent", "next_action", "routing_result"},
@@ -86,6 +88,7 @@ func TestKernelShard_WhenOwnsPredicate_ShouldReturnTrue(t *testing.T) {
 }
 
 func TestKernelShard_WhenAssertAndQuery_ShouldReturnFacts(t *testing.T) {
+	t.Parallel()
 	shard := setupTestShard(t, "test", []string{"test_fact"})
 
 	// Assert a fact
@@ -109,6 +112,7 @@ func TestKernelShard_WhenAssertAndQuery_ShouldReturnFacts(t *testing.T) {
 }
 
 func TestKernelShard_WhenAssertBatch_ShouldTrackDirtyCount(t *testing.T) {
+	t.Parallel()
 	shard := setupTestShard(t, "test", []string{"batch_pred"})
 
 	facts := []types.Fact{
@@ -131,6 +135,7 @@ func TestKernelShard_WhenAssertBatch_ShouldTrackDirtyCount(t *testing.T) {
 }
 
 func TestKernelShard_WhenRetract_ShouldRemoveFacts(t *testing.T) {
+	t.Parallel()
 	shard := setupTestShard(t, "test", []string{"retract_me"})
 
 	// Assert then retract
@@ -153,6 +158,7 @@ func TestKernelShard_WhenRetract_ShouldRemoveFacts(t *testing.T) {
 }
 
 func TestKernelShard_Metrics_ShouldTrackQueryCount(t *testing.T) {
+	t.Parallel()
 	shard, err := NewKernelShard(KernelShardConfig{
 		Domain: "metrics_test",
 	})
@@ -183,6 +189,7 @@ func TestCortexKernel_WhenCreated_ShouldBeEmpty(t *testing.T) {
 }
 
 func TestCortexKernel_WhenRegisterShard_ShouldRoute(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 
 	// Use predicates that are declared in the kernel's embedded schemas
@@ -230,6 +237,7 @@ func TestCortexKernel_WhenRegisterShard_ShouldRoute(t *testing.T) {
 }
 
 func TestCortexKernel_WhenDuplicateRegister_ShouldError(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 
 	shard, _ := NewKernelShard(KernelShardConfig{Domain: "dup"})
@@ -244,6 +252,7 @@ func TestCortexKernel_WhenDuplicateRegister_ShouldError(t *testing.T) {
 }
 
 func TestCortexKernel_WhenAssertBatch_ShouldRouteToShards(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 
 	mainShard := setupTestShard(t, "main", []string{"alpha", "gamma"})
@@ -275,6 +284,7 @@ func TestCortexKernel_WhenAssertBatch_ShouldRouteToShards(t *testing.T) {
 }
 
 func TestCortexKernel_WhenRetract_ShouldRouteToCorrectShard(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 
 	shard := setupTestShard(t, "main", []string{"ephemeral"})
@@ -291,6 +301,7 @@ func TestCortexKernel_WhenRetract_ShouldRouteToCorrectShard(t *testing.T) {
 }
 
 func TestCortexKernel_AllMetrics_ShouldReturnAllShards(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 
 	s1, _ := NewKernelShard(KernelShardConfig{Domain: "shard1"})
@@ -312,6 +323,7 @@ func TestCortexKernel_AllMetrics_ShouldReturnAllShards(t *testing.T) {
 // =============================================================================
 
 func TestCortexTransaction_WhenCommit_ShouldBatchMutations(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 
 	routingShard := setupTestShard(t, "routing", []string{"intent", "action"})
@@ -343,6 +355,7 @@ func TestCortexTransaction_WhenCommit_ShouldBatchMutations(t *testing.T) {
 }
 
 func TestCortexTransaction_WhenRetractAndAssert_ShouldOrderCorrectly(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 
 	shard := setupTestShard(t, "main", []string{"cortex_tx_test_state"})
@@ -394,6 +407,7 @@ func TestCortexTransaction_WhenRetractAndAssert_ShouldOrderCorrectly(t *testing.
 // =============================================================================
 
 func TestCortexKernel_WhenConcurrentAccess_ShouldNotPanic(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 
 	s1 := setupTestShard(t, "shard1", []string{"concurrent_fact"})
@@ -424,6 +438,7 @@ func TestCortexKernel_WhenConcurrentAccess_ShouldNotPanic(t *testing.T) {
 }
 
 func TestCortexKernel_WhenConcurrentTransactions_ShouldNotDeadlock(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 
 	s1 := setupTestShard(t, "main", []string{"tx_fact"})
@@ -464,6 +479,7 @@ func TestCortexKernel_WhenConcurrentTransactions_ShouldNotDeadlock(t *testing.T)
 // =============================================================================
 
 func TestRealKernel_IsDirty_WhenFreshKernel_ShouldBeFalse(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel failed: %v", err)
@@ -475,6 +491,7 @@ func TestRealKernel_IsDirty_WhenFreshKernel_ShouldBeFalse(t *testing.T) {
 }
 
 func TestRealKernel_IsDirty_WhenAsserted_ShouldBeTrue(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel failed: %v", err)
@@ -490,6 +507,7 @@ func TestRealKernel_IsDirty_WhenAsserted_ShouldBeTrue(t *testing.T) {
 }
 
 func TestRealKernel_IsDirty_WhenQueryClears_ShouldBeFalse(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel failed: %v", err)
@@ -511,6 +529,7 @@ func TestRealKernel_IsDirty_WhenQueryClears_ShouldBeFalse(t *testing.T) {
 // =============================================================================
 
 func TestRealKernel_LoadSchemas_ShouldReplaceSchemasAndMarkDirty(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel failed: %v", err)
@@ -524,6 +543,7 @@ func TestRealKernel_LoadSchemas_ShouldReplaceSchemasAndMarkDirty(t *testing.T) {
 }
 
 func TestRealKernel_LoadPolicy_ShouldReplacePolicyAndMarkDirty(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel failed: %v", err)

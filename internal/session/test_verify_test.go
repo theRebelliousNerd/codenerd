@@ -178,6 +178,7 @@ func TestTestVerification_StructDidNotRunIsNotAPass(t *testing.T) {
 // Integration: verifyTests against real throwaway modules. Mirrors
 // TestVerifyBuild_DetectsBrokenPackage but exercises `go test`.
 func TestVerifyTests_DetectsPassingAndFailingPackages(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("compiles throwaway packages")
 	}
@@ -223,6 +224,7 @@ func TestVerifyTests_DetectsPassingAndFailingPackages(t *testing.T) {
 // ./... and not on a default. A package outside the list whose tests fail must
 // not cause the verification to fail.
 func TestVerifyTests_RunsExactlyRequestedPackages(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("compiles throwaway packages")
 	}
@@ -267,6 +269,7 @@ func TestVerifyTests_RunsExactlyRequestedPackages(t *testing.T) {
 // (A *repeated* flood collapses to one counted line instead; see
 // TestVerificationOutput_RepeatFloodIsOneLine.)
 func TestVerifyTests_KeepsLongOutputWhole(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("compiles throwaway package with large output")
 	}
@@ -318,6 +321,7 @@ func TestVerifyTests_KeepsLongOutputWhole(t *testing.T) {
 // The gate runs `go test -json` and publishes the Summary: the failure with
 // its file and message, no raw event lines, and the Result behind it.
 func TestVerifyTests_PublishesTheSummary(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("compiles throwaway packages")
 	}
@@ -367,6 +371,7 @@ func TestVerifyTests_PublishesTheSummary(t *testing.T) {
 // tests fail" will often delete or weaken the assertion, which turns red green
 // while destroying the thing that made the suite worth running.
 func TestTestRepairPrompt_ForbidsWeakeningTheTest(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -394,6 +399,7 @@ func TestTestRepairPrompt_ForbidsWeakeningTheTest(t *testing.T) {
 }
 
 func TestTestBuildFailed(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -432,6 +438,7 @@ func TestTestBuildFailed(t *testing.T) {
 }
 
 func TestTestRepairPrompt_BuildFailureBlamesTheTestFile(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -558,6 +565,7 @@ func TestPackageHasTestFile_UnreadableDirIsNotEvidence(t *testing.T) {
 // with //go:build integration and the gate treated the setup failure as the
 // turn's failure).
 func TestGateTests_TagGatedCompileErrorFails(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to go vet")
 	}
@@ -592,6 +600,7 @@ func TestGateTests_TagGatedCompileErrorFails(t *testing.T) {
 }
 
 func TestGateTests_TagGatedOnlyCleanIsSkippedNotPassed(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to go vet")
 	}
@@ -620,6 +629,7 @@ func TestGateTests_TagGatedOnlyCleanIsSkippedNotPassed(t *testing.T) {
 }
 
 func TestGateTests_MixedRunsTestsOnRunnable(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("shells out to go test and go vet")
 	}

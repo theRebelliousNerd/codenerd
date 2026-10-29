@@ -14,6 +14,7 @@ import (
 // deletions it did make were right. A report that admits unfinished work now
 // withholds /done and says why.
 func TestTurnWhoseReportAdmitsUnfinishedWork_IsNotDone(t *testing.T) {
+	t.Parallel()
 	e := newObligationExec(t)
 	result := writeTurnResult()
 	result.VetCheck = BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed}

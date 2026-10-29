@@ -12,6 +12,7 @@ import (
 )
 
 func TestExtractRequirementsSmartBatchesDiscoveryQuestions(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "knowledge.db")
 	docPath := filepath.Join(t.TempDir(), "spec.md")

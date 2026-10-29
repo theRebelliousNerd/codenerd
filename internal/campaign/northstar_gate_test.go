@@ -39,6 +39,7 @@ func northstarGateObserver(t *testing.T, withVision bool, llm northstar.LLMClien
 // NS-VISION-04: the campaign risk gate grades the alignment check instead of
 // treating everything but an explicit block as passed.
 func TestRunNorthstarRiskGate_MapsEveryAlignmentResult(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		withVision  bool
@@ -77,6 +78,7 @@ func TestRunNorthstarRiskGate_MapsEveryAlignmentResult(t *testing.T) {
 // An unassessed northstar gate is a hard stop on a protected surface and a
 // soft, visible warning elsewhere -- never a silent pass.
 func TestRiskClassification_InconclusiveNorthstar_HardOnProtectedSoftElsewhere(t *testing.T) {
+	t.Parallel()
 	kernel := newRiskContractKernel(t)
 	for _, tc := range []struct {
 		name      string

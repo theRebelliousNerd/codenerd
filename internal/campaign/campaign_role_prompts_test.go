@@ -54,6 +54,7 @@ func firstContentLine(atom *prompt.PromptAtom) string {
 // aligned: the extractor and taxonomy compiles carried none of their role's
 // atoms, and every role carried eight worker intent atoms.
 func TestCampaignRolePrompts_AreCompiledFromTheirAtoms(t *testing.T) {
+	t.Parallel()
 	kernel, compiler, corpus := newCampaignCompiler(t)
 	assembler, err := articulation.NewPromptAssemblerWithJIT(kernel, compiler)
 	if err != nil {
@@ -111,6 +112,7 @@ func containsTag(tags []string, tag string) bool {
 // atom carries the checkpoint_verdict/4 reply. The same turn without the
 // phase carries no contract.
 func TestCheckpointVerdictContracts_ReachOnlyTheCheckpointTurn(t *testing.T) {
+	t.Parallel()
 	_, compiler, _ := newCampaignCompiler(t)
 	for _, tc := range []struct {
 		shard, intent, phase, contract string

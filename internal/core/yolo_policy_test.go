@@ -12,6 +12,7 @@ import (
 // ground negations over an absent-by-default fact, so non-yolo behavior is
 // untouched.
 func TestYoloModeSuppressesAmbiguityQuestions(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -51,6 +52,7 @@ func TestYoloModeSuppressesAmbiguityQuestions(t *testing.T) {
 // without yolo_mode, because the classification_outcome rules carry no yolo
 // guard (policy/perception_outcome.mg).
 func TestYoloModePreservesErrorNotices(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

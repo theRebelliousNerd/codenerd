@@ -12,6 +12,7 @@ import (
 // the ones the merge's own 64-atom cap drops. None resets to zero, or the
 // merged block's marker would announce fewer lost atoms than were lost.
 func TestMergeOldestSegments_KeepsEveryInheritedCount(t *testing.T) {
+	t.Parallel()
 	comp := newKernelBackedCompressor(t)
 	atoms := func(seg, n int) []core.Fact {
 		out := make([]core.Fact, n)

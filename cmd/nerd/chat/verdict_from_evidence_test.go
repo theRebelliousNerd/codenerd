@@ -280,6 +280,7 @@ func TestContinuationSummary_HollowAndDone(t *testing.T) {
 // internal/core/defaults/policy/codedom_continuation.mg must still derive the
 // follow-up work — and must no longer derive it from prose.
 func TestInjectShardResultFacts_DerivesContinuationThroughRealKernel(t *testing.T) {
+	t.Parallel()
 	t.Run("unverifiedWriteWithNoTestRunOwesATesterStep", func(t *testing.T) {
 		m := newKernelBackedModel(t)
 		m.injectShardResultFacts("coder", "add the handler", observation.Return{

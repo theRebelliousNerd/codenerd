@@ -26,10 +26,20 @@ type ledgerLoop struct {
 
 func newLedgerLoop(t *testing.T, ceiling, keep int) *ledgerLoop {
 	t.Helper()
+	return newLedgerLoopConfigured(t, ceiling, keep, nil)
+}
+
+// newLedgerLoopConfigured is newLedgerLoop with configure applied to the
+// executor before the loop begins, when its config is read.
+func newLedgerLoopConfigured(t *testing.T, ceiling, keep int, configure func(*Executor)) *ledgerLoop {
+	t.Helper()
 	e := newWorkingLoopExecutor(t, &MockLLMClient{})
 	e.config.TokenBudget = 200000
 	e.config.Working.LedgerCeilingBytes = ceiling
 	e.config.Working.LedgerKeepRounds = keep
+	if configure != nil {
+		configure(e)
+	}
 	if err := os.WriteFile(filepath.Join(e.config.WorkspaceRoot, "target.go"), []byte("package target // v1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -86,6 +96,7 @@ func requireAppendOnly(t *testing.T, before, after []types.Message, what string)
 // appended once -- not rendered and resent at the tail of every request, which
 // is what kept the working section out of every provider cache.
 func TestWorkingLedger_RequestsAreAppendOnlyAndTheViewIsSentOnce(t *testing.T) {
+	t.Parallel()
 	l := newLedgerLoop(t, 1<<20, 2)
 	for n := 1; n <= 5; n++ {
 		l.round("read_file", fmt.Sprintf("round-%d-body", n))
@@ -106,6 +117,7 @@ func TestWorkingLedger_RequestsAreAppendOnlyAndTheViewIsSentOnce(t *testing.T) {
 // unchanged from then on, and it recovers the result whole. The storage id
 // is not a handle. Eviction is not deletion.
 func TestWorkingLedger_ACompactionMovesOldRoundsBehindTheirHandles(t *testing.T) {
+	t.Parallel()
 	l := newLedgerLoop(t, 4096, 2)
 	first := strings.Repeat("first-round ", 125) // 1500 bytes
 	l.round("read_file", first)
@@ -153,6 +165,7 @@ func TestWorkingLedger_ACompactionMovesOldRoundsBehindTheirHandles(t *testing.T)
 // round that sees the change carries a notice naming it, once, and the focus
 // view is appended again at the new revision.
 func TestWorkingLedger_AnEditRestatesTheStaleReadOnce(t *testing.T) {
+	t.Parallel()
 	l := newLedgerLoop(t, 1<<20, 2)
 	l.round("read_file", "v1-body")
 	loop := activeWorkingLoop(l.ctx)
@@ -196,6 +209,7 @@ func TestWorkingLedger_AnEditRestatesTheStaleReadOnce(t *testing.T) {
 // same file -- standing, where a whole-file revision staled both and the model
 // re-read what had not changed (one file 34 times in one campaign).
 func TestWorkingLedger_AnEditToOneFunctionRestatesOnlyWhatWasReadOfIt(t *testing.T) {
+	t.Parallel()
 	l := newLedgerLoop(t, 1<<20, 2)
 	path := filepath.Join(l.e.config.WorkspaceRoot, "target.go")
 	write := func(aBody string) {
@@ -254,6 +268,7 @@ func TestWorkingLedger_AnEditToOneFunctionRestatesOnlyWhatWasReadOfIt(t *testing
 // commit dropped that refusal (e2e LargePayload_RefusedWhole and two
 // orchestrator payload tests went green on a request they must refuse).
 func TestSingleShotRequest_CarriesTheViewAndRefusesWhatCannotFit(t *testing.T) {
+	t.Parallel()
 	l := newLedgerLoop(t, 1<<20, 2)
 	input, err := l.e.singleShotRequest(l.ctx, "SYSTEM", "fix target.go", nil)
 	if err != nil {
@@ -277,6 +292,7 @@ func TestSingleShotRequest_CarriesTheViewAndRefusesWhatCannotFit(t *testing.T) {
 // recalled stays in the request through the next compaction while it is still
 // live, so continuing does not mean recalling it again.
 func TestWorkingLedger_ARecalledLiveResultStaysThroughTheNextCompaction(t *testing.T) {
+	t.Parallel()
 	l := newLedgerLoop(t, 8000, 2)
 	l.round("read_file", strings.Repeat("A", 5000))
 	l.round("outline", strings.Repeat("B", 5000))
@@ -339,6 +355,7 @@ func lastResultOf(t *testing.T, messages []types.Message, call string) string {
 // left its whole view in every later request (21 views, 63% of one coder
 // request's input, 2026-10-29).
 func TestWorkingLedger_ANewerViewRetiresTheOlderOne(t *testing.T) {
+	t.Parallel()
 	l := newLedgerLoop(t, 1<<20, 2)
 	l.round("read_file", "v1-body")
 	for v := 2; v <= 5; v++ {

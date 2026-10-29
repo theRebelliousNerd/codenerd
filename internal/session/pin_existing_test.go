@@ -28,6 +28,7 @@ import (
 // did -- put the turn's production changes back and see whether the repository
 // notices.
 func TestPinnedByExistingTests_AsksTheRepositoryInsteadOfAssuming(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	writeMod(t, ws)
 

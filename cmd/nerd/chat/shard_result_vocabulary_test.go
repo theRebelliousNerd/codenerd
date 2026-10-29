@@ -32,6 +32,7 @@ import (
 // verdict the kernel reached. The obligation must reach the tester on a
 // verified turn exactly as on an unverified one.
 func TestPendingTestOnAVerifiedTurnStillReachesTheTester(t *testing.T) {
+	t.Parallel()
 	m := newKernelBackedModel(t)
 
 	m.injectShardResultFacts("coder", "add the retry", observation.Return{
@@ -62,6 +63,7 @@ func TestPendingTestOnAVerifiedTurnStillReachesTheTester(t *testing.T) {
 // tester again until max_continuation_steps(10) -- a count as the completion
 // criterion.
 func TestTestObligationIsDischargedByTheTestersResult(t *testing.T) {
+	t.Parallel()
 	m := newKernelBackedModel(t)
 
 	m.injectShardResultFacts("coder", "add the retry", observation.Return{
@@ -98,6 +100,7 @@ func TestTestObligationIsDischargedByTheTestersResult(t *testing.T) {
 // coder's result for the description discharges it; the findings its second
 // pass leaves behind are reported, not chased -- one round per obligation.
 func TestFindingsOweAFixToTheCoderOnce(t *testing.T) {
+	t.Parallel()
 	m := newKernelBackedModel(t)
 
 	m.injectShardResultFacts("coder", "add the retry", observation.Return{
@@ -154,6 +157,7 @@ func TestObligationDescriptionsDoNotNest(t *testing.T) {
 // description mean the retry happened; a third dispatch would be the same
 // call again, which is a stall.
 func TestIncompleteStepIsRetriedOnce(t *testing.T) {
+	t.Parallel()
 	m := newKernelBackedModel(t)
 
 	hollow := observation.Return{Output: "Here is the plan.", Outcome: "/hollow"}

@@ -15,6 +15,7 @@ import (
 // (hydratedSessionPredicates), so this pins the set's membership: dropping a
 // predicate from it would leave that one's stale rows in the kernel.
 func TestHydrateSessionContext_ShouldReplaceAllThreeOwnedPredicates(t *testing.T) {
+	t.Parallel()
 	db, err := store.NewLocalStore(filepath.Join(t.TempDir(), "kb.db"))
 	if err != nil {
 		t.Fatalf("NewLocalStore: %v", err)

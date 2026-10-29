@@ -64,11 +64,15 @@
   newest round. The harness's own text (the focus file's view, a notice that a
   carried observation's file changed) is appended once to the round where it
   arose and resent unchanged, never regenerated. What leaves the ledger is the
-  policy's (`internal/context/working_set.mg`): past `working.ledger_ceiling_bytes`
-  (default: `context_window.max_tokens * working_reserve_percent / 100` tokens,
-  times 4 bytes) one compaction (`working_compact`) moves every stale or
+  policy's (`internal/context/working_set.mg`): past the smaller of
+  `working.ledger_ceiling_bytes` (default: `context_window.max_tokens *
+  working_reserve_percent / 100` tokens, times 4 bytes) and the room the
+  request's input window leaves for results (`working_ledger_room`, measured
+  each round) one compaction (`working_compact`) moves every stale or
   superseded result out, then aged results that are not a recalled live
-  observation, oldest first, only until the excess is covered; the newest
+  observation, oldest first, until the ledger is down to
+  `working.ledger_low_water_percent` of that limit (default 70), so the next
+  rounds append without compacting again; the newest
   `working.ledger_keep_rounds` and a recalled live result stay
   (`working_evict`). Each leaves behind its `recall_context` handle -- a short
   per-task ordinal -- which states the body's size. (Measured 2026-09-29: the

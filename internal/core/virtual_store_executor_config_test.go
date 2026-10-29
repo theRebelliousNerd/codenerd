@@ -54,6 +54,7 @@ func TestVirtualStoreModernExecutorInheritsCallerExecutorConfig(t *testing.T) {
 // is VirtualStore.AuditedExecutor. It used to be the bare injected
 // DirectExecutor, whose commands never reached the kernel.
 func TestVirtualStoreAuditedExecutorEmitsExecutionFacts(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -84,6 +85,7 @@ func TestVirtualStoreAuditedExecutorEmitsExecutionFacts(t *testing.T) {
 // correlated by action ID; a denied action never reaches an executor and has
 // no receipt (tactile-effect-receipt-v1).
 func TestExecActionCarriesItsReceiptAndDeniedActionHasNone(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

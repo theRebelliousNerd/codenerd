@@ -210,6 +210,7 @@ func TestExecutorHydration_SkippedWithoutInterface(t *testing.T) {
 }
 
 func TestExecutorPersistTurn_AtomsJSONRecordsSelectedAtoms(t *testing.T) {
+	t.Parallel()
 	db := newMemoryTestStore(t, "atoms.db")
 	jit := &MockJITCompiler{
 		CompileFunc: func(ctx context.Context, cc *prompt.CompilationContext) (*prompt.CompilationResult, error) {
@@ -237,6 +238,7 @@ func TestExecutorPersistTurn_AtomsJSONRecordsSelectedAtoms(t *testing.T) {
 }
 
 func TestExecutorPersistTurn_AtomsJSONEmptyWhenCompilationSkipped(t *testing.T) {
+	t.Parallel()
 	db := newMemoryTestStore(t, "atoms-empty.db")
 	executor, _ := newMemoryTestExecutor(&MockVirtualStore{}, nil)
 	executor.SetSessionPersister(db)
@@ -278,6 +280,7 @@ func TestExecutorTurnCost_AssertedPerTurn(t *testing.T) {
 // what actually landed. A turn that changed nothing has no workspace claim to
 // verify (turn_verified's no-write arm, coder_safety.mg), so it is now /done.
 func TestExecutorTurnCost_ReadOnlyTurnIsDoneNotFailed(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -309,6 +312,7 @@ func TestExecutorTurnCost_ReadOnlyTurnIsDoneNotFailed(t *testing.T) {
 }
 
 func TestExecutorTurnCost_DoneOutcomeOnVerifiedTurn(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

@@ -26,6 +26,7 @@ func waitForSubscription(t *testing.T, bus *FactEventBus) {
 // The debounce window is 1s, so the test polls with a hard deadline instead
 // of sleeping a fixed guess.
 func TestOnDemandWatcherFiresOnTrigger(t *testing.T) {
+	t.Parallel()
 	bus := NewFactEventBus()
 	var calls atomic.Int64
 	ctx, cancel := context.WithCancel(context.Background())
@@ -61,6 +62,7 @@ func TestOnDemandWatcherFiresOnTrigger(t *testing.T) {
 // narrowly: predicates outside the trigger vocabulary must not wake it. The
 // fallback sweep is 30s out, so a quiet 1.5s window is conclusive.
 func TestOnDemandWatcherIgnoresUnrelatedPredicates(t *testing.T) {
+	t.Parallel()
 	bus := NewFactEventBus()
 	var calls atomic.Int64
 	ctx, cancel := context.WithCancel(context.Background())
@@ -93,6 +95,7 @@ func TestOnDemandWatcherIgnoresUnrelatedPredicates(t *testing.T) {
 // the bus holds no subscription (no leak) and further triggers invoke
 // nothing. Stop is also idempotent — a double stop must not panic or hang.
 func TestOnDemandWatcherStopUnsubscribes(t *testing.T) {
+	t.Parallel()
 	bus := NewFactEventBus()
 	var calls atomic.Int64
 

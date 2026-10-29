@@ -9,6 +9,7 @@ import (
 )
 
 func TestCheckSafety_GlobAndWriteFile_RealKernel(t *testing.T) {
+	t.Parallel()
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatal(err)
@@ -31,6 +32,7 @@ func TestCheckSafety_GlobAndWriteFile_RealKernel(t *testing.T) {
 }
 
 func TestCheckSafety_SecurityViolationEmitted(t *testing.T) {
+	t.Parallel()
 	k, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatal(err)

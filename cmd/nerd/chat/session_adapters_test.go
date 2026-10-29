@@ -110,6 +110,7 @@ func TestCoreLearningStoreAdapter_Close_NilStore(t *testing.T) {
 }
 
 func TestCoreLearningStoreAdapter_WithStore(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping adapter test requiring LearningStore in short mode")
 	}

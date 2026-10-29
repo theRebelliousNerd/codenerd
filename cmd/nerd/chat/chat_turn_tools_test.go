@@ -29,6 +29,7 @@ import (
 // /coder persona's /codedom envelope), so the skeleton must carry
 // capability/codedom_core, which requires exactly those two tools.
 func TestChatSkeleton_IncludesToolGatedAtomsOfTurnCatalog(t *testing.T) {
+	t.Parallel()
 	m := newChatModelWithCompiler(t, "fix the race in the executor", "/fix")
 
 	// Precondition: the catalog really does offer the atom's tools. If the
@@ -68,6 +69,7 @@ func TestChatSkeleton_IncludesToolGatedAtomsOfTurnCatalog(t *testing.T) {
 // the context carries the derivation itself — not a copy that can drift,
 // and not a second query answered differently.
 func TestChatCompilationContext_SetsAvailableToolsFromTurnCatalog(t *testing.T) {
+	t.Parallel()
 	m := newChatModelWithCompiler(t, "fix the race in the executor", "/fix")
 
 	cc := m.buildChatCompilationContext()
@@ -87,6 +89,7 @@ func TestChatCompilationContext_SetsAvailableToolsFromTurnCatalog(t *testing.T) 
 // rule (resolveAvailableTools): a derivation that cannot run compiles
 // against none. No tools is not all tools.
 func TestChatCompilationContext_FailClosedWithoutKernel(t *testing.T) {
+	t.Parallel()
 	compiler, _ := newChatTestCompiler(t)
 
 	m := NewTestModel()
@@ -114,6 +117,7 @@ func TestChatCompilationContext_FailClosedWithoutKernel(t *testing.T) {
 // tool-gated atoms. "Refs Name Code" is capability/codedom_core's heading,
 // unique to that atom, which requires find_symbol+get_element.
 func TestTranslatorPrompt_CompilesAgainstEmptyCatalog(t *testing.T) {
+	t.Parallel()
 	m := newChatModelWithCompiler(t, "what is the main issue?", "/review")
 
 	systemPrompt, _, err := m.buildShardInterpretationPrompt(

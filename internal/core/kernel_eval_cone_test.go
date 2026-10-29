@@ -166,6 +166,7 @@ func TestConeEvaluationMatchesFullEvaluation(t *testing.T) {
 // vacuously: if every lazy evaluation fell back to the full path, the two
 // kernels would agree for the wrong reason.
 func TestConeEvaluationIsActuallyTaken(t *testing.T) {
+	t.Parallel()
 	k := newConeKernel(t)
 	if _, err := k.Query("cn_open"); err != nil {
 		t.Fatalf("Query: %v", err)
@@ -189,6 +190,7 @@ func TestConeEvaluationIsActuallyTaken(t *testing.T) {
 // TestConeLeavesUnrelatedPredicatesAlone pins the point of the exercise: a
 // write re-derives its own cone and nothing else.
 func TestConeLeavesUnrelatedPredicatesAlone(t *testing.T) {
+	t.Parallel()
 	k := newConeKernel(t)
 	k.mu.Lock()
 	cone := k.cone.closure(map[string]struct{}{"cn_island_in": {}})
@@ -205,6 +207,7 @@ func TestConeLeavesUnrelatedPredicatesAlone(t *testing.T) {
 // TestConeRestoresProgramFactOfWrittenPredicate: a fact written in the program
 // text is removed with the rest of its predicate and must come back.
 func TestConeRestoresProgramFactOfWrittenPredicate(t *testing.T) {
+	t.Parallel()
 	k := newConeKernel(t)
 	if err := k.Assert(Fact{Predicate: "cn_seed", Args: []any{"/a"}}); err != nil {
 		t.Fatalf("Assert: %v", err)

@@ -2415,7 +2415,7 @@ const toolTimeoutGrace = 30 * time.Second
 
 // executeToolCall routes a tool call through the appropriate registry with safety checks.
 // It checks both registries in order:
-// 1. Modular tools (tools.Global()) - Go function handlers
+// 1. Modular tools (e.modularTools()) - Go function handlers
 // 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
 func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *config.EffectiveAgentRuntimeConfig) (output string, err error) {
 	executorCfg := e.configSnapshot()
@@ -2454,7 +2454,7 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	generatedRegistry := e.ouroborosRegistry
 	e.mu.RUnlock()
 	generated := false
-	if generatedRegistry != nil && !tools.Global().Has(call.Name) {
+	if generatedRegistry != nil && !e.modularTools().Has(call.Name) {
 		_, generated = generatedRegistry.GetTool(call.Name)
 	}
 	canonicalArgs := ""
@@ -2500,7 +2500,7 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	// Under the commit regime the read tools are withheld from the catalog; a
 	// call to one anyway is answered with the regime, not run, and not counted
 	// as a failure: it is steering, and the stall span still governs.
-	if loop := activeWorkingLoop(ctx); loop != nil && loop.regime == commitRegime && closedForReading(call.Name) {
+	if loop := activeWorkingLoop(ctx); loop != nil && loop.regime == commitRegime && e.closedForReading(call.Name) {
 		return workingRegimeText(commitRegime), nil
 	}
 	// The same for a raw search tool the policy has not opened yet, when this
@@ -2637,7 +2637,7 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	// simulation before the tool mutates anything. This brings the VirtualStore
 	// safety gate (otherwise reachable only via RouteAction) onto the
 	// interactive coding path. Effectful tools require the gate interface.
-	effect, effectErr := tools.LookupEffect(call.Name)
+	effect, effectErr := e.modularTools().LookupEffect(call.Name)
 	if effectErr != nil {
 		e.mu.RLock()
 		registry := e.ouroborosRegistry
@@ -2686,7 +2686,7 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	// least that long plus a grace period, so the executor never cuts a call
 	// off before the tool's own deadline fires.
 	budget := effectiveToolTimeout(executorCfg.ToolTimeout)
-	if tool := tools.Global().Get(call.Name); tool != nil && tool.Timeout != nil {
+	if tool := e.modularTools().Get(call.Name); tool != nil && tool.Timeout != nil {
 		if requested := tool.Timeout(call.Args) + toolTimeoutGrace; requested > budget {
 			budget = requested
 		}
@@ -2697,7 +2697,7 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 
 	// Route to appropriate registry
 	// 1. Try modular tool registry first (Go function handlers)
-	modularRegistry := tools.Global()
+	modularRegistry := e.modularTools()
 	if modularRegistry.Has(call.Name) {
 		logging.Session("Executing modular tool: %s with %d args", call.Name, len(call.Args))
 		if approved != nil {
@@ -3010,7 +3010,7 @@ func (e *Executor) admitToolCall(call ToolCall, safetyGateEnabled bool, canonica
 	// and its tool's declared effect, retracted with the pending_action. A
 	// fact the kernel could not be told is a guard that did not run, so the
 	// call is refused (policy/constitution.mg, section 7D).
-	for _, fact := range callRestrictionFacts(call, "exec-"+call.ID) {
+	for _, fact := range e.callRestrictionFacts(call, "exec-"+call.ID) {
 		fact := fact
 		if err := e.kernel.Assert(fact); err != nil {
 			logging.Get(logging.CategorySession).Error("Safety check failed: could not assert %s: %v", fact.Predicate, err)
@@ -3144,7 +3144,7 @@ func (e *Executor) admitToolCall(call ToolCall, safetyGateEnabled bool, canonica
 	reason = fmt.Sprintf("action not permitted: target=%s", target)
 	if call.restrictedTurn != "" {
 		if rows, qErr := e.kernel.Query(fmt.Sprintf("restricted_action(%s)", strconv.Quote("exec-"+call.ID))); qErr == nil && len(rows) > 0 {
-			reason = restrictionDenial(call)
+			reason = e.restrictionDenial(call)
 		}
 	}
 	if touchesSecret {
@@ -3208,5 +3208,7 @@ func (e *Executor) extractTarget(args map[string]any) string {
 //
 // The envelope belongs to whoever owns a registry, not to a turn. The correct
 // wiring is a per-session registry with SetAllowlist called once at
-// construction; until the executor owns one, isToolAllowed remains the gate
+// construction. An executor can now own one (SetModularTools), but
+// production still hands every executor tools.Global(), so isToolAllowed
+// remains the gate
 // for this path and SetAllowlist is used by callers that do own a registry.

@@ -53,6 +53,7 @@ func runSideTurn(t *testing.T, m Model, cmd tea.Cmd) Model {
 // A question while the coder works is answered, the work keeps running, and
 // the clarification lands in the brief the coder reads next.
 func TestSideTurn_ConversationWhileWorkRunsSteersTheBrief(t *testing.T) {
+	t.Parallel()
 	answer := perception.Intent{
 		Category: "/query", Verb: "/converse", Target: "none", Confidence: 0.9,
 		Response: "It's editing the second line now.",
@@ -81,6 +82,7 @@ func TestSideTurn_ConversationWhileWorkRunsSteersTheBrief(t *testing.T) {
 
 // "stop" (Jev's wants_to_stop) cancels the running turn.
 func TestSideTurn_StopCancelsTheRunningTurn(t *testing.T) {
+	t.Parallel()
 	chat := perception.Intent{Category: "/query", Verb: "/converse", Target: "none", Confidence: 0.9, Response: "Okay."}
 	m, ctx := busyModel(t, chat)
 	m = withJev(t, m, &fakeJevServer{probs: map[string]float64{"wants_to_stop": 0.97, "changes_files": 0.03}})
@@ -97,6 +99,7 @@ func TestSideTurn_StopCancelsTheRunningTurn(t *testing.T) {
 // A request for other work waits for the running turn, then runs as a full
 // turn of its own.
 func TestSideTurn_NewWorkQueuesAndStartsWhenTheTurnEnds(t *testing.T) {
+	t.Parallel()
 	more := perception.Intent{Category: "/mutation", Verb: "/create", Target: "CHANGELOG.md", Confidence: 0.9, Response: "Sure."}
 	m, ctx := busyModel(t, more, more)
 	m, cmd := typeAndEnter(t, m, "after that, add a CHANGELOG entry")
@@ -119,6 +122,7 @@ func TestSideTurn_NewWorkQueuesAndStartsWhenTheTurnEnds(t *testing.T) {
 
 // A message sent before the turn has started work is queued whole.
 func TestSideTurn_BeforeWorkStartsTheMessageQueues(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModePropose)
 	m.isLoading = true
 	m, cmd := typeAndEnter(t, m, "also check the tests")
@@ -129,6 +133,7 @@ func TestSideTurn_BeforeWorkStartsTheMessageQueues(t *testing.T) {
 
 // Ctrl+X cancels the running turn, not just the spinner.
 func TestSideTurn_CtrlXCancelsTheRunningTurn(t *testing.T) {
+	t.Parallel()
 	m, ctx := busyModel(t)
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
 	if ctx.Err() == nil {

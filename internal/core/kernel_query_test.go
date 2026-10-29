@@ -18,6 +18,7 @@ import (
 //   TestKernelQueryGap_UpdateSystemFacts_MissingWorkspace (State Conflicts - git context)
 
 func TestKernelQuery_Parse(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl foo(Name).")
 	k.Evaluate()
@@ -36,6 +37,7 @@ func TestKernelQuery_Parse(t *testing.T) {
 }
 
 func TestKernelQuery_Execute(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy(`
 	Decl test_parent(Name, Child).
@@ -113,6 +115,7 @@ func TestParseFactString_Empty(t *testing.T) {
 }
 
 func TestLoadFactsFromFile_Empty(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	// Create empty file
 	file, err := os.CreateTemp("", "empty-*.mg")
@@ -129,6 +132,7 @@ func TestLoadFactsFromFile_Empty(t *testing.T) {
 }
 
 func TestQuery_EmptyPredicate(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	_, err := k.Query("")
@@ -171,6 +175,7 @@ func TestQueryPatternPreservesMangleLiteralIdentity(t *testing.T) {
 }
 
 func TestQuery_NumericPrecision(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl num_test(Float64).")
 	k.AppendPolicy(`num_test(3.14).`)
@@ -194,6 +199,7 @@ func TestQuery_NumericPrecision(t *testing.T) {
 // ----------------------------------------------------------------------
 
 func TestLoadFactsFromFile_TOCTOU(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	// Create a temporary directory

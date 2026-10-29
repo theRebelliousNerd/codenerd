@@ -95,6 +95,7 @@ func newChatModelWithCompiler(t *testing.T, utterance, verb string) Model {
 // that baseline has to keep: the chat turn selects a real prompt, not an empty
 // one and not the whole corpus.
 func TestChatSkeleton_CompiledAtomInventory(t *testing.T) {
+	t.Parallel()
 	m := newChatModelWithCompiler(t, "why does the continuation loop stop early?", "/explain")
 
 	cc := m.buildChatCompilationContext()
@@ -176,6 +177,7 @@ func TestChatSkeleton_CompiledAtomInventory(t *testing.T) {
 // is exactly persona-length and the subtest fails on "carries no compiled
 // skeleton at all (0 bytes after the persona)".
 func TestMainChatPrompt_CarriesPersonaThenCompiledAtoms(t *testing.T) {
+	t.Parallel()
 	m := newChatModelWithCompiler(t, "review the executor for races", "/review")
 
 	systemPrompt := m.articulationSystemPrompt()
@@ -224,6 +226,7 @@ func TestMainChatPrompt_CarriesPersonaThenCompiledAtoms(t *testing.T) {
 // runs against jit.token_budget MINUS the persona, so the two together are one
 // bounded sum.
 func TestChatPromptBudget_CountsThePersona(t *testing.T) {
+	t.Parallel()
 	const (
 		totalBudget = 40000
 		reserved    = 4000
@@ -262,6 +265,7 @@ func TestChatPromptBudget_CountsThePersona(t *testing.T) {
 // not what gets shed. The compile is skipped and the turn runs on identity
 // alone — degraded, never anonymous.
 func TestChatSkeleton_BudgetTooSmallKeepsThePersonaWhole(t *testing.T) {
+	t.Parallel()
 	m := newChatModelWithCompiler(t, "hello", "/explain")
 	m.Config = &config.UserConfig{
 		ContextWindow: &config.ContextWindowConfig{MaxTokens: 1},
@@ -291,6 +295,7 @@ func personaAlone() string { return withArchitectPersona("") }
 // affordable (~344ms, measured in S19); a compile per call site is not, and a
 // compile inside a render or a retry loop is how that happens.
 func TestChatTurnCompilesExactlyOnce(t *testing.T) {
+	t.Parallel()
 	m := newChatModelWithCompiler(t, "fix the flaky test", "/fix")
 
 	before := m.jitCompiler.GetStats()
@@ -311,6 +316,7 @@ func TestChatTurnCompilesExactlyOnce(t *testing.T) {
 // "unfiltered", it is "that whole population of atoms is retired" — silently,
 // with no error and no log line. This test is the reminder.
 func TestChatCompilationContextNamesEveryFailClosedDimension(t *testing.T) {
+	t.Parallel()
 	m := newChatModelWithCompiler(t, "add a test for the elider", "/test")
 
 	cc := m.buildChatCompilationContext()
@@ -404,6 +410,7 @@ func firstN(s string, n int) string {
 // is not taught the tool-request protocol. Until 2026-09-23 all three atoms
 // were unscoped: every compile carried both protocols.
 func TestChatSkeleton_ServesTheProtocolsItsReaderConsults(t *testing.T) {
+	t.Parallel()
 	m := newChatModelWithCompiler(t, "how do I paginate a bubbletea table", "/explain")
 	m.Config = &config.UserConfig{
 		ContextWindow: &config.ContextWindowConfig{MaxTokens: 1048576},

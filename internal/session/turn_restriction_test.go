@@ -216,7 +216,7 @@ func TestRestriction_CatalogWithholdsBarredEffects(t *testing.T) {
 
 // An effect nobody declared is not read-only.
 func TestRestriction_UnknownEffectIsNotAssumedReadOnly(t *testing.T) {
-	if got := effectAtom("no_such_tool_declared_anywhere"); got != "/unknown" {
+	if got := (&Executor{}).effectAtom("no_such_tool_declared_anywhere"); got != "/unknown" {
 		t.Fatalf("an undeclared tool's effect = %q, want /unknown", got)
 	}
 	rig := newRestrictionRig(t)

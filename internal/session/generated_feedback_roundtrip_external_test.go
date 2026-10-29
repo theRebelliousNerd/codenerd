@@ -209,6 +209,7 @@ func assertGeneratedPermission(t *testing.T, kernel core.Kernel, callID string, 
 }
 
 func TestExecutor_Process_RealGeneratedBinaryFeedbackRoundTrip(t *testing.T) {
+	t.Parallel()
 	workspace := t.TempDir()
 	identity := installSessionGeneratedFixture(t, workspace)
 	model := &generatedRoundTripModel{toolName: identity.Name}

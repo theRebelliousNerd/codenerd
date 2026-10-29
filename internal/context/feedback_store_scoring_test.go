@@ -10,6 +10,7 @@ import (
 // above one marked as noise, both the global and per-intent variants should be
 // cached, and GetOverallStats should reflect the stored feedback.
 func TestFeedbackUsefulnessScoring(t *testing.T) {
+	t.Parallel()
 	dbPath := filepath.Join(t.TempDir(), "feedback_scoring.db")
 	store, err := NewContextFeedbackStore(dbPath)
 	if err != nil {

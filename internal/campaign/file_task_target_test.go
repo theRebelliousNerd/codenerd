@@ -14,6 +14,7 @@ import (
 // target from the declared WriteSet when no artifact is present, and passes
 // that path to the coder shard.
 func TestFileTask_WriteSetTargetPath(t *testing.T) {
+	t.Parallel()
 	workspace := t.TempDir()
 	var captured string
 	calls := 0
@@ -66,6 +67,7 @@ func TestFileTask_WriteSetTargetPath(t *testing.T) {
 // TestFileTask_WriteSetAbsoluteTargetPath verifies that an absolute WriteSet
 // entry (the decomposer's normalized form) is relativized for the shard.
 func TestFileTask_WriteSetAbsoluteTargetPath(t *testing.T) {
+	t.Parallel()
 	workspace := t.TempDir()
 	abs := filepath.Join(workspace, "internal", "x", "y.go")
 	var captured string

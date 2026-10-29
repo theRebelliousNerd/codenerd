@@ -102,6 +102,7 @@ func TestJevTurn_SlowJevIsBoundedByTheTurnTimeout(t *testing.T) {
 // Every answered Jev call is billed to the session's usage tracker under its
 // use, wherever it runs.
 func TestJevTurn_JudgmentsAreBilledToTheUsageTracker(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModeYolo)
 	tracker, err := usage.NewTracker(t.TempDir())
 	if err != nil {
@@ -124,6 +125,7 @@ func TestJevTurn_JudgmentsAreBilledToTheUsageTracker(t *testing.T) {
 // Each use's switch turns that use off and only that use: Jev is never
 // called for it, and the chat behaves as without Jev.
 func TestJevUses_EachSwitchOffAsksNothing(t *testing.T) {
+	t.Parallel()
 	off := false
 	m, _ := journeyModel(t, config.WorkModeYolo)
 	jev := &contentJev{probs: map[string]float64{"finding": 0.05, "problem": 0.05}}
@@ -169,6 +171,7 @@ func TestJevUses_EachSwitchOffAsksNothing(t *testing.T) {
 // self-diagnosis chain, whatever verb perception chose; without the judgment
 // (Jev failed) it is the plain background review perception asked for.
 func TestJevJourney_AboutCodeNERDStartsTheSelfDiagnosisChain(t *testing.T) {
+	t.Parallel()
 	intent := perception.Intent{Category: "/query", Verb: "/review", Target: "the logs", Confidence: 0.9}
 	for _, tc := range []struct {
 		name string
@@ -198,6 +201,7 @@ func TestJevJourney_AboutCodeNERDStartsTheSelfDiagnosisChain(t *testing.T) {
 // the kernel derives as failures around it apart; a failed triage keeps the
 // log's order with nothing listed apart.
 func TestJevJourney_TriageListsFailuresAroundCodeNERDApart(t *testing.T) {
+	t.Parallel()
 	log := "2026/10/28 06:19:54.100 [ERROR] [session] nil map in executor dispatch\n" +
 		"2026/10/28 06:20:01.200 [ERROR] [api] provider connection refused\n"
 	for _, tc := range []struct {

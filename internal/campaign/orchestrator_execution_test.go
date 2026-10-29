@@ -67,6 +67,7 @@ func (tx rejectedCampaignResetTransaction) Commit() error                       
 // TODO: TEST_GAP: [State Conflicts] Verify state desynchronization handling when tx.Commit() in runHeartbeatLoop fails (e.g. SQLite database is locked), as the error is currently ignored.
 
 func TestFinalizeCancellationPersistsPausedCampaign(t *testing.T) {
+	t.Parallel()
 	nerdDir := filepath.Join(t.TempDir(), ".nerd")
 	o := &Orchestrator{
 		nerdDir: nerdDir,
@@ -116,6 +117,7 @@ func TestFinalizeCancellationDoesNotPauseWithoutCancellation(t *testing.T) {
 }
 
 func TestResetInProgress_KernelRejectionDoesNotDivergeLiveCampaign(t *testing.T) {
+	t.Parallel()
 	commitErr := errors.New("kernel reset transaction rejected")
 	kernel := &MockKernel{AssertErr: commitErr}
 	kernel.Facts = []core.Fact{
@@ -186,6 +188,7 @@ func TestResetInProgress_KernelRejectionDoesNotDivergeLiveCampaign(t *testing.T)
 }
 
 func TestRun_RestartResetRejectionStopsBeforeTaskEffects(t *testing.T) {
+	t.Parallel()
 	orch, kernel := newPolicyFailureOrchestrator(t, nil, Task{
 		ID: "/task_restart_reject", Description: "recover interrupted work", Type: TaskTypeResearch,
 	})
@@ -225,6 +228,7 @@ func TestRun_RestartResetRejectionStopsBeforeTaskEffects(t *testing.T) {
 }
 
 func TestRun_SuccessfulRestartResetSchedulesInterruptedTask(t *testing.T) {
+	t.Parallel()
 	orch, kernel := newPolicyFailureOrchestrator(t, nil, Task{
 		ID: "/task_restart_success", Description: "recover interrupted work", Type: TaskTypeResearch,
 	})

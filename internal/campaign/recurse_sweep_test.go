@@ -19,6 +19,7 @@ func sweepIDs(nodes []SubsystemNode) []string {
 // produces, including its lexicographic tie-break, and it does not depend on
 // the slice the graph was handed in.
 func TestPolicySweepOrder_MatchesTopoOrderOnTheFixture(t *testing.T) {
+	t.Parallel()
 	want, err := TopoOrder(fixtureDAG())
 	if err != nil {
 		t.Fatal(err)
@@ -80,6 +81,7 @@ func TestRecurseSweepOrder_MatchesTopoOrderOnTheFixture(t *testing.T) {
 // A pass is complete exactly when every node has been visited, and a node
 // already visited is not next. That is the resume skip.
 func TestSweepPass_CompletesWhenEveryNodeWasVisitedAndSkipsTheRest(t *testing.T) {
+	t.Parallel()
 	k := newRecursePolicy(t).k
 	nodes := fixtureDAG()
 	want, err := TopoOrder(nodes)
@@ -146,6 +148,7 @@ func TestSweepPass_CompletesWhenEveryNodeWasVisitedAndSkipsTheRest(t *testing.T)
 
 // An empty sweep is a finished pass: there is no node to visit.
 func TestSweepPass_AnEmptyGraphIsComplete(t *testing.T) {
+	t.Parallel()
 	k := newRecursePolicy(t).k
 	got, err := policySweepOrder(k, nil)
 	if err != nil {
@@ -162,6 +165,7 @@ func TestSweepPass_AnEmptyGraphIsComplete(t *testing.T) {
 
 // The run stops when the budget is spent, and not while it is unbounded.
 func TestSweepRun_StopsWhenTheBudgetIsSpent(t *testing.T) {
+	t.Parallel()
 	k := newRecursePolicy(t).k
 	stop, err := sweepRunStop(k)
 	if err != nil || stop {
@@ -196,6 +200,7 @@ func TestSweepRun_StopsWhenTheBudgetIsSpent(t *testing.T) {
 // A cycle is not given an order. The soundness walk reports it and leaves no
 // probe visits behind for the real pass to skip.
 func TestSweepGraph_ACycleIsNotAnOrder(t *testing.T) {
+	t.Parallel()
 	k := newRecursePolicy(t).k
 	cycle := []SubsystemNode{
 		{ID: "a", DependsOn: []string{"b"}},
@@ -220,6 +225,7 @@ func TestSweepGraph_ACycleIsNotAnOrder(t *testing.T) {
 }
 
 func TestSweepGraph_RejectsAMalformedMeasurement(t *testing.T) {
+	t.Parallel()
 	k := newRecursePolicy(t).k
 	cases := []struct {
 		name  string
@@ -242,6 +248,7 @@ func TestSweepGraph_RejectsAMalformedMeasurement(t *testing.T) {
 
 // The two roots are ordered by identity, not by the slice they arrived in.
 func TestPolicySweepOrder_TieBreakIsLexicographic(t *testing.T) {
+	t.Parallel()
 	k := newRecursePolicy(t).k
 	nodes := []SubsystemNode{
 		{ID: "z", Title: "z"},

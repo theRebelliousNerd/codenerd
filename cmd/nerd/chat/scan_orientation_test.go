@@ -16,6 +16,7 @@ import (
 )
 
 func TestRunScanAppliesOrientationWhenWorldIsUnchanged(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	chatOrientationGit(t, root, "init", "--quiet")
 	chatOrientationGit(t, root, "config", "user.name", "Chat Orientation Test")

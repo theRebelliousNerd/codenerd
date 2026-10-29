@@ -34,6 +34,7 @@ func campaignTask() Task {
 // the attempt's record: failing the attempt at the first /unverified turn
 // undid its work and started the next attempt over from the failure text.
 func TestSpawnTask_AnUnverifiedTurnIsSentBackWithTheGapInsideTheAttempt(t *testing.T) {
+	t.Parallel()
 	orch, _ := newPolicyFailureOrchestrator(t, nil, campaignTask())
 	var sent []string
 	orch.taskExecutor = scriptedExecutor([]observation.Return{
@@ -68,6 +69,7 @@ func TestSpawnTask_AnUnverifiedTurnIsSentBackWithTheGapInsideTheAttempt(t *testi
 // A dispatch that writes nothing and clears nothing ends the attempt, named by
 // the gap and by the stop.
 func TestSpawnTask_NoProgressFailsTheAttemptNamingTheGap(t *testing.T) {
+	t.Parallel()
 	orch, _ := newPolicyFailureOrchestrator(t, nil, campaignTask())
 	var sent []string
 	orch.taskExecutor = scriptedExecutor([]observation.Return{
@@ -101,6 +103,7 @@ func TestSpawnTask_NoProgressFailsTheAttemptNamingTheGap(t *testing.T) {
 // retried: the next attempt meets the same permission, credential or choice.
 // It goes to the replanner once and then fails.
 func TestHandleTaskFailure_ABlockedAttemptIsNotRetried(t *testing.T) {
+	t.Parallel()
 	orch, _ := newPolicyFailureOrchestrator(t, nil, campaignTask())
 	blocked := withSignals(errors.New("turn: "+ErrTaskNotDone.Error()), "/turn_not_done", "/unverified", "/self_reported_incomplete", "/blocked")
 	live := failTask(orch, "/task_loop", blocked)
@@ -122,6 +125,7 @@ func TestHandleTaskFailure_ABlockedAttemptIsNotRetried(t *testing.T) {
 // answered by generating the document directly: the fallback would deliver
 // the deliverable without the permission, input or choice the shard needed.
 func TestExecuteWithExplicitShard_ABlockedDocumentTaskGetsNoFallback(t *testing.T) {
+	t.Parallel()
 	task := Task{ID: "/task_doc", Description: "write the rollout plan", Type: TaskTypeDocument, Shard: "coder", Artifacts: []TaskArtifact{{Type: "/document", Path: "Docs/plan.md"}}}
 	orch, kernel := newPolicyFailureOrchestrator(t, nil, task)
 	// Jev's thresholds, which the executor asserts when it reads a report.

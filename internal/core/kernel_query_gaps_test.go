@@ -16,6 +16,7 @@ import (
 // TestKernelQueryGap_MassiveArity verifies Query handles a pattern with
 // a massive number of arguments (arity > 100).
 func TestKernelQueryGap_MassiveArity(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	// Build a Decl with 20 arguments (Mangle requires unique argument names)
@@ -56,6 +57,7 @@ func TestKernelQueryGap_MassiveArity(t *testing.T) {
 // TestKernelQueryGap_QueryAll_LargeEDB verifies QueryAll can handle
 // a large number of facts without OOM or stall.
 func TestKernelQueryGap_QueryAll_LargeEDB(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping large EDB test in short mode")
 	}
@@ -105,6 +107,7 @@ func TestKernelQueryGap_ParseFactString_DeepNesting(t *testing.T) {
 // TestKernelQueryGap_LoadFactsFromFile_LargeFile verifies LoadFactsFromFile
 // handles a large .mg file without OOM.
 func TestKernelQueryGap_LoadFactsFromFile_LargeFile(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping large file test in short mode")
 	}
@@ -143,6 +146,7 @@ func TestKernelQueryGap_LoadFactsFromFile_LargeFile(t *testing.T) {
 // TestKernelQueryGap_Concurrency_ReadWriteStarvation verifies concurrent
 // reads (Query) don't starve write locks (SetSchemas/Evaluate).
 func TestKernelQueryGap_Concurrency_ReadWriteStarvation(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.policy = ""
 	k.learned = ""

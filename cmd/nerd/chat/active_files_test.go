@@ -24,6 +24,7 @@ import (
 // never hits returns an empty slice — indistinguishable from "this file has no
 // dependencies". This test fails against that version.
 func TestDependencyContextJoinsAcrossTheTwoPathForms(t *testing.T) {
+	t.Parallel()
 	m, _ := SetupLiveModel(t)
 
 	const rel = "internal/session/executor.go"
@@ -72,6 +73,7 @@ func TestDependencyContextJoinsAcrossTheTwoPathForms(t *testing.T) {
 // side is normalized as well. This is the case that makes that line
 // load-bearing rather than defensive-looking.
 func TestDependencyContextJoinsWhenTheFactSideIsTheAbsoluteOne(t *testing.T) {
+	t.Parallel()
 	m, _ := SetupLiveModel(t)
 
 	const rel = "internal/prompt/compiler.go"
@@ -104,6 +106,7 @@ func TestDependencyContextJoinsWhenTheFactSideIsTheAbsoluteOne(t *testing.T) {
 // The point of the field is focus; a join that matches everything is the same
 // as no join, and costs prompt budget to say so.
 func TestDependencyContextIgnoresFilesTheSessionDidNotTouch(t *testing.T) {
+	t.Parallel()
 	m, _ := SetupLiveModel(t)
 
 	if err := m.kernel.Assert(core.Fact{
@@ -134,6 +137,7 @@ func TestDependencyContextIgnoresFilesTheSessionDidNotTouch(t *testing.T) {
 // session that has written nothing has no focus, and inventing one would put
 // the whole dependency graph in front of the model.
 func TestNoModifiedFilesMeansNoFocusAndNoDependencyContext(t *testing.T) {
+	t.Parallel()
 	m, _ := SetupLiveModel(t)
 
 	sessionCtx := m.buildSessionContext(context.Background())

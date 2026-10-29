@@ -73,6 +73,7 @@ func TestValidateFileModifyOutcome_AnAbsentTargetIsSatisfiedByChangingExistingCo
 // exist; an attempt that creates it anyway is refused and undone, the retry
 // reads why, and a retry that changes the existing code completes the task.
 func TestRunPhase_AModificationWithAnAbsentTargetLandsInTheExistingCode(t *testing.T) {
+	t.Parallel()
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		t.Fatalf("the shipped corpus must load: %v", err)

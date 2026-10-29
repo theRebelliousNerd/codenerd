@@ -600,6 +600,7 @@ func TestUserRequestExtremes(t *testing.T) {
 
 // TODO: Test concurrent state conflicts (two tasks writing to the same file simultaneously), symlink loop path traversals, and mid-execution directory deletion.
 func TestExecuteFileTask_ShardFailure_Fallback(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := &Orchestrator{
 		kernel:    newAssertTestKernel(t),
@@ -630,6 +631,7 @@ func TestExecuteFileTask_ShardFailure_Fallback(t *testing.T) {
 }
 
 func TestExecuteFileTask_VerificationFailure(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := &Orchestrator{
 		kernel:    newAssertTestKernel(t),
@@ -660,6 +662,7 @@ func TestExecuteFileTask_VerificationFailure(t *testing.T) {
 }
 
 func TestExecuteToolCreateTask_Autopoiesis(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	kernel := &MockKernel{
 		Facts: []core.Fact{
@@ -697,6 +700,7 @@ func TestExecuteToolCreateTask_Autopoiesis(t *testing.T) {
 }
 
 func TestExecuteFileTask_CoderTaskTargetLabel(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	t.Run("directory target uses package label", func(t *testing.T) {
@@ -846,6 +850,7 @@ func TestWriteSetBriefing_CapsTheList(t *testing.T) {
 }
 
 func TestExecuteFileTask_BriefingForModifyOnly(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	const briefingHeader = "FILES THIS TASK MAY MODIFY"
 

@@ -51,6 +51,7 @@ func verbJev(t *testing.T, m Model, pick string, confidence, fits, correction fl
 // The truth table: a mapping is learned only when Jev is confident both that
 // a verb fits the request and which verb it is.
 func TestChooseLearnedMapping_TruthTable(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name             string
 		confidence, fits float64
@@ -84,6 +85,7 @@ func TestChooseLearnedMapping_TruthTable(t *testing.T) {
 // A correction no longer replaces the turn: the corrected request runs and
 // answers as usual, with no "Should I learn it?" and no "retry the request".
 func TestCorrection_TheTurnStillRunsAndNothingAsksTheUser(t *testing.T) {
+	t.Parallel()
 	// The pick fits nothing, so the background learning stores nothing: the
 	// shared taxonomy has no workspace in tests and would write .nerd/ here.
 	m := verbJev(t, correctionModel(t, "no, I said Max, not Min"), "fix", 0.99, 0.10, 0.95)

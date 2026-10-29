@@ -43,6 +43,7 @@ func (s *stubFileContext) PromptSectionWithBudget(_ context.Context, filePath st
 // covered, which is exactly how a chain stays broken while its pieces stay
 // green.
 func TestWithFileContext_AppendsAndDegrades(t *testing.T) {
+	t.Parallel()
 	const base = "SYSTEM PROMPT"
 
 	t.Run("appends the section for a file target", func(t *testing.T) {

@@ -7,6 +7,7 @@ import "testing"
 // AssertBatch of 25 facts against an 8504-fact EDB produced atoms=25
 // facts=8529 and a "cache desync" WARN on the next evaluate.
 func TestAddFactIfNewLocked_DoesNotGrowInvalidCache(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

@@ -24,6 +24,7 @@ func countingExecutor(ret observation.Return, spawns *int) *MockTaskExecutor {
 }
 
 func TestResearchTask_ADoneTurnWithNothingToPersistFails(t *testing.T) {
+	t.Parallel()
 	o := newArtifactTestOrchestrator(t)
 	o.kernel = newAssertTestKernel(t)
 	spawns := 0
@@ -40,6 +41,7 @@ func TestResearchTask_ADoneTurnWithNothingToPersistFails(t *testing.T) {
 }
 
 func TestResearchTask_ATerseFindingIsDelivered(t *testing.T) {
+	t.Parallel()
 	o := newArtifactTestOrchestrator(t)
 	o.kernel = newAssertTestKernel(t)
 	spawns := 0
@@ -58,6 +60,7 @@ func TestResearchTask_ATerseFindingIsDelivered(t *testing.T) {
 }
 
 func TestExplicitShardTask_ADoneTurnWithNothingToPersistFails(t *testing.T) {
+	t.Parallel()
 	o := newArtifactTestOrchestrator(t)
 	o.kernel = newAssertTestKernel(t)
 	spawns := 0

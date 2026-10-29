@@ -6,6 +6,7 @@ import (
 )
 
 func TestTrace_CoverageHeuristics(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	// Append declarations to mock kernel
