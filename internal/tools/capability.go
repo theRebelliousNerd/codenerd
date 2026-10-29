@@ -63,7 +63,7 @@ var builtinCapabilities = func() map[string]Capability {
 	}
 	for _, name := range []string{
 		// run_command (git, ls, grep, cat, go build) reaches these ends.
-		"bash", "run_build", "run_tests", "git_operation", "git_diff", "git_log",
+		"bash", "run_build", "run_tests", "run_lint", "git_operation", "git_diff", "git_log",
 		"grep", "glob", "list_files", "search_code", "find_text",
 		// edit_file or apply_edits writes what these write.
 		"create_file", "edit_lines", "insert_lines", "delete_lines",

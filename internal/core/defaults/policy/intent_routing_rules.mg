@@ -364,6 +364,15 @@ persona_tool_allowed(/coder, /run_build).
 persona_tool_allowed(/coder, /run_tests).
 persona_tool_allowed(/coder, /git_operation).
 
+# The static gates (go vet, staticcheck, golangci-lint) as a typed tool. Every
+# persona that writes Go or judges it gets it: without it a turn asked to keep
+# vet clean had no way to run vet, and asserted missing_tool_for(_, /go_vet),
+# which sent autopoiesis to generate one.
+persona_tool_allowed(/coder, /run_lint).
+persona_tool_allowed(/tester, /run_lint).
+persona_tool_allowed(/reviewer, /run_lint).
+persona_tool_allowed(/nemesis, /run_lint).
+
 # Tester extras. No delete_file, run_build, git_operation, or free-form shell.
 persona_tool_allowed(/tester, /run_tests).
 persona_tool_allowed(/tester, /write_file).

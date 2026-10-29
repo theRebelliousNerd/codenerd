@@ -12,8 +12,9 @@ import (
 // The golden envelopes are the sets the config factory used to hand out, now
 // written here because that Go source is gone. turn_tool_allowed derives
 // them. A verb that gains or loses a tool fails this test. Counts are the
-// factory's: coder 41, tester 46, verify 47, reviewer 35, researcher 40,
-// nemesis 36, tool_generator 16, general 13.
+// factory's, plus run_lint (the static gates, 2026-10-29) on coder, tester,
+// verify, reviewer and nemesis: coder 42, tester 47, verify 48, reviewer 36, researcher 40,
+// nemesis 37, tool_generator 16, general 13.
 //
 // bash, run_command and run_check are absent from every set. The policy
 // before this projection granted them; the factory never offered them.
@@ -61,23 +62,23 @@ func goldenEnvelope(persona string) []string {
 		return goldenCore()
 	case "coder":
 		return unionSorted(goldenCore(), goldenCodeDom(), goldenImpact(), []string{
-			"delete_file", "edit_file", "git_operation", "run_build", "run_tests", "write_file",
+			"delete_file", "edit_file", "git_operation", "run_build", "run_lint", "run_tests", "write_file",
 		})
 	case "tester":
 		return unionSorted(goldenCore(), goldenCodeDom(), goldenImpact(), goldenBrowserSession(), []string{
-			"edit_file", "run_tests", "write_file",
+			"edit_file", "run_lint", "run_tests", "write_file",
 		})
 	case "verify":
 		return unionSorted(goldenEnvelope("tester"), []string{"grounded_web_search"})
 	case "reviewer":
-		return unionSorted(goldenCore(), goldenCodeDom(), []string{"git_diff", "git_log"})
+		return unionSorted(goldenCore(), goldenCodeDom(), []string{"git_diff", "git_log", "run_lint"})
 	case "researcher":
 		return unionSorted(goldenCore(), goldenCodeDomRead(), goldenBrowserSession(), []string{
 			"browser_extract", "browser_navigate", "context7_fetch", "grounded_web_search",
 			"research_cache_get", "research_cache_set", "web_fetch", "web_search", "write_file",
 		})
 	case "nemesis":
-		return unionSorted(goldenCore(), goldenCodeDom(), []string{"run_build", "run_tests", "write_file"})
+		return unionSorted(goldenCore(), goldenCodeDom(), []string{"run_build", "run_lint", "run_tests", "write_file"})
 	case "tool_generator":
 		return unionSorted(goldenCore(), []string{"run_build", "run_tests", "write_file"})
 	default:

@@ -1,0 +1,26 @@
+- id: "capability/run_lint"
+  category: "capability"
+  subcategory: "verification"
+  is_mandatory: false
+  requires_tools: [run_lint]
+  intent_verbs: [/fix, /implement, /refactor, /create, /modify, /add, /update, /test, /cover, /lint, /review, /check, /audit, /verify]
+  shard_types: [/coder, /tester, /reviewer]
+  content: |
+    ## Static Gates: Run Them With run_lint
+
+    `run_lint` runs a Go static gate and returns its findings, each with
+    file, line, column, check and message. `gate` is one of:
+
+    - `vet` -- go vet, the analyzers the build's own gate runs;
+    - `staticcheck` -- staticcheck's checks (SA, S, ST, QF, U1000);
+    - `golangci-lint` -- golangci-lint's default linters, every issue shown.
+
+    With no `packages` it checks the Go packages this turn wrote; pass
+    `["./..."]` for the whole module. The workspace's build tags apply.
+
+    When a task asks for vet or lint to be clean, run the gate before the
+    edit to see what is already there, fix what it names, and run it again
+    until `status` is `clean`. A `compile` finding means the package does
+    not build; fix that first. `unavailable` means the gate's binary is not
+    installed: say so, never report the gate as passed. You do not need to
+    build or request a vet or lint tool: this is it.

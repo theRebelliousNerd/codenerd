@@ -84,50 +84,23 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 				argv = append(argv, "-run", pattern)
 			}
 		}
-		var packages []string
-		switch v := args["packages"].(type) {
-		case nil:
-			// A model's "null" for the list is dropped before the tool runs
-			// (tools.withoutOmittedOptionals): packages is declared an array.
-		case []string:
-			packages = optionalPackages(v)
-		case []any:
-			strs := make([]string, 0, len(v))
-			for _, value := range v {
-				s, ok := value.(string)
-				if !ok {
-					return "", fmt.Errorf("packages must contain strings")
-				}
-				strs = append(strs, s)
-			}
-			packages = optionalPackages(strs)
-		default:
-			return "", fmt.Errorf("packages must be an array")
+		packages, err := goPackagesArg(args)
+		if err != nil {
+			return "", err
 		}
 		if len(packages) == 0 {
 			packages = []string{"./..."}
-			if written, scoped := writtenTestScope(ctx, dir, tests); scoped {
-				if len(written) == 0 {
-					return nothingWrittenToTest(dir), nil
+			if tests {
+				if written, scoped := writtenPackageScope(ctx, dir); scoped {
+					if len(written) == 0 {
+						return nothingWrittenToTest(dir), nil
+					}
+					packages, scope = written, writtenScopeNote
 				}
-				packages, scope = written, "the Go packages written this turn; pass packages [\"./...\"] for the whole module"
 			}
 		}
-		for _, pkg := range packages {
-			if pkg != "." && !strings.HasPrefix(pkg, "./") {
-				return "", fmt.Errorf("package must be workspace-relative: %q", pkg)
-			}
-			if strings.ContainsAny(pkg, "\\\x00\r\n") {
-				return "", fmt.Errorf("invalid package: %q", pkg)
-			}
-			base := strings.TrimSuffix(pkg, "/...")
-			clean := filepath.Clean(base)
-			if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-				return "", fmt.Errorf("package escapes workspace")
-			}
-			if _, err := tools.ResolveWorkspacePath(tools.WithWorkspaceRoot(ctx, dir), "", base); err != nil {
-				return "", err
-			}
+		if err := checkWorkspacePackages(ctx, dir, packages); err != nil {
+			return "", err
 		}
 		// The same environment and configured go_flags the session's own
 		// verification gate compiles under, so the model and the gate cannot
@@ -259,15 +232,66 @@ func verificationRunError(runCtx context.Context, runErr error, code int, runner
 	return runErr
 }
 
-// writtenTestScope returns the packages a test call with no packages should
-// run. scoped is false when there is nothing to scope by -- a build, no session
-// write set, or a working_dir below the workspace root, where "./..." is
-// already the caller's own narrowing and the write set's workspace-relative
-// packages would not resolve.
-func writtenTestScope(ctx context.Context, dir string, tests bool) (packages []string, scoped bool) {
-	if !tests {
-		return nil, false
+// writtenScopeNote is the scope a result reports when its packages were the
+// turn's written ones.
+const writtenScopeNote = "the Go packages written this turn; pass packages [\"./...\"] for the whole module"
+
+// goPackagesArg reads the packages argument: a list of strings, null-like
+// entries dropped. An empty result means the argument was not given.
+func goPackagesArg(args map[string]any) ([]string, error) {
+	switch v := args["packages"].(type) {
+	case nil:
+		// A model's "null" for the list is dropped before the tool runs
+		// (tools.withoutOmittedOptionals): packages is declared an array.
+		return nil, nil
+	case []string:
+		return optionalPackages(v), nil
+	case []any:
+		strs := make([]string, 0, len(v))
+		for _, value := range v {
+			s, ok := value.(string)
+			if !ok {
+				return nil, fmt.Errorf("packages must contain strings")
+			}
+			strs = append(strs, s)
+		}
+		return optionalPackages(strs), nil
+	default:
+		return nil, fmt.Errorf("packages must be an array")
 	}
+}
+
+// checkWorkspacePackages refuses a package pattern that is not
+// workspace-relative or that resolves outside the workspace. The patterns are
+// passed to a Go tool as arguments, so one that opens with "-" (a flag) never
+// gets this far: it does not start with "./".
+func checkWorkspacePackages(ctx context.Context, dir string, packages []string) error {
+	for _, pkg := range packages {
+		if pkg != "." && !strings.HasPrefix(pkg, "./") {
+			return fmt.Errorf("package must be workspace-relative: %q", pkg)
+		}
+		if strings.ContainsAny(pkg, "\\\x00\r\n") {
+			return fmt.Errorf("invalid package: %q", pkg)
+		}
+		base := strings.TrimSuffix(pkg, "/...")
+		clean := filepath.Clean(base)
+		if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("package escapes workspace")
+		}
+		if _, err := tools.ResolveWorkspacePath(tools.WithWorkspaceRoot(ctx, dir), "", base); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writtenPackageScope returns the packages a test or lint call with no
+// packages should cover: the Go packages this turn has written. scoped is
+// false when there is nothing to scope by -- no session write set, or a
+// working_dir below the workspace root, where "./..." is already the caller's
+// own narrowing and the write set's workspace-relative packages would not
+// resolve.
+func writtenPackageScope(ctx context.Context, dir string) (packages []string, scoped bool) {
 	scope, ok := tools.TestScopeFrom(ctx)
 	if !ok {
 		return nil, false

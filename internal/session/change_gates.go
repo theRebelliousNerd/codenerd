@@ -212,12 +212,29 @@ func overlayKey(p string) string {
 	return strings.ToLower(filepath.Clean(p))
 }
 
-func vetRepairPrompt(findings string) string {
+// vetRepairPrompt asks the model to fix what vet found. withRunLint is true
+// when the turn offers run_lint: the model is then told it can run vet itself
+// before it stops, rather than learning the outcome only from the next round.
+func vetRepairPrompt(findings string, withRunLint bool) string {
+	recheck := "Fix each one at its cause, then stop; go vet will be run again."
+	if withRunLint {
+		recheck = "Fix each one at its cause and run run_lint with gate \"vet\" on the packages you changed until its status is clean, then stop; go vet will be run again."
+	}
 	return "go vet reports these problems in the packages you changed, and they were not there before this turn:\n\n```\n" + findings + "\n```\n\n" +
 		"A finding can be reported in a file you did not edit when your edit caused it -- a lock added to a struct is " +
-		"reported where the struct is copied. Fix each one at its cause, then stop; go vet will be run again. Do not " +
+		"reported where the struct is copied. " + recheck + " Do not " +
 		"silence a finding with a directive or by moving the code out of the file: the finding describes a defect " +
 		"(unreachable code, a wrong format verb, a copied lock), and the fix is to remove the defect."
+}
+
+// offersTool reports whether name is among the turn's tool definitions.
+func offersTool(defs []types.ToolDefinition, name string) bool {
+	for _, def := range defs {
+		if def.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // verifyAndRepairVet runs the vet gate after the tests pass and, when the
@@ -246,7 +263,7 @@ func (e *Executor) verifyAndRepairVet(
 	spec := repairSpec{
 		kind:             "vet",
 		brokenPhrase:     "go vet reports problems this turn introduced",
-		promptFor:        vetRepairPrompt,
+		promptFor:        func(findings string) string { return vetRepairPrompt(findings, offersTool(toolDefs, "run_lint")) },
 		brokeTestsPrompt: vetBrokeTestsPrompt,
 		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
 			v := verifyVet(epCtx, workspace, result.WrittenPaths, result.PreWriteContents)

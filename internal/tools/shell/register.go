@@ -12,6 +12,7 @@ func RegisterAll(registry *tools.Registry) error {
 		RunBuildTool(),
 		RunTestsTool(),
 		RunCheckTool(),
+		RunLintTool(),
 		GitDiffTool(),
 		GitLogTool(),
 		GitOperationTool(),

@@ -331,6 +331,10 @@ safe_action(/run_tests).
 # arguments; the argv is the campaign's declaration, so there is no payload
 # for dangerous_content to judge.
 safe_action(/run_check).
+# /run_lint runs go vet, staticcheck or golangci-lint with the repository's
+# argv; the model chooses the gate from a closed set and workspace-relative
+# packages, never a command or a flag.
+safe_action(/run_lint).
 safe_action(/git_operation).
 safe_action(/git_diff).
 safe_action(/git_log).

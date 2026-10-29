@@ -178,21 +178,21 @@ func TestTypedVerification_TestsDefaultToTheWrittenPackages(t *testing.T) {
 		return []string{"./internal/alpha", "./internal/deleted_this_turn"}
 	})
 
-	got, scoped := writtenTestScope(ctx, root, true)
+	got, scoped := writtenPackageScope(ctx, root)
 	if !scoped || len(got) != 1 || got[0] != "./internal/alpha" {
-		t.Fatalf("writtenTestScope = %v, scoped=%v; want [./internal/alpha], true", got, scoped)
+		t.Fatalf("writtenPackageScope = %v, scoped=%v; want [./internal/alpha], true", got, scoped)
 	}
 	// A build has no written-package default: it compiles the module.
-	if _, scoped := writtenTestScope(ctx, root, false); scoped {
-		t.Error("a build was scoped to the write set")
+	if out, err := executeTypedVerification(ctx, map[string]any{}, false); err != nil || strings.Contains(out, "internal/alpha") || !strings.Contains(out, `"./..."`) {
+		t.Errorf("a build with a write set in context ran %s (err %v); want the module, ./...", out, err)
 	}
 	// Below the workspace root "./..." is already the caller's narrowing, and
 	// the write set's workspace-relative packages would not resolve there.
-	if _, scoped := writtenTestScope(ctx, filepath.Join(root, "internal", "alpha"), true); scoped {
+	if _, scoped := writtenPackageScope(ctx, filepath.Join(root, "internal", "alpha")); scoped {
 		t.Error("a working_dir below the root was scoped to workspace-relative packages")
 	}
 	// No session, no write set: the old default stands.
-	if _, scoped := writtenTestScope(shellWsCtx(root), root, true); scoped {
+	if _, scoped := writtenPackageScope(shellWsCtx(root), root); scoped {
 		t.Error("a call with no session scope was scoped")
 	}
 }

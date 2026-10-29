@@ -77,3 +77,24 @@ func TestGoInvocation_WhenConfigIsInvalid_ShouldStillReturnTheBuildEnv(t *testin
 		t.Errorf("argv = %v, want %v unchanged", argv, want)
 	}
 }
+
+// A Go analysis tool (staticcheck, golangci-lint) runs under the build env a
+// `go vet` gets: a workspace with sqlite_headers is analysed with
+// -tags=sqlite_vec and its CGO_CFLAGS, so its tag-gated files are not missing.
+func TestGoToolEnv_CarriesTheWorkspaceBuildTags(t *testing.T) {
+	t.Setenv("GOFLAGS", "")
+	ws := t.TempDir()
+	mustMkdir(t, filepath.Join(ws, ".git"))
+	mustMkdir(t, filepath.Join(ws, "sqlite_headers"))
+	env := GoToolEnv(ws, ws)
+	if got := envValue(env, "GOFLAGS"); got != "-tags=sqlite_vec" {
+		t.Errorf("GOFLAGS = %q, want -tags=sqlite_vec", got)
+	}
+	if got := envValue(env, "CGO_CFLAGS"); !strings.Contains(got, "sqlite_headers") {
+		t.Errorf("CGO_CFLAGS = %q, want the workspace's sqlite_headers", got)
+	}
+	vetEnv, _ := GoInvocation(ws, ws, []string{"vet", "./..."})
+	if !slices.Equal(env, vetEnv) {
+		t.Errorf("the analysis tool env differs from go vet's:\n%v\n%v", env, vetEnv)
+	}
+}

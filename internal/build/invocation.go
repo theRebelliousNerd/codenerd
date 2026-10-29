@@ -39,6 +39,17 @@ func GoInvocation(workspaceRoot, dir string, args []string) (env []string, argv 
 	return env, AppendGoFlags(userCfg, detection, args)
 }
 
+// GoToolEnv is the environment for a Go analysis tool other than `go` itself
+// (staticcheck, golangci-lint) that codeNERD runs on a workspace's behalf: the
+// same GetBuildEnv a `go vet` from GoInvocation runs under. Those tools load
+// packages through `go list`, which reads GOFLAGS and CGO_CFLAGS from it, so a
+// workspace whose build needs a tag (codeNERD's own sqlite_vec, set by
+// GetBuildEnv when sqlite_headers is present) is analysed as the build it is,
+// not as a tagless build with its gated files missing.
+func GoToolEnv(workspaceRoot, dir string) []string {
+	return GetBuildEnv(WorkspaceUserConfig(workspaceRoot), detectionRootWithin(workspaceRoot, dir))
+}
+
 // WorkspaceUserConfig loads <workspaceRoot>/.nerd/config.json for a caller
 // that spawns go on the workspace's behalf but was handed no UserConfig. A
 // missing file is an empty config. An unreadable or invalid one is reported and

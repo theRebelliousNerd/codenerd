@@ -51,7 +51,7 @@ func toolTokens(s string) int {
 // earlier write is right. A call to one, after a write, is charged to the
 // write as verification the write made necessary.
 var verificationTools = map[string]bool{
-	"run_build": true, "run_tests": true, "run_check": true, "run_impacted_tests": true,
+	"run_build": true, "run_tests": true, "run_check": true, "run_lint": true, "run_impacted_tests": true,
 }
 
 // noteToolOffers reports what one compile put in front of the model: for every

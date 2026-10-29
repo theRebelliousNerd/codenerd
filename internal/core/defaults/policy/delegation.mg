@@ -108,6 +108,18 @@ tool_capabilities(/browser, /click).
 tool_capabilities(/browser, /type).
 tool_capabilities(/code_graph, /analyze).
 tool_capabilities(/code_graph, /dependencies).
+# run_lint is the static gates: go vet, staticcheck, golangci-lint. These are
+# the names a turn reaches for when it asks for one (a control packet's
+# missing_tool_for(_, /go_vet) on 2026-10-29 sent autopoiesis to generate a vet
+# tool for minutes); has_capability reads them, and tool_generation_blocked
+# keeps a capability a registered tool provides from being generated again.
+tool_capabilities(/run_lint, /run_lint).
+tool_capabilities(/run_lint, /go_vet).
+tool_capabilities(/run_lint, /vet).
+tool_capabilities(/run_lint, /lint).
+tool_capabilities(/run_lint, /staticcheck).
+tool_capabilities(/run_lint, /golangci_lint).
+tool_capabilities(/run_lint, /static_analysis).
 
 # Goal capability requirements
 goal_requires(Goal, /read) :-

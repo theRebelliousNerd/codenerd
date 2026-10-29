@@ -73,6 +73,14 @@ tool_generation_permitted(Cap) :-
 tool_generation_blocked(Cap) :-
     dangerous_capability(Cap).
 
+# A capability a registered tool already provides is not generated. The
+# missing_tool_for a turn asserts in its control packet reaches
+# delegate_task(/tool_generator, ...) directly (delegation.mg), past the
+# !has_capability guard of the intent rule above, so a turn with no vet tool
+# in view sent autopoiesis to build /go_vet while run_lint existed.
+tool_generation_blocked(Cap) :-
+    has_capability(Cap).
+
 # Define dangerous capabilities that should never be auto-generated
 dangerous_capability(/exec_arbitrary).
 dangerous_capability(/network_unconstrained).
