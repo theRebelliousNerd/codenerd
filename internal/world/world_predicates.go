@@ -126,17 +126,38 @@ var GitPredicates = []string{
 	"churn_rate",
 }
 
+// OwnerGroup is one row of the ownership matrix: a writer, what its
+// ownership means for a scan, and the predicates it owns.
+type OwnerGroup struct {
+	Name       string
+	Note       string
+	Predicates []string
+}
+
+// OwnerGroups is the ownership matrix as data: the one table every listing of
+// world predicates is built from (WorldPredicates, `nerd world predicates`),
+// so a predicate cannot be a world predicate without an owner.
+var OwnerGroups = []OwnerGroup{
+	{"scanner (replaced on every full scan)", "re-derived by every fast scan", ScannerPredicates},
+	{"import graph", "measured from the import edges whenever a scan changes them", ImportGraphPredicates},
+	{"deep / Cartographer", "replaced per file by a deep scan only", DeepPredicates},
+	{"lsp", "projected by language servers; a scan must not delete these", LSPPredicates},
+	{"session scope", "ephemeral, session-lifetime", SessionScopePredicates},
+	{"git", "on-demand git scanner", GitPredicates},
+}
+
 // WorldPredicates enumerates every EDB predicate produced by the world model,
 // across all writers. Use it to recognise world facts (e.g. when filtering a
 // fact stream); do NOT use it as a replace-set — see ScannerReplaceSet.
-var WorldPredicates = concatPredicates(
-	ScannerPredicates,
-	ImportGraphPredicates,
-	DeepPredicates,
-	LSPPredicates,
-	SessionScopePredicates,
-	GitPredicates,
-)
+var WorldPredicates = ownedPredicates(OwnerGroups)
+
+func ownedPredicates(groups []OwnerGroup) []string {
+	var out []string
+	for _, g := range groups {
+		out = append(out, g.Predicates...)
+	}
+	return out
+}
 
 // ScannerReplaceSet is the set a full scan may clear before loading its
 // results: exactly the predicates that scan re-derives.
@@ -165,18 +186,6 @@ var SnapshotGlobalPredicates = []string{
 var TreatmentPredicates = []string{
 	"file_metadata_only",
 	"treatment_scope",
-}
-
-func concatPredicates(groups ...[]string) []string {
-	total := 0
-	for _, g := range groups {
-		total += len(g)
-	}
-	out := make([]string, 0, total)
-	for _, g := range groups {
-		out = append(out, g...)
-	}
-	return out
 }
 
 func predicateSet(preds []string) map[string]struct{} {

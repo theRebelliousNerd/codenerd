@@ -41,22 +41,11 @@ predicates the same pass re-asserts.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		out := cmd.OutOrStdout()
-		groups := []struct {
-			name  string
-			preds []string
-			note  string
-		}{
-			{"scanner (replaced on every full scan)", world.ScannerPredicates, "re-derived by every fast scan"},
-			{"deep / Cartographer", world.DeepPredicates, "replaced per file by a deep scan only"},
-			{"lsp", world.LSPPredicates, "projected by language servers; a scan must not delete these"},
-			{"session scope", world.SessionScopePredicates, "ephemeral, session-lifetime"},
-			{"git", world.GitPredicates, "on-demand git scanner"},
-		}
-		for _, g := range groups {
-			if _, err := fmt.Fprintf(out, "%s — %s\n", g.name, g.note); err != nil {
+		for _, g := range world.OwnerGroups {
+			if _, err := fmt.Fprintf(out, "%s — %s\n", g.Name, g.Note); err != nil {
 				return err
 			}
-			for _, p := range g.preds {
+			for _, p := range g.Predicates {
 				if _, err := fmt.Fprintf(out, "  %s\n", p); err != nil {
 					return err
 				}
