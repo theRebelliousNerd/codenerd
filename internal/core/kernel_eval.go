@@ -14,6 +14,8 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 
+	"golang.org/x/sync/singleflight"
+
 	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/engine"
@@ -119,36 +121,108 @@ func (k *RealKernel) rebuildProgram() error {
 	programStr := sb.String()
 	logging.KernelDebug("rebuildProgram: total program size = %d bytes", len(programStr))
 
-	var cacheKey [sha256.Size]byte
-	cacheable := !k.sandbox
-	if cacheable {
-		cacheKey = programCacheKey(programStr)
-		if compiled, ok := lookupCompiledProgram(cacheKey); ok {
-			k.programInfo = compiled.info
-			k.strata = compiled.strata
-			k.predToStratum = compiled.predToStratum
-			k.cone = compiled.cone
-			k.policyDirty = false
-			k.atomCacheStale = true
-			timer.StopWithInfo()
+	var compiled compiledProgram
+	var err error
+	if k.sandbox {
+		// A sandbox trial program is a throwaway: never cached or shared.
+		compiled, err = compileProgram(programStr, true)
+	} else {
+		var reused bool
+		compiled, reused, err = compileShared(programCacheKey(programStr), programStr)
+		if err == nil && reused {
 			logging.KernelDebug("rebuildProgram: reused analyzed program from cache")
-			return nil
 		}
 	}
+	if err != nil {
+		if errors.Is(err, errProgramAnalysis) && !k.sandbox {
+			// A sandbox rejection is expected and handled by the caller, and
+			// its program is a throwaway: dumping it to disk on every rejected
+			// candidate would churn debug_program_ERROR.mg with non-faults.
+			if dumpPath, writeErr := k.writeFailedProgramDump(programStr); writeErr != nil {
+				logging.Get(logging.CategoryKernel).Warn("Failed to write debug dump: %v", writeErr)
+			} else {
+				logging.KernelDebug("Dumped failed program to %s", dumpPath)
+			}
+		}
+		return err
+	}
+	// Nothing is installed until the whole compile succeeded: a program that
+	// analyzes but does not stratify must not leave the new rules beside the
+	// old strata and cone, with policyDirty already cleared.
+	programInfo := compiled.info
+	k.programInfo = programInfo
+	k.policyDirty = false
+	// New Decls may declare different bounds than the ones cachedAtoms were
+	// converted under, so force one reconversion. Also covers the boot case
+	// where facts were admitted before any programInfo existed.
+	k.atomCacheStale = true
+	k.strata = compiled.strata
+	k.predToStratum = compiled.predToStratum
+	k.cone = compiled.cone
 
-	// Parse
+	// Log predicate count
+	declCount := 0
+	if programInfo.Decls != nil {
+		declCount = len(programInfo.Decls)
+	}
+	logging.KernelDebug("rebuildProgram: analysis complete, %d predicates declared", declCount)
+
+	timer.StopWithInfo()
+	logging.Kernel("Mangle program rebuilt successfully")
+	return nil
+}
+
+// errProgramAnalysis marks a compile that failed analysis (the stage that
+// writes a debug dump of the program).
+var errProgramAnalysis = errors.New("program analysis failed")
+
+// compileFlight coalesces concurrent compiles of one program text. A domain
+// cortex boots seven kernels at once from the same schemas, policy and
+// learned rules; each missed the cache and parsed the whole program, one
+// after another under the process-wide parser lock (ParseUnit): the last
+// kernel waited ~0.7 s for six identical parses (performance.log,
+// 2026-10-29 boots).
+var compileFlight singleflight.Group
+
+// compileShared returns the analyzed program for programStr: from the cache,
+// from a compile already running for the same text, or compiled now and
+// cached. reused reports a cache hit.
+func compileShared(key [sha256.Size]byte, programStr string) (compiled compiledProgram, reused bool, err error) {
+	if compiled, ok := lookupCompiledProgram(key); ok {
+		return compiled, true, nil
+	}
+	v, err, _ := compileFlight.Do(string(key[:]), func() (any, error) {
+		if compiled, ok := lookupCompiledProgram(key); ok {
+			return compiled, nil
+		}
+		compiled, err := compileProgram(programStr, false)
+		if err != nil {
+			return nil, err
+		}
+		storeCompiledProgram(key, compiled)
+		return compiled, nil
+	})
+	if err != nil {
+		return compiledProgram{}, false, err
+	}
+	return v.(compiledProgram), false, nil
+}
+
+// compileProgram parses, analyzes, stratifies (in layers) and indexes one
+// program text. sandbox only quiets the logging of an expected rejection.
+func compileProgram(programStr string, sandbox bool) (compiledProgram, error) {
 	parseTimer := logging.StartTimer(logging.CategoryKernel, "rebuildProgram.parse")
 	parsed, err := parseUnit(strings.NewReader(programStr))
 	if err != nil {
 		// In a sandbox this is a trial compile of a candidate rule and a
 		// rejection is the expected outcome the caller handles; see the
 		// `sandbox` field on RealKernel.
-		if k.sandbox {
+		if sandbox {
 			logging.KernelDebug("rebuildProgram (sandbox): candidate rejected at parse: %v", err)
 		} else {
 			logging.Get(logging.CategoryKernel).Error("rebuildProgram: parse failed: %v", err)
 		}
-		return fmt.Errorf("failed to parse program: %w", err)
+		return compiledProgram{}, fmt.Errorf("failed to parse program: %w", err)
 	}
 	parseTimer.Stop()
 	logging.KernelDebug("rebuildProgram: parsed %d clauses", len(parsed.Clauses))
@@ -171,59 +245,28 @@ func (k *RealKernel) rebuildProgram() error {
 	analyzeTimer := logging.StartTimer(logging.CategoryKernel, "rebuildProgram.analyze")
 	programInfo, err := analysis.AnalyzeOneUnit(parsed, nil)
 	if err != nil {
-		// A sandbox rejection is expected and handled by the caller, and its
-		// program is a throwaway — dumping it to disk on every rejected
-		// candidate would churn debug_program_ERROR.mg with non-faults.
-		if k.sandbox {
+		if sandbox {
 			logging.KernelDebug("rebuildProgram (sandbox): candidate rejected at analysis: %v", err)
-			return fmt.Errorf("failed to analyze program: %w", err)
-		}
-		logging.Get(logging.CategoryKernel).Error("rebuildProgram: analysis failed: %v", err)
-		if dumpPath, writeErr := k.writeFailedProgramDump(programStr); writeErr != nil {
-			logging.Get(logging.CategoryKernel).Warn("Failed to write debug dump: %v", writeErr)
 		} else {
-			logging.KernelDebug("Dumped failed program to %s", dumpPath)
+			logging.Get(logging.CategoryKernel).Error("rebuildProgram: analysis failed: %v", err)
 		}
-		return fmt.Errorf("failed to analyze program: %w", err)
+		return compiledProgram{}, fmt.Errorf("failed to analyze program: %w: %w", errProgramAnalysis, err)
 	}
 	analyzeTimer.Stop()
 
-	// Cache stratification for EvalStratifiedProgramWithStats, layered: a
-	// layer evaluates many independent components at once, and the engine's
+	// Stratification for EvalStratifiedProgramWithStats, layered: a layer
+	// evaluates many independent components at once, and the engine's
 	// per-call cost grows with strata x predicates (internal/mangle
-	// strata_layers.go). Nothing is installed until it succeeds: a program
-	// that analyzes but does not stratify must not leave the new rules beside
-	// the old strata and cone, with policyDirty already cleared.
+	// strata_layers.go).
 	strata, predToStratum, err := mangle.Stratify(programInfo)
 	if err != nil {
 		logging.Get(logging.CategoryKernel).Error("rebuildProgram: stratification failed: %v", err)
-		return fmt.Errorf("failed to stratify program: %w", err)
+		return compiledProgram{}, fmt.Errorf("failed to stratify program: %w", err)
 	}
-	k.programInfo = programInfo
-	k.policyDirty = false
-	// New Decls may declare different bounds than the ones cachedAtoms were
-	// converted under, so force one reconversion. Also covers the boot case
-	// where facts were admitted before any programInfo existed.
-	k.atomCacheStale = true
-	k.strata = strata
-	k.predToStratum = predToStratum
-	k.cone = buildConeIndex(programInfo, strata, predToStratum)
-	if cacheable {
-		storeCompiledProgram(cacheKey, compiledProgram{
-			info: programInfo, strata: strata, predToStratum: predToStratum, cone: k.cone,
-		})
-	}
-
-	// Log predicate count
-	declCount := 0
-	if programInfo.Decls != nil {
-		declCount = len(programInfo.Decls)
-	}
-	logging.KernelDebug("rebuildProgram: analysis complete, %d predicates declared", declCount)
-
-	timer.StopWithInfo()
-	logging.Kernel("Mangle program rebuilt successfully")
-	return nil
+	return compiledProgram{
+		info: programInfo, strata: strata, predToStratum: predToStratum,
+		cone: buildConeIndex(programInfo, strata, predToStratum),
+	}, nil
 }
 
 // evaluate builds a fresh store from the EDB and evaluates it to fixpoint.
