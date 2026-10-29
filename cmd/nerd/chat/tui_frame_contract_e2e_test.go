@@ -974,11 +974,11 @@ func TestE2E_TUI_BossFight_FrameFuzzer(t *testing.T) {
 	}
 	m = assertFrameAfterUpdate(t, m)
 
-	m = safeUpdate(t, m, campaignCompletedMsg(&campaign.Campaign{
+	m = safeUpdate(t, m, campaignCompletedMsg{orch: m.campaignOrch, campaign: &campaign.Campaign{
 		Goal:           "Refactor auth",
 		TotalTasks:     10,
 		CompletedTasks: 10,
-	}))
+	}})
 	m = assertFrameAfterUpdate(t, m)
 
 	// Step 17: Slash /clear

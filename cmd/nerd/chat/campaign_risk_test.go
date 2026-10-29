@@ -88,7 +88,7 @@ func TestUpdate_CampaignRiskBlocked_RendersReportAndStandsDown(t *testing.T) {
 	m.campaignEventChan = make(chan campaign.OrchestratorEvent, 1)
 	m.showCampaignPanel = true
 
-	updated, cmd := m.Update(campaignEventMsg(riskBlockedEvent()))
+	updated, cmd := m.Update(campaignEventMsg{orch: m.campaignOrch, event: riskBlockedEvent()})
 	result, ok := updated.(Model)
 	if !ok {
 		t.Fatal("Update did not return a Model")
@@ -127,7 +127,7 @@ func TestUpdate_CampaignRiskAdvisory_RendersAndKeepsListening(t *testing.T) {
 	m.campaignEventChan = make(chan campaign.OrchestratorEvent, 1)
 
 	event := campaign.OrchestratorEvent{Type: campaign.EventRiskGateAdvisory, Message: "Advisory: /edge prework wanted"}
-	updated, cmd := m.Update(campaignEventMsg(event))
+	updated, cmd := m.Update(campaignEventMsg{orch: m.campaignOrch, event: event})
 	result, ok := updated.(Model)
 	if !ok {
 		t.Fatal("Update did not return a Model")

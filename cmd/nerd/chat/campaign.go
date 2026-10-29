@@ -153,47 +153,44 @@ func (m Model) runCampaignOrchestrator() tea.Cmd {
 
 	// Progress streams in real time; the receipt arrives once, when the run
 	// has settled.
-	return tea.Batch(m.listenCampaignProgress(), func() tea.Msg { return <-settled })
+	return tea.Batch(listenCampaignProgress(orch, m.campaignProgressChan, active), func() tea.Msg { return <-settled })
 }
 
-// listenCampaignProgress returns a tea.Cmd that waits for real-time progress updates via channel.
-// This is more efficient than polling - we only wake up when there's actual progress.
-func (m Model) listenCampaignProgress() tea.Cmd {
-	if m.campaignProgressChan == nil {
+// listenCampaignProgress returns a tea.Cmd that waits for the next progress
+// update of one run. The run's owner and channel are captured when the
+// listener is made, so a message is always attributed to the run that sent
+// it and a re-armed listener keeps reading that run's channel, whatever run
+// is current when its message is handled.
+func listenCampaignProgress(orch *campaign.Orchestrator, progressChan chan campaign.Progress, active *campaign.Campaign) tea.Cmd {
+	if progressChan == nil {
 		return nil
 	}
-
-	progressChan := m.campaignProgressChan
-
 	return func() tea.Msg {
 		// Block until we receive a progress update from the orchestrator
 		progress, ok := <-progressChan
 		if !ok {
 			// Channel closed - campaign finished or was cancelled
-			return campaignCompletedMsg(m.activeCampaign)
+			return campaignCompletedMsg{orch: orch, campaign: active}
 		}
 
 		// Check completion states
 		if progress.CampaignStatus == string(campaign.StatusCompleted) {
-			return campaignCompletedMsg(m.activeCampaign)
+			return campaignCompletedMsg{orch: orch, campaign: active}
 		}
 		if progress.CampaignStatus == string(campaign.StatusFailed) {
-			return campaignErrorMsg{err: fmt.Errorf("campaign failed")}
+			return campaignErrorMsg{orch: orch, err: fmt.Errorf("campaign failed")}
 		}
 
-		return campaignProgressMsg(&progress)
+		return campaignProgressMsg{orch: orch, progress: &progress}
 	}
 }
 
 // listenCampaignEvents returns a tea.Cmd that waits for real-time events via channel.
 // Events include task_started, task_completed, phase_completed, learning, etc.
-func (m Model) listenCampaignEvents() tea.Cmd {
-	if m.campaignEventChan == nil {
+func listenCampaignEvents(orch *campaign.Orchestrator, eventChan chan campaign.OrchestratorEvent) tea.Cmd {
+	if eventChan == nil {
 		return nil
 	}
-
-	eventChan := m.campaignEventChan
-
 	return func() tea.Msg {
 		// Block until we receive an event from the orchestrator
 		event, ok := <-eventChan
@@ -202,7 +199,7 @@ func (m Model) listenCampaignEvents() tea.Cmd {
 			return nil
 		}
 
-		return campaignEventMsg(event)
+		return campaignEventMsg{orch: orch, event: event}
 	}
 }
 

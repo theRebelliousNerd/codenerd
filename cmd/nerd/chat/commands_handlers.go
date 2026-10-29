@@ -635,6 +635,12 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 					Content: "Usage: `/campaign start <goal>`",
 					Time:    time.Now(),
 				})
+			} else if m.campaignOrch != nil {
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("A campaign is already running (%s); stop or finish it before starting another.", m.activeCampaign.Title),
+					Time:    time.Now(),
+				})
 			} else {
 				goal := strings.Join(parts[2:], " ")
 				m = m.addMessage(Message{

@@ -780,10 +780,28 @@ type (
 		progressChan chan campaign.Progress
 		eventChan    chan campaign.OrchestratorEvent
 	}
-	campaignProgressMsg  *campaign.Progress
-	campaignEventMsg     campaign.OrchestratorEvent // Real-time event from orchestrator
-	campaignCompletedMsg *campaign.Campaign
-	campaignErrorMsg     struct{ err error }
+	// Every message a run's listeners produce carries the run's owner, its
+	// orchestrator, and is applied only while that run is the current one:
+	// a message from an earlier run never mutates a later run's slot (audit
+	// campaign-ui-run-ownership).
+	campaignProgressMsg struct {
+		orch     *campaign.Orchestrator
+		progress *campaign.Progress
+	}
+	campaignEventMsg struct {
+		orch  *campaign.Orchestrator
+		event campaign.OrchestratorEvent // Real-time event from orchestrator
+	}
+	campaignCompletedMsg struct {
+		orch     *campaign.Orchestrator
+		campaign *campaign.Campaign
+	}
+	// campaignErrorMsg's orch is nil for an error before any run was
+	// accepted (dependencies, planning, admission).
+	campaignErrorMsg struct {
+		orch *campaign.Orchestrator
+		err  error
+	}
 	// campaignSettledMsg is a run's terminal receipt: Run returned and the
 	// orchestrator was closed. It carries the run's owner (its orchestrator)
 	// and the outcome Run settled on, independently of the best-effort

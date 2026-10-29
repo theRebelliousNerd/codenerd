@@ -295,6 +295,11 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyLayout(), nil
 
 	case campaignErrorMsg:
+		if msg.orch != nil && msg.orch != m.campaignOrch {
+			// An earlier run's failure: it must not clear this run's state.
+			logging.Kernel("[campaign] error from a run that is no longer current: %v", msg.err)
+			return m, nil
+		}
 		m.isLoading = false
 		// A risk gate refusal is a policy decision, not a failure, and it has a
 		// full report behind it (which gate, what score, hard vs advisory).
@@ -312,6 +317,19 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.handleRequirementsGeneratedMsg(msg)
 	case campaignStartedMsg:
 		m.isLoading = false
+		if m.campaignOrch != nil && msg.orch != m.campaignOrch {
+			// One managed campaign: a second accepted run does not replace a
+			// live one. It was planned and saved; it is not started here.
+			if msg.orch != nil {
+				_ = msg.orch.Close()
+			}
+			title := ""
+			if msg.campaign != nil {
+				title = msg.campaign.Title
+			}
+			m = m.pushAssistantMsg(fmt.Sprintf("## Campaign Not Started\n\nA campaign is already running (%s). %q was planned and saved but not started; stop or finish the running one first.", m.activeCampaign.Title, title))
+			return m, nil
+		}
 		m.activeCampaign = msg.campaign
 		m.campaignOrch = msg.orch
 		m.campaignProgressChan = msg.progressChan // Store channels for listening
@@ -324,27 +342,32 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.campaignOrch != nil {
 			return m, tea.Batch(
 				m.runCampaignOrchestrator(),
-				m.listenCampaignEvents(), // Listen for events in parallel
+				listenCampaignEvents(m.campaignOrch, m.campaignEventChan), // Listen for events in parallel
 			)
 		}
 
 	case campaignProgressMsg:
-		m.campaignProgress = msg
+		if msg.orch != m.campaignOrch {
+			// An earlier run's snapshot: it is not this run's progress, and
+			// its listener is not re-armed on this run's slot.
+			return m, nil
+		}
+		m.campaignProgress = msg.progress
 		// Update campaign panel without adding to history (live update)
 		if m.activeCampaign != nil {
-			m.activeCampaign.CompletedPhases = msg.CompletedPhases
-			m.activeCampaign.CompletedTasks = msg.CompletedTasks
+			m.activeCampaign.CompletedPhases = msg.progress.CompletedPhases
+			m.activeCampaign.CompletedTasks = msg.progress.CompletedTasks
 		}
 
 		// Update Campaign Page
 		if m.activeCampaign != nil {
-			prog := campaign.Progress(*msg)
+			prog := *msg.progress
 			m.campaignPage.UpdateContent(&prog, m.activeCampaign)
 		}
 
-		// Continue listening for progress updates via channel (not polling)
+		// Continue listening for this run's progress (not polling)
 		if m.campaignProgressChan != nil && m.activeCampaign != nil {
-			return m, m.listenCampaignProgress()
+			return m, listenCampaignProgress(msg.orch, m.campaignProgressChan, m.activeCampaign)
 		}
 
 	case campaignEventMsg:
@@ -353,7 +376,10 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// strands the transcript on a run that already ended. Render the
 		// report and, on a hard block, stand the campaign UI down the way
 		// completion does. Anything else stays informational.
-		if text, terminal := renderRiskGateEvent(campaign.OrchestratorEvent(msg)); text != "" {
+		if msg.orch != m.campaignOrch {
+			return m, nil
+		}
+		if text, terminal := renderRiskGateEvent(msg.event); text != "" {
 			m = m.pushAssistantMsg(text)
 			if terminal {
 				m.isLoading = false
@@ -367,7 +393,7 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if m.campaignEventChan != nil && m.activeCampaign != nil {
-			return m, m.listenCampaignEvents()
+			return m, listenCampaignEvents(msg.orch, m.campaignEventChan)
 		}
 
 	case campaignRequirementMsg:
@@ -381,15 +407,11 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.handleCampaignSettled(msg)
 
 	case campaignCompletedMsg:
-		m.isLoading = false
-		m.activeCampaign = nil
-		m.campaignOrch = nil
-		m.campaignProgress = nil
-		m.campaignProgressChan = nil // Clear channels to stop listeners
-		m.campaignEventChan = nil
-		m.showCampaignPanel = false
-		m = m.pushAssistantMsg(m.renderCampaignCompleted(msg))
-		m = m.applyLayout()
+		if msg.orch != m.campaignOrch {
+			return m, nil
+		}
+		m = m.retireCampaign()
+		m = m.pushAssistantMsg(m.renderCampaignCompleted(msg.campaign))
 
 	// =========================================================================
 	// CONTINUATION PROTOCOL MESSAGE HANDLERS
