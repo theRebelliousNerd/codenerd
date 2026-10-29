@@ -595,6 +595,7 @@ func (k *RealKernel) assertHeartbeat(fact Fact) error {
 		k.facts[i] = fact
 		// The evaluated store outlives a write now, so keep its copy of the row
 		// current as well; nothing derives from the timestamp.
+		k.ownStoreLocked() // written in place below
 		if remover, ok := k.store.(factstore.FactStoreWithRemove); ok && k.initialized {
 			if oldAtom, err := k.factToAtomLocked(existing); err == nil {
 				if newAtom, err := k.factToAtomLocked(fact); err == nil && remover.Remove(oldAtom) {

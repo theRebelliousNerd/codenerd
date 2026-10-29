@@ -362,6 +362,7 @@ func (k *RealKernel) evaluate() (err error) {
 	}
 
 	k.store = baseStore
+	k.storeShared.Store(false) // a fresh store: no clone reads it
 	k.clearDirtyLocked()
 
 	// Log evaluation stats
@@ -478,6 +479,7 @@ func (k *RealKernel) clearFactsLocked() {
 	k.cachedAtoms = make([]ast.Atom, 0) // OPTIMIZATION: Clear atom cache
 	k.factIndex = newEDBIndex()
 	k.store = factstore.NewSimpleInMemoryStore()
+	k.storeShared.Store(false)
 	k.initialized = false
 	k.evalErr = nil // the store is new, there is no failed evaluation to answer for
 	// factsDirty stays as-is (Clear does not set dirty): the !initialized
@@ -563,12 +565,12 @@ func (k *RealKernel) cloneLocked() *RealKernel {
 	// cost ~2.5 s per gated action (measured 2026-10-27, 102 s over 50).
 	if k.initialized && k.store != nil && k.evalErr == nil && !k.factsDirty.Load() && !k.dirtyAll &&
 		len(k.dirtyPreds) == 0 && !k.policyDirty && !k.atomCacheStale {
-		// The copy is a simple store even when the parent's is indexed:
-		// rebuilding argument indexes per clone cost more than the joins it
-		// saved on every measured dream shape (BenchmarkCloneStoreKind,
-		// Docs/audits/mangle-kernel-performance.md "As built").
-		if copied, ok := copyFactStore(k.store, factstore.NewSimpleInMemoryStore()); ok {
-			clone.store = copied
+		// The clone reads through to the parent's store and keeps its own
+		// writes on top (kernel_overlay_store.go): copying every atom was
+		// ~280 ms per clone of a world kernel. The base keeps the parent's
+		// argument indexes for free.
+		if shared, ok := k.shareStoreLocked(); ok {
+			clone.store = shared
 			clone.dirtyAll = false
 			clone.factsDirty.Store(false)
 		}
@@ -644,19 +646,4 @@ func newEvaluationFactStore(facts int) factstore.FactStoreWithRemove {
 		return factstore.NewMultiIndexedArrayInMemoryStore()
 	}
 	return factstore.NewSimpleInMemoryStore()
-}
-
-// copyFactStore copies every atom of an evaluated store, extensional and
-// derived, into dst, which must support removal (the cone evaluator removes
-// and re-derives in place). The atoms are immutable values and are shared.
-func copyFactStore(src factstore.FactStore, dst factstore.FactStoreWithRemove) (factstore.FactStoreWithRemove, bool) {
-	for _, sym := range src.ListPredicates() {
-		if err := src.GetFacts(ast.NewQuery(sym), func(a ast.Atom) error {
-			dst.Add(a)
-			return nil
-		}); err != nil {
-			return nil, false
-		}
-	}
-	return dst, true
 }

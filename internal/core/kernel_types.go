@@ -91,6 +91,9 @@ type RealKernel struct {
 	workspaceRoot   string      // Explicit workspace root (for .nerd paths)
 	policyDirty     bool        // True when schemas/policy changed and need reparse
 	factsDirty      atomic.Bool // True when EDB facts changed and need re-evaluation (lazy eval).
+	// storeShared: a clone reads the (plain) evaluated store as its base, so
+	// the next in-place write wraps it first (kernel_overlay_store.go).
+	storeShared atomic.Bool
 	// factsDirty is atomic so Query/QueryCallback/QueryAll can fast-path without
 	// holding the kernel mutex when no facts have changed since the last evaluate.
 	// Use ensureEvaluated() (kernel_eval.go) to drive lazy re-eval safely.
@@ -180,8 +183,11 @@ type EvaluationStats struct {
 
 // storeKind names a fact store's physical kind for EvaluationStats.
 func storeKind(s factstore.FactStore) string {
-	if _, ok := s.(*factstore.MultiIndexedArrayInMemoryStore); ok {
+	switch s.(type) {
+	case *factstore.MultiIndexedArrayInMemoryStore:
 		return "indexed"
+	case *overlayStore:
+		return "overlay"
 	}
 	return "simple"
 }

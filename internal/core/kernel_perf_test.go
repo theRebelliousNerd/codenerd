@@ -44,11 +44,12 @@ func requireSameStore(t *testing.T, stage string, got, want []string) {
 	t.Fatalf("%s: store has %d facts, full fixpoint %d; first difference at %d: %q vs %q", stage, len(got), len(want), i, g, w)
 }
 
-// A clone always gets the simple store (BenchmarkCloneStoreKind ruled the
-// indexed copy out), whatever its parent's kind. On either store kind a cone
+// A clone reads through to its parent's store and writes on top of it (an
+// overlay, kernel_overlay_store.go), whatever its parent's kind; the parent's
+// own next write wraps the shared store too. On every store a cone
 // evaluation holds exactly what a full fixpoint holds -- through asserts, a
-// negated premise turning true, and retractions -- and a clone's writes never
-// reach its parent.
+// negated premise turning true, and retractions -- and neither side's writes
+// reach the other, nor a clone of the clone.
 func TestCloneStoreKindAndConeEquivalence(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -91,9 +92,21 @@ func TestCloneStoreKindAndConeEquivalence(t *testing.T) {
 					requireSameStore(t, who+" "+step.name, dumpStore(t, k), fullOracle(t, k))
 				}
 			}
-			apply("clone", c, "simple")
+			apply("clone", c, "overlay")
 			requireSameStore(t, "parent after clone writes", dumpStore(t, parent), before)
-			apply("parent", parent, tc.parentKind)
+			cloneAfter := dumpStore(t, c)
+			grandchild := c.Clone()
+			apply("parent", parent, "overlay")
+			requireSameStore(t, "clone after parent writes", dumpStore(t, c), cloneAfter)
+			requireSameStore(t, "grandchild after parent writes", dumpStore(t, grandchild), cloneAfter)
+			if err := grandchild.Assert(Fact{Predicate: "perf_probe", Args: []any{"n2"}}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := grandchild.Query("perf_hit"); err != nil {
+				t.Fatal(err)
+			}
+			requireSameStore(t, "grandchild write", dumpStore(t, grandchild), fullOracle(t, grandchild))
+			requireSameStore(t, "clone after grandchild write", dumpStore(t, c), cloneAfter)
 		})
 	}
 }

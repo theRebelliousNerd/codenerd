@@ -340,6 +340,7 @@ func (k *RealKernel) evaluateConeLocked(stats *EvaluationStats) error {
 	if k.coneIneligibilityLocked() != "" {
 		return errConeIneligible
 	}
+	k.ownStoreLocked() // the cone writes in place
 	timer := logging.StartTimer(logging.CategoryKernel, "evaluate.cone")
 	defer timer.Stop()
 	prepareStarted := time.Now()

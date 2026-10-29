@@ -3,8 +3,6 @@ package core
 import (
 	"fmt"
 	"testing"
-
-	"codeberg.org/TauCeti/mangle-go/factstore"
 )
 
 // The synthetic workload behind the KERNEL-PERF benchmarks
@@ -76,45 +74,26 @@ func BenchmarkDreamCloneConeEvaluation(b *testing.B) {
 	}
 }
 
-// BenchmarkCloneStoreKind decides the clone store's kind (KERNEL-PERF-02):
-// the parts of a speculative check that differ between a simple and an
-// argument-indexed clone store -- copying the parent's evaluated store into
-// it, then the cone evaluation and read -- on the synthetic join and on the
-// production corpus with a dream projection.
-func BenchmarkCloneStoreKind(b *testing.B) {
-	kinds := []struct {
-		name string
-		make func() factstore.FactStoreWithRemove
-	}{
-		{"simple", func() factstore.FactStoreWithRemove { return factstore.NewSimpleInMemoryStore() }},
-		{"indexed", func() factstore.FactStoreWithRemove { return factstore.NewMultiIndexedArrayInMemoryStore() }},
-	}
+// BenchmarkDreamCheck is a speculative check end to end on two shapes --
+// clone (an overlay over the parent's store, kernel_overlay_store.go), stage
+// the projected facts, evaluate their cone, read the answer -- on the
+// synthetic join and on the production corpus with a dream projection.
+func BenchmarkDreamCheck(b *testing.B) {
 	run := func(b *testing.B, k *RealKernel, stage func(i int) []Fact, read string) {
-		for _, kind := range kinds {
-			b.Run(kind.name, func(b *testing.B) {
-				b.ReportAllocs()
-				for i := 0; i < b.N; i++ {
-					b.StopTimer()
-					c := k.Clone()
-					b.StartTimer()
-					copied, ok := copyFactStore(k.store, kind.make())
-					if !ok {
-						b.Fatal("copy failed")
-					}
-					c.store = copied
-					for _, f := range stage(i) {
-						if err := c.AssertWithoutEval(f); err != nil {
-							b.Fatal(err)
-						}
-					}
-					if err := c.EvaluatePending(); err != nil {
-						b.Fatal(err)
-					}
-					if _, err := c.Query(read); err != nil {
-						b.Fatal(err)
-					}
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			c := k.Clone()
+			for _, f := range stage(i) {
+				if err := c.AssertWithoutEval(f); err != nil {
+					b.Fatal(err)
 				}
-			})
+			}
+			if err := c.EvaluatePending(); err != nil {
+				b.Fatal(err)
+			}
+			if _, err := c.Query(read); err != nil {
+				b.Fatal(err)
+			}
 		}
 	}
 	for _, n := range []int{512, 20000} {
