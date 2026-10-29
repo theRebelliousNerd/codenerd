@@ -388,7 +388,7 @@ a writer, and no wire between them.
   reasoning. Gemini carries order and per-part thought signatures
   but has **no tool ids on the wire at all** — a functionResponse pairs by tool
   NAME and the "call_N" ids are minted from position. Every Chat Completions
-  surface (OpenAI, xAI, xAI-OAuth, OpenRouter, ZAI, Ollama, DashScope,
+  surface (OpenAI, xAI, OpenRouter, ZAI, Ollama, DashScope,
   Moonshot) keeps ids and pairing and **cannot** keep either interleaving or
   reasoning: an assistant turn has one content string and there is no
   request-side field for a signature. Gemini's Piggyback path and the two CLI
@@ -403,8 +403,8 @@ a writer, and no wire between them.
   the model never produced is handed to it as its own history: `KeepsOrder`,
   `ReplaysReasoning`, `CarriesToolIDs`.
 
-  Three comments already pointed at this table before it existed — in
-  `internal/types`, in `client_tool_helpers.go` and in `xaioauth` — which is the
+  Two comments already pointed at this table before it existed — in
+  `internal/types` and in `client_tool_helpers.go` — which is the
   same reader-with-no-writer shape as everything else on the branch. Prose is
   where a limit goes to become a claim.
 
@@ -416,12 +416,6 @@ a writer, and no wire between them.
   invariants ride alongside — no surface may drop a tool result, and a surface
   that cannot replay reasoning must DROP it rather than fold it into the prose,
   where it would corrupt every structured-output parse downstream.
-
-  `xaioauth` is probed from an external test package, which is the only seam
-  that reaches it: the mapper is unexported and lives in a package
-  `internal/perception` imports, so `xaioauth_test` importing
-  `internal/perception` is the one direction that does not cycle. It is a
-  hand-copied Chat Completions clone, and hand-copied clones drift.
 
   `ReplaysReasoning` is the axis with a bill on it. Where it is false, reasoning
   is generated fresh every turn of a tool loop and thrown away every turn — the

@@ -515,7 +515,6 @@ ok  codenerd/internal/prompt/sync
 ok  codenerd/internal/context
 ok  codenerd/internal/articulation
 ok  codenerd/internal/perception
-ok  codenerd/internal/perception/xaioauth
 ok  codenerd/internal/projectdoc
 ok  codenerd/internal/session
 

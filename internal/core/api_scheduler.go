@@ -97,7 +97,7 @@ type APISchedulerConfig struct {
 	EnableMetrics         bool          // Track detailed metrics
 
 	// MinCallSpacing is the minimum gap between successive slot grants.
-	// SuperGrok / subscription backends should set ~100-200ms to smooth bursts.
+	// Subscription backends should set ~100-200ms to smooth bursts.
 	// Zero disables spacing.
 	MinCallSpacing time.Duration
 
@@ -454,7 +454,7 @@ func (s *APIScheduler) finishGranted(ctx context.Context, shardID string, state 
 	}
 
 	// Min call spacing: hold the slot while delaying so bursts don't slam the
-	// provider at the same instant (important for SuperGrok).
+	// provider at the same instant (important for subscription backends).
 	if spacing := s.minCallSpacing(); spacing > 0 {
 		s.mu.Lock()
 		now := time.Now()

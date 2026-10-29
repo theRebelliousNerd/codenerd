@@ -399,7 +399,7 @@ func (e *Executor) recordWorkingResult(ctx context.Context, call types.ToolCall,
 	// would not fail here: nil args makes every call of one tool hash
 	// identically regardless of its arguments, silently collapsing distinct
 	// observations into one kind. ToolCall.Input is only built by
-	// json.Unmarshal today (client_tool_helpers.go, xaioauth/tools.go), so this
+	// json.Unmarshal today (client_tool_helpers.go), so this
 	// should not fire from that producer -- but a marshal failure must neither
 	// collide with a real input nor vanish: fold the error into the hashed
 	// material instead.

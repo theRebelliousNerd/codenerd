@@ -7,8 +7,8 @@
 > Last verified against codebase: **2026-07-13**  
 > Status: Living Reference Document  
 > Language: Go  
-> Primary sources: `internal/perception/`, `internal/perception/xaioauth/`  
-> Scale (approx): **~50** non-test Go files in root package + **13** xaioauth sources; **~48** package tests + xaioauth tests; **0** local `.mg` (taxonomy consumes embedded core schemas)
+> Primary sources: `internal/perception/`  
+> Scale (approx): **~50** non-test Go files in root package; **~48** package tests; **0** local `.mg` (taxonomy consumes embedded core schemas)
 
 ---
 
@@ -31,7 +31,7 @@ It is **not** the executive. The Mangle kernel still decides `next_action` / `pe
 | Fact emission | `Intent.ToFact()` → `user_intent(/current_intent, Cat, Verb, Target, Constraint)` |
 | Semantic path | Embed query → dual corpus search → `semantic_match` kernel facts |
 | Client factory | Config-first (`DetectProvider` / `NewClientFromConfig`) + env fallback |
-| Engines | `api`, `claude-cli`, `codex-cli`, `xai-oauth` |
+| Engines | `api`, `claude-cli`, `codex-cli` |
 | API providers | zai, anthropic, openai, gemini, xai, openrouter, ollama |
 | Classification tier | `NewClassificationClientFromConfig` (fast models; never inherits main model by default) |
 | Philosophy | `LLM describes → Harness determines` (`transducer_llm.go`, `understanding.go`) |
@@ -77,7 +77,6 @@ user input → perception → user_intent → kernel next_action
 | `TaxonomyEngine` + verb corpus | **Implemented** | SharedTaxonomy init; learned_taxonomy.mg |
 | Multi-provider LLM clients | **Implemented** | ZAI, Anthropic, OpenAI, Gemini, xAI, OpenRouter, Ollama |
 | CLI engines (Claude / Codex) | **Implemented** | Subprocess backends |
-| `xaioauth` SuperGrok OAuth | **Implemented** | Independent of API-key xAI client |
 | Classification model tiering | **Implemented** | Haiku / flash-lite / gpt-4o-mini defaults |
 | Worker secondary client | **Implemented** | `NewWorkerClientFromUserConfig` |
 | TracingLLMClient + ConsolidationWorker | **Implemented** | Async learning from traces |
@@ -128,7 +127,6 @@ internal/perception/
   transport.go               # Shared HTTP transport (campaign parallelism)
   scanner_pool.go            # SSE scanner buffer pool
   utils.go / debug.go
-  xaioauth/                  # SuperGrok OAuth LLM client subsystem
 ```
 
 ### 3.2 Top non-test sources (line counts ≈ from prior inventory)
@@ -153,24 +151,6 @@ internal/perception/
 | `client_gemini_files.go` | ~403 | Files API / cache content |
 | `client_gemini_tools.go` | ~400 | Function calling |
 | `learning.go` | ~400 | Meta-cognitive pattern extract |
-
-### 3.3 Subpackage `xaioauth/`
-
-Independent SuperGrok / X Premium+ OAuth backend (not the API-key `XAIClient`):
-
-| File | Role |
-|------|------|
-| `doc.go` | Protocol notes (issuer, device code, scopes, model) |
-| `config.go` | Defaults / engine constants |
-| `errors.go` | Typed auth/rate/tier errors |
-| `store.go` | `~/.nerd/xai_oauth.json` persistence |
-| `grok_auth_import.go` | Import from `~/.grok/auth.json` |
-| `auth_device.go` | OAuth 2.0 device-code login |
-| `token.go` | EnsureValid + refresh |
-| `transport.go` | Bearer HTTP |
-| `client.go` | Client constructors |
-| `chat.go` / `streaming.go` / `tools.go` | Complete surfaces |
-| `probe.go` | `nerd auth` health probe |
 
 ---
 
@@ -365,7 +345,7 @@ Concrete clients extend with optional capabilities:
 | Capability | Typical methods | Providers (partial) |
 |------------|-----------------|---------------------|
 | Tools | `CompleteWithTools`, `CompleteWithToolResults` | most API clients |
-| Streaming | `CompleteWithStreaming` / SSE callbacks | Gemini, ZAI, Claude CLI, xaioauth |
+| Streaming | `CompleteWithStreaming` / SSE callbacks | Gemini, ZAI, Claude CLI |
 | Schema | `CompleteWithSchema`, `SchemaCapable` | Gemini, Claude CLI |
 | Thinking | `ThinkingProvider` | Gemini |
 | Semaphore | `DisableSemaphore` | ZAI (scheduler integration) |
@@ -376,7 +356,7 @@ Tool DTOs: package-local `ToolResult`; aliases for `ToolDefinition`, `ToolCall`,
 
 ```
 .nerd/config.json (config is boss)
-  engine: claude-cli | codex-cli | xai-oauth | api
+  engine: claude-cli | codex-cli | api
   provider + api keys + model + classification_model + reasoning_effort
   + gemini/ollama/worker/planner blocks
 else env (order): ANTHROPIC → OPENAI → GEMINI → XAI → ZAI → OPENROUTER
@@ -423,7 +403,6 @@ OpenAI-compatible vendors omit the field.
 | **Meta / DashScope / Moonshot** | `client_openai_compat.go` | Shared OpenAI-compatible transport; Meta model normalization, tool validation, and explicit reasoning effort |
 | **Claude CLI** | `claude_cli_client.go` | Subprocess, rate-limit typed errors, max turns |
 | **Codex CLI** | `codex_cli_client.go`, probe, exec | Health probes map login/skill/rate failures |
-| **xAI OAuth** | `xaioauth/*` | Device code, refresh, separate credential store |
 
 ### 6.4 Structured output / Piggyback schemas
 
@@ -480,7 +459,7 @@ Learned path: workspace `.nerd/mangle/learned_taxonomy.mg` only.
 |----------|------------------------|
 | `cmd/nerd/chat` | Boots client + transducer; every user turn `ParseIntentWithContext` |
 | `cmd/nerd` direct actions | May construct intents / clients for one-shot verbs |
-| `cmd/nerd/cmd_auth.go` | Claude/Codex/Grok auth; xaioauth probe |
+| `cmd/nerd/cmd_auth.go` | Claude/Codex auth |
 | `cmd/nerd/cmd_campaign.go` | LLM clients for campaign workers |
 | `internal/session` | Executor holds Transducer / clients |
 | `internal/core` / shards | Routing facts; TracingLLMClient for shard calls |
@@ -527,7 +506,7 @@ Constitutional `permitted(...)` is **kernel policy**, not enforced inside percep
 - Bottleneck labels: `LLM_API`, `PROMPT_BUILD`, `PARSE_ROUTE`.  
 - `LLMMetrics` process map keyed `shardCategory:shardType`.  
 - Interaction audit records for vocabulary learning from visible task results.
-- Auth probes for CLI/OAuth engines.
+- Auth probes for CLI engines.
 
 See [11-OBSERVABILITY.md](11-OBSERVABILITY.md).
 
@@ -545,7 +524,6 @@ Open design questions: [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md).
 
 ```powershell
 go test ./internal/perception/...
-go test ./internal/perception/xaioauth/...
 go test ./tests/e2e/ -run 'Perception|Intent' -count=1
 ```
 
@@ -559,7 +537,6 @@ go test ./tests/e2e/ -run 'Perception|Intent' -count=1
 | Semantic | `semantic_classifier.go` |
 | Taxonomy / learn | `taxonomy*.go`, `learning.go`, `consolidation.go` |
 | Clients | `client_*.go`, `claude_cli_*.go`, `codex_*.go` |
-| OAuth | `xaioauth/*` |
 | Cross-cut | `tracing_client.go`, `metrics.go`, `transport.go`, `scanner_pool.go`, `debug.go`, `utils.go` |
 
 ---

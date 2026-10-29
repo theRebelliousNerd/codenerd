@@ -8,9 +8,6 @@
 # Unit + package tests
 go test ./internal/perception/...
 
-# Subpackage
-go test ./internal/perception/xaioauth/...
-
 # Adversarial / break suite (subset of package tests)
 go test ./internal/perception/ -run Break -count=1
 
@@ -43,7 +40,6 @@ Live provider tests (`*_live_test.go`, torture tests) typically require API keys
 | Assault verb | `assault_verb_test.go` | Focused |
 | Tracing | `tracing_client_*_test.go` | Strong |
 | Transport pool | `transport_pool_test.go` | Present |
-| xaioauth | store/token/errors/chat tests | Medium–strong |
 | E2E perception | `tests/e2e/perception_*` | Contract-level |
 
 ## Contract tests that matter

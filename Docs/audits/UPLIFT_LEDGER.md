@@ -3,7 +3,7 @@
 File-by-file: uplift, wiring, .mg correctness, modularity, brutal behavioral integration tests.
 Checked = audited and uplifted (or verified sound) with behavioral coverage.
 
-## Go files (2362)
+## Go files (2342)
 ### .agent (5)
 - [ ] `.agent/skills/log-analyzer/scripts/logquery/main.go`
 - [ ] `.agent/skills/mangle-programming/assets/go-integration/main.go`
@@ -2310,7 +2310,7 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/observation/precondition/precondition_test.go`
 - [x] `internal/observation/subagent.go` (post-uplift B1: Verification.Outcome + indeterminate/canceled rendering)
 
-### internal/perception (131)
+### internal/perception (111)
 - [x] `internal/perception/assault_verb_test.go`
 - [x] `internal/perception/benchmark_test.go`
 - [x] `internal/perception/break_test.go`
@@ -2431,26 +2431,6 @@ Checked = audited and uplifted (or verified sound) with behavioral coverage.
 - [x] `internal/perception/utils.go`
 - [x] `internal/perception/utils_coverage_test.go`
 - [x] `internal/perception/xai_torture_test.go`
-- [x] `internal/perception/xaioauth/auth_device.go`
-- [x] `internal/perception/xaioauth/chat.go`
-- [x] `internal/perception/xaioauth/chat_test.go`
-- [x] `internal/perception/xaioauth/classification_test.go`
-- [x] `internal/perception/xaioauth/client.go`
-- [x] `internal/perception/xaioauth/config.go`
-- [x] `internal/perception/xaioauth/doc.go`
-- [x] `internal/perception/xaioauth/errors.go`
-- [x] `internal/perception/xaioauth/errors_test.go`
-- [x] `internal/perception/xaioauth/grok_auth_import.go`
-- [x] `internal/perception/xaioauth/probe.go`
-- [x] `internal/perception/xaioauth/store.go`
-- [x] `internal/perception/xaioauth/store_test.go`
-- [x] `internal/perception/xaioauth/streaming.go`
-- [x] `internal/perception/xaioauth/token.go`
-- [x] `internal/perception/xaioauth/token_quarantine_test.go`
-- [x] `internal/perception/xaioauth/token_test.go`
-- [x] `internal/perception/xaioauth/tools.go`
-- [x] `internal/perception/xaioauth/transport.go`
-- [x] `internal/perception/xaioauth/uplift_test.go`
 - [x] `internal/perception/zai_live_test.go`
 
 ### internal/persist (10)

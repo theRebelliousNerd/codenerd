@@ -45,7 +45,6 @@ Root: `nerd` (no args → interactive chat TUI)
 | `nerd check-mangle [file...]` | mangle | **exercised** | `04_check_mangle` PASS | `00_*` FAIL no args |
 | `nerd mangle-lsp` | LSP | **not** | — | Long-running server |
 | `nerd auth` | parent | **not** | SUMMARY env note only | |
-| `nerd auth grok` | auth | **not** | — | OAuth refresh known broken |
 | `nerd auth claude` | auth | **not** | — | |
 | `nerd auth codex` | auth | **not** | — | |
 | `nerd auth status` | auth | **not** | — | High value, read-only |
@@ -171,7 +170,7 @@ Prioritized by: product risk × surface novelty × cost (prefer short, non-hangi
 
 | # | Command | Why high value | Suggested invocation | Risk / time |
 |---|---------|----------------|----------------------|-------------|
-| 1 | `nerd auth status` | Auth path never live-tested; explains engine/OAuth state after invalid_grant | `nerd auth status -w <polystack>` | Low / &lt;30s |
+| 1 | `nerd auth status` | Auth path never live-tested; explains engine state | `nerd auth status -w <polystack>` | Low / &lt;30s |
 | 2 | `nerd memory status` | Memory tiers core to architecture; parent-only so far | `nerd memory status -w <polystack>` | Low / &lt;30s |
 | 3 | `nerd autopoiesis status` | Self-mod / Ouroboros visibility unproven | `nerd autopoiesis status -w <polystack>` | Low / &lt;30s |
 | 4 | `nerd northstar show` (+ `facts`) | Strategic planning surface only hit help | `nerd northstar show -w <polystack>` | Low / &lt;30s |
@@ -206,7 +205,6 @@ From MATRIX + SUMMARY (not re-litigated here):
 3. **`tool` / `check-mangle`**: require args; bare invocation is usage FAIL (expected).
 4. **`define-agent`**: requires `--name` and `--topic`.
 5. **Ollama down** during matrix → embedding warnings; knowledge/search/reembed limited.
-6. **Auth**: SuperGrok refresh `invalid_grant` — matrix used API key path.
 
 ---
 

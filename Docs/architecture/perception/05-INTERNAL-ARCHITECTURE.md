@@ -17,7 +17,7 @@
 │             │ semantic matches            │ LLMClient             │
 │             ▼                             │                       │
 │  ┌─────────────────────┐   ┌──────────────┴───────────────────┐  │
-│  │ SemanticClassifier  │   │ Factory: API / CLI / OAuth       │  │
+│  │ SemanticClassifier  │   │ Factory: API / CLI              │  │
 │  │ embed+learned stores│   │ + classification tier + worker   │  │
 │  └──────────┬──────────┘   └──────────────────────────────────┘  │
 │             │ facts                                               │
@@ -27,7 +27,6 @@
 │  │ + Consolidation     │   │ ReasoningTrace → learning queue  │  │
 │  └─────────────────────┘   └──────────────────────────────────┘  │
 │                                                                    │
-│  xaioauth/  (OAuth Grok client, credential store, probes)         │
 └──────────────────────────────────────────────────────────────────┘
          │ user_intent / semantic_match / routing facts
          ▼
@@ -135,7 +134,6 @@ Most clients are **stateless per call** except:
 - ZAI semaphore  
 - Gemini thinking/tool last-call metrics  
 - CLI process invocations  
-- xaioauth token refresh store  
 
 ## Concurrency notes
 

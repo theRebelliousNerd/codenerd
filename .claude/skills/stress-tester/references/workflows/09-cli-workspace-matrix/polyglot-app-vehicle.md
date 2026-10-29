@@ -23,7 +23,7 @@ Reference live workspace used 2026-07:
 
 ```powershell
 $APP = "C:\CodeProjects\codeNERD\.nerd\live_feature_matrix\polystack"
-# Ensure engine has working LLM (api+xai or xai-oauth after nerd auth grok)
+# Ensure engine has working LLM (e.g. engine=api + xai_api_key)
 
 nerd init -w $APP
 nerd scan -w $APP

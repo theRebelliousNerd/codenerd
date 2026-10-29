@@ -155,9 +155,9 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		add(SeverityError, "provider", fmt.Sprintf("%q is not a provider codeNERD has", p), "one of "+strings.Join(sortedKeys(knownProviders), ", "))
 	}
 	switch strings.TrimSpace(c.Engine) {
-	case "", "api", "claude-cli", "codex-cli", "xai-oauth":
+	case "", "api", "claude-cli", "codex-cli":
 	default:
-		add(SeverityError, "engine", fmt.Sprintf("%q is not an engine", c.Engine), "api, claude-cli, codex-cli or xai-oauth")
+		add(SeverityError, "engine", fmt.Sprintf("%q is not an engine", c.Engine), "api, claude-cli or codex-cli")
 	}
 	switch strings.TrimSpace(c.Theme) {
 	case "", "light", "dark":

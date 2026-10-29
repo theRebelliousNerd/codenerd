@@ -157,7 +157,7 @@ Live CLI product surface + workspace isolation (polyglot app as vehicle) + routi
 | [dual-llm-routing.md](references/workflows/09-cli-workspace-matrix/dual-llm-routing.md) | Main Grok vs optional worker Ollama vs image Gemini Nano Banana 2 (never Ollama) | 15-40 min |
 | [define-agent-flags.md](references/workflows/09-cli-workspace-matrix/define-agent-flags.md) | `define-agent --name` / `--topic` required; invalid names | 5-20 min |
 
-**Also covers:** image_generator / Nano Banana 2 (`gemini-3.1-flash-image`) must **not** use Ollama worker; SuperGrok OAuth vs `engine=api` auth recovery; post-Result exit latency.
+**Also covers:** image_generator / Nano Banana 2 (`gemini-3.1-flash-image`) must **not** use Ollama worker; post-Result exit latency.
 
 ### Workflow Coverage Summary
 

@@ -19,9 +19,6 @@
 | `golang.org/x/sync/errgroup` | Parallel corpus search |
 | stdlib `net/http`, `os/exec`, etc. | Providers, CLI engines |
 
-**Subpackage:** root perception imports `perception/xaioauth` for OAuth engine construction.  
-`xaioauth` is intentionally **independent** of `XAIClient` API-key path.
-
 ## Downstream (who imports perception)
 
 Evidence from greps (non-exhaustive):
@@ -29,7 +26,7 @@ Evidence from greps (non-exhaustive):
 | Consumer | Usage |
 |----------|--------|
 | `cmd/nerd/chat/*` | Transducer, clients, campaign assault verbs |
-| `cmd/nerd/cmd_auth.go` | Auth + xaioauth |
+| `cmd/nerd/cmd_auth.go` | Claude/Codex auth |
 | `cmd/nerd/cmd_direct_actions.go` | Direct action perception |
 | `cmd/nerd/cmd_campaign.go` | Campaign LLM |
 | `cmd/nerd/cmd_init_scan.go` | Init/scan perception hooks |
@@ -60,8 +57,6 @@ Avoid:
 | `.nerd/config.json` | Provider/engine/keys/models |
 | `.nerd/intent_embeddings.db` | Cached intent embeddings |
 | `.nerd/mangle/learned_taxonomy.mg` | Learned taxonomy rules |
-| `~/.nerd/xai_oauth.json` | OAuth credentials |
-| `~/.grok/auth.json` | Optional import source for xaioauth |
 
 ## Mangle surface (external to package files)
 

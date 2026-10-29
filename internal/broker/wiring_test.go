@@ -65,7 +65,6 @@ func TestEveryClientConstructionPathIsBrokered(t *testing.T) {
 	rawAllowed := map[string]bool{
 		"newRawClientFromConfig":               true,
 		"newRawClassificationClientFromConfig": true,
-		"newSuperGrokClientOrAPIFallback":      true,
 	}
 
 	var checked int

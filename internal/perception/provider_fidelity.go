@@ -26,7 +26,7 @@ const (
 	SurfaceAnthropicMessages Surface = "anthropic_messages"
 	// SurfaceOpenAIChatCompletions is /v1/chat/completions and every
 	// OpenAI-compatible endpoint that clones it (DeepSeek, Qwen, Groq,
-	// SuperGrok's OAuth surface, local servers).
+	// local servers).
 	SurfaceOpenAIChatCompletions Surface = "openai_chat_completions"
 	// SurfaceOpenAIResponses is the OpenAI Responses API item list, which
 	// Meta's Muse Spark surface also speaks.

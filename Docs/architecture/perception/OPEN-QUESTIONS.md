@@ -19,7 +19,7 @@
 
 ## Q3 — Classification on subscription engines
 
-**Question:** Should claude-cli / codex-cli / xai-oauth ever support a cheap classification mode (local model / haiku API key sidecar)?
+**Question:** Should claude-cli / codex-cli ever support a cheap classification mode (local model / haiku API key sidecar)?
 
 **Current:** Factory returns nil → main engine classifies every turn (expensive/slow for CLI engines).
 

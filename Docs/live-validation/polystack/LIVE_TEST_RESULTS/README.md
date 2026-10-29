@@ -8,9 +8,9 @@ Previously these artifacts were only under `%TEMP%\codenerd-*` session scratch. 
 
 | Subdir | Contents |
 |--------|----------|
-| `campaign_marathon/` | SuperGrok campaign start/resume stdout/stderr, `MARATHON_REPORT.md`, meta |
+| `campaign_marathon/` | Campaign start/resume stdout/stderr, `MARATHON_REPORT.md`, meta |
 | `cli_matrix/` | Feature matrix `MATRIX.md`, app `SPEC.md`, summary |
-| `subagent_reports/` | Parallel agent reports (gap audit, SuperGrok fix, hollow success, image routing, …) |
+| `subagent_reports/` | Parallel agent reports (gap audit, hollow success, image routing, …) |
 | `campaigns_snapshot/` | Copy of campaign JSON at collection time |
 
 ## How to add a new run
@@ -22,7 +22,6 @@ Previously these artifacts were only under `%TEMP%\codenerd-*` session scratch. 
 
 ## Status snapshot (at promotion from TEMP)
 
-- SuperGrok: engine `xai-oauth` probe ready (see auth fixes on main)
 - Campaign `campaign_eae63fd5`: multi-phase polystack hardening; active mid-run when collected
 - CLI matrix + subagent swarm reports: present under `subagent_reports/`
 

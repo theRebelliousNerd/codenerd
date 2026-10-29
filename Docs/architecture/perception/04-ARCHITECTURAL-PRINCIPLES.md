@@ -35,7 +35,7 @@ Consolidation / critic work is async; full queues drop work with a warning.
 
 ### P8 — Provider modularity via factory
 
-New backends register through engine/provider switches in `client_factory.go` (or xaioauth). Chat and shards depend on `LLMClient`, not concrete HTTP shapes.
+New backends register through engine/provider switches in `client_factory.go`. Chat and shards depend on `LLMClient`, not concrete HTTP shapes.
 
 ### P9 — Schema single source of truth for Piggyback
 
