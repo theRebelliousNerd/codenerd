@@ -9,10 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	nerdinit "codenerd/internal/init"
 	"codenerd/internal/kbfill"
+	"codenerd/internal/knowledge"
 	"codenerd/internal/prompt"
 	prsync "codenerd/internal/prompt/sync"
+	"codenerd/internal/store"
 	"codenerd/internal/system"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -23,8 +24,8 @@ import (
 // =============================================================================
 // Program item #14: every field of every expert KB and embedded database is
 // filled. This test audits the embedded corpora and a shard-agent KB built by
-// the production writers (the agent-definition writer, prompt sync, init's
-// knowledge seed) and holds every gap in a baseline that may only shrink, as
+// the production writers (the agent-definition writer, prompt sync, the
+// knowledge acquisition init and the refresh run) and holds every gap in a baseline that may only shrink, as
 // the starved-predicate and unconsumed-conclusion baselines do. A new gap
 // fails; a fixed gap must leave the baseline, so the count is a measurement.
 //
@@ -63,10 +64,34 @@ func openReadOnly(t *testing.T, path string) *sql.DB {
 	return db
 }
 
+// docSource is a knowledge source answering one section per subject, standing
+// in for the network and module-cache sources.
+type docSource struct{}
+
+func (docSource) Name() string { return "probe/docs" }
+
+func (docSource) Acquire(_ context.Context, s knowledge.Subject) ([]knowledge.Atom, error) {
+	return []knowledge.Atom{{
+		Concept:    "probe/" + s.Key(),
+		Content:    "A widget is calibrated against its reference table before any change to " + s.Topic + ".",
+		Confidence: 0.9,
+		Source:     "probe/docs",
+	}}, nil
+}
+
+// unavailableSource cannot run here, as a source with no provider does.
+type unavailableSource struct{}
+
+func (unavailableSource) Name() string { return "probe/offline" }
+
+func (unavailableSource) Acquire(context.Context, knowledge.Subject) ([]knowledge.Atom, error) {
+	return nil, knowledge.ErrUnavailable
+}
+
 // buildShardAgentKB builds one shard agent's KB the way a workspace gets one:
 // the agent-definition writer writes prompts.yaml, prompt sync loads it into
-// .nerd/shards/<name>_knowledge.db, and init's knowledge repair seeds its
-// knowledge. It returns the KB's path.
+// .nerd/shards/<name>_knowledge.db, and the knowledge acquisition fills its
+// knowledge and records every source's outcome. It returns the KB's path.
 func buildShardAgentKB(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
@@ -81,11 +106,20 @@ func buildShardAgentKB(t *testing.T) string {
 	if err := sync.SyncAll(ctx); err != nil {
 		t.Fatalf("SyncAll: %v", err)
 	}
-	nerdinit.EnsureAllAgentKnowledge(ctx, ws, fakeEmbedder{})
 	path := filepath.Join(ws, ".nerd", "shards", "fillexpert_knowledge.db")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("no KB at %s: %v", path, err)
 	}
+	kb, err := store.NewLocalStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kb.SetEmbeddingEngine(fakeEmbedder{})
+	acq := knowledge.Acquirer{Sources: []knowledge.Source{docSource{}, unavailableSource{}}}
+	if _, _, err := knowledge.Fill(ctx, kb, acq, []knowledge.Subject{{Agent: "fillexpert", Topic: "widget calibration"}}); err != nil {
+		t.Fatalf("Fill: %v", err)
+	}
+	_ = kb.Close()
 	return path
 }
 
@@ -164,6 +198,36 @@ func TestKBFillBaseline(t *testing.T) {
 	}
 	if len(shrunk) > 0 {
 		t.Errorf("gap(s) closed -- good; refresh the baseline so the count stays a measurement (CODENERD_UPDATE_KB_FILL=1):\n  %s", strings.Join(shrunk, "\n  "))
+	}
+}
+
+// A knowledge base holding only the removed seed's templated placeholders is
+// no knowledge: the gate names it.
+func TestAuditNamesAPlaceholderOnlyKB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "thin_knowledge.db")
+	kb, err := store.NewLocalStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range [][2]string{
+		{"agent_identity", "You are thinexpert, a specialist agent in the codeNERD ecosystem."},
+		{"domain/widgets", "thinexpert domain knowledge (1 of 1): widgets. When working on widgets, check the repository's own docs and code for project-specific rules."},
+	} {
+		if err := kb.StoreKnowledgeAtom(r[0], r[1], 0.9, "baseline_seed"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = kb.Close()
+	gaps, err := kbfill.Audit(context.Background(), openReadOnly(t, path), kbfill.ShardAgentKB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, g := range gaps {
+		found = found || g.Key() == "shard_agent_kb knowledge_atoms placeholder_only"
+	}
+	if !found {
+		t.Fatalf("a placeholder-only KB is not named; gaps = %v", gaps)
 	}
 }
 

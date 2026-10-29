@@ -7,14 +7,15 @@ import (
 	"strings"
 
 	"codenerd/internal/embedding"
+	"codenerd/internal/knowledge"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
 )
 
-// EnsureAllAgentKnowledge heals every existing agent DB in .nerd/shards: empty
-// KBs get baseline atoms from the agent name, and atoms without vectors get
-// embedded. It runs on every init so existing agents (not just the ones
-// created this run) converge to populated and searchable without --force.
+// EnsureAllAgentKnowledge heals every existing agent DB in .nerd/shards:
+// legacy placeholder rows are pruned and missing vectors are backfilled. It
+// writes no knowledge of its own; an empty KB stays empty until a source
+// teaches it (init's acquisition, the background refresh).
 func EnsureAllAgentKnowledge(ctx context.Context, workspace string, engine embedding.EmbeddingEngine) (healed int, added int) {
 	shardsDir := filepath.Join(workspace, ".nerd", "shards")
 	entries, err := os.ReadDir(shardsDir)
@@ -44,12 +45,17 @@ func EnsureAllAgentKnowledge(ctx context.Context, workspace string, engine embed
 			if err != nil {
 				return
 			}
-			if len(atoms) == 0 {
-				// Seed from the agent name so a brand-new or never-researched
-				// agent still has searchable knowledge. Richer topics come
-				// from the next createAgentKnowledgeBase run.
-				n := seedBaselineKnowledge(ctx, db, RecommendedAgent{Name: agentName}, map[string]bool{})
-				added += n
+			// Legacy placeholder rows (the removed baseline seed's
+			// templates) teach nothing and made topics read as covered;
+			// they go. An agent with no knowledge stays empty and says so
+			// (knowledge_acquisitions, `nerd check-kb`) until a source
+			// teaches it.
+			if len(atoms) > 0 {
+				if n, err := knowledge.PrunePlaceholders(ctx, db.GetDB()); err != nil {
+					logging.Boot("EnsureAllAgentKnowledge: placeholder prune for %s failed: %v", agentName, err)
+				} else if n > 0 {
+					logging.Boot("EnsureAllAgentKnowledge: pruned %d placeholder atom(s) from %s", n, agentName)
+				}
 			}
 			n, err := db.BackfillKnowledgeAtomVectors(ctx)
 			if err == nil {

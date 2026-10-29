@@ -2,6 +2,7 @@
 package init
 
 import (
+	"codenerd/internal/knowledge"
 	"context"
 	"encoding/json"
 	"errors"
@@ -422,6 +423,9 @@ type KnowledgeBaseStats struct {
 	// Notes are research outcomes the init result reports: questions that
 	// could not be answered with a source, stale knowledge not refreshed.
 	Notes []string
+	// Outcomes are every knowledge source's attempt on every subject
+	// (internal/knowledge), also recorded in the KB.
+	Outcomes []knowledge.Outcome
 }
 
 // loadExistingAgentRegistry loads the agent registry from .nerd/agents.json if it exists.

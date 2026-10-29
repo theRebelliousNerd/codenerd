@@ -74,13 +74,14 @@ func TestFilterTopicsNeedingResearch_WhenCovered_ShouldSkip(t *testing.T) {
 	existing := []store.KnowledgeAtom{
 		{Concept: "go-concurrency:section_0", Content: "go concurrency goroutines"},
 		{Concept: "go-concurrency:section_1", Content: "go concurrency channels"},
-		// Inherited and identity atoms must NOT count toward coverage.
+		// Inherited and placeholder atoms must NOT count toward coverage.
 		{Concept: "inherited:foo", Content: "rust ownership borrow"},
-		{Concept: "agent_identity", Content: "rust ownership move"},
+		{Concept: "domain/rust-ownership", Content: "rustexpert domain knowledge (1 of 1): rust ownership. When working on rust ownership, check the repository's own docs and code for project-specific rules."},
+		{Concept: "agent_identity", Content: "You are rustexpert, a specialist agent for rust ownership."},
 	}
 	got := filterTopicsNeedingResearch(existing, []string{"go concurrency", "rust ownership"}, 2)
 	// "go concurrency" has 2 genuine atoms (covered); "rust ownership" only has
-	// inherited/identity atoms (not counted) so it still needs research.
+	// inherited/placeholder atoms (not counted) so it still needs research.
 	if len(got) != 1 || got[0] != "rust ownership" {
 		t.Errorf("expected only 'rust ownership' to need research, got %v", got)
 	}

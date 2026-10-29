@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"codenerd/internal/store"
@@ -100,50 +99,46 @@ func insertKnowledgeAtom(t *testing.T, db *sql.DB, concept, content string, conf
 	}
 }
 
-func TestAgentIDFromDBPath(t *testing.T) {
-	cases := []struct {
-		path string
-		want string
-	}{
-		{filepath.Join("x", ".nerd", "shards", "bubbleteaexpert_knowledge.db"), "bubbleteaexpert"},
-		{"/tmp/agentone_knowledge.db", "agentone"},
-		{"/tmp/prompts.db", ""},
-		{"", ""},
-	}
-	for _, tc := range cases {
-		if got := agentIDFromDBPath(tc.path); got != tc.want {
-			t.Errorf("agentIDFromDBPath(%q) = %q, want %q", tc.path, got, tc.want)
-		}
-	}
-}
-
-func TestBackfillSeedsEmptyKBWithoutInit(t *testing.T) {
+// Boot heals a KB by pruning the removed seed's placeholder rows and their
+// vectors; it writes no knowledge of its own, so an empty KB stays empty.
+func TestBackfillPrunesPlaceholdersAndSeedsNothing(t *testing.T) {
 	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "emptyagent_knowledge.db")
-	db := openSeededTestDB(t, dbPath)
-
-	if got := knowledgeCount(t, db); got != 0 {
-		t.Fatalf("expected empty KB, got %d atoms", got)
+	emptyPath := filepath.Join(dir, "emptyagent_knowledge.db")
+	empty := openSeededTestDB(t, emptyPath)
+	if err := backfillKnowledgeVectors(context.Background(), empty, emptyPath, &fakeBackfillEngine{}); err != nil {
+		t.Fatalf("backfill empty: %v", err)
+	}
+	if got := knowledgeCount(t, empty); got != 0 {
+		t.Fatalf("an empty KB was seeded with %d atom(s)", got)
 	}
 
-	// Nil engine must still seed: atoms are keyword-searchable without vectors.
-	if err := backfillKnowledgeVectors(context.Background(), db, dbPath, nil); err != nil {
-		t.Fatalf("backfill with nil engine: %v", err)
+	thinPath := filepath.Join(dir, "coder_knowledge.db")
+	thin := openSeededTestDB(t, thinPath)
+	insertKnowledgeAtom(t, thin, "agent_identity", "You are coder, a specialist agent in the codeNERD ecosystem.", 0.9)
+	insertKnowledgeAtom(t, thin, "agent_mission", "coder exists to carry out coder tasks in this workspace.", 0.85)
+	insertKnowledgeAtom(t, thin, "methodology/overview", "coder methodology: decompose the task, locate the relevant code and docs, apply best practices, verify with the project's build and tests.", 0.8)
+	insertKnowledgeAtom(t, thin, "guide/errors", "Wrap errors with %w so callers can match them.", 0.9)
+	eng := &fakeBackfillEngine{}
+	if err := backfillKnowledgeVectors(context.Background(), thin, thinPath, eng); err != nil {
+		t.Fatalf("first backfill: %v", err)
 	}
-	if got := knowledgeCount(t, db); got == 0 {
-		t.Fatal("empty KB was not seeded on restart")
+	if got := knowledgeCount(t, thin); got != 1 {
+		t.Fatalf("knowledgeCount() = %d, want 1 (placeholders pruned, real atom kept)", got)
 	}
-	if got := vectorCount(t, db); got != 0 {
-		t.Fatalf("nil engine must not create vectors, got %d", got)
+	if got := vectorCount(t, thin); got != 1 {
+		t.Fatalf("vectorCount() = %d, want 1", got)
 	}
-
-	// Seeding is idempotent: a second run must not duplicate atoms.
-	before := knowledgeCount(t, db)
-	if err := backfillKnowledgeVectors(context.Background(), db, dbPath, nil); err != nil {
+	// A placeholder that gained a vector earlier loses it with its row.
+	insertKnowledgeAtom(t, thin, "agent_identity", "You are coder, a specialist agent in the codeNERD ecosystem.", 0.9)
+	if _, err := thin.Exec(`INSERT INTO vectors (content, embedding, embedding_model, metadata) VALUES (?, '[1]', 'm', ?)`,
+		"You are coder, a specialist agent in the codeNERD ecosystem.", `{"content_type":"knowledge_atom","concept":"agent_identity"}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := backfillKnowledgeVectors(context.Background(), thin, thinPath, eng); err != nil {
 		t.Fatalf("second backfill: %v", err)
 	}
-	if got := knowledgeCount(t, db); got != before {
-		t.Fatalf("second seed duplicated atoms: before=%d got=%d", before, got)
+	if k, v := knowledgeCount(t, thin), vectorCount(t, thin); k != 1 || v != 1 {
+		t.Fatalf("after the second heal knowledge=%d vectors=%d, want 1 1", k, v)
 	}
 }
 
@@ -221,141 +216,6 @@ func TestBackfillNilDBNoError(t *testing.T) {
 	}
 }
 
-func TestBaselineSeedAtoms_DefaultsToSpecialist(t *testing.T) {
-	tests := []struct {
-		name     string
-		agentID  string
-		wantName string
-	}{
-		{name: "empty defaults to specialist", agentID: "", wantName: "specialist"},
-		{name: "whitespace defaults to specialist", agentID: "   ", wantName: "specialist"},
-		{name: "trims surrounding space", agentID: "  coder  ", wantName: "coder"},
-		{name: "keeps inner case for identity", agentID: "Reviewer", wantName: "Reviewer"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := baselineSeedAtoms(tt.agentID)
-			if len(got) != 3 {
-				t.Fatalf("baselineSeedAtoms() len = %d, want 3", len(got))
-			}
-			wantConcepts := []string{"agent_identity", "agent_mission", "methodology/overview"}
-			for i, want := range wantConcepts {
-				if got[i].concept != want {
-					t.Errorf("atom[%d].concept = %q, want %q", i, got[i].concept, want)
-				}
-			}
-			for _, a := range got {
-				if a.content == "" {
-					t.Errorf("concept %q has empty content", a.concept)
-				}
-				if !containsFold(a.content, tt.wantName) {
-					t.Errorf("concept %q content %q does not mention %q", a.concept, a.content, tt.wantName)
-				}
-				if a.confidence <= 0 || a.confidence > 1 {
-					t.Errorf("concept %q confidence = %v, want in (0,1]", a.concept, a.confidence)
-				}
-			}
-		})
-	}
-}
-
-func TestEnsureSeededBaseline_SeedsEmptyKBOnce(t *testing.T) {
-	db := openSeededTestDB(t, filepath.Join(t.TempDir(), "coder_knowledge.db"))
-	ctx := context.Background()
-	seeded, err := ensureSeededBaseline(ctx, db, "coder")
-	if err != nil {
-		t.Fatalf("ensureSeededBaseline() error = %v", err)
-	}
-	if seeded != 3 {
-		t.Fatalf("ensureSeededBaseline() = %d, want 3", seeded)
-	}
-	if got := knowledgeCount(t, db); got != 3 {
-		t.Fatalf("knowledgeCount() = %d, want 3", got)
-	}
-	// Second call must not reseed a non-empty KB.
-	seeded, err = ensureSeededBaseline(ctx, db, "coder")
-	if err != nil {
-		t.Fatalf("second ensureSeededBaseline() error = %v", err)
-	}
-	if seeded != 0 {
-		t.Fatalf("second ensureSeededBaseline() = %d, want 0", seeded)
-	}
-	if got := knowledgeCount(t, db); got != 3 {
-		t.Fatalf("knowledgeCount() after reseed = %d, want 3", got)
-	}
-}
-
-func TestEnsureSeededBaseline_EmptyAgentDefaultsToSpecialist(t *testing.T) {
-	db := openSeededTestDB(t, filepath.Join(t.TempDir(), "specialist_knowledge.db"))
-	if _, err := ensureSeededBaseline(context.Background(), db, ""); err != nil {
-		t.Fatalf("ensureSeededBaseline() error = %v", err)
-	}
-	rows, err := db.Query(`SELECT content FROM knowledge_atoms WHERE concept = 'agent_identity'`)
-	if err != nil {
-		t.Fatalf("query identity atom: %v", err)
-	}
-	defer rows.Close()
-	found := false
-	for rows.Next() {
-		var content string
-		if err := rows.Scan(&content); err != nil {
-			t.Fatalf("scan: %v", err)
-		}
-		if containsFold(content, "specialist") {
-			found = true
-		}
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("rows.Err() = %v", err)
-	}
-	if !found {
-		t.Errorf("expected baseline identity atom mentioning specialist")
-	}
-}
-
-func TestEnsureSeededBaseline_CancelledContext(t *testing.T) {
-	db := openSeededTestDB(t, filepath.Join(t.TempDir(), "coder_knowledge.db"))
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, err := ensureSeededBaseline(ctx, db, "coder"); err == nil {
-		t.Fatalf("ensureSeededBaseline() with cancelled ctx = nil, want error")
-	}
-	if got := knowledgeCount(t, db); got != 0 {
-		t.Fatalf("knowledgeCount() after cancelled seed = %d, want 0", got)
-	}
-}
-
-func TestEnsureSeededBaseline_MissingTableIsNoop(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "notables.db")
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	seeded, err := ensureSeededBaseline(context.Background(), db, "coder")
-	if err != nil {
-		t.Fatalf("ensureSeededBaseline() with missing table error = %v", err)
-	}
-	if seeded != 0 {
-		t.Fatalf("ensureSeededBaseline() = %d, want 0 when table is missing", seeded)
-	}
-}
-
-func TestBackfillKnowledgeVectors_NilEngineStillSeedsRestart(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "healer_knowledge.db")
-	db := openSeededTestDB(t, dbPath)
-	// Restart with no embedding engine must still heal an empty KB.
-	if err := backfillKnowledgeVectors(context.Background(), db, dbPath, nil); err != nil {
-		t.Fatalf("backfillKnowledgeVectors() error = %v", err)
-	}
-	if got := knowledgeCount(t, db); got != 3 {
-		t.Fatalf("knowledgeCount() = %d, want 3 seeded without engine", got)
-	}
-	if got := vectorCount(t, db); got != 0 {
-		t.Fatalf("vectorCount() = %d, want 0 with nil engine", got)
-	}
-}
-
 func TestBackfillKnowledgeVectors_PreservesNonEmptyKBWithoutInit(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "keeper_knowledge.db")
 	db := openSeededTestDB(t, dbPath)
@@ -375,32 +235,6 @@ func TestBackfillKnowledgeVectors_CancelledContext(t *testing.T) {
 	cancel()
 	if err := backfillKnowledgeVectors(ctx, db, dbPath, nil); err == nil {
 		t.Fatalf("backfillKnowledgeVectors() with cancelled ctx = nil, want error")
-	}
-}
-
-func TestBackfillKnowledgeVectors_HealsOnRestartIdempotent(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "restart_knowledge.db")
-	db := openSeededTestDB(t, dbPath)
-	engine := &fakeBackfillEngine{}
-	if err := backfillKnowledgeVectors(context.Background(), db, dbPath, engine); err != nil {
-		t.Fatalf("first backfill error = %v", err)
-	}
-	if got := knowledgeCount(t, db); got != 3 {
-		t.Fatalf("knowledgeCount() after first backfill = %d, want 3", got)
-	}
-	firstVectors := vectorCount(t, db)
-	if firstVectors != 3 {
-		t.Fatalf("vectorCount() after first backfill = %d, want 3", firstVectors)
-	}
-	// Second restart heals nothing new: idempotent.
-	if err := backfillKnowledgeVectors(context.Background(), db, dbPath, engine); err != nil {
-		t.Fatalf("second backfill error = %v", err)
-	}
-	if got := knowledgeCount(t, db); got != 3 {
-		t.Fatalf("knowledgeCount() after second backfill = %d, want 3", got)
-	}
-	if got := vectorCount(t, db); got != firstVectors {
-		t.Fatalf("vectorCount() after second backfill = %d, want %d", got, firstVectors)
 	}
 }
 
@@ -498,7 +332,3 @@ func TestBackfillMissingVectors_CancelledContextStops(t *testing.T) {
 }
 
 var errBackfillTest = errors.New("backfill test embed failure")
-
-func containsFold(haystack, needle string) bool {
-	return strings.Contains(strings.ToLower(haystack), strings.ToLower(needle))
-}
