@@ -150,12 +150,13 @@ task_is_simple(TaskID) :-
     phase_estimate(PhaseID, _, /low),
     campaign_task(TaskID, PhaseID, _, _, _).
 
-# Complex tasks should spawn specialist shards if available
-prefer_specialist_for_task(TaskID, SpecialistName) :-
-    task_is_complex(TaskID),
-    campaign_task(TaskID, _, Description, _, TaskType),
-    shard_can_handle(SpecialistName, TaskType),
-    shard_profile(SpecialistName, /specialist, _).
+# Which shard agent a campaign task needs is expert_needed and
+# specialist_should_execute / specialist_should_advise
+# (policy/shard_experts.mg, policy/shards.mg), asked per task through
+# internal/experts by the orchestrator (internal/campaign/orchestrator_experts.go).
+# The campaign's own rules for it (prefer_specialist_for_task here, a
+# delegate_task in 5.3, the 8.2 override) joined shard_can_handle, which nothing
+# produced, and were deleted on 2026-10-29.
 
 # -----------------------------------------------------------------------------
 # 2.3 Task Retry Strategy
@@ -408,38 +409,15 @@ learning_signal(/avoid_pattern, ErrorType) :-
 # 5.3 Shard Performance in Campaigns
 # -----------------------------------------------------------------------------
 
-# Track which shard types perform well in campaigns
-shard_campaign_success(ShardType) :-
-    campaign_shard(_, ShardID, ShardType, _, /completed),
-    shard_success(ShardID).
-
-# Track shard failures in campaigns
-shard_campaign_failure(ShardType) :-
-    campaign_shard(_, ShardID, ShardType, _, /failed),
-    shard_error(ShardID, _).
-
-# Shard is reliable for campaigns (3+ successes, < 2 failures)
-shard_campaign_reliable(ShardType) :-
-    shard_campaign_success(ShardType),
-    !shard_has_many_failures(ShardType).
-
-# Helper: shard has 2+ failures
-shard_has_many_failures(ShardType) :-
-    shard_failure_count(ShardType, Count),
-    Count >= 2.
-
 # Count shard failures per type
 shard_failure_count(ShardType, Count) :-
     campaign_shard(_, _, ShardType, _, /failed)
     |> do fn:group_by(ShardType), let Count = fn:count().
 
-# Prefer reliable shards for campaign tasks
-delegate_task(ShardType, Task, /pending) :-
-    next_campaign_task(TaskID),
-    campaign_task(TaskID, _, Task, _, TaskType),
-    shard_can_handle(ShardType, TaskType),
-    shard_profile(ShardType, _, _),
-    shard_campaign_reliable(ShardType).
+# The reliability rules that stood here (shard_campaign_success, _failure,
+# _reliable, shard_has_many_failures) fed one consumer, a delegate_task that
+# joined shard_can_handle, which nothing produced. All were deleted on
+# 2026-10-29; see 2.2 for where a task's shard agent comes from.
 
 # =============================================================================
 # SECTION 6: RESILIENCE & RECOVERY
@@ -615,9 +593,8 @@ progress_changed(CampaignID) :-
 # -----------------------------------------------------------------------------
 # 8.1 Task Type to Persona
 # -----------------------------------------------------------------------------
-# One table: the persona a task type runs as. campaign_task_shard (a pending
-# task's shard, read by final_shard_for_task) and task_delegation (8.3, the
-# verb a task's turn runs) both read it. It replaced nine rules of this section
+# One table: the persona a task type runs as. task_persona and task_delegation
+# (8.3, the verb a task's turn runs) read it. It replaced nine rules of this section
 # and the orchestrator's own copy, inferShardFromTaskType, which nothing called.
 
 task_type_persona(/file_create, /coder).
@@ -632,35 +609,13 @@ task_type_persona(/integrate, /coder).
 task_type_persona(/document, /coder).
 task_type_persona(/shard_spawn, /coder).
 
-campaign_task_shard(TaskID, Persona) :-
-    campaign_task(TaskID, _, _, /pending, TaskType),
-    task_type_persona(TaskType, Persona).
-
 # -----------------------------------------------------------------------------
-# 8.2 Specialist Override
+# 8.2 Shard agents
 # -----------------------------------------------------------------------------
-
-# If specialist available and performs well, prefer it
-campaign_task_shard_override(TaskID, SpecialistName) :-
-    campaign_task(TaskID, _, _, /pending, TaskType),
-    shard_can_handle(SpecialistName, TaskType),
-    shard_profile(SpecialistName, /specialist, _),
-    shard_campaign_reliable(SpecialistName).
-
-# Final shard selection (specialist override or default)
-final_shard_for_task(TaskID, SpecialistName) :-
-    campaign_task_shard_override(TaskID, SpecialistName).
-
-task_has_shard_override(TaskID) :-
-    campaign_task_shard_override(TaskID, SpecialistName).
-
-# `!campaign_task_shard_override(TaskID, _)` excluded nothing, so a task with a
-# specialist override derived BOTH the override and the default shard, leaving
-# final_shard_for_task ambiguous for exactly the tasks that had been given an
-# explicit specialist.
-final_shard_for_task(TaskID, ShardType) :-
-    campaign_task_shard(TaskID, ShardType),
-    !task_has_shard_override(TaskID).
+# A task's shard agent is the kernel's expert decision (see 2.2). The override
+# that stood here (campaign_task_shard_override, task_has_shard_override,
+# final_shard_for_task and its default, campaign_task_shard) joined
+# shard_can_handle, which nothing produced, and no consumer read its answer.
 
 # -----------------------------------------------------------------------------
 # 8.3 The verb a task's turn runs (sweep finding F6)

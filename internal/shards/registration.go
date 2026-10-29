@@ -414,14 +414,12 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"code_outline",
 				"task_brief_element",
 				// Runtime facts campaign rules join against the family above:
-				// shard profiles (delegate_task, specialist preference),
+				// shard profiles,
 				// context pressure, milestones, remediation, document
 				// references, phase tool lists and the decomposer's
 				// intelligence_* facts.
 				"shard_profile",
-				"shard_can_handle",
 				"shard_performing_well",
-				"shard_campaign_reliable",
 				"campaign_milestone",
 				"campaign_progress_over_50",
 				"context_pressure_high",

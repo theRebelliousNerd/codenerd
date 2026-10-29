@@ -430,9 +430,6 @@ Decl task_persona(TaskID, Persona) bound [/string, /name].
 Decl task_creates_doc(TaskID) bound [/string].
 Decl task_delegation(TaskID, Verb) bound [/string, /name].
 
-# Bound-negation helper for final_shard_for_task; see bound_negation_test.go.
-Decl task_has_shard_override(TaskID) bound [/string].
-
 # validation_error(EntityID, IssueType, Message) - derived: validation issues found
 Decl validation_error(EntityID, IssueType, Message) bound [/string, /name, /string].
 

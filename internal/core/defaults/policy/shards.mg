@@ -103,12 +103,6 @@ specialist_outperforms(SpecialistName, TaskType) :-
 suggest_use_specialist(TaskType, SpecialistName) :-
     specialist_outperforms(SpecialistName, TaskType).
 
-# Suggest switching shard when current one struggles
-shard_switch_suggestion(TaskType, CurrentShard, AlternateShard) :-
-    shard_struggling(CurrentShard),
-    shard_performing_well(AlternateShard),
-    shard_can_handle(AlternateShard, TaskType).
-
 # Trace-Based Context Enhancement
 
 # Boost activation for successful trace patterns in current session
@@ -156,11 +150,10 @@ escalation_needed(/system_health, ShardType, "System shard failure") :-
 # could handle SOME task type (TaskType was bound to nothing in the head), and
 # trace_task_type has no producer, so it never fired.
 
-# Learn which tasks specialists handle well
-shard_can_handle(ShardType, TaskType) :-
-    reasoning_trace(TraceID, ShardType, /specialist, _, /true, _),
-    trace_task_type(TraceID, TaskType),
-    high_quality_trace(TraceID).
+# shard_can_handle (a specialist's task types, from trace_task_type) and the
+# rules that joined it -- shard_switch_suggestion here and the campaign's
+# specialist rules -- were deleted on 2026-10-29: trace_task_type has no
+# producer, so none of them could fire.
 
 
 # =============================================================================

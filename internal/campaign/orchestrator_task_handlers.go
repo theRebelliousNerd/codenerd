@@ -1,7 +1,6 @@
 package campaign
 
 import (
-	"cmp"
 	"codenerd/internal/sessionlog"
 	"context"
 	"encoding/json"
@@ -11,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -62,6 +60,22 @@ func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input 
 		if check, ok := o.campaignCheck(task); ok {
 			ctx = tools.WithCampaignCheck(ctx, check)
 		}
+		// The shard agents the task's files need (orchestrator_experts.go):
+		// the turn aims at the task's primary file, so its compile carries
+		// their knowledge, and an advising agent is consulted first.
+		targets := o.taskTargets(task)
+		if len(targets) > 0 {
+			req.Target = targets[0]
+		}
+		sel := o.selectTaskExperts(task, intent, targets)
+		for _, need := range sel.Needs {
+			if need.Execute {
+				o.emitEvent(EventSpecialistExecutes, task.PhaseID, task.ID, need.Agent, map[string]any{
+					"agent": need.Agent, "technologies": need.Technologies, "confidence": need.Confidence,
+				})
+			}
+		}
+		req.Task = o.withExpertAdvice(ctx, observed, task, sel, req.Task)
 	}
 	// PromptPhase selects the JIT instruction atom for this campaign's
 	// turns (recurse fix vs improve). Empty on every other campaign, and
@@ -976,114 +990,6 @@ func (o *Orchestrator) executeIntegrateTask(ctx context.Context, task *Task) (an
 func (o *Orchestrator) executeDocumentTask(ctx context.Context, task *Task) (any, error) {
 	logging.CampaignDebug("Executing document task %s via file task", task.ID)
 	return o.executeFileTask(ctx, task)
-}
-
-// executeToolCreateTask triggers tool generation via kernel-mediated autopoiesis.
-// It asserts missing_tool_for fact to the kernel, which derives delegate_task(/tool_generator, ...).
-// The autopoiesis orchestrator listens for these derived facts and generates the tool.
-func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (any, error) {
-	logging.Campaign("Executing tool create task %s (Ouroboros)", task.ID)
-	// Extract tool capability from task description or artifacts
-	// For tool creation, the Path field contains the tool/capability name
-	capability := task.Description
-	if len(task.Artifacts) > 0 && task.Artifacts[0].Path != "" {
-		capability = task.Artifacts[0].Path
-	}
-	logging.CampaignDebug("Tool capability requested: %s", capability)
-
-	// Generate intent ID for this tool creation request
-	intentID := fmt.Sprintf("campaign_%s_task_%s", o.campaign.ID, task.ID)
-	logging.CampaignDebug("Tool creation intent ID: %s", intentID)
-
-	// Assert missing_tool_for to kernel - this triggers the policy rules:
-	// 1. delegate_task(/tool_generator, Cap, /pending) derives
-	// 2. next_action(/generate_tool) derives
-	// 3. Autopoiesis orchestrator picks up the delegation
-	err := o.kernel.Assert(core.Fact{
-		Predicate: "missing_tool_for",
-		Args:      []any{intentID, capability},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to assert missing_tool_for: %w", err)
-	}
-
-	// Also assert goal_requires so the policy can derive properly
-	err = o.kernel.Assert(core.Fact{
-		Predicate: "goal_requires",
-		Args:      []any{o.campaign.Goal, capability},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to assert goal_requires: %w", err)
-	}
-
-	// Emit event for visibility
-	o.emitEvent(EventToolGenerationRequested, "", task.ID, capability, map[string]any{
-		"intent_id":  intentID,
-		"capability": capability,
-	})
-
-	// capability originates from LLM-authored task text, so it must be escaped
-	// before being interpolated into a Mangle query. Raw interpolation of a
-	// value containing a quote or newline produced a malformed query whose
-	// error was then swallowed by the `err == nil` guard below, leaving this
-	// loop to spin for the full 30 minutes and report "pending" as a success.
-	quotedCapability := strconv.Quote(capability)
-
-	// Poll for tool_ready or tool_registered fact (with timeout)
-	timeout := time.After(30 * time.Minute)
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	// A query that errors every tick can never succeed; bail out rather than
-	// burning the whole timeout on it.
-	const maxConsecutiveQueryErrors = 3
-	queryErrors := 0
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-timeout:
-			// Tool generation timed out - return partial success
-			// The tool may still be generating in the background
-			return map[string]any{
-				"status":     "pending",
-				"capability": capability,
-				"message":    "tool generation initiated but not yet complete",
-			}, nil
-		case <-ticker.C:
-			// Check if tool is now registered
-			facts, err := o.kernel.Query(fmt.Sprintf(`tool_registered(%s)`, quotedCapability))
-			if err == nil && len(facts) > 0 {
-				return map[string]any{
-					"status":     "complete",
-					"capability": capability,
-					"tool_name":  capability,
-				}, nil
-			}
-
-			// Also check has_capability
-			capFacts, capErr := o.kernel.Query(fmt.Sprintf(`has_capability(%s)`, quotedCapability))
-			if capErr == nil && len(capFacts) > 0 {
-				return map[string]any{
-					"status":     "complete",
-					"capability": capability,
-				}, nil
-			}
-
-			if err != nil || capErr != nil {
-				queryErrors++
-				logging.CampaignWarn("tool_create poll query failed for capability %q (%d/%d): tool_registered=%v has_capability=%v",
-					capability, queryErrors, maxConsecutiveQueryErrors, err, capErr)
-				if queryErrors >= maxConsecutiveQueryErrors {
-					return nil, fmt.Errorf("tool registration poll for %q failed %d consecutive times: %w",
-						capability, queryErrors, cmp.Or(err, capErr))
-				}
-			} else {
-				queryErrors = 0
-			}
-		}
-	}
 }
 
 // executeCampaignRefTask handles a sub-campaign reference.

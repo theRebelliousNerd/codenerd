@@ -73,6 +73,10 @@ Decl task_failure_count(Capability, Count) bound [/name, /number].
 # tool_generation_blocked(Capability) - capability blocked from generation
 Decl tool_generation_blocked(Capability) bound [/name].
 
+# tool_generation_block_reason(Capability, Reason) - why: /dangerous, or
+# /provided by a registered tool (policy/autopoiesis.mg)
+Decl tool_generation_block_reason(Capability, Reason) bound [/name, /name].
+
 # tool_lifecycle(ToolName, State) - tool lifecycle tracking
 # State: /detected, /generating, /compiled, /deployed, /deprecated
 Decl tool_lifecycle(ToolName, State) bound [/string, /name].

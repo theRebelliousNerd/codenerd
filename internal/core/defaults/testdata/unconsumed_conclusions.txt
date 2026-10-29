@@ -73,8 +73,6 @@ unconsumed campaign_risk_blocked_gate
 unconsumed campaign_risk_critical_signal
 unconsumed campaign_risk_preflight_blocked
 unconsumed campaign_risk_warning
-unconsumed campaign_task_shard
-unconsumed campaign_task_shard_override
 unconsumed campaign_too_ambitious
 unconsumed campaign_too_trivial
 unconsumed campaign_type_count
@@ -172,7 +170,6 @@ unconsumed file_in_project
 unconsumed file_modified_externally
 unconsumed final_atom
 unconsumed final_context_include
-unconsumed final_shard_for_task
 unconsumed focus_needs_resolution
 unconsumed fragile
 unconsumed function_in_scope
@@ -386,7 +383,6 @@ unconsumed phase_tool_permitted
 unconsumed phase_waiting_for_retry
 unconsumed plan_can_autostart
 unconsumed potential_panic
-unconsumed prefer_specialist_for_task
 unconsumed prioritized_hypothesis
 unconsumed priority_boost
 unconsumed priority_diagnostic
@@ -446,8 +442,6 @@ unconsumed safety_check
 unconsumed selected_atom
 unconsumed selected_verb
 unconsumed semantic_suggested_verb
-unconsumed shard_campaign_failure
-unconsumed shard_switch_suggestion
 unconsumed should_add_to_armory
 unconsumed should_address_warning
 unconsumed should_complete
@@ -491,7 +485,6 @@ unconsumed task_blocked_by_topology
 unconsumed task_can_skip
 unconsumed task_failure_summary
 unconsumed task_has_multiple_targets
-unconsumed task_has_shard_override
 unconsumed task_is_architectural
 unconsumed task_is_complex
 unconsumed task_is_simple

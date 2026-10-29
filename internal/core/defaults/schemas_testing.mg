@@ -83,14 +83,6 @@ Decl shard_performance(ShardType, SuccessRate, AvgDurationMs, TraceCount) bound 
 # Tracks when specialists outperform ephemeral shards
 Decl specialist_outperforms(SpecialistName, TaskType) bound [/string, /name].
 
-# shard_can_handle(ShardType, TaskType)
-# Capability mapping based on trace history
-Decl shard_can_handle(ShardType, TaskType) bound [/name, /name].
-
-# shard_switch_suggestion(TaskType, FromShard, ToShard)
-# Suggested shard switches based on performance data
-Decl shard_switch_suggestion(TaskType, FromShard, ToShard) bound [/name, /name, /name].
-
 # -----------------------------------------------------------------------------
 # 36.4 Derived Predicates for Trace Analysis
 # -----------------------------------------------------------------------------

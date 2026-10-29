@@ -69,17 +69,22 @@ tool_generation_permitted(Cap) :-
     missing_tool_for(_, Cap),
     !tool_generation_blocked(Cap).
 
-# Block tool generation for dangerous capabilities
-tool_generation_blocked(Cap) :-
+# Why a capability is not generated. /dangerous: it must never be. /provided:
+# a registered tool already provides it. The missing_tool_for a turn asserts
+# in its control packet reaches delegate_task(/tool_generator, ...) directly
+# (delegation.mg), past the !has_capability guard of the intent rule above, so
+# a turn with no vet tool in view sent autopoiesis to build /go_vet while
+# run_lint existed. A campaign tool-create task reads the reason and resolves
+# at once: to the providing tool, or failed with the reason
+# (internal/campaign/orchestrator_tool_create.go).
+tool_generation_block_reason(Cap, /dangerous) :-
     dangerous_capability(Cap).
 
-# A capability a registered tool already provides is not generated. The
-# missing_tool_for a turn asserts in its control packet reaches
-# delegate_task(/tool_generator, ...) directly (delegation.mg), past the
-# !has_capability guard of the intent rule above, so a turn with no vet tool
-# in view sent autopoiesis to build /go_vet while run_lint existed.
-tool_generation_blocked(Cap) :-
+tool_generation_block_reason(Cap, /provided) :-
     has_capability(Cap).
+
+tool_generation_blocked(Cap) :-
+    tool_generation_block_reason(Cap, _).
 
 # Define dangerous capabilities that should never be auto-generated
 dangerous_capability(/exec_arbitrary).

@@ -608,7 +608,7 @@ func TestExecuteToolCreateTask_Autopoiesis(t *testing.T) {
 	ctx := t.Context()
 	kernel := &MockKernel{
 		Facts: []core.Fact{
-			{Predicate: "has_capability", Args: []any{"git_read"}},
+			{Predicate: "has_capability", Args: []any{types.MangleAtom("/git_read")}},
 		},
 	}
 	o := &Orchestrator{

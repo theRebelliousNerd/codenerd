@@ -75,6 +75,9 @@ const (
 	EventShardResultEmpty        OrchestratorEventType = "shard_result_empty"
 	EventToolGenerationRequested OrchestratorEventType = "tool_generation_requested"
 	EventSubCampaignReferenced   OrchestratorEventType = "sub_campaign_referenced"
+	// A shard agent the kernel said the task needs (orchestrator_experts.go).
+	EventSpecialistConsulted OrchestratorEventType = "specialist_consulted"
+	EventSpecialistExecutes  OrchestratorEventType = "specialist_executes"
 
 	// Risk preflight audit trail. These carry the RiskGateEvaluation /
 	// RiskFinding in Data so a UI can render the gate report, not just a string.
@@ -119,6 +122,8 @@ var orchestratorEventTypes = []OrchestratorEventType{
 	EventRiskSnapshotPinned,
 	EventShardResultEmpty,
 	EventSnapshotWriteFailed,
+	EventSpecialistConsulted,
+	EventSpecialistExecutes,
 	EventSubCampaignReferenced,
 	EventTaskCompleted,
 	EventTaskFailed,
