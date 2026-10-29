@@ -29,7 +29,10 @@ func (s *stubLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, us
 
 func (s *stubLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
 	s.calls++
-	return types.StreamWhole(ctx, func(context.Context) (string, error) { return "", nil })
+	return types.StreamWhole(ctx, func(context.Context) (string, []string, error) {
+		text, err := func() (string, error) { return "", nil }()
+		return text, nil, err
+	})
 }
 
 func (s *stubLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {

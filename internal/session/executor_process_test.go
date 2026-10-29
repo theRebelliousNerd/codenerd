@@ -1053,7 +1053,10 @@ func TestExecutor_SafetyGateFailClosed(t *testing.T) {
 func (m *MockKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }
 
 func (m *MockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan types.StreamResult) {
-	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
-		return m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, []string, error) {
+		text, err := func() (string, error) {
+			return m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		}()
+		return text, nil, err
 	})
 }

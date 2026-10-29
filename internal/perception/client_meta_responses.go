@@ -385,18 +385,19 @@ func (c *OpenAICompatClient) postResponsesCompletion(ctx context.Context, system
 // completeWithSystemGrounded is CompleteWithSystem for a Meta client that
 // has web search on. The retry stays on this surface: falling back to Chat
 // Completions would drop the search tool the caller turned on.
-func (c *OpenAICompatClient) completeWithSystemGrounded(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+func (c *OpenAICompatClient) completeWithSystemGrounded(ctx context.Context, systemPrompt, userPrompt string) (string, []string, error) {
 	start := time.Now()
 	c.clearGroundingSources()
 
 	text, reply, err := c.postResponsesCompletion(ctx, systemPrompt, userPrompt, "")
 	if err != nil {
 		logging.PerceptionError("[%s] CompleteWithSystem failed after %v: %v", c.vendor, time.Since(start), err)
-		return "", err
+		return "", nil, err
 	}
 	if term := c.responsesTerminalError(reply, "CompleteWithSystem"); term != nil {
-		c.recordGroundingSources(responsesGroundingFromReply(reply).Sources)
-		return "", term
+		sources := responsesGroundingFromReply(reply).Sources
+		c.recordGroundingSources(sources)
+		return "", nil, term
 	}
 	out := strings.TrimSpace(text)
 	billed := reply.Usage.outputTokens()
@@ -411,25 +412,28 @@ func (c *OpenAICompatClient) completeWithSystemGrounded(ctx context.Context, sys
 		retryText, retryReply, retryErr := c.postResponsesCompletion(ctx, systemPrompt, userPrompt, "minimal")
 		if retryErr == nil && c.responsesTerminalError(retryReply, "CompleteWithSystem") == nil {
 			if retried := strings.TrimSpace(retryText); retried != "" {
-				c.recordGroundingSources(responsesGroundingFromReply(retryReply).Sources)
+				sources := responsesGroundingFromReply(retryReply).Sources
+				c.recordGroundingSources(sources)
 				logging.PerceptionWarn("[%s] retry with minimal reasoning recovered %d chars", c.vendor, len(retried))
-				return retried, nil
+				return retried, sources, nil
 			}
 		}
 	}
 	if out == "" {
 		if allowEmptyCompletion(ctx) {
-			c.recordGroundingSources(responsesGroundingFromReply(reply).Sources)
+			sources := responsesGroundingFromReply(reply).Sources
+			c.recordGroundingSources(sources)
 			logging.PerceptionDebug("[%s] empty completion allowed by caller (model=%s status=%q output_tokens=%d)",
 				c.vendor, c.model, reply.Status, billed)
-			return "", nil
+			return "", sources, nil
 		}
-		return "", fmt.Errorf("%s returned an empty completion (model=%s status=%q reasoning_chars=0 output_tokens=%d); "+
+		return "", nil, fmt.Errorf("%s returned an empty completion (model=%s status=%q reasoning_chars=0 output_tokens=%d); "+
 			"if status is \"completed\" with 0 content the completion budget was likely consumed by reasoning",
 			c.vendor, c.model, reply.Status, billed)
 	}
-	c.recordGroundingSources(responsesGroundingFromReply(reply).Sources)
+	sources := responsesGroundingFromReply(reply).Sources
+	c.recordGroundingSources(sources)
 	logging.Perception("[%s] CompleteWithSystem: model=%s completed in %v response_len=%d",
 		c.vendor, c.model, time.Since(start), len(out))
-	return out, nil
+	return out, sources, nil
 }

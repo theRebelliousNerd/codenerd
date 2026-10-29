@@ -697,7 +697,8 @@ func (c *OpenAICompatClient) CompleteWithSystem(ctx context.Context, systemPromp
 	// Meta web search is not a Chat Completions feature. With it on, this
 	// call and every other completion share the Responses builder.
 	if c.metaWebSearchActive() {
-		return c.completeWithSystemGrounded(ctx, systemPrompt, userPrompt)
+		text, _, err := c.completeWithSystemGrounded(ctx, systemPrompt, userPrompt)
+		return text, err
 	}
 	c.clearGroundingSources()
 	start := time.Now()
@@ -818,9 +819,9 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 		// chunk. There is no Responses SSE parser, and splitting the text
 		// here would pretend the vendor streamed something it did not. The
 		// completion call validates the terminal status and reports usage.
-		return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
+		return types.StreamWhole(ctx, func(ctx context.Context) (string, []string, error) {
 			if err := c.admit(ctx, systemPrompt, userTurn(userPrompt), nil); err != nil {
-				return "", err
+				return "", nil, err
 			}
 			return c.completeWithSystemGrounded(ctx, systemPrompt, userPrompt)
 		})

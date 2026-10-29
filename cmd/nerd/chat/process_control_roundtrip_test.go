@@ -485,3 +485,33 @@ func TestArticulationPrompt_AsksForDecisionSummary(t *testing.T) {
 		t.Fatalf("articulation prompt still names the retired reasoning_trace:\n%s", prompt)
 	}
 }
+
+// staleGroundingClient streams an answer grounded on one URL while its
+// client-wide getter still reports an earlier request's.
+type staleGroundingClient struct{ *MockLLMClient }
+
+func (c staleGroundingClient) CompleteWithStreaming(ctx context.Context, _, _ string, _ bool) (<-chan string, <-chan types.StreamResult) {
+	return types.StreamWhole(ctx, func(context.Context) (string, []string, error) {
+		return `{"surface_response":"Go 1.27 is current.","control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"go","confidence":0.9}}}`, []string{"https://go.dev/doc"}, nil
+	})
+}
+func (staleGroundingClient) GetLastGroundingSources() []string {
+	return []string{"https://stale.example/old"}
+}
+func (staleGroundingClient) IsWebSearchEnabled() bool  { return true }
+func (staleGroundingClient) IsURLContextEnabled() bool { return false }
+
+// A streamed answer's Sources are its own stream's, never the client-wide
+// getter's, which may hold an earlier request's URLs.
+func TestArticulation_StreamedAnswerUsesItsOwnSources(t *testing.T) {
+	intent := perception.Intent{Category: "/query", Verb: "/explain", Target: "go"}
+	stream := make(chan string, 64)
+	out, err := articulateWithConversation(context.Background(), staleGroundingClient{NewMockLLMClient()}, intent,
+		payloadForArticulation(intent, nil), nil, "sys", &ConversationContext{}, stream, nil)
+	if err != nil {
+		t.Fatalf("articulate: %v", err)
+	}
+	if strings.Join(out.GroundingSources, " ") != "https://go.dev/doc" {
+		t.Fatalf("sources = %v, want the streamed answer's own", out.GroundingSources)
+	}
+}

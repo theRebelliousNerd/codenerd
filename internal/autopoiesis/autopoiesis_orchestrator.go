@@ -459,7 +459,9 @@ func (o *Orchestrator) CompileTool(ctx context.Context, toolName string) (*Runti
 func (w *llmClientWrapper) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan types.StreamResult) {
 	// Synchronous completion published as one chunk in the autopoiesis
 	// orchestrator; the wrapped call validates and meters the answer.
-	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
-		return w.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, []string, error) {
+		text, err := w.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		// The inner client's completion has just recorded its grounding.
+		return text, w.GetLastGroundingSources(), err
 	})
 }

@@ -171,8 +171,9 @@ func (c *ClaudeCodeCLIClient) CompleteWithSchema(ctx context.Context, systemProm
 // rejects an error or an empty result, and reports usage, which is the
 // terminal evidence this engine has.
 func (c *ClaudeCodeCLIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan types.StreamResult) {
-	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
-		return c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, []string, error) {
+		text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		return text, nil, err
 	})
 }
 

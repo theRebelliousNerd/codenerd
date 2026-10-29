@@ -216,6 +216,12 @@ func (c *GeminiClient) readGeminiStream(ctx context.Context, body io.Reader, w *
 	end := streamEnd{provider: ProviderGemini, model: c.model, limit: c.maxOutputTokens}
 	var text strings.Builder
 	var blocked string
+	// Grounding arrives on the chunks the reader already decodes; it is this
+	// stream's, so it travels on its terminal result (and refreshes the
+	// client's last-sources record, which a streamed answer used to leave
+	// holding an earlier request's URLs).
+	var sources []string
+	seenSource := map[string]bool{}
 	readErr := func() error {
 		for {
 			ev, err := r.Next()
@@ -256,6 +262,14 @@ func (c *GeminiClient) readGeminiStream(ctx context.Context, body io.Reader, w *
 				return protocolError(ProviderGemini, c.model, "multiple candidates in a single-candidate stream", nil)
 			}
 			cand := chunk.Candidates[0]
+			if gm := cand.GroundingMetadata; gm != nil {
+				for _, gc := range gm.GroundingChunks {
+					if gc.Web != nil && gc.Web.URI != "" && !seenSource[gc.Web.URI] {
+						seenSource[gc.Web.URI] = true
+						sources = append(sources, gc.Web.URI)
+					}
+				}
+			}
 			for _, part := range cand.Content.Parts {
 				if part.Thought {
 					// Thinking parts MUST NOT reach content: mixing them into
@@ -279,13 +293,14 @@ func (c *GeminiClient) readGeminiStream(ctx context.Context, body io.Reader, w *
 		}
 	}()
 	end.text = text.String()
+	c.recordStreamSources(sources)
 	if readErr == nil && end.finish == "" && blocked != "" {
 		end.finish = blocked
-		return end.result(ctx, nil, func(e streamEnd) error {
+		return withSources(end.result(ctx, nil, func(e streamEnd) error {
 			return e.failure(types.StreamFiltered, "prompt blocked before generation", nil)
-		})
+		}), sources)
 	}
-	return end.result(ctx, readErr, func(e streamEnd) error {
+	return withSources(end.result(ctx, readErr, func(e streamEnd) error {
 		if types.LengthStop(e.finish) {
 			return outputTruncated(ProviderGemini, c.model, streamMethod, e.finish, e.text, c.maxOutputTokens, e.usage.OutputTokens)
 		}
@@ -300,7 +315,24 @@ func (c *GeminiClient) readGeminiStream(ctx context.Context, body io.Reader, w *
 			// completed text answer, and never success by default.
 			return e.failure(types.StreamUnsupported, "finish reason is not a completed text answer", nil)
 		}
-	})
+	}), sources)
+}
+
+// withSources attaches a stream's own grounding to its terminal result.
+func withSources(res types.StreamResult, sources []string) types.StreamResult {
+	if len(sources) > 0 {
+		res.GroundingSources = append([]string(nil), sources...)
+	}
+	return res
+}
+
+// recordStreamSources sets the client's last-sources record to this stream's
+// grounding (none clears it), as the non-streaming paths already do.
+func (c *GeminiClient) recordStreamSources(sources []string) {
+	c.lastGroundingSources = append([]string(nil), sources...)
+	if len(sources) == 0 {
+		c.lastGroundingSources = nil
+	}
 }
 
 // captureStreamSignature records the latest thought signature a streamed
