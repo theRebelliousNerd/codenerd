@@ -109,6 +109,7 @@ func wiringLocalCount(t *testing.T, shards map[string]*KernelShard, domain, pred
 }
 
 func TestCortexDerivationWiring_SharedReplicationNarrowed(t *testing.T) {
+	t.Parallel()
 	m := buildWiringMap(t)
 	cortex, shards := wiringCortex(t, m)
 
@@ -147,6 +148,7 @@ func TestCortexDerivationWiring_SharedReplicationNarrowed(t *testing.T) {
 }
 
 func TestCortexDerivationWiring_QueryFanoutNarrowed(t *testing.T) {
+	t.Parallel()
 	m := buildWiringMap(t)
 	cortex, shards := wiringCortex(t, m)
 
@@ -181,6 +183,7 @@ func TestCortexDerivationWiring_QueryFanoutNarrowed(t *testing.T) {
 }
 
 func TestCortexDerivationWiring_NilMapReplicatesEverywhere(t *testing.T) {
+	t.Parallel()
 	cortex, shards := wiringCortex(t, nil)
 
 	cortexAssert(t, cortex, "user_intent", "/current_intent", types.MangleAtom("/mutation"), types.MangleAtom("/fix"), "nil-map probe", "none")

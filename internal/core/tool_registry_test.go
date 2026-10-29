@@ -8,6 +8,7 @@ import (
 )
 
 func TestToolRegistry_RegisterTool(t *testing.T) {
+	t.Parallel()
 	registry := NewToolRegistry(".")
 	kernel, err := NewRealKernel()
 	if err != nil {
@@ -130,6 +131,7 @@ func TestToolRegistry_GetToolsForShard(t *testing.T) {
 }
 
 func TestToolRegistry_UnregisterTool(t *testing.T) {
+	t.Parallel()
 	registry := NewToolRegistry(".")
 	kernel, err := NewRealKernel()
 	if err != nil {
@@ -154,6 +156,7 @@ func TestToolRegistry_UnregisterTool(t *testing.T) {
 }
 
 func TestToolRegistry_RegisterToolWithInfo(t *testing.T) {
+	t.Parallel()
 	registry := NewToolRegistry(".")
 	kernel, err := NewRealKernel()
 	if err != nil {

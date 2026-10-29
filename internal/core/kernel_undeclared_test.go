@@ -16,6 +16,7 @@ import (
 // individually correct; together they mean the caller is told it recorded
 // something that no rule can ever read.
 func TestAssert_WhenPredicateUndeclared_ShouldStoreButStayUnreadable(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -64,6 +65,7 @@ func TestAssert_WhenPredicateUndeclared_ShouldStoreButStayUnreadable(t *testing.
 // diagnostic that fires on correct code is noise, and noise is how a real
 // signal gets filtered out.
 func TestAssert_WhenPredicateDeclared_ShouldNotWarn(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -86,6 +88,7 @@ func TestAssert_WhenPredicateDeclared_ShouldNotWarn(t *testing.T) {
 // most confusing bug of the three: the predicate exists, the name is right, and
 // the fact is still unreadable because the Decl bounds a different arity.
 func TestAssert_WhenArityUndeclared_ShouldWarn(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

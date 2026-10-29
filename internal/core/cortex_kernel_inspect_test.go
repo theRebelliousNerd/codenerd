@@ -47,6 +47,7 @@ gamma(X) :- beta(X).
 // A fact asserted as a string lands in the shard that owns its predicate, as
 // one asserted as a Fact does.
 func TestCortexKernel_AssertStringLandsInTheOwnersShard(t *testing.T) {
+	t.Parallel()
 	_, catchAll, other := twoShardCortex(t)
 	if rows, _ := other.kernel.Query("beta"); len(rows) != 1 {
 		t.Errorf("the owner's shard holds %d beta rows, want 1", len(rows))
@@ -61,6 +62,7 @@ func TestCortexKernel_AssertStringLandsInTheOwnersShard(t *testing.T) {
 // The catch-all alone -- what the chat session traced until 2026-09-23 --
 // has one of the two.
 func TestCortexKernel_TraceQueryReadsWhereTheQueryReads(t *testing.T) {
+	t.Parallel()
 	c, catchAll, _ := twoShardCortex(t)
 	rows, err := c.Query("gamma")
 	if err != nil || len(rows) != 2 {
@@ -85,6 +87,7 @@ func TestCortexKernel_TraceQueryReadsWhereTheQueryReads(t *testing.T) {
 // A goal is proved in the shard that derived it; recording is on in every
 // shard or it is not on.
 func TestCortexKernel_ExplainFindsTheProofInItsShard(t *testing.T) {
+	t.Parallel()
 	c, _, _ := twoShardCortex(t)
 	if c.IsProvenanceEnabled() {
 		t.Fatal("provenance on before it was enabled")
@@ -119,6 +122,7 @@ func TestCortexKernel_ExplainFindsTheProofInItsShard(t *testing.T) {
 // shadow copy a rule whose premises two shards own derives, as a what-if
 // needs, and a commit writes back through the Cortex's routing.
 func TestShadowKernel_OnTheCortexHoldsEveryShardsFacts(t *testing.T) {
+	t.Parallel()
 	c, catchAll, other := twoShardCortex(t)
 	shadow, err := c.ShadowKernel()
 	if err != nil {

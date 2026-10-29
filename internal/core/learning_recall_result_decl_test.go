@@ -7,6 +7,7 @@ import "testing"
 // type error and the prompt context never saw one (48 refusals in one session,
 // 2026-10-27).
 func TestLearningRecallResultAcceptsIntegerLearningIDs(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

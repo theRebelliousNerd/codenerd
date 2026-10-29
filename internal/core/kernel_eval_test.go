@@ -6,6 +6,7 @@ import (
 )
 
 func TestKernelEval_Evaluate(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	// 1. Assert some base facts
@@ -64,6 +65,7 @@ func TestKernelEval_ZeroConfigDerivedFactLimit(t *testing.T) {
 }
 
 func TestKernelEval_Stratification(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	// Negation cycle with Mangle `!` syntax: must parse, then fail stratification.

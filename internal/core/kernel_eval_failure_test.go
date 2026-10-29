@@ -51,6 +51,7 @@ func assertEveryReadFails(t *testing.T, k *RealKernel, why string) {
 // factsDirty down, so before the latch a read after the failed EvaluatePending
 // took the clean fast path and returned the half-rebuilt store.
 func TestFailedEvaluationOfStagedFactsIsNotReadable(t *testing.T) {
+	t.Parallel()
 	k := failureKernel(t)
 	k.SetDerivedFactLimit(3)
 	stageChain(t, k, 12)
@@ -65,6 +66,7 @@ func TestFailedEvaluationOfStagedFactsIsNotReadable(t *testing.T) {
 // An explicit Evaluate that fails leaves the previous store, which is stale
 // rather than partial, but it is no more a fixpoint of the facts.
 func TestFailedExplicitEvaluateIsNotReadable(t *testing.T) {
+	t.Parallel()
 	k := failureKernel(t)
 	k.SetDerivedFactLimit(3)
 	stageChain(t, k, 12)
@@ -78,6 +80,7 @@ func TestFailedExplicitEvaluateIsNotReadable(t *testing.T) {
 // evaluation failed holds a clean view of factsDirty. The read lock check
 // refuses it all the same.
 func TestReaderThatPassedTheCleanCheckStillRefusesAFailedStore(t *testing.T) {
+	t.Parallel()
 	k := failureKernel(t)
 	k.SetDerivedFactLimit(3)
 	stageChain(t, k, 12)
@@ -93,6 +96,7 @@ func TestReaderThatPassedTheCleanCheckStillRefusesAFailedStore(t *testing.T) {
 // Once the cause is gone the retry repairs the store, equals a fresh full
 // fixpoint, and nothing stays latched.
 func TestFailedEvaluationRecoversToTheFullFixpoint(t *testing.T) {
+	t.Parallel()
 	k := failureKernel(t)
 	k.SetDerivedFactLimit(3)
 	stageChain(t, k, 12)
@@ -117,6 +121,7 @@ func TestFailedEvaluationRecoversToTheFullFixpoint(t *testing.T) {
 // A write that succeeds must not be poisoned by an earlier, repaired failure,
 // and a clone of a failed kernel evaluates itself instead of inheriting its store.
 func TestCloneOfFailedKernelDoesNotInheritTheStore(t *testing.T) {
+	t.Parallel()
 	k := failureKernel(t)
 	k.SetDerivedFactLimit(3)
 	stageChain(t, k, 12)
@@ -132,6 +137,7 @@ func TestCloneOfFailedKernelDoesNotInheritTheStore(t *testing.T) {
 // Failure before any mutation (an unparsable policy) keeps the kernel
 // refusing reads and then recovers; the latch is not permanent.
 func TestFailureIsNotPermanentPoisoning(t *testing.T) {
+	t.Parallel()
 	k := failureKernel(t)
 	k.SetDerivedFactLimit(3)
 	stageChain(t, k, 12)

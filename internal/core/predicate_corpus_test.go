@@ -6,6 +6,7 @@ import (
 )
 
 func TestRealKernelPredicateCorpusLoadsLazilyOnce(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)

@@ -40,6 +40,7 @@ func relevanceIDs(m map[string]bool) []string {
 }
 
 func TestAtomRelevance_BandsDecideFleshAdmission(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatal(err)
@@ -77,6 +78,7 @@ func TestAtomRelevance_BandsDecideFleshAdmission(t *testing.T) {
 // Without any atom_relevance (Jev off, failed or late) the admission is the
 // vector channel's: every slot, nothing beyond.
 func TestAtomRelevance_NoJudgmentIsTheVectorChannel(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatal(err)
@@ -95,6 +97,7 @@ func TestAtomRelevance_NoJudgmentIsTheVectorChannel(t *testing.T) {
 // correctness-level candidates (jit_selection.mg conflict_loser) and needs
 // both atoms scored: an unscored atom loses nothing on importance.
 func TestAtomImportance_ConflictLoserNeedsBothScores(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatal(err)
@@ -124,6 +127,7 @@ func TestAtomImportance_ConflictLoserNeedsBothScores(t *testing.T) {
 // through an unsettled reading and even from outside the vector slots; only a
 // does-not-apply reading drops it.
 func TestAtomRelevance_CarriedHoldsUntilJudgedNotToApply(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatal(err)

@@ -53,6 +53,7 @@ func productionKernel(t *testing.T) *RealKernel {
 // strings in /name slots: ResultToFacts passed its shardType parameter
 // through unchanged.
 func TestResultToFacts_ShardTypeIsAName(t *testing.T) {
+	t.Parallel()
 	k := productionKernel(t)
 	sm := shards.NewShardManager()
 	facts := append(
@@ -80,6 +81,7 @@ func TestResultToFacts_ShardTypeIsAName(t *testing.T) {
 // specialist rules (campaign_rules.mg, policy/shards.mg) read
 // shard_profile(Name, /specialist, _) over a predicate nothing had ever filled.
 func TestShardManagerToFacts_ShardProfileMatchesItsDecl(t *testing.T) {
+	t.Parallel()
 	k := productionKernel(t)
 	sm := shards.NewShardManager()
 	sm.DefineProfile("coder", shards.DefaultGeneralistConfig("coder"))

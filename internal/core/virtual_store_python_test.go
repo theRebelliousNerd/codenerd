@@ -43,6 +43,7 @@ func hasFact(facts []Fact, predicate string, argIndex int, want any) bool {
 type pythonHandler func(*VirtualStore, context.Context, ActionRequest) (ActionResult, error)
 
 func TestPythonHandlers_ValidatePayloadAndContext(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		handler pythonHandler
@@ -84,6 +85,7 @@ func TestPythonHandlers_ValidatePayloadAndContext(t *testing.T) {
 // Without a runtime nothing can be created, and without an environment
 // nothing can run: both are reported, never claimed.
 func TestPythonHandlers_RefuseInsteadOfClaimingWork(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	rt := newFakeContainerRuntime()
 	rt.available = false
@@ -118,6 +120,7 @@ func TestPythonHandlers_RefuseInsteadOfClaimingWork(t *testing.T) {
 }
 
 func TestPythonEnvironmentLifecycleRunsInTheContainer(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	rt := newFakeContainerRuntime()
 	vs := pythonStore(t, rt)
@@ -182,6 +185,7 @@ func TestPythonEnvironmentLifecycleRunsInTheContainer(t *testing.T) {
 // Container executions are executions: the store attaches its audit logger to
 // the runtime, so a command run in an environment lands as execution facts.
 func TestContainerExecutionsReachTheKernelThroughTheAuditLogger(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -237,6 +241,7 @@ func routeSWEBench(t *testing.T, vs *VirtualStore, kernel *RealKernel, actionTyp
 // kernel, and the kernel -- not the harness -- derives whether the instance
 // is resolved from the per-test results and the expectations.
 func TestSWEBenchResolutionIsDerivedByTheKernel(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -300,6 +305,7 @@ func TestSWEBenchResolutionIsDerivedByTheKernel(t *testing.T) {
 // The verdict is the kernel's: a summary that claims resolution is not
 // enough when an expected test has no passing result.
 func TestSWEBenchResolvedRequiresPassingResultsNotAClaim(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -335,6 +341,7 @@ func TestSWEBenchResolvedRequiresPassingResultsNotAClaim(t *testing.T) {
 // An instance whose patch does not apply records no test results, so it is
 // evaluated but not resolved.
 func TestSWEBenchUnappliedPatchIsNotResolved(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

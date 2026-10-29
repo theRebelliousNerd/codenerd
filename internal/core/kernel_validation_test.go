@@ -18,6 +18,7 @@ import (
 //   TestKernelValidationGap_TOCTOU_ValidateLearnedRulesContent (State Conflicts)
 
 func TestKernelValidation_Schema(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	// Define schema
@@ -52,6 +53,7 @@ func TestKernelValidation_Schema(t *testing.T) {
 }
 
 func TestKernelValidation_Types(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl typed_pred(Number) bound [/number].")
 	k.Evaluate()
@@ -92,6 +94,7 @@ func TestKernelValidation_Types(t *testing.T) {
 }
 
 func TestKernelValidation_BoundedPredicateAcceptsDeclaredTypes(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl num_pred(Number) bound [/number].")
 	k.AppendPolicy("Decl str_pred(Text) bound [/string].")
@@ -127,6 +130,7 @@ func TestKernelValidation_BoundedPredicateAcceptsDeclaredTypes(t *testing.T) {
 }
 
 func TestKernelValidation_NameBoundIsNotCheckedAtAssert(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl name_pred(Name) bound [/name].")
 	if err := k.Evaluate(); err != nil {
@@ -155,6 +159,7 @@ func TestKernelValidation_NameBoundIsNotCheckedAtAssert(t *testing.T) {
 }
 
 func TestKernelValidation_UndeclaredPredicateAssertsButIsNotQueryable(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	if err := k.Evaluate(); err != nil {
 		t.Fatalf("Evaluate failed: %v", err)
@@ -180,6 +185,7 @@ func TestKernelValidation_UndeclaredPredicateAssertsButIsNotQueryable(t *testing
 }
 
 func TestKernelValidation_BatchRejectsBadFactKeepsRest(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl batch_num(N) bound [/number].")
 	if err := k.Evaluate(); err != nil {
@@ -208,6 +214,7 @@ func TestKernelValidation_BatchRejectsBadFactKeepsRest(t *testing.T) {
 }
 
 func TestKernelValidation_BatchAllRejected(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl batch_num(N) bound [/number].")
 	if err := k.Evaluate(); err != nil {

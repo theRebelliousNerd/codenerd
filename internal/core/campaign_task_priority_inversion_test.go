@@ -14,6 +14,7 @@ import (
 // depends on a lower-priority one in the same phase must not hold that
 // dependency back, or neither runs.
 func TestCampaignPolicy_ABlockedHigherPriorityTaskDoesNotHoldBackItsDependency(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("the shipped corpus must load: %v", err)

@@ -25,6 +25,7 @@ func routedPreference() *DreamLearning {
 }
 
 func TestDreamRouter_PreferenceReachesTheKernel(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	router := NewDreamRouter(k, nil, nil) // no cold store: kernel is the only destination
 
@@ -49,6 +50,7 @@ func TestDreamRouter_PreferenceReachesTheKernel(t *testing.T) {
 }
 
 func TestDreamRouter_RiskPatternReachesTheKernel(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	router := NewDreamRouter(k, nil, nil)
 
@@ -75,6 +77,7 @@ func TestDreamRouter_RiskPatternReachesTheKernel(t *testing.T) {
 }
 
 func TestDreamRouter_ToolNeedReachesTheKernel(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	router := NewDreamRouter(k, nil, nil)
 

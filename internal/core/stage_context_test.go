@@ -16,6 +16,7 @@ import (
 // a /fix intent, the /debug stage's guidance string is admitted into
 // injectable_context for that shard id, and no other stage's guidance is.
 func TestStageContext_GuidanceReachesInjectableContext(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	mustAssert(t, k, "active_shard", "shard-1", types.MangleAtom("/coder"))
 	assertIntent(t, k, "/mutation", "/fix", "auth middleware")
@@ -51,6 +52,7 @@ func TestStageContext_GuidanceReachesInjectableContext(t *testing.T) {
 // tool_capability admits permitted capabilities minus suppressed ones under a
 // sufficient budget and only preferred ones under a constrained budget.
 func TestStageContext_ToolListFollowsStageAndBudget(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	mustAssert(t, k, "active_shard", "shard-1", types.MangleAtom("/coder"))
 	assertIntent(t, k, "/query", "/review", "internal/core")
@@ -82,6 +84,7 @@ func TestStageContext_ToolListFollowsStageAndBudget(t *testing.T) {
 // TestStageContext_NoStageNoShaping: an unmapped verb derives no stage, so
 // nothing stage-shaped is admitted and the tool list is untouched.
 func TestStageContext_NoStageNoShaping(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	mustAssert(t, k, "active_shard", "shard-1", types.MangleAtom("/coder"))
 	assertIntent(t, k, "/query", "/greet", "none")

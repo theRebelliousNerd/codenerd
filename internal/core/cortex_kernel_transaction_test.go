@@ -10,6 +10,7 @@ import (
 )
 
 func TestCortexKernel_InterfaceCast(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	mainShard := setupTestShard(t, "main", []string{"test_pred"})
 	if err := cortex.RegisterShard(mainShard); err != nil {
@@ -55,6 +56,7 @@ func TestCortexKernel_InterfaceCast(t *testing.T) {
 }
 
 func TestCortexTransaction_RetractExactFact(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	shardA := setupTestShard(t, "shardA", []string{"my_exact_pred"})
 	shardB := setupTestShard(t, "shardB", []string{"other_exact_pred"})
@@ -105,6 +107,7 @@ func TestCortexTransaction_RetractExactFact(t *testing.T) {
 }
 
 func TestCortexTransaction_RetractPredicateSet(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	shardA := setupTestShard(t, "shardA", []string{"pred_a1", "pred_a2"})
 	shardB := setupTestShard(t, "shardB", []string{"pred_b1"})
@@ -146,6 +149,7 @@ func TestCortexTransaction_RetractPredicateSet(t *testing.T) {
 }
 
 func TestCortexTransaction_ConcurrentCommit(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	shardA := setupTestShard(t, "main", []string{"concurrent_tx_pred"})
 	cortex.RegisterShard(shardA)
@@ -193,6 +197,7 @@ func TestCortexTransaction_ConcurrentCommit(t *testing.T) {
 }
 
 func TestCortexTransaction_ShardCommitFailure(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 
 	// Create a dummy shard with a broken kernel

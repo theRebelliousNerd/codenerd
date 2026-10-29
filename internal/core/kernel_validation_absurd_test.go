@@ -15,6 +15,7 @@ import (
 // TestKernelValidation_AbsurdCorruptedHeal tests self-healing capability
 // on extremely corrupted rules, validating statistics and parsing safety.
 func TestKernelValidation_AbsurdCorruptedHeal(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.SetSchemas("Decl valid_pred(Name).\nDecl other_pred(Name, Val).")
 	k.SetPolicy("")
@@ -103,6 +104,7 @@ other_pred(X, "val") :- valid_pred(X).
 // TestKernelValidation_AbsurdInfiniteLoopRisk exhaustively checks loop-risk classification
 // across complex combinations of ubiquitous, negation-only, and idle-state predicates.
 func TestKernelValidation_AbsurdInfiniteLoopRisk(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	tests := []struct {
@@ -177,6 +179,7 @@ func TestKernelValidation_AbsurdInfiniteLoopRisk(t *testing.T) {
 // TestKernelValidation_AbsurdConcurrencyStress runs high concurrent read/write loads
 // to stress-test schema hot-reloads and concurrent validation methods, checking for deadlocks.
 func TestKernelValidation_AbsurdConcurrencyStress(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.SetSchemas("Decl base_pred(Name).")
 	k.SetPolicy("")
@@ -249,6 +252,7 @@ func TestKernelValidation_AbsurdConcurrencyStress(t *testing.T) {
 // TestKernelValidation_AbsurdTransactionEdgeCases validates transactional operations
 // against dynamic predicate sets under high concurrency, checking type enforcement bounds.
 func TestKernelValidation_AbsurdTransactionEdgeCases(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.SetSchemas("Decl num_pred(Number).\nDecl name_pred(Name).")
 	k.SetPolicy("")
@@ -304,6 +308,7 @@ func TestKernelValidation_AbsurdTransactionEdgeCases(t *testing.T) {
 // a rule spanning lines must validate (and heal) as one unit, while a
 // missing-dot fragment must heal alone without swallowing its neighbor.
 func TestKernelValidation_MultiLineRulesSurviveHealing(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.SetSchemas("Decl valid_pred(Name).\nDecl other_pred(Name, Val).")
 	k.SetPolicy("")

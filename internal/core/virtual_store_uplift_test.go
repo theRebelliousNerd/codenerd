@@ -83,6 +83,7 @@ func TestVirtualStore_ExecNilExecutorFailsClosed(t *testing.T) {
 // ActionType, extend allActions below (audit_actions.py independently
 // verifies const-to-dispatch parity).
 func TestVirtualStore_AllActionsDispatched(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := NewVirtualStore(&stubExecutor{})
 	vs.SetKernel(k)
@@ -485,6 +486,7 @@ func TestSWEBenchSetup_ShortCommitNoPanic(t *testing.T) {
 // a campaign write to a protected path is blocked with no file created,
 // while the same write to an unprotected path lands.
 func TestCampaignCreateFile_RespectsNerdMd(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	blocked := NewVirtualStore(nil)
@@ -529,6 +531,7 @@ func TestCampaignCreateFile_RespectsNerdMd(t *testing.T) {
 // actions that delegate to file/test handlers must run those handlers'
 // validators instead of taking the "skipped" branch.
 func TestValidatorAlias_CampaignWritesVerified(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "camp.txt")
@@ -667,6 +670,7 @@ func TestSyntaxValidator_CoversDeleteLines(t *testing.T) {
 // never fired. Part 1 pins the check given a capture; part 2 pins that
 // executeAction performs the capture before a real line edit.
 func TestCodeDOMValidator_PreEditCaptureWired(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "w.go")

@@ -1,8 +1,10 @@
 package core
 
 import (
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"codenerd/internal/mangle"
@@ -56,6 +58,11 @@ var knownBoundsDisagreements = map[string]string{
 // alone, against all of its Decls, with ErrorForBoundsMismatch, and returns the
 // head predicates that fail. A clause the analyzer cannot decide alone is
 // skipped, as checkCandidateBounds does.
+//
+// Each clause's analysis is independent of every other's, so the clauses are
+// shared out over workers. Every worker parses its own copy of the program:
+// the analyzer is handed the unit's Decls and is not promised to leave them
+// untouched, so no two analyses share one.
 func bootCorpusBoundsMismatches(t *testing.T) map[string]string {
 	t.Helper()
 	k := setupMockKernel(t)
@@ -63,23 +70,59 @@ func bootCorpusBoundsMismatches(t *testing.T) map[string]string {
 	k.mu.Lock()
 	k.writeProgramLocked(&program)
 	k.mu.Unlock()
-	unit, err := mangle.ParseUnit(strings.NewReader(program.String()))
+	text := program.String()
+	parseOwn := func() (parse.SourceUnit, error) {
+		return mangle.ParseUnit(strings.NewReader(text))
+	}
+	unit, err := parseOwn()
 	if err != nil {
 		t.Fatalf("parse boot program: %v", err)
 	}
+
+	// verdicts[i] is clause i's mismatch, or "" when it has none.
+	type verdict struct{ pred, why string }
+	verdicts := make([]verdict, len(unit.Clauses))
+	next := make(chan int)
+	var wg sync.WaitGroup
+	for w := range min(runtime.GOMAXPROCS(0), 16) {
+		own := unit
+		if w > 0 {
+			if own, err = parseOwn(); err != nil {
+				t.Fatalf("parse boot program: %v", err)
+			}
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range next {
+				clause := own.Clauses[i]
+				single := own
+				single.Clauses = []ast.Clause{clause}
+				units := []parse.SourceUnit{single}
+				_, err := analysis.AnalyzeAndCheckBounds(units, nil, analysis.ErrorForBoundsMismatch)
+				if err == nil {
+					continue
+				}
+				if _, baseErr := analysis.AnalyzeAndCheckBounds(units, nil, analysis.NoBoundsChecking); baseErr != nil {
+					continue
+				}
+				verdicts[i] = verdict{clause.Head.Predicate.Symbol, strings.ReplaceAll(err.Error(), "\n", " ")}
+			}
+		}()
+	}
+	for i := range unit.Clauses {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+
+	// In clause order, as the serial loop ran: a predicate with several
+	// failing clauses reports its last one.
 	found := map[string]string{}
-	for _, clause := range unit.Clauses {
-		single := unit
-		single.Clauses = []ast.Clause{clause}
-		units := []parse.SourceUnit{single}
-		_, err := analysis.AnalyzeAndCheckBounds(units, nil, analysis.ErrorForBoundsMismatch)
-		if err == nil {
-			continue
+	for _, v := range verdicts {
+		if v.pred != "" {
+			found[v.pred] = v.why
 		}
-		if _, baseErr := analysis.AnalyzeAndCheckBounds(units, nil, analysis.NoBoundsChecking); baseErr != nil {
-			continue
-		}
-		found[clause.Head.Predicate.Symbol] = strings.ReplaceAll(err.Error(), "\n", " ")
 	}
 	return found
 }
@@ -89,8 +132,9 @@ func bootCorpusBoundsMismatches(t *testing.T) map[string]string {
 // boot corpus: a new rule that contradicts a Decl fails here, and so does an
 // inventory entry that has been repaired.
 func TestBootCorpusBoundsDisagreementsOnlyShrink(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
-		t.Skip("analyzes every clause of the boot program alone (~40s)")
+		t.Skip("analyzes every clause of the boot program alone")
 	}
 	found := bootCorpusBoundsMismatches(t)
 

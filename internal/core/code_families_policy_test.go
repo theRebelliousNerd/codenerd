@@ -11,6 +11,7 @@ import (
 // requirement; editing the peer or a recorded no-change decision settles it,
 // and an open review withholds turn_verified.
 func TestCodeFamilies_PolicyDerivesAndSettlesReviews(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatal(err)
@@ -62,6 +63,7 @@ func TestCodeFamilies_PolicyDerivesAndSettlesReviews(t *testing.T) {
 // A declared member that resolves to nothing is named to the model as a broken
 // contract, but only in a turn that changed a member of that family.
 func TestCodeFamilies_UnresolvedMemberIsNamedWhenTheFamilyIsTouched(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatal(err)

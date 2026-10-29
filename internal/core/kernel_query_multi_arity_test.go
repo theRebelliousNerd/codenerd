@@ -19,6 +19,7 @@ import (
 // nondeterminism: 20 iterations make a false-pass before the fix astronomically
 // unlikely, while after the fix every iteration agrees.
 func TestQueryAndQueryAllAgreeAcrossArities(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	// Declare the same symbol at two different arities.
@@ -63,6 +64,7 @@ func TestQueryAndQueryAllAgreeAcrossArities(t *testing.T) {
 // TestQueryCallbackAndQueryAllAgreeAcrossArities verifies that QueryCallback
 // also accumulates across arities. It shared the same break bug as Query.
 func TestQueryCallbackAndQueryAllAgreeAcrossArities(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl multi_arity_probe2(Name).")
 	k.AppendPolicy("Decl multi_arity_probe2(Name, Value).")

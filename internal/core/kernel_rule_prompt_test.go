@@ -46,6 +46,7 @@ func (r *recordingRuleLLM) Complete(_ context.Context, system, user string) (str
 // predicates appended; its message is the purpose and context, no
 // instructions.
 func TestGenerateValidatedRule_SendsTheRolePromptAndTheRequestAsData(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -81,6 +82,7 @@ func TestGenerateValidatedRule_SendsTheRolePromptAndTheRequestAsData(t *testing.
 // No compiler, or a failed compile, fails rule generation before the model is
 // asked: there is no Go prompt to generate from instead.
 func TestGenerateValidatedRule_RolePromptUnavailableIsAnError(t *testing.T) {
+	t.Parallel()
 	for name, rp := range map[string]types.RolePromptCompiler{
 		"no compiler":    nil,
 		"failed compile": &fakeRuleRolePrompts{err: types.ErrRolePromptUnavailable},

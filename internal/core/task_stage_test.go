@@ -25,6 +25,7 @@ import (
 // task_stage.mg: /fix -> /debug (SWE-bench slice, not /implement),
 // /security -> /harden, /document -> /design, /run -> /verify.
 func TestTaskStage_MapsRepresentativeVerbPerStage(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		category string
@@ -70,6 +71,7 @@ func TestTaskStage_MapsRepresentativeVerbPerStage(t *testing.T) {
 // intent ID: subagent turns (/task_intent_N) get a stage exactly like the
 // interactive turn (/current_intent) does.
 func TestTaskStage_SubagentIntentID(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	mustAssert(t, k, "user_intent",
 		"/task_intent_3",
@@ -87,6 +89,7 @@ func TestTaskStage_SubagentIntentID(t *testing.T) {
 // with no lifecycle slice derive NO stage. An absent stage is honest; a
 // guessed stage would mis-shape context.
 func TestTaskStage_UnmappedVerbsDeriveNothing(t *testing.T) {
+	t.Parallel()
 	for _, verb := range []string{"/greet", "/help", "/commit", "/git"} {
 		t.Run(verb, func(t *testing.T) {
 			k := setupMockKernel(t)

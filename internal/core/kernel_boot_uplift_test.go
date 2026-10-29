@@ -62,6 +62,7 @@ func TestBootInventory_AllListedFilesEmbedded(t *testing.T) {
 // NewRealKernelWithPath once skipped the bus, leaving shard kernels with a
 // nil bus whose Subscribe would panic.
 func TestConstructors_EventBusInitialized(t *testing.T) {
+	t.Parallel()
 	kernels := map[string]*RealKernel{}
 	var err error
 	if kernels["NewRealKernel"], err = NewRealKernel(); err != nil {
@@ -83,6 +84,7 @@ func TestConstructors_EventBusInitialized(t *testing.T) {
 // End-to-end behavioral loop per constructor: subscribe, assert, receive.
 // Proves the bus is not just non-nil but wired into the Assert path.
 func TestConstructors_AssertPublishesEvent(t *testing.T) {
+	t.Parallel()
 	build := map[string]func() (*RealKernel, error){
 		"NewRealKernel": func() (*RealKernel, error) { return NewRealKernel() },
 		"WithWorkspace": func() (*RealKernel, error) { return NewRealKernelWithWorkspace(t.TempDir()) },

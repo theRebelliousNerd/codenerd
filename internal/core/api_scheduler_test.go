@@ -46,6 +46,7 @@ func (m *mockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, use
 
 // TestAPIScheduler_AcquireRelease tests basic slot acquisition and release
 func TestAPIScheduler_AcquireRelease(t *testing.T) {
+	t.Parallel()
 	config := APISchedulerConfig{
 		MaxConcurrentAPICalls: 2,
 		SlotAcquireTimeout:    5 * time.Second,
@@ -95,6 +96,7 @@ func TestAPIScheduler_AcquireRelease(t *testing.T) {
 
 // TestAPIScheduler_ContextCancellation tests context cancellation while waiting
 func TestAPIScheduler_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	config := APISchedulerConfig{
 		MaxConcurrentAPICalls: 1,
 		SlotAcquireTimeout:    5 * time.Second,
@@ -229,6 +231,7 @@ func TestAPIScheduler_ConcurrentAccess(t *testing.T) {
 
 // TestAPIScheduler_WaitQueueCleanup tests wait queue cleanup on cancellation
 func TestAPIScheduler_WaitQueueCleanup(t *testing.T) {
+	t.Parallel()
 	config := APISchedulerConfig{
 		MaxConcurrentAPICalls: 1,
 		SlotAcquireTimeout:    5 * time.Second,
@@ -366,6 +369,7 @@ func TestScheduledLLMCall_Complete(t *testing.T) {
 
 // TestScheduledLLMCall_RetryReleasesSlot tests slot release between retries
 func TestScheduledLLMCall_RetryReleasesSlot(t *testing.T) {
+	t.Parallel()
 	scheduler := NewAPIScheduler(APISchedulerConfig{
 		MaxConcurrentAPICalls: 1, // Only 1 slot to verify release
 		SlotAcquireTimeout:    5 * time.Second,
@@ -413,6 +417,7 @@ func TestScheduledLLMCall_RetryReleasesSlot(t *testing.T) {
 
 // TestNoDoubleLimiting verifies no double-limiting when semaphore disabled
 func TestNoDoubleLimiting(t *testing.T) {
+	t.Parallel()
 	scheduler := NewAPIScheduler(APISchedulerConfig{
 		MaxConcurrentAPICalls: 5,
 		SlotAcquireTimeout:    10 * time.Second,

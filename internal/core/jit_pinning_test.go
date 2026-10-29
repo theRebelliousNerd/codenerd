@@ -42,6 +42,7 @@ func blockedAtoms(t *testing.T, k *RealKernel) map[string]bool {
 }
 
 func TestPinnedAtomBlockedOnDifferentProvider(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -71,6 +72,7 @@ func TestPinnedAtomBlockedOnDifferentProvider(t *testing.T) {
 // the case the permissive blocked_by_context rule alone would get wrong, and the
 // reason /provider had to join regime_dimension.
 func TestPinnedAtomBlockedWhenProviderUnset(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -96,6 +98,7 @@ func TestPinnedAtomBlockedWhenProviderUnset(t *testing.T) {
 }
 
 func TestPinnedAtomAdmittedOnMatchingProviderAndModel(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -120,6 +123,7 @@ func TestPinnedAtomAdmittedOnMatchingProviderAndModel(t *testing.T) {
 
 // A family pin must not match a different model from the same vendor.
 func TestPinnedAtomBlockedOnDifferentModelSameProvider(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)

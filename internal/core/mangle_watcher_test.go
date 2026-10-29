@@ -27,6 +27,7 @@ func newTestMangleWatcher(t *testing.T, dir string, k *RealKernel) (*MangleWatch
 }
 
 func TestMangleWatcher_New(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	defer k.Clear()
 
@@ -52,6 +53,7 @@ func TestMangleWatcher_New(t *testing.T) {
 }
 
 func TestMangleWatcher_StartStop(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	defer k.Clear()
 
@@ -84,6 +86,7 @@ func TestMangleWatcher_StartStop(t *testing.T) {
 }
 
 func TestMangleWatcher_GetStatsAndReset(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	defer k.Clear()
 
@@ -118,6 +121,7 @@ func TestMangleWatcher_GetStatsAndReset(t *testing.T) {
 }
 
 func TestMangleWatcher_GetWatchedDirs(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	defer k.Clear()
 
@@ -185,6 +189,7 @@ func TestMangleWatcher_BasicValidation(t *testing.T) {
 }
 
 func TestMangleWatcher_HandleEventAndDebounce(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	defer k.Clear()
 
@@ -264,6 +269,7 @@ func TestMangleWatcher_HandleEventAndDebounce(t *testing.T) {
 }
 
 func TestMangleWatcher_TriggerValidation(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	defer k.Clear()
 
@@ -303,6 +309,7 @@ func TestMangleWatcher_TriggerValidation(t *testing.T) {
 }
 
 func TestMangleWatcher_ValidateAndRepair_FailedRead(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	defer k.Clear()
 
@@ -352,6 +359,7 @@ func (s scriptedInterceptor) InterceptLearnedRule(_ context.Context, rule string
 // rejected rule was commented only on its first line, leaving the rest of it
 // live below.
 func TestMangleWatcher_ValidateAndRepair_KeepsTheRestOfTheFile(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	defer k.Clear()
 	k.SetRepairInterceptor(scriptedInterceptor{

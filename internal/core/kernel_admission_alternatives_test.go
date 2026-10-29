@@ -17,6 +17,7 @@ func lenientNoted(pred string, arity, arg int) bool {
 // compile reported "compile_context/2 arg 1 ... bare Go string" for a fact the
 // Decl declares. An exact alternative must win over a tolerated one.
 func TestAdmission_ExactAlternativeBeatsToleratedOne(t *testing.T) {
+	t.Parallel()
 	k := admissionKernel(t, `Decl ctx_dim_probe(Dim, Value) bound [/name, /name] bound [/name, /string].`)
 
 	require.NoError(t, k.Assert(Fact{Predicate: "ctx_dim_probe", Args: []any{MangleAtom("/language"), "go"}}))
@@ -32,6 +33,7 @@ func TestAdmission_ExactAlternativeBeatsToleratedOne(t *testing.T) {
 // reported. The old check noted only the last one, so a producer passing two
 // bare strings was fixed one argument per dogfood session.
 func TestAdmission_EveryToleratedArgumentIsReported(t *testing.T) {
+	t.Parallel()
 	k := admissionKernel(t, `Decl two_names_probe(A, B) bound [/name, /name].`)
 
 	require.NoError(t, k.Assert(Fact{Predicate: "two_names_probe", Args: []any{"left", "right"}}))

@@ -14,6 +14,7 @@ import (
 // extension: Go owes the executor's gates, documentation owes nothing
 // mechanical, anything else owes a test run that passed after the last write.
 func TestCorpus_AWriteOwesTheEvidenceItsClassOwes(t *testing.T) {
+	t.Parallel()
 	passing, failing := types.MangleAtom("/passing"), types.MangleAtom("/failing")
 	type file struct{ path, ext string }
 	type gate struct {
@@ -91,6 +92,7 @@ func TestCorpus_AWriteOwesTheEvidenceItsClassOwes(t *testing.T) {
 // The dream-mode arm: a write-oriented turn with no recorded write has no
 // extension to read, so it owes both Go gates, as every write did before.
 func TestCorpus_AWriteOrientedTurnWithNoRecordedWriteOwesTheGoGates(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("the shipped corpus must load: %v", err)

@@ -48,6 +48,7 @@ func TestRouteAction_CLINextActionShape_PassesParsing(t *testing.T) {
 // (cmd/nerd assertPendingAction) with Target and the canonical empty-payload
 // "{}" exactly as CheckKernelPermitted recomputes them from a bare 3-arg fact.
 func TestCheckKernelPermitted_PendingActionOpensGate(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

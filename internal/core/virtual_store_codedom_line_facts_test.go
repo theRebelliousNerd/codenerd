@@ -88,6 +88,7 @@ func TestEditLines_HandlerAssertsTheSameElementModifiedAsTheRegistry(t *testing.
 // had: a real edit of Add produced no element_modified, so impacted_test
 // stayed empty even though TestAdd calls Add.
 func TestEditLines_HandlerDrivesImpactedTest(t *testing.T) {
+	t.Parallel()
 	dir := resolvedTempDir(t)
 	writeCalcFixture(t, dir)
 	k := newImpactKernel(t)

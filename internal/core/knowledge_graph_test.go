@@ -12,6 +12,7 @@ import (
 // TestKnowledgeGraphHydration verifies that knowledge graph entries are
 // properly loaded from LocalStore and hydrated into the Mangle kernel.
 func TestKnowledgeGraphHydration(t *testing.T) {
+	t.Parallel()
 	// Create temporary database
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test_knowledge.db")
@@ -122,6 +123,7 @@ func TestKnowledgeGraphHydration(t *testing.T) {
 
 // TestKnowledgeGraphEmptyDatabase verifies graceful handling of empty database.
 func TestKnowledgeGraphEmptyDatabase(t *testing.T) {
+	t.Parallel()
 	// Create temporary database
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test_empty.db")
@@ -157,6 +159,7 @@ func TestKnowledgeGraphEmptyDatabase(t *testing.T) {
 
 // TestKnowledgeGraphNoDatabase verifies graceful handling when no database is configured.
 func TestKnowledgeGraphNoDatabase(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("Failed to create kernel: %v", err)

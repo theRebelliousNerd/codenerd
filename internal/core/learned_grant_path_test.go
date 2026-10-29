@@ -64,6 +64,7 @@ func learnedFileText(t *testing.T, ws string) string {
 // from appeal_granted. None of the three was a protected head, so this one
 // learned fact used to be validated, persisted, and grant every pending delete.
 func TestHotLoadLearnedRule_AnAppealFactCannotGrantPermission(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ name, rule, head string }{
 		{"appeal fact", `appeal_granted("a9", /delete_file, "learned", 1).`, "appeal_granted"},
 		{"override rule", `has_active_override(/delete_file) :- pending_action(_, /delete_file, _, _, _).`, "has_active_override"},
@@ -94,6 +95,7 @@ func TestHotLoadLearnedRule_AnAppealFactCannotGrantPermission(t *testing.T) {
 // A second statement is judged too: the head regex saw only the first, so a
 // harmless-looking rule carried a grant through validation and into learned.mg.
 func TestHotLoadLearnedRule_EveryStatementsHeadIsJudged(t *testing.T) {
+	t.Parallel()
 	k, ws := learnedRuleKernel(t)
 	pendingDelete(t, k)
 	rule := `block_action(/learned_block) :- pending_action(_, /delete_file, _, _, _).
@@ -114,6 +116,7 @@ appeal_granted("a9", /delete_file, "learned", 1).`
 // dangerous_action reaches permitted only through the rule that also requires a
 // signed approval and an admin override.
 func TestHotLoadLearnedRule_ANarrowingRuleIsStillLearned(t *testing.T) {
+	t.Parallel()
 	k, ws := learnedRuleKernel(t)
 	for _, rule := range []string{
 		`dangerous_action(/delete_file) :- pending_action(_, /delete_file, _, _, _).`,
@@ -131,6 +134,7 @@ func TestHotLoadLearnedRule_ANarrowingRuleIsStillLearned(t *testing.T) {
 // What a control packet may not write, a learned rule may not derive: one set
 // (hostWitnessPredicates) serves both gates.
 func TestHotLoadLearnedRule_AHostWitnessIsNotLearnable(t *testing.T) {
+	t.Parallel()
 	k, _ := learnedRuleKernel(t)
 	for _, rule := range []string{
 		`build_state(/passing).`,
@@ -153,6 +157,7 @@ func TestHotLoadLearnedRule_AHostWitnessIsNotLearnable(t *testing.T) {
 // The grant path is derived from the constitution, so it covers what the
 // hand-kept list names and what it missed. Every predicate on it is refused.
 func TestLearnedHeads_TheDerivedGrantPathIsRefusedWhole(t *testing.T) {
+	t.Parallel()
 	k, _ := learnedRuleKernel(t)
 	path, err := mangle.GrantPathOfSource(k.GetSchemas() + "\n" + k.GetPolicy())
 	if err != nil {
@@ -180,6 +185,7 @@ func TestLearnedHeads_TheDerivedGrantPathIsRefusedWhole(t *testing.T) {
 // The program the grant path is derived from is the one the rule would join
 // now: a grant rule appended after the validator was built is covered.
 func TestLearnedHeads_AGrantAppendedAtRuntimeIsCovered(t *testing.T) {
+	t.Parallel()
 	k, _ := learnedRuleKernel(t)
 	pendingDelete(t, k)
 	learned := `runtime_grant(A) :- pending_action(_, A, _, _, _).`
@@ -199,6 +205,7 @@ permitted(Action, Target, Payload) :- runtime_grant(Action), pending_action(_, A
 // A rule learned before the grant path was derived is commented out when the
 // kernel boots, instead of granting from learned.mg forever.
 func TestBoot_ALearnedGrantAlreadyOnDiskIsHealed(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	dir := filepath.Join(ws, ".nerd", "mangle")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -224,6 +231,7 @@ func TestBoot_ALearnedGrantAlreadyOnDiskIsHealed(t *testing.T) {
 // A program whose grant path cannot be derived admits no learned rule, and a
 // boot-time heal does not persist that verdict over the rules on disk.
 func TestLearnedHeads_WithoutAGrantPathNothingIsLearned(t *testing.T) {
+	t.Parallel()
 	sv := mangle.NewSchemaValidator("Decl block_action(Reason) bound [/name].", "")
 	if err := sv.LoadDeclaredPredicates(); err != nil {
 		t.Fatal(err)

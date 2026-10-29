@@ -63,6 +63,7 @@ type sweepPackage struct {
 }
 
 func TestFactNameSlotProducersPassNames(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("type-checks the module; skipped under -short")
 	}

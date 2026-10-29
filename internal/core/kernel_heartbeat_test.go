@@ -10,6 +10,7 @@ import (
 // derive), but subsequent timestamp refreshes for the same shard must not
 // mark factsDirty — otherwise N shards × 5s ticks thrash full re-eval.
 func TestAssertHeartbeat_DoesNotDirtyOnRefresh(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -74,6 +75,7 @@ func TestAssertHeartbeat_DoesNotDirtyOnRefresh(t *testing.T) {
 }
 
 func TestIsNonResolvableTarget_WiredViaAssertPath(t *testing.T) {
+	t.Parallel()
 	// Smoke: ordinary asserts still dirty.
 	k, err := NewRealKernel()
 	if err != nil {

@@ -31,6 +31,7 @@ func dumpStore(t *testing.T, k *RealKernel) []string {
 // on it. That must hold exactly the facts a full fixpoint holds: a dream
 // safety verdict is read off this store.
 func TestCloneConeEvaluationMatchesFullFixpoint(t *testing.T) {
+	t.Parallel()
 	d, k := setupTestDreamer(t)
 	var seed []Fact
 	for i := 0; i < 40; i++ {

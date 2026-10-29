@@ -31,6 +31,7 @@ func TestKernelAnalysisDumpUsesConfiguredWorkspace(t *testing.T) {
 }
 
 func TestNewRealKernelWithWorkspaceInitializesRuntimeDependencies(t *testing.T) {
+	t.Parallel()
 	workspace := t.TempDir()
 	kernel, err := NewRealKernelWithWorkspace(workspace)
 	if err != nil {

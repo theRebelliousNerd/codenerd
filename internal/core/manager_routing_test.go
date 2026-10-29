@@ -49,6 +49,7 @@ func setupMockCortexKernel(t *testing.T) (*CortexKernel, *KernelShard) {
 }
 
 func TestShardManager_AssertToolRoutingContext(t *testing.T) {
+	t.Parallel()
 	cortex, shard := setupMockCortexKernel(t)
 
 	sm := shards.NewShardManager()
@@ -117,6 +118,7 @@ func TestShardManager_AssertToolRoutingContext(t *testing.T) {
 }
 
 func TestShardManager_ConcurrentToolQueries(t *testing.T) {
+	t.Parallel()
 	cortex, _ := setupMockCortexKernel(t)
 
 	sm := shards.NewShardManager()

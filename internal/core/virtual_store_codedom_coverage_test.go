@@ -206,6 +206,7 @@ type mockToolGenerator struct {
 }
 
 func TestVirtualStoreCodeDOM_OpenFile_Detailed(t *testing.T) {
+	t.Parallel()
 	t.Logf("Running test at %v (pid: %d)", time.Now(), os.Getpid())
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
@@ -280,6 +281,7 @@ func TestVirtualStoreCodeDOM_OpenFile_Detailed(t *testing.T) {
 }
 
 func TestVirtualStoreCodeDOM_GetElements_Detailed(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
 	ctx := context.Background()
@@ -364,6 +366,7 @@ func TestVirtualStoreCodeDOM_GetElements_Detailed(t *testing.T) {
 }
 
 func TestVirtualStoreCodeDOM_GetElement_Detailed(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
 	ctx := context.Background()
@@ -451,6 +454,7 @@ func TestVirtualStoreCodeDOM_GetElement_Detailed(t *testing.T) {
 }
 
 func TestVirtualStoreCodeDOM_EditElement_Detailed(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
 	ctx := context.Background()
@@ -638,6 +642,7 @@ func TestVirtualStoreCodeDOM_EditElement_Detailed(t *testing.T) {
 }
 
 func TestVirtualStoreCodeDOM_RefreshScope_Detailed(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
 	ctx := context.Background()
@@ -693,6 +698,7 @@ func TestVirtualStoreCodeDOM_RefreshScope_Detailed(t *testing.T) {
 }
 
 func TestVirtualStoreCodeDOM_CloseScope_Detailed(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
 	ctx := context.Background()
@@ -737,6 +743,7 @@ func TestVirtualStoreCodeDOM_CloseScope_Detailed(t *testing.T) {
 }
 
 func TestVirtualStoreCodeDOM_EditLines_Detailed(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
 	ctx := context.Background()
@@ -858,6 +865,7 @@ func TestVirtualStoreCodeDOM_EditLines_Detailed(t *testing.T) {
 }
 
 func TestVirtualStoreCodeDOM_InsertLines_Detailed(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
 	ctx := context.Background()
@@ -957,6 +965,7 @@ func TestVirtualStoreCodeDOM_InsertLines_Detailed(t *testing.T) {
 }
 
 func TestVirtualStoreCodeDOM_DeleteLines_Detailed(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
 	ctx := context.Background()
@@ -1056,6 +1065,7 @@ func TestVirtualStoreCodeDOM_DeleteLines_Detailed(t *testing.T) {
 }
 
 func TestVirtualStoreCodeDOM_ExecTool_Detailed(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	vs := &VirtualStore{kernel: k}
 	ctx := context.Background()

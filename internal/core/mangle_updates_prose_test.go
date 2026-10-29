@@ -11,6 +11,7 @@ import (
 // program: a rule that later feeds observation into next_action fails here,
 // and at run time the exemption is withdrawn.
 func TestProseOnlyPredicatesReachNoExecSink(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatal(err)
@@ -46,6 +47,7 @@ func TestProseOnlyPredicatesReachNoExecSink(t *testing.T) {
 // A model's prose keeps its punctuation; a string that can reach an action
 // does not get through with a shell metacharacter in it.
 func TestFilterMangleUpdates_ProseKeepsItsPunctuation(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatal(err)
@@ -83,6 +85,7 @@ func TestFilterMangleUpdates_ProseKeepsItsPunctuation(t *testing.T) {
 // routes observation into next_action makes its strings an action's input, and
 // they are checked again.
 func TestProseOnly_ARuleIntoAnExecSinkWithdrawsTheExemption(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatal(err)
@@ -106,6 +109,7 @@ func TestProseOnly_ARuleIntoAnExecSinkWithdrawsTheExemption(t *testing.T) {
 // Inside a string that can reach an action, the extended characters are
 // refused as well: && chains, & backgrounds, > redirects, < feeds input.
 func TestFilterMangleUpdates_ExtendedMetacharsInActionStrings(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatal(err)
@@ -123,6 +127,7 @@ func TestFilterMangleUpdates_ExtendedMetacharsInActionStrings(t *testing.T) {
 // declaration check answered "valid" for every kernel that was not a
 // *RealKernel, so neither ever ran in production.
 func TestFilterMangleUpdates_RunsOnTheShardedKernel(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("cortex")
 	for _, cfg := range []KernelShardConfig{
 		{Domain: "policy", OwnedPredicates: []string{"pending_action", "permitted"}},

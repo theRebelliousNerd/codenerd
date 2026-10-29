@@ -10,6 +10,7 @@ import (
 
 // REMEDIATED: TEST_GAP: Null/Empty
 func TestShadowMode_EmptyDescription(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 
@@ -28,6 +29,7 @@ func TestShadowMode_EmptyDescription(t *testing.T) {
 // error rather than silently producing a "safe" no-op result. This test
 // pins that contract.
 func TestShadowMode_EmptyActionDetails(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 
@@ -48,6 +50,7 @@ func TestShadowMode_EmptyActionDetails(t *testing.T) {
 // After validation hardening, unknown action types are now explicitly
 // rejected by SimulateAction rather than silently producing no effects.
 func TestShadowMode_InvalidActionType(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 
@@ -67,6 +70,7 @@ func TestShadowMode_InvalidActionType(t *testing.T) {
 
 // REMEDIATED: TEST_GAP: Type Coercion / Data Malformation
 func TestShadowMode_MalformedTarget(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 
@@ -91,6 +95,7 @@ func TestShadowMode_MalformedTarget(t *testing.T) {
 
 // REMEDIATED: TEST_GAP: User Request Extremes
 func TestShadowMode_MassiveSimulationVolume(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 
@@ -117,6 +122,7 @@ func TestShadowMode_MassiveSimulationVolume(t *testing.T) {
 
 // REMEDIATED: TEST_GAP: State Conflicts
 func TestShadowMode_ConcurrentStartSimulation(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 
@@ -154,6 +160,7 @@ func TestShadowMode_ConcurrentStartSimulation(t *testing.T) {
 
 // REMEDIATED: TEST_GAP: State Conflicts
 func TestShadowMode_ConcurrentWhatIf(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 
@@ -191,6 +198,7 @@ func TestShadowMode_ConcurrentWhatIf(t *testing.T) {
 
 // REMEDIATED: TEST_GAP: User Request Extremes
 func TestShadowMode_MemoryLeakOnAbort(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 
@@ -212,6 +220,7 @@ func TestShadowMode_MemoryLeakOnAbort(t *testing.T) {
 // simulation (MaxSimActions). Once a simulation reaches the cap, further
 // SimulateAction calls must be rejected to prevent unbounded slice growth.
 func TestSimulation_ExcessiveActionsLimit(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 
@@ -248,6 +257,7 @@ func TestSimulation_ExcessiveActionsLimit(t *testing.T) {
 
 // REMEDIATED: TEST_GAP: State Conflicts
 func TestShadowMode_SimulateAfterAbort(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
 

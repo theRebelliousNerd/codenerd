@@ -429,6 +429,7 @@ func TestVirtualStorePredicates_AtomTypesMatchSchemas(t *testing.T) {
 }
 
 func TestVirtualStorePredicateFactsMatchLiveKernelSchemas(t *testing.T) {
+	t.Parallel()
 	db, err := store.NewLocalStore(filepath.Join(t.TempDir(), "live-schema.db"))
 	if err != nil {
 		t.Fatalf("create local store: %v", err)
@@ -486,6 +487,7 @@ func TestVirtualStorePredicateFactsMatchLiveKernelSchemas(t *testing.T) {
 }
 
 func TestHydrationSurfacesFailures(t *testing.T) {
+	t.Parallel()
 	t.Run("learning query failure", func(t *testing.T) {
 		db, err := store.NewLocalStore(filepath.Join(t.TempDir(), "closed.db"))
 		if err != nil {

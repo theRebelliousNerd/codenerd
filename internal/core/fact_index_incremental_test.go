@@ -9,6 +9,7 @@ import (
 // Retraction drops removed facts' keys from the dedupe index instead of
 // rebuilding it; the result must be the index a full rebuild produces.
 func TestFactIndexFollowsRetractionsIncrementally(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

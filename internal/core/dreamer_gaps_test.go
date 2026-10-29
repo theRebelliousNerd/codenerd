@@ -17,6 +17,7 @@ import (
 
 // TestDreamerGap_NilContext verifies SimulateAction with nil context.
 func TestDreamerGap_NilContext(t *testing.T) {
+	t.Parallel()
 	d, _ := setupTestDreamer(t)
 
 	req := ActionRequest{
@@ -56,6 +57,7 @@ func TestDreamerGap_NilKernel(t *testing.T) {
 
 // TestDreamerGap_EmptyActionRequestFields verifies behavior with empty Type/Target.
 func TestDreamerGap_EmptyActionRequestFields(t *testing.T) {
+	t.Parallel()
 	d, _ := setupTestDreamer(t)
 	ctx := context.Background()
 
@@ -83,6 +85,7 @@ func TestDreamerGap_EmptyActionRequestFields(t *testing.T) {
 // TestDreamerGap_MangleAtomVsStringMismatch verifies that projected facts
 // use MangleAtom for Mangle atoms (not raw strings).
 func TestDreamerGap_MangleAtomVsStringMismatch(t *testing.T) {
+	t.Parallel()
 	d, _ := setupTestDreamer(t)
 	ctx := context.Background()
 
@@ -107,6 +110,7 @@ func TestDreamerGap_MangleAtomVsStringMismatch(t *testing.T) {
 // TestDreamerGap_ComplexTypesInPayload verifies behavior when Payload contains
 // complex Go types that can't be cleanly converted to Mangle.
 func TestDreamerGap_ComplexTypesInPayload(t *testing.T) {
+	t.Parallel()
 	d, _ := setupTestDreamer(t)
 	ctx := context.Background()
 
@@ -132,6 +136,7 @@ func TestDreamerGap_ComplexTypesInPayload(t *testing.T) {
 // TestDreamerGap_AtomVsStringDissonance verifies that ActionRequest.Type is
 // converted to a Mangle atom (not a string) in projected facts.
 func TestDreamerGap_AtomVsStringDissonance(t *testing.T) {
+	t.Parallel()
 	d, _ := setupTestDreamer(t)
 	ctx := context.Background()
 
@@ -163,6 +168,7 @@ func TestDreamerGap_AtomVsStringDissonance(t *testing.T) {
 
 // TestDreamerGap_MassivePathLength verifies behavior with a 1MB target path.
 func TestDreamerGap_MassivePathLength(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping massive path test in short mode")
 	}
@@ -186,6 +192,7 @@ func TestDreamerGap_MassivePathLength(t *testing.T) {
 
 // TestDreamerGap_DeeplyNestedPaths verifies behavior with deeply nested paths.
 func TestDreamerGap_DeeplyNestedPaths(t *testing.T) {
+	t.Parallel()
 	d, _ := setupTestDreamer(t)
 	ctx := context.Background()
 
@@ -211,6 +218,7 @@ func TestDreamerGap_DeeplyNestedPaths(t *testing.T) {
 
 // TestDreamerGap_PerformanceFullTableScan documents the O(N) query cost.
 func TestDreamerGap_PerformanceFullTableScan(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping performance test in short mode")
 	}
@@ -248,6 +256,7 @@ func TestDreamerGap_PerformanceFullTableScan(t *testing.T) {
 
 // TestDreamerGap_KernelCloneCost documents the cost of kernel cloning.
 func TestDreamerGap_KernelCloneCost(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping clone cost test in short mode")
 	}
@@ -322,6 +331,7 @@ func TestDreamerGap_PathTraversalBypass(t *testing.T) {
 // ordinary work (codeNERD must be able to modify its own kernel and CLI), and
 // writing into .git is still blocked.
 func TestDreamer_CriticalPathIsAboutRemoval(t *testing.T) {
+	t.Parallel()
 	d, _ := setupTestDreamer(t)
 	ctx := context.Background()
 
@@ -395,6 +405,7 @@ func TestDreamerGap_SecurityShellFeatures(t *testing.T) {
 
 // TestDreamerGap_UnknownActionTypes verifies projectEffects behavior with unknown types.
 func TestDreamerGap_UnknownActionTypes(t *testing.T) {
+	t.Parallel()
 	d, _ := setupTestDreamer(t)
 	ctx := context.Background()
 
@@ -430,6 +441,7 @@ func TestDreamerGap_UnknownActionTypes(t *testing.T) {
 
 // TestDreamerGap_PanicSafety verifies AssertWithoutEval doesn't panic on malformed inputs.
 func TestDreamerGap_PanicSafety(t *testing.T) {
+	t.Parallel()
 	d, _ := setupTestDreamer(t)
 	ctx := context.Background()
 
@@ -457,6 +469,7 @@ func TestDreamerGap_PanicSafety(t *testing.T) {
 // TestDreamerGap_ConcurrentSetKernelVsSimulate verifies thread safety of
 // SetKernel vs SimulateAction.
 func TestDreamerGap_ConcurrentSetKernelVsSimulate(t *testing.T) {
+	t.Parallel()
 	d, k := setupTestDreamer(t)
 	ctx := context.Background()
 

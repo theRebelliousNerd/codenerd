@@ -7,6 +7,7 @@ import (
 // Clone must carry config (limits, sandbox), own a live event bus, and
 // evaluate independently of its parent.
 func TestClone_FidelityAndIsolation(t *testing.T) {
+	t.Parallel()
 	parent, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("boot: %v", err)
@@ -52,6 +53,7 @@ func TestClone_FidelityAndIsolation(t *testing.T) {
 // Reads after Clear/Reset must lazily re-evaluate to empty results —
 // not error with "kernel not initialized".
 func TestClearReset_ReadAfterClear(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		clear func(k *RealKernel)
@@ -107,6 +109,7 @@ func TestClearReset_ReadAfterClear(t *testing.T) {
 // ClearSchemas must drop learned rules with the schemas: kept learned
 // rules reference cleared predicates and would fail the next analysis.
 func TestClearSchemas_DropsLearned(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("boot: %v", err)

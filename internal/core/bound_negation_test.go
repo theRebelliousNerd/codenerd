@@ -55,6 +55,7 @@ func boundNegationKernel(t *testing.T, policy string) *RealKernel {
 }
 
 func TestMangleNegation_BoundFormsExclude(t *testing.T) {
+	t.Parallel()
 	k := boundNegationKernel(t, `
 bn_has_two(Id)    :- bn_two(Id, V).
 bn_neg_bound(Id)  :- bn_item(Id), !bn_one(Id).
@@ -81,6 +82,7 @@ bn_neg_helper(Id) :- bn_item(Id), !bn_has_two(Id).
 }
 
 func TestMangleNegation_WildcardFormsAreRejected(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, pred, rule string
 	}{
@@ -114,6 +116,7 @@ func deniedFor(facts []Fact, action string) bool {
 // approval could suppress the denial it exists to answer. The approval is the
 // request-bound human_approval_granted for one exact pending_action.
 func TestConstitution_HumanApprovalSuppressesDangerousDenial(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -137,6 +140,7 @@ func TestConstitution_HumanApprovalSuppressesDangerousDenial(t *testing.T) {
 // TestConstitution_WithoutHumanApproval_ShouldStillDeny is the other half:
 // the fix must not turn the rule off entirely.
 func TestConstitution_WithoutHumanApproval_ShouldStillDeny(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -159,6 +163,7 @@ func TestConstitution_WithoutHumanApproval_ShouldStillDeny(t *testing.T) {
 // zero blocked actions while denials existed. A safety metric that always
 // reads clean is worse than no metric.
 func TestConstitution_BlockedCountReflectsDenials(t *testing.T) {
+	t.Parallel()
 	withDenial, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -192,6 +197,7 @@ func TestConstitution_BlockedCountReflectsDenials(t *testing.T) {
 // `!permitted(Action, _, _)`, which excluded nothing — so every candidate
 // action was denied whether or not the constitution permitted it.
 func TestConstitution_PermittedActionIsNotAlsoDenied(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

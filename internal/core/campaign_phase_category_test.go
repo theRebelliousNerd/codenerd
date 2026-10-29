@@ -11,6 +11,7 @@ import "testing"
 // /string. This test asserts the facts exactly as campaign.Phase.ToFacts
 // emits them (Go strings) and checks the derivation chain end to end.
 func TestPhaseCategory_RealPhaseIDShape_DerivesPrecedence(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

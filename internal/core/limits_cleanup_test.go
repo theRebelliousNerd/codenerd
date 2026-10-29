@@ -68,6 +68,7 @@ func TestCheckSyntax_LongMultilineErrorKeepsFullDetail(t *testing.T) {
 // End to end: healing a statement whose parse error spans lines must leave a
 // file with no uncommented error text.
 func TestValidateLearnedRulesContent_HealKeepsFileCommented(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.SetSchemas("Decl foo(Name).")
 	k.Evaluate()
@@ -209,6 +210,7 @@ func TestValidateLearnedRulesContent_SchemaHealKeepsMultilineErrorCommented(t *t
 // line today; a multi-line detail still has to stay commented, so the marker
 // must be healMarkerLine's, not a raw concatenation.
 func TestValidateLearnedRulesContent_LoopHealKeepsMarkerCommented(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	const rule = "next_action(/system_start)."
 	res := k.validateLearnedRulesContent(rule+"\n", "", true)

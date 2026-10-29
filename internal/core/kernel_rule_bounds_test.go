@@ -8,6 +8,7 @@ import (
 )
 
 func TestCandidateBounds_RejectsAMistypedGeneratedRule(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	require.NoError(t, err)
 	require.NoError(t, k.Evaluate())
@@ -26,6 +27,7 @@ func TestCandidateBounds_RejectsAMistypedGeneratedRule(t *testing.T) {
 // A candidate that only reads declared predicates and declares nothing new is
 // the common generated-rule shape; it must not be rejected for want of Decls.
 func TestCandidateBounds_UndeclaredHeadIsInferredNotRejected(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	require.NoError(t, err)
 	require.NoError(t, k.Evaluate())

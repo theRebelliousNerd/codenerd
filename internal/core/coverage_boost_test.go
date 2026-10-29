@@ -227,6 +227,7 @@ func TestConvertCoreFactToMangle_WhenCalled_ShouldPreserveFields(t *testing.T) {
 }
 
 func TestFlattenTree_WhenSingleNode_ShouldReturnOne(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	node := &mangle.DerivationNode{
 		ID:       "root",
@@ -239,6 +240,7 @@ func TestFlattenTree_WhenSingleNode_ShouldReturnOne(t *testing.T) {
 }
 
 func TestFlattenTree_WhenNestedTree_ShouldFlattenAll(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	grandchild := &mangle.DerivationNode{
@@ -462,6 +464,7 @@ func TestValidatorRegistry_Register_WhenNil_ShouldBeNoOp(t *testing.T) {
 // =============================================================================
 
 func TestRealKernel_SetGetVirtualStore_WhenSet_ShouldReturn(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	// Initially nil
@@ -481,6 +484,7 @@ func TestRealKernel_SetGetVirtualStore_WhenSet_ShouldReturn(t *testing.T) {
 // =============================================================================
 
 func TestRealKernel_GetBaseFacts_WhenEmpty_ShouldReturnEmptySlice(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	facts := k.GetBaseFacts()
 	// Should return a slice (possibly non-empty due to boot facts), not nil
@@ -490,6 +494,7 @@ func TestRealKernel_GetBaseFacts_WhenEmpty_ShouldReturnEmptySlice(t *testing.T) 
 }
 
 func TestRealKernel_GetBaseFacts_WhenFilled_ShouldReturnCopy(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.Assert(Fact{Predicate: "base_test_fact", Args: []any{"val1"}})
 
@@ -508,6 +513,7 @@ func TestRealKernel_GetBaseFacts_WhenFilled_ShouldReturnCopy(t *testing.T) {
 }
 
 func TestRealKernel_GetProgramInfo_WhenInitialized_ShouldReturnNonNil(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.Evaluate() // Ensure programInfo is populated
 

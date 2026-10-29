@@ -13,6 +13,7 @@ import (
 // =============================================================================
 
 func TestAssert_WhenDuplicateFact_ShouldBeIdempotent(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	k.AppendPolicy("Decl color(Name).")
@@ -38,6 +39,7 @@ func TestAssert_WhenDuplicateFact_ShouldBeIdempotent(t *testing.T) {
 }
 
 func TestAssertBatch_WhenEmptySlice_ShouldNoOp(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	initialCount := k.FactCount()
 
@@ -57,6 +59,7 @@ func TestAssertBatch_WhenEmptySlice_ShouldNoOp(t *testing.T) {
 }
 
 func TestAssertBatch_WhenMultipleFacts_ShouldAddAll(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl fruit(Name).")
 	if err := k.Evaluate(); err != nil {
@@ -83,6 +86,7 @@ func TestAssertBatch_WhenMultipleFacts_ShouldAddAll(t *testing.T) {
 }
 
 func TestAssertBatch_WhenDuplicatesInBatch_ShouldDedup(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl item(Name).")
 	if err := k.Evaluate(); err != nil {
@@ -109,6 +113,7 @@ func TestAssertBatch_WhenDuplicatesInBatch_ShouldDedup(t *testing.T) {
 }
 
 func TestAssertString_WhenValidFactString_ShouldParse(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl greeting(Msg).")
 	if err := k.Evaluate(); err != nil {
@@ -130,6 +135,7 @@ func TestAssertString_WhenValidFactString_ShouldParse(t *testing.T) {
 }
 
 func TestAssertString_WhenInvalidSyntax_ShouldError(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	err := k.AssertString("()")
@@ -139,6 +145,7 @@ func TestAssertString_WhenInvalidSyntax_ShouldError(t *testing.T) {
 }
 
 func TestAssertString_WhenEmpty_ShouldError(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	err := k.AssertString("")
@@ -152,6 +159,7 @@ func TestAssertString_WhenEmpty_ShouldError(t *testing.T) {
 // =============================================================================
 
 func TestRetract_WhenPredicateNotExists_ShouldNoOp(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	initialCount := k.FactCount()
 
@@ -166,6 +174,7 @@ func TestRetract_WhenPredicateNotExists_ShouldNoOp(t *testing.T) {
 }
 
 func TestRetract_WhenPredicateExists_ShouldRemoveAll(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl flavor(Name).\nDecl size(Name).")
 	if err := k.Evaluate(); err != nil {
@@ -200,6 +209,7 @@ func TestRetract_WhenPredicateExists_ShouldRemoveAll(t *testing.T) {
 }
 
 func TestRetractFact_WhenNoArgs_ShouldError(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	err := k.RetractFact(Fact{Predicate: "test_pred", Args: nil})
@@ -209,6 +219,7 @@ func TestRetractFact_WhenNoArgs_ShouldError(t *testing.T) {
 }
 
 func TestRetractExactFact_WhenNoArgs_ShouldError(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	err := k.RetractExactFact(Fact{Predicate: "test_pred", Args: nil})
@@ -218,6 +229,7 @@ func TestRetractExactFact_WhenNoArgs_ShouldError(t *testing.T) {
 }
 
 func TestRetractExactFact_WhenExactMatch_ShouldRemoveOnly(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl setting(Key, Value).")
 	if err := k.Evaluate(); err != nil {
@@ -244,6 +256,7 @@ func TestRetractExactFact_WhenExactMatch_ShouldRemoveOnly(t *testing.T) {
 }
 
 func TestRetractExactFactsBatch_WhenEmpty_ShouldNoOp(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	initialCount := k.FactCount()
 
@@ -263,6 +276,7 @@ func TestRetractExactFactsBatch_WhenEmpty_ShouldNoOp(t *testing.T) {
 }
 
 func TestRetractExactFactsBatch_WhenMultiple_ShouldRemoveAll(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl metric(Name, Value).")
 	if err := k.Evaluate(); err != nil {
@@ -296,6 +310,7 @@ func TestRetractExactFactsBatch_WhenMultiple_ShouldRemoveAll(t *testing.T) {
 }
 
 func TestRemoveFactsByPredicateSet_WhenEmpty_ShouldNoOp(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	initialCount := k.FactCount()
 
@@ -319,6 +334,7 @@ func TestRemoveFactsByPredicateSet_WhenEmpty_ShouldNoOp(t *testing.T) {
 // =============================================================================
 
 func TestQuery_WhenEmptyPredicate_ShouldError(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	_, err := k.Query("")
@@ -328,6 +344,7 @@ func TestQuery_WhenEmptyPredicate_ShouldError(t *testing.T) {
 }
 
 func TestQuery_WhenPredicateNotDeclared_ShouldReturnEmpty(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	results, err := k.Query("nonexistent_predicate_xyz999")
@@ -340,6 +357,7 @@ func TestQuery_WhenPredicateNotDeclared_ShouldReturnEmpty(t *testing.T) {
 }
 
 func TestQuery_WhenPatternProvided_ShouldFilterResults(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl coord(X, Y).")
 	if err := k.Evaluate(); err != nil {
@@ -364,6 +382,7 @@ func TestQuery_WhenPatternProvided_ShouldFilterResults(t *testing.T) {
 // =============================================================================
 
 func TestConcurrentAssert_ShouldNotPanic(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl concurrent_item(Name).")
 	if err := k.Evaluate(); err != nil {
@@ -390,6 +409,7 @@ func TestConcurrentAssert_ShouldNotPanic(t *testing.T) {
 }
 
 func TestConcurrentAssertAndQuery_ShouldNotRace(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl race_item(Name).")
 	if err := k.Evaluate(); err != nil {
@@ -419,6 +439,7 @@ func TestConcurrentAssertAndQuery_ShouldNotRace(t *testing.T) {
 }
 
 func TestConcurrentRetract_ShouldNotPanic(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl temp_item(Name).")
 	if err := k.Evaluate(); err != nil {
@@ -454,6 +475,7 @@ func TestConcurrentRetract_ShouldNotPanic(t *testing.T) {
 // =============================================================================
 
 func TestGetFactsSnapshotSeq_ShouldReturnCopy(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	snapshot := slices.Collect(k.GetFactsSnapshotSeq())
@@ -471,6 +493,7 @@ func TestGetFactsSnapshotSeq_ShouldReturnCopy(t *testing.T) {
 }
 
 func TestGetAllFacts_ShouldReturnCopy(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	facts1 := slices.Collect(k.GetAllFactsSeq())
@@ -482,6 +505,7 @@ func TestGetAllFacts_ShouldReturnCopy(t *testing.T) {
 }
 
 func TestIsDirty_WhenAssertCalled_ShouldBeTrue(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl dirty_test(X).")
 	if err := k.Evaluate(); err != nil {
@@ -784,6 +808,7 @@ func TestSanitizeFactForNumericPredicates_UnrelatedPredicate_ShouldPassthrough(t
 // =============================================================================
 
 func TestTransaction_WhenDoubleCommit_ShouldError(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	tx := k.Transaction()
@@ -799,6 +824,7 @@ func TestTransaction_WhenDoubleCommit_ShouldError(t *testing.T) {
 }
 
 func TestTransaction_WhenRetractThenAssert_ShouldBeAtomic(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl test_state_atomic(Key, Value).")
 	if err := k.Evaluate(); err != nil {
@@ -828,6 +854,7 @@ func TestTransaction_WhenRetractThenAssert_ShouldBeAtomic(t *testing.T) {
 // =============================================================================
 
 func TestLoadSchemas_ShouldSetPolicyDirty(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	k.LoadSchemas("Decl custom_schema(X).")
@@ -852,6 +879,7 @@ func TestLoadSchemas_ShouldSetPolicyDirty(t *testing.T) {
 // A rule appended to the policy is live for the very next query, with no
 // write in between to force an evaluation.
 func TestAppendPolicy_TheNextQueryRunsTheNewRule(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatal(err)
@@ -873,6 +901,7 @@ func TestAppendPolicy_TheNextQueryRunsTheNewRule(t *testing.T) {
 }
 
 func TestLoadPolicy_ShouldSetPolicyDirty(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	k.LoadPolicy("Decl custom_policy(X).")
@@ -959,6 +988,7 @@ func TestParseSingleFact_WhenNone_ShouldError(t *testing.T) {
 // =============================================================================
 
 func TestAssertWithoutEval_WhenFollowedByEvaluate_ShouldWork(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl batch_item(Name).")
 	if err := k.Evaluate(); err != nil {
@@ -982,6 +1012,7 @@ func TestAssertWithoutEval_WhenFollowedByEvaluate_ShouldWork(t *testing.T) {
 }
 
 func TestAssertWithoutEval_RefusesFactTheOtherWritePathsRefuse(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl k1_pred(Number) bound [/number].")
 	if err := k.Evaluate(); err != nil {

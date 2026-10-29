@@ -50,6 +50,7 @@ func requireSameStore(t *testing.T, stage string, got, want []string) {
 // negated premise turning true, and retractions -- and a clone's writes never
 // reach its parent.
 func TestCloneStoreKindAndConeEquivalence(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		edges      int
 		parentKind string
@@ -146,6 +147,7 @@ func coneScanReference(k *RealKernel, cone map[string]struct{}) ([]ast.Clause, [
 // in exactly the order, that a scan of the whole program does; it names every
 // symbol the store holds under its touched predicates; and it is cached.
 func TestConePlanMatchesProgramScanOnProductionCorpus(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatal(err)

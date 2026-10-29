@@ -28,6 +28,7 @@ import (
 // After the fix it fans out to shard_a and shard_b -> 1 fact, and
 // len(Query(p)) == len(QueryAll()[p]).
 func TestCortexKernel_Query_FanOut_UnownedPredicate(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("shard_a")
 
 	// shard_a owns "owned_pred"
@@ -93,6 +94,7 @@ func TestCortexKernel_Query_FanOut_UnownedPredicate(t *testing.T) {
 // break the fast path: predicates that DO have a registered owner must still
 // route to that single owner, not fan out.
 func TestCortexKernel_Query_OwnedPredicateStillRoutes(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("shard_a")
 
 	shardA := setupTestShard(t, "shard_a", []string{"owned_pred"})
@@ -143,6 +145,7 @@ func TestCortexKernel_Query_OwnedPredicateStillRoutes(t *testing.T) {
 // concatenates across more than one holder of the same unowned predicate,
 // just as QueryAll does. Before the fix only the cortex shard was consulted.
 func TestCortexKernel_Query_FanOut_MultipleShards(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("shard_a")
 
 	shardA := setupTestShard(t, "shard_a", []string{"owned_pred"})

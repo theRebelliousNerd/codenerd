@@ -130,6 +130,7 @@ func diffFirstArgs(rows []Fact) []string {
 
 // Conflicting cached rows must never escape: both APIs return the live set.
 func TestQueryDifferential_ConflictingCacheSuperseded(t *testing.T) {
+	t.Parallel()
 	k, ls := diffBoot(t)
 	diffPlantStored(t, k, Fact{Predicate: "query_learned", Args: []any{"stale_pred", "stale-marker"}})
 	diffStoreLive(t, ls, "live_pred", "a")
@@ -147,6 +148,7 @@ func TestQueryDifferential_ConflictingCacheSuperseded(t *testing.T) {
 
 // Matching cached rows must not duplicate: one live row in, one row out.
 func TestQueryDifferential_MatchingCacheNoDuplicates(t *testing.T) {
+	t.Parallel()
 	k, ls := diffBoot(t)
 	diffStoreLive(t, ls, "live_pred", "a")
 	live, err := k.Query("query_learned(P, A)")
@@ -167,6 +169,7 @@ func TestQueryDifferential_MatchingCacheNoDuplicates(t *testing.T) {
 
 // Empty live results with stored rows present: both APIs answer empty.
 func TestQueryDifferential_EmptyLiveStaysEmpty(t *testing.T) {
+	t.Parallel()
 	k, _ := diffBoot(t)
 	diffPlantStored(t, k, Fact{Predicate: "query_learned", Args: []any{"stale_pred", "stale-marker"}})
 
@@ -178,6 +181,7 @@ func TestQueryDifferential_EmptyLiveStaysEmpty(t *testing.T) {
 
 // Provider failure: both APIs error, and the callback fires zero times.
 func TestQueryDifferential_ProviderErrorZeroCallbacks(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.SetVirtualStore(&VirtualStore{localDB: nil})
 	diffPlantStored(t, k, Fact{Predicate: "query_learned", Args: []any{"stale_pred", "stale-marker"}})
@@ -200,6 +204,7 @@ func TestQueryDifferential_ProviderErrorZeroCallbacks(t *testing.T) {
 
 // Bound inputs filter live rows identically through both APIs.
 func TestQueryDifferential_BoundInputs(t *testing.T) {
+	t.Parallel()
 	k, ls := diffBoot(t)
 	diffStoreLive(t, ls, "wanted_pred", "a")
 	diffStoreLive(t, ls, "other_pred", "b")
@@ -220,6 +225,7 @@ func TestQueryDifferential_BoundInputs(t *testing.T) {
 
 // Ordinary non-external facts are untouched by the external fast path.
 func TestQueryDifferential_NonExternalUnchanged(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl diff_plain(X).")
 	if err := k.Evaluate(); err != nil {
@@ -240,6 +246,7 @@ func TestQueryDifferential_NonExternalUnchanged(t *testing.T) {
 // Pre-fix, QueryCallback streamed stored rows first, so a stop-after-first
 // consumer received the stale row before the live provider was consulted.
 func TestQueryDifferential_EarlyStopSeesLive(t *testing.T) {
+	t.Parallel()
 	k, ls := diffBoot(t)
 	diffPlantStored(t, k, Fact{Predicate: "query_learned", Args: []any{"stale_pred", "stale-marker"}})
 	diffStoreLive(t, ls, "live_pred", "a")
@@ -263,6 +270,7 @@ func TestQueryDifferential_EarlyStopSeesLive(t *testing.T) {
 
 // The decl guard: without an external declaration the helper must not engage.
 func TestQueryDifferential_DeclIsExternal(t *testing.T) {
+	t.Parallel()
 	k, _ := diffBoot(t)
 	d, ok := k.programInfo.Decls[ast.PredicateSym{Symbol: "query_learned", Arity: 2}]
 	if !ok {

@@ -24,6 +24,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestNewRealKernel(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -39,6 +40,7 @@ func TestNewRealKernel(t *testing.T) {
 }
 
 func TestKernelLoadPolicyFileIsIdempotent(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -66,6 +68,7 @@ func TestKernelLoadPolicyFileIsIdempotent(t *testing.T) {
 }
 
 func TestKernelLoadFacts(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -95,6 +98,7 @@ func TestKernelLoadFacts(t *testing.T) {
 }
 
 func TestKernelAssert(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -112,6 +116,7 @@ func TestKernelAssert(t *testing.T) {
 }
 
 func TestKernelQuery(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -140,6 +145,7 @@ func TestKernelQuery(t *testing.T) {
 }
 
 func TestKernelQueryAll(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -166,6 +172,7 @@ func TestKernelQueryAll(t *testing.T) {
 }
 
 func TestKernelRetract(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -206,6 +213,7 @@ func TestKernelRetract(t *testing.T) {
 }
 
 func TestKernelRetractExactFact(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -235,6 +243,7 @@ func TestKernelRetractExactFact(t *testing.T) {
 }
 
 func TestKernelClear(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -356,6 +365,7 @@ func TestFactToAtom(t *testing.T) {
 // correctly derives permitted/3 facts from safe_action/1 facts.
 // This is critical for the VirtualStore constitutional permission checks.
 func TestKernelPermissionDerivation(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -454,6 +464,7 @@ func TestKernelPermissionDerivation(t *testing.T) {
 //
 // LOGOS UPDATE: We now load the split coder files.
 func TestKernelLoadCoderPolicyDoesNotTypeConflict(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
@@ -491,6 +502,7 @@ func TestKernelLoadCoderPolicyDoesNotTypeConflict(t *testing.T) {
 }
 
 func TestKernelAccessors(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)

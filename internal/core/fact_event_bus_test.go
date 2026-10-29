@@ -27,6 +27,7 @@ func TestFactEventBus_Subscribe_WhenMatchingPredicatePublished_ShouldReceiveEven
 }
 
 func TestFactEventBus_Subscribe_WhenNonMatchingPredicatePublished_ShouldNotReceive(t *testing.T) {
+	t.Parallel()
 	bus := NewFactEventBus()
 	ch := bus.Subscribe([]string{"user_intent"})
 	defer bus.Unsubscribe(ch)

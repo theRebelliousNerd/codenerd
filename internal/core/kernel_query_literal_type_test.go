@@ -11,6 +11,7 @@ import (
 // intentionally uses plain Go strings for both, so filtering must preserve the
 // parsed pattern's AST type instead of comparing only the decoded values.
 func TestKernelQueryPatternPreservesLiteralType(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy(`
 Decl typed_query_probe(Value, Row) bound [/any, /string].

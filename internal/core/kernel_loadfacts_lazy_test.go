@@ -10,6 +10,7 @@ import (
 // on the next Query (correct-on-read). The boot path (uninitialized kernel)
 // must still evaluate eagerly so the kernel is ready before any query.
 func TestLoadFacts_LazyWhenInitialized(t *testing.T) {
+	t.Parallel()
 	// Use a unique predicate pair so the test does not depend on the
 	// embedded constitution's rules and cannot be polluted by other tests.
 	const (
@@ -138,6 +139,7 @@ lazy_derived(X) :- lazy_base(X).
 // queries must still be correct-on-read. Each LoadFacts marks dirty but
 // does not evaluate; the first Query after the batch runs a single fixpoint.
 func TestLoadFacts_DeferredIsCorrectOnRead_AdditionalBulk(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)

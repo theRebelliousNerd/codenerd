@@ -43,6 +43,7 @@ func TestMangleUpdates_Filter(t *testing.T) {
 }
 
 func TestMangleUpdates_SchemaValidation(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl safe_check(Int).")
 	k.Evaluate()

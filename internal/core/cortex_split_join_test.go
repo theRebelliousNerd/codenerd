@@ -67,6 +67,7 @@ var turnShared = []string{"user_intent", "executive_processed_intent", "active_s
 // reaches injectable_context because active_shard lives in the catch-all.
 // Shared, the rule fires in the catch-all and the guidance is admitted once.
 func TestCortexSplitJoin_SharedIntentReachesEveryShard(t *testing.T) {
+	t.Parallel()
 	single := setupMockKernel(t)
 	mustAssert(t, single, "active_shard", "shard-1", types.MangleAtom("/coder"))
 	assertIntent(t, single, "/mutation", "/fix", "auth middleware")
@@ -111,6 +112,7 @@ func TestCortexSplitJoin_SharedIntentReachesEveryShard(t *testing.T) {
 // land only in the catch-all while the next_action rules evaluated in the
 // routing shard, so the negation always held. Shared, it reaches the rule.
 func TestCortexSplitJoin_SharedNegationIsNotBlind(t *testing.T) {
+	t.Parallel()
 	cortex := productionShapedCortex(t, turnShared)
 	cortexAssert(t, cortex, "user_intent", "/current_intent", types.MangleAtom("/mutation"), types.MangleAtom("/fix"), "auth middleware", "none")
 	before := len(cortexQuery(t, cortex, "next_action"))
@@ -127,6 +129,7 @@ func TestCortexSplitJoin_SharedNegationIsNotBlind(t *testing.T) {
 // predicate must clear every replica, or a stale intent lingers in the
 // shards the retract never visited.
 func TestCortexSplitJoin_SharedRetractReachesEveryReplica(t *testing.T) {
+	t.Parallel()
 	cortex := productionShapedCortex(t, turnShared)
 	cortexAssert(t, cortex, "user_intent", "/current_intent", types.MangleAtom("/mutation"), types.MangleAtom("/fix"), "x", "none")
 	if err := cortex.Retract("user_intent"); err != nil {
@@ -159,6 +162,7 @@ func TestCortexSplitJoin_SharedRetractReachesEveryReplica(t *testing.T) {
 }
 
 func TestCortexSplitJoin_SharedCannotBeOwned(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("cortex")
 	if err := cortex.SetSharedPredicates([]string{"user_intent"}); err != nil {
 		t.Fatal(err)

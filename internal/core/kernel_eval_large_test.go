@@ -12,6 +12,7 @@ import (
 const largeWorldFacts = 10001
 
 func TestLargeWorldDeltaPreservesResults(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	for i := 0; i < largeWorldFacts; i++ {
 		k.AssertWithoutEval(Fact{Predicate: "file_topology", Args: []any{fmt.Sprintf("src/f%d.go", i), "hash", MangleAtom("/go"), int64(0), MangleAtom("/false")}})

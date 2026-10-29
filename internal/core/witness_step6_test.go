@@ -84,6 +84,7 @@ func newWitnessStep6Cortex(t *testing.T) *CortexKernel {
 // Target and Solo are met, Helper is owed but not met, T1 is unverified
 // with /change_unwitnessed as its only missing evidence, and T2 verifies.
 func TestWitnessStep6_ShouldDeriveMetUnwitnessedAndVerdict(t *testing.T) {
+	t.Parallel()
 	single, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("the shipped corpus must load: %v", err)
@@ -130,6 +131,7 @@ func TestWitnessStep6_ShouldDeriveMetUnwitnessedAndVerdict(t *testing.T) {
 // the world shard in production, so the sharded kernel must derive exactly
 // what the single-store kernel derives.
 func TestWitnessStep6_WhenSharded_ShouldMatchSingleKernel(t *testing.T) {
+	t.Parallel()
 	seed := witnessStep6Seed()
 	single, err := NewRealKernel()
 	if err != nil {

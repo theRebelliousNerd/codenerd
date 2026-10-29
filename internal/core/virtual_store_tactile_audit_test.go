@@ -7,6 +7,7 @@ import (
 )
 
 func TestVirtualStoreInjectTactileFact_AnalyzerFactsMatchLiveKernelSchema(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel failed: %v", err)

@@ -26,6 +26,7 @@ import (
 // So the Decl decides whether self-written policy can ever fire. That earns a
 // test rather than a comment.
 func TestIntentDeclDrivesAtomInterningAndValidation(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)

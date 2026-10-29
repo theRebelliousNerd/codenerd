@@ -36,6 +36,7 @@ func argString(v any) string {
 //
 // The integral float must therefore be narrowed to ast.Number at the boundary.
 func TestFactBoundary_IntegralFloatIsCoercedIntoNumberSlot(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	require.NoError(t, err)
 
@@ -54,6 +55,7 @@ func TestFactBoundary_IntegralFloatIsCoercedIntoNumberSlot(t *testing.T) {
 // Before the fix one bad row took down every derivation in the kernel, so an
 // unrelated, perfectly valid fact silently stopped producing its conclusions.
 func TestFactBoundary_BadFactDoesNotStopUnrelatedDerivations(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	require.NoError(t, err)
 
@@ -82,6 +84,7 @@ func TestFactBoundary_BadFactDoesNotStopUnrelatedDerivations(t *testing.T) {
 // conversion there is implementation-defined (amd64 yields MinInt64), so the
 // fact must be rejected, not stored as a wildly wrong value.
 func TestFactBoundary_OutOfRangeFloatIsRejected(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	require.NoError(t, err)
 
@@ -108,6 +111,7 @@ func TestFactBoundary_OutOfRangeFloatIsRejected(t *testing.T) {
 
 // Integers keep flowing untouched — the coercion must not disturb the common path.
 func TestFactBoundary_IntegerArgsAreUnchanged(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	require.NoError(t, err)
 

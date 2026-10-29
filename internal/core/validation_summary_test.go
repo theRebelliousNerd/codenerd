@@ -114,6 +114,7 @@ func TestValidateInteractiveToolResult_RejectsTheWrittenIncompleteJSON(t *testin
 // side_effect_attempted reads the new rows: a skipped or unavailable reading
 // still proves the tool ran, and leaves it in validation limbo.
 func TestValidationPolicy_IncompleteReadingsAreLimboNotFailure(t *testing.T) {
+	t.Parallel()
 	k, err := NewRealKernel()
 	if err != nil {
 		t.Fatal(err)

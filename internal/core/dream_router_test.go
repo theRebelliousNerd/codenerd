@@ -32,6 +32,7 @@ func (m *mockColdStore) StoreFact(predicate string, args []any, factType string,
 }
 
 func TestDreamRouter_New(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	ls := &mockLearningStore{}
 	cs := &mockColdStore{}
@@ -43,6 +44,7 @@ func TestDreamRouter_New(t *testing.T) {
 }
 
 func TestDreamRouter_RouteLearnings(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	ls := &mockLearningStore{}
 	cs := &mockColdStore{}
@@ -78,6 +80,7 @@ func TestDreamRouter_RouteLearnings(t *testing.T) {
 }
 
 func TestDreamRouter_SetOuroborosQueue(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	router := NewDreamRouter(k, nil, nil)
 

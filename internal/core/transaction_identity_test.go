@@ -9,6 +9,7 @@ import (
 )
 
 func TestAddEdit_PendingMutationStoresContentIdentity(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "f.txt")
 	oldBody := []byte(strings.Repeat("A", 250) + "OLD")

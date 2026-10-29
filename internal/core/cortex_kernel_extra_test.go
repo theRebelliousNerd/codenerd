@@ -9,6 +9,7 @@ import (
 )
 
 func TestCortexKernel_GetPrimaryRealKernel(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 
 	// 1. Initial state: no shards registered, should return nil
@@ -48,6 +49,7 @@ func TestCortexKernel_GetEventBus(t *testing.T) {
 }
 
 func TestCortexKernel_RetractFact(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	shard := setupTestShard(t, "main", []string{"pred"})
 	cortex.RegisterShard(shard)
@@ -76,6 +78,7 @@ func TestCortexKernel_RetractFact(t *testing.T) {
 }
 
 func TestCortexKernel_RetractExactFactsBatch(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	mainShard := setupTestShard(t, "main", []string{"main_pred"})
 	otherShard := setupTestShard(t, "other", []string{"other_pred"})
@@ -110,6 +113,7 @@ func TestCortexKernel_RetractExactFactsBatch(t *testing.T) {
 }
 
 func TestCortexKernel_RemoveFactsByPredicateSet(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	mainShard := setupTestShard(t, "main", []string{"p1", "p2"})
 	cortex.RegisterShard(mainShard)
@@ -134,6 +138,7 @@ func TestCortexKernel_RemoveFactsByPredicateSet(t *testing.T) {
 }
 
 func TestCortexKernel_QueryAll(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	mainShard := setupTestShard(t, "main", []string{"main_pred"})
 	otherShard := setupTestShard(t, "other", []string{"other_pred"})
@@ -154,6 +159,7 @@ func TestCortexKernel_QueryAll(t *testing.T) {
 }
 
 func TestCortexKernel_LoadFacts(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	mainShard := setupTestShard(t, "main", []string{"p1"})
 	cortex.RegisterShard(mainShard)
@@ -173,6 +179,7 @@ func TestCortexKernel_LoadFacts(t *testing.T) {
 }
 
 func TestCortexKernel_UpdateSystemFacts(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	mainShard := setupTestShard(t, "main", []string{"p1"})
 	cortex.RegisterShard(mainShard)
@@ -183,6 +190,7 @@ func TestCortexKernel_UpdateSystemFacts(t *testing.T) {
 }
 
 func TestCortexKernel_GetProgramInfo(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 
 	// No cortex domain shard registered
@@ -200,6 +208,7 @@ func TestCortexKernel_GetProgramInfo(t *testing.T) {
 }
 
 func TestCortexKernel_Reset(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	mainShard := setupTestShard(t, "main", []string{"p1"})
 	cortex.RegisterShard(mainShard)
@@ -214,6 +223,7 @@ func TestCortexKernel_Reset(t *testing.T) {
 }
 
 func TestCortexKernel_AppendPolicy(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	mainShard := setupTestShard(t, "main", []string{"p1"})
 	cortex.RegisterShard(mainShard)
@@ -227,6 +237,7 @@ func TestCortexKernel_AppendPolicy(t *testing.T) {
 }
 
 func TestCortexKernel_LogMetrics(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	mainShard := setupTestShard(t, "main", []string{"p1"})
 	cortex.RegisterShard(mainShard)
@@ -236,6 +247,7 @@ func TestCortexKernel_LogMetrics(t *testing.T) {
 }
 
 func TestCortexKernel_EvaluateAll(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	mainShard := setupTestShard(t, "main", []string{"p1"})
 	cortex.RegisterShard(mainShard)
@@ -251,6 +263,7 @@ func TestCortexKernel_EvaluateAll(t *testing.T) {
 }
 
 func TestCortexKernel_LoadFactsFromFile(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	mainShard := setupTestShard(t, "main", []string{"custom_intent"})
 	cortex.RegisterShard(mainShard)
@@ -279,6 +292,7 @@ func TestCortexKernel_LoadFactsFromFile(t *testing.T) {
 }
 
 func TestCortexKernel_ConsumeBootPrompts(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	mainShard := setupTestShard(t, "main", []string{"p1"})
 	cortex.RegisterShard(mainShard)
@@ -291,6 +305,7 @@ func TestCortexKernel_ConsumeBootPrompts(t *testing.T) {
 }
 
 func TestCortexTransaction_RetractFact(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("main")
 	mainShard := setupTestShard(t, "main", []string{"p1"})
 	cortex.RegisterShard(mainShard)

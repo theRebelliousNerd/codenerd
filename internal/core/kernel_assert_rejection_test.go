@@ -15,6 +15,7 @@ import (
 // fact silently was not there and the caller was told it was.
 
 func TestAssert_RejectedFactReturnsError(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	// schemas_dreamer.mg: Decl dream_preference(Content, Confidence) bound [/string, /number].
@@ -36,6 +37,7 @@ func TestAssert_RejectedFactReturnsError(t *testing.T) {
 }
 
 func TestAssert_DuplicateIsStillANoOpNotAnError(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	fact := Fact{Predicate: "dream_preference", Args: []any{"prefers table-driven tests", int64(85)}}
@@ -48,6 +50,7 @@ func TestAssert_DuplicateIsStillANoOpNotAnError(t *testing.T) {
 }
 
 func TestAssertBatch_ReportsRejectedFactsAndKeepsTheRest(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	err := k.AssertBatch([]Fact{

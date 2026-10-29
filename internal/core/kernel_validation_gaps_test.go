@@ -14,6 +14,7 @@ import (
 // TestKernelValidationGap_ValidateLearnedRules_NilEmpty verifies that
 // ValidateLearnedRules handles nil and empty slices without panics.
 func TestKernelValidationGap_ValidateLearnedRules_NilEmpty(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.SetSchemas("Decl foo(Name).")
 	k.Evaluate()
@@ -106,6 +107,7 @@ func TestKernelValidationGap_CheckSyntax_InvalidUTF8(t *testing.T) {
 // TestKernelValidationGap_InfiniteLoopRisk_WhitespaceBypass verifies that
 // checkInfiniteLoopRisk isn't bypassed by whitespace tricks.
 func TestKernelValidationGap_InfiniteLoopRisk_WhitespaceBypass(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 
 	tests := []struct {
@@ -155,6 +157,7 @@ func TestKernelValidationGap_InfiniteLoopRisk_WhitespaceBypass(t *testing.T) {
 // TestKernelValidationGap_ValidateLearnedRulesContent_ManyRules verifies
 // validateLearnedRulesContent performance with a large number of rules.
 func TestKernelValidationGap_ValidateLearnedRulesContent_ManyRules(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping performance test in short mode")
 	}
@@ -178,6 +181,7 @@ func TestKernelValidationGap_ValidateLearnedRulesContent_ManyRules(t *testing.T)
 // TestKernelValidationGap_Concurrency_SetSchemasWhileValidate verifies
 // concurrent SetSchemas + ValidateLearnedRule interactions.
 func TestKernelValidationGap_Concurrency_SetSchemasWhileValidate(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.SetSchemas("Decl base_pred(Name).")
 	k.Evaluate()
@@ -211,6 +215,7 @@ func TestKernelValidationGap_Concurrency_SetSchemasWhileValidate(t *testing.T) {
 // Since the function takes a string (not a file path), the TOCTOU risk
 // is in the caller that reads the file, not in validateLearnedRulesContent itself.
 func TestKernelValidationGap_TOCTOU_ValidateLearnedRulesContent(t *testing.T) {
+	t.Parallel()
 	k := setupMockKernel(t)
 	k.SetSchemas("Decl toctou_pred(Name).")
 	k.Evaluate()

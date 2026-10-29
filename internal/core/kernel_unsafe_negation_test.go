@@ -30,6 +30,7 @@ func TestCheckUnsafeNegation_WildcardInNegationIsRefused(t *testing.T) {
 // HotLoadRule is the entry point the feedback loop calls; the false refusal
 // happened there, before the sandbox ever saw the rule.
 func TestHotLoadRule_AcceptsGroundNegationWithUnderscoredName(t *testing.T) {
+	t.Parallel()
 	k := admissionKernel(t, `Decl probe_intent(I) bound [/name].
 Decl probe_processed(I) bound [/name].
 Decl probe_pending(I) bound [/name].`)

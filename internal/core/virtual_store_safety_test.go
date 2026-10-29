@@ -91,6 +91,7 @@ func TestRouteActionFailsClosedWhenCortexHasNoDreamerKernel(t *testing.T) {
 }
 
 func TestVirtualStoreDreamerUsesCortexPrimaryKernel(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("cortex")
 	shard, err := NewKernelShard(KernelShardConfig{Domain: "cortex"})
 	if err != nil {
@@ -213,6 +214,7 @@ func TestRouteActionFailureFactsMatchDeclaredContracts(t *testing.T) {
 }
 
 func TestMaybePruneActionLogsUsesExecutionResultTimestamp(t *testing.T) {
+	t.Parallel()
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel: %v", err)
@@ -250,6 +252,7 @@ func TestMaybePruneActionLogsUsesExecutionResultTimestamp(t *testing.T) {
 // and return for anything else, so on CortexKernel the action logs grew without
 // bound.
 func TestMaybePruneActionLogsRunsOnTheShardedKernel(t *testing.T) {
+	t.Parallel()
 	cortex := NewCortexKernel("cortex")
 	shard, err := NewKernelShard(KernelShardConfig{Domain: "cortex"})
 	if err != nil {
