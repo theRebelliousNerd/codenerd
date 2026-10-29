@@ -320,12 +320,12 @@ func TestMetaResponsesRoundTripPreservesOrderReasoningAndIDs(t *testing.T) {
 		{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Now the caller."}]},
 		{"type":"function_call","call_id":"call_B","name":"search_code","arguments":"{\"query\":\"LoadConfig\"}"}
 	]}`
-	var reply metaResponsesReply
+	var reply responsesReply
 	if err := json.Unmarshal([]byte(raw), &reply); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	resp := metaToolResponseFromReply(&reply)
+	resp := responsesToolResponseFromReply(&reply)
 	wantKinds := []types.ContentBlockKind{
 		types.BlockThinking, types.BlockText, types.BlockToolUse, types.BlockText, types.BlockToolUse,
 	}
@@ -348,7 +348,7 @@ func TestMetaResponsesRoundTripPreservesOrderReasoningAndIDs(t *testing.T) {
 		types.NewUserMessage(types.TextBlock("why?")),
 		types.AssistantMessageFrom(resp),
 	}
-	input := metaInputFromHistory("sys", history)
+	input := responsesInputFromHistory("sys", history)
 
 	wantTypes := []string{
 		"", // developer instruction message (no "type" key)
@@ -388,7 +388,7 @@ func TestMetaResponsesTextOnlyTurnReplaysNoReasoning(t *testing.T) {
 		types.NewUserMessage(types.TextBlock("hi")),
 		{Role: "assistant", Text: "x"},
 	}
-	input := metaInputFromHistory("sys", history)
+	input := responsesInputFromHistory("sys", history)
 	for i, item := range input {
 		m, ok := item.(map[string]any)
 		if !ok {
@@ -401,17 +401,17 @@ func TestMetaResponsesTextOnlyTurnReplaysNoReasoning(t *testing.T) {
 }
 
 func TestMetaToolResponseFromReply_CarriesUsage(t *testing.T) {
-	u := &metaResponsesUsage{InputTokens: 100, OutputTokens: 40, TotalTokens: 140}
-	u.OutputTokensDetails = &metaOutputTokensDetails{ReasoningTokens: 30}
-	u.InputTokensDetails = &metaInputTokensDetails{CachedTokens: 60}
-	resp := metaToolResponseFromReply(&metaResponsesReply{Usage: u})
+	u := &responsesUsage{InputTokens: 100, OutputTokens: 40, TotalTokens: 140}
+	u.OutputTokensDetails = &responsesOutputTokensDetails{ReasoningTokens: 30}
+	u.InputTokensDetails = &responsesInputTokensDetails{CachedTokens: 60}
+	resp := responsesToolResponseFromReply(&responsesReply{Usage: u})
 	want := types.UsageMetadata{InputTokens: 100, OutputTokens: 40, TotalTokens: 140, ThinkingTokens: 30, CachedContentTokens: 60,
 		Known: types.UsageTokens | types.UsageReasoning | types.UsageCacheRead}
 	if resp.Usage != want {
 		t.Fatalf("resp.Usage = %#v, want %#v", resp.Usage, want)
 	}
 
-	respNil := metaToolResponseFromReply(&metaResponsesReply{})
+	respNil := responsesToolResponseFromReply(&responsesReply{})
 	if respNil.Usage != (types.UsageMetadata{}) {
 		t.Fatalf("nil usage resp.Usage = %#v, want zero value", respNil.Usage)
 	}

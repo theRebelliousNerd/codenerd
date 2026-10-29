@@ -107,6 +107,10 @@ type UserConfig struct {
 	// Meta-specific configuration (Muse Spark web search grounding).
 	Meta *MetaProviderConfig `json:"meta,omitempty"`
 
+	// OpenAI API request options (Responses API: web search, service tier,
+	// verbosity, reasoning mode/context/summary, prompt cache lifetime).
+	OpenAI *OpenAIProviderConfig `json:"openai,omitempty"`
+
 	// Claude Code CLI configuration (used when Engine="claude-cli")
 	ClaudeCLI *ClaudeCLIConfig `json:"claude_cli,omitempty"`
 

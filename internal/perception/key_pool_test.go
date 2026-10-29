@@ -385,7 +385,7 @@ func TestKeyPool_OtherProvidersAndModelSwitchKeepRouting(t *testing.T) {
 				mu.Lock()
 				seen[key] = true
 				mu.Unlock()
-				if provider == ProviderMeta {
+				if provider == ProviderMeta || provider == ProviderOpenAI {
 					io.WriteString(w, `{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":4,"output_tokens":5}}`)
 				} else if provider == ProviderGemini {
 					io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":5}}`)

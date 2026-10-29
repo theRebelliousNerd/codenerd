@@ -205,6 +205,13 @@ func TestSlotClients_ThreadMaxInputTokens(t *testing.T) {
 			want:  100000,
 		},
 		{
+			name: "openai worker with a cap",
+			cfg: &config.UserConfig{OpenAIAPIKey: "ok",
+				Worker: &config.WorkerLLMConfig{Provider: "openai", Model: "gpt-6.1-sol", MaxInputTokens: 100000}},
+			build: NewWorkerClientFromUserConfig,
+			want:  100000,
+		},
+		{
 			name: "planner without a cap",
 			cfg: &config.UserConfig{AnthropicAPIKey: "k",
 				Planner: &config.PlannerLLMConfig{Provider: "anthropic", Model: "claude-opus-5-5"}},
@@ -239,11 +246,6 @@ func TestSlotClients_RefuseACapTheClientCannotEnforce(t *testing.T) {
 		name string
 		cfg  *config.UserConfig
 	}{
-		{
-			name: "openai worker",
-			cfg: &config.UserConfig{OpenAIAPIKey: "ok",
-				Worker: &config.WorkerLLMConfig{Provider: "openai", Model: "gpt-test", MaxInputTokens: 100000}},
-		},
 		{
 			name: "ollama worker",
 			cfg: &config.UserConfig{

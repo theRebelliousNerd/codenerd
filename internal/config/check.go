@@ -450,6 +450,13 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.Meta.Check("meta")...)
 	}
 
+	// --- openai ---
+	// Every field is an enumerated request option; a value outside the
+	// API's vocabulary would 400 on the first request, so it refuses here.
+	if c.OpenAI != nil {
+		out = append(out, c.OpenAI.Check("openai")...)
+	}
+
 	// --- observation ---
 	if c.Observation != nil {
 		out = append(out, c.Observation.Check("observation")...)

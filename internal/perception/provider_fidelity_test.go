@@ -46,7 +46,7 @@ var fidelityProbes = map[Surface]fidelityProbe{
 	SurfaceOpenAIResponses: func(t *testing.T, history []types.Message) string {
 		t.Helper()
 		// This turn carries its own signed reasoning; there is no side cache.
-		return encodeForFidelity(t, metaInputFromHistory("", history))
+		return encodeForFidelity(t, responsesInputFromHistory("", history))
 	},
 	SurfaceGeminiContents: func(t *testing.T, history []types.Message) string {
 		t.Helper()

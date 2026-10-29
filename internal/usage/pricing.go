@@ -85,15 +85,30 @@ var priceTable = map[string]Price{
 	"claude-3-sonnet":  {InputPerMTok: 3, OutputPerMTok: 15.00, CacheReadPerMTok: 0.3, CacheWritePerMTok: 3.75},
 	"claude-3-haiku":   {InputPerMTok: 0.25, OutputPerMTok: 1.25, CacheReadPerMTok: 0.025, CacheWritePerMTok: 0.3125},
 
-	// OpenAI
-	"gpt-4o-mini": {InputPerMTok: 0.15, OutputPerMTok: 0.60},
-	"gpt-4o":      {InputPerMTok: 2.50, OutputPerMTok: 10.00},
-	"gpt-4-turbo": {InputPerMTok: 10.00, OutputPerMTok: 30.00},
-	"gpt-4":       {InputPerMTok: 30.00, OutputPerMTok: 60.00},
-	"gpt-3.5":     {InputPerMTok: 0.50, OutputPerMTok: 1.50},
-	"o1-mini":     {InputPerMTok: 3.00, OutputPerMTok: 12.00},
-	"o1":          {InputPerMTok: 15.00, OutputPerMTok: 60.00},
-	"o3-mini":     {InputPerMTok: 1.10, OutputPerMTok: 4.40},
+	// OpenAI, standard tier, prompts up to 272K tokens (above that input and
+	// cache rates double and output is 1.5x, which this table does not model).
+	// CacheWritePerMTok is the 30m write rate (1.25x input), the API default;
+	// a 12h write bills 2.5x. GPT-5.5 and earlier bill no cache writes. The
+	// gpt-5.4 and gpt-5.5 prefixes also price their -mini/-nano variants at
+	// the full rate: an overestimate, never a silent zero.
+	"gpt-6-astra":   {InputPerMTok: 10, OutputPerMTok: 50, CacheReadPerMTok: 1, CacheWritePerMTok: 12.5},
+	"gpt-6.1-sol":   {InputPerMTok: 2, OutputPerMTok: 10, CacheReadPerMTok: 0.10, CacheWritePerMTok: 2.5},
+	"gpt-6-sol":     {InputPerMTok: 2, OutputPerMTok: 10, CacheReadPerMTok: 0.20, CacheWritePerMTok: 2.5},
+	"gpt-6.1-terra": {InputPerMTok: 1, OutputPerMTok: 5, CacheReadPerMTok: 0.05, CacheWritePerMTok: 1.25},
+	"gpt-6-luna":    {InputPerMTok: 0.10, OutputPerMTok: 0.50, CacheReadPerMTok: 0.01, CacheWritePerMTok: 0.125},
+	"gpt-5.6-sol":   {InputPerMTok: 4, OutputPerMTok: 20, CacheReadPerMTok: 0.40, CacheWritePerMTok: 5},
+	"gpt-5.6-terra": {InputPerMTok: 2, OutputPerMTok: 12, CacheReadPerMTok: 0.20, CacheWritePerMTok: 2.5},
+	"gpt-5.6-luna":  {InputPerMTok: 0.20, OutputPerMTok: 1.20, CacheReadPerMTok: 0.02, CacheWritePerMTok: 0.25},
+	"gpt-5.5":       {InputPerMTok: 5, OutputPerMTok: 30, CacheReadPerMTok: 0.50},
+	"gpt-5.4":       {InputPerMTok: 2.50, OutputPerMTok: 15, CacheReadPerMTok: 0.25},
+	"gpt-4o-mini":   {InputPerMTok: 0.15, OutputPerMTok: 0.60},
+	"gpt-4o":        {InputPerMTok: 2.50, OutputPerMTok: 10.00},
+	"gpt-4-turbo":   {InputPerMTok: 10.00, OutputPerMTok: 30.00},
+	"gpt-4":         {InputPerMTok: 30.00, OutputPerMTok: 60.00},
+	"gpt-3.5":       {InputPerMTok: 0.50, OutputPerMTok: 1.50},
+	"o1-mini":       {InputPerMTok: 3.00, OutputPerMTok: 12.00},
+	"o1":            {InputPerMTok: 15.00, OutputPerMTok: 60.00},
+	"o3-mini":       {InputPerMTok: 1.10, OutputPerMTok: 4.40},
 
 	// Google
 	"gemini-2.5-pro":   {InputPerMTok: 1.25, OutputPerMTok: 10.00},

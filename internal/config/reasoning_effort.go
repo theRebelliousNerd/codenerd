@@ -70,6 +70,8 @@ func ValidateReasoningEffort(provider, model, effort string) error {
 		return nil
 	case "meta":
 		return ValidateMetaEffort(effort)
+	case "openai":
+		return ValidateOpenAIEffort(model, effort)
 	default:
 		return nil
 	}

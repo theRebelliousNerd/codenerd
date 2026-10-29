@@ -86,11 +86,14 @@ func TestClients_WhenCompletionSucceeds_ShouldTrackUsageUnderCanonicalProvider(t
 			name:         "openai",
 			wantProvider: "openai",
 			handler: func(w http.ResponseWriter, r *http.Request) {
-				_ = json.NewEncoder(w).Encode(openAIChatBody(11, 7))
+				_ = json.NewEncoder(w).Encode(openAIResponsesBody(11, 7))
 			},
 			call: func(ctx context.Context, baseURL string) error {
-				c := NewOpenAIClientWithConfig(OpenAIConfig{APIKey: "k", BaseURL: baseURL, Model: "gpt-x", Timeout: 5 * time.Second})
-				_, err := c.CompleteWithSystem(ctx, "sys", "user")
+				c, err := NewOpenAIClient(OpenAIConfig{APIKey: "k", BaseURL: baseURL, Model: "gpt-6.1-sol", Timeout: 5 * time.Second})
+				if err != nil {
+					return err
+				}
+				_, err = c.CompleteWithSystem(ctx, "sys", "user")
 				return err
 			},
 		},
@@ -271,9 +274,9 @@ func TestStreamingClients_WhenStreamCompletes_ShouldTrackOnceWithFinalBilledToke
 			name:         "openai",
 			wantProvider: "openai",
 			wantCache:    4, wantReasoning: 2,
-			handler: func(w http.ResponseWriter, r *http.Request) { sseChatStream(w, deltas, 11, 7) },
+			handler: func(w http.ResponseWriter, r *http.Request) { sseResponsesStream(w, deltas, 11, 7) },
 			stream: func(ctx context.Context, baseURL string) (<-chan string, <-chan types.StreamResult) {
-				c := NewOpenAIClientWithConfig(OpenAIConfig{APIKey: "k", BaseURL: baseURL, Model: "gpt-x", Timeout: 5 * time.Second})
+				c, _ := NewOpenAIClient(OpenAIConfig{APIKey: "k", BaseURL: baseURL, Model: "gpt-6.1-sol", Timeout: 5 * time.Second})
 				return c.CompleteWithStreaming(ctx, "sys", "user", false)
 			},
 		},
@@ -435,11 +438,11 @@ func TestOpenAICompatExecuteChat_WhenThinkingRetryFires_ShouldTrackBothBilledCal
 
 func TestToolCompletion_WhenToolsOffered_ShouldTrackUnderToolGenOperation(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(openAIChatBody(11, 7))
+		_ = json.NewEncoder(w).Encode(openAIResponsesBody(11, 7))
 	}))
 	defer srv.Close()
 
-	c := NewOpenAIClientWithConfig(OpenAIConfig{APIKey: "k", BaseURL: srv.URL, Model: "gpt-x", Timeout: 5 * time.Second})
+	c := newTestOpenAIClient(t, srv.URL, "gpt-6.1-sol")
 	ctx, tracker := trackedContext(t)
 	if _, err := c.CompleteWithTools(ctx, "sys", "user", []ToolDefinition{{Name: "read_file", Description: "d"}}); err != nil {
 		t.Fatalf("CompleteWithTools: %v", err)

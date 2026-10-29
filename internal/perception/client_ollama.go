@@ -14,8 +14,8 @@ import (
 // Uses Ollama's OpenAI-compatible API at {endpoint}/v1/chat/completions
 // (no cloud API key required; auth header is a placeholder "ollama").
 type OllamaClient struct {
-	// openai is the shared OpenAI-compatible transport pointed at Ollama.
-	openai *OpenAIClient
+	// openai is Ollama's Chat Completions transport.
+	openai *ollamaTransport
 	model  string
 }
 
@@ -47,15 +47,7 @@ func NewOllamaClientWithConfig(cfg OllamaLLMConfig) *OllamaClient {
 	// Strip trailing slash; OpenAI transport appends /chat/completions to BaseURL/v1.
 	endpoint := strings.TrimRight(cfg.Endpoint, "/")
 	baseURL := endpoint + "/v1"
-	openai := NewOpenAIClientWithConfig(OpenAIConfig{
-		APIKey:  "ollama", // Ollama ignores auth; OpenAI client requires non-empty key
-		BaseURL: baseURL,
-		Model:   cfg.Model,
-		Timeout: cfg.Timeout,
-	})
-	// Ollama borrows the OpenAI transport but is its own provider for billing
-	// purposes: local tokens cost nothing and must not inflate the openai row.
-	openai.provider = ProviderOllama
+	openai := newOllamaTransport(baseURL, cfg.Model, cfg.Timeout, 0)
 	logging.Perception("Ollama chat client: endpoint=%s model=%s", endpoint, cfg.Model)
 	return &OllamaClient{openai: openai, model: cfg.Model}
 }
@@ -81,10 +73,10 @@ func (c *OllamaClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 }
 
 // CompleteWithToolResults implements types.ToolResultsProvider so multi-turn
-// tool loops work for local Ollama the same way as xAI/OpenAI.
+// tool loops work for local Ollama the same way as for the cloud vendors.
 func (c *OllamaClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	// OpenAIClient has no multi-turn tool-results path, so this builds the
-	// request with the shared helpers directly against the same transport.
+	// The transport's single-turn methods take a prompt, not a history, so
+	// the multi-turn request is built here against the same transport.
 	msgs, err := MapTypesHistoryToOpenAIMessages(systemPrompt, history)
 	if err != nil {
 		return nil, err

@@ -99,6 +99,7 @@ type ProviderConfig struct {
 	Gemini    *config.GeminiProviderConfig    // Gemini thinking mode and built-in tools
 	Anthropic *config.AnthropicProviderConfig // Direct Messages API options
 	Meta      *config.MetaProviderConfig      // Muse Spark web search grounding
+	OpenAI    *config.OpenAIProviderConfig    // OpenAI Responses request options
 	Ollama    *config.OllamaLLMConfig         // Local Ollama chat endpoint + model
 
 	// Worker is optional secondary LLM (e.g. ollama gemma for shards).
@@ -187,6 +188,7 @@ func ProviderConfigFromUserConfig(userCfg *config.UserConfig) (*ProviderConfig, 
 		Gemini:              userCfg.GetGeminiConfig(),
 		Anthropic:           userCfg.Anthropic,
 		Meta:                userCfg.GetMetaConfig(),
+		OpenAI:              userCfg.GetOpenAIConfig(),
 		Ollama:              &ollamaCfg,
 		Worker:              userCfg.GetWorkerLLMConfig(),
 		MaxOutputTokens:     userCfg.MaxOutputTokens,
@@ -400,14 +402,23 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 		return NewGeminiClientWithConfig(flashCfg), nil
 
 	case ProviderOpenAI:
-		openaiCfg := DefaultOpenAIConfig(cfg.APIKey)
-		if cfg.BaseURL != "" {
-			openaiCfg.BaseURL = cfg.BaseURL
-		}
+		openaiCfg := openAIConfigFor(cfg)
+		openaiCfg.Model = classificationModel(cfg)
+		// A label needs little output, but a reasoning model's thinking counts
+		// against the same ceiling: the classification ceiling clears the
+		// reasoning floor, and the classifier's own effort keeps it short.
 		openaiCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
-		client := NewOpenAIClientWithConfig(openaiCfg)
-		client.SetModel(classificationModel(cfg))
-		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=openai model=%s (configured=%v)", classificationModel(cfg), model != "")
+		openaiCfg.MaxInputTokens = 0
+		openaiCfg.ReasoningEffort = cfg.ClassificationReasoningEffort
+		// A search per classification would bill a search per turn to ground
+		// a label.
+		openaiCfg.Options.EnableWebSearch = nil
+		client, err := NewOpenAIClient(openaiCfg)
+		if err != nil {
+			logging.Get(logging.CategoryPerception).Warn("Classification client unavailable for openai: %v", err)
+			return nil, nil
+		}
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=openai model=%s reasoning_effort=%s (configured=%v)", openaiCfg.Model, openaiCfg.ReasoningEffort, model != "")
 		return client, nil
 
 	case ProviderZAI:
@@ -538,16 +549,7 @@ func newRawClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 		return client, nil
 
 	case ProviderOpenAI:
-		cfg := DefaultOpenAIConfig(config.APIKey)
-		if config.BaseURL != "" {
-			cfg.BaseURL = config.BaseURL
-		}
-		cfg.MaxOutputTokens = config.MaxOutputTokens
-		client := NewOpenAIClientWithConfig(cfg)
-		if config.Model != "" {
-			client.SetModel(config.Model)
-		}
-		return client, nil
+		return NewOpenAIClient(openAIConfigFor(config))
 
 	case ProviderGemini:
 		// Build GeminiConfig with user settings
@@ -727,6 +729,7 @@ func newSecondarySlotClient(userCfg *config.UserConfig, slot string, w *config.S
 		Gemini:    userCfg.GetGeminiConfig(),
 		Anthropic: userCfg.Anthropic,
 		Meta:      userCfg.GetMetaConfig(),
+		OpenAI:    userCfg.GetOpenAIConfig(),
 	}
 	// For OpenAI-compatible vendors the slot's Endpoint doubles as a per-slot
 	// base-URL override, so slots can sit behind different gateways.
@@ -881,4 +884,25 @@ func isAPIProvider(p Provider) bool {
 		return true
 	}
 	return false
+}
+
+// openAIConfigFor builds the OpenAI client config of a slot: its key, model,
+// ceilings, effort and the workspace's "openai" block.
+func openAIConfigFor(pc *ProviderConfig) OpenAIConfig {
+	cfg := DefaultOpenAIConfig(pc.APIKey)
+	if pc.BaseURL != "" {
+		cfg.BaseURL = pc.BaseURL
+	}
+	cfg.Model = pc.Model
+	cfg.MaxOutputTokens = pc.MaxOutputTokens
+	cfg.MaxInputTokens = pc.MaxInputTokens
+	cfg.ReasoningEffort = pc.ReasoningEffort
+	if pc.OpenAI != nil {
+		cfg.Options = *pc.OpenAI
+		if pc.OpenAI.EnableWebSearch != nil {
+			v := *pc.OpenAI.EnableWebSearch
+			cfg.Options.EnableWebSearch = &v
+		}
+	}
+	return cfg
 }

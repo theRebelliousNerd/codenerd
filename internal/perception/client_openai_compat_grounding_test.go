@@ -53,7 +53,7 @@ func TestGroundedWebSearch_ExactPayload(t *testing.T) {
 	if gotPath != "/responses" {
 		t.Errorf("path = %q, want /responses", gotPath)
 	}
-	var gotBody metaResponsesRequest
+	var gotBody responsesRequest
 	if err := json.Unmarshal(raw, &gotBody); err != nil {
 		t.Fatalf("decode grounded request: %v", err)
 	}
@@ -128,7 +128,7 @@ func jsonStringListHas(list []any, want string) bool {
 func TestGroundedWebSearch_ReasoningEffortOverride(t *testing.T) {
 	var gotEffort string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req metaResponsesRequest
+		var req responsesRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		if req.Reasoning != nil {
 			gotEffort = req.Reasoning.Effort
@@ -171,7 +171,7 @@ func TestGroundedWebSearch_ReasoningEffortOverride(t *testing.T) {
 func TestGroundedWebSearch_ReasoningEffortFromContext(t *testing.T) {
 	var efforts []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req metaResponsesRequest
+		var req responsesRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		if req.Reasoning != nil {
 			efforts = append(efforts, req.Reasoning.Effort)
@@ -497,7 +497,7 @@ func TestGroundedWebSearch_UsageFallback(t *testing.T) {
 func TestGroundedWebSearch_ModelFromContext(t *testing.T) {
 	var gotModel string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req metaResponsesRequest
+		var req responsesRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		gotModel = req.Model
 		w.Header().Set("Content-Type", "application/json")

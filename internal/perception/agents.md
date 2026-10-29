@@ -18,16 +18,17 @@
   may still return `(nil, nil)` where their API documents fallback.
 - Reasoning effort is the config's (`internal/config/reasoning_effort.go`): every
   slot arrives resolved; a shard profile's rides the context
-  (`types.WithReasoningEffort`). Meta and Anthropic send it wherever the model
-  accepts one (`config.AnthropicSupportsEffort`); other vendors omit the field.
+  (`types.WithReasoningEffort`). Meta, Anthropic and OpenAI send it wherever the
+  model accepts one (`config.AnthropicSupportsEffort`, `config.ValidateOpenAIEffort`);
+  other vendors omit the field.
   No capability hint, vendor default or literal picks an effort; only Codex CLI
   reads `types.WithModelCapability`, through its own configured efforts.
 - Never pick or substitute a model or provider: no default model, no alias
-  table. Model-family checks (`config.Anthropic*`) only detect capabilities.
+  table. Model-family checks (`config.Anthropic*`, `config.OpenAI*`) only detect capabilities.
 - A slot's `max_input_tokens` is enforced by its client (`InputWindowTokens`,
   `admitInputWindow` over `prompt.EstimateRequestTokens`, before any send);
-  Anthropic and OpenAI-compatible clients enforce it, and a slot whose client
-  cannot is refused at construction.
+  Anthropic, OpenAI and OpenAI-compatible clients enforce it, and a slot whose
+  client cannot is refused at construction.
 - Anthropic server web tools are opt-in (`anthropic.web_search`/`web_fetch`):
   their blocks replay verbatim (`types.BlockServerTool`), are never tool calls,
   `pause_turn` resumes (bounded), and sources come from results and citations.
@@ -50,7 +51,7 @@
   `perception_routing.mg`); do not reintroduce a Go validator.
 - Meta grounding (2026-09-29): with `meta.enable_web_search` on, every Meta request goes to
   `/responses` with `web_search` (Chat Completions cannot carry it). The answer is the
-  non-commentary message items only (`metaAnswerText`); citations and retrieved pages are both
+  non-commentary message items only (`responsesAnswerText`); citations and retrieved pages are both
   kept. Grounding control is vendor-neutral (`SetEnableWebSearch`). Spec:
   `Docs/architecture/perception/13-META-SEARCH-GROUNDING.md`.
 - A classification has a typed outcome (`classification_outcome.go`): `Intent.Outcome`
@@ -70,3 +71,9 @@
   history-aware method and GCD all end in `LLMTransducer.Understand`. Only
   `core.ErrSchemaNotSupported` or an unreadable schema answer moves a schema attempt to
   the free-form one; auth, cancellation, outages and rate limits are terminal.
+- OpenAI is Responses-only (`client_openai*.go`, spec
+  `Docs/architecture/perception/14-OPENAI-RESPONSES.md`). Meta and OpenAI share the
+  protocol code in `responses_*.go` (wire types, history input with reasoning replay,
+  reply parsing, the stream reader, the retrying transport); each client keeps its own
+  options, tools and quirks. Ollama owns the Chat Completions transport
+  (`client_ollama_transport.go`).

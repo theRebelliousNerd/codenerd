@@ -86,7 +86,7 @@ func TestMetaResponses_GivesUpAfterBoundedAttempts(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error after persistent 503s")
 	}
-	if !strings.Contains(err.Error(), "responses HTTP 503") || !strings.Contains(err.Error(), "service_overloaded") {
+	if !strings.Contains(err.Error(), "failed with status 503") || !strings.Contains(err.Error(), "service_overloaded") {
 		t.Fatalf("error = %q, want the status and the vendor body", err)
 	}
 	if !strings.Contains(err.Error(), "after 4 attempts") {
@@ -107,8 +107,8 @@ func TestMetaResponses_DoesNotRetry400(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error on 400")
 	}
-	if !strings.Contains(err.Error(), "responses HTTP 400") {
-		t.Fatalf("error = %q, want responses HTTP 400", err)
+	if !strings.Contains(err.Error(), "failed with status 400") {
+		t.Fatalf("error = %q, want failed with status 400", err)
 	}
 	if got := atomic.LoadInt32(seen); got != 1 {
 		t.Fatalf("server saw %d requests, want exactly 1", got)

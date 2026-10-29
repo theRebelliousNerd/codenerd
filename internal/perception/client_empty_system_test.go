@@ -26,12 +26,16 @@ func TestClients_SystemPromptIsTheCallersOrNone(t *testing.T) {
 	}{
 		{
 			name:  "openai",
-			reply: openAIBody,
+			reply: func(w http.ResponseWriter) { _ = json.NewEncoder(w).Encode(openAIResponsesBody(1, 1)) },
 			call: func(ctx context.Context, baseURL, system string) error {
-				_, err := NewOpenAIClientWithConfig(OpenAIConfig{APIKey: "k", BaseURL: baseURL, Model: "gpt-x", Timeout: 5 * time.Second}).CompleteWithSystem(ctx, system, "user")
+				c, err := NewOpenAIClient(OpenAIConfig{APIKey: "k", BaseURL: baseURL, Model: "gpt-6.1-sol", Timeout: 5 * time.Second})
+				if err != nil {
+					return err
+				}
+				_, err = c.CompleteWithSystem(ctx, system, "user")
 				return err
 			},
-			system: chatSystemMessage,
+			system: responsesDeveloperText,
 		},
 		{
 			name:  "xai",

@@ -123,15 +123,6 @@ type AnthropicConfig struct {
 	ReasoningEffort string
 }
 
-// OpenAIConfig holds configuration for OpenAI client.
-type OpenAIConfig struct {
-	APIKey          string
-	BaseURL         string
-	Model           string
-	Timeout         time.Duration
-	MaxOutputTokens int // completion ceiling; zero uses the client default
-}
-
 // GeminiConfig holds configuration for Gemini client.
 type GeminiConfig struct {
 	APIKey          string

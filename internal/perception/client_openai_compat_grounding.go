@@ -92,7 +92,7 @@ func sanitizeGroundedErrorToken(s, apiKey string, maxLen int) string {
 // groundedStatusError builds the sanitized error for a non-200 response.
 // Never returns raw body or error message bodies: only the status plus
 // sanitized structured code/type tokens.
-func groundedStatusError(status int, body []byte, apiKey string) error {
+func groundedStatusError(provider Provider, status int, body []byte, apiKey string) error {
 	var errPayload struct {
 		Error *struct {
 			Code    string `json:"code"`
@@ -118,13 +118,13 @@ func groundedStatusError(status int, body []byte, apiKey string) error {
 	}
 	switch {
 	case code != "" && typ != "":
-		return fmt.Errorf("meta grounded search: request failed with status %d: code=%s type=%s", status, code, typ)
+		return fmt.Errorf("%s grounded search: request failed with status %d: code=%s type=%s", provider, status, code, typ)
 	case code != "":
-		return fmt.Errorf("meta grounded search: request failed with status %d: code=%s", status, code)
+		return fmt.Errorf("%s grounded search: request failed with status %d: code=%s", provider, status, code)
 	case typ != "":
-		return fmt.Errorf("meta grounded search: request failed with status %d: type=%s", status, typ)
+		return fmt.Errorf("%s grounded search: request failed with status %d: type=%s", provider, status, typ)
 	default:
-		return fmt.Errorf("meta grounded search: request failed with status %d", status)
+		return fmt.Errorf("%s grounded search: request failed with status %d", provider, status)
 	}
 }
 
@@ -133,19 +133,19 @@ func groundedStatusError(status int, body []byte, apiKey string) error {
 // preserving the identity callers use to distinguish timeouts. It returns nil
 // when the failure is a plain transport error that the retry loop should
 // absorb rather than return.
-func groundedContextErr(ctx context.Context, err error) error {
+func groundedContextErr(provider Provider, ctx context.Context, err error) error {
 	if errors.Is(err, context.Canceled) {
-		return fmt.Errorf("meta grounded search: request canceled: %w", context.Canceled)
+		return fmt.Errorf("%s grounded search: request canceled: %w", provider, context.Canceled)
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("meta grounded search: request deadline exceeded: %w", context.DeadlineExceeded)
+		return fmt.Errorf("%s grounded search: request deadline exceeded: %w", provider, context.DeadlineExceeded)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		if errors.Is(ctxErr, context.Canceled) {
-			return fmt.Errorf("meta grounded search: request canceled: %w", context.Canceled)
+			return fmt.Errorf("%s grounded search: request canceled: %w", provider, context.Canceled)
 		}
 		if errors.Is(ctxErr, context.DeadlineExceeded) {
-			return fmt.Errorf("meta grounded search: request deadline exceeded: %w", context.DeadlineExceeded)
+			return fmt.Errorf("%s grounded search: request deadline exceeded: %w", provider, context.DeadlineExceeded)
 		}
 	}
 	return nil
@@ -153,11 +153,11 @@ func groundedContextErr(ctx context.Context, err error) error {
 
 // groundedSleepErr maps a sleepCtx interruption (the context died mid-backoff)
 // to the same cancellation errors the transport path returns.
-func groundedSleepErr(err error) error {
+func groundedSleepErr(provider Provider, err error) error {
 	if errors.Is(err, context.Canceled) {
-		return fmt.Errorf("meta grounded search: request canceled: %w", context.Canceled)
+		return fmt.Errorf("%s grounded search: request canceled: %w", provider, context.Canceled)
 	}
-	return fmt.Errorf("meta grounded search: request deadline exceeded: %w", context.DeadlineExceeded)
+	return fmt.Errorf("%s grounded search: request deadline exceeded: %w", provider, context.DeadlineExceeded)
 }
 
 // GroundedWebSearch performs a Meta-native grounded web search via POST /responses.
@@ -165,7 +165,7 @@ func groundedSleepErr(err error) error {
 // before any HTTP is attempted.
 func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string) (*types.GroundedWebSearchResult, error) {
 	if c == nil {
-		return nil, fmt.Errorf("meta grounded search: client is nil")
+		return nil, fmt.Errorf("grounded search: client is nil")
 	}
 	if c.vendor != ProviderMeta {
 		return nil, fmt.Errorf("grounded web search is only supported for provider %q (got %q)", ProviderMeta, c.vendor)
@@ -199,7 +199,7 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 
 	// The same builder the tool loop uses, so a grounded search is sent the
 	// slot's configured effort (or a profile's) like every other request.
-	reqBody := c.newResponsesRequest(ctx, []any{metaInputText("user", trimmed)})
+	reqBody := c.newResponsesRequest(ctx, []any{responsesInputText("user", trimmed)})
 	// Always attach search. This call is a search even when the config
 	// switch that grounds ordinary completions is off.
 	if err := c.forceWebSearch(&reqBody, nil); err != nil {
@@ -208,19 +208,43 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 	reqBody.PromptCacheKey = promptCacheKey(reqBody.Model, reqBody.Tools)
 	model := reqBody.Model
 
+	parsed, err := postGroundedSearch(ctx, responsesEndpoint{
+		httpClient: c.httpClient, baseURL: c.baseURL, apiKey: c.apiKey, provider: c.vendor,
+	}, reqBody, effectiveTimeout, c.throttle)
+	if err != nil {
+		return nil, err
+	}
+	result, sources, err := groundedResultFromReply(c.vendor, parsed)
+	if err != nil {
+		return nil, err
+	}
+	// A grounded search is a billed model turn like any other; it does not go
+	// through executeResponses (whose errors carry the body), so it reports
+	// its own usage.
+	reportUsage(ctx, model, c.vendor, usageOpSearch, parsed.Usage.metadata())
+	c.recordGroundingSources(sources)
+	return result, nil
+}
+
+// postGroundedSearch sends one grounded-search request with bounded retry and
+// returns the decoded reply. Errors never carry the response body or a vendor
+// message: only the status and sanitized code/type tokens, because a search
+// error surfaces to the model and a malicious structured error must not
+// exfiltrate the key or inject text. Shared by Meta and OpenAI.
+func postGroundedSearch(ctx context.Context, e responsesEndpoint, reqBody responsesRequest, effectiveTimeout time.Duration, throttle func()) (*responsesReply, error) {
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("meta grounded search: failed to marshal request: %w", err)
+		return nil, fmt.Errorf("%s grounded search: failed to marshal request: %w", e.provider, err)
 	}
 	if len(jsonData) > maxGroundedRequestBytes {
-		return nil, fmt.Errorf("meta grounded search: serialized request exceeds %d bytes", maxGroundedRequestBytes)
+		return nil, fmt.Errorf("%s grounded search: serialized request exceeds %d bytes", e.provider, maxGroundedRequestBytes)
 	}
 
-	c.throttle()
+	throttle()
 
-	endpoint := strings.TrimSuffix(c.baseURL, "/") + metaResponsesPath
+	endpoint := e.url()
 
-	httpClient := c.httpClient
+	httpClient := e.httpClient
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: effectiveTimeout, Transport: wireTransport}
 	}
@@ -238,10 +262,10 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(jsonData))
 		if err != nil {
-			return nil, fmt.Errorf("meta grounded search: failed to create request: %w", err)
+			return nil, fmt.Errorf("%s grounded search: failed to create request: %w", e.provider, err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		req.Header.Set("Authorization", "Bearer "+e.apiKey)
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
@@ -249,14 +273,14 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 			// RoundTripper. Preserve context cancellation/deadline identity so
 			// callers can distinguish timeouts, but otherwise return a generic
 			// transport failure without wrapping the raw error string.
-			if ctxErr := groundedContextErr(ctx, err); ctxErr != nil {
+			if ctxErr := groundedContextErr(e.provider, ctx, err); ctxErr != nil {
 				return nil, ctxErr
 			}
-			lastErr = fmt.Errorf("meta grounded search: transport error")
+			lastErr = fmt.Errorf("%s grounded search: transport error", e.provider)
 			logging.PerceptionWarn("[%s] grounded search attempt %d/%d transport failure; retrying",
-				c.vendor, attempt+1, maxRetries+1)
+				e.provider, attempt+1, maxRetries+1)
 			if sleepErr := sleepCtx(ctx, retryDelay(nil, attempt)); sleepErr != nil {
-				return nil, groundedSleepErr(sleepErr)
+				return nil, groundedSleepErr(e.provider, sleepErr)
 			}
 			continue
 		}
@@ -265,10 +289,10 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 		body, err = io.ReadAll(io.LimitReader(resp.Body, maxGroundedResponseBytes+1))
 		resp.Body.Close()
 		if err != nil {
-			return nil, fmt.Errorf("meta grounded search: failed to read response: %w", err)
+			return nil, fmt.Errorf("%s grounded search: failed to read response: %w", e.provider, err)
 		}
 		if int64(len(body)) > maxGroundedResponseBytes {
-			return nil, fmt.Errorf("meta grounded search: response too large (%d bytes)", len(body))
+			return nil, fmt.Errorf("%s grounded search: response too large (%d bytes)", e.provider, len(body))
 		}
 
 		if resp.StatusCode == http.StatusOK {
@@ -279,60 +303,54 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 		if resp.StatusCode == http.StatusTooManyRequests || isTransientHTTPStatus(resp.StatusCode) {
 			wait := retryDelay(resp, attempt)
 			logging.PerceptionWarn("[%s] grounded search attempt %d/%d got HTTP %d; retrying in %v",
-				c.vendor, attempt+1, maxRetries+1, resp.StatusCode, wait)
-			lastErr = groundedStatusError(resp.StatusCode, body, c.apiKey)
+				e.provider, attempt+1, maxRetries+1, resp.StatusCode, wait)
+			lastErr = groundedStatusError(e.provider, resp.StatusCode, body, e.apiKey)
 			if sleepErr := sleepCtx(ctx, wait); sleepErr != nil {
-				return nil, groundedSleepErr(sleepErr)
+				return nil, groundedSleepErr(e.provider, sleepErr)
 			}
 			continue
 		}
-		return nil, groundedStatusError(resp.StatusCode, body, c.apiKey)
+		return nil, groundedStatusError(e.provider, resp.StatusCode, body, e.apiKey)
 	}
 	if lastErr != nil {
 		return nil, fmt.Errorf("%w (after %d attempts)", lastErr, maxRetries+1)
 	}
 
-	var parsed metaResponsesReply
+	var parsed responsesReply
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return nil, fmt.Errorf("meta grounded search: failed to parse response: %w", err)
+		return nil, fmt.Errorf("%s grounded search: failed to parse response: %w", e.provider, err)
 	}
 	if parsed.Error != nil {
-		code := sanitizeGroundedErrorToken(parsed.Error.Code, c.apiKey, maxGroundedErrorCodeLen)
-		typ := sanitizeGroundedErrorToken(parsed.Error.Type, c.apiKey, maxGroundedErrorTypeLen)
+		code := sanitizeGroundedErrorToken(parsed.Error.Code, e.apiKey, maxGroundedErrorCodeLen)
+		typ := sanitizeGroundedErrorToken(parsed.Error.Type, e.apiKey, maxGroundedErrorTypeLen)
 		// Any non-nil error object must fail, even without message. Never expose message.
 		switch {
 		case code != "" && typ != "":
-			return nil, fmt.Errorf("meta grounded search: api error: code=%s type=%s", code, typ)
+			return nil, fmt.Errorf("%s grounded search: api error: code=%s type=%s", e.provider, code, typ)
 		case code != "":
-			return nil, fmt.Errorf("meta grounded search: api error: code=%s", code)
+			return nil, fmt.Errorf("%s grounded search: api error: code=%s", e.provider, code)
 		case typ != "":
-			return nil, fmt.Errorf("meta grounded search: api error: type=%s", typ)
+			return nil, fmt.Errorf("%s grounded search: api error: type=%s", e.provider, typ)
 		default:
-			return nil, fmt.Errorf("meta grounded search: api error")
+			return nil, fmt.Errorf("%s grounded search: api error", e.provider)
 		}
 	}
+	return &parsed, nil
+}
 
-	// Reasoning items are not read. web_search_call contributes retrieved
-	// pages, not answer text.
-	captured := metaGroundingFromReply(&parsed)
-	text := strings.TrimSpace(metaAssistantText(&parsed))
+// groundedResultFromReply turns a grounded-search reply into the result and
+// its source URLs. Reasoning items are not read; web_search_call contributes
+// retrieved pages, not answer text.
+func groundedResultFromReply(provider Provider, reply *responsesReply) (*types.GroundedWebSearchResult, []string, error) {
+	captured := responsesGroundingFromReply(reply)
+	text := strings.TrimSpace(responsesAssistantText(reply))
 	if text == "" {
-		return nil, fmt.Errorf("meta grounded search: no output_text in response")
+		return nil, nil, fmt.Errorf("%s grounded search: no output_text in response", provider)
 	}
-
-	usage := parsed.Usage.groundedUsage()
-	// A grounded search is a billed model turn like any other; it just does not
-	// go through executeChat, so it needs its own report. executeResponses is
-	// not used here: its errors include the response body, and this path must
-	// not.
-	reportUsage(ctx, model, c.vendor, usageOpSearch, parsed.Usage.metadata())
-	c.recordGroundingSources(captured.Sources)
-
-	result := &types.GroundedWebSearchResult{
+	return &types.GroundedWebSearchResult{
 		Text:      text,
 		Citations: captured.Citations,
 		Results:   captured.Results,
-		Usage:     usage,
-	}
-	return result, nil
+		Usage:     reply.Usage.groundedUsage(),
+	}, captured.Sources, nil
 }

@@ -32,7 +32,13 @@ perception/
 ├── client_schema.go        # Provider-specific JSON schemas
 ├── client_zai.go           # Z.AI client
 ├── client_anthropic.go     # Anthropic/Claude client
-├── client_openai.go        # OpenAI/Codex client
+├── client_openai.go        # OpenAI client (Responses API)
+├── client_openai_stream.go # OpenAI Responses streaming
+├── client_openai_grounding.go # OpenAI hosted web_search, grounded search
+├── client_meta_responses.go   # Meta (Muse Spark) on the Responses API
+├── responses_*.go          # Shared Responses wire, input, reply, stream, transport
+├── client_ollama.go        # Ollama client
+├── client_ollama_transport.go # Ollama Chat Completions transport
 ├── client_gemini.go        # Google Gemini client
 ├── client_xai.go           # xAI/Grok client
 ├── client_openrouter.go    # OpenRouter multi-model
@@ -43,16 +49,20 @@ perception/
 
 ## LLM Providers
 
-| Provider | Config Key | Default Model |
-|----------|------------|---------------|
-| Z.AI | `zai_api_key` | `glm-4.7` |
-| Anthropic | `anthropic_api_key` | Explicit `model` required |
-| OpenAI | `openai_api_key` | `gpt-5.1-codex-max` |
-| Gemini | `gemini_api_key` | `gemini-3-pro-preview` |
-| xAI | `xai_api_key` | `grok-3-beta` |
-| OpenRouter | `openrouter_api_key` | (various) |
-| Claude CLI | `engine: claude-cli` | (CLI default) |
-| Codex CLI | `engine: codex-cli` | (CLI default) |
+No client has a default model: every API provider needs `model` (or the
+slot's `worker.model` / `planner.model`, or a shard profile's `model`) in
+`.nerd/config.json`, or the client is not built.
+
+| Provider | Config Key |
+|----------|------------|
+| Z.AI | `zai_api_key` |
+| Anthropic | `anthropic_api_key` |
+| OpenAI | `openai_api_key` |
+| Gemini | `gemini_api_key` |
+| xAI | `xai_api_key` |
+| OpenRouter | `openrouter_api_key` |
+| Claude CLI | `engine: claude-cli` |
+| Codex CLI | `engine: codex-cli` |
 
 ## API key pools
 
@@ -252,6 +262,33 @@ cfg := GeminiConfig{
 }
 ```
 
+## OpenAI Features
+
+OpenAIClient speaks the Responses API (`POST /v1/responses`) for every call:
+plain and streamed completions, single- and multi-turn tool use
+(`ToolResultsProvider`), and grounded search. Options come from the `openai`
+block of `.nerd/config.json`; the slot's `reasoning_effort` (or a shard
+profile's) is sent as `reasoning.effort`.
+
+- **Reasoning replay**: `store:false`; each turn's encrypted reasoning items
+  are replayed in position on the next tool turn.
+- **Effort rules**: `config.ValidateOpenAIEffort` refuses an effort the model
+  rejects at load (GPT-6 Astra and GPT-6.1 Sol take low..max; Terra, Luna and
+  GPT-6 Sol also take none).
+- **Structured output**: piggyback envelopes use strict `text.format`
+  json_schema, retried without it if the model refuses the schema.
+- **Prompt caching**: `prompt_cache_key` per model and tool catalog;
+  `prompt_cache_options.ttl` (`openai.prompt_cache_ttl`) on GPT-5.6+, and
+  `prompt_cache_retention: "24h"` on earlier GPT-5 models. Cache writes are
+  reported as `CacheWriteTokens`.
+- **Options**: `service_tier`, `verbosity`, `reasoning_mode` (standard|pro),
+  `reasoning_context`, `reasoning_summary` (streamed as thoughts),
+  `enable_web_search` + `search_context_size`.
+
+```json
+"openai": {"service_tier": "auto", "verbosity": "medium", "prompt_cache_ttl": "30m"}
+```
+
 ## Testing
 
 ```bash
@@ -260,4 +297,4 @@ go test ./internal/perception/...
 
 ---
 
-**Last Updated:** December 2024
+**Last Updated:** October 2026

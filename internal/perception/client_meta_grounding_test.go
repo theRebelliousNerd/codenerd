@@ -60,9 +60,9 @@ func metaCaptureServer(t *testing.T, reply string) (*httptest.Server, *[]string,
 	return srv, &paths, &bodies
 }
 
-func decodeMetaBody(t *testing.T, raw []byte) (metaResponsesRequest, map[string]any) {
+func decodeMetaBody(t *testing.T, raw []byte) (responsesRequest, map[string]any) {
 	t.Helper()
-	var req metaResponsesRequest
+	var req responsesRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
 		t.Fatalf("decode request: %v\n%s", err, raw)
 	}
@@ -233,16 +233,16 @@ func assertFixtureSources(t *testing.T, sources []string) {
 }
 
 func TestMetaGrounding_ParsesCitationsAndSearchResults(t *testing.T) {
-	var reply metaResponsesReply
+	var reply responsesReply
 	if err := json.Unmarshal([]byte(metaGroundingFixture), &reply); err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
-	text := strings.TrimSpace(metaAssistantText(&reply))
+	text := strings.TrimSpace(responsesAssistantText(&reply))
 	assertNoLeakedTrace(t, text)
 	if text != "codeNERD separates creativity from control." {
 		t.Fatalf("text = %q", text)
 	}
-	got := metaGroundingFromReply(&reply)
+	got := responsesGroundingFromReply(&reply)
 	if len(got.Citations) != 1 || got.Citations[0].URL != "https://example.com/codenerd" || got.Citations[0].Title != "codeNERD" {
 		t.Fatalf("citations = %+v", got.Citations)
 	}
@@ -605,18 +605,18 @@ const metaCommentaryFixture = `{
 }`
 
 func TestMetaGrounding_CommentaryIsNotTheAnswer(t *testing.T) {
-	var reply metaResponsesReply
+	var reply responsesReply
 	if err := json.Unmarshal([]byte(metaCommentaryFixture), &reply); err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
 	const want = "The latest release is 3.14.7."
-	if got := metaAssistantText(&reply); got != want {
-		t.Fatalf("metaAssistantText = %q, want %q (commentary must not reach the answer)", got, want)
+	if got := responsesAssistantText(&reply); got != want {
+		t.Fatalf("responsesAssistantText = %q, want %q (commentary must not reach the answer)", got, want)
 	}
-	if got := metaTextFromReply(&reply); got != want {
-		t.Fatalf("metaTextFromReply = %q, want %q", got, want)
+	if got := responsesTextFromReply(&reply); got != want {
+		t.Fatalf("responsesTextFromReply = %q, want %q", got, want)
 	}
-	g := metaGroundingFromReply(&reply)
+	g := responsesGroundingFromReply(&reply)
 	if len(g.Citations) != 1 || g.Citations[0].URL != "https://example.com/downloads" {
 		t.Fatalf("citations = %+v", g.Citations)
 	}
@@ -626,11 +626,11 @@ func TestMetaGrounding_CommentaryIsNotTheAnswer(t *testing.T) {
 }
 
 func TestMetaGrounding_SeparateAnswerMessagesAreNotGlued(t *testing.T) {
-	reply := metaResponsesReply{Output: []metaResponsesItem{
-		{Type: "message", Role: "assistant", Content: []metaResponsesContent{{Type: "output_text", Text: "First part."}}},
-		{Type: "message", Role: "assistant", Content: []metaResponsesContent{{Type: "output_text", Text: "Second part."}}},
+	reply := responsesReply{Output: []responsesItem{
+		{Type: "message", Role: "assistant", Content: []responsesContent{{Type: "output_text", Text: "First part."}}},
+		{Type: "message", Role: "assistant", Content: []responsesContent{{Type: "output_text", Text: "Second part."}}},
 	}}
-	if got := metaAssistantText(&reply); got != "First part.\n\nSecond part." {
-		t.Fatalf("metaAssistantText = %q", got)
+	if got := responsesAssistantText(&reply); got != "First part.\n\nSecond part." {
+		t.Fatalf("responsesAssistantText = %q", got)
 	}
 }

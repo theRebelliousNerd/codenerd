@@ -125,9 +125,9 @@ func TestGroundedWebSearch_SendsTheConfiguredEffortOnly(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var got *metaReasoningConfig
+			var got *responsesReasoning
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				var req metaResponsesRequest
+				var req responsesRequest
 				_ = json.NewDecoder(r.Body).Decode(&req)
 				got = req.Reasoning
 				w.Header().Set("Content-Type", "application/json")

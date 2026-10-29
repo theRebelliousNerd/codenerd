@@ -374,7 +374,7 @@ func getAPIProviderPrompt() string {
 	return `Which LLM provider would you like to use?
 
 1. **anthropic** - Claude models (recommended)
-2. **openai** - GPT-4, GPT-4o
+2. **openai** - GPT-6.1 Sol / Terra, GPT-6 Astra / Luna
 3. **gemini** - Google's Gemini models
 4. **xai** - Grok models
 5. **zai** - Z.AI models

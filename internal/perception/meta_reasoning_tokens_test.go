@@ -14,12 +14,12 @@ import (
 // ciphertext instead, one replayed think made a request that fit read as
 // 193,735 tokens and refused it (ladder run R1-4c).
 func TestMetaToolResponseFromReply_EachReasoningItemCarriesItsTokens(t *testing.T) {
-	u := &metaResponsesUsage{InputTokens: 100, OutputTokens: 500, TotalTokens: 600}
-	u.OutputTokensDetails = &metaOutputTokensDetails{ReasoningTokens: 400}
-	resp := metaToolResponseFromReply(&metaResponsesReply{
-		Output: []metaResponsesItem{
+	u := &responsesUsage{InputTokens: 100, OutputTokens: 500, TotalTokens: 600}
+	u.OutputTokensDetails = &responsesOutputTokensDetails{ReasoningTokens: 400}
+	resp := responsesToolResponseFromReply(&responsesReply{
+		Output: []responsesItem{
 			{ID: "rs_1", Type: "reasoning", EncryptedContent: strings.Repeat("a", 300)},
-			{Type: "message", Content: []metaResponsesContent{{Type: "output_text", Text: "checking"}}},
+			{Type: "message", Content: []responsesContent{{Type: "output_text", Text: "checking"}}},
 			{ID: "rs_2", Type: "reasoning", EncryptedContent: strings.Repeat("b", 100)},
 		},
 		Usage: u,
@@ -35,9 +35,9 @@ func TestMetaToolResponseFromReply_EachReasoningItemCarriesItsTokens(t *testing.
 	}
 
 	// Shares that do not divide evenly still add up to the reply's count.
-	u.OutputTokensDetails = &metaOutputTokensDetails{ReasoningTokens: 401}
-	resp = metaToolResponseFromReply(&metaResponsesReply{
-		Output: []metaResponsesItem{
+	u.OutputTokensDetails = &responsesOutputTokensDetails{ReasoningTokens: 401}
+	resp = responsesToolResponseFromReply(&responsesReply{
+		Output: []responsesItem{
 			{ID: "rs_1", Type: "reasoning", EncryptedContent: strings.Repeat("a", 100)},
 			{ID: "rs_2", Type: "reasoning", EncryptedContent: strings.Repeat("b", 100)},
 			{ID: "rs_3", Type: "reasoning", EncryptedContent: strings.Repeat("c", 100)},
@@ -54,8 +54,8 @@ func TestMetaToolResponseFromReply_EachReasoningItemCarriesItsTokens(t *testing.
 
 	// A reply without usage leaves the count unknown, not zero-cost: the
 	// broker then falls back to the ciphertext's length.
-	resp = metaToolResponseFromReply(&metaResponsesReply{
-		Output: []metaResponsesItem{{ID: "rs_1", Type: "reasoning", EncryptedContent: "abc"}},
+	resp = responsesToolResponseFromReply(&responsesReply{
+		Output: []responsesItem{{ID: "rs_1", Type: "reasoning", EncryptedContent: "abc"}},
 	})
 	if len(resp.Blocks) != 1 || resp.Blocks[0].Tokens != 0 {
 		t.Fatalf("with no usage the block's tokens must stay unknown, got %+v", resp.Blocks)

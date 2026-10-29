@@ -160,3 +160,24 @@ func TestLookupPrice_OpusRoutesAndAlias(t *testing.T) {
 		t.Error("bare \"opus\" resolved to a price; an unresolvable CLI alias must stay unpriced rather than borrow another generation's rate")
 	}
 }
+
+func TestLookupPrice_GPT6FamilyResolvesToItsOwnRow(t *testing.T) {
+	for model, wantIn := range map[string]float64{
+		"gpt-6.1-sol":        2,
+		"gpt-6-sol":          2,
+		"gpt-6.1-terra":      1,
+		"gpt-6-astra":        10,
+		"gpt-6-luna":         0.10,
+		"openai/gpt-6.1-sol": 2,
+	} {
+		p, ok := LookupPrice(model)
+		if !ok || p.InputPerMTok != wantIn {
+			t.Errorf("LookupPrice(%s) = %+v, %v; want input %v", model, p, ok, wantIn)
+		}
+	}
+	sol, _ := LookupPrice("gpt-6.1-sol")
+	// 1M uncached in + 1M cache read + 1M 30m cache write + 1M out.
+	if got := sol.CostDetailed(3_000_000, 1_000_000, 1_000_000, 1_000_000); got != 2+0.10+2.5+10 {
+		t.Errorf("gpt-6.1-sol detailed cost = %v", got)
+	}
+}

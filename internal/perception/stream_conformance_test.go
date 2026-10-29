@@ -78,6 +78,48 @@ var chatUsageWant = types.UsageMetadata{
 	Known: types.UsageTokens | types.UsageCacheRead | types.UsageReasoning,
 }
 
+// responsesFixture renders the Responses event stream: typed events, the
+// usage and finish carried on one terminal response event.
+func responsesFixture(name string, stream func(t *testing.T, ctx context.Context, baseURL string) (<-chan string, <-chan types.StreamResult)) streamFixture {
+	return streamFixture{
+		name: name,
+		start: []string{
+			`{"type":"response.created","response":{"id":"resp_1","status":"in_progress","output":[]}}`,
+			`{"type":"response.output_item.added","item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[]}}`,
+		},
+		delta: func(text string) string {
+			return fmt.Sprintf(`{"type":"response.output_text.delta","item_id":"msg_1","content_index":0,"delta":%q}`, text)
+		},
+		multiline: func(text string) string {
+			return "{\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\n" + fmt.Sprintf(`"delta":%q}`, text)
+		},
+		finish: func(kind string, withUsage bool) []string {
+			usage := ""
+			if withUsage {
+				usage = `,"usage":{"input_tokens":20,"output_tokens":9,"total_tokens":29,"input_tokens_details":{"cached_tokens":12,"cache_write_tokens":3},"output_tokens_details":{"reasoning_tokens":4}}`
+			}
+			msg := `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"hello world"}]}`
+			switch kind {
+			case "length":
+				return []string{`{"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[` + msg + `]` + usage + `}}`}
+			case "filter":
+				return []string{`{"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"content_filter"},"output":[` + msg + `]` + usage + `}}`}
+			case "tool":
+				return []string{`{"type":"response.completed","response":{"status":"completed","output":[` + msg + `,{"type":"function_call","call_id":"c1","name":"read_file","arguments":"{}"}]` + usage + `}}`}
+			default:
+				return []string{`{"type":"response.completed","response":{"status":"completed","output":[` + msg + `]` + usage + `}}`}
+			}
+		},
+		providerError: `{"type":"error","code":"server_is_overloaded","message":"overloaded"}`,
+		stream:        stream,
+		usage: types.UsageMetadata{
+			InputTokens: 20, OutputTokens: 9, TotalTokens: 29, CachedContentTokens: 12, CacheWriteTokens: 3, ThinkingTokens: 4,
+			Known: types.UsageTokens | types.UsageCacheRead | types.UsageCacheWrite | types.UsageReasoning,
+		},
+		filterOutcome: types.StreamFiltered,
+	}
+}
+
 func chatFixture(name string, stream func(t *testing.T, ctx context.Context, baseURL string) (<-chan string, <-chan types.StreamResult)) streamFixture {
 	return streamFixture{
 		name:  name,
@@ -96,9 +138,9 @@ func chatFixture(name string, stream func(t *testing.T, ctx context.Context, bas
 func streamFixtures() []streamFixture {
 	opts := func(baseURL string) (string, time.Duration) { return baseURL, 5 * time.Second }
 	return []streamFixture{
-		chatFixture("openai", func(t *testing.T, ctx context.Context, baseURL string) (<-chan string, <-chan types.StreamResult) {
-			u, to := opts(baseURL)
-			return NewOpenAIClientWithConfig(OpenAIConfig{APIKey: "k", BaseURL: u, Model: "gpt-x", Timeout: to}).CompleteWithStreaming(ctx, "sys", "user", false)
+		responsesFixture("openai", func(t *testing.T, ctx context.Context, baseURL string) (<-chan string, <-chan types.StreamResult) {
+			u, _ := opts(baseURL)
+			return newTestOpenAIClient(t, u, "gpt-6.1-sol").CompleteWithStreaming(ctx, "sys", "user", false)
 		}),
 		chatFixture("openrouter", func(t *testing.T, ctx context.Context, baseURL string) (<-chan string, <-chan types.StreamResult) {
 			u, to := opts(baseURL)
