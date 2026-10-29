@@ -215,3 +215,98 @@ func TestTypedVerification_NothingWrittenRunsNothing(t *testing.T) {
 		t.Errorf("result does not say how to run the whole module: %s", out)
 	}
 }
+
+// A null-like optional path means the argument was not given. The model
+// serialises a missing optional as JSON null, Python None, Go nil, JS
+// undefined, or an empty string; formatted as a string those arrive as
+// "null", "none", "nil", "undefined" or "". Observed 2026-10-29: run_build
+// with working_dir null reported "no supported project verification runner
+// in <root>/null" instead of building the workspace root.
+func TestTypedVerification_NullLikeWorkingDirIsOmitted(t *testing.T) {
+	t.Parallel()
+	root := goWorkspace(t)
+	ctx := shellWsCtx(root)
+	want, err := tools.CanonicalWorkspaceRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nullLikes := []any{nil, "", "null", "NULL", "  null  ", "none", "NONE", "nil", "NIL", "undefined", "UNDEFINED"}
+	for _, v := range nullLikes {
+		args := map[string]any{"working_dir": v}
+		if got := optionalWorkingDir(args); got != "" {
+			t.Errorf("working_dir %#v: optionalWorkingDir = %q, want omitted", v, got)
+		}
+		if s, ok := v.(string); ok {
+			if got, err := tools.ResolveWorkspaceDir(ctx, "", s); err != nil || got != want {
+				t.Errorf("working_dir %q: ResolveWorkspaceDir = %q, %v; want %q", s, got, err, want)
+			}
+		}
+		got, err := resolveWorkingDir(ctx, optionalWorkingDir(args))
+		if err != nil || got != want {
+			t.Errorf("working_dir %#v: resolveWorkingDir = %q, %v; want %q", v, got, err, want)
+		}
+		if _, ok := tools.BuildCommandForDir(got); !ok {
+			t.Errorf("working_dir %#v: no runner in resolved dir %q", v, got)
+		}
+	}
+	// Omitted entirely behaves the same.
+	if got, err := resolveWorkingDir(ctx, optionalWorkingDir(map[string]any{})); err != nil || got != want {
+		t.Errorf("missing working_dir: resolveWorkingDir = %q, %v; want %q", got, err, want)
+	}
+	// A null-like packages value means omitted, not a package named "null".
+	for _, v := range []any{"null", "none", "nil", "undefined", "", "NULL"} {
+		s, _ := v.(string)
+		if got := optionalPackages([]string{s}); len(got) != 0 {
+			t.Errorf("packages [%q]: optionalPackages = %q, want omitted", s, got)
+		}
+	}
+	if got := optionalPackages([]string{"null", "./internal/alpha"}); len(got) != 1 || got[0] != "./internal/alpha" {
+		t.Errorf("optionalPackages did not drop sentinel: %q", got)
+	}
+}
+
+// Null-like packages spellings exercise the string-packages branch of
+// executeTypedVerification: a sentinel means omitted (no "must be an array"
+// error), any other string is rejected, and a []string list is filtered.
+func TestTypedVerification_NullLikePackagesBranches(t *testing.T) {
+	t.Parallel()
+	newMainModule := func(t *testing.T) string {
+		t.Helper()
+		root := goWorkspace(t)
+		mainSrc := []byte("package main\n\nfunc main() {}\n")
+		if err := os.WriteFile(filepath.Join(root, "main.go"), mainSrc, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return root
+	}
+	// Sentinel string packages: omitted, so the build runs the module.
+	for _, sentinel := range []string{"null", "none", "nil", "undefined", "", "NULL", "  null  "} {
+		root := newMainModule(t)
+		ctx := shellWsCtx(root)
+		_, err := executeTypedVerification(ctx, map[string]any{"working_dir": root, "packages": sentinel}, false)
+		if err != nil {
+			t.Errorf("packages %q: want omitted (build runs), got error %v", sentinel, err)
+		}
+	}
+	// Non-sentinel string packages: rejected as not-an-array.
+	_, err := executeTypedVerification(shellWsCtx(newMainModule(t)), map[string]any{"packages": "foo"}, false)
+	if err == nil || !strings.Contains(err.Error(), "packages must be an array") {
+		t.Fatalf("packages %q: want packages-must-be-an-array error, got %v", "foo", err)
+	}
+	// []string packages containing a sentinel: filtered, build proceeds.
+	root := newMainModule(t)
+	if _, err := executeTypedVerification(shellWsCtx(root), map[string]any{"working_dir": root, "packages": []string{"null", "./..."}}, false); err != nil {
+		t.Fatalf("[]string packages with sentinel: want build to run, got %v", err)
+	}
+}
+
+// A non-string working_dir is not a path at all: it means omitted, the same
+// as leaving the argument out, and lands on the workspace root.
+func TestOptionalWorkingDir_NonStringIsOmitted(t *testing.T) {
+	t.Parallel()
+	for _, v := range []any{123, 4.5, true, []string{"./..."}, map[string]any{}} {
+		if got := optionalWorkingDir(map[string]any{"working_dir": v}); got != "" {
+			t.Errorf("working_dir %#v: optionalWorkingDir = %q, want omitted", v, got)
+		}
+	}
+}

@@ -39,7 +39,7 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 	if _, exists := args["command"]; exists {
 		return "", fmt.Errorf("custom commands are not accepted; use working_dir, packages and test pattern")
 	}
-	dir, _ := args["working_dir"].(string)
+	dir := optionalWorkingDir(args)
 	dir, err := resolveWorkingDir(ctx, dir)
 	if err != nil {
 		return "", err
@@ -87,16 +87,25 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 		var packages []string
 		switch v := args["packages"].(type) {
 		case nil:
+		case string:
+			// A model spelling of "not given" (null/none/nil/undefined/"")
+			// arrives decoded as a string when the caller formats the value.
+			// It means omitted, not a package named "null".
+			if !tools.IsOmittedOptionalPath(v) {
+				return "", fmt.Errorf("packages must be an array")
+			}
 		case []string:
-			packages = v
+			packages = optionalPackages(v)
 		case []any:
+			strs := make([]string, 0, len(v))
 			for _, value := range v {
 				s, ok := value.(string)
 				if !ok {
 					return "", fmt.Errorf("packages must contain strings")
 				}
-				packages = append(packages, s)
+				strs = append(strs, s)
 			}
+			packages = optionalPackages(strs)
 		default:
 			return "", fmt.Errorf("packages must be an array")
 		}
@@ -302,4 +311,38 @@ func nothingWrittenToTest(dir string) string {
 	}{false, dir, "no tests ran: this turn has written no Go package, and with no packages given the tests of the written packages are what runs. " +
 		"To test a package pass packages, e.g. [\"./internal/session\"]; for the whole module pass [\"./...\"] with a timeout_seconds the suite fits in."})
 	return string(data)
+}
+
+// optionalWorkingDir extracts the working_dir argument, treating null-like
+// sentinels as omitted. A missing key, a JSON null (nil), a non-string, an
+// empty string, or the strings "null", "none", "nil", "undefined" (any case,
+// surrounding whitespace ignored) all mean the argument was not given and
+// resolve to "" so the caller lands on the workspace root.
+func optionalWorkingDir(args map[string]any) string {
+	v, exists := args["working_dir"]
+	if !exists || v == nil {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	if tools.IsOmittedOptionalPath(s) {
+		return ""
+	}
+	return s
+}
+
+// optionalPackages drops null-like package entries. A list that is empty or
+// holds only sentinels means omitted, so the caller falls back to the
+// default package set.
+func optionalPackages(pkgs []string) []string {
+	out := make([]string, 0, len(pkgs))
+	for _, p := range pkgs {
+		if tools.IsOmittedOptionalPath(p) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }

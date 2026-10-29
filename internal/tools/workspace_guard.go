@@ -268,10 +268,30 @@ func ResolveWorkspaceDir(ctx context.Context, root, p string) (string, error) {
 			return "", err
 		}
 	}
-	if trimmed := strings.TrimSpace(normalizeSeparators(p)); trimmed == "" || trimmed == "." || trimmed == "./" {
+	if IsOmittedOptionalPath(p) {
 		return CanonicalWorkspaceRoot(root)
 	}
 	return ResolveWorkspacePath(ctx, root, p)
+}
+
+// IsOmittedOptionalPath reports whether an optional path argument was not
+// given. Models serialise a missing optional as JSON null, Python None, Go
+// nil, JS undefined, or an empty string; when that value is then formatted as
+// a string it arrives as "null", "none", "nil", "undefined" or "". All of
+// those mean omitted, the same as leaving the argument out, and must resolve
+// to the workspace root instead of a literal "null" directory under it.
+// Observed 2026-10-29: run_build with working_dir null reported "no supported
+// project verification runner in <root>/null" and cost a retry.
+func IsOmittedOptionalPath(p string) bool {
+	trimmed := strings.TrimSpace(normalizeSeparators(p))
+	if trimmed == "" || trimmed == "." || trimmed == "./" {
+		return true
+	}
+	switch strings.ToLower(trimmed) {
+	case "null", "none", "nil", "undefined":
+		return true
+	}
+	return false
 }
 
 // WorkspaceDisplayPath names an already-contained absolute path the way results

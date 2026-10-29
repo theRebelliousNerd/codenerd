@@ -6082,3 +6082,18 @@ green; no hand edit. The verification step's report said the full gates were not
 harness had measured them; the summary still counted it verified. Harness finding: the importer
 test gate (8 packages, about 2.5 min) ran twice with no write between them, twice in the turn.
 **Streak 1.**
+
+## R1-25, run_build: a `null` optional path read as a directory -- landed, two files (2026-10-29, 04:28-04:47)
+
+Brief (symptom only): `run_build` with the optional path sent as `null` failed "no supported project
+verification runner in <root>/null". Entry point: one chat request in the TUI (`--yolo`), on a
+fresh build of `b2be27999`. 19 minutes, one coder step.
+
+**Landed, does not count**: correct but two production files. `internal/tools/workspace_guard.go`
+gained `IsOmittedOptionalPath` (null, none, nil, undefined, empty, any case) and
+`ResolveWorkspaceDir` returns the workspace root for those; that alone fixes the symptom.
+`internal/tools/shell/verification.go` added `optionalWorkingDir`, which repeats the same check,
+and drops sentinel `packages` entries, which the brief did not ask for. Its tests exercise the new
+helpers by name, so the fail-before check fails at compile time rather than on behavior. G1-G3
+(105/105) green; no hand edit. The sentinel list now exists twice (here and `isMissingRevision` in
+codedom, R1-21). **Streak 0.**
