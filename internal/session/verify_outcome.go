@@ -95,7 +95,9 @@ type verifyRunResult struct {
 // Explicit operator cancellation still aborts the run — and kills the
 // subprocess — through the supervisor below. A parent soft deadline (parent
 // Done with DeadlineExceeded) is ignored: verification keeps its own budget.
-// Only Canceled aborts.
+// Only Canceled aborts -- the parent's, or, after the parent's deadline has
+// fired, the operation owner's (WithOwnerStop): a context's first error is
+// permanent, so the parent alone can never report a cancel that comes later.
 //
 // Returns the captured output (partial output survives timeouts and cancels),
 // the outcome, and a human reason for non-pass outcomes.
@@ -130,7 +132,7 @@ func runVerificationCommand(parent context.Context, dir string, env []string, bu
 		done <- verifyRunResult{out: out, err: err}
 	}()
 	parentDone := parent.Done()
-	var cancelWatch <-chan time.Time
+	ownerDone := ownerStop(parent)
 	for {
 		select {
 		case r := <-done:
@@ -147,20 +149,15 @@ func runVerificationCommand(parent context.Context, dir string, env []string, bu
 				r := <-done
 				return r.out, VerifyCanceled, "operator canceled verification"
 			}
-			// Parent soft deadline: keep the independent budget, but arm a
-			// slow re-check so an explicit cancel landing AFTER the deadline
-			// still aborts the run. (parent.Done stays closed, so it cannot
-			// simply be re-armed.)
+			// Parent soft deadline: keep the independent budget. A cancel
+			// landing after it arrives through the owner's stop, below; it
+			// used to be polled on the parent, whose error stays
+			// DeadlineExceeded, so it was never seen.
 			parentDone = nil
-			ticker := time.NewTicker(50 * time.Millisecond)
-			defer ticker.Stop()
-			cancelWatch = ticker.C
-		case <-cancelWatch:
-			if errors.Is(parent.Err(), context.Canceled) {
-				cancel() // kills the subprocess via budgetCtx
-				r := <-done
-				return r.out, VerifyCanceled, "operator canceled verification"
-			}
+		case <-ownerDone:
+			cancel() // kills the subprocess via budgetCtx
+			r := <-done
+			return r.out, VerifyCanceled, "operator canceled verification"
 		}
 	}
 }

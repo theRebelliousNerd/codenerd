@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"codenerd/internal/config"
+	"codenerd/internal/session"
 
 	"github.com/spf13/cobra"
 )
@@ -16,14 +17,22 @@ import (
 // a 25-minute default, and ladder run R1-4d's review was cut at 25:01 of a
 // turn that was still working. A zero or negative --timeout means no
 // deadline; it used to mean one that had already passed.
+//
+// parent is the operation's owner: its signal handling, the operator. It is
+// recorded on the context (session.WithOwnerStop) so work that outlives the
+// --timeout deadline -- verification keeps its own budget -- still stops when
+// the owner does; through the timed context alone it could not, because a
+// context's first error (the deadline) is permanent.
 func operationContext(parent context.Context) (context.Context, context.CancelFunc) {
 	if parent == nil {
 		parent = context.Background()
 	}
 	if timeout <= 0 {
-		return context.WithCancel(parent)
+		ctx, cancel := context.WithCancel(parent)
+		return session.WithOwnerStop(ctx, parent), cancel
 	}
-	return context.WithTimeout(parent, timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	return session.WithOwnerStop(ctx, parent), cancel
 }
 
 // commandContext is the context a subcommand runs on. The only deadline is

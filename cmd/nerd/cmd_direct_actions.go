@@ -306,17 +306,18 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		tracer.Trace("CONFIG", "timeout=%v, workspace=%s", timeout, workspace)
 		tracer.Trace("CONFIG", "shard=%s, verb=%s", shardType, verb)
 
-		// One-shot mode (original behavior)
-		ctx, cancel := operationContext(context.Background())
+		// One-shot mode (original behavior). The signals are the operation's
+		// owner and wrap the --timeout deadline, not the other way round: a
+		// SIGTERM after the deadline still reaches verification that outlives
+		// it (operationContext records the owner).
+		sigCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stopSignals()
+		ctx, cancel := operationContext(sigCtx)
 		defer cancel()
 		if acceptance != nil {
 			ctx = evidence.WithContract(ctx, *acceptance)
 		}
 		tracer.TraceContext("created with timeout %v", timeout)
-
-		// Join signal handling when the one-shot action returns.
-		ctx, stopSignals := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
-		defer stopSignals()
 
 		fmt.Printf("🔧 Action: %s\n", verb)
 		fmt.Printf("🎯 Target: %s\n", target)
