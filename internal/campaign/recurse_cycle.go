@@ -103,6 +103,12 @@ type RecurseCycleConfig struct {
 	Branch string
 	// Progress receives one line per state change. Nil discards.
 	Progress io.Writer
+	// MeasureGates, when set, measures the error-free gates (internal/gates)
+	// around every attempt that changed the tree: once before the first
+	// attempt and after each kept one, and after every attempt. An attempt
+	// that leaves any of them worse (policy/gates.mg gate_regressed) is not
+	// kept -- rung R7's rule. Nil measures only the workspace's own gates.
+	MeasureGates func(ctx context.Context) gates.Snapshot
 }
 
 // RecurseCycleResult is what a run did.
@@ -195,6 +201,9 @@ type recurseRun struct {
 	// prior are the reverted attempts by the work they attempted (priorKey),
 	// rebuilt from the journal on resume.
 	prior map[string][]PriorAttempt
+	// gateBaseline is the error-free gates as the tree stands now (the last
+	// kept attempt's measurement); nil until the first attempt measures it.
+	gateBaseline *gates.Snapshot
 }
 
 // priorKey names the work an attempt was for: the finding it fixed, or the
@@ -872,6 +881,11 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 	}
 	r.logf("recurse cycle %d: %s: %s", cycle, node.ID, spec.describe)
 
+	if r.cfg.MeasureGates != nil && r.gateBaseline == nil {
+		base := r.cfg.MeasureGates(ctx)
+		r.gateBaseline = &base
+	}
+
 	a := RecurseAttempt{
 		Pass: v.pass, Cycle: cycle, Node: node, Evidence: spec.evidence, Check: spec.check,
 		OKExitCodes: spec.okExit,
@@ -924,6 +938,12 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 		Before: before, After: afterMetrics,
 		Changed: len(changed) > 0, Forbidden: r.forbidden(changed),
 	}
+	var gatesAfter *gates.Snapshot
+	if r.cfg.MeasureGates != nil && len(changed) > 0 {
+		s := r.cfg.MeasureGates(ctx)
+		gatesAfter = &s
+		in.GatesBefore, in.GatesAfter = r.gateBaseline, gatesAfter
+	}
 	keys := make([]string, 0, len(after))
 	for k := range after {
 		keys = append(keys, k)
@@ -953,6 +973,15 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 	if execErr != nil {
 		rec.Detail = "executor: " + execErr.Error()
 	}
+	if gatesAfter != nil {
+		worse, err := r.policy.regressedGates(in.GatesBefore.ID, gatesAfter.ID)
+		if err != nil {
+			return err
+		}
+		if len(worse) > 0 {
+			rec.Detail = strings.TrimSpace(rec.Detail + " error-free gates worse: " + strings.Join(worse, ", "))
+		}
+	}
 	switch verdict {
 	case ratchetKeep:
 		trailer := findingID
@@ -965,6 +994,9 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 		}
 		for k, run := range after {
 			r.state[k] = run
+		}
+		if gatesAfter != nil {
+			r.gateBaseline = gatesAfter
 		}
 		r.reportUnattributed()
 		rec.Outcome, rec.Commit = outcomeKept, hash

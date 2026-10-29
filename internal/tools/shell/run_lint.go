@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"codenerd/internal/build"
+	"codenerd/internal/lintreport"
 	"codenerd/internal/logging"
 	"codenerd/internal/processutil"
 	"codenerd/internal/tools"
@@ -21,7 +22,7 @@ import (
 // /go_vet) and sent autopoiesis to generate a vet tool from nothing.
 //
 // Each gate is run with its machine-readable output and read into
-// LintFinding values. The argv is the repository's, never the model's: the
+// lintreport.Finding values. The argv is the repository's, never the model's: the
 // model chooses the gate, the packages and the working directory.
 
 // lintGate is one static gate: the binary that must be installed, and how it
@@ -33,7 +34,7 @@ type lintGate struct {
 	argv func(packages []string) []string
 	// read parses one run. rest is output that was neither a finding nor
 	// a compile error; it is returned whole so nothing the gate said is lost.
-	read func(stdout, stderr, dir string) (findings []LintFinding, rest string, err error)
+	read func(stdout, stderr, dir string) (findings []lintreport.Finding, rest string, err error)
 }
 
 // lintGates are the gates of the ladder's error-free table (G2 vet, G4
@@ -44,16 +45,16 @@ var lintGates = map[string]lintGate{
 	"vet": {
 		name: "vet", binary: "go",
 		argv: func(p []string) []string { return append([]string{"vet", "-json"}, p...) },
-		read: func(stdout, stderr, dir string) ([]LintFinding, string, error) {
+		read: func(stdout, stderr, dir string) ([]lintreport.Finding, string, error) {
 			// go vet writes its JSON, and its compile errors, to stderr.
-			return vetFindings(stdout+stderr, dir)
+			return lintreport.VetFindings(stdout+stderr, dir)
 		},
 	},
 	"staticcheck": {
 		name: "staticcheck", binary: "staticcheck",
 		argv: func(p []string) []string { return append([]string{"-f", "json"}, p...) },
-		read: func(stdout, stderr, dir string) ([]LintFinding, string, error) {
-			f, err := staticcheckFindings(stdout, dir)
+		read: func(stdout, stderr, dir string) ([]lintreport.Finding, string, error) {
+			f, err := lintreport.StaticcheckFindings(stdout, dir)
 			return f, strings.TrimSpace(stderr), err
 		},
 	},
@@ -63,8 +64,8 @@ var lintGates = map[string]lintGate{
 			return append([]string{"run", "--output.json.path", "stdout", "--show-stats=false",
 				"--max-issues-per-linter=0", "--max-same-issues=0"}, p...)
 		},
-		read: func(stdout, stderr, dir string) ([]LintFinding, string, error) {
-			f, rest, err := golangciFindings(stdout, dir)
+		read: func(stdout, stderr, dir string) ([]lintreport.Finding, string, error) {
+			f, rest, err := lintreport.GolangciFindings(stdout, dir)
 			return f, strings.TrimSpace(rest + "\n" + stderr), err
 		},
 	},
@@ -94,13 +95,13 @@ const (
 
 // LintResult is what run_lint returns, as JSON.
 type LintResult struct {
-	Gate      string        `json:"gate"`
-	Status    LintStatus    `json:"status"`
-	Argv      []string      `json:"argv,omitempty"`
-	Directory string        `json:"directory"`
-	Scope     string        `json:"scope,omitempty"`
-	ExitCode  *int          `json:"exit_code,omitempty"`
-	Findings  []LintFinding `json:"findings"`
+	Gate      string               `json:"gate"`
+	Status    LintStatus           `json:"status"`
+	Argv      []string             `json:"argv,omitempty"`
+	Directory string               `json:"directory"`
+	Scope     string               `json:"scope,omitempty"`
+	ExitCode  *int                 `json:"exit_code,omitempty"`
+	Findings  []lintreport.Finding `json:"findings"`
 	// Output is what the gate printed that was neither a finding nor a
 	// compile error, whole. A failed run's reason is here.
 	Output string `json:"output,omitempty"`
@@ -173,7 +174,7 @@ func executeRunLint(ctx context.Context, args map[string]any) (string, error) {
 		packages = []string{"./..."}
 		if written, scoped := writtenPackageScope(ctx, dir); scoped {
 			if len(written) == 0 {
-				return lintJSON(LintResult{Gate: gate.name, Status: LintNothingWritten, Directory: dir, Findings: []LintFinding{},
+				return lintJSON(LintResult{Gate: gate.name, Status: LintNothingWritten, Directory: dir, Findings: []lintreport.Finding{},
 					Reason: "nothing ran: this turn has written no Go package, and with no packages given the written packages are what is checked. " +
 						"Pass packages, e.g. [\"./internal/session\"], or [\"./...\"] for the whole module."}), nil
 			}
@@ -187,7 +188,7 @@ func executeRunLint(ctx context.Context, args map[string]any) (string, error) {
 		// Not installed is an answer, not an error: the model reports the
 		// gate as not run instead of retrying it. codeNERD never downloads
 		// a tool to run it.
-		return lintJSON(LintResult{Gate: gate.name, Status: LintUnavailable, Directory: dir, Findings: []LintFinding{},
+		return lintJSON(LintResult{Gate: gate.name, Status: LintUnavailable, Directory: dir, Findings: []lintreport.Finding{},
 			Reason: fmt.Sprintf("%s is not installed (not found on PATH), so the %s gate did not run; install it to run this gate", gate.binary, gate.name)}), nil
 	}
 	seconds, err := verificationTimeoutSeconds(args, false)
@@ -219,7 +220,7 @@ func executeRunLint(ctx context.Context, args map[string]any) (string, error) {
 	if cmd.ProcessState != nil {
 		code = cmd.ProcessState.ExitCode()
 	}
-	result := LintResult{Gate: gate.name, Argv: argv, Directory: dir, Scope: scope, ExitCode: &code, Findings: []LintFinding{}}
+	result := LintResult{Gate: gate.name, Argv: argv, Directory: dir, Scope: scope, ExitCode: &code, Findings: []lintreport.Finding{}}
 	if stopErr := verificationRunError(runCtx, runErr, code, gate.binary, seconds); stopErr != nil && code < 0 {
 		result.Status, result.ExitCode = LintFailed, nil
 		result.Output = strings.TrimSpace(stdout.String() + "\n" + stderr.String())

@@ -186,6 +186,9 @@ type ratchetInput struct {
 	Forbidden     []string
 	// Tested: a test gate gave a verdict on the attempt's result.
 	Tested bool
+	// GatesBefore and GatesAfter are the error-free gates measured around
+	// the attempt (RecurseCycleConfig.MeasureGates); nil when not measured.
+	GatesBefore, GatesAfter *gates.Snapshot
 }
 
 // ratchet asserts the re-measurement and returns the kernel's verdict. Exactly
@@ -225,6 +228,13 @@ func (p *recursePolicy) ratchet(in ratchetInput) (string, error) {
 	for _, path := range in.Forbidden {
 		facts = append(facts, core.Fact{Predicate: "recurse_ratchet_forbidden", Args: []interface{}{in.Cycle, path}})
 	}
+	if in.GatesBefore != nil && in.GatesAfter != nil {
+		facts = append(facts, in.GatesBefore.Facts()...)
+		facts = append(facts, in.GatesAfter.Facts()...)
+		facts = append(facts,
+			core.Fact{Predicate: "gate_comparison", Args: []interface{}{in.GatesBefore.ID, in.GatesAfter.ID}},
+			core.Fact{Predicate: "recurse_cycle_snapshots", Args: []interface{}{in.Cycle, in.GatesBefore.ID, in.GatesAfter.ID}})
+	}
 	if err := p.k.AssertBatch(facts); err != nil {
 		return "", fmt.Errorf("recurse: assert ratchet: %w", err)
 	}
@@ -248,7 +258,27 @@ func (p *recursePolicy) ratchet(in ratchetInput) (string, error) {
 var ratchetInputs = map[string]struct{}{
 	"recurse_ratchet_changed": {}, "recurse_ratchet_target": {}, "recurse_ratchet_gate": {},
 	"recurse_ratchet_forbidden": {}, "recurse_improve": {}, "recurse_metric": {},
-	"recurse_ratchet_tested": {},
+	"recurse_ratchet_tested":  {},
+	"recurse_cycle_snapshots": {}, "gate_snapshot": {}, "gate_measured": {}, "gate_finding": {},
+	"gate_comparison": {},
+}
+
+// regressedGates names the error-free gates policy/gates.mg says got worse
+// between two snapshots asserted for the cycle being judged.
+func (p *recursePolicy) regressedGates(before, after string) ([]string, error) {
+	rows, err := p.k.Query("gate_regressed")
+	if err != nil {
+		return nil, fmt.Errorf("recurse: query gate_regressed: %w", err)
+	}
+	var out []string
+	for _, f := range rows {
+		// gate_regressed(Before, After, Gate): the gate is the last argument.
+		if len(f.Args) > 1 && types.ExtractString(f.Args[0]) == before && types.ExtractString(f.Args[1]) == after {
+			out = append(out, strings.TrimPrefix(types.ExtractString(f.Args[len(f.Args)-1]), "/"))
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // endCycle retires a judged cycle's inputs. Its verdict is in the journal and

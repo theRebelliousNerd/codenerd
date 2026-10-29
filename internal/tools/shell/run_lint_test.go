@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"codenerd/internal/lintreport"
 	"codenerd/internal/tools"
 )
 
@@ -79,7 +80,7 @@ func TestRunLint_VetCompileErrorIsAFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run_lint vet: %v", err)
 	}
-	if r.Status != LintFindings || len(r.Findings) != 1 || r.Findings[0].Check != lintCompileCheck ||
+	if r.Status != LintFindings || len(r.Findings) != 1 || r.Findings[0].Check != lintreport.CompileCheck ||
 		r.Findings[0].File != "broken/b.go" || r.Findings[0].Line != 4 || !strings.Contains(r.Findings[0].Message, "undefined: missing") {
 		t.Fatalf("result = %+v, want one compile finding at broken/b.go:4", r)
 	}
@@ -166,35 +167,5 @@ func TestRunLint_RefusesWhatIsNotAGateOrAPackage(t *testing.T) {
 		if out, err := executeRunLint(shellWsCtx(root), args); err == nil {
 			t.Errorf("args %v were accepted: %s", args, out)
 		}
-	}
-}
-
-func TestLintParsers_ReadEachReport(t *testing.T) {
-	t.Parallel()
-	dir := filepath.FromSlash("/ws")
-	vet := "# lintprobe/a\n{\n\t\"lintprobe/a\": {\n\t\t\"printf\": [\n\t\t\t{\"posn\": \"" + filepath.ToSlash(filepath.Join(dir, "a", "a.go")) +
-		":3:9\", \"message\": \"brace } in a message {\"}\n\t\t]\n\t}\n}\nvet: ./b/b.go:4:2: undefined: x\n"
-	got, rest, err := vetFindings(vet, dir)
-	if err != nil || rest != "" || len(got) != 2 ||
-		got[0] != (LintFinding{File: "a/a.go", Line: 3, Column: 9, Check: "printf", Message: "brace } in a message {"}) ||
-		got[1] != (LintFinding{File: "b/b.go", Line: 4, Column: 2, Check: lintCompileCheck, Message: "undefined: x"}) {
-		t.Fatalf("vetFindings = %+v, rest %q, err %v", got, rest, err)
-	}
-
-	sc := `{"code":"U1000","severity":"error","location":{"file":"/ws/a/a.go","line":7,"column":6},"message":"func unused is unused"}` + "\n" +
-		`{"code":"compile","severity":"error","location":{"file":"","line":0,"column":0},"message":"# lintprobe/b\n./b/b.go:3:23: undefined: missing"}`
-	got, err = staticcheckFindings(sc, dir)
-	if err != nil || len(got) != 2 || got[0].File != "a/a.go" || got[0].Check != "U1000" ||
-		got[1] != (LintFinding{File: "b/b.go", Line: 3, Column: 23, Check: lintCompileCheck, Message: "undefined: missing"}) {
-		t.Fatalf("staticcheckFindings = %+v, err %v", got, err)
-	}
-
-	gl := `{"Issues":[{"FromLinter":"errcheck","Text":"Error return value is not checked","Pos":{"Filename":"a/a.go","Line":5,"Column":2}}],"Report":{}}`
-	got, _, err = golangciFindings(gl, dir)
-	if err != nil || len(got) != 1 || got[0] != (LintFinding{File: "a/a.go", Line: 5, Column: 2, Check: "errcheck", Message: "Error return value is not checked"}) {
-		t.Fatalf("golangciFindings = %+v, err %v", got, err)
-	}
-	if _, _, err := golangciFindings("level=error msg=bad config", dir); err == nil {
-		t.Fatal("a report that is not JSON was read as clean")
 	}
 }

@@ -37,6 +37,11 @@ var (
 	recurseContextSize int
 	recurseDryRun      bool
 	recursePlan        bool
+	// recurseGates and recurseGateTests turn on rung R7's measurement: the
+	// error-free gates measured around every cycle, and a cycle that leaves
+	// any of them worse is not kept (internal/gates, policy/gates.mg).
+	recurseGates     []string
+	recurseGateTests []string
 )
 
 var campaignRecurseCmd = &cobra.Command{
@@ -76,6 +81,8 @@ func init() {
 	f.IntVar(&recurseContextSize, "context-budget", 0, "Token budget for each attempt's campaign context (default 200000)")
 	f.BoolVar(&recursePlan, "plan", false, "Print the derived sweep order and the workspace's gates; runs nothing")
 	f.BoolVar(&recurseDryRun, "dry-run", false, "Same as --plan")
+	f.StringSliceVar(&recurseGates, "gates", nil, "Measure the error-free gates around every cycle and keep none that leaves one worse: all, or names/labels (vet,G4,gofmt,...)")
+	f.StringSliceVar(&recurseGateTests, "gate-tests", nil, "Package patterns the measured G3 (go test) runs (default ./...)")
 	campaignRecurseCmd.AddCommand(campaignRecurseStatusCmd, campaignRecurseStopCmd)
 }
 
@@ -209,12 +216,13 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\nRecurse: improving %s node by node (%s).\n", cwd, recurseBoundText(cfg))
 	result, err := campaign.RunRecurseCycles(ctx, campaign.RecurseCycleConfig{
-		Workspace:  cwd,
-		Kernel:     kernel,
-		Execute:    execute,
-		Passes:     cfg.MaxWaves,
-		Subsystems: cfg.Subsystems,
-		Progress:   cmd.OutOrStdout(),
+		Workspace:    cwd,
+		Kernel:       kernel,
+		Execute:      execute,
+		Passes:       cfg.MaxWaves,
+		Subsystems:   cfg.Subsystems,
+		Progress:     cmd.OutOrStdout(),
+		MeasureGates: recurseGateMeasure(cwd, recurseGates, recurseGateTests),
 	})
 	printRecurseResult(cmd.OutOrStdout(), result)
 	if errors.Is(err, campaign.ErrRecurseStopped) {
@@ -292,4 +300,23 @@ func writeRecursePlan(w io.Writer, cwd string, cfg campaign.RecurseConfig) error
 	fmt.Fprintln(w, "the kernel picks a finding (policy/recurse.mg), the model gets one campaign to fix it,")
 	fmt.Fprintln(w, "and the fix is kept only if its finding is gone and no gate got worse.")
 	return nil
+}
+
+// recurseGateMeasure is the error-free gate measurement --gates asks for, or
+// nil when it was not asked for. "all" measures every gate.
+func recurseGateMeasure(root string, only, tests []string) func(context.Context) gates.Snapshot {
+	if len(only) == 0 {
+		return nil
+	}
+	if len(only) == 1 && strings.EqualFold(strings.TrimSpace(only[0]), "all") {
+		only = nil
+	}
+	opts := codeNERDGateOptions(only, tests)
+	return func(ctx context.Context) gates.Snapshot {
+		snap := gates.MeasureErrorFree(ctx, root, opts)
+		if _, err := snap.Save(root); err != nil {
+			fmt.Fprintf(os.Stderr, "recurse: the gate snapshot %s was measured but not saved: %v\n", snap.ID, err)
+		}
+		return snap
+	}
 }

@@ -265,6 +265,7 @@ var defaultSchemaFiles = []string{
 	"schemas_shard_experts.mg",    // Shard agents a task needs (expert_needed)
 	"schemas_coder.mg",            // Coder Shard Declarations
 	"schemas_projectdoc.mg",       // nerd.md project instructions (see internal/projectdoc)
+	"schemas_gates.mg",            // Error-free gates compared (policy/gates.mg, internal/gates)
 	// NERD-EVOLVE-START: context_compilation_schemas_c1_c4
 	"schemas_context.mg", // Context Compilation Pipeline (C1+C4)
 	// NERD-EVOLVE-END: context_compilation_schemas_c1_c4

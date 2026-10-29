@@ -1,4 +1,10 @@
-package shell
+// Package lintreport reads Go static gates' machine-readable reports -- go vet
+// -json, staticcheck -f json, golangci-lint's JSON report, and the compiler's
+// positioned diagnostics -- into typed findings. The model's run_lint tool
+// (internal/tools/shell) and the error-free gate measurement (internal/gates)
+// read them with the same code, so a finding the model sees is the finding the
+// gate counts.
+package lintreport
 
 import (
 	"bufio"
@@ -11,7 +17,7 @@ import (
 	"strings"
 )
 
-// LintFinding is one diagnostic a static gate reported, read from the gate's
+// Finding is one diagnostic a static gate reported, read from the gate's
 // own machine-readable output (go vet -json, staticcheck -f json,
 // golangci-lint's JSON report) rather than scraped from its text.
 //
@@ -20,7 +26,7 @@ import (
 // analyzer, check code or linter that reported it: "printf", "SA5009",
 // "errcheck". A package that does not compile is reported as findings whose
 // Check is "compile", one per position the compiler named.
-type LintFinding struct {
+type Finding struct {
 	File    string `json:"file"`
 	Line    int    `json:"line"`
 	Column  int    `json:"column"`
@@ -28,17 +34,17 @@ type LintFinding struct {
 	Message string `json:"message"`
 }
 
-// lintCompileCheck is the Check of a finding that is a compile error, not an
+// CompileCheck is the Check of a finding that is a compile error, not an
 // analyzer's diagnostic: the gate could not analyse the package at all.
-const lintCompileCheck = "compile"
+const CompileCheck = "compile"
 
 // positionedLine is a compiler diagnostic: path:line:col: message, with an
 // optional tool prefix ("vet: ", go vet on a type error).
 var positionedLine = regexp.MustCompile(`^(?:vet(?:\.exe)?:\s+)?(?:\./)?((?:[A-Za-z]:)?[^\s:]+\.go):(\d+):(\d+):\s+(.+)$`)
 
-// compileFindings reads the positioned lines of text as compile findings.
-func compileFindings(text, dir string) []LintFinding {
-	var out []LintFinding
+// CompileFindings reads the positioned lines of text as compile findings.
+func CompileFindings(text, dir string) []Finding {
+	var out []Finding
 	for line := range strings.SplitSeq(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		m := positionedLine.FindStringSubmatch(strings.TrimSpace(line))
 		if m == nil {
@@ -46,14 +52,14 @@ func compileFindings(text, dir string) []LintFinding {
 		}
 		ln, _ := strconv.Atoi(m[2])
 		col, _ := strconv.Atoi(m[3])
-		out = append(out, LintFinding{File: lintPath(m[1], dir), Line: ln, Column: col, Check: lintCompileCheck, Message: m[4]})
+		out = append(out, Finding{File: Path(m[1], dir), Line: ln, Column: col, Check: CompileCheck, Message: m[4]})
 	}
 	return out
 }
 
-// lintPath reports path relative to dir with forward slashes when it lies
+// Path reports path relative to dir with forward slashes when it lies
 // inside dir; anything else is returned as the gate wrote it.
-func lintPath(path, dir string) string {
+func Path(path, dir string) string {
 	if path == "" {
 		return ""
 	}
@@ -85,12 +91,12 @@ func splitPosition(posn string) (file string, line, col int) {
 	return rest, line, col
 }
 
-// vetFindings reads `go vet -json` output: one JSON object per package,
+// VetFindings reads `go vet -json` output: one JSON object per package,
 // {"pkg": {"analyzer": [{"posn": "file:line:col", "message": ...}]}}, with
 // "# pkg" header lines between them on some Go versions. A package that does
 // not type-check is reported as text ("vet: ./a.go:3:23: undefined: x"),
 // which becomes compile findings. rest is the output that was neither.
-func vetFindings(output, dir string) (findings []LintFinding, rest string, err error) {
+func VetFindings(output, dir string) (findings []Finding, rest string, err error) {
 	var textPart strings.Builder
 	s := output
 	for {
@@ -121,27 +127,27 @@ func vetFindings(output, dir string) (findings []LintFinding, rest string, err e
 			for analyzer, diags := range analyzers {
 				for _, d := range diags {
 					file, line, col := splitPosition(d.Posn)
-					findings = append(findings, LintFinding{File: lintPath(file, dir), Line: line, Column: col, Check: analyzer, Message: d.Message})
+					findings = append(findings, Finding{File: Path(file, dir), Line: line, Column: col, Check: analyzer, Message: d.Message})
 				}
 			}
 		}
 	}
 	text := textPart.String()
-	compile := compileFindings(text, dir)
+	compile := CompileFindings(text, dir)
 	findings = append(findings, compile...)
 	if len(compile) > 0 {
 		text = ""
 	}
-	sortFindings(findings)
+	Sort(findings)
 	return findings, strings.TrimSpace(text), nil
 }
 
-// staticcheckFindings reads `staticcheck -f json`: one object per line,
+// StaticcheckFindings reads `staticcheck -f json`: one object per line,
 // {"code", "location": {"file", "line", "column"}, "message"}. A package
 // that does not compile is code "compile" with the compiler's text as its
 // message, whose positioned lines become compile findings.
-func staticcheckFindings(stdout, dir string) ([]LintFinding, error) {
-	var findings []LintFinding
+func StaticcheckFindings(stdout, dir string) ([]Finding, error) {
+	var findings []Finding
 	sc := bufio.NewScanner(strings.NewReader(stdout))
 	sc.Buffer(make([]byte, 0, 64*1024), len(stdout)+1)
 	for sc.Scan() {
@@ -161,30 +167,30 @@ func staticcheckFindings(stdout, dir string) ([]LintFinding, error) {
 		if err := json.Unmarshal([]byte(line), &d); err != nil {
 			return nil, fmt.Errorf("staticcheck -f json output is not JSON: %w", err)
 		}
-		if d.Code == lintCompileCheck {
-			if compile := compileFindings(d.Message, dir); len(compile) > 0 {
+		if d.Code == CompileCheck {
+			if compile := CompileFindings(d.Message, dir); len(compile) > 0 {
 				findings = append(findings, compile...)
 				continue
 			}
 		}
-		findings = append(findings, LintFinding{
-			File: lintPath(d.Location.File, dir), Line: d.Location.Line, Column: d.Location.Column,
+		findings = append(findings, Finding{
+			File: Path(d.Location.File, dir), Line: d.Location.Line, Column: d.Location.Column,
 			Check: d.Code, Message: d.Message,
 		})
 	}
 	if err := sc.Err(); err != nil {
 		return nil, err
 	}
-	sortFindings(findings)
+	Sort(findings)
 	return findings, nil
 }
 
-// golangciFindings reads golangci-lint v2's JSON report (--output.json.path
+// GolangciFindings reads golangci-lint v2's JSON report (--output.json.path
 // stdout): {"Issues": [{"FromLinter", "Text", "Pos": {"Filename", "Line",
 // "Column"}}]}. A typecheck issue carries the compiler's text, whose
 // positioned lines become compile findings. rest is anything printed after
 // the report (a text summary), returned whole.
-func golangciFindings(stdout, dir string) (findings []LintFinding, rest string, err error) {
+func GolangciFindings(stdout, dir string) (findings []Finding, rest string, err error) {
 	var report struct {
 		Issues []struct {
 			FromLinter string `json:"FromLinter"`
@@ -204,21 +210,21 @@ func golangciFindings(stdout, dir string) (findings []LintFinding, rest string, 
 	rest = strings.TrimSpace(trimmed[dec.InputOffset():])
 	for _, issue := range report.Issues {
 		if issue.FromLinter == "typecheck" {
-			if compile := compileFindings(issue.Text, dir); len(compile) > 0 {
+			if compile := CompileFindings(issue.Text, dir); len(compile) > 0 {
 				findings = append(findings, compile...)
 				continue
 			}
 		}
-		findings = append(findings, LintFinding{
-			File: lintPath(issue.Pos.Filename, dir), Line: issue.Pos.Line, Column: issue.Pos.Column,
+		findings = append(findings, Finding{
+			File: Path(issue.Pos.Filename, dir), Line: issue.Pos.Line, Column: issue.Pos.Column,
 			Check: issue.FromLinter, Message: issue.Text,
 		})
 	}
-	sortFindings(findings)
+	Sort(findings)
 	return findings, rest, nil
 }
 
-func sortFindings(f []LintFinding) {
+func Sort(f []Finding) {
 	sort.SliceStable(f, func(i, j int) bool {
 		a, b := f[i], f[j]
 		if a.File != b.File {

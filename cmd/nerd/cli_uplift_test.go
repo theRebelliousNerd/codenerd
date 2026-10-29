@@ -41,7 +41,7 @@ func TestCLI_TopLevelCommands_MatchExpectedSet(t *testing.T) {
 		"agents", "analyze", "audit", "auth", "autopoiesis", "browser",
 		"campaign", "chat", "check-mangle", "commit", "config", "context-stats",
 		"create", "define-agent", "docs", "dom", "dream", "embedding", "explain",
-		"features", "fix", "glassbox", "init", "jit", "knowledge", "logic",
+		"features", "fix", "gates", "glassbox", "init", "jit", "knowledge", "logic",
 		"logs", "mangle-lsp", "mcp", "memory", "meter", "northstar",
 		"perception", "push", "query", "refactor", "reflection",
 		"regression", "retrieve", "review", "run", "scan", "security",
@@ -85,6 +85,7 @@ func TestCLI_SubcommandGroups_MatchExpectedSets(t *testing.T) {
 		"nerd docs":             {"check", "evidence"},
 		"nerd dom":              {"apply", "demo", "edit", "get", "inspect", "replace"},
 		"nerd embedding":        {"reembed", "set", "stats"},
+		"nerd gates":            {"diff", "measure"},
 		"nerd knowledge":        {"list", "search"},
 		"nerd mcp":              {"list", "metrics", "select", "status", "tools"},
 		"nerd memory":           {"prune", "status"},
@@ -114,10 +115,10 @@ func TestCLI_SubcommandGroups_MatchExpectedSets(t *testing.T) {
 
 func TestCLI_TotalCommandCount(t *testing.T) {
 	paths := walkCommandPaths(t)
-	// Root + 58 top-level + 80 subcommands. Any add/remove must update this
+	// Root + 59 top-level + 82 subcommands. Any add/remove must update this
 	// pin deliberately, with the group sets above saying where it landed.
-	if len(paths) != 139 {
-		t.Errorf("reachable command paths = %d, want 139", len(paths))
+	if len(paths) != 142 {
+		t.Errorf("reachable command paths = %d, want 142", len(paths))
 	}
 }
 

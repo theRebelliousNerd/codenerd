@@ -84,6 +84,7 @@ Decl recurse_best_rank(Rank) bound [/number].
 Decl recurse_next(ID) bound [/string].
 Decl recurse_gate_worse(Cycle, Gate) bound [/number, /string].
 Decl recurse_cycle_worse(Cycle) bound [/number].
+Decl recurse_cycle_snapshots(Cycle, Before, After) bound [/number, /string, /string].
 Decl recurse_cycle_refused(Cycle) bound [/number].
 Decl recurse_cycle_keeps(Cycle) bound [/number].
 Decl recurse_ratchet(Cycle, Verdict) bound [/number, /name].
@@ -243,6 +244,13 @@ recurse_gate_worse(Cycle, Gate) :-
 
 recurse_cycle_worse(Cycle) :-
     recurse_gate_worse(Cycle, Gate).
+
+# Rung R7: with the error-free gates measured around the cycle (`nerd campaign
+# recurse --gates`), the cycle is worse when policy/gates.mg says any of them
+# regressed between the snapshot before and the one after.
+recurse_cycle_worse(Cycle) :-
+    recurse_cycle_snapshots(Cycle, Before, After),
+    gate_regressed(Before, After, _).
 
 recurse_cycle_refused(Cycle) :-
     recurse_ratchet_forbidden(Cycle, Path).
