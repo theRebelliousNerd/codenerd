@@ -573,6 +573,82 @@ func TestRunPlannedSteps_FinalRepairRestoreIsIncomplete(t *testing.T) {
 	}
 }
 
+// A pass can edit the right package without writing its planner-named target.
+// Closure must measure that target as unchanged and reach the policy verdict,
+// preserving both the real writes and the target's existence and bytes.
+func TestRunPlannedSteps_UnwrittenTargetReachesVerdict(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		initial *string
+	}{
+		{name: "absent target"},
+		{name: "empty target", initial: ptrString("")},
+		{name: "existing target", initial: ptrString("keep these bytes\n")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, writeTool := registerStepTools(t)
+			const target = "planned.txt"
+			client := newStepScriptProvider("", map[string][]types.ToolCall{
+				target: {
+					{ID: "w-a", Name: writeTool, Input: map[string]any{"path": "a.txt", "content": "production edit"}},
+					{ID: "w-b", Name: writeTool, Input: map[string]any{"path": "b.txt", "content": "test edit"}},
+				},
+			})
+			e := newPlannedStepsExecutor(t, client)
+			path := filepath.Join(e.config.WorkspaceRoot, target)
+			if tt.initial != nil {
+				if err := os.WriteFile(path, []byte(*tt.initial), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := readFileState(path)
+			result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
+			_, toolErrs, err := e.runPlannedSteps(context.Background(), "system", "edit the package",
+				[]workStep{{File: target, Change: "fix the package"}},
+				&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
+				&prompt.CompilationContext{ShardID: "probe"}, result)
+			// The unchanged named target is still incomplete under the current
+			// policy. It must be judged, not abort with a measurement error.
+			if !errors.Is(err, ErrStepsIncomplete) {
+				t.Fatalf("runPlannedSteps: %v (tool errors: %q), want the policy's ErrStepsIncomplete; report:\n%s", err, toolErrs, result.StepReport)
+			}
+			if len(toolErrs) != 0 || result.WriteToolEffects != 2 {
+				t.Fatalf("tool errors = %q, writes = %d; want two real writes without tool errors", toolErrs, result.WriteToolEffects)
+			}
+			if after := readFileState(path); !before.Known || after != before {
+				t.Fatalf("target state = %+v, want original %+v", after, before)
+			}
+			if _, ok := result.PreWriteContents[target]; ok {
+				t.Fatal("unwritten target acquired a first-write preimage")
+			}
+			if len(result.WrittenPaths) != 2 || !slices.Contains(result.WrittenPaths, "a.txt") || !slices.Contains(result.WrittenPaths, "b.txt") {
+				t.Fatalf("written paths = %q, want only a.txt and b.txt", result.WrittenPaths)
+			}
+			for file, want := range map[string]string{"a.txt": "production edit", "b.txt": "test edit"} {
+				got, readErr := os.ReadFile(filepath.Join(e.config.WorkspaceRoot, file))
+				if readErr != nil || string(got) != want {
+					t.Fatalf("%s = %q, err=%v; want %q", file, got, readErr, want)
+				}
+			}
+			turn := result.turnAtom()
+			netRows, queryErr := e.kernel.Query("step_file_net")
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			if !hasStepNetFact(netRows, turn, 1, target, "/unchanged") {
+				t.Fatalf("step_file_net rows = %+v, want /unchanged for the unwritten target", netRows)
+			}
+			verdicts, queryErr := e.kernel.Query("turn_steps_verdict")
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			if !hasTurnVerdict(verdicts, turn, "/incomplete") || hasTurnVerdict(verdicts, turn, "/complete") {
+				t.Fatalf("turn_steps_verdict rows = %+v, want only /incomplete", verdicts)
+			}
+		})
+	}
+}
+
 func TestAssertPlannedStepFileNetComparesExistenceAndBytes(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -622,17 +698,37 @@ func TestAssertPlannedStepFileNetFailsClosedWithoutACompleteMeasurement(t *testi
 	tests := []struct {
 		name    string
 		before  map[string]PreImage
+		written []string
 		final   func(string) error
 		wantErr string
 	}{
 		{
-			name:    "missing preimage",
+			name:    "written target with missing preimage",
 			before:  map[string]PreImage{},
+			written: []string{"a.txt"},
 			final:   func(path string) error { return os.WriteFile(path, []byte("after"), 0o644) },
 			wantErr: "no first-write preimage",
 		},
 		{
-			name:    "unknown preimage",
+			name:    "written absent target with nil preimage map",
+			written: []string{"a.txt"},
+			wantErr: "no first-write preimage",
+		},
+		{
+			name:    "written target with absolute path and missing preimage",
+			written: []string{"absolute"},
+			final:   func(path string) error { return os.WriteFile(path, []byte("after"), 0o644) },
+			wantErr: "no first-write preimage",
+		},
+		{
+			name:    "written target with unknown preimage",
+			before:  map[string]PreImage{"a.txt": {Unknown: "permission denied"}},
+			written: []string{"a.txt"},
+			final:   func(path string) error { return os.WriteFile(path, []byte("after"), 0o644) },
+			wantErr: "preimage for \"a.txt\" is unknown",
+		},
+		{
+			name:    "attempted write with unknown preimage",
 			before:  map[string]PreImage{"a.txt": {Unknown: "permission denied"}},
 			final:   func(path string) error { return os.WriteFile(path, []byte("after"), 0o644) },
 			wantErr: "preimage for \"a.txt\" is unknown",
@@ -640,6 +736,12 @@ func TestAssertPlannedStepFileNetFailsClosedWithoutACompleteMeasurement(t *testi
 		{
 			name:    "unreadable final state",
 			before:  map[string]PreImage{"a.txt": existed("before")},
+			written: []string{"a.txt"},
+			final:   func(path string) error { return os.Mkdir(path, 0o755) },
+			wantErr: "final state of \"a.txt\" is unreadable",
+		},
+		{
+			name:    "unreadable unwritten target",
 			final:   func(path string) error { return os.Mkdir(path, 0o755) },
 			wantErr: "final state of \"a.txt\" is unreadable",
 		},
@@ -647,8 +749,14 @@ func TestAssertPlannedStepFileNetFailsClosedWithoutACompleteMeasurement(t *testi
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			workspace := t.TempDir()
-			if err := tt.final(filepath.Join(workspace, "a.txt")); err != nil {
-				t.Fatal(err)
+			if tt.final != nil {
+				if err := tt.final(filepath.Join(workspace, "a.txt")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			written := tt.written
+			if slices.Contains(written, "absolute") {
+				written = []string{filepath.Join(workspace, "a.txt")}
 			}
 			kernel, err := core.NewRealKernel()
 			if err != nil {
@@ -656,20 +764,24 @@ func TestAssertPlannedStepFileNetFailsClosedWithoutACompleteMeasurement(t *testi
 			}
 			e := &Executor{kernel: kernel, config: ExecutorConfig{WorkspaceRoot: workspace}}
 			turn := types.MangleAtom(fmt.Sprintf("/step_net_failure_%d", i))
-			steps := []workStep{{File: "a.txt", Edited: true}}
-			err = e.assertPlannedStepFileNet(turn, steps, &ExecutionResult{PreWriteContents: tt.before})
+			steps := []workStep{{File: "unwritten.txt", Edited: true}, {File: "a.txt", Edited: true}}
+			err = e.assertPlannedStepFileNet(turn, steps, &ExecutionResult{PreWriteContents: tt.before, WrittenPaths: written})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("assertPlannedStepFileNet error = %v, want text %q", err, tt.wantErr)
 			}
-			if steps[0].MeasurementError == "" {
-				t.Fatal("the report did not retain the measurement failure")
+			for _, step := range steps {
+				if step.MeasurementError == "" {
+					t.Fatal("the report did not retain the measurement failure")
+				}
 			}
 			rows, queryErr := kernel.Query("step_file_net")
 			if queryErr != nil {
 				t.Fatal(queryErr)
 			}
-			if hasStepNetFact(rows, turn, 1, "a.txt", "/unchanged") || hasStepNetFact(rows, turn, 1, "a.txt", "/changed") {
-				t.Fatalf("failed measurement asserted a net-state fact: %+v", rows)
+			for _, row := range rows {
+				if factTurn(row) == string(turn) {
+					t.Fatalf("failed measurement asserted a partial net-state fact: %+v", rows)
+				}
 			}
 		})
 	}

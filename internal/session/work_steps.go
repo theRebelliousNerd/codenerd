@@ -397,9 +397,11 @@ func (e *Executor) recordStepPass(turn types.MangleAtom, step int, file string, 
 	return nil
 }
 
-// assertPlannedStepFileNet compares each written step's target with the
-// preimage captured before the turn's first write. It runs after the shared
-// post-edit gate, which includes all repair rounds and final gofmt. The host
+// assertPlannedStepFileNet compares each edited pass's target with the
+// preimage captured before the turn's first write. A pass may write other
+// files instead: a target outside the write set with no preimage is unchanged
+// by this turn, not a written file with missing evidence. It runs after the
+// shared post-edit gate, including all repair rounds and final gofmt. The host
 // measures bytes and asserts evidence; turn_steps.mg remains the only source
 // of the planned-step verdict.
 func (e *Executor) assertPlannedStepFileNet(turn types.MangleAtom, steps []workStep, result *ExecutionResult) error {
@@ -437,9 +439,13 @@ func (e *Executor) assertPlannedStepFileNet(turn types.MangleAtom, steps []workS
 		}
 		before, ok := result.PreWriteContents[path]
 		if !ok {
-			return fail(fmt.Sprintf("no first-write preimage was recorded for %q", path))
+			for _, written := range result.WrittenPaths {
+				if canonicalizeWrittenPath(written, workspace) == path {
+					return fail(fmt.Sprintf("no first-write preimage was recorded for %q", path))
+				}
+			}
 		}
-		if !before.Known() {
+		if ok && !before.Known() {
 			return fail(fmt.Sprintf("the first-write preimage for %q is unknown: %s", path, before.Unknown))
 		}
 		after := readFileState(turnFilePath(workspace, path))
@@ -448,7 +454,10 @@ func (e *Executor) assertPlannedStepFileNet(turn types.MangleAtom, steps []workS
 		}
 
 		net := "/changed"
-		if before.Existed == after.Exists && (!before.Existed || before.Content == after.Content) {
+		// No write and no attempted-write preimage: the target's current
+		// existence and bytes are unchanged by this turn. Do not invent a
+		// first-write preimage or add the planner's target to the write set.
+		if !ok || before.Existed == after.Exists && (!before.Existed || before.Content == after.Content) {
 			net = "/unchanged"
 		}
 		measurements = append(measurements, measurement{step: i + 1, file: step.File, net: net})
