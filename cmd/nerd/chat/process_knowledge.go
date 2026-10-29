@@ -177,8 +177,14 @@ If you need to search documentation or the web, do so to provide accurate inform
 }
 
 // dedupeKnowledgeRequests resolves "_any_specialist" to a concrete specialist
-// and drops a request that repeats an earlier one (same specialist, same query
-// and purpose up to whitespace and case), keeping first-occurrence order.
+// and drops a request that repeats an earlier one exactly -- the same resolved
+// specialist, query and purpose, byte for byte -- keeping first-occurrence
+// order. Identity is literal: case and whitespace inside a technical question
+// carry meaning (the regexp classes \s and \S, the string literals "a b" and
+// "a  b"), and folding them dropped a distinct question from execution and
+// from the results synthesis reports on. A near-duplicate in other words
+// costs a slot of the cap, and past the cap it is reported not run, never
+// silently merged.
 func (m *Model) dedupeKnowledgeRequests(requests []articulation.KnowledgeRequest) []articulation.KnowledgeRequest {
 	seen := make(map[string]bool, len(requests))
 	out := make([]articulation.KnowledgeRequest, 0, len(requests))
@@ -186,7 +192,7 @@ func (m *Model) dedupeKnowledgeRequests(requests []articulation.KnowledgeRequest
 		if r.Specialist == "_any_specialist" {
 			r.Specialist = m.matchSpecialistForQuery(r.Query)
 		}
-		key := strings.Join([]string{r.Specialist, normalizeAsk(r.Query), normalizeAsk(r.Purpose)}, "\x00")
+		key := knowledgeRequestKey(r.Specialist, r.Query, r.Purpose)
 		if seen[key] {
 			logging.Get(logging.CategoryContext).Info("Knowledge request to '%s' repeats an earlier one; consulted once", r.Specialist)
 			continue
@@ -197,8 +203,14 @@ func (m *Model) dedupeKnowledgeRequests(requests []articulation.KnowledgeRequest
 	return out
 }
 
-func normalizeAsk(s string) string {
-	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+// knowledgeRequestKey is an unambiguous encoding of a request's identity:
+// each field length-prefixed, so no field's bytes can imitate a separator.
+func knowledgeRequestKey(fields ...string) string {
+	var b strings.Builder
+	for _, f := range fields {
+		fmt.Fprintf(&b, "%d:%s", len(f), f)
+	}
+	return b.String()
 }
 
 // synthesizeWithKnowledge produces the final answer after specialist

@@ -6,21 +6,40 @@ import (
 	"codenerd/internal/articulation"
 )
 
-// A repeated ask is one consultation and must not take the cap slot a
+// An exact repeat is one consultation and must not take the cap slot a
 // different question needed.
-func TestDedupeKnowledgeRequests_ARepeatedAskIsOneConsultation(t *testing.T) {
+func TestDedupeKnowledgeRequests_AnExactRepeatIsOneConsultation(t *testing.T) {
 	m := NewTestModel()
 	t.Cleanup(m.shutdownCancel)
 	got := m.dedupeKnowledgeRequests([]articulation.KnowledgeRequest{
 		{Specialist: "researcher", Query: "What is X?", Purpose: "p"},
-		{Specialist: "researcher", Query: "  what is   x? ", Purpose: "P"},
+		{Specialist: "researcher", Query: "What is X?", Purpose: "p"},
 		{Specialist: "researcher", Query: "what is Y?", Purpose: "p"},
 	})
 	if len(got) != 2 || got[0].Query != "What is X?" || got[1].Query != "what is Y?" {
 		t.Fatalf("got %+v", got)
 	}
-	if len(got) > maxKnowledgeRequestsPerTurn {
-		t.Fatalf("the different question would have been capped out: %d", len(got))
+}
+
+// Identity is literal: questions that differ only in case or in whitespace
+// inside them are different questions, and both are consulted. Folding them
+// lost the second from execution and from the results synthesis reads
+// (audit knowledge-consultation-literal-identity).
+func TestDedupeKnowledgeRequests_CaseAndSpacingAreMeaning(t *testing.T) {
+	m := NewTestModel()
+	t.Cleanup(m.shutdownCancel)
+	for _, pair := range [][2]articulation.KnowledgeRequest{
+		{{Specialist: "researcher", Query: `Explain Go regexp \s.`, Purpose: "Choose a character class."},
+			{Specialist: "researcher", Query: `Explain Go regexp \S.`, Purpose: "Choose a character class."}},
+		{{Specialist: "researcher", Query: `What is the length of Go string "a b"?`, Purpose: "p"},
+			{Specialist: "researcher", Query: `What is the length of Go string "a  b"?`, Purpose: "p"}},
+		{{Specialist: "researcher", Query: "q", Purpose: "Use Path"},
+			{Specialist: "researcher", Query: "q", Purpose: "use path"}},
+	} {
+		got := m.dedupeKnowledgeRequests([]articulation.KnowledgeRequest{pair[0], pair[1]})
+		if len(got) != 2 || got[0].Query != pair[0].Query || got[1].Query != pair[1].Query || got[1].Purpose != pair[1].Purpose {
+			t.Errorf("distinct requests %q / %q folded: %+v", pair[0].Query, pair[1].Query, got)
+		}
 	}
 }
 
