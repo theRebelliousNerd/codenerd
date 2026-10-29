@@ -358,9 +358,14 @@ func (m Model) processInput(input string) tea.Cmd {
 			// The turn context bounds the sparse-retrieval pass this now runs.
 			m.seedIssueFacts(ctx, intent, input)
 
-			// GAP-002 FIX: Seed campaign facts if there's an active campaign.
-			// This enables the activation engine and JIT compiler to be campaign-aware.
-			m.seedCampaignFacts()
+			// No campaign seed: the campaign owner admits its canonical facts
+			// (Campaign.ToFacts via SetCampaign) into this same kernel, and
+			// policy derives current_campaign, current_phase and
+			// next_campaign_task from them -- the conclusions activation and
+			// the JIT read. The chat used to assert those conclusions itself as
+			// stored facts that never retired, and a stale current_phase made
+			// the scheduler re-run a completed phase (audit
+			// campaign-context-seed-scheduler-ownership).
 		}
 		logging.Routing("[processInput] ORIENT (kernel assertions): %dms", time.Since(perceptionStart).Milliseconds())
 

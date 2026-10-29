@@ -562,7 +562,6 @@ func (v *VirtualStore) handleCampaignVerify(ctx context.Context, req ActionReque
 		Output:  fmt.Sprintf("Verifying campaign step: %s", stepID),
 		FactsToAdd: []Fact{
 			{Predicate: "campaign_step_verifying", Args: []any{campaignID, stepID}},
-			{Predicate: "current_phase", Args: []any{"/verify"}},
 		},
 	}, nil
 }
@@ -589,7 +588,6 @@ func (v *VirtualStore) handleCampaignDocument(ctx context.Context, req ActionReq
 		Output:  fmt.Sprintf("Documentation requested for: %s", docTarget),
 		FactsToAdd: []Fact{
 			{Predicate: "campaign_documenting", Args: []any{docTarget}},
-			{Predicate: "current_phase", Args: []any{"/document"}},
 		},
 	}, nil
 }
@@ -610,7 +608,6 @@ func (v *VirtualStore) handleCampaignRefactor(ctx context.Context, req ActionReq
 		Output:  fmt.Sprintf("Refactoring initiated for: %s", target),
 		FactsToAdd: []Fact{
 			{Predicate: "campaign_refactoring", Args: []any{target, refactorType}},
-			{Predicate: "current_phase", Args: []any{"/refactor"}},
 		},
 	}, nil
 }
@@ -631,7 +628,6 @@ func (v *VirtualStore) handleCampaignIntegrate(ctx context.Context, req ActionRe
 		Output:  fmt.Sprintf("Integration step for: %s", target),
 		FactsToAdd: []Fact{
 			{Predicate: "campaign_integrating", Args: []any{campaignID, target}},
-			{Predicate: "current_phase", Args: []any{"/integrate"}},
 		},
 	}, nil
 }
@@ -651,7 +647,6 @@ func (v *VirtualStore) handleCampaignFinalVerify(ctx context.Context, req Action
 		Output:  fmt.Sprintf("Final verification for campaign: %s", campaignID),
 		FactsToAdd: []Fact{
 			{Predicate: "campaign_final_verifying", Args: []any{campaignID}},
-			{Predicate: "current_phase", Args: []any{"/final_verify"}},
 		},
 	}, nil
 }
@@ -671,7 +666,6 @@ func (v *VirtualStore) handleCampaignCleanup(ctx context.Context, req ActionRequ
 		Output:  fmt.Sprintf("Cleanup completed for campaign: %s", campaignID),
 		FactsToAdd: []Fact{
 			{Predicate: "campaign_cleaned_up", Args: []any{campaignID}},
-			{Predicate: "current_phase", Args: []any{"/cleanup"}},
 		},
 	}, nil
 }

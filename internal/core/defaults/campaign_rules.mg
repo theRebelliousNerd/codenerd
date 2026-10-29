@@ -762,9 +762,12 @@ next_action(/campaign_cleanup) :-
     campaign(CampaignID, _, _, _, /completed),
     !campaign_cleaned(CampaignID).
 
-# Helper for safe negation
+# Helper for safe negation. The cleanup handler
+# (VirtualStore.handleCampaignCleanup) asserts campaign_cleaned_up when it
+# has run. This read campaign_learning(_, /cleanup, ...), which nothing
+# produces, so the cleanup action derived again after it had run.
 campaign_cleaned(CampaignID) :-
-    campaign_learning(CampaignID, /cleanup, _, _, _).
+    campaign_cleaned_up(CampaignID).
 
 # Archive campaign artifacts
 next_action(/archive_campaign) :-

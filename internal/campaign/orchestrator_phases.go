@@ -527,6 +527,13 @@ func (o *Orchestrator) completePhase(phase *Phase) {
 
 	for i := range o.campaign.Phases {
 		if o.campaign.Phases[i].ID == phase.ID {
+			if o.campaign.Phases[i].Status == PhaseCompleted {
+				// Completion is idempotent: a phase completed once is not
+				// counted again, whatever delivered it a second time.
+				o.mu.Unlock()
+				logging.CampaignWarn("phase %s is already completed; not counted again", phase.ID)
+				return
+			}
 			logging.Campaign("=== Phase Completed: %s (%s) ===", phase.Name, phase.ID)
 
 			for _, t := range o.campaign.Phases[i].Tasks {

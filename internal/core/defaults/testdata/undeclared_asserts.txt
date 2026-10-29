@@ -21,7 +21,6 @@ atom_depends
 atom_exclusive
 browser_routing
 campaign_archived
-campaign_cleaned_up
 campaign_documenting
 campaign_final_verifying
 campaign_integrating

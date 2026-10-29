@@ -850,7 +850,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	if !res.Success {
 		t.Errorf("expected success")
 	}
-	if len(res.FactsToAdd) != 2 || res.FactsToAdd[0].Predicate != "campaign_step_verifying" {
+	if len(res.FactsToAdd) != 1 || res.FactsToAdd[0].Predicate != "campaign_step_verifying" {
 		t.Errorf("expected campaign verify facts, got: %v", res.FactsToAdd)
 	}
 
@@ -872,7 +872,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	if !res.Success {
 		t.Errorf("expected success")
 	}
-	if len(res.FactsToAdd) != 2 || res.FactsToAdd[0].Predicate != "campaign_documenting" {
+	if len(res.FactsToAdd) != 1 || res.FactsToAdd[0].Predicate != "campaign_documenting" {
 		t.Errorf("expected campaign documenting facts, got: %v", res.FactsToAdd)
 	}
 
@@ -903,7 +903,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	if !res.Success {
 		t.Errorf("expected success")
 	}
-	if len(res.FactsToAdd) != 2 || res.FactsToAdd[0].Predicate != "campaign_refactoring" {
+	if len(res.FactsToAdd) != 1 || res.FactsToAdd[0].Predicate != "campaign_refactoring" {
 		t.Errorf("expected campaign refactoring facts, got: %v", res.FactsToAdd)
 	}
 
@@ -924,7 +924,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	if !res.Success {
 		t.Errorf("expected success")
 	}
-	if len(res.FactsToAdd) != 2 || res.FactsToAdd[0].Predicate != "campaign_integrating" {
+	if len(res.FactsToAdd) != 1 || res.FactsToAdd[0].Predicate != "campaign_integrating" {
 		t.Errorf("expected campaign integrating facts, got: %v", res.FactsToAdd)
 	}
 
@@ -945,7 +945,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	if !res.Success {
 		t.Errorf("expected success")
 	}
-	if len(res.FactsToAdd) != 2 || res.FactsToAdd[0].Predicate != "campaign_final_verifying" {
+	if len(res.FactsToAdd) != 1 || res.FactsToAdd[0].Predicate != "campaign_final_verifying" {
 		t.Errorf("expected campaign final verify facts, got: %v", res.FactsToAdd)
 	}
 
@@ -966,7 +966,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	if !res.Success {
 		t.Errorf("expected success")
 	}
-	if len(res.FactsToAdd) != 2 || res.FactsToAdd[0].Predicate != "campaign_cleaned_up" {
+	if len(res.FactsToAdd) != 1 || res.FactsToAdd[0].Predicate != "campaign_cleaned_up" {
 		t.Errorf("expected campaign cleanup facts, got: %v", res.FactsToAdd)
 	}
 

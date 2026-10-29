@@ -1,9 +1,7 @@
 package chat
 
 import (
-	"codenerd/internal/campaign"
 	"codenerd/internal/config"
-	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/retrieval"
@@ -105,71 +103,6 @@ func (m *Model) seedIssueFacts(ctx context.Context, intent perception.Intent, ra
 	}); err != nil {
 		logging.Context("[seedIssueFacts] retrieval seed failed: %v", err)
 	}
-}
-
-// seedCampaignFacts asserts campaign context facts for spreading activation and JIT selection.
-// GAP-002 FIX: This enables the activation engine and JIT compiler to be campaign-aware.
-func (m *Model) seedCampaignFacts() {
-	if m.kernel == nil || m.activeCampaign == nil {
-		return
-	}
-
-	c := m.activeCampaign
-	facts := make([]core.Fact, 0, 10)
-
-	// current_campaign(CampaignID)
-	facts = append(facts, core.Fact{
-		Predicate: "current_campaign",
-		Args:      []any{c.ID},
-	})
-
-	// Find current phase (first non-completed phase)
-	var currentPhase *campaign.Phase
-	for i := range c.Phases {
-		if c.Phases[i].Status != campaign.PhaseCompleted {
-			currentPhase = &c.Phases[i]
-			break
-		}
-	}
-
-	if currentPhase != nil {
-		// current_phase(PhaseID)
-		facts = append(facts, core.Fact{
-			Predicate: "current_phase",
-			Args:      []any{currentPhase.ID},
-		})
-
-		// phase_objective(PhaseID, ObjectiveIndex, Description)
-		for i, obj := range currentPhase.Objectives {
-			objID := fmt.Sprintf("/obj_%s_%d", currentPhase.ID, i)
-			facts = append(facts, core.Fact{
-				Predicate: "phase_objective",
-				Args:      []any{currentPhase.ID, objID, obj.Description},
-			})
-		}
-
-		// Find next pending task
-		for _, task := range currentPhase.Tasks {
-			if task.Status == campaign.TaskPending || task.Status == campaign.TaskInProgress {
-				// next_campaign_task(TaskID)
-				facts = append(facts, core.Fact{
-					Predicate: "next_campaign_task",
-					Args:      []any{task.ID},
-				})
-
-				// task_artifact(TaskID, ArtifactType, Path)
-				for _, artifact := range task.Artifacts {
-					facts = append(facts, core.Fact{
-						Predicate: "task_artifact",
-						Args:      []any{task.ID, artifact.Type, artifact.Path},
-					})
-				}
-				break // Only the next task
-			}
-		}
-	}
-
-	_ = m.kernel.LoadFacts(facts)
 }
 
 // runClarifierShard invokes the requirements_interrogator shard synchronously to gather clarifying questions.

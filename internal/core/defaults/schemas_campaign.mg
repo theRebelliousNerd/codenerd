@@ -213,6 +213,10 @@ Decl campaign_milestone(CampaignID, MilestoneID, Description, ReachedAt) bound [
 # LearningType: /success_pattern, /failure_pattern, /preference, /optimization
 Decl campaign_learning(CampaignID, LearningType, Pattern, Fact, AppliedAt) bound [/string, /name, /string, /string, /number].
 
+# campaign_cleaned_up(CampaignID) - the campaign's cleanup action ran
+# (VirtualStore.handleCampaignCleanup).
+Decl campaign_cleaned_up(CampaignID) bound [/string].
+
 # -----------------------------------------------------------------------------
 # 27.6 Replanning & Adaptation
 # -----------------------------------------------------------------------------
