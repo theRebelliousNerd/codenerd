@@ -63,9 +63,9 @@ func (p *recursePolicy) attempted(id string) error {
 
 // visit replaces the visit and the open findings with a fresh measurement.
 // regressions are the IDs that were not open when the pass began.
-func (p *recursePolicy) visit(node string, open []gates.Finding, regressions map[string]bool) error {
+func (p *recursePolicy) visit(node string, open []gates.Finding, regressions map[string]bool, groups map[string]gates.FindingGroup) error {
 	if err := p.k.RemoveFactsByPredicateSet(map[string]struct{}{
-		"recurse_visit": {}, "recurse_finding": {}, "recurse_regression": {},
+		"recurse_visit": {}, "recurse_finding": {}, "recurse_regression": {}, "recurse_ef_group": {},
 	}); err != nil {
 		return fmt.Errorf("recurse: clear visit: %w", err)
 	}
@@ -76,6 +76,11 @@ func (p *recursePolicy) visit(node string, open []gates.Finding, regressions map
 		}})
 		if regressions[f.ID] {
 			facts = append(facts, core.Fact{Predicate: "recurse_regression", Args: []interface{}{f.ID}})
+		}
+		if g, ok := groups[f.ID]; ok {
+			facts = append(facts, core.Fact{Predicate: "recurse_ef_group", Args: []interface{}{
+				f.ID, types.MangleAtom("/" + g.Gate), g.Check, int64(g.Files),
+			}})
 		}
 	}
 	if err := p.k.AssertBatch(facts); err != nil {

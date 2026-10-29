@@ -48,7 +48,7 @@ func TestRecursePolicy_PicksByKindThenRegressionOnTheVisitedNode(t *testing.T) {
 		{open[4:], nil, ""},
 	}
 	for i, s := range steps {
-		if err := p.visit("store", s.open, s.regressions); err != nil {
+		if err := p.visit("store", s.open, s.regressions, nil); err != nil {
 			t.Fatal(err)
 		}
 		got, err := p.next()
@@ -68,7 +68,7 @@ func TestRecursePolicy_StallIsARepeatedFailureNotACounter(t *testing.T) {
 	t.Parallel()
 	p := newRecursePolicy(t)
 	open := []gates.Finding{finding("t1", "store", gates.Test), finding("t2", "store", gates.Test)}
-	if err := p.visit("store", open, nil); err != nil {
+	if err := p.visit("store", open, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	must := func(err error) {

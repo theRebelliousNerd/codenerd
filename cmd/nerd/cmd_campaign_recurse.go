@@ -42,6 +42,7 @@ var (
 	// any of them worse is not kept (internal/gates, policy/gates.mg).
 	recurseGates     []string
 	recurseGateTests []string
+	recurseGateFull  int
 )
 
 var campaignRecurseCmd = &cobra.Command{
@@ -83,6 +84,7 @@ func init() {
 	f.BoolVar(&recurseDryRun, "dry-run", false, "Same as --plan")
 	f.StringSliceVar(&recurseGates, "gates", nil, "Measure the error-free gates around every cycle and keep none that leaves one worse: all, or names/labels (vet,G4,gofmt,...)")
 	f.StringSliceVar(&recurseGateTests, "gate-tests", nil, "Package patterns the measured G3 (go test) runs (default ./...)")
+	f.IntVar(&recurseGateFull, "gate-full-every", 10, "With --gates: measure every gate in full again after this many cycles judged on scoped measurements (0 = only at the start)")
 	campaignRecurseCmd.AddCommand(campaignRecurseStatusCmd, campaignRecurseStopCmd)
 }
 
@@ -216,13 +218,14 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\nRecurse: improving %s node by node (%s).\n", cwd, recurseBoundText(cfg))
 	result, err := campaign.RunRecurseCycles(ctx, campaign.RecurseCycleConfig{
-		Workspace:    cwd,
-		Kernel:       kernel,
-		Execute:      execute,
-		Passes:       cfg.MaxWaves,
-		Subsystems:   cfg.Subsystems,
-		Progress:     cmd.OutOrStdout(),
-		MeasureGates: recurseGateMeasure(cwd, recurseGates, recurseGateTests),
+		Workspace:            cwd,
+		Kernel:               kernel,
+		Execute:              execute,
+		Passes:               cfg.MaxWaves,
+		Subsystems:           cfg.Subsystems,
+		Progress:             cmd.OutOrStdout(),
+		MeasureGates:         recurseGateMeasure(cwd, recurseGates, recurseGateTests),
+		FullGateMeasureEvery: recurseGateFull,
 	})
 	printRecurseResult(cmd.OutOrStdout(), result)
 	if errors.Is(err, campaign.ErrRecurseStopped) {
@@ -304,7 +307,7 @@ func writeRecursePlan(w io.Writer, cwd string, cfg campaign.RecurseConfig) error
 
 // recurseGateMeasure is the error-free gate measurement --gates asks for, or
 // nil when it was not asked for. "all" measures every gate.
-func recurseGateMeasure(root string, only, tests []string) func(context.Context) gates.Snapshot {
+func recurseGateMeasure(root string, only, tests []string) func(context.Context, []string) gates.Snapshot {
 	if len(only) == 0 {
 		return nil
 	}
@@ -312,8 +315,10 @@ func recurseGateMeasure(root string, only, tests []string) func(context.Context)
 		only = nil
 	}
 	opts := codeNERDGateOptions(only, tests)
-	return func(ctx context.Context) gates.Snapshot {
-		snap := gates.MeasureErrorFree(ctx, root, opts)
+	return func(ctx context.Context, packages []string) gates.Snapshot {
+		scoped := opts
+		scoped.ScopedPackages = packages
+		snap := gates.MeasureErrorFree(ctx, root, scoped)
 		if _, err := snap.Save(root); err != nil {
 			fmt.Fprintf(os.Stderr, "recurse: the gate snapshot %s was measured but not saved: %v\n", snap.ID, err)
 		}

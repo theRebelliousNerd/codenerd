@@ -22,7 +22,7 @@ func TestRecurseCycles_AFixThatWorsensAnErrorFreeGateIsReverted(t *testing.T) {
 			return nil
 		})
 	}
-	run := func(root string, measure func(context.Context) gates.Snapshot) *RecurseCycleResult {
+	run := func(root string, measure func(context.Context, []string) gates.Snapshot) *RecurseCycleResult {
 		k, err := core.NewRealKernelWithWorkspace(t.TempDir())
 		if err != nil {
 			t.Fatal(err)
@@ -41,7 +41,7 @@ func TestRecurseCycles_AFixThatWorsensAnErrorFreeGateIsReverted(t *testing.T) {
 
 	measured := recurseFixture(t, nil)
 	var snapshots int
-	res := run(measured, func(ctx context.Context) gates.Snapshot {
+	res := run(measured, func(ctx context.Context, _ []string) gates.Snapshot {
 		snapshots++
 		return gates.MeasureErrorFree(ctx, measured, gates.MeasureOptions{Only: []string{"gofmt"}})
 	})

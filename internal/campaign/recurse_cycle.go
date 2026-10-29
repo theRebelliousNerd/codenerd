@@ -103,12 +103,22 @@ type RecurseCycleConfig struct {
 	Branch string
 	// Progress receives one line per state change. Nil discards.
 	Progress io.Writer
-	// MeasureGates, when set, measures the error-free gates (internal/gates)
-	// around every attempt that changed the tree: once before the first
-	// attempt and after each kept one, and after every attempt. An attempt
-	// that leaves any of them worse (policy/gates.mg gate_regressed) is not
-	// kept -- rung R7's rule. Nil measures only the workspace's own gates.
-	MeasureGates func(ctx context.Context) gates.Snapshot
+	// MeasureGates, when set, measures the error-free gates (internal/gates).
+	// packages nil is a full measurement; otherwise the per-package lint
+	// gates run over those packages only (gates.MeasureOptions.ScopedPackages).
+	// The loop measures in full before its first visit and every
+	// FullGateMeasureEvery cycles, and scoped to the packages an attempt
+	// touched after every attempt that changed the tree. An attempt that
+	// leaves any gate worse (policy/gates.mg gate_regressed) is not kept --
+	// rung R7's rule -- and the snapshot's findings, grouped by check and
+	// package (gates.FindingGroups), are candidates the policy picks from
+	// (recurse_ef_group). Nil measures only the workspace's own gates.
+	MeasureGates func(ctx context.Context, packages []string) gates.Snapshot
+	// FullGateMeasureEvery is how many cycles may pass on scoped
+	// after-measures before the next visit measures in full again; a change
+	// can move findings into a package it did not touch, which only a full
+	// measurement sees. Zero measures in full only at the start.
+	FullGateMeasureEvery int
 }
 
 // RecurseCycleResult is what a run did.
@@ -201,9 +211,19 @@ type recurseRun struct {
 	// prior are the reverted attempts by the work they attempted (priorKey),
 	// rebuilt from the journal on resume.
 	prior map[string][]PriorAttempt
-	// gateBaseline is the error-free gates as the tree stands now (the last
-	// kept attempt's measurement); nil until the first attempt measures it.
+	// gateBaseline is the error-free gates as the tree stands now: the last
+	// full measurement with every kept attempt's scoped one laid over it
+	// (gates.Snapshot.Overlay); nil until the first visit measures it.
 	gateBaseline *gates.Snapshot
+	// efGroups are gateBaseline's findings grouped into units of work, by
+	// finding ID; efOpen the same as findings attributed to nodes. Rebuilt
+	// when the baseline changes (efDirty).
+	efGroups map[string]gates.FindingGroup
+	efOpen   []gates.Finding
+	efDirty  bool
+	// cyclesSinceFull counts cycles judged on scoped measurements since the
+	// last full one.
+	cyclesSinceFull int
 }
 
 // priorKey names the work an attempt was for: the finding it fixed, or the
@@ -692,6 +712,11 @@ func (r *recurseRun) open(node SubsystemNode, own []gates.Gate, set gates.Set) [
 			}
 		}
 	}
+	for _, f := range r.efOpen {
+		if f.Node == node.ID {
+			out = append(out, f)
+		}
+	}
 	gates.SortFindings(out)
 	return out
 }
@@ -713,6 +738,11 @@ func (r *recurseRun) regressions(open []gates.Finding) map[string]bool {
 	}
 	out := map[string]bool{}
 	for _, f := range open {
+		if _, group := r.efGroups[f.ID]; group {
+			// An error-free group is measured by snapshots, not by the
+			// pass's gate runs; "absent last pass" says nothing about it.
+			continue
+		}
 		if !r.seenLastPass[f.ID] {
 			out[f.ID] = true
 		}
@@ -728,6 +758,9 @@ func (r *recurseRun) visit(ctx context.Context, pass int, node SubsystemNode, no
 		}
 		r.state[gateKey(g.ID, node.ID)] = r.measure(ctx, g, node.ID, nodes)
 	}
+	if err := r.refreshGates(ctx, nodes); err != nil {
+		return err
+	}
 	open := r.open(node, own, set)
 	scope := visitScope{pass: pass, node: node, nodes: nodes, set: set, own: own, ratchetKinds: ratchetKinds}
 	if err := r.journal.append(recurseRecord{Step: stepVisit, Pass: pass, Node: node.ID, Open: len(open)}); err != nil {
@@ -736,7 +769,7 @@ func (r *recurseRun) visit(ctx context.Context, pass int, node SubsystemNode, no
 	if err := r.policy.beginVisit(); err != nil {
 		return err
 	}
-	if err := r.policy.visit(node.ID, open, r.regressions(open)); err != nil {
+	if err := r.policy.visit(node.ID, open, r.regressions(open), r.efGroups); err != nil {
 		return err
 	}
 	for {
@@ -753,8 +786,11 @@ func (r *recurseRun) visit(ctx context.Context, pass int, node SubsystemNode, no
 		if err := r.attempt(ctx, scope, id, open); err != nil {
 			return err
 		}
+		if err := r.refreshGates(ctx, nodes); err != nil {
+			return err
+		}
 		open = r.open(node, own, set)
-		if err := r.policy.visit(node.ID, open, r.regressions(open)); err != nil {
+		if err := r.policy.visit(node.ID, open, r.regressions(open), r.efGroups); err != nil {
 			return err
 		}
 	}
@@ -805,6 +841,9 @@ type attemptSpec struct {
 	angle     string
 	describe  string
 	subject   string
+	// group is an error-free finding group's attempt (recurse_error_free.go);
+	// its witness, check, decides the target.
+	group *gates.FindingGroup
 }
 
 // attempt tries to fix the finding the kernel picked.
@@ -820,6 +859,9 @@ func (r *recurseRun) attempt(ctx context.Context, v visitScope, id string, open 
 	}
 	if err := r.policy.attempted(id); err != nil {
 		return err
+	}
+	if group, ok := r.efGroups[id]; ok {
+		return r.run(ctx, v, errorFreeSpec(target, group, v.node))
 	}
 	source := r.sourceOf(target, v.node)
 	return r.run(ctx, v, attemptSpec{
@@ -881,11 +923,6 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 	}
 	r.logf("recurse cycle %d: %s: %s", cycle, node.ID, spec.describe)
 
-	if r.cfg.MeasureGates != nil && r.gateBaseline == nil {
-		base := r.cfg.MeasureGates(ctx)
-		r.gateBaseline = &base
-	}
-
 	a := RecurseAttempt{
 		Pass: v.pass, Cycle: cycle, Node: node, Evidence: spec.evidence, Check: spec.check,
 		OKExitCodes: spec.okExit,
@@ -939,10 +976,23 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 		Changed: len(changed) > 0, Forbidden: r.forbidden(changed),
 	}
 	var gatesAfter *gates.Snapshot
-	if r.cfg.MeasureGates != nil && len(changed) > 0 {
-		s := r.cfg.MeasureGates(ctx)
+	if r.cfg.MeasureGates != nil && r.gateBaseline != nil && len(changed) > 0 {
+		s := r.cfg.MeasureGates(ctx, goPackagesOf(changed))
 		gatesAfter = &s
-		in.GatesBefore, in.GatesAfter = r.gateBaseline, gatesAfter
+		before := r.gateBaseline.RestrictTo(s)
+		in.GatesBefore, in.GatesAfter = &before, gatesAfter
+		r.cyclesSinceFull++
+	}
+	witnessRan := false
+	if spec.group != nil && len(changed) > 0 {
+		// The group's witness decides its target: the gate over the
+		// package with only the group's check, exit 0 when none remains.
+		passed, err := gates.RunWitness(ctx, r.root, spec.check)
+		witnessRan = true
+		in.TargetOK = err == nil && passed
+		if err != nil {
+			r.logf("recurse cycle %d: the witness %s could not run: %v", cycle, strings.Join(spec.check, " "), err)
+		}
 	}
 	keys := make([]string, 0, len(after))
 	for k := range after {
@@ -959,7 +1009,7 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 			Gate: k, Before: b.verdict(), After: a.verdict(),
 			BeforeCount: len(b.findings), AfterCount: len(a.findings),
 		})
-		if spec.finding != nil && k == spec.targetKey {
+		if spec.finding != nil && !witnessRan && k == spec.targetKey {
 			targetUnverified = a.result.Unverified()
 			in.TargetOK = !targetUnverified && !hasFinding(a.findings, findingID)
 		}
@@ -996,7 +1046,9 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 			r.state[k] = run
 		}
 		if gatesAfter != nil {
-			r.gateBaseline = gatesAfter
+			merged := r.gateBaseline.Overlay(*gatesAfter)
+			r.gateBaseline = &merged
+			r.efDirty = true
 		}
 		r.reportUnattributed()
 		rec.Outcome, rec.Commit = outcomeKept, hash

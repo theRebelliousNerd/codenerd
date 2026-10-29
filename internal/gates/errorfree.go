@@ -24,6 +24,10 @@ import (
 // internal/lintreport -- the readers the model's run_lint tool uses -- so a
 // finding the model can see is the finding the gate counts.
 
+// NoPackageScope is the Scope of a lint gate scoped to no package. No finding
+// is in it, so the baseline restricted to it is empty too.
+const NoPackageScope = "(no Go package)"
+
 // MeasureStatus is one gate's verdict in a snapshot.
 type MeasureStatus string
 
@@ -52,7 +56,10 @@ type Measurement struct {
 	ExitCode *int                 `json:"exit_code,omitempty"`
 	// Output is what the gate printed that was neither a finding nor a
 	// compile error, kept whole: a failure that named nothing says why here.
-	Output   string        `json:"output,omitempty"`
+	Output string `json:"output,omitempty"`
+	// Scope are the package patterns a scoped measurement covered; empty is
+	// the whole module.
+	Scope    []string      `json:"scope,omitempty"`
 	Reason   string        `json:"reason,omitempty"`
 	Duration time.Duration `json:"duration_ns"`
 }
@@ -69,6 +76,15 @@ type MeasureOptions struct {
 	// TestPackages scopes G3 (go test) to these package patterns; empty is
 	// the whole module, ./... .
 	TestPackages []string
+	// ScopedPackages, when set, narrows the per-package lint gates (G2 vet,
+	// G4 staticcheck, G5 golangci-lint -- ScopedGates) to these package
+	// patterns, and their Measurements record the scope. A recurse cycle's
+	// after-measure uses it for the packages the cycle touched; compare such
+	// a snapshot with Snapshot.RestrictTo of the full one. A non-nil empty
+	// list scopes them to no package: they do not run, and pass over that
+	// empty scope (NoPackageScope), so a cycle that touched no Go file is
+	// compared on nothing it could not have changed.
+	ScopedPackages []string
 	// Only measures these gates (by name or label); empty measures all.
 	Only []string
 	// Extra are gates the caller can measure and this package cannot: the
@@ -84,18 +100,23 @@ func ErrorFreeMeasurers(opts MeasureOptions) []Measurer {
 	if len(tests) == 0 {
 		tests = []string{"./..."}
 	}
+	lint := []string{"./..."}
+	scoped := opts.ScopedPackages != nil
+	if scoped {
+		lint = append([]string(nil), opts.ScopedPackages...)
+	}
 	all := []Measurer{
 		commandGate{gate: "build", label: "G1", binary: "go", buildOutput: true,
 			args: []string{"build"}, packages: []string{"./..."}, read: readCompile},
 		commandGate{gate: "vet", label: "G2", binary: "go",
-			args: []string{"vet", "-json"}, packages: []string{"./..."}, read: readVet},
+			args: []string{"vet", "-json"}, packages: lint, scoped: scoped, read: readVet},
 		commandGate{gate: "test", label: "G3", binary: "go",
 			args: []string{"test", "-count=1", "-json"}, packages: tests, read: readGoTest},
 		commandGate{gate: "staticcheck", label: "G4", binary: "staticcheck",
-			args: []string{"-f", "json"}, packages: []string{"./..."}, read: readStaticcheck},
+			args: []string{"-f", "json"}, packages: lint, scoped: scoped, read: readStaticcheck},
 		commandGate{gate: "golangci_lint", label: "G5", binary: "golangci-lint",
 			args:     []string{"run", "--output.json.path", "stdout", "--show-stats=false", "--max-issues-per-linter=0", "--max-same-issues=0"},
-			packages: []string{"./..."}, read: readGolangci},
+			packages: lint, scoped: scoped, read: readGolangci},
 		commandGate{gate: "govulncheck", label: "G6", binary: "govulncheck",
 			args: []string{"-json"}, packages: []string{"./..."}, read: readGovulncheck},
 		gofmtGate{},
@@ -137,6 +158,9 @@ func MeasureErrorFree(ctx context.Context, root string, opts MeasureOptions) Sna
 type commandGate struct {
 	gate, label, binary string
 	args, packages      []string
+	// scoped: packages is a narrowing of the whole module, recorded on the
+	// Measurement so a comparison restricts the baseline to the same scope.
+	scoped bool
 	// buildOutput: go build writes nothing to the tree (-o into a temp
 	// directory that is removed), whatever the package list matches.
 	buildOutput bool
@@ -148,6 +172,14 @@ func (g commandGate) Label() string { return g.label }
 
 func (g commandGate) Measure(ctx context.Context, root string) Measurement {
 	m := Measurement{}
+	if g.scoped {
+		m.Scope = append([]string(nil), g.packages...)
+		if len(g.packages) == 0 {
+			m.Scope = []string{NoPackageScope}
+			m.Status, m.Reason = MeasurePass, "scoped to no package: nothing to measure"
+			return m
+		}
+	}
 	if _, err := lookPath(g.binary); err != nil {
 		m.Status = MeasureUnavailable
 		m.Reason = fmt.Sprintf("%s is not installed (not found on PATH); install it to measure %s", g.binary, g.label)

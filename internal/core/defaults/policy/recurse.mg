@@ -85,6 +85,10 @@ Decl recurse_next(ID) bound [/string].
 Decl recurse_gate_worse(Cycle, Gate) bound [/number, /string].
 Decl recurse_cycle_worse(Cycle) bound [/number].
 Decl recurse_cycle_snapshots(Cycle, Before, After) bound [/number, /string, /string].
+Decl recurse_ef_group(ID, Gate, Check, Files) bound [/string, /name, /string, /number].
+Decl recurse_ef_unaudited_check(Check) bound [/string].
+Decl recurse_finding_excluded(ID) bound [/string].
+Decl recurse_ef_multi_file(ID) bound [/string].
 Decl recurse_cycle_refused(Cycle) bound [/number].
 Decl recurse_cycle_keeps(Cycle) bound [/number].
 Decl recurse_ratchet(Cycle, Verdict) bound [/number, /name].
@@ -137,19 +141,49 @@ recurse_kind_rank(/audit, 5).
 recurse_finding_rank(ID, R) :-
     recurse_finding(ID, Node, Gate, Kind, Target, Sig),
     recurse_kind_rank(Kind, R),
-    !recurse_regression(ID).
+    !recurse_regression(ID),
+    !recurse_ef_multi_file(ID).
 
 recurse_finding_rank(ID, R) :-
     recurse_finding(ID, Node, Gate, Kind, Target, Sig),
     recurse_kind_rank(Kind, R),
     recurse_regression(ID),
-    R < 3.
+    R < 3,
+    !recurse_ef_multi_file(ID).
 
 recurse_finding_rank(ID, 3) :-
     recurse_finding(ID, Node, Gate, Kind, Target, Sig),
     recurse_kind_rank(Kind, R),
     recurse_regression(ID),
-    R > 3.
+    R > 3,
+    !recurse_ef_multi_file(ID).
+
+# The error-free gates' findings (`nerd campaign recurse --gates`) come as
+# groups: every finding of one check, from one gate, in one package
+# (internal/gates.FindingGroups), because the group's witness -- the gate over
+# the package with only that check -- passes exactly when all of them are
+# gone. What is real and determinate goes first (ladder, "Choosing rung
+# material"): a group in one file is a single-file item and ranks with the
+# workspace's own lint findings; a group spread over several files is a class,
+# and waits behind everything else.
+recurse_ef_multi_file(ID) :-
+    recurse_ef_group(ID, Gate, Check, Files),
+    Files > 1.
+
+recurse_finding_rank(ID, 6) :-
+    recurse_finding(ID, Node, Gate, Kind, Target, Sig),
+    recurse_ef_multi_file(ID).
+
+# Unused code is not a deletion list: each unused function is first audited
+# for the wiring it was meant to have (ladder, "The error-free gates"). A
+# recurse cycle deletes; it does not audit. So staticcheck's U1000 and
+# golangci-lint's unused linter are never picked.
+recurse_ef_unaudited_check("U1000").
+recurse_ef_unaudited_check("unused").
+
+recurse_finding_excluded(ID) :-
+    recurse_ef_group(ID, Gate, Check, Files),
+    recurse_ef_unaudited_check(Check).
 
 # A stalled finding is one the loop has shown it cannot fix as things stand:
 # its last two attempts failed the same way, with no kept change to its node
@@ -208,6 +242,7 @@ recurse_candidate(ID, R) :-
     recurse_finding_rank(ID, R),
     !finding_stalled(ID),
     !finding_refused(ID),
+    !recurse_finding_excluded(ID),
     !recurse_visit_attempted(ID).
 
 recurse_best_rank(Min) :-
