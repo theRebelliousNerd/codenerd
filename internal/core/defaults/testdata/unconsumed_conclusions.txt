@@ -86,7 +86,6 @@ unconsumed capability_addresses_need
 unconsumed capability_available
 unconsumed capability_is_linked
 unconsumed checks_passed
-unconsumed circular_dependency
 unconsumed co_commit_count
 unconsumed co_committed_files
 unconsumed code_contains
@@ -122,6 +121,7 @@ unconsumed concurrency_pattern
 unconsumed connector_type
 unconsumed constraint_violation
 unconsumed context_priority
+unconsumed coupled_files_linked
 unconsumed coverage_below_goal
 unconsumed coverage_gap
 unconsumed coverage_warning
@@ -136,7 +136,6 @@ unconsumed db_needs_transaction
 unconsumed debug_why_blocked
 unconsumed decomposition_warning
 unconsumed deep_nesting
-unconsumed dependency_link_exists
 unconsumed derived_mode
 unconsumed diagnostic_active
 unconsumed dir_has_go_test
@@ -166,11 +165,9 @@ unconsumed exclude_from_context
 unconsumed explicit_tool_request
 unconsumed failed_campaign_task
 unconsumed failed_edit
-unconsumed file_dependency
 unconsumed file_has_security_sensitive
 unconsumed file_in_project
 unconsumed file_modified_externally
-unconsumed file_reachable
 unconsumed final_atom
 unconsumed final_context_include
 unconsumed final_shard_for_task
@@ -512,7 +509,6 @@ unconsumed test_depends_on
 unconsumed test_depends_on_transitive
 unconsumed test_executes
 unconsumed test_func_package
-unconsumed test_imports_internal
 unconsumed test_priority
 unconsumed test_references_symbol
 unconsumed tester_action
@@ -552,4 +548,3 @@ unconsumed verb_pair_relation
 unconsumed violation
 unconsumed warning_suppressed
 unconsumed witness_candidate
-unconsumed zombie_test

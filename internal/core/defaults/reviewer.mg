@@ -458,13 +458,26 @@ raw_finding(File, 1, /warning, /architecture, "UNWIRED_SYMBOL", Message) :-
 
 Decl hidden_coupling(FileA, FileB).
 
-# Redefine helper to work with Symbol IDs -> Files
-Decl dependency_link_exists(FileA, FileB).
+# dependency_link is file level: (ImporterFile, ImportedFile, ImportPath),
+# resolved by the world scanner (internal/world/dependency_links.go). It used
+# to be joined here against symbol_graph's symbol IDs, which never equal a
+# path: every architecture rule below derived nothing, at ~0.7 s per
+# evaluation of a 162k-edge world.
+#
+# A co-committed pair is linked when either file imports the other. Only the
+# pairs hidden_coupling asks about are checked; nothing copies the edge
+# relation.
+Decl coupled_files_linked(FileA, FileB).
 
-dependency_link_exists(FileA, FileB) :-
-    dependency_link(CallerID, CalleeID, _),
-    symbol_graph(CallerID, _, _, FileA, _),
-    symbol_graph(CalleeID, _, _, FileB, _).
+coupled_files_linked(FileA, FileB) :-
+    co_commit_count(FileA, FileB, N),
+    N >= 3,
+    dependency_link(FileA, FileB, _).
+
+coupled_files_linked(FileA, FileB) :-
+    co_commit_count(FileA, FileB, N),
+    N >= 3,
+    dependency_link(FileB, FileA, _).
 
 # Helper: Files committed together in the same commit hash
 # Use FileA < FileB to avoid duplicate pairs (A,B) and (B,A)
@@ -488,8 +501,7 @@ co_commit_count(FileA, FileB, N) :-
 hidden_coupling(FileA, FileB) :-
     co_commit_count(FileA, FileB, N),
     N >= 3,
-    !dependency_link_exists(FileA, FileB),
-    !dependency_link_exists(FileB, FileA).
+    !coupled_files_linked(FileA, FileB).
 
 # Finding
 raw_finding(FileA, 1, /warning, /architecture, "SHOTGUN_SURGERY", FileB) :-
@@ -560,69 +572,23 @@ layer(File, Layer) :-
     configured_layer_pattern(Pattern, Layer),
     :string:contains(File, Pattern).
 
+# Led by the entrypoint files, the rare side; their importers come from
+# dependency_link's second argument.
 architecture_violation(CallerFile, CalleeFile) :-
-    dependency_link(CallerID, CalleeID, _),
-    symbol_graph(CallerID, _, _, CallerFile, _),
-    symbol_graph(CalleeID, _, _, CalleeFile, _),
-    layer(CallerFile, /library),
-    layer(CalleeFile, /entrypoint).
+    layer(CalleeFile, /entrypoint),
+    dependency_link(CallerFile, CalleeFile, _),
+    layer(CallerFile, /library).
 
 # Finding
 raw_finding(CallerFile, 1, /error, /architecture, "LAYER_LEAKAGE", "Library imports Entrypoint") :-
     architecture_violation(CallerFile, CalleeFile).
 
 
-# --- 4. "Zombie" Tests ---
-# Tests that exist but import nothing internal
-
-Decl zombie_test(TestFile).
-Decl test_imports_internal(TestFile).
-
-test_imports_internal(TestFile) :-
-    symbol_graph(TestID, _, _, TestFile, _),
-    dependency_link(TestID, CalleeID, _),
-    symbol_graph(CalleeID, _, _, CalleeFile, _),
-    TestFile != CalleeFile, # Ensure it's external import (or at least different file)
-    # Check if Callee is internal (e.g., same project prefix or not stdlib)
-    # Simple heuristic: CalleeFile is in the file_topology (known project file)
-    file_topology(CalleeFile, _, _, _, _).
-
-
-zombie_test(TestFile) :-
-    file_topology(TestFile, _, _, _, /true), # Is Test
-    symbol_graph(_, _, _, TestFile, _),      # Generator/Safety
-    !test_imports_internal(TestFile).
-
-# Finding
-raw_finding(TestFile, 1, /warning, /maintenance, "ZOMBIE_TEST", "Test imports no internal code") :-
-    zombie_test(TestFile).
-
-# --- 5. Circular Dependencies (File Level) ---
-# A -> B -> ... -> A (Structural Cycle)
-
-Decl file_dependency(CallerFile, CalleeFile).
-Decl file_reachable(CallerFile, CalleeFile).
-Decl circular_dependency(FileA, FileB).
-
-# Direct dependency (using helper from Rule 1)
-file_dependency(A, B) :-
-    dependency_link_exists(A, B),
-    A != B.
-
-# Transitive closure (Reachability)
-file_reachable(A, B) :-
-    file_dependency(A, B).
-
-file_reachable(A, C) :-
-    file_dependency(A, B),
-    file_reachable(B, C).
-
-# Cycle detection
-circular_dependency(A, B) :-
-    file_dependency(A, B),
-    file_reachable(B, A).
-
-# Finding
-# Note: This will flag both A->B and B->A.
-raw_finding(A, 1, /error, /architecture, "CIRCULAR_DEPENDENCY", B) :-
-    circular_dependency(A, B).
+# --- Not derived here: zombie tests and import cycles ---
+# Both were keyed on symbol IDs against file-level dependency_link until
+# 2026-10-29, so neither ever derived a correct row. Keyed correctly over this
+# repository's 162k import edges, "a test imports no project file" cost
+# 0.56 s per evaluation and a mutual-import check 1.16 s for zero rows, and
+# file-level reachability passes 3,000,000 facts. Nothing reads raw_finding.
+# Import components and per-file import counts are measurements for the world
+# scanner, which builds the graph.
