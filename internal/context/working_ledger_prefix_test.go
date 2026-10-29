@@ -112,6 +112,7 @@ func TestWorkingLedger_PrefixScanMatchesTheOrderedPrefixReference(t *testing.T) 
 		spans := config.DefaultWorkingConfig()
 		spans.LedgerCeilingBytes = max(ceiling, 1)
 		spans.LedgerKeepRounds = keep
+		spans.LedgerLowWaterPercent = 100 // the oracle sheds to the ceiling
 		ceiling = spans.LedgerCeilingBytes
 		w, err := NewWorkingSet(root, fmt.Sprintf("prefix-%d", trial), spans)
 		require.NoError(t, err)
@@ -135,7 +136,7 @@ func TestWorkingLedger_PrefixScanMatchesTheOrderedPrefixReference(t *testing.T) 
 			}
 			require.NoError(t, w.Save(t.Context(), WorkingRecord{ID: id, Entity: file, Revision: revision, Kind: "read_file/" + id, Step: int64(r.round), Body: "body of " + id}))
 		}
-		decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: now, Hot: hot})
+		decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: now, Hot: hot})
 		require.NoError(t, err)
 		want := referenceEvict(rows, now, keep, ceiling)
 		if len(want) == 0 {
@@ -156,13 +157,13 @@ func TestWorkingLedger_PrefixScanIsLinearAndOnlyPastTheCeiling(t *testing.T) {
 	for i := range 40 {
 		entries = append(entries, LedgerEntry{Call: fmt.Sprintf("call-%02d", i), ID: fmt.Sprintf("u%02d", i), Bytes: 100, Round: 1 + i/4})
 	}
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 10})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 10})
 	require.NoError(t, err)
 	require.Len(t, decision.Evict, 30, "an excess of 3000 over 100-byte rows: the 30th row is the last whose prefix (2900) falls short of it")
 	require.Len(t, w.engine.QueryFacts("working_shed_run"), 3*len(entries)+1)
 
 	under, _ := ledgerSet(t, 1<<20, 1)
-	decision, err = under.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 10})
+	decision, err = under.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 10})
 	require.NoError(t, err)
 	require.Empty(t, decision.Evict)
 	require.Empty(t, under.engine.QueryFacts("working_shed_run"), "below the ceiling no candidate exists and no scan is derived")
@@ -181,7 +182,7 @@ func TestWorkingLedger_PrefixEqualToTheExcessStays(t *testing.T) {
 	// d is the kept round. Excess 500. Before a: 0, b: 300, c: 300, e: 500
 	// -- e's prefix equals the excess, so e stays; the zero-byte b leaves
 	// with its prefix short.
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 2})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 2})
 	require.NoError(t, err)
 	require.Equal(t, []string{"a", "b", "c"}, decision.Evict)
 }
@@ -195,7 +196,7 @@ func TestWorkingLedger_RefusesALedgerThatBreaksTheShedContract(t *testing.T) {
 		"negative size":   {{Call: "a", ID: "x", Bytes: -1, Round: 1}},
 		"round goes back": {{Call: "a", ID: "x", Bytes: 1, Round: 2}, {Call: "b", ID: "y", Bytes: 1, Round: 1}},
 	} {
-		_, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 2})
+		_, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 2})
 		require.Error(t, err, name)
 	}
 }

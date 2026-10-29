@@ -240,19 +240,51 @@ config_param_required(/working, /working_ledger_ceiling).
 Decl working_ledger_keep_rounds(N) bound [/number].
 working_ledger_keep_rounds(N) :- config_param(/working_ledger_keep_rounds, N).
 config_param_required(/working, /working_ledger_keep_rounds).
+Decl working_ledger_low_water_percent(P) bound [/number].
+working_ledger_low_water_percent(P) :- config_param(/working_ledger_low_water_percent, P).
+config_param_required(/working, /working_ledger_low_water_percent).
 
 Decl working_ledger_bytes(Total) bound [/number].
 working_ledger_bytes(Total) :-
     working_ledger(_, _, Bytes, _)
     |> do fn:group_by(), let Total = fn:sum(Bytes).
 
+# working_ledger_room(Bytes): what this request's input window leaves for the
+# ledger's results once the system prompt, the tool catalog and every message
+# that is not a ledger result are counted. Go measures it each round with the
+# estimator the request's own budget guard uses.
+#
+# The limit is the configured ceiling or the room, whichever is smaller. The
+# ceiling is a share of context_window.max_tokens and the room is what one
+# request can send, and the ceiling was the larger: measured 2026-10-29
+# (sessions 1793250431065523605 and 1793254719172100678) the ledger reached
+# 500-625 KB against an 800 KB ceiling and never compacted, while every
+# request past ~185k tokens had the budget guard archive another result
+# somewhere in its middle. 19 and 9 of those requests read the cache from
+# that point only, 37% and 50% of the sessions' model spend.
+Decl working_ledger_room(Bytes) bound [/number].
+Decl working_ledger_limit(Bytes) bound [/number].
+working_ledger_limit(Ceiling) :-
+    working_ledger_ceiling(Ceiling), working_ledger_room(Room), Ceiling <= Room.
+working_ledger_limit(Room) :-
+    working_ledger_ceiling(Ceiling), working_ledger_room(Room), Room < Ceiling.
+
+# A compaction leaves the ledger at its low-water target, a percent of the
+# limit, not just under the limit: a ledger shed only to the limit is over
+# it again after the next round's results, and every compaction breaks the
+# cache from its first change on.
+Decl working_ledger_target(Bytes) bound [/number].
+working_ledger_target(Target) :-
+    working_ledger_limit(Limit), working_ledger_low_water_percent(P),
+    Target = fn:div(fn:mult(Limit, P), 100).
+
 # Compaction is one step that moves results out behind their recall handles, so
-# the cache breaks once an epoch instead of once a round. Crossing the ceiling
+# the cache breaks once an epoch instead of once a round. Crossing the limit
 # is the trigger (working_compact). What leaves is decided below: stale and
-# superseded first, then only enough of the aged prefix to fit.
-Decl working_compact() descr [doc("The ledger outgrew its ceiling: this request moves results out behind recall handles.")].
+# superseded first, then only enough of the aged prefix to reach the target.
+Decl working_compact() descr [doc("The ledger outgrew its limit: this request moves results out behind recall handles.")].
 working_compact() :-
-    working_ledger_bytes(Total), working_ledger_ceiling(Ceiling), Total > Ceiling.
+    working_ledger_bytes(Total), working_ledger_limit(Limit), Total > Limit.
 
 # What is still the working set. working_touch(Entity) is an entity this task
 # observed: Go asserts it for every ledger row's entity, measured, not read
@@ -311,10 +343,10 @@ working_remain_bytes(Total) :-
 Decl working_still_over() bound [].
 working_still_over() :-
     working_compact(),
-    working_remain_bytes(Remain), working_ledger_ceiling(Ceiling),
-    Remain > Ceiling.
+    working_remain_bytes(Remain), working_ledger_target(Target),
+    Remain > Target.
 
-# Shed candidates, and only while what remains is still over the ceiling.
+# Shed candidates, and only while what remains is still over the target.
 # Rank 0 is not live, 1 is live but not a hot file, 2 is hot and live.
 # The three rules are mutually exclusive, so a call has one key. A recalled
 # live result is not a candidate at any rank.
@@ -380,9 +412,9 @@ working_shed_before(Call, Before) :-
     Pos = fn:plus(fn:mult(Rank, N), Seq), working_shed_run(Pos, Before).
 
 # A candidate leaves while the bytes ahead of it do not yet cover
-# (remain - ceiling). The first has 0 ahead of it, and a ledger that is still
+# (remain - target). The first has 0 ahead of it, and a ledger that is still
 # over owes at least 1 byte, so it always leaves. Later candidates stop once
-# the prefix covers the excess, so a live result moves only when the ceiling
+# the prefix covers the excess, so a live result moves only when the target
 # cannot be met otherwise, oldest live last.
 #
 # Measured 2026-09-29, session 20260929_052520, the first live nerd fix on
@@ -397,8 +429,8 @@ working_shed_before(Call, Before) :-
 Decl working_shed(Call) bound [/string].
 working_shed(Call) :-
     working_shed_before(Call, Before),
-    working_remain_bytes(Remain), working_ledger_ceiling(Ceiling),
-    Need = fn:minus(Remain, Ceiling),
+    working_remain_bytes(Remain), working_ledger_target(Target),
+    Need = fn:minus(Remain, Target),
     Before < Need.
 
 Decl working_evict(Call) bound [/string].

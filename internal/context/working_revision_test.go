@@ -175,7 +175,7 @@ func TestWorkingLedger_ReturnsTheEpochItDecidedOn(t *testing.T) {
 	for i, key := range keys {
 		entries = append(entries, observe(t, w, fmt.Sprintf("e%d", i), ElementEntity("a.go", key), "get_element/"+key, 1, 10, 0, 0))
 	}
-	decision, err := w.Ledger(t.Context(), LedgerRound{Entries: entries, Round: 1, Observe: []string{"focus.go"}})
+	decision, err := w.Ledger(t.Context(), LedgerRound{Room: unboundedRoom, Entries: entries, Round: 1, Observe: []string{"focus.go"}})
 	require.NoError(t, err)
 	for _, key := range keys {
 		entity := ElementEntity("a.go", key)

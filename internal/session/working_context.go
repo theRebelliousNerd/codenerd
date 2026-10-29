@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"codenerd/internal/broker"
+	nerdconfig "codenerd/internal/config"
 	working "codenerd/internal/context"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
@@ -593,30 +594,27 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		return history, nil
 	}
 	start := ledgerStart(history)
-	if err := e.updateLedger(ctx, loop, history, start); err != nil {
+	window := e.inputBudgetFor(loop.inputCap)
+	// What the window leaves once this round's request, as the ledger stands
+	// before the policy decides, is counted. The policy's limit is measured
+	// against it (working_ledger_room), so a ledger that outgrows the request
+	// is compacted by the policy, once an epoch, and not cut by the guard
+	// below at a different place every round.
+	messages, err := loop.assemble(ctx, history, start)
+	if err != nil {
+		return nil, err
+	}
+	free, err := workingWindowRemaining(window.tokens, system, messages, definitions)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.updateLedger(ctx, loop, history, start, free-workingInputReserve); err != nil {
+		return nil, err
+	}
+	if messages, err = loop.assemble(ctx, history, start); err != nil {
 		return nil, err
 	}
 
-	messages := append([]types.Message(nil), loop.prior...)
-	messages = append(messages, types.Message{Role: "user", Text: loop.anchor}.WithTrailingText(loop.appended[anchorLedgerKey]))
-	for i := start; i < len(history); i++ {
-		// WithToolResults, not a field assignment: a block-built turn sends
-		// its blocks, so a copy made on the flat field alone would share (and
-		// let the archive below miss) the payload.
-		results := append([]types.ToolResult(nil), history[i].ToolResults...)
-		for j := range results {
-			if loop.evicted[results[j].ToolUseID] {
-				handle, err := loop.modelHandle(ctx, loop.observations[results[j].ToolUseID])
-				if err != nil {
-					return nil, err
-				}
-				results[j].Content = compactedResultHandle(results[j].Content, handle)
-			}
-		}
-		messages = append(messages, history[i].WithToolResults(results).WithTrailingText(loop.appended[ledgerKey(i)]))
-	}
-
-	window := e.inputBudgetFor(loop.inputCap)
 	remaining, err := workingWindowRemaining(window.tokens, system, messages, definitions)
 	if err != nil {
 		return nil, err
@@ -651,6 +649,31 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 		if remaining, err = workingWindowRemaining(window.tokens, system, messages, definitions); err != nil {
 			return nil, err
 		}
+	}
+	return messages, nil
+}
+
+// assemble is the request the loop sends as its ledger now stands: the prior
+// turns, the anchor and every round since, each evicted result rendered as
+// its recall handle and the harness text appended where it arose.
+func (loop *workingLoop) assemble(ctx context.Context, history []types.Message, start int) ([]types.Message, error) {
+	messages := append([]types.Message(nil), loop.prior...)
+	messages = append(messages, types.Message{Role: "user", Text: loop.anchor}.WithTrailingText(loop.appended[anchorLedgerKey]))
+	for i := start; i < len(history); i++ {
+		// WithToolResults, not a field assignment: a block-built turn sends
+		// its blocks, so a copy made on the flat field alone would share (and
+		// let the archive in prepareWorkingRequest miss) the payload.
+		results := append([]types.ToolResult(nil), history[i].ToolResults...)
+		for j := range results {
+			if loop.evicted[results[j].ToolUseID] {
+				handle, err := loop.modelHandle(ctx, loop.observations[results[j].ToolUseID])
+				if err != nil {
+					return nil, err
+				}
+				results[j].Content = compactedResultHandle(results[j].Content, handle)
+			}
+		}
+		messages = append(messages, history[i].WithToolResults(results).WithTrailingText(loop.appended[ledgerKey(i)]))
 	}
 	return messages, nil
 }
@@ -754,7 +777,11 @@ func ledgerStart(history []types.Message) int {
 // focus view when the focus or its file changed, a notice for every carried
 // observation whose file changed -- to the request's last user turn. Go
 // measures (sizes, rounds, revisions) and renders; the policy decides.
-func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history []types.Message, start int) error {
+//
+// free is how many tokens the request as it stands leaves in its input
+// window beyond the guard's reserve (negative when it is over). The room the
+// policy compacts against is the ledger's own bytes plus that much more.
+func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history []types.Message, start, free int) error {
 	round := 0
 	var entries []working.LedgerEntry
 	for i := start; i < len(history); i++ {
@@ -774,12 +801,17 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 		}
 	}
 	entries = mergeRepeatedCalls(entries)
+	room := free * nerdconfig.BytesPerToken
+	for _, entry := range entries {
+		room += entry.Bytes
+	}
 	decision, err := loop.set.Ledger(ctx, working.LedgerRound{
 		Entries: entries, Round: round, Restated: loop.restated,
 		Hot: loop.hotFiles(), Recalled: loop.recalledIDs(),
 		// The focus view's revision comes from the same epoch the policy
 		// decided on, not from a second read of the file.
 		Observe: []string{loop.focus},
+		Room:    max(room, 0),
 	})
 	if err != nil {
 		return fmt.Errorf("working ledger: %w", err)

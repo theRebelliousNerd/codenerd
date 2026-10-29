@@ -26,10 +26,20 @@ type ledgerLoop struct {
 
 func newLedgerLoop(t *testing.T, ceiling, keep int) *ledgerLoop {
 	t.Helper()
+	return newLedgerLoopConfigured(t, ceiling, keep, nil)
+}
+
+// newLedgerLoopConfigured is newLedgerLoop with configure applied to the
+// executor before the loop begins, when its config is read.
+func newLedgerLoopConfigured(t *testing.T, ceiling, keep int, configure func(*Executor)) *ledgerLoop {
+	t.Helper()
 	e := newWorkingLoopExecutor(t, &MockLLMClient{})
 	e.config.TokenBudget = 200000
 	e.config.Working.LedgerCeilingBytes = ceiling
 	e.config.Working.LedgerKeepRounds = keep
+	if configure != nil {
+		configure(e)
+	}
 	if err := os.WriteFile(filepath.Join(e.config.WorkspaceRoot, "target.go"), []byte("package target // v1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

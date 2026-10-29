@@ -172,6 +172,11 @@ type LedgerRound struct {
 	// Observe are entities beyond the ledger's own whose revision the harness
 	// needs in the same observation epoch (the focus).
 	Observe []string
+	// Room is what the request's input window leaves for the ledger's
+	// results, in bytes: the window less the system prompt, the tool catalog
+	// and every message that is not one of Entries (working_ledger_room).
+	// The policy compacts past the smaller of it and the configured ceiling.
+	Room int
 }
 
 // LedgerDecision is the working policy's answer for the round being prepared.
@@ -207,6 +212,9 @@ func (r LedgerRound) validate() error {
 			return fmt.Errorf("working ledger: entry %d (%s): round %d after round %d; entries must arrive in round order", i, e.Call, e.Round, r.Entries[i-1].Round)
 		}
 	}
+	if r.Room < 0 {
+		return fmt.Errorf("working ledger: negative room %d", r.Room)
+	}
 	return nil
 }
 
@@ -228,6 +236,7 @@ func (w *WorkingSet) Ledger(ctx context.Context, in LedgerRound) (LedgerDecision
 	var facts []mangle.Fact
 	add := func(p string, args ...any) { facts = append(facts, mangle.Fact{Predicate: p, Args: args}) }
 	add("working_round_now", int64(in.Round))
+	add("working_ledger_room", int64(in.Room))
 	var ids []string
 	seenID := map[string]bool{}
 	for i, e := range in.Entries {
@@ -290,7 +299,7 @@ func (w *WorkingSet) Ledger(ctx context.Context, in LedgerRound) (LedgerDecision
 	// Replace, not accumulate: every one of these describes this round only.
 	// A recalled id or a touch left from the previous round would hold a
 	// result the loop is no longer carrying.
-	if err := w.engine.ReplaceControlFacts(facts, "working_round_now", "working_ledger", "working_ledger_seq", "working_observation", "working_digest", "working_span", "working_revision", "working_restated", "working_entity_file", "working_hot", "working_touch", "working_recalled"); err != nil {
+	if err := w.engine.ReplaceControlFacts(facts, "working_round_now", "working_ledger_room", "working_ledger", "working_ledger_seq", "working_observation", "working_digest", "working_span", "working_revision", "working_restated", "working_entity_file", "working_hot", "working_touch", "working_recalled"); err != nil {
 		return LedgerDecision{}, err
 	}
 	decision := LedgerDecision{Revisions: revisions}
