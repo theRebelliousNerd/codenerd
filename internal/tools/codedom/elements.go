@@ -705,11 +705,23 @@ func lookupInFile(model *codemodel.File, rel, ref string, refs map[string]string
 		}
 		key = base
 	}
+	// A file-scoped ref ("path/to/file.go:Key") names this file's element
+	// when its path is this file, however the caller also passed path.
+	if p, k, ok := splitFileRef(key); ok && filepath.ToSlash(filepath.Clean(p)) == filepath.ToSlash(rel) {
+		return model.Lookup(k)
+	}
 	prefix := "./"
 	if dir := filepath.ToSlash(filepath.Dir(rel)); dir != "." && dir != "" {
 		prefix = dir + "."
 	}
 	key = strings.TrimPrefix(key, prefix)
+	// The file-scoped ref written with the package's dotted prefix, as a
+	// function's ref is ("internal/store.file.go:header" for
+	// "internal/store/file.go:header"): models copy the one shape onto the
+	// other, and each miss cost a round (three in one session, 2026-10-29).
+	if base, k, ok := strings.Cut(key, ":"); ok && base == filepath.Base(rel) {
+		return model.Lookup(k)
+	}
 	return model.Lookup(key)
 }
 
