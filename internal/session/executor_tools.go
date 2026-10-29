@@ -2497,9 +2497,10 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 			releaseAuthorization()
 		}
 	}()
-	// Under the commit regime the read tools are withheld from the catalog; a
-	// call to one anyway is answered with the regime, not run, and not counted
-	// as a failure: it is steering, and the stall span still governs.
+	// Under the commit regime the read tools are closed: a call to one is
+	// answered with the regime, not run, and not counted as a failure: it is
+	// steering, and the stall span still governs. The catalog still lists
+	// them (completeWithWorkingContext): this is where the policy holds.
 	if loop := activeWorkingLoop(ctx); loop != nil && loop.regime == commitRegime && e.closedForReading(call.Name) {
 		return workingRegimeText(commitRegime), nil
 	}

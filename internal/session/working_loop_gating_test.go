@@ -535,22 +535,12 @@ func TestRunToolLoop_ProgressDriven_ClosesReadingUnderTheCommitRegime(t *testing
 	if err == nil || !strings.Contains(err.Error(), "read_only_stall") {
 		t.Fatalf("err = %v, want the stall span to end a task that never wrote", err)
 	}
-	// Calls 1..16 are the open regime; the policy closes reading at 16 rounds,
-	// so the 17th request onward offers no read tool.
-	for i, names := range client.catalogs {
-		offered := slices.Contains(names, toolName)
-		if i < 16 && !offered {
-			t.Fatalf("request %d: the read tool was withheld before the commit span", i+1)
-		}
-		if i >= 16 && offered {
-			t.Fatalf("request %d: the read tool is still offered under the commit regime (%v)", i+1, names)
-		}
-		if i >= 16 && slices.Contains(names, externalName) {
-			t.Fatalf("request %d: an external tool is still offered under the commit regime (%v)", i+1, names)
-		}
-		if i >= 16 && !slices.Contains(names, "recall_context") {
-			t.Fatalf("request %d: recall_context must stay under the commit regime (%v)", i+1, names)
-		}
+	// Calls 1..16 are the open regime; the policy closes reading at 16
+	// rounds. It closes at dispatch: the catalog stays the same, and a read
+	// asked for after is answered with the regime (below).
+	requireStableCatalog(t, client.catalogs)
+	if !slices.Contains(client.catalogs[0], toolName) || !slices.Contains(client.catalogs[0], "recall_context") {
+		t.Fatalf("the loop must be offered its read tool and recall_context; offered %v", client.catalogs[0])
 	}
 	if len(client.catalogs) < 18 {
 		t.Fatalf("only %d requests; the run must continue under the commit regime", len(client.catalogs))

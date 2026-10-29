@@ -272,7 +272,7 @@ func describeWorkingStop(reason string, p working.WorkingProgress, executed int)
 // next round. Empty for the open regime.
 func workingRegimeText(regime string) string {
 	if strings.TrimPrefix(strings.TrimSpace(regime), "/") == commitRegime {
-		return "Reading is closed for this task: the evidence gathered so far is what there is, and the tools offered now are the ones that make and verify the change (recall_context recovers what was already read). Make the change now, verify it, or conclude with what is missing."
+		return "Reading is closed for this task: the evidence gathered so far is what there is, and a read tool called now is answered with this instead of run (recall_context still recovers what was already read). Make the change now, verify it, or conclude with what is missing."
 	}
 	return ""
 }

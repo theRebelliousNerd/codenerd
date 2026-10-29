@@ -104,12 +104,12 @@ func TestVerifyAndRepairBuild_ClosesReadingOnTheSecondRound(t *testing.T) {
 	if client.calls != 2 {
 		t.Fatalf("repair rounds = %d, want 2: an open round, then a closed one", client.calls)
 	}
-	if !slices.Contains(client.catalogs[0], readTool) {
-		t.Fatalf("the first repair round must offer the read tool; offered %v", client.catalogs[0])
+	// The regime closes reading at dispatch; the catalog both rounds were
+	// offered is the same (requireStableCatalog).
+	if !slices.Contains(client.catalogs[0], readTool) || !slices.Contains(client.catalogs[0], writeTool) {
+		t.Fatalf("the repair rounds must be offered the turn's tools; offered %v", client.catalogs[0])
 	}
-	if slices.Contains(client.catalogs[1], readTool) || !slices.Contains(client.catalogs[1], writeTool) {
-		t.Fatalf("the second repair round must withhold the read tool and keep the write tool; offered %v", client.catalogs[1])
-	}
+	requireStableCatalog(t, client.catalogs)
 	if !strings.Contains(client.prompts[1], "Reading is closed for this task") || !strings.Contains(client.prompts[1], "imported and not used") {
 		t.Fatalf("the second round must carry the compiler output and the regime; prompt: %q", client.prompts[1])
 	}
