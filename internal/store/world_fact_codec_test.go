@@ -36,7 +36,7 @@ func TestWorldArgsCodecMatchesTheJSONCodec(t *testing.T) {
 		if err != nil {
 			t.Fatalf("case %d: JSON decode: %v", i, err)
 		}
-		got, err := decodeWorldArgs(encodeWorldArgs(args))
+		got, err := DecodeFactArgsBinary(EncodeFactArgsBinary(args))
 		if err != nil {
 			t.Fatalf("case %d: binary decode: %v", i, err)
 		}
@@ -48,7 +48,7 @@ func TestWorldArgsCodecMatchesTheJSONCodec(t *testing.T) {
 		}
 	}
 	for _, bad := range [][]byte{nil, {}, {9}, {worldArgsVersion, worldArgString, 5, 'a'}, {worldArgsVersion, 77}} {
-		if _, err := decodeWorldArgs(bad); err == nil {
+		if _, err := DecodeFactArgsBinary(bad); err == nil {
 			t.Fatalf("decoded malformed %v", bad)
 		}
 	}

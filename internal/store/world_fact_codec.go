@@ -39,7 +39,9 @@ const (
 	worldArgBool
 )
 
-func encodeWorldArgs(args []any) []byte {
+// EncodeFactArgsBinary encodes fact arguments in the binary codec. Other
+// caches of parsed facts (the orientation projection) share it.
+func EncodeFactArgsBinary(args []any) []byte {
 	out := make([]byte, 0, 1+len(args)*16)
 	out = append(out, worldArgsVersion)
 	str := func(tag byte, s string) {
@@ -93,7 +95,8 @@ func encodeWorldArgs(args []any) []byte {
 	return out
 }
 
-func decodeWorldArgs(data []byte) ([]any, error) {
+// DecodeFactArgsBinary decodes arguments EncodeFactArgsBinary encoded.
+func DecodeFactArgsBinary(data []byte) ([]any, error) {
 	if len(data) == 0 || data[0] != worldArgsVersion {
 		return nil, fmt.Errorf("world fact arguments: unknown encoding")
 	}
@@ -199,7 +202,7 @@ func (s *LocalStore) migrateWorldFactsToBinary() error {
 			dropped++
 			continue
 		}
-		if _, err := insert.Exec(r.path, r.depth, r.fingerprint, r.predicate, encodeWorldArgs(args), r.updated); err != nil {
+		if _, err := insert.Exec(r.path, r.depth, r.fingerprint, r.predicate, EncodeFactArgsBinary(args), r.updated); err != nil {
 			return err
 		}
 		converted++
