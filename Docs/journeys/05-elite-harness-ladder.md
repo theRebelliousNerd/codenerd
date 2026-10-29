@@ -22,6 +22,9 @@ the protocol for a run, and the status of each rung with the run that moved it.
   delivery (a chat request is read against what each step delivered), verdict loops for
   delegated callers, and the commit authorization a request's "then commit it" grants. The climb
   resumes at R1, streak 0; runs from R1-21 are recorded below and in the dogfood ledger.
+- **R1-21 landed** (`ae9efef9c`, 2026-10-29): `edit_element` no longer reports a missing revision as a
+  concurrent change. One prompt, one file and its test, no hand edit, fail-before checked, G1-G3
+  green. **R1 streak 1.**
 - last updated: 2026-09-19 20:25
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0

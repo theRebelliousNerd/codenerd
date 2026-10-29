@@ -6025,3 +6025,21 @@ at its explicit four-minute deadline during agent knowledge creation. Chat boot 
 configured Ollama embedding service. The root restored the already installed service/model
 and measured a 2560-dimensional embedding response; this chat had booted before restoration
 and cannot qualify vector-enabled JIT behavior. Further live validation remains required.
+
+## R1-21, edit_element: a missing revision read as a concurrent change -- landed (2026-10-29, 00:36-00:57)
+
+Brief (symptom only): an `edit_element` call failed "precondition failed: ... is at rev 1f11f9cf40f7,
+not None -- it changed since it was read" though nothing had changed; the model had sent no
+revision. Entry point: one chat request in the TUI (`--yolo`), on a fresh build of `5b7ef9331`.
+21 minutes, 27 model calls, 26 tool results, one coder step, no repair round.
+
+**Landed** as `ae9efef9c` (one file and its test, `internal/tools/codedom/element_edit.go`): a
+missing revision (empty, or a null spelling such as None/null/nil/undefined) carries no
+precondition; a real stale revision is still refused. Review: the two new tests fail with only the
+fix reverted (the brief's exact message) and pass with it; the existing stale-revision test still
+refuses; G1 build, G2 vet, G3 `go test -count=1 ./...` green after. Verdict truthful (it claimed
+build and tests, both measured green). Nit, not a regression: a non-revision string outside the
+sentinel list ("latest") still gets the old message; checking a revision's shape would be the
+general fix. Process note: the root committed two Docs/audits files mid-run; nothing the run read
+or changed. Request delivery read "where to get it" and "keep go vet" as unsettled: the brief
+offered two outcomes and codeNERD took the other one, and vet was never claimed. **Streak 1.**
