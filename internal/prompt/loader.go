@@ -69,17 +69,13 @@ func (l *AtomLoader) LoadFromYAML(ctx context.Context, yamlPath string, db *sql.
 
 	logging.Get(logging.CategoryStore).Info("Parsed %d atoms from %s", len(atoms), filepath.Base(yamlPath))
 
-	// Store atoms in database
-	stored := 0
-	for _, atom := range atoms {
-		if err := l.StoreAtom(ctx, db, atom); err != nil {
-			return stored, fmt.Errorf("store atom %s from %s: %w", atom.ID, yamlPath, err)
-		}
-		stored++
+	// Store atoms in database, all or none.
+	if err := l.storeAtoms(ctx, db, atoms); err != nil {
+		return 0, fmt.Errorf("store atoms from %s: %w", yamlPath, err)
 	}
 
-	logging.Get(logging.CategoryStore).Info("Successfully stored %d/%d atoms", stored, len(atoms))
-	return stored, nil
+	logging.Get(logging.CategoryStore).Info("Successfully stored %d atoms", len(atoms))
+	return len(atoms), nil
 }
 
 // EnsureSchema creates the prompt_atoms table and atom_context_tags table.
@@ -220,14 +216,27 @@ func logAtomMigrations(migrations []AtomSchemaMigration) {
 
 // StoreAtom stores a prompt atom in the database with optional embedding.
 func (l *AtomLoader) StoreAtom(ctx context.Context, db *sql.DB, atom *PromptAtom) error {
+	return l.storeAtoms(ctx, db, []*PromptAtom{atom})
+}
+
+// storeAtoms embeds what changed, then upserts every atom in one
+// transaction: one commit per file instead of one per atom (667 commits per
+// boot on this repository's agents).
+func (l *AtomLoader) storeAtoms(ctx context.Context, db *sql.DB, atoms []*PromptAtom) error {
+	vecs := make([]atomVector, len(atoms))
+	for i, atom := range atoms {
+		vecs[i] = l.embedAtom(ctx, db, atom)
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	if err := l.storeAtomTx(ctx, tx, atom); err != nil {
-		return err
+	for i, atom := range atoms {
+		if err := l.writeAtomTx(ctx, tx, atom, vecs[i]); err != nil {
+			return fmt.Errorf("store atom %s: %w", atom.ID, err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -397,8 +406,17 @@ func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*Prom
 	return nil
 }
 
-func (l *AtomLoader) storeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAtom) error {
-	// Generate embedding if engine is available
+// atomVector is an atom's embedding as stored: the vector and its task.
+type atomVector struct {
+	blob []byte
+	task string
+}
+
+// embedAtom returns atom's embedding: the one db already stores when it
+// embeds the same text with the same model and task, else a fresh one. It
+// reads db and the network and writes nothing, so no transaction is held
+// open across an embedding call.
+func (l *AtomLoader) embedAtom(ctx context.Context, db rowQuerier, atom *PromptAtom) atomVector {
 	var embeddingBlob []byte
 	var embeddingTask string
 
@@ -410,22 +428,35 @@ func (l *AtomLoader) storeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAt
 
 	if l.embeddingEngine != nil {
 		taskType := embedding.SelectTaskType(embedding.ContentTypePromptAtom, false)
-		var embeddingVec []float32
-		var err error
-		if taskAware, ok := l.embeddingEngine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
-			embeddingVec, err = taskAware.EmbedWithTask(ctx, textToEmbed, taskType)
+		if blob, ok := storedAtomEmbedding(ctx, db, atom.ID, textToEmbed, taskType, l.embeddingEngine.Name()); ok {
+			// The stored vector embeds this same text with this same model
+			// and task: every boot re-syncs every prompts.yaml, and
+			// re-embedding unchanged atoms was ~9.6 s of each boot
+			// (measured 2026-10-29, ~1,000 atoms at ~9 ms each).
+			embeddingBlob, embeddingTask = blob, taskType
 		} else {
-			embeddingVec, err = l.embeddingEngine.Embed(ctx, textToEmbed)
-		}
-		if err != nil {
-			logging.Get(logging.CategoryStore).Warn("Failed to generate embedding for atom %s: %v", atom.ID, err)
-			// Continue without embedding
-		} else {
-			embeddingBlob = encodeFloat32Slice(embeddingVec)
-			embeddingTask = taskType
+			var embeddingVec []float32
+			var err error
+			if taskAware, ok := l.embeddingEngine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+				embeddingVec, err = taskAware.EmbedWithTask(ctx, textToEmbed, taskType)
+			} else {
+				embeddingVec, err = l.embeddingEngine.Embed(ctx, textToEmbed)
+			}
+			if err != nil {
+				logging.Get(logging.CategoryStore).Warn("Failed to generate embedding for atom %s: %v", atom.ID, err)
+				// Continue without embedding
+			} else {
+				embeddingBlob = encodeFloat32Slice(embeddingVec)
+				embeddingTask = taskType
+			}
 		}
 	}
+	return atomVector{blob: embeddingBlob, task: embeddingTask}
+}
 
+// writeAtomTx upserts one atom row, with its embedding, and its context tags.
+func (l *AtomLoader) writeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAtom, vec atomVector) error {
+	embeddingBlob, embeddingTask := vec.blob, vec.task
 	var embeddingModel any
 	if len(embeddingBlob) > 0 && l.embeddingEngine != nil {
 		embeddingModel = nullableString(l.embeddingEngine.Name())
@@ -475,6 +506,35 @@ func (l *AtomLoader) storeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAt
 		return fmt.Errorf("failed to insert context tags: %w", err)
 	}
 	return nil
+}
+
+// rowQuerier is a database or a transaction.
+type rowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// storedAtomEmbedding returns the embedding already stored for atomID when it
+// embeds exactly text (the atom's description, else its content) with the
+// given task and model. An atom whose embedded text, model or task changed,
+// or that has no vector yet, is embedded again.
+func storedAtomEmbedding(ctx context.Context, db rowQuerier, atomID, text, taskType, model string) ([]byte, bool) {
+	var content string
+	var description, task, storedModel sql.NullString
+	var blob []byte
+	err := db.QueryRowContext(ctx,
+		`SELECT content, description, embedding, embedding_task, embedding_model FROM prompt_atoms WHERE atom_id = ?`,
+		atomID).Scan(&content, &description, &blob, &task, &storedModel)
+	if err != nil || len(blob) == 0 {
+		return nil, false
+	}
+	embedded := description.String
+	if embedded == "" {
+		embedded = content
+	}
+	if embedded != text || task.String != taskType || storedModel.String != model {
+		return nil, false
+	}
+	return blob, true
 }
 
 // LoadAgentPrompts loads prompt atoms for a specific agent from .nerd/agents/{name}/prompts.yaml
