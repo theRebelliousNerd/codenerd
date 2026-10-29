@@ -169,3 +169,42 @@ func TestRunLint_RefusesWhatIsNotAGateOrAPackage(t *testing.T) {
 		}
 	}
 }
+
+// The gate runs under the workspace build env, and the result says which
+// tags that was: on a tree with sqlite_headers (codeNERD's own), vet runs
+// with -tags=sqlite_vec, reaches a file only that tag builds, and reports
+// build_tags ["sqlite_vec"]. In ladder run R1-27 the model could not tell,
+// called the tagged vet unverified, and ran an untagged one by hand.
+func TestRunLint_ResultNamesTheBuildTagsItRanWith(t *testing.T) {
+	t.Setenv("GOFLAGS", "")
+	root := lintModule(t)
+	for _, d := range []string{".git", "sqlite_headers"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tagged := "//go:build sqlite_vec\n\npackage tagged\n\nimport \"fmt\"\n\n// T prints n.\nfunc T(n string) { fmt.Printf(\"%d\\n\", n) }\n"
+	if err := os.MkdirAll(filepath.Join(root, "tagged"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tagged", "t.go"), []byte(tagged), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := runLint(t, root, map[string]any{"gate": "vet", "packages": []any{"./tagged"}})
+	if err != nil {
+		t.Fatalf("run_lint: %v (%+v)", err, r)
+	}
+	if len(r.BuildTags) != 1 || r.BuildTags[0] != "sqlite_vec" || !strings.Contains(r.GoFlags, "sqlite_vec") {
+		t.Fatalf("build_tags = %v, goflags = %q; want the sqlite_vec tag the workspace env applies", r.BuildTags, r.GoFlags)
+	}
+	if r.Status != LintFindings || len(r.Findings) != 1 || r.Findings[0].File != "tagged/t.go" {
+		t.Fatalf("the tagged file's finding was not reported: %+v", r)
+	}
+	out, _ := executeRunLint(shellWsCtx(root), map[string]any{"gate": "vet", "packages": []any{"./good"}})
+	if !strings.Contains(out, `"build_tags":["sqlite_vec"]`) {
+		t.Fatalf("the JSON result does not carry build_tags: %s", out)
+	}
+	if desc := RunLintTool().Description; !strings.Contains(desc, "build tags") || !strings.Contains(desc, "build_tags") {
+		t.Fatalf("the tool's description does not say the workspace's build tags apply: %q", desc)
+	}
+}

@@ -16,7 +16,12 @@
     - `golangci-lint` -- golangci-lint's default linters, every issue shown.
 
     With no `packages` it checks the Go packages this turn wrote; pass
-    `["./..."]` for the whole module. The workspace's build tags apply.
+    `["./..."]` for the whole module. It runs under the workspace's build
+    environment: its build tags (GOFLAGS -- `sqlite_vec` on codeNERD's own
+    tree), CGO_CFLAGS and configured go_flags all apply, with nothing to
+    pass. The result's `build_tags` names the tags the gate ran with; a
+    tagged file is verified when its tag is listed there. Do not run an
+    untagged gate by hand to "check" a tagged build.
 
     When a task asks for vet or lint to be clean, run the gate before the
     edit to see what is already there, fix what it names, and run it again
