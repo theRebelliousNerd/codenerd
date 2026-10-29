@@ -812,6 +812,7 @@ func (e *Executor) stepSystemPrompt(
 		stepCtx.Language = lang
 	}
 	stepCtx.DerivedNeeds = e.compileNeeds(stepCtx.Language, stepCtx.IntentVerb)
+	stepCtx.Experts = e.neededExperts(stepCtx.IntentVerb, stepCtx.IntentTarget)
 	if cfg != nil && len(cfg.AllowedTools) > 0 && len(stepCtx.AvailableTools) == 0 {
 		stepCtx.AvailableTools = slices.Clone(cfg.AllowedTools)
 	}

@@ -342,7 +342,7 @@ func (c *JITPromptCompiler) collectKnowledgeAtomsFrom(ctx context.Context, cc *C
 
 	shardDB := src.shardDB
 	hasShard := shardDB != nil
-	if db == nil && !hasShard {
+	if db == nil && !hasShard && len(src.experts) == 0 {
 		return nil
 	}
 
@@ -359,8 +359,9 @@ func (c *JITPromptCompiler) collectKnowledgeAtomsFrom(ctx context.Context, cc *C
 	// cannot consume its entire deadline before the expert is consulted.
 	expertQuery := strings.TrimSpace(cc.SemanticQuery + " " + query)
 	expertAtoms := collectExpertKnowledgeAtoms(searchCtx, cc, shardDB, hasShard, expertQuery, degraded)
+	pushed := collectPushedExpertKnowledge(searchCtx, src.experts, expertQuery, degraded)
 	projectAtoms := c.collectProjectKnowledgeAtoms(searchCtx, db, query, degraded)
-	if len(projectAtoms) == 0 && len(expertAtoms) == 0 {
+	if len(projectAtoms) == 0 && len(expertAtoms) == 0 && len(pushed) == 0 {
 		return nil
 	}
 	if ctx.Err() != nil {
@@ -371,13 +372,22 @@ func (c *JITPromptCompiler) collectKnowledgeAtomsFrom(ctx context.Context, cc *C
 	result := make([]*PromptAtom, 0, len(projectAtoms)+len(expertAtoms))
 	result = appendKnowledgePromptAtoms(result, seen, projectAtoms, cc.ShardID, "project")
 	result = appendKnowledgePromptAtoms(result, seen, expertAtoms, cc.ShardID, "expert:"+shardDBKey(cc.ShardID))
+	pushedCount := 0
+	for _, expert := range src.experts {
+		// A pushed expert's rows carry no shard tag: they serve this
+		// compile's own speaker, whose /shard regime would block a row
+		// tagged with another agent's name.
+		before := len(result)
+		result = appendKnowledgePromptAtoms(result, seen, pushed[expert.key], "", expertSourceName(expert.key))
+		pushedCount += len(result) - before
+	}
 	if len(result) == 0 {
 		return nil
 	}
 
 	logging.Get(logging.CategoryJIT).Debug(
-		"Collected %d knowledge atoms (project=%d expert=%d) for query: %s",
-		len(result), len(projectAtoms), len(expertAtoms), truncateQuery(query, 50))
+		"Collected %d knowledge atoms (project=%d expert=%d pushed=%d) for query: %s",
+		len(result), len(projectAtoms), len(expertAtoms), pushedCount, truncateQuery(query, 50))
 
 	return result
 }
@@ -393,7 +403,7 @@ func (c *JITPromptCompiler) collectProjectKnowledgeAtoms(ctx context.Context, db
 		degraded.add("knowledge")
 		return nil
 	}
-	atoms, err := db.SearchKnowledgeAtomsSemantic(ctx, query, 5)
+	atoms, err := db.SearchKnowledgeAtomsSemantic(ctx, query, knowledgeRowsPerSource)
 	if err != nil {
 		// No embedding engine answers (nil, nil); an error is a real failure
 		// of the healthy path, even when the lexical fallback below succeeds.
@@ -406,7 +416,7 @@ func (c *JITPromptCompiler) collectProjectKnowledgeAtoms(ctx context.Context, db
 		degraded.add("knowledge")
 		return nil
 	}
-	lex, lerr := db.SearchKnowledgeAtomsLexical(ctx, query, 5)
+	lex, lerr := db.SearchKnowledgeAtomsLexical(ctx, query, knowledgeRowsPerSource)
 	if lerr != nil || len(lex) == 0 {
 		if lerr != nil {
 			degraded.add("knowledge")
@@ -428,7 +438,7 @@ func collectExpertKnowledgeAtoms(ctx context.Context, cc *CompilationContext, sh
 		degraded.add("expert-knowledge")
 		return nil
 	}
-	atoms, err := store.SearchKnowledgeAtomsLexicalDB(ctx, shardDB, query, 5)
+	atoms, err := store.SearchKnowledgeAtomsLexicalDB(ctx, shardDB, query, knowledgeRowsPerSource)
 	if err != nil || len(atoms) == 0 {
 		if err != nil {
 			degraded.add("expert-knowledge")
@@ -458,22 +468,24 @@ func knowledgeAtomToPromptAtom(atom store.KnowledgeAtom, shardID, source string)
 	return pa
 }
 
-// appendKnowledgePromptAtoms converts hits, dedupes by ephemeral atom ID, and
-// caps the merged project-plus-expert set so one compile stays bounded.
+// knowledgeRowsPerSource bounds one knowledge source's rows in a compile. Each
+// source is searched with this limit, so the bound holds by retrieval, and the
+// compile's knowledge grows with the sources the kernel put in it (the
+// project, the speaking expert, each pushed expert), not past them. It
+// replaced a cap of ten on the merged set, which dropped a third source's
+// rows unseen once the first two had filled it.
+const knowledgeRowsPerSource = 5
+
+// appendKnowledgePromptAtoms converts one source's hits and dedupes them by
+// ephemeral atom ID against everything already appended.
 func appendKnowledgePromptAtoms(dst []*PromptAtom, seen map[string]struct{}, atoms []store.KnowledgeAtom, shardID, source string) []*PromptAtom {
 	for _, atom := range atoms {
-		if len(dst) >= 10 {
-			break
-		}
 		pa := knowledgeAtomToPromptAtom(atom, shardID, source)
 		if _, dup := seen[pa.ID]; dup {
 			continue
 		}
 		seen[pa.ID] = struct{}{}
 		dst = append(dst, pa)
-		if len(dst) >= 10 {
-			break
-		}
 	}
 	return dst
 }

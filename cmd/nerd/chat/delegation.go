@@ -848,22 +848,23 @@ func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) t
 			}
 		}
 
-		// 2. Load agent registry and match specialists
-		registry := m.loadAgentRegistryForMatching()
-		specialists := shards.MatchSpecialistsForTask(ctx, verb, files, registry)
+		// 2. Ask the kernel which shard agents this task needs
+		//    (expert_needed, policy/shard_experts.mg) and how each is routed
+		//    (specialist_should_execute / _advise, policy/shards.mg).
+		complexity := shards.TaskComplexity(task, len(files))
+		sel := m.selectShardExperts(verb, files, complexity)
+		specialists := specialistsFromSelection(sel)
 
-		// 3. No specialists? Fall back to simple spawn
+		// 3. No shard agent needed? Plain spawn.
 		if len(specialists) == 0 {
 			return m.spawnSimpleShard(ctx, shardType, task, startTime)
 		}
 
-		// 4. Tell the kernel what the matcher found, then let
-		//    specialist_should_execute (policy/shards.mg) pick the
-		//    high-confidence executor. The Go boolean is the nil-kernel fallback.
-		complexity := shards.TaskComplexity(task, len(files))
-		m.assertSpecialistMatches(task, complexity, specialists)
-		if spec, ok := m.specialistThatShouldExecute(task, specialists); ok {
-			return m.executeSpecialistDirectMode(ctx, verb, spec, task, target, complexity, startTime)
+		// 4. An executor the kernel handed the task runs it directly.
+		for _, spec := range specialists {
+			if spec.ShouldExecute {
+				return m.executeSpecialistDirectMode(ctx, verb, spec, task, target, sel.StrategicAdvisorRequired, startTime)
+			}
 		}
 
 		// 5. The topology is execution_mode. specialist_should_execute already
@@ -889,74 +890,6 @@ func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) t
 			return m.executeParallelMode(ctx, verb, shardType, task, target, specialists, startTime)
 		}
 	}
-}
-
-// assertSpecialistMatches loads the specialist classification table and this
-// task's matches into the kernel so the specialist_* rules in
-// policy/shards.mg can fire. Per-task facts from the previous delegation are
-// retracted first; the classification table is static and idempotent.
-func (m Model) assertSpecialistMatches(task, complexity string, specialists []shards.SpecialistMatch) {
-	if m.kernel == nil {
-		return
-	}
-	_ = m.kernel.Retract("specialist_match")
-	_ = m.kernel.Retract("task_complexity")
-	facts := append(shards.ClassificationFacts(), shards.MatchFacts(task, complexity, specialists)...)
-	if err := m.kernel.LoadFacts(facts); err != nil {
-		logging.Get(logging.CategoryRouting).Warn("failed to load specialist facts: %v", err)
-	}
-}
-
-// specialistThatShouldExecute returns the specialist the kernel derived
-// specialist_should_execute for on this task, in match order. Without a
-// kernel it applies the same test in Go (an executor matched above 80).
-func (m Model) specialistThatShouldExecute(task string, specialists []shards.SpecialistMatch) (shards.SpecialistMatch, bool) {
-	if m.kernel == nil {
-		for _, spec := range specialists {
-			if spec.ShouldExecute && spec.Classification != nil &&
-				spec.Classification.ExecutionMode == shards.SpecialistModeExecutor {
-				return spec, true
-			}
-		}
-		return shards.SpecialistMatch{}, false
-	}
-	derived, err := m.kernel.Query("specialist_should_execute")
-	if err != nil {
-		logging.Get(logging.CategoryRouting).Warn("specialist_should_execute query failed: %v", err)
-		return shards.SpecialistMatch{}, false
-	}
-	chosen := make(map[string]struct{}, len(derived))
-	for _, f := range derived {
-		if len(f.Args) >= 2 && types.ExtractString(f.Args[1]) == task {
-			chosen[types.ExtractString(f.Args[0])] = struct{}{}
-		}
-	}
-	for _, spec := range specialists {
-		if _, ok := chosen[string(shards.SpecialistAtom(spec.AgentName))]; ok {
-			return spec, true
-		}
-	}
-	return shards.SpecialistMatch{}, false
-}
-
-// strategicAdvisorRequired reports whether the kernel derived
-// strategic_advisor_required for this task (a /high task while a strategic
-// advisor is classified). Without a kernel it applies the Go test.
-func (m Model) strategicAdvisorRequired(task, complexity string, executor shards.SpecialistMatch) bool {
-	if m.kernel == nil {
-		return shards.ShouldConsultBeforeExecution(executor.AgentName, strings.TrimPrefix(complexity, "/"))
-	}
-	derived, err := m.kernel.Query("strategic_advisor_required")
-	if err != nil {
-		logging.Get(logging.CategoryRouting).Warn("strategic_advisor_required query failed: %v", err)
-		return false
-	}
-	for _, f := range derived {
-		if len(f.Args) >= 1 && types.ExtractString(f.Args[0]) == task {
-			return true
-		}
-	}
-	return false
 }
 
 // spawnSimpleShard handles the case where no specialists are matched
@@ -989,24 +922,6 @@ func (m Model) spawnSimpleShard(ctx context.Context, shardType, task string, sta
 			Facts:     facts,
 		},
 	}
-}
-
-// loadAgentRegistryForMatching loads the agent registry for specialist matching.
-// This is a lightweight version that returns the shards.AgentRegistry type.
-func (m Model) loadAgentRegistryForMatching() *shards.AgentRegistry {
-	registryPath := filepath.Join(m.workspace, ".nerd", "agents.json")
-
-	data, err := os.ReadFile(registryPath)
-	if err != nil {
-		return nil
-	}
-
-	var registry shards.AgentRegistry
-	if err := json.Unmarshal(data, &registry); err != nil {
-		return nil
-	}
-
-	return &registry
 }
 
 // createDirIfNotExists creates a directory if it doesn't exist

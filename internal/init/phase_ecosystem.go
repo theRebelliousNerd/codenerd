@@ -373,13 +373,17 @@ func assembleAgents(eng *orient.Engine) ([]RecommendedAgent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return buildAgents(agents, topics, descs, perms, pris), nil
+	domains, err := eng.Query("orient_agent_domain")
+	if err != nil {
+		return nil, err
+	}
+	return buildAgents(agents, topics, descs, perms, pris, domains), nil
 }
 
 type agentBag struct {
-	whys, topics, descs, perms []string
-	priority                   int
-	havePriority               bool
+	whys, topics, descs, perms, domains []string
+	priority                            int
+	havePriority                        bool
 }
 
 // agentNameResolver maps every roster name to its canonical spelling: names
@@ -416,7 +420,7 @@ func agentNameResolver(agentRows []types.Fact) func(string) string {
 	}
 }
 
-func buildAgents(agentRows, topicRows, descRows, permRows, priRows []types.Fact) []RecommendedAgent {
+func buildAgents(agentRows, topicRows, descRows, permRows, priRows, domainRows []types.Fact) []RecommendedAgent {
 	bags := map[string]*agentBag{}
 	canonical := agentNameResolver(agentRows)
 	ensure := func(name string) *agentBag {
@@ -456,6 +460,13 @@ func buildAgents(agentRows, topicRows, descRows, permRows, priRows []types.Fact)
 		}
 		ensure(types.ExtractString(fact.Args[0])).perms = append(ensure(types.ExtractString(fact.Args[0])).perms, types.ExtractString(fact.Args[1]))
 	}
+	for _, fact := range domainRows {
+		if len(fact.Args) < 2 {
+			continue
+		}
+		bag := ensure(types.ExtractString(fact.Args[0]))
+		bag.domains = append(bag.domains, strings.ToLower(types.ExtractString(fact.Args[1])))
+	}
 	for _, fact := range priRows {
 		if len(fact.Args) < 2 {
 			continue
@@ -490,6 +501,7 @@ func buildAgents(agentRows, topicRows, descRows, permRows, priRows []types.Fact)
 			Permissions: uniqueSorted(bag.perms),
 			Priority:    bag.priority,
 			Reason:      strings.Join(whys, "; "),
+			Domains:     uniqueSorted(bag.domains),
 		})
 	}
 	sort.Slice(agents, func(i, j int) bool {
@@ -514,11 +526,18 @@ func agentDescription(name string, descs, whys []string) string {
 
 func mergeDerivedAgents(recommended, derived []RecommendedAgent, language string) []RecommendedAgent {
 	have := map[string]bool{}
-	for _, agent := range recommended {
+	index := map[string]int{}
+	for i, agent := range recommended {
 		have[agent.Name] = true
+		index[agent.Name] = i
 	}
 	for _, agent := range derived {
 		if have[agent.Name] {
+			// The catalog's domains are what makes a task need the agent;
+			// a recommendation from elsewhere keeps its fields and gains them.
+			if i, ok := index[agent.Name]; ok {
+				recommended[i].Domains = uniqueSorted(append(recommended[i].Domains, agent.Domains...))
+			}
 			continue
 		}
 		tools, prefs := GetToolsForAgentType(agent.Name, language)

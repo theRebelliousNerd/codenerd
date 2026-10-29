@@ -591,6 +591,7 @@ func (i *Initializer) createAgent(ctx context.Context, shardsDir string, agent R
 			Status:          "ready",
 			Tools:           agent.Tools,
 			ToolPreferences: agent.ToolPreferences,
+			Domains:         agent.Domains,
 		},
 		KBSize:      stats.TotalAtoms,
 		Stats:       stats,

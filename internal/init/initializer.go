@@ -80,6 +80,10 @@ type RecommendedAgent struct {
 	Reason          string            `json:"reason"`   // Why this agent is needed
 	Tools           []string          `json:"tools,omitzero"`
 	ToolPreferences map[string]string `json:"tool_preferences,omitzero"`
+
+	// Domains are the technology keys the agent is expert in: the catalog
+	// keys that created it (orient_agent_domain). Written to agents.json.
+	Domains []string `json:"domains,omitzero"`
 }
 
 // InitConfig holds configuration for initialization.
@@ -278,6 +282,11 @@ type CreatedAgent struct {
 	Status          string            `json:"status"` // "ready", "partial", "failed"
 	Tools           []string          `json:"tools,omitzero"`
 	ToolPreferences map[string]string `json:"tool_preferences,omitzero"`
+
+	// Domains are the technology keys the agent is expert in. Boot asserts
+	// them as shard_agent_domain (internal/system/shard_expert_facts.go), so
+	// the kernel can derive which tasks need the agent.
+	Domains []string `json:"domains,omitzero"`
 }
 
 // Initializer handles the cold-start initialization process.

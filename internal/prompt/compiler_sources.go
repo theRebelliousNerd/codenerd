@@ -11,6 +11,7 @@ type sourceBreakdown struct {
 	embedded int
 	project  int
 	shard    int
+	experts  int
 	evolved  int
 	strategy int
 }
@@ -93,6 +94,10 @@ func (c *JITPromptCompiler) collectAtomsWithStats(
 			breakdown.shard, _ = appendSource("shard", shardAtoms)
 		}
 	}
+
+	// 3b. Pushed experts (cc.Experts): the shard agents the kernel derived
+	// this compile needs, minus their identity (compiler_experts.go).
+	breakdown.experts, _ = appendSource("experts", c.collectExpertAtoms(ctx, src, vector, pending, degraded))
 
 	// 4. Evolved atoms from SPL (System Prompt Learning).
 	evolvedAtoms := c.collectEvolvedAtoms(cc)

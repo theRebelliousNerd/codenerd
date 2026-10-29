@@ -1945,6 +1945,8 @@ func initIntelligenceLayer(bctx *bootContext) error {
 	if len(discoveredAgents) > 0 {
 		logging.Get(logging.CategoryContext).Info("Registered %d user-defined agents", len(discoveredAgents))
 	}
+	// After registration: the roster's KB side reads each registered DB.
+	assertShardExpertFacts(bctx)
 
 	return nil
 }

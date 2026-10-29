@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/workspace"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -40,6 +41,18 @@ var goKeyDeps = map[string]string{
 	"github.com/arangodb/go-driver":      "arangodb",
 	"google.golang.org/adk":              "adk",
 	"github.com/a2aserver/a2a-go":        "a2a",
+}
+
+// TechnologyImportRoots returns the Go import paths init recognizes as a
+// technology, keyed by path, valued by the technology key the agent catalog
+// (internal/orient/ecosystem_agents.mg profile_agent) creates shard agents
+// for. Boot asserts them as technology_import_root facts, so the key a go.mod
+// dependency created an agent for is the key a file's import matches in
+// policy/shard_experts.mg. The returned map is a copy.
+func TechnologyImportRoots() map[string]string {
+	out := make(map[string]string, len(goKeyDeps))
+	maps.Copy(out, goKeyDeps)
+	return out
 }
 
 // detectLanguageFromFiles detects the primary language by looking for config files.

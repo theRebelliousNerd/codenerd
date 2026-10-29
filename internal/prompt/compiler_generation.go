@@ -87,6 +87,7 @@ type compileSources struct {
 	projectDB      *sql.DB
 	shardKey       string
 	shardDB        *sql.DB
+	experts        []expertSource
 	localDB        *store.LocalStore
 	learning       *store.LearningStore
 	evolved        *EvolvedAtomManager
@@ -113,6 +114,7 @@ func (c *JITPromptCompiler) snapshotSources(cc *CompilationContext) compileSourc
 		src.shardDB = c.shardDBs[src.shardKey]
 		c.shardMu.RUnlock()
 	}
+	src.experts = c.expertSources(cc, src.shardKey)
 	return src
 }
 
@@ -137,6 +139,10 @@ func (src compileSources) captureSourceVector(ctx context.Context) sourceVector 
 	if src.shardDB != nil {
 		token, err := store.ReadSourceGeneration(ctx, src.shardDB, expertSourceTables...)
 		record("expert:"+src.shardKey, token, err)
+	}
+	for _, expert := range src.experts {
+		token, err := store.ReadSourceGeneration(ctx, expert.db, expertSourceTables...)
+		record(expertSourceName(expert.key), token, err)
 	}
 	if src.localDB != nil {
 		token, err := src.localDB.KnowledgeSourceGeneration(ctx)

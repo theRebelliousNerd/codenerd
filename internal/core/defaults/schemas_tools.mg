@@ -369,8 +369,9 @@ Decl cross_shard_insight(ReviewID, InsightType, Description) bound [/string, /na
 Decl review_insight(Index, Insight) bound [/number, /string].
 
 # specialist_match(Specialist, Task, Confidence)
-# Asserted per delegated task by the Go matcher (internal/shards/specialist_facts.go);
-# Specialist is the /name form of the registry name, Confidence is 0-100.
+# Derived from expert_confidence (policy/shard_experts.mg): the strongest
+# evidence that the task needs the shard agent. Specialist is the /name form
+# of the registry name, Confidence is 0-100.
 # The 4-arg review form that used to sit beside it had no producer.
 Decl specialist_match(Specialist, Task, Confidence) bound [/name, /string, /number].
 

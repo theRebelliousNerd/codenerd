@@ -1550,6 +1550,7 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 		cc.Language = lang
 	}
 	cc.DerivedNeeds = e.compileNeeds(cc.Language, intent.Verb)
+	cc.Experts = e.neededExperts(intent.Verb, intent.Target)
 
 	// Drive vector atom selection.
 	//

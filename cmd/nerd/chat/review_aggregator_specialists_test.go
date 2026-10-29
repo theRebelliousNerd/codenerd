@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"codenerd/internal/experts"
+	"codenerd/internal/types"
 )
 
 // matchSpecialistsForReview and loadAndQueryKnowledgeBase both returned empty
@@ -34,31 +37,30 @@ func readyGoRegistry(kbPath string) *AgentRegistry {
 	}
 }
 
+// /review asks the kernel like every other delegation: a registered, ready
+// agent the roster names, whose domain covers a file under review, is matched,
+// and its knowledge DB comes from the registry for the brief.
 func TestMatchSpecialistsForReview_MatchesRegisteredSpecialist(t *testing.T) {
-	dir := t.TempDir()
-	goFile := filepath.Join(dir, "handler.go")
-	if err := os.WriteFile(goFile, []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
+	m := newRoundtripModel(t)
+	assertExpertRoster(t, m)
+	reg := readyGoRegistry("/tmp/kb.db")
+	reg.Agents[0].Name = "MangleExpert"
 
-	matches := matchSpecialistsForReview(context.Background(), []string{goFile}, readyGoRegistry("/tmp/kb.db"))
+	matches := m.matchSpecialistsForReview([]string{"internal/core/defaults/policy/shards.mg"}, reg)
 
-	if len(matches) == 0 {
-		t.Fatal("no specialist matched a .go file with GoExpert registered and ready")
+	if len(matches) != 1 || matches[0].AgentName != "mangleexpert" {
+		t.Fatalf("matches = %+v, want mangleexpert for a policy file", matches)
 	}
-	if matches[0].AgentName != "GoExpert" {
-		t.Errorf("expected GoExpert, got %q", matches[0].AgentName)
+	if matches[0].Score <= 0 || len(matches[0].Files) == 0 {
+		t.Errorf("match carries no score or files: %+v", matches[0])
 	}
-	if matches[0].Score <= 0 {
-		t.Errorf("match carries no score: %+v", matches[0])
-	}
-	if len(matches[0].Files) == 0 {
-		t.Errorf("match carries no files: %+v", matches[0])
+	if matches[0].KnowledgePath != "/tmp/kb.db" {
+		t.Errorf("match lost the registry's knowledge path: %+v", matches[0])
 	}
 }
 
-// Status is the field the shared matcher gates on. The chat-local registry
-// struct did not decode it, so every agent read back as unavailable.
+// Status is decoded from the registry: boot lists only ready agents on the
+// roster the kernel selects from.
 func TestMatchSpecialistsForReview_StatusIsDecodedFromRegistryJSON(t *testing.T) {
 	dir := t.TempDir()
 	registryPath := filepath.Join(dir, "agents.json")
@@ -84,18 +86,16 @@ func TestMatchSpecialistsForReview_StatusIsDecodedFromRegistryJSON(t *testing.T)
 	}
 }
 
+// An agent off the roster (boot lists only ready agents) is never matched,
+// even when a domain claim names it.
 func TestMatchSpecialistsForReview_UnreadyAgentIsNotMatched(t *testing.T) {
-	dir := t.TempDir()
-	goFile := filepath.Join(dir, "handler.go")
-	if err := os.WriteFile(goFile, []byte("package main\n"), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
+	m := newRoundtripModel(t)
+	if err := m.kernel.Assert(types.Fact{Predicate: "shard_agent_domain", Args: []any{
+		experts.AgentAtom("GoExpert"), types.MangleAtom("/go"), types.MangleAtom("/registry")}}); err != nil {
+		t.Fatalf("assert: %v", err)
 	}
-
-	reg := readyGoRegistry("/tmp/kb.db")
-	reg.Agents[0].Status = "building"
-
-	if matches := matchSpecialistsForReview(context.Background(), []string{goFile}, reg); len(matches) != 0 {
-		t.Errorf("agent that is not ready was matched: %+v", matches)
+	if matches := m.matchSpecialistsForReview([]string{"handler.go"}, readyGoRegistry("/tmp/kb.db")); len(matches) != 0 {
+		t.Errorf("agent that is not on the roster was matched: %+v", matches)
 	}
 }
 
