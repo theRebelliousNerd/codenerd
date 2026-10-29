@@ -3,7 +3,6 @@ package core
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -301,6 +300,9 @@ func predicateNames(set map[string]struct{}) []string {
 func (k *RealKernel) clearDirtyLocked() {
 	k.dirtyAll = false
 	k.dirtyPreds = nil
+	if k.factIndex != nil {
+		k.factIndex.delta.reset() // the store now matches the EDB
+	}
 }
 
 // coneIneligibilityLocked says why the next evaluate() cannot be a cone
@@ -319,6 +321,8 @@ func (k *RealKernel) coneIneligibilityLocked() string {
 		return "provenance recording"
 	case k.factIndex == nil:
 		return "no EDB index"
+	case !k.factIndex.delta.known:
+		return "EDB write delta unknown"
 	}
 	if _, ok := k.store.(factstore.FactStoreWithRemove); !ok {
 		return "store does not support removal"
@@ -336,85 +340,15 @@ func (k *RealKernel) evaluateConeLocked(stats *EvaluationStats) error {
 	if k.coneIneligibilityLocked() != "" {
 		return errConeIneligible
 	}
-	remover := k.store.(factstore.FactStoreWithRemove)
 	timer := logging.StartTimer(logging.CategoryKernel, "evaluate.cone")
 	defer timer.Stop()
 	prepareStarted := time.Now()
 
 	plan := k.cone.plan(k.dirtyPreds)
 
-	// The EDB rows of every touched predicate, as atoms. Each is the atom
-	// admission converted under this program; a row without one (indexed by a
-	// rebuild, or admitted under an older program) is converted once and
-	// remembered.
-	edb := make(map[string][]ast.Atom, len(plan.touched))
-	for _, pred := range plan.touched {
-		bucket := k.factIndex.bucket(pred)
-		atoms := make([]ast.Atom, 0, len(bucket))
-		for key, f := range bucket {
-			atom, ok := k.factIndex.atomOf(pred, key, k.programInfo)
-			if !ok {
-				var err error
-				if atom, err = k.factToAtomLocked(f); err != nil {
-					return fmt.Errorf("cone: convert %s: %w", f.Predicate, err)
-				}
-				k.factIndex.rememberAtom(pred, key, atom, k.programInfo)
-			}
-			atoms = append(atoms, atom)
-		}
-		edb[pred] = atoms
-	}
-
-	// Remove every derived fact of every touched predicate, and every stored
-	// row of a written predicate the EDB no longer holds (a retraction since
-	// the last evaluation). A row the EDB still holds of a predicate no rule
-	// derives stays: removing and re-adding the unchanged rows was the whole
-	// preparation of a write to a world predicate (0.55 s for dependency_link's
-	// 162k rows, measured 2026-10-29). A program fact of such a predicate is
-	// removed with the rest and re-added by the engine, as before.
-	var doomed []ast.Atom
-	stored := make(map[string][]bool, len(plan.touched)) // per EDB row: kept in the store
-	for _, pred := range plan.touched {
-		_, derived := k.cone.heads[pred]
-		var held map[uint64][]int
-		if !derived {
-			held = make(map[uint64][]int, len(edb[pred]))
-			for i, atom := range edb[pred] {
-				h := atom.Hash()
-				held[h] = append(held[h], i)
-			}
-			stored[pred] = make([]bool, len(edb[pred]))
-		}
-		for _, sym := range k.cone.symbolsOf(pred, k.factIndex.aritiesOf(pred)) {
-			if err := k.store.GetFacts(ast.NewQuery(sym), func(a ast.Atom) error {
-				if !derived {
-					if i := slices.IndexFunc(held[a.Hash()], func(i int) bool { return edb[pred][i].Equals(a) }); i >= 0 {
-						stored[pred][held[a.Hash()][i]] = true
-						return nil
-					}
-				}
-				doomed = append(doomed, a)
-				return nil
-			}); err != nil {
-				return fmt.Errorf("cone: list %s: %w", sym.Symbol, err)
-			}
-		}
-	}
-	for _, atom := range doomed {
-		remover.Remove(atom)
-	}
-
-	// Put back what the EDB holds for them now and the store does not.
-	restored := 0
-	for _, pred := range plan.touched {
-		kept := stored[pred]
-		for i, atom := range edb[pred] {
-			if kept != nil && kept[i] {
-				continue
-			}
-			k.store.Add(atom)
-			restored++
-		}
+	removedCount, restored, listed, err := k.prepareConeStoreLocked(plan)
+	if err != nil {
+		return err
 	}
 
 	// Run the engine even when the cone holds no rule: it is what re-adds a
@@ -437,7 +371,7 @@ func (k *RealKernel) evaluateConeLocked(stats *EvaluationStats) error {
 	*stats = EvaluationStats{
 		InputFacts: stats.InputFacts, Mode: "cone", StoreKind: storeKind(k.store),
 		PrepareDuration: prepared, EngineDuration: time.Since(engineStarted),
-		Touched: len(plan.touched), RemovedFacts: len(doomed), RestoredFacts: restored,
+		Touched: len(plan.touched), RemovedFacts: removedCount, RestoredFacts: restored, ListedFacts: listed,
 		Rules: len(plan.rules), Strata: len(plan.strata),
 	}
 
@@ -447,6 +381,6 @@ func (k *RealKernel) evaluateConeLocked(stats *EvaluationStats) error {
 	}
 	sort.Strings(written)
 	logging.KernelDebug("evaluate.cone: written=[%s] cone=%d predicates, %d/%d rules, %d strata, %d facts removed, %d restored",
-		strings.Join(written, ","), len(plan.cone), len(plan.rules), len(k.cone.rules), len(plan.strata), len(doomed), restored)
+		strings.Join(written, ","), len(plan.cone), len(plan.rules), len(k.cone.rules), len(plan.strata), removedCount, restored)
 	return nil
 }

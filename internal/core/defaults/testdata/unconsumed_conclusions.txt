@@ -86,6 +86,7 @@ unconsumed capability_addresses_need
 unconsumed capability_available
 unconsumed capability_is_linked
 unconsumed checks_passed
+unconsumed circular_dependency
 unconsumed co_commit_count
 unconsumed co_committed_files
 unconsumed code_contains
@@ -139,6 +140,7 @@ unconsumed deep_nesting
 unconsumed derived_mode
 unconsumed diagnostic_active
 unconsumed dir_has_go_test
+unconsumed dir_has_source
 unconsumed dream_block
 unconsumed edit_contains_operation
 unconsumed edit_defines_interface
@@ -548,3 +550,4 @@ unconsumed verb_pair_relation
 unconsumed violation
 unconsumed warning_suppressed
 unconsumed witness_candidate
+unconsumed zombie_test

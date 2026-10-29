@@ -103,14 +103,8 @@ func TestApplyIncremental_WhenDelta_ShouldRetractSnapshotGlobals(t *testing.T) {
 func TestWorldPredicates_WhenListed_ShouldCoverEveryOwnerGroup(t *testing.T) {
 	union := WorldPredicateSet()
 	owners := map[string]string{}
-	groups := map[string][]string{
-		"scanner": ScannerPredicates,
-		"deep":    DeepPredicates,
-		"lsp":     LSPPredicates,
-		"scope":   SessionScopePredicates,
-		"git":     GitPredicates,
-	}
-	for name, preds := range groups {
+	for _, g := range OwnerGroups {
+		name, preds := g.Name, g.Predicates
 		for _, p := range preds {
 			if _, ok := union[p]; !ok {
 				t.Errorf("%s predicate %q missing from WorldPredicates", p, name)

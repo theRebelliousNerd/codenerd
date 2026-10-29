@@ -584,11 +584,38 @@ raw_finding(CallerFile, 1, /error, /architecture, "LAYER_LEAKAGE", "Library impo
     architecture_violation(CallerFile, CalleeFile).
 
 
-# --- Not derived here: zombie tests and import cycles ---
-# Both were keyed on symbol IDs against file-level dependency_link until
-# 2026-10-29, so neither ever derived a correct row. Keyed correctly over this
-# repository's 162k import edges, "a test imports no project file" cost
-# 0.56 s per evaluation and a mutual-import check 1.16 s for zero rows, and
-# file-level reachability passes 3,000,000 facts. Nothing reads raw_finding.
-# Import components and per-file import counts are measurements for the world
-# scanner, which builds the graph.
+# --- 4. "Zombie" Tests ---
+# A test file that imports no project file and shares its directory with no
+# project source: it can reach no project code. (A Go test in its package's
+# directory reaches the package without importing it.) imports_project_file
+# is measured by the world scanner with the import edges
+# (internal/world/import_cycles.go); enumerating every test file's edges here
+# cost 0.56 s per evaluation of a 162k-edge world.
+
+Decl zombie_test(TestFile) bound [/string].
+Decl dir_has_source(Dir) bound [/string].
+
+dir_has_source(Dir) :- file_topology(File, _, _, _, /false), file_dir(File, Dir).
+
+zombie_test(TestFile) :-
+    file_topology(TestFile, _, _, _, /true),
+    symbol_file(TestFile),
+    !imports_project_file(TestFile),
+    file_dir(TestFile, Dir),
+    !dir_has_source(Dir).
+
+raw_finding(TestFile, 1, /warning, /maintenance, "ZOMBIE_TEST", "Test reaches no project code") :-
+    zombie_test(TestFile).
+
+# --- 5. Circular Dependencies (File Level) ---
+# A file on an import cycle. The world scanner measures the import graph's
+# strongly connected components (import_cycle_member, import_cycles.go):
+# file-level reachability in Mangle passes 3,000,000 facts on this
+# repository's import edges.
+
+Decl circular_dependency(File, Root) bound [/string, /string].
+
+circular_dependency(File, Root) :- import_cycle_member(File, Root).
+
+raw_finding(File, 1, /error, /architecture, "CIRCULAR_DEPENDENCY", Root) :-
+    circular_dependency(File, Root).

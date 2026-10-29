@@ -48,8 +48,8 @@ Shipped Mangle-only features here become the public examples.
   (`kernel_eval_cone.go`) must stay identical to the full fixpoint.
 - Strata come from `mangle.Stratify` (`internal/mangle/strata_layers.go`):
   1,315 components layered into 16 (the engine's per-call cost is
-  strata x predicates). `mangle.Engine` wraps its store in
-  `ConcurrentFactStore`, where a merge lattice deadlocks: no lattices there.
+  strata x predicates). `mangle.Engine` evaluates over
+  its store directly under `e.mu` (lattices work there since 2026-10-29).
 - Cost: measure on the real world EDB (`LoadAllWorldFacts("fast")` from a
   copy of `.nerd/knowledge.db`, 345k facts; dependency_link is file level,
   162k rows) per component with fine strata; boot-EDB numbers hide joins.

@@ -1437,6 +1437,9 @@ func initKernel(bctx *bootContext) error {
 			for _, cf := range cached {
 				facts = append(facts, core.Fact{Predicate: cf.Predicate, Args: cf.Args})
 			}
+			// Import cycles are a whole-graph measurement no file's cache
+			// row carries; measure them from the edges being loaded.
+			facts = append(facts, world.ImportCycleFacts(facts)...)
 			if err := bctx.kernel.LoadFacts(facts); err == nil {
 				loadedWorld = true
 			}

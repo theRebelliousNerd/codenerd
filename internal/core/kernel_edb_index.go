@@ -33,6 +33,9 @@ type edbIndex struct {
 	// reused only under the program it was converted for, because
 	// admission adapts arguments to that program's Decls.
 	atoms map[string]map[string]admittedAtom
+	// delta is what changed since the store was last evaluated
+	// (kernel_edb_delta.go).
+	delta edbDelta
 }
 
 // admittedAtom is a fact's store atom as admitted under one program.
@@ -46,6 +49,7 @@ func newEDBIndex() *edbIndex {
 		buckets: make(map[string]map[string]Fact),
 		arities: make(map[string]map[int]struct{}),
 		atoms:   make(map[string]map[string]admittedAtom),
+		delta:   newEDBDelta(false),
 	}
 }
 
@@ -67,6 +71,7 @@ func (x *edbIndex) insert(key string, f Fact) bool {
 	}
 	bucket[key] = f
 	x.forgetAtom(f.Predicate, key)
+	x.delta.noteInsert(f.Predicate, key)
 	arities := x.arities[f.Predicate]
 	if arities == nil {
 		arities = make(map[int]struct{}, 1)
@@ -80,9 +85,12 @@ func (x *edbIndex) insert(key string, f Fact) bool {
 // remove drops the fact held under key.
 func (x *edbIndex) remove(pred, key string) {
 	bucket := x.buckets[pred]
-	if _, ok := bucket[key]; !ok {
+	f, ok := bucket[key]
+	if !ok {
 		return
 	}
+	atom, hadAtom := x.atoms[pred][key]
+	x.delta.noteRemove(pred, key, f, atom, hadAtom)
 	delete(bucket, key)
 	x.forgetAtom(pred, key)
 	x.size--
@@ -145,6 +153,7 @@ func (x *edbIndex) clone() *edbIndex {
 		buckets: make(map[string]map[string]Fact, len(x.buckets)),
 		arities: make(map[string]map[int]struct{}, len(x.arities)),
 		atoms:   make(map[string]map[string]admittedAtom, len(x.atoms)),
+		delta:   x.delta.clone(),
 		size:    x.size,
 	}
 	for pred, memo := range x.atoms {

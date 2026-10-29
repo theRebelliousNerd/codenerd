@@ -12,6 +12,8 @@ package world
 //	Scanner (full/incremental) topology, symbols, imports, entry pts   every scan
 //	                             + test-impact file facts (file_package,
 //	                               is_test_file, file_imports)
+//	                             + imports_project_file
+//	import-graph measurement   import_cycle_member                    when edges change
 //	Cartographer / deep scan   code_defines/code_calls + data flow     on demand (/scan --deep)
 //	(reserved, no writer)      symbol_defined/referenced/diagnostics   never
 //	CodeDOM scope (session)    active_file, code_element, file_in_scope session lifetime
@@ -65,6 +67,17 @@ var ScannerPredicates = []string{
 	"file_package",
 	"is_test_file",
 	"file_imports",
+	// Per-file import-graph measurement (import_cycles.go), emitted with
+	// the file's resolved edges.
+	"imports_project_file",
+}
+
+// ImportGraphPredicates are whole-graph measurements of the import edges
+// (import_cycles.go). Nothing persists them: ApplyIncrementalResult
+// re-measures them from the kernel's dependency_link whenever a scan changes
+// the edges, and the boot path measures them from the cached world it loads.
+var ImportGraphPredicates = []string{
+	"import_cycle_member",
 }
 
 // DeepPredicates are produced by the Cartographer (EnsureDeepFacts) and the
@@ -113,16 +126,38 @@ var GitPredicates = []string{
 	"churn_rate",
 }
 
+// OwnerGroup is one row of the ownership matrix: a writer, what its
+// ownership means for a scan, and the predicates it owns.
+type OwnerGroup struct {
+	Name       string
+	Note       string
+	Predicates []string
+}
+
+// OwnerGroups is the ownership matrix as data: the one table every listing of
+// world predicates is built from (WorldPredicates, `nerd world predicates`),
+// so a predicate cannot be a world predicate without an owner.
+var OwnerGroups = []OwnerGroup{
+	{"scanner (replaced on every full scan)", "re-derived by every fast scan", ScannerPredicates},
+	{"import graph", "measured from the import edges whenever a scan changes them", ImportGraphPredicates},
+	{"deep / Cartographer", "replaced per file by a deep scan only", DeepPredicates},
+	{"lsp", "projected by language servers; a scan must not delete these", LSPPredicates},
+	{"session scope", "ephemeral, session-lifetime", SessionScopePredicates},
+	{"git", "on-demand git scanner", GitPredicates},
+}
+
 // WorldPredicates enumerates every EDB predicate produced by the world model,
 // across all writers. Use it to recognise world facts (e.g. when filtering a
 // fact stream); do NOT use it as a replace-set — see ScannerReplaceSet.
-var WorldPredicates = concatPredicates(
-	ScannerPredicates,
-	DeepPredicates,
-	LSPPredicates,
-	SessionScopePredicates,
-	GitPredicates,
-)
+var WorldPredicates = ownedPredicates(OwnerGroups)
+
+func ownedPredicates(groups []OwnerGroup) []string {
+	var out []string
+	for _, g := range groups {
+		out = append(out, g.Predicates...)
+	}
+	return out
+}
 
 // ScannerReplaceSet is the set a full scan may clear before loading its
 // results: exactly the predicates that scan re-derives.
@@ -151,18 +186,6 @@ var SnapshotGlobalPredicates = []string{
 var TreatmentPredicates = []string{
 	"file_metadata_only",
 	"treatment_scope",
-}
-
-func concatPredicates(groups ...[]string) []string {
-	total := 0
-	for _, g := range groups {
-		total += len(g)
-	}
-	out := make([]string, 0, total)
-	for _, g := range groups {
-		out = append(out, g...)
-	}
-	return out
 }
 
 func predicateSet(preds []string) map[string]struct{} {

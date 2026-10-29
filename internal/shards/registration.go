@@ -72,6 +72,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"generated_code", "cgo_code", "parse_error", "file_hash_mismatch",
 				"file_modified_externally", "is_test_function", "test_file_for",
 				"file_imports", "file_package", "file_in_scope", "type_embeds",
+				"imports_project_file", "import_cycle_member",
 				"is_interface_file", "type_definition_file",
 				"api_handler_function", "api_client_function", "api_dependency",
 				"go_struct", "py_class", "py_decorator", "py_typed_function",

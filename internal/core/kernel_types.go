@@ -173,6 +173,7 @@ type EvaluationStats struct {
 	Touched         int // cone: predicates whose rows were replaced
 	RemovedFacts    int // cone: store rows removed before re-derivation
 	RestoredFacts   int // cone: EDB rows put back
+	ListedFacts     int // cone: store rows listed to prepare it (a known write delta lists none)
 	Rules           int // rules the engine was given
 	Strata          int // strata the engine was given
 }

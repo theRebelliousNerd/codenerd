@@ -293,15 +293,10 @@ cohort_connection(A, B, W) :-
     !cohort_directory_document(A, W), !cohort_directory_document(B, W).
 cohort_edge(A, B, W) :- cohort_connection(A, B, W).
 cohort_edge(B, A, W) :- cohort_connection(A, B, W).
-cohort_reach(A, A, W) :- cohort_edge(A, _, W).
-cohort_reach(A, B, W) :-
-    cohort_edge(A, B, W), doc_tie(A, AO), doc_tie(B, BO), BO < AO.
-cohort_reach(A, C, W) :-
-    cohort_edge(A, B, W), cohort_reach(B, C, W),
-    doc_tie(A, AO), doc_tie(C, CO), CO < AO.
-cohort_root_ord(Path, W, Ord) :-
-    cohort_reach(Path, Other, W), doc_tie(Other, O)
-    |> do fn:group_by(Path, W), let Ord = fn:min(O).
+# The minimum ordinal floods each window's component through a merge
+# lattice (orient_lower_ord, lineage.mg), one row per path and window.
+cohort_root_ord(Path, W, Ord) :- cohort_edge(Path, _, W), doc_tie(Path, Ord).
+cohort_root_ord(A, W, Ord) :- cohort_root_ord(B, W, Ord), cohort_edge(A, B, W).
 cohort_component(Path, Root, W) :-
     cohort_root_ord(Path, W, Ord), doc_tie(Root, Ord).
 cohort_member_count(Root, W, N) :-
