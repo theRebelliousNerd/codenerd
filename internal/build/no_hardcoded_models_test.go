@@ -26,6 +26,7 @@ var modelLiteralAllowed = map[string]string{
 	"cmd/nerd/chat/config_wizard.go": "the setup wizard's menu: the user picks one and it is written to config.json",
 	"internal/usage/pricing.go":      "the price table, keyed by the model a receipt names",
 	"internal/config/anthropic.go":   "Anthropic model-capability detection on the configured model name (effort, adaptive thinking, structured output, server-tool versions); it never picks or substitutes a model",
+	"internal/config/openai.go":      "OpenAI model-capability detection on the configured model name (accepted reasoning efforts, output ceiling, cache-control generation); it never picks or substitutes a model",
 }
 
 // modelLiteralExact allows one literal in one file, for a string that has the
