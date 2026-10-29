@@ -249,7 +249,7 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 	}
 
 	logStep("Hydrating session state...")
-	loadedSession, _ := hydrateNerdState(workspace, kernel, shardMgr, &initialMessages)
+	loadedSession, _ := hydrateNerdState(workspace, cortex.SessionID(), kernel, shardMgr, &initialMessages)
 	if shardMgr != nil {
 		shardMgr.SetSessionID(resolveSessionID(loadedSession))
 	}

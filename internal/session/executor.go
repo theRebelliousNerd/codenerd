@@ -1172,8 +1172,13 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// the store does not implement the hydration interface (stub adapters).
 	// Tag the turn with its session identity so LLM clients record spend under
 	// this session (BySession) rather than "unknown"; turn_cost reads that
-	// entry, never the cross-process project total.
-	ctx = usage.WithSessionID(ctx, e.SessionID())
+	// entry, never the cross-process project total. A caller that already
+	// names the session wins: a subagent's executor holds the ID it was built
+	// with, and stamping that over the chat's filed a multi-step coder's
+	// calls under another .nerd/sessions folder.
+	if usage.SessionIDFromContext(ctx) == "" {
+		ctx = usage.WithSessionID(ctx, e.SessionID())
+	}
 	// The default account for a turn. Subsystems that run inside it --
 	// perception, compression, verification, spawned shards -- override this
 	// on their own sub-context, so what stays tagged "session" is the turn's

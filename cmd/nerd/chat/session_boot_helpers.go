@@ -73,7 +73,7 @@ func (a *northstarHandlerAdapter) HandleEvent(ctx context.Context, event shards.
 	}, nil
 }
 
-func hydrateNerdState(workspace string, kernel chatKernel, shardMgr *coreshards.ShardManager, initialMessages *[]Message) (*Session, *Preferences) {
+func hydrateNerdState(workspace, sessionID string, kernel chatKernel, shardMgr *coreshards.ShardManager, initialMessages *[]Message) (*Session, *Preferences) {
 	nerdDir := filepath.Join(workspace, ".nerd")
 
 	// Load profile facts
@@ -113,15 +113,16 @@ func hydrateNerdState(workspace string, kernel chatKernel, shardMgr *coreshards.
 	// QUIESCENT BOOT: Always start fresh sessions.
 	// Previous sessions can be resumed explicitly via /sessions command.
 	// This prevents stale state from affecting new sessions.
-	var session *Session
-	// Generate a new session ID for this boot
-	newSessionID := fmt.Sprintf("session-%d", time.Now().UnixNano())
-	session = &Session{
-		SessionID: newSessionID,
+	// The session is the one the Cortex booted (sessionID): the session log,
+	// the session executor and every shard file under it. Minting a second
+	// identity here split one run across two .nerd/sessions folders, and a
+	// multi-step coder's calls landed in the one the chat never reads.
+	session := &Session{
+		SessionID: sessionID,
 		StartedAt: time.Now().Format(time.RFC3339),
 		TurnCount: 0,
 	}
-	logging.Session("Starting fresh session: %s", newSessionID)
+	logging.Session("Starting fresh session: %s", sessionID)
 
 	// Check if there are previous sessions to hint about
 	if sessions, err := nerdinit.ListSessionHistories(workspace); err == nil && len(sessions) > 0 {
