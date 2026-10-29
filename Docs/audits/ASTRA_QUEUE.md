@@ -12,10 +12,10 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 
 | audit | branch | status |
 |---|---|---|
-| `openai-model-transition-effort-admission` | `research-main-20261029-2049` | open |
-| `responses-local-hosted-tool-name-contract` | `research-main-20261029-2049` | open |
-| `responses-refusal-wire-identity` | `research-main-20261029-1950` | open |
-| `responses-assistant-phase-replay` | `research-main-20261029-1950` | open |
+| `openai-model-transition-effort-admission` | `research-main-20261029-2049` | fixed `f2ef38dd2` |
+| `responses-local-hosted-tool-name-contract` | `research-main-20261029-2049` | fixed `f2ef38dd2` |
+| `responses-refusal-wire-identity` | `research-main-20261029-1950` | fixed `cf55fc149` |
+| `responses-assistant-phase-replay` | `research-main-20261029-1950` | fixed `89e4a65c2` |
 | `exact-model-pin-tag-identity` | `research-main-20261029-1018` | open |
 | `streaming-grounding-source-ownership` | `research-main-20261029-1018` | open |
 
