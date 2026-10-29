@@ -21,7 +21,7 @@ func expertPolicyKernel(t *testing.T) *RealKernel {
 		{Predicate: "shard_agent", Args: []any{types.MangleAtom("/bubbleteaexpert")}},
 		{Predicate: "shard_agent_domain", Args: []any{types.MangleAtom("/mangleexpert"), types.MangleAtom("/mangle"), types.MangleAtom("/registry")}},
 		{Predicate: "shard_agent_domain", Args: []any{types.MangleAtom("/bubbleteaexpert"), types.MangleAtom("/bubbletea"), types.MangleAtom("/registry")}},
-		{Predicate: "technology_import_root", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
+		{Predicate: "technology_import_prefix", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
 		// A file in the world model that imports Bubble Tea, in a package dir.
 		{Predicate: "dependency_link", Args: []any{"cmd/nerd/chat/view.go", "pkg:github.com/charmbracelet/bubbletea", "github.com/charmbracelet/bubbletea"}},
 		{Predicate: "file_dir", Args: []any{"cmd/nerd/chat/view.go", "cmd/nerd/chat"}},

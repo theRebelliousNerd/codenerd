@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"codenerd/internal/experts"
@@ -33,7 +32,8 @@ import (
 //	                                         it, from the saved orientation
 //	                                         (orient.AgentDomains), for an entry
 //	                                         with no domains yet
-//	technology_import_root(Root, Tech)       init's dependency vocabulary
+//	technology_import_exact(Import, Tech)    init's technology vocabulary as
+//	technology_import_prefix(Prefix, Tech)   import spellings (Go, npm, Python, Rust)
 //
 // An entry written before agents.json had a domains field gets its domains
 // derived at boot and recorded (shard_agent_domain_to_record), so an existing
@@ -58,16 +58,14 @@ func measureShardRoster(ctx context.Context, workspace string, compiler *prompt.
 	roster := shardRoster{complete: true}
 	var failures []string
 
-	roots := nerdinit.TechnologyImportRoots()
-	paths := make([]string, 0, len(roots))
-	for path := range roots {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
-	for _, path := range paths {
-		if tech, ok := technologyAtom(roots[path]); ok {
-			roster.facts = append(roster.facts, types.Fact{Predicate: "technology_import_root", Args: []any{path, tech}})
+	for _, root := range nerdinit.TechnologyImportRoots() {
+		tech, ok := technologyAtom(root.Technology)
+		if !ok {
+			continue
 		}
+		roster.facts = append(roster.facts,
+			types.Fact{Predicate: "technology_import_exact", Args: []any{root.Exact, tech}},
+			types.Fact{Predicate: "technology_import_prefix", Args: []any{root.Prefix, tech}})
 	}
 
 	if strings.TrimSpace(workspace) == "" {

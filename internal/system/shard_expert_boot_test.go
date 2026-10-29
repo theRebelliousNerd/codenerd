@@ -89,8 +89,8 @@ func TestBootAssertsShardExpertRosterAndTheCompileCarriesIt(t *testing.T) {
 	if !factWith(domains, "/teaexpert", "/mangle", "/knowledge_base") {
 		t.Errorf("knowledge-base domain missing: %v", domains)
 	}
-	if roots, err := cortex.Kernel.Query("technology_import_root"); err != nil || !factWith(roots, "github.com/charmbracelet/bubbletea", "/bubbletea") {
-		t.Errorf("technology_import_root after boot = %v, %v", roots, err)
+	if roots, err := cortex.Kernel.Query("technology_import_exact"); err != nil || !factWith(roots, "github.com/charmbracelet/bubbletea", "/bubbletea") {
+		t.Errorf("technology_import_exact after boot = %v, %v", roots, err)
 	}
 	// agents.json kept the domains through the boot-time registry sync.
 	if data, err := os.ReadFile(filepath.Join(ws, ".nerd", "agents.json")); err != nil || !strings.Contains(string(data), `"bubbletea"`) {

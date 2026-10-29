@@ -24,12 +24,18 @@ Decl shard_agent(Agent) bound [/name].
 # Producer: internal/system/shard_expert_facts.go at boot.
 Decl shard_agent_domain(Agent, Technology, Source) bound [/name, /name, /name].
 
-# technology_import_root(Root, Technology) - an import path prefix that marks a
-# file as using Technology. Producer: internal/system/shard_expert_facts.go
-# from init's dependency vocabulary (nerdinit.TechnologyImportRoots), so the
-# key a go.mod dependency created an agent for is the key a file's import
-# matches.
-Decl technology_import_root(Root, Technology) bound [/string, /name].
+# technology_import_exact(Import, Technology) - an import spelled exactly so
+# names Technology ("github.com/spf13/cobra", "react", "django", "tokio").
+# technology_import_prefix(Prefix, Technology) - an import starting with
+# Prefix names it: the exact spelling plus its ecosystem's separator
+# ("github.com/spf13/cobra/", "next/", "django.", "tokio::"), so a root never
+# matches a longer name ("react" is not "react-dom").
+# Producer: internal/system/shard_expert_facts.go from init's technology
+# vocabulary (nerdinit.TechnologyImportRoots, internal/init/
+# technology_vocabulary.go) -- Go, npm, Python and Rust -- so the key a
+# manifest created an agent for is the key a file's import matches.
+Decl technology_import_exact(Import, Technology) bound [/string, /name].
+Decl technology_import_prefix(Prefix, Technology) bound [/string, /name].
 
 # expert_task(Task, Verb) - a task about to run, by an id unique to it, and the
 # verb it runs as. Asserted for the duration of one selection, then retracted.
@@ -50,7 +56,7 @@ Decl expert_task_file(Task, File) bound [/string, /string].
 
 # task_technology(Task, File, Technology, Via) - a technology a task file uses.
 # Via: /language (the file's language) or /import (an import under a
-# technology_import_root).
+# technology_import_prefix).
 Decl task_technology(Task, File, Technology, Via) bound [/string, /string, /name, /name].
 
 # reads_code_verb(Verb) - a conversational verb whose answer still reads the
@@ -111,3 +117,23 @@ Decl expert_task_spoken(Task) bound [/string].
 # Consumer: internal/session (Executor.consultExperts) through the
 # JITExecutor's consultation spawner.
 Decl expert_spawn(Task, Agent, Mode) bound [/string, /name, /name].
+
+# --- Task complexity (per task) -------------------------------------------------
+# task_complexity(Task, Level) (schemas_shards.mg) is derived here from the
+# task's measured shape; strategic_advisor_required (policy/shards.mg) reads it.
+
+# complex_verb(Verb) - a verb whose work is complex whatever its size.
+Decl complex_verb(Verb) bound [/name].
+
+# expert_task_file_count(Task, N) - how many files the task is about.
+Decl expert_task_file_count(Task, N) bound [/string, /number].
+
+# expert_task_file_symbol(Task, File, Symbol) - a symbol the world model says a
+# task file defines.
+Decl expert_task_file_symbol(Task, File, Symbol) bound [/string, /string, /string].
+
+# expert_task_file_symbols(Task, File, N) - how many symbols a task file defines.
+Decl expert_task_file_symbols(Task, File, N) bound [/string, /string, /number].
+
+# expert_task_complex(Task) - some measure makes the task complex.
+Decl expert_task_complex(Task) bound [/string].

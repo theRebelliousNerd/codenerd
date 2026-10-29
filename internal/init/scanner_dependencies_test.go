@@ -56,14 +56,16 @@ func TestParseYarnLock(t *testing.T) {
 	}
 }
 
+// pnpm reports the vocabulary's technology keys, as every lock scanner does:
+// tailwindcss is "tailwind" here exactly as package-lock.json reports it.
 func TestParsePnpmLock(t *testing.T) {
 	i := &Initializer{}
-	content := "packages:\n  /tailwindcss@3.4.0:\n  /vite@5.0.0:\n  /lodash@4.17.0:\n"
+	content := "packages:\n  /tailwindcss@3.4.0:\n  /vite@5.0.0:\n  /left-pad@1.3.0:\n"
 	got := depNames(i.parsePnpmLock(content))
-	if !got["tailwindcss"] || !got["vite"] {
-		t.Errorf("expected tailwindcss and vite detected, got %v", got)
+	if !got["tailwind"] || !got["vite"] {
+		t.Errorf("expected tailwind and vite detected, got %v", got)
 	}
-	if got["lodash"] {
-		t.Error("non-notable package should be ignored")
+	if got["left-pad"] {
+		t.Error("a package outside the vocabulary should be ignored")
 	}
 }

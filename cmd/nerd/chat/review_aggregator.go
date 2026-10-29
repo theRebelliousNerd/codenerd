@@ -17,7 +17,6 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/experts"
 	"codenerd/internal/logging"
-	"codenerd/internal/shards"
 	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
 	wscope "codenerd/internal/workspace"
@@ -112,7 +111,7 @@ func (m Model) matchSpecialistsForReview(files []string, registry *AgentRegistry
 	if len(files) == 0 {
 		return nil
 	}
-	sel := m.selectShardExperts("/review", files, shards.TaskComplexity("review", len(files)))
+	sel := m.selectShardExperts("/review", files)
 	knowledge := map[string]string{}
 	if registry != nil {
 		for _, agent := range registry.Agents {

@@ -66,7 +66,7 @@ func spawnRosterKernel(t *testing.T) *core.RealKernel {
 	if err := k.AssertBatch([]types.Fact{
 		{Predicate: "shard_agent", Args: []any{experts.AgentAtom("BubbleTeaExpert")}},
 		{Predicate: "shard_agent_domain", Args: []any{experts.AgentAtom("BubbleTeaExpert"), types.MangleAtom("/bubbletea"), types.MangleAtom("/registry")}},
-		{Predicate: "technology_import_root", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
+		{Predicate: "technology_import_prefix", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
 		{Predicate: "dependency_link", Args: []any{"cmd/nerd/chat/view.go", "pkg:github.com/charmbracelet/bubbletea", "github.com/charmbracelet/bubbletea"}},
 	}); err != nil {
 		t.Fatalf("assert roster: %v", err)

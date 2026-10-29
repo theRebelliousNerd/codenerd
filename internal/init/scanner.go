@@ -9,51 +9,12 @@ import (
 	"codenerd/internal/workspace"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 )
-
-// goKeyDeps lists the Go import substrings that detectDependencies treats as
-// notable dependencies. It is shared between detectDependencies and the
-// per-module parser so both see the same canonical names.
-var goKeyDeps = map[string]string{
-	"github.com/go-rod/rod":              "rod",
-	"github.com/chromedp/chromedp":       "chromedp",
-	"github.com/playwright-community":    "playwright",
-	"google/mangle":                      "mangle",
-	"codeberg.org/TauCeti/mangle-go":     "mangle",
-	"github.com/sashabaranov/go-openai":  "openai",
-	"github.com/anthropics/anthropic":    "anthropic",
-	"github.com/charmbracelet/bubbletea": "bubbletea",
-	"github.com/spf13/cobra":             "cobra",
-	"github.com/gin-gonic/gin":           "gin",
-	"github.com/labstack/echo":           "echo",
-	"github.com/gofiber/fiber":           "fiber",
-	"gorm.io/gorm":                       "gorm",
-	"github.com/jmoiron/sqlx":            "sqlx",
-	"database/sql":                       "sql",
-	"github.com/gorilla/mux":             "gorilla",
-	"net/http":                           "http",
-	"github.com/arangodb/go-driver":      "arangodb",
-	"google.golang.org/adk":              "adk",
-	"github.com/a2aserver/a2a-go":        "a2a",
-}
-
-// TechnologyImportRoots returns the Go import paths init recognizes as a
-// technology, keyed by path, valued by the technology key the agent catalog
-// (internal/orient/ecosystem_agents.mg profile_agent) creates shard agents
-// for. Boot asserts them as technology_import_root facts, so the key a go.mod
-// dependency created an agent for is the key a file's import matches in
-// policy/shard_experts.mg. The returned map is a copy.
-func TechnologyImportRoots() map[string]string {
-	out := make(map[string]string, len(goKeyDeps))
-	maps.Copy(out, goKeyDeps)
-	return out
-}
 
 // detectLanguageFromFiles detects the primary language by looking for config files.
 // FIX(BUG-006): Searches subdirectories (2 levels deep) for monorepo support.
@@ -179,17 +140,49 @@ func (i *Initializer) detectDependencies() []DependencyInfo {
 		scanPackageJSON(pkg)
 	}
 
-	// Parse transitive dependencies from lock files
-	transitiveDeps := i.detectTransitiveDependencies()
-	deps = append(deps, transitiveDeps...)
+	// Python and Rust manifests: the direct dependencies they declare.
+	scanManifest := func(manifest []DependencyInfo) {
+		for _, dep := range manifest {
+			if !seen[dep.Name] {
+				deps = append(deps, dep)
+				seen[dep.Name] = true
+			}
+		}
+	}
+	for _, name := range []string{"requirements.txt", "pyproject.toml", "Cargo.toml"} {
+		paths := append([]string{filepath.Join(workspace, name)}, findManifestFiles(workspace, []string{name}, maxManifestDepth)...)
+		for _, path := range paths {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			switch name {
+			case "requirements.txt":
+				scanManifest(parseRequirementsTxt(string(data)))
+			case "pyproject.toml":
+				scanManifest(parsePyprojectDependencies(string(data)))
+			case "Cargo.toml":
+				scanManifest(parseCargoTomlDependencies(string(data)))
+			}
+		}
+	}
+
+	// Transitive dependencies from lock files, past the ones declared
+	// directly (a direct dependency always shows up in its lock file too).
+	for _, dep := range i.detectTransitiveDependencies() {
+		if !seen[dep.Name] {
+			deps = append(deps, dep)
+			seen[dep.Name] = true
+		}
+	}
 
 	return deps
 }
 
 // parseGoModManifest parses a single go.mod file and returns its direct
-// dependencies and its module name. It reuses the same goKeyDeps table that
-// detectDependencies uses, so the per-module view and the merged flat view
-// agree.
+// dependencies and its module name. It reads the technology vocabulary
+// (technology_vocabulary.go), so the per-module view, the merged flat view and
+// the kernel's import facts agree.
 func (i *Initializer) parseGoModManifest(path string) ([]DependencyInfo, string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -199,7 +192,8 @@ func (i *Initializer) parseGoModManifest(path string) ([]DependencyInfo, string)
 	name := parseGoModName(content)
 	seenLocal := make(map[string]bool)
 	var deps []DependencyInfo
-	for pkg, canonical := range goKeyDeps {
+	for _, pkg := range vocabularyPackages(EcosystemGo) {
+		canonical, _ := technologyFor(EcosystemGo, pkg)
 		if strings.Contains(content, pkg) && !seenLocal[canonical] {
 			version := i.extractGoModVersion(content, pkg)
 			majorVersion := extractMajorVersion(version)

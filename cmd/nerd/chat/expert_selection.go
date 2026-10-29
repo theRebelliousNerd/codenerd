@@ -14,15 +14,14 @@ import (
 // the knowledge every executor compile carries, so a delegation spawns the
 // agents whose knowledge the turn would have been handed anyway. Without a
 // kernel there is no decision and no specialist.
-func (m Model) selectShardExperts(verb string, files []string, complexity string) experts.Selection {
+func (m Model) selectShardExperts(verb string, files []string) experts.Selection {
 	if m.kernel == nil {
 		return experts.Selection{}
 	}
 	sel, err := experts.Select(m.kernel, experts.Task{
-		Verb:       verb,
-		Targets:    files,
-		Workspace:  m.workspace,
-		Complexity: complexity,
+		Verb:      verb,
+		Targets:   files,
+		Workspace: m.workspace,
 	})
 	if err != nil {
 		logging.Get(logging.CategoryRouting).Warn("shard expert selection for %s failed: %v", verb, err)

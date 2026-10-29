@@ -20,7 +20,7 @@ func assertExpertRoster(t *testing.T, m Model) {
 		{Predicate: "shard_agent", Args: []any{experts.AgentAtom("MangleExpert")}},
 		{Predicate: "shard_agent_domain", Args: []any{experts.AgentAtom("BubbleTeaExpert"), types.MangleAtom("/bubbletea"), types.MangleAtom("/registry")}},
 		{Predicate: "shard_agent_domain", Args: []any{experts.AgentAtom("MangleExpert"), types.MangleAtom("/mangle"), types.MangleAtom("/registry")}},
-		{Predicate: "technology_import_root", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
+		{Predicate: "technology_import_prefix", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
 		{Predicate: "dependency_link", Args: []any{"cmd/nerd/chat/view.go", "pkg:github.com/charmbracelet/bubbletea", "github.com/charmbracelet/bubbletea"}},
 	}); err != nil {
 		t.Fatalf("assert roster: %v", err)
@@ -37,7 +37,7 @@ func TestSpecialistPolicy_KernelDerivesWhoExecutesAndWhoAdvises(t *testing.T) {
 	assertExpertRoster(t, m)
 	files := []string{"cmd/nerd/chat/view.go", "internal/core/defaults/policy/shards.mg"}
 
-	sel := m.selectShardExperts("/refactor", files, shards.TaskComplexityHigh)
+	sel := m.selectShardExperts("/refactor", files)
 	specs := specialistsFromSelection(sel)
 	if len(specs) != 2 {
 		t.Fatalf("specialists = %+v, want the Bubble Tea and Mangle experts", specs)
@@ -57,7 +57,7 @@ func TestSpecialistPolicy_KernelDerivesWhoExecutesAndWhoAdvises(t *testing.T) {
 		t.Error("strategic_advisor_required was not derived for a /high task")
 	}
 
-	if sel := m.selectShardExperts("/refactor", files, shards.TaskComplexityNormal); sel.StrategicAdvisorRequired {
+	if sel := m.selectShardExperts("/fix", files); sel.StrategicAdvisorRequired {
 		t.Error("strategic_advisor_required derived for a /normal task")
 	}
 }
@@ -66,7 +66,7 @@ func TestSpecialistPolicy_KernelDerivesWhoExecutesAndWhoAdvises(t *testing.T) {
 // takes the plain spawn rather than a Go guess.
 func TestSpecialistPolicy_NoKernelNoSpecialist(t *testing.T) {
 	m := NewTestModel() // kernel is nil
-	if specs := specialistsFromSelection(m.selectShardExperts("/fix", []string{"a.mg"}, shards.TaskComplexityNormal)); len(specs) != 0 {
+	if specs := specialistsFromSelection(m.selectShardExperts("/fix", []string{"a.mg"})); len(specs) != 0 {
 		t.Errorf("a kernel-less model chose specialists %+v", specs)
 	}
 }
