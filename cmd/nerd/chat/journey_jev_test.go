@@ -24,13 +24,41 @@ import (
 // perception (jev_turn.go, policy/jev_evidence.mg). A fake Jev answers each
 // question by name; perception is scripted; the kernel is real.
 
-// fakeJevServer answers each noul from probs (0.5 when unlisted). Setting
+// fakeJevServer answers each noul from probs (0.5 when unlisted) and each
+// choice from choices (an even split, so unsettled, when unlisted). Setting
 // fail makes every call a 500.
 type fakeJevServer struct {
-	mu    sync.Mutex
-	probs map[string]float64
-	fail  bool
-	calls int
+	mu      sync.Mutex
+	probs   map[string]float64
+	choices map[string]map[string]float64
+	fail    bool
+	calls   int
+}
+
+// fakeChoiceAnswer answers a choice question with dist, or with an even split
+// over its options when dist is nil; ok is false for any other question type.
+func fakeChoiceAnswer(t *testing.T, q json.RawMessage, dist map[string]float64) (answer map[string]any, ok bool) {
+	t.Helper()
+	var wire struct {
+		Type     string         `json:"type"`
+		Criteria map[string]any `json:"criteria"`
+	}
+	if err := json.Unmarshal(q, &wire); err != nil || wire.Type != "choice" {
+		return nil, false
+	}
+	if dist == nil {
+		dist = make(map[string]float64, len(wire.Criteria))
+		for o := range wire.Criteria {
+			dist[o] = 1 / float64(len(wire.Criteria))
+		}
+	}
+	best, bp := "", -1.0
+	for o, p := range dist {
+		if p > bp || (p == bp && o < best) {
+			best, bp = o, p
+		}
+	}
+	return map[string]any{"type": "choice", "choice": best, "confidence": bp, "probabilities": dist}, true
 }
 
 func (f *fakeJevServer) set(probs map[string]float64) {
@@ -55,7 +83,11 @@ func (f *fakeJevServer) handler(t *testing.T) http.HandlerFunc {
 			t.Errorf("decode: %v", err)
 		}
 		answers := map[string]any{}
-		for name := range req.Questions {
+		for name, q := range req.Questions {
+			if a, ok := fakeChoiceAnswer(t, q, f.choices[name]); ok {
+				answers[name] = a
+				continue
+			}
 			p, ok := f.probs[name]
 			if !ok {
 				p = 0.5

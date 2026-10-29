@@ -54,6 +54,10 @@ func (f *contentJev) attach(t *testing.T, m Model, sec config.TypeSafeConfig) Mo
 		}
 		answers := map[string]any{}
 		for name, q := range req.Questions {
+			if a, ok := fakeChoiceAnswer(t, q, nil); ok {
+				answers[name] = a
+				continue
+			}
 			p := 0.5
 			if v, ok := f.probs[name]; ok {
 				p = v

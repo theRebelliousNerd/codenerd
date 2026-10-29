@@ -233,6 +233,35 @@ Decl needs_clarification() bound [].
 Decl acts_on_target(Verb) bound [/name].
 Decl target_names_nothing(Target) bound [/string].
 
+# Conversation acts (policy/conversation_acts.mg): what the user is doing with
+# the turn -- asking for work, replying, asking about codeNERD, giving
+# feedback, correcting it, sharing material, stopping it, chatting -- beside
+# the task verb perception reads. Jev's Choice conversation_act names it
+# (jev_chosen, jev_evidence.mg).
+# conversation_act_option(Option, Act): the Choice's option name and its act.
+Decl conversation_act_option(Option, Act) bound [/string, /name].
+# act_asks_no_work(Act): the act carries no task of its own.
+Decl act_asks_no_work(Act) bound [/name].
+# act_answers_last_turn(Act): the act answers or corrects codeNERD's last turn;
+# a task it carries is the one perception reads in it.
+Decl act_answers_last_turn(Act) bound [/name].
+# act_answered_from_state(Act): the answer is codeNERD's own operating state,
+# which the main agent is given every turn, not the workspace.
+Decl act_answered_from_state(Act) bound [/name].
+# conversation_act(Act): the act the kernel reads this turn.
+Decl conversation_act(Act) bound [/name].
+# conversation_act_applies(Act): the act routes this turn (no work is held:
+# held work is answered by the go-ahead judgments).
+Decl conversation_act_applies(Act) bound [/name].
+# conversation_act_route(Act, Disposition): what the act did to this turn's
+# routing, for the log and the Glass Box: /answer_in_conversation or
+# /ask_first. No row: perception's reading routes the turn.
+Decl conversation_act_route(Act, Disposition) bound [/name, /name].
+# conversation_act_option_known(Option) / conversation_act_unmapped(Option): an
+# option Jev answered that no row maps; a test holds it empty.
+Decl conversation_act_option_known(Option) bound [/string].
+Decl conversation_act_unmapped(Option) bound [/string].
+
 # spawn_subagent(Persona) - derived: subagent should be spawned
 # Persona is the closed persona vocabulary shared with persona/1
 # (/researcher, /tester, /nemesis) - see policy/intent_routing_rules.mg.

@@ -1,0 +1,270 @@
+[
+ {
+  "id": "thanks-worked",
+  "message": "thanks, that worked",
+  "recent": [
+   {
+    "from": "user",
+    "text": "fix the nil check in parser.go"
+   },
+   {
+    "from": "assistant",
+    "text": "Fixed the nil check in parser.go:42 and the tests pass."
+   }
+  ],
+  "expect": {},
+  "acts": [
+   "feedback_on_codenerd",
+   "small_talk"
+  ]
+ },
+ {
+  "id": "stack-trace",
+  "message": "here is the stack trace:\npanic: runtime error: index out of range [3] with length 3\ngoroutine 1 [running]:\nmain.parse(...)\n\t/src/parse.go:88",
+  "recent": [
+   {
+    "from": "assistant",
+    "text": "What would you like to work on?"
+   }
+  ],
+  "expect": {},
+  "acts": [
+   "shared_material"
+  ]
+ },
+ {
+  "id": "add-test-max",
+  "message": "add a test for Max returning 0 on an empty slice",
+  "expect": {},
+  "acts": [
+   "request_for_work"
+  ]
+ },
+ {
+  "id": "answer-too-long",
+  "message": "that answer was way too long, I wanted one line",
+  "recent": [
+   {
+    "from": "user",
+    "text": "what does Max do?"
+   },
+   {
+    "from": "assistant",
+    "text": "Max returns the largest element of a slice. It iterates ... (12 more paragraphs)"
+   }
+  ],
+  "expect": {},
+  "acts": [
+   "correction_of_codenerd",
+   "feedback_on_codenerd"
+  ]
+ },
+ {
+  "id": "hold-on",
+  "message": "hold on",
+  "recent": [
+   {
+    "from": "user",
+    "text": "refactor the auth module"
+   },
+   {
+    "from": "assistant",
+    "text": "Starting the refactor of internal/auth: 3 files..."
+   }
+  ],
+  "expect": {},
+  "acts": [
+   "stop_request"
+  ]
+ },
+ {
+  "id": "which-model",
+  "message": "which model are you running on right now?",
+  "expect": {},
+  "acts": [
+   "question_about_codenerd"
+  ]
+ },
+ {
+  "id": "delegating-annoying",
+  "message": "you keep delegating everything to shards, it's annoying",
+  "expect": {},
+  "acts": [
+   "feedback_on_codenerd"
+  ]
+ },
+ {
+  "id": "pick-2",
+  "message": "2",
+  "recent": [
+   {
+    "from": "assistant",
+    "text": "Which should I do first?\n1. Fix the flaky test\n2. Update the docs"
+   }
+  ],
+  "expect": {},
+  "acts": [
+   "reply_to_codenerd"
+  ]
+ },
+ {
+  "id": "other-file",
+  "message": "no, the other file, lexer.go",
+  "recent": [
+   {
+    "from": "user",
+    "text": "fix the tokenizer bug"
+   },
+   {
+    "from": "assistant",
+    "text": "I fixed the bug in parser.go."
+   }
+  ],
+  "expect": {},
+  "acts": [
+   "correction_of_codenerd",
+   "request_for_work"
+  ]
+ },
+ {
+  "id": "why-build-fails",
+  "message": "why does the build fail on CI?",
+  "expect": {},
+  "acts": [
+   "request_for_work"
+  ]
+ },
+ {
+  "id": "good-morning",
+  "message": "good morning!",
+  "expect": {},
+  "acts": [
+   "small_talk"
+  ]
+ },
+ {
+  "id": "yolo-on",
+  "message": "is yolo mode on?",
+  "expect": {},
+  "acts": [
+   "question_about_codenerd"
+  ]
+ },
+ {
+  "id": "cancel-that",
+  "message": "cancel that",
+  "recent": [
+   {
+    "from": "user",
+    "text": "run the full test suite"
+   },
+   {
+    "from": "assistant",
+    "text": "Running go test ./... (2 of 40 packages done)"
+   }
+  ],
+  "expect": {},
+  "acts": [
+   "stop_request"
+  ]
+ },
+ {
+  "id": "file-reply",
+  "message": "internal/core/kernel_eval.go",
+  "recent": [
+   {
+    "from": "assistant",
+    "text": "Which file should I review?"
+   }
+  ],
+  "expect": {},
+  "acts": [
+   "reply_to_codenerd"
+  ]
+ },
+ {
+  "id": "team-conventions",
+  "message": "FYI our team uses tabs, not spaces, and we never commit to main directly",
+  "expect": {},
+  "acts": [
+   "shared_material"
+  ]
+ },
+ {
+  "id": "nice-refactor",
+  "message": "nice work on that refactor, it reads much better now",
+  "recent": [
+   {
+    "from": "user",
+    "text": "refactor agents.go"
+   },
+   {
+    "from": "assistant",
+    "text": "Split agents.go into three files."
+   }
+  ],
+  "expect": {},
+  "acts": [
+   "feedback_on_codenerd",
+   "small_talk"
+  ]
+ },
+ {
+  "id": "rename-foo",
+  "message": "rename the Foo struct to Bar everywhere",
+  "expect": {},
+  "acts": [
+   "request_for_work"
+  ]
+ },
+ {
+  "id": "what-changed",
+  "message": "what did you change in the last turn?",
+  "recent": [
+   {
+    "from": "user",
+    "text": "fix the nil check"
+   },
+   {
+    "from": "assistant",
+    "text": "Done."
+   }
+  ],
+  "expect": {},
+  "acts": [
+   "question_about_codenerd"
+  ]
+ },
+ {
+  "id": "skip-that",
+  "message": "skip that one",
+  "recent": [
+   {
+    "from": "assistant",
+    "text": "Should I also update the changelog? (yes/skip)"
+   }
+  ],
+  "expect": {},
+  "acts": [
+   "reply_to_codenerd"
+  ]
+ },
+ {
+  "id": "run-not-write",
+  "message": "wrong, I asked for the tests to be run, not written",
+  "recent": [
+   {
+    "from": "user",
+    "text": "run the tests for perception"
+   },
+   {
+    "from": "assistant",
+    "text": "I wrote 4 new tests in perception_test.go."
+   }
+  ],
+  "expect": {},
+  "acts": [
+   "correction_of_codenerd"
+  ]
+ }
+]

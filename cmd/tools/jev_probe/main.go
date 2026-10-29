@@ -39,6 +39,10 @@ type probeCase struct {
 	HeldWork    *turnjudge.HeldWork `json:"held_work,omitempty"`
 	RunningWork []string            `json:"running_work,omitempty"`
 	Expect      map[string]bool     `json:"expect"`
+	// Acts are the conversation acts a person would accept for the message;
+	// the case reads right when the top act is one of them at or above yes
+	// (the kernel's jev_chosen reading, policy/jev_evidence.mg).
+	Acts []string `json:"acts,omitempty"`
 }
 
 type tally struct{ right, wrong, unsettled int }
@@ -96,6 +100,9 @@ func run(cfgPath, casesPath, usesPath, variantsPath, recordDir string, runs int)
 				return fmt.Errorf("case %s: %w", c.ID, err)
 			}
 			tokens += res.InputTokens
+			if len(c.Acts) > 0 {
+				scoreChoice(tallies, &misses, c, res.Choices[turnjudge.ConversationAct], yes)
+			}
 			for name, want := range c.Expect {
 				p, ok := res.Judgments[name]
 				if !ok {
@@ -145,6 +152,39 @@ func run(cfgPath, casesPath, usesPath, variantsPath, recordDir string, runs int)
 		return runUses(client, cfg.TypeSafe, usesPath, yes, no)
 	}
 	return nil
+}
+
+// scoreChoice tallies one case's choice the way the kernel reads it: the top
+// option alone at or above yes is chosen; otherwise the case is unsettled.
+func scoreChoice(tallies map[string]*tally, misses *[]string, c probeCase, dist map[string]float64, yes float64) {
+	t := tallies[turnjudge.ConversationAct]
+	if t == nil {
+		t = &tally{}
+		tallies[turnjudge.ConversationAct] = t
+	}
+	best, bp, tied := "", -1.0, false
+	for o, p := range dist {
+		switch {
+		case p > bp:
+			best, bp, tied = o, p, false
+		case p == bp:
+			tied = true
+		}
+	}
+	accepted := false
+	for _, a := range c.Acts {
+		accepted = accepted || a == best
+	}
+	switch {
+	case bp < yes || tied:
+		t.unsettled++
+		*misses = append(*misses, fmt.Sprintf("  ~ %-22s %-18s %s=%.2f want=%v  %q", c.ID, turnjudge.ConversationAct, best, bp, c.Acts, c.Message))
+	case accepted:
+		t.right++
+	default:
+		t.wrong++
+		*misses = append(*misses, fmt.Sprintf("  x %-22s %-18s %s=%.2f want=%v  %q", c.ID, turnjudge.ConversationAct, best, bp, c.Acts, c.Message))
+	}
 }
 
 func thresholds(c *config.TypeSafeConfig) (yes, no float64) {

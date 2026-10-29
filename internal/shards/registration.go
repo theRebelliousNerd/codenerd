@@ -544,6 +544,10 @@ func SharedPredicates() []string {
 		// work (routing_arbitration.mg), and the lanes derive in every shard.
 		"work_mode",
 		"work_proposal_pending",
+		// The operating state the main agent is told (routing_arbitration.mg)
+		// reads debug_self_active under negation: "Debug-self is off" would
+		// derive in every shard that never saw it.
+		"debug_self_active",
 		"brief_goal",
 		"brief_constraint",
 		"brief_decision",
@@ -551,9 +555,11 @@ func SharedPredicates() []string {
 		"brief_marked_ready",
 		// Jev's turn judgments (jev_evidence.mg) feed the clarify, approve and
 		// self-diagnosis lanes, which derive in every shard; background_job
-		// feeds stop_background_requested beside them.
+		// feeds stop_background_requested beside them. jev_choice carries the
+		// conversation act (conversation_acts.mg), read under negation there.
 		"jev_judgment",
 		"jev_judgment_about",
+		"jev_choice",
 		"background_job",
 		"action_verified",
 		"shard_context_refreshed",

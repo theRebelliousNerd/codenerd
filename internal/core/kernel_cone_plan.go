@@ -99,6 +99,15 @@ func (c *coneIndex) buildPlan(written map[string]struct{}) *conePlan {
 			stratumIdx[s] = struct{}{}
 		}
 	}
+	// The rules the cone's rules run top-down (deferred premises, lattice
+	// merges), and theirs in turn. They join the program the engine sees, not
+	// the cone: nothing derives them bottom-up, so they hold no rows to
+	// replace and need no stratum.
+	for pred := range c.topDownClosure(cone) {
+		if _, inCone := cone[pred]; !inCone {
+			ruleIdx = append(ruleIdx, c.rulesByHead[pred]...)
+		}
+	}
 	touched := make([]string, 0, len(touchedSet))
 	for pred := range touchedSet {
 		touched = append(touched, pred)
@@ -125,6 +134,27 @@ func (c *coneIndex) buildPlan(written map[string]struct{}) *conePlan {
 		}
 	}
 	return &conePlan{cone: cone, touched: touched, rules: rules, strata: strata, predToStratum: predToStratum}
+}
+
+// topDownClosure is every predicate the engine evaluates top-down while
+// deriving the given ones, transitively (coneIndex.topDown).
+func (c *coneIndex) topDownClosure(preds map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{})
+	queue := make([]string, 0, len(preds))
+	for pred := range preds {
+		queue = append(queue, pred)
+	}
+	for len(queue) > 0 {
+		pred := queue[0]
+		queue = queue[1:]
+		for _, dep := range c.topDown[pred] {
+			if _, seen := out[dep]; !seen {
+				out[dep] = struct{}{}
+				queue = append(queue, dep)
+			}
+		}
+	}
+	return out
 }
 
 // symbolsOf names every predicate symbol a store can hold under name: the

@@ -22,8 +22,6 @@ wants_direct_answer() :-
     jev_no("about_codenerd").
 
 # A question about the assistant's own mode or settings is answered from that
-# state even when about_codenerd is unsettled: "what work mode are you in, and
-# is debug-self on?" scored 0.31 there and 0.98 here (live, Jev 1.14).
-wants_direct_answer() :-
-    user_intent(/current_intent, /query, /self_diagnose, _, _),
-    jev_yes("asks_assistant_state").
+# state even when about_codenerd is unsettled ("what work mode are you in, and
+# is debug-self on?" scored 0.31 there): the conversation act
+# question_about_codenerd (conversation_acts.mg) reads it, for any verb.

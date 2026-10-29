@@ -231,6 +231,17 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 		logging.RoutingError("[decideRoute] query route_decision failed: %v", err)
 		return none
 	}
+	// What the conversation act did to the lanes (conversation_acts.mg), so
+	// the log says why a task verb was answered in prose or asked about.
+	if acts, err := m.kernel.Query("conversation_act_route"); err == nil {
+		for _, a := range acts {
+			parts := make([]string, 0, len(a.Args))
+			for _, arg := range a.Args {
+				parts = append(parts, types.ExtractString(arg))
+			}
+			logging.Routing("[decideRoute] conversation act %s (verb=%s)", strings.Join(parts, ": "), intent.Verb)
+		}
+	}
 	if len(facts) == 0 {
 		// No lane derived (e.g. a /query that is not a question, or a shard
 		// candidate below the threshold that is not a mutation): the turn is

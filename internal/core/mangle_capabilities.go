@@ -138,9 +138,9 @@ func realKernelFeatures(recording bool) []MangleFeature {
 			Guidance: "Do not use temporal syntax (`temporal` Decls, `@[...]` intervals, temporal operators): this host does not evaluate it.",
 		},
 		{
-			Name: "deferred_and_merge_evaluation", State: FeatureUnverified, Teach: false,
-			Contract: "binding, convergence and replacement semantics not qualified on this host",
-			Guidance: "Do not rely on deferred evaluation or merge-based state replacement.",
+			Name: "deferred_and_merge_evaluation", State: FeatureProduction, Teach: false,
+			Contract: "a merge lattice keeps one row per key on full and cone evaluation; deferred and merge predicates' rules travel with the cone that runs them top-down (TestConeEvaluationMatchesFullEvaluation_LatticeAndDeferred); the merge must be a total preorder, or which row is kept depends on arrival order",
+			Guidance: "Do not declare deferred or merge predicates: a merge that is not a total preorder keeps a row that depends on evaluation order.",
 		},
 	}
 }

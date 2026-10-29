@@ -2,10 +2,12 @@
 // typed judgments about each chat turn and hands the answers to the kernel as
 // evidence. It enhances perception, never replaces it: perception still reads
 // the turn and the LLM still writes every reply; the kernel's rules
-// (policy/jev_evidence.mg) only ever use these judgments to ask first, to
-// recognise a go-ahead, to close an answered brief question, to start the
-// self-diagnosis chain, to stop background work, or to add a restriction. A
-// turn with no judgments routes exactly as before.
+// (policy/jev_evidence.mg, conversation_acts.mg) only ever use these judgments
+// to ask first, to recognise a go-ahead, to close an answered brief question,
+// to start the self-diagnosis chain, to stop background work, to add a
+// restriction, or to answer in the conversation a turn whose act asks for no
+// work (the conversation act, a Choice). A turn with no judgments routes
+// exactly as before.
 //
 // The package also holds Jev's other uses, each with its own question and its
 // own kernel fact: retrieval relevance (relevance.go), review findings checked
@@ -76,10 +78,12 @@ type Asker interface {
 	Ask(ctx context.Context, state any, questions map[string]typesafe.Question) (*typesafe.Response, error)
 }
 
-// Result is one turn's judgments: the probability that each is true, what an
-// answered_N judgment is about, and the model and input tokens that paid for it.
+// Result is one turn's judgments: the probability that each Noul is true, each
+// Choice's whole distribution (option -> probability), what an answered_N
+// judgment is about, and the model and input tokens that paid for it.
 type Result struct {
 	Judgments   map[string]float64
+	Choices     map[string]map[string]float64
 	About       map[string]string
 	Model       string
 	InputTokens int
@@ -154,8 +158,16 @@ func Judge(ctx context.Context, a Asker, in Input) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := &Result{Judgments: make(map[string]float64, len(questions)), About: about, Model: resp.Model, InputTokens: resp.Usage.InputTokens}
-	for name := range questions {
+	res := &Result{Judgments: make(map[string]float64, len(questions)), Choices: map[string]map[string]float64{}, About: about, Model: resp.Model, InputTokens: resp.Usage.InputTokens}
+	for name, q := range questions {
+		if _, choice := q.(typesafe.Choice); choice {
+			a, err := resp.Choice(name)
+			if err != nil {
+				return nil, fmt.Errorf("jev judgment %s: %w", name, err)
+			}
+			res.Choices[name] = a.Probabilities
+			continue
+		}
 		p, err := resp.Noul(name)
 		if err != nil {
 			return nil, fmt.Errorf("jev judgment %s: %w", name, err)
@@ -166,45 +178,65 @@ func Judge(ctx context.Context, a Asker, in Input) (*Result, error) {
 }
 
 // Predicates are the facts Facts writes, for retract-and-replace each turn.
-var Predicates = []string{"jev_judgment", "jev_judgment_about"}
+var Predicates = []string{"jev_judgment", "jev_judgment_about", "jev_choice"}
 
 // Facts projects the judgments as policy/jev_evidence.mg's base facts:
-// jev_judgment(Name, Percent) with the probability as a whole percent, and
-// jev_judgment_about(Name, Subject) for each answered_N.
+// jev_judgment(Name, Percent) with the probability as a whole percent,
+// jev_judgment_about(Name, Subject) for each answered_N, and
+// jev_choice(Question, Option, Percent) for every option of every Choice. The
+// whole distribution goes in, not the top option: which option counts as
+// chosen, and when none does, is the kernel's reading (jev_chosen).
 func (r *Result) Facts() []types.Fact {
 	if r == nil {
 		return nil
 	}
-	names := make([]string, 0, len(r.Judgments))
-	for n := range r.Judgments {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	out := make([]types.Fact, 0, len(names)+len(r.About))
-	for _, n := range names {
-		pct := int64(math.Round(r.Judgments[n] * 100))
-		out = append(out, types.Fact{Predicate: "jev_judgment", Args: []any{types.MangleString(n), pct}})
+	out := make([]types.Fact, 0, len(r.Judgments)+len(r.About))
+	for _, n := range sortedKeys(r.Judgments) {
+		out = append(out, types.Fact{Predicate: "jev_judgment", Args: []any{types.MangleString(n), percent(r.Judgments[n])}})
 		if subject, ok := r.About[n]; ok {
 			out = append(out, types.Fact{Predicate: "jev_judgment_about", Args: []any{types.MangleString(n), types.MangleString(subject)}})
+		}
+	}
+	for _, q := range sortedKeys(r.Choices) {
+		for _, o := range sortedKeys(r.Choices[q]) {
+			out = append(out, types.Fact{Predicate: "jev_choice", Args: []any{types.MangleString(q), types.MangleString(o), percent(r.Choices[q][o])}})
 		}
 	}
 	return out
 }
 
+// percent is a probability as the whole percent the rules compare.
+func percent(p float64) int64 { return int64(math.Round(p * 100)) }
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // Summary is one line for logs and the Glass Box: each judgment and its
-// probability, sorted by name.
+// probability, sorted by name, then each Choice's top option.
 func (r *Result) Summary() string {
 	if r == nil {
 		return "no judgments"
 	}
-	names := make([]string, 0, len(r.Judgments))
-	for n := range r.Judgments {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	parts := make([]string, 0, len(names))
+	names := sortedKeys(r.Judgments)
+	parts := make([]string, 0, len(names)+len(r.Choices))
 	for _, n := range names {
 		parts = append(parts, fmt.Sprintf("%s=%.2f", n, r.Judgments[n]))
+	}
+	// A Choice shows its top option; the kernel decides whether it counts.
+	for _, q := range sortedKeys(r.Choices) {
+		best, bp := "", -1.0
+		for _, o := range sortedKeys(r.Choices[q]) {
+			if p := r.Choices[q][o]; p > bp {
+				best, bp = o, p
+			}
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s:%.2f", q, best, bp))
 	}
 	return fmt.Sprintf("%s (%s, %d input tokens)", strings.Join(parts, " "), r.Model, r.InputTokens)
 }

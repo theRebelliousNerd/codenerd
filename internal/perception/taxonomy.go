@@ -660,7 +660,12 @@ var DefaultTaxonomyData = []TaxonomyDef{
 	},
 	{
 		Verb: "/test", Category: "/mutation", ShardType: "/tester", Priority: 88,
-		Synonyms: []string{"test", "unit test", "run tests", "coverage"},
+		// "add a test" and "write a test" name the test, not the adding: with
+		// only /create's "add" and /write's "write" a Choice over the verbs
+		// split "add a test for Max" 0.57/0.42 with /create and read "write
+		// table-driven tests" as /write; with them, 1.00 and 0.90 /test, and
+		// "add a Max function" stays /create (Jev 1.14, 2026-10-28).
+		Synonyms: []string{"test", "add a test", "write a test", "unit test", "run tests", "coverage"},
 		Patterns: []string{"(?i)run.*test", "(?i)test.*coverage"},
 	},
 	{

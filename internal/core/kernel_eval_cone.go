@@ -49,6 +49,13 @@ type coneIndex struct {
 	consumers map[string][]string // body predicate -> heads of the rules reading it
 	heads     map[string]struct{} // every predicate some rule derives
 	volatile  []string            // heads with an external() premise, re-derived every time
+	// topDown names, per predicate, the predicates whose rules the engine runs
+	// top-down while deriving it: a deferred() predicate in a rule body, and a
+	// lattice's merge predicate (descr merge([...], "p")), evaluated on every
+	// replacement. Neither is derived bottom-up, so a cone that holds only
+	// its consumers would run them with no rules: a deferred premise would
+	// have no answer, and every lattice row would be kept as incomparable.
+	topDown map[string][]string
 
 	rules        []ast.Clause                  // the program's rules, in program order
 	strata       []analysis.Nodeset            // the program's strata, in evaluation order
@@ -131,6 +138,33 @@ func buildConeIndex(info *analysis.ProgramInfo, strata []analysis.Nodeset, predT
 	}
 	edges := make(map[string]map[string]struct{})
 	volatile := make(map[string]struct{})
+	deferred := make(map[string]struct{})
+	topDown := make(map[string]map[string]struct{})
+	needs := func(pred, dep string) {
+		if topDown[pred] == nil {
+			topDown[pred] = make(map[string]struct{})
+		}
+		topDown[pred][dep] = struct{}{}
+	}
+	for sym, decl := range info.Decls {
+		if decl == nil {
+			continue
+		}
+		if decl.DeferredPredicate() {
+			deferred[sym.Symbol] = struct{}{}
+		}
+		if len(decl.FunDeps()) == 1 {
+			if _, merge := decl.MergePredicate(); merge.Symbol != "" {
+				needs(sym.Symbol, merge.Symbol)
+				// A change to what the merge reads changes which row the
+				// lattice keeps: the lattice is downstream of its merge.
+				if edges[merge.Symbol] == nil {
+					edges[merge.Symbol] = make(map[string]struct{})
+				}
+				edges[merge.Symbol][sym.Symbol] = struct{}{}
+			}
+		}
+	}
 	for _, rule := range info.Rules {
 		head := rule.Head.Predicate.Symbol
 		idx.heads[head] = struct{}{}
@@ -146,7 +180,14 @@ func buildConeIndex(info *analysis.ProgramInfo, strata []analysis.Nodeset, predT
 			if _, ok := external[pred]; ok {
 				volatile[head] = struct{}{}
 			}
+			if _, ok := deferred[pred]; ok {
+				needs(head, pred)
+			}
 		}
+	}
+	idx.topDown = make(map[string][]string, len(topDown))
+	for pred, deps := range topDown {
+		idx.topDown[pred] = predicateNames(deps)
 	}
 	for pred, heads := range edges {
 		list := make([]string, 0, len(heads))

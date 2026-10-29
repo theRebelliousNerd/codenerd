@@ -107,21 +107,22 @@ func (m Model) recordTurnJudgments(ctx context.Context, judged <-chan judgedTurn
 		return
 	}
 	log.Info("jev: %s in %s (routing waited %s)%s", j.result.Summary(), j.took.Round(time.Millisecond), waited, m.unsettledNote())
+	if unmapped := m.queryKernelStrings("conversation_act_unmapped"); len(unmapped) > 0 {
+		// An option the question offers and the kernel has no act for
+		// (conversation_acts.mg): the act is never read, so the turn routes
+		// on perception alone. The question and the vocabulary have drifted.
+		log.Error("jev: conversation act option(s) with no kernel act, act ignored: %s", strings.Join(unmapped, ", "))
+	}
 }
 
 // unsettledNote names the judgments the kernel derives as unsettled
-// (jev_unsettled, policy/jev_evidence.mg): between the yes and no thresholds,
+// (jev_unsettled and jev_choice_unsettled, policy/jev_evidence.mg): between
+// the yes and no thresholds, or a Choice with no option alone at or above yes,
 // no rule acts on them, and perception's own reading routes the turn.
 func (m Model) unsettledNote() string {
-	rows, err := m.kernel.Query("jev_unsettled")
-	if err != nil || len(rows) == 0 {
+	names := append(m.queryKernelStrings("jev_unsettled"), m.queryKernelStrings("jev_choice_unsettled")...)
+	if len(names) == 0 {
 		return ""
-	}
-	names := make([]string, 0, len(rows))
-	for _, r := range rows {
-		if len(r.Args) == 1 {
-			names = append(names, types.ExtractString(r.Args[0]))
-		}
 	}
 	sort.Strings(names)
 	return "; unsettled, so perception's reading stands: " + strings.Join(names, ", ")

@@ -16,8 +16,15 @@ import (
 )
 
 // fakeJev answers every noul question with the probability its name maps to
-// (0.5 when unlisted), recording the request it saw.
+// (0.5 when unlisted) and every choice with an even split over its options,
+// recording the request it saw.
 func fakeJev(t *testing.T, answers map[string]float64) (*typesafe.Client, *map[string]any) {
+	return fakeJevChoosing(t, answers, nil)
+}
+
+// fakeJevChoosing is fakeJev with each listed choice answered by its
+// distribution.
+func fakeJevChoosing(t *testing.T, answers map[string]float64, choices map[string]map[string]float64) (*typesafe.Client, *map[string]any) {
 	t.Helper()
 	var seen map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,7 +34,26 @@ func fakeJev(t *testing.T, answers map[string]float64) (*typesafe.Client, *map[s
 		}
 		seen = req
 		out := map[string]any{}
-		for name := range req["questions"].(map[string]any) {
+		for name, q := range req["questions"].(map[string]any) {
+			q := q.(map[string]any)
+			if q["type"] == "choice" {
+				probs := choices[name]
+				if probs == nil {
+					opts := q["criteria"].(map[string]any)
+					probs = map[string]float64{}
+					for o := range opts {
+						probs[o] = 1 / float64(len(opts))
+					}
+				}
+				best, bp := "", -1.0
+				for o, p := range probs {
+					if p > bp {
+						best, bp = o, p
+					}
+				}
+				out[name] = map[string]any{"type": "choice", "choice": best, "confidence": bp, "probabilities": probs}
+				continue
+			}
 			p, ok := answers[name]
 			if !ok {
 				p = 0.5
@@ -45,7 +71,8 @@ func fakeJev(t *testing.T, answers map[string]float64) (*typesafe.Client, *map[s
 }
 
 func TestJudge_AsksEveryQuestionAndProjectsFacts(t *testing.T) {
-	c, seen := fakeJev(t, map[string]float64{ChangesFiles: 0.91, "answered_0": 0.88, ApprovesHeldWork: 0.07})
+	c, seen := fakeJevChoosing(t, map[string]float64{ChangesFiles: 0.91, "answered_0": 0.88, ApprovesHeldWork: 0.07},
+		map[string]map[string]float64{ConversationAct: {ActReply: 0.814, ActRequestForWork: 0.186}})
 	in := Input{
 		Message:     "use a token bucket, and go ahead",
 		Recent:      []Turn{{From: "user", Text: "add rate limiting"}, {From: "assistant", Text: "Which algorithm?"}},
@@ -58,13 +85,17 @@ func TestJudge_AsksEveryQuestionAndProjectsFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	qs := (*seen)["questions"].(map[string]any)
-	for _, name := range []string{ChangesFiles, NamesTarget, Hypothetical, AboutCodeNERD, AssistantState, WantsToStop, RulesOutChanges, ApprovesHeldWork, AddsToHeldWork, "answered_0"} {
+	for _, name := range []string{ConversationAct, ChangesFiles, NamesTarget, Hypothetical, AboutCodeNERD, WantsToStop, RulesOutChanges, ApprovesHeldWork, AddsToHeldWork, "answered_0"} {
 		if _, ok := qs[name]; !ok {
 			t.Errorf("question %s was not asked", name)
 		}
 	}
 	if len(qs) != 10 {
 		t.Errorf("asked %d questions, want exactly the 10 the rules read: %v", len(qs), qs)
+	}
+	act := qs[ConversationAct].(map[string]any)
+	if act["type"] != "choice" || len(act["criteria"].(map[string]any)) != len(ConversationActs) {
+		t.Errorf("the conversation act is not a choice over every act: %v", act)
 	}
 	if got := qs["answered_0"].(map[string]any)["instructions"].(map[string]any)["open_question"]; got != "which algorithm?" {
 		t.Errorf("the open question is not a field of its own judgment: %v", got)
@@ -92,13 +123,50 @@ func TestJudge_AsksEveryQuestionAndProjectsFacts(t *testing.T) {
 		t.Errorf("percent projection wrong: %v", byName)
 	}
 	var about bool
+	choice := map[string]int64{}
 	for _, f := range facts {
 		if f.Predicate == "jev_judgment_about" && types.ExtractString(f.Args[1]) == "which algorithm?" {
 			about = true
 		}
+		if f.Predicate == "jev_choice" && types.ExtractString(f.Args[0]) == ConversationAct {
+			choice[types.ExtractString(f.Args[1])], _ = types.ExtractInt64(f.Args[2])
+		}
 	}
 	if !about {
 		t.Error("answered_0 is not tied to its question")
+	}
+	// The whole distribution goes to the kernel, each option rounded to a
+	// whole percent; which counts as chosen is the kernel's reading.
+	if len(choice) != 2 || choice[ActReply] != 81 || choice[ActRequestForWork] != 19 {
+		t.Errorf("choice projection wrong: %v", choice)
+	}
+	if _, ok := res.Judgments[ConversationAct]; ok {
+		t.Error("a choice was read as a noul")
+	}
+	if !strings.Contains(res.Summary(), "conversation_act=reply_to_codenerd:0.81") {
+		t.Errorf("summary does not show the top act: %s", res.Summary())
+	}
+}
+
+// A choice answered with the wrong type is an error, never a guess: the
+// whole turn then has no evidence.
+func TestJudge_MalformedChoiceIsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		out := map[string]any{}
+		for name := range req["questions"].(map[string]any) {
+			out[name] = map[string]any{"type": "noul", "noul": 0.9}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"model": "m", "answers": out, "usage": map[string]any{"input_tokens": 1, "output_tokens": 1}})
+	}))
+	t.Cleanup(srv.Close)
+	c, err := typesafe.NewClient(typesafe.Options{Model: "m", BaseURL: srv.URL, APIKey: "k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res, err := Judge(context.Background(), c, Input{Message: "yes"}); res != nil || err == nil || !strings.Contains(err.Error(), ConversationAct) {
+		t.Fatalf("a noul answer to the act choice must fail the call: %v %v", res, err)
 	}
 }
 

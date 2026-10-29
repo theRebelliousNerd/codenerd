@@ -148,6 +148,8 @@ verb_pattern(/debug, "(?i)why.*fail").
 # /test
 verb_def(/test, /mutation, /tester, 88).
 verb_synonym(/test, "test").
+verb_synonym(/test, "add a test").
+verb_synonym(/test, "write a test").
 verb_synonym(/test, "unit test").
 verb_synonym(/test, "run tests").
 verb_synonym(/test, "coverage").

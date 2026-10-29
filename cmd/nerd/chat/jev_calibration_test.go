@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 func TestJevJourney_UnsettledJudgmentsAreNamedAndActOnNothing(t *testing.T) {
 	m, exec := journeyModel(t, config.WorkModeYolo, fixReadmeTurn("Fixing it.", nil))
 	unsettled := map[string]float64{
-		"changes_files": 0.5, "names_target": 0.5, "hypothetical": 0.5, "rules_out_changes": 0.5, "about_codenerd": 0.5, "asks_assistant_state": 0.5,
+		"changes_files": 0.5, "names_target": 0.5, "hypothetical": 0.5, "rules_out_changes": 0.5, "about_codenerd": 0.5,
 	}
 	m = withJev(t, m, &fakeJevServer{probs: unsettled})
 	intent := fixReadmeTurn("", nil)
@@ -26,8 +27,12 @@ func TestJevJourney_UnsettledJudgmentsAreNamedAndActOnNothing(t *testing.T) {
 	if err != nil || len(rows) != len(unsettled) {
 		t.Fatalf("jev_unsettled = %d rows (%v), want one per unsettled judgment (%d)", len(rows), err, len(unsettled))
 	}
-	if note := m.unsettledNote(); note == "" {
-		t.Fatal("the log line does not name the unsettled judgments")
+	// The act choice, split evenly over its options, settles no act.
+	if acts, err := m.kernel.Query("jev_choice_unsettled"); err != nil || len(acts) != 1 {
+		t.Fatalf("jev_choice_unsettled = %v (%v), want the conversation act", acts, err)
+	}
+	if note := m.unsettledNote(); !strings.Contains(note, "conversation_act") {
+		t.Fatalf("the log line does not name the unsettled judgments and the unsettled act: %q", note)
 	}
 	if route := m.decideRoute("make the readme better", intent, "coder"); route.Kind == RouteClarify {
 		t.Fatalf("an unsettled judgment disputed the mutation: route %s", route.Kind)

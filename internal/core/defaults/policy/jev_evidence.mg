@@ -49,6 +49,66 @@ jev_no(Name) :-
     config_param(/jev_no_percent, No),
     Percent <= No.
 
+# A Choice answer (turnjudge.Result.Facts): jev_choice(Question, Option,
+# Percent), one row per option, the whole distribution. Which option counts as
+# chosen is read here, not in Go.
+Decl jev_choice(Question, Option, Percent) bound [/string, /string, /number].
+
+# jev_choice_top(Question, Best): the option with the highest percent, kept by
+# a merge lattice inside the fixpoint (Best is fn:pair(Option, Percent)): a
+# higher option replaces the one held, whatever order the rows arrive in. Two
+# options at the same percent are incomparable (jev_choice_higher gives no
+# answer), so the lattice keeps both, and the tie is visible.
+Decl jev_choice_top(Question, Best)
+    descr [fundep([Question], [Best]), merge([Best], "jev_choice_higher")]
+    bound [/string, fn:Pair(/string, /number)].
+# jev_choice_higher(A, B, Best): the merge, run top-down on (held, new).
+Decl jev_choice_higher(A, B, Best) descr [mode('+', '+', '-'), deferred()].
+Decl jev_choice_tied(Question) bound [/string].
+# jev_chosen(Question, Option): the top option is at or above yes and alone.
+Decl jev_chosen(Question, Option) bound [/string, /string].
+Decl jev_choice_settled(Question) bound [/string].
+# jev_choice_unsettled(Question): no option is chosen -- the top one is below
+# yes, or two share the top. No rule acts on the question then, and the chat
+# log names it with the unsettled Nouls.
+Decl jev_choice_unsettled(Question) bound [/string].
+
+jev_choice_higher(A, B, A) :-
+    :match_pair(A, OA, PA),
+    :match_pair(B, OB, PB),
+    PA > PB.
+jev_choice_higher(A, B, B) :-
+    :match_pair(A, OA, PA),
+    :match_pair(B, OB, PB),
+    PB > PA.
+
+jev_choice_top(Question, Best) :-
+    jev_choice(Question, Option, Percent),
+    Best = fn:pair(Option, Percent).
+
+jev_choice_tied(Question) :-
+    jev_choice_top(Question, A),
+    jev_choice_top(Question, B),
+    A != B.
+
+# Truth table for one Choice, every row has an outcome:
+#   top at or above yes, alone        jev_chosen   the rules that read it act;
+#   top below yes                     jev_choice_unsettled   no rule acts;
+#   two options share the top         jev_choice_unsettled   (possible only
+#                                     when yes is configured at 50 or below).
+jev_chosen(Question, Option) :-
+    jev_choice_top(Question, Best),
+    :match_pair(Best, Option, Percent),
+    config_param(/jev_yes_percent, Yes),
+    Percent >= Yes,
+    !jev_choice_tied(Question).
+
+jev_choice_settled(Question) :- jev_chosen(Question, _).
+
+jev_choice_unsettled(Question) :-
+    jev_choice(Question, _, _),
+    !jev_choice_settled(Question).
+
 # Ask before a mutation Jev reads differently: the user is not asking for
 # files to change, the request does not say which code, or it only asks what
 # would happen. Perception still decides what the work is; this only makes the

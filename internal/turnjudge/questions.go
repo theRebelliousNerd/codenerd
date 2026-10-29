@@ -20,7 +20,6 @@ const (
 	NamesTarget      = "names_target"
 	Hypothetical     = "hypothetical"
 	AboutCodeNERD    = "about_codenerd"
-	AssistantState   = "asks_assistant_state"
 	WantsToStop      = "wants_to_stop"
 	RulesOutChanges  = "rules_out_changes"
 	ApprovesHeldWork = "approves_held_work"
@@ -31,6 +30,7 @@ const (
 // fixedQuestions are asked every turn.
 func fixedQuestions() map[string]typesafe.Question {
 	return map[string]typesafe.Question{
+		ConversationAct: conversationActQuestion(),
 		ChangesFiles: typesafe.Noul{
 			Instructions: "Is the user asking for changes to files in their codebase?",
 			Criteria: &typesafe.NoulCriteria{
@@ -59,19 +59,59 @@ func fixedQuestions() map[string]typesafe.Question {
 				False: "The user asks about their own code or project, even code that has bugs.",
 			},
 		},
-		AssistantState: typesafe.Noul{
-			Instructions: "Is the user asking what the assistant's own current mode or settings are?",
-			Criteria: &typesafe.NoulCriteria{
-				True:  "The user asks which mode the assistant is in, whether one of its own settings or features is on, or which model it uses.",
-				False: "The user asks the assistant to change something, to investigate a failure, or about code or settings in their own project.",
-			},
-		},
 		RulesOutChanges: typesafe.Noul{
 			Instructions: "Has the user said not to change any files for this request?",
 			Criteria: &typesafe.NoulCriteria{
 				True:  "The user says to only look, read, explain or report, and not to change, edit, write or touch anything.",
 				False: "The user asks for changes, allows them, or says nothing about whether files may change.",
 			},
+		},
+	}
+}
+
+// ConversationAct names the Choice over what the user is doing with the turn
+// (conversationActQuestion). Its options are the kernel's vocabulary too:
+// conversation_act_option(Option, Act), policy/conversation_acts.mg.
+const ConversationAct = "conversation_act"
+
+// The conversation acts, the options of ConversationAct. Each is named for
+// what the user does, so the name itself tells Jev what the option means.
+const (
+	ActRequestForWork = "request_for_work"
+	ActReply          = "reply_to_codenerd"
+	ActQuestionAbout  = "question_about_codenerd"
+	ActFeedback       = "feedback_on_codenerd"
+	ActCorrection     = "correction_of_codenerd"
+	ActSharedMaterial = "shared_material"
+	ActStopRequest    = "stop_request"
+	ActSmallTalk      = "small_talk"
+)
+
+// ConversationActs lists every option of ConversationAct.
+var ConversationActs = []string{ActRequestForWork, ActReply, ActQuestionAbout, ActFeedback, ActCorrection, ActSharedMaterial, ActStopRequest, ActSmallTalk}
+
+// conversationActQuestion asks what the user is doing in the conversation,
+// beside which task perception reads in it: the task vocabulary has no word
+// for "yes", "done", "that's bad", a pasted log or "what mode are you in?",
+// and such turns were forced onto the nearest task verb (Jev read 50 of 70
+// real messages as a weak fit for any of the 43 verbs, 2026-10-28). One
+// Choice, not a Noul per act: routing takes one lane, so it needs the act the
+// turn mainly is, and a turn whose top act is not clear reads as unsettled.
+// No companion "does any fit" Noul: request_for_work and small_talk leave
+// nothing uncovered, and the companion never read no on 78 real messages
+// (lowest 0.45). What each act does to routing is the kernel's.
+func conversationActQuestion() typesafe.Question {
+	return typesafe.Choice{
+		Instructions: "What is the user doing in `message`?",
+		Criteria: map[string]any{
+			ActRequestForWork: "The user asks codeNERD to do something: read, find, explain, review, change, fix, run or investigate something, in their code or in codeNERD itself.",
+			ActReply:          "The user answers a question codeNERD just asked or picks from a choice it offered, such as 'yes', '1', 'skip' or 'done'.",
+			ActQuestionAbout:  "The user asks about codeNERD's own state in this session: its mode or settings, what it can see or access, or what it did or was doing.",
+			ActFeedback:       "The user says what they think of how codeNERD behaved or how it is built, and asks for nothing to be done.",
+			ActCorrection:     "The user says codeNERD's last reply or action was wrong or not what they asked for.",
+			ActSharedMaterial: "The user gives codeNERD text, logs or a file path to keep in mind, and asks for nothing to be done with it.",
+			ActStopRequest:    "The user tells codeNERD to stop, cancel or wait.",
+			ActSmallTalk:      "The user greets codeNERD, thanks it, or chats.",
 		},
 	}
 }

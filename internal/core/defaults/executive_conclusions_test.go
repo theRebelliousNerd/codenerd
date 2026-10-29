@@ -171,6 +171,38 @@ func inclusionRoots(t *testing.T, corpusDir string) map[string]struct{} {
 	return out
 }
 
+var mergeDescrRe = regexp.MustCompile(`merge\(\s*\[[^\]]*\]\s*,\s*"([a-z_][a-z0-9_]*)"\s*\)`)
+
+// mergeRoots names every merge predicate a Decl's descr [merge([...], "p")]
+// names: the engine runs it top-down whenever the lattice relation derives a
+// fact, so no rule body or Go query mentions it. A descr may sit on a
+// continuation line of its Decl, so the whole file is scanned.
+func mergeRoots(t *testing.T, corpusDir string) map[string]struct{} {
+	t.Helper()
+	out := make(map[string]struct{})
+	err := filepath.WalkDir(corpusDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".mg") {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		var code strings.Builder
+		for _, l := range strings.Split(string(data), "\n") {
+			code.WriteString(strings.SplitN(l, "#", 2)[0] + "\n")
+		}
+		for _, m := range mergeDescrRe.FindAllStringSubmatch(code.String(), -1) {
+			out[m[1]] = struct{}{}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk corpus: %v", err)
+	}
+	return out
+}
+
 // predicateFromExpr names the predicate an argument asks for: a string literal
 // ("p" or "p(X)"), a const holding one, a Sprintf template starting with one,
 // a concatenation starting with one, or (SubscribeToFacts) a literal list.
@@ -764,6 +796,9 @@ func currentUnconsumedConclusions(t *testing.T) []string {
 	// A predicate an inclusion constraint names is read by the kernel's
 	// inclusion checker at the batch boundary (core/kernel_inclusion.go).
 	for p := range inclusionRoots(t, filepath.Join(root, "internal", "core", "defaults")) {
+		roots[p] = struct{}{}
+	}
+	for p := range mergeRoots(t, filepath.Join(root, "internal", "core", "defaults")) {
 		roots[p] = struct{}{}
 	}
 	live := liveConclusions(rules, roots)

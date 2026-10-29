@@ -8,7 +8,7 @@ Code:
 - `internal/turnjudge`: every question and every fact projection.
 - `cmd/nerd/chat/jev_turn.go` and `cmd/nerd/chat/self_diagnosis.go`: chat wiring.
 - `internal/system/factory_task_retrieval.go`: task retrieval wiring.
-- `internal/core/defaults/policy/jev_evidence.mg` and `side_turns.mg`: the rules.
+- `internal/core/defaults/policy/jev_evidence.mg`, `conversation_acts.mg` and `side_turns.mg`: the rules.
 - `cmd/tools/jev_probe`: live scoring.
 
 ## What it is
@@ -53,10 +53,11 @@ are the choices it led to.
   (all Nouls today; Choice and Score are supported by `internal/typesafe` and
   limit-checked, Box and images are not used). 429 and 529 retry, any other
   non-200 is an `APIError`, and a failed call is never a judgment.
-- Judgments are Nouls because each is one yes/no condition. There is no
-  Choice, so there is no "nothing fits" companion to ask; a decision never goes
-  to Jev ("should we ...") because the rules in `jev_evidence.mg` hold the
-  truth table.
+- Judgments are Nouls because each is one yes/no condition, except the
+  conversation act, a Choice (below): routing takes one lane, so it needs the
+  act a turn mainly is. A decision never goes to Jev ("should we ...") because
+  the rules in `jev_evidence.mg` and `conversation_acts.mg` hold the truth
+  table.
 - State is named fields a person would look at: `message`, `recent_turns`
   (whole turns), `brief` (goal, constraints, decisions, open questions),
   `held_work` (`action`, `target`, `handled_by`, `requested_as`), `running_work`.
@@ -88,7 +89,7 @@ as `side_turn_judgment(Name, Percent)`.
 | `hypothetical` | every turn | `jev_disputes_mutation`; `jev_restriction(/hypothetical)` | A "what if" read as a mutation asks first. The turn runs under the hypothetical restriction. |
 | `rules_out_changes` | every turn | `jev_restriction(/read_only)` | "Just look, don't touch" restricts the turn to read-only (constitution.mg 7D). |
 | `about_codenerd` | every turn | `self_diagnosis_lane`; `wants_direct_answer` (self_diagnosis.mg) | Read-only background work about codeNERD's own failures becomes the self-diagnosis chain. A /self_diagnose question it reads as no is answered directly. |
-| `asks_assistant_state` | every turn | `wants_direct_answer` (self_diagnosis.mg) | "What mode are you in, is debug-self on?" is answered from the operating state the main agent is given, not with a diagnosis job. |
+| `conversation_act` (Choice) | every turn | `jev_chosen` (jev_evidence.mg), then `conversation_act_route` (conversation_acts.mg) | A reply, a remark, a question about codeNERD, pasted material, a stop or small talk that perception put on a task verb is answered in the conversation, or asks first when read as a mutation. See below. |
 | `wants_to_stop` | while work runs (`running_work`: the running turn, background jobs) | `stop_background_requested`; `side_turn_wants(/stop)` | Running background jobs are cancelled. A side-turn "stop" stops the running turn. |
 | `approves_held_work` | while work is held | `approve_lane`, with... | A go-ahead that perception misread still approves the held work. |
 | `adds_to_held_work` | while work is held | ...`approve_lane` needs it to read no | "Go, and also X" is not approval: it is a new request. |
@@ -97,6 +98,95 @@ as `side_turn_judgment(Name, Percent)`.
 `TestEveryTurnJudgmentHasAConsumingRule` fails when a question has no rule
 reading it. `wants_answer` was asked until 2026-10-28, but nothing read it, so it
 is no longer asked.
+`asks_assistant_state` was asked until 2026-10-28 (late); the conversation act
+`question_about_codenerd` replaced it, for every verb, not only
+`/self_diagnose`.
+
+### Conversation act: switch `turn_judgments`
+
+Status: as built, 2026-10-28. Code: `turnjudge.conversationActQuestion`,
+`policy/conversation_acts.mg`, the Choice reading in `policy/jev_evidence.mg`.
+
+The task vocabulary (43 verbs in `perception.DefaultTaxonomyData`, 18 mirrored
+as `verb_def` rows) has no word for a turn that is not a task. A Choice over the
+43 verbs plus a "does any fit" Noul read 50 of the user's 70 real messages as a
+weak fit: "yes", "done", "save", "that's bad", a pasted log, "what mode are you
+in?". Perception forced them onto the nearest verb, and the kernel routed them as
+work. Ruling: a conversation-act layer beside the task verb, not more verbs: an
+act is what the user does in the conversation, a verb is what work they ask for,
+and one turn has both. The task verb stays perception's (clear task requests
+already read 0.96 to 1.00, and a second verb reader would need a disagreement
+table with no ground truth).
+
+One Choice, `conversation_act`, asked every turn with the other judgments, over
+`request_for_work`, `reply_to_codenerd`, `question_about_codenerd`,
+`feedback_on_codenerd`, `correction_of_codenerd`, `shared_material`,
+`stop_request`, `small_talk`. No companion "does any fit" Noul: the options leave
+nothing uncovered, and the companion never read no on 78 real messages (lowest
+0.45). The whole distribution reaches the kernel as `jev_choice(Question,
+Option, Percent)`.
+
+The kernel reads it in two steps:
+
+1. `jev_choice_top` is a merge lattice (`fundep` + `merge`, keyed by question,
+   value `fn:pair(Option, Percent)`): a higher option replaces the held one in
+   the fixpoint, and two options at the same percent are both kept, so a tie is
+   visible (`jev_choice_tied`). `jev_chosen(Question, Option)`: the top option,
+   alone, at or above yes. Otherwise `jev_choice_unsettled`, named in the chat
+   log beside the unsettled Nouls. The lattice is codeNERD's first; it needed a
+   kernel fix (below).
+2. `conversation_act_route(Act, Disposition)`, with no work held (held work is
+   the go-ahead Nouls' to read):
+
+| Act | Perception reads | Disposition |
+|---|---|---|
+| `request_for_work` | anything | none: perception routes |
+| question, feedback, material, stop, small talk | not a mutation, no file or tools needed | `/answer_in_conversation` (`wants_direct_answer`) |
+| `question_about_codenerd` | not a mutation, no file named (tools may be) | `/answer_in_conversation`, from the operating state |
+| question, feedback, material, stop, small talk | a mutation | `/ask_first` (`jev_disputes_mutation`, the clarify lane) |
+| any of those | `about_codenerd` yes | none: the self-diagnosis chain may take it |
+| reply, correction | a target | none: the task it carries is perception's |
+| reply, correction | no target, no file or tools | `/answer_in_conversation` |
+| any | unsettled, tied, or an option no row maps | none (`conversation_act_unmapped` is logged as an error) |
+
+The act only ever answers in the conversation or asks first; it never starts
+work. `decideRoute` logs each `conversation_act_route` row. A side turn asks the act with
+the rest but reads only the Nouls (`side_turn.go` projects `jev_judgment`), so
+its act is not used yet.
+
+Kernel fix found on the way: cone evaluation ran only the cone's own rules, so
+a predicate the engine runs top-down (a `deferred()` premise, a lattice's merge
+predicate) had no rules there. Every lattice row was kept as incomparable, on
+the cone path only (full evaluation was right). `coneIndex.topDown` now carries
+those rules with the cone, and a merge predicate is upstream of its lattice
+(`TestConeEvaluationMatchesFullEvaluation_LatticeAndDeferred` fails without the
+fix). The capability manifest's `deferred_and_merge_evaluation` moved from
+unverified to production; generated rules still may not declare either. Two
+engine rules a new lattice must keep: the merge is a total preorder (one that
+answers both ways keeps a row that depends on arrival order), and anything the
+merge reads is named in the lattice rule's body too. mangle-go v0.7 orders
+strata by rule bodies only, never by a merge predicate, so a merge reading a
+derived predicate can run before it exists and keep every tied row.
+`jev_choice_higher` reads no predicate.
+
+Vocabulary fix beside it: "add a test" and "write a test" are `/test` synonyms
+now. A verb Choice split "add a test for Max" 0.57 `/test` to 0.42 `/create`
+and read "write table-driven tests" as `/write` (0.62); with them, 1.00 and 0.90
+`/test`, and "add a Max function" stays `/create` (1.00).
+
+Live probe, Jev 1.14, thresholds 70/30, production request (every turn
+question in one call, `jev_probe -cases`):
+
+| Set | Cases x runs | Right | Wrong | Unsettled |
+|---|---|---|---|---|
+| Holdout (`act_cases.json`, 20 written before they were run) | 20 x 2 | 37 | 0 | 3 |
+| The user's real messages with their 12 prior turns (kept out of the repo) | 78 x 1 | 57 | 3 | 18 |
+| The tuning set (`cases.json`, the other judgments, after the change) | 51 x 1 | 90 of 93 | 1 | 2 |
+
+The three wrong real readings route the same as their labels: two northstar
+wizard answers read as feedback, a complaint read as a correction. The
+unsettled ones are mostly wizard answers and bare paths, and route as before.
+Payloads: `Docs/architecture/jev-probes/2026-10-28-conversation-act/`.
 
 ### Retrieval relevance: switch `retrieval_relevance`
 
@@ -752,6 +842,10 @@ context limit, and any model other than `jev-latest`.
 | Request shape: held and running work as fields, stop asked only while work runs, omitted turns counted, one condition per question | `internal/turnjudge/judge_test.go` |
 | Relevance carries no matched keywords and says when a head is cut; findings state the cited line; batches keep order and fail whole | `internal/turnjudge/uses_test.go` |
 | Unsettled judgments are named and act on nothing; running work as a person reads it | `cmd/nerd/chat/jev_calibration_test.go` |
+| Conversation act: request shape, whole-distribution projection, a malformed choice fails the call, every option mapped in the kernel | `internal/turnjudge/judge_test.go`, `consumers_test.go` |
+| Conversation act truth table through the real kernel, each case with and without the act; the lattice's top, tie and unmapped readings | `internal/core/conversation_acts_test.go` |
+| Lattice and deferred rules under cone evaluation match the full fixpoint | `TestConeEvaluationMatchesFullEvaluation_LatticeAndDeferred` |
+| A bare reply is answered, feedback is answered or asks first, through the chat's judgment and routing calls | `cmd/nerd/chat/journey_conversation_act_test.go` |
 | Atom importance: Score over the written levels, failure leaves atoms unscored, oversized atoms reported not cut, the embedded ledger covers every atom | `internal/atomjudge/atomjudge_test.go`, `internal/prompt/importance_test.go` |
 | Atom relevance: state and question shape, any missing answer fails the whole, switch and thresholds | `internal/atomjudge/atomjudge_test.go`, `internal/config/typesafe_test.go` |
 | Atom relevance in the selector: pool, bands as facts, one judgment per turn, failure or lateness is no evidence | `internal/prompt/relevance_test.go` |

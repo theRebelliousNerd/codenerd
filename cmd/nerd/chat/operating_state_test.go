@@ -34,20 +34,22 @@ func TestOperatingState_ReachesTheMainAgentsContext(t *testing.T) {
 }
 
 // A question perception filed as /self_diagnose is answered directly when Jev
-// reads it as not asking codeNERD to investigate its failures, or as asking
-// about its own mode or settings, and still starts the diagnosis when Jev says
-// it is about its failures.
+// reads it as not asking codeNERD to investigate its failures, or as a
+// question about codeNERD's own state (the conversation act,
+// conversation_acts.mg), and still starts the diagnosis when Jev says it is
+// about its failures.
 func TestSelfDiagnoseQuestion_JevDecidesBetweenAnswerAndDiagnosis(t *testing.T) {
 	question := perception.Intent{Category: "/query", Verb: "/self_diagnose", Target: "debug-self mode", Confidence: 0.9, IsQuestion: true}
 	for _, tc := range []struct {
 		name     string
 		about    int64
-		state    int64
+		state    int64 // the question_about_codenerd act
 		diagnose bool
 	}{
 		{"a status question Jev reads as not about failures answers directly", 27, 5, false},
 		{"a status question with about_codenerd unsettled answers directly", 31, 98, false},
 		{"a request to investigate itself diagnoses", 91, 3, true},
+		{"a request to investigate itself diagnoses, whatever the act", 91, 95, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := admissionModel(t, config.WorkModePropose, nil)
@@ -57,7 +59,8 @@ func TestSelfDiagnoseQuestion_JevDecidesBetweenAnswerAndDiagnosis(t *testing.T) 
 			assertRouteIntent(t, m, question)
 			if err := m.kernel.AssertBatch([]core.Fact{
 				{Predicate: "jev_judgment", Args: []any{types.MangleString("about_codenerd"), tc.about}},
-				{Predicate: "jev_judgment", Args: []any{types.MangleString("asks_assistant_state"), tc.state}},
+				{Predicate: "jev_choice", Args: []any{types.MangleString("conversation_act"), types.MangleString("question_about_codenerd"), tc.state}},
+				{Predicate: "jev_choice", Args: []any{types.MangleString("conversation_act"), types.MangleString("request_for_work"), 100 - tc.state}},
 			}); err != nil {
 				t.Fatal(err)
 			}
