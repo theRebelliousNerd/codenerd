@@ -133,7 +133,6 @@ func TestBootCortexWithConfig_NoLLMConfigured(t *testing.T) {
 		t.Fatalf("Failed to create .nerd dir: %v", err)
 	}
 
-	t.Chdir(workspace)
 	for _, envVar := range []string{
 		"ANTHROPIC_API_KEY",
 		"OPENAI_API_KEY",

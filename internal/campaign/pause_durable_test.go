@@ -14,8 +14,17 @@ import (
 
 func TestDurablePauseSurvivesSnapshotSaveAndStopsRun(t *testing.T) {
 	root := t.TempDir()
-	caller := t.TempDir()
-	t.Chdir(caller)
+	// The caller is the process's working directory, the package directory
+	// go test runs in, and not the configured workspace. It is not changed:
+	// a chdir into a fresh temp directory is an input go test hashes by its
+	// path, so it kept this whole package's results out of the test cache.
+	caller, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(caller, ".nerd", "cache", "manifest.json")); !os.IsNotExist(err) {
+		t.Fatalf("%s already holds .nerd/cache/manifest.json; the test cannot tell whether a pathless campaign scans it", caller)
+	}
 	if err := os.WriteFile(filepath.Join(root, "marker.go"), []byte("package fixture\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
