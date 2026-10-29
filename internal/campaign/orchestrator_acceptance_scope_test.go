@@ -181,3 +181,7 @@ func TestIsWindowsAbs(t *testing.T) {
 		})
 	}
 }
+
+// TODO: TEST_GAP: [Type Coercion] Verify campaignWriteSet correctly handles identical files that only differ by casing on strict case-sensitive file systems, ensuring deduplication does not inadvertently drop explicit distinct targets.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify canonicalRemediationPath safely handles an empty workspace string specifically when evaluating relative paths, ensuring it doesn't default to the entire system root.
+// TODO: TEST_GAP: [User request Extremes] Verify campaignWriteSet safely handles extremely large WriteSets (e.g., 100,000 entries) without significant CPU blocking or memory exhaustion.
