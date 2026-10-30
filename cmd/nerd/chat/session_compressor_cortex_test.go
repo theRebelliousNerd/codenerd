@@ -26,7 +26,8 @@ func TestSessionCompressor_RetainsFactsOtherShardsDerive(t *testing.T) {
 	}
 	primary := ck.GetPrimaryRealKernel()
 	for _, f := range []core.Fact{
-		{Predicate: "modified", Args: []any{"internal/x/y.go"}},
+		// A build error: the world shard derives block_commit("Build Broken").
+		{Predicate: "diagnostic", Args: []any{"/error", "internal/x/y.go", int64(3), "E1", "undefined: x"}},
 		{Predicate: "user_intent", Args: []any{"/current_intent", "/mutation", "/fix", "internal/x/y.go", "/none"}},
 	} {
 		if err := ck.Assert(f); err != nil {
