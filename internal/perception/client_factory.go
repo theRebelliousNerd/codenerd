@@ -740,6 +740,14 @@ func newSecondarySlotClient(userCfg *config.UserConfig, slot string, w *config.S
 	// budget than a bulk worker, and before this the whole tier was pinned to
 	// the client's hardcoded default.
 	pc.MaxOutputTokens = w.MaxOutputTokens
+	// Gemini reads its ceiling only from its own options (the main client's
+	// generic max_output_tokens is documented as not applying to it), so the
+	// slot's cap goes into this slot's copy of them; without this a Gemini
+	// worker or planner sent the workspace-wide Gemini ceiling whatever its
+	// slot said (audit gemini-secondary-output-cap). Unset keeps that ceiling.
+	if Provider(provider) == ProviderGemini && w.MaxOutputTokens > 0 && pc.Gemini != nil {
+		pc.Gemini.MaxOutputTokens = w.MaxOutputTokens
+	}
 	// A per-slot input cap: a cheap bulk worker held to a smaller window than
 	// the main and planner models. The client enforces it and reports it, and
 	// the session executor sizes every request the slot serves to it.
