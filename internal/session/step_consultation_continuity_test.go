@@ -53,7 +53,7 @@ func TestPlannedStep_CarriesTheTurnsConsultation(t *testing.T) {
 	}
 
 	// A step whose expert the turn never consulted consults it (on another
-	// request: the same one would reuse the card, consult_route).
+	// request, independently of routing across execution results).
 	fresh := &ExecutionResult{}
 	stepPrompt = e.stepSystemPrompt(t.Context(), "turn prompt", stepCtx, nil, "fix the scroll", fresh)
 	if consultant.calls != asked+1 || !strings.Contains(stepPrompt, "STEP_ADVICE_MARKER") {

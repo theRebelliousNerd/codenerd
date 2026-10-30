@@ -38,6 +38,43 @@ Regression checks must exercise the executor, inline delegation, consultation, a
 
 Wiring: `internal/session/executor.go:816` resolves accounting identity; `internal/session/executor.go:1194` applies it to persona turns; `internal/session/task_executor.go:354`, `internal/session/spawner.go:421`, and `internal/session/subagent.go:279` establish delegated scopes. Regression tests in `internal/session/executor_usage_tracker_test.go` check persisted entry-path attribution, concurrent turns sharing one tracker, and follow-up/critic calls during an editing turn (including a critic provider failure after reporting usage). Direct user-agent verbs keep the agent's name on asynchronous tasks rather than using the generic executor name.
 
+### Consultation evidence freshness
+
+Completed expert answers remain scoped to their execution result. The routing
+ladder has no cross-result `/reuse` route: its consultation interface returns
+text without evidence receipts, and equal filesystem samples cannot certify
+which source, CodeDOM, or knowledge revision produced that text. This explicitly
+replaces the former completed-answer cache; it can increase consultation calls
+on identical requests. Within-result scoped cards, handoffs, mandates, and
+step/repair dealing retain their existing contracts.
+
+The executor and task clones share attempt history containing dispositions,
+escalation state, and complete file observations, without answer bodies
+(`internal/session/consult_route.go:39`, `internal/session/executor.go:742`).
+Each expected path retains either a SHA-256 digest or its read error. Pre-call
+observations survive routing; post-call observations are taken immediately on
+return, before waiting for sibling calls (`internal/session/expert_spawn.go:93`,
+`:112`). At the next route Go emits expected files and typed
+before/after/current observations. `consult_file_stable` and
+`consult_card_stale` determine coverage in Mangle; only a nonempty fully stable
+scope permits failed/empty history to drive escalation or unresolved status
+(`internal/core/defaults/policy/shard_experts.mg:238`). A new ordinary attempt
+clears prior escalation state. Fileless and unreadable scopes are asked again
+unless the knowledge route applies. All consultation predicates share the
+explicit cortex home in `internal/shards/registration.go:545`.
+
+`internal/consultation/manager.go` continues to coalesce only in-flight work;
+its consumer receipt is not an evidence-revision receipt. Neither route
+measurement nor a consultation authorizes an effect or proves task correctness.
+
+Evidence status: source-inspected and authored, not executed. Regression cases
+in `internal/session/consult_snapshot_test.go` cover answer transport, source
+mutation, missing/unreadable coverage, fileless scope, failure escalation and
+within-result continuity. `internal/system/consult_snapshot_boot_test.go` adds
+real boot/JIT/world/CodeDOM/request assembly with a controlled source reader and
+serving provider. Live specialist evidence consumption, model quality and cost
+remain unevaluated. See GAP-SESSION-CONSULT-EVIDENCE in `03-GAP-ANALYSIS.md`.
+
 ### 1.1 Key characteristics
 
 | Property | Value |

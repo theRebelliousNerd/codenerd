@@ -195,30 +195,30 @@ Decl consult_ask_complex(Ask) bound [/string].
 # consult_knowledge_delivered(Ask, Agent, Rows) - the compile's prompt carries
 # Rows of the agent's knowledge rows.
 Decl consult_knowledge_delivered(Ask, Agent, Rows) bound [/string, /name, /number].
-# consult_card_cached(Ask, Agent, Disposition) - a card for the same question
-# (agent, mode, verb, files, request) is held, with how it ended.
+# consult_card_cached(Ask, Agent, Disposition) - the previous attempt's outcome
+# for the same question. No completed answer body is retained or reused.
 Decl consult_card_cached(Ask, Agent, Disposition) bound [/string, /name, /name].
 # consult_card_escalated(Ask, Agent) - that card was asked under the stronger
 # consultation profile.
 Decl consult_card_escalated(Ask, Agent) bound [/string, /name].
-# consult_card_file_digest(Ask, Agent, File, Digest) - a file's digest when the
-# cached card was asked.
-Decl consult_card_file_digest(Ask, Agent, File, Digest) bound [/string, /name, /string, /string].
-# consult_file_digest(Ask, File, Digest) - the file's digest now.
-Decl consult_file_digest(Ask, File, Digest) bound [/string, /string, /string].
+# consult_ask_file names every expected file, independently of read success.
+Decl consult_ask_file(Ask, Agent, File) bound [/string, /name, /string].
+# Phase: /before, /after (the previous call), /current (this route).
+# Status: /read or /unreadable. An unreadable observation has no digest.
+Decl consult_file_observation(Ask, Agent, File, Phase, Status, Digest) bound [/string, /name, /string, /name, /name, /string].
 # consult_escalation_available(Ask) - the stronger consultation profile is
 # configured (shard_profiles.consultation_escalation).
 Decl consult_escalation_available(Ask) bound [/string].
 
 # Derived.
-Decl consult_file_measured(Ask, File) bound [/string, /string].
+Decl consult_ask_scoped(Ask, Agent) bound [/string, /name].
+Decl consult_file_stable(Ask, Agent, File) bound [/string, /name, /string].
 Decl consult_card_stale(Ask, Agent) bound [/string, /name].
-Decl consult_card_usable(Ask, Agent) bound [/string, /name].
 Decl consult_card_unanswered(Ask, Agent) bound [/string, /name].
 Decl consult_escalates(Ask, Agent) bound [/string, /name].
 Decl consult_knowledge_suffices(Ask, Agent) bound [/string, /name].
 Decl consult_settled(Ask, Agent) bound [/string, /name].
-# consult_route(Ask, Agent, Route) - how the consultation is settled: /reuse,
+# consult_route(Ask, Agent, Route) - how the consultation is settled:
 # /knowledge, /escalate, /consult or /unresolved. Consumer: internal/session
 # (Executor.withExpertConsultations).
 Decl consult_route(Ask, Agent, Route) bound [/string, /name, /name].

@@ -154,8 +154,6 @@ func newExpertCard(r expertConsultation) expertCard {
 func (c expertCard) render() string {
 	note := ""
 	switch c.Route {
-	case routeReuse:
-		note = "; reused: asked before on the same request, files unchanged since"
 	case routeEscalate:
 		note = "; asked under the stronger consultation profile"
 	}

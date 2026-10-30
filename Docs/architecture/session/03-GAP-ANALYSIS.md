@@ -1,5 +1,26 @@
 # 03 — Gap Analysis: session
 
+## Required contract: Consultation evidence freshness
+
+Completed specialist answers must not be reused across execution results without
+receipts identifying the evidence that produced them. Filesystem samples before
+and after a call cannot establish that identity, including for CodeDOM and
+knowledge context or an A→B→A transition. The session routing ladder must therefore
+ask again rather than advertise an old answer as unchanged. Within-turn scoped
+cards and `internal/consultation.Manager` in-flight coalescing retain their
+existing responsibilities.
+
+Failure history may drive escalation or a visible unresolved outcome only for a
+nonempty file scope with complete successful reads before the call, immediately
+after that call, and at the later routing boundary, all with matching digests.
+Go retains every read outcome; Mangle judges coverage and stability. Fileless or
+unreadable scopes cannot suppress a later consultation. A changed scope starts
+a new escalation sequence.
+
+| Gap ID | Capability | Current deficiency | Target | Phase | Exit criteria |
+|---|---|---|---|---|---|
+| GAP-SESSION-CONSULT-EVIDENCE | Consultation evidence freshness | Completed-answer reuse is removed; failure history now carries complete before/after observations into the kernel. See `consult_route.go`, `expert_spawn.go`, and `policy/shard_experts.mg`. | Required contract above | Authored; verification pending | Execute the real-kernel `TestConsultSnapshot_*` cases, `TestConsultRoute_*`, and full-boot `TestBootConsultSnapshot_DoesNotDeliverOldAdviceToTheNextModelRequest`; establish fail-before/pass-after behavior and shard/baseline checks before closing. No tests have been run for this change. |
+
 ## Accepted generated-tool feedback target (2026-10-02)
 
 **PARTIAL — GAP-SESSION-GENERATED-FEEDBACK:** `internal/session/executor_tools.go#Executor.executeToolCall` directly calls the generated registry at line 2597 after safety preflight. Root inspected this route and `internal/system/factory_tool_executor.go#orchestratorToolExecutor.ExecuteTool` at line 47: the factory's tool-quality feedback adapter is installed on VirtualStore, not this direct path. Raw execution counters are not automatic learning. Existing turn feedback through `#Executor.persistTurn` is distinct. Source audit: artifact:.corpus-build/runs/all-features-20261002/02-execution/handoff-3.json.

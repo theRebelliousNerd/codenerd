@@ -1,13 +1,21 @@
 ---
 doc-class: deep-dive
 subsystem: expert-consultation-cache
-implementation-status: partially-implemented
+implementation-status: partial
 last-verified: 2026-10-30
-verified-against: d1a1b5b8de3f11bb59e4f3eeef56a467d36a7bd2
+verified-against: fef98230c20a5751e4c32a2fd2757832a9d39cdc
 verification-method: static-source-inspection
 ---
 
 # Expert-consultation cache: evidence snapshot freshness
+
+Current disposition: both defects were still present at the inspected base
+above. The working-tree mitigation removes completed-answer reuse and makes
+failure history depend on complete file observations. Implementation and tests
+are authored; execution and observed fail-before/pass-after evidence remain
+pending under this task's author-only restriction. The original source witness
+below is retained as historical analysis; current rulings and design are in
+“As built.”
 
 Static source inspection of public `theRebelliousNerd/codenerd` at `d1a1b5b8de3f11bb59e4f3eeef56a467d36a7bd2` (2026-10-30). No tests, codeNERD runs, model inference or benchmarks were performed. This is a conditional source witness, not an observed bad model result.
 
@@ -68,4 +76,56 @@ Start with deterministic production-kernel route tests and a controllable consul
 Then test through normal production boot, expert selection, JIT and model-request assembly with CodeDOM/world-model context enabled. Observe that the consultant actually consumed revision A, arrange an authorized revision-B transition at a known boundary, and capture whether the reused body and freshness claim reach the later executing-model request. Preserve normal knowledge and critique channels; restricted mocks are supplementary diagnostic evidence.
 
 Compare current behavior, completed-reuse disabled, and the chosen provenance-aware design on matched tasks/models/budgets. Score freshness delivery separately from final quality. Account for all specialist and executor tokens, JIT context, filesystem hashing, cache memory, retries, escalation, unresolved outcomes, critique, repairs, verification and end-to-end wall-clock latency. Report total cost per verified completed task, not avoided consultation calls alone. No savings, superiority or downstream regression is established by this static audit.
+
+## As built
+
+Commits: none created in this author-only task. Source inspection used base
+`fef98230c20a5751e4c32a2fd2757832a9d39cdc`; changes are in the working tree.
+
+| Finding or qualification | Ruling against the inspected base | Disposition |
+|---|---|---|
+| A: an old answer can acquire new post-batch digests, including during a sibling wait | Real: routing discarded its initial samples and `expert_spawn.go` sampled again after `wg.Wait`. | Removed completed-answer retention and `/reuse`, including its model-facing unchanged claim. |
+| B: failed reads remove dependencies from stored coverage | Real: `fileDigests` skipped errors; policy only iterated stored digests. | Every expected file has a retained read outcome; Mangle compares complete before/after/current coverage for failure history. Fileless scopes cannot vacuously suppress calls. |
+| Manager versus session cache | Already correct: `internal/consultation/manager.go:93` deletes the in-flight entry on publication and retains no completed artifact. | No Manager change. Its request receipt contains no evidence provenance. |
+| Unchanged readable reuse and invalidation after a successful stored digest changes or disappears | Correct description of the former policy; this does not repair A or B. | Change/deletion-after-publication remain regression controls; unchanged answered requests now consult again. |
+| Executor/step callers, task clones, JITExecutor wiring, and model-facing delivery | Confirmed: `internal/session/executor.go:1590`, `work_steps.go:846`, `task_executor.go:485`, `internal/system/factory.go:2760`. | Both callers use the revised helper; clones share only attempt history (`executor.go:742`). |
+| Scoped supplements, repair continuity, critique and independent authorization/verification limits | Confirmed in `expert_spawn.go:160`, `expert_cards.go`, and `expert_critique_round.go`. | Within-turn coverage and the existing gates remain separate from cross-result routing. No claim of a live bad model result or model quality improvement is made. |
+| Before/after equality cannot prove evidence identity or exclude A→B→A | Correct. `ExpertConsultant` returns text only; the specialist can also consume CodeDOM and knowledge context. | Chosen design declines completed reuse rather than presenting endpoint hashes as a receipt. No finding was ruled wrong. |
+
+Implementation: `internal/session/consult_route.go` now retains attempt outcomes
+without answer bodies, including read errors. `expert_spawn.go` retains pre-call
+measurements and measures each return before the sibling wait; new ordinary
+attempts reset prior escalation. `expert_cards.go` removes the unchanged/reused
+claim. `internal/core/defaults/schemas_shard_experts.mg` and
+`policy/shard_experts.mg` declare and judge expected scope and typed observations;
+`internal/shards/registration.go:545` homes the whole routing family in cortex.
+The contract, current state and validation gap are in
+`Docs/architecture/session/{IMPLEMENTED_SPEC,02-CURRENT-STATE,03-GAP-ANALYSIS}.md`.
+No embedded prompt atoms or baseline files were changed.
+
+Authored tests: `internal/session/consult_snapshot_test.go` covers in-call and
+sibling-wait mutation, A→B→A, missing/unreadable/mixed/fileless dependencies,
+explicit coverage facts and cleanup, escalation restart, shared clones and
+same-result suppression. `consult_route_test.go` replaces the old unchanged-hit
+expectation and retains knowledge/escalation controls.
+`internal/system/consult_snapshot_boot_test.go` captures model requests through
+real boot, selection and JIT with world/CodeDOM providers; a controlled consultant
+reads A, writes B before publication, and must be called again for B. This is
+transport evidence to be executed, not a live-specialist evaluation.
+
+Fail-before rationale (static, not observed): the old path reuses the first
+answer for unchanged, in-call, sibling-wait, missing/unreadable, mixed, fileless
+and A→B→A cases, so fresh-call/new-answer assertions should fail. The old failure
+cache escalates incomplete scopes and carries an escalated flag across stale
+ordinary retries. Change/deletion after publication, same-result coverage,
+knowledge delivery and stable failure escalation are preservation controls.
+
+Remaining: execute the authored tests and focused race checks, the defaults
+starved/unconsumed/literal budgets, the shard-join audit, and the full suite in
+the root session. The Mangle lab/engine checks and live specialist/model cost
+evaluation were not run; no engine verdict or empirical savings is claimed.
+Only Go formatting and `git diff --check` have been performed. A repository-local
+private-terms scanner was not found. The partial status records these pending
+validation obligations; complete evidence receipts are intentionally outside
+the chosen no-completed-reuse contract.
 

@@ -542,8 +542,18 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 			},
 		},
 		{
-			Domain:          "cortex",
-			OwnedPredicates: nil, // Catch-all for unowned predicates
+			Domain: "cortex",
+			// Consultation observations and routing must share a home: a
+			// missing observation is significant to the coverage negation.
+			// Cortex remains the catch-all for other unowned predicates.
+			OwnedPredicates: []string{
+				"consult_ask", "consult_ask_complex", "consult_knowledge_delivered",
+				"consult_card_cached", "consult_card_escalated", "consult_escalation_available",
+				"consult_ask_file", "consult_file_observation",
+				"consult_ask_scoped", "consult_file_stable", "consult_card_stale",
+				"consult_card_unanswered", "consult_escalates", "consult_knowledge_suffices",
+				"consult_settled", "consult_route",
+			},
 		},
 	}
 }

@@ -57,25 +57,24 @@ func ask(e *Executor, sel experts.Selection, delivered map[string]int) string {
 	return e.withExpertConsultations(context.Background(), "turn prompt", perception.Intent{Verb: "/fix", Target: "a.go"}, "fix a", sel, &ExecutionResult{}, delivered)
 }
 
-// Every derived consultation was a model call. The routing ladder now reuses
-// a card for the same question while its files are unchanged, and asks again
-// once one changes.
-func TestConsultRoute_ReusesAFreshCardAndAsksAgainWhenItsFileChanges(t *testing.T) {
+// Unchanged filesystem samples do not certify the evidence behind an answer.
+// A new result asks again, including through a clone sharing attempt history.
+func TestConsultRoute_AsksAgainWithoutEvidenceReceipts(t *testing.T) {
 	e, ws := routeFixture(t)
 	c := &scriptedConsultant{}
 	e.SetExpertConsultant(c)
 	sel := experts.Selection{Needs: []experts.Need{{Agent: "leadexpert", Spawn: experts.SpawnLead, Files: []string{"a.go"}}}}
 
 	ask(e, sel, nil)
-	second := ask(e, sel, nil)
-	if c.calls() != 1 || !strings.Contains(second, "ROUTE_ADVICE from leadexpert") || !strings.Contains(second, "reused") {
-		t.Fatalf("the same question on unchanged files was not reused (%d call(s)):\n%s", c.calls(), second)
+	second := ask(e.CloneForTask(), sel, nil)
+	if c.calls() != 2 || !strings.Contains(second, "ROUTE_ADVICE from leadexpert") || strings.Contains(second, "reused") {
+		t.Fatalf("a completed answer was reused without evidence receipts (%d call(s)):\n%s", c.calls(), second)
 	}
 	if err := os.WriteFile(filepath.Join(ws, "a.go"), []byte("package a\n\nvar x = 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	ask(e, sel, nil)
-	if c.calls() != 2 {
+	if c.calls() != 3 {
 		t.Fatalf("a card whose file changed was reused (%d call(s))", c.calls())
 	}
 }

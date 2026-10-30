@@ -52,7 +52,7 @@ func TestCampaignShapedTaskConsultsItsExpertOncePerTask(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	// Two tasks on the same file with different requests: each is its own
-	// question (consult_route reuses a card only for the same request).
+	// question (consultation routing is independent of within-turn coverage).
 	tasks := []string{"fix the chat view so the status line renders", "fix the chat view so the footer wraps"}
 	for i := range 2 {
 		if _, err := jit.ExecuteObserved(ctx, TaskRequest{

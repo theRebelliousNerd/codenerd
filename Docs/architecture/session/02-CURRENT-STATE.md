@@ -3,6 +3,16 @@
 > Last verified: 2026-08-09
 > Source root: `internal/session/`
 
+Consultation freshness update (2026-10-30; source inspection only): the session
+ladder no longer reuses completed answers across results. Shared attempt history
+retains before/after read outcomes, and Mangle requires a complete nonempty
+matching file scope before failure history can suppress or escalate a call
+(`internal/session/consult_route.go:39`, `internal/session/expert_spawn.go:112`,
+`internal/core/defaults/policy/shard_experts.mg:238`). Full-boot and real-kernel
+regression cases are authored but unexecuted. The contract and validation gap
+are recorded in `IMPLEMENTED_SPEC.md` and GAP-SESSION-CONSULT-EVIDENCE; the older
+inventory below has not been remeasured.
+
 ## 1. Inventory summary
 
 | Class | Count | Notes |

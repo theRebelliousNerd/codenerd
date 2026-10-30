@@ -46,6 +46,7 @@ type expertConsultation struct {
 	need   experts.Need
 	answer string
 	err    error
+	after  map[string]consultFileObservation
 }
 
 // withExpertConsultations runs the consultations the kernel derived for this
@@ -67,10 +68,10 @@ type expertConsultation struct {
 // not consulted again.
 //
 // Which consultations become model calls is the routing ladder's decision
-// (consult_route.go): a fresh card for the same question is reused, an
-// adviser whose knowledge rows the compile already carried (delivered, by
-// agent key) is not asked, a question that went unanswered is asked under the
-// stronger profile when one is configured, and one that went unanswered there
+// (consult_route.go): an adviser whose knowledge rows the compile already
+// carried (delivered, by agent key) is not asked, a question that went
+// unanswered is asked under the stronger profile when one is configured,
+// and one that went unanswered there
 // too is left open. Every route leaves a card, so the prompt says why a
 // consultation was bought or not.
 func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt string, intent perception.Intent, input string, sel experts.Selection, result *ExecutionResult, delivered map[string]int) string {
@@ -92,6 +93,7 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 	}
 	plans := e.routeConsultations(spawns, intent.Verb, input, sel.Complexity, delivered)
 	consultant := e.consultant()
+	workspace := e.workspaceForVerification()
 	results := make([]expertConsultation, len(plans))
 	var wg sync.WaitGroup
 	for i, plan := range plans {
@@ -101,6 +103,7 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 		}
 		if consultant == nil {
 			results[i].err = fmt.Errorf("no consultation spawner is wired to this executor")
+			results[i].after = observeConsultFiles(workspace, plan.need.Files)
 			continue
 		}
 		callCtx := ctx
@@ -110,6 +113,8 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 		wg.Go(func() {
 			answer, err := consultant.SpawnConsultation(callCtx, plan.need.Agent, consultationTask(plan.need, intent, input))
 			results[i].answer, results[i].err = answer, err
+			// Measure at this call's completion, before waiting for siblings.
+			results[i].after = observeConsultFiles(workspace, plan.need.Files)
 		})
 	}
 	wg.Wait()
@@ -117,14 +122,10 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 	cards := make([]expertCard, len(results))
 	var b strings.Builder
 	b.WriteString(consultationHeader)
-	workspace := e.workspaceForVerification()
 	bought := 0
 	for i, r := range results {
 		plan := plans[i]
 		switch plan.route {
-		case routeReuse:
-			cards[i] = plan.cached.card
-			cards[i].Route = routeReuse
 		case routeKnowledge:
 			cards[i] = expertCard{Agent: plan.need.Agent, Mode: plan.need.Spawn, Technologies: plan.need.Technologies, Files: plan.need.Files,
 				Disposition: cardKnowledge, Route: routeKnowledge,
@@ -144,9 +145,9 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 			if r.err != nil {
 				logging.Get(logging.CategorySession).Warn("shard agent %s consultation failed: %v", r.need.Agent, r.err)
 			}
-			e.consultCards.put(plan.key, cachedCard{
-				card: cards[i], digests: fileDigests(workspace, plan.need.Files),
-				escalated: plan.route == routeEscalate || plan.cached.escalated,
+			e.consultAttempts.put(plan.key, consultAttempt{
+				disposition: cards[i].Disposition, before: plan.before, after: r.after,
+				escalated: plan.route == routeEscalate,
 			})
 		}
 		b.WriteString(cards[i].render())

@@ -282,9 +282,9 @@ type Executor struct {
 	// runs on the pushed knowledge alone and says which consultations it
 	// could not run (expert_spawn.go).
 	expertConsultant ExpertConsultant
-	// consultCards are the consultations' cards by question, reused while
-	// their files are unchanged (consult_route.go). Shared with task clones.
-	consultCards *consultCache
+	// consultAttempts retains outcomes and file measurements for failure
+	// escalation (consult_route.go). Shared with task clones; no answer bodies.
+	consultAttempts *consultHistory
 	// consultEscalation applies the stronger consultation profile; nil when
 	// the configuration names none (SetConsultEscalation).
 	consultEscalation func(context.Context) context.Context
@@ -480,7 +480,7 @@ func NewExecutor(
 		transducer:          transducer,
 		conversationHistory: make([]perception.ConversationTurn, 0),
 		config:              DefaultExecutorConfig(),
-		consultCards:        newConsultCache(),
+		consultAttempts:     newConsultHistory(),
 	}
 }
 
@@ -737,9 +737,9 @@ func (e *Executor) CloneForTask() *Executor {
 	// A delegated task is where a fix runs: the shard agents the kernel
 	// routes to it are consulted from the clone.
 	clone.expertConsultant = e.expertConsultant
-	// And the cards they produced: a retried task reuses an answer to the
-	// same question on unchanged files (consult_route.go).
-	clone.consultCards = e.consultCards
+	// Failure history follows delegated tasks for escalation. Completed
+	// answers have no evidence receipts and are not reused across results.
+	clone.consultAttempts = e.consultAttempts
 	clone.consultEscalation = e.consultEscalation
 	// Deliberately NOT copied: conversationHistory, sessionContext,
 	// sessionPersister (task runs must not be recorded as session turns),

@@ -224,10 +224,9 @@ expert_critique(Task, Agent) :-
 
 # --- The consultation routing ladder ------------------------------------------
 # expert_spawn says a task needs an expert's own reading; it does not say a
-# model call must buy it. A held card for the same question stays valid while
-# every file it was asked about has the digest it had then (a vanished file
-# is a changed one). Then, in order of what each route rests on:
-#   /reuse      a valid answered card;
+# model call must buy it. Completed advice has no evidence receipts and is
+# never reused across results. Failure history applies only to a nonempty
+# scope whose complete before/after/current observations agree:
 #   /unresolved a valid card that went unanswered under the stronger profile:
 #               the gap is kept, not asked again on the same files;
 #   /escalate   a valid unanswered card not yet escalated, or a complex task's
@@ -236,29 +235,26 @@ expert_critique(Task, Agent) :-
 #               on a task that is not complex;
 #   /consult    everything else.
 
-consult_file_measured(Ask, File) :- consult_file_digest(Ask, File, _).
+consult_ask_scoped(Ask, Agent) :- consult_ask_file(Ask, Agent, _).
+
+consult_file_stable(Ask, Agent, File) :-
+    consult_file_observation(Ask, Agent, File, /before, /read, Digest),
+    consult_file_observation(Ask, Agent, File, /after, /read, Digest),
+    consult_file_observation(Ask, Agent, File, /current, /read, Digest).
 
 consult_card_stale(Ask, Agent) :-
-    consult_card_file_digest(Ask, Agent, File, Then),
-    consult_file_digest(Ask, File, Now),
-    Then != Now.
+    consult_ask_file(Ask, Agent, File),
+    !consult_file_stable(Ask, Agent, File).
 
-consult_card_stale(Ask, Agent) :-
-    consult_card_file_digest(Ask, Agent, File, _),
-    !consult_file_measured(Ask, File).
-
-consult_card_usable(Ask, Agent) :-
-    consult_card_cached(Ask, Agent, /answered),
+consult_card_unanswered(Ask, Agent) :-
+    consult_card_cached(Ask, Agent, /failed),
+    consult_ask_scoped(Ask, Agent),
     !consult_card_stale(Ask, Agent).
 
 consult_card_unanswered(Ask, Agent) :-
-    consult_card_cached(Ask, Agent, Disposition),
-    Disposition != /answered,
+    consult_card_cached(Ask, Agent, /empty),
+    consult_ask_scoped(Ask, Agent),
     !consult_card_stale(Ask, Agent).
-
-consult_route(Ask, Agent, /reuse) :-
-    consult_ask(Ask, Agent, _),
-    consult_card_usable(Ask, Agent).
 
 consult_route(Ask, Agent, /unresolved) :-
     consult_ask(Ask, Agent, _),
@@ -275,7 +271,6 @@ consult_escalates(Ask, Agent) :-
     consult_ask(Ask, Agent, /lead),
     consult_ask_complex(Ask),
     consult_escalation_available(Ask),
-    !consult_card_usable(Ask, Agent),
     !consult_card_unanswered(Ask, Agent).
 
 consult_route(Ask, Agent, /escalate) :- consult_escalates(Ask, Agent).
@@ -285,12 +280,10 @@ consult_knowledge_suffices(Ask, Agent) :-
     consult_knowledge_delivered(Ask, Agent, Rows),
     Rows > 0,
     !consult_ask_complex(Ask),
-    !consult_card_usable(Ask, Agent),
     !consult_card_unanswered(Ask, Agent).
 
 consult_route(Ask, Agent, /knowledge) :- consult_knowledge_suffices(Ask, Agent).
 
-consult_settled(Ask, Agent) :- consult_card_usable(Ask, Agent).
 consult_settled(Ask, Agent) :-
     consult_card_unanswered(Ask, Agent),
     consult_card_escalated(Ask, Agent).

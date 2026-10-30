@@ -20,48 +20,44 @@ import (
 
 // The consultation routing ladder. A consultation the kernel derived
 // (expert_spawn) is not automatically a model call: the policy decides, per
-// agent, whether the turn reuses a card it already holds for the same
-// question on unchanged files, relies on the expert's knowledge rows the
+// agent, whether the turn relies on the expert's knowledge rows the
 // compile already delivered, asks the configured stronger profile, asks as
 // usual, or leaves the question open (consult_route,
-// policy/shard_experts.mg). Go measures -- what the cache holds and the
-// digests it was taken at, the files' digests now, the knowledge rows the
+// policy/shard_experts.mg). Completed answers have no evidence receipts and
+// are never reused across results. Go measures -- previous attempt outcomes,
+// file observations before and after each call and now, the knowledge rows the
 // compile carried, whether a stronger profile is configured -- and obeys.
 
 // Routes, the value set of consult_route/3's Route.
 const (
-	routeReuse      = "/reuse"
 	routeKnowledge  = "/knowledge"
 	routeEscalate   = "/escalate"
 	routeConsult    = "/consult"
 	routeUnresolved = "/unresolved"
 )
 
-// consultCache holds the cards consultations produced, by question, for reuse
-// while the files they were asked about are unchanged. It is shared by an
-// executor and its task clones, so a retried delegated task reuses its
-// expert's answer instead of buying it again.
-type consultCache struct {
+// consultHistory holds attempt outcomes, never answer bodies. Task clones
+// share it so policy can escalate failures without reusing completed advice.
+type consultHistory struct {
 	mu      sync.Mutex
-	entries map[string]cachedCard
+	entries map[string]consultAttempt
 }
 
-// cachedCard is a card and what made it valid: the digest of each file its
-// agent was selected for when it was asked, and whether it was asked under
-// the stronger profile.
-type cachedCard struct {
-	card      expertCard
-	digests   map[string]string
-	escalated bool
+// consultAttempt records the result and complete filesystem observations of
+// one call. These samples can qualify failure history, not certify advice.
+type consultAttempt struct {
+	disposition   string
+	before, after map[string]consultFileObservation
+	escalated     bool
 }
 
-func newConsultCache() *consultCache {
-	return &consultCache{entries: map[string]cachedCard{}}
+func newConsultHistory() *consultHistory {
+	return &consultHistory{entries: map[string]consultAttempt{}}
 }
 
-func (c *consultCache) get(key string) (cachedCard, bool) {
+func (c *consultHistory) get(key string) (consultAttempt, bool) {
 	if c == nil {
-		return cachedCard{}, false
+		return consultAttempt{}, false
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -69,7 +65,7 @@ func (c *consultCache) get(key string) (cachedCard, bool) {
 	return e, ok
 }
 
-func (c *consultCache) put(key string, e cachedCard) {
+func (c *consultHistory) put(key string, e consultAttempt) {
 	if c == nil {
 		return
 	}
@@ -87,19 +83,41 @@ func consultQuestion(need experts.Need, verb, input string) string {
 	return strings.Join([]string{experts.AgentKey(need.Agent), need.Spawn, verb, strings.Join(files, ","), hex.EncodeToString(sum[:])}, "\x00")
 }
 
-// fileDigests measures each file's content digest now; a file that cannot be
-// read has none.
-func fileDigests(workspace string, files []string) map[string]string {
-	out := make(map[string]string, len(files))
+// consultFileObservation preserves a read failure as an outcome for the
+// expected file, rather than silently shrinking the dependency set.
+type consultFileObservation struct {
+	digest    string
+	readError string
+}
+
+func observeConsultFiles(workspace string, files []string) map[string]consultFileObservation {
+	out := make(map[string]consultFileObservation, len(files))
 	for _, f := range files {
 		data, err := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(f)))
 		if err != nil {
+			out[f] = consultFileObservation{readError: err.Error()}
 			continue
 		}
 		sum := sha256.Sum256(data)
-		out[f] = hex.EncodeToString(sum[:])
+		out[f] = consultFileObservation{digest: hex.EncodeToString(sum[:])}
 	}
 	return out
+}
+
+// consultObservationFacts ferries measurements; coverage and stability are
+// judgments in policy/shard_experts.mg. Errors carry no pretend digest.
+func consultObservationFacts(ask string, agent types.MangleAtom, phase string, observed map[string]consultFileObservation) []types.Fact {
+	facts := make([]types.Fact, 0, len(observed))
+	for file, observation := range observed {
+		status := types.MangleAtom("/read")
+		if observation.readError != "" {
+			status = types.MangleAtom("/unreadable")
+		}
+		facts = append(facts, types.Fact{Predicate: "consult_file_observation", Args: []any{
+			ask, agent, file, types.MangleAtom(phase), status, observation.digest,
+		}})
+	}
+	return facts
 }
 
 // knowledgeDelivered counts, per agent key, the knowledge rows of that
@@ -119,13 +137,12 @@ func knowledgeDelivered(compiled *prompt.CompilationResult) map[string]int {
 
 var consultAskSeq atomic.Int64
 
-// consultPlan is one consultation the ladder decided: its route, the cached
-// entry it may reuse, and its question key.
+// consultPlan retains pre-call measurements for one routed consultation.
 type consultPlan struct {
 	need   experts.Need
 	route  string
 	key    string
-	cached cachedCard
+	before map[string]consultFileObservation
 	rows   int
 }
 
@@ -143,30 +160,26 @@ func (e *Executor) routeConsultations(spawns []experts.Need, verb, input, comple
 	if e.escalationAvailable() {
 		facts = append(facts, types.Fact{Predicate: "consult_escalation_available", Args: []any{ask}})
 	}
-	measured := map[string]bool{}
 	for i, need := range spawns {
 		agent := experts.AgentAtom(need.Agent)
 		key := consultQuestion(need, verb, input)
-		plans[i] = consultPlan{need: need, route: routeConsult, key: key, rows: delivered[experts.AgentKey(need.Agent)]}
+		plans[i] = consultPlan{need: need, route: routeConsult, key: key,
+			before: observeConsultFiles(workspace, need.Files), rows: delivered[experts.AgentKey(need.Agent)]}
 		facts = append(facts, types.Fact{Predicate: "consult_ask", Args: []any{ask, agent, types.MangleAtom("/" + need.Spawn)}})
 		if plans[i].rows > 0 {
 			facts = append(facts, types.Fact{Predicate: "consult_knowledge_delivered", Args: []any{ask, agent, int64(plans[i].rows)}})
 		}
-		for file, digest := range fileDigests(workspace, need.Files) {
-			if !measured[file] {
-				measured[file] = true
-				facts = append(facts, types.Fact{Predicate: "consult_file_digest", Args: []any{ask, file, digest}})
-			}
+		for _, file := range need.Files {
+			facts = append(facts, types.Fact{Predicate: "consult_ask_file", Args: []any{ask, agent, file}})
 		}
-		if cached, ok := e.consultCards.get(key); ok {
-			plans[i].cached = cached
-			facts = append(facts, types.Fact{Predicate: "consult_card_cached", Args: []any{ask, agent, types.MangleAtom(cached.card.Disposition)}})
+		facts = append(facts, consultObservationFacts(ask, agent, "/current", plans[i].before)...)
+		if cached, ok := e.consultAttempts.get(key); ok {
+			facts = append(facts, types.Fact{Predicate: "consult_card_cached", Args: []any{ask, agent, types.MangleAtom(cached.disposition)}})
 			if cached.escalated {
 				facts = append(facts, types.Fact{Predicate: "consult_card_escalated", Args: []any{ask, agent}})
 			}
-			for file, digest := range cached.digests {
-				facts = append(facts, types.Fact{Predicate: "consult_card_file_digest", Args: []any{ask, agent, file, digest}})
-			}
+			facts = append(facts, consultObservationFacts(ask, agent, "/before", cached.before)...)
+			facts = append(facts, consultObservationFacts(ask, agent, "/after", cached.after)...)
 		}
 	}
 	if e.kernel == nil {
