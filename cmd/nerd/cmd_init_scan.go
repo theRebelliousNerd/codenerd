@@ -98,6 +98,23 @@ func init() {
 		"Cap how many atoms one --marathon run processes (0 = whole corpus; progress is checkpointed either way)")
 	initCmd.Flags().BoolVar(&marathonRestart, "marathon-restart", false,
 		"Discard the --marathon checkpoint and re-optimize every atom from scratch")
+	initCmd.Flags().StringArrayVar(&initPreferFlags, "prefer", nil,
+		"A preference to record in .nerd/preferences.json, overriding what is there (repeatable): "+
+			strings.Join(nerdinit.PreferenceHintNames(), ", "))
+}
+
+// initPreferFlags are `nerd init --prefer` values.
+var initPreferFlags []string
+
+// applyInitPreferenceFlags carries --prefer into the init config. Init has
+// always applied InitConfig.PreferenceHints; nothing supplied them, so the
+// hints were unreachable. An unknown hint is refused, not ignored.
+func applyInitPreferenceFlags(config *nerdinit.InitConfig) error {
+	if err := nerdinit.ValidatePreferenceHints(initPreferFlags); err != nil {
+		return fmt.Errorf("--prefer: %w", err)
+	}
+	config.PreferenceHints = append([]string(nil), initPreferFlags...)
+	return nil
 }
 
 var (
@@ -192,6 +209,9 @@ func runInitWithLLMConfigurer(cmd *cobra.Command, args []string, configureLLM fu
 		return fmt.Errorf("%d invalid --define-agent value(s)", len(parseErrs))
 	}
 	config.TypeUAgents = typeUAgents
+	if err := applyInitPreferenceFlags(&config); err != nil {
+		return err
+	}
 
 	// Yolo mode never asks questions: it implies --no-interactive, so init
 	// takes defaults for every choice the wizard would offer.

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -153,24 +154,57 @@ func (i *Initializer) initPreferences() UserPreferences {
 		RequireReview:    false,
 	}
 
-	// Apply hints if provided
 	for _, hint := range i.config.PreferenceHints {
-		switch hint {
-		case "table_driven_tests":
-			prefs.TestStyle = "table_driven"
-		case "conventional_commits":
-			prefs.CommitStyle = "conventional"
-		case "strict":
-			prefs.RequireTests = true
-			prefs.RequireReview = true
-		case "beginner":
-			prefs.ExplanationLevel = "beginner"
-		case "expert":
-			prefs.ExplanationLevel = "expert"
+		if h, ok := preferenceHints[hint]; ok {
+			h.apply(&prefs)
 		}
 	}
-
 	return prefs
+}
+
+// preferenceHint is one hint `nerd init --prefer` accepts: what it sets and
+// the preferences.json keys it overrides.
+type preferenceHint struct {
+	keys  []string
+	apply func(*UserPreferences)
+}
+
+// preferenceHints is every hint init knows, in one place: initPreferences
+// applies them, hintOverriddenPreferenceKeys names the keys they set, and
+// ValidatePreferenceHints refuses any other.
+var preferenceHints = map[string]preferenceHint{
+	"table_driven_tests":   {keys: []string{"test_style"}, apply: func(p *UserPreferences) { p.TestStyle = "table_driven" }},
+	"conventional_commits": {keys: []string{"commit_style"}, apply: func(p *UserPreferences) { p.CommitStyle = "conventional" }},
+	"strict": {keys: []string{"require_tests", "require_review"}, apply: func(p *UserPreferences) {
+		p.RequireTests, p.RequireReview = true, true
+	}},
+	"beginner": {keys: []string{"explanation_level"}, apply: func(p *UserPreferences) { p.ExplanationLevel = "beginner" }},
+	"expert":   {keys: []string{"explanation_level"}, apply: func(p *UserPreferences) { p.ExplanationLevel = "expert" }},
+}
+
+// PreferenceHintNames lists the hints `nerd init --prefer` accepts, sorted.
+func PreferenceHintNames() []string {
+	names := make([]string, 0, len(preferenceHints))
+	for name := range preferenceHints {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// ValidatePreferenceHints refuses a hint init does not know: a typo must not
+// be accepted and then do nothing.
+func ValidatePreferenceHints(hints []string) error {
+	var unknown []string
+	for _, h := range hints {
+		if _, ok := preferenceHints[h]; !ok {
+			unknown = append(unknown, h)
+		}
+	}
+	if len(unknown) > 0 {
+		return fmt.Errorf("unknown preference hint(s) %s; known: %s", strings.Join(unknown, ", "), strings.Join(PreferenceHintNames(), ", "))
+	}
+	return nil
 }
 
 // hintOverriddenPreferenceKeys returns the preferences.json keys that this run's
@@ -180,16 +214,8 @@ func (i *Initializer) initPreferences() UserPreferences {
 func (i *Initializer) hintOverriddenPreferenceKeys() map[string]bool {
 	keys := make(map[string]bool)
 	for _, hint := range i.config.PreferenceHints {
-		switch hint {
-		case "table_driven_tests":
-			keys["test_style"] = true
-		case "conventional_commits":
-			keys["commit_style"] = true
-		case "strict":
-			keys["require_tests"] = true
-			keys["require_review"] = true
-		case "beginner", "expert":
-			keys["explanation_level"] = true
+		for _, k := range preferenceHints[hint].keys {
+			keys[k] = true
 		}
 	}
 	return keys
