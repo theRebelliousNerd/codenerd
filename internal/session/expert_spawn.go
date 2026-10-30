@@ -60,10 +60,15 @@ type expertConsultation struct {
 //
 // A consultation that fails, or a turn with no consultant wired, is named in
 // the section rather than dropped, so the model knows what it is missing.
-func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt string, intent perception.Intent, input string, sel experts.Selection) string {
+//
+// The section is also kept on result (expertConsultation), because a planned
+// turn runs each step on a freshly compiled prompt: without it the advice the
+// turn paid for reached only the final verification, never the edits. An
+// agent result already consulted is not consulted again.
+func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt string, intent perception.Intent, input string, sel experts.Selection, result *ExecutionResult) string {
 	var spawns []experts.Need
 	for _, need := range sel.Needs {
-		if need.Spawn != "" {
+		if need.Spawn != "" && (result == nil || !result.consultedExperts[need.Agent]) {
 			spawns = append(spawns, need)
 		}
 	}
@@ -87,7 +92,6 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 	wg.Wait()
 
 	var b strings.Builder
-	b.WriteString(strings.TrimRight(systemPrompt, "\n"))
 	b.WriteString("\n\n## Shard agent consultation\n")
 	b.WriteString("The harness consulted these shard agents before this turn because the task's files are in their domain (expert_spawn). Weigh their reading; you still own the result and its verification.\n")
 	for _, r := range results {
@@ -104,7 +108,17 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 		}
 	}
 	logging.Session("Consulted %d shard agent(s) for %s %s", len(results), intent.Verb, intent.Target)
-	return b.String()
+	section := b.String()
+	if result != nil {
+		if result.consultedExperts == nil {
+			result.consultedExperts = map[string]bool{}
+		}
+		for _, need := range spawns {
+			result.consultedExperts[need.Agent] = true
+		}
+		result.expertConsultation += section
+	}
+	return strings.TrimRight(systemPrompt, "\n") + section
 }
 
 func consultationRole(mode string) string {

@@ -14,6 +14,7 @@ import (
 
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
@@ -805,6 +806,8 @@ func (e *Executor) stepSystemPrompt(
 	turnPrompt string,
 	stepCtx *prompt.CompilationContext,
 	cfg *config.EffectiveAgentRuntimeConfig,
+	task string,
+	result *ExecutionResult,
 ) string {
 	if e.jitCompiler == nil || stepCtx == nil {
 		return turnPrompt
@@ -813,7 +816,11 @@ func (e *Executor) stepSystemPrompt(
 		stepCtx.Language = lang
 	}
 	stepCtx.DerivedNeeds = e.compileNeeds(stepCtx.Language, stepCtx.IntentVerb)
-	stepCtx.Experts = e.neededExperts(stepCtx.IntentVerb, stepCtx.IntentTarget)
+	// The step's whole selection, not only its agent names: an expert this
+	// step's file newly needs owes its consultation and its critique too.
+	stepSel := e.selectExperts(stepCtx.IntentVerb, stepCtx.IntentTarget)
+	stepCtx.Experts = stepSel.Agents()
+	e.recordExpertCritics(result, stepSel)
 	if cfg != nil && len(cfg.AllowedTools) > 0 && len(stepCtx.AvailableTools) == 0 {
 		stepCtx.AvailableTools = slices.Clone(cfg.AllowedTools)
 	}
@@ -825,7 +832,14 @@ func (e *Executor) stepSystemPrompt(
 	}
 	NoteCompile(ctx, compiled)
 	logging.Session("Step prompt compiled for %s (language=%s, %d chars)", stepCtx.IntentTarget, stepCtx.Language, len(compiled.Prompt))
-	return e.withCompiledFileContext(ctx, e.withProjectInstructions(compiled.Prompt), stepCtx.IntentTarget)
+	stepPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(compiled.Prompt), stepCtx.IntentTarget)
+	// The turn's consultations ride into the step (the advice was asked
+	// before the edits, for them), then any this step's file newly calls for.
+	if result != nil && result.expertConsultation != "" {
+		stepPrompt = strings.TrimRight(stepPrompt, "\n") + result.expertConsultation
+	}
+	return e.withExpertConsultations(ctx, stepPrompt,
+		perception.Intent{Verb: stepCtx.IntentVerb, Target: stepCtx.IntentTarget}, task, stepSel, result)
 }
 
 // runPlannedSteps runs each step as its own pass of the tool loop, gives a
@@ -875,7 +889,7 @@ func (e *Executor) runPlannedSteps(
 		// turn's prompt was selected for the task as a whole and the project's
 		// language, so a step that edits a policy file ran on a Go prompt with
 		// none of the /mangle corpus in it. Both passes of the step share it.
-		stepPrompt := e.stepSystemPrompt(ctx, systemPrompt, &stepCtx, cfg)
+		stepPrompt := e.stepSystemPrompt(ctx, systemPrompt, &stepCtx, cfg, task, result)
 
 		resp, errs, err := e.runToolLoopPass(ctx, stepPrompt, workStepAnchor(task, steps, beyond, i, false), cfg, &stepCtx, result, toolLoopPass{})
 		toolErrs = append(toolErrs, errs...)

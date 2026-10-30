@@ -1055,6 +1055,13 @@ type ExecutionResult struct {
 	// reportReading is the turn_report_reading asserted last for this turn,
 	// replaced by each new reading (finish_round.go).
 	reportReading *types.Fact
+	// expertConsultation is the consultation section this turn's experts
+	// answered (withExpertConsultations), carried into every planned step's
+	// freshly compiled prompt; consultedExperts names the agents already
+	// consulted, so a step consults only an expert its own file newly needs.
+	expertConsultation string
+	consultedExperts   map[string]bool
+
 	// gateRuns are the test-gate measurements this turn has made, keyed by
 	// what was measured and the content of every file the turn wrote
 	// (gate_memo.go).
@@ -1554,7 +1561,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	systemPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(compileResult.Prompt), intent.Target)
 	// 4c. Spawn second: the consultations the kernel derived (expert_spawn),
 	// and the reviews the turn owes after its writes (expert_critique).
-	systemPrompt = e.withExpertConsultations(ctx, systemPrompt, intent, input, expertSel)
+	systemPrompt = e.withExpertConsultations(ctx, systemPrompt, intent, input, expertSel, result)
 	e.recordExpertCritics(result, expertSel)
 
 	// 5+6. LLM ↔ tools loop. The model may request tools, we execute them, then

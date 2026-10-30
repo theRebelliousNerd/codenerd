@@ -71,7 +71,7 @@ func TestStepCompileDerivesTheStepFilesNeeds(t *testing.T) {
 	}
 	step := turn.Clone()
 	step.IntentTarget = "internal/session/work_steps.go"
-	e.stepSystemPrompt(t.Context(), "turn prompt", step, nil)
+	e.stepSystemPrompt(t.Context(), "turn prompt", step, nil, "", nil)
 	if !slices.Contains(compiled, "authoring_go") || !slices.Contains(compiled, "authoring_code") {
 		t.Errorf("the Go step compiled with needs %v, want authoring_go and authoring_code", compiled)
 	}

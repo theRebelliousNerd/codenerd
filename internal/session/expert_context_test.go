@@ -67,7 +67,7 @@ func TestStepCompileDerivesTheStepFilesExperts(t *testing.T) {
 	}
 	step := turn.Clone()
 	step.IntentTarget = "internal/context/working_set.mg"
-	e.stepSystemPrompt(t.Context(), "turn prompt", step, nil)
+	e.stepSystemPrompt(t.Context(), "turn prompt", step, nil, "", nil)
 	if !slices.Equal(compiled, []string{"mangleexpert"}) {
 		t.Errorf("the policy step compiled with experts %v, want [mangleexpert]", compiled)
 	}
