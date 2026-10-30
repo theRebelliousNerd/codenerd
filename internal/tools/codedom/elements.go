@@ -71,15 +71,6 @@ var (
 	}
 )
 
-// extractCodeElements reads a file and returns its declarations.
-func extractCodeElements(path string) ([]CodeElement, error) {
-	data, err := projectdoc.ReadFileForTool(path)
-	if err != nil {
-		return nil, err
-	}
-	return ElementsFromSource(path, string(data)), nil
-}
-
 // ElementsFromSource returns the declarations of source text the caller
 // already holds, from the element model when CodeDOM parses the language
 // (Go, Mangle, Python, TypeScript, JavaScript) and from the per-language

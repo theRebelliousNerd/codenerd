@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func BenchmarkExtractCodeElements(b *testing.B) {
+func BenchmarkElementsFromSource(b *testing.B) {
 	// Setup a temporary file with some content
 	tmpDir := b.TempDir()
 	goFile := filepath.Join(tmpDir, "bench.go")
@@ -21,11 +21,14 @@ type Interface1 interface {}
 		b.Fatalf("failed to write bench file: %v", err)
 	}
 
+	data, err := os.ReadFile(goFile)
+	if err != nil {
+		b.Fatal(err)
+	}
 	b.ResetTimer()
 	for b.Loop() {
-		_, err := extractCodeElements(goFile)
-		if err != nil {
-			b.Fatalf("extractCodeElements failed: %v", err)
+		if len(ElementsFromSource(goFile, string(data))) == 0 {
+			b.Fatal("no elements")
 		}
 	}
 }

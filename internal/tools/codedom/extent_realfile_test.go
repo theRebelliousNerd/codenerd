@@ -15,11 +15,12 @@ import (
 // "Would need block tracking for accurate end", so every element reported as
 // one line long — which silently truncates any edit_lines driven by a
 // get_elements range.
-func TestExtractCodeElements_RealFileExtents(t *testing.T) {
-	elements, err := extractCodeElements("../../projectdoc/nerdmd.go")
+func TestElementsFromSource_RealFileExtents(t *testing.T) {
+	data, err := os.ReadFile("../../projectdoc/nerdmd.go")
 	if err != nil {
-		t.Fatalf("extractCodeElements: %v", err)
+		t.Fatalf("read nerdmd.go: %v", err)
 	}
+	elements := ElementsFromSource("../../projectdoc/nerdmd.go", string(data))
 	if len(elements) == 0 {
 		t.Fatal("no elements extracted from nerdmd.go")
 	}

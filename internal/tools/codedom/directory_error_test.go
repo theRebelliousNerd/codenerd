@@ -17,24 +17,17 @@ func TestCodedomRead_DirectoryReturnsActionableError(t *testing.T) {
 		t.Fatalf("seed dir: %v", err)
 	}
 
-	// extractCodeElements is the direct read path for get_elements/get_element.
-	_, err := extractCodeElements(subdir)
-	if err == nil {
-		t.Fatal("expected error for directory, got nil from extractCodeElements")
-	}
-	assertActionableDirectoryError(t, err)
-
-	// executeGetElements wraps extractCodeElements and should propagate the actionable error.
+	// get_elements reads through its loaded-file path and returns the actionable error.
 	// The element tools now contain their path argument like the line tools do,
 	// so the fixture has to declare its workspace.
 	elemCtx := context.WithValue(context.Background(), tools.CtxKeyWorkspaceRoot, dir)
-	_, err = executeGetElements(elemCtx, map[string]any{"path": subdir})
+	_, err := executeGetElements(elemCtx, map[string]any{"path": subdir})
 	if err == nil {
 		t.Fatal("expected error for directory, got nil from executeGetElements")
 	}
 	assertActionableDirectoryError(t, err)
 
-	// executeGetElement also goes through extractCodeElements.
+	// get_element reads the same way.
 	_, err = executeGetElement(elemCtx, map[string]any{"path": subdir, "ref": "Foo"})
 	if err == nil {
 		t.Fatal("expected error for directory, got nil from executeGetElement")
