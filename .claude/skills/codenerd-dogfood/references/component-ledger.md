@@ -6253,3 +6253,14 @@ replaced the dated header narrative. Fail-before: reverting the production files
 `TestUpdate_DelegatedOutcomeSavedAtTurnEnd` and `TestSaveSessionStateCmd_ReportsWriteFailure`. codeNERD reported the
 whole-repository gates as reserved for the final gate; the root ran G3 green (110 packages). **Streak 0.**
 
+
+## Deliberation, exercised live (2026-10-30, 01:30-02:10)
+
+Exercise: `/deliberate how should the chat show resident background services ...` in the TUI (`--yolo`), real
+models. Four runs each surfaced the next defect, fixed at the root with a test that fails before:
+`77feafc69` a tool offer sent `"required": null` (provider 400; `Tool.InputSchema` is now the one renderer);
+`d805e64d1` a role failed when one reply spent its tool budget or filled its context (evidence now closes, tools
+are withheld, reads are fitted visibly to the room left); `4a7b7e654` an empty role reply was parsed as JSON (one
+tool-less nudge, then a named failure). Fifth run converged in two rounds: decision, assumptions, success test and
+policy proof, with no question to the person. Open: R1-40 (yolo clarify) should now be re-briefed against the
+deliberate lane.

@@ -121,9 +121,9 @@ One Codex lane per audit, each in its own worktree; the root runs the full suite
 | audit | branch | status |
 |---|---|---|
 | `mangle-edb-alias-support` | `research-main-20261030-0442` | fixed `70a20472a` |
-| `guardian-module-alignment-scope` | `research-main-20261030-0513` | queued |
-| `tui-search-evidence-coverage` | `research-main-20261030-0513` | queued |
-| `world-refresh-publication-order` | `research-main-20261030-0513` | queued |
-| `consultation-cache-snapshot` | earlier branch | queued |
-| `shard-db-registration-ownership` | earlier branch | queued |
+| `guardian-module-alignment-scope` | `research-main-20261030-0513` | fixed `135405dfc` |
+| `tui-search-evidence-coverage` | `research-main-20261030-0513` | fixed `3c16ef3b5` |
+| `world-refresh-publication-order` | `research-main-20261030-0513` | fixed `63a406d90` |
+| `consultation-cache-snapshot` | earlier branch | fixed `39c4e9268` |
+| `shard-db-registration-ownership` | earlier branch | fixed `6b745bba7` |
 | innovation `mission-driven-forever-improvement` | `research-main-20261030-0442` | queued |
