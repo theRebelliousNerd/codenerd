@@ -113,6 +113,15 @@ func (d edbDelta) clone() edbDelta {
 func (k *RealKernel) applyExtensionalDeltaLocked(pred string) (removed, added int, err error) {
 	remover := k.store.(factstore.FactStoreWithRemove)
 	x := k.factIndex
+	// The store is a set and the EDB is not: two host representations of one
+	// value (a plain "/tmp" and types.MangleString("/tmp") under a /string
+	// declaration) are two EDB rows on one store atom. Removing a row's atom
+	// removes the support of every row that shares it, so an atom taken out
+	// here is put back when a retained row still admits to it.
+	// aliasCapable says whether any such pair can exist; for the ordinary
+	// predicate it is false and the delta stays O(delta).
+	aliasCapable := x.aliasRows[pred] > 0
+	var taken map[string]ast.Atom
 	for _, row := range x.delta.removed[pred] {
 		atom := row.atom.atom
 		if row.atom.program != k.programInfo || k.programInfo == nil {
@@ -122,9 +131,27 @@ func (k *RealKernel) applyExtensionalDeltaLocked(pred string) (removed, added in
 		}
 		if remover.Remove(atom) {
 			removed++
+			if aliasCapable || hostAliasCapable(row.fact) {
+				if taken == nil {
+					taken = make(map[string]ast.Atom)
+				}
+				taken[atom.String()] = atom
+			}
 		}
 	}
 	bucket := x.bucket(pred)
+	if len(taken) > 0 {
+		for key, f := range bucket {
+			atom, err := k.edbAtomLocked(pred, key, f)
+			if err != nil {
+				return removed, added, err
+			}
+			if _, shared := taken[atom.String()]; shared && k.store.Add(atom) {
+				// The atom was never gone as far as the EDB is concerned.
+				removed--
+			}
+		}
+	}
 	for key := range x.delta.added[pred] {
 		f, held := bucket[key]
 		if !held {

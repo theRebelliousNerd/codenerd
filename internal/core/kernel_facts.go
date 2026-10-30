@@ -245,6 +245,51 @@ func canonValue(v any) string {
 	}
 }
 
+// hostAliasCapable reports whether a fact carries a host value that has no
+// canonical key form of its own: one canonValue renders through its fallback,
+// such as types.MangleString. Such a value is a quoted key for text a plain
+// string spells unquoted when it is name-shaped, and a declaration can admit the
+// two to one store atom, so a predicate holding one can hold two rows on one
+// atom. Facts of plain strings, numbers, booleans and atoms cannot.
+func hostAliasCapable(f Fact) bool {
+	for _, a := range f.Args {
+		if valueAliasCapable(a) {
+			return true
+		}
+	}
+	return false
+}
+
+func valueAliasCapable(v any) bool {
+	switch t := v.(type) {
+	case nil, MangleAtom, string, bool,
+		int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64,
+		float32, float64, json.Number, []byte,
+		[]string, []int, []int64, []float64, map[string]string:
+		return false
+	case []any:
+		for _, e := range t {
+			if valueAliasCapable(e) {
+				return true
+			}
+		}
+		return false
+	case map[string]any:
+		for _, e := range t {
+			if valueAliasCapable(e) {
+				return true
+			}
+		}
+		return false
+	default:
+		rv := reflect.ValueOf(v)
+		if rv.IsValid() && (rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array || rv.Kind() == reflect.Map) {
+			return true
+		}
+		return true
+	}
+}
+
 func canonString(v string) string {
 	if isValidMangleNameConstant(v) {
 		return v

@@ -33,6 +33,11 @@ type edbIndex struct {
 	// reused only under the program it was converted for, because
 	// admission adapts arguments to that program's Decls.
 	atoms map[string]map[string]admittedAtom
+	// aliasRows counts, per predicate, the held rows a second host
+	// representation can share a store atom with (hostAliasCapable). A
+	// predicate at zero cannot have two rows on one atom, so its extensional
+	// delta needs no support check (kernel_edb_delta.go).
+	aliasRows map[string]int
 	// delta is what changed since the store was last evaluated
 	// (kernel_edb_delta.go).
 	delta edbDelta
@@ -49,10 +54,11 @@ type admittedAtom struct {
 
 func newEDBIndex() *edbIndex {
 	return &edbIndex{
-		buckets: make(map[string]map[string]Fact),
-		arities: make(map[string]map[int]struct{}),
-		atoms:   make(map[string]map[string]admittedAtom),
-		delta:   newEDBDelta(false),
+		buckets:   make(map[string]map[string]Fact),
+		arities:   make(map[string]map[int]struct{}),
+		atoms:     make(map[string]map[string]admittedAtom),
+		aliasRows: make(map[string]int),
+		delta:     newEDBDelta(false),
 	}
 }
 
@@ -73,6 +79,9 @@ func (x *edbIndex) insert(key string, f Fact) bool {
 		return false
 	}
 	bucket[key] = f
+	if hostAliasCapable(f) {
+		x.aliasRows[f.Predicate]++
+	}
 	x.forgetAtom(f.Predicate, key)
 	x.delta.noteInsert(f.Predicate, key)
 	x.addContent(f)
@@ -96,6 +105,11 @@ func (x *edbIndex) remove(pred, key string) {
 	atom, hadAtom := x.atoms[pred][key]
 	x.delta.noteRemove(pred, key, f, atom, hadAtom)
 	delete(bucket, key)
+	if hostAliasCapable(f) {
+		if x.aliasRows[pred]--; x.aliasRows[pred] <= 0 {
+			delete(x.aliasRows, pred)
+		}
+	}
 	x.forgetAtom(pred, key)
 	x.subtractContent(f)
 	x.size--
@@ -155,12 +169,13 @@ func (x *edbIndex) aritiesOf(pred string) map[int]struct{} {
 // clone copies the index structure; the facts and keys are shared.
 func (x *edbIndex) clone() *edbIndex {
 	out := &edbIndex{
-		buckets: make(map[string]map[string]Fact, len(x.buckets)),
-		arities: make(map[string]map[int]struct{}, len(x.arities)),
-		atoms:   make(map[string]map[string]admittedAtom, len(x.atoms)),
-		delta:   x.delta.clone(),
-		content: x.content,
-		size:    x.size,
+		buckets:   make(map[string]map[string]Fact, len(x.buckets)),
+		arities:   make(map[string]map[int]struct{}, len(x.arities)),
+		atoms:     make(map[string]map[string]admittedAtom, len(x.atoms)),
+		aliasRows: maps.Clone(x.aliasRows),
+		delta:     x.delta.clone(),
+		content:   x.content,
+		size:      x.size,
 	}
 	for pred, memo := range x.atoms {
 		out.atoms[pred] = maps.Clone(memo)
