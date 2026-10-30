@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"strings"
 
-
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
