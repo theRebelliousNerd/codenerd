@@ -54,6 +54,15 @@ const (
 	// refused occurrences, drops their pairs (a pair is only counted when
 	// both atoms are), and sets AtomsTruncated on the report.
 	maxTrackedAtoms = 20_000
+
+	// maxPairsPerSelection bounds the pair cells one selection enumerates.
+	// The pair loop is quadratic in the selection's atoms and runs under the
+	// tally mutex every Observe contends on; a selection of a few thousand
+	// atoms would hold it for millions of map operations. Past the bound the
+	// selection's first atoms (in assembly order) still pair with each
+	// other, the rest are tallied as atoms but pair with nothing, and the
+	// skipped cells are counted and reported (SkippedPairs).
+	maxPairsPerSelection = 50_000
 )
 
 // pairKey identifies an unordered atom pair. Ordering the two ids on insert is
@@ -107,6 +116,12 @@ type CoUseRecorder struct {
 	refusedAtoms   int
 	atomsTruncated bool
 
+	// pairLimit is maxPairsPerSelection, a field for the same reason as
+	// atomLimit. skippedPairs counts the pair cells selections past it did
+	// not enumerate.
+	pairLimit    int
+	skippedPairs int
+
 	catState
 	logState
 }
@@ -118,6 +133,7 @@ func NewCoUseRecorder() *CoUseRecorder {
 		pairs:     make(map[pairKey]*counts),
 		pending:   make(map[string][][]string),
 		atomLimit: maxTrackedAtoms,
+		pairLimit: maxPairsPerSelection,
 	}
 }
 
@@ -240,8 +256,16 @@ func (r *CoUseRecorder) foldLocked(atoms []string, outcome Outcome) {
 		admitted = append(admitted, id)
 	}
 
-	for i := 0; i < len(admitted); i++ {
-		for j := i + 1; j < len(admitted); j++ {
+	// The pairing prefix: the most leading atoms whose cells fit the
+	// per-selection bound; the cells it leaves out are counted.
+	paired := len(admitted)
+	for paired*(paired-1)/2 > r.pairLimit {
+		paired--
+	}
+	n := len(admitted)
+	r.skippedPairs += n*(n-1)/2 - paired*(paired-1)/2
+	for i := 0; i < paired; i++ {
+		for j := i + 1; j < paired; j++ {
 			key := makePairKey(admitted[i], admitted[j])
 			c, ok := r.pairs[key]
 			if !ok {

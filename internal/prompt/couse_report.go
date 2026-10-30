@@ -118,6 +118,10 @@ type CoUseReport struct {
 	// still count, so shares of admitted atoms keep the full denominator.
 	AtomsTruncated          bool `json:"atoms_truncated"`
 	RefusedAtomObservations int  `json:"refused_atom_observations"`
+	// SkippedPairs counts the pair cells of selections larger than the
+	// per-selection pair bound that were not enumerated: their trailing
+	// atoms were tallied but paired with nothing.
+	SkippedPairs int `json:"skipped_pairs"`
 
 	Atoms      []AtomStat `json:"atoms"`
 	Ubiquitous []string   `json:"ubiquitous"`
@@ -174,6 +178,7 @@ func (r *CoUseRecorder) Report(params CoUseParams, lookup CategoryLookup) CoUseR
 	truncated := r.truncated
 	atomsTruncated := r.atomsTruncated
 	refused := r.refusedAtoms
+	skipped := r.skippedPairs
 	r.mu.Unlock()
 	r.catMu.RLock()
 	atomsTruncated = atomsTruncated || r.categoriesTruncated
@@ -192,6 +197,7 @@ func (r *CoUseRecorder) Report(params CoUseParams, lookup CategoryLookup) CoUseR
 
 		AtomsTruncated:          atomsTruncated,
 		RefusedAtomObservations: refused,
+		SkippedPairs:            skipped,
 	}
 
 	if successSelections == 0 {

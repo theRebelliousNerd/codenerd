@@ -51,3 +51,28 @@ func TestCoUseRecorderBoundsResidentAtomsAndCategories(t *testing.T) {
 		}
 	}
 }
+
+// The pair loop was quadratic in a selection's atoms with no bound of its
+// own, under the mutex every compile's Observe takes. A selection past the
+// per-selection pair bound now pairs its leading atoms only, tallies every
+// atom, and the report counts the cells it skipped.
+func TestCoUseRecorderBoundsPairsPerSelection(t *testing.T) {
+	r := NewCoUseRecorder()
+	r.pairLimit = 10 // five atoms pair fully (10 cells); a sixth would make 15
+	var atoms []*PromptAtom
+	for i := 0; i < 8; i++ {
+		atoms = append(atoms, NewPromptAtom(fmt.Sprintf("flesh/a%d", i), CategoryDomain, "x"))
+	}
+	r.ObserveAtoms("turn", atoms)
+	r.Settle("turn", OutcomeSuccess)
+
+	r.mu.Lock()
+	tallied, pairs, skipped := len(r.atoms), len(r.pairs), r.skippedPairs
+	r.mu.Unlock()
+	if tallied != 8 || pairs != 10 || skipped != 28-10 {
+		t.Fatalf("atoms=%d pairs=%d skipped=%d; want 8 tallied, 10 pairs, 18 skipped", tallied, pairs, skipped)
+	}
+	if rep := r.Report(CoUseParams{MinSupport: 1, UbiquityThreshold: 2}, r.Categories()); rep.SkippedPairs != 18 {
+		t.Fatalf("the report does not disclose the skipped pairs: %d", rep.SkippedPairs)
+	}
+}
