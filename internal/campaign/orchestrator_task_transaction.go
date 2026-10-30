@@ -760,6 +760,13 @@ func cloneCampaign(src *Campaign) (*Campaign, error) {
 	if err := json.Unmarshal(raw, &cloned); err != nil {
 		return nil, err
 	}
+	if src.Acceptance != nil && src.Acceptance.runtime != nil {
+		runtime := *src.Acceptance.runtime
+		runtime.env = cloneStringMap(runtime.env)
+		runtime.command = append([]string(nil), runtime.command...)
+		runtime.okExits = append([]int(nil), runtime.okExits...)
+		cloned.Acceptance.runtime = &runtime
+	}
 	return &cloned, nil
 }
 

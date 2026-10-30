@@ -38,3 +38,18 @@ func TestAcceptanceRun_DoesNotSatisfyTestRunLog(t *testing.T) {
 		t.Fatalf("acceptance runs = %+v, want the one recorded run", got)
 	}
 }
+
+func TestAcceptanceRun_LogFreezesInvocationRule(t *testing.T) {
+	ctx, runs := WithAcceptanceRunLog(context.Background())
+	run := AcceptanceRun{Argv: []string{"checker"}, OKExitCodes: []int{0, 3}, ExitCode: 3}
+	RecordAcceptanceRun(ctx, run)
+	run.Argv[0], run.OKExitCodes[1] = "changed", 9
+	got := runs()
+	if got[0].Argv[0] != "checker" || got[0].OKExitCodes[1] != 3 {
+		t.Fatal("receipt aliases the producer")
+	}
+	got[0].Argv[0], got[0].OKExitCodes[1] = "changed", 9
+	if runs()[0].Argv[0] != "checker" || runs()[0].OKExitCodes[1] != 3 {
+		t.Fatal("receipt exposes its storage")
+	}
+}

@@ -148,3 +148,31 @@ the attempt the ratchet runs the witness itself (`gates.RunWitness`), measures t
 packages, compares against `Snapshot.RestrictTo` of the baseline, and on keep lays the result over the baseline
 (`Snapshot.Overlay`). Campaign tasks consult shard agents only through the session executor (`expert_spawn`);
 `orchestrator_experts.go` records the selection as events (`specialist_executes`, `specialist_consulted`).
+
+## Recurse gate continuity and candidate admission
+
+A measured workspace finding attributed to a node must reach the recurse policy
+with its original gate identity. Kind and language classify checks; they do not
+prove that a node measurement subsumes a workspace obligation. Until a producer
+supplies a coverage witness, keep both findings independently eligible. Existing
+stall, refusal, ranking and ratchet rules continue to apply. This deliberately
+trades possible duplicate remediation for complete admission of independent work.
+
+The attempt's admitted command, passing exits and declared environment must reach
+both campaign acceptance and task `run_check`. Copy mutable inputs at each handoff.
+Environment values are runtime configuration, excluded from attempt JSON, mission
+requests, campaign snapshots and kernel facts. Runtime contracts bind the workspace;
+a restored recurse campaign whose contract is unavailable must stop before execution,
+including legacy snapshots, rather than substitute an empty environment. In-process
+campaign clones retain a private copy. Start a new measured recurse invocation to
+obtain a fresh contract; old observations are never relabeled with a new declaration.
+
+Task receipts retain the actual exit and the pass set used by that invocation.
+The kernel derives pass membership for each receipt; the latest receipt after the
+last write settles `/check`, and progress uses that same derived membership. Omitted
+exit lists retain zero-only behavior. An execution error cannot mint a pass. Test
+coverage, permissions, campaign risk preflight and outer ratchet remain independent.
+
+Implementation and authored regression evidence are indexed in the As built
+sections of `Docs/audits/recurse-gate-contract-continuity.md` and
+`Docs/audits/recurse-gate-subsumption.md`. Runtime verification remains required.

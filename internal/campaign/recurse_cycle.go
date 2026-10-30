@@ -59,6 +59,8 @@ type RecurseAttempt struct {
 	// witness: a gate whose pass is not only exit 0 (pytest exits 5 when it
 	// collected no tests) must not be remediated for passing.
 	OKExitCodes []int
+	// CheckEnv is trusted runtime configuration, never mission/model JSON.
+	CheckEnv map[string]string `json:"-"`
 	// Angle is an improvement attempt's angle ("stabilize", "harden",
 	// "simplify", "extend"); "" for a fix. An improvement has no Finding.
 	Angle string
@@ -757,18 +759,16 @@ func nodeGates(set gates.Set, node SubsystemNode) []gates.Gate {
 	return out
 }
 
-// open is what the visit can attempt: the node's own gates' findings, and the
-// workspace gates' findings attributed to it -- except a workspace gate that a
-// per-node gate of its kind and language already measures (`go test ./...`
-// beside `go test {pkg}`). Those failures are the per-node gate's to attempt.
-// Such a gate still runs at every pass boundary and in the ratchet.
+// open forwards every measured finding attributed to this node. Kind and
+// language do not establish coverage: independent commands keep independent
+// identities, and the kernel decides which eligible finding to attempt.
 func (r *recurseRun) open(node SubsystemNode, own []gates.Gate, set gates.Set) []gates.Finding {
 	var out []gates.Finding
 	for _, g := range own {
 		out = append(out, r.state[gateKey(g.ID, node.ID)].findings...)
 	}
 	for _, g := range set.Gates {
-		if g.Scope != gates.ScopeAll || measuredPerNode(set, g) {
+		if g.Scope != gates.ScopeAll {
 			continue
 		}
 		for _, f := range r.state[gateKey(g.ID, "")].findings {
@@ -784,17 +784,6 @@ func (r *recurseRun) open(node SubsystemNode, own []gates.Gate, set gates.Set) [
 	}
 	gates.SortFindings(out)
 	return out
-}
-
-// measuredPerNode reports whether a node-scoped gate of g's kind and language
-// exists in set.
-func measuredPerNode(set gates.Set, g gates.Gate) bool {
-	for _, other := range set.Gates {
-		if other.Scope == gates.ScopeNode && other.Kind == g.Kind && other.Language == g.Language {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *recurseRun) regressions(open []gates.Finding) map[string]bool {
@@ -903,6 +892,7 @@ type attemptSpec struct {
 	evidence  string
 	check     []string
 	okExit    []int
+	checkEnv  map[string]string
 	targetKey string
 	angle     string
 	describe  string
@@ -933,8 +923,9 @@ func (r *recurseRun) attempt(ctx context.Context, v visitScope, id string, open 
 	return r.run(ctx, v, attemptSpec{
 		finding:   &target,
 		evidence:  source.result.Output,
-		check:     source.result.Argv,
+		check:     append([]string(nil), source.result.Argv...),
 		okExit:    append([]int(nil), source.result.Gate.OKExitCodes...),
+		checkEnv:  cloneStringMap(source.result.Gate.Env),
 		targetKey: gateKey(target.Gate, sourceNode(target, v.node, v.set)),
 		describe:  fmt.Sprintf("%s (%s)", target.Message, target.Gate),
 		subject:   fmt.Sprintf("recurse: %s: %s", v.node.ID, oneLine(target.Message)),
@@ -994,8 +985,9 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) (r
 	r.logf("recurse cycle %d: %s: %s", cycle, node.ID, spec.describe)
 
 	a := RecurseAttempt{
-		Pass: v.pass, Cycle: cycle, Node: node, Evidence: spec.evidence, Check: spec.check,
-		OKExitCodes: spec.okExit,
+		Pass: v.pass, Cycle: cycle, Node: node, Evidence: spec.evidence, Check: append([]string(nil), spec.check...),
+		OKExitCodes: append([]int(nil), spec.okExit...),
+		CheckEnv:    cloneStringMap(spec.checkEnv),
 		Angle:       spec.angle, Metrics: before, NorthStar: r.northStar(node),
 		Prior: r.prior[priorKey(findingID, node.ID, spec.angle)],
 	}

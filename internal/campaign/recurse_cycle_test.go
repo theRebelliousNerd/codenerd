@@ -510,10 +510,8 @@ func TestRecurseCycles_SimplifyKeepsFewerLinesButNeverFewerTests(t *testing.T) {
 	}
 }
 
-// A whole-tree gate that a per-node gate of its kind and language already
-// measures is not attempted again from the whole-tree run; one of another
-// language, or a kind no node gate measures, still is.
-func TestRecurseOpen_SkipsWholeTreeRepeatsOfPerNodeGates(t *testing.T) {
+// Classification never establishes coverage, even for the same language.
+func TestRecurseOpen_RetainsIndependentWorkspaceGates(t *testing.T) {
 	set := gates.Set{Gates: []gates.Gate{
 		{ID: "go-test", Kind: gates.Test, Scope: gates.ScopeNode, Language: "go"},
 		{ID: "test-all", Kind: gates.Test, Scope: gates.ScopeAll, Language: "go"},
@@ -532,7 +530,7 @@ func TestRecurseOpen_SkipsWholeTreeRepeatsOfPerNodeGates(t *testing.T) {
 	for _, fd := range r.open(SubsystemNode{ID: RecurseWiringNodeID, CrossCutting: true}, nil, set) {
 		got = append(got, fd.ID)
 	}
-	if want := []string{"dead", "js"}; !slices.Equal(got, want) {
+	if want := []string{"dead", "dup", "js"}; !slices.Equal(got, want) {
 		t.Fatalf("open = %v, want %v", got, want)
 	}
 }

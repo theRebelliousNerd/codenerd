@@ -100,8 +100,14 @@ func RecurseAttemptCampaign(workspace string, a RecurseAttempt) *Campaign {
 	// engine appends rounds beside the command.
 	if len(a.Check) > 0 {
 		c.Acceptance = &Acceptance{
-			Command:     append([]string(nil), a.Check...),
-			OKExitCodes: append([]int(nil), a.OKExitCodes...),
+			Command:         append([]string(nil), a.Check...),
+			OKExitCodes:     append([]int(nil), a.OKExitCodes...),
+			RuntimeContract: true,
+			GateID:          a.Finding.Gate,
+			runtime: &acceptanceRuntime{
+				workspace: workspace, gateID: a.Finding.Gate, env: cloneStringMap(a.CheckEnv),
+				command: append([]string(nil), a.Check...), okExits: append([]int(nil), a.OKExitCodes...),
+			},
 		}
 	}
 	c.Phases = []Phase{{

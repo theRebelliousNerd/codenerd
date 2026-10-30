@@ -3,6 +3,8 @@ package shell
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -189,6 +191,78 @@ func TestExecuteRunCheck_CouldNotRunIsAnErrorWithNoReceipt(t *testing.T) {
 	}
 	if got := runs(); len(got) != 0 {
 		t.Fatalf("a check that never started recorded %v", got)
+	}
+}
+
+func TestExecuteRunCheck_UsesOnlyItsBoundContract(t *testing.T) {
+	root := t.TempDir()
+	stub := &stubCheckExecutor{res: &tactile.ExecutionResult{ExitCode: 3}}
+	withCheckExecutor(t, stub)
+	ctx, runs := tools.WithAcceptanceRunLog(tools.WithWorkspaceRoot(context.Background(), root))
+	ctx = tools.WithCampaignCheck(ctx, tools.CampaignCheck{Argv: []string{"checker"},
+		Workspace: root, Environment: []string{"CHECK_PROFILE=strict"}, OKExitCodes: []int{0, 3}})
+	raw, err := RunCheckTool().Execute(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := decodeCheckResult(t, raw); got.ExitCode != 3 {
+		t.Fatalf("raw exit = %d", got.ExitCode)
+	}
+	if strings.Contains(raw, "CHECK_PROFILE") {
+		t.Fatal("response exposed declared environment")
+	}
+	if got := stub.recorded(); len(got) != 1 || !slices.Equal(got[0].Environment, []string{"CHECK_PROFILE=strict"}) {
+		t.Fatal("executor lost the declared overlay")
+	}
+	if got := runs(); len(got) != 1 || !slices.Equal(got[0].OKExitCodes, []int{0, 3}) || got[0].ExecutionFailed {
+		t.Fatalf("receipt = %+v", got)
+	}
+
+	other := tools.WithWorkspaceRoot(ctx, t.TempDir())
+	if _, err := RunCheckTool().Execute(other, nil); err == nil {
+		t.Fatal("contract executed in another workspace")
+	}
+	if len(stub.recorded()) != 1 || len(runs()) != 1 {
+		t.Fatal("workspace refusal executed or minted evidence")
+	}
+}
+
+func TestExecuteRunCheck_NoResultAndExecutionErrorsCannotPass(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		res  *tactile.ExecutionResult
+		err  error
+	}{
+		{"no result", nil, nil},
+		{"result with execution error", &tactile.ExecutionResult{ExitCode: 0}, errors.New("execution failed")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withCheckExecutor(t, &stubCheckExecutor{res: tc.res, err: tc.err})
+			ctx, runs := checkCtx(t, "checker")
+			if _, err := RunCheckTool().Execute(ctx, nil); err == nil {
+				t.Fatal("failed execution returned success")
+			}
+			if tc.res == nil {
+				if len(runs()) != 0 {
+					t.Fatal("execution without a result minted a receipt")
+				}
+			} else if got := runs(); len(got) != 1 || !got[0].ExecutionFailed || got[0].ExitCode != 0 {
+				t.Fatalf("execution failure lost its raw observation: %+v", got)
+			}
+		})
+	}
+}
+
+func TestExecuteRunCheck_CancellationMarksReturnedObservationUnverified(t *testing.T) {
+	withCheckExecutor(t, &stubCheckExecutor{res: &tactile.ExecutionResult{ExitCode: 0}})
+	ctx, runs := checkCtx(t, "checker")
+	ctx, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := RunCheckTool().Execute(ctx, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation = %v", err)
+	}
+	if got := runs(); len(got) != 1 || !got[0].ExecutionFailed {
+		t.Fatalf("canceled observation could pass: %+v", got)
 	}
 }
 

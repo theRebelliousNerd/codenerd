@@ -136,3 +136,12 @@ Integrators outside tools (init, campaign) typically import helpers, not Registe
 | `(*VirtualStore).RegisterModularTool` | core |
 | `(*Executor).executeToolCall` | session (unexported) |
 | `EffectiveAgentRuntimeConfig.AllowedTools` | jit/config |
+
+## Host-owned campaign checks
+
+`tools.CampaignCheck` carries immutable argv, passing exit codes, workspace identity
+and a runtime-only declared environment. Context insertion and extraction copy
+mutable inputs. `run_check` accepts no model overrides and uses the tactile executor
+with command-specific environment overrides. `AcceptanceRun` retains raw exits and
+that invocation's pass set, separately from test-coverage evidence. Environment
+values are excluded from JSON and receipts.

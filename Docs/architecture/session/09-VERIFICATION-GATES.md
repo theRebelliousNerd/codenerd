@@ -280,3 +280,11 @@ Execution order inside `runToolLoop` (verified in `internal/session/executor_too
 - `internal/session/critic.go` — `CriticFinding`, `buildCriticPrompt`, `parseCriticFindings`, `findingsWorthUplift`, `CriticSeverityRank`, `readWrittenFilesForReview`, `formatUpliftPrompt`
 - `internal/session/executor.go` — `ExecutorConfig`, `ExecutionResult`, `DefaultExecutorConfig`
 - `internal/session/executor_tools.go` — `runToolLoop` gate sequencing, `executeToolBatch` population of `SuccessfulWriteTools`/`WrittenPaths`
+
+## Declared check exit semantics
+
+Campaign check receipts keep their observed exit and invocation-specific allowed
+exits. Host facts project these with the turn sequence. Mangle derives membership,
+then applies the existing latest-after-final-write rule for `/check`. Missing exit
+lists mean zero only; execution errors cannot pass. Live check progress reads the
+same receipt judgment. Check passes never satisfy test execution or coverage gates.

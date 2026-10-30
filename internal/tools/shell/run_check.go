@@ -95,6 +95,12 @@ func executeRunCheck(ctx context.Context, args map[string]any) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if check.Workspace != "" {
+		declared, err := tools.CanonicalWorkspaceRoot(check.Workspace)
+		if err != nil || declared != root {
+			return "", fmt.Errorf("campaign acceptance workspace differs from this turn")
+		}
+	}
 	argv := append([]string(nil), check.Argv...)
 	logging.ToolsDebug("run_check: argv=%v, dir=%s", argv, root)
 
@@ -104,11 +110,13 @@ func executeRunCheck(ctx context.Context, args map[string]any) (string, error) {
 		Binary:           argv[0],
 		Arguments:        argv[1:],
 		WorkingDirectory: root,
+		Environment:      append([]string(nil), check.Environment...),
 	})
 	output, exitCode := "", -1
 	if res != nil {
 		output, exitCode = res.Output(), res.ExitCode
-		tools.RecordAcceptanceRun(ctx, tools.AcceptanceRun{Argv: argv, ExitCode: exitCode})
+		tools.RecordAcceptanceRun(ctx, tools.AcceptanceRun{Argv: argv, ExitCode: exitCode,
+			OKExitCodes: check.OKExitCodes, ExecutionFailed: execErr != nil || ctx.Err() != nil})
 	}
 
 	// The output is returned whole. A check log is exactly the kind of
@@ -122,6 +130,9 @@ func executeRunCheck(ctx context.Context, args map[string]any) (string, error) {
 	}{argv, root, exitCode, output})
 	if ctx.Err() != nil {
 		return string(data), ctx.Err()
+	}
+	if res == nil && execErr == nil {
+		execErr = fmt.Errorf("executor returned no result")
 	}
 	if execErr != nil {
 		// A command that could not run is reported as one: a witness nobody

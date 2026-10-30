@@ -500,7 +500,7 @@ behavior_change_intent(/implement).
 turn_owes_gate(Turn, /pinned) :- turn_verb(Turn, Verb), behavior_change_intent(Verb), turn_write_class(Turn, /go).
 
 # A campaign turn whose context carries a declared acceptance check and that
-# wrote owes a run_check that exited 0 after its last write. The executor
+# wrote owes a passing run_check after its last write. The executor
 # asserts turn_declared_check from the check on the task context
 # (tools.CampaignCheckFrom); it does not decide who owes the gate.
 # spawnTask attaches that check to every task, including /review, and
@@ -516,12 +516,17 @@ Decl editing_persona(Persona) bound [/name].
 # last such run's exit is the gate. Probed 2026-09-29 with
 # nerd check-mangle --standalone --eval: fn:max after group_by(Turn) is the
 # greatest seq; a run at a lower seq derives no after-row; no write derives
-# no last-write and therefore no gate; exit 0 is passing and a non-zero exit
-# is failing. The seq is projected before the aggregate. A single-atom body
+# no last-write and therefore no gate. Each receipt carries its own declared
+# exit rule (zero-only when omitted); execution errors cannot pass. The seq
+# is projected before the aggregate. A single-atom body
 # may keep a wildcard through a transform on this engine, and a second atom
 # in that body would not (engine truth 020 item 7), so the wildcard form is
 # not what these rules use.
 Decl turn_check_run(Turn, Seq, ExitCode) bound [/name, /number, /number].
+Decl turn_check_ok_exit(Turn, Seq, ExitCode) bound [/name, /number, /number].
+Decl turn_check_has_exit_rule(Turn, Seq) bound [/name, /number].
+Decl turn_check_error(Turn, Seq) bound [/name, /number].
+Decl turn_check_passed(Turn, Seq) bound [/name, /number].
 Decl turn_write_seq(Turn, Seq) bound [/name, /number].
 Decl turn_test_run(Turn, Seq, ExitCode) bound [/name, /number, /number].
 Decl turn_last_write(Turn, W) bound [/name, /number].
@@ -531,6 +536,16 @@ Decl turn_last_check(Turn, M) bound [/name, /number].
 Decl turn_test_after(Turn, S, C) bound [/name, /number, /number].
 Decl turn_test_after_seq(Turn, S) bound [/name, /number].
 Decl turn_last_test_run(Turn, M) bound [/name, /number].
+
+turn_check_has_exit_rule(Turn, S) :- turn_check_ok_exit(Turn, S, _).
+turn_check_passed(Turn, S) :-
+    turn_check_run(Turn, S, C),
+    turn_check_ok_exit(Turn, S, C),
+    !turn_check_error(Turn, S).
+turn_check_passed(Turn, S) :-
+    turn_check_run(Turn, S, 0),
+    !turn_check_has_exit_rule(Turn, S),
+    !turn_check_error(Turn, S).
 
 turn_last_write(Turn, W) :-
     turn_write_seq(Turn, S) |> do fn:group_by(Turn), let W = fn:max(S).
@@ -544,11 +559,12 @@ turn_last_check(Turn, M) :-
     turn_check_after_seq(Turn, S) |> do fn:group_by(Turn), let M = fn:max(S).
 turn_gate(Turn, /check, /passing) :-
     turn_last_check(Turn, M),
-    turn_check_after(Turn, M, 0).
+    turn_check_after(Turn, M, _),
+    turn_check_passed(Turn, M).
 turn_gate(Turn, /check, /failing) :-
     turn_last_check(Turn, M),
-    turn_check_after(Turn, M, C),
-    C != 0 .
+    turn_check_after(Turn, M, _),
+    !turn_check_passed(Turn, M).
 
 turn_test_after(Turn, S, C) :-
     turn_test_run(Turn, S, C),

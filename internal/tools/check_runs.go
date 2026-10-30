@@ -12,6 +12,11 @@ import (
 type AcceptanceRun struct {
 	Argv     []string
 	ExitCode int
+	// OKExitCodes belongs to this invocation, never a later declaration.
+	OKExitCodes []int
+	// ExecutionFailed disqualifies an exit returned with an execution error
+	// or cancellation. ExitCode remains the raw observation.
+	ExecutionFailed bool
 }
 
 type acceptanceRunLogKey struct{}
@@ -28,7 +33,11 @@ func WithAcceptanceRunLog(ctx context.Context) (context.Context, func() []Accept
 	return context.WithValue(ctx, acceptanceRunLogKey{}, log), func() []AcceptanceRun {
 		log.mu.Lock()
 		defer log.mu.Unlock()
-		return append([]AcceptanceRun(nil), log.runs...)
+		out := make([]AcceptanceRun, len(log.runs))
+		for i, run := range log.runs {
+			out[i] = cloneAcceptanceRun(run)
+		}
+		return out
 	}
 }
 
@@ -41,6 +50,12 @@ func RecordAcceptanceRun(ctx context.Context, run AcceptanceRun) {
 		return
 	}
 	log.mu.Lock()
-	log.runs = append(log.runs, run)
+	log.runs = append(log.runs, cloneAcceptanceRun(run))
 	log.mu.Unlock()
+}
+
+func cloneAcceptanceRun(run AcceptanceRun) AcceptanceRun {
+	run.Argv = append([]string(nil), run.Argv...)
+	run.OKExitCodes = append([]int(nil), run.OKExitCodes...)
+	return run
 }

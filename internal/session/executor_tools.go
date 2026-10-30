@@ -1086,9 +1086,11 @@ func (e *Executor) executeAndRecordToolCall(
 	// recorded (tools.AcceptanceRun). Every one is a turn_check_run on the
 	// same clock. A run before a write stays in the receipt log; its seq is
 	// not after the last write, and the /check rule drops it.
+	checksPassed := true
 	if runs := checkRuns(); len(runs) > 0 {
 		for _, run := range runs {
-			e.noteCheckRun(result, run.ExitCode)
+			passed := e.noteCheckRun(result, run)
+			checksPassed = checksPassed && passed
 		}
 	}
 	// A family_no_change decision settles that member's review
@@ -1117,9 +1119,9 @@ func (e *Executor) executeAndRecordToolCall(
 		status = "PASS"
 		failed = failed || run.ExitCode != 0
 	}
-	for _, run := range checkRuns() {
+	if len(checkRuns()) > 0 {
 		status = "PASS"
-		failed = failed || run.ExitCode != 0
+		failed = failed || !checksPassed
 	}
 	if failed {
 		status = "FAIL"

@@ -163,6 +163,9 @@ func TestMissionDeliberationStopsBeforeEffectsForValuesUnknownSpendAndDrift(t *t
 			m.Deliberator.Explain = core.ExplainOptions{MaxProofs: e.MaxProofs, MaxDepth: e.MaxDepth, MaxNodes: e.MaxNodes, MaxEdges: e.MaxEdges, MaxBytes: e.MaxBytes}
 			m.Deliberator.Config = config.DefaultRoutingConfig()
 			m.Deliberator.RunShard = func(ctx context.Context, role string, frame deliberation.Frame) (string, error) {
+				if strings.Contains(frame.Request, "CHECK_PROFILE") || strings.Contains(frame.Request, "runtime-only-profile") {
+					t.Fatal("mission deliberation received the check environment")
+				}
 				if kind != "unknown_spend" {
 					usage.RecordFromContext(ctx, usage.Report{Model: model, Usage: types.UsageMetadata{InputTokens: 1, Known: types.UsageTokens}})
 				}
@@ -191,7 +194,7 @@ func TestMissionDeliberationStopsBeforeEffectsForValuesUnknownSpendAndDrift(t *t
 				b, err := json.Marshal(answer)
 				return string(b), err
 			}
-			a := RecurseAttempt{Cycle: 1, Node: SubsystemNode{ID: ".", Paths: []string{"."}}}
+			a := RecurseAttempt{Cycle: 1, Node: SubsystemNode{ID: ".", Paths: []string{"."}}, CheckEnv: map[string]string{"CHECK_PROFILE": "runtime-only-profile"}}
 			err := m.prepare(ctx, &a)
 			if err != errMissionStopped || m.State.Status != "/"+kind || a.Mission != nil {
 				t.Fatalf("unexpected admission: %v %+v", err, m.State)
@@ -201,6 +204,13 @@ func TestMissionDeliberationStopsBeforeEffectsForValuesUnknownSpendAndDrift(t *t
 			}
 			if m.State.Pending != nil || len(m.State.Receipts) != 1 {
 				t.Fatalf("unexecuted design not receipted: %+v", m.State)
+			}
+			state, err := os.ReadFile(m.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(state), "CHECK_PROFILE") || strings.Contains(string(state), "runtime-only-profile") {
+				t.Fatal("mission state persisted the check environment")
 			}
 			if kind == "values" && (m.State.Question == "" || len(m.State.Options) != 2) {
 				t.Fatalf("values question lost: %+v", m.State)

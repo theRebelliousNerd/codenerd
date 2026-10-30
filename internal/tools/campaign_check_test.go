@@ -53,3 +53,20 @@ func TestCampaignCheckFrom_EmptyArgvIsNoCheck(t *testing.T) {
 		}
 	}
 }
+
+func TestCampaignCheck_ContractCopiesOnBothBoundaries(t *testing.T) {
+	check := CampaignCheck{Argv: []string{"checker"}, OKExitCodes: []int{0, 3}, Environment: []string{"CHECK_PROFILE=strict"}}
+	ctx := WithCampaignCheck(context.Background(), check)
+	check.OKExitCodes[1] = 9
+	check.Environment[0] = "CHECK_PROFILE=changed"
+	got, _ := CampaignCheckFrom(ctx)
+	if got.OKExitCodes[1] != 3 || got.Environment[0] != "CHECK_PROFILE=strict" {
+		t.Fatal("context aliases its input")
+	}
+	got.OKExitCodes[1] = 9
+	got.Environment[0] = "CHECK_PROFILE=changed"
+	again, _ := CampaignCheckFrom(ctx)
+	if again.OKExitCodes[1] != 3 || again.Environment[0] != "CHECK_PROFILE=strict" {
+		t.Fatal("context exposes its storage")
+	}
+}

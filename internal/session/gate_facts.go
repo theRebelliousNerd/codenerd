@@ -688,16 +688,42 @@ func (e *Executor) noteTestRun(result *ExecutionResult, run tools.TestRun) {
 	})
 }
 
-// noteCheckRun records one run_check on the same clock.
-func (e *Executor) noteCheckRun(result *ExecutionResult, exitCode int) {
+// noteCheckRun records raw execution and that invocation's pass rule on the
+// same clock. Its return value is the kernel's receipt verdict for progress;
+// /check separately requires the latest receipt after the final write.
+func (e *Executor) noteCheckRun(result *ExecutionResult, run tools.AcceptanceRun) bool {
 	if e == nil || e.kernel == nil || result == nil {
-		return
+		return false
 	}
 	result.gateSeq++
-	e.assertTurnFact(types.Fact{
-		Predicate: "turn_check_run",
-		Args:      []any{result.turnAtom(), int64(result.gateSeq), int64(exitCode)},
-	})
+	turn, seq := result.turnAtom(), int64(result.gateSeq)
+	for _, code := range run.OKExitCodes {
+		if !e.assertTurnFact(types.Fact{Predicate: "turn_check_ok_exit", Args: []any{turn, seq, int64(code)}}) {
+			return false
+		}
+	}
+	if run.ExecutionFailed {
+		if !e.assertTurnFact(types.Fact{Predicate: "turn_check_error", Args: []any{turn, seq}}) {
+			return false
+		}
+	}
+	if !e.assertTurnFact(types.Fact{Predicate: "turn_check_run", Args: []any{turn, seq, int64(run.ExitCode)}}) {
+		return false
+	}
+	rows, err := e.kernel.Query("turn_check_passed")
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("check receipt verdict unavailable: %v", err)
+		return false
+	}
+	for _, row := range rows {
+		if len(row.Args) != 2 || types.ExtractString(row.Args[0]) != string(turn) {
+			continue
+		}
+		if value, ok := types.ExtractInt64(row.Args[1]); ok && value == seq {
+			return true
+		}
+	}
+	return false
 }
 
 // noteFamilyDecision asserts the model's recorded no-change decision for one

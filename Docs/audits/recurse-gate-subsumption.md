@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: campaign
-implementation-status: proposed
+implementation-status: implemented
 evidence-status: source-only
 last-verified: 2026-10-30
 verified-against: fa6877b932322bb6ca75826289366836d442c051
@@ -10,6 +10,10 @@ supersedes: []
 ---
 
 # Recurse gate deduplication needs evidence of subsumption
+
+The findings below describe the pinned baseline. The current conservative
+correction and source-based ruling are recorded in **As built**; runtime
+verification is pending.
 
 ## Conclusion and boundary
 
@@ -150,3 +154,37 @@ The current `recurse-gate-contract-continuity` proposal concerns environment and
 [ratchet-policy]: https://github.com/theRebelliousNerd/codenerd/blob/fa6877b932322bb6ca75826289366836d442c051/internal/core/defaults/policy/recurse.mg#L257-L329
 [guidance]: https://github.com/theRebelliousNerd/codenerd/blob/fa6877b932322bb6ca75826289366836d442c051/agents.md
 [queue]: https://github.com/theRebelliousNerd/codenerd/blob/fa6877b932322bb6ca75826289366836d442c051/Docs/audits/ASTRA_QUEUE.md
+
+## As built
+
+**Ruling: real; repaired by conservative admission.** The interrupted changes
+already removed `measuredPerNode` and its kind/language filter from
+`internal/campaign/recurse_cycle.go`. Current source confirms there is no
+producer-supported subsumption witness to justify that exclusion. `open` now
+forwards every measured finding attributed to the visited node, preserving its
+gate and finding IDs. `recursePolicy.visit` projects those identities to the
+existing candidate, refusal, stall and ranking rules. The measurement ledger,
+`openCount`, unavailable-gate partition and ratchet are unchanged.
+
+The stronger proposed coverage mechanism is not required for this correction.
+Known-looking repeats remain independently eligible until coverage is proved;
+this can cost duplicate remediation. Adding a producer-specific equivalence
+model without a grounded producer would recreate the unsupported assumption.
+No gate is declared equivalent from argv, kind, language or a model assertion.
+
+Authored coverage is `TestRecurseSelection_IndependentWorkspaceCheckReachesPolicy`
+in `internal/campaign/recurse_gate_subsumption_test.go`: valid `nerd.md`, actual
+Go checks, integration failure extraction/attribution, `open`, policy projection
+and `recurse_next`. It also checks that projection leaves the measurement count
+unchanged. `TestRecurseOpen_RetainsIndependentWorkspaceGates` in
+`recurse_cycle_test.go` replaces the old intentional-exclusion expectation.
+The shared recurse driver serves CLI, chat and mission loops. Its as-built
+contract is in `Docs/architecture/campaign/INTERNALS.md`.
+
+Fail-before reasoning is source-based: the witness's workspace test and passing
+node unit gate both classify as test/go, so the removed filter skipped the
+workspace result before `recursePolicy.visit`. The new test requires its exact
+finding to reach `recurse_next`. No failing-before or passing-after execution
+is claimed: this session was restricted to authoring. Owning-package, defaults
+and shard verification remain pending with the root verifier. There is no
+measured claim about duplicate-work cost or eventual model outcomes.

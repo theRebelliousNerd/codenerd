@@ -342,6 +342,7 @@ var hostWitnessPredicates = map[string]struct{}{
 	// that is offered the tool; one that could write turn_catalog could
 	// put a tool on a turn's envelope directly. turn_check_run is the
 	// host's receipt, not the model's.
+	"turn_check_ok_exit": {}, "turn_check_has_exit_rule": {}, "turn_check_error": {}, "turn_check_passed": {},
 	"turn_declared_check": {}, "turn_check_run": {}, "editing_persona": {}, "turn_catalog": {},
 	// Measurements the three moved gates are derived from (coder_safety.mg).
 	// A model that could write them could mint a passing /test, /vet, /check

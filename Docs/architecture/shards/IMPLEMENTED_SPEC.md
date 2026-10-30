@@ -495,3 +495,10 @@ standing shard-join and starved/unconsumed inventories remain acceptance gates;
 no new exemption or widened baseline is part of this addition. The companion
 [session specification](../session/IMPLEMENTED_SPEC.md#internal-deliberation-and-request-continuations-2026-10-30)
 records lifecycle, bounds, persistence and UI behavior.
+
+## Campaign check receipt joins
+
+The world shard owns the raw check receipts, allowed exit rows, execution-error
+rows and their derived receipt judgments together with the existing turn check
+gate. Registration must preserve the full membership/negation join locally.
+Authored changes still require the standing shard-join and defaults audits.

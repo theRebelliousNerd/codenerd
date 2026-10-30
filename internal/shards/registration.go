@@ -198,6 +198,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// with turn_verb here; a catch-all home would split the join
 				// and the gate would never fire.
 				"turn_declared_check", "turn_check_run",
+				"turn_check_ok_exit", "turn_check_has_exit_rule", "turn_check_error", "turn_check_passed",
 				// The turn's own report admitting unfinished work
 				// (session/admission_audit.go), negated by turn_verified,
 				// and Jev's reading of it with the push-back's idle mark

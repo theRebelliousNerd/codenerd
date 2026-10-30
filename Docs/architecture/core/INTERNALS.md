@@ -228,3 +228,10 @@ reload from the canonical inventory.
 Publication performs no fallible work. Rejections retain the prior programs,
 stores and map. Temporary candidate stores and a quiescent pause are deliberate
 costs of this opt-in development feature; latency and memory remain unmeasured.
+
+## Campaign check receipt authority
+
+`coder_safety.mg` judges each raw check exit against the host-supplied exit set for
+that exact turn and sequence, defaulting to zero when omitted. These facts and
+conclusions are protected host witnesses. Their shard home is the same world
+shard as `turn_check_run` and `turn_gate`; model updates cannot widen the pass set.

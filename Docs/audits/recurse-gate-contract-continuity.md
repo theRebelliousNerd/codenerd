@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: campaign
-implementation-status: proposed
+implementation-status: implemented
 evidence-status: source-only
 last-verified: 2026-10-30
 verified-against: fef98230c20a5751e4c32a2fd2757832a9d39cdc
@@ -10,6 +10,9 @@ supersedes: []
 ---
 
 # Recurse gate contracts must survive the acceptance handoff
+
+The findings below describe the pinned baseline. The current implementation and
+source-based rulings are recorded in **As built**; runtime verification is pending.
 
 ## Conclusion and boundary
 
@@ -176,3 +179,50 @@ Acceptance is one production-route witness for each independently lost field, ne
 [session-tests]: https://github.com/theRebelliousNerd/codenerd/blob/fef98230c20a5751e4c32a2fd2757832a9d39cdc/internal/session/turn_check_test.go#L219-L352
 [tool-tests]: https://github.com/theRebelliousNerd/codenerd/blob/fef98230c20a5751e4c32a2fd2757832a9d39cdc/internal/tools/shell/run_check_test.go#L99-L212
 
+
+## As built
+
+Rulings against the current source:
+
+| Finding or boundary | Ruling | Current implementation |
+|---|---|---|
+| Declared environment disappears between gate and attempt | Real; repaired | `internal/campaign/recurse_cycle.go` copies the reporting gate's environment into runtime-only `RecurseAttempt.CheckEnv`. |
+| Campaign round and task omit the environment | Real; repaired | `recurse_attempt.go`, `acceptance_runtime.go`, `orchestrator_acceptance.go` and `orchestrator_task_handlers.go` carry a private workspace-bound contract into tactile execution. |
+| Task receipts, `/check`, and live progress assume zero | Real; repaired | `internal/tools/{campaign_check,check_runs}.go`, `internal/tools/shell/run_check.go`, `internal/session/{gate_facts,executor_tools}.go` and `internal/core/defaults/policy/coder_safety.mg` preserve the raw exit and derive invocation-specific membership. |
+| Campaign acceptance already preserves declared passing exits | Already correct before this change | `runAcceptanceRound` already used `gates.Gate.Passed`; `TestAcceptance_AGateOKExitIsAPass` covers that existing contract. |
+| Either defect proves false outer adoption or bypassed risk preflight | Not established, as the audit correctly limits | `recurse_cycle.go` still remeasures and obeys the ratchet. `risk_gate_contract.go` and its hard/soft classification are unchanged. |
+
+The private acceptance descriptor binds the gate ID, argv, pass set and workspace
+alongside a copied environment. Context insertion/extraction and receipt storage
+copy mutable inputs. `cloneCampaign` preserves a separate runtime contract for
+in-process transactions. Environment values are excluded from attempt JSON,
+mission deliberation requests, mission receipts, campaign snapshots and kernel
+facts; tactile's existing audit redaction handles the execution environment.
+The same shared `RecurseAttemptCampaign` adapter is called by CLI and chat,
+including mission attempts. No prompt atom content changed.
+
+Restored recurse checks, including legacy snapshots without the marker, stop at
+`Orchestrator.Run`, task admission and acceptance settlement when the private
+contract is unavailable. A new measured recurse invocation is required; today's
+declaration is never attached to an old receipt. In-memory changes to gate ID,
+argv or exits, and a different workspace, also refuse execution. Improvements
+without a declared check retain their existing behavior.
+
+Authored regression coverage:
+
+- `internal/campaign/recurse_contract_continuity_test.go`: `TestRecurseContract_EnvironmentAndExitsReachTaskAndAcceptance` drives actual declarations, gate execution, recurse selection/callback, task handoff, tactile execution, campaign acceptance and the outer ratchet. Separate subcases isolate environment loss, nonzero exits and their combination. Restored/legacy and changed-contract tests cover early rejection.
+- `internal/session/turn_check_contract_test.go`: real `run_check` dispatch, receipt ingestion, shipped policy and live progress; declared exit 3, genuine failure, omitted-rule defaults, execution error, final-write freshness, invocation/turn isolation and model-update protection.
+- `internal/shards/turn_check_contract_test.go`: production manifest and complete corpus parity between Cortex and a single kernel, including membership, negation, later receipts and the independent test gate. New predicates are homed beside `turn_check_run` and `turn_gate` in the world shard (`internal/shards/registration.go`).
+- `internal/tools/shell/run_check_test.go`: bound environment, raw exit, workspace refusal, no-result/error and cancellation controls. `campaign_check_test.go` and `check_runs_test.go` cover copying on both handoff boundaries.
+- `TestMissionDeliberationStopsBeforeEffectsForValuesUnknownSpendAndDrift` in `internal/campaign/recurse_mission_policy_test.go` now checks that the actual deliberation frame and persisted mission state omit the runtime environment.
+
+Fail-before evidence is **source-based only**: the pre-change attempt omitted the
+environment, `CampaignCheck` and `AcceptanceRun` omitted allowed exits, the policy
+rejected exit 3, and progress classified that receipt as FAIL. The positive
+fixtures assert the opposite at those production boundaries. No failing-before
+or passing-after run is claimed. Builds, tests and engine execution were
+explicitly excluded from this authoring session. The scaffolded lab verdict,
+owning-package tests, defaults inventories and shard-join checks remain for the
+root verifier; no baseline exemptions were added. The as-built specification is
+in `Docs/architecture/campaign/INTERNALS.md` and the affected core, session,
+shards and tools corpora.

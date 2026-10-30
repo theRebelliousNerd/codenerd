@@ -37,8 +37,11 @@ func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input 
 		phase = o.campaign.PromptPhase
 		mission = o.campaign.Mission
 	}
+	_, contractErr := o.acceptanceEnvironmentLocked()
 	o.mu.RUnlock()
-
+	if contractErr != nil {
+		return "", contractErr
+	}
 	if te == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
@@ -67,7 +70,11 @@ func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input 
 		// The campaign's acceptance command rides the turn's context to the
 		// run_check tool, so the turn can run the judge the campaign will
 		// run after it instead of paying a whole acceptance round per try.
-		if check, ok := o.campaignCheck(task); ok {
+		check, ok, err := o.campaignCheck(task)
+		if err != nil {
+			return "", err
+		}
+		if ok {
 			ctx = tools.WithCampaignCheck(ctx, check)
 		}
 		// The shard agents the task's file needs (orchestrator_experts.go):
@@ -116,20 +123,27 @@ func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input 
 // itself through the run_check tool, when the campaign declares one. The
 // guard is the same one settleAcceptance uses: no declared command, no check
 // on the context, and the tool fails closed.
-func (o *Orchestrator) campaignCheck(task *Task) (tools.CampaignCheck, bool) {
+func (o *Orchestrator) campaignCheck(task *Task) (tools.CampaignCheck, bool, error) {
 	if task == nil {
-		return tools.CampaignCheck{}, false
+		return tools.CampaignCheck{}, false, nil
 	}
 	o.mu.RLock()
 	defer o.mu.RUnlock()
+	env, err := o.acceptanceEnvironmentLocked()
+	if err != nil {
+		return tools.CampaignCheck{}, false, err
+	}
 	if o.campaign == nil || o.campaign.Acceptance == nil || len(o.campaign.Acceptance.Command) == 0 {
-		return tools.CampaignCheck{}, false
+		return tools.CampaignCheck{}, false, nil
 	}
 	return tools.CampaignCheck{
-		CampaignID: o.campaign.ID,
-		TaskID:     task.ID,
-		Argv:       append([]string(nil), o.campaign.Acceptance.Command...),
-	}, true
+		Environment: env,
+		Workspace:   o.workspace,
+		OKExitCodes: append([]int(nil), o.campaign.Acceptance.OKExitCodes...),
+		CampaignID:  o.campaign.ID,
+		TaskID:      task.ID,
+		Argv:        append([]string(nil), o.campaign.Acceptance.Command...),
+	}, true, nil
 }
 
 // ErrTaskNotDone marks an attempt whose turn ran without an error but whose

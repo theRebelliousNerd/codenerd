@@ -25,6 +25,10 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		logging.Get(logging.CategoryCampaign).Warn("Campaign already running: %s", o.campaign.ID)
 		return fmt.Errorf("campaign already running")
 	}
+	if _, err := o.acceptanceEnvironmentLocked(); err != nil {
+		o.mu.Unlock()
+		return err
+	}
 
 	// Every threshold a campaign rule decides with must be in the kernel: a
 	// rule over a missing one derives nothing, and for a cap that fails open.

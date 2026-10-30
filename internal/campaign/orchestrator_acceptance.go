@@ -37,6 +37,11 @@ type Acceptance struct {
 	// a recurse attempt copies the gate's list so pytest's exit 5 ("no tests
 	// collected") is a pass here too, not another remediation round.
 	OKExitCodes []int `json:"ok_exit_codes,omitempty"`
+	// RuntimeContract marks a measured recurse invocation. Its environment is
+	// intentionally absent from snapshots; restoration requires a fresh run.
+	RuntimeContract bool   `json:"runtime_contract,omitempty"`
+	GateID          string `json:"gate_id,omitempty"`
+	runtime         *acceptanceRuntime
 	// Rounds is every run, in order. Its length is the round count the policy
 	// compares with config_param(/campaign_acceptance_rounds, _).
 	Rounds []AcceptanceRound `json:"rounds,omitempty"`
@@ -96,7 +101,11 @@ const (
 func (o *Orchestrator) settleAcceptance(ctx context.Context) (acceptanceOutcome, error) {
 	o.mu.RLock()
 	declared := o.campaign != nil && o.campaign.Acceptance != nil && len(o.campaign.Acceptance.Command) > 0
+	_, contractErr := o.acceptanceEnvironmentLocked()
 	o.mu.RUnlock()
+	if contractErr != nil {
+		return acceptanceBlocked, contractErr
+	}
 	if !declared {
 		return acceptanceSatisfied, nil
 	}
@@ -153,16 +162,21 @@ func (o *Orchestrator) runAcceptanceRound(ctx context.Context) error {
 	o.mu.RLock()
 	argv := append([]string(nil), o.campaign.Acceptance.Command...)
 	okCodes := append([]int(nil), o.campaign.Acceptance.OKExitCodes...)
+	env, contractErr := o.acceptanceEnvironmentLocked()
 	round := len(o.campaign.Acceptance.Rounds) + 1
 	campaignID := o.campaign.ID
 	o.mu.RUnlock()
 
+	if contractErr != nil {
+		return contractErr
+	}
 	logging.Campaign("Acceptance round %d: %s", round, strings.Join(argv, " "))
 	// No Limits: the executor applies the user's execution.default_timeout.
 	res, execErr := o.executor.Execute(ctx, tactile.Command{
 		Binary:           argv[0],
 		Arguments:        argv[1:],
 		WorkingDirectory: o.workspace,
+		Environment:      env,
 	})
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -180,7 +194,7 @@ func (o *Orchestrator) runAcceptanceRound(ctx context.Context) error {
 	// that did not run; a non-zero exit the executor reports with a nil error
 	// (DirectExecutor) is judged by the codes, and exit 5 is a pass when the
 	// gate says so.
-	passed := execErr == nil && gates.Gate{OKExitCodes: okCodes}.Passed(exitCode)
+	passed := execErr == nil && res != nil && gates.Gate{OKExitCodes: okCodes}.Passed(exitCode)
 
 	rel := path.Join(".nerd", "campaigns", strings.TrimPrefix(campaignID, "/"), "acceptance", fmt.Sprintf("round_%d.txt", round))
 	abs := filepath.Join(o.workspace, filepath.FromSlash(rel))
