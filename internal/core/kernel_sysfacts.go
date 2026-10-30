@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -51,7 +52,10 @@ func (k *RealKernel) UpdateSystemFacts() error {
 		return tx.Commit()
 	}
 
+	// gitCmd returns stdout as git wrote it; the scalar answers trim their own
+	// line ending, and status output goes to its parser untouched.
 	branch, branchErr := gitCmd(gitRoot, "rev-parse", "--abbrev-ref", "HEAD")
+	branch = strings.TrimSpace(branch)
 	// The full HEAD SHA is what revision-bound evidence is compared against
 	// (northstar mitigation evidence in prompt_northstar.mg): evidence recorded
 	// at another commit must not keep a claim verified.
@@ -120,9 +124,19 @@ func gitRepoRoot(workspaceRoot string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return out, nil
+	return strings.TrimSpace(out), nil
 }
 
+// gitCmd runs an allowed read-only git subcommand and returns its stdout
+// exactly as git wrote it. A caller that reads a scalar trims it; a caller
+// that parses a format reads it whole.
+//
+// It used to return CombinedOutput trimmed at both ends. In `git status
+// --porcelain` the first row's leading space is the index column, so trimming
+// turned the first worktree edit " M file" into the staged "M file", and a
+// warning git wrote to stderr ("warning: could not open directory ...") was
+// parsed as a status row (audit git-sysfacts-porcelain). stderr now belongs
+// only to the error.
 func gitCmd(workspaceRoot string, args ...string) (string, error) {
 	if workspaceRoot == "" {
 		return "", fmt.Errorf("workspace root is empty")
@@ -153,11 +167,13 @@ func gitCmd(workspaceRoot string, args ...string) (string, error) {
 	}
 
 	cmd := processutil.NonInteractive(exec.Command("git", append([]string{"-C", workspaceRoot}, args...)...))
-	output, err := cmd.CombinedOutput()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git %s: %w (%s)", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+		return "", fmt.Errorf("git %s: %w (%s)", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
-	return strings.TrimSpace(string(output)), nil
+	return string(output), nil
 }
 
 // splitPorcelainLines splits `git status --porcelain` output WITHOUT trimming
