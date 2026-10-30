@@ -313,3 +313,25 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// Two all-digit serving tags are two models: under exact scope their failures
+// are separate groups, so two records from local-model:1 and one from
+// local-model:2 never pool into one group of three (audit
+// exact-model-numeric-tag-residual). A Bedrock revision is still a spelling.
+func TestGroupKeyFor_NumericTagsAreDistinctModels(t *testing.T) {
+	rec := func(model string) *ExecutionRecord {
+		return &ExecutionRecord{ProblemType: "debugging", ShardType: "/coder", Provider: "ollama", Model: model}
+	}
+	if GroupKeyFor(rec("local-model:1"), PinScopeModel) == GroupKeyFor(rec("local-model:2"), PinScopeModel) {
+		t.Fatal("exact scope pooled local-model:1 with local-model:2")
+	}
+	if GroupKeyFor(rec("local-model:1"), PinScopeModel) != GroupKeyFor(rec("local-model:1"), PinScopeModel) {
+		t.Fatal("one tag split into two groups")
+	}
+	bedrock := func(model string) *ExecutionRecord {
+		return &ExecutionRecord{ProblemType: "debugging", ShardType: "/coder", Provider: "bedrock", Model: model}
+	}
+	if GroupKeyFor(bedrock("anthropic.claude-sonnet-4-v1:0"), PinScopeModel) != GroupKeyFor(bedrock("us.anthropic.claude-sonnet-4-v1:0"), PinScopeModel) {
+		t.Fatal("a Bedrock revision and its cross-region spelling split into two groups")
+	}
+}

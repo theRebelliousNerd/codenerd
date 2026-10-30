@@ -85,21 +85,25 @@ var modelVersionSuffixes = map[string]struct{}{
 
 // NormalizeModelToken canonicalizes a model identifier into its exact token.
 //
-// Routing prefixes, vendor dot-prefixes and Bedrock-style API revisions are
+// Routing prefixes, vendor dot-prefixes and Bedrock API revisions are
 // stripped first so that the many spellings of one model converge:
 //
-//	"anthropic/claude-opus-4-20260501"   -> "claude_opus_4_20260501"
-//	"anthropic.claude-sonnet-4-v1:0"     -> "claude_sonnet_4_v1"
-//	"gpt-4o"                             -> "gpt_4o"
-//	"qwen3:8b"                           -> "qwen3_8b"
-//	"qwen3:latest"                       -> "qwen3"
+//	"anthropic/claude-opus-4-20260501"     -> "claude_opus_4_20260501"
+//	"anthropic.claude-sonnet-4-v1:0"       -> "claude_sonnet_4_v1"
+//	"us.anthropic.claude-sonnet-4-v1:0"    -> "claude_sonnet_4_v1"
+//	"gpt-4o"                               -> "gpt_4o"
+//	"qwen3:8b"                             -> "qwen3_8b"
+//	"local-model:2"                        -> "local_model_2"
+//	"qwen3:latest"                         -> "qwen3"
 //
 // A colon tag is part of a serving model's identity: Ollama's qwen3:8b and
-// qwen3:32b are different models, and an exact pin to one must not match the
-// other or pool its evidence with it. Only two colon suffixes are spellings
-// rather than identity and are dropped: a purely numeric API revision
-// (Bedrock's ":0") and Ollama's default tag ":latest", which names the same
-// model as the bare name.
+// qwen3:32b are different models, and so are local-model:1 and local-model:2
+// (Ollama accepts all-digit tags and compares names by tag). An exact pin to
+// one must not match another or pool its evidence with it. Only two colon
+// suffixes are spellings rather than identity and are dropped: a Bedrock API
+// revision -- an all-digit tag on a vendor-prefixed id that ends in "-vN",
+// the only shape Bedrock gives it -- and Ollama's default tag ":latest",
+// which names the same model as the bare name.
 func NormalizeModelToken(model string) string {
 	name := strings.ToLower(strings.TrimSpace(model))
 	name = strings.TrimPrefix(name, "/")
@@ -112,19 +116,53 @@ func NormalizeModelToken(model string) string {
 		name = name[i+1:]
 	}
 
-	// "anthropic.claude-sonnet-4-v1:0" -> strip a leading vendor dot-prefix.
-	for _, prov := range []string{"anthropic.", "openai.", "google.", "bedrock.", "meta.", "mistral."} {
+	// "us.anthropic.claude-sonnet-4-v1:0" -> a Bedrock cross-region
+	// inference prefix, then the vendor dot-prefix.
+	for _, region := range bedrockRegionPrefixes {
+		if rest := strings.TrimPrefix(name, region); rest != name && hasVendorPrefix(rest) {
+			name = rest
+			break
+		}
+	}
+	vendorPrefixed := hasVendorPrefix(name)
+	for _, prov := range modelVendorPrefixes {
 		name = strings.TrimPrefix(name, prov)
 	}
 
-	// "...-v1:0" Bedrock-style API revision, or Ollama's ":latest" default.
 	if i := strings.LastIndex(name, ":"); i > 0 {
-		if tag := name[i+1:]; tag == "latest" || (tag != "" && strings.Trim(tag, "0123456789") == "") {
-			name = name[:i]
+		base, tag := name[:i], name[i+1:]
+		if tag == "latest" || (vendorPrefixed && isAllDigits(tag) && hasBedrockVersionSuffix(base)) {
+			name = base
 		}
 	}
 
 	return pinSanitize(name)
+}
+
+// modelVendorPrefixes are the vendor dot-prefixes of Bedrock model ids.
+var modelVendorPrefixes = []string{"anthropic.", "openai.", "google.", "bedrock.", "meta.", "mistral."}
+
+// bedrockRegionPrefixes are Bedrock's cross-region inference profile prefixes.
+var bedrockRegionPrefixes = []string{"us.", "eu.", "apac.", "global."}
+
+func hasVendorPrefix(name string) bool {
+	for _, prov := range modelVendorPrefixes {
+		if strings.HasPrefix(name, prov) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAllDigits(s string) bool {
+	return s != "" && strings.Trim(s, "0123456789") == ""
+}
+
+// hasBedrockVersionSuffix reports whether base ends in "-v" and digits, as
+// every Bedrock model id before its revision does ("...-v1", "...-v2").
+func hasBedrockVersionSuffix(base string) bool {
+	i := strings.LastIndex(base, "-v")
+	return i >= 0 && isAllDigits(base[i+2:])
 }
 
 // ModelFamilyToken derives the release-independent family of an exact model

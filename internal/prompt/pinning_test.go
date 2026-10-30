@@ -42,8 +42,18 @@ func TestNormalizeModelToken(t *testing.T) {
 		"qwen3:32b":                        "qwen3_32b",
 		"qwen3:latest":                     "qwen3",
 		"ollama/qwen3:q4_K_M":              "qwen3_q4_k_m",
-		"":                                 "",
-		"   ":                              "",
+		// All-digit serving tags are identity, not revisions (audit
+		// exact-model-numeric-tag-residual).
+		"local-model:0":        "local_model_0",
+		"local-model:1":        "local_model_1",
+		"local-model:2":        "local_model_2",
+		"llama3:70":            "llama3_70",
+		"claude-sonnet-4-v1:0": "claude_sonnet_4_v1_0",
+		// Bedrock revisions, with and without a cross-region prefix.
+		"us.anthropic.claude-sonnet-4-v1:0": "claude_sonnet_4_v1",
+		"anthropic.claude-sonnet-4-v2:13":   "claude_sonnet_4_v2",
+		"":                                  "",
+		"   ":                               "",
 	}
 
 	for in, want := range cases {
