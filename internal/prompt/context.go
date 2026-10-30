@@ -707,7 +707,7 @@ func (cc *CompilationContext) Hash() string {
 		}
 	}
 
-	write("schema", "compilation-context-v6")
+	write("schema", "compilation-context-v7")
 	write("kernel_snapshot", cc.kernelSnapshotFingerprint)
 	write("operational_mode", cc.OperationalMode)
 	write("campaign_phase", cc.CampaignPhase)
@@ -755,6 +755,14 @@ func (cc *CompilationContext) Hash() string {
 	writeFloat("activation_threshold", cc.ActivationThreshold)
 	write("available_specialists", cc.AvailableSpecialists)
 	writeSet("available_tool", cc.AvailableTools)
+	// The unavailable dispositions render into the prompt in this order
+	// ({{available_tools}}), so they are part of what the result says: two
+	// contexts that differ only here compile different prompts. Ordered, as
+	// the renderer prints them (schema v7).
+	writeInt("unavailable_tool_count", len(cc.UnavailableTools))
+	for i, value := range cc.UnavailableTools {
+		write("unavailable_tool_"+strconv.Itoa(i), value)
+	}
 
 	// ActivatedFacts is part of cache identity because it is an input to
 	// selection. It was previously absent while activation_threshold above was

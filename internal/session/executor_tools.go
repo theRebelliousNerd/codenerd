@@ -2380,9 +2380,7 @@ func (e *Executor) retryWithNoToolNudge(
 
 	retryCtx := compilationCtx.Clone()
 	retryCtx.PreviousAttemptNoToolCall = true
-	if cfg != nil && len(cfg.AllowedTools) > 0 {
-		retryCtx.AvailableTools = slices.Clone(cfg.AllowedTools)
-	}
+	retryCtx.AvailableTools = retryCallable(compilationCtx.AvailableTools, cfg)
 
 	compileResult, err := e.jitCompiler.Compile(ctx, retryCtx)
 	if err != nil {
@@ -2403,6 +2401,29 @@ func (e *Executor) retryWithNoToolNudge(
 	// That is a safety regression, not just a context one.
 	retryPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(compileResult.Prompt), retryCtx.IntentTarget)
 	return e.generateResponse(ctx, client, retryPrompt, userInput, cfg)
+}
+
+// retryCallable is what the no-tool retry may describe as callable: the
+// first attempt's callable projection (resolveAvailableTools split the grants
+// into callable and unavailable for this request's channel), narrowed to the
+// final runtime config's allowlist when the turn restricted it since. The
+// grant list itself is never reinstated: a name the request cannot carry
+// stays in UnavailableTools only, so the two rendered lists stay disjoint.
+func retryCallable(callable []string, cfg *config.EffectiveAgentRuntimeConfig) []string {
+	if cfg == nil || len(cfg.AllowedTools) == 0 {
+		return slices.Clone(callable)
+	}
+	allowed := make(map[string]bool, len(cfg.AllowedTools))
+	for _, name := range cfg.AllowedTools {
+		allowed[name] = true
+	}
+	out := make([]string, 0, len(callable))
+	for _, name := range callable {
+		if allowed[name] {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 func effectiveToolTimeout(configured time.Duration) time.Duration {
