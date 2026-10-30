@@ -1028,14 +1028,15 @@ func BuildDerivationMapWithConsumerRoutes(policyText string, programFacts map[st
 }
 
 // BuildAuditDerivationMap is BuildDerivationMapWithConsumerRoutes for the shard
-// guard: starved names predicates nothing produces. A starved predicate has no
+// guard: programFacts are predicates every shard holds without a rule or fact in
+// the corpus text (IntentCorpusPredicates), and starved names predicates nothing produces. A starved predicate has no
 // rows in any shard, so it is present and complete everywhere, and a rule that
 // needs one as a positive premise never fires, so it is dropped rather than
 // reported on (a predicate whose every rule is dropped is starved too). Query
 // routing keeps the plain build: it must place a read where the rule could fire
 // once a producer exists.
-func BuildAuditDerivationMap(policyText string, starved map[string]struct{}, owners map[string]string, shared map[string]struct{}, routes []PredicateConsumerRoute, catchAll string) (*DerivationMap, error) {
-	return buildDerivationMap(policyText, nil, starved, owners, shared, routes, catchAll)
+func BuildAuditDerivationMap(policyText string, programFacts, starved map[string]struct{}, owners map[string]string, shared map[string]struct{}, routes []PredicateConsumerRoute, catchAll string) (*DerivationMap, error) {
+	return buildDerivationMap(policyText, programFacts, starved, owners, shared, routes, catchAll)
 }
 
 func buildDerivationMap(policyText string, programFacts, starved map[string]struct{}, owners map[string]string, shared map[string]struct{}, routes []PredicateConsumerRoute, catchAll string) (*DerivationMap, error) {

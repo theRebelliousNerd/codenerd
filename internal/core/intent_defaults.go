@@ -24,6 +24,18 @@ func DefaultIntentSchemaFiles() []string {
 	return out
 }
 
+// IntentCorpusPredicates are the predicates the embedded intent corpus
+// (schema/intent_*.mg) loads as boot facts. Every kernel shard loads them at
+// init (loadEmbeddedIntentFacts), so they exist in every shard exactly as
+// program facts do: the derivation analysis takes them as program predicates.
+// The corpus's other clauses are not kernel rules: only fact clauses of these
+// predicates are read from the files, and the rest (the multistep_* tables and
+// the pattern_* rules over them) runs in the perception taxonomy engine, a
+// single unsharded store.
+func IntentCorpusPredicates() map[string]struct{} {
+	return defaultIntentFactPredicates()
+}
+
 func defaultIntentFactPredicates() map[string]struct{} {
 	return map[string]struct{}{
 		"intent_definition":          {},
@@ -56,10 +68,6 @@ func defaultIntentFactPredicates() map[string]struct{} {
 		"modal_type":                 {},
 		"modal_verb_signal":          {},
 		"negation_marker":            {},
-		"best_mode":                  {},
-		"best_shard":                 {},
-		"context_category_priority":  {},
 		"state_adjective":            {},
-		"tool_priority":              {},
 	}
 }

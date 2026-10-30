@@ -87,7 +87,7 @@ func buildProductionDerivationMap(t *testing.T, shared []string) *core.Derivatio
 	}
 	// Rules live in schema files too (file_exists in schemas_world.mg).
 	dm, err := core.BuildAuditDerivationMap(
-		schemas+"\n"+policy, starvedPredicates(t), owners, sharedSet, PredicateConsumerRoutes(), "cortex")
+		schemas+"\n"+policy, core.IntentCorpusPredicates(), starvedPredicates(t), owners, sharedSet, PredicateConsumerRoutes(), "cortex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,6 +273,40 @@ func TestShardJoin_ExceptionDoesNotExemptAnotherClauseWithSameHead(t *testing.T)
 	}
 	if acceptedSeam(core.RuleFinding{File: pin.File, Head: pin.Head, Clause: pin.Clause + " defective(X)."}) {
 		t.Fatal("new clause inherited exemption")
+	}
+}
+
+// Every shard kernel loads the intent corpus's facts at init, so a rule that
+// joins one with an owned fact fires in the owner: the analysis must take those
+// predicates as present everywhere, or it reports a split join that does not
+// exist and routes a read away from the shard where the rule fires.
+func TestShardJoin_IntentCorpusFactsArePresentInEveryShard(t *testing.T) {
+	dm := buildProductionDerivationMap(t, SharedPredicates())
+	for p := range core.IntentCorpusPredicates() {
+		if pr, ok := dm.Presence[p]; ok && !pr.All {
+			t.Errorf("intent corpus predicate %s is loaded into every shard but the analysis places it in %v", p, shardList(pr))
+		}
+	}
+	schemas, policy, err := core.DefaultCorpusText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	owners := map[string]string{}
+	for _, m := range DefaultShardPredicateManifests() {
+		for _, p := range m.OwnedPredicates {
+			owners[p] = m.Domain
+		}
+	}
+	shared := map[string]struct{}{}
+	for _, p := range SharedPredicates() {
+		shared[p] = struct{}{}
+	}
+	without, err := core.BuildAuditDerivationMap(schemas+"\n"+policy, nil, starvedPredicates(t), owners, shared, PredicateConsumerRoutes(), "cortex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pr := without.Presence["interrogative_type"]; pr.All {
+		t.Fatalf("control: unmodelled, interrogative_type is a catch-all runtime fact, got %v", shardList(pr))
 	}
 }
 

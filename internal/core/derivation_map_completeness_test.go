@@ -198,7 +198,7 @@ live(X) :- alpha_fact(X).
 	if len(findingsFor(plain.SplitJoins, "split_on_a_starved_input")) != 1 {
 		t.Fatalf("control: without the starved set the rule is a split join: %+v", plain.SplitJoins)
 	}
-	audit, err := BuildAuditDerivationMap(policy, map[string]struct{}{"never": {}}, owners, nil, nil, "cortex")
+	audit, err := BuildAuditDerivationMap(policy, nil, map[string]struct{}{"never": {}}, owners, nil, nil, "cortex")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1629,7 +1629,7 @@ func buildKernelDerivationMap(shardConfigs []core.KernelShardConfig) (*core.Deri
 	for _, p := range shards.SharedPredicates() {
 		shared[p] = struct{}{}
 	}
-	return core.BuildDerivationMapWithConsumerRoutes(schemas+"\n"+policy, nil, owners, shared, shards.PredicateConsumerRoutes(), "cortex")
+	return core.BuildDerivationMapWithConsumerRoutes(schemas+"\n"+policy, core.IntentCorpusPredicates(), owners, shared, shards.PredicateConsumerRoutes(), "cortex")
 }
 
 func defaultKernelShardConfigs(workspace string) []core.KernelShardConfig {
