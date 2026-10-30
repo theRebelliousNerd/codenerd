@@ -14,7 +14,6 @@ acceptance_count
 act_batch
 action_escalated  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
 action_violates
-active_review  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 agenda_dependency
 appeal_denial_count
 appeal_grant_count
@@ -22,13 +21,11 @@ applied_rule
 armory_run
 armory_tool
 attack_vector
-bug_history  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 campaign_active
 campaign_prompt_policy
 chaos_safety_violation
 checkpoint_needed
 code_accepted
-code_implements  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 coder_rejection_count
 coverage_goal
 coverage_metric
@@ -40,8 +37,6 @@ element_action
 element_hydration
 failure_count_by_file
 false_positive_pattern
-file_contains  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
-file_has_public_api  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 file_line_count
 fix_pattern
 gauntlet_result  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
@@ -54,30 +49,24 @@ known_cause
 mutation_approved  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
 nemesis_attack_run
 nesting_depth
-package_has_dep  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 page_framework
 page_hydrated
 pass_count
 patch_tested
 proposed_rule
-reachability_query  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
+reachability_query  # demand seed, kept on purpose: symbol_reachable/path_of_length close over dependency_link only for a start file a caller asserts (dependency_reachability_test pins it); no production caller asserts one yet
 rejection
 rejection_count
 relevant_to_intent
 review_approved
 review_complete
 review_rejection_rate_high
-review_type  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 rule_outcome
-same_scope  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 security_anomaly
 shard_family
 specialist_knowledge_updated
 storage_entry
 style_violation
-suppressed_rule  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
-suppression  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
-suppression_confidence  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 symptom
 system_invariant
 system_shard
@@ -87,10 +76,8 @@ target_is_large
 target_word_count
 test_package
 test_passed
-test_scope  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 tester_task
 thunderdome_battle
 tool_language
-type_embeds  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 unhandled_case_count_computed
 validation_max_retries_reached  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired

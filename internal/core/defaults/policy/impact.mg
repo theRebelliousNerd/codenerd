@@ -32,12 +32,6 @@ impact_caller(TargetFunc, CallerFunc) :-
     modified_function(TargetFunc, _),
     code_calls(CallerFunc, TargetFunc).
 
-# Interface implementations affected by interface changes
-impact_implementer(ImplFile, Struct) :-
-    modified_interface(Interface, _),
-    code_implements(Struct, Interface),
-    code_defines(ImplFile, Struct, /struct, _, _).
-
 # Bounded Transitive Impact (Max Depth 3)
 
 # Base case: direct callers are at depth 1
@@ -60,10 +54,6 @@ impact_graph(Target, GreatGrandCaller, 3) :-
 relevant_context_file(File) :-
     impact_graph(_, Func, _),
     code_defines(File, Func, /function, _, _).
-
-# Also include files containing interface implementations
-relevant_context_file(File) :-
-    impact_implementer(File, _).
 
 # Prioritized context: closer callers get higher priority
 # Priority = 4 - Depth (so depth 1 = priority 3, depth 2 = priority 2, etc.)

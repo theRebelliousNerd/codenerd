@@ -62,8 +62,8 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"code_element", "element_visibility", "element_modified",
 				"code_implements", "code_calls", "code_defines", "dependency_link",
 				"file_dir", "file_metadata_only", "treatment_scope", "modified", "active_file", "in_scope",
-				"churn_rate", "file_contains",
-				"file_has_public_api", "package_has_dep", "test_coverage",
+				"churn_rate",
+				"test_coverage",
 				"test_failed", "modified_interface", "impact_graph",
 				"recent_change_by_other",
 				// CodeDOM element facts and the per-language surface
@@ -71,7 +71,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"element_parent", "element_signature", "code_interactable",
 				"generated_code", "cgo_code", "parse_error", "file_hash_mismatch",
 				"file_modified_externally", "is_test_function", "test_file_for",
-				"file_imports", "file_package", "file_in_scope", "type_embeds",
+				"file_imports", "file_package", "file_in_scope",
 				"imports_project_file", "import_cycle_member",
 
 				"api_handler_function", "api_client_function", "api_dependency",
@@ -80,7 +80,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"rs_unsafe_block", "ts_interface", "ts_interface_prop", "ts_class",
 				"mg_negation_rule", "mg_recursive_rule",
 				"cyclomatic_complexity", "git_history", "review_finding",
-				"pytest_failure", "reachability_query",
+				"pytest_failure",
 				// Edit plans and pending mutations are judged against the
 				// dependency graph (coder_impact.mg, coder_safety.mg,
 				// commit_gate.mg).
@@ -102,7 +102,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"mcp_tool_facet", "mcp_tool_risk", "mcp_tool_risk_source",
 				// Coder-shard working state judged against the world model
 				// (coder_*.mg): the file under edit, its diagnostics, tests.
-				"coder_state", "active_review", "diagnostic_count",
+				"coder_state", "diagnostic_count",
 
 				"file_edited", "failing_test", "pytest_root_cause",
 				"is_test_file", "project_forbidden_path",
@@ -175,8 +175,8 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 
 				// Data-flow facts (data_flow.mg): assignments, uses, guards.
 				"assigns", "uses", "guards_block", "guards_return",
-				"error_checked_block", "error_checked_return", "same_scope",
-				"suppressed_rule", "suppression_confidence", "bug_history",
+				"error_checked_block", "error_checked_return", "function_scope",
+
 				// Turn verdict inputs (coder_safety.mg turn_evidence /
 				// hollow_success / turn_done) sit beside the diagnostics and
 				// build state their negations read.
@@ -581,8 +581,7 @@ func SharedPredicates() []string {
 		"validation_max_retries_reached",
 		// Small runtime state joined by routing rules
 		"test_state",
-		"test_scope",
-		"review_type",
+
 		// Per-turn task and focus markers joined by both campaign and
 		// prompt rules (current_task, shard_success) or by world rules
 		// (focus_resolution); one or a handful of facts each.

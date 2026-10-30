@@ -282,14 +282,6 @@ Decl modified_interface(Interface, File) bound [/string, /string].
 # 47.5 Scope Tracking (for dominator guard analysis)
 # -----------------------------------------------------------------------------
 
-# same_scope(Var, File, Line1, Line2) - Lines in same function scope
-# Var: Variable name (for context)
-# File: Source file path
-# Line1: First line number
-# Line2: Second line number
-# Used to determine if a guard at Line1 protects a use at Line2
-Decl same_scope(Var, File, Line1, Line2) bound [/string, /string, /number, /number].
-
 # -----------------------------------------------------------------------------
 # 47.6 Suppression Predicates (for Autopoiesis - False Positive Learning)
 # -----------------------------------------------------------------------------
@@ -299,20 +291,6 @@ Decl same_scope(Var, File, Line1, Line2) bound [/string, /string, /number, /numb
 # Reason: User-provided reason for suppression
 Decl suppression(DiagnosticID, Reason) bound [/string, /string].
 
-# suppressed_rule(RuleType, File, Line, Reason) - Manually suppressed findings
-# RuleType: Type of rule suppressed (e.g., /nil_deref, /unchecked_error)
-# File: Source file path
-# Line: Line number of suppression
-# Reason: User-provided reason for suppression
-Decl suppressed_rule(RuleType, File, Line, Reason) bound [/name, /string, /number, /string].
-
-# suppression_confidence(RuleType, File, Line, Score) - Learned suppression confidence
-# RuleType: Type of rule
-# File: Source file path
-# Line: Line number
-# Score: Confidence score (0-100) that this is a false positive
-Decl suppression_confidence(RuleType, File, Line, Score) bound [/name, /string, /number, /number].
-
 # -----------------------------------------------------------------------------
 # 47.7 Priority and Risk Predicates
 # -----------------------------------------------------------------------------
@@ -321,12 +299,6 @@ Decl suppression_confidence(RuleType, File, Line, Score) bound [/name, /string, 
 # Type: Finding type (e.g., /nil_deref, /unchecked_error, /race_condition)
 # Priority: Priority level (1=critical, 2=high, 3=medium, 4=low)
 Decl type_priority(Type, Priority) bound [/name, /number].
-
-# bug_history(File, Count) - Historical bug count per file
-# File: Source file path
-# Count: Number of bugs historically found in this file
-# Used for risk-based prioritization
-Decl bug_history(File, Count) bound [/string, /number].
 
 # -----------------------------------------------------------------------------
 # 47.8 Derived Predicates for Data Flow Analysis
@@ -355,9 +327,6 @@ Decl diff_introduces_risk(File, Line, RiskType) bound [/string, /number, /name].
 # has_guard(Var, File, Line) - Helper: variable has any guard at this point
 Decl has_guard(Var, File, Line) bound [/string, /string, /number].
 
-# is_suppressed(RuleType, File, Line) - Helper: finding is suppressed
-Decl is_suppressed(RuleType, File, Line) bound [/name, /string, /number].
-
 # -----------------------------------------------------------------------------
 # 47.9 Data Flow Safety Derived Predicates (IDB - from policy.mg Section 47)
 # -----------------------------------------------------------------------------
@@ -381,9 +350,6 @@ Decl unchecked_error(File, Func, Line) bound [/string, /string, /number].
 
 # impact_caller(TargetFunc, CallerFunc) - Direct callers of modified function
 Decl impact_caller(TargetFunc, CallerFunc) bound [/string, /string].
-
-# impact_implementer(ImplFile, Struct) - Implementers of modified interface
-Decl impact_implementer(ImplFile, Struct) bound [/string, /string].
 
 # impact_graph(Target, Caller, Depth) - Transitive impact with depth (max 3)
 Decl impact_graph(Target, Caller, Depth) bound [/string, /string, /number].
@@ -427,9 +393,6 @@ Decl has_suppression_unchecked_error(File, Line) bound [/string, /number].
 
 # has_test_coverage(Ref) - declared in schemas_codedom_polyglot.mg
 # (previously duplicated here, removed to avoid conflict)
-
-# has_bug_history(File) - Helper: file has bug history (count > 0)
-Decl has_bug_history(File) bound [/string].
 
 # has_priority_boost(File) - Helper: file has any priority boost
 Decl has_priority_boost(File) bound [/string].

@@ -19,20 +19,10 @@ type_priority(/resource_leak, 65).
 has_test_coverage(File) :-
     test_coverage(File).
 
-# Helper: file has bug history
-has_bug_history(File) :-
-    bug_history(File, Count),
-    Count > 0.
-
 # Boost for files without test coverage (+20)
 priority_boost(File, 20) :-
     active_hypothesis(_, File, _, _),
     !has_test_coverage(File).
-
-# Boost for files with historical bugs (+15)
-priority_boost(File, 15) :-
-    active_hypothesis(_, File, _, _),
-    has_bug_history(File).
 
 # Final Priority Calculation
 

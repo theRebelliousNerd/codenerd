@@ -3,6 +3,11 @@
 
 
 # Guard Derivation - Two Patterns for Go Idioms
+#
+# Two lines are in the same scope when one function_scope (the world scanner's
+# function boundaries) holds both. same_scope(Var, File, L1, L2) was declared and
+# never asserted, so a return guard guarded nothing and every use after one was
+# reported unsafe.
 
 # Pattern 1: Block-scoped guards (if x != nil { ... })
 # A use site is guarded if inside a nil_check block's scope
@@ -18,7 +23,11 @@ is_guarded(Var, File, Line) :-
     uses(File, _, Var, Line),
     guards_return(Var, /nil_check, File, GuardLine),
     Line > GuardLine,
-    same_scope(Var, File, Line, GuardLine).
+    function_scope(File, _, ScopeStart, ScopeEnd),
+    Line >= ScopeStart,
+    Line <= ScopeEnd,
+    GuardLine >= ScopeStart,
+    GuardLine <= ScopeEnd.
 
 # Additional guard types: ok checks from type assertions and map lookups
 is_guarded(Var, File, Line) :-
@@ -31,7 +40,11 @@ is_guarded(Var, File, Line) :-
     uses(File, _, Var, Line),
     guards_return(Var, /ok_check, File, GuardLine),
     Line > GuardLine,
-    same_scope(Var, File, Line, GuardLine).
+    function_scope(File, _, ScopeStart, ScopeEnd),
+    Line >= ScopeStart,
+    Line <= ScopeEnd,
+    GuardLine >= ScopeStart,
+    GuardLine <= ScopeEnd.
 
 # Unsafe Nil Dereference Detection
 
@@ -70,7 +83,11 @@ is_error_checked(ErrVar, File, UseLine) :-
     uses(File, _, ErrVar, UseLine),
     error_checked_return(ErrVar, File, GuardLine),
     UseLine > GuardLine,
-    same_scope(ErrVar, File, UseLine, GuardLine).
+    function_scope(File, _, ScopeStart, ScopeEnd),
+    UseLine >= ScopeStart,
+    UseLine <= ScopeEnd,
+    GuardLine >= ScopeStart,
+    GuardLine <= ScopeEnd.
 
 # Helper: has error check at location
 has_error_check_at(ErrVar, File, UseLine) :-

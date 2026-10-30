@@ -256,12 +256,6 @@ Decl query_trace_stats(ShardType, SuccessCount, FailCount, AvgDuration) descr [e
 # 41.12 Reviewer Feedback Loop Predicates (Self-Correction)
 # -----------------------------------------------------------------------------
 
-# review_finding_with_id(ReviewID, File, Line, Severity, Category, Message)
-# A finding from a specific review session (6-arg variant with ReviewID)
-# NOTE: The 5-arg review_finding/5 is declared in Section 29 and emitted by Go.
-# This 6-arg variant is derived via bridge rule when active_review(ReviewID) is set.
-Decl review_finding_with_id(ReviewID, File, Line, Severity, Category, Message) bound [/string, /string, /number, /name, /name, /string].
-
 # user_rejected_finding(ReviewID, File, Line, Reason, Timestamp)
 # User explicitly rejected a finding as incorrect
 Decl user_rejected_finding(ReviewID, File, Line, Reason, Timestamp) bound [/string, /string, /number, /string, /number].

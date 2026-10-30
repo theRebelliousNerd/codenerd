@@ -132,7 +132,6 @@ unconsumed excessive_appeal_denials
 unconsumed explicit_tool_request
 unconsumed failed_campaign_task
 unconsumed failed_edit
-unconsumed file_has_security_sensitive
 unconsumed file_in_project
 unconsumed file_modified_externally
 unconsumed final_context_include
@@ -150,7 +149,6 @@ unconsumed has_active_shard
 unconsumed has_auth_guard
 unconsumed has_block_commit
 unconsumed has_blocking_condition
-unconsumed has_bug_history
 unconsumed has_coder_block
 unconsumed has_compilation_error
 unconsumed has_compression
@@ -184,8 +182,6 @@ unconsumed has_running_tasks
 unconsumed has_skeleton_category
 unconsumed has_style_violation
 unconsumed has_successful_shard
-unconsumed has_suppression_unchecked_error
-unconsumed has_suppression_unsafe_deref
 unconsumed has_test_coverage
 unconsumed has_tool_for_action
 unconsumed has_tool_usage
@@ -257,7 +253,6 @@ unconsumed is_low_priority_test
 unconsumed is_served_persona
 unconsumed is_step_boundary
 unconsumed is_supported_req
-unconsumed is_suppressed
 unconsumed is_ui_component
 unconsumed is_warning_finding
 unconsumed layer
@@ -351,7 +346,6 @@ unconsumed related_failures
 unconsumed remediation_task_needed
 unconsumed repeated_violation_pattern
 unconsumed replan_needed
-unconsumed require_tests
 unconsumed requires_contract_check
 unconsumed requires_immediate_fix
 unconsumed requires_integration_test
@@ -471,6 +465,5 @@ unconsumed validation_meets_threshold
 unconsumed validation_syntax_error
 unconsumed verb_pair_relation
 unconsumed violation
-unconsumed warning_suppressed
 unconsumed witness_candidate
 unconsumed zombie_test

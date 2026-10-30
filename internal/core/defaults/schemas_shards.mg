@@ -784,11 +784,8 @@ Decl safety_violation(ViolationID, Pattern, ActionType, Timestamp) bound [/strin
 # World model derived predicates
 Decl world_model_stale(File) bound [/string].
 Decl file_in_project(File) bound [/string].
-Decl symbol_reachable(From, To) bound [/string, /string].
 # Priority: 70
 Decl symbol_reachable_bounded(From, To, MaxDepth) bound [/string, /string, /number].
-# Priority: 70
-Decl symbol_reachable_safe(From, To) bound [/string, /string].
 # Depth generator for bounded recursion (1-20)
 Decl depth_option(Depth) bound [/number].
 

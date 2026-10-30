@@ -36,8 +36,6 @@
 # "declared more than once" — which is why this file could never be loaded
 # into the kernel alongside the constitution.
 
-Decl test_scope(Scope).
-Decl review_type(Type).
 Decl code_modified_recently() bound [].
 Decl code_quality_issue(Issue, Details).
 Decl complex_target(Target).
@@ -158,7 +156,6 @@ test_framework(/mocha) :- file_exists(".mocharc.js").
 # Python
 # Use intermediate predicate to avoid stratification cycle
 pytest_detected() :- file_exists("pytest.ini").
-pytest_detected() :- file_exists("pyproject.toml"), file_contains("pyproject.toml", "pytest").
 pytest_detected() :- file_exists("conftest.py").
 
 test_framework(/pytest) :- pytest_detected().
@@ -170,8 +167,6 @@ test_framework(/cargo_test) :- file_exists("Cargo.toml").
 
 # Ruby
 test_framework(/rspec) :- file_exists(".rspec").
-test_framework(/minitest) :- file_exists("Gemfile"), file_contains("Gemfile", "minitest").
-
 # ---------------------------------------------------------------------------
 # Build/test command derivation — single projection from test_framework.
 # The canonical derivation lives once in the leaf Go helper
@@ -563,16 +558,6 @@ spawn_subagent(/researcher) :-
     persona(/researcher),
     user_intent(_, _, _, Target, _),
     complex_target(Target).
-
-# Spawn subagent for parallel test execution
-spawn_subagent(/tester) :-
-    persona(/tester),
-    test_scope(/full_suite).
-
-# Spawn nemesis for adversarial review
-spawn_subagent(/nemesis) :-
-    persona(/reviewer),
-    review_type(/security).
 
 # Complex target detection
 complex_target(T) :- target_word_count(T, N), N > 50.

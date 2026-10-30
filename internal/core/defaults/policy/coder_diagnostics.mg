@@ -36,16 +36,11 @@ requires_immediate_fix(DiagID) :-
 
 # Warning should be addressed
 should_address_warning(DiagID) :-
-    diagnostic(/warning, DiagID, _, _, _),
-    !warning_suppressed(DiagID).
+    diagnostic(/warning, DiagID, _, _, _).
 
 # Lint issues can be deferred
 can_defer_lint(DiagID) :-
     diagnostic(/lint, DiagID, _, _, _).
-
-# Helper for suppressed warnings
-warning_suppressed(DiagID) :-
-    suppression(DiagID, _).
 
 # -----------------------------------------------------------------------------
 # 6.3 Diagnostic Prioritization

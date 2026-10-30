@@ -155,11 +155,6 @@ test_depends_on_transitive(TestRef, SourceRef) :-
     test_depends_on_transitive(TestRef, MethodRef),
     method_of(MethodRef, SourceRef).
 
-# Transitive through struct embedding
-test_depends_on_transitive(TestRef, SourceRef) :-
-    test_depends_on_transitive(TestRef, TypeRef),
-    type_embeds(TypeRef, SourceRef).
-
 
 # =============================================================================
 # SECTION 4: IMPACTED TEST DETECTION

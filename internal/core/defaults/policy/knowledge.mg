@@ -113,17 +113,6 @@ relevant_context(Symbol) :-
     user_intent(/current_intent, _, _, TargetFile, _),
     code_defines(TargetFile, Symbol, _, _, _).
 
-# 3. Implementations of target interface
-relevant_context(Struct) :-
-    user_intent(/current_intent, _, _, Interface, _),
-    code_implements(Struct, Interface).
-
-# 4. Structs implementing the target interface (if target is interface)
-relevant_context(StructFile) :-
-    user_intent(/current_intent, _, _, Interface, _),
-    code_implements(Struct, Interface),
-    code_defines(StructFile, Struct, _, _, _).
-
 # Boost activation for holographic matches
 activation(Ctx, 85) :-
     relevant_context(Ctx).

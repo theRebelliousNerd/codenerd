@@ -6,24 +6,14 @@
 # SECTION 1: TEST FRAMEWORK DETECTION
 # =============================================================================
 
-# Decl file_exists(FilePath) - Moved to schemas_world.mg (global)
-Decl package_has_dep(DepName).
-
 # Test file detection - declared in schemas.mg (shared predicate)
 # is_test_file(FilePath) populated by Go runtime based on file naming patterns
 
 # Test package - populated by Go runtime with packages containing tests
 Decl test_package(PackagePath).
 
-# File has public API - populated by Go runtime based on AST analysis
-Decl file_has_public_api(FilePath).
-
 test_framework(/gotest) :-
     file_exists("go.mod").
-
-test_framework(/jest) :-
-    file_exists("package.json"),
-    package_has_dep("jest").
 
 test_framework(/pytest) :-
     file_exists("pyproject.toml").
@@ -201,12 +191,6 @@ block_commit("low_coverage") :-
     coverage_metric(_, Pct),
     coverage_goal(Goal),
     Pct < 50.  # Hard minimum
-
-# Require tests for critical files
-require_tests(File) :-
-    file_topology(File, _, _, _, /false),
-    file_has_public_api(File),
-    !test_coverage(File).
 
 # =============================================================================
 # SECTION 9: PYTEST DIAGNOSTIC RULES (SWE-bench)

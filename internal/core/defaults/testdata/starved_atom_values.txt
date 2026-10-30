@@ -26,7 +26,6 @@ raw_finding	/maintainability
 system_invariant	/goroutine_limit
 system_invariant	/http_500_rate
 system_invariant	/latency_limit_ms
-test_scope	/full_suite
 test_state	/cause_found
 tester_task	/generate_tests
 user_intent	/close

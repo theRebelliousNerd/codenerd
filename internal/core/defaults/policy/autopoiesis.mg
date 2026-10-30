@@ -139,30 +139,12 @@ next_action(/refine_tool) :-
 # Section 49: Suppression Rules / Autopoiesis (ReviewerShard Beyond-SOTA)
 
 
-# A finding is suppressed if there's a suppression rule for it
-is_suppressed(Type, File, Line) :-
-    suppressed_rule(Type, File, Line, _).
-
-# Also suppress based on confidence score (learned from user feedback)
-is_suppressed(Type, File, Line) :-
-    suppression_confidence(Type, File, Line, Score),
-    Score >= 80.
-
 # Active Hypothesis Filtering
-
-# Helper predicates for safe negation
-has_suppression_unsafe_deref(File, Line) :-
-    is_suppressed(/unsafe_deref, File, Line).
-
-has_suppression_unchecked_error(File, Line) :-
-    is_suppressed(/unchecked_error, File, Line).
 
 # Active unsafe dereference hypotheses
 active_hypothesis(/unsafe_deref, File, Line, Var) :-
-    unsafe_deref(File, Var, Line),
-    !has_suppression_unsafe_deref(File, Line).
+    unsafe_deref(File, Var, Line).
 
 # Active unchecked error hypotheses
 active_hypothesis(/unchecked_error, File, Line, Var) :-
-    unchecked_error(File, Var, Line),
-    !has_suppression_unchecked_error(File, Line).
+    unchecked_error(File, Var, Line).
