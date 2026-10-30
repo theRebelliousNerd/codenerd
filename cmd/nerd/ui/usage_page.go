@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"codenerd/internal/broker"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
 	"fmt"
@@ -107,8 +108,36 @@ func (m *UsagePageModel) UpdateContent() {
 	renderTable("By Shard Name", stats.ByShardName)
 	renderTable("By Operation", stats.ByOperation)
 	renderTable("By Session", stats.BySession)
+	m.renderCalibration(&sb)
 
 	m.viewport.SetContent(sb.String())
+}
+
+// renderCalibration shows how the session's token estimates are calibrated:
+// for each model a provider has reported actual input tokens for, the
+// chars-per-token ratio learned from those actuals, which every estimate for
+// that model (budget checks, context sizing) now uses. A model with none
+// estimates at the broker's default ratio, which the section names.
+func (m *UsagePageModel) renderCalibration(sb *strings.Builder) {
+	snapshot := broker.Default().Calibrator().Snapshot()
+	sb.WriteString("\n")
+	sb.WriteString(m.styles.Layout.Header.Render("Token Estimates"))
+	sb.WriteString("\n")
+	if len(snapshot) == 0 {
+		sb.WriteString(fmt.Sprintf("No provider has reported actual token counts yet; estimates use the default %.1f chars per token.\n", broker.DefaultSeedRatio))
+		return
+	}
+	models := make([]string, 0, len(snapshot))
+	for model := range snapshot {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+	t := NewSimpleTable("Learned from provider actuals", []string{"Model", "Chars/Token", "Observations"})
+	for _, model := range models {
+		s := snapshot[model]
+		t.AddRow(types.Ellipsize(model, 28), fmt.Sprintf("%.2f", s.Ratio), fmt.Sprintf("%d", s.Observations))
+	}
+	sb.WriteString(t.View(m.styles))
 }
 
 // formatCost renders an estimated USD cost. Sub-cent amounts get four decimals

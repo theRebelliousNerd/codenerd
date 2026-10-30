@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"codenerd/internal/autopoiesis"
+	"codenerd/internal/broker"
 	"codenerd/internal/campaign"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/prompt"
@@ -400,5 +401,23 @@ func TestShardConsoleSeparatesResidentServicesFromAgents(t *testing.T) {
 	}
 	if strings.Contains(view, "tactile_router-instance") || strings.Contains(view, "session_planner-instance") {
 		t.Fatal("service appears in agent table")
+	}
+}
+
+// The calibrator learned chars-per-token ratios from provider actuals and
+// nothing showed them; the usage page now does.
+func TestUsagePageShowsTheLearnedTokenCalibration(t *testing.T) {
+	broker.Default().Calibrator().Observe(broker.Observation{Model: "usage-page-probe-model", Chars: 8000, ActualInputTokens: 2000})
+	tracker, err := usage.NewTracker(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tracker.Close() })
+	model := NewUsagePageModel(tracker, DefaultStyles())
+	model.SetSize(120, 200)
+	model.UpdateContent()
+	view := model.View()
+	if !strings.Contains(view, "Token Estimates") || !strings.Contains(view, "usage-page-probe-model") {
+		t.Fatalf("the usage page does not show the learned calibration:\n%s", view)
 	}
 }

@@ -219,17 +219,10 @@ type ProviderCreds struct {
 	WorkspaceID string
 }
 
-// Calibrator returns the meter's shared calibrator.
-//
-// Exported for one reason worth stating: internal/context's token counter is
-// built from this calibrator, and the property that a ratio learned here
-// reaches a counter already handed out -- without reconstructing it, since the
-// compressor holds one counter for a whole session -- is only checkable by
-// feeding an observation in from outside the package.
-//
-// scripts/deadcode-budget.sh reports it unreachable because its only caller is
-// a test in another package, which production-reachability analysis does not
-// follow. It is recorded in the baseline for that reason rather than deleted.
+// Calibrator returns the meter's shared calibrator: the /usage page shows
+// what it learned (cmd/nerd/ui, renderCalibration), and a test in
+// internal/context feeds it an observation to check that a ratio learned here
+// reaches a token counter already handed out.
 func (m *Meter) Calibrator() *Calibrator {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
