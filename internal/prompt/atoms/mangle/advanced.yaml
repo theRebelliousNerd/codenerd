@@ -100,7 +100,7 @@
     - Replacement needs a store with `Remove`. Every in-memory store has it (`factstore.NewSimpleInMemoryStore`); the temporal-store adapter does not, so both facts stay there.
     - `factstore.NewConcurrentFactStore` deadlocks under a merge: the merge removes and adds a fact inside the store's read callback. Evaluate on a plain store under one lock.
     - A lattice rule's body must name any derived predicate its merge reads, or the order of layers can leave stale ties.
-    - Merging does not bound recursion. A weighted shortest-path lattice over a graph with a cycle and a redundant direct edge did not finish on v0.7, even with a cost cap. Keep lattices non-recursive, or recurse over an acyclic relation, and bound every recursive rule.
+    - Merging does not bound recursion. A cost lattice that reaches its own key again, such as one self-loop edge `edge(/a, /a, 1)` under a recursive `cheapest`, never finished on v0.7, and the created-fact limit did not stop it (internal/mangle/lattice_nontermination_repro_test.go). Keep lattices non-recursive, or recurse over an acyclic relation, and bound every recursive rule.
     - A top-down `EvalQuery` of a lattice predicate applies no merge; read the answer from the store.
 
 - id: "language/mangle/docs/proofs_as_data"
