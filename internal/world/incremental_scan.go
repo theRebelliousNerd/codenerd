@@ -471,6 +471,7 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 				Predicate: "file_dir",
 				Args:      []any{canonical, canonicalDir(canonical)},
 			})
+			additional = append(additional, fileExtensionFact(canonical)...)
 			// is_test_file mirrors the full scan (fs.go): the scanner already
 			// classifies the file, and the chain negates this mark.
 			if isTest {

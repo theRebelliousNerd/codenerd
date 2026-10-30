@@ -64,6 +64,8 @@ func TestDefaultShardPredicateManifestsAreUnambiguous(t *testing.T) {
 	// copied to the world shard, whose model they are joined against.
 	type route struct{ consumer, owner string }
 	wantRoutes := map[string]route{
+		"generated_code":              {"policy", "world"},
+		"project_forbidden_path":      {"policy", "world"},
 		"mcp_prompt_registered":       {"policy", "cortex"},
 		"mcp_remote_operation":        {"policy", "cortex"},
 		"mcp_remote_prompt":           {"policy", "cortex"},

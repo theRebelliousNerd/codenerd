@@ -58,16 +58,8 @@ recommend_param_object(File, FuncName) :-
 # -----------------------------------------------------------------------------
 
 # Track rejection patterns (style issues rejected 2+ times)
-coder_rejection_pattern(Style) :-
-    rejection(_, /style, Style),
-    coder_rejection_count(/style, Style, N),
-    N >= 2.
 
 # Track error patterns (errors repeated 2+ times)
-coder_error_pattern(ErrorType) :-
-    rejection(_, /error, ErrorType),
-    coder_rejection_count(/error, ErrorType, N),
-    N >= 2.
 
 # Promote style preference to long-term memory
 promote_to_long_term(/style_preference, Style) :-
@@ -82,10 +74,6 @@ promote_to_long_term(/error_avoidance, ErrorType) :-
 # -----------------------------------------------------------------------------
 
 # Track successful patterns (accepted 3+ times)
-coder_success_pattern(Pattern) :-
-    code_accepted(_, Pattern),
-    acceptance_count(Pattern, N),
-    N >= 3.
 
 # Promote preferred patterns
 promote_to_long_term(/preferred_pattern, Pattern) :-
@@ -110,8 +98,6 @@ learning_signal(/prefer, Pattern) :-
     M < 1.
 
 # Helper for rejection check
-has_rejection(Pattern) :-
-    coder_rejection_count(_, Pattern, _).
 
 # =============================================================================
 # SECTION 14: SPECIALIZED CODE PATTERNS
@@ -121,11 +107,30 @@ has_rejection(Pattern) :-
 # 14.1 API Endpoint Generation
 # -----------------------------------------------------------------------------
 
+# API endpoint needs specific patterns
+
+
+# API requires validation
+
+# API requires error responses
+
 # -----------------------------------------------------------------------------
 # 14.2 Database Operation Patterns
 # -----------------------------------------------------------------------------
+
+# Database operation pattern
+
+
+# Database needs connection pooling awareness
 
 # -----------------------------------------------------------------------------
 # 14.3 Concurrency Patterns
 # -----------------------------------------------------------------------------
 
+# Concurrency pattern detected
+
+
+
+# Concurrency needs synchronization
+
+# Concurrency needs context propagation

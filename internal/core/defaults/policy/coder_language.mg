@@ -96,3 +96,19 @@ language_convention(/java, /interfaces, "program to interfaces").
 # 3.3 Convention Application
 # -----------------------------------------------------------------------------
 
+# Language requires specific patterns
+requires_error_handling(Target) :-
+    file_extension(Target, Ext),
+    extension_language(Ext, /go).
+
+requires_error_handling(Target) :-
+    file_extension(Target, Ext),
+    extension_language(Ext, /rust).
+
+requires_type_annotations(Target) :-
+    file_extension(Target, Ext),
+    extension_language(Ext, /typescript).
+
+requires_type_annotations(Target) :-
+    file_extension(Target, Ext),
+    extension_language(Ext, /python).

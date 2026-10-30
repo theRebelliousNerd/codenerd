@@ -8,8 +8,6 @@
 # Format: predicate<TAB>/atom
 atom_tag	/debug_only
 atom_tag	/dream_only
-coder_state	/build_passed
-coder_state	/edit_applied
 detected_modal	/polite_request
 doc_tag	/experimental
 fix_pattern	/retry_addition

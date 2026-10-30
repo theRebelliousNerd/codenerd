@@ -11,14 +11,70 @@
 # 8.1 Context Priority
 # -----------------------------------------------------------------------------
 
+# Current target has highest priority
+coder_context_priority(File, 100) :-
+    coder_target(File).
+
+# Direct dependencies have high priority
+coder_context_priority(File, 80) :-
+    coder_target(Target),
+    dependency_link(Target, File, _).
+
+# Files that import target have medium priority
+coder_context_priority(File, 60) :-
+    coder_target(Target),
+    dependency_link(File, Target, _).
+
+# Test files for target have high priority
+coder_context_priority(File, 75) :-
+    coder_target(Target),
+    test_file_for(File, Target).
+
+# Interface definitions have high priority
+coder_context_priority(File, 70) :-
+    coder_target(Target),
+    file_dir(Target, D),
+    file_dir(File, D),
+    File != Target,
+    is_interface_file(File).
+
 # -----------------------------------------------------------------------------
 # 8.2 Context Selection
 # -----------------------------------------------------------------------------
+
+# Include file in context if priority is high enough
+coder_include_in_context(File) :-
+    coder_context_priority(File, P),
+    file_in_project(File),
+    P >= 50.
+
+# Include related test files
+coder_include_in_context(File) :-
+    coder_target(Target),
+    test_file_for(File, Target).
+
+# Include type definitions in the target's directory.
+# Target is bound; file_dir binds the directory, then the other file.
+coder_include_in_context(File) :-
+    coder_target(Target),
+    file_dir(Target, D),
+    file_dir(File, D),
+    File != Target,
+    type_definition_file(File).
 
 # -----------------------------------------------------------------------------
 # 8.3 Context Exclusion
 # -----------------------------------------------------------------------------
 
+# Exclude generated files from context
+coder_exclude_from_context(File) :-
+    is_generated_file(File).
+
+# Exclude vendor files
+coder_exclude_from_context(File) :-
+    is_vendor_file(File).
+
 # Final context decision
-final_context_include(File) :-
-    include_in_context(File).
+coder_final_context_include(File) :-
+    coder_include_in_context(File),
+    !coder_exclude_from_context(File).

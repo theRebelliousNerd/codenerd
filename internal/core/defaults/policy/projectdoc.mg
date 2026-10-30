@@ -23,3 +23,7 @@ project_has_command(Kind) :-
 #
 # These derivations exist for policy and reporting on top of that gate.
 
+# A path a project rule forbids is refused on the constitutional path too
+# (coder_guidance.mg coder_edit_barred reads project_forbidden_path directly), so
+# the denial holds beside the Go gate (internal/projectdoc/gate.go) and does not
+# depend on a derived predicate being reachable.

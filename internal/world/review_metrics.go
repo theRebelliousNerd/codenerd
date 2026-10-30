@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
 	"strings"
 
 	"codenerd/internal/core"
@@ -384,4 +385,13 @@ func hardcodedCredentials(canonical string, fset *token.FileSet, file *ast.File)
 		return true
 	})
 	return facts
+}
+
+// fileExtensionFact is file_extension(Path, Ext) for a file that has one.
+func fileExtensionFact(canonical string) []core.Fact {
+	ext := strings.ToLower(filepath.Ext(canonical))
+	if ext == "" {
+		return nil
+	}
+	return []core.Fact{{Predicate: "file_extension", Args: []any{canonical, ext}}}
 }

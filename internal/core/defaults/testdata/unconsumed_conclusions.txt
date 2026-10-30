@@ -45,9 +45,7 @@ unconsumed block_refactor
 unconsumed blocked_learned_action_count
 unconsumed breaking_change_risk
 unconsumed build_command
-unconsumed build_healthy
 unconsumed campaign_block_reason
-unconsumed campaign_coder_focus
 unconsumed campaign_failure_pattern
 unconsumed campaign_has_issues
 unconsumed campaign_has_multiple_phases
@@ -55,8 +53,6 @@ unconsumed campaign_has_tasks
 unconsumed campaign_healthy
 unconsumed campaign_is_blocked
 unconsumed campaign_phase_count
-unconsumed campaign_requires_build
-unconsumed campaign_requires_tests
 unconsumed campaign_risk_block
 unconsumed campaign_risk_blocked_gate
 unconsumed campaign_risk_critical_signal
@@ -67,24 +63,14 @@ unconsumed campaign_too_trivial
 unconsumed campaign_type_count
 unconsumed campaign_type_effective
 unconsumed can_compose
-unconsumed can_defer_lint
 unconsumed candidate_mode
 unconsumed capability_addresses_need
 unconsumed capability_available
 unconsumed capability_is_linked
 unconsumed checks_passed
 unconsumed code_contains
-unconsumed coder_block_action
-unconsumed coder_block_write
-unconsumed coder_blocked_reason
-unconsumed coder_impacted
-unconsumed coder_impacted_1
-unconsumed coder_impacted_2
-unconsumed coder_impacted_3
 unconsumed coder_learning_signal
 unconsumed coder_promote_to_long_term
-unconsumed coder_quality_mode
-unconsumed coder_safe_to_write
 unconsumed compilation_error
 unconsumed compilation_valid
 unconsumed complex_failure
@@ -101,7 +87,6 @@ unconsumed coverage_gap
 unconsumed coverage_warning
 unconsumed critical_action_resolved
 unconsumed critical_action_validated
-unconsumed cross_package_impact
 unconsumed current_ooda_phase
 unconsumed debug_why_blocked
 unconsumed decomposition_warning
@@ -110,8 +95,6 @@ unconsumed derived_mode
 unconsumed diagnostic_active
 unconsumed dir_has_go_test
 unconsumed dream_block
-unconsumed edit_is_implementation
-unconsumed edit_is_test
 unconsumed edit_unsafe
 unconsumed edit_warning
 unconsumed editable
@@ -121,9 +104,7 @@ unconsumed excessive_appeal_denials
 unconsumed explicit_tool_request
 unconsumed failed_campaign_task
 unconsumed failed_edit
-unconsumed file_in_project
 unconsumed file_modified_externally
-unconsumed final_context_include
 unconsumed focus_needs_resolution
 unconsumed fragile
 unconsumed function_in_scope
@@ -136,12 +117,9 @@ unconsumed has_active_shard
 unconsumed has_auth_guard
 unconsumed has_block_commit
 unconsumed has_blocking_condition
-unconsumed has_coder_block
 unconsumed has_compilation_error
 unconsumed has_compression
 unconsumed has_deny_edit
-unconsumed has_edit_block
-unconsumed has_errors
 unconsumed has_external_callers
 unconsumed has_file_content
 unconsumed has_greater_score
@@ -150,7 +128,6 @@ unconsumed has_high_priority_context
 unconsumed has_higher_priority_item
 unconsumed has_identity_atom
 unconsumed has_immediate_capability
-unconsumed has_implementation_edit
 unconsumed has_incomplete_dependency
 unconsumed has_injectable_context
 unconsumed has_next_action
@@ -176,11 +153,9 @@ unconsumed high_priority_review
 unconsumed higher_priority_repair
 unconsumed hotspot_file
 unconsumed immediate_capability
-unconsumed impact_warning
 unconsumed impacted_test
 unconsumed impacted_test_file
 unconsumed impacted_test_package
-unconsumed in_campaign_context
 unconsumed include_in_context
 unconsumed intelligence_active_preference
 unconsumed intelligence_advisory_approved
@@ -233,7 +208,6 @@ unconsumed mcp_server_facet_available
 unconsumed mcp_tool_browsable
 unconsumed method_in_scope
 unconsumed method_of
-unconsumed minimal_implementation_mode
 unconsumed missing_skeleton_category
 unconsumed moonshot_capability
 unconsumed multi_lang_impact
@@ -247,7 +221,6 @@ unconsumed needs_verification
 unconsumed nemesis_victory
 unconsumed nesting_warning
 unconsumed next_agenda_item
-unconsumed next_coder_action
 unconsumed next_pytest_repair
 unconsumed next_tester_action
 unconsumed ooda_phase
@@ -282,7 +255,6 @@ unconsumed plan_can_autostart
 unconsumed potential_panic
 unconsumed prioritized_hypothesis
 unconsumed priority_boost
-unconsumed priority_diagnostic
 unconsumed progress_changed
 unconsumed project_has_command
 unconsumed project_write_protected
@@ -294,7 +266,6 @@ unconsumed recommend_downgrade
 unconsumed recommend_extraction
 unconsumed recommend_param_object
 unconsumed recommend_simplify
-unconsumed refactor_mode
 unconsumed refined_score
 unconsumed regression_battery_has_forbidden_task
 unconsumed regression_battery_has_task
@@ -306,7 +277,6 @@ unconsumed related_failures
 unconsumed repeated_violation_pattern
 unconsumed replan_needed
 unconsumed requires_contract_check
-unconsumed requires_immediate_fix
 unconsumed requires_integration_test
 unconsumed resolve_pronoun
 unconsumed returns_error_type
@@ -329,7 +299,6 @@ unconsumed selected_atom
 unconsumed selected_verb
 unconsumed semantic_suggested_verb
 unconsumed should_add_to_armory
-unconsumed should_address_warning
 unconsumed should_complete
 unconsumed should_compress_phase
 unconsumed should_target_lazy_pattern
@@ -370,10 +339,6 @@ unconsumed task_topology_warning
 unconsumed tasks_parallelizable
 unconsumed tasks_share_artifact
 unconsumed tdd_active
-unconsumed tdd_green_phase
-unconsumed tdd_red_phase
-unconsumed tdd_refactor_phase
-unconsumed tdd_violation
 unconsumed test_command
 unconsumed test_depends_on
 unconsumed test_depends_on_transitive

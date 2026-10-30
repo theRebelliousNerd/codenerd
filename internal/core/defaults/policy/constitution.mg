@@ -2,6 +2,12 @@
 # Section 7, 7B, 7C of Cortex Executive Policy
 
 
+# coder_edit_barred(Action, Target): a write the coder policy refuses (a generated
+# or vendored file, a path the project forbids). Declared here so every program
+# that loads this file analyzes; the rules live in coder_edit_bar.mg and derive
+# nothing in a program without them.
+Decl coder_edit_barred(Action, Target) bound [/name, /string].
+
 # Default deny - permitted must be positively derived
 # FIX: Check both Payload AND Target for dangerous content (Bug #Safety-ExecCmd)
 permitted(Action, Target, Payload) :-
@@ -10,7 +16,8 @@ permitted(Action, Target, Payload) :-
     !dangerous_content(Action, Payload),
     !dangerous_content(Action, Target),
     !restricted_tuple(Action, Target, Payload),
-    !consent_gated_tuple(Action, Target, Payload).
+    !consent_gated_tuple(Action, Target, Payload),
+    !coder_edit_barred(Action, Target).
 
 # A turn restriction (section 7D below) is joined into every arm of
 # permitted/3 as a negation. restricted_tuple/3 is a call the user's own
@@ -101,7 +108,8 @@ permitted(Action, Target, Payload) :-
     permitted_action(ActionID, Action, Target, Payload, _),
     permission_check_result(ActionID, /permit, _, _),
     !restricted_tuple(Action, Target, Payload),
-    !consent_gated_tuple(Action, Target, Payload).
+    !consent_gated_tuple(Action, Target, Payload),
+    !coder_edit_barred(Action, Target).
 
 # Bound-negation helpers. See SECTION 11C in schemas_safety.mg: a negated
 # literal containing an anonymous wildcard excludes nothing in this Mangle

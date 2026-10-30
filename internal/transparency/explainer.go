@@ -136,7 +136,6 @@ func formatArg(arg any) string {
 var ruleGlossary = map[string]string{
 	// Executive / action selection
 	"next_action":        "action selection strategy",
-	"next_coder_action":  "coder action selection",
 	"next_tester_action": "tester action selection",
 	"tester_action":      "tester workflow step",
 	"active_strategy":    "active execution strategy",
@@ -153,7 +152,6 @@ var ruleGlossary = map[string]string{
 	"permission_denied":         "permission refusal",
 	"block_commit":              "commit safety barrier",
 	"block_action":              "action safety barrier",
-	"coder_block_action":        "coder action barrier",
 	"deny_edit":                 "edit denial",
 	"edit_unsafe":               "unsafe edit detection",
 	"edit_warning":              "edit risk warning",
@@ -171,7 +169,6 @@ var ruleGlossary = map[string]string{
 	"impact_graph":               "transitive dependency analysis",
 	"breaking_change_risk":       "breaking change risk analysis",
 	"quality_violation_detected": "quality rule violation",
-	"tdd_violation":              "test-driven development violation",
 	"has_test_coverage":          "test coverage check",
 	"test_framework":             "test framework detection",
 	"test_priority":              "test prioritization",

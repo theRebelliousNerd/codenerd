@@ -12,18 +12,6 @@
     "reason": "override path, architect's call"
   },
   {
-    "clause": "coder_quality_mode(/normal) :- !in_campaign_context().",
-    "file": "coder_campaign.mg",
-    "head": "coder_quality_mode",
-    "reason": "no positive anchor"
-  },
-  {
-    "clause": "coder_quality_mode(/normal) :- !in_campaign_context().",
-    "file": "coder_workflow.mg",
-    "head": "coder_quality_mode",
-    "reason": "no positive anchor"
-  },
-  {
     "clause": "action_denied(Action,\"Not constitutionally permitted\") :- candidate_action(Action), !action_is_permitted(Action).",
     "file": "constitution.mg",
     "head": "action_denied",

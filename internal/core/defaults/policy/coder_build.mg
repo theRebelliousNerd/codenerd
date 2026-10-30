@@ -16,38 +16,30 @@ block_commit("build_errors") :-
 block_commit("build_errors") :-
     build_state(/failing).
 
-# Build is healthy
-build_healthy() :-
-    build_state(/passing),
-    !has_errors().
-
-has_errors() :-
-    diagnostic(/error, _, _, _, _).
-
 # -----------------------------------------------------------------------------
 # 6.2 Diagnostic Classification
 # -----------------------------------------------------------------------------
-
-# Error requires immediate fix
-requires_immediate_fix(DiagID) :-
-    diagnostic(/error, DiagID, _, _, _).
-
-# Warning should be addressed
-should_address_warning(DiagID) :-
-    diagnostic(/warning, DiagID, _, _, _).
-
-# Lint issues can be deferred
-can_defer_lint(DiagID) :-
-    diagnostic(/lint, DiagID, _, _, _).
 
 # -----------------------------------------------------------------------------
 # 6.3 Diagnostic Prioritization
 # -----------------------------------------------------------------------------
 
+# The id of a diagnostic here is its file: diagnostic/5 is (Severity, File, Line, Code,
+# Message). The rules once read the file out of the third column, which is the line.
+# Highest priority: errors in current file
+priority_diagnostic(File, 100) :-
+    diagnostic(/error, File, _, _, _),
+    coder_target(File).
+
 # High priority: errors in impacted files
-priority_diagnostic(DiagID, 80) :-
-    diagnostic(/error, DiagID, File, _, _),
+priority_diagnostic(File, 80) :-
+    diagnostic(/error, File, _, _, _),
     coder_impacted(File).
+
+# Medium priority: warnings in current file
+priority_diagnostic(File, 50) :-
+    diagnostic(/warning, File, _, _, _),
+    coder_target(File).
 
 # Low priority: lint issues
 priority_diagnostic(DiagID, 20) :-

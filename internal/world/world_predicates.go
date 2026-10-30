@@ -69,6 +69,8 @@ var ScannerPredicates = []string{
 	"nesting_depth",
 	"detected_security_flow",
 	"placeholder_site",
+	// file_extension rides with file_dir: both are keys policy joins files on.
+	"file_extension",
 }
 
 // ImportGraphPredicates are whole-graph measurements of the import edges

@@ -351,12 +351,25 @@ Decl coder_block_write(FilePath, Reason) bound [/string, /string].
 # coder_safe_to_write(FilePath) - derived: safe to write
 Decl coder_safe_to_write(FilePath) bound [/string].
 
+# is_core_file(FilePath) - file is in core/critical path (higher risk)
+Decl is_core_file(FilePath) bound [/string].
+
+# dependent_count(Target, Count) - number of files depending on Target
+# Computed by Go from dependency_link graph
+Decl dependent_count(Target, Count) bound [/string, /number].
+
+# is_interface_file(FilePath) - file contains interface/type definitions
+Decl is_interface_file(FilePath) bound [/string].
+
 # file_package(FilePath, PackageName) - maps file to its Go package
 Decl file_package(FilePath, PackageName) bound [/string, /string].
 
 # tdd_state(State) - current TDD phase state
 # State: /red (tests failing), /green (tests passing), /refactor
 Decl tdd_state(State) bound [/name].
+
+# type_definition_file(FilePath) - file contains type/struct definitions
+Decl type_definition_file(FilePath) bound [/string].
 
 # function_metrics(FilePath, FuncName, Lines, Complexity) - function metrics
 Decl function_metrics(FilePath, FuncName, Lines, Complexity) bound [/string, /string, /number, /number].
@@ -383,6 +396,12 @@ Decl extension_language(Extension, Language) bound [/string, /name].
 
 # testable_language(Language) - language supports automated testing
 Decl testable_language(Language) bound [/name].
+
+# is_public_api(FilePath) - file contains public API definitions
+Decl is_public_api(FilePath) bound [/string].
+
+# doc_exists_for(FilePath) - documentation exists for this file
+Decl doc_exists_for(FilePath) bound [/string].
 
 # test_file_for(TestFile, SourceFile) - TestFile contains tests for SourceFile
 Decl test_file_for(TestFile, SourceFile) bound [/string, /string].

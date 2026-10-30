@@ -408,6 +408,9 @@ func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options
 				Predicate: "file_dir",
 				Args:      []any{canonical, dir},
 			})
+			// file_extension(Path, Ext): the lower-cased extension with its dot,
+			// the key policy's extension_language table is asked with.
+			additionalFacts = append(additionalFacts, fileExtensionFact(canonical)...)
 			// is_test_file: the scanner already classifies the file, and the
 			// test-impact chain negates this mark to keep coverage_gap from
 			// accusing the tests themselves. All languages: the predicate is

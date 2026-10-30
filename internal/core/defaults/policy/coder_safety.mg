@@ -18,17 +18,16 @@
 # refactors and writes.
 test_coverage(SourceFile) :- test_file_for(_, SourceFile).
 
-# Block if impacted files lack test coverage
-coder_block_write(File, "uncovered_impact") :-
-    pending_edit(File, _),
-    dependency_link(Dependent, File, _),
-    coder_impacted(Dependent),
-    !test_coverage(Dependent).
+# REMOVED: a "block if impacted files lack test coverage" rule. The x_test.go
+# pairing under-reports coverage by design, so most dependents of most files
+# count as uncovered and the rule would have refused nearly every edit that has a
+# dependent. Impact reaches the coder as guidance instead (coder_guidance.mg).
 
-# REMOVED: "block writes outside workspace". Its premise was !path_in_workspace,
-# and nothing ever produced path_in_workspace, so the rule blocked every pending
-# edit. A workspace boundary needs a producer that measures it (the world model
-# knows the root); write that, then the rule.
+# REMOVED: a "block writes outside the workspace" rule over !path_in_workspace.
+# Nothing could assert path_in_workspace for a file that does not exist yet, so
+# the negation blocked every edit. Containment is measured where the path is
+# resolved (the virtual store's write guard); a staged edit's path is already
+# validated repo-relative (ValidatePendingEditFilePath).
 
 # Turn verdict — the executor asserts one turn_evidence fact per turn (Go
 # measures: tool/write/test counts, claimed-output flag, dream flag) and
@@ -802,35 +801,50 @@ turn_missing_evidence(Turn, /effect_unmeasured) :- turn_unverified(Turn), turn_h
 turn_build_failed(Turn) :- turn_evidence(Turn, _, _, _, _, _, _), turn_build_red(Turn).
 # Helper: any pending edit is implementation
 Decl has_implementation_edit() bound [].
-has_implementation_edit() :-
-    edit_is_implementation(_).
+# Helpers
+# A generated file is one the scan found a generator marker in (generated_code,
+# from the file's own "Code generated ... DO NOT EDIT" header), or one whose name
+# says so. The path substring "generated" is not used: it matched hand-written
+# files that merely talk about generation.
+is_generated_file(Path) :-
+    generated_code(Path, _, _).
 
-# Block edits during active TDD red phase (tests should fail first)
-coder_block_action(/edit, "tdd_red_phase") :-
-    !has_implementation_edit(),
-    pending_edit(_, _),
-    tdd_state(/red).
+is_generated_file(Path) :-
+    file_topology(Path, _, _, _, _),
+    :string:contains(Path, "_gen.").
+
+is_vendor_file(Path) :-
+    file_topology(Path, _, _, _, _),
+    vendor_dir_marker(Marker),
+    :string:contains(Path, Marker).
 
 # -----------------------------------------------------------------------------
 # 5.2 Safety Check Aggregation
 # -----------------------------------------------------------------------------
 
-# Helper for safe negation: true if any block exists for file
-has_coder_block(File) :-
-    coder_block_write(File, _).
-
-has_coder_block(File) :-
-    coder_block_action(/edit, _),
-    pending_edit(File, _).
-
-# Safe to write check
-coder_safe_to_write(File) :-
-    pending_edit(File, _),
-    !has_coder_block(File).
-
 # -----------------------------------------------------------------------------
 # 5.3 Edit Quality Gates
 # -----------------------------------------------------------------------------
+
+# Edit should include tests if creating new code
+edit_needs_tests(File) :-
+    coder_task(_, /create, File, _),
+    file_extension(File, Ext),
+    extension_language(Ext, Lang),
+    testable_language(Lang),
+    !is_test_file(File).
+
+# A documentation page sits beside the file: a markdown file in its directory.
+doc_exists_for(File) :-
+    file_dir(File, Dir),
+    file_dir(Doc, Dir),
+    file_extension(Doc, ".md").
+
+# Edit should update docs if modifying public API
+edit_needs_docs(File) :-
+    coder_task(_, /modify, File, _),
+    is_public_api(File),
+    !doc_exists_for(File).
 
 # Testable languages
 testable_language(/go).
