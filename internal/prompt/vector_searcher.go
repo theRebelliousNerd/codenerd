@@ -88,7 +88,8 @@ func (s *CompilerVectorSearcher) Search(ctx context.Context, query string, limit
 	// read of the field (an engine swap between the two would mismatch).
 	modelName := queryEmbedding.ModelID
 
-	dbs := compiler.snapshotPromptDBs()
+	dbs, release := compiler.snapshotPromptDBs()
+	defer release()
 	if len(dbs) == 0 {
 		return nil, nil
 	}
@@ -211,33 +212,33 @@ func (s *CompilerVectorSearcher) LastSkipped() map[string]int {
 	return out
 }
 
-// snapshotPromptDBs returns a stable slice of DBs registered with the compiler.
-func (c *JITPromptCompiler) snapshotPromptDBs() []*sql.DB {
+// snapshotPromptDBs pins a stable set of shard pools for the vector scan.
+func (c *JITPromptCompiler) snapshotPromptDBs() ([]*sql.DB, func()) {
 	if c == nil {
-		return nil
+		return nil, func() {}
 	}
-	c.shardMu.RLock()
-	shardDBsCopy := make([]*sql.DB, 0, len(c.shardDBs))
-	for _, db := range c.shardDBs {
-		if db != nil {
-			shardDBsCopy = append(shardDBsCopy, db)
-		}
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+	if c.closed {
+		return nil, func() {}
 	}
-	c.shardMu.RUnlock()
-
 	c.dbMu.RLock()
-	var projectDB *sql.DB
-	if c.projectDB != nil {
-		projectDB = c.projectDB
-	}
+	projectDB := c.projectDB
 	c.dbMu.RUnlock()
-
-	dbs := make([]*sql.DB, 0, 1+len(shardDBsCopy))
+	c.shardMu.Lock()
+	defer c.shardMu.Unlock()
+	dbs := make([]*sql.DB, 0, 1+len(c.shardDBs))
 	if projectDB != nil {
 		dbs = append(dbs, projectDB)
 	}
-	dbs = append(dbs, shardDBsCopy...)
-	return dbs
+	var registrations []*shardDBRegistration
+	for _, registration := range c.shardDBs {
+		if registration.db != nil {
+			dbs = append(dbs, registration.db)
+			registrations = append(registrations, registration)
+		}
+	}
+	return dbs, c.pinShardReadersLocked(registrations)
 }
 
 func decodeFloat32Slice(blob []byte) []float32 {

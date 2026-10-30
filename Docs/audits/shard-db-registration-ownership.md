@@ -1,5 +1,5 @@
 ---
-implementation-status: proposed-refinement
+implementation-status: partial
 verification-method: static-source-inspection
 verified-against: d1a1b5b8de3f11bb59e4f3eeef56a467d36a7bd2
 date: 2026-10-30
@@ -48,3 +48,81 @@ Controls: stock ephemeral coder; an unrelated custom expert; normal direct Corte
 Measure open SQL pools, retained bytes, compile/re-registration latency, cache invalidation counts, custom atom coverage and actual request tokens. A lease may retain a pool longer; eliminating redundant registration may avoid opens and cache churn. Neither savings nor downstream task-quality gains are established here. Use matched models, budgets, task corpus and gates for any later live comparison.
 
 The inspected consultation-coordination, task-terminal-ownership, specialist-roster-workspace-identity and expert-roster-domain-retirement audits concern different contracts. This report claims bounded nonduplication from that inventory and source review, not exhaustive historical novelty.
+
+## Current-source rulings
+
+Rechecked against worktree base `fef98230c20a5751e4c32a2fd2757832a9d39cdc`
+before authoring the repair. No builds, tests, inference or live comparison were
+run. Line numbers in the original audit are historical; the functions below are
+the current source anchors.
+
+| Claim | Ruling and current evidence |
+|---|---|
+| Discovery permits a custom agent named `coder`, `tester`, `reviewer` or `researcher`; boot registers it and defines a user profile. | **Real.** `internal/prompt/sync/synchronizer.go` `SyncAll` accepts those directory names; `internal/system/factory.go` `initIntelligenceLayer` registers discovered DBs and defines `ShardTypeUser` profiles. Naming remains valid. |
+| Boot connects manager execution to the shared compiler registration map. | **Real.** `internal/system/factory.go` `initShardManagement` installed both registration and name-based unregistration callbacks. The repair replaces that pair with one scoped acquisition callback. |
+| An admitted supervised campaign can consult these names through the manager. | **Real.** `internal/shards/system/campaign_runner.go` `startCampaign` calls `ResumeCampaign` and `Run`; `orchestratorConfig` supplies the manager-backed consultation engine to the advisory board. `internal/campaign/shard_advisory_board.go` still defaults to the four advisor names. |
+| The advisory provider is reachable, conditional on risk gating. | **Real.** `internal/campaign/orchestrator_execution.go` `Run` invokes `runRiskPreflight`; `internal/campaign/risk_scoring.go` skips disabled/below-threshold work and calls `runAdvisoryRiskGate` when gated and enabled. The repair preserves these branches and fail-closed votes. |
+| Spawn registers by persona and completion unregisters whatever occupies that name. | **Real; repaired in authored code.** `internal/core/shards/manager_spawn.go` previously recorded the persona string in `activeJITDBs`. It now records the acquisition's release function and invokes only that release on completion. |
+| Registration replaces and closes a prior handle; unregistration has no ownership check. | **Real; repaired in authored code.** `internal/prompt/loader.go` previously opened a pool on every callback; `internal/prompt/compiler_db.go` replaced and closed by normalized name. Scoped acquisitions now reuse the current generation. Explicit owner replacement/removal retains acquired old handles until their leases and readers drain. |
+| A later compile has no custom source after that cleanup. | **Real consequence of the former lifecycle.** `internal/prompt/compiler_generation.go` snapshots the selected DB; `internal/prompt/compiler_sources.go` reads custom atoms only when that source exists. Source collection remains intact; scoped cleanup preserves the owner source. |
+| Overlapping same-name executions can retire each other's source. | **Real; repaired in authored code.** Temporary registrations share a pool and release their own references. An old release cannot remove a replacement registration. |
+| Normal Cortex execution bypasses the manager; ephemeral defaults avoid this registration block; locks and cache invalidation do not establish ownership. | **Already correct protections, not earlier fixes of this defect.** See `internal/system/factory.go` `SpawnTaskWithTarget`, `internal/core/shards/config.go` `DefaultGeneralistConfig`, and compiler registration locks/source epochs. No routing change or cache-invalidation removal is needed. |
+| Database deletion, permission bypass or measured quality/resource savings follow from this defect. | **Not claimed by the audit and not established here.** The repair retains files and acceptance gates; operational and quality measurements remain pending. |
+
+None of the audit's defect claims was already fixed or contradicted by current
+source. Routing only the campaign consultation through a different executor
+would remove one trigger while leaving the manager's shared-name ownership
+error; the repair instead fixes that boundary for every caller.
+
+## As built
+
+Commits: none; the authored changes are uncommitted in this worktree.
+
+`internal/types/interfaces.go`, `internal/core/shards/manager.go`,
+`internal/core/shards/manager_spawn.go`, `internal/prompt/loader.go` and
+`internal/system/factory.go` now carry one scoped registration acquisition and
+its idempotent release end to end. The former unregistrar API is removed.
+`internal/prompt/compiler_shard_lifecycle.go` owns generation, owner, execution
+lease and reader references. `compiler_db.go` and `compiler.go` integrate explicit
+registry replacement, removal and shutdown. `compiler_generation.go`,
+`compiler_pipeline.go`, `compiler_experts.go`, `compiler_knowledge_use.go` and
+`vector_searcher.go` pin shard readers through their real use, including
+singleflight work that outlives a canceled caller. As-built contracts are in
+`Docs/architecture/shards/IMPLEMENTED_SPEC.md` and
+`Docs/architecture/prompt/IMPLEMENTED_SPEC.md`.
+
+Authored regressions:
+
+- `internal/system/shard_db_ownership_test.go`:
+  `TestBootOwnedShardDBSurvivesManagerConsultation` uses discovery and real boot
+  callback wiring, checks registration identity during/after success and failure,
+  preserves a sibling, and checks a custom marker in the next actual coder
+  compilation. `TestManagerTemporaryDBLivesUntilOverlappingExecutionsFinish`
+  checks shared pools and final closure after success, failure and cancellation.
+- `internal/shards/system/campaign_runner_db_ownership_test.go`:
+  `TestCampaignRunnerAdmittedRiskConsultationKeepsOwnerDB` journals a campaign,
+  resumes it through admission and calls `Run` with the runner's production
+  consultation wiring. Its enabled advisory gate rejects the protected change;
+  the owner DB remains registered and no campaign task executes.
+- `internal/prompt/compiler_shard_lifecycle_test.go`: owner borrowing without
+  source-epoch churn; temporary overlapping leases; owner replacement and sibling
+  preservation; explicit owner removal; speaker/pushed-expert readers after
+  replacement and caller cancellation; shutdown and late acquisitions.
+- `internal/core/shards/manager_spawn_context_test.go`: acquisition failure
+  stops before execution; the existing canceled-waiter cleanup now exercises
+  scoped release rather than name-based unregistration. Existing source-snapshot
+  test helpers release their reader references.
+
+Fail-before evidence is **source-derived, not executed**: the former boot callback
+opens and installs a distinct pool before the controlled advisor executes, so
+the boot regression's identity check fails; completion then deletes the persona
+entry. The former direct replacement also closes the handle still captured by
+the blocked compilation, violating the reader regression's successful Ping
+assertion. No red/green test result is claimed.
+
+Status remains **partial** pending execution of the owning packages and the
+authored boot/resume regressions, observed fail-before/red-green evidence, and
+the proposed resource/latency/token measurements. No prompt atom, Mangle rule,
+predicate manifest or starvation baseline changed. The private-terms scanner
+was not found within this worktree, so that repository-required scan also
+remains pending.

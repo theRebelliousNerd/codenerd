@@ -35,10 +35,10 @@ type expertSource struct {
 	db  *sql.DB
 }
 
-// expertSources resolves cc.Experts to registered DBs, skipping the compile's
+// expertSourcesLocked resolves cc.Experts to registered DBs, skipping the compile's
 // own speaker (already the shard source) and any agent with no registered DB,
-// in name order so the source vector is stable.
-func (c *JITPromptCompiler) expertSources(cc *CompilationContext, speakerKey string) []expertSource {
+// in name order so the source vector is stable. The caller holds shardMu.
+func (c *JITPromptCompiler) expertSourcesLocked(cc *CompilationContext, speakerKey string) []expertSource {
 	if cc == nil || len(cc.Experts) == 0 {
 		return nil
 	}
@@ -53,12 +53,10 @@ func (c *JITPromptCompiler) expertSources(cc *CompilationContext, speakerKey str
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	c.shardMu.RLock()
-	defer c.shardMu.RUnlock()
 	out := make([]expertSource, 0, len(keys))
 	for _, key := range keys {
-		if db := c.shardDBs[key]; db != nil {
-			out = append(out, expertSource{key: key, db: db})
+		if registration := c.shardDBs[key]; registration != nil && registration.db != nil {
+			out = append(out, expertSource{key: key, db: registration.db})
 		}
 	}
 	return out
@@ -176,8 +174,10 @@ func collectPushedExpertKnowledge(ctx context.Context, experts []expertSource, q
 // lower-cased and without the leading slash, sorted. An agent with no
 // registered DB is an error; a DB with no such tags claims nothing.
 func (c *JITPromptCompiler) ShardTechnologies(ctx context.Context, shardID string) ([]string, error) {
-	db, ok := c.LookupShardDB(shardID)
-	if !ok || db == nil {
+	src := c.snapshotSources(&CompilationContext{ShardID: shardID})
+	defer src.release()
+	db := src.shardDB
+	if db == nil {
 		return nil, fmt.Errorf("no knowledge DB registered for %q", shardID)
 	}
 	rows, err := db.QueryContext(ctx,

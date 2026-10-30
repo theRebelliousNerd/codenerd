@@ -657,6 +657,41 @@ Tables:
 
 Embedded-only corpora lack vectors until `SyncEmbeddedToSQLite` (or builder with embeddings).
 
+### 12.4 Persona database owners, leases and readers
+
+`RegisterAgentDBWithJIT`, `RegisterShardDB` and shard-named `RegisterDB` calls
+install an owner registration. The registry explicitly replaces or removes that
+owner; ordinary task completion does neither. `CreateJITDBRegistrar` returns a
+scoped acquisition callback for ShardManager, backed by `AcquireShardDB` in
+`internal/prompt/compiler_shard_lifecycle.go`. Acquiring an existing normalized
+persona borrows its current generation. If absent, acquisition opens a temporary
+pool shared by overlapping executions. Each idempotent release is bound to its
+generation, so releasing an older execution cannot delete a newer owner.
+
+Source snapshots retain the selected persona and pushed experts until their
+actual singleflight work finishes. Canceling the synchronous waiter does not
+release those readers early. Vector scans, technology reads and knowledge-use
+recording also retain their shard handles. Removing or replacing a registration
+immediately changes the name visible to future readers, but retirement closes
+the old pool only after its execution leases and readers drain. Shutdown rejects
+new acquisitions and source snapshots, cancels compile work, drains counted
+readers, then closes all remaining current and retired pools. LookupShardDB is
+an observation API; its returned handle conveys no ownership.
+
+Only registration changes advance the source epoch and invalidate cached
+prompts. Borrowing or releasing a boot-owned generation has no such effect;
+in-place source writes remain covered by source-generation capture. The
+ownership contract does not change Mangle selection, relevance, budgeting,
+permissions or prompt atoms. Database files are retained.
+
+`internal/prompt/compiler_shard_lifecycle_test.go` covers owner preservation,
+temporary sharing, old-generation release after replacement, explicit removal,
+in-flight speaker and pushed-expert readers after caller cancellation, and
+shutdown. `internal/system/shard_db_ownership_test.go` covers boot wiring and
+custom-atom delivery through a subsequent real compilation. These tests are
+authored, not executed; measured resource costs and runtime validation remain
+open.
+
 ---
 
 ## 13. Baseline path (`baseline.go`)

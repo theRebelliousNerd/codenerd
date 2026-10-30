@@ -195,8 +195,11 @@ func TestSourceVector_UntrackedSourceNeitherConsultsNorPopulatesTheCache(t *test
 func TestSourceVector_RegistrationChangesIdentityEvenForTheSameGenerations(t *testing.T) {
 	compiler := cacheProbeCompiler(t)
 	src := compiler.snapshotSources(generationContext())
+	defer src.release()
 	before := src.captureSourceVector(context.Background())
 	compiler.RegisterStrategyProvider(nil)
-	after := compiler.snapshotSources(generationContext()).captureSourceVector(context.Background())
+	afterSrc := compiler.snapshotSources(generationContext())
+	defer afterSrc.release()
+	after := afterSrc.captureSourceVector(context.Background())
 	require.NotEqual(t, before.token(), after.token())
 }

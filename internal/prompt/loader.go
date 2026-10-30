@@ -689,8 +689,9 @@ func ReloadAllPrompts(ctx context.Context, nerdDir string, embeddingEngine embed
 // ============================================================================
 
 // RegisterAgentDBWithJIT opens an agent's knowledge database and registers it with a JIT prompt compiler.
-// The DB handle is kept open for the duration of the shard's lifecycle. The caller is responsible
-// for calling UnregisterShardDB when the shard is deactivated to close the DB connection.
+// This installs an owner registration for the compiler lifetime, or until the
+// registry explicitly replaces it or calls UnregisterShardDB. Temporary executions
+// use CreateJITDBRegistrar to borrow it.
 //
 // Parameters:
 //   - compiler: The JIT prompt compiler to register the DB with
@@ -717,39 +718,22 @@ func RegisterAgentDBWithJIT(compiler *JITPromptCompiler, agentName, dbPath strin
 	}
 
 	// Register with the JIT compiler
-	compiler.RegisterShardDB(agentName, db)
+	if err := compiler.RegisterShardDB(agentName, db); err != nil {
+		return err
+	}
 
 	logging.Get(logging.CategoryStore).Info("Registered agent DB with JIT compiler: %s -> %s", agentName, dbPath)
 	return nil
 }
 
-// CreateJITDBRegistrar creates a JITDBRegistrar callback function that registers agent DBs
-// with the given JIT prompt compiler. This is used by ShardManager to wire up the integration.
-//
-// Usage in main/bootstrap code:
-//
-//	compiler, _ := prompt.NewJITPromptCompiler(...)
-//	shardMgr.SetJITRegistrar(prompt.CreateJITDBRegistrar(compiler))
-func CreateJITDBRegistrar(compiler *JITPromptCompiler) func(agentName, dbPath string) error {
-	return func(agentName, dbPath string) error {
-		return RegisterAgentDBWithJIT(compiler, agentName, dbPath)
-	}
-}
-
-// CreateJITDBUnregistrar creates a JITDBUnregistrar callback function that unregisters
-// agent DBs from the given JIT prompt compiler. This closes the DB connection and frees resources.
-//
-// Usage in main/bootstrap code:
-//
-//	compiler, _ := prompt.NewJITPromptCompiler(...)
-//	shardMgr.SetJITUnregistrar(prompt.CreateJITDBUnregistrar(compiler))
-func CreateJITDBUnregistrar(compiler *JITPromptCompiler) func(agentName string) {
-	return func(agentName string) {
+// CreateJITDBRegistrar returns the scoped acquisition callback used by ShardManager.
+// Existing owner registrations are borrowed without opening or replacing a pool.
+func CreateJITDBRegistrar(compiler *JITPromptCompiler) func(agentName, dbPath string) (func(), error) {
+	return func(agentName, dbPath string) (func(), error) {
 		if compiler == nil {
-			return
+			return nil, fmt.Errorf("JIT compiler is nil")
 		}
-		compiler.UnregisterShardDB(agentName)
-		logging.Get(logging.CategoryStore).Debug("Unregistered agent DB from JIT compiler: %s", agentName)
+		return compiler.AcquireShardDB(agentName, dbPath)
 	}
 }
 

@@ -14,13 +14,17 @@ import "context"
 // consulted. Missing knowledge reads as missing (nil); nothing is fabricated.
 func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
 	config, _, _ := c.configSnapshot()
-	return c.collectKnowledgeAtomsFrom(ctx, cc, config, c.snapshotSources(cc), nil, nil)
+	src := c.snapshotSources(cc)
+	defer src.release()
+	return c.collectKnowledgeAtomsFrom(ctx, cc, config, src, nil, nil)
 }
 
 // collectLearningAtoms queries the LearningStore for relevant past learnings.
 func (c *JITPromptCompiler) collectLearningAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
 	config, _, _ := c.configSnapshot()
-	return c.collectLearningAtomsFrom(ctx, cc, config, c.snapshotSources(cc), nil)
+	src := c.snapshotSources(cc)
+	defer src.release()
+	return c.collectLearningAtomsFrom(ctx, cc, config, src, nil)
 }
 
 func (c *JITPromptCompiler) collectDynamicKernelSnapshot(kernel KernelQuerier, cc *CompilationContext) (atoms []*PromptAtom, fingerprint string, err error) {

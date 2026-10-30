@@ -79,8 +79,10 @@ func (c *JITPromptCompiler) recordKnowledgeConsumption(ctx context.Context, cc *
 	now := time.Now()
 	for _, key := range slices.Sorted(maps.Keys(result.KnowledgeLookups)) {
 		lookup := result.KnowledgeLookups[key]
-		db, ok := c.LookupShardDB(key)
-		if !ok || db == nil {
+		src := c.snapshotSources(&CompilationContext{ShardID: key})
+		db := src.shardDB
+		if db == nil {
+			src.release()
 			continue
 		}
 		var err error
@@ -97,6 +99,7 @@ func (c *JITPromptCompiler) recordKnowledgeConsumption(ctx context.Context, cc *
 		default:
 			err = knowledge.RecordMiss(ctx, db, query, now)
 		}
+		src.release()
 		if err != nil {
 			logging.Get(logging.CategoryJIT).Warn("knowledge consumption of %s not recorded: %v", key, err)
 		}

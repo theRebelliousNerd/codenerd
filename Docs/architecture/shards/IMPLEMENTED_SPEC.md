@@ -163,6 +163,39 @@ and processes a new event after Start/Stop/Start under the race suite.
 **PARTIAL:** unobserved async result retention is owned by the core manager and
 has no bounded receipt in this corpus; observer overflow remains uncounted.
 
+### 4.4 Specialist database ownership
+
+Boot's discovered-agent registry owns the compiler's persona database
+registration. A user or persistent shard acquires a scoped lease through
+`types.JITDBRegistrar`; the manager records the returned release function under
+the execution ID and calls that exact function when execution finishes, including
+error, panic and late completion after caller cancellation. Acquisition failure
+stops the unstarted agent and returns an error before execution. There is no
+name-based unregistration callback on the manager.
+
+An execution borrows an existing registration without opening another SQL pool,
+replacing the owner or clearing the prompt cache. If no registration exists,
+the compiler opens a temporary pool and shares it across overlapping executions
+of the normalized persona name. The last lease removes that temporary name;
+reader references determine when its pool can close. An explicit registry
+replacement applies to future compilations immediately, while old leases release
+only their acquired generation. A shard completion cannot retire the replacement
+or a sibling persona. Compiler shutdown drains source readers and closes both
+current and retired generations, including outstanding execution leases.
+
+`internal/core/shards/manager_spawn.go`,
+`internal/prompt/compiler_shard_lifecycle.go` and
+`internal/system/factory.go` implement this contract. The supervised campaign
+runner continues using its manager-backed consultation adapter; changing that
+door alone would leave other manager callers with the same ownership defect.
+`TestBootOwnedShardDBSurvivesManagerConsultation` covers production boot wiring
+and the next actual coder compilation;
+`TestManagerTemporaryDBLivesUntilOverlappingExecutionsFinish` covers shared
+temporary pools, failure and cancellation; and
+`TestCampaignRunnerAdmittedRiskConsultationKeepsOwnerDB` covers admitted resume
+through the enabled advisory risk gate. These regressions are authored and await
+execution; no runtime or performance verdict is claimed for this slice.
+
 ## 5. The OODA action envelope
 
 ### 5.1 Perception

@@ -183,11 +183,7 @@ func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
 	default:
 		// Treat unknown names as shard IDs for flexibility
 		c.shardMu.Lock()
-		if previous := c.shardDBs[shardDBKey(name)]; previous != nil && previous != db {
-			c.catalog.forgetHandle(previous)
-			_ = previous.Close()
-		}
-		c.shardDBs[shardDBKey(name)] = db
+		c.installShardDBLocked(shardDBKey(name), db)
 		c.shardMu.Unlock()
 		logging.Get(logging.CategoryContext).Info("Registered database %s: %s", name, dbPath)
 	}
@@ -214,52 +210,48 @@ func shardDBKey(shardID string) string {
 // RegisterShardDB registers a shard-specific atom database.
 // The DB should be the agent's unified knowledge database (.nerd/shards/{name}_knowledge.db)
 // which contains both knowledge_atoms and prompt_atoms tables.
-func (c *JITPromptCompiler) RegisterShardDB(shardID string, db *sql.DB) {
+func (c *JITPromptCompiler) RegisterShardDB(shardID string, db *sql.DB) error {
 	c.lifecycleMu.Lock()
 	defer c.lifecycleMu.Unlock()
 	if c.closed {
 		if db != nil {
 			_ = db.Close()
 		}
-		return
+		return fmt.Errorf("prompt compiler is closed")
 	}
 	c.shardMu.Lock()
-	if previous := c.shardDBs[shardDBKey(shardID)]; previous != nil && previous != db {
-		c.catalog.forgetHandle(previous)
-		_ = previous.Close()
-	}
-	c.shardDBs[shardDBKey(shardID)] = db
+	c.installShardDBLocked(shardDBKey(shardID), db)
 	c.shardMu.Unlock()
 	c.bumpSourceEpoch()
 	c.clearPromptCache(fmt.Sprintf("shard database registered: %s", shardID))
+	return nil
 }
 
-// UnregisterShardDB removes a shard database registration and closes the
-// handle: *sql.DB has no finalizer, so dropping it from the map without
-// closing leaks the connection pool until process exit.
+// UnregisterShardDB is an explicit owner removal. Existing readers and scoped
+// borrowers keep their handle until release, but new compiles no longer see it.
 func (c *JITPromptCompiler) UnregisterShardDB(shardID string) {
 	c.shardMu.Lock()
-	db, ok := c.shardDBs[shardDBKey(shardID)]
-	delete(c.shardDBs, shardDBKey(shardID))
-	c.shardMu.Unlock()
-	c.bumpSourceEpoch()
-	if ok && db != nil {
-		c.catalog.forgetHandle(db)
-		if err := db.Close(); err != nil {
-			logging.Get(logging.CategoryContext).Warn("Failed to close unregistered shard DB %s: %v", shardID, err)
-		}
+	registration, ok := c.shardDBs[shardDBKey(shardID)]
+	if ok {
+		delete(c.shardDBs, shardDBKey(shardID))
+		registration.owned = false
+		c.retireShardHandleLocked(registration)
+		c.bumpSourceEpoch()
+		c.clearPromptCache(fmt.Sprintf("shard database unregistered: %s", shardID))
 	}
-	c.clearPromptCache(fmt.Sprintf("shard database unregistered: %s", shardID))
+	c.shardMu.Unlock()
 }
 
-// LookupShardDB returns the atom database registered for an agent name, if any.
-// Exported so callers (and tests) can assert that a user-defined agent's
-// knowledge DB is actually reachable under the name the executor will use.
+// LookupShardDB observes the current registration without acquiring ownership.
+// Callers must not close the returned handle. Compiler reads pin their sources.
 func (c *JITPromptCompiler) LookupShardDB(shardID string) (*sql.DB, bool) {
 	c.shardMu.RLock()
 	defer c.shardMu.RUnlock()
-	db, ok := c.shardDBs[shardDBKey(shardID)]
-	return db, ok
+	registration, ok := c.shardDBs[shardDBKey(shardID)]
+	if !ok {
+		return nil, false
+	}
+	return registration.db, true
 }
 
 // LoadAtoms loads atoms from a database into memory.

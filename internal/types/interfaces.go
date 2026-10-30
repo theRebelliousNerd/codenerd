@@ -183,11 +183,9 @@ type ShardFactory func(id string, config ShardConfig) ShardAgent
 // PromptLoaderFunc is a callback for loading agent prompts from YAML files.
 type PromptLoaderFunc func(context.Context, string, string) (int, error)
 
-// JITDBRegistrar is a callback for registering agent knowledge DBs with the JIT prompt compiler.
-type JITDBRegistrar func(agentName string, dbPath string) error
-
-// JITDBUnregistrar is a callback for unregistering agent knowledge DBs from the JIT prompt compiler.
-type JITDBUnregistrar func(agentName string)
+// JITDBRegistrar acquires a scoped registration of an agent knowledge DB.
+// The returned release function relinquishes only that acquisition and is idempotent.
+type JITDBRegistrar func(agentName string, dbPath string) (release func(), err error)
 
 // ReviewerFeedbackProvider defines the interface for reviewer validation.
 type ReviewerFeedbackProvider interface {

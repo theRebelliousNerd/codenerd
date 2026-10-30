@@ -82,6 +82,7 @@ func (v sourceVector) equal(other sourceVector) bool {
 // under the compiler's locks so the capture, the re-capture and the reads all
 // address the same handles even if a registration lands mid-compile.
 type compileSources struct {
+	release        func() // releases shard reader pins after all source work finishes
 	epoch          uint64
 	embedded       *EmbeddedCorpus
 	projectDB      *sql.DB
@@ -96,6 +97,11 @@ type compileSources struct {
 }
 
 func (c *JITPromptCompiler) snapshotSources(cc *CompilationContext) compileSources {
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+	if c.closed {
+		return compileSources{release: func() {}}
+	}
 	c.dbMu.RLock()
 	src := compileSources{
 		epoch:          c.sourceEpoch.Load(),
@@ -108,13 +114,21 @@ func (c *JITPromptCompiler) snapshotSources(cc *CompilationContext) compileSourc
 		vectorSearcher: c.vectorSearcher,
 	}
 	c.dbMu.RUnlock()
+	c.shardMu.Lock()
+	defer c.shardMu.Unlock()
+	var registrations []*shardDBRegistration
 	if cc != nil && cc.ShardID != "" {
 		src.shardKey = shardDBKey(cc.ShardID)
-		c.shardMu.RLock()
-		src.shardDB = c.shardDBs[src.shardKey]
-		c.shardMu.RUnlock()
+		if registration := c.shardDBs[src.shardKey]; registration != nil {
+			src.shardDB = registration.db
+			registrations = append(registrations, registration)
+		}
 	}
-	src.experts = c.expertSources(cc, src.shardKey)
+	src.experts = c.expertSourcesLocked(cc, src.shardKey)
+	for _, expert := range src.experts {
+		registrations = append(registrations, c.shardDBs[expert.key])
+	}
+	src.release = c.pinShardReadersLocked(registrations)
 	return src
 }
 

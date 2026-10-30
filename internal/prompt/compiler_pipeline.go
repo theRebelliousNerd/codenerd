@@ -109,6 +109,11 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 	}
 
 	src := c.snapshotSources(cc)
+	defer func() {
+		if releaseAtReturn {
+			src.release()
+		}
+	}()
 	vector := src.captureSourceVector(ctx)
 	cacheKey := promptCacheKey(cc.Hash(), configRevision, vector.token())
 	preflightDuration := time.Since(preflightStart)
@@ -176,6 +181,7 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 		defer c.wg.Done()
 		outcome := <-resultChannel
 		pf.release()
+		src.release()
 		completion <- outcome
 	}()
 	var outcome singleflight.Result

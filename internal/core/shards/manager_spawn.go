@@ -320,9 +320,14 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	if (config.Type == types.ShardTypePersistent || config.Type == types.ShardTypeUser) && sm.nerdDir != "" && sm.jitRegistrar != nil {
 		dbPath := types.AgentKnowledgeDBPath(sm.nerdDir, typeName)
 		if _, statErr := os.Stat(dbPath); statErr == nil {
-			if regErr := sm.jitRegistrar(typeName, dbPath); regErr == nil {
-				sm.activeJITDBs[id] = typeName
+			release, regErr := sm.jitRegistrar(typeName, dbPath)
+			if regErr != nil {
+				if stopErr := agent.Stop(); stopErr != nil {
+					logging.Get(logging.CategoryShards).Warn("Failed to stop unstarted shard %s: %v", id, stopErr)
+				}
+				return "", fmt.Errorf("acquire JIT database for %s: %w", typeName, regErr)
 			}
+			sm.activeJITDBs[id] = release
 		}
 	}
 
@@ -522,10 +527,10 @@ func (sm *ShardManager) recordResult(id string, result string, err error) {
 
 	delete(sm.shards, id)
 
-	if typeName, hasJITDB := sm.activeJITDBs[id]; hasJITDB {
+	if release, hasJITDB := sm.activeJITDBs[id]; hasJITDB {
 		delete(sm.activeJITDBs, id)
-		if sm.jitUnregistrar != nil {
-			sm.jitUnregistrar(typeName)
+		if release != nil {
+			release()
 		}
 	}
 

@@ -143,14 +143,13 @@ func TestShardManager_CanceledSynchronousWaiterDoesNotRetainResult(t *testing.T)
 		t.Fatalf("create shard database marker: %v", err)
 	}
 	sm.SetNerdDir(nerdDir)
-	sm.SetJITRegistrar(func(name, path string) error {
+	sm.SetJITRegistrar(func(name, path string) (func(), error) {
 		if path != dbPath {
 			t.Errorf("JIT registration path = %q, want %q", path, dbPath)
 		}
 		registered <- name
-		return nil
+		return func() { unregistered <- name }, nil
 	})
-	sm.SetJITUnregistrar(func(name string) { unregistered <- name })
 	sm.RegisterShard("cancel_test", func(id string, cfg types.ShardConfig) types.ShardAgent {
 		return &cancellationIgnoringAgent{
 			BaseShardAgent: NewBaseShardAgent(id, cfg),
@@ -225,6 +224,39 @@ func TestShardManager_CanceledSynchronousWaiterDoesNotRetainResult(t *testing.T)
 	active, results, detached, jitDBs := len(sm.shards), len(sm.results), len(sm.detached), len(sm.activeJITDBs)
 	sm.mu.RUnlock()
 	t.Fatalf("after canceled waiter and completed shard: active=%d results=%d detached=%d JITDBs=%d, want all zero", active, results, detached, jitDBs)
+}
+
+func TestShardManager_JITAcquisitionFailureStopsBeforeExecution(t *testing.T) {
+	sm := NewShardManager()
+	nerdDir := t.TempDir()
+	dbPath := types.AgentKnowledgeDBPath(nerdDir, "expert")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dbPath, []byte("marker"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sm.SetNerdDir(nerdDir)
+	acquisitionErr := errors.New("knowledge database unavailable")
+	sm.SetJITRegistrar(func(string, string) (func(), error) { return nil, acquisitionErr })
+	started := make(chan struct{})
+	sm.RegisterShard("expert", func(id string, cfg types.ShardConfig) types.ShardAgent {
+		return &cancellationIgnoringAgent{BaseShardAgent: NewBaseShardAgent(id, cfg), started: started, release: started}
+	})
+	sm.DefineProfile("expert", types.ShardConfig{Name: "expert", Type: types.ShardTypeUser})
+	if _, err := sm.Spawn(t.Context(), "expert", "consult"); !errors.Is(err, acquisitionErr) {
+		t.Fatalf("Spawn = %v, want the acquisition failure", err)
+	}
+	select {
+	case <-started:
+		t.Fatal("shard executed after database acquisition failed")
+	default:
+	}
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	if len(sm.activeJITDBs) != 0 || len(sm.shards) != 0 || len(sm.results) != 0 {
+		t.Fatal("failed acquisition left active execution state")
+	}
 }
 
 // usageReportingAgent reports at the provider boundary using only the context

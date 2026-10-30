@@ -2157,7 +2157,6 @@ func initShardManagement(bctx *bootContext) error {
 		return prompt.LoadAgentPrompts(ctx, agentName, nerdDir, bctx.embeddingEngine)
 	})
 	bctx.shardManager.SetJITRegistrar(prompt.CreateJITDBRegistrar(bctx.jitCompiler))
-	bctx.shardManager.SetJITUnregistrar(prompt.CreateJITDBUnregistrar(bctx.jitCompiler))
 
 	// Sync all agent prompts.yaml -> knowledge DBs at boot (upsert semantics).
 	// This must run AFTER the agent knowledge DBs exist and AFTER the JIT

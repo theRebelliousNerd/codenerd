@@ -49,7 +49,6 @@ func TestShardManager_Setters(t *testing.T) {
 	sm.SetImageLLMClient(nil)
 	sm.SetPromptLoader(nil)
 	sm.SetJITRegistrar(nil)
-	sm.SetJITUnregistrar(nil)
 	sm.SetReviewerFeedbackProvider(nil)
 	sm.SetLearningStore(nil)
 

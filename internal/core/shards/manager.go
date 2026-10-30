@@ -85,11 +85,10 @@ type ShardManager struct {
 	sessionID string
 
 	// Workspace paths and callbacks for prompt loading
-	nerdDir        string                 // Path to .nerd directory
-	promptLoader   types.PromptLoaderFunc // Callback to load agent prompts (avoids import cycle)
-	jitRegistrar   types.JITDBRegistrar   // Callback to register agent DBs with JIT compiler
-	jitUnregistrar types.JITDBUnregistrar // Callback to unregister agent DBs when shard deactivates
-	activeJITDBs   map[string]string      // Tracks which shards have registered JIT DBs (shardID -> typeName)
+	nerdDir      string                 // Path to .nerd directory
+	promptLoader types.PromptLoaderFunc // Callback to load agent prompts (avoids import cycle)
+	jitRegistrar types.JITDBRegistrar   // Callback to register agent DBs with JIT compiler
+	activeJITDBs map[string]func()      // Scoped DB releases, bound to the acquisition at spawn
 
 	// Optional Glass Box event bus for TUI activity overlay. When set,
 	// the manager emits shard lifecycle events (spawn / completion) so
@@ -130,7 +129,7 @@ func NewShardManager() *ShardManager {
 		results:      make(map[string]types.ShardResult),
 		profiles:     make(map[string]types.ShardConfig),
 		factories:    make(map[string]types.ShardFactory),
-		activeJITDBs: make(map[string]string),
+		activeJITDBs: make(map[string]func()),
 	}
 	logging.ShardsDebug("ShardManager initialized with empty maps")
 	return sm
@@ -226,13 +225,6 @@ func (sm *ShardManager) SetJITRegistrar(registrar types.JITDBRegistrar) {
 	defer sm.mu.Unlock()
 	sm.jitRegistrar = registrar
 	logging.ShardsDebug("JIT registrar callback set")
-}
-
-func (sm *ShardManager) SetJITUnregistrar(unregistrar types.JITDBUnregistrar) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.jitUnregistrar = unregistrar
-	logging.ShardsDebug("JIT unregistrar callback set")
 }
 
 func (sm *ShardManager) SetLearningStore(store types.LearningStore) {

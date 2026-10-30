@@ -168,7 +168,9 @@ type JITPromptCompiler struct {
 	projectDB *sql.DB
 
 	// Shard-specific atom databases (keyed by shard ID)
-	shardDBs map[string]*sql.DB
+	shardDBs map[string]*shardDBRegistration
+	// Includes retired registrations retained by scoped borrowers or readers.
+	shardHandles map[*shardDBRegistration]struct{}
 
 	// Kernel for rule-based selection
 	kernel KernelQuerier
@@ -338,14 +340,15 @@ func NewJITPromptCompiler(opts ...CompilerOption) (*JITPromptCompiler, error) {
 	config := DefaultCompilerConfig()
 
 	compiler := &JITPromptCompiler{
-		shardDBs:  make(map[string]*sql.DB),
-		config:    config,
-		selector:  NewAtomSelector(),
-		resolver:  NewDependencyResolver(),
-		budgetMgr: NewTokenBudgetManager(),
-		assembler: NewFinalAssembler(),
-		cache:     newLRUCache[string, *CompilationResult](promptCacheLimit),
-		preflight: newLRUCache[preflightKey, preflightEntry](promptCacheLimit),
+		shardDBs:     make(map[string]*shardDBRegistration),
+		shardHandles: make(map[*shardDBRegistration]struct{}),
+		config:       config,
+		selector:     NewAtomSelector(),
+		resolver:     NewDependencyResolver(),
+		budgetMgr:    NewTokenBudgetManager(),
+		assembler:    NewFinalAssembler(),
+		cache:        newLRUCache[string, *CompilationResult](promptCacheLimit),
+		preflight:    newLRUCache[preflightKey, preflightEntry](promptCacheLimit),
 	}
 	compiler.stopContext, compiler.stop = context.WithCancel(context.Background())
 
@@ -423,13 +426,12 @@ func (c *JITPromptCompiler) closeResources() error {
 	func() {
 		c.shardMu.Lock()
 		defer c.shardMu.Unlock()
-		// Close shard databases
-		for id, db := range c.shardDBs {
-			if err := db.Close(); err != nil {
-				logging.Get(logging.CategoryContext).Warn("Failed to close shard DB %s: %v", id, err)
-			}
+		// Shutdown retires every generation, including leases still held by a
+		// shard. Late, idempotent releases cannot affect a future registration.
+		for registration := range c.shardHandles {
+			c.closeShardHandleLocked(registration)
 		}
-		c.shardDBs = make(map[string]*sql.DB)
+		c.shardDBs = make(map[string]*shardDBRegistration)
 	}()
 
 	var finalErr error
