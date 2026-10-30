@@ -40,7 +40,13 @@ type ToolRoute struct {
 type RouterConfig struct {
 	// Routing tables
 	DefaultRoutes []ToolRoute // Built-in routes
-	CustomRoutes  []ToolRoute // User-defined routes
+	// CustomRoutes are routes added at construction beside DefaultRoutes.
+	// No source fills them, and that is a missing SOURCE rather than a missing
+	// wire: user-defined routes would need a config schema (and a review of
+	// what a route may grant) that does not exist, and the routes the router
+	// learns (handleAutopoiesis, route_added) are deliberately session-only.
+	// Until such a source exists the field reads empty.
+	CustomRoutes []ToolRoute
 
 	// Performance
 	TickInterval time.Duration // How often to check permitted actions (default: 100ms)
