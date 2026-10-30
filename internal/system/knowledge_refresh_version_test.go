@@ -55,7 +55,8 @@ func TestKnowledgeRefreshResearchesAnUpgradedDependency(t *testing.T) {
 	calls := 0
 	refresher.acquirer = knowledge.Acquirer{Sources: []knowledge.Source{docsSource{calls: &calls}}}
 
-	report, err := refresher.run(ctx)
+	// `nerd knowledge refresh` runs it through the Cortex.
+	report, err := cortex.RefreshKnowledge(ctx)
 	if err != nil || len(report.Refreshed) != 1 || !strings.Contains(report.Refreshed[0], "github.com/spf13/cobra (unlearned)") {
 		t.Fatalf("first run refreshed %v (err %v)", report.Refreshed, err)
 	}

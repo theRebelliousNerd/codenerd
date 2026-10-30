@@ -51,8 +51,8 @@ type knowledgeRefresher struct {
 	mu sync.Mutex
 }
 
-// knowledgeRefreshReport is what one run did.
-type knowledgeRefreshReport struct {
+// KnowledgeRefreshReport is what one knowledge refresh run did.
+type KnowledgeRefreshReport struct {
 	// Refreshed names each subject acquired again, as agent:subject (reason).
 	Refreshed []string
 	Outcomes  []knowledge.Outcome
@@ -69,10 +69,10 @@ type rosterKB struct {
 }
 
 // run measures, asserts, and does what the policy derives.
-func (r *knowledgeRefresher) run(ctx context.Context) (knowledgeRefreshReport, error) {
+func (r *knowledgeRefresher) run(ctx context.Context) (KnowledgeRefreshReport, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var report knowledgeRefreshReport
+	var report KnowledgeRefreshReport
 	if r.kernel == nil || strings.TrimSpace(r.workspace) == "" {
 		return report, nil
 	}
@@ -185,6 +185,17 @@ func (r *knowledgeRefresher) run(ctx context.Context) (knowledgeRefreshReport, e
 		return report, errors.New(strings.Join(failures, "; "))
 	}
 	return report, nil
+}
+
+// RefreshKnowledge runs one knowledge refresh now, outside its schedule:
+// what policy/knowledge_refresh.mg derives over the workspace's agent KBs,
+// within its budget (`nerd knowledge refresh`). A Cortex booted without the
+// refresh (no kernel policy for it) says so.
+func (c *Cortex) RefreshKnowledge(ctx context.Context) (KnowledgeRefreshReport, error) {
+	if c == nil || c.knowledgeRefresher == nil {
+		return KnowledgeRefreshReport{}, fmt.Errorf("this session has no knowledge refresh (see the boot log)")
+	}
+	return c.knowledgeRefresher.run(ctx)
 }
 
 // roster is the ready agents of .nerd/agents.json with their KB paths.
