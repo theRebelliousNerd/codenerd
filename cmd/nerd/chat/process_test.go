@@ -84,7 +84,7 @@ func TestProcessInput_CarriesLiveProgressIntoDelegationContext(t *testing.T) {
 	m.transducer = probe
 	m.sessionID = "foreground"
 	m.delegatedEvents = make(chan sessionlog.LiveEvent, 4)
-	m.processInput("fix loader")()
+	m.processInput("fix loader", 0)()
 	if probe.observed == nil {
 		t.Fatal("production turn never reached perception")
 	}
