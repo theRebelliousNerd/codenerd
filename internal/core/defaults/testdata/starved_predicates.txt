@@ -33,7 +33,6 @@ dialog_policy
 element_action
 element_hydration
 failure_count_by_file
-file_line_count
 fix_pattern
 intelligence_knowledge_link
 intelligence_preference
@@ -42,7 +41,6 @@ investigation_result
 item_retry_count
 known_cause
 nemesis_attack_run
-nesting_depth
 page_framework
 page_hydrated
 pass_count

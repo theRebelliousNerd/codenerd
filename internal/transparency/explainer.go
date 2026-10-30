@@ -178,6 +178,8 @@ var ruleGlossary = map[string]string{
 	"impacted_test":              "impacted test selection",
 	"review_suspect":             "suspect review finding",
 	"reviewer_needs_validation":  "review validation requirement",
+	"suppressed_finding":         "finding suppression",
+	"raw_finding":                "raw review finding",
 	"root_cause":                 "root cause analysis",
 	"needs_self_healing":         "self-healing trigger",
 

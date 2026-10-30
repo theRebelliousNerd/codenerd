@@ -320,8 +320,18 @@ Decl specialist_match(Specialist, Task, Confidence) bound [/name, /string, /numb
 # These predicates enable security detection across any programming language
 # by abstracting sink/source relationships rather than language-specific patterns.
 
+# detected_security_flow(File, Line, SinkType, SourceType, Confidence)
+# Flow analysis result: untrusted data flows to security-sensitive sink
+# SinkType: /sql_sink, /command_sink, /dom_sink, /hardcoded_secret, /weak_crypto
+# SourceType: /user_input, /file_read, /network, /env_var
+# Confidence: 0-100 integer
+Decl detected_security_flow(File, Line, SinkType, SourceType, Confidence) bound [/string, /number, /name, /name, /number].
+
 # security_sink_type(Language, SinkType, Pattern, Description)
 # Configuration: Maps language-specific patterns to abstract sink types
 # Emitted by language-specific analyzers (Go, Python, JS, Rust, etc.)
 Decl security_sink_type(Language, SinkType, Pattern, Description) bound [/name, /name, /string, /string].
 
+# flow_security_rule(RuleID, Severity, SinkType, Message)
+# Abstract security rules keyed by sink type (language-agnostic)
+Decl flow_security_rule(RuleID, Severity, SinkType, Message) bound [/string, /name, /name, /string].

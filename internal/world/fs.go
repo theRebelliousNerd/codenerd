@@ -465,6 +465,7 @@ func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options
 						} else {
 							logging.Get(logging.CategoryWorld).Warn("Go parse failed: %s - %v", path, parseErr)
 						}
+						additionalFacts = append(additionalFacts, goReviewFacts(canonical, content)...)
 					case "mangle":
 						facts := extractMangleSymbolFacts(canonical, string(content))
 						additionalFacts = append(additionalFacts, facts...)

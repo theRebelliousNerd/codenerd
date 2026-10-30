@@ -518,6 +518,7 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 						if facts, parseErr := parser.ParseGo(canonical, content); parseErr == nil {
 							additional = append(additional, facts...)
 						}
+						additional = append(additional, goReviewFacts(canonical, content)...)
 					case "mangle":
 						additional = append(additional, extractMangleSymbolFacts(canonical, string(content))...)
 					case "python":

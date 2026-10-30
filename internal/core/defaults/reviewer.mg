@@ -71,6 +71,55 @@ high_priority_review(File) :-
     Rate > 3.
 
 # =============================================================================
+# SECTION 5: SECURITY RULE DEFINITIONS
+# =============================================================================
+
+Decl security_rule(RuleID, Severity, Pattern, Message).
+
+# SQL Injection
+security_rule("SEC001", /critical, "execute.*concat", "SQL injection risk").
+security_rule("SEC001", /critical, "raw.*sql.*concat", "SQL injection via raw query").
+
+# Command Injection
+security_rule("SEC002", /critical, "exec.Command.*concat", "Command injection risk").
+security_rule("SEC002", /critical, "os.system.*concat", "Command injection via os.system").
+
+# Hardcoded Secrets
+security_rule("SEC003", /critical, "password.*=.*literal", "Hardcoded password").
+security_rule("SEC003", /critical, "api_key.*=.*literal", "Hardcoded API key").
+
+# XSS
+security_rule("SEC004", /error, "innerHTML.*=", "XSS via innerHTML").
+security_rule("SEC004", /error, "document.write", "XSS via document.write").
+
+# Weak Crypto
+security_rule("SEC006", /warning, "md5|sha1", "Weak cryptographic algorithm").
+
+# =============================================================================
+# SECTION 5B: FLOW-BASED SECURITY DETECTION (Language-Agnostic)
+# =============================================================================
+# These rules enable security detection across ANY programming language by
+# abstracting sink/source relationships rather than language-specific patterns.
+# Flow-based rules take precedence when detected_security_flow facts are available;
+# regex-based security_rule/4 facts (above) serve as fallback.
+
+# Abstract security rules keyed by sink type (language-agnostic)
+# SinkType: /sql_sink, /command_sink, /dom_sink, /hardcoded_secret, /weak_crypto
+flow_security_rule("SEC001", /critical, /sql_sink, "SQL injection: user input flows to SQL execution").
+flow_security_rule("SEC002", /critical, /command_sink, "Command injection: user input flows to command execution").
+flow_security_rule("SEC003", /critical, /hardcoded_secret, "Hardcoded credential detected in source").
+flow_security_rule("SEC004", /error, /dom_sink, "XSS: untrusted data flows to DOM manipulation").
+flow_security_rule("SEC006", /warning, /weak_crypto, "Weak cryptographic algorithm detected").
+
+# Derive security findings from flow analysis results
+# detected_security_flow/5 facts are emitted by language-specific analyzers
+# (Go, Python, JavaScript, Rust, etc.) in internal/world/dataflow_multilang.go
+raw_finding(File, Line, Severity, /security, RuleID, Message) :-
+    detected_security_flow(File, Line, SinkType, _, Confidence),
+    Confidence > 50,
+    flow_security_rule(RuleID, Severity, SinkType, Message).
+
+# =============================================================================
 # SECTION 6: COMPLEXITY THRESHOLDS
 # =============================================================================
 
@@ -192,6 +241,100 @@ has_style_violation(File) :-
     style_violation(File, _, _, _).
 
 # =============================================================================
+# SECTION 10: FINDING FILTERING & SUPPRESSION (Smart Rules)
+# =============================================================================
+
+# NOTE: raw_finding, active_finding declared in schemas.mg
+Decl suppressed_finding(File, Line, RuleID, Reason).
+Decl is_finding_suppressed(File, Line, RuleID).
+
+# Helper: Projection to ignore Reason for safe negation
+is_finding_suppressed(File, Line, RuleID) :-
+    suppressed_finding(File, Line, RuleID, _).
+
+# Finding is active if not explicitly suppressed
+active_finding(File, Line, Severity, Category, RuleID, Message) :-
+    raw_finding(File, Line, Severity, Category, RuleID, Message),
+    !is_finding_suppressed(File, Line, RuleID).
+
+# --- Suppression Rules ---
+
+# Suppress TODOs (STY003) in test files
+suppressed_finding(File, Line, "STY003", "todo_allowed_in_tests") :-
+    raw_finding(File, Line, _, _, "STY003", _),
+    file_topology(File, _, _, _, /true).
+
+# Suppress Magic Numbers (STY004) in test files
+suppressed_finding(File, Line, "STY004", "magic_numbers_allowed_in_tests") :-
+    raw_finding(File, Line, _, _, "STY004", _),
+    file_topology(File, _, _, _, /true).
+
+# Suppress Complexity Warnings in test files
+suppressed_finding(File, Line, "COMPLEXITY", "complexity_allowed_in_tests") :-
+    raw_finding(File, Line, _, /maintainability, "COMPLEXITY", _),
+    file_topology(File, _, _, _, /true).
+
+# Suppress Long File Warnings in test files
+suppressed_finding(File, Line, "LONG_FILE", "long_files_allowed_in_tests") :-
+    raw_finding(File, Line, _, /maintainability, "LONG_FILE", _),
+    file_topology(File, _, _, _, /true).
+
+# Suppress Hardcoded Secrets (SEC003) in test files (usually mocks keys)
+suppressed_finding(File, Line, "SEC003", "secrets_allowed_in_tests") :-
+    raw_finding(File, Line, _, /security, "SEC003", _),
+    file_topology(File, _, _, _, /true).
+
+# =============================================================================
+# SECTION 10B: THE STATIC VERDICT (what the commit gate reads)
+# =============================================================================
+# A switch on severity blocks on the first noisy heuristic; a sum of weights
+# says how much trouble a modified file is in. Each rule has one weight (policy,
+# below); a modified file's risk is the sum over its ACTIVE findings, and a
+# commit is blocked by a critical finding or by a risk over the budget. Only
+# files the working tree modified count: the gate judges the change, not the
+# repository's history. Strata: raw < suppressed < active < risk < block.
+
+Decl finding_rule_weight(RuleID, Weight) bound [/string, /number].
+finding_rule_weight("SEC001", 100).
+finding_rule_weight("SEC002", 100).
+finding_rule_weight("SEC003", 100).
+finding_rule_weight("SEC004", 60).
+finding_rule_weight("SEC006", 20).
+finding_rule_weight("CIRCULAR_DEPENDENCY", 40).
+finding_rule_weight("LAYER_LEAKAGE", 30).
+finding_rule_weight("SHOTGUN_SURGERY", 15).
+finding_rule_weight("HERO_RISK", 10).
+finding_rule_weight("ZOMBIE_TEST", 10).
+finding_rule_weight("UNWIRED_SYMBOL", 5).
+
+Decl finding_risk_budget(Budget) bound [/number].
+finding_risk_budget(60).
+
+Decl finding_weight(File, Line, RuleID, Weight) bound [/string, /number, /string, /number].
+finding_weight(File, Line, RuleID, Weight) :-
+    active_finding(File, Line, _, _, RuleID, _),
+    finding_rule_weight(RuleID, Weight).
+
+Decl file_finding_risk(File, Risk) bound [/string, /number].
+file_finding_risk(File, Risk) :-
+    finding_weight(File, Line, RuleID, Weight)
+    |> do fn:group_by(File), let Risk = fn:sum(Weight).
+
+Decl critical_static_finding(File, Line, RuleID) bound [/string, /number, /string].
+critical_static_finding(File, Line, RuleID) :-
+    modified(File),
+    active_finding(File, Line, /critical, _, RuleID, _).
+
+block_commit("critical_static_finding") :-
+    critical_static_finding(_, _, _).
+
+block_commit("static_risk_over_budget") :-
+    modified(File),
+    file_finding_risk(File, Risk),
+    finding_risk_budget(Budget),
+    Risk > Budget.
+
+# =============================================================================
 # SECTION 11: REVIEWER FEEDBACK LOOP (Self-Correction)
 # =============================================================================
 # These rules enable the reviewer to learn from mistakes and self-correct.
@@ -230,14 +373,281 @@ review_suspect(ReviewID, "high_rejection_rate") :-
 reviewer_needs_validation(ReviewID) :-
     review_suspect(ReviewID, _).
 
+# --- False Positive Learning ---
+
+# A rule the user keeps rejecting stops producing findings. The rejections come
+# from the reviewer feedback loop (user_rejected_finding, asserted when the user
+# rejects a finding); each is joined by file and line to the static finding it
+# was about and counted per rule. This replaced a false_positive_pattern table
+# of message substrings that nothing ever asserted: the rejection is already a
+# measurement of which rule was wrong, and matching prose in a rule is the
+# fuzzy matching policy must not do.
+Decl rule_rejection_count(RuleID, Rejections) bound [/string, /number].
+Decl learned_false_positive(RuleID) bound [/string].
+Decl finding_false_positive_rejections(Rejections) bound [/number].
+finding_false_positive_rejections(3).
+
+rule_rejection_count(RuleID, N) :-
+    user_rejected_finding(_, File, Line, _, _),
+    raw_finding(File, Line, _, _, RuleID, _)
+    |> do fn:group_by(RuleID), let N = fn:count().
+
+learned_false_positive(RuleID) :-
+    finding_false_positive_rejections(Needed),
+    rule_rejection_count(RuleID, N),
+    N >= Needed.
+
+suppressed_finding(File, Line, RuleID, "learned_false_positive") :-
+    raw_finding(File, Line, _, _, RuleID, _),
+    learned_false_positive(RuleID).
+
 # --- Self-Correction Signals ---
 
 # Signal to main agent: recent review may be inaccurate
 Decl recent_review_unreliable() bound [].
 
-# REMOVED: the raw_finding family (static-analysis findings: security flows,
-# unwired symbols, shotgun surgery, hero risk, layer leakage, zombie tests,
-# circular dependencies) with its suppression rules and every helper that fed
-# only it. Nothing read raw_finding or active_finding: no Go query, no rule, no
-# context or commit gate. review_finding, the findings the reviewer reports, is
-# what the gates read.
+# =============================================================================
+# SECTION 13: WIRING GAP DETECTION
+# =============================================================================
+
+Decl unwired_function(Ref, File).
+Decl is_called(CalleeID).
+
+# A callee is named by a code_calls edge. The direct row is the fn: spelling
+# cartographer.go goCallRef emits for a same-package ident and for a selector
+# whose receiver type the AST names. The second rule bridges the bare spelling
+# <pkg>.<Name> onto fn:<pkg>.<Name>: a non-aliased cross-package call
+# (q.Used) keeps only the bare row, and that bare callee is the code_element
+# ref without the fn: prefix. symbol_graph IDs (func:<bareName>,
+# method:<recv>.<name>) are a different space from both code_calls callees
+# and code_defines (<pkg>.<Name>), so a body written in that space joined
+# nothing. An explicit import alias or a dot import does not spell
+# <pkg>.<Name>; that edge is not treated as naming the function.
+is_called(CalleeID) :- code_calls(_, CalleeID).
+
+is_called(CalleeID) :-
+    code_calls(_, Bare),
+    CalleeID = fn:string:concat("fn:", Bare),
+    code_element(CalleeID, /function, _, _, _).
+
+# Declare entry_point fact (generated by nerd init)
+# Decl entry_point/1 is defined in core/defaults/schemas.mg.
+# Helper to check if file is an entry point
+Decl is_entry_point_file(File).
+is_entry_point_file(File) :-
+    entry_point(File).
+
+# Public function whose code_element ref no call edge names. Every body
+# predicate is world-owned (internal/shards/registration.go), including
+# code_defines. code_defines is still not joined: its symbol is <pkg>.<Name>
+# (cartographer.go goSymbolFacts), not this rule's code_element ref.
+# /function only: a method's bare callee is <expr>.<Sel>, not
+# <pkg>.<Recv>.<Name>, and flagging those would accuse called methods.
+# Test files and entry points are uncalled by construction.
+unwired_function(Ref, File) :-
+    code_element(Ref, /function, File, _, _),
+    element_visibility(Ref, /public),
+    in_scope(File),
+    !is_called(Ref),
+    file_topology(File, _, _, _, /false),
+    !is_entry_point_file(File).
+
+# Emit raw finding with the element ref in the message so each symbol is its own finding.
+raw_finding(File, 1, /warning, /architecture, "UNWIRED_SYMBOL", Message) :-
+    unwired_function(Ref, File),
+    Message = fn:string:concat("Unwired public function detected: ", Ref, " (no call edge names it)").
+
+# =============================================================================
+# SECTION 14: ARCHITECTURAL INSIGHTS
+# =============================================================================
+
+# --- 1. Shotgun Surgery (Hidden Temporal Coupling) ---
+# Files that change together often but have no static dependency
+# OPTIMIZED: Avoids Cartesian explosion on large git histories by:
+# 1. Using FileA < FileB to eliminate duplicate pairs
+# 2. Aggregating co-commits first to limit the search space
+# 3. Only checking dependency for frequently co-committed pairs (>= 3 times)
+
+Decl hidden_coupling(FileA, FileB).
+
+# dependency_link is file level: (ImporterFile, ImportedFile, ImportPath),
+# resolved by the world scanner (internal/world/dependency_links.go). It used
+# to be joined here against symbol_graph's symbol IDs, which never equal a
+# path: every architecture rule below derived nothing, at ~0.7 s per
+# evaluation of a 162k-edge world.
+#
+# A co-committed pair is linked when either file imports the other. Only the
+# pairs hidden_coupling asks about are checked; nothing copies the edge
+# relation.
+Decl coupled_files_linked(FileA, FileB).
+
+coupled_files_linked(FileA, FileB) :-
+    co_commit_count(FileA, FileB, N),
+    N >= 3,
+    dependency_link(FileA, FileB, _).
+
+coupled_files_linked(FileA, FileB) :-
+    co_commit_count(FileA, FileB, N),
+    N >= 3,
+    dependency_link(FileB, FileA, _).
+
+# A commit that touches more than this many files (a reformat, a vendored
+# import, an initial import) is not evidence that any two of its files change
+# together, and pairing its files costs the square of its size: a thousand-file
+# commit exceeded the evaluation's fact limit. It costs a count instead.
+Decl coupling_commit_max_files(Files).
+coupling_commit_max_files(15).
+
+Decl commit_file_count(Hash, Files).
+
+commit_file_count(Hash, Files) :-
+    git_history(File, Hash, Author, CommitTime, Message)
+    |> do fn:group_by(Hash), let Files = fn:count().
+
+Decl focused_commit(Hash).
+
+focused_commit(Hash) :-
+    coupling_commit_max_files(Max),
+    commit_file_count(Hash, Files),
+    Files <= Max.
+
+# Helper: Files committed together in the same focused commit
+Decl co_committed_files(FileA, FileB, Hash).
+
+co_committed_files(FileA, FileB, Hash) :-
+    focused_commit(Hash),
+    git_history(FileA, Hash, _, _, _),
+    git_history(FileB, Hash, _, _, _),
+    FileA != FileB.
+
+# Aggregation: Count how many times each file pair was co-committed
+Decl co_commit_count(FileA, FileB, Count).
+
+co_commit_count(FileA, FileB, N) :-
+    co_committed_files(FileA, FileB, _) |>
+    do fn:group_by(FileA, FileB),
+    let N = fn:count().
+
+# Hidden coupling: Files that change together frequently (>= 3 times)
+# but have no static dependency between them
+hidden_coupling(FileA, FileB) :-
+    co_commit_count(FileA, FileB, N),
+    N >= 3,
+    !coupled_files_linked(FileA, FileB).
+
+# Finding
+raw_finding(FileA, 1, /warning, /architecture, "SHOTGUN_SURGERY", FileB) :-
+    hidden_coupling(FileA, FileB).
+
+
+# --- 2. The "Hero" Risk (Bus Factor) ---
+# High churn + High complexity + Single Author
+
+
+Decl hero_risk(File, Author).
+Decl has_other_author(File, Author).
+
+has_other_author(File, Author) :-
+    git_history(File, _, Author, _, _),     # Bind Author to File history
+    git_history(File, _, Other, _, _),      # Check for Other author
+    Author != Other.
+
+hero_risk(File, Author) :-
+    churn_rate(File, Rate), Rate > 5,
+    complexity_warning(File, _),
+    git_history(File, _, Author, _, _),
+    !has_other_author(File, Author).
+
+# Finding
+raw_finding(File, 1, /warning, /risk, "HERO_RISK", Author) :-
+    hero_risk(File, Author).
+
+
+# --- 3. Architectural Layer Leakage ---
+# Library Code (Low level) should not import Application Entrypoints (High level)
+# Uses configurable patterns for adaptability.
+
+Decl layer(File, LayerName).
+Decl architecture_violation(Caller, Callee).
+
+# Configuration Point: Users can extend this in extensions.mg
+# Decl configured_layer_pattern(Pattern, Layer).
+Decl configured_layer_pattern(Pattern, Layer).
+
+# Default Standard Conventions
+configured_layer_pattern("/internal/", /library).
+configured_layer_pattern("internal/", /library).
+configured_layer_pattern("/pkg/", /library).
+configured_layer_pattern("pkg/", /library).
+configured_layer_pattern("/lib/", /library).
+configured_layer_pattern("lib/", /library).
+configured_layer_pattern("/core/", /library).
+configured_layer_pattern("core/", /library).
+
+configured_layer_pattern("/cmd/", /entrypoint).
+configured_layer_pattern("cmd/", /entrypoint).
+configured_layer_pattern("/app/", /entrypoint).
+configured_layer_pattern("app/", /entrypoint).
+configured_layer_pattern("/cli/", /entrypoint).
+configured_layer_pattern("cli/", /entrypoint).
+configured_layer_pattern("/bin/", /entrypoint).
+configured_layer_pattern("bin/", /entrypoint).
+
+# Derive Layer from Configuration, once per file: symbol_graph has a row per
+# symbol (22k on this repository), so matching patterns per row repeated
+# every string test for each symbol of a file.
+Decl symbol_file(File) bound [/string].
+symbol_file(File) :- symbol_graph(_, _, _, File, _).
+
+layer(File, Layer) :-
+    symbol_file(File),
+    configured_layer_pattern(Pattern, Layer),
+    :string:contains(File, Pattern).
+
+# Led by the entrypoint files, the rare side; their importers come from
+# dependency_link's second argument.
+architecture_violation(CallerFile, CalleeFile) :-
+    layer(CalleeFile, /entrypoint),
+    dependency_link(CallerFile, CalleeFile, _),
+    layer(CallerFile, /library).
+
+# Finding
+raw_finding(CallerFile, 1, /error, /architecture, "LAYER_LEAKAGE", "Library imports Entrypoint") :-
+    architecture_violation(CallerFile, CalleeFile).
+
+
+# --- 4. "Zombie" Tests ---
+# A test file that imports no project file and shares its directory with no
+# project source: it can reach no project code. (A Go test in its package's
+# directory reaches the package without importing it.) imports_project_file
+# is measured by the world scanner with the import edges
+# (internal/world/import_cycles.go); enumerating every test file's edges here
+# cost 0.56 s per evaluation of a 162k-edge world.
+
+Decl zombie_test(TestFile) bound [/string].
+Decl dir_has_source(Dir) bound [/string].
+
+dir_has_source(Dir) :- file_topology(File, _, _, _, /false), file_dir(File, Dir).
+
+zombie_test(TestFile) :-
+    file_topology(TestFile, _, _, _, /true),
+    symbol_file(TestFile),
+    !imports_project_file(TestFile),
+    file_dir(TestFile, Dir),
+    !dir_has_source(Dir).
+
+raw_finding(TestFile, 1, /warning, /maintenance, "ZOMBIE_TEST", "Test reaches no project code") :-
+    zombie_test(TestFile).
+
+# --- 5. Circular Dependencies (File Level) ---
+# A file on an import cycle. The world scanner measures the import graph's
+# strongly connected components (import_cycle_member, import_cycles.go):
+# file-level reachability in Mangle passes 3,000,000 facts on this
+# repository's import edges.
+
+Decl circular_dependency(File, Root) bound [/string, /string].
+
+circular_dependency(File, Root) :- import_cycle_member(File, Root).
+
+raw_finding(File, 1, /error, /architecture, "CIRCULAR_DEPENDENCY", Root) :-
+    circular_dependency(File, Root).

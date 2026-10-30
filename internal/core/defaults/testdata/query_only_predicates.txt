@@ -18,7 +18,6 @@ code_edit_outcome	internal/autopoiesis/autopoiesis_kernel.go
 cold_storage_entry	cmd/nerd/cmd_systems.go
 compressed_context	cmd/nerd/cmd_systems.go
 config_param	internal/init/phase_ecosystem.go
-cyclomatic_complexity	internal/campaign/edge_case_detector.go internal/campaign/edge_case_detector.go
 knowledge_edge	cmd/nerd/cmd_systems.go
 learned_pattern	cmd/nerd/cmd_systems.go
 module_northstar	internal/northstar/module.go

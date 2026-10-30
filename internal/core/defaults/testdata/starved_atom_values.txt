@@ -22,6 +22,7 @@ invariant_value	/http_500_rate
 invariant_value	/p99_latency_ms
 pytest_failure	/assertion
 pytest_failure	/fixture
+raw_finding	/maintainability
 system_invariant	/goroutine_limit
 system_invariant	/http_500_rate
 system_invariant	/latency_limit_ms

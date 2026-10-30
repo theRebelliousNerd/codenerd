@@ -81,7 +81,8 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"has_pydantic_base", "rs_struct", "rs_derive", "rs_serde_rename",
 				"rs_unsafe_block", "ts_interface", "ts_interface_prop", "ts_class",
 				"mg_negation_rule", "mg_recursive_rule",
-				"cyclomatic_complexity", "git_history", "review_finding",
+				"cyclomatic_complexity", "nesting_depth", "file_line_count", "detected_security_flow",
+				"git_history", "review_finding",
 				"pytest_failure",
 				// Edit plans and pending mutations are judged against the
 				// dependency graph (coder_impact.mg, coder_safety.mg,
@@ -134,9 +135,10 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"mg_aggregation_rule",
 				// The reviewer's remaining facts (reviewer.mg). Its findings,
 				// complexity and history facts are world-owned; the approval
-				// history and the review verdict were left in the catch-all,
-				// so review_passed negated has_block_commit where no block
-				// reason could derive.
+				// history, suppression inputs and the review verdict were left
+				// in the catch-all, so review_passed negated has_block_commit
+				// where no block reason could derive, and active_finding
+				// negated is_finding_suppressed without user_rejected_finding.
 				// The turn's plan steps (turn_steps.mg): turn_steps_verdict
 				// negates turn_has_unresolved_step, whose step_execution and
 				// step_file_net inputs are here; step_plan_remaining was in

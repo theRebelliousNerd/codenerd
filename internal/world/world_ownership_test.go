@@ -129,6 +129,9 @@ func TestScannerPredicates_WhenScanning_ShouldAllBeEmitted(t *testing.T) {
 	writeWorkspaceFile(t, root, "internal/core/core.go", "package core\n\nfunc Do() {}\n")
 	writeWorkspaceFile(t, root, "internal/core/core_test.go", "package core\n\nimport \"testing\"\n\nfunc TestDo(t *testing.T) {}\n")
 	writeWorkspaceFile(t, root, "cmd/app/main.go", "package main\n\nimport \"example.com/app/internal/core\"\n\nfunc main() { core.Do() }\n")
+	// A weak-crypto call: the review measurements (review_metrics.go) emit a
+	// detected_security_flow row for it.
+	writeWorkspaceFile(t, root, "internal/core/sum.go", "package core\n\nimport \"crypto/md5\"\n\nfunc Sum(b []byte) [16]byte { return md5.Sum(b) }\n")
 
 	// Treatment coverage rows exist only under an operator-confirmed scope.
 	writeWorkspaceFile(t, root, "data/rows.go", "package data\n\nfunc Rows() {}\n")

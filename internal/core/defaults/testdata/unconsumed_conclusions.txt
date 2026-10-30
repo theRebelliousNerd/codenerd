@@ -93,7 +93,6 @@ unconsumed complex_failure
 unconsumed complex_mangle_rule
 unconsumed complex_target
 unconsumed complexity_too_high
-unconsumed complexity_warning
 unconsumed compound_suggestion
 unconsumed compress_priority
 unconsumed connector_type

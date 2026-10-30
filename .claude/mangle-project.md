@@ -92,3 +92,14 @@ real-kernel boot test.
   - B005: 3 queries of undefined `*_pattern` predicates (`cmd_systems.go`).
 - `jit_compiler.mg:328` compares strings with `<` ("lexicographical
   tie-breaker"); `<` is integer-only (E069).
+
+## Wired chains (read before deleting a "dead" family)
+- Static findings (`reviewer.mg`): the world scan measures per-file Go
+  `detected_security_flow`, `cyclomatic_complexity`, `nesting_depth` and
+  `file_line_count` (`internal/world/review_metrics.go`); rules derive
+  `raw_finding` -> `active_finding` (suppressed by rules the user keeps
+  rejecting) -> `file_finding_risk` (summed rule weights, `group_by`) ->
+  `block_commit` for modified files. Test:
+  `internal/system/static_findings_boot_test.go`.
+- Repository facts (`world/repo_facts.go`): `git_history`, `churn_rate`,
+  `current_user`; age is judged in policy against `current_time`.

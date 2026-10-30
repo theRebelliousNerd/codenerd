@@ -53,6 +53,18 @@ Decl shard_model_config(ShardType, ModelType) bound [/name, /name].
 Decl is_relevant(Path) bound [/string].
 
 # -----------------------------------------------------------------------------
+# 41.4 Reviewer Shard Predicates
+# -----------------------------------------------------------------------------
+
+# active_finding(File, Line, Severity, Category, RuleID, Message)
+# Filtered findings after Mangle rules suppress noisy or irrelevant entries
+Decl active_finding(File, Line, Severity, Category, RuleID, Message) bound [/string, /number, /name, /name, /string, /string].
+
+# raw_finding(File, Line, Severity, Category, RuleID, Message)
+# Unfiltered findings from static analysis before Mangle processing
+Decl raw_finding(File, Line, Severity, Category, RuleID, Message) bound [/string, /number, /name, /name, /string, /string].
+
+# -----------------------------------------------------------------------------
 # 41.5 Tool Generator / Ouroboros Predicates
 # -----------------------------------------------------------------------------
 

@@ -70,6 +70,11 @@ var ScannerPredicates = []string{
 	// Per-file import-graph measurement (import_cycles.go), emitted with
 	// the file's resolved edges.
 	"imports_project_file",
+	// Review measurements (review_metrics.go), one parse per non-test Go file.
+	"file_line_count",
+	"cyclomatic_complexity",
+	"nesting_depth",
+	"detected_security_flow",
 }
 
 // ImportGraphPredicates are whole-graph measurements of the import edges
