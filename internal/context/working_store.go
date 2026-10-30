@@ -116,9 +116,28 @@ func ensureWorkingHandles(db *sql.DB) error {
 	if err := backfillWorkingHandles(db); err != nil {
 		return err
 	}
-	_, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS working_handle ON working_records(scope, handle)`)
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS working_handle ON working_records(scope, handle)`); err != nil {
+		return err
+	}
+	_, err = db.Exec(workingOrdinalIndex)
 	return err
 }
+
+// The next handle is one past the scope's highest ordinal. working_handle
+// orders handles as text ("9" after "10"), so the numeric maximum read
+// through it visited every handle in the scope: measured on the linked
+// SQLite, the allocation was ~96% of a Save and grew linearly with the
+// archive (0.5 ms at 1.2k records, 2.1 ms at 5.2k, 8.0 ms at 20k), so n
+// novel saves cost O(n^2) visits over a session (audit
+// working-handle-allocation). An index on the numeric expression lets the
+// MIN/MAX optimization read the highest ordinal in one seek. The query must
+// name the expression exactly as the index does, and its WHERE clause must
+// be the scope alone, or the planner falls back to the scan. Handles stay
+// the decimal strings already published; nothing is renumbered.
+const (
+	workingOrdinalIndex = `CREATE INDEX IF NOT EXISTS working_handle_ordinal ON working_records(scope, CAST(handle AS INTEGER))`
+	nextWorkingHandle   = `SELECT COALESCE(MAX(CAST(handle AS INTEGER)), 0) + 1 FROM working_records WHERE scope=?`
+)
 
 func workingColumn(db *sql.DB, name string) (bool, error) {
 	rows, err := db.Query(`PRAGMA table_info(working_records)`)
@@ -283,7 +302,9 @@ func (s *WorkingStore) Save(ctx context.Context, r WorkingRecord) error {
 		return err
 	}
 	var next int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(CAST(handle AS INTEGER)), 0) + 1 FROM working_records WHERE scope=? AND handle != ''`, s.scope).Scan(&next); err != nil {
+	// An empty handle casts to 0, so the backfilled archive needs no
+	// handle != '' guard, which would also defeat the index.
+	if err := tx.QueryRowContext(ctx, nextWorkingHandle, s.scope).Scan(&next); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO working_records (id,scope,entity,revision,kind,step,body,failed,digest,span_start,span_end,handle) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
