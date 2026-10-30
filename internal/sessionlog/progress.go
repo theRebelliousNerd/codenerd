@@ -1,6 +1,9 @@
 package sessionlog
 
 import (
+	"codenerd/internal/usage"
+	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -150,4 +153,125 @@ func (t *Transcript) setTask(task string) {
 	t.mu.Lock()
 	t.task = task
 	t.mu.Unlock()
+}
+
+// LiveEvent is a compact, session-owned execution update, not a tool payload or
+// model reasoning trace. It is independent of transcript storage and debug mode.
+type LiveEvent struct {
+	Session string
+	Agent   string
+	Kind    string
+	Text    string
+	Tool    string
+	CallID  string
+	At      time.Time
+	Failed  bool
+	Status  string // PASS/FAIL are process outcomes; DONE alone is not test evidence.
+}
+
+type liveProgressKey struct{}
+
+// WithLiveProgress carries a UI-owned sink through delegated and nested agents.
+// The sink must be concurrency-safe and honor the supplied context on shutdown.
+func WithLiveProgress(ctx context.Context, sink func(context.Context, LiveEvent)) context.Context {
+	return context.WithValue(ctx, liveProgressKey{}, sink)
+}
+
+// HasLiveProgress reports whether this delegated scope has a live consumer.
+// Brokers use it to capture visible prose even when disk logging is unavailable.
+func HasLiveProgress(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	sink, _ := ctx.Value(liveProgressKey{}).(func(context.Context, LiveEvent))
+	scope := ScopeFrom(ctx)
+	return sink != nil && scope != nil && scope.Transcript
+}
+
+// EmitLiveProgress reports an observation only for a scoped delegated agent.
+// No store, file write or debug subscription is required to make work visible.
+func EmitLiveProgress(ctx context.Context, ev LiveEvent) {
+	if ctx == nil {
+		return
+	}
+	sink, _ := ctx.Value(liveProgressKey{}).(func(context.Context, LiveEvent))
+	scope := ScopeFrom(ctx)
+	if sink == nil || scope == nil || !scope.Transcript {
+		return
+	}
+	ev.Session = usage.SessionIDFromContext(ctx)
+	ev.Agent = scope.Folder
+	ev.At = time.Now()
+	sink(ctx, ev)
+}
+
+// LiveToolSubject selects identifiers only: never source, commands, credentials
+// or arbitrary tool output. Multi-file edits keep each affected path visible.
+func LiveToolSubject(name string, args map[string]any) string {
+	var subjects []string
+	for _, key := range []string{"path", "paths", "packages", "ref", "refs", "symbol", "predicate", "name", "edited_refs"} {
+		switch v := args[key].(type) {
+		case string:
+			if v != "" {
+				subjects = append(subjects, v)
+			}
+		case []string:
+			subjects = append(subjects, v...)
+		case []any:
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					subjects = append(subjects, s)
+				}
+			}
+		}
+	}
+	if edits, ok := args["edits"].([]any); ok {
+		for _, item := range edits {
+			if edit, ok := item.(map[string]any); ok {
+				if p, ok := edit["path"].(string); ok {
+					subjects = append(subjects, p)
+				}
+			}
+		}
+	}
+	if len(subjects) == 0 {
+		switch name {
+		case "run_build":
+			return "./..."
+		case "run_tests", "run_lint", "run_impacted_tests":
+			return "changed packages"
+		}
+	}
+	return strings.Join(subjects, ", ")
+}
+
+// liveAssistant reports visible prose, including plans, but never the envelope's
+// control packet or a model's private reasoning. Long prose is split, not lost.
+func liveAssistant(ctx context.Context, text string) {
+	text = strings.TrimSpace(text)
+	if strings.HasPrefix(text, "{") || strings.HasPrefix(text, "```") {
+		var envelope struct {
+			Surface string `json:"surface_response"`
+			Control struct {
+				Summary string `json:"decision_summary"`
+			} `json:"control_packet"`
+		}
+		body := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(text, "```json"), "```"), "```"))
+		if err := json.Unmarshal([]byte(body), &envelope); err != nil {
+			return
+		}
+		text = envelope.Surface
+		if strings.TrimSpace(text) == "" {
+			text = envelope.Control.Summary
+		}
+	}
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.Join(strings.Fields(line), " ")
+		runes := []rune(line)
+		for len(runes) > 0 {
+			n := min(240, len(runes))
+			EmitLiveProgress(ctx, LiveEvent{Kind: EventAssistant, Text: string(runes[:n])})
+			runes = runes[n:]
+		}
+	}
 }

@@ -14,6 +14,7 @@ import (
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
@@ -211,7 +212,11 @@ func TestRunToolLoop_PlannedSteps_RunsEachStepAsItsOwnPass(t *testing.T) {
 	e := newPlannedStepsExecutor(t, client)
 	result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}}
 
-	resp, toolErrs, err := e.runToolLoop(context.Background(), "system", "create a.txt and b.txt",
+	var live []sessionlog.LiveEvent
+	ctx := sessionlog.WithAgent(sessionlog.WithLiveProgress(context.Background(), func(_ context.Context, ev sessionlog.LiveEvent) {
+		live = append(live, ev)
+	}), "coder", "planned")
+	resp, toolErrs, err := e.runToolLoop(ctx, "system", "create a.txt and b.txt",
 		&config.EffectiveAgentRuntimeConfig{AllowedTools: []string{writeTool}},
 		&prompt.CompilationContext{ShardID: "probe"}, result)
 	if err != nil {
@@ -219,6 +224,18 @@ func TestRunToolLoop_PlannedSteps_RunsEachStepAsItsOwnPass(t *testing.T) {
 	}
 	if resp == nil || resp.Text != "finished b.txt" {
 		t.Fatalf("response = %+v, want the last step's closing sentence", resp)
+	}
+	if len(live) < 3 || live[0].Kind != "plan" || live[1].Kind != "plan" || live[2].Kind != "step" {
+		t.Fatalf("plan and current step must precede tool execution: %+v", live)
+	}
+	var startedSteps []string
+	for _, ev := range live {
+		if ev.Kind == "step" {
+			startedSteps = append(startedSteps, ev.Text)
+		}
+	}
+	if len(startedSteps) != 2 || !strings.Contains(startedSteps[0], "Step 1/2: a.txt") || !strings.Contains(startedSteps[1], "Step 2/2: b.txt") {
+		t.Fatalf("live step transitions = %q", startedSteps)
 	}
 	if result.WriteToolEffects != 2 {
 		t.Fatalf("writes = %d, want one per step", result.WriteToolEffects)

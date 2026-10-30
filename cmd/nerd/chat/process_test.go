@@ -1,6 +1,12 @@
 package chat
 
-import "testing"
+import (
+	"codenerd/internal/perception"
+	"codenerd/internal/sessionlog"
+	"context"
+	"errors"
+	"testing"
+)
 
 func TestIsShardRelevantToTopic(t *testing.T) {
 	tests := []struct {
@@ -56,5 +62,42 @@ func TestIsShardRelevantToTopic(t *testing.T) {
 					tt.shardName, tt.topic, result, tt.expected)
 			}
 		})
+	}
+}
+
+type progressContextTransducer struct {
+	clarifyStubTransducer
+	observed context.Context
+}
+
+func (p *progressContextTransducer) ParseIntentWithContext(ctx context.Context, _ string, _ []perception.ConversationTurn) (perception.Intent, error) {
+	p.observed = sessionlog.WithAgent(ctx, "coder", "foreground")
+	sessionlog.EmitLiveProgress(p.observed, sessionlog.LiveEvent{Kind: "step", Text: "inspect loader"})
+	return perception.Intent{}, errors.New("stop after observing the production turn context")
+}
+
+func TestProcessInput_CarriesLiveProgressIntoDelegationContext(t *testing.T) {
+	m := NewTestModel()
+	defer m.shutdownCancel()
+	m.client = NewMockLLMClient()
+	probe := &progressContextTransducer{}
+	m.transducer = probe
+	m.sessionID = "foreground"
+	m.delegatedEvents = make(chan sessionlog.LiveEvent, 4)
+	m.processInput("fix loader")()
+	if probe.observed == nil {
+		t.Fatal("production turn never reached perception")
+	}
+	ctx := sessionlog.WithAgent(probe.observed, "coder", "foreground")
+	if !sessionlog.HasLiveProgress(ctx) {
+		t.Fatal("foreground processInput lost the delegated live sink")
+	}
+	select {
+	case ev := <-m.delegatedEvents:
+		if ev.Session != "foreground" || ev.Text != "inspect loader" {
+			t.Fatalf("event = %+v", ev)
+		}
+	default:
+		t.Fatal("foreground progress did not reach TUI queue")
 	}
 }

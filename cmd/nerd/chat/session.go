@@ -30,6 +30,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 
 	"charm.land/glamour/v2"
+	"codenerd/internal/sessionlog"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -200,6 +201,7 @@ func InitChat(cfg Config) Model {
 		isBooting:           true,             // Flag for UI
 		bootStage:           BootStageBooting, // Startup phase
 		statusChan:          make(chan string, 10),
+		delegatedEvents:     make(chan sessionlog.LiveEvent, 128),
 		workspace:           workspace,
 		DisableSystemShards: cfg.DisableSystemShards,
 		yoloFlag:            cfg.Yolo,

@@ -69,7 +69,7 @@ func tee(in <-chan string, add func(string)) <-chan string {
 // recording reports whether anything will read this call's response: an
 // exchange file is open, or the agent keeps a transcript.
 func (o *callObserver) recording() bool {
-	return o != nil && (o.call != nil || sessionlog.TranscriptFrom(o.ctx) != nil)
+	return o != nil && (o.call != nil || sessionlog.TranscriptFrom(o.ctx) != nil || sessionlog.HasLiveProgress(o.ctx))
 }
 
 // beginLog opens the exchange for an admitted call and attaches the capture to
@@ -124,13 +124,12 @@ func (c *core) logSettled(receipt Receipt, req *Request, obs *callObserver, call
 			Logical:   logicalOf(req),
 		})
 	}
-	if tr := sessionlog.TranscriptFrom(obs.ctx); tr != nil {
-		switch {
-		case callErr != nil:
-			tr.CallFailed(obs.ctx, receipt.Model, callErr)
-		case resp != nil:
-			tr.Assistant(obs.ctx, receipt.Model, resp)
-		}
+	tr := sessionlog.TranscriptFrom(obs.ctx)
+	switch {
+	case callErr != nil:
+		tr.CallFailed(obs.ctx, receipt.Model, callErr)
+	case resp != nil:
+		tr.Assistant(obs.ctx, receipt.Model, resp)
 	}
 }
 

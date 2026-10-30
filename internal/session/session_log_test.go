@@ -3,12 +3,15 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"codenerd/internal/jit/config"
 	"codenerd/internal/prompt"
@@ -198,5 +201,98 @@ func TestSessionHistoryLivesInTheSessionFolder(t *testing.T) {
 	h, err := LoadSessionHistory(ws, "session-9")
 	if err != nil || len(h.Messages) != 1 {
 		t.Fatalf("load: %+v %v", h, err)
+	}
+}
+
+func TestExecuteToolBatch_StreamsStartAndOutcomeWhileToolRuns(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("failed=%v", failed), func(t *testing.T) {
+			events := make(chan sessionlog.LiveEvent, 16)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			ctx = sessionlog.WithAgent(sessionlog.WithLiveProgress(ctx, func(_ context.Context, ev sessionlog.LiveEvent) { events <- ev }), "coder", "probe")
+			entered := make(chan struct{})
+			release := make(chan struct{})
+			const name = "live_progress_read_probe"
+			registerTestTool(t, &tools.Tool{Name: name, Effect: tools.EffectRead, Category: tools.CategoryGeneral,
+				Execute: func(ctx context.Context, args map[string]any) (string, error) {
+					close(entered)
+					select {
+					case <-release:
+					case <-ctx.Done():
+						return "", ctx.Err()
+					}
+					if failed {
+						return "diagnostic", errors.New("probe failed")
+					}
+					return "private file content", nil
+				}})
+			e := NewExecutor(&MockKernel{}, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+			e.config.EnableSafetyGate = false
+			cfg := &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{name}}
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				e.executeToolBatch(ctx, []types.ToolCall{{ID: "read-1", Name: name, Input: map[string]any{"path": "internal/loader.go"}}}, cfg, &ExecutionResult{})
+			}()
+			defer func() { cancel(); <-done }()
+			select {
+			case <-entered:
+			case <-time.After(3 * time.Second):
+				t.Fatal("tool did not enter")
+			}
+			select {
+			case ev := <-events:
+				if ev.Kind != "tool_started" || ev.CallID != "read-1" || ev.Text != "internal/loader.go" {
+					t.Fatalf("start = %+v", ev)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("tool start hidden until finish")
+			}
+			close(release)
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+				t.Fatal("tool did not finish")
+			}
+			select {
+			case ev := <-events:
+				if ev.Kind != sessionlog.EventToolResult || ev.Failed != failed || ev.Text != "internal/loader.go" {
+					t.Fatalf("outcome = %+v", ev)
+				}
+			default:
+				t.Fatal("tool outcome missing")
+			}
+		})
+	}
+}
+
+func TestLiveProgress_OnlyProcessReceiptsCanSayTestsPassed(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		exits []int
+		want  string
+	}{
+		{"no tests executed", nil, "DONE"},
+		{"tests passed", []int{0}, "PASS"},
+		{"earlier failure is not hidden", []int{1, 0}, "FAIL"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var events []sessionlog.LiveEvent
+			ctx := sessionlog.WithAgent(sessionlog.WithLiveProgress(context.Background(), func(_ context.Context, ev sessionlog.LiveEvent) { events = append(events, ev) }), "coder", "receipt")
+			const name = "live_receipt_probe"
+			registerTestTool(t, &tools.Tool{Name: name, Effect: tools.EffectRead, Category: tools.CategoryGeneral, Execute: func(ctx context.Context, _ map[string]any) (string, error) {
+				for _, code := range tc.exits {
+					tools.RecordTestRun(ctx, tools.TestRun{Argv: []string{"go", "test", "./pkg"}, ExitCode: code})
+				}
+				return "tool completed", nil
+			}})
+			e := NewExecutor(&MockKernel{}, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+			e.config.EnableSafetyGate = false
+			e.executeToolBatch(ctx, []types.ToolCall{{ID: "check", Name: name}}, &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{name}}, &ExecutionResult{})
+			if len(events) != 2 || events[1].Status != tc.want {
+				t.Fatalf("outcome = %+v, want %s", events, tc.want)
+			}
+		})
 	}
 }

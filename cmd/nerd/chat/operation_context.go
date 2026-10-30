@@ -32,5 +32,8 @@ func (m Model) sessionOperationContext() (context.Context, context.CancelFunc) {
 	}
 	ctx = usage.WithSessionID(ctx, m.sessionID)
 	ctx = sessionlog.WithChat(ctx)
+	if m.delegatedEvents != nil {
+		ctx = sessionlog.WithLiveProgress(ctx, m.sendDelegatedProgress)
+	}
 	return ctx, cancel
 }

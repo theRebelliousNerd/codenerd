@@ -113,6 +113,9 @@ func (m Model) processInput(input string) tea.Cmd {
 		// session's folder (exchange files, debug mode only).
 		sessionlog.Current().Adopt(m.sessionID)
 		ctx = sessionlog.WithTurn(sessionlog.WithChat(ctx), m.turnCount+1)
+		if m.delegatedEvents != nil {
+			ctx = sessionlog.WithLiveProgress(ctx, m.sendDelegatedProgress)
+		}
 		defer cancel()
 		// Ctrl+X and a side turn's stop reach this turn through m.turn.
 		m.turn.begin(turnID, cancel)

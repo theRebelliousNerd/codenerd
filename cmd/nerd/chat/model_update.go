@@ -16,6 +16,7 @@ import (
 	"codenerd/internal/transparency"
 	"codenerd/internal/ux"
 
+	"codenerd/internal/sessionlog"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -565,6 +566,13 @@ The strategic knowledge base has been updated with new documentation.%s`, msg.do
 
 	case ui.ApprovalDecisionMsg:
 		return m.handleApprovalDecisions(msg), nil
+
+	case delegatedProgressMsg:
+		m.handleDelegatedProgress(sessionlog.LiveEvent(msg))
+		m = m.applyLayout()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, m.listenDelegatedProgress()
 
 	case toolEventMsg:
 		// Handle tool event - ALWAYS add to history (not gated by Glass Box)

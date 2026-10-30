@@ -120,12 +120,17 @@ func TranscriptFrom(ctx context.Context) *Transcript {
 
 // Input records what the agent was asked to do.
 func (t *Transcript) Input(ctx context.Context, text string) {
+	EmitLiveProgress(ctx, LiveEvent{Kind: EventInput, Text: "starting delegated work"})
 	t.append(TranscriptEvent{Kind: EventInput, Turn: TurnFrom(ctx), Text: Lines(text)})
 }
 
 // Assistant records one model answer.
 func (t *Transcript) Assistant(ctx context.Context, model string, r *Response) {
-	if t == nil || r == nil {
+	if r == nil {
+		return
+	}
+	liveAssistant(ctx, Join(r.Text))
+	if t == nil {
 		return
 	}
 	ev := TranscriptEvent{Kind: EventAssistant, Turn: TurnFrom(ctx), Model: model, StopReason: r.StopReason, ToolCalls: r.ToolCalls}
@@ -143,11 +148,13 @@ func (t *Transcript) ToolResult(ctx context.Context, tool, callID, content strin
 // CallStarted records that a model call went out, so a long call reads as
 // "waiting on the model" while it runs.
 func (t *Transcript) CallStarted(ctx context.Context, model string) {
+	EmitLiveProgress(ctx, LiveEvent{Kind: EventCallStart, Text: "waiting for model"})
 	t.append(TranscriptEvent{Kind: EventCallStart, Turn: TurnFrom(ctx), Model: model})
 }
 
 // CallFailed records a model call that ended in an error.
 func (t *Transcript) CallFailed(ctx context.Context, model string, err error) {
+	EmitLiveProgress(ctx, LiveEvent{Kind: EventCallFailed, Text: "model call failed", Failed: true})
 	ev := TranscriptEvent{Kind: EventCallFailed, Turn: TurnFrom(ctx), Model: model}
 	if err != nil {
 		ev.Error = err.Error()
@@ -157,6 +164,7 @@ func (t *Transcript) CallFailed(ctx context.Context, model string, err error) {
 
 // Final records the agent's last word for a turn.
 func (t *Transcript) Final(ctx context.Context, text string, err error) {
+	EmitLiveProgress(ctx, LiveEvent{Kind: EventFinal, Text: "delegated run ended", Failed: err != nil})
 	ev := TranscriptEvent{Kind: EventFinal, Turn: TurnFrom(ctx), Text: Lines(text)}
 	if err != nil {
 		ev.Error = err.Error()

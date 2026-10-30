@@ -1046,6 +1046,13 @@ func (e *Executor) executeAndRecordToolCall(
 			effectTargets = snapshotEffectTargets(call.Input, workspace)
 		}
 	}
+	subject := sessionlog.LiveToolSubject(call.Name, call.Input)
+	if call.Name == "run_tests" && (call.Input["packages"] == nil || subject == "changed packages") {
+		if packages := packagesForPaths(result.WrittenPaths); len(packages) > 0 {
+			subject = strings.Join(packages, ", ")
+		}
+	}
+	sessionlog.EmitLiveProgress(ctx, sessionlog.LiveEvent{Kind: "tool_started", Tool: call.Name, CallID: call.ID, Text: subject})
 	toolCtx, testRuns := tools.WithTestRunLog(ctx)
 	toolCtx, checkRuns := tools.WithAcceptanceRunLog(toolCtx)
 	toolCtx, familyDecisions := tools.WithFamilyDecisionLog(toolCtx)
@@ -1104,6 +1111,20 @@ func (e *Executor) executeAndRecordToolCall(
 	e.noteToolCall(call, content, err, consumed, reported, started,
 		len(testRuns()) > 0 || len(checkRuns()) > 0, result)
 	memoryErr := e.recordWorkingResult(ctx, call, out, err)
+	status := "DONE"
+	failed := err != nil || memoryErr != nil
+	for _, run := range testRuns() {
+		status = "PASS"
+		failed = failed || run.ExitCode != 0
+	}
+	for _, run := range checkRuns() {
+		status = "PASS"
+		failed = failed || run.ExitCode != 0
+	}
+	if failed {
+		status = "FAIL"
+	}
+	sessionlog.EmitLiveProgress(ctx, sessionlog.LiveEvent{Kind: sessionlog.EventToolResult, Tool: call.Name, CallID: call.ID, Text: subject, Failed: failed, Status: status})
 	if err != nil {
 		return out, errors.Join(err, memoryErr)
 	}

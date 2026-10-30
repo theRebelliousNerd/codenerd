@@ -16,6 +16,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/types"
 )
 
@@ -242,6 +243,9 @@ func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, ta
 	if len(run) < 2 {
 		logging.SessionDebug("Step planning found %d step(s); the task runs as one pass", len(run))
 		return nil, nil
+	}
+	for i, s := range steps {
+		sessionlog.EmitLiveProgress(ctx, sessionlog.LiveEvent{Kind: "plan", Text: fmt.Sprintf("Plan %d/%d: %s — %s", i+1, len(steps), s.File, s.Change)})
 	}
 	names := make([]string, 0, len(run))
 	for _, s := range run {
@@ -885,6 +889,7 @@ func (e *Executor) runPlannedSteps(
 		stepCtx.IntentTarget = step.File
 		writesBefore, callsBefore := result.WriteToolEffects, result.ToolCallsExecuted
 		stepNum := i + 1
+		sessionlog.EmitLiveProgress(ctx, sessionlog.LiveEvent{Kind: "step", Text: fmt.Sprintf("Step %d/%d: %s — %s", stepNum, len(steps), step.File, step.Change)})
 
 		// The window is compiled for THIS step, when the step starts: the
 		// turn's prompt was selected for the task as a whole and the project's

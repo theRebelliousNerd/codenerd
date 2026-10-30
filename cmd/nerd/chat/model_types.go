@@ -37,6 +37,7 @@ import (
 	"codenerd/internal/world"
 
 	"charm.land/glamour/v2"
+	"codenerd/internal/sessionlog"
 	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -200,7 +201,8 @@ type activityPulse struct {
 	At       time.Time
 }
 
-// maxActivityTrail is how many recent pulses stay visible in the live panel.
+// maxActivityTrail bounds entries in the live panel: a recent pulse or a
+// delegated agent block uses one entry, as does an overflow summary.
 const maxActivityTrail = 4
 
 // Model is the main model for the interactive chat interface
@@ -465,6 +467,10 @@ type Model struct {
 	glassBoxEventBus  *transparency.GlassBoxEventBus    // Event collection and dispatch
 	glassBoxEventChan <-chan transparency.GlassBoxEvent // Subscription channel
 	glassBoxEvents    []transparency.GlassBoxEvent      // Recent events buffer (capped)
+
+	// Delegated work is visible independently of debug/Glass Box mode.
+	delegatedEvents chan sessionlog.LiveEvent
+	delegatedActive map[string]delegatedActivity
 
 	// Tool Event Visibility - ALWAYS shows tool execution in chat (not gated by Glass Box)
 	toolEventBus  *transparency.ToolEventBus    // Tool event collection

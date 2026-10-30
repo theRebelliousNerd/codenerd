@@ -3,6 +3,8 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -289,4 +291,40 @@ func TestExchangeLoggingIsRaceFreeUnderConcurrentCalls(t *testing.T) {
 		t.Fatalf("coder-1/ holds %d files, want 40 exchanges and a transcript", n)
 	}
 	_ = usage.Report{}
+}
+
+func TestLiveProgress_ModelMessagesDoNotRequireDiskLogging(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("failed=%v", failed), func(t *testing.T) {
+			sessionlog.Install(nil)
+			all := newFakeAll()
+			all.respText = `{"control_packet":{"private":"not visible"},"surface_response":"Plan: inspect loader"}`
+			if failed {
+				all.respErr = io.ErrUnexpectedEOF
+			}
+			wrapped, err := Wrap(all, testMeter(100000, 100).ConfigFor(ProviderCreds{Provider: "fake", Model: "fake-model"}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var events []sessionlog.LiveEvent
+			ctx := sessionlog.WithAgent(sessionlog.WithLiveProgress(context.Background(), func(_ context.Context, ev sessionlog.LiveEvent) { events = append(events, ev) }), "coder", "live")
+			_, err = wrapped.CompleteWithSystem(ctx, "system", "fix loader")
+			if failed && !errors.Is(err, io.ErrUnexpectedEOF) {
+				t.Fatalf("provider error lost: %v", err)
+			}
+			if !failed && err != nil {
+				t.Fatal(err)
+			}
+			if len(events) != 2 || events[0].Kind != sessionlog.EventCallStart {
+				t.Fatalf("live model events = %+v", events)
+			}
+			if failed {
+				if events[1].Kind != sessionlog.EventCallFailed || !events[1].Failed {
+					t.Fatalf("failure = %+v", events[1])
+				}
+			} else if events[1].Kind != sessionlog.EventAssistant || events[1].Text != "Plan: inspect loader" {
+				t.Fatalf("visible plan missing: %+v", events[1])
+			}
+		})
+	}
 }

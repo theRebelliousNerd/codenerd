@@ -100,6 +100,11 @@ func (m *Model) renderSingleMessage(msg Message) string {
 		}
 		rendered.WriteString(m.renderGlassBoxMessage(msg))
 
+	case "progress":
+		// Compact execution observations are plain text, not model markdown.
+		rendered.WriteString(m.styles.Text.Muted.Width(m.wrapWidth).Render(msg.Content))
+		rendered.WriteString("\n")
+
 	case RoleTool:
 		// Render tool execution notification (ALWAYS shown, not gated by Glass Box)
 		// Inline styles used here for specific tool highlight
@@ -667,6 +672,9 @@ func (m Model) renderChatView() string {
 // a short trail of recent beats so the screen never feels frozen.
 // After a turn, a brief afterglow keeps the last few beats visible.
 func (m Model) renderActivityLine() string {
+	if delegated := m.renderDelegatedProgress(time.Now()); delegated != "" {
+		return delegated
+	}
 	if !m.glassBoxEnabled {
 		return ""
 	}
