@@ -969,15 +969,25 @@ func (s *LocalStore) vectorRecallVec(queryText string, q semanticQuery, limit in
 	}
 	defer rows.Close()
 
+	// The statement runs as rows are stepped, so a failure the database
+	// reports at execution -- a query vector the distance function refuses,
+	// a backend limit -- arrives through rows.Err(), after Query returned.
+	// It used to be dropped, and a failed search read as a healthy empty one
+	// (audit knn-recall-limit-error-contract). A row that cannot be scanned
+	// makes the result incomplete, which is a failure too.
 	results := make([]VectorEntry, 0, limit)
 	for rows.Next() {
 		var id int64
 		var content string
 		var metaJSON []byte
-		var dist float64
-		if err := rows.Scan(&id, &content, &metaJSON, &dist); err != nil {
-			continue
+		var nullableDist sql.NullFloat64
+		if err := rows.Scan(&id, &content, &metaJSON, &nullableDist); err != nil {
+			return nil, fmt.Errorf("sqlite-vec recall: scan row: %w", err)
 		}
+		if !nullableDist.Valid {
+			continue // no distance to rank by (a zero vector): not a candidate
+		}
+		dist := nullableDist.Float64
 		entry := VectorEntry{
 			ID:        id,
 			Content:   content,
@@ -986,7 +996,10 @@ func (s *LocalStore) vectorRecallVec(queryText string, q semanticQuery, limit in
 		}
 		entry.Metadata["similarity"] = 1 - dist
 		results = append(results, entry)
-
+	}
+	if err := rows.Err(); err != nil {
+		logging.Get(logging.CategoryStore).Error("sqlite-vec query failed while stepping: %v", err)
+		return nil, fmt.Errorf("sqlite-vec recall: %w", err)
 	}
 
 	if len(results) > 0 {
