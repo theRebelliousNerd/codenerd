@@ -149,3 +149,34 @@ func TestAgent_AnEmptyReplyIsNudgedOnce(t *testing.T) {
 		t.Fatal("two empty replies were accepted")
 	}
 }
+
+// A frame admitted just under the bound still gets its closing note and its
+// answer turn: earlier evidence is cut to make room, and a frame with no room
+// for the notes is refused before any model call. Audit
+// deliberation-terminal-budget.
+func TestAgent_ClosingNotesAlwaysFitTheBound(t *testing.T) {
+	k, read, _ := agentFixture(t, 1, strings.Repeat("y", 3000))
+	read.ContextBytes = 2000
+	client := &scriptedClient{replies: []*types.LLMToolResponse{{ToolCalls: readCalls(2)}, {Text: ""}, {Text: "answer"}}}
+	ctx := sessionlog.WithAgent(context.Background(), Challenger, "t6")
+	got, err := Agent(ctx, k, client, stubPrompts{}, Challenger, `{"request":"r"}`, read)
+	if err != nil || got != "answer" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	for i, in := range client.inputs {
+		if len(in) > read.ContextBytes {
+			t.Errorf("call %d input is %d bytes, bound %d", i, len(in), read.ContextBytes)
+		}
+	}
+	last := client.inputs[len(client.inputs)-1]
+	if !strings.Contains(last, "evidence closed") || !strings.Contains(last, "reply now with your JSON answer") {
+		t.Errorf("the closing notes did not reach the role: %.400s", last)
+	}
+
+	big := `{"request":"` + strings.Repeat("z", 1900) + `"}`
+	client = &scriptedClient{}
+	_, err = Agent(sessionlog.WithAgent(context.Background(), Challenger, "t7"), k, client, stubPrompts{}, Challenger, big, read)
+	if err == nil || !strings.Contains(err.Error(), "no room") || len(client.inputs) != 0 {
+		t.Fatalf("a frame with no room for closing notes was sent (%d calls): %v", len(client.inputs), err)
+	}
+}

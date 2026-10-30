@@ -111,6 +111,13 @@ func Agent(ctx context.Context, k types.Kernel, client types.LLMClient, prompts 
 	// (deliberation_agent_continue over deliberation_tool_calls). When the
 	// budget or the context bound is spent the role is not failed: tools are
 	// withheld and it answers from the evidence it has.
+	// A frame must leave room for the notes that close evidence and ask for
+	// the answer; one that does not is refused before any model call.
+	if frame, e := json.Marshal(payload); e != nil {
+		return "", e
+	} else if len(frame)+terminalReserve > read.ContextBytes {
+		return "", fmt.Errorf("deliberation frame of %d bytes leaves no room within the %d-byte context bound for its closing notes", len(frame), read.ContextBytes)
+	}
 	used := 0
 	closed, nudged := false, false
 	for {
@@ -146,7 +153,9 @@ func Agent(ctx context.Context, k types.Kernel, client types.LLMClient, prompts 
 				return "", fmt.Errorf("deliberation role returned no answer")
 			}
 			closed, nudged = true, true
-			payload.Observations = append(payload.Observations, ProbeResult{Key: "answer-required", Error: answerRequired})
+			if e := addNote(&payload.Observations, ProbeResult{Key: "answer-required", Error: answerRequired}, payload, read.ContextBytes); e != nil {
+				return "", e
+			}
 			continue
 		}
 		if offer == nil {
@@ -166,7 +175,12 @@ func Agent(ctx context.Context, k types.Kernel, client types.LLMClient, prompts 
 			if !allowed || closed || room < observationOverhead {
 				closed = true
 				observation.Error = evidenceClosed
-				payload.Observations = append(payload.Observations, observation)
+				if e := addNote(&payload.Observations, observation, payload, read.ContextBytes); e != nil {
+					return "", e
+				}
+				if input, e = json.Marshal(payload); e != nil {
+					return "", e
+				}
 				continue
 			}
 			used++
@@ -201,14 +215,56 @@ const evidenceClosed = "evidence closed: the configured tool budget or context b
 // must be its JSON answer.
 const answerRequired = "your reply was empty: tools are closed, so reply now with your JSON answer from the observations you have"
 
+// terminalReserve is the room a frame must leave for one closing note and
+// one answer-required note.
+const terminalReserve = 2 * observationOverhead
+
+// addNote appends a control note and, when it does not fit the bound, makes
+// room by cutting the largest earlier observation's output, visibly. Control
+// notes are what let a role answer instead of failing, so evidence yields to
+// them; only a frame too large for any note is an error.
+func addNote(obs *[]ProbeResult, note ProbeResult, payload any, bound int) error {
+	*obs = append(*obs, note)
+	for {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		over := len(encoded) - bound
+		if over <= 0 {
+			return nil
+		}
+		largest := -1
+		for i, o := range (*obs)[:len(*obs)-1] {
+			if len(o.Output) > 0 && (largest < 0 || len(o.Output) > len((*obs)[largest].Output)) {
+				largest = i
+			}
+		}
+		if largest < 0 {
+			return fmt.Errorf("deliberation context bound of %d bytes has no room for a closing note", bound)
+		}
+		out := (*obs)[largest].Output
+		cut := boundObservation(out, len(out)-over-len(cutNote))
+		if len(cut) >= len(out) {
+			// Already no more than the cut marker: drop the output, keep
+			// the record of the call.
+			cut = ""
+		}
+		(*obs)[largest].Output = cut
+	}
+}
+
 // observationOverhead is the JSON framing one observation adds around its
 // output (keys, quoting, the error field), kept out of the output's room.
 const observationOverhead = len(evidenceClosed) + 128
 
+// cutNote marks an observation cut to fit the role's context.
+const cutNote = "\n[cut at the deliberation context bound; narrow the read to see more]"
+
 // boundObservation keeps an observation within the room left in the role's
 // context. A cut is visible and says why, never silent.
 func boundObservation(text string, room int) string {
-	const note = "\n[cut at the deliberation context bound; narrow the read to see more]"
+	const note = cutNote
 	if len(text) <= room {
 		return text
 	}

@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: deliberation
-implementation-status: proposed
+implementation-status: implemented
 evidence-status: source-only
 last-verified: 2026-10-30
 verified-against: fa6877b932322bb6ca75826289366836d442c051
@@ -141,3 +141,11 @@ Acceptance is a bounded closing protocol whose guarantee is true for its admitte
 [fit]: https://github.com/theRebelliousNerd/codenerd/blob/fa6877b932322bb6ca75826289366836d442c051/internal/deliberation/read_tools.go#L172-L191
 [guidance]: https://github.com/theRebelliousNerd/codenerd/blob/fa6877b932322bb6ca75826289366836d442c051/agents.md
 
+
+## As built (2026-10-30)
+
+`internal/deliberation/read_tools.go`: a role's frame must leave `terminalReserve` (room for one closing note and
+one answer-required note) inside the context bound or it is refused before any model call. Control notes go
+through `addNote`, which cuts the largest earlier observation, visibly, until the note fits; only a bound with no
+room for a note at all is an error. Test: `TestAgent_ClosingNotesAlwaysFitTheBound` (a near-bound read followed by
+a refused read and an empty reply still reaches the answer; an oversized frame is never sent).
