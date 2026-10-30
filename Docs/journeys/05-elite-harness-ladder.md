@@ -62,6 +62,13 @@ the protocol for a run, and the status of each rung with the run that moved it.
   and its tests, no hand edit, fail-before checked, G1-G3 green (one unrelated `internal/mcp` load flake
   found and fixed by hand, `b656de2bf`). First run where codeNERD ran tagged vet itself through `run_lint`.
   **R1 streak 2.**
+- **R1-32 landed** (2026-10-29, `1b0705ef6`): every model call is attributed to the shard that spent it;
+  `usage.json` no longer files every token under `unknown`. Seven production files and their tests, no
+  hand edit, fail-before checked (the new tests do not build or fail against the old code), G1-G3 green
+  (one load-dependent test race from another change fixed by hand, `58ac933a7`). The run took 27
+  minutes, of which model calls were 5.4: most of the rest was three whole-suite test runs mid-fix
+  (brief R1-39), and the chat showed nothing for 27 minutes (brief R1-38). Seven files, so it does not
+  count. **R1 streak 0.**
 - last updated: 2026-09-19 20:25
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0

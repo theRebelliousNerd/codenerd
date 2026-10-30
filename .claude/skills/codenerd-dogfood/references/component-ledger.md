@@ -6183,3 +6183,23 @@ fail with the fix reverted. G1-G3 green apart from `TestCancelledCollectionIsInc
 ordering race in the MCP pager, fixed by hand with a deterministic test (`b656de2bf`). The turn ran `go vet` with
 `sqlite_vec` itself (run_lint's build-tag fix took). **Streak 2.**
 
+## R1-32, usage.json could not say which shard spent anything -- landed (2026-10-29, 18:52-19:43)
+
+Brief (symptom only): `.nerd/usage.json` held every token the workspace had recorded under `by_shard_type` and
+`by_shard_name` "unknown", while every other breakdown was populated. Entry point: one chat request in the TUI
+(`--yolo`). The first coder attempt ended without the fix; a second coder finished it, verified by measured evidence
+(build, suite, pinning, removed-tests).
+
+**Landed** `1b0705ef6`: shard type and name now travel with persona turns, consultations, subagents and critic calls
+through setup, model calls and follow-up rounds (`internal/session/{executor,spawner,subagent,task_executor}.go`,
+`internal/core/shards/manager_spawn.go`, `internal/usage/usage_tracker.go`), and `campaign_cleaned_up` is homed on
+the campaign shard (`internal/shards/registration.go`). Fail-before: with the production files reverted, three test
+packages do not build and the shard-join tests fail. G1-G3 green apart from
+`TestVerificationRunners_CancelKillsTheProcessTree`, which read a package-level gopls runner another test swaps for a
+fake; fixed by hand (`58ac933a7`). Seven files, **streak 0**.
+
+Timing, from the coder's transcript: 27 minutes wall, 41 model calls taking 5.4 minutes (median 7 s), 99 tool calls.
+Three whole-suite `go test ./...` runs (4.5-6 min each), each issued mid-fix beside a full build and vet, account for
+most of the rest. The TUI's live feed showed nothing from the coder for the whole run. Briefs R1-39 (narrow checks
+while working, one whole-suite run at the end) and R1-38 (live progress while an agent works) follow.
+
