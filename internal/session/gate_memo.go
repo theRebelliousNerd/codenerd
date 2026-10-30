@@ -47,6 +47,21 @@ func writtenFingerprint(workspace string, written []string) string {
 		files[abs] = true
 		dirs[filepath.Dir(abs)] = true
 	}
+	return filesFingerprint(files, dirs)
+}
+
+// dirsFingerprint identifies the regular files of each directory as they
+// stand: the packages a measurement read beyond the turn's own.
+func dirsFingerprint(dirList []string) string {
+	dirs := map[string]bool{}
+	for _, d := range dirList {
+		dirs[d] = true
+	}
+	return filesFingerprint(map[string]bool{}, dirs)
+}
+
+// filesFingerprint hashes files plus every regular file of dirs.
+func filesFingerprint(files, dirs map[string]bool) string {
 	for dir := range dirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -80,9 +95,39 @@ func writtenFingerprint(workspace string, written []string) string {
 }
 
 // gateKey is the memo key of the measurement kind ("own", "own+coverage",
-// "importers") over the turn's writes as they stand.
+// "importers") over the turn's writes as they stand. Besides the bytes of the
+// turn's packages it names exactly which paths the turn wrote and what each
+// held before: the gate's obligations follow membership (a written tagged
+// test is run under its tags; coverage is projected onto the written files)
+// and its baseline follows the preimages, and rewriting a file with its own
+// bytes adds a path without changing a byte.
 func gateKey(kind, workspace string, result *ExecutionResult) string {
-	return kind + "|" + workspace + "|" + writtenFingerprint(workspace, result.WrittenPaths)
+	return kind + "|" + workspace + "|" + writtenFingerprint(workspace, result.WrittenPaths) +
+		"|" + writtenMembership(result)
+}
+
+// writtenMembership digests the written path set and each path's preimage.
+func writtenMembership(result *ExecutionResult) string {
+	paths := append([]string(nil), result.WrittenPaths...)
+	for i, p := range paths {
+		paths[i] = filepath.ToSlash(filepath.Clean(p))
+	}
+	sort.Strings(paths)
+	h := sha256.New()
+	for _, p := range paths {
+		img, ok := result.PreWriteContents[p]
+		switch {
+		case !ok:
+			fmt.Fprintf(h, "%s\x00nopreimage\x00", p)
+		case img.Unknown != "":
+			fmt.Fprintf(h, "%s\x00unknown\x00", p)
+		case !img.Existed:
+			fmt.Fprintf(h, "%s\x00new\x00", p)
+		default:
+			fmt.Fprintf(h, "%s\x00%x\x00", p, sha256.Sum256([]byte(img.Content)))
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // recalledGate is the measurement made under key, if there is one.
