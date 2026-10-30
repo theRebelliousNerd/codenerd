@@ -179,7 +179,19 @@ type DerivationMap struct {
 	Consumes       map[string]map[string]struct{}
 	SplitJoins     []RuleFinding
 	BlindNegations []RuleFinding
-	CatchAll       string
+	// IncompleteNegations: a negated premise over a DERIVED predicate that a
+	// shard the rule fires in holds only part of (see Complete), so the
+	// negation under-blocks there. BlindNegations only sees an owned base fact.
+	IncompleteNegations []RuleFinding
+	// PartialAggregates: an aggregate (a do-transform) over a premise that is
+	// incomplete in a shard the rule fires in: the shard counts, sums or
+	// collects only the rows it holds.
+	PartialAggregates []RuleFinding
+	// Complete: per predicate, the shards that hold every fact the single-store
+	// kernel would derive for it. Presence is where a fact CAN exist; Complete
+	// is where none is missing.
+	Complete map[string]Presence
+	CatchAll string
 	// Rules: every analysed rule with the shard set it fires in, for
 	// diagnostics ("why does a query for X visit shard Y").
 	Rules []RuleSummary
@@ -201,6 +213,9 @@ type RuleFinding struct {
 	Clause  string
 	Homes   map[string]Presence
 	Negated string
+	// Incomplete names, for a PartialAggregates finding, the premise the
+	// aggregate reads that a firing shard holds only part of.
+	Incomplete string
 }
 
 var scopeEvaluatedFiles = map[string]struct{}{
@@ -210,11 +225,12 @@ var scopeEvaluatedFiles = map[string]struct{}{
 }
 
 type parsedRule struct {
-	file   string
-	head   string
-	pos    []string
-	neg    []string
-	clause string
+	file      string
+	head      string
+	pos       []string
+	neg       []string
+	clause    string
+	aggregate bool
 }
 
 type fileChunk struct {
@@ -276,6 +292,12 @@ func bodyTermPred(term ast.Term) (sym string, negated bool, ok bool) {
 		}
 		sym = p.Atom.Predicate.Symbol
 		negated = true
+	case ast.TemporalAtom:
+		sym = p.Atom.Predicate.Symbol
+	case ast.TemporalLiteral:
+		// A premise under a temporal operator or annotation still joins its
+		// predicate: dropping it hid the premise from every shard check.
+		return bodyTermPred(p.Literal)
 	default:
 		return "", false, false
 	}
@@ -318,6 +340,9 @@ type derivationBuilder struct {
 	// every shard", not "is the same in every shard".
 	adds map[string]map[string]struct{}
 	cuts map[string]map[string]struct{}
+	// complete: per predicate, where it holds every fact a single store would
+	// derive (completeFixpoint).
+	complete map[string]Presence
 }
 
 func newDerivationBuilder(owners map[string]string, shared map[string]struct{}, consumerReplicas map[string]map[string]struct{}, catchAll string) *derivationBuilder {
@@ -397,6 +422,65 @@ func (b *derivationBuilder) parse(policyText string, programFacts map[string]str
 	return nil
 }
 
+// dropDeadRules removes the rules that can never fire because a positive premise
+// is starved, to a fixpoint: a predicate whose rules are all dead, with no
+// program fact, owner or shared copy to supply rows, is starved in its turn.
+// Starved predicates join the program predicates (present and complete
+// everywhere: there is nothing to be missing).
+func (b *derivationBuilder) dropDeadRules(starved map[string]struct{}) {
+	if len(starved) == 0 {
+		return
+	}
+	dead := make(map[string]struct{}, len(starved))
+	for p := range starved {
+		dead[p] = struct{}{}
+	}
+	for changed := true; changed; {
+		changed = false
+		live := b.rules[:0:0]
+		liveHeads := map[string]struct{}{}
+		allHeads := map[string]struct{}{}
+		for _, r := range b.rules {
+			allHeads[r.head] = struct{}{}
+			isDead := false
+			for _, p := range r.pos {
+				if _, ok := dead[p]; ok {
+					isDead = true
+					break
+				}
+			}
+			if isDead {
+				continue
+			}
+			live = append(live, r)
+			liveHeads[r.head] = struct{}{}
+		}
+		for h := range allHeads {
+			if _, ok := liveHeads[h]; ok {
+				continue
+			}
+			if _, ok := dead[h]; ok {
+				continue
+			}
+			_, prog := b.programEDB[h]
+			_, owned := b.owners[h]
+			_, shared := b.shared[h]
+			if !prog && !owned && !shared {
+				dead[h] = struct{}{}
+				changed = true
+			}
+		}
+		b.rules = live
+	}
+	for p := range dead {
+		b.programEDB[p] = struct{}{}
+	}
+	b.derived = make(map[string]struct{}, len(b.rules))
+	for _, r := range b.rules {
+		b.derived[r.head] = struct{}{}
+	}
+}
+
 func (b *derivationBuilder) parseError(file string, err error) error {
 	if file == "" {
 		return fmt.Errorf("derivation map: failed to parse policy text: %w", err)
@@ -432,6 +516,9 @@ func (b *derivationBuilder) collectUnit(file string, unit parse.SourceUnit) {
 			pos:    pos,
 			neg:    neg,
 			clause: clause.String(),
+			// A do-transform reduces a whole relation; a let-only transform
+			// is a per-row computation.
+			aggregate: clause.Transform != nil && !clause.Transform.IsLetTransform(),
 		})
 	}
 }
@@ -655,9 +742,7 @@ func positiveIntersection(b *derivationBuilder, pos []string) Presence {
 	return cur
 }
 
-func (b *derivationBuilder) findings() ([]RuleFinding, []RuleFinding) {
-	var splits []RuleFinding
-	var blinds []RuleFinding
+func (b *derivationBuilder) findings() (splits, blinds, incompleteNegs, partialAggs []RuleFinding) {
 	for _, r := range b.rules {
 		homes := b.homesFor(r.pos)
 		cur := positiveIntersection(b, r.pos)
@@ -666,8 +751,109 @@ func (b *derivationBuilder) findings() ([]RuleFinding, []RuleFinding) {
 			continue
 		}
 		blinds = append(blinds, b.blindsFor(r, homes, cur)...)
+		incompleteNegs = append(incompleteNegs, b.incompleteNegationsFor(r, homes, cur)...)
+		partialAggs = append(partialAggs, b.partialAggregatesFor(r, homes, cur)...)
 	}
-	return splits, blinds
+	return splits, blinds, incompleteNegs, partialAggs
+}
+
+// completeOf is where p holds every fact a single store would derive.
+func (b *derivationBuilder) completeOf(p string) Presence {
+	if pr, ok := b.complete[p]; ok {
+		return pr
+	}
+	// A base predicate with program facts AND an owner is present everywhere
+	// (the program facts) but its runtime rows, which Go asserts into the
+	// owner, exist there only: complete where its owner and replicas are.
+	if _, prog := b.programEDB[p]; prog {
+		if _, shared := b.shared[p]; !shared {
+			if owner, owned := b.owners[p]; owned {
+				pr := SingleShardPresence(owner)
+				for consumer := range b.consumerReplicas[p] {
+					pr = pr.Join(SingleShardPresence(consumer))
+				}
+				return pr
+			}
+		}
+	}
+	return b.edbPresence(p)
+}
+
+// completeFixpoint computes, as a greatest fixpoint, the shards where each
+// derived predicate is complete. A base fact is complete where its copy is: its
+// owner and bounded consumers, or everywhere when it is a program or shared
+// fact. A derived predicate is complete where every one of its rules has every
+// positive premise complete: a rule whose premise is missing in a shard
+// derives, in the owning shard, facts this shard never sees. A derived
+// predicate Go also asserts into its owner has facts of its own there.
+// Presence cannot say this: a predicate defined by one shared-only rule and
+// one world-only rule is present in every shard and complete in the world only.
+func (b *derivationBuilder) completeFixpoint() {
+	b.complete = make(map[string]Presence, len(b.derived))
+	for p := range b.derived {
+		b.complete[p] = AllPresence()
+		if owner, ok := b.owners[p]; ok {
+			b.complete[p] = SingleShardPresence(owner)
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, r := range b.rules {
+			cur := b.complete[r.head]
+			for _, q := range r.pos {
+				cur = cur.Meet(b.completeOf(q))
+			}
+			if !cur.Equals(b.complete[r.head]) {
+				b.complete[r.head] = cur
+				changed = true
+			}
+		}
+	}
+}
+
+// incompleteNegationsFor reports negated premises that a shard where the rule's
+// head is READ holds only part of: a derived predicate several shards each
+// derive a part of, or a base predicate with program facts everywhere and
+// runtime rows in its owner alone. The shards a query
+// reads are the catch-all (for the copy every shard derives alike) and every
+// shard where the rule adds facts (ruleReadShards): a shard outside them may
+// over-derive, but nothing looks there. A negated base fact owned elsewhere is
+// BlindNegations' job and is not repeated here.
+func (b *derivationBuilder) incompleteNegationsFor(r parsedRule, homes map[string]Presence, cur Presence) []RuleFinding {
+	var out []RuleFinding
+	reads := Presence{Shards: b.ruleReadShards(r)}
+	for _, np := range r.neg {
+		if pr := b.getPresence(np); !pr.All && (cur.All || !cur.SubsetOf(pr)) {
+			continue // already a blind negation
+		}
+		if reads.SubsetOf(b.completeOf(np)) {
+			continue
+		}
+		out = append(out, RuleFinding{File: r.file, Head: r.head, Clause: r.clause, Homes: homes, Negated: np})
+	}
+	return out
+}
+
+// partialAggregatesFor reports a do-transform whose input a shard where its
+// head is read holds only part of: that shard counts or sums only the rows it
+// has, so the answer depends on which shard a query reaches.
+func (b *derivationBuilder) partialAggregatesFor(r parsedRule, homes map[string]Presence, cur Presence) []RuleFinding {
+	if !r.aggregate {
+		return nil
+	}
+	var out []RuleFinding
+	seen := map[string]bool{}
+	reads := Presence{Shards: b.ruleReadShards(r)}
+	for _, p := range r.pos {
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		if !reads.SubsetOf(b.completeOf(p)) {
+			out = append(out, RuleFinding{File: r.file, Head: r.head, Clause: r.clause, Homes: homes, Incomplete: p})
+		}
+	}
+	return out
 }
 
 func (b *derivationBuilder) homesFor(pos []string) map[string]Presence {
@@ -838,6 +1024,21 @@ func (b *derivationBuilder) sharedLeaves(p string, out map[string]struct{}, stac
 // accounting for explicitly routed EDB copies. The route list must match the
 // one installed on the Cortex before its first mutation.
 func BuildDerivationMapWithConsumerRoutes(policyText string, programFacts map[string]struct{}, owners map[string]string, shared map[string]struct{}, routes []PredicateConsumerRoute, catchAll string) (*DerivationMap, error) {
+	return buildDerivationMap(policyText, programFacts, nil, owners, shared, routes, catchAll)
+}
+
+// BuildAuditDerivationMap is BuildDerivationMapWithConsumerRoutes for the shard
+// guard: starved names predicates nothing produces. A starved predicate has no
+// rows in any shard, so it is present and complete everywhere, and a rule that
+// needs one as a positive premise never fires, so it is dropped rather than
+// reported on (a predicate whose every rule is dropped is starved too). Query
+// routing keeps the plain build: it must place a read where the rule could fire
+// once a producer exists.
+func BuildAuditDerivationMap(policyText string, starved map[string]struct{}, owners map[string]string, shared map[string]struct{}, routes []PredicateConsumerRoute, catchAll string) (*DerivationMap, error) {
+	return buildDerivationMap(policyText, nil, starved, owners, shared, routes, catchAll)
+}
+
+func buildDerivationMap(policyText string, programFacts, starved map[string]struct{}, owners map[string]string, shared map[string]struct{}, routes []PredicateConsumerRoute, catchAll string) (*DerivationMap, error) {
 	indexed, err := normalizedConsumerRouteIndex(routes)
 	if err != nil {
 		return nil, err
@@ -849,10 +1050,12 @@ func BuildDerivationMapWithConsumerRoutes(policyText string, programFacts map[st
 	if err := b.parse(policyText, programFacts); err != nil {
 		return nil, err
 	}
+	b.dropDeadRules(starved)
 	b.seed()
 	b.fixpoint()
 	b.localFixpoint()
-	splits, blinds := b.findings()
+	b.completeFixpoint()
+	splits, blinds, incompleteNegs, partialAggs := b.findings()
 	summaries := make([]RuleSummary, 0, len(b.rules))
 	for _, r := range b.rules {
 		summaries = append(summaries, RuleSummary{
@@ -865,16 +1068,19 @@ func BuildDerivationMapWithConsumerRoutes(policyText string, programFacts map[st
 		local[p] = Presence{Shards: shards}
 	}
 	return &DerivationMap{
-		Arities:          b.arities,
-		Presence:         b.presence,
-		ConsumerReplicas: consumerReplicaPresence(indexed),
-		QueryTargets:     b.queryTargets(),
-		Local:            local,
-		Consumes:         b.consumes(),
-		SplitJoins:       splits,
-		BlindNegations:   blinds,
-		CatchAll:         b.catchAll,
-		Rules:            summaries,
+		Arities:             b.arities,
+		Presence:            b.presence,
+		ConsumerReplicas:    consumerReplicaPresence(indexed),
+		QueryTargets:        b.queryTargets(),
+		Local:               local,
+		Consumes:            b.consumes(),
+		SplitJoins:          splits,
+		BlindNegations:      blinds,
+		IncompleteNegations: incompleteNegs,
+		PartialAggregates:   partialAggs,
+		Complete:            b.complete,
+		CatchAll:            b.catchAll,
+		Rules:               summaries,
 	}, nil
 }
 

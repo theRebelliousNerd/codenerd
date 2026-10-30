@@ -13,6 +13,15 @@ from the catch-all can only be satisfied in a single-store kernel — the
 one every unit test boots. Item 33 (phase_category vs campaign_phase)
 was the first instance; this script finds the rest.
 
+This script finds split joins and blind negations over base facts, including
+bounded consumer replicas (ConsumerPredicates). The Go analysis
+(internal/core/derivation_map.go, guarded by internal/shards
+TestShardJoin_EveryRuleCanFireOnTheShardedKernel) is the authority and also
+finds what this script cannot: negations over a derived predicate some shard
+holds only part of (IncompleteNegations), aggregates over such a relation
+(PartialAggregates), base facts with program rows and a runtime owner, and
+premises under temporal operators. Run the Go test after this script.
+
 Usage: python shard_join_audit.py [repo_root]
 Exit 1 when any split join is found.
 """
@@ -100,19 +109,28 @@ PRED_RE = re.compile(r"(?<![\w:/.])(!?)\s*([a-z_][a-zA-Z0-9_]*)\s*\(")
 HEAD_RE = re.compile(r"^\s*([a-z_][a-zA-Z0-9_]*)\s*\(")
 
 
-def parse_manifest() -> tuple[dict[str, str], set[str]]:
+def parse_manifest() -> tuple[dict[str, str], set[str], dict[str, set[str]]]:
+    """Owners, shared predicates, and bounded consumer replicas
+    (predicate -> domains that also hold a copy; ConsumerPredicates)."""
     src = open(MANIFEST, encoding="utf-8").read()
     owners: dict[str, str] = {}
-    table = src.split("func SharedPredicates()", 1)[0]
-    for m in re.finditer(r'Domain:\s*"(\w+)".*?OwnedPredicates:\s*(?:\[\]string\{(.*?)\}|nil)', table, re.S):
-        domain, body = m.group(1), m.group(2) or ""
-        for p in re.findall(r'"(\w+)"', strip_go_comments(body)):
+    consumers: dict[str, set[str]] = defaultdict(set)
+    table = strip_go_comments(src.split("func SharedPredicates()", 1)[0])
+    marks = list(re.finditer(r'Domain:\s*"(\w+)"', table))
+    for i, m in enumerate(marks):
+        domain = m.group(1)
+        block = table[m.end(): marks[i + 1].start() if i + 1 < len(marks) else len(table)]
+        owned = re.search(r"OwnedPredicates:\s*\[\]string\{(.*?)\}", block, re.S)
+        for p in re.findall(r'"(\w+)"', owned.group(1) if owned else ""):
             owners[p] = domain
+        cons = re.search(r"ConsumerPredicates:\s*\[\]string\{(.*?)\}", block, re.S)
+        for p in re.findall(r'"(\w+)"', cons.group(1) if cons else ""):
+            consumers[p].add(domain)
     shared: set[str] = set()
     m = re.search(r"func SharedPredicates\(\) \[\]string \{\s*return \[\]string\{(.*?)\}\s*\}", src, re.S)
     if m:
         shared = set(re.findall(r'"(\w+)"', strip_go_comments(m.group(1))))
-    return owners, shared
+    return owners, shared, consumers
 
 
 def strip_go_comments(s: str) -> str:
@@ -120,7 +138,7 @@ def strip_go_comments(s: str) -> str:
 
 
 def main() -> int:
-    owners, shared_preds = parse_manifest()
+    owners, shared_preds, consumers = parse_manifest()
     decls: set[str] = set()
     program_edb: set[str] = set()
     rules: list[tuple[str, str, list[tuple[bool, str]], str]] = []  # (file, head, [(neg, pred)], text)
@@ -157,7 +175,7 @@ def main() -> int:
             return ALL
         if p in shared_preds:
             return ALL
-        return frozenset({owners.get(p, "cortex")})
+        return frozenset({owners.get(p, "cortex")}) | frozenset(consumers.get(p, ()))
 
     # Fixpoint over rules: presence(derived) = union over rules of the
     # intersection of body presences (positive atoms only).

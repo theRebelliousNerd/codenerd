@@ -4,6 +4,8 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -84,12 +86,39 @@ func buildProductionDerivationMap(t *testing.T, shared []string) *core.Derivatio
 		sharedSet[p] = struct{}{}
 	}
 	// Rules live in schema files too (file_exists in schemas_world.mg).
-	dm, err := core.BuildDerivationMapWithConsumerRoutes(
-		schemas+"\n"+policy, nil, owners, sharedSet, PredicateConsumerRoutes(), "cortex")
+	dm, err := core.BuildAuditDerivationMap(
+		schemas+"\n"+policy, starvedPredicates(t), owners, sharedSet, PredicateConsumerRoutes(), "cortex")
 	if err != nil {
 		t.Fatal(err)
 	}
 	return dm
+}
+
+// starvedPredicates are the predicates nothing produces: no rule head, no fact,
+// no Go that asserts one. internal/core/defaults TestStarvedPredicateBudget keeps
+// that inventory exact in both directions, so it is the measurement. A predicate
+// with no rows has no rows in any shard: it is present and complete everywhere,
+// and a rule that joins, negates or counts it is not split by where it would
+// have been homed (BuildAuditDerivationMap). Homing it in the manifest would
+// instead make the starved gate believe something produces it.
+func starvedPredicates(t *testing.T) map[string]struct{} {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "core", "defaults", "testdata", "starved_predicates.txt"))
+	if err != nil {
+		t.Fatalf("read the starved-predicate inventory: %v", err)
+	}
+	out := map[string]struct{}{}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out[line] = struct{}{}
+	}
+	if len(out) < 20 {
+		t.Fatalf("read %d starved predicates; the inventory moved", len(out))
+	}
+	return out
 }
 
 func shardList(p core.Presence) []string {
@@ -121,6 +150,9 @@ func describe(f core.RuleFinding) string {
 	neg := ""
 	if f.Negated != "" {
 		neg = " !" + f.Negated
+	}
+	if f.Incomplete != "" {
+		neg = " over " + f.Incomplete
 	}
 	return fmt.Sprintf("%s: %s%s [%s]", f.File, f.Head, neg, strings.Join(homes, ", "))
 }
@@ -165,8 +197,24 @@ func TestShardJoin_EveryRuleCanFireOnTheShardedKernel(t *testing.T) {
 		}
 		bad = append(bad, "blind negate "+describe(f))
 	}
-	t.Logf("corpus: %d predicates, %d split joins and %d blind negations (accepted residue included)",
-		len(dm.Presence), len(dm.SplitJoins), len(dm.BlindNegations))
+	// A negation over a derived predicate, and an aggregate over a derived
+	// relation, are only as good as the facts the shard that evaluates them
+	// holds: a predicate several shards each derive a part of is present
+	// everywhere and complete nowhere.
+	for _, f := range dm.IncompleteNegations {
+		if acceptedSeam(f) {
+			continue
+		}
+		bad = append(bad, "incomplete negate "+describe(f)+" complete in "+strings.Join(shardList(dm.Complete[f.Negated]), "/"))
+	}
+	for _, f := range dm.PartialAggregates {
+		if acceptedSeam(f) {
+			continue
+		}
+		bad = append(bad, "partial aggregate "+describe(f)+" complete in "+strings.Join(shardList(dm.Complete[f.Incomplete]), "/"))
+	}
+	t.Logf("corpus: %d predicates, %d split joins, %d blind negations, %d incomplete negations and %d partial aggregates (accepted residue included)",
+		len(dm.Presence), len(dm.SplitJoins), len(dm.BlindNegations), len(dm.IncompleteNegations), len(dm.PartialAggregates))
 	all := []string{"routing", "world", "tools", "policy", "campaign", "prompts", "cortex"}
 	for _, p := range []string{"delegate_task", "next_action", "hollow_success", "turn_done", "injectable_context", "relevant_tool", "write_oriented_intent", "safe_action"} {
 		t.Logf("query targets %-24s %v", p, dm.ShardsFor(p, all))
@@ -225,5 +273,29 @@ func TestShardJoin_ExceptionDoesNotExemptAnotherClauseWithSameHead(t *testing.T)
 	}
 	if acceptedSeam(core.RuleFinding{File: pin.File, Head: pin.Head, Clause: pin.Clause + " defective(X)."}) {
 		t.Fatal("new clause inherited exemption")
+	}
+}
+
+// Every pinned seam must still be a finding: a pin whose rule was fixed, moved
+// or deleted would otherwise stay behind and exempt the next clause that
+// happens to read the same.
+func TestShardJoin_EveryAcceptedSeamIsStillAFinding(t *testing.T) {
+	dm := buildProductionDerivationMap(t, SharedPredicates())
+	var findings []core.RuleFinding
+	findings = append(findings, dm.SplitJoins...)
+	findings = append(findings, dm.BlindNegations...)
+	findings = append(findings, dm.IncompleteNegations...)
+	findings = append(findings, dm.PartialAggregates...)
+	for _, pin := range seamPins {
+		found := false
+		for _, f := range findings {
+			if f.File == pin.File && normalizedClause(pin.Clause) == normalizedClause(f.Clause) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("accepted seam is no longer a finding; remove it from accepted_seams.json: %s: %s", pin.File, pin.Head)
+		}
 	}
 }

@@ -58,5 +58,89 @@
     "file": "campaign_rules.mg",
     "head": "quality_violation_detected",
     "reason": "needs restructure"
+  },
+  {
+    "file": "constitution.mg",
+    "head": "human_approval_required",
+    "clause": "human_approval_required(ActionID) :- pending_action(ActionID,Action,Target,Payload,_), dangerous_action(Action), human_approvable(Action), !permitted(Action,Target,Payload), !dangerous_content(Action,Payload), !dangerous_content(Action,Target), !restricted_tuple(Action,Target,Payload).",
+    "reason": "incomplete negation: permitted is missing the appeal-override rule, dormant on purpose (registration.go: the appeal facts land in the catch-all, nothing in production grants an appeal)"
+  },
+  {
+    "file": "constitution.mg",
+    "head": "human_approval_required",
+    "clause": "human_approval_required(ActionID) :- pending_action(ActionID,Action,Target,Payload,_), confirmation_owed(ActionID), safe_action(Action), !permitted(Action,Target,Payload), !dangerous_content(Action,Payload), !dangerous_content(Action,Target), !restricted_tuple(Action,Target,Payload).",
+    "reason": "incomplete negation: permitted is missing the appeal-override rule, dormant on purpose (registration.go: the appeal facts land in the catch-all, nothing in production grants an appeal)"
+  },
+  {
+    "file": "constitution.mg",
+    "head": "permission_denied",
+    "clause": "permission_denied(Action,\"Dangerous Action\") :- pending_action(ActionID,Action,Target,Payload,_), dangerous_action(Action), !permitted(Action,Target,Payload).",
+    "reason": "incomplete negation: permitted is missing the appeal-override rule, dormant on purpose (registration.go); it can only deny more"
+  },
+  {
+    "file": "constitution.mg",
+    "head": "suggest_appeal",
+    "clause": "suggest_appeal(ActionID) :- appeal_available(ActionID,ActionType,Target,Reason), !dangerous_action(ActionType).",
+    "reason": "incomplete negation: part of the dormant appeal path; dangerous_action rows Go asserts into policy are invisible here, and the result is a suggestion, not authority"
+  },
+  {
+    "file": "policy_mcp.mg",
+    "head": "mcp_remote_confirmation_satisfied",
+    "clause": "mcp_remote_confirmation_satisfied(RequestID) :- mcp_remote_request(RequestID,_,_,_,_,_,_,_,_,_,_,_,_), !mcp_remote_confirmation_required(RequestID).",
+    "reason": "inert catch-all copy: the head is consumed only by mcp_remote_permitted, which fires in policy alone (TestShardJoin_EveryRuleCanFireOnTheShardedKernel pins it); policy holds the complete negation"
+  },
+  {
+    "file": "system_ooda.mg",
+    "head": "ooda_phase",
+    "clause": "ooda_phase(/orient) :- intent_ready_for_executive(IntentID), pending_intent(IntentID), !has_next_action().",
+    "reason": "monitoring only: next_action is derived in every domain shard, so no single shard sees them all; read only by the transparency explainer"
+  },
+  {
+    "file": "system_ooda.mg",
+    "head": "current_ooda_phase",
+    "clause": "current_ooda_phase(/decide) :- ooda_phase(/decide), !ooda_phase(/act).",
+    "reason": "monitoring only: ooda_phase spans campaign, catch-all and policy facts; read only by the transparency explainer"
+  },
+  {
+    "file": "system_ooda.mg",
+    "head": "current_ooda_phase",
+    "clause": "current_ooda_phase(/orient) :- ooda_phase(/orient), !ooda_phase(/act), !ooda_phase(/decide).",
+    "reason": "monitoring only: ooda_phase spans campaign, catch-all and policy facts; read only by the transparency explainer"
+  },
+  {
+    "file": "system_ooda.mg",
+    "head": "current_ooda_phase",
+    "clause": "current_ooda_phase(/observe) :- ooda_phase(/observe), !ooda_phase(/act), !ooda_phase(/decide), !ooda_phase(/orient).",
+    "reason": "monitoring only: ooda_phase spans campaign, catch-all and policy facts; read only by the transparency explainer"
+  },
+  {
+    "file": "policy_mcp.mg",
+    "head": "mcp_tool_intent_boost",
+    "clause": "mcp_tool_intent_boost(ToolID,Boost) :- mcp_tool_intent_boost_candidate(ToolID,Candidate) |> do fn:group_by(ToolID), let Boost = fn:max(Candidate).",
+    "reason": "inert policy copy: the candidates that raise a boost fire in world, and mcp_tool_logic_score, the only reader, fires in world alone"
+  },
+  {
+    "file": "policy_mcp.mg",
+    "head": "mcp_tool_domain_boost",
+    "clause": "mcp_tool_domain_boost(ToolID,Boost) :- mcp_tool_domain_boost_candidate(ToolID,Candidate) |> do fn:group_by(ToolID), let Boost = fn:max(Candidate).",
+    "reason": "inert policy copy: the candidates that raise a boost fire in world, and mcp_tool_logic_score, the only reader, fires in world alone"
+  },
+  {
+    "file": "policy_mcp.mg",
+    "head": "mcp_tool_usage_boost",
+    "clause": "mcp_tool_usage_boost(ToolID,Boost) :- mcp_tool_usage_boost_candidate(ToolID,Candidate) |> do fn:group_by(ToolID), let Boost = fn:max(Candidate).",
+    "reason": "inert policy copy: the candidates that raise a boost fire in world, and mcp_tool_logic_score, the only reader, fires in world alone"
+  },
+  {
+    "file": "policy_mcp.mg",
+    "head": "mcp_tool_usage_penalty",
+    "clause": "mcp_tool_usage_penalty(ToolID,Penalty) :- mcp_tool_usage_penalty_candidate(ToolID,Candidate) |> do fn:group_by(ToolID), let Penalty = fn:max(Candidate).",
+    "reason": "inert policy copy: the candidates that raise a penalty fire in world, and mcp_tool_logic_score, the only reader, fires in world alone"
+  },
+  {
+    "file": "prompt_context.mg",
+    "head": "context_effective_count",
+    "clause": "context_effective_count(Atom,N) :- context_injection_effective(_,Atom) |> do fn:group_by(Atom), let N = fn:count().",
+    "reason": "learning heuristic: counts effective injections per shard, so promote_to_long_term (N >= 3) triggers late, never wrongly; final_injectable draws on campaign and catch-all facts that no one shard holds"
   }
 ]
