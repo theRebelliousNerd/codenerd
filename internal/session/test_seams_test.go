@@ -6,11 +6,11 @@ import "io"
 // production files, so the dead-code budget measures production code.
 
 // parseCoverProfile parses a Go coverage profile from r and returns only the
-// blocks whose count is 0 and whose file path has a suffix matching one of
-// writtenFiles. parseCoverBlocks is the same parse without the count filter:
+// blocks whose count is 0 and whose file path ends with a whole trailing
+// path component of one of writtenFiles (no module to resolve against). parseCoverBlocks is the same parse without the count filter:
 // the element mapping needs the blocks this run did execute.
 func parseCoverProfile(r io.Reader, writtenFiles []string) ([]UncoveredBlock, error) {
-	blocks, err := parseCoverBlocks(r, writtenFiles)
+	blocks, err := parseCoverBlocks(r, "", writtenFiles)
 	if err != nil {
 		return nil, err
 	}

@@ -2975,9 +2975,9 @@ func uncoveredPaths(workspace string, result *ExecutionResult) []string {
 		path := NormalizeCoverPath(b.File)
 		matched := ""
 		for _, written := range result.WrittenPaths {
-			if w := NormalizeCoverPath(written); w != "" && strings.HasSuffix(path, w) {
+			if blockIn(b, written) {
 				matched = written
-				path = w
+				path = NormalizeCoverPath(written)
 				break
 			}
 		}

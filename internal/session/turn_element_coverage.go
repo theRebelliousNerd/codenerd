@@ -84,17 +84,13 @@ func elementUncoveredRefs(workspace string, result *ExecutionResult, blocks []Un
 	return uncovered
 }
 
-// blocksForWritten keeps the profile blocks for one workspace-relative path.
-// The profile spells the import path with forward slashes; written paths
-// arrive however the tool recorded them, including Windows separators.
+// blocksForWritten keeps the profile blocks of one written file: those the
+// profile resolved to it (blockIn). Written paths arrive however the tool
+// recorded them, including Windows separators.
 func blocksForWritten(blocks []UncoveredBlock, written string) []UncoveredBlock {
-	w := NormalizeCoverPath(written)
-	if w == "" {
-		return nil
-	}
 	var out []UncoveredBlock
 	for _, b := range blocks {
-		if strings.HasSuffix(NormalizeCoverPath(b.File), w) {
+		if blockIn(b, written) {
 			out = append(out, b)
 		}
 	}

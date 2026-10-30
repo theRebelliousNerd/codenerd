@@ -348,8 +348,8 @@ func uncoveredList(blocks []UncoveredBlock, written []string) string {
 	for _, block := range blocks {
 		path := NormalizeCoverPath(block.File)
 		for _, w := range written {
-			if nw := NormalizeCoverPath(w); nw != "" && strings.HasSuffix(path, nw) {
-				path = nw
+			if blockIn(block, w) {
+				path = NormalizeCoverPath(w)
 				break
 			}
 		}

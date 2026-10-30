@@ -61,6 +61,11 @@ type UncoveredBlock struct {
 	// "codenerd/internal/session/foo.go".
 	File string
 
+	// Source is the workspace path of the written file the profile resolved
+	// File to (coverSourceResolver), slash-separated; "" for a block built
+	// without one. Later joins compare it, never File's name again.
+	Source string
+
 	// StartLine is the first line of the block (1-indexed).
 	StartLine int
 
@@ -88,11 +93,14 @@ type UncoveredBlock struct {
 // execution count. An error is returned on any malformed line, including a
 // missing or malformed mode line.
 //
-// Suffix matching is deliberate: the profile records import-qualified paths
-// (e.g. "codenerd/internal/session/foo.go") while writtenFiles are
+// The profile records import-qualified paths (e.g.
+// "codenerd/internal/session/foo.go") while writtenFiles are
 // workspace-relative (e.g. "internal/session/foo.go"). A block is kept when
-// its File ends with one of the writtenFiles entries after slash-normalisation.
-func parseCoverBlocks(r io.Reader, writtenFiles []string) ([]UncoveredBlock, error) {
+// coverSourceResolver resolves its File to one of writtenFiles -- the
+// module path joined to it, not any name that happens to end the same way --
+// and carries that written path as its Source.
+func parseCoverBlocks(r io.Reader, workspace string, writtenFiles []string) ([]UncoveredBlock, error) {
+	sources := newCoverSourceResolver(workspace, writtenFiles)
 	scanner := bufio.NewScanner(r)
 
 	// The first line is the mode line.
@@ -105,21 +113,6 @@ func parseCoverBlocks(r io.Reader, writtenFiles []string) ([]UncoveredBlock, err
 	modeLine := strings.TrimSpace(scanner.Text())
 	if !strings.HasPrefix(modeLine, "mode:") {
 		return nil, fmt.Errorf("malformed coverage profile: first line must be 'mode: <mode>', got %q", modeLine)
-	}
-
-	// Normalise writtenFiles for suffix comparison: trim space, slash-normalise,
-	// strip leading "./".
-	normalizedWritten := make([]string, 0, len(writtenFiles))
-	for _, wf := range writtenFiles {
-		wf = strings.TrimSpace(wf)
-		if wf == "" {
-			continue
-		}
-		wf = NormalizeCoverPath(wf)
-		if wf == "" {
-			continue
-		}
-		normalizedWritten = append(normalizedWritten, wf)
 	}
 
 	var out []UncoveredBlock
@@ -185,20 +178,14 @@ func parseCoverBlocks(r io.Reader, writtenFiles []string) ([]UncoveredBlock, err
 		}
 
 		// Only blocks in files the turn wrote are surfaced.
-		fileSlash := NormalizeCoverPath(file)
-		matched := false
-		for _, wf := range normalizedWritten {
-			if strings.HasSuffix(fileSlash, wf) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
+		source := sources.source(file)
+		if source == "" {
 			continue
 		}
 
 		out = append(out, UncoveredBlock{
 			File:      file,
+			Source:    source,
 			StartLine: startLine,
 			EndLine:   endLine,
 			NumStmts:  numStmts,
@@ -268,7 +255,7 @@ func verifyTestsWithCoverage(
 	}
 	defer f.Close()
 
-	blocks, perr := parseCoverBlocks(f, writtenPaths)
+	blocks, perr := parseCoverBlocks(f, workspace, writtenPaths)
 	if perr != nil {
 		logging.Get(logging.CategorySession).Warn(
 			"coverage profile could not be parsed (%v); test verdict stands", perr)
@@ -356,15 +343,10 @@ func changedLines(before, after string) []LineRange {
 func blocksInChangedLines(blocks []UncoveredBlock, changed map[string][]LineRange) []UncoveredBlock {
 	var out []UncoveredBlock
 	for _, b := range blocks {
-		fileSlash := NormalizeCoverPath(b.File)
 		matched := false
 		overlap := false
 		for k, ranges := range changed {
-			nk := NormalizeCoverPath(k)
-			if nk == "" {
-				continue
-			}
-			if !strings.HasSuffix(fileSlash, nk) {
+			if !blockIn(b, k) {
 				continue
 			}
 			matched = true

@@ -139,7 +139,14 @@ func TestParseCoverProfile(t *testing.T) {
 				t.Fatalf("parseCoverProfile() = %v; want %v", got, tc.want)
 			}
 			for i := range got {
-				if got[i] != tc.want[i] {
+				// Every admitted block carries the written file it resolved
+				// to; the rest of the record is the profile's.
+				g := got[i]
+				if g.Source == "" || !strings.HasSuffix(NormalizeCoverPath(g.File), g.Source) {
+					t.Errorf("parseCoverProfile()[%d] = %+v: no source, or not its own file", i, g)
+				}
+				g.Source = ""
+				if g != tc.want[i] {
 					t.Errorf("parseCoverProfile()[%d] = %+v; want %+v", i, got[i], tc.want[i])
 				}
 			}
