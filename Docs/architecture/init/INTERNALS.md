@@ -64,6 +64,37 @@ bounded worker pool (`createAgent`, `:504`):
 `prompts.yaml` is generated on the planner when absent (on every run, so a
 failed earlier attempt is retried) and never replaces a curated file.
 
+### Dependency identity in acquisition subjects
+
+Technology classification may group dependencies into a family such as `echo`;
+knowledge acquisition and invalidation must retain the actual admitted Go module
+path and manifest version. In addition to exact matches and vocabulary packages
+inside a required parent module, an unversioned vocabulary family root must
+recognize a valid semantic-major module path such as `github.com/labstack/echo/v4`.
+That third relation emits the actual versioned module, not the family root.
+Use the Go module parser's path/version rules and reject arbitrary descendants
+or lookalike repositories. Keep distinct required majors as distinct subjects;
+preserve npm, standard-library and package-inside-parent behavior.
+
+Both init and background refresh use `KnowledgeSubjects`. Its exact subject key
+must reach GoDoc/repository acquisition and the existing `dependency_pin` /
+`knowledge_acquired_version` join. Mangle retains research admission, freshness
+and budget decisions. Historical generic knowledge is not relabeled or deleted.
+This contract does not establish effective versions under replacements or workspaces.
+
+| Gap ID | Deficiency | Target and exit criterion | State |
+|---|---|---|---|
+| GAP-INIT-GO-MAJOR-SUBJECT | The former matcher lost `/vN` identity at the family boundary. | Subject tests preserve exact path, ecosystem and version for distinct majors and retain existing controls; real Cortex refresh derives `/version_changed` for a versioned dependency upgrade and does no work for an unchanged pin. | Implemented; focused verification passed. |
+
+`pinnedPackages` (`internal/init/knowledge_sources.go:96`) keeps the existing
+package match and separately checks semantic-major paths with `module.SplitPathVersion`,
+`CheckPath` and `CheckPathMajor`. It emits each matched actual module once, with
+its admitted version. `TestKnowledgeSubjects_GoMajorFamily` and
+`TestKnowledgeSubjects_GoMajorRejectsUnrelatedPaths` (`knowledge_sources_test.go:67`)
+cover the identity boundary. `TestKnowledgeRefreshResearchesVersionedGoModule`
+(`internal/system/knowledge_refresh_version_test.go:84`) follows normal Cortex
+refresh and checks the exact persisted `/v4` subject after an upgrade.
+
 ## 4. Strategic knowledge is replaced, not appended
 
 `PersistStrategicKnowledge` (`internal/init/strategic_knowledge.go:144`)

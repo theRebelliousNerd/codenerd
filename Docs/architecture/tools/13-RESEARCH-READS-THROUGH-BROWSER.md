@@ -45,7 +45,44 @@ Search discovery on Meta is `grounded_web_search`
 (`Docs/architecture/perception/13-META-SEARCH-GROUNDING.md`); the browser then reads the pages
 it returns.
 
-## Evidence
+## Required contract: Context7 documentation ref continuity
+
+Manifest discovery must carry its requested and observed document/base locator
+into linked-document reads. Relative links resolve against that manifest's base,
+including its selected repository ref; absolute links preserve their destination
+with the existing credential-stripping resolver. A manifest found on `master`
+must never cause a linked guide to be manufactured on `main`.
+
+Common-document fallback uses bounded candidates `main`, then `master`, and selects
+one ref for its result. It must not combine different branches as one documentation
+snapshot. A manifest that yields no usable documents may proceed to that fallback.
+No arbitrary-ref discovery, credential, free-form HTTP client or new browser
+manager is introduced. Keep caller cancellation, per-read bounds, owning-host
+routing, explicit document caps and no-document errors. Returned source headers
+name the actual fetched document. Default-branch documentation is not proof of
+compatibility with a workspace's pinned dependency version.
+
+| Gap ID | Deficiency | Target and exit criterion | State |
+|---|---|---|---|
+| GAP-TOOLS-CONTEXT7-REF | Manifest discovery formerly dropped the successful locator; relative guides and fallback hardcoded `main`. | Browser/local-server tests assert exact locators and selected content for main/master, competing bodies, fallback, redirects, absolute links and Codeberg; acquisition retains correct source content and provenance through the expert compiler. Existing failure/cancellation controls hold. | Implemented; focused browser and compiler integration verification passed. |
+
+`fetchContext7Document` (`internal/tools/research/context7.go:395`) preserves
+requested URL, observed document URL, base URI and guarded body. Discovery uses
+that base in `parseLlmsTxt` (`:261`); common fallback (`:322`) selects the first
+candidate ref with documents. When all manifest candidates are absent, a negative
+pass makes three manifest and twelve common-document reads; this is six more
+fallback reads than the previous main-only behavior. A discovered manifest may
+attempt additional linked reads: the existing `max_docs` cap counts retained
+documents, not failed or short linked responses. `context7_ref_test.go:80` verifies
+the actual browser requests.
+`TestContext7MasterDocumentationReachesProductionExpertPrompt`
+(`context7_pipeline_integration_test.go:20`) exercises the registered tool,
+acquisition ledger/KB and factory-built expert compiler, with missing-source and
+sibling-expert controls. The acquisition adapter retains body and source headers
+as separate paragraph atoms; the fixture queries both subject identity and body
+terms. This test does not establish automatic provenance pairing for every query.
+
+## Browser evidence
 
 `internal/tools/research/browser_read_test.go` drives real Chrome against local servers: static
 HTML, a page that inserts its content by script after load, `text/plain` markdown, tab count back

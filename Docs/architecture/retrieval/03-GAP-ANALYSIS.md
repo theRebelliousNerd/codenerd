@@ -104,3 +104,22 @@ Every distinct file_written fact must invalidate cached keyword hits even when m
 | GAP-RETRIEVAL-EVENT-IDENTITY | Same-second cache invalidation | `SparseRetriever.InvalidateFromKernel` tracks unseen write identities at the timestamp boundary and serializes cursor advancement (`internal/retrieval/invalidation.go:92`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Real-kernel equal-timestamp different-hash events each invalidate a repopulated cache; exact duplicate event replay does not invalidate again. |
 
 **Verified current:** `TestInvalidateFromKernel_WhenAnotherWriteSharesTheTimestamp_ShouldDropCachedHits` (`internal/retrieval/wiring_test.go:68`) passes with replay-idempotence controls in the full retrieval package suite.
+
+## Required contract: Go module declaration identity
+
+Tier 3 must resolve the workspace module's decoded semantic path identically for
+ordinary, double-quoted and parenthesized `module` declarations. Parse the root
+`go.mod` with the existing `golang.org/x/mod/modfile` grammar parser, using lax
+parsing to tolerate unrelated future directives. A missing, unreadable or invalid
+manifest supplies no module identity. Preserve the per-builder cache, local-only
+import resolution, package/file caps, cancellation and deduplication. This does
+not add dependency, nested-module or `go.work` resolution.
+
+Go measures the path and import neighbors; Mangle still determines retrieval
+admission and brief selection. Import neighbors retain score 50. At the default
+brief floor 60 they remain retrieval evidence without becoming brief entries;
+an explicit floor 50 admits them through the existing policy.
+
+| Gap ID | Deficiency | Target and exit criterion | State |
+|---|---|---|---|
+| GAP-RETRIEVAL-MODULE-IDENTITY | The former single-token regex retained quotes or captured `(` and lost same-module neighbors. | Equivalent declaration spellings yield the same selected neighbor and `tiered_context_file`; a real session turn receives the neighbor at floor 50 and excludes it at floor 60. Missing/malformed, external, stdlib and cache controls hold. | Implemented; focused verification and race checks passed. |

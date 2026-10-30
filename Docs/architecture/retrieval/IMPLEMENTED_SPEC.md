@@ -399,6 +399,21 @@ See [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md).
 
 ## 12. Change discipline
 
+### Go module declaration identity
+
+`goModulePath` (`internal/retrieval/go_imports.go:91`) reads the root manifest
+through `modfile.ParseLax` and caches its decoded module path, including an empty
+result for a missing, unreadable or invalid manifest. Quoted and parenthesized
+declarations therefore resolve the same local import neighbors as unquoted ones.
+The existing package/file caps, local-only resolution and score 50 remain intact.
+`internal/retrieval/go_module_identity_test.go:19` checks identity and selection;
+`internal/session/issue_retrieval_module_identity_test.go:34` captures the real
+turn's facts and model request, including the floor-50/default-60 distinction and
+issue cleanup. This implements GAP-RETRIEVAL-MODULE-IDENTITY; it does not add
+multi-module or external-dependency resolution.
+
+### Package changes
+
 When changing this package:
 
 1. Prefer extending pure retrieval APIs over embedding kernel deps.

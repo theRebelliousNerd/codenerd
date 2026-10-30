@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/mod/module"
+
 	"codenerd/internal/knowledge"
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
@@ -91,13 +93,26 @@ func pinnedPackages(key string, pins []ManifestPin, goWorkspace bool) []knowledg
 				}
 				continue
 			}
+			matchedPackage := false
+			seenMajor := map[string]bool{}
 			for _, pin := range pins {
 				if pin.Ecosystem != eco {
 					continue
 				}
-				if pin.Module == pkg || (eco == EcosystemGo && strings.HasPrefix(pkg, pin.Module+"/")) {
+				if !matchedPackage && (pin.Module == pkg || (eco == EcosystemGo && strings.HasPrefix(pkg, pin.Module+"/"))) {
 					out = append(out, knowledge.Subject{Module: pkg, Ecosystem: string(eco), Version: pin.Version})
-					break
+					matchedPackage = true
+				}
+				// A versioned module is a separate subject from its family root.
+				// SplitPathVersion accepts only Go's semantic major suffix forms;
+				// check both the module path and the pinned version as well.
+				if eco == EcosystemGo {
+					base, major, ok := module.SplitPathVersion(pin.Module)
+					if ok && major != "" && base == pkg && module.CheckPath(pin.Module) == nil &&
+						module.CheckPathMajor(pin.Version, major) == nil && !seenMajor[pin.Module] {
+						out = append(out, knowledge.Subject{Module: pin.Module, Ecosystem: string(eco), Version: pin.Version})
+						seenMajor[pin.Module] = true
+					}
 				}
 			}
 		}

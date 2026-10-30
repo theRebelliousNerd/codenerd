@@ -5,10 +5,11 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+
+	"golang.org/x/mod/modfile"
 )
 
 // =============================================================================
@@ -29,9 +30,6 @@ import (
 // package like internal/core has dozens of files; pulling all of them in for a
 // single import would spend the entire tier budget on one edge.
 const maxGoPackageFiles = 3
-
-// goModulePathPattern matches the module directive at the top of a go.mod.
-var goModulePathPattern = regexp.MustCompile(`(?m)^\s*module\s+(\S+)`)
 
 // goImportNeighbors returns workspace files belonging to the packages imported
 // by a Go source file, nearest-package-first.
@@ -86,8 +84,10 @@ func parseGoImports(filePath string) []string {
 }
 
 // goModulePath returns the module path declared by the workspace's go.mod, or ""
-// when there is none. Cached under b.mu: every Tier 3 file would otherwise
-// re-read go.mod.
+// when the manifest is missing, unreadable or fails lax parsing. Lax parsing
+// understands quoted and parenthesized declarations while allowing unrelated
+// future directives. Cached under b.mu: every Tier 3 file would otherwise
+// re-read and re-parse go.mod.
 func (b *TieredContextBuilder) goModulePath() string {
 	const cacheKey = "\x00go.mod:module"
 
@@ -99,9 +99,10 @@ func (b *TieredContextBuilder) goModulePath() string {
 	}
 
 	module := ""
-	if data, err := os.ReadFile(filepath.Join(b.workDir, "go.mod")); err == nil {
-		if m := goModulePathPattern.FindSubmatch(data); len(m) > 1 {
-			module = string(m[1])
+	manifest := filepath.Join(b.workDir, "go.mod")
+	if data, err := os.ReadFile(manifest); err == nil {
+		if parsed, err := modfile.ParseLax(manifest, data, nil); err == nil && parsed.Module != nil {
+			module = parsed.Module.Mod.Path
 		}
 	}
 

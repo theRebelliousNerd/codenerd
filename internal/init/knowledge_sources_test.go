@@ -64,6 +64,51 @@ func TestKnowledgeSubjects_PinnedModulesAndTopics(t *testing.T) {
 	}
 }
 
+func TestKnowledgeSubjects_GoMajorFamily(t *testing.T) {
+	root := t.TempDir()
+	writeInitFile(t, root, "go.mod", "module example.com/app\n\ngo 1.24\n\nrequire (\n github.com/labstack/echo v1.0.0\n github.com/labstack/echo/v2 v2.1.0\n github.com/labstack/echo/v4 v4.12.0\n)\n")
+	pins, err := ManifestPins(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subjects := KnowledgeSubjects(root, "expert", []string{"echo"}, nil, pins)
+	if len(subjects) != 3 {
+		t.Fatalf("subjects = %+v, want three distinct module subjects", subjects)
+	}
+	want := map[string]string{"github.com/labstack/echo": "v1.0.0", "github.com/labstack/echo/v2": "v2.1.0", "github.com/labstack/echo/v4": "v4.12.0"}
+	for _, subject := range subjects {
+		if version, ok := want[subject.Module]; !ok || subject.Version != version || subject.Ecosystem != "go" || subject.Technology != "echo" || subject.Agent != "expert" {
+			t.Fatalf("unexpected subject: %+v", subject)
+		}
+		delete(want, subject.Module)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing subjects: %v", want)
+	}
+}
+
+func TestKnowledgeSubjects_GoMajorRejectsUnrelatedPaths(t *testing.T) {
+	for _, pin := range []ManifestPin{
+		{Ecosystem: EcosystemGo, Module: "github.com/labstack/echo/v1", Version: "v1.0.0"},
+		{Ecosystem: EcosystemGo, Module: "github.com/labstack/echo/v04", Version: "v4.0.0"},
+		{Ecosystem: EcosystemGo, Module: "github.com/labstack/echo/v4", Version: "v3.0.0"},
+		{Ecosystem: EcosystemGo, Module: "github.com/labstack/echo/v4/sub", Version: "v4.0.0"},
+		{Ecosystem: EcosystemGo, Module: "github.com/labstack/echo/plugin", Version: "v1.0.0"},
+		{Ecosystem: EcosystemGo, Module: "github.com/labstack/echoes/v4", Version: "v4.0.0"},
+		{Ecosystem: EcosystemNPM, Module: "github.com/labstack/echo/v4", Version: "v4.0.0"},
+	} {
+		got := KnowledgeSubjects("", "expert", []string{"echo"}, nil, []ManifestPin{pin})
+		if len(got) != 1 || got[0].Module != "" || got[0].Topic != "echo" {
+			t.Errorf("pin %+v produced %+v", pin, got)
+		}
+	}
+	// A vocabulary package inside a required parent remains a package subject.
+	got := KnowledgeSubjects("", "expert", []string{"echo"}, nil, []ManifestPin{{Ecosystem: EcosystemGo, Module: "github.com/labstack", Version: "v1.2.3"}})
+	if len(got) != 1 || got[0].Module != "github.com/labstack/echo" || got[0].Version != "v1.2.3" {
+		t.Fatalf("parent module match = %+v", got)
+	}
+}
+
 // A full init acquires every agent's knowledge through the typed sources:
 // each KB records every source's outcome, and no KB holds a placeholder.
 func TestInitialize_AcquiresKnowledgeWithTypedOutcomes(t *testing.T) {

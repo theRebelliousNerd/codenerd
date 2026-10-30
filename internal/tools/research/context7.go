@@ -76,6 +76,9 @@ func executeContext7(ctx context.Context, args map[string]any) (string, error) {
 	// Try to fetch llms.txt from the repository host
 	if haveRef {
 		docs, err := fetchLlmsTxt(ctx, ref, maxDocs)
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		if err == nil && len(docs) > 0 {
 			results = append(results, docs...)
 		}
@@ -84,6 +87,9 @@ func executeContext7(ctx context.Context, args map[string]any) (string, error) {
 	// If no llms.txt found, try common documentation patterns
 	if len(results) == 0 && haveRef {
 		docs, err := fetchCommonDocs(ctx, ref, maxDocs)
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		if err == nil {
 			results = append(results, docs...)
 		}
@@ -232,10 +238,13 @@ func fetchLlmsTxt(ctx context.Context, r repoRef, maxDocs int) ([]string, error)
 	}
 
 	for _, url := range locations {
-		content, err := fetchURL(ctx, url)
-		if err == nil && len(content) > 10 {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		manifest, err := fetchContext7Document(ctx, url)
+		if err == nil && len(manifest.content) > 10 {
 			logging.Researcher("Found llms.txt at %s", url)
-			return parseLlmsTxt(ctx, r, content, maxDocs)
+			return parseLlmsTxt(ctx, manifest.linkBase(), manifest.content, maxDocs)
 		}
 	}
 
@@ -249,13 +258,16 @@ func fetchLlmsTxt(ctx context.Context, r repoRef, maxDocs int) ([]string, error)
 // maxDocs still bounds how many documents are fetched, but the cap is never
 // silent: when linked docs are left unfetched the result names them and the
 // max_docs argument that raises the bound (limits cleanup 2026-09-29).
-func parseLlmsTxt(ctx context.Context, r repoRef, content string, maxDocs int) ([]string, error) {
+func parseLlmsTxt(ctx context.Context, baseURL, content string, maxDocs int) ([]string, error) {
 	var results []string
 	lines := strings.Split(content, "\n")
 	docCount := 0
 	skipped := 0
 
 	for _, line := range lines {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ">") {
 			continue
@@ -282,18 +294,18 @@ func parseLlmsTxt(ctx context.Context, r repoRef, content string, maxDocs int) (
 			continue
 		}
 
-		// Resolve relative paths to raw URLs on the repository's host
-		if !strings.HasPrefix(docURL, "http") {
-			docURL = rawFileURL(r, "main", docURL)
-		}
+		// The manifest's observed base owns relative references, including
+		// its ref and any redirects or HTML base element. Absolute links
+		// stay absolute; the shared resolver strips URL credentials.
+		docURL = resolveLink(baseURL, docURL)
 
 		if docCount >= maxDocs {
 			skipped++
 			continue
 		}
-		content, err := fetchURL(ctx, docURL)
-		if err == nil && len(content) > 50 {
-			results = append(results, fmt.Sprintf("## Source: %s\n\n%s", docURL, content))
+		doc, err := fetchContext7Document(ctx, docURL)
+		if err == nil && len(doc.content) > 50 {
+			results = append(results, doc.section())
 			docCount++
 		}
 	}
@@ -304,7 +316,9 @@ func parseLlmsTxt(ctx context.Context, r repoRef, content string, maxDocs int) (
 	return results, nil
 }
 
-// fetchCommonDocs fetches common documentation files from a repository.
+// fetchCommonDocs tries a bounded main, then master policy. Once a ref
+// supplies documents, all returned documents belong to that candidate ref;
+// missing paths are not filled from a different branch.
 func fetchCommonDocs(ctx context.Context, r repoRef, maxDocs int) ([]string, error) {
 	commonPaths := []string{
 		"README.md",
@@ -315,20 +329,51 @@ func fetchCommonDocs(ctx context.Context, r repoRef, maxDocs int) ([]string, err
 		"GETTING_STARTED.md",
 	}
 
-	var results []string
-	for _, path := range commonPaths {
-		if len(results) >= maxDocs {
-			break
-		}
+	for _, ref := range []string{"main", "master"} {
+		var results []string
+		for _, path := range commonPaths {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			if len(results) >= maxDocs {
+				break
+			}
 
-		url := rawFileURL(r, "main", path)
-		content, err := fetchURL(ctx, url)
-		if err == nil && len(content) > 100 {
-			results = append(results, fmt.Sprintf("## Source: %s\n\n%s", url, content))
+			doc, err := fetchContext7Document(ctx, rawFileURL(r, ref, path))
+			if err == nil && len(doc.content) > 100 {
+				results = append(results, doc.section())
+			}
+		}
+		if len(results) > 0 {
+			return results, nil
 		}
 	}
 
-	return results, nil
+	return nil, nil
+}
+
+// context7Document retains the browser's source identity alongside the body.
+// A manifest's base resolves links; a document's observed URL names its bytes.
+type context7Document struct {
+	requestedURL, documentURL, baseURI, content string
+}
+
+func (d context7Document) sourceURL() string {
+	if d.documentURL != "" {
+		return resolveLink("", d.documentURL)
+	}
+	return resolveLink("", d.requestedURL)
+}
+
+func (d context7Document) linkBase() string {
+	if d.baseURI != "" {
+		return resolveLink(d.sourceURL(), d.baseURI)
+	}
+	return d.sourceURL()
+}
+
+func (d context7Document) section() string {
+	return fmt.Sprintf("## Source: %s\n\n%s", d.sourceURL(), d.content)
 }
 
 // fetchURLGuardBytes caps one fetched document. It is process protection,
@@ -343,15 +388,21 @@ const fetchURLGuardBytes = 1 << 20
 // <pre>). HTML comes back as the rendered document, not a second markdown
 // conversion: callers keep the source text they asked to archive.
 func fetchURL(ctx context.Context, url string) (string, error) {
+	doc, err := fetchContext7Document(ctx, url)
+	return doc.content, err
+}
+
+func fetchContext7Document(ctx context.Context, url string) (context7Document, error) {
 	// Per-request bound, not a run clock: it caps one browser page read.
 	// From research.context7_timeout; the installed policy is the
 	// defaults until LoadUserConfig installs the file.
 	ctx, cancel := context.WithTimeout(ctx, config.ResolvedResearchPolicy().Context7Timeout)
 	defer cancel()
 
+	url = resolveLink("", url)
 	page, err := readBrowserPage(ctx, url)
 	if err != nil {
-		return "", err
+		return context7Document{}, err
 	}
 	if page.CleanupErr != nil {
 		// The body is archived as the source document, so a notice cannot be
@@ -365,8 +416,9 @@ func fetchURL(ctx context.Context, url string) (string, error) {
 	}
 	cut, tripped := cutGuardBytes(body, fetchURLGuardBytes)
 	if tripped {
-		return cut + "\n\n[fetch guard: source exceeded the 1MB single-document guard; " +
-			"content continues beyond what was read]", nil
+		body = cut + "\n\n[fetch guard: source exceeded the 1MB single-document guard; " +
+			"content continues beyond what was read]"
 	}
-	return body, nil
+	return context7Document{requestedURL: url, documentURL: page.DocumentURL,
+		baseURI: page.BaseURI, content: body}, nil
 }
