@@ -60,11 +60,12 @@ func TestCheckedInCorpusOrderedParity(t *testing.T) {
 	// atoms and merged duplicates, other lanes adding theirs; 2157 with
 	// capability/run_lint (2026-10-29); 956 when the converted Mangle manual
 	// (1,265 atoms, most of whose examples the pinned engine rejects) was
-	// replaced by 62 engine-verified atoms (2026-10-29). To
+	// replaced by 62 engine-verified atoms (2026-10-29); 957 with
+	// capability/regenerate (2026-10-30). To
 	// refresh it after an intended corpus change, take the count and digest
 	// this test prints.
-	const wantCount = 956
-	const wantDigest = "5d5e92a7cb65c5b85836c32e96b57a41c1b3b59308a692836d4231054224b0c9"
+	const wantCount = 957
+	const wantDigest = "fb4cc32a95a24c4fada5b982431adcb1f786703653c73430757335e68f1d0a70"
 	if len(stats.AtomIDs) != wantCount {
 		t.Fatalf("atom count = %d, want golden %d", len(stats.AtomIDs), wantCount)
 	}
