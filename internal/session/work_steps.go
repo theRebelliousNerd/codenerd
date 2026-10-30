@@ -833,10 +833,11 @@ func (e *Executor) stepSystemPrompt(
 	NoteCompile(ctx, compiled)
 	logging.Session("Step prompt compiled for %s (language=%s, %d chars)", stepCtx.IntentTarget, stepCtx.Language, len(compiled.Prompt))
 	stepPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(compiled.Prompt), stepCtx.IntentTarget)
-	// The turn's consultations ride into the step (the advice was asked
-	// before the edits, for them), then any this step's file newly calls for.
-	if result != nil && result.expertConsultation != "" {
-		stepPrompt = strings.TrimRight(stepPrompt, "\n") + result.expertConsultation
+	// The turn's consultations dealt to this step's file ride into it (the
+	// advice was asked before the edits, for them), then any this step's
+	// file newly calls for.
+	if hand := e.dealtCards(result, stepCtx.IntentTarget); hand != "" {
+		stepPrompt = strings.TrimRight(stepPrompt, "\n") + hand
 	}
 	return e.withExpertConsultations(ctx, stepPrompt,
 		perception.Intent{Verb: stepCtx.IntentVerb, Target: stepCtx.IntentTarget}, task, stepSel, result)

@@ -222,6 +222,19 @@ expert_critique(Task, Agent) :-
     expert_task(Task, Verb),
     execution_mode(Verb, /advisory_with_critique).
 
+# Dealing a turn's consultations to its planned steps. A lead's answer lays
+# out the whole work, so every step holds it; an adviser's answer is about the
+# files its domain was selected for, so it goes to the steps on those files.
+# A card that did not answer is dealt to no step (the step names it instead).
+turn_card_dealt(Turn, File, Agent) :-
+    turn_step_file(Turn, File),
+    turn_expert_card(Turn, Agent, /lead, /answered).
+
+turn_card_dealt(Turn, File, Agent) :-
+    turn_step_file(Turn, File),
+    turn_expert_card(Turn, Agent, /advise, /answered),
+    turn_expert_card_file(Turn, Agent, File).
+
 turn_expert_actionable(Turn, Idx) :-
     turn_expert_finding(Turn, _, Idx, Sev),
     severity_rank(Sev, Rank),

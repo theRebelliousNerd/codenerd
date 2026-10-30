@@ -183,3 +183,24 @@ Decl turn_expert_finding(Turn, Agent, Idx, Severity) bound [/name, /name, /numbe
 
 # turn_expert_actionable(Turn, Idx) - a finding the repair round carries.
 Decl turn_expert_actionable(Turn, Idx) bound [/name, /number].
+
+# --- Consultation cards (per turn, dealt per planned step) ------------------
+
+# turn_expert_card(Turn, Agent, Mode, Disposition) - a consultation this turn
+# bought: the agent, its spawn mode (/lead, /advise) and how it ended
+# (/answered, /failed, /empty). Producer: internal/session
+# (Executor.withExpertConsultations).
+Decl turn_expert_card(Turn, Agent, Mode, Disposition) bound [/name, /name, /name, /name].
+
+# turn_expert_card_file(Turn, Agent, File) - a canonical task file the card's
+# agent was selected for (experts.Need.Files). Producer: as turn_expert_card.
+Decl turn_expert_card_file(Turn, Agent, File) bound [/name, /name, /string].
+
+# turn_step_file(Turn, File) - a planned step of the turn edits File
+# (canonical). Producer: internal/session (Executor.stepSystemPrompt).
+Decl turn_step_file(Turn, File) bound [/name, /string].
+
+# turn_card_dealt(Turn, File, Agent) - the agent's answered card goes into the
+# prompt of the step that edits File. Consumer: internal/session
+# (Executor.dealtCards).
+Decl turn_card_dealt(Turn, File, Agent) bound [/name, /string, /name].

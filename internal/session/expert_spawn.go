@@ -61,10 +61,10 @@ type expertConsultation struct {
 // A consultation that fails, or a turn with no consultant wired, is named in
 // the section rather than dropped, so the model knows what it is missing.
 //
-// The section is also kept on result (expertConsultation), because a planned
-// turn runs each step on a freshly compiled prompt: without it the advice the
-// turn paid for reached only the final verification, never the edits. An
-// agent result already consulted is not consulted again.
+// Each outcome is also kept as a typed card (expert_cards.go): a planned turn
+// runs each step on a freshly compiled prompt, and the kernel deals each step
+// the cards that apply to its file. An agent already consulted this turn is
+// not consulted again.
 func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt string, intent perception.Intent, input string, sel experts.Selection, result *ExecutionResult) string {
 	var spawns []experts.Need
 	for _, need := range sel.Needs {
@@ -91,24 +91,17 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 	}
 	wg.Wait()
 
+	cards := make([]expertCard, len(results))
 	var b strings.Builder
-	b.WriteString("\n\n## Shard agent consultation\n")
-	b.WriteString("The harness consulted these shard agents before this turn because the task's files are in their domain (expert_spawn). Weigh their reading; you still own the result and its verification.\n")
-	for _, r := range results {
-		fmt.Fprintf(&b, "\n### %s (%s; %s)\n", r.need.Agent, consultationRole(r.need.Spawn), strings.Join(r.need.Technologies, ", "))
-		switch {
-		case r.err != nil:
+	b.WriteString(consultationHeader)
+	for i, r := range results {
+		cards[i] = newExpertCard(r)
+		if r.err != nil {
 			logging.Get(logging.CategorySession).Warn("shard agent %s consultation failed: %v", r.need.Agent, r.err)
-			fmt.Fprintf(&b, "The consultation did not complete: %v\n", r.err)
-		case strings.TrimSpace(r.answer) == "":
-			b.WriteString("The consultation returned no answer.\n")
-		default:
-			b.WriteString(strings.TrimSpace(r.answer))
-			b.WriteString("\n")
 		}
+		b.WriteString(cards[i].render())
 	}
 	logging.Session("Consulted %d shard agent(s) for %s %s", len(results), intent.Verb, intent.Target)
-	section := b.String()
 	if result != nil {
 		if result.consultedExperts == nil {
 			result.consultedExperts = map[string]bool{}
@@ -116,9 +109,9 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 		for _, need := range spawns {
 			result.consultedExperts[need.Agent] = true
 		}
-		result.expertConsultation += section
 	}
-	return strings.TrimRight(systemPrompt, "\n") + section
+	e.recordCards(result, cards)
+	return strings.TrimRight(systemPrompt, "\n") + b.String()
 }
 
 func consultationRole(mode string) string {

@@ -1055,12 +1055,12 @@ type ExecutionResult struct {
 	// reportReading is the turn_report_reading asserted last for this turn,
 	// replaced by each new reading (finish_round.go).
 	reportReading *types.Fact
-	// expertConsultation is the consultation section this turn's experts
-	// answered (withExpertConsultations), carried into every planned step's
-	// freshly compiled prompt; consultedExperts names the agents already
-	// consulted, so a step consults only an expert its own file newly needs.
-	expertConsultation string
-	consultedExperts   map[string]bool
+	// expertCards are the consultations this turn bought, typed
+	// (expert_cards.go): the kernel deals each planned step the ones that
+	// apply to its file. consultedExperts names the agents already consulted,
+	// so a step consults only an expert its own file newly needs.
+	expertCards      []expertCard
+	consultedExperts map[string]bool
 	// expertDomainFiles are, per critiquing agent key, the task files its
 	// domain covers (experts.Need.Files): its review shows them first.
 	expertDomainFiles map[string][]string
