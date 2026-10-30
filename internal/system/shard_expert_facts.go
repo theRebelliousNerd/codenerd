@@ -357,7 +357,7 @@ func reconcileRoster(prev []types.Fact, roster shardRoster) (next, obsolete []ty
 		if f.Predicate != "shard_agent_domain" || len(f.Args) <= 2 {
 			continue
 		}
-		agent, _ := f.Args[0].(types.MangleAtom)
+		agent := types.MangleAtom(types.ArgName(f, 0))
 		switch types.ExtractString(f.Args[2]) {
 		case "/knowledge_base":
 			if roster.kbUnread[agent] {
