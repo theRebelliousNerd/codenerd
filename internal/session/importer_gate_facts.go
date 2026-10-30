@@ -30,6 +30,9 @@ func suiteExit(result *ExecutionResult) VerifyOutcome {
 	if result == nil {
 		return ""
 	}
+	if result.FinalTestCheck != nil {
+		return result.FinalTestCheck.Verdict()
+	}
 	switch result.TestCheck.Verdict() {
 	case VerifyCanceled, VerifyIndeterminate:
 		return result.TestCheck.Verdict()
@@ -49,6 +52,9 @@ func suiteFailureText(result *ExecutionResult) string {
 	if result == nil {
 		return ""
 	}
+	if result.FinalTestCheck != nil && result.FinalTestCheck.Verdict() == VerifyFailed {
+		return result.FinalTestCheck.Output
+	}
 	if result.ImporterCheck.Verdict() == VerifyFailed {
 		return result.ImporterCheck.Output
 	}
@@ -61,6 +67,9 @@ func suiteFailureText(result *ExecutionResult) string {
 func suiteFailureResult(result *ExecutionResult, seed string) *testfacts.Result {
 	if result == nil {
 		return nil
+	}
+	if result.FinalTestCheck != nil && result.FinalTestCheck.Verdict() == VerifyFailed && result.FinalTestCheck.Output == seed {
+		return result.FinalTestCheck.Result
 	}
 	if result.ImporterCheck.Verdict() == VerifyFailed && result.ImporterCheck.Output == seed {
 		return result.ImporterCheck.Result

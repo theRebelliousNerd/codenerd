@@ -1027,7 +1027,7 @@ func (e *Executor) executeAndRecordToolCall(
 	cfg *config.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) (string, error) {
-	var guardErr error
+	guardErr := e.constrainFixVerification(&call, result)
 	var effectTargets []ResourceEffect
 	if isWriteMutationTool(call.Name) {
 		// A write the guard refuses never runs: no preimage, no write, no

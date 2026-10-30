@@ -54,6 +54,12 @@ func (e *Executor) syncTestGateFacts(turn types.MangleAtom, result *ExecutionRes
 	if e == nil || e.kernel == nil || result == nil || turn == "" {
 		return
 	}
+	if result.FinalTestCheck != nil {
+		measured := *result
+		measured.TestCheck = *result.FinalTestCheck
+		measured.FinalTestCheck = nil
+		result = &measured
+	}
 	e.retractTurnPredicates(turn,
 		"turn_test_measured", "turn_test_failed_before",
 		"turn_test_case", "turn_test_failure_at", "turn_test_build_failure",

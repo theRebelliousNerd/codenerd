@@ -128,3 +128,29 @@ func TestWorkspaceForVerification_PrefersExplicitConfig(t *testing.T) {
 		t.Errorf("workspaceForVerification() = %q; want the explicitly configured %q", got, want)
 	}
 }
+
+func TestVerifyAndRepairBuild_FixCompilesOnlyWrittenPackages(t *testing.T) {
+	e, result := verifyGateExecutor(t)
+	ws := e.config.WorkspaceRoot
+	for path, text := range map[string]string{
+		"go.mod": "module buildscope\n\ngo 1.22\n",
+		"a/a.go": "package a\nfunc Value() int { return 1 }\n",
+		"b/b.go": "package b\nvar Broken int = \"wrong type\"\n",
+	} {
+		abs := filepath.Join(ws, path)
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result.Intent.Verb = "/fix"
+	result.WrittenPaths = []string{"a/a.go"}
+	if _, _, err := e.verifyAndRepairBuild(context.Background(), nil, "", nil, nil, nil, nil, result); err != nil {
+		t.Fatalf("working fix compiled unrelated package: %v", err)
+	}
+	if got := strings.Join(result.BuildCheck.Command, " "); got != "go build ./a" {
+		t.Fatalf("build command %q, want go build ./a", got)
+	}
+}

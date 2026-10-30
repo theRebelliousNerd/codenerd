@@ -105,7 +105,7 @@ func missingEvidence(t *testing.T, k types.Kernel, turn types.MangleAtom, atom s
 func TestToolEffects_RejectedWriteKeepsItsChange(t *testing.T) {
 	gate := &scriptedGate{answers: []types.ToolValidation{{State: types.ToolValidationRejected, Reason: "invalid JSON: unexpected end"}}}
 	e, cfg, dir := effectFixture(t, realKernel(t), gate, nil)
-	result := &ExecutionResult{TestRunSinceLastWrite: &tools.TestRun{}}
+	result := &ExecutionResult{TestRunSinceLastWrite: &tools.TestRun{}, FinalTestCheck: &TestVerification{Ran: true, Outcome: VerifyPassed}}
 
 	results, errs := e.executeToolBatch(context.Background(), []types.ToolCall{writeCall("c1", "a.json", `{"a":`)}, cfg, result)
 
@@ -126,6 +126,9 @@ func TestToolEffects_RejectedWriteKeepsItsChange(t *testing.T) {
 	}
 	if result.TestRunSinceLastWrite != nil {
 		t.Fatal("a test run before the rejected write still witnesses the bytes it left")
+	}
+	if result.FinalTestCheck != nil {
+		t.Fatal("a final suite before the rejected write still witnesses the bytes it left")
 	}
 	if len(result.ToolReceipts) != 1 {
 		t.Fatalf("receipts = %+v, want one", result.ToolReceipts)

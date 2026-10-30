@@ -1,6 +1,8 @@
 package session
 
 import (
+	"codenerd/internal/evidence"
+	"codenerd/internal/types"
 	"context"
 	"errors"
 	"os"
@@ -329,4 +331,190 @@ func TestVerifyAndRepairPinning_PreExistingFailuresMeasureAndANewFailureDoesNot(
 			t.Fatalf("a new failure measured /pinned: %s (%s)\n%s", result.PinCheck.Verdict(), result.PinCheck.Reason, result.PinCheck.Output)
 		}
 	})
+}
+
+// A fix checks its own package before the final suite, and never repeats a
+// finished suite on the same covered tree, even when that suite failed.
+func TestCloseChangeEvidence_FixSuiteIsFinalAndRevisionBound(t *testing.T) {
+	e, result := verifyGateExecutor(t)
+	e.kernel = realKernel(t)
+	ws := e.config.WorkspaceRoot
+	files := map[string]string{
+		"go.mod":      "module finalprobe\n\ngo 1.22\n",
+		"a/a.go":      "package a\nfunc Value() int { return 1 }\n",
+		"a/a_test.go": "package a\nimport \"testing\"\nfunc TestValue(t *testing.T) { if Value() != 1 { t.Fatal(\"wrong value\") } }\n",
+		"b/b.go":      "package b\nfunc Value() int { return 0 }\n",
+		"b/b_test.go": "package b\nimport \"testing\"\nfunc TestValue(t *testing.T) { if Value() != 1 { t.Fatal(\"wrong value\") } }\n",
+	}
+	for path, text := range files {
+		abs := filepath.Join(ws, path)
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result.Intent.Verb = "/fix"
+	result.WrittenPaths = []string{"a/a.go"}
+	result.roundsRan = map[string]bool{"/build": true, "/test": true}
+	real := verifyTestRunner
+	var commands []string
+	verifyTestRunner = func(ctx context.Context, dir string, env []string, name string, args []string) ([]byte, error) {
+		commands = append(commands, strings.Join(args, " "))
+		return real(ctx, dir, env, name, args)
+	}
+	t.Cleanup(func() { verifyTestRunner = real })
+	ctx := context.Background()
+	err := e.closeChangeEvidence(ctx, result, "")
+	if !errors.Is(err, ErrVerificationFailed) {
+		t.Fatalf("unrelated failing test escaped final suite: %v; commands %v", err, commands)
+	}
+	if result.TestCheck.Verdict() != VerifyPassed || result.FinalTestCheck == nil || result.FinalTestCheck.Verdict() != VerifyFailed {
+		t.Fatalf("narrow and final measurements lost their scopes: own %+v, final %+v", result.TestCheck, result.FinalTestCheck)
+	}
+	if suiteExit(result) != VerifyFailed || !strings.Contains(failedChecksSummary(result), "final suite fails") {
+		t.Fatalf("final failure missing from verdict or diagnostic: %s", failedChecksSummary(result))
+	}
+	if stream := suiteFailureResult(result, suiteFailureText(result)); stream == nil || stream != result.FinalTestCheck.Result {
+		t.Fatal("final failure output is not paired with its runner evidence")
+	}
+	fullRuns := func() int {
+		n := 0
+		for _, cmd := range commands {
+			if strings.HasSuffix(cmd, " ./...") {
+				n++
+			}
+		}
+		return n
+	}
+	if fullRuns() != 1 || len(commands) < 2 || !strings.HasSuffix(commands[0], " ./a") {
+		t.Fatalf("want narrow then one full suite, got %v", commands)
+	}
+	if err := e.closeChangeEvidence(ctx, result, ""); !errors.Is(err, ErrVerificationFailed) || fullRuns() != 1 {
+		t.Fatalf("unchanged failing suite repeated or lost: %v; %v", err, commands)
+	}
+	// This package is outside WrittenPaths. Whole-suite evidence must still expire.
+	if err := os.WriteFile(filepath.Join(ws, "b/b.go"), []byte("package b\nfunc Value() int { return 1 }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.closeChangeEvidence(ctx, result, ""); err != nil {
+		t.Fatalf("repaired suite: %v; %v", err, commands)
+	}
+	if fullRuns() != 2 || result.ChangeStage != "checks_passed" {
+		t.Fatalf("changed covered input did not refresh final evidence: stage %s; %v", result.ChangeStage, commands)
+	}
+	narrowRuns := 0
+	for _, command := range commands {
+		if strings.HasSuffix(command, " ./a") {
+			narrowRuns++
+		}
+	}
+	if narrowRuns != 2 {
+		t.Fatalf("covered input changed outside WrittenPaths without refreshing narrow evidence: %v", commands)
+	}
+	if err := e.closeChangeEvidence(ctx, result, ""); err != nil || fullRuns() != 2 {
+		t.Fatalf("unchanged green suite repeated: %v; %v", err, commands)
+	}
+}
+
+func TestCloseChangeEvidence_FixDoesNotRunFullSuiteBeforeNarrowPass(t *testing.T) {
+	e, result := verifyGateExecutor(t)
+	e.kernel = realKernel(t)
+	ws := e.config.WorkspaceRoot
+	for path, text := range map[string]string{
+		"go.mod":       "module narrowprobe\n\ngo 1.22\n",
+		"main.go":      "package narrowprobe\nfunc Value() int { return 0 }\n",
+		"main_test.go": "package narrowprobe\nimport \"testing\"\nfunc TestValue(t *testing.T) { if Value()!=1 { t.Fatal(\"wrong value\") } }\n",
+	} {
+		if err := os.WriteFile(filepath.Join(ws, path), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result.Intent.Verb = "/fix"
+	result.roundsRan = map[string]bool{"/build": true, "/test": true}
+	real := verifyTestRunner
+	verifyTestRunner = func(ctx context.Context, dir string, env []string, name string, args []string) ([]byte, error) {
+		for _, arg := range args {
+			if arg == "./..." {
+				t.Error("full suite ran before narrow tests passed")
+			}
+		}
+		return real(ctx, dir, env, name, args)
+	}
+	t.Cleanup(func() { verifyTestRunner = real })
+	if err := e.closeChangeEvidence(context.Background(), result, ""); !errors.Is(err, ErrVerificationFailed) {
+		t.Fatalf("narrow failure was lost: %v", err)
+	}
+}
+
+func TestCloseChangeEvidence_FinalScopeErrorsCannotCertifyTheFix(t *testing.T) {
+	queryErr := errors.New("final scope query failed")
+	cases := []struct {
+		name          string
+		rows          []types.Fact
+		queryErr      error
+		cancelAtQuery bool
+		want          string
+		cause         error
+	}{
+		{name: "query failure", queryErr: queryErr, want: "query fix verification scope", cause: queryErr},
+		{name: "unexpected scope", rows: []types.Fact{scopeRow("/final", "/narrow")}, want: "unexpected final fix verification scope /narrow"},
+		{name: "final verifier snapshot failure", rows: []types.Fact{scopeRow("/final", "/full")}, cancelAtQuery: true, want: "snapshot final test inputs", cause: context.Canceled},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e, result := verifyGateExecutor(t)
+			ws := e.config.WorkspaceRoot
+			if err := os.WriteFile(filepath.Join(ws, "main.go"), []byte("package main\nfunc main() {}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			result.Intent.Verb = "/fix"
+			result.roundsRan = map[string]bool{"/build": true, "/test": true}
+			result.BuildCheck = BuildVerification{Ran: true, Outcome: VerifyPassed}
+			result.TestCheck = TestVerification{Ran: true, Outcome: VerifyPassed}
+			// The closure must discard final evidence from an earlier invocation even
+			// when the narrow gates still describe exactly these bytes.
+			result.FinalTestCheck = &TestVerification{Ran: true, Outcome: VerifyPassed}
+			before, err := evidence.Snapshot(context.Background(), ws)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			queries := 0
+			kernel := &scopeQueryKernel{scopeRows: tc.rows, scopeErr: tc.queryErr, onScopeQuery: func() {
+				queries++
+				if tc.cancelAtQuery {
+					cancel()
+				}
+			}}
+			e.kernel = kernel
+			launches := countTestLaunches(t)
+			err = e.closeChangeEvidence(ctx, result, before)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("closure accepted unavailable final evidence: %v", err)
+			}
+			if tc.cause != nil && !errors.Is(err, tc.cause) {
+				t.Fatalf("closure lost the underlying cause: %v", err)
+			}
+			if queries != 1 || *launches != 0 {
+				t.Fatalf("wrong policy/verification ordering: queries %d, test launches %d", queries, *launches)
+			}
+			if result.ChangeStage != "artifact_changed" || result.ChecksSnapshot != "" || result.FinalTestCheck != nil {
+				t.Fatalf("failed final verification certified the fix: stage %s, snapshot %q, final %+v", result.ChangeStage, result.ChecksSnapshot, result.FinalTestCheck)
+			}
+			if result.TestCheck.Verdict() != VerifyPassed || result.BuildCheck.Verdict() != VerifyPassed {
+				t.Fatal("final-scope failure corrupted the independent narrow measurements")
+			}
+		})
+	}
+}
+
+func TestSuiteFailureResult_NilResultHasNoRunnerEvidence(t *testing.T) {
+	for _, seed := range []string{"", "tests failed", "compiler diagnostic"} {
+		if stream := suiteFailureResult(nil, seed); stream != nil {
+			t.Fatalf("nil execution supplied runner evidence for %q: %+v", seed, stream)
+		}
+	}
 }

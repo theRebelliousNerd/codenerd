@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"codenerd/internal/evidence"
+	"codenerd/internal/types"
 )
 
 // failedChecksSummary names what the final re-verification found failing: the
@@ -50,6 +51,9 @@ func failedChecksSummary(result *ExecutionResult) string {
 	if result.ImporterCheck.Verdict() == VerifyFailed {
 		parts = append(parts, nameFailures("importer tests fail", result.ImporterCheck))
 	}
+	if result.FinalTestCheck != nil && result.FinalTestCheck.Verdict() == VerifyFailed {
+		parts = append(parts, nameFailures("final suite fails", *result.FinalTestCheck))
+	}
 	return strings.Join(parts, "; ")
 }
 
@@ -74,6 +78,7 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 	workspace := e.workspaceForVerification()
 	if result.WriteToolEffects > 0 {
 		result.ChangeStage = "artifact_changed"
+		result.FinalTestCheck = nil
 		// The build round ran: the gates it and the rounds after it measured
 		// are this turn's evidence, remeasured on what the rounds left.
 		if result.roundsRan["/build"] {
@@ -82,6 +87,29 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 				if err := e.remeasureGates(ctx, workspace, result); err != nil {
 					return err
 				}
+			}
+			if result.Intent.Verb == "/fix" && e.configSnapshot().VerifyTestsAfterEdits && wroteGo(result.WrittenPaths) && e.kernel == nil {
+				// A mechanical-only executor cannot derive the final scope.
+				// Keep failures, but do not promote a narrow pass to a final pass.
+				if result.TestCheck.Verdict() == VerifyPassed {
+					result.FinalTestCheck = &TestVerification{Outcome: VerifyIndeterminate, Reason: "no kernel to derive final fix verification scope"}
+				}
+			} else if result.Intent.Verb == "/fix" && e.configSnapshot().VerifyTestsAfterEdits && wroteGo(result.WrittenPaths) {
+				scope, scopeErr := e.fixVerificationScope(types.MangleAtom("/final"))
+				if scopeErr != nil {
+					return scopeErr
+				}
+				if scope != "/full" {
+					return fmt.Errorf("unexpected final fix verification scope %s", scope)
+				}
+				full, fullErr := finalFixTests(ctx, workspace, result)
+				if fullErr != nil {
+					return fullErr
+				}
+				// Final evidence is separate from the narrow run's coverage
+				// and repair record. /test reads it at closure, not mid-repair.
+				full.Repair = inheritRepair(full.Verdict(), result.TestCheck.Repair)
+				result.FinalTestCheck = &full
 			}
 			current, currentErr := evidence.Snapshot(ctx, workspace)
 			// /build is the derived gate: a failing build whose diagnostics
@@ -134,7 +162,7 @@ func (e *Executor) remeasureGates(ctx context.Context, workspace string, result 
 	cfg := e.configSnapshot()
 	ran := result.roundsRan
 	if ran["/build"] && cfg.VerifyBuildAfterEdits {
-		fresh := verifyBuild(ctx, workspace, nil)
+		fresh := verifyBuild(ctx, workspace, nil, buildPackagesForTurn(result)...)
 		fresh.Repair = inheritRepair(fresh.Verdict(), result.BuildCheck.Repair)
 		result.BuildCheck = fresh
 	}

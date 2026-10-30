@@ -251,6 +251,7 @@ func (e *Executor) settleToolEffects(ctx context.Context, call types.ToolCall, t
 	// A run before this write says nothing about what the write left. The
 	// receipt facts stay; the write's seq is what puts them before it.
 	result.TestRunSinceLastWrite = nil
+	result.FinalTestCheck = nil
 	e.noteWrite(result)
 	if callErr == nil {
 		if err := recordWrittenPaths(result, call.Input, workspace); err != nil {

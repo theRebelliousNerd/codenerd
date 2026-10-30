@@ -864,6 +864,10 @@ type ExecutionResult struct {
 	// because the turn text names them after the facts are gone.
 	BuildForeignPackages []string
 	TestCheck            TestVerification
+	// FinalTestCheck is the fix closure's whole-suite measurement. Nil before
+	// closure; an unavailable or withheld final check is not a narrow pass.
+	// Keep it separate so coverage and repair records retain their own scope.
+	FinalTestCheck *TestVerification
 	// ImporterCheck is the test run of the packages that import what this
 	// turn wrote. It is that run's measurement, not a merged verdict: the
 	// /test rule reads it beside TestCheck. The zero value means this turn

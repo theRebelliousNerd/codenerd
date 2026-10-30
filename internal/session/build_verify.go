@@ -162,9 +162,12 @@ func (e *Executor) workspaceForVerification() string {
 // -I<workspace>/sqlite_headers). A verification that fails for want of the
 // build environment would send the agent chasing phantom errors, which is
 // worse than not verifying at all.
-func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConfig) BuildVerification {
+func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConfig, packages ...string) BuildVerification {
 	start := time.Now()
-	command := []string{"go", "build", "./..."}
+	if len(packages) == 0 {
+		packages = []string{"./..."}
+	}
+	command := append([]string{"go", "build"}, packages...)
 
 	if strings.TrimSpace(workspace) == "" {
 		return BuildVerification{Outcome: VerifySkipped, Reason: "empty workspace path", Duration: time.Since(start)}
@@ -248,7 +251,7 @@ func (e *Executor) verifyAndRepairBuild(
 	}
 
 	workspace := e.workspaceForVerification()
-	verification := verifyBuild(ctx, workspace, nil)
+	verification := verifyBuild(ctx, workspace, nil, buildPackagesForTurn(result)...)
 	result.BuildCheck = verification
 	switch verification.Verdict() {
 	case VerifyPassed, VerifySkipped:
@@ -265,11 +268,10 @@ func (e *Executor) verifyAndRepairBuild(
 	}
 
 	// A failure policy does not charge to this turn is not this turn's to
-	// repair (dogfood runs 4 and 5: go build ./... failed in another
-	// agent's half-written package). The command stays whole-workspace;
-	// attribution is the gate's. An unlocatable failure (no file:line) is
-	// charged, so the repair still runs: fail closed. With no kernel there
-	// is nothing to ask, and the raw exit is charged the same way.
+	// repair. Fixes compile their edited packages; other intents retain a
+	// workspace build, whose unrelated failures are attributed by the gate.
+	// An unlocatable failure is still charged: fail closed. With no kernel
+	// there is nothing to ask, and the raw exit is charged the same way.
 	if !e.buildGateRed(ctx, result.turnAtom(), result) {
 		logging.Get(logging.CategorySession).Warn(
 			"build is broken outside this turn (%s); no repair attempted",
@@ -297,7 +299,7 @@ func (e *Executor) verifyAndRepairBuild(
 			return buildRepairPrompt(seed, repairWriteSet) + turnDiffSection(workspace, result.WrittenPaths, result.PreWriteContents, e.configSnapshot().repairDiffBudget())
 		},
 		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
-			r := verifyBuild(epCtx, workspace, nil)
+			r := verifyBuild(epCtx, workspace, nil, buildPackagesForTurn(result)...)
 			// Only affirmative verdicts move the check: an indeterminate
 			// recheck leaves the original failure standing.
 			if r.Verdict() == VerifyPassed || r.Verdict() == VerifyFailed {
@@ -450,7 +452,7 @@ func (e *Executor) verifyAndRepairTests(
 		// first. Only an affirmative failure verdict fails here: a recheck
 		// that produced no verdict cannot prove the repair broke anything.
 		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
-			if rb := verifyBuild(epCtx, workspace, nil); rb.Verdict() == VerifyFailed {
+			if rb := verifyBuild(epCtx, workspace, nil, buildPackagesForTurn(result)...); rb.Verdict() == VerifyFailed {
 				result.BuildCheck = rb
 				// An attributed build break fails this repair. A failure
 				// only in packages this turn cannot have broken does not:
@@ -530,7 +532,7 @@ func gateTests(ctx context.Context, workspace string, result *ExecutionResult, w
 		}
 		return v, uncovered
 	}
-	key := gateKey("importers", goWorkspace(workspace), result)
+	key := gateKey(ctx, "importers", goWorkspace(workspace), result)
 	if run, ok := recalledGate(result, key); ok {
 		result.ImporterCheck = run.v
 		return v, uncovered
@@ -540,19 +542,18 @@ func gateTests(ctx context.Context, workspace string, result *ExecutionResult, w
 	return v, uncovered
 }
 
-// gateOwnTests is the gate over the turn's own packages. The same measurement
-// on the same writes is answered once (gate_memo.go); a coverage run answers a
-// request without coverage too, being the same run with a profile.
+// gateOwnTests is the gate over the turn's own packages. A coverage run
+// answers requests without coverage too, being the same run with a profile.
 func gateOwnTests(ctx context.Context, workspace string, result *ExecutionResult, withCoverage bool) (TestVerification, []UncoveredBlock) {
 	workspace = goWorkspace(workspace)
-	covered := gateKey("own+coverage", workspace, result)
+	covered := gateKey(ctx, "own+coverage", workspace, result)
 	if run, ok := recalledGate(result, covered); ok {
 		if withCoverage {
 			return run.v, run.uncovered
 		}
 		return run.v, nil
 	}
-	plain := gateKey("own", workspace, result)
+	plain := gateKey(ctx, "own", workspace, result)
 	if !withCoverage {
 		if run, ok := recalledGate(result, plain); ok {
 			return run.v, nil
@@ -1094,7 +1095,7 @@ func recheckUplift(ctx context.Context, workspace string, result *ExecutionResul
 	// gateTests has already replaced ImporterCheck with the measurement of
 	// the broken workspace. The restored files are the previous run.
 	prevImp := result.ImporterCheck
-	build := verifyBuild(ctx, workspace, nil)
+	build := verifyBuild(ctx, workspace, nil, buildPackagesForTurn(result)...)
 	if build.Verdict() == VerifyCanceled {
 		return fmt.Errorf("uplift build re-verification canceled: %w", context.Canceled)
 	}

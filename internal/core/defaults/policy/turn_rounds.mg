@@ -99,3 +99,9 @@ turn_next_round(Turn, Round) :-
     turn_round_pending(Turn, Round, Order).
 
 turn_wrote(Turn) :- turn_write_tools(Turn, Count), Count > 0.
+
+# Fix verification scope is phase-owned: the model's working loop cannot
+# spend the final repository gate while edits and repair rounds are in flight.
+Decl fix_verification_scope(Phase, Scope) bound [/name, /name].
+fix_verification_scope(/working, /narrow).
+fix_verification_scope(/final, /full).

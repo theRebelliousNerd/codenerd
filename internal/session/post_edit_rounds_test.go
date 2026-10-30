@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
 )
@@ -146,5 +147,62 @@ func TestPostEditRounds_SurvivorsOfAPassingPinGateOweAnAdvisoryRound(t *testing.
 	want := []string{"/build", "/test", "/critic", "/coverage", "/pinned", "/survivors", "/vet", "/removed_tests", "/unwired", "/finish"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("rounds = %v, want %v", got, want)
+	}
+}
+
+func TestExecuteAndRecordToolCall_FixWithholdsWholeRepositoryChecks(t *testing.T) {
+	e := roundsExecutor(t)
+	e.config.EnableSafetyGate = false
+	cfg := &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{"run_tests", "run_build", "run_lint"}}
+	for _, name := range []string{"run_tests", "run_build", "run_lint"} {
+		t.Run(name, func(t *testing.T) {
+			result := &ExecutionResult{Intent: perception.Intent{Verb: "/fix"}, WrittenPaths: []string{"a/a.go"}}
+			_, err := e.executeAndRecordToolCall(context.Background(), types.ToolCall{ID: name, Name: name, Input: map[string]any{"packages": []any{"./..."}}}, cfg, result)
+			if err == nil || !strings.Contains(err.Error(), "narrow") {
+				t.Fatalf("whole-repository %s was not withheld by narrow-first policy: %v", name, err)
+			}
+			if result.TestRunCalls != 0 {
+				t.Fatalf("withheld call recorded a test run: %d", result.TestRunCalls)
+			}
+		})
+	}
+}
+
+func TestFixVerificationWorkingScope(t *testing.T) {
+	e := roundsExecutor(t)
+	e.config.WorkspaceRoot = t.TempDir()
+	cases := []struct {
+		name, verb, tool string
+		input            map[string]any
+		paths            []string
+		wantErr          bool
+		wantPackages     string
+	}{
+		{name: "explicit edited package", verb: "/fix", tool: "run_tests", input: map[string]any{"packages": []string{"./a"}}, paths: []string{"a/a.go"}},
+		{name: "full strings", verb: "/fix", tool: "run_tests", input: map[string]any{"packages": []string{"././.../"}}, wantErr: true},
+		{name: "all packages", verb: "/fix", tool: "run_lint", input: map[string]any{"packages": []string{"all"}}, wantErr: true},
+		{name: "implicit build", verb: "/fix", tool: "run_build", paths: []string{"a/a.go"}, wantPackages: "./a"},
+		{name: "implicit build without edits", verb: "/fix", tool: "run_build", wantErr: true},
+		{name: "wrong packages shape", verb: "/fix", tool: "run_tests", input: map[string]any{"packages": "./..."}, wantErr: true},
+		{name: "wrong package element", verb: "/fix", tool: "run_tests", input: map[string]any{"packages": []any{1}}, wantErr: true},
+		{name: "subtree", verb: "/fix", tool: "run_tests", input: map[string]any{"packages": []string{"./..."}, "working_dir": "a"}},
+		{name: "other intent", verb: "/test", tool: "run_tests", input: map[string]any{"packages": []string{"./..."}}},
+		{name: "covering tests", verb: "/fix", tool: "run_impacted_tests"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			call := types.ToolCall{Name: tc.tool, Input: tc.input}
+			result := &ExecutionResult{Intent: perception.Intent{Verb: tc.verb}, WrittenPaths: tc.paths}
+			err := e.constrainFixVerification(&call, result)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("error=%v, want error %v", err, tc.wantErr)
+			}
+			if tc.wantPackages != "" {
+				got, ok := call.Input["packages"].([]string)
+				if !ok || len(got) != 1 || got[0] != tc.wantPackages {
+					t.Fatalf("default build packages %v, want %s", call.Input["packages"], tc.wantPackages)
+				}
+			}
+		})
 	}
 }

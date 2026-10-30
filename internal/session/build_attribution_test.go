@@ -93,7 +93,9 @@ func TestBuildAttribution_ForeignPackageIsNotCharged(t *testing.T) {
 		WrittenPaths:        []string{"mine/mine.go"},
 		roundsRan:           map[string]bool{"/build": true},
 	}
-	result.Intent.Verb = "/fix"
+	// This test pins attribution for a workspace build. /fix uses a narrow
+	// build now; TestVerifyAndRepairBuild_FixCompilesOnlyWrittenPackages pins it.
+	result.Intent.Verb = "/refactor"
 	result.Intent.Category = "/mutation"
 
 	// A nil repair client: if the failure is charged, this errors. A foreign

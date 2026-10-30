@@ -1,12 +1,18 @@
 package session
 
 import (
+	"codenerd/internal/evidence"
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // A turn's test gate is measured more than once: the post-edit gate, the
@@ -79,20 +85,55 @@ func writtenFingerprint(workspace string, written []string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// gateKey is the memo key of the measurement kind ("own", "own+coverage",
-// "importers") over the turn's writes as they stand.
-func gateKey(kind, workspace string, result *ExecutionResult) string {
-	return kind + "|" + workspace + "|" + writtenFingerprint(workspace, result.WrittenPaths)
+// gateKey binds a measurement to its covered inputs. Fix checks also depend
+// on imports, neighboring tests, build files and config outside WrittenPaths.
+// An unavailable snapshot disables memoization; it never supplies a stale pass.
+func gateKey(ctx context.Context, kind, workspace string, result *ExecutionResult) string {
+	fingerprint := writtenFingerprint(workspace, result.WrittenPaths)
+	if result.Intent.Verb == "/fix" {
+		var err error
+		fingerprint, err = evidence.Snapshot(ctx, workspace)
+		if err != nil {
+			logging.Get(logging.CategorySession).Warn("test gate memo disabled: snapshot inputs: %v", err)
+			return ""
+		}
+	}
+	// Filesystem identity alone does not identify the policy projection. A
+	// same-byte write can add a tagged test or coverage obligation, and a
+	// different preimage changes which failures predate the turn.
+	h := sha256.New()
+	fmt.Fprintf(h, "snapshot:%q\n", fingerprint)
+	paths := DeduplicatePreservingOrder(result.WrittenPaths)
+	sort.Strings(paths)
+	for _, p := range paths {
+		fmt.Fprintf(h, "written:%q\n", p)
+	}
+	paths = make([]string, 0, len(result.PreWriteContents))
+	for p := range result.PreWriteContents {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	for _, p := range paths {
+		pre := result.PreWriteContents[p]
+		fmt.Fprintf(h, "baseline:%q:%t:%q:%q\n", p, pre.Existed, pre.Content, pre.Unknown)
+	}
+	return kind + "|" + workspace + "|" + hex.EncodeToString(h.Sum(nil))
 }
 
 // recalledGate is the measurement made under key, if there is one.
 func recalledGate(result *ExecutionResult, key string) (gateRun, bool) {
+	if key == "" {
+		return gateRun{}, false
+	}
 	run, ok := result.gateRuns[key]
 	return run, ok
 }
 
 // rememberGate keeps a finished measurement under key.
 func rememberGate(result *ExecutionResult, key string, v TestVerification, uncovered []UncoveredBlock) {
+	if key == "" {
+		return
+	}
 	switch v.Verdict() {
 	case VerifyCanceled, VerifyIndeterminate:
 		return
@@ -101,4 +142,168 @@ func rememberGate(result *ExecutionResult, key string, v TestVerification, uncov
 		result.gateRuns = map[string]gateRun{}
 	}
 	result.gateRuns[key] = gateRun{v: v, uncovered: uncovered}
+}
+
+// fixVerificationScope reads the executive's scope for the host-owned phase.
+// Neither a model argument nor a tool name can advance a call to final.
+func (e *Executor) fixVerificationScope(phase types.MangleAtom) (string, error) {
+	if e.kernel == nil {
+		return "", errors.New("no kernel to derive fix verification scope")
+	}
+	rows, err := e.kernel.Query("fix_verification_scope")
+	if err != nil {
+		return "", fmt.Errorf("query fix verification scope: %w", err)
+	}
+	scope := ""
+	for _, row := range rows {
+		// The kernel query is schema-bound to this predicate's two slots.
+		if types.ExtractString(row.Args[0]) == string(phase) {
+			if scope != "" {
+				return "", errors.New("ambiguous fix verification scope")
+			}
+			scope = types.ExtractString(row.Args[1])
+		}
+	}
+	if scope == "" {
+		return "", fmt.Errorf("no fix verification scope for %s", phase)
+	}
+	return scope, nil
+}
+
+// finalFixTests runs only at closure, after the narrow gates on the current
+// tree. Its key covers the whole workspace, not only the turn's written files.
+// All outcomes are retained: a timeout is not permission to spend the same
+// unchanged whole-suite run again, nor is it a passing measurement.
+func finalFixTests(ctx context.Context, workspace string, result *ExecutionResult) (TestVerification, error) {
+	for _, check := range []BuildVerification{result.BuildCheck, result.VetCheck, result.PinCheck} {
+		if verdict := check.Verdict(); verdict != VerifySkipped && verdict != VerifyPassed {
+			return TestVerification{Outcome: VerifyIndeterminate, Reason: "post-edit gates have not passed; final suite withheld"}, nil
+		}
+	}
+	before, err := evidence.Snapshot(ctx, workspace)
+	if err != nil {
+		return TestVerification{}, fmt.Errorf("snapshot final test inputs: %w", err)
+	}
+	// Revalidate narrow obligations even when bytes have not changed: a new
+	// written tagged test or baseline can make a previously green gate red.
+	own, uncovered := gateTests(ctx, workspace, result, true)
+	own.Repair = inheritRepair(own.Verdict(), result.TestCheck.Repair)
+	result.TestCheck = own
+	result.UncoveredBlocks = narrowToChangedLines(workspace, result, uncovered)
+	if own.Verdict() != VerifyPassed {
+		if failuresAllPredate(own) {
+			return TestVerification{Outcome: VerifyIndeterminate, Reason: "narrow tests are not green; final suite withheld"}, nil
+		}
+		return own, nil
+	}
+	if verdict := result.ImporterCheck.Verdict(); verdict != VerifySkipped && verdict != VerifyPassed {
+		return result.ImporterCheck, nil
+	}
+	key := "full|" + workspace + "|" + before
+	if run, ok := recalledGate(result, key); ok {
+		return run.v, nil
+	}
+	v := verifyTests(ctx, workspace, []string{"./..."}, "-count=1")
+	after, err := evidence.Snapshot(ctx, workspace)
+	if err != nil {
+		v.Outcome = VerifyIndeterminate
+		v.OK = false
+		v.Reason = "final test inputs could not be rechecked"
+		if result.gateRuns == nil {
+			result.gateRuns = map[string]gateRun{}
+		}
+		result.gateRuns[key] = gateRun{v: v}
+		return TestVerification{}, fmt.Errorf("snapshot final test outputs: %w", err)
+	}
+	if before != after {
+		v.Outcome = VerifyIndeterminate
+		v.OK = false
+		v.Reason = "workspace changed during final test run"
+	}
+	if result.gateRuns == nil {
+		result.gateRuns = map[string]gateRun{}
+	}
+	result.gateRuns[key] = gateRun{v: v}
+	return v, nil
+}
+
+// constrainFixVerification applies the working phase's executive scope before
+// dispatch. It never advances a model call into the host-owned final phase.
+func (e *Executor) constrainFixVerification(call *types.ToolCall, result *ExecutionResult) error {
+	if result == nil || result.Intent.Verb != "/fix" {
+		return nil
+	}
+	switch call.Name {
+	case "run_tests", "run_build", "run_lint":
+	default:
+		return nil
+	}
+	scope, err := e.fixVerificationScope(types.MangleAtom("/working"))
+	if err != nil {
+		return err
+	}
+	if scope != "/narrow" {
+		return fmt.Errorf("unexpected working fix verification scope %s", scope)
+	}
+	var packages []string
+	switch values := call.Input["packages"].(type) {
+	case nil:
+	case []string:
+		packages = values
+	case []any:
+		for _, v := range values {
+			s, ok := v.(string)
+			if !ok {
+				return errors.New("packages must contain strings")
+			}
+			packages = append(packages, s)
+		}
+	default:
+		return errors.New("packages must be an array")
+	}
+	root := e.workspaceForVerification()
+	dir := root
+	if requested, ok := call.Input["working_dir"].(string); ok && strings.TrimSpace(requested) != "" {
+		dir = requested
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(root, dir)
+		}
+	}
+	if filepath.Clean(dir) != filepath.Clean(root) {
+		return nil
+	} // a subtree is already a narrower run; the tool checks containment
+	explicit := false
+	for _, pkg := range packages {
+		pkg = strings.TrimSpace(pkg)
+		if pkg == "" || pkg == "null" || pkg == "undefined" {
+			continue
+		}
+		explicit = true
+		if filepath.ToSlash(filepath.Clean(pkg)) == "..." || pkg == "all" {
+			return errors.New("narrow-first fix policy: repository-wide checks belong to the final gate; run covering tests or edited packages while editing")
+		}
+	}
+	if !explicit && call.Name == "run_build" {
+		packages = packagesForPaths(result.WrittenPaths)
+		if len(packages) == 0 {
+			return errors.New("narrow-first fix policy: specify the package to diagnose before any Go edits")
+		}
+		input := make(map[string]any, len(call.Input)+1)
+		for k, v := range call.Input {
+			input[k] = v
+		}
+		input["packages"] = packages
+		call.Input = input
+	}
+	return nil
+}
+
+// buildPackagesForTurn keeps fix/repair compilation on the edited packages.
+// The final go test ./... compiles the whole repository; other intents retain
+// their existing workspace build contract.
+func buildPackagesForTurn(result *ExecutionResult) []string {
+	if result != nil && result.Intent.Verb == "/fix" {
+		return packagesForPaths(result.WrittenPaths)
+	}
+	return nil
 }

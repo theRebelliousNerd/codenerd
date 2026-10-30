@@ -4,24 +4,25 @@
 
 ## 1. Overview — where the gates run
 
-Post-edit verification runs inside `Executor.runToolLoop` (`internal/session/executor_tools.go`) after the model returns a final answer with no further tool calls. The ordering is fixed and load-bearing:
+Post-edit rounds are selected by `turn_next_round` in
+`internal/core/defaults/policy/turn_rounds.mg`, not a fixed Go schedule.
 
-```
-runToolLoop final answer with 0 tool calls
-  → verifyAndRepairBuild   (gate 1: build)
-  → verifyAndRepairTests   (gate 2: test + coverage side-signal)
-  → verifyAndUpliftWithCritic (gate 3+4: coverage already collected, critic advisory)
-  → return
-```
+### Fix verification contract
 
-Each gate is skipped entirely when no write-mutation succeeded or no `.go` file was touched. The `ExecutionResult` fields `SuccessfulWriteTools` and `WrittenPaths` (populated in `executeToolBatch`) are the shared guard for this check.
+During `/fix`, the working loop uses covering tests and edited-package tests;
+repository-wide test, build and vet requests are withheld until closure.
+The final whole-suite gate runs only after all repair/review rounds finish and
+current narrow tests pass. A completed whole-suite measurement is reused at the
+same workspace snapshot, including failures; a changed covered input requires
+fresh narrow checks before another final run. Missing, canceled or stale
+measurements never become a passing gate. Coverage, failure attribution and
+caller-supplied acceptance obligations remain independent requirements.
 
-```
-touchedGoFiles(paths) == false  →  skip
-SuccessfulWriteTools == 0       →  skip
-```
-
-Gates 1 and 2 can fail a turn. Gates 3 (coverage) and 4 (critic) are advisory and never fail a turn on their own.
+Narrow evidence also identifies the exact written-path set and baseline
+preimages: adding an already-existing tagged test to that set must run its
+obligation even when workspace bytes are unchanged. Closure checks these current
+narrow obligations before reusing a final-suite measurement; obligation-only
+changes do not authorize another unchanged whole-suite process.
 
 ---
 

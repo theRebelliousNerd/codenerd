@@ -1931,7 +1931,7 @@
 "methodology/tdd/coverage_mandate/the-two-evasions-do-not-use-them":{"content_hash":"671729f9c2546f2516e950d62ccd57fc23a8c29f20da125f6a4cac16e5da3491","level":3,"score":2.23,"probabilities":[0,0.15,0.47,0.38,0]},
 "methodology/tdd/coverage_mandate/verification-is-automatic-so-do-not-guess":{"content_hash":"a3df2ab291530f986bd36ba8ac7fa59fcc741eb08cf801e0d8490b963b94e803","level":3,"score":2.42,"probabilities":[0,0.07,0.43,0.49,0.01]},
 "methodology/tdd/coverage_strategies":{"content_hash":"f21a92858165ea5e29d43ab4fb05dc5a9b2f470aba6f408e22f5fa19907ad110","level":3,"score":1.93,"probabilities":[0.04,0.19,0.58,0.19,0]},
-"methodology/tdd/go_workflow":{"content_hash":"32100dbf6cb489174a1cd26f28076b6ce3d8a26ed5e9eecda80382173098847d","level":3,"score":1.93,"probabilities":[0.01,0.14,0.75,0.1,0]},
+"methodology/tdd/go_workflow":{"content_hash":"a59218e7cf6181ba906ef80003c2ea623452cae39d72cf5a6d8cc0ffcffd536f","level":3,"score":2.14,"probabilities":[0,0.02,0.82,0.16,0]},
 "methodology/tdd/javascript_workflow":{"content_hash":"1c8adbdcb2f2922f794ad5e7cd818654efb60933a912999165f765bc87ffe92a","level":3,"score":1.9,"probabilities":[0.01,0.19,0.69,0.11,0]},
 "methodology/tdd/mangle_workflow":{"content_hash":"cc87d14befa0e7fcf8b868f953a939f2f67dd6d0be18db399e69a01b42dbfea3","level":4,"score":3,"probabilities":[0,0.01,0.09,0.79,0.11]},
 "methodology/tdd/mocking_strategies":{"content_hash":"2f3686330ef548e3a8258c7abfdcfa9cb343166fa48057ee22460c6493e052a1","level":3,"score":1.81,"probabilities":[0.06,0.27,0.47,0.2,0]},
