@@ -46,7 +46,7 @@ func TestComputeWordLevelDiff_WhenLinesDiffer_ShouldReturnCodeNERDSpans(t *testi
 }
 
 func TestComputeWordLevelDiff_WhenLinesIdentical_ShouldReturnOnlyEqualSpans(t *testing.T) {
-	spans := ComputeWordLevelDiff("same line", "same line")
+	spans := DefaultEngine.ComputeWordLevelDiff("same line", "same line")
 	for _, s := range spans {
 		if s.Type != SpanEqual {
 			t.Fatalf("identical lines produced a %v span (%q)", s.Type, s.Text)
@@ -55,7 +55,7 @@ func TestComputeWordLevelDiff_WhenLinesIdentical_ShouldReturnOnlyEqualSpans(t *t
 }
 
 func TestComputeWordLevelDiff_WhenOneSideEmpty_ShouldReturnWholeSideAsOneSpan(t *testing.T) {
-	spans := ComputeWordLevelDiff("", "brand new")
+	spans := DefaultEngine.ComputeWordLevelDiff("", "brand new")
 	if len(spans) != 1 || spans[0].Type != SpanInsert || spans[0].Text != "brand new" {
 		t.Fatalf("spans=%+v, want a single insert span", spans)
 	}

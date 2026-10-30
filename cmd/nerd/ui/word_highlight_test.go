@@ -27,7 +27,7 @@ func TestRenderLineWithWordHighlights_WhenSpansGiven_ShouldPreserveExactLineText
 
 	oldLine := "the quick brown fox"
 	newLine := "the quick red fox"
-	spans := diff.ComputeWordLevelDiff(oldLine, newLine)
+	spans := diff.DefaultEngine.ComputeWordLevelDiff(oldLine, newLine)
 
 	removed := view.renderLineWithWordHighlights(DiffLine{Content: oldLine, Type: DiffLineRemoved}, spans, true)
 	added := view.renderLineWithWordHighlights(DiffLine{Content: newLine, Type: DiffLineAdded}, spans, false)
@@ -44,7 +44,7 @@ func TestRenderLineWithWordHighlights_WhenWordChanged_ShouldHighlightOnlyTheChan
 	// Asserted on the segment plan rather than on ANSI output: lipgloss renders
 	// unstyled when tests run without a TTY, so the escape codes are not a
 	// reliable signal. The segment plan is what decides the styling.
-	spans := diff.ComputeWordLevelDiff("value := compute(a)", "value := derive(a)")
+	spans := diff.DefaultEngine.ComputeWordLevelDiff("value := compute(a)", "value := derive(a)")
 
 	added := wordDiffSegments("+ ", "value := derive(a)", spans, false)
 	var highlighted, plain strings.Builder

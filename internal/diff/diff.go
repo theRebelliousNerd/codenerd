@@ -546,8 +546,3 @@ func (e *Engine) ComputeWordLevelDiff(oldLine, newLine string) []WordSpan {
 	}
 	return spans
 }
-
-// ComputeWordLevelDiff computes word-level spans using the default engine.
-func ComputeWordLevelDiff(oldLine, newLine string) []WordSpan {
-	return DefaultEngine.ComputeWordLevelDiff(oldLine, newLine)
-}
