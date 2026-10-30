@@ -496,7 +496,7 @@
 "language/mangle/docs/go_gas_limits":{"content_hash":"1cd21d01846674c5a85c0c42ee7158948f0995dabc495fb928784f8fd0bd411f","level":4,"score":2.92,"probabilities":[0.01,0.02,0.26,0.47,0.24]},
 "language/mangle/docs/go_import_paths":{"content_hash":"49f6b7bd5a4bd1b084e18751a715f19d7750b062f595bd0af571c339d5025c70","level":4,"score":3.08,"probabilities":[0,0.02,0.13,0.59,0.26]},
 "language/mangle/docs/go_stores":{"content_hash":"df5d7a3753cc9f36efbe70d0506de898b6a6335fa67366e9d8c6adefb6108a33","level":4,"score":2.95,"probabilities":[0.01,0.03,0.19,0.57,0.2]},
-"language/mangle/docs/merge_lattice_hosting":{"content_hash":"1ec3b7b0f65b542780b321efd666c2fa83e34d64dc8dbbb41794a5ad091e2709","level":5,"score":3.53,"probabilities":[0,0,0.01,0.44,0.55]},
+"language/mangle/docs/merge_lattice_hosting":{"content_hash":"d9a6e1559f99c75492e4187bec9d291d191e3df897d6411291a47692c68de6fd","level":5,"score":3.56,"probabilities":[0,0,0.01,0.41,0.58]},
 "language/mangle/docs/merge_lattices":{"content_hash":"66fbff81644f23aa929959d5ab2bf46726f0f6a61263afdd62a1d0c3ef765e31","level":3,"score":2.4,"probabilities":[0.04,0.05,0.41,0.47,0.03]},
 "language/mangle/docs/names_and_strings":{"content_hash":"eb91c0ea2e5cf3c590cea171bf1beaacc120f80c93294a31afea080970c18bdf","level":4,"score":3.09,"probabilities":[0,0,0.02,0.85,0.13]},
 "language/mangle/docs/negation_projection":{"content_hash":"c51b8acbe9fa9305050cc7ae4260fe48e955f7b76aafa339943c6b5ddf59fd9a","level":4,"score":3.22,"probabilities":[0,0,0.02,0.73,0.25]},
