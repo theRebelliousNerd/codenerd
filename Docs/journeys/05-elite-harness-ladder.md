@@ -80,6 +80,11 @@ the protocol for a run, and the status of each rung with the run that moved it.
   which codeNERD may not change. The root built the governed path by hand: nerd.md `generators` and the
   `regenerate` tool (`5e4bc74c6`), so an agent runs a declared generator as a guarded, undoable write.
   Test-only landing. **R1 streak 0.**
+- **R1-38 landed** (2026-10-30, `c23fc5697`): while a delegated agent works, the chat shows its plan and steps,
+  each tool with a short subject and pass/fail, and what it says, live from the session-log transcripts.
+  Three coder passes over two requests; the final suite caught an executive-literal overrun on the
+  first, fixed on the second. The request first came back as a clarifying question in yolo mode
+  (R1-40), and the delegated turns' outcomes never reached the conversation (R1-42). **R1 streak 0.**
 - last updated: 2026-09-19 20:25
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0

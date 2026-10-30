@@ -6231,3 +6231,13 @@ Root fix (`5e4bc74c6`): nerd.md `generators` (id, run, outputs, when) and the `r
 declared generator; `Tool.ExpandArgs` puts the outputs in the call's paths, so the write guards, preimage capture
 and write set treat the run like any write, and a run that changes an undeclared file fails by name. Granted to
 coder and tester; the three freshness checks name their generator. **Streak 0.**
+
+## R1-38, nothing on screen changed while a delegated agent worked -- landed (2026-10-29/30, 22:05-23:31)
+
+Brief (symptom only): a 27-minute coder run left the live feed's newest line at "27m ago". Entry point: one chat
+request in the TUI (`--yolo`); it came back as "I need some clarification" although the brief said what should hold
+(added to R1-40), and ran after a reply. **Landed** `c23fc5697`: `cmd/nerd/chat/delegated_progress.go` renders each running
+agent's plan, steps, tool subjects and pass/fail, and messages from sessionlog live events within the existing
+presentation budget. The first pass failed the final suite on TestExecutiveLiteralBudget (186 vs 185); a follow-up
+request fixed it. Fail-before: the new tests do not build against the old code. Neither delegated turn's outcome was
+added to the conversation, and the session file was not written until the next message (brief R1-42). **Streak 0.**
