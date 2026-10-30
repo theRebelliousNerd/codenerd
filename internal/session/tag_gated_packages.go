@@ -209,9 +209,16 @@ var testFuncDecl = regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]*)\(`)
 // //go:build integration (copied from the sibling it modelled), the gate ran
 // the package without the tag, the turn was recorded /done, and the test failed
 // the first time anyone ran it. A green verdict now also requires the written
-// tag-gated tests to pass under their own tags; any other verdict stands as is.
+// tag-gated tests to pass under their own tags.
+//
+// So does a red verdict whose every named failure predates the turn: policy
+// exempts those failures (turn_gate /test can pass over them), and exempting a
+// known default-suite failure must not discharge the separate obligation to
+// run the test the turn wrote behind a tag. Such a verdict stands when the
+// tagged tests pass (the policy still reads the baseline failures), and gives
+// way to the tagged failure when they do not. Any other verdict stands as is.
 func withWrittenTagGatedTests(ctx context.Context, workspace string, written []string, v TestVerification) TestVerification {
-	if v.Verdict() != VerifyPassed {
+	if v.Verdict() != VerifyPassed && !failuresAllPredate(v) {
 		return v
 	}
 	for _, rel := range written {
