@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -323,87 +324,29 @@ func (k *RealKernel) loadMangleFiles() error {
 	// Always load these. They are the "Constitution".
 	logging.KernelDebug("Loading baked-in core (Constitution)...")
 
-	// Load Core Schemas (Modular)
-	// Load the index file first (contains core predicates and documentation).
-	// Embedded misses are fatal: a skipped schema module removes Decls and the
-	// kernel would boot hollow, deriving nothing where it should derive.
-	data, err := readRequiredEmbeddedFile(coreLogic, "defaults/schemas.mg")
+	// The constitution: the schema index and modules, the policy directory
+	// and the root policy modules (assembleConstitution), read from the
+	// binary or, in dev mode, from the source tree (constitutionFS). A file
+	// that cannot be read is fatal: a skipped module removes Decls or rules
+	// and the kernel would boot hollow.
+	constSchemas, constPolicy, coreModules, err := assembleConstitution(constitutionFS())
 	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("Failed to load the constitution: %v", err)
 		return err
 	}
-	schemasBuilder.Write(data)
-	logging.KernelDebug("Loaded schema index (%d bytes)", len(data))
-
-	// Load all modular schema files (schemas_*.mg) plus learning schema.
-	// This allows selective loading and better organization (modular schemas under 600 lines).
-	schemaFiles := defaultSchemaFiles
-
-	loadedSchemaBytes := 0
-	for _, schemaFile := range schemaFiles {
-		path := "defaults/" + schemaFile
-		data, err := readRequiredEmbeddedFile(coreLogic, path)
-		if err != nil {
-			return err
-		}
-		schemasBuilder.WriteString("\n\n# Schema Module: ")
-		schemasBuilder.WriteString(schemaFile)
-		schemasBuilder.WriteString("\n")
-		schemasBuilder.Write(data)
-		loadedSchemaBytes += len(data)
-		logging.KernelDebug("Loaded schema module: %s (%d bytes)", schemaFile, len(data))
-	}
-	logging.KernelDebug("Loaded modular schemas (%d bytes from %d files)", loadedSchemaBytes, len(schemaFiles))
-
-	// Load Core Policy (Stratified)
-	// Iterate over the split policy files in defaults/policy/
-	policyDir := "defaults/policy"
-	policyEntries, err := coreLogic.ReadDir(policyDir)
-	if err == nil {
-		loadedPolicyBytes := 0
-		for _, entry := range policyEntries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".mg") {
-				path := policyDir + "/" + entry.Name()
-				data, err := readRequiredEmbeddedFile(coreLogic, path)
-				if err != nil {
-					return err
-				}
-				policyBuilder.WriteString("\n\n# Policy Module: ")
-				policyBuilder.WriteString(entry.Name())
-				policyBuilder.WriteString("\n")
-				policyBuilder.Write(data)
-				loadedPolicyBytes += len(data)
-				logging.KernelDebug("Loaded policy module: %s (%d bytes)", entry.Name(), len(data))
-			}
-		}
-		logging.KernelDebug("Loaded stratified policy (%d bytes from %d files)", loadedPolicyBytes, len(policyEntries))
-	} else {
-		// Policy directory is required — no fallback to monolithic policy.mg
-		logging.Get(logging.CategoryKernel).Error("Failed to read policy directory %s: %v", policyDir, err)
-		return fmt.Errorf("critical: failed to read policy directory: %w", err)
-	}
-
-	// Load other core modules into policy
-	coreModules := DefaultCorePolicyModules()
-
-	loadedModules := 0
+	schemasBuilder.WriteString(constSchemas)
+	policyBuilder.WriteString(constPolicy)
+	k.constSchemas, k.constPolicy = constSchemas, constPolicy
 	for _, mod := range coreModules {
-		data, err := readRequiredEmbeddedFile(coreLogic, "defaults/"+mod)
-		if err != nil {
-			return err
-		}
-		policyBuilder.WriteString("\n\n")
-		policyBuilder.Write(data)
 		k.loadedPolicyFiles[strings.ToLower(mod)] = struct{}{}
-		loadedModules++
-		logging.KernelDebug("Loaded core module: %s (%d bytes)", mod, len(data))
 	}
-	logging.KernelDebug("Loaded %d/%d core modules", loadedModules, len(coreModules))
+	logging.KernelDebug("Loaded constitution (%d bytes of schemas, %d of policy)", len(constSchemas), len(constPolicy))
 
 	// Load embedded intent corpus facts for routing and semantic classification.
 	k.loadEmbeddedIntentFacts()
 
 	// Load base learned rules (if any)
-	if data, err := coreLogic.ReadFile("defaults/learned.mg"); err == nil {
+	if data, err := fs.ReadFile(constitutionFS(), "defaults/learned.mg"); err == nil {
 		learnedBuilder.Write(data)
 		logging.KernelDebug("Loaded base learned rules (%d bytes)", len(data))
 	} else {

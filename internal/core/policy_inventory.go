@@ -95,7 +95,7 @@ func DefaultCorePolicyModules() []string {
 // embedded constitution is compiled into the binary, so an unreadable
 // policy directory means a corrupt binary. Callers must fail closed.
 func DefaultPolicyFiles() ([]string, error) {
-	entries, err := coreLogic.ReadDir("defaults/policy")
+	entries, err := fs.ReadDir(constitutionFS(), "defaults/policy")
 	if err != nil {
 		return nil, fmt.Errorf("default policy inventory: cannot list defaults/policy: %w", err)
 	}

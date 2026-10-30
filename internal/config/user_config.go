@@ -142,6 +142,9 @@ type UserConfig struct {
 	// API id: gemini-3.1-flash-image (Nano Banana 2).
 	Image *ImageLLMConfig `json:"image,omitempty"`
 
+	// Dev is for working on codeNERD itself (dev.go).
+	Dev *DevConfig `json:"dev,omitempty"`
+
 	// =========================================================================
 	// UI SETTINGS
 	// =========================================================================

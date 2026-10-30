@@ -476,8 +476,11 @@ type Cortex struct {
 	// shutting down close the log another is still writing to.
 	meterSink broker.ReceiptSink
 	couseLog  *jsonl.Appender
-	closeMu   sync.Mutex
-	closed    bool
+	// policyReloader is the dev-mode policy hot reload (dev_policy.go), nil
+	// when the session reads the binary's policy.
+	policyReloader *policyReloader
+	closeMu        sync.Mutex
+	closed         bool
 
 	// cortexKey is the cache key under which this Cortex is registered
 	// in cortexCache (set by GetOrBootCortex). Direct BootCortex callers
@@ -929,6 +932,8 @@ type bootContext struct {
 	perceptionInitialized bool
 	meterSink             broker.ReceiptSink
 	couseLog              *jsonl.Appender
+	devPolicyDir          string
+	policyReloader        *policyReloader
 	localDB               *store.LocalStore
 	learningStore         *store.LearningStore
 	kernel                SystemKernel
@@ -1047,6 +1052,8 @@ func initCoreComponents(bctx *bootContext) error {
 		return fmt.Errorf("initialize workspace logging: %w", err)
 	}
 	bctx.appCfg = appCfg
+	// Before any kernel is built: the constitution's source for this boot.
+	bctx.devPolicyDir = configureDevPolicy(bctx)
 	// The fact ceilings are process-wide: every kernel this process builds
 	// (session, system shards, trial and dream clones) reads them, and until
 	// 2026-09-18 none did -- core_limits.max_facts_in_kernel and
@@ -2903,6 +2910,7 @@ func defaultBootSteps() []bootStep {
 		{name: "perception layer", run: initPerceptionLayer},
 		{name: "storage layer", run: initStorageLayer},
 		{name: "kernel", run: initKernel},
+		{name: "dev policy reload", run: initDevPolicyReload},
 		{name: "execution layer", run: initExecutionLayer},
 		{name: "autopoiesis and browser", run: initAutopoiesisAndBrowser},
 		// Before the intelligence layer: the MCP remote authority it builds
@@ -3035,6 +3043,7 @@ func cortexFromBootContext(bctx *bootContext) *Cortex {
 		sessionLog:            bctx.sessionLog,
 		meterSink:             bctx.meterSink,
 		couseLog:              bctx.couseLog,
+		policyReloader:        bctx.policyReloader,
 
 		knowledgeRefresher:     bctx.knowledgeRefresher,
 		knowledgeRefreshCancel: bctx.knowledgeRefreshCancel,

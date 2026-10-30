@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -102,7 +103,7 @@ func (k *RealKernel) LoadPolicyFile(path string) error {
 	)
 
 	// 1. Try Embedded Core first
-	if bytes, err := coreLogic.ReadFile("defaults/" + baseName); err == nil {
+	if bytes, err := fs.ReadFile(constitutionFS(), "defaults/"+baseName); err == nil {
 		data = bytes
 		sourceDesc = "embedded core: " + baseName
 	}

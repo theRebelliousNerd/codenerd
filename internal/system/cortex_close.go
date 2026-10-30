@@ -152,6 +152,12 @@ func (c *Cortex) Close() error {
 		c.ouroborosDone = nil
 	}
 
+	// The policy watcher first: a reload must not swap a kernel being torn
+	// down.
+	if c.policyReloader != nil {
+		c.policyReloader.stop()
+		c.policyReloader = nil
+	}
 	if c.knowledgeRefreshCancel != nil {
 		c.knowledgeRefreshCancel()
 		c.knowledgeRefreshCancel = nil

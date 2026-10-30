@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"embed"
 	"fmt"
+	"io/fs"
 	"path"
 	"strings"
 	"sync"
@@ -46,21 +47,26 @@ type LearnedRuleInterceptor interface {
 
 // RealKernel wraps the pinned mangle-go engine (codeberg.org/TauCeti/mangle-go) with proper EDB/IDB separation.
 type RealKernel struct {
-	mu                sync.RWMutex
-	facts             []Fact
-	cachedAtoms       []ast.Atom     // OPTIMIZATION: Cached Mangle atoms to avoid O(N) ToAtom() conversions
-	atomCacheStale    bool           // cachedAtoms were built without Decls (pre-first-eval) or under an older policy; force one reconversion
-	factIndex         *edbIndex      // Canonical fact set for deduplication, bucketed by predicate (kernel_edb_index.go)
-	bootFacts         []Fact         // EDB facts extracted from hybrid .mg data sections
-	bootIntents       []HybridIntent // Canonical intents extracted from hybrid .mg files
-	bootPrompts       []HybridPrompt // Prompt atoms extracted from hybrid .mg files
-	store             factstore.FactStore
-	programInfo       *analysis.ProgramInfo
-	strata            []analysis.Nodeset       // Cached stratification for EvalStratifiedProgramWithStats
-	predToStratum     map[ast.PredicateSym]int // Cached predicate-to-stratum mapping
-	schemas           string
-	policy            string
-	learned           string              // Learned rules (autopoiesis) - loaded from learned.mg
+	mu             sync.RWMutex
+	facts          []Fact
+	cachedAtoms    []ast.Atom     // OPTIMIZATION: Cached Mangle atoms to avoid O(N) ToAtom() conversions
+	atomCacheStale bool           // cachedAtoms were built without Decls (pre-first-eval) or under an older policy; force one reconversion
+	factIndex      *edbIndex      // Canonical fact set for deduplication, bucketed by predicate (kernel_edb_index.go)
+	bootFacts      []Fact         // EDB facts extracted from hybrid .mg data sections
+	bootIntents    []HybridIntent // Canonical intents extracted from hybrid .mg files
+	bootPrompts    []HybridPrompt // Prompt atoms extracted from hybrid .mg files
+	store          factstore.FactStore
+	programInfo    *analysis.ProgramInfo
+	strata         []analysis.Nodeset       // Cached stratification for EvalStratifiedProgramWithStats
+	predToStratum  map[ast.PredicateSym]int // Cached predicate-to-stratum mapping
+	schemas        string
+	policy         string
+	learned        string // Learned rules (autopoiesis) - loaded from learned.mg
+	// constSchemas and constPolicy are the constitution parts of schemas and
+	// policy, the prefix each starts with (assembleConstitution): what a
+	// dev-mode reload swaps while the user extensions after them stay.
+	constSchemas      string
+	constPolicy       string
 	loadedPolicyFiles map[string]struct{} // Idempotency: policy modules loaded via LoadPolicyFile (keyed by case-insensitive basename)
 
 	// sandbox marks a throwaway kernel used to trial-compile a candidate rule
@@ -226,7 +232,7 @@ var coreLogic embed.FS
 // GetDefaultContent returns the content of an embedded default file.
 // Path should be relative to defaults/ (e.g. "schemas.mg" or "schema/intent_queries.mg").
 func GetDefaultContent(path string) (string, error) {
-	data, err := coreLogic.ReadFile("defaults/" + path)
+	data, err := fs.ReadFile(constitutionFS(), "defaults/"+path)
 	if err != nil {
 		return "", err
 	}
@@ -293,14 +299,15 @@ var defaultSchemaFiles = []string{
 // removes rules, and both failure modes surface only as empty derivations
 // far downstream.
 func DefaultCorpusText() (schemas string, policy string, err error) {
+	fsys := constitutionFS()
 	var schemasBuilder strings.Builder
-	data, rerr := readRequiredEmbeddedFile(coreLogic, "defaults/schemas.mg")
+	data, rerr := readRequiredEmbeddedFile(fsys, "defaults/schemas.mg")
 	if rerr != nil {
 		return "", "", rerr
 	}
 	schemasBuilder.Write(data)
 	for _, schemaFile := range defaultSchemaFiles {
-		data, rerr := readRequiredEmbeddedFile(coreLogic, "defaults/"+schemaFile)
+		data, rerr := readRequiredEmbeddedFile(fsys, "defaults/"+schemaFile)
 		if rerr != nil {
 			return "", "", rerr
 		}
@@ -319,7 +326,7 @@ func DefaultCorpusText() (schemas string, policy string, err error) {
 	}
 	var policyBuilder strings.Builder
 	for _, file := range policyFiles {
-		data, rerr := readRequiredEmbeddedFile(coreLogic, "defaults/"+file)
+		data, rerr := readRequiredEmbeddedFile(fsys, "defaults/"+file)
 		if rerr != nil {
 			return "", "", rerr
 		}
