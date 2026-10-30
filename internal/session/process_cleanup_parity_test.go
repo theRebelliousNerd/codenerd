@@ -30,10 +30,10 @@ func TestVerificationRunners_CancelKillsTheProcessTree(t *testing.T) {
 		run  func(ctx context.Context, dir, script string) ([]byte, error)
 	}{
 		{"build", func(ctx context.Context, dir, script string) ([]byte, error) {
-			return verifyBuildRunner(ctx, dir, os.Environ(), "sh", []string{script})
+			return runVerificationProcess(ctx, dir, os.Environ(), "sh", []string{script})
 		}},
 		{"test", func(ctx context.Context, dir, script string) ([]byte, error) {
-			return verifyTestRunner(ctx, dir, os.Environ(), "sh", []string{script})
+			return runVerificationProcess(ctx, dir, os.Environ(), "sh", []string{script})
 		}},
 		{"gopls", func(ctx context.Context, dir, script string) ([]byte, error) {
 			return goplsCheckProcess(ctx, script, dir, []string{"main.go"})

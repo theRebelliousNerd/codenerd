@@ -64,22 +64,22 @@ var (
 // parallel with any other verification test.
 type verifyCommandRunner func(ctx context.Context, dir string, env []string, name string, args []string) ([]byte, error)
 
-var verifyBuildRunner verifyCommandRunner = func(ctx context.Context, dir string, env []string, name string, args []string) ([]byte, error) {
+// runVerificationProcess runs one verification subprocess for real.
+// processutil owns the process tree: a cancel kills the go driver and the test
+// binary or compiler it started, not the driver alone (audit
+// verification-process-cleanup-parity). Tests of the process itself call it
+// directly; a parallel test cannot reach the seams below, which other tests
+// swap.
+func runVerificationProcess(ctx context.Context, dir string, env []string, name string, args []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	cmd.Env = env
-	// processutil owns the process tree: a cancel kills the go driver and
-	// the test binary or compiler it started, not the driver alone
-	// (audit verification-process-cleanup-parity).
 	return processutil.CombinedOutput(cmd)
 }
 
-var verifyTestRunner verifyCommandRunner = func(ctx context.Context, dir string, env []string, name string, args []string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir = dir
-	cmd.Env = env
-	return processutil.CombinedOutput(cmd)
-}
+var verifyBuildRunner verifyCommandRunner = runVerificationProcess
+
+var verifyTestRunner verifyCommandRunner = runVerificationProcess
 
 // verifyLookPath resolves the Go toolchain. A seam so missing-toolchain
 // tests do not depend on PATH surgery.
