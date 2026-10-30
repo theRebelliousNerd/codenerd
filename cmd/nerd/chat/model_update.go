@@ -312,8 +312,12 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		logging.Get(logging.CategorySession).Error("TUI error: %v", msg)
 		m.recordUXMetric("errors_encountered")
 		logging.AuditWithSession(m.sessionID).Error("chat", msg, false)
-		// Refit so the error panel reserves space immediately.
-		return m.applyLayout(), nil
+		// Failure belongs to the conversation as well as the error panel.
+		m = m.pushAssistantMsg(fmt.Sprintf("## Failed\n\n%v", m.err))
+		// Refit so the error panel reserves space immediately, and persist
+		// this terminal message without requiring another user interaction.
+		m = m.applyLayout()
+		return m, m.saveSessionStateCmd()
 
 	case campaignErrorMsg:
 		if msg.orch != nil && msg.orch != m.campaignOrch {
@@ -448,7 +452,10 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.runOfferedSubtask()
 
 	case continuationDoneMsg:
-		return m.handleContinuationDone(msg)
+		m, tiCmd = m.handleContinuationDone(msg)
+		// Save the settled outcome now, including failure and unverified work,
+		// rather than waiting for the next user message.
+		persistCmd = m.saveSessionStateCmd()
 
 	case initCompleteMsg:
 		m.isLoading = false
@@ -675,9 +682,14 @@ The strategic knowledge base has been updated with new documentation.%s`, msg.do
 		return m.handleKnowledgeGatheredMsg(msg)
 
 	case sessionStatePersistedMsg:
-		// Documented no-op: async persistence finished off-loop and nothing
-		// in the UI depends on the result. The explicit case keeps the
-		// completion signal visible instead of falling through silently.
+		if msg.err != nil {
+			m.err = fmt.Errorf("save session: %w", msg.err)
+			m.showError = true
+			m.focusError = false
+			m.refreshErrorViewport()
+			m.errorVP.GotoTop()
+			m = m.applyLayout()
+		}
 		return m, nil
 	}
 
@@ -1085,6 +1097,7 @@ func (m Model) handleContinuationInitMsg(msg continuationInitMsg) (tea.Model, te
 	// resumes a paused plan by offering it rather than advancing it.
 	m.planChain = false
 	m.chainUnverified = false
+	m.chainUnverifiedNote = ""
 	return m.offerOrDispatch(msg.next.subtask())
 }
 
@@ -1151,10 +1164,12 @@ func (m Model) handleRequirementsGeneratedMsg(msg requirementsGeneratedMsg) Mode
 	return m
 }
 
-// sessionStatePersistedMsg is dispatched after asynchronous session-state
-// persistence completes. The Update() handler treats it as a no-op signal;
-// it exists purely so saveSessionStateCmd can return a tea.Msg.
-type sessionStatePersistedMsg struct{}
+// sessionStatePersistedMsg reports asynchronous persistence to the event loop.
+// A failed save is presented without retrying recursively or replacing the
+// delegated outcome already in the conversation.
+type sessionStatePersistedMsg struct {
+	err error
+}
 
 // saveSessionStateCmd persists session state off the Bubbletea event loop.
 //
@@ -1166,8 +1181,8 @@ type sessionStatePersistedMsg struct{}
 // at 60fps — visibly stalling input and rendering.
 //
 // We snapshot the receiver and run the entire persistence step in a goroutine
-// scheduled by Bubbletea. The Cmd returns a no-op message so the runtime knows
-// the work is done; nothing in the UI depends on the persistence result.
+// scheduled by Bubbletea. The Cmd reports any file persistence error back to
+// Update without blocking rendering or recursively scheduling another save.
 func (m Model) saveSessionStateCmd() tea.Cmd {
 	if m.workspace == "" || m.sessionID == "" {
 		return nil
@@ -1179,8 +1194,7 @@ func (m Model) saveSessionStateCmd() tea.Cmd {
 	snapshot := m
 	snapshot.history = historySnapshot
 	return func() tea.Msg {
-		snapshot.saveSessionState()
-		return sessionStatePersistedMsg{}
+		return sessionStatePersistedMsg{err: snapshot.saveSessionState()}
 	}
 }
 

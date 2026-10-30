@@ -1,10 +1,16 @@
 package chat
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"codenerd/internal/observation"
+	"codenerd/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -144,21 +150,154 @@ func TestSaveSessionStateCmd_HistorySnapshotIsolated(t *testing.T) {
 }
 
 func TestUpdate_SessionStatePersistedIsNoop(t *testing.T) {
-	m := NewTestModel()
-	m = m.addMessage(Message{Role: "user", Content: "hello"})
-	before := len(m.history)
+	for _, tc := range []struct {
+		name       string
+		err        error
+		showError  bool
+		focusError bool
+	}{
+		{name: "successful save does not open an error panel"},
+		{name: "successful save preserves an existing error", err: errors.New("delegated turn failed"), showError: true, focusError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewTestModel()
+			defer m.shutdownCancel()
+			m = m.addMessage(Message{Role: "user", Content: "hello"})
+			m.err, m.showError, m.focusError = tc.err, tc.showError, tc.focusError
+			before := len(m.history)
 
-	updated, cmd := m.Update(sessionStatePersistedMsg{})
-	result, ok := updated.(Model)
-	if !ok {
-		t.Fatalf("Update returned %T, want Model", updated)
+			updated, cmd := m.Update(sessionStatePersistedMsg{})
+			result, ok := updated.(Model)
+			if !ok {
+				t.Fatalf("Update returned %T, want Model", updated)
+			}
+			if result.err != tc.err || result.showError != tc.showError || result.focusError != tc.focusError {
+				t.Fatalf("successful save changed error presentation: err=%v showError=%v focusError=%v; want err=%v showError=%v focusError=%v", result.err, result.showError, result.focusError, tc.err, tc.showError, tc.focusError)
+			}
+			if len(result.history) != before {
+				t.Fatalf("persisted signal must not touch history: %d -> %d", before, len(result.history))
+			}
+			if cmd != nil {
+				if msg := cmd(); msg != nil {
+					t.Fatalf("persisted signal must not chain commands, got %T", msg)
+				}
+			}
+		})
 	}
-	if len(result.history) != before {
-		t.Fatalf("persisted signal must not touch history: %d -> %d", before, len(result.history))
+}
+
+// Terminal messages must reach both the live conversation and its on-disk
+// history without another user message. Drive the returned commands as Bubble
+// Tea does, rather than calling saveSessionState explicitly.
+func TestUpdate_DelegatedOutcomeSavedAtTurnEnd(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		msg   tea.Msg
+		want  string
+		panel bool
+	}{
+		{name: "done", msg: assistantMsg{Surface: "Done: the requested behavior was verified."}, want: "Done:"},
+		{name: "not verified", msg: assistantMsg{Surface: "Not verified: acceptance checks did not run."}, want: "acceptance checks did not run"},
+		{name: "verified execution failed", msg: errorMsg(failedVerifiedDelegation("verified execution failed", errors.New("final suite fails: TestExecutiveLiteralBudget"))), want: "TestExecutiveLiteralBudget", panel: true},
+		{name: "delegation failed", msg: errorMsg(failedDelegation("shard delegation failed", errors.New("provider unavailable"), observation.Return{})), want: "provider unavailable", panel: true},
+		{name: "continuation done", msg: continuationDoneMsg{stepCount: 2, summary: "Both coder passes verified the requested behavior.", outcome: continuationCompleted}, want: "complete and verified"},
+		{name: "continuation not verified", msg: continuationDoneMsg{stepCount: 2, summary: "Acceptance checks did not run.", outcome: continuationUnverified}, want: "Acceptance checks did not run"},
+		{name: "continuation failed", msg: continuationDoneMsg{stepCount: 2, summary: "Step 2 failed: final suite fails", outcome: continuationFailed}, want: "final suite fails"},
+		{name: "continuation stopped", msg: continuationDoneMsg{stepCount: 2, summary: "Stopped by user (Ctrl+X)", outcome: continuationInterrupted}, want: "Stopped by user"},
 	}
-	if cmd != nil {
-		if msg := cmd(); msg != nil {
-			t.Fatalf("persisted signal must not chain commands, got %T", msg)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := NewTestModel()
+			defer m.shutdownCancel()
+			m.workspace = t.TempDir()
+			m.sessionID = "delegated-outcome"
+			m.isLoading = true
+			m.isStreaming = true
+			m.currentStream = "unfinished attempt"
+			m = m.addMessage(Message{Role: "user", Content: "fix the requested behavior", Time: time.Now()})
+			request := m.history[0].Request
+			updated, cmd := m.Update(answerMsg{Request: request, Msg: tc.msg})
+			got := updated.(Model)
+			if got.isLoading {
+				t.Error("terminal outcome left the chat loading")
+			}
+			if got.isStreaming || got.currentStream != "" || got.currentThought != "" {
+				t.Error("terminal outcome retained an unfinished stream")
+			}
+			if len(got.history) != 2 {
+				t.Fatalf("terminal outcome must add one conversation message, got %+v", got.history)
+			}
+			last := got.history[1]
+			if last.Role != "assistant" || !strings.Contains(last.Content, tc.want) || last.Answers != request {
+				t.Fatalf("outcome lost its reason or request identity: %+v", last)
+			}
+			if tc.panel && (!got.showError || !strings.Contains(last.Content, "Failed")) {
+				t.Fatalf("failure must remain in the panel and conversation: panel=%v message=%q", got.showError, last.Content)
+			}
+			saved := false
+			var run func(tea.Cmd)
+			run = func(c tea.Cmd) {
+				if c == nil {
+					return
+				}
+				switch msg := c().(type) {
+				case tea.BatchMsg:
+					for _, child := range msg {
+						run(child)
+					}
+				case sessionStatePersistedMsg:
+					saved = true
+				default:
+					t.Fatalf("unexpected terminal command result %T", msg)
+				}
+			}
+			run(cmd)
+			if !saved {
+				t.Fatal("turn ended without scheduling a session save")
+			}
+			history, err := session.LoadSessionHistory(got.workspace, got.sessionID)
+			if err != nil {
+				t.Fatalf("load history before any further user input: %v", err)
+			}
+			if len(history.Messages) != len(got.history) {
+				t.Fatalf("saved %d messages, want %d", len(history.Messages), len(got.history))
+			}
+			persisted := history.Messages[1]
+			if persisted.Content != last.Content || persisted.Role != last.Role || persisted.Answers != request {
+				t.Fatalf("saved outcome differs from conversation: %+v, want %+v", persisted, last)
+			}
+		})
+	}
+}
+
+// A turn's outcome remains in memory even if the immediate disk save fails;
+// the asynchronous failure must be visible without starting another save loop.
+func TestSaveSessionStateCmd_ReportsWriteFailure(t *testing.T) {
+	t.Parallel()
+	m := NewTestModel()
+	defer m.shutdownCancel()
+	m.workspace = t.TempDir()
+	m.sessionID = "save-failure"
+	m = m.addMessage(Message{Role: "assistant", Content: "Not verified: checks did not run."})
+	// A regular file at .nerd prevents persistence without relying on permissions.
+	if err := os.WriteFile(filepath.Join(m.workspace, ".nerd"), []byte("blocked"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := m.saveSessionStateCmd()
+	if cmd == nil {
+		t.Fatal("missing turn-end save")
+	}
+	updated, follow := m.Update(cmd())
+	got := updated.(Model)
+	if !got.showError || got.err == nil || !strings.Contains(got.err.Error(), "save session") {
+		t.Fatalf("save failure not presented: showError=%v err=%v", got.showError, got.err)
+	}
+	if len(got.history) != 1 || got.history[0].Content != m.history[0].Content {
+		t.Fatalf("save failure replaced the outcome: %+v", got.history)
+	}
+	if follow != nil {
+		t.Fatal("save failure must not schedule a recursive save")
 	}
 }

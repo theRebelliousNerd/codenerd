@@ -381,6 +381,9 @@ type Model struct {
 	offeredSubtask  *Subtask
 	planChain       bool
 	chainUnverified bool
+	// chainUnverifiedNote retains unverified plan-step summaries across
+	// advances, so the closing verdict explains the missing evidence.
+	chainUnverifiedNote string
 
 	// Learning Store for Autopoiesis (§8.3)
 	learningStore   *store.LearningStore

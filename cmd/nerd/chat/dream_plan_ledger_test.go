@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/session"
 )
 
 // planLedgerModel is a kernel-backed model holding a stored two-step dream
@@ -141,5 +142,184 @@ func TestDreamPlan_EnterRunsTheOfferedStep(t *testing.T) {
 	}
 	if got := planStatus(t, m, "s2"); got != core.SubtaskStatusPending {
 		t.Fatalf("the offered plan step is %q, want pending until it runs", got)
+	}
+}
+
+// Advancing an approved plan must not replace an unverified step's reason
+// with the successor's summary, even when the successor is verified.
+func TestDreamPlan_ClosingVerdictPreservesEarlierUnverifiedReason(t *testing.T) {
+	cases := []struct {
+		name    string
+		outcome continuationOutcome
+		summary string
+	}{
+		{name: "verified successor", outcome: continuationCompleted, summary: "The retry summary was verified."},
+		{name: "unverified successor", outcome: continuationUnverified, summary: "The summary acceptance check did not run."},
+		{name: "failed successor", outcome: continuationFailed, summary: "The summary check failed: provider unavailable."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _ := planLedgerModel(t, config.WorkModeYolo)
+			m.workspace = t.TempDir()
+			m.sessionID = "plan-unverified-reason"
+			m.textarea.SetValue("do it")
+			next, _ := m.handleSubmit()
+			m = next.(Model)
+			const reason = "Acceptance checks did not run: the retry integration fixture is unavailable."
+			next, _ = m.Update(continuationDoneMsg{
+				ran:       Subtask{ID: "s1", Description: "review the retry policy", ShardType: "reviewer"},
+				stepCount: 1, outcome: continuationUnverified, summary: reason,
+			})
+			m = next.(Model)
+			if got := planStatus(t, m, "s2"); got != core.SubtaskStatusRunning {
+				t.Fatalf("the successor did not advance: status=%q", got)
+			}
+			next, cmd := m.Update(continuationDoneMsg{
+				ran:       Subtask{ID: "s2", Description: "summarize the retry policy", ShardType: "researcher"},
+				stepCount: 2, outcome: tc.outcome, summary: tc.summary,
+			})
+			m = next.(Model)
+			banner := lastAssistant(m)
+			if !strings.Contains(banner, reason) {
+				t.Errorf("closing verdict lost the earlier unverified reason: %q", banner)
+			}
+			if !strings.Contains(banner, tc.summary) {
+				t.Errorf("closing verdict lost the successor's outcome: %q", banner)
+			}
+			if strings.Contains(banner, "✅") {
+				t.Errorf("an unverified plan must not claim verified completion: %q", banner)
+			}
+			saved := false
+			var run func(tea.Cmd)
+			run = func(c tea.Cmd) {
+				if c == nil {
+					return
+				}
+				switch msg := c().(type) {
+				case tea.BatchMsg:
+					for _, child := range msg {
+						run(child)
+					}
+				case sessionStatePersistedMsg:
+					if msg.err != nil {
+						t.Fatalf("save closing verdict: %v", msg.err)
+					}
+					saved = true
+				default:
+					t.Fatalf("unexpected terminal command result %T", msg)
+				}
+			}
+			run(cmd)
+			if !saved {
+				t.Fatal("closing verdict did not schedule a session save")
+			}
+			history, err := session.LoadSessionHistory(m.workspace, m.sessionID)
+			if err != nil {
+				t.Fatalf("load closing verdict before another user message: %v", err)
+			}
+			if len(history.Messages) == 0 || history.Messages[len(history.Messages)-1].Content != banner {
+				t.Fatalf("saved history lost the closing verdict or its reason: %+v", history.Messages)
+			}
+
+			// A later failed request must not inherit this plan's missing evidence.
+			next, _ = m.Update(continuationDoneMsg{stepCount: 1, outcome: continuationFailed, summary: "A separate request failed: provider unavailable."})
+			m = next.(Model)
+			if banner := lastAssistant(m); !strings.HasPrefix(banner, "❌") || strings.Contains(banner, reason) {
+				t.Errorf("ending the plan retained a reason that leaked into a later failure: %q", banner)
+			}
+
+			// A later verified request must not inherit the plan's weaker verdict.
+			next, _ = m.Update(continuationDoneMsg{stepCount: 1, outcome: continuationCompleted, summary: "A separate request was verified."})
+			m = next.(Model)
+			if banner := lastAssistant(m); !strings.HasPrefix(banner, "✅") || strings.Contains(banner, reason) {
+				t.Errorf("the ended plan leaked its verification gap into a new request: %q", banner)
+			}
+		})
+	}
+}
+
+// Starting a new request clears the prior chain's evidence before a later
+// terminal outcome can render it. No endContinuation call precedes this reset.
+func TestContinuationInit_ClearsEarlierUnverifiedReason(t *testing.T) {
+	cases := []struct {
+		name    string
+		outcome continuationOutcome
+		summary string
+		prefix  string
+	}{
+		{name: "unverified new request", outcome: continuationUnverified, summary: "The new request's acceptance checks did not run.", prefix: "⚠️"},
+		{name: "failed new request", outcome: continuationFailed, summary: "The new request failed: provider unavailable.", prefix: "❌"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewTestModel()
+			defer m.shutdownCancel()
+			const oldReason = "The earlier plan could not load its retry integration fixture."
+			m.chainUnverified = true
+			m.chainUnverifiedNote = "\n\n" + oldReason
+			next, _ := m.Update(continuationInitMsg{
+				completedSurface: "The new request's first step ran.",
+				totalSteps:       2,
+				next:             continueMsg{subtaskID: "new-request-follow-up", description: "check the new request", shardType: "reviewer"},
+			})
+			m = next.(Model)
+			if m.chainUnverifiedNote != "" {
+				t.Errorf("initializing a new request retained an earlier reason: %q", m.chainUnverifiedNote)
+			}
+			if m.chainUnverified {
+				t.Error("initializing a new request retained the earlier unverified verdict")
+			}
+			next, _ = m.Update(continuationDoneMsg{stepCount: 2, outcome: tc.outcome, summary: tc.summary})
+			m = next.(Model)
+			banner := lastAssistant(m)
+			if !strings.HasPrefix(banner, tc.prefix) || !strings.Contains(banner, tc.summary) {
+				t.Errorf("new request lost its own terminal outcome: %q", banner)
+			}
+			if strings.Contains(banner, oldReason) {
+				t.Errorf("initializing a new request leaked an earlier verification gap into its verdict: %q", banner)
+			}
+		})
+	}
+}
+
+// A verified step's summary is not a verification gap, and an empty or
+// whitespace-only unverified summary must not add blank notes to the verdict.
+func TestDreamPlan_AdvanceDoesNotRetainVerifiedOrBlankSummaries(t *testing.T) {
+	cases := []struct {
+		name    string
+		outcome continuationOutcome
+		summary string
+	}{
+		{name: "verified step", outcome: continuationCompleted, summary: "The retry policy review was verified."},
+		{name: "empty unverified summary", outcome: continuationUnverified, summary: ""},
+		{name: "whitespace unverified summary", outcome: continuationUnverified, summary: " \t\n "},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _ := planLedgerModel(t, config.WorkModeYolo)
+			m.textarea.SetValue("do it")
+			next, _ := m.handleSubmit()
+			m = next.(Model)
+			next, _ = m.Update(continuationDoneMsg{
+				ran:       Subtask{ID: "s1", Description: "review the retry policy", ShardType: "reviewer"},
+				stepCount: 1, outcome: tc.outcome, summary: tc.summary,
+			})
+			m = next.(Model)
+			if got := planStatus(t, m, "s2"); got != core.SubtaskStatusRunning {
+				t.Fatalf("the successor did not advance: status=%q", got)
+			}
+			if m.chainUnverifiedNote != "" {
+				t.Errorf("advancing retained a summary that is not a verification reason: %q", m.chainUnverifiedNote)
+			}
+			next, _ = m.Update(continuationDoneMsg{
+				ran:       Subtask{ID: "s2", Description: "summarize the retry policy", ShardType: "researcher"},
+				stepCount: 2, outcome: continuationUnverified, summary: "Current acceptance did not run.",
+			})
+			m = next.(Model)
+			const want = "⚠️ 2 step(s) ran; the work is not verified.\n\nCurrent acceptance did not run."
+			if banner := lastAssistant(m); banner != want {
+				t.Errorf("closing verdict included a verified or blank prior note: got %q, want %q", banner, want)
+			}
+		})
 	}
 }

@@ -1,18 +1,9 @@
 package chat
 
 // The continuation's step ledger: which step runs next, which step a pause
-// offers, and how a step that ran settles.
-//
-// Until 2026-10-29 one slice, pendingSubtasks, meant two things: an approved
-// dream plan (including the step already dispatched) and the follow-ups the
-// kernel derived. A plan whose first step left no obligation behind ended the
-// chain and the done handler cleared the slice, so the rest of the approved
-// plan never ran; a paused follow-up was appended behind the plan's first
-// step, so Enter re-ran that step instead of the one the pause showed; and
-// the plan manager was never told a step had run. Now the approved plan's
-// steps stay with dreamPlanManager until each settles, a pause offers one
-// exact step (offeredSubtask), and a chain the plan dispatched advances the
-// plan when it ends.
+// offers, and how each step settles. The plan manager owns approved plan
+// steps; a pause offers exactly one step. Advancing the plan retains earlier
+// verification gaps so the closing verdict names why the run is unverified.
 
 import (
 	"errors"
@@ -174,7 +165,10 @@ func (m Model) handleContinueMsg(msg continueMsg) (tea.Model, tea.Cmd) {
 // handleContinuationDone settles the step that ran, then continues the
 // approved plan when the chain was the plan's, or closes the chain with a
 // verdict no stronger than its weakest step.
-func (m Model) handleContinuationDone(msg continuationDoneMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleContinuationDone(msg continuationDoneMsg) (Model, tea.Cmd) {
+	m.isStreaming = false
+	m.currentStream = ""
+	m.currentThought = ""
 	if msg.completedShardResult != nil {
 		m.storeShardResult(msg.completedShardResult.ShardType, msg.completedShardResult.Task, msg.completedShardResult.Result, msg.completedShardResult.Facts)
 	}
@@ -199,7 +193,7 @@ func (m Model) handleContinuationDone(msg continuationDoneMsg) (tea.Model, tea.C
 		if m.planChain {
 			stopped = m.stopPlan("a step failed")
 		}
-		m = m.pushAssistantMsg(fmt.Sprintf("❌ Stopped after %d step(s): %s%s", msg.stepCount, msg.summary, stopped))
+		m = m.pushAssistantMsg(fmt.Sprintf("❌ Stopped after %d step(s): %s%s%s", msg.stepCount, msg.summary, m.chainUnverifiedNote, stopped))
 		return m.endContinuation(), nil
 	}
 
@@ -208,6 +202,9 @@ func (m Model) handleContinuationDone(msg continuationDoneMsg) (tea.Model, tea.C
 	}
 	if m.planChain {
 		if next, ok := m.nextPlanStep(); ok {
+			if msg.outcome != continuationCompleted && strings.TrimSpace(msg.summary) != "" {
+				m.chainUnverifiedNote += "\n\n" + msg.summary
+			}
 			m.continuationStep++
 			m = m.widenTotal()
 			m.updateContinuationFacts()
@@ -216,9 +213,10 @@ func (m Model) handleContinuationDone(msg continuationDoneMsg) (tea.Model, tea.C
 		}
 	}
 
-	outcome, note := msg.outcome, ""
+	outcome, note := msg.outcome, m.chainUnverifiedNote
 	if outcome == continuationCompleted && m.chainUnverified {
-		outcome, note = continuationUnverified, "\n\nAn earlier step of this run was not verified."
+		outcome = continuationUnverified
+		note = "\n\nAn earlier step of this run was not verified." + note
 	}
 	stopped := ""
 	if m.planChain {
@@ -255,6 +253,7 @@ func (m Model) endContinuation() Model {
 	m.offeredSubtask = nil
 	m.planChain = false
 	m.chainUnverified = false
+	m.chainUnverifiedNote = ""
 	m.endDelivery()
 	if m.kernel != nil {
 		_ = m.kernel.Retract("continuation_step")
