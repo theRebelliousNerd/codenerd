@@ -128,6 +128,9 @@ func NewToolRefiner(client LLMClient, toolGen *ToolGenerator) *ToolRefiner {
 // Ouroboros /refinement stage compiled through the JIT assembler; without one
 // it is an error wrapping types.ErrRolePromptUnavailable, not other text.
 func (tr *ToolRefiner) Refine(ctx context.Context, req RefinementRequest) (*RefinementResult, error) {
+	// The refiner's reply is its own JSON object, parsed below; never the
+	// envelope (prompt.IsStructuredOutputOnly covers its compile).
+	ctx = types.WithStructuredOutputOnly(ctx)
 	timer := logging.StartTimer(logging.CategoryAutopoiesis, "ToolRefiner.Refine")
 	defer timer.Stop()
 

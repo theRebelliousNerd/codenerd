@@ -21,12 +21,21 @@ import "strings"
 // decomposer_requirements.go, librarian in decomposer_documents.go, replanner in
 // replan.go, analyzer in assault_tasks.go. The mapping from role to shard type
 // is campaign.GetShardTypeForRole.
+//
+// The tool generator is here too: its reply is Go source the generator
+// extracts and compiles (or, for the refiner, its own JSON object), never an
+// envelope. Until 2026-10-30 its compile carried the Piggyback atoms and the
+// mandatory suffix, the model answered with a ~10 KB JSON envelope beginning
+// '{', the AST parse failed at 1:1, and the feedback round quoted that JSON
+// back and got the same again: no generation attempt could produce a tool.
 func IsStructuredOutputOnly(shardType string) bool {
 	normalized := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(shardType), "/"))
 	switch normalized {
 	case "mangle_repair", "legislator",
 		// Campaign roles (campaign.GetShardTypeForRole).
-		"planner", "librarian", "extractor", "analyzer":
+		"planner", "librarian", "extractor", "analyzer",
+		// Autopoiesis: generated Go source, parsed and compiled.
+		"tool_generator":
 		return true
 	default:
 		return false
