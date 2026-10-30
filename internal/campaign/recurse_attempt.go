@@ -126,7 +126,7 @@ func RecurseAttemptCampaign(workspace string, a RecurseAttempt) *Campaign {
 			Type:        TaskTypeFileModify,
 			PlannedType: TaskTypeFileModify,
 			Priority:    PriorityHigh,
-			WriteSet:    a.Node.Paths,
+			WriteSet:    append([]string(nil), a.Node.Paths...),
 		}},
 		Checkpoints: []Checkpoint{{Type: string(VerifyNone)}},
 	}}

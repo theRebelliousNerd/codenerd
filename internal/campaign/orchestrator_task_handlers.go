@@ -92,6 +92,13 @@ func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input 
 		// part of why the attempt failed.
 		return ret.Output, withSignals(err, returnSignals(ret)...)
 	}
+	if task != nil {
+		// These identities came from the executor, never the model's prose.
+		task.observedAlignmentPaths = append(task.observedAlignmentPaths, ret.Changed...)
+		for _, w := range ret.Writes {
+			task.observedAlignmentPaths = append(task.observedAlignmentPaths, w.Path)
+		}
+	}
 	return ret.Output, nil
 }
 

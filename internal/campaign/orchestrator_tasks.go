@@ -440,6 +440,7 @@ func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Ta
 	// what over-eager gating costs. Making the writes visible is the honest
 	// first step; enforcement can follow once the signal shows the inference is
 	// trustworthy.
+	task.observedAlignmentPaths = nil
 	rootBefore := o.snapshotWorkspaceRoot()
 
 	startedAt := time.Now()
@@ -687,14 +688,7 @@ func (o *Orchestrator) completeTask(task *Task, result any) {
 
 	// Northstar alignment check on task completion
 	if o.northstarObserver != nil {
-		// Collect modified file paths from task artifacts
-		filePaths := make([]string, 0)
-		for _, a := range task.Artifacts {
-			if a.Path != "" {
-				filePaths = append(filePaths, a.Path)
-			}
-		}
-		_, _ = o.northstarObserver.OnTaskComplete(context.Background(), task.ID, task.Description, resultSummary, filePaths)
+		_, _ = o.northstarObserver.OnTaskComplete(context.Background(), task.ID, task.Description, resultSummary, taskAlignmentScope(o.workspace, task))
 	}
 }
 

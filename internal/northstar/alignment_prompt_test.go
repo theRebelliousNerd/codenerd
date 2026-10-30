@@ -18,7 +18,13 @@ func alignmentPrompts(t *testing.T, g *Guardian, vision *Vision, subject ...stri
 	if len(subject) > 0 {
 		s = subject[0]
 	}
-	systemPrompt, userPrompt, err := g.buildAlignmentPrompts(context.Background(), vision, s, "")
+	workspace := ""
+	if g.store != nil {
+		workspace = filepath.Dir(filepath.Dir(g.store.Path()))
+	}
+	scope := ManualAlignmentScope(workspace, s)
+	coverage, module := g.resolveAlignmentScope(scope, vision)
+	systemPrompt, userPrompt, err := g.buildAlignmentPrompts(context.Background(), vision, s, "", alignmentScopeSection(coverage), module)
 	if err != nil {
 		t.Fatalf("buildAlignmentPrompts: %v", err)
 	}

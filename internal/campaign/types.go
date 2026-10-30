@@ -320,7 +320,9 @@ type Task struct {
 	DependsOn []string `json:"depends_on,omitzero"` // Task IDs this depends on
 	SoftDeps  []string `json:"soft_deps,omitzero"`  // Soft dependencies (preferred order)
 	Resources []string `json:"resources,omitzero"`  // Required resources (semaphores)
-	WriteSet  []string `json:"write_set,omitzero"`  // Canonical file paths this task is allowed to mutate
+	// Runtime observations belong to this attempt, never the persisted plan.
+	observedAlignmentPaths []string
+	WriteSet               []string `json:"write_set,omitzero"` // Canonical file paths this task is allowed to mutate
 
 	// Shard routing (explicit shard selection, overrides type-based inference)
 	Shard       string   `json:"shard,omitzero"`        // Which shard to use (e.g., "coder", "researcher")

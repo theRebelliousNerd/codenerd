@@ -59,7 +59,7 @@ func TestCampaignObserver_StartCampaign(t *testing.T) {
 
 	observer := NewCampaignObserver(guardian)
 
-	check, err := observer.StartCampaign(context.Background(), "campaign-1", "Build feature X")
+	check, err := observer.StartCampaign(context.Background(), "campaign-1", "Build feature X", AlignmentScope{Disposition: ScopeProjectOnly})
 	if err != nil {
 		t.Fatalf("StartCampaign error: %v", err)
 	}
@@ -84,9 +84,9 @@ func TestCampaignObserver_OnPhaseStart(t *testing.T) {
 	guardian.Initialize()
 
 	observer := NewCampaignObserver(guardian)
-	observer.StartCampaign(context.Background(), "campaign-1", "Build feature")
+	observer.StartCampaign(context.Background(), "campaign-1", "Build feature", AlignmentScope{Disposition: ScopeProjectOnly})
 
-	check, err := observer.OnPhaseStart(context.Background(), "planning", "Define requirements")
+	check, err := observer.OnPhaseStart(context.Background(), "planning", "Define requirements", AlignmentScope{Disposition: ScopeProjectOnly})
 	if err != nil {
 		t.Fatalf("OnPhaseStart error: %v", err)
 	}
@@ -111,8 +111,8 @@ func TestCampaignObserver_OnPhaseComplete(t *testing.T) {
 	guardian.Initialize()
 
 	observer := NewCampaignObserver(guardian)
-	observer.StartCampaign(context.Background(), "campaign-1", "Build feature")
-	observer.OnPhaseStart(context.Background(), "planning", "Define requirements")
+	observer.StartCampaign(context.Background(), "campaign-1", "Build feature", AlignmentScope{Disposition: ScopeProjectOnly})
+	observer.OnPhaseStart(context.Background(), "planning", "Define requirements", AlignmentScope{Disposition: ScopeProjectOnly})
 
 	err := observer.OnPhaseComplete(context.Background(), "planning", true, "Requirements defined")
 	if err != nil {
@@ -128,10 +128,10 @@ func TestCampaignObserver_OnTaskComplete(t *testing.T) {
 	guardian.Initialize()
 
 	observer := NewCampaignObserver(guardian)
-	observer.StartCampaign(context.Background(), "campaign-1", "Build feature")
-	observer.OnPhaseStart(context.Background(), "implementation", "Write code")
+	observer.StartCampaign(context.Background(), "campaign-1", "Build feature", AlignmentScope{Disposition: ScopeProjectOnly})
+	observer.OnPhaseStart(context.Background(), "implementation", "Write code", AlignmentScope{Disposition: ScopeProjectOnly})
 
-	check, err := observer.OnTaskComplete(context.Background(), "task-1", "Implement function", "success", []string{"file.go"})
+	check, err := observer.OnTaskComplete(context.Background(), "task-1", "Implement function", "success", AlignmentScope{Disposition: ScopeUnresolved})
 	if err != nil {
 		t.Fatalf("OnTaskComplete error: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestCampaignObserver_EndCampaign(t *testing.T) {
 	guardian.Initialize()
 
 	observer := NewCampaignObserver(guardian)
-	observer.StartCampaign(context.Background(), "campaign-1", "Build feature")
+	observer.StartCampaign(context.Background(), "campaign-1", "Build feature", AlignmentScope{Disposition: ScopeProjectOnly})
 
 	err := observer.EndCampaign(context.Background(), true, "Campaign completed successfully")
 	if err != nil {
@@ -176,8 +176,8 @@ func TestCampaignObserver_GetPhaseCheck(t *testing.T) {
 	guardian.UpdateVision(vision)
 
 	observer := NewCampaignObserver(guardian)
-	observer.StartCampaign(context.Background(), "campaign-1", "Build feature")
-	observer.OnPhaseStart(context.Background(), "planning", "Define requirements")
+	observer.StartCampaign(context.Background(), "campaign-1", "Build feature", AlignmentScope{Disposition: ScopeProjectOnly})
+	observer.OnPhaseStart(context.Background(), "planning", "Define requirements", AlignmentScope{Disposition: ScopeProjectOnly})
 
 	check := observer.GetPhaseCheck("planning")
 	// Check may be nil if LLM is not set
@@ -201,9 +201,9 @@ func TestCampaignObserver_GetAllPhaseChecks(t *testing.T) {
 	guardian.UpdateVision(vision)
 
 	observer := NewCampaignObserver(guardian)
-	observer.StartCampaign(context.Background(), "campaign-1", "Build feature")
-	observer.OnPhaseStart(context.Background(), "phase1", "Goal 1")
-	observer.OnPhaseStart(context.Background(), "phase2", "Goal 2")
+	observer.StartCampaign(context.Background(), "campaign-1", "Build feature", AlignmentScope{Disposition: ScopeProjectOnly})
+	observer.OnPhaseStart(context.Background(), "phase1", "Goal 1", AlignmentScope{Disposition: ScopeProjectOnly})
+	observer.OnPhaseStart(context.Background(), "phase2", "Goal 2", AlignmentScope{Disposition: ScopeProjectOnly})
 
 	checks := observer.GetAllPhaseChecks()
 	if checks == nil {

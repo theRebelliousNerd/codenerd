@@ -1,10 +1,11 @@
 ---
 doc-class: deep-dive
 subsystem: northstar-campaign
-implementation-status: proposed
+implementation-status: partial
 evidence-status: source-only
 last-verified: 2026-10-30
 verified-against: 6cb5f88e00eaf939d10dee46c16c68baf4b53d57
+implementation-reviewed-against: fef98230c20a5751e4c32a2fd2757832a9d39cdc
 supersedes: []
 ---
 
@@ -80,6 +81,14 @@ Specify the change in the owning North Star and campaign documentation before im
 
 **Completeness.** Return structured resolution information rather than only a rendered string: selected modules, unmatched paths, unavailable queries and omitted requirements. Distinguish a successful lookup finding no module from a failed lookup. If required module context cannot be retrieved or fitted, report a partial or unknown scoped assessment under reviewed policy. Preserve any legitimate project-only assessment as separately scoped information rather than laundering it into complete module coverage.
 
+The accepted scope policy keeps scope resolution separate from the alignment
+verdict. When affected paths or usable module evidence are unavailable, run the
+existing project-level check and record unknown scope with the reason. Module
+purpose and requirements enter only when affected paths resolve to declared
+modules. A missing scope must not replace the project verdict with a clarifying
+question or stall a campaign; project alignment also does not establish complete
+module coverage.
+
 **Policy and evidence.** Host code should canonicalize identities, retrieve a coherent fact view, serialize context and report errors. Mangle should derive the required scope, completeness obligations and existing risk consequences from admitted facts where those are executive decisions. Module-context presence is not proof that the model followed it, and alignment remains a fallible strategic judgment. Do not make a Go convenience fallback the new admission authority.
 
 **Caller coverage.** Carry target scope through campaign start, phase transition and task observation. For recurse, retain the constructor's node paths rather than recovering them from its generated goal. For task completion, use observed effect identities where available and label artifact-only paths accurately. Maintain explicit behavior for manual path checks, manual prose checks and background events without trustworthy scope. Do not silently harden advisory task checks or change optional gate-selection behavior as part of this input repair.
@@ -124,3 +133,74 @@ The [mission-driven forever-improvement proposal](https://github.com/theRebellio
 The [North Star blueprint](https://github.com/theRebelliousNerd/codenerd/blob/6cb5f88e00eaf939d10dee46c16c68baf4b53d57/Docs/architecture/northstar/proposed-vision-and-evidence-blueprint.md#as-built-2026-10-27) already owns validation, honest unknown outcomes and typed mitigation evidence. [Lossless strategic editing](https://github.com/theRebelliousNerd/codenerd/blob/6cb5f88e00eaf939d10dee46c16c68baf4b53d57/Docs/audits/northstar-lossless-strategic-editing.md) owns preserving canonical vision data and guarded edits. Neither is reopened here. The [forcing-and-completion journey](https://github.com/theRebelliousNerd/codenerd/blob/6cb5f88e00eaf939d10dee46c16c68baf4b53d57/Docs/journeys/02-forcing-and-completion.md) already distinguishes alignment from behavioral obligation enforcement; this note does not claim that distinction as new.
 
 The bounded duplicate check covered those documents, the North Star architecture gap and failure-mode pages, relevant recurse/gate/ownership audits, the main and research branch path inventories, and repository searches for the exact module-selector symbols and related predicates. Search indexing returned an older source pin, so implementation conclusions were verified through exact-file reads at `32b8417bb9b0ec70a83b06226c67c906d0b30be0`, followed by blob-identity comparison when main advanced to the cited revision. The concrete session declaration was read directly at the cited revision. No inspected document specified this prose-subject versus structural-scope handoff defect. This is a bounded corpus check, not a claim that all historical branches or every external research source were exhaustively searched. The nine central Guardian/campaign source files inspected were blob-identical on research revision `21808fc00ee04762982a056e4e53a98a131d0bae` and pinned main.
+
+
+## As built
+
+Rechecked against worktree base `fef98230c20a5751e4c32a2fd2757832a9d39cdc`.
+The research narrative above describes its earlier pin. Every transport and
+completeness finding remained **real**; none was already fixed or ruled wrong.
+Commits: none, following the author-only instruction.
+
+| Finding | Ruling and authored repair |
+|---|---|
+| Guardian selects modules from subject prose; campaign start drops known paths | Real. `CheckAlignment` and `StartCampaign` now require separate workspace scope and path roles. |
+| Recurse loses node scope on fix and improvement checks | Real. `campaignAlignmentScope` reads the shared constructor's write set for both command paths; the constructor now owns a copy of node paths. |
+| Phase names replace scope; first-phase skip assumes coverage | Real. `startNextPhase` carries phase task scope. Reuse requires assessed coverage of those paths/roles and matching current vision/module digests; expansion or changed context invokes an enabled phase check. |
+| Periodic/high-impact task checks discard paths; artifact paths are not observed modifications | Real. `spawnTask` retains executor-observed identities separately from its prose return. `completeTask` carries planned writes, artifacts and effects through both advisory branches; only observed effects produce file-change observations. |
+| Background file targets become display prose | Real at the supported adapter. File targets now travel as observed effects; events without trustworthy scope still receive project alignment, with unknown scope and its reason in assessment metadata and history. No production emission incident is inferred. |
+| Query errors disappear or requirements are omitted while purpose remains | Real. The string-only projection is deleted. A kernel snapshot supplies the module view; unavailable/malformed/conflicting context records unknown scope and issues while the project check proceeds without partial module refinements. A successful lookup with no governing module records unmatched paths and unknown scope. |
+
+Existing protections were confirmed in `module.go`, `alignment_prompt.go`,
+`alignment_verdict.go`, `policy/prompt_northstar.mg`, `risk_scoring.go`,
+`projectdoc/facts.go` and `internal/session/nerd.md`: segment boundaries,
+project constraints, kernel-derived inherited purpose, honest unavailable
+outcomes and independent risk/permission/acceptance authorities. Manual bare
+paths remain scoped; manual prose is explicitly project-only. Recurse's separate
+extend-context route remains. Optional gate selection, task advisory semantics
+and the recurse ratchet are unchanged. Neither the audit nor this repair
+establishes bad model verdicts, production incidents or improved judgment quality.
+
+Files: `internal/northstar/{alignment_scope,alignment_modules,guardian,observer,types,store}.go`;
+`internal/campaign/{northstar_scope,risk_scoring,orchestrator_phases,orchestrator_tasks,orchestrator_task_handlers,types,recurse_attempt}.go`;
+and `cmd/nerd/chat/model_helpers.go`. Coverage persists scope/roles, selected
+modules, unmatched paths, the resolution outcome, issues and vision/module digests
+atomically with the check in `alignment_coverage`; earlier rows retain absent
+coverage. Logs, gate data and background metadata expose unknown scope and its
+reason independently of the alignment verdict. No atoms or Mangle changed.
+The as-built specifications are updated under `Docs/architecture/northstar/`
+and `Docs/architecture/campaign/`.
+
+Regression definitions: `internal/northstar/alignment_scope_test.go` and
+`internal/campaign/northstar_scope_test.go`, plus updated API fixtures. They
+capture final requests through risk, observer, phase, task, manual and background
+adapters; cover multiple modules and local requirement IDs, real-kernel purpose
+inheritance, nested/sibling boundaries, canonical paths, incomplete context,
+first-phase scope/context changes, full large requirements, provider rejection,
+and SQLite upgrade/history. Recurse cases cover fix, stabilize, harden, simplify
+and extend through the constructor shared by CLI and chat.
+
+The initial transport regressions have source-only fail-before evidence: the
+prior gate had no scope argument, the prompt selected modules solely from prose,
+and the projection suppressed lookup errors. The root session subsequently
+reported four failing existing contracts: the background adapter returned
+clarify instead of block/proceed, prompt composition rejected missing scope,
+and the mitigation prompt fixture dereferenced a missing store. Those failures
+establish executable fail-before evidence for the project-fallback repair;
+pass-after verification remains pending.
+
+The added incomplete-scope, background-scope and unavailable-evidence risk-gate
+regressions were corrected because they wrongly made unknown scope override the
+project verdict. Existing block/proceed and prompt contract assertions remain
+intact. Coverage now tests passed and blocked verdicts with unknown scope and
+persisted reasons; first-phase reuse still requires complete coverage.
+Formatting and read-only diff checks pass. Status remains **partial** pending the
+root session's owning-package and caller suites. The required private-terms
+scanner was not found inside this repository and its scan also remains pending.
+
+Full requirements are sent without an internal byte cap; completion failure,
+including provider rejection of oversized input, remains unknown. A bounded
+request-budget policy and selective coherent snapshot API remain future design
+work. `QueryAll` currently materializes all kernel facts; first-phase reuse
+validation can add a snapshot read. Neither performance nor model-window fit
+has been measured, and no model-quality improvement is claimed.

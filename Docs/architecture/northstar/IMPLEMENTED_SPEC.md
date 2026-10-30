@@ -1,6 +1,6 @@
 # Northstar — Implemented Spec (Deep-Dive)
 
-> Last verified against codebase: 2026-08-15  
+> Scope contract source-reviewed: 2026-10-30; executable verification pending
 > Status: Living Reference Document  
 > Language: Go  
 > Primary sources: `internal/northstar/`  
@@ -9,7 +9,7 @@
 
 ## 1. Overview
 
-`internal/northstar` implements the **permanent Northstar Guardian**: a core system agent that holds project vision, records observations, runs LLM-backed (or soft-fallback) alignment checks, tracks drift, and can project vision into the Mangle kernel as `northstar_*` facts.
+`internal/northstar` implements the **permanent Northstar Guardian**: a core system agent that holds project vision, records observations, runs LLM-backed alignment checks with explicit unavailable outcomes, tracks drift, and can project vision into the Mangle kernel as `northstar_*` facts.
 
 Unlike user specialists under `.nerd/agents/`, Northstar is built into the runtime library. Package comment (`types.go`):
 
@@ -60,8 +60,9 @@ user_intent → kernel → next_action → VirtualStore → articulation
 | Domain types + `ToFacts` | **Implemented** | Partial vs full Decl surface |
 | SQLite Store + schema | **Implemented** | `ingested_docs` used by `docs.go`; `GetMetrics`/`GetDriftHistory` added |
 | Guardian init / config | **Implemented** | Warn on no vision |
-| LLM alignment pipeline | **Implemented** | Inline prompts |
-| Soft fallbacks (no vision/LLM) | **Implemented** | Availability bias |
+| LLM alignment pipeline | **Implemented** | JIT system atoms; project/module/scope data in the user message |
+| Unavailable assessment | **Implemented** | No vision is skipped; absent client, prompt/completion failure or unusable verdict is unknown; unresolved module scope preserves project assessment |
+| Explicit module scope | **Authored; verification pending** | Structural paths and roles through campaign/manual/background adapters; recorded coverage and source digests |
 | Drift recording | **Implemented** | Failed/blocked only |
 | CampaignObserver | **Implemented** | Wired in campaign package |
 | TaskObserver | **Implemented** | Sparse external callers |
@@ -134,9 +135,10 @@ Timestamps `CreatedAt` / `UpdatedAt` managed by Store on save (preserves created
 `AlignmentCheck` records who/what/when:
 
 - **Trigger** — manual, phase_gate, periodic, high_impact, task_complete, session_start, campaign_start  
-- **Result** — passed, warning, failed, blocked, skipped  
+- **Result** — passed, warning, failed, blocked, skipped, unknown
 - **Score** — 0.0–1.0  
 - **Suggestions** — LLM list  
+- **Coverage** — explicit workspace/scope/roles, resolution outcome, selected modules, unmatched paths, issues, source digests and completeness; absent on older rows
 
 Threshold defaults: warning ≥0.7 pass; ≥0.5 warning; ≥0.3 failed; else blocked (`classifyScore`).
 
@@ -160,6 +162,7 @@ Typical: `{workspace}/.nerd/northstar_knowledge.db`
 | `vision` | 0–1 | CHECK id=1 |
 | `observations` | N | indexes session/type/timestamp |
 | `alignment_checks` | N | duration_ms |
+| `alignment_coverage` | 0–1 per check | JSON coverage committed with the check; earlier checks have no fabricated scope |
 | `drift_events` | N | FK related_check; resolved flag |
 | `guardian_state` | 1 | rollup singleton |
 | `ingested_docs` | N | **no API** |
@@ -204,20 +207,66 @@ Guardian
 
 ### 6.3 CheckAlignment branches
 
-| Branch | Result | Score |
-|--------|--------|------:|
-| vision == nil | skipped | 1.0 |
-| llm == nil | passed | 0.8 |
-| LLM error | warning | 0.7 |
-| parse default | warning | 0.7 if unparsed |
-| explicit RESULT | as parsed | SCORE if valid |
-| score only | classifyScore | SCORE |
+`CheckAlignment` requires an `AlignmentScope` independently of its trigger,
+subject and extra context. A missing vision yields skipped. A missing client,
+JIT failure, completion failure or an unusable verdict yields unknown. These
+unassessed outcomes carry no assessed score and leave the running alignment
+average unchanged. Usable model verdicts keep the existing parsing and threshold
+contract, including when module scope cannot be resolved.
 
-Always persists outcome (best-effort). Logs Info on success path.
+Scope resolution and alignment judgment are independent outcomes. Missing
+affected paths, unavailable module facts or snapshots, invalid structural
+identity and unusable module context record unknown scope with the reason;
+the Guardian still runs the project-level check. A model's passed or blocked
+verdict retains its score, explanation and suggestions. Unknown scope alone
+does not become a clarification request or an inconclusive campaign gate.
+Persistence remains best-effort at the Guardian boundary; the Store commits each
+check and its coverage atomically.
 
-### 6.4 Prompt contract (LLM)
+### 6.4 Scope and prompt contract
 
-System prompt embeds mission/problem/vision, personas, capabilities, requirements, risks, constraints.
+`alignment_scope.go` defines `project_only`, `paths` and `unresolved` scope.
+Paths carry planned-write, observed-effect, artifact, contextual-source or manual
+roles. Canonicalization uses `types.CanonicalPath` and `types.SlashClean` to
+preserve workspace-relative, forward-slash identities. Absolute in-workspace
+paths and equivalent separators are admitted. Outside/ambiguous identities,
+unknown roles and unresolved globs produce recorded issues and unknown scope;
+the project-level check still runs with those reasons recorded. Its coverage
+retains the requested scope rather than relabeling it project-only.
+Workspace identity must match the Guardian's store for scoped requests.
+This is lexical fact identity, not a filesystem permission or
+symlink authorization check. Manual input recognizes the entire bare path
+(including existing single-component directories); prose remains explicitly
+project-only and incidental path mentions are never scanned into scope.
+
+`alignment_modules.go` obtains one `QueryAll` fact snapshot for a scoped check.
+A Query-only dependency is insufficient for coherent assessment coverage. Module
+selection preserves longest segment-prefix behavior for individual paths and
+includes descendant declarations when a directory contract covers them. Modules
+and requirements are deduplicated, ordered and rendered with module-qualified
+requirement IDs. Effective purpose is read from the kernel, including its
+project-mission inheritance rule; Go adds no purpose fallback. Unavailable or
+contradictory evidence leaves scope unknown and supplies no partial module
+refinements to the project check. A successful lookup with no governing module
+records unmatched paths and unknown scope with its reason, then assesses project
+alignment. Module purpose and requirements are added only when affected paths
+resolve to declared modules. Context completeness and a model verdict remain
+separate facts.
+
+System instructions compile from the existing Guardian JIT atoms. The user
+message carries project vision and constraints, scope/roles, every selected
+module's full purpose/requirements, subject and extra context. The module atom is
+required whenever module context is present. No requirement is shortened to fit;
+provider failure on an oversized request remains unknown. An internal bounded
+request-budget policy and model-window proof remain unimplemented.
+
+Coverage stores `Outcome` (`resolved` or `unknown`), `VisionDigest`, the digest
+of supplied module context, scope, selected/unmatched identities and explicit
+issues. Incomplete scope has no module digest or supplied module identities.
+Logs and background metadata include the scope outcome, full issue reasons,
+selected/unmatched/issue counts and source digests. Background `Level` still
+reflects the model verdict. This identifies input coverage; it does not prove
+that a model followed the supplied requirements.
 
 Required response shape:
 
@@ -228,7 +277,12 @@ EXPLANATION: <one sentence>
 SUGGESTIONS: <comma-separated|none>
 ```
 
-Parser tolerates quotes/trailing commas; strips `"`; uses `strings.SplitSeq`.
+The scope transport and SQLite history/upgrade regressions are authored in
+`internal/northstar/alignment_scope_test.go`; production gate and kernel
+inheritance coverage is authored in `internal/campaign/northstar_scope_test.go`.
+They have not been executed in this authoring pass. The full snapshot currently
+materializes all kernel facts per check; first-phase reuse validation can add
+a snapshot read. Its cost is not benchmarked.
 
 ### 6.5 Relevance
 
@@ -255,17 +309,28 @@ Owned by campaign orchestrator via `SetNorthstarObserver`.
 
 | Method | Hard fail? |
 |--------|------------|
-| `StartCampaign` | Yes if blocked |
-| `OnPhaseStart` | Yes if blocked (non-first phase) |
+| `StartCampaign` | Returns the scoped check; campaign risk policy grades it |
+| `OnPhaseStart` | Yes if explicitly blocked; first-phase reuse requires assessed matching scope and source context |
 | `OnPhaseComplete` | No (observe only) |
 | `OnTaskComplete` | Returns check; caller ignores error today (`_, _ =`) |
 | `EndCampaign` | Observe only |
 
 Periodic: every `checkEveryNTasks` in phase. High-impact: uses guardian path config.
 
-### 7.2 TaskObserver
+Campaign start carries the whole plan's structural scope; each phase carries its
+tasks' scope. First-phase reuse requires covered path/role identities, matching
+workspace and current vision/module digests. Scope expansion or changed context
+requires the existing enabled phase check. Later phase checks retain their
+advisory/explicit-block semantics. Both task-check branches receive the same
+typed scope; artifact declarations are not recorded as file modifications.
+Executor-observed paths survive the task's string result adapter separately.
 
-Session-scoped; delegates periodic logic to `Guardian.OnTaskComplete`. Records errors as pattern observations.
+
+### 7.2 Standalone periodic tasks
+
+`Guardian.OnTaskComplete` has no structural path input. When its periodic check
+is due it assesses project alignment and records unknown scope with its reason,
+without claiming complete module coverage.
 
 ### 7.3 BackgroundEventHandler
 
@@ -275,7 +340,7 @@ Intended implementation of shards handler without importing shards:
 2. Always record observation  
 3. Skip assessment if no vision  
 4. Map event type → trigger  
-5. CheckAlignment  
+5. CheckAlignment with the file target as an observed effect; otherwise unresolved scope
 6. Map result → Level (`proceed`/`note`/`clarify`/`block`)
 
 Adapter in chat maps to `shards.ObserverAssessment`.
@@ -368,7 +433,7 @@ Campaign-side: `NorthstarGateToggle` controls whether observer is active for ris
 
 ## 12. Testing summary
 
-~114 unit tests; strong coverage of:
+Existing unit suites cover:
 
 - Vision/state cloning  
 - Alignment branches and parser edge cases (JSON-like noise, scientific notation, empty response)  
@@ -422,5 +487,5 @@ When editing `internal/northstar/`:
 
 1. Update this IMPLEMENTED_SPEC if public API or fact shape changes.  
 2. Re-verify reverse deps if observers/constructors change.  
-3. Re-run package tests before handoff.  
+3. Run owning package tests when execution is authorized; identify authored-only evidence explicitly otherwise.
 4. Bump last-verified date.

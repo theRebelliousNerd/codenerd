@@ -334,16 +334,17 @@ const (
 
 // AlignmentCheck represents a formal alignment validation.
 type AlignmentCheck struct {
-	ID          string           `json:"id"`
-	Timestamp   time.Time        `json:"timestamp"`
-	Trigger     AlignmentTrigger `json:"trigger"`
-	Subject     string           `json:"subject"` // What was checked
-	Context     string           `json:"context"` // Additional context
-	Result      AlignmentResult  `json:"result"`
-	Score       float64          `json:"score"`       // 0.0-1.0 alignment score
-	Explanation string           `json:"explanation"` // LLM explanation
-	Suggestions []string         `json:"suggestions"` // Improvement suggestions
-	Duration    time.Duration    `json:"duration"`
+	ID          string             `json:"id"`
+	Timestamp   time.Time          `json:"timestamp"`
+	Trigger     AlignmentTrigger   `json:"trigger"`
+	Subject     string             `json:"subject"` // What was checked
+	Context     string             `json:"context"` // Additional context
+	Result      AlignmentResult    `json:"result"`
+	Score       float64            `json:"score"`       // 0.0-1.0 alignment score
+	Explanation string             `json:"explanation"` // LLM explanation
+	Suggestions []string           `json:"suggestions"` // Improvement suggestions
+	Duration    time.Duration      `json:"duration"`
+	Coverage    *AlignmentCoverage `json:"coverage,omitempty"`
 }
 
 // AlignmentTrigger indicates what triggered the alignment check.

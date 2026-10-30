@@ -3,6 +3,7 @@ package campaign
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/northstar"
 	"codenerd/internal/types"
 	"context"
 	"fmt"
@@ -371,6 +372,7 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 	var phaseContextProfile string
 	var found bool
 	var campaignID string
+	var alignmentScope northstar.AlignmentScope
 
 	for i := range o.campaign.Phases {
 		if o.campaign.Phases[i].ID == phaseID {
@@ -384,6 +386,7 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 			phaseOrder = o.campaign.Phases[i].Order
 			phaseContextProfile = o.campaign.Phases[i].ContextProfile
 			campaignID = o.campaign.ID
+			alignmentScope = phaseAlignmentScope(o.workspace, &o.campaign.Phases[i])
 			found = true
 			break
 		}
@@ -424,7 +427,7 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 
 		// Northstar alignment check at phase transition
 		if o.northstarObserver != nil {
-			check, err := o.northstarObserver.OnPhaseStart(ctx, phaseID, phaseName)
+			check, err := o.northstarObserver.OnPhaseStart(ctx, phaseID, phaseName, alignmentScope)
 			if err != nil {
 				logging.Campaign("Northstar blocked phase %s: %v", phaseID, err)
 				return fmt.Errorf("northstar alignment failed: %w", err)

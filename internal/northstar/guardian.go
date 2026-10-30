@@ -364,8 +364,8 @@ func (g *Guardian) publishVision(vision *Vision) (stateErr error, projection []e
 // ALIGNMENT CHECKING
 // =============================================================================
 
-// CheckAlignment performs an alignment check for the given subject.
-func (g *Guardian) CheckAlignment(ctx context.Context, trigger AlignmentTrigger, subject, context string) (*AlignmentCheck, error) {
+// CheckAlignment assesses prose against project and explicitly supplied module scope.
+func (g *Guardian) CheckAlignment(ctx context.Context, trigger AlignmentTrigger, subject, context string, scope AlignmentScope) (*AlignmentCheck, error) {
 	g.mu.RLock()
 	vision := cloneVision(g.vision)
 	llm := g.llm
@@ -380,6 +380,9 @@ func (g *Guardian) CheckAlignment(ctx context.Context, trigger AlignmentTrigger,
 		Context:   context,
 	}
 
+	normalized, issues := normalizeAlignmentScope(scope)
+	check.Coverage = &AlignmentCoverage{Scope: normalized, Outcome: ScopeUnknown, VisionDigest: VisionDigest(vision), Issues: issues}
+
 	// No vision: nothing to align against. Skipped is non-passing and carries
 	// no score; a 1.0 here used to read as "perfectly aligned".
 	if vision == nil {
@@ -389,6 +392,12 @@ func (g *Guardian) CheckAlignment(ctx context.Context, trigger AlignmentTrigger,
 		g.persistAlignmentOutcome(check, subject)
 		return check, nil
 	}
+
+	// Unresolved module scope does not prevent project alignment. Coverage
+	// retains its unknown outcome and reason; the model still judges the
+	// subject against the project vision without module refinements.
+	coverage, module := g.resolveAlignmentScope(scope, vision)
+	check.Coverage = coverage
 
 	// No LLM: no assessment happened. This used to be "passed, 0.8, assuming
 	// aligned", which let every unassessed subject through every gate.
@@ -401,7 +410,7 @@ func (g *Guardian) CheckAlignment(ctx context.Context, trigger AlignmentTrigger,
 	}
 
 	// Build the alignment prompt: no compiled prompt, no assessment.
-	systemPrompt, userPrompt, err := g.buildAlignmentPrompts(ctx, vision, subject, context)
+	systemPrompt, userPrompt, err := g.buildAlignmentPrompts(ctx, vision, subject, context, alignmentScopeSection(coverage), module)
 	if err != nil {
 		markUnknown(check, fmt.Sprintf("Alignment prompt unavailable: %v", err))
 		check.Duration = time.Since(startTime)
@@ -460,7 +469,7 @@ func (g *Guardian) logCheck(check *AlignmentCheck, msg string) {
 	if check == nil {
 		return
 	}
-	logging.Get(logging.CategoryNorthstar).StructuredLog("INFO", msg, map[string]any{
+	fields := map[string]any{
 		"check_id":    check.ID,
 		"subject":     check.Subject,
 		"trigger":     string(check.Trigger),
@@ -470,22 +479,34 @@ func (g *Guardian) logCheck(check *AlignmentCheck, msg string) {
 		"suggestions": len(check.Suggestions),
 		"has_vision":  g.HasVision(),
 		"explanation": types.Ellipsize(check.Explanation, 200),
-	})
+	}
+	if c := check.Coverage; c != nil {
+		fields["workspace"] = c.Scope.Workspace
+		fields["scope"] = c.Scope.Disposition
+		fields["scope_outcome"] = c.Outcome
+		fields["scope_complete"] = c.Complete
+		fields["selected_modules"] = len(c.Modules)
+		fields["unmatched_paths"] = len(c.UnmatchedPaths)
+		fields["scope_issues"] = len(c.Issues)
+		fields["scope_issue_reasons"] = c.Issues
+		fields["vision_digest"] = c.VisionDigest
+		fields["module_digest"] = c.ModuleDigest
+	}
+	logging.Get(logging.CategoryNorthstar).StructuredLog("INFO", msg, fields)
 }
 
 // buildAlignmentPrompts returns one check's model input: the system prompt
 // compiled from the guardian atoms (with the module-refinement rule exactly
-// when a module northstar governs the subject) and the user message carrying
-// the data -- the project vision, that module's northstar, the subject and its
-// context.
-func (g *Guardian) buildAlignmentPrompts(ctx context.Context, vision *Vision, subject, extra string) (systemPrompt, userPrompt string, err error) {
-	module := g.moduleNorthstarSection(subject)
+// when scoped modules govern the request) and the user message carrying
+// the project vision, scope roles, module refinements, subject and context.
+func (g *Guardian) buildAlignmentPrompts(ctx context.Context, vision *Vision, subject, extra, scopeSection, module string) (systemPrompt, userPrompt string, err error) {
 	systemPrompt, err = compileAlignmentSystemPrompt(ctx, module != "")
 	if err != nil {
 		return "", "", err
 	}
 	var sb strings.Builder
 	sb.WriteString(alignmentVisionSection(vision))
+	sb.WriteString(scopeSection)
 	sb.WriteString(module)
 	sb.WriteString("## Subject to Evaluate\n")
 	sb.WriteString(subject)
@@ -550,46 +571,6 @@ func alignmentVisionSection(vision *Vision) string {
 		sb.WriteString("## Constraints\n")
 		for _, c := range vision.Constraints {
 			sb.WriteString(fmt.Sprintf("- %s\n", c))
-		}
-		sb.WriteString("\n")
-	}
-	return sb.String()
-}
-
-// moduleNorthstarSection renders the northstar of the module governing
-// subject, or "" when no querier is set or no module governs it. A module
-// refines the project northstar; it must never be able to opt out of it, so
-// the section is shown ALONGSIDE the vision, and its presence is what puts the
-// module-refinement rule into the compiled prompt.
-func (g *Guardian) moduleNorthstarSection(subject string) string {
-	g.mu.RLock()
-	q := g.querier
-	g.mu.RUnlock()
-	if q == nil || strings.TrimSpace(subject) == "" {
-		return ""
-	}
-	mod, err := ModuleForPath(q, subject)
-	if err != nil || mod == "" {
-		return ""
-	}
-	purpose, err := EffectiveModulePurpose(q, mod)
-	if err != nil || purpose == "" {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("## Module Northstar (%s)\n", mod))
-	sb.WriteString(fmt.Sprintf("**Purpose:** %s\n\n", purpose))
-	reqs, err := ModuleRequirementsFor(q, mod)
-	if err == nil && len(reqs) > 0 {
-		sb.WriteString("### Module Requirements\n")
-		for _, r := range reqs {
-			sev := strings.TrimSpace(r.Severity)
-			if sev != "" {
-				sev = strings.TrimPrefix(sev, "/")
-				sb.WriteString(fmt.Sprintf("- [%s/%s] %s\n", r.ID, sev, r.Statement))
-			} else {
-				sb.WriteString(fmt.Sprintf("- [%s] %s\n", r.ID, r.Statement))
-			}
 		}
 		sb.WriteString("\n")
 	}
@@ -820,7 +801,7 @@ func (g *Guardian) OnTaskComplete(ctx context.Context, taskDesc string) (*Alignm
 
 	// Check if periodic check is due
 	if g.ShouldCheckNow(TriggerPeriodic, nil) {
-		return g.CheckAlignment(ctx, TriggerPeriodic, taskDesc, "Periodic alignment check")
+		return g.CheckAlignment(ctx, TriggerPeriodic, taskDesc, "Periodic alignment check", AlignmentScope{Disposition: ScopeUnresolved})
 	}
 
 	return nil, nil

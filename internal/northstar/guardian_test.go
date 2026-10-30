@@ -277,7 +277,7 @@ func TestGuardian_CheckAlignment_NoVision(t *testing.T) {
 	guardian := NewGuardian(store, DefaultGuardianConfig())
 	guardian.Initialize()
 
-	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "test subject", "test context")
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "test subject", "test context", AlignmentScope{Disposition: ScopeProjectOnly})
 	if err != nil {
 		t.Fatalf("CheckAlignment error: %v", err)
 	}
@@ -314,7 +314,7 @@ func TestGuardian_CheckAlignment_MassiveString(t *testing.T) {
 		massiveStr[i] = 'A'
 	}
 
-	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, string(massiveStr), string(massiveStr))
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, string(massiveStr), string(massiveStr), AlignmentScope{Disposition: ScopeProjectOnly})
 	if err != nil {
 		t.Fatalf("CheckAlignment error with massive string: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestGuardian_CheckAlignment_NoLLM(t *testing.T) {
 	}
 	guardian.UpdateVision(vision)
 
-	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "test subject", "")
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "test subject", "", AlignmentScope{Disposition: ScopeProjectOnly})
 	if err != nil {
 		t.Fatalf("CheckAlignment error: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestGuardian_CheckAlignment_NoLLM_RecordsHistory(t *testing.T) {
 		t.Fatalf("IncrementTaskCount error: %v", err)
 	}
 
-	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "test subject", "")
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "test subject", "", AlignmentScope{Disposition: ScopeProjectOnly})
 	if err != nil {
 		t.Fatalf("CheckAlignment error: %v", err)
 	}
@@ -421,7 +421,7 @@ func TestGuardian_CheckAlignment_WithLLM(t *testing.T) {
 	}
 	guardian.SetLLMClient(mockLLM)
 
-	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "Add user feature", "New feature")
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "Add user feature", "New feature", AlignmentScope{Disposition: ScopeProjectOnly})
 	if err != nil {
 		t.Fatalf("CheckAlignment error: %v", err)
 	}
@@ -446,7 +446,7 @@ func TestGuardian_CheckAlignment_ScientificNotation(t *testing.T) {
 	}
 	guardian.SetLLMClient(mockLLM)
 
-	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "Test", "")
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "Test", "", AlignmentScope{Disposition: ScopeProjectOnly})
 	if err != nil {
 		t.Fatalf("CheckAlignment error: %v", err)
 	}
@@ -467,7 +467,7 @@ func TestGuardian_CheckAlignment_EmptyResponse(t *testing.T) {
 	}
 	guardian.SetLLMClient(mockLLM)
 
-	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "Test", "")
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "Test", "", AlignmentScope{Disposition: ScopeProjectOnly})
 	if err != nil {
 		t.Fatalf("unexpected error when LLM returns whitespace: %v", err)
 	}
@@ -504,7 +504,7 @@ func TestGuardian_CheckAlignment_Warning(t *testing.T) {
 	}
 	guardian.SetLLMClient(mockLLM)
 
-	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "Test", "")
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "Test", "", AlignmentScope{Disposition: ScopeProjectOnly})
 	if err != nil {
 		t.Fatalf("CheckAlignment error: %v", err)
 	}
@@ -534,7 +534,7 @@ func TestGuardian_CheckAlignment_Failed(t *testing.T) {
 	}
 	guardian.SetLLMClient(mockLLM)
 
-	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "Test", "")
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "Test", "", AlignmentScope{Disposition: ScopeProjectOnly})
 	if err != nil {
 		t.Fatalf("CheckAlignment error: %v", err)
 	}
@@ -566,7 +566,7 @@ func TestGuardian_CheckAlignment_DriftRefreshesGuardianState(t *testing.T) {
 		response: "SCORE: 0.2\nRESULT: blocked\nEXPLANATION: Off mission\nSUGGESTIONS: stop",
 	})
 
-	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "dangerous change", "")
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "dangerous change", "", AlignmentScope{Disposition: ScopeProjectOnly})
 	if err != nil {
 		t.Fatalf("CheckAlignment error: %v", err)
 	}
@@ -960,7 +960,7 @@ func TestGuardian_CheckAlignment_JSONResponse(t *testing.T) {
 	}
 	guardian.SetLLMClient(mockLLM)
 
-	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "Test JSON", "")
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "Test JSON", "", AlignmentScope{Disposition: ScopeProjectOnly})
 	if err != nil {
 		t.Fatalf("CheckAlignment error: %v", err)
 	}

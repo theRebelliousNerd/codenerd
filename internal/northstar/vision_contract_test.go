@@ -278,7 +278,7 @@ func TestCheckAlignment_LLMError_IsUnknownAndLeavesAverageAlone(t *testing.T) {
 	g.SetLLMClient(&mockLLMClient{err: errors.New("rate limited")})
 	before, _ := store.GetState()
 
-	check, err := g.CheckAlignment(context.Background(), TriggerManual, "subject", "")
+	check, err := g.CheckAlignment(context.Background(), TriggerManual, "subject", "", AlignmentScope{Disposition: ScopeProjectOnly})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestCheckAlignment_LLMError_IsUnknownAndLeavesAverageAlone(t *testing.T) {
 	}
 
 	g.SetLLMClient(&mockLLMClient{response: "SCORE: 0.5\nRESULT: warning"})
-	if _, err := g.CheckAlignment(context.Background(), TriggerManual, "subject", ""); err != nil {
+	if _, err := g.CheckAlignment(context.Background(), TriggerManual, "subject", "", AlignmentScope{Disposition: ScopeProjectOnly}); err != nil {
 		t.Fatal(err)
 	}
 	m, err := store.GetMetrics()

@@ -145,42 +145,17 @@ func TestBuildAlignmentSystemPrompt_IncludesModulePurposeWhenApplies(t *testing.
 	}
 }
 
-func TestBuildAlignmentSystemPrompt_UnchangedWhenNone(t *testing.T) {
+func TestBuildAlignmentSystemPrompt_NoDeclaredModuleKeepsProjectVision(t *testing.T) {
 	t.Parallel()
-	store := newTestStore(t)
-	g := NewGuardian(store, DefaultGuardianConfig())
-	vision := &Vision{
-		Mission:    "Project mission",
-		Problem:    "Project problem",
-		VisionStmt: "Project vision",
+	g := NewGuardian(newTestStore(t), DefaultGuardianConfig())
+	g.SetQuerier(&fakeQuerier{})
+	vision := &Vision{Mission: "Project mission", Problem: "Project problem", VisionStmt: "Project vision"}
+	system, user := alignmentPrompts(t, g, vision, "internal/session/executor.go")
+	if !strings.Contains(user, "Project mission") || !strings.Contains(user, "No declared module: internal/session/executor.go") {
+		t.Fatalf("missing project or unmatched-path context: %s", user)
 	}
-	// The subject itself is in the user message, so each case is compared
-	// with the module-free prompt for the same subject: the system prompt
-	// and the vision must not change when no module governs the subject.
-	const subject = "internal/session/executor.go"
-	// Reference prompts with no module logic (no querier).
-	refSystem, reference := alignmentPrompts(t, g, vision, subject)
-	refSystemEmpty, referenceEmpty := alignmentPrompts(t, g, vision)
-	// With querier but no matching module
-	q := &fakeQuerier{facts: map[string][]types.Fact{
-		"effective_module_purpose": {
-			{Predicate: "effective_module_purpose", Args: []any{"internal/other", "Other purpose"}},
-		},
-	}}
-	g2 := NewGuardian(store, DefaultGuardianConfig())
-	g2.SetQuerier(q)
-	noMatchSystem, gotNoMatch := alignmentPrompts(t, g2, vision, subject)
-	// Without subject
-	emptySystem, gotEmptySubject := alignmentPrompts(t, g2, vision)
-
-	if refSystem != refSystemEmpty || noMatchSystem != refSystem || emptySystem != refSystem {
-		t.Fatalf("with no module governing the subject, the compiled system prompt should not change")
-	}
-	if gotNoMatch != reference {
-		t.Fatalf("when no module governs subject, prompt should be unchanged; got diff")
-	}
-	if gotEmptySubject != referenceEmpty {
-		t.Fatalf("when subject empty, prompt should be unchanged")
+	if strings.Contains(system, "the module\nREFINES the project vision") || strings.Contains(user, "## Module Northstar") {
+		t.Fatal("an unmatched path must not invent module context")
 	}
 }
 
@@ -203,4 +178,16 @@ func TestModuleRequirementsFor_FiltersByModule(t *testing.T) {
 	if reqs[0].ID != "REQ-1" || reqs[0].Severity != "blocker" {
 		t.Fatalf("unexpected req[0]: %+v", reqs[0])
 	}
+}
+
+func (q *fakeQuerier) QueryAll() (map[string][]types.Fact, error) {
+	out := map[string][]types.Fact{}
+	for _, pred := range []string{"module_northstar", "effective_module_purpose", "module_requirement"} {
+		facts, err := q.Query(pred)
+		if err != nil {
+			return nil, err
+		}
+		out[pred] = facts
+	}
+	return out, nil
 }

@@ -193,7 +193,7 @@ func TestCheckAlignment_WhenAlignmentModelSet_ShouldRouteThroughModelSelectingCl
 	client := &recordingModelClient{}
 	g.SetLLMClient(client)
 
-	if _, err := g.CheckAlignment(context.Background(), TriggerManual, "subject", ""); err != nil {
+	if _, err := g.CheckAlignment(context.Background(), TriggerManual, "subject", "", AlignmentScope{Disposition: ScopeProjectOnly}); err != nil {
 		t.Fatalf("CheckAlignment: %v", err)
 	}
 	if client.model != "claude-opus-4" {
@@ -209,7 +209,7 @@ func TestCheckAlignment_WhenAlignmentModelUnset_ShouldUseDefaultCompletion(t *te
 	client := &recordingModelClient{}
 	g.SetLLMClient(client)
 
-	if _, err := g.CheckAlignment(context.Background(), TriggerManual, "subject", ""); err != nil {
+	if _, err := g.CheckAlignment(context.Background(), TriggerManual, "subject", "", AlignmentScope{Disposition: ScopeProjectOnly}); err != nil {
 		t.Fatalf("CheckAlignment: %v", err)
 	}
 	if client.model != "" {
@@ -228,7 +228,7 @@ func TestCheckAlignment_WhenClientCannotSelectModel_ShouldStillComplete(t *testi
 	client := &plainClient{}
 	g.SetLLMClient(client)
 
-	check, err := g.CheckAlignment(context.Background(), TriggerManual, "subject", "")
+	check, err := g.CheckAlignment(context.Background(), TriggerManual, "subject", "", AlignmentScope{Disposition: ScopeProjectOnly})
 	if err != nil {
 		t.Fatalf("CheckAlignment: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestBuildAlignmentPrompts_ShouldComposeFromAtomsAndData(t *testing.T) {
 
 func TestBuildAlignmentPrompts_UserMessageCarriesSubjectAndContext(t *testing.T) {
 	g := guardianWithVision(t, DefaultGuardianConfig())
-	_, userPrompt, err := g.buildAlignmentPrompts(context.Background(), g.GetVision(), "the subject", "the context")
+	_, userPrompt, err := g.buildAlignmentPrompts(context.Background(), g.GetVision(), "the subject", "the context", "", "")
 	if err != nil {
 		t.Fatalf("buildAlignmentPrompts: %v", err)
 	}

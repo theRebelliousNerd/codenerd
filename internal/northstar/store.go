@@ -139,6 +139,13 @@ func (s *Store) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_checks_timestamp ON alignment_checks(timestamp);
 	CREATE INDEX IF NOT EXISTS idx_checks_result ON alignment_checks(result);
 
+	-- Coverage is separate so opening an existing database upgrades it without
+	-- rewriting historical checks or inventing their scope.
+	CREATE TABLE IF NOT EXISTS alignment_coverage (
+		check_id TEXT PRIMARY KEY REFERENCES alignment_checks(id),
+		coverage_json TEXT NOT NULL
+	);
+
 	-- Drift events table
 	CREATE TABLE IF NOT EXISTS drift_events (
 		id TEXT PRIMARY KEY,
@@ -511,6 +518,16 @@ func (s *Store) RecordAlignmentCheck(check *AlignmentCheck) error {
 		return fmt.Errorf("failed to record alignment check: %w", err)
 	}
 
+	if check.Coverage != nil {
+		coverageJSON, err := marshalJSONString("alignment coverage", check.Coverage)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec("INSERT INTO alignment_coverage (check_id, coverage_json) VALUES (?, ?)", check.ID, coverageJSON); err != nil {
+			return fmt.Errorf("record alignment coverage: %w", err)
+		}
+	}
+
 	// Update guardian state. Only an actual verdict moves the running
 	// alignment average: a skipped or unknown check has no score, and folding
 	// its placeholder in would drift the average toward whatever constant the
@@ -553,10 +570,11 @@ func (s *Store) GetAlignmentHistory(limit int) ([]AlignmentCheck, error) {
 	defer s.mu.RUnlock()
 
 	rows, err := s.db.Query(`
-		SELECT id, timestamp, trigger, subject, context, result, score,
-			explanation, suggestions_json, duration_ms
-		FROM alignment_checks
-		ORDER BY timestamp DESC
+		SELECT c.id, c.timestamp, c.trigger, c.subject, c.context, c.result, c.score,
+			c.explanation, c.suggestions_json, c.duration_ms, s.coverage_json
+		FROM alignment_checks c
+		LEFT JOIN alignment_coverage s ON s.check_id = c.id
+		ORDER BY c.timestamp DESC
 		LIMIT ?
 	`, limit)
 	if err != nil {
@@ -568,16 +586,19 @@ func (s *Store) GetAlignmentHistory(limit int) ([]AlignmentCheck, error) {
 	for rows.Next() {
 		var check AlignmentCheck
 		var context, explanation sql.NullString
-		var suggestionsJSON sql.NullString
+		var suggestionsJSON, coverageJSON sql.NullString
 		var durationMs int64
 		if err := rows.Scan(&check.ID, &check.Timestamp, &check.Trigger, &check.Subject,
-			&context, &check.Result, &check.Score, &explanation, &suggestionsJSON, &durationMs); err != nil {
+			&context, &check.Result, &check.Score, &explanation, &suggestionsJSON, &durationMs, &coverageJSON); err != nil {
 			return nil, fmt.Errorf("scan alignment check: %w", err)
 		}
 		check.Context = context.String
 		check.Explanation = explanation.String
 		check.Duration = time.Duration(durationMs) * time.Millisecond
 		if err := unmarshalJSONField("alignment suggestions", suggestionsJSON, &check.Suggestions); err != nil {
+			return nil, err
+		}
+		if err := unmarshalJSONField("alignment coverage", coverageJSON, &check.Coverage); err != nil {
 			return nil, err
 		}
 		checks = append(checks, check)

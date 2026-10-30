@@ -10,6 +10,45 @@ lists was traced; each is kept below with what the code does today.
 
 ## Wired and reachable
 
+### Guardian module scope
+
+Source wiring is authored; executable verification is pending.
+`internal/campaign/northstar_scope.go` collects campaign and phase task paths
+without interpreting their prose goals. Explicit write sets are planned writes,
+source material is contextual, and artifact declarations retain their artifact
+role. `risk_scoring.go` passes the whole campaign scope to `StartCampaign`;
+`orchestrator_phases.go` passes phase scope to `OnPhaseStart` after releasing its
+campaign lock. Optional gate selection and the existing unknown/inconclusive risk
+mapping remain the policy authority.
+
+`spawnTask` in `orchestrator_task_handlers.go` preserves executor-observed
+`Changed`/`Writes` identities on the executing task. `runSingleTask` resets that
+transient scope for each attempt. `completeTask` passes it with planned writes
+and artifact declarations through the observer's periodic/high-impact branches;
+only observed effects are recorded as file modifications. Checks remain advisory
+at this boundary. `RecurseAttemptCampaign` copies the node's paths into its task
+write set; both CLI and chat already use this constructor, including fix and all
+four policy-selected improvement angles.
+
+The Guardian can reuse its start assessment for a first phase only when the
+phase's scope is covered and the current vision/module content matches. Expanded
+scope, changed context or unassessed start coverage requires an enabled phase
+check. No new general assessment cache or task-admission controller is introduced.
+See `Docs/architecture/northstar/IMPLEMENTED_SPEC.md`, sections 6.3–7.1, for the
+path, completeness and history contract. Unknown module scope still runs the
+project-level alignment check and preserves its verdict. Coverage retains the
+unknown scope and reason; it cannot support first-phase reuse. Module context
+is added only for resolved modules. An aligned check does not establish task
+acceptance.
+
+`internal/campaign/northstar_scope_test.go` contains final-request capture
+regressions through the risk gate, real-kernel purpose inheritance, the shared
+recurse constructor, `startNextPhase`, and `spawnTask` → `completeTask`. These
+regressions and the North Star package suite were not run in this authoring pass.
+A bounded request-budget policy and selective coherent snapshots remain design
+work; current transport sends full context and provider failures remain unknown.
+
+
 - **Planning runs on the planner tier (as built 2026-10-27).**
   `OrchestratorConfig.PlanningLLMClient` is required and serves decomposition
   (with document taxonomy and requirement extraction), replanning, rolling-wave

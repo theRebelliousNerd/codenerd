@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,10 +21,11 @@ type CampaignObserver struct {
 	closeOnce sync.Once
 
 	// Campaign state
-	campaignID   string
-	currentPhase string
-	tasksInPhase int
-	phaseChecks  map[string]*AlignmentCheck
+	campaignID    string
+	currentPhase  string
+	tasksInPhase  int
+	phaseChecks   map[string]*AlignmentCheck
+	startCoverage *AlignmentCoverage
 
 	// Configuration
 	checkOnPhaseTransition bool
@@ -57,44 +60,55 @@ func NewCampaignObserver(guardian *Guardian) *CampaignObserver {
 // blocked, which collapsed "unassessed" and "failed" into "passed".
 //
 // With no vision defined the check is the guardian's skipped result.
-func (o *CampaignObserver) StartCampaign(ctx context.Context, campaignID, goal string) (*AlignmentCheck, error) {
+func (o *CampaignObserver) StartCampaign(ctx context.Context, campaignID, goal string, scope AlignmentScope) (*AlignmentCheck, error) {
 	o.mu.Lock()
 	o.campaignID = campaignID
 	o.currentPhase = ""
 	o.tasksInPhase = 0
 	o.phaseChecks = make(map[string]*AlignmentCheck)
+	o.startCoverage = nil
 	o.mu.Unlock()
 
 	check, err := o.guardian.CheckAlignment(ctx, TriggerCampaignStart, goal,
-		fmt.Sprintf("Campaign %s starting with goal: %s", campaignID, goal))
+		fmt.Sprintf("Campaign %s starting with goal: %s", campaignID, goal), scope)
 	if err != nil {
 		return nil, fmt.Errorf("campaign start alignment check: %w", err)
 	}
+
+	o.mu.Lock()
+	if check.Result.Assessed() {
+		o.startCoverage = cloneAlignmentCoverage(check.Coverage)
+	}
+	o.mu.Unlock()
 
 	logging.Get(logging.CategoryNorthstar).Info("Campaign observer started for %s (alignment %s)", campaignID, check.Result)
 	return check, nil
 }
 
 // OnPhaseStart is called when a new campaign phase begins.
-func (o *CampaignObserver) OnPhaseStart(ctx context.Context, phaseName, phaseGoal string) (*AlignmentCheck, error) {
+func (o *CampaignObserver) OnPhaseStart(ctx context.Context, phaseName, phaseGoal string, scope AlignmentScope) (*AlignmentCheck, error) {
 	o.mu.Lock()
 	previousPhase := o.currentPhase
+	startCoverage := o.startCoverage
 	o.currentPhase = phaseName
 	o.tasksInPhase = 0
 	o.mu.Unlock()
-
-	// Skip check for first phase (already checked at campaign start)
-	if previousPhase == "" {
-		return nil, nil
-	}
 
 	if !o.checkOnPhaseTransition || !o.guardian.HasVision() {
 		return nil, nil
 	}
 
+	// Only reuse campaign-start coverage for a first phase it actually covered.
+	if previousPhase == "" && coverageContainsScope(startCoverage, scope) {
+		current, _ := o.guardian.resolveAlignmentScope(scope, o.guardian.GetVision())
+		if current.Complete && current.VisionDigest == startCoverage.VisionDigest && current.ModuleDigest == startCoverage.ModuleDigest {
+			return nil, nil
+		}
+	}
+
 	// Perform phase gate check
 	check, err := o.guardian.CheckAlignment(ctx, TriggerPhaseGate, phaseGoal,
-		fmt.Sprintf("Phase transition: %s -> %s", previousPhase, phaseName))
+		fmt.Sprintf("Phase transition: %s -> %s", previousPhase, phaseName), scope)
 	if err != nil {
 		return nil, err
 	}
@@ -132,11 +146,12 @@ func (o *CampaignObserver) OnPhaseComplete(ctx context.Context, phaseName string
 }
 
 // OnTaskComplete is called when a campaign task completes.
-func (o *CampaignObserver) OnTaskComplete(ctx context.Context, taskID, taskDesc, result string, filePaths []string) (*AlignmentCheck, error) {
+func (o *CampaignObserver) OnTaskComplete(ctx context.Context, taskID, taskDesc, result string, scope AlignmentScope) (*AlignmentCheck, error) {
 	o.mu.Lock()
 	o.tasksInPhase++
 	tasksInPhase := o.tasksInPhase
 	phase := o.currentPhase
+	campaignID := o.campaignID
 	o.mu.Unlock()
 
 	taskSubject := taskDesc
@@ -145,13 +160,20 @@ func (o *CampaignObserver) OnTaskComplete(ctx context.Context, taskID, taskDesc,
 	}
 
 	// Record observation
-	if err := o.guardian.ObserveTaskCompletion(o.campaignID, "campaign_task", taskSubject, result); err != nil {
+	if err := o.guardian.ObserveTaskCompletion(campaignID, "campaign_task", taskSubject, result); err != nil {
 		logging.Get(logging.CategoryNorthstar).Debug("Failed to record campaign task observation: %v", err)
 	}
 
-	// Record file changes
-	for _, path := range filePaths {
-		if err := o.guardian.ObserveFileChange(o.campaignID, path, "modified"); err != nil {
+	// Only observed effects are recorded as modifications. Artifact paths may
+	// still trigger an advisory check, but are labelled as artifacts in it.
+	normalized, _ := normalizeAlignmentScope(scope)
+	filePaths := make([]string, 0, len(normalized.Paths))
+	for _, entry := range normalized.Paths {
+		filePaths = append(filePaths, entry.Path)
+		if entry.Role != PathObservedEffect {
+			continue
+		}
+		if err := o.guardian.ObserveFileChange(campaignID, entry.Path, "modified"); err != nil {
 			logging.Get(logging.CategoryNorthstar).Debug("Failed to record campaign file change: %v", err)
 		}
 	}
@@ -159,7 +181,7 @@ func (o *CampaignObserver) OnTaskComplete(ctx context.Context, taskID, taskDesc,
 	// Check if periodic check is due
 	if tasksInPhase > 0 && tasksInPhase%o.checkEveryNTasks == 0 && o.guardian.HasVision() {
 		check, err := o.guardian.CheckAlignment(ctx, TriggerTaskComplete, taskSubject,
-			fmt.Sprintf("After %d tasks in phase %s (task_id=%s)", tasksInPhase, phase, taskID))
+			fmt.Sprintf("After %d tasks in phase %s (task_id=%s)", tasksInPhase, phase, taskID), scope)
 		if err != nil {
 			return nil, err
 		}
@@ -169,7 +191,7 @@ func (o *CampaignObserver) OnTaskComplete(ctx context.Context, taskID, taskDesc,
 	// Check for high-impact changes
 	if o.guardian.ShouldCheckNow(TriggerHighImpact, filePaths) {
 		check, err := o.guardian.CheckAlignment(ctx, TriggerHighImpact, taskSubject,
-			fmt.Sprintf("High-impact files modified after task %s: %v", taskID, filePaths))
+			fmt.Sprintf("High-impact scope after task %s: %v", taskID, filePaths), scope)
 		return check, err
 	}
 
@@ -304,9 +326,31 @@ func (h *BackgroundEventHandler) HandleEvent(ctx context.Context, eventType, sou
 	}
 
 	// Perform alignment check
-	check, err := h.guardian.CheckAlignment(ctx, trigger, subject, contextStr)
+	scope := AlignmentScope{Disposition: ScopeUnresolved}
+	if h.guardian.store != nil {
+		scope.Workspace = filepath.Dir(filepath.Dir(h.guardian.store.Path()))
+	}
+	if eventType == "file_modified" && target != "" {
+		scope.Disposition = ScopePaths
+		scope.Paths = []AlignmentPath{{Path: target, Role: PathObservedEffect}}
+	}
+	check, err := h.guardian.CheckAlignment(ctx, trigger, subject, contextStr, scope)
 	if err != nil {
 		return nil, err
+	}
+
+	metadata := map[string]string{"trigger": string(trigger), "result": string(check.Result)}
+	if c := check.Coverage; c != nil {
+		metadata["workspace"] = c.Scope.Workspace
+		metadata["scope"] = string(c.Scope.Disposition)
+		metadata["scope_outcome"] = string(c.Outcome)
+		metadata["scope_reason"] = strings.Join(c.Issues, "; ")
+		metadata["scope_complete"] = strconv.FormatBool(c.Complete)
+		metadata["selected_modules"] = strconv.Itoa(len(c.Modules))
+		metadata["unmatched_paths"] = strconv.Itoa(len(c.UnmatchedPaths))
+		metadata["scope_issues"] = strconv.Itoa(len(c.Issues))
+		metadata["vision_digest"] = c.VisionDigest
+		metadata["module_digest"] = c.ModuleDigest
 	}
 
 	// Convert to ObserverAssessment
@@ -318,7 +362,7 @@ func (h *BackgroundEventHandler) HandleEvent(ctx context.Context, eventType, sou
 		VisionMatch:  check.Explanation,
 		Deviations:   []string{}, // Not tracked separately
 		Suggestions:  check.Suggestions,
-		Metadata:     map[string]string{"trigger": string(trigger), "result": string(check.Result)},
+		Metadata:     metadata,
 		Timestamp:    check.Timestamp,
 	}, nil
 }

@@ -438,7 +438,7 @@ func (m *Model) runAlignmentCheck(subject string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		check, err := guardian.CheckAlignment(ctx, northstar.TriggerManual, subject, contextStr)
+		check, err := guardian.CheckAlignment(ctx, northstar.TriggerManual, subject, contextStr, northstar.ManualAlignmentScope(m.workspace, subject))
 		if err != nil {
 			return alignmentCheckMsg{
 				Subject: subject,

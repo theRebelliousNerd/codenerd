@@ -709,13 +709,13 @@ func (o *Orchestrator) runNorthstarRiskGate(ctx context.Context) (RiskGateResult
 		res.Reason = "northstar observer not configured"
 		return res, nil
 	}
-	check, err := o.northstarObserver.StartCampaign(ctx, o.campaign.ID, o.campaign.Goal)
+	check, err := o.northstarObserver.StartCampaign(ctx, o.campaign.ID, o.campaign.Goal, campaignAlignmentScope(o.workspace, o.campaign))
 	if err != nil || check == nil {
 		res.Outcome = RiskGateOutcomeInconclusive
 		res.Reason = fmt.Sprintf("northstar alignment not assessed: %v", err)
 		return res, nil
 	}
-	res.Data = map[string]any{"result": string(check.Result), "check_id": check.ID}
+	res.Data = map[string]any{"result": string(check.Result), "check_id": check.ID, "coverage": check.Coverage}
 	if check.Result.Assessed() {
 		res.Data["score"] = check.Score
 	}

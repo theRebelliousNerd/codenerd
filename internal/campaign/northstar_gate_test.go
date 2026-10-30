@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"codenerd/internal/northstar"
@@ -14,14 +15,15 @@ func (a alignmentLLM) CompleteWithSystem(context.Context, string, string) (strin
 	return a.response, nil
 }
 
-func northstarGateObserver(t *testing.T, withVision bool, llm northstar.LLMClient) *northstar.CampaignObserver {
+func northstarGateObserver(t *testing.T, workspace string, withVision bool, llm northstar.LLMClient) *northstar.CampaignObserver {
 	t.Helper()
-	store, err := northstar.NewStore(t.TempDir())
+	store, err := northstar.NewStore(filepath.Join(workspace, ".nerd"))
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	guardian := northstar.NewGuardian(store, northstar.DefaultGuardianConfig())
+	guardian.SetQuerier(&alignmentSnapshot{})
 	if err := guardian.Initialize(); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -57,9 +59,11 @@ func TestRunNorthstarRiskGate_MapsEveryAlignmentResult(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			workspace := t.TempDir()
 			o := &Orchestrator{
+				workspace:         workspace,
 				campaign:          riskContractCampaign("/campaign_ns_gate", "internal/widgets/thing.go"),
-				northstarObserver: northstarGateObserver(t, tc.withVision, tc.llm),
+				northstarObserver: northstarGateObserver(t, workspace, tc.withVision, tc.llm),
 			}
 			res, concerns := o.runNorthstarRiskGate(context.Background())
 			if res.Outcome != tc.wantOutcome {

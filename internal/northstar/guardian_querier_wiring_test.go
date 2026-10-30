@@ -1,6 +1,7 @@
 package northstar
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -131,14 +132,11 @@ func TestGuardian_QuerierWiringMakesAlignmentPromptDifference(t *testing.T) {
 		},
 	}
 
-	// Guardian without querier produces prompt without module purpose.
+	// A scoped assessment without a querier is explicitly incomplete.
 	gWithout := NewGuardian(store, DefaultGuardianConfig())
-	_, promptWithout := alignmentPrompts(t, gWithout, vision, "internal/session/executor.go")
-	if strings.Contains(promptWithout, "Session module purpose") {
-		t.Fatalf("without querier, prompt should not contain module purpose; got:\n%s", promptWithout)
-	}
-	if strings.Contains(promptWithout, "REQ-1") {
-		t.Fatalf("without querier, prompt should not contain module requirements")
+	coverage, _ := gWithout.resolveAlignmentScope(ManualAlignmentScope(filepath.Dir(filepath.Dir(store.Path())), "internal/session/executor.go"), vision)
+	if coverage.Complete || len(coverage.Issues) == 0 {
+		t.Fatalf("missing querier concealed: %+v", coverage)
 	}
 
 	// Same guardian shape with querier set produces prompt containing governing module's purpose.
@@ -155,8 +153,16 @@ func TestGuardian_QuerierWiringMakesAlignmentPromptDifference(t *testing.T) {
 		t.Fatalf("module requirements should be included when querier is wired; got:\n%s", promptWith)
 	}
 
-	// Proves wiring is what makes the difference: identical vision+subject, only querier differs.
-	if promptWithout == promptWith {
-		t.Fatal("prompts should differ exactly when querier wiring is present vs absent")
+}
+
+func (q *querierKernel) QueryAll() (map[string][]types.Fact, error) {
+	out := map[string][]types.Fact{}
+	for _, pred := range []string{"module_northstar", "effective_module_purpose", "module_requirement"} {
+		facts, err := q.Query(pred)
+		if err != nil {
+			return nil, err
+		}
+		out[pred] = facts
 	}
+	return out, nil
 }
