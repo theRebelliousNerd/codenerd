@@ -210,13 +210,6 @@ phase_blocked(PhaseID, /unverified_tasks) :-
 # 3.2 Code Quality Gates
 # -----------------------------------------------------------------------------
 
-# Quality violation patterns (detected by shards)
-quality_violation_detected(TaskID, /no_error_handling) :-
-    campaign_task(TaskID, _, _, /completed, /file_create),
-    quality_violation(TaskID, /missing_errors),
-    task_artifact(TaskID, /source_file, Path, _),
-    file_topology(Path, _, /go, _, _).
-
 quality_violation_detected(TaskID, /no_tests) :-
     campaign_task(TaskID, _, _, /completed, /file_create),
     task_artifact(TaskID, /source_file, Path, _),
@@ -228,15 +221,7 @@ task_needs_remediation(TaskID) :-
 
 # Auto-spawn remediation task
 remediation_task_needed(TaskID, ViolationType) :-
-    quality_violation_detected(TaskID, ViolationType),
-    !remediation_task_exists(TaskID, ViolationType).
-
-# Helper to check if remediation already spawned
-# Note: ViolationType bound via task_remediation_target which tracks what we're fixing
-remediation_task_exists(OriginalTaskID, ViolationType) :-
-    campaign_task(RemediationID, _, _, _, /fix),
-    task_dependency(RemediationID, OriginalTaskID),
-    task_remediation_target(RemediationID, OriginalTaskID, ViolationType).
+    quality_violation_detected(TaskID, ViolationType).
 
 # -----------------------------------------------------------------------------
 # 3.3 Build & Test Gates
@@ -275,27 +260,6 @@ phase_blocked(PhaseID, /tests_failed) :-
 # -----------------------------------------------------------------------------
 # 4.1 Context Pressure Detection
 # -----------------------------------------------------------------------------
-
-# Context is under pressure (> 80% utilized)
-# NOTE: Mangle can't do percentage calculations; Go computes via virtual predicate
-context_pressure_high(CampaignID) :-
-    context_pressure_level(CampaignID, /high).
-
-# Context is critical (> 95% utilized)
-# NOTE: Mangle can't do percentage calculations; Go computes via virtual predicate
-context_pressure_critical(CampaignID) :-
-    context_pressure_level(CampaignID, /critical).
-
-# Trigger compression when pressure is high (but not critical)
-next_action(/compress_context) :-
-    current_campaign(CampaignID),
-    !context_pressure_critical(CampaignID),
-    context_pressure_high(CampaignID).
-
-# Emergency compression when critical
-next_action(/emergency_compress) :-
-    current_campaign(CampaignID),
-    context_pressure_critical(CampaignID).
 
 # -----------------------------------------------------------------------------
 # 4.2 Phase Context Isolation
@@ -352,13 +316,6 @@ activation(Summary, 80) :-
 # 5.1 Success Pattern Detection
 # -----------------------------------------------------------------------------
 
-# Phase completed quickly (success pattern)
-phase_completed_fast(PhaseID) :-
-    phase_estimate(PhaseID, EstTasks, _),
-    EstTasks > 0,
-    campaign_phase(PhaseID, _, _, _, /completed, _),
-    campaign_milestone(_, PhaseID, _, CompletedAt).
-
 # Phase had no failures (success pattern)
 phase_zero_failures(PhaseID) :-
     campaign_phase(PhaseID, _, _, _, /completed, _),
@@ -408,11 +365,6 @@ learning_signal(/avoid_pattern, ErrorType) :-
 # -----------------------------------------------------------------------------
 # 5.3 Shard Performance in Campaigns
 # -----------------------------------------------------------------------------
-
-# Count shard failures per type
-shard_failure_count(ShardType, Count) :-
-    campaign_shard(_, _, ShardType, _, /failed)
-    |> do fn:group_by(ShardType), let Count = fn:count().
 
 # The reliability rules that stood here (shard_campaign_success, _failure,
 # _reliable, shard_has_many_failures) fed one consumer, a delegate_task that
@@ -543,13 +495,6 @@ phase_nearly_complete(PhaseID) :-
     campaign_phase(PhaseID, _, _, _, /in_progress, _),
     all_phase_tasks_complete(PhaseID).
 
-# Campaign is past halfway point
-# NOTE: Mangle can't do percentage math; use virtual predicate
-campaign_past_halfway(CampaignID) :-
-    campaign_progress(CampaignID, Completed, Total, _, _),
-    Total > 0,
-    campaign_progress_over_50(CampaignID).
-
 # -----------------------------------------------------------------------------
 # 7.2 Milestone Detection
 # -----------------------------------------------------------------------------
@@ -561,10 +506,6 @@ milestone_reached(CampaignID, /foundation) :-
 # All phases complete = "completion" milestone
 milestone_reached(CampaignID, /completion) :-
     campaign_complete(CampaignID).
-
-# Halfway milestone
-milestone_reached(CampaignID, /halfway) :-
-    campaign_past_halfway(CampaignID).
 
 # Integration phase complete = "integrated" milestone
 milestone_reached(CampaignID, /integrated) :-
@@ -796,8 +737,7 @@ any_phase_stuck(/yes) :-
 campaign_healthy(CampaignID) :-
     current_campaign(CampaignID),
     !campaign_is_blocked(CampaignID),
-    !any_phase_stuck(/yes),
-    !context_pressure_critical(CampaignID).
+    !any_phase_stuck(/yes).
 
 # Campaign has issues
 campaign_has_issues(CampaignID) :-

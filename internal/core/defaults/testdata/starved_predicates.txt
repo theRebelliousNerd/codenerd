@@ -24,23 +24,18 @@ armory_tool
 attack_vector
 bug_history  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 campaign_active
-campaign_milestone  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
-campaign_progress_over_50  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
 campaign_prompt_policy
-campaign_shard  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
 chaos_safety_violation
 checkpoint_needed
 code_accepted
 code_implements  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 coder_rejection_count
-context_pressure_level  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
 coverage_goal
 coverage_metric
 current_user  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
 derived_rule
 detected_security_flow
 dialog_policy
-doc_reference  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
 element_action
 element_hydration
 failure_count_by_file
@@ -65,7 +60,6 @@ page_hydrated
 pass_count
 patch_tested
 proposed_rule
-quality_violation  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
 reachability_query  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 rejection
 rejection_count
@@ -91,13 +85,11 @@ target_contains_multiple_files
 target_is_complex
 target_is_large
 target_word_count
-task_remediation_target  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
 test_package
 test_passed
 test_scope  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 tester_task
 thunderdome_battle
-tool_in_list  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
 tool_language
 type_embeds  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 unhandled_case_count_computed

@@ -198,16 +198,9 @@ delegate_task(/tester, Description, /pending) :-
 # Campaign-Aware Tool Permissions
 # =============================================================================
 
-# During campaigns, only permit tools in the phase's context profile
-phase_tool_permitted(Tool) :-
-    current_phase(PhaseID),
-    campaign_phase(PhaseID, _, _, _, _, ContextProfile),
-    context_profile(ContextProfile, _, RequiredTools, _),
-    tool_in_list(Tool, RequiredTools).
-
-# Block tools not in phase profile during active campaign
-tool_advisory_block(Tool, "not_in_phase_profile") :-
-    current_campaign(_),
-    current_phase(_),
-    tool_capabilities(Tool, _),
-    !phase_tool_permitted(Tool).
+# REMOVED: tool_advisory_block ("not in the phase profile"). Its premise was
+# !phase_tool_permitted, and phase_tool_permitted needed tool_in_list, which
+# nothing produces: the advisory fired for every tool in every campaign phase
+# and nothing read it. Mangle can test list membership itself
+# (:list:member(Tool, RequiredTools)) if a phase tool filter is wanted: read
+# context_profile's tool list and have a consumer.

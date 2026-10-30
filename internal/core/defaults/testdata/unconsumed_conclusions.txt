@@ -59,7 +59,6 @@ unconsumed campaign_has_multiple_phases
 unconsumed campaign_has_tasks
 unconsumed campaign_healthy
 unconsumed campaign_is_blocked
-unconsumed campaign_past_halfway
 unconsumed campaign_phase_count
 unconsumed campaign_requires_build
 unconsumed campaign_requires_tests
@@ -313,7 +312,6 @@ unconsumed persona
 unconsumed phase_block_reason
 unconsumed phase_blocked
 unconsumed phase_build_failed
-unconsumed phase_completed_fast
 unconsumed phase_context_stale
 unconsumed phase_failed_task_count
 unconsumed phase_failure_cascade
@@ -322,7 +320,6 @@ unconsumed phase_nearly_complete
 unconsumed phase_partial_complete
 unconsumed phase_requires_build_pass
 unconsumed phase_tests_failed
-unconsumed phase_tool_permitted
 unconsumed phase_waiting_for_retry
 unconsumed plan_can_autostart
 unconsumed potential_panic
@@ -351,7 +348,6 @@ unconsumed regression_battery_refused
 unconsumed regression_task_forbidden
 unconsumed related_context
 unconsumed related_failures
-unconsumed remediation_task_exists
 unconsumed remediation_task_needed
 unconsumed repeated_violation_pattern
 unconsumed replan_needed
@@ -437,7 +433,6 @@ unconsumed test_priority
 unconsumed test_references_symbol
 unconsumed tester_action
 unconsumed too_many_params
-unconsumed tool_advisory_block
 unconsumed tool_available
 unconsumed tool_domain_relevance
 unconsumed tool_exec_last

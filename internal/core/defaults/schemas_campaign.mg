@@ -107,10 +107,6 @@ Decl task_order(TaskID, OrderIndex) bound [/string, /number].
 # task_dependency(TaskID, DependsOnTaskID)
 Decl task_dependency(TaskID, DependsOnTaskID) bound [/string, /string] inclusion [campaign_task_id(TaskID), campaign_task_id(DependsOnTaskID)].
 
-# task_remediation_target(RemediationTaskID, OriginalTaskID, ViolationType)
-# Tracks which task a remediation fix is targeting and what violation it addresses
-Decl task_remediation_target(RemediationTaskID, OriginalTaskID, ViolationType) bound [/string, /string, /name].
-
 # task_artifact(TaskID, ArtifactType, Path, Hash)
 # ArtifactType: /source_file, /test_file, /config, /shard_agent, /knowledge_base, /doc
 Decl task_artifact(TaskID, ArtifactType, Path, Hash) bound [/string, /name, /string, /string].
@@ -168,9 +164,6 @@ Decl task_error(TaskID, ErrorType, ErrorMessage) bound [/string, /name, /string]
 # FocusPatterns: glob patterns for files to activate (e.g., "internal/core/*")
 Decl context_profile(ProfileID, RequiredSchemas, RequiredTools, FocusPatterns) bound [/string, /string, /string, /string].
 
-# tool_in_list(Tool, ToolList) - helper predicate to check if tool is in comma-separated list
-Decl tool_in_list(Tool, ToolList) bound [/name, /string].
-
 # phase_context_atom(PhaseID, FactPredicate, ActivationBoost)
 # Specific facts that should be boosted for this phase
 Decl phase_context_atom(PhaseID, FactPredicate, ActivationBoost) bound [/string, /string, /number].
@@ -205,9 +198,6 @@ Decl phase_has_backoff_task(PhaseID) bound [/string].
 # CheckpointType: /tests, /build, /lint, /coverage, /manual, /integration
 Decl phase_checkpoint(PhaseID, CheckpointType, Passed, Details, Timestamp) bound [/string, /name, /name, /string, /number].
 
-# campaign_milestone(CampaignID, MilestoneID, Description, ReachedAt)
-Decl campaign_milestone(CampaignID, MilestoneID, Description, ReachedAt) bound [/string, /string, /string, /number].
-
 # campaign_learning(CampaignID, LearningType, Pattern, Fact, AppliedAt)
 # Tracks what the system learned during execution (autopoiesis)
 # LearningType: /success_pattern, /failure_pattern, /preference, /optimization
@@ -235,10 +225,6 @@ Decl plan_validation_issue(CampaignID, IssueType, Description) bound [/string, /
 # -----------------------------------------------------------------------------
 # 27.7 Campaign Shard Delegation
 # -----------------------------------------------------------------------------
-
-# campaign_shard(CampaignID, ShardID, ShardType, Task, Status)
-# Tracks shards spawned as part of campaign execution
-Decl campaign_shard(CampaignID, ShardID, ShardType, Task, Status) bound [/string, /string, /name, /string, /name].
 
 # campaign_intent_capture(CampaignID, Goal, ClarifierAnswers, AutonomyLevel, Constraints)
 # Captures the raw goal and clarifier responses used to launch a campaign
@@ -272,9 +258,6 @@ Decl goal_topic(CampaignID, Topic) bound [/string, /name].
 # the kernel as a name constant. selection_policy.mg joins Tag directly against
 # goal_topic's Topic, so the two must agree.
 Decl doc_tag(Path, Tag) bound [/string, /name].
-
-# doc_reference(FromPath, ToPath)
-Decl doc_reference(FromPath, ToPath) bound [/string, /string].
 
 # doc_layer(Path, Layer, Confidence) - architectural layer classification
 Decl doc_layer(Path, Layer, Confidence) bound [/string, /name, /number].

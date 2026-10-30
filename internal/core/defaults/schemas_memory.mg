@@ -155,15 +155,6 @@ Decl unhandled_case_count_computed(ShardName, Count) bound [/string, /number].
 # Aggregation computed by Go runtime
 Decl pending_subtask_count_computed(Count) bound [/number].
 
-# context_pressure_level(CampaignID, Level) - Context utilization level
-# Level: /normal, /high (>80%), /critical (>95%)
-# Computed by Go based on context_window_state Used/Total ratio
-Decl context_pressure_level(CampaignID, Level) bound [/string, /name].
-
-# campaign_progress_over_50(CampaignID) - True when campaign > 50% complete
-# Computed by Go: (Completed / Total) >= 0.5
-Decl campaign_progress_over_50(CampaignID) bound [/string].
-
 # relevant_to_intent(Predicate, Intent) - Maps predicates to user intents
 Decl relevant_to_intent(Predicate, Intent) bound [/string, /name].
 

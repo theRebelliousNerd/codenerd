@@ -499,12 +499,6 @@ Decl has_passed_checkpoint(PhaseID, CheckType) bound [/string, /name].
 # phase_success_pattern(PhaseType) - tracks successful phase types for learning
 Decl phase_success_pattern(PhaseType) bound [/name].
 
-# phase_tool_permitted(Tool) - derived: tool is permitted in current phase profile
-Decl phase_tool_permitted(Tool) bound [/name].
-
-# tool_advisory_block(Tool, Reason) - advisory: tool not in phase profile
-Decl tool_advisory_block(Tool, Reason) bound [/name, /string].
-
 # =============================================================================
 # SECTION 33: SYSTEM SHARD COORDINATION
 # =============================================================================

@@ -469,14 +469,10 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// intelligence_* facts.
 				"shard_profile",
 				"shard_performing_well",
-				"campaign_milestone",
-				"campaign_progress_over_50",
+
 				"context_pressure_high",
 				"context_pressure_critical",
-				"task_remediation_target",
-				"quality_violation",
-				"doc_reference",
-				"tool_in_list",
+
 				"intelligence_world_fact",
 				"intelligence_churn_hotspot",
 				"intelligence_learning_pattern",
@@ -491,12 +487,11 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"intelligence_missing_tests",
 				"intelligence_high_priority_file",
 
-				"context_pressure_level",
 				"knowledge_ingested",
 				// Traces are scored against the campaign task that produced
 				// them (trace_logic.mg, campaign_autopoiesis.mg).
 				"reasoning_trace",
-				"campaign_shard",
+
 				"session_state", "shard_error",
 			},
 		},
