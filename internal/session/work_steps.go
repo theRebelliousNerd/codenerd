@@ -997,14 +997,11 @@ func (e *Executor) runPlannedSteps(
 	history := append(e.priorTurnMessages(),
 		types.Message{Role: "user", Text: task},
 		types.Message{Role: "assistant", Text: last.Text})
-	// The repairs run on the turn's prompt plus the consultations steps
-	// bought that policy deals to them (repairCards).
-	repairPrompt := systemPrompt
-	if section := e.repairCards(result); section != "" {
-		repairPrompt = strings.TrimRight(systemPrompt, "\n") + section
-	}
+	// Each repair adds the consultations steps bought that policy deals to
+	// it, scoped by its own subject (repairCards, from repairLoop and
+	// adviseEpisode).
 	verified, verifyErrs, verifyErr := e.verifyCompletedToolTurn(
-		gateCtx, trp, repairPrompt, history, last, e.buildToolDefinitions(cfg), cfg, result)
+		gateCtx, trp, systemPrompt, history, last, e.buildToolDefinitions(cfg), cfg, result)
 	toolErrs = append(toolErrs, verifyErrs...)
 	verdict, missing, outcomeErr := e.finalizedStepOutcome(turn, steps, result)
 	result.StepReport = workStepReport(steps, beyond)

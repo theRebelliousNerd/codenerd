@@ -208,6 +208,11 @@ func (e *Executor) repairLoop(
 	spec repairSpec,
 ) (*types.LLMToolResponse, []string, *RepairRecord, error) {
 	rec := &RepairRecord{Kind: spec.kind, InitialFailure: seedOutput}
+	// The consultations planned steps bought that policy deals this repair,
+	// scoped by the files its failure names.
+	if section := e.repairCards(result, seedOutput); section != "" {
+		systemPrompt = strings.TrimRight(systemPrompt, "\n") + section
+	}
 	episode := newRepairEpisodeAtom()
 	epCtx, cancelEpisode := repairEpisodeContext(ctx)
 	defer cancelEpisode()

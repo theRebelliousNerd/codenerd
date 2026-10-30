@@ -344,20 +344,24 @@ turn_handoff_unresolved(Turn, Card, Idx, To) :-
     turn_handoff_unplanned(Turn, Card, Idx, To),
     !turn_handoff_target_exists(Turn, To).
 
-# The final repair stage. After the planned steps the build and test repairs
-# run on the turn's own prompt, which carries the consultations bought before
-# the plan but none a step bought. A step-born answered lead goes to the
-# repair; a step-born adviser goes to it when the turn wrote one of the files
-# it was asked about, the files a repair edits.
-turn_repair_card_dealt(Turn, Card) :-
+# The repair stage. After the planned steps each repair (a build, test, vet,
+# coverage or pin repair, and each advisory round) runs on the turn's own
+# prompt, which carries the consultations bought before the plan but none a
+# step bought. Per repair: a step-born answered lead goes to it (a lead's plan
+# covers the work); a step-born adviser goes to it only when that repair's
+# subject names one of the files it was asked about. A repair whose subject
+# names none of the turn's files gets no adviser card, and says so.
+turn_repair_card_dealt(Turn, Repair, Card) :-
+    turn_repair(Turn, Repair),
     turn_card_step_born(Turn, Card),
     turn_expert_card(Turn, Card, _, /lead, /answered).
 
-turn_repair_card_dealt(Turn, Card) :-
+turn_repair_card_dealt(Turn, Repair, Card) :-
+    turn_repair(Turn, Repair),
     turn_card_step_born(Turn, Card),
     turn_expert_card(Turn, Card, _, /advise, /answered),
     turn_expert_card_file(Turn, Card, File),
-    turn_repair_file(Turn, File).
+    turn_repair_file(Turn, Repair, File).
 
 # Mandates. An expert's REQUIRE line is a proposal; it becomes an obligation
 # only when the user's registry grants that agent /mandate authority. An

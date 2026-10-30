@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"strings"
 
 	jitconfig "codenerd/internal/jit/config"
 	"codenerd/internal/logging"
@@ -43,6 +44,11 @@ func (e *Executor) adviseEpisode(
 	if activeWorkingLoop(ctx) == nil {
 		logging.Get(logging.CategorySession).Warn("%s: this turn has no working policy to end an advisory episode; the advice is not acted on", what)
 		return nil, nil
+	}
+	// The consultations planned steps bought that policy deals this round,
+	// scoped by the files its advice names.
+	if section := e.repairCards(result, prompt); section != "" {
+		systemPrompt = strings.TrimRight(systemPrompt, "\n") + section
 	}
 	workspace := e.workspaceForVerification()
 	snap := snapshotTurnFiles(workspace, result)

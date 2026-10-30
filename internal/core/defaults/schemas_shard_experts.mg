@@ -284,13 +284,19 @@ Decl turn_handoff_step(Turn, Card, Idx, To) bound [/name, /number, /number, /str
 # Producer: internal/session (Executor.repairCards).
 Decl turn_card_step_born(Turn, Card) bound [/name, /number].
 
-# turn_repair_file(Turn, File) - a file the turn wrote, the scope of its final
-# build and test repairs (canonical). Producer: as turn_card_step_born.
-Decl turn_repair_file(Turn, File) bound [/name, /string].
+# turn_repair_file(Turn, Repair, File) - a file the turn wrote that the
+# repair's subject (its failure output, or an advisory round's findings)
+# names: that repair's scope (canonical). Repair numbers the turn's repairs.
+# Producer: as turn_card_step_born.
+Decl turn_repair_file(Turn, Repair, File) bound [/name, /number, /string].
 
-# turn_repair_card_dealt(Turn, Card) - a step-born card the final repair
-# stage's prompt carries. Consumer: Executor.repairCards.
-Decl turn_repair_card_dealt(Turn, Card) bound [/name, /number].
+# turn_repair_card_dealt(Turn, Repair, Card) - a step-born card that repair's
+# prompt carries. Consumer: Executor.repairCards.
+Decl turn_repair_card_dealt(Turn, Repair, Card) bound [/name, /number, /number].
+
+# turn_repair(Turn, Repair) - a repair the turn ran that could carry cards.
+# Producer: as turn_card_step_born.
+Decl turn_repair(Turn, Repair) bound [/name, /number].
 
 # shard_agent_authority(Agent, Grant) - what the user's agent registry grants
 # the agent beyond advice (agents.json "authority"). Producer:

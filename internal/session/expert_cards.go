@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -398,23 +399,30 @@ func (e *Executor) dealtCards(result *ExecutionResult, file string) string {
 	return b.String()
 }
 
-// repairCards is the consultation section the final repair stage's prompt
-// adds to the turn's own: the cards planned steps bought after that prompt
-// was built which policy deals to the repair (turn_repair_card_dealt, scoped
-// by the files the turn wrote), and the turn's requirements when a step-born
-// card brought one. Empty when no step bought a card the repair needs.
+// repairCards is the consultation section one repair's prompt adds to the
+// turn's own: the cards planned steps bought after that prompt was built
+// which policy deals to this repair (turn_repair_card_dealt), and the turn's
+// requirements when a step-born card brought one. subject is what the repair
+// works on -- its failure output, or an advisory round's findings -- and its
+// scope is the written files it names (repairScope). Empty when no step
+// bought a card.
 //
-// Until 2026-10-30 the build and test repairs after the steps ran on the
-// turn's prompt alone, so advice a step bought for the file it edited was
-// absent when a repair edited the same file.
-func (e *Executor) repairCards(result *ExecutionResult) string {
+// Until 2026-10-30 the repairs after the steps ran on the turn's prompt
+// alone, so advice a step bought for the file it edited was absent when a
+// repair edited the same file; and the first cut dealt every repair the
+// cards of the turn's whole write set, so a test repair on one package was
+// handed advice about another.
+func (e *Executor) repairCards(result *ExecutionResult, subject string) string {
 	if e.kernel == nil || result == nil || result.promptCards >= len(result.expertCards) {
 		return ""
 	}
 	turn := result.turnAtom()
-	workspace := e.workspaceForVerification()
-	for _, p := range result.WrittenPaths {
-		e.assertTurnFact(types.Fact{Predicate: "turn_repair_file", Args: []any{turn, types.CanonicalPath(workspace, p)}})
+	result.repairs++
+	repair := int64(result.repairs)
+	e.assertTurnFact(types.Fact{Predicate: "turn_repair", Args: []any{turn, repair}})
+	scope := repairScope(e.workspaceForVerification(), result.WrittenPaths, subject)
+	for _, f := range scope {
+		e.assertTurnFact(types.Fact{Predicate: "turn_repair_file", Args: []any{turn, repair, f}})
 	}
 	mandated := false
 	for id := result.promptCards; id < len(result.expertCards); id++ {
@@ -423,32 +431,62 @@ func (e *Executor) repairCards(result *ExecutionResult) string {
 	}
 	rows, err := e.turnRows("turn_repair_card_dealt", turn)
 	if err != nil {
-		logging.Get(logging.CategorySession).Warn("dealing the steps' consultations to the final repair failed (%v); the repair runs on the turn's prompt", err)
+		logging.Get(logging.CategorySession).Warn("dealing the steps' consultations to repair %d failed (%v); it runs on the turn's prompt", repair, err)
 		return ""
 	}
 	dealt := map[int64]bool{}
 	for _, row := range rows {
-		if id, ok := numberArg(row, 1); ok {
+		r, okR := numberArg(row, 1)
+		id, okC := numberArg(row, 2)
+		if okR && okC && r == repair {
 			dealt[id] = true
 		}
 	}
-	var hand strings.Builder
+	var hand, withheld strings.Builder
 	var agents []string
 	for id := result.promptCards; id < len(result.expertCards); id++ {
-		if dealt[int64(id)] {
-			c := result.expertCards[id]
+		c := result.expertCards[id]
+		switch {
+		case dealt[int64(id)]:
 			hand.WriteString(c.render())
 			agents = append(agents, c.Agent)
+		case c.Disposition == cardAnswered && c.Mode == experts.SpawnAdvise:
+			fmt.Fprintf(&withheld, "  - %s advises %s, which this repair's subject does not name\n", c.Agent, strings.Join(c.Files, ", "))
 		}
 	}
 	section := ""
-	if hand.Len() > 0 {
-		logging.Session("Final repair stage carries step consultations: %v", agents)
+	if hand.Len() > 0 || withheld.Len() > 0 {
+		logging.Session("Repair %d (scope %v) carries step consultations: %v", repair, scope, agents)
 		section = "\n\n## Shard agent consultation bought by the planned steps\n" +
 			"These shard agents were consulted for files the steps edited; a repair to those files weighs them as the steps did.\n" + hand.String()
+		if withheld.Len() > 0 {
+			section += "\nNot dealt to this repair:\n" + withheld.String()
+		}
 	}
 	if mandated {
 		section += e.admittedMandates(result)
 	}
 	return section
+}
+
+// repairScope is the written files a repair's subject names: by path, by
+// file name followed by a position (a compiler's "b.go:12"), or by the
+// directory that holds it (a test run's "FAIL module/internal/b", a test
+// file beside it). A measurement of the text; which cards that scope
+// admits is policy's.
+func repairScope(workspace string, written []string, subject string) []string {
+	var scope []string
+	for _, p := range written {
+		canonical := types.CanonicalPath(workspace, p)
+		dir := path.Dir(canonical)
+		named := strings.Contains(subject, canonical) ||
+			strings.Contains(subject, path.Base(canonical)+":") ||
+			(dir != "." && strings.Contains(subject, dir+"/")) ||
+			(dir != "." && strings.Contains(subject, dir+"\n")) ||
+			(dir != "." && strings.HasSuffix(strings.TrimSpace(subject), dir))
+		if named && !slices.Contains(scope, canonical) {
+			scope = append(scope, canonical)
+		}
+	}
+	return scope
 }

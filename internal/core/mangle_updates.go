@@ -318,7 +318,7 @@ var hostWitnessPredicates = map[string]struct{}{
 	// requirement, or deal itself advice no expert gave.
 	"turn_expert_card": {}, "turn_expert_card_file": {}, "turn_card_handoff": {}, "turn_card_mandate": {},
 	"turn_plan_file": {}, "turn_step_file": {}, "turn_handoff_target_exists": {}, "shard_agent_authority": {},
-	"turn_card_step_born": {}, "turn_repair_file": {}, "turn_repair_card_dealt": {},
+	"turn_card_step_born": {}, "turn_repair_file": {}, "turn_repair_card_dealt": {}, "turn_repair": {},
 	"turn_mandate_admitted": {}, "turn_mandate_discharged": {}, "turn_mandate_unmet": {}, "turn_has_unmet_mandate": {},
 	// This turn's `go test -json` rows (session/turn_test_facts.go). A model
 	// that could write them could name a failure the gate did not run, or

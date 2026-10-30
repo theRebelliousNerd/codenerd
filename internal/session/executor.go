@@ -1075,7 +1075,9 @@ type ExecutionResult struct {
 	consultedExperts map[string]map[string]bool
 	// promptCards is how many of expertCards the turn's own system prompt
 	// carries; those after it were bought by planned steps (repairCards).
+	// repairs numbers the repairs that asked for their cards.
 	promptCards int
+	repairs     int
 	// expertDomainFiles are, per critiquing agent key, the task files its
 	// domain covers (experts.Need.Files): its review shows them first.
 	expertDomainFiles map[string][]string
