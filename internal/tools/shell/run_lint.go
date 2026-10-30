@@ -107,12 +107,16 @@ type LintResult struct {
 	Output string `json:"output,omitempty"`
 	// Reason says why nothing ran (unavailable, nothing_written).
 	Reason string `json:"reason,omitempty"`
-	// BuildTags are the build tags the gate ran with: the workspace build
-	// env's GOFLAGS and any -tags in the argv (codeNERD's own tree:
-	// sqlite_vec). Empty means an untagged run. The model reads it to know
-	// which build was checked -- in ladder run R1-27 it took a tagged vet
-	// for an untagged one and reported the tagged files unverified.
+	// BuildTags are the custom build tags the gate's invocation applied:
+	// GOFLAGS from the workspace build env, then the command line, each
+	// -tags replacing the set before it (effectiveBuildTags; codeNERD's own
+	// tree: sqlite_vec). Empty means no custom tags. The model reads it to
+	// know which build was checked -- in ladder run R1-27 it took a tagged
+	// vet for an untagged one and reported the tagged files unverified.
 	BuildTags []string `json:"build_tags"`
+	// BuildTagsUnresolved says why BuildTags could not be determined
+	// (golangci-lint with its own config file); BuildTags is then empty.
+	BuildTagsUnresolved string `json:"build_tags_unresolved,omitempty"`
 	// GoFlags is the GOFLAGS the gate ran under, "" for none.
 	GoFlags string `json:"goflags,omitempty"`
 }
@@ -122,7 +126,7 @@ type LintResult struct {
 func RunLintTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "run_lint",
-		Description: "Run a Go static gate -- go vet, staticcheck or golangci-lint -- over packages and return its findings as file, line, column, check and message. It runs under the workspace's build environment: its build tags (GOFLAGS, e.g. -tags=sqlite_vec on codeNERD's tree), CGO_CFLAGS and configured go_flags apply, and the result's build_tags names the tags it ran with",
+		Description: "Run a Go static gate -- go vet, staticcheck or golangci-lint -- over packages and return its findings as file, line, column, check and message. It runs under the workspace's build environment: its build tags (GOFLAGS, e.g. -tags=sqlite_vec on codeNERD's tree), CGO_CFLAGS and configured go_flags apply, and the result's build_tags names the custom tags the invocation applied (the command line's -tags replaces GOFLAGS'); build_tags_unresolved says when they could not be determined",
 		Category:    tools.CategoryCode,
 		AltCategories: []tools.ToolCategory{
 			tools.CategoryReview, tools.CategoryTest,
@@ -229,8 +233,9 @@ func executeRunLint(ctx context.Context, args map[string]any) (string, error) {
 		code = cmd.ProcessState.ExitCode()
 	}
 	goflags := envValue(env, "GOFLAGS")
+	tags, unresolved := effectiveBuildTags(gate.name, goflags, argv, dir, root)
 	result := LintResult{Gate: gate.name, Argv: argv, Directory: dir, Scope: scope, ExitCode: &code, Findings: []lintreport.Finding{},
-		BuildTags: buildTags(goflags, argv), GoFlags: goflags}
+		BuildTags: tags, BuildTagsUnresolved: unresolved, GoFlags: goflags}
 	if stopErr := verificationRunError(runCtx, runErr, code, gate.binary, seconds); stopErr != nil && code < 0 {
 		result.Status, result.ExitCode = LintFailed, nil
 		result.Output = strings.TrimSpace(stdout.String() + "\n" + stderr.String())
@@ -276,33 +281,4 @@ func envValue(env []string, key string) string {
 		}
 	}
 	return ""
-}
-
-// buildTags collects the build tags a run uses: -tags in GOFLAGS and in the
-// argv ("-tags=a,b" or "-tags a,b"), deduplicated in order.
-func buildTags(goflags string, argv []string) []string {
-	out := []string{}
-	seen := map[string]bool{}
-	add := func(list string) {
-		for _, t := range strings.FieldsFunc(list, func(r rune) bool { return r == ',' || r == ' ' }) {
-			if !seen[t] {
-				seen[t] = true
-				out = append(out, t)
-			}
-		}
-	}
-	scan := func(fields []string) {
-		for i, f := range fields {
-			switch {
-			case strings.HasPrefix(f, "-tags=") || strings.HasPrefix(f, "--tags="):
-				_, v, _ := strings.Cut(f, "=")
-				add(v)
-			case (f == "-tags" || f == "--tags") && i+1 < len(fields):
-				add(fields[i+1])
-			}
-		}
-	}
-	scan(strings.Fields(goflags))
-	scan(argv)
-	return out
 }
