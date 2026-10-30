@@ -2,6 +2,7 @@ package chat
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -200,24 +201,21 @@ func (m Model) handleRejectFindingCommand(input string, parts []string) (tea.Mod
 			})
 		} else {
 			file := location[:colonIdx]
-			lineStr := location[colonIdx+1:]
-			var line int
-			fmt.Sscanf(lineStr, "%d", &line)
-
-			// Use lastShardResult to get review ID (generate from turn number)
-			reviewID := "unknown"
-			if m.lastShardResult != nil && m.lastShardResult.ShardType == "reviewer" {
-				reviewID = fmt.Sprintf("review-%d-%d", m.lastShardResult.TurnNumber, m.lastShardResult.Timestamp.Unix())
+			line, lineErr := strconv.Atoi(location[colonIdx+1:])
+			reviewID, ok := m.currentReviewID()
+			switch {
+			case lineErr != nil || line <= 0:
+				m = m.addMessage(Message{Role: "assistant", Content: fmt.Sprintf("`%s` is not a line number. Use `<file>:<line>` (e.g., `kernel.go:42`)", location[colonIdx+1:]), Time: time.Now()})
+			case !ok:
+				m = m.addMessage(Message{Role: "assistant", Content: noReviewForFeedback, Time: time.Now()})
+			default:
+				m.shardMgr.RejectReviewFinding(reviewID, file, line, reason)
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("✓ Rejected finding at `%s:%d` of review `%s`\nReason: %s\n\nThe system will learn from this feedback to avoid similar false positives.", file, line, reviewID, reason),
+					Time:    time.Now(),
+				})
 			}
-
-			// Record the rejection
-			m.shardMgr.RejectReviewFinding(reviewID, file, line, reason)
-
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("✓ Rejected finding at `%s:%d`\nReason: %s\n\nThe system will learn from this feedback to avoid similar false positives.", file, line, reason),
-				Time:    time.Now(),
-			})
 		}
 	}
 	m.viewport.SetContent(m.renderHistory())
@@ -225,6 +223,25 @@ func (m Model) handleRejectFindingCommand(input string, parts []string) (tea.Mod
 	m.textarea.Reset()
 	return m, nil
 
+}
+
+// noReviewForFeedback is the reply to feedback with no review to apply it to.
+const noReviewForFeedback = "There is no review to apply this to: run `/review` first. Feedback is recorded against the review that produced the finding."
+
+// currentReviewID is the review the last result belongs to: the completed
+// review's own ID (a multi-shard review carries it in ExtraData), else the
+// alias of a single reviewer run (its turn and time). ok is false when the
+// last result is not a review, so feedback names no review rather than one
+// called "unknown" that every stray command would pile into.
+func (m Model) currentReviewID() (string, bool) {
+	r := m.lastShardResult
+	if r == nil || r.ShardType != "reviewer" {
+		return "", false
+	}
+	if id, _ := r.ExtraData["review_id"].(string); strings.TrimSpace(id) != "" {
+		return id, true
+	}
+	return fmt.Sprintf("review-%d-%d", r.TurnNumber, r.Timestamp.Unix()), true
 }
 
 // handleAcceptFindingCommand handles the corresponding chat slash-command.
@@ -250,24 +267,21 @@ func (m Model) handleAcceptFindingCommand(input string, parts []string) (tea.Mod
 			})
 		} else {
 			file := location[:colonIdx]
-			lineStr := location[colonIdx+1:]
-			var line int
-			fmt.Sscanf(lineStr, "%d", &line)
-
-			// Use lastShardResult to get review ID (generate from turn number)
-			reviewID := "unknown"
-			if m.lastShardResult != nil && m.lastShardResult.ShardType == "reviewer" {
-				reviewID = fmt.Sprintf("review-%d-%d", m.lastShardResult.TurnNumber, m.lastShardResult.Timestamp.Unix())
+			line, lineErr := strconv.Atoi(location[colonIdx+1:])
+			reviewID, ok := m.currentReviewID()
+			switch {
+			case lineErr != nil || line <= 0:
+				m = m.addMessage(Message{Role: "assistant", Content: fmt.Sprintf("`%s` is not a line number. Use `<file>:<line>` (e.g., `kernel.go:42`)", location[colonIdx+1:]), Time: time.Now()})
+			case !ok:
+				m = m.addMessage(Message{Role: "assistant", Content: noReviewForFeedback, Time: time.Now()})
+			default:
+				m.shardMgr.AcceptReviewFinding(reviewID, file, line)
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("✓ Accepted finding at `%s:%d` of review `%s`\n\nThis helps validate the reviewer's accuracy.", file, line, reviewID),
+					Time:    time.Now(),
+				})
 			}
-
-			// Record the acceptance
-			m.shardMgr.AcceptReviewFinding(reviewID, file, line)
-
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("✓ Accepted finding at `%s:%d`\n\nThis helps validate the reviewer's accuracy.", file, line),
-				Time:    time.Now(),
-			})
 		}
 	}
 	m.viewport.SetContent(m.renderHistory())

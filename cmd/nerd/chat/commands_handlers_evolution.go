@@ -241,11 +241,11 @@ func (m Model) handleCmdApprove(input string, parts []string) (tea.Model, tea.Cm
 // handleCmdReviewAccuracy handles the corresponding chat slash-command.
 func (m Model) handleCmdReviewAccuracy(input string, parts []string) (tea.Model, tea.Cmd) {
 	// Show accuracy report for the last review
-	reviewID := "unknown"
-	if m.lastShardResult != nil && m.lastShardResult.ShardType == "reviewer" {
-		reviewID = fmt.Sprintf("review-%d-%d", m.lastShardResult.TurnNumber, m.lastShardResult.Timestamp.Unix())
+	reviewID, ok := m.currentReviewID()
+	report := noReviewForFeedback
+	if ok {
+		report = m.shardMgr.GetReviewAccuracyReport(reviewID)
 	}
-	report := m.shardMgr.GetReviewAccuracyReport(reviewID)
 	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: fmt.Sprintf("## Review Accuracy Report\n\n%s", report),
