@@ -214,14 +214,18 @@ func (c *OpenAICompatClient) GroundedWebSearch(ctx context.Context, query string
 	if err != nil {
 		return nil, err
 	}
+	// A grounded search is a billed model turn like any other; it does not go
+	// through executeResponses (whose errors carry the body), so it reports
+	// its own usage -- before admission, so a run that is not admitted is
+	// still charged.
+	reportUsage(ctx, model, c.vendor, usageOpSearch, parsed.Usage.metadata())
+	if err := groundedTerminal(parsed, c.vendor, model, reqBody.MaxOutputTokens, c.apiKey); err != nil {
+		return nil, err
+	}
 	result, sources, err := groundedResultFromReply(c.vendor, parsed)
 	if err != nil {
 		return nil, err
 	}
-	// A grounded search is a billed model turn like any other; it does not go
-	// through executeResponses (whose errors carry the body), so it reports
-	// its own usage.
-	reportUsage(ctx, model, c.vendor, usageOpSearch, parsed.Usage.metadata())
 	c.recordGroundingSources(sources)
 	return result, nil
 }
@@ -336,6 +340,47 @@ func postGroundedSearch(ctx context.Context, e responsesEndpoint, reqBody respon
 		}
 	}
 	return &parsed, nil
+}
+
+// groundedTerminal admits a grounded-search run as an answer, or says why it
+// is not one, before any result or source is published. Until 2026-10-30
+// the Meta caller converted any reply with text, so an HTTP-200 run the
+// provider marked incomplete (max_output_tokens) became a successful search
+// whose prefix read as the whole answer. Shared by Meta and OpenAI, with the
+// search transport's sanitized posture: no vendor message, refusal text or
+// unsanitized token reaches the error.
+//   - completed, or no status (a provider that reports none): admitted;
+//   - an output-limit incomplete: the typed truncation error, so the broker
+//     restates the request instead of accepting a cut answer;
+//   - a refusal: the typed refused outcome, never rerouted as unavailability;
+//   - failed, cancelled, any other incomplete reason, or a status that is not
+//     terminal: an error naming only the sanitized status and reason.
+func groundedTerminal(reply *responsesReply, provider Provider, model string, limit int, apiKey string) error {
+	if reply == nil {
+		return fmt.Errorf("%s grounded search: no reply", provider)
+	}
+	if _, refused := responsesRefusal(reply); refused {
+		return &types.StreamError{Outcome: types.StreamRefused, Provider: string(provider), Model: model, Reason: "refusal", Detail: "grounded search declined by provider"}
+	}
+	status := strings.TrimSpace(reply.Status)
+	switch status {
+	case "", "completed":
+		return nil
+	case "incomplete":
+		reason := ""
+		if reply.IncompleteDetails != nil {
+			reason = reply.IncompleteDetails.Reason
+		}
+		if types.LengthStop(reason) {
+			produced := 0
+			if reply.Usage != nil {
+				produced = reply.Usage.outputTokens()
+			}
+			return outputTruncated(provider, model, "GroundedWebSearch", reason, responsesTextFromReply(reply), limit, produced)
+		}
+		return fmt.Errorf("%s grounded search: run incomplete (reason=%s)", provider, sanitizeGroundedErrorToken(reason, apiKey, maxGroundedErrorTypeLen))
+	}
+	return fmt.Errorf("%s grounded search: run %s, not completed", provider, sanitizeGroundedErrorToken(status, apiKey, maxGroundedErrorTypeLen))
 }
 
 // groundedResultFromReply turns a grounded-search reply into the result and

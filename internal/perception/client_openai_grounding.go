@@ -113,8 +113,8 @@ func (c *OpenAIClient) GroundedWebSearch(ctx context.Context, query string) (*ty
 	}
 	reportUsage(ctx, req.Model, ProviderOpenAI, usageOpSearch, reply.Usage.metadata())
 	// Status only: the vendor's error message never reaches a search error.
-	if reply.Status != "" && reply.Status != "completed" {
-		return nil, fmt.Errorf("openai grounded search: run %s", reply.Status)
+	if err := groundedTerminal(reply, ProviderOpenAI, req.Model, req.MaxOutputTokens, c.apiKey); err != nil {
+		return nil, err
 	}
 	result, sources, err := groundedResultFromReply(ProviderOpenAI, reply)
 	if err != nil {
