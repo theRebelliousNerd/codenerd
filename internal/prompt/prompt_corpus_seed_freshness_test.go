@@ -2,8 +2,10 @@ package prompt
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"codenerd/internal/core/defaults"
@@ -15,12 +17,11 @@ import (
 // internal/core/defaults/prompt_corpus.db to the embedded YAML corpus: every
 // YAML atom is in the seed with identical content, and the seed holds no
 // removed atom. It had drifted to 878 atoms against 917 (2026-09-28), nine of
-// them deleted atoms, and nothing noticed. Rebuild with
-// `go run ./cmd/tools/prompt_builder -skip-embeddings -output <tmp>` and carry
-// embedding/embedding_task over for atoms whose embedding input is unchanged
-// (the reconciler's retention rule); a vectorless seed degrades first-boot
-// vector search to lexical. The predicate corpus equivalent is
-// `predicate_corpus_builder -check`.
+// them deleted atoms, and nothing noticed. Reconcile with
+// `go run ./cmd/tools/prompt_builder -reconcile-embedded` to retain embeddings
+// whose input is unchanged and invalidate changed ones. A vectorless rebuild
+// degrades first-boot vector search to lexical. The predicate corpus
+// equivalent is `go run ./cmd/tools/predicate_corpus_builder -check`.
 func TestPromptCorpusSeedMatchesEmbeddedYAML(t *testing.T) {
 	if !defaults.PromptCorpusAvailable() {
 		t.Skip("no embedded prompt corpus seed")
@@ -60,18 +61,59 @@ func TestPromptCorpusSeedMatchesEmbeddedYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadEmbeddedCorpus: %v", err)
 	}
-	for _, a := range corpus.All() {
+	for _, mismatch := range promptSeedMismatches(seed, corpus.All()) {
+		t.Error(mismatch)
+	}
+}
+
+// promptSeedMismatches reports every parity failure with the credential-free,
+// embedding-preserving command that repairs the shipped seed.
+func promptSeedMismatches(seed map[string]string, atoms []*PromptAtom) []string {
+	const regenerate = "go run ./cmd/tools/prompt_builder -reconcile-embedded"
+	seen := make(map[string]bool, len(atoms))
+	var mismatches []string
+	for _, a := range atoms {
+		seen[a.ID] = true
 		got, ok := seed[a.ID]
 		if !ok {
-			t.Errorf("seed lacks YAML atom %s", a.ID)
-			continue
+			mismatches = append(mismatches, fmt.Sprintf("seed lacks YAML atom %s; run `%s`", a.ID, regenerate))
+		} else if got != a.Content {
+			mismatches = append(mismatches, fmt.Sprintf("seed content for %s differs from YAML; run `%s`", a.ID, regenerate))
 		}
-		if got != a.Content {
-			t.Errorf("seed content for %s differs from YAML", a.ID)
-		}
-		delete(seed, a.ID)
 	}
 	for id := range seed {
-		t.Errorf("seed holds removed atom %s", id)
+		if !seen[id] {
+			mismatches = append(mismatches, fmt.Sprintf("seed holds removed atom %s; run `%s`", id, regenerate))
+		}
+	}
+	sort.Strings(mismatches)
+	return mismatches
+}
+
+func TestPromptSeedMismatches_NamesRegeneratingCommand(t *testing.T) {
+	atom := NewPromptAtom("fixture/current", CategoryMethodology, "canonical content")
+	for _, tc := range []struct {
+		name string
+		seed map[string]string
+		want string
+	}{
+		{name: "current", seed: map[string]string{atom.ID: atom.Content}},
+		{name: "missing", seed: map[string]string{}, want: "seed lacks YAML atom fixture/current"},
+		{name: "changed", seed: map[string]string{atom.ID: "old content"}, want: "seed content for fixture/current differs from YAML"},
+		{name: "removed", seed: map[string]string{atom.ID: atom.Content, "fixture/removed": "old content"}, want: "seed holds removed atom fixture/removed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := promptSeedMismatches(tc.seed, []*PromptAtom{atom})
+			if tc.want == "" {
+				if len(got) != 0 {
+					t.Fatalf("current seed reported stale: %v", got)
+				}
+				return
+			}
+			want := tc.want + "; run `go run ./cmd/tools/prompt_builder -reconcile-embedded`"
+			if len(got) != 1 || got[0] != want {
+				t.Fatalf("stale seed diagnostics = %v, want [%s]", got, want)
+			}
+		})
 	}
 }
