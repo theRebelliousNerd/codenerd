@@ -14,11 +14,14 @@ import (
 
 // KnowledgeSubjects is what a shard agent's knowledge is acquired about: one
 // subject per research topic (asked of web search and Context7), and one per
-// Go package the workspace pins for each of the agent's technology domains
-// (the vocabulary's packages for that key that a go.mod requires, or the
-// standard library's), which the pinned-documentation and repository sources
-// also read. Init's knowledge build and the background refresh both ask it.
-func KnowledgeSubjects(workspace, agent string, domains, topics []string) []knowledge.Subject {
+// package the workspace pins for each of the agent's technology domains --
+// the vocabulary's Go packages a go.mod requires (or the standard library's,
+// in a Go workspace) and npm packages a package.json depends on -- each with
+// the version its manifest pins, which the refresh policy compares with the
+// version the knowledge was acquired at. A domain the workspace pins no
+// package for is a plain subject. Init's knowledge build and the background
+// refresh both ask it, with the workspace's ManifestPins.
+func KnowledgeSubjects(workspace, agent string, domains, topics []string, pins []ManifestPin) []knowledge.Subject {
 	var subjects []knowledge.Subject
 	seenTopic := map[string]bool{}
 	for _, topic := range topics {
@@ -29,72 +32,65 @@ func KnowledgeSubjects(workspace, agent string, domains, topics []string) []know
 		seenTopic[strings.ToLower(topic)] = true
 		subjects = append(subjects, knowledge.Subject{Agent: agent, Topic: topic})
 	}
-	gomods := goModContents(workspace)
+	goWorkspace := false
+	if strings.TrimSpace(workspace) != "" {
+		if _, err := os.Stat(filepath.Join(workspace, "go.mod")); err == nil {
+			goWorkspace = true
+		}
+	}
+	for _, pin := range pins {
+		goWorkspace = goWorkspace || pin.Ecosystem == EcosystemGo
+	}
 	for _, domain := range domains {
 		key := strings.ToLower(strings.TrimSpace(domain))
 		if key == "" {
 			continue
 		}
-		modules := pinnedGoPackages(key, gomods)
-		if len(modules) == 0 {
+		pinned := pinnedPackages(key, pins, goWorkspace)
+		if len(pinned) == 0 {
 			if !seenTopic[key] {
 				seenTopic[key] = true
 				subjects = append(subjects, knowledge.Subject{Agent: agent, Topic: key, Technology: key})
 			}
 			continue
 		}
-		for _, module := range modules {
-			subjects = append(subjects, knowledge.Subject{Agent: agent, Topic: key, Technology: key, Module: module})
+		for _, p := range pinned {
+			p.Agent, p.Topic, p.Technology = agent, key, key
+			subjects = append(subjects, p)
 		}
 	}
 	return subjects
 }
 
-// goModContents is the text of every go.mod in the workspace (root first).
-func goModContents(workspace string) []string {
-	if strings.TrimSpace(workspace) == "" {
-		return nil
-	}
-	paths := append([]string{filepath.Join(workspace, "go.mod")}, findManifestFiles(workspace, []string{"go.mod"}, maxManifestDepth)...)
-	seen := map[string]bool{}
-	var out []string
-	for _, p := range paths {
-		if seen[p] {
-			continue
-		}
-		seen[p] = true
-		if data, err := os.ReadFile(p); err == nil {
-			out = append(out, string(data))
-		}
-	}
-	return out
-}
-
-// pinnedGoPackages are the vocabulary's Go packages for a technology key that
-// some go.mod requires; standard-library packages count when any go.mod
-// exists.
-func pinnedGoPackages(key string, gomods []string) []string {
-	if len(gomods) == 0 {
-		return nil
-	}
-	var out []string
-	for _, pkg := range vocabularyPackages(EcosystemGo) {
-		if technologyVocabulary[EcosystemGo][pkg] != key {
-			continue
-		}
-		std := !strings.Contains(strings.SplitN(pkg, "/", 2)[0], ".")
-		if std {
-			out = append(out, pkg)
-			continue
-		}
-		for _, mod := range gomods {
-			if strings.Contains(mod, pkg+" ") || strings.Contains(mod, pkg+"/") {
-				out = append(out, pkg)
-				break
+// pinnedPackages are the vocabulary's packages for a technology key that the
+// pins name, as module subjects carrying their ecosystem and pinned version.
+// A Go package inside a required module takes that module's version; a
+// standard-library package counts in a Go workspace and pins no version.
+func pinnedPackages(key string, pins []ManifestPin, goWorkspace bool) []knowledge.Subject {
+	var out []knowledge.Subject
+	for _, eco := range []Ecosystem{EcosystemGo, EcosystemNPM} {
+		for _, pkg := range vocabularyPackages(eco) {
+			if technologyVocabulary[eco][pkg] != key {
+				continue
+			}
+			if eco == EcosystemGo && !strings.Contains(strings.SplitN(pkg, "/", 2)[0], ".") {
+				if goWorkspace {
+					out = append(out, knowledge.Subject{Module: pkg, Ecosystem: string(eco)})
+				}
+				continue
+			}
+			for _, pin := range pins {
+				if pin.Ecosystem != eco {
+					continue
+				}
+				if pin.Module == pkg || (eco == EcosystemGo && strings.HasPrefix(pkg, pin.Module+"/")) {
+					out = append(out, knowledge.Subject{Module: pkg, Ecosystem: string(eco), Version: pin.Version})
+					break
+				}
 			}
 		}
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool { return out[i].Module < out[j].Module })
 	return out
 }
 

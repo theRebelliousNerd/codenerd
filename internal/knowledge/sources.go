@@ -181,7 +181,7 @@ func (g GoDocSource) Available() bool {
 }
 
 func (g GoDocSource) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
-	if s.Module == "" || g.Workspace == "" {
+	if s.Module == "" || g.Workspace == "" || s.Ecosystem != "go" {
 		return nil, fmt.Errorf("%w: no Go module pinned for %s", ErrUnavailable, s.Topic)
 	}
 	run := g.Run

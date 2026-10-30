@@ -18,6 +18,7 @@ knowledge_refresh_budget(4).
 # session keeps its experts current while it works.
 knowledge_refresh_schedule(120, 3600).
 
+knowledge_refresh_weight(/version_changed, 6).
 knowledge_refresh_weight(/gap, 5).
 knowledge_refresh_weight(/unlearned, 4).
 knowledge_refresh_weight(/new_source, 3).
@@ -59,6 +60,14 @@ knowledge_agent_use(Agent, 0) :-
     !knowledge_agent_consulted(Agent).
 
 # --- What to research ------------------------------------------------------------
+
+# Knowledge acquired at a version the manifests no longer pin: the upgrade
+# changed the API it describes. Every source is asked again, and each
+# replaces what it wrote (go doc's rows are named by version).
+knowledge_refresh(Agent, Subject, /version_changed) :-
+    knowledge_acquired_version(Agent, Subject, Version),
+    dependency_pin(Subject, _),
+    !dependency_pin(Subject, Version).
 
 # Wanted and never learned, not tried today.
 knowledge_refresh(Agent, Subject, /unlearned) :-

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"slices"
+	"strings"
 	"testing"
 
 	"codenerd/internal/knowledge"
@@ -13,30 +13,54 @@ import (
 )
 
 // A technology domain the workspace pins becomes one subject per pinned
-// package (what go doc and the repository source read); a domain it does not
-// pin and every research topic are plain subjects.
+// package, carrying its ecosystem and the version its manifest pins (what
+// go doc reads and what the refresh policy compares); a domain it pins
+// nothing for and every research topic are plain subjects.
 func TestKnowledgeSubjects_PinnedModulesAndTopics(t *testing.T) {
 	root := t.TempDir()
 	writeInitFile(t, root, "go.mod", "module example.com/app\n\ngo 1.24\n\nrequire github.com/spf13/cobra v1.10.2\n")
-	subjects := KnowledgeSubjects(root, "cobraexpert", []string{"cobra", "sql", "react"}, []string{"cobra command trees", "Cobra Command Trees"})
+	writeInitFile(t, root, "web/package.json", `{"dependencies": {"react": "^19.1.0"}}`)
+	pins, err := ManifestPins(root)
+	if err != nil {
+		t.Fatalf("ManifestPins: %v", err)
+	}
+	if len(pins) != 2 || pins[0].Module != "github.com/spf13/cobra" || pins[0].Version != "v1.10.2" ||
+		pins[1].Module != "react" || pins[1].Version != "^19.1.0" || pins[1].Manifest != "web/package.json" {
+		t.Fatalf("pins = %+v", pins)
+	}
+	subjects := KnowledgeSubjects(root, "cobraexpert", []string{"cobra", "sql", "react", "tokio"}, []string{"cobra command trees", "Cobra Command Trees"}, pins)
 
-	var keys []string
+	byKey := map[string]knowledge.Subject{}
 	for _, s := range subjects {
-		keys = append(keys, s.Key())
+		byKey[s.Key()] = s
 		if s.Agent != "cobraexpert" {
 			t.Fatalf("subject %+v lacks its agent", s)
 		}
 	}
-	for _, want := range []string{"cobra command trees", "github.com/spf13/cobra", "database/sql", "react"} {
-		if !slices.Contains(keys, want) {
-			t.Fatalf("subjects %v lack %q", keys, want)
-		}
+	if len(byKey) != 5 || len(subjects) != 5 {
+		t.Fatalf("subjects = %+v, want five with the duplicate topic folded", subjects)
 	}
-	if len(keys) != 4 {
-		t.Fatalf("subjects = %v, want the duplicate topic folded", keys)
+	if s := byKey["github.com/spf13/cobra"]; s.Ecosystem != "go" || s.Version != "v1.10.2" || s.Technology != "cobra" {
+		t.Fatalf("cobra subject = %+v", s)
 	}
-	if got := KnowledgeSubjects("", "x", []string{"cobra"}, nil); len(got) != 1 || got[0].Module != "" {
+	if s := byKey["database/sql"]; s.Ecosystem != "go" || s.Version != "" {
+		t.Fatalf("standard-library subject = %+v", s)
+	}
+	if s := byKey["react"]; s.Ecosystem != "npm" || s.Version != "^19.1.0" {
+		t.Fatalf("react subject = %+v", s)
+	}
+	if s := byKey["tokio"]; s.Module != "" || s.Topic != "tokio" {
+		t.Fatalf("an unpinned domain = %+v, want a plain subject", s)
+	}
+	if _, ok := byKey["cobra command trees"]; !ok {
+		t.Fatalf("the topic is missing: %+v", subjects)
+	}
+	if got := KnowledgeSubjects("", "x", []string{"cobra"}, nil, nil); len(got) != 1 || got[0].Module != "" {
 		t.Fatalf("without a workspace a domain pins nothing: %+v", got)
+	}
+	writeInitFile(t, root, "broken/go.mod", "module example.com/broken\n\nrequire (\n")
+	if _, err := ManifestPins(root); err == nil || !strings.Contains(err.Error(), "broken/go.mod") {
+		t.Fatalf("a manifest that does not parse is not named: %v", err)
 	}
 }
 

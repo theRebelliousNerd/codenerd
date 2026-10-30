@@ -113,7 +113,11 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 		fmt.Fprintf(i.output(), "     %d of %d topics already covered in %s's KB; not researched again\n", stats.SkippedTopics, len(agent.Topics), agent.Name)
 	}
 	if !i.config.SkipResearch {
-		subjects := KnowledgeSubjects(i.config.Workspace, strings.ToLower(agent.Name), agent.Domains, topics)
+		pins, pinErr := ManifestPins(i.config.Workspace)
+		if pinErr != nil {
+			stats.Notes = append(stats.Notes, fmt.Sprintf("%s: %v", agent.Name, pinErr))
+		}
+		subjects := KnowledgeSubjects(i.config.Workspace, strings.ToLower(agent.Name), agent.Domains, topics, pins)
 		if len(subjects) > 0 {
 			fmt.Fprintf(i.output(), "     Acquiring knowledge on %d subject(s) for %s...\n", len(subjects), agent.Name)
 			added, outcomes, err := knowledge.Fill(ctx, agentDB, i.knowledgeAcquirer(), subjects)

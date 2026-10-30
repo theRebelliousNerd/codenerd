@@ -23,6 +23,15 @@ Decl knowledge_wanted(Agent, Subject) bound [/name, /string].
 # Status /acquired, /empty, /failed or /unavailable; AgeDays whole days ago.
 Decl knowledge_outcome(Agent, Subject, Source, Status, AgeDays) bound [/name, /string, /string, /name, /number].
 
+# knowledge_acquired_version(Agent, Subject, Version) - the manifest version
+# a source acquired the subject at (knowledge_acquisitions.version).
+Decl knowledge_acquired_version(Agent, Subject, Version) bound [/name, /string, /string].
+
+# dependency_pin(Module, Version) - a version a workspace manifest pins now: a
+# go.mod require or a package.json dependency (nerdinit.ManifestPins). Two
+# manifests may pin two versions of one module.
+Decl dependency_pin(Module, Version) bound [/string, /string].
+
 # knowledge_source_available(Source) - a source that can run in this session
 # (a configured client offers grounded search, Context7 is wired, a go
 # toolchain and workspace exist, a world model is loaded).
@@ -99,7 +108,8 @@ Decl knowledge_agent_consulted(Agent) bound [/name].
 Decl knowledge_concept_retrieved(Agent, Concept) bound [/name, /string].
 
 # knowledge_refresh(Agent, Subject, Reason) - acquire the subject again.
-# Reason: /unlearned (wanted, never acquired), /stale (an acquisition past its
+# Reason: /version_changed (acquired at a version no manifest pins any more),
+# /unlearned (wanted, never acquired), /stale (an acquisition past its
 # source's age), /new_source (a source that could not run now can), /retry
 # (a failed attempt past the retry window), /gap (a question consultations
 # found nothing for).

@@ -37,6 +37,13 @@ type Subject struct {
 	// ("github.com/spf13/cobra"), what the pinned-documentation and
 	// repository sources read. Empty when the technology pins none.
 	Module string
+	// Ecosystem is the Module's package ecosystem ("go", "npm"); go doc
+	// reads only Go modules.
+	Ecosystem string
+	// Version is the version the workspace's manifest pins for Module, when
+	// it pins one: recorded with every acquisition, so the refresh policy
+	// can tell knowledge acquired at an older pin (knowledge_acquired_version).
+	Version string
 	// Gap marks a question a consultation found no knowledge for (Topic is
 	// the task's own words): web search is asked the question itself.
 	Gap bool
@@ -83,6 +90,8 @@ type Outcome struct {
 	// Concepts are the knowledge rows an acquisition wrote, so the next
 	// acquisition of the same subject by the same source replaces them.
 	Concepts []string
+	// Version is the subject's pinned version at the attempt.
+	Version string
 }
 
 func (o Outcome) String() string {
@@ -147,11 +156,11 @@ func (a Acquirer) acquire(ctx context.Context, subject Subject, done map[string]
 			continue
 		}
 		if ctx.Err() != nil {
-			outcomes = append(outcomes, Outcome{Source: src.Name(), Subject: subject.Key(), Status: StatusFailed, Detail: ctx.Err().Error()})
+			outcomes = append(outcomes, Outcome{Source: src.Name(), Subject: subject.Key(), Version: subject.Version, Status: StatusFailed, Detail: ctx.Err().Error()})
 			continue
 		}
 		got, err := src.Acquire(ctx, subject)
-		out := Outcome{Source: src.Name(), Subject: subject.Key()}
+		out := Outcome{Source: src.Name(), Subject: subject.Key(), Version: subject.Version}
 		switch {
 		case errors.Is(err, ErrUnavailable):
 			out.Status, out.Detail = StatusUnavailable, err.Error()
@@ -181,6 +190,7 @@ const acquisitionsSchema = `CREATE TABLE IF NOT EXISTS knowledge_acquisitions (
 	detail TEXT NOT NULL,
 	attempted_at TEXT NOT NULL,
 	concepts TEXT NOT NULL,
+	version TEXT NOT NULL,
 	PRIMARY KEY (source, subject)
 )`
 
@@ -291,9 +301,9 @@ func fill(ctx context.Context, db *store.LocalStore, acq Acquirer, subjects []Su
 				concepts = previous[[2]string{out.Source, out.Subject}]
 			}
 			if _, err := db.GetDB().ExecContext(ctx,
-				`INSERT INTO knowledge_acquisitions (source, subject, status, atoms, detail, attempted_at, concepts) VALUES (?, ?, ?, ?, ?, ?, ?)
-				 ON CONFLICT(source, subject) DO UPDATE SET status = excluded.status, atoms = excluded.atoms, detail = excluded.detail, attempted_at = excluded.attempted_at, concepts = excluded.concepts`,
-				out.Source, out.Subject, out.Status, out.Atoms, out.Detail, at, strings.Join(concepts, "\n")); err != nil {
+				`INSERT INTO knowledge_acquisitions (source, subject, status, atoms, detail, attempted_at, concepts, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+				 ON CONFLICT(source, subject) DO UPDATE SET status = excluded.status, atoms = excluded.atoms, detail = excluded.detail, attempted_at = excluded.attempted_at, concepts = excluded.concepts, version = excluded.version`,
+				out.Source, out.Subject, out.Status, out.Atoms, out.Detail, at, strings.Join(concepts, "\n"), out.Version); err != nil {
 				return added, all, fmt.Errorf("record outcome: %w", err)
 			}
 		}
@@ -306,6 +316,7 @@ func fill(ctx context.Context, db *store.LocalStore, acq Acquirer, subjects []Su
 // its first release, with the definition each is added with.
 var acquisitionsColumns = []struct{ name, def string }{
 	{"concepts", "TEXT NOT NULL DEFAULT ''"},
+	{"version", "TEXT NOT NULL DEFAULT ''"},
 }
 
 // ensureAcquisitionsTable creates the outcomes table, or adds to one an
@@ -358,11 +369,14 @@ func Outcomes(ctx context.Context, db *sql.DB) ([]Outcome, error) {
 	}
 	// A table an earlier build created may lack the later columns; reading
 	// it (check-kb opens KBs read-only) reports them empty.
-	concepts := "''"
+	concepts, version := "''", "''"
 	if cols["concepts"] {
 		concepts = "concepts"
 	}
-	rows, err := db.QueryContext(ctx, `SELECT source, subject, status, atoms, detail, `+concepts+` FROM knowledge_acquisitions ORDER BY source, subject`)
+	if cols["version"] {
+		version = "version"
+	}
+	rows, err := db.QueryContext(ctx, `SELECT source, subject, status, atoms, detail, `+concepts+`, `+version+` FROM knowledge_acquisitions ORDER BY source, subject`)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "no such table") {
 			return nil, nil
@@ -374,7 +388,7 @@ func Outcomes(ctx context.Context, db *sql.DB) ([]Outcome, error) {
 	for rows.Next() {
 		var o Outcome
 		var concepts string
-		if err := rows.Scan(&o.Source, &o.Subject, &o.Status, &o.Atoms, &o.Detail, &concepts); err != nil {
+		if err := rows.Scan(&o.Source, &o.Subject, &o.Status, &o.Atoms, &o.Detail, &concepts, &o.Version); err != nil {
 			return nil, err
 		}
 		if concepts != "" {

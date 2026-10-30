@@ -36,6 +36,7 @@ import (
 var knowledgeRefreshPredicates = []string{
 	"knowledge_wanted", "knowledge_outcome", "knowledge_source_available",
 	"knowledge_atom_held", "knowledge_atom_retrieved", "knowledge_miss",
+	"knowledge_acquired_version", "dependency_pin",
 }
 
 // knowledgeRefresher is one Cortex's refresh: what it reads and the sources
@@ -94,8 +95,23 @@ func (r *knowledgeRefresher) run(ctx context.Context) (knowledgeRefreshReport, e
 	var facts []types.Fact
 	subjects := map[string]map[string]knowledge.Subject{}
 	var failures []string
+	// What the manifests pin now: a subject acquired at another version
+	// is researched again (knowledge_refresh /version_changed).
+	pins, err := nerdinit.ManifestPins(r.workspace)
+	if err != nil {
+		failures = append(failures, err.Error())
+	}
+	seenPin := map[[2]string]bool{}
+	for _, pin := range pins {
+		id := [2]string{pin.Module, pin.Version}
+		if pin.Version == "" || seenPin[id] {
+			continue
+		}
+		seenPin[id] = true
+		facts = append(facts, types.Fact{Predicate: "dependency_pin", Args: []any{pin.Module, pin.Version}})
+	}
 	for _, agent := range roster {
-		wanted := nerdinit.KnowledgeSubjects(r.workspace, agent.key, techs[agent.key], agent.topics)
+		wanted := nerdinit.KnowledgeSubjects(r.workspace, agent.key, techs[agent.key], agent.topics, pins)
 		subjects[agent.key] = map[string]knowledge.Subject{}
 		for _, s := range wanted {
 			subjects[agent.key][s.Key()] = s

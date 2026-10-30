@@ -157,9 +157,12 @@ func TestGoDocSourceReadsThePinnedVersion(t *testing.T) {
 			return []string{"github.com/spf13/cobra", "github.com/spf13/cobra/doc"}, nil
 		},
 	}
-	atoms, err := src.Acquire(context.Background(), Subject{Topic: "cobra", Module: "github.com/spf13/cobra"})
+	atoms, err := src.Acquire(context.Background(), Subject{Topic: "cobra", Module: "github.com/spf13/cobra", Ecosystem: "go"})
 	if err != nil || len(atoms) != 1 {
 		t.Fatalf("Acquire = %+v, %v (calls %v)", atoms, err, calls)
+	}
+	if _, err := src.Acquire(context.Background(), Subject{Topic: "react", Module: "react", Ecosystem: "npm"}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("an npm package is not unavailable to go doc: %v", err)
 	}
 	if atoms[0].Source != "godoc/github.com/spf13/cobra@v1.10.2" || atoms[0].Concept != "godoc/github.com/spf13/cobra@v1.10.2" {
 		t.Fatalf("atom = %+v", atoms[0])

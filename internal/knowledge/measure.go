@@ -33,17 +33,26 @@ func Measure(ctx context.Context, db *sql.DB, agent any, now time.Time) ([]types
 	var facts []types.Fact
 
 	if tables["knowledge_acquisitions"] {
-		rows, err := db.QueryContext(ctx, `SELECT source, subject, status, CAST(strftime('%s', attempted_at) AS INTEGER) FROM knowledge_acquisitions`)
+		version := "''"
+		if cols, err := tableColumnSet(ctx, db, "knowledge_acquisitions"); err != nil {
+			return nil, err
+		} else if cols["version"] {
+			version = "version"
+		}
+		rows, err := db.QueryContext(ctx, `SELECT source, subject, status, CAST(strftime('%s', attempted_at) AS INTEGER), `+version+` FROM knowledge_acquisitions`)
 		if err != nil {
 			return nil, fmt.Errorf("read outcomes: %w", err)
 		}
 		err = scanRows(rows, func(r *sql.Rows) error {
-			var source, subject, status string
+			var source, subject, status, pinned string
 			var at sql.NullInt64
-			if err := r.Scan(&source, &subject, &status, &at); err != nil {
+			if err := r.Scan(&source, &subject, &status, &at, &pinned); err != nil {
 				return err
 			}
 			facts = append(facts, types.Fact{Predicate: "knowledge_outcome", Args: []any{agent, subject, source, types.MangleAtom("/" + status), days(at)}})
+			if status == StatusAcquired && pinned != "" {
+				facts = append(facts, types.Fact{Predicate: "knowledge_acquired_version", Args: []any{agent, subject, pinned}})
+			}
 			return nil
 		})
 		if err != nil {
