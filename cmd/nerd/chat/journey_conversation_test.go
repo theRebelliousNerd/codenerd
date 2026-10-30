@@ -82,7 +82,7 @@ func journeyModel(t *testing.T, mode config.WorkMode, intents ...perception.Inte
 // model and the command Update asked for next.
 func say(t *testing.T, m Model, input string) (Model, tea.Msg, tea.Cmd) {
 	t.Helper()
-	msg := awaitProcessStream(t, m.processInput(input)())
+	msg := awaitProcessStream(t, m.processInput(input, 0)())
 	next, cmd := m.Update(msg)
 	return next.(Model), msg, cmd
 }

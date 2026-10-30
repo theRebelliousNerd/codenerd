@@ -253,7 +253,7 @@ func TestProcessInput_EvidenceTurnDeliversTheFileToTheAnsweringCall(t *testing.T
 	m.transducer = &scriptedTransducer{intents: []perception.Intent{evidenceIntent("app.log", 0.3)}}
 	m.virtualStore = core.NewVirtualStore(nil)
 
-	msg := awaitProcessStream(t, m.processInput("what does the first line of app.log say")())
+	msg := awaitProcessStream(t, m.processInput("what does the first line of app.log say", 0)())
 	if _, ok := msg.(assistantMsg); !ok {
 		t.Fatalf("turn returned %T, want an articulated answer", msg)
 	}

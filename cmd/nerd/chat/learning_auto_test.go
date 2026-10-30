@@ -89,7 +89,7 @@ func TestCorrection_TheTurnStillRunsAndNothingAsksTheUser(t *testing.T) {
 	// The pick fits nothing, so the background learning stores nothing: the
 	// shared taxonomy has no workspace in tests and would write .nerd/ here.
 	m := verbJev(t, correctionModel(t, "no, I said Max, not Min"), "fix", 0.99, 0.10, 0.95)
-	msg := awaitProcessStream(t, m.processInput("no, I said Max, not Min")())
+	msg := awaitProcessStream(t, m.processInput("no, I said Max, not Min", 0)())
 	if reply, ok := msg.(responseMsg); !ok || string(reply) != "Understood." {
 		t.Fatalf("the corrected turn became %T %+v, want its own reply", msg, msg)
 	}

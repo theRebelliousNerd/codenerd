@@ -79,6 +79,8 @@ func (m *Model) saveSessionState() error {
 			Role:    msg.Role,
 			Content: msg.Content,
 			Time:    msg.Time,
+			Request: msg.Request,
+			Answers: msg.Answers,
 		}
 	}
 	historyErr := session.SaveSessionHistory(m.workspace, m.sessionID, messages)
@@ -186,29 +188,37 @@ func (m *Model) syncSessionToSQLite() {
 	}
 }
 
-// sessionTurn is one user message and the first assistant reply after it.
+// sessionTurn is one user message and the messages that answer it.
 type sessionTurn struct {
 	number          int
 	user, assistant string
 }
 
-// sessionTurns pairs each user message with the first assistant message
-// that follows it, numbering turns by user message. Assistant messages
-// nobody asked for (a background result, a notice) do not shift the
-// pairing of the turns after them.
+// sessionTurns numbers turns by user message and pairs each request with the
+// assistant messages that answer it (Answers, request_answers.go), wherever
+// they fall: a queue notice, a side reply or another request's answer
+// printed in between is not its answer. A request not answered yet, or a
+// message saved before request ids, has no answer here: StoreSessionTurn
+// keeps whatever response its row already holds rather than being handed a
+// guessed one.
 func sessionTurns(history []Message) []sessionTurn {
+	answers := map[uint64][]string{}
+	for _, h := range history {
+		if h.Role == "assistant" && h.Answers != 0 {
+			answers[h.Answers] = append(answers[h.Answers], h.Content)
+		}
+	}
 	var out []sessionTurn
 	n := 0
-	for i := 0; i < len(history); i++ {
-		if history[i].Role != "user" {
+	for _, h := range history {
+		if h.Role != "user" {
 			continue
 		}
-		for j := i + 1; j < len(history) && history[j].Role != "user"; j++ {
-			if history[j].Role == "assistant" {
-				out = append(out, sessionTurn{number: n, user: history[i].Content, assistant: history[j].Content})
-				break
-			}
+		t := sessionTurn{number: n, user: h.Content}
+		if h.Request != 0 {
+			t.assistant = strings.Join(answers[h.Request], "\n\n")
 		}
+		out = append(out, t)
 		n++
 	}
 	return out
@@ -247,8 +257,11 @@ func (m Model) loadSelectedSession(sessionID string) (tea.Model, tea.Cmd) {
 			Role:    msg.Role,
 			Content: msg.Content,
 			Time:    msg.Time,
+			Request: msg.Request,
+			Answers: msg.Answers,
 		}
 	}
+	m.turn.seenRequests(maxRequest(m.history))
 	m.turnCount = len(m.history) / 2 // Approximate turn count from history
 
 	// Rehydrate compressor state for this session (if available).

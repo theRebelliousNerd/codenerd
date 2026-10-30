@@ -91,7 +91,9 @@ func (m Model) approvePendingWork() (Model, tea.Cmd) {
 	}
 	m.pendingWork = nil
 	m.goAheadWork = work
-	cmd := m.processInput(work.Input)
+	// The held work answers the request that approved it ("go"); /go typed
+	// as a command is no request, and m.answering is 0.
+	cmd := m.processInput(work.Input, m.answering)
 	m.goAheadWork = nil
 	m.isLoading = true
 	return m, cmd

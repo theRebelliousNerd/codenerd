@@ -54,6 +54,8 @@ type turnState struct {
 	working       string
 	queued        []queuedMessage
 	msgSeq        uint64
+	// requestSeq is the last request id handed out (newRequest).
+	requestSeq uint64
 
 	// decide serializes a side turn's kernel section (its decision facts,
 	// the query, the brief publication). It is never held across a model
@@ -67,9 +69,13 @@ type turnState struct {
 // the queue. Its kind is fixed when it is received: a slash command waits as
 // a command and runs through the command dispatcher, never as a sentence for
 // perception (audit queued-slash-command-kind-conservation).
+//
+// request is the id of the user message it is (Message.Request): its turn
+// answers that request (request_answers.go). 0 is a step nobody typed.
 type queuedMessage struct {
 	id      uint64
 	input   string
+	request uint64
 	command bool
 	pending bool
 }
@@ -202,15 +208,38 @@ func (t *turnState) enqueue(q queuedMessage) {
 
 // reserve takes a queue place for a message whose disposition the kernel
 // has not decided yet; settle resolves it.
-func (t *turnState) reserve(input string) uint64 {
+func (t *turnState) reserve(input string, request uint64) uint64 {
 	if t == nil {
 		return 0
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.msgSeq++
-	t.queued = append(t.queued, queuedMessage{id: t.msgSeq, input: input, pending: true})
+	t.queued = append(t.queued, queuedMessage{id: t.msgSeq, input: input, request: request, pending: true})
 	return t.msgSeq
+}
+
+// newRequest hands out the next request id (request_answers.go).
+func (t *turnState) newRequest() uint64 {
+	if t == nil {
+		return 0
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.requestSeq++
+	return t.requestSeq
+}
+
+// seenRequests keeps later ids above the ones a loaded session already uses.
+func (t *turnState) seenRequests(top uint64) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if top > t.requestSeq {
+		t.requestSeq = top
+	}
 }
 
 // settle resolves a reserved place: kept as work, or released.
@@ -290,34 +319,35 @@ func (m Model) submitWhileBusy() (Model, tea.Cmd) {
 	}
 	m.textarea.Reset()
 	m = m.addMessage(Message{Role: "user", Content: input})
+	request := m.lastRequest()
 	if strings.HasPrefix(input, "/") {
 		// The untrimmed tail, as idle dispatch gives it: /write and /append
 		// carry its bytes as file content.
-		m.turn.enqueue(queuedMessage{input: strings.TrimLeft(raw, " \t\r\n"), command: true})
+		m.turn.enqueue(queuedMessage{input: strings.TrimLeft(raw, " \t\r\n"), request: request, command: true})
 		name := strings.Fields(input)[0]
 		return m.pushAssistantMsg("_Queued: `" + name + "` runs as a command as soon as the current turn finishes._"), nil
 	}
 	if m.turn.stopping() {
-		m.turn.enqueue(queuedMessage{input: input})
+		m.turn.enqueue(queuedMessage{input: input, request: request})
 		return m.pushAssistantMsg("_Queued: the stopped turn is still winding down; I'll take this up as soon as it has._"), nil
 	}
 	if m.turn.workingOn() == "" {
-		m.turn.enqueue(queuedMessage{input: input})
+		m.turn.enqueue(queuedMessage{input: input, request: request})
 		return m.pushAssistantMsg("_Queued: I'll take this up as soon as the current turn finishes._"), nil
 	}
-	return m, m.sideTurn(input)
+	return m, m.sideTurn(input, request)
 }
 
 // sideTurn reads a message typed while work runs (see the file comment). The
 // running execution and the message's queue place are captured here, on the
 // Update thread, when the message is received.
-func (m Model) sideTurn(input string) tea.Cmd {
+func (m Model) sideTurn(input string, request uint64) tea.Cmd {
 	history := make([]perception.ConversationTurn, 0, len(m.history))
 	for _, h := range m.history {
 		history = append(history, perception.ConversationTurn{Role: h.Role, Content: h.Content})
 	}
 	owner := m.turn.current()
-	slot := m.turn.reserve(input)
+	slot := m.turn.reserve(input, request)
 	return func() tea.Msg {
 		ctx := m.shutdownCtx
 		if ctx == nil {
@@ -481,6 +511,9 @@ func (m Model) startQueuedTurn() (Model, tea.Cmd) {
 			break
 		}
 		if next.command {
+			// What the command prints on the spot answers its request.
+			prev := m.answering
+			m.answering = next.request
 			model, cmd := m.handleCommand(next.input)
 			cmds = append(cmds, cmd)
 			nm, ok := model.(Model)
@@ -489,10 +522,11 @@ func (m Model) startQueuedTurn() (Model, tea.Cmd) {
 				break
 			}
 			m = nm
+			m.answering = prev
 			continue
 		}
 		m.isLoading = true
-		cmds = append(cmds, m.processInput(next.input))
+		cmds = append(cmds, m.processInput(next.input, next.request))
 	}
 	if len(cmds) == 0 {
 		return m, nil

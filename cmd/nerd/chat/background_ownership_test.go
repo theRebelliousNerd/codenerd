@@ -147,19 +147,3 @@ func runsSave(cmd tea.Cmd) bool {
 	}
 	return false
 }
-
-// A background result between turns does not shift the turns stored after
-// it (SQLite session_history pairing).
-func TestSessionTurns_AnUnsolicitedResultDoesNotShiftLaterTurns(t *testing.T) {
-	history := []Message{
-		{Role: "user", Content: "review auth"},
-		{Role: "assistant", Content: "working on it in the background"},
-		{Role: "assistant", Content: "Background reviewer finished"},
-		{Role: "user", Content: "thanks, now fix it"},
-		{Role: "assistant", Content: "fixed"},
-	}
-	got := sessionTurns(history)
-	if len(got) != 2 || got[1].number != 1 || got[1].user != "thanks, now fix it" || got[1].assistant != "fixed" {
-		t.Fatalf("turns = %+v", got)
-	}
-}

@@ -236,8 +236,8 @@ func TestTurnState_StopBeforeStartIsNotLost(t *testing.T) {
 // classification finishes first.
 func TestTurnState_QueueKeepsReceiptOrder(t *testing.T) {
 	ts := newTurnState()
-	b := ts.reserve("create the file")
-	c := ts.reserve("then add the section")
+	b := ts.reserve("create the file", 0)
+	c := ts.reserve("then add the section", 0)
 	ts.settle(c, true)
 	if _, ok := ts.dequeue(); ok {
 		t.Fatal("a later message overtook one still being read")
@@ -248,7 +248,7 @@ func TestTurnState_QueueKeepsReceiptOrder(t *testing.T) {
 	if first.input != "create the file" || second.input != "then add the section" {
 		t.Fatalf("order = %q, %q", first.input, second.input)
 	}
-	d := ts.reserve("how is it going?")
+	d := ts.reserve("how is it going?", 0)
 	ts.settle(d, false)
 	if _, ok := ts.dequeue(); ok || ts.queuedCount() != 0 {
 		t.Fatal("conversation stayed in the queue")

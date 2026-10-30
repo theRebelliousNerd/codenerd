@@ -245,7 +245,7 @@ func TestProcessInputControlPacketIsGovernedBeforeKnowledgeConsultation(t *testi
 	}
 	m.taskExecutor = executor
 
-	msg := awaitProcessStream(t, m.processInput("explain kernel policy")())
+	msg := awaitProcessStream(t, m.processInput("explain kernel policy", 0)())
 	knowledgeMsg, ok := msg.(knowledgeGatheredMsg)
 	if !ok {
 		t.Fatalf("processInput returned %T, want knowledgeGatheredMsg", msg)
@@ -347,7 +347,7 @@ func TestProcessInputMutationWithoutVerifierDoesNotClaimCompletion(t *testing.T)
 	executor := &processControlTaskExecutor{response: "README.md was fixed."}
 	m.taskExecutor = executor
 
-	msg := m.processInput("fix typo in README.md")()
+	msg := m.processInput("fix typo in README.md", 0)()
 	result, ok := msg.(assistantMsg)
 	if !ok {
 		t.Fatalf("processInput returned %T, want assistantMsg", msg)

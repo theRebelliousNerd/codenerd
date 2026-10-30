@@ -94,7 +94,7 @@ func correctionModel(t *testing.T, input string) Model {
 // decision. The turn's own reply is never replaced by the learning loop.
 func correctionSource(t *testing.T, m Model, input string) (string, bool) {
 	t.Helper()
-	msg := awaitProcessStream(t, m.processInput(input)())
+	msg := awaitProcessStream(t, m.processInput(input, 0)())
 	if _, ok := msg.(errorMsg); ok {
 		t.Fatalf("the turn failed: %v", msg)
 	}

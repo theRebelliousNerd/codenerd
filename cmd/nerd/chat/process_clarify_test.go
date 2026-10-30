@@ -99,7 +99,7 @@ func TestProcessInputClarifyRouteRunsClarifierPath(t *testing.T) {
 
 	// ACT half: drive the full processInput pipeline and prove the turn takes
 	// the clarifier path rather than the delegation path.
-	msg := m.processInput(input)()
+	msg := m.processInput(input, 0)()
 	if tr.calls != 1 {
 		t.Errorf("transducer call count: got %d, want 1", tr.calls)
 	}

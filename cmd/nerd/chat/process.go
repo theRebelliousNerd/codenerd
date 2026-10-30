@@ -67,7 +67,9 @@ func publishReflection(msg tea.Msg, ran *ReflectionState) tea.Msg {
 	return msg
 }
 
-func (m Model) processInput(input string) tea.Cmd {
+// request is the id of the user message this turn answers (request_answers.go);
+// 0 for a turn nobody typed (a chain's next step).
+func (m Model) processInput(input string, request uint64) tea.Cmd {
 	// The execution is accepted now, on the caller's thread, so a stop
 	// that comes before it starts is not lost (turnState).
 	turnID := m.turn.accept()
@@ -77,7 +79,7 @@ func (m Model) processInput(input string) tea.Cmd {
 	return func() (result tea.Msg) {
 		// Every exit, the guards below included, releases the slot.
 		defer m.turn.end(turnID)
-		defer func() { result = publishReflection(result, ranReflection) }()
+		defer func() { result = answerTo(request, publishReflection(result, ranReflection)) }()
 		// Panic recovery: this closure runs as a fire-and-forget goroutine in the
 		// Bubbletea runtime. An unrecovered panic here kills the entire process.
 		// We use a named return so the deferred recover can set the return value
@@ -1094,7 +1096,7 @@ func (m Model) processInput(input string) tea.Cmd {
 					"LLM requested knowledge: %d specialists to consult",
 					len(artOutput.KnowledgeRequests),
 				)
-				resultChan <- publishReflection(m.handleKnowledgeRequests(streamCtx, artOutput.KnowledgeRequests, input, response, knowledgeParentOf(convCtx)), ranReflection)
+				resultChan <- answerTo(request, publishReflection(m.handleKnowledgeRequests(streamCtx, artOutput.KnowledgeRequests, input, response, knowledgeParentOf(convCtx)), ranReflection))
 				return
 			}
 
@@ -1103,12 +1105,12 @@ func (m Model) processInput(input string) tea.Cmd {
 			var srPayload *ShardResultPayload
 			// If we had a recent payload we could attach it, but typically articulation doesn't return one directly here.
 
-			resultChan <- publishReflection(assistantMsg{
+			resultChan <- answerTo(request, publishReflection(assistantMsg{
 				Surface:           m.appendSystemSummary(response, m.collectSystemSummary(streamCtx, resultBase)),
 				ShardResult:       srPayload,
 				DreamHypothetical: m.lastDreamHypothetical,
 				ThoughtSummary:    thoughtSummary,
-			}, ranReflection)
+			}, ranReflection))
 		}()
 
 		return streamStartMsg{

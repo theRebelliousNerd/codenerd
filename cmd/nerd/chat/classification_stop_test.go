@@ -179,7 +179,7 @@ func TestSideTurn_StopSurvivesAFailedClassification(t *testing.T) {
 func TestSideTurn_ErrorBranchQueuesAndStaysSafe(t *testing.T) {
 	t.Parallel()
 	m, _ := busyModel(t, failedIntent(classifierOutage()))
-	slot := m.turn.reserve("also add a CHANGELOG entry")
+	slot := m.turn.reserve("also add a CHANGELOG entry", 0)
 	m = m.applySideTurn(sideTurnMsg{Input: "also add a CHANGELOG entry", Slot: slot, Err: errors.New("API request failed with status 401: sk-live-secret-body")})
 	reply := lastAssistant(m)
 	if strings.Contains(reply, "sk-live-secret-body") {
@@ -189,7 +189,7 @@ func TestSideTurn_ErrorBranchQueuesAndStaysSafe(t *testing.T) {
 		t.Fatalf("queued=%d reply=%q; the message claims a queue it must keep", m.turn.queuedCount(), reply)
 	}
 	m2, _ := busyModel(t, failedIntent(classifierOutage()))
-	m2 = m2.applySideTurn(sideTurnMsg{Input: "x", Slot: m2.turn.reserve("x"), Err: context.Canceled})
+	m2 = m2.applySideTurn(sideTurnMsg{Input: "x", Slot: m2.turn.reserve("x", 0), Err: context.Canceled})
 	if m2.turn.queuedCount() != 0 {
 		t.Fatal("a canceled read was queued")
 	}

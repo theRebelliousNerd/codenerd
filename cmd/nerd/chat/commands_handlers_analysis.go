@@ -320,7 +320,7 @@ func (m Model) handleCmdRead(input string, parts []string) (tea.Model, tea.Cmd) 
 	m.viewport.GotoBottom()
 	m.isLoading = true
 	m.beginLiveTurn("Thinking...")
-	return m, tea.Batch(m.spinner.Tick, m.processInput(question))
+	return m, tea.Batch(m.spinner.Tick, m.processInput(question, m.lastRequest()))
 }
 
 // handleCmdMkdir handles the corresponding chat slash-command.

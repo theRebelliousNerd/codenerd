@@ -47,6 +47,9 @@ type backgroundJob struct {
 	// Session is the chat session that started the job (startBackground);
 	// its result settles there even if the user has moved to another one.
 	Session string
+	// RequestID is the request the job's result answers (applyAnswer): the
+	// turn that started it only acknowledged it.
+	RequestID uint64
 }
 
 // backgroundJobs is shared across Model copies: Update works on values, and
@@ -283,7 +286,8 @@ func (m Model) finishBackground(msg backgroundDoneMsg) (Model, tea.Cmd) {
 	}
 	m = m.pushAssistantMsg(report)
 	m.isLoading = true
-	return m, m.processInput(next)
+	// The next step is the chain's, not a request the person made.
+	return m, m.processInput(next, 0)
 }
 
 // backgroundReport is the message for a settled job.
@@ -321,7 +325,7 @@ func (m Model) settleElsewhere(msg backgroundDoneMsg, stopped bool, report strin
 	if msg.Err == nil && !stopped && msg.Job.FollowUp != "" {
 		report += "\n\n_Its next step was not started: this session was not open when the job finished. Ask for it here to continue._"
 	}
-	if err := appendSessionMessage(m.workspace, msg.Job.Session, Message{Role: "assistant", Content: report, Time: time.Now()}); err != nil {
+	if err := appendSessionMessage(m.workspace, msg.Job.Session, Message{Role: "assistant", Content: report, Time: time.Now(), Answers: msg.Job.RequestID}); err != nil {
 		return m.pushAssistantMsg(fmt.Sprintf("_A background %s started in session `%s` finished, but its result could not be added to that session (%v), so here it is:_\n\n%s", msg.Job.Shard, msg.Job.Session, err, report))
 	}
 	return m.pushAssistantMsg(fmt.Sprintf("_The background %s started in session `%s` finished; its result was added to that session._", msg.Job.Shard, msg.Job.Session))
@@ -333,7 +337,7 @@ func appendSessionMessage(workspace, sessionID string, msg Message) error {
 	if err != nil {
 		return err
 	}
-	messages := append(history.Messages, session.ChatMessage{Role: msg.Role, Content: msg.Content, Time: msg.Time})
+	messages := append(history.Messages, session.ChatMessage{Role: msg.Role, Content: msg.Content, Time: msg.Time, Request: msg.Request, Answers: msg.Answers})
 	return session.SaveSessionHistory(workspace, sessionID, messages)
 }
 

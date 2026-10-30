@@ -45,6 +45,10 @@ type ChatMessage struct {
 	Role    string    `json:"role"` // "user" or "assistant"
 	Content string    `json:"content"`
 	Time    time.Time `json:"time"`
+	// Request is a user message's request id; Answers the request an
+	// assistant message answers. Absent in histories saved before them.
+	Request uint64 `json:"request,omitempty"`
+	Answers uint64 `json:"answers,omitempty"`
 }
 
 // SessionHistory represents the full conversation history for a session.

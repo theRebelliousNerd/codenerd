@@ -42,7 +42,7 @@ func TestKnowledgeSynthesis_KeepsTheTurnsEvidence(t *testing.T) {
 	m.virtualStore = core.NewVirtualStore(nil)
 	m.taskExecutor = &processControlTaskExecutor{response: "That format is a generic log header."}
 
-	msg := awaitProcessStream(t, m.processInput("what does the first line of app.log say")())
+	msg := awaitProcessStream(t, m.processInput("what does the first line of app.log say", 0)())
 	gathered, ok := msg.(knowledgeGatheredMsg)
 	if !ok {
 		t.Fatalf("turn returned %T, want knowledge gathering", msg)

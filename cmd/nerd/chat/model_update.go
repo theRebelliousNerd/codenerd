@@ -70,7 +70,8 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case clarificationReply:
 		// Handle clarification reply
-		return m, m.processClarificationResponse(string(msg), m.clarificationState.PendingIntent, m.clarificationState.Context)
+		// The reply enters no history, so it is no request of its own.
+		return m, m.processClarificationResponse(string(msg), m.clarificationState.PendingIntent, m.clarificationState.Context, 0)
 
 	case spinner.TickMsg:
 		if m.isLoading || m.isBooting {
@@ -179,9 +180,19 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.pushAssistantMsg(msg.Surface)
 		return m, tea.Batch(m.startBackground(msg.Job, msg.Job.Task), m.saveSessionStateCmd())
 
+	case answerMsg:
+		return m.applyAnswer(msg)
+
 	case backgroundDoneMsg:
 		var cmd tea.Cmd
+		// The job's report answers the request that started it, in its own
+		// session; a job that settles elsewhere writes its answer there.
+		prev := m.answering
+		if msg.Job.Session == "" || msg.Job.Session == m.sessionID {
+			m.answering = msg.Job.RequestID
+		}
 		m, cmd = m.finishBackground(msg)
+		m.answering = prev
 		return m, tea.Batch(cmd, m.saveSessionStateCmd())
 
 	case holdMsg:

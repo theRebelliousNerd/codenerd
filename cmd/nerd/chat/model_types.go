@@ -306,6 +306,9 @@ type Model struct {
 	// goAheadWork is set only on the command that runs an approved proposal:
 	// processInput reuses its intent and the turn carries /user_go_ahead.
 	goAheadWork *pendingWork
+	// answering is the request whose ending message Update is applying
+	// (applyAnswer); assistant messages added meanwhile answer it.
+	answering uint64
 	// background is the read-only work running off the turn (background.go),
 	// shared across Model copies.
 	background *backgroundJobs
@@ -558,8 +561,13 @@ type KnowledgeResult struct {
 
 // Message represents a single message in the chat history
 type Message struct {
-	Role           string // "user", "assistant", or "system" (Glass Box events)
-	Content        string
+	Role    string // "user", "assistant", or "system" (Glass Box events)
+	Content string
+	// Request is a user message's request id in the session; Answers is the
+	// request an assistant message settles (request_answers.go). 0 is none:
+	// a notice, a side reply, or a message saved before ids existed.
+	Request        uint64
+	Answers        uint64
 	ThoughtSummary string // Brief decision explanation or provider-supplied summary
 	Time           time.Time
 

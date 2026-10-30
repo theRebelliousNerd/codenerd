@@ -26,6 +26,7 @@ const (
 // addMessage appends a message to history and pre-renders it into cache.
 // This pre-computation during Update() avoids expensive rendering during View().
 func (m Model) addMessage(msg Message) Model {
+	msg = m.attribute(msg)
 	idx := len(m.history)
 	m.history = append(m.history, msg)
 
@@ -78,6 +79,9 @@ func (m Model) addMessages(msgs ...Message) Model {
 	}
 
 	startIdx := len(m.history)
+	for i := range msgs {
+		msgs[i] = m.attribute(msgs[i])
+	}
 	m.history = append(m.history, msgs...)
 
 	// Pre-render all new messages
@@ -196,7 +200,7 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	// Process in background
 	return m, tea.Batch(
 		m.spinner.Tick,
-		m.processInput(input),
+		m.processInput(input, m.lastRequest()),
 	)
 }
 
@@ -489,12 +493,12 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 	// Resume processing with clarification response
 	return m, tea.Batch(
 		m.spinner.Tick,
-		m.processClarificationResponse(response, pendingIntent, clarifyContext),
+		m.processClarificationResponse(response, pendingIntent, clarifyContext, m.lastRequest()),
 	)
 }
 
 // processClarificationResponse continues processing after user provides clarification
-func (m Model) processClarificationResponse(response string, pendingIntent *perception.Intent, context string) tea.Cmd {
+func (m Model) processClarificationResponse(response string, pendingIntent *perception.Intent, context string, request uint64) tea.Cmd {
 	return func() tea.Msg {
 		// Guard: kernel must be initialized
 		if m.kernel == nil {
@@ -510,7 +514,7 @@ func (m Model) processClarificationResponse(response string, pendingIntent *perc
 				}
 				m.clearLearningCandidateFacts()
 				if strings.TrimSpace(context) != "" {
-					return m.processInput(context)()
+					return m.processInput(context, request)()
 				}
 				return assistantMsg{
 					Surface: fmt.Sprintf("Learned mapping: \"%s\" -> %s. You can retry the request when ready.%s", candidate.Phrase, candidate.Verb, partialLearningNote(outcome)),
@@ -544,7 +548,7 @@ func (m Model) processClarificationResponse(response string, pendingIntent *perc
 			pendingIntent.Target = response
 		}
 
-		return m.processInput(clarifiedInput)()
+		return m.processInput(clarifiedInput, request)()
 	}
 }
 
