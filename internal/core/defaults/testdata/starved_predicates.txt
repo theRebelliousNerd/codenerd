@@ -21,11 +21,6 @@ appeal_grant_count
 applied_rule
 armory_run
 armory_tool
-atom_conflict  # legacy JIT selection: jit_compiler.mg reads atom_requires/atom_conflicts; the rules over this name (jit_selection.mg, jit_logic.mg, prompt_context.mg) never fire; delete with them
-atom_context_boost  # legacy JIT selection: jit_compiler.mg reads atom_requires/atom_conflicts; the rules over this name (jit_selection.mg, jit_logic.mg, prompt_context.mg) never fire; delete with them
-atom_dependency  # legacy JIT selection: jit_compiler.mg reads atom_requires/atom_conflicts; the rules over this name (jit_selection.mg, jit_logic.mg, prompt_context.mg) never fire; delete with them
-atom_exclusion_group  # legacy JIT selection: jit_compiler.mg reads atom_requires/atom_conflicts; the rules over this name (jit_selection.mg, jit_logic.mg, prompt_context.mg) never fire; delete with them
-atom_final_order  # legacy JIT selection: jit_compiler.mg reads atom_requires/atom_conflicts; the rules over this name (jit_selection.mg, jit_logic.mg, prompt_context.mg) never fire; delete with them
 attack_vector
 bug_history  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 campaign_active
@@ -94,7 +89,6 @@ patch_tested
 path_contains  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
 path_in_workspace  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
 previous_coder_state  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
-prompt_exemplar  # legacy JIT selection: jit_compiler.mg reads atom_requires/atom_conflicts; the rules over this name (jit_selection.mg, jit_logic.mg, prompt_context.mg) never fire; delete with them
 proposed_rule
 quality_violation  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
 reachability_query  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
@@ -144,7 +138,6 @@ tool_safety_verified  # tool generation lifecycle (autopoiesis.mg): the Ouroboro
 tool_source_ready  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
 tool_usage_stats  # tool routing (tool_routing.mg): the tool registry asserts tool_registered and tool_capability only; wire usage and domain facts or delete the relevance rules
 trace_error  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
-trace_pattern  # legacy JIT selection: jit_compiler.mg reads atom_requires/atom_conflicts; the rules over this name (jit_selection.mg, jit_logic.mg, prompt_context.mg) never fire; delete with them
 trace_quality  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 trace_task_type  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 type_definition_file  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family

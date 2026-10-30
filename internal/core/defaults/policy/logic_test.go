@@ -31,13 +31,6 @@ func TestLogic_Golden(t *testing.T) {
 			goldenFile:  "testdata/honeypot.golden",
 		},
 		{
-			name:        "JIT Logic Context Matching",
-			policyFiles: []string{"jit_logic.mg"},
-			schemaFiles: []string{"../schemas_prompts.mg"},
-			edbFile:     "testdata/jit_logic.edb",
-			goldenFile:  "testdata/jit_logic.golden",
-		},
-		{
 			name:        "Campaign Orchestration",
 			policyFiles: []string{"config_params.mg", "campaign_core.mg", "campaign_context.mg", "campaign_phases.mg", "campaign_autopoiesis.mg", "campaign_tasks.mg"},
 			schemaFiles: []string{"../schemas_campaign.mg", "../schemas_shards.mg", "../schemas_safety.mg", "../schemas_intent.mg", "../schemas_analysis.mg", "../schemas_execution.mg"},

@@ -56,24 +56,11 @@ shard_context_atom(ShardID, Constraint, 70) :-
     active_shard(ShardID, ShardType),
     campaign_prompt_policy(CampaignID, ShardType, Constraint).
 
-# Include learned exemplars - MEDIUM relevance (60)
-shard_context_atom(ShardID, Exemplar, 60) :-
-    user_intent(/current_intent, Category, _, _, _),
-    active_shard(ShardID, ShardType),
-    prompt_exemplar(ShardType, Category, Exemplar).
-
 # Include relevant tool descriptions - MEDIUM relevance (65)
 shard_context_atom(ShardID, ToolDesc, 65) :-
     active_shard(ShardID, ShardType),
     relevant_tool(ShardType, ToolName),
     tool_description(ToolName, ToolDesc).
-
-# Include recent successful trace patterns - LOW relevance (50)
-shard_context_atom(ShardID, TracePattern, 50) :-
-    high_quality_trace(TraceID),
-    active_shard(ShardID, ShardType),
-    reasoning_trace(TraceID, ShardType, _, _, /true, _),
-    trace_pattern(TraceID, TracePattern).
 
 # --- Injectable Context Selection (Threshold Filtering) ---
 
@@ -145,10 +132,6 @@ activation(Knowledge, 85) :-
 activation(Constraint, 75) :-
     campaign_active(_),
     campaign_prompt_policy(_, _, Constraint).
-
-# Boost activation for learned exemplars
-activation(Exemplar, 70) :-
-    prompt_exemplar(_, _, Exemplar).
 
 # --- Context Staleness Detection ---
 

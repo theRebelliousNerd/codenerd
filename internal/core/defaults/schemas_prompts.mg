@@ -65,12 +65,6 @@ Decl campaign_prompt_policy(CampaignID, ShardType, Constraint) bound [/string, /
 # 42.6 Learned Exemplars
 # -----------------------------------------------------------------------------
 
-# prompt_exemplar(ShardType, Category, Exemplar)
-# Learned exemplars that should influence prompts
-# Category: exemplar category (e.g., /code_style, /error_handling, /documentation)
-# Exemplar: the learned example pattern or template
-Decl prompt_exemplar(ShardType, Category, Exemplar) bound [/name, /name, /string].
-
 # -----------------------------------------------------------------------------
 # 42.7 Derived Predicates for Prompt Assembly
 # -----------------------------------------------------------------------------
@@ -164,9 +158,6 @@ Decl specialist_knowledge_updated(ShardID) bound [/string].
 # 42.12 Trace Pattern Integration
 # -----------------------------------------------------------------------------
 
-# trace_pattern(TraceID, Pattern) - extracted pattern from a reasoning trace
-Decl trace_pattern(TraceID, Pattern) bound [/string, /string].
-
 # -----------------------------------------------------------------------------
 # 42.13 Learning from Context Injection
 # -----------------------------------------------------------------------------
@@ -213,18 +204,6 @@ Decl prompt_atom(AtomID, Category, TokenCount, IsMandatory) bound [/string, /nam
 # Mangle name constants. /model accepts an exact token or a release-independent
 # family token; the compile context asserts both.
 Decl atom_selector(AtomID, Dimension, Value) bound [/string, /name, /string].
-
-# atom_dependency(AtomID, DependsOnID, DepType)
-# DepType: /hard (must have), /soft (prefer), /order_only (just ordering)
-Decl atom_dependency(AtomID, DependsOnID, DepType) bound [/string, /string, /name].
-
-# atom_conflict(AtomA, AtomB)
-# Mutual exclusion - cannot select both
-Decl atom_conflict(AtomA, AtomB) bound [/string, /string].
-
-# atom_exclusion_group(AtomID, GroupID)
-# Only one atom per group can be selected
-Decl atom_exclusion_group(AtomID, GroupID) bound [/string, /string].
 
 # atom_content(AtomID, Content)
 # Actual prompt text (loaded on demand, large strings)
@@ -280,10 +259,6 @@ Decl vector_recall_result(Query, AtomID, SimilarityScore) bound [/string, /strin
 # 45.4 Derived Selection Predicates (IDB - computed by rules)
 # -----------------------------------------------------------------------------
 
-# atom_matches_context(AtomID, Score)
-# Computed match score based on context dimensions
-Decl atom_matches_context(AtomID, Score) bound [/string, /number].
-
 # atom_selected(AtomID)
 # Atom passes all selection criteria
 Decl atom_selected(AtomID) bound [/string].
@@ -291,38 +266,6 @@ Decl atom_selected(AtomID) bound [/string].
 # atom_excluded(AtomID, Reason)
 # Atom excluded with reason: /conflict, /exclusion_group, /over_budget, /missing_dependency
 Decl atom_excluded(AtomID, Reason) bound [/string, /string].
-
-# atom_dependency_satisfied(AtomID)
-# All hard dependencies are satisfied
-Decl atom_dependency_satisfied(AtomID) bound [/string].
-
-# atom_meets_threshold(AtomID)
-# Helper: atom would meet score threshold (40) for selection
-Decl atom_meets_threshold(AtomID) bound [/string].
-
-# has_unsatisfied_hard_dep(AtomID)
-# Helper: atom has at least one unsatisfied hard dependency
-Decl has_unsatisfied_hard_dep(AtomID) bound [/string].
-
-# is_excluded(AtomID)
-# Helper: atom is excluded for any reason (for safe negation)
-Decl is_excluded(AtomID) bound [/string].
-
-# atom_candidate(AtomID)
-# Helper: atom passes initial selection criteria (score threshold + deps)
-Decl atom_candidate(AtomID) bound [/string].
-
-# atom_loses_conflict(AtomID)
-# Helper: atom loses due to conflict with higher-scoring atom
-Decl atom_loses_conflict(AtomID) bound [/string].
-
-# atom_loses_exclusion(AtomID)
-# Helper: atom loses due to exclusion group with higher-scoring atom
-Decl atom_loses_exclusion(AtomID) bound [/string].
-
-# final_atom(AtomID, Order)
-# Final ordered list for assembly
-Decl final_atom(AtomID, Order) bound [/string, /number].
 
 # -----------------------------------------------------------------------------
 # 45.5 Compilation Validation
@@ -473,10 +416,6 @@ Decl conflict_loser(AtomID) bound [/string].
 # selected_atom(AtomID)
 # Final selection: mandatory OR valid candidate (not a conflict loser)
 Decl selected_atom(AtomID) bound [/string].
-
-# atom_context_boost(AtomID, BoostedPriority)
-# Priority boost based on context matching
-Decl atom_context_boost(AtomID, BoostedPriority) bound [/string, /number].
 
 # has_skeleton_category(Category)
 # Helper: true if at least one atom from this skeleton category is selected

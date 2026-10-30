@@ -168,7 +168,6 @@ unconsumed failed_edit
 unconsumed file_has_security_sensitive
 unconsumed file_in_project
 unconsumed file_modified_externally
-unconsumed final_atom
 unconsumed final_context_include
 unconsumed focus_needs_resolution
 unconsumed fragile

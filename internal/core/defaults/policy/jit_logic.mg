@@ -40,35 +40,9 @@
 # the producer to write is in selector.go, and it should extend the live
 # vocabulary rather than revive this one.
 
-# Final atom score from Go-computed boost (virtual predicate)
-atom_matches_context(AtomID, FinalScore) :-
-    prompt_atom(AtomID, _, _, _),
-    atom_context_boost(AtomID, FinalScore).
-
-# Mandatory atoms always get max score (100)
-atom_matches_context(AtomID, 100) :-
-    prompt_atom(AtomID, _, _, /true).
-
-# -----------------------------------------------------------------------------
-# Dependency Resolution (Stratified)
-# -----------------------------------------------------------------------------
-
-# Helper: atom would meet score threshold (potential candidate)
-atom_meets_threshold(AtomID) :-
-    atom_matches_context(AtomID, Score),
-    Score > 40.
-
-# Helper: atom is mandatory (always meets threshold)
-atom_meets_threshold(AtomID) :-
-    prompt_atom(AtomID, _, _, /true).
-
-# Helper: atom has at least one unsatisfiable hard dependency
-has_unsatisfied_hard_dep(AtomID) :-
-    atom_dependency(AtomID, DepID, /hard),
-    prompt_atom(DepID, _, _, _),
-    !atom_meets_threshold(DepID).
-
-# Atom dependencies are satisfied if no unsatisfiable hard deps exist
-atom_dependency_satisfied(AtomID) :-
-    prompt_atom(AtomID, _, _, _),
-    !has_unsatisfied_hard_dep(AtomID).
+# REMOVED: the legacy score chain (atom_matches_context, atom_meets_threshold,
+# has_unsatisfied_hard_dep, atom_dependency_satisfied). It read atom_context_boost
+# and atom_dependency, which nothing produces: the live selector emits
+# atom_requires and atom_conflicts (selector_facts.go) and jit_compiler.mg
+# resolves them. An atom's context is a veto (blocked_by_context), never a score
+# here. Recorded so the design is not rediscovered and re-added.

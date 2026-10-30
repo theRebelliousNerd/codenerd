@@ -34,71 +34,14 @@
 # Selection Algorithm (Stratified)
 # -----------------------------------------------------------------------------
 
-# Phase 1: Candidate atoms pass score threshold and have satisfied dependencies
-atom_candidate(AtomID) :-
-    atom_matches_context(AtomID, Score),
-    Score > 40,
-    atom_dependency_satisfied(AtomID).
-
-# Mandatory atoms are always candidates
-atom_candidate(AtomID) :-
-    prompt_atom(AtomID, _, _, /true).
-
-# Phase 2: Detect conflicts among candidates
-# An atom loses to a conflicting atom with higher score
-# Get both scores via shared AtomID/OtherID, compare before joining conflict table
-atom_loses_conflict(AtomID) :-
-    atom_candidate(AtomID),
-    atom_conflict(AtomID, OtherID),
-    atom_candidate(OtherID),
-    atom_matches_context(AtomID, MyScore),
-    atom_matches_context(OtherID, OtherScore),
-    OtherScore > MyScore.
-
-atom_loses_conflict(AtomID) :-
-    atom_candidate(AtomID),
-    atom_conflict(OtherID, AtomID),
-    atom_candidate(OtherID),
-    atom_matches_context(AtomID, MyScore),
-    atom_matches_context(OtherID, OtherScore),
-    OtherScore > MyScore.
-
-# An atom loses in exclusion group to higher-scoring atom
-atom_loses_exclusion(AtomID) :-
-    atom_candidate(AtomID),
-    atom_exclusion_group(AtomID, GroupID),
-    atom_exclusion_group(OtherID, GroupID),
-    AtomID != OtherID,
-    atom_candidate(OtherID),
-    atom_matches_context(AtomID, MyScore),
-    atom_matches_context(OtherID, OtherScore),
-    OtherScore > MyScore.
-
-# Helper: atom is excluded for any reason
-is_excluded(AtomID) :-
-    atom_loses_conflict(AtomID).
-
-is_excluded(AtomID) :-
-    atom_loses_exclusion(AtomID).
-
-# Exclude if dependency not satisfied (computed early, no cycle)
-is_excluded(AtomID) :-
-    prompt_atom(AtomID, _, _, _),
-    !atom_dependency_satisfied(AtomID).
-
-# Phase 3: Final selection - candidates that are not excluded
+# The live admission in this scope is the mandatory atoms: the score threshold,
+# dependency, conflict and exclusion-group rules that used to stand here read
+# atom_context_boost, atom_dependency, atom_conflict and atom_exclusion_group,
+# which nothing produces (selector_facts.go emits atom_requires and
+# atom_conflicts, and jit_compiler.mg resolves them), so only this rule ever
+# fired. atom_final_order was never produced either: the assembler orders atoms.
 atom_selected(AtomID) :-
-    atom_candidate(AtomID),
-    !is_excluded(AtomID).
-
-# -----------------------------------------------------------------------------
-# Final Ordering
-# -----------------------------------------------------------------------------
-
-# Order selected atoms by category first, then by match score within category.
-final_atom(AtomID, Order) :-
-    atom_selected(AtomID),
-    atom_final_order(AtomID, Order).
+    prompt_atom(AtomID, _, _, /true).
 
 # -----------------------------------------------------------------------------
 # Compilation Validation
@@ -130,10 +73,6 @@ compilation_error(/missing_mandatory, AtomID) :-
     !prohibited_atom(AtomID),
     !atom_selected(AtomID).
 
-# Error: circular dependency
-compilation_error(/circular_dependency, AtomID) :-
-    atom_dependency(AtomID, DepID, /hard),
-    atom_dependency(DepID, AtomID, /hard).
 
 # -----------------------------------------------------------------------------
 # Integration with Spreading Activation
@@ -142,12 +81,6 @@ compilation_error(/circular_dependency, AtomID) :-
 # High activation for selected atoms
 activation(AtomID, 95) :-
     atom_selected(AtomID).
-
-# Medium activation for atoms matching context but not selected
-activation(AtomID, 60) :-
-    atom_matches_context(AtomID, Score),
-    Score > 30,
-    !atom_selected(AtomID).
 
 # -----------------------------------------------------------------------------
 # Learning Signals from Prompt Compilation

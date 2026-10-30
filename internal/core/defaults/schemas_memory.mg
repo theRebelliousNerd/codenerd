@@ -147,10 +147,6 @@ Decl action_violates(Action, Predicate, Args) bound [/name, /string, /string].
 # Computed by Go based on last_checkpoint_time vs current_time
 Decl checkpoint_needed() bound [].
 
-# atom_final_order(AtomID, Order) - Computed ordering for final_atom
-# Order = (CategoryOrder * 1000) + Score, computed by Go
-Decl atom_final_order(AtomID, Order) bound [/string, /number].
-
 # unhandled_case_count_computed(ShardName, Count) - List count for unhandled cases
 # Mangle doesn't have list length function; Go computes this
 Decl unhandled_case_count_computed(ShardName, Count) bound [/string, /number].
