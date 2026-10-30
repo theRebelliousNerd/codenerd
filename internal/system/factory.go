@@ -2595,6 +2595,11 @@ func initFinalExecutors(bctx *bootContext) error {
 		bctx.sessionExecutor.SetLearningPolicy(func(shardType string) bool {
 			return appCfg.GetShardProfile(shardType).EnableLearning
 		})
+		// What a persona's turns teach it lands in its own learning store,
+		// which the JIT compiler recalls from on that persona's next compile.
+		if bctx.learningStore != nil {
+			bctx.sessionExecutor.SetShardLearnings(bctx.learningStore)
+		}
 		// The persona's model, provider and sampling, on every path that runs a
 		// persona -- not only the TUI's delegation.
 		profileContext := func(ctx context.Context, shardType string) context.Context {

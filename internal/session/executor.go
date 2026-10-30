@@ -254,6 +254,9 @@ type Executor struct {
 	// handed to turnRecorder at all (the shard profile's enable_learning).
 	// Nil records every turn.
 	learningPolicy func(shardType string) bool
+	// shardLearnings is the persona learning store a finished turn records
+	// what it taught into (executor_shard_learning.go); nil records nothing.
+	shardLearnings ShardLearningSaver
 	// shardProfileContext, when set, attaches the persona's configured profile
 	// (model, provider, sampling) to the turn's context.
 	shardProfileContext ShardProfileContext
@@ -711,6 +714,7 @@ func (e *Executor) CloneForTask() *Executor {
 	// paths a human happens to be watching.
 	clone.turnRecorder = e.turnRecorder
 	clone.learningPolicy = e.learningPolicy
+	clone.shardLearnings = e.shardLearnings
 	clone.shardProfileContext = e.shardProfileContext
 	// Same reasoning for the context rating: a delegated task compiles its own
 	// prompt, so its verdict on that prompt is exactly as informative as a
@@ -2489,6 +2493,8 @@ func (e *Executor) persistTurn(ctx context.Context, input string, intent percept
 		Provider:         provider,
 		Model:            model,
 	})
+	// And what the turn taught its persona, into the persona's own store.
+	e.recordShardLearnings(intent.Verb, input, outcome, result)
 
 	if persister == nil {
 		return

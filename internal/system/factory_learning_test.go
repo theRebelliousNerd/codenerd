@@ -250,3 +250,14 @@ func TestContextFeedbackRecorder_NilStoreIsSafe(t *testing.T) {
 	r.RecordContextFeedback(session.ContextFeedbackRecord{})
 	(&contextFeedbackRecorder{}).RecordContextFeedback(session.ContextFeedbackRecord{})
 }
+
+// The JIT personas run as session-executor turns, and their learning stores
+// (.nerd/shards/<persona>_learnings.db) held nothing: no boot path gave the
+// executor a store to record what a turn taught. The booted executor holds
+// the workspace's learning store.
+func TestBootWiresPersonaLearnings(t *testing.T) {
+	cortex := bootSessionWiringCortex(t, "persona-learnings")
+	if cortex.SessionExecutor == nil || !cortex.SessionExecutor.HasShardLearnings() {
+		t.Fatal("the session executor has no persona learning store: coder, tester, reviewer and researcher turns teach their personas nothing")
+	}
+}
