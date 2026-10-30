@@ -22,7 +22,7 @@ func writeTempPkg(t *testing.T, dir string, files map[string]string) {
 
 // TestPackageParseCache_HitsOnSecondCall pins the reason the cache exists:
 // PromptSection runs once per LLM turn with a file target and used to re-parse
-// up to 100 sibling files each time to produce text that is byte-identical
+// all sibling files each time to produce text that is byte-identical
 // until a file changes. Measured on internal/core before the cache: 61 ms and
 // 12 MB of garbage per turn.
 func TestPackageParseCache_HitsOnSecondCall(t *testing.T) {
@@ -452,4 +452,46 @@ func TestPackageParseCache_ConcurrentAccess(t *testing.T) {
 		}
 	}
 
+}
+
+// BenchmarkWholeSessionPackage measures the real large package on both paths.
+// Cold includes parsing and extraction; warm includes fingerprinting and cache application.
+func BenchmarkWholeSessionPackage(b *testing.B) {
+	dir, err := filepath.Abs("../session")
+	if err != nil {
+		b.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	target := filepath.Join(dir, "executor.go")
+	ctx := context.Background()
+	b.Run("cold", func(b *testing.B) {
+		h := NewHolographicProvider(nil, dir)
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			p, err := h.parsePackage(ctx, dir, entries)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if p.filesUnparsed != 0 {
+				b.Fatalf("%d files unparsed", p.filesUnparsed)
+			}
+		}
+	})
+	b.Run("warm", func(b *testing.B) {
+		h := NewHolographicProvider(nil, dir)
+		if _, err := h.GetContext(target); err != nil {
+			b.Fatal(err)
+		}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if _, err := h.GetContext(target); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }

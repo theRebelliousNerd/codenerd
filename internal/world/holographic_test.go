@@ -895,34 +895,64 @@ func TestLocateCallerLines_PathTraversalGuard(t *testing.T) {
 	}
 }
 
-func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
+// The old first-100-files parse loses F100..F109, their imports and references.
+func TestBuildGoContext_WholeLargePackage(t *testing.T) {
 	dir := t.TempDir()
-
-	// Write 110 dummy Go files (exceeding our limit of 100)
 	for i := range 110 {
-		filePath := filepath.Join(dir, fmt.Sprintf("file_%d.go", i))
-		err := os.WriteFile(filePath, []byte("package main\n"), 0644)
-		if err != nil {
-			t.Fatalf("Failed to write dummy sibling file: %v", err)
+		name := fmt.Sprintf("file_%03d.go", i)
+		source := fmt.Sprintf("package p\nimport \"fmt\"\nfunc F%03d() { fmt.Println(F109) }\n", i)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(source), 0o644); err != nil {
+			t.Fatal(err)
 		}
 	}
-
 	h := NewHolographicProvider(nil, dir)
-	hc := &HolographicContext{
-		PackageImports: make(map[string][]string),
+	target := filepath.Join(dir, "file_109.go")
+	check := func(wantTail string) {
+		t.Helper()
+		hc := &HolographicContext{PackageImports: make(map[string][]string)}
+		if err := h.buildGoContextWithContext(context.Background(), hc, target); err != nil {
+			t.Fatal(err)
+		}
+		if len(hc.PackageSiblings) != 109 {
+			t.Fatalf("siblings = %d, want 109", len(hc.PackageSiblings))
+		}
+		names := map[string]bool{}
+		for _, sig := range hc.PackageSignatures {
+			names[sig.Name] = true
+		}
+		for i := range 109 {
+			if !names[fmt.Sprintf("F%03d", i)] {
+				t.Errorf("missing signature F%03d", i)
+			}
+		}
+		if !names[wantTail] {
+			t.Errorf("missing tail signature %s", wantTail)
+		}
+		if len(hc.PackageImports["file_109.go"]) != 1 {
+			t.Errorf("tail imports = %v", hc.PackageImports["file_109.go"])
+		}
+		if hc.FilesUnparsed != 0 {
+			t.Errorf("unparsed = %d", hc.FilesUnparsed)
+		}
+		if hc.TargetPkg != "p" {
+			t.Errorf("tail package = %q", hc.TargetPkg)
+		}
 	}
-
-	targetPath := filepath.Join(dir, "file_0.go")
-	err := h.buildGoContextWithContext(context.Background(), hc, targetPath)
-	if err != nil {
-		t.Fatalf("buildGoContext failed: %v", err)
+	check("F109")
+	check("F109")
+	if hits, misses := h.CacheStats(); hits != 1 || misses != 1 {
+		t.Fatalf("cache hits/misses = %d/%d", hits, misses)
 	}
-
-	// Verify it successfully collected the siblings up to cap
-	if len(hc.PackageSiblings) < 100 {
-		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
+	// Change length as well as bytes so invalidation does not rely on clock resolution.
+	if err := os.WriteFile(target, []byte("package p\nimport \"fmt\"\nfunc TailReplacement() { fmt.Println(F108) }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	check("TailReplacement")
+	if _, misses := h.CacheStats(); misses != 2 {
+		t.Fatalf("tail edit did not invalidate cache: misses=%d", misses)
 	}
 }
+
 func TestHolographicContext_BinaryFileFallback(t *testing.T) {
 	tmpDir := t.TempDir()
 

@@ -6,7 +6,7 @@ package world
 // HolographicProvider.PromptSection is called from Executor.withFileContext
 // (internal/session/executor_tools.go) once per LLM turn that names a file
 // target. Before this cache existed, every one of those turns re-read the
-// target's directory and re-parsed up to 100 sibling files with
+// target's directory and re-parsed sibling files with
 // parser.ParseComments to produce ~1.6 KB of prompt text that is byte-identical
 // until a file in the package changes.
 //
@@ -42,9 +42,9 @@ const maxCachedPackages = 64
 // packageParse is everything buildGoContext can learn from a directory's bytes.
 // It is a pure function of those bytes, which is what makes it cacheable.
 type packageParse struct {
-	// goFiles is the name-ordered prefix of allGoFiles that the parse attempted,
-	// at most maxPackageFilesToParse. filesUnparsed is how many of allGoFiles
-	// did not parse. skippedSiblings names the ones over maxSiblingFileBytes.
+	// goFiles is the complete name-ordered list attempted by the parse.
+	// filesUnparsed counts files that did not parse; skippedSiblings names
+	// the ones over maxSiblingFileBytes.
 	// All three are a function of the directory bytes, so they stay in the cache
 	// and applyTo copies them onto the context the prompt reads.
 	goFiles         []string

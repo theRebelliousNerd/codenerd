@@ -67,7 +67,7 @@ type HolographicContext struct {
 	CallGraphEdges int `json:"call_graph_edges,omitempty"`
 
 	// FilesUnparsed is how many non-test Go files in the package directory did
-	// not parse: past maxPackageFilesToParse, over maxSiblingFileBytes, or a
+	// not parse: over maxSiblingFileBytes, or a
 	// parse error. SkippedSiblings names the oversized ones. The signature and
 	// type pools are only the files that parsed, so the prompt states this
 	// count beside them.
@@ -924,13 +924,6 @@ func (h *HolographicProvider) getContextInternal(ctx context.Context, filePath s
 	return hc, nil
 }
 
-// maxPackageFilesToParse caps how many sibling files one directory is parsed
-// for signatures. Parsing every file of a large package sits on the turn's
-// critical path. Files past the cap are not dropped from the count: PromptSection
-// says how many were not parsed. Slicing the list and then counting signatures
-// reported a package remainder that left those files out.
-const maxPackageFilesToParse = 100
-
 // maxSiblingFileBytes skips a generated monster. A 5 MB .go file is a generated
 // table, and parsing it can dominate the package. The skip is named in the
 // prompt with its size. A log line alone left a hole in the signature list.
@@ -994,16 +987,10 @@ func (h *HolographicProvider) parsePackage(ctx context.Context, dir string, entr
 		p.allGoFiles = append(p.allGoFiles, filepath.Join(dir, name))
 	}
 
-	// Name order, not ReadDir order. The cap's omitted set has to be a function
-	// of the directory, so "N files were not parsed" is the same on every
-	// machine. ReadDir order is not.
+	// Parse the entire package. The directory fingerprint invalidates the cached
+	// parse on edits; warm turns reuse it regardless of the package's file count.
 	sort.Strings(p.allGoFiles)
-	if len(p.allGoFiles) > maxPackageFilesToParse {
-		logging.Get(logging.CategoryWorld).Warn("buildGoContext: package too large (%d files), limiting parsing to first %d", len(p.allGoFiles), maxPackageFilesToParse)
-		p.goFiles = append([]string(nil), p.allGoFiles[:maxPackageFilesToParse]...)
-	} else {
-		p.goFiles = append([]string(nil), p.allGoFiles...)
-	}
+	p.goFiles = append([]string(nil), p.allGoFiles...)
 
 	parsed := 0
 	fset := token.NewFileSet()
@@ -1025,16 +1012,8 @@ func (h *HolographicProvider) parsePackage(ctx context.Context, dir string, entr
 		}
 		parsed++
 	}
-	// Files past the cap were not walked by the loop above. Stat them so an
-	// oversized one is named, not folded into the count with no identity.
-	for _, goFile := range p.allGoFiles[len(p.goFiles):] {
-		if info, statErr := os.Stat(goFile); statErr == nil && info.Size() > maxSiblingFileBytes {
-			h.noteOversizedSibling(p, goFile, info.Size())
-		}
-	}
-	// Full list minus what parsed. Computed here, after the walk, never from
-	// the already-sliced goFiles length alone: a huge file inside the cap and
-	// a file past the cap are both absent from the signature pool.
+	// Only oversized or malformed files remain unparsed, and the model-facing
+	// context reports those omissions independently of the render budget.
 	p.filesUnparsed = len(p.allGoFiles) - parsed
 
 	narrowLocalRefs(p)
@@ -1050,7 +1029,7 @@ func (h *HolographicProvider) noteOversizedSibling(p *packageParse, goFile strin
 }
 
 // readPackageClause fills TargetPkg for a file the package parse did not cover
-// — a _test.go target, or one past maxPackageFilesToParse.
+// — for example, a _test.go target.
 func (h *HolographicProvider) readPackageClause(hc *HolographicContext, filePath string) {
 	fset := token.NewFileSet()
 	if node, err := parser.ParseFile(fset, filePath, nil, parser.PackageClauseOnly); err == nil && node.Name != nil {

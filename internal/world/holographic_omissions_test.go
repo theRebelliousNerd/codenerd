@@ -42,7 +42,7 @@ func TestOmissionToolsAreInTheCatalog(t *testing.T) {
 
 // TestPromptSection_OmissionsStateTheTrueRemainder is the contract for every
 // bound that used to shrink a pool before its "and N more" line: a package
-// past the file cap, a sibling past the byte cap, a call graph past the edge
+// in a large package, a sibling past the byte cap, a call graph past the edge
 // cap, and a doc comment past the old 100-character cut. Each count in the
 // section is the true one, and each omission names a tool that reads the rest.
 func TestPromptSection_OmissionsStateTheTrueRemainder(t *testing.T) {
@@ -55,8 +55,7 @@ func TestPromptSection_OmissionsStateTheTrueRemainder(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 100 siblings. With the target and the oversized file that is 102 Go
-	// files. Name order parses the first 100, so aaa_target.go is parsed and
-	// the last extra plus the oversized file are not.
+	// files. Every ordinary file is parsed; only the oversized file is skipped.
 	const extraFiles = 100
 	for i := 0; i < extraFiles; i++ {
 		body := fmt.Sprintf("package p\n\nfunc Extra%d() {}\n\ntype Extra%dType struct{}\n", i, i)
@@ -107,7 +106,7 @@ func TestPromptSection_OmissionsStateTheTrueRemainder(t *testing.T) {
 	}
 
 	wantUnparsed := expectUnparsedGoFiles(t, dir)
-	if wantUnparsed < 2 {
+	if wantUnparsed != 1 {
 		t.Fatalf("fixture did not leave files unparsed (got %d)", wantUnparsed)
 	}
 	if hc.FilesUnparsed != wantUnparsed {
@@ -212,10 +211,8 @@ func TestPromptSection_OmissionsStateTheTrueRemainder(t *testing.T) {
 }
 
 // expectUnparsedGoFiles applies the parse bounds the same way parsePackage
-// does: name order, the first maxPackageFilesToParse files are attempted, a
-// file over maxSiblingFileBytes is not parsed, and every other Go file is.
-// The fixture's small files all parse, so a file inside the window that is
-// not oversized counts as parsed.
+// does: every non-test Go file is attempted, except oversized files.
+// The fixture's small files all parse.
 func expectUnparsedGoFiles(t *testing.T, dir string) int {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -234,15 +231,8 @@ func expectUnparsedGoFiles(t *testing.T, dir string) int {
 	}
 	// Same order parsePackage uses. Full paths in one directory sort as base names.
 	sort.Strings(names)
-	attempted := len(names)
-	if attempted > maxPackageFilesToParse {
-		attempted = maxPackageFilesToParse
-	}
 	parsed := 0
-	for i, name := range names {
-		if i >= attempted {
-			break
-		}
+	for _, name := range names {
 		info, err := os.Stat(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
