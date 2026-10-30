@@ -75,6 +75,11 @@ the protocol for a run, and the status of each rung with the run that moved it.
   prompt corpus and importance ledger stale, the coder had no command runner in its catalog to regenerate
   them, and the two builder commands were run by hand (brief R1-41). The request was also held for "go"
   in yolo mode (brief R1-40). **R1 streak 0.**
+- **R1-41 partial** (2026-10-30, `50c79a229`): the prompt corpus seed check names its repair command in
+  every mismatch. The rest stopped at the shell-effect gate, which refuses every unrecognized command and
+  which codeNERD may not change. The root built the governed path by hand: nerd.md `generators` and the
+  `regenerate` tool (`5e4bc74c6`), so an agent runs a declared generator as a guarded, undoable write.
+  Test-only landing. **R1 streak 0.**
 - last updated: 2026-09-19 20:25
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0

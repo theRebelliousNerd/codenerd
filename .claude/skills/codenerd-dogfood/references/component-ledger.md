@@ -6219,3 +6219,15 @@ it reported "No generator-execution tool is available" though the ledger test na
 commands were run by hand (brief R1-41). Merged with lane A's test-gate memoization fix (`b1609df24`): three
 conflicts, both behaviours kept. **Streak 0.**
 
+
+## R1-41, a coder could not run the command that regenerates a stale file -- partial, root built the path (2026-10-29, 21:27-21:37)
+
+Brief (symptom only): a /fix that edited an atom stopped with "No generator-execution tool is available" though the
+failing check named its command. codeNERD landed one test change (`50c79a229`): the prompt corpus seed check names
+`prompt_builder -reconcile-embedded` in every mismatch. It then stopped, correctly: the shared shell-effect gate
+refuses unrecognized commands, and changing safety gates is outside what the project lets the agent do.
+
+Root fix (`5e4bc74c6`): nerd.md `generators` (id, run, outputs, when) and the `regenerate` tool, which runs only a
+declared generator; `Tool.ExpandArgs` puts the outputs in the call's paths, so the write guards, preimage capture
+and write set treat the run like any write, and a run that changes an undeclared file fails by name. Granted to
+coder and tester; the three freshness checks name their generator. **Streak 0.**
