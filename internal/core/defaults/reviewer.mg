@@ -362,8 +362,15 @@ review_suspect(ReviewID, "multiple_rejections") :-
     user_rejected_finding(ReviewID, File, Line2, _, _),
     Line1 != Line2.
 
+# More than half of a review's judged findings were rejected: integer
+# cross-multiplication (Rejected*2 > Total) over the accuracy row the feedback
+# loop keeps, so the rate is judged here and no flag is computed in Go.
+review_rejection_rate_high(ReviewID) :-
+    review_accuracy(ReviewID, Total, _, Rejected, _),
+    Twice = fn:mult(Rejected, 2),
+    Twice > Total.
+
 # Review is suspect if >50% findings were rejected
-# NOTE: Mangle can't do percentage math; use rejection_rate_high virtual predicate
 review_suspect(ReviewID, "high_rejection_rate") :-
     review_accuracy(ReviewID, Total, _, _, _),
     Total > 2,

@@ -269,7 +269,7 @@ Decl user_accepted_finding(ReviewID, File, Line, Timestamp) bound [/string, /str
 Decl review_accuracy(ReviewID, TotalFindings, Accepted, Rejected, Score) bound [/string, /number, /number, /number, /number].
 
 # review_rejection_rate_high(ReviewID) - True when rejection rate > 50%
-# Computed by Go: (Rejected * 2) > Total
+# Derived in reviewer.mg from review_accuracy: (Rejected * 2) > Total
 Decl review_rejection_rate_high(ReviewID) bound [/string].
 
 # review_suspect(ReviewID, Reason)
