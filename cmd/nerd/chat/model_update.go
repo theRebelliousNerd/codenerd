@@ -649,8 +649,9 @@ The strategic knowledge base has been updated with new documentation.%s`, msg.do
 				providerInfo, msg.err,
 			))
 		} else if msg.welcome != "" {
-			// Health check succeeded — show LLM-generated welcome
-			m = m.pushAssistantMsg(msg.welcome)
+			// Health check succeeded: the greeting opens the conversation,
+			// however late it arrives (placeWelcome).
+			m = m.placeWelcome(msg.welcome)
 		}
 		// If welcome is empty but no error, silently skip (LLM returned empty)
 		return m, nil

@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -106,4 +107,35 @@ Facts generated: %d | Scan duration: %.2fs`,
 			model:    model,
 		}
 	}
+}
+
+// placeWelcome puts the greeting where it belongs: opening the conversation.
+// The input unlocks when the scan completes, while the greeting is still a
+// model call away, so a request typed at once is in the history before it.
+// Until 2026-10-30 the greeting was appended wherever the conversation had
+// got to, and read as the assistant answering the request with a greeting.
+// It now goes before the first user message when there is one, and at the end
+// otherwise. A failed health check is not a greeting: it is reported where it
+// lands.
+func (m Model) placeWelcome(text string) Model {
+	at := slices.IndexFunc(m.history, func(msg Message) bool { return msg.Role == "user" })
+	if at < 0 {
+		return m.pushAssistantMsg(text)
+	}
+	greeting := Message{Role: "assistant", Content: text, Time: time.Now()}
+	m.history = slices.Insert(slices.Clone(m.history), at, greeting)
+	// Every message from the insertion on moved down one: their cached
+	// renders are keyed by the old index.
+	if m.renderedCache != nil {
+		for idx := range m.renderedCache {
+			if idx >= at {
+				delete(m.renderedCache, idx)
+			}
+		}
+	}
+	if m.cacheInvalidFrom < 0 || m.cacheInvalidFrom > at {
+		m.cacheInvalidFrom = at
+	}
+	m.viewport.SetContent(m.renderHistory())
+	return m
 }
