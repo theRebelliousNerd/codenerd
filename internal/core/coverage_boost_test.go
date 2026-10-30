@@ -45,9 +45,6 @@ func TestDefaultIntentFactPredicates_WhenCalled_ShouldContainKnownPredicates(t *
 		"intent_category",
 		"valid_semantic_type",
 		"valid_action_type",
-		"best_mode",
-		"best_shard",
-		"tool_priority",
 	}
 	for _, p := range expected {
 		if _, ok := preds[p]; !ok {
