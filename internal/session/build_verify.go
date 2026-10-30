@@ -1026,8 +1026,15 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		return nil, nil
 	}
 
-	findings := parseCriticFindings(response)
+	findings, verdict := parseCriticFindings(response)
 	result.CriticFindings = findings
+	result.CriticVerdict = verdict
+	switch verdict {
+	case verdictUnparseable:
+		logging.Get(logging.CategorySession).Warn("adversarial review reply followed neither FINDING lines nor NO FINDINGS; no opinion was given, turn continues")
+	case verdictContradictory:
+		logging.Get(logging.CategorySession).Warn("adversarial review said NO FINDINGS beside %d finding(s); the findings stand", len(findings))
+	}
 
 	// One line carrying every gate's verdict. Reaching this point means the
 	// build passed -- that gate returns early otherwise. The tests are not

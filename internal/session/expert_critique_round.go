@@ -153,7 +153,14 @@ func (e *Executor) reviewWithShardExperts(
 			logging.Get(logging.CategorySession).Warn("shard agent %s critique failed (%v); turn continues", agent, err)
 			continue
 		}
-		kept, dropped := findingsOnChange(parseCriticFindings(answer), windows)
+		parsed, verdict := parseCriticFindings(answer)
+		switch verdict {
+		case verdictUnparseable:
+			logging.Get(logging.CategorySession).Warn("shard agent %s critique followed neither FINDING lines nor NO FINDINGS; no opinion was given", agent)
+		case verdictContradictory:
+			logging.Get(logging.CategorySession).Warn("shard agent %s said NO FINDINGS beside %d finding(s); the findings stand", agent, len(parsed))
+		}
+		kept, dropped := findingsOnChange(parsed, windows)
 		if len(dropped) > 0 {
 			logging.Get(logging.CategorySession).Info("shard agent %s: %d finding(s) cite code this turn did not change; not charged to it", agent, len(dropped))
 		}

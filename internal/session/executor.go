@@ -1098,6 +1098,9 @@ type ExecutionResult struct {
 	// low-severity items that did not trigger an uplift round. Advisory only —
 	// nothing here fails a turn.
 	CriticFindings []CriticFinding
+	// CriticVerdict is what the critic's reply said apart from its findings:
+	// sound, findings, contradictory, or unparseable (a missing opinion).
+	CriticVerdict criticVerdict
 	// ExpertFindings are the shard agents' review of this turn's change (the
 	// /expert_critique round): every on-change finding, by agent.
 	ExpertFindings []ExpertFinding

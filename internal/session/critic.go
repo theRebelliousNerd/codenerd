@@ -186,33 +186,46 @@ func turnRemovals(before, after string) string {
 	return strings.Join(parts, "\n")
 }
 
-// parseCriticFindings parses the reviewer's response into findings.
-//
-// It accepts severity values high, medium and low case-insensitively, ignores
-// any non-matching lines, and returns nil when the response contains
-// NO FINDINGS. The nil return for NO FINDINGS is intentional: it
-// distinguishes "the reviewer said the code is sound" from "the reviewer
-// produced no parseable output", and callers treat the former as a clean
-// pass without triage.
-//
-// Lines that do not match the exact FINDING format are silently skipped so
-// the reviewer's preamble or reasoning does not become a defect.
-func parseCriticFindings(response string) []CriticFinding {
-	// NO FINDINGS is the reviewer's explicit "sound code" signal. If it
-	// appears on any line (trimmed), the whole response is treated as no
-	// findings — even if other lines look like findings — because the
-	// alternative is to triage a contradictory response.
-	lines := strings.Split(response, "\n")
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "NO FINDINGS" {
-			return nil
-		}
-	}
+// criticVerdict is what a review's reply said, apart from its findings.
+type criticVerdict string
 
+const (
+	// verdictSound: the reply said NO FINDINGS and named none.
+	verdictSound criticVerdict = "sound"
+	// verdictFindings: the reply named findings.
+	verdictFindings criticVerdict = "findings"
+	// verdictContradictory: the reply named findings and also said NO
+	// FINDINGS. The findings stand: a stock closing line does not withdraw
+	// a defect the reviewer described.
+	verdictContradictory criticVerdict = "contradictory"
+	// verdictUnparseable: the reply followed neither form. It is a missing
+	// opinion, not a clean review.
+	verdictUnparseable criticVerdict = "unparseable"
+)
+
+// parseCriticFindings parses the reviewer's response into findings and the
+// verdict the reply carried.
+//
+// It accepts severity values high, medium and low case-insensitively and
+// skips every line that does not match the exact FINDING format, so the
+// reviewer's preamble or reasoning does not become a defect.
+//
+// Until 2026-10-29 it returned nil both for NO FINDINGS and for a reply in
+// neither form (its comment claimed it told them apart), and a NO FINDINGS
+// line anywhere discarded every finding beside it. A reply that broke the
+// contract read as a clean review, and a defect followed by a stock "NO
+// FINDINGS" vanished. The verdict now says which it was.
+func parseCriticFindings(response string) ([]CriticFinding, criticVerdict) {
+	lines := strings.Split(response, "\n")
+	saidSound := false
 	var out []CriticFinding
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
+			continue
+		}
+		if trimmed == "NO FINDINGS" {
+			saidSound = true
 			continue
 		}
 		m := criticFindingRe.FindStringSubmatch(trimmed)
@@ -239,10 +252,15 @@ func parseCriticFindings(response string) []CriticFinding {
 			Claim:    claim,
 		})
 	}
-	if len(out) == 0 {
-		return nil
+	switch {
+	case len(out) > 0 && saidSound:
+		return out, verdictContradictory
+	case len(out) > 0:
+		return out, verdictFindings
+	case saidSound:
+		return nil, verdictSound
 	}
-	return out
+	return nil, verdictUnparseable
 }
 
 // criticMaxFileBytes bounds how much of a written file is shown to the

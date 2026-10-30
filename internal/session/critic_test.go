@@ -151,9 +151,12 @@ func TestParseCriticFindings(t *testing.T) {
 			wantNil:  true,
 		},
 		{
-			name:     "NO FINDINGS among other lines still nil",
+			name:     "NO FINDINGS does not withdraw the findings beside it",
 			response: "FINDING foo.go:10 high: real defect\nNO FINDINGS\nFINDING bar.go:20 low: something",
-			wantNil:  true,
+			want: []CriticFinding{
+				{File: "foo.go", Line: 10, Severity: "high", Claim: "real defect"},
+				{File: "bar.go", Line: 20, Severity: "low", Claim: "something"},
+			},
 		},
 		{
 			name:     "NO FINDINGS embedded in chatter",
@@ -251,7 +254,7 @@ func TestParseCriticFindings(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := parseCriticFindings(tc.response)
+			got, _ := parseCriticFindings(tc.response)
 			if tc.wantNil {
 				if got != nil {
 					t.Fatalf("parseCriticFindings(%q) = %v; want nil", tc.response, got)
@@ -293,7 +296,7 @@ func TestParseAndUpliftIntegration(t *testing.T) {
 	// End-to-end: parse then triage through the kernel — low findings are
 	// dropped for uplift.
 	resp := "FINDING a.go:1 high: h1\nFINDING b.go:2 low: l1\nFINDING c.go:3 medium: m1"
-	parsed := parseCriticFindings(resp)
+	parsed, _ := parseCriticFindings(resp)
 	if len(parsed) != 3 {
 		t.Fatalf("parseCriticFindings integration: got %d want 3: %v", len(parsed), parsed)
 	}
@@ -319,7 +322,7 @@ func TestBuildCriticPrompt_RoundTripWithParser(t *testing.T) {
 	}
 	// Simulate a reviewer response using the exact format the prompt specifies.
 	response := "FINDING foo.go:10 high: example defect"
-	findings := parseCriticFindings(response)
+	findings, _ := parseCriticFindings(response)
 	if len(findings) != 1 || findings[0].File != "foo.go" || findings[0].Line != 10 {
 		t.Fatalf("round-trip failed: prompt format not parseable: %v", findings)
 	}
@@ -352,7 +355,7 @@ func TestParseCriticFindings_RejectsUnknownSeverity(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := parseCriticFindings(tc.response)
+			got, _ := parseCriticFindings(tc.response)
 			if len(got) != tc.want {
 				t.Fatalf("parseCriticFindings(%q) returned %d findings (%+v); want %d",
 					tc.response, len(got), got, tc.want)
@@ -364,7 +367,7 @@ func TestParseCriticFindings_RejectsUnknownSeverity(t *testing.T) {
 // A line number that is not a number must be dropped, not defaulted to 0. A
 // finding pointing at line 0 sends a reader to the top of the file.
 func TestParseCriticFindings_RejectsNonNumericLine(t *testing.T) {
-	if got := parseCriticFindings("FINDING a.go:notanumber high: boom"); len(got) != 0 {
+	if got, _ := parseCriticFindings("FINDING a.go:notanumber high: boom"); len(got) != 0 {
 		t.Errorf("expected a non-numeric line to be dropped, got %+v", got)
 	}
 }
