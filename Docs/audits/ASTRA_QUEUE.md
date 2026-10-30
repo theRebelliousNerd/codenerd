@@ -48,9 +48,17 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 | `planned-step-expert-consultation-continuity` | `research-main-20261029-2241` | fixed `ea0e0a6d3` |
 | `advisory-repair-continuation` | `research-main-20261029-2258` | fixed `23e3a6237` |
 | `expert-critique-domain-coverage` | `research-main-20261029-2258` | fixed `1e9e34bb6` |
-| `plan-bound-expert-decks` (innovation) | `research-main-20261029-2258` | first tranche `3a2470f53`; edge cards, mandates, freshness, routing open (Lane A) |
-| `knowledge-refresh-prune` | `research-main-20261030-0141` | open (Lane A) |
-| `grounded-search-terminal-status` | `research-main-20261030-0141` | open (Lane A) |
+| `plan-bound-expert-decks` (innovation) | `research-main-20261029-2258` | built: cards, dealing, hand-offs, routing ladder, mandates (`43b8c22a3`) |
+| `knowledge-refresh-prune` | `research-main-20261030-0141` | fixed `32ad8379d` |
+| `grounded-search-terminal-status` | `research-main-20261030-0141` | fixed `5fc51cc52` |
+| `expert-card-scope-continuity` | `research-main-20261030-0211` | fixed `aae6b7eb1` |
+| `expert-card-repair-continuity` | `research-main-20261030-0211` | fixed `e6218a8b7` |
+| `knowledge-miss-retirement` | `research-main-20261030-0211` | fixed `dca4c1d4e` |
+| `mangle-schema-rollback` | `research-main-20261030-0211` | fixed `e745223d9` |
+| `effect-recovery-closure` | `research-main-20261030-0211` | fixed `86db8d747` |
+| `regenerate-deletion-observation` | `research-main-20261030-0211` | fixed `0b1dab261` |
+| `working-handle-allocation` | `research-main-20261030-0211` | open (Lane B, fixed on branch) |
+| `expert-roster-domain-retirement` | `research-main-20261030-0211` | open (Lane A, fixed on branch) |
 
 ## Lane B: campaign and verification, then the Mangle kernel and world model
 
@@ -87,7 +95,7 @@ One audit per run, briefed as its symptom (the ladder's brief rule), in this ord
 
 | audit | branch | status |
 |---|---|---|
-| `knn-recall-limit-error-contract` | `research-main-20261029-1018` | open (Lane B) |
+| `knn-recall-limit-error-contract` | `research-main-20261029-1018` | fixed `6c6a798ac` |
 | `legacy-vector-repair-attempt-lifecycle` | `research-main-20261029-1018` | fixed `8ec6b638f` |
 | `knowledge-index-repair-cache-freshness` | `research-main-20261029-1018` | fixed `44d8a7d95` |
 | `embedding-stats-observation-boundary` | `research-main-20261029-1018` | fixed `27bc13b05` |
@@ -98,10 +106,10 @@ One audit per run, briefed as its symptom (the ladder's brief rule), in this ord
 | `user-memory-archival-lifecycle` | `research-main-20261029-1950` | fixed `073bffe69` |
 | `document-extraction-coverage-resumption` | `research-main-20261029-1018` | fixed `a285f0583` |
 | `reflection-observation-publication` | `research-main-20261029-1018` | fixed `b68849adb` |
-| `queued-slash-command-kind-conservation` | `research-main-20261029-1018` | open (Lane B) |
-| `slash-operation-slot-admission` | `research-main-20261029-1018` | open (Lane B) |
-| `tui-legislator-dispatch-parity` | `research-main-20261029-1018` | open (Lane B) |
-| `interaction-audit-surface-projection-parity` | `research-main-20261029-1018` | open (Lane B) |
-| `taxonomy-initialization-completeness` | `research-main-20261029-0736` | open (Lane B) |
-| `queued-history-projection` | `research-main-20261030-0017` | open (Lane B) |
-| `git-sysfacts-porcelain` | `research-main-20261030-0141` | open (Lane B) |
+| `queued-slash-command-kind-conservation` | `research-main-20261029-1018` | fixed `40da23666` |
+| `slash-operation-slot-admission` | `research-main-20261029-1018` | fixed `c3b5bef85` |
+| `tui-legislator-dispatch-parity` | `research-main-20261029-1018` | fixed `9e564f857` |
+| `interaction-audit-surface-projection-parity` | `research-main-20261029-1018` | fixed `b21fd586c` |
+| `taxonomy-initialization-completeness` | `research-main-20261029-0736` | fixed `31123a4f4` |
+| `queued-history-projection` | `research-main-20261030-0017` | fixed `2aa65dfda` |
+| `git-sysfacts-porcelain` | `research-main-20261030-0141` | fixed `e2e4ddac6` |
