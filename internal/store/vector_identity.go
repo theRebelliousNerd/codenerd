@@ -190,24 +190,35 @@ func (s *LocalStore) noteExcludedLocked(space string) {
 // still being unattributed and holding the same content the vector was computed
 // from, so a concurrent heal or a concurrent store cannot stamp a vector onto
 // the wrong text.
-func (s *LocalStore) healUnattributedVectors(ctx context.Context, engine embedding.EmbeddingEngine, space string) (int, error) {
+//
+// It returns what it healed, the rows its provider refused (they are not
+// retried automatically), and the watermark: the highest row id when it
+// scanned, so a later check finds legacy rows that arrived after it. skip
+// are rows already refused, left out of the scan.
+func (s *LocalStore) healUnattributedVectors(ctx context.Context, engine embedding.EmbeddingEngine, space string, skip map[int64]bool) (healed int, refused []int64, watermark int64, err error) {
 	if s == nil || s.db == nil || engine == nil || space == "" {
-		return 0, nil
+		return 0, nil, 0, nil
 	}
 	type pendingRow struct {
 		id       int64
 		content  string
 		metadata string
 	}
-	rows, err := s.db.Query(`SELECT id, content, metadata FROM vectors WHERE TRIM(content) != '' AND embedding IS NOT NULL AND (embedding_model IS NULL OR embedding_model = '')`)
+	if err := s.db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM vectors`).Scan(&watermark); err != nil {
+		return 0, nil, 0, err
+	}
+	rows, err := s.db.Query(`SELECT id, content, metadata FROM vectors WHERE id <= ? AND TRIM(content) != '' AND embedding IS NOT NULL AND (embedding_model IS NULL OR embedding_model = '')`, watermark)
 	if err != nil {
-		return 0, err
+		return 0, nil, watermark, err
 	}
 	var pending []pendingRow
 	for rows.Next() {
 		var r pendingRow
 		var meta sql.NullString
 		if err := rows.Scan(&r.id, &r.content, &meta); err != nil {
+			continue
+		}
+		if skip[r.id] {
 			continue
 		}
 		if meta.Valid {
@@ -218,16 +229,15 @@ func (s *LocalStore) healUnattributedVectors(ctx context.Context, engine embeddi
 	rowsErr := rows.Err()
 	_ = rows.Close()
 	if rowsErr != nil {
-		return 0, rowsErr
+		return 0, nil, watermark, rowsErr
 	}
 	if len(pending) == 0 {
-		return 0, nil
+		return 0, nil, watermark, nil
 	}
 	const batchSize = 32
-	healed := 0
 	for i := 0; i < len(pending); i += batchSize {
 		if err := ctx.Err(); err != nil {
-			return healed, err
+			return healed, refused, watermark, err
 		}
 		end := i + batchSize
 		if end > len(pending) {
@@ -284,7 +294,7 @@ func (s *LocalStore) healUnattributedVectors(ctx context.Context, engine embeddi
 			embeddings = make([][]float32, len(batch))
 			for j, txt := range batch {
 				if err := ctx.Err(); err != nil {
-					return healed, err
+					return healed, refused, watermark, err
 				}
 				var vec []float32
 				var embedErr error
@@ -308,17 +318,19 @@ func (s *LocalStore) healUnattributedVectors(ctx context.Context, engine embeddi
 		indexable := s.vectorExt.Load() && tableExists(s.db, "vec_index") && s.currentSpaceLocked() == space
 		for j, txt := range batch {
 			if j >= len(embeddings) || len(embeddings[j]) == 0 {
+				refused = append(refused, txt.id)
 				continue
 			}
 			embeddingJSON, encErr := encodeEmbedding(embeddings[j])
 			if encErr != nil {
 				logging.Get(logging.CategoryStore).Warn("heal unattributed vector %d: %v", txt.id, encErr)
+				refused = append(refused, txt.id)
 				continue
 			}
 			res, execErr := s.db.Exec(`UPDATE vectors SET embedding = ?, embedding_model = ? WHERE id = ? AND content = ? AND (embedding_model IS NULL OR embedding_model = '')`, embeddingJSON, space, txt.id, txt.content)
 			if execErr != nil {
 				s.mu.Unlock()
-				return healed, execErr
+				return healed, refused, watermark, execErr
 			}
 			affected, _ := res.RowsAffected()
 			if affected == 0 {
@@ -339,34 +351,119 @@ func (s *LocalStore) healUnattributedVectors(ctx context.Context, engine embeddi
 	if healed > 0 {
 		logging.Store("healed %d unattributed vectors into space %q", healed, space)
 	}
-	return healed, nil
+	return healed, refused, watermark, nil
 }
 
-// maybeHealUnattributed re-embeds pre-space rows once per space per store
-// before ranking, then lets the caller proceed. The first semantic recall in
-// a space claims that space under healMu and runs the heal; later recalls in
-// the same space return without a table scan or provider calls, so a row its
-// provider refused is not retried on every recall and recall pays nothing
-// after heal. A heal failure never fails the recall: the eligible rows
-// still rank and the exclusion warning still discloses what was left out.
+// healSpaceState is where the automatic heal stands in one space on this
+// store. An attempt is not a completion: the claim used to be taken before
+// the heal ran and never released, so a heal its caller canceled, or one
+// that found nothing before legacy rows arrived, left every later recall
+// skipping rows it never reached (audit legacy-vector-repair-attempt-
+// lifecycle).
+type healSpaceState struct {
+	// running: a heal is in flight. A concurrent recall does not wait for
+	// it; it ranks what is eligible now, and the exclusion notice says what
+	// is left out.
+	running bool
+	// complete: a pass finished over every row up to watermark.
+	complete  bool
+	watermark int64
+	// refused are rows the provider refused. They keep their missing stamp
+	// and are not retried automatically (`nerd embedding reembed` does).
+	refused map[int64]bool
+	// failed is a store error that stopped a pass. It is not retried on
+	// every recall -- a broken database would rescan on each one -- and the
+	// explicit migration recovers.
+	failed string
+}
+
+// maybeHealUnattributed re-embeds pre-space rows before ranking, then lets
+// the caller proceed. The first recall in a space runs the heal; a recall
+// after a complete pass checks only for legacy rows above its watermark (one
+// MAX(id) when nothing was written), so recall pays almost nothing after the
+// heal. A pass its caller canceled stays incomplete and the next recall
+// resumes it; a provider-refused row is never retried automatically; a store
+// error stops automatic passes in that space. A heal failure never fails the
+// recall: the eligible rows still rank and the exclusion warning still
+// discloses what was left out.
 func (s *LocalStore) maybeHealUnattributed(ctx context.Context, engine embedding.EmbeddingEngine, space string) {
 	if s == nil || engine == nil || space == "" {
 		return
 	}
 	s.healMu.Lock()
-	if s.healedSpaces == nil {
-		s.healedSpaces = make(map[string]struct{})
+	if s.healState == nil {
+		s.healState = make(map[string]*healSpaceState)
 	}
-	if _, done := s.healedSpaces[space]; done {
+	st := s.healState[space]
+	if st == nil {
+		st = &healSpaceState{refused: map[int64]bool{}}
+		s.healState[space] = st
+	}
+	if st.running || st.failed != "" {
 		s.healMu.Unlock()
 		return
 	}
-	s.healedSpaces[space] = struct{}{}
-	s.healMu.Unlock()
-	healed, err := s.healUnattributedVectors(ctx, engine, space)
-	if err != nil {
-		logging.Get(logging.CategoryStore).Warn("unattributed vector heal failed in space %q: %v", space, err)
-		return
+	if st.complete {
+		watermark := st.watermark
+		s.healMu.Unlock()
+		newer, top, err := s.unattributedAbove(watermark)
+		s.healMu.Lock()
+		if err == nil && !newer {
+			if top > st.watermark {
+				st.watermark = top
+			}
+			s.healMu.Unlock()
+			return
+		}
+		if st.running {
+			s.healMu.Unlock()
+			return
+		}
 	}
-	_ = healed
+	st.running = true
+	skip := make(map[int64]bool, len(st.refused))
+	for id := range st.refused {
+		skip[id] = true
+	}
+	s.healMu.Unlock()
+
+	_, refused, watermark, err := s.healUnattributedVectors(ctx, engine, space, skip)
+
+	s.healMu.Lock()
+	defer s.healMu.Unlock()
+	st.running = false
+	for _, id := range refused {
+		st.refused[id] = true
+	}
+	switch {
+	case err == nil:
+		st.complete, st.watermark = true, watermark
+	case ctx.Err() != nil:
+		st.complete = false
+		logging.Get(logging.CategoryStore).Warn("unattributed vector heal in space %q stopped (%v); the next recall resumes it", space, err)
+	default:
+		st.complete, st.failed = false, err.Error()
+		logging.Get(logging.CategoryStore).Warn("unattributed vector heal failed in space %q: %v; automatic heal stops here, `nerd embedding reembed` recovers", space, err)
+	}
+}
+
+// unattributedAbove reports whether a legacy row (unattributed, embedded,
+// with content) has id above watermark, and the highest id there is.
+func (s *LocalStore) unattributedAbove(watermark int64) (bool, int64, error) {
+	var top int64
+	if err := s.db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM vectors`).Scan(&top); err != nil {
+		return false, 0, err
+	}
+	if top <= watermark {
+		return false, top, nil
+	}
+	var one int
+	err := s.db.QueryRow(`SELECT 1 FROM vectors WHERE id > ? AND TRIM(content) != '' AND embedding IS NOT NULL AND (embedding_model IS NULL OR embedding_model = '') LIMIT 1`, watermark).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, top, nil
+	}
+	if err != nil {
+		return false, top, err
+	}
+	return true, top, nil
 }

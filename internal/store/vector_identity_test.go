@@ -911,10 +911,10 @@ func TestHealUnattributedVectors_Guards_ReturnZeroWithoutProviderCalls(t *testin
 			var got int
 			var err error
 			if tt.eng == nil {
-				got, err = s.healUnattributedVectors(context.Background(), nil, tt.space)
+				got, _, _, err = s.healUnattributedVectors(context.Background(), nil, tt.space, nil)
 			} else {
 				before := len(tt.eng.embeddedTexts())
-				got, err = s.healUnattributedVectors(context.Background(), tt.eng, tt.space)
+				got, _, _, err = s.healUnattributedVectors(context.Background(), tt.eng, tt.space, nil)
 				if after := len(tt.eng.embeddedTexts()); after != before {
 					t.Errorf("guard embedded %v, want no provider calls", tt.eng.embeddedTexts()[before:])
 				}
@@ -949,7 +949,7 @@ func TestHealUnattributedVectors_SkipsIneligibleRows(t *testing.T) {
 			}
 			engine := &spaceEngine{name: "test:model-a", dim: 4}
 			attach(t, s, engine)
-			got, err := s.healUnattributedVectors(context.Background(), engine, engine.name)
+			got, _, _, err := s.healUnattributedVectors(context.Background(), engine, engine.name, nil)
 			if err != nil {
 				t.Fatalf("healUnattributedVectors() error = %v", err)
 			}
@@ -972,7 +972,7 @@ func TestHealUnattributedVectors_BatchError_FallsBackToSingleEmbed(t *testing.T)
 	inner := &spaceEngine{name: "test:model-a", dim: 4}
 	engine := &healBatchFailEngine{inner: inner}
 	attach(t, s, inner)
-	got, err := s.healUnattributedVectors(context.Background(), engine, inner.name)
+	got, _, _, err := s.healUnattributedVectors(context.Background(), engine, inner.name, nil)
 	if err != nil {
 		t.Fatalf("healUnattributedVectors() error = %v", err)
 	}
@@ -1009,7 +1009,7 @@ func TestHealUnattributedVectors_ReplacedContent_KeepsOldStamp(t *testing.T) {
 			}
 		})
 	}
-	got, err := s.healUnattributedVectors(context.Background(), engine, engine.name)
+	got, _, _, err := s.healUnattributedVectors(context.Background(), engine, engine.name, nil)
 	if err != nil {
 		t.Fatalf("healUnattributedVectors() error = %v", err)
 	}
@@ -1034,7 +1034,7 @@ func TestHealUnattributedVectors_CancelledContext_ReturnsContextError(t *testing
 	attach(t, s, engine)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	got, err := s.healUnattributedVectors(ctx, engine, engine.name)
+	got, _, _, err := s.healUnattributedVectors(ctx, engine, engine.name, nil)
 	if err != context.Canceled {
 		t.Fatalf("healUnattributedVectors() error = %v, want context.Canceled", err)
 	}
