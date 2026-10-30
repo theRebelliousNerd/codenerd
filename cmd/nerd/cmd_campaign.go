@@ -341,10 +341,9 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 
 	// Build request with context budget from config (request param, not boot).
 	nerdDir := filepath.Join(cwd, ".nerd")
-	appCfg := loadCampaignConfig(nerdDir)
-	contextBudget := 200000 // Default 200k tokens
-	if appCfg != nil && appCfg.ContextWindow != nil && appCfg.ContextWindow.MaxTokens > 0 {
-		contextBudget = appCfg.ContextWindow.MaxTokens
+	contextBudget, err := campaignContextBudget(nerdDir)
+	if err != nil {
+		return err
 	}
 	req := decomposeRequest(goal, docs, campaignType, contextBudget, campaignHints)
 
@@ -804,6 +803,23 @@ func repeatChar(c rune, n int) string {
 		result[i] = c
 	}
 	return string(result)
+}
+
+// campaignContextBudget is the campaign's token budget: the workspace's
+// context_window.max_tokens, the setting the chat sizes its own context from.
+// With none written there is no budget to use, and the command says so
+// instead of inventing one: until 2026-10-30 an unset (or unreadable) config
+// became a 200000-token budget nobody chose.
+func campaignContextBudget(nerdDir string) (int, error) {
+	path := filepath.Join(nerdDir, "config.json")
+	cfg, err := config.LoadUserConfig(path)
+	if err != nil {
+		return 0, fmt.Errorf("read the campaign's context budget from %s: %w", path, err)
+	}
+	if cfg == nil || cfg.ContextWindow == nil || cfg.ContextWindow.MaxTokens <= 0 {
+		return 0, fmt.Errorf("no context budget: context_window.max_tokens is not set in %s; set it to the token budget campaigns (and the chat) should work within", path)
+	}
+	return cfg.ContextWindow.MaxTokens, nil
 }
 
 // decomposeRequest is what nerd campaign start asks the decomposer for. The
