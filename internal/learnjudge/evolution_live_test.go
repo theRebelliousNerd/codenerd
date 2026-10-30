@@ -131,24 +131,24 @@ var sharedCauseCases = []struct {
 	want     bool
 }{
 	{"same-hollow-claim", []GroupFailure{
-		{"add a test for Max with an empty slice", "Failed: the run failed; Jev reads the output as complete, so the reported work is not backed by evidence.", "HALLUCINATION"},
-		{"add a test for the parser's empty input", "Failed: the agent said it added TestParseEmpty but no file was written and no test ran.", "HALLUCINATION"},
-		{"write a regression test for the retry bug", "Failed: claimed the regression test passes; the kernel saw no test run and no write.", "HALLUCINATION"},
+		{Request: "add a test for Max with an empty slice", Explanation: "Failed: the run failed; Jev reads the output as complete, so the reported work is not backed by evidence.", Category: "HALLUCINATION"},
+		{Request: "add a test for the parser's empty input", Explanation: "Failed: the agent said it added TestParseEmpty but no file was written and no test ran.", Category: "HALLUCINATION"},
+		{Request: "write a regression test for the retry bug", Explanation: "Failed: claimed the regression test passes; the kernel saw no test run and no write.", Category: "HALLUCINATION"},
 	}, true},
 	{"same-edge-case", []GroupFailure{
-		{"add a Median function", "Failed: TestMedianEmpty panicked: index out of range on an empty slice.", "EDGE_CASE"},
-		{"add a Mode function", "Failed: Mode([]) panicked: index out of range [0] with length 0.", "EDGE_CASE"},
-		{"add a Percentile function", "Failed: Percentile(nil, 50) panicked on an empty input.", "EDGE_CASE"},
+		{Request: "add a Median function", Explanation: "Failed: TestMedianEmpty panicked: index out of range on an empty slice.", Category: "EDGE_CASE"},
+		{Request: "add a Mode function", Explanation: "Failed: Mode([]) panicked: index out of range [0] with length 0.", Category: "EDGE_CASE"},
+		{Request: "add a Percentile function", Explanation: "Failed: Percentile(nil, 50) panicked on an empty input.", Category: "EDGE_CASE"},
 	}, true},
 	{"unrelated", []GroupFailure{
-		{"fix the nil pointer in executor.go", "Failed: provider call timed out after 120s.", "LOGIC_ERROR"},
-		{"rename Executor to Runner", "Failed: the agent edited README.md, which the request did not call for.", "INSTRUCTION_MISS"},
-		{"make Max return 0 for empty", "Failed: stats.go:14: syntax error: unexpected }.", "SYNTAX_ERROR"},
+		{Request: "fix the nil pointer in executor.go", Explanation: "Failed: provider call timed out after 120s.", Category: "LOGIC_ERROR"},
+		{Request: "rename Executor to Runner", Explanation: "Failed: the agent edited README.md, which the request did not call for.", Category: "INSTRUCTION_MISS"},
+		{Request: "make Max return 0 for empty", Explanation: "Failed: stats.go:14: syntax error: unexpected }.", Category: "SYNTAX_ERROR"},
 	}, false},
 	{"provider-outages", []GroupFailure{
-		{"fix the footer wrap", "Failed: provider returned 429 Too Many Requests.", "LOGIC_ERROR"},
-		{"add a test for Max", "Failed: provider returned 503 Service Unavailable.", "LOGIC_ERROR"},
-		{"refactor the retry policy", "Failed: LLM call failed: context deadline exceeded.", "LOGIC_ERROR"},
+		{Request: "fix the footer wrap", Explanation: "Failed: provider returned 429 Too Many Requests.", Category: "LOGIC_ERROR"},
+		{Request: "add a test for Max", Explanation: "Failed: provider returned 503 Service Unavailable.", Category: "LOGIC_ERROR"},
+		{Request: "refactor the retry policy", Explanation: "Failed: LLM call failed: context deadline exceeded.", Category: "LOGIC_ERROR"},
 	}, false},
 }
 
@@ -157,10 +157,12 @@ func TestLiveSharedCause(t *testing.T) {
 	tally := map[string][3]int{}
 	var misses, rows []string
 	for _, tc := range sharedCauseCases {
-		p, err := JudgeSharedCause(probeLabel(context.Background(), "shared-"+tc.name), c, tc.failures)
+		state, questions := SharedCauseRequest(tc.failures)
+		judgment, err := JudgeSharedCause(probeLabel(context.Background(), "shared-"+tc.name), c, state, questions)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
+		p := judgment.Probability
 		rows = append(rows, fmt.Sprintf("%-20s shares_one_cause=%.2f want=%v", tc.name, p, tc.want))
 		scoreLine(tally, &misses, tc.name, SharesOneCause, tc.name, p, tc.want)
 	}

@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: autopoiesis
-implementation-status: planned
+implementation-status: implemented
 last-verified: 2026-10-30
 verified-against: fef98230c20a5751e4c32a2fd2757832a9d39cdc
 supersedes: []
@@ -155,3 +155,52 @@ The repair costs include cohort selection and hashing, an observation/receipt sc
 [existing-budget-test]: https://github.com/theRebelliousNerd/codenerd/blob/fef98230c20a5751e4c32a2fd2757832a9d39cdc/internal/autopoiesis/prompt_evolution/lifecycle_evidence_test.go#L201-L237
 [existing-screen-test]: https://github.com/theRebelliousNerd/codenerd/blob/fef98230c20a5751e4c32a2fd2757832a9d39cdc/internal/learnjudge/evolution_test.go#L40-L49
 
+
+## As built
+
+Source inspection confirmed all three behavioral witnesses and both accounting
+handoff findings against the working tree. None was already fixed or ruled wrong.
+The existing quarantine, exact-version trial, generation fencing, count fallback,
+request timeout and automatic-cycle deadline controls were also confirmed; they
+were preserved. The original source-derived examples above describe the audited
+implementation, not executed experiments.
+
+| Finding | Ruling and authored repair | Production-path regression |
+|---|---|---|
+| Screening and generation disclose different cohorts | **Real.** `internal/autopoiesis/prompt_evolution/evidence_cohort.go` selects once. `atom_generator.go` renders the same bounded JSON state that `screening_ledger.go` sends to Jev. | `TestRunEvolutionCycle_ScreenedCohortIsGeneratedAndRetired`, for 3/12/13/14/15 failures. Before the repair the 15-record path screens the oldest twelve but renders only the newest three explanations; the test requires every screened explanation, request and rule in generation. |
+| Appended failures need not reach the screen | **Real.** Deterministic alternating newest/oldest ranks expose both ends; Mangle bounds cohort membership. Ties compare task ID and verdict version. Interior fairness under a continuously growing rejected backlog is not claimed. | `TestRunEvolutionCycle_ScreenBudgetCacheAndNewEvidence` and `TestRunEvolutionCycle_CohortTieOrderAndVerdictRevision`. The old tail window excludes appended newest records. |
+| Provenance, claims and retirement cover unseen backlog | **Real.** `evolver_cycle.go` claims and consumes only selected task/verdict references. Cohort/claim/screen linkage is durable; `types.go` and `evolver_candidates.go` preserve cohort and observation IDs on candidates and reload. Execution task identity overrides an absent verdict TaskID for provenance. | `TestRunEvolutionCycle_ScreenedCohortIsGeneratedAndRetired` asserts that omitted records remain eligible. `TestRunEvolutionCycle_CohortProjectionIsBoundedAndSurvivesRestart` pins disclosure and persistence. The old path consumes all fifteen. |
+| Rejected groups repeatedly purchase screening outside the generation counter | **Real.** Separate configurable logical screening allowance, kernel admission, leased purchase keys and durable exact-key reuse in `screening_ledger.go`. Positive, negative, unsettled and unavailable observations retain distinct data. Reattaching Jev is an explicit conservative reanalysis boundary. | `TestRunEvolutionCycle_ScreenBudgetCacheAndNewEvidence`: three rejected groups, allowance one, one new purchase per cycle, then three cache hits and no new purchase. Previously every cycle can buy all three. |
+| Screening bypasses adaptation accounting and uses the task-verdict operation | **Real.** Separate `SpendScreen` category, `jev_shared_cause` operation, cycle/cohort receipts and a usage observer. The receipt captures provider reports without charging the aggregate tracker again. | `TestRunEvolutionCycle_ScreenReceiptAndRetry` and `TestRunEvolutionCycle_UnavailableScreenIsNotNegativeOrFree`. The old ledger has no screening row. |
+| Automatic evolution lacks its owned aggregate usage context | **Real.** `internal/system/factory_learning.go` attaches `Cortex.UsageTracker` to the existing cancellable cycle context. `internal/typesafe/client.go` also preserves unknown failed-attempt usage across an answered retry. | `TestAutomaticEvolutionScreeningOwnsUsageContext` uses the actual maintenance adapter and TypeSafe client with scripted HTTP; the old path records no aggregate screening tokens. `TestAsk_RetriedAnswerPreservesUnknownAttemptUsage` catches a successful answer concealing unknown earlier attempt usage. |
+
+The Mangle contract lives in `internal/core/defaults/schemas_evolution.mg` and
+`internal/core/defaults/policy/prompt_evolution.mg`. The adaptation component
+kernel loads those same sources through `internal/core/defaults/evolution_policy.go`;
+`internal/core/kernel_types.go` includes the schema in the action kernel, and
+`internal/shards/registration.go` homes every new predicate in the prompt shard.
+Go measures ranks and logical calls, executes derived admission, and persists
+observations. It has no independent fallback for failed policy evaluation.
+`TestPromptEvolutionKernelCohortAndScreenAdmission` and
+`TestPromptEvolutionPolicyFiresOnTheShardedKernel` cover the shared corpus and
+shard joins. Existing testdata baselines were not enlarged.
+
+Configuration is wired through `internal/config/prompt_evolution.go` and
+`EvolverConfigFrom`: `evidence_cohort_size` defaults to 12 and
+`max_cycle_screening_calls` defaults to 3. Cohort size must cover the configured
+minimum count and fit the twelve-record request protocol. There are no new model
+names or prompt atoms. The current contract and remaining design gaps are in
+`Docs/architecture/jev-turn-judgments.md`, “Atom checks”.
+
+**Why partial:** this task explicitly forbids compilation and every test command.
+The regression assertions and fail-before explanations above come from comparing
+the old production flow with the authored tests; no failing-before or passing-after
+run is claimed. A disposable `_mangle_lab/screening_cohort/` fixture is authored,
+with its verdict pending. The required pinned-engine lab, owning-package tests,
+full defaults checks and shard checks must run before accepting the policy design
+or calling the behavior verified. No engine-backed CLI was run because it can
+build its interpreter. Screening receipts deliberately leave transport attempt
+counts and raw response bytes unknown. Storage follows existing append-only
+ledger retention; a bounded historical-retention policy and automatic detection
+of alias changes within one attachment remain outside this authored repair.
+No cost-saving or task-quality outcome is claimed.

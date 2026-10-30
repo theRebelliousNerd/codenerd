@@ -13,6 +13,7 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/sessionlog"
+	"codenerd/internal/usage"
 )
 
 // Request limits from the API spec (errors.md).
@@ -194,11 +195,15 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, out a
 	for retry := 0; ; retry++ {
 		apiErr, err := c.once(ctx, method, path, body, out)
 		if err != nil {
+			usage.NoteUnknownUsage(ctx)
 			return err
 		}
 		if apiErr == nil {
 			return nil
 		}
+		// A later answered attempt does not supply the usage of this failed
+		// attempt. Preserve that uncertainty in enclosing receipts.
+		usage.NoteUnknownUsage(ctx)
 		if !apiErr.retryable() || retry >= c.retry.Max {
 			return apiErr
 		}

@@ -9,7 +9,7 @@ import (
 
 func TestPromptEvolutionSection_LoadsDefaultsAndChecks(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, []byte(`{"prompt_evolution":{"max_cycle_atoms":5,"trial_ttl_hours":1}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"prompt_evolution":{"max_cycle_atoms":5,"trial_ttl_hours":1,"max_cycle_screening_calls":1,"evidence_cohort_size":6}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := LoadUserConfig(path)
@@ -17,7 +17,7 @@ func TestPromptEvolutionSection_LoadsDefaultsAndChecks(t *testing.T) {
 		t.Fatalf("LoadUserConfig: %v", err)
 	}
 	got := cfg.GetPromptEvolutionConfig()
-	if got.MaxCycleAtoms != 5 || got.TrialTTLHours != 1 {
+	if got.MaxCycleAtoms != 5 || got.TrialTTLHours != 1 || got.MaxCycleScreeningCalls != 1 || got.EvidenceCohortSize != 6 {
 		t.Errorf("explicit values lost: %+v", got)
 	}
 	if got.RecordQueueCapacity != DefaultPromptEvolutionConfig().RecordQueueCapacity {

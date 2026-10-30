@@ -13,6 +13,7 @@ import (
 	"time"
 
 	nerdconfig "codenerd/internal/config"
+	"codenerd/internal/learnjudge"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
@@ -72,6 +73,8 @@ type EvolverConfig struct {
 	// their meaning. EvolverConfigFrom maps the section onto this struct.
 	RecordQueueCapacity     int           `json:"record_queue_capacity"`
 	RecordDrainTimeout      time.Duration `json:"record_drain_timeout"`
+	MaxCycleScreeningCalls  int           `json:"max_cycle_screening_calls"`
+	EvidenceCohortSize      int           `json:"evidence_cohort_size"`
 	MaxCycleJudgeCalls      int           `json:"max_cycle_judge_calls"`
 	MaxCycleGenerationCalls int           `json:"max_cycle_generation_calls"`
 	MaxCycleAtoms           int           `json:"max_cycle_atoms"`
@@ -112,6 +115,8 @@ func (c *EvolverConfig) applyBounds(s nerdconfig.PromptEvolutionConfig) {
 	c.RecordQueueCapacity = s.RecordQueueCapacity
 	c.RecordDrainTimeout = time.Duration(s.RecordDrainTimeoutSeconds) * time.Second
 	c.MaxCycleJudgeCalls = s.MaxCycleJudgeCalls
+	c.MaxCycleScreeningCalls = s.MaxCycleScreeningCalls
+	c.EvidenceCohortSize = s.EvidenceCohortSize
 	c.MaxCycleGenerationCalls = s.MaxCycleGenerationCalls
 	c.MaxCycleAtoms = s.MaxCycleAtoms
 	c.ClaimLease = time.Duration(s.ClaimLeaseSeconds) * time.Second
@@ -149,6 +154,11 @@ func validateEvolverConfig(config *EvolverConfig) (*EvolverConfig, error) {
 	}
 	positive("record_queue_capacity", normalized.RecordQueueCapacity)
 	positive("max_cycle_judge_calls", normalized.MaxCycleJudgeCalls)
+	positive("max_cycle_screening_calls", normalized.MaxCycleScreeningCalls)
+	positive("evidence_cohort_size", normalized.EvidenceCohortSize)
+	if normalized.EvidenceCohortSize < normalized.MinFailuresForEvolution || normalized.EvidenceCohortSize > learnjudge.SharedCauseMaxFailures {
+		errs = append(errs, "evidence_cohort_size must cover min_failures_for_evolution and fit the shared-cause protocol")
+	}
 	positive("max_cycle_generation_calls", normalized.MaxCycleGenerationCalls)
 	positive("max_cycle_atoms", normalized.MaxCycleAtoms)
 	positive("trial_max_exposures", normalized.TrialMaxExposures)

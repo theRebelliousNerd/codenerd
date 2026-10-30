@@ -30,9 +30,13 @@ const CategoryNoAgentMistake ErrorCategory = "NO_AGENT_MISTAKE"
 // jevUse is Jev as the evolver uses it: the client, which uses are on, and the
 // yes/no thresholds as probabilities.
 type jevUse struct {
-	asker   learnjudge.Asker
-	uses    nerdconfig.TypeSafeUses
-	yes, no float64
+	asker learnjudge.Asker
+	// A new attachment is a conservative model revision boundary, including
+	// aliases whose backing model cannot be resolved without a purchase.
+	screenEpoch string
+	screenModel string
+	uses        nerdconfig.TypeSafeUses
+	yes, no     float64
 	// problemTimeout bounds a problem-type call on the prompt compile path
 	// (turn_judgment_timeout): a strategy lookup must not hold a turn longer
 	// than the turn's own judgments may.
@@ -45,7 +49,7 @@ func newJevUse(a learnjudge.Asker, cfg *nerdconfig.TypeSafeConfig) *jevUse {
 	if a == nil || cfg == nil {
 		return nil
 	}
-	u := &jevUse{asker: a, uses: cfg.Uses()}
+	u := &jevUse{asker: a, uses: cfg.Uses(), screenEpoch: newOwnerToken(), screenModel: cfg.Model}
 	for _, p := range cfg.Params() {
 		switch p.Key {
 		case "/jev_yes_percent":

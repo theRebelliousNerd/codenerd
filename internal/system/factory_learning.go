@@ -34,6 +34,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
+	"codenerd/internal/usage"
 )
 
 // evolvedAtomCompare bounds the existing atoms a generated atom is compared
@@ -387,6 +388,9 @@ func (c *Cortex) runEvolutionCycle(ctx context.Context) {
 		return
 	}
 
+	if c.UsageTracker != nil {
+		ctx = usage.NewContext(ctx, c.UsageTracker)
+	}
 	cycleCtx, cancel := context.WithTimeout(ctx, evolutionCycleTimeout)
 	defer cancel()
 

@@ -57,3 +57,31 @@ func TestAsk_UnnamedOperationIsJev(t *testing.T) {
 		t.Fatalf("reports = %+v", obs.reports)
 	}
 }
+
+// Attempt failures remain unknown even if a later retry returns usage. The
+// successful report is delivered once; uncertainty is not an extra charge.
+type incompleteCapture struct {
+	captureObserver
+	unknown int
+}
+
+func (o *incompleteCapture) UsageUnknown() { o.unknown++ }
+
+func TestAsk_RetriedAnswerPreservesUnknownAttemptUsage(t *testing.T) {
+	calls := 0
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			reply(http.StatusTooManyRequests, `{"detail":"retry"}`)(w, r)
+			return
+		}
+		reply(http.StatusOK, answersJSON)(w, r)
+	}, nil)
+	obs := &incompleteCapture{}
+	if _, err := c.Ask(usage.WithObserver(context.Background(), obs), "state", testQuestions()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || len(obs.reports) != 1 || obs.unknown != 1 {
+		t.Fatalf("attempts=%d reports=%d unknown=%d", calls, len(obs.reports), obs.unknown)
+	}
+}

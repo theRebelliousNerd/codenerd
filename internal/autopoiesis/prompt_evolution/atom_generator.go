@@ -74,17 +74,20 @@ func (p ServingPin) String() string {
 	}
 }
 
-// GenerateFromFailures creates new atoms based on failure patterns observed on
+// GenerateFromFailures creates new atoms from the exact bounded cohort observed on
 // one provider/model. The pin is stamped onto every generated atom according to
 // the generator's PinScope, so an atom learned from one model's failures is not
 // served to a different one.
 func (ag *AtomGenerator) GenerateFromFailures(
 	ctx context.Context,
-	failures []*JudgeVerdict,
-	shardType string,
-	problemType string,
+	cohort *evidenceCohort,
+	shardType, problemType string,
 	pin ServingPin,
 ) ([]*GeneratedAtom, error) {
+	if cohort == nil {
+		return nil, nil
+	}
+	failures := cohort.verdicts
 	timer := logging.StartTimer(logging.CategoryAutopoiesis, "AtomGenerator.GenerateFromFailures")
 	defer timer.Stop()
 
@@ -101,9 +104,7 @@ func (ag *AtomGenerator) GenerateFromFailures(
 	logging.Autopoiesis("Generating atoms from %d failures for shard=%s, problem=%s, serving=%s, pin_scope=%s",
 		len(failures), shardType, problemType, pin, ag.pinScope)
 
-	// Build the meta-prompt
-	userPrompt := ag.buildMetaPrompt(failures, shardType, problemType, pin)
-
+	userPrompt := ag.buildMetaPrompt(cohort, shardType, problemType, pin)
 	systemPrompt, err := ag.systemPrompt(ctx, "prompt_atom_generator")
 	if err != nil {
 		return nil, err
@@ -131,7 +132,7 @@ func (ag *AtomGenerator) GenerateFromFailures(
 }
 
 // buildMetaPrompt constructs the prompt for atom generation.
-func (ag *AtomGenerator) buildMetaPrompt(failures []*JudgeVerdict, shardType, problemType string, pin ServingPin) string {
+func (ag *AtomGenerator) buildMetaPrompt(cohort *evidenceCohort, shardType, problemType string, pin ServingPin) string {
 	var sb strings.Builder
 
 	sb.WriteString("## Current Context\n")
@@ -153,28 +154,8 @@ func (ag *AtomGenerator) buildMetaPrompt(failures []*JudgeVerdict, shardType, pr
 
 	sb.WriteString("## Failure Analysis\n\n")
 
-	// Group failures by category
-	byCategory := make(map[ErrorCategory][]*JudgeVerdict)
-	for _, f := range failures {
-		byCategory[f.Category] = append(byCategory[f.Category], f)
-	}
-
-	for category, categoryFailures := range byCategory {
-		sb.WriteString(fmt.Sprintf("### %s Failures (%d)\n\n", category, len(categoryFailures)))
-
-		for i, f := range categoryFailures {
-			if i >= 3 {
-				sb.WriteString(fmt.Sprintf("... and %d more\n", len(categoryFailures)-3))
-				break
-			}
-			sb.WriteString(fmt.Sprintf("**Failure %d:**\n", i+1))
-			sb.WriteString(fmt.Sprintf("- Explanation: %s\n", f.Explanation))
-			if f.ImprovementRule != "" {
-				sb.WriteString(fmt.Sprintf("- Suggested Rule: %s\n", f.ImprovementRule))
-			}
-			sb.WriteString("\n")
-		}
-	}
+	sb.WriteString("Selected evidence cohort " + cohort.id + "\n")
+	sb.WriteString(cohort.json + "\n\n")
 
 	sb.WriteString("## Task\n\n")
 	sb.WriteString("Generate 1-3 prompt atoms that would help prevent these failures.\n")

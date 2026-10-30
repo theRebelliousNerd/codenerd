@@ -239,7 +239,17 @@ func TestEvolutionTrigger_TruthTable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			pe := cascadeEvolver(t, &judgeCountingLLM{})
 			pe.SetJev(tc.jev, &tc.sec)
-			if got := pe.groupWarrantsEvolution(context.Background(), group, failures); got != tc.want {
+			for i, f := range failures {
+				f.TaskID = string(rune('a' + i))
+				f.VerdictVersion = "v1"
+			}
+			group.failures = failures
+			c, err := selectEvidenceCohort(context.Background(), group, *pe.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, got := pe.screenCohort(context.Background(), "truth-table", *pe.config, group, c, &cycleBudget{screeningCalls: pe.config.MaxCycleScreeningCalls}, &EvolutionResult{})
+			if got != tc.want {
 				t.Fatalf("warrants = %v, want %v", got, tc.want)
 			}
 		})

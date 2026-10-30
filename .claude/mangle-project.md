@@ -15,6 +15,14 @@ Shipped Mangle-only features here become the public examples.
 - **Context**: `internal/context/{working_set,holographic_render,working_retention}.mg`
   are embedded per package. They read `config_param`, which the kernel
   program declares, so they analyze only together with it.
+- **Prompt evolution**: `schemas_evolution.mg` and
+  `policy/prompt_evolution.mg` are also embedded by
+  `internal/core/defaults/evolution_policy.go` for a group-local adaptation
+  kernel. Go measures evidence ranks and used logical screening calls; rules
+  derive cohort membership, screen allowance and generation admission. The
+  shared corpus loads the same schema/rules; all predicates are homed in the
+  prompt shard. Lab and production-path test execution are pending under the
+  author-only task restriction; no new engine behavior has been verified.
 - **General adapter**: `internal/mangle/engine.go`. **Synth/transpiler**:
   `internal/mangle/{synth,transpiler}`.
 

@@ -39,7 +39,7 @@ func TestAtomGenerator_SendsItsCompiledRolePrompts(t *testing.T) {
 	ag := NewAtomGeneratorWithPinScope(llm, roles, nil, DefaultPinScope)
 	ctx := context.Background()
 
-	if _, err := ag.GenerateFromFailures(ctx, oneFailure(), "/coder", string(ProblemDebugging),
+	if _, err := ag.GenerateFromFailures(ctx, testGenerationCohort(t, oneFailure()), "/coder", string(ProblemDebugging),
 		ServingPin{Provider: "anthropic", Model: "claude-opus-4-20260501"}); err != nil {
 		t.Fatalf("GenerateFromFailures: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestAtomGenerator_NoRolePromptsIsAnError(t *testing.T) {
 	ag := NewAtomGeneratorWithPinScope(llm, nil, nil, DefaultPinScope)
 	ctx := context.Background()
 
-	if _, err := ag.GenerateFromFailures(ctx, oneFailure(), "/coder", string(ProblemDebugging),
+	if _, err := ag.GenerateFromFailures(ctx, testGenerationCohort(t, oneFailure()), "/coder", string(ProblemDebugging),
 		ServingPin{Provider: "anthropic", Model: "claude-opus-4-20260501"}); !errors.Is(err, types.ErrRolePromptUnavailable) {
 		t.Errorf("GenerateFromFailures error = %v, want ErrRolePromptUnavailable", err)
 	}

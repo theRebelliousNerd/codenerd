@@ -122,7 +122,7 @@ func newEvidenceLedger(db *sql.DB) (*EvidenceLedger, error) {
 	if db == nil {
 		return nil, fmt.Errorf("evidence ledger needs a database")
 	}
-	if _, err := db.Exec(evidenceLedgerSchema); err != nil {
+	if _, err := db.Exec(evidenceLedgerSchema + screeningSchema); err != nil {
 		return nil, fmt.Errorf("evidence ledger schema: %w", err)
 	}
 	return &EvidenceLedger{db: db}, nil
@@ -461,6 +461,7 @@ type SpendCategory string
 
 const (
 	SpendJudge    SpendCategory = "judge"
+	SpendScreen   SpendCategory = "screen"
 	SpendGenerate SpendCategory = "generate"
 	SpendRefine   SpendCategory = "refine"
 )
@@ -509,18 +510,21 @@ func (l *EvidenceLedger) RecordSpend(r SpendRow) error {
 // SpendSummary is the per-category total of the spend ledger.
 //
 // Token counts are absent on purpose: the evolver's LLM interface returns text
-// only, so token usage is unknown here rather than estimated. Bytes are what
-// was actually sent and received.
+// only, so token usage is unknown here rather than estimated. Bytes describe application payloads. Screening records the canonical
+// state/question bytes; its raw response bytes and transport attempt count
+// are unavailable and remain NULL in screening_receipts. UnknownResponseCalls
+// makes that missing measurement visible in this aggregate view.
 type SpendSummary struct {
-	Category      SpendCategory `json:"category"`
-	Calls         int           `json:"calls"`
-	FailedCalls   int           `json:"failed_calls"`
-	Unusable      int           `json:"unusable"`
-	Discarded     int           `json:"discarded"`
-	PublishFailed int           `json:"publish_failed"`
-	PromptBytes   int64         `json:"prompt_bytes"`
-	ResponseBytes int64         `json:"response_bytes"`
-	DurationMs    int64         `json:"duration_ms"`
+	Category             SpendCategory `json:"category"`
+	UnknownResponseCalls int           `json:"unknown_response_calls"`
+	Calls                int           `json:"calls"`
+	FailedCalls          int           `json:"failed_calls"`
+	Unusable             int           `json:"unusable"`
+	Discarded            int           `json:"discarded"`
+	PublishFailed        int           `json:"publish_failed"`
+	PromptBytes          int64         `json:"prompt_bytes"`
+	ResponseBytes        int64         `json:"response_bytes"`
+	DurationMs           int64         `json:"duration_ms"`
 }
 
 // SpendSummaries totals the ledger by category.
@@ -547,6 +551,9 @@ func (l *EvidenceLedger) SpendSummaries() ([]SpendSummary, error) {
 			order = append(order, s.Category)
 		}
 		s.Calls += calls
+		if s.Category == SpendScreen {
+			s.UnknownResponseCalls += calls
+		}
 		s.PromptBytes += promptBytes
 		s.ResponseBytes += responseBytes
 		s.DurationMs += durationMs

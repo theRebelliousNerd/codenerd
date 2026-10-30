@@ -267,6 +267,7 @@ var defaultSchemaFiles = []string{
 	"schemas_intelligence.mg",     // Campaign Intelligence & Context
 	"schemas_tools.mg",            // Ouroboros, Tool Learning, Routing
 	"schemas_mcp.mg",              // MCP integration schema
+	"schemas_evolution.mg",        // Bounded adaptation cohorts and screening
 	"schemas_prompts.mg",          // Dynamic Prompt Composition & JIT
 	"schemas_reviewer.mg",         // Static Analysis & Data Flow
 	"schemas_shards.mg",           // Shard Delegation & Coordination

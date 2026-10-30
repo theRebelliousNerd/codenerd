@@ -25,19 +25,21 @@ import (
 
 // evolvedAtomWrapper is the on-disk shape of a candidate file.
 type evolvedAtomWrapper struct {
-	Atom         *prompt.PromptAtom `yaml:"atom"`
-	Source       string             `yaml:"source"`
-	SourceIDs    []string           `yaml:"source_ids"`
-	ShardType    string             `yaml:"shard_type"`
-	ProblemType  string             `yaml:"problem_type"`
-	Provider     string             `yaml:"provider,omitempty"`
-	Model        string             `yaml:"model,omitempty"`
-	PinScope     PinScope           `yaml:"pin_scope,omitempty"`
-	Confidence   float64            `yaml:"confidence"`
-	UsageCount   int                `yaml:"usage_count"`
-	SuccessCount int                `yaml:"success_count"`
-	CreatedAt    time.Time          `yaml:"created_at"`
-	PromotedAt   time.Time          `yaml:"promoted_at,omitempty"`
+	Atom                *prompt.PromptAtom `yaml:"atom"`
+	Source              string             `yaml:"source"`
+	SourceIDs           []string           `yaml:"source_ids"`
+	EvidenceCohortID    string             `yaml:"evidence_cohort_id,omitempty"`
+	ScreenObservationID string             `yaml:"screen_observation_id,omitempty"`
+	ShardType           string             `yaml:"shard_type"`
+	ProblemType         string             `yaml:"problem_type"`
+	Provider            string             `yaml:"provider,omitempty"`
+	Model               string             `yaml:"model,omitempty"`
+	PinScope            PinScope           `yaml:"pin_scope,omitempty"`
+	Confidence          float64            `yaml:"confidence"`
+	UsageCount          int                `yaml:"usage_count"`
+	SuccessCount        int                `yaml:"success_count"`
+	CreatedAt           time.Time          `yaml:"created_at"`
+	PromotedAt          time.Time          `yaml:"promoted_at,omitempty"`
 }
 
 // storeEvolvedAtom saves a candidate and, once the write succeeds, adds it to
@@ -68,6 +70,7 @@ func (pe *PromptEvolver) persistAtomLocked(ga *GeneratedAtom) error {
 // wrapperOf is the on-disk shape of a candidate.
 func wrapperOf(ga *GeneratedAtom) evolvedAtomWrapper {
 	return evolvedAtomWrapper{
+		EvidenceCohortID: ga.EvidenceCohortID, ScreenObservationID: ga.ScreenObservationID,
 		Atom: ga.Atom, Source: ga.Source, SourceIDs: ga.SourceIDs, ShardType: ga.ShardType,
 		ProblemType: ga.ProblemType, Provider: ga.Provider, Model: ga.Model, PinScope: ga.PinScope,
 		Confidence: ga.Confidence, UsageCount: ga.UsageCount, SuccessCount: ga.SuccessCount,
@@ -252,6 +255,7 @@ func (pe *PromptEvolver) loadAtomsFromDir(dir string, promoted bool) {
 			continue // promoted copy wins over a stale quarantined one
 		}
 		ga := &GeneratedAtom{
+			EvidenceCohortID: w.EvidenceCohortID, ScreenObservationID: w.ScreenObservationID,
 			Atom: w.Atom, Source: w.Source, SourceIDs: w.SourceIDs, ShardType: w.ShardType,
 			ProblemType: w.ProblemType, Provider: w.Provider, Model: w.Model, PinScope: w.PinScope,
 			Confidence: w.Confidence, UsageCount: w.UsageCount, SuccessCount: w.SuccessCount,

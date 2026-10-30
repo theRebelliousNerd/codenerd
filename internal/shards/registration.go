@@ -534,6 +534,10 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 			// The JIT selection facts join prompt_atom (jit_selection.mg,
 			// jit_logic.mg), so they live with it.
 			OwnedPredicates: []string{
+				"evolution_evidence_rank", "evolution_cohort_member",
+				"evolution_screen_used", "evolution_screen_allowed",
+				"evolution_screen_observation", "evolution_screen_probability",
+				"evolution_screen_threshold", "evolution_generation_allowed",
 				"prompt_atom", "atom_selection_score", "shard_prompt_base",
 				"atom_tag", "atom_conflict", "atom_conflicts", "atom_ordinal", "atom_exclusion_group",
 				"atom_dependency", "atom_context_boost", "atom_final_order",

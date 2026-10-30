@@ -126,7 +126,7 @@ func TestGenerateFromFailuresPinsExactModelAndSourceRole(t *testing.T) {
 	llm := &scriptedLLM{response: widenedAtomYAML}
 	ag := NewAtomGenerator(llm, nil)
 
-	atoms, err := ag.GenerateFromFailures(context.Background(), oneFailure(), "/coder",
+	atoms, err := ag.GenerateFromFailures(context.Background(), testGenerationCohort(t, oneFailure()), "/coder",
 		string(ProblemDebugging), ServingPin{Provider: "anthropic", Model: "claude-opus-4-20260501"})
 	if err != nil || len(atoms) != 1 {
 		t.Fatalf("atoms=%d err=%v", len(atoms), err)
@@ -151,7 +151,7 @@ func TestGenerateFromFailuresRefusesUnpinnedEvidence(t *testing.T) {
 	llm := &scriptedLLM{response: widenedAtomYAML}
 	ag := NewAtomGenerator(llm, nil)
 
-	atoms, err := ag.GenerateFromFailures(context.Background(), oneFailure(), "/coder",
+	atoms, err := ag.GenerateFromFailures(context.Background(), testGenerationCohort(t, oneFailure()), "/coder",
 		string(ProblemDebugging), ServingPin{})
 	if !errors.Is(err, ErrUnpinnedEvidence) || atoms != nil {
 		t.Fatalf("atoms=%v err=%v, want ErrUnpinnedEvidence", atoms, err)

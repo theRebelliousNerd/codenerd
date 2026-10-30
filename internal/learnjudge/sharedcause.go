@@ -17,10 +17,16 @@ import (
 
 // GroupFailure is one failure in a group, as its verdict describes it.
 type GroupFailure struct {
-	Request     string
-	Explanation string
-	Category    string
+	Request        string
+	Explanation    string
+	Category       string
+	TaskID         string
+	VerdictVersion string
+	SuggestedRule  string
 }
+
+// OpSharedCause identifies screening separately from task verdicts.
+const OpSharedCause = "jev_shared_cause"
 
 // SharesOneCause is the question's name.
 const SharesOneCause = "shares_one_cause"
@@ -29,7 +35,10 @@ const SharesOneCause = "shares_one_cause"
 // bounds how many go in one request. The state says what was left out.
 const (
 	groupFailureLimit = 2000
-	groupMaxFailures  = 12
+	groupMaxFailures  = SharedCauseMaxFailures
+	// SharedCauseMaxFailures is the request protocol ceiling. Evolution selects
+	// a cohort within it before either model sees evidence.
+	SharedCauseMaxFailures = 12
 )
 
 // SharedCauseRequest builds the state and the question.
@@ -43,6 +52,13 @@ func SharedCauseRequest(failures []GroupFailure) (map[string]any, map[string]typ
 	items := make([]map[string]any, 0, len(list))
 	for _, f := range list {
 		item := map[string]any{}
+		if f.TaskID != "" {
+			item["task_id"] = f.TaskID
+		}
+		if f.VerdictVersion != "" {
+			item["verdict_version"] = f.VerdictVersion
+		}
+		putBounded(item, "suggested_rule", strings.TrimSpace(f.SuggestedRule), groupFailureLimit)
 		putBounded(item, "task", strings.TrimSpace(f.Request), groupFailureLimit)
 		putBounded(item, "what_went_wrong", strings.TrimSpace(f.Explanation), groupFailureLimit)
 		if c := strings.TrimSpace(f.Category); c != "" {
@@ -62,19 +78,36 @@ func SharedCauseRequest(failures []GroupFailure) (map[string]any, map[string]typ
 	}
 }
 
-// JudgeSharedCause asks whether the group shares one preventable cause. A
-// failed call is an error, never a "no".
-func JudgeSharedCause(ctx context.Context, a Asker, failures []GroupFailure) (float64, error) {
+// SharedCauseJudgment keeps the answering model beside its observation.
+type SharedCauseJudgment struct {
+	Probability float64
+	Model       string
+}
+
+// JudgeSharedCause asks about an already constructed projection. Evolution
+// passes the same projection to the generator; this function never reselects
+// or rerenders its evidence. A failed call is an error, never a "no".
+func JudgeSharedCause(ctx context.Context, a Asker, state map[string]any, qs map[string]typesafe.Question) (*SharedCauseJudgment, error) {
 	if a == nil {
-		return 0, fmt.Errorf("learnjudge: no Jev client")
+		return nil, fmt.Errorf("learnjudge: no Jev client")
 	}
-	if len(failures) == 0 {
-		return 0, fmt.Errorf("learnjudge: empty failure group")
+	items, ok := state["failures"].([]map[string]any)
+	if !ok || len(items) == 0 {
+		return nil, fmt.Errorf("learnjudge: empty failure group")
 	}
-	state, qs := SharedCauseRequest(failures)
-	resp, err := a.Ask(typesafe.WithOperation(ctx, OpTaskVerdict), state, qs)
+	if _, ok := qs[SharesOneCause]; !ok {
+		return nil, fmt.Errorf("learnjudge: missing shared-cause question")
+	}
+	resp, err := a.Ask(typesafe.WithOperation(ctx, OpSharedCause), state, qs)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return resp.Noul(SharesOneCause)
+	if resp == nil {
+		return nil, fmt.Errorf("learnjudge: no shared-cause response")
+	}
+	p, err := resp.Noul(SharesOneCause)
+	if err != nil {
+		return nil, err
+	}
+	return &SharedCauseJudgment{Probability: p, Model: resp.Model}, nil
 }

@@ -38,7 +38,8 @@ func TestProblemTypeAndSharedCause_FailLoudly(t *testing.T) {
 	if _, err := JudgeProblemType(context.Background(), failing, "  ", ""); err == nil {
 		t.Fatal("an empty task must be refused before a call")
 	}
-	if _, err := JudgeSharedCause(context.Background(), failing, []GroupFailure{{Request: "x"}}); err == nil {
+	screenState, screenQuestions := SharedCauseRequest([]GroupFailure{{Request: "x"}})
+	if _, err := JudgeSharedCause(context.Background(), failing, screenState, screenQuestions); err == nil {
 		t.Fatal("a failed shared-cause call must be an error")
 	}
 	state, _ := SharedCauseRequest(make([]GroupFailure, groupMaxFailures+3))

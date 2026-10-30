@@ -727,7 +727,7 @@ func TestAtomGenerator_MalformedLLMResponse(t *testing.T) {
 		Category:    CategoryLogicError,
 		TaskID:      "task-malformed",
 	}}
-	if _, err := ag.GenerateFromFailures(context.Background(), failures, "/coder", string(ProblemDebugging), ServingPin{}); err == nil {
+	if _, err := ag.GenerateFromFailures(context.Background(), testGenerationCohort(t, failures), "/coder", string(ProblemDebugging), ServingPin{}); err == nil {
 		t.Fatal("expected parsing error for malformed LLM response")
 	}
 }

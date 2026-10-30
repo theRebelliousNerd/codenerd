@@ -2,6 +2,8 @@ package prompt_evolution
 
 import (
 	"context"
+	"encoding/json"
+	"testing"
 
 	"codenerd/internal/types"
 )
@@ -42,4 +44,29 @@ func AllProblemTypes() []ProblemType {
 		ProblemCodeReview,
 		ProblemResearch,
 	}
+}
+
+// testGenerationCohort uses the production selection and projection path;
+// generator fixtures cannot supply an independently rendered evidence list.
+func testGenerationCohort(t *testing.T, verdicts []*JudgeVerdict) *evidenceCohort {
+	t.Helper()
+	if len(verdicts) == 0 {
+		return nil
+	}
+	group := failureGroup{key: FailureGroupKey{ProblemType: "debugging", ShardType: "/coder"}}
+	for _, v := range verdicts {
+		if v == nil {
+			continue
+		}
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		group.failures = append(group.failures, &ExecutionRecord{TaskID: v.TaskID, VerdictVersion: versionOf(b), Verdict: v})
+	}
+	c, err := selectEvidenceCohort(context.Background(), group, *DefaultEvolverConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
 }

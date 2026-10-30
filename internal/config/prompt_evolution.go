@@ -24,6 +24,12 @@ type PromptEvolutionConfig struct {
 	// MaxCycleJudgeCalls caps LLM-as-Judge calls in one cycle.
 	MaxCycleJudgeCalls int `json:"max_cycle_judge_calls,omitempty"`
 
+	// MaxCycleScreeningCalls caps logical shared-cause calls, including failures.
+	MaxCycleScreeningCalls int `json:"max_cycle_screening_calls,omitempty"`
+
+	// EvidenceCohortSize bounds selected evidence, within the screening protocol.
+	EvidenceCohortSize int `json:"evidence_cohort_size,omitempty"`
+
 	// MaxCycleGenerationCalls caps atom-generation and strategy-refinement
 	// calls in one cycle, across every failure group.
 	MaxCycleGenerationCalls int `json:"max_cycle_generation_calls,omitempty"`
@@ -55,6 +61,8 @@ func DefaultPromptEvolutionConfig() PromptEvolutionConfig {
 		RecordQueueCapacity:       256,
 		RecordDrainTimeoutSeconds: 5,
 		MaxCycleJudgeCalls:        20,
+		MaxCycleScreeningCalls:    3,
+		EvidenceCohortSize:        12,
 		MaxCycleGenerationCalls:   3,
 		MaxCycleAtoms:             3,
 		ClaimLeaseSeconds:         600,
@@ -84,6 +92,8 @@ func (c PromptEvolutionConfig) WithDefaults() PromptEvolutionConfig {
 	fill(&c.RecordQueueCapacity, d.RecordQueueCapacity)
 	fill(&c.RecordDrainTimeoutSeconds, d.RecordDrainTimeoutSeconds)
 	fill(&c.MaxCycleJudgeCalls, d.MaxCycleJudgeCalls)
+	fill(&c.MaxCycleScreeningCalls, d.MaxCycleScreeningCalls)
+	fill(&c.EvidenceCohortSize, d.EvidenceCohortSize)
 	fill(&c.MaxCycleGenerationCalls, d.MaxCycleGenerationCalls)
 	fill(&c.MaxCycleAtoms, d.MaxCycleAtoms)
 	fill(&c.ClaimLeaseSeconds, d.ClaimLeaseSeconds)
@@ -110,6 +120,8 @@ func (c PromptEvolutionConfig) Check(prefix string) []Problem {
 	positive("record_queue_capacity", c.RecordQueueCapacity)
 	positive("record_drain_timeout_seconds", c.RecordDrainTimeoutSeconds)
 	positive("max_cycle_judge_calls", c.MaxCycleJudgeCalls)
+	positive("max_cycle_screening_calls", c.MaxCycleScreeningCalls)
+	positive("evidence_cohort_size", c.EvidenceCohortSize)
 	positive("max_cycle_generation_calls", c.MaxCycleGenerationCalls)
 	positive("max_cycle_atoms", c.MaxCycleAtoms)
 	positive("claim_lease_seconds", c.ClaimLeaseSeconds)

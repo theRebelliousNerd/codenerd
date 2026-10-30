@@ -15,11 +15,12 @@ import (
 // pinning) that consumes failure evidence. It is part of every generation
 // claim key: bump it when the procedure changes and the same evidence becomes
 // eligible for one deliberate, separately charged reanalysis.
-const atomGeneratorVersion = "atomgen-v1"
+const atomGeneratorVersion = "atomgen-cohort-v2"
 
 // cycleBudget is the global spend bound of one cycle, across every group.
 type cycleBudget struct {
 	generationCalls int
+	screeningCalls  int
 	atoms           int
 }
 
@@ -37,7 +38,7 @@ type failureGroup struct {
 // behind a generation-claim fence. Recording therefore never waits behind a
 // slow model, and a worker whose claim was taken over cannot publish.
 //
-// Spend is bounded per cycle (MaxCycleJudgeCalls, MaxCycleGenerationCalls,
+// Spend is bounded per cycle (MaxCycleJudgeCalls, MaxCycleScreeningCalls, MaxCycleGenerationCalls,
 // MaxCycleAtoms) across all groups, and groups are served oldest unconsumed
 // evidence first, so a busy group cannot starve an old one. Evidence that has
 // bought a generation is consumed and never buys another under the same
@@ -62,7 +63,7 @@ func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResul
 	pe.mu.RLock()
 	cfg := *pe.config
 	pe.mu.RUnlock()
-	budget := cycleBudget{generationCalls: cfg.MaxCycleGenerationCalls, atoms: cfg.MaxCycleAtoms}
+	budget := cycleBudget{generationCalls: cfg.MaxCycleGenerationCalls, screeningCalls: cfg.MaxCycleScreeningCalls, atoms: cfg.MaxCycleAtoms}
 
 	// 1. Judge what is unjudged, bounded, unlocked.
 	pe.judgeUnevaluated(ctx, cycleID, cfg.MaxCycleJudgeCalls, result)
@@ -180,28 +181,28 @@ func (pe *PromptEvolver) generateForGroup(ctx context.Context, cycleID string, c
 		return
 	}
 
-	// Only the agent's own mistakes are evidence for an atom (jev_evolution.go).
-	failures := agentMistakes(group.failures)
-	verdicts := make([]*JudgeVerdict, 0, len(failures))
-	evidence := make([]EvidenceRef, 0, len(failures))
-	for _, f := range failures {
-		if f == nil || f.Verdict == nil || f.VerdictVersion == "" {
-			continue
-		}
-		verdicts = append(verdicts, f.Verdict)
-		evidence = append(evidence, EvidenceRef{TaskID: f.TaskID, VerdictVersion: f.VerdictVersion})
-	}
-	if len(verdicts) < cfg.MinFailuresForEvolution {
+	cohort, err := selectEvidenceCohort(ctx, group, cfg)
+	if err != nil {
+		result.Errors = append(result.Errors, err.Error())
 		return
 	}
-	if !pe.groupWarrantsEvolution(ctx, group, failures) {
-		result.GroupsWithoutSharedCause++
+	if len(cohort.verdicts) < cfg.MinFailuresForEvolution {
 		return
 	}
+	if err := pe.ledger.saveCohort(cohort); err != nil {
+		result.Errors = append(result.Errors, err.Error())
+		return
+	}
+	result.EvidenceDeferred += cohort.omitted
+	screenID, proceed := pe.screenCohort(ctx, cycleID, cfg, group, cohort, budget, result)
+	if !proceed {
+		return
+	}
+	verdicts, evidence := cohort.verdicts, cohort.evidence
 	result.FailuresAnalyzed += len(verdicts)
 
 	groupKey := string(cfg.AtomPinScope) + "|" + group.key.String()
-	claimKey := generationClaimKey(groupKey, atomGeneratorVersion, evidence)
+	claimKey := generationClaimKey(groupKey, atomGeneratorVersion+"/"+cohort.id+"/"+screenID, evidence)
 	owner := cycleID + "/" + newOwnerToken()
 	acquired, err := pe.ledger.Claim(claimKey, groupKey, atomGeneratorVersion, len(evidence), owner, cfg.ClaimLease, time.Now())
 	if err != nil {
@@ -213,13 +214,20 @@ func (pe *PromptEvolver) generateForGroup(ctx context.Context, cycleID string, c
 		return
 	}
 
+	if _, err := pe.ledger.db.Exec(`INSERT OR IGNORE INTO generation_cohorts
+	 (claim_key, cohort_id, screen_key) VALUES (?, ?, ?)`, claimKey, cohort.id, screenID); err != nil {
+		_ = pe.ledger.Release(claimKey, owner, err.Error())
+		result.Errors = append(result.Errors, err.Error())
+		return
+	}
+
 	// The model call: unlocked, metered, and charged against the cycle budget
 	// whether or not it yields anything usable.
 	budget.generationCalls--
 	result.GenerationCalls++
 	problemType, shardType := group.key.ProblemType, group.key.ShardType
 	atoms, err := pe.atomGenerator.GenerateFromFailures(withSpend(ctx, cycleID, SpendGenerate),
-		verdicts, shardType, problemType, servingPinFor(group.failures))
+		cohort, shardType, problemType, servingPinFor(group.failures))
 	if err != nil {
 		_ = pe.ledger.Release(claimKey, owner, err.Error())
 		_ = pe.ledger.RecordSpend(SpendRow{CycleID: cycleID, Category: SpendGenerate, Outcome: SpendUnusable, Units: 1})
@@ -248,6 +256,12 @@ func (pe *PromptEvolver) generateForGroup(ctx context.Context, cycleID string, c
 	}
 	atoms = atoms[:keep]
 
+	for _, atom := range atoms {
+		if atom != nil {
+			atom.EvidenceCohortID = cohort.id
+			atom.ScreenObservationID = screenID
+		}
+	}
 	pe.publishGeneration(cycleID, claimKey, owner, evidence, atoms, budget, result)
 
 	// Strategy refinement for this group, against the same generation budget.

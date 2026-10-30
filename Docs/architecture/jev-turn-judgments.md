@@ -694,15 +694,81 @@ regex-classified problem type bought one.
 - Code first (`agentMistakes`, `prompt_evolution/jev_evolution.go`): a failure
   whose verdict is `NO_AGENT_MISTAKE` is not evidence, and the group must still
   reach the count without it.
+- Cohort (`prompt_evolution/evidence_cohort.go`): eligible agent mistakes
+  are ordered by descending timestamp, then task ID and verdict version.
+  Go measures alternating positions from the newest and oldest ends; the
+  adaptation kernel derives `evolution_cohort_member` under
+  `prompt_evolution.evidence_cohort_size` (default 12, at most the request
+  protocol ceiling of 12 and at least `MinFailuresForEvolution`). This exposes
+  fresh failures without excluding the oldest end. It does not guarantee that
+  every interior record will be selected while a rejected backlog grows.
 - Question (`internal/learnjudge/sharedcause.go`): `shares_one_cause`, "Do the
   failures in `failures` share one cause that a single instruction to the agent
-  could prevent?" The state holds each failure's task, its explanation and its
-  kind, at most 12 failures, each bounded at 2000 bytes.
-- Decision (`groupWarrantsEvolution`): yes generates. No or unsettled buys
-  nothing and counts the group in `EvolutionResult.GroupsWithoutSharedCause`.
-  The evidence stays unconsumed, so later failures can join it. With no answer
-  (Jev off, `atom_checks` off, the call failed), the count rule decides as
-  before, and the log says so.
+  could prevent?" One immutable JSON projection carries selected task IDs,
+  verdict versions, task text, explanation, suggested rule, kind, serving pin,
+  and selection version. Text fields retain the existing 2000-byte projection
+  with disclosed omissions. Unselected identities have a count and digest.
+  The atom generator receives that exact JSON, rather than choosing another
+  set of examples. Source records retain their full text.
+- Decision (`screenCohort`, `policy/prompt_evolution.mg`): the component kernel
+  derives `evolution_generation_allowed` for an answered yes or an unavailable
+  observation. No or unsettled generates nothing and increments
+  `EvolutionResult.GroupsWithoutSharedCause`. Evidence remains unconsumed.
+  Jev unconfigured or `atom_checks` disabled retains the count fallback.
+  A failed call is recorded as unavailable; a budget or lease deferral never
+  becomes an unavailable observation or a negative judgment.
+- Identity and reuse (`prompt_evolution/screening_ledger.go`): a screening
+  purchase hashes the cohort, actual question definitions, procedure version,
+  configured model, thresholds, and Jev attachment epoch. Negative, unsettled,
+  positive, and unavailable observations are durable and reusable for that
+  exact key without another call. Reattaching Jev, including at restart,
+  starts a new epoch: the caller cannot resolve a moving alias without buying
+  another answer. The receipt records the actual answering model. This policy
+  fixes the observation identity for an attachment; it does not detect a vendor
+  changing an alias during that attachment. Reattachment is explicit reanalysis.
+- Logical screening work has its own allowance,
+  `prompt_evolution.max_cycle_screening_calls` (default 3). Go reports used
+  logical calls; the kernel derives `evolution_screen_allowed`. Cache hits
+  consume no allowance. Failed calls consume one; an exhausted allowance
+  defers the remaining misses. Existing task-judge, generation/refinement,
+  atom, request timeout, and cycle deadline controls retain their scopes.
+  Logical calls do not claim to count HTTP retries.
+- Provenance and retirement (`evolver_cycle.go`, `evolver_candidates.go`):
+  `evolution_cohorts` stores the projection and selected evidence references;
+  `generation_cohorts` links the fenced generation claim to its cohort and
+  screen. Candidate files preserve both IDs and only selected source task IDs,
+  including across reload. Successful publication consumes only the selected
+  task/verdict identities. Generation, admission, quarantine, trial and
+  promotion fences retain their existing responsibilities.
+- Accounting (`screening_receipts`, `adaptation_spend`): each completed
+  logical screen has a cycle/cohort-linked receipt, probability or unavailable
+  disposition, answering model, elapsed time, provider usage reports and an
+  explicit usage-completeness flag. Screening uses its own `screen` spend
+  category and `jev_shared_cause` usage operation. An observer captures the
+  existing provider report; it does not bill the tracker a second time.
+  Automatic evolution attaches the Cortex tracker to its cancellable cycle
+  context in `internal/system/factory_learning.go`. Missing reports remain
+  unknown. Failed TypeSafe attempts notify the usage observer even when a
+  subsequent retry answers, so successful retry usage cannot conceal earlier
+  unknown usage. Raw response bytes and transport attempt counts remain NULL
+  in receipts; `UnknownResponseCalls` exposes missing response-byte counts in
+  spend summaries. Prompt bytes measure the application state/question payload.
+- Policy wiring: `schemas_evolution.mg` and `policy/prompt_evolution.mg` are
+  embedded by `internal/core/defaults/evolution_policy.go` for the component
+  kernel and included in the action kernel schema/policy inventory. All new
+  evolution predicates have a home in the prompt shard manifest in
+  `internal/shards/registration.go`; `config_param` remains shared.
+- Verification boundary: these changes and their production-path regressions
+  are authored but unexecuted. `screening_cohort_test.go` covers cohort identity,
+  bounded fields, retirement, reuse, new evidence, ties, verdict revision,
+  retries, unavailable judgment, receipts and candidate reload.
+  `internal/system/prompt_evolution_screening_test.go` exercises the automatic
+  adapter with a real TypeSafe client and scripted HTTP transport. The owning
+  policy and shard tests exercise the complete production corpus. The lab,
+  those tests, and the required defaults/shard checks still need execution.
+  No improvement in model accuracy or resource use has been measured. Receipt
+  retention and automatic alias-change discovery remain explicit design gaps;
+  retained screening history currently follows the ledger's append-only model.
 - Probe (`atom_checks-shared_cause`): 4 of 4. Three hollow test claims scored
   0.96 and three empty-slice panics 0.98. A timeout, a stray edit and a syntax
   error scored 0.03, and three provider outages 0.04.
