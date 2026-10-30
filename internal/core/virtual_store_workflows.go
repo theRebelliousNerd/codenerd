@@ -346,27 +346,6 @@ func (v *VirtualStore) handleGenerateTool(ctx context.Context, req ActionRequest
 	}, nil
 }
 
-// handleOuroborosDetect detects tool needs based on task context.
-func (v *VirtualStore) handleOuroborosDetect(ctx context.Context, req ActionRequest) (ActionResult, error) {
-	if err := ctx.Err(); err != nil {
-		return ActionResult{Success: false, Error: err.Error()}, nil
-	}
-
-	logging.VirtualStoreDebug("Ouroboros detect: %s", req.Target)
-
-	// Detection is a signal action - the LLM identifies tool needs
-	taskContext := req.Target
-
-	return ActionResult{
-		Success: true,
-		Output:  fmt.Sprintf("Tool detection initiated for: %s", taskContext),
-		FactsToAdd: []Fact{
-			{Predicate: "ouroboros_phase", Args: []any{"/detect"}},
-			{Predicate: "tool_detection_context", Args: []any{taskContext}},
-		},
-	}, nil
-}
-
 // handleOuroborosGenerate generates tool code.
 func (v *VirtualStore) handleOuroborosGenerate(ctx context.Context, req ActionRequest) (ActionResult, error) {
 	if err := ctx.Err(); err != nil {
@@ -382,70 +361,6 @@ func (v *VirtualStore) handleOuroborosGenerate(ctx context.Context, req ActionRe
 		FactsToAdd: []Fact{
 			{Predicate: "ouroboros_phase", Args: []any{"/generate"}},
 			{Predicate: "tool_generating", Args: []any{toolName}},
-		},
-	}, nil
-}
-
-// handleOuroborosCompile compiles a generated tool.
-func (v *VirtualStore) handleOuroborosCompile(ctx context.Context, req ActionRequest) (ActionResult, error) {
-	if err := ctx.Err(); err != nil {
-		return ActionResult{Success: false, Error: err.Error()}, nil
-	}
-
-	toolName := req.Target
-	sourcePath, _ := req.Payload["source_path"].(string)
-
-	logging.VirtualStore("Ouroboros compile: %s from %s", toolName, sourcePath)
-
-	logging.VirtualStore("Delegating compilation of %s to ToolGenerator", toolName)
-
-	// Construct delegation request with task payload
-	delegateReq := ActionRequest{
-		Type:   ActionDelegateToolGenerator,
-		Target: fmt.Sprintf("compile tool %s", toolName),
-		Payload: map[string]any{
-			"task": fmt.Sprintf("compile tool %s", toolName),
-		},
-	}
-
-	return v.handleDelegateAlias(ctx, delegateReq, "/tool_generator")
-}
-
-// handleOuroborosRegister registers a compiled tool.
-func (v *VirtualStore) handleOuroborosRegister(ctx context.Context, req ActionRequest) (ActionResult, error) {
-	if err := ctx.Err(); err != nil {
-		return ActionResult{Success: false, Error: err.Error()}, nil
-	}
-
-	toolName := req.Target
-	binaryPath, _ := req.Payload["binary_path"].(string)
-	shardAffinity, _ := req.Payload["shard_affinity"].(string)
-
-	logging.VirtualStore("Ouroboros register: %s at %s", toolName, binaryPath)
-
-	if shardAffinity == "" {
-		shardAffinity = "coder"
-	}
-
-	if err := v.RegisterTool(toolName, binaryPath, shardAffinity); err != nil {
-		return ActionResult{
-			Success: false,
-			Error:   err.Error(),
-			FactsToAdd: []Fact{
-				{Predicate: "ouroboros_register_failed", Args: []any{toolName, err.Error()}},
-			},
-		}, nil
-	}
-
-	registeredAt := time.Now().Unix()
-	return ActionResult{
-		Success: true,
-		Output:  fmt.Sprintf("Tool %s registered", toolName),
-		FactsToAdd: []Fact{
-			{Predicate: "ouroboros_phase", Args: []any{"/registered"}},
-			{Predicate: "tool_registered", Args: []any{toolName, registeredAt}},
-			{Predicate: "tool_binary_path", Args: []any{toolName, binaryPath}},
-			{Predicate: "tool_available", Args: []any{toolName}},
 		},
 	}, nil
 }
@@ -751,48 +666,6 @@ func (v *VirtualStore) handleAskCampaignInterrupt(ctx context.Context, req Actio
 // =============================================================================
 // CONTEXT MANAGEMENT ACTION HANDLERS
 // =============================================================================
-
-// handleCompressContext compresses the current context.
-func (v *VirtualStore) handleCompressContext(ctx context.Context, req ActionRequest) (ActionResult, error) {
-	if err := ctx.Err(); err != nil {
-		return ActionResult{Success: false, Error: err.Error()}, nil
-	}
-
-	reason := req.Target
-	targetRatio, _ := req.Payload["ratio"].(float64)
-	if targetRatio == 0 {
-		targetRatio = 0.5
-	}
-
-	logging.VirtualStore("Context compression requested: ratio=%.2f", targetRatio)
-
-	return ActionResult{
-		Success: true,
-		Output:  fmt.Sprintf("Context compression initiated (target ratio: %.2f)", targetRatio),
-		FactsToAdd: []Fact{
-			{Predicate: "context_compressing", Args: []any{reason, targetRatio}},
-			{Predicate: "compression_requested", Args: []any{"/normal"}},
-		},
-	}, nil
-}
-
-// handleEmergencyCompress performs emergency context compression.
-func (v *VirtualStore) handleEmergencyCompress(ctx context.Context, req ActionRequest) (ActionResult, error) {
-	if err := ctx.Err(); err != nil {
-		return ActionResult{Success: false, Error: err.Error()}, nil
-	}
-
-	logging.VirtualStore("Emergency context compression requested (session: %s)", req.SessionID)
-
-	return ActionResult{
-		Success: true,
-		Output:  "Emergency context compression initiated",
-		FactsToAdd: []Fact{
-			{Predicate: "context_compressing", Args: []any{"emergency", int64(25)}},
-			{Predicate: "compression_requested", Args: []any{"/emergency"}},
-		},
-	}, nil
-}
 
 // handleCreateCheckpoint creates a checkpoint of the current state.
 func (v *VirtualStore) handleCreateCheckpoint(ctx context.Context, req ActionRequest) (ActionResult, error) {

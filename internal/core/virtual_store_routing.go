@@ -451,8 +451,6 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleAnalyzeImpact(ctx, req)
 	case ActionBrowse:
 		return v.handleBrowse(ctx, req)
-	case ActionResearch:
-		return v.handleResearch(ctx, req)
 	case ActionDelegate:
 		return v.handleDelegate(ctx, req)
 	case ActionDelegateReviewer:
@@ -521,14 +519,8 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 	// Ouroboros actions
 	case ActionGenerateTool:
 		return v.handleGenerateTool(ctx, req)
-	case ActionOuroborosDetect:
-		return v.handleOuroborosDetect(ctx, req)
 	case ActionOuroborosGen:
 		return v.handleOuroborosGenerate(ctx, req)
-	case ActionOuroborosCompile:
-		return v.handleOuroborosCompile(ctx, req)
-	case ActionOuroborosReg:
-		return v.handleOuroborosRegister(ctx, req)
 	case ActionRefineTool:
 		return v.handleRefineTool(ctx, req)
 
@@ -567,10 +559,6 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleAskCampaignInterrupt(ctx, req)
 
 	// Context Management actions
-	case ActionCompressContext:
-		return v.handleCompressContext(ctx, req)
-	case ActionEmergencyCompress:
-		return v.handleEmergencyCompress(ctx, req)
 	case ActionCreateCheckpoint:
 		return v.handleCreateCheckpoint(ctx, req)
 

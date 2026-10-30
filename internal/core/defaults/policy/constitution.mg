@@ -297,10 +297,7 @@ safe_action(/complete).
 # Autopoiesis/Ouroboros operations
 safe_action(/generate_tool).
 safe_action(/refine_tool).
-safe_action(/ouroboros_detect).
 safe_action(/ouroboros_generate).
-safe_action(/ouroboros_compile).
-safe_action(/ouroboros_register).
 
 # Strategic/control operations
 safe_action(/ask_user).
@@ -311,8 +308,6 @@ safe_action(/refresh_shard_context).
 safe_action(/update_world_model).
 
 # Context management operations
-safe_action(/compress_context).
-safe_action(/emergency_compress).
 safe_action(/create_checkpoint).
 
 # Code DOM operations

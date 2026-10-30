@@ -930,8 +930,6 @@ func systemAndControlRoutes() []ToolRoute {
 		{ActionPattern: "refresh_shard_context", ToolName: "session_control", Timeout: 10 * time.Second, RequiresSafe: false},
 		{ActionPattern: "update_world_model", ToolName: "world_model", Timeout: 30 * time.Second, RequiresSafe: false},
 		// Context management
-		{ActionPattern: "compress_context", ToolName: "context_manager", Timeout: 30 * time.Second, RequiresSafe: false},
-		{ActionPattern: "emergency_compress", ToolName: "context_manager", Timeout: 10 * time.Second, RequiresSafe: false},
 		{ActionPattern: "create_checkpoint", ToolName: "context_manager", Timeout: 10 * time.Second, RequiresSafe: false},
 		// Knowledge/vector operations (kernel internal - query only)
 		{ActionPattern: "vector_search", ToolName: "kernel_internal", Timeout: 30 * time.Second, RequiresSafe: false},
@@ -1019,7 +1017,6 @@ func networkAndGitRoutes() []ToolRoute {
 		// Network
 		{ActionPattern: "fetch", ToolName: "http_fetch", Timeout: 30 * time.Second, RequiresSafe: true, RateLimit: 30},
 		{ActionPattern: "browse", ToolName: "browser_tool", Timeout: 60 * time.Second, RequiresSafe: true, RateLimit: 10},
-		{ActionPattern: "research", ToolName: "research_tool", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 5},
 		// Browser operations
 		{ActionPattern: "browser_navigate", ToolName: "browser_tool", Timeout: 60 * time.Second, RequiresSafe: true, RateLimit: 10},
 		{ActionPattern: "browser_screenshot", ToolName: "browser_tool", Timeout: 30 * time.Second, RequiresSafe: false, RateLimit: 20},

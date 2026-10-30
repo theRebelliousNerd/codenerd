@@ -31,8 +31,6 @@ campaign_status_requested
 campaign_step_verifying
 checkpoint_created
 commit_pending
-compression_requested
-context_compressing
 delegation_failed
 delegation_result
 deleted_file
@@ -49,7 +47,6 @@ interrogative_mode
 investigation_phase
 learned_intent
 ouroboros_phase
-ouroboros_register_failed
 refactored
 research_completed
 research_failed
@@ -61,7 +58,6 @@ systemic_investigating
 task_resumed
 tdd_phase
 test_written
-tool_detection_context
 tool_failed
 tool_generating
 tool_refining

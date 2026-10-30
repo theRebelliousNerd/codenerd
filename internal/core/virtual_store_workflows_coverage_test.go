@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -573,28 +572,7 @@ func TestVirtualStoreWorkflows_Ouroboros(t *testing.T) {
 		t.Errorf("expected canceled error, got: %+v", res)
 	}
 
-	// 2. handleOuroborosDetect
-	req = ActionRequest{Target: "user intent /fix"}
-	res, err = vs.handleOuroborosDetect(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !res.Success {
-		t.Errorf("expected success")
-	}
-	if len(res.FactsToAdd) != 2 || res.FactsToAdd[0].Predicate != "ouroboros_phase" || res.FactsToAdd[1].Predicate != "tool_detection_context" {
-		t.Errorf("expected ouroboros detect facts, got: %v", res.FactsToAdd)
-	}
-
-	res, err = vs.handleOuroborosDetect(cCtx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Success || res.Error != context.Canceled.Error() {
-		t.Errorf("expected canceled error, got: %+v", res)
-	}
-
-	// 3. handleOuroborosGenerate
+	// 2. handleOuroborosGenerate
 	req = ActionRequest{Target: "my_tool"}
 	res, err = vs.handleOuroborosGenerate(ctx, req)
 	if err != nil {
@@ -615,93 +593,7 @@ func TestVirtualStoreWorkflows_Ouroboros(t *testing.T) {
 		t.Errorf("expected canceled error, got: %+v", res)
 	}
 
-	// 4. handleOuroborosCompile
-	// Case 4a: compile succeeds via taskDelegator delegation
-	mDelegator := &mockWorkflowTaskDelegator{
-		executeFunc: func(ctx context.Context, intent string, task string) (string, error) {
-			if intent != "/tool_generator" {
-				return "", fmt.Errorf("unexpected intent: %s", intent)
-			}
-			return "compile success", nil
-		}}
-	vs.taskDelegator = mDelegator
-
-	req = ActionRequest{Target: "my_tool", Payload: map[string]any{"source_path": "my_tool.go"}}
-	res, err = vs.handleOuroborosCompile(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// The delegated return arrives through the subagent-return codec, so the
-	// output is the projection. Short returns are carried whole (see
-	// observation.minRetainBytes), so the compiler's word still reaches the
-	// caller -- under a header naming the agent and the status.
-	if !res.Success || !strings.Contains(res.Output, "compile success") {
-		t.Errorf("expected compile success, got: %+v", res)
-	}
-
-	// Context canceled
-	res, err = vs.handleOuroborosCompile(cCtx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Success || res.Error != context.Canceled.Error() {
-		t.Errorf("expected canceled error, got: %+v", res)
-	}
-
-	// 5. handleOuroborosRegister
-	// Create a real executable on disk so RegisterTool's binary-existence
-	// check passes regardless of host layout (e.g. /bin/my_tool never exists).
-	toolBin := filepath.Join(t.TempDir(), "my_tool")
-	if err := os.WriteFile(toolBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("failed to create temp tool binary: %v", err)
-	}
-	// Case 5a: registry nil
-	vs.toolRegistry = nil
-	req = ActionRequest{Target: "my_tool", Payload: map[string]any{"binary_path": toolBin, "shard_affinity": "coder"}}
-	res, err = vs.handleOuroborosRegister(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Success || res.Error != "tool registry not initialized" {
-		t.Errorf("expected registry nil error, got: %+v", res)
-	}
-	if len(res.FactsToAdd) != 1 || res.FactsToAdd[0].Predicate != "ouroboros_register_failed" {
-		t.Errorf("expected registration failure fact, got: %v", res.FactsToAdd)
-	}
-
-	// Case 5b: Registration success
-	vs.toolRegistry = NewToolRegistry(t.TempDir())
-	res, err = vs.handleOuroborosRegister(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !res.Success {
-		t.Errorf("expected register success, got error: %s", res.Error)
-	}
-	if len(res.FactsToAdd) != 4 || res.FactsToAdd[0].Predicate != "ouroboros_phase" || res.FactsToAdd[1].Predicate != "tool_registered" {
-		t.Errorf("expected tool registered facts, got: %v", res.FactsToAdd)
-	}
-
-	// Case 5c: Registration success with empty shard affinity (defaults to "coder")
-	req.Payload = map[string]any{"binary_path": toolBin}
-	res, err = vs.handleOuroborosRegister(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !res.Success {
-		t.Errorf("expected register success, got error: %s", res.Error)
-	}
-
-	// Context canceled
-	res, err = vs.handleOuroborosRegister(cCtx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Success || res.Error != context.Canceled.Error() {
-		t.Errorf("expected canceled error, got: %+v", res)
-	}
-
-	// 6. handleRefineTool
+	// 3. handleRefineTool
 	req = ActionRequest{Target: "my_tool", Payload: map[string]any{"feedback": "fix panic"}}
 	res, err = vs.handleRefineTool(ctx, req)
 	if err != nil {
@@ -1070,67 +962,10 @@ func TestVirtualStoreWorkflows_ContextManagement(t *testing.T) {
 	cCtx, cancel := context.WithCancel(ctx)
 	cancel()
 
-	// 1. handleCompressContext
-	// Case 1a: ratio defaults
-	req := ActionRequest{Target: "token budget limit reached"}
-	res, err := vs.handleCompressContext(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !res.Success {
-		t.Errorf("expected success")
-	}
-	if len(res.FactsToAdd) != 2 || res.FactsToAdd[0].Predicate != "context_compressing" {
-		t.Errorf("expected context compressing facts, got: %v", res.FactsToAdd)
-	}
-	// Verify ratio default 0.5
-	if res.FactsToAdd[0].Args[1] != 0.5 {
-		t.Errorf("expected default ratio 0.5, got: %v", res.FactsToAdd[0].Args[1])
-	}
-
-	// Case 1b: ratio specified
-	req.Payload = map[string]any{"ratio": 0.8}
-	res, err = vs.handleCompressContext(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.FactsToAdd[0].Args[1] != 0.8 {
-		t.Errorf("expected ratio 0.8, got: %v", res.FactsToAdd[0].Args[1])
-	}
-
-	res, err = vs.handleCompressContext(cCtx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Success || res.Error != context.Canceled.Error() {
-		t.Errorf("expected canceled error, got: %+v", res)
-	}
-
-	// 2. handleEmergencyCompress
-	req = ActionRequest{SessionID: "sess_1"}
-	res, err = vs.handleEmergencyCompress(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !res.Success {
-		t.Errorf("expected success")
-	}
-	if len(res.FactsToAdd) != 2 || res.FactsToAdd[0].Predicate != "context_compressing" || res.FactsToAdd[1].Predicate != "compression_requested" {
-		t.Errorf("expected emergency compressing facts, got: %v", res.FactsToAdd)
-	}
-
-	res, err = vs.handleEmergencyCompress(cCtx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Success || res.Error != context.Canceled.Error() {
-		t.Errorf("expected canceled error, got: %+v", res)
-	}
-
-	// 3. handleCreateCheckpoint
-	// Case 3a: name empty (defaults to timestamp name)
-	req = ActionRequest{}
-	res, err = vs.handleCreateCheckpoint(ctx, req)
+	// 1. handleCreateCheckpoint
+	// Case 1a: name empty (defaults to timestamp name)
+	req := ActionRequest{}
+	res, err := vs.handleCreateCheckpoint(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1141,7 +976,7 @@ func TestVirtualStoreWorkflows_ContextManagement(t *testing.T) {
 		t.Errorf("expected checkpoint_created fact, got: %v", res.FactsToAdd)
 	}
 
-	// Case 3b: name specified
+	// Case 1b: name specified
 	req.Target = "my_checkpoint"
 	res, err = vs.handleCreateCheckpoint(ctx, req)
 	if err != nil {

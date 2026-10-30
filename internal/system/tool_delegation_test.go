@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestVirtualStore_CompilationDelegation(t *testing.T) {
+func TestVirtualStore_ToolGeneratorDelegationWithNoExecutorFails(t *testing.T) {
 	// Setup
 	executor := tactile.NewDirectExecutor()
 	vs := core.NewVirtualStore(executor)
@@ -23,21 +23,13 @@ func TestVirtualStore_CompilationDelegation(t *testing.T) {
 	vs.SetKernel(kernel)
 	vs.DisableBootGuard()
 
-	// Allow compilation logic to proceed by setting up a dummy tool file if needed
-	// But handleOuroborosCompile strictly just checks target name and delegations.
-	// It constructs source path but doesn't read it before delegating in the NEW logic.
-	// The new logic is:
-	// 1. Delegate to ToolGenerator shard.
-	// 2. Return.
-	// So we don't need a real file on disk for THIS test.
-
-	// Action: Compile
+	// Action: delegate a compile task to the tool generator
 	req := core.Fact{
 		Predicate: "next_action",
 		Args: []any{
-			"test_compile",      // ID
-			"ouroboros_compile", // Type (ActionOuroborosCompile)
-			"my_test_tool",      // Target
+			"test_compile",              // ID
+			"delegate_tool_generator",   // Type (ActionDelegateToolGenerator)
+			"compile tool my_test_tool", // Target (the task)
 		},
 	}
 

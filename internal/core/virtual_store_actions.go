@@ -736,7 +736,9 @@ func (v *VirtualStore) handleBrowse(ctx context.Context, req ActionRequest) (Act
 
 // handleResearch handles research requests using modular tools.
 // Research functionality is now provided by modular tools (Context7, WebFetch, Browser, etc.)
-// that any agent can use via the JIT system.
+// that any agent can use via the JIT system. It is reached only through
+// handleCampaignResearch (next_action(/campaign_research), campaign_tasks.mg);
+// there is no bare /research action.
 func (v *VirtualStore) handleResearch(ctx context.Context, req ActionRequest) (ActionResult, error) {
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleResearch")
 	defer timer.Stop()

@@ -488,18 +488,10 @@ func TestRealCorpusProducesExpectedCounts(t *testing.T) {
 	// No assertion on minimum error count; zero is the goal state.
 	// /delete_file is human_approvable, so it is reachable one exact request
 	// at a time and no longer reported as unreachable.
-	// The policy rules that emitted the ouroboros and context-compression
-	// actions read inputs nothing asserted and were deleted, so the VirtualStore
-	// handlers, safe_action entries and router routes for them are now reported
-	// as never emitted. They stay until each is retired with its Go handler.
-	expectedWarnings := map[string]struct{}{
-		"/research":           {},
-		"/ouroboros_detect":   {},
-		"/ouroboros_compile":  {},
-		"/ouroboros_register": {},
-		"/compress_context":   {},
-		"/emergency_compress": {},
-	}
+	// Every action the VirtualStore supports is emitted by a policy rule or
+	// reached through one; a dead action is retired with its handler and route,
+	// so the corpus has no warnings.
+	expectedWarnings := map[string]struct{}{}
 	if warnCount != len(expectedWarnings) {
 		t.Fatalf("expected %d warnings %v, got %d: %+v", len(expectedWarnings), expectedWarnings, warnCount, issues)
 	}

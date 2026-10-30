@@ -29,7 +29,6 @@ const (
 	ActionGitOperation  ActionType = "git_operation"
 	ActionAnalyzeImpact ActionType = "analyze_impact"
 	ActionBrowse        ActionType = "browse"
-	ActionResearch      ActionType = "research"
 	ActionAskUser       ActionType = "ask_user"
 	ActionEscalate      ActionType = "escalate"
 	ActionDelegate      ActionType = "delegate"
@@ -73,12 +72,9 @@ const (
 	ActionFSWrite ActionType = "fs_write" // Semantic file write
 
 	// Ouroboros Actions (tool generation pipeline)
-	ActionGenerateTool     ActionType = "generate_tool"      // Generate new tool
-	ActionOuroborosDetect  ActionType = "ouroboros_detect"   // Detect tool need
-	ActionOuroborosGen     ActionType = "ouroboros_generate" // Generate tool code
-	ActionOuroborosCompile ActionType = "ouroboros_compile"  // Compile generated tool
-	ActionOuroborosReg     ActionType = "ouroboros_register" // Register compiled tool
-	ActionRefineTool       ActionType = "refine_tool"        // Refine existing tool
+	ActionGenerateTool ActionType = "generate_tool"      // Generate new tool
+	ActionOuroborosGen ActionType = "ouroboros_generate" // Generate tool code
+	ActionRefineTool   ActionType = "refine_tool"        // Refine existing tool
 
 	// Campaign Actions (multi-phase goal orchestration)
 	ActionCampaignClarify     ActionType = "campaign_clarify"      // Clarify campaign goal
@@ -99,9 +95,7 @@ const (
 	ActionAskCampaignInt      ActionType = "ask_campaign_interrupt" // Ask about campaign interrupt
 
 	// Context Management Actions
-	ActionCompressContext   ActionType = "compress_context"   // Compress context
-	ActionEmergencyCompress ActionType = "emergency_compress" // Emergency context compression
-	ActionCreateCheckpoint  ActionType = "create_checkpoint"  // Create checkpoint
+	ActionCreateCheckpoint ActionType = "create_checkpoint" // Create checkpoint
 
 	// Investigation/Analysis Actions
 	ActionInvestigateAnomaly  ActionType = "investigate_anomaly"  // Investigate anomaly
