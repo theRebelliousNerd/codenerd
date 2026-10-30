@@ -220,35 +220,6 @@ func buildAtomHashSet(atoms []store.KnowledgeAtom) map[string]bool {
 	return hashes
 }
 
-// parseResearchResult converts research output into knowledge atoms, one per
-// paragraph. Each paragraph is stored whole: a section cut at 2000
-// characters ended mid-sentence and the specialist reasoned from the half it
-// was given, and the ":summary" atom this used to add was not a summary but
-// the first 500 characters of the text under a name that claimed otherwise.
-func (i *Initializer) parseResearchResult(topic, content string) []initKnowledgeAtom {
-	var atoms []initKnowledgeAtom
-
-	// Split content into paragraphs/sections
-	sections := strings.Split(content, "\n\n")
-
-	for idx, section := range sections {
-		section = strings.TrimSpace(section)
-		if len(section) < 50 {
-			continue // Skip very short sections
-		}
-
-		// Create atom with topic-based concept
-		concept := fmt.Sprintf("%s:section_%d", topic, idx)
-		atoms = append(atoms, initKnowledgeAtom{
-			Concept:    concept,
-			Content:    section,
-			Confidence: 0.8, // Research-derived atoms have good confidence
-		})
-	}
-
-	return atoms
-}
-
 // computeAtomHash generates a unique hash for a knowledge atom based on concept and content.
 func computeAtomHash(concept, content string) string {
 	combined := concept + "::" + content

@@ -21,38 +21,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// =============================================================================
-// LOCAL TYPE STUBS (previously in deleted shard packages)
-// =============================================================================
-// Research functionality has been removed from /init.
-// The JIT clean loop now handles research via prompt atoms and ConfigFactory.
-
-// initKnowledgeAtom is a stub type for knowledge atoms.
-type initKnowledgeAtom struct {
-	Concept    string
-	Content    string
-	Title      string
-	Confidence float64
-	SourceURL  string
-}
-
-// initQualityMetrics holds research quality metrics.
-type initQualityMetrics struct {
-	Score  float64
-	Rating string
-}
-
-// initResearchResult holds the result of research.
-type initResearchResult struct {
-	Atoms           []initKnowledgeAtom
-	FallbackUsed    int
-	FallbackReason  string
-	AttemptsMade    int
-	EffectiveTopics []string
-}
-
-const initFallbackNone = 0
-
 // generateAgentPromptsYAMLWithContext generates prompts.yaml with methodology
 // and domain content written by the planner client (the main client when no
 // planner is configured), each atom admitted by the generated-atom check
