@@ -327,35 +327,3 @@ func makeDir(workspace, path string) error {
 	full := resolvePath(workspace, path)
 	return os.MkdirAll(full, 0755)
 }
-
-func searchInFiles(root, pattern string, maxHits int) ([]string, error) {
-	mem, err := openMembership(root)
-	if err != nil {
-		return nil, err
-	}
-	matches := make([]string, 0)
-	err = filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		member, admErr := mem.Admit(path, info.IsDir())
-		if admErr != nil {
-			return admErr
-		}
-		if !member || info.IsDir() {
-			return nil
-		}
-		if len(matches) >= maxHits {
-			return filepath.SkipDir
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		if strings.Contains(string(data), pattern) {
-			matches = append(matches, path)
-		}
-		return nil
-	})
-	return matches, err
-}

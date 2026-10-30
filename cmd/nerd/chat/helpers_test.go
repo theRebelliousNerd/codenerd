@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/transparency"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -81,10 +82,11 @@ func TestSearchInFiles_SkipsHiddenDirs(t *testing.T) {
 		}
 	}
 
-	matches, err := searchInFiles(root, "needle", 10)
-	if err != nil {
-		t.Fatalf("searchInFiles: %v", err)
+	search := searchInFiles(context.Background(), root, "needle", 10)
+	if !search.complete() {
+		t.Fatalf("searchInFiles: %+v", search)
 	}
+	matches := search.Paths
 
 	got := map[string]bool{}
 	for _, m := range matches {

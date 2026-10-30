@@ -32,6 +32,8 @@ const (
 // the typed reason it was not. The body is what the model sees; a span states
 // exactly which bytes, so nothing is presented as more than it is.
 type evidenceObservation struct {
+	// Search carries lexical path evidence, never a file-body observation.
+	Search        *fileSearchOutcome
 	Path          string
 	Coverage      evidenceCoverage
 	Body          string
@@ -133,6 +135,12 @@ func workspaceEvidenceTargets(intent perception.Intent) []string {
 func gatherWorkspaceEvidence(workspace string, intent perception.Intent, have []evidenceObservation) []evidenceObservation {
 	seen := map[string]struct{}{}
 	for _, o := range have {
+		// A search target is the literal query, including punctuation that
+		// looks like a filename. Only an explicit file scope additionally
+		// asks for a body when search already supplied an outcome.
+		if o.Search != nil && o.Search.Query == intent.Target && strings.TrimSpace(intent.ScopeFile) == "" {
+			return nil
+		}
 		seen[o.Path] = struct{}{}
 	}
 	targets := workspaceEvidenceTargets(intent)
@@ -165,6 +173,11 @@ func renderEvidence(obs []evidenceObservation) string {
 	sb.WriteString("## Workspace Evidence (read by the host for this turn)\n")
 	sb.WriteString("(Answer only from what is shown. Where coverage is partial or unavailable, say so and do not describe unseen content.)\n\n")
 	for _, o := range obs {
+		if o.Search != nil {
+			sb.WriteString(renderSearchEvidence(*o.Search))
+			sb.WriteString("\n")
+			continue
+		}
 		switch o.Coverage {
 		case coverageWhole:
 			sb.WriteString(fmt.Sprintf("### %s - whole file, %d bytes, %d lines\n", o.Path, o.SourceBytes, o.ReturnedLines))

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"codenerd/internal/autopoiesis"
 	memorycontext "codenerd/internal/context"
@@ -121,15 +120,8 @@ func (m Model) executeInfoGatheringActions(ctx context.Context, input string, in
 
 		// Handle Search
 		if actionKey == "search_files" {
-			matches, err := searchInFiles(m.workspace, intent.Target, 10)
-			if err == nil {
-				resFact := core.Fact{
-					Predicate: "search_results",
-					Args:      []any{intent.Target, strings.Join(matches, ",")},
-				}
-				executionResults = append(executionResults, resFact)
-				*warnings = append(*warnings, fmt.Sprintf("Found %d matches for '%s'", len(matches), intent.Target))
-			}
+			search := searchInFiles(ctx, m.workspace, intent.Target, 10)
+			evidence = append(evidence, evidenceObservation{Search: &search})
 		}
 
 		// Autopoiesis: Tool Generation (§8.3)

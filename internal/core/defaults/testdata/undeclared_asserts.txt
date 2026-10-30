@@ -51,7 +51,6 @@ refactored
 research_completed
 research_failed
 search_result
-search_results
 self_correction_triggered
 subclass_of
 systemic_investigating

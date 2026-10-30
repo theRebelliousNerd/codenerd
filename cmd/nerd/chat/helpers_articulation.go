@@ -113,7 +113,7 @@ type ConversationContext struct {
 	// DebugSelfReport is the rendered new-problem set for this turn
 	// (self_debug.go); empty unless debug-self is on and something is new.
 	DebugSelfReport string
-	// Evidence is the workspace sources the host read for this turn (or the
+	// Evidence is the workspace files and literal searches acquired this turn (or the
 	// typed reason it could not). They are rendered into the answering
 	// request itself: a kernel fact is not in the prompt, so a read that only
 	// reached the kernel never reached the model.

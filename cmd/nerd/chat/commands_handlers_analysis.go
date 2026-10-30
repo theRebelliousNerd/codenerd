@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -359,31 +360,16 @@ func (m Model) handleCmdSearch(input string, parts []string) (tea.Model, tea.Cmd
 		})
 	} else {
 		pattern := strings.Join(parts[1:], " ")
-		matches, err := searchInFiles(m.workspace, pattern, 20)
-		if err != nil {
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("Search failed: %v", err),
-				Time:    time.Now(),
-			})
-		} else if len(matches) == 0 {
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("No matches found for: %s", pattern),
-				Time:    time.Now(),
-			})
-		} else {
-			var sb strings.Builder
-			sb.WriteString(fmt.Sprintf("**Found %d matches for '%s':**\n\n", len(matches), pattern))
-			for _, match := range matches {
-				sb.WriteString(fmt.Sprintf("- %s\n", match))
-			}
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: sb.String(),
-				Time:    time.Now(),
-			})
+		ctx := m.shutdownCtx
+		if ctx == nil {
+			ctx = context.Background()
 		}
+		search := searchInFiles(ctx, m.workspace, pattern, 20)
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: renderSearchEvidence(search),
+			Time:    time.Now(),
+		})
 	}
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()

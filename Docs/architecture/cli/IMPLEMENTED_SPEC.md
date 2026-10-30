@@ -179,6 +179,47 @@ Router: `chat/commands.go`. Categories include session control, knowledge/planni
 
 Full catalog and file map: [06-TUI-CHAT-SURFACE.md](06-TUI-CHAT-SURFACE.md).
 
+### Local literal search evidence
+
+The local `/search` and residual `/search_files` paths share typed acquisition
+(`cmd/nerd/chat/search_evidence.go:20`). Membership and configured ignore patterns
+define the domain; canonical workspace resolution precedes opening a member.
+Literal matching streams bytes and counts each matching file once. The existing
+limits remain 20 matching files for slash display and 10 for residual answers.
+An additional admitted file after the cap makes coverage partial, with the
+remaining match count unknown. Reaching the cap on the last admitted file can
+still be complete. Read failures and terminal errors retain preceding matches;
+failure diagnostics give an observed count and explicitly label the first sample.
+
+`handleCmdSearch` stores paths and coverage together in conversation history
+(`commands_handlers_analysis.go:367`). `executeInfoGatheringActions` puts a search
+outcome in the existing typed evidence channel (`process_helpers.go:123`), rather
+than asserting undeclared `search_results`. `gatherWorkspaceEvidence` preserves
+that outcome, interpreting an explicit file scope as a separate body request
+(`turn_evidence.go:135`). `renderEvidence` renders search data separately from
+whole-file and prefix bodies (`turn_evidence.go:168`), and the actual answering
+request receives it through `ConversationContext.Evidence` (`process.go:999`,
+`helpers_articulation.go:253`). Knowledge synthesis already freezes that rendered
+evidence through `knowledgeParentOf` (`process_knowledge.go:50`). No new Mangle
+predicate, routing decision, model call, or prompt atom is introduced.
+
+Coverage is a statement about acquisition time, not a filesystem snapshot or
+semantic reference proof. Cancellation is checked at walk/read boundaries;
+membership refresh and individual filesystem calls are synchronous. Slash
+acquisition still runs inline. There is no total acquisition-byte budget,
+continuation handle, or automatic retry; an incomplete search remains explicitly
+unresolved. The literal matcher uses a fixed IO buffer and query-sized state,
+rather than retaining whole files or lines. This is a source property, not a
+measured allocation or latency claim.
+
+Regression definitions in `cmd/nerd/chat/search_evidence_test.go` cover the slash
+and residual boundaries, actual `processInput` request capture with the default
+workspace scanner enabled, acquisition
+failures, retained slash-history follow-up, membership/containment, literal
+matching, cancellation, and confident delegation. They have not been executed;
+[GAP-CLI-SEARCH-EVIDENCE](03-GAP-ANALYSIS.md#required-contract-local-search-evidence)
+remains open for root-run validation, including fail-before evidence.
+
 Notable long-horizon:
 
 - `/campaign assault …` and natural language assault intents (README + campaign docs)

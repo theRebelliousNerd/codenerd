@@ -1,10 +1,10 @@
 ---
 doc-class: deep-dive
 subsystem: cli-search-evidence
-implementation-status: planned
+implementation-status: partial
 last-verified: 2026-10-30
-verified-against: 6cb5f88e00eaf939d10dee46c16c68baf4b53d57
-verification-method: static-source-and-test-definition-inspection
+verified-against: fef98230c plus uncommitted implementation
+verification-method: static-source-and-test-definition-inspection; no builds or tests executed
 supersedes: []
 ---
 
@@ -221,4 +221,51 @@ These are proposed research gates, not existing gap IDs or closed architecture r
 [modular-search]: https://github.com/theRebelliousNerd/codenerd/blob/6cb5f88e00eaf939d10dee46c16c68baf4b53d57/internal/tools/core/search.go#L696-L744
 [virtual-search]: https://github.com/theRebelliousNerd/codenerd/blob/6cb5f88e00eaf939d10dee46c16c68baf4b53d57/internal/core/virtual_store_file_actions.go#L445-L543
 [file-test]: https://github.com/theRebelliousNerd/codenerd/blob/6cb5f88e00eaf939d10dee46c16c68baf4b53d57/cmd/nerd/chat/turn_evidence_test.go#L235-L268
+
+## As built (2026-10-30)
+
+The research text above describes its pinned revision. Current-source review at
+`fef98230c` confirmed both findings before these edits. Commits: none; this
+implementation is uncommitted. Status is **partial** because behavioral and
+fail-before execution remain pending, not because either delivery repair is
+intentionally unwired.
+
+| Finding or boundary | Ruling and current implementation |
+|---|---|
+| S1: lost cap/read-failure coverage and discarded partial positives | **Real; repaired in source.** `cmd/nerd/chat/search_evidence.go:20` defines the typed outcome; acquisition at `:41` retains paths, observed failure count, first diagnostic sample, terminal error, attempted files and bytes read. The cap stops at another admitted file and reports unknown remaining coverage. `renderSearchEvidence` (`:189`) serves both consumers; an incomplete empty search cannot establish absence. |
+| S2: residual paths never reach the answering request | **Real; repaired in source.** `process_helpers.go:123` appends the outcome to typed evidence, `turn_evidence.go:135` preserves it without reinterpreting the literal as a file request, and `helpers_articulation.go:253` renders it in the actual request via `process.go:999`. Explicit file scope still obtains a separate body observation. |
+| Undeclared `search_results` assertion | **Real; removed.** Delivery uses the existing evidence channel, so no declaration or dormant consumer is added. Its entry is removed from `internal/core/defaults/testdata/undeclared_asserts.txt`; no baseline grows. |
+| Prior file-evidence and gather-lane repairs | **Already present, preserved.** `turn_evidence.go:58` still reads typed whole/prefix/unavailable bodies; `internal/core/defaults/policy/routing_arbitration.mg:299` still derives the gather lane and `policy/delegation.mg:356` retains the configured delegation gate. No Mangle files or prompt atoms change. |
+| Independent successful routes | **Exclusion confirmed.** `process_dream_delegation.go:159` still observes system results and may return before residual articulation; `internal/core/virtual_store_routing.go:445` still aliases search to the shared-codec producer. The modular producer (`internal/tools/core/search.go:717`) remains separate. This repair claims no change in route prevalence or delayed-result ownership. |
+| Resource exposures | **Real; partly reduced.** Streaming literal acquisition (`search_evidence.go:137`, `:151`) replaces whole-file buffering, checks cancellation and records bytes acquired. The cap remains a matching-file limit. Slash acquisition, membership refresh and individual filesystem calls remain synchronous; total scan bytes, latency, allocation profiles and cancellation settlement are not qualified. |
+
+Membership and literal file-count semantics remain the domain contract. One
+preservation assumption required strengthening: the old helper admitted a
+symlink's path and then followed its target in `os.ReadFile`; membership alone
+was not a canonical containment check. `searchMember` (`search_evidence.go:103`)
+now uses the existing `tools.ResolveWorkspacePath`, reports denied acquisition,
+and refuses nonregular targets before opening them. No permission is widened.
+
+Authored regression definitions are in `cmd/nerd/chat/search_evidence_test.go`:
+`TestSlashSearch_CoverageBoundaries` (0/19/20/21 and retained-history follow-up),
+`TestProcessInput_SearchDeliversPathsAndCoverage` (0/9/10/11 through real policy,
+the default workspace scanner, residual helper and answering-request capture with no independent system
+rescue), `TestSearchConsumers_AdmittedReadFailure`,
+`TestSlashSearch_PartialTraversalPreservesPositivePaths`,
+`TestSearchInFiles_AtLimitDoesNotInventOmittedMatches`, unavailable-domain,
+streamed-literal/cancellation, outside-symlink, explicit-scope and confident-route
+controls. The existing membership fixture in `helpers_test.go:65` uses the new
+outcome. Permission-failure fixtures explicitly skip on hosts that can read
+mode-000 files/directories.
+
+**Fail-before evidence is source-derived only:** the prior slash response has no
+coverage field, and the prior residual request has no discovered filename
+sentinel; the new dispatcher/request assertions target those omissions through
+unchanged production entry points. Neither a pre-fix failure nor a post-fix pass
+has been executed. No build, test, model evaluation, performance measurement or
+corpus regeneration ran. The selected contract and open validation gate are in
+`Docs/architecture/cli/03-GAP-ANALYSIS.md`; source wiring and limitations are in
+`Docs/architecture/cli/IMPLEMENTED_SPEC.md`. Root-run tests, production user-value
+evaluation and measured resource qualification remain outstanding. No continuation
+handle or automatic retry is advertised.
 

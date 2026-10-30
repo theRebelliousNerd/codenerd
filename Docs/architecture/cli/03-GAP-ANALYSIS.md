@@ -11,6 +11,29 @@ supersedes: []
 
 This matrix records accepted, source-grounded implementation obligations. It is an incremental census; the remaining CLI portfolio is still being audited and is not declared complete.
 
+## Required contract: Local search evidence
+
+The slash search and the residual natural-language search must carry the literal
+query, workspace membership domain, matching file paths, result limit, acquisition
+coverage, read-failure count and sampled diagnostic, and terminal error. A cap
+stops acquisition only when another admitted file is encountered; it establishes
+unknown remaining coverage, not a known omitted match count. A completed walk with
+no failed reads may state absence within the admitted domain. Partial acquisition
+preserves positive paths and cannot establish absence. Search paths are lexical
+evidence, distinct from file bodies. The answering request receives the same
+outcome the slash command displays; a no-file fallback must not contradict it.
+Existing Mangle routing and successful independent execution results retain their
+authority. Acquisition checks cancellation and streams file bytes; the result
+limit does not promise a total byte or elapsed-time bound, and membership refresh
+and individual filesystem operations remain synchronous. Incomplete searches
+remain explicitly unresolved; no continuation handle or automatic retry is implied.
+
+| Gap ID | Capability | Current deficiency | Target | Phase | Exit criteria |
+|---|---|---|---|---|---|
+| GAP-CLI-SEARCH-EVIDENCE | Local search coverage and answer delivery | Typed acquisition and both consumers are wired in `cmd/nerd/chat/search_evidence.go:20`, `commands_handlers_analysis.go:367`, `process_helpers.go:123`, and `turn_evidence.go:168`. | Required contract above | Implemented in source; root-run verification pending | `search_evidence_test.go`: slash boundary cases 0/19/20/21 and residual 0/9/10/11; admitted read failure and partial traversal preserve coverage and paths; actual `processInput` request contains a unique discovered path and coverage under a low-confidence gather route with system rescue absent; literal punctuation, membership, cancellation, and confident delegation remain correct. Tests are authored, not executed; this row remains open pending behavioral evidence. |
+
+## Other CLI obligations
+
 | Gap ID | Capability | Current state | Target state | Severity | Phase | Blocking dependencies | Exit criteria |
 |---|---|---|---|---|---|---|---|
 | GAP-CLI-01 | Explicit headless-chat command deadline | **PARTIAL:** `cmd/nerd/cmd_chat.go#runChatWith` (`cmd/nerd/cmd_chat.go:168`) now derives commandContext before boot and shares cancellation/deadline through turns and idle input. Root filtered behavioral CLI gate passes: `artifact:.corpus-build/runs/all-features-20261002/round2-cli.log`. Baseline dogfood-stop.json records the former 616-second overrun. Fresh production boot/shutdown exit and bounded cleanup remain unqualified. | **PROPOSED UPLIFT:** [headless chat constraints](06-HEADLESS-CHAT-CONSTRAINTS.md) applies an explicit caller deadline to boot, turns, input waiting, and cancellation-aware shutdown while preserving unlimited duration when no deadline is selected. | High | Partial; lifecycle tests pass, production exit/cleanup open | CLI owner; shared shutdown or boot changes require separate ownership if necessary | Root-run behavioral regression proves explicit deadline and inherited cancellation reach boot/turn processing and prevent later turns; zero or negative timeout adds no deadline. Production `nerd chat --timeout` exits under the chosen bound plus documented bounded cleanup and independently preserves completed edits. |

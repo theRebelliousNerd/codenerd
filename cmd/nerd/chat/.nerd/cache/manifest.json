@@ -3254,5 +3254,2473 @@
     "gen": 1793175549554403509,
     "gen_ok": true,
     "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/activation_persist_test.go": {
+    "test_symbols": true,
+    "hash": "c25d41300c2fd9be6f0cee0c83841b614a4054d6f90dda86c511693fbbbd6da1",
+    "mod_time": 1793338516924816961,
+    "size": 1345,
+    "gen": 1793338516924816961,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/active_files_test.go": {
+    "test_symbols": true,
+    "hash": "087d114e833161bbf644c70718a598e910f6a1cec08b912ce18f5821013f02d5",
+    "mod_time": 1793338516924816961,
+    "size": 5828,
+    "gen": 1793338516924816961,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/activity_pulse_test.go": {
+    "test_symbols": true,
+    "hash": "6d7cbc43735d7f843cc7b29e1b93ec91d65fe956c155eace3207ed50b7e9e8a6",
+    "mod_time": 1793338516924816961,
+    "size": 2957,
+    "gen": 1793338516924816961,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/admission_error.go": {
+    "hash": "3576405a97f69d699c64af08312f783f9e5fe26cb661f26b7352c0e310d8a354",
+    "mod_time": 1793338516924816961,
+    "size": 3196,
+    "gen": 1793338516924816961,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/admission_error_test.go": {
+    "test_symbols": true,
+    "hash": "ee1c7ae6da6f0834a61f50484900959c433479b834322c8dda39a292f4723bbe",
+    "mod_time": 1793338516924816961,
+    "size": 3691,
+    "gen": 1793338516924816961,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/agent_wizard.go": {
+    "hash": "189df8ff69cfbf8e07aa846394e36bb4e54a64b14e9268d081cfbea24997f7c7",
+    "mod_time": 1793338516924816961,
+    "size": 7627,
+    "gen": 1793338516924816961,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/agent_wizard_test.go": {
+    "test_symbols": true,
+    "hash": "b8008286b8abec3a487f260baa1b239e55d213bade7318e28d14d633887fcef1",
+    "mod_time": 1793338516924816961,
+    "size": 4033,
+    "gen": 1793338516924816961,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/agents.md": {
+    "hash": "92236fc65cf8127df2febc1d067cc4d1149813b5763d47b77f7c3f83c4373394",
+    "mod_time": 1793338516924816961,
+    "size": 507,
+    "gen": 1793338516924816961,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/ambient_test.go": {
+    "test_symbols": true,
+    "hash": "8d57a70185110900a5a99d42085a7a7877cec0f1166ca9f44661a74cda53e0cf",
+    "mod_time": 1793338516924816961,
+    "size": 1685,
+    "gen": 1793338516924816961,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/approval_host.go": {
+    "hash": "74b1d268285b4b6593b5b9a5245dccbb3a11ab567d115f5c823ab69716f77df7",
+    "mod_time": 1793338516924816961,
+    "size": 8555,
+    "gen": 1793338516924816961,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/approval_host_test.go": {
+    "test_symbols": true,
+    "hash": "32d0a36eab191e5fcd4cc88698ff793508e193e5ef2a2f3bd907eb821a76f240",
+    "mod_time": 1793338516924816961,
+    "size": 7034,
+    "gen": 1793338516924816961,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/async_test.go": {
+    "test_symbols": true,
+    "hash": "4b3f67d05f854dce7f30de4cee0f5b2c9bbfc9c7b0b7b2bd0842cddd89263e1d",
+    "mod_time": 1793338516924816961,
+    "size": 12587,
+    "gen": 1793338516924816961,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/background.go": {
+    "hash": "a88b027d31ba2fa82293b7697298fbae91759c4358947870f418b41bf0419cfd",
+    "mod_time": 1793338516925816967,
+    "size": 15551,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/background_ownership_test.go": {
+    "test_symbols": true,
+    "hash": "90bfef290cf2350d2679e744d38bf5e2586a71dc5dd7e55317919b253749ae15",
+    "mod_time": 1793338516925816967,
+    "size": 5396,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/background_test.go": {
+    "test_symbols": true,
+    "hash": "539485aff2411b2d6d0f81eefd0c56e54972859f073c6b79353328c34ded1af7",
+    "mod_time": 1793338516925816967,
+    "size": 6189,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/background_verdict_test.go": {
+    "test_symbols": true,
+    "hash": "097cf1861d2e9f25e79e6765a74c626fa026aae7690d61717caa89f1859268c0",
+    "mod_time": 1793338516925816967,
+    "size": 4172,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/boot_benchmark_test.go": {
+    "test_symbols": true,
+    "hash": "f1707d4d2397ff7aed6fa4b7713b16fe35e1c83a0ef1c0fbfe715ff228b42a21",
+    "mod_time": 1793338516925816967,
+    "size": 565,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/boot_deferred_coverage_test.go": {
+    "test_symbols": true,
+    "hash": "9bdd8241133798d6f867c01eff075fc4baa2955f41fe8c19b1ba8e42190cdd0a",
+    "mod_time": 1793338516925816967,
+    "size": 8106,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/boot_deferred_pinning_test.go": {
+    "test_symbols": true,
+    "hash": "2dc5a9fe956bc258a623d331067871822b2c281e6abda820cc0c9847968caf7f",
+    "mod_time": 1793338516925816967,
+    "size": 3858,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/boot_deferred_test.go": {
+    "test_symbols": true,
+    "hash": "1c362eace795e35a0984ae245b5d7916491ccd95e83c903f34d706ee37355f7c",
+    "mod_time": 1793338516925816967,
+    "size": 6288,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/brief_answered_question_test.go": {
+    "test_symbols": true,
+    "hash": "b0f50c4b532c85e224a3034cca1e8b1b7e91b39951cb2207c768b61c487d94fe",
+    "mod_time": 1793338516925816967,
+    "size": 1361,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/browser_test.go": {
+    "test_symbols": true,
+    "hash": "392ca5a663c97818e9093519e84d6e72bf5f581b4c8ef57e300a1da7e9459426",
+    "mod_time": 1793338516925816967,
+    "size": 2473,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/campaign.go": {
+    "hash": "ced13e0bcf98abc5340d78674f59c2c2b3c839a32033aceea3b4c77534b13322",
+    "mod_time": 1793338516925816967,
+    "size": 16168,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/campaign_assault.go": {
+    "hash": "c8605af3cde52243dd8f03adf62c7d19dd5c9835995ab57000c40f424bbb8da5",
+    "mod_time": 1793338516925816967,
+    "size": 9701,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/campaign_assault_test.go": {
+    "test_symbols": true,
+    "hash": "6fe2444b6a3baff8888ba1c47238b1e8b937d44861e07229d811c952955e0932",
+    "mod_time": 1793338516925816967,
+    "size": 2207,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/campaign_control_test.go": {
+    "test_symbols": true,
+    "hash": "c824c9cd62e9a0b03f4e6c22dbea656507e4a332de9dacd1e20df8e77ba5c7dc",
+    "mod_time": 1793338516925816967,
+    "size": 9974,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/campaign_ownership_test.go": {
+    "test_symbols": true,
+    "hash": "c7a357aaa72869f48344498d75f65f470fba8532981ce9d420485e794d40fe5a",
+    "mod_time": 1793338516925816967,
+    "size": 3488,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/campaign_page_init_test.go": {
+    "test_symbols": true,
+    "hash": "c50db764b250d717e1c657937d05970f38821e4a4088a63d3897e6dcef4af204",
+    "mod_time": 1793338516925816967,
+    "size": 869,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/campaign_planning.go": {
+    "hash": "9b9a52ba3539aeb4d9d60b8121bae56bdd9fa33a410a92964b53909e2778ba86",
+    "mod_time": 1793338516925816967,
+    "size": 5246,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/campaign_planning_test.go": {
+    "test_symbols": true,
+    "hash": "7f9e296a1cd856a11369d6a4a2024d872dda4940ee648c6764aa63a690dbed2d",
+    "mod_time": 1793338516925816967,
+    "size": 10153,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/campaign_recurse.go": {
+    "hash": "e0fbc4e597054a22b6daba1da0e96947e82d538ae9a6f2f282a6b5bff74fe244",
+    "mod_time": 1793338516925816967,
+    "size": 10111,
+    "gen": 1793338516925816967,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/campaign_recurse_test.go": {
+    "test_symbols": true,
+    "hash": "952a27216ec32fd4a177a759d4e97ca173220eb253b52bfc28acb9a76e002f48",
+    "mod_time": 1793338516926816973,
+    "size": 4237,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/campaign_risk_test.go": {
+    "test_symbols": true,
+    "hash": "1d183376db1326c430251fe7381ff856ebb1f10395b20cf3d33d899a1762e572",
+    "mod_time": 1793338516926816973,
+    "size": 5137,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/campaign_settled.go": {
+    "hash": "160eb7118cee4e06e577c9c24068279b7eb7ddc2c890c89e42bf5095de4563c2",
+    "mod_time": 1793338516926816973,
+    "size": 2119,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/campaign_settled_test.go": {
+    "test_symbols": true,
+    "hash": "e9cf29fd2a27e7fa6f9d91f2721e2c55763013cedee7e55699c7213b0488fee0",
+    "mod_time": 1793338516926816973,
+    "size": 5360,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/chat_jit_prompt_test.go": {
+    "test_symbols": true,
+    "hash": "9f38f3feac910c74e26f8bf46321b4d705ed0b5cd7e711a0d50bd0fa6a5910e8",
+    "mod_time": 1793338516926816973,
+    "size": 17652,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/chat_loop_contract_e2e_test.go": {
+    "test_symbols": true,
+    "hash": "a881c17b9ae58ca29bb7518330661ccc8f2048cb39e69aad2f02ed8807636904",
+    "mod_time": 1793338516926816973,
+    "size": 23221,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/chat_read_boundary_test.go": {
+    "test_symbols": true,
+    "hash": "02f67839fddc09436032249a4dd1191c54359c3b420aa9c0e6d43bec7784578b",
+    "mod_time": 1793338516926816973,
+    "size": 4778,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/chat_turn_tools_test.go": {
+    "test_symbols": true,
+    "hash": "83e808d0fb86ad07effdede634a8f05580da46894070f4db004aba59412b8827",
+    "mod_time": 1793338516926816973,
+    "size": 6171,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/classification_stop.go": {
+    "hash": "d173ee4aaa2c8535306cc8b4ca036d213930a17eaf5d2534fe36a266bc72e394",
+    "mod_time": 1793338516926816973,
+    "size": 2112,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/classification_stop_test.go": {
+    "test_symbols": true,
+    "hash": "48967b597ed544c7d0a344c18d22b05f62670895dd14b90e46bcf5099047162c",
+    "mod_time": 1793338516926816973,
+    "size": 10624,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/cleanup_tools_test.go": {
+    "test_symbols": true,
+    "hash": "2977f2db42efdad0c905a00428d7f5e1fa45d421a88c8dd1ab5f705e672fe52b",
+    "mod_time": 1793338516926816973,
+    "size": 1160,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/cmd_explain.go": {
+    "hash": "2c9a93dff5da1b537d92ce602f977fa5d379ebf6f1de6bcfaa3ff82c121e48fc",
+    "mod_time": 1793338516926816973,
+    "size": 5750,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/cmd_explain_test.go": {
+    "test_symbols": true,
+    "hash": "c6a7ab58bf658a81c6f301a51cf974c7c333b7683588be4ed48a8ef3622fc144",
+    "mod_time": 1793338516926816973,
+    "size": 8421,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/command_categories.go": {
+    "hash": "8d234271f09d5448e675d4d5f97eecc4dd216cecbd0174e6da0cc0f97e9f4baf",
+    "mod_time": 1793338516926816973,
+    "size": 18471,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/command_categories_test.go": {
+    "test_symbols": true,
+    "hash": "6f770591a2ed4beef03cc8e2ba089303918676755820c190a2a3c0f40df00781",
+    "mod_time": 1793338516926816973,
+    "size": 1987,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/command_payload.go": {
+    "hash": "b10593deb783b1d38e8a1e6154f4da9f97a59d6bb31fc770ded6951c485cd0db",
+    "mod_time": 1793338516926816973,
+    "size": 4556,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/command_payload_test.go": {
+    "test_symbols": true,
+    "hash": "38144bde721f619510287d2c4326441c31576b30c6db8aeeec87ab3628b08fa9",
+    "mod_time": 1793338516926816973,
+    "size": 6302,
+    "gen": 1793338516926816973,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/command_surface_test.go": {
+    "test_symbols": true,
+    "hash": "f119e31bbc57a76e988468fc6c4705963b470345d55dee35576ac089cf2765ac",
+    "mod_time": 1793338516927816979,
+    "size": 2480,
+    "gen": 1793338516927816979,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/commands.go": {
+    "hash": "a132d9c02a1029cb2e80a966712cfce4e145250dd69cfc12fbe88e42595a712c",
+    "mod_time": 1793338516927816979,
+    "size": 10034,
+    "gen": 1793338516927816979,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/commands_evolution.go": {
+    "hash": "7dfe3d62753b08921493eea3248c48535b98d6a178490f5330a0945708ddef34",
+    "mod_time": 1793338516927816979,
+    "size": 11908,
+    "gen": 1793338516927816979,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/commands_handlers.go": {
+    "hash": "82c712ca5a8acb8ebb72306165f50e5cdf031e6c4c661401a803cdf25f78c235",
+    "mod_time": 1793338516927816979,
+    "size": 35343,
+    "gen": 1793338516927816979,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/commands_handlers_analysis.go": {
+    "hash": "45d64f66234bd99cce6dd9ef9d8b7d36876e0fe9bca5ed5f2af24e77af156775",
+    "mod_time": 1793338750984196396,
+    "size": 21092,
+    "gen": 1793338750984196396,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/commands_handlers_evolution.go": {
+    "hash": "07697bd6649c46969a23bf2e4332fe68ca2f75734eebb2b7ede674e556255bb8",
+    "mod_time": 1793338516927816979,
+    "size": 11815,
+    "gen": 1793338516927816979,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/commands_handlers_features.go": {
+    "hash": "1da30b50cc0e17474349c73e789d3e8e15af5fbec04e8efc1710b4f06ab933fb",
+    "mod_time": 1793338516927816979,
+    "size": 2266,
+    "gen": 1793338516927816979,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/commands_handlers_features_test.go": {
+    "test_symbols": true,
+    "hash": "9fd49453c9e359ea8ceab38b8b0ef4c98000fa500f66ebf0bdacdc90e5de64d4",
+    "mod_time": 1793338516927816979,
+    "size": 2673,
+    "gen": 1793338516927816979,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/commands_handlers_files.go": {
+    "hash": "5ebde9bd84e8f7b1f419fc144602c055881dfcd695269074eebf806416998c04",
+    "mod_time": 1793338516927816979,
+    "size": 15046,
+    "gen": 1793338516927816979,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/commands_handlers_introspection.go": {
+    "hash": "46248fa4df9c3eba0d4a74811aa6ddf8bf87105b944a3653aa2661bd56da97e5",
+    "mod_time": 1793338516927816979,
+    "size": 3777,
+    "gen": 1793338516927816979,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/commands_handlers_misc.go": {
+    "hash": "9afe3d1092ad0a387ea9cf20265f51d2ff8bf47ea0833f984ab887482b708d0b",
+    "mod_time": 1793338516927816979,
+    "size": 14073,
+    "gen": 1793338516927816979,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/commands_test.go": {
+    "test_symbols": true,
+    "hash": "49077db24ce6877d96f59bf058171410681d740ee8e614aecb3d5599f6c168c2",
+    "mod_time": 1793338516927816979,
+    "size": 24681,
+    "gen": 1793338516927816979,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/commands_tools.go": {
+    "hash": "d7f64b6e9b2dea8df160d636fecc4c6d49448fdaa74da5710e1f782bb23f9bea",
+    "mod_time": 1793338516927816979,
+    "size": 9813,
+    "gen": 1793338516927816979,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/config_path.go": {
+    "hash": "9074826a381126ed091a8da175d06805806103e6448b6c976cc4a07b836d61ec",
+    "mod_time": 1793338516928816985,
+    "size": 530,
+    "gen": 1793338516928816985,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/config_wizard.go": {
+    "hash": "113e2ec07e606f812ebf9dbda5fad18917504cdebc45e2d48a3d9b3f3b347d88",
+    "mod_time": 1793338516928816985,
+    "size": 19860,
+    "gen": 1793338516928816985,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/config_wizard_save_test.go": {
+    "test_symbols": true,
+    "hash": "41342ece41e4bae32b8c4dd0dee7495be2c14dce39a83b56b15e079704e90b84",
+    "mod_time": 1793338516928816985,
+    "size": 2351,
+    "gen": 1793338516928816985,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/config_wizard_steps.go": {
+    "hash": "18683a5d0419a273817b5d8409ed3d0cddb9baa8fbc0ba08f89b65b0a2078cb9",
+    "mod_time": 1793338516928816985,
+    "size": 19605,
+    "gen": 1793338516928816985,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/continuation_done_test.go": {
+    "test_symbols": true,
+    "hash": "4eca68085f9bf7731f425f758c671dce857042bd984fb0baa257798598059043",
+    "mod_time": 1793338516928816985,
+    "size": 2559,
+    "gen": 1793338516928816985,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/continuation_effect_test.go": {
+    "test_symbols": true,
+    "hash": "c6cccb9e7bf31500071d8b203d1f02d280a296e3deca34562273b35b33ef6273",
+    "mod_time": 1793338516928816985,
+    "size": 1547,
+    "gen": 1793338516928816985,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/continuation_ledger.go": {
+    "hash": "37c6ef404058c56e4e336331e1f34c2cc3d9c1429c20cbf3ddab84d1a08815db",
+    "mod_time": 1793338516928816985,
+    "size": 8990,
+    "gen": 1793338516928816985,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/control_outcome.go": {
+    "hash": "aacf4bc518e5de2f82e3e05ca20ba2f99ff46826c73fd0973369538fb0c790b7",
+    "mod_time": 1793338516928816985,
+    "size": 2886,
+    "gen": 1793338516928816985,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/control_outcome_test.go": {
+    "test_symbols": true,
+    "hash": "1893990881a363efa527b3228a9a770494d5ef0a4e869f82fe0e0e8b052d1ec5",
+    "mod_time": 1793338516928816985,
+    "size": 4742,
+    "gen": 1793338516928816985,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/ctrlx_stopping_test.go": {
+    "test_symbols": true,
+    "hash": "da299091fb8f1d202262d924fc2bad84625e1185b2c7ab6ce11ada1c49c74d39",
+    "mod_time": 1793338516928816985,
+    "size": 2275,
+    "gen": 1793338516928816985,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegated_progress.go": {
+    "hash": "43667f741bc03a012a61aadf0739b7a47efd6c192370a4c4ec862e31eed7a0cf",
+    "mod_time": 1793338516928816985,
+    "size": 5019,
+    "gen": 1793338516928816985,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegated_progress_test.go": {
+    "test_symbols": true,
+    "hash": "220bdb8b07ac301b591b2a9bcb2b17b090890b52dc1bbe8ac317fefc73ba0d2e",
+    "mod_time": 1793338516928816985,
+    "size": 16257,
+    "gen": 1793338516928816985,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegation.go": {
+    "hash": "94cd1f1ff1f296441711d8feb7869601f1d9ec8d0e18b42e5bc82d15e36d28fd",
+    "mod_time": 1793338516928816985,
+    "size": 37662,
+    "gen": 1793338516928816985,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegation_codec_test.go": {
+    "test_symbols": true,
+    "hash": "ff218cb2991657ae4259bf54deddff09cf2f42c75b10d409cf6e27adf9827705",
+    "mod_time": 1793338516928816985,
+    "size": 4550,
+    "gen": 1793338516928816985,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegation_constraint_test.go": {
+    "test_symbols": true,
+    "hash": "4556a5e87b6f47e78cf40b31b3c978b3e1e78e82bf99b06b84a8dc383a18fba3",
+    "mod_time": 1793338516928816985,
+    "size": 3597,
+    "gen": 1793338516928816985,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegation_decision_test.go": {
+    "test_symbols": true,
+    "hash": "d7daf9bb422c5fe3b47195717dcaed67e3ac610e9b8fefcaec74f6ff39ebab9a",
+    "mod_time": 1793338516929816991,
+    "size": 7263,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegation_failure.go": {
+    "hash": "4cf0583235a2e4d6709a277875aa3b2c48d861950de30a4d61ca398fee802bc5",
+    "mod_time": 1793338516929816991,
+    "size": 1951,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegation_failure_journey_test.go": {
+    "test_symbols": true,
+    "hash": "40d149eb3b2770184163375f6404bfa51318899652c9318c7871c13516d42b53",
+    "mod_time": 1793338516929816991,
+    "size": 2360,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegation_failure_test.go": {
+    "test_symbols": true,
+    "hash": "ebcf6f34ad86623f472755822ba3a6b7c26cd86a86cdfdfa6bf86f39b1a28987",
+    "mod_time": 1793338516929816991,
+    "size": 2201,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegation_fix_brief_test.go": {
+    "test_symbols": true,
+    "hash": "4a594c630126b27496e9b18ad4aeb2ce324aeac27036ab462dc7f122e33d7e1a",
+    "mod_time": 1793338516929816991,
+    "size": 3889,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegation_modes.go": {
+    "hash": "700ee55661f367589965697738fc1def45175fb7a7b850ed0f39911ba244cf31",
+    "mod_time": 1793338516929816991,
+    "size": 20213,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegation_multistep.go": {
+    "hash": "6cc36cf9809ea77b11916312a0a7b19b074febd16e529514435704c95bc6b65c",
+    "mod_time": 1793338516929816991,
+    "size": 10862,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegation_multistep_test.go": {
+    "test_symbols": true,
+    "hash": "e65a8952d817bd975fe58555dff83911357bd65d6a7a24cf953c6d0aa2d53a2f",
+    "mod_time": 1793338516929816991,
+    "size": 1481,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegation_persona_test.go": {
+    "test_symbols": true,
+    "hash": "1f7a520c770c66a8bd5eb626b1b533b1111a3e499a77554989b79f64a8c76d2e",
+    "mod_time": 1793338516929816991,
+    "size": 4548,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegation_routing.go": {
+    "hash": "63e2feae3e3e5b18fed28d6b9691e039be33ed5e4e4b147e7163b59d3ce69d31",
+    "mod_time": 1793338516929816991,
+    "size": 15918,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/delegation_routing_resolve_test.go": {
+    "test_symbols": true,
+    "hash": "cc5cf4a206385c86e49fb37e3270b298daed0c0989bd84a783dfbb970a44f734",
+    "mod_time": 1793338516929816991,
+    "size": 1767,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/deliberation.go": {
+    "hash": "63b2523525499bae8bdcb7f9b879eefcfc3a4ab29ca99545167af0841ee696ef",
+    "mod_time": 1793338516929816991,
+    "size": 5162,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/deliberation_test.go": {
+    "test_symbols": true,
+    "hash": "affc0069271035bca0849f5b0da666b8b6347f26e76792dcca196059ace593f0",
+    "mod_time": 1793338516929816991,
+    "size": 15213,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/detach_turn_test.go": {
+    "test_symbols": true,
+    "hash": "83a5d8664c23b2515c29a3cffc99d7de3dd7867da864548ec2763f51882024fe",
+    "mod_time": 1793338516929816991,
+    "size": 942,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/diagnostics.go": {
+    "hash": "bb7abcc822582b8003a1fd1ac53e559c1d94c08ea6523b26c811be4f0e947469",
+    "mod_time": 1793338516929816991,
+    "size": 4743,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/diagnostics_test.go": {
+    "test_symbols": true,
+    "hash": "c26a02b7c09d958729763d9ff2c82f6f647d3740f9d7579ad7d18b9e202de2ad",
+    "mod_time": 1793338516929816991,
+    "size": 2031,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/dream_plan_ledger_test.go": {
+    "test_symbols": true,
+    "hash": "d2d4b7e8ff8cca1c491f17dd07634771eb3d1ea5c7b852a0853e705701adb403",
+    "mod_time": 1793338516929816991,
+    "size": 12806,
+    "gen": 1793338516929816991,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/expert_led_mode_test.go": {
+    "test_symbols": true,
+    "hash": "94fabcb42dbe65ec9d1e6e5e0983d9dc6f10edf6ad1c4ea6b34fc7ecc6817d0c",
+    "mod_time": 1793338516930816996,
+    "size": 2964,
+    "gen": 1793338516930816996,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/expert_selection.go": {
+    "hash": "2392f74e0be0b9622f326f3992a1bc518793444c9b5e4ffc51c2ab61f2b2d270",
+    "mod_time": 1793338516930816996,
+    "size": 2016,
+    "gen": 1793338516930816996,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/fact_readback_test.go": {
+    "test_symbols": true,
+    "hash": "8b6291d0d9b52a8fe7e1c93f8a8ada5c4164c334ed18aee14ad72631ee759a5b",
+    "mod_time": 1793338516930816996,
+    "size": 1293,
+    "gen": 1793338516930816996,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/findings_test.go": {
+    "test_symbols": true,
+    "hash": "ea2cbb13bccbad5673e7680622db7ac8884cb53121dd5b67278369479fa5214b",
+    "mod_time": 1793338516930816996,
+    "size": 9970,
+    "gen": 1793338516930816996,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/footer_wrap_test.go": {
+    "test_symbols": true,
+    "hash": "f61a6ad93ae6c0ac51818c8c890637e96a39346cdfda0e1419befdd6c3d768a4",
+    "mod_time": 1793338516930816996,
+    "size": 632,
+    "gen": 1793338516930816996,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/foreground_operation.go": {
+    "hash": "3e66059ec25294c2762dd99ea4de16cdf20dc4db2eecf590242defb32dadf0a3",
+    "mod_time": 1793338516930816996,
+    "size": 1946,
+    "gen": 1793338516930816996,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/foreground_operation_test.go": {
+    "test_symbols": true,
+    "hash": "fc371fbe07b00912642c6c781620c7efb5394b4b88e597408121da43aca52924",
+    "mod_time": 1793338516930816996,
+    "size": 5601,
+    "gen": 1793338516930816996,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/git_context_uplift_test.go": {
+    "test_symbols": true,
+    "hash": "f21f562e22070a1931300471b91d7e66107ebf97a37145e325d010cecc2d15a4",
+    "mod_time": 1793338516930816996,
+    "size": 1988,
+    "gen": 1793338516930816996,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/glass_box.go": {
+    "hash": "b595dc1824c57943d716013c6cb467fd78aca1554f2618d38dc1ee43c849b0bf",
+    "mod_time": 1793338516930816996,
+    "size": 13918,
+    "gen": 1793338516930816996,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/glass_box_stream_test.go": {
+    "test_symbols": true,
+    "hash": "7d65b228579cf56f70c3965ada767eab0dbeb1d10a03eb69adb2be8657d52d26",
+    "mod_time": 1793338516930816996,
+    "size": 3710,
+    "gen": 1793338516930816996,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/harness_test.go": {
+    "test_symbols": true,
+    "hash": "cff8dc66218d1ae08d9053ebfc3a40152eb5d1be721c2ca8ed2dda11aa239c31",
+    "mod_time": 1793338516930816996,
+    "size": 3348,
+    "gen": 1793338516930816996,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/help_renderer.go": {
+    "hash": "f6e2720429e61d0a60c2838b7a3d176bb07c1c7c572e453db287c429168bc09a",
+    "mod_time": 1793338516930816996,
+    "size": 9159,
+    "gen": 1793338516930816996,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/helpers.go": {
+    "hash": "9f2dc6697d5720db1e3ccad7ea57c4fe5a6f0a460c168f83c4e7e669aa0ac0ea",
+    "mod_time": 1793338516930816996,
+    "size": 17972,
+    "gen": 1793338516930816996,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/helpers_articulation.go": {
+    "hash": "de910d0d3ab95aadb2373bfe8149963bcbec279c13c836eb99f737a7f240d173",
+    "mod_time": 1793338751161197444,
+    "size": 19356,
+    "gen": 1793338751161197444,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/helpers_files.go": {
+    "hash": "10625e104de768a97383f07bfc17960c8c94f53ee71c3fc12e47d6945d9af364",
+    "mod_time": 1793338905456110847,
+    "size": 8301,
+    "gen": 1793338905456110847,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/helpers_scan.go": {
+    "hash": "88a1775d9d44fdaf3035397a8016aa6430d139015fe47fe9d051e528c8467d93",
+    "mod_time": 1793338516931817002,
+    "size": 19327,
+    "gen": 1793338516931817002,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/helpers_test.go": {
+    "test_symbols": true,
+    "hash": "f76b98bc666ee3c276ec8c5fe8a64a96685722796e94be979ae1770ee8244470",
+    "mod_time": 1793338905460110871,
+    "size": 41366,
+    "gen": 1793338905460110871,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/helpers_tools.go": {
+    "hash": "c36af0d3401ed592b9fbaf7b3a7e06602b81db2658b416e7574b1dae4da52ad5",
+    "mod_time": 1793338516931817002,
+    "size": 7992,
+    "gen": 1793338516931817002,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/history_view.go": {
+    "hash": "a0a52046f59007854edc8aa6162523fd36293a3095a294e20362773216b61a62",
+    "mod_time": 1793338516931817002,
+    "size": 1075,
+    "gen": 1793338516931817002,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/history_view_test.go": {
+    "test_symbols": true,
+    "hash": "99591ff67e001c936e88a78b5d8cc3e75c33fb671f00015af21e0ffafe967fb6",
+    "mod_time": 1793338516931817002,
+    "size": 2692,
+    "gen": 1793338516931817002,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/ingest.go": {
+    "hash": "23789ba17857c022ffd38bc5fc1fb8c6186804b5cb071150d729f4fbc2affb60",
+    "mod_time": 1793338516931817002,
+    "size": 9631,
+    "gen": 1793338516931817002,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/init_planner_entry_test.go": {
+    "test_symbols": true,
+    "hash": "b1382890116699e4c8f3901c2a07589efa9e344b594728fd85127cfa552ded64",
+    "mod_time": 1793338516931817002,
+    "size": 9052,
+    "gen": 1793338516931817002,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/integration_test.go": {
+    "test_symbols": true,
+    "hash": "0484e112266ed6ed22ad898f231f635db0e87ec1a5c6b74ced2917b03813b122",
+    "mod_time": 1793338516931817002,
+    "size": 19919,
+    "gen": 1793338516931817002,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/jev_authorization_test.go": {
+    "test_symbols": true,
+    "hash": "5c92ae0437ea3fbb743d7126e218789b41a47dc8f2e21c1726e9d06de068f026",
+    "mod_time": 1793338516931817002,
+    "size": 7978,
+    "gen": 1793338516931817002,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/jev_calibration_test.go": {
+    "test_symbols": true,
+    "hash": "b129521d6de9bfbd0f9dc232d1450064fa70f14e7bb96caef4c7fb0b0317042f",
+    "mod_time": 1793338516931817002,
+    "size": 3111,
+    "gen": 1793338516931817002,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/jev_correction.go": {
+    "hash": "a4c89bcdd5afc6d1b2cc63713e0499c1690daa0e516de8a8aa8cb6f553cddf6c",
+    "mod_time": 1793338516931817002,
+    "size": 5174,
+    "gen": 1793338516931817002,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/jev_correction_test.go": {
+    "test_symbols": true,
+    "hash": "5edd4919151b191af0b04e292e6709a0e78e3aeaa852c56a2b115fdcc4b40acf",
+    "mod_time": 1793338516931817002,
+    "size": 7411,
+    "gen": 1793338516931817002,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/jev_turn.go": {
+    "hash": "aa1f24736c8bf77425649f3d7b8b5147ed80a7f8bdbc9e136417d84f4438d870",
+    "mod_time": 1793338516931817002,
+    "size": 9652,
+    "gen": 1793338516931817002,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/jev_uses_test.go": {
+    "test_symbols": true,
+    "hash": "ae5c714ba1147f09d42cfd96f59c116378ca54c2a0f9fac506bf991a9e4208e0",
+    "mod_time": 1793338516931817002,
+    "size": 9199,
+    "gen": 1793338516931817002,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/job_progress_test.go": {
+    "test_symbols": true,
+    "hash": "39c73771a5f26792bbafbd201b0db6e8c6176a6f29f22a0b630fe01e7c7d0e5a",
+    "mod_time": 1793338516931817002,
+    "size": 2141,
+    "gen": 1793338516931817002,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/journey_conversation_act_test.go": {
+    "test_symbols": true,
+    "hash": "65fc9cb703099d12ed91446c0e0e4b8b591869851d57492e1386e66727825d61",
+    "mod_time": 1793338516932817008,
+    "size": 2883,
+    "gen": 1793338516932817008,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/journey_conversation_test.go": {
+    "test_symbols": true,
+    "hash": "760a801f4d10c1a741e8a91e76f47fd6de27288cbb62579d9f7f8c0e096d27a3",
+    "mod_time": 1793338516932817008,
+    "size": 11182,
+    "gen": 1793338516932817008,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/journey_jev_test.go": {
+    "test_symbols": true,
+    "hash": "af98de033cad95cff8b55dc0e27d6f698833fa761da4a031b3e4b03ae8849a00",
+    "mod_time": 1793338516932817008,
+    "size": 12762,
+    "gen": 1793338516932817008,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/journey_side_turn_test.go": {
+    "test_symbols": true,
+    "hash": "faee5c1b0c5959289a06aef17804975a5af2b115d316a8452d6fb8df8d028802",
+    "mod_time": 1793338516932817008,
+    "size": 5263,
+    "gen": 1793338516932817008,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/knowledge_format.go": {
+    "hash": "cbda8b7c852794bb8ece8d3086e92b71866aa3da740c55c2b5e24a194e5e9847",
+    "mod_time": 1793338516932817008,
+    "size": 945,
+    "gen": 1793338516932817008,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/knowledge_grounding_test.go": {
+    "test_symbols": true,
+    "hash": "0d752df4517d11c082ab67f023fb4f4aaec4bda1ee417de7a74aa87bfda7fa76",
+    "mod_time": 1793338516932817008,
+    "size": 4689,
+    "gen": 1793338516932817008,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/knowledge_requests_test.go": {
+    "test_symbols": true,
+    "hash": "0e418806d406ee9c1cb32f0e84c1fb78d343f840ae8aa4bda122e3cf5f793e9a",
+    "mod_time": 1793338516932817008,
+    "size": 3128,
+    "gen": 1793338516932817008,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/knowledge_synthesis_test.go": {
+    "test_symbols": true,
+    "hash": "2833050e7cc8e20006e9675cb35a29e9bbf5c52fb9f303b32d340d6b88708b59",
+    "mod_time": 1793338516932817008,
+    "size": 2833,
+    "gen": 1793338516932817008,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/layout.go": {
+    "hash": "663c0a7cfa93026ea467fe4d7a8e24b93a129ea53013c90e387e633d4994c002",
+    "mod_time": 1793338516932817008,
+    "size": 7867,
+    "gen": 1793338516932817008,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/layout_refit_test.go": {
+    "test_symbols": true,
+    "hash": "869f7abf36121fb3c2b329bd9cd41abfef4ef2fa252342256906b3ffea8660d3",
+    "mod_time": 1793338516932817008,
+    "size": 7531,
+    "gen": 1793338516932817008,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/learn_evidence_conservation_test.go": {
+    "test_symbols": true,
+    "hash": "342f8f895f83a3f6cdbee782bdf9382f2eaa063883a6f2d453bcd508dcdb40ae",
+    "mod_time": 1793338516932817008,
+    "size": 2785,
+    "gen": 1793338516932817008,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/learning_auto.go": {
+    "hash": "665a93e001f4aa18a48197ac15caacb7c9e417f2be5ae270aabc3abea960ff0f",
+    "mod_time": 1793338516932817008,
+    "size": 3580,
+    "gen": 1793338516932817008,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/learning_auto_test.go": {
+    "test_symbols": true,
+    "hash": "123e28e110b3013a5eb43773bc705d994c23ece7575d4ad09d758871bc8f970e",
+    "mod_time": 1793338516932817008,
+    "size": 4422,
+    "gen": 1793338516932817008,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/learning_candidate_stage_test.go": {
+    "test_symbols": true,
+    "hash": "5dae22706aeca5017c64c041f81ea412334ffe6904815981b8e4071a5b26296d",
+    "mod_time": 1793338516932817008,
+    "size": 927,
+    "gen": 1793338516932817008,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/live_integration_test.go": {
+    "test_symbols": true,
+    "hash": "8a4a2bcbf4a6501d4bd75c23b31f4b794c008fa9ff0c97741e0a8699a39f2d4a",
+    "mod_time": 1793338516932817008,
+    "size": 44532,
+    "gen": 1793338516932817008,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/live_kernel_test.go": {
+    "test_symbols": true,
+    "hash": "6c765c57fa564b781b6efa7374c00d25ff741cfc3d839f2fbcfd27acdd2d251e",
+    "mod_time": 1793338516933817014,
+    "size": 19070,
+    "gen": 1793338516933817014,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/memory_journey_test.go": {
+    "test_symbols": true,
+    "hash": "ebd887f7472fd061625bbda145fcc7aeafc4ffa5184049f4449fe5f79b28bcfe",
+    "mod_time": 1793338516933817014,
+    "size": 1996,
+    "gen": 1793338516933817014,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/model.go": {
+    "hash": "ceb3880524888eaa84706953c46bcacc7d78f69fc4ee2e6ba164ffa50d02ac22",
+    "mod_time": 1793338516933817014,
+    "size": 908,
+    "gen": 1793338516933817014,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/model_handlers.go": {
+    "hash": "0f3a934b83be4b01d79f44394b804a9d00fa95584a2486300bc50cd52bae2e41",
+    "mod_time": 1793338516933817014,
+    "size": 24865,
+    "gen": 1793338516933817014,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/model_helpers.go": {
+    "hash": "9551e99f09b78867dbcf2447aa6517eb3397a9f6fd494e4fcd83d83c8cedeaaa",
+    "mod_time": 1793338516933817014,
+    "size": 17820,
+    "gen": 1793338516933817014,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/model_helpers_test.go": {
+    "test_symbols": true,
+    "hash": "184c7bb3f5d36f59659424429c762540fd07c2c9260a93e450936434f6963777",
+    "mod_time": 1793338516933817014,
+    "size": 8704,
+    "gen": 1793338516933817014,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/model_key_handler.go": {
+    "hash": "abb4de04eaf03cce9d8ed77f03fddb636d9be8a8b77073c79203a61d41202e11",
+    "mod_time": 1793338516933817014,
+    "size": 14291,
+    "gen": 1793338516933817014,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/model_lifecycle.go": {
+    "hash": "bd0d73d0c1e525aaa43247b2096a799e14baa88a7b9080e0770ccd8435c02809",
+    "mod_time": 1793338516933817014,
+    "size": 11798,
+    "gen": 1793338516933817014,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/model_session_context.go": {
+    "hash": "ceb51065fc18425b477dfcd002c0f927e69188cede16056b10fb0c89848923f4",
+    "mod_time": 1793338516933817014,
+    "size": 42131,
+    "gen": 1793338516933817014,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/model_types.go": {
+    "hash": "a9a65a709dc82712e611cf8aad639c83464de5a8ef70757abd4dc9dc19354eb2",
+    "mod_time": 1793338516933817014,
+    "size": 38348,
+    "gen": 1793338516933817014,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/model_update.go": {
+    "hash": "2d847d5784f153043a4060da9943d937df0c535a5e02f1267d4d924ce7adcebd",
+    "mod_time": 1793338516934817020,
+    "size": 42123,
+    "gen": 1793338516934817020,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/model_update_persist_test.go": {
+    "test_symbols": true,
+    "hash": "d8d1021c2c61b2b23a36fe9349db084af77db9ecc81445c5e24d1e222660d6ad",
+    "mod_time": 1793338516934817020,
+    "size": 11396,
+    "gen": 1793338516934817020,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/multistep_corpus.go": {
+    "hash": "b31d8bffedd87bc26647887eccb87f7430a3cd8dd03c56e10d19f7e78b3ae1dd",
+    "mod_time": 1793338516934817020,
+    "size": 30451,
+    "gen": 1793338516934817020,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/multistep_decomposer.go": {
+    "hash": "df581238282e49ca4a3c76988aaa4c5a1ad4d09b2c781decb07223e2ff3cf5f9",
+    "mod_time": 1793338516934817020,
+    "size": 26561,
+    "gen": 1793338516934817020,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/multistep_parse_verb_test.go": {
+    "test_symbols": true,
+    "hash": "a0d5c0294e30f8a642565c3ae8eb51c9a509f17a196b1f25e2031d272bd3df98",
+    "mod_time": 1793338516934817020,
+    "size": 2069,
+    "gen": 1793338516934817020,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_adapter_test.go": {
+    "test_symbols": true,
+    "hash": "b8f0bd7fafb8a2e23c98aa41118809f9bd74e5361bc5ee7f7caf3a152846d2fa",
+    "mod_time": 1793338516934817020,
+    "size": 5781,
+    "gen": 1793338516934817020,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_auto_heuristic_test.go": {
+    "test_symbols": true,
+    "hash": "5ef45e0788e8d983043885a29cc5963c4a1809619420e805756a079d1681f78b",
+    "mod_time": 1793338516934817020,
+    "size": 23227,
+    "gen": 1793338516934817020,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_edit.go": {
+    "hash": "f9da52a56a59c8e93e4c3c83c3c06e7f63806db7f6b861eb3b6f0ce5f958b23e",
+    "mod_time": 1793338516934817020,
+    "size": 8647,
+    "gen": 1793338516934817020,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_edit_test.go": {
+    "test_symbols": true,
+    "hash": "cbc8f75494872bb8b5fcc16d036167c79d4265a5493235e079938b3a05169785",
+    "mod_time": 1793338516934817020,
+    "size": 16847,
+    "gen": 1793338516934817020,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_llm.go": {
+    "hash": "0b5e6b2da15eb472a31eace32bf70fe5aa4612b2b2ece393f9258dcff09dfd3a",
+    "mod_time": 1793338516934817020,
+    "size": 4592,
+    "gen": 1793338516934817020,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_llm_live_test.go": {
+    "test_symbols": true,
+    "hash": "fc72518579ad4b9494499f488e0ff401b1dec6f1dbca58b383e09d57dfc54eee",
+    "mod_time": 1793338516934817020,
+    "size": 4857,
+    "gen": 1793338516934817020,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_llm_test.go": {
+    "test_symbols": true,
+    "hash": "75b8e05b9bcbf3bd584c906d70515b3f0bac1e3b867173bbd02a762547ec9a2f",
+    "mod_time": 1793338516934817020,
+    "size": 6993,
+    "gen": 1793338516934817020,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_navigation.go": {
+    "hash": "115403fac6766a9883ec04420f9a4d3e108543c01a65702b73979baa3470caac",
+    "mod_time": 1793338516935817026,
+    "size": 14393,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_navigation_test.go": {
+    "test_symbols": true,
+    "hash": "d59c8f13854dd959173f7de22e62d14fc3a63ccf34a0d6caff4d2cb11aafe0b0",
+    "mod_time": 1793338516935817026,
+    "size": 1105,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_persistence.go": {
+    "hash": "88842b3e45402fe092d569c3d861e2ab7d8ce042847592b0dc3c8cee1753b515",
+    "mod_time": 1793338516935817026,
+    "size": 8024,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_persistence_test.go": {
+    "test_symbols": true,
+    "hash": "e09441a596009dc83271e78354b5260216975455c41c4b596333aacab4b65c42",
+    "mod_time": 1793338516935817026,
+    "size": 1422,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_phase_handlers_test.go": {
+    "test_symbols": true,
+    "hash": "9176fb83a607611112f06377bea8992ee01131ae53a64864e948a85b5ac775ff",
+    "mod_time": 1793338516935817026,
+    "size": 6266,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_previous_docingestion_test.go": {
+    "test_symbols": true,
+    "hash": "da253cc825c04d960b42ced2860e1bdeecef674d4da32421476da03d314128b2",
+    "mod_time": 1793338516935817026,
+    "size": 1059,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_router_test.go": {
+    "test_symbols": true,
+    "hash": "39f87cbf0fb815a55ec1561b64312d203750d2addaa25ed334ab7d9b752cb614",
+    "mod_time": 1793338516935817026,
+    "size": 1370,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_types.go": {
+    "hash": "d097acf15bdf9c5357bda2e87b732e89aa3be1166f249968a2d662e6a577dfe3",
+    "mod_time": 1793338516935817026,
+    "size": 4535,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_types_test.go": {
+    "test_symbols": true,
+    "hash": "aecd1a11ef612b3465874eaa2ee1f0ca5c1c31692810a670051f2b04eecd934c",
+    "mod_time": 1793338516935817026,
+    "size": 395,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_utils.go": {
+    "hash": "2df161bd154f93d33d8bee3869baf0f80b72250e7dd308f23cf5a37084f2f63b",
+    "mod_time": 1793338516935817026,
+    "size": 4607,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_utils_test.go": {
+    "test_symbols": true,
+    "hash": "214addef859d11dd2d4894163347defd9386fb6a60829fa0a39d19a4249192ba",
+    "mod_time": 1793338516935817026,
+    "size": 2650,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/northstar_wizard.go": {
+    "hash": "c3bdea9269e768b58fb9c8642cab29916e1f5f6ad1af387ff55c50d87d3b58ff",
+    "mod_time": 1793338516935817026,
+    "size": 25982,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/onboarding_wizard.go": {
+    "hash": "8aaf8d95851d127751089e7ddbdf6f1d6b7cd0b8c9a9e79aa70941ffa879a20a",
+    "mod_time": 1793338516935817026,
+    "size": 11101,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/one_line_test.go": {
+    "test_symbols": true,
+    "hash": "dac6593b189313c7766fd91bc534bbfccbe85aa6c71a0c496258dbc887390142",
+    "mod_time": 1793338516935817026,
+    "size": 512,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/operating_state_test.go": {
+    "test_symbols": true,
+    "hash": "c6ba90e1a918282651aaa4b27db0b88c9bb58e8da3d320b8ae587f6fbd0305fa",
+    "mod_time": 1793338516935817026,
+    "size": 3093,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/operation_context.go": {
+    "hash": "6ae54c6de8e057885ad738f7715e8657ff1697a0cef49f641753fc652764181d",
+    "mod_time": 1793338516935817026,
+    "size": 1541,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/operation_context_test.go": {
+    "test_symbols": true,
+    "hash": "9b410516f658f5a9a884f789a91a6205c6aae41ed50540befea002029ad97c68",
+    "mod_time": 1793338516935817026,
+    "size": 1465,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/own_process_test.go": {
+    "test_symbols": true,
+    "hash": "32c0ccf91881007206aefd44f175d481b9ae60b38dc9f291638dc27bb5867374",
+    "mod_time": 1793338516935817026,
+    "size": 1363,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/perception_regression_test.go": {
+    "test_symbols": true,
+    "hash": "e1e883352bed070f0fcdb4591a1325a98288d2a076738f9a213680a15ee1ebd6",
+    "mod_time": 1793338516935817026,
+    "size": 4454,
+    "gen": 1793338516935817026,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/performance_test.go": {
+    "test_symbols": true,
+    "hash": "6692e6495841d97bfbcb57be5296bf5dda169c1d8bbf2c349c51f7cb8ef52172",
+    "mod_time": 1793338516936817032,
+    "size": 8854,
+    "gen": 1793338516936817032,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/persistence.go": {
+    "hash": "6a70f435d3f5651a102958d7544a771e3220aa0f723a0906f988ea06a6fa1d47",
+    "mod_time": 1793338516936817032,
+    "size": 2219,
+    "gen": 1793338516936817032,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/persona.go": {
+    "hash": "54c4338015f4feeca3f761c469a82b65c10078d86899d2fab4de7e733a321a6a",
+    "mod_time": 1793338516936817032,
+    "size": 23090,
+    "gen": 1793338516936817032,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/persona_test.go": {
+    "test_symbols": true,
+    "hash": "9c2e32669e6a23693c56b0296a0fadc091ea62ac21e1f23df8f49890abce9446",
+    "mod_time": 1793338516936817032,
+    "size": 8354,
+    "gen": 1793338516936817032,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/process.go": {
+    "hash": "25ce6eadef27414131c6a6bebab38e2db03727744116d18372fb46f4d82dd04d",
+    "mod_time": 1793338516936817032,
+    "size": 56421,
+    "gen": 1793338516936817032,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/process_clarify_test.go": {
+    "test_symbols": true,
+    "hash": "5d610feab3c5a58ac7620c0343736bd76cb6a377cf057da8930d9ede74ee08dd",
+    "mod_time": 1793338516936817032,
+    "size": 2074,
+    "gen": 1793338516936817032,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/process_continuation.go": {
+    "hash": "125ff814de0385f5c039353aeda010f10836ad0cd3571a5372065d03b442338a",
+    "mod_time": 1793338516936817032,
+    "size": 14155,
+    "gen": 1793338516936817032,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/process_control_roundtrip_test.go": {
+    "test_symbols": true,
+    "hash": "f8600880341bb0d2c4b230c8ead2cf12a7c972b7faa5f4aad1ae8e798c1c989c",
+    "mod_time": 1793338516936817032,
+    "size": 18079,
+    "gen": 1793338516936817032,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/process_dream.go": {
+    "hash": "ac1648a8041bb82e0378c009731768034fc215ad1f6865d3acd1e0e62575c599",
+    "mod_time": 1793338516936817032,
+    "size": 26713,
+    "gen": 1793338516936817032,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/process_dream_delegation.go": {
+    "hash": "0cfd43cd14fc2dda4db60badb041612d930f8d81d057b92eee57c3e43f985f74",
+    "mod_time": 1793338516937817038,
+    "size": 17964,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/process_dream_parsing.go": {
+    "hash": "cb463ab7206b309405948864bd14622ffa0bc97e74fc5850d0e6b686da60a67a",
+    "mod_time": 1793338516937817038,
+    "size": 2924,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/process_follow_up.go": {
+    "hash": "94a572e6ac9a0e400372b34d63f528797d84d4e451045c55277ec448d78fb2d7",
+    "mod_time": 1793338516937817038,
+    "size": 1037,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/process_helpers.go": {
+    "hash": "a9adfb0c021af37b6ad65c90610b9b619247c95b53b25a5e266b30f0d5ae4183",
+    "mod_time": 1793338751043196745,
+    "size": 9445,
+    "gen": 1793338751043196745,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/process_knowledge.go": {
+    "hash": "95586eff895cd3fda3e7263fc2d74aeed4c56b58dfa787b9968dd98c249debba",
+    "mod_time": 1793338516937817038,
+    "size": 15293,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/process_noshim_test.go": {
+    "test_symbols": true,
+    "hash": "e1939fa4aad22007248d8b08d816ab80ad8de89691351cc3ffa6d72ec932b07d",
+    "mod_time": 1793338516937817038,
+    "size": 2142,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/process_seed.go": {
+    "hash": "4714100c57fdb63d23d83fefa3e8558c46716d5f59175997a1042ae4c80b7e11",
+    "mod_time": 1793338516937817038,
+    "size": 3838,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/process_seed_test.go": {
+    "test_symbols": true,
+    "hash": "7f942467f85c6d2393eb380b55f2ca75dbda307bca8d979d1e3f6345c04fefd1",
+    "mod_time": 1793338516937817038,
+    "size": 2693,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/process_test.go": {
+    "test_symbols": true,
+    "hash": "f6be46c3a110436f84d3cff763bef4c04dd08048e7fcefdc32779ba37634e784",
+    "mod_time": 1793338516937817038,
+    "size": 3412,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/queued_command_test.go": {
+    "test_symbols": true,
+    "hash": "67263df11a867e2227ca12ad8c97db5c7557d1bebd6e5026340f1ce4a0386338",
+    "mod_time": 1793338516937817038,
+    "size": 2092,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/read_command_test.go": {
+    "test_symbols": true,
+    "hash": "9e05ebdbeef146d17a41e8e7fbf7a147a2ef621f07e8e3847fac7fc4ac54a264",
+    "mod_time": 1793338516937817038,
+    "size": 4447,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/recurse_workspace_hold.go": {
+    "hash": "ae6f1c87298f47eb0a0f7be74267810df423d5848afd2a2dc8768692100c6461",
+    "mod_time": 1793338516937817038,
+    "size": 1201,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/recurse_workspace_hold_test.go": {
+    "test_symbols": true,
+    "hash": "4eda15db76c8abca4dbcb6d1272970c1ff53add804266e02fdaafeb6e13c46bf",
+    "mod_time": 1793338516937817038,
+    "size": 1499,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/reembed.go": {
+    "hash": "8601e38ee83087b29236381d43812ac6c902d91a675adf618c6b9d417bb69230",
+    "mod_time": 1793338516937817038,
+    "size": 2033,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/reflection.go": {
+    "hash": "861d3a37382cb6f3e40909d98a8bd3be67f66f1b5ba78f309eb8bf4541e2c0c4",
+    "mod_time": 1793338516937817038,
+    "size": 11322,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/reflection_publication_test.go": {
+    "test_symbols": true,
+    "hash": "209262d69f393e813b9aebb90735623e22d0897f93a1afd7efbd069b844e075e",
+    "mod_time": 1793338516937817038,
+    "size": 2337,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/request_answers.go": {
+    "hash": "27bc032ab9d431f17cb7566041aa7e51c1616d910017858ec3be88da9cf16986",
+    "mod_time": 1793338516937817038,
+    "size": 3212,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/request_answers_test.go": {
+    "test_symbols": true,
+    "hash": "2c149ca2d0d43f1cd029ce596ebdf7c244e8ee80b0c1b647dfd15f1c3c553230",
+    "mod_time": 1793338516937817038,
+    "size": 4171,
+    "gen": 1793338516937817038,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/request_delivery.go": {
+    "hash": "1d01ee9dfecc812f076e41457e2ceb7623c2ec4f0168b7f8533bce65bbeaebd2",
+    "mod_time": 1793338516938817043,
+    "size": 10957,
+    "gen": 1793338516938817043,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/request_delivery_test.go": {
+    "test_symbols": true,
+    "hash": "f15be41e6dd43ff89c168998f3805313184c49aabe7f681b4855115a685820cd",
+    "mod_time": 1793338516938817043,
+    "size": 14997,
+    "gen": 1793338516938817043,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/restriction_routing_test.go": {
+    "test_symbols": true,
+    "hash": "698b3b138dcd41d7087d82db61c6d3c43fe6f1e34959de405684885c1a787160",
+    "mod_time": 1793338516938817043,
+    "size": 3830,
+    "gen": 1793338516938817043,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/review_aggregator.go": {
+    "hash": "f3ad8dbc8fd5d95a8db68f9c2e45a4f87edc24c9b18aff89c29fbe835f807e61",
+    "mod_time": 1793338516938817043,
+    "size": 37263,
+    "gen": 1793338516938817043,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/review_aggregator_specialists_test.go": {
+    "test_symbols": true,
+    "hash": "f736111a2c1d7c918be61544f614edd9d15a16dcb5f5ddbdf81234acb1a7e31d",
+    "mod_time": 1793338516938817043,
+    "size": 6064,
+    "gen": 1793338516938817043,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/review_aggregator_test.go": {
+    "test_symbols": true,
+    "hash": "2af0f8f02d1ab30e66834812489c99a10bae4bbc499e1ae17b68ae82124648fe",
+    "mod_time": 1793338516938817043,
+    "size": 7618,
+    "gen": 1793338516938817043,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/review_feedback_identity_test.go": {
+    "test_symbols": true,
+    "hash": "1f92e155f5c19c085970489619f7faa2c9de2a460b5b3e2e254771d5d31396c0",
+    "mod_time": 1793338516938817043,
+    "size": 1820,
+    "gen": 1793338516938817043,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/routing_arbitration_roundtrip_test.go": {
+    "test_symbols": true,
+    "hash": "441ffde8d0e5031bb4e42123e2332aaec04c8d5b208f71e9df16e624b24e92f2",
+    "mod_time": 1793338516938817043,
+    "size": 22337,
+    "gen": 1793338516938817043,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/routing_performance_contract_e2e_test.go": {
+    "test_symbols": true,
+    "hash": "a19d2264ea02b93e2d1115232a37228170dbeaf85d99eb5c464e0e4988955cca",
+    "mod_time": 1793338516938817043,
+    "size": 4538,
+    "gen": 1793338516938817043,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/running_work.go": {
+    "hash": "3746829d3291b2a6428a637c65ae952a094c4ce26b762458196989d564932016",
+    "mod_time": 1793338516938817043,
+    "size": 3741,
+    "gen": 1793338516938817043,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/running_work_test.go": {
+    "test_symbols": true,
+    "hash": "a08c0602d0a25b6127a8d6bcd010d2081542ae05ee4fa30311cf64f837d728d4",
+    "mod_time": 1793338516939817049,
+    "size": 6742,
+    "gen": 1793338516939817049,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/scan_identity_test.go": {
+    "test_symbols": true,
+    "hash": "d62475fc1618f269594a25efaba74b89a260fa34060ad4121e8fb1e2d58ced1a",
+    "mod_time": 1793338516939817049,
+    "size": 5182,
+    "gen": 1793338516939817049,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/scan_orientation_test.go": {
+    "test_symbols": true,
+    "hash": "bf2b6f28ffe37fab4c30701090e0ed745babc6008f1463619a11ab2c55828917",
+    "mod_time": 1793338516939817049,
+    "size": 4331,
+    "gen": 1793338516939817049,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/search_evidence.go": {
+    "hash": "f8b13c192d60fb25398ce53d9cb3140ac05801a0865b5a2273ba7f7c322599ab",
+    "mod_time": 1793339035817882570,
+    "size": 5996,
+    "gen": 1793339035817882570,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/search_evidence_test.go": {
+    "test_symbols": true,
+    "hash": "e3987439429e060072ab4021353047702b816fa7848906d97da861779912e7d0",
+    "mod_time": 1793339176203713633,
+    "size": 13101,
+    "gen": 1793339176203713633,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/self_debug.go": {
+    "hash": "3943666f09004619b22eacebae2aefbe5b47eddb618e611f3b56f8332827a722",
+    "mod_time": 1793338516939817049,
+    "size": 20897,
+    "gen": 1793338516939817049,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/self_debug_kernel_test.go": {
+    "test_symbols": true,
+    "hash": "dd4532da87dd9624c70a4a5d378e7becd7dd41273cdfcc7762c4e27384d54f63",
+    "mod_time": 1793338516939817049,
+    "size": 5707,
+    "gen": 1793338516939817049,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/self_debug_test.go": {
+    "test_symbols": true,
+    "hash": "409dc046c844b7f05ce8a206de0eb4d03c43e102dda2e60eecaea7f77459d2c4",
+    "mod_time": 1793338516939817049,
+    "size": 11538,
+    "gen": 1793338516939817049,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/self_diagnosis.go": {
+    "hash": "dbb44eb814b54b7765f6a7af7cb8d5a1388d96d170f1d198f5ea5a079b01f68c",
+    "mod_time": 1793338516939817049,
+    "size": 6429,
+    "gen": 1793338516939817049,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/self_restart.go": {
+    "hash": "a99069b4f7af0445b52f1e79d464eaa137d76758f3b237e2b7b50252a4851c4f",
+    "mod_time": 1793338516939817049,
+    "size": 10354,
+    "gen": 1793338516939817049,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/self_restart_test.go": {
+    "test_symbols": true,
+    "hash": "350d9db1a461c135e39eb9c2c9747fba9fa62527048e1dd3887209232365f093",
+    "mod_time": 1793338516939817049,
+    "size": 5881,
+    "gen": 1793338516939817049,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/session.go": {
+    "hash": "c820f1228461cf02f4bbe19e43e24f9a27b57ef9a259cd344a03239ccb7d149a",
+    "mod_time": 1793338516939817049,
+    "size": 8413,
+    "gen": 1793338516939817049,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/session_adapters.go": {
+    "hash": "d4282e2caaf6739c93f33052db59a1bd3fec2aa7b7c8223456988a58b0a9a7c7",
+    "mod_time": 1793338516939817049,
+    "size": 1870,
+    "gen": 1793338516939817049,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/session_adapters_test.go": {
+    "test_symbols": true,
+    "hash": "e8e3cdc9c4474fc31405d14a7b8e6e833de61ed37e2bb705ae6133c15d745edc",
+    "mod_time": 1793338516939817049,
+    "size": 7302,
+    "gen": 1793338516939817049,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/session_boot_helpers.go": {
+    "hash": "1aab5170dffce05c4c7792b9d378868d7ff296f752715d1cae20a49d7014b6e6",
+    "mod_time": 1793338516939817049,
+    "size": 5696,
+    "gen": 1793338516939817049,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/session_compressor_cortex_test.go": {
+    "test_symbols": true,
+    "hash": "e7fd72ed93617b3839586c211b0641a2a2622d1823af1fa4ae97b1104a692830",
+    "mod_time": 1793338516939817049,
+    "size": 2538,
+    "gen": 1793338516939817049,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/session_cortex_test.go": {
+    "test_symbols": true,
+    "hash": "ff1a635a47474653547a4d9c98d1b19d8d366ffab6215a610f44940a9e40b100",
+    "mod_time": 1793338516940817055,
+    "size": 3132,
+    "gen": 1793338516940817055,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/session_functions_test.go": {
+    "test_symbols": true,
+    "hash": "0b478d427717a8c6fff949d526e4e979915e21d41f648d8850474f181a21599b",
+    "mod_time": 1793338516940817055,
+    "size": 6214,
+    "gen": 1793338516940817055,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/session_language_test.go": {
+    "test_symbols": true,
+    "hash": "edfa4dc995723b91d5043e927163e0e9df6ebdad0dc62e089874ffd3ef78462c",
+    "mod_time": 1793338516940817055,
+    "size": 5053,
+    "gen": 1793338516940817055,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/session_log_notes.go": {
+    "hash": "a99719158a62fe0cbca9bf253412dee326fc0bb37cc714497b74641f0d53cd74",
+    "mod_time": 1793338516940817055,
+    "size": 1562,
+    "gen": 1793338516940817055,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/session_owner.go": {
+    "hash": "8bcd5ef3371ab669e2074830243750b8f31c8322e223636fff1a8d319813fae8",
+    "mod_time": 1793338516940817055,
+    "size": 2255,
+    "gen": 1793338516940817055,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/session_owner_test.go": {
+    "test_symbols": true,
+    "hash": "8a4da6fa38101d9a9a877f75fa10df4be51549cc7f358f2df8140e3ec9aaa230",
+    "mod_time": 1793338516940817055,
+    "size": 5905,
+    "gen": 1793338516940817055,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/session_persistence.go": {
+    "hash": "092e40738c4f99f2c53c76155a283a50754e828dcd7360ac486771872802440c",
+    "mod_time": 1793338516940817055,
+    "size": 12568,
+    "gen": 1793338516940817055,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/session_persistence_test.go": {
+    "test_symbols": true,
+    "hash": "529f134207b8b53e27e2e5aabc0a23e43fe462442cec5f3041ede59b58a70a5e",
+    "mod_time": 1793338516940817055,
+    "size": 651,
+    "gen": 1793338516940817055,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/session_shared_boot.go": {
+    "hash": "ad909f4bb1f867485d802096746a498a752661c2d3351a09dfe4cce15ff1a44c",
+    "mod_time": 1793338516940817055,
+    "size": 13721,
+    "gen": 1793338516940817055,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/shadow.go": {
+    "hash": "8d523ddde9cc5effd4c2b5ead6e70bbf922444dea1a162c45f8741859bb5676c",
+    "mod_time": 1793338516940817055,
+    "size": 5976,
+    "gen": 1793338516940817055,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/shadow_test.go": {
+    "test_symbols": true,
+    "hash": "b1c6236447faed070cca8ac6db9e38fc35e7f7334a83ddead5972d8c4b74d329",
+    "mod_time": 1793338516940817055,
+    "size": 11551,
+    "gen": 1793338516940817055,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/shard_result_vocabulary_test.go": {
+    "test_symbols": true,
+    "hash": "b855b2b5f9959e8cae01861b8d7eda2bf00b9d920e28a838ffc6f9ccff94de26",
+    "mod_time": 1793338516940817055,
+    "size": 10748,
+    "gen": 1793338516940817055,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/side_turn.go": {
+    "hash": "c1ff181158dc71b20c28d026dae77cdc684acb86ace76f6507455ef993ea025b",
+    "mod_time": 1793338516940817055,
+    "size": 21292,
+    "gen": 1793338516940817055,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/side_turn_ownership_test.go": {
+    "test_symbols": true,
+    "hash": "17ef2ddeb6cd584b2c079e114c227bbe6272b12d4e2b28ee5e8436c53f093913",
+    "mod_time": 1793338516941817061,
+    "size": 9430,
+    "gen": 1793338516941817061,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/slash_target_continuity_test.go": {
+    "test_symbols": true,
+    "hash": "e411526871180f6a1e97f3c651cc9da7add27046a133e5833c2940e4e294495b",
+    "mod_time": 1793338516941817061,
+    "size": 1780,
+    "gen": 1793338516941817061,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/specialist_policy_test.go": {
+    "test_symbols": true,
+    "hash": "fc2dd541718c56ba2a6bda51431f521f46bb194c76ed2bf1a9deddd13b5071e8",
+    "mod_time": 1793338516941817061,
+    "size": 3329,
+    "gen": 1793338516941817061,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/split_pane_config_test.go": {
+    "test_symbols": true,
+    "hash": "f3d080f937b409a3509cdc92628565acb80755dad482fae478d1587e7a141216",
+    "mod_time": 1793338516941817061,
+    "size": 763,
+    "gen": 1793338516941817061,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/stream_terminal_test.go": {
+    "test_symbols": true,
+    "hash": "e15ffa6974b33b54ea780536d11194b83ade7666033469dec6697b563566c319",
+    "mod_time": 1793338516941817061,
+    "size": 3501,
+    "gen": 1793338516941817061,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/system_dispatch_test.go": {
+    "test_symbols": true,
+    "hash": "43ca7d4751e9049ebcd8f62d4b915f2ffb082127f045ec54eda02040c1c16ca5",
+    "mod_time": 1793338516941817061,
+    "size": 3527,
+    "gen": 1793338516941817061,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/system_execution_outcome_test.go": {
+    "test_symbols": true,
+    "hash": "8dcdb315370e68ac4418a572180890ae2b46d60ec03e7f5d0c83166c82996ac9",
+    "mod_time": 1793338516941817061,
+    "size": 1874,
+    "gen": 1793338516941817061,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/system_warnings.go": {
+    "hash": "d7aad6d5a52ed65ca4301fe423c1aa1adee4e430cdbaed15e949889cc5586ec1",
+    "mod_time": 1793338516941817061,
+    "size": 1718,
+    "gen": 1793338516941817061,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/system_warnings_test.go": {
+    "test_symbols": true,
+    "hash": "228c7a07405b461bfc25697a36ba12f5057aaea78811518bc656fe5f42b78964",
+    "mod_time": 1793338516941817061,
+    "size": 3134,
+    "gen": 1793338516941817061,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/task_routing_arbitration_e2e_test.go": {
+    "test_symbols": true,
+    "hash": "5b11ce22d8882c429df03d1ef1e450d1158e62190b3f5237a85b6c74cc7a9753",
+    "mod_time": 1793338516941817061,
+    "size": 31264,
+    "gen": 1793338516941817061,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/test_state_test.go": {
+    "test_symbols": true,
+    "hash": "197e7b5c3fc6ad16c2923aa74cec59ca50d3e9dde5a18e557be4dcd3e5a4ca4b",
+    "mod_time": 1793338516941817061,
+    "size": 7906,
+    "gen": 1793338516941817061,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/testdata/architect_persona.golden": {
+    "hash": "9f803611d7f7b67898ad4aa3fdcacc27e974cc126aa99c05158bafca3b5c3ebc",
+    "mod_time": 1793338516941817061,
+    "size": 6402,
+    "gen": 1793338516941817061,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/testutil_test.go": {
+    "test_symbols": true,
+    "hash": "99238dedab466b930911b8dde2bfb1477f91e33529aed954f674dca43e816fad",
+    "mod_time": 1793338516941817061,
+    "size": 29565,
+    "gen": 1793338516941817061,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/tool_value.go": {
+    "hash": "da2d53519c7d14471f4b74931fd8943a09e2f88e5991ddb0e9feb174f5578926",
+    "mod_time": 1793338516941817061,
+    "size": 2101,
+    "gen": 1793338516941817061,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/tool_value_test.go": {
+    "test_symbols": true,
+    "hash": "66e3a2a2ee727023b23b31f91409a62f19e936125a9251be0500433452fc7315",
+    "mod_time": 1793338516941817061,
+    "size": 1622,
+    "gen": 1793338516941817061,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/tui_frame_contract_e2e_test.go": {
+    "test_symbols": true,
+    "hash": "cc5d5571134d0765043c16b82c0223d312a2fed374ce43ef97d0385d56358324",
+    "mod_time": 1793338516942817067,
+    "size": 31038,
+    "gen": 1793338516942817067,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/turn_evidence.go": {
+    "hash": "8cf804bd47df5eea8ae7017c8fcf01e8921f913a518360fa64fb1d6181a0d1d4",
+    "mod_time": 1793338879336956225,
+    "size": 7476,
+    "gen": 1793338879336956225,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/turn_evidence_test.go": {
+    "test_symbols": true,
+    "hash": "7e6e948f3c545ef1d9f1c4e325325f72459d806421b6a912f05bc5667707d80a",
+    "mod_time": 1793338516942817067,
+    "size": 10929,
+    "gen": 1793338516942817067,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/turn_results.go": {
+    "hash": "08fd1693cdb61e579ec5db4b978833931c33d3ff476cf364a655221a165a2ec2",
+    "mod_time": 1793338516942817067,
+    "size": 3110,
+    "gen": 1793338516942817067,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/turn_results_test.go": {
+    "test_symbols": true,
+    "hash": "bbbdd60f0233768e3171e998a0f84208cfc38b825ae9c5221a338a7cc475d41a",
+    "mod_time": 1793338516942817067,
+    "size": 4321,
+    "gen": 1793338516942817067,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/turn_tools.go": {
+    "hash": "161db8b4335ea831beb4797804ddfd031326353442e7aed6b9c0ba52849636a1",
+    "mod_time": 1793338516942817067,
+    "size": 1578,
+    "gen": 1793338516942817067,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/typed_text_test.go": {
+    "test_symbols": true,
+    "hash": "4dbc990ecd8384c9958820c68c89eb1a94ccbf377a678671851289753c2db0d8",
+    "mod_time": 1793338516942817067,
+    "size": 1417,
+    "gen": 1793338516942817067,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/update_test.go": {
+    "test_symbols": true,
+    "hash": "6bc29f3752f8d742bd5e4d9f7f91a47b71f4d07aa1bacb3eb95d89962d7efd62",
+    "mod_time": 1793338516942817067,
+    "size": 20295,
+    "gen": 1793338516942817067,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/ux_journey.go": {
+    "hash": "08dee4e8222741f3f7f015a1e3778f7f61e1cdf9c62531f7630cee0e2a1c7a88",
+    "mod_time": 1793338516942817067,
+    "size": 3542,
+    "gen": 1793338516942817067,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/ux_journey_test.go": {
+    "test_symbols": true,
+    "hash": "1e0635d22fa5265e75b31fc29551441b298e3fa4164d3c2dbaa75f84b66c1275",
+    "mod_time": 1793338516942817067,
+    "size": 3641,
+    "gen": 1793338516942817067,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/verbose_errors_test.go": {
+    "test_symbols": true,
+    "hash": "012a33585f0e51c697c0e3cff271107f98b1a0ac4e08ca550ffcfe9fad07e2c4",
+    "mod_time": 1793338516942817067,
+    "size": 3202,
+    "gen": 1793338516942817067,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/verdict_from_evidence_test.go": {
+    "test_symbols": true,
+    "hash": "b3a0f7e26ea503ee5dcba9b7a53e16e8252c01a61a8d41fd8ccadb4843ed7132",
+    "mod_time": 1793338516942817067,
+    "size": 13205,
+    "gen": 1793338516942817067,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/view.go": {
+    "hash": "747b318d0290ded99a93ff47ccd24177a6e47bdbf84e5dcea126d5f8c068d2a0",
+    "mod_time": 1793338516942817067,
+    "size": 24988,
+    "gen": 1793338516942817067,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/wallclock_cleanup_test.go": {
+    "test_symbols": true,
+    "hash": "672db29c4ad365cf5628c9a3122dc1f5b9f463b9db39cf6662c58ae2ac4e7783",
+    "mod_time": 1793338516942817067,
+    "size": 2660,
+    "gen": 1793338516942817067,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/warnings_render_order_test.go": {
+    "test_symbols": true,
+    "hash": "bcfa9c9938961cbd5b7e243ca9e34300707ff87364947122813ba7c12a61f03a",
+    "mod_time": 1793338516942817067,
+    "size": 3259,
+    "gen": 1793338516942817067,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/welcome.go": {
+    "hash": "d33706d90e9e4bbb3285cdcf320d6804ffa23a614bc234b4ff6ea11ff2495306",
+    "mod_time": 1793338516942817067,
+    "size": 5068,
+    "gen": 1793338516942817067,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/welcome_order_test.go": {
+    "test_symbols": true,
+    "hash": "fc502e854bc9913a7b00ad3a782fad29fd5bea1d77f6e76f9b759a33d1039d85",
+    "mod_time": 1793338516943817073,
+    "size": 3262,
+    "gen": 1793338516943817073,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/wizard_test.go": {
+    "test_symbols": true,
+    "hash": "b0c9b971abcda9702da316fddf63f26aca83115c8b8380bda6160614f564d315",
+    "mod_time": 1793338516943817073,
+    "size": 20062,
+    "gen": 1793338516943817073,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/work_admission_test.go": {
+    "test_symbols": true,
+    "hash": "e39d2f44e9e1378297abbb54fcad68157bce836d2069a5abcd35b07b6a39b1ab",
+    "mod_time": 1793338516943817073,
+    "size": 7421,
+    "gen": 1793338516943817073,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/work_hold.go": {
+    "hash": "b0fe8f9ca9292a975014948670990ea39bec2dfcfe71b75193a31dc82a54f7b1",
+    "mod_time": 1793338516943817073,
+    "size": 6879,
+    "gen": 1793338516943817073,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/work_hold_input_test.go": {
+    "test_symbols": true,
+    "hash": "98800ea847b808231084b52f93c82b8ad988a7dc7dc37dc87dd2e67510969a4b",
+    "mod_time": 1793338516943817073,
+    "size": 997,
+    "gen": 1793338516943817073,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/work_mode.go": {
+    "hash": "c31086681c123b41669a8ba14a10187714fb9956ab80b6616853d4286af29cce",
+    "mod_time": 1793338516943817073,
+    "size": 1645,
+    "gen": 1793338516943817073,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/workspace_boot_removed_key_test.go": {
+    "test_symbols": true,
+    "hash": "d89a2b4379226585e2f6a0d7e82136e0c4f10bc08cf91e3e3a8fd8bd6a2a8636",
+    "mod_time": 1793338516943817073,
+    "size": 1592,
+    "gen": 1793338516943817073,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/yolo.go": {
+    "hash": "6849c33b6b7c363102fff6b72f2ae77e781bed63816754cbe7d018b5dd5fbff2",
+    "mod_time": 1793338516943817073,
+    "size": 2201,
+    "gen": 1793338516943817073,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/yolo_flag_test.go": {
+    "test_symbols": true,
+    "hash": "bc4911d17a4ad3bbbb8c749965c0ae84f2cb6260a73be70e2254212f5ed9de44",
+    "mod_time": 1793338516943817073,
+    "size": 2457,
+    "gen": 1793338516943817073,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/yolo_kernel_test.go": {
+    "test_symbols": true,
+    "hash": "40b29f870d15330aaf9fec0bf0d70b66f79d55fd40c9a4611bc0c4b45191788d",
+    "mod_time": 1793338516943817073,
+    "size": 1946,
+    "gen": 1793338516943817073,
+    "gen_ok": true,
+    "gen_is_clock": true
+  },
+  "/tmp/claude-1000/-home-rebelliousnerd-codeProjects-codenerd/d03f9170-3794-46ad-b9e4-9dae2a7e5556/scratchpad/wt-cx-tui-search-evidence-coverage/cmd/nerd/chat/yolo_test.go": {
+    "test_symbols": true,
+    "hash": "76164777eedc042cadb08d8d26a1da3d6f0c949be37381545bae69fe7d789894",
+    "mod_time": 1793338516943817073,
+    "size": 1831,
+    "gen": 1793338516943817073,
+    "gen_ok": true,
+    "gen_is_clock": true
   }
 }
