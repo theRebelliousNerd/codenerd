@@ -36,7 +36,16 @@ func TestVerificationRunners_CancelKillsTheProcessTree(t *testing.T) {
 			return runVerificationProcess(ctx, dir, os.Environ(), "sh", []string{script})
 		}},
 		{"gopls", func(ctx context.Context, dir, script string) ([]byte, error) {
-			return goplsCheckProcess(ctx, script, dir, []string{"main.go"})
+			// goplsCheckProcess runs `<bin> check main.go`. With bin = sh and the
+			// fixture saved as dir/check, sh reads the script instead of the
+			// kernel executing it: executing a file this process just wrote
+			// fails with ETXTBSY whenever a parallel subtest forks while the
+			// write is open (the child inherits the descriptor), and the
+			// fixture then never starts.
+			if err := os.Link(script, filepath.Join(dir, "check")); err != nil {
+				return nil, err
+			}
+			return goplsCheckProcess(ctx, "sh", dir, []string{"main.go"})
 		}},
 	}
 	for _, tc := range cases {
