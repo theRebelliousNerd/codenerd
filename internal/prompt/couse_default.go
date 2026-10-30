@@ -49,9 +49,20 @@ func (r *CoUseRecorder) noteCategory(id, category string) {
 	if r.categories == nil {
 		r.categories = make(map[string]string)
 	}
-	if _, seen := r.categories[id]; !seen {
-		r.categories[id] = category
+	if _, seen := r.categories[id]; seen {
+		return
 	}
+	// The category map shares the atom budget: an id the tallies could
+	// never admit gains no resident category either.
+	limit := r.atomLimit
+	if limit == 0 {
+		limit = maxTrackedAtoms
+	}
+	if len(r.categories) >= limit {
+		r.categoriesTruncated = true
+		return
+	}
+	r.categories[id] = category
 }
 
 // Categories returns a CategoryLookup over the categories captured during
@@ -78,6 +89,9 @@ func (r *CoUseRecorder) Categories() CategoryLookup {
 type catState struct {
 	catMu      sync.RWMutex
 	categories map[string]string
+	// categoriesTruncated: the category map reached the atom budget and
+	// stopped admitting new ids.
+	categoriesTruncated bool
 }
 
 // logState is embedded in CoUseRecorder. Its own lock, because the log is read

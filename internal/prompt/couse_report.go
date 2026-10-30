@@ -112,6 +112,12 @@ type CoUseReport struct {
 	// Truncated means the pair matrix hit its cap and stopped admitting new
 	// pairs. Associations among late-appearing atoms are missing.
 	Truncated bool `json:"truncated"`
+	// AtomsTruncated means the resident atom budget (atoms and their
+	// categories) was full: RefusedAtomObservations atom occurrences in
+	// settled selections were not tallied, nor their pairs. Their selections
+	// still count, so shares of admitted atoms keep the full denominator.
+	AtomsTruncated          bool `json:"atoms_truncated"`
+	RefusedAtomObservations int  `json:"refused_atom_observations"`
 
 	Atoms      []AtomStat `json:"atoms"`
 	Ubiquitous []string   `json:"ubiquitous"`
@@ -166,7 +172,12 @@ func (r *CoUseRecorder) Report(params CoUseParams, lookup CategoryLookup) CoUseR
 	dropped := r.dropped
 	unattributed := r.unattributed
 	truncated := r.truncated
+	atomsTruncated := r.atomsTruncated
+	refused := r.refusedAtoms
 	r.mu.Unlock()
+	r.catMu.RLock()
+	atomsTruncated = atomsTruncated || r.categoriesTruncated
+	r.catMu.RUnlock()
 
 	rep := CoUseReport{
 		Params:            params,
@@ -178,6 +189,9 @@ func (r *CoUseRecorder) Report(params CoUseParams, lookup CategoryLookup) CoUseR
 		UnattributedSelections: unattributed,
 		DistinctAtoms:          len(atoms),
 		Truncated:              truncated,
+
+		AtomsTruncated:          atomsTruncated,
+		RefusedAtomObservations: refused,
 	}
 
 	if successSelections == 0 {

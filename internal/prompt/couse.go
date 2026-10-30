@@ -44,6 +44,16 @@ const (
 	// Truncated on the report. A partial report that says it is partial is
 	// usable; one that silently drops the tail is not.
 	maxTrackedPairs = 250_000
+
+	// maxTrackedAtoms bounds the resident atom ids: the per-atom tally and
+	// the first-seen category map together. Kernel-rendered atoms carry a
+	// content hash in their id, so a long session of changing briefs mints
+	// a fresh id per turn; without this bound the two maps grow for the
+	// life of the process while pending turns, selections and pairs stay
+	// bounded. On reaching it the recorder admits no new id, counts the
+	// refused occurrences, drops their pairs (a pair is only counted when
+	// both atoms are), and sets AtomsTruncated on the report.
+	maxTrackedAtoms = 20_000
 )
 
 // pairKey identifies an unordered atom pair. Ordering the two ids on insert is
@@ -89,6 +99,14 @@ type CoUseRecorder struct {
 	unattributed int // selections observed with no turn identity
 	truncated    bool
 
+	// atomLimit is maxTrackedAtoms; a field so a test can exercise the
+	// bound without minting twenty thousand ids.
+	atomLimit int
+	// refusedAtoms counts atom occurrences in settled selections that were
+	// not tallied because the atom budget was full.
+	refusedAtoms   int
+	atomsTruncated bool
+
 	catState
 	logState
 }
@@ -96,9 +114,10 @@ type CoUseRecorder struct {
 // NewCoUseRecorder returns an empty recorder.
 func NewCoUseRecorder() *CoUseRecorder {
 	return &CoUseRecorder{
-		atoms:   make(map[string]*counts),
-		pairs:   make(map[pairKey]*counts),
-		pending: make(map[string][][]string),
+		atoms:     make(map[string]*counts),
+		pairs:     make(map[pairKey]*counts),
+		pending:   make(map[string][][]string),
+		atomLimit: maxTrackedAtoms,
 	}
 }
 
@@ -205,18 +224,25 @@ func (r *CoUseRecorder) Settle(turnID string, outcome Outcome) {
 func (r *CoUseRecorder) foldLocked(atoms []string, outcome Outcome) {
 	bump(&r.selections, outcome)
 
+	admitted := atoms[:0:0]
 	for _, id := range atoms {
 		c, ok := r.atoms[id]
 		if !ok {
+			if len(r.atoms) >= r.atomLimit {
+				r.refusedAtoms++
+				r.atomsTruncated = true
+				continue
+			}
 			c = &counts{}
 			r.atoms[id] = c
 		}
 		bump(c, outcome)
+		admitted = append(admitted, id)
 	}
 
-	for i := 0; i < len(atoms); i++ {
-		for j := i + 1; j < len(atoms); j++ {
-			key := makePairKey(atoms[i], atoms[j])
+	for i := 0; i < len(admitted); i++ {
+		for j := i + 1; j < len(admitted); j++ {
+			key := makePairKey(admitted[i], admitted[j])
 			c, ok := r.pairs[key]
 			if !ok {
 				if len(r.pairs) >= maxTrackedPairs {
