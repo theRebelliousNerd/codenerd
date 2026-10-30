@@ -112,7 +112,7 @@ func Agent(ctx context.Context, k types.Kernel, client types.LLMClient, prompts 
 	// budget or the context bound is spent the role is not failed: tools are
 	// withheld and it answers from the evidence it has.
 	used := 0
-	closed := false
+	closed, nudged := false, false
 	for {
 		input, e := json.Marshal(payload)
 		if e != nil {
@@ -137,7 +137,17 @@ func Agent(ctx context.Context, k types.Kernel, client types.LLMClient, prompts 
 			return "", fmt.Errorf("empty deliberation model response")
 		}
 		if len(response.ToolCalls) == 0 {
-			return response.Text, nil
+			if strings.TrimSpace(response.Text) != "" {
+				return response.Text, nil
+			}
+			// An empty reply once evidence is closed is a role that still
+			// wanted tools. It is told once that only an answer will do.
+			if nudged {
+				return "", fmt.Errorf("deliberation role returned no answer")
+			}
+			closed, nudged = true, true
+			payload.Observations = append(payload.Observations, ProbeResult{Key: "answer-required", Error: answerRequired})
+			continue
 		}
 		if offer == nil {
 			return "", fmt.Errorf("deliberation role asked for tools after its evidence was closed")
@@ -186,6 +196,10 @@ func Agent(ctx context.Context, k types.Kernel, client types.LLMClient, prompts 
 // evidenceClosed tells a role its tool budget or context room is spent, so
 // its next reply must be its answer.
 const evidenceClosed = "evidence closed: the configured tool budget or context bound is spent; answer from the observations you have"
+
+// answerRequired tells a role that replied with nothing that its next reply
+// must be its JSON answer.
+const answerRequired = "your reply was empty: tools are closed, so reply now with your JSON answer from the observations you have"
 
 // observationOverhead is the JSON framing one observation adds around its
 // output (keys, quoting, the error field), kept out of the output's room.

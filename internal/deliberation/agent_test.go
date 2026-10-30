@@ -129,3 +129,23 @@ func TestAgent_ReadsAfterAFullContextAreRefusedWithinTheBound(t *testing.T) {
 		}
 	}
 }
+
+// A role that replies with nothing is told once that only its answer will do,
+// with tools withheld; a second empty reply fails it. Seen live: the
+// challenger's last reply was empty and the round failed to parse.
+func TestAgent_AnEmptyReplyIsNudgedOnce(t *testing.T) {
+	k, read, _ := agentFixture(t, 6, "package x")
+	client := &scriptedClient{replies: []*types.LLMToolResponse{{Text: "  "}, {Text: `{"recommendation":"c1"}`}}}
+	ctx := sessionlog.WithAgent(context.Background(), Challenger, "t4")
+	got, err := Agent(ctx, k, client, stubPrompts{}, Challenger, `{"request":"r"}`, read)
+	if err != nil || got != `{"recommendation":"c1"}` {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	if client.offers[1] != nil || !strings.Contains(client.inputs[1], "reply now with your JSON answer") {
+		t.Fatalf("the second call was not a tool-less nudge: offers=%v input=%s", client.offers[1], client.inputs[1])
+	}
+	client = &scriptedClient{replies: []*types.LLMToolResponse{{Text: ""}, {Text: ""}}}
+	if _, err := Agent(sessionlog.WithAgent(context.Background(), Challenger, "t5"), k, client, stubPrompts{}, Challenger, `{"request":"r"}`, read); err == nil {
+		t.Fatal("two empty replies were accepted")
+	}
+}
