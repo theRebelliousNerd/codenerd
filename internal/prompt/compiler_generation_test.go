@@ -149,7 +149,7 @@ func (p *churningStrategyProvider) SourceGeneration(context.Context) (string, er
 	return strconv.FormatInt(p.generation.Load(), 10), nil
 }
 
-func (p *churningStrategyProvider) StrategyAtoms(*CompilationContext) []*PromptAtom {
+func (p *churningStrategyProvider) StrategyAtoms(context.Context, *CompilationContext) []*PromptAtom {
 	if p.churn.Load() {
 		p.generation.Add(1)
 	}

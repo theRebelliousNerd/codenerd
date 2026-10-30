@@ -58,10 +58,10 @@ func NewStrategyAtomProvider(store *StrategyStore, classifier *ProblemClassifier
 
 // StrategyAtoms implements prompt.StrategyProvider.
 //
-// Classification is the regex classifier, not the LLM one: this runs inside
-// prompt compilation on the turn's critical path, and a network call there
-// would put the learning loop's latency in front of every user request.
-func (p *StrategyAtomProvider) StrategyAtoms(cc *prompt.CompilationContext) []*prompt.PromptAtom {
+// Classification uses Jev when configured, with its local timeout and pattern
+// fallback. Keep the shared compilation's cancellation, usage and correlation
+// values through that request.
+func (p *StrategyAtomProvider) StrategyAtoms(ctx context.Context, cc *prompt.CompilationContext) []*prompt.PromptAtom {
 	if p == nil || p.store == nil || cc == nil {
 		return nil
 	}
@@ -73,7 +73,9 @@ func (p *StrategyAtomProvider) StrategyAtoms(cc *prompt.CompilationContext) []*p
 		return nil
 	}
 
-	problemType, _ := p.classifier.Classify(strategyQueryFor(cc))
+	// Preserve the existing classification scope and cache identity: shardType
+	// scopes the strategy store lookup, not the classifier's evidence.
+	problemType, _ := p.classifier.ClassifyWithContext(ctx, strategyQueryFor(cc), "")
 	strategies, err := p.store.SelectStrategies(problemType, shardType, maxStrategyAtomsPerPrompt)
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Warn(

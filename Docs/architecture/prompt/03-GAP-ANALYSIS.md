@@ -292,3 +292,9 @@ SetConfig must invalidate compiled output selected or rendered using the previou
 ## G6 acceptance: caller-owned observed compilation results
 
 Every CompilationResult escaping compiler observability APIs, including GetLastResult, must be caller-owned: mutating prompt text or mutable nested fields must not change the compiler cache or another result. Regression acceptance warms the cache, mutates the observed result, and verifies the next same-context cache hit preserves the original output. This strengthens G6 cached-result ownership without weakening cache correctness.
+
+## Strategy compilation ownership
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-PROMPT-STRATEGY-CONTEXT | Runtime ownership through learned-strategy classification | `internal/prompt/compiler_sources.go:109` passes the shared runtime context through `StrategyProvider` into `ClassifyWithContext` (`internal/autopoiesis/prompt_evolution/strategy_atoms.go:78`). | Strategy source context contract in `06-PUBLIC-API-AND-TYPES.md`. | P1 | Implementation complete; validation pending | Existing shared compilation ownership and TypeSafe usage reporting | Execute `TestStrategyCompile*` in `internal/autopoiesis/prompt_evolution/strategy_context*test.go`, including race verification: real `Compile` reports one answered request to tracker and observer with exchange correlation; shutdown cancels before closing owned resources; waiter cancellation preserves shared work; cache, disabled and failure controls preserve existing behavior. |

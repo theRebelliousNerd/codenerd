@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: prompt
-implementation-status: proposed
+implementation-status: implemented
 evidence-status: source-only
 last-verified: 2026-10-30
 verified-against: fef98230c20a5751e4c32a2fd2757832a9d39cdc
@@ -88,6 +88,56 @@ Future deterministic evaluation should cover:
 Count actual HTTP attempts as well as logical requests, reported token classes, tracker and observer deliveries, exchange writes, cache hits, shared consumers, outstanding request lifetime and compiler-close latency. Run cold and warm controls with identical workloads. If classification results or selected atoms change, check prompt equivalence and downstream quality rather than attributing a token difference to a context-only repair.
 
 Costs include an interface migration, context-aware test fixtures and clearer accounting of work already being performed. Reported token totals may increase because omitted requests become visible; that does not show that provider spend increased. Earlier shutdown can avoid some outstanding work, but no latency or cost savings have been measured. Unknown server-side consumption after cancellation remains unknown unless the provider reports it. Do not sum raw tokens, elapsed time, memory and monetary values into an invented efficiency score.
+
+## As built
+
+Current-source revalidation found both context-loss mechanisms still present
+before this repair. No finding was already fixed or wrong.
+
+| Finding | Ruling and implementation |
+|---|---|
+| Strategy classification loses tracker, observer and turn/task correlation | **Real, repaired.** `internal/prompt/compiler_sources.go:109` forwards the shared runtime context through `internal/prompt/strategy_atoms.go:34` and `:58`; `internal/autopoiesis/prompt_evolution/strategy_atoms.go:78` calls `ClassifyWithContext`. |
+| Strategy classification cannot observe compiler-owner cancellation | **Real, repaired by the same handoff.** Existing ownership remains in `internal/prompt/compiler_pipeline.go:154`; `internal/prompt/compiler.go:414` still cancels and joins before resource closure. |
+| The provider comment claims regex-only classification | **Real, corrected.** `internal/autopoiesis/prompt_evolution/strategy_atoms.go:61` describes bounded Jev classification and pattern fallback. |
+
+Source inspection also confirmed the audit's scope limits: session tracker and
+turn attachment and factory Jev/provider wiring already carry the required
+values; the defect was the provider seam. Individual waiter cancellation,
+configured timeouts, successful-answer caching, source guards, fallback and
+selection/budget fitting retain their existing contracts. The strategy
+classifier still receives the empty shard argument, preserving its question
+and cache identity. Session callers, Mangle rules and prompt atoms needed no
+changes.
+
+Authored production-path regressions use `Compile`, the production kernel
+adapter, the evolver's concrete provider and the real TypeSafe client, replacing
+only its HTTP transport:
+
+- `strategy_context_test.go`: `TestStrategyCompilePreservesUsageAndExchangeContext`
+  checks one actual attempt, tracker and observer counts, operation/turn identity,
+  independent exchange usage/correlation, compiler hits and classifier hits.
+- `strategy_context_lifecycle_test.go`:
+  `TestStrategyCompileShutdownCancelsAndJoinsRequestBeforeClosingDB` and
+  `TestStrategyCompileCanceledWaiterPreservesSharedRequestAndUsageOwner` check
+  owner cancellation, joining before owned DB closure, waiter independence and
+  one request billed to its originating context.
+- `strategy_context_controls_test.go` checks disabled/unconfigured Jev, absent
+  source inputs, local timeout and transport failure without invented usage.
+
+All three files are under `internal/autopoiesis/prompt_evolution/`. Existing
+provider and generation fixtures were migrated to the context-bearing API.
+The prompt API, gap analysis, implemented spec, autopoiesis internals and
+`Docs/architecture/jev-turn-judgments.md` describe the resulting contract.
+
+Fail-before evidence is source-derived, not an executed result: the original
+`Classify` wrapper replaces the incoming context with `context.Background()`,
+so the accounting fixture would receive neither tracker nor observer delivery
+and lose exchange turn/task correlation. The shutdown fixture deliberately
+configures a one-hour local bound: before the repair its owner-cancellation
+assertion would expire while the background request remains outstanding.
+No builds or tests were run under the author-only task restriction. Runtime,
+race and fail-before execution remain for the verification session; no measured
+latency, cost or downstream-quality claim is made.
 
 [problem-contract]: https://github.com/theRebelliousNerd/codenerd/blob/fef98230c20a5751e4c32a2fd2757832a9d39cdc/Docs/architecture/jev-turn-judgments.md#L446-L461
 [provider]: https://github.com/theRebelliousNerd/codenerd/blob/fef98230c20a5751e4c32a2fd2757832a9d39cdc/internal/autopoiesis/prompt_evolution/strategy_atoms.go#L59-L81

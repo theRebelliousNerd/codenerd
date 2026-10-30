@@ -60,11 +60,11 @@ func TestStrategyAtoms_NilStoreYieldsNothing(t *testing.T) {
 	// Strategies can be disabled (EvolverConfig.EnableStrategies); that is a
 	// configuration, not an error, and must not break compilation.
 	p := NewStrategyAtomProvider(nil, nil)
-	if got := p.StrategyAtoms(&prompt.CompilationContext{ShardType: "/coder"}); got != nil {
+	if got := p.StrategyAtoms(t.Context(), &prompt.CompilationContext{ShardType: "/coder"}); got != nil {
 		t.Errorf("nil store returned %d atoms, want none", len(got))
 	}
 	var nilProvider *StrategyAtomProvider
-	if got := nilProvider.StrategyAtoms(&prompt.CompilationContext{}); got != nil {
+	if got := nilProvider.StrategyAtoms(t.Context(), &prompt.CompilationContext{}); got != nil {
 		t.Errorf("nil provider returned %d atoms", len(got))
 	}
 }
@@ -76,7 +76,7 @@ func TestStrategyAtoms_NoShardTypeSelectsNothing(t *testing.T) {
 	store := newTestStrategyStore(t)
 	p := NewStrategyAtomProvider(store, NewProblemClassifier())
 
-	if got := p.StrategyAtoms(&prompt.CompilationContext{SemanticQuery: "fix the crash"}); got != nil {
+	if got := p.StrategyAtoms(t.Context(), &prompt.CompilationContext{SemanticQuery: "fix the crash"}); got != nil {
 		t.Errorf("an unscoped context returned %d atoms, want none", len(got))
 	}
 }
@@ -91,7 +91,7 @@ func TestStrategyAtoms_ServesTheSeededPlaybook(t *testing.T) {
 	}
 
 	p := NewStrategyAtomProvider(store, NewProblemClassifier())
-	atoms := p.StrategyAtoms(&prompt.CompilationContext{
+	atoms := p.StrategyAtoms(t.Context(), &prompt.CompilationContext{
 		ShardType:     "/coder",
 		IntentVerb:    "/fix",
 		SemanticQuery: "debug the nil pointer panic in the parser",

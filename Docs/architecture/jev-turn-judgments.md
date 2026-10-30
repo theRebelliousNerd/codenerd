@@ -456,6 +456,14 @@ strategies the prompt compiler serves (`StrategyAtomProvider`).
   cached per task text (512 entries), because the compiler asks on every model
   call of a turn. On the compile path the call is bounded by
   `turn_judgment_timeout`.
+- Strategy compilation passes its shared runtime context through
+  `StrategyProvider.StrategyAtoms` to `ClassifyWithContext`
+  (`internal/prompt/compiler_sources.go:109`,
+  `internal/autopoiesis/prompt_evolution/strategy_atoms.go:78`). This retains
+  the originating usage meter, observer and exchange turn/task correlation.
+  Compiler shutdown cancels the request; a canceled waiting caller does not
+  cancel the shared work. The classification shard argument remains empty,
+  preserving the existing question and successful-answer cache scope.
 - Fallback: the regex patterns and keyword boosters, logged
   (`Problem type: no Jev answer`), when Jev is off, `problem_types` is off, or
   the call fails.
@@ -869,8 +877,11 @@ shard's own admission) does not see.
 - Atom relevance is bounded by `atom_relevance_timeout` (default 4s) per prompt
   compile. Measured live: 40 atoms in 150-235 ms, about 30k input tokens per
   turn. Atom importance runs at build time only: 2,445 atoms in 3.1 s.
-- Every answered call is billed to the session's usage tracker
-  (`typesafe.Client.Ask`, then `usage.RecordFromContext`):
+- Every answered call reports through `typesafe.Client.Ask`, then
+  `usage.RecordFromContext`, to the tracker and observer carried by its runtime
+  context. A call without either consumer on its context cannot deliver to
+  that consumer. The strategy compile path preserves these values once for
+  shared work; waiters and cache hits do not bill the request again:
   - provider `typesafe`;
   - the model that answered;
   - operation `jev_turn_judgments`, `jev_retrieval_relevance`,

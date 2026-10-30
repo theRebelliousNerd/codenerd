@@ -45,6 +45,18 @@
 
 ## Core methods on JITPromptCompiler
 
+### Strategy source context contract
+
+`StrategyProvider.StrategyAtoms(ctx context.Context, cc *CompilationContext)`
+receives the runtime context of the shared compilation. `CompilationContext`
+contains selection inputs; it does not replace cancellation, usage or exchange
+correlation carried by `ctx`. Forward that context into any classifier request.
+The shared operation retains the initiating caller's values, detaches that
+caller's cancellation, and remains canceled by compiler shutdown. A single
+answered classification reports usage once, irrespective of waiter count.
+Compiler and classifier cache hits do not invent additional usage reports.
+The classifier's local Jev timeout and existing fallback remain in force.
+
 | Method | Purpose |
 |--------|---------|
 | `Compile(ctx, *CompilationContext)` | Full pipeline |

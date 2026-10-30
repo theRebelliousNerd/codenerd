@@ -3,6 +3,25 @@
 Verified 2026-09-20 against the `main` working tree (docs-only change; no
 Go files modified). All line references are to `internal/autopoiesis/`.
 
+## Learned-strategy runtime context contract
+
+The strategy provider must forward the prompt compiler's runtime context to
+`ProblemClassifier.ClassifyWithContext`. Jev's configured problem timeout
+still bounds the call; pattern fallback remains available when Jev supplies no
+answer. Preserve the existing empty classification shard argument and cache
+identity for strategy lookups: this repair changes runtime ownership, not the
+classification evidence. Usage tracking, observers and exchange turn/task
+correlation must follow the shared compilation's originating context. Compiler
+shutdown cancels that work; canceling an individual waiting caller does not.
+
+As built, `prompt_evolution/strategy_atoms.go:64` accepts the runtime context
+and forwards it at line 78. `prompt_evolution/strategy_context_test.go:128` uses the real prompt
+compiler, production kernel adapter, evolver provider and TypeSafe client to
+check accounting and exchange correlation. `prompt_evolution/strategy_context_lifecycle_test.go:19`
+and `prompt_evolution/strategy_context_controls_test.go:17` cover cancellation, join ordering,
+cache reuse and fallback controls. These fixtures are authored; their execution
+and race verification remain pending.
+
 ## The loop (ouroboros.go)
 
 `ExecuteWithConfig` (`ouroboros.go:343`) drives stages named by `LoopStage`

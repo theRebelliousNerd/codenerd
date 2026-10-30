@@ -694,6 +694,29 @@ open.
 
 ---
 
+### 12.5 Strategy classification retains shared compilation ownership
+
+`StrategyProvider.StrategyAtoms` accepts the runtime `context.Context` as well
+as selection inputs (`internal/prompt/strategy_atoms.go:34`). Atom collection
+forwards its shared-work context (`internal/prompt/compiler_sources.go:109`),
+and the evolver's provider uses `ClassifyWithContext` with the unchanged empty
+classification shard (`internal/autopoiesis/prompt_evolution/strategy_atoms.go:78`).
+The existing Jev timeout, successful-answer cache and pattern fallback remain
+in `internal/autopoiesis/prompt_evolution/classifier.go:57`. Usage and exchange context now reach
+the real TypeSafe client; compiler shutdown reaches its outstanding request.
+The shared-work lifecycle remains owned by `compiler_pipeline.go:154` and
+`compiler.go:414`, independently of any waiting caller's cancellation.
+
+The production-path controls in
+`internal/autopoiesis/prompt_evolution/strategy_context_test.go:128`,
+`internal/autopoiesis/prompt_evolution/strategy_context_lifecycle_test.go:19` and
+`internal/autopoiesis/prompt_evolution/strategy_context_controls_test.go:17` use the real kernel adapter, evolver
+provider and TypeSafe client with an in-process HTTP transport. They cover
+tracker/observer delivery, exchange correlation, cache reuse, caller and owner
+cancellation, resource joining, disabled/absent inputs and unanswered fallback.
+They are authored and source-reviewed; execution and race verification remain
+pending. No live-provider latency, spend or downstream quality is established.
+
 ## 13. Baseline path (`baseline.go`)
 
 `AssembleEmbeddedBaselinePrompt(cc)`:

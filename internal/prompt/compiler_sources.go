@@ -106,7 +106,7 @@ func (c *JITPromptCompiler) collectAtomsWithStats(
 	// 5. Learned strategies for this problem type. Last, so a strategy never
 	// shadows a built-in atom that happens to share an ID — the same
 	// precedence every source below the embedded corpus already has.
-	breakdown.strategy, _ = appendSource("strategy", c.collectStrategyAtoms(cc))
+	breakdown.strategy, _ = appendSource("strategy", c.collectStrategyAtoms(ctx, cc))
 
 	return allAtoms, breakdown, nil
 }

@@ -12,7 +12,7 @@ type fakeStrategyProvider struct {
 	panics bool
 }
 
-func (f *fakeStrategyProvider) StrategyAtoms(cc *CompilationContext) []*PromptAtom {
+func (f *fakeStrategyProvider) StrategyAtoms(_ context.Context, cc *CompilationContext) []*PromptAtom {
 	f.calls++
 	if f.panics {
 		panic("provider exploded")
@@ -26,7 +26,7 @@ func (f *fakeStrategyProvider) SourceGeneration(context.Context) (string, error)
 
 func TestCollectStrategyAtoms_NoProviderIsNoSource(t *testing.T) {
 	c := &JITPromptCompiler{}
-	if got := c.collectStrategyAtoms(&CompilationContext{}); got != nil {
+	if got := c.collectStrategyAtoms(t.Context(), &CompilationContext{}); got != nil {
 		t.Errorf("an unregistered provider produced %d atoms", len(got))
 	}
 }
@@ -36,12 +36,12 @@ func TestRegisterStrategyProvider_NilRemovesTheSource(t *testing.T) {
 	p := &fakeStrategyProvider{atoms: []*PromptAtom{NewPromptAtom("strategy/x", CategoryMethodology, "body")}}
 
 	c.RegisterStrategyProvider(p)
-	if got := c.collectStrategyAtoms(&CompilationContext{}); len(got) != 1 {
+	if got := c.collectStrategyAtoms(t.Context(), &CompilationContext{}); len(got) != 1 {
 		t.Fatalf("registered provider yielded %d atoms, want 1", len(got))
 	}
 
 	c.RegisterStrategyProvider(nil)
-	if got := c.collectStrategyAtoms(&CompilationContext{}); got != nil {
+	if got := c.collectStrategyAtoms(t.Context(), &CompilationContext{}); got != nil {
 		t.Errorf("clearing the provider left %d atoms; the five-source pipeline must fall back to four", len(got))
 	}
 }
@@ -58,7 +58,7 @@ func TestCollectStrategyAtoms_ContainsAPanickingProvider(t *testing.T) {
 			t.Fatalf("a panicking strategy provider escaped compilation: %v", r)
 		}
 	}()
-	if got := c.collectStrategyAtoms(&CompilationContext{}); got != nil {
+	if got := c.collectStrategyAtoms(t.Context(), &CompilationContext{}); got != nil {
 		t.Errorf("a panicking provider returned %d atoms, want none", len(got))
 	}
 }

@@ -1,6 +1,10 @@
 package prompt
 
-import "codenerd/internal/logging"
+import (
+	"context"
+
+	"codenerd/internal/logging"
+)
 
 // StrategyProvider supplies learned problem-solving strategies as prompt atoms
 // for one compilation.
@@ -11,9 +15,11 @@ import "codenerd/internal/logging"
 // put one in front of a model. A knowledge base the agent cannot read is not
 // knowledge; this is the seam that lets it read.
 //
-// The provider is asked once per compilation and must be cheap: it runs inside
-// the prompt compiler's atom-collection phase, on the turn's critical path. It
-// must return atoms already carrying their selectors, because they are fitted
+// The provider is asked once per compilation and must honor ctx: it runs inside
+// the prompt compiler's atom-collection phase, on the turn's critical path. The
+// context carries usage and correlation values and shared-work cancellation,
+// independently of any one waiter's cancellation. The provider must return
+// atoms already carrying their selectors, because they are fitted
 // to the token budget by exactly the same scoring the other four sources go
 // through — a strategy earns its place or gets dropped like anything else.
 //
@@ -25,7 +31,7 @@ import "codenerd/internal/logging"
 // Implemented by prompt_evolution.StrategyAtomProvider.
 type StrategyProvider interface {
 	SourceGenerationReporter
-	StrategyAtoms(cc *CompilationContext) []*PromptAtom
+	StrategyAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom
 }
 
 // RegisterStrategyProvider installs the learned-strategy source. Passing nil
@@ -49,7 +55,7 @@ func (c *JITPromptCompiler) RegisterStrategyProvider(p StrategyProvider) {
 // A provider that panics is contained here rather than taking the turn with
 // it: the strategy source is the newest and least load-bearing of the five,
 // and a prompt without its strategies is still a working prompt.
-func (c *JITPromptCompiler) collectStrategyAtoms(cc *CompilationContext) (atoms []*PromptAtom) {
+func (c *JITPromptCompiler) collectStrategyAtoms(ctx context.Context, cc *CompilationContext) (atoms []*PromptAtom) {
 	c.dbMu.RLock()
 	provider := c.strategyProvider
 	c.dbMu.RUnlock()
@@ -64,5 +70,5 @@ func (c *JITPromptCompiler) collectStrategyAtoms(cc *CompilationContext) (atoms 
 			atoms = nil
 		}
 	}()
-	return provider.StrategyAtoms(cc)
+	return provider.StrategyAtoms(ctx, cc)
 }
