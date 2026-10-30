@@ -224,31 +224,36 @@ Decl consult_settled(Ask, Agent) bound [/string, /name].
 Decl consult_route(Ask, Agent, Route) bound [/string, /name, /name].
 
 # --- Consultation cards (per turn, dealt per planned step) ------------------
+# A card is one consultation's outcome, identified within the turn by Card
+# (its position in the turn's cards): one agent can hold several, each with
+# its own scope, when a later step needs it for files its first card did not
+# cover.
 
-# turn_expert_card(Turn, Agent, Mode, Disposition) - a consultation this turn
-# bought: the agent, its spawn mode (/lead, /advise) and how it ended
-# (/answered, /failed, /empty). Producer: internal/session
-# (Executor.withExpertConsultations).
-Decl turn_expert_card(Turn, Agent, Mode, Disposition) bound [/name, /name, /name, /name].
+# turn_expert_card(Turn, Card, Agent, Mode, Disposition) - a consultation
+# this turn settled: the agent, its spawn mode (/lead, /advise) and how it
+# ended (/answered, /failed, /empty, /knowledge, /unresolved). Producer:
+# internal/session (Executor.recordCards).
+Decl turn_expert_card(Turn, Card, Agent, Mode, Disposition) bound [/name, /number, /name, /name, /name].
 
-# turn_expert_card_file(Turn, Agent, File) - a canonical task file the card's
-# agent was selected for (experts.Need.Files). Producer: as turn_expert_card.
-Decl turn_expert_card_file(Turn, Agent, File) bound [/name, /name, /string].
+# turn_expert_card_file(Turn, Card, File) - a canonical task file the card was
+# asked about (experts.Need.Files, or the uncovered part of them for a
+# supplement). Producer: as turn_expert_card.
+Decl turn_expert_card_file(Turn, Card, File) bound [/name, /number, /string].
 
 # turn_step_file(Turn, File) - a planned step of the turn edits File
 # (canonical). Producer: internal/session (Executor.stepSystemPrompt).
 Decl turn_step_file(Turn, File) bound [/name, /string].
 
-# turn_card_dealt(Turn, File, Agent) - the agent's answered card goes into the
-# prompt of the step that edits File. Consumer: internal/session
+# turn_card_dealt(Turn, File, Card) - the answered card goes into the prompt
+# of the step that edits File. Consumer: internal/session
 # (Executor.dealtCards).
-Decl turn_card_dealt(Turn, File, Agent) bound [/name, /string, /name].
+Decl turn_card_dealt(Turn, File, Card) bound [/name, /string, /number].
 
-# turn_card_handoff(Turn, Agent, Idx, From, To) - the agent's card names a
-# hand-off: a change in From obliges something of To (both canonical). Idx
-# orders the card's hand-offs. Producer: internal/session
-# (Executor.recordCards, from the card's HANDOFF lines).
-Decl turn_card_handoff(Turn, Agent, Idx, From, To) bound [/name, /name, /number, /string, /string].
+# turn_card_handoff(Turn, Card, Idx, From, To) - the card names a hand-off: a
+# change in From obliges something of To (both canonical). Idx orders the
+# card's hand-offs. Producer: internal/session (Executor.recordCards, from the
+# card's HANDOFF lines).
+Decl turn_card_handoff(Turn, Card, Idx, From, To) bound [/name, /number, /number, /string, /string].
 
 # turn_plan_file(Turn, File) - the turn's step plan edits File (canonical).
 # Producer: internal/session (Executor.reconcileHandoffs).
@@ -258,23 +263,23 @@ Decl turn_plan_file(Turn, File) bound [/name, /string].
 # disk. Producer: as turn_plan_file.
 Decl turn_handoff_target_exists(Turn, File) bound [/name, /string].
 
-# turn_handoff_answered(Turn, Agent, Idx, From, To) - a hand-off whose card
+# turn_handoff_answered(Turn, Card, Idx, From, To) - a hand-off whose card
 # answered.
-Decl turn_handoff_answered(Turn, Agent, Idx, From, To) bound [/name, /name, /number, /string, /string].
+Decl turn_handoff_answered(Turn, Card, Idx, From, To) bound [/name, /number, /number, /string, /string].
 
-# turn_handoff_dealt(Turn, File, Agent, Idx) - the hand-off goes into the
+# turn_handoff_dealt(Turn, File, Card, Idx) - the hand-off goes into the
 # prompt of the step on either of its ends. Consumer: Executor.dealtCards.
-Decl turn_handoff_dealt(Turn, File, Agent, Idx) bound [/name, /string, /name, /number].
+Decl turn_handoff_dealt(Turn, File, Card, Idx) bound [/name, /string, /number, /number].
 
-# turn_handoff_unplanned(Turn, Agent, Idx, To) - an answered hand-off leaves a
+# turn_handoff_unplanned(Turn, Card, Idx, To) - an answered hand-off leaves a
 # planned file for a file the plan does not edit.
-Decl turn_handoff_unplanned(Turn, Agent, Idx, To) bound [/name, /name, /number, /string].
+Decl turn_handoff_unplanned(Turn, Card, Idx, To) bound [/name, /number, /number, /string].
 
-# turn_handoff_step(Turn, Agent, Idx, To) - the unplanned consumer exists, so
+# turn_handoff_step(Turn, Card, Idx, To) - the unplanned consumer exists, so
 # the plan gains a step on it. Consumer: Executor.reconcileHandoffs.
-Decl turn_handoff_step(Turn, Agent, Idx, To) bound [/name, /name, /number, /string].
+Decl turn_handoff_step(Turn, Card, Idx, To) bound [/name, /number, /number, /string].
 
-# turn_handoff_unresolved(Turn, Agent, Idx, To) - the unplanned consumer is not
+# turn_handoff_unresolved(Turn, Card, Idx, To) - the unplanned consumer is not
 # a file on disk: the hand-off is reported as unresolved, not guessed at.
 # Consumer: Executor.reconcileHandoffs.
-Decl turn_handoff_unresolved(Turn, Agent, Idx, To) bound [/name, /name, /number, /string].
+Decl turn_handoff_unresolved(Turn, Card, Idx, To) bound [/name, /number, /number, /string].

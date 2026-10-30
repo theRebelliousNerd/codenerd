@@ -116,53 +116,74 @@ func (c expertCard) render() string {
 const consultationHeader = "\n\n## Shard agent consultation\n" +
 	"The harness consulted these shard agents before this turn because the task's files are in their domain (expert_spawn). Weigh their reading; you still own the result and its verification.\n"
 
-// recordCards publishes the turn's cards to the kernel, which deals them.
+// recordCards publishes the turn's cards to the kernel, which deals them. A
+// card's identity in the facts is its position in the turn's cards.
 func (e *Executor) recordCards(result *ExecutionResult, cards []expertCard) {
 	if result == nil {
 		return
 	}
+	first := len(result.expertCards)
 	result.expertCards = append(result.expertCards, cards...)
 	if e.kernel == nil {
 		return
 	}
 	turn := result.turnAtom()
-	for _, c := range cards {
-		agent := experts.AgentAtom(c.Agent)
+	for i, c := range cards {
+		id := int64(first + i)
 		e.assertTurnFact(types.Fact{Predicate: "turn_expert_card", Args: []any{
-			turn, agent, types.MangleAtom("/" + c.Mode), types.MangleAtom(c.Disposition)}})
+			turn, id, experts.AgentAtom(c.Agent), types.MangleAtom("/" + c.Mode), types.MangleAtom(c.Disposition)}})
 		for _, f := range c.Files {
-			e.assertTurnFact(types.Fact{Predicate: "turn_expert_card_file", Args: []any{turn, agent, f}})
+			e.assertTurnFact(types.Fact{Predicate: "turn_expert_card_file", Args: []any{turn, id, f}})
 		}
-		for i, h := range c.Handoffs {
-			e.assertTurnFact(types.Fact{Predicate: "turn_card_handoff", Args: []any{turn, agent, int64(i), h.From, h.To}})
+		for j, h := range c.Handoffs {
+			e.assertTurnFact(types.Fact{Predicate: "turn_card_handoff", Args: []any{turn, id, int64(j), h.From, h.To}})
 		}
 	}
 }
 
-// cardHandoffAt is the hand-off a turn_handoff_* row names.
-func (r *ExecutionResult) cardHandoffAt(agent string, idx int64) (cardHandoff, bool) {
-	for _, c := range r.expertCards {
-		if experts.AgentKey(c.Agent) != agent {
-			continue
-		}
-		if idx >= 0 && int(idx) < len(c.Handoffs) {
-			return c.Handoffs[idx], true
-		}
+// cardAt is the turn's card with identity id.
+func (r *ExecutionResult) cardAt(id int64) (expertCard, bool) {
+	if id < 0 || int(id) >= len(r.expertCards) {
+		return expertCard{}, false
 	}
-	return cardHandoff{}, false
+	return r.expertCards[id], true
 }
 
-// handoffRow reads a turn_handoff_{step,unresolved} row: agent key, index and
+// cardHandoffAt is hand-off idx of card id.
+func (r *ExecutionResult) cardHandoffAt(id, idx int64) (expertCard, cardHandoff, bool) {
+	c, ok := r.cardAt(id)
+	if !ok || idx < 0 || int(idx) >= len(c.Handoffs) {
+		return expertCard{}, cardHandoff{}, false
+	}
+	return c, c.Handoffs[idx], true
+}
+
+// numberArg reads argument i of a row as a number.
+func numberArg(row types.Fact, i int) (int64, bool) {
+	arg, ok := nthArg(row.Args, i)
+	if !ok {
+		return 0, false
+	}
+	n, ok := arg.(int64)
+	return n, ok
+}
+
+// stringArg reads argument i of a row as a string.
+func stringArg(row types.Fact, i int) (string, bool) {
+	arg, ok := nthArg(row.Args, i)
+	if !ok {
+		return "", false
+	}
+	return types.ExtractString(arg), true
+}
+
+// handoffRow reads a turn_handoff_{step,unresolved} row: card, index and
 // consumer file.
-func handoffRow(row types.Fact) (string, int64, string, bool) {
-	agent, okA := nthArg(row.Args, 1)
-	idx, okI := nthArg(row.Args, 2)
-	to, okT := nthArg(row.Args, 3)
-	n, okN := idx.(int64)
-	if !okA || !okI || !okT || !okN {
-		return "", 0, "", false
-	}
-	return experts.AgentKey(types.ExtractString(agent)), n, types.ExtractString(to), true
+func handoffRow(row types.Fact) (int64, int64, string, bool) {
+	card, okC := numberArg(row, 1)
+	idx, okI := numberArg(row, 2)
+	to, okT := stringArg(row, 3)
+	return card, idx, to, okC && okI && okT
 }
 
 // reconcileHandoffs checks the plan against the hand-offs the turn's cards
@@ -196,43 +217,33 @@ func (e *Executor) reconcileHandoffs(result *ExecutionResult, steps []workStep, 
 	run, beyond := splitPlan(steps)
 	added := map[string]bool{}
 	for _, row := range stepRows {
-		agent, idx, to, ok := handoffRow(row)
-		h, found := result.cardHandoffAt(agent, idx)
+		id, idx, to, ok := handoffRow(row)
+		c, h, found := result.cardHandoffAt(id, idx)
 		if !ok || !found || added[to] {
 			continue
 		}
 		added[to] = true
-		step := workStep{File: to, Change: fmt.Sprintf("carry the hand-off from %s (%s): %s", h.From, agent, h.Contract)}
+		step := workStep{File: to, Change: fmt.Sprintf("carry the hand-off from %s (%s): %s", h.From, c.Agent, h.Contract)}
 		if len(run) < maxSteps {
 			run = append(run, step)
 		} else {
 			step.Beyond = true
 			beyond = append(beyond, step)
 		}
-		logging.Session("Plan gains a step on %s: hand-off from %s named by %s", to, h.From, agent)
+		logging.Session("Plan gains a step on %s: hand-off from %s named by %s", to, h.From, c.Agent)
 	}
 	var note strings.Builder
 	if rows, err := e.turnRows("turn_handoff_unresolved", turn); err == nil {
 		for _, row := range rows {
-			agent, idx, to, ok := handoffRow(row)
-			h, found := result.cardHandoffAt(agent, idx)
+			id, idx, to, ok := handoffRow(row)
+			c, h, found := result.cardHandoffAt(id, idx)
 			if !ok || !found {
 				continue
 			}
-			fmt.Fprintf(&note, "\nUnresolved hand-off: %s (%s) says %s obliges %s, which is not on disk: %s", agent, consultationRole(result.cardMode(agent)), h.From, to, h.Contract)
+			fmt.Fprintf(&note, "\nUnresolved hand-off: %s (%s) says %s obliges %s, which is not on disk: %s", c.Agent, consultationRole(c.Mode), h.From, to, h.Contract)
 		}
 	}
 	return append(run, beyond...), note.String()
-}
-
-// cardMode is the spawn mode of the agent's card.
-func (r *ExecutionResult) cardMode(agent string) string {
-	for _, c := range r.expertCards {
-		if experts.AgentKey(c.Agent) == agent {
-			return c.Mode
-		}
-	}
-	return ""
 }
 
 // dealtCards is the consultation section of one planned step's prompt: the
@@ -250,18 +261,18 @@ func (e *Executor) dealtCards(result *ExecutionResult, file string) string {
 		logging.Get(logging.CategorySession).Warn("dealing the turn's consultations to the step on %s failed (%v); the step gets none", file, err)
 		return ""
 	}
-	dealt := map[string]bool{}
+	dealt := map[int64]bool{}
 	for _, row := range rows {
-		dealtFile, okFile := nthArg(row.Args, 1)
-		agent, okAgent := nthArg(row.Args, 2)
-		if okFile && okAgent && types.ExtractString(dealtFile) == canonical {
-			dealt[experts.AgentKey(types.ExtractString(agent))] = true
+		dealtFile, okFile := stringArg(row, 1)
+		id, okID := numberArg(row, 2)
+		if okFile && okID && dealtFile == canonical {
+			dealt[id] = true
 		}
 	}
 	var hand, left strings.Builder
 	var delivered, withheld []string
-	for _, c := range result.expertCards {
-		if dealt[experts.AgentKey(c.Agent)] {
+	for i, c := range result.expertCards {
+		if dealt[int64(i)] {
 			hand.WriteString(c.render())
 			delivered = append(delivered, c.Agent)
 			continue
@@ -276,23 +287,21 @@ func (e *Executor) dealtCards(result *ExecutionResult, file string) string {
 	}
 	var handoffs strings.Builder
 	if rows, err := e.turnRows("turn_handoff_dealt", turn); err == nil {
-		seen := map[string]bool{}
+		type handoffID struct{ card, idx int64 }
+		seen := map[handoffID]bool{}
 		for _, row := range rows {
-			stepFile, okF := nthArg(row.Args, 1)
-			agent, okA := nthArg(row.Args, 2)
-			idx, okI := nthArg(row.Args, 3)
-			n, okN := idx.(int64)
-			if !okF || !okA || !okI || !okN || types.ExtractString(stepFile) != canonical {
+			stepFile, okF := stringArg(row, 1)
+			id, okC := numberArg(row, 2)
+			idx, okI := numberArg(row, 3)
+			if !okF || !okC || !okI || stepFile != canonical || seen[handoffID{id, idx}] {
 				continue
 			}
-			key := experts.AgentKey(types.ExtractString(agent))
-			h, found := result.cardHandoffAt(key, n)
-			id := fmt.Sprintf("%s#%d", key, n)
-			if !found || seen[id] {
+			c, h, found := result.cardHandoffAt(id, idx)
+			if !found {
 				continue
 			}
-			seen[id] = true
-			fmt.Fprintf(&handoffs, "  - %s -> %s (%s): %s\n", h.From, h.To, key, h.Contract)
+			seen[handoffID{id, idx}] = true
+			fmt.Fprintf(&handoffs, "  - %s -> %s (%s): %s\n", h.From, h.To, experts.AgentKey(c.Agent), h.Contract)
 		}
 	}
 	logging.Session("Step on %s: dealt %v, not dealt %v", canonical, delivered, withheld)

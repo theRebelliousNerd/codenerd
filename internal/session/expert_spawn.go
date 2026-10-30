@@ -76,8 +76,15 @@ type expertConsultation struct {
 func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt string, intent perception.Intent, input string, sel experts.Selection, result *ExecutionResult, delivered map[string]int) string {
 	var spawns []experts.Need
 	for _, need := range sel.Needs {
-		if need.Spawn != "" && (result == nil || !result.consultedExperts[need.Agent]) {
-			spawns = append(spawns, need)
+		if need.Spawn == "" {
+			continue
+		}
+		// An agent already consulted this turn is asked again only about the
+		// files its cards do not cover: a later step on a file outside its
+		// first scope gets a supplement scoped to that file, not a card
+		// about other files, and not nothing.
+		if scoped, ok := result.uncoveredScope(need); ok {
+			spawns = append(spawns, scoped)
 		}
 	}
 	if len(spawns) == 0 {
@@ -144,16 +151,53 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 		b.WriteString(cards[i].render())
 	}
 	logging.Session("Consultations for %s %s: %d routed, %d bought", intent.Verb, intent.Target, len(plans), bought)
-	if result != nil {
-		if result.consultedExperts == nil {
-			result.consultedExperts = map[string]bool{}
-		}
-		for _, need := range spawns {
-			result.consultedExperts[need.Agent] = true
-		}
-	}
+	result.coverScope(spawns)
 	e.recordCards(result, cards)
 	return strings.TrimRight(systemPrompt, "\n") + b.String()
+}
+
+// uncoveredScope is need narrowed to the files no earlier consultation of
+// its agent this turn covered, and whether anything is left to ask. An agent
+// not yet consulted is asked about all of need; one consulted with no file
+// scope (a concept domain) is not asked again.
+func (r *ExecutionResult) uncoveredScope(need experts.Need) (experts.Need, bool) {
+	if r == nil {
+		return need, true
+	}
+	covered, consulted := r.consultedExperts[experts.AgentKey(need.Agent)]
+	if !consulted {
+		return need, true
+	}
+	var left []string
+	for _, f := range need.Files {
+		if !covered[f] {
+			left = append(left, f)
+		}
+	}
+	if len(left) == 0 {
+		return need, false
+	}
+	need.Files = left
+	return need, true
+}
+
+// coverScope records that each need's agent was consulted about its files.
+func (r *ExecutionResult) coverScope(needs []experts.Need) {
+	if r == nil {
+		return
+	}
+	if r.consultedExperts == nil {
+		r.consultedExperts = map[string]map[string]bool{}
+	}
+	for _, need := range needs {
+		key := experts.AgentKey(need.Agent)
+		if r.consultedExperts[key] == nil {
+			r.consultedExperts[key] = map[string]bool{}
+		}
+		for _, f := range need.Files {
+			r.consultedExperts[key][f] = true
+		}
+	}
 }
 
 func consultationRole(mode string) string {

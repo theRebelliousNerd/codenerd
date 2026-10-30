@@ -1068,10 +1068,11 @@ type ExecutionResult struct {
 	reportReading *types.Fact
 	// expertCards are the consultations this turn bought, typed
 	// (expert_cards.go): the kernel deals each planned step the ones that
-	// apply to its file. consultedExperts names the agents already consulted,
-	// so a step consults only an expert its own file newly needs.
+	// apply to its file. consultedExperts holds, per agent key, the files
+	// its consultations covered, so a step consults an agent only about
+	// files its cards do not cover.
 	expertCards      []expertCard
-	consultedExperts map[string]bool
+	consultedExperts map[string]map[string]bool
 	// expertDomainFiles are, per critiquing agent key, the task files its
 	// domain covers (experts.Need.Files): its review shows them first.
 	expertDomainFiles map[string][]string
