@@ -114,10 +114,41 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// holds the fact always succeeds (blind negation).
 				"path_in_workspace", "doc_exists_for",
 				"suppression", "file_content", "entry_point",
+				// The commit gate (commit_gate.mg, reviewer.mg): safe_to_commit
+				// and review_passed negate has_block_commit, which is derived
+				// from block_commit rules reading build_state, modified,
+				// pending_mutation and review_finding (all here) and the build
+				// result and coverage facts. A catch-all home for those last
+				// three left safe_to_commit evaluating in a shard that never
+				// saw a broken build or a modified file, so the negation always
+				// succeeded and a commit was never blocked.
+				"build_result",
+				// The polyglot async facts codedom_safety.mg turns into
+				// deny_edit beside the structure facts it reads here;
+				// safe_to_edit negates has_deny_edit in this shard, and the
+				// async deny rules fired only in the catch-all.
+				"go_goroutine", "go_uses_context", "py_async_def", "rs_async_fn", "ts_async_function",
+				"go_returns_error", "rs_returns_result", "rs_uses_unwrap", "ts_component", "ts_hook",
+				"mg_aggregation_rule",
+				// The reviewer's remaining facts (reviewer.mg). Its findings,
+				// complexity and history facts are world-owned; the approval
+				// history, suppression inputs and the review verdict were left
+				// in the catch-all, so review_passed negated has_block_commit
+				// where no block reason could derive, and active_finding
+				// negated is_finding_suppressed without false_positive_pattern.
+				// The turn's plan steps (turn_steps.mg): turn_steps_verdict
+				// negates turn_has_unresolved_step, whose step_execution and
+				// step_file_net inputs are here; step_plan_remaining was in
+				// the catch-all, so a plan with steps left could still verdict
+				// as done in the shard that never saw it.
+				"step_plan_remaining",
+				"approval_count", "approved_pattern", "review_accuracy", "user_rejected_finding",
 				// The tool registry (tool_registry.go) is joined against
 				// file_topology by tool_routing.mg and against the shared
 				// per-turn facts by stage_context.mg.
-				"tool_registered", "tool_capability", "tool_hash", "tool_source",
+				// tool_capability is NOT here: it is shared (SharedPredicates), because
+				// has_capability negations fire in every shard.
+				"tool_registered", "tool_hash", "tool_source",
 				// What .nerd/agents.json declared (registerUserAgentConfigAtoms).
 				// turn_tool_allowed joins it with persona_tool_allowed, which
 				// every shard holds, so the rule fires on this owner. The
@@ -126,7 +157,10 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"tool_exists", "tool_usage_stats", "tool_description",
 				"tool_available", "tool_binary_path", "tool_source_ready",
 				"tool_safety_verified", "tool_compiled",
-				"tool_generation_blocked", "tool_lifecycle", "tool_known_issue",
+				// tool_generation_blocked is derived (autopoiesis.mg) and no Go
+				// asserts it, so it is not owned: an owner would make the
+				// derivation look incomplete in every other shard.
+				"tool_lifecycle", "tool_known_issue",
 				"capability_similar_to", "tool_refined", "refinement_count",
 				"tool_learning", "tool_executed", "tool_exec_success",
 				"tool_exec_failed", "tool_not_found", "tool_execution_count",
@@ -253,8 +287,12 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 			},
 		},
 		{
-			Domain:          "tools",
-			OwnedPredicates: []string{"tool_capabilities", "shard_lifecycle", "shell_exec_result"},
+			Domain: "tools",
+			// tool_capabilities is not owned: it is the built-in tools' program
+			// facts (delegation.mg), every shard holds them, and no Go asserts a
+			// row. An owner made has_capability look incomplete in every other
+			// shard.
+			OwnedPredicates: []string{"shard_lifecycle", "shell_exec_result"},
 		},
 		{
 			Domain: "policy",
@@ -611,6 +649,12 @@ func SharedPredicates() []string {
 		"action_escalated",
 		"action_validated",
 		"critical_action_resolved",
+		// The tool registry's capabilities (autopoiesis_kernel.go: one row per
+		// generated tool). has_capability reads it under !has_capability in
+		// missing_tool_for, tool_generation_permitted and delegate_task, which
+		// derive in every shard: homed in one, the others saw no generated
+		// tool and derived "missing tool" for a capability already provided.
+		"tool_capability",
 	}
 }
 
