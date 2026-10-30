@@ -32,7 +32,7 @@ func ConfigSchemaJSON() string {
 			comma = ""
 		}
 		sb.WriteString(fmt.Sprintf("    %-22s %-7s // %s\n",
-			"\""+f.name+"\":", fmt.Sprintf("%t%s", f.def, comma), envHint(f.envVar, f.legacyEnvVar)))
+			"\""+f.name+"\":", fmt.Sprintf("%t%s", defaultOf(f.get), comma), envHint(f.envVar, f.legacyEnvVar)))
 	}
 
 	// The integer overrides are zero-valued rather than absent-valued: zero

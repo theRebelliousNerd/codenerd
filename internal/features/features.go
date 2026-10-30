@@ -278,16 +278,15 @@ var boolFlags = []struct {
 	envVar       string
 	legacyEnvVar string
 	get          func(*FeaturesConfig) *bool
-	def          bool
 }{
-	{"flight_recorder", "CODENERD_FLIGHT_RECORDER", "NERD_FLIGHTREC", func(f *FeaturesConfig) *bool { return f.FlightRecorder }, false},
-	{"provenance", "CODENERD_PROVENANCE", "", func(f *FeaturesConfig) *bool { return f.Provenance }, false},
-	{"system_shards", "CODENERD_SYSTEM_SHARDS", "", func(f *FeaturesConfig) *bool { return f.SystemShards }, true},
-	{"per_shard_facts", "CODENERD_PER_SHARD_FACTS", "", func(f *FeaturesConfig) *bool { return f.PerShardFacts }, false},
-	{"dark_mode", "CODENERD_DARK_MODE", "", func(f *FeaturesConfig) *bool { return f.DarkMode }, false},
-	{"skip_onboarding", "CODENERD_SKIP_ONBOARDING", "NERD_SKIP_ONBOARDING", func(f *FeaturesConfig) *bool { return f.SkipOnboarding }, false},
-	{"taxonomy_fast", "CODENERD_TAXONOMY_FAST", "", func(f *FeaturesConfig) *bool { return f.TaxonomyFast }, false},
-	{"prompt_evolution", "CODENERD_PROMPT_EVOLUTION", "", func(f *FeaturesConfig) *bool { return f.PromptEvolution }, false},
+	{"flight_recorder", "CODENERD_FLIGHT_RECORDER", "NERD_FLIGHTREC", func(f *FeaturesConfig) *bool { return f.FlightRecorder }},
+	{"provenance", "CODENERD_PROVENANCE", "", func(f *FeaturesConfig) *bool { return f.Provenance }},
+	{"system_shards", "CODENERD_SYSTEM_SHARDS", "", func(f *FeaturesConfig) *bool { return f.SystemShards }},
+	{"per_shard_facts", "CODENERD_PER_SHARD_FACTS", "", func(f *FeaturesConfig) *bool { return f.PerShardFacts }},
+	{"dark_mode", "CODENERD_DARK_MODE", "", func(f *FeaturesConfig) *bool { return f.DarkMode }},
+	{"skip_onboarding", "CODENERD_SKIP_ONBOARDING", "NERD_SKIP_ONBOARDING", func(f *FeaturesConfig) *bool { return f.SkipOnboarding }},
+	{"taxonomy_fast", "CODENERD_TAXONOMY_FAST", "", func(f *FeaturesConfig) *bool { return f.TaxonomyFast }},
+	{"prompt_evolution", "CODENERD_PROMPT_EVOLUTION", "", func(f *FeaturesConfig) *bool { return f.PromptEvolution }},
 }
 
 // intFlags mirrors boolFlags for the two non-boolean overrides, so the
@@ -309,8 +308,8 @@ func Resolved() []Flag {
 	a := active.Load()
 	out := make([]Flag, 0, len(boolFlags))
 	for _, f := range boolFlags {
-		flag := Flag{Name: f.name, EnvVar: f.envVar, LegacyEnvVar: f.legacyEnvVar, Default: f.def}
-		flag.Value = resolveBool(f.envVar, f.legacyEnvVar, f.get, f.def)
+		flag := Flag{Name: f.name, EnvVar: f.envVar, LegacyEnvVar: f.legacyEnvVar, Default: defaultOf(f.get)}
+		flag.Value = resolveBool(f.envVar, f.legacyEnvVar, f.get)
 
 		switch {
 		case envBool(f.envVar) != nil:
@@ -450,7 +449,7 @@ func Summary() string {
 // legacyEnvVar may be "". It is read only when the canonical name is absent or
 // unparseable, so an operator migrating a shell profile can set the new name
 // and delete the old one in either order without a window where both apply.
-func resolveBool(envVar, legacyEnvVar string, fromActive func(*FeaturesConfig) *bool, def bool) bool {
+func resolveBool(envVar, legacyEnvVar string, fromActive func(*FeaturesConfig) *bool) bool {
 	if v := envBool(envVar); v != nil {
 		return *v
 	}
@@ -464,7 +463,23 @@ func resolveBool(envVar, legacyEnvVar string, fromActive func(*FeaturesConfig) *
 			return *p
 		}
 	}
-	return def
+	return defaultOf(fromActive)
+}
+
+// defaults is DefaultFeaturesConfig, read once: the one place a flag's
+// default is written. Every accessor and Resolved fall back to it, so the
+// default an operator reads in `nerd features` is the default the accessor
+// returns. Until 2026-10-30 each accessor and the boolFlags table carried
+// their own literal copy beside this function, which nothing read.
+var defaults = DefaultFeaturesConfig()
+
+// defaultOf is the compile-time default of the flag get selects; a flag
+// DefaultFeaturesConfig leaves unset defaults to false.
+func defaultOf(get func(*FeaturesConfig) *bool) bool {
+	if p := get(&defaults); p != nil {
+		return *p
+	}
+	return false
 }
 
 // envBool parses a boolean environment override, returning nil when the
@@ -504,7 +519,7 @@ func envBool(envVar string) *bool {
 // gracefully rather than crashing.
 func IsFlightRecorderEnabled() bool {
 	return resolveBool("CODENERD_FLIGHT_RECORDER", "NERD_FLIGHTREC",
-		func(f *FeaturesConfig) *bool { return f.FlightRecorder }, false)
+		func(f *FeaturesConfig) *bool { return f.FlightRecorder })
 }
 
 // IsProvenanceEnabled gates Mangle's DerivationRecorder. Defaults OFF
@@ -512,7 +527,7 @@ func IsFlightRecorderEnabled() bool {
 // user wants /explain to give precise proof trees.
 func IsProvenanceEnabled() bool {
 	return resolveBool("CODENERD_PROVENANCE", "",
-		func(f *FeaturesConfig) *bool { return f.Provenance }, false)
+		func(f *FeaturesConfig) *bool { return f.Provenance })
 }
 
 // IsSystemShardsEnabled is the master switch for booting the
@@ -531,7 +546,7 @@ func IsProvenanceEnabled() bool {
 // documents under Docs/architecture/ repeat the claim from here.
 func IsSystemShardsEnabled() bool {
 	return resolveBool("CODENERD_SYSTEM_SHARDS", "",
-		func(f *FeaturesConfig) *bool { return f.SystemShards }, true)
+		func(f *FeaturesConfig) *bool { return f.SystemShards })
 }
 
 // IsPerShardFactsEnabled gates the per-shard fact store coordinator
@@ -542,20 +557,20 @@ func IsSystemShardsEnabled() bool {
 // installed. See FullyEnabledFeaturesConfig for the 2026-08-15 audit.
 func IsPerShardFactsEnabled() bool {
 	return resolveBool("CODENERD_PER_SHARD_FACTS", "",
-		func(f *FeaturesConfig) *bool { return f.PerShardFacts }, false)
+		func(f *FeaturesConfig) *bool { return f.PerShardFacts })
 }
 
 // IsDarkModeEnabled overrides the TUI palette to dark. The config
 // `theme` key still controls light/dark when this flag is false.
 func IsDarkModeEnabled() bool {
 	return resolveBool("CODENERD_DARK_MODE", "",
-		func(f *FeaturesConfig) *bool { return f.DarkMode }, false)
+		func(f *FeaturesConfig) *bool { return f.DarkMode })
 }
 
 // IsOnboardingSkipped lets the chat boot skip the first-run wizard.
 func IsOnboardingSkipped() bool {
 	return resolveBool("CODENERD_SKIP_ONBOARDING", "NERD_SKIP_ONBOARDING",
-		func(f *FeaturesConfig) *bool { return f.SkipOnboarding }, false)
+		func(f *FeaturesConfig) *bool { return f.SkipOnboarding })
 }
 
 // IsTaxonomyFastEnabled selects the fast codepath in verify_taxonomy, which
@@ -568,7 +583,7 @@ func IsOnboardingSkipped() bool {
 // on every ordinary run.
 func IsTaxonomyFastEnabled() bool {
 	return resolveBool("CODENERD_TAXONOMY_FAST", "",
-		func(f *FeaturesConfig) *bool { return f.TaxonomyFast }, false)
+		func(f *FeaturesConfig) *bool { return f.TaxonomyFast })
 }
 
 // IsPromptEvolutionEnabled reports whether the Cortex may run the System
@@ -582,7 +597,7 @@ func IsTaxonomyFastEnabled() bool {
 // only decides who pushes the button.
 func IsPromptEvolutionEnabled() bool {
 	return resolveBool("CODENERD_PROMPT_EVOLUTION", "",
-		func(f *FeaturesConfig) *bool { return f.PromptEvolution }, false)
+		func(f *FeaturesConfig) *bool { return f.PromptEvolution })
 }
 
 // FastScanWorkers returns the configured worker count, or zero when

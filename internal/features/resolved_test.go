@@ -31,8 +31,8 @@ func TestResolved_PrecedenceMatrix(t *testing.T) {
 				if got.Source != SourceDefault {
 					t.Errorf("Source = %q, want %q", got.Source, SourceDefault)
 				}
-				if got.Value != spec.def {
-					t.Errorf("Value = %v, want default %v", got.Value, spec.def)
+				if got.Value != defaultOf(spec.get) {
+					t.Errorf("Value = %v, want default %v", got.Value, defaultOf(spec.get))
 				}
 			})
 
@@ -84,7 +84,7 @@ func TestResolved_PrecedenceMatrix(t *testing.T) {
 			// An unrecognized env value must not override anything.
 			t.Run("env_garbage_falls_through", func(t *testing.T) {
 				cfg := &FeaturesConfig{}
-				setFlag(t, cfg, spec.name, !spec.def)
+				setFlag(t, cfg, spec.name, !defaultOf(spec.get))
 				SetActive(cfg)
 				t.Cleanup(func() { SetActive(nil) })
 				t.Setenv(spec.envVar, "maybe")
@@ -93,8 +93,8 @@ func TestResolved_PrecedenceMatrix(t *testing.T) {
 				if got.Source != SourceConfig {
 					t.Errorf("Source = %q, want %q (garbage env must not override)", got.Source, SourceConfig)
 				}
-				if got.Value != !spec.def {
-					t.Errorf("Value = %v, want %v", got.Value, !spec.def)
+				if got.Value != !defaultOf(spec.get) {
+					t.Errorf("Value = %v, want %v", got.Value, !defaultOf(spec.get))
 				}
 			})
 		})
