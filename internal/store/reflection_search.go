@@ -277,7 +277,12 @@ func (ls *LearningStore) RecallLearningsLexicalContext(ctx context.Context, quer
 	if len(all) == 0 {
 		return nil, nil
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Score > all[j].Score })
+	sort.SliceStable(all, func(i, j int) bool {
+		if all[i].Score != all[j].Score {
+			return all[i].Score > all[j].Score
+		}
+		return all[i].LearnedAt.After(all[j].LearnedAt)
+	})
 	if len(all) > limit {
 		all = all[:limit]
 	}
@@ -398,13 +403,25 @@ func (ls *LearningStore) recallLearningsLexicalInShard(ctx context.Context, shar
 	// Match keywords against the semantic handle AND the raw predicate/args so
 	// newly saved rows and legacy rows with NULL or
 	// empty handles remain lexically discoverable without any embedding.
-	var conditions []string
-	var args []any
+	//
+	// The candidate window is ranked by keyword coverage first and recency
+	// second, then capped. It used to be the newest limit*3 matches, scored
+	// afterwards: an older learning matching every keyword lost to fifteen
+	// newer ones matching one, and the global sort could not bring it back
+	// (audit learning-lexical-candidate-window). The SQL coverage counts the
+	// raw columns; the Go score below also reads a legacy row's synthesized
+	// handle, which adds only words built from those same columns plus the
+	// shard name.
+	var conditions, coverage []string
+	var whereArgs, coverArgs []any
 	escape := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
 	for _, kw := range keywords {
 		pat := "%" + escape.Replace(strings.ToLower(kw)) + "%"
-		conditions = append(conditions, `(LOWER(COALESCE(semantic_handle, '')) LIKE ? ESCAPE '\' OR LOWER(fact_predicate) LIKE ? ESCAPE '\' OR LOWER(fact_args) LIKE ? ESCAPE '\')`)
-		args = append(args, pat, pat, pat)
+		match := `(LOWER(COALESCE(semantic_handle, '')) LIKE ? ESCAPE '\' OR LOWER(fact_predicate) LIKE ? ESCAPE '\' OR LOWER(fact_args) LIKE ? ESCAPE '\')`
+		conditions = append(conditions, match)
+		coverage = append(coverage, "(CASE WHEN "+match+" THEN 1 ELSE 0 END)")
+		whereArgs = append(whereArgs, pat, pat, pat)
+		coverArgs = append(coverArgs, pat, pat, pat)
 	}
 	querySQL := fmt.Sprintf(`
 			SELECT id, shard_type, fact_predicate, COALESCE(semantic_handle, ''), fact_args, learned_at,
@@ -412,9 +429,9 @@ func (ls *LearningStore) recallLearningsLexicalInShard(ctx context.Context, shar
 			       COALESCE(source_campaign, ''), COALESCE(confidence, 0)
 			FROM learnings
 			WHERE %s
-			ORDER BY learned_at DESC
-			LIMIT ?`, strings.Join(conditions, " OR "))
-	args = append(args, limit*3)
+			ORDER BY (%s) DESC, learned_at DESC
+			LIMIT ?`, strings.Join(conditions, " OR "), strings.Join(coverage, " + "))
+	args := append(append(whereArgs, coverArgs...), limit*3)
 
 	rows, err := db.QueryContext(ctx, querySQL, args...)
 	if err != nil {
