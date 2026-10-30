@@ -43,6 +43,9 @@ generators:
   - id: sprawling
     run: cp src.txt other.txt
     outputs: [gen/out.txt]
+  - id: deleting
+    run: rm other.txt
+    outputs: [gen/out.txt]
 ---
 `)
 	write("src.txt", "new content\n")
@@ -110,5 +113,18 @@ func TestRegenerate_AnUndeclaredWriteFails(t *testing.T) {
 	out, err := executeRegenerate(ctx, map[string]any{"id": "sprawling"})
 	if err == nil || !strings.Contains(err.Error(), "other.txt") {
 		t.Fatalf("err = %v (%s), want the undeclared write named", err, out)
+	}
+}
+
+// A generator that deletes a clean tracked file it does not declare fails by
+// name: the deletion is a write the turn could not record or undo.
+func TestRegenerate_AnUndeclaredDeletionFails(t *testing.T) {
+	if _, err := exec.LookPath("rm"); err != nil {
+		t.Skip("rm not installed")
+	}
+	_, ctx := regenWorkspace(t)
+	out, err := executeRegenerate(ctx, map[string]any{"id": "deleting"})
+	if err == nil || !strings.Contains(err.Error(), "other.txt") {
+		t.Fatalf("err = %v (%s), want the undeclared deletion named", err, out)
 	}
 }

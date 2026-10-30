@@ -240,7 +240,10 @@ func executeRegenerate(ctx context.Context, args map[string]any) (string, error)
 		result.UndeclaredUnchecked = afterErr.Error()
 	default:
 		for p, digest := range after {
-			if !declared[p] && before[p] != digest {
+			// Membership, not the digest alone: a clean file the run deleted
+			// is absent from before and digests to "" after, the same value a
+			// missing map entry reads as.
+			if prev, wasDirty := before[p]; !declared[p] && (!wasDirty || prev != digest) {
 				result.Undeclared = append(result.Undeclared, p)
 			}
 		}
