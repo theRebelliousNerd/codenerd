@@ -245,6 +245,15 @@ func (m *Model) derivedNextStep() *continueMsg {
 		return nil
 	}
 	pending, _ := m.kernel.Query("has_pending_subtask")
+	effects := map[string]string{}
+	if rows, err := m.kernel.Query("pending_subtask_effect"); err == nil {
+		for _, row := range rows {
+			if len(row.Args) > 1 {
+				id, _ := row.Args[0].(string)
+				effects[id] = types.ExtractString(row.Args[1])
+			}
+		}
+	}
 	for _, subtask := range pending {
 		if len(subtask.Args) < 3 {
 			continue
@@ -256,7 +265,9 @@ func (m *Model) derivedNextStep() *continueMsg {
 			subtaskID:   nextID,
 			description: nextDesc,
 			shardType:   nextShard,
-			isMutation:  isMutationOperation(nextShard),
+			// The kernel's declared effect; a step it declares nothing for
+			// is held as a write.
+			isMutation: effects[nextID] != "/read",
 		}
 	}
 	return nil
@@ -276,11 +287,21 @@ func (m *Model) nextStep(ctx context.Context, dc *deliveryChain) *continueMsg {
 }
 
 // gapShard is the shard a multi-step plan's missing parts go to: the last
-// step that writes, since an undone part of a plan that writes is most often
-// write work, else the last step that ran.
-func gapShard(ran []string) string {
+// step that writes (shard_step_effect), since an undone part of a plan that
+// writes is most often write work, else the last step that ran.
+func (m *Model) gapShard(ran []string) string {
+	reads := map[string]bool{}
+	if m.kernel != nil {
+		if rows, err := m.kernel.Query("shard_step_effect"); err == nil {
+			for _, row := range rows {
+				if len(row.Args) > 1 && types.ExtractString(row.Args[1]) == "/read" {
+					reads[types.StripAtomPrefix(types.ExtractString(row.Args[0]))] = true
+				}
+			}
+		}
+	}
 	for i := len(ran) - 1; i >= 0; i-- {
-		if isMutationOperation(ran[i]) {
+		if !reads[ran[i]] {
 			return ran[i]
 		}
 	}

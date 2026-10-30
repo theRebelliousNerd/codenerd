@@ -410,52 +410,24 @@ func SaveToolsToFile(nerdDir string, tools []ToolDefinition) error {
 	return nil
 }
 
-// GetToolsForAgentType returns the tool names for a specific agent type
-func GetToolsForAgentType(agentName string, language string) ([]string, map[string]string) {
+// GetToolsForAgentType returns the tool names an agent of this type is
+// granted: written to agents.json `tools`, they extend the agent's tool
+// envelope at boot (internal/system user agent grants).
+func GetToolsForAgentType(agentName string, language string) []string {
 	tools := make([]string, 0)
-	prefs := make(map[string]string)
 
 	switch agentName {
 	case "GoExpert":
 		tools = []string{"go_build", "go_test", "go_lint", "go_mod_tidy", "go_fmt", "go_vet"}
-		prefs = map[string]string{
-			"build":  "go_build",
-			"test":   "go_test",
-			"lint":   "go_lint",
-			"format": "go_fmt",
-			"tidy":   "go_mod_tidy",
-			"check":  "go_vet",
-		}
 
 	case "PythonExpert":
 		tools = []string{"pytest", "black", "mypy", "pylint", "pip_install"}
-		prefs = map[string]string{
-			"test":      "pytest",
-			"format":    "black",
-			"lint":      "pylint",
-			"typecheck": "mypy",
-			"install":   "pip_install",
-		}
 
 	case "TSExpert":
 		tools = []string{"npm_test", "npm_build", "eslint", "prettier", "tsc"}
-		prefs = map[string]string{
-			"test":      "npm_test",
-			"build":     "npm_build",
-			"lint":      "eslint",
-			"format":    "prettier",
-			"typecheck": "tsc",
-		}
 
 	case "RustExpert":
 		tools = []string{"cargo_build", "cargo_test", "cargo_check", "cargo_clippy", "cargo_fmt"}
-		prefs = map[string]string{
-			"build":  "cargo_build",
-			"test":   "cargo_test",
-			"check":  "cargo_check",
-			"lint":   "cargo_clippy",
-			"format": "cargo_fmt",
-		}
 
 	case "RodExpert", "BrowserAutomationExpert":
 		// rod_download_browser is the one-time Chromium download nerd init
@@ -465,46 +437,26 @@ func GetToolsForAgentType(agentName string, language string) ([]string, map[stri
 		// workspace (2026-09-29: user agent "RodExpert" declares tool
 		// "rod_download_browser", which is not a registered tool).
 		tools = nil
-		prefs = nil
 
 	case "DatabaseExpert":
 		// Database tools depend on the language
 		if language == "go" || language == "golang" {
 			tools = []string{"go_test"} // DB tests
-			prefs = map[string]string{
-				"test": "go_test",
-			}
 		}
 
 	case "WebAPIExpert":
 		tools = []string{"api_server_run", "api_test"}
-		prefs = map[string]string{
-			"run":  "api_server_run",
-			"test": "api_test",
-		}
 
 	case "FrontendExpert":
 		tools = []string{"dev_server", "npm_build", "npm_test"}
-		prefs = map[string]string{
-			"dev":   "dev_server",
-			"build": "npm_build",
-			"test":  "npm_test",
-		}
 
 	case "SecurityAuditor":
 		// Security audit tools - language specific
 		switch language {
 		case "go", "golang":
 			tools = []string{"go_vet", "go_lint"}
-			prefs = map[string]string{
-				"audit": "go_vet",
-				"lint":  "go_lint",
-			}
 		case "python":
 			tools = []string{"pylint"}
-			prefs = map[string]string{
-				"audit": "pylint",
-			}
 		}
 
 	case "TestArchitect":
@@ -512,21 +464,12 @@ func GetToolsForAgentType(agentName string, language string) ([]string, map[stri
 		switch language {
 		case "go", "golang":
 			tools = []string{"go_test"}
-			prefs = map[string]string{
-				"test": "go_test",
-			}
 		case "python":
 			tools = []string{"pytest"}
-			prefs = map[string]string{
-				"test": "pytest",
-			}
 		case "typescript", "javascript":
 			tools = []string{"npm_test"}
-			prefs = map[string]string{
-				"test": "npm_test",
-			}
 		}
 	}
 
-	return tools, prefs
+	return tools
 }

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -53,6 +54,21 @@ func writtenFingerprint(workspace string, written []string) string {
 		files[abs] = true
 		dirs[filepath.Dir(abs)] = true
 	}
+	return filesFingerprint(files, dirs)
+}
+
+// dirsFingerprint identifies the regular files of each directory as they
+// stand: the packages a measurement read beyond the turn's own.
+func dirsFingerprint(dirList []string) string {
+	dirs := map[string]bool{}
+	for _, d := range dirList {
+		dirs[d] = true
+	}
+	return filesFingerprint(map[string]bool{}, dirs)
+}
+
+// filesFingerprint hashes files plus every regular file of dirs.
+func filesFingerprint(files, dirs map[string]bool) string {
 	for dir := range dirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -85,9 +101,16 @@ func writtenFingerprint(workspace string, written []string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// gateKey binds a measurement to its covered inputs. Fix checks also depend
-// on imports, neighboring tests, build files and config outside WrittenPaths.
-// An unavailable snapshot disables memoization; it never supplies a stale pass.
+// gateKey is the memo key of the measurement kind ("own", "own+coverage",
+// "importers", "full") over the inputs the measurement reads. Besides the
+// bytes of the turn's packages (the whole workspace during a fix, whose
+// checks also depend on imports, neighbouring tests, build files and config
+// outside WrittenPaths) it names exactly which paths the turn wrote and what
+// each held before: the gate's obligations follow membership (a written
+// tagged test is run under its tags; coverage is projected onto the written
+// files) and its baseline follows the preimages, and rewriting a file with
+// its own bytes adds a path without changing a byte. An unavailable snapshot
+// disables memoization; it never supplies a stale pass.
 func gateKey(ctx context.Context, kind, workspace string, result *ExecutionResult) string {
 	fingerprint := writtenFingerprint(workspace, result.WrittenPaths)
 	if result.Intent.Verb == "/fix" {
@@ -98,26 +121,32 @@ func gateKey(ctx context.Context, kind, workspace string, result *ExecutionResul
 			return ""
 		}
 	}
-	// Filesystem identity alone does not identify the policy projection. A
-	// same-byte write can add a tagged test or coverage obligation, and a
-	// different preimage changes which failures predate the turn.
+	return kind + "|" + workspace + "|" + fingerprint + "|" + writtenMembership(result)
+}
+
+// writtenMembership digests the written path set and each path's preimage.
+func writtenMembership(result *ExecutionResult) string {
+	paths := append([]string(nil), result.WrittenPaths...)
+	for i, p := range paths {
+		paths[i] = filepath.ToSlash(filepath.Clean(p))
+	}
+	sort.Strings(paths)
+	paths = slices.Compact(paths) // a path written twice is one member
 	h := sha256.New()
-	fmt.Fprintf(h, "snapshot:%q\n", fingerprint)
-	paths := DeduplicatePreservingOrder(result.WrittenPaths)
-	sort.Strings(paths)
 	for _, p := range paths {
-		fmt.Fprintf(h, "written:%q\n", p)
+		img, ok := result.PreWriteContents[p]
+		switch {
+		case !ok:
+			fmt.Fprintf(h, "%s\x00nopreimage\x00", p)
+		case img.Unknown != "":
+			fmt.Fprintf(h, "%s\x00unknown\x00", p)
+		case !img.Existed:
+			fmt.Fprintf(h, "%s\x00new\x00", p)
+		default:
+			fmt.Fprintf(h, "%s\x00%x\x00", p, sha256.Sum256([]byte(img.Content)))
+		}
 	}
-	paths = make([]string, 0, len(result.PreWriteContents))
-	for p := range result.PreWriteContents {
-		paths = append(paths, p)
-	}
-	sort.Strings(paths)
-	for _, p := range paths {
-		pre := result.PreWriteContents[p]
-		fmt.Fprintf(h, "baseline:%q:%t:%q:%q\n", p, pre.Existed, pre.Content, pre.Unknown)
-	}
-	return kind + "|" + workspace + "|" + hex.EncodeToString(h.Sum(nil))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // recalledGate is the measurement made under key, if there is one.

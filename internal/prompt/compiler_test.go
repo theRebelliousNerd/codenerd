@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"codenerd/internal/store"
 	"context"
 	"database/sql"
 	"fmt"
@@ -941,11 +942,11 @@ func (m *mockFailingVectorSearcher) Search(ctx context.Context, query string, li
 	return nil, fmt.Errorf("vector search unavailable")
 }
 
-func (m *mockFailingVectorSearcher) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+func (m *mockFailingVectorSearcher) EmbedQuery(ctx context.Context, query string) (store.QueryEmbedding, error) {
 	if m.err != nil {
-		return nil, m.err
+		return store.QueryEmbedding{}, m.err
 	}
-	return nil, fmt.Errorf("vector search unavailable")
+	return store.QueryEmbedding{}, fmt.Errorf("vector search unavailable")
 }
 
 // mockFallbackKernel simulates a kernel that supports fallback selection.

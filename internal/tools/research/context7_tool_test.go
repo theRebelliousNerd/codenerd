@@ -58,6 +58,9 @@ func TestInferRepo_Logic(t *testing.T) {
 		{"react", "facebook/react"},
 		{"go-rod", "go-rod/rod"},
 		{"owner/repo", "owner/repo"},
+		{"github.com/charmbracelet/bubbletea", "charmbracelet/bubbletea"},
+		{"github.com/spf13/cobra/doc", "spf13/cobra"},
+		{"github.com/go-rod", ""},
 		{"unknown", ""},
 	}
 

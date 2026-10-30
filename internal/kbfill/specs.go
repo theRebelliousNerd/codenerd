@@ -1,5 +1,7 @@
 package kbfill
 
+import "codenerd/internal/knowledge"
+
 // What each knowledge database must carry. A column not named here is
 // required in every row of its table; a table not named here must hold rows
 // unless the spec says why it may not (OtherTables).
@@ -71,15 +73,24 @@ var IntentCorpus = Spec{
 }
 
 // ShardAgentKB is a shard agent's knowledge base,
-// .nerd/shards/<name>_knowledge.db: its prompts.yaml atoms (prompt sync) and
-// its knowledge (init's seed and research, ingest).
+// .nerd/shards/<name>_knowledge.db: its prompts.yaml atoms (prompt sync), its
+// knowledge (internal/knowledge's sources, ingest) and every source's last
+// attempt on every subject. Knowledge that is only the removed seed's
+// templated placeholders is no knowledge.
 var ShardAgentKB = Spec{
 	Name: "shard_agent_kb",
 	Tables: map[string]Table{
 		"prompt_atoms":    {Columns: promptAtomColumns()},
-		"knowledge_atoms": {},
+		"knowledge_atoms": {Filler: knowledge.PlaceholderSQL},
 		"vectors":         {},
 		"sync_metadata":   {},
+		"knowledge_acquisitions": {Columns: map[string]Column{
+			"detail":   {When: "status IN ('failed', 'unavailable', 'inapplicable')"},
+			"concepts": {When: "status = 'acquired'"},
+			"version":  {Optional: "a subject no manifest pins (a research topic, a standard-library package, a gap) has no version"},
+		}},
+		"knowledge_usage":  {MayBeEmpty: "no compile has carried this agent's knowledge yet (prompt.recordKnowledgeConsumption)"},
+		"knowledge_misses": {MayBeEmpty: "no consultation of this agent has found nothing yet (prompt.recordKnowledgeConsumption)"},
 	},
 	OtherTables: sharedStoreSchema,
 }

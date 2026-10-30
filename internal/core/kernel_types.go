@@ -263,6 +263,7 @@ var defaultSchemaFiles = []string{
 	"schemas_reviewer.mg",         // Static Analysis & Data Flow
 	"schemas_shards.mg",           // Shard Delegation & Coordination
 	"schemas_shard_experts.mg",    // Shard agents a task needs (expert_needed)
+	"schemas_kb_refresh.mg",       // Shard-agent knowledge refresh and pruning
 	"schemas_coder.mg",            // Coder Shard Declarations
 	"schemas_projectdoc.mg",       // nerd.md project instructions (see internal/projectdoc)
 	"schemas_gates.mg",            // Error-free gates compared (policy/gates.mg, internal/gates)

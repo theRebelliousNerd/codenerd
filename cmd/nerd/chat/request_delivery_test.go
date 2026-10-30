@@ -265,15 +265,17 @@ func TestDelivery_OffWithoutJev(t *testing.T) {
 }
 
 func TestGapShard_PrefersTheLastWritingStep(t *testing.T) {
+	m, _ := journeyModel(t, config.WorkModeYolo)
 	for _, tc := range []struct {
 		ran  []string
 		want string
 	}{
 		{[]string{"coder", "reviewer"}, "coder"},
 		{[]string{"researcher", "reviewer"}, "reviewer"},
+		{[]string{"tester", "reviewer"}, "tester"},
 		{nil, ""},
 	} {
-		if got := gapShard(tc.ran); got != tc.want {
+		if got := m.gapShard(tc.ran); got != tc.want {
 			t.Errorf("gapShard(%v) = %q, want %q", tc.ran, got, tc.want)
 		}
 	}

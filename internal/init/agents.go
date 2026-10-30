@@ -2,6 +2,7 @@
 package init
 
 import (
+	"codenerd/internal/knowledge"
 	"context"
 	"encoding/json"
 	"errors"
@@ -422,6 +423,9 @@ type KnowledgeBaseStats struct {
 	// Notes are research outcomes the init result reports: questions that
 	// could not be answered with a source, stale knowledge not refreshed.
 	Notes []string
+	// Outcomes are every knowledge source's attempt on every subject
+	// (internal/knowledge), also recorded in the KB.
+	Outcomes []knowledge.Outcome
 }
 
 // loadExistingAgentRegistry loads the agent registry from .nerd/agents.json if it exists.
@@ -583,15 +587,15 @@ func (i *Initializer) createAgent(ctx context.Context, shardsDir string, agent R
 	i.sendAgentProgress(agent.Name, agent.Type, "ready", stats.TotalAtoms)
 	return agentCreationResult{
 		Agent: CreatedAgent{
-			Name:            agent.Name,
-			Type:            agent.Type,
-			KnowledgePath:   kbPath,
-			KBSize:          stats.TotalAtoms,
-			CreatedAt:       creationTime,
-			Status:          "ready",
-			Tools:           agent.Tools,
-			ToolPreferences: agent.ToolPreferences,
-			Domains:         agent.Domains,
+			Name:          agent.Name,
+			Type:          agent.Type,
+			KnowledgePath: kbPath,
+			KBSize:        stats.TotalAtoms,
+			CreatedAt:     creationTime,
+			Status:        "ready",
+			Tools:         agent.Tools,
+			Domains:       agent.Domains,
+			Topics:        agent.Topics,
 		},
 		KBSize:      stats.TotalAtoms,
 		Stats:       stats,

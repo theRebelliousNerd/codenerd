@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"codenerd/internal/store"
 	"context"
 	"errors"
 	"testing"
@@ -35,11 +36,11 @@ func (m *mockVectorSearcher) Search(ctx context.Context, query string, limit int
 	return results, nil
 }
 
-func (m *mockVectorSearcher) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+func (m *mockVectorSearcher) EmbedQuery(ctx context.Context, query string) (store.QueryEmbedding, error) {
 	if m.err != nil {
-		return nil, m.err
+		return store.QueryEmbedding{}, m.err
 	}
-	return []float32{0.1, 0.2, 0.3}, nil
+	return store.QueryEmbedding{Vector: []float32{0.1, 0.2, 0.3}, ModelID: "test-embedder"}, nil
 }
 
 type validatingKernel struct {

@@ -5,85 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
-	"strings"
 
 	"codenerd/internal/embedding"
+	"codenerd/internal/knowledge"
 	"codenerd/internal/logging"
-	"codenerd/internal/store"
 )
-
-type baselineSeedAtom struct {
-	concept    string
-	content    string
-	confidence float64
-}
-
-func baselineSeedAtoms(agentID string) []baselineSeedAtom {
-	name := strings.TrimSpace(agentID)
-	if name == "" {
-		name = "specialist"
-	}
-	return []baselineSeedAtom{
-		{concept: "agent_identity", content: fmt.Sprintf("You are %s, a specialist agent in the codeNERD ecosystem.", name), confidence: 0.9},
-		{concept: "agent_mission", content: fmt.Sprintf("%s exists to carry out %s tasks in this workspace.", name, strings.ToLower(name)), confidence: 0.85},
-		{concept: "methodology/overview", content: fmt.Sprintf("%s methodology: decompose the task, locate the relevant code and docs, apply best practices, verify with the project's build and tests.", name), confidence: 0.8},
-	}
-}
-
-func agentIDFromDBPath(dbPath string) string {
-	base := filepath.Base(dbPath)
-	if !strings.HasSuffix(base, "_knowledge.db") {
-		return ""
-	}
-	return strings.TrimSuffix(base, "_knowledge.db")
-}
-
-func insertBaselineAtom(ctx context.Context, db *sql.DB, atom baselineSeedAtom) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	hash := store.ComputeContentHash(atom.concept, atom.content)
-	_, err := db.Exec(
-		`INSERT INTO knowledge_atoms (concept, content, confidence, content_hash) VALUES (?, ?, ?, ?)`,
-		atom.concept, atom.content, atom.confidence, hash,
-	)
-	if err != nil {
-		return fmt.Errorf("seed baseline atom %s: %w", atom.concept, err)
-	}
-	return nil
-}
-
-func ensureSeededBaseline(ctx context.Context, db *sql.DB, agentID string) (int, error) {
-	if db == nil {
-		return 0, nil
-	}
-	if err := ctx.Err(); err != nil {
-		return 0, err
-	}
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM knowledge_atoms`).Scan(&count); err != nil {
-		return 0, nil
-	}
-	if count > 0 {
-		return 0, nil
-	}
-	name := strings.TrimSpace(agentID)
-	if name == "" {
-		name = "specialist"
-	}
-	seeded := 0
-	for _, atom := range baselineSeedAtoms(name) {
-		if err := insertBaselineAtom(ctx, db, atom); err != nil {
-			return seeded, err
-		}
-		seeded++
-	}
-	if seeded > 0 {
-		logging.Get(logging.CategoryStore).Info("Knowledge seed: added %d baseline atoms for %s", seeded, name)
-	}
-	return seeded, nil
-}
 
 type knowledgeAtomRow struct {
 	concept    string
@@ -191,10 +117,13 @@ func backfillMissingVectors(ctx context.Context, db *sql.DB, engine embedding.Em
 	return done
 }
 
-// backfillKnowledgeVectors ensures every row in knowledge_atoms has a matching
-// vectors row with content_type=knowledge_atom. It also seeds empty KBs with
-// baseline atoms so existing agents heal on restart without rerunning init.
-// It reuses the caller's open DB instead of opening a second connection.
+// backfillKnowledgeVectors heals an agent KB on every boot: it prunes the
+// removed seed's placeholder rows (internal/knowledge), which taught nothing
+// and made unresearched topics read as covered, and ensures every remaining
+// knowledge_atoms row has a matching vectors row with
+// content_type=knowledge_atom. It writes no knowledge of its own: an empty KB
+// stays empty until a knowledge source teaches it. It reuses the caller's
+// open DB instead of opening a second connection.
 func backfillKnowledgeVectors(ctx context.Context, db *sql.DB, dbPath string, engine embedding.EmbeddingEngine) error {
 	if db == nil {
 		return nil
@@ -202,8 +131,10 @@ func backfillKnowledgeVectors(ctx context.Context, db *sql.DB, dbPath string, en
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if _, err := ensureSeededBaseline(ctx, db, agentIDFromDBPath(dbPath)); err != nil {
-		return err
+	if n, err := knowledge.PrunePlaceholders(ctx, db); err != nil {
+		return fmt.Errorf("prune placeholder knowledge in %s: %w", dbPath, err)
+	} else if n > 0 {
+		logging.Get(logging.CategoryStore).Info("Knowledge heal: pruned %d placeholder atom(s) from %s", n, dbPath)
 	}
 	if engine == nil {
 		return nil

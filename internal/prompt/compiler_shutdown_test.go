@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"codenerd/internal/store"
 	"context"
 	"database/sql"
 	"path/filepath"
@@ -20,8 +21,8 @@ func (s *shutdownVectorSearch) Search(ctx context.Context, _ string, _ int) ([]S
 	return nil, ctx.Err()
 }
 
-func (s *shutdownVectorSearch) EmbedQuery(context.Context, string) ([]float32, error) {
-	return []float32{1}, nil
+func (s *shutdownVectorSearch) EmbedQuery(context.Context, string) (store.QueryEmbedding, error) {
+	return store.QueryEmbedding{Vector: []float32{1}, ModelID: "test-embedder"}, nil
 }
 
 func TestCompilerCloseCancelsCompilationAndReleasesDatabase(t *testing.T) {

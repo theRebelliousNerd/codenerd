@@ -152,6 +152,21 @@ func (c *Cortex) Close() error {
 		c.ouroborosDone = nil
 	}
 
+	if c.knowledgeRefreshCancel != nil {
+		c.knowledgeRefreshCancel()
+		c.knowledgeRefreshCancel = nil
+	}
+	if c.knowledgeRefreshDone != nil {
+		select {
+		case <-c.knowledgeRefreshDone:
+		case <-time.After(closeStepTimeout):
+			err := fmt.Errorf("knowledge refresh shutdown timed out after %v", closeStepTimeout)
+			logging.Get(logging.CategorySession).Warn("Cortex.Close: %v; continuing shutdown", err)
+			errs = append(errs, err)
+		}
+		c.knowledgeRefreshDone = nil
+	}
+
 	if c.ToolStore != nil {
 		if err := runCloseStep("ToolStore.Close", closeStepTimeout, c.ToolStore.Close); err != nil {
 			errs = append(errs, err)

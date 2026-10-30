@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"codenerd/internal/store"
 	"context"
 	"strings"
 	"sync"
@@ -197,8 +198,8 @@ func (s stubVectorSearcher) Search(ctx context.Context, query string, limit int)
 	return out, nil
 }
 
-func (s stubVectorSearcher) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
-	return []float32{0.1}, nil
+func (s stubVectorSearcher) EmbedQuery(ctx context.Context, query string) (store.QueryEmbedding, error) {
+	return store.QueryEmbedding{Vector: []float32{0.1}, ModelID: "test-embedder"}, nil
 }
 
 // The reported vector milliseconds must measure the vector search, not the

@@ -4,8 +4,10 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
+	"codenerd/internal/knowledge"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/types"
 
@@ -24,7 +26,8 @@ var knowledgeCmd = &cobra.Command{
 
 Subcommands:
   list    - List recent knowledge entries
-  search  - Search knowledge semantically`,
+  search  - Search knowledge semantically
+  refresh - Refresh the shard agents' knowledge now`,
 	RunE: runKnowledgeList,
 }
 
@@ -41,6 +44,52 @@ var knowledgeSearchCmd = &cobra.Command{
 	Short: "Search knowledge semantically",
 	Args:  cobra.MinimumNArgs(1),
 	RunE:  runKnowledgeSearch,
+}
+
+// knowledgeRefreshCmd runs one shard-agent knowledge refresh now.
+var knowledgeRefreshCmd = &cobra.Command{
+	Use:   "refresh",
+	Short: "Refresh the shard agents' knowledge now",
+	Long: `Runs one shard-agent knowledge refresh now instead of on its schedule: the
+kernel decides over every agent KB (policy/knowledge_refresh.mg) which
+subjects to acquire again -- a gap a consultation found, a topic never
+learned, a dependency upgraded, an answer past its age, a source newly
+available -- within its budget, and which unused acquired rows to prune.
+Prints what was refreshed and every source outcome; nerd check-kb shows the
+result.`,
+	Args: cobra.NoArgs,
+	RunE: runKnowledgeRefresh,
+}
+
+func runKnowledgeRefresh(cmd *cobra.Command, _ []string) error {
+	ctx, cancel := commandContext(cmd)
+	defer cancel()
+	cortex, err := coresys.GetOrBootCortex(ctx, workspace, resolveAPIKey(apiKey, workspace), nil)
+	if err != nil {
+		return fmt.Errorf("failed to boot cortex: %w", err)
+	}
+	defer cortex.Close()
+	report, err := cortex.RefreshKnowledge(ctx)
+	printKnowledgeRefresh(cmd.OutOrStdout(), report)
+	return err
+}
+
+// printKnowledgeRefresh writes a refresh report.
+func printKnowledgeRefresh(w io.Writer, report coresys.KnowledgeRefreshReport) {
+	if len(report.Refreshed) == 0 && report.Pruned == 0 {
+		fmt.Fprintln(w, "knowledge is current: the policy derived nothing to refresh or prune")
+		return
+	}
+	fmt.Fprintf(w, "refreshed %d subject(s), %d atom(s) added, %d pruned\n", len(report.Refreshed), report.Added, report.Pruned)
+	for _, s := range report.Refreshed {
+		fmt.Fprintf(w, "  %s\n", s)
+	}
+	if len(report.Outcomes) > 0 {
+		fmt.Fprintf(w, "sources: %s\n", knowledge.SummarizeOutcomes(report.Outcomes))
+		for _, o := range report.Outcomes {
+			fmt.Fprintf(w, "  %s\n", o)
+		}
+	}
 }
 
 func runKnowledgeList(cmd *cobra.Command, args []string) error {
@@ -153,5 +202,5 @@ func formatKnowledgeSearchHit(i int, concept, content string) string {
 }
 
 func init() {
-	knowledgeCmd.AddCommand(knowledgeListCmd, knowledgeSearchCmd)
+	knowledgeCmd.AddCommand(knowledgeListCmd, knowledgeSearchCmd, knowledgeRefreshCmd)
 }

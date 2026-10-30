@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"codenerd/internal/knowledge"
 	"codenerd/internal/store"
 )
 
@@ -32,15 +33,6 @@ import (
 type expertSource struct {
 	key string
 	db  *sql.DB
-}
-
-// selfDescriptionConcepts are knowledge rows that describe the agent itself
-// rather than its subject: the baseline seed init writes into every agent KB
-// (internal/init/agents_knowledge_seed.go baselineAgentAtoms). They belong to
-// the agent's own compiles only.
-var selfDescriptionConcepts = map[string]bool{
-	"agent_identity": true,
-	"agent_mission":  true,
 }
 
 // expertSources resolves cc.Experts to registered DBs, skipping the compile's
@@ -103,8 +95,10 @@ func (c *JITPromptCompiler) collectExpertAtoms(ctx context.Context, src compileS
 }
 
 // collectPushedExpertKnowledge retrieves each pushed expert's knowledge rows
-// for the task, without the rows that describe the agent itself. The atoms
-// carry no shard tag: they serve the compile's own speaker.
+// for the task, without the removed seed's placeholder rows
+// (internal/knowledge), which describe the agent rather than its subject and
+// survive only in a KB boot has not healed yet. The atoms carry no shard tag:
+// they serve the compile's own speaker.
 func collectPushedExpertKnowledge(ctx context.Context, experts []expertSource, query string, degraded *degradation) map[string][]store.KnowledgeAtom {
 	if len(experts) == 0 || strings.TrimSpace(query) == "" {
 		return nil
@@ -122,7 +116,7 @@ func collectPushedExpertKnowledge(ctx context.Context, experts []expertSource, q
 		}
 		kept := atoms[:0]
 		for _, atom := range atoms {
-			if !selfDescriptionConcepts[atom.Concept] {
+			if !knowledge.IsLegacyPlaceholder(atom.Concept, atom.Content) {
 				kept = append(kept, atom)
 			}
 		}

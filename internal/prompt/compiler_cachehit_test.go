@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"codenerd/internal/store"
 	"context"
 	"database/sql"
 	"path/filepath"
@@ -112,8 +113,8 @@ func (s *configUpdateBarrierSearcher) Search(ctx context.Context, _ string, _ in
 	}
 }
 
-func (s *configUpdateBarrierSearcher) EmbedQuery(context.Context, string) ([]float32, error) {
-	return []float32{1}, nil
+func (s *configUpdateBarrierSearcher) EmbedQuery(context.Context, string) (store.QueryEmbedding, error) {
+	return store.QueryEmbedding{Vector: []float32{1}, ModelID: "test-embedder"}, nil
 }
 
 func TestSetConfigDuringCompileKeepsOldGenerationOutOfNewCache(t *testing.T) {
@@ -202,8 +203,8 @@ func (s *vectorDeadlineSearcher) Search(ctx context.Context, _ string, _ int) ([
 	return []SearchResult{{AtomID: "context/slow", Score: 0.9}}, nil
 }
 
-func (s *vectorDeadlineSearcher) EmbedQuery(context.Context, string) ([]float32, error) {
-	return []float32{1}, nil
+func (s *vectorDeadlineSearcher) EmbedQuery(context.Context, string) (store.QueryEmbedding, error) {
+	return store.QueryEmbedding{Vector: []float32{1}, ModelID: "test-embedder"}, nil
 }
 
 func TestSetConfigDoesNotChangeSelectorSettingsOfInFlightCompile(t *testing.T) {

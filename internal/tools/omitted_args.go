@@ -66,3 +66,34 @@ func requiredArg(tool *Tool, key string) bool {
 	}
 	return false
 }
+
+// RevisionPrecondition reads a revision argument the way every element tool
+// and every guard projecting one must: an omission sentinel ("None", "null",
+// empty) carries no precondition, and a revision is compared trimmed. It
+// returns the revision to compare and whether one applies. The build-exclusion
+// projector skipped its check for a "None" it took for a stale revision while
+// the handler applied the edit without a precondition.
+func RevisionPrecondition(rev string) (string, bool) {
+	if IsOmittedSentinel(rev) {
+		return "", false
+	}
+	return strings.TrimSpace(rev), true
+}
+
+// NormalizedArgs is the argument view every layer that reads a call's
+// arguments must share: the registered tool's optional arguments that carry
+// an omission sentinel left out, as ExecuteTool leaves them out before
+// validation. A serving layer that read the raw map first refused what the
+// registry accepts (a delete_element with paths "null" failed target parsing
+// before the registry could read it as omitted). An unregistered name
+// returns args unchanged.
+func (r *Registry) NormalizedArgs(name string, args map[string]any) map[string]any {
+	if r == nil {
+		return args
+	}
+	tool := r.Get(name)
+	if tool == nil {
+		return args
+	}
+	return withoutOmittedOptionals(tool, args)
+}

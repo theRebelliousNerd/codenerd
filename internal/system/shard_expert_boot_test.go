@@ -113,7 +113,7 @@ func TestBootAssertsShardExpertRosterAndTheCompileCarriesIt(t *testing.T) {
 		t.Fatal("TeaExpert's KB is not registered with the JIT compiler")
 	}
 	insertKnowledgeRow(t, db, "domain/policy_files", "TEA_EXPERT_KNOWLEDGE_MARKER policy files load in order")
-	insertKnowledgeRow(t, db, "agent_identity", "TEA_EXPERT_SELF_MARKER You are TeaExpert policy files")
+	insertKnowledgeRow(t, db, "agent_identity", "You are TeaExpert, a specialist agent in the codeNERD ecosystem. TEA_EXPERT_SELF_MARKER policy files")
 
 	compile := func(expertsFor []string) string {
 		t.Helper()

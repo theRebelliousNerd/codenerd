@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"codenerd/internal/knowledge"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"codenerd/internal/tools"
@@ -55,6 +56,13 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 		topics = researched
 	}
 	if upgradeMode {
+		// Placeholders name every topic; left in place they make the
+		// coverage check below read unresearched topics as covered.
+		if n, err := knowledge.PrunePlaceholders(ctx, agentDB.GetDB()); err != nil {
+			return stats, fmt.Errorf("prune placeholder atoms: %w", err)
+		} else if n > 0 {
+			logging.Boot("Pruned %d placeholder atom(s) from %s", n, agent.Name)
+		}
 		existingAtoms, err := agentDB.GetAllKnowledgeAtoms()
 		if err != nil {
 			return stats, fmt.Errorf("failed to get existing atoms: %w", err)
@@ -104,54 +112,35 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 	if stats.SkippedTopics > 0 {
 		fmt.Fprintf(i.output(), "     %d of %d topics already covered in %s's KB; not researched again\n", stats.SkippedTopics, len(agent.Topics), agent.Name)
 	}
-	if !i.config.SkipResearch && len(topics) > 0 {
-		fmt.Fprintf(i.output(), "     Researching %d topics for %s...\n", len(topics), agent.Name)
-
-		fetch, err := i.topicFetcher()
-		if err != nil {
-			logging.Boot("Warning: failed to register research tools: %v", err)
-		} else {
-			// No clock of the pass's own: each context7_fetch is bounded by
-			// research.context7_timeout and init cancellation ends the pass.
-			// A two-minute pass deadline used to drop every topic after the
-			// first few on a slow day, logged only at boot level. A topic
-			// another specialist already fetched this run is not fetched again.
-			for _, topic := range topics {
-				if ctx.Err() != nil {
-					break
-				}
-				result, err := i.research.fetch(ctx, topic, fetch)
-				if err != nil {
-					logging.Boot("Research failed for topic %s: %v", topic, err)
-					continue
-				}
-
-				if result != "" && len(result) > 100 {
-					// Parse research result into knowledge atoms
-					atoms := i.parseResearchResult(topic, result)
-					for _, atom := range atoms {
-						added, err := appendKnowledgeAtom(ctx, agentDB, atom.Concept, atom.Content, atom.Confidence, "init/research", existingHashes)
-						if err != nil {
-							logging.Boot("Warning: failed to store research atom: %v", err)
-							continue
-						}
-						if added {
-							stats.NewAtoms++
-						}
-					}
-					logging.Boot("Added %d atoms from research on %s", len(atoms), topic)
+	if !i.config.SkipResearch {
+		pins, pinErr := ManifestPins(i.config.Workspace)
+		if pinErr != nil {
+			stats.Notes = append(stats.Notes, fmt.Sprintf("%s: %v", agent.Name, pinErr))
+		}
+		subjects := KnowledgeSubjects(i.config.Workspace, strings.ToLower(agent.Name), agent.Domains, topics, pins)
+		if len(subjects) > 0 {
+			fmt.Fprintf(i.output(), "     Acquiring knowledge on %d subject(s) for %s...\n", len(subjects), agent.Name)
+			added, outcomes, err := knowledge.Fill(ctx, agentDB, i.knowledgeAcquirer(), subjects)
+			stats.NewAtoms += added
+			stats.Outcomes = append(stats.Outcomes, outcomes...)
+			if err != nil {
+				stats.Notes = append(stats.Notes, fmt.Sprintf("%s: knowledge acquisition stopped: %v", agent.Name, err))
+			}
+			for _, out := range outcomes {
+				if out.Status == knowledge.StatusFailed {
+					stats.Notes = append(stats.Notes, fmt.Sprintf("%s: %s", agent.Name, out))
 				}
 			}
+			fmt.Fprintf(i.output(), "     %s: %s\n", agent.Name, knowledge.SummarizeOutcomes(outcomes))
 		}
-	} else if i.config.SkipResearch {
+	} else {
 		fmt.Fprintf(i.output(), "     Skipping research for %s (--skip-research)\n", agent.Name)
 	}
 
-	// Baseline seed: an agent with no atoms after research still gets a
-	// searchable KB from its own definition. This is what keeps new agents
-	// and offline runs from landing at zero atoms.
+	// No placeholders: an agent no source taught has no knowledge, and the
+	// init result says so instead of filling the KB with its own name.
 	if interim, _ := agentDB.GetAllKnowledgeAtoms(); len(interim) == 0 {
-		stats.NewAtoms += seedBaselineKnowledge(ctx, agentDB, agent, existingHashes)
+		stats.Notes = append(stats.Notes, fmt.Sprintf("%s has no knowledge: no source taught it; see `nerd check-kb`", agent.Name))
 	}
 	// Vector backfill: atoms written before embedding was wired (or while the
 	// engine was missing) get vectors now so semantic search finds them.
@@ -329,8 +318,8 @@ func filterTopicsNeedingResearch(existingAtoms []store.KnowledgeAtom, topics []s
 		if strings.HasPrefix(atom.Concept, "inherited:") {
 			continue
 		}
-		// Skip base identity/mission atoms - they're boilerplate
-		if atom.Concept == "agent_identity" || atom.Concept == "agent_mission" {
+		// Placeholder rows name every topic and teach nothing.
+		if knowledge.IsLegacyPlaceholder(atom.Concept, atom.Content) {
 			continue
 		}
 

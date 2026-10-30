@@ -68,6 +68,16 @@ func TestCompilationContext_Hash(t *testing.T) {
 		withSpecialist := base.Clone()
 		withSpecialist.AvailableSpecialists = "- security-auditor"
 		assert.NotEqual(t, base.Hash(), withSpecialist.Hash())
+
+		// The unavailable dispositions render into the prompt, so a context
+		// that differs only there compiles a different prompt and must not
+		// share a cache entry.
+		noBackend := base.Clone()
+		noBackend.UnavailableTools = []string{"deploy: no backend on this runtime"}
+		nativeChannel := base.Clone()
+		nativeChannel.UnavailableTools = []string{"deploy: the native tool channel cannot carry it"}
+		assert.NotEqual(t, base.Hash(), noBackend.Hash())
+		assert.NotEqual(t, noBackend.Hash(), nativeChannel.Hash())
 	})
 
 	t.Run("set-like fields are canonical", func(t *testing.T) {

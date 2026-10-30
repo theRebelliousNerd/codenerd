@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"codenerd/internal/store"
 	"context"
 	"strings"
 	"testing"
@@ -22,8 +23,8 @@ func (v *queryVectorSearcher) Search(_ context.Context, query string, _ int) ([]
 	return nil, nil
 }
 
-func (v *queryVectorSearcher) EmbedQuery(context.Context, string) ([]float32, error) {
-	return []float32{1}, nil
+func (v *queryVectorSearcher) EmbedQuery(context.Context, string) (store.QueryEmbedding, error) {
+	return store.QueryEmbedding{Vector: []float32{1}, ModelID: "test-embedder"}, nil
 }
 
 func commonPrefixLen(a, b string) int {

@@ -51,6 +51,32 @@ has_pending_subtask(TaskID, Description, ShardType) :-
     shard_result(TaskID, /incomplete, ShardType, Description, _),
     !incomplete_step_retried(ShardType, Description).
 
+# --- What a pending step does ---
+# Declared by the obligation, not guessed from the shard's name: a test
+# obligation reads "Write tests for:", so its step writes, though the tester
+# was once classified read-only and launched without the proposal pause.
+
+shard_step_effect(/coder, /write).
+shard_step_effect(/tool_generator, /write).
+shard_step_effect(/debugger, /write).
+shard_step_effect(/tester, /write).
+shard_step_effect(/reviewer, /read).
+shard_step_effect(/researcher, /read).
+shard_step_effect(/security_auditor, /read).
+
+pending_subtask_effect(TaskID, /write) :-
+    has_pending_subtask(TaskID, _, /tester),
+    pending_test(TaskID, _).
+
+pending_subtask_effect(TaskID, /write) :-
+    has_pending_subtask(TaskID, _, /coder),
+    pending_fix(TaskID, _).
+
+pending_subtask_effect(TaskID, Effect) :-
+    has_pending_subtask(TaskID, _, ShardType),
+    shard_result(TaskID, /incomplete, ShardType, _, _),
+    shard_step_effect(ShardType, Effect).
+
 # --- Continuation Blocking Conditions ---
 
 # User pressed Ctrl+X

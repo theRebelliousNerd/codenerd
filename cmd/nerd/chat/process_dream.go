@@ -774,7 +774,7 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 
 		// A part of the request the plan did not deliver goes on as a
 		// continuation step, to the plan's writing shard.
-		if dc := m.startDelivery(rawInput, gapShard(ran)); dc != nil && len(ran) > 0 {
+		if dc := m.startDelivery(rawInput, m.gapShard(ran)); dc != nil && len(ran) > 0 {
 			for _, r := range reports {
 				dc.record(r)
 			}

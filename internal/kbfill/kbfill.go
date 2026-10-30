@@ -35,6 +35,10 @@ type Table struct {
 	MayBeEmpty string
 	// Columns names the columns that are not simply required in every row.
 	Columns map[string]Column
+	// Filler, when set, is a SQL condition naming rows that fill the table
+	// without content (templated placeholders): a table whose every row is
+	// filler is a gap, GapPlaceholderOnly.
+	Filler string
 }
 
 // Spec declares what a kind of database must carry.
@@ -57,6 +61,8 @@ const (
 	GapPartial = "partial"
 	// GapEmptyTable: a table that must hold rows holds none.
 	GapEmptyTable = "empty_table"
+	// GapPlaceholderOnly: a table that must hold rows holds only filler.
+	GapPlaceholderOnly = "placeholder_only"
 )
 
 // Gap is one unfilled column or table.
@@ -118,6 +124,15 @@ func Audit(ctx context.Context, db *sql.DB, spec Spec) ([]Gap, error) {
 				gaps = append(gaps, Gap{Spec: spec.Name, Table: name, Kind: GapEmptyTable})
 			}
 			continue
+		}
+		if table.Filler != "" {
+			var content int
+			if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+quoteIdent(name)+" WHERE NOT ("+table.Filler+")").Scan(&content); err != nil {
+				return nil, fmt.Errorf("count %s content: %w", name, err)
+			}
+			if content == 0 {
+				gaps = append(gaps, Gap{Spec: spec.Name, Table: name, Kind: GapPlaceholderOnly, Empty: rows, Rows: rows})
+			}
 		}
 		cols, err := tableColumns(ctx, db, name)
 		if err != nil {

@@ -195,7 +195,7 @@ func (s *LocalStore) GetKnowledgeAtoms(concept string) ([]KnowledgeAtom, error) 
 	logging.StoreDebug("Retrieving knowledge atoms: concept=%s", concept)
 
 	rows, err := s.db.Query(
-		`SELECT id, concept, content, confidence, created_at FROM knowledge_atoms WHERE concept = ?`,
+		`SELECT id, concept, content, confidence, COALESCE(source, ''), created_at FROM knowledge_atoms WHERE concept = ?`,
 		concept,
 	)
 	if err != nil {
@@ -207,7 +207,7 @@ func (s *LocalStore) GetKnowledgeAtoms(concept string) ([]KnowledgeAtom, error) 
 	var atoms []KnowledgeAtom
 	for rows.Next() {
 		var atom KnowledgeAtom
-		if err := rows.Scan(&atom.ID, &atom.Concept, &atom.Content, &atom.Confidence, &atom.CreatedAt); err != nil {
+		if err := rows.Scan(&atom.ID, &atom.Concept, &atom.Content, &atom.Confidence, &atom.Source, &atom.CreatedAt); err != nil {
 			continue
 		}
 		atoms = append(atoms, atom)
@@ -230,7 +230,7 @@ func (s *LocalStore) GetAllKnowledgeAtoms() ([]KnowledgeAtom, error) {
 
 	logging.StoreDebug("Retrieving all knowledge atoms")
 
-	rows, err := s.db.Query(`SELECT id, concept, content, confidence, created_at FROM knowledge_atoms ORDER BY created_at DESC`)
+	rows, err := s.db.Query(`SELECT id, concept, content, confidence, COALESCE(source, ''), created_at FROM knowledge_atoms ORDER BY created_at DESC`)
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to query all knowledge atoms: %v", err)
 		return nil, err
@@ -240,7 +240,7 @@ func (s *LocalStore) GetAllKnowledgeAtoms() ([]KnowledgeAtom, error) {
 	var atoms []KnowledgeAtom
 	for rows.Next() {
 		var atom KnowledgeAtom
-		if err := rows.Scan(&atom.ID, &atom.Concept, &atom.Content, &atom.Confidence, &atom.CreatedAt); err != nil {
+		if err := rows.Scan(&atom.ID, &atom.Concept, &atom.Content, &atom.Confidence, &atom.Source, &atom.CreatedAt); err != nil {
 			continue
 		}
 		atoms = append(atoms, atom)
@@ -267,7 +267,7 @@ func (s *LocalStore) GetKnowledgeAtomsByPrefix(conceptPrefix string) ([]Knowledg
 	// Use LIKE with % wildcard for prefix matching
 	pattern := conceptPrefix + "%"
 	rows, err := s.db.Query(
-		`SELECT id, concept, content, confidence, created_at FROM knowledge_atoms WHERE concept LIKE ? ORDER BY confidence DESC`,
+		`SELECT id, concept, content, confidence, COALESCE(source, ''), created_at FROM knowledge_atoms WHERE concept LIKE ? ORDER BY confidence DESC`,
 		pattern,
 	)
 	if err != nil {
@@ -284,7 +284,7 @@ func (s *LocalStore) GetKnowledgeAtomsByPrefix(conceptPrefix string) ([]Knowledg
 	var atoms []KnowledgeAtom
 	for rows.Next() {
 		var atom KnowledgeAtom
-		if err := rows.Scan(&atom.ID, &atom.Concept, &atom.Content, &atom.Confidence, &atom.CreatedAt); err != nil {
+		if err := rows.Scan(&atom.ID, &atom.Concept, &atom.Content, &atom.Confidence, &atom.Source, &atom.CreatedAt); err != nil {
 			continue
 		}
 		atoms = append(atoms, atom)

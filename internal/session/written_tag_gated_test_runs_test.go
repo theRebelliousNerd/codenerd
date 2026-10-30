@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"codenerd/internal/testfacts"
 )
 
 // A test file the turn wrote behind a build tag is run under that tag before
@@ -82,5 +84,38 @@ func TestGate_RunsTheTagGatedTestTheTurnWrote(t *testing.T) {
 	red := TestVerification{Ran: true, Outcome: VerifyFailed, Output: "already red"}
 	if out := withWrittenTagGatedTests(context.Background(), workspace, []string{rel}, red); out.Output != "already red" || taggedRun != nil {
 		t.Errorf("a verdict that was not green was replaced or re-run")
+	}
+
+	// A red default suite whose every failure predates the turn is exempted
+	// by policy; the exemption must not skip the tagged test the turn wrote.
+	// It used to: the helper ran only after a raw pass, so /test passed over
+	// a written tagged test nobody ran.
+	baselineOnly := TestVerification{
+		Ran: true, Outcome: VerifyFailed, Output: "FAIL TestOld",
+		BaselineRan: true, BaselineFailures: []TestKey{{Pkg: "p", Name: "TestOld"}},
+		Result: &testfacts.Result{
+			Packages: []*testfacts.Package{{
+				Name: "p", Status: testfacts.StatusFail,
+				Tests: []*testfacts.Test{{Name: "TestOld", Status: testfacts.StatusFail}},
+			}},
+			Failures: failedImporterResult("TestOld", "old").Failures,
+		},
+	}
+	if !failuresAllPredate(baselineOnly) {
+		t.Fatal("fixture: the default failure should predate the turn")
+	}
+	out := withWrittenTagGatedTests(context.Background(), workspace, []string{rel}, baselineOnly)
+	if taggedRun == nil {
+		t.Fatal("a baseline-exempted red suite skipped the tagged test the turn wrote")
+	}
+	if names := failedTopLevels(out.Result); len(names) != 1 || names[0] != "TestLaneIsTaken" {
+		t.Errorf("the written tagged test's failure did not replace the exempted verdict: %v", names)
+	}
+	// The kernel charges it: the baseline exemption no longer passes /test.
+	if got := chargeTestGate(t, out, ownPass()); got != VerifyFailed {
+		t.Errorf("derived /test = %v, want failed: the written tagged test fails", got)
+	}
+	if got := chargeTestGate(t, baselineOnly, ownPass()); got == VerifyFailed {
+		t.Errorf("control: the baseline-only failure alone is exempted, derived /test = %v", got)
 	}
 }

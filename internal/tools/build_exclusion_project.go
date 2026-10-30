@@ -273,8 +273,12 @@ func projectEditElement(toolName, workspace string, args map[string]any) error {
 	if err != nil || loc == nil || elem == nil {
 		return err
 	}
-	if rev, ok := args["revision"].(string); ok && strings.TrimSpace(rev) != "" && rev != elem.Revision {
-		return nil
+	// Skipped only when the handler will refuse: a revision that applies
+	// and does not match (RevisionPrecondition, the handler's reading).
+	if raw, ok := args["revision"].(string); ok {
+		if rev, applies := RevisionPrecondition(raw); applies && rev != elem.Revision {
+			return nil
+		}
 	}
 	spanStart, spanEnd := elem.Start, elem.End
 	if part, _ := args["part"].(string); strings.TrimSpace(part) != "" {
@@ -311,8 +315,12 @@ func projectReplaceElement(toolName, workspace string, args map[string]any) erro
 	if err != nil || loc == nil || elem == nil {
 		return err
 	}
-	if rev, ok := args["revision"].(string); ok && strings.TrimSpace(rev) != "" && rev != elem.Revision {
-		return nil
+	// Skipped only when the handler will refuse: a revision that applies
+	// and does not match (RevisionPrecondition, the handler's reading).
+	if raw, ok := args["revision"].(string); ok {
+		if rev, applies := RevisionPrecondition(raw); applies && rev != elem.Revision {
+			return nil
+		}
 	}
 	// The header span starts at byte 0 and includes the build constraints.
 	// Replacing it is how a //go:build ignore lands without a file-wide

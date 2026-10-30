@@ -13,6 +13,7 @@ import (
 
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
+	"codenerd/internal/store"
 )
 
 // CompilerVectorSearcher is the default VectorSearcher for JIT prompts.
@@ -36,21 +37,29 @@ func (s *CompilerVectorSearcher) SetCompiler(c *JITPromptCompiler) {
 	s.compiler = c
 }
 
-// EmbedQuery generates an embedding vector for the given query.
-func (s *CompilerVectorSearcher) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+// EmbedQuery embeds the query with the engine captured for this call and
+// stamps the vector with that engine's identity.
+func (s *CompilerVectorSearcher) EmbedQuery(ctx context.Context, query string) (store.QueryEmbedding, error) {
 	s.mu.RLock()
 	engine := s.engine
 	s.mu.RUnlock()
 
 	if engine == nil || query == "" {
-		return nil, fmt.Errorf("no engine or query")
+		return store.QueryEmbedding{}, fmt.Errorf("no engine or query")
 	}
 
+	var vec []float32
+	var err error
 	taskType := embedding.SelectTaskType(embedding.ContentTypeQuery, true)
 	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
-		return taskAware.EmbedWithTask(ctx, query, taskType)
+		vec, err = taskAware.EmbedWithTask(ctx, query, taskType)
+	} else {
+		vec, err = engine.Embed(ctx, query)
 	}
-	return engine.Embed(ctx, query)
+	if err != nil {
+		return store.QueryEmbedding{}, err
+	}
+	return store.QueryEmbedding{Vector: vec, ModelID: engine.Name()}, nil
 }
 
 // Search performs semantic search over prompt_atoms embeddings.
@@ -66,7 +75,6 @@ func (s *CompilerVectorSearcher) Search(ctx context.Context, query string, limit
 	if engine == nil {
 		return nil, nil
 	}
-	modelName := engine.Name()
 	if limit <= 0 {
 		limit = 10
 	}
@@ -76,6 +84,9 @@ func (s *CompilerVectorSearcher) Search(ctx context.Context, query string, limit
 	if err != nil {
 		return nil, fmt.Errorf("failed to embed query: %w", err)
 	}
+	// The identity of the engine that produced this vector, not a second
+	// read of the field (an engine swap between the two would mismatch).
+	modelName := queryEmbedding.ModelID
 
 	dbs := compiler.snapshotPromptDBs()
 	if len(dbs) == 0 {
@@ -125,10 +136,10 @@ func (s *CompilerVectorSearcher) Search(ctx context.Context, query string, limit
 				continue
 			}
 			vec := decodeFloat32Slice(blob)
-			if len(vec) != len(queryEmbedding) {
+			if len(vec) != len(queryEmbedding.Vector) {
 				continue
 			}
-			sim, err := embedding.CosineSimilarity(queryEmbedding, vec)
+			sim, err := embedding.CosineSimilarity(queryEmbedding.Vector, vec)
 			if err != nil {
 				continue
 			}

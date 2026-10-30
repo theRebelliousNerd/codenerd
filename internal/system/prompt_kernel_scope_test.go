@@ -1,6 +1,7 @@
 package system
 
 import (
+	"codenerd/internal/store"
 	"context"
 	"errors"
 	"fmt"
@@ -23,8 +24,8 @@ func (s *cancelingPromptVectorSearcher) Search(ctx context.Context, _ string, _ 
 	return nil, ctx.Err()
 }
 
-func (s *cancelingPromptVectorSearcher) EmbedQuery(context.Context, string) ([]float32, error) {
-	return nil, nil
+func (s *cancelingPromptVectorSearcher) EmbedQuery(context.Context, string) (store.QueryEmbedding, error) {
+	return store.QueryEmbedding{}, nil
 }
 
 func newPromptScopeTestKernel(t *testing.T) (*core.CortexKernel, *KernelAdapter) {

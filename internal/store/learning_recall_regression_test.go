@@ -230,7 +230,7 @@ func TestLearningRecall_ContextCancellation(t *testing.T) {
 	}
 	vectorCtx, cancelVector := context.WithTimeout(t.Context(), 40*time.Millisecond)
 	defer cancelVector()
-	hits, err = ls.RecallLearningsByEmbeddingContext(vectorCtx, []float32{1}, 5)
+	hits, err = ls.RecallLearningsByEmbeddingContext(vectorCtx, QueryEmbedding{Vector: []float32{1}, ModelID: "test-embedder"}, 5)
 	if !errors.Is(err, context.DeadlineExceeded) || len(hits) != 0 {
 		t.Fatalf("embedding recall ignored cancellation: %+v %v", hits, err)
 	}

@@ -539,26 +539,70 @@ func (sm *ShardManager) assertReviewFeedback(kernel types.Kernel, fact types.Fac
 	sm.refreshReviewAccuracy(kernel, reviewID)
 }
 
-// reviewFeedbackCounts totals a review's accepted and rejected findings.
-func reviewFeedbackCounts(kernel types.Kernel, reviewID string) (accepted, rejected int) {
+// reviewFeedback is a review's feedback: the events recorded, and each
+// finding's current verdict.
+type reviewFeedback struct {
+	// events is every feedback record kept for the review (history).
+	events int
+	// accepted and rejected count distinct findings (file, line) by their
+	// latest verdict: a finding accepted twice is one accepted finding, and
+	// one rejected then accepted is accepted now. Within one second the two
+	// verdicts cannot be ordered and the finding counts as rejected (the
+	// conservative reading for a review's accuracy).
+	accepted, rejected int
+}
+
+func (f reviewFeedback) findings() int { return f.accepted + f.rejected }
+
+// reviewFeedbackCounts reads a review's feedback from the kernel.
+func reviewFeedbackCounts(kernel types.Kernel, reviewID string) reviewFeedback {
+	var out reviewFeedback
 	if kernel == nil {
-		return 0, 0
+		return out
 	}
-	count := func(predicate string) int {
+	type finding struct {
+		file string
+		line int64
+	}
+	type verdict struct {
+		at       int64
+		accepted bool
+	}
+	latest := map[finding]verdict{}
+	read := func(predicate string, accepted bool, tsIdx int) {
 		facts, err := kernel.Query(predicate)
 		if err != nil {
 			logging.Get(logging.CategoryShards).Warn("review feedback query %q failed: %v", predicate, err)
-			return 0
+			return
 		}
-		n := 0
 		for _, f := range facts {
-			if len(f.Args) > 0 && types.ExtractString(f.Args[0]) == reviewID {
-				n++
+			if len(f.Args) <= tsIdx || types.ExtractString(f.Args[0]) != reviewID {
+				continue
+			}
+			out.events++
+			line, _ := types.ExtractInt64(f.Args[2])
+			at, _ := types.ExtractInt64(f.Args[tsIdx])
+			key := finding{file: types.ExtractString(f.Args[1]), line: line}
+			v := verdict{at: at, accepted: accepted}
+			cur, seen := latest[key]
+			switch {
+			case !seen || v.at > cur.at:
+				latest[key] = v
+			case v.at == cur.at && !v.accepted:
+				latest[key] = v
 			}
 		}
-		return n
 	}
-	return count("user_accepted_finding"), count("user_rejected_finding")
+	read("user_accepted_finding", true, 3)
+	read("user_rejected_finding", false, 4)
+	for _, v := range latest {
+		if v.accepted {
+			out.accepted++
+		} else {
+			out.rejected++
+		}
+	}
+	return out
 }
 
 // refreshReviewAccuracy recomputes review_accuracy/5 for one review.
@@ -573,8 +617,8 @@ func reviewFeedbackCounts(kernel types.Kernel, reviewID string) (accepted, rejec
 // int64 — one float64 fact aborts the whole fixpoint — so the ratio goes
 // through types.PercentFromRatio rather than being cast.
 func (sm *ShardManager) refreshReviewAccuracy(kernel types.Kernel, reviewID string) {
-	accepted, rejected := reviewFeedbackCounts(kernel, reviewID)
-	total := accepted + rejected
+	fb := reviewFeedbackCounts(kernel, reviewID)
+	accepted, rejected, total := fb.accepted, fb.rejected, fb.findings()
 	if total == 0 {
 		return
 	}
@@ -618,15 +662,15 @@ func (sm *ShardManager) GetReviewAccuracyReport(reviewID string) string {
 		return "Review feedback unavailable: no kernel attached"
 	}
 
-	accepted, rejected := reviewFeedbackCounts(kernel, reviewID)
-	total := accepted + rejected
+	fb := reviewFeedbackCounts(kernel, reviewID)
+	total := fb.findings()
 	if total == 0 {
 		return fmt.Sprintf("Review %s: no findings accepted or rejected yet", reviewID)
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "Review %s: %d finding(s) judged — %d accepted, %d rejected (%d%% accepted)",
-		reviewID, total, accepted, rejected, types.PercentFromRatio(float64(accepted)/float64(total)))
+	fmt.Fprintf(&b, "Review %s: %d finding(s) judged — %d accepted, %d rejected by their latest verdict (%d%% accepted); %d feedback event(s)",
+		reviewID, total, fb.accepted, fb.rejected, types.PercentFromRatio(float64(fb.accepted)/float64(total)), fb.events)
 	if reasons := sm.GetReviewSuspectReasons(reviewID); len(reasons) > 0 {
 		fmt.Fprintf(&b, "\nFlagged suspect: %s", strings.Join(reasons, ", "))
 	}

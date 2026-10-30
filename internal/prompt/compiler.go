@@ -140,8 +140,9 @@ type VectorSearcher interface {
 	// Search performs semantic search and returns atom IDs with scores.
 	Search(ctx context.Context, query string, limit int) ([]SearchResult, error)
 
-	// EmbedQuery generates an embedding vector for the given query.
-	EmbedQuery(ctx context.Context, query string) ([]float32, error)
+	// EmbedQuery embeds the query with its producing engine's identity, so
+	// a semantic store can rank it only against rows of the same space.
+	EmbedQuery(ctx context.Context, query string) (store.QueryEmbedding, error)
 }
 
 // SearchResult represents a semantic search result.

@@ -284,7 +284,6 @@ func TestMergeDerivedAgents_GrantsLanguageTools(t *testing.T) {
 	for _, a := range mergeDerivedAgents(nil, derived, "go") {
 		if a.Name == "GoExpert" {
 			assert.NotEmpty(t, a.Tools, "GoExpert should have tools")
-			assert.NotEmpty(t, a.ToolPreferences, "GoExpert should have tool preferences")
 			return
 		}
 	}

@@ -95,6 +95,19 @@ type compileSources struct {
 	vectorSearcher VectorSearcher
 }
 
+// consultedExperts are the shard agent KBs a compile over these sources
+// searches for knowledge: the speaker's own and every pushed expert's.
+func (src compileSources) consultedExperts() []string {
+	var out []string
+	if src.shardDB != nil && src.shardKey != "" {
+		out = append(out, src.shardKey)
+	}
+	for _, expert := range src.experts {
+		out = append(out, expert.key)
+	}
+	return out
+}
+
 func (c *JITPromptCompiler) snapshotSources(cc *CompilationContext) compileSources {
 	c.dbMu.RLock()
 	src := compileSources{

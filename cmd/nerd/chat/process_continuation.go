@@ -366,25 +366,6 @@ func verificationPhrase(kind string, v *observation.Verification) string {
 	}
 }
 
-// isMutationOperation returns true if the shard type performs mutations.
-// Used by Breakpoint mode to pause before write/run operations.
-func isMutationOperation(shardType string) bool {
-	mutationShards := map[string]bool{
-		"coder":            true,  // Writes code
-		"tool_generator":   true,  // Creates tools
-		"tester":           false, // Just runs tests (read-only)
-		"reviewer":         false, // Just analyzes (read-only)
-		"researcher":       false, // Just gathers info (read-only)
-		"debugger":         true,  // May fix bugs
-		"security_auditor": false, // Just analyzes
-	}
-	if isMutation, exists := mutationShards[shardType]; exists {
-		return isMutation
-	}
-	// Default: assume mutation if unknown
-	return true
-}
-
 // oneLine flattens a string onto one line for a log line, a Glass Box event
 // or a fact argument. It never cuts: the TUI wraps, logs take whole lines, and
 // a cut identifier or summary is a different one. Until 2026-10-28 these

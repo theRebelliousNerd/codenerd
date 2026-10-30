@@ -263,6 +263,16 @@ func TestTypedVerification_NullLikeWorkingDirIsOmitted(t *testing.T) {
 	if got := optionalPackages([]string{"null", "./internal/alpha"}); len(got) != 1 || got[0] != "./internal/alpha" {
 		t.Errorf("optionalPackages did not drop sentinel: %q", got)
 	}
+	// "." and "./" are package selectors (the working directory's package),
+	// not an omitted directory: they survive, alone and in a mixed list.
+	for _, sel := range []string{".", "./"} {
+		if got := optionalPackages([]string{sel}); len(got) != 1 || got[0] != sel {
+			t.Errorf("packages [%q]: optionalPackages = %q, want the explicit selector kept", sel, got)
+		}
+	}
+	if got := optionalPackages([]string{".", "./internal/alpha"}); len(got) != 2 || got[0] != "." {
+		t.Errorf("a mixed list lost the root package: %q", got)
+	}
 }
 
 // Null-like packages spellings exercise the string-packages branch of

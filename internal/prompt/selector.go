@@ -1306,7 +1306,7 @@ func (s *AtomSelector) queryFleshAtoms(
 		})
 	}
 	if relevancePercent != nil {
-		s.rememberCarry(cc, selected, carriedRank)
+		s.stageCarry(cc, selected, carriedRank)
 	}
 
 	logging.Get(logging.CategoryContext).Debug(

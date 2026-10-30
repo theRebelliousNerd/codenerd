@@ -1,6 +1,7 @@
 package prompt_test
 
 import (
+	"codenerd/internal/store"
 	"context"
 	"errors"
 	"fmt"
@@ -394,8 +395,8 @@ func (search *dynamicSearchBarrier) Search(ctx context.Context, query string, _ 
 	}
 }
 
-func (search *dynamicSearchBarrier) EmbedQuery(context.Context, string) ([]float32, error) {
-	return []float32{1}, nil
+func (search *dynamicSearchBarrier) EmbedQuery(context.Context, string) (store.QueryEmbedding, error) {
+	return store.QueryEmbedding{Vector: []float32{1}, ModelID: "test-embedder"}, nil
 }
 
 func TestDynamicCacheSnapshot_CanceledCallerDoesNotReleaseSharedScope(test *testing.T) {

@@ -45,7 +45,10 @@ func (e *Executor) workspaceTestRun(ctx context.Context, result *ExecutionResult
 	if ws == "" || result == nil {
 		return false, ""
 	}
-	langs, dirs := writtenNonGo(ws, result.WrittenPaths)
+	// The paths whose change remains, as the gate-ownership policy counts
+	// them (turn_write_reverted): a file restored byte for byte owes no test
+	// of its language.
+	langs, dirs := writtenNonGo(ws, netWrittenPaths(ws, result))
 	if len(dirs) == 0 {
 		return false, ""
 	}
@@ -154,6 +157,20 @@ func (e *Executor) noteObligation(result *ExecutionResult, run plannedRun) {
 
 // writtenNonGo returns the languages and the workspace-relative directories of
 // the written files the Go gates do not check, documentation excluded.
+// netWrittenPaths is the turn's written paths less those restored to their
+// preimage (writeReverted: known preimage, same existence, same bytes). The
+// write history stays in result.WrittenPaths; this is the change that remains.
+func netWrittenPaths(ws string, result *ExecutionResult) []string {
+	out := make([]string, 0, len(result.WrittenPaths))
+	for _, p := range result.WrittenPaths {
+		if writeReverted(ws, p, result.PreWriteContents) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
 func writtenNonGo(ws string, written []string) (map[string]bool, []string) {
 	langs := map[string]bool{}
 	dirSet := map[string]bool{}

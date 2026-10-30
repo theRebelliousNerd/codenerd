@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"strings"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/factstore"
@@ -20,8 +21,14 @@ import (
 // A program fact of a derived predicate, removed with the rest, is re-added by
 // the engine run that follows, as on the full path; one of an extensional
 // predicate is never removed. Caller holds k.mu.
+//
+// A derived predicate's scratch relations go too: the engine evaluates an
+// aggregate over more than one premise through "<head><n>__tmp" (mangle-go's
+// rewrite), stored beside the rest. Left in place, a retracted input's row
+// still feeds the group.
 func (k *RealKernel) prepareConeStoreLocked(plan *conePlan) (removed, restored, listed int, err error) {
 	remover := k.store.(factstore.FactStoreWithRemove)
+	removed += k.dropScratchRelationsLocked(plan, remover)
 	for _, pred := range plan.touched {
 		_, derived := k.cone.heads[pred]
 		var r, a, l int
@@ -38,6 +45,40 @@ func (k *RealKernel) prepareConeStoreLocked(plan *conePlan) (removed, restored, 
 		listed += l
 	}
 	return removed, restored, listed, nil
+}
+
+// dropScratchRelationsLocked removes every row of the engine's scratch
+// relations for the plan's derived predicates and returns how many it removed.
+func (k *RealKernel) dropScratchRelationsLocked(plan *conePlan, remover factstore.FactStoreWithRemove) int {
+	var scratch []ast.PredicateSym
+	for _, sym := range k.store.ListPredicates() {
+		base, ok := strings.CutSuffix(sym.Symbol, ast.InternalPredicateSuffix)
+		if !ok {
+			continue
+		}
+		for _, pred := range plan.touched {
+			if _, derived := k.cone.heads[pred]; !derived {
+				continue
+			}
+			if n, found := strings.CutPrefix(base, pred); found && n != "" && strings.Trim(n, "0123456789") == "" {
+				scratch = append(scratch, sym)
+				break
+			}
+		}
+	}
+	removed := 0
+	for _, sym := range scratch {
+		var rows []ast.Atom
+		_ = k.store.GetFacts(ast.NewQuery(sym), func(a ast.Atom) error {
+			rows = append(rows, a)
+			return nil
+		})
+		for _, atom := range rows {
+			remover.Remove(atom)
+		}
+		removed += len(rows)
+	}
+	return removed
 }
 
 // storedRowsLocked lists every row the store holds under pred's symbols.

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codenerd/internal/logging"
@@ -112,31 +113,70 @@ func (c *relevanceCache) putAll(values map[string]float64) {
 // costs each task one compile without carried atoms.
 const carryLimit = 512
 
-// carryMemory remembers, per task, the flesh atoms the last judged compile
-// admitted, in their prompt order. The next compile of the same task carries
-// them: they rejoin the recall pool and stay admitted unless Jev now reads
-// them as not applying (jit_compiler.mg flesh_admitted(_, /carried)), and they
-// keep their places ahead of newly admitted flesh (assembler tierCarried), so
-// consecutive turns of one task share the longest cacheable prefix. A new
-// task starts with nothing carried.
+// carryMemory remembers, per task, the judged flesh atoms the last
+// completed prompt of the task carried, in their prompt order. The next
+// compile of the same task carries them: they rejoin the recall pool and
+// stay admitted unless Jev now reads them as not applying (jit_compiler.mg
+// flesh_admitted(_, /carried)), and they keep their places ahead of newly
+// admitted flesh (assembler tierCarried), so consecutive turns of one task
+// share the longest cacheable prefix. A new task starts with nothing carried.
+//
+// Carry is prefix memory, so only a completed prompt publishes it (stage,
+// then publish): an atom selected but shed by the token budget, or a compile
+// that failed after selection, leaves it as it was. What one compile
+// carries into the relevance pool is therefore bounded by the flesh the last
+// prompt fit, not by every atom ever selected for the task.
 type carryMemory struct {
 	mu    sync.Mutex
-	tasks map[string][]string
+	tasks map[string]carryEntry
 }
+
+// carryEntry is one task's published carry and the selection sequence it
+// came from: a compile that selected earlier never overwrites a later one.
+type carryEntry struct {
+	ids []string
+	seq uint64
+}
+
+// carryStage is a compile's candidate carry, staged at selection and
+// published when its prompt completes.
+type carryStage struct {
+	key string
+	ids []string
+	seq uint64
+}
+
+// carrySeq orders selections across compiles.
+var carrySeq atomic.Uint64
 
 func (m *carryMemory) get(key string) []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return append([]string(nil), m.tasks[key]...)
+	return append([]string(nil), m.tasks[key].ids...)
 }
 
-func (m *carryMemory) put(key string, ids []string) {
+// publish records the staged carry the completed prompt kept: the staged ids
+// it includes, in staged order. A stage selected before the task's current
+// entry is stale and changes nothing.
+func (m *carryMemory) publish(stage *carryStage, included map[string]bool) {
+	if stage == nil {
+		return
+	}
+	ids := make([]string, 0, len(stage.ids))
+	for _, id := range stage.ids {
+		if included[id] {
+			ids = append(ids, id)
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.tasks == nil || len(m.tasks) >= carryLimit {
-		m.tasks = make(map[string][]string)
+	if cur, ok := m.tasks[stage.key]; ok && cur.seq > stage.seq {
+		return
 	}
-	m.tasks[key] = append([]string(nil), ids...)
+	if m.tasks == nil || len(m.tasks) >= carryLimit {
+		m.tasks = make(map[string]carryEntry)
+	}
+	m.tasks[stage.key] = carryEntry{ids: ids, seq: stage.seq}
 }
 
 // carryKey names the task a compile serves: the agent and what the intent is
@@ -449,10 +489,11 @@ const (
 	carriedRankStep    = 1e-4
 )
 
-// rememberCarry records this compile's judged flesh for the task's next
-// compile: the carried atoms still admitted, in their order, then the newly
-// admitted ones by ID, which is the order the prompt shows them in.
-func (s *AtomSelector) rememberCarry(cc *CompilationContext, selected []*ScoredAtom, carriedRank map[string]int) {
+// stageCarry stages this compile's judged flesh for the task's next compile:
+// the carried atoms still admitted, in their order, then the newly admitted
+// ones by ID, which is the order the prompt shows them in. The compiler
+// publishes it when the prompt completes (publishCarry).
+func (s *AtomSelector) stageCarry(cc *CompilationContext, selected []*ScoredAtom, carriedRank map[string]int) {
 	var kept, fresh []string
 	for _, sa := range selected {
 		if sa == nil || sa.Atom == nil {
@@ -466,5 +507,22 @@ func (s *AtomSelector) rememberCarry(cc *CompilationContext, selected []*ScoredA
 	}
 	sort.Slice(kept, func(i, j int) bool { return carriedRank[kept[i]] < carriedRank[kept[j]] })
 	sort.Strings(fresh)
-	s.carry.put(carryKey(cc), append(kept, fresh...))
+	cc.stagedCarry = &carryStage{key: carryKey(cc), ids: append(kept, fresh...), seq: carrySeq.Add(1)}
+}
+
+// publishCarry publishes the carry the compile staged, kept to the atoms its
+// completed prompt includes. A compile that staged nothing (no complete
+// judgment) changes nothing.
+func (s *AtomSelector) publishCarry(cc *CompilationContext, fitted []*OrderedAtom) {
+	if cc == nil || cc.stagedCarry == nil {
+		return
+	}
+	included := make(map[string]bool, len(fitted))
+	for _, oa := range fitted {
+		if oa != nil && oa.Atom != nil {
+			included[oa.Atom.ID] = true
+		}
+	}
+	s.carry.publish(cc.stagedCarry, included)
+	cc.stagedCarry = nil
 }

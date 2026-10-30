@@ -532,12 +532,21 @@ func gateTests(ctx context.Context, workspace string, result *ExecutionResult, w
 		}
 		return v, uncovered
 	}
-	key := gateKey(ctx, "importers", goWorkspace(workspace), result)
+	// Discovery runs every time: it is a listing, the run is the cost, and
+	// the importers' own files are part of what the run reads. A listing
+	// that did not finish is not "nothing imports this" and is not kept.
+	scope := discoverImporters(ctx, workspace, result)
+	if scope.why != "" {
+		result.ImporterCheck = TestVerification{Outcome: VerifySkipped, Reason: scope.why}
+		return v, uncovered
+	}
+	key := gateKey(ctx, "importers", goWorkspace(workspace), result) + "|" +
+		strings.Join(scope.runnable, ",") + "|" + dirsFingerprint(scope.dirs)
 	if run, ok := recalledGate(result, key); ok {
 		result.ImporterCheck = run.v
 		return v, uncovered
 	}
-	result.ImporterCheck = verifyImporters(ctx, workspace, result)
+	result.ImporterCheck = verifyImporters(ctx, workspace, result, scope.runnable)
 	rememberGate(result, key, result.ImporterCheck, nil)
 	return v, uncovered
 }

@@ -315,7 +315,7 @@ func TestRunPhase11Registry_KeepsOtherAgentsAndRestrictsGrants(t *testing.T) {
 	}
 	ini.registeredTools = []ToolDefinition{{Name: "go_test"}, {Name: "go_build"}}
 	result := &InitResult{CreatedAgents: []CreatedAgent{{
-		Name: "TSExpert", Tools: []string{"npm_test", "go_test"}, ToolPreferences: map[string]string{"test": "npm_test", "build": "go_build"},
+		Name: "TSExpert", Tools: []string{"npm_test", "go_test"},
 	}}}
 	ini.runPhase11Registry(newPhaseRunner(ini), result, nerdDir)
 
@@ -341,8 +341,13 @@ func TestRunPhase11Registry_KeepsOtherAgentsAndRestrictsGrants(t *testing.T) {
 		t.Fatal("a declined agent was kept")
 	}
 	ts := byName["TSExpert"]
-	if !slices.Equal(ts.Tools, []string{"go_test"}) || ts.ToolPreferences["test"] != "" || ts.ToolPreferences["build"] != "go_build" {
-		t.Fatalf("TSExpert grants = %v %v; an unregistered tool reached agents.json", ts.Tools, ts.ToolPreferences)
+	if !slices.Equal(ts.Tools, []string{"go_test"}) {
+		t.Fatalf("TSExpert grants = %v; an unregistered tool reached agents.json", ts.Tools)
+	}
+	// tool_preferences had no reader anywhere; the registry no longer
+	// writes it.
+	if strings.Contains(string(data), "tool_preferences") {
+		t.Fatalf("agents.json still carries tool_preferences: %s", data)
 	}
 }
 

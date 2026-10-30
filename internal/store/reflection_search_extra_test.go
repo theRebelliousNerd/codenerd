@@ -119,10 +119,10 @@ func TestLocalStore_ReflectionSearch_Extra(t *testing.T) {
 		t.Errorf("Expected learning hits, got 0")
 	}
 
-	// RecallLearningsByEmbedding (returns nil or error with missing vec table)
-	lVecHits, err := learnStore.RecallLearningsByEmbedding([]float32{0.1, 0.2}, 5)
+	// RecallLearningsByEmbeddingContext (returns nil or error with missing vec table)
+	lVecHits, err := learnStore.RecallLearningsByEmbeddingContext(t.Context(), QueryEmbedding{Vector: []float32{0.1, 0.2}, ModelID: "test-embedder"}, 5)
 	if err == nil && len(lVecHits) > 0 {
-		t.Errorf("Expected error or no hits from RecallLearningsByEmbedding with missing vec table")
+		t.Errorf("Expected error or no hits from RecallLearningsByEmbeddingContext with missing vec table")
 	}
 
 	if ls.vectorExt.Load() {
@@ -142,9 +142,12 @@ func TestLocalStore_ReflectionSearch_Extra(t *testing.T) {
 			t.Fatalf("Failed to insert into learnings_vec: %v", err)
 		}
 
-		lHits2, err := learnStore.RecallLearningsByEmbedding([]float32{0.1, 0.2, 0.3, 0.4}, 5)
+		if _, err := db.Exec("UPDATE learnings SET embedding_model_id = 'test-embedder', embedding_dim = 4, embedding_task = 'RETRIEVAL_DOCUMENT' WHERE id = ?", cands[0].ID); err != nil {
+			t.Fatalf("stamp embedding identity: %v", err)
+		}
+		lHits2, err := learnStore.RecallLearningsByEmbeddingContext(t.Context(), QueryEmbedding{Vector: []float32{0.1, 0.2, 0.3, 0.4}, ModelID: "test-embedder"}, 5)
 		if err != nil {
-			t.Errorf("RecallLearningsByEmbedding failed: %v", err)
+			t.Errorf("RecallLearningsByEmbeddingContext failed: %v", err)
 		}
 		if len(lHits2) == 0 {
 			t.Errorf("Expected learning hits by embedding, got 0")
