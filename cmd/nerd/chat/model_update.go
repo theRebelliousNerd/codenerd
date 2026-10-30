@@ -419,89 +419,14 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case continuationInitMsg:
 		return m.handleContinuationInitMsg(msg)
 	case continueMsg:
-		// Store the just-completed subtask result for follow-ups.
-		if msg.completedShardResult != nil {
-			m.storeShardResult(msg.completedShardResult.ShardType, msg.completedShardResult.Task, msg.completedShardResult.Result, msg.completedShardResult.Facts)
-		}
-		if msg.totalSteps > 0 && msg.totalSteps > m.continuationTotal {
-			m.continuationTotal = msg.totalSteps
-		}
-
-		m.continuationStep++
-		m.updateContinuationFacts()
-
-		// Show progress for completed step
-		m = m.pushAssistantMsg(fmt.Sprintf("✓ [%d/%d] %s", m.continuationStep-1, m.continuationTotal, m.statusMessage))
-
-		shouldPause := m.pausesBefore(msg.isMutation)
-
-		if shouldPause {
-			m.isLoading = false
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("⏸️ Next: %s\n\nPress Enter to continue, or type new instructions.", msg.description),
-				Time:    time.Now(),
-			})
-			m.pendingSubtasks = append(m.pendingSubtasks, Subtask{
-				ID:          msg.subtaskID,
-				Description: msg.description,
-				ShardType:   msg.shardType,
-				IsMutation:  msg.isMutation,
-			})
-			m.viewport.SetContent(m.renderHistory())
-			m.viewport.GotoBottom()
-			return m, nil
-		}
-
-		// Auto mode: continue immediately
-		m.statusMessage = fmt.Sprintf("[%d/%d] %s", m.continuationStep, m.continuationTotal, msg.description)
-		return m, tea.Batch(
-			m.spinner.Tick,
-			m.executeSubtask(msg.subtaskID, msg.description, msg.shardType),
-		)
+		return m.handleContinueMsg(msg)
 
 	case confirmContinueMsg:
-		// Resume from paused state (Enter pressed in Confirm/Breakpoint mode)
-		if len(m.pendingSubtasks) > 0 {
-			next := m.pendingSubtasks[0]
-			m.pendingSubtasks = m.pendingSubtasks[1:]
-			m.isLoading = true
-			m.statusMessage = fmt.Sprintf("[%d/%d] %s", m.continuationStep, m.continuationTotal, next.Description)
-			return m, tea.Batch(
-				m.spinner.Tick,
-				m.executeSubtask(next.ID, next.Description, next.ShardType),
-			)
-		}
-		return m, nil
+		// Enter on a pause runs the step the pause offered.
+		return m.runOfferedSubtask()
 
 	case continuationDoneMsg:
-		if msg.completedShardResult != nil {
-			m.storeShardResult(msg.completedShardResult.ShardType, msg.completedShardResult.Task, msg.completedShardResult.Result, msg.completedShardResult.Facts)
-		}
-
-		m.isLoading = false
-		m.continuationStep = 0
-		m.continuationTotal = 0
-		m.pendingSubtasks = nil
-		m.isInterrupted = false
-		m.endDelivery()
-		// Clear continuation facts from kernel
-		if m.kernel != nil {
-			_ = m.kernel.Retract("interrupt_requested")
-			_ = m.kernel.Retract("continuation_step")
-		}
-		switch msg.outcome {
-		case continuationFailed:
-			m = m.pushAssistantMsg(fmt.Sprintf("❌ Stopped after %d step(s): %s", msg.stepCount, msg.summary))
-		case continuationInterrupted:
-			m = m.pushAssistantMsg(fmt.Sprintf("⏹️ Stopped by user after %d step(s).\n\n%s", msg.stepCount, msg.summary))
-		case continuationCompleted:
-			m = m.pushAssistantMsg(fmt.Sprintf("✅ All %d step(s) complete and verified.\n\n%s", msg.stepCount, msg.summary))
-		default:
-			// The steps ran; nothing showed the work holds. The checkmark is
-			// reserved for a verdict, not for having run out of steps.
-			m = m.pushAssistantMsg(fmt.Sprintf("⚠️ %d step(s) ran; the work is not verified.\n\n%s", msg.stepCount, msg.summary))
-		}
+		return m.handleContinuationDone(msg)
 
 	case initCompleteMsg:
 		m.isLoading = false
@@ -1125,35 +1050,11 @@ func (m Model) handleContinuationInitMsg(msg continuationInitMsg) (tea.Model, te
 	m.updateContinuationFacts()
 
 	m = m.pushAssistantMsg(msg.completedSurface)
-
-	shouldPause := m.pausesBefore(msg.next.isMutation)
-
-	if shouldPause {
-		m.isLoading = false
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: fmt.Sprintf("?? Next: %s\n\nPress Enter to continue, or type new instructions.", msg.next.description),
-			Time:    time.Now(),
-		})
-		m.pendingSubtasks = append(m.pendingSubtasks, Subtask{
-			ID:          msg.next.subtaskID,
-			Description: msg.next.description,
-			ShardType:   msg.next.shardType,
-			IsMutation:  msg.next.isMutation,
-		})
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
-		return m, nil
-	}
-
-	// Auto-continue immediately.
-	m.isLoading = true
-	m.statusMessage = fmt.Sprintf("[%d/%d] %s", m.continuationStep, m.continuationTotal, msg.next.description)
-	return m, tea.Batch(
-		m.spinner.Tick,
-		m.executeSubtask(msg.next.subtaskID, msg.next.description, msg.next.shardType),
-	)
-
+	// A new request's chain: it is not the approved plan's, so its end
+	// resumes a paused plan by offering it rather than advancing it.
+	m.planChain = false
+	m.chainUnverified = false
+	return m.offerOrDispatch(msg.next.subtask())
 }
 
 // handleNorthstarDocsAnalyzedMsg processes the northstarDocsAnalyzedMsg.

@@ -111,9 +111,8 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	}
 	input := strings.TrimSpace(raw)
 	if input == "" {
-		// Empty Enter: Check for continuation confirmation
-		if len(m.pendingSubtasks) > 0 {
-			// Treat Enter as confirmation to continue
+		// Empty Enter on a pause confirms the step it offered.
+		if m.offeredSubtask != nil {
 			return m, func() tea.Msg { return confirmContinueMsg{} }
 		}
 		return m, nil
@@ -758,22 +757,19 @@ func (m Model) handleDreamPlanExecution(input string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Set up pending subtasks for the continuation protocol. A dream plan is
-	// no chat request: no delivery chain carries over into it.
-	m.endDelivery()
-	m.pendingSubtasks = subtasks
+	// The plan manager owns the approved steps until each settles
+	// (continuation_ledger.go); approval is consent to run the first ready
+	// one. A dream plan is no chat request: no delivery chain carries over.
+	m = m.endContinuation()
 	m.continuationStep = 1
 	m.continuationTotal = len(subtasks)
-	m.isLoading = true
-
-	// Execute the first subtask
-	if len(subtasks) > 0 {
-		first := subtasks[0]
-		return m, m.executeSubtask(first.ID, first.Description, first.ShardType)
+	first, ok := m.nextPlanStep()
+	if !ok {
+		m = m.pushAssistantMsg("The approved plan has no step whose dependencies are met; nothing was run.")
+		m.dreamPlanManager.CancelPlan()
+		return m, nil
 	}
-
-	m.isLoading = false
-	return m, nil
+	return m.dispatchSubtask(first)
 }
 
 // =============================================================================

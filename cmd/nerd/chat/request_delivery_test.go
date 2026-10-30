@@ -166,7 +166,7 @@ func TestDeliveryJourney_AMissingPartIsHandedBackUntilDelivered(t *testing.T) {
 	// The step documents it.
 	exec.response = "Documented --json under Commands in README.md."
 	jev.set(deliveryProbs(0.02, 0.97, 0.95))
-	done, ok := m.executeSubtask(init.next.subtaskID, init.next.description, init.next.shardType)().(continuationDoneMsg)
+	done, ok := m.executeSubtask(init.next.subtask())().(continuationDoneMsg)
 	if !ok {
 		t.Fatal("a delivered request asked for yet another step")
 	}
@@ -195,7 +195,7 @@ func TestDeliveryJourney_AStepThatResolvesNothingStops(t *testing.T) {
 		t.Fatalf("got %T, want another step", msg)
 	}
 	exec.response = "The flag is in place."
-	done, ok := m.executeSubtask(init.next.subtaskID, init.next.description, init.next.shardType)().(continuationDoneMsg)
+	done, ok := m.executeSubtask(init.next.subtask())().(continuationDoneMsg)
 	if !ok {
 		t.Fatal("a step that resolved nothing was handed the same parts again")
 	}

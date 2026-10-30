@@ -362,10 +362,20 @@ type Model struct {
 	// Continuation Protocol (multi-step task execution). The work mode
 	// (work_mode.go) decides the pauses: yolo never, propose before each
 	// mutation, explicit after every step. Ctrl+X stops any of them.
-	continuationStep  int       // Current step number (1-indexed)
-	continuationTotal int       // Total steps detected
-	pendingSubtasks   []Subtask // Queue of pending work
-	isInterrupted     bool      // User pressed Ctrl+X
+	continuationStep  int  // Current step number (1-indexed)
+	continuationTotal int  // Total steps detected
+	isInterrupted     bool // User pressed Ctrl+X
+
+	// offeredSubtask is the exact step a pause showed ("Next: ..."): Enter
+	// and /continue run it and nothing else. An approved dream plan's
+	// remaining steps are not queued here; dreamPlanManager owns them until
+	// each settles. planChain marks a chain the plan dispatched, so its end
+	// advances the plan; chainUnverified records that some step of the chain
+	// ran without verification, so the closing banner never claims more
+	// than its weakest step (continuation_ledger.go).
+	offeredSubtask  *Subtask
+	planChain       bool
+	chainUnverified bool
 
 	// Learning Store for Autopoiesis (§8.3)
 	learningStore   *store.LearningStore
@@ -824,6 +834,10 @@ type (
 		isMutation           bool                // True for write/run operations (for Breakpoint mode)
 		totalSteps           int                 // Updated total steps if discovered (optional)
 		completedShardResult *ShardResultPayload // Result of the just-completed subtask (optional)
+		// ran is the step whose result derived this one, and ranOutcome its
+		// verdict: Update settles exactly that step (continuation_ledger.go).
+		ran        Subtask
+		ranOutcome continuationOutcome
 	}
 	// continuationInitMsg starts a continuation chain with the first step's surface output.
 	continuationInitMsg struct {
@@ -845,6 +859,9 @@ type (
 		// failure, and user interrupt. Zero value is continuationUnverified:
 		// a producer that states no outcome has not verified anything.
 		outcome continuationOutcome
+		// ran is the step this message settles; on an interrupt, the step
+		// that was stopped before it ran.
+		ran Subtask
 	}
 
 	// Northstar document analysis message

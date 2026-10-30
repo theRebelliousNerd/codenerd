@@ -336,11 +336,8 @@ func (m Model) handlePromoteAtomCommand(input string, parts []string) (tea.Model
 
 // handleCmdContinue handles the corresponding chat slash-command.
 func (m Model) handleCmdContinue(input string, parts []string) (tea.Model, tea.Cmd) {
-	// Resume from paused continuation state
-	if len(m.pendingSubtasks) > 0 {
-		next := m.pendingSubtasks[0]
-		m.pendingSubtasks = m.pendingSubtasks[1:]
-		m.isLoading = true
+	// Resume from a pause: run exactly the step the pause offered.
+	if m.offeredSubtask != nil {
 		m.isInterrupted = false
 		// Clear interrupt fact from kernel
 		if m.kernel != nil {
@@ -348,17 +345,12 @@ func (m Model) handleCmdContinue(input string, parts []string) (tea.Model, tea.C
 				logging.Kernel("[commands] failed to retract interrupt_requested: %v", err)
 			}
 		}
-		m.statusMessage = fmt.Sprintf("[%d/%d] %s", m.continuationStep, m.continuationTotal, next.Description)
 		m.textarea.Reset()
-		return m, tea.Batch(
-			m.spinner.Tick,
-			m.executeSubtask(next.ID, next.Description, next.ShardType),
-		)
+		return m.runOfferedSubtask()
 	}
-	// No pending subtasks
 	m = m.addMessage(Message{
 		Role:    "assistant",
-		Content: "No pending tasks to continue. Start a new task.",
+		Content: "No step is offered to continue. Start a new task.",
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())

@@ -117,6 +117,18 @@ func (p *DreamPlan) MarkSubtaskRunning(id string) {
 	}
 }
 
+// MarkSubtaskPending returns a running subtask that never ran (its dispatch
+// was stopped before the shard started) to pending, so the plan still owns
+// it and offers it again.
+func (p *DreamPlan) MarkSubtaskPending(id string) {
+	for i := range p.Subtasks {
+		if p.Subtasks[i].ID == id && p.Subtasks[i].Status == SubtaskStatusRunning {
+			p.Subtasks[i].Status = SubtaskStatusPending
+			return
+		}
+	}
+}
+
 // MarkSubtaskCompleted marks a subtask as completed. Retries of an
 // already-terminal step are ignored so the counters cannot drift past the
 // number of subtasks.

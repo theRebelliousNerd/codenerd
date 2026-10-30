@@ -568,11 +568,12 @@ func WithWorkMode(mode config.WorkMode) TestModelOption {
 	}
 }
 
-// WithPendingSubtasks adds pending subtasks.
-func WithPendingSubtasks(tasks ...Subtask) TestModelOption {
+// WithOfferedSubtask pauses the model on step, the one Enter or /continue runs.
+func WithOfferedSubtask(step Subtask) TestModelOption {
 	return func(m *Model) {
-		m.pendingSubtasks = tasks
-		m.continuationTotal = len(tasks)
+		m.offeredSubtask = &step
+		m.continuationStep = 1
+		m.continuationTotal = 1
 	}
 }
 

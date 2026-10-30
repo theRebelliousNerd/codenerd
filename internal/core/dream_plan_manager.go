@@ -193,6 +193,67 @@ func (m *DreamPlanManager) MarkSubtaskRunning(id string) {
 	}
 }
 
+// MarkSubtaskPending returns a running subtask that never ran to pending.
+func (m *DreamPlanManager) MarkSubtaskPending(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.currentPlan != nil {
+		m.currentPlan.MarkSubtaskPending(id)
+	}
+}
+
+// HoldsSubtask reports whether the executing plan owns the subtask id: the
+// chat continuation settles a step here only when the plan dispatched it.
+func (m *DreamPlanManager) HoldsSubtask(id string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.currentPlan == nil || m.currentPlan.Status != DreamPlanStatusExecuting || id == "" {
+		return false
+	}
+	for _, s := range m.currentPlan.Subtasks {
+		if s.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// NextReadySubtask returns a copy of the executing plan's next pending step
+// whose dependencies are met (GetNextPendingSubtask).
+func (m *DreamPlanManager) NextReadySubtask() (DreamSubtask, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.currentPlan == nil || m.currentPlan.Status != DreamPlanStatusExecuting {
+		return DreamSubtask{}, false
+	}
+	next := m.currentPlan.GetNextPendingSubtask()
+	if next == nil {
+		return DreamSubtask{}, false
+	}
+	return *next, true
+}
+
+// UnrunSubtasks returns copies of the executing plan's steps that have not
+// run (pending or running), in plan order.
+func (m *DreamPlanManager) UnrunSubtasks() []DreamSubtask {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.currentPlan == nil || m.currentPlan.Status != DreamPlanStatusExecuting {
+		return nil
+	}
+	var unrun []DreamSubtask
+	for _, s := range m.currentPlan.Subtasks {
+		if s.Status == SubtaskStatusPending || s.Status == SubtaskStatusRunning {
+			unrun = append(unrun, s)
+		}
+	}
+	return unrun
+}
+
 // MarkSubtaskComplete marks a subtask as completed and returns if plan is done.
 func (m *DreamPlanManager) MarkSubtaskComplete(id, result string) bool {
 	m.mu.Lock()

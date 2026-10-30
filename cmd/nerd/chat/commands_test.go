@@ -50,17 +50,15 @@ func TestCommand_Continue_NoPending(t *testing.T) {
 		return
 	}
 	last := result.history[len(result.history)-1]
-	if !strings.Contains(last.Content, "No pending tasks") {
-		t.Errorf("Expected 'No pending tasks' message, got: %s", last.Content)
+	if !strings.Contains(last.Content, "No step is offered") {
+		t.Errorf("Expected 'No step is offered' message, got: %s", last.Content)
 	}
 }
 
 func TestCommand_Continue_WithPending(t *testing.T) {
 	t.Parallel()
 	m := NewTestModel(
-		WithPendingSubtasks(
-			Subtask{ID: "1", Description: "Test task", ShardType: "coder"},
-		),
+		WithOfferedSubtask(Subtask{ID: "1", Description: "Test task", ShardType: "coder"}),
 	)
 
 	newModel, cmd := m.handleCommand("/continue")
@@ -76,9 +74,9 @@ func TestCommand_Continue_WithPending(t *testing.T) {
 		t.Error("Expected command, got nil")
 	}
 
-	// Pending subtasks should be consumed
-	if len(result.pendingSubtasks) != 0 {
-		t.Errorf("Expected 0 pending subtasks, got %d", len(result.pendingSubtasks))
+	// The offered step is consumed
+	if result.offeredSubtask != nil {
+		t.Errorf("Expected the offer to be consumed, got %+v", result.offeredSubtask)
 	}
 }
 

@@ -283,7 +283,7 @@ func TestInterrupt_ClearsOnContinue(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel(
-		WithPendingSubtasks(Subtask{ID: "1", Description: "test", ShardType: "coder"}),
+		WithOfferedSubtask(Subtask{ID: "1", Description: "test", ShardType: "coder"}),
 	)
 	m.isInterrupted = true
 

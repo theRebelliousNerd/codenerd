@@ -271,10 +271,7 @@ func seedClarificationModel() Model {
 
 func seedContinuationPaused() Model {
 	m := NewTestModel(WithLoading(false))
-	m.pendingSubtasks = []Subtask{
-		{ShardType: "tester", Description: "run unit tests"},
-		{ShardType: "reviewer", Description: "review changes"},
-	}
+	m.offeredSubtask = &Subtask{ShardType: "tester", Description: "run unit tests"}
 	m.continuationStep = 1
 	m.continuationTotal = 3
 	return m
@@ -678,12 +675,10 @@ func TestE2E_TUI_InputStateMachine_KeySequences(t *testing.T) {
 		}
 	})
 
-	// --- empty enter with pendingSubtasks → confirmContinueMsg ---
+	// --- empty enter on an offered step → confirmContinueMsg ---
 	t.Run("empty_enter_with_subtasks", func(t *testing.T) {
 		m := NewTestModel()
-		m.pendingSubtasks = []Subtask{
-			{ShardType: "tester", Description: "run tests"},
-		}
+		m.offeredSubtask = &Subtask{ShardType: "tester", Description: "run tests"}
 
 		m.textarea.SetValue("")
 		submitted, cmd := m.handleSubmit()
@@ -961,8 +956,8 @@ func TestE2E_TUI_BossFight_FrameFuzzer(t *testing.T) {
 		summary:   "All phases completed",
 	})
 	m = assertFrameAfterUpdate(t, m)
-	if len(m.pendingSubtasks) != 0 {
-		t.Errorf("after continuationDone, pendingSubtasks should be empty, got %d", len(m.pendingSubtasks))
+	if m.offeredSubtask != nil {
+		t.Errorf("after continuationDone, no step should be offered, got %+v", m.offeredSubtask)
 	}
 
 	// Step 16: Campaign lifecycle

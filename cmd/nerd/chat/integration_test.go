@@ -228,20 +228,15 @@ func TestModel_FooterNamesWorkMode(t *testing.T) {
 	}
 }
 
-// TestModel_PendingSubtasks tests subtask management
-func TestModel_PendingSubtasks(t *testing.T) {
-	subtasks := []Subtask{
-		{ID: "1", Description: "review file1.go", ShardType: "reviewer"},
-		{ID: "2", Description: "test file2.go", ShardType: "tester"},
-	}
+// TestModel_OfferedSubtask tests the paused step option
+func TestModel_OfferedSubtask(t *testing.T) {
+	m := NewTestModel(WithOfferedSubtask(Subtask{ID: "1", Description: "review file1.go", ShardType: "reviewer"}))
 
-	m := NewTestModel(WithPendingSubtasks(subtasks...))
-
-	if len(m.pendingSubtasks) != 2 {
-		t.Errorf("PendingSubtasks length = %d, want 2", len(m.pendingSubtasks))
+	if m.offeredSubtask == nil || m.offeredSubtask.ID != "1" {
+		t.Errorf("offeredSubtask = %+v, want step 1", m.offeredSubtask)
 	}
-	if m.continuationTotal != 2 {
-		t.Errorf("ContinuationTotal = %d, want 2", m.continuationTotal)
+	if m.continuationTotal != 1 {
+		t.Errorf("ContinuationTotal = %d, want 1", m.continuationTotal)
 	}
 }
 

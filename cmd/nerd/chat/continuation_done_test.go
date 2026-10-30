@@ -69,8 +69,8 @@ func TestUpdate_ContinuationDoneOutcome(t *testing.T) {
 			if tc.msg.outcome != continuationCompleted && strings.Contains(last.Content, "✅") {
 				t.Errorf("a non-completed outcome must never contain ✅, got %q", last.Content)
 			}
-			if len(result.pendingSubtasks) != 0 {
-				t.Errorf("expected pendingSubtasks to be cleared, got %d", len(result.pendingSubtasks))
+			if result.offeredSubtask != nil {
+				t.Errorf("expected no step offered, got %+v", result.offeredSubtask)
 			}
 			if result.isInterrupted {
 				t.Errorf("expected isInterrupted to be cleared")

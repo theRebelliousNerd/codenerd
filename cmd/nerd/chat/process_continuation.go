@@ -38,8 +38,11 @@ func (m *Model) checkContinuation(ctx context.Context, dc *deliveryChain, shardT
 }
 
 // executeSubtask executes a single subtask and checks for continuation.
-// Returns either a continueMsg (more work) or continuationDoneMsg (complete).
-func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd {
+// Returns either a continueMsg (more work) or continuationDoneMsg (complete);
+// both name the step that ran (ran), so Update settles exactly that step
+// (continuation_ledger.go).
+func (m Model) executeSubtask(step Subtask) tea.Cmd {
+	subtaskID, description, shardType := step.ID, step.Description, step.ShardType
 	return func() tea.Msg {
 		// Log start of subtask execution
 		logging.Get(logging.CategoryRouting).Info("Executing subtask %s (%s) with shard %s", subtaskID, description, shardType)
@@ -58,6 +61,7 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 				stepCount: m.continuationStep,
 				summary:   "Stopped by user (Ctrl+X)",
 				outcome:   continuationInterrupted,
+				ran:       step,
 			}
 		}
 
@@ -83,6 +87,7 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 				summary:              fmt.Sprintf("Step %d failed: %v", m.continuationStep, withPartialState(err, ret)),
 				completedShardResult: payload,
 				outcome:              continuationFailed,
+				ran:                  step,
 			}
 		}
 
@@ -97,6 +102,8 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 			}
 			next.totalSteps = newTotal
 			next.completedShardResult = payload
+			next.ran = step
+			next.ranOutcome = continuationOutcomeFor(ret, nil)
 			return *next
 		}
 
@@ -109,6 +116,7 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 			summary:              continuationSummary(m.continuationStep, ret, m.delivery.summaryNote()),
 			completedShardResult: payload,
 			outcome:              continuationOutcomeFor(ret, nil),
+			ran:                  step,
 		}
 	}
 }
