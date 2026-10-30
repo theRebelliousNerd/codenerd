@@ -610,6 +610,9 @@ The strategic knowledge base has been updated with new documentation.%s`, msg.do
 	case memUsageMsg:
 		m.memAllocBytes = msg.Alloc
 		m.memSysBytes = msg.Sys
+		// Services do not drive a task spinner. Refit their separate health
+		// section on the existing idle-safe refresh tick.
+		m = m.applyLayout()
 		return m, m.tickMemory()
 
 	case bootCompleteMsg:

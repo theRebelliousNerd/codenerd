@@ -257,3 +257,53 @@ func TestResidentServiceKeepsTranscriptOutsideTaskProgress(t *testing.T) {
 		}
 	}
 }
+
+func TestResidentService_HealthIsSeparateFromTaskProgress(t *testing.T) {
+	for _, debug := range []bool{false, true} {
+		t.Run(fmt.Sprintf("debug=%v", debug), func(t *testing.T) {
+			s, _ := installStore(t, "services", debug)
+			ctx := WithTask(context.Background(), "user-task")
+			wantErr := errors.New("service failed")
+			_, err := RunService(ctx, "watcher", "one", "watch", func(ctx context.Context) (string, error) {
+				services := s.Services()
+				if len(services) != 1 || services[0].Name != "watcher" || services[0].Health != "ready" || services[0].LastActivity.IsZero() {
+					t.Fatalf("service health missing: %+v", services)
+				}
+				if got := s.ProgressForTask("services", "user-task"); len(got) != 0 {
+					t.Fatalf("service entered task progress: %+v", got)
+				}
+				return "", wantErr
+			})
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("service error lost: %v", err)
+			}
+			services := s.Services()
+			if len(services) != 1 || services[0].Health != "failed" {
+				t.Fatalf("failed service health missing: %+v", services)
+			}
+		})
+	}
+}
+
+func TestEmitLiveProgress_DeliversDelegatedObservationWithoutStore(t *testing.T) {
+	previous := Current()
+	Install(nil)
+	t.Cleanup(func() { Install(previous) })
+	var events []LiveEvent
+	ctx := WithLiveProgress(usage.WithSessionID(context.Background(), "task-session"), func(_ context.Context, ev LiveEvent) {
+		events = append(events, ev)
+	})
+	ctx = WithAgent(ctx, "coder", "worker")
+	before := time.Now()
+	EmitLiveProgress(ctx, LiveEvent{Kind: "step", Text: "inspect parser", Session: "wrong-session", Agent: "wrong-agent", At: time.Unix(1, 0)})
+	if len(events) != 1 {
+		t.Fatalf("delegated observation delivered %d times, want once", len(events))
+	}
+	got := events[0]
+	if got.Kind != "step" || got.Text != "inspect parser" {
+		t.Fatalf("observation content lost: %+v", got)
+	}
+	if got.Session != "task-session" || got.Agent != "coder-worker" || got.At.Before(before) {
+		t.Fatalf("observation ownership/time not supplied by context: %+v", got)
+	}
+}

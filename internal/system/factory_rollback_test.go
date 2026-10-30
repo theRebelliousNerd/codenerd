@@ -10,6 +10,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/prompt"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/store"
 )
 
@@ -125,5 +126,117 @@ func TestCortexCloseIsIdempotent(t *testing.T) {
 	}
 	if !probe.closed.Load() {
 		t.Fatal("Close did not release the embedding resource")
+	}
+}
+
+func TestBoot_RegistersServiceHealthBeforeShardStartup(t *testing.T) {
+	previous := sessionlog.Current()
+	sessionlog.Install(nil)
+	t.Cleanup(func() { sessionlog.Install(previous) })
+	bctx := &bootContext{workspace: t.TempDir(), appCfg: config.DefaultUserConfig(), cfg: BootConfig{SessionID: "resident-boot"}}
+	defer func() {
+		if bctx.sessionLog != nil {
+			bctx.sessionLog.Close()
+		}
+	}()
+	for _, step := range defaultBootSteps() {
+		if step.name == "session log" {
+			if err := step.run(bctx); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if step.name == "shard management" {
+			if sessionlog.Current() == nil || bctx.sessionID != "resident-boot" {
+				t.Fatal("resident shards start before health registry exists")
+			}
+			if _, err := sessionlog.RunService(context.Background(), "watcher", "boot", "watch", func(context.Context) (string, error) { return "", nil }); err != nil {
+				t.Fatal(err)
+			}
+			if got := sessionlog.Current().Services(); len(got) != 1 || got[0].Name != "watcher" {
+				t.Fatalf("boot service not registered: %+v", got)
+			}
+			return
+		}
+	}
+	t.Fatal("missing shard startup step")
+}
+
+func TestBoot_FinalExecutorsPreserveResidentServiceSession(t *testing.T) {
+	for _, sessionID := range []string{"", "resident-resumed"} {
+		name := "minted"
+		if sessionID != "" {
+			name = "resumed"
+		}
+		t.Run(name, func(t *testing.T) {
+			previous := sessionlog.Current()
+			sessionlog.Install(nil)
+			t.Cleanup(func() { sessionlog.Install(previous) })
+			cfg := config.DefaultUserConfig()
+			cfg.Embedding = &config.EmbeddingConfig{Provider: "none"}
+			steps := defaultBootSteps()
+			reached := false
+			var residentSession string
+			for i, step := range steps {
+				if step.name != "final executors" {
+					continue
+				}
+				finalize := step.run
+				steps[i].run = func(bctx *bootContext) error {
+					reached = true
+					residentSession = bctx.sessionID
+					before := bctx.sessionLog
+					if before == nil || residentSession == "" {
+						t.Fatal("resident service startup has no session log or identity")
+					}
+					// Keep the original lease owned even if finalization replaces it.
+					defer func() {
+						if bctx.sessionLog != before {
+							before.Close()
+						}
+					}()
+					if _, err := sessionlog.RunService(context.Background(), "watcher", "boot", "watch", func(context.Context) (string, error) { return "", nil }); err != nil {
+						return err
+					}
+					if err := finalize(bctx); err != nil {
+						return err
+					}
+					if bctx.sessionID != residentSession {
+						t.Errorf("final executors replaced resident session %q with %q", residentSession, bctx.sessionID)
+					}
+					if bctx.sessionLog != before {
+						t.Error("final executors restarted the resident service session log/lease")
+					}
+					if got := bctx.sessionExecutor.SessionID(); got != residentSession {
+						t.Errorf("task executor session = %q, want resident session %q", got, residentSession)
+					}
+					if got := sessionlog.Current().Services(); len(got) != 1 || got[0].Name != "watcher" {
+						t.Errorf("final executors lost resident health: %+v", got)
+					}
+					return nil
+				}
+			}
+			cortex, err := bootCortexWithSteps(context.Background(), BootConfig{
+				Workspace: t.TempDir(), SessionID: sessionID,
+				DisableSystemShards: []string{"constitution_gate", "perception_firewall", "executive_policy", "session_planner", "tactile_router", "campaign_runner", "mangle_repair", "legislator"},
+				UserConfigOverride:  cfg, LLMClientOverride: &MockLLMClient{}, KernelOverride: &MockSystemKernel{},
+			}, steps)
+			if err != nil {
+				t.Fatalf("boot: %v", err)
+			}
+			t.Cleanup(func() {
+				if err := cortex.Close(); err != nil {
+					t.Errorf("close cortex: %v", err)
+				}
+			})
+			if !reached {
+				t.Fatal("boot did not reach final executors")
+			}
+			if got := cortex.SessionID(); got != residentSession {
+				t.Errorf("Cortex session = %q, want resident session %q", got, residentSession)
+			}
+			if sessionID == "" && !strings.HasPrefix(residentSession, "session-") {
+				t.Errorf("default resident session was not minted: %q", residentSession)
+			}
+		})
 	}
 }

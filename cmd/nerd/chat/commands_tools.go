@@ -45,6 +45,11 @@ func (m Model) buildStatusReport() string {
 	}
 	sb.WriteString("\n")
 
+	// Resident health is outside the task/progress section.
+	if services := m.residentServicesReport(0); services != "" {
+		sb.WriteString("### " + services + "\n\n")
+	}
+
 	// Query fact counts
 	sb.WriteString("### Kernel State\n")
 	if m.kernel == nil {

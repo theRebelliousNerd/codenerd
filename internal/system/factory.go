@@ -2626,19 +2626,9 @@ func initFinalExecutors(bctx *bootContext) error {
 	logging.Boot("Tool loop: continuation derived by the working policy, no call or round ceiling; build verification after edits: %v (workspace %s)",
 		execCfg.VerifyBuildAfterEdits, execCfg.WorkspaceRoot)
 
-	// Every boot mints one process-unique session identity in the same form
-	// the headless chat path uses (`session-<unixnano>`), unless the caller
-	// supplied one via BootConfig (the TUI passes its loaded session ID so a
-	// resumed session keeps its identity). Previously only cmd_chat set an ID,
-	// so every campaign task, run/fix/create/review turn, and sub-agent
-	// persisted under "default", interleaving unrelated runs.
-	if sid := strings.TrimSpace(bctx.cfg.SessionID); sid != "" {
-		bctx.sessionID = sid
-	} else {
-		bctx.sessionID = fmt.Sprintf("session-%d", time.Now().UnixNano())
-	}
+	// The session log and resident health registry already exist before
+	// shard startup; task executors inherit that same session identity.
 	bctx.sessionExecutor.SetSessionID(bctx.sessionID)
-	startSessionLog(bctx)
 	// An approvable denial asks the person through the process's broker when
 	// a host (the chat TUI) is attached, and stays a refusal otherwise.
 	bctx.sessionExecutor.SetApprovalBroker(bctx.approvals)
@@ -2919,6 +2909,8 @@ func defaultBootSteps() []bootStep {
 		// asks the person through this broker.
 		{name: "approval broker", run: initApprovalBroker},
 		{name: "intelligence layer", run: initIntelligenceLayer},
+		// Resident services publish health from their first activation.
+		{name: "session log", run: initSessionLog},
 		{name: "shard management", run: initShardManagement},
 		{name: "final executors", run: initFinalExecutors},
 		// The learning loop binds the session executor to the evolver

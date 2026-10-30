@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/sessionlog"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -611,6 +612,25 @@ func (m Model) renderShardView() string {
 	return m.styles.Layout.Content.Render(m.shardPage.View())
 }
 
+// residentServicesReport renders health observations without task clocks or controls.
+// A positive limit bounds chat chrome; /status uses zero to list every service.
+func (m Model) residentServicesReport(limit int) string {
+	services := sessionlog.Current().Services()
+	if len(services) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Resident Services")
+	for i, service := range services {
+		if limit > 0 && i == limit {
+			fmt.Fprintf(&b, "\n- +%d services; see /status", len(services)-i)
+			break
+		}
+		fmt.Fprintf(&b, "\n- %s: %s; last activity: %s", strings.Join(strings.Fields(service.Name), " "), service.Health, service.LastActivity.Format(time.RFC3339))
+	}
+	return b.String()
+}
+
 func (m Model) renderChatView() string {
 	// Header
 	header := m.renderHeader()
@@ -660,6 +680,9 @@ func (m Model) renderChatView() string {
 
 	// Compose full view
 	parts := []string{header, chatView}
+	if services := m.residentServicesReport(maxActivityTrail); services != "" {
+		parts = append(parts, m.styles.Text.Muted.Width(max(m.wrapWidth, 1)).Render(services))
+	}
 	if activity != "" {
 		parts = append(parts, activity)
 	}

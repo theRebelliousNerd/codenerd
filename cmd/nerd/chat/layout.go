@@ -130,8 +130,12 @@ func (m Model) applyLayout() Model {
 	if activity := m.renderActivityLine(); activity != "" {
 		activityHeight = strings.Count(activity, "\n") + 1
 	}
+	serviceHeight := 0
+	if services := m.residentServicesReport(maxActivityTrail); services != "" {
+		serviceHeight = lipgloss.Height(m.styles.Text.Muted.Width(wrapWidth).Render(services))
+	}
 	viewportH := max(frameH-headerHeight-footerHeight-inputHeight-contentPadY-
-		errorPanelHeight-activityHeight-stackedPanelH, 1)
+		errorPanelHeight-activityHeight-serviceHeight-stackedPanelH, 1)
 
 	if !m.ready {
 		m.viewport = viewport.New(viewportW, viewportH)

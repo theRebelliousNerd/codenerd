@@ -194,9 +194,13 @@ func EmitLiveProgress(ctx context.Context, ev LiveEvent) {
 	if ctx == nil {
 		return
 	}
-	sink, _ := ctx.Value(liveProgressKey{}).(func(context.Context, LiveEvent))
 	scope := ScopeFrom(ctx)
-	if sink == nil || scope == nil || !scope.Transcript || scope.Service {
+	if scope != nil && scope.Service {
+		Current().observeService(scope, ev)
+		return
+	}
+	sink, _ := ctx.Value(liveProgressKey{}).(func(context.Context, LiveEvent))
+	if sink == nil || scope == nil || !scope.Transcript {
 		return
 	}
 	ev.Session = usage.SessionIDFromContext(ctx)

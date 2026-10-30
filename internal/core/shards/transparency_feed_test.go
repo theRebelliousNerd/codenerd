@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/transparency"
 	"codenerd/internal/types"
 )
@@ -153,6 +154,10 @@ func TestResidentServicesDoNotAdvertiseTaskLifetimes(t *testing.T) {
 	for _, name := range []string{"tactile_router", "session_planner"} {
 		t.Run(name, func(t *testing.T) {
 			sm := NewShardManager()
+			previous := sessionlog.Current()
+			serviceStore := sessionlog.NewStore(sessionlog.Options{Workspace: t.TempDir(), Session: "services", Enabled: func() bool { return false }})
+			sessionlog.Install(serviceStore)
+			t.Cleanup(func() { sessionlog.Install(previous) })
 			fake := newFakeTransparencyManager()
 			sm.SetTransparencyManager(fake)
 			bus := transparency.NewGlassBoxEventBus()
@@ -166,6 +171,9 @@ func TestResidentServicesDoNotAdvertiseTaskLifetimes(t *testing.T) {
 			sm.DefineProfile(name, types.ShardConfig{Name: name, Type: types.ShardTypeSystem, StartupMode: types.StartupOnDemand})
 			if _, err := sm.SpawnWithContext(context.Background(), name, "on_demand_activation", nil); err != nil {
 				t.Fatal(err)
+			}
+			if services := serviceStore.Services(); len(services) != 1 || services[0].Name != name || services[0].Health != "stopped" || services[0].LastActivity.IsZero() {
+				t.Fatalf("spawn did not publish service health: %+v", services)
 			}
 			started, phases, ended, ops := fake.snapshot()
 			if len(started)+len(phases)+len(ended)+len(ops) != 0 {

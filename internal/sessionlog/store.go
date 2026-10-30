@@ -33,7 +33,9 @@ type Store struct {
 	session     string
 	counters    map[string]int
 	transcripts map[string]*Transcript
-	touched     map[string]bool
+	// services tracks process-resident health separately from task transcripts.
+	services map[string]*serviceState
+	touched  map[string]bool
 
 	failures  atomic.Int64
 	firstFail atomic.Pointer[error]

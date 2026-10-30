@@ -3,6 +3,7 @@ package chat
 import (
 	"codenerd/internal/sessionlog"
 	"context"
+	"errors"
 	"fmt"
 	"github.com/charmbracelet/bubbletea"
 	"strings"
@@ -423,5 +424,93 @@ func TestInitChat_CreatesWorkingDelegatedProgressTransport(t *testing.T) {
 	m.handleDelegatedProgress(ev)
 	if len(m.history) != 1 || !strings.Contains(m.history[0].Content, "Read parser, then test it") {
 		t.Fatalf("constructed chat did not retain live agent activity: %+v", m.history)
+	}
+}
+
+func TestResidentServices_ChatAndStatusSeparateHealthFromTasks(t *testing.T) {
+	for _, withTask := range []bool{false, true} {
+		t.Run(fmt.Sprintf("with_task=%v", withTask), func(t *testing.T) {
+			previous := sessionlog.Current()
+			s := sessionlog.NewStore(sessionlog.Options{Workspace: t.TempDir(), Session: "services", Enabled: func() bool { return false }})
+			sessionlog.Install(s)
+			t.Cleanup(func() { sessionlog.Install(previous) })
+			m := NewTestModel(WithSize(100, 50))
+			defer m.shutdownCancel()
+			m.sessionID, m.workspace = "services", s.Workspace()
+			m.glassBoxEnabled = false
+			m = m.applyLayout()
+			idleHeight := m.viewport.Height
+			if withTask {
+				m.handleDelegatedProgress(sessionlog.LiveEvent{Session: m.sessionID, Agent: "coder-1", Kind: "step", Text: "Step 1/2: inspect", At: time.Unix(100, 0)})
+			}
+			wantErr := errors.New("service unavailable")
+			_, err := sessionlog.RunService(context.Background(), "watcher", "instance", "watch", func(ctx context.Context) (string, error) {
+				next, _ := m.Update(memUsageMsg{})
+				m = next.(Model)
+				for name, text := range map[string]string{"chat": m.View(), "status": m.buildStatusReport()} {
+					for _, want := range []string{"Resident Services", "watcher: ready", "last activity:", s.Services()[0].LastActivity.Format(time.RFC3339)} {
+						if !strings.Contains(text, want) {
+							t.Errorf("%s missing %q: %s", name, want, text)
+						}
+					}
+					for _, line := range strings.Split(text, "\n") {
+						if strings.Contains(line, "watcher") && (strings.Contains(line, "▸") || strings.Contains(line, "cancel") || strings.Contains(line, "Step") || strings.Contains(line, "for ")) {
+							t.Errorf("service rendered as task in %s: %s", name, line)
+						}
+					}
+				}
+				if m.isLoading || len(m.background.list()) != 0 || strings.Contains(m.renderActivityLine(), "watcher") || len(m.background.cancelAll()) != 0 {
+					t.Fatal("service entered task loading/progress/cancellation")
+				}
+				if withTask && !strings.Contains(m.renderActivityLine(), "coder-1") {
+					t.Fatal("service hid task progress")
+				}
+				if m.viewport.Height >= idleHeight {
+					t.Fatal("service panel did not reserve viewport space")
+				}
+				return "", wantErr
+			})
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("service error lost: %v", err)
+			}
+			if !strings.Contains(m.View(), "watcher: failed") || !strings.Contains(m.buildStatusReport(), "watcher: failed") {
+				t.Fatal("service failure missing from health section")
+			}
+			if report := m.runningWorkReport(time.Now()); strings.Contains(report, "watcher") {
+				t.Fatalf("service entered running task report: %s", report)
+			}
+		})
+	}
+}
+
+func TestResidentServices_EmptyAndBoundedPanels(t *testing.T) {
+	previous := sessionlog.Current()
+	sessionlog.Install(nil)
+	t.Cleanup(func() { sessionlog.Install(previous) })
+	m := NewTestModel(WithSize(100, 50))
+	defer m.shutdownCancel()
+	if got := m.residentServicesReport(0); got != "" {
+		t.Fatalf("nil store panel = %q", got)
+	}
+	s := sessionlog.NewStore(sessionlog.Options{Workspace: t.TempDir(), Session: "services", Enabled: func() bool { return false }})
+	sessionlog.Install(s)
+	if got := m.residentServicesReport(0); got != "" {
+		t.Fatalf("empty registry panel = %q", got)
+	}
+	for i := 0; i < maxActivityTrail+2; i++ {
+		name := fmt.Sprintf("service-%02d", i)
+		if _, err := sessionlog.RunService(context.Background(), name, "instance", "watch", func(context.Context) (string, error) { return "", nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	panel := m.residentServicesReport(maxActivityTrail)
+	if lines := strings.Count(panel, "\n") + 1; lines != maxActivityTrail+2 {
+		t.Fatalf("unbounded service panel (%d lines): %s", lines, panel)
+	}
+	if !strings.Contains(panel, "+2 services; see /status") || strings.Contains(panel, fmt.Sprintf("service-%02d", maxActivityTrail+1)) {
+		t.Fatalf("service overflow not summarized: %s", panel)
+	}
+	if status := m.buildStatusReport(); !strings.Contains(status, fmt.Sprintf("service-%02d: stopped", maxActivityTrail+1)) {
+		t.Fatalf("status omitted a service: %s", status)
 	}
 }
