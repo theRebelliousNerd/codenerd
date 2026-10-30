@@ -145,6 +145,19 @@ type systemExecutionResult struct {
 	Timestamp  int64
 }
 
+// executionFailure is the error a failed execution row stands for, nil for one
+// that succeeded.
+func executionFailure(exec systemExecutionResult) error {
+	if exec.Success {
+		return nil
+	}
+	detail := strings.TrimSpace(exec.Output)
+	if detail == "" {
+		detail = "it reported no output"
+	}
+	return fmt.Errorf("system action %s on %q failed: %s", exec.ActionType, exec.Target, detail)
+}
+
 // handleSystemDelegations turns the turn's system-action outcomes into a reply.
 // The second result is the typed blockers: actions whose routing failed and
 // which never ran. When no reply is produced they ride into the articulation
@@ -229,7 +242,10 @@ func (m Model) buildResponseFromExecutions(ctx context.Context, input string, in
 		}
 
 		surface := m.formatDelegationOutput(ctx, input, shardType, task, exec.Output)
-		payload := m.buildShardResultPayload(shardType, task, exec.Output, nil)
+		// The measured outcome travels with the result: a failed execution
+		// row becomes shard_error, never shard_success because the adapter
+		// had no Go error to hand on.
+		payload := m.buildShardResultPayload(shardType, task, exec.Output, executionFailure(exec))
 		if payload != nil && m.kernel != nil && len(payload.Facts) > 0 {
 			_ = m.kernel.LoadFacts(payload.Facts)
 		}
