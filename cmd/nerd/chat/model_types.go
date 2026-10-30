@@ -751,6 +751,9 @@ type (
 		// AwaitingKnowledge latches the knowledge-gathering re-entrancy guard
 		// on the Update thread (see process.go); set by the processInput result.
 		AwaitingKnowledge bool
+		// Reflection is the recall this turn ran, published on the Update
+		// thread (publishReflection); nil when the turn ran none.
+		Reflection *ReflectionState
 	}
 
 	// streamKind tags a streaming chunk so the TUI can render thought

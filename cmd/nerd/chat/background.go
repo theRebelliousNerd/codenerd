@@ -135,6 +135,10 @@ func (b *backgroundJobs) list() []backgroundJob {
 type backgroundStartMsg struct {
 	Surface string
 	Job     backgroundJob
+	// Reflection is the recall the handing-off turn ran: Update publishes it
+	// before starting the job, so the job's session context carries the
+	// request's own hits, not whatever an earlier turn left.
+	Reflection *ReflectionState
 }
 
 // backgroundDoneMsg is a finished background job.

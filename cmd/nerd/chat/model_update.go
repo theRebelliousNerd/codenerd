@@ -151,6 +151,9 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.launchClarifyAnswers = msg.ClarifyUpdate.LaunchClarifyAnswers
 		}
 		m.awaitingKnowledge = msg.AwaitingKnowledge
+		if msg.Reflection != nil {
+			m.lastReflection = msg.Reflection
+		}
 		if msg.DreamHypothetical != "" {
 			m.lastDreamHypothetical = msg.DreamHypothetical
 		}
@@ -169,6 +172,9 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The turn handed its work to the background: answer now, run it.
 		m.isLoading = false
 		m.turnCount++
+		if msg.Reflection != nil {
+			m.lastReflection = msg.Reflection
+		}
 		m = m.pushAssistantMsg(msg.Surface)
 		return m, tea.Batch(m.startBackground(msg.Job, msg.Job.Task), m.saveSessionStateCmd())
 

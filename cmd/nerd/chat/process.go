@@ -45,13 +45,39 @@ import (
 // INPUT PROCESSING
 // =============================================================================
 
+// publishReflection puts the recall a turn ran on the message that ends it.
+// processInput runs on a copy of the model, so the copy's lastReflection
+// never reached the live one, and an idle /reflection said no recall had run
+// although one had just completed; a background job built its session
+// context from the live model and lost the request's hits too (audit
+// reflection-observation-publication). A turn that ran no recall publishes
+// nothing, and the previous receipt stays.
+func publishReflection(msg tea.Msg, ran *ReflectionState) tea.Msg {
+	if ran == nil {
+		return msg
+	}
+	switch v := msg.(type) {
+	case assistantMsg:
+		v.Reflection = ran
+		return v
+	case backgroundStartMsg:
+		v.Reflection = ran
+		return v
+	}
+	return msg
+}
+
 func (m Model) processInput(input string) tea.Cmd {
 	// The execution is accepted now, on the caller's thread, so a stop
 	// that comes before it starts is not lost (turnState).
 	turnID := m.turn.accept()
+	// The reflection this turn runs lands on this copy of the model; it
+	// reaches the live model only on the turn's message.
+	ranReflection := (*ReflectionState)(nil)
 	return func() (result tea.Msg) {
 		// Every exit, the guards below included, releases the slot.
 		defer m.turn.end(turnID)
+		defer func() { result = publishReflection(result, ranReflection) }()
 		// Panic recovery: this closure runs as a fire-and-forget goroutine in the
 		// Bubbletea runtime. An unrecovered panic here kills the entire process.
 		// We use a named return so the deferred recover can set the return value
@@ -378,6 +404,7 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		if reflection := m.performReflection(ctx, input, intent); reflection != nil {
 			m.lastReflection = reflection
+			ranReflection = reflection
 			if len(reflection.Warnings) > 0 {
 				warnings = append(warnings, reflection.Warnings...)
 			}
@@ -1064,7 +1091,7 @@ func (m Model) processInput(input string) tea.Cmd {
 					"LLM requested knowledge: %d specialists to consult",
 					len(artOutput.KnowledgeRequests),
 				)
-				resultChan <- m.handleKnowledgeRequests(streamCtx, artOutput.KnowledgeRequests, input, response, knowledgeParentOf(convCtx))
+				resultChan <- publishReflection(m.handleKnowledgeRequests(streamCtx, artOutput.KnowledgeRequests, input, response, knowledgeParentOf(convCtx)), ranReflection)
 				return
 			}
 
@@ -1073,12 +1100,12 @@ func (m Model) processInput(input string) tea.Cmd {
 			var srPayload *ShardResultPayload
 			// If we had a recent payload we could attach it, but typically articulation doesn't return one directly here.
 
-			resultChan <- assistantMsg{
+			resultChan <- publishReflection(assistantMsg{
 				Surface:           m.appendSystemSummary(response, m.collectSystemSummary(streamCtx, resultBase)),
 				ShardResult:       srPayload,
 				DreamHypothetical: m.lastDreamHypothetical,
 				ThoughtSummary:    thoughtSummary,
-			}
+			}, ranReflection)
 		}()
 
 		return streamStartMsg{
