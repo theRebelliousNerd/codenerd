@@ -279,6 +279,19 @@ Decl turn_handoff_unplanned(Turn, Card, Idx, To) bound [/name, /number, /number,
 # the plan gains a step on it. Consumer: Executor.reconcileHandoffs.
 Decl turn_handoff_step(Turn, Card, Idx, To) bound [/name, /number, /number, /string].
 
+# turn_card_step_born(Turn, Card) - the card was bought by a planned step,
+# after the turn's own prompt was built, so that prompt does not carry it.
+# Producer: internal/session (Executor.repairCards).
+Decl turn_card_step_born(Turn, Card) bound [/name, /number].
+
+# turn_repair_file(Turn, File) - a file the turn wrote, the scope of its final
+# build and test repairs (canonical). Producer: as turn_card_step_born.
+Decl turn_repair_file(Turn, File) bound [/name, /string].
+
+# turn_repair_card_dealt(Turn, Card) - a step-born card the final repair
+# stage's prompt carries. Consumer: Executor.repairCards.
+Decl turn_repair_card_dealt(Turn, Card) bound [/name, /number].
+
 # shard_agent_authority(Agent, Grant) - what the user's agent registry grants
 # the agent beyond advice (agents.json "authority"). Producer:
 # internal/system (measureShardRoster).

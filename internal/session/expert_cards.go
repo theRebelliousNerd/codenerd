@@ -397,3 +397,58 @@ func (e *Executor) dealtCards(result *ExecutionResult, file string) string {
 	b.WriteString(e.admittedMandates(result))
 	return b.String()
 }
+
+// repairCards is the consultation section the final repair stage's prompt
+// adds to the turn's own: the cards planned steps bought after that prompt
+// was built which policy deals to the repair (turn_repair_card_dealt, scoped
+// by the files the turn wrote), and the turn's requirements when a step-born
+// card brought one. Empty when no step bought a card the repair needs.
+//
+// Until 2026-10-30 the build and test repairs after the steps ran on the
+// turn's prompt alone, so advice a step bought for the file it edited was
+// absent when a repair edited the same file.
+func (e *Executor) repairCards(result *ExecutionResult) string {
+	if e.kernel == nil || result == nil || result.promptCards >= len(result.expertCards) {
+		return ""
+	}
+	turn := result.turnAtom()
+	workspace := e.workspaceForVerification()
+	for _, p := range result.WrittenPaths {
+		e.assertTurnFact(types.Fact{Predicate: "turn_repair_file", Args: []any{turn, types.CanonicalPath(workspace, p)}})
+	}
+	mandated := false
+	for id := result.promptCards; id < len(result.expertCards); id++ {
+		e.assertTurnFact(types.Fact{Predicate: "turn_card_step_born", Args: []any{turn, int64(id)}})
+		mandated = mandated || len(result.expertCards[id].Mandates) > 0
+	}
+	rows, err := e.turnRows("turn_repair_card_dealt", turn)
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("dealing the steps' consultations to the final repair failed (%v); the repair runs on the turn's prompt", err)
+		return ""
+	}
+	dealt := map[int64]bool{}
+	for _, row := range rows {
+		if id, ok := numberArg(row, 1); ok {
+			dealt[id] = true
+		}
+	}
+	var hand strings.Builder
+	var agents []string
+	for id := result.promptCards; id < len(result.expertCards); id++ {
+		if dealt[int64(id)] {
+			c := result.expertCards[id]
+			hand.WriteString(c.render())
+			agents = append(agents, c.Agent)
+		}
+	}
+	section := ""
+	if hand.Len() > 0 {
+		logging.Session("Final repair stage carries step consultations: %v", agents)
+		section = "\n\n## Shard agent consultation bought by the planned steps\n" +
+			"These shard agents were consulted for files the steps edited; a repair to those files weighs them as the steps did.\n" + hand.String()
+	}
+	if mandated {
+		section += e.admittedMandates(result)
+	}
+	return section
+}

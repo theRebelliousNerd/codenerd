@@ -1073,6 +1073,9 @@ type ExecutionResult struct {
 	// files its cards do not cover.
 	expertCards      []expertCard
 	consultedExperts map[string]map[string]bool
+	// promptCards is how many of expertCards the turn's own system prompt
+	// carries; those after it were bought by planned steps (repairCards).
+	promptCards int
 	// expertDomainFiles are, per critiquing agent key, the task files its
 	// domain covers (experts.Need.Files): its review shows them first.
 	expertDomainFiles map[string][]string
@@ -1580,6 +1583,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// 4c. Spawn second: the consultations the kernel derived (expert_spawn),
 	// and the reviews the turn owes after its writes (expert_critique).
 	systemPrompt = e.withExpertConsultations(ctx, systemPrompt, intent, input, expertSel, result, knowledgeDelivered(compileResult))
+	result.promptCards = len(result.expertCards)
 	e.recordExpertCritics(result, expertSel)
 
 	// 5+6. LLM ↔ tools loop. The model may request tools, we execute them, then
