@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"golang.org/x/mod/modfile"
 )
 
 // removedTestFunctions reports test functions that existed in a file the
@@ -39,7 +41,7 @@ func removedTestFunctions(workspace string, writtenPaths []string, preWrite map[
 			inPackage[dir] = present
 		}
 		for _, n := range missing {
-			if present[n] || testSubjectWasDeleted(preWrite[p].Content, n, deleted) {
+			if present[n] || testSubjectWasDeleted(workspace, dir, preWrite[p].Content, n, deleted) {
 				continue
 			}
 			out = append(out, p+":"+n)
@@ -49,14 +51,21 @@ func removedTestFunctions(workspace string, writtenPaths []string, preWrite map[
 	return out
 }
 
-// deletedProductionFuncs is every function the turn removed outright from a
-// non-test Go file it wrote, by bare name.
+// deletedFuncs are the production functions a turn removed, by package
+// directory then name (a method by its bare name, as a call site names it).
+type deletedFuncs map[string]map[string]bool
+
+// deletedProductionFuncs is every function the turn removed outright from
+// the package of a non-test Go file it wrote: declared there before the turn
+// and declared in no non-test file of that package directory now. A function
+// moved to another file of its package is not deleted.
 //
 // A file the turn created has no pre-image and deletes nothing; a file whose
 // pre-image or current content does not parse is skipped rather than read as
 // having deleted everything in it.
-func deletedProductionFuncs(workspace string, writtenPaths []string, preWrite map[string]PreImage) map[string]bool {
-	out := map[string]bool{}
+func deletedProductionFuncs(workspace string, writtenPaths []string, preWrite map[string]PreImage) deletedFuncs {
+	out := deletedFuncs{}
+	surviving := map[string]map[string]bool{}
 	for _, p := range writtenPaths {
 		if isTestPath(p) || !strings.HasSuffix(p, ".go") {
 			continue
@@ -69,56 +78,157 @@ func deletedProductionFuncs(workspace string, writtenPaths []string, preWrite ma
 		if !ok {
 			continue
 		}
-		after := map[string]funcDecl{}
 		if data, err := os.ReadFile(diskPath(workspace, p)); err == nil {
-			parsed, ok := funcDecls(string(data))
-			if !ok {
+			if _, ok := funcDecls(string(data)); !ok {
 				continue
 			}
-			after = parsed
 		}
-		for name := range before {
-			if _, survives := after[name]; survives {
+		dir := filepath.Dir(diskPath(workspace, p))
+		now, ok := surviving[dir]
+		if !ok {
+			now = packageFuncKeys(dir)
+			surviving[dir] = now
+		}
+		for key := range before {
+			if now[key] {
 				continue
 			}
-			// funcKey reports a method as "Recv.Name"; a call site names the
-			// method alone.
+			name := key
 			if i := strings.LastIndex(name, "."); i >= 0 {
 				name = name[i+1:]
 			}
-			out[name] = true
+			if out[dir] == nil {
+				out[dir] = map[string]bool{}
+			}
+			out[dir][name] = true
 		}
 	}
 	return out
 }
 
-// testSubjectWasDeleted reports whether the removed test named a function the
-// same turn deleted from production -- in which case the test is deleted with
-// its subject, not in place of fixing it (ladder run R1-18, 2026-09-19).
+// packageFuncKeys is every function key declared in the non-test Go files of
+// dir as they stand.
+func packageFuncKeys(dir string) map[string]bool {
+	out := map[string]bool{}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return out
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || isTestPath(e.Name()) {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		if decls, ok := funcDecls(string(data)); ok {
+			for key := range decls {
+				out[key] = true
+			}
+		}
+	}
+	return out
+}
+
+// testSubjectWasDeleted reports whether the removed test referred to a
+// function the same turn deleted from production -- in which case the test is
+// deleted with its subject, not in place of fixing it (ladder run R1-18,
+// 2026-09-19).
 //
-// The test is read from its pre-image, since it is gone from disk. Matching is
-// on the whole identifier: tokenText writes one token per line and an
-// identifier as "IDENT <name>", so a test naming netDelimitersOf is not
-// released by the deletion of netDelimiters.
-func testSubjectWasDeleted(beforeSrc, testName string, deleted map[string]bool) bool {
+// The reference is resolved, not matched by spelling: a name deleted from
+// another package does not release a test whose subject survives in its own
+// (two packages each with a Reset). An unqualified name, or a method selector
+// on a value, refers to the test's own package (dir) -- unless the test file
+// is an external test package, whose unqualified names are its own; a
+// package-qualified selector refers to the imported package, resolved through
+// the file's imports and the workspace module. A reference that cannot be
+// resolved releases nothing. The test is read from its pre-image, since it is
+// gone from disk.
+func testSubjectWasDeleted(workspace, dir, beforeSrc, testName string, deleted deletedFuncs) bool {
 	if len(deleted) == 0 || beforeSrc == "" {
 		return false
 	}
-	decls, ok := funcDecls(beforeSrc)
-	if !ok {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", beforeSrc, parser.SkipObjectResolution)
+	if err != nil {
 		return false
 	}
-	decl, ok := decls[testName]
-	if !ok {
-		return false
-	}
-	for _, line := range strings.Split(decl.tokens, "\n") {
-		name, isIdent := strings.CutPrefix(line, "IDENT ")
-		if isIdent && deleted[name] {
-			return true
+	var fn *ast.FuncDecl
+	for _, d := range f.Decls {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && fd.Name.Name == testName {
+			fn = fd
+			break
 		}
 	}
-	return false
+	if fn == nil || fn.Body == nil {
+		return false
+	}
+	external := strings.HasSuffix(f.Name.Name, "_test")
+	imports := importDirs(workspace, f)
+	own := deleted[dir]
+	found := false
+	selected := map[*ast.Ident]bool{}
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		switch x := n.(type) {
+		case *ast.SelectorExpr:
+			selected[x.Sel] = true
+			if id, ok := x.X.(*ast.Ident); ok {
+				if pkgDir, isImport := imports[id.Name]; isImport {
+					selected[id] = true
+					found = deleted[pkgDir][x.Sel.Name]
+					return !found
+				}
+			}
+			// A method on a value: its type is declared in the package
+			// under test.
+			found = own[x.Sel.Name]
+		case *ast.Ident:
+			if !selected[x] && !external {
+				found = own[x.Name]
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// importDirs maps each import's local name in f to its package directory,
+// for imports under the workspace's module; other imports are not resolved.
+func importDirs(workspace string, f *ast.File) map[string]string {
+	out := map[string]string{}
+	module := workspaceModulePath(workspace)
+	if module == "" {
+		return out
+	}
+	for _, spec := range f.Imports {
+		path := strings.Trim(spec.Path.Value, "\"`")
+		rest, ok := strings.CutPrefix(path, module)
+		if !ok || (rest != "" && !strings.HasPrefix(rest, "/")) {
+			continue
+		}
+		name := path[strings.LastIndex(path, "/")+1:]
+		if spec.Name != nil {
+			name = spec.Name.Name
+		}
+		if name == "_" || name == "." {
+			continue
+		}
+		out[name] = filepath.Join(workspace, filepath.FromSlash(strings.TrimPrefix(rest, "/")))
+	}
+	return out
+}
+
+// workspaceModulePath is the module path the workspace's go.mod declares.
+func workspaceModulePath(workspace string) string {
+	data, err := os.ReadFile(filepath.Join(workspace, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	return modfile.ModulePath(data)
 }
 
 // packageTestNames is every test function of the package in dir as the
