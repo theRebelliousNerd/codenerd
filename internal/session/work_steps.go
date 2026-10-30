@@ -867,6 +867,17 @@ func (e *Executor) runPlannedSteps(
 		return nil, nil, errors.New("planned steps need a kernel; the retry and the verdict are derived")
 	}
 	turn := result.turnAtom()
+	// The experts' hand-offs are checked against the plan before it runs: an
+	// existing consumer the plan misses gains a step; one not on disk is
+	// reported unresolved (reconcileHandoffs).
+	maxSteps := e.configSnapshot().StepPlanMaxSteps
+	if maxSteps <= 0 {
+		maxSteps = defaultSessionPolicy.StepPlanMaxSteps
+	}
+	steps, unresolvedHandoffs := e.reconcileHandoffs(result, steps, maxSteps)
+	if unresolvedHandoffs != "" {
+		defer func() { result.StepReport += unresolvedHandoffs }()
+	}
 	steps, beyond := splitPlan(steps)
 	// The steps past the bound are owed before any step runs: the verdict
 	// joins them (turn_steps.mg), so the steps that run cannot be reported

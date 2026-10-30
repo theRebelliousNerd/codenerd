@@ -235,6 +235,36 @@ turn_card_dealt(Turn, File, Agent) :-
     turn_expert_card(Turn, Agent, /advise, /answered),
     turn_expert_card_file(Turn, Agent, File).
 
+# Edge-bound advice: a hand-off belongs to the relationship between two files,
+# so it goes to the step on either end, whichever expert's card carried it.
+turn_handoff_answered(Turn, Agent, Idx, From, To) :-
+    turn_card_handoff(Turn, Agent, Idx, From, To),
+    turn_expert_card(Turn, Agent, _, /answered).
+
+turn_handoff_dealt(Turn, File, Agent, Idx) :-
+    turn_step_file(Turn, File),
+    turn_handoff_answered(Turn, Agent, Idx, File, _).
+
+turn_handoff_dealt(Turn, File, Agent, Idx) :-
+    turn_step_file(Turn, File),
+    turn_handoff_answered(Turn, Agent, Idx, _, File).
+
+# A hand-off out of a planned file into one the plan does not edit is missing
+# work: the plan gains a step on an existing consumer, and a consumer that is
+# not on disk is reported unresolved rather than invented.
+turn_handoff_unplanned(Turn, Agent, Idx, To) :-
+    turn_handoff_answered(Turn, Agent, Idx, From, To),
+    turn_plan_file(Turn, From),
+    !turn_plan_file(Turn, To).
+
+turn_handoff_step(Turn, Agent, Idx, To) :-
+    turn_handoff_unplanned(Turn, Agent, Idx, To),
+    turn_handoff_target_exists(Turn, To).
+
+turn_handoff_unresolved(Turn, Agent, Idx, To) :-
+    turn_handoff_unplanned(Turn, Agent, Idx, To),
+    !turn_handoff_target_exists(Turn, To).
+
 turn_expert_actionable(Turn, Idx) :-
     turn_expert_finding(Turn, _, Idx, Sev),
     severity_rank(Sev, Rank),

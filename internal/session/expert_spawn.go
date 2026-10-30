@@ -94,8 +94,12 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 	cards := make([]expertCard, len(results))
 	var b strings.Builder
 	b.WriteString(consultationHeader)
+	workspace := e.workspaceForVerification()
 	for i, r := range results {
 		cards[i] = newExpertCard(r)
+		if cards[i].Disposition == cardAnswered {
+			cards[i].Handoffs = parseHandoffs(workspace, cards[i].Body)
+		}
 		if r.err != nil {
 			logging.Get(logging.CategorySession).Warn("shard agent %s consultation failed: %v", r.need.Agent, r.err)
 		}
@@ -140,5 +144,7 @@ func consultationTask(need experts.Need, intent perception.Intent, input string)
 	if len(need.Files) > 0 {
 		fmt.Fprintf(&b, "\n\nFiles in your domain: %s", strings.Join(need.Files, ", "))
 	}
+	b.WriteString("\n\nWhen a change in one file obliges a change or a condition in another, add one line per hand-off, exactly:\n" +
+		handoffPrefix + "<from-file> -> <to-file>: <what must hold between them>")
 	return b.String()
 }

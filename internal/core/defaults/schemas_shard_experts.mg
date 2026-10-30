@@ -204,3 +204,38 @@ Decl turn_step_file(Turn, File) bound [/name, /string].
 # prompt of the step that edits File. Consumer: internal/session
 # (Executor.dealtCards).
 Decl turn_card_dealt(Turn, File, Agent) bound [/name, /string, /name].
+
+# turn_card_handoff(Turn, Agent, Idx, From, To) - the agent's card names a
+# hand-off: a change in From obliges something of To (both canonical). Idx
+# orders the card's hand-offs. Producer: internal/session
+# (Executor.recordCards, from the card's HANDOFF lines).
+Decl turn_card_handoff(Turn, Agent, Idx, From, To) bound [/name, /name, /number, /string, /string].
+
+# turn_plan_file(Turn, File) - the turn's step plan edits File (canonical).
+# Producer: internal/session (Executor.reconcileHandoffs).
+Decl turn_plan_file(Turn, File) bound [/name, /string].
+
+# turn_handoff_target_exists(Turn, File) - a hand-off's consumer is a file on
+# disk. Producer: as turn_plan_file.
+Decl turn_handoff_target_exists(Turn, File) bound [/name, /string].
+
+# turn_handoff_answered(Turn, Agent, Idx, From, To) - a hand-off whose card
+# answered.
+Decl turn_handoff_answered(Turn, Agent, Idx, From, To) bound [/name, /name, /number, /string, /string].
+
+# turn_handoff_dealt(Turn, File, Agent, Idx) - the hand-off goes into the
+# prompt of the step on either of its ends. Consumer: Executor.dealtCards.
+Decl turn_handoff_dealt(Turn, File, Agent, Idx) bound [/name, /string, /name, /number].
+
+# turn_handoff_unplanned(Turn, Agent, Idx, To) - an answered hand-off leaves a
+# planned file for a file the plan does not edit.
+Decl turn_handoff_unplanned(Turn, Agent, Idx, To) bound [/name, /name, /number, /string].
+
+# turn_handoff_step(Turn, Agent, Idx, To) - the unplanned consumer exists, so
+# the plan gains a step on it. Consumer: Executor.reconcileHandoffs.
+Decl turn_handoff_step(Turn, Agent, Idx, To) bound [/name, /name, /number, /string].
+
+# turn_handoff_unresolved(Turn, Agent, Idx, To) - the unplanned consumer is not
+# a file on disk: the hand-off is reported as unresolved, not guessed at.
+# Consumer: Executor.reconcileHandoffs.
+Decl turn_handoff_unresolved(Turn, Agent, Idx, To) bound [/name, /name, /number, /string].
