@@ -59,7 +59,7 @@ func TestClients_SystemPromptIsTheCallersOrNone(t *testing.T) {
 			name:  "zai",
 			reply: openAIBody,
 			call: func(ctx context.Context, baseURL, system string) error {
-				_, err := NewZAIClientWithConfig(ZAIConfig{APIKey: "k", BaseURL: baseURL, Model: "glm", Timeout: 5 * time.Second, DisableSemaphore: true}).CompleteWithSystem(ctx, system, "user")
+				_, err := NewZAIClientWithConfig(ZAIConfig{APIKey: "k", BaseURL: baseURL, Model: "glm", Timeout: 5 * time.Second}).CompleteWithSystem(ctx, system, "user")
 				return err
 			},
 			system: chatSystemMessage,

@@ -141,7 +141,6 @@ func NewZAIClientWithConfig(config ZAIConfig) *ZAIClient {
 		baseURL:          config.BaseURL,
 		model:            config.Model,
 		httpClient:       NewSharedHTTPClient(config.Timeout),
-		semDisabled:      config.DisableSemaphore,
 		rateLimitDelay:   config.RateLimitDelay,
 		retryBackoffBase: config.RetryBackoffBase,
 		retryBackoffMax:  config.RetryBackoffMax,
@@ -149,10 +148,9 @@ func NewZAIClientWithConfig(config ZAIConfig) *ZAIClient {
 		streamingTimeout: config.StreamingTimeout,
 		maxOutputTokens:  orDefaultTokens(config.MaxOutputTokens, 4096),
 	}
-	// Only create semaphore if not disabled (external scheduler handles concurrency)
-	if !config.DisableSemaphore {
-		client.sem = make(chan struct{}, 5) // Z.AI API allows max 5 concurrent requests
-	}
+	// The scheduler that serves the client disables this through
+	// DisableSemaphore when it takes over concurrency.
+	client.sem = make(chan struct{}, 5) // Z.AI API allows max 5 concurrent requests
 	return client
 }
 

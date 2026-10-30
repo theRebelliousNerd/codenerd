@@ -111,6 +111,9 @@ type UserConfig struct {
 	// verbosity, reasoning mode/context/summary, prompt cache lifetime).
 	OpenAI *OpenAIProviderConfig `json:"openai,omitempty"`
 
+	// OpenRouter request options (app attribution headers).
+	OpenRouter *OpenRouterProviderConfig `json:"openrouter,omitempty"`
+
 	// Claude Code CLI configuration (used when Engine="claude-cli")
 	ClaudeCLI *ClaudeCLIConfig `json:"claude_cli,omitempty"`
 

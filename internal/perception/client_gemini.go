@@ -166,11 +166,7 @@ func NewGeminiClientWithConfig(config GeminiConfig) *GeminiClient {
 		// Built-in tools
 		enableGoogleSearch: config.EnableGoogleSearch,
 		enableURLContext:   config.EnableURLContext,
-		urlContextURLs:     config.URLContextURLs,
 	}
-	// A list installed from config never passes through SetURLContextURLs.
-	// Record the tail here so the caller can read it before the first request.
-	c.recordWithheldURLContextURLs(c.urlContextURLs)
 	return c
 }
 

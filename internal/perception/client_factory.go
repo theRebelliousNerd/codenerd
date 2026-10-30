@@ -101,6 +101,8 @@ type ProviderConfig struct {
 	Meta      *config.MetaProviderConfig      // Muse Spark web search grounding
 	OpenAI    *config.OpenAIProviderConfig    // OpenAI Responses request options
 	Ollama    *config.OllamaLLMConfig         // Local Ollama chat endpoint + model
+	// OpenRouter carries its app attribution (site URL, app title).
+	OpenRouter *config.OpenRouterProviderConfig
 
 	// Worker is optional secondary LLM (e.g. ollama gemma for shards).
 	Worker *config.WorkerLLMConfig
@@ -189,6 +191,7 @@ func ProviderConfigFromUserConfig(userCfg *config.UserConfig) (*ProviderConfig, 
 		Anthropic:           userCfg.Anthropic,
 		Meta:                userCfg.GetMetaConfig(),
 		OpenAI:              userCfg.GetOpenAIConfig(),
+		OpenRouter:          userCfg.GetOpenRouterConfig(),
 		Ollama:              &ollamaCfg,
 		Worker:              userCfg.GetWorkerLLMConfig(),
 		MaxOutputTokens:     userCfg.MaxOutputTokens,
@@ -448,6 +451,7 @@ func newRawClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error
 		if cfg.BaseURL != "" {
 			orCfg.BaseURL = cfg.BaseURL
 		}
+		orCfg.withAttribution(cfg.OpenRouter)
 		orCfg.MaxOutputTokens = classificationCeiling(cfg.Provider)
 		client := NewOpenRouterClientWithConfig(orCfg)
 		client.SetModel(classificationModel(cfg))
@@ -607,6 +611,7 @@ func newRawClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 		if config.BaseURL != "" {
 			cfg.BaseURL = config.BaseURL
 		}
+		cfg.withAttribution(config.OpenRouter)
 		cfg.MaxOutputTokens = config.MaxOutputTokens
 		client := NewOpenRouterClientWithConfig(cfg)
 		if config.Model != "" {
@@ -720,16 +725,17 @@ func newSecondarySlotClient(userCfg *config.UserConfig, slot string, w *config.S
 	}
 
 	pc := &ProviderConfig{
-		Engine:    "api",
-		Provider:  Provider(provider),
-		APIKey:    apiKey,
-		APIKeys:   poolKeys,
-		Model:     w.Model,
-		BaseURL:   userCfg.BaseURL,
-		Gemini:    userCfg.GetGeminiConfig(),
-		Anthropic: userCfg.Anthropic,
-		Meta:      userCfg.GetMetaConfig(),
-		OpenAI:    userCfg.GetOpenAIConfig(),
+		Engine:     "api",
+		Provider:   Provider(provider),
+		APIKey:     apiKey,
+		APIKeys:    poolKeys,
+		Model:      w.Model,
+		BaseURL:    userCfg.BaseURL,
+		Gemini:     userCfg.GetGeminiConfig(),
+		Anthropic:  userCfg.Anthropic,
+		Meta:       userCfg.GetMetaConfig(),
+		OpenAI:     userCfg.GetOpenAIConfig(),
+		OpenRouter: userCfg.GetOpenRouterConfig(),
 	}
 	// For OpenAI-compatible vendors the slot's Endpoint doubles as a per-slot
 	// base-URL override, so slots can sit behind different gateways.

@@ -100,7 +100,6 @@ type ZAIConfig struct {
 	BaseURL          string
 	Model            string
 	Timeout          time.Duration
-	DisableSemaphore bool // Set true when using external APIScheduler for concurrency control
 	MaxRetries       int
 	RetryBackoffBase time.Duration
 	RetryBackoffMax  time.Duration
@@ -136,9 +135,8 @@ type GeminiConfig struct {
 	ThinkingLevel  string // For Gemini 3: "minimal", "low", "medium" (API default), "high" — lowercase required
 
 	// Built-in tools
-	EnableGoogleSearch bool     // Enable Google Search grounding
-	EnableURLContext   bool     // Enable URL context tool
-	URLContextURLs     []string // URLs to include for context (max 20)
+	EnableGoogleSearch bool // Enable Google Search grounding
+	EnableURLContext   bool // Enable URL context tool; its URLs come per request (SetURLContextURLs)
 }
 
 // XAIConfig holds configuration for xAI client.
@@ -156,8 +154,8 @@ type OpenRouterConfig struct {
 	BaseURL         string
 	Model           string
 	Timeout         time.Duration
-	SiteURL         string // Optional
-	SiteName        string // Optional
+	SiteURL         string // HTTP-Referer attribution; empty sends none
+	SiteName        string // X-Title attribution; empty sends none
 	MaxOutputTokens int    // completion ceiling; zero uses the client default
 }
 

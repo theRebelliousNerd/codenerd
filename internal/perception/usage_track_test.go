@@ -147,7 +147,7 @@ func TestClients_WhenCompletionSucceeds_ShouldTrackUsageUnderCanonicalProvider(t
 				})
 			},
 			call: func(ctx context.Context, baseURL string) error {
-				c := NewZAIClientWithConfig(ZAIConfig{APIKey: "k", BaseURL: baseURL, Model: "glm", Timeout: 5 * time.Second, DisableSemaphore: true})
+				c := NewZAIClientWithConfig(ZAIConfig{APIKey: "k", BaseURL: baseURL, Model: "glm", Timeout: 5 * time.Second})
 				_, err := c.CompleteWithSystem(ctx, "sys", "user")
 				return err
 			},
@@ -309,7 +309,7 @@ func TestStreamingClients_WhenStreamCompletes_ShouldTrackOnceWithFinalBilledToke
 			wantCache:    4, wantReasoning: 2,
 			handler: func(w http.ResponseWriter, r *http.Request) { sseChatStream(w, deltas, 11, 7) },
 			stream: func(ctx context.Context, baseURL string) (<-chan string, <-chan types.StreamResult) {
-				c := NewZAIClientWithConfig(ZAIConfig{APIKey: "k", BaseURL: baseURL, Model: "glm", Timeout: 5 * time.Second, DisableSemaphore: true})
+				c := NewZAIClientWithConfig(ZAIConfig{APIKey: "k", BaseURL: baseURL, Model: "glm", Timeout: 5 * time.Second})
 				return c.CompleteWithStreaming(ctx, "sys", "user", false)
 			},
 		},

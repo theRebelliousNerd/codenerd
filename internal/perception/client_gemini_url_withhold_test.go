@@ -87,41 +87,6 @@ func TestGroundingGeminiURLContext_When25URLs_Sends20AndCallerReadsWithheld(t *t
 	}
 }
 
-// A list from GeminiConfig never passes through SetURLContextURLs, so the
-// tail has to be readable off the constructed client, and the request still
-// sends only the provider prefix.
-func TestGroundingGeminiURLContext_ConfigListRecordsWithheldBeforeSend(t *testing.T) {
-	const extra = 5
-	total := maxGeminiURLContextURLs + extra
-	urls := make([]string, total)
-	for i := range urls {
-		urls[i] = fmt.Sprintf("https://docs.example/cfg/%02d", i)
-	}
-
-	c := NewGeminiClientWithConfig(GeminiConfig{
-		APIKey:           "k",
-		Model:            "gemini-2.5-flash",
-		EnableURLContext: true,
-		URLContextURLs:   urls,
-	})
-	withheld := c.GetWithheldURLContextURLs()
-	if len(withheld) != extra || withheld[extra-1] != urls[total-1] {
-		t.Fatalf("withheld before any request = %v, want the last %d", withheld, extra)
-	}
-
-	built := c.buildBuiltInTools()
-	if len(built) != 1 || built[0].URLContext == nil {
-		t.Fatalf("built tools = %+v, want one URL-context tool", built)
-	}
-	sent := built[0].URLContext.URLs
-	if len(sent) != maxGeminiURLContextURLs || sent[0] != urls[0] {
-		t.Fatalf("sent = %d URLs starting %q, want %d starting %q", len(sent), firstOrEmpty(sent), maxGeminiURLContextURLs, urls[0])
-	}
-	if again := c.GetWithheldURLContextURLs(); len(again) != extra || again[0] != urls[maxGeminiURLContextURLs] {
-		t.Fatalf("withheld after build = %v, want the %d not sent", again, extra)
-	}
-}
-
 func urlContextURLsSent(req GeminiRequest) []string {
 	var sent []string
 	for _, tool := range req.Tools {

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/config"
 )
 
 // OpenRouterClient implements LLMClient for OpenRouter API.
@@ -36,8 +38,29 @@ func DefaultOpenRouterConfig(apiKey string) OpenRouterConfig {
 		BaseURL: "https://openrouter.ai/api/v1",
 		// No default model: the workspace names one in .nerd/config.json or the
 		// client factory refuses to build the client.
-		Timeout:  10 * time.Minute, // Large context models need extended timeout
-		SiteName: "codeNERD",
+		Timeout: 10 * time.Minute, // Large context models need extended timeout
+	}
+}
+
+// withAttribution sets the app attribution the user configured
+// (openrouter.site_url, openrouter.app_title); nothing when unset.
+func (c *OpenRouterConfig) withAttribution(opts *config.OpenRouterProviderConfig) {
+	if opts == nil {
+		return
+	}
+	c.SiteURL = strings.TrimSpace(opts.SiteURL)
+	c.SiteName = strings.TrimSpace(opts.AppTitle)
+}
+
+// setAttribution adds OpenRouter's attribution headers that are configured.
+// An unset one is not sent: an empty HTTP-Referer is a malformed header, not
+// an absent attribution.
+func (c *OpenRouterClient) setAttribution(h http.Header) {
+	if c.siteURL != "" {
+		h.Set("HTTP-Referer", c.siteURL)
+	}
+	if c.siteName != "" {
+		h.Set("X-Title", c.siteName)
 	}
 }
 
@@ -136,9 +159,7 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
-		// OpenRouter-specific headers
-		req.Header.Set("HTTP-Referer", c.siteURL)
-		req.Header.Set("X-Title", c.siteName)
+		c.setAttribution(req.Header)
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
@@ -284,8 +305,7 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Authorization", "Bearer "+c.apiKey)
 			req.Header.Set("Accept", "text/event-stream")
-			req.Header.Set("HTTP-Referer", c.siteURL)
-			req.Header.Set("X-Title", c.siteName)
+			c.setAttribution(req.Header)
 
 			resp, err := c.httpClient.Do(req)
 			if err != nil {

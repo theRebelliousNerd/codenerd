@@ -164,7 +164,7 @@ func streamFixtures() []streamFixture {
 		}),
 		chatFixture("zai", func(t *testing.T, ctx context.Context, baseURL string) (<-chan string, <-chan types.StreamResult) {
 			u, to := opts(baseURL)
-			return NewZAIClientWithConfig(ZAIConfig{APIKey: "k", BaseURL: u, Model: "glm", Timeout: to, DisableSemaphore: true}).CompleteWithStreaming(ctx, "sys", "user", false)
+			return NewZAIClientWithConfig(ZAIConfig{APIKey: "k", BaseURL: u, Model: "glm", Timeout: to}).CompleteWithStreaming(ctx, "sys", "user", false)
 		}),
 		{
 			name:  "anthropic",
