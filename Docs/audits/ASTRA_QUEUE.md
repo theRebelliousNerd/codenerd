@@ -18,7 +18,8 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 | `responses-assistant-phase-replay` | `research-main-20261029-1950` | fixed `89e4a65c2` |
 | `exact-model-pin-tag-identity` | `research-main-20261029-1018` | fixed `e73911826` |
 | `streaming-grounding-source-ownership` | `research-main-20261029-1018` | fixed `ad6c2c79d` |
-| `ollama-shard-model-override` | `research-main-20261029-2152` | open |
+| `ollama-shard-model-override` | `research-main-20261029-2152` | fixed `40d647187` |
+| `exact-model-numeric-tag-residual` | `research-main-20261030-0017` | fixed `f12d823d0` |
 
 ## Lane A: experts, JIT, then session verdicts and test gates
 
@@ -27,17 +28,17 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 | `expert-selection-temporary-fact-ownership` | `research-main-20261029-2049` | fixed `6dce40d90` (lane) |
 | `specialist-roster-workspace-identity` | `research-main-20261029-1018` | fixed `53d7b8f80` (lane) |
 | `knowledge-consultation-literal-identity` | `research-main-20261029-1018` | fixed `109761c4c` (lane) |
-| `jit-co-use-observation-budget` | `research-main-20261029-1018` | open |
-| `jit-learning-semantic-identity-admission` | `research-main-20261029-1018` | open |
-| `jit-relevance-carry-work-budget` | `research-main-20261029-1018` | open |
-| `retry-jit-callability-continuity` | `research-main-20261029-1018` | open |
-| `baseline-exemption-tagged-test-obligations` | `research-main-20261029-1018` | open |
-| `explicit-package-selector-fidelity` | `research-main-20261029-0920` | open |
-| `net-change-test-plan-applicability` | `research-main-20261029-0946` | open |
-| `tagged-test-constraint-witness` | `research-main-20261029-1018` | open |
-| `test-gate-memoization-identity` | `research-main-20261029-0850` | open |
-| `test-removal-subject-identity` | `research-main-20261029-0850` | open |
-| `tester-continuation-proposal-admission` | `research-main-20261029-1018` | open |
+| `jit-co-use-observation-budget` | `research-main-20261029-1018` | fixed `3294c4682` |
+| `jit-learning-semantic-identity-admission` | `research-main-20261029-1018` | fixed `e5944d38f` |
+| `jit-relevance-carry-work-budget` | `research-main-20261029-1018` | fixed `1260b5f9f` |
+| `retry-jit-callability-continuity` | `research-main-20261029-1018` | fixed `ee79110dc` |
+| `baseline-exemption-tagged-test-obligations` | `research-main-20261029-1018` | fixed `cbcaf6630` |
+| `explicit-package-selector-fidelity` | `research-main-20261029-0920` | fixed `d21bf9830` |
+| `net-change-test-plan-applicability` | `research-main-20261029-0946` | fixed `5874f96c9` |
+| `tagged-test-constraint-witness` | `research-main-20261029-1018` | fixed `782375c70` |
+| `test-gate-memoization-identity` | `research-main-20261029-0850` | fixed `b1609df24` |
+| `test-removal-subject-identity` | `research-main-20261029-0850` | fixed `99da1e661` |
+| `tester-continuation-proposal-admission` | `research-main-20261029-1018` | fixed `d14597d56` |
 | `review-feedback-identity-and-current-verdicts` | `research-main-20261029-1018` | open |
 | `revision-sentinel-build-exclusion-parity` | `research-main-20261029-1018` | open |
 | `omitted-argument-admission-order` | `research-main-20261029-1018` | open |
@@ -70,12 +71,13 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 | `scanner-graph-source-retirement` | `research-main-20261029-1018` | fixed `4123cef79` |
 | `symbol-focus-identity-continuity` | `research-main-20261029-1018` | fixed `f8c94b5b6` |
 | `run_lint describes its build tags` (root finding, R1-27 rerun: the model believed run_lint takes no tags; it applies the workspace build env) | -- | fixed `c6659ef7d` |
-| `gate-comparison-domain-admission` | `research-main-20261029-2152` | open |
-| `gate-scoped-recurse-current-main-addendum` | `research-main-20261029-2221` | open |
-| `run-lint-effective-build-tag-receipt` | `research-main-20261029-2241` | open |
-| `scoped-gate-overlay-evidence-conservation` | `research-main-20261029-2241` | open |
-| `compile-diagnostic-witness-admission` | `research-main-20261029-2258` | open |
-| `coverage-source-identity-witness` | `research-main-20261029-2258` | open |
+| `gate-comparison-domain-admission` | `research-main-20261029-2152` | fixed `26649e371` |
+| `gate-scoped-recurse-current-main-addendum` | `research-main-20261029-2221` | fixed `885fd6fde` |
+| `run-lint-effective-build-tag-receipt` | `research-main-20261029-2241` | fixed `b2f5b2abe` |
+| `scoped-gate-overlay-evidence-conservation` | `research-main-20261029-2241` | fixed `6cb53c9d4` |
+| `compile-diagnostic-witness-admission` | `research-main-20261029-2258` | fixed `862bfe779` |
+| `coverage-source-identity-witness` | `research-main-20261029-2258` | fixed `2065d2642` |
+| `workspace-test-receipt-invocation-identity` | `research-main-20261030-0017` | fixed `077bd07e2` |
 
 ## codeNERD ladder runs: store, learning and memory, then chat and TUI
 
@@ -84,18 +86,19 @@ One audit per run, briefed as its symptom (the ladder's brief rule), in this ord
 | audit | branch | status |
 |---|---|---|
 | `knn-recall-limit-error-contract` | `research-main-20261029-1018` | open |
-| `legacy-vector-repair-attempt-lifecycle` | `research-main-20261029-1018` | open |
-| `knowledge-index-repair-cache-freshness` | `research-main-20261029-1018` | open |
-| `embedding-stats-observation-boundary` | `research-main-20261029-1018` | open |
-| `learned-example-literal-fidelity` | `research-main-20261029-0736` | open |
-| `learning-lexical-candidate-window` | `research-main-20261029-1018` | open |
-| `manual-learning-evidence-conservation` | `research-main-20261029-1018` | open |
-| `project-knowledge-lexical-term-budget` | `research-main-20261029-1018` | open |
-| `user-memory-archival-lifecycle` | `research-main-20261029-1950` | open |
-| `document-extraction-coverage-resumption` | `research-main-20261029-1018` | open |
-| `reflection-observation-publication` | `research-main-20261029-1018` | open |
+| `legacy-vector-repair-attempt-lifecycle` | `research-main-20261029-1018` | fixed `8ec6b638f` |
+| `knowledge-index-repair-cache-freshness` | `research-main-20261029-1018` | fixed `44d8a7d95` |
+| `embedding-stats-observation-boundary` | `research-main-20261029-1018` | fixed `27bc13b05` |
+| `learned-example-literal-fidelity` | `research-main-20261029-0736` | fixed `8f8a2bb03` |
+| `learning-lexical-candidate-window` | `research-main-20261029-1018` | open (Lane B) |
+| `manual-learning-evidence-conservation` | `research-main-20261029-1018` | open (Lane B) |
+| `project-knowledge-lexical-term-budget` | `research-main-20261029-1018` | open (Lane B) |
+| `user-memory-archival-lifecycle` | `research-main-20261029-1950` | open (Lane B) |
+| `document-extraction-coverage-resumption` | `research-main-20261029-1018` | open (Lane B) |
+| `reflection-observation-publication` | `research-main-20261029-1018` | open (Lane B) |
 | `queued-slash-command-kind-conservation` | `research-main-20261029-1018` | open |
 | `slash-operation-slot-admission` | `research-main-20261029-1018` | open |
 | `tui-legislator-dispatch-parity` | `research-main-20261029-1018` | open |
 | `interaction-audit-surface-projection-parity` | `research-main-20261029-1018` | open |
 | `taxonomy-initialization-completeness` | `research-main-20261029-0736` | open |
+| `queued-history-projection` | `research-main-20261030-0017` | open |
