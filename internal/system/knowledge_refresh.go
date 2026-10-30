@@ -94,6 +94,9 @@ func (r *knowledgeRefresher) run(ctx context.Context) (KnowledgeRefreshReport, e
 	}
 	var facts []types.Fact
 	subjects := map[string]map[string]knowledge.Subject{}
+	// generations are each KB's rows as the measurement saw them: a prune is
+	// decided over those rows, and deletes only them (knowledge_prune).
+	generations := map[string]store.KnowledgeGeneration{}
 	var failures []string
 	// What the manifests pin now: a subject acquired at another version
 	// is researched again (knowledge_refresh /version_changed).
@@ -117,11 +120,12 @@ func (r *knowledgeRefresher) run(ctx context.Context) (KnowledgeRefreshReport, e
 			subjects[agent.key][s.Key()] = s
 			facts = append(facts, types.Fact{Predicate: "knowledge_wanted", Args: []any{agent.atom, s.Key()}})
 		}
-		measured, err := measureAgentKB(ctx, agent, now())
+		measured, gen, err := measureAgentKB(ctx, agent, now())
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", agent.key, err))
 			continue
 		}
+		generations[agent.key] = gen
 		facts = append(facts, measured...)
 	}
 	for _, source := range r.acquirer.Available() {
@@ -174,7 +178,11 @@ func (r *knowledgeRefresher) run(ctx context.Context) (KnowledgeRefreshReport, e
 			failures = append(failures, fmt.Sprintf("%s: open KB: %v", key, err))
 			continue
 		}
-		n, err := db.DeleteKnowledgeAtomsByConcept(plan.prune[key]...)
+		// The prune was derived from the rows this run measured. A refresh
+		// above may have written a concept's replacement since; it is not
+		// the row the policy judged, so the deletion is bound to the
+		// measured generation and the replacement survives.
+		n, err := db.DeleteKnowledgeAtomsByConceptThrough(generations[key], plan.prune[key]...)
 		_ = db.Close()
 		report.Pruned += n
 		if err != nil {
@@ -240,13 +248,20 @@ func (r *knowledgeRefresher) domains() (map[string][]string, error) {
 	return out, nil
 }
 
-func measureAgentKB(ctx context.Context, agent rosterKB, now time.Time) ([]types.Fact, error) {
+func measureAgentKB(ctx context.Context, agent rosterKB, now time.Time) ([]types.Fact, store.KnowledgeGeneration, error) {
 	db, err := store.NewLocalStore(agent.path)
 	if err != nil {
-		return nil, fmt.Errorf("open KB: %w", err)
+		return nil, store.KnowledgeGeneration{}, fmt.Errorf("open KB: %w", err)
 	}
 	defer db.Close()
-	return knowledge.Measure(ctx, db.GetDB(), agent.atom, now)
+	// The generation first: a row written between the two reads is then
+	// newer than the generation, never measured-but-unbound.
+	gen, err := db.KnowledgeGeneration()
+	if err != nil {
+		return nil, gen, err
+	}
+	facts, err := knowledge.Measure(ctx, db.GetDB(), agent.atom, now)
+	return facts, gen, err
 }
 
 // knowledgePlan is what the policy derived for one run.

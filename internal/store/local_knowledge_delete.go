@@ -38,6 +38,60 @@ func (s *LocalStore) DeleteKnowledgeAtomsByConcept(concepts ...string) (int64, e
 	})
 }
 
+// KnowledgeGeneration is a KB's knowledge rows as one measurement saw them:
+// the highest knowledge_atoms id and the highest vectors id at that moment.
+// Both tables use AUTOINCREMENT, so a row written after the measurement has
+// a higher id than any the measurement saw.
+type KnowledgeGeneration struct {
+	Atoms, Vectors int64
+}
+
+// KnowledgeGeneration reads the KB's current generation.
+func (s *LocalStore) KnowledgeGeneration() (KnowledgeGeneration, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var g KnowledgeGeneration
+	if tableExists(s.db, "knowledge_atoms") {
+		if err := s.db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM knowledge_atoms`).Scan(&g.Atoms); err != nil {
+			return g, fmt.Errorf("read knowledge generation: %w", err)
+		}
+	}
+	if tableExists(s.db, "vectors") {
+		if err := s.db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM vectors`).Scan(&g.Vectors); err != nil {
+			return g, fmt.Errorf("read knowledge generation: %w", err)
+		}
+	}
+	return g, nil
+}
+
+// DeleteKnowledgeAtomsByConceptThrough deletes the atoms of concepts that
+// existed at generation g, and their knowledge-atom vectors, in one
+// transaction: a row written since -- a refresh's replacement under the same
+// concept -- is not the row the deletion was decided over, and survives. It
+// returns the number of atoms deleted.
+func (s *LocalStore) DeleteKnowledgeAtomsByConceptThrough(g KnowledgeGeneration, concepts ...string) (int64, error) {
+	if len(concepts) == 0 {
+		return 0, nil
+	}
+	return s.deleteKnowledgeAtoms(func(exec func(query string, args ...any) (int64, error)) (int64, error) {
+		var deleted int64
+		for _, concept := range concepts {
+			n, err := exec(`DELETE FROM knowledge_atoms WHERE concept = ? AND id <= ?`, concept, g.Atoms)
+			if err != nil {
+				return deleted, err
+			}
+			deleted += n
+			if _, err := exec(`DELETE FROM vectors
+				WHERE json_extract(metadata, '$.content_type') = 'knowledge_atom'
+				  AND json_extract(metadata, '$.concept') = ?
+				  AND id <= ?`, concept, g.Vectors); err != nil {
+				return deleted, err
+			}
+		}
+		return deleted, nil
+	})
+}
+
 // DeleteKnowledgeAtomsByPrefix deletes every knowledge atom whose concept
 // starts with prefix, and their knowledge-atom vectors, in one transaction.
 // The prefix is compared literally (no LIKE wildcards). An empty prefix is
