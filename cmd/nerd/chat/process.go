@@ -23,6 +23,7 @@ import (
 	"codenerd/internal/articulation"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
+	"codenerd/internal/deliberation"
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
 	"codenerd/internal/perception"
@@ -76,10 +77,16 @@ func (m Model) processInput(input string, request uint64) tea.Cmd {
 	// The reflection this turn runs lands on this copy of the model; it
 	// reaches the live model only on the turn's message.
 	ranReflection := (*ReflectionState)(nil)
+	deliberationNote := m.resumeNote
+	if m.goAheadWork != nil && m.goAheadWork.Deliberated {
+		deliberationNote = m.goAheadWork.ResolutionNote
+	}
 	return func() (result tea.Msg) {
 		// Every exit, the guards below included, releases the slot.
 		defer m.turn.end(turnID)
-		defer func() { result = answerTo(request, publishReflection(result, ranReflection)) }()
+		defer func() {
+			result = answerTo(request, publishReflection(withDeliberationNote(result, deliberationNote), ranReflection))
+		}()
 		// Panic recovery: this closure runs as a fire-and-forget goroutine in the
 		// Bubbletea runtime. An unrecovered panic here kills the entire process.
 		// We use a named return so the deferred recover can set the return value
@@ -207,9 +214,13 @@ func (m Model) processInput(input string, request uint64) tea.Cmd {
 		// An approved proposal runs with the intent perception read when it was
 		// proposed: the "go" that approved it is not the request. user_intent
 		// is asserted from it below, as for any intent no shard asserted.
-		reusedIntent := m.goAheadWork != nil
+		reusedIntent := m.goAheadWork != nil || m.resumeIntent != nil
 		if reusedIntent {
-			intent = m.goAheadWork.Intent
+			if m.resumeIntent != nil {
+				intent = *m.resumeIntent
+			} else {
+				intent = m.goAheadWork.Intent
+			}
 		}
 
 		// Jev's judgments run beside perception (jev_turn.go). A go-ahead turn
@@ -350,6 +361,27 @@ func (m Model) processInput(input string, request uint64) tea.Cmd {
 		// the /dream check and two clarifiers decided in Go before this was
 		// asked.
 		route := m.decideRoute(input, intent, shardType)
+		if route.Kind == RouteDeliberate {
+			thread := &deliberation.Thread{Brief: m.currentBrief(), Request: input, Intent: intent, Mode: string(m.workMode())}
+			out, deliberationErr := m.deliberator().Run(ctx, thread)
+			if deliberationErr != nil {
+				return errorMsg(deliberationErr)
+			}
+			if out.Action == "ask_once" {
+				return m.deliberationQuestion(out)
+			}
+			if thread.Status != "ready" {
+				return assistantMsg{Surface: out.Note()}
+			}
+			input, intent = m.adoptDeliberation(out)
+			deliberationNote = out.Note()
+			if errs := m.assertDirectIntent(intent); len(errs) != 0 {
+				return errorMsg(fmt.Errorf("deliberation intent: %s", strings.Join(errs, "; ")))
+			}
+			shardType = resolveShardTypeForIntent(intent)
+			route = m.decideRoute(input, intent, shardType)
+		}
+
 		logging.Routing("[processInput] ROUTE decision: %s shard=%q | verb=%s category=%s question=%v confidence=%.2f | elapsed=%dms",
 			route.Kind, route.Shard, intent.Verb, intent.Category, intent.IsQuestion, intent.Confidence, time.Since(oodaStart).Milliseconds())
 		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
@@ -379,7 +411,7 @@ func (m Model) processInput(input string, request uint64) tea.Cmd {
 		// Work the work mode holds (route_decision(/hold)): state it and keep
 		// the conversation open until the user says go.
 		if route.Kind == RouteHold {
-			work := &pendingWork{Input: input, Intent: intent, Route: route, At: time.Now()}
+			work := &pendingWork{Input: input, Intent: intent, Route: route, At: time.Now(), Deliberated: m.deliberationResolved, ResolutionNote: deliberationNote}
 			return holdMsg{Work: work, Surface: holdSurface(intent, route, m.workMode(), m.currentBrief())}
 		}
 		// The user's go-ahead on the held proposal.
@@ -463,24 +495,7 @@ func (m Model) processInput(input string, request uint64) tea.Cmd {
 					PendingIntent: &intent,
 				}
 			}
-			m.ReportStatus("Clarifier: generating questions...")
-			if res, err := m.runClarifierShard(ctx, input); err == nil && res != "" {
-				surface := m.appendSystemSummary(
-					res+"\n\nReply with answers, then use `/launchcampaign <goal>` when you are ready to start.",
-					m.collectSystemSummary(ctx, resultBase),
-				)
-				return assistantMsg{
-					Surface: surface,
-					ClarifyUpdate: &ClarifyUpdate{
-						LastClarifyInput:     input,
-						LaunchClarifyPending: true,
-						LaunchClarifyGoal:    input,
-						LaunchClarifyAnswers: "",
-					},
-				}
-			} else if err != nil {
-				warnings = append(warnings, fmt.Sprintf("Clarifier shard unavailable: %v", err))
-			}
+
 		}
 
 		// 1.4.3 THE DERIVED /clarify LANE IS BINDING. route_decision(/clarify, /none)
@@ -835,17 +850,8 @@ func (m Model) processInput(input string, request uint64) tea.Cmd {
 			if suggestion.Campaign && m.activeCampaign == nil {
 				warnings = append(warnings, fmt.Sprintf("Complex task detected (%s): %s", suggestion.CampaignSource, suggestion.CampaignReason))
 				warnings = append(warnings, "Consider using `/campaign start` for multi-phase execution")
-				warnings = append(warnings, "Use `/clarify <goal>` to gather requirements before starting the campaign")
+				warnings = append(warnings, "Use `/deliberate <goal>` to explore designs before starting the campaign")
 
-				if clarifierMsg, err := m.runClarifierShard(ctx, input); err == nil && clarifierMsg != "" {
-					// Return immediately with clarifying questions; user can answer then start campaign
-					return responseMsg(m.appendSystemSummary(
-						clarifierMsg+"\n\nReply with answers, then run `/campaign start <goal>` to kick off the plan.",
-						m.collectSystemSummary(ctx, resultBase),
-					))
-				} else if err != nil {
-					warnings = append(warnings, fmt.Sprintf("Clarifier shard unavailable: %v", err))
-				}
 			}
 
 			if need := suggestion.Persistent; need != nil {

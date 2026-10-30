@@ -138,3 +138,24 @@ self-diagnosis triage. They never replace perception or the LLM.
   step, two chains keep both, a late stop cancels the next step, a duplicate
   done settles once, a result settles in the session that started it,
   completion is saved, and SQLite turn pairing survives an unsolicited result.
+
+## Resolving uncertainty internally (2026-10-30 source update)
+
+This addition is authored and awaits runtime verification. An uncertain or
+untargeted actionable request now derives `route_decision(/deliberate, /none)`.
+`cmd/nerd/chat/process.go` runs the read-only proposer/challenger conductor in
+`internal/deliberation`, then submits its selected brief to the same routing
+arbitration. `intent_signal(/deliberation_resolved)` admits the original shard
+candidate despite low perception confidence. In yolo, that admitted reading satisfies the readiness gate for this turn even
+if the older conversational brief retains questions. It does not discharge
+propose/explicit work approval or constitutional obligations. Repeating an unresolved request alone no
+longer bypasses resolution.
+
+Mangle chooses ready, needs-work, empirical and values-fork outcomes, with
+configured round and progress stops. Only a genuine values fork reaches the
+person, once, with viable options and a recommendation. Yolo selects that
+recommendation and states the assumption. Data questions run bounded read probes.
+A clarification answer resumes the saved original intent and adds constraints;
+it is not a new `/approve` turn. Session-owned snapshots and delegated live
+progress preserve and expose the thread. The full boundary and authored tests
+are described in [the session specification](session/IMPLEMENTED_SPEC.md#internal-deliberation-and-request-continuations-2026-10-30).

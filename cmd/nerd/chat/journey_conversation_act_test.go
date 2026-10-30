@@ -23,7 +23,7 @@ func TestJevJourney_BareReplyIsAnsweredNotAskedAbout(t *testing.T) {
 		want  RouteKind
 	}{
 		{"a settled reply is answered in the conversation", 0.92, RouteRespondDirectly},
-		{"an unsettled reply still asks first", 0.6, RouteClarify},
+		{"an unsettled reply still asks first", 0.6, RouteDeliberate},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, exec := journeyModel(t, config.WorkModeYolo, save)
@@ -53,7 +53,7 @@ func TestJevJourney_FeedbackIsAnsweredNotWorked(t *testing.T) {
 		want   RouteKind
 	}{
 		{"read-only", perception.Intent{Category: "/query", Verb: "/debug", Target: "the reviewer shard", Confidence: 0.9}, RouteRespondDirectly},
-		{"mutation", perception.Intent{Category: "/mutation", Verb: "/fix", Target: "the reviewer shard", Confidence: 0.9}, RouteClarify},
+		{"mutation", perception.Intent{Category: "/mutation", Verb: "/fix", Target: "the reviewer shard", Confidence: 0.9}, RouteDeliberate},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, exec := journeyModel(t, config.WorkModeYolo, tc.intent)

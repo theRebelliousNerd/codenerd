@@ -10,6 +10,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/deliberation"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/shards/system"
@@ -49,7 +50,11 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 			// routing_result is asserted by the constitution and router
 			// system shards and joined against ready_for_routing (policy),
 			// so it lives in the policy shard.
-			OwnedPredicates: []string{"derived_mode"},
+			OwnedPredicates: []string{"derived_mode",
+				"deliberation_tick", "deliberation_round", "deliberation_candidate",
+				"deliberation_success", "deliberation_item", "deliberation_recommended",
+				"deliberation_answer", "deliberation_questioned", "deliberation_mode",
+				"deliberation_agent_tick", "deliberation_brief", "deliberation_citation", "deliberation_probe"},
 		},
 		{
 			Domain: "world",
@@ -662,12 +667,13 @@ func SharedPredicates() []string {
 // This solves the "hollow shard" problem by ensuring factories have access
 // to the kernel and LLM client at instantiation time.
 type RegistryContext struct {
-	Kernel       types.Kernel
-	LLMClient    perception.LLMClient
-	VirtualStore *core.VirtualStore
-	Workspace    string
-	JITCompiler  *prompt.JITPromptCompiler
-	JITConfig    config.JITConfig
+	Kernel        types.Kernel
+	LLMClient     perception.LLMClient
+	VirtualStore  *core.VirtualStore
+	Workspace     string
+	JITCompiler   *prompt.JITPromptCompiler
+	JITConfig     config.JITConfig
+	RoutingConfig config.RoutingConfig
 	// RolePrompts compiles the system prompt of a role that is not a persona
 	// shard turn (the image generator); nil fails that role's requests.
 	RolePrompts types.RolePromptCompiler
@@ -802,8 +808,14 @@ func (r *shardFactoryRegistrar) registerEphemeralShards() {
 	r.sm.RegisterShard("requirements_interrogator", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := NewRequirementsInterrogatorShard()
 		shard.SetLLMClient(r.ctx.LLMClient)
-		shard.SetParentKernel(r.ctx.Kernel)
+		shard.configure(r.ctx.Kernel, r.ctx.RolePrompts, r.ctx.VirtualStore, r.ctx.RoutingConfig.WithDefaults().DeliberationContextBytes)
 		return r.withJITConfig(shard)
+	})
+	r.sm.RegisterShard(deliberation.Proposer, func(id string, cfg types.ShardConfig) types.ShardAgent {
+		shard := newDeliberationShard(deliberation.Proposer)
+		shard.SetLLMClient(r.ctx.LLMClient)
+		shard.configure(r.ctx.Kernel, r.ctx.RolePrompts, r.ctx.VirtualStore, r.ctx.RoutingConfig.WithDefaults().DeliberationContextBytes)
+		return shard
 	})
 
 	// Image generation (Gemini Nano Banana 2). Client is injected at spawn via
@@ -935,13 +947,12 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 // JIT clean loop via session.Executor and prompt atoms. Only system shards
 // and special-purpose shards (like requirements_interrogator) remain here.
 func defineShardProfiles(sm *coreshards.ShardManager) {
-	// Requirements Interrogator profile - Socratic clarification specialist
-	// (Kept because it has unique ask-user interaction pattern not covered by JIT)
+	// Requirements challenger: a read-only participant, never an ask-user role.
 	sm.DefineProfile("requirements_interrogator", types.ShardConfig{
 		Name: "requirements_interrogator",
 		Type: types.ShardTypeEphemeral,
 		Permissions: []types.ShardPermission{
-			types.PermissionAskUser,
+			types.PermissionCodeGraph,
 			types.PermissionReadFile,
 		},
 		Timeout:     5 * time.Minute,
@@ -950,6 +961,11 @@ func defineShardProfiles(sm *coreshards.ShardManager) {
 			Capability: types.CapabilityBalanced,
 		},
 	})
+
+	sm.DefineProfile(deliberation.Proposer, types.ShardConfig{Name: deliberation.Proposer,
+		Type:        types.ShardTypeEphemeral,
+		Permissions: []types.ShardPermission{types.PermissionReadFile, types.PermissionCodeGraph},
+		Model:       types.ModelConfig{Capability: types.CapabilityHighReasoning}})
 
 	// Image generator profile (Gemini Nano Banana 2 / gemini-3.1-flash-image)
 	imgCfg := coreshards.DefaultImageGeneratorConfig("image_generator")

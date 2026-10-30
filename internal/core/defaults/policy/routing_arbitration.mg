@@ -12,8 +12,7 @@
 # EDB inputs (asserted by Go per turn, retract-before-assert):
 #   user_intent(/current_intent, Category, Verb, Target, Constraint)
 #   intent_signal(/is_question)            — perception's is_question signal
-#   intent_signal(/clarified_already)      — the input the last clarification
-#                                            asked about, sent again
+#   intent_signal(/deliberation_resolved)  — a policy-admitted brief resumes
 #   intent_signal(/has_surface_response)   — perception already wrote a reply
 #   intent_signal(/scope_is_file)          — the turn names a concrete file
 #   intent_signal(/suggests_tools)         — perception named tools it needs
@@ -29,18 +28,18 @@
 #   route_decision(/dream, /none)             — hypothetical: consult, act on nothing
 #   route_decision(/assault, /none)           — an adversarial campaign on the workspace
 #   route_decision(/respond_directly, /none)  — answer with prose, no shards
-#   route_decision(/clarify, /none)           — ask before acting
+#   route_decision(/deliberate, /none)        — resolve uncertainty internally
 #   route_decision(/multi_step, /none)        — decompose into steps
 #   route_decision(/delegate, Shard)          — hand to a shard
 #   route_decision(/gather_evidence, /none)   — read the workspace evidence the
 #                                               turn needs, no shard to take it
 #
 # Lane precedence, derived here so that one lane at most holds:
-#   perception_answer > dream > assault > respond_directly > multi_step > clarify > delegate > gather_evidence
+#   perception_answer > dream > assault > respond_directly > multi_step > deliberate > delegate > gather_evidence
 # The three early lanes exclude everything after them (!early_lane());
 # respond_directly excludes the rest (!wants_direct_answer()); multi_step
 # excludes clarify and delegate (!multi_step_lane()); clarify excludes delegate
-# (!clarify_lane()) -- asking first is what the Go clarifiers that stood
+# (!deliberate_lane()) -- asking first is what the Go clarifiers that stood
 # before this file did.
 #
 # Until 2026-09-23 three of these were Go decisions made before this file was
@@ -257,7 +256,7 @@ multi_step_plan_ready() :-
 # outside the chat) holds nothing.
 work_hold_requested() :- work_mode(/propose).
 work_hold_requested() :- work_mode(/explicit).
-work_hold_requested() :- work_mode(/yolo), brief_present(), !brief_ready().
+work_hold_requested() :- work_mode(/yolo), brief_present(), !brief_ready(), !intent_signal(/deliberation_resolved).
 work_admitted() :- !work_hold_requested().
 work_admitted() :- intent_signal(/user_go_ahead).
 work_admitted() :- user_intent(/current_intent, /query, _, _, _).
@@ -273,7 +272,7 @@ delegate_lane_ready(Shard) :-
     should_delegate(Shard),
     !wants_direct_answer(),
     !multi_step_lane(),
-    !clarify_lane(),
+    !deliberate_lane(),
     !early_lane().
 
 route_decision(/delegate, Shard) :-
@@ -303,7 +302,7 @@ evidence_lane() :-
     user_intent(/current_intent, /query, _, _, _),
     !wants_direct_answer(),
     !early_lane(),
-    !clarify_lane(),
+    !deliberate_lane(),
     !delegate_lane_derived().
 
 route_decision(/gather_evidence, /none) :-
@@ -355,23 +354,20 @@ route_verifies() :-
     route_decision(/delegate, _),
     user_intent(/current_intent, /mutation, _, _, _).
 
-# Clarify before acting, and not twice for the same input: a user who sends
-# back the request the last clarification asked about has declined to narrow
-# it, and asking again loops. The Go clarifiers always stood down on that
-# input; the derived lane did not, and asked forever
-# (TestE2E_TaskRouting_ClarifierLoopGuard_SameInputNoReClarify, red from
-# 2026-09-18 until 2026-09-23).
-route_decision(/clarify, /none) :-
-    clarify_lane().
+# Uncertainty starts a bounded internal deliberation. Only its values-fork
+# disposition may ask the person; repeating the request is not evidence that
+# it has been resolved. A chosen brief returns with /deliberation_resolved.
+route_decision(/deliberate, /none) :-
+    deliberate_lane().
 
-clarify_lane() :-
+deliberate_lane() :-
     needs_clarification(),
     !wants_direct_answer(),
     !multi_step_lane(),
     !early_lane(),
-    !intent_signal(/clarified_already).
+    !intent_signal(/deliberation_resolved).
 
-# An actionable-but-uncertain mutation: a shard exists for the verb but
+# An actionable-but-uncertain mutation deliberates: a shard exists but
 # perception confidence is below the delegation gate.
 needs_clarification() :-
     user_intent(/current_intent, /mutation, _, _, _),
@@ -381,8 +377,8 @@ needs_clarification() :-
     Conf < Min.
 
 # A request whose verb acts on something and that names nothing to act on
-# ("fix it", "run the tests", "plan a new auth system"): ask what, before any
-# lane acts on a guess. Was the target check of shouldClarifyIntent and the
+# ("fix it", "run the tests", "plan a new auth system"): gather evidence
+# and deliberate before executing a reading. Was the target check of shouldClarifyIntent and the
 # "needs details" of shouldAutoClarify, in Go.
 acts_on_target(/search).
 acts_on_target(/run).

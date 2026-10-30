@@ -393,7 +393,7 @@ func TestRouting_MutationLanes(t *testing.T) {
 		if !queryDerived(t, k, "route_decision(/delegate, /coder)") {
 			t.Error("route_decision(/delegate, /coder) not derived for confident /fix")
 		}
-		if queryDerived(t, k, "route_decision(/clarify, /none)") {
+		if queryDerived(t, k, "route_decision(/deliberate, /none)") {
 			t.Error("clarify wrongly derived for confident mutation")
 		}
 	})
@@ -402,8 +402,8 @@ func TestRouting_MutationLanes(t *testing.T) {
 		k := routingKernel(t, 50)
 		assertIntent(t, k, "/mutation", "/fix", "none")
 		mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(40))
-		if !queryDerived(t, k, "route_decision(/clarify, /none)") {
-			t.Error("route_decision(/clarify) not derived for low-confidence mutation")
+		if !queryDerived(t, k, "route_decision(/deliberate, /none)") {
+			t.Error("route_decision(/deliberate) not derived for low-confidence mutation")
 		}
 		if queryDerived(t, k, "route_decision(/delegate, /coder)") {
 			t.Error("delegate wrongly derived below the confidence gate")
@@ -460,12 +460,12 @@ func TestRouting_ClarifiesAnInputOnce(t *testing.T) {
 	k := routingKernel(t, 50)
 	assertIntent(t, k, "/mutation", "/fix", "none")
 	mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(40))
-	if !queryDerived(t, k, "route_decision(/clarify, /none)") {
-		t.Fatal("route_decision(/clarify) not derived for a first low-confidence mutation")
+	if !queryDerived(t, k, "route_decision(/deliberate, /none)") {
+		t.Fatal("route_decision(/deliberate) not derived for a first low-confidence mutation")
 	}
-	mustAssert(t, k, "intent_signal", types.MangleAtom("/clarified_already"))
-	if queryDerived(t, k, "route_decision") {
-		t.Error("a lane derived for an input the last clarification already asked about")
+	mustAssert(t, k, "intent_signal", types.MangleAtom("/deliberation_resolved"))
+	if !queryDerived(t, k, "route_decision(/delegate, /coder)") {
+		t.Error("a resolved request must delegate with its original verb")
 	}
 }
 

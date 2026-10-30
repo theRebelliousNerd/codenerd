@@ -262,11 +262,12 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.recordUXMetric("clarifications_needed")
 		m.inputMode = InputModeClarification
 		m.clarificationState = &ClarificationState{
-			Question:      msg.Question,
-			Options:       msg.Options,
-			DefaultOption: msg.DefaultOption,
-			Context:       msg.Context,
-			PendingIntent: msg.PendingIntent,
+			DeliberationID: msg.DeliberationID,
+			Question:       msg.Question,
+			Options:        msg.Options,
+			DefaultOption:  msg.DefaultOption,
+			Context:        msg.Context,
+			PendingIntent:  msg.PendingIntent,
 		}
 		m.selectedOption = 0
 		if msg.Context != "" {
@@ -281,6 +282,7 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Add clarification question to history
 		m = m.pushAssistantMsg(m.formatClarificationRequest(ClarificationState(msg)))
+		persistCmd = m.saveSessionStateCmd()
 
 	case errorMsg:
 		m.isLoading = false

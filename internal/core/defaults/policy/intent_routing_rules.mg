@@ -482,7 +482,7 @@ verb_persona(/assault, /general).
 verb_persona(/converse, /general).
 verb_persona(/forget, /general).
 verb_persona(/remember, /general).
-verb_persona(/requirements_interrogator, /general).
+
 
 verb_has_persona(V) :- verb_persona(V, _).
 

@@ -186,11 +186,12 @@ func (i sessionItem) FilterValue() string { return i.id + " " + i.desc }
 
 // ClarificationState represents a pending clarification request
 type ClarificationState struct {
-	Question      string
-	Options       []string
-	DefaultOption string
-	Context       string // Serialized kernel state
-	PendingIntent *perception.Intent
+	DeliberationID string
+	Question       string
+	Options        []string
+	DefaultOption  string
+	Context        string // Serialized kernel state
+	PendingIntent  *perception.Intent
 }
 
 // activityPulse is one beat in the live activity trail shown above the input.
@@ -296,10 +297,13 @@ type Model struct {
 	turnIntentVerb string
 
 	// Clarification Loop State (Pause/Resume Protocol)
-	clarificationState *ClarificationState
-	selectedOption     int // For option picker
-	pendingPatchLines  []string
-	lastClarifyInput   string // Track last input for clarification dedup
+	clarificationState   *ClarificationState
+	resumeIntent         *perception.Intent
+	deliberationResolved bool
+	resumeNote           string
+	selectedOption       int // For option picker
+	pendingPatchLines    []string
+	lastClarifyInput     string // Track last input for clarification dedup
 	// pendingWork is work the kernel held until the user says go
 	// (route_decision(/hold), work_hold.go); newer held work replaces it.
 	pendingWork *pendingWork

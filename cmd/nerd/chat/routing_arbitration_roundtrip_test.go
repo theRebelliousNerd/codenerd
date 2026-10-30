@@ -219,7 +219,7 @@ func TestDecideRoute_MutationLanes(t *testing.T) {
 		assertRouteIntent(t, m, intent)
 
 		route := m.decideRoute("fix it", intent, "coder")
-		if route.Kind != RouteClarify {
+		if route.Kind != RouteDeliberate {
 			t.Errorf("route = %s, want clarify for low-confidence mutation", route.Kind)
 		}
 	})
@@ -273,7 +273,7 @@ func TestDecideRoute_DelegationThresholdIsTheConfigs(t *testing.T) {
 	}
 	fix := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "README.md", Confidence: 0.6}
 	assertRouteIntent(t, m, fix)
-	if route := m.decideRoute("fix the typo in README.md", fix, "coder"); route.Kind != RouteClarify {
+	if route := m.decideRoute("fix the typo in README.md", fix, "coder"); route.Kind != RouteDeliberate {
 		t.Errorf("a 0.6 mutation under a threshold of 70: route = %s, want clarify", route.Kind)
 	}
 
@@ -318,14 +318,14 @@ func TestDecideRoute_ClarifiesAnInputOnce(t *testing.T) {
 	m := newRoundtripModel(t)
 	intent := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "none", Confidence: 0.4}
 	assertRouteIntent(t, m, intent)
-	if route := m.decideRoute("fix it", intent, "coder"); route.Kind != RouteClarify {
+	if route := m.decideRoute("fix it", intent, "coder"); route.Kind != RouteDeliberate {
 		t.Fatalf("first ask: route = %s, want clarify", route.Kind)
 	}
 	m.lastClarifyInput = "fix it"
-	if route := m.decideRoute("Fix it ", intent, "coder"); route.Kind != RouteNone {
-		t.Errorf("the same input again: route = %s, want none", route.Kind)
+	if route := m.decideRoute("Fix it ", intent, "coder"); route.Kind != RouteDeliberate {
+		t.Errorf("the same unresolved input again: route = %s, want deliberate", route.Kind)
 	}
-	if route := m.decideRoute("fix the parser", intent, "coder"); route.Kind != RouteClarify {
+	if route := m.decideRoute("fix the parser", intent, "coder"); route.Kind != RouteDeliberate {
 		t.Errorf("a different input: route = %s, want clarify", route.Kind)
 	}
 }

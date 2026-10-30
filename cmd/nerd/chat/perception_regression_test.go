@@ -81,9 +81,9 @@ func TestDecideRoute_ARequestNamingNothingClarifies(t *testing.T) {
 		intent perception.Intent
 		want   RouteKind
 	}{
-		{"an untargeted, uncertain fix", "fix something", perception.Intent{Category: "/mutation", Verb: "/fix", Target: "none", Confidence: 0.3}, RouteClarify},
-		{"an untargeted, confident fix", "fix it", perception.Intent{Category: "/mutation", Verb: "/fix", Target: "none", Confidence: 0.9}, RouteClarify},
-		{"an untargeted plan", "plan a new auth system", perception.Intent{Category: "/instruction", Verb: "/generate", Target: "", Confidence: 0.84}, RouteClarify},
+		{"an untargeted, uncertain fix", "fix something", perception.Intent{Category: "/mutation", Verb: "/fix", Target: "none", Confidence: 0.3}, RouteDeliberate},
+		{"an untargeted, confident fix", "fix it", perception.Intent{Category: "/mutation", Verb: "/fix", Target: "none", Confidence: 0.9}, RouteDeliberate},
+		{"an untargeted plan", "plan a new auth system", perception.Intent{Category: "/instruction", Verb: "/generate", Target: "", Confidence: 0.84}, RouteDeliberate},
 		{"a targeted, confident fix delegates", "fix the auth bug", perception.Intent{Category: "/mutation", Verb: "/fix", Target: "auth.go", Confidence: 0.9}, RouteDelegate},
 	}
 	for _, tc := range cases {

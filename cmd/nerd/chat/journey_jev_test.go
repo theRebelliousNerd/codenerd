@@ -146,7 +146,7 @@ func TestJevJourney_DisputedMutationAsksFirst(t *testing.T) {
 	intent := fixReadmeTurn("", nil)
 	assertRouteIntent(t, m, intent)
 	m.recordTurnJudgments(m.shutdownCtx, m.startTurnJudgments(m.shutdownCtx, "is the README typo still there?", nil))
-	if route := m.decideRoute("is the README typo still there?", intent, "coder"); route.Kind != RouteClarify {
+	if route := m.decideRoute("is the README typo still there?", intent, "coder"); route.Kind != RouteDeliberate {
 		t.Fatalf("route = %s, want clarify when Jev disputes the mutation", route.Kind)
 	}
 	if exec.callCount() != 0 {
@@ -164,7 +164,7 @@ func TestJevJourney_UnnamedChangeRequestAsksFirstWhateverPerceptionCalledIt(t *t
 	intent := perception.Intent{Category: "/query", Verb: "/review", Target: "word handling", Confidence: 0.45, IsQuestion: true}
 	assertRouteIntent(t, m, intent)
 	m.recordTurnJudgments(m.shutdownCtx, m.startTurnJudgments(m.shutdownCtx, "make the word handling better", nil))
-	if route := m.decideRoute("make the word handling better", intent, "reviewer"); route.Kind != RouteClarify {
+	if route := m.decideRoute("make the word handling better", intent, "reviewer"); route.Kind != RouteDeliberate {
 		t.Fatalf("route = %s, want clarify", route.Kind)
 	}
 	if exec.callCount() != 0 {

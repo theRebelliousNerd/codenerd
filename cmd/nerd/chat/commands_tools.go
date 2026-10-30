@@ -36,7 +36,7 @@ func (m Model) buildStatusReport() string {
 	sb.WriteString("- Shard Manager: Active\n")
 	sb.WriteString("- Dreamer: Precog safety enabled\n")
 	sb.WriteString("- Legislator: Available via `/legislate`\n")
-	sb.WriteString("- Requirements Interrogator: Available via `/clarify`\n")
+	sb.WriteString("- Internal deliberation: Available via `/deliberate` and `/innovate`\n")
 	if m.activeCampaign != nil {
 		sb.WriteString(fmt.Sprintf("- Active Campaign: %s\n", m.activeCampaign.Goal))
 	}
@@ -62,7 +62,8 @@ func (m Model) buildStatusReport() string {
 	sb.WriteString("- tester\n")
 	sb.WriteString("- researcher\n")
 	sb.WriteString("- legislator\n")
-	sb.WriteString("- requirements_interrogator\n")
+	sb.WriteString("- requirements_interrogator (challenger)\n")
+	sb.WriteString("- deliberation_proposer\n")
 
 	// List generated tools
 	if m.autopoiesis != nil {

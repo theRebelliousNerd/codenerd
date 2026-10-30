@@ -39,34 +39,6 @@ func (m Model) handleCmdLegislate(input string, parts []string) (tea.Model, tea.
 	return m, tea.Batch(m.spinner.Tick, m.spawnShard("legislator", task))
 }
 
-// handleCmdClarify handles the corresponding chat slash-command.
-func (m Model) handleCmdClarify(input string, parts []string) (tea.Model, tea.Cmd) {
-	if len(parts) < 2 {
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: "Usage: `/clarify <goal>`\n\nExample: `/clarify build a campaign to harden auth`",
-			Time:    time.Now(),
-		})
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
-		m.textarea.Reset()
-		return m, nil
-	}
-	task := strings.TrimSpace(strings.TrimPrefix(input, "/clarify"))
-	m = m.addMessage(Message{
-		Role:    "assistant",
-		Content: "Requirements Interrogator engaged. Drafting clarifying questions...",
-		Time:    time.Now(),
-	})
-	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
-	m.textarea.Reset()
-	// The task holds the foreground slot (foregroundOperation); the loading
-	// flag is what lets Ctrl+X reach it.
-	m.isLoading = true
-	return m, tea.Batch(m.spinner.Tick, m.spawnShard("requirements_interrogator", task))
-}
-
 // handleCmdLaunchCampaign handles the corresponding chat slash-command.
 func (m Model) handleCmdLaunchCampaign(input string, parts []string) (tea.Model, tea.Cmd) {
 	if len(parts) < 2 {

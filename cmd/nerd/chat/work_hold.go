@@ -20,10 +20,12 @@ import (
 // lane the kernel would have run. A brief-goal run has no saved intent; the
 // goal goes through perception like any request.
 type pendingWork struct {
-	Input  string
-	Intent perception.Intent
-	Route  RouteDecision
-	At     time.Time
+	Deliberated    bool
+	ResolutionNote string
+	Input          string
+	Intent         perception.Intent
+	Route          RouteDecision
+	At             time.Time
 }
 
 // holdMsg carries held work from the turn back to the model, which keeps it

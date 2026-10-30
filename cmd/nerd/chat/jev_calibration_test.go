@@ -35,7 +35,7 @@ func TestJevJourney_UnsettledJudgmentsAreNamedAndActOnNothing(t *testing.T) {
 	if note := m.unsettledNote(); !strings.Contains(note, "conversation_act") {
 		t.Fatalf("the log line does not name the unsettled judgments and the unsettled act: %q", note)
 	}
-	if route := m.decideRoute("make the readme better", intent, "coder"); route.Kind == RouteClarify {
+	if route := m.decideRoute("make the readme better", intent, "coder"); route.Kind == RouteDeliberate {
 		t.Fatalf("an unsettled judgment disputed the mutation: route %s", route.Kind)
 	}
 	if r := m.jevRestriction(); !r.IsZero() {

@@ -49,7 +49,7 @@ Decl query_needs_reader(Candidate) bound [/name].
 
 # route_decision(Route, ShardType) - derived: the single routing outcome for
 # the current turn. Route: /perception_answer, /dream, /assault,
-# /respond_directly, /clarify, /multi_step, /delegate, /hold,
+# /respond_directly, /deliberate, /multi_step, /delegate, /hold,
 # /approve_pending, /gather_evidence.
 # ShardType carries the target shard for /delegate and is /none otherwise.
 Decl route_decision(Route, ShardType) bound [/name, /name].
@@ -196,10 +196,9 @@ Decl dream_lane() bound [].
 Decl assault_lane() bound [].
 Decl early_lane() bound [].
 
-# The clarify lane: needs_clarification says why a turn must ask first
-# (uncertain, untargeted, or a question the kernel already has); clarify_lane
-# applies the precedence and the loop guard, and the delegate lane yields to it.
-Decl clarify_lane() bound [].
+# needs_clarification identifies uncertainty. deliberate_lane applies the
+# precedence and admits an internal resolution before the delegation lane.
+Decl deliberate_lane() bound [].
 
 # Work admission (routing_arbitration.mg). work_mode(Mode) is the chat's
 # autonomy switch (/yolo, /propose, /explicit; config work_mode);

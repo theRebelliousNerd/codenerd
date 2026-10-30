@@ -262,6 +262,15 @@ func (m Model) loadSelectedSession(sessionID string) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.turn.seenRequests(maxRequest(m.history))
+	if pending, err := m.deliberator().Pending(); err != nil {
+		logging.Session("deliberation restore failed: %v", err)
+	} else if pending != nil {
+		m.inputMode = InputModeClarification
+		m.selectedOption = 0
+		m.clarificationState = &ClarificationState{DeliberationID: pending.ID,
+			Question: pending.Question, Options: pending.Options, Context: pending.Request,
+			PendingIntent: &pending.Intent}
+	}
 	m.turnCount = len(m.history) / 2 // Approximate turn count from history
 
 	// Rehydrate compressor state for this session (if available).

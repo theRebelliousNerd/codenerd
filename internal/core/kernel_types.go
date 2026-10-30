@@ -238,6 +238,7 @@ func GetDefaultContent(path string) (string, error) {
 // (kernel_init.go) and DefaultCorpusText so the schema inventory cannot drift
 // between kernel boot and static analysis.
 var defaultSchemaFiles = []string{
+	"schemas_deliberation.mg",
 	"schemas_intent.mg",           // Intent & Focus Resolution
 	"schemas_world.mg",            // File Topology, Symbol Graph, Diagnostics
 	"schemas_execution.mg",        // TDD Loop & Action Execution

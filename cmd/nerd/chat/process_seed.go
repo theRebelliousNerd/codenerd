@@ -1,13 +1,11 @@
 package chat
 
 import (
-	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/retrieval"
 	"codenerd/internal/transparency"
 	"context"
-	"fmt"
 	"strings"
 )
 
@@ -100,26 +98,4 @@ func (m *Model) seedIssueFacts(ctx context.Context, intent perception.Intent, ra
 	}); err != nil {
 		logging.Context("[seedIssueFacts] retrieval seed failed: %v", err)
 	}
-}
-
-// runClarifierShard invokes the requirements_interrogator shard synchronously to gather clarifying questions.
-func (m Model) runClarifierShard(ctx context.Context, goal string) (string, error) {
-	// Yolo resolves ambiguity itself: every caller treats ("", nil) as "no
-	// questions", so this one choke point skips all shard-spawned
-	// interrogation without touching the kernel-owned question path.
-	if m.yoloEnabled() {
-		return "", nil
-	}
-	if m.shardMgr == nil && m.taskExecutor == nil {
-		return "", fmt.Errorf("no executor available: both taskExecutor and shardMgr are nil")
-	}
-
-	cctx, cancel := context.WithTimeout(ctx, config.GetLLMTimeouts().ArticulationTimeout)
-	defer cancel()
-
-	result, err := m.spawnTask(cctx, "requirements_interrogator", goal)
-	if err != nil {
-		return "", err
-	}
-	return result, nil
 }

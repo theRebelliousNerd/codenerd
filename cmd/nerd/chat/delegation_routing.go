@@ -38,9 +38,11 @@ const (
 	// RouteRespondDirectly terminates the turn in prose: no clarifier shards,
 	// no decomposition, no delegation, no autopoiesis analysis.
 	RouteRespondDirectly
-	// RouteClarify asks the user before acting: an uncertain or untargeted
-	// request, or one the kernel already has a question for.
+	// RouteClarify is reserved for explicit kernel questions. Uncertainty
+	// starts internal deliberation.
 	RouteClarify
+	// RouteDeliberate resolves uncertainty between read-only shard roles.
+	RouteDeliberate
 	// RouteMultiStep decomposes the request into sequential subtasks.
 	RouteMultiStep
 	// RouteDelegate hands the task to a single shard.
@@ -69,6 +71,8 @@ func (k RouteKind) String() string {
 		return "assault"
 	case RouteRespondDirectly:
 		return "respond_directly"
+	case RouteDeliberate:
+		return "deliberate"
 	case RouteClarify:
 		return "clarify"
 	case RouteMultiStep:
@@ -186,6 +190,9 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 		}
 	}
 	var signals []string
+	if m.deliberationResolved || (m.goAheadWork != nil && m.goAheadWork.Deliberated) {
+		signals = append(signals, "/deliberation_resolved")
+	}
 	if intent.IsQuestion {
 		signals = append(signals, "/is_question")
 	}
@@ -201,9 +208,7 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 			break
 		}
 	}
-	if trimmed := strings.TrimSpace(input); trimmed != "" && strings.EqualFold(trimmed, strings.TrimSpace(m.lastClarifyInput)) {
-		signals = append(signals, "/clarified_already")
-	}
+
 	if strings.TrimSpace(intent.Response) != "" {
 		signals = append(signals, "/has_surface_response")
 	}
@@ -296,6 +301,8 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 		}
 		decision = RouteDecision{Kind: RouteDelegate, Shard: shard, Verify: len(verifies) > 0,
 			Background: len(background) > 0, SelfDiagnosis: len(diagnosis) > 0}
+	case "/deliberate":
+		decision = RouteDecision{Kind: RouteDeliberate}
 	case "/clarify":
 		decision = RouteDecision{Kind: RouteClarify}
 	case "/approve_pending":

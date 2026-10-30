@@ -753,3 +753,89 @@ When editing session:
 | 12 | History / learn / persist | append / Queue / go Store | Best-effort |
 
 This is the authoritative living spec for `internal/session` as of **2026-07-13**.
+
+## Internal deliberation and request continuations (2026-10-30)
+
+Implementation status: source authored; builds, runtime checks and regression
+execution remain pending. This section records the new paths without extending
+older verification receipts to them.
+
+`internal/deliberation.Service.Run` is the reusable conductor for uncertain
+requests and development design questions. It receives the original request,
+intent, autonomy mode and session identity. The frame includes the current conversational brief. Its participant runner dispatches
+registered `deliberation_proposer` and `requirements_interrogator` shards. The
+first frame requests divergent candidates; subsequent frames carry the preceding
+challenge, measured probes and the person's answer for convergent refinement.
+Only the last completed round is replayed, under a configured context byte bound.
+
+The conductor asserts typed round facts and reads `deliberation_decision` and
+`deliberation_disposition`. It never sorts candidate scores or chooses a winner.
+A merge lattice retains the smallest recommendation rank among eligible
+candidates, independently for each thread, round and verdict kind. A ready
+candidate passes the challenger's requirements success test and has no critical
+item. Important items remain visible without blocking readiness. This is a
+judgment about the proposed reading; implementation verification still belongs
+to the delegated execution path.
+
+Critical items have a closed kind vocabulary: data, design and values. An
+empirical candidate has only data blockers and supplies concrete read-only tool
+calls. The conductor executes these through the existing guarded tool registry,
+persists outputs and errors, and feeds them into the next frame. A design blocker
+requests refinement. Two viable values alternatives, with a valid recommendation,
+produce a values fork. Outside yolo it asks one options question, recommending the
+first displayed option. In yolo it proceeds with the recommendation and discloses
+the preference assumption. A free-text answer may trigger refinement, but a
+thread that already asked cannot ask a second question.
+
+The `routing` section of `.nerd/config.json` supplies the bounds through
+`internal/config/routing.go` and `config_param` facts:
+
+| Key | Default | Meaning |
+|---|---:|---|
+| `deliberation_round_cap` | 4 | completed rounds allowed; checked before another round |
+| `deliberation_no_progress` | 2 | consecutive repeated progress fingerprints before stopping |
+| `deliberation_tool_calls` | 6 | per-role combined model/tool calls, and bounded probe/consultation calls |
+| `deliberation_candidate_cap` | 4 | proposal and consultation list admission bound |
+| `deliberation_context_bytes` | 65536 | role input and individual evidence output bound |
+
+Progress fingerprints include stable critical-item identities and observed probe
+outputs and errors. Rewording a brief alone does not reset the counter. Mangle
+compares measured round and unchanged counts against the configured limits. A
+stop returns its reason without claiming completion or asking for missing data.
+Malformed participant output, unavailable JIT/model infrastructure and absent
+proof support fail visibly; they do not generate fallback questions.
+
+Every completed round, selected candidate, assessment, probe receipt, assumption
+and bounded proof envelope is written atomically under
+`.nerd/sessions/<session>/deliberation/<thread>.json`, independently of debug
+logging. Pending values questions retain their options and original intent.
+Session loading restores that question. Runtime deliberation facts are ephemeral
+and are retracted by exact identity on exit; resuming explicitly reasserts the
+saved round rather than restoring all old executive facts at boot.
+
+`cmd/nerd/chat/model_handlers.go` resumes clarification using a saved intent and
+adds the answer to its constraints. It does not substitute the answer for the
+original target or classify the answer as a new request. `perception.Restriction`
+has JSON serialization so confirmation and read-only obligations survive the
+durable continuation. Choosing a values option does not authorize held work:
+propose and explicit modes still pass through their existing work-admission gate.
+A resolved yolo turn satisfies the brief-readiness gate for that turn. Held work
+carries the resolution receipt so its later go-ahead reuses the chosen reading.
+
+The chat wires `sessionlog.LiveEvent` plan, step, assistant, tool and final events
+into its delegated-progress feed. The final surface includes the chosen brief,
+assumptions, success test and recorded proof identifier. `/deliberate` and
+`/innovate` run the same conductor and return a design brief. Their design-only
+thread never launches a development worker. `/clarify` enters this same internal
+resolution path. A planner can call `Service.Run` and adopt its admitted candidate
+through its existing execution and permission paths; automatic campaign-step
+adoption is not wired by this change.
+
+Authored acceptance coverage is in `cmd/nerd/chat/deliberation_test.go` and
+`internal/system/deliberation_boot_test.go`. These cover sharded policy evaluation,
+registered JIT roles, a real read probe, values handling, configured stops,
+persistence, continuation restrictions and command dispatch. None has been run
+in this authoring pass. Both disposable Mangle experiments are also unrun, so
+lattice/proof behavior and strict-bounds compatibility remain validation gates.
+The atom importance, prompt corpus and predicate corpus generators in `nerd.md`
+must run before generated artifacts can be considered fresh.

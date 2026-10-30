@@ -472,6 +472,7 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 		clarifyContext = m.clarificationState.Context
 	}
 	pendingIntent := m.clarificationState.PendingIntent
+	deliberationID := m.clarificationState.DeliberationID
 	// Resume clarification protocol if applicable
 	m.setInputMode(InputModeNormal)
 	if clarifyContext != "" {
@@ -490,6 +491,10 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 	m.isLoading = true
 	m.beginLiveTurn("Resuming after clarification...")
 
+	// A values answer resumes the persisted thread with its original intent.
+	if deliberationID != "" {
+		return m, tea.Batch(m.spinner.Tick, m.resumeDeliberation(response, deliberationID, m.lastRequest()))
+	}
 	// Resume processing with clarification response
 	return m, tea.Batch(
 		m.spinner.Tick,
@@ -545,7 +550,9 @@ func (m Model) processClarificationResponse(response string, pendingIntent *perc
 
 		// If we have a pending intent, keep it in sync with the clarification.
 		if pendingIntent != nil {
-			pendingIntent.Target = response
+			copy := *pendingIntent
+			copy.Constraint = strings.TrimSpace(copy.Constraint + "\nUser clarification: " + response)
+			m.resumeIntent = &copy
 		}
 
 		return m.processInput(clarifiedInput, request)()

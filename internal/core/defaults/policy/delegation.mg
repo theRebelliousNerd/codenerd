@@ -349,6 +349,11 @@ intent_requires_reasoning_model(Verb) :-
 config_param_required(/routing, /routing_delegation_min_confidence).
 
 should_delegate(Persona) :-
+    intent_signal(/deliberation_resolved),
+    delegation_candidate(/current_intent, Candidate, _),
+    Candidate != /none, delegation_persona(Candidate, Persona).
+
+should_delegate(Persona) :-
     delegation_candidate(/current_intent, Candidate, Conf),
     /none != Candidate,
     config_param(/routing_delegation_min_confidence, Min),

@@ -51,6 +51,10 @@ var conversationPredicates = append([]string{"session_note"}, perception.BriefPr
 // shared kernel and the model. Workspace knowledge stays.
 func (m Model) detachConversation() Model {
 	m.pendingWork = nil
+	m.resumeIntent, m.resumeNote, m.deliberationResolved = nil, "", false
+	m.clarificationState = nil
+	m.selectedOption = 0
+	m.inputMode = InputModeNormal
 	m.goAheadWork = nil
 	m.lastShardResult = nil
 	m.shardResultHistory = nil

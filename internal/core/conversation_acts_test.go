@@ -112,7 +112,7 @@ func TestConversationAct_RoutesTheTurnsTaskVerbsMisread(t *testing.T) {
 		// target. Alone it asks "write what?"; the reply is answered in the
 		// conversation it belongs to.
 		{"bare reply answered in conversation", saveReply,
-			map[string]int64{"reply_to_codenerd": 92, "request_for_work": 8}, "/respond_directly", "/clarify"},
+			map[string]int64{"reply_to_codenerd": 92, "request_for_work": 8}, "/respond_directly", "/deliberate"},
 		// "the reviewer shard just refused... that's bad": a read-only coder
 		// job alone; feedback is answered, not worked.
 		{"feedback answered, not delegated", feedbackTurn,
@@ -120,7 +120,7 @@ func TestConversationAct_RoutesTheTurnsTaskVerbsMisread(t *testing.T) {
 		// Read as a mutation, feedback asks first instead of changing code.
 		{"feedback read as a mutation asks first",
 			actTurn{category: "/mutation", verb: "/fix", target: "the reviewer shard", shard: "/coder", conf: 90},
-			map[string]int64{"feedback_on_codenerd": 89, "request_for_work": 11}, "/clarify", "/delegate /coder"},
+			map[string]int64{"feedback_on_codenerd": 89, "request_for_work": 11}, "/deliberate", "/delegate /coder"},
 		// "what work mode are you in?" filed as /self_diagnose with tools:
 		// answered from the operating state, not a diagnosis job.
 		{"question about codeNERD answered from its state",
@@ -128,7 +128,7 @@ func TestConversationAct_RoutesTheTurnsTaskVerbsMisread(t *testing.T) {
 			map[string]int64{"question_about_codenerd": 100}, "/respond_directly", "/delegate /reviewer"},
 		// Near miss: the top act below yes is unsettled, and acts on nothing.
 		{"unsettled act changes nothing", saveReply,
-			map[string]int64{"reply_to_codenerd": 65, "request_for_work": 35}, "/clarify", "/clarify"},
+			map[string]int64{"reply_to_codenerd": 65, "request_for_work": 35}, "/deliberate", "/deliberate"},
 		// A request for work leaves perception's reading alone.
 		{"request for work changes nothing",
 			actTurn{category: "/mutation", verb: "/fix", target: "parser.go", shard: "/coder", conf: 90},
@@ -153,10 +153,10 @@ func TestConversationAct_RoutesTheTurnsTaskVerbsMisread(t *testing.T) {
 			map[string]int64{"feedback_on_codenerd": 89}, "/delegate /reviewer", "/delegate /reviewer"},
 		// Yes configured at 40: two acts tied at the top settle nothing.
 		{"a tie settles nothing", actTurn{category: "/mutation", verb: "/write", target: "none", shard: "/coder", conf: 90, yes: 40},
-			map[string]int64{"reply_to_codenerd": 45, "feedback_on_codenerd": 45, "small_talk": 10}, "/clarify", "/clarify"},
+			map[string]int64{"reply_to_codenerd": 45, "feedback_on_codenerd": 45, "small_talk": 10}, "/deliberate", "/deliberate"},
 		// An option the kernel has no act for is never read.
 		{"unmapped option is ignored", saveReply,
-			map[string]int64{"brand_new_act": 95}, "/clarify", "/clarify"},
+			map[string]int64{"brand_new_act": 95}, "/deliberate", "/deliberate"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

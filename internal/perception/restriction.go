@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"slices"
 	"strings"
 )
@@ -191,4 +192,27 @@ func RestrictionFromContext(ctx context.Context) Restriction {
 	}
 	r, _ := ctx.Value(restrictionCtxKey{}).(Restriction)
 	return r
+}
+
+// MarshalJSON preserves the original request's obligations in durable
+// continuations. The private fields otherwise encode as an empty object.
+func (r Restriction) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Kinds      []RestrictionKind `json:"kinds"`
+		Text       string            `json:"text"`
+		Unenforced []string          `json:"unenforced,omitempty"`
+	}{r.Kinds(), r.Text(), r.Unenforced()})
+}
+
+func (r *Restriction) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Kinds      []RestrictionKind `json:"kinds"`
+		Text       string            `json:"text"`
+		Unenforced []string          `json:"unenforced,omitempty"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	*r = newRestriction(wire.Kinds, wire.Text, wire.Unenforced)
+	return nil
 }

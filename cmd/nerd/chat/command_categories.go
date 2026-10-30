@@ -339,8 +339,16 @@ var CommandRegistry = []CommandInfo{
 		ShowInHelp:  true,
 	},
 	{
+		Name: "/deliberate", Description: "Converge on an evidence-backed design brief",
+		Usage: "/deliberate <sub-problem>", Category: CategoryAdvanced, ShowInHelp: true,
+	},
+	{
+		Name: "/innovate", Description: "Explore and challenge alternative designs",
+		Usage: "/innovate <sub-problem>", Category: CategoryAdvanced, ShowInHelp: true,
+	},
+	{
 		Name:        "/clarify",
-		Description: "Socratic requirements interrogation",
+		Description: "Resolve requirements through internal deliberation",
 		Usage:       "/clarify <goal>",
 		Category:    CategoryAdvanced,
 		ShowInHelp:  true,

@@ -63,8 +63,7 @@ Decl yolo_mode() bound [].
 # Carries perception's boolean understanding signals into policy so routing
 # arbitration can reason over them.
 # Signal: /is_question (user wants an answer, not work performed)
-#         /clarified_already (this input is the one the last clarification
-#         asked about: the user repeated it rather than answering)
+#         /deliberation_resolved (the conductor returned an admitted brief)
 Decl intent_signal(Signal) bound [/name].
 
 # =============================================================================

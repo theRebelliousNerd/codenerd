@@ -109,8 +109,8 @@ func (m Model) handleCommand(raw string) (tea.Model, tea.Cmd) {
 	case "/legislate":
 		return m.handleCmdLegislate(input, parts)
 
-	case "/clarify":
-		return m.handleCmdClarify(input, parts)
+	case "/deliberate", "/innovate", "/clarify":
+		return m.handleCmdDeliberate(input, parts)
 
 	case "/launchcampaign":
 		return m.handleCmdLaunchCampaign(input, parts)

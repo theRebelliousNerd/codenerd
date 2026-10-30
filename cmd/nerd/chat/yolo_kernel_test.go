@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -68,40 +67,5 @@ func TestYolo_BootRestoresFact(t *testing.T) {
 	}
 	if len(rows) != 1 {
 		t.Fatal("boot with persisted yolo must assert yolo_mode")
-	}
-}
-
-// TestRunClarifierShard_YoloSkips proves the yolo choke point: with autonomy
-// on, the clarifier returns no questions without touching any executor —
-// this model has neither shard manager nor task executor, so any attempt to
-// spawn would error instead.
-func TestRunClarifierShard_YoloSkips(t *testing.T) {
-	m := NewTestModel()
-	m.Config = config.DefaultUserConfig()
-	m.Config.WorkMode = config.WorkModeYolo
-	m.shardMgr = nil
-	m.taskExecutor = nil
-
-	res, err := m.runClarifierShard(context.Background(), "do the vague thing")
-	if err != nil {
-		t.Fatalf("yolo clarifier must not error: %v", err)
-	}
-	if res != "" {
-		t.Fatalf("yolo clarifier must ask nothing, got %q", res)
-	}
-}
-
-// TestRunClarifierShard_NoYoloNeedsExecutor pins the non-yolo contract the
-// choke preserves: without autonomy and without executors, the clarifier
-// fails loudly rather than silently asking nothing.
-func TestRunClarifierShard_NoYoloNeedsExecutor(t *testing.T) {
-	m := NewTestModel()
-	m.Config = config.DefaultUserConfig()
-	m.shardMgr = nil
-	m.taskExecutor = nil
-
-	_, err := m.runClarifierShard(context.Background(), "do the vague thing")
-	if err == nil {
-		t.Fatal("non-yolo clarifier without executors must fail loudly")
 	}
 }

@@ -63,8 +63,8 @@ implemented specification for ownership, persistence and migration contracts.
 
 ### 2.2 Ephemeral and library participants
 
-`requirements_interrogator` is an actual ephemeral ShardAgent with a JIT-required
-LLM path and a static nil-LLM fallback. Matching, consultation, and observers are
+`requirements_interrogator` is an ephemeral read-only challenger with a JIT-required
+LLM path. It fails visibly when its dependencies are unavailable. Matching, consultation, and observers are
 libraries used by chat and campaign adapters rather than factories for large Go
 persona classes.
 
@@ -341,7 +341,7 @@ GetLastAssessment returns an internal pointer.
 
 | Shard cognition | Selector / behavior | Failure policy |
 |---|---|---|
-| requirements interrogator | `system/requirements_interrogator/*`, semantic top-k 5 | error if LLM exists but JIT unavailable; static nil-LLM questions |
+| requirements interrogator and proposer | role-specific `system/*` JIT atoms | fail visibly if model or JIT unavailable; no questionnaire fallback |
 | planner | campaign planner atoms, semantic top-k 5 | fail decomposition |
 | legislator | legislator identity/syntax/safety/output, semantic top-k 100 | fail rule generation |
 | system autopoiesis | `system/autopoiesis/{executive,router,constitution}` | skip optional proposal |
@@ -424,3 +424,41 @@ repair round checked by `recheckUplift`. `session.turnUserAgent` treats every ta
 Program item #14: `internal/kbfill` is the fill gate; `kbfill_test.go` ratchets `testdata/kb_fill_gaps.txt` over the
 embedded corpora and a producer-built shard KB, `nerd check-kb` (`cmd/nerd/cmd_check_kb.go`) audits a workspace's
 shard KBs, and `prompt_atoms.source_file` and `knowledge_atoms.source` are written by their producers.
+
+## Deliberation participants (2026-10-30 source update)
+
+Runtime verification is pending for this addition. The requirements interrogator
+has been repurposed as a challenger. Its previous question-only prompt and
+nil-model questionnaire have been removed. Both it and the new
+`deliberation_proposer` are ephemeral registered shards implemented by
+`internal/shards/deliberation.go`, with identities in
+`internal/prompt/atoms/system/requirements_interrogator.yaml` and
+`internal/prompt/atoms/system/deliberation_proposer.yaml`. Role prompts use the
+configured JIT role compiler. Models come from the existing configured shard
+client/profile path.
+
+Both roles receive read-file and code-graph permissions. Neither receives
+ask-user, write-file or command-execution permission. Their actual tool envelope
+is `deliberation_read_tool` in `internal/core/defaults/policy/deliberation.mg`:
+workspace reads, retrieval/recall and the CodeDOM read envelope. Tool calls go
+through the existing registry's argument, containment, allowlist and effect
+guards. The proposer may request expert consultations; chat relays them through
+its existing consultation manager with an inherited enforced read-only
+restriction. Advice is evidence supplied to the challenger, not authority to
+change the workspace.
+
+The proposer returns distinct candidates with stable IDs, briefs, targets,
+success tests, assumptions and citations. The challenger returns one typed
+assessment per candidate, important and critical open items, a recommendation
+and, only for personal preferences, one concrete question. Missing critical data
+requires a concrete read-only probe. The Go boundary rejects malformed records
+and invalid vocabulary. Mangle independently guards the severity/kind vocabulary
+and derives eligibility, the winning candidate and the disposition.
+
+`DefaultShardPredicateManifests` homes every deliberation EDB family on the
+routing domain. Configuration remains shared; all candidate, item, answer and
+round joins stay together, including the inputs negated by readiness. The
+standing shard-join and starved/unconsumed inventories remain acceptance gates;
+no new exemption or widened baseline is part of this addition. The companion
+[session specification](../session/IMPLEMENTED_SPEC.md#internal-deliberation-and-request-continuations-2026-10-30)
+records lifecycle, bounds, persistence and UI behavior.

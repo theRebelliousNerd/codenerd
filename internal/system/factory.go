@@ -2107,13 +2107,14 @@ func shardRegistryContext(bctx *bootContext) shards.RegistryContext {
 		regLLM = bctx.shardLLMClient
 	}
 	regCtx := shards.RegistryContext{
-		Kernel:       bctx.kernel,
-		LLMClient:    regLLM,
-		VirtualStore: bctx.virtualStore,
-		Workspace:    bctx.workspace,
-		JITCompiler:  bctx.jitCompiler,
-		JITConfig:    bctx.jitCfg,
-		RolePrompts:  bctx.rolePrompts,
+		Kernel:        bctx.kernel,
+		LLMClient:     regLLM,
+		VirtualStore:  bctx.virtualStore,
+		Workspace:     bctx.workspace,
+		JITCompiler:   bctx.jitCompiler,
+		JITConfig:     bctx.jitCfg,
+		RolePrompts:   bctx.rolePrompts,
+		RoutingConfig: bctx.appCfg.GetRoutingConfig(),
 	}
 	// The firewall classifies through the same resolved client as the
 	// direct transducer. Until 2026-10-28 it was rebuilt here from the worker

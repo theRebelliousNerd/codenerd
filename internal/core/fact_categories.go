@@ -9,6 +9,19 @@ package core
 // EphemeralPredicates lists predicates that should NOT be loaded from disk.
 // These are session-specific and must start fresh each session.
 var EphemeralPredicates = map[string]bool{
+	"deliberation_brief":       true,
+	"deliberation_citation":    true,
+	"deliberation_probe":       true,
+	"deliberation_tick":        true,
+	"deliberation_round":       true,
+	"deliberation_candidate":   true,
+	"deliberation_success":     true,
+	"deliberation_item":        true,
+	"deliberation_recommended": true,
+	"deliberation_answer":      true,
+	"deliberation_questioned":  true,
+	"deliberation_mode":        true,
+	"deliberation_agent_tick":  true,
 	// User intent from current session
 	"user_intent": true,
 

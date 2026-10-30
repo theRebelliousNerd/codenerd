@@ -13,13 +13,22 @@ import "fmt"
 type RoutingConfig struct {
 	// DelegationMinConfidence is the perception confidence, as a percent, at
 	// or above which a turn whose verb maps to a shard is handed to that
-	// shard. A mutation below it is asked about first (the /clarify lane).
+	// shard. A mutation below it deliberates first (the /deliberate lane).
 	DelegationMinConfidence int `json:"delegation_min_confidence,omitempty"`
+	// Deliberation bounds include the initial divergent round. A stalled
+	// thread stops without claiming success or asking for missing data.
+	DeliberationRoundCap     int `json:"deliberation_round_cap,omitempty"`
+	DeliberationNoProgress   int `json:"deliberation_no_progress,omitempty"`
+	DeliberationToolCalls    int `json:"deliberation_tool_calls,omitempty"`
+	DeliberationCandidateCap int `json:"deliberation_candidate_cap,omitempty"`
+	DeliberationContextBytes int `json:"deliberation_context_bytes,omitempty"`
 }
 
 // DefaultRoutingConfig is the routing section with every field written down.
 func DefaultRoutingConfig() RoutingConfig {
-	return RoutingConfig{DelegationMinConfidence: 50}
+	return RoutingConfig{DelegationMinConfidence: 50, DeliberationRoundCap: 4,
+		DeliberationNoProgress: 2, DeliberationToolCalls: 6,
+		DeliberationCandidateCap: 4, DeliberationContextBytes: 64 << 10}
 }
 
 // GetRoutingConfig returns the routing section with every absent field
@@ -35,6 +44,22 @@ func (c *UserConfig) GetRoutingConfig() RoutingConfig {
 func (c RoutingConfig) WithDefaults() RoutingConfig {
 	if c.DelegationMinConfidence == 0 {
 		c.DelegationMinConfidence = DefaultRoutingConfig().DelegationMinConfidence
+	}
+	d := DefaultRoutingConfig()
+	if c.DeliberationRoundCap == 0 {
+		c.DeliberationRoundCap = d.DeliberationRoundCap
+	}
+	if c.DeliberationNoProgress == 0 {
+		c.DeliberationNoProgress = d.DeliberationNoProgress
+	}
+	if c.DeliberationToolCalls == 0 {
+		c.DeliberationToolCalls = d.DeliberationToolCalls
+	}
+	if c.DeliberationCandidateCap == 0 {
+		c.DeliberationCandidateCap = d.DeliberationCandidateCap
+	}
+	if c.DeliberationContextBytes == 0 {
+		c.DeliberationContextBytes = d.DeliberationContextBytes
 	}
 	return c
 }
@@ -52,6 +77,25 @@ func (c RoutingConfig) Check(prefix string) []Problem {
 			Fix:      "a percent from 1 to 100, or remove the key for the default",
 		})
 	}
+	for _, knob := range []struct {
+		name  string
+		value int
+	}{
+		{"deliberation_round_cap", c.DeliberationRoundCap},
+		{"deliberation_no_progress", c.DeliberationNoProgress},
+		{"deliberation_tool_calls", c.DeliberationToolCalls},
+		{"deliberation_candidate_cap", c.DeliberationCandidateCap},
+		{"deliberation_context_bytes", c.DeliberationContextBytes},
+	} {
+		if knob.value < 1 {
+			out = append(out, Problem{Severity: SeverityError,
+				Path: prefix + "." + knob.name, Message: "must be positive", Fix: "use a positive integer or omit for the default"})
+		}
+	}
+	if c.DeliberationCandidateCap == 1 {
+		out = append(out, Problem{Severity: SeverityError, Path: prefix + ".deliberation_candidate_cap",
+			Message: "divergence requires at least two candidates", Fix: "use 2 or more, or omit for the default"})
+	}
 	return out
 }
 
@@ -62,5 +106,10 @@ func (c RoutingConfig) Params() []Param {
 	c = c.WithDefaults()
 	return []Param{
 		{Key: "/routing_delegation_min_confidence", Value: int64(c.DelegationMinConfidence)},
+		{Key: "/deliberation_round_cap", Value: int64(c.DeliberationRoundCap)},
+		{Key: "/deliberation_no_progress", Value: int64(c.DeliberationNoProgress)},
+		{Key: "/deliberation_tool_calls", Value: int64(c.DeliberationToolCalls)},
+		{Key: "/deliberation_candidate_cap", Value: int64(c.DeliberationCandidateCap)},
+		{Key: "/deliberation_context_bytes", Value: int64(c.DeliberationContextBytes)},
 	}
 }
