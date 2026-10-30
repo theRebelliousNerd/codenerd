@@ -25,7 +25,7 @@ import (
 // of every failing test and package, whole.
 func readGoTest(stdout, stderr, dir string) ([]lintreport.Finding, string, error) {
 	type event struct {
-		Action, Package, Test, Output, ImportPath string
+		Action, Package, Test, Output string
 	}
 	var findings []lintreport.Finding
 	failedTests := map[string]bool{}

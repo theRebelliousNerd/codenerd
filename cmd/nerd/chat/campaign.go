@@ -15,9 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"codenerd/internal/core"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -239,45 +237,6 @@ func riskEvaluationFromEvent(data any) *campaign.RiskGateEvaluation {
 		return &d
 	default:
 		return nil
-	}
-}
-
-// runLaunchCampaign runs clarifier then auto-starts a campaign using the goal plus clarifier answers (if provided).
-func (m *Model) runLaunchCampaign(goal string) tea.Cmd {
-	return func() tea.Msg {
-		finalGoal := goal
-		clarifier := strings.TrimSpace(m.launchClarifyAnswers)
-		if clarifier != "" {
-			finalGoal = fmt.Sprintf("%s\n\nClarifier responses:\n%s", goal, clarifier)
-		}
-		// Persist intent capture
-		m.captureCampaignIntent(finalGoal, clarifier)
-		// Reset clarifier state
-		m.launchClarifyPending = false
-		m.launchClarifyGoal = ""
-		m.launchClarifyAnswers = ""
-
-		return m.startCampaign(finalGoal)()
-	}
-}
-
-// captureCampaignIntent stores clarifier answers into kernel facts for downstream logic.
-func (m *Model) captureCampaignIntent(goal, clarifierAnswers string) {
-	if m.kernel == nil {
-		return
-	}
-	campaignID := fmt.Sprintf("campaign_%d", time.Now().UnixNano())
-	if err := m.kernel.Assert(core.Fact{
-		Predicate: "campaign_intent_capture",
-		Args: []any{
-			campaignID,
-			goal,
-			clarifierAnswers,
-			types.Atom("hands_free"),
-			"{}",
-		},
-	}); err != nil {
-		logging.Kernel("[campaign] failed to assert campaign intent: %v", err)
 	}
 }
 

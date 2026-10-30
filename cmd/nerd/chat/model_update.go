@@ -149,13 +149,6 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.turnCount++
 		m.recordUXMetric("successful_tasks")
 
-		// Apply any state updates carried by the message
-		if msg.ClarifyUpdate != nil {
-			m.lastClarifyInput = msg.ClarifyUpdate.LastClarifyInput
-			m.launchClarifyPending = msg.ClarifyUpdate.LaunchClarifyPending
-			m.launchClarifyGoal = msg.ClarifyUpdate.LaunchClarifyGoal
-			m.launchClarifyAnswers = msg.ClarifyUpdate.LaunchClarifyAnswers
-		}
 		m.awaitingKnowledge = msg.AwaitingKnowledge
 		if msg.Reflection != nil {
 			m.lastReflection = msg.Reflection
@@ -270,9 +263,6 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 			PendingIntent:  msg.PendingIntent,
 		}
 		m.selectedOption = 0
-		if msg.Context != "" {
-			m.lastClarifyInput = msg.Context
-		}
 
 		// Update UI to show clarification request
 		m.textarea.Placeholder = "Select option or type your answer..."

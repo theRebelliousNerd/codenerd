@@ -131,15 +131,6 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m.handleCommand(strings.TrimLeft(raw, " \t\r\n"))
 	}
 
-	// If we are collecting clarification answers for a future campaign launch,
-	// accumulate the user's replies here (Update thread) so state persists.
-	if m.launchClarifyPending {
-		if m.launchClarifyAnswers != "" {
-			m.launchClarifyAnswers += "\n"
-		}
-		m.launchClarifyAnswers += input
-	}
-
 	// Add user message to history
 	m = m.addMessage(Message{
 		Role:    "user",
@@ -475,9 +466,6 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 	deliberationID := m.clarificationState.DeliberationID
 	// Resume clarification protocol if applicable
 	m.setInputMode(InputModeNormal)
-	if clarifyContext != "" {
-		m.lastClarifyInput = clarifyContext
-	}
 
 	// Reset input
 	m.textarea.Reset()

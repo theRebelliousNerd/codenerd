@@ -61,7 +61,7 @@ func (m Model) handleCmdLaunchCampaign(input string, parts []string) (tea.Model,
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	m.textarea.Reset()
-	return m, tea.Batch(m.spinner.Tick, m.runLaunchCampaign(goal))
+	return m, tea.Batch(m.spinner.Tick, m.startCampaign(goal))
 }
 
 // handleCmdInit handles the corresponding chat slash-command.

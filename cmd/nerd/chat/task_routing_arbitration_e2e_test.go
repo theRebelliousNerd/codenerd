@@ -421,10 +421,6 @@ func TestE2E_TaskRouting_PlanRequest_AutoClarifyNotExecution(t *testing.T) {
 		if msg.ShardResult != nil {
 			t.Errorf("No shard execution should happen for plan request, got ShardResult.ShardType=%q", msg.ShardResult.ShardType)
 		}
-		// Check for clarify update
-		if msg.ClarifyUpdate != nil && msg.ClarifyUpdate.LaunchClarifyPending {
-			t.Log("Auto-clarify correctly triggered with LaunchClarifyPending=true")
-		}
 	}
 	t.Logf("Plan routing: %s", outcome.MsgType)
 }
@@ -661,10 +657,10 @@ func TestE2E_TaskRouting_ReviewRequest_RouteToReviewer_NotCoder(t *testing.T) {
 }
 
 // =============================================================================
-// TEST 12: Clarifier loop guard — same input does NOT re-clarify
+// TEST 12: an under-specified request, sent twice, is never a question
 // =============================================================================
 
-func TestE2E_TaskRouting_ClarifierLoopGuard_SameInputNoReClarify(t *testing.T) {
+func TestE2E_TaskRouting_UnderSpecifiedRequestNeverClarifies(t *testing.T) {
 	m, _ := setupRoutingModel(t, perception.Intent{
 		Category:   "/mutation",
 		Verb:       "/fix",
@@ -673,17 +669,14 @@ func TestE2E_TaskRouting_ClarifierLoopGuard_SameInputNoReClarify(t *testing.T) {
 		Response:   "What should I fix?",
 	})
 
-	// Set lastClarifyInput to match — prevents all three clarify paths
-	m.lastClarifyInput = "fix it"
-
-	outcome := routeInput(t, m, "fix it")
-
-	// The same input the last clarification asked about asserts
-	// intent_signal(/clarified_already), and the /clarify lane stands down.
-	// The input falls through to delegation or articulation.
-	assertNoClarification(t, outcome)
-	assertRoutingIdle(t, outcome)
-	t.Logf("Loop guard routing: %s (no clarification loop)", outcome.MsgType)
+	// Low confidence and no target route to deliberation, not to a
+	// clarifying question (routing_arbitration.mg), on the first send and
+	// on a repeat alike; the old once-per-input guard is gone with the lane.
+	for range 2 {
+		outcome := routeInput(t, m, "fix it")
+		assertNoClarification(t, outcome)
+		assertRoutingIdle(t, outcome)
+	}
 }
 
 // =============================================================================

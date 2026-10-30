@@ -310,23 +310,22 @@ func TestDecideRoute_OneLaneAtMost(t *testing.T) {
 	}
 }
 
-// The derived /clarify lane asks once per input. Sent back unchanged after a
-// clarification, the request is not asked about again: no lane derives, and
-// articulation answers. Until 2026-09-23 the lane asked forever.
-func TestDecideRoute_ClarifiesAnInputOnce(t *testing.T) {
+// An unresolved request deliberates instead of asking, whether it is new,
+// repeated or reworded. Until 2026-09-23 the /clarify lane asked forever; until
+// 2026-10-30 it asked once per input.
+func TestDecideRoute_UnresolvedInputDeliberates(t *testing.T) {
 	t.Parallel()
 	m := newRoundtripModel(t)
 	intent := perception.Intent{Category: "/mutation", Verb: "/fix", Target: "none", Confidence: 0.4}
 	assertRouteIntent(t, m, intent)
 	if route := m.decideRoute("fix it", intent, "coder"); route.Kind != RouteDeliberate {
-		t.Fatalf("first ask: route = %s, want clarify", route.Kind)
+		t.Fatalf("first send: route = %s, want deliberate", route.Kind)
 	}
-	m.lastClarifyInput = "fix it"
 	if route := m.decideRoute("Fix it ", intent, "coder"); route.Kind != RouteDeliberate {
 		t.Errorf("the same unresolved input again: route = %s, want deliberate", route.Kind)
 	}
 	if route := m.decideRoute("fix the parser", intent, "coder"); route.Kind != RouteDeliberate {
-		t.Errorf("a different input: route = %s, want clarify", route.Kind)
+		t.Errorf("a different input: route = %s, want deliberate", route.Kind)
 	}
 }
 

@@ -588,29 +588,6 @@ func TestWizard_NumericInput(t *testing.T) {
 }
 
 // =============================================================================
-// CAMPAIGN LAUNCH CLARIFICATION TESTS
-// =============================================================================
-
-func TestCampaignLaunchClarification_State(t *testing.T) {
-	t.Parallel()
-
-	m := NewTestModel()
-	m.launchClarifyPending = true
-	m.launchClarifyGoal = "improve test coverage"
-	m.launchClarifyAnswers = ""
-
-	if !m.launchClarifyPending {
-		t.Error("Expected launchClarifyPending to be true")
-	}
-	if m.launchClarifyGoal != "improve test coverage" {
-		t.Errorf("Unexpected goal: %s", m.launchClarifyGoal)
-	}
-	if m.launchClarifyAnswers != "" {
-		t.Errorf("Expected empty answers initially")
-	}
-}
-
-// =============================================================================
 // DREAM STATE LEARNING TESTS
 // =============================================================================
 

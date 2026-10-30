@@ -210,8 +210,8 @@ func TestClassificationFailure_RetryAfterOutageIsAFreshTurn(t *testing.T) {
 	if _, ok := msg.(responseMsg); !ok || !strings.Contains(string(msg.(responseMsg)), "couldn't reach the language model") {
 		t.Fatalf("the outage turn answered %T %v", msg, msg)
 	}
-	if m.lastClarifyInput != "" {
-		t.Fatalf("an outage notice was recorded as a clarification the retry would answer: %q", m.lastClarifyInput)
+	if m.clarificationState != nil {
+		t.Fatalf("an outage notice was recorded as a clarification the retry would answer: %+v", m.clarificationState)
 	}
 	m, msg, _ = say(t, m, "where is the typo")
 	if got, ok := msg.(responseMsg); !ok || string(got) != "It is the second line." {

@@ -122,7 +122,7 @@ func (im InputMode) IsWizard() bool {
 // and clears the per-wizard data carriers for OTHER (now-inactive) modes.
 //
 // It deliberately does not touch orthogonal overlay state
-// (awaitingKnowledge, launchClarifyPending, pendingKnowledge, knowledgeHistory)
+// (awaitingKnowledge, pendingKnowledge, knowledgeHistory)
 // — those are not primary modes and survive transitions.
 //
 // Pointer receiver so callers can write `m.setInputMode(...)` without re-binding.
@@ -308,7 +308,6 @@ type Model struct {
 	resumeNote           string
 	selectedOption       int // For option picker
 	pendingPatchLines    []string
-	lastClarifyInput     string // Track last input for clarification dedup
 	// pendingWork is work the kernel held until the user says go
 	// (route_decision(/hold), work_hold.go); newer held work replaces it.
 	pendingWork *pendingWork
@@ -527,11 +526,6 @@ type Model struct {
 	// Input History
 	inputHistory []string
 	historyIndex int
-
-	// Campaign Launch State
-	launchClarifyPending bool
-	launchClarifyGoal    string
-	launchClarifyAnswers string
 
 	// Context State
 	lastShardResult    *ShardResult
@@ -769,19 +763,10 @@ type (
 		Facts     []core.Fact
 	}
 
-	// ClarifyUpdate carries state updates for auto-clarification / launchcampaign flow.
-	ClarifyUpdate struct {
-		LastClarifyInput     string
-		LaunchClarifyPending bool
-		LaunchClarifyGoal    string
-		LaunchClarifyAnswers string
-	}
-
 	// assistantMsg is a richer response message that can also update model state.
 	assistantMsg struct {
 		Surface           string
 		ShardResult       *ShardResultPayload
-		ClarifyUpdate     *ClarifyUpdate
 		DreamHypothetical string
 		ThoughtSummary    string
 		// AwaitingKnowledge latches the knowledge-gathering re-entrancy guard

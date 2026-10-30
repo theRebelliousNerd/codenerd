@@ -233,10 +233,6 @@ Decl plan_validation_issue(CampaignID, IssueType, Description) bound [/string, /
 # 27.7 Campaign Shard Delegation
 # -----------------------------------------------------------------------------
 
-# campaign_intent_capture(CampaignID, Goal, ClarifierAnswers, AutonomyLevel, Constraints)
-# Captures the raw goal and clarifier responses used to launch a campaign
-Decl campaign_intent_capture(CampaignID, Goal, ClarifierAnswers, AutonomyLevel, Constraints) bound [/string, /string, /string, /name, /string].
-
 # shard_result_event(ShardID, ResultType, ResultData, Timestamp)
 # ResultType: /success, /failure, /partial, /knowledge
 Decl shard_result_event(ShardID, ResultType, ResultData, Timestamp) bound [/string, /name, /string, /number].
