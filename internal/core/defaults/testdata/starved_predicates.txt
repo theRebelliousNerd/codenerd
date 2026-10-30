@@ -34,7 +34,6 @@ element_action
 element_hydration
 failure_count_by_file
 fix_pattern
-intelligence_knowledge_link
 intelligence_preference
 invariant_value
 investigation_result

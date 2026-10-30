@@ -299,9 +299,23 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// negates. Elsewhere the admission and its discharge split.
 				"shard_agent_authority", "turn_card_mandate",
 			},
+			// The plan-intelligence rules (policy/intelligence.mg) join the
+			// plan's artifacts and the gatherer's measurements with the world
+			// model. The plan and the measurements are small and bounded; the
+			// world model is not, so they come here as copies rather than the
+			// world going to the campaign shard. Every chain rule starts from
+			// the world-owned intelligence_campaign_path, so none of them
+			// fires, partially, in the campaign shard. The campaign's tasks
+			// and phases stay there: copying them would let campaign rules
+			// fire here without the facts they negate.
 			// The cards stay home with the dealing rules (cortex); the
 			// mandate admission reads a bounded copy here.
-			ConsumerPredicates: []string{"turn_expert_card"},
+			ConsumerPredicates: []string{
+				"turn_expert_card",
+				"task_artifact",
+				"intelligence_churn_hotspot", "intelligence_safety_warning",
+				"intelligence_test_coverage", "intelligence_code_pattern",
+			},
 		},
 		{
 			Domain: "tools",
@@ -500,15 +514,12 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"intelligence_test_coverage",
 				"intelligence_code_pattern",
 				"intelligence_previous_campaign",
-
-				"intelligence_missing_tests",
-				"intelligence_high_priority_file",
-
+				"intelligence_strategic_knowledge",
+				"intelligence_knowledge_link",
 				"knowledge_ingested",
 				// Traces are scored against the campaign task that produced
 				// them (trace_logic.mg, campaign_autopoiesis.mg).
 				"reasoning_trace",
-
 				"session_state", "shard_error",
 			},
 		},

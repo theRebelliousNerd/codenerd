@@ -103,3 +103,11 @@ real-kernel boot test.
   `internal/system/static_findings_boot_test.go`.
 - Repository facts (`world/repo_facts.go`): `git_history`, `churn_rate`,
   `current_user`; age is judged in policy against `current_time`.
+- Plan intelligence (`policy/intelligence.mg`): joins the world model with
+  the plan's `task_artifact` rows in the world shard (copies in the manifest);
+  `validation_error(/needs_tests_first)` feeds plan refinement,
+  `intelligence_plan_{risk,complexity,advisory}` is read by
+  `campaign.ReadPlanIntelligence`, and `context_relevant` ranks dangerous plan
+  files. Chain rules must start from a world-owned premise
+  (`intelligence_campaign_path`) or they fire partially in the campaign shard.
+  Test: `internal/system/plan_intelligence_boot_test.go`.

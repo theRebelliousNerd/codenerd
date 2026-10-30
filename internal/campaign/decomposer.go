@@ -123,6 +123,12 @@ type DecomposeResult struct {
 	Issues       []PlanValidationIssue
 	SourceDocs   []SourceDocument
 	Requirements []Requirement
+
+	// Intelligence is what the kernel concluded about the plan from the world
+	// model and the gathered intelligence (policy/intelligence.mg): risk and
+	// complexity levels and the per-file advisories. It carries no verdict;
+	// the verdicts are Issues.
+	Intelligence PlanIntelligence
 }
 
 // DocClassification holds the LLM's judgement of a file.
@@ -196,7 +202,7 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 				len(intel.HistoricalPatterns), len(intel.MCPToolsAvailable))
 
 			// Seed intelligence facts into kernel
-			d.seedIntelligenceFacts(campaignID, intel)
+			d.seedIntelligenceFacts(campaignID, req.Goal, intel)
 		}
 	}
 
@@ -337,11 +343,12 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 		Issues:       issues,
 		SourceDocs:   sourceDocs,
 		Requirements: requirements,
+		Intelligence: d.planIntelligence(),
 	}, nil
 }
 
 // seedIntelligenceFacts loads intelligence facts into the Mangle kernel for logical reasoning.
-func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *IntelligenceReport) {
+func (d *Decomposer) seedIntelligenceFacts(campaignID, goal string, intel *IntelligenceReport) {
 	if d.kernel == nil || intel == nil {
 		return
 	}
@@ -468,6 +475,38 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_previous_campaign",
 			Args:      []any{ca.CampaignID, ca.Goal, ca.TaskCount, types.PercentFromRatio(ca.SuccessRate)},
+		})
+	}
+
+	// Knowledge graph edges the gatherer read for the target paths. Weight is a
+	// 0..1 ratio in the store and an integer percent in the kernel.
+	for _, link := range intel.KnowledgeLinks {
+		facts = append(facts, core.Fact{
+			Predicate: "intelligence_knowledge_link",
+			Args:      []any{link.EntityA, link.Relation, link.EntityB, types.PercentFromRatio(link.Weight)},
+		})
+	}
+
+	// Strategic knowledge: what the campaign is for (its goal, the vision) and
+	// the patterns worth following (what earlier campaigns left reusable, and
+	// what the architecture shows). The vision always applies; a pattern
+	// applies when its priority clears policy's bar.
+	if goal := strings.TrimSpace(goal); goal != "" {
+		facts = append(facts, core.Fact{
+			Predicate: "intelligence_strategic_knowledge",
+			Args:      []any{"goal", types.MangleAtom("/vision"), goal, int64(100)},
+		})
+	}
+	for _, pattern := range intel.ReusablePatterns {
+		facts = append(facts, core.Fact{
+			Predicate: "intelligence_strategic_knowledge",
+			Args:      []any{"reusable_pattern", types.MangleAtom("/pattern"), pattern, int64(70)},
+		})
+	}
+	for _, hint := range intel.ArchitectureHints {
+		facts = append(facts, core.Fact{
+			Predicate: "intelligence_strategic_knowledge",
+			Args:      []any{"architecture", types.MangleAtom("/pattern"), hint, int64(60)},
 		})
 	}
 

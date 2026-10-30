@@ -59,55 +59,52 @@ func TestDefaultShardPredicateManifestsAreUnambiguous(t *testing.T) {
 		t.Fatal("user_intent must be a shared predicate")
 	}
 
-	wantConsumerPredicates := []string{
-		"mcp_prompt_registered", "mcp_remote_operation", "mcp_remote_prompt",
-		"mcp_remote_request", "mcp_remote_resource", "mcp_remote_reviewed",
-		"mcp_resource_registered", "mcp_server_registered", "mcp_server_status",
-		"mcp_tool_name", "mcp_tool_registered", "mcp_tool_risk",
-		"mcp_tool_risk_source", "mcp_tool_schema_hash",
+	// Routes are sorted by predicate. The MCP control plane is copied to the
+	// policy shard; the plan-intelligence inputs (policy/intelligence.mg) are
+	// copied to the world shard, whose model they are joined against.
+	type route struct{ consumer, owner string }
+	wantRoutes := map[string]route{
+		"mcp_prompt_registered":       {"policy", "cortex"},
+		"mcp_remote_operation":        {"policy", "cortex"},
+		"mcp_remote_prompt":           {"policy", "cortex"},
+		"mcp_remote_request":          {"policy", "cortex"},
+		"mcp_remote_resource":         {"policy", "cortex"},
+		"mcp_remote_reviewed":         {"policy", "cortex"},
+		"mcp_resource_registered":     {"policy", "cortex"},
+		"mcp_server_registered":       {"policy", "cortex"},
+		"mcp_server_status":           {"policy", "world"},
+		"mcp_tool_name":               {"policy", "cortex"},
+		"mcp_tool_registered":         {"policy", "world"},
+		"mcp_tool_risk":               {"policy", "world"},
+		"mcp_tool_risk_source":        {"policy", "world"},
+		"mcp_tool_schema_hash":        {"policy", "cortex"},
+		"task_artifact":               {"world", "campaign"},
+		"intelligence_churn_hotspot":  {"world", "campaign"},
+		"intelligence_code_pattern":   {"world", "campaign"},
+		"intelligence_safety_warning": {"world", "campaign"},
+		"intelligence_test_coverage":  {"world", "campaign"},
 		// The world shard's mandate admission reads the turn's expert cards
 		// (shard_experts.mg); the cards stay home with the dealing rules.
-		"turn_expert_card",
+		"turn_expert_card": {"world", "cortex"},
 	}
-	wantConsumer := map[string]string{"turn_expert_card": "world"}
 	routes := PredicateConsumerRoutes()
-	if len(routes) != len(wantConsumerPredicates) {
-		t.Fatalf("consumer route count = %d, want exactly %d: %+v", len(routes), len(wantConsumerPredicates), routes)
+	if len(routes) != len(wantRoutes) {
+		t.Fatalf("consumer route count = %d, want exactly %d: %+v", len(routes), len(wantRoutes), routes)
 	}
-	wantOwners := map[string]string{
-		"mcp_tool_registered":     "world",
-		"mcp_tool_risk":           "world",
-		"mcp_tool_risk_source":    "world",
-		"mcp_server_status":       "world",
-		"mcp_tool_name":           "cortex",
-		"mcp_tool_schema_hash":    "cortex",
-		"mcp_server_registered":   "cortex",
-		"mcp_remote_request":      "cortex",
-		"mcp_remote_reviewed":     "cortex",
-		"mcp_remote_operation":    "cortex",
-		"mcp_remote_resource":     "cortex",
-		"mcp_resource_registered": "cortex",
-		"mcp_remote_prompt":       "cortex",
-		"mcp_prompt_registered":   "cortex",
-		"turn_expert_card":        "cortex",
-	}
-	for i, route := range routes {
-		consumer := wantConsumer[route.Predicate]
-		if consumer == "" {
-			consumer = "policy"
+	for _, r := range routes {
+		want, ok := wantRoutes[r.Predicate]
+		if !ok || r.Consumer != want.consumer {
+			t.Fatalf("consumer route %+v is not expected (want %+v)", r, want)
 		}
-		if route.Predicate != wantConsumerPredicates[i] || route.Consumer != consumer {
-			t.Fatalf("consumer route[%d] = %+v, want %q -> %s", i, route, wantConsumerPredicates[i], consumer)
-		}
-		owner := owners[route.Predicate]
+		owner := owners[r.Predicate]
 		if owner == "" {
 			owner = "cortex"
 		}
-		if owner != wantOwners[route.Predicate] {
-			t.Fatalf("canonical owner for %q changed to %q, want %q", route.Predicate, owner, wantOwners[route.Predicate])
+		if owner != want.owner {
+			t.Fatalf("canonical owner for %q changed to %q, want %q", r.Predicate, owner, want.owner)
 		}
-		if _, isShared := sharedSet[route.Predicate]; isShared {
-			t.Fatalf("consumer-routed predicate %q must not become globally shared", route.Predicate)
+		if _, isShared := sharedSet[r.Predicate]; isShared {
+			t.Fatalf("consumer-routed predicate %q must not become globally shared", r.Predicate)
 		}
 	}
 	if owner, owned := owners["next_action"]; owned {

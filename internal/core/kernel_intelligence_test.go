@@ -3,80 +3,54 @@ package core
 import (
 	"testing"
 
+	"codenerd/internal/types"
+
 	"github.com/stretchr/testify/require"
 )
 
+// The gatherer's measurements about the files a plan touches decide what the
+// context compiler treats as relevant: a critical safety warning is /p95, a
+// volatile file /p85. The rank is the kernel's, reached through context_relevant
+// (policy/context_compilation.mg).
 func TestIntelligenceWiring(t *testing.T) {
 	t.Parallel()
-	// Initialize kernel
 	k, err := NewRealKernel()
 	require.NoError(t, err)
 
-	// Define some facts that should trigger high priority context
-	// Path: "critical_file.go" has a critical safety warning
-	// Path: "churn_file.go" has high churn > 10
-
+	topology := func(path string) Fact {
+		return Fact{Predicate: "file_topology", Args: []any{path, "h", MangleAtom("/go"), int64(1), MangleAtom("/false")}}
+	}
+	artifact := func(task, path string) Fact {
+		return Fact{Predicate: "task_artifact", Args: []any{task, MangleAtom("/source"), path, "h"}}
+	}
 	facts := []Fact{
-		{
-			Predicate: "intelligence_safety_warning",
-			Args:      []any{"camp1", "critical_file.go", "delete", "no_delete", "critical"},
-		},
-		{
-			Predicate: "intelligence_churn_hotspot",
-			Args:      []any{"churn_file.go", 15, "high churn"},
-		},
+		topology("critical_file.go"), topology("churn_file.go"), topology("quiet_file.go"),
+		artifact("t1", "critical_file.go"), artifact("t2", "churn_file.go"), artifact("t3", "quiet_file.go"),
+		{Predicate: "intelligence_safety_warning", Args: []any{"camp1", "critical_file.go", "delete", "no_delete", "critical"}},
+		{Predicate: "intelligence_churn_hotspot", Args: []any{"churn_file.go", int64(15), "high churn"}},
 	}
+	require.NoError(t, k.AssertBatch(facts))
 
-	err = k.AssertBatch(facts)
+	rows, err := k.Query("context_relevant")
 	require.NoError(t, err)
-
-	// Query for context_priority
-	// Expect: critical_file.go -> 100 (from /critical)
-	// Expect: churn_file.go -> 80 (from /high via intelligence_high_priority_file)
-
-	cpFacts, err := k.Query("context_priority")
-	require.NoError(t, err)
-
-	foundCritical := false
-	foundChurn := false
-
-	for _, f := range cpFacts {
-		if len(f.Args) < 2 {
-			continue
-		}
-		path, ok := f.Args[0].(string)
-		if !ok {
-			continue
-		}
-
-		// Priority might be int, int64 or float64 depending on JSON/Mangle parsing
-		var priority int64
-		switch v := f.Args[1].(type) {
-		case int:
-			priority = int64(v)
-		case int64:
-			priority = v
-		case float64:
-			priority = int64(v)
-		}
-
-		if path == "critical_file.go" {
-			if priority == 100 {
-				foundCritical = true
+	// A file may be relevant at several ranks; the compiler keeps the highest.
+	ranks := map[string]map[string]bool{}
+	for _, f := range rows {
+		if len(f.Args) == 2 {
+			path := types.ExtractString(f.Args[0])
+			if ranks[path] == nil {
+				ranks[path] = map[string]bool{}
 			}
-		}
-		if path == "churn_file.go" {
-			// Churn > 10 triggers intelligence_high_priority_file -> /high -> 80
-			if priority == 80 {
-				foundChurn = true
-			}
+			ranks[path][types.ExtractString(f.Args[1])] = true
 		}
 	}
-
-	if !foundCritical {
-		t.Errorf("Expected context_priority('critical_file.go', 100) not found")
+	if !ranks["critical_file.go"]["/p95"] {
+		t.Errorf("a critical safety warning must make the file /p95 relevant, got %v", ranks["critical_file.go"])
 	}
-	if !foundChurn {
-		t.Errorf("Expected context_priority('churn_file.go', 80) not found")
+	if !ranks["churn_file.go"]["/p85"] || ranks["churn_file.go"]["/p95"] {
+		t.Errorf("churn above 10 must make the file /p85 and not /p95 relevant, got %v", ranks["churn_file.go"])
+	}
+	if r, ok := ranks["quiet_file.go"]; ok {
+		t.Errorf("a quiet plan file is not relevant on its own account, got %v", r)
 	}
 }

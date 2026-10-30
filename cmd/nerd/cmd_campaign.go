@@ -379,6 +379,8 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("campaign plan remains invalid after refinement; execution refused")
 	}
 
+	printPlanIntelligence(result.Intelligence)
+
 	// A degraded plan is not a plan. Say so before printing anything that looks
 	// like one — the generic three-phase scaffold with a plausible title and a
 	// confidence number is otherwise indistinguishable from real decomposition,
@@ -987,4 +989,26 @@ func loadResumeCandidates(campaignsDir string) ([]*campaign.Campaign, error) {
 		}
 	}
 	return out, nil
+}
+
+// printPlanIntelligence shows what the kernel concluded about the plan: the
+// risk and complexity levels policy derived from the world model, and the
+// per-file warnings behind them. Nothing is printed when it concluded nothing.
+func printPlanIntelligence(pi campaign.PlanIntelligence) {
+	if pi.Risk == "" && pi.Complexity == "" && len(pi.Advisories) == 0 && len(pi.Strategy) == 0 && len(pi.Related) == 0 {
+		return
+	}
+	fmt.Printf("\n🔎 Plan intelligence: risk %s, blast radius %s\n", strings.TrimPrefix(pi.Risk, "/"), strings.TrimPrefix(pi.Complexity, "/"))
+	for _, reason := range pi.RiskReasons {
+		fmt.Printf("  - risk: %s\n", reason)
+	}
+	for _, a := range pi.Advisories {
+		fmt.Printf("  - %s [%s]: %s\n", a.Path, strings.TrimPrefix(a.Kind, "/"), a.Message)
+	}
+	for _, r := range pi.Related {
+		fmt.Printf("  - %s is linked (%s) to %s\n", r.Path, strings.TrimPrefix(r.Relation, "/"), r.Entity)
+	}
+	for _, st := range pi.Strategy {
+		fmt.Printf("  - strategy [%s]: %s\n", st.Concept, st.Content)
+	}
 }

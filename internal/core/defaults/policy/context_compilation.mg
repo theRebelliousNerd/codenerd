@@ -52,6 +52,14 @@ context_relevant(SourceFile, /p90) :-
 context_relevant(Key, /p90) :-
     session_note(Key, _).
 
+# Campaign danger relevance: the files a campaign plan touches that are risky to
+# touch (critical safety warning, high impact, high churn, a refactor first), by
+# the rank policy/intelligence.mg gives them. Rank 95 and 85 are /p95 and /p85.
+context_relevant(Path, /p95) :-
+    intelligence_context_rank(Path, 95).
+context_relevant(Path, /p85) :-
+    intelligence_context_rank(Path, 85).
+
 # Modification relevance: recently changed files (high relevance, must be in context)
 context_relevant(File, /p85) :-
     modified(File).

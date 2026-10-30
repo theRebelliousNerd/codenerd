@@ -71,7 +71,7 @@ func TestFactBoundary_BadFactDoesNotStopUnrelatedDerivations(t *testing.T) {
 	}))
 
 	require.True(t,
-		queryHasArg(t, k, "context_priority", 0, "churn_file.go"),
+		queryHasArg(t, k, "intelligence_chestertons_fence", 0, "churn_file.go"),
 		"an unrelated derivation must survive a rejected fact — this is the whole-kernel-outage regression")
 
 	// And the offending row must not have been quietly rounded into the store.
