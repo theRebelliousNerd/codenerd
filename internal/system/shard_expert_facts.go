@@ -34,6 +34,13 @@ import (
 //	                                         with no domains yet
 //	technology_import_exact(Import, Tech)    init's technology vocabulary as
 //	technology_import_prefix(Prefix, Tech)   import spellings (Go, npm, Python, Rust)
+//	shard_agent_name_part(Agent, Part)       the words of each agent's name; the
+//	                                         kernel derives /agent_name domains
+//	                                         from them (a concept agent such as
+//	                                         mangle-logic-architect has no
+//	                                         registry domains)
+//	domain_concept_term(Term, Domain)        init's concept vocabulary
+//	domain_concept_verb(Domain, Verb)        (nerdinit.ConceptDomains)
 //
 // An entry written before agents.json had a domains field gets its domains
 // derived at boot and recorded (shard_agent_domain_to_record), so an existing
@@ -68,6 +75,25 @@ func measureShardRoster(ctx context.Context, workspace string, compiler *prompt.
 			types.Fact{Predicate: "technology_import_prefix", Args: []any{root.Prefix, tech}})
 	}
 
+	// The concept vocabulary: words that name a concept domain and the verbs
+	// whose tasks need its experts.
+	for _, concept := range nerdinit.ConceptDomains() {
+		domain, ok := technologyAtom(concept.Key)
+		if !ok {
+			continue
+		}
+		for _, term := range concept.Terms {
+			if t, ok := technologyAtom(term); ok {
+				roster.facts = append(roster.facts, types.Fact{Predicate: "domain_concept_term", Args: []any{t, domain}})
+			}
+		}
+		for _, verb := range concept.Verbs {
+			if v, ok := technologyAtom(verb); ok {
+				roster.facts = append(roster.facts, types.Fact{Predicate: "domain_concept_verb", Args: []any{domain, v}})
+			}
+		}
+	}
+
 	if strings.TrimSpace(workspace) == "" {
 		return roster, nil
 	}
@@ -82,6 +108,13 @@ func measureShardRoster(ctx context.Context, workspace string, compiler *prompt.
 		}
 		atom := experts.AgentAtom(agent.Name)
 		roster.facts = append(roster.facts, types.Fact{Predicate: "shard_agent", Args: []any{atom}})
+		// The words of the agent's name: the kernel derives from them the
+		// languages, technologies and concepts the name states.
+		for _, part := range nerdinit.AgentNameParts(agent.Name) {
+			if p, ok := technologyAtom(part); ok {
+				roster.facts = append(roster.facts, types.Fact{Predicate: "shard_agent_name_part", Args: []any{atom, p}})
+			}
+		}
 		if agent.Domains != nil {
 			roster.facts = append(roster.facts, types.Fact{Predicate: "shard_agent_recorded", Args: []any{atom}})
 			for _, domain := range agent.Domains {

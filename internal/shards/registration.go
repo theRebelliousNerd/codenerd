@@ -242,6 +242,11 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"shard_agent", "shard_agent_domain", "technology_import_exact", "technology_import_prefix",
 				"shard_agent_recorded", "expert_task", "expert_task_target", "expert_task_extension",
 				"expert_task_speaker", "task_complexity",
+				// The domains an agent's name states (shard_agent_domain,
+				// /agent_name) join the agent with the words of its name and
+				// the concept vocabulary, and a concept's verb joins
+				// expert_task: one home, or the concept expert is never needed.
+				"shard_agent_name_part", "domain_concept_term", "domain_concept_verb",
 				// The turn's shard-agent critique (turn_rounds.mg), beside
 				// turn_wrote, which the round's owing joins.
 				"turn_expert_critic", "turn_expert_finding",

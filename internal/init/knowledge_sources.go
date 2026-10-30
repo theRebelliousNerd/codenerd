@@ -18,7 +18,8 @@ import (
 // the vocabulary's Go packages a go.mod requires (or the standard library's,
 // in a Go workspace) and npm packages a package.json depends on -- each with
 // the version its manifest pins, which the refresh policy compares with the
-// version the knowledge was acquired at. A domain the workspace pins no
+// version the knowledge was acquired at. A concept domain (ConceptDomains)
+// contributes its research subjects; any other domain the workspace pins no
 // package for is a plain subject. Init's knowledge build and the background
 // refresh both ask it, with the workspace's ManifestPins.
 func KnowledgeSubjects(workspace, agent string, domains, topics []string, pins []ManifestPin) []knowledge.Subject {
@@ -48,6 +49,17 @@ func KnowledgeSubjects(workspace, agent string, domains, topics []string, pins [
 		}
 		pinned := pinnedPackages(key, pins, goWorkspace)
 		if len(pinned) == 0 {
+			// A concept domain (security, testing) has no package to pin:
+			// its subjects are the concept's own research topics.
+			if concept := ConceptSubjects(key); len(concept) > 0 {
+				for _, topic := range concept {
+					if !seenTopic[strings.ToLower(topic)] {
+						seenTopic[strings.ToLower(topic)] = true
+						subjects = append(subjects, knowledge.Subject{Agent: agent, Topic: topic, Technology: key})
+					}
+				}
+				continue
+			}
 			if !seenTopic[key] {
 				seenTopic[key] = true
 				subjects = append(subjects, knowledge.Subject{Agent: agent, Topic: key, Technology: key})

@@ -251,7 +251,26 @@ orientation's catalog key (`internal/orient/agent_domains.go` `AgentDomains`)
 and the KB's lang/framework tags, asserted as
 `shard_agent_domain(Agent, Tech, /catalog | /knowledge_base)` and recorded
 through `recordAgentDomains` (an empty list means none was found).
-`Cortex.ActivateAgent` (`internal/system/agent_activation.go`) brings an agent
+
+Concept domains are derived, never recorded. A concept agent (a user agent such
+as `mangle-logic-architect`, `SecurityAuditor`, `TestArchitect`) was made for
+what it is for, so its entry has `domains: []`. Boot asserts the words of each
+roster agent's name (`shard_agent_name_part`, from `nerdinit.AgentNameParts`)
+and init's concept vocabulary (`domain_concept_term`, `domain_concept_verb`,
+`nerdinit.ConceptDomains` in `internal/init/concept_vocabulary.go`). The kernel
+derives `shard_agent_domain(Agent, Domain, /agent_name)` when a name word is a
+language the extension table knows, a technology the import vocabulary names or
+a concept term, so `mangle-logic-architect` holds `/mangle` and `SecurityAuditor`
+holds `/security`. `expert_needed` then follows the existing technology join for
+`/mangle` work, and a concept domain is needed by the verb that names it
+(`domain_concept_verb`: a `/security` task needs the security expert); that
+evidence scores 40 like a language match, so the knowledge is pushed and nothing
+is spawned. The knowledge refresh reads the same derived domains: a concept
+domain contributes its research subjects (`nerdinit.KnowledgeSubjects`,
+`ConceptSubjects`), a technology domain its pinned packages. The three
+predicates are homed with `shard_agent` in `internal/shards/registration.go`.
+`TestConceptAgentsAreNeededThroughDomainsTheKernelDerives` pins it on a real
+boot. `Cortex.ActivateAgent` (`internal/system/agent_activation.go`) brings an agent
 created mid-session into the running roster.
 
 Spawn second. `expert_spawn(Task, Agent, /lead | /advise)` derives from

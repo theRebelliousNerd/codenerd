@@ -63,6 +63,29 @@ expert_blind_verb(Verb) :-
     conversational_verb(Verb),
     !reads_code_verb(Verb).
 
+# --- The domains an agent's name states ---------------------------------------
+
+# A concept agent (mangle-logic-architect, SecurityAuditor, TestArchitect) is
+# defined by what it is for, not by a technology its init created it for, so
+# its registry entry carries no domains. Its name says them: a word of it that
+# is a language the extension table knows, a technology the import vocabulary
+# names, or a concept term is a domain it holds. Go splits the name; only the
+# kernel decides what a word names.
+shard_agent_domain(Agent, Lang, /agent_name) :-
+    shard_agent(Agent),
+    shard_agent_name_part(Agent, Lang),
+    extension_language(_, Lang).
+
+shard_agent_domain(Agent, Tech, /agent_name) :-
+    shard_agent(Agent),
+    shard_agent_name_part(Agent, Tech),
+    technology_import_exact(_, Tech).
+
+shard_agent_domain(Agent, Domain, /agent_name) :-
+    shard_agent(Agent),
+    shard_agent_name_part(Agent, Term),
+    domain_concept_term(Term, Domain).
+
 # --- The decision ------------------------------------------------------------
 
 expert_needed(Task, Agent, Tech) :-
@@ -70,6 +93,15 @@ expert_needed(Task, Agent, Tech) :-
     !expert_blind_verb(Verb),
     task_technology(Task, _, Tech, _),
     shard_agent_domain(Agent, Tech, _),
+    shard_agent(Agent).
+
+# A concept domain has no import or extension to match: the verb the task runs
+# as names it (a /security task needs the security expert).
+expert_needed(Task, Agent, Domain) :-
+    expert_task(Task, Verb),
+    !expert_blind_verb(Verb),
+    domain_concept_verb(Domain, Verb),
+    shard_agent_domain(Agent, Domain, _),
     shard_agent(Agent).
 
 expert_file(Task, Agent, File) :-
@@ -85,10 +117,21 @@ expert_file(Task, Agent, File) :-
 expert_evidence_confidence(/import, 90).
 expert_evidence_confidence(/language, 40).
 
+# A verb that names a concept is the user asking for the domain, but it names
+# no code: the expert's knowledge is pushed into the turn like a language
+# match, and nothing is spawned.
+expert_evidence_confidence(/verb, 40).
+
 expert_evidence(Task, Agent, Tech, Confidence) :-
     expert_needed(Task, Agent, Tech),
     task_technology(Task, _, Tech, Via),
     expert_evidence_confidence(Via, Confidence).
+
+expert_evidence(Task, Agent, Domain, Confidence) :-
+    expert_needed(Task, Agent, Domain),
+    expert_task(Task, Verb),
+    domain_concept_verb(Domain, Verb),
+    expert_evidence_confidence(/verb, Confidence).
 
 expert_confidence(Task, Agent, Confidence) :-
     expert_evidence(Task, Agent, Tech, C)

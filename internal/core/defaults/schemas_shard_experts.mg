@@ -21,8 +21,26 @@ Decl shard_agent(Agent) bound [/name].
 #   /registry       - the agent's `domains` in .nerd/agents.json (init writes
 #                     the catalog key that created the agent)
 #   /knowledge_base - a languages:/frameworks: tag on an atom in the agent's KB
-# Producer: internal/system/shard_expert_facts.go at boot.
+#   /catalog        - the init catalog's key for it, from the saved orientation
+#   /agent_name     - derived (policy/shard_experts.mg): a word of the agent's
+#                     name is a language the extension table knows, a
+#                     technology the vocabulary names, or a concept term
+# Producer of the first three: Go. /agent_name rows are derived.
 Decl shard_agent_domain(Agent, Technology, Source) bound [/name, /name, /name].
+
+# shard_agent_name_part(Agent, Part) - a lower-case word of the agent's name
+# ("mangle-logic-architect" -> /mangle, /logic, /architect), split by Go
+# (nerdinit.AgentNameParts). Matching a word to a domain is the kernel's call.
+# Producer: internal/system/shard_expert_facts.go at boot.
+Decl shard_agent_name_part(Agent, Part) bound [/name, /name].
+
+# domain_concept_term(Term, Domain) - a word that names a concept domain
+# (/security, /testing): a concept no import or file extension names.
+# domain_concept_verb(Domain, Verb) - a verb whose tasks need the concept's
+# experts (/security -> /security).
+# Producer: internal/system/shard_expert_facts.go from nerdinit.ConceptDomains.
+Decl domain_concept_term(Term, Domain) bound [/name, /name].
+Decl domain_concept_verb(Domain, Verb) bound [/name, /name].
 
 # technology_import_exact(Import, Technology) - an import spelled exactly so
 # names Technology ("github.com/spf13/cobra", "react", "django", "tokio").
