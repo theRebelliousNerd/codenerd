@@ -57,7 +57,7 @@ func TestVerifyAndUpliftWithCritic_AddsNoClockOfItsOwn(t *testing.T) {
 	e := &Executor{config: cfg, llmClient: critic, kernel: realKernel(t), rolePrompts: &fakeRolePrompts{}}
 	uplift := &deadlineUplift{}
 
-	e.verifyAndUpliftWithCritic(context.Background(), uplift, "", nil, nil, nil,
+	e.verifyAndUpliftWithCritic(advisoryLoopCtx(t, e), uplift, "", writingTurnHistory(), nil, nil,
 		&ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}})
 
 	if critic.hadDeadline {

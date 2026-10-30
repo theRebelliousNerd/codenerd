@@ -1054,26 +1054,13 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		return nil, nil
 	}
 
-	history = append(history, types.Message{Role: "user", Text: formatUpliftPrompt(worth)})
-	uplifted, err := e.completeWithWorkingContext(broker.WithPhase(ctx, broker.PhaseUplift), trp, systemPrompt, history, toolDefs)
-	if err != nil {
-		logging.Get(logging.CategorySession).Warn("uplift round failed (%v); turn continues", err)
-		return nil, nil
-	}
-
-	var upliftErrs []string
-	if uplifted != nil && len(uplifted.ToolCalls) > 0 {
-		snap := snapshotTurnFiles(workspace, result)
-		// Unguarded on purpose: the critic uplift answers findings about
-		// the turn's files but is not a repair episode, and the deleted-
-		// test round exists to catch what it removes
-		// (TestCriticUplift_ADeletedTestIsHandedBack). Confining it to the
-		// write set is a contract change for its own task, not this one.
-		_, errs := e.executeToolBatch(ctx, uplifted.ToolCalls, cfg, result)
-		upliftErrs = append(upliftErrs, errs...)
-		return upliftErrs, recheckUplift(ctx, workspace, result, snap)
-	}
-	return upliftErrs, nil
+	// Unguarded on purpose: the critic uplift answers findings about the
+	// turn's files but is not a repair episode, and the deleted-test round
+	// exists to catch what it removes
+	// (TestCriticUplift_ADeletedTestIsHandedBack). Confining it to the write
+	// set is a contract change for its own task, not this one.
+	return e.adviseEpisode(broker.WithPhase(ctx, broker.PhaseUplift), trp, systemPrompt, history, toolDefs, cfg, result,
+		formatUpliftPrompt(worth), "uplift round")
 }
 
 // recheckUplift measures the uplift round's edits. They answer to the

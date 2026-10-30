@@ -682,17 +682,21 @@ func (s *scriptedCriticLLM) CompleteWithTools(context.Context, string, string, [
 // model was actually asked, and returns a response with no tool calls so the
 // gate finishes without needing the full tool-execution machinery.
 type recordingToolResults struct {
-	calls    int
-	lastText string
+	calls int
+	// sentText is every message text of the latest request: a working
+	// request places the round's demand among the loop's own messages.
+	sentText string
 }
 
 func (r *recordingToolResults) CompleteWithToolResults(
 	_ context.Context, _ string, history []types.Message, _ []types.ToolDefinition,
 ) (*types.LLMToolResponse, error) {
 	r.calls++
-	if len(history) > 0 {
-		r.lastText = history[len(history)-1].Text
+	texts := make([]string, 0, len(history))
+	for _, m := range history {
+		texts = append(texts, m.Text)
 	}
+	r.sentText = strings.Join(texts, "\n")
 	return &types.LLMToolResponse{Text: "fixed"}, nil
 }
 
@@ -718,7 +722,7 @@ func TestVerifyAndUpliftWithCritic_FiresUpliftOnHighSeverityFinding(t *testing.T
 	result := &ExecutionResult{WriteToolEffects: 1, WrittenPaths: []string{"a.go"}}
 
 	_, err := e.verifyAndUpliftWithCritic(
-		context.Background(), trp, "sys", nil, nil, nil, result)
+		advisoryLoopCtx(t, e), trp, "sys", writingTurnHistory(), nil, nil, result)
 	if err != nil {
 		t.Fatalf("uplift returned an error: %v", err)
 	}
@@ -737,10 +741,10 @@ func TestVerifyAndUpliftWithCritic_FiresUpliftOnHighSeverityFinding(t *testing.T
 	}
 
 	// The uplift turn must carry the finding and permit rejecting it.
-	if !strings.Contains(trp.lastText, "Add subtracts instead of adding") {
-		t.Errorf("uplift prompt does not carry the finding: %q", trp.lastText)
+	if !strings.Contains(trp.sentText, "Add subtracts instead of adding") {
+		t.Errorf("uplift prompt does not carry the finding: %q", trp.sentText)
 	}
-	if !strings.Contains(trp.lastText, "finding is wrong") {
+	if !strings.Contains(trp.sentText, "finding is wrong") {
 		t.Error("uplift prompt does not let the model reject a mistaken finding")
 	}
 }

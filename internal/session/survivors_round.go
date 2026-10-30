@@ -6,7 +6,6 @@ import (
 
 	"codenerd/internal/broker"
 	jitconfig "codenerd/internal/jit/config"
-	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
 
@@ -45,17 +44,6 @@ func (e *Executor) adviseOnSurvivors(
 	if result == nil || trp == nil || len(result.PinAdvisory) == 0 || result.PinCheck.Verdict() != VerifyPassed {
 		return nil, nil
 	}
-	history = append(history, types.Message{Role: "user", Text: survivorsPrompt(result.PinAdvisory)})
-	resp, err := e.completeWithWorkingContext(broker.WithPhase(ctx, broker.PhaseSurvivors), trp, systemPrompt, history, toolDefs)
-	if err != nil {
-		logging.Get(logging.CategorySession).Warn("survivors round failed (%v); turn continues", err)
-		return nil, nil
-	}
-	if resp == nil || len(resp.ToolCalls) == 0 {
-		return nil, nil
-	}
-	workspace := e.workspaceForVerification()
-	snap := snapshotTurnFiles(workspace, result)
-	_, errs := e.executeToolBatch(ctx, resp.ToolCalls, cfg, result)
-	return errs, recheckUplift(ctx, workspace, result, snap)
+	return e.adviseEpisode(broker.WithPhase(ctx, broker.PhaseSurvivors), trp, systemPrompt, history, toolDefs, cfg, result,
+		survivorsPrompt(result.PinAdvisory), "survivors round")
 }

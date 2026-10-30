@@ -160,16 +160,6 @@ func (e *Executor) reviewWithShardExperts(
 		logging.Get(logging.CategorySession).Warn("shard agent review found %d actionable item(s), but this provider has no repair channel", len(actionable))
 		return nil, nil
 	}
-	history = append(history, types.Message{Role: "user", Text: expertRepairPrompt(actionable)})
-	resp, err := e.completeWithWorkingContext(broker.WithPhase(ctx, broker.PhaseExpertRepair), trp, systemPrompt, history, toolDefs)
-	if err != nil {
-		logging.Get(logging.CategorySession).Warn("shard agent repair round failed (%v); turn continues", err)
-		return nil, nil
-	}
-	if resp == nil || len(resp.ToolCalls) == 0 {
-		return nil, nil
-	}
-	snap := snapshotTurnFiles(workspace, result)
-	_, errs := e.executeToolBatch(ctx, resp.ToolCalls, cfg, result)
-	return errs, recheckUplift(ctx, workspace, result, snap)
+	return e.adviseEpisode(broker.WithPhase(ctx, broker.PhaseExpertRepair), trp, systemPrompt, history, toolDefs, cfg, result,
+		expertRepairPrompt(actionable), "shard agent repair")
 }

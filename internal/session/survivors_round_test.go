@@ -1,7 +1,6 @@
 package session
 
 import (
-	"context"
 	"strings"
 	"testing"
 )
@@ -27,7 +26,7 @@ func TestAdviseOnSurvivors(t *testing.T) {
 			e.config.WorkspaceRoot = t.TempDir()
 			trp := &recordingToolResults{}
 			result := &ExecutionResult{WriteToolEffects: 1, PinCheck: tc.pin, PinAdvisory: tc.survivors}
-			if _, err := e.adviseOnSurvivors(context.Background(), trp, "sys", nil, nil, nil, result); err != nil {
+			if _, err := e.adviseOnSurvivors(advisoryLoopCtx(t, e), trp, "sys", writingTurnHistory(), nil, nil, result); err != nil {
 				t.Fatalf("adviseOnSurvivors: %v", err)
 			}
 			if (trp.calls == 1) != tc.wantRound {
@@ -35,8 +34,8 @@ func TestAdviseOnSurvivors(t *testing.T) {
 			}
 			if tc.wantRound {
 				for _, s := range survivors {
-					if !strings.Contains(trp.lastText, s) {
-						t.Errorf("the round does not name %q:\n%s", s, trp.lastText)
+					if !strings.Contains(trp.sentText, s) {
+						t.Errorf("the round does not name %q:\n%s", s, trp.sentText)
 					}
 				}
 			}
