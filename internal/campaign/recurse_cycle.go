@@ -995,11 +995,15 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 	if spec.group != nil && len(changed) > 0 {
 		// The group's witness decides its target: the gate over the
 		// package with only the group's check, exit 0 when none remains.
-		passed, err := gates.RunWitness(ctx, r.root, spec.check)
+		res, err := gates.RunWitness(ctx, r.root, spec.check)
 		witnessRan = true
-		in.TargetOK = err == nil && passed
-		if err != nil {
+		in.TargetOK = err == nil && res.Passed
+		switch {
+		case err != nil:
 			r.logf("recurse cycle %d: the witness %s could not run: %v", cycle, strings.Join(spec.check, " "), err)
+		case !res.Passed:
+			// The witness's own words say why the target is still open.
+			r.logf("recurse cycle %d: the witness %s exited %d:\n%s", cycle, strings.Join(spec.check, " "), res.ExitCode, strings.TrimSpace(res.Output))
 		}
 	}
 	keys := make([]string, 0, len(after))
