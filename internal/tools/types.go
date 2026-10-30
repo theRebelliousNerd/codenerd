@@ -127,6 +127,13 @@ type Tool struct {
 	// tool that runs builds or tests gets the budget it advertises. Nil means
 	// the executor's default tool timeout applies.
 	Timeout func(args map[string]any) time.Duration
+
+	// ExpandArgs, when set, completes a call's arguments from the workspace
+	// before any layer reads them (Registry.NormalizedArgs): a tool whose
+	// write targets are declared elsewhere (regenerate's outputs, in nerd.md)
+	// puts them in the arguments here, so every guard, the preimage capture
+	// and the write set see the same targets. An error refuses the call.
+	ExpandArgs func(ctx context.Context, args map[string]any) (map[string]any, error)
 }
 
 // Validate checks if the tool definition is valid.

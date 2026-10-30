@@ -8,6 +8,22 @@ commands:
   lint: go vet -tags sqlite_vec ./...
   env:
     CGO_CFLAGS: -IC:/CodeProjects/codeNERD/sqlite_headers
+generators:
+  # Checked-in files built from sources. The regenerate tool runs one by id;
+  # its outputs are the call's writes. The freshness checks that fail when
+  # one is stale name the generator.
+  - id: atom-importance
+    run: go run ./cmd/tools/prompt_builder -score-importance
+    outputs: [internal/prompt/atom_importance.json]
+    when: after adding or editing an atom YAML under internal/prompt/atoms (scores new or changed atoms through the configured Jev judge)
+  - id: prompt-corpus
+    run: go run ./cmd/tools/prompt_builder -reconcile-embedded
+    outputs: [internal/core/defaults/prompt_corpus.db]
+    when: after adding, editing or deleting an atom YAML under internal/prompt/atoms (run atom-importance first)
+  - id: predicate-corpus
+    run: go run ./cmd/tools/predicate_corpus_builder
+    outputs: [internal/core/defaults/predicate_corpus.db]
+    when: after adding, changing or removing a Decl in any .mg under internal/core/defaults
 gates:
   # Per-node gates: recurse measures each node of the derived DAG with these,
   # so a visit re-runs the node's own vet and tests, not the whole suite.

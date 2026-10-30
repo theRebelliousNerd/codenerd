@@ -30,7 +30,8 @@ func BuiltinEffect(name string) Effect {
 		return EffectRead
 	case "write_file", "edit_file", "delete_file", "edit_lines", "insert_lines",
 		"delete_lines", "edit_element", "replace_element", "insert_element", "delete_element",
-		"create_file", "repoint", "apply_edits", "research_cache_set", "research_cache_clear":
+		"create_file", "repoint", "apply_edits", "research_cache_set", "research_cache_clear",
+		"regenerate":
 		return EffectWrite
 	case "run_command", "bash", "run_build", "run_tests", "run_check", "run_lint", "run_impacted_tests", "git_operation":
 		return EffectExecute

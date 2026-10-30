@@ -50,6 +50,9 @@ var builtinCapabilities = func() map[string]Capability {
 		"get_impacted_tests", "run_impacted_tests", "run_check", "family_no_change",
 		// The shell.
 		"run_command",
+		// The only writer of generated files under the shell gate: it runs a
+		// project-declared generator and nothing else.
+		"regenerate",
 		// The network and the browser: no other path reaches them.
 		"web_fetch", "web_search", "grounded_web_search", "context7_fetch",
 		"browser_navigate", "browser_click", "browser_type", "browser_close",

@@ -10,6 +10,7 @@
 //   - run_tests: Execute project test command
 //   - run_check: Run the campaign's acceptance check
 //   - run_lint: Run go vet, staticcheck or golangci-lint and return typed findings
+//   - regenerate: Run a generator the workspace's nerd.md declares; its declared outputs are the writes
 //   - git_diff: Show a diff for files, staged changes, or a commit range
 //   - git_log: Show commit history, optionally filtered by path/author/date
 //   - git_operation: Run a whitelisted git operation (status, add, commit, ...)

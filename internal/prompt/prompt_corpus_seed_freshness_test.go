@@ -69,21 +69,21 @@ func TestPromptCorpusSeedMatchesEmbeddedYAML(t *testing.T) {
 // promptSeedMismatches reports every parity failure with the credential-free,
 // embedding-preserving command that repairs the shipped seed.
 func promptSeedMismatches(seed map[string]string, atoms []*PromptAtom) []string {
-	const regenerate = "go run ./cmd/tools/prompt_builder -reconcile-embedded"
+	const regenerate = "regenerate it with the regenerate tool (generator prompt-corpus) or `go run ./cmd/tools/prompt_builder -reconcile-embedded`"
 	seen := make(map[string]bool, len(atoms))
 	var mismatches []string
 	for _, a := range atoms {
 		seen[a.ID] = true
 		got, ok := seed[a.ID]
 		if !ok {
-			mismatches = append(mismatches, fmt.Sprintf("seed lacks YAML atom %s; run `%s`", a.ID, regenerate))
+			mismatches = append(mismatches, fmt.Sprintf("seed lacks YAML atom %s; %s", a.ID, regenerate))
 		} else if got != a.Content {
-			mismatches = append(mismatches, fmt.Sprintf("seed content for %s differs from YAML; run `%s`", a.ID, regenerate))
+			mismatches = append(mismatches, fmt.Sprintf("seed content for %s differs from YAML; %s", a.ID, regenerate))
 		}
 	}
 	for id := range seed {
 		if !seen[id] {
-			mismatches = append(mismatches, fmt.Sprintf("seed holds removed atom %s; run `%s`", id, regenerate))
+			mismatches = append(mismatches, fmt.Sprintf("seed holds removed atom %s; %s", id, regenerate))
 		}
 	}
 	sort.Strings(mismatches)
@@ -110,7 +110,7 @@ func TestPromptSeedMismatches_NamesRegeneratingCommand(t *testing.T) {
 				}
 				return
 			}
-			want := tc.want + "; run `go run ./cmd/tools/prompt_builder -reconcile-embedded`"
+			want := tc.want + "; regenerate it with the regenerate tool (generator prompt-corpus) or `go run ./cmd/tools/prompt_builder -reconcile-embedded`"
 			if len(got) != 1 || got[0] != want {
 				t.Fatalf("stale seed diagnostics = %v, want [%s]", got, want)
 			}

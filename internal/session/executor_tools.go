@@ -1030,8 +1030,12 @@ func (e *Executor) executeAndRecordToolCall(
 	// One argument view for every guard, the snapshot, dispatch and the
 	// receipts: the registry's, with omitted optionals left out
 	// (tools.Registry.NormalizedArgs).
-	call.Input = e.modularTools().NormalizedArgs(call.Name, call.Input)
-	guardErr := e.constrainFixVerification(&call, result)
+	normalized, expandErr := e.modularTools().NormalizedArgs(ctx, call.Name, call.Input)
+	call.Input = normalized
+	guardErr := expandErr
+	if guardErr == nil {
+		guardErr = e.constrainFixVerification(&call, result)
+	}
 	var effectTargets []ResourceEffect
 	if isWriteMutationTool(call.Name) {
 		// A write the guard refuses never runs: no preimage, no write, no

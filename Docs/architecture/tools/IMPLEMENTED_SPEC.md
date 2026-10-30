@@ -581,6 +581,20 @@ verification attribution, offer split), `tools/consumption_test.go` and
 `tools/core` / `tools/codedom` consumption tests, `tools/capability_test.go`,
 `cmd/nerd/cmd_tools_value_test.go`, `config/tool_value_test.go`.
 
+## 15b. Declared generators: `regenerate` (as built 2026-10-30)
+
+A change can leave a checked-in generated file stale: the prompt corpus and the atom importance ledger after an atom edit, the predicate corpus after a Decl change. The shell gate refuses every command it does not recognize, so an agent could name the repair and not run it (ladder R1-41).
+
+- **Declaration:** `nerd.md` `generators` (`projectdoc.GeneratorSpec`): `id`, `run` (split like a shell would, never run through one), `outputs` (workspace-relative files, required) and `when`. `Spec.validateGenerators` refuses an empty id, a duplicate, an empty run, no outputs, or an output that is absolute or leaves the workspace. This repository declares `atom-importance`, `prompt-corpus` and `predicate-corpus`.
+- **Tool:** `regenerate` (`internal/tools/shell/regenerate.go`) takes `id` and runs only that declared generator.
+  - `Tool.ExpandArgs` puts the generator's outputs in the call's `paths` before any layer reads the arguments (`Registry.NormalizedArgs(ctx, …)`, called once by the session executor). The write guards, the preimage capture, forbidden-path checks and the turn's write set therefore see exactly the outputs, and the turn can undo the run.
+  - Supplied paths must equal the outputs; an undeclared id is refused with the declared ids named.
+  - The process is built by `build.WorkspaceCommand`, the builder nerd.md gates use (`go` through `GoInvocation`, everything else with the allowlisted environment), with `commands.env` overlaid.
+  - The run is checked against `git status`: a file outside the outputs that it changed, or a dirty file it reverted, fails the call by name. Outside a git work tree the report says other files were not checked.
+- **Classification:** a write (`projectdoc.IsWriteMutationTool`, `BuiltinEffect` write), capability unique, `safe_action(/regenerate)`, granted to `/coder` and `/tester` (`persona_tool_allowed`). The `capability/regenerate` atom teaches when to run it.
+- **Freshness checks name it:** the importance ledger, the prompt corpus seed and the predicate corpus drift check each name their generator id beside the command.
+- **Tests:** `internal/projectdoc/generators_test.go` (parse, validation, this repository's declarations and outputs) and `internal/tools/shell/regenerate_test.go` (outputs expanded into write targets; mismatched paths and undeclared ids refused; a declared run; an undeclared write failing by name).
+
 ## 16. Document map
 
 | Doc | Role |

@@ -335,6 +335,12 @@ safe_action(/run_check).
 # argv; the model chooses the gate from a closed set and workspace-relative
 # packages, never a command or a flag.
 safe_action(/run_lint).
+
+# /regenerate runs one generator the workspace's nerd.md declares and nothing
+# else; its writes are the generator's declared outputs, guarded and undoable
+# like any write (internal/tools/shell/regenerate.go). It is how an agent
+# repairs a generated file its change left stale without free-form shell.
+safe_action(/regenerate).
 safe_action(/git_operation).
 safe_action(/git_diff).
 safe_action(/git_log).

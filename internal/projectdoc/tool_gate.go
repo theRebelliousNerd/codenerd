@@ -195,6 +195,9 @@ func IsWriteMutationTool(name string) bool {
 		"edit_lines", "insert_lines", "delete_lines",
 		"edit_element", "replace_element", "insert_element", "delete_element",
 		"create_file", "repoint", "apply_edits", "fs_write",
+		// A declared generator rewrites exactly its declared outputs, which
+		// its call carries as paths (tools/shell/regenerate.go).
+		"regenerate",
 		// Defensive aliases.
 		"apply_patch", "str_replace", "replace_in_file", "multi_edit":
 		return true

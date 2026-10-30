@@ -88,7 +88,7 @@ func runDriftCheck(fresh []PredicateEntry) int {
 		fmt.Println("  " + strings.Join(extra, "\n  "))
 		fmt.Println()
 	}
-	fmt.Println("A wrong arity here is fed to the model as fact. Rebuild with:")
+	fmt.Println("A wrong arity here is fed to the model as fact. Rebuild with the regenerate tool (generator predicate-corpus) or:")
 	fmt.Println("  go run ./cmd/tools/predicate_corpus_builder")
 	return 1
 }

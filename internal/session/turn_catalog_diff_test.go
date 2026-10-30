@@ -62,11 +62,11 @@ func goldenEnvelope(persona string) []string {
 		return goldenCore()
 	case "coder":
 		return unionSorted(goldenCore(), goldenCodeDom(), goldenImpact(), []string{
-			"delete_file", "edit_file", "git_operation", "run_build", "run_lint", "run_tests", "write_file",
+			"delete_file", "edit_file", "git_operation", "regenerate", "run_build", "run_lint", "run_tests", "write_file",
 		})
 	case "tester":
 		return unionSorted(goldenCore(), goldenCodeDom(), goldenImpact(), goldenBrowserSession(), []string{
-			"edit_file", "run_lint", "run_tests", "write_file",
+			"edit_file", "regenerate", "run_lint", "run_tests", "write_file",
 		})
 	case "verify":
 		return unionSorted(goldenEnvelope("tester"), []string{"grounded_web_search"})

@@ -173,6 +173,6 @@ func TestEmbeddedLedgerCoversEveryAtom(t *testing.T) {
 		for _, a := range stale[:min(len(stale), 10)] {
 			ids = append(ids, a.ID)
 		}
-		t.Fatalf("%d embedded atoms lack a current importance score (first %v); run `go run ./cmd/tools/prompt_builder -score-importance`", len(stale), ids)
+		t.Fatalf("%d embedded atoms lack a current importance score (first %v); regenerate them with the regenerate tool (generator atom-importance) or `go run ./cmd/tools/prompt_builder -score-importance`", len(stale), ids)
 	}
 }

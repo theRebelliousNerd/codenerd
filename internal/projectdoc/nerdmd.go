@@ -127,6 +127,41 @@ type Spec struct {
 	// code wherever it sits. Optional, added without a schema bump (see
 	// Northstar).
 	Docs []string `yaml:"docs,omitempty"`
+
+	// Generators are the project's commands that rewrite checked-in
+	// generated files from their sources (a corpus built from YAML, a ledger
+	// scored from atoms). The regenerate tool runs one by id and nothing
+	// else, so an agent that leaves a generated file stale can repair it
+	// without free-form shell. Optional, added without a schema bump (see
+	// Northstar).
+	Generators []GeneratorSpec `yaml:"generators,omitempty"`
+}
+
+// GeneratorSpec declares one regeneration command.
+type GeneratorSpec struct {
+	// ID is the name the regenerate tool takes.
+	ID string `yaml:"id"`
+	// Run is the command, split like a shell would but never run through one.
+	Run string `yaml:"run"`
+	// Outputs are the workspace-relative files the command rewrites. They are
+	// the call's write targets: their prior contents are kept, so the turn
+	// can undo the run and its net-change checks see what changed. A run
+	// that changes any other file fails.
+	Outputs []string `yaml:"outputs"`
+	// When names what makes the outputs stale, for the agent ("after editing
+	// an atom YAML under internal/prompt/atoms").
+	When string `yaml:"when,omitempty"`
+}
+
+// Generator is the declared generator with id.
+func (s *Spec) Generator(id string) (GeneratorSpec, bool) {
+	id = strings.TrimSpace(id)
+	for _, g := range s.Generators {
+		if strings.TrimSpace(g.ID) == id {
+			return g, true
+		}
+	}
+	return GeneratorSpec{}, false
 }
 
 // GateSpec declares one project check.
@@ -476,6 +511,10 @@ func (s *Spec) validate() error {
 		}
 	}
 
+	if err := s.validateGenerators(); err != nil {
+		return err
+	}
+
 	seenGate := make(map[string]struct{}, len(s.Gates))
 	for i, g := range s.Gates {
 		id := strings.TrimSpace(g.ID)
@@ -514,6 +553,35 @@ func (s *Spec) validate() error {
 		}
 	}
 
+	return nil
+}
+
+// validateGenerators checks generators: a unique id, a command, and outputs
+// that are workspace-relative files inside the workspace.
+func (s *Spec) validateGenerators() error {
+	seen := make(map[string]struct{}, len(s.Generators))
+	for i, g := range s.Generators {
+		id := strings.TrimSpace(g.ID)
+		if id == "" {
+			return fmt.Errorf("generators[%d] has an empty %q", i, "id")
+		}
+		if _, dup := seen[id]; dup {
+			return fmt.Errorf("generators[%d] has duplicate %q %q", i, "id", id)
+		}
+		seen[id] = struct{}{}
+		if strings.TrimSpace(g.Run) == "" {
+			return fmt.Errorf("generators[%d] (id %q) has an empty %q", i, id, "run")
+		}
+		if len(g.Outputs) == 0 {
+			return fmt.Errorf("generators[%d] (id %q) declares no %q; a generator's writes must be named so they can be undone", i, id, "outputs")
+		}
+		for _, out := range g.Outputs {
+			clean := filepath.ToSlash(filepath.Clean(strings.TrimSpace(out)))
+			if clean == "." || clean == "" || filepath.IsAbs(out) || clean == ".." || strings.HasPrefix(clean, "../") {
+				return fmt.Errorf("generators[%d] (id %q) output %q is not a workspace-relative file", i, id, out)
+			}
+		}
+	}
 	return nil
 }
 

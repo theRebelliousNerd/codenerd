@@ -431,6 +431,12 @@ func isGoExecCall(call *ast.CallExpr) bool {
 func mentionsBuildPackage(expr ast.Expr) bool {
 	found := false
 	ast.Inspect(expr, func(n ast.Node) bool {
+		// Inside internal/build itself the env helpers are called unqualified
+		// (WorkspaceCommand calls GoInvocation).
+		if id, ok := n.(*ast.Ident); ok && (id.Name == "GoInvocation" || id.Name == "GoToolEnv") {
+			found = true
+			return false
+		}
 		sel, ok := n.(*ast.SelectorExpr)
 		if !ok {
 			return true

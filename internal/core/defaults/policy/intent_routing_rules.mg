@@ -373,6 +373,13 @@ persona_tool_allowed(/tester, /run_lint).
 persona_tool_allowed(/reviewer, /run_lint).
 persona_tool_allowed(/nemesis, /run_lint).
 
+# Declared generators (nerd.md generators) as a typed tool, for the personas
+# that edit the sources generated files are built from: without it a change
+# to an atom left the corpus stale and the agent could name the repair but not
+# run it (ladder R1-41).
+persona_tool_allowed(/coder, /regenerate).
+persona_tool_allowed(/tester, /regenerate).
+
 # Tester extras. No delete_file, run_build, git_operation, or free-form shell.
 persona_tool_allowed(/tester, /run_tests).
 persona_tool_allowed(/tester, /write_file).

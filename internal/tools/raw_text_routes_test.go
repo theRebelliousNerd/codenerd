@@ -485,6 +485,13 @@ func fillProbeArg(toolName, name string, prop tools.Property, root, pathValue st
 		return "after", true
 	case "confirmed", "replace_all", "create_dirs":
 		return true, true
+	case "id":
+		if toolName != "regenerate" {
+			return nil, false
+		}
+		// The probe workspace declares no generators: the tool must refuse
+		// it rather than write anything.
+		return "probe-generator", true
 	case "handle":
 		// Filled from the producer's answer when the tool has one; a handle
 		// the probe cannot produce leaves the tool unable to reach anything.

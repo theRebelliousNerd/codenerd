@@ -1,6 +1,7 @@
 package gates
 
 import (
+	"codenerd/internal/build"
 	"context"
 	"os/exec"
 	"slices"
@@ -87,7 +88,7 @@ func TestRun_UnstartableOrStoppedIsUnverified(t *testing.T) {
 func TestAllowedEnv_KeepsToolchainVarsDropsTheRest(t *testing.T) {
 	t.Setenv("NERD_GATE_TEST_API_KEY", "sk-secret")
 	t.Setenv("VIRTUAL_ENV", "/venv")
-	env := allowedEnv(t.TempDir())
+	env := build.AllowedEnv(t.TempDir())
 	if slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, "NERD_GATE_TEST_API_KEY=") }) {
 		t.Fatal("an unlisted variable reached the gate's environment")
 	}

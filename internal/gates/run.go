@@ -5,11 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
-	"sort"
-	"strings"
 	"time"
 
 	"codenerd/internal/build"
@@ -43,23 +39,6 @@ func (r Result) Unverified() bool { return r.Err != nil }
 // are kept -- a Go test run names the package at the top and the verdict at
 // the bottom -- and the middle is marked as dropped.
 var OutputLimit = 1 << 20
-
-// passEnv are the ambient variables every gate keeps. A gate runs project
-// code (its tests), and the process running it may hold credentials, so the
-// environment is an allowlist like the one Go builds get; these are what the
-// toolchains the detector knows need to find themselves on each platform.
-// nerd.md commands.env and .nerd/config.json execution.allowed_env_vars add
-// to it.
-var passEnv = []string{
-	"PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "TERM",
-	"TEMP", "TMP", "TMPDIR",
-	"USERPROFILE", "APPDATA", "LOCALAPPDATA", "SystemRoot", "SystemDrive", "WINDIR", "COMSPEC", "PATHEXT",
-	"ProgramData", "ProgramFiles", "ProgramFiles(x86)",
-	"GOPATH", "GOROOT", "GOCACHE", "GOMODCACHE", "GOFLAGS",
-	"VIRTUAL_ENV", "CONDA_PREFIX", "PYTHONPATH",
-	"NODE_PATH", "NVM_DIR", "PNPM_HOME",
-	"CARGO_HOME", "RUSTUP_HOME",
-}
 
 // Run runs g in root for node ("" or "." for the root node) and returns its
 // verdict. It never returns a pass it did not observe: a program that will not
@@ -113,69 +92,8 @@ func Command(ctx context.Context, root string, g Gate, node string) (*exec.Cmd, 
 	if len(argv) == 0 {
 		return nil, argv, errors.New("empty command")
 	}
-	cmd := command(ctx, root, argv)
-	cmd.Dir = root
-	for _, k := range sortedEnvKeys(g.Env) {
-		cmd.Env = setEnv(cmd.Env, k, g.Env[k])
-	}
+	cmd := build.WorkspaceCommand(ctx, root, argv, g.Env)
 	return cmd, argv, nil
-}
-
-// command builds the process for argv. `go` goes through internal/build, like
-// every go the harness spawns, so a gate and the session's own build agree on
-// the environment and flags. Everything else gets the allowlisted
-// environment. A workspace-relative program (./scripts/check.sh) is resolved
-// against root, not against this process's directory.
-func command(ctx context.Context, root string, argv []string) *exec.Cmd {
-	if argv[0] == "go" {
-		env, args := build.GoInvocation(root, root, argv[1:])
-		cmd := exec.CommandContext(ctx, "go", args...)
-		cmd.Env = env
-		return cmd
-	}
-	prog := argv[0]
-	if strings.ContainsAny(prog, `/\`) && !filepath.IsAbs(prog) {
-		prog = filepath.Join(root, prog)
-	}
-	cmd := exec.CommandContext(ctx, prog, argv[1:]...)
-	cmd.Env = allowedEnv(root)
-	return cmd
-}
-
-func allowedEnv(root string) []string {
-	var env []string
-	keys := append([]string(nil), passEnv...)
-	if cfg := build.WorkspaceUserConfig(root); cfg != nil {
-		keys = append(keys, cfg.GetExecution().AllowedEnvVars...)
-	}
-	for _, k := range keys {
-		if v, ok := os.LookupEnv(k); ok {
-			env = setEnv(env, k, v)
-		}
-	}
-	return env
-}
-
-// setEnv sets k in env, replacing an existing entry. Windows variable names
-// are case-insensitive, so the comparison is too; elsewhere PATH and Path are
-// different variables but no toolchain here depends on the difference.
-func setEnv(env []string, k, v string) []string {
-	for i, kv := range env {
-		if name, _, ok := strings.Cut(kv, "="); ok && strings.EqualFold(name, k) {
-			env[i] = k + "=" + v
-			return env
-		}
-	}
-	return append(env, k+"="+v)
-}
-
-func sortedEnvKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 // boundedBuffer keeps the first and last limit/2 bytes written to it.

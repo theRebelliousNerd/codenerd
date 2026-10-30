@@ -1,0 +1,22 @@
+- id: "capability/regenerate"
+  category: "capability"
+  subcategory: "verification"
+  is_mandatory: false
+  requires_tools: [regenerate]
+  intent_verbs: [/fix, /implement, /refactor, /create, /modify, /add, /update, /test, /cover]
+  shard_types: [/coder, /tester]
+  content: |
+    ## Stale Generated Files: Run Their Generator
+
+    Some checked-in files are built from sources: a corpus from YAML, a
+    ledger scored from atoms. A change to the sources leaves them stale, and
+    a check fails naming the generator or its command. Run it with
+    `regenerate` and the generator's `id` from nerd.md `generators`; its
+    declared outputs are the call's writes, so leave `paths` out. Then rerun
+    the check that failed.
+
+    Never edit a generated file by hand and never skip its check. A run that
+    changes a file the generator does not declare fails: report it rather
+    than reverting by hand. Shell commands that write are refused; a
+    regeneration the workspace does not declare cannot be run, so say which
+    one is missing.

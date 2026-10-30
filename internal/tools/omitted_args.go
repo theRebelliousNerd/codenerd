@@ -1,6 +1,9 @@
 package tools
 
-import "strings"
+import (
+	"context"
+	"strings"
+)
 
 // IsOmittedSentinel reports whether s is a model's spelling of "no value":
 // empty, JSON null, Python None, Go nil (also "<nil>" from fmt), JS
@@ -86,14 +89,20 @@ func RevisionPrecondition(rev string) (string, bool) {
 // validation. A serving layer that read the raw map first refused what the
 // registry accepts (a delete_element with paths "null" failed target parsing
 // before the registry could read it as omitted). An unregistered name
-// returns args unchanged.
-func (r *Registry) NormalizedArgs(name string, args map[string]any) map[string]any {
+// returns args unchanged. A tool that completes its arguments from the
+// workspace (Tool.ExpandArgs) does so here, after the omissions; its error
+// refuses the call.
+func (r *Registry) NormalizedArgs(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
 	if r == nil {
-		return args
+		return args, nil
 	}
 	tool := r.Get(name)
 	if tool == nil {
-		return args
+		return args, nil
 	}
-	return withoutOmittedOptionals(tool, args)
+	args = withoutOmittedOptionals(tool, args)
+	if tool.ExpandArgs == nil {
+		return args, nil
+	}
+	return tool.ExpandArgs(ctx, args)
 }
