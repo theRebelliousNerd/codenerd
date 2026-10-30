@@ -10,10 +10,6 @@
 # Generic fact from the world model scanner (wrapped)
 Decl intelligence_world_fact(CampaignID, Predicate, Args) bound [/string, /string, /any].
 
-# intelligence_file_topology(Path, Hash, Language, LineCount, IsTestFile)
-# File topology from world scanner
-Decl intelligence_file_topology(Path, Hash, Language, LineCount, IsTestFile) bound [/string, /string, /string, /number, /name].
-
 # intelligence_symbol(Path, Name, Kind, Exported, Line)
 # Symbol graph from AST parsing
 Decl intelligence_symbol(Path, Name, Kind, Exported, Line) bound [/string, /string, /string, /name, /number].
@@ -64,14 +60,6 @@ Decl intelligence_mcp_server(ServerID, Endpoint, Status) bound [/string, /string
 # both slots with types.MangleAtom.
 Decl intelligence_shard_advice(CampaignID, ShardName, Vote, Confidence, Advice) bound [/string, /name, /name, /number, /string].
 
-# intelligence_file_action(Path, RecommendedAction, Reasoning, Confidence)
-# Edge Case Analysis
-Decl intelligence_file_action(Path, RecommendedAction, Reasoning, Confidence) bound [/string, /name, /string, /number].
-
-# intelligence_file_depends(File, DependsOn)
-# File Dependencies
-Decl intelligence_file_depends(File, DependsOn) bound [/string, /string].
-
 # intelligence_test_coverage(Path, Coverage)
 # Test Coverage
 Decl intelligence_test_coverage(Path, Coverage) bound [/string, /number].
@@ -84,10 +72,6 @@ Decl intelligence_code_pattern(Name, Type, File, Confidence) bound [/string, /st
 # Previous Campaigns
 Decl intelligence_previous_campaign(CampaignID, Goal, TaskCount, SuccessRate) bound [/string, /string, /number, /number].
 
-# intelligence_strategic_knowledge(Concept, Category, Content, Priority)
-# Strategic Knowledge
-Decl intelligence_strategic_knowledge(Concept, Category, Content, Priority) bound [/string, /name, /string, /number].
-
 # intelligence_knowledge_link(SourceEntity, Relation, TargetEntity, Weight)
 # Knowledge Graph Links
 Decl intelligence_knowledge_link(SourceEntity, Relation, TargetEntity, Weight) bound [/string, /string, /string, /number].
@@ -97,10 +81,8 @@ Decl intelligence_knowledge_link(SourceEntity, Relation, TargetEntity, Weight) b
 # =============================================================================
 
 Decl intelligence_high_priority_file(Path) bound [/string].
-Decl intelligence_requires_modularization(Path) bound [/string].
 Decl intelligence_requires_refactor(Path) bound [/string].
 Decl intelligence_chestertons_fence(Path, Warning) bound [/string, /string].
-Decl intelligence_is_core_infrastructure(Path) bound [/string].
 Decl intelligence_has_coverage(Path) bound [/string].
 Decl intelligence_missing_tests(Path) bound [/string].
 Decl intelligence_well_tested(Path) bound [/string].
@@ -113,9 +95,6 @@ Decl intelligence_gap_resolved(CampaignID, Capability) bound [/string, /string].
 Decl intelligence_gap_unresolved(CampaignID, Capability, Priority) bound [/string, /string, /number].
 Decl intelligence_blocking_gap(CampaignID, Capability) bound [/string, /string].
 Decl intelligence_has_blocking_gap(CampaignID) bound [/string].
-Decl intelligence_high_impact(Path) bound [/string].
-Decl intelligence_depends_transitive(File, DependsOn) bound [/string, /string].
-Decl intelligence_impact_scope(ChangedFile, AffectedFile) bound [/string, /string].
 Decl intelligence_campaign_ready(CampaignID) bound [/string].
 Decl intelligence_campaign_blocked(CampaignID, Reason) bound [/string, /string].
 Decl intelligence_context_priority(Path, Priority) bound [/string, /name].
@@ -123,8 +102,6 @@ Decl intelligence_has_critical_source(Path) bound [/string].
 Decl intelligence_has_high_source(Path) bound [/string].
 Decl intelligence_has_medium_source(Path) bound [/string].
 Decl intelligence_task_prerequisite(PreTask, PostTask) bound [/string, /string].
-Decl intelligence_needs_tests_first(TaskID) bound [/string].
-Decl intelligence_relevant_strategy(CampaignID, Concept, Content) bound [/string, /string, /string].
 Decl intelligence_knowledge_path(Start, End, Relation) bound [/string, /string, /name].
 Decl intelligence_applicable_pattern(ShardType, Pattern) bound [/string, /string].
 Decl intelligence_active_preference(Category, Signal) bound [/string, /string].
@@ -133,7 +110,6 @@ Decl intelligence_summary_gap_count(Count) bound [/number].
 Decl intelligence_summary_warning_count(Count) bound [/number].
 Decl intelligence_warnings_by_severity(Severity, Count) bound [/string, /number].
 Decl intelligence_high_priority_count(Count) bound [/number].
-Decl intelligence_modularization_count(Count) bound [/number].
 Decl intelligence_campaign_complexity(CampaignID, Score) bound [/string, /name].
 Decl intelligence_has_high_complexity_source(CampaignID) bound [/string].
 Decl intelligence_has_medium_complexity_source(CampaignID) bound [/string].

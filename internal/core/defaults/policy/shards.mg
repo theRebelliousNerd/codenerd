@@ -30,16 +30,6 @@ has_active_shard(ShardType) :- active_shard(_, ShardType).
 
 # Trace Quality Tracking
 
-# Low quality trace (needs review) - score on 0-100 scale
-low_quality_trace(TraceID) :-
-    trace_quality(TraceID, Score),
-    Score < 50.
-
-# High quality trace (good for learning) - score on 0-100 scale
-high_quality_trace(TraceID) :-
-    trace_quality(TraceID, Score),
-    Score >= 80.
-
 # Shard Performance Patterns (Aggregation-Based)
 # These use fn:count + fn:group_by instead of N-way self-joins
 # to avoid O(N^3) / O(N^5) combinatorial explosion.
@@ -91,30 +81,7 @@ promote_to_long_term(/shard_pattern, ShardType) :-
 
 # Cross-Shard Learning (Specialist vs Ephemeral)
 
-# Specialist outperforms ephemeral for same task type
-# Reordered: bind TaskType from T1 first, then filter T2 by same TaskType
-specialist_outperforms(SpecialistName, TaskType) :-
-    reasoning_trace(T1, SpecialistName, /specialist, _, /true, _),
-    trace_task_type(T1, TaskType),
-    trace_task_type(T2, TaskType),
-    reasoning_trace(T2, /coder, /ephemeral, _, /false, _).
-
-# Suggest using specialist instead of ephemeral
-suggest_use_specialist(TaskType, SpecialistName) :-
-    specialist_outperforms(SpecialistName, TaskType).
-
 # Trace-Based Context Enhancement
-
-# Boost activation for successful trace patterns in current session
-activation(TraceID, 80) :-
-    high_quality_trace(TraceID),
-    reasoning_trace(TraceID, ShardType, _, SessionID, /true, _),
-    session_state(SessionID, /active, _).
-
-# Suppress failed trace patterns
-activation(TraceID, -30) :-
-    low_quality_trace(TraceID),
-    reasoning_trace(TraceID, _, _, _, /false, _).
 
 # Corrective Actions Based on Traces
 
@@ -125,12 +92,6 @@ escalation_needed(/system_health, "shard_performance", "Multiple shards struggli
     shard_struggling(Shard1),
     shard_struggling(Shard2),
     Shard1 != Shard2.
-
-# Suggest spawning researcher for failed traces with unknown errors
-delegate_task(/researcher, TaskContext, /pending) :-
-    reasoning_trace(TraceID, _, _, _, /false, _),
-    trace_error(TraceID, /unknown),
-    trace_task_type(TraceID, TaskContext).
 
 # System Shard Trace Monitoring
 

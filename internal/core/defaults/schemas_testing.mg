@@ -45,18 +45,6 @@ Decl reasoning_trace(TraceID, ShardType, ShardCategory, SessionID, Success, Dura
 # Exact per-shard aggregate returned by VirtualStore.QueryTraceStats.
 Decl trace_stats(ShardType, SuccessCount, FailCount, AvgDurationMs) bound [/name, /number, /number, /number].
 
-# trace_quality(TraceID, Score)
-# Quality score assigned after analysis (0.0-1.0)
-Decl trace_quality(TraceID, Score) bound [/string, /number].
-
-# trace_error(TraceID, ErrorType)
-# Error categorization for learning
-Decl trace_error(TraceID, ErrorType) bound [/string, /name].
-
-# trace_task_type(TraceID, TaskType)
-# Task type classification for pattern matching
-Decl trace_task_type(TraceID, TaskType) bound [/string, /name].
-
 # -----------------------------------------------------------------------------
 # 36.2 Shard Performance Patterns
 # -----------------------------------------------------------------------------
@@ -79,19 +67,9 @@ Decl shard_performance(ShardType, SuccessRate, AvgDurationMs, TraceCount) bound 
 # 36.3 Cross-Shard Learning
 # -----------------------------------------------------------------------------
 
-# specialist_outperforms(SpecialistName, TaskType)
-# Tracks when specialists outperform ephemeral shards
-Decl specialist_outperforms(SpecialistName, TaskType) bound [/string, /name].
-
 # -----------------------------------------------------------------------------
 # 36.4 Derived Predicates for Trace Analysis
 # -----------------------------------------------------------------------------
-
-# low_quality_trace(TraceID) - derived: trace quality < 50 (on 0-100 scale)
-Decl low_quality_trace(TraceID) bound [/string].
-
-# high_quality_trace(TraceID) - derived: trace quality >= 80 (on 0-100 scale)
-Decl high_quality_trace(TraceID) bound [/string].
 
 
 # shard_success_count(ShardType, N) - derived: count of successes per shard type
@@ -112,9 +90,6 @@ Decl slow_reasoning_detected(ShardType) bound [/name].
 # learning_from_traces(SignalType, ShardType) - derived: learning signals
 # SignalType: /avoid_pattern, /success_pattern, /shard_needs_help
 Decl learning_from_traces(SignalType, ShardType) bound [/name, /name].
-
-# suggest_use_specialist(TaskType, SpecialistName) - derived: use specialist
-Decl suggest_use_specialist(TaskType, SpecialistName) bound [/name, /string].
 
 # specialist_recommended(ShardName, FilePath, Confidence) - reviewer output
 # Emitted when reviewer detects technology patterns matching a specialist shard

@@ -50,12 +50,8 @@ file_has_public_api  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, 
 file_line_count
 fix_pattern
 gauntlet_result  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
-intelligence_file_action  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
-intelligence_file_depends  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
-intelligence_file_topology  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 intelligence_knowledge_link
 intelligence_preference
-intelligence_strategic_knowledge  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 invariant_value
 investigation_result
 item_retry_count
@@ -103,9 +99,6 @@ tester_task
 thunderdome_battle
 tool_in_list  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
 tool_language
-trace_error  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
-trace_quality  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
-trace_task_type  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 type_embeds  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 unhandled_case_count_computed
 validation_max_retries_reached  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
