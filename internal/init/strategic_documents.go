@@ -40,10 +40,15 @@ type DocumentInfo struct {
 type DocProcessingStatus string
 
 const (
-	DocStatusDiscovered  DocProcessingStatus = "/discovered"  // Found during scan
-	DocStatusAnalyzing   DocProcessingStatus = "/analyzing"   // LLM analyzing relevance
-	DocStatusExtracting  DocProcessingStatus = "/extracting"  // Extracting knowledge atoms
-	DocStatusStored      DocProcessingStatus = "/stored"      // Atoms persisted to DB
+	DocStatusDiscovered DocProcessingStatus = "/discovered" // Found during scan
+	DocStatusAnalyzing  DocProcessingStatus = "/analyzing"  // LLM analyzing relevance
+	DocStatusExtracting DocProcessingStatus = "/extracting" // Extracting knowledge atoms
+	DocStatusStored     DocProcessingStatus = "/stored"     // Every chunk extracted; atoms persisted to DB
+	// DocStatusPartial: some chunks were extracted and their atoms kept, at
+	// least one failed. It earns no unchanged-document reuse, so the next
+	// refresh extracts the document again (audit
+	// document-extraction-coverage-resumption).
+	DocStatusPartial     DocProcessingStatus = "/partial"
 	DocStatusSynthesized DocProcessingStatus = "/synthesized" // Included in synthesis
 	DocStatusSkipped     DocProcessingStatus = "/skipped"     // Not relevant
 	DocStatusFailed      DocProcessingStatus = "/failed"      // Processing failed
@@ -60,11 +65,14 @@ type DocIngestionState struct {
 	// TotalDiscovered, TotalProcessed, TotalStored and AtomsStored describe
 	// the latest run: documents offered, documents orientation admitted,
 	// documents extracted, and the atoms those extractions stored.
-	TotalDiscovered int  `json:"total_discovered"`
-	TotalProcessed  int  `json:"total_processed"`
-	TotalStored     int  `json:"total_stored"`
-	AtomsStored     int  `json:"atoms_stored"`
-	SynthesisReady  bool `json:"synthesis_ready"`
+	TotalDiscovered int `json:"total_discovered"`
+	TotalProcessed  int `json:"total_processed"`
+	TotalStored     int `json:"total_stored"`
+	// TotalPartial are the documents this run extracted only in part: their
+	// atoms are stored, a chunk failed, and the next refresh retries them.
+	TotalPartial   int  `json:"total_partial"`
+	AtomsStored    int  `json:"atoms_stored"`
+	SynthesisReady bool `json:"synthesis_ready"`
 }
 
 // DocProcessingEntry tracks individual document processing state.
@@ -96,7 +104,9 @@ func (i *Initializer) assertDocFact(kernel core.Kernel, status DocProcessingStat
 	}
 }
 
-// extracted reports whether a document's atoms are in the knowledge base.
+// extracted reports whether a document was extracted completely: every
+// chunk, at its recorded hash. Only that earns skipping an unchanged
+// document; a Partial one is extracted again.
 func extracted(status DocProcessingStatus) bool {
 	return status == DocStatusStored || status == DocStatusSynthesized
 }
@@ -170,7 +180,7 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 	}
 
 	// The counters describe this run, not every run the state file has seen.
-	state.TotalDiscovered, state.TotalProcessed, state.TotalStored, state.AtomsStored = len(docs), 0, 0, 0
+	state.TotalDiscovered, state.TotalProcessed, state.TotalStored, state.TotalPartial, state.AtomsStored = len(docs), 0, 0, 0, 0
 
 	// Phase 1: Discovery - assert all discovered docs
 	for _, doc := range docs {
@@ -248,7 +258,7 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 			entry.Status = DocStatusSkipped
 			entry.Reasoning = "Not admitted by orientation policy"
 			i.assertDocFact(kernel, DocStatusSkipped, path, entry.ContentHash)
-		case DocStatusStored, DocStatusSynthesized:
+		case DocStatusStored, DocStatusSynthesized, DocStatusPartial:
 			// A document orientation no longer admits (deleted, demoted,
 			// superseded) takes its extracted atoms with it.
 			if db != nil {
@@ -284,7 +294,7 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 		i.assertDocFact(kernel, DocStatusExtracting, doc.Path, entry.ContentHash)
 
 		// Extract and store knowledge atoms incrementally
-		atomCount, err := i.extractAndStoreDocKnowledge(ctx, doc, db)
+		atomCount, partial, err := i.extractAndStoreDocKnowledge(ctx, doc, db)
 		if err != nil {
 			entry.Status = DocStatusFailed
 			entry.ErrorMessage = err.Error()
@@ -294,12 +304,23 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 		}
 
 		now := time.Now()
-		entry.Status = DocStatusStored
 		entry.AtomsStored = atomCount
 		entry.ProcessedAt = &now
-		state.TotalStored++
 		state.AtomsStored += atomCount
-		i.assertDocFact(kernel, DocStatusStored, doc.Path, entry.ContentHash)
+		if partial != nil {
+			// The atoms the extracted chunks produced stay available; the
+			// document is not marked extracted, so the next refresh
+			// extracts it again instead of skipping a gap.
+			entry.Status = DocStatusPartial
+			entry.ErrorMessage = partial.Error()
+			state.TotalPartial++
+			i.assertDocFact(kernel, DocStatusPartial, doc.Path, entry.ContentHash)
+		} else {
+			entry.Status = DocStatusStored
+			entry.ErrorMessage = ""
+			state.TotalStored++
+			i.assertDocFact(kernel, DocStatusStored, doc.Path, entry.ContentHash)
+		}
 
 		// Save state after each doc for resumption
 		if err := i.saveIngestionState(state); err != nil {
@@ -326,30 +347,34 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 // context cache would mutate state on a client the whole session shares.
 // The document's atoms from an earlier extraction are retired first, so a
 // changed document does not keep the claims of the text it replaced.
+//
+// It returns the atoms stored, and partial when some chunk failed (a request
+// error, a reply that is not atoms, a store error) while others were
+// extracted; err is a document nothing was extracted from. A valid empty
+// array is a chunk with nothing to extract, not a failure.
 func (i *Initializer) extractAndStoreDocKnowledge(
 	ctx context.Context,
 	doc DocumentInfo,
 	db *store.LocalStore,
-) (int, error) {
+) (atomCount int, partial error, err error) {
 	if i.route(slotMain).client == nil || db == nil {
-		return 0, fmt.Errorf("LLM client and database required")
+		return 0, nil, fmt.Errorf("LLM client and database required")
 	}
 	if !utf8.ValidString(doc.Content) {
-		return 0, fmt.Errorf("%s is not UTF-8 text", doc.Path)
+		return 0, nil, fmt.Errorf("%s is not UTF-8 text", doc.Path)
 	}
 	if _, err := db.DeleteKnowledgeAtomsByPrefix("doc/" + doc.Path + "/"); err != nil {
-		return 0, fmt.Errorf("retire earlier atoms of %s: %w", doc.Path, err)
+		return 0, nil, fmt.Errorf("retire earlier atoms of %s: %w", doc.Path, err)
 	}
 	if _, err := db.DeleteKnowledgeAtomsByConcept("doc/" + doc.Path); err != nil {
-		return 0, fmt.Errorf("retire earlier atoms of %s: %w", doc.Path, err)
+		return 0, nil, fmt.Errorf("retire earlier atoms of %s: %w", doc.Path, err)
 	}
 
 	chunks := chunkDocument(doc.Content, 8000) // ~2k tokens per chunk
-	atomCount := 0
 	var failures []error
 	for chunkIdx, chunk := range chunks {
 		if err := ctx.Err(); err != nil {
-			return atomCount, err
+			return atomCount, nil, err
 		}
 		// The instruction and reply contract are the
 		// init/researcher/doc_extraction atom; the request is the chunk.
@@ -394,12 +419,13 @@ func (i *Initializer) extractAndStoreDocKnowledge(
 		}
 	}
 	if len(failures) == len(chunks) && atomCount == 0 && len(chunks) > 0 {
-		return 0, fmt.Errorf("no chunk of %s was extracted: %w", doc.Path, errors.Join(failures...))
+		return 0, nil, fmt.Errorf("no chunk of %s was extracted: %w", doc.Path, errors.Join(failures...))
 	}
 	if len(failures) > 0 {
-		logging.Get(logging.CategoryBoot).Warn("Partial extraction of %s: %v", doc.Path, errors.Join(failures...))
+		partial = fmt.Errorf("partial extraction of %s (%d of %d chunk(s) failed; retried next refresh): %w", doc.Path, len(failures), len(chunks), errors.Join(failures...))
+		logging.Get(logging.CategoryBoot).Warn("%v", partial)
 	}
-	return atomCount, nil
+	return atomCount, partial, nil
 }
 
 // chunkDocument splits a document into chunks for processing.

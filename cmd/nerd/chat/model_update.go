@@ -470,10 +470,11 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 |--------|-------|
 | Docs discovered | %d |
 | Docs processed | %d |
+| Docs extracted only in part | %d |
 | Atoms stored | %d |
 | Duration | %.2fs |
 
-The strategic knowledge base has been updated with new documentation.`, msg.docsDiscovered, msg.docsProcessed, msg.atomsStored, msg.duration.Seconds()),
+The strategic knowledge base has been updated with new documentation.%s`, msg.docsDiscovered, msg.docsProcessed, msg.docsPartial, msg.atomsStored, msg.duration.Seconds(), partialDocsNote(msg.docsPartial)),
 				Time: time.Now(),
 			})
 		}

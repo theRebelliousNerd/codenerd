@@ -233,13 +233,24 @@ func (m Model) runScan(deep bool) tea.Cmd {
 	}
 }
 
+// partialDocsNote says what a partial extraction means for the user.
+func partialDocsNote(partial int) string {
+	if partial == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" %d document(s) had a chunk that failed to extract; their other atoms are stored and the next /refresh-docs extracts them again.", partial)
+}
+
 // docRefreshCompleteMsg signals completion of document refresh.
 type docRefreshCompleteMsg struct {
 	docsDiscovered int
 	docsProcessed  int
 	atomsStored    int
-	duration       time.Duration
-	err            error
+	// docsPartial were extracted only in part (a chunk failed); the next
+	// refresh extracts them again.
+	docsPartial int
+	duration    time.Duration
+	err         error
 }
 
 // runDocRefresh scans for new/changed documentation and updates the knowledge base.
@@ -327,6 +338,7 @@ func (m Model) runDocRefresh(force bool) tea.Cmd {
 			docsDiscovered: state.TotalDiscovered,
 			docsProcessed:  state.TotalProcessed,
 			atomsStored:    state.AtomsStored,
+			docsPartial:    state.TotalPartial,
 			duration:       time.Since(startTime),
 		}
 	}
