@@ -127,3 +127,17 @@ One Codex lane per audit, each in its own worktree; the root runs the full suite
 | `consultation-cache-snapshot` | earlier branch | fixed `39c4e9268` |
 | `shard-db-registration-ownership` | earlier branch | fixed `6b745bba7` |
 | innovation `mission-driven-forever-improvement` | `research-main-20261030-0442` | built `388829653` |
+
+## Codex lanes (2026-10-30, second batch)
+
+| audit | branch | status |
+|---|---|---|
+| `deliberation-terminal-budget` | `research-main-20261030-0642` | fixed `95477e1ce` |
+| `prompt-evolution-screening-cohort` | `research-main-20261030-0544` | queued |
+| `verifier-change-evidence-coverage` | `research-main-20261030-0544` | queued |
+| `self-restart-failure-recovery` | `research-main-20261030-0544` | queued |
+| `dev-policy-reload-adoption` | `research-main-20261030-0614` | queued |
+| `jit-strategy-context-ownership` | `research-main-20261030-0614` | queued |
+| `recurse-gate-contract-continuity` | `research-main-20261030-0614` | queued |
+| `recurse-gate-subsumption` | `research-main-20261030-0642` | queued |
+| `knowledge-synthesis-answer-identity` | `research-main-20261030-0642` | queued |
