@@ -6264,3 +6264,11 @@ are withheld, reads are fitted visibly to the room left); `4a7b7e654` an empty r
 tool-less nudge, then a named failure). Fifth run converged in two rounds: decision, assumptions, success test and
 policy proof, with no question to the person. Open: R1-40 (yolo clarify) should now be re-briefed against the
 deliberate lane.
+
+## R1-43, resident services looked like stuck tasks -- landed (2026-10-30, 02:30-02:50)
+
+Brief (symptom only): resident background services appear in the chat like running tasks. Entry point: one chat
+request in the TUI (`--yolo`); it routed straight to delegation, with no clarifying question (the R1-40 symptom did
+not recur). **Landed** `aa014a7ba`: `internal/sessionlog/services.go` keeps one row per resident role (health, last
+activity); the chat and /status render a Resident Services section without task affordances; boot installs the
+registry before resident shards start. Fail-before: the new tests do not build against the old code. **Streak 0.**
