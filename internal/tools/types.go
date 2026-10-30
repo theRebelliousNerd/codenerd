@@ -147,6 +147,23 @@ func (t *Tool) Validate() error {
 	return nil
 }
 
+// InputSchema is the JSON object schema a model is offered for this tool's
+// arguments. Providers reject a null where the schema wants an object or an
+// array, so an absent property map renders as {} and an empty required list
+// is omitted rather than sent as null. Every native offer renders through
+// here.
+func (t *Tool) InputSchema() map[string]any {
+	properties := t.Schema.Properties
+	if properties == nil {
+		properties = map[string]Property{}
+	}
+	schema := map[string]any{"type": "object", "properties": properties}
+	if len(t.Schema.Required) > 0 {
+		schema["required"] = t.Schema.Required
+	}
+	return schema
+}
+
 // WithPriority returns a copy of the tool with the given priority.
 func (t *Tool) WithPriority(priority int) *Tool {
 	copy := *t

@@ -11,9 +11,10 @@ import (
 	"codenerd/internal/types"
 )
 
-// ReadTools uses the reviewed Mangle tool envelope and the existing registry's
-// argument, workspace, allowlist and effect guards. Neither role gets a shell,
-// MCP gateway, write tool, or permission to ask the person.
+// ReadTools offers the roles the deliberation_read_tool envelope
+// (deliberation.mg: the /core reads and the CodeDOM reads) through the
+// existing registry's argument, workspace, allowlist and effect guards. Neither
+// role gets a shell, a write tool, or permission to ask the person.
 type ReadTools struct {
 	Kernel       types.Kernel
 	Registry     *tools.Registry
@@ -48,8 +49,7 @@ func (b ReadTools) Definitions() ([]types.ToolDefinition, error) {
 			continue
 		}
 		tool := b.Registry.Get(name)
-		defs = append(defs, types.ToolDefinition{Name: name, Description: tool.Description,
-			InputSchema: map[string]any{"type": "object", "properties": tool.Schema.Properties, "required": tool.Schema.Required}})
+		defs = append(defs, types.ToolDefinition{Name: name, Description: tool.Description, InputSchema: tool.InputSchema()})
 	}
 	return defs, nil
 }

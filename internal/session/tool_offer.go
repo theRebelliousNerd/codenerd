@@ -43,11 +43,7 @@ func (e *Executor) buildToolDefinitions(cfg *config.EffectiveAgentRuntimeConfig)
 		if tool == nil {
 			continue
 		}
-		inputSchema := map[string]any{"type": "object", "properties": tool.Schema.Properties}
-		if len(tool.Schema.Required) > 0 {
-			inputSchema["required"] = tool.Schema.Required
-		}
-		defs = append(defs, types.ToolDefinition{Name: tool.Name, Description: tool.Description, InputSchema: inputSchema})
+		defs = append(defs, types.ToolDefinition{Name: tool.Name, Description: tool.Description, InputSchema: tool.InputSchema()})
 	}
 	logging.Session("Built %d tool definitions from %d allowed tools", len(defs), len(cfg.AllowedTools))
 	return defs

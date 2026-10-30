@@ -1,12 +1,17 @@
 package deliberation
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"codenerd/internal/core"
 	"codenerd/internal/sessionlog"
+	"codenerd/internal/tools"
+	"codenerd/internal/tools/codedom"
+	toolscore "codenerd/internal/tools/core"
 )
 
 func TestDecode_AcceptsFencedAndEnveloped(t *testing.T) {
@@ -138,5 +143,40 @@ func TestOutcomeNote_StatesAssumptions(t *testing.T) {
 	}
 	if (Outcome{Thread: &Thread{Status: "stopped"}}).Note() != "Deliberation: stopped." {
 		t.Error("a stopped thread's note is wrong")
+	}
+}
+
+// The roles' tool offer is sent to a provider that rejects a null schema
+// field (a live 400: "null is not of type array"). Every offered definition,
+// rendered from the kernel's deliberation_read_tool envelope, must be free of
+// nulls.
+func TestReadToolDefinitions_CarryNoNullSchemaField(t *testing.T) {
+	k, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The built-in registries production hydrates the modular tools from.
+	reg := tools.NewRegistry()
+	if err := toolscore.RegisterAll(reg); err != nil {
+		t.Fatal(err)
+	}
+	if err := codedom.RegisterAll(reg); err != nil {
+		t.Fatal(err)
+	}
+	defs, err := ReadTools{Kernel: k, Registry: reg, ContextBytes: 1 << 16}.Definitions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(defs) < 10 {
+		t.Fatalf("offered %d definitions, want the core and CodeDOM reads", len(defs))
+	}
+	for _, d := range defs {
+		b, err := json.Marshal(d.InputSchema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "null") {
+			t.Errorf("%s offers a null schema field: %s", d.Name, b)
+		}
 	}
 }
