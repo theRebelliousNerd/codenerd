@@ -73,8 +73,9 @@ func requireLiveXAIClient(t *testing.T) *XAIClient {
 		t.Skip("skipping: XAI_API_KEY not configured")
 	}
 
-	client := NewXAIClient(apiKey)
-	client.SetModel("grok-4-1-fast-reasoning")
+	cfg := DefaultXAIConfig(apiKey)
+	cfg.Model = "grok-4-1-fast-reasoning"
+	client := NewXAIClientWithConfig(cfg)
 	return client
 }
 

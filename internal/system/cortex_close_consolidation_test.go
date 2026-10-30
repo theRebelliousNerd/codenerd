@@ -48,7 +48,7 @@ func TestClosePerceptionLayer_DrainOutlivesTheStepTimeout(t *testing.T) {
 	perception.SharedTaxonomy = engine
 	t.Cleanup(func() {
 		perception.SharedTaxonomy = previous
-		engine.StopWorker()
+		_ = engine.ShutdownWorker(context.Background())
 	})
 
 	history := []perception.ReasoningTrace{

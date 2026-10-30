@@ -405,7 +405,7 @@ func TestMeasurementLogsAreInstalledAtBoot(t *testing.T) {
 // removed; --api-key now only overrides the configured provider's key.
 func TestBootBuildsNoUnmeteredVendorClient(t *testing.T) {
 	content := readRepoFile(t, "internal/system/factory.go")
-	for _, ctor := range []string{"NewZAIClient(", "NewOpenAIClient(", "NewAnthropicClient(", "NewGeminiClient(", "NewXAIClient(", "NewOpenRouterClient(", "NewOllamaClient("} {
+	for _, ctor := range []string{"NewZAIClient(", "NewOpenAIClient(", "NewAnthropicClient(", "NewGeminiClient(", "NewXAIClientWithConfig(", "NewOpenRouterClient(", "NewOllamaClient("} {
 		if strings.Contains(content, "perception."+ctor) {
 			t.Errorf("internal/system/factory.go builds perception.%s directly, bypassing the metered factory", ctor)
 		}

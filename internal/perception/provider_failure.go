@@ -86,13 +86,6 @@ func ClassifyProviderFailure(err error) ProviderFailureClass {
 	return FailurePermanent
 }
 
-// IsTransientProviderFailure reports whether err is an outage the user should
-// be told to retry rather than a failure to understand them. It holds for
-// every adapter, not only for errors that wrap ErrLLMUnavailable.
-func IsTransientProviderFailure(err error) bool {
-	return ClassifyProviderFailure(err).Retryable()
-}
-
 // SafeProviderFailureMessage describes a failure for a user or a log line
 // without the provider's response body, which can echo request content,
 // account identifiers or keys. It names the class and, when known, the

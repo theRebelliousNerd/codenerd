@@ -123,13 +123,6 @@ func (cw *ConsolidationWorker) Start() {
 	logging.Perception("ConsolidationWorker started in background")
 }
 
-// Stop closes admission, drains every accepted history and joins the worker,
-// with no budget. Idempotent: the chat shutdown path, the perception close and
-// test cleanup can all call it.
-func (cw *ConsolidationWorker) Stop() {
-	_ = cw.Shutdown(context.Background())
-}
-
 // Shutdown closes admission and drains the accepted queue until ctx ends. When
 // ctx ends first, the in-flight job is cancelled, queued jobs are abandoned
 // and counted, and the worker is joined before the error returns, so the

@@ -37,12 +37,6 @@ func DefaultXAIConfig(apiKey string) XAIConfig {
 	}
 }
 
-// NewXAIClient creates a new xAI client.
-func NewXAIClient(apiKey string) *XAIClient {
-	config := DefaultXAIConfig(apiKey)
-	return NewXAIClientWithConfig(config)
-}
-
 // NewXAIClientWithConfig creates a new xAI client with custom config.
 func NewXAIClientWithConfig(config XAIConfig) *XAIClient {
 	return &XAIClient{

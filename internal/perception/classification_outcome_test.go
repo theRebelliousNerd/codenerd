@@ -424,7 +424,8 @@ func TestPublishReplacesOnlyTheIntentsRow(t *testing.T) {
 	if err != nil || len(rows) != 2 {
 		t.Fatalf("rows = %v, %v; want one row per intent", rows, err)
 	}
-	if err := RetractClassificationOutcome(k, "/current_intent"); err != nil {
+	// Publishing an outcome no model read removes the intent's row.
+	if err := PublishClassificationOutcome(k, "/current_intent", ClassificationOutcome{}); err != nil {
 		t.Fatal(err)
 	}
 	if rows, _ = k.Query("classification_outcome"); len(rows) != 1 {

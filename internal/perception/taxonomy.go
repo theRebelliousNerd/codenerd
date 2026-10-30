@@ -167,14 +167,6 @@ func (t *TaxonomyEngine) QueueForLearning(traces []ReasoningTrace) Admission {
 	return t.worker.Enqueue(traces)
 }
 
-// StopWorker closes learning admission, drains every accepted history and
-// joins the consolidation worker, with no budget.
-func (t *TaxonomyEngine) StopWorker() {
-	if t.worker != nil {
-		t.worker.Stop()
-	}
-}
-
 // ShutdownWorker is StopWorker bounded by ctx: when the budget ends, the
 // in-flight history is cancelled, queued ones are abandoned and counted in the
 // returned *ShutdownIncompleteError, and the worker is joined either way.

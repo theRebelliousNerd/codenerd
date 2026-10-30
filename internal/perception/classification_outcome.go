@@ -231,11 +231,6 @@ func PublishClassificationOutcome(kernel types.Kernel, intentID string, outcome 
 	return nil
 }
 
-// RetractClassificationOutcome removes the intent's classification_outcome row.
-func RetractClassificationOutcome(kernel types.Kernel, intentID string) error {
-	return PublishClassificationOutcome(kernel, intentID, ClassificationOutcome{})
-}
-
 // ClassificationStop is the kernel's verdict that a turn's classification
 // failed and the turn ends with Notice (classification_stop,
 // policy/perception_outcome.mg). It is an error so the callers that return

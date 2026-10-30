@@ -95,8 +95,8 @@ func TestProviderFailureConformance(t *testing.T) {
 				if got := ClassifyProviderFailure(err); got != tc.class {
 					t.Fatalf("HTTP %d classified %q, want %q (err: %v)", tc.status, got, tc.class, err)
 				}
-				if got := IsTransientProviderFailure(err); got != tc.class.Retryable() {
-					t.Fatalf("IsTransientProviderFailure = %v for %q", got, tc.class)
+				if got := ClassifyProviderFailure(err).Retryable(); got != tc.class.Retryable() {
+					t.Fatalf("Retryable = %v for %q", got, tc.class)
 				}
 				if tc.retried && hits.Load() < 2 {
 					t.Fatalf("HTTP %d (%s) was not retried: %d request(s)", tc.status, tc.class, hits.Load())
@@ -180,7 +180,7 @@ func TestCLIProviderFailureConformance(t *testing.T) {
 				if got := ClassifyProviderFailure(err); got != FailureRateLimited {
 					t.Fatalf("%s classified %q, want %q (err: %v)", path, got, FailureRateLimited, err)
 				}
-				if !IsTransientProviderFailure(err) {
+				if !ClassifyProviderFailure(err).Retryable() {
 					t.Fatalf("%s is not retryable", path)
 				}
 				msg := SafeProviderFailureMessage(err)
