@@ -57,6 +57,12 @@ type Measurement struct {
 	// Output is what the gate printed that was neither a finding nor a
 	// compile error, kept whole: a failure that named nothing says why here.
 	Output string `json:"output,omitempty"`
+	// Unenumerated: the gate failed in a way its findings do not account
+	// for (it exited non-zero and named nothing). Its findings are not the
+	// whole failure, so no count drawn from them is complete, and narrowing
+	// or composing the measurement keeps the failure (restrict, Overlay):
+	// where it lies is unknown.
+	Unenumerated bool `json:"unenumerated,omitempty"`
 	// Scope are the package patterns a scoped measurement covered; empty is
 	// the whole module.
 	Scope []string `json:"scope,omitempty"`
@@ -270,6 +276,7 @@ func (g commandGate) Measure(ctx context.Context, root string) Measurement {
 	default:
 		m.Status = MeasureFail
 		m.Output = rest
+		m.Unenumerated = true
 		m.Reason = fmt.Sprintf("%s exited %d and named no finding", g.binary, code)
 	}
 	return m

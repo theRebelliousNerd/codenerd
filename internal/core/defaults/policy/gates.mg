@@ -12,6 +12,7 @@
 #   gate_measured(S, Gate, Status, Count)  Status /pass /fail /unavailable /unverified
 #   gate_finding(S, Gate, Key)             a distinct finding (file | check | message)
 #   gate_domain(S, Gate, Domain)           what the gate measured: root | packages
+#   gate_unenumerated(S, Gate)             its failure is more than its findings
 #   gate_comparison(Before, After)         the pair to judge
 #
 # Conclusions:
@@ -76,9 +77,13 @@ gate_compared(B, A, Gate, SB, SA, CB, CA) :-
     gate_measured(A, Gate, SA, CA),
     gate_same_domain(B, A, Gate).
 
-# A failure that named no finding: its count of zero enumerates nothing.
+# A failure its findings do not account for: its count is not complete. A
+# failure with no finding is one by definition; a composed or restricted
+# measurement carries the flag with findings beside it.
 gate_opaque(S, Gate) :-
     gate_measured(S, Gate, /fail, 0).
+gate_opaque(S, Gate) :-
+    gate_unenumerated(S, Gate).
 
 # Worse: a pass became a fail; a measured gate can no longer be measured (a
 # gate that cannot show it did not get worse is not kept as unchanged); or a

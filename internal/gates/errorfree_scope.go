@@ -57,9 +57,13 @@ func (s Snapshot) RestrictTo(after Snapshot) Snapshot {
 // Overlay is s with after laid over it: a gate after measured over a scope
 // keeps s's findings outside the scope and takes after's inside it; a gate
 // after measured whole is after's. The result is the tree after a kept
-// cycle, under after's ID.
+// cycle. It is composed, not measured: its ID is s's and after's joined, and
+// ComposedOf names every snapshot its rows came from, so it is never taken
+// for a fresh whole-module measurement under after's ID.
 func (s Snapshot) Overlay(after Snapshot) Snapshot {
 	out := after
+	out.ID = s.ID + "+" + after.ID
+	out.ComposedOf = append(composedOf(s), composedOf(after)...)
 	out.Gates = make([]Measurement, 0, len(s.Gates))
 	for _, g := range s.Gates {
 		a, ok := after.Gate(g.Gate)
@@ -72,10 +76,8 @@ func (s Snapshot) Overlay(after Snapshot) Snapshot {
 			kept.Findings = append(kept.Findings, a.Findings...)
 			lintreport.Sort(kept.Findings)
 			kept.Count = len(kept.Findings)
-			kept.Status = MeasurePass
-			if kept.Count > 0 {
-				kept.Status = MeasureFail
-			}
+			kept.Unenumerated = unenumerated(g) || unenumerated(a)
+			kept.Status = findingsStatus(kept)
 			kept.Scope = nil
 			g = kept
 		}
@@ -84,9 +86,38 @@ func (s Snapshot) Overlay(after Snapshot) Snapshot {
 	return out
 }
 
+// findingsStatus is the status of a recounted pass/fail measurement: a
+// failure while it holds a finding, or while part of its failure is one no
+// finding accounts for (Unenumerated), which no restriction can locate; a
+// pass otherwise. An unenumerated failure used to restrict and compose to a
+// pass, because zero retained findings looked like a clean scope.
+func findingsStatus(m Measurement) MeasureStatus {
+	if m.Count > 0 || m.Unenumerated {
+		return MeasureFail
+	}
+	return MeasurePass
+}
+
+// unenumerated reports whether part of m's failure is one no finding
+// accounts for: flagged at measurement, or a failure with no finding at all
+// (a snapshot written before the flag existed).
+func unenumerated(m Measurement) bool {
+	return m.Unenumerated || (m.Status == MeasureFail && len(m.Findings) == 0)
+}
+
+// composedOf is the snapshots s's rows came from: its ComposedOf, or s itself
+// when it was measured.
+func composedOf(s Snapshot) []string {
+	if len(s.ComposedOf) > 0 {
+		return append([]string(nil), s.ComposedOf...)
+	}
+	return []string{s.ID}
+}
+
 // restrict keeps m's findings in (inside true) or outside (inside false) the
 // package patterns, recounting and re-deciding a findings-only status.
 func restrict(m Measurement, patterns []string, inside bool) Measurement {
+	m.Unenumerated = unenumerated(m)
 	var kept []lintreport.Finding
 	for _, f := range m.Findings {
 		if InScope(f, patterns) == inside {
@@ -98,11 +129,7 @@ func restrict(m Measurement, patterns []string, inside bool) Measurement {
 		m.Findings = []lintreport.Finding{}
 	}
 	m.Count = len(kept)
-	if m.Count == 0 {
-		m.Status = MeasurePass
-	} else {
-		m.Status = MeasureFail
-	}
+	m.Status = findingsStatus(m)
 	if inside {
 		m.Scope = append([]string(nil), patterns...)
 		m.Packages = append([]string(nil), patterns...)

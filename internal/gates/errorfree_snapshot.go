@@ -26,6 +26,9 @@ type Snapshot struct {
 	// measured as it is; Head says where it started.
 	Head  string        `json:"head,omitempty"`
 	Gates []Measurement `json:"gates"`
+	// ComposedOf, when set, says the snapshot was composed (Overlay), not
+	// measured: the IDs of the measured snapshots its rows came from.
+	ComposedOf []string `json:"composed_of,omitempty"`
 }
 
 // SnapshotDir is where snapshots are written, under the workspace.
@@ -104,6 +107,9 @@ func (s Snapshot) Facts() []types.Fact {
 		facts = append(facts,
 			types.Fact{Predicate: "gate_measured", Args: []any{s.ID, gate, types.MangleAtom("/" + string(g.Status)), int64(g.Count)}},
 			types.Fact{Predicate: "gate_domain", Args: []any{s.ID, gate, s.domain(g)}})
+		if g.Unenumerated {
+			facts = append(facts, types.Fact{Predicate: "gate_unenumerated", Args: []any{s.ID, gate}})
+		}
 		seen := map[string]bool{}
 		for _, f := range g.Findings {
 			key := FindingKey(f)

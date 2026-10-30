@@ -33,7 +33,7 @@ func TestSnapshot_RestrictToAndOverlay(t *testing.T) {
 	}
 	merged := base.Overlay(after)
 	sc, _ = merged.Gate("staticcheck")
-	if merged.ID != "after" || sc.Count != 2 || sc.Findings[0].File != "b/b.go" || len(sc.Scope) != 0 {
+	if merged.ID != "base+after" || sc.Count != 2 || sc.Findings[0].File != "b/b.go" || len(sc.Scope) != 0 {
 		t.Fatalf("overlay = %+v, want b's two findings kept and a's gone, unscoped", sc)
 	}
 	if !InScope(f("b/sub/c.go", "", ""), []string{"./b/..."}) || InScope(f("b/sub/c.go", "", ""), []string{"./b"}) || !InScope(f("main.go", "", ""), []string{"."}) {

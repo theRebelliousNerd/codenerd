@@ -8,6 +8,7 @@ Decl gate_measured(Snapshot, Gate, Status, Count) bound [/string, /name, /name, 
 Decl gate_finding(Snapshot, Gate, Key) bound [/string, /name, /string].
 Decl gate_comparison(Before, After) bound [/string, /string].
 Decl gate_domain(Snapshot, Gate, Domain) bound [/string, /name, /string].
+Decl gate_unenumerated(Snapshot, Gate) bound [/string, /name].
 
 Decl gate_measurable(Status) bound [/name].
 Decl gate_present(Snapshot, Gate) bound [/string, /name].

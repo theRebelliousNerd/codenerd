@@ -265,7 +265,7 @@ var ratchetInputs = map[string]struct{}{
 	"recurse_ratchet_forbidden": {}, "recurse_improve": {}, "recurse_metric": {},
 	"recurse_ratchet_tested":  {},
 	"recurse_cycle_snapshots": {}, "gate_snapshot": {}, "gate_measured": {}, "gate_finding": {},
-	"gate_domain": {}, "gate_comparison": {},
+	"gate_domain": {}, "gate_unenumerated": {}, "gate_comparison": {},
 }
 
 // regressedGates names the error-free gates policy/gates.mg says got worse
