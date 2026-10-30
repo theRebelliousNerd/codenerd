@@ -287,6 +287,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	// Get flags
 	docs, _ := cmd.Flags().GetStringArray("docs")
 	campaignType, _ := cmd.Flags().GetString("type")
+	campaignHints, _ := cmd.Flags().GetStringArray("hint")
 
 	// Boot through the Cortex factory so campaigns inherit every factory
 	// improvement (session identity, Ouroboros registry, hydration, Dreamer
@@ -345,12 +346,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	if appCfg != nil && appCfg.ContextWindow != nil && appCfg.ContextWindow.MaxTokens > 0 {
 		contextBudget = appCfg.ContextWindow.MaxTokens
 	}
-	req := campaign.DecomposeRequest{
-		Goal:          goal,
-		SourcePaths:   docs,
-		CampaignType:  campaign.CampaignType("/" + campaignType),
-		ContextBudget: contextBudget,
-	}
+	req := decomposeRequest(goal, docs, campaignType, contextBudget, campaignHints)
 
 	// A deterministically-built campaign (currently `nerd campaign assault`)
 	// skips decomposition but needs the identical boot below: JIT executor,
@@ -808,6 +804,19 @@ func repeatChar(c rune, n int) string {
 		result[i] = c
 	}
 	return string(result)
+}
+
+// decomposeRequest is what nerd campaign start asks the decomposer for. The
+// decomposer has always given UserHints to the planner with the goal; until
+// --hint nothing supplied them.
+func decomposeRequest(goal string, docs []string, campaignType string, contextBudget int, hints []string) campaign.DecomposeRequest {
+	return campaign.DecomposeRequest{
+		Goal:          goal,
+		SourcePaths:   docs,
+		CampaignType:  campaign.CampaignType("/" + campaignType),
+		ContextBudget: contextBudget,
+		UserHints:     append([]string(nil), hints...),
+	}
 }
 
 // campaignOutcome converts the orchestrator result into the command's
