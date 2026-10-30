@@ -368,14 +368,16 @@ func (e *Engine) rebuildProgramLocked() error {
 	if e.programInfo != nil {
 		previousIdb = e.programInfo.IdbPredicates
 	}
-	e.programInfo = programInfo
 
 	// Cache stratification for EvalStratifiedProgramWithStats, layered
-	// (strata_layers.go).
+	// (strata_layers.go). Admission is atomic: nothing below is published until
+	// the program has passed every check, so a rejected fragment leaves the
+	// accepted program, strata, indexes, query context and rule graph as they were.
 	strata, predToStratum, err := Stratify(programInfo)
 	if err != nil {
 		return fmt.Errorf("stratification failed: %w", err)
 	}
+	e.programInfo = programInfo
 	e.strata = strata
 	e.predToStratum = predToStratum
 
