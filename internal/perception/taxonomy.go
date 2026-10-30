@@ -260,29 +260,55 @@ func (t *TaxonomyEngine) EnsureDefaults() error {
 		return err
 	}
 
-	have := make(map[string]bool, len(DefaultTaxonomyData))
+	// Reconcile tuple by tuple. A stored verb_def used to stand for the
+	// verb's whole seed group: a group cut off after its definition (a failed
+	// synonym write, a stopped process) stayed incomplete on every later
+	// boot, and a synonym or pattern added to an already-stored verb never
+	// reached the store (audit taxonomy-initialization-completeness). Each
+	// missing definition, synonym and pattern is written; a stored definition
+	// is never rewritten, so a workspace's own metadata stands, and rows the
+	// defaults do not name (learned, user, foreign verbs) are untouched. An
+	// interrupted pass leaves the rest missing, and the next one writes it.
+	type tuple struct{ pred, verb, value string }
+	have := make(map[tuple]bool, len(facts))
 	for _, f := range facts {
-		if f.Predicate == "verb_def" && len(f.Args) > 0 {
-			if verb, ok := f.Args[0].(string); ok {
-				have[verb] = true
+		if len(f.Args) == 0 {
+			continue
+		}
+		verb, ok := f.Args[0].(string)
+		if !ok {
+			continue
+		}
+		switch f.Predicate {
+		case "verb_def":
+			have[tuple{"verb_def", verb, ""}] = true
+		case "verb_synonym", "verb_pattern":
+			if len(f.Args) > 1 {
+				if value, ok := f.Args[1].(string); ok {
+					have[tuple{f.Predicate, verb, value}] = true
+				}
 			}
 		}
 	}
 
-	// Use defaults from Go struct
 	for _, entry := range DefaultTaxonomyData {
-		if have[entry.Verb] {
-			continue
-		}
-		if err := t.store.StoreVerbDef(entry.Verb, entry.Category, entry.ShardType, entry.Priority); err != nil {
-			return fmt.Errorf("failed to store verb def for %s: %w", entry.Verb, err)
+		if !have[tuple{"verb_def", entry.Verb, ""}] {
+			if err := t.store.StoreVerbDef(entry.Verb, entry.Category, entry.ShardType, entry.Priority); err != nil {
+				return fmt.Errorf("failed to store verb def for %s: %w", entry.Verb, err)
+			}
 		}
 		for _, syn := range entry.Synonyms {
+			if have[tuple{"verb_synonym", entry.Verb, syn}] {
+				continue
+			}
 			if err := t.store.StoreVerbSynonym(entry.Verb, syn); err != nil {
 				return fmt.Errorf("failed to store synonym %s for %s: %w", syn, entry.Verb, err)
 			}
 		}
 		for _, pat := range entry.Patterns {
+			if have[tuple{"verb_pattern", entry.Verb, pat}] {
+				continue
+			}
 			if err := t.store.StoreVerbPattern(entry.Verb, pat); err != nil {
 				return fmt.Errorf("failed to store pattern %s for %s: %w", pat, entry.Verb, err)
 			}
