@@ -438,6 +438,8 @@ func hasKey[K comparable, V any](m map[K]V, k K) bool {
 // another shard is a predicate the shard's part does not hold, so it is
 // unresolved there, never false.
 func (c *CortexKernel) CheckBatchInclusion(producer string, facts []Fact) error {
+	c.adoptionMu.RLock()
+	defer c.adoptionMu.RUnlock()
 	batches, err := c.groupByTarget(facts)
 	if err != nil {
 		return err

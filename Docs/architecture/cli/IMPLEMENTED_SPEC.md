@@ -577,3 +577,21 @@ Detailed schema: see `Docs/architecture/config/` and skill `codenerd-config-expe
 | 2026-07-13 | Deep rewrite: dual-surface architecture, command/slash catalogs, boot/wiring journals, OODA/campaign deep dives. |
 
 Still thin on per-command history. Further expansion should attach **shipped change logs** per command family as they land, not invent history.
+
+
+## Self-restart failure recovery
+
+`cmd/nerd/chat/self_restart.go` suppresses automatic retries for the exact
+executable identity whose restart failed, including restore-file failures.
+Identity uses size, modification time and inode; a display label is not a new
+build. Duplicate notifications do not promise another restart. A distinct later
+identity may reach the ordinary loading, boot and approval idle gate. Failure
+ownership stays on the retained model when a watcher/restarter is replaced.
+`internal/selfrestart` deduplicates pending observations and retires a stale
+candidate if the disk returns to the running identity. The minimal unsupported
+platform stub continues to report manual restart.
+
+The session, brief, held work and draft still cross the existing restore-file
+path. Regression definitions in `cmd/nerd/chat/self_restart_test.go` cover
+failure, duplicate observations, watcher replacement and later-generation
+recovery. Their execution remains pending.

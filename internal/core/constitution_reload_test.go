@@ -84,7 +84,7 @@ func TestReloadConstitution_AppliesAValidEditAndKeepsTheProgramOnAnInvalidOne(t 
 	}
 
 	appendPolicy(t, root, reloadProbe)
-	if err := k.ReloadConstitution(); err != nil {
+	if _, err := k.ReloadConstitution(); err != nil {
 		t.Fatalf("a valid edit did not reload: %v", err)
 	}
 	if got := probeTargets(t, k); len(got) != 1 || got[0] != "internal/retry/policy.go" {
@@ -92,7 +92,7 @@ func TestReloadConstitution_AppliesAValidEditAndKeepsTheProgramOnAnInvalidOne(t 
 	}
 
 	appendPolicy(t, root, reloadProbe+"\nthis is not mangle(\n")
-	err = k.ReloadConstitution()
+	_, err = k.ReloadConstitution()
 	if err == nil || !strings.Contains(err.Error(), "does not compile") {
 		t.Fatalf("an invalid edit reloaded: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestReloadConstitution_AppliesAValidEditAndKeepsTheProgramOnAnInvalidOne(t 
 
 	// A stratification error is refused the same way.
 	appendPolicy(t, root, reloadProbe+"\ndev_reload_probe(X) :- user_intent(/current_intent, _, _, X, _), !dev_reload_probe(X).\n")
-	if err := k.ReloadConstitution(); err == nil {
+	if _, err := k.ReloadConstitution(); err == nil {
 		t.Fatal("an unstratifiable edit reloaded")
 	}
 	if got := probeTargets(t, k); len(got) != 1 {

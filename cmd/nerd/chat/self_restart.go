@@ -105,6 +105,9 @@ func (m Model) handleBinaryRebuilt(msg binaryRebuiltMsg) (Model, tea.Cmd) {
 	if !selfrestart.ExecSupported {
 		return m.pushAssistantMsg(fmt.Sprintf("A rebuilt codeNERD (%s) is on disk. This platform cannot restart in place: quit and start `nerd` again to use it.", msg.id.Build)), listen
 	}
+	if m.restartFailed != nil && !m.restartFailed.Changed(msg.id) {
+		return m, listen
+	}
 	m = m.pushAssistantMsg(fmt.Sprintf("A rebuilt codeNERD (%s) is on disk; restarting onto it when the session is idle, keeping this conversation.", msg.id.Build))
 	return m, tea.Batch(listen, restartCheckTick())
 }
@@ -112,7 +115,11 @@ func (m Model) handleBinaryRebuilt(msg binaryRebuiltMsg) (Model, tea.Cmd) {
 // handleRestartCheck restarts when the session is idle, and asks again later
 // when it is not.
 func (m Model) handleRestartCheck() (Model, tea.Cmd) {
-	if m.restarter == nil || m.restartFailed {
+	if m.restarter == nil {
+		return m, nil
+	}
+	next, pending := m.restarter.Pending()
+	if !pending || (m.restartFailed != nil && !m.restartFailed.Changed(next)) {
 		return m, nil
 	}
 	if !m.restarter.ShouldRestart(m.restartBusy()) {
@@ -198,9 +205,10 @@ func (m Model) performRestart(exec selfrestart.ExecFunc) (Model, error) {
 	if exec != nil {
 		m.restarter.SetExec(exec)
 	}
+	next, _ := m.restarter.Pending()
 	err := m.restarter.Restart(st, os.Args)
 	if err != nil {
-		m.restartFailed = true
+		m.restartFailed = &next
 		m = m.pushAssistantMsg(fmt.Sprintf("**Restart failed:** %v", err))
 		return m, err
 	}
@@ -290,9 +298,13 @@ func listenPolicyReloads(ch <-chan nerdsystem.PolicyReloadEvent) tea.Cmd {
 func (m Model) handlePolicyReload(msg policyReloadMsg) (Model, tea.Cmd) {
 	files := strings.Join(msg.ev.Files, ", ")
 	if msg.ev.Err != nil {
-		m = m.pushAssistantMsg(fmt.Sprintf("**Policy reload failed** (%s); the running policy is unchanged:\n\n```\n%v\n```", files, msg.ev.Err))
+		disposition := ""
+		if msg.ev.Reload.Disposition == "rejected" {
+			disposition = "; the running policy is unchanged"
+		}
+		m = m.pushAssistantMsg(fmt.Sprintf("**Policy reload failed** (%s)%s (stage %s, candidate %s, active %s):\n\n```\n%v\n```", files, disposition, msg.ev.Reload.Stage, msg.ev.Reload.Candidate, msg.ev.Reload.Active, msg.ev.Err))
 	} else {
-		m = m.pushAssistantMsg(fmt.Sprintf("Policy reloaded from the source tree: %s is live.", files))
+		m = m.pushAssistantMsg(fmt.Sprintf("Policy reloaded from the source tree: %s is live (generation %s).", files, msg.ev.Reload.Active))
 	}
 	var ch <-chan nerdsystem.PolicyReloadEvent
 	if m.cortex != nil {

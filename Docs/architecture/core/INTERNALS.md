@@ -194,3 +194,37 @@ checks before their behavioral acceptance is established.
   validation decided.
 - Boot failure forensics: `debug_program_ERROR.mg` from
   `writeFailedProgramDump` (`internal/core/kernel_eval.go:543-553`).
+
+
+## Development constitution adoption
+
+The dev-only reload boundary must publish programs, evaluated stores and the
+Cortex derivation map as one accepted generation. Capture the corpus twice and
+reject if the assembled bytes differ; the identity names the captured bytes,
+not an editor transaction. All shards consume that immutable capture. A writer
+that changes files after capture requires another watcher event.
+
+Stage a clone of each kernel while holding its mutex, preserving appended
+schemas, policy, learned rules, limits and current EDB. Reject specialized
+kernels whose constitution prefix was replaced. Compile, validate every retained
+fact and evaluate every candidate before publishing anything. Cortex operations
+hold an adoption read barrier from route selection through use; reload holds its
+write side, then the routing mutex and all kernel mutexes in domain order.
+Direct kernel writes serialize on those same kernel mutexes. This avoids late
+program conflicts and preserves legitimate writes without rollback.
+
+Build routing from the staged programs and the installed ownership/consumer
+manifests. Replace each staged shard's shared EDB from the catch-all's canonical
+inventory before evaluation, so newly consuming shards can derive immediately.
+Consumption follows the rebuilt map, including local joins against owned
+predicates and their explicit consumer copies. A rule reading only shared facts
+has a uniform result served by the catch-all; registering an otherwise empty
+shard does not require a shared replica there. The hydration regression uses
+world-owned `file_topology` and the shipped `context_priority` join through
+`file_exists` to require an actual world consumer, and checks the result through
+the routed Cortex query. A separate regression preserves catch-all routing for
+uniform results. A stale replica outside the current consumers is discarded on
+reload from the canonical inventory.
+Publication performs no fallible work. Rejections retain the prior programs,
+stores and map. Temporary candidate stores and a quiescent pause are deliberate
+costs of this opt-in development feature; latency and memory remain unmeasured.

@@ -50,8 +50,10 @@ var _ types.KernelTransaction = (*CortexTransaction)(nil)
 
 // CortexKernel is the top-level kernel that manages domain shards.
 type CortexKernel struct {
-	mu     sync.RWMutex
-	shards map[string]*KernelShard // domain -> shard
+	// adoptionMu spans route selection and use, excluding a policy generation swap.
+	adoptionMu sync.RWMutex
+	mu         sync.RWMutex
+	shards     map[string]*KernelShard // domain -> shard
 
 	// Routing tables (predicate -> domain name)
 	predicateOwner map[string]string // predicate -> domain that owns it
@@ -461,6 +463,8 @@ func (c *CortexKernel) routeToShard(predicate string) *KernelShard {
 // Assert routes a fact to the owning shard based on predicate; a shared
 // predicate lands in every shard.
 func (c *CortexKernel) Assert(fact types.Fact) error {
+	c.adoptionMu.RLock()
+	defer c.adoptionMu.RUnlock()
 	targets := c.targetShards(fact.Predicate)
 	if len(targets) == 0 {
 		return c.noteMutationFailure("assert", fact.Predicate,
@@ -486,6 +490,8 @@ func (c *CortexKernel) Assert(fact types.Fact) error {
 
 // AssertBatch routes facts to their respective shards, batching per-shard.
 func (c *CortexKernel) AssertBatch(facts []types.Fact) error {
+	c.adoptionMu.RLock()
+	defer c.adoptionMu.RUnlock()
 	batches, err := c.groupByTarget(facts)
 	if err != nil {
 		return err
@@ -517,6 +523,8 @@ func (c *CortexKernel) AssertBatch(facts []types.Fact) error {
 // Retract removes all facts of a predicate from the owning shard, or from
 // every shard for a shared predicate.
 func (c *CortexKernel) Retract(predicate string) error {
+	c.adoptionMu.RLock()
+	defer c.adoptionMu.RUnlock()
 	targets := c.targetShards(predicate)
 	if len(targets) == 0 {
 		return c.noteMutationFailure("retract", predicate,
@@ -539,6 +547,8 @@ func (c *CortexKernel) Retract(predicate string) error {
 // RetractFact removes a specific fact from the owning shard, or from every
 // shard for a shared predicate.
 func (c *CortexKernel) RetractFact(fact types.Fact) error {
+	c.adoptionMu.RLock()
+	defer c.adoptionMu.RUnlock()
 	targets := c.targetShards(fact.Predicate)
 	if len(targets) == 0 {
 		return c.noteMutationFailure("retract fact", fact.Predicate,
@@ -560,6 +570,8 @@ func (c *CortexKernel) RetractFact(fact types.Fact) error {
 
 // RetractExactFactsBatch removes exact facts, routing each to the correct shard.
 func (c *CortexKernel) RetractExactFactsBatch(facts []types.Fact) error {
+	c.adoptionMu.RLock()
+	defer c.adoptionMu.RUnlock()
 	batches, err := c.groupByTarget(facts)
 	if err != nil {
 		return err
@@ -579,6 +591,8 @@ func (c *CortexKernel) RetractExactFactsBatch(facts []types.Fact) error {
 
 // RemoveFactsByPredicateSet removes all facts with predicates in the set, routing to correct shards.
 func (c *CortexKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
+	c.adoptionMu.RLock()
+	defer c.adoptionMu.RUnlock()
 	// Group predicates by every shard holding them
 	shardPreds := make(map[string]map[string]struct{})
 	for pred := range predicates {
@@ -666,6 +680,8 @@ func (c *CortexKernel) readShards(predicate string) ([]*KernelShard, readRoute, 
 // owner, it fans out to the shards readShards names and merges the results,
 // deduplicated.
 func (c *CortexKernel) Query(predicate string) ([]types.Fact, error) {
+	c.adoptionMu.RLock()
+	defer c.adoptionMu.RUnlock()
 	shards, route, err := c.readShards(predicate)
 	if err != nil {
 		return nil, err
@@ -749,6 +765,8 @@ func (c *CortexKernel) QueryAll() (map[string][]types.Fact, error) {
 
 // LoadFacts distributes facts to their respective shards.
 func (c *CortexKernel) LoadFacts(facts []types.Fact) error {
+	c.adoptionMu.RLock()
+	defer c.adoptionMu.RUnlock()
 	batches, err := c.groupByTarget(facts)
 	if err != nil {
 		return err
@@ -796,6 +814,8 @@ func (c *CortexKernel) GetProgramInfo() *analysis.ProgramInfo {
 // a property of the program's rules. The program-level answer over-approximates
 // the sharded one (a split join never fires), which is the safe side.
 func (c *CortexKernel) ExecSinksReachedBy(predicate string) ([]string, error) {
+	c.adoptionMu.RLock()
+	defer c.adoptionMu.RUnlock()
 	c.mu.RLock()
 	shard, ok := c.shards[c.cortexDomain]
 	c.mu.RUnlock()
@@ -895,6 +915,8 @@ func (t *CortexTransaction) RetractPredicateSet(predicates map[string]struct{}) 
 // Retracts execute first, then asserts. Each shard's kernel gets at most
 // one Transaction+Commit, minimizing fixpoint evaluations.
 func (t *CortexTransaction) Commit() error {
+	t.cortex.adoptionMu.RLock()
+	defer t.cortex.adoptionMu.RUnlock()
 	timer := logging.StartTimer(logging.CategoryKernel, "CortexTransaction.Commit")
 
 	// Group operations by shard domain

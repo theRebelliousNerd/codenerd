@@ -19,6 +19,8 @@ import (
 // traces: one root per derived fact, deduplicated across shards as Query
 // deduplicates its rows.
 func (c *CortexKernel) TraceQuery(ctx context.Context, query string) (*mangle.DerivationTrace, error) {
+	c.adoptionMu.RLock()
+	defer c.adoptionMu.RUnlock()
 	start := time.Now()
 	shards, _, err := c.readShards(query)
 	if err != nil {
@@ -118,6 +120,8 @@ func (c *CortexKernel) shardList() []*KernelShard {
 // production, but it does here, which is what a what-if is asked for. A clone
 // of the catch-all shard alone held only the facts no other shard owns.
 func (c *CortexKernel) ShadowKernel() (*RealKernel, error) {
+	c.adoptionMu.RLock()
+	defer c.adoptionMu.RUnlock()
 	primary := c.GetPrimaryRealKernel()
 	if primary == nil {
 		return nil, fmt.Errorf("cortex has no primary shard to copy")

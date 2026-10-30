@@ -187,6 +187,12 @@ func (r *Restarter) BinaryChanged(next Identity) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if !r.current.Changed(next) {
+		// The executable was restored to the running build. Retire any
+		// older candidate rather than executing it under a stale label.
+		r.pending = nil
+		return false
+	}
+	if r.pending != nil && !r.pending.Changed(next) {
 		return false
 	}
 	r.pending = &next

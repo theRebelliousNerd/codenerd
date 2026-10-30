@@ -280,6 +280,8 @@ func (k *RealKernel) programDigestLocked() string {
 // returns the first that recorded a proof; otherwise the first shard's
 // envelope, which says why there is none.
 func (c *CortexKernel) ExplainEnvelope(goal string, opts ExplainOptions) (*ExplanationEnvelope, error) {
+	c.adoptionMu.RLock()
+	defer c.adoptionMu.RUnlock()
 	shards, _, err := c.readShards(goal)
 	if err != nil {
 		return nil, err

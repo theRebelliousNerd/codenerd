@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: cli-selfrestart
-implementation-status: planned
+implementation-status: implemented
 evidence-status: source-only
 last-verified: 2026-10-30
 verified-against: fef98230c20a5751e4c32a2fd2757832a9d39cdc
@@ -104,3 +104,39 @@ The current failure test ends after proving suppression before the next rebuild;
 This review found no existing self-restart audit in the inspected `Docs/audits` inventory; an indexed audit-directory search for `selfrestart` also returned no matches. Search coverage is not proof of exhaustive novelty, and the index can lag main. The narrow subject here is the newly introduced failed-attempt-to-later-rebuild handoff, not general session persistence, executable trust, all watcher lifecycle behavior or the broader mission-driven improvement proposal.
 
 **Exit condition:** a failed attempt remains suppressed for its own executable identity, a distinct eligible later identity can reach the unchanged idle/approval gate in the retained chat session, and the UI states the actual disposition. Both the failure-to-new-build transition and duplicate-failed-build suppression must be pinned by tests before this finding is marked fixed. This memo does not mark either check passed.
+
+
+## As built
+
+Rechecked against worktree baseline `8d373fb6ca05ef03fec59b923c5f1925066d623a`
+and the authored changes. The earlier analysis describes that baseline; this
+section records the resulting implementation. Evidence remains source inspection
+and test definitions, with no executed behavioral acceptance result.
+
+| Finding or boundary | Ruling and implementation |
+|---|---|
+| A failed restart permanently excludes later builds | **Real, repaired.** `cmd/nerd/chat/model_types.go` retains the attempted `selfrestart.Identity`; `handleRestartCheck` in `cmd/nerd/chat/self_restart.go` suppresses only that identity. A distinct candidate reaches the existing idle gate. |
+| Duplicate B notifications could defeat a boolean-reset repair | **Real design constraint, addressed.** `internal/selfrestart/selfrestart.go` deduplicates pending identities. The chat suppresses notices and requests for its failed identity even after restarter replacement. Size, time and inode remain the identity dimensions; display text does not admit a generation. |
+| Failure ownership must survive watcher replacement | **Real, addressed.** Failure identity remains on the retained model, independently of the replacement restarter's baseline. |
+| Busy/approval deferral, old-process survival, state round trip and platform distinction | **Existing protections retained.** `restartBusy`, restore-file IO, injected exec and the minimal platform stub remain in their existing production paths. Restore-write failure receives the same identity suppression as exec failure. |
+
+`cmd/nerd/chat/self_restart_test.go` adds
+`TestSelfRestart_FailureIsScopedToTheAttemptedIdentity` (including watcher
+replacement, duplicate notices, repeated B/C/D failures and all idle guards)
+and `TestSelfRestart_RestoreWriteFailureCanRecoverOnAnotherBuild`.
+`internal/selfrestart/selfrestart_test.go` adds
+`TestRestarter_TracksDistinctPendingIdentities`, including independent size,
+time and inode changes, display-only changes and return to the running identity.
+The existing failed-exec and restore round-trip tests remain.
+
+Fail-before evidence is **static**, not an executed red test: the baseline's
+`restartFailed` boolean remains true when a later candidate arrives, so the new
+recovery assertion cannot obtain a restart request. Its `BinaryChanged` compares
+only against the running identity, so the new duplicate-pending assertion also
+fails by inspection. No finding was dismissed as wrong or already repaired.
+
+The as-built contract is documented in
+`Docs/architecture/cli/IMPLEMENTED_SPEC.md`. No prompt atoms or production Mangle
+files changed. Builds, tests, live exec and commits were not run under the
+author-only task constraint. Authorized package execution and isolated TUI/exec
+acceptance remain pending; this implementation status does not claim they passed.

@@ -651,3 +651,20 @@ rg "GetOrBootCortex|BootCortexWithConfig" -g "*.go" cmd internal/system
 ---
 
 *End of IMPLEMENTED_SPEC — living document; re-verify against `internal/system/` when factory stages change.*
+
+
+## Development policy reload disposition
+
+`internal/system/dev_policy.go` admits hot reload only with
+`dev.policy_hot_reload` enabled in codeNERD's own source tree. The kernel owns
+corpus capture, staging, routing reconstruction and atomic adoption; the watcher
+must not reread source to build routing after adoption. Outcomes identify the
+candidate, accepted generation and failing stage. An error means rejection
+before publication; only that contract supports the session's unchanged-policy
+notice. Successful outcomes mean every participating shard evaluated the same
+captured constitution and routing was published with it. No provider call or
+prompt atom participates in adoption.
+
+Regression definitions in `internal/core/constitution_reload_test.go` and
+`internal/system/dev_policy_test.go` cover rejection, recovery and existing-fact
+routing. Execution evidence is pending; authored coverage is not a passing run.

@@ -96,7 +96,8 @@ func TestBootDevMode_HotReloadsThePolicyFromTheSourceTree(t *testing.T) {
 	if err := os.WriteFile(probe, []byte(rule), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if ev := awaitReload(t, cortex.PolicyReloads()); ev.Err != nil || len(ev.Files) != 1 {
+	accepted := awaitReload(t, cortex.PolicyReloads())
+	if ev := accepted; ev.Err != nil || len(ev.Files) != 1 || ev.Reload.Disposition != "adopted" || ev.Reload.Active == "" || ev.Reload.Active != ev.Reload.Candidate {
 		t.Fatalf("the valid edit did not reload: %+v", ev)
 	}
 	rows, err := cortex.Kernel.Query("dev_reload_probe")
@@ -107,11 +108,38 @@ func TestBootDevMode_HotReloadsThePolicyFromTheSourceTree(t *testing.T) {
 	if err := os.WriteFile(probe, []byte(rule+"this is not mangle(\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if ev := awaitReload(t, cortex.PolicyReloads()); ev.Err == nil {
+	if ev := awaitReload(t, cortex.PolicyReloads()); ev.Err == nil || ev.Reload.Disposition != "rejected" || ev.Reload.Active != accepted.Reload.Active {
 		t.Fatalf("the invalid edit reloaded: %+v", ev)
 	}
 	if rows, err := cortex.Kernel.Query("dev_reload_probe"); err != nil || len(rows) != 1 {
 		t.Fatalf("the invalid edit disturbed the running program: %v (%v)", rows, err)
+	}
+
+	// A compile-valid candidate may still fail evaluation. Exercise the
+	// watcher -> adapter -> multi-shard reload -> event path, then recover.
+	ck, ok := cortex.Kernel.(*core.CortexKernel)
+	if !ok {
+		t.Fatalf("expected domain Cortex, got %T", cortex.Kernel)
+	}
+	primary := ck.GetPrimaryRealKernel()
+	limit := primary.GetDerivedFactLimit()
+	primary.SetDerivedFactLimit(1)
+	defer primary.SetDerivedFactLimit(limit)
+	if err := os.WriteFile(probe, []byte(rule+"\n# evaluation rejection witness\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ev := awaitReload(t, cortex.PolicyReloads()); ev.Err == nil || ev.Reload.Stage != "evaluate" || ev.Reload.Active != accepted.Reload.Active || ev.Reload.Disposition != "rejected" {
+		t.Fatalf("evaluation failure did not preserve the accepted generation: %+v", ev)
+	}
+	if rows, err := cortex.Kernel.Query("dev_reload_probe"); err != nil || len(rows) != 1 {
+		t.Fatalf("evaluation rejection poisoned the accepted store: %v (%v)", rows, err)
+	}
+	primary.SetDerivedFactLimit(limit)
+	if err := os.WriteFile(probe, []byte(rule+"\n# ready recovery witness\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ev := awaitReload(t, cortex.PolicyReloads()); ev.Err != nil || ev.Reload.Disposition != "adopted" || ev.Reload.Active == accepted.Reload.Active || ev.Reload.Active != ev.Reload.Candidate {
+		t.Fatalf("reload did not recover after rejection: %+v", ev)
 	}
 }
 

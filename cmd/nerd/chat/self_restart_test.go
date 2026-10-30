@@ -2,6 +2,9 @@ package chat
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"codenerd/internal/config"
+	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/selfrestart"
 	nerdsystem "codenerd/internal/system"
@@ -117,7 +121,7 @@ func TestSelfRestart_AFailedExecKeepsTheSession(t *testing.T) {
 	st := m.restartState()
 	m.restartRequest = &st
 	after, err := m.performRestart(func(string, []string, []string) error { return errors.New("exec format error") })
-	if err == nil || !after.restartFailed {
+	if err == nil || after.restartFailed == nil {
 		t.Fatalf("a failed exec was not reported: %v", err)
 	}
 	if last := after.history[len(after.history)-1].Content; !strings.Contains(last, "Restart failed") || !strings.Contains(last, "keeps running") {
@@ -125,6 +129,111 @@ func TestSelfRestart_AFailedExecKeepsTheSession(t *testing.T) {
 	}
 	if again, cmd := after.handleRestartCheck(); again.restartRequest != nil || cmd != nil {
 		t.Fatal("a failed restart is retried before the next rebuild")
+	}
+}
+
+func TestSelfRestart_FailureIsScopedToTheAttemptedIdentity(t *testing.T) {
+	if !selfrestart.ExecSupported {
+		t.Skip("automatic exec is unavailable")
+	}
+	for _, replaceWatcher := range []bool{false, true} {
+		t.Run(fmt.Sprintf("replace-watcher-%t", replaceWatcher), func(t *testing.T) {
+			m, _ := journeyModel(t, config.WorkModeYolo)
+			m.isBooting = false
+			m.restarter = pendingRestarter(t, m, nil)
+			b, _ := m.restarter.Pending()
+			attempts := 0
+			fail := func(string, []string, []string) error { attempts++; return errors.New("exec format error") }
+			m, _ = m.handleRestartCheck()
+			var err error
+			m, err = m.performRestart(fail)
+			if err == nil || attempts != 1 {
+				t.Fatalf("first failure: attempts=%d err=%v", attempts, err)
+			}
+			if replaceWatcher {
+				// Reopening the TUI can adopt a restarter whose baseline is B.
+				m, _ = m.handleRebuildWatch(rebuildWatchMsg{restarter: selfrestart.NewRestarter(b, t.TempDir(), fail)})
+			}
+			before := len(m.history)
+			duplicate := b
+			duplicate.Build = "a label change alone"
+			m, _ = m.handleBinaryRebuilt(binaryRebuiltMsg{id: duplicate})
+			if len(m.history) != before {
+				t.Fatal("a duplicate failed build promised another restart")
+			}
+			if same, cmd := m.handleRestartCheck(); same.restartRequest != nil || cmd != nil {
+				t.Fatal("the failed identity was retried")
+			}
+
+			// Each new failed generation can recover again at a distinct build.
+			for _, size := range []int64{12, 13} {
+				c := b
+				c.Size = size
+				m, _ = m.handleBinaryRebuilt(binaryRebuiltMsg{id: c})
+				for _, busy := range []string{"loading", "booting", "approval"} {
+					blocked := m
+					blocked.isLoading = busy == "loading"
+					blocked.isBooting = busy == "booting"
+					if busy == "approval" {
+						blocked.viewMode = ApprovalView
+					}
+					if held, cmd := blocked.handleRestartCheck(); held.restartRequest != nil || cmd == nil {
+						t.Fatalf("%s did not defer the new build", busy)
+					}
+				}
+				m, _ = m.handleRestartCheck()
+				if m.restartRequest == nil {
+					t.Fatal("a distinct later build did not reach the idle gate")
+				}
+				m, err = m.performRestart(fail)
+				if err == nil || m.restartFailed == nil || m.restartFailed.Changed(c) {
+					t.Fatalf("later failure not bound to its attempted identity: %v", err)
+				}
+			}
+			if attempts != 3 {
+				t.Fatalf("exec attempts = %d, want 3", attempts)
+			}
+		})
+	}
+}
+
+func TestSelfRestart_RestoreWriteFailureCanRecoverOnAnotherBuild(t *testing.T) {
+	if !selfrestart.ExecSupported {
+		t.Skip("automatic exec is unavailable")
+	}
+	m, _ := journeyModel(t, config.WorkModeYolo)
+	m.isBooting = false
+	dir := filepath.Join(t.TempDir(), "state")
+	if err := os.WriteFile(dir, []byte("blocks directory creation"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := selfrestart.Identity{Path: "/bin/nerd", Size: 10}
+	m.restarter = selfrestart.NewRestarter(old, dir, nil)
+	b := old
+	b.Size++
+	m, _ = m.handleBinaryRebuilt(binaryRebuiltMsg{id: b})
+	m, _ = m.handleRestartCheck()
+	attempts := 0
+	fail := func(string, []string, []string) error { attempts++; return errors.New("exec failure") }
+	m, err := m.performRestart(fail)
+	if err == nil || attempts != 0 {
+		t.Fatalf("restore failure = %v, exec attempts = %d", err, attempts)
+	}
+	if again, cmd := m.handleRestartCheck(); again.restartRequest != nil || cmd != nil {
+		t.Fatal("restore failure retried unchanged build")
+	}
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	b.Inode++
+	m, _ = m.handleBinaryRebuilt(binaryRebuiltMsg{id: b})
+	m, _ = m.handleRestartCheck()
+	if m.restartRequest == nil {
+		t.Fatal("later build remained suppressed after restore failure")
+	}
+	m, err = m.performRestart(fail)
+	if err == nil || attempts != 1 {
+		t.Fatalf("later attempt = %v, exec attempts = %d", err, attempts)
 	}
 }
 
@@ -139,5 +248,24 @@ func TestPolicyReload_IsShownToTheSession(t *testing.T) {
 	m, _ = m.handlePolicyReload(policyReloadMsg{ev: nerdsystem.PolicyReloadEvent{Files: []string{"defaults/policy/x.mg"}, Err: errors.New("parse error at line 3")}})
 	if last := m.history[len(m.history)-1].Content; !strings.Contains(last, "Policy reload failed") || !strings.Contains(last, "parse error at line 3") {
 		t.Fatalf("a failed reload was not shown: %q", last)
+	}
+}
+
+func TestPolicyReload_OnlyARejectedGenerationClaimsUnchanged(t *testing.T) {
+	for _, disposition := range []string{"rejected", ""} {
+		m, _ := journeyModel(t, config.WorkModeYolo)
+		m, _ = m.handlePolicyReload(policyReloadMsg{ev: nerdsystem.PolicyReloadEvent{
+			Files: []string{"defaults/policy/x.mg"}, Err: errors.New("evaluation ceiling"),
+			Reload: core.ConstitutionReload{Disposition: disposition, Active: "accepted", Candidate: "candidate", Stage: "evaluate"},
+		}})
+		last := m.history[len(m.history)-1].Content
+		if strings.Contains(last, "unchanged") != (disposition == "rejected") {
+			t.Fatalf("unsupported disposition claim: %s", last)
+		}
+		for _, want := range []string{"accepted", "candidate", "evaluate", "evaluation ceiling"} {
+			if !strings.Contains(last, want) {
+				t.Fatalf("missing %q in %s", want, last)
+			}
+		}
 	}
 }

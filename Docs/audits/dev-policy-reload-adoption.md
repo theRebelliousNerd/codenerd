@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: dev-policy-reload
-implementation-status: planned
+implementation-status: implemented
 evidence-status: source-only
 last-verified: 2026-10-30
 verified-against: fef98230c20a5751e4c32a2fd2757832a9d39cdc
@@ -104,3 +104,75 @@ The resource tradeoff is local CPU, memory, IO and coordination, not extra model
 Root/core/system guidance and the current audit inventory were read. The existing [Mangle schema rollback audit](https://github.com/theRebelliousNerd/codenerd/blob/fef98230c20a5751e4c32a2fd2757832a9d39cdc/Docs/audits/mangle-schema-rollback.md) concerns a rejected fragment in `internal/mangle.Engine`; it is not this new multi-shard RealKernel/Cortex adoption route. The [self-restart failure audit on the research branch](https://github.com/theRebelliousNerd/codenerd/blob/3cb059160df86e0af6e6fd64696955d796077df5/Docs/audits/self-restart-failure-recovery.md) concerns later executable rebuilds after a failed exec attempt, not policy hot reload. Indexed `ReloadConstitution audit` search returned no matches. This is bounded duplicate screening, not proof that no differently worded or unindexed discussion exists.
 
 **Exit condition:** every reload has an identified, coherent disposition for programs, evaluation readiness and routing state; failures before adoption preserve the prior generation; later failures cannot be presented as unchanged without demonstrated restoration; and controlled late-failure/interleaving fixtures establish recovery through the production adapter. Existing malformed-input rejection remains protected. Neither this audit nor source-only review marks those checks passed.
+
+
+## As built
+
+Rechecked every failure boundary against worktree baseline
+`8d373fb6ca05ef03fec59b923c5f1925066d623a` and the authored changes. The historical
+analysis above remains a description of the reviewed baseline. Its main findings
+were real; none was dismissed as wrong or already repaired. Opt-in admission,
+foreign-workspace exclusion, compilation/stratification protection and fail-closed
+evaluation reads were already present and are retained.
+
+| Finding | Ruling and resulting contract |
+|---|---|
+| Single-kernel install precedes fallible evaluation | **Real, repaired.** `internal/core/constitution_reload.go` compiles, validates retained facts and evaluates a private candidate before transferring any live program/evaluation state. Every returned error rejects before publication. |
+| Late shard conflict, evaluation failure or skipped specialization can leave partial adoption | **Real, repaired.** Cortex holds an adoption write barrier, its routing mutex and every live kernel mutex in domain order. All candidates must be ready; a specialized shard rejects the whole group. Program suffixes, learned rules, limits and facts remain locked through staging/publication, so there is no late compare-and-swap window to compensate. |
+| Shards independently reread mutable source | **Real, repaired.** One candidate capture is reused by every shard. Two matching assembled reads are required; a mismatch/read error rejects. The hash identifies those exact bytes. This is an explicit capture rule, not filesystem atomicity or an editor-transaction guarantee. |
+| Routing is rebuilt from a later source generation; a failure leaves the old map | **Real, repaired.** Routing is prepared from staged program bytes before publication, using the installed ownership and consumer routes. `internal/system/dev_policy.go` performs no later corpus read or routing assignment. Common programs include their extensions and learned rules in analysis; distinct programs explicitly install nil-map broadcast/fan-out routing rather than pretending their union is a common program. |
+| A new consumer may lack already-held shared facts | **Real inventory gap, repaired.** Candidates replace shared replicas from the catch-all's canonical EDB before evaluation, hydrating newly consuming shards without promoting derived facts or resurrecting stale replicas. |
+| Reload errors always claim the running policy is unchanged | **Real, repaired.** `ConstitutionReload` and `PolicyReloadEvent` carry active/candidate corpus identities, stage and rejected/adopted disposition. The chat in `cmd/nerd/chat/self_restart.go` says unchanged only for an explicit rejected disposition. No fallible work follows publication. |
+
+`internal/core/constitution_source.go` retains corpus assembly and adds root-module
+attribution markers for routing analysis. The adoption barrier spans route
+selection and use in `internal/core/cortex_kernel.go`, inspection in
+`internal/core/cortex_kernel_inspect.go` and `internal/core/kernel_explanation.go`,
+and routed inclusion checks in `internal/core/kernel_inclusion.go`. Direct kernel
+writes serialize on the kernel mutexes; Cortex transactions hold the adoption
+read barrier for their routed commit.
+
+Regression definitions in `internal/core/constitution_adoption_test.go` cover
+single and late-shard evaluation-ceiling rejection, whole-group specialization
+rejection, repeated rejection then recovery, existing-fact hydration, stale-replica
+retirement, source instability, no source reread after capture, concurrent routed
+queries/fact writes/direct program writes, preserved extensions and conservative
+routing for different programs. They reuse existing policy fixtures.
+`internal/core/constitution_reload_test.go` retains parse/stratification rejection.
+`internal/system/dev_policy_test.go` extends
+`TestBootDevMode_HotReloadsThePolicyFromTheSourceTree` through the real watcher and
+adapter with generation reporting, evaluation rejection, readable prior state and
+later recovery. `cmd/nerd/chat/self_restart_test.go` adds
+`TestPolicyReload_OnlyARejectedGenerationClaimsUnchanged`.
+
+The reported failure in
+`TestCortexReload_HydratesAlreadyPresentSharedFactsForNewConsumers` exposed a
+fixture error: its shards owned no predicates and its probe read only shared
+`user_intent`. `internal/core/derivation_map.go` serves that uniform derivation
+from the catch-all, so the other shards were not consumers. Production hydration
+correctly follows that map. The corrected fixture registers world ownership of
+`file_topology`, matching `internal/shards/registration.go`, asserts a file there,
+and checks that rebuilt routing requires the world to consume the retained
+intent. It verifies the shipped `context_priority` join through a Cortex query,
+keeps an unrelated shard empty, and seeds a stale nonconsumer replica to verify
+its removal on reload. A separate shared-only regression pins uniform-result
+routing through the catch-all. These corrections change Go test setup and
+assertions; production hydration and Mangle source remain unchanged. Execution
+of the corrected fixtures remains pending under the author-only constraint.
+
+Fail-before evidence is **source-based**, not executed: the baseline installs
+before `Evaluate`, swaps earlier shards before a later rejection, captures once
+per shard, never hydrates newly consuming shards and unconditionally displays
+unchanged. Those branches contradict the corresponding new assertions. The
+finite evaluation-limit witness reuses the existing engine limit seam; its
+actual failure stage and recovery still require execution on the pinned engine.
+
+The required contracts and current implementation are recorded in
+`Docs/architecture/core/INTERNALS.md` and
+`Docs/architecture/system/IMPLEMENTED_SPEC.md`. No production `.mg` files,
+registration, baseline inventories or prompt atoms changed. Formatting and diff
+inspection were performed; compilation, tests, race checks, benchmarks and
+commits were not run under the author-only task constraint. Behavioral acceptance
+and measurement of candidate-memory/pause costs remain pending. The repository's
+private-terms scanner was unavailable in the permitted tree and PATH; its check
+remains pending as well. Implementation status does not imply executed acceptance.

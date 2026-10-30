@@ -395,7 +395,7 @@ type Model struct {
 	restarter       *selfrestart.Restarter
 	rebuilds        <-chan selfrestart.Identity
 	restartRequest  *selfrestart.State
-	restartFailed   bool
+	restartFailed   *selfrestart.Identity // suppress only the executable whose attempt failed
 	restore         *selfrestart.State
 	planChain       bool
 	chainUnverified bool

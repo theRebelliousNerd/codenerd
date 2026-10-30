@@ -34,6 +34,34 @@ func TestRestarter_WaitsForIdle(t *testing.T) {
 	}
 }
 
+func TestRestarter_TracksDistinctPendingIdentities(t *testing.T) {
+	old := fakeIdentity("/bin/nerd", "a", 10)
+	for _, dimension := range []string{"size", "time", "inode"} {
+		t.Run(dimension, func(t *testing.T) {
+			r := NewRestarter(old, t.TempDir(), nil)
+			next := old
+			switch dimension {
+			case "size":
+				next.Size++
+			case "time":
+				next.ModTime = next.ModTime.Add(-time.Second)
+			case "inode":
+				next.Inode++
+			}
+			if !r.BinaryChanged(next) {
+				t.Fatal("changed identity was ignored")
+			}
+			next.Build = "display-only change"
+			if r.BinaryChanged(next) {
+				t.Fatal("pending identity was admitted twice")
+			}
+			if r.BinaryChanged(old) || r.ShouldRestart(false) {
+				t.Fatal("return to running identity left a stale pending build")
+			}
+		})
+	}
+}
+
 // The session reaches the new process through the restore flag: the exec
 // gets the new build's path and the process's own arguments with the flag
 // naming a file that reads back as the session, once.

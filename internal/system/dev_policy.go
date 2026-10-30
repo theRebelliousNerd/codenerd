@@ -20,18 +20,19 @@ import (
 // Dev-mode policy hot reload. When the user opts in (dev.policy_hot_reload)
 // and the workspace is codeNERD's own source tree, the kernels boot on the
 // .mg corpus in that tree (core.UseDevConstitution) and a watcher swaps an
-// edited file into the running kernels: the whole program is compiled first
-// (analysis and stratification), and only a program that passes is
-// installed; a failing edit is reported and the running program stays.
+// edited corpus into the running kernels: every staged program compiles and
+// evaluates before the group and its routing are published together. A failing
+// edit is rejected before publication and the running program stays.
 // Facts, shards and session state survive a swap; derived state is
 // recomputed. Every outcome is published as a PolicyReloadEvent for the
 // session to show.
 
 // PolicyReloadEvent is one hot reload's outcome.
 type PolicyReloadEvent struct {
-	At    time.Time
-	Files []string // the changed corpus files, relative to the tree
-	Err   error    // nil: the edit is live; else why the old program stays
+	At     time.Time
+	Files  []string // the changed corpus files, relative to the tree
+	Err    error    // nil: adopted-ready; otherwise rejected before publication
+	Reload core.ConstitutionReload
 }
 
 // devPolicyTree reports the corpus directory (internal/core) of workspace
@@ -85,24 +86,23 @@ func configureDevPolicy(bctx *bootContext) string {
 
 // reloadableKernel is a kernel whose constitution can be swapped.
 type reloadableKernel interface {
-	ReloadConstitution() error
+	ReloadConstitution() (core.ConstitutionReload, error)
 }
 
 // policyReloader watches the tree's corpus and reloads the kernel on edits.
 type policyReloader struct {
-	dir       string
-	workspace string
-	kernel    core.Kernel
-	watcher   *fsnotify.Watcher
-	events    chan PolicyReloadEvent
-	debounce  time.Duration
-	cancel    context.CancelFunc
-	done      chan struct{}
+	dir      string
+	kernel   core.Kernel
+	watcher  *fsnotify.Watcher
+	events   chan PolicyReloadEvent
+	debounce time.Duration
+	cancel   context.CancelFunc
+	done     chan struct{}
 }
 
 // startPolicyReloader watches dir's defaults, defaults/schema and
 // defaults/policy for .mg changes and reloads kernel when one settles.
-func startPolicyReloader(dir, workspace string, kernel core.Kernel) (*policyReloader, error) {
+func startPolicyReloader(dir string, kernel core.Kernel) (*policyReloader, error) {
 	if _, ok := kernel.(reloadableKernel); !ok {
 		return nil, fmt.Errorf("the kernel cannot reload its constitution")
 	}
@@ -118,7 +118,7 @@ func startPolicyReloader(dir, workspace string, kernel core.Kernel) (*policyRelo
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &policyReloader{
-		dir: dir, workspace: workspace, kernel: kernel, watcher: watcher,
+		dir: dir, kernel: kernel, watcher: watcher,
 		events: make(chan PolicyReloadEvent, 16), debounce: 300 * time.Millisecond,
 		cancel: cancel, done: make(chan struct{}),
 	}
@@ -179,32 +179,23 @@ func (r *policyReloader) run(ctx context.Context) {
 			pending = map[string]bool{}
 			mu.Unlock()
 			slices.Sort(files)
-			r.publish(PolicyReloadEvent{At: time.Now(), Files: files, Err: r.reload()})
+			out, err := r.reload()
+			r.publish(PolicyReloadEvent{At: time.Now(), Files: files, Reload: out, Err: err})
 		}
 	}
 }
 
-// reload swaps the kernel's constitution and, for the domain cortex, rebuilds
-// the derivation map the shards' routing reads from the new corpus.
-func (r *policyReloader) reload() error {
-	if err := r.kernel.(reloadableKernel).ReloadConstitution(); err != nil {
-		return err
-	}
-	if cortex, ok := r.kernel.(*core.CortexKernel); ok {
-		dm, err := buildKernelDerivationMap(defaultKernelShardConfigs(r.workspace))
-		if err != nil {
-			return fmt.Errorf("the corpus reloaded, but its derivation map could not be rebuilt (shared facts go everywhere until the next reload): %w", err)
-		}
-		cortex.SetDerivationMap(dm)
-	}
-	return nil
+// reload delegates the entire adoption, including routing, to the kernel.
+// No source read or other fallible work follows publication.
+func (r *policyReloader) reload() (core.ConstitutionReload, error) {
+	return r.kernel.(reloadableKernel).ReloadConstitution()
 }
 
 func (r *policyReloader) publish(ev PolicyReloadEvent) {
 	if ev.Err != nil {
-		logging.Get(logging.CategoryKernel).Warn("policy hot reload of %v failed; the running program stays: %v", ev.Files, ev.Err)
+		logging.Get(logging.CategoryKernel).Warn("policy hot reload of %v rejected at %s (candidate %s, active %s): %v", ev.Files, ev.Reload.Stage, ev.Reload.Candidate, ev.Reload.Active, ev.Err)
 	} else {
-		logging.Kernel("policy hot reload: %v is live", ev.Files)
+		logging.Kernel("policy hot reload: %v is live (generation %s)", ev.Files, ev.Reload.Active)
 	}
 	select {
 	case r.events <- ev:
@@ -243,7 +234,7 @@ func initDevPolicyReload(bctx *bootContext) error {
 	if bctx.devPolicyDir == "" {
 		return nil
 	}
-	r, err := startPolicyReloader(bctx.devPolicyDir, bctx.workspace, bctx.kernel)
+	r, err := startPolicyReloader(bctx.devPolicyDir, bctx.kernel)
 	if err != nil {
 		logging.Get(logging.CategoryBoot).Warn("Dev mode: policy is read from %s, but hot reload could not start: %v", bctx.devPolicyDir, err)
 		return nil
