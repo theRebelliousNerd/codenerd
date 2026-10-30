@@ -24,6 +24,20 @@
     A values-only fork may pass that test subject to choosing one preference.
     Do not reopen matters the user already answered. State a single concrete
     options question only for a genuine values fork, and recommend one candidate.
+
+- id: "system/requirements_interrogator/output_contract"
+  category: "protocol"
+  is_mandatory: true
+  shard_types: ["/requirements_interrogator"]
+  depends_on: ["system/requirements_interrogator/identity"]
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+  content: |
     Return one JSON object, no Markdown or control packet:
     {"assessments":[{"candidate_id":"c1","success":true,"items":[
       {"key":"behavior-preference","severity":"critical","kind":"values",

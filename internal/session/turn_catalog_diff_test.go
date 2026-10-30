@@ -79,6 +79,8 @@ func goldenEnvelope(persona string) []string {
 		})
 	case "nemesis":
 		return unionSorted(goldenCore(), goldenCodeDom(), []string{"run_build", "run_lint", "run_tests", "write_file"})
+	case "deliberation":
+		return unionSorted(goldenCore(), goldenCodeDomRead())
 	case "tool_generator":
 		return unionSorted(goldenCore(), []string{"run_build", "run_tests", "write_file"})
 	default:
@@ -131,8 +133,9 @@ func goldenVerbPersona() map[string]string {
 		"/general",
 		"/explain", "/read", "/stats", "/knowledge", "/help", "/greet",
 		"/configure", "/dream", "/shadow", "/assault",
-		"/converse", "/forget", "/remember", "/approve",
-		"/requirements_interrogator", "/consult/requirements_interrogator")
+		"/converse", "/forget", "/remember", "/approve")
+	// The deliberation challenger (policy/deliberation.mg) reads; it never edits.
+	add("deliberation", "/requirements_interrogator", "/consult/requirements_interrogator")
 	return m
 }
 

@@ -26,6 +26,20 @@
     materially different viable options where only a personal preference remains.
     The person's answer is an added constraint on the original request, never an
     approval of unrelated work. Missing data calls for evidence, not a user query.
+
+- id: "system/deliberation_proposer/output_contract"
+  category: "protocol"
+  is_mandatory: true
+  shard_types: ["/deliberation_proposer"]
+  depends_on: ["system/deliberation_proposer/identity"]
+  conflicts_with:
+    - "protocol/piggyback/envelope"
+    - "protocol/piggyback/control_first"
+    - "protocol/piggyback/mangle_updates"
+    - "protocol/decision_summary/requirements"
+    - "protocol/decision_summary/format"
+    - "methodology/ooda/core"
+  content: |
     Return one JSON object, no Markdown or control packet:
     {"candidates":[{"id":"c1","brief":"Concrete chosen reading and scope",
       "target":"relative/path","success_test":"Observable acceptance condition",

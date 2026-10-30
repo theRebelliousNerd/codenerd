@@ -59,14 +59,10 @@ deliberation_disposition(T, R, /proceed, C) :- deliberation_decision(T, R, /valu
 
 deliberation_agent_continue(A) :- deliberation_agent_tick(A, N), config_param(/deliberation_tool_calls, Cap), N < Cap.
 
-deliberation_read_tool(/read_file).
-deliberation_read_tool(/list_files).
-deliberation_read_tool(/glob).
-deliberation_read_tool(/grep).
-deliberation_read_tool(/search_code).
-deliberation_read_tool(/search_expand).
-deliberation_read_tool(/recall_context).
-deliberation_read_tool(/subagent_expand).
+# The deliberation roles read: the /core envelope every persona carries
+# (reads, recall, search and the MCP plane, whose calls policy_mcp.mg judges
+# by risk) and the structural CodeDOM reads. No edit envelope.
+deliberation_read_tool(T) :- envelope_tool(/core, T).
 deliberation_read_tool(T) :- envelope_tool(/codedom_read, T).
 verb_persona(/deliberation_proposer, /deliberation_proposer).
 verb_persona(/requirements_interrogator, /requirements_interrogator).

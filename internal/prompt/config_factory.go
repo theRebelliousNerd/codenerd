@@ -540,7 +540,8 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"/converse", "/forget", "/remember", "/approve",
 		// Built-in consultable system shards. User agents get the same pair
 		// from registerUserAgentConfigAtoms; without these, /consult/<name>
-		// falls back to /general and logs a warning on every /clarify.
+		// falls back to /general and logs a warning on every /clarify. The
+		// interrogator's tools are its deliberation envelope (deliberation.mg).
 		"/requirements_interrogator", "/consult/requirements_interrogator",
 	} {
 		provider.atoms[intent] = ConfigAtom{
