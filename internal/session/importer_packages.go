@@ -28,18 +28,12 @@ import (
 // breaks an importer is caught by the closure, which measures the revision the
 // turn actually ends at.
 
-// importerPackages lists the packages that import any of pkgs -- through
-// their code or their tests -- and are not among them. pkgs are the local
-// patterns the gate uses ("./internal/session"); the result are import paths,
-// which go test accepts just as well.
-func importerPackages(ctx context.Context, workspace string, pkgs []string) []string {
-	importers, _, _ := discoverImporterPackages(ctx, workspace, pkgs)
-	return importers
-}
-
-// discoverImporterPackages is importerPackages with what the gate needs to
-// trust it: each importer's directory (what its run reads, for the memo key)
-// and whether discovery finished. A listing that failed found nothing; that
+// discoverImporterPackages lists the packages that import any of pkgs --
+// through their code or their tests -- and are not among them, with what the
+// gate needs to trust it: each importer's directory (what its run reads, for
+// the memo key) and whether discovery finished. pkgs are the local patterns
+// the gate uses ("./internal/session"); the importers are import paths, which
+// go test accepts just as well. A listing that failed found nothing; that
 // is not the same as nothing importing the turn's packages, and is not kept.
 func discoverImporterPackages(ctx context.Context, workspace string, pkgs []string) (importers, dirs []string, why string) {
 	if len(pkgs) == 0 {

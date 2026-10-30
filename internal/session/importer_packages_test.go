@@ -146,7 +146,7 @@ func TestGateTests_AnUnfinishedImporterRunDoesNotPass(t *testing.T) {
 	}
 	result.TestCheck = own
 	patterns, _ := splitTagGatedPackages(ws, packagesForPaths(result.WrittenPaths))
-	importers := importerPackages(context.Background(), ws, patterns)
+	importers, _, _ := discoverImporterPackages(context.Background(), ws, patterns)
 	if len(importers) == 0 {
 		t.Fatal("the fixture has no importer; the cancel would not be a measurement")
 	}
@@ -182,7 +182,7 @@ func TestImporterPackages_OneHopThroughCodeAndTests(t *testing.T) {
 		"a/a_x_test.go": "package a_test\n\nimport (\n\t\"testing\"\n\n\t\"impprobe/a\"\n)\n\nfunc TestFromOutside(t *testing.T) {\n\tif a.Name() == \"\" {\n\t\tt.Fatal(\"empty\")\n\t}\n}\n",
 	})
 
-	got := importerPackages(context.Background(), ws, []string{"./a"})
+	got, _, _ := discoverImporterPackages(context.Background(), ws, []string{"./a"})
 	slices.Sort(got)
 	if !slices.Equal(got, []string{"impprobe/b", "impprobe/c"}) {
 		t.Fatalf("importers = %v, want [impprobe/b impprobe/c]: b imports a in code, c only in its test, d is a hop further out", got)

@@ -112,18 +112,6 @@ func (d ControlDisposition) Notice() string {
 	return line
 }
 
-// ControlNotices returns the notice of every disposition that did not take
-// full effect, in order.
-func ControlNotices(ds []ControlDisposition) []string {
-	var out []string
-	for _, d := range ds {
-		if n := d.Notice(); n != "" {
-			out = append(out, n)
-		}
-	}
-	return out
-}
-
 // DescribeMemoryOperation is the short Detail for a memory operation: the
 // operation and its key, never its value (a preference can be private).
 func DescribeMemoryOperation(op MemoryOperation) string {

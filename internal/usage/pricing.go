@@ -168,19 +168,13 @@ func priceKeys() []string {
 	return priceKeysMemo
 }
 
-// LookupPrice resolves a model name to its price. The bool reports whether the
-// model was found; callers must not treat a zero Price as "free".
-//
-// Matching is prefix-based on the lowercased name after stripping any provider
-// route prefix ("openai/gpt-4o", "anthropic.claude-sonnet-4" → "gpt-4o",
-// "claude-sonnet-4"), because engines name the same model several ways.
-func LookupPrice(model string) (Price, bool) {
-	p, _, ok := LookupPriceVersion(model)
-	return p, ok
-}
-
-// LookupPriceVersion is LookupPrice plus the version of the entry that priced
-// the model: the table key it matched and a digest of its five rates. Stamped
+// LookupPriceVersion resolves a model name to its price and the version of
+// the entry that priced it: the table key it matched and a digest of its
+// rates. The bool reports whether the model was found; callers must not treat
+// a zero Price as "free". Matching is prefix-based on the lowercased name
+// after stripping any provider route prefix ("openai/gpt-4o",
+// "anthropic.claude-sonnet-4" → "gpt-4o", "claude-sonnet-4"), because engines
+// name the same model several ways. The version is stamped
 // on each usage event, it lets a cost export say which rates an estimate used
 // -- the table is list price and changes, and RegisterPrice overrides it, so a
 // dollar figure without its rates cannot be reproduced or compared.
@@ -242,14 +236,9 @@ func normalizeModelName(model string) string {
 	return name
 }
 
-// EstimateCostDetailed is EstimateCost with the cache sub-counts of input.
-func EstimateCostDetailed(model string, input, output, cacheRead, cacheWrite int64) (float64, bool) {
-	cost, _, ok := EstimateCostVersioned(model, input, output, cacheRead, cacheWrite)
-	return cost, ok
-}
-
-// EstimateCostVersioned is EstimateCostDetailed plus the price entry's version
-// ("" when the model is unpriced, which is unpriced spend and not free spend).
+// EstimateCostVersioned is the cost of input (with its cache sub-counts) and
+// output tokens on model, and the price entry's version ("" when the model is
+// unpriced, which is unpriced spend and not free spend).
 func EstimateCostVersioned(model string, input, output, cacheRead, cacheWrite int64) (float64, string, bool) {
 	p, version, ok := LookupPriceVersion(model)
 	if !ok {
