@@ -141,3 +141,22 @@ One Codex lane per audit, each in its own worktree; the root runs the full suite
 | `recurse-gate-contract-continuity` | `research-main-20261030-0614` | fixed `5efbc6782` |
 | `recurse-gate-subsumption` | `research-main-20261030-0642` | fixed `5efbc6782` |
 | `knowledge-synthesis-answer-identity` | `research-main-20261030-0642` | fixed `3d5699872` |
+
+## Approved identity batch (2026-10-30)
+
+The original reports below are pinned on the research refs linked here; this
+batch does not merge those branches or their other proposals. Implementation,
+owning specifications and regression/integration tests are in `00bf8968b` on
+`codex/audit-identity-batch-20261030`, based on main `6cbe3962f`.
+
+| audit | branch | status |
+|---|---|---|
+| [retrieval-go-module-directive-identity](https://github.com/theRebelliousNerd/codenerd/blob/921628ea7b1af635cb9c99d4055f6feed2a5efeb/Docs/audits/retrieval-go-module-directive-identity.md) | `research-main-20261030-1147` | fixed `00bf8968b` |
+| [knowledge-go-major-version-pin-continuity](https://github.com/theRebelliousNerd/codenerd/blob/07bdcb50873498d22fce498f599073df00ac5750/Docs/audits/knowledge-go-major-version-pin-continuity.md) | `research-main-20261030-0850` | fixed `00bf8968b` |
+| [context7-documentation-ref-continuity](https://github.com/theRebelliousNerd/codenerd/blob/b42816320d9164c824aba7da0c54bc27df2b4279/Docs/audits/context7-documentation-ref-continuity.md) | `research-main-20261030-1018` | fixed `00bf8968b` |
+
+The new witnesses fail against the original implementations. Focused checks and
+all six affected packages with `sqlite_vec` pass, including real session/Cortex
+paths and local-browser acquisition through the production expert compiler.
+Retrieval/session focused race checks and the tagged CLI build also pass. These
+establish the named identity contracts, not live-model quality or cost effects.
