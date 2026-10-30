@@ -10,11 +10,12 @@ import (
 )
 
 // Static derivation map: which shards can derive which predicates and which
-// shared facts each shard's rules actually consume. It ports the reference
-// analysis in .claude/skills/codenerd-dogfood/scripts/shard_join_audit.py:
-// presence lattice per predicate (ALL for program facts and shared
-// predicates, owner-or-catchAll for runtime facts, derived fixpoint over
-// positive body atoms) plus split-join and blind-negation findings.
+// shared facts each shard's rules actually consume: a presence lattice per
+// predicate (ALL for program facts and shared predicates, owner-or-catchAll for
+// runtime facts, derived fixpoint over positive body atoms), a completeness
+// lattice (where no fact is missing), and the split-join, blind-negation,
+// incomplete-negation and partial-aggregate findings. internal/shards
+// TestShardJoin_EveryRuleCanFireOnTheShardedKernel is the standing guard.
 
 // ShardSet is a set of shard domain names.
 type ShardSet map[string]struct{}

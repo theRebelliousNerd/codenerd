@@ -92,9 +92,9 @@ Two drivers, both in [scripts/](scripts/), run from the repo root:
 - **[scripts/chat_driver.py](scripts/chat_driver.py)** drives `nerd chat`, the
   headless executor path. It skips the TUI's routing layer, so it reaches none
   of the chat behaviour above. Use it only for cheap executor-only checks.
-- **[scripts/shard_join_audit.py](scripts/shard_join_audit.py)** finds Mangle
-  rules that can never fire because their body joins facts living in different
-  kernel shards.
+- **`go test ./internal/shards -run TestShardJoin`** finds Mangle rules that can
+  never fire on the sharded kernel (a body joining facts homed in different
+  shards, a negation or aggregate over a relation a shard holds only part of).
 
 What to read while it runs (`.nerd/sessions/<id>/`):
 - **`session.json`:** the conversation.

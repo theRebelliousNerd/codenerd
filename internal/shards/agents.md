@@ -12,9 +12,11 @@
   must not leave an action to amplify on later ticks.
 - Keep constitutional permission in the policy shard and execution in tactile.
   Run package tests plus `-race` after lifecycle, consultation, or routing edits.
-- Run the Go production join audit and the Python `shard_join_audit.py` after
-  policy or manifest changes. Accepted seams pin normalized complete clauses
-  in `testdata/accepted_seams.json`, never all rules with the same head.
+- Run `go test ./internal/shards -run TestShardJoin` after policy or manifest
+  changes: it finds split joins, blind and incomplete negations, partial
+  aggregates and unloaded rule files on the sharded kernel. Accepted seams pin
+  normalized complete clauses, each with a reason, in `testdata/accepted_seams.json`,
+  never all rules with the same head; a pin whose finding is gone fails.
 - Integration witnesses bind input/output arity, a loaded dependency path, and
   an executed witness at the current snapshot. Structural reachability alone
   does not establish behavioral acceptance.

@@ -16,9 +16,7 @@ import (
 
 // acceptedSeams is the documented residue: rules whose body facts live in
 // different shards on purpose or for the architect to decide. Everything
-// else must join within one shard. Keep this list in step with ACCEPTED in
-// .claude/skills/codenerd-dogfood/scripts/shard_join_audit.py.
-// Each exception pins the entire parsed clause, never just its head.
+// else must join within one shard. Each exception pins the entire parsed clause, never just its head.
 func acceptedSeam(f core.RuleFinding) bool {
 	for _, pin := range seamPins {
 		if pin.File == f.File && normalizedClause(pin.Clause) == normalizedClause(f.Clause) {
@@ -231,7 +229,7 @@ func TestShardJoin_EveryRuleCanFireOnTheShardedKernel(t *testing.T) {
 		for _, b := range bad {
 			t.Error(b)
 		}
-		t.Fatalf("%d rules cannot fire on the sharded kernel; share the per-turn fact, re-home the family, or restructure the rule (see shard_join_audit.py)", len(bad))
+		t.Fatalf("%d rules cannot fire on the sharded kernel; share the per-turn fact, re-home the family, or restructure the rule", len(bad))
 	}
 }
 
