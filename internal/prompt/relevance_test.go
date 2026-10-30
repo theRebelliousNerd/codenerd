@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"codenerd/internal/store"
 	"context"
 	"errors"
 	"fmt"
@@ -21,7 +22,9 @@ func (f fixedSearcher) Search(_ context.Context, _ string, _ int) ([]SearchResul
 	return out, nil
 }
 
-func (fixedSearcher) EmbedQuery(context.Context, string) ([]float32, error) { return nil, nil }
+func (fixedSearcher) EmbedQuery(context.Context, string) (store.QueryEmbedding, error) {
+	return store.QueryEmbedding{}, nil
+}
 
 // countingJudge answers from a table and counts what it was asked.
 type countingJudge struct {

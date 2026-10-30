@@ -1,6 +1,7 @@
 package store
 
 import (
+	"codenerd/internal/embedding"
 	"context"
 	"database/sql"
 	"fmt"
@@ -166,21 +167,44 @@ func (s *LocalStore) RecallTracesLexical(query string, limit int) ([]TraceRecall
 	return hits, nil
 }
 
-// RecallLearningsByEmbedding returns top learning hits for a query embedding across shards.
-func (ls *LearningStore) RecallLearningsByEmbedding(query []float32, limit int) ([]LearningRecallHit, error) {
-	return ls.RecallLearningsByEmbeddingContext(context.Background(), query, limit)
+// QueryEmbedding is a query vector with the identity of the engine that
+// produced it. A cosine between vectors of two embedding spaces is not a
+// similarity, so semantic recall compares a query only with rows embedded by
+// the same engine at the same dimension for the document role a query is
+// paired with.
+type QueryEmbedding struct {
+	Vector []float32
+	// ModelID is the producing engine's name (EmbeddingEngine.Name()), the
+	// identity rows are stamped with (embedding_model_id).
+	ModelID string
 }
 
-// RecallLearningsByEmbeddingContext bounds database work by the caller's deadline.
-func (ls *LearningStore) RecallLearningsByEmbeddingContext(ctx context.Context, query []float32, limit int) ([]LearningRecallHit, error) {
+// learningDocumentTask is the task learnings are embedded with (the
+// reflection worker's refresh), the document role a retrieval query pairs
+// with.
+func learningDocumentTask() string {
+	return embedding.SelectTaskType(embedding.ContentTypeKnowledgeAtom, false)
+}
+
+// RecallLearningsByEmbeddingContext returns the top learning hits for a query
+// embedding across shards, bounded by the caller's deadline. Only rows the
+// query's engine embedded, at its dimension, as learning documents are
+// ranked: the eligibility filter runs before each shard's top-k and before
+// the global cut, so foreign rows never displace comparable ones. A row
+// embedded by another engine (an unmigrated index after a model change)
+// stays reachable lexically. A query without a producer identity is refused.
+func (ls *LearningStore) RecallLearningsByEmbeddingContext(ctx context.Context, query QueryEmbedding, limit int) ([]LearningRecallHit, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	timer := logging.StartTimer(logging.CategoryStore, "RecallLearningsByEmbedding")
 	defer timer.Stop()
 
-	if ls == nil || len(query) == 0 {
+	if ls == nil || len(query.Vector) == 0 {
 		return nil, nil
+	}
+	if strings.TrimSpace(query.ModelID) == "" {
+		return nil, fmt.Errorf("learning recall: the query embedding names no producing engine; its space cannot be matched")
 	}
 	if limit <= 0 {
 		limit = 5
@@ -300,7 +324,7 @@ func (s *LocalStore) recallTraceVec(query []float32, limit int) ([]TraceRecallHi
 	return hits, nil
 }
 
-func (ls *LearningStore) recallLearningsInShard(ctx context.Context, query []float32, shardType string, limit int) ([]LearningRecallHit, error) {
+func (ls *LearningStore) recallLearningsInShard(ctx context.Context, query QueryEmbedding, shardType string, limit int) ([]LearningRecallHit, error) {
 	db, err := ls.getDB(shardType)
 	if err != nil {
 		return nil, err
@@ -311,7 +335,7 @@ func (ls *LearningStore) recallLearningsInShard(ctx context.Context, query []flo
 		return nil, err
 	}
 	if hasIndex {
-		queryBlob := encodeFloat32Slice(query)
+		queryBlob := encodeFloat32Slice(query.Vector)
 		rows, err := db.QueryContext(ctx, `
 			SELECT l.id, COALESCE(l.semantic_handle, ''), l.fact_predicate, l.shard_type, l.learned_at,
 			       COALESCE(l.embedding_model_id, ''), COALESCE(l.embedding_dim, 0), COALESCE(l.embedding_task, ''),
@@ -319,8 +343,9 @@ func (ls *LearningStore) recallLearningsInShard(ctx context.Context, query []flo
 			       COALESCE(l.source_campaign, ''), COALESCE(l.confidence, 0)
 			FROM learnings_vec v
 			JOIN learnings l ON l.id = v.learning_id
+			WHERE l.embedding_model_id = ? AND l.embedding_dim = ? AND l.embedding_task = ?
 			ORDER BY distance ASC
-			LIMIT ?`, queryBlob, limit)
+			LIMIT ?`, queryBlob, query.ModelID, len(query.Vector), learningDocumentTask(), limit)
 		if err == nil {
 			defer rows.Close()
 			var hits []LearningRecallHit

@@ -89,12 +89,13 @@ func (m *Model) performReflection(ctx context.Context, input string, intent perc
 			}
 
 			if m.learningStore != nil {
-				hits, err := m.learningStore.RecallLearningsByEmbedding(queryEmbedding, cfg.TopK*3)
+				// The store ranks only rows of the query's embedding space.
+				hits, err := m.learningStore.RecallLearningsByEmbeddingContext(ctx,
+					store.QueryEmbedding{Vector: queryEmbedding, ModelID: expectedModel}, cfg.TopK*3)
 				if err != nil {
 					warnings = append(warnings, fmt.Sprintf("Learning recall failed: %v", err))
 				} else {
-					expectedTask := embedding.SelectTaskType(embedding.ContentTypeKnowledgeAtom, false)
-					learningHits = filterLearningHits(hits, expectedModel, expectedDim, expectedTask, &warnings)
+					learningHits = hits
 				}
 			}
 		}
@@ -227,25 +228,6 @@ func filterTraceHits(hits []store.TraceRecallHit, expectedModel string, expected
 	}
 	if dropped > 0 && warnings != nil {
 		*warnings = append(*warnings, fmt.Sprintf("Skipped %d trace hits with mismatched embedding metadata", dropped))
-	}
-	return filtered
-}
-
-func filterLearningHits(hits []store.LearningRecallHit, expectedModel string, expectedDim int, expectedTask string, warnings *[]string) []store.LearningRecallHit {
-	if expectedModel == "" && expectedDim == 0 && expectedTask == "" {
-		return hits
-	}
-	filtered := make([]store.LearningRecallHit, 0, len(hits))
-	dropped := 0
-	for _, hit := range hits {
-		if isEmbeddingMismatch(hit.EmbeddingModelID, hit.EmbeddingDim, hit.EmbeddingTask, expectedModel, expectedDim, expectedTask) {
-			dropped++
-			continue
-		}
-		filtered = append(filtered, hit)
-	}
-	if dropped > 0 && warnings != nil {
-		*warnings = append(*warnings, fmt.Sprintf("Skipped %d learning hits with mismatched embedding metadata", dropped))
 	}
 	return filtered
 }
