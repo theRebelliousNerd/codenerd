@@ -75,7 +75,15 @@ func lendable(atom *PromptAtom) bool {
 	return atom != nil && atom.Category != CategoryIdentity
 }
 
-// collectExpertAtoms loads each pushed expert's lendable atoms.
+// collectExpertAtoms loads each pushed expert's lendable atoms as a
+// dependency-valid export. Generated methodology and domain atoms depend on
+// the agent's identity atom, which is never lent; exported as they were, the
+// resolver (correctly) pruned every one of them for a missing prerequisite,
+// so a lent expert contributed no guidance. A lent atom is a copy whose
+// edges to the expert's unlent identity atoms are dropped: the identity is
+// the voice the speaker does not borrow, not a prerequisite of the
+// expertise. Its other edges (domain on methodology) stay, and the resolver
+// still enforces them.
 func (c *JITPromptCompiler) collectExpertAtoms(ctx context.Context, src compileSources, vector sourceVector, pending *pendingCatalogs, degraded *degradation) []*PromptAtom {
 	var out []*PromptAtom
 	for _, expert := range src.experts {
@@ -85,13 +93,42 @@ func (c *JITPromptCompiler) collectExpertAtoms(ctx context.Context, src compileS
 			degraded.add(name)
 			continue
 		}
+		withheld := map[string]bool{}
+		for _, atom := range atoms {
+			if atom != nil && !lendable(atom) {
+				withheld[atom.ID] = true
+			}
+		}
 		for _, atom := range atoms {
 			if lendable(atom) {
-				out = append(out, atom)
+				out = append(out, lentAtom(atom, withheld))
 			}
 		}
 	}
 	return out
+}
+
+// lentAtom is atom without its dependencies on withheld atoms; the original
+// when it has none (the catalog's atoms are shared and never edited).
+func lentAtom(atom *PromptAtom, withheld map[string]bool) *PromptAtom {
+	drops := false
+	for _, dep := range atom.DependsOn {
+		if withheld[dep] {
+			drops = true
+			break
+		}
+	}
+	if !drops {
+		return atom
+	}
+	lent := clonePromptAtom(atom)
+	lent.DependsOn = lent.DependsOn[:0]
+	for _, dep := range atom.DependsOn {
+		if !withheld[dep] {
+			lent.DependsOn = append(lent.DependsOn, dep)
+		}
+	}
+	return lent
 }
 
 // collectPushedExpertKnowledge retrieves each pushed expert's knowledge rows
