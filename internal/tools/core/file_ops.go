@@ -64,9 +64,17 @@ func ReadFileTool() *tools.Tool {
 // live killing a task after five guessed paths in one batch. A wrong guess
 // should cost one turn, not the whole task, so the error carries the directory
 // listing needed to self-correct.
+//
+// A suggestion names only a file that plausibly matches the name asked for,
+// and no listing here ever names a secret file (tools.IsSecretPath): a not-
+// found hint is an invitation to read. Until 2026-10-30 a dotfile's stem was
+// empty (filepath.Ext(".env") is the whole name), every name contains the
+// empty string, and so .env, .gitignore and .gitattributes were "suggested"
+// for any missing name in the workspace root -- .env, the secrets file,
+// offered to the model as a file to read.
 func notFoundWithSuggestions(absPath, rawPath string) error {
 	dir := filepath.Dir(absPath)
-	want := strings.ToLower(strings.TrimSuffix(filepath.Base(absPath), filepath.Ext(absPath)))
+	want := fileStem(filepath.Base(absPath))
 
 	entries, dirErr := os.ReadDir(dir)
 	if dirErr != nil {
@@ -78,16 +86,20 @@ func notFoundWithSuggestions(absPath, rawPath string) error {
 	}
 
 	var related, all []string
+	withheld := 0
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
 		}
 		name := e.Name()
+		if tools.IsSecretPath(filepath.Join(dir, name)) {
+			withheld++
+			continue
+		}
 		all = append(all, name)
-		base := strings.ToLower(strings.TrimSuffix(name, filepath.Ext(name)))
 		// Substring either way catches observer.go for campaign_observer.go
 		// and vice versa, which is the common shape of this mistake.
-		if want != "" && (strings.Contains(base, want) || strings.Contains(want, base)) {
+		if stemsMatch(want, fileStem(name)) {
 			related = append(related, name)
 		}
 	}
@@ -101,6 +113,9 @@ func notFoundWithSuggestions(absPath, rawPath string) error {
 			rawPath, strings.Join(related, ", "))
 	}
 	if len(all) == 0 {
+		if withheld > 0 {
+			return fmt.Errorf("file not found: %s (the directory holds only %s)", rawPath, secretFilesNote(withheld))
+		}
 		return fmt.Errorf("file not found: %s (directory exists but contains no files)", rawPath)
 	}
 	// The listing is whole. A capped "including ..." names forty files the
@@ -108,9 +123,49 @@ func notFoundWithSuggestions(absPath, rawPath string) error {
 	// context ledger already archives large tool results behind recall
 	// handles, so the error carries every name and the ledger decides what
 	// stays in the window.
+	listing := strings.Join(all, ", ")
+	if withheld > 0 {
+		listing += "; and " + secretFilesNote(withheld) + ", not listed"
+	}
 	return fmt.Errorf("file not found: %s. That directory contains %d files: %s "+
 		"(pick one of those, or use glob to search elsewhere -- do not guess another filename)",
-		rawPath, len(all), strings.Join(all, ", "))
+		rawPath, len(all), listing)
+}
+
+// fileStem is a file name lower-cased without its extension; a dotfile's stem
+// is its name after the dot (.gitignore -> gitignore), never empty.
+func fileStem(name string) string {
+	name = strings.ToLower(strings.TrimPrefix(name, "."))
+	return strings.TrimSuffix(name, filepath.Ext(name))
+}
+
+// minStemMatch is the shortest stem a substring match may rest on: a two-
+// letter stem ("go" of go.mod) is inside too many names to mean anything.
+const minStemMatch = 3
+
+// stemsMatch reports a name that plausibly matches the one asked for: one
+// stem inside the other, the shorter at least minStemMatch long.
+func stemsMatch(want, have string) bool {
+	switch {
+	case want == "" || have == "":
+		return false
+	case want == have:
+		return true
+	case len(have) >= minStemMatch && strings.Contains(want, have):
+		return true
+	case len(want) >= minStemMatch && strings.Contains(have, want):
+		return true
+	}
+	return false
+}
+
+// secretFilesNote counts the secret files a listing leaves out, by number,
+// never by name (execution.secret_paths).
+func secretFilesNote(n int) string {
+	if n == 1 {
+		return "1 secret file (execution.secret_paths)"
+	}
+	return fmt.Sprintf("%d secret files (execution.secret_paths)", n)
 }
 
 func directoryReadWithListing(absPath, rawPath string) error {
@@ -119,16 +174,26 @@ func directoryReadWithListing(absPath, rawPath string) error {
 		return fmt.Errorf("path is a directory, not a file: %s (use list_files or glob to enumerate directory contents)", rawPath)
 	}
 	names := make([]string, 0, len(entries))
+	withheld := 0
 	for _, e := range entries {
 		name := e.Name()
+		if !e.IsDir() && tools.IsSecretPath(filepath.Join(absPath, name)) {
+			// The listing invites a read; a secret file is not offered.
+			withheld++
+			continue
+		}
 		if e.IsDir() {
 			name += "/"
 		}
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	if len(names) == 0 {
+	if len(names) == 0 && withheld == 0 {
 		return fmt.Errorf("path is a directory, not a file: %s (directory is empty; use list_files or glob to enumerate directory contents)", rawPath)
+	}
+	listing := strings.Join(names, ", ")
+	if withheld > 0 {
+		listing += "; and " + secretFilesNote(withheld) + ", not listed"
 	}
 	// Whole, for the same reason as the not-found listing above: a capped
 	// contents list hides names the model needs to pick its next read, and
@@ -136,7 +201,7 @@ func directoryReadWithListing(absPath, rawPath string) error {
 	// handles instead of cutting them.
 	return fmt.Errorf("path is a directory, not a file: %s. Contents (%d): %s. "+
 		"Read one of those files; use list_files or glob only if you need a wider search",
-		rawPath, len(names), strings.Join(names, ", "))
+		rawPath, len(names), listing)
 }
 
 func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
