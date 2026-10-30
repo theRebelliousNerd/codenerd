@@ -6241,3 +6241,15 @@ agent's plan, steps, tool subjects and pass/fail, and messages from sessionlog l
 presentation budget. The first pass failed the final suite on TestExecutiveLiteralBudget (186 vs 185); a follow-up
 request fixed it. Fail-before: the new tests do not build against the old code. Neither delegated turn's outcome was
 added to the conversation, and the session file was not written until the next message (brief R1-42). **Streak 0.**
+
+## R1-42, a delegated turn's outcome never reached the saved conversation -- landed (2026-10-30, 00:20-01:25)
+
+Brief (symptom only): after a delegated run the outcome showed on screen but the session file was not written until
+the next message, and a failed write was silent. Entry point: one chat request in the TUI (`--yolo`). **Landed**
+`6cb5f88e0`: `cmd/nerd/chat/model_update.go` saves session state when a continuation ends and shows a write failure;
+`handleContinuationDone` clears the stream state. A follow-up request kept each earlier plan step's not-verified
+reason across plan advancement (`continuation_ledger.go`), so the closing verdict says why the run is unverified, and
+replaced the dated header narrative. Fail-before: reverting the production files fails
+`TestUpdate_DelegatedOutcomeSavedAtTurnEnd` and `TestSaveSessionStateCmd_ReportsWriteFailure`. codeNERD reported the
+whole-repository gates as reserved for the final gate; the root ran G3 green (110 packages). **Streak 0.**
+

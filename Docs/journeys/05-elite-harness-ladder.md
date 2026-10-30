@@ -85,6 +85,9 @@ the protocol for a run, and the status of each rung with the run that moved it.
   Three coder passes over two requests; the final suite caught an executive-literal overrun on the
   first, fixed on the second. The request first came back as a clarifying question in yolo mode
   (R1-40), and the delegated turns' outcomes never reached the conversation (R1-42). **R1 streak 0.**
+- **R1-42 landed** (2026-10-30, `6cb5f88e0`): a delegated run's outcome is saved with the session when the
+  turn ends, a failed save is shown, and an unverified plan step keeps its reason through to the closing
+  verdict. Two coder requests; the root ran the final suite. **R1 streak 0.**
 - last updated: 2026-09-19 20:25
 - **R0 gates passed** on `10223378`: three consecutive uncached runs (06:21-06:36), each G1 build,
   G2 `go vet -tags sqlite_vec ./...` and G3 `go test -count=1 ./...` green, 89 of 89 packages, 0
