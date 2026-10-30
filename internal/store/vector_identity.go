@@ -339,6 +339,7 @@ func (s *LocalStore) healUnattributedVectors(ctx context.Context, engine embeddi
 			if indexable {
 				vecBlob := encodeFloat32Slice(embeddings[j])
 				_, _ = s.db.Exec(`DELETE FROM vec_index WHERE rowid = ?`, txt.id)
+				s.vecIndexRev.Add(1)
 				if _, vecErr := s.db.Exec(`INSERT INTO vec_index (rowid, embedding, content, metadata) VALUES (?, ?, ?, ?)`, txt.id, vecBlob, txt.content, txt.metadata); vecErr != nil {
 					logging.Get(logging.CategoryStore).Warn("heal vec_index insert failed for rowid=%d: %v (ANN drift)", txt.id, vecErr)
 					continue

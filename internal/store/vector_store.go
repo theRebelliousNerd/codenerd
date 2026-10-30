@@ -65,6 +65,7 @@ func (s *LocalStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
 			logging.Store("Background vector index backfill starting (dim=%d)", dim)
 			s.backfillVecIndex(dim, space, vecExt, done)
 			logging.Store("Background vector index backfill completed")
+			s.vecIndexRev.Add(1)
 			s.backfillMu.Lock()
 			if s.backfillDone == done {
 				s.backfillDone = nil
@@ -653,6 +654,8 @@ func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query str
 // content is unique, so duplicate ordinary content is unaffected.
 func (s *LocalStore) insertVecIndexRow(id int64, embeddingVec []float32, content, metaJSON string) error {
 	vecBlob := encodeFloat32Slice(embeddingVec)
+	// Whatever happens below, the index may have changed.
+	defer s.vecIndexRev.Add(1)
 	if _, err := s.db.Exec("DELETE FROM vec_index WHERE rowid = ?", id); err != nil {
 		return err
 	}
@@ -1008,6 +1011,7 @@ func (s *LocalStore) initVecIndex(dim int) {
 		return
 	}
 	logging.StoreDebug("Initializing sqlite-vec index with %d dimensions", dim)
+	s.vecIndexRev.Add(1)
 
 	// Drop existing table to ensure clean dimension application if models switched
 	_, _ = s.db.Exec("DROP TABLE IF EXISTS vec_index")

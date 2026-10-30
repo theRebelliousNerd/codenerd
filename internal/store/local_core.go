@@ -79,6 +79,11 @@ type LocalStore struct {
 	// (vector_identity.go maybeHealUnattributed).
 	healMu    sync.Mutex
 	healState map[string]*healSpaceState
+	// vecIndexRev counts changes to vec_index that no trigger can see: an
+	// index built (initVecIndex), a backfill finished, rows re-indexed. It
+	// is part of KnowledgeSourceGeneration, so a prompt compiled from the
+	// index before a repair is not served after it.
+	vecIndexRev atomic.Uint64
 }
 
 // NewLocalStore initializes the SQLite database at the given path.

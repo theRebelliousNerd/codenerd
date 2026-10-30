@@ -174,12 +174,31 @@ func readSourceGeneration(ctx context.Context, db *sql.DB, tables []string) (str
 var knowledgeSourceTables = []string{"knowledge_atoms", "vectors"}
 
 // KnowledgeSourceGeneration identifies the knowledge rows JIT retrieval can
-// read from this store. See ReadSourceGeneration.
+// read from this store: the tracked tables (ReadSourceGeneration) and the
+// semantic index's own revision.
+//
+// vec_index cannot carry triggers, so index-only changes moved nothing here:
+// a backfill still building the index served a partial recall as healthy,
+// and a repair that re-indexed drifted rows changed recall without changing
+// the token, so a prompt compiled before it stayed cached after it (audit
+// knowledge-index-repair-cache-freshness). While a backfill is pending the
+// generation is unreadable -- a compile in that window is not cached -- and
+// every index change after it advances vecIndexRev.
 func (s *LocalStore) KnowledgeSourceGeneration(ctx context.Context) (string, error) {
 	if s == nil {
 		return "", fmt.Errorf("source generation: nil local store")
 	}
-	return ReadSourceGeneration(ctx, s.GetDB(), knowledgeSourceTables...)
+	s.backfillMu.Lock()
+	building := s.backfillDone != nil
+	s.backfillMu.Unlock()
+	if building {
+		return "", fmt.Errorf("source generation: the semantic index is still being built; recall over it is partial")
+	}
+	token, err := ReadSourceGeneration(ctx, s.GetDB(), knowledgeSourceTables...)
+	if err != nil {
+		return "", err
+	}
+	return token + ";vec_index=" + strconv.FormatUint(s.vecIndexRev.Load(), 10), nil
 }
 
 // SourceGeneration identifies every learnings row recall can read: the same
