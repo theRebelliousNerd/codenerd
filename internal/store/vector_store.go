@@ -1258,6 +1258,44 @@ func (s *LocalStore) DeleteVectorsByMetadata(metaKey string, metaValue any) (int
 	return rows, nil
 }
 
+// VectorSpaceCounts counts the embedded vectors per embedding space they were
+// written in ("" for rows written before the space was recorded). It reads
+// the canonical table only: no engine, no index work.
+func (s *LocalStore) VectorSpaceCounts() (map[string]int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rows, err := s.db.Query(`SELECT COALESCE(embedding_model, ''), COUNT(*) FROM vectors WHERE embedding IS NOT NULL GROUP BY COALESCE(embedding_model, '')`)
+	if err != nil {
+		return nil, fmt.Errorf("count vectors by embedding space: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var space string
+		var n int64
+		if err := rows.Scan(&space, &n); err != nil {
+			return nil, fmt.Errorf("count vectors by embedding space: %w", err)
+		}
+		out[space] += n
+	}
+	return out, rows.Err()
+}
+
+// VecIndexRows is how many rows the semantic index holds, and false when
+// there is no index to count (sqlite-vec unavailable, or never built).
+func (s *LocalStore) VecIndexRows() (int64, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !tableExists(s.db, "vec_index") {
+		return 0, false
+	}
+	var n int64
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM vec_index`).Scan(&n); err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
 // GetVectorStats returns statistics about stored vectors.
 func (s *LocalStore) GetVectorStats() (map[string]any, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "GetVectorStats")

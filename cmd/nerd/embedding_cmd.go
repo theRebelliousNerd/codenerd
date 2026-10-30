@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"codenerd/internal/config"
 	"codenerd/internal/embedding"
@@ -89,49 +91,75 @@ var embeddingStatsCmd = &cobra.Command{
 		if ws == "" {
 			ws, _ = os.Getwd()
 		}
-
-		dbPath := filepath.Join(ws, ".nerd", "knowledge.db")
-		ls, err := store.NewLocalStore(dbPath)
-		if err != nil {
-			return err
-		}
-		defer ls.Close()
-
-		// Attach embedding engine from .nerd/config.json (authoritative).
-		cfgPath := filepath.Join(ws, ".nerd", "config.json")
-		cfg, _ := config.LoadUserConfig(cfgPath)
-		if cfg == nil {
-			cfg = config.DefaultUserConfig()
-		}
-		ucEmb := cfg.GetEmbeddingConfig()
-		embCfg := ucEmb.EngineConfig()
-		if engine, engErr := embedding.NewEngine(embCfg); engErr == nil {
-			ls.SetEmbeddingEngine(engine)
-		}
-
-		stats, err := ls.GetVectorStats()
-		if err != nil {
-			return err
-		}
-
-		fmt.Printf("Embedding Statistics:\n  Total Vectors: %v\n  With Embeddings: %v\n  Without Embeddings: %v\n  Engine: %v\n  Dimensions: %v\n",
-			stats["total_vectors"],
-			stats["with_embeddings"],
-			stats["without_embeddings"],
-			stats["embedding_engine"],
-			stats["embedding_dimensions"],
-		)
-		// Present only with an engine attached: how much of the table that
-		// engine can rank, and why the rest cannot.
-		if eligible, ok := stats["eligible_vectors"]; ok {
-			fmt.Printf("  Rankable by this engine: %v\n  Not rankable, written before the embedding space was recorded: %v\n  Not rankable, embedded by another model: %v\n",
-				eligible, stats["unattributed_vectors"], stats["foreign_vectors"])
-			if stats["unattributed_vectors"] != int64(0) || stats["foreign_vectors"] != int64(0) {
-				fmt.Println("  Run `nerd embedding reembed` to bring them into this engine's space.")
-			}
-		}
-		return nil
+		return runEmbeddingStats(cmd.OutOrStdout(), ws)
 	},
+}
+
+// runEmbeddingStats describes the vectors in the workspace's knowledge.db:
+// how many there are, which embedding space each was written in, and how
+// many the semantic index holds. It observes; it attaches no engine.
+//
+// It used to attach the configured engine to name it. Attaching drops and
+// rebuilds vec_index and runs the provider's readiness check (an Ollama
+// model list, and a pull when the model is missing), and the command then
+// closed the store, possibly before the rebuild finished: asking for
+// statistics could leave the index emptier than it found it (audit
+// embedding-stats-observation-boundary). The configured engine is reported
+// as configured; its provider-resolved name (an Ollama tag) is what a live
+// engine stamps, which is why rows can show under a fuller name.
+func runEmbeddingStats(w io.Writer, ws string) error {
+	dbPath := filepath.Join(ws, ".nerd", "knowledge.db")
+	ls, err := store.NewLocalStore(dbPath)
+	if err != nil {
+		return err
+	}
+	defer ls.Close()
+
+	stats, err := ls.GetVectorStats()
+	if err != nil {
+		return err
+	}
+	spaces, err := ls.VectorSpaceCounts()
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "Embedding Statistics:\n  Total Vectors: %v\n  With Embeddings: %v\n  Without Embeddings: %v\n",
+		stats["total_vectors"], stats["with_embeddings"], stats["without_embeddings"])
+
+	cfg, _ := config.LoadUserConfig(filepath.Join(ws, ".nerd", "config.json"))
+	if cfg == nil {
+		cfg = config.DefaultUserConfig()
+	}
+	emb := cfg.GetEmbeddingConfig()
+	model := emb.OllamaModel
+	if emb.Provider == "genai" {
+		model = emb.GenAIModel
+	}
+	if model == "" {
+		model = "(no model configured)"
+	}
+	fmt.Fprintf(w, "  Configured engine: %s %s\n", emb.Provider, model)
+
+	fmt.Fprintln(w, "  Embedded vectors by embedding space:")
+	names := make([]string, 0, len(spaces))
+	for name := range spaces {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		label := name
+		if label == "" {
+			label = "(written before the embedding space was recorded)"
+		}
+		fmt.Fprintf(w, "    %s: %d\n", label, spaces[name])
+	}
+	if rows, ok := ls.VecIndexRows(); ok {
+		fmt.Fprintf(w, "  Semantic index rows: %d\n", rows)
+	} else {
+		fmt.Fprintln(w, "  Semantic index: none (sqlite-vec unavailable, or no engine has built it)")
+	}
+	fmt.Fprintln(w, "  Rows in a space other than the live engine's do not rank; `nerd embedding reembed` brings them into it.")
+	return nil
 }
 
 var embeddingReembedCmd = &cobra.Command{
