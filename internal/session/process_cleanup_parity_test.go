@@ -36,7 +36,7 @@ func TestVerificationRunners_CancelKillsTheProcessTree(t *testing.T) {
 			return verifyTestRunner(ctx, dir, os.Environ(), "sh", []string{script})
 		}},
 		{"gopls", func(ctx context.Context, dir, script string) ([]byte, error) {
-			return runGoplsCheck(ctx, script, dir, []string{"main.go"})
+			return goplsCheckProcess(ctx, script, dir, []string{"main.go"})
 		}},
 	}
 	for _, tc := range cases {

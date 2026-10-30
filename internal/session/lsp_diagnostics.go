@@ -79,8 +79,14 @@ func (e *Executor) diagnosticTimeout() time.Duration {
 // lookPath is exec.LookPath; tests substitute a binary that is not installed.
 var lookPath = exec.LookPath
 
-// runGoplsCheck runs `gopls check` on files. Tests substitute it.
-var runGoplsCheck = func(ctx context.Context, bin, workspace string, files []string) ([]byte, error) {
+// runGoplsCheck is the gopls runner the diagnostics pass calls. Tests that
+// fake gopls output substitute it; tests of the process itself call
+// goplsCheckProcess, which a parallel test's substitution cannot reach.
+var runGoplsCheck = goplsCheckProcess
+
+// goplsCheckProcess runs `gopls check` on files, killing the whole process tree on
+// cancel (processutil.CombinedOutput).
+func goplsCheckProcess(ctx context.Context, bin, workspace string, files []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, bin, append([]string{"check"}, files...)...)
 	cmd.Dir = workspace
 	cmd.Env = build.GetBuildEnv(nil, workspace)
