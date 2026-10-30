@@ -3312,6 +3312,8 @@ func missingEvidenceSentence(atom string) string {
 		return "a function this turn added is called by no production code and no accepted reason says why"
 	case "/family_review_open":
 		return "a member of a declared code family changed and a peer was neither changed nor decided to need no change"
+	case "/mandate_unmet":
+		return "a test an authorized shard agent required did not pass in this turn's own test run"
 	default:
 		return strings.TrimPrefix(atom, "/")
 	}

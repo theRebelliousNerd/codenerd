@@ -87,6 +87,12 @@ type agentRegistryAgent struct {
 	// subjects the background knowledge refresh keeps current, beside its
 	// domains' pinned packages (knowledge_refresh.go).
 	Topics []string `json:"topics,omitzero"`
+	// Authority is what the user grants the agent beyond advice. "mandate":
+	// a requirement its consultation names (REQUIRE <TestName>) binds the
+	// turn, which is not verified until that test passes in the turn's own
+	// run (turn_mandate_unmet, policy/shard_experts.mg). Absent: its
+	// requirements are advice.
+	Authority []string `json:"authority,omitzero"`
 }
 
 // SyncAgentRegistryFromDisk ensures .nerd/agents.json is present and up-to-date with

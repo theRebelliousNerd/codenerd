@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"unicode"
 
 	"codenerd/internal/experts"
 	"codenerd/internal/logging"
@@ -46,6 +48,53 @@ type expertCard struct {
 	Handoffs []cardHandoff
 	// Route is how the routing ladder settled this card (consult_route).
 	Route string
+	// Mandates are the answer's REQUIRE lines: tests the expert says must
+	// pass. Proposals; the policy admits them only for an agent the
+	// registry grants /mandate (turn_mandate_admitted).
+	Mandates []cardMandate
+}
+
+// cardMandate is one REQUIRE line: a Go test that must pass, and why.
+type cardMandate struct {
+	Test, Why string
+}
+
+// mandatePrefix opens a requirement line in a consultation's answer.
+const mandatePrefix = "REQUIRE "
+
+// parseMandates reads "REQUIRE <TestName>: <why>" lines out of an answer. The
+// name must be a Go test function's (Test followed by identifier
+// characters): it is what turn_test_case names, so anything else could never
+// be discharged.
+func parseMandates(answer string) []cardMandate {
+	var out []cardMandate
+	for _, line := range strings.Split(answer, "\n") {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(line), mandatePrefix)
+		if !ok {
+			continue
+		}
+		name, why, _ := strings.Cut(rest, ":")
+		name = strings.Trim(strings.TrimSpace(name), "`'\"")
+		if !goTestName(name) {
+			continue
+		}
+		out = append(out, cardMandate{Test: name, Why: strings.TrimSpace(why)})
+	}
+	return out
+}
+
+// goTestName reports whether name is a Go test function's name.
+func goTestName(name string) bool {
+	rest, ok := strings.CutPrefix(name, "Test")
+	if !ok {
+		return false
+	}
+	for _, r := range rest {
+		if !(r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)) {
+			return false
+		}
+	}
+	return true
 }
 
 // cardHandoff is one HANDOFF line of a card: a change in From obliges
@@ -138,7 +187,36 @@ func (e *Executor) recordCards(result *ExecutionResult, cards []expertCard) {
 		for j, h := range c.Handoffs {
 			e.assertTurnFact(types.Fact{Predicate: "turn_card_handoff", Args: []any{turn, id, int64(j), h.From, h.To}})
 		}
+		for j, m := range c.Mandates {
+			e.assertTurnFact(types.Fact{Predicate: "turn_card_mandate", Args: []any{turn, id, int64(j), m.Test}})
+		}
 	}
+}
+
+// admittedMandates is the section naming the requirements the turn must
+// meet (turn_mandate_admitted), empty when there are none.
+func (e *Executor) admittedMandates(result *ExecutionResult) string {
+	if e.kernel == nil || result == nil || len(result.expertCards) == 0 {
+		return ""
+	}
+	rows, err := e.turnRows("turn_mandate_admitted", result.turnAtom())
+	if err != nil || len(rows) == 0 {
+		return ""
+	}
+	var tests []string
+	for _, row := range rows {
+		if test, ok := stringArg(row, 1); ok && !slices.Contains(tests, test) {
+			tests = append(tests, test)
+		}
+	}
+	slices.Sort(tests)
+	var b strings.Builder
+	b.WriteString("\n\n## Requirements this turn must meet\n")
+	b.WriteString("A shard agent the user granted mandate authority requires these tests to pass. The turn is not verified until each passes in its own test run; write or fix the test if it does not exist or fails.\n")
+	for _, test := range tests {
+		fmt.Fprintf(&b, "  - %s\n", test)
+	}
+	return b.String()
 }
 
 // cardAt is the turn's card with identity id.
@@ -316,5 +394,6 @@ func (e *Executor) dealtCards(result *ExecutionResult, file string) string {
 		b.WriteString("\nConsulted for this turn but not dealt to this step:\n")
 		b.WriteString(left.String())
 	}
+	b.WriteString(e.admittedMandates(result))
 	return b.String()
 }

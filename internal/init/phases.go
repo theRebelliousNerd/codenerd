@@ -438,8 +438,19 @@ func (i *Initializer) runPhase11Registry(runner *phaseRunner, result *InitResult
 func mergeAgentRegistry(created []CreatedAgent, existing map[string]CreatedAgent, declined map[string]bool) []CreatedAgent {
 	merged := append([]CreatedAgent(nil), created...)
 	have := map[string]bool{}
-	for _, agent := range created {
-		have[strings.ToLower(agent.Name)] = true
+	granted := map[string][]string{}
+	for _, agent := range existing {
+		if len(agent.Authority) > 0 {
+			granted[strings.ToLower(agent.Name)] = agent.Authority
+		}
+	}
+	for i, agent := range merged {
+		key := strings.ToLower(agent.Name)
+		have[key] = true
+		// The user's grant is not init's to drop by recreating the agent.
+		if len(agent.Authority) == 0 {
+			merged[i].Authority = granted[key]
+		}
 	}
 	names := make([]string, 0, len(existing))
 	for name := range existing {

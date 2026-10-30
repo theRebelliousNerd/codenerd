@@ -290,6 +290,11 @@ type CreatedAgent struct {
 	// refresh (internal/system/knowledge_refresh.go) reads them as the
 	// subjects the agent should know, beside its domains' pinned packages.
 	Topics []string `json:"topics,omitzero"`
+
+	// Authority is what the user granted the agent beyond advice
+	// ("mandate"; internal/system/shard_expert_facts.go). Init never grants
+	// it; an agent init recreates keeps the grant its registry entry had.
+	Authority []string `json:"authority,omitzero"`
 }
 
 // Initializer handles the cold-start initialization process.

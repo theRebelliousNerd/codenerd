@@ -313,6 +313,12 @@ var hostWitnessPredicates = map[string]struct{}{
 	"code_family": {}, "code_family_member": {}, "code_family_requirement": {}, "code_family_member_unresolved": {}, "turn_family_no_change": {},
 	"turn_family_member_changed": {}, "turn_family_obligation": {}, "turn_family_member_settled": {},
 	"turn_family_open": {}, "turn_has_open_family_obligation": {},
+	// Expert cards and mandates (shard_experts.mg). A model that could write
+	// a card, an authority grant or a test row could admit or discharge a
+	// requirement, or deal itself advice no expert gave.
+	"turn_expert_card": {}, "turn_expert_card_file": {}, "turn_card_handoff": {}, "turn_card_mandate": {},
+	"turn_plan_file": {}, "turn_step_file": {}, "turn_handoff_target_exists": {}, "shard_agent_authority": {},
+	"turn_mandate_admitted": {}, "turn_mandate_discharged": {}, "turn_mandate_unmet": {}, "turn_has_unmet_mandate": {},
 	// This turn's `go test -json` rows (session/turn_test_facts.go). A model
 	// that could write them could name a failure the gate did not run, or
 	// hide one it did. The unscoped test_case predicates stay host witnesses

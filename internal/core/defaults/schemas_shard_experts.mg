@@ -279,6 +279,25 @@ Decl turn_handoff_unplanned(Turn, Card, Idx, To) bound [/name, /number, /number,
 # the plan gains a step on it. Consumer: Executor.reconcileHandoffs.
 Decl turn_handoff_step(Turn, Card, Idx, To) bound [/name, /number, /number, /string].
 
+# shard_agent_authority(Agent, Grant) - what the user's agent registry grants
+# the agent beyond advice (agents.json "authority"). Producer:
+# internal/system (measureShardRoster).
+Decl shard_agent_authority(Agent, Grant) bound [/name, /name].
+
+# turn_card_mandate(Turn, Card, Idx, Test) - the card's answer names a test
+# that must pass for the change to be right (its REQUIRE lines). A proposal:
+# it binds only through turn_mandate_admitted. Producer: Executor.recordCards.
+Decl turn_card_mandate(Turn, Card, Idx, Test) bound [/name, /number, /number, /string].
+
+# turn_mandate_admitted(Turn, Test) - a requirement the turn must meet: an
+# answered card of an agent the registry grants /mandate named it.
+Decl turn_mandate_admitted(Turn, Test) bound [/name, /string].
+# turn_mandate_discharged(Turn, Test) - the test passed in the turn's own run.
+Decl turn_mandate_discharged(Turn, Test) bound [/name, /string].
+# turn_mandate_unmet(Turn, Test) - admitted and not discharged.
+Decl turn_mandate_unmet(Turn, Test) bound [/name, /string].
+Decl turn_has_unmet_mandate(Turn) bound [/name].
+
 # turn_handoff_unresolved(Turn, Card, Idx, To) - the unplanned consumer is not
 # a file on disk: the hand-off is reported as unresolved, not guessed at.
 # Consumer: Executor.reconcileHandoffs.

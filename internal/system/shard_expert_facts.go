@@ -108,6 +108,13 @@ func measureShardRoster(ctx context.Context, workspace string, compiler *prompt.
 		}
 		atom := experts.AgentAtom(agent.Name)
 		roster.facts = append(roster.facts, types.Fact{Predicate: "shard_agent", Args: []any{atom}})
+		// What the user granted the agent beyond advice; the policy decides
+		// what each grant admits (shard_agent_authority).
+		for _, grant := range agent.Authority {
+			if g := strings.ToLower(strings.TrimSpace(grant)); g != "" && experts.AgentKey(g) == g && !strings.ContainsAny(g, " /\t") {
+				roster.facts = append(roster.facts, types.Fact{Predicate: "shard_agent_authority", Args: []any{atom, types.MangleAtom("/" + g)}})
+			}
+		}
 		// The words of the agent's name: the kernel derives from them the
 		// languages, technologies and concepts the name states.
 		for _, part := range nerdinit.AgentNameParts(agent.Name) {

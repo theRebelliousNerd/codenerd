@@ -344,6 +344,27 @@ turn_handoff_unresolved(Turn, Card, Idx, To) :-
     turn_handoff_unplanned(Turn, Card, Idx, To),
     !turn_handoff_target_exists(Turn, To).
 
+# Mandates. An expert's REQUIRE line is a proposal; it becomes an obligation
+# only when the user's registry grants that agent /mandate authority. An
+# admitted mandate names a test, and only that test passing in the turn's
+# own run (turn_test_case, coder_safety.mg) discharges it; the turn is not
+# verified while one is unmet (turn_verified, coder_safety.mg). Neither the
+# expert's confidence nor the model's word can admit or discharge one.
+turn_mandate_admitted(Turn, Test) :-
+    turn_card_mandate(Turn, Card, _, Test),
+    turn_expert_card(Turn, Card, Agent, _, /answered),
+    shard_agent_authority(Agent, /mandate).
+
+turn_mandate_discharged(Turn, Test) :-
+    turn_mandate_admitted(Turn, Test),
+    turn_test_case(Turn, _, Test, /pass, _).
+
+turn_mandate_unmet(Turn, Test) :-
+    turn_mandate_admitted(Turn, Test),
+    !turn_mandate_discharged(Turn, Test).
+
+turn_has_unmet_mandate(Turn) :- turn_mandate_unmet(Turn, _).
+
 turn_expert_actionable(Turn, Idx) :-
     turn_expert_finding(Turn, _, Idx, Sev),
     severity_rank(Sev, Rank),

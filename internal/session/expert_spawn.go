@@ -139,6 +139,7 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 			cards[i].Route = plan.route
 			if cards[i].Disposition == cardAnswered {
 				cards[i].Handoffs = parseHandoffs(workspace, cards[i].Body)
+				cards[i].Mandates = parseMandates(cards[i].Body)
 			}
 			if r.err != nil {
 				logging.Get(logging.CategorySession).Warn("shard agent %s consultation failed: %v", r.need.Agent, r.err)
@@ -153,7 +154,7 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 	logging.Session("Consultations for %s %s: %d routed, %d bought", intent.Verb, intent.Target, len(plans), bought)
 	result.coverScope(spawns)
 	e.recordCards(result, cards)
-	return strings.TrimRight(systemPrompt, "\n") + b.String()
+	return strings.TrimRight(systemPrompt, "\n") + b.String() + e.admittedMandates(result)
 }
 
 // uncoveredScope is need narrowed to the files no earlier consultation of
@@ -228,5 +229,7 @@ func consultationTask(need experts.Need, intent perception.Intent, input string)
 	}
 	b.WriteString("\n\nWhen a change in one file obliges a change or a condition in another, add one line per hand-off, exactly:\n" +
 		handoffPrefix + "<from-file> -> <to-file>: <what must hold between them>")
+	b.WriteString("\nWhen a named Go test must pass for the change to be right, add one line per test, exactly:\n" +
+		mandatePrefix + "<TestName>: <why>\nIt binds the turn only if the user granted you mandate authority; otherwise it is advice.")
 	return b.String()
 }
