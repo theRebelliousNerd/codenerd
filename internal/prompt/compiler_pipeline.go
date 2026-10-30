@@ -323,6 +323,11 @@ func (c *JITPromptCompiler) compileMiss(ctx context.Context, in missInput) (any,
 
 	// Step 3: Resolve dependencies and handle conflicts
 	resolveStart := time.Now()
+	stats.DependencyDefects = selectionDefects(c.resolver, scored)
+	if len(stats.DependencyDefects) > 0 {
+		logging.Get(logging.CategoryJIT).Warn("Selected atoms carry authoring defects the kernel let through: %s",
+			strings.Join(stats.DependencyDefects, "; "))
+	}
 	ordered, err := c.resolver.Resolve(scored)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve dependencies: %w", err)
@@ -383,4 +388,26 @@ func (c *JITPromptCompiler) compileMiss(ctx context.Context, in missInput) (any,
 		c.logCompilationManifest(stats, result)
 	}
 	return promptCompilationOutcome{result: result}, nil
+}
+
+// selectionDefects names the cycles and conflicting pairs in the selected
+// set. The kernel resolves conflicts and capability gating during selection
+// (atom_conflicts in jit_compiler.mg), so a pair that still arrives here, or a
+// dependency cycle Resolve will have to break at an arbitrary atom, is an
+// authoring defect worth seeing. A missing dependency is not: Resolve prunes
+// its dependents on purpose, which is how capability gating propagates.
+func selectionDefects(r *DependencyResolver, scored []*ScoredAtom) []string {
+	atoms := make([]*PromptAtom, 0, len(scored))
+	for _, sa := range scored {
+		if sa != nil && sa.Atom != nil {
+			atoms = append(atoms, sa.Atom)
+		}
+	}
+	var defects []string
+	for _, defect := range r.ValidateDependencies(atoms) {
+		if defect.Type != DependencyErrorMissing {
+			defects = append(defects, defect.Error())
+		}
+	}
+	return defects
 }

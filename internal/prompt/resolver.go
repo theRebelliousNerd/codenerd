@@ -275,22 +275,26 @@ func (r *DependencyResolver) topologicalSort(
 	return result, nil
 }
 
-// ValidateDependencies checks if all dependencies can be satisfied.
-// Returns a list of atoms with unmet dependencies.
+// ValidateDependencies reports what keeps a set of atoms from assembling as
+// authored: a dependency that is not in the set (DependencyErrorMissing), a
+// dependency cycle (DependencyErrorCycle, one per disjoint cycle, CycleIDs
+// the path with its first atom repeated at the end), and two atoms of the set
+// that declare each other conflicting (DependencyErrorConflict, once per
+// pair, AtomID the one that declares it). Errors come in that order, each
+// kind in input order.
 func (r *DependencyResolver) ValidateDependencies(atoms []*PromptAtom) []DependencyError {
 	atomSet := make(map[string]bool, len(atoms))
+	present := make([]*PromptAtom, 0, len(atoms))
 	for _, atom := range atoms {
 		if atom == nil || atom.ID == "" {
 			continue
 		}
 		atomSet[atom.ID] = true
+		present = append(present, atom)
 	}
 
 	var errors []DependencyError
-	for _, atom := range atoms {
-		if atom == nil || atom.ID == "" {
-			continue
-		}
+	for _, atom := range present {
 		for _, depID := range atom.DependsOn {
 			if !atomSet[depID] {
 				errors = append(errors, DependencyError{
@@ -302,7 +306,63 @@ func (r *DependencyResolver) ValidateDependencies(atoms []*PromptAtom) []Depende
 		}
 	}
 
+	for _, cycle := range r.disjointCycles(present) {
+		errors = append(errors, DependencyError{
+			AtomID:   cycle[0],
+			CycleIDs: cycle,
+			Type:     DependencyErrorCycle,
+		})
+	}
+
+	type pair struct{ lo, hi string }
+	reported := make(map[pair]bool)
+	for _, atom := range present {
+		for _, other := range atom.ConflictsWith {
+			if other == atom.ID || !atomSet[other] {
+				continue
+			}
+			key := pair{atom.ID, other}
+			if other < atom.ID {
+				key = pair{other, atom.ID}
+			}
+			if reported[key] {
+				continue
+			}
+			reported[key] = true
+			errors = append(errors, DependencyError{
+				AtomID:     atom.ID,
+				ConflictID: other,
+				Type:       DependencyErrorConflict,
+			})
+		}
+	}
+
 	return errors
+}
+
+// disjointCycles finds cycles until none is left, setting each found cycle's
+// atoms aside before looking again, so every tangle is reported once.
+func (r *DependencyResolver) disjointCycles(atoms []*PromptAtom) [][]string {
+	var cycles [][]string
+	remaining := atoms
+	for {
+		cycle := r.DetectCycles(remaining)
+		if cycle == nil {
+			return cycles
+		}
+		cycles = append(cycles, cycle)
+		inCycle := make(map[string]bool, len(cycle))
+		for _, id := range cycle {
+			inCycle[id] = true
+		}
+		next := make([]*PromptAtom, 0, len(remaining))
+		for _, atom := range remaining {
+			if !inCycle[atom.ID] {
+				next = append(next, atom)
+			}
+		}
+		remaining = next
+	}
 }
 
 // DependencyErrorType categorizes dependency errors.
@@ -319,25 +379,9 @@ const (
 	DependencyErrorConflict
 )
 
-// DependencyError describes a dependency resolution error.
-//
-// Only ONE of its three types is ever constructed. ValidateDependencies emits
-// DependencyErrorMissing and nothing else, so ConflictID and CycleIDs are
-// never filled and the two Error() branches that format them are unreachable —
-// which is why the dark-field gate reports both fields.
-//
-// That is a missing SOURCE rather than a missing wire, and the source moved on
-// purpose. Conflict detection is now Mangle's: atoms carry ConflictsWith,
-// selector.go feeds it to atom_conflicts() in jit_compiler.mg, and the kernel
-// resolves conflicts during selection rather than after it — which is the only
-// place it CAN be resolved, since two atoms only conflict once both have been
-// selected. DetectCycles here is still the cycle algorithm, and it returns its
-// path directly; nothing wraps that path into a DependencyError because
-// nothing needs the error type to carry it.
-//
-// Left rather than deleted: Error() is the documented rendering for all three
-// types, and a future caller that does want a typed cycle error should find
-// the shape already agreed rather than invent a second one.
+// DependencyError is one finding of ValidateDependencies. Type says which
+// fields carry it: MissingDepID for a missing dependency, CycleIDs for a
+// cycle, ConflictID for a conflicting pair.
 type DependencyError struct {
 	AtomID       string
 	MissingDepID string

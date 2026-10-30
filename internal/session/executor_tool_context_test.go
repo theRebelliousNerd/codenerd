@@ -27,7 +27,7 @@ func TestCompilationContextUsesPermittedToolEnvelope(t *testing.T) {
 			ctx = types.WithSessionContext(ctx, &types.SessionContext{})
 		}
 		t.Run("coder"+suffix, func(t *testing.T) {
-			cc := (&Executor{kernel: k}).buildCompilationContext(ctx, perception.Intent{Verb: "/fix"})
+			cc := turnCC((&Executor{kernel: k}), ctx, perception.Intent{Verb: "/fix"})
 			if !slices.Contains(cc.AvailableTools, "read_file") {
 				t.Fatalf("coder envelope = %v, want read_file", cc.AvailableTools)
 			}
@@ -36,14 +36,14 @@ func TestCompilationContextUsesPermittedToolEnvelope(t *testing.T) {
 			}
 		})
 		t.Run("general fallback"+suffix, func(t *testing.T) {
-			cc := (&Executor{kernel: k}).buildCompilationContext(ctx, perception.Intent{})
+			cc := turnCC((&Executor{kernel: k}), ctx, perception.Intent{})
 			if !slices.Contains(cc.AvailableTools, "read_file") || slices.Contains(cc.AvailableTools, "write_file") {
 				t.Fatalf("empty verb envelope = %v, want the read-only floor", cc.AvailableTools)
 			}
 		})
 		t.Run("query error"+suffix, func(t *testing.T) {
 			e := &Executor{kernel: &MockKernel{QueryError: errors.New("unavailable")}}
-			cc := e.buildCompilationContext(ctx, perception.Intent{Verb: "/fix"})
+			cc := turnCC(e, ctx, perception.Intent{Verb: "/fix"})
 			if len(cc.AvailableTools) != 0 {
 				t.Fatalf("query error supplied tools %v", cc.AvailableTools)
 			}
@@ -51,7 +51,7 @@ func TestCompilationContextUsesPermittedToolEnvelope(t *testing.T) {
 		t.Run("specialist"+suffix, func(t *testing.T) {
 			precompiled := &config.EffectiveAgentRuntimeConfig{AllowedTools: []string{"write_file"}}
 			e := &Executor{kernel: k, EffectiveAgentRuntimeConfig: precompiled}
-			cc := e.buildCompilationContext(ctx, perception.Intent{Verb: "/fix"})
+			cc := turnCC(e, ctx, perception.Intent{Verb: "/fix"})
 			if !slices.Equal(cc.AvailableTools, []string{"write_file"}) {
 				t.Fatalf("prompt envelope=%v, want the precompiled allowlist", cc.AvailableTools)
 			}
@@ -63,13 +63,13 @@ func TestCompilationContextUsesPermittedToolEnvelope(t *testing.T) {
 		t.Run("empty specialist"+suffix, func(t *testing.T) {
 			precompiled := &config.EffectiveAgentRuntimeConfig{}
 			e := &Executor{kernel: k, EffectiveAgentRuntimeConfig: precompiled}
-			cc := e.buildCompilationContext(ctx, perception.Intent{Verb: "/fix"})
+			cc := turnCC(e, ctx, perception.Intent{Verb: "/fix"})
 			if len(cc.AvailableTools) != 0 {
 				t.Fatalf("empty specialist supplied %v", cc.AvailableTools)
 			}
 		})
 	}
-	if cc := (&Executor{}).buildCompilationContext(t.Context(), perception.Intent{Verb: "/fix"}); len(cc.AvailableTools) != 0 {
+	if cc := turnCC((&Executor{}), t.Context(), perception.Intent{Verb: "/fix"}); len(cc.AvailableTools) != 0 {
 		t.Fatal("nil kernel supplied ambient tools")
 	}
 }
@@ -82,14 +82,14 @@ func TestBuildCompilationContext_LanguageAndFrameworksFromKernel(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("LoadFacts: %v", err)
 	}
-	cc := (&Executor{kernel: k}).buildCompilationContext(t.Context(), perception.Intent{Verb: "/fix"})
+	cc := turnCC((&Executor{kernel: k}), t.Context(), perception.Intent{Verb: "/fix"})
 	if cc.Language != "/go" {
 		t.Fatalf("Language=%q, want %q", cc.Language, "/go")
 	}
 	if !slices.Equal(cc.Frameworks, []string{"/bubbletea"}) {
 		t.Fatalf("Frameworks=%v, want %v", cc.Frameworks, []string{"/bubbletea"})
 	}
-	ccNil := (&Executor{}).buildCompilationContext(t.Context(), perception.Intent{Verb: "/fix"})
+	ccNil := turnCC((&Executor{}), t.Context(), perception.Intent{Verb: "/fix"})
 	if ccNil.Language != "" {
 		t.Fatalf("nil kernel Language=%q, want empty", ccNil.Language)
 	}

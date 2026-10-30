@@ -108,7 +108,7 @@ func kernelTargetNeeds(t *testing.T, k *core.RealKernel, language string) []stri
 }
 
 // coderTurnContext is the compilation context the session executor builds for
-// a coder turn (buildCompilationContext): persona, verb, target and its
+// a coder turn (turnCompilationContext): persona, verb, target and its
 // language, the persona's tool envelope, the serving vendor, a production
 // budget. needs is what the kernel derived for it (policy/jit_needs.mg).
 func coderTurnContext(t *testing.T, verb, target, language string, needs []string) *CompilationContext {

@@ -149,9 +149,9 @@ func TestServingIdentityChain(t *testing.T) {
 			}
 
 			sp := NewSpawner(nil, nil, tt.client, nil, nil, nil, DefaultSpawnerConfig())
-			gotProvider, gotModel = sp.servingIdentity(context.Background(), SpawnRequest{Name: "coder"})
+			gotProvider, gotModel = clientIdentity(sp.servingClient(context.Background(), SpawnRequest{Name: "coder"}))
 			if gotProvider != tt.wantProvider || gotModel != tt.wantModel {
-				t.Errorf("Spawner.servingIdentity() = (%q, %q), want (%q, %q)",
+				t.Errorf("Spawner serving identity = (%q, %q), want (%q, %q)",
 					gotProvider, gotModel, tt.wantProvider, tt.wantModel)
 			}
 		})

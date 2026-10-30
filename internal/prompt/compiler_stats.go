@@ -86,23 +86,7 @@ type CompilationStats struct {
 	// MinModeCount is atoms rendered in minimal mode
 	MinModeCount int
 
-	// --- Cache & Fallback ---
-	// FallbackUsed indicates whether legacy fallback compilation was used.
-	//
-	// Dark by MISSING SOURCE rather than missing wire, and the tests say so out
-	// loud: TestCompiler_Fallback* builds the two situations that would set it
-	// -- a nil kernel and a kernel query error -- finds the compiler returns an
-	// error in both, and skips with "Fallback for nil kernel not yet
-	// implemented - test documents expected behavior". There is no fallback
-	// compile path to report on.
-	//
-	// So the "fallback_used" key in Map() below always reads false, which is
-	// true for the reason that nothing can make it true. Wiring this means
-	// BUILDING the fallback -- deciding what a compile does when the kernel is
-	// unavailable -- which is the same open question internal/session's 52-
-	// character fallback prompt raises, and it is a feature, not a wire.
-	FallbackUsed bool
-
+	// --- Cache ---
 	// CacheHit indicates whether a cached skeleton was used
 	CacheHit bool
 
@@ -120,6 +104,10 @@ type CompilationStats struct {
 
 	// DegradedSources names optional sources that failed during collection.
 	DegradedSources []string
+
+	// DependencyDefects names the dependency cycles and conflicting pairs
+	// that reached the resolver in the selected set (selectionDefects).
+	DependencyDefects []string
 
 	// Uncacheable is why this result was not published to the cache; empty
 	// when it was.
@@ -160,38 +148,38 @@ func (s *CompilationStats) String() string {
 // ToLogFields returns the stats as a map for structured logging.
 func (s *CompilationStats) ToLogFields() map[string]any {
 	return map[string]any{
-		"duration_ms":      s.Duration.Milliseconds(),
-		"collect_ms":       s.CollectAtomsMs,
-		"select_ms":        s.SelectAtomsMs,
-		"resolve_ms":       s.ResolveDepsMs,
-		"fit_ms":           s.FitBudgetMs,
-		"assemble_ms":      s.AssembleMs,
-		"vector_ms":        s.VectorQueryMs,
-		"atoms_selected":   s.AtomsSelected,
-		"skeleton_atoms":   s.SkeletonAtoms,
-		"flesh_atoms":      s.FleshAtoms,
-		"atoms_candidates": s.AtomsCandidates,
-		"atoms_dropped":    s.AtomsDropped,
-		"tokens_used":      s.TokensUsed,
-		"token_budget":     s.TokenBudget,
-		"budget_util":      s.BudgetUtilization,
-		"skeleton_tokens":  s.SkeletonTokens,
-		"flesh_tokens":     s.FleshTokens,
-		"embedded_atoms":   s.EmbeddedAtoms,
-		"project_atoms":    s.ProjectAtoms,
-		"shard_atoms":      s.ShardAtoms,
-		"standard_mode":    s.StandardModeCount,
-		"concise_mode":     s.ConciseModeCount,
-		"min_mode":         s.MinModeCount,
-		"fallback_used":    s.FallbackUsed,
-		"cache_hit":        s.CacheHit,
-		"shard_id":         s.ShardID,
-		"operational_mode": s.OperationalMode,
-		"intent_verb":      s.IntentVerb,
-		"preflight_ms":     s.PreflightMs,
-		"preflight_reused": s.PreflightReused,
-		"degraded_sources": s.DegradedSources,
-		"uncacheable":      s.Uncacheable,
+		"duration_ms":        s.Duration.Milliseconds(),
+		"collect_ms":         s.CollectAtomsMs,
+		"select_ms":          s.SelectAtomsMs,
+		"resolve_ms":         s.ResolveDepsMs,
+		"fit_ms":             s.FitBudgetMs,
+		"assemble_ms":        s.AssembleMs,
+		"vector_ms":          s.VectorQueryMs,
+		"atoms_selected":     s.AtomsSelected,
+		"skeleton_atoms":     s.SkeletonAtoms,
+		"flesh_atoms":        s.FleshAtoms,
+		"atoms_candidates":   s.AtomsCandidates,
+		"atoms_dropped":      s.AtomsDropped,
+		"tokens_used":        s.TokensUsed,
+		"token_budget":       s.TokenBudget,
+		"budget_util":        s.BudgetUtilization,
+		"skeleton_tokens":    s.SkeletonTokens,
+		"flesh_tokens":       s.FleshTokens,
+		"embedded_atoms":     s.EmbeddedAtoms,
+		"project_atoms":      s.ProjectAtoms,
+		"shard_atoms":        s.ShardAtoms,
+		"standard_mode":      s.StandardModeCount,
+		"concise_mode":       s.ConciseModeCount,
+		"min_mode":           s.MinModeCount,
+		"cache_hit":          s.CacheHit,
+		"shard_id":           s.ShardID,
+		"operational_mode":   s.OperationalMode,
+		"intent_verb":        s.IntentVerb,
+		"preflight_ms":       s.PreflightMs,
+		"preflight_reused":   s.PreflightReused,
+		"degraded_sources":   s.DegradedSources,
+		"dependency_defects": s.DependencyDefects,
+		"uncacheable":        s.Uncacheable,
 	}
 }
 

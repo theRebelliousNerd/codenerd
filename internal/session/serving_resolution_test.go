@@ -64,10 +64,10 @@ func TestServingResolution_FollowsTheProfileRoute(t *testing.T) {
 		}
 		return types.WithProvider(types.WithModelName(ctx, "gpt-b"), "openai")
 	})
-	if p, m := sp.servingIdentity(context.Background(), SpawnRequest{Name: "coder"}); p != "openai" || m != "gpt-b" {
+	if p, m := clientIdentity(sp.servingClient(context.Background(), SpawnRequest{Name: "coder"})); p != "openai" || m != "gpt-b" {
 		t.Fatalf("spawned coder compiled for %s/%s, want its profile's openai/gpt-b", p, m)
 	}
-	if p, m := sp.servingIdentity(context.Background(), SpawnRequest{Name: "reviewer"}); p != "meta" || m != "muse" {
+	if p, m := clientIdentity(sp.servingClient(context.Background(), SpawnRequest{Name: "reviewer"})); p != "meta" || m != "muse" {
 		t.Fatalf("a subagent with no profile compiled for %s/%s, want the slot's meta/muse", p, m)
 	}
 }

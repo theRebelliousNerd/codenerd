@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -101,11 +102,25 @@ func (m Model) approvePendingWork() (Model, tea.Cmd) {
 	return m, cmd
 }
 
-// briefContext carries the running brief to the perception call only: the
-// rest of the turn keeps its own context, since the executor treats any
-// session context as already built.
+// briefContext carries the running brief and the editor's ambient state to
+// the perception call only: the rest of the turn keeps its own context, since
+// the executor treats any session context as already built.
 func (m Model) briefContext(ctx context.Context) context.Context {
-	return types.WithSessionContext(ctx, &types.SessionContext{Brief: m.currentBrief().Render()})
+	return types.WithSessionContext(ctx, &types.SessionContext{Brief: m.currentBrief().Render(), Ambient: m.ambient(time.Now())})
+}
+
+// ambient is the editor bridge's .nerd/ambient.json while it is fresh; nil
+// when there is no bridge. A file that does not parse is logged and left out.
+func (m Model) ambient(now time.Time) *types.AmbientContext {
+	if m.workspace == "" {
+		return nil
+	}
+	amb, err := types.ReadAmbient(filepath.Join(m.workspace, ".nerd"), now, m.Config.GetAmbientConfig().MaxAge())
+	if err != nil {
+		logging.Get(logging.CategoryContext).Warn("Ambient context left out: %v", err)
+		return nil
+	}
+	return amb
 }
 
 // currentBrief reads the brief back from the kernel; nil when there is none.

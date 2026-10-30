@@ -159,7 +159,7 @@ func TestTurnAimedAtAPolicyFileCompilesForMangle(t *testing.T) {
 		"notes.txt":                       "/text",
 		"Makefile":                        "",
 	} {
-		cc := e.buildCompilationContext(t.Context(), perception.Intent{Verb: "/fix", Target: target})
+		cc := turnCC(e, t.Context(), perception.Intent{Verb: "/fix", Target: target})
 		if cc.Language != want {
 			t.Errorf("target %s compiled for language %q, want %q", target, cc.Language, want)
 		}

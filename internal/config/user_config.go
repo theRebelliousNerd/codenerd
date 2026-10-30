@@ -148,6 +148,9 @@ type UserConfig struct {
 	// Dev is for working on codeNERD itself (dev.go).
 	Dev *DevConfig `json:"dev,omitempty"`
 
+	// Ambient bounds the editor bridge's .nerd/ambient.json (ambient.go).
+	Ambient *AmbientConfig `json:"ambient,omitempty"`
+
 	// =========================================================================
 	// UI SETTINGS
 	// =========================================================================
@@ -1852,6 +1855,9 @@ func (c *UserConfig) GetJITConfig() JITConfig {
 		}
 		if c.JIT.AtomMaxChars != 0 {
 			cfg.AtomMaxChars = c.JIT.AtomMaxChars
+		}
+		if c.JIT.VectorSearchTimeoutMs > 0 {
+			cfg.VectorSearchTimeoutMs = c.JIT.VectorSearchTimeoutMs
 		}
 	}
 	return cfg

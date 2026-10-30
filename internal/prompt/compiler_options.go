@@ -66,7 +66,7 @@ func WithConfig(config CompilerConfig) CompilerOption {
 		//
 		// The zero is guarded because the two setters do NOT agree about what
 		// one means. SetVectorSearchTimeout reads zero as "unset" and
-		// substitutes ten seconds; SetVectorWeight clamps to [0,1] and takes a
+		// keeps its current bound; SetVectorWeight clamps to [0,1] and takes a
 		// zero literally, as pure logic. So wiring this unguarded would make a
 		// partially-filled CompilerConfig silently turn vector scoring off --
 		// the exact silent-failure shape this is being fixed to remove. Pure

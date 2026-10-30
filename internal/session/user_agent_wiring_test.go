@@ -31,7 +31,7 @@ func TestUserAgentFromIntentVerb(t *testing.T) {
 		{"/rustexpert", "rustexpert"},
 		{"/GoExpert", "goexpert"},
 		// Taxonomy verbs are single segments too; the CALLER checks
-		// perception.GetShardTypeForVerb first (see buildCompilationContext),
+		// perception.GetShardTypeForVerb first (see buildCompilationContextWith),
 		// which is what keeps "/fix" on the coder persona.
 		{"/fix", "fix"},
 		{"", ""},
@@ -49,7 +49,7 @@ func TestUserAgentFromIntentVerb(t *testing.T) {
 }
 
 // TestBuiltinVerbsKeepTheirPersona guards the branch ORDER in
-// buildCompilationContext: taxonomy verbs must resolve their persona through
+// buildCompilationContextWith: taxonomy verbs must resolve their persona through
 // perception.GetShardTypeForVerb, never through the user-agent fallback.
 //
 // Regression guarded: if the user-agent branch were checked first, "/review"

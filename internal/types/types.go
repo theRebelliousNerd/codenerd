@@ -395,37 +395,28 @@ type ToolExecutionSummary struct {
 // SESSION CONTEXT - Blackboard Pattern
 // =============================================================================
 
-// AmbientContext provides context about the user's active IDE workspace environment.
+// AmbientContext is the user's editor state, as an editor bridge reports it
+// in .nerd/ambient.json (ReadAmbient). Perception shows it to the model as
+// where the user is looking, so it is only ever what the bridge wrote, and
+// only while the bridge keeps the file fresh.
 //
-// **It has no producer, and unlike the other dark fields on this branch that is
-// correct.** internal/perception/transducer_llm.go reads all four fields and
-// builds a whole "Ambient Context" prompt section out of them; the only writers
-// anywhere are four test files. It is recorded here rather than wired, for the
-// same reason build_layer is: the difference between a missing wire and a
-// missing SOURCE.
+// The file is one JSON object; every key is optional, and an unknown key is
+// an error:
 //
-// ActiveFile, CursorLine and SelectedText are editor state. codeNERD's surfaces
-// are a TUI, a CLI and shards, and none of them has a cursor. There is nothing
-// to read these from, so populating them would mean inventing an answer — and
-// an invented active file is worse than no active file, because the prompt
-// presents it as where the user is looking.
+//	{
+//	  "active_file":   "internal/core/kernel.go",
+//	  "cursor_line":   120,
+//	  "selected_text": "func (k *RealKernel) Query(...)",
+//	  "diagnostics":   ["kernel.go:122:9: undefined: rows"]
+//	}
 //
-// Diagnostics is the one with a live producer, and it is already spoken for.
-// internal/session/lsp_diagnostics.go runs gopls over the turn's written files
-// and hands the findings to the CRITIC, deliberately: an LLM reviewer given
-// concrete tool output reviews better than one given only source. Rerouting the
-// same signal into the ambient block would pay for it twice in one turn and put
-// it in front of a model that is not the one reviewing.
-//
-// What would make this live is an editor bridge — an LSP or extension client
-// reporting the user's position. That is a feature, and should be costed as
-// one. Until then the consumer stays where it is: deleting it would only mean
-// rebuilding it, worse, when the bridge arrives.
+// active_file is workspace-relative or absolute, cursor_line is 1-based (0
+// means unknown), and diagnostics are the editor's own, one per string.
 type AmbientContext struct {
-	ActiveFile   string
-	CursorLine   int
-	SelectedText string
-	Diagnostics  []string
+	ActiveFile   string   `json:"active_file,omitempty"`
+	CursorLine   int      `json:"cursor_line,omitempty"`
+	SelectedText string   `json:"selected_text,omitempty"`
+	Diagnostics  []string `json:"diagnostics,omitempty"`
 }
 
 // SessionContext holds compressed session context for shard injection (Blackboard Pattern).

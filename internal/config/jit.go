@@ -79,6 +79,11 @@ type JITConfig struct {
 	// size and splits anything longer at its headings.
 	AtomMaxChars int `yaml:"atom_max_chars" json:"atom_max_chars"`
 
+	// VectorSearchTimeoutMs bounds one semantic search a compile runs, for
+	// atom selection and for learning recall (default: 10000). A search that
+	// runs out leaves the compile on logic scores alone.
+	VectorSearchTimeoutMs int `yaml:"vector_search_timeout_ms" json:"vector_search_timeout_ms"`
+
 	enabledSet         bool
 	fallbackEnabledSet bool
 }
@@ -129,6 +134,7 @@ func DefaultJITConfig() JITConfig {
 		PredicateVecLimit:           200,
 		FallbackIdentityMaxBytes:    1024 * 1024,
 		AtomMaxChars:                1500,
+		VectorSearchTimeoutMs:       10000,
 	}
 }
 
@@ -163,6 +169,14 @@ func (c JITConfig) Check(prefix string) []Problem {
 				Fix:      "a count of at least 1, or remove the key for the default",
 			})
 		}
+	}
+	if c.VectorSearchTimeoutMs < 0 {
+		out = append(out, Problem{
+			Severity: SeverityError,
+			Path:     prefix + ".vector_search_timeout_ms",
+			Message:  fmt.Sprintf("%d is negative", c.VectorSearchTimeoutMs),
+			Fix:      "a timeout in milliseconds, or remove the key for the default",
+		})
 	}
 	if atomCap := c.AtomMaxChars; atomCap != 0 && (atomCap < 400 || atomCap > 8000) {
 		out = append(out, Problem{

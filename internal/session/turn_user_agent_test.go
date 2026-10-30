@@ -16,13 +16,13 @@ func TestTaxonomyVerbsRunAsNoUserAgent(t *testing.T) {
 	t.Parallel()
 	e := NewExecutor(nil, nil, nil, nil, nil, nil)
 	for _, verb := range []string{"/explain", "/help", "/configure", "/greet"} {
-		cc := e.buildCompilationContext(t.Context(), perception.Intent{Verb: verb})
+		cc := turnCC(e, t.Context(), perception.Intent{Verb: verb})
 		if cc.ShardID != "" || cc.ShardType != "" {
 			t.Errorf("%s compiled as agent %q (%q); a taxonomy verb names no agent", verb, cc.ShardID, cc.ShardType)
 		}
 	}
 	for verb, want := range map[string]string{"/consult/goexpert": "goexpert", "/goexpert": "goexpert"} {
-		cc := e.buildCompilationContext(t.Context(), perception.Intent{Verb: verb})
+		cc := turnCC(e, t.Context(), perception.Intent{Verb: verb})
 		if cc.ShardID != want || cc.ShardType != "/"+want {
 			t.Errorf("%s compiled as %q (%q), want the user agent %q", verb, cc.ShardID, cc.ShardType, want)
 		}

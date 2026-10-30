@@ -370,6 +370,11 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		out = append(out, c.Routing.Check("routing")...)
 	}
 
+	// --- ambient ---
+	if c.Ambient != nil {
+		out = append(out, c.Ambient.Check("ambient")...)
+	}
+
 	// --- explain ---
 	if c.Explain != nil {
 		out = append(out, c.Explain.Check("explain")...)

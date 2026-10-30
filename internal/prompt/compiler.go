@@ -239,25 +239,9 @@ type CompilerConfig struct {
 	// VectorSearchWeight is the weight of vector scores vs logic scores (0.0-1.0)
 	VectorSearchWeight float64
 
-	// VectorSearchTimeout is the timeout duration for vector searches.
-	//
-	// Read in four places and set by no production caller, which is what the
-	// dark-field gate reports -- but it is a knob with no SOURCE, not a broken
-	// wire, and the difference is the whole triage. Both consumers coerce a
-	// zero (`if timeout <= 0 { timeout = 10 * time.Second }`, here in
-	// collectLearningAtoms and again in AtomSelector.SetVectorSearchTimeout)
-	// and the selector's constructor defaults to the same ten seconds, so the
-	// inert field costs nothing and semantic selection runs on the default.
-	//
-	// Checked because the opposite would have been bad: a timeout field read
-	// and never written, with no guard, gives context.WithTimeout(ctx, 0) --
-	// a deadline already past, which would disable vector search on every
-	// compile while reporting a timeout nobody configured. That is the shape
-	// worth ruling out, and it is ruled out.
-	//
-	// Making it live means adding a user-facing config key and plumbing it,
-	// which is main's 938cd87 decision in reverse and belongs with whoever
-	// wants the knob.
+	// VectorSearchTimeout bounds one vector search: atom selection's and
+	// learning recall's. It comes from jit.vector_search_timeout_ms; zero is
+	// "unset" and keeps the selector's current bound.
 	VectorSearchTimeout time.Duration
 
 	// DebugMode enables verbose JIT manifest logging
@@ -319,12 +303,16 @@ type CompilerConfig struct {
 	// missing wire and it is wired above.
 }
 
+// defaultVectorSearchTimeout is jit.vector_search_timeout_ms's default, the
+// one source of the vector-search bound for compilers built without config.
+var defaultVectorSearchTimeout = time.Duration(userconfig.DefaultJITConfig().VectorSearchTimeoutMs) * time.Millisecond
+
 // DefaultCompilerConfig returns a sensible default configuration.
 // DefaultTokenBudget is a fallback: production boot (internal/system) overrides
 // it from the configured JIT token budget through WithConfig. The injection
-// bounds below are sourced from DefaultJITConfig, their single definition;
-// a user-set jit.* value takes effect once boot maps it onto this struct
-// (internal/system maps DefaultTokenBudget and DebugMode today).
+// bounds and the vector-search timeout are sourced from DefaultJITConfig, their
+// single definition; a user-set jit.* value takes effect once boot maps it onto
+// this struct (internal/system/factory.go initIntelligenceLayer).
 func DefaultCompilerConfig() CompilerConfig {
 	jitDefaults := userconfig.DefaultJITConfig()
 	return CompilerConfig{
@@ -335,6 +323,7 @@ func DefaultCompilerConfig() CompilerConfig {
 		VectorSearchWeight:        0.3, // 70% logic, 30% vector
 		DebugMode:                 false,
 		KnowledgeSearchTimeout:    10 * time.Second,
+		VectorSearchTimeout:       defaultVectorSearchTimeout,
 		KernelContextRows:         jitDefaults.KernelContextRows,
 		KernelContextRowChars:     jitDefaults.KernelContextRowChars,
 		KernelInjectedAtomChars:   jitDefaults.KernelInjectedAtomChars,
@@ -392,7 +381,7 @@ func NewJITPromptCompiler(opts ...CompilerOption) (*JITPromptCompiler, error) {
 	//
 	// The zero is guarded because the two setters do NOT agree about what
 	// one means. SetVectorSearchTimeout reads zero as "unset" and
-	// substitutes ten seconds; SetVectorWeight clamps to [0,1] and takes a
+	// keeps its current bound; SetVectorWeight clamps to [0,1] and takes a
 	// zero literally, as pure logic. So wiring this unguarded would make a
 	// partially-filled CompilerConfig silently turn vector scoring off --
 	// the exact silent-failure shape this is being fixed to remove. Pure

@@ -133,7 +133,7 @@ func TestVectorSearchWeightReachesTheSelector(t *testing.T) {
 		"SetConfig must repoint the selector too, or a reconfigure silently keeps the old blend")
 
 	// A zero is "unset", not "pure logic". The two setters disagree about
-	// this -- SetVectorSearchTimeout substitutes a default for zero while
+	// this -- SetVectorSearchTimeout keeps its current bound for zero while
 	// SetVectorWeight clamps and takes zero literally -- so an unguarded wire
 	// would let a partially-filled CompilerConfig turn vector scoring off with
 	// no way to tell that from a deliberate choice.
@@ -1046,122 +1046,32 @@ func TestCompiler_FallbackOnCorruptCorpus(t *testing.T) {
 	}
 }
 
-func TestCompiler_FallbackOnKernelUnavailable(t *testing.T) {
-	// This test documents the expected behavior when kernel is unavailable.
-	// The compiler should fall back to pure embedded corpus selection.
-
-	t.Run("nil kernel with embedded corpus uses fallback selection", func(t *testing.T) {
-		// Create atoms with mandatory flags
-		atoms := []*PromptAtom{
-			{
-				ID:          "mandatory-identity",
-				Category:    CategoryIdentity,
-				Content:     "You are a coding assistant.",
-				Importance:  100,
-				IsMandatory: true,
-				TokenCount:  10,
-			},
-			{
-				ID:          "mandatory-safety",
-				Category:    CategorySafety,
-				Content:     "Never generate harmful code.",
-				Importance:  95,
-				IsMandatory: true,
-				TokenCount:  8,
-			},
-			{
-				ID:         "optional-exemplar",
-				Category:   CategoryExemplar,
-				Content:    "Example: Write tests first.",
-				Importance: 50,
-				TokenCount: 8,
-			},
-		}
-
-		corpus := NewEmbeddedCorpus(atoms)
-
-		// Create compiler without kernel - this should currently error
-		// but we document the expected fallback behavior
-		compiler, err := NewJITPromptCompiler(
-			WithEmbeddedCorpus(corpus),
-			// No kernel provided
-		)
-		require.NoError(t, err, "compiler creation should succeed even without kernel")
-
-		cc := NewCompilationContext().WithTokenBudget(10000, 1000)
-		result, err := compiler.Compile(context.Background(), cc)
-
-		// Current behavior: errors because selector requires kernel
-		// Expected fallback behavior: returns mandatory atoms only
-		if err != nil {
-			// Document current behavior - kernel is required
-			assert.Contains(t, err.Error(), "kernel", "error should relate to kernel requirement")
-			t.Logf("Current behavior: %v (fallback not yet implemented)", err)
-
-			// Skip further assertions since fallback isn't implemented
-			t.Skip("Fallback for nil kernel not yet implemented - test documents expected behavior")
-		}
-
-		// If fallback is implemented, verify these assertions:
-		require.NotNil(t, result, "result should not be nil with fallback")
-		assert.NotEmpty(t, result.Prompt, "prompt should contain mandatory atoms")
-		assert.GreaterOrEqual(t, result.MandatoryCount, 2, "should include mandatory atoms")
-
-		// Verify Stats has FallbackUsed flag
-		if result.Stats != nil {
-			assert.True(t, result.Stats.FallbackUsed, "FallbackUsed should be true")
-			assert.Greater(t, result.Stats.SkeletonAtoms, 0, "should have skeleton atoms")
-		}
+// Selection is the kernel's. A compile with no kernel, or whose kernel query
+// fails, returns an error rather than a prompt chosen without policy; the
+// fallback prompt a caller then builds (ConfigFactory's fallback identity)
+// lives with that caller, outside any CompilationResult.
+func TestCompiler_FailsClosedWithoutTheKernel(t *testing.T) {
+	corpus := NewEmbeddedCorpus([]*PromptAtom{
+		{ID: "mandatory-identity", Category: CategoryIdentity, Content: "You are a coding assistant.", Importance: 100, IsMandatory: true, TokenCount: 10},
+		{ID: "optional-exemplar", Category: CategoryExemplar, Content: "Example: Write tests first.", Importance: 50, TokenCount: 8},
 	})
-
-	t.Run("kernel query error triggers fallback", func(t *testing.T) {
-		atoms := []*PromptAtom{
-			{
-				ID:          "mandatory-1",
-				Category:    CategoryIdentity,
-				Content:     "Mandatory content 1",
-				Importance:  100,
-				IsMandatory: true,
-				TokenCount:  5,
-			},
-			{
-				ID:         "optional-1",
-				Category:   CategoryExemplar,
-				Content:    "Optional content",
-				Importance: 50,
-				TokenCount: 5,
-			},
-		}
-
-		corpus := NewEmbeddedCorpus(atoms)
-
-		// Create a kernel that fails on query
-		failingKernel := &mockKernel{
-			queryErr: fmt.Errorf("kernel connection lost"),
-		}
-
-		compiler, err := NewJITPromptCompiler(
-			WithEmbeddedCorpus(corpus),
-			WithKernel(failingKernel),
-		)
-		require.NoError(t, err)
-
-		cc := NewCompilationContext().WithTokenBudget(10000, 1000)
-		result, err := compiler.Compile(context.Background(), cc)
-
-		// Current behavior: propagates kernel error
-		if err != nil {
-			assert.Contains(t, err.Error(), "kernel", "error should relate to kernel failure")
-			t.Logf("Current behavior: kernel error propagated: %v", err)
-			t.Skip("Fallback on kernel error not yet implemented")
-		}
-
-		// Expected fallback behavior:
-		require.NotNil(t, result)
-		if result.Stats != nil {
-			assert.True(t, result.Stats.FallbackUsed)
-		}
-	})
+	for _, tc := range []struct {
+		name string
+		opts []CompilerOption
+	}{
+		{"no kernel", nil},
+		{"kernel query fails", []CompilerOption{WithKernel(&mockKernel{queryErr: fmt.Errorf("kernel connection lost")})}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			compiler, err := NewJITPromptCompiler(append([]CompilerOption{WithEmbeddedCorpus(corpus)}, tc.opts...)...)
+			require.NoError(t, err)
+			defer compiler.Close()
+			result, err := compiler.Compile(context.Background(), NewCompilationContext().WithTokenBudget(10000, 1000))
+			require.Error(t, err, "a compile without the kernel's selection must fail, not fall back")
+			assert.Nil(t, result)
+			assert.Contains(t, err.Error(), "kernel")
+		})
+	}
 }
 
 func TestCompiler_FallbackOnVectorSearchFailure(t *testing.T) {

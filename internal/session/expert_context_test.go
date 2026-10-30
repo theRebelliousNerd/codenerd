@@ -37,11 +37,11 @@ func TestCompilationContextCarriesTheKernelsNeededExperts(t *testing.T) {
 	k := expertRosterKernel(t)
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
 
-	cc := e.buildCompilationContext(t.Context(), perception.Intent{Verb: "/fix", Target: "internal/core/defaults/policy/shards.mg"})
+	cc := turnCC(e, t.Context(), perception.Intent{Verb: "/fix", Target: "internal/core/defaults/policy/shards.mg"})
 	if !slices.Equal(cc.Experts, []string{"mangleexpert"}) {
 		t.Errorf("a fix aimed at a policy file compiles with experts %v, want [mangleexpert]", cc.Experts)
 	}
-	cc = e.buildCompilationContext(t.Context(), perception.Intent{Verb: "/fix", Target: "internal/session/executor.go"})
+	cc = turnCC(e, t.Context(), perception.Intent{Verb: "/fix", Target: "internal/session/executor.go"})
 	if len(cc.Experts) != 0 {
 		t.Errorf("a fix aimed at a Go file compiles with experts %v, want none", cc.Experts)
 	}
@@ -61,7 +61,7 @@ func TestStepCompileDerivesTheStepFilesExperts(t *testing.T) {
 		return &prompt.CompilationResult{Prompt: "step prompt"}, nil
 	}}
 	e := NewExecutor(k, nil, nil, jit, nil, nil)
-	turn := e.buildCompilationContext(t.Context(), perception.Intent{Verb: "/fix", Target: "internal/session/work_steps.go"})
+	turn := turnCC(e, t.Context(), perception.Intent{Verb: "/fix", Target: "internal/session/work_steps.go"})
 	if len(turn.Experts) != 0 {
 		t.Fatalf("the Go turn carries experts %v", turn.Experts)
 	}

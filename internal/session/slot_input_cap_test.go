@@ -144,7 +144,7 @@ func TestBuildCompilationContext_BudgetFollowsTheServingSlot(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.verb, func(t *testing.T) {
-			cc := e.buildCompilationContext(context.Background(), perception.Intent{Verb: tt.verb})
+			cc := turnCC(e, context.Background(), perception.Intent{Verb: tt.verb})
 			if cc.TokenBudget != tt.want {
 				t.Errorf("compile budget for %s = %d, want %d", tt.verb, cc.TokenBudget, tt.want)
 			}

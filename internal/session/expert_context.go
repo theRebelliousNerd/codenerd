@@ -1,11 +1,13 @@
 package session
 
 import (
+	"context"
 	"strings"
 
 	"codenerd/internal/experts"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
 )
 
 // selectExperts asks the kernel which shard agents a turn aimed at target
@@ -36,14 +38,18 @@ func (e *Executor) selectExperts(verb, target string) experts.Selection {
 	return sel
 }
 
-// neededExperts is selectExperts' agent keys, for CompilationContext.Experts.
-func (e *Executor) neededExperts(verb, target string) []string {
-	return e.selectExperts(verb, target).Agents()
+// turnCompilationContext is the turn's compile context and the shard experts
+// the kernel selected for its target, asked once: the compile carries their
+// knowledge, and the consultations the kernel derives run from the same
+// selection.
+func (e *Executor) turnCompilationContext(ctx context.Context, intent perception.Intent) (*prompt.CompilationContext, experts.Selection) {
+	sel := e.selectExperts(intent.Verb, intent.Target)
+	return e.buildCompilationContextWith(ctx, intent, sel.Agents()), sel
 }
 
 // turnUserAgent is the shard agent a verb runs the turn as: a verb the
 // taxonomy does not define that addresses a user agent ("/consult/goexpert",
-// "/goexpert"), or "" for every taxonomy verb. buildCompilationContext and
+// "/goexpert"), or "" for every taxonomy verb. buildCompilationContextWith and
 // the expert selection both ask it. It used to test only for a shard type,
 // so a taxonomy verb whose shard type is /none (/explain, /configure,
 // /assault, /stats, /help, /greet, /knowledge) ran as a phantom agent named

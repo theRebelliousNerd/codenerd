@@ -755,12 +755,6 @@ func (s *Spawner) servingClient(ctx context.Context, req SpawnRequest) types.LLM
 	return resolveServing(ctx, client)
 }
 
-// servingIdentity reports the provider and model the spawned subagent will run
-// on, for prompt-atom pinning.
-func (s *Spawner) servingIdentity(ctx context.Context, req SpawnRequest) (provider, model string) {
-	return clientIdentity(s.servingClient(ctx, req))
-}
-
 // generateConfig creates a JIT config for the subagent.
 func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config.EffectiveAgentRuntimeConfig, error) {
 	if s.configFactory == nil {

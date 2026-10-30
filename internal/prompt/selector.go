@@ -593,7 +593,7 @@ func NewAtomSelector() *AtomSelector {
 	return &AtomSelector{
 		vectorWeight:        0.3, // 70% logic, 30% vector
 		minScoreThreshold:   0.1, // Minimum 10% match
-		vectorSearchTimeout: 10 * time.Second,
+		vectorSearchTimeout: defaultVectorSearchTimeout,
 	}
 }
 
@@ -647,10 +647,12 @@ func (s *AtomSelector) SetMinScoreThreshold(threshold float64) {
 	s.minScoreThreshold = threshold
 }
 
-// SetVectorSearchTimeout sets the timeout duration for vector searches.
+// SetVectorSearchTimeout sets the timeout duration for vector searches. Zero
+// or less is "unset" and keeps the current bound: a zero deadline would fail
+// every search before it started.
 func (s *AtomSelector) SetVectorSearchTimeout(timeout time.Duration) {
 	if timeout <= 0 {
-		timeout = 10 * time.Second
+		return
 	}
 	s.vectorConfigMu.Lock()
 	s.vectorSearchTimeout = timeout

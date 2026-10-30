@@ -34,7 +34,7 @@ func TestCompilationContextCarriesTheKernelsDerivedNeeds(t *testing.T) {
 		{"Docs/architecture/features/03-GAP-ANALYSIS.md", nil, []string{"authoring_go", "authoring_code", "authoring_mangle"}},
 		{"Makefile", []string{"authoring_code"}, []string{"authoring_go", "authoring_mangle"}},
 	} {
-		cc := e.buildCompilationContext(t.Context(), perception.Intent{Verb: "/fix", Target: tc.target})
+		cc := turnCC(e, t.Context(), perception.Intent{Verb: "/fix", Target: tc.target})
 		for _, need := range tc.want {
 			if !slices.Contains(cc.DerivedNeeds, need) {
 				t.Errorf("a turn aimed at %s carries needs %v, want %s from the kernel", tc.target, cc.DerivedNeeds, need)
@@ -65,7 +65,7 @@ func TestStepCompileDerivesTheStepFilesNeeds(t *testing.T) {
 		return &prompt.CompilationResult{Prompt: "step prompt"}, nil
 	}}
 	e := NewExecutor(k, nil, nil, jit, nil, nil)
-	turn := e.buildCompilationContext(t.Context(), perception.Intent{Verb: "/fix", Target: "README.md"})
+	turn := turnCC(e, t.Context(), perception.Intent{Verb: "/fix", Target: "README.md"})
 	if slices.Contains(turn.DerivedNeeds, "authoring_go") || slices.Contains(turn.DerivedNeeds, "authoring_code") {
 		t.Fatalf("the document turn carries %v", turn.DerivedNeeds)
 	}
@@ -98,7 +98,7 @@ func TestCompilationContextCarriesTheConsumersNeeds(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := NewExecutor(k, nil, tc.client, nil, nil, nil)
-			cc := e.buildCompilationContext(t.Context(), perception.Intent{Verb: "/fix", Target: "internal/session/executor.go"})
+			cc := turnCC(e, t.Context(), perception.Intent{Verb: "/fix", Target: "internal/session/executor.go"})
 			if got := slices.Contains(cc.DerivedNeeds, "envelope_tool_requests"); got != tc.wantTool {
 				t.Errorf("needs %v: envelope_tool_requests = %v, want %v", cc.DerivedNeeds, got, tc.wantTool)
 			}

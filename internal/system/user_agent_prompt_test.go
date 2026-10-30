@@ -73,7 +73,7 @@ func writeAndSyncUserAgent(t *testing.T, workspace, name, yaml string) string {
 // The `nerd spawn <Name>` path additionally lower-cases the verb, so a
 // case-sensitive shard-DB map turned the registration into a silent miss even
 // when ShardID was right. This test fails if either the ShardID derivation
-// (internal/session/executor.go buildCompilationContext) or the case-insensitive
+// (internal/session/executor.go buildCompilationContextWith) or the case-insensitive
 // key (internal/prompt/compiler_db.go shardDBKey) is dropped.
 func TestUserAgentPromptsReachCompiledPrompt(t *testing.T) {
 	workspace := t.TempDir()

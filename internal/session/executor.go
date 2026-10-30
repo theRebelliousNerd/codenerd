@@ -1507,8 +1507,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// 2. ORIENT: Build compilation context from intent + world state
 	// Which shard agents this turn needs, asked once: the compile carries
 	// their knowledge, and the consultations the kernel derives run below.
-	expertSel := e.selectExperts(intent.Verb, intent.Target)
-	compilationCtx := e.buildCompilationContextWith(ctx, intent, expertSel.Agents())
+	compilationCtx, expertSel := e.turnCompilationContext(ctx, intent)
 	// The persona is known from here: its shard profile rides on the context
 	// every model call of the turn is made under.
 	ctx = e.withShardProfile(ctx, compilationCtx.ShardType)
@@ -1645,12 +1644,6 @@ func (e *Executor) observe(ctx context.Context, input string) (perception.Intent
 	return intent, nil
 }
 
-// buildCompilationContext creates a CompilationContext from the current state,
-// asking the kernel which shard agents the intent's target needs.
-func (e *Executor) buildCompilationContext(ctx context.Context, intent perception.Intent) *prompt.CompilationContext {
-	return e.buildCompilationContextWith(ctx, intent, e.neededExperts(intent.Verb, intent.Target))
-}
-
 // buildCompilationContextWith creates a CompilationContext carrying the shard
 // agents the kernel already derived for this intent (experts).
 func (e *Executor) buildCompilationContextWith(ctx context.Context, intent perception.Intent, experts []string) *prompt.CompilationContext {
@@ -1666,7 +1659,7 @@ func (e *Executor) buildCompilationContextWith(ctx context.Context, intent perce
 
 	if e.kernel != nil {
 		if langFacts, err := e.kernel.Query("project_language"); err != nil {
-			logging.Get(logging.CategorySession).Warn("buildCompilationContext: project_language query failed: %v", err)
+			logging.Get(logging.CategorySession).Warn("buildCompilationContextWith: project_language query failed: %v", err)
 		} else if len(langFacts) > 0 && len(langFacts[0].Args) > 0 {
 			lang := types.ExtractString(langFacts[0].Args[0])
 			if lang != "" && !strings.HasPrefix(lang, "/") {
@@ -1675,7 +1668,7 @@ func (e *Executor) buildCompilationContextWith(ctx context.Context, intent perce
 			cc.Language = lang
 		}
 		if fwFacts, err := e.kernel.Query("project_framework"); err != nil {
-			logging.Get(logging.CategorySession).Warn("buildCompilationContext: project_framework query failed: %v", err)
+			logging.Get(logging.CategorySession).Warn("buildCompilationContextWith: project_framework query failed: %v", err)
 		} else {
 			seen := make(map[string]struct{}, len(fwFacts))
 			for _, f := range fwFacts {
