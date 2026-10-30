@@ -220,7 +220,8 @@ func technologyAtom(raw string) (types.MangleAtom, bool) {
 // refreshShardRoster measures the roster, asserts it, and records the domains
 // the kernel derived for agents whose entry had none
 // (shard_agent_domain_to_record). Asserting is idempotent, so it runs at boot
-// and again whenever an agent is created mid-session (RefreshShardRoster).
+// and again whenever an agent is created mid-session (agentActivator.Activate,
+// behind Cortex.ActivateAgent).
 func refreshShardRoster(ctx context.Context, kernel types.Kernel, workspace string, compiler *prompt.JITPromptCompiler) error {
 	roster, measureErr := measureShardRoster(ctx, workspace, compiler)
 	if kernel == nil {
@@ -261,14 +262,6 @@ func refreshShardRoster(ctx context.Context, kernel types.Kernel, workspace stri
 		logging.Get(logging.CategoryContext).Info("Recorded derived domains for %d shard agent(s) in agents.json: %v", len(derived), derived)
 	}
 	return measureErr
-}
-
-// RefreshShardRoster re-asserts the shard-agent roster after an agent is
-// created or its definition changes mid-session, so the next task can need
-// it. Callers pass the session kernel and JIT compiler (whose agent DBs they
-// have registered).
-func RefreshShardRoster(ctx context.Context, kernel types.Kernel, workspace string, compiler *prompt.JITPromptCompiler) error {
-	return refreshShardRoster(ctx, kernel, workspace, compiler)
 }
 
 // assertShardExpertFacts is the boot step: it runs after every discovered
