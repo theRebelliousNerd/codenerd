@@ -177,6 +177,7 @@ func projectReceipts(receipts []ToolEffectReceipt) []observation.EffectReceipt {
 			Reason:       r.Validation.Reason,
 			HandlerError: r.HandlerError,
 			Recovery:     r.Recovery,
+			Closure:      r.Closure,
 		}
 		for _, eff := range r.Effects {
 			er.Effects = append(er.Effects, observation.ResourceEffect{

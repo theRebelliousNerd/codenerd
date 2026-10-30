@@ -2799,6 +2799,9 @@ func (e *Executor) assertTurnEvidence(turn types.MangleAtom, verb string, result
 	// describes the file: its validation must not withhold (or vouch for)
 	// bytes that are gone.
 	e.assertSupersededEffects(turn, result)
+	// What each call still owes now, read before the turn's facts go: the
+	// parent receives this, not the recovery cached when the call returned.
+	e.recordEffectClosure(turn, result)
 	if result.Acceptance != nil && result.Acceptance.Status == "verified" {
 		e.assertTurnFact(types.Fact{Predicate: "turn_acceptance", Args: []any{turn, result.Acceptance.ContractID, result.Acceptance.After}})
 	}

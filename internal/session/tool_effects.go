@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"sort"
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/observation"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/types"
 )
@@ -72,9 +74,12 @@ type ToolEffectReceipt struct {
 	// Revalidated is set when the host measured a change no validator had
 	// (the policy's /revalidate move).
 	Revalidated bool
-	// Recovery is the policy's move for the call: /repair, /inspect,
-	// /reconcile, or empty when the change was measured.
+	// Recovery is the policy's move for the call when it returned: /repair,
+	// /inspect, /reconcile, or empty when the change was measured.
 	Recovery string
+	// Closure is what the call still owed when the turn closed
+	// (recordEffectClosure); nil before the closure.
+	Closure *observation.EffectClosure
 }
 
 // Changed reports whether the call left any resource changed or unknown.
@@ -360,6 +365,70 @@ func (e *Executor) toolEffectRecovery(result *ExecutionResult, callID string) st
 		}
 	}
 	return ""
+}
+
+// recordEffectClosure reads, at the closure and while the turn's facts still
+// hold, what each receipted call still owes (tool_effect_recovery) and on
+// which paths it is still the current effect (turn_effect_current), and
+// records it on the receipt. The call-time Recovery stays as history: a
+// rejected write a later verified write repaired keeps its rejection, but no
+// longer owes /repair, and the parent is not told it does
+// (Docs/audits/effect-recovery-closure.md). One read of each relation for
+// the turn, not one per receipt. A failed read is recorded as unknown on
+// every receipt, never as settled. With no kernel there is no policy, so no
+// closure is recorded.
+func (e *Executor) recordEffectClosure(turn types.MangleAtom, result *ExecutionResult) {
+	if e == nil || e.kernel == nil || result == nil || len(result.ToolReceipts) == 0 {
+		return
+	}
+	recRows, recErr := e.kernel.Query("tool_effect_recovery")
+	curRows, curErr := e.kernel.Query("turn_effect_current")
+	if recErr != nil || curErr != nil {
+		logging.Get(logging.CategorySession).Warn("effect closure: tool_effect_recovery: %v; turn_effect_current: %v", recErr, curErr)
+		for i := range result.ToolReceipts {
+			result.ToolReceipts[i].Closure = &observation.EffectClosure{State: observation.ClosureUnknown}
+		}
+		return
+	}
+	moves := map[string]map[string]bool{}
+	for _, f := range recRows {
+		if len(f.Args) < 3 || types.ExtractString(f.Args[0]) != string(turn) {
+			continue
+		}
+		call := types.ExtractString(f.Args[1])
+		if moves[call] == nil {
+			moves[call] = map[string]bool{}
+		}
+		moves[call][types.ExtractString(f.Args[2])] = true
+	}
+	current := map[string][]string{}
+	for _, f := range curRows {
+		if len(f.Args) < 3 || types.ExtractString(f.Args[0]) != string(turn) {
+			continue
+		}
+		call := types.ExtractString(f.Args[2])
+		current[call] = append(current[call], types.ExtractString(f.Args[1]))
+	}
+	for i := range result.ToolReceipts {
+		r := &result.ToolReceipts[i]
+		c := &observation.EffectClosure{Current: current[r.CallID]}
+		sort.Strings(c.Current)
+		for _, m := range toolEffectRecoveryOrder {
+			if moves[r.CallID][m] {
+				c.Recovery = m
+				break
+			}
+		}
+		switch {
+		case len(c.Current) == 0:
+			c.State, c.Recovery = observation.ClosureSuperseded, ""
+		case c.Recovery != "":
+			c.State = observation.ClosureOwed
+		default:
+			c.State = observation.ClosureSettled
+		}
+		r.Closure = c
+	}
 }
 
 // assertSupersededEffects marks, at the closure, every receipted change whose
