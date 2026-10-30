@@ -79,3 +79,21 @@ func RevisionPrecondition(rev string) (string, bool) {
 	}
 	return strings.TrimSpace(rev), true
 }
+
+// NormalizedArgs is the argument view every layer that reads a call's
+// arguments must share: the registered tool's optional arguments that carry
+// an omission sentinel left out, as ExecuteTool leaves them out before
+// validation. A serving layer that read the raw map first refused what the
+// registry accepts (a delete_element with paths "null" failed target parsing
+// before the registry could read it as omitted). An unregistered name
+// returns args unchanged.
+func (r *Registry) NormalizedArgs(name string, args map[string]any) map[string]any {
+	if r == nil {
+		return args
+	}
+	tool := r.Get(name)
+	if tool == nil {
+		return args
+	}
+	return withoutOmittedOptionals(tool, args)
+}

@@ -1027,6 +1027,10 @@ func (e *Executor) executeAndRecordToolCall(
 	cfg *config.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) (string, error) {
+	// One argument view for every guard, the snapshot, dispatch and the
+	// receipts: the registry's, with omitted optionals left out
+	// (tools.Registry.NormalizedArgs).
+	call.Input = e.modularTools().NormalizedArgs(call.Name, call.Input)
 	var guardErr error
 	var effectTargets []ResourceEffect
 	if isWriteMutationTool(call.Name) {
