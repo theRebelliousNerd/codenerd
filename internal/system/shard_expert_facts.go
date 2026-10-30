@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"codenerd/internal/experts"
 	nerdinit "codenerd/internal/init"
@@ -55,6 +56,11 @@ type shardRoster struct {
 	// complete is true when every source of an unrecorded agent's domains
 	// was read, so what the kernel derives for it may be recorded.
 	complete bool
+	// kbUnread are the agents (by atom) whose knowledge base could not be
+	// read, and catalogUnread is the catalog's read failing: a source that
+	// was not read measured nothing, so its last published support stands.
+	kbUnread      map[types.MangleAtom]bool
+	catalogUnread bool
 }
 
 // measureShardRoster builds the roster facts for a workspace. compiler, when
@@ -62,7 +68,7 @@ type shardRoster struct {
 // source that cannot be read is reported beside the facts, never by dropping
 // the agent.
 func measureShardRoster(ctx context.Context, workspace string, compiler *prompt.JITPromptCompiler) (shardRoster, error) {
-	roster := shardRoster{complete: true}
+	roster := shardRoster{complete: true, kbUnread: map[types.MangleAtom]bool{}}
 	var failures []string
 
 	for _, root := range nerdinit.TechnologyImportRoots() {
@@ -140,6 +146,7 @@ func measureShardRoster(ctx context.Context, workspace string, compiler *prompt.
 		}
 		techs, err := compiler.ShardTechnologies(ctx, agent.Name)
 		if err != nil {
+			roster.kbUnread[atom] = true
 			failures = append(failures, err.Error())
 			if agent.Domains == nil {
 				roster.complete = false
@@ -162,6 +169,7 @@ func measureShardRoster(ctx context.Context, workspace string, compiler *prompt.
 			// still recorded.
 		case err != nil:
 			roster.complete = false
+			roster.catalogUnread = true
 			failures = append(failures, fmt.Sprintf("catalog domains: %v", err))
 		default:
 			byKey := make(map[string][]string, len(catalog))
@@ -215,11 +223,11 @@ func technologyAtom(raw string) (types.MangleAtom, bool) {
 // and again whenever an agent is created mid-session (RefreshShardRoster).
 func refreshShardRoster(ctx context.Context, kernel types.Kernel, workspace string, compiler *prompt.JITPromptCompiler) error {
 	roster, measureErr := measureShardRoster(ctx, workspace, compiler)
-	if kernel == nil || len(roster.facts) == 0 {
+	if kernel == nil {
 		return measureErr
 	}
-	if err := kernel.AssertBatch(roster.facts); err != nil {
-		return errors.Join(measureErr, fmt.Errorf("assert shard roster: %w", err))
+	if err := publishRoster(kernel, roster); err != nil {
+		return errors.Join(measureErr, err)
 	}
 	if len(roster.unrecorded) == 0 || !roster.complete {
 		return measureErr
@@ -278,4 +286,93 @@ func hasString(list []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// rosterPublications are the roster facts last published into each kernel:
+// what a refresh owns, and so what it may retire. Refreshes of one kernel are
+// serialized by the mutex, so an older measurement never lands after a newer
+// one has been published.
+var rosterPublications = struct {
+	mu        sync.Mutex
+	published map[types.Kernel][]types.Fact
+}{published: map[types.Kernel][]types.Fact{}}
+
+// publishRoster makes the kernel's roster facts the new measurement's: it
+// asserts what was measured and retracts what the last publication asserted
+// and this one did not, in one transaction. Until 2026-10-30 a refresh only
+// asserted, so a domain an agent's knowledge base no longer tagged stayed
+// active in the running kernel and kept routing tasks to the agent; a fresh
+// boot over the same files would not have it. Facts other producers asserted
+// are untouched (only this producer's own publication is retired), and the
+// policy still decides everything from the observations
+// (policy/shard_experts.mg).
+func publishRoster(kernel types.Kernel, roster shardRoster) error {
+	rosterPublications.mu.Lock()
+	defer rosterPublications.mu.Unlock()
+	next, obsolete := reconcileRoster(rosterPublications.published[kernel], roster)
+	if len(next) == 0 && len(obsolete) == 0 {
+		return nil
+	}
+	// One transaction: selection and the knowledge refresh see the old
+	// roster or the new one, never a half-retired mix.
+	tx, ok := types.TransactorOf(kernel)
+	if !ok {
+		return fmt.Errorf("publish shard roster: kernel %T cannot commit the retirement and the new observations atomically", kernel)
+	}
+	t := tx.Transaction()
+	for _, f := range obsolete {
+		t.RetractExactFact(f)
+	}
+	for _, f := range next {
+		t.Assert(f)
+	}
+	if err := t.Commit(); err != nil {
+		return fmt.Errorf("publish shard roster: %w", err)
+	}
+	if len(obsolete) > 0 {
+		logging.Get(logging.CategoryContext).Info("shard roster refresh retired %d observation(s) no source supports any more", len(obsolete))
+	}
+	rosterPublications.published[kernel] = next
+	return nil
+}
+
+// reconcileRoster is the publication that replaces prev: the measured facts,
+// plus prev's support from a source this measurement could not read (an
+// agent's unreadable knowledge base, an unreadable catalog) -- an unread
+// source measured nothing, which is not the same as measuring no support --
+// and the facts of prev the new publication drops.
+func reconcileRoster(prev []types.Fact, roster shardRoster) (next, obsolete []types.Fact) {
+	seen := make(map[string]bool, len(roster.facts))
+	key := func(f types.Fact) string { return f.String() }
+	add := func(f types.Fact) {
+		if k := key(f); !seen[k] {
+			seen[k] = true
+			next = append(next, f)
+		}
+	}
+	for _, f := range roster.facts {
+		add(f)
+	}
+	for _, f := range prev {
+		if f.Predicate != "shard_agent_domain" || len(f.Args) <= 2 {
+			continue
+		}
+		agent, _ := f.Args[0].(types.MangleAtom)
+		switch types.ExtractString(f.Args[2]) {
+		case "/knowledge_base":
+			if roster.kbUnread[agent] {
+				add(f)
+			}
+		case "/catalog":
+			if roster.catalogUnread {
+				add(f)
+			}
+		}
+	}
+	for _, f := range prev {
+		if !seen[key(f)] {
+			obsolete = append(obsolete, f)
+		}
+	}
+	return next, obsolete
 }
