@@ -236,3 +236,7 @@ zz*_test.go
 /*.zip
 /*.skill
 /bin/
+
+# Scan caches a test writes when its package directory is the workspace (a
+# checkout without .nerd/config.json). Machine-local; never tracked.
+cmd/**/.nerd/
