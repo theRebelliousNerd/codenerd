@@ -55,23 +55,6 @@ func TestIncrementMetric(t *testing.T) {
 	}
 }
 
-func TestRecordCorrection(t *testing.T) {
-	pm := NewPreferencesManager(t.TempDir())
-	if err := pm.RecordCorrection("parse1", "parse2"); err != nil {
-		t.Fatalf("record correction failed: %v", err)
-	}
-	if err := pm.RecordCorrection("parse1", "parse2"); err != nil {
-		t.Fatalf("record correction failed: %v", err)
-	}
-	corrections := pm.Get().LearnedPatterns.IntentCorrections
-	if len(corrections) != 1 {
-		t.Fatalf("expected single correction entry")
-	}
-	if corrections[0].ReinforcementCount != 2 {
-		t.Fatalf("expected reinforcement count 2, got %d", corrections[0].ReinforcementCount)
-	}
-}
-
 func TestOnboardingFlow(t *testing.T) {
 	pm := NewPreferencesManager(t.TempDir())
 

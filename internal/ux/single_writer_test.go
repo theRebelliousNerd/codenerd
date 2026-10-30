@@ -83,8 +83,9 @@ func TestSave_WhenExistingFileIsCorrupt_ShouldMoveItAside(t *testing.T) {
 	}
 }
 
-// A schema migration keeps the user's history: learned intent corrections and
-// usage metrics used to be reset to zero with the version bump.
+// A schema migration keeps the user's history: usage metrics used to be reset
+// to zero with the version bump. The retired learned_patterns block is not
+// carried.
 func TestMigratePreferences_WhenOldSchemaHasHistory_ShouldPreserveIt(t *testing.T) {
 	t.Parallel()
 	ws := t.TempDir()
@@ -112,7 +113,7 @@ func TestMigratePreferences_WhenOldSchemaHasHistory_ShouldPreserveIt(t *testing.
 	if prefs.Metrics.SessionsCount != 42 || prefs.Metrics.CommandsExecuted != 310 {
 		t.Errorf("metrics were reset by the migration: %+v", prefs.Metrics)
 	}
-	if len(prefs.LearnedPatterns.IntentCorrections) != 1 || prefs.LearnedPatterns.IntentCorrections[0].ReinforcementCount != 3 {
-		t.Errorf("learned corrections were dropped: %+v", prefs.LearnedPatterns)
+	if _, ok := readPrefsMap(t, filepath.Join(ws, ".nerd", "preferences.json"))["learned_patterns"]; ok {
+		t.Error("the migration carried the retired learned_patterns block")
 	}
 }

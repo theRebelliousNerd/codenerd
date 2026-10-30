@@ -163,20 +163,9 @@ func migrateFromOldVersion(workspace string, oldPrefs map[string]any) (*Migratio
 		}
 	}
 
-	// Learned patterns and metrics are the user's history; a schema bump must
-	// not reset them to zero. Only well-formed sections are carried over.
-	if raw, ok := oldPrefs["learned_patterns"]; ok {
-		if data, err := json.Marshal(raw); err == nil {
-			var lp LearnedPatterns
-			if json.Unmarshal(data, &lp) == nil {
-				if lp.CommandPreferences == nil {
-					lp.CommandPreferences = make(map[string]CommandPrefs)
-				}
-				prefs.LearnedPatterns = lp
-				result.PreservedData = append(result.PreservedData, "learned_patterns")
-			}
-		}
-	}
+	// Metrics are the user's history; a schema bump must not reset them to
+	// zero. Only a well-formed section is carried over. learned_patterns is
+	// retired (retiredPreferenceKeys) and is not carried.
 	if raw, ok := oldPrefs["metrics"]; ok {
 		if data, err := json.Marshal(raw); err == nil {
 			var m UserMetrics

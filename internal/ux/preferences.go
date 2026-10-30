@@ -33,9 +33,6 @@ type UserPreferences struct {
 	// Metrics tracks local usage statistics
 	Metrics UserMetrics `json:"metrics"`
 
-	// LearnedPatterns stores corrections and preferences
-	LearnedPatterns LearnedPatterns `json:"learned_patterns"`
-
 	// AgentSelection tracks agent accept/reject history
 	AgentSelection AgentSelectionPrefs `json:"agent_selection"`
 }
@@ -63,25 +60,16 @@ type TelemetryPrefs struct {
 	AnonymousUsage bool `json:"anonymous_usage"`
 }
 
-// LearnedPatterns stores user corrections and preferences.
-type LearnedPatterns struct {
-	IntentCorrections  []IntentCorrection      `json:"intent_corrections,omitempty"`
-	CommandPreferences map[string]CommandPrefs `json:"command_preferences,omitempty"`
-}
-
-// IntentCorrection records when the user corrected a parse.
-type IntentCorrection struct {
-	OriginalParse      string `json:"original_parse"`
-	UserCorrection     string `json:"user_correction"`
-	LearnedAt          string `json:"learned_at"`
-	ReinforcementCount int    `json:"reinforcement_count"`
-}
-
-// CommandPrefs stores per-command preferences.
-type CommandPrefs struct {
-	DefaultFlags  []string `json:"default_flags,omitempty"`
-	DefaultTarget string   `json:"default_target,omitempty"`
-}
+// retiredPreferenceKeys are keys this package once wrote and nothing reads.
+// Save removes them from the file, so no persisted field outlives its last
+// reader.
+//
+// learned_patterns (intent_corrections, command_preferences) was {} for the
+// life of every workspace: its only writer, RecordCorrection, had no caller,
+// and nothing read it. Corrections of how a request was understood are kept
+// where perception reads them: the learned-pattern store and the confirmed
+// learning candidates (internal/perception, cmd/nerd/chat learning flow).
+var retiredPreferenceKeys = []string{"learned_patterns"}
 
 // AgentSelectionPrefs tracks agent recommendations.
 type AgentSelectionPrefs struct {
@@ -177,6 +165,9 @@ func (pm *PreferencesManager) Save() error {
 	}
 	for key, value := range ownedKeys {
 		merged[key] = value
+	}
+	for _, key := range retiredPreferenceKeys {
+		delete(merged, key)
 	}
 
 	data, err := json.MarshalIndent(merged, "", "  ")
@@ -299,38 +290,6 @@ func (pm *PreferencesManager) IncrementMetric(metric string) error {
 	return nil
 }
 
-// RecordCorrection stores a user's intent correction.
-func (pm *PreferencesManager) RecordCorrection(original, corrected string) error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	if pm.preferences == nil {
-		pm.preferences = DefaultUserPreferences()
-	}
-
-	// Check if this correction already exists
-	for i, c := range pm.preferences.LearnedPatterns.IntentCorrections {
-		if c.OriginalParse == original && c.UserCorrection == corrected {
-			// Reinforce existing correction
-			pm.preferences.LearnedPatterns.IntentCorrections[i].ReinforcementCount++
-			return nil
-		}
-	}
-
-	// Add new correction
-	pm.preferences.LearnedPatterns.IntentCorrections = append(
-		pm.preferences.LearnedPatterns.IntentCorrections,
-		IntentCorrection{
-			OriginalParse:      original,
-			UserCorrection:     corrected,
-			LearnedAt:          time.Now().Format(time.RFC3339),
-			ReinforcementCount: 1,
-		},
-	)
-
-	return nil
-}
-
 // GetGuidanceLevel returns the current guidance level.
 func (pm *PreferencesManager) GetGuidanceLevel() config.GuidanceLevel {
 	prefs := pm.Get()
@@ -433,9 +392,6 @@ func DefaultUserPreferences() *UserPreferences {
 			AnonymousUsage: false,
 		},
 		Metrics: UserMetrics{},
-		LearnedPatterns: LearnedPatterns{
-			CommandPreferences: make(map[string]CommandPrefs),
-		},
 		AgentSelection: AgentSelectionPrefs{
 			AutoAcceptRecommended: true,
 		},
