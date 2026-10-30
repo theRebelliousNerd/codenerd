@@ -18,10 +18,8 @@ Acquirer.Now	internal/knowledge/acquire.go:136
 BootConfig.KernelOverride	internal/system/factory.go:87
 BootOptions.Heartbeat	internal/sessionlog/boot.go:25
 BootOptions.Now	internal/sessionlog/boot.go:23
-DecomposeRequest.UserHints	internal/campaign/decomposer.go:115
 FileEdit.EditType	internal/core/transaction_manager.go:88
 InitConfig.InteractiveIO	internal/init/initializer.go:127
-InitConfig.PreferenceHints	internal/init/initializer.go:110
 IntegrationPath.InputArity	internal/core/integration_path.go:10
 IntegrationPath.OutputArity	internal/core/integration_path.go:12
 InteractiveConfig.PromptTimeout	internal/init/interactive.go:69
@@ -36,13 +34,10 @@ Options.MaxProblems	internal/problemlog/report.go:43
 Options.NoSidecar	internal/persist/factsnap/factsnap.go:84
 Options.Now	internal/approval/broker.go:23
 Options.VerifyCacheContent	internal/diff/diff.go:187	(dead file)
-OrchestratorConfig.CampaignRiskOverride	internal/campaign/orchestrator_types.go:190
-OrchestratorConfig.CampaignTimeout	internal/campaign/orchestrator_types.go:171
-OrchestratorConfig.TaskRiskOverrides	internal/campaign/orchestrator_types.go:191
-OrchestratorConfig.TaskTimeout	internal/campaign/orchestrator_types.go:172
+OrchestratorConfig.CampaignRiskOverride	internal/campaign/orchestrator_types.go:188
+OrchestratorConfig.TaskRiskOverrides	internal/campaign/orchestrator_types.go:189
 OuroborosConfig.AllowCompilationFallback	internal/autopoiesis/ouroboros.go:154
-RouterConfig.CustomRoutes	internal/shards/system/router.go:43
-ToolTemplate.Template	internal/autopoiesis/tool_templates.go:17
+RouterConfig.CustomRoutes	internal/shards/system/router.go:49
 Turn.ExtractedAtoms	internal/context/types.go:336
 WebSource.Now	internal/knowledge/sources.go:45
 fileIDExtdDirInfo.ChangeTime	internal/world/cartographer_rev_windows.go:35
