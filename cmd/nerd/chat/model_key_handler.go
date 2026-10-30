@@ -63,20 +63,26 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			m.isInterrupted = true
 			// Cancel the running turn itself; until 2026-10-28 Ctrl+X only hid
 			// the spinner while the work went on.
-			m.turn.stop()
+			owner := m.turn.current()
+			canceled := m.turn.stop()
 			if m.kernel != nil {
 				_ = m.kernel.Assert(core.Fact{Predicate: "interrupt_requested", Args: nil})
 			}
 			m.isLoading = false
-			stepMsg := ""
-			if m.continuationTotal > 0 {
-				stepMsg = fmt.Sprintf(" at step %d/%d", m.continuationStep, m.continuationTotal)
+			// Say what is true: the cancel is a request, so the work is
+			// stopping until its execution settles, and "Stopped" waits for
+			// that (Update, stopSettled). Work that owns no slot has no cancel
+			// to reach: only the waiting stops.
+			if !canceled {
+				m = m.pushAssistantMsg("⏹️ Stopped waiting. This command cannot be canceled; its result will still appear when it finishes.")
+				return m, nil, true
 			}
+			m.turn.announceStop(owner)
 			queuedMsg := ""
 			if n := m.turn.queuedCount(); n > 0 {
-				queuedMsg = fmt.Sprintf(" %d queued message(s) will run once it has wound down.", n)
+				queuedMsg = fmt.Sprintf(" %d queued message(s) will run once it has.", n)
 			}
-			m = m.pushAssistantMsg(fmt.Sprintf("⏹️ Stopped%s.%s Type '/continue' to resume or give new instructions.", stepMsg, queuedMsg))
+			m = m.pushAssistantMsg("⏹️ Stopping… the current work is winding down." + queuedMsg)
 			return m, nil, true
 		}
 

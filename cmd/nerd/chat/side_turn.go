@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +59,9 @@ type turnState struct {
 	msgSeq        uint64
 	// requestSeq is the last request id handed out (newRequest).
 	requestSeq uint64
+	// stopNotice is the execution Ctrl+X announced as stopping; it is
+	// announced as stopped once it no longer owns the slot (stopSettled).
+	stopNotice uint64
 
 	// decide serializes a side turn's kernel section (its decision facts,
 	// the query, the brief publication). It is never held across a model
@@ -127,6 +131,31 @@ func (t *turnState) end(id uint64) {
 		return
 	}
 	t.owner, t.cancel, t.stopRequested, t.working, t.began = 0, nil, false, "", time.Time{}
+}
+
+// announceStop records that execution id was told it is stopping.
+func (t *turnState) announceStop(id uint64) {
+	if t == nil || id == 0 {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.stopNotice = id
+}
+
+// stopSettled reports, once, that the execution announced as stopping has
+// ended: it no longer owns the slot.
+func (t *turnState) stopSettled() bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stopNotice == 0 || t.stopNotice == t.owner {
+		return false
+	}
+	t.stopNotice = 0
+	return true
 }
 
 // runningSince is the execution that owns the slot, its working label and
@@ -601,6 +630,15 @@ func (m Model) startQueuedTurn() (Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, tea.Batch(cmds...)
+}
+
+// stoppedNotice is what Ctrl+X's stop says once the work has settled.
+func (m Model) stoppedNotice() string {
+	step := ""
+	if m.continuationTotal > 0 {
+		step = fmt.Sprintf(" at step %d/%d", m.continuationStep, m.continuationTotal)
+	}
+	return fmt.Sprintf("⏹️ Stopped%s. Type '/continue' to resume or give new instructions.", step)
 }
 
 // turnFooter names running work and queued messages; "" when there is none.

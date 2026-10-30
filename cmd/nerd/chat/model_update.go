@@ -23,6 +23,10 @@ import (
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	next, cmd := m.updateCore(msg)
+	// A Ctrl+X stop is announced as stopped once its execution has settled.
+	if nm, ok := next.(Model); ok && nm.turn.stopSettled() {
+		next = nm.pushAssistantMsg(nm.stoppedNotice())
+	}
 	// A message queued while a turn ran starts once nothing is in flight.
 	if nm, ok := next.(Model); ok && !nm.isLoading && nm.turn.queuedCount() > 0 {
 		var queued tea.Cmd
