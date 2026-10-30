@@ -20,11 +20,10 @@
     environment: its build tags (GOFLAGS -- `sqlite_vec` on codeNERD's own
     tree), CGO_CFLAGS and configured go_flags all apply, with nothing to
     pass. The result's `build_tags` names the custom tags the invocation
-    applied -- GOFLAGS, then the command line, whose `-tags` replaces
-    GOFLAGS' -- not every tag mentioned. A tagged file was checked only
-    when it is in the packages checked and its build constraint holds for
-    those tags. If `build_tags_unresolved` is set, the tags are unknown:
-    say so rather than calling a tagged file verified. Do not run an
+    applied (the command line's `-tags` replaces GOFLAGS'). A tagged file
+    was checked only when it is in the packages checked and its build
+    constraint holds for those tags. If `build_tags_unresolved` is set,
+    the tags are unknown: say so rather than calling a tagged file verified. Do not run an
     untagged gate by hand to "check" a tagged build.
 
     When a task asks for vet or lint to be clean, run the gate before the
