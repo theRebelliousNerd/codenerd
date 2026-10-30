@@ -256,6 +256,17 @@ This is **access-tracked durable logic memory**, not a generic K/V cache.
 
 APIs: `LogActivation`, `GetRecentActivations`, `StoreSessionTurn`, `GetSessionHistory`, `StoreCompressedState`, `LoadLatestCompressedState` (`local_session.go`). Consumers include `internal/context` compressor and session persistence paths.
 
+Chat owns the request-to-answer association before this API boundary.
+`cmd/nerd/chat/session_persistence.go` projects all assistant messages whose
+`Answers` match a user's `Request`, including consultation interim prose and its
+owned terminal synthesis or failure report. `StoreSessionTurn` upserts that
+complete nonempty response; it cannot infer missing identity from raw history.
+An empty projected response preserves any existing response. Repeating the same
+projection updates one row per turn without duplicating content. The chat
+regressions in `cmd/nerd/chat/knowledge_answer_identity_test.go` cover this writer and
+`internal/core/virtual_store_predicates.go`'s `QuerySession` reader; execution is
+pending. No store schema change or legacy attribution migration is required.
+
 ### 4.7 World model cache
 
 | Table | Role |

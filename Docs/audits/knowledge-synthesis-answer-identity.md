@@ -1,9 +1,9 @@
 ---
 doc-class: deep-dive
 subsystem: chat-knowledge-synthesis-session-history
-implementation-status: planned
+implementation-status: implemented
 last-verified: 2026-10-30
-verified-against: fa6877b932322bb6ca75826289366836d442c051
+verified-against: 8d373fb6ca05ef03fec59b923c5f1925066d623a
 verification-method: static-source-inspection
 ---
 
@@ -159,3 +159,75 @@ The checkable exit is narrow: a terminal synthesis result is associated with the
 [serialization]: https://github.com/theRebelliousNerd/codenerd/blob/fa6877b932322bb6ca75826289366836d442c051/cmd/nerd/chat/session_persistence.go#L70-L86
 [synthesis-tests]: https://github.com/theRebelliousNerd/codenerd/blob/fa6877b932322bb6ca75826289366836d442c051/cmd/nerd/chat/knowledge_synthesis_test.go#L13-L65
 [grounding-tests]: https://github.com/theRebelliousNerd/codenerd/blob/fa6877b932322bb6ca75826289366836d442c051/cmd/nerd/chat/knowledge_grounding_test.go#L19-L63
+
+## As built
+
+Review against `8d373fb6ca05ef03fec59b923c5f1925066d623a` confirms the narrow
+finding. Implementation and regressions are authored; execution and observed
+fail-before/pass-after evidence remain pending under the author-only constraint.
+The audit therefore remains **partial**.
+
+Rulings on the source claims:
+
+- **Real:** `applyAnswer` restored temporary attribution before the bare synthesis
+  result arrived, so `sessionTurns` excluded final prose from its exchange.
+  Errors and recovered panic reports also lacked the owner; failure left the
+  consultation guard set.
+- **Already fixed and preserved:** ordinary request/queue ownership in
+  `request_answers.go` and `sessionTurns` (`2aa65dfda`), explicit background
+  ownership in `backgroundJob.RequestID`, and wrapped direct articulation.
+- **Already fixed and preserved:** `knowledgeParent` freezes recent turns,
+  evidence and compressed context; synthesis names failed, empty and capped
+  consultations (`process_knowledge.go`, `5b7ef9331`). `process.go` applies controls
+  before consultation and records them through `ProcessTurnWithAppliedControls`.
+- **Confirmed limits:** raw history keeps final prose and ownership fields.
+  `StoreSessionTurn` cannot infer identity, preserves existing responses on empty
+  upsert, and accepts nonempty updates. `QuerySession` returns the stored response
+  in column four; `policy/knowledge.mg`'s continuity rule consumes user input.
+  Total transcript loss and downstream answer-quality failure remain unsupported.
+- **Confirmed coverage gap:** existing synthesis/grounding tests used request zero
+  and inspected output or prompts rather than owned Update and persisted recall.
+  No finding was ruled wrong.
+
+`cmd/nerd/chat/request_answers.go` transfers the enclosing request into
+`knowledgeGatheredMsg.Request` (`model_types.go`); `model_update.go` passes it to
+synthesis. `process_knowledge.go` wraps every terminal result with `answerTo`,
+including errors and recovered panics. `knowledgeSynthesizedMsg` clears the guard
+and enters the assistant or terminal-error path. `model_errors.go` shares error
+presentation, owned history insertion and persistence without reinterpreting a
+known terminal failure's text as a clarification command.
+
+The exchange retains both interim and terminal prose; only terminal success
+increments the successful-turn count. Consultation keeps loading active. No extra
+model call, predicate, schema migration, historical attribution guess or prompt
+atom change is introduced. `internal/knowledge` and `internal/store` need no
+runtime edits: identity was lost before the existing projection and writer.
+
+Authored regressions in `cmd/nerd/chat/knowledge_answer_identity_test.go`:
+
+- `TestKnowledgeAnswerIdentity_SubmissionThroughQueryableHistory`: normal
+  admission, real routing/workspace acquisition, scripted articulation and
+  consultation, Update, JSON, SQLite and `QuerySession`; one-call synthesis,
+  retained partial evidence, no control replay, queued direct follow-up,
+  unrelated output, absent database and repeated saves.
+- `TestKnowledgeAnswerIdentity_TerminalFailureKeepsItsOwner`: provider error text
+  containing “clarification”, canceled context and panic, with owned persisted
+  failures and no successful-turn increment.
+- `TestKnowledgeAnswerIdentity_SaveRetryDoesNotRerunSynthesis`: retry the same
+  snapshot after a write failure without another consultation or provider call.
+- `TestKnowledgeAnswerIdentity_EmptyInterimAndUnknownRequest`: empty interim and
+  request zero. Existing one-call/grounding tests remain in
+  `knowledge_synthesis_test.go` and `knowledge_grounding_test.go`, adapted to the
+  typed terminal result.
+
+Static fail-before reasoning: the new regressions use existing admission/Update
+APIs and can be applied to the baseline. There the final message has
+`Answers == 0`, recall contains only the interim, and failure leaves
+`awaitingKnowledge` true. These are expected failing assertions, not observed
+results. Root must run the baseline and correction. Save reordering, session
+switches during outstanding work, recall quality and cost measurements remain
+separate, unverified boundaries.
+
+Owning specifications: `Docs/architecture/cli/IMPLEMENTED_SPEC.md`,
+`Docs/architecture/cli/03-GAP-ANALYSIS.md` and
+`Docs/architecture/store/IMPLEMENTED_SPEC.md`.

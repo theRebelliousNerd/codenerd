@@ -48,7 +48,7 @@ func TestKnowledgeSynthesis_KeepsTheTurnsEvidence(t *testing.T) {
 		t.Fatalf("turn returned %T, want knowledge gathering", msg)
 	}
 	client.SetDefaultResponse("Final answer.")
-	if _, ok := m.synthesizeWithKnowledge(gathered.OriginalInput, gathered.Parent, gathered.Results)().(assistantMsg); !ok {
+	if result, ok := m.synthesizeWithKnowledge(0, gathered.OriginalInput, gathered.Parent, gathered.Results)().(knowledgeSynthesizedMsg); !ok || result.Err != nil {
 		t.Fatal("synthesis did not answer")
 	}
 	prompt := client.GetLastPrompt()

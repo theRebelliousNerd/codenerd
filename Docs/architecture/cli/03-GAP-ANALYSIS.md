@@ -91,6 +91,23 @@ A session owns its transcript, its compressed memory, and the conversational fac
 
 ## Required contract: Grounded knowledge synthesis
 
+### Terminal answer ownership
+
+The originating request ID must cross consultation and terminal synthesis on
+success, provider error, cancellation and recovered panic. Final content must be
+owned in raw history and the SQLite exchange independently of interim content,
+queued submissions or unrelated output. Consultation does not settle the request
+or count as a successful answer. The terminal result releases the consultation
+guard; failure is retained as failure through the existing error path. A request
+with identity zero remains unowned. No positional or text-based historical repair
+is permitted.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CLI-KNOWLEDGE-ANSWER-IDENTITY | Owned terminal synthesis | Explicit request handoff in `request_answers.go`, `model_types.go`, `model_update.go` and `process_knowledge.go`; terminal result uses the normal owned assistant/error handlers. | Required contract above | P1 | Implemented in source; execution pending | Existing session projection and persistence | `knowledge_answer_identity_test.go` must prove final ownership through accepted input, consultation, Update, raw history, SQLite and `QuerySession`, including errors, cancellation, panic, queues and unrelated output. Root must establish fail-before and pass-after evidence; source edits alone do not close validation. |
+
+### Grounding and consultation coverage
+
 The request that writes the final answer after specialist consultations carries the answering request's grounding, frozen when the consultations start (recent conversation, workspace evidence rendered with its coverage, compressed history), and every consultation's outcome: answered, failed, returned nothing, or not run because of the per-turn cap, each with its query and purpose. First-call controls are not replayed and synthesis stays one model call.
 
 | Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |

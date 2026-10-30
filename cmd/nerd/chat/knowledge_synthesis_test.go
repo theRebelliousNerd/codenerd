@@ -33,14 +33,14 @@ func TestSynthesizeWithKnowledge_OneLLMCallNoReentry(t *testing.T) {
 		},
 	}
 
-	msg := m.synthesizeWithKnowledge("what is the jit system", knowledgeParent{}, results)()
+	msg := m.synthesizeWithKnowledge(0, "what is the jit system", knowledgeParent{}, results)()
 
-	aMsg, ok := msg.(assistantMsg)
-	if !ok {
-		t.Fatalf("synthesis returned %T, want assistantMsg", msg)
+	aMsg, ok := msg.(knowledgeSynthesizedMsg)
+	if !ok || aMsg.Err != nil {
+		t.Fatalf("synthesis returned %#v, want a successful knowledgeSynthesizedMsg", msg)
 	}
-	if aMsg.Surface != "The JIT system compiles prompt atoms at runtime." {
-		t.Errorf("Surface = %q, want the synthesized answer", aMsg.Surface)
+	if aMsg.Response != "The JIT system compiles prompt atoms at runtime." {
+		t.Errorf("Response = %q, want the synthesized answer", aMsg.Response)
 	}
 	if got := mockClient.GetCallCount(); got != 1 {
 		t.Errorf("LLM call count = %d, want exactly 1 (synthesis must not re-enter the pipeline)", got)
@@ -68,9 +68,9 @@ func TestSynthesizeWithKnowledge_AllConsultationsFailed(t *testing.T) {
 		{Specialist: "researcher", Query: "q", Response: "", Timestamp: time.Now()},
 	}
 
-	msg := m.synthesizeWithKnowledge("what is X", knowledgeParent{}, results)()
-	if _, ok := msg.(assistantMsg); !ok {
-		t.Fatalf("synthesis returned %T, want assistantMsg even when consultations were empty", msg)
+	msg := m.synthesizeWithKnowledge(0, "what is X", knowledgeParent{}, results)()
+	if result, ok := msg.(knowledgeSynthesizedMsg); !ok || result.Err != nil {
+		t.Fatalf("synthesis returned %#v, want a successful terminal result even when consultations were empty", msg)
 	}
 	prompt := mockClient.GetLastPrompt()
 	if !strings.Contains(prompt, "consultations failed") {

@@ -220,6 +220,32 @@ matching, cancellation, and confident delegation. They have not been executed;
 [GAP-CLI-SEARCH-EVIDENCE](03-GAP-ANALYSIS.md#required-contract-local-search-evidence)
 remains open for root-run validation, including fail-before evidence.
 
+### Request identity through knowledge synthesis
+
+An accepted chat request keeps its identity through consultation and the later
+synthesis result. `request_answers.go` transfers the enclosing `answerMsg.Request`
+into `knowledgeGatheredMsg.Request`; `handleKnowledgeGatheredMsg` passes that
+value explicitly to `synthesizeWithKnowledge`. The command wraps its terminal
+`knowledgeSynthesizedMsg` with `answerTo`, including returned errors and recovered
+panics. Its owner is fixed when scheduled and does not depend on later messages.
+
+Consultation is an intermediate handoff: it leaves loading active and does not
+increment successful-turn metrics. Synthesis clears the consultation guard and
+uses the existing assistant handler or shared terminal-error handler in
+`model_errors.go`. Successful final prose and
+terminal failure reports receive the originating request's `Answers` value and
+schedule normal persistence. The exchange includes both the useful interim and
+the terminal result in transcript order. An interim alone is not terminal success.
+The existing one-call synthesis, frozen parent grounding and already-applied
+controls remain the contract; there is no second perception or control replay.
+
+`sessionTurns` projects by request identity into `StoreSessionTurn`, and
+`VirtualStore.QuerySession` returns that exchange as `session_turn` facts. Request
+ID zero remains unknown; old unattributed answers are not guessed into a turn.
+Definitions in `cmd/nerd/chat/knowledge_answer_identity_test.go` exercise normal
+submission, consultation, Update, persistence and queryable history, with
+interleaving and failure cases. Execution and fail-before evidence remain pending.
+
 Notable long-horizon:
 
 - `/campaign assault …` and natural language assault intents (README + campaign docs)

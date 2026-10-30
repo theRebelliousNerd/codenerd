@@ -225,13 +225,17 @@ func knowledgeRequestKey(fields ...string) string {
 // and every consultation's outcome: a failed, empty or not-run consultation
 // is listed with its query and purpose, so a partial answer is not written
 // as if every question had been answered.
-func (m *Model) synthesizeWithKnowledge(originalInput string, parent knowledgeParent, results []KnowledgeResult) tea.Cmd {
+func (m *Model) synthesizeWithKnowledge(request uint64, originalInput string, parent knowledgeParent, results []KnowledgeResult) tea.Cmd {
 	return func() (msg tea.Msg) {
 		defer func() {
 			if r := recover(); r != nil {
 				logging.API("PANIC in synthesizeWithKnowledge (recovered): %v", r)
-				msg = errorMsg(fmt.Errorf("internal error (recovered panic): %v", r))
+				msg = knowledgeSynthesizedMsg{Err: fmt.Errorf("internal error (recovered panic): %v", r)}
 			}
+			// The command runs after applyAnswer has restored m.answering.
+			// Wrap every exit with the request handed to this command, never
+			// with whichever request is newest when its result is delivered.
+			msg = answerTo(request, msg)
 		}()
 
 		baseCtx := m.shutdownCtx
@@ -257,13 +261,13 @@ func (m *Model) synthesizeWithKnowledge(originalInput string, parent knowledgePa
 
 		response, err := m.client.CompleteWithSystem(ctx, systemPrompt, sb)
 		if err != nil {
-			return errorMsg(fmt.Errorf("knowledge synthesis failed: %w", err))
+			return knowledgeSynthesizedMsg{Err: fmt.Errorf("knowledge synthesis failed: %w", err)}
 		}
 		logging.Get(logging.CategoryContext).Info(
 			"Knowledge synthesis complete: %d specialist responses, %d chars answer",
 			gathered, len(response),
 		)
-		return assistantMsg{Surface: response}
+		return knowledgeSynthesizedMsg{Response: response}
 	}
 }
 

@@ -163,6 +163,15 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.pushAssistantMsgWithThought(msg.Surface, msg.ThoughtSummary)
 		persistCmd = m.saveSessionStateCmd()
 
+	case knowledgeSynthesizedMsg:
+		m.awaitingKnowledge = false
+		if msg.Err != nil {
+			// This is already a terminal outcome. Provider text mentioning
+			// clarification must not turn it into a new unowned command.
+			return m.handleTurnError(msg.Err)
+		}
+		return m.updateCore(assistantMsg{Surface: msg.Response})
+
 	case sideTurnMsg:
 		m = m.applySideTurn(msg)
 		return m, nil
@@ -275,15 +284,12 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		persistCmd = m.saveSessionStateCmd()
 
 	case errorMsg:
-		m.isLoading = false
-		// A failed turn's streamed prefix is an incomplete attempt, not an
-		// answer: it never reaches history, and it must not linger on screen
-		// as if it were one.
-		m.isStreaming = false
-		m.currentStream = ""
-		m.currentThought = ""
 		// Check if this is a clarification request disguised as an error
 		if strings.Contains(msg.Error(), "USER_INPUT_REQUIRED") || strings.Contains(msg.Error(), "clarification") {
+			m.isLoading = false
+			m.isStreaming = false
+			m.currentStream = ""
+			m.currentThought = ""
 			// Extract the question from the error message
 			question := extractClarificationQuestion(msg.Error())
 			return m, func() tea.Msg {
@@ -293,23 +299,7 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		// A broker refusal means the turn never reached a provider. Presenting
-		// it as an ordinary failure sends the reader looking for a network or
-		// model problem that is not there.
-		m.err = m.presentError(msg)
-		m.showError = true
-		m.focusError = false
-		m.refreshErrorViewport()
-		m.errorVP.GotoTop()
-		logging.Get(logging.CategorySession).Error("TUI error: %v", msg)
-		m.recordUXMetric("errors_encountered")
-		logging.AuditWithSession(m.sessionID).Error("chat", msg, false)
-		// Failure belongs to the conversation as well as the error panel.
-		m = m.pushAssistantMsg(fmt.Sprintf("## Failed\n\n%v", m.err))
-		// Refit so the error panel reserves space immediately, and persist
-		// this terminal message without requiring another user interaction.
-		m = m.applyLayout()
-		return m, m.saveSessionStateCmd()
+		return m.handleTurnError(msg)
 
 	case campaignErrorMsg:
 		if msg.orch != nil && msg.orch != m.campaignOrch {
@@ -1035,7 +1025,7 @@ func (m Model) handleKnowledgeGatheredMsg(msg knowledgeGatheredMsg) (tea.Model, 
 		persistCmd = m.saveSessionStateCmd()
 	}
 
-	return m, tea.Batch(persistCmd, m.synthesizeWithKnowledge(msg.OriginalInput, msg.Parent, msg.Results))
+	return m, tea.Batch(persistCmd, m.synthesizeWithKnowledge(msg.Request, msg.OriginalInput, msg.Parent, msg.Results))
 
 }
 

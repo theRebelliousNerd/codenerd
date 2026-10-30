@@ -580,7 +580,7 @@ type Message struct {
 	Role    string // "user", "assistant", or "system" (Glass Box events)
 	Content string
 	// Request is a user message's request id in the session; Answers is the
-	// request an assistant message settles (request_answers.go). 0 is none:
+	// request an assistant message contributes to (request_answers.go). 0 is none:
 	// a notice, a side reply, or a message saved before ids existed.
 	Request        uint64
 	Answers        uint64
@@ -946,8 +946,9 @@ type (
 	}
 
 	// knowledgeGatheredMsg signals that specialist consultations are complete.
-	// This triggers re-processing of the original input with enriched context.
+	// Update schedules one terminal synthesis call without re-processing input.
 	knowledgeGatheredMsg struct {
+		Request         uint64            // Originating request, transferred by applyAnswer
 		Results         []KnowledgeResult // Results from all consulted specialists
 		OriginalInput   string            // The user input that triggered knowledge gathering
 		InterimResponse string            // The initial LLM response (may include "let me look that up")
@@ -957,6 +958,13 @@ type (
 		// AwaitingKnowledge latches the re-entrancy guard on the Update thread.
 		// True while gathering was requested; cleared after synthesis.
 		AwaitingKnowledge bool
+	}
+
+	// knowledgeSynthesizedMsg settles consultation on every command exit.
+	// Its enclosing answerMsg carries the originating request, including errors.
+	knowledgeSynthesizedMsg struct {
+		Response string
+		Err      error
 	}
 
 	// alignmentCheckMsg carries the result of a Northstar alignment check

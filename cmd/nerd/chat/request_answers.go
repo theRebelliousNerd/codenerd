@@ -5,8 +5,8 @@ import (
 )
 
 // Requests and their answers. Every user message is a request with a session
-// id (Message.Request, given when it enters history); the message that
-// settles it carries that id as Answers. The SQLite session projection
+// id (Message.Request, given when it enters history); messages contributing
+// to its reply carry that id as Answers. The SQLite session projection
 // (sessionTurns) pairs a request with the messages that answer it, so a
 // queue notice, a side reply or another request's answer printed between
 // them is never recorded as its answer.
@@ -21,13 +21,13 @@ import (
 // in an answerMsg. Update stamps what that message puts in history; nothing
 // is matched by position or by text.
 
-// answerMsg is a turn's ending message, for the request it answers.
+// answerMsg carries the request answered by a result or asynchronous handoff.
 type answerMsg struct {
 	Request uint64
 	Msg     tea.Msg
 }
 
-// answerTo wraps a turn's ending message for its request. A stream's start is
+// answerTo wraps a turn's result or handoff for its request. A stream's start is
 // not an ending: its result is wrapped when it arrives. A turn with no
 // request (an automatic step) is passed through.
 func answerTo(request uint64, msg tea.Msg) tea.Msg {
@@ -40,17 +40,25 @@ func answerTo(request uint64, msg tea.Msg) tea.Msg {
 	return answerMsg{Request: request, Msg: msg}
 }
 
-// applyAnswer runs the ending message with m.answering set, so every
+// applyAnswer runs the result with m.answering set, so every
 // assistant message it adds answers the request (addMessage). A turn that
 // hands its work to the background has not answered yet: its reply is an
 // acknowledgement, and the job carries the request to the result it ends
-// with (backgroundJob.RequestID).
+// with (backgroundJob.RequestID). Consultation carries the same request to
+// terminal synthesis while retaining ownership of any useful interim prose.
 func (m Model) applyAnswer(msg answerMsg) (tea.Model, tea.Cmd) {
 	inner := msg.Msg
 	answering := msg.Request
-	if start, ok := inner.(backgroundStartMsg); ok {
+	switch start := inner.(type) {
+	case backgroundStartMsg:
 		start.Job.RequestID = msg.Request
 		inner, answering = start, 0
+	case knowledgeGatheredMsg:
+		// Consultation is a handoff, not the terminal answer. Give its
+		// synthesis command an explicit owner before Update-local attribution
+		// is restored; later user or side messages cannot replace this id.
+		start.Request = msg.Request
+		inner = start
 	}
 	prev := m.answering
 	m.answering = answering
