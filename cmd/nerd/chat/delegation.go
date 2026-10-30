@@ -830,12 +830,22 @@ func (m Model) spawnShard(shardType, task string) tea.Cmd {
 	}
 }
 
+// slashTarget is what a slash command parsed from its arguments: the target
+// (a path when the first argument names one, splitSlashTarget), the rest as
+// constraint, and the request as typed. Resolution reads only Target; the
+// executor gets all three as fields, so nothing downstream re-reads display
+// prose as a path.
+type slashTarget struct {
+	Target, Constraint, Request string
+}
+
 // spawnShardWithSpecialists spawns a shard with specialist support based on
 // execution_mode (policy/delegation.mg):
 //   - /parallel: all shards execute in parallel (/review, /security, /test)
 //   - /advisory: specialists advise, then the generic shard executes (/create, /debug)
 //   - /advisory_with_critique: advise, execute, critique (/fix, /refactor)
-func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) tea.Cmd {
+func (m Model) spawnShardWithSpecialists(verb, shardType, task string, parsed slashTarget) tea.Cmd {
+	target := parsed.Target
 	return func() tea.Msg {
 		ctx, cancel := m.sessionOperationContext()
 		defer cancel()
@@ -862,7 +872,7 @@ func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) t
 
 		// 3. No shard agent needed? Plain spawn.
 		if len(specialists) == 0 {
-			return m.spawnSimpleShard(ctx, shardType, task, startTime)
+			return m.spawnSimpleShard(ctx, shardType, task, parsed, startTime)
 		}
 
 		// 4. An executor the kernel routed to execute leads the task; the
@@ -899,9 +909,16 @@ func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) t
 }
 
 // spawnSimpleShard handles the case where no specialists are matched
-func (m Model) spawnSimpleShard(ctx context.Context, shardType, task string, startTime time.Time) tea.Msg {
+func (m Model) spawnSimpleShard(ctx context.Context, shardType, task string, parsed slashTarget, startTime time.Time) tea.Msg {
 	m.ReportStatus(fmt.Sprintf("Spawning %s...", shardType))
-	result, err := m.spawnTask(ctx, shardType, task)
+	// The parsed target rides as a field: the executor selects experts and
+	// builds its context from req.Target, which the task prose cannot
+	// supply to a preset intent.
+	req := shardTypeToTaskRequest(shardType, task)
+	req.Target = parsed.Target
+	req.Constraint = parsed.Constraint
+	req.Request = parsed.Request
+	result, err := m.spawnTaskRequest(ctx, req)
 	duration := time.Since(startTime)
 	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
 	facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)

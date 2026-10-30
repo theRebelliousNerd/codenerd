@@ -63,7 +63,7 @@ func TestExpertLedModeRunsTheTaskUnderItsVerb(t *testing.T) {
 	exec := &requestRecordingExecutor{}
 	m.taskExecutor = exec
 
-	msg := m.spawnShardWithSpecialists("/fix", "coder", "fix the view's resize handling", "cmd/nerd/chat/view.go")()
+	msg := m.spawnShardWithSpecialists("/fix", "coder", "fix the view's resize handling", slashTarget{Target: "cmd/nerd/chat/view.go"})()
 
 	exec.mu.Lock()
 	requests := append([]session.TaskRequest(nil), exec.requests...)

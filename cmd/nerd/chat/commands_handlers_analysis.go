@@ -681,7 +681,7 @@ func (m Model) handleCmdTest(input string, parts []string) (tea.Model, tea.Cmd) 
 	m.textarea.Reset()
 	m.isLoading = true
 	// Use specialist-aware spawning for /test
-	return m, tea.Batch(m.spinner.Tick, m.spawnShardWithSpecialists("/test", "tester", task, target))
+	return m, tea.Batch(m.spinner.Tick, m.spawnShardWithSpecialists("/test", "tester", task, slashTarget{Target: target, Request: target}))
 }
 
 // handleCmdFix handles the corresponding chat slash-command.

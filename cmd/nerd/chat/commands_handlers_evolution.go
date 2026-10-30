@@ -29,7 +29,7 @@ func (m Model) handleCmdFix(input string, parts []string) (tea.Model, tea.Cmd) {
 		m.textarea.Reset()
 		m.isLoading = true
 		// Use specialist-aware spawning for /fix
-		return m, tea.Batch(m.spinner.Tick, m.spawnShardWithSpecialists("/fix", "coder", task, request))
+		return m, tea.Batch(m.spinner.Tick, m.spawnShardWithSpecialists("/fix", "coder", task, slashTarget{Target: target, Constraint: constraint, Request: request}))
 	}
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
@@ -59,7 +59,7 @@ func (m Model) handleCmdRefactor(input string, parts []string) (tea.Model, tea.C
 		m.textarea.Reset()
 		m.isLoading = true
 		// Use specialist-aware spawning for /refactor
-		return m, tea.Batch(m.spinner.Tick, m.spawnShardWithSpecialists("/refactor", "coder", task, request))
+		return m, tea.Batch(m.spinner.Tick, m.spawnShardWithSpecialists("/refactor", "coder", task, slashTarget{Target: target, Constraint: constraint, Request: request}))
 	}
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
