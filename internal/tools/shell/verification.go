@@ -352,13 +352,16 @@ func optionalWorkingDir(args map[string]any) string {
 	return s
 }
 
-// optionalPackages drops null-like package entries. A list that is empty or
-// holds only sentinels means omitted, so the caller falls back to the
-// default package set.
+// optionalPackages drops the null-like spellings a model writes for an
+// absent entry ("null", "none", ""). It keeps "." and "./": in a package
+// list they select the package in the working directory (Go's package-path
+// rule), unlike a directory field, where they mean the default. Treating
+// them as omitted turned an explicit root-package request into no run, a
+// written-packages run, or ./..., and dropped the root from a mixed list.
 func optionalPackages(pkgs []string) []string {
 	out := make([]string, 0, len(pkgs))
 	for _, p := range pkgs {
-		if tools.IsOmittedOptionalPath(p) {
+		if tools.IsOmittedSentinel(strings.TrimSpace(p)) {
 			continue
 		}
 		out = append(out, p)
