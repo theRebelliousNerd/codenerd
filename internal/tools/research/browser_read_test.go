@@ -89,6 +89,28 @@ func pinLocalGitHub(t *testing.T, handler http.HandlerFunc) {
 	t.Cleanup(func() { rawGitHubFileURL = prev })
 }
 
+// pinLocalCodebergFiles points raw Codeberg file URLs at a local server that
+// serves files by "/owner/repo/ref/path".
+func pinLocalCodebergFiles(t *testing.T, files map[string]string) {
+	t.Helper()
+	withBoundResearchRuntime(t)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := files[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprint(w, body)
+	}))
+	t.Cleanup(ts.Close)
+	prev := rawCodebergFileURL
+	rawCodebergFileURL = func(owner, repo, ref, path string) string {
+		return ts.URL + "/" + owner + "/" + repo + "/" + ref + "/" + strings.TrimPrefix(path, "/")
+	}
+	t.Cleanup(func() { rawCodebergFileURL = prev })
+}
+
 func pinLocalGitHubFiles(t *testing.T, files map[string]string) {
 	t.Helper()
 	pinLocalGitHub(t, func(w http.ResponseWriter, r *http.Request) {

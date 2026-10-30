@@ -95,7 +95,7 @@ func TestParseLlmsTxt_WhenDocExceedsOldCut_ShouldReturnWhole(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	docs, err := parseLlmsTxt(context.Background(), "o", "r",
+	docs, err := parseLlmsTxt(context.Background(), githubRepo("o", "r"),
 		"[big]("+ts.URL+"/big.md)", 10)
 	if err != nil {
 		t.Fatalf("parseLlmsTxt: %v", err)
@@ -119,7 +119,7 @@ func TestParseLlmsTxt_WhenMaxDocsCapped_ShouldNameRemaining(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	docs, err := parseLlmsTxt(context.Background(), "o", "r",
+	docs, err := parseLlmsTxt(context.Background(), githubRepo("o", "r"),
 		fmt.Sprintf("[a](%s/a)\n[b](%s/b)\n[c](%s/c)", ts.URL, ts.URL, ts.URL),
 		1)
 	if err != nil {
@@ -236,7 +236,7 @@ func TestParseLlmsTxt_WhenCommentAndBlankLines_ShouldSkipThem(t *testing.T) {
 	})
 
 	content := "# Comment line\n\n> Blockquote\n- docs/real.md: Real Doc\n"
-	results, err := parseLlmsTxt(context.Background(), "owner", "repo", content, 10)
+	results, err := parseLlmsTxt(context.Background(), githubRepo("owner", "repo"), content, 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestParseLlmsTxt_WhenMarkdownLink_ShouldExtractURL(t *testing.T) {
 	})
 
 	content := "[Getting Started](docs/guide.md)\n"
-	results, err := parseLlmsTxt(context.Background(), "owner", "repo", content, 10)
+	results, err := parseLlmsTxt(context.Background(), githubRepo("owner", "repo"), content, 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestParseLlmsTxt_WhenAbsoluteURL_ShouldNotPrefixGitHub(t *testing.T) {
 	defer ts.Close()
 
 	content := ts.URL + "/docs.md\n"
-	results, err := parseLlmsTxt(context.Background(), "owner", "repo", content, 10)
+	results, err := parseLlmsTxt(context.Background(), githubRepo("owner", "repo"), content, 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestParseLlmsTxt_WhenMaxDocsReached_ShouldStop(t *testing.T) {
 	})
 
 	content := "d1.md\nd2.md\nd3.md\n"
-	results, err := parseLlmsTxt(context.Background(), "o", "r", content, 2)
+	results, err := parseLlmsTxt(context.Background(), githubRepo("o", "r"), content, 2)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestFetchCommonDocs_WhenREADMEExists_ShouldReturnIt(t *testing.T) {
 		"/owner/repo/main/README.md": readmeContent,
 	})
 
-	results, err := fetchCommonDocs(context.Background(), "owner", "repo", 10)
+	results, err := fetchCommonDocs(context.Background(), githubRepo("owner", "repo"), 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestFetchCommonDocs_WhenNothingFound_ShouldReturnEmpty(t *testing.T) {
 		http.NotFound(w, r)
 	})
 
-	results, err := fetchCommonDocs(context.Background(), "owner", "repo", 10)
+	results, err := fetchCommonDocs(context.Background(), githubRepo("owner", "repo"), 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestFetchCommonDocs_WhenMaxDocsReached_ShouldStop(t *testing.T) {
 		"/owner/repo/main/documentation/README.md": longContent,
 	})
 
-	results, err := fetchCommonDocs(context.Background(), "owner", "repo", 1)
+	results, err := fetchCommonDocs(context.Background(), githubRepo("owner", "repo"), 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

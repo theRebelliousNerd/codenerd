@@ -28,7 +28,7 @@ func Context7Tool() *tools.Tool {
 				},
 				"repo": {
 					Type:        "string",
-					Description: "Optional GitHub repo in owner/name format (e.g., 'facebook/react')",
+					Description: "Optional repo: owner/name on GitHub (e.g., 'facebook/react'), or host/owner/name for Codeberg (e.g., 'codeberg.org/TauCeti/mangle-go')",
 				},
 				"max_docs": {
 					Type:        "integer",
@@ -71,26 +71,21 @@ func executeContext7(ctx context.Context, args map[string]any) (string, error) {
 
 	var results []string
 
-	// Try to fetch llms.txt from GitHub
-	if repo != "" {
-		parts := strings.Split(repo, "/")
-		if len(parts) == 2 {
-			owner, repoName := parts[0], parts[1]
-			docs, err := fetchLlmsTxt(ctx, owner, repoName, maxDocs)
-			if err == nil && len(docs) > 0 {
-				results = append(results, docs...)
-			}
+	ref, haveRef := parseRepoRef(repo)
+
+	// Try to fetch llms.txt from the repository host
+	if haveRef {
+		docs, err := fetchLlmsTxt(ctx, ref, maxDocs)
+		if err == nil && len(docs) > 0 {
+			results = append(results, docs...)
 		}
 	}
 
 	// If no llms.txt found, try common documentation patterns
-	if len(results) == 0 && repo != "" {
-		parts := strings.Split(repo, "/")
-		if len(parts) == 2 {
-			docs, err := fetchCommonDocs(ctx, parts[0], parts[1], maxDocs)
-			if err == nil {
-				results = append(results, docs...)
-			}
+	if len(results) == 0 && haveRef {
+		docs, err := fetchCommonDocs(ctx, ref, maxDocs)
+		if err == nil {
+			results = append(results, docs...)
 		}
 	}
 
@@ -115,7 +110,43 @@ func executeContext7(ctx context.Context, args map[string]any) (string, error) {
 	return sb.String(), nil
 }
 
-// inferRepo attempts to map common topic names to GitHub repos.
+// Hosts a documentation repository can live on. Raw files are read from the
+// host that owns the repository: a repository on Codeberg has no GitHub copy to
+// read.
+const (
+	hostGitHub   = "github.com"
+	hostCodeberg = "codeberg.org"
+)
+
+// repoRef names a documentation repository on a supported host.
+type repoRef struct {
+	host, owner, name string
+}
+
+// githubRepo is the GitHub repository owner/name.
+func githubRepo(owner, name string) repoRef {
+	return repoRef{host: hostGitHub, owner: owner, name: name}
+}
+
+// parseRepoRef reads "owner/name" (GitHub) or "host/owner/name" for a supported
+// host. Anything else is not a repository this tool can read.
+func parseRepoRef(s string) (repoRef, bool) {
+	parts := strings.Split(strings.TrimSpace(s), "/")
+	switch len(parts) {
+	case 2:
+		if parts[0] != "" && parts[1] != "" {
+			return githubRepo(parts[0], parts[1]), true
+		}
+	case 3:
+		if (parts[0] == hostGitHub || parts[0] == hostCodeberg) && parts[1] != "" && parts[2] != "" {
+			return repoRef{host: parts[0], owner: parts[1], name: parts[2]}, true
+		}
+	}
+	return repoRef{}, false
+}
+
+// inferRepo attempts to map common topic names to repositories: owner/name for
+// GitHub, host/owner/name for another host.
 func inferRepo(topic string) string {
 	knownMappings := map[string]string{
 		"react":      "facebook/react",
@@ -129,7 +160,8 @@ func inferRepo(topic string) string {
 		"go-rod":     "go-rod/rod",
 		"tokio":      "tokio-rs/tokio",
 		"axum":       "tokio-rs/axum",
-		"mangle":     "google/mangle",
+		"mangle":     "codeberg.org/TauCeti/mangle-go",
+		"mangle-go":  "codeberg.org/TauCeti/mangle-go",
 		"bubbletea":  "charmbracelet/bubbletea",
 		"bubbles":    "charmbracelet/bubbles",
 		"lipgloss":   "charmbracelet/lipgloss",
@@ -177,19 +209,33 @@ var rawGitHubFileURL = func(owner, repo, ref, path string) string {
 	return fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", owner, repo, ref, strings.TrimPrefix(path, "/"))
 }
 
-// fetchLlmsTxt fetches and parses the llms.txt file from a GitHub repo.
-func fetchLlmsTxt(ctx context.Context, owner, repo string, maxDocs int) ([]string, error) {
+// rawCodebergFileURL builds a raw documentation URL on Codeberg. A variable
+// for the same reason as rawGitHubFileURL.
+var rawCodebergFileURL = func(owner, repo, ref, path string) string {
+	return fmt.Sprintf("https://codeberg.org/%s/%s/raw/branch/%s/%s", owner, repo, ref, strings.TrimPrefix(path, "/"))
+}
+
+// rawFileURL builds the raw URL of one file of r on the host that owns r.
+func rawFileURL(r repoRef, ref, path string) string {
+	if r.host == hostCodeberg {
+		return rawCodebergFileURL(r.owner, r.name, ref, path)
+	}
+	return rawGitHubFileURL(r.owner, r.name, ref, path)
+}
+
+// fetchLlmsTxt fetches and parses the llms.txt file from a repository.
+func fetchLlmsTxt(ctx context.Context, r repoRef, maxDocs int) ([]string, error) {
 	locations := []string{
-		rawGitHubFileURL(owner, repo, "main", "llms.txt"),
-		rawGitHubFileURL(owner, repo, "master", "llms.txt"),
-		rawGitHubFileURL(owner, repo, "main", ".llms.txt"),
+		rawFileURL(r, "main", "llms.txt"),
+		rawFileURL(r, "master", "llms.txt"),
+		rawFileURL(r, "main", ".llms.txt"),
 	}
 
 	for _, url := range locations {
 		content, err := fetchURL(ctx, url)
 		if err == nil && len(content) > 10 {
 			logging.Researcher("Found llms.txt at %s", url)
-			return parseLlmsTxt(ctx, owner, repo, content, maxDocs)
+			return parseLlmsTxt(ctx, r, content, maxDocs)
 		}
 	}
 
@@ -203,7 +249,7 @@ func fetchLlmsTxt(ctx context.Context, owner, repo string, maxDocs int) ([]strin
 // maxDocs still bounds how many documents are fetched, but the cap is never
 // silent: when linked docs are left unfetched the result names them and the
 // max_docs argument that raises the bound (limits cleanup 2026-09-29).
-func parseLlmsTxt(ctx context.Context, owner, repo, content string, maxDocs int) ([]string, error) {
+func parseLlmsTxt(ctx context.Context, r repoRef, content string, maxDocs int) ([]string, error) {
 	var results []string
 	lines := strings.Split(content, "\n")
 	docCount := 0
@@ -236,9 +282,9 @@ func parseLlmsTxt(ctx context.Context, owner, repo, content string, maxDocs int)
 			continue
 		}
 
-		// Resolve relative paths to GitHub raw URLs
+		// Resolve relative paths to raw URLs on the repository's host
 		if !strings.HasPrefix(docURL, "http") {
-			docURL = rawGitHubFileURL(owner, repo, "main", docURL)
+			docURL = rawFileURL(r, "main", docURL)
 		}
 
 		if docCount >= maxDocs {
@@ -258,8 +304,8 @@ func parseLlmsTxt(ctx context.Context, owner, repo, content string, maxDocs int)
 	return results, nil
 }
 
-// fetchCommonDocs fetches common documentation files from a GitHub repo.
-func fetchCommonDocs(ctx context.Context, owner, repo string, maxDocs int) ([]string, error) {
+// fetchCommonDocs fetches common documentation files from a repository.
+func fetchCommonDocs(ctx context.Context, r repoRef, maxDocs int) ([]string, error) {
 	commonPaths := []string{
 		"README.md",
 		"docs/README.md",
@@ -275,7 +321,7 @@ func fetchCommonDocs(ctx context.Context, owner, repo string, maxDocs int) ([]st
 			break
 		}
 
-		url := rawGitHubFileURL(owner, repo, "main", path)
+		url := rawFileURL(r, "main", path)
 		content, err := fetchURL(ctx, url)
 		if err == nil && len(content) > 100 {
 			results = append(results, fmt.Sprintf("## Source: %s\n\n%s", url, content))
