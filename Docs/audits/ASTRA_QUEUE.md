@@ -113,3 +113,17 @@ One audit per run, briefed as its symptom (the ladder's brief rule), in this ord
 | `taxonomy-initialization-completeness` | `research-main-20261029-0736` | fixed `31123a4f4` |
 | `queued-history-projection` | `research-main-20261030-0017` | fixed `2aa65dfda` |
 | `git-sysfacts-porcelain` | `research-main-20261030-0141` | fixed `e2e4ddac6` |
+
+## Codex lanes (2026-10-30)
+
+One Codex lane per audit, each in its own worktree; the root runs the full suite and merges.
+
+| audit | branch | status |
+|---|---|---|
+| `mangle-edb-alias-support` | `research-main-20261030-0442` | fixed `70a20472a` |
+| `guardian-module-alignment-scope` | `research-main-20261030-0513` | queued |
+| `tui-search-evidence-coverage` | `research-main-20261030-0513` | queued |
+| `world-refresh-publication-order` | `research-main-20261030-0513` | queued |
+| `consultation-cache-snapshot` | earlier branch | queued |
+| `shard-db-registration-ownership` | earlier branch | queued |
+| innovation `mission-driven-forever-improvement` | `research-main-20261030-0442` | queued |
