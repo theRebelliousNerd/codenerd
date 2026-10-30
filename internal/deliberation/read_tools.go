@@ -107,16 +107,13 @@ func Agent(ctx context.Context, k types.Kernel, client types.LLMClient, prompts 
 		Frame        json.RawMessage `json:"frame"`
 		Observations []ProbeResult   `json:"observations,omitempty"`
 	}{Frame: json.RawMessage(task)}
+	// used counts evidence: tool executions, which policy bounds
+	// (deliberation_agent_continue over deliberation_tool_calls). When the
+	// budget or the context bound is spent the role is not failed: tools are
+	// withheld and it answers from the evidence it has.
 	used := 0
+	closed := false
 	for {
-		allowed, e := AllowCall(k, actor, used)
-		if e != nil {
-			return "", e
-		}
-		if !allowed {
-			return "", fmt.Errorf("deliberation role exhausted its configured evidence budget")
-		}
-		used++
 		input, e := json.Marshal(payload)
 		if e != nil {
 			return "", e
@@ -124,7 +121,15 @@ func Agent(ctx context.Context, k types.Kernel, client types.LLMClient, prompts 
 		if len(input) > read.ContextBytes {
 			return "", fmt.Errorf("deliberation role context exceeds configured byte bound")
 		}
-		response, e := client.CompleteWithTools(ctx, system, string(input), defs)
+		offer := defs
+		if closed {
+			offer = nil
+		} else if allowed, e := AllowCall(k, actor, used); e != nil {
+			return "", e
+		} else if !allowed {
+			closed, offer = true, nil
+		}
+		response, e := client.CompleteWithTools(ctx, system, string(input), offer)
 		if e != nil {
 			return "", e
 		}
@@ -134,21 +139,67 @@ func Agent(ctx context.Context, k types.Kernel, client types.LLMClient, prompts 
 		if len(response.ToolCalls) == 0 {
 			return response.Text, nil
 		}
-		for _, call := range response.ToolCalls {
-			allowed, e = AllowCall(k, actor, used)
+		if offer == nil {
+			return "", fmt.Errorf("deliberation role asked for tools after its evidence was closed")
+		}
+		for i, call := range response.ToolCalls {
+			observation := ProbeResult{Key: call.ID, Tool: call.Name}
+			// Keep room for the closing notes of the calls still to come in
+			// this reply, so refusing them cannot push the input over.
+			limit := read.ContextBytes - (len(response.ToolCalls)-i-1)*observationOverhead
+			allowed, e := AllowCall(k, actor, used)
 			if e != nil {
 				return "", e
 			}
-			if !allowed {
-				return "", fmt.Errorf("deliberation role exhausted its configured evidence budget")
+			room := limit - len(input) - observationOverhead
+			// Less room than a closing note is no room for evidence.
+			if !allowed || closed || room < observationOverhead {
+				closed = true
+				observation.Error = evidenceClosed
+				payload.Observations = append(payload.Observations, observation)
+				continue
 			}
 			used++
 			text, callErr := read.Execute(ctx, call)
-			observation := ProbeResult{Key: call.ID, Tool: call.Name, Output: text}
 			if callErr != nil {
 				observation.Error = callErr.Error()
 			}
 			payload.Observations = append(payload.Observations, observation)
+			last := &payload.Observations[len(payload.Observations)-1]
+			// JSON escaping can grow the text, so shrink the cut until the
+			// encoded input fits the bound.
+			for {
+				last.Output = boundObservation(text, room)
+				if input, e = json.Marshal(payload); e != nil {
+					return "", e
+				}
+				over := len(input) - limit
+				if over <= 0 || room <= 0 {
+					break
+				}
+				room -= over
+			}
 		}
 	}
+}
+
+// evidenceClosed tells a role its tool budget or context room is spent, so
+// its next reply must be its answer.
+const evidenceClosed = "evidence closed: the configured tool budget or context bound is spent; answer from the observations you have"
+
+// observationOverhead is the JSON framing one observation adds around its
+// output (keys, quoting, the error field), kept out of the output's room.
+const observationOverhead = len(evidenceClosed) + 128
+
+// boundObservation keeps an observation within the room left in the role's
+// context. A cut is visible and says why, never silent.
+func boundObservation(text string, room int) string {
+	const note = "\n[cut at the deliberation context bound; narrow the read to see more]"
+	if len(text) <= room {
+		return text
+	}
+	if room <= len(note) {
+		return note[1:]
+	}
+	return text[:room-len(note)] + note
 }
