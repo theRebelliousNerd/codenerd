@@ -1,0 +1,158 @@
+# Mangle features beyond Datalog on the pinned engine (mangle-go v0.7.0): temporal facts,
+# merge lattices, proofs, external predicates. Each behavior stated here was run on v0.7.
+# Fences are engine-checked: internal/prompt/atoms_mangle_truth_test.go.
+- id: "language/mangle/docs/temporal_facts"
+  category: "language"
+  subcategory: "mangle"
+  description: "Temporal facts and operators"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Temporal facts
+
+    A predicate declared `temporal` carries a validity interval per fact. `_` is unbounded and `now` is the evaluation time Go pins.
+
+    ```mangle
+    Decl lease(Owner, File) temporal bound [/name, /string].
+    lease(/shard_a, "main.go")@[2026-10-28T10:00:00Z, 2026-10-28T10:05:00Z].
+    lease(/shard_b, "util.go")@[2026-10-28T10:04:00Z, 2026-10-28T11:00:00Z].
+
+    active(O, F) :- lease(O, F)@[now].
+    recent(O) :- <-[0m, 10m] lease(O, F)@[now].
+    steady(O) :- [-[0m, 3m] lease(O, F)@[now].
+    span(O, S, E) :- lease(O, F)@[S, E].
+    ```
+
+    - `<-[a, b] p` holds if `p` held at some point in that window before now; `[-[a, b] p` if it held throughout. `<+` and `[+` look forward.
+    - A temporal predicate must be used with an annotation or operator; a bare `lease(O, F)` is "used without temporal annotation".
+    - Expired facts stop deriving on their own; nothing sweeps them. Overlapping intervals of the same fact coalesce.
+    - Timestamp literals are legal only inside `@[...]`.
+
+- id: "language/mangle/docs/temporal_go_side"
+  category: "language"
+  subcategory: "mangle"
+  description: "Evaluating temporal programs from Go"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Temporal evaluation in Go
+
+    A temporal program needs a temporal store and a pinned clock, or evaluation fails with "temporal literal encountered but no temporal store configured".
+
+    ```go
+    import (
+    	"time"
+
+    	"codeberg.org/TauCeti/mangle-go/engine"
+    	"codeberg.org/TauCeti/mangle-go/factstore"
+    )
+
+    ts := factstore.NewTemporalStore()
+    store := factstore.NewSimpleInMemoryStore()
+    _, err := engine.EvalStratifiedProgramWithStats(info, strata, predToStratum, store,
+    	engine.WithTemporalStore(ts),
+    	engine.WithEvaluationTime(time.Date(2026, 10, 28, 10, 30, 0, 0, time.UTC)))
+    ```
+
+    Go owns the clock, which makes a decision replayable: evaluate with the same time and the same facts and get the same answer. Tests must pin the time; a `now`-relative rule gives a different answer later on the same data.
+
+    codeNERD's kernel evaluates without a temporal store, so a temporal predicate in the kernel program fails until the kernel is given one.
+
+- id: "language/mangle/docs/merge_lattices"
+  category: "language"
+  subcategory: "mangle"
+  description: "Merge lattices keep the best fact per key"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Lattices
+
+    A `fundep` plus `merge` makes a relation keep one winning value per key. The merge predicate is a deferred rule that picks the winner of two values; no winner means both are kept.
+
+    ```mangle
+    Decl seen(File, Claim, At) bound [/string, /name, /number].
+    Decl freshest(File, Claim, At)
+      descr [fundep([File, Claim], [At]), merge([At], "later")]
+      bound [/string, /name, /number].
+    Decl later(A, B, Best) descr [mode('+', '+', '-'), deferred()] bound [/number, /number, /number].
+
+    later(A, B, A) :- A > B.
+    later(A, B, B) :- B >= A.
+    freshest(F, C, T) :- seen(F, C, T).
+    ```
+
+    With `seen("a.go", /tested, 100)`, `200` and `300`, `freshest("a.go", /tested, 300)` is the only row. This replaces "sort and take the first" in Go and the max-then-join-back two layers.
+
+    - Exactly one `fundep` and one target column. Key columns come first.
+    - The merge must answer every pair (a total preorder). One that answers both ways keeps whichever arrived last.
+    - Make ties visible as data: a lattice over a score keeps two incomparable rows.
+
+- id: "language/mangle/docs/merge_lattice_hosting"
+  category: "language"
+  subcategory: "mangle"
+  description: "Hosting a lattice safely"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Lattice traps
+
+    - The merge and deferred rules are run top-down from the program the engine is handed. An embedder that evaluates a subset of rules must include them, or every row counts as incomparable and is kept.
+    - Replacement needs a store with `Remove`. Every in-memory store has it (`factstore.NewSimpleInMemoryStore`); the temporal-store adapter does not, so both facts stay there.
+    - `factstore.NewConcurrentFactStore` deadlocks under a merge: the merge removes and adds a fact inside the store's read callback. Evaluate on a plain store under one lock.
+    - A lattice rule's body must name any derived predicate its merge reads, or the order of layers can leave stale ties.
+    - Merging does not bound recursion. A weighted shortest-path lattice over a graph with a cycle and a redundant direct edge did not finish on v0.7, even with a cost cap. Keep lattices non-recursive, or recurse over an acyclic relation, and bound every recursive rule.
+    - A top-down `EvalQuery` of a lattice predicate applies no merge; read the answer from the store.
+
+- id: "language/mangle/docs/proofs_as_data"
+  category: "language"
+  subcategory: "mangle"
+  description: "Proofs: why a fact was derived"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Provenance
+
+    The engine can say why a fact holds, and why a negation held. Proofs come back as ordinary facts a second program can query.
+
+    ```go
+    import (
+    	"codeberg.org/TauCeti/mangle-go/engine"
+    	"codeberg.org/TauCeti/mangle-go/provenance"
+    )
+
+    rec := provenance.NewMemoryRecorder()
+    _, err := engine.EvalStratifiedProgramWithStats(info, strata, predToStratum, store,
+    	engine.WithDerivationRecorder(rec))
+    proofs, err := provenance.BuildFromRecording(rec, store, goal, provenance.Options{})
+    ```
+
+    - `provenance.Explain(info, store, goal, opts)` rebuilds a proof after the fact; it covers rules, recursion, equality and negation, but marks aggregates partial. Recorder mode (above) covers `let` and `do` transforms too.
+    - `provenance.EmitFacts(proofs, store)` writes `proves`, `uses_rule`, `premise`, `edb_leaf`, `absence_leaf` and `binding` facts, so policy can ask "did this decision rest on a learned rule?".
+    - A recorder allocates per derived fact: record per evaluation, only when asked.
+    - An absence leaf means "not derivable here", not "false in the world".
+    - codeNERD uses `Explain` in `internal/core/kernel_explanation.go`.
+
+- id: "language/mangle/docs/external_predicates"
+  category: "language"
+  subcategory: "mangle"
+  description: "External predicates: Go answers during evaluation"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # External predicates
+
+    A predicate declared `external()` is answered by a Go callback while the fixpoint runs. It needs exactly one `mode`: `'+'` arguments are inputs Go receives, `'-'` arguments are outputs Go fills.
+
+    ```mangle
+    Decl recall(Query, Hit)
+      descr [external(), mode('+', '-')]
+      bound [/string, /string].
+    Decl topic(Q) bound [/string].
+    found(Q, H) :- topic(Q), recall(Q, H).
+    ```
+
+    - Inputs bound by earlier premises arrive as constants, so put the generator (`topic(Q)`) before the external.
+    - Rows the callback returns become ordinary facts, fetched once per distinct input within an evaluation. An empty answer stores nothing, so the same inputs are asked again.
+    - **Negation never calls Go.** `!recall(Q, H)` reads stored rows only and is true whenever nothing was fetched yet. Project positively with the generator first (`has_hit(Q) :- topic(Q), recall(Q, H).`), then negate the projection.
+    - Decl and Go must agree on name and arity. A callback with no `external()` Decl is never called.
+    - Report failure as data or as an error, never as an empty answer: "service down" must not look like "no matches".

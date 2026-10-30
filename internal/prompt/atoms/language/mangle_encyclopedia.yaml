@@ -12,14 +12,14 @@
     Mangle is the executive logic kernel. Correctness here defines reality.
 
     ### Syntax invariants
-    - Every predicate must be declared in `schemas.gl` before use.
+    - Every predicate is declared once, in `internal/core/defaults/schemas*.mg`, and nowhere else.
     - Variables are `UPPERCASE`; constants are `/lowercase` atoms or quoted strings.
     - Negation must be **safe**: all variables in a negated predicate must be bound earlier.
     - End every statement with `.`.
 
     ### EDB vs IDB
     - **EDB** facts are ground truth from the world model or virtual predicates.
-    - **IDB** rules derive new truth and should be monotonic unless explicitly stratified.
+    - **IDB** rules derive new truth; negation and aggregation must read only lower strata.
 
     ### Common patterns
     - **Eligibility gating**

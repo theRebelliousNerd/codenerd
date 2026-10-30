@@ -10,21 +10,21 @@
   content: |
     ## MANGLE LOGIC TDD PROTOCOL
 
-    Testing logic rules requires a Go test harness. Do not rely on "eye-balling" the rules.
+    Test rules with a Go harness, not by eye.
 
     ### 1. RED (Define the Case)
-    Create a table-driven Go test (`*_test.go`) defining the input facts (EDB) and expected derived facts (IDB).
+    Write a table-driven Go test with the input facts (EDB) and the expected derived facts (IDB).
 
     ```go
     tests := []struct {
         name string
-        edb  []ast.Clause      // Input facts
-        want ast.Atom          // Expected derivation
+        edb  []ast.Clause // input facts
+        want ast.Atom     // expected derivation
     }{
         {
             name: "Admin Access",
-            edb:  []ast.Clause{fact("admin", ast.Name("alice"))},
-            want: atom("access", ast.Name("alice")),
+            edb:  []ast.Clause{fact("admin", mustName("/alice"))},
+            want: atom("access", mustName("/alice")),
         },
     }
     ```
@@ -38,13 +38,13 @@
     ```
 
     ### 3. VERIFY (Run Harness)
-    Run the Go test. The harness MUST:
-    1. **Fresh Store**: `store := factstore.NewSimpleInMemoryStore()` per test.
-    2. **Analyze**: `analysis.Analyze(program)` to catch safety errors (unbound variables).
-    3. **Eval**: `engine.EvalProgram(ctx, program, store)`.
-    4. **Assert**: Check `store.Read()` for the `want` atom.
+    The harness MUST:
+    1. **Fresh Store**: `factstore.NewSimpleInMemoryStore()` per test; add the EDB with `store.Add`.
+    2. **Analyze**: `analysis.AnalyzeOneUnit(unit, nil)` catches unbound variables and unknown functions; `analysis.AnalyzeAndCheckBounds` also checks Decl types.
+    3. **Eval**: `engine.EvalStratifiedProgramWithStats(info, strata, predToStratum, store)`, strata from `analysis.Stratify`.
+    4. **Assert**: `store.Contains(want)`, or read rows with `store.GetFacts(ast.NewQuery(sym), cb)`.
 
     ### CRITICAL SAFETY CHECKS
-    - **Atom vs String**: `ast.Name("foo")` is `/foo`. `ast.String("foo")` is `"foo"`. They DO NOT match.
-    - **Clean Slate**: Never reuse a store between cases. Ghost facts will break logic.
-    - **Termination**: Use `context.WithTimeout` to catch infinite recursion.
+    - **Atom vs String**: `ast.Name("/foo")` (returns a constant and an error; the text starts with `/`) is `/foo`; `ast.String("foo")` is `"foo"`. They DO NOT match.
+    - **Clean Slate**: never reuse a store between cases.
+    - **Termination**: pass `engine.WithCreatedFactLimit(n)` so runaway recursion fails the test.

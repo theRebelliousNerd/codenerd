@@ -54,7 +54,7 @@
     "mangle_queries": [
       {
         "id": "q1",
-        "query": "code_element(Ref, /function, File, _, _), fn:contains(Ref, \"Login\")"
+        "query": "code_calls(Caller, \"auth.Login\")"
       },
       {
         "id": "q2",
@@ -70,32 +70,32 @@
     A query is one atom, optionally led by `?`. To combine conditions, define a rule and query its head.
 
     **Find all functions in a file:**
-    ```mangle
+    ```text
     ? code_element(Ref, /function, "internal/auth/user.go", Start, End).
     ```
 
     **Find callers of a function:**
-    ```mangle
+    ```text
     ? code_calls(Caller, "auth.Login").
     ```
 
     **Find data contracts:**
-    ```mangle
+    ```text
     ? is_data_contract(Ref).
     ```
 
     **Find async code:**
-    ```mangle
+    ```text
     ? is_async_context(Ref).
     ```
 
     **Find API couplings:**
-    ```mangle
+    ```text
     ? api_dependency(Backend, Frontend).
     ```
 
     **Find potential panics (Rust):**
-    ```mangle
+    ```text
     ? potential_panic(Ref).
     ```
 

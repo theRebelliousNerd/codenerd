@@ -1,0 +1,188 @@
+# Built-in functions and predicates of the pinned engine (mangle-go v0.7.0): symbols/symbols.go
+# and builtin/builtin.go are the source of truth. Fences are engine-checked.
+# internal/prompt/atoms_mangle_truth_test.go also checks every fn: and : name here
+# against builtin.Functions and builtin.Predicates.
+- id: "language/mangle/docs/builtins_overview"
+  category: "language"
+  subcategory: "mangle"
+  description: "Built-in function families"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Built-ins at a glance
+
+    Functions (`fn:`) compute a value on the right of `=`; predicates (`:name(...)`) are premises that hold or fail. The set is fixed: Go code cannot register more, and a name outside the tables below does not exist.
+
+    | Family | Names |
+    | --- | --- |
+    | arithmetic | `fn:plus`, `fn:minus`, `fn:mult`, `fn:div`, `fn:mod` (variadic except `mod`) |
+    | float | `fn:float:plus`, `fn:float:mult`, `fn:float:div`, `fn:sqrt` |
+    | string | `fn:string:concat`, `fn:string:replace` |
+    | conversion | `fn:number:to_string`, `fn:float64:to_string`, `fn:name:to_string` |
+    | name | `fn:name:root`, `fn:name:tip`, `fn:name:list` |
+    | list | `fn:list`, `fn:list:len`, `fn:list:get`, `fn:list:append`, `fn:list:cons`, `fn:list:contains` |
+    | structured | `fn:pair`, `fn:tuple`, `fn:map`, `fn:struct`, `fn:struct:get`, `fn:some` |
+    | time, duration, interval | `fn:time:*`, `fn:duration:*`, `fn:interval:*` |
+    | reducers | `fn:count`, `fn:sum`, `fn:min`, `fn:max`, `fn:avg`, `fn:collect`, ... (aggregation atoms) |
+
+    There is no string upper-case, lower-case, split, trim, substring, index or length function, and no regex function (use `:string:matches`). Do that work in Go and assert the result as a fact, or use the string predicates.
+
+- id: "language/mangle/docs/builtins_arithmetic"
+  category: "language"
+  subcategory: "mangle"
+  description: "Arithmetic functions"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Arithmetic
+
+    All arithmetic is function-call syntax. There is no infix `+`, `-`, `*`, `/`.
+
+    ```mangle
+    Decl item(Id, Price, Qty) bound [/name, /number, /number].
+    line_total(I, T) :- item(I, P, Q), T = fn:mult(P, Q).
+    grand(I, T) :- item(I, P, Q), T = fn:plus(P, Q, 1).
+    half(I, H) :- item(I, P, Q), H = fn:div(P, 2).
+    rest(I, R) :- item(I, P, Q), R = fn:mod(P, 7).
+    neg(I, N) :- item(I, P, Q), N = fn:minus(P).
+    ```
+
+    - `fn:plus`, `fn:mult`, `fn:minus`, `fn:div` fold left over any number of arguments. One argument: `fn:minus(X)` is `-X`, `fn:div(X)` is `1/X`.
+    - `fn:div` and `fn:mod` are integer operations; `fn:mod` takes the sign of its first argument.
+    - Float versions: `fn:float:plus`, `fn:float:mult`, `fn:float:div`, `fn:sqrt` (floats in, float out). Names such as `fn:times`, `fn:divide`, `fn:multiply`, `fn:add`, `fn:abs` and `fn:float_plus` do not exist.
+
+    ```mangle-rejected
+    Decl item(Id, Price) bound [/name, /number].
+    bad(I, T) :- item(I, P), T = fn:times(P, 2).
+    ```
+
+- id: "language/mangle/docs/builtins_strings"
+  category: "language"
+  subcategory: "mangle"
+  description: "String functions and predicates"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Strings
+
+    Two functions and four predicates are all there is.
+
+    ```mangle
+    Decl path(P) bound [/string].
+    Decl user(Name) bound [/string].
+    greeting(G) :- user(N), G = fn:string:concat("hello ", N, "!").
+    renamed(Q) :- path(P), Q = fn:string:replace(P, "src/", "lib/", 1).
+    go_file(P) :- path(P), :string:ends_with(P, ".go").
+    in_src(P) :- path(P), :string:starts_with(P, "src/").
+    has_test(P) :- path(P), :string:contains(P, "_test").
+    shaped(P) :- path(P), :string:matches(P, "^[a-z_]+/[a-z_]+\\.go$").
+    ```
+
+    - `fn:string:concat(A, B, ...)` takes any number of arguments. `fn:string:replace(S, Old, New, N)` replaces the first N occurrences.
+    - `:string:matches(S, Pattern)` is an RE2 match; Pattern may be a variable bound earlier. Strict type checking rejects every use of `:string:matches` in v0.7, so analyze programs that use it loosely.
+    - A name pattern (`/ab`) as a string test is a run-time error; `:match_prefix(Name, /prefix)` is the name-only prefix test and needs a literal name.
+    - Numbers to text: `fn:number:to_string(N)`, `fn:float64:to_string(F)`, `fn:name:to_string(/n)`.
+
+- id: "language/mangle/docs/builtins_lists"
+  category: "language"
+  subcategory: "mangle"
+  description: "List functions"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Lists
+
+    ```mangle
+    Decl tags(Id, L) bound [/name, fn:List(/name)].
+    tags(/a, [/x, /y, /z]).
+    count_tags(I, N) :- tags(I, L), N = fn:list:len(L).
+    head_tag(I, H) :- tags(I, L), :match_cons(L, H, T).
+    third(I, X) :- tags(I, L), X = fn:list:get(L, 2).
+    more(I, M) :- tags(I, L), M = fn:list:append(L, /w).
+    front(I, M) :- tags(I, L), M = fn:list:cons(/start, L).
+    each(I, X) :- tags(I, L), :list:member(X, L).
+    has_x(I) :- tags(I, L), :filter(fn:list:contains(L, /x)).
+    ```
+
+    - `fn:list(A, B, ...)` builds a list; `fn:list:len`, `fn:list:get(List, Index)` (zero based), `fn:list:append(List, Elem)` (appends one element), `fn:list:cons(Head, List)`, `fn:list:contains(List, Elem)`.
+    - Membership as a premise is `:list:member(X, L)` (enumerates, or checks if X is bound) or `:filter(fn:list:contains(L, X))`.
+    - Splitting uses `:match_cons` and `:match_nil`; there is no `[H | T]` syntax.
+    - There are no `fn:list:reverse`, `fn:list:sort`, `fn:list:map`, `fn:append`, `fn:cons` or `fn:length`.
+
+- id: "language/mangle/docs/builtins_structured"
+  category: "language"
+  subcategory: "mangle"
+  description: "Pairs, maps, structs and names"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Structured data and names
+
+    ```mangle
+    Decl cfg(Id, M, S) bound [/name, fn:Map(/name, /number), fn:Struct(/host, /string, /port, /number)].
+    cfg(/c1, [/retries: 3, /limit: 10], {/host: "h", /port: 80}).
+    retries(I, V) :- cfg(I, M, S), :match_entry(M, /retries, V).
+    host(I, H) :- cfg(I, M, S), :match_field(S, /host, H).
+    port(I, P) :- cfg(I, M, S), P = fn:struct:get(S, /port).
+    keyed(K) :- K = fn:pair(/a, 1).
+    ```
+
+    - `:match_entry(Map, Key, V)` and `:match_field(Struct, /f, V)` are lookups: the key must be bound, the output a fresh variable. A map cannot be enumerated by key in a rule.
+    - `fn:map:get` is not usable: analysis rejects it as an unknown function; use `:match_entry`.
+    - There is no `fn:pair:fst` or `fn:pair:snd`: destructure with `:match_pair(P, First, Second)`.
+    - Name parts: `fn:name:root(/a/b/c)` is `/a`, `fn:name:tip` is `/c`, `fn:name:list` is `[/a, /b, /c]`.
+    - `:within_distance(X, Y, D)` holds when `|X - Y| < D` for numbers.
+
+- id: "language/mangle/docs/builtins_time"
+  category: "language"
+  subcategory: "mangle"
+  description: "Time, duration and interval functions"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Time and duration
+
+    Times are nanosecond instants (`/time`), durations are `/duration`. Go owns the clock; pin it with `engine.WithEvaluationTime`.
+
+    ```mangle
+    Decl job(Id, Start, End) bound [/name, /time, /time].
+    elapsed(I, D) :- job(I, S, E), D = fn:time:sub(E, S).
+    slow(I) :- job(I, S, E), D = fn:time:sub(E, S), :duration:gt(D, fn:duration:from_minutes(30.0)).
+    year_of(I, Y) :- job(I, S, E), Y = fn:time:year(S).
+    deadline(I, T) :- job(I, S, E), T = fn:time:add(S, fn:duration:from_hours(2.0)).
+    ```
+
+    - Instants: `fn:time:now`, `fn:time:add`, `fn:time:sub`, `fn:time:year|month|day|hour|minute|second`, `fn:time:parse_rfc3339`, `fn:time:format`, `fn:time:from_unix_nanos`, `fn:time:to_unix_nanos`, `fn:time:trunc`; civil-time variants take a time zone string.
+    - Durations: `fn:duration:add`, `fn:duration:mult`, `fn:duration:hours|minutes|seconds|nanos`, `fn:duration:from_*`, `fn:duration:parse`.
+    - Compare with `:time:lt|le|gt|ge` and `:duration:lt|le|gt|ge`, never `<`.
+    - `fn:interval:start|end|duration` take a `fn:pair(Start, End)`; `:interval:before|after|meets|overlaps|during|contains|starts|finishes|equals` compare two such pairs.
+
+- id: "language/mangle/docs/builtins_not_real"
+  category: "language"
+  subcategory: "mangle"
+  description: "Names models invent that do not exist"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Names that do not exist on v0.7
+
+    Each left-hand name does not exist; the engine reports "unknown function" or a parse error.
+
+    | Written | Write instead |
+    | --- | --- |
+    | `fn:string_concat`, `fn:concat` | `fn:string:concat(A, B)` |
+    | `fn:times`, `fn:multiply` | `fn:mult(A, B)` |
+    | `fn:divide` | `fn:div(A, B)` (`fn:float:div` for floats) |
+    | `fn:length`, `fn:len` | `fn:list:len(L)` |
+    | `fn:append`, `fn:cons` | `fn:list:append(L, X)`, `fn:list:cons(H, L)` |
+    | `fn:map_get`, `fn:pair:fst` | `:match_entry`, `:match_pair` |
+    | `fn:Count`, `fn:Sum`, `fn:mean` | `fn:count()`, `fn:sum(X)`, `fn:avg(X)` |
+    | `fn:count_distinct` | project the distinct columns, then `fn:count()` |
+    | `fn:to_float`, `fn:abs`, `fn:upper`, `fn:split` | compute in Go, assert the result |
+    | `fn:filter`, `fn:gt` | filter in the body before `|>`; `:filter(fn:list:contains(L, X))` for a boolean function |
+    | `:contains`, `:starts_with`, `:cons`, `:ends_with` | `:string:contains`, `:string:starts_with`, `:match_cons`, `:string:ends_with` |
+
+    ```mangle-rejected
+    Decl p(X) bound [/number].
+    q(Y) :- p(X), Y = fn:to_float(X).
+    ```

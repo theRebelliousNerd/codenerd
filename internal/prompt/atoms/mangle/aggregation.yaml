@@ -1,0 +1,116 @@
+# Aggregation and transforms on the pinned engine (mangle-go v0.7.0).
+# Fences are engine-checked: internal/prompt/atoms_mangle_truth_test.go.
+- id: "language/mangle/docs/aggregation_syntax"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Aggregation Syntax"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Pipeline Operator (`|>`)
+
+    Aggregation is an explicit pipeline after the rule body. `do fn:group_by(Keys)` names the groups and each `let V = ...` computes one value per group from a reducer.
+
+    ```mangle
+    Decl sale(Region, Amount) bound [/name, /number].
+    total(Region, Sum) :- sale(Region, Amount) |> do fn:group_by(Region), let Sum = fn:sum(Amount).
+    orders(N) :- sale(R, A) |> do fn:group_by(), let N = fn:count().
+    ```
+
+    - Reducer names are lowercase: `fn:count()`, `fn:sum(X)`, `fn:min(X)`, `fn:max(X)`, `fn:avg(X)`. There is no `fn:Count` or `fn:Sum`; capitalized names are type constructors for `bound` lists only.
+    - `fn:count()` takes no argument. `fn:group_by()` with no key makes the whole relation one group.
+    - Every head variable must be a group key or a reduced value.
+
+    ```mangle-rejected
+    Decl sale(Region, Amount) bound [/name, /number].
+    total(Region, Sum) :- sale(Region, Amount) |> do fn:group_by(Region), let Sum = fn:Sum(Amount).
+    ```
+
+- id: "language/mangle/docs/aggregation_reducers"
+  category: "language"
+  subcategory: "mangle"
+  description: "Reducers and their types"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Reducers
+
+    | Reducer | Over | Gives |
+    | --- | --- | --- |
+    | `fn:count()` | rows | `/number` |
+    | `fn:sum(X)`, `fn:min(X)`, `fn:max(X)` | `/number` | `/number` |
+    | `fn:float:sum(X)`, `fn:float:min`, `fn:float:max` | `/float64` | `/float64` |
+    | `fn:avg(X)` | `/float64` | `/float64` |
+    | `fn:collect(X)` | any | list (order not stable) |
+    | `fn:collect_distinct(X)` | any | list without duplicates |
+    | `fn:collect_to_map(K, V)` | key, value | map (a repeated key keeps one arbitrary value) |
+    | `fn:pick_any(X)` | any | one member |
+    | `fn:time:min`, `fn:time:max`, `fn:duration:sum`, ... | time, duration | same type |
+
+    There is no arg-max, median or count-distinct reducer. For "distinct": project to the distinguishing columns first (facts are a set), then `fn:count()`.
+
+    ```mangle
+    Decl purchase(User, Product, Day) bound [/name, /name, /number].
+    user_product(U, P) :- purchase(U, P, D).
+    kinds(U, N) :- user_product(U, P) |> do fn:group_by(U), let N = fn:count().
+    ```
+
+- id: "language/mangle/docs/aggregation_traps"
+  category: "language"
+  subcategory: "mangle"
+  description: "Aggregation traps"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Aggregation traps
+
+    - **Facts are a set.** Two derivations with equal values collapse before counting. Keep a witness column that makes rows distinct.
+    - **Name every column.** `_` is dropped before reducing, so two different rows can merge. Use `Day`, not `_`.
+    - **One transform per rule.** `|> do ... |> let ...` is "composing multiple transforms not implemented". Chain through a second rule.
+    - **Empty input derives nothing**, not zero. The zero case is its own rule over a negated projection.
+    - **A head variable that is neither a key nor reduced is an error.**
+
+    ```mangle-rejected
+    Decl sale(Region, Amount) bound [/name, /number].
+    p(Region, N) :- sale(Region, A) |> do fn:group_by(), let N = fn:count().
+    ```
+
+    ```mangle
+    Decl sale(Region, Amount) bound [/name, /number].
+    Decl region(Region) bound [/name].
+    sales(R, N) :- sale(R, A) |> do fn:group_by(R), let N = fn:count().
+    has_sale(R) :- sale(R, A).
+    sales(R, 0) :- region(R), !has_sale(R).
+    ```
+
+- id: "language/mangle/docs/aggregation_patterns"
+  category: "language"
+  subcategory: "mangle"
+  description: "Aggregation patterns"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Patterns
+
+    **Per-row `let`** (no `do`) computes a new column:
+
+    ```mangle
+    Decl path(From, To, Via) bound [/name, /name, fn:List(/name)].
+    Decl edge(A, B) bound [/name, /name].
+    step(X, Z, P2) :- path(X, Y, P), edge(Y, Z) |> let P2 = fn:list:append(P, Z).
+    ```
+
+    **Arg-max in two layers**: aggregate the best value, then join it back. Ties give several rows, which is honest.
+
+    ```mangle
+    Decl score(Item, S) bound [/name, /number].
+    best(M) :- score(I, S) |> do fn:group_by(), let M = fn:max(S).
+    winner(I) :- score(I, S), best(S).
+    ```
+
+    **Answer-shaped output**: one fact holding the whole answer for Go to read.
+
+    ```mangle
+    Decl file_risk(File, Risk) bound [/string, /number].
+    risk_map(M) :- file_risk(F, R) |> do fn:group_by(), let M = fn:collect_to_map(F, R).
+    ```

@@ -380,6 +380,31 @@ invalid documents fail closed. Optional `content_file` is resolved relative to
 the atom source. Legacy aliases are observable migrations expiring 2027-01-01;
 built-ins must parse without migrations.
 
+### 5.6 Mangle reference atoms (`atoms/mangle/`, `language/mangle*.yaml`)
+
+The atoms that teach a model to write Mangle for the pinned engine
+(`codeberg.org/TauCeti/mangle-go v0.7.0`, go.mod) and to drive it from Go. They
+are ids `language/mangle/docs/<slug>`, one idea each, within the 1,500-char atom
+ceiling, in topic files: `syntax`, `negation` (negation, stratification,
+recursion), `aggregation`, `builtins`, `advanced` (temporal facts, merge
+lattices, proofs, external predicates), `go_integration`, `errors`,
+`antipatterns`, `patterns`, and `codenerd` (rules against the kernel's own
+predicates). `engine_truths_pinned.yaml` is the mandatory verified-by-running
+list, served when the kernel derives `/authoring_mangle`.
+
+Nothing hand-written is trusted: `atoms_mangle_truth_test.go` asks the pinned
+engine. A ```` ```mangle ```` fence must parse, analyze (strict bounds where it
+declares types) and stratify; a ```` ```mangle-rejected ```` fence must be
+refused by the engine, so "this is an error" is itself checked. In `codenerd`
+atoms the fence is analyzed against the booted kernel's Decls, so a taught
+predicate exists at that arity and with those types. Every `fn:` and `:` name
+must exist in `builtin.Functions` / `builtin.Predicates` unless the line says it
+does not exist; a Go identifier qualified by a mangle-go or codeNERD package must
+exist in that package's source and not be marked `Deprecated:`; a ```` ```go ````
+fence must parse; no file under `atoms/` may name the upstream Google import
+path. Embedded Go and Mangle identifiers therefore change only with the module
+version, and a bump that changes an answer fails the test instead of a prompt.
+
 ---
 
 ## 6. Deep dive — Selector (`selector.go`)

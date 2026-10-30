@@ -1,5 +1,7 @@
 # Mangle Logic Programming Language Atoms
-# Mangle (TauCeti's canonical mangle-go) for the codeNERD kernel
+# Mangle (TauCeti's canonical mangle-go, codeberg.org/TauCeti/mangle-go v0.7) for the codeNERD kernel.
+# Every ```mangle fence is parsed and analyzed by the pinned engine in
+# internal/prompt/atoms_mangle_truth_test.go.
 
 - id: "language/mangle/core"
   category: "language"
@@ -12,7 +14,7 @@
   content: |
     ## MANGLE LANGUAGE CORE
 
-    Mangle is a deductive database language. codeNERD runs TauCeti's canonical mangle-go engine (the v0.5.1 line), not Google's frozen 0.4.0 snapshot. A program is facts (the EDB), rules that derive new facts (the IDB), and one `Decl` per predicate. In codeNERD Go asserts what it measured (witnesses) and rules derive every decision (judgements): Go never asserts a judgement, and no threshold lives in Go when it can be a fact.
+    Mangle is a deductive database language. codeNERD runs TauCeti's canonical mangle-go engine (v0.7), not Google's frozen snapshot. A program is facts (the EDB), rules that derive new facts (the IDB), and one `Decl` per predicate. In codeNERD Go asserts what it measured (witnesses) and rules derive every decision (judgements): Go never asserts a judgement, and no threshold lives in Go when it can be a fact.
 
     ### SYNTAX BASICS
     ```mangle
@@ -43,9 +45,9 @@
     ## MANGLE LANGUAGE CORE: conventions and data
 
     ### CONVENTIONS
-    - UPPERCASE is a variable; `/lowercase` a name constant (enums, IDs); `"quoted"` a string. `/admin` and `"/admin"` never unify.
-    - `_` is a don't-care variable. Never put one inside a negated literal: the negation is silently deleted (see the engine truths).
-    - `#` starts a comment. Numbers are int64; a float in a number column aborts the whole fixpoint, so use an integer scale (0..100) for scores.
+    - UPPERCASE is a variable; `/lowercase` a name constant (enums, IDs); `"quoted"` a string. `/admin` and `"admin"` never unify.
+    - `_` is a don't-care variable. Never put one inside a negated literal: it is an analysis error (see the engine truths).
+    - `#` starts a comment. Numbers are int64 and floats are a separate type: `<` and `fn:plus` take numbers only, so use an integer scale (0..100) for scores or the `:float:` predicates.
     - Declare every predicate exactly once, before use, with `bound [...]` column types.
     - Data: `status(/active).` name; `label("free text").` string; `count(42).` number; `items([1, 2, 3]).` list.
 
@@ -59,47 +61,36 @@
 
     ### RULE STRUCTURE
     ```mangle
-    # head :- body.
-    # "head is true if body is true"
+    # head :- body.   "head is true if every premise in the body is true"
+    Decl user(User, Role) bound [/name, /name].
+    Decl permission(Role, File) bound [/name, /string].
+    Decl file(Path) bound [/string].
 
-    # Single condition
-    Decl user(User, Role).
-    Decl permission(Role, File).
-    Decl file(X, Y).
-    admin(X) :- user(X, "/admin").
+    admin(X) :- user(X, /admin).
 
-    # Multiple conditions (AND)
     can_access(User, File) :-
         user(User, Role),
         permission(Role, File).
 
-    # Negation
     no_access(User, File) :-
-        user(User, _),
-        file(File, _),
+        user(User, Role),
+        file(File),
         !can_access(User, File).
     ```
 
     ### SAFETY RULES
-    All variables in head must appear in positive body:
+    Every head variable and every variable inside `!` must be bound by a positive premise.
+    ```mangle-rejected
+    admin(X) :- !blocked(X).
+    ```
     ```mangle
-    # SAFE: X bound in user()
-    admin(X) :- user(X, "/admin").
-
-    # UNSAFE: X not bound
-    admin(X) :- !blocked(X).  # ERROR
-
-    # FIX: Bind X first
-    admin(X) :- user(X, _), !blocked(X).
+    admin(X) :- user(X, Role), !blocked(X).
     ```
 
     ### RECURSION
     ```mangle
-    # Base case
-    Decl edge(X, Y).
+    Decl edge(X, Y) bound [/name, /name].
     reachable(X, Y) :- edge(X, Y).
-
-    # Recursive case
     reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
     ```
 
@@ -113,19 +104,16 @@
 
     ### TRANSFORM SYNTAX
     ```mangle
-    # Count
-    Decl user(X, Y).
-    Decl file(X, Y).
+    Decl user(Name, Role) bound [/name, /name].
+    Decl file(Path, Size) bound [/string, /number].
     user_count(Count) :-
-        user(_, _) |> do fn:group_by(), let Count = fn:count().
+        user(Name, Role) |> do fn:group_by(), let Count = fn:count().
 
-    # Sum
     total_size(Total) :-
-        file(_, Size) |> do fn:group_by(), let Total = fn:sum(Size).
+        file(Path, Size) |> do fn:group_by(), let Total = fn:sum(Size).
 
-    # Group by
     role_count(Role, Count) :-
-        user(_, Role) |> do fn:group_by(Role), let Count = fn:count().
+        user(Name, Role) |> do fn:group_by(Role), let Count = fn:count().
     ```
 
     ### COMMON AGGREGATIONS
@@ -139,19 +127,11 @@
 
     ### AGGREGATION PATTERNS
     ```mangle
-    # Files per directory
-    files_in_dir(Dir, Count) :-
-        file(Path, _),
-        fn:starts_with(Path, Dir)
-        |> do fn:group_by(Dir), let Count = fn:count().
-
-    # Largest file
-    largest_file(Path, Size) :-
-        file(Path, Size),
-        max_size(Size).
-    max_size(Max) :-
-        file(_, Size) |> do fn:group_by(), let Max = fn:max(Size).
+    Decl file(Path, Size) bound [/string, /number].
+    max_size(Max) :- file(Path, Size) |> do fn:group_by(), let Max = fn:max(Size).
+    largest_file(Path, Size) :- file(Path, Size), max_size(Size).
     ```
+    Files per directory: assert the directory as a column in Go (a string-prefix test is a premise, not a group key), then group by it.
 
 - id: "language/mangle/codenerd"
   category: "language"
@@ -161,49 +141,27 @@
   content: |
     ## MANGLE IN CODENERD
 
-    ### COMMON PREDICATES
-    ```mangle
-    # Intent classification (5 args: ID, Category, Verb, Target, Constraint)
-    user_intent(ID, Category, Verb, Target, Constraint).
-
-    # Actions
-    next_action(Action).
-    permitted(ActionType, Target, Payload).
-
-    # Context
-    current_file(Path).
-    current_function(Name, File, Line).
-
-    # Safety
-    forbidden(ActionType).
-    dangerous_action(ActionType).
-    requires_approval(ActionType).
-    ```
+    ### COMMON PREDICATES (declared in internal/core/defaults/schemas*.mg)
+    - `user_intent(ID, Category, Verb, Target, Constraint)`: 5 arguments
+    - `next_action(ActionType)`, `permitted(ActionType, Target, Payload)`
+    - `pending_action(ActionID, ActionType, Target, Payload, Timestamp)`
+    - `dangerous_action(ActionType)`, `safe_action(ActionType)`
 
     ### POLICY RULES
     ```mangle
-    # Derive next action from intent
-    Decl user_intent(A1, A2, A3, A4, A5).
-    Decl safe_action(Action).
-    Decl pending_action(A1, A2, A3, A4, A5).
-    Decl dangerous_content(Action, Payload).
     next_action(/code) :-
-        user_intent(_, /mutation, /create, _, _),
+        user_intent(I, /mutation, /create, Target, Constraint),
         safe_action(/code).
 
-    # Permission gate
     permitted(Action, Target, Payload) :-
         safe_action(Action),
-        pending_action(_, Action, Target, Payload, _),
+        pending_action(Id, Action, Target, Payload, At),
         !dangerous_content(Action, Payload).
     ```
 
     ### SCHEMA DECLARATIONS
     ```mangle
-    # Declare predicate signatures with Mangle Type<> syntax
     Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/name, /name, /name, /string, /string].
-
-    Decl file_modified(Path, Lines) bound [/string, /number].
-
     Decl hypothesis(HType, File, Line, Confidence) bound [/name, /string, /number, /number].
     ```
+    Column types go in `bound [...]`, one per column. See the codenerd atoms for the kernel's real predicates.

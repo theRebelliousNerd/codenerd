@@ -1,7 +1,6 @@
-# Engine truths on the pinned Mangle engine, each established by running it.
-# Source of record: Docs/journeys/M3-mangle-verification.md and the production
-# failures of 2026-09-18. Keep in step with the mangle-programming skill's
-# references/020-ENGINE_TRUTHS_v0.5.1.md.
+# Engine truths on the pinned Mangle engine (codeberg.org/TauCeti/mangle-go v0.7.0), each
+# established by running it. Fences are engine-checked by
+# internal/prompt/atoms_mangle_truth_test.go; a version bump that changes an answer fails there.
 
 - id: "language/mangle/engine_truths_pinned"
   category: "language"
@@ -16,23 +15,19 @@
   content: |
     ## THE PINNED MANGLE ENGINE: WHAT WAS VERIFIED BY RUNNING IT
 
-    The kernel runs TauCeti's canonical mangle-go (v0.7 line), not the frozen Google 0.4.0
-    snapshot. Where a document and this list disagree, this list was run on the engine.
+    The kernel runs TauCeti's canonical mangle-go (v0.7.0), not the frozen Google snapshot. Where a document and this list disagree, this list was run on the engine.
 
-    ### A negation can vanish without an error
+    ### A wildcard inside a negation is an error
 
-    A negated literal that contains a wildcard, or a named variable no positive atom binds, is
-    DELETED from the clause: `q(X) :- p(X), !r(X, _).` evaluates as `q(X) :- p(X).`
-    Project first, then negate a fully bound predicate:
+    A `_` or a variable no positive premise binds inside `!r(...)` is an analysis error ("variable X0 is not bound"). Project first, then negate the fully bound projection:
     ```mangle
-    Decl r(X, Y).
-    Decl p(X).
-    Decl working_stop(X).
-    Decl working_control(X, Y).
-    has_r(X) :- r(X, _).
+    Decl p(X) bound [/name].
+    Decl r(X, Y) bound [/name, /name].
+    Decl working_stop(X) bound [/name].
+    has_r(X) :- r(X, Y).
     q(X) :- p(X), !has_r(X).
-    has_stop() :- working_stop(_).          # zero-arity projection for "any"
-    go_on() :- working_control(_, _), !has_stop().
+    has_stop() :- working_stop(X).
+    go_on() :- p(X), !has_stop().
     ```
 
 - id: "language/mangle/engine_truths_pinned/reducers-and-their-real-arity"
@@ -40,135 +35,104 @@
   section_order: 1
   category: "language"
   subcategory: "mangle"
-  description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects: Reducers and their real arity"
+  description: "Behaviours of the pinned Mangle engine that were verified by running them: Reducers and their real arity"
   is_mandatory: false
   languages: ["/mangle"]
-  # Served when the kernel derives the need (policy/jit_needs.mg:
-  # target_need(/mangle, /authoring_mangle)), i.e. when the turn or the planned
-  # step is aimed at a .mg file -- and never otherwise.
   world_states: ["authoring_mangle"]
   content: |
     *Part of: THE PINNED MANGLE ENGINE: WHAT WAS VERIFIED BY RUNNING IT*
 
     ### Reducers and their real arity
 
-    - `fn:count()` takes NO argument; passing it a variable fails analysis.
-    - `fn:sum(X)`, `fn:max(X)`, `fn:min(X)`, `fn:avg(X)`. There is no `fn:mean`.
-    - `fn:collect(X)` keeps duplicates in unstable order; `fn:collect_distinct(X)` does not.
-    - No count-distinct reducer works (`fn:count_distinct` is "unknown function" in every
-      spelling). Facts are a set: project to the columns that define "distinct", then count.
+    - `fn:count()` takes NO argument. `fn:sum(X)`, `fn:max(X)`, `fn:min(X)` take numbers; `fn:avg(X)` takes floats and gives a float.
+    - `fn:collect(X)` keeps order unstable; `fn:collect_distinct(X)` drops duplicates.
+    - There is no count-distinct: `fn:count_distinct` is an unknown function. Facts are a set, so project to the columns that define "distinct", then count.
     ```mangle
-    Decl purchase(User, Product, Day).
+    Decl purchase(User, Product, Day) bound [/name, /name, /number].
     user_product(User, Product) :- purchase(User, Product, Day).
     products_per_user(User, N) :- user_product(User, Product)
         |> do fn:group_by(User), let N = fn:count().
     ```
-    - No `_` in the body of a `do`-transform rule: a single-atom body keeps the wildcard column
-      and the reducer sees every stored row. Name every column.
-    - An aggregate over no rows derives nothing, not zero: the zero case is its own rule with a
-      negated projection. One aggregation per rule; each is its own stratum.
+    - No `_` in a `do`-transform rule body: it is dropped before reducing and distinct rows merge. Name every column.
+    - An aggregate over no rows derives nothing, not zero: the zero case is its own rule with a negated projection. One transform per rule.
 
 - id: "language/mangle/engine_truths_pinned/external-virtual-predicates-join-on"
   section_of: "language/mangle/engine_truths_pinned"
   section_order: 2
   category: "language"
   subcategory: "mangle"
-  description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects: External (virtual) predicates join on constants only"
+  description: "Behaviours of the pinned Mangle engine that were verified by running them: external predicates take bound inputs"
   is_mandatory: false
   languages: ["/mangle"]
-  # Served when the kernel derives the need (policy/jit_needs.mg:
-  # target_need(/mangle, /authoring_mangle)), i.e. when the turn or the planned
-  # step is aimed at a .mg file -- and never otherwise.
   world_states: ["authoring_mangle"]
   content: |
     *Part of: THE PINNED MANGLE ENGINE: WHAT WAS VERIFIED BY RUNNING IT*
 
-    ### External (virtual) predicates join on constants only
+    ### External (virtual) predicates take inputs bound by earlier premises
 
-    An `external()` premise whose input argument is a variable bound by an earlier atom PANICS
-    the evaluation. Inputs must be literal constants in the rule text. To follow a bound value
-    into a store, have Go assert the small relevant slice as facts for the turn.
+    An `external()` premise whose `'+'` argument is bound by an earlier premise is called with that value as a constant: put the generator first. An input no premise binds is an analysis error ("variable Q is not bound").
+    ```mangle
+    Decl topic(Q) bound [/string].
+    Decl recall(Q, H) descr [external(), mode('+', '-')] bound [/string, /string].
+    found(Q, H) :- topic(Q), recall(Q, H).
+    ```
+    `!recall(...)` never calls Go: it reads rows already fetched, so its answer depends on which positive premises ran first. Negate a positive projection instead (`has_hit(Q) :- topic(Q), recall(Q, H).`).
 
 - id: "language/mangle/engine_truths_pinned/registering-a-go-handler-does-nothing"
   section_of: "language/mangle/engine_truths_pinned"
   section_order: 3
   category: "language"
   subcategory: "mangle"
-  description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects: Registering a Go handler does nothing without an external() Decl"
+  description: "Behaviours of the pinned Mangle engine that were verified by running them: Registering a Go handler does nothing without an external() Decl"
   is_mandatory: false
   languages: ["/mangle"]
-  # Served when the kernel derives the need (policy/jit_needs.mg:
-  # target_need(/mangle, /authoring_mangle)), i.e. when the turn or the planned
-  # step is aimed at a .mg file -- and never otherwise.
   world_states: ["authoring_mangle"]
   content: |
     *Part of: THE PINNED MANGLE ENGINE: WHAT WAS VERIFIED BY RUNNING IT*
 
     ### Registering a Go handler does nothing without an external() Decl
 
-    `mkPred("p", ...)` in BuildExternalPredicates only offers a handler. The kernel builds the
-    callback map and then keeps the entries whose `decl.IsExternal()` is true, dropping the rest
-    with no error and no log. Against a plain `Decl p(X).` the handler never runs, the rules that
-    read p still derive nothing, and the build and the tests are green -- while p's name now
-    appears in Go, which is enough to make the starved-predicate gate call it produced.
+    `mkPred("p", ...)` in `BuildExternalPredicates` (internal/core/external_predicates.go) only offers a handler. The kernel builds the callback map and keeps the entries whose `decl.IsExternal()` is true, dropping the rest with no error and no log. Against a plain `Decl p(X).` the handler never runs, the rules that read p derive nothing, and the build and the tests are green.
 
-    So there are exactly three ways to fill a predicate, and a Go handler is the one with a
-    precondition: a rule head, a Go `Assert`, or a handler behind `descr [external(), mode(...)]`.
-
-    Adding that descriptor is NOT the general fix, because the two truths compose: once the
-    handler is live, any rule that passes it a bound variable panics. A predicate whose rules
-    read it as `p(Target)` with Target bound by an earlier atom -- the ordinary shape -- cannot
-    be served by an external at all on this engine. Have Go assert the facts instead.
+    So there are exactly three ways to fill a predicate: a rule head, a Go `Assert`, or a handler behind `descr [external(), mode(...)]`. The handler needs a Decl whose modes match its Go argument order, and every rule that calls it must bind its `'+'` arguments first.
 
 - id: "language/mangle/engine_truths_pinned/things-that-fail-quietly"
   section_of: "language/mangle/engine_truths_pinned"
   section_order: 4
   category: "language"
   subcategory: "mangle"
-  description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects: Things that fail quietly"
+  description: "Behaviours of the pinned Mangle engine that were verified by running them: Things that fail quietly"
   is_mandatory: false
   languages: ["/mangle"]
-  # Served when the kernel derives the need (policy/jit_needs.mg:
-  # target_need(/mangle, /authoring_mangle)), i.e. when the turn or the planned
-  # step is aimed at a .mg file -- and never otherwise.
   world_states: ["authoring_mangle"]
   content: |
     *Part of: THE PINNED MANGLE ENGINE: WHAT WAS VERIFIED BY RUNNING IT*
 
     ### Things that fail quietly
 
-    - A name constant ending a clause swallows the period after `=` or `!=` (`X != /done.`): put a
-      line break before the period, or reorder the comparison.
-    - One `Decl` per predicate in everything loaded together; a second one is a hard error.
-      An unknown Decl descriptor is accepted silently, so a typo there is never reported.
-    - A Go string that starts with `/` (at most two slashes, no file extension) arrives as a NAME;
-      a quoted `"/related_to"` in a rule stays a STRING; they never unify and the rule never
-      fires. Match the column's declared type on purpose.
-    - A float in a number column aborts the whole fixpoint. Scores are integers 0..100.
-    - Never mix numbers with lists or structs in one column: `0`, `0.0`, `[]`, `{}` can collapse
-      into one fact.
+    - A name constant ending a clause swallows the period after `=` or `!=` (`X != /done.`): put a space before the period, or reorder the comparison.
+    - One `Decl` per predicate in everything loaded together; a second one is a hard error. An unknown `descr` entry is accepted silently, so a typo there is never reported.
+    - A Go string that starts with `/` (at most two slashes, no file extension) arrives as a NAME; a quoted `"/related_to"` in a rule stays a STRING; they never unify.
+    - Comparing a float with `<` or `>` (or adding it with `fn:plus`) aborts the WHOLE evaluation: "value 1.5 is not a number". Scores are integers 0..100, or use `:float:gt` and friends.
+    - A predicate asserted at the wrong arity is a different predicate: nothing errors and every reader derives nothing.
+    - Lists, structs and numbers in one column can collapse into one fact: keep a column to one kind.
 
 - id: "language/mangle/engine_truths_pinned/cost"
   section_of: "language/mangle/engine_truths_pinned"
   section_order: 5
   category: "language"
   subcategory: "mangle"
-  description: "Behaviours of the pinned Mangle engine that were verified by running them, and the forms it rejects: Cost"
+  description: "Behaviours of the pinned Mangle engine that were verified by running them: Cost"
   is_mandatory: false
   languages: ["/mangle"]
-  # Served when the kernel derives the need (policy/jit_needs.mg:
-  # target_need(/mangle, /authoring_mangle)), i.e. when the turn or the planned
-  # step is aimed at a .mg file -- and never otherwise.
   world_states: ["authoring_mangle"]
   content: |
     *Part of: THE PINNED MANGLE ENGINE: WHAT WAS VERIFIED BY RUNNING IT*
 
     ### Cost
 
-    - Bodies run as nested loops in written order: selective, bound atoms first; never an
-      external or an aggregate as the first premise.
-    - Every evaluation re-derives everything from all resident facts; nothing is incremental and
-      nothing un-derives inside an evaluation. Keep bulk data out of the kernel.
-    - "fact size limit reached <predicate> N > LIMIT" names the predicate being evaluated when
-      the WHOLE store crossed the limit. That predicate is usually not the cause.
-    - Strata add across files loaded as one unit.
+    - Bodies run as nested loops in written order: selective, bound premises first; never an external or an aggregate as the first premise.
+    - Every evaluation re-derives everything from all resident facts; nothing un-derives inside an evaluation. Keep bulk data out of the kernel.
+    - "fact size limit reached <predicate> N > LIMIT" names the predicate being evaluated when the WHOLE store crossed the limit. That predicate is usually not the cause: find the rule that grows values.
+    - Termination is not guaranteed: a rule that computes new numbers, lists or strings in a loop needs a bound.
+    - The engine's per-call cost grows with strata times predicates, which is why the kernel layers its strata (`mangle.Stratify`, internal/mangle/strata_layers.go).

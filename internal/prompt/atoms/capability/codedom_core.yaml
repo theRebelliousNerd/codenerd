@@ -127,13 +127,16 @@
 
     The power comes from querying archetypes, not language-specific facts:
 
-    ```mangle
+    ```text
     # Find all data contracts across all languages
-    :- is_data_contract(Ref).
+    ? is_data_contract(Ref).
 
     # Find elements with API coupling
-    :- api_dependency(Backend, Frontend).
+    ? api_dependency(Backend, Frontend).
+    ```
 
-    # Find all async code that might leak resources
-    :- is_async_context(Ref), not is_context_aware(Ref).
+    A query is one atom. To combine conditions, define a rule and query its head:
+
+    ```mangle
+    leaky_async(Ref) :- is_async_context(Ref), !is_context_aware(Ref).
     ```

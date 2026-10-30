@@ -1,0 +1,136 @@
+# Negation, stratification and recursion on the pinned engine (mangle-go v0.7.0).
+# Fences are engine-checked: internal/prompt/atoms_mangle_truth_test.go.
+- id: "language/mangle/docs/negation_safety"
+  category: "language"
+  subcategory: "mangle"
+  description: "Safe negation in Mangle"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Safe negation
+
+    `!p(X)` holds when no fact `p(X)` is derivable. Every variable in a negated literal must be bound by a positive premise, because Mangle cannot enumerate "everything that is not p".
+
+    ```mangle
+    Decl user(U) bound [/name].
+    Decl blocked(U) bound [/name].
+    active(U) :- user(U), !blocked(U).
+    ```
+
+    ```mangle-rejected
+    Decl blocked(U) bound [/name].
+    inactive(X) :- !blocked(X).
+    ```
+
+    `!` waits for its variables, so `active(U) :- !blocked(U), user(U).` also works; the generator must still be in the body.
+
+- id: "language/mangle/docs/negation_projection"
+  category: "language"
+  subcategory: "mangle"
+  description: "Negate a projection, never a wildcard"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # No wildcards inside negation
+
+    A `_` or an unbound variable inside `!r(...)` is an analysis error on v0.7 ("variable X0 is not bound"). To say "X has no r at all", project first, then negate the fully bound projection.
+
+    ```mangle-rejected
+    Decl p(X) bound [/name].
+    Decl r(X, Y) bound [/name, /name].
+    lonely(X) :- p(X), !r(X, _).
+    ```
+
+    ```mangle
+    Decl p(X) bound [/name].
+    Decl r(X, Y) bound [/name, /name].
+    has_r(X) :- r(X, Y).
+    lonely(X) :- p(X), !has_r(X).
+    any_p() :- p(X).
+    nothing_yet() :- !any_p().
+    ```
+
+    A zero-arity head is the way to say "any row exists" and its negation "no rows". `!` on an external predicate never calls Go (it reads stored rows only): project the external positively, then negate the projection.
+
+- id: "language/mangle/docs/stratification"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle stratification"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Stratification
+
+    Predicates are evaluated in layers (strata). A predicate may negate, or aggregate over, only a lower layer. A cycle through negation or through an aggregate has no layer, and the program is refused.
+
+    ```mangle-rejected
+    Decl base(X) bound [/name].
+    win(X) :- base(X), !lose(X).
+    lose(X) :- base(X), !win(X).
+    ```
+
+    ```mangle-rejected
+    Decl base(X) bound [/name].
+    p(X) :- base(X), !p(X).
+    ```
+
+    The same applies to an aggregate that feeds its own input (subtree sizes, running totals): compute the closure first, aggregate in the next layer.
+
+- id: "language/mangle/docs/stratification_fixes"
+  category: "language"
+  subcategory: "mangle"
+  description: "Breaking a negation cycle"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Fixing a negation cycle
+
+    Derive the thing you negate in a lower layer from base facts, then negate it above.
+
+    ```mangle
+    Decl player(X) bound [/name].
+    Decl game_result(X, Result) bound [/name, /name].
+    winner(X) :- game_result(X, /won).
+    loser(X) :- player(X), !winner(X).
+    ```
+
+    Layering patterns that always stratify:
+
+    ```mangle
+    Decl base_fact(X) bound [/name].
+    Decl domain(X) bound [/name].
+    level1(X) :- base_fact(X).
+    level2(X) :- domain(X), !level1(X).
+    level3(X) :- domain(X), !level2(X), !level1(X).
+    ```
+
+    Never derive "allow" by negating "block" when "block" depends on "allow". Derive both from the same base fact, or derive `blocked` first and `allowed` from `!blocked`.
+
+- id: "language/mangle/docs/recursion"
+  category: "language"
+  subcategory: "mangle"
+  description: "Recursion and transitive closure"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Recursion
+
+    A recursive rule needs a base case. Evaluation runs to a fixpoint.
+
+    ```mangle
+    Decl edge(A, B) bound [/name, /name].
+    reach(A, B) :- edge(A, B).
+    reach(A, C) :- edge(A, B), reach(B, C).
+    ```
+
+    Cycles in the data are fine: the closure is a set, so a revisited pair adds nothing.
+
+    Termination is not guaranteed by analysis. A rule that builds new values on every step never reaches a fixpoint:
+
+    ```mangle
+    Decl n(X) bound [/number].
+    n(0).
+    n(Y) :- n(X), Y = fn:plus(X, 1).
+    ```
+
+    This one analyzes and then runs until the fact limit (`engine.WithCreatedFactLimit`) stops it with "fact size limit reached". Add a bound (`X < 100`) to every rule that computes new numbers, lists or strings in a loop.

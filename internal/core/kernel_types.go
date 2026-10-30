@@ -44,7 +44,7 @@ type LearnedRuleInterceptor interface {
 	InterceptLearnedRule(ctx context.Context, rule string) (string, error)
 }
 
-// RealKernel wraps the google/mangle engine with proper EDB/IDB separation.
+// RealKernel wraps the pinned mangle-go engine (codeberg.org/TauCeti/mangle-go) with proper EDB/IDB separation.
 type RealKernel struct {
 	mu                sync.RWMutex
 	facts             []Fact

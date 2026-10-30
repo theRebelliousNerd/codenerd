@@ -1,0 +1,138 @@
+# Writing rules against codeNERD's kernel program (internal/core/defaults). The ```mangle fences
+# in these atoms are analyzed against the booted kernel's own Decls (strict bounds), so every
+# predicate here exists at that arity with those types:
+# internal/prompt/atoms_mangle_truth_test.go (TestMangleAtoms_FencesMatchEngine).
+- id: "language/mangle/docs/codenerd/kernel_program"
+  category: "language"
+  subcategory: "mangle"
+  description: "How codeNERD loads Mangle programs"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # codeNERD's Mangle programs
+
+    The action kernel is `internal/core/defaults/schemas*.mg` (one `Decl` per predicate), then `policy/*.mg` (rules), then learned rules, concatenated and parsed together. A parse or analysis error anywhere is a boot failure everywhere, so check a rule before it lands:
+
+    ```bash
+    ./nerd check-mangle internal/core/defaults/policy/<file>.mg
+    ```
+
+    - Declare a predicate in the schemas file, never in the rule file that uses it.
+    - Go asserts measured facts; rules derive permission, routing, freshness and completion. A policy `if` in Go is a bug, and so is a threshold constant: put numbers in `config_param(Key, Value)` facts.
+    - The kernel analyzes with `analysis.AnalyzeOneUnit`, so bounds are not checked at boot. Generated candidate rules are checked with strict bounds (`internal/core/kernel_rule_bounds.go`), so write rules whose joins respect the Decl types.
+    - Other programs: `internal/orient/*.mg` and `internal/context/*.mg` each run in their own engine.
+
+- id: "language/mangle/docs/codenerd/intent_and_action"
+  category: "language"
+  subcategory: "mangle"
+  description: "Intent, actions and permission"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Intent and action
+
+    Declared in the kernel:
+
+    - `user_intent(ID, Category, Verb, Target, Constraint)` over `/name, /name, /name, /string, /string`
+    - `next_action(ActionType)` over `/name`
+    - `permitted(ActionType, Target, Payload)` over `/name, /string, /string`
+    - `pending_action(ActionID, ActionType, Target, Payload, Timestamp)` over `/string, /name, /string, /string, /number`
+    - `dangerous_action(ActionType)` over `/name`
+
+    ```mangle
+    review_wanted(Target) :- user_intent(I, /query, /review, Target, C).
+    guarded(ActionID, Target) :-
+      pending_action(ActionID, Action, Target, Payload, At),
+      dangerous_action(Action),
+      !permitted(Action, Target, Payload).
+    ```
+
+    Verbs, categories and action types are names (`/review`), targets and payloads are strings. A name where a string belongs, or the reverse, is a type mismatch under the candidate-rule gate and a silent non-match everywhere else.
+
+- id: "language/mangle/docs/codenerd/file_and_code_facts"
+  category: "language"
+  subcategory: "mangle"
+  description: "File topology, symbols and dependencies"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # World model facts
+
+    - `file_topology(Path, Hash, Language, LastModified, IsTestFile)` over `/string, /string, /name, /number, /name`; `IsTestFile` is `/true` or `/false`.
+    - `symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature)` over `/string, /name, /name, /string, /string`.
+    - `dependency_link(CallerID, CalleeID, ImportPath)` over three strings.
+    - `file_imports(Importer, Imported)` over two strings.
+    - `file_content(FilePath, Content)` over two strings; keep large content out of rules.
+
+    ```mangle
+    go_source(Path) :- file_topology(Path, H, /go, M, /false).
+    imports_test_file(Importer) :- file_imports(Importer, Imported), file_topology(Imported, H, L, M, /true).
+    exported_function(Id, Where) :- symbol_graph(Id, /function, /public, Where, Sig).
+    ```
+
+    `dependency_link` is file level and large: join it last, after a selective premise has bound a path.
+
+- id: "language/mangle/docs/codenerd/tests_and_diagnostics"
+  category: "language"
+  subcategory: "mangle"
+  description: "Test state, results and diagnostics"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Verification facts
+
+    - `test_state(State)` over `/name`, `build_state(State)` over `/name`, `retry_count(Count)` over `/number`.
+    - `test_result(ShardID, TestName, Passed, Duration)` over `/string, /string, /name, /number`.
+    - `diagnostic(Severity, FilePath, Line, ErrorCode, Message)` over `/name, /string, /number, /string, /string`.
+    - `config_param(Key, Value)` over `/name, /number`: thresholds enter as facts.
+
+    ```mangle
+    red_test(Shard, Name) :- test_result(Shard, Name, /false, Duration).
+    error_in(File) :- diagnostic(/error, File, Line, Code, Message).
+    retries_exhausted() :- retry_count(N), config_param(/max_retries, Limit), N >= Limit.
+    ```
+
+    `test_result` has four arguments: a rule that writes five reads a different predicate and derives nothing. Completion facts such as `test_state` and `build_state` are witnesses the verification step asserts; a model-written update that asserts them is dropped.
+
+- id: "language/mangle/docs/codenerd/campaign_and_focus"
+  category: "language"
+  subcategory: "mangle"
+  description: "Campaigns, focus resolution and activation"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Campaign and focus facts
+
+    - `campaign(CampaignID, Type, Title, SourceMaterial, Status)` over `/string, /name, /string, /string, /name`.
+    - `campaign_phase(PhaseID, CampaignID, Name, Order, Status, ContextProfile)` over `/string, /string, /string, /number, /name, /string`.
+    - `focus_resolution(RawReference, ResolvedPath, SymbolName, Confidence)` over three strings and a `/number` (an integer 0..100).
+    - `clarification_needed(Ref)` over `/string`; `activation(FactID, Score)` over `/string, /number`.
+
+    ```mangle
+    active_phase(Phase, Name) :- campaign_phase(Phase, Campaign, Name, Order, /active, Profile).
+    weak_focus(Ref) :- focus_resolution(Ref, Path, Symbol, Score), Score < 85.
+    hot_fact(Id) :- activation(Id, Score), Score > 70.
+    ```
+
+    Confidence and scores are integers on the kernel's scale because `<` and `>` are number-only; a float score aborts the evaluation. `campaign_phase` has six columns, `campaign` five.
+
+- id: "language/mangle/docs/codenerd/rule_gate"
+  category: "language"
+  subcategory: "mangle"
+  description: "Learned and generated rules"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Rules proposed at run time
+
+    A rule from the model, from autopoiesis or from a feedback loop is text that must pass four checks before it joins the program: it parses, it analyzes, its joins respect the Decl types (strict bounds), and the sandbox compile of the whole program still stratifies.
+
+    - A rule may read any declared predicate; it may not assert completion facts (`build_state`, `test_state`).
+    - A rule that reads an undeclared predicate or uses the wrong arity is refused, or derives nothing.
+    - A rule whose head is a negation cycle is refused with "program cannot be stratified".
+    - Write the smallest rule: one head, bound variables, no wildcard inside `!`.
+
+    ```mangle
+    stale_symbol(Id) :- symbol_graph(Id, /function, V, At, Sig), !referenced(Id).
+    referenced(Id) :- dependency_link(Caller, Id, Path).
+    ```

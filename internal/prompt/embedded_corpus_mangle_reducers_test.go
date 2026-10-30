@@ -39,36 +39,40 @@ func TestEmbeddedCorpus_TeachesOnlyReducersThePinnedEngineAccepts(t *testing.T) 
 	// parse on the pinned engine; it may appear only as a marked wrong-way example.
 	typedDecl := regexp.MustCompile(`Decl\s+[a-z_:][A-Za-z0-9_]*\s*\([^)]*\.Type<`)
 	for _, atom := range corpus.All() {
-		for _, loc := range typedDecl.FindAllStringIndex(atom.Content, -1) {
-			lead := atom.Content[max(0, loc[0]-240):loc[0]]
+		// A ```mangle-rejected fence is run on the engine and must be refused
+		// (TestMangleAtoms_FencesMatchEngine), so it may show a rejected form.
+		visible := stripFences(atom.Content, mangleRejectedFenceTg)
+		for _, loc := range typedDecl.FindAllStringIndex(visible, -1) {
+			lead := visible[max(0, loc[0]-240):loc[0]]
 			if !strings.Contains(strings.ToUpper(lead), "WRONG") {
 				t.Errorf("atom %s teaches the Decl X.Type<T> form, which the pinned engine does not parse: ...%s...",
-					atom.ID, atom.Content[loc[0]:min(len(atom.Content), loc[1]+30)])
+					atom.ID, visible[loc[0]:min(len(visible), loc[1]+30)])
 			}
 		}
 	}
 	for _, atom := range corpus.All() {
+		content := stripFences(atom.Content, mangleRejectedFenceTg)
 		for _, r := range rejected {
-			if loc := r.form.FindStringIndex(atom.Content); loc != nil {
+			if loc := r.form.FindStringIndex(content); loc != nil {
 				end := loc[1] + 40
-				if end > len(atom.Content) {
-					end = len(atom.Content)
+				if end > len(content) {
+					end = len(content)
 				}
 				t.Errorf("atom %s teaches a reducer form the pinned engine rejects (%s): ...%s...",
-					atom.ID, r.fix, atom.Content[loc[0]:end])
+					atom.ID, r.fix, content[loc[0]:end])
 			}
 		}
 	}
 }
 
-// A wildcard inside a negated atom is the pinned engine's quietest trap: with one
-// wildcard the negation is deleted from the clause with no error, so
-// `blocked(X) :- candidate_action(X), !permitted(X, _, _).` blocks every action
-// (run 2026-09-19 with `nerd check-mangle --eval`); with a second wildcard in the
-// same body analysis reports "variable X1 is not bound". The legislator atom,
-// which teaches codeNERD's agents to write permission policy, presented the first
-// form as CORRECT. An atom may show the form only on a line that says it is wrong
-// or explains the deletion; the working idiom is a projection:
+// A wildcard inside a negated atom is never correct Mangle. On the v0.5.1 line
+// the negation was deleted from the clause with no error, so
+// `blocked(X) :- candidate_action(X), !permitted(X, _, _).` blocked every action;
+// on the pinned v0.7 analysis refuses it ("variable X0 is not bound"). The
+// legislator atom, which teaches codeNERD's agents to write permission policy,
+// once presented the form as CORRECT. An atom may show the form only on a line
+// that says it is wrong, or inside a ```mangle-rejected fence the engine refuses;
+// the working idiom is a projection:
 // `has_permit(X) :- permitted(X, _, _).` then `!has_permit(X)`.
 func TestEmbeddedCorpus_TeachesNoWildcardNegation(t *testing.T) {
 	corpus, err := LoadEmbeddedCorpus()
@@ -78,7 +82,7 @@ func TestEmbeddedCorpus_TeachesNoWildcardNegation(t *testing.T) {
 	wildcardNegation := regexp.MustCompile(`![a-z_][a-z_0-9:]*\(\s*_\s*[,)]|![a-z_][a-z_0-9:]*\([^)]*[, ]_\s*[,)]`)
 	explains := regexp.MustCompile(`(?i)wrong|deleted|evaluates as|silently|rejected|never reported`)
 	for _, atom := range corpus.All() {
-		lines := strings.Split(atom.Content, "\n")
+		lines := strings.Split(stripFences(atom.Content, mangleRejectedFenceTg), "\n")
 		for i, line := range lines {
 			if !wildcardNegation.MatchString(line) {
 				continue
@@ -88,7 +92,7 @@ func TestEmbeddedCorpus_TeachesNoWildcardNegation(t *testing.T) {
 				context = lines[i-1] + "\n" + line
 			}
 			if !explains.MatchString(context) {
-				t.Errorf("atom %s teaches a wildcard inside a negated atom, which the pinned engine silently deletes: %q (project first: has_x(X) :- x(X, _). then !has_x(X))",
+				t.Errorf("atom %s teaches a wildcard inside a negated atom, which the pinned engine refuses: %q (project first: has_x(X) :- x(X, _). then !has_x(X))",
 					atom.ID, strings.TrimSpace(line))
 			}
 		}

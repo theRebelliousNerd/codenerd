@@ -1,0 +1,143 @@
+# Engine messages and their causes on the pinned engine (mangle-go v0.7.0); each message
+# text below was produced by v0.7 (analysis, evaluation or the ANTLR parser).
+# Fences are engine-checked: internal/prompt/atoms_mangle_truth_test.go.
+- id: "language/mangle/docs/error_parse"
+  category: "language"
+  subcategory: "mangle"
+  description: "Parse errors"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Parse errors
+
+    The parser reports ANTLR messages with a line and column:
+
+    - `token recognition error at: '?'` or `';'`: a character Mangle has no token for. There is no `?` query prefix and no `;` in a rule.
+    - `mismatched input '=' expecting {'.', ':-', ...}`: a premise written where a clause head belongs, usually a statement outside any rule.
+    - `no viable alternative at input ...`: an expression the grammar cannot read, such as `[H | T]`.
+    - `extraneous input ... expecting '('`: a word where a predicate call belongs, such as `not p(X)`.
+
+    ```mangle-rejected
+    big(X) :- item(X, S), S > 10;
+    ```
+
+    ```mangle-rejected
+    older(X) :- person(X, A), not retired(X).
+    ```
+
+    Fix the shape first: one `.` per clause, `!` for negation, `#` for comments, function-call syntax for arithmetic. A fact is a clause with no body: `edge(/a, /b).`
+
+- id: "language/mangle/docs/error_unbound"
+  category: "language"
+  subcategory: "mangle"
+  description: "Unbound variable errors"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Unbound variables
+
+    - `variable Y is not bound in q(X,Y) :- p(X).`: a head variable no positive premise binds.
+    - `variable X0 is not bound in ... !r(X,X0)`: a `_` or fresh variable inside a negated literal.
+    - `for goal ":lt(X,Y)" expected Y (arg 1) to be constant or bound variable`: a comparison, `fn:` argument or `:match_*` input read before a premise bound it. Put the generator earlier.
+    - `variable X is not bound in q(X).`: a fact with a variable. Facts are ground.
+
+    ```mangle-rejected
+    q(X, Y) :- p(X).
+    ```
+
+    ```mangle
+    Decl p(X) bound [/number].
+    q(X, Y) :- p(X), Y = fn:plus(X, 1).
+    ```
+
+    A premise binds a variable only when it is a positive predicate call or `Var = expression`. A negation, `!=` or comparison never binds.
+
+- id: "language/mangle/docs/error_names"
+  category: "language"
+  subcategory: "mangle"
+  description: "Unknown predicate, function and arity errors"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Names and arities
+
+    - `in clause "q(X) :- p(X)." could not find predicate p(A0)`: `p/1` is neither declared, a fact, nor the head of a rule. Declare it (`Decl p(X).`) or fix the name and arity: `p/2` is a different predicate.
+    - `unknown function fn:string_concat(V0, V1)`: the function does not exist; see the list of real names.
+    - `wrong arity for function fn:list:len(V0) got [X X] (2 args) want 1 args`.
+    - `number of arguments, [X "a"], does not match the mode []`: a `:name` that is not a built-in predicate.
+    - `predicate ... declared more than once`: two `Decl` lines for one predicate across everything loaded together.
+
+    ```mangle-rejected
+    Decl p(X) bound [/number].
+    q(N) :- p(X), N = fn:list:len(X, X).
+    ```
+
+    An unknown predicate is the commonest silent bug when it is spelled right but asserted at the wrong arity: nothing errors and every rule that reads it derives nothing.
+
+- id: "language/mangle/docs/error_aggregation"
+  category: "language"
+  subcategory: "mangle"
+  description: "Aggregation errors"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Aggregation errors
+
+    - `head variable X is neither part of group_by nor aggregated`: every head variable must be a `fn:group_by` key or a `let`.
+    - `composing multiple transforms not implemented yet`: a rule has at most one `|>` transform. Chain through a second rule.
+    - `unknown function fn:Count`: reducers are lowercase.
+    - A `do` transform assumes a single subgoal in the body. Join in one rule, aggregate in the next.
+
+    ```mangle-rejected
+    Decl s(R, A) bound [/name, /number].
+    t(R, N, M) :- s(R, A) |> do fn:group_by(R), let N = fn:count() |> let M = fn:plus(N, 1).
+    ```
+
+    ```mangle
+    Decl s(R, A) bound [/name, /number].
+    t(R, N) :- s(R, A) |> do fn:group_by(R), let N = fn:count().
+    t2(R, M) :- t(R, N), M = fn:plus(N, 1).
+    ```
+
+- id: "language/mangle/docs/error_stratification"
+  category: "language"
+  subcategory: "mangle"
+  description: "Stratification errors"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Stratification
+
+    `stratification: program cannot be stratified` means a predicate depends on itself through negation or an aggregate. The message does not name the cycle: list the rules that use `!` or `|>` and look for a loop among their heads.
+
+    ```mangle-rejected
+    Decl base(X) bound [/name].
+    open(X) :- base(X), !closed(X).
+    closed(X) :- base(X), !open(X).
+    ```
+
+    Break the cycle by deriving one side from base facts (see the stratification atoms). An aggregate over a relation that its own rule feeds is the same cycle.
+
+- id: "language/mangle/docs/error_runtime"
+  category: "language"
+  subcategory: "mangle"
+  description: "Evaluation-time errors"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Runtime errors
+
+    These pass analysis and fail while evaluating, aborting the whole fixpoint:
+
+    - `fact size limit reached <predicate> N > LIMIT`: the created-fact limit stopped a runaway rule. The predicate named is the one being evaluated, not necessarily the cause.
+    - `value 1.5 (4) is not a number`: `<` `>` or `fn:plus` over a `/float64`. Use `:float:gt` and `fn:float:plus`.
+    - `temporal literal encountered but no temporal store configured`: a temporal program evaluated without `engine.WithTemporalStore`.
+    - `temporal predicate lease(A0, A1) used without temporal annotation`.
+    - A name pattern given to a string test, such as `:string:starts_with(S, /ab)`.
+
+    Silent failures, with no error at all:
+
+    - A name and a string with the same letters never unify.
+    - An aggregate over no rows derives nothing.
+    - A predicate asserted at the wrong arity is a different predicate.
+    - An empty answer from an external predicate is "no rows", whatever the cause.

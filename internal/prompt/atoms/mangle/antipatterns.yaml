@@ -1,0 +1,202 @@
+# Habits from other languages that fail on the pinned engine (mangle-go v0.7.0), each with
+# its Mangle replacement. A ```mangle-rejected fence must be refused by the engine.
+# Checked by internal/prompt/atoms_mangle_truth_test.go.
+- id: "language/mangle/docs/antipattern_prolog"
+  category: "language"
+  subcategory: "mangle"
+  description: "Prolog habits"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Prolog habits
+
+    Mangle is bottom-up Datalog with stratified negation, not Prolog. There is no cut, no `is`, no list-head patterns, no `findall`, no `not`.
+
+    ```mangle-rejected
+    next(Y) :- cur(X), Y is X + 1.
+    ```
+
+    ```mangle
+    Decl cur(X) bound [/number].
+    next(Y) :- cur(X), Y = fn:plus(X, 1).
+    ```
+
+    | Prolog | Mangle |
+    | --- | --- |
+    | `\+ p(X)`, `not p(X)` | `!p(X)` with X bound first |
+    | `[H|T]` pattern | `:match_cons(L, H, T)` |
+    | `findall`, `aggregate_all` | `\|> do fn:group_by(...), let N = fn:count()` |
+    | cut `!` | none: rules are order-independent, order inside a body only matters for binding |
+    | assert/retract | Go retracts and asserts facts, then the rules re-derive |
+
+    Rule order never changes the answer; the whole program is evaluated to a fixpoint.
+
+- id: "language/mangle/docs/antipattern_sql"
+  category: "language"
+  subcategory: "mangle"
+  description: "SQL habits"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # SQL habits
+
+    A rule is not a SELECT. Grouping is an explicit `|>` pipeline, and every head variable is a key or a reduced value.
+
+    ```mangle-rejected
+    total(Sum) :- item(X, Y), Sum = sum(Y).
+    ```
+
+    ```mangle
+    Decl item(Category, Amount) bound [/name, /number].
+    total(C, Sum) :- item(C, A) |> do fn:group_by(C), let Sum = fn:sum(A).
+    ```
+
+    | SQL | Mangle |
+    | --- | --- |
+    | `JOIN ... ON` | a shared variable in two premises |
+    | `WHERE x > 10` | `X > 10` in the body, before `\|>` |
+    | `NOT EXISTS` | project, then `!has_x(K)` |
+    | `HAVING` | a second rule over the aggregate's result |
+    | `UNION` | two rules with the same head |
+    | `NULL` | absence: no fact, tested with a negated projection |
+    | `ORDER BY`, `LIMIT` | rank in Go, or count the rows above (see the ordering atom) |
+
+- id: "language/mangle/docs/antipattern_souffle"
+  category: "language"
+  subcategory: "mangle"
+  description: "Soufflé and classic Datalog habits"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Soufflé and classic Datalog habits
+
+    Declarations are `Decl name(Arg, ...) bound [...].` There is no `.decl`, no `.input`, no `name: type` columns, and no `+ - * /` operators.
+
+    ```mangle-rejected
+    .decl edge(a: symbol, b: symbol)
+    ```
+
+    ```mangle-rejected
+    Decl edge(A: /name, B: /name).
+    ```
+
+    ```mangle
+    Decl edge(A, B) bound [/name, /name].
+    ```
+
+    - Types live in `bound [...]`, one entry per column, and are checked only by strict analysis.
+    - Disjunction is a second rule, not `;`.
+    - Aggregates are the `|>` pipeline, not `count : { ... }`.
+    - Strings are `"..."`, names are `/atom`; there is no `symbol` type.
+
+- id: "language/mangle/docs/antipattern_imperative"
+  category: "language"
+  subcategory: "mangle"
+  description: "Imperative habits: no assignment, loops or conditionals"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Imperative habits
+
+    A rule describes what is true, not steps. There is no variable assignment that changes, no loop, no `if`.
+
+    - **Counter update**: a fact cannot change inside an evaluation. Go retracts the old fact and asserts the new one; rules re-derive.
+    - **Loop**: recursion to a fixpoint (`reach(A, C) :- edge(A, B), reach(B, C).`).
+    - **If / else**: one rule per case; the fallback negates a projection of the cases.
+
+    ```mangle
+    Decl score(Who, S) bound [/name, /number].
+    passing(W) :- score(W, S), S >= 60.
+    has_pass(W) :- passing(W).
+    failing(W) :- score(W, S), !has_pass(W).
+    ```
+
+    - **Early exit / first match**: there is none. Derive every match, then choose in a later layer with `fn:min` or a merge lattice.
+    - **Side effects** (printing, writing files, network): Go executes actions the rules derive; a rule never does anything.
+
+- id: "language/mangle/docs/antipattern_dynamic_predicates"
+  category: "language"
+  subcategory: "mangle"
+  description: "Predicate names are not values"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # No dynamic predicates
+
+    A predicate name is fixed text. A variable cannot stand for one, and a rule cannot build a rule at run time.
+
+    ```mangle-rejected
+    holds(P, X) :- named(P), P(X).
+    ```
+
+    Model "which predicate" as data instead: one relation with the name as a column.
+
+    ```mangle
+    Decl fact_of(Kind, Subject) bound [/name, /string].
+    Decl wanted(Kind) bound [/name].
+    selected(K, S) :- wanted(K), fact_of(K, S).
+    ```
+
+    To generate rules, build the text in Go and load it through the kernel's rule gate (`kernel.HotLoadRule`), which parses, analyzes and bounds-checks a candidate before it joins the program.
+
+- id: "language/mangle/docs/antipattern_closed_world"
+  category: "language"
+  subcategory: "mangle"
+  description: "No NULL: closed-world absence"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Closed world
+
+    A fact that is not derivable is false. There is no NULL and no "unknown" value. Say "unknown" with a negated projection.
+
+    ```mangle
+    Decl item(K) bound [/name].
+    Decl known(K) bound [/name].
+    Decl value_of(K, V) bound [/name, /number].
+    known(K) :- value_of(K, V).
+    unknown_item(K) :- item(K), !known(K).
+    ```
+
+    - A default value is a rule over the absence: `val(K, 0) :- item(K), !known(K).`
+    - "No X exists" is a zero-arity projection and its negation (`any_x() :- x(K).` then `!any_x()`).
+    - Do not store sentinel values such as `/unknown` or `-1` to fake NULL: they join and aggregate as ordinary data.
+
+- id: "language/mangle/docs/antipattern_ordering"
+  category: "language"
+  subcategory: "mangle"
+  description: "No ordering: rank by counting what is above"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Ordering
+
+    A relation is a set: it has no order, no `ORDER BY` and no first row. `<` compares numbers only. On names or strings it passes analysis and then aborts the whole evaluation ("value /a (0) is not a number"); compare them through an integer id, or with the string predicates.
+
+    A rank is one plus the number of rows above it. The top row has nothing above it, so it needs its own rule.
+
+    ```mangle
+    Decl item(I, V) bound [/name, /number].
+    above(I, N) :- item(I, V), item(J, W), W > V |> do fn:group_by(I), let N = fn:count().
+    has_above(I) :- above(I, N).
+    rank(I, 1) :- item(I, V), !has_above(I).
+    rank(I, R) :- above(I, N), R = fn:plus(N, 1).
+    ```
+
+    This is quadratic: fine for hundreds of rows. For more, sort in Go and assert the rank.
+
+- id: "language/mangle/docs/antipattern_kv_store"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle is not a key-value store"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Not a hash map
+
+    Do not load bulk data to look values up one at a time, or build maps and lists inside hot recursive rules. Every evaluation re-derives from all resident facts.
+
+    - Keep bulk data in the database or on disk and bring in only the slice a decision needs: Go asserts that slice, or an external predicate answers for the bindings a rule reaches.
+    - Keep rows narrow. A struct column is fine to carry a record; join and aggregate on a column of its own.
+    - Build a new list or map per step only with a bound on the recursion.
+    - Put weighted choices, thresholds and verdicts in rules; keep numbers that change as `config_param`-style facts, not as constants in Go.

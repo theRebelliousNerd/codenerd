@@ -1,0 +1,124 @@
+# Reusable rule shapes on the pinned engine (mangle-go v0.7.0). Fences are engine-checked:
+# internal/prompt/atoms_mangle_truth_test.go.
+- id: "language/mangle/docs/pattern_filter_join"
+  category: "language"
+  subcategory: "mangle"
+  description: "Filtering and joining"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Filter and join
+
+    A filter is a premise; a join is a shared variable.
+
+    ```mangle
+    Decl file(Path, Size, Owner) bound [/string, /number, /name].
+    Decl owner(Name, Team) bound [/name, /name].
+    big(P) :- file(P, S, O), S > 1000.
+    team_files(P, T) :- file(P, S, O), owner(O, T).
+    go_big(P) :- file(P, S, O), S > 1000, :string:ends_with(P, ".go").
+    ```
+
+    Premises run left to right as nested loops: put the most selective, already-bound premise first and never an external or an aggregate first. Comparisons and `fn:` calls need their variables bound by an earlier premise.
+
+- id: "language/mangle/docs/pattern_existence_exclusion"
+  category: "language"
+  subcategory: "mangle"
+  description: "Existence, exclusion and defaults"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Existence and exclusion
+
+    "Has at least one" is a projection. "Has none" is its negation. "Everything except" is a negated projection over a generator.
+
+    ```mangle
+    Decl module(M) bound [/name].
+    Decl test_of(M, T) bound [/name, /name].
+    Decl banned(M) bound [/name].
+    tested(M) :- test_of(M, T).
+    untested(M) :- module(M), !tested(M).
+    allowed(M) :- module(M), !banned(M).
+    ```
+
+    A default is an exclusion rule beside the main rule:
+
+    ```mangle
+    Decl setting(K, V) bound [/name, /number].
+    Decl key(K) bound [/name].
+    has_setting(K) :- setting(K, V).
+    effective(K, V) :- setting(K, V).
+    effective(K, 10) :- key(K), !has_setting(K).
+    ```
+
+- id: "language/mangle/docs/pattern_counting_grouping"
+  category: "language"
+  subcategory: "mangle"
+  description: "Counting and grouping"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Counting and grouping
+
+    ```mangle
+    Decl commit(Author, File) bound [/name, /string].
+    per_author(A, N) :- commit(A, F) |> do fn:group_by(A), let N = fn:count().
+    total(N) :- commit(A, F) |> do fn:group_by(), let N = fn:count().
+    files(A, L) :- commit(A, F) |> do fn:group_by(A), let L = fn:collect_distinct(F).
+    busy(A) :- per_author(A, N), N > 10.
+    ```
+
+    Count facts, not derivations: equal rows collapse, so project to the columns that make a row distinct first. Filter on a count in a second rule, since a rule has one transform. See the aggregation atoms for empty groups.
+
+- id: "language/mangle/docs/pattern_hierarchy_graph"
+  category: "language"
+  subcategory: "mangle"
+  description: "Hierarchies and graphs"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Hierarchies and graph walks
+
+    Transitive closure over a parent relation, and the same closure carrying the route:
+
+    ```mangle
+    Decl edge(A, B) bound [/name, /name].
+    Decl path(From, To, Via) bound [/name, /name, fn:List(/name)].
+    ancestor(A, D) :- edge(A, D).
+    ancestor(A, D) :- edge(A, M), ancestor(M, D).
+    path(X, Y, [X, Y]) :- edge(X, Y).
+    path(X, Z, P2) :- path(X, Y, P), edge(Y, Z) |> let P2 = fn:list:append(P, Z).
+    ```
+
+    - A closure over a cyclic graph terminates because it is a set; the path version does not, because every cycle makes a new list. Bound the path length (`fn:list:len(P) < 10`) or keep it to acyclic data.
+    - Derive reachability once and reuse it: two copies of the closure double the cost.
+    - Cycles are a query: `cyclic(X) :- ancestor(X, X).`
+
+- id: "language/mangle/docs/pattern_set_conditional"
+  category: "language"
+  subcategory: "mangle"
+  description: "Set operations and conditionals"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Sets and conditionals
+
+    ```mangle
+    Decl a(X) bound [/name].
+    Decl b(X) bound [/name].
+    either(X) :- a(X).
+    either(X) :- b(X).
+    both(X) :- a(X), b(X).
+    only_a(X) :- a(X), !in_b(X).
+    in_b(X) :- b(X).
+    ```
+
+    Union is two rules, intersection a join, difference a negated projection. A conditional is one rule per case; the fallback negates the projection of the cases, so the cases never overlap by accident:
+
+    ```mangle
+    Decl size(F, N) bound [/name, /number].
+    bucket(F, /large) :- size(F, N), N >= 1000.
+    bucket(F, /small) :- size(F, N), N < 1000.
+    ```
+
+    Never derive the default by negating the rule's own head: that is a stratification cycle.

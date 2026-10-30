@@ -1,0 +1,187 @@
+# Driving the pinned engine (codeberg.org/TauCeti/mangle-go v0.7.0) from Go, and how codeNERD
+# embeds it. Identifiers are checked against the module source by
+# internal/prompt/atoms_mangle_truth_test.go (they must exist and not be Deprecated).
+- id: "language/mangle/docs/go_import_paths"
+  category: "language"
+  subcategory: "mangle"
+  description: "Import paths of the pinned Mangle module"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Import paths
+
+    codeNERD pins `codeberg.org/TauCeti/mangle-go` (go.mod). Every package of the engine lives under that module path:
+
+    ```go
+    import (
+    	"codeberg.org/TauCeti/mangle-go/analysis"
+    	"codeberg.org/TauCeti/mangle-go/ast"
+    	"codeberg.org/TauCeti/mangle-go/engine"
+    	"codeberg.org/TauCeti/mangle-go/factstore"
+    	"codeberg.org/TauCeti/mangle-go/parse"
+    	"codeberg.org/TauCeti/mangle-go/provenance"
+    )
+    ```
+
+    Other packages: `builtin`, `symbols`, `unionfind`, `packages`, `functional`, `interpreter`. A path under `github.com/google/...` is a different, frozen library: its types do not satisfy this module's interfaces. Inside codeNERD, parse through `mangle.ParseUnit` (internal/mangle/parse_lock.go): the ANTLR parser keeps process-global state, so every parse in the process goes through that one lock.
+
+- id: "language/mangle/docs/go_eval_pipeline"
+  category: "language"
+  subcategory: "mangle"
+  description: "Parse, analyze, stratify, evaluate"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # The evaluation pipeline
+
+    ```go
+    unit, err := parse.Unit(strings.NewReader(source))
+    info, err := analysis.AnalyzeOneUnit(unit, nil)
+    strata, predToStratum, err := analysis.Stratify(analysis.Program{
+    	EdbPredicates: info.EdbPredicates,
+    	IdbPredicates: info.IdbPredicates,
+    	Rules:         info.Rules,
+    })
+    store := factstore.NewSimpleInMemoryStore()
+    stats, err := engine.EvalStratifiedProgramWithStats(info, strata, predToStratum, store,
+    	engine.WithCreatedFactLimit(100000))
+    ```
+
+    - `engine.EvalStratifiedProgramWithStats` is the entry point. `engine.EvalProgram` and `engine.EvalProgramWithStats` are Deprecated wrappers that stratify on every call.
+    - `analysis.AnalyzeOneUnit` does not check Decl bounds. `analysis.AnalyzeAndCheckBounds(units, extraDecls, analysis.ErrorForBoundsMismatch)` does, and stops at the first mismatch.
+    - Evaluation writes the derived facts into `store`; the EDB goes in first with `store.Add(atom)`.
+    - Cost per call grows with strata times predicates. codeNERD layers the strata with `mangle.Stratify` (internal/mangle/strata_layers.go) instead of calling `analysis.Stratify` directly.
+
+- id: "language/mangle/docs/go_facts_and_queries"
+  category: "language"
+  subcategory: "mangle"
+  description: "Building facts and reading results"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Facts in, rows out
+
+    Build constants from the Decl's types: names, strings and numbers are different `ast.Constant` kinds.
+
+    ```go
+    name, err := ast.Name("/admin")
+    atom := ast.NewAtom("user", ast.String("alice"), name, ast.Number(3))
+    added := store.Add(atom)
+
+    var rows []ast.Atom
+    err = store.GetFacts(ast.NewQuery(ast.PredicateSym{Symbol: "admin", Arity: 1}),
+    	func(a ast.Atom) error { rows = append(rows, a); return nil })
+    ```
+
+    - `ast.Name` returns an error for text that is not a valid name; `ast.Float64(1.5)`, `ast.Bytes`, `ast.Time` and `ast.Duration` build the other base types.
+    - Structured constants come from `ast.List`, `ast.Pair` and the struct and map constructors; read them back by destructuring the `ast.Constant`, not by re-querying.
+    - `store.Add` reports whether the fact was new. Facts are a set.
+    - A query atom with `_` variables matches by constants in the other positions.
+
+- id: "language/mangle/docs/go_codenerd_kernel"
+  category: "language"
+  subcategory: "mangle"
+  description: "Asserting and querying through codeNERD's kernel"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # codeNERD's kernel API
+
+    Application code does not drive the engine directly: it asserts measured facts into the kernel and queries what rules derive.
+
+    ```go
+    kernel, err := core.NewRealKernel()
+    err = kernel.Assert(core.Fact{Predicate: "user_intent", Args: []any{
+    	core.MangleAtom("/i1"), core.MangleAtom("/query"), core.MangleAtom("/explain"), "internal/core", "",
+    }})
+    facts, err := kernel.Query("next_action")
+    ```
+
+    - Names are `core.MangleAtom` values; a plain Go string is a Mangle string. Build the shape the Decl declares.
+    - Go asserts what it measured; rules derive every decision. A threshold or verdict computed in Go and asserted as a fact is a bug: assert the number and write the rule.
+    - `kernel.AssertBatch` takes many facts under one evaluation; `kernel.Retract(predicate)` removes a predicate's base facts. Retraction rebuilds from a fresh EDB, so derived facts are never reused.
+    - `kernel.HotLoadRule` loads a generated rule after parse, analysis and a bounds gate.
+    - Wrong arity is a different predicate: it derives nothing and reports nothing at the consumer.
+
+- id: "language/mangle/docs/go_external_callback"
+  category: "language"
+  subcategory: "mangle"
+  description: "Writing an external predicate callback"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # External callback in Go
+
+    ```go
+    type recall struct{ rows map[string][]string }
+
+    func (recall) ShouldPushdown() bool { return false }
+
+    func (r recall) ShouldQuery(inputs []ast.Constant, filters []ast.BaseTerm, pushdown []ast.Term) bool {
+    	return true
+    }
+
+    func (r recall) ExecuteQuery(inputs []ast.Constant, filters []ast.BaseTerm, pushdown []ast.Term, cb func([]ast.BaseTerm)) error {
+    	query, err := inputs[0].StringValue()
+    	if err != nil {
+    		return err
+    	}
+    	for _, hit := range r.rows[query] {
+    		cb([]ast.BaseTerm{ast.String(hit)})
+    	}
+    	return nil
+    }
+    ```
+
+    ```go
+    opts := engine.WithExternalPredicates(map[ast.PredicateSym]engine.ExternalPredicateCallback{
+    	{Symbol: "recall", Arity: 2}: recall{},
+    })
+    ```
+
+    - `inputs` holds the `'+'` positions in order; call `cb` once per row with exactly the `'-'` positions.
+    - `ShouldQuery` returning false means "no rows this time". Cache known-empty inputs there, but a cache hit must still reach `ExecuteQuery`.
+    - Return an error when no safe decision exists without the answer; never return nil for a backend failure.
+    - Register under the same name and arity as the `Decl ... descr [external(), mode(...)]`. codeNERD's set is built in `internal/core/external_predicates.go`.
+
+- id: "language/mangle/docs/go_gas_limits"
+  category: "language"
+  subcategory: "mangle"
+  description: "Fact limits stop runaway evaluation"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Gas limits
+
+    Mangle does not guarantee termination. A rule that builds new values each step, such as `n(Y) :- n(X), Y = fn:plus(X, 1).`, runs until a limit stops it.
+
+    ```go
+    stats, err := engine.EvalStratifiedProgramWithStats(info, strata, predToStratum, store,
+    	engine.WithCreatedFactLimit(100000))
+    ```
+
+    - Exceeding the limit returns an error of the form "fact size limit reached <predicate> N > LIMIT". It counts the whole store, so the named predicate is usually not the cause: look for the rule that grows values.
+    - The limit is a circuit breaker, not a design: bound recursive rules in the program.
+    - `engine.WithDeterministicOrder()` makes predicate order inside a stratum reproducible, for tests and debugging.
+    - codeNERD sets the limit from configuration in `internal/core/kernel_eval.go` (`derivedFactLimit`) and `internal/mangle/engine.go` (`DerivedFactsLimit`).
+
+- id: "language/mangle/docs/go_stores"
+  category: "language"
+  subcategory: "mangle"
+  description: "Choosing a fact store"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Fact stores
+
+    | Store | Notes |
+    | --- | --- |
+    | `factstore.NewSimpleInMemoryStore()` | default; has `Remove`, so lattices replace facts |
+    | `factstore.NewMultiIndexedArrayInMemoryStore()` | indexed lookups for large relations |
+    | `factstore.NewTemporalStore()` | validity intervals; pass with `engine.WithTemporalStore` |
+    | `factstore.NewMergedStore(readStores, writeStore)` | read-only base plus a write overlay |
+    | `factstore.NewConcurrentFactStore(base)` | lock-wrapped; deadlocks under a merge lattice |
+
+    - Merge lattices need a store implementing `factstore.FactStoreWithRemove`.
+    - `store.Add` of an already-present fact is not free on an indexed store: skip re-adding rows you know are stored.
+    - Hand the engine one store per evaluation and rebuild from the EDB after a retraction.

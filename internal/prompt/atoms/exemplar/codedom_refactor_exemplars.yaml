@@ -21,8 +21,8 @@
     ### Step 1: Find All Elements with Wire Name
 
     **Query:**
-    ```mangle
-    :- wire_name(Ref, "user_id").
+    ```text
+    ? wire_name(Ref, "user_id").
     ```
 
     **Results:**
@@ -37,8 +37,10 @@
 
     **Query:**
     ```mangle
-    :- api_dependency(Backend, Frontend), wire_name(Backend, "user_id").
+    user_id_api(Backend, Frontend) :- api_dependency(Backend, Frontend), wire_name(Backend, "user_id").
     ```
+
+    Then query the head: `? user_id_api(Backend, Frontend).`
 
     **Results:**
     ```
@@ -285,8 +287,10 @@
 
     **Query:**
     ```mangle
-    :- go_goroutine(Ref), not go_uses_context(Ref).
+    goroutine_without_context(Ref) :- go_goroutine(Ref), !go_uses_context(Ref).
     ```
+
+    Then query the head: `? goroutine_without_context(Ref).`
 
     **Results:**
     ```
@@ -376,8 +380,8 @@
     ### Step 6: Update Callers
 
     Since we changed the signature, query callers:
-    ```mangle
-    :- code_calls(Caller, "go:internal/worker/processor.go:ProcessBatch").
+    ```text
+    ? code_calls(Caller, "go:internal/worker/processor.go:ProcessBatch").
     ```
 
     Update each caller to pass context.

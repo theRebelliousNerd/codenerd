@@ -1,0 +1,226 @@
+# Mangle syntax and data model on the pinned engine (codeberg.org/TauCeti/mangle-go v0.7.0).
+# Every ```mangle fence here is parsed and analyzed by the pinned engine, and every
+# ```mangle-rejected fence must be refused by it: internal/prompt/atoms_mangle_truth_test.go.
+- id: "language/mangle/docs/syntax_core"
+  category: "language"
+  subcategory: "mangle"
+  description: "Mangle Syntax Core"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Mangle syntax core
+
+    A program is declarations, facts and rules. Every clause ends with `.`; `#` starts a comment.
+
+    ```mangle
+    Decl parent(Child, Parent) bound [/name, /name].
+    parent(/bob, /ann).                       # a fact
+    ancestor(X, Y) :- parent(X, Y).           # a rule: head :- body.
+    ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
+    ```
+
+    - Variables start uppercase (`X`, `File`); `_` is a throwaway. Predicates start lowercase.
+    - A body is a comma-separated conjunction. There is no `;` or `or` in a body: write one rule per alternative.
+    - Negation is `!p(X)`. There is no `not`.
+    - There are no infix arithmetic operators: use `fn:plus(A, B)`, `fn:minus`, `fn:mult`, `fn:div`.
+
+    ```mangle-rejected
+    bad(X) :- p(X) ; q(X).
+    ```
+
+- id: "language/mangle/docs/names_and_strings"
+  category: "language"
+  subcategory: "mangle"
+  description: "Names, strings and bytes never unify"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Names versus strings
+
+    | Literal | Type | Use for |
+    | --- | --- | --- |
+    | `/active`, `/ns/tool` | `/name` | enums, ids, tags |
+    | `"src/main.go"`, `'text'` | `/string` | paths, prose |
+    | `b"raw"` | `/bytes` | binary |
+
+    A name and a string with the same letters are different values and never unify: `status(X, "active")` does not match `status(/a, /active)`. Match the column's declared type.
+
+    ```mangle
+    Decl status(Item, State) bound [/name, /name].
+    status(/job1, /active).
+    live(X) :- status(X, /active).
+    ```
+
+    Deriving a name into a string column is a type error under strict analysis:
+
+    ```mangle-rejected
+    Decl status(Item, State) bound [/name, /name].
+    Decl label(Text) bound [/string].
+    label(S) :- status(X, S).
+    ```
+
+- id: "language/mangle/docs/numbers_and_floats"
+  category: "language"
+  subcategory: "mangle"
+  description: "Numbers, floats and comparisons"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Numbers and floats
+
+    `42` is a `/number` (int64). `1.5` is a `/float64`. They are separate types with separate functions and comparisons; nothing converts implicitly.
+
+    | Type | Arithmetic | Compare |
+    | --- | --- | --- |
+    | `/number` | `fn:plus`, `fn:minus`, `fn:mult`, `fn:div`, `fn:mod` | `<` `<=` `>` `>=` |
+    | `/float64` | `fn:float:plus`, `fn:float:mult`, `fn:float:div`, `fn:sqrt` | `:float:lt`, `:float:le`, `:float:gt`, `:float:ge` |
+
+    `fn:div` is integer division. Use `fn:minus(X)` for negation. A rule that compares a float with `>` aborts the whole evaluation ("is not a number"), not just that rule. Keep scores as integers (0..100) or use the float predicates.
+
+    ```mangle
+    Decl reading(Sensor, Value) bound [/name, /float64].
+    hot(S) :- reading(S, V), :float:gt(V, 71.5).
+    ```
+
+    ```mangle-rejected
+    Decl reading(Sensor, Value) bound [/name, /float64].
+    hot(S) :- reading(S, V), V > 71.5.
+    ```
+
+- id: "language/mangle/docs/equality_and_order"
+  category: "language"
+  subcategory: "mangle"
+  description: "Equality, inequality and binding order"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # `=`, `!=` and comparisons
+
+    - `X = Y` unifies: it binds a variable or tests equality. `Y = fn:plus(X, 1)` binds Y to a computed value.
+    - `X != Y` and negation wait until their variables are bound, so their position in the body does not matter.
+    - `<`, `<=`, `>`, `>=` and every `fn:` argument need their variables bound by an earlier premise. Put the generator first.
+    - `<` and friends compare numbers only. Compare names or strings through an integer id, or with `:string:starts_with` and friends.
+
+    ```mangle
+    Decl item(Id, Size) bound [/name, /number].
+    big(I) :- item(I, S), S > 100.
+    next_size(I, T) :- item(I, S), T = fn:plus(S, 1).
+    differs(A, B) :- item(A, S), item(B, T), A != B, S = T.
+    ```
+
+    ```mangle-rejected
+    Decl item(Id, Size) bound [/name, /number].
+    big(I) :- S > 100, item(I, S).
+    ```
+
+- id: "language/mangle/docs/declarations"
+  category: "language"
+  subcategory: "mangle"
+  description: "Decl, bound and descr"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Declarations
+
+    `Decl name(Arg, ...) descr [...] bound [...].` One Decl per predicate and arity. `bound` lists one type per column; the type of a column is checked only by strict analysis (`analysis.AnalyzeAndCheckBounds` with `analysis.ErrorForBoundsMismatch`). Plain `analysis.AnalyzeOneUnit` parses bounds and ignores them.
+
+    ```mangle
+    Decl file(Path, Lines, Lang)
+      descr [doc("a source file"), arg(Path, "repo-relative path"), arg(Lines, "line count"), arg(Lang, "language")]
+      bound [/string, /number, /name].
+    Decl all_clear() bound [].
+    file("a.go", 10, /go).
+    all_clear() :- file(P, N, L), N > 0.
+    ```
+
+    - Base types: `/name`, `/string`, `/number`, `/float64`, `/bytes`, `/time`, `/duration`, `/any`.
+    - A zero-arity Decl needs `bound []` to pass strict analysis.
+    - Two `bound [...]` lists are alternatives, not an intersection.
+    - `descr [extensional()]` marks a predicate whose facts come from Go.
+    - Arity is part of identity: `p/2` and `p/3` are different predicates.
+
+- id: "language/mangle/docs/type_expressions"
+  category: "language"
+  subcategory: "mangle"
+  description: "Type expressions in bound lists"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Type expressions
+
+    Structured columns are declared with constructors (capitalized in `bound`, lowercase as values):
+
+    | Bound | Value |
+    | --- | --- |
+    | `fn:List(/number)` | `[1, 2, 3]` |
+    | `fn:Pair(/name, /number)` | `fn:pair(/a, 1)` |
+    | `fn:Map(/name, /number)` | `[/a: 1, /b: 2]` |
+    | `fn:Struct(/host, /string, /port, /number)` | `{/host: "x", /port: 80}` |
+    | `fn:Union(/name, /number)` | either |
+    | `.TaggedUnion</kind, /ok : .Struct</v : /number>, /err : .Struct</msg : /string>>` | `{/kind: /ok, /v: 1}` |
+
+    ```mangle
+    Decl reply(Id, Body)
+      bound [/name, .TaggedUnion</kind, /ok : .Struct</v : /number>, /err : .Struct</msg : /string>>].
+    reply(/r1, {/kind: /ok, /v: 7}).
+    reply(/r2, {/kind: /err, /msg: "boom"}).
+    ```
+
+    `fn:Singleton(/x)` and a union of singletons reject every value under strict analysis in v0.7. For a closed vocabulary declare `/name`, list the allowed values as `valid_x(/low).` facts, and derive `bad_x(V) :- x(V), !valid_x(V).`
+
+- id: "language/mangle/docs/structured_values"
+  category: "language"
+  subcategory: "mangle"
+  description: "Lists, maps, structs and pairs"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Structured values
+
+    One fact can carry a whole record. Build with literals or `fn:` constructors; take apart with `:match_*` premises, which need their first argument bound.
+
+    ```mangle
+    Decl event(Id, Payload) bound [/name, fn:Struct(/tool, /name, /args, fn:List(/string))].
+    event(/e1, {/tool: /grep, /args: ["-r", "TODO"]}).
+
+    tool_of(Id, T) :- event(Id, P), :match_field(P, /tool, T).
+    first_arg(Id, A) :- event(Id, P), :match_field(P, /args, L), :match_cons(L, A, Rest).
+    ```
+
+    - `:match_field(Struct, /field, Out)` and `:match_entry(Map, Key, Out)` are lookups: the key must be a constant or already bound, and `Out` must be a fresh variable.
+    - `:match_cons(List, Head, Tail)`, `:match_nil(List)`, `:match_pair(Pair, A, B)` split a value. There is no `[H | T]` syntax: build with `fn:list:cons(H, T)`.
+    - `:list:member(X, List)` enumerates the elements or checks one.
+    - Lists and pairs are values, not relations: a rule that must join, negate or aggregate on one component wants it destructured into its own column first.
+
+- id: "language/mangle/docs/syntax_pitfalls"
+  category: "language"
+  subcategory: "mangle"
+  description: "Syntax mistakes that fail to parse"
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    # Parse-time pitfalls
+
+    Each of these is refused by the parser:
+
+    ```mangle-rejected
+    p(X) :- q(X)
+    ```
+    A missing final `.`.
+
+    ```mangle-rejected
+    p(x) :- q(x).
+    ```
+    Lowercase `x` is a name argument position written without `/`; a variable must be uppercase and a name needs the slash. Here `x` is not a term at all.
+
+    ```mangle-rejected
+    p(X) :- q(X), % comment
+    ```
+    Comments use `#`.
+
+    ```mangle-rejected
+    p(L) :- q(H), L = [H | T].
+    ```
+    There is no cons pattern. Use `fn:list:cons(H, T)`.
+
+    A name constant may contain `.`, so `X = /done.` at the end of a clause swallows the period. Write `X = /done .` or end the body with another premise. A temporal timestamp literal is legal only inside `@[...]`.
