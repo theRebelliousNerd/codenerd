@@ -660,8 +660,18 @@ func (k *RealKernel) ClearSchemas() {
 // duplicate predicate definitions. .nerd/ is excluded from scans, so putting it
 // there fixes every ingestion path at once instead of adding a skip list to
 // each one.
+//
+// A kernel with no workspace root (every kernel a test builds) has no .nerd
+// of its own: nerdPath would resolve against the process's working directory,
+// which under go test is the package's source directory, so the dump landed
+// in the source tree (internal/core/.nerd/debug) where editors and the Mangle
+// language server reported it as a broken program. Such a kernel writes to
+// the system temp directory instead.
 func (k *RealKernel) writeFailedProgramDump(programStr string) (string, error) {
 	dir := k.nerdPath("debug")
+	if k.workspaceRoot == "" {
+		dir = filepath.Join(os.TempDir(), "codenerd-debug")
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create debug dir: %w", err)
 	}
