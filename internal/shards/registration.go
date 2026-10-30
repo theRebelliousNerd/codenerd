@@ -134,10 +134,9 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"mg_aggregation_rule",
 				// The reviewer's remaining facts (reviewer.mg). Its findings,
 				// complexity and history facts are world-owned; the approval
-				// history, suppression inputs and the review verdict were left
-				// in the catch-all, so review_passed negated has_block_commit
-				// where no block reason could derive, and active_finding
-				// negated is_finding_suppressed without false_positive_pattern.
+				// history and the review verdict were left in the catch-all,
+				// so review_passed negated has_block_commit where no block
+				// reason could derive.
 				// The turn's plan steps (turn_steps.mg): turn_steps_verdict
 				// negates turn_has_unresolved_step, whose step_execution and
 				// step_file_net inputs are here; step_plan_remaining was in

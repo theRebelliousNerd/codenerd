@@ -13,8 +13,7 @@ import (
 // Measured failure: file_topology was keyed relative ("internal/session/executor.go")
 // while symbol_graph carried an absolute Windows path
 // ("C:\CodeProjects\codeNERD\internal\session\executor.go") in its DefinedAt
-// slot (Args[3]), so no Mangle rule joining the two (notably unwired_function
-// at reviewer.mg:427 and layer at reviewer.mg:541) could ever unify.
+// slot (Args[3]), so no Mangle rule joining the two could ever unify.
 //
 // Root cause is in Scanner.ScanDirectory: canonical := canonicalScanPath(root, path)
 // is used for file_topology / file_dir but the TreeSitter parsers were handed the raw

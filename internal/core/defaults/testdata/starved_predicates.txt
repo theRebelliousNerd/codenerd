@@ -29,12 +29,10 @@ coder_rejection_count
 coverage_goal
 coverage_metric
 derived_rule
-detected_security_flow
 dialog_policy
 element_action
 element_hydration
 failure_count_by_file
-false_positive_pattern
 file_line_count
 fix_pattern
 intelligence_knowledge_link

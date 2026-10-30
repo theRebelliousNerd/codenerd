@@ -39,7 +39,6 @@ var knownBoundsDisagreements = map[string]string{
 	"potential_score":           "fn:plus over unbounded priority",
 	"priority_diagnostic":       "coder_target/coder_impacted file slots",
 	"promote_to_long_term":      "Decl /string value; rules pass /name or /any",
-	"raw_finding":               "Decl /string file/message; sources inferred /any",
 	"shard_context_atom":        "Decl /string atom; recall yields /any",
 	"system_invariant_violated": "Decl /number timestamp; invariant_value yields /any",
 	"tool_lifecycle":            "Decl /string tool; missing_tool_for yields /name",

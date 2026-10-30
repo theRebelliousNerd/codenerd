@@ -23,7 +23,6 @@ unconsumed action_validated
 unconsumed action_weakly_validated
 unconsumed activate_specialist_for_phase
 unconsumed active_campaign_id
-unconsumed active_finding
 unconsumed active_hypothesis
 unconsumed adversarial_value_demonstrated
 unconsumed agenda_item_ready
@@ -33,7 +32,6 @@ unconsumed any_phase_stuck
 unconsumed api_edit_warning
 unconsumed appeal_needs_review
 unconsumed appeal_pattern_detected
-unconsumed architecture_violation
 unconsumed armory_tool_stale
 unconsumed assertion_fix_needed
 unconsumed async_review_needed
@@ -77,9 +75,6 @@ unconsumed capability_addresses_need
 unconsumed capability_available
 unconsumed capability_is_linked
 unconsumed checks_passed
-unconsumed circular_dependency
-unconsumed co_commit_count
-unconsumed co_committed_files
 unconsumed code_contains
 unconsumed coder_block_action
 unconsumed coder_block_write
@@ -92,7 +87,6 @@ unconsumed coder_learning_signal
 unconsumed coder_promote_to_long_term
 unconsumed coder_quality_mode
 unconsumed coder_safe_to_write
-unconsumed commit_file_count
 unconsumed compilation_error
 unconsumed compilation_valid
 unconsumed complex_failure
@@ -105,7 +99,6 @@ unconsumed compress_priority
 unconsumed connector_type
 unconsumed constraint_violation
 unconsumed context_priority
-unconsumed coupled_files_linked
 unconsumed coverage_below_goal
 unconsumed coverage_gap
 unconsumed coverage_warning
@@ -119,7 +112,6 @@ unconsumed deep_nesting
 unconsumed derived_mode
 unconsumed diagnostic_active
 unconsumed dir_has_go_test
-unconsumed dir_has_source
 unconsumed dream_block
 unconsumed edit_is_implementation
 unconsumed edit_is_test
@@ -136,7 +128,6 @@ unconsumed file_in_project
 unconsumed file_modified_externally
 unconsumed final_context_include
 unconsumed focus_needs_resolution
-unconsumed focused_commit
 unconsumed fragile
 unconsumed function_in_scope
 unconsumed function_too_long
@@ -167,7 +158,6 @@ unconsumed has_implementation_edit
 unconsumed has_incomplete_dependency
 unconsumed has_injectable_context
 unconsumed has_next_action
-unconsumed has_other_author
 unconsumed has_parallel_opportunity
 unconsumed has_passed_checkpoint
 unconsumed has_patch_applied
@@ -186,8 +176,6 @@ unconsumed has_tool_for_action
 unconsumed has_tool_usage
 unconsumed has_unaddressed_high_risk
 unconsumed has_warnings
-unconsumed hero_risk
-unconsumed hidden_coupling
 unconsumed high_priority_review
 unconsumed higher_priority_repair
 unconsumed hotspot_file
@@ -239,12 +227,9 @@ unconsumed intent_ready_for_executive
 unconsumed intent_semantic_type
 unconsumed intent_state_category
 unconsumed is_api_handler_function
-unconsumed is_called
 unconsumed is_context_aware
-unconsumed is_entry_point_file
 unconsumed is_error_checked
 unconsumed is_error_finding
-unconsumed is_finding_suppressed
 unconsumed is_guarded
 unconsumed is_high_priority_test
 unconsumed is_iterative
@@ -254,7 +239,6 @@ unconsumed is_step_boundary
 unconsumed is_supported_req
 unconsumed is_ui_component
 unconsumed is_warning_finding
-unconsumed layer
 unconsumed layer_sequencing_correct
 unconsumed layer_sequencing_warning
 unconsumed lazy_pattern_detected
@@ -326,7 +310,6 @@ unconsumed propose_new_rule
 unconsumed propose_safety_rule
 unconsumed pytest_repair_priority
 unconsumed quality_violation_detected
-unconsumed raw_finding
 unconsumed recent_armory_success
 unconsumed recommend_downgrade
 unconsumed recommend_extraction
@@ -393,10 +376,8 @@ unconsumed strategic_warning
 unconsumed suggest_appeal
 unconsumed suggest_skip_task
 unconsumed suggest_update_mocks
-unconsumed suppressed_finding
 unconsumed suspicious_gap
 unconsumed swebench_patch_failed
-unconsumed symbol_file
 unconsumed symbol_reachable
 unconsumed symbol_reachable_safe
 unconsumed system_invariant_violated
@@ -450,7 +431,6 @@ unconsumed unresolved_failure
 unconsumed unsafe_deref
 unconsumed unserved_persona
 unconsumed unvalidated_side_effect
-unconsumed unwired_function
 unconsumed uses_memoization
 unconsumed uses_side_effects
 unconsumed uses_state_management
@@ -463,4 +443,3 @@ unconsumed validation_syntax_error
 unconsumed verb_pair_relation
 unconsumed violation
 unconsumed witness_candidate
-unconsumed zombie_test
