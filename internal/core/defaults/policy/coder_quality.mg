@@ -9,51 +9,6 @@
 # 10.1 Go-Specific Quality Rules
 # -----------------------------------------------------------------------------
 
-# Go file needs error handling check
-go_needs_error_check(File) :-
-    pending_edit(File, _),
-    file_extension(File, Ext),
-    extension_language(Ext, /go),
-    edit_contains_operation(File, /return),
-    !edit_handles_errors(File).
-
-# Go file needs context parameter
-go_needs_context(File) :-
-    pending_edit(File, _),
-    file_extension(File, Ext),
-    extension_language(Ext, /go),
-    edit_is_public_function(File),
-    edit_does_io(File),
-    !edit_has_context(File).
-
-# Go file leaks goroutine
-go_goroutine_leak_risk(File) :-
-    pending_edit(File, _),
-    file_extension(File, Ext),
-    extension_language(Ext, /go),
-    edit_spawns_goroutine(File),
-    !edit_has_waitgroup(File),
-    !edit_has_context_cancel(File).
-
-# Go interface quality
-go_interface_too_large(File) :-
-    pending_edit(File, _),
-    file_extension(File, Ext),
-    extension_language(Ext, /go),
-    edit_defines_interface(File, _, MethodCount),
-    MethodCount > 5.
-
-# Helpers (populated by Go runtime analysis)
-edit_handles_errors(File) :- edit_analysis(File, /handles_errors).
-edit_has_context(File) :- edit_analysis(File, /has_context).
-edit_has_waitgroup(File) :- edit_analysis(File, /has_waitgroup).
-edit_has_context_cancel(File) :- edit_analysis(File, /has_context_cancel).
-edit_spawns_goroutine(File) :- edit_analysis(File, /spawns_goroutine).
-edit_is_public_function(File) :- edit_analysis(File, /public_function).
-edit_does_io(File) :- edit_analysis(File, /does_io).
-edit_defines_interface(File, Name, Count) :- interface_definition(File, Name, Count).
-edit_contains_operation(File, Op) :- edit_operation(File, Op).
-
 # -----------------------------------------------------------------------------
 # 10.2 General Quality Rules
 # -----------------------------------------------------------------------------
@@ -166,66 +121,11 @@ has_rejection(Pattern) :-
 # 14.1 API Endpoint Generation
 # -----------------------------------------------------------------------------
 
-# API endpoint needs specific patterns
-api_endpoint_pattern(File) :-
-    coder_task(_, /create, File, Instruction),
-    instruction_contains(Instruction, "endpoint").
-
-api_endpoint_pattern(File) :-
-    coder_task(_, /create, File, Instruction),
-    instruction_contains(Instruction, "handler").
-
-# API requires validation
-api_needs_validation(File) :-
-    api_endpoint_pattern(File).
-
-# API requires error responses
-api_needs_error_handling(File) :-
-    api_endpoint_pattern(File).
-
 # -----------------------------------------------------------------------------
 # 14.2 Database Operation Patterns
 # -----------------------------------------------------------------------------
-
-# Database operation pattern
-database_operation_pattern(File) :-
-    coder_task(_, _, File, Instruction),
-    instruction_contains(Instruction, "database").
-
-database_operation_pattern(File) :-
-    coder_task(_, _, File, Instruction),
-    instruction_contains(Instruction, "query").
-
-# Database needs transaction handling
-db_needs_transaction(File) :-
-    database_operation_pattern(File),
-    instruction_contains_write(File).
-
-# Database needs connection pooling awareness
-db_needs_pooling(File) :-
-    database_operation_pattern(File).
 
 # -----------------------------------------------------------------------------
 # 14.3 Concurrency Patterns
 # -----------------------------------------------------------------------------
 
-# Concurrency pattern detected
-concurrency_pattern(File) :-
-    coder_task(_, _, File, Instruction),
-    instruction_contains(Instruction, "concurrent").
-
-concurrency_pattern(File) :-
-    coder_task(_, _, File, Instruction),
-    instruction_contains(Instruction, "parallel").
-
-concurrency_pattern(File) :-
-    coder_task(_, _, File, Instruction),
-    instruction_contains(Instruction, "goroutine").
-
-# Concurrency needs synchronization
-needs_synchronization(File) :-
-    concurrency_pattern(File).
-
-# Concurrency needs context propagation
-needs_context_propagation(File) :-
-    concurrency_pattern(File).

@@ -34,47 +34,32 @@ checkpoint_needed
 code_accepted
 code_implements  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 coder_rejection_count
-coder_target  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
-coder_task  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
 context_pressure_level  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
 coverage_goal
 coverage_metric
 current_user  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
-dependent_count  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
 derived_rule
 detected_security_flow
 dialog_policy
-doc_exists_for  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
 doc_reference  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
-edit_analysis  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
-edit_operation  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
 element_action
 element_hydration
 failure_count_by_file
 false_positive_pattern
 file_contains  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
-file_extension  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
 file_has_public_api  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 file_line_count
 fix_pattern
 gauntlet_result  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
 generation_state  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
-high_element_count_flag  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
-instruction_contains  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
-instruction_contains_write  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
 intelligence_file_action  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 intelligence_file_depends  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 intelligence_file_topology  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 intelligence_knowledge_link
 intelligence_preference
 intelligence_strategic_knowledge  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
-interface_definition  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
 invariant_value
 investigation_result
-is_binary_file  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
-is_core_file  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
-is_interface_file  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
-is_public_api  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
 issue_occurrence_count  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
 item_retry_count
 known_cause
@@ -86,9 +71,6 @@ page_framework
 page_hydrated
 pass_count
 patch_tested
-path_contains  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
-path_in_workspace  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
-previous_coder_state  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
 proposed_rule
 quality_violation  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
 reachability_query  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
@@ -106,7 +88,6 @@ same_scope  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg
 security_anomaly
 shard_family
 specialist_knowledge_updated
-state_unchanged_count  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
 storage_entry
 style_violation
 suppressed_rule  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
@@ -123,7 +104,6 @@ target_word_count
 task_failure_count  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
 task_failure_reason  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
 task_remediation_target  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
-tdd_retry_count  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
 test_package
 test_passed
 test_scope  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
@@ -140,7 +120,6 @@ tool_usage_stats  # tool routing (tool_routing.mg): the tool registry asserts to
 trace_error  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 trace_quality  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 trace_task_type  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
-type_definition_file  # coder policy inputs (coder_*.mg): no Go asserts them, so the coder rule family never fires; wire a producer in the session executor or delete the family
 type_embeds  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 unhandled_case_count_computed
 validation_max_retries_reached  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired

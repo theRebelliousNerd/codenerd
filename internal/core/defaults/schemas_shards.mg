@@ -352,49 +352,12 @@ Decl coder_block_write(FilePath, Reason) bound [/string, /string].
 # coder_safe_to_write(FilePath) - derived: safe to write
 Decl coder_safe_to_write(FilePath) bound [/string].
 
-# is_binary_file(FilePath) - file is binary (cannot edit)
-Decl is_binary_file(FilePath) bound [/string].
-
-# is_core_file(FilePath) - file is in core/critical path (higher risk)
-Decl is_core_file(FilePath) bound [/string].
-
-# dependent_count(Target, Count) - number of files depending on Target
-# Computed by Go from dependency_link graph
-Decl dependent_count(Target, Count) bound [/string, /number].
-
-# is_interface_file(FilePath) - file contains interface/type definitions
-Decl is_interface_file(FilePath) bound [/string].
-
-# instruction_contains(Instruction, Substring) - checks if user instruction contains pattern
-# Implemented by Go string search
-Decl instruction_contains(Instruction, Substring) bound [/string, /string].
-
-# instruction_contains_write(FilePath) - instruction mentions writing to file
-Decl instruction_contains_write(FilePath) bound [/string].
-
 # file_package(FilePath, PackageName) - maps file to its Go package
 Decl file_package(FilePath, PackageName) bound [/string, /string].
 
 # tdd_state(State) - current TDD phase state
 # State: /red (tests failing), /green (tests passing), /refactor
 Decl tdd_state(State) bound [/name].
-
-# tdd_retry_count(Count) - number of retries in current TDD loop
-Decl tdd_retry_count(Count) bound [/number].
-
-# type_definition_file(FilePath) - file contains type/struct definitions
-Decl type_definition_file(FilePath) bound [/string].
-
-# edit_analysis(FilePath, Property) - analysis results for pending edits
-# Property: /handles_errors, /has_context, /has_waitgroup, /has_context_cancel,
-#           /spawns_goroutine, /public_function, /does_io
-Decl edit_analysis(FilePath, Property) bound [/string, /name].
-
-# interface_definition(FilePath, Name, MethodCount) - interface definition info
-Decl interface_definition(FilePath, Name, MethodCount) bound [/string, /string, /number].
-
-# edit_operation(FilePath, Operation) - operations in pending edit
-Decl edit_operation(FilePath, Operation) bound [/string, /name].
 
 # function_metrics(FilePath, FuncName, Lines, Complexity) - function metrics
 Decl function_metrics(FilePath, FuncName, Lines, Complexity) bound [/string, /string, /number, /number].
@@ -407,12 +370,6 @@ Decl function_nesting(FilePath, FuncName, Depth) bound [/string, /string, /numbe
 
 # diagnostic_count(FilePath, Severity, Count) - diagnostics per file
 Decl diagnostic_count(FilePath, Severity, Count) bound [/string, /name, /number].
-
-# previous_coder_state(State) - previous state for progress tracking
-Decl previous_coder_state(State) bound [/name].
-
-# state_unchanged_count(Count) - how many times state hasn't changed
-Decl state_unchanged_count(Count) bound [/number].
 
 # path_contains(Path, Pattern) - checks if file path contains substring
 Decl path_contains(Path, Pattern) bound [/string, /string].
@@ -427,12 +384,6 @@ Decl extension_language(Extension, Language) bound [/string, /name].
 
 # testable_language(Language) - language supports automated testing
 Decl testable_language(Language) bound [/name].
-
-# is_public_api(FilePath) - file contains public API definitions
-Decl is_public_api(FilePath) bound [/string].
-
-# doc_exists_for(FilePath) - documentation exists for this file
-Decl doc_exists_for(FilePath) bound [/string].
 
 # test_file_for(TestFile, SourceFile) - TestFile contains tests for SourceFile
 Decl test_file_for(TestFile, SourceFile) bound [/string, /string].

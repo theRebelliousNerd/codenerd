@@ -24,7 +24,6 @@ import (
 // fails on a stale one.
 var knownBoundsDisagreements = map[string]string{
 	"activation":                          "Decl /string; rules derive tool names (/name) and refs",
-	"apply_convention":                    "Decl /string; derived from language_convention's /name",
 	"beats":                               ":lt over unbounded terms",
 	"campaign_learning":                   "pattern/fact slots",
 	"coder_blocked_reason":                "Decl /string; has_edit_block yields /any",

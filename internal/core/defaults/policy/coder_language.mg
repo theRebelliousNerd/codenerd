@@ -96,26 +96,3 @@ language_convention(/java, /interfaces, "program to interfaces").
 # 3.3 Convention Application
 # -----------------------------------------------------------------------------
 
-# Conventions to apply for current task
-apply_convention(Convention, Rule) :-
-    coder_task(_, _, Target, _),
-    file_extension(Target, Ext),
-    extension_language(Ext, Lang),
-    language_convention(Lang, Convention, Rule).
-
-# Language requires specific patterns
-requires_error_handling(Target) :-
-    file_extension(Target, Ext),
-    extension_language(Ext, /go).
-
-requires_error_handling(Target) :-
-    file_extension(Target, Ext),
-    extension_language(Ext, /rust).
-
-requires_type_annotations(Target) :-
-    file_extension(Target, Ext),
-    extension_language(Ext, /typescript).
-
-requires_type_annotations(Target) :-
-    file_extension(Target, Ext),
-    extension_language(Ext, /python).

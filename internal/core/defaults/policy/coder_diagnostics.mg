@@ -51,20 +51,10 @@ warning_suppressed(DiagID) :-
 # 6.3 Diagnostic Prioritization
 # -----------------------------------------------------------------------------
 
-# Highest priority: errors in current file
-priority_diagnostic(DiagID, 100) :-
-    diagnostic(/error, DiagID, File, _, _),
-    coder_target(File).
-
 # High priority: errors in impacted files
 priority_diagnostic(DiagID, 80) :-
     diagnostic(/error, DiagID, File, _, _),
     coder_impacted(File).
-
-# Medium priority: warnings in current file
-priority_diagnostic(DiagID, 50) :-
-    diagnostic(/warning, DiagID, File, _, _),
-    coder_target(File).
 
 # Low priority: lint issues
 priority_diagnostic(DiagID, 20) :-

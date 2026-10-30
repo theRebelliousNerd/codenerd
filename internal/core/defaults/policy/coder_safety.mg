@@ -25,25 +25,10 @@ coder_block_write(File, "uncovered_impact") :-
     coder_impacted(Dependent),
     !test_coverage(Dependent).
 
-# Block writes outside workspace
-coder_block_action(/edit, "forbidden_path") :-
-    pending_edit(Path, _),
-    !path_in_workspace(Path).
-
-# Block binary file modifications
-coder_block_action(/edit, "binary_file") :-
-    pending_edit(Path, _),
-    is_binary_file(Path).
-
-# Block edits to generated files
-coder_block_action(/edit, "generated_file") :-
-    pending_edit(Path, _),
-    is_generated_file(Path).
-
-# Block edits to vendor/third-party code
-coder_block_action(/edit, "vendor_file") :-
-    pending_edit(Path, _),
-    is_vendor_file(Path).
+# REMOVED: "block writes outside workspace". Its premise was !path_in_workspace,
+# and nothing ever produced path_in_workspace, so the rule blocked every pending
+# edit. A workspace boundary needs a producer that measures it (the world model
+# knows the root); write that, then the rule.
 
 # Turn verdict — the executor asserts one turn_evidence fact per turn (Go
 # measures: tool/write/test counts, claimed-output flag, dream flag) and
@@ -826,21 +811,6 @@ coder_block_action(/edit, "tdd_red_phase") :-
     pending_edit(_, _),
     tdd_state(/red).
 
-# Helpers
-# Decl is_generated_file(Path) - Declared in schemas_coder.mg
-is_generated_file(Path) :-
-    path_contains(Path, "generated").
-
-is_generated_file(Path) :-
-    path_contains(Path, "_gen.").
-
-# Decl is_vendor_file(Path) - Declared in schemas_coder.mg
-is_vendor_file(Path) :-
-    path_contains(Path, "vendor/").
-
-is_vendor_file(Path) :-
-    path_contains(Path, "node_modules/").
-
 # -----------------------------------------------------------------------------
 # 5.2 Safety Check Aggregation
 # -----------------------------------------------------------------------------
@@ -861,20 +831,6 @@ coder_safe_to_write(File) :-
 # -----------------------------------------------------------------------------
 # 5.3 Edit Quality Gates
 # -----------------------------------------------------------------------------
-
-# Edit should include tests if creating new code
-edit_needs_tests(File) :-
-    coder_task(_, /create, File, _),
-    file_extension(File, Ext),
-    extension_language(Ext, Lang),
-    testable_language(Lang),
-    !is_test_file(File).
-
-# Edit should update docs if modifying public API
-edit_needs_docs(File) :-
-    coder_task(_, /modify, File, _),
-    is_public_api(File),
-    !doc_exists_for(File).
 
 # Testable languages
 testable_language(/go).

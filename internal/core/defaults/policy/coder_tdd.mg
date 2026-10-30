@@ -37,12 +37,6 @@ minimal_implementation_mode() :-
 refactor_mode() :-
     tdd_refactor_phase().
 
-# TDD retry awareness (don't repeat same fix)
-tdd_different_approach_needed() :-
-    tdd_state(/green),
-    tdd_retry_count(N),
-    N >= 2.
-
 # -----------------------------------------------------------------------------
 # 9.3 TDD Validation
 # -----------------------------------------------------------------------------

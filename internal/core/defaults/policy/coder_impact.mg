@@ -31,21 +31,6 @@ coder_impacted(X) :- coder_impacted_3(X).
 # 4.2 Impact Classification
 # -----------------------------------------------------------------------------
 
-# High impact: many dependents affected
-high_impact_edit(File) :-
-    pending_edit(File, _),
-    dependent_count(File, N),
-    N > 5.
-
-# Critical impact: core files or interfaces
-critical_impact_edit(File) :-
-    pending_edit(File, _),
-    is_core_file(File).
-
-critical_impact_edit(File) :-
-    pending_edit(File, _),
-    is_interface_file(File).
-
 # Cross-package impact
 cross_package_impact(File) :-
     pending_edit(File, _),
@@ -58,14 +43,6 @@ cross_package_impact(File) :-
 # -----------------------------------------------------------------------------
 # 4.3 Impact Warnings
 # -----------------------------------------------------------------------------
-
-# Warn about high-impact edits
-# WarningType is a closed 3-value vocabulary (schemas_coder.mg declares /name).
-impact_warning(File, /high_dependent_count) :-
-    high_impact_edit(File).
-
-impact_warning(File, /critical_file) :-
-    critical_impact_edit(File).
 
 impact_warning(File, /cross_package) :-
     cross_package_impact(File).

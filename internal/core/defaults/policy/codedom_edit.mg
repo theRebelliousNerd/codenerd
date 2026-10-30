@@ -135,16 +135,6 @@ safe_to_modify(Ref) :-
     code_element(Ref, _, File, _, _),
     in_scope(File).
 
-# Helper: check if element count is high for complexity analysis
-element_count_high() :-
-    high_element_count_flag().
-
-# Trigger campaign for complex refactors affecting many elements
-requires_campaign(/current_intent) :-
-    user_intent(/current_intent, /mutation, _, Target, _),
-    in_scope(Target),
-    element_count_high().
-
 # --- Learning From Code Edits ---
 
 # Track edit outcomes for learning

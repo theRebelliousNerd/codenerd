@@ -9,17 +9,9 @@
 atom_tag	/debug_only
 atom_tag	/dream_only
 coder_state	/build_passed
-coder_state	/context_ready
 coder_state	/edit_applied
 detected_modal	/polite_request
 doc_tag	/experimental
-edit_analysis	/does_io
-edit_analysis	/handles_errors
-edit_analysis	/has_context
-edit_analysis	/has_context_cancel
-edit_analysis	/has_waitgroup
-edit_analysis	/public_function
-edit_analysis	/spawns_goroutine
 fix_pattern	/retry_addition
 fix_pattern	/timeout_increase
 guards_block	/ok_check

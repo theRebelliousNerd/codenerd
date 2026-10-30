@@ -65,7 +65,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"churn_rate", "file_contains",
 				"file_has_public_api", "package_has_dep", "test_coverage",
 				"test_failed", "modified_interface", "impact_graph",
-				"recent_change_by_other", "coder_context_priority",
+				"recent_change_by_other",
 				// CodeDOM element facts and the per-language surface
 				// (codedom_*.mg, coder_*.mg, reviewer.mg, tester.mg).
 				"element_parent", "element_signature", "code_interactable",
@@ -73,7 +73,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"file_modified_externally", "is_test_function", "test_file_for",
 				"file_imports", "file_package", "file_in_scope", "type_embeds",
 				"imports_project_file", "import_cycle_member",
-				"is_interface_file", "type_definition_file",
+
 				"api_handler_function", "api_client_function", "api_dependency",
 				"go_struct", "py_class", "py_decorator", "py_typed_function",
 				"has_pydantic_base", "rs_struct", "rs_derive", "rs_serde_rename",
@@ -84,7 +84,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// Edit plans and pending mutations are judged against the
 				// dependency graph (coder_impact.mg, coder_safety.mg,
 				// commit_gate.mg).
-				"coder_target", "pending_edit", "pending_mutation",
+				"pending_edit", "pending_mutation",
 				"modified_function", "modified_file",
 				// Tool domain facts are joined only against file_topology
 				// (tool_routing.mg, policy_mcp.mg).
@@ -102,17 +102,17 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"mcp_tool_facet", "mcp_tool_risk", "mcp_tool_risk_source",
 				// Coder-shard working state judged against the world model
 				// (coder_*.mg): the file under edit, its diagnostics, tests.
-				"coder_state", "coder_task", "active_review", "diagnostic_count",
-				"file_extension", "path_contains", "dependent_count", "edit_analysis",
-				"edit_operation", "file_edited", "failing_test", "pytest_root_cause",
-				"is_core_file", "is_test_file", "is_binary_file", "project_forbidden_path",
-				"high_element_count_flag", "interface_definition", "retry_count",
+				"coder_state", "active_review", "diagnostic_count",
+
+				"file_edited", "failing_test", "pytest_root_cause",
+				"is_test_file", "project_forbidden_path",
+				"retry_count",
 				"symbol_verified_exists", "traceback_frame", "assertion_mismatch",
-				"is_public_api",
+
 				// Facts negated by coder/commit rules whose positive side is
 				// world-model data; a negation evaluated in a shard that never
 				// holds the fact always succeeds (blind negation).
-				"path_in_workspace", "doc_exists_for",
+
 				"suppression", "file_content", "entry_point",
 				// The commit gate (commit_gate.mg, reviewer.mg): safe_to_commit
 				// and review_passed negate has_block_commit, which is derived
@@ -501,7 +501,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"reasoning_trace", "trace_quality", "trace_task_type",
 				"campaign_shard",
 				"session_state", "shard_error",
-				"trace_error", "trace_pattern",
+				"trace_error",
 			},
 		},
 		{
@@ -510,9 +510,9 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 			// jit_logic.mg), so they live with it.
 			OwnedPredicates: []string{
 				"prompt_atom", "atom_selection_score", "shard_prompt_base",
-				"atom_tag", "atom_conflict", "atom_conflicts", "atom_exclusion_group",
-				"atom_dependency", "atom_context_boost", "atom_final_order",
-				"prompt_exemplar", "atom_requires", "is_mandatory", "vector_hit",
+				"atom_tag", "atom_conflicts",
+
+				"atom_requires", "is_mandatory", "vector_hit",
 				"current_context", "atom_importance", "vector_slot", "atom_relevance",
 				"atom_relevance_threshold", "flesh_carried",
 			},

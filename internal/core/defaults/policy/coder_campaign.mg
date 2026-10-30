@@ -48,19 +48,3 @@ coder_quality_mode(/normal) :-
 # 12.3 Campaign Progress Reporting
 # -----------------------------------------------------------------------------
 
-# Report coder completion to campaign
-coder_task_completed(TaskID) :-
-    coder_task(TaskID, _, _, _),
-    coder_state(/build_passed).
-
-coder_task_completed(TaskID) :-
-    coder_task(TaskID, _, _, _),
-    coder_state(/tests_passed).
-
-# Report coder failure to campaign
-coder_task_failed(TaskID, Reason) :-
-    coder_task(TaskID, _, _, _),
-    coder_state(/build_failed),
-    retry_count(N),
-    N >= 3,
-    Reason = "max_retries_exceeded".

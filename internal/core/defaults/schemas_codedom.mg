@@ -92,15 +92,6 @@ Decl code_contains(Parent, Child) bound [/string, /string].
 # safe_to_modify(Ref) - derived: has tests, builds pass
 Decl safe_to_modify(Ref) bound [/string].
 
-# requires_campaign(Intent) - derived: complex refactor needs campaign
-# Intent is an intent ID, and every producer of one emits a name constant:
-# Executor.ProcessWithIntent asserts MangleAtom("/current_intent") for the
-# interactive turn and MangleAtom("/task_intent_N") for delegated tasks
-# (internal/session/executor.go), and the transducer asserts
-# MangleAtom("/current_intent") (internal/perception/transducer.go). The only
-# head here is requires_campaign(/current_intent), matching those.
-Decl requires_campaign(Intent) bound [/name].
-
 # code_edit_outcome(Ref, EditType, Success, Timestamp) - edit result tracking
 Decl code_edit_outcome(Ref, EditType, Success, Timestamp) bound [/string, /name, /name, /number].
 
@@ -118,9 +109,6 @@ Decl successful_edit(Ref, EditType) bound [/string, /name].
 
 # failed_edit(Ref, EditType) - derived: edit failed
 Decl failed_edit(Ref, EditType) bound [/string, /name].
-
-# element_count_high() - helper: many elements in scope (triggers campaign for complex refactors)
-Decl element_count_high() bound [].
 
 # -----------------------------------------------------------------------------
 # 34.5 Error Handling & Edge Cases
