@@ -33,8 +33,8 @@ func TestBackground_ABusyChatQueuesTheNextStep(t *testing.T) {
 		t.Fatalf("queued=%d reply=%q: the next step was dropped", m.turn.queuedCount(), lastAssistant(m))
 	}
 	next, _ := m.turn.dequeue()
-	if !strings.HasPrefix(next, job.FollowUp) || !strings.Contains(next, "two causes") {
-		t.Fatalf("queued step = %q", next)
+	if next.command || !strings.HasPrefix(next.input, job.FollowUp) || !strings.Contains(next.input, "two causes") {
+		t.Fatalf("queued step = %+v", next)
 	}
 }
 

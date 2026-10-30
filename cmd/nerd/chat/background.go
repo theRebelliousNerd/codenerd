@@ -278,7 +278,7 @@ func (m Model) finishBackground(msg backgroundDoneMsg) (Model, tea.Cmd) {
 	// waits for go. A turn in flight makes it wait its turn, not vanish.
 	next := msg.Job.FollowUp + "\n\n" + msg.Result
 	if m.isLoading || m.turn.current() != 0 {
-		m.turn.enqueue(next)
+		m.turn.enqueue(queuedMessage{input: next})
 		return m.pushAssistantMsg(report + "\n\n_Its next step is queued for when the current turn finishes._"), nil
 	}
 	m = m.pushAssistantMsg(report)

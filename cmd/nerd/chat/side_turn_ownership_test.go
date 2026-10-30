@@ -182,7 +182,7 @@ func TestCtrlX_QueuedWorkWaitsForTheStoppedTurnToSettle(t *testing.T) {
 	t.Parallel()
 	m, aCtx := busyModel(t)
 	a := m.turn.current()
-	m.turn.enqueue("then add the section")
+	m.turn.enqueue(queuedMessage{input: "then add the section"})
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
 	m = next.(Model)
 	if aCtx.Err() == nil {
@@ -245,8 +245,8 @@ func TestTurnState_QueueKeepsReceiptOrder(t *testing.T) {
 	ts.settle(b, true)
 	first, _ := ts.dequeue()
 	second, _ := ts.dequeue()
-	if first != "create the file" || second != "then add the section" {
-		t.Fatalf("order = %q, %q", first, second)
+	if first.input != "create the file" || second.input != "then add the section" {
+		t.Fatalf("order = %q, %q", first.input, second.input)
 	}
 	d := ts.reserve("how is it going?")
 	ts.settle(d, false)

@@ -64,10 +64,13 @@ type turnState struct {
 // queuedMessage is a message waiting for the running turn. Its place is
 // taken when it is received; a side turn's message is pending until the
 // kernel decides it is work (/later), so classification order cannot reorder
-// the queue.
+// the queue. Its kind is fixed when it is received: a slash command waits as
+// a command and runs through the command dispatcher, never as a sentence for
+// perception (audit queued-slash-command-kind-conservation).
 type queuedMessage struct {
 	id      uint64
 	input   string
+	command bool
 	pending bool
 }
 
@@ -184,15 +187,17 @@ func (t *turnState) stopExecution(id uint64) bool {
 	return true
 }
 
-// enqueue queues a message that is already known to be work.
-func (t *turnState) enqueue(input string) {
+// enqueue queues a message that is already known to be work; its place is
+// assigned here.
+func (t *turnState) enqueue(q queuedMessage) {
 	if t == nil {
 		return
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.msgSeq++
-	t.queued = append(t.queued, queuedMessage{id: t.msgSeq, input: input})
+	q.id, q.pending = t.msgSeq, false
+	t.queued = append(t.queued, q)
 }
 
 // reserve takes a queue place for a message whose disposition the kernel
@@ -230,16 +235,16 @@ func (t *turnState) settle(id uint64, keep bool) {
 
 // dequeue takes the oldest message when it is ready; a pending one at the
 // head holds the queue, since a later message may depend on it.
-func (t *turnState) dequeue() (string, bool) {
+func (t *turnState) dequeue() (queuedMessage, bool) {
 	if t == nil {
-		return "", false
+		return queuedMessage{}, false
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if len(t.queued) == 0 || t.queued[0].pending {
-		return "", false
+		return queuedMessage{}, false
 	}
-	next := t.queued[0].input
+	next := t.queued[0]
 	t.queued = t.queued[1:]
 	return next, true
 }
@@ -275,20 +280,29 @@ type sideTurnMsg struct {
 
 // submitWhileBusy handles Enter while a turn is in flight: a side turn once
 // the turn runs work, a queued message before then or while a stopped turn
-// winds down.
+// winds down. A slash command is queued as a command whatever the turn is
+// doing: it is not a sentence for a side turn to read.
 func (m Model) submitWhileBusy() (Model, tea.Cmd) {
-	input := strings.TrimSpace(m.textarea.Value())
+	raw := m.textarea.Value()
+	input := strings.TrimSpace(raw)
 	if input == "" {
 		return m, nil
 	}
 	m.textarea.Reset()
 	m = m.addMessage(Message{Role: "user", Content: input})
+	if strings.HasPrefix(input, "/") {
+		// The untrimmed tail, as idle dispatch gives it: /write and /append
+		// carry its bytes as file content.
+		m.turn.enqueue(queuedMessage{input: strings.TrimLeft(raw, " \t\r\n"), command: true})
+		name := strings.Fields(input)[0]
+		return m.pushAssistantMsg("_Queued: `" + name + "` runs as a command as soon as the current turn finishes._"), nil
+	}
 	if m.turn.stopping() {
-		m.turn.enqueue(input)
+		m.turn.enqueue(queuedMessage{input: input})
 		return m.pushAssistantMsg("_Queued: the stopped turn is still winding down; I'll take this up as soon as it has._"), nil
 	}
 	if m.turn.workingOn() == "" {
-		m.turn.enqueue(input)
+		m.turn.enqueue(queuedMessage{input: input})
 		return m.pushAssistantMsg("_Queued: I'll take this up as soon as the current turn finishes._"), nil
 	}
 	return m, m.sideTurn(input)
@@ -452,19 +466,38 @@ func (m Model) applySideTurn(msg sideTurnMsg) Model {
 	return m.pushAssistantMsg(reply)
 }
 
-// startQueuedTurn runs the next queued message as a full turn once nothing is
-// in flight -- the loading flag clear and the slot released by the previous
-// execution's end -- and nil when nothing waits or a turn still runs.
+// startQueuedTurn runs queued messages once nothing is in flight -- the
+// loading flag clear and the slot released by the previous execution's end
+// -- and nil when nothing waits or a turn still runs. A message runs as a
+// full turn. A command runs through the dispatcher an idle submission uses:
+// one that finishes on the spot (/help) leaves nothing in flight, so the
+// next message runs after it; one that starts work holds the slot, and the
+// rest wait for it.
 func (m Model) startQueuedTurn() (Model, tea.Cmd) {
-	if m.isLoading || m.turn.current() != 0 {
+	var cmds []tea.Cmd
+	for !m.isLoading && m.turn.current() == 0 {
+		next, ok := m.turn.dequeue()
+		if !ok {
+			break
+		}
+		if next.command {
+			model, cmd := m.handleCommand(next.input)
+			cmds = append(cmds, cmd)
+			nm, ok := model.(Model)
+			if !ok {
+				logging.Get(logging.CategorySession).Error("queued command %q returned %T, not the chat model", next.input, model)
+				break
+			}
+			m = nm
+			continue
+		}
+		m.isLoading = true
+		cmds = append(cmds, m.processInput(next.input))
+	}
+	if len(cmds) == 0 {
 		return m, nil
 	}
-	next, ok := m.turn.dequeue()
-	if !ok {
-		return m, nil
-	}
-	m.isLoading = true
-	return m, m.processInput(next)
+	return m, tea.Batch(cmds...)
 }
 
 // turnFooter names running work and queued messages; "" when there is none.
