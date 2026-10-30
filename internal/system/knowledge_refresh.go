@@ -35,7 +35,7 @@ import (
 // replaces the last run's.
 var knowledgeRefreshPredicates = []string{
 	"knowledge_wanted", "knowledge_outcome", "knowledge_source_available",
-	"knowledge_atom_held", "knowledge_atom_retrieved", "knowledge_miss",
+	"knowledge_atom_held", "knowledge_atom_retrieved", "knowledge_miss", "knowledge_miss_recovered",
 	"knowledge_acquired_version", "dependency_pin",
 }
 

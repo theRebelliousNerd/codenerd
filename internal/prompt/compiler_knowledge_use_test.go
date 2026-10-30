@@ -35,7 +35,7 @@ func TestCompileRecordsExpertKnowledgeUseAndMisses(t *testing.T) {
 	result, err := compiler.Compile(t.Context(), used)
 	require.NoError(t, err)
 	require.True(t, containsKnowledgeMarker(result.IncludedAtoms, "compiled-only-witness"))
-	require.Equal(t, []string{"expertbridgealpha"}, result.ExpertsConsulted)
+	require.Equal(t, KnowledgeLookup{Found: 1}, result.KnowledgeLookups["expertbridgealpha"])
 	var retrieved int
 	require.NoError(t, db.QueryRow(`SELECT retrieved FROM knowledge_usage WHERE concept = 'guide/Z01'`).Scan(&retrieved))
 	require.Equal(t, 1, retrieved)

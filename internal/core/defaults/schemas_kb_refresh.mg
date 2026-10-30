@@ -52,6 +52,11 @@ Decl knowledge_atom_retrieved(Agent, Concept, Count) bound [/name, /string, /num
 # agent found no knowledge for, and how often.
 Decl knowledge_miss(Agent, Query, Count) bound [/name, /string, /number].
 
+# knowledge_miss_recovered(Agent, Query) - a compile delivered the agent's
+# knowledge rows for the question after its latest miss: the miss is history,
+# not a current gap. Producer: internal/knowledge (Measure).
+Decl knowledge_miss_recovered(Agent, Query) bound [/name, /string].
+
 # --- Policy constants (policy/knowledge_refresh.mg) -------------------------
 
 # knowledge_source_max_age(Source, Days) - an acquisition older than Days is

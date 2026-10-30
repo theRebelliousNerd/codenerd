@@ -136,19 +136,25 @@ func lentAtom(atom *PromptAtom, withheld map[string]bool) *PromptAtom {
 // (internal/knowledge), which describe the agent rather than its subject and
 // survive only in a KB boot has not healed yet. The atoms carry no shard tag:
 // they serve the compile's own speaker.
-func collectPushedExpertKnowledge(ctx context.Context, experts []expertSource, query string, degraded *degradation) map[string][]store.KnowledgeAtom {
+func collectPushedExpertKnowledge(ctx context.Context, experts []expertSource, query string, degraded *degradation, lookups *knowledgeLookups) map[string][]store.KnowledgeAtom {
 	if len(experts) == 0 || strings.TrimSpace(query) == "" {
 		return nil
 	}
 	out := make(map[string][]store.KnowledgeAtom, len(experts))
-	for _, expert := range experts {
-		if ctx.Err() != nil {
-			degraded.add(expertSourceName(expert.key))
+	for i, expert := range experts {
+		if err := ctx.Err(); err != nil {
+			// Every expert not yet searched is unsearched for a reason
+			// that says nothing about its KB.
+			for _, left := range experts[i:] {
+				degraded.add(expertSourceName(left.key))
+				lookups.record(left.key, 0, err)
+			}
 			return out
 		}
 		atoms, err := store.SearchKnowledgeAtomsLexicalDB(ctx, expert.db, query, knowledgeRowsPerSource)
 		if err != nil {
 			degraded.add(expertSourceName(expert.key))
+			lookups.record(expert.key, 0, err)
 			continue
 		}
 		kept := atoms[:0]
@@ -157,6 +163,7 @@ func collectPushedExpertKnowledge(ctx context.Context, experts []expertSource, q
 				kept = append(kept, atom)
 			}
 		}
+		lookups.record(expert.key, len(kept), nil)
 		if len(kept) > 0 {
 			out[expert.key] = kept
 		}

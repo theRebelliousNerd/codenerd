@@ -14,7 +14,7 @@ import "context"
 // consulted. Missing knowledge reads as missing (nil); nothing is fabricated.
 func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
 	config, _, _ := c.configSnapshot()
-	return c.collectKnowledgeAtomsFrom(ctx, cc, config, c.snapshotSources(cc), nil)
+	return c.collectKnowledgeAtomsFrom(ctx, cc, config, c.snapshotSources(cc), nil, nil)
 }
 
 // collectLearningAtoms queries the LearningStore for relevant past learnings.

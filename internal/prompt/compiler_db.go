@@ -329,7 +329,7 @@ func (c *JITPromptCompiler) SetLearningStore(ls *store.LearningStore) {
 // collectKnowledgeAtomsFrom searches the knowledge handles captured in src.
 // A lookup that errors or times out (as opposed to finding nothing) marks
 // the compile degraded.
-func (c *JITPromptCompiler) collectKnowledgeAtomsFrom(ctx context.Context, cc *CompilationContext, config CompilerConfig, src compileSources, degraded *degradation) []*PromptAtom {
+func (c *JITPromptCompiler) collectKnowledgeAtomsFrom(ctx context.Context, cc *CompilationContext, config CompilerConfig, src compileSources, degraded *degradation, lookups *knowledgeLookups) []*PromptAtom {
 	if cc == nil {
 		return nil
 	}
@@ -360,8 +360,8 @@ func (c *JITPromptCompiler) collectKnowledgeAtomsFrom(ctx context.Context, cc *C
 	// project embedding cannot consume its entire deadline before the
 	// expert is consulted.
 	lexicalQuery := buildLexicalQuery(cc)
-	expertAtoms := collectExpertKnowledgeAtoms(searchCtx, cc, shardDB, hasShard, lexicalQuery, degraded)
-	pushed := collectPushedExpertKnowledge(searchCtx, src.experts, lexicalQuery, degraded)
+	expertAtoms := collectExpertKnowledgeAtoms(searchCtx, cc, shardDB, hasShard, lexicalQuery, degraded, lookups)
+	pushed := collectPushedExpertKnowledge(searchCtx, src.experts, lexicalQuery, degraded, lookups)
 	projectAtoms := c.collectProjectKnowledgeAtoms(searchCtx, db, query, lexicalQuery, degraded)
 	if len(projectAtoms) == 0 && len(expertAtoms) == 0 && len(pushed) == 0 {
 		return nil
@@ -433,15 +433,18 @@ func (c *JITPromptCompiler) collectProjectKnowledgeAtoms(ctx context.Context, db
 // collectExpertKnowledgeAtoms searches only the selected expert's registered
 // DB via its shared handle. It never iterates sibling experts, never opens a
 // new store, and never closes a DB owned by the shard registry.
-func collectExpertKnowledgeAtoms(ctx context.Context, cc *CompilationContext, shardDB *sql.DB, hasShard bool, query string, degraded *degradation) []store.KnowledgeAtom {
+func collectExpertKnowledgeAtoms(ctx context.Context, cc *CompilationContext, shardDB *sql.DB, hasShard bool, query string, degraded *degradation, lookups *knowledgeLookups) []store.KnowledgeAtom {
 	if !hasShard || shardDB == nil || cc == nil {
 		return nil
 	}
-	if ctx.Err() != nil {
+	key := shardDBKey(cc.ShardID)
+	if err := ctx.Err(); err != nil {
 		degraded.add("expert-knowledge")
+		lookups.record(key, 0, err)
 		return nil
 	}
 	atoms, err := store.SearchKnowledgeAtomsLexicalDB(ctx, shardDB, query, knowledgeRowsPerSource)
+	lookups.record(key, len(atoms), err)
 	if err != nil || len(atoms) == 0 {
 		if err != nil {
 			degraded.add("expert-knowledge")

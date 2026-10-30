@@ -13,11 +13,12 @@ type CompilationResult struct {
 	// Atoms included in the prompt (for debugging/audit)
 	IncludedAtoms []*PromptAtom
 
-	// ExpertsConsulted are the shard agents (by KB key) whose knowledge the
-	// compile searched: the speaker's own registered KB and every pushed
-	// expert's. One whose rows none of IncludedAtoms carry found nothing for
-	// the task (knowledge.RecordMiss).
-	ExpertsConsulted []string
+	// KnowledgeLookups are the shard agent KBs (by KB key) the compile
+	// searched for knowledge -- the speaker's own and every pushed expert's
+	// -- with what each search returned. A search that returned rows none of
+	// IncludedAtoms carry was omitted by selection or the budget, not empty;
+	// a failed search established nothing (recordKnowledgeConsumption).
+	KnowledgeLookups map[string]KnowledgeLookup
 
 	// Token usage statistics
 	TotalTokens int
@@ -86,7 +87,7 @@ func cloneCompilationResult(res *CompilationResult) *CompilationResult {
 			out.IncludedAtoms[i] = clonePromptAtom(atom)
 		}
 	}
-	out.ExpertsConsulted = slices.Clone(res.ExpertsConsulted)
+	out.KnowledgeLookups = maps.Clone(res.KnowledgeLookups)
 	if res.CategoryTokens != nil {
 		out.CategoryTokens = maps.Clone(res.CategoryTokens)
 	}

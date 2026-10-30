@@ -102,17 +102,31 @@ func Measure(ctx context.Context, db *sql.DB, agent any, now time.Time) ([]types
 	}
 
 	if tables["knowledge_misses"] {
-		rows, err := db.QueryContext(ctx, `SELECT query, misses FROM knowledge_misses`)
+		// recovered_at arrived 2026-10-30; a table made before has none,
+		// and its rows have never recovered.
+		recovered := "NULL"
+		if cols, err := tableColumnSet(ctx, db, "knowledge_misses"); err != nil {
+			return nil, err
+		} else if cols["recovered_at"] {
+			recovered = "recovered_at"
+		}
+		rows, err := db.QueryContext(ctx, `SELECT query, misses, last_missed_at, `+recovered+` FROM knowledge_misses`)
 		if err != nil {
 			return nil, fmt.Errorf("read misses: %w", err)
 		}
 		err = scanRows(rows, func(r *sql.Rows) error {
-			var query string
+			var query, missedAt string
+			var recoveredAt sql.NullString
 			var n int64
-			if err := r.Scan(&query, &n); err != nil {
+			if err := r.Scan(&query, &n, &missedAt, &recoveredAt); err != nil {
 				return err
 			}
 			facts = append(facts, types.Fact{Predicate: "knowledge_miss", Args: []any{agent, query, n}})
+			// Both are RFC 3339 UTC, so they order as strings. A delivery
+			// at or after the latest miss is the newer observation.
+			if recoveredAt.Valid && recoveredAt.String >= missedAt {
+				facts = append(facts, types.Fact{Predicate: "knowledge_miss_recovered", Args: []any{agent, query}})
+			}
 			return nil
 		})
 		if err != nil {

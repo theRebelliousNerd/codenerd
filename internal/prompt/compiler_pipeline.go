@@ -256,6 +256,7 @@ func (c *JITPromptCompiler) compileMiss(ctx context.Context, in missInput) (any,
 	var knowledgeAtoms, learningAtoms []*PromptAtom
 	degraded := &degradation{}
 	pending := &pendingCatalogs{}
+	lookups := &knowledgeLookups{}
 
 	g.Go(func() error {
 		var err error
@@ -266,7 +267,7 @@ func (c *JITPromptCompiler) compileMiss(ctx context.Context, in missInput) (any,
 		return nil
 	})
 	g.Go(func() error {
-		knowledgeAtoms = c.collectKnowledgeAtomsFrom(gCtx, cc, config, in.src, degraded)
+		knowledgeAtoms = c.collectKnowledgeAtomsFrom(gCtx, cc, config, in.src, degraded, lookups)
 		return nil // Non-fatal
 	})
 	g.Go(func() error {
@@ -344,7 +345,7 @@ func (c *JITPromptCompiler) compileMiss(ctx context.Context, in missInput) (any,
 	stats.Duration = time.Since(compileStart) + in.preflight
 
 	result := c.buildResultWithStats(candidates, scored, fitted, prompt, budget, stats)
-	result.ExpertsConsulted = in.src.consultedExperts()
+	result.KnowledgeLookups = lookups.snapshot()
 	if result.Manifest != nil {
 		result.Manifest.ContextHash = in.cacheKey
 	}

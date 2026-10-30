@@ -93,10 +93,12 @@ knowledge_refresh(Agent, Subject, /retry) :-
     knowledge_retry_after_days(Window),
     Age >= Window.
 
-# A question a consultation found nothing for, not yet answered by any
-# source, not tried today.
+# A question a search of the agent's KB found nothing for, not yet answered
+# by any source, not tried today, and not delivered from the KB since its
+# latest miss (a recovered miss is history, not a gap).
 knowledge_refresh(Agent, Query, /gap) :-
     knowledge_miss(Agent, Query, _),
+    !knowledge_miss_recovered(Agent, Query),
     !knowledge_acquired(Agent, Query),
     !knowledge_recently_attempted(Agent, Query).
 
