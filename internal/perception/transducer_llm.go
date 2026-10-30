@@ -433,6 +433,17 @@ func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, se
 		sb.WriteString("\n---\n\n")
 	}
 
+	// Work running while this message is read (a chat side turn): what it
+	// has done, measured by the harness. Without it a question about the
+	// work was answered with a promise to check on it, which this call
+	// cannot do.
+	if sessionCtx != nil && sessionCtx.RunningWork != "" {
+		sb.WriteString("## Running Work\n\n")
+		sb.WriteString("Work is running while this message is read. What it has done so far, as the harness measured it:\n\n")
+		sb.WriteString(sessionCtx.RunningWork)
+		sb.WriteString("\n\nAnswer a question about the running work from this; there is no other way to check on it from here.\n---\n\n")
+	}
+
 	sb.WriteString("## Current Request\n\n")
 	sb.WriteString(input)
 

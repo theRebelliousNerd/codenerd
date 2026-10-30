@@ -6,6 +6,7 @@ import (
 	"runtime/debug"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/sessionlog"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -39,6 +40,7 @@ func (m Model) foregroundOperation(name string, run func(ctx context.Context) te
 		}()
 		ctx, cancel := m.sessionOperationContext()
 		defer cancel()
+		ctx = sessionlog.WithTask(ctx, foregroundTask(turnID))
 		m.turn.begin(turnID, cancel)
 		if err := ctx.Err(); err != nil {
 			return errorMsg(fmt.Errorf("%s stopped before it started: %w", name, err))

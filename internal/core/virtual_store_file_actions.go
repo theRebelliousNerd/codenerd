@@ -374,11 +374,18 @@ func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (A
 	}
 
 	logging.VirtualStore("File edited: %s", path)
+	// An edit writes the file: it is recorded as file_written too, with the
+	// new content's hash and the time, like a whole-file write. Without it
+	// an edit left no timestamped record, so "what has the running work
+	// written" (running_work_wrote, side_turns.mg) and the retrieval
+	// invalidation that reads file_written missed every edit.
+	newHash := sha256.Sum256([]byte(newFileContent))
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Edited %s", path),
 		FactsToAdd: []Fact{
 			{Predicate: "file_edited", Args: []any{v.factPath(path)}},
+			{Predicate: "file_written", Args: []any{v.factPath(path), hex.EncodeToString(newHash[:]), req.SessionID, time.Now().Unix()}},
 			{Predicate: "modified", Args: []any{v.factPath(path)}},
 		},
 	}, nil

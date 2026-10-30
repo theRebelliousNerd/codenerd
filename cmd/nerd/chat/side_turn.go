@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -52,6 +53,7 @@ type turnState struct {
 	cancel        context.CancelFunc
 	stopRequested bool
 	working       string
+	began         time.Time // when the owner registered its cancel (begin)
 	queued        []queuedMessage
 	msgSeq        uint64
 	// requestSeq is the last request id handed out (newRequest).
@@ -95,7 +97,7 @@ func (t *turnState) accept() uint64 {
 		logging.Get(logging.CategorySession).Warn("turn %d accepted while turn %d had not ended", t.seq+1, t.owner)
 	}
 	t.seq++
-	t.owner, t.cancel, t.stopRequested, t.working = t.seq, nil, false, ""
+	t.owner, t.cancel, t.stopRequested, t.working, t.began = t.seq, nil, false, "", time.Time{}
 	return t.seq
 }
 
@@ -111,7 +113,7 @@ func (t *turnState) begin(id uint64, cancel context.CancelFunc) {
 		cancel()
 		return
 	}
-	t.cancel = cancel
+	t.cancel, t.began = cancel, time.Now()
 }
 
 // end releases the slot if id still owns it.
@@ -124,7 +126,18 @@ func (t *turnState) end(id uint64) {
 	if id != t.owner {
 		return
 	}
-	t.owner, t.cancel, t.stopRequested, t.working = 0, nil, false, ""
+	t.owner, t.cancel, t.stopRequested, t.working, t.began = 0, nil, false, "", time.Time{}
+}
+
+// runningSince is the execution that owns the slot, its working label and
+// when it began; owner 0 when none runs, began zero before it started.
+func (t *turnState) runningSince() (owner uint64, label string, began time.Time) {
+	if t == nil {
+		return 0, "", time.Time{}
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.owner, t.working, t.began
 }
 
 // setWorking marks execution id as running work, described by label.
@@ -355,14 +368,20 @@ func (m Model) sideTurn(input string, request uint64) tea.Cmd {
 		}
 		var judged <-chan judgedTurn
 		judged = m.startTurnJudgments(ctx, input, history)
-		base := m.currentBrief().Render()
-		briefCtx := types.WithSessionContext(ctx, &types.SessionContext{Brief: base})
+		base := m.currentBrief()
+		// Perception reads the message with the brief and with what the
+		// running work has done, so a reply about the work is grounded.
+		briefCtx := types.WithSessionContext(ctx, &types.SessionContext{Brief: base.Render(), RunningWork: m.runningWorkReport(time.Now())})
 		intent, err := m.transducer.ParseIntentWithContext(briefCtx, input, history)
 		if err != nil {
 			return sideTurnMsg{Input: input, Err: err, Owner: owner, Slot: slot}
 		}
-		action, briefNote := m.decideSideTurn(ctx, intent, judged, owner, base)
+		action, briefNote, status := m.decideSideTurn(ctx, intent, judged, owner, base)
 		reply := strings.TrimSpace(intent.Response)
+		if action == "/status" {
+			// Answered from what the work has done, not from the model.
+			reply = status
+		}
 		// A message no model read is answered with the kernel's notice for the
 		// cause, not the compatibility response (perception_outcome.mg).
 		if stop, _ := perception.ClassificationStopFor(m.kernel, sideTurnIntentID, intent); stop != nil {
@@ -378,7 +397,10 @@ func (m Model) sideTurn(input string, request uint64) tea.Cmd {
 const sideTurnIntentID = "/side_turn"
 
 // sideTurnPredicates are the side turn's own facts, replaced each side turn.
-var sideTurnPredicates = []string{"side_turn_intent", "side_turn_judgment"}
+var sideTurnPredicates = []string{
+	"side_turn_intent", "side_turn_judgment", "side_turn_question", "side_turn_returned_brief",
+	"side_turn_brief", "side_turn_base_brief", "side_turn_brief_moved", "side_turn_work_ended",
+}
 
 // decideSideTurn asserts the side turn's reading and asks the kernel what to
 // do with it (side_turn_action, policy/side_turns.mg). No kernel, or no
@@ -386,18 +408,25 @@ var sideTurnPredicates = []string{"side_turn_intent", "side_turn_judgment"}
 //
 // Judgments are awaited first; the kernel section after that runs under
 // turnState.decide, so two side turns never read each other's facts. The
-// brief the message returned is published in the same section, and only
-// when it still applies: the execution it was typed under still runs, the
-// brief is the one the message was read against (base), and the message is
-// not deferred work (/later is read again as a full turn when it runs). The
-// returned note says why a brief was not applied.
-func (m Model) decideSideTurn(ctx context.Context, intent perception.Intent, judged <-chan judgedTurn, owner uint64, base string) (action, briefNote string) {
+// kernel also decides what the message does to the brief
+// (side_turn_brief_update): only a message that changes the task touches
+// it, and the note says why such a change was not applied. A /status
+// message gets the running work's report, measured in the same section.
+func (m Model) decideSideTurn(ctx context.Context, intent perception.Intent, judged <-chan judgedTurn, owner uint64, base *perception.Brief) (action, briefNote, status string) {
 	const converse = "/converse"
 	if m.kernel == nil {
-		return converse, ""
+		return converse, "", ""
 	}
 	log := logging.Get(logging.CategoryKernel)
 	facts := []core.Fact{{Predicate: "side_turn_intent", Args: []any{types.MangleAtom(intent.Category), types.MangleAtom(intent.Verb)}}}
+	if intent.IsQuestion {
+		facts = append(facts, core.Fact{Predicate: "side_turn_question"})
+	}
+	if intent.Brief != nil {
+		facts = append(facts, core.Fact{Predicate: "side_turn_returned_brief"})
+		facts = append(facts, briefItemFacts("side_turn_brief", intent.Brief)...)
+	}
+	facts = append(facts, briefItemFacts("side_turn_base_brief", base)...)
 	if judged != nil {
 		select {
 		case j := <-judged:
@@ -422,7 +451,15 @@ func (m Model) decideSideTurn(ctx context.Context, intent perception.Intent, jud
 	// so the running turn's row stands.
 	if err := perception.PublishClassificationOutcome(m.kernel, sideTurnIntentID, intent.Outcome); err != nil {
 		log.Error("side turn: publish classification outcome: %v", err)
-		return converse, ""
+		return converse, "", ""
+	}
+	// Measured now, under the lock: whether the work it was typed under still
+	// runs, and whether the brief moved while the message was read.
+	if owner != m.turn.current() {
+		facts = append(facts, core.Fact{Predicate: "side_turn_work_ended"})
+	}
+	if m.currentBrief().Render() != base.Render() {
+		facts = append(facts, core.Fact{Predicate: "side_turn_brief_moved"})
 	}
 	if err := config.EnsureParams(m.kernel, m.Config.TypeSafe.Params()); err != nil {
 		log.Warn("side turn: thresholds not asserted: %v", err)
@@ -436,25 +473,57 @@ func (m Model) decideSideTurn(ctx context.Context, intent perception.Intent, jud
 	}
 	if err := tx.Commit(); err != nil {
 		log.Error("side turn: assert: %v", err)
-		return converse, ""
+		return converse, "", ""
 	}
 	action = converse
 	if rows, err := m.kernel.Query("side_turn_action"); err == nil && len(rows) == 1 && len(rows[0].Args) == 1 {
 		action = types.ExtractString(rows[0].Args[0])
 	}
-
-	switch {
-	case intent.Brief == nil:
-	case action == "/later":
-		// Deferred work is read again, brief and all, when it runs.
-	case owner != m.turn.current():
-		briefNote = "The work this was about had already ended, so its change to the brief was not applied."
-	case m.currentBrief().Render() != base:
-		briefNote = "The brief changed while I read this, so this message's change to it was not applied; say it again if it still holds."
-	default:
-		m.writeBrief(intent.Brief)
+	if rows, err := m.kernel.Query("side_turn_brief_update"); err == nil && len(rows) == 1 && len(rows[0].Args) == 1 {
+		switch types.ExtractString(rows[0].Args[0]) {
+		case "/apply":
+			m.writeBrief(intent.Brief)
+		case "/conflict":
+			briefNote = "The brief changed while I read this, so this message's change to it was not applied; say it again if it still holds."
+		case "/ended":
+			briefNote = "The work this was about had already ended, so its change to the brief was not applied."
+		}
 	}
-	return action, briefNote
+	if action == "/status" {
+		status = m.runningWorkReportLocked(time.Now())
+		if status == "" {
+			status = "Nothing is running right now."
+		}
+	}
+	return action, briefNote, status
+}
+
+// briefItemFacts projects a brief as pred(Kind, Text) rows, item by item, so
+// the kernel can compare two briefs (side_turn_brief_delta).
+func briefItemFacts(pred string, b *perception.Brief) []core.Fact {
+	if b == nil {
+		return nil
+	}
+	var out []core.Fact
+	add := func(kind, text string) {
+		if text = strings.TrimSpace(text); text != "" {
+			out = append(out, core.Fact{Predicate: pred, Args: []any{types.MangleAtom(kind), text}})
+		}
+	}
+	add("/goal", b.Goal)
+	for _, c := range b.Constraints {
+		add("/constraint", c)
+	}
+	for _, d := range b.Decisions {
+		add("/decision", d)
+	}
+	for _, q := range b.OpenQuestions {
+		add("/open_question", q)
+	}
+	if b.Ready {
+		add("/ready", "true")
+	}
+	return out
 }
 
 // applySideTurn shows the side turn's reply and acts on the kernel's verdict,

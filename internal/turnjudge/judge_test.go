@@ -87,13 +87,13 @@ func TestJudge_AsksEveryQuestionAndProjectsFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	qs := (*seen)["questions"].(map[string]any)
-	for _, name := range []string{ConversationAct, ChangesFiles, NamesTarget, Hypothetical, AboutCodeNERD, WantsToStop, RulesOutChanges, AsksToCommit, ApprovesHeldWork, AddsToHeldWork, "answered_0"} {
+	for _, name := range []string{ConversationAct, ChangesFiles, NamesTarget, Hypothetical, AboutCodeNERD, WantsToStop, AsksAboutRunning, RulesOutChanges, AsksToCommit, ApprovesHeldWork, AddsToHeldWork, "answered_0"} {
 		if _, ok := qs[name]; !ok {
 			t.Errorf("question %s was not asked", name)
 		}
 	}
-	if len(qs) != 11 {
-		t.Errorf("asked %d questions, want exactly the 11 the rules read: %v", len(qs), qs)
+	if len(qs) != 12 {
+		t.Errorf("asked %d questions, want exactly the 12 the rules read: %v", len(qs), qs)
 	}
 	act := qs[ConversationAct].(map[string]any)
 	if act["type"] != "choice" || len(act["criteria"].(map[string]any)) != len(ConversationActs) {
@@ -184,6 +184,9 @@ func TestRequest_LeavesEmptyFieldsOut(t *testing.T) {
 	}
 	if _, ok := qs[WantsToStop]; ok {
 		t.Error("a stop asked with nothing running: there is nothing to stop")
+	}
+	if _, ok := qs[AsksAboutRunning]; ok {
+		t.Error("a progress question asked with nothing running")
 	}
 	_, qs, _ = Request(Input{Message: "stop", RunningWork: []string{"  ", ""}})
 	if _, ok := qs[WantsToStop]; ok {

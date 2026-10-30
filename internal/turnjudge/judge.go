@@ -131,6 +131,7 @@ func Request(in Input) (state map[string]any, questions map[string]typesafe.Ques
 	if running := nonBlank(in.RunningWork); len(running) > 0 {
 		state["running_work"] = running
 		questions[WantsToStop] = stopQuestion()
+		questions[AsksAboutRunning] = runningWorkQuestion()
 	}
 	if !in.HeldWork.empty() {
 		state["held_work"] = in.HeldWork

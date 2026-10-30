@@ -151,11 +151,11 @@ func TestSideTurn_ConcurrentDecisionsDoNotMixJudgments(t *testing.T) {
 	aDone := make(chan string, 1)
 	aCtx := &doneProbe{Context: context.Background(), reached: make(chan struct{})}
 	go func() {
-		action, _ := m.decideSideTurn(aCtx, chat, aJudged, m.turn.current(), m.currentBrief().Render())
+		action, _, _ := m.decideSideTurn(aCtx, chat, aJudged, m.turn.current(), m.currentBrief())
 		aDone <- action
 	}()
 	<-aCtx.reached // A is waiting for its judgments
-	if action, _ := m.decideSideTurn(context.Background(), chat, judged(0.97), m.turn.current(), m.currentBrief().Render()); action != "/stop" {
+	if action, _, _ := m.decideSideTurn(context.Background(), chat, judged(0.97), m.turn.current(), m.currentBrief()); action != "/stop" {
 		t.Fatalf("B = %s, want /stop", action)
 	}
 	aJudged <- (<-judged(0.01))

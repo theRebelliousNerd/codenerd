@@ -119,6 +119,9 @@ func (m Model) processInput(input string, request uint64) tea.Cmd {
 			ctx = sessionlog.WithLiveProgress(ctx, m.sendDelegatedProgress)
 		}
 		defer cancel()
+		// The agents this turn starts record their transcripts under its task
+		// id, so a side turn can say what the work has done (running_work.go).
+		ctx = sessionlog.WithTask(ctx, foregroundTask(turnID))
 		// Ctrl+X and a side turn's stop reach this turn through m.turn.
 		m.turn.begin(turnID, cancel)
 

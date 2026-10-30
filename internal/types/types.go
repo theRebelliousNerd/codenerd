@@ -451,6 +451,7 @@ type SessionContext struct {
 	ExtraContext      map[string]string // Additional context key-values
 	Ambient           *AmbientContext   // Current ambient IDE context (cursor, selection, etc.)
 	Brief             string            // The running brief, rendered (perception.Brief.Render); perception returns it updated
+	RunningWork       string            // What the running work has done, as the harness measured it (chat side turns); perception answers questions about the work from it
 
 	// ==========================================================================
 	// DREAM MODE (Simulation/Learning)

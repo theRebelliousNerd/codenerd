@@ -21,6 +21,7 @@ const (
 	Hypothetical     = "hypothetical"
 	AboutCodeNERD    = "about_codenerd"
 	WantsToStop      = "wants_to_stop"
+	AsksAboutRunning = "asks_about_running_work"
 	RulesOutChanges  = "rules_out_changes"
 	AsksToCommit     = "asks_to_commit"
 	ApprovesHeldWork = "approves_held_work"
@@ -132,6 +133,19 @@ func stopQuestion() typesafe.Question {
 		Criteria: &typesafe.NoulCriteria{
 			True:  "The user says stop, cancel, abort, hold on, or never mind about the running work.",
 			False: "The user asks for something new, answers a question, or comments without asking for the work to stop.",
+		},
+	}
+}
+
+// runningWorkQuestion is asked only while work runs, beside stopQuestion: a
+// question about how the work is going is answered from what it has done
+// (side_turns.mg /status), and must not be read as a change to it.
+func runningWorkQuestion() typesafe.Question {
+	return typesafe.Noul{
+		Instructions: "Is the user asking how `running_work` is going?",
+		Criteria: &typesafe.NoulCriteria{
+			True:  "The user asks for progress or status: how it is going, what it is doing now, how far along it is, how long it will take, or whether it is stuck.",
+			False: "The user asks for something new, changes or adds to the work, tells it to stop, or asks about something other than the running work.",
 		},
 	}
 }
