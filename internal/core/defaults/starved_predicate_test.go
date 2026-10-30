@@ -184,8 +184,14 @@ func goStringLiterals(t *testing.T, root string) (all, registered, asserts map[s
 				return nil
 			}
 			src := string(data)
-			for _, m := range starvedGoRe.FindAllStringSubmatch(src, -1) {
-				out[m[1]] = struct{}{}
+			// The shard manifest names a predicate to say where its facts
+			// live, not that anything produces them. Counting it let a
+			// predicate nothing writes look produced the moment someone homed
+			// it, and kept 77 starved predicates off this list.
+			if !isShardManifest(path) {
+				for _, m := range starvedGoRe.FindAllStringSubmatch(src, -1) {
+					out[m[1]] = struct{}{}
+				}
 			}
 			for _, m := range starvedAssertStringRe.FindAllStringSubmatch(src, -1) {
 				out[m[1]] = struct{}{}
@@ -207,6 +213,11 @@ func goStringLiterals(t *testing.T, root string) (all, registered, asserts map[s
 		}
 	}
 	return out, registered, asserts
+}
+
+// isShardManifest reports the shard predicate manifest: a routing table.
+func isShardManifest(path string) bool {
+	return strings.HasSuffix(filepath.ToSlash(path), "internal/shards/registration.go")
 }
 
 // goProduces reports whether pred's presence in Go is evidence that something
@@ -279,12 +290,8 @@ func TestStarvedPredicateBudget(t *testing.T) {
 			starvedBaselinePath, err)
 	}
 	baseline := make(map[string]struct{})
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		baseline[line] = struct{}{}
+	for name := range parseStarvedBaseline(string(data)) {
+		baseline[name] = struct{}{}
 	}
 
 	currentSet := make(map[string]struct{}, len(current))
@@ -332,9 +339,30 @@ Baseline: %s`,
 	}
 }
 
-// writeStarvedBaseline rewrites the inventory, header included.
+// parseStarvedBaseline reads the inventory: one predicate per line, optionally
+// followed by "# reason" (why nothing produces it, and who would). It returns
+// each name with its reason ("" when none was given).
+func parseStarvedBaseline(data string) map[string]string {
+	out := make(map[string]string)
+	for _, line := range strings.Split(data, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		name, reason, _ := strings.Cut(line, "#")
+		out[strings.TrimSpace(name)] = strings.TrimSpace(reason)
+	}
+	return out
+}
+
+// writeStarvedBaseline rewrites the inventory, header included. A predicate that
+// stays on the list keeps the reason the file gave it.
 func writeStarvedBaseline(t *testing.T, predicates []string) {
 	t.Helper()
+	reasons := map[string]string{}
+	if old, err := os.ReadFile(starvedBaselinePath); err == nil {
+		reasons = parseStarvedBaseline(string(old))
+	}
 	const header = `# Starved predicates — declared, read by a rule body, produced by nothing.
 #
 # Regenerate: CODENERD_UPDATE_STARVED=1 go test ./internal/core/defaults/ -run TestStarvedPredicateBudget
@@ -348,8 +376,40 @@ func writeStarvedBaseline(t *testing.T, predicates []string) {
 # instance found in the 2026-09 audit turned out to be.
 
 `
-	body := header + strings.Join(predicates, "\n") + "\n"
+	var lines []string
+	for _, name := range predicates {
+		if reason := reasons[name]; reason != "" {
+			name += "  # " + reason
+		}
+		lines = append(lines, name)
+	}
+	body := header + strings.Join(lines, "\n") + "\n"
 	if err := os.WriteFile(starvedBaselinePath, []byte(body), 0o644); err != nil {
 		t.Fatalf("write %s: %v", starvedBaselinePath, err)
+	}
+}
+
+// The manifest's OwnedPredicates are a routing table: a name that appears only
+// there is homed, not produced.
+func TestGoStringLiterals_ShardManifestIsNotAProducer(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("internal/shards/registration.go", "package shards\nvar owned = []string{\"only_homed\", \"also_asserted\"}\n")
+	write("internal/world/scan.go", "package world\nvar f = Fact{Predicate: \"also_asserted\"}\n")
+	all, _, _ := goStringLiterals(t, root)
+	if _, ok := all["only_homed"]; ok {
+		t.Error("a predicate named only in the shard manifest counts as produced")
+	}
+	if _, ok := all["also_asserted"]; !ok {
+		t.Error("control: a predicate another file asserts must still count as produced")
 	}
 }

@@ -189,6 +189,10 @@ split_for_real(X) :- alpha_fact(X), beta_fact(X).
 via_dead(X) :- never(X).
 downstream(X) :- alpha_fact(X), via_dead(X).
 live(X) :- alpha_fact(X).
+# A recursive rule whose only base case is starved has no row to start from.
+Decl walk(X, Y).
+walk(X, Y) :- never(X), alpha_fact(Y).
+walk(X, Z) :- walk(X, Y), alpha_fact(Z).
 `
 	owners := map[string]string{"alpha_fact": "alpha", "beta_fact": "beta"}
 	plain, err := BuildDerivationMapWithConsumerRoutes(policy, nil, owners, nil, nil, "cortex")
@@ -212,7 +216,7 @@ live(X) :- alpha_fact(X).
 		t.Errorf("via_dead has only dead rules, so it is starved and present everywhere: %+v", audit.Presence["via_dead"])
 	}
 	for _, r := range audit.Rules {
-		if r.Head == "downstream" || r.Head == "via_dead" || r.Head == "split_on_a_starved_input" {
+		if r.Head == "downstream" || r.Head == "via_dead" || r.Head == "split_on_a_starved_input" || r.Head == "walk" {
 			t.Errorf("dead rule %s survived: %+v", r.Head, r)
 		}
 	}

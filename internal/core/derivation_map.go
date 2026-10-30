@@ -422,56 +422,84 @@ func (b *derivationBuilder) parse(policyText string, programFacts map[string]str
 	return nil
 }
 
-// dropDeadRules removes the rules that can never fire because a positive premise
-// is starved, to a fixpoint: a predicate whose rules are all dead, with no
-// program fact, owner or shared copy to supply rows, is starved in its turn.
-// Starved predicates join the program predicates (present and complete
-// everywhere: there is nothing to be missing).
+// dropDeadRules removes the rules that can never fire. Starved predicates have
+// no rows. A predicate can produce rows if it is a base predicate that is not
+// starved, or the head of a rule whose positive premises can all produce rows
+// (a least fixpoint, so a recursive rule with no live base case is dead too).
+// A rule with a premise that cannot is dropped, and a derived predicate no rule
+// of which can fire is starved in its turn. Starved predicates join the program
+// predicates: present and complete everywhere, since there is nothing to miss.
 func (b *derivationBuilder) dropDeadRules(starved map[string]struct{}) {
 	if len(starved) == 0 {
 		return
 	}
+	heads := make(map[string]struct{}, len(b.rules))
+	for _, r := range b.rules {
+		heads[r.head] = struct{}{}
+	}
+	// A head Go or the program also fills has rows of its own.
+	supplied := func(p string) bool {
+		if _, ok := b.programEDB[p]; ok {
+			return true
+		}
+		if _, ok := b.owners[p]; ok {
+			return true
+		}
+		_, ok := b.shared[p]
+		return ok
+	}
+	producing := make(map[string]bool)
+	canProduce := func(p string) bool {
+		if _, dead := starved[p]; dead {
+			return false
+		}
+		if _, derived := heads[p]; !derived {
+			return true
+		}
+		return producing[p] || supplied(p)
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, r := range b.rules {
+			if producing[r.head] {
+				continue
+			}
+			ok := true
+			for _, q := range r.pos {
+				if !canProduce(q) {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				producing[r.head] = true
+				changed = true
+			}
+		}
+	}
+	live := b.rules[:0:0]
 	dead := make(map[string]struct{}, len(starved))
 	for p := range starved {
 		dead[p] = struct{}{}
 	}
-	for changed := true; changed; {
-		changed = false
-		live := b.rules[:0:0]
-		liveHeads := map[string]struct{}{}
-		allHeads := map[string]struct{}{}
-		for _, r := range b.rules {
-			allHeads[r.head] = struct{}{}
-			isDead := false
-			for _, p := range r.pos {
-				if _, ok := dead[p]; ok {
-					isDead = true
-					break
-				}
+	for _, r := range b.rules {
+		fires := true
+		for _, q := range r.pos {
+			if !canProduce(q) {
+				fires = false
+				break
 			}
-			if isDead {
-				continue
-			}
+		}
+		if fires {
 			live = append(live, r)
-			liveHeads[r.head] = struct{}{}
 		}
-		for h := range allHeads {
-			if _, ok := liveHeads[h]; ok {
-				continue
-			}
-			if _, ok := dead[h]; ok {
-				continue
-			}
-			_, prog := b.programEDB[h]
-			_, owned := b.owners[h]
-			_, shared := b.shared[h]
-			if !prog && !owned && !shared {
-				dead[h] = struct{}{}
-				changed = true
-			}
-		}
-		b.rules = live
 	}
+	for h := range heads {
+		if !canProduce(h) {
+			dead[h] = struct{}{}
+		}
+	}
+	b.rules = live
 	for p := range dead {
 		b.programEDB[p] = struct{}{}
 	}

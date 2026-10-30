@@ -109,11 +109,10 @@ func starvedPredicates(t *testing.T) map[string]struct{} {
 	}
 	out := map[string]struct{}{}
 	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+		name, _, _ := strings.Cut(line, "#")
+		if name = strings.TrimSpace(name); name != "" {
+			out[name] = struct{}{}
 		}
-		out[line] = struct{}{}
 	}
 	if len(out) < 20 {
 		t.Fatalf("read %d starved predicates; the inventory moved", len(out))

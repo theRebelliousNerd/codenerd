@@ -12,28 +12,10 @@
     "reason": "override path, architect's call"
   },
   {
-    "clause": "quality_violation_detected(TaskID,/no_error_handling) :- campaign_task(TaskID,_,_,/completed,/file_create), quality_violation(TaskID,/missing_errors), task_artifact(TaskID,/source_file,Path,_), file_topology(Path,_,/go,_,_).",
-    "file": "campaign_rules.mg",
-    "head": "quality_violation_detected",
-    "reason": "needs restructure"
-  },
-  {
     "clause": "coder_quality_mode(/normal) :- !in_campaign_context().",
     "file": "coder_campaign.mg",
     "head": "coder_quality_mode",
     "reason": "no positive anchor"
-  },
-  {
-    "clause": "final_context_include(File) :- include_in_context(File), !exclude_from_context(File).",
-    "file": "coder_context.mg",
-    "head": "final_context_include",
-    "reason": "documents never excluded"
-  },
-  {
-    "clause": "final_context_include(File) :- include_in_context(File), !exclude_from_context(File).",
-    "file": "coder_workflow.mg",
-    "head": "final_context_include",
-    "reason": "documents never excluded"
   },
   {
     "clause": "coder_quality_mode(/normal) :- !in_campaign_context().",
