@@ -72,12 +72,24 @@ type LearningCandidateStore interface {
 // recordMappingCandidate stages a mapping a shard saw with no critic fact.
 // Its proposal is the mapping with no qualifier at confidence 0.90, written
 // as the fact now, at proposal time, so confirming it learns exactly that.
-func recordMappingCandidate(store LearningCandidateStore, phrase, verb, target, reason string) (int, error) {
+// It returns the fact too: the shard asserts it as learning_candidate_fact
+// beside learning_candidate, which is what an inline confirmation persists.
+func recordMappingCandidate(store LearningCandidateStore, phrase, verb, target, reason string) (int, string, error) {
 	fact, err := perception.FormatLearnedFact(phrase, verb, target, "", 0.90)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
-	return store.RecordLearningCandidate(phrase, verb, target, reason, fact)
+	count, err := store.RecordLearningCandidate(phrase, verb, target, reason, fact)
+	return count, fact, err
+}
+
+// learningCandidateFacts are the kernel facts that put a staged candidate up
+// for confirmation: the mapping, and the proposal confirming it persists.
+func learningCandidateFacts(phrase, verb, target, reason, fact string) []types.Fact {
+	return []types.Fact{
+		{Predicate: "learning_candidate", Args: []any{phrase, types.MangleAtom(verb), target, types.MangleAtom(reason)}},
+		{Predicate: "learning_candidate_fact", Args: []any{phrase, types.MangleAtom(verb), target, types.MangleAtom(reason), fact}},
+	}
 }
 
 // PerceptionFirewallShard transduces user input to structured atoms.
@@ -389,12 +401,12 @@ func (p *PerceptionFirewallShard) classifyVerbMapping(verb string) (bool, string
 	return true, ""
 }
 
-func (p *PerceptionFirewallShard) recordLearningCandidate(phrase, verb, target, reason string) (int, error) {
+func (p *PerceptionFirewallShard) recordLearningCandidate(phrase, verb, target, reason string) (int, string, error) {
 	p.mu.RLock()
 	store := p.candidateStore
 	p.mu.RUnlock()
 	if store == nil || strings.TrimSpace(phrase) == "" {
-		return 0, nil
+		return 0, "", nil
 	}
 	return recordMappingCandidate(store, phrase, verb, target, reason)
 }
@@ -616,7 +628,7 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 		if intent.Confidence > 0.4 {
 			intent.Confidence = 0.4
 		}
-		if count, err := p.recordLearningCandidate(phrase, intent.Verb, intent.Target, mapReason); err != nil {
+		if count, fact, err := p.recordLearningCandidate(phrase, intent.Verb, intent.Target, mapReason); err != nil {
 			logging.SystemShardsDebug("[PerceptionFirewall] Failed to record learning candidate: %v", err)
 		} else if p.config.LearningCandidateThreshold > 0 {
 			if p.Kernel != nil {
@@ -636,16 +648,8 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 					Args:      []any{phrase, count},
 				})
 			}
-			if count >= p.config.LearningCandidateThreshold {
-				_ = p.Kernel.Assert(types.Fact{
-					Predicate: "learning_candidate",
-					Args: []any{
-						phrase,
-						types.MangleAtom(intent.Verb),
-						intent.Target,
-						types.MangleAtom(mapReason),
-					},
-				})
+			if count >= p.config.LearningCandidateThreshold && fact != "" {
+				_ = p.Kernel.AssertBatch(learningCandidateFacts(phrase, intent.Verb, intent.Target, mapReason, fact))
 			}
 		}
 	}

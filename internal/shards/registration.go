@@ -750,6 +750,21 @@ type shardFactoryRegistrar struct {
 	ctx RegistryContext
 }
 
+// learningCandidateStore is where the executive and the perception firewall
+// stage learning candidates: the workspace's local store, which /learn lists
+// and confirms from. Nothing used to wire it, so every candidate those
+// shards staged was dropped. nil without a local store.
+func (r *shardFactoryRegistrar) learningCandidateStore() system.LearningCandidateStore {
+	if r.ctx.VirtualStore == nil {
+		return nil
+	}
+	db := r.ctx.VirtualStore.GetLocalDB()
+	if db == nil {
+		return nil
+	}
+	return db
+}
+
 func (r *shardFactoryRegistrar) getLearningStore() core.LearningStore {
 	if r.ctx.VirtualStore != nil {
 		ls := r.ctx.VirtualStore.GetLearningStore()
@@ -812,6 +827,9 @@ func (r *shardFactoryRegistrar) registerSystemShards() {
 	r.sm.RegisterShard("perception_firewall", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := system.NewPerceptionFirewallShard()
 		shard.SetParentKernel(r.ctx.Kernel)
+		if candidates := r.learningCandidateStore(); candidates != nil {
+			shard.SetLearningCandidateStore(candidates)
+		}
 		shard.SetLLMClient(r.ctx.LLMClient)
 		shard.SetVirtualStore(r.ctx.VirtualStore)    // FIX: Enable .gitignore/safety rules access
 		shard.SetLearningStore(r.getLearningStore()) // FIX: Enable learning persistence
@@ -838,6 +856,9 @@ func (r *shardFactoryRegistrar) registerLogicShards() {
 	r.sm.RegisterShard("executive_policy", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := system.NewExecutivePolicyShard()
 		shard.SetParentKernel(r.ctx.Kernel)
+		if candidates := r.learningCandidateStore(); candidates != nil {
+			shard.SetLearningCandidateStore(candidates)
+		}
 		shard.SetVirtualStore(r.ctx.VirtualStore)
 		shard.SetLLMClient(r.ctx.LLMClient)
 		shard.SetLearningStore(r.getLearningStore()) // FIX: Enable strategy pattern learning

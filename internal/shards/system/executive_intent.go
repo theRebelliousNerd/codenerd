@@ -189,7 +189,7 @@ func (e *ExecutivePolicyShard) recordNoActionCandidate(intent *userIntentSnapsho
 		target = ""
 	}
 
-	count, err := recordMappingCandidate(store, phrase, verb, target, reason)
+	count, fact, err := recordMappingCandidate(store, phrase, verb, target, reason)
 	if err != nil {
 		logging.SystemShardsDebug("[ExecutivePolicy] Failed to record learning candidate: %v", err)
 		return
@@ -214,15 +214,7 @@ func (e *ExecutivePolicyShard) recordNoActionCandidate(intent *userIntentSnapsho
 	})
 
 	if count >= threshold {
-		_ = e.Kernel.Assert(types.Fact{
-			Predicate: "learning_candidate",
-			Args: []any{
-				phrase,
-				types.MangleAtom(verb),
-				target,
-				types.MangleAtom(reason),
-			},
-		})
+		_ = e.Kernel.AssertBatch(learningCandidateFacts(phrase, verb, target, reason, fact))
 	}
 }
 
