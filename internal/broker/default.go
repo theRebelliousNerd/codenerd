@@ -1,6 +1,9 @@
 package broker
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -128,6 +131,23 @@ func DetachExtraSink(installed ReceiptSink) (bool, error) {
 		return false, nil
 	}
 	return true, m.setExtraSinkLocked(nil)
+}
+
+// DrainAndDetachExtraSink waits for every admitted call to settle its
+// receipt (Drain), then detaches installed as DetachExtraSink does. A
+// shutdown that detached first closed the receipt log under calls still
+// settling -- a stream its consumer walked away from settles after its
+// channels close -- and a closed sink drops their receipts silently. When ctx
+// ends first the sink is detached all the same (the shutdown proceeds) and
+// the error says how many calls' receipts were not recorded.
+func DrainAndDetachExtraSink(ctx context.Context, installed ReceiptSink) (bool, error) {
+	drainErr := Drain(ctx)
+	pending := Pending()
+	detached, detachErr := DetachExtraSink(installed)
+	if drainErr != nil {
+		drainErr = fmt.Errorf("%d metered call(s) still settling at shutdown; their receipts are not in the log: %w", pending, drainErr)
+	}
+	return detached, errors.Join(drainErr, detachErr)
 }
 
 // setExtraSinkLocked swaps the extra sink. The caller holds m.mu.

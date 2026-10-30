@@ -289,8 +289,13 @@ func (c *Cortex) Close() error {
 	// records silently, so that second agent would go on working with its
 	// metering switched off and nothing anywhere to say so.
 	if c.meterSink != nil {
-		if err := runCloseStep("Broker.DetachExtraSink", closeStepTimeout, func() error {
-			_, detachErr := broker.DetachExtraSink(c.meterSink)
+		// Drained first: a call still settling (a stream its consumer left)
+		// records its receipt after its channels close, and a detached,
+		// closed log would drop it silently.
+		if err := runCloseStep("Broker.DrainAndDetachExtraSink", closeStepTimeout+time.Second, func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), closeStepTimeout)
+			defer cancel()
+			_, detachErr := broker.DrainAndDetachExtraSink(ctx, c.meterSink)
 			return detachErr
 		}); err != nil {
 			errs = append(errs, err)
