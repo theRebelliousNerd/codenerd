@@ -338,6 +338,8 @@ func (c *JITPromptCompiler) compileMiss(ctx context.Context, in missInput) (any,
 	if err != nil {
 		return nil, err
 	}
+	// The prompt completed: what it carries becomes the task's carry.
+	c.selector.publishCarry(cc, fitted)
 
 	stats.Duration = time.Since(compileStart) + in.preflight
 

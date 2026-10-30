@@ -281,7 +281,8 @@ func TestCarry_RememberedInPromptOrderAndRejoinsThePool(t *testing.T) {
 	s := NewAtomSelector()
 	cc := relevanceContext()
 	mk := func(id string) *ScoredAtom { return &ScoredAtom{Atom: &PromptAtom{ID: id}} }
-	s.rememberCarry(cc, []*ScoredAtom{mk("z/new"), mk("b/kept"), mk("a/new"), mk("c/kept")}, map[string]int{"c/kept": 0, "b/kept": 1})
+	s.stageCarry(cc, []*ScoredAtom{mk("z/new"), mk("b/kept"), mk("a/new"), mk("c/kept")}, map[string]int{"c/kept": 0, "b/kept": 1})
+	s.publishCarry(cc, orderedOf("z/new", "b/kept", "a/new", "c/kept"))
 	if got := strings.Join(s.carry.get(carryKey(cc)), ","); got != "c/kept,b/kept,a/new,z/new" {
 		t.Fatalf("carried order = %s", got)
 	}
@@ -300,6 +301,48 @@ func TestCarry_RememberedInPromptOrderAndRejoinsThePool(t *testing.T) {
 	}
 	if _, ok := pool["flesh/11"]; !ok {
 		t.Fatal("a carried atom did not rejoin the recall pool")
+	}
+}
+
+func orderedOf(ids ...string) []*OrderedAtom {
+	out := make([]*OrderedAtom, 0, len(ids))
+	for i, id := range ids {
+		out = append(out, &OrderedAtom{Atom: &PromptAtom{ID: id}, Order: i})
+	}
+	return out
+}
+
+// Carry is prefix memory: only what a completed prompt included is carried.
+// An atom selected but shed by the token budget was carried before, kept
+// its carried priority and judgment cost on every later turn, and the carry
+// could grow past the relevance pool toward the eligible corpus. A compile
+// that failed after selection published nothing, and an older selection
+// completing late does not overwrite a newer one.
+func TestCarry_OnlyACompletedPromptPublishesWhatItIncluded(t *testing.T) {
+	s := NewAtomSelector()
+	mk := func(id string) *ScoredAtom { return &ScoredAtom{Atom: &PromptAtom{ID: id}} }
+
+	first := relevanceContext()
+	s.stageCarry(first, []*ScoredAtom{mk("a/fits"), mk("b/shed")}, nil)
+	s.publishCarry(first, orderedOf("identity/core", "a/fits"))
+	if got := strings.Join(s.carry.get(carryKey(first)), ","); got != "a/fits" {
+		t.Fatalf("carry = %q; the atom the budget shed must not be carried", got)
+	}
+
+	failed := relevanceContext()
+	s.stageCarry(failed, []*ScoredAtom{mk("c/selected-then-failed")}, nil)
+	// No publish: the compile failed after selection.
+	if got := strings.Join(s.carry.get(carryKey(failed)), ","); got != "a/fits" {
+		t.Fatalf("a compile that never completed changed the carry to %q", got)
+	}
+
+	older, newer := relevanceContext(), relevanceContext()
+	s.stageCarry(older, []*ScoredAtom{mk("old/x")}, nil)
+	s.stageCarry(newer, []*ScoredAtom{mk("new/y")}, nil)
+	s.publishCarry(newer, orderedOf("new/y"))
+	s.publishCarry(older, orderedOf("old/x"))
+	if got := strings.Join(s.carry.get(carryKey(newer)), ","); got != "new/y" {
+		t.Fatalf("carry = %q; an older selection completing late overwrote the newer one", got)
 	}
 }
 

@@ -205,6 +205,10 @@ type CompilationContext struct {
 	// snapshot captured at selection start.
 	selectorVectorConfig *selectorVectorConfig
 
+	// stagedCarry is the carry this compile's selection staged; the compiler
+	// publishes it when the prompt completes (AtomSelector.publishCarry).
+	stagedCarry *carryStage
+
 	// =========================================================================
 	// External References (opaque to avoid circular imports)
 	// =========================================================================
