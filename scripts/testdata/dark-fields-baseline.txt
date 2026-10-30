@@ -26,7 +26,6 @@ IntegrationPath.InputArity	internal/core/integration_path.go:10
 IntegrationPath.OutputArity	internal/core/integration_path.go:12
 InteractiveConfig.PromptTimeout	internal/init/interactive.go:69
 KernelShardConfig.ManglePath	internal/core/kernel_shard.go:55
-LogicPane.ScrollOffset	cmd/nerd/ui/splitpane.go:84
 MangleUpdatePolicy.AllowedPrefixes	internal/core/mangle_updates.go:15
 MeterConfig.PrimaryModel	internal/broker/default.go:66
 MeterConfig.ReceiptBuffer	internal/broker/default.go:57

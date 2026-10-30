@@ -81,7 +81,6 @@ type LogicPane struct {
 	SelectedNode   int
 	Nodes          []*DerivationNode // Flattened list for navigation (filtered)
 	AllNodes       []*DerivationNode // Unfiltered node list
-	ScrollOffset   int
 
 	// Activation threshold filter - nodes below this threshold are hidden
 	ActivationThreshold float64
@@ -442,7 +441,6 @@ func (p *LogicPane) renderContent() string {
 			p.ShowActivation,
 			p.ActivationThreshold,
 			p.SelectedNode,
-			p.ScrollOffset,
 			p.SearchQuery, // Include filter parameters in cache key
 			p.FilterSource,
 		}
