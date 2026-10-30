@@ -831,45 +831,6 @@ func TestNormalizeLearnedFact_WhenMalformed_ShouldReturnOriginal(t *testing.T) {
 }
 
 // =============================================================================
-// SPLIT LEARNED FACT ARGS TESTS
-// =============================================================================
-
-func TestSplitLearnedFactArgs_WhenCommasInQuotes_ShouldNotSplit(t *testing.T) {
-	t.Parallel()
-
-	input := `"hello, world", /fix, "target", "a, b, c", 0.9`
-	parts := splitLearnedFactArgs(input)
-	if len(parts) != 5 {
-		t.Fatalf("expected 5 parts, got %d: %v", len(parts), parts)
-	}
-	if parts[0] != `"hello, world"` {
-		t.Errorf("parts[0] = %q, want %q", parts[0], `"hello, world"`)
-	}
-	if parts[3] != `"a, b, c"` {
-		t.Errorf("parts[3] = %q, want %q", parts[3], `"a, b, c"`)
-	}
-}
-
-func TestSplitLearnedFactArgs_WhenEscapedQuotes_ShouldHandleCorrectly(t *testing.T) {
-	t.Parallel()
-
-	input := `"hello \"world\"", /fix, "target", "constraint", 0.9`
-	parts := splitLearnedFactArgs(input)
-	if len(parts) != 5 {
-		t.Fatalf("expected 5 parts, got %d: %v", len(parts), parts)
-	}
-}
-
-func TestSplitLearnedFactArgs_WhenEmpty_ShouldReturnEmpty(t *testing.T) {
-	t.Parallel()
-
-	parts := splitLearnedFactArgs("")
-	if len(parts) != 0 {
-		t.Errorf("expected 0 parts, got %d", len(parts))
-	}
-}
-
-// =============================================================================
 // NORMALIZE LEARNED FACT (normalizeLearnedFact) TESTS
 // =============================================================================
 

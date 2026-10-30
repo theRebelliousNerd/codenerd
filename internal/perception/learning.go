@@ -12,7 +12,11 @@ import (
 	"codenerd/internal/broker"
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/mangle"
 	"codenerd/internal/types"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/symbols"
 )
 
 // learnedPatternContext bounds the semantic projection of one learned pattern
@@ -329,7 +333,7 @@ func (t *TaxonomyEngine) PersistLearnedFact(ctx context.Context, fact string) (P
 
 	// 0. Normalize the fact to use integer confidence (0-100)
 	// LLM outputs use float (0.0-1.0), but Mangle rules expect integers for comparisons like "Conf > 80"
-	normalizedFact, err := NormalizeLearnedFact(fact)
+	exemplar, err := parseLearnedExemplar(fact)
 	if err != nil {
 		// Normalization RECONSTRUCTS the fact from parsed components, which is
 		// what makes the hot-load below safe. A critic payload that fails to
@@ -338,6 +342,7 @@ func (t *TaxonomyEngine) PersistLearnedFact(ctx context.Context, fact string) (P
 		logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: refusing unparseable fact: %v", err)
 		return outcome, fmt.Errorf("refusing to persist unparseable learned fact: %w", err)
 	}
+	normalizedFact := exemplar.source()
 	logging.PerceptionDebug("PersistLearnedFact: normalized fact: %s", normalizedFact)
 
 	// 1. Add to running engine immediately (Hot Fix)
@@ -371,14 +376,8 @@ func (t *TaxonomyEngine) PersistLearnedFact(ctx context.Context, fact string) (P
 	outcome.File = ProjectionInstalled
 	logging.Perception("PersistLearnedFact: successfully persisted to %s", path)
 
-	// 3. Parse the original (float confidence) for the derived projections.
-	pat, v, tgt, cons, conf, parseErr := ParseLearnedFact(fact)
-	if parseErr != nil {
-		logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to parse fact for projections: %v", parseErr)
-		outcome.Knowledge, outcome.Semantic = ProjectionFailed, ProjectionFailed
-		outcome.KnowledgeErr, outcome.SemanticErr = parseErr, parseErr
-		return outcome, nil
-	}
+	// 3. The derived projections, from the same descriptor (float confidence).
+	pat, v, tgt, cons, conf := exemplar.Pattern, exemplar.Verb, exemplar.Target, exemplar.Constraint, exemplar.Confidence
 
 	// 3a. Knowledge graph row.
 	switch {
@@ -432,82 +431,137 @@ func appendLearnedFactFile(path, fact string) (err error) {
 	return nil
 }
 
-// ParseLearnedFact extracts components from a learned_exemplar fact string.
-// Format: learned_exemplar("Pattern", /verb, "target", "constraint", Confidence).
-func ParseLearnedFact(fact string) (pattern, verb, target, constraint string, confidence float64, err error) {
-	logging.PerceptionDebug("ParseLearnedFact: parsing fact: %s", fact)
-
-	// learned_exemplar("Pattern", /verb, "Target", "Constraint", 0.95).
-	// Strip outer
-	s := strings.TrimSpace(fact)
-	if !strings.HasPrefix(s, "learned_exemplar(") {
-		logging.PerceptionDebug("ParseLearnedFact: invalid predicate (missing learned_exemplar prefix)")
-		return "", "", "", "", 0, fmt.Errorf("invalid predicate")
-	}
-	s = strings.TrimPrefix(s, "learned_exemplar(")
-	s = strings.TrimSuffix(s, ".")
-	s = strings.TrimSuffix(s, ")")
-
-	parts := splitLearnedFactArgs(s)
-	if len(parts) != 5 {
-		logging.PerceptionDebug("ParseLearnedFact: wrong number of args (expected 5, got %d)", len(parts))
-		return "", "", "", "", 0, fmt.Errorf("expected 5 args, got %d", len(parts))
-	}
-
-	// Helper to clean quotes
-	clean := func(in string) string {
-		trimmed := strings.TrimSpace(in)
-		trimmed = strings.TrimPrefix(trimmed, "\"")
-		trimmed = strings.TrimSuffix(trimmed, "\"")
-		trimmed = strings.ReplaceAll(trimmed, `\"`, `"`)
-		return trimmed
-	}
-
-	pattern = clean(parts[0])
-	verb = strings.TrimSpace(parts[1])
-	target = clean(parts[2])
-	constraint = clean(parts[3])
-
-	// Full-match the confidence: bare %f would accept "0.99). rogue_clause."
-	// and silently drop the trailing junk, laundering a multi-clause payload
-	// into a clean parse. Anything after the number is a refusal.
-	var rest string
-	if n, _ := fmt.Sscanf(strings.TrimSpace(parts[4]), "%f%s", &confidence, &rest); n < 1 || rest != "" {
-		logging.PerceptionDebug("ParseLearnedFact: malformed confidence %q", parts[4])
-		return "", "", "", "", 0, fmt.Errorf("malformed confidence %q", strings.TrimSpace(parts[4]))
-	}
-
-	logging.PerceptionDebug("ParseLearnedFact: parsed - pattern=%q, verb=%s, target=%q, constraint=%q, confidence=%.2f",
-		pattern, verb, target, constraint, confidence)
-	return pattern, verb, target, constraint, confidence, nil
+// learnedExemplar is one learned_exemplar fact as typed values: the
+// descriptor the hot-load source, the taxonomy file and the projections are
+// all derived from.
+type learnedExemplar struct {
+	Pattern, Verb, Target, Constraint string
+	Confidence                        float64
 }
 
-// NormalizeLearnedFact converts a learned_exemplar fact to use integer confidence (0-100).
-// LLM outputs often use float confidence (0.0-1.0), but Mangle rules expect integers.
-// This function parses the fact, converts the confidence, and reconstructs it.
-func NormalizeLearnedFact(fact string) (string, error) {
-	logging.PerceptionDebug("NormalizeLearnedFact: normalizing fact: %s", fact)
+// parseLearnedExemplar reads exactly one ground
+// learned_exemplar("Pattern", /verb, "Target", "Constraint", Confidence)
+// through the serialized Mangle parser: strings are Mangle string constants,
+// the verb a name constant, the confidence a number. Anything else -- a
+// second clause, a rule, a variable, another type, an unfinished literal --
+// is refused.
+//
+// The bespoke parser this replaced split on commas, stripped the field
+// quotes and decoded \" to ", and the normalizer pasted the decoded text
+// back between quotes: a correction whose text held an escaped quote became
+// malformed source and was refused, or read as different text (audit
+// learned-example-literal-fidelity).
+func parseLearnedExemplar(fact string) (learnedExemplar, error) {
+	src := strings.TrimSpace(fact)
+	if !strings.HasPrefix(src, "learned_exemplar(") {
+		return learnedExemplar{}, fmt.Errorf("invalid predicate")
+	}
+	if !strings.HasSuffix(src, ".") {
+		src += "."
+	}
+	unit, err := mangle.ParseUnit(strings.NewReader(src))
+	if err != nil {
+		return learnedExemplar{}, fmt.Errorf("not one Mangle fact: %w", err)
+	}
+	// The parser adds the unit's implicit Package declaration; any other is
+	// source the fact must not carry.
+	decls := 0
+	for _, d := range unit.Decls {
+		if d.DeclaredAtom.Predicate != symbols.Package {
+			decls++
+		}
+	}
+	if decls > 0 || len(unit.Clauses) != 1 {
+		return learnedExemplar{}, fmt.Errorf("want exactly one learned_exemplar fact, got %d clause(s) and %d declaration(s)", len(unit.Clauses), decls)
+	}
+	clause := unit.Clauses[0]
+	if len(clause.Premises) > 0 || clause.Transform != nil {
+		return learnedExemplar{}, fmt.Errorf("learned_exemplar must be a fact, not a rule")
+	}
+	if clause.Head.Predicate.Symbol != "learned_exemplar" {
+		return learnedExemplar{}, fmt.Errorf("invalid predicate %s", clause.Head.Predicate.Symbol)
+	}
+	args := clause.Head.Args
+	if len(args) != 5 {
+		return learnedExemplar{}, fmt.Errorf("expected 5 args, got %d", len(args))
+	}
+	constant := func(i int, want ast.ConstantType, what string) (ast.Constant, error) {
+		c, ok := args[i].(ast.Constant)
+		if !ok || c.Type != want {
+			return ast.Constant{}, fmt.Errorf("argument %d must be %s, got %v", i+1, what, args[i])
+		}
+		return c, nil
+	}
+	var e learnedExemplar
+	for i, dst := range map[int]*string{0: &e.Pattern, 2: &e.Target, 3: &e.Constraint} {
+		c, err := constant(i, ast.StringType, "a string")
+		if err != nil {
+			return learnedExemplar{}, err
+		}
+		*dst = c.Symbol
+	}
+	verb, err := constant(1, ast.NameType, "a /verb name")
+	if err != nil {
+		return learnedExemplar{}, err
+	}
+	e.Verb = verb.Symbol
+	conf, ok := args[4].(ast.Constant)
+	switch {
+	case ok && conf.Type == ast.NumberType:
+		e.Confidence = float64(conf.NumValue)
+	case ok && conf.Type == ast.Float64Type:
+		f, ferr := conf.Float64Value()
+		if ferr != nil {
+			return learnedExemplar{}, fmt.Errorf("malformed confidence %v: %w", args[4], ferr)
+		}
+		e.Confidence = f
+	default:
+		return learnedExemplar{}, fmt.Errorf("malformed confidence %v", args[4])
+	}
+	return e, nil
+}
 
-	pattern, verb, target, constraint, confidence, err := ParseLearnedFact(fact)
+// source is the exemplar as normalized Mangle source, its confidence an
+// integer 0-100 (Mangle rules compare `Conf > 80`): a float 0.0-1.0 is
+// scaled, anything above 1 is taken as already scaled. Every literal is
+// written by Mangle's own quoting, so the text the engine and the file hold
+// is the text that was parsed.
+func (e learnedExemplar) source() string {
+	confInt := int(e.Confidence)
+	if e.Confidence <= 1.0 {
+		confInt = int(e.Confidence * 100)
+	}
+	verb, err := ast.Name(e.Verb)
+	verbText := e.Verb
+	if err == nil {
+		verbText = verb.String()
+	}
+	return fmt.Sprintf("learned_exemplar(%s, %s, %s, %s, %d).",
+		ast.String(e.Pattern).String(), verbText, ast.String(e.Target).String(), ast.String(e.Constraint).String(), confInt)
+}
+
+// ParseLearnedFact extracts components from a learned_exemplar fact string.
+// Format: learned_exemplar("Pattern", /verb, "target", "constraint", Confidence).
+// See parseLearnedExemplar.
+func ParseLearnedFact(fact string) (pattern, verb, target, constraint string, confidence float64, err error) {
+	e, err := parseLearnedExemplar(fact)
+	if err != nil {
+		logging.PerceptionDebug("ParseLearnedFact: refusing %q: %v", fact, err)
+		return "", "", "", "", 0, err
+	}
+	return e.Pattern, e.Verb, e.Target, e.Constraint, e.Confidence, nil
+}
+
+// NormalizeLearnedFact rewrites a learned_exemplar fact with integer
+// confidence (learnedExemplar.source). On a parse failure it returns the
+// original text with the error.
+func NormalizeLearnedFact(fact string) (string, error) {
+	e, err := parseLearnedExemplar(fact)
 	if err != nil {
 		logging.PerceptionDebug("NormalizeLearnedFact: parse failed, returning original: %v", err)
-		return fact, err // Return original if parsing fails
+		return fact, err
 	}
-
-	// Convert float confidence (0.0-1.0) to integer (0-100)
-	// If confidence is already > 1, assume it's already in integer form
-	var confInt int
-	if confidence <= 1.0 {
-		confInt = int(confidence * 100)
-		logging.PerceptionDebug("NormalizeLearnedFact: converted float confidence %.2f to int %d", confidence, confInt)
-	} else {
-		confInt = int(confidence)
-		logging.PerceptionDebug("NormalizeLearnedFact: confidence already integer-like: %d", confInt)
-	}
-
-	// Reconstruct fact with integer confidence
-	normalized := fmt.Sprintf(`learned_exemplar("%s", %s, "%s", "%s", %d).`,
-		pattern, verb, target, constraint, confInt)
+	normalized := e.source()
 	logging.PerceptionDebug("NormalizeLearnedFact: normalized result: %s", normalized)
 	return normalized, nil
 }
@@ -522,39 +576,4 @@ func truncateForCritic(s string, limit int) string {
 		return s
 	}
 	return string(runes[:limit]) + "... [truncated]"
-}
-
-func splitLearnedFactArgs(input string) []string {
-	var parts []string
-	var buf strings.Builder
-	inQuotes := false
-	escaped := false
-	for i := 0; i < len(input); i++ {
-		ch := input[i]
-		if escaped {
-			buf.WriteByte(ch)
-			escaped = false
-			continue
-		}
-		if ch == '\\' && inQuotes {
-			escaped = true
-			buf.WriteByte(ch)
-			continue
-		}
-		if ch == '"' {
-			inQuotes = !inQuotes
-			buf.WriteByte(ch)
-			continue
-		}
-		if ch == ',' && !inQuotes {
-			parts = append(parts, strings.TrimSpace(buf.String()))
-			buf.Reset()
-			continue
-		}
-		buf.WriteByte(ch)
-	}
-	if buf.Len() > 0 {
-		parts = append(parts, strings.TrimSpace(buf.String()))
-	}
-	return parts
 }
