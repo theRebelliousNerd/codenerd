@@ -593,7 +593,7 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 	if loop == nil {
 		return history, nil
 	}
-	start := ledgerStart(history)
+	start := ledgerStart(history, loop.task)
 	window := e.inputBudgetFor(loop.inputCap)
 	// What the window leaves once this round's request, as the ledger stands
 	// before the policy decides, is counted. The policy's limit is measured
@@ -760,16 +760,29 @@ const anchorLedgerKey = "anchor"
 // request of the loop.
 func ledgerKey(i int) string { return fmt.Sprintf("m%d", i) }
 
-// ledgerStart is the index in history of the first tool round. What precedes
-// it -- the prior turns and the user's input -- the request carries as
-// loop.prior and the anchor.
-func ledgerStart(history []types.Message) int {
+// ledgerStart is where the request's own messages begin in history: the
+// first tool round, or the first message after the user's input when that
+// comes sooner. What precedes it -- the prior turns and the user's input
+// (task) -- the request carries as loop.prior and the anchor.
+//
+// Until 2026-10-29 it was the first tool round only, so a demand added to a
+// history that had no tool round yet (a round's prompt appended after the
+// input) sat in the region the anchor replaces, and the request was sent
+// without it.
+func ledgerStart(history []types.Message, task string) int {
+	first := len(history)
 	for i, message := range history {
 		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
-			return i
+			first = i
+			break
 		}
 	}
-	return len(history)
+	for i := first - 1; i >= 0; i-- {
+		if history[i].Role == "user" && history[i].Text == task {
+			return i + 1
+		}
+	}
+	return first
 }
 
 // updateLedger asks the working policy what this request does with the
