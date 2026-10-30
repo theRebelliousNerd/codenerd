@@ -74,11 +74,19 @@ const (
 	StatusEmpty       = "empty"
 	StatusFailed      = "failed"
 	StatusUnavailable = "unavailable"
+	// StatusInapplicable: the source reads no such subject (go doc on a
+	// research topic or an npm package). Unlike unavailable, a source
+	// becoming available does not make it applicable.
+	StatusInapplicable = "inapplicable"
 )
 
 // ErrUnavailable marks a source that cannot run here at all (no provider
 // offers grounded search, no module pinned for the subject); wrap it.
 var ErrUnavailable = errors.New("source unavailable")
+
+// ErrInapplicable marks a subject the source does not read at all (no module
+// for go doc, an npm package for go doc); wrap it.
+var ErrInapplicable = errors.New("source does not read this subject")
 
 // Outcome is one source's attempt on one subject.
 type Outcome struct {
@@ -162,6 +170,8 @@ func (a Acquirer) acquire(ctx context.Context, subject Subject, done map[string]
 		got, err := src.Acquire(ctx, subject)
 		out := Outcome{Source: src.Name(), Subject: subject.Key(), Version: subject.Version}
 		switch {
+		case errors.Is(err, ErrInapplicable):
+			out.Status, out.Detail = StatusInapplicable, err.Error()
 		case errors.Is(err, ErrUnavailable):
 			out.Status, out.Detail = StatusUnavailable, err.Error()
 		case err != nil:

@@ -161,17 +161,21 @@ func TestGoDocSourceReadsThePinnedVersion(t *testing.T) {
 	if err != nil || len(atoms) != 1 {
 		t.Fatalf("Acquire = %+v, %v (calls %v)", atoms, err, calls)
 	}
-	if _, err := src.Acquire(context.Background(), Subject{Topic: "react", Module: "react", Ecosystem: "npm"}); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("an npm package is not unavailable to go doc: %v", err)
+	if _, err := src.Acquire(context.Background(), Subject{Topic: "react", Module: "react", Ecosystem: "npm"}); !errors.Is(err, ErrInapplicable) {
+		t.Fatalf("go doc claims to read an npm package: %v", err)
 	}
 	if atoms[0].Source != "godoc/github.com/spf13/cobra@v1.10.2" || atoms[0].Concept != "godoc/github.com/spf13/cobra@v1.10.2" {
 		t.Fatalf("atom = %+v", atoms[0])
 	}
-	if _, err := src.Acquire(context.Background(), Subject{Topic: "testing practice"}); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("a subject with no module is not unavailable: %v", err)
+	if _, err := src.Acquire(context.Background(), Subject{Topic: "testing practice"}); !errors.Is(err, ErrInapplicable) {
+		t.Fatalf("go doc claims to read a research topic: %v", err)
 	}
 	if v := ModuleVersion(context.Background(), run, "/ws", "context"); v != "std" {
 		t.Fatalf("standard-library version = %q", v)
+	}
+	// A vocabulary key spelled without a dot is not the standard library.
+	if IsStdPackage("google/mangle") || !IsStdPackage("net/http") || IsStdPackage("github.com/spf13/cobra") {
+		t.Fatal("IsStdPackage does not ask the toolchain")
 	}
 }
 

@@ -73,7 +73,7 @@ func pinnedPackages(key string, pins []ManifestPin, goWorkspace bool) []knowledg
 			if technologyVocabulary[eco][pkg] != key {
 				continue
 			}
-			if eco == EcosystemGo && !strings.Contains(strings.SplitN(pkg, "/", 2)[0], ".") {
+			if eco == EcosystemGo && knowledge.IsStdPackage(pkg) {
 				if goWorkspace {
 					out = append(out, knowledge.Subject{Module: pkg, Ecosystem: string(eco)})
 				}

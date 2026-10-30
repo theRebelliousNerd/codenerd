@@ -20,7 +20,8 @@ Decl knowledge_wanted(Agent, Subject) bound [/name, /string].
 
 # knowledge_outcome(Agent, Subject, Source, Status, AgeDays) - a source's last
 # attempt on a subject: Source is "web", "context7", "godoc" or "repo/world";
-# Status /acquired, /empty, /failed or /unavailable; AgeDays whole days ago.
+# Status /acquired, /empty, /failed, /unavailable (the source could not run)
+# or /inapplicable (the source reads no such subject); AgeDays whole days ago.
 Decl knowledge_outcome(Agent, Subject, Source, Status, AgeDays) bound [/name, /string, /string, /name, /number].
 
 # knowledge_acquired_version(Agent, Subject, Version) - the manifest version

@@ -85,7 +85,7 @@ var ShardAgentKB = Spec{
 		"vectors":         {},
 		"sync_metadata":   {},
 		"knowledge_acquisitions": {Columns: map[string]Column{
-			"detail":   {When: "status IN ('failed', 'unavailable')"},
+			"detail":   {When: "status IN ('failed', 'unavailable', 'inapplicable')"},
 			"concepts": {When: "status = 'acquired'"},
 			"version":  {Optional: "a subject no manifest pins (a research topic, a standard-library package, a gap) has no version"},
 		}},

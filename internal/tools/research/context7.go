@@ -150,6 +150,17 @@ func inferRepo(topic string) string {
 		return repo
 	}
 
+	// A Go module path on GitHub ("github.com/spf13/cobra/doc") names its
+	// repository in its first two path elements: the knowledge sources ask
+	// about a pinned module by its path.
+	if rest, ok := strings.CutPrefix(strings.ToLower(topic), "github.com/"); ok {
+		parts := strings.SplitN(topic[len("github.com/"):], "/", 3)
+		if len(parts) >= 2 && parts[0] != "" && parts[1] != "" && rest != "" {
+			return parts[0] + "/" + parts[1]
+		}
+		return ""
+	}
+
 	// Try to parse as owner/repo
 	if strings.Contains(topic, "/") {
 		return topic

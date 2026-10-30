@@ -3,6 +3,7 @@ package knowledge
 import (
 	"context"
 	"fmt"
+	"go/build"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -181,8 +182,11 @@ func (g GoDocSource) Available() bool {
 }
 
 func (g GoDocSource) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
-	if s.Module == "" || g.Workspace == "" || s.Ecosystem != "go" {
-		return nil, fmt.Errorf("%w: no Go module pinned for %s", ErrUnavailable, s.Topic)
+	if g.Workspace == "" {
+		return nil, fmt.Errorf("%w: no workspace to run go doc in", ErrUnavailable)
+	}
+	if s.Module == "" || s.Ecosystem != "go" {
+		return nil, fmt.Errorf("%w: no Go module pinned for %s", ErrInapplicable, s.Topic)
 	}
 	run := g.Run
 	if run == nil {
@@ -224,7 +228,7 @@ func (g GoDocSource) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
 // ModuleVersion is the version go.mod pins for module ("std" for the standard
 // library, "unknown" when go list cannot say).
 func ModuleVersion(ctx context.Context, run RunFunc, workspace, module string) string {
-	if !strings.Contains(strings.SplitN(module, "/", 2)[0], ".") {
+	if IsStdPackage(module) {
 		return "std"
 	}
 	out, err := run(ctx, workspace, "go", "list", "-m", "-f", "{{.Version}}", module)
@@ -232,6 +236,17 @@ func ModuleVersion(ctx context.Context, run RunFunc, workspace, module string) s
 		return v
 	}
 	return "unknown"
+}
+
+// IsStdPackage reports whether path is a standard-library package of the
+// local Go toolchain (its GOROOT holds it). A path whose first element has no
+// dot is not enough: a vocabulary key may be spelled that way.
+func IsStdPackage(path string) bool {
+	if path == "" || strings.Contains(strings.SplitN(path, "/", 2)[0], ".") {
+		return false
+	}
+	pkg, err := build.Default.Import(path, "", build.FindOnly)
+	return err == nil && pkg.Goroot
 }
 
 func firstLine(out string, err error) string {
@@ -255,7 +270,7 @@ func (r RepoSource) Available() bool { return r.Importers != nil }
 
 func (r RepoSource) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
 	if s.Module == "" {
-		return nil, fmt.Errorf("%w: no module to look up for %s", ErrUnavailable, s.Topic)
+		return nil, fmt.Errorf("%w: no module to look up for %s", ErrInapplicable, s.Topic)
 	}
 	if r.Importers == nil {
 		return nil, fmt.Errorf("%w: no world model is wired", ErrUnavailable)

@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,16 @@ func (d docsSource) Acquire(_ context.Context, s knowledge.Subject) ([]knowledge
 		Confidence: 0.8,
 		Source:     "web/probe",
 	}}, nil
+}
+
+// topicBlindSource reads only module subjects, like go doc: a research
+// topic is inapplicable to it, however available it is.
+type topicBlindSource struct{}
+
+func (topicBlindSource) Name() string { return "godoc" }
+
+func (topicBlindSource) Acquire(_ context.Context, s knowledge.Subject) ([]knowledge.Atom, error) {
+	return nil, fmt.Errorf("%w: %s is a topic", knowledge.ErrInapplicable, s.Topic)
 }
 
 const widgetExpertPromptsYAML = `- id: "widgetexpert/identity"
@@ -75,7 +86,7 @@ func TestKnowledgeRefreshDoesWhatThePolicyDerives(t *testing.T) {
 		t.Fatalf("knowledge_refresh_schedule = %+v, %v", schedule, err)
 	}
 	calls := 0
-	refresher.acquirer = knowledge.Acquirer{Sources: []knowledge.Source{docsSource{calls: &calls}}}
+	refresher.acquirer = knowledge.Acquirer{Sources: []knowledge.Source{docsSource{calls: &calls}, topicBlindSource{}}}
 
 	kbPath := types.AgentKnowledgeDBPath(filepath.Join(ws, ".nerd"), "widgetexpert")
 	withKB := func(do func(db *store.LocalStore)) {
@@ -105,6 +116,7 @@ func TestKnowledgeRefreshDoesWhatThePolicyDerives(t *testing.T) {
 		t.Fatalf("second run refreshed %v (err %v), want the three topics the budget left", report.Refreshed, err)
 	}
 	report, err = refresher.run(ctx)
+	// A source that reads no such subject is not a new source next run.
 	if err != nil || len(report.Refreshed) != 0 || calls != 7 {
 		t.Fatalf("a run over fresh knowledge refreshed %v (err %v, %d calls in all)", report.Refreshed, err, calls)
 	}
