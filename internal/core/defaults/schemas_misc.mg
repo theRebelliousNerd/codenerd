@@ -243,6 +243,20 @@ Decl incomplete_step_retried(ShardType, Description) bound [/name, /string].
 # Populated by rules that detect incomplete workflows
 Decl has_pending_subtask(TaskID, Description, ShardType) bound [/string, /string, /name].
 
+# shard_step_effect(ShardType, Effect) - what a step of this shard does to the
+# workspace: /write or /read. The tester writes tests (test authoring is a
+# write, and its tool envelope holds write_file); a shard with no row is
+# treated as writing. Consumer: cmd/nerd/chat (work-mode proposal pause, the
+# delivery gap's shard).
+Decl shard_step_effect(ShardType, Effect) bound [/name, /name].
+
+# pending_subtask_effect(TaskID, Effect) - Derived: the effect a pending step
+# declares, from the obligation that raised it (a test to write and a fix to
+# make write; a retried incomplete step has its shard's effect). Propose mode
+# holds a /write step for the user before its worker launches; a step with no
+# row is held too. Consumer: cmd/nerd/chat/request_delivery.go.
+Decl pending_subtask_effect(TaskID, Effect) bound [/string, /name].
+
 # should_auto_continue/0 - Derived: continuation should proceed automatically
 # True when has_pending_subtask exists and no blocking conditions
 Decl should_auto_continue() bound [].

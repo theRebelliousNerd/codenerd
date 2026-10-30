@@ -13,7 +13,7 @@
 //   - process_follow_up.go  - getRecentTurns()
 //
 // Continuation Protocol:
-//   - process_continuation.go - checkContinuation(), executeSubtask(), isMutationOperation()
+//   - process_continuation.go - checkContinuation(), executeSubtask()
 //
 // Knowledge Handling:
 //   - process_knowledge.go  - handleKnowledgeRequests(), synthesizeWithKnowledge(), matchSpecialistForQuery()
