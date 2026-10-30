@@ -92,7 +92,7 @@ func TestCLI_SubcommandGroups_MatchExpectedSets(t *testing.T) {
 		"nerd meter":            {"atoms", "epochs"},
 		"nerd northstar":        {"drift", "export", "facts", "history", "load", "query", "show", "state", "stats", "summary", "sync"},
 		"nerd regression":       {"init", "list", "run"},
-		"nerd sessions":         {"list", "load", "search"},
+		"nerd sessions":         {"list", "load", "search", "wire"},
 		"nerd snapshot":         {"export", "import", "list", "verify"},
 		"nerd swebench":         {"evaluate", "setup"},
 		"nerd tools":            {"value"},
@@ -117,8 +117,8 @@ func TestCLI_TotalCommandCount(t *testing.T) {
 	paths := walkCommandPaths(t)
 	// Root + 60 top-level + 82 subcommands. Any add/remove must update this
 	// pin deliberately, with the group sets above saying where it landed.
-	if len(paths) != 144 {
-		t.Errorf("reachable command paths = %d, want 144", len(paths))
+	if len(paths) != 145 {
+		t.Errorf("reachable command paths = %d, want 145", len(paths))
 	}
 }
 

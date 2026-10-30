@@ -33,7 +33,8 @@ debug mode on every model call is a numbered file under its agent's folder.
 Subcommands:
   list    - List sessions: id, start, agents, size
   search  - Find lines in what agents said, were told and ran
-  load    - Load a specific session`,
+  load    - Load a specific session
+  wire    - Print a captured model call's wire body exactly as sent`,
 	RunE: runSessionsList,
 }
 
@@ -70,6 +71,45 @@ var sessionsLoadCmd = &cobra.Command{
 	Short: "Load a specific session",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runSessionsLoad,
+}
+
+// sessionsWireCmd prints a captured wire body from an exchange file.
+var sessionsWireCmd = &cobra.Command{
+	Use:   "wire <exchange-file>",
+	Short: "Print a captured model call's wire body exactly as sent",
+	Long: `Print the request body of one model call, as it went over the wire, from an
+exchange file (NNNN-<purpose>.json under an agent's session folder, written in
+debug mode). The file stores long strings as arrays of lines; this joins them
+back, keeping the provider's key order, so the body can be diffed against
+another call or sent again.
+
+  nerd sessions wire .nerd/sessions/<id>/coder-1/0003-turn.json
+  nerd sessions wire 0003-turn.json --attempt 1
+  nerd sessions wire 0003-turn.json --response`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSessionsWire,
+}
+
+var (
+	sessionsWireAttempt  int
+	sessionsWireResponse bool
+)
+
+func runSessionsWire(cmd *cobra.Command, args []string) error {
+	data, err := os.ReadFile(args[0])
+	if err != nil {
+		return fmt.Errorf("read exchange file: %w", err)
+	}
+	body, err := sessionlog.WireBody(data, sessionsWireAttempt, sessionsWireResponse)
+	if err != nil {
+		return fmt.Errorf("%s: %w", args[0], err)
+	}
+	out := cmd.OutOrStdout()
+	if _, err := out.Write(body); err != nil {
+		return err
+	}
+	_, err = io.WriteString(out, "\n")
+	return err
 }
 
 // sessionsWorkspace is the workspace the sessions commands read. Flat session
@@ -169,5 +209,7 @@ func runSessionsLoad(cmd *cobra.Command, args []string) error {
 func init() {
 	sessionsSearchCmd.Flags().StringVar(&sessionsSearchAgent, "agent", "", "only this agent role (chat, jev, coder, ...)")
 	sessionsSearchCmd.Flags().StringVar(&sessionsSearchSession, "session", "", "only this session id")
-	sessionsCmd.AddCommand(sessionsListCmd, sessionsSearchCmd, sessionsLoadCmd)
+	sessionsWireCmd.Flags().IntVar(&sessionsWireAttempt, "attempt", 0, "the round trip's attempt number (0: the last, the one the call kept)")
+	sessionsWireCmd.Flags().BoolVar(&sessionsWireResponse, "response", false, "print the response body instead of the request body")
+	sessionsCmd.AddCommand(sessionsListCmd, sessionsSearchCmd, sessionsLoadCmd, sessionsWireCmd)
 }
