@@ -21,15 +21,14 @@ import (
 // DetectedAgent represents an agent detected during project analysis.
 // It contains metadata for interactive selection.
 type DetectedAgent struct {
-	Name            string            `json:"name"`
-	Type            string            `json:"type"`
-	Description     string            `json:"description"`
-	Topics          []string          `json:"topics"`
-	Permissions     []string          `json:"permissions"`
-	Priority        int               `json:"priority"`
-	Reason          string            `json:"reason"`
-	Tools           []string          `json:"tools,omitzero"`
-	ToolPreferences map[string]string `json:"tool_preferences,omitzero"`
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	Description string   `json:"description"`
+	Topics      []string `json:"topics"`
+	Permissions []string `json:"permissions"`
+	Priority    int      `json:"priority"`
+	Reason      string   `json:"reason"`
+	Tools       []string `json:"tools,omitzero"`
 
 	// Selection metadata
 	Recommended  bool   `json:"recommended"`   // true = recommended for this project
@@ -327,15 +326,14 @@ func ConvertToDetectedAgents(recommended []RecommendedAgent, profile ProjectProf
 
 	for _, r := range recommended {
 		d := DetectedAgent{
-			Name:            r.Name,
-			Type:            r.Type,
-			Description:     r.Description,
-			Topics:          r.Topics,
-			Permissions:     r.Permissions,
-			Priority:        r.Priority,
-			Reason:          r.Reason,
-			Tools:           r.Tools,
-			ToolPreferences: r.ToolPreferences,
+			Name:        r.Name,
+			Type:        r.Type,
+			Description: r.Description,
+			Topics:      r.Topics,
+			Permissions: r.Permissions,
+			Priority:    r.Priority,
+			Reason:      r.Reason,
+			Tools:       r.Tools,
 		}
 
 		// Determine category and recommendation status
@@ -377,15 +375,14 @@ func ConvertToRecommendedAgents(detected []DetectedAgent) []RecommendedAgent {
 
 	for _, d := range detected {
 		r := RecommendedAgent{
-			Name:            d.Name,
-			Type:            d.Type,
-			Description:     d.Description,
-			Topics:          d.Topics,
-			Permissions:     d.Permissions,
-			Priority:        d.Priority,
-			Reason:          d.Reason,
-			Tools:           d.Tools,
-			ToolPreferences: d.ToolPreferences,
+			Name:        d.Name,
+			Type:        d.Type,
+			Description: d.Description,
+			Topics:      d.Topics,
+			Permissions: d.Permissions,
+			Priority:    d.Priority,
+			Reason:      d.Reason,
+			Tools:       d.Tools,
 		}
 		recommended = append(recommended, r)
 	}

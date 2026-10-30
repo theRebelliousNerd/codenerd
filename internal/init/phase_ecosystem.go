@@ -540,9 +540,7 @@ func mergeDerivedAgents(recommended, derived []RecommendedAgent, language string
 			}
 			continue
 		}
-		tools, prefs := GetToolsForAgentType(agent.Name, language)
-		agent.Tools = tools
-		agent.ToolPreferences = prefs
+		agent.Tools = GetToolsForAgentType(agent.Name, language)
 		recommended = append(recommended, agent)
 		have[agent.Name] = true
 	}

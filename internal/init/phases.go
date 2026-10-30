@@ -463,8 +463,8 @@ func mergeAgentRegistry(created []CreatedAgent, existing map[string]CreatedAgent
 	return merged
 }
 
-// restrictAgentTools drops tool grants (and preferences naming them) for
-// tools that are not registered, and says which.
+// restrictAgentTools drops tool grants for tools that are not registered,
+// and says which.
 func restrictAgentTools(agents []CreatedAgent, registered []ToolDefinition) ([]CreatedAgent, []string) {
 	available := make(map[string]bool, len(registered))
 	for _, tool := range registered {
@@ -482,18 +482,6 @@ func restrictAgentTools(agents []CreatedAgent, registered []ToolDefinition) ([]C
 			}
 		}
 		agent.Tools = tools
-		if len(agent.ToolPreferences) > 0 {
-			prefs := make(map[string]string, len(agent.ToolPreferences))
-			for key, name := range agent.ToolPreferences {
-				if available[name] {
-					prefs[key] = name
-				}
-			}
-			agent.ToolPreferences = prefs
-			if len(prefs) == 0 {
-				agent.ToolPreferences = nil
-			}
-		}
 		if len(dropped) > 0 {
 			notes = append(notes, fmt.Sprintf("%s: tool grant(s) %s dropped; this project registers no such tool",
 				agent.Name, strings.Join(dropped, ", ")))

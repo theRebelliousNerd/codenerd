@@ -41,7 +41,6 @@ func (i *Initializer) registerAgentsWithShardManager(agents []CreatedAgent) {
 		cfg := coreshards.DefaultSpecialistConfig(agent.Name, agent.KnowledgePath)
 		cfg.Type = types.ShardTypeUser
 		cfg.Tools = agent.Tools
-		cfg.ToolPreferences = agent.ToolPreferences
 		i.shardMgr.DefineProfile(agent.Name, cfg)
 	}
 }

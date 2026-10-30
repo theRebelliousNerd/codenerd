@@ -84,8 +84,7 @@ type ShardConfig struct {
 	StartupMode StartupMode
 
 	// Tool associations (for specialist shards)
-	Tools           []string          // List of tool names this shard can use
-	ToolPreferences map[string]string // Action -> preferred tool mapping
+	Tools []string // List of tool names this shard can use
 
 	// Shard-specific Mangle policy (POWER-USER-FEATURE)
 	// When set, these rules are appended to the kernel before shard execution.

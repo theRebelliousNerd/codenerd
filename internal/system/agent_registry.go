@@ -69,14 +69,13 @@ type agentRegistryFile struct {
 }
 
 type agentRegistryAgent struct {
-	Name          string            `json:"name"`
-	Type          string            `json:"type"`
-	KnowledgePath string            `json:"knowledge_path"`
-	KBSize        int               `json:"kb_size"`
-	CreatedAt     string            `json:"created_at,omitempty"`
-	Status        string            `json:"status"`
-	Tools         []string          `json:"tools,omitempty"`
-	ToolPrefs     map[string]string `json:"tool_preferences,omitempty"`
+	Name          string   `json:"name"`
+	Type          string   `json:"type"`
+	KnowledgePath string   `json:"knowledge_path"`
+	KBSize        int      `json:"kb_size"`
+	CreatedAt     string   `json:"created_at,omitempty"`
+	Status        string   `json:"status"`
+	Tools         []string `json:"tools,omitempty"`
 	// Domains are the technology keys the agent is expert in ("go",
 	// "bubbletea"): init writes the catalog key that created the agent.
 	// Boot asserts them as shard_agent_domain (shard_expert_facts.go).

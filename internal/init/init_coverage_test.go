@@ -435,7 +435,7 @@ func TestGenerateToolsForProject_WhenEmpty_ShouldReturnEmpty(t *testing.T) {
 	assert.Empty(t, tools)
 }
 
-func TestGetToolsForAgentType_WhenKnownAgent_ShouldReturnToolsAndPrefs(t *testing.T) {
+func TestGetToolsForAgentType_WhenKnownAgent_ShouldReturnTools(t *testing.T) {
 	tests := []struct {
 		name      string
 		agent     string
@@ -464,20 +464,18 @@ func TestGetToolsForAgentType_WhenKnownAgent_ShouldReturnToolsAndPrefs(t *testin
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tools, prefs := GetToolsForAgentType(tt.agent, tt.lang)
+			tools := GetToolsForAgentType(tt.agent, tt.lang)
 			if tt.wantTools {
 				assert.NotEmpty(t, tools)
-				assert.NotEmpty(t, prefs)
 			} else {
 				assert.Empty(t, tools)
-				assert.Empty(t, prefs)
 			}
 		})
 	}
 }
 
 // TestGetToolsForAgentType_OnlyNamesDefinedTools fails when an agent tool
-// list, or a preference value, names something init does not define.
+// list names something init does not define.
 // The agent and language sets are the switch cases in tools.go, so a new
 // case is covered without being added here. A setup step is not a tool:
 // rod_download_browser used to be RodExpert's only entry.
@@ -490,20 +488,9 @@ func TestGetToolsForAgentType_OnlyNamesDefinedTools(t *testing.T) {
 	}
 	for _, agent := range agents {
 		for _, lang := range langs {
-			tools, prefs := GetToolsForAgentType(agent, lang)
-			listed := make(map[string]struct{}, len(tools))
-			for _, name := range tools {
-				listed[name] = struct{}{}
+			for _, name := range GetToolsForAgentType(agent, lang) {
 				if _, ok := defined[name]; !ok {
 					t.Errorf("GetToolsForAgentType(%q, %q) tool %q is not defined by init", agent, lang, name)
-				}
-			}
-			for key, name := range prefs {
-				if _, ok := defined[name]; !ok {
-					t.Errorf("GetToolsForAgentType(%q, %q) preference %s=%q is not a defined tool", agent, lang, key, name)
-				}
-				if _, ok := listed[name]; !ok {
-					t.Errorf("GetToolsForAgentType(%q, %q) preference %s=%q is not in that agent's tool list", agent, lang, key, name)
 				}
 			}
 		}

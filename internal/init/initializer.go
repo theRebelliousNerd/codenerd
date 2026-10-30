@@ -71,15 +71,14 @@ type AgentCreationUpdate struct {
 
 // RecommendedAgent represents an agent recommended by the Researcher.
 type RecommendedAgent struct {
-	Name            string            `json:"name"`
-	Type            string            `json:"type"` // Type 3 category
-	Description     string            `json:"description"`
-	Topics          []string          `json:"topics"` // Research topics for KB
-	Permissions     []string          `json:"permissions"`
-	Priority        int               `json:"priority"` // Higher = more important
-	Reason          string            `json:"reason"`   // Why this agent is needed
-	Tools           []string          `json:"tools,omitzero"`
-	ToolPreferences map[string]string `json:"tool_preferences,omitzero"`
+	Name        string   `json:"name"`
+	Type        string   `json:"type"` // Type 3 category
+	Description string   `json:"description"`
+	Topics      []string `json:"topics"` // Research topics for KB
+	Permissions []string `json:"permissions"`
+	Priority    int      `json:"priority"` // Higher = more important
+	Reason      string   `json:"reason"`   // Why this agent is needed
+	Tools       []string `json:"tools,omitzero"`
 
 	// Domains are the technology keys the agent is expert in: the catalog
 	// keys that created it (orient_agent_domain). Written to agents.json.
@@ -274,14 +273,13 @@ type InitLogProblems struct {
 
 // CreatedAgent represents a Type 3 agent that was created during init.
 type CreatedAgent struct {
-	Name            string            `json:"name"`
-	Type            string            `json:"type"`
-	KnowledgePath   string            `json:"knowledge_path"`
-	KBSize          int               `json:"kb_size"`
-	CreatedAt       time.Time         `json:"created_at"`
-	Status          string            `json:"status"` // "ready", "partial", "failed"
-	Tools           []string          `json:"tools,omitzero"`
-	ToolPreferences map[string]string `json:"tool_preferences,omitzero"`
+	Name          string    `json:"name"`
+	Type          string    `json:"type"`
+	KnowledgePath string    `json:"knowledge_path"`
+	KBSize        int       `json:"kb_size"`
+	CreatedAt     time.Time `json:"created_at"`
+	Status        string    `json:"status"` // "ready", "partial", "failed"
+	Tools         []string  `json:"tools,omitzero"`
 
 	// Domains are the technology keys the agent is expert in. Boot asserts
 	// them as shard_agent_domain (internal/system/shard_expert_facts.go), so
