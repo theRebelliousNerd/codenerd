@@ -2,6 +2,7 @@ package gates
 
 import (
 	"path"
+	"slices"
 	"strings"
 
 	"codenerd/internal/lintreport"
@@ -69,8 +70,23 @@ func (s Snapshot) Overlay(after Snapshot) Snapshot {
 		a, ok := after.Gate(g.Gate)
 		switch {
 		case !ok:
+		case slices.Equal(a.Scope, []string{NoPackageScope}):
+			// Scoped to no package: nothing was observed, so nothing about
+			// the gate changes -- not even an unavailable gate's status,
+			// which the empty pass used to turn into a whole-module pass
+			// (audit scoped-gate-overlay-evidence-conservation).
 		case len(a.Scope) == 0 || a.Status == MeasureUnavailable || a.Status == MeasureUnverified:
 			g = a
+		case g.Status == MeasureUnavailable || g.Status == MeasureUnverified:
+			// The baseline never gave this gate a verdict, so outside the
+			// scope nothing is known: one measured package cannot complete
+			// it. Keep the baseline's status and reason, with what the
+			// scoped run did observe.
+			kept := g
+			kept.Findings = append([]lintreport.Finding{}, a.Findings...)
+			kept.Count = len(kept.Findings)
+			kept.Unenumerated = unenumerated(a)
+			g = kept
 		default:
 			kept := restrict(g, a.Scope, false)
 			kept.Findings = append(kept.Findings, a.Findings...)
