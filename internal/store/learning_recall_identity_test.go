@@ -60,7 +60,8 @@ func TestLearningSemanticRecallRanksOnlyTheQuerysSpace(t *testing.T) {
 		if _, err := db.Exec(`UPDATE learnings SET embedding_model_id = ?, embedding_dim = 2, embedding_task = 'RETRIEVAL_DOCUMENT' WHERE id = ?`, model, r.id); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec(`INSERT INTO learnings_vec (learning_id, embedding) VALUES (?, ?)`, r.id, encodeFloat32Slice(vec)); err != nil {
+		if _, err := db.Exec(`INSERT INTO learnings_vec (learning_id, embedding, embedding_model_id, embedding_task, handle_hash)
+			SELECT id, ?, embedding_model_id, embedding_task, COALESCE(handle_hash, '') FROM learnings WHERE id = ?`, encodeFloat32Slice(vec), r.id); err != nil {
 			t.Fatal(err)
 		}
 	}

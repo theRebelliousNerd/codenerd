@@ -578,6 +578,30 @@ func (ls *LearningStore) buildLearningEmbeddingUpdates(ctx context.Context, cand
 	return updates, embedded, nil
 }
 
+// The learning ANN index is versioned: every learnings_vec row carries the
+// inputs that produced its bytes -- the embedding model, the task and the
+// semantic handle's hash -- and recall ranks a row only while they equal the
+// canonical learnings row's (recallLearningsInShard). Until 2026-10-30 a row
+// carried only its learning id, so when a canonical row was re-embedded (new
+// model, new handle) and the index sync after it failed, recall ranked the
+// old bytes under the new metadata: a vector from one space scored as the
+// other's. A stale row now matches nothing until the next sync replaces it.
+
+// learningVecSchema is the versioned index table for vectors of dim.
+func learningVecSchema(dim int) string {
+	return fmt.Sprintf("CREATE VIRTUAL TABLE learnings_vec USING vec0(embedding float[%d], learning_id INTEGER, embedding_model_id TEXT, embedding_task TEXT, handle_hash TEXT)", dim)
+}
+
+// learningVecVersioned reports whether the existing index carries the
+// version columns.
+func learningVecVersioned(db *sql.DB) (bool, error) {
+	var ddl string
+	if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'learnings_vec'`).Scan(&ddl); err != nil {
+		return false, err
+	}
+	return strings.Contains(ddl, "handle_hash"), nil
+}
+
 func syncLearningVectorIndex(db *sql.DB, updates []LearningEmbeddingUpdate, dim int) error {
 	if db == nil || dim <= 0 {
 		return nil
@@ -595,7 +619,7 @@ func syncLearningVectorIndex(db *sql.DB, updates []LearningEmbeddingUpdate, dim 
 		_ = tx.Rollback()
 		return err
 	}
-	insertStmt, err := tx.Prepare("INSERT INTO learnings_vec (learning_id, embedding) VALUES (?, ?)")
+	insertStmt, err := tx.Prepare("INSERT INTO learnings_vec (learning_id, embedding, embedding_model_id, embedding_task, handle_hash) VALUES (?, ?, ?, ?, ?)")
 	if err != nil {
 		_ = deleteStmt.Close()
 		_ = tx.Rollback()
@@ -612,7 +636,7 @@ func syncLearningVectorIndex(db *sql.DB, updates []LearningEmbeddingUpdate, dim 
 		if len(update.Embedding) == 0 {
 			continue
 		}
-		if _, err := insertStmt.Exec(update.ID, update.Embedding); err != nil {
+		if _, err := insertStmt.Exec(update.ID, update.Embedding, update.EmbeddingModelID, update.EmbeddingTask, update.HandleHash); err != nil {
 			_ = tx.Rollback()
 			_ = deleteStmt.Close()
 			_ = insertStmt.Close()
@@ -625,6 +649,10 @@ func syncLearningVectorIndex(db *sql.DB, updates []LearningEmbeddingUpdate, dim 
 	return tx.Commit()
 }
 
+// ensureLearningVecTable creates the versioned index when it is missing, and
+// rebuilds an unversioned one from the canonical rows: their bytes and the
+// metadata stored with them agree by construction, which the old index's
+// rows cannot be shown to.
 func ensureLearningVecTable(db *sql.DB, dim int) error {
 	if db == nil {
 		return fmt.Errorf("no database")
@@ -633,17 +661,49 @@ func ensureLearningVecTable(db *sql.DB, dim int) error {
 	// ANN index on each reflection cycle and each force batch. See
 	// ensureTraceVecTable; model switches rebuild explicitly instead.
 	if tableExists(db, "learnings_vec") {
-		return nil
+		versioned, err := learningVecVersioned(db)
+		if err != nil || versioned {
+			return err
+		}
+		return rebuildLearningVecFromCanonical(db, dim)
 	}
-	query := fmt.Sprintf("CREATE VIRTUAL TABLE learnings_vec USING vec0(embedding float[%d], learning_id INTEGER)", dim)
-	if _, err := db.Exec(query); err != nil {
+	_, err := db.Exec(learningVecSchema(dim))
+	return err
+}
+
+// rebuildLearningVecFromCanonical replaces the index with one built from the
+// learnings rows that hold an embedding of dim, each stamped with its own
+// row's metadata. A row whose bytes do not fit dim is left out of the index
+// (it is re-embedded by the next reflection pass), not guessed into it.
+func rebuildLearningVecFromCanonical(db *sql.DB, dim int) error {
+	if err := rebuildLearningVecTable(db, dim); err != nil {
 		return err
 	}
-	return nil
+	rows, err := db.Query(`SELECT id, embedding, COALESCE(embedding_model_id, ''), COALESCE(embedding_task, ''), COALESCE(handle_hash, '')
+		FROM learnings WHERE embedding IS NOT NULL AND length(embedding) > 0 AND embedding_dim = ?`, dim)
+	if err != nil {
+		return fmt.Errorf("read canonical learning vectors: %w", err)
+	}
+	var updates []LearningEmbeddingUpdate
+	for rows.Next() {
+		var u LearningEmbeddingUpdate
+		if err := rows.Scan(&u.ID, &u.Embedding, &u.EmbeddingModelID, &u.EmbeddingTask, &u.HandleHash); err != nil {
+			rows.Close()
+			return fmt.Errorf("read canonical learning vectors: %w", err)
+		}
+		updates = append(updates, u)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read canonical learning vectors: %w", err)
+	}
+	logging.Store("learnings_vec rebuilt as a versioned index from %d canonical row(s)", len(updates))
+	return syncLearningVectorIndex(db, updates, dim)
 }
 
 // rebuildLearningVecTable drops and recreates the learning ANN index. Only
-// the force re-embed flow calls this; the incremental sync must never drop.
+// the force re-embed flow and the versioning migration call this; the
+// incremental sync must never drop.
 func rebuildLearningVecTable(db *sql.DB, dim int) error {
 	if db == nil {
 		return fmt.Errorf("no database")
@@ -651,9 +711,6 @@ func rebuildLearningVecTable(db *sql.DB, dim int) error {
 	if _, err := db.Exec("DROP TABLE IF EXISTS learnings_vec"); err != nil {
 		return err
 	}
-	query := fmt.Sprintf("CREATE VIRTUAL TABLE learnings_vec USING vec0(embedding float[%d], learning_id INTEGER)", dim)
-	if _, err := db.Exec(query); err != nil {
-		return err
-	}
-	return nil
+	_, err := db.Exec(learningVecSchema(dim))
+	return err
 }

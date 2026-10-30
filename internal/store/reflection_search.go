@@ -349,6 +349,9 @@ func (ls *LearningStore) recallLearningsInShard(ctx context.Context, query Query
 			FROM learnings_vec v
 			JOIN learnings l ON l.id = v.learning_id
 			WHERE l.embedding_model_id = ? AND l.embedding_dim = ? AND l.embedding_task = ?
+			  AND v.embedding_model_id = l.embedding_model_id
+			  AND v.embedding_task = l.embedding_task
+			  AND v.handle_hash = COALESCE(l.handle_hash, '')
 			ORDER BY distance ASC
 			LIMIT ?`, queryBlob, query.ModelID, len(query.Vector), learningDocumentTask(), limit)
 		if err == nil {

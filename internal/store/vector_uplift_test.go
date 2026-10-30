@@ -156,7 +156,7 @@ func TestLearningVecSync_IsIncremental(t *testing.T) {
 		t.Fatalf("ensureLearningVecTable: %v", err)
 	}
 	seed := encodeFloat32Slice([]float32{1, 0, 0, 0})
-	if _, err := db.Exec("INSERT INTO learnings_vec (learning_id, embedding) VALUES (?, ?)", 7, seed); err != nil {
+	if _, err := db.Exec("INSERT INTO learnings_vec (learning_id, embedding, embedding_model_id, embedding_task, handle_hash) VALUES (?, ?, '', '', '')", 7, seed); err != nil {
 		t.Fatal(err)
 	}
 	err = syncLearningVectorIndex(db, []LearningEmbeddingUpdate{
