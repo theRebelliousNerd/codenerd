@@ -135,9 +135,9 @@ One Codex lane per audit, each in its own worktree; the root runs the full suite
 | `deliberation-terminal-budget` | `research-main-20261030-0642` | fixed `95477e1ce` |
 | `prompt-evolution-screening-cohort` | `research-main-20261030-0544` | fixed `07e08faaf` |
 | `verifier-change-evidence-coverage` | `research-main-20261030-0544` | fixed `f01bfee19` |
-| `self-restart-failure-recovery` | `research-main-20261030-0544` | queued |
-| `dev-policy-reload-adoption` | `research-main-20261030-0614` | queued |
+| `self-restart-failure-recovery` | `research-main-20261030-0544` | fixed `47994bfef` |
+| `dev-policy-reload-adoption` | `research-main-20261030-0614` | fixed `47994bfef` |
 | `jit-strategy-context-ownership` | `research-main-20261030-0614` | fixed `261585231` |
-| `recurse-gate-contract-continuity` | `research-main-20261030-0614` | queued |
-| `recurse-gate-subsumption` | `research-main-20261030-0642` | queued |
+| `recurse-gate-contract-continuity` | `research-main-20261030-0614` | fixed `5efbc6782` |
+| `recurse-gate-subsumption` | `research-main-20261030-0642` | fixed `5efbc6782` |
 | `knowledge-synthesis-answer-identity` | `research-main-20261030-0642` | fixed `3d5699872` |
