@@ -19,6 +19,7 @@
 # Hidden/system files and folders (including all dot folders)
 .*
 !.gitignore
+!.mangleignore
 !.nerd/
 # Runtime debris written by campaign tests running inside the package dir —
 # never repo content (the un-ignore above is for the real workspace .nerd/).

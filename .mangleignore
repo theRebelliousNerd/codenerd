@@ -1,0 +1,6 @@
+# Mangle on purpose invalid: adversarial fixtures that exist to prove bad rules
+# are rejected, generated debug dumps of rejected programs, and agent scratch labs.
+# The Mangle language server and mangle-cli skip these (syntax colouring stays).
+.codex/skills/stress-tester/assets/
+**/.nerd/debug/
+_mangle_lab/
