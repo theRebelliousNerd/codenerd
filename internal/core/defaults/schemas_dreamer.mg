@@ -123,13 +123,6 @@ Decl system_invariant_violated(InvariantID, Timestamp) bound [/name, /number].
 # Used by NemesisShard for adversarial patch analysis
 Decl patch_diff(PatchID, DiffContent) bound [/string, /string].
 
-# gauntlet_result(PatchID, Phase, Verdict, Timestamp) - Nemesis gauntlet outcome
-# Verdict: /passed or /failed
-Decl gauntlet_result(PatchID, Phase, Verdict, Timestamp) bound [/string, /name, /name, /number].
-
-# gauntlet_passed() - derived: at least one gauntlet passed in session
-Decl gauntlet_passed() bound [].
-
 # thunderdome_result(ToolName, AttackType, Outcome) - Adversarial battle results
 # Records Thunderdome combat outcomes from PanicMaker/Nemesis battles
 # AttackType: /nil_pointer, /boundary, /resource, /concurrency, /format

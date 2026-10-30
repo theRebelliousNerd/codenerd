@@ -102,47 +102,11 @@ action_complete_verified(ActionID) :-
     side_effect_attempted(ActionID, _),
     critical_action_resolved(ActionID).
 
-# A side-effecting action that RAN but is in VALIDATION LIMBO: it produced no
-# positive validation (action_validated / critical_action_resolved), AND it did
-# not explicitly FAIL validation, AND it was not escalated. This is the genuinely
-# new "no-opinion" signal — the turn produced mutating work whose success the
-# kernel can neither confirm nor refute.
-#
-# Step 3 soundness refinement: the FAILED case is DELIBERATELY EXCLUDED here
-# (via !action_failed_validation). Failures already have their own handling —
-# the existing block_action(/validation_pending) clause, needs_self_healing
-# (retry/rollback/escalate), and Step 1's synchronous >=0.8-confidence error
-# return. Folding failures into this limbo predicate would make it
-# session-sticky over routine build/test failures (which never clear, since
-# retries get fresh ActionIDs and validation facts are not retracted per turn),
-# and any HARD consumer of it (e.g. a permitted/3 guard) would then brick the
-# whole session after the first failed build — denying the very corrective edit
-# needed to recover. By scoping this to the no-opinion case only, the predicate
-# stays a safe, soft signal: it reflects actions that simply lack a validator
-# opinion, not actions known to be broken.
-#
-# Negation is safe: ActionID is bound by the positive side_effect_attempted atom
-# before each negated atom.
-#
-# Escalation is negated via the single-arg projection action_is_escalated/1
-# rather than directly over the 3-arg action_escalated literal. Negating the
-# multi-arg literal with anonymous wildcards (!action_escalated(ActionID, _, _))
-# does NOT exclude in this Mangle fork: with the escalation fact present at
-# fixpoint (verified by a clean batch eval, so it is not incremental-eval
-# staleness), the negated multi-arg-with-wildcards atom failed to suppress the
-# head and unvalidated_side_effect was still derived. Projecting to a single-arg
-# IDB and negating that is the proven-working shape — it is exactly how
-# action_failed_validation/1 (the analogous single-arg projection of a multi-arg
-# EDB) is negated in the same rule, and that arm excludes correctly.
-action_is_escalated(ActionID) :-
-    action_escalated(ActionID, _, _).
-
 Decl unvalidated_side_effect(ActionID, ActionType) bound [/string, /name].
 unvalidated_side_effect(ActionID, ActionType) :-
     side_effect_attempted(ActionID, ActionType),
     !action_complete_verified(ActionID),
-    !action_failed_validation(ActionID),
-    !action_is_escalated(ActionID).
+    !action_failed_validation(ActionID).
 
 # =============================================================================
 # SECTION 2: VALIDATION FAILURE DERIVATION
@@ -178,16 +142,13 @@ validation_element_lost(ActionID) :-
 
 # Retry strategy for transient failures (hash mismatch, file access)
 needs_self_healing(ActionID, /retry) :-
-    validation_hash_mismatch(ActionID),
-    !validation_max_retries_reached(ActionID).
+    validation_hash_mismatch(ActionID).
 
 needs_self_healing(ActionID, /retry) :-
-    action_validation_failed(ActionID, _, /read_back_failed, _, _),
-    !validation_max_retries_reached(ActionID).
+    action_validation_failed(ActionID, _, /read_back_failed, _, _).
 
 needs_self_healing(ActionID, /retry) :-
-    action_validation_failed(ActionID, _, /edit_not_applied, _, _),
-    !validation_max_retries_reached(ActionID).
+    action_validation_failed(ActionID, _, /edit_not_applied, _, _).
 
 # Rollback strategy for syntax errors (code corruption)
 needs_self_healing(ActionID, /rollback) :-
@@ -196,10 +157,6 @@ needs_self_healing(ActionID, /rollback) :-
 # Rollback for element loss (structural damage)
 needs_self_healing(ActionID, /rollback) :-
     validation_element_lost(ActionID).
-
-# Escalate when retries exhausted
-needs_self_healing(ActionID, /escalate) :-
-    validation_max_retries_reached(ActionID).
 
 # Escalate for unknown failure types
 needs_self_healing(ActionID, /escalate) :-
@@ -294,10 +251,6 @@ validation_meets_threshold(ActionID) :-
 # SECTION 7: RESOLUTION OUTCOMES
 # =============================================================================
 
-# An action requires user intervention if escalated
-requires_user_intervention(ActionID) :-
-    action_escalated(ActionID, _, _).
-
 # An action is fully resolved once validated. (A second arm accepted a
 # successful healing_attempt; its only producer was internal/core's SelfHealer,
 # which nothing called and which is deleted.)
@@ -310,17 +263,6 @@ critical_action_resolved(ActionID) :-
 
 # Unresolved failures for monitoring.
 #
-# Escalation is negated via the single-arg projection action_is_escalated/1
-# (defined above for unvalidated_side_effect), NOT directly over the 3-arg
-# action_escalated literal. Negating the multi-arg literal with anonymous
-# wildcards (!action_escalated(ActionID, _, _)) does NOT exclude in this Mangle
-# fork — with the escalation fact present at fixpoint the negated atom fails to
-# suppress the head, so an escalated failure was still wrongly reported as
-# unresolved. (Same root cause and fix as the unvalidated_side_effect escalation
-# arm; verified by a clean batch eval that ruled out incremental-eval staleness.)
-# !action_resolved(ActionID) is left as-is: it is already a single-arg IDB
-# negation, the proven-working shape.
 unresolved_failure(ActionID) :-
     action_failed_validation(ActionID),
-    !action_resolved(ActionID),
-    !action_is_escalated(ActionID).
+    !action_resolved(ActionID).

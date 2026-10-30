@@ -229,15 +229,8 @@ Decl git_state(Attribute, Value) bound [/name, /string].
 # churn_rate(FilePath, ChangeFrequency)
 Decl churn_rate(FilePath, ChangeFrequency) bound [/string, /number].
 
-# current_user(UserName)
-Decl current_user(UserName) bound [/string].
-
 # current_time(Timestamp) - current system time for learning timestamps
 Decl current_time(Timestamp) bound [/number].
-
-# recent_change_by_other(FilePath) - derived predicate
-# True if file was changed < 2 days ago by a different author
-Decl recent_change_by_other(FilePath) bound [/string].
 
 # chesterton_fence_warning(FilePath, Reason) - derived predicate
 # Warns before deleting recently-changed code
@@ -272,9 +265,6 @@ Decl projection_violation(ActionID, ViolationType) bound [/string, /name].
 
 # pending_mutation(MutationID, FilePath, OldContent, NewContent)
 Decl pending_mutation(MutationID, FilePath, OldContent, NewContent) bound [/string, /string, /string, /string].
-
-# mutation_approved(MutationID, ApprovedBy, Timestamp)
-Decl mutation_approved(MutationID, ApprovedBy, Timestamp) bound [/string, /string, /number].
 
 # mutation_rejected(MutationID, RejectedBy, Reason)
 Decl mutation_rejected(MutationID, RejectedBy, Reason) bound [/string, /string, /string].

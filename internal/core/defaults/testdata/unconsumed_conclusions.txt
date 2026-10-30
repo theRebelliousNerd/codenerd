@@ -15,7 +15,6 @@ unconsumed action_blocked
 unconsumed action_complete_verified
 unconsumed action_enhanced_validated
 unconsumed action_failed_validation
-unconsumed action_is_escalated
 unconsumed action_needs_self_healing
 unconsumed action_paranoid_validated
 unconsumed action_pending_permission
@@ -139,8 +138,6 @@ unconsumed focus_needs_resolution
 unconsumed fragile
 unconsumed function_in_scope
 unconsumed function_too_long
-unconsumed gauntlet_passed_patch
-unconsumed gauntlet_required
 unconsumed generated_output_degenerate
 unconsumed generated_output_long_enough
 unconsumed goal_requires_campaign
@@ -267,7 +264,6 @@ unconsumed long_file_warning
 unconsumed long_term_capability
 unconsumed mcp_server_facet_available
 unconsumed mcp_tool_browsable
-unconsumed merge_allowed
 unconsumed method_in_scope
 unconsumed method_of
 unconsumed milestone_reached
@@ -349,7 +345,6 @@ unconsumed replan_needed
 unconsumed requires_contract_check
 unconsumed requires_immediate_fix
 unconsumed requires_integration_test
-unconsumed requires_user_intervention
 unconsumed resolve_pronoun
 unconsumed returns_error_type
 unconsumed review_blocked

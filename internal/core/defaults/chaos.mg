@@ -196,30 +196,6 @@ should_target_lazy_pattern(/retry_lazy, /partial_failure_storm) :-
     lazy_pattern_detected(/retry_lazy, _).
 
 # =============================================================================
-# GAUNTLET: CAMPAIGN PHASE RULES
-# =============================================================================
-
-# A patch can only enter production if it survives The Gauntlet
-# Decl gauntlet_result(PatchID, Phase, Verdict, Timestamp).  # Declared in schemas.mg
-Decl gauntlet_required(PatchID).
-
-# All code changes require Gauntlet by default
-gauntlet_required(PatchID) :-
-    patch(PatchID, _, _, _).
-
-# Gauntlet phases: /unit, /integration, /nemesis, /regression
-gauntlet_passed_patch(PatchID) :-
-    gauntlet_result(PatchID, /unit, /passed, _),
-    gauntlet_result(PatchID, /integration, /passed, _),
-    gauntlet_result(PatchID, /nemesis, /passed, _),
-    gauntlet_result(PatchID, /regression, /passed, _).
-
-# Patch can be merged if Gauntlet passed
-merge_allowed(PatchID) :-
-    gauntlet_required(PatchID),
-    gauntlet_passed_patch(PatchID).
-
-# =============================================================================
 # OUROBOROS INTEGRATION: ENHANCED VALIDATION
 # =============================================================================
 
@@ -268,5 +244,4 @@ adversarial_value_demonstrated() :-
 # - invariant_value/3
 # - armory_tool/5, armory_run/4
 # - fix_pattern/4
-# - gauntlet_result/4
 # - current_time/1

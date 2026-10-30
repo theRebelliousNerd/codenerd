@@ -17,9 +17,6 @@
 # has_projection_violation(ActionID) - helper for safe negation in shadow mode
 Decl has_projection_violation(ActionID) bound [/string].
 
-# is_mutation_approved(MutationID) - helper for safe negation in diff approval
-Decl is_mutation_approved(MutationID) bound [/string].
-
 # has_pending_checkpoint(PhaseID) - helper for checkpoint verification
 Decl has_pending_checkpoint(PhaseID) bound [/string].
 

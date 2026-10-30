@@ -65,7 +65,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"churn_rate",
 				"test_coverage",
 				"test_failed", "modified_interface", "impact_graph",
-				"recent_change_by_other",
+
 				// CodeDOM element facts and the per-language surface
 				// (codedom_*.mg, coder_*.mg, reviewer.mg, tester.mg).
 				"element_parent", "element_signature", "code_interactable",
@@ -578,7 +578,6 @@ func SharedPredicates() []string {
 		"compile_shard",
 		"system_shard_healthy",
 
-		"validation_max_retries_reached",
 		// Small runtime state joined by routing rules
 		"test_state",
 
@@ -589,7 +588,7 @@ func SharedPredicates() []string {
 		"shard_success",
 		"focus_resolution",
 		"system_heartbeat",
-		"current_user",
+
 		// The instruction itself and the coder loop's counters
 		"instruction_contains",
 		"instruction_contains_write",
@@ -604,8 +603,7 @@ func SharedPredicates() []string {
 		// is shared. A negation over a fact that lives in one shard is
 		// vacuous in every other shard the rule fires in, so the negated
 		// side must be visible everywhere the positive side is.
-		"gauntlet_result",
-		"mutation_approved",
+
 		"yolo_mode",
 		// The work mode and the brief (brief.mg) gate every lane that starts
 		// work (routing_arbitration.mg), and the lanes derive in every shard.
@@ -636,7 +634,7 @@ func SharedPredicates() []string {
 		// Per-action validation outcomes (validation.mg): one fact per
 		// action, negated by the unvalidated_side_effect verdict.
 		"action_validation_failed",
-		"action_escalated",
+
 		"action_validated",
 		"critical_action_resolved",
 		// The tool registry's capabilities (autopoiesis_kernel.go: one row per

@@ -155,10 +155,6 @@ Decl action_state_delta(ActionID, PreHash, PostHash) bound [/string, /string, /s
 # Tracks validation retry attempts.
 Decl validation_attempt(ActionID, AttemptNum, Success, Timestamp) bound [/string, /number, /name, /number].
 
-# validation_max_retries_reached(ActionID)
-# Indicates self-healing exhausted retry budget.
-Decl validation_max_retries_reached(ActionID) bound [/string].
-
 # needs_self_healing(ActionID, HealingType)
 # Triggers automatic recovery when validation fails.
 # HealingType: /retry, /rollback, /escalate, /alternative_approach
@@ -168,10 +164,6 @@ Decl needs_self_healing(ActionID, HealingType) bound [/string, /name].
 # excludes nothing in this Mangle build (see internal/core/bound_negation_test.go);
 # projecting the wildcard away makes the negation actually filter.
 Decl action_needs_self_healing(ActionID) bound [/string].
-
-# action_escalated(ActionID, Reason, Timestamp)
-# Indicates an action was escalated to user for manual intervention.
-Decl action_escalated(ActionID, Reason, Timestamp) bound [/string, /name, /number].
 
 # --- Derived Validation Predicates (used in policy/validation.mg) ---
 

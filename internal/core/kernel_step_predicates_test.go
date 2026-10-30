@@ -240,7 +240,7 @@ func TestStep2_ActionCompleteVerified_RequiresPositiveValidation(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 // Step 3: unvalidated_side_effect/2 — the "no-opinion" partition
-//   side_effect_attempted AND !complete AND !failed AND !escalated
+//   side_effect_attempted AND !complete AND !failed
 // Must derive only when the action ran with NO validator opinion; must be
 // excluded by each of the three negation arms.
 // -----------------------------------------------------------------------------
@@ -249,7 +249,7 @@ func TestStep3_UnvalidatedSideEffect_NoOpinionPartition(t *testing.T) {
 	t.Parallel()
 	// Base no-opinion case (positive control for the whole table): a
 	// side-effecting action ran at conf 50 (attempted=true, validated=false,
-	// not failed, not escalated) -> in validation limbo -> derives.
+	// not failed) -> in validation limbo -> derives.
 	t.Run("no_opinion_case_derives", func(t *testing.T) {
 		k := setupMockKernel(t)
 		mustAssert(t, k, "action_verified", "u-1", types.MangleAtom("/write_file"), types.MangleAtom("/basic_validation"), int64(50), int64(1))
@@ -284,59 +284,20 @@ func TestStep3_UnvalidatedSideEffect_NoOpinionPartition(t *testing.T) {
 			t.Error("unvalidated_side_effect derived for a FAILED action (should be excluded)")
 		}
 	})
-
-	// Exclusion arm 3: ESCALATED. A no-opinion verify (conf 50, attempted=true,
-	// not validated, not failed) PLUS an action_escalated fact for the same id
-	// -> !action_escalated excludes it. Without the escalation it would derive
-	// (the no_opinion_case_derives subtest is that control).
-	t.Run("excluded_when_escalated", func(t *testing.T) {
-		k := setupMockKernel(t)
-		mustAssert(t, k, "action_verified", "u-4", types.MangleAtom("/write_file"), types.MangleAtom("/basic_validation"), int64(50), int64(1))
-		// action_escalated(ActionID/string, Reason/name, Ts/number)
-		mustAssert(t, k, "action_escalated", "u-4", types.MangleAtom("/max_retries"), int64(1))
-		if queryDerived(t, k, "unvalidated_side_effect(u-4, /write_file)") {
-			t.Error("unvalidated_side_effect derived for an ESCALATED action (should be excluded)")
-		}
-	})
 }
 
 // -----------------------------------------------------------------------------
-// unresolved_failure/1 — twin of the Step 3 escalation bug.
-//   action_failed_validation AND !action_resolved AND !action_is_escalated
-// An escalated failure must be EXCLUDED (it's being handled, not unresolved).
-// This rule had the same !action_escalated(ActionID, _, _) wildcard-negation bug
-// the Step 3 unvalidated_side_effect rule had; the fix reuses the same
-// action_is_escalated/1 projection. Regression-guards that fix.
+// unresolved_failure/1: a failed validation that nothing resolved.
 // -----------------------------------------------------------------------------
 
-func TestValidation_UnresolvedFailure_ExcludesEscalated(t *testing.T) {
+func TestValidation_UnresolvedFailure_Derives(t *testing.T) {
 	t.Parallel()
-	// Positive control: a genuine unresolved failure — validation failed, the
-	// action is neither validated/healed (so !action_resolved holds) nor
-	// escalated. unresolved_failure MUST derive. This also proves the test fact
-	// loads and the rule's base path fires, so a "not derived" in the negative
-	// case below is real exclusion, not a silent load failure.
-	t.Run("positive_control_unresolved_derives", func(t *testing.T) {
-		k := setupMockKernel(t)
-		// action_validation_failed(ActionID/string, ActionType/name, Reason/name, Details/string, Ts/number)
-		mustAssert(t, k, "action_validation_failed", "r-1", types.MangleAtom("/write_file"), types.MangleAtom("/hash_mismatch"), "content hash mismatch", int64(1))
-		if !queryDerived(t, k, "unresolved_failure(r-1)") {
-			t.Error("unresolved_failure NOT derived for a genuine unresolved (non-escalated) failure")
-		}
-	})
-
-	// The bug case: SAME failure, now ESCALATED for the same id. !action_is_escalated
-	// must exclude it. Before the fix (!action_escalated(ActionID, _, _)) this
-	// wrongly still derived.
-	t.Run("excluded_when_escalated", func(t *testing.T) {
-		k := setupMockKernel(t)
-		mustAssert(t, k, "action_validation_failed", "r-2", types.MangleAtom("/write_file"), types.MangleAtom("/hash_mismatch"), "content hash mismatch", int64(1))
-		// action_escalated(ActionID/string, Reason/name, Ts/number)
-		mustAssert(t, k, "action_escalated", "r-2", types.MangleAtom("/max_retries"), int64(1))
-		if queryDerived(t, k, "unresolved_failure(r-2)") {
-			t.Error("unresolved_failure derived for an ESCALATED failure (should be excluded; escalation-negation regression)")
-		}
-	})
+	k := setupMockKernel(t)
+	// action_validation_failed(ActionID/string, ActionType/name, Reason/name, Details/string, Ts/number)
+	mustAssert(t, k, "action_validation_failed", "r-1", types.MangleAtom("/write_file"), types.MangleAtom("/hash_mismatch"), "content hash mismatch", int64(1))
+	if !queryDerived(t, k, "unresolved_failure(r-1)") {
+		t.Error("unresolved_failure NOT derived for a genuine unresolved failure")
+	}
 }
 
 // -----------------------------------------------------------------------------
@@ -556,5 +517,25 @@ func mustAssert(t *testing.T, k *RealKernel, predicate string, args ...any) {
 	t.Helper()
 	if err := k.Assert(Fact{Predicate: predicate, Args: args}); err != nil {
 		t.Fatalf("assert %s%v failed: %v", predicate, args, err)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// block_commit/1: a modified file alone is not a reason to refuse a commit.
+// A "Gauntlet Not Passed" arm once blocked on !gauntlet_passed(), and nothing
+// ever recorded a gauntlet result, so every modification blocked every commit.
+// -----------------------------------------------------------------------------
+
+func TestBlockCommit_ModificationAloneDoesNotBlock(t *testing.T) {
+	t.Parallel()
+	k := setupMockKernel(t)
+	mustAssert(t, k, "modified", "main.go")
+	mustAssert(t, k, "build_result", types.MangleAtom("/true"), "")
+	mustAssert(t, k, "test_state", types.MangleAtom("/passing"))
+	if queryDerived(t, k, `block_commit("Gauntlet Not Passed")`) {
+		t.Error("a modified file with a green build and passing tests must not block the commit")
+	}
+	if !queryDerived(t, k, "safe_to_commit()") {
+		t.Error("safe_to_commit must hold for a modified file with a green build and passing tests")
 	}
 }

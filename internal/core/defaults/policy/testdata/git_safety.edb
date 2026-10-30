@@ -1,8 +1,5 @@
 # Facts for Git Safety Testing
 
-# Current User
-current_user("jules_test").
-
 # Git History: File, Commit, Author, Age (days), Message
 git_history("main.go", "hash1", "bob", 1, "fix bug").
 git_history("utils.go", "hash2", "alice", 5, "refactor").

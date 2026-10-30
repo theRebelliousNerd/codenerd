@@ -12,7 +12,6 @@
 
 acceptance_count
 act_batch
-action_escalated  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
 action_violates
 agenda_dependency
 appeal_denial_count
@@ -29,7 +28,6 @@ code_accepted
 coder_rejection_count
 coverage_goal
 coverage_metric
-current_user  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
 derived_rule
 detected_security_flow
 dialog_policy
@@ -39,14 +37,12 @@ failure_count_by_file
 false_positive_pattern
 file_line_count
 fix_pattern
-gauntlet_result  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
 intelligence_knowledge_link
 intelligence_preference
 invariant_value
 investigation_result
 item_retry_count
 known_cause
-mutation_approved  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
 nemesis_attack_run
 nesting_depth
 page_framework
@@ -80,4 +76,3 @@ tester_task
 thunderdome_battle
 tool_language
 unhandled_case_count_computed
-validation_max_retries_reached  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
