@@ -64,11 +64,12 @@ func TestCheckedInCorpusOrderedParity(t *testing.T) {
 	// capability/regenerate (2026-10-30); 956 when the deliberation challenger
 	// replaced five ask-the-user interrogator atoms and the proposer arrived,
 	// each as identity plus output contract
-	// (2026-10-30). To
+	// (2026-10-30); 958 with the mission atoms for the recurse attempt and
+	// the proposer (2026-10-30). To
 	// refresh it after an intended corpus change, take the count and digest
 	// this test prints.
-	const wantCount = 956
-	const wantDigest = "e122fba1ae395c87795539ef2ebc283ced48d57caa4edf22d37b95bd55a270e0"
+	const wantCount = 958
+	const wantDigest = "83029d3154e44f7c870816fa5b9931dfba472f129881ed716f99f1e50bd6e9b1"
 	if len(stats.AtomIDs) != wantCount {
 		t.Fatalf("atom count = %d, want golden %d", len(stats.AtomIDs), wantCount)
 	}
