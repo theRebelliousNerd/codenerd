@@ -305,7 +305,6 @@ safe_action(/resume_task).
 safe_action(/escalate_to_user).
 safe_action(/interrogative_mode).
 safe_action(/refresh_shard_context).
-safe_action(/update_world_model).
 
 # Context management operations
 safe_action(/create_checkpoint).

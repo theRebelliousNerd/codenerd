@@ -39,11 +39,27 @@ test files. The ordinary and race package suites pass.
 | `executive_policy` | auto | logic-primary OODA coordinator; optional LLM autopoiesis | `pending_action/5` |
 | `constitution_gate` | auto | deterministic default-deny gate; optional rule proposal | `permission_check_result/4`, `permitted_action/5`, denial facts |
 | `mangle_repair` | auto | deterministic validation plus bounded LLM repair | accepted/rejected learned-rule outcome |
-| `world_model_ingestor` | on demand | scanner/AST primary; optional interpretation | topology, symbol, diagnostic, heartbeat facts |
 | `tactile_router` | on demand | deterministic Mangle/local route selection | `routing_result/4`, effect request |
 | `session_planner` | on demand | JIT LLM decomposition plus deterministic agenda state | agenda/checkpoint/status facts |
 | `campaign_runner` | on demand | deterministic supervisor around campaign orchestrator | campaign lifecycle facts |
 | `legislator` | on demand | JIT creative rule synthesis behind strict schema mode | candidate learned rule |
+
+System shards are resident services. ShardManager executes them with
+`sessionlog.RunService`, preserving diagnostic transcripts while detaching them
+from the triggering task. They do not enter task-progress agents, the task
+observer's active operations, or the chat's spawning/completion feed. The Shard
+Console separates them into a Services section with their current state (a live
+running service is displayed as ready), without a task-age counter. This includes
+`tactile_router` and `session_planner`; their loops and routing/planning behavior
+are unchanged. Ephemeral and persistent task agents keep normal lifecycle events.
+The lifecycle, transcript-progress and console regression cases are authored and
+await execution.
+
+The world ingestor service is retired. Topology, symbols (including tests) and
+imports are maintained by the boot scanner's incremental refresh path; explicit
+refresh actions execute that scanner. There is no world-ingestor activation,
+profile, factory, heartbeat, error trigger, or second full scan. See the world
+implemented specification for ownership, persistence and migration contracts.
 
 ### 2.2 Ephemeral and library participants
 
@@ -328,7 +344,7 @@ GetLastAssessment returns an internal pointer.
 | requirements interrogator | `system/requirements_interrogator/*`, semantic top-k 5 | error if LLM exists but JIT unavailable; static nil-LLM questions |
 | planner | campaign planner atoms, semantic top-k 5 | fail decomposition |
 | legislator | legislator identity/syntax/safety/output, semantic top-k 100 | fail rule generation |
-| system autopoiesis | `system/autopoiesis/{executive,router,world_model,constitution}` | skip optional proposal |
+| system autopoiesis | `system/autopoiesis/{executive,router,constitution}` | skip optional proposal |
 | Mangle repair | `system/mangle_repair/*` | legacy prompt fallback remains |
 | perception | assembler attached to transducer | structured heuristic fallback is visible |
 | consultation | inline protocol task | no package atom inventory |

@@ -18,6 +18,7 @@ type Scope struct {
 	ID     string
 	Folder string
 	// Transcript says the agent keeps a transcript.json.
+	Service    bool // resident system service, outside task progress
 	Transcript bool
 
 	state *scopeState
@@ -39,6 +40,14 @@ func WithAgent(ctx context.Context, role, id string) context.Context {
 	return context.WithValue(ctx, scopeKey{}, &Scope{
 		Role: role, ID: id, Folder: AgentFolder(role, id), Transcript: true, state: &scopeState{},
 	})
+}
+
+// WithService keeps a diagnostic transcript while detaching the service from
+// its triggering task. A resident loop must not age in the task's agent list.
+func WithService(ctx context.Context, role, id string) context.Context {
+	ctx = WithAgent(ctx, role, id)
+	ScopeFrom(ctx).Service = true
+	return context.WithValue(ctx, taskKey{}, "")
 }
 
 // WithChat scopes ctx to the main agent: calls land in chat/, and the

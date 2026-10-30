@@ -2,8 +2,6 @@ package system
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +9,6 @@ import (
 	"codenerd/internal/campaign"
 	"codenerd/internal/consultation"
 	"codenerd/internal/core"
-	"codenerd/internal/types"
 )
 
 // The proposal prompt is hashed by FeedbackLoop.CanRetryPrompt for per-prompt
@@ -161,128 +158,6 @@ func TestGetLearnedPatterns_Sorted(t *testing.T) {
 		if got["successful"][j] != w || got["corrections"][j] != w {
 			t.Fatalf("perception: got %v / %v, want sorted", got["successful"], got["corrections"])
 		}
-	}
-}
-
-// Directory membership matches whole segments: vendor/ goes, but codevendor/
-// stays. The old substring check dropped every path containing the word.
-// *.exe is no longer an exclude pattern; the include globs simply do not match it.
-func TestExcludedByPatterns_SegmentMatch(t *testing.T) {
-	dir := t.TempDir()
-	write := func(rel, body string) {
-		t.Helper()
-		p := filepath.Join(dir, rel)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("vendor/x.go", "package vendor\n")
-	write("codevendor/x.go", "package keep\n")
-	write("node_modules/x.go", "package nm\n")
-	write("my-node_modules/x.go", "package mine\n")
-	write(".git/hooks.go", "package git\n")
-	write("app.exe", "not go\n")
-	write("app.go", "package app\n")
-
-	kernel, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg := DefaultWorldModelConfig()
-	cfg.RootPath = dir
-	w := NewWorldModelIngestorShardWithConfig(cfg)
-	w.Kernel = kernel
-	if err := w.performFullScan(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	facts, err := kernel.Query("file_topology")
-	if err != nil {
-		t.Fatal(err)
-	}
-	seen := map[string]bool{}
-	for _, f := range facts {
-		seen[types.ExtractString(f.Args[0])] = true
-	}
-	for _, banned := range []string{"vendor/x.go", "node_modules/x.go", ".git/hooks.go", "app.exe"} {
-		if seen[banned] {
-			t.Errorf("ingested %s", banned)
-		}
-	}
-	for _, want := range []string{"codevendor/x.go", "my-node_modules/x.go", "app.go"} {
-		if !seen[want] {
-			t.Errorf("missing %s in %v", want, seen)
-		}
-	}
-}
-
-// Full and incremental scans must agree on what the world contains: the
-// incremental path used to skip the include gate, so steady state ingested
-// logs and binaries a restart would never include.
-func TestWorldModelScans_IncludeParity(t *testing.T) {
-	dir := t.TempDir()
-	write := func(rel, body string) {
-		t.Helper()
-		p := filepath.Join(dir, rel)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("vendor/skip.go", "package vendor\n")
-	write("codevendor/keep.go", "package keep\n")
-	write("note.log", "noise\n")
-
-	kernel, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg := DefaultWorldModelConfig()
-	cfg.RootPath = dir
-	w := NewWorldModelIngestorShardWithConfig(cfg)
-	w.Kernel = kernel
-	ctx := context.Background()
-
-	if err := w.performFullScan(ctx); err != nil {
-		t.Fatalf("full scan: %v", err)
-	}
-	topology := func() map[string]bool {
-		facts, err := kernel.Query("file_topology")
-		if err != nil {
-			t.Fatalf("query: %v", err)
-		}
-		seen := map[string]bool{}
-		for _, f := range facts {
-			seen[types.ExtractString(f.Args[0])] = true
-		}
-		return seen
-	}
-	seen := topology()
-	if seen["vendor/skip.go"] {
-		t.Error("full scan ingested vendor/skip.go")
-	}
-	if !seen["codevendor/keep.go"] {
-		t.Error("full scan dropped codevendor/keep.go")
-	}
-	if seen["note.log"] {
-		t.Error("full scan ingested note.log")
-	}
-
-	write("app.log", "more noise\n")
-	write("new.go", "package newpkg\n")
-	if err := w.performIncrementalScan(ctx); err != nil {
-		t.Fatalf("incremental scan: %v", err)
-	}
-	seen = topology()
-	if !seen["new.go"] {
-		t.Error("incremental scan missed new.go")
-	}
-	if seen["app.log"] {
-		t.Error("incremental scan ingested app.log, which the full scan would never include")
 	}
 }
 

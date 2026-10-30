@@ -309,12 +309,11 @@ type ShardInfo = types.ShardInfo
 // deliberately not extended: new system shards get their type from the profile
 // they register, which is what stopped this list from drifting again.
 var legacySystemShardNames = map[string]bool{
-	"perception_firewall":  true,
-	"executive_policy":     true,
-	"constitution_gate":    true,
-	"tactile_router":       true,
-	"session_planner":      true,
-	"world_model_ingestor": true,
+	"perception_firewall": true,
+	"executive_policy":    true,
+	"constitution_gate":   true,
+	"tactile_router":      true,
+	"session_planner":     true,
 }
 
 func (sm *ShardManager) ListAvailableShards() []ShardInfo {

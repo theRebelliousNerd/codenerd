@@ -75,7 +75,7 @@ Build binary (if needed) per root `Agents.md` sqlite-vec CGO flags.
 | `internal/core` | Kernel LoadFacts/Retract; schemas_world.mg |
 | `internal/store` | Per-file world fact cache |
 | `internal/system` | HolographicCodeScope, factory Scanner |
-| `internal/shards/system` | world_model_ingestor |
+| `internal/shards/system` | campaign scanner consumers |
 | `internal/campaign` | Scanner + holographic intelligence |
 | `internal/init` | Initial workspace scan |
 | `cmd/nerd` | scan, chat sync, campaign, mangle-lsp |

@@ -671,10 +671,6 @@ type RegistryContext struct {
 	// RolePrompts compiles the system prompt of a role that is not a persona
 	// shard turn (the image generator); nil fails that role's requests.
 	RolePrompts types.RolePromptCompiler
-	// World is the loaded world section. The world-model ingestor reads
-	// MaxFilesPerScan from it at construction. The zero value resolves to
-	// the default cap (100); a non-positive cap stays unbounded.
-	World config.WorldConfig
 	// NERD-EVOLVE-START: P1P2-model-tiering
 	// ClassificationClient, when non-nil, is used by the PerceptionFirewallShard
 	// for intent classification calls instead of the main LLMClient.
@@ -842,14 +838,6 @@ func (r *shardFactoryRegistrar) registerSystemShards() {
 		return r.withJITConfig(shard)
 	})
 
-	r.sm.RegisterShard("world_model_ingestor", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := system.NewWorldModelIngestorShardWithConfig(system.WorldModelConfigFor(r.ctx.World))
-		shard.SetParentKernel(r.ctx.Kernel)
-		shard.SetVirtualStore(r.ctx.VirtualStore)
-		shard.SetLLMClient(r.ctx.LLMClient)
-		shard.SetPromptAssembler(r.createAssembler())
-		return r.withJITConfig(shard)
-	})
 }
 
 func (r *shardFactoryRegistrar) registerLogicShards() {
@@ -979,7 +967,6 @@ func defineShardProfiles(sm *coreshards.ShardManager) {
 // defineSystemShardProfiles registers Type 1 system shard profiles.
 func defineSystemShardProfiles(sm *coreshards.ShardManager) {
 	definePerceptionFirewallProfile(sm)
-	defineWorldModelIngestorProfile(sm)
 	defineExecutivePolicyProfile(sm)
 	defineConstitutionGateProfile(sm)
 	defineMangleRepairProfile(sm)
@@ -1003,25 +990,6 @@ func definePerceptionFirewallProfile(sm *coreshards.ShardManager) {
 		MemoryLimit: 9000,
 		Model: types.ModelConfig{
 			Capability: types.CapabilityBalanced,
-		},
-	})
-}
-
-func defineWorldModelIngestorProfile(sm *coreshards.ShardManager) {
-	// World Model Ingestor - ON-DEMAND, Hybrid
-	sm.DefineProfile("world_model_ingestor", types.ShardConfig{
-		Name:        "world_model_ingestor",
-		Type:        types.ShardTypeSystem,
-		StartupMode: types.StartupOnDemand,
-		Permissions: []types.ShardPermission{
-			types.PermissionReadFile,
-			types.PermissionExecCmd,
-			types.PermissionCodeGraph,
-		},
-		Timeout:     24 * time.Hour,
-		MemoryLimit: 20000,
-		Model: types.ModelConfig{
-			Capability: types.CapabilityHighSpeed,
 		},
 	})
 }

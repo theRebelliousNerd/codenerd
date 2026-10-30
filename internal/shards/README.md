@@ -20,7 +20,7 @@ There are two, they are not redundant, and picking the wrong one is the most com
 | | `ShardManager` (`internal/core/shards/`) | Clean loop (`internal/session/`) |
 |---|---|---|
 | Serves | **system shards** — long-lived background services with Go implementations | **everything else** — domain personas and user-defined agents |
-| Members | `perception_firewall`, `world_model_ingestor`, `executive_policy`, `constitution_gate`, `legislator`, `mangle_repair`, `tactile_router`, `campaign_runner`, `session_planner`, `requirements_interrogator`, `image_generator` | `coder`, `tester`, `reviewer`, `researcher`, `nemesis`, and every `.nerd/agents/<name>/` agent |
+| Members | `perception_firewall`, `executive_policy`, `constitution_gate`, `legislator`, `mangle_repair`, `tactile_router`, `campaign_runner`, `session_planner`, `requirements_interrogator`, `image_generator` | `coder`, `tester`, `reviewer`, `researcher`, `nemesis`, and every `.nerd/agents/<name>/` agent |
 | Behavior comes from | hand-written Go (`internal/shards/system/`) | JIT-compiled prompt atoms + config atoms |
 | Entry | `ShardManager.Spawn` (`internal/core/shards/manager_spawn.go:133`) | `JITExecutor.Execute` (`internal/session/task_executor.go`) |
 

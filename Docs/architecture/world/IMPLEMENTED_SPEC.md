@@ -50,12 +50,12 @@ Two critical surfaces dominate this package and must be understood together:
 
 | Cluster | Files | Responsibility |
 |---------|-------|----------------|
-| **FS topology** | `fs.go`, `scanner_config.go`, `cache.go`, `incremental_scan.go`, `apply_incremental.go`, `persist.go`, `deep_scan.go`, `git_scanner.go` | Walk, hash, ignore, cache, delta apply, DB snapshot, git churn |
+| **FS topology** | `fs.go`, `scanner_config.go`, `cache.go`, `incremental_scan.go`, `refresh.go`, `apply_incremental.go`, `persist.go`, `deep_scan.go`, `git_scanner.go` | Walk, hash, ignore, cache, delta apply, DB snapshot, git churn |
 | **Fast AST (scan-path)** | `ast.go`, `ast_treesitter.go`, `mangle_fastparse.go` | Tree-sitter / cartographer symbols during scan → `symbol_graph` |
 | **Deep holographic map** | `cartographer.go`, `dataflow*.go`, `dataflow_cache.go` | Go `go/ast` deep facts + multi-lang data flow |
 | **CodeDOM** | `parser_interface.go`, `parser_factory.go`, `go_parser.go`, `python_parser.go`, `typescript_parser.go`, `rust_parser.go`, `mangle_parser.go`, `code_elements.go`, `code_elements_mangle.go` | Polyglot `CodeElement` + language Stratum-0 facts |
 | **Scope (1-hop)** | `scope.go` | Open active file + package/import neighborhood → scope EDB |
-| **Holographic agent context** | `holographic.go`, `holographic_formatting.go`, `holographic_impact.go` | Package X-ray + impact-prioritized callers for LLM injection |
+| **Holographic agent context** | `holographic.go`, `holographic_cache.go`, `holographic_formatting.go`, `holographic_impact.go` | Package X-ray + impact-prioritized callers for LLM injection |
 | **Predicates / types** | `world_predicates.go`, `types.go`, `graph_interface.go` | Replaceable predicate set; cycle-break aliases |
 | **Test selection** | `test_dependency.go` | Test→source graph for codedom |
 | **LSP** | `lsp/manager.go` | Index Mangle workspace; project defs/refs/diags |
@@ -103,7 +103,7 @@ flowchart TB
     INIT[internal/init]
     SYS[internal/system factory]
     CAMP[internal/campaign]
-    SHARD[world_model_ingestor shard]
+    WRITE[VirtualStore mutation completion]
     HCS[HolographicCodeScope]
   end
 
@@ -133,8 +133,8 @@ flowchart TB
   SYS --> SC
   CAMP --> SC
   CAMP --> HOLO
-  SHARD --> AST[ASTParser]
-  AST --> CART
+  WRITE --> INC
+  CLI --> AST[ASTParser partial scans]
   AST --> TS
   HCS --> FSCOPE
   HCS --> DEEP
@@ -569,7 +569,7 @@ Canonical definitions live in `internal/types` so `world` and `core` do not impo
 | Caller | How world is used |
 |--------|-------------------|
 | `cmd/nerd/cmd_init_scan.go` | `NewScanner` full topology |
-| `cmd/nerd/cmd_instruction.go` | `ApplyIncrementalResult` |
+| `cmd/nerd/cmd_instruction.go` | Serialized `Scanner.Refresh` |
 | `cmd/nerd/chat/helpers_scan.go` | Incremental apply + `EnsureDeepFacts` |
 | `cmd/nerd/chat/session_boot.go` | Scanner construction |
 | `cmd/nerd/chat/process_sync.go` / `process_dream_delegation.go` | Apply incremental after edits |
@@ -578,11 +578,65 @@ Canonical definitions live in `internal/types` so `world` and `core` do not impo
 | `internal/system/factory.go` | Scanner with config in boot context |
 | `internal/system/holographic_code_scope.go` | FileScope + EnsureDeepFacts for VS/scope |
 | `internal/campaign/*` | Scanner, holographic, edge cases |
-| `internal/shards/system/world_model.go` | ASTParser continuous ingestor shard |
+| `internal/system/world_refresh.go` | Post-write incremental refresh using the boot scanner |
 | `internal/shards/system/campaign_runner.go` | Scanner + holographic |
 | `cmd/nerd/cmd_mangle_lsp.go` | `world/lsp` |
 
 Fact-flow: after scan, facts enter kernel; VirtualStore/CodeScope use deep facts for holographic retrieval; policy rules in core schemas consume topology/symbols.
+
+---
+
+### 7.1 One live scanner owns the fast world
+
+`world_model_ingestor` is retired: its factory, startup facts, activation rules,
+profile and resident loop are removed. Its topology, symbols and import edges
+come from the existing Scanner and its per-file cache. The former diagnostic
+slice had no producer; optional interpretation had no source of unhandled cases.
+No diagnostic or semantic producer is being replaced by an empty success claim.
+
+Test-file symbols were the coverage difference. Both full and incremental scans
+now parse test symbols in the same pass as other member files, under the existing
+configured AST byte bound. Go review measurements remain limited to non-test
+files. Oversized Go tests retain header-only package/import extraction. Each
+manifest entry records test-symbol coverage; an older manifest schedules only
+its unchanged tests for one delta refresh, without another full scan.
+
+`Scanner.Refresh` holds a mutex across scanning and applying the result. Cortex
+boot, explicit chat/CLI refreshes, and post-write refreshes share this entry point.
+VirtualStore observes `modified` or `file_deleted` in action results and modular tool completion
+facts and invokes the attached scanner before returning from the completion
+boundary. Explicit `update_world_model` executes that same callback and reports
+failure when no scanner is attached. It no longer emits an unconsumed trigger.
+Fast world rows are persisted by Scanner; post-write knowledge facts and link
+projection use the same live result. Deep, scope, repository and LSP ownership
+remain separate as defined in `world_predicates.go`.
+
+Consumers retain canonical workspace-relative identities: `file_in_project`
+reads topology, expert task complexity reads symbols, and impact/activation
+rules read resolved dependency edges. `RefreshStats` exposes full, delta and
+unchanged refresh counts plus the latest elapsed scan/apply time. A failed
+post-write refresh reports stale context through the action output and Glass Box;
+it cannot undo the write that already landed.
+
+The authored production regression boots a real Cortex, routes a permitted write,
+checks replacement of old symbols and import edges, checks test symbols and
+impact derivation, and requires one boot full scan followed by deltas through both the action router and modular registry. Its
+execution and timing measurements remain pending. The legacy-manifest regression
+requires a one-file delta followed by an unchanged result.
+
+### 7.2 Complete package parses for holographic context
+
+Go package extraction visits every non-test Go file in the directory; there is
+no file-count cutoff. The existing directory fingerprint and package cache
+reuse the complete parse until a sibling changes. Cancellation and the existing
+oversized/malformed-file omission reporting still apply; prompt rendering has
+its own kernel-derived budget and visible remainder. Stored signatures, types,
+constants, imports and local references are built from the complete parse pool.
+
+The 110-file regression checks every signature, tail-file imports, a cache hit,
+and invalidation after a tail-file edit. `BenchmarkWholeSessionPackage` measures
+cold extraction and warm context retrieval on `internal/session`. These cases
+are authored; costs and fail-before execution have not yet been measured.
 
 ---
 
@@ -628,7 +682,7 @@ See `03-GAP-ANALYSIS.md` for full matrix. Headline gaps:
 2. Incremental path identity absolute vs full-scan relative.
 3. `WorldPredicates` incomplete vs all emitted predicates.
 4. LSP multi-language (gopls) not built.
-5. World-model ingestor shard vs chat incremental path dual systems (overlap risk).
+5. Production refresh regressions require execution: boot/write fact coverage, legacy test-symbol migration, and duplicate-full-scan counters.
 6. `dependency_link` in predicate list but sparse production emission.
 
 ---

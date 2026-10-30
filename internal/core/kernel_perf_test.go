@@ -185,7 +185,7 @@ func TestConePlanMatchesProgramScanOnProductionCorpus(t *testing.T) {
 		{"pending_action": {}, "action_verified": {}},
 		{"file_topology": {}},
 		{"tool_execution": {}},
-		{"world_model_heartbeat": {}},
+		{"session_checkpoint": {}},
 	} {
 		plan := k.cone.plan(written)
 		if again := k.cone.plan(written); again != plan {

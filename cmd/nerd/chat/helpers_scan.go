@@ -111,13 +111,9 @@ func (m Model) runInitialization(force bool) tea.Cmd {
 
 			// Also scan workspace to load fresh AST facts (supplemental, incremental)
 			if m.scanner != nil {
-				res, scanErr := m.scanner.ScanWorkspaceIncremental(ctx, m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: false})
+				_, scanErr := m.scanner.Refresh(ctx, m.workspace, m.localDB, m.kernel, world.IncrementalOptions{SkipWhenUnchanged: false})
 				if scanErr != nil {
 					logging.Routing("[helpers] incremental workspace scan failed: %v", scanErr)
-				} else if res != nil {
-					if err := world.ApplyIncrementalResult(m.kernel, res); err != nil {
-						logging.Routing("[helpers] failed to apply incremental result: %v", err)
-					}
 				}
 			}
 		}
@@ -168,12 +164,9 @@ func (m Model) runScan(deep bool) tea.Cmd {
 		}
 
 		// Incremental fast scan
-		res, err := m.scanner.ScanWorkspaceIncremental(context.Background(), m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: true})
+		res, err := m.scanner.Refresh(context.Background(), m.workspace, m.localDB, m.kernel, world.IncrementalOptions{SkipWhenUnchanged: true})
 		if err != nil {
 			return scanCompleteMsg{err: err}
-		}
-		if applyErr := world.ApplyIncrementalResult(m.kernel, res); applyErr != nil {
-			return scanCompleteMsg{err: applyErr}
 		}
 
 		if res != nil && res.Unchanged {

@@ -21,7 +21,6 @@ package world
 //	session run (the focus)    code_element + element_* for the file a     per turn,
 //	                           turn is looking at (codedom_facts.go)        re-parsed on edit
 //	git scanner                git_history, churn_rate, current_user   when HEAD or the author moves
-//	WorldModelIngestorShard    file_topology, symbol_graph (background) shard lifetime
 //
 // The rule the matrix encodes: a writer may wipe a predicate only if the same
 // pass re-asserts it. A fast scan re-asserts scanner-owned predicates, so it
@@ -31,15 +30,9 @@ package world
 // deep call graph and every LSP diagnostic until a deep scan happened to run
 // again.
 //
-// The WorldModelIngestorShard writes two predicates the Scanner also owns
-// (file_topology, symbol_graph). Resolution (also recorded in
-// Docs/architecture/world/OPEN-QUESTIONS.md Q1): the Scanner is the sole
-// authority. The shard's copies are background refreshes of the same facts and
-// must use the same canonical identity; where they disagree, the next scan wins
-// because the scan replaces the predicate wholesale. Nothing here can stop the
-// shard from writing — enforcement lives at the one choke point this package
-// owns, ApplyIncrementalResult — so the matrix is asserted as a test
-// (world_predicates_test.go) rather than as a hope.
+// Scanner is the sole authority for topology, symbols and imports. Boot,
+// explicit scans and post-write refreshes share its incremental cache; no
+// resident shard runs a second full scan or competes to publish these facts.
 
 // ScannerPredicates are the predicates a fast scan (full or incremental)
 // re-derives from scratch on every pass. These, and only these, are safe to

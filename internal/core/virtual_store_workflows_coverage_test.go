@@ -1056,25 +1056,4 @@ func TestVirtualStoreWorkflows_Investigation(t *testing.T) {
 	if res.Success || res.Error != context.Canceled.Error() {
 		t.Errorf("expected canceled error, got: %+v", res)
 	}
-
-	// 3. handleUpdateWorldModel
-	req = ActionRequest{Target: "file_hashes", Payload: map[string]any{"scope": "internal/core"}}
-	res, err = vs.handleUpdateWorldModel(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !res.Success {
-		t.Errorf("expected success")
-	}
-	if len(res.FactsToAdd) != 1 || res.FactsToAdd[0].Predicate != "world_model_updating" {
-		t.Errorf("expected world model updating facts, got: %v", res.FactsToAdd)
-	}
-
-	res, err = vs.handleUpdateWorldModel(cCtx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Success || res.Error != context.Canceled.Error() {
-		t.Errorf("expected canceled error, got: %+v", res)
-	}
 }

@@ -70,7 +70,6 @@ func TestRegisterAllShardFactories(t *testing.T) {
 	expectedShards := []string{
 		"requirements_interrogator",
 		"perception_firewall",
-		"world_model_ingestor",
 		"executive_policy",
 		"constitution_gate",
 		"legislator",

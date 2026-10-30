@@ -282,6 +282,12 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 			newFiles = append(newFiles, path)
 			continue
 		}
+		if isTestFile(path) && !prev.TestSymbols {
+			// The previous scanner only read Go test headers. Rebuild just these
+			// files' facts once; source equality cannot prove extraction equality.
+			changed = append(changed, path)
+			continue
+		}
 		// Size and mtime are only a pre-check, and only together with the
 		// content generation. A legacy entry has no generation, so it is
 		// hashed once and the stamp is stored; the file is a change only
@@ -490,10 +496,8 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 					})
 				}
 			}
-			if isTest && lang == "go" {
-				// Test Go files skip the tree-sitter walker below (as in the full
-				// scan), so the header-only parse supplies their file_package row
-				// and import tokens; resolution into edges happens below.
+			if isTest && lang == "go" && s.config.MaxASTFileBytes > 0 && info.Size() > s.config.MaxASTFileBytes {
+				// Header fallback only when the configured AST bound excludes this test.
 				if content, readErr := os.ReadFile(path); readErr == nil {
 					additional = append(additional, goTestFileHeaderFacts(canonical, content)...)
 				} else {
@@ -501,7 +505,7 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 					return
 				}
 			}
-			if !isTest && (s.config.MaxASTFileBytes <= 0 || info.Size() <= s.config.MaxASTFileBytes) {
+			if s.config.MaxASTFileBytes <= 0 || info.Size() <= s.config.MaxASTFileBytes {
 				parser := s.parserPool.Get().(*TreeSitterParser)
 				defer s.parserPool.Put(parser)
 
@@ -518,7 +522,9 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 						if facts, parseErr := parser.ParseGo(canonical, content); parseErr == nil {
 							additional = append(additional, facts...)
 						}
-						additional = append(additional, goReviewFacts(canonical, content)...)
+						if !isTest {
+							additional = append(additional, goReviewFacts(canonical, content)...)
+						}
 					case "mangle":
 						additional = append(additional, extractMangleSymbolFacts(canonical, string(content))...)
 					case "python":
@@ -553,6 +559,9 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 
 			// Update file cache entry.
 			cache.Update(path, info, hash)
+			if isTest {
+				cache.markTestSymbols(path)
+			}
 
 			mu.Lock()
 			newFacts = append(newFacts, ft)

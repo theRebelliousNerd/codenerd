@@ -102,7 +102,7 @@ func (m Model) loadWorkspaceFacts(ctx context.Context, intent perception.Intent,
 		return false
 	}
 
-	res, err := m.scanner.ScanWorkspaceIncremental(ctx, m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: true})
+	res, err := m.scanner.Refresh(ctx, m.workspace, m.localDB, m.kernel, world.IncrementalOptions{SkipWhenUnchanged: true})
 	if err != nil {
 		if warnings != nil {
 			*warnings = append(*warnings, fmt.Sprintf("Workspace scan skipped: %v", err))
@@ -113,12 +113,6 @@ func (m Model) loadWorkspaceFacts(ctx context.Context, intent perception.Intent,
 		return true
 	}
 
-	if applyErr := world.ApplyIncrementalResult(m.kernel, res); applyErr != nil {
-		if warnings != nil {
-			*warnings = append(*warnings, fmt.Sprintf("Workspace apply skipped: %v", applyErr))
-		}
-		return true
-	}
 	if res.Unchanged || len(res.NewFacts) == 0 {
 		return true
 	}

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"codenerd/internal/types"
 	"fmt"
 	"strings"
 	"time"
@@ -27,7 +28,15 @@ func (m Model) handleCmdShards(input string, parts []string) (tea.Model, tea.Cmd
 		m.viewMode = ShardPage
 		sb.WriteString(fmt.Sprintf("## Shards\n\n%d active shard(s). Shard Console opened (Alt+S toggles it).\n", len(active)))
 		for _, s := range active {
-			sb.WriteString(fmt.Sprintf("- %v\n", s))
+			if s.GetConfig().Type == types.ShardTypeSystem {
+				status := string(s.GetState())
+				if s.GetState() == types.ShardStateRunning {
+					status = "ready"
+				}
+				sb.WriteString(fmt.Sprintf("- Service %s: %s\n", s.GetConfig().Name, status))
+			} else {
+				sb.WriteString(fmt.Sprintf("- %v\n", s))
+			}
 		}
 	}
 	m = m.addMessage(Message{Role: "assistant", Content: sb.String(), Time: time.Now()})

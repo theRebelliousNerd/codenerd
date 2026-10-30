@@ -54,16 +54,14 @@ Steady-state fact freshness for chat **depends on these helpers**, not continuou
 | `cmd/nerd/chat/campaign*.go` | Holographic for assault/campaign UI |
 | `internal/shards/system/campaign_runner.go` | Shard-side campaign uses scanner + holographic |
 
-## System shard: world_model_ingestor
+## Live refresh after writes
 
-`internal/shards/system/world_model.go`:
-
-- On-demand system shard
-- Owns `*world.ASTParser`
-- Continuous/tick-style maintainance of topology & symbols (separate from chat incremental)
-- Permissions: read file, exec, code graph
-
-**Integration note:** dual path with chat scan — operators should treat shard as optional/long-running ingestor, chat helpers as session-local sync.
+`internal/system/world_refresh.go` attaches the boot scanner to VirtualStore.
+Mutation completions and explicit refresh actions call its incremental path.
+`Scanner.Refresh` serializes scan/apply, persists per-file facts, and replaces
+superseded kernel rows. Test symbols share that parse pass; no world-ingestor
+shard or independent full scan is started. Knowledge fact and link projections
+consume the resulting delta. Resident system shards are displayed as services.
 
 ## LSP
 

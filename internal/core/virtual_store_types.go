@@ -100,7 +100,6 @@ const (
 	// Investigation/Analysis Actions
 	ActionInvestigateAnomaly  ActionType = "investigate_anomaly"  // Investigate anomaly
 	ActionInvestigateSystemic ActionType = "investigate_systemic" // Investigate systemic issue
-	ActionUpdateWorldModel    ActionType = "update_world_model"   // Update world model
 
 	// Code DOM Query Actions
 	ActionQueryElements ActionType = "query_elements" // Query code elements (alias)

@@ -1,4 +1,4 @@
-// constitution_coverage_test.go — Coverage tests for constitution.go, world_model.go, legislator.go, and router.go.
+// constitution_coverage_test.go — Coverage tests for constitution.go, legislator.go, and router.go.
 package system
 
 import (
@@ -449,192 +449,6 @@ func TestConstitutionGateShard_BuildRuleProposalPrompt_ShouldIncludeCases(t *tes
 	}
 }
 
-// ─── WorldModelIngestorShard ─────────────────────────────────────────────────
-
-func TestWorldModelIngestorShard_NewWorldModelIngestorShard_ShouldHaveDefaults(t *testing.T) {
-	shard := NewWorldModelIngestorShard()
-	if shard.ID != "world_model_ingestor" {
-		t.Errorf("ID = %q, want %q", shard.ID, "world_model_ingestor")
-	}
-	if shard.StartupMode != StartupOnDemand {
-		t.Errorf("StartupMode = %v, want OnDemand", shard.StartupMode)
-	}
-	if shard.config.RootPath != "." {
-		t.Errorf("RootPath = %q, want '.'", shard.config.RootPath)
-	}
-	if len(shard.files) != 0 {
-		t.Error("files should start empty")
-	}
-	if len(shard.symbols) != 0 {
-		t.Error("symbols should start empty")
-	}
-}
-
-func TestWorldModelIngestorShard_GetFiles_WhenEmpty_ShouldReturnEmpty(t *testing.T) {
-	shard := NewWorldModelIngestorShard()
-	files := shard.GetFiles()
-	if len(files) != 0 {
-		t.Errorf("GetFiles() len = %d, want 0", len(files))
-	}
-}
-
-func TestWorldModelIngestorShard_GetSymbols_WhenEmpty_ShouldReturnEmpty(t *testing.T) {
-	shard := NewWorldModelIngestorShard()
-	symbols := shard.GetSymbols()
-	if len(symbols) != 0 {
-		t.Errorf("GetSymbols() len = %d, want 0", len(symbols))
-	}
-}
-
-func TestWorldModelIngestorShard_GetFiles_ShouldReturnCopy(t *testing.T) {
-	shard := NewWorldModelIngestorShard()
-	shard.mu.Lock()
-	shard.files["test.go"] = FileInfo{
-		Path:     "test.go",
-		Language: "go",
-	}
-	shard.mu.Unlock()
-
-	files := shard.GetFiles()
-	if len(files) != 1 {
-		t.Fatalf("GetFiles() len = %d, want 1", len(files))
-	}
-
-	// Verify it's a copy - modifying returned map shouldn't affect shard
-	delete(files, "test.go")
-	original := shard.GetFiles()
-	if len(original) != 1 {
-		t.Error("GetFiles should return a copy, not the internal map")
-	}
-}
-
-func TestWorldModelIngestorShard_GenerateShutdownSummary_ShouldContainStats(t *testing.T) {
-	shard := NewWorldModelIngestorShard()
-	shard.StartTime = time.Now().Add(-5 * time.Second)
-	shard.mu.Lock()
-	shard.files["a.go"] = FileInfo{Path: "a.go"}
-	shard.files["b.go"] = FileInfo{Path: "b.go"}
-	shard.symbols["func1"] = Symbol{ID: "func1"}
-	shard.changeCount = 42
-	shard.mu.Unlock()
-
-	summary := shard.generateShutdownSummary("test")
-	if !containsAll(summary, "Files: 2", "Symbols: 1", "Changes: 42", "test") {
-		t.Errorf("summary missing expected content: %q", summary)
-	}
-}
-
-func TestDetectLanguage_WhenKnownExtensions_ShouldReturnLanguage(t *testing.T) {
-	tests := []struct {
-		path string
-		want string
-	}{
-		{"main.go", "go"},
-		{"script.py", "python"},
-		{"app.js", "javascript"},
-		{"app.ts", "typescript"},
-		{"app.tsx", "typescript"},
-		{"App.java", "java"},
-		{"lib.rs", "rust"},
-		{"helper.c", "c"},
-		{"helper.h", "c"},
-		{"helper.cpp", "cpp"},
-		{"helper.hpp", "cpp"},
-		{"helper.cc", "cpp"},
-		{"script.rb", "ruby"},
-		{"page.php", "php"},
-		{"app.swift", "swift"},
-		{"app.kt", "kotlin"},
-		{"Program.cs", "csharp"},
-		{"README.md", "markdown"},
-		{"config.json", "json"},
-		{"config.yaml", "yaml"},
-		{"config.yml", "yaml"},
-		{"document.pdf", "pdf"},
-		{"notes.txt", "text"},
-		{"unknown.xyz", "unknown"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			got := detectLanguage(tt.path)
-			if got != tt.want {
-				t.Errorf("detectLanguage(%q) = %q, want %q", tt.path, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestIsTestFile_WhenTestPatterns_ShouldReturnTrue(t *testing.T) {
-	tests := []struct {
-		path string
-		want bool
-	}{
-		{"main_test.go", true},
-		{"app.test.js", true},
-		{"app.test.ts", true},
-		{"app.test.tsx", true},
-		{"app.spec.js", true},
-		{"app.spec.ts", true},
-		{"app.spec.tsx", true},
-		{"app_test.py", true},
-		{"MyTest.java", true},
-		{"lib_test.rs", true},
-		{"main.go", false},
-		{"app.js", false},
-		{"README.md", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			got := isTestFile(tt.path)
-			if got != tt.want {
-				t.Errorf("isTestFile(%q) = %v, want %v", tt.path, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestWorldModelIngestorShard_ApplyInterpretation_WhenValidFact_ShouldNotPanic(t *testing.T) {
-	shard := NewWorldModelIngestorShard()
-	kernel, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel() error = %v", err)
-	}
-	shard.Kernel = kernel
-
-	// applyInterpretation attempts to assert facts; the kernel may silently
-	// drop predicates that aren't declared, but it should not panic.
-	output := "Some analysis:\nFACT: semantic_change(internal/core/kernel.go)\nOther text"
-	shard.applyInterpretation(output)
-	// No panic = success
-}
-
-func TestWorldModelIngestorShard_ApplyInterpretation_WhenNoFacts_ShouldNotAssert(t *testing.T) {
-	shard := NewWorldModelIngestorShard()
-	kernel, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel() error = %v", err)
-	}
-	shard.Kernel = kernel
-
-	output := "No facts here, just analysis."
-	shard.applyInterpretation(output)
-	// No panic = success, and no facts asserted
-}
-
-func TestWorldModelIngestorShard_BuildInterpretationPrompt_ShouldIncludeCases(t *testing.T) {
-	shard := NewWorldModelIngestorShard()
-	cases := []UnhandledCase{
-		{Query: "file changed: main.go", Context: map[string]string{"language": "go"}},
-	}
-
-	prompt := shard.buildInterpretationPrompt(cases)
-	if !containsAll(prompt, "file changed: main.go", "go", "FACT:") {
-		t.Errorf("prompt missing expected content: %q", prompt)
-	}
-}
-
 // ─── LegislatorShard ─────────────────────────────────────────────────────────
 
 func TestLegislatorShard_NewLegislatorShard_ShouldHaveDefaults(t *testing.T) {
@@ -823,7 +637,7 @@ func TestTactileRouterShard_ProcessPermittedActions_WhenNilKernel_ShouldReturnNi
 	}
 }
 
-// ─── DefaultConstitutionConfig / DefaultWorldModelConfig ─────────────────────
+// ─── DefaultConstitutionConfig ─────────────────────
 
 func TestDefaultConstitutionConfig_ShouldHaveReasonableDefaults(t *testing.T) {
 	cfg := DefaultConstitutionConfig()
@@ -841,34 +655,6 @@ func TestDefaultConstitutionConfig_ShouldHaveReasonableDefaults(t *testing.T) {
 	}
 	if len(cfg.DangerousPatterns) < 5 {
 		t.Error("should have several dangerous patterns")
-	}
-}
-
-func TestDefaultWorldModelConfig_ShouldHaveReasonableDefaults(t *testing.T) {
-	cfg := DefaultWorldModelConfig()
-	if cfg.RootPath != "." {
-		t.Errorf("RootPath = %q, want '.'", cfg.RootPath)
-	}
-	if cfg.TickInterval == 0 {
-		t.Error("TickInterval should not be zero")
-	}
-	if cfg.MaxFilesPerScan <= 0 {
-		t.Error("MaxFilesPerScan should be positive")
-	}
-	if !cfg.EnableSymbolGraph {
-		t.Error("EnableSymbolGraph should default to true")
-	}
-	if !cfg.EnableDiagnostics {
-		t.Error("EnableDiagnostics should default to true")
-	}
-	if !cfg.EnableDependencies {
-		t.Error("EnableDependencies should default to true")
-	}
-	if len(cfg.IncludePatterns) == 0 {
-		t.Error("IncludePatterns should not be empty")
-	}
-	if len(cfg.ExcludePatterns) == 0 {
-		t.Error("ExcludePatterns should not be empty")
 	}
 }
 

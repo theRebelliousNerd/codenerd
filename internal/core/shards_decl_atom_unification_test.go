@@ -70,8 +70,8 @@ func TestShardsDeclAtomsUnify(t *testing.T) {
 		{Predicate: "user_intent", Args: []any{"/current_intent", MangleAtom("/research"), MangleAtom("/research"), "the parser", ""}},
 		{Predicate: "target_word_count", Args: []any{"the parser", int64(60)}},
 
-		// Drives activate_shard(/world_model_ingestor).
-		{Predicate: "modified", Args: []any{"internal/core/kernel.go"}},
+		// Drives activate_shard(/tactile_router).
+		{Predicate: "action_ready_for_routing", Args: []any{"route-write"}},
 
 		// Two struggling shard types (3+ failed traces each) drive
 		// escalation_needed(/system_health, "shard_performance", ...).
@@ -142,7 +142,7 @@ func TestShardsDeclAtomsUnify(t *testing.T) {
 	// (held to the profiles by TestSystemShardStartupModesAgreeWithTheKernel).
 	check("shard_startup(S, /auto)", 4)
 	check("shard_startup(/session_planner, /on_demand)", 1)
-	check("activate_shard(/world_model_ingestor)", 1)
+	check("activate_shard(/tactile_router)", 1)
 
 	// The Go consumer (shards.ShardManager.StartSystemShards) reads this with
 	// ExtractString + TrimLeft("/") to get its profile key. Prove that still
@@ -151,17 +151,17 @@ func TestShardsDeclAtomsUnify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Query(activate_shard) error = %v", err)
 	}
-	sawIngestor := false
+	sawRouter := false
 	for _, f := range rows {
 		if len(f.Args) == 0 {
 			continue
 		}
-		if strings.TrimLeft(types.ExtractString(f.Args[0]), "/") == "world_model_ingestor" {
-			sawIngestor = true
+		if strings.TrimLeft(types.ExtractString(f.Args[0]), "/") == "tactile_router" {
+			sawRouter = true
 		}
 	}
-	if !sawIngestor {
-		t.Errorf(`activate_shard consumer normalization did not yield "world_model_ingestor" from %v`, rows)
+	if !sawRouter {
+		t.Errorf(`activate_shard consumer normalization did not yield "tactile_router" from %v`, rows)
 	}
 
 	// --- spawn_subagent/1 --------------------------------------------------

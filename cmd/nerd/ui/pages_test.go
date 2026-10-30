@@ -375,3 +375,30 @@ func TestCampaignPageModelSummaryToggle(t *testing.T) {
 		t.Fatalf("expected confidence stat in view")
 	}
 }
+
+func TestShardConsoleSeparatesResidentServicesFromAgents(t *testing.T) {
+	model := NewShardPageModel()
+	model.SetSize(100, 30)
+	var agents []types.ShardAgent
+	for _, name := range []string{"tactile_router", "session_planner"} {
+		service := coreshards.NewBaseShardAgent(name+"-instance", types.ShardConfig{Name: name, Type: types.ShardTypeSystem})
+		service.SetState(types.ShardStateRunning)
+		agents = append(agents, service)
+	}
+	worker := coreshards.NewBaseShardAgent("worker-instance", types.ShardConfig{Name: "coder", Type: types.ShardTypeEphemeral})
+	worker.SetState(types.ShardStateRunning)
+	agents = append(agents, worker)
+	model.UpdateContent(agents, nil)
+	if len(model.activeShards) != 1 || len(model.services) != 2 {
+		t.Fatalf("agents=%d services=%d", len(model.activeShards), len(model.services))
+	}
+	view := model.View()
+	for _, text := range []string{"Services", "tactile_router: ready", "session_planner: ready", "worker-instance"} {
+		if !strings.Contains(view, text) {
+			t.Errorf("view missing %q: %s", text, view)
+		}
+	}
+	if strings.Contains(view, "tactile_router-instance") || strings.Contains(view, "session_planner-instance") {
+		t.Fatal("service appears in agent table")
+	}
+}

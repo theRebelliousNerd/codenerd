@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/transparency"
 	"codenerd/internal/types"
 )
 
@@ -143,5 +144,38 @@ func TestSpawn_WhenNoTransparencyManager_ShouldStillSpawn(t *testing.T) {
 
 	if _, err := sm.SpawnWithContext(ctx, "coder", "fix the bug", nil); err != nil {
 		t.Fatalf("spawn must not depend on transparency being wired: %v", err)
+	}
+}
+
+// Services still execute, but never enter the task observer or emit a
+// Spawning/done pair into the chat feed. Workers above retain both behaviors.
+func TestResidentServicesDoNotAdvertiseTaskLifetimes(t *testing.T) {
+	for _, name := range []string{"tactile_router", "session_planner"} {
+		t.Run(name, func(t *testing.T) {
+			sm := NewShardManager()
+			fake := newFakeTransparencyManager()
+			sm.SetTransparencyManager(fake)
+			bus := transparency.NewGlassBoxEventBus()
+			bus.Enable()
+			events := bus.Subscribe()
+			defer bus.Close()
+			sm.SetGlassBoxBus(bus)
+			sm.RegisterShard(name, func(id string, cfg types.ShardConfig) types.ShardAgent {
+				return &onDemandFakeAgent{id: id, config: cfg}
+			})
+			sm.DefineProfile(name, types.ShardConfig{Name: name, Type: types.ShardTypeSystem, StartupMode: types.StartupOnDemand})
+			if _, err := sm.SpawnWithContext(context.Background(), name, "on_demand_activation", nil); err != nil {
+				t.Fatal(err)
+			}
+			started, phases, ended, ops := fake.snapshot()
+			if len(started)+len(phases)+len(ended)+len(ops) != 0 {
+				t.Fatal("service entered task operations")
+			}
+			select {
+			case ev := <-events:
+				t.Fatalf("service emitted task lifecycle: %+v", ev)
+			default:
+			}
+		})
 	}
 }

@@ -119,7 +119,6 @@ escalation_needed(/system_health, ShardName, "heartbeat_timeout") :-
 shard_startup(/perception_firewall, /auto).
 shard_startup(/executive_policy, /auto).
 shard_startup(/constitution_gate, /auto).
-shard_startup(/world_model_ingestor, /on_demand).
 shard_startup(/tactile_router, /on_demand).
 shard_startup(/session_planner, /on_demand).
 
@@ -151,11 +150,6 @@ propose_safety_rule(Pattern) :-
     repeated_violation_pattern(Pattern).
 
 # On-Demand Shard Activation
-
-# Activate world_model_ingestor when files change
-activate_shard(/world_model_ingestor) :-
-    modified(_),
-    !system_shard_healthy(/world_model_ingestor).
 
 # Activate tactile_router when actions are pending
 activate_shard(/tactile_router) :-

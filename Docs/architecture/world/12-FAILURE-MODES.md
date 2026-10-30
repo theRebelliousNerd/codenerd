@@ -95,13 +95,13 @@
 | **Mitigation** | WorldWarn; in-memory facts may still load |
 | **Effect** | Next incremental cannot retract old accurately |
 
-## FM12 — Dual writer race (shard vs chat)
+## FM12 — Concurrent refresh generations
 
 | | |
 |--|--|
-| **Cause** | WorldModelIngestor + chat ApplyIncremental concurrent |
+| **Cause** | Concurrent callers scan and apply generations out of order |
 | **Effect** | Interleaved retract/load; transient inconsistency |
-| **Mitigation** | Operational: don’t dual-run without coordination |
+| **Mitigation** | Production Cortex callers share Scanner.Refresh across scan/apply; the duplicate ingestor is retired |
 | **Detect** | Flapping fact counts |
 
 ## FM13 — Import cycle regression

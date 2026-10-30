@@ -133,14 +133,11 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 
 	// 3. World Model: Incremental Scan Workspace (fast)
 	logger.Debug("Scanning workspace incrementally", zap.String("path", cortex.Workspace))
-	scanRes, err := cortex.Scanner.ScanWorkspaceIncremental(ctx, cortex.Workspace, cortex.LocalDB, world.IncrementalOptions{SkipWhenUnchanged: true})
+	scanRes, err := cortex.Scanner.Refresh(ctx, cortex.Workspace, cortex.LocalDB, cortex.Kernel, world.IncrementalOptions{SkipWhenUnchanged: true})
 	if err != nil {
 		return fmt.Errorf("world model error: %w", err)
 	}
 	if scanRes != nil {
-		if err := world.ApplyIncrementalResult(cortex.Kernel, scanRes); err != nil {
-			return fmt.Errorf("world model apply error: %w", err)
-		}
 		if scanRes.Unchanged {
 			logger.Debug("Workspace unchanged; refreshed orientation if needed")
 		} else {

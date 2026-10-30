@@ -47,14 +47,14 @@ func TestOnDemandWatcherFiresOnTrigger(t *testing.T) {
 	}
 	before := calls.Load()
 
-	bus.Publish("modified")
+	bus.Publish("action_ready_for_routing")
 
 	deadline = time.Now().Add(5 * time.Second)
 	for calls.Load() == before && time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	if calls.Load() == before {
-		t.Fatal("publishing 'modified' never invoked ensure within 5s")
+		t.Fatal("publishing 'action_ready_for_routing' never invoked ensure within 5s")
 	}
 }
 
@@ -115,7 +115,7 @@ func TestOnDemandWatcherStopUnsubscribes(t *testing.T) {
 		t.Fatalf("stop must unsubscribe, bus still has %d subscribers", n)
 	}
 	before := calls.Load() // Startup sweep may already have fired; freeze it here.
-	bus.Publish("modified")
+	bus.Publish("action_ready_for_routing")
 	time.Sleep(1500 * time.Millisecond)
 	if got := calls.Load(); got != before {
 		t.Fatalf("stopped watcher still fired (calls %d -> %d)", before, got)

@@ -740,23 +740,3 @@ func (v *VirtualStore) handleInvestigateSystemic(ctx context.Context, req Action
 		},
 	}, nil
 }
-
-// handleUpdateWorldModel updates the world model.
-func (v *VirtualStore) handleUpdateWorldModel(ctx context.Context, req ActionRequest) (ActionResult, error) {
-	if err := ctx.Err(); err != nil {
-		return ActionResult{Success: false, Error: err.Error()}, nil
-	}
-
-	updateType := req.Target
-	scope, _ := req.Payload["scope"].(string)
-
-	logging.VirtualStoreDebug("Updating world model: type=%s, scope=%s", updateType, scope)
-
-	return ActionResult{
-		Success: true,
-		Output:  fmt.Sprintf("World model update: %s", updateType),
-		FactsToAdd: []Fact{
-			{Predicate: "world_model_updating", Args: []any{updateType, scope}},
-		},
-	}, nil
-}

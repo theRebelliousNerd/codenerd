@@ -21,8 +21,10 @@ import (
 
 // Scanner handles file system indexing.
 type Scanner struct {
-	parserPool sync.Pool
-	config     ScannerConfig
+	refreshMu    sync.Mutex
+	refreshStats RefreshStats
+	parserPool   sync.Pool
+	config       ScannerConfig
 	// patternsFromWorkspace makes a scan read the target workspace's
 	// world.ignore_patterns. NewScanner sets it so init, scan and campaign
 	// — which construct a scanner with no config — still honour that list.
@@ -433,12 +435,10 @@ func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options
 					})
 				}
 			}
-			// Test Go files skip the tree-sitter walker below, so their package
-			// row and import tokens come from a header-only parse instead: without
-			// the tokens, no file_imports edge ever leaves a test file and the
-			// file-import test_depends_on rule stays dead. Non-test files get both
-			// from ParseGo, spelled identically.
-			if isTest && lang == "go" {
+			// Oversized Go tests still contribute package/import headers. Ordinary
+			// tests share the symbol walker with production files so retiring the
+			// background ingestor does not lose their symbol_graph facts.
+			if isTest && lang == "go" && s.config.MaxASTFileBytes > 0 && info.Size() > s.config.MaxASTFileBytes {
 				bodyReads++
 				if content, err := os.ReadFile(path); err == nil {
 					additionalFacts = append(additionalFacts, goTestFileHeaderFacts(canonical, content)...)
@@ -447,8 +447,8 @@ func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options
 					return
 				}
 			}
-			// If not a test file and supported language, extract symbols
-			if !isTest && (s.config.MaxASTFileBytes <= 0 || info.Size() <= s.config.MaxASTFileBytes) {
+			// Extract symbols for every supported member file, including tests.
+			if s.config.MaxASTFileBytes <= 0 || info.Size() <= s.config.MaxASTFileBytes {
 				// Borrow a parser from the pool
 				parser := s.parserPool.Get().(*TreeSitterParser)
 				defer s.parserPool.Put(parser) // Return it when done
@@ -465,7 +465,9 @@ func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options
 						} else {
 							logging.Get(logging.CategoryWorld).Warn("Go parse failed: %s - %v", path, parseErr)
 						}
-						additionalFacts = append(additionalFacts, goReviewFacts(canonical, content)...)
+						if !isTest {
+							additionalFacts = append(additionalFacts, goReviewFacts(canonical, content)...)
+						}
 					case "mangle":
 						facts := extractMangleSymbolFacts(canonical, string(content))
 						additionalFacts = append(additionalFacts, facts...)
@@ -503,10 +505,13 @@ func (s *Scanner) prepareDirectoryScan(ctx context.Context, root string, options
 					recordFailure(path, err)
 					return
 				}
-			} else if !isTest && s.config.MaxASTFileBytes > 0 && info.Size() > s.config.MaxASTFileBytes {
+			} else if s.config.MaxASTFileBytes > 0 && info.Size() > s.config.MaxASTFileBytes {
 				logging.WorldDebug("Skipping fast AST parse for large file: %s (%d bytes)", filepath.Base(path), info.Size())
 			}
 
+			if isTest {
+				cache.markTestSymbols(path)
+			}
 			shadow.record(decision, info.Size(), !cacheHit, bodyReads)
 			// OPTIMIZATION: Send to channel instead of locking mutex
 			fileResults <- fileScanResult{

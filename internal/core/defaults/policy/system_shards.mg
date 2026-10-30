@@ -19,11 +19,6 @@ escalation_needed(/system_health, ShardName, "heartbeat_timeout") :-
 
 # On-Demand Shard Activation
 
-# Activate world_model_ingestor when files change
-activate_shard(/world_model_ingestor) :-
-    modified(_),
-    !system_shard_healthy(/world_model_ingestor).
-
 # Activate tactile_router when actions are pending
 activate_shard(/tactile_router) :-
     action_ready_for_routing(_),

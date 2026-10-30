@@ -121,9 +121,8 @@ func (m Model) handleDreamState(ctx context.Context, intent perception.Intent, i
 
 	// Filter shards to consult - include all except low-level system internals
 	skipShards := map[string]bool{
-		"perception_firewall":  true, // Internal routing - not useful to consult
-		"tactile_router":       true, // Internal routing - not useful to consult
-		"world_model_ingestor": true, // Background service - not useful to consult
+		"perception_firewall": true, // Internal routing - not useful to consult
+		"tactile_router":      true, // Internal routing - not useful to consult
 	}
 
 	// Sort shards: persistent specialists FIRST, then ephemeral, then system

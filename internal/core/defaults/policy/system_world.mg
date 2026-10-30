@@ -1,9 +1,8 @@
-# World Model Updates (World Model Ingestor)
+# World Model Relationships
 # Extracted from system.mg
 
 # Decl imports
 # Moved to schemas_shards.mg
-# Decl world_model_stale(File).
 # Decl modified(File).
 # Decl file_topology(File, PackageName, Imports, Types, Deps).
 # Decl next_action(Action).
@@ -13,16 +12,6 @@
 # Decl dependency_link(From, To, Type).
 # Decl symbol_reachable_bounded(From, To, MaxDepth).
 # Decl symbol_reachable_safe(From, To).
-
-# File change triggers world model update
-world_model_stale(File) :-
-    modified(File),
-    file_topology(File, _, _, _, _).
-
-# Trigger ingestor when world model is stale
-next_action(/update_world_model) :-
-    world_model_stale(_),
-    system_shard_healthy(/world_model_ingestor).
 
 # File topology derived from filesystem
 file_in_project(File) :-

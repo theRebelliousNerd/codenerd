@@ -105,9 +105,10 @@ type VirtualStore struct {
 	useModernExecutor bool
 
 	// Code DOM - semantic code element operations
-	codeScope  CodeScope
-	fileEditor FileEditor
-	graphQuery types.GraphQuery // World Model Graph Query Interface
+	codeScope      CodeScope
+	fileEditor     FileEditor
+	worldRefresher func(context.Context) error
+	graphQuery     types.GraphQuery // World Model Graph Query Interface
 
 	// Autopoiesis - tool execution and generation
 	toolExecutor  ToolExecutor

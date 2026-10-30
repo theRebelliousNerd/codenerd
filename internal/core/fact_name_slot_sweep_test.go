@@ -223,8 +223,6 @@ var nameSlotStringBaseline = map[string]int{
 	"internal/core/virtual_store_python.go|python_pytest_result/4#1":         1,
 	"internal/core/virtual_store_routing.go|execution_result/6#1":            1,
 	"internal/core/virtual_store_tool_facts.go|tool_execution/3#1":           1,
-	"internal/core/virtual_store_workflows.go|world_model_updating/2#0":      1,
-	"internal/core/virtual_store_workflows.go|world_model_updating/2#1":      1,
 	"internal/shards/system/constitution.go|appeal_available/4#1":            1,
 	"internal/shards/system/constitution.go|appeal_available/4#3":            1,
 	"internal/shards/system/constitution.go|appeal_denied/4#1":               1,

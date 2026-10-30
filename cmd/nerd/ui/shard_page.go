@@ -31,6 +31,7 @@ type ShardPageModel struct {
 	detailsViewport viewport.Model
 
 	// Data
+	services       []types.ShardAgent
 	activeShards   []types.ShardAgent
 	filteredShards []types.ShardAgent // Shards after filtering
 	backpressure   *coreshards.BackpressureStatus
@@ -314,6 +315,17 @@ func (m *ShardPageModel) View() string {
 	// Header / Queue Status
 	title := m.styles.Layout.Header.Render(" Active Shards ")
 	sb.WriteString(title + "\n\n")
+	if len(m.services) > 0 {
+		sb.WriteString(m.styles.Layout.Header.Render(" Services ") + "\n")
+		for _, service := range m.services {
+			state := string(service.GetState())
+			if service.GetState() == types.ShardStateRunning {
+				state = "ready"
+			}
+			fmt.Fprintf(&sb, "%s: %s\n", service.GetConfig().Name, state)
+		}
+		sb.WriteString("\n")
+	}
 
 	if m.backpressure != nil {
 		stats := fmt.Sprintf("Queue: %d pending | Slots Available: %d",
@@ -436,7 +448,18 @@ func (m *ShardPageModel) SetSize(w, h int) {
 
 // UpdateContent updates the data.
 func (m *ShardPageModel) UpdateContent(shards []types.ShardAgent, bp *coreshards.BackpressureStatus) {
-	m.activeShards = shards
+	m.activeShards = nil
+	m.services = nil
+	for _, shard := range shards {
+		if shard == nil {
+			continue
+		}
+		if shard.GetConfig().Type == types.ShardTypeSystem {
+			m.services = append(m.services, shard)
+		} else {
+			m.activeShards = append(m.activeShards, shard)
+		}
+	}
 	m.backpressure = bp
 
 	// Apply current filter to new data

@@ -504,7 +504,6 @@ Decl phase_success_pattern(PhaseType) bound [/name].
 # =============================================================================
 # Predicates for coordinating the 6 Type 1 system shards:
 # - perception_firewall: NL → atoms transduction
-# - world_model_ingestor: file_topology, symbol_graph maintenance
 # - executive_policy: next_action derivation
 # - constitution_gate: safety enforcement
 # - tactile_router: action → tool routing
@@ -524,7 +523,7 @@ Decl system_shard_state(ShardName, State) bound [/string, /name].
 # system_heartbeat(ShardName, Timestamp) - last heartbeat from shard
 # ShardName is the system shard's TYPE name from the fixed registry
 # (/perception_firewall, /executive_policy, /constitution_gate, /tactile_router,
-# /session_planner, /world_model_ingestor, ...), NOT a spawn instance id. It is
+# /session_planner, ...), NOT a spawn instance id. It is
 # the same closed vocabulary that activate_shard/1 and shard_startup/2 hold, so
 # it is /name. BaseSystemShard.EmitHeartbeat wraps its plain ID accordingly.
 Decl system_heartbeat(ShardName, Timestamp) bound [/name, /number].
@@ -623,11 +622,7 @@ Decl system_shard_healthy(ShardName) bound [/name].
 # system_shard_unhealthy(ShardName) - derived: shard heartbeat stale
 Decl system_shard_unhealthy(ShardName) bound [/string].
 
-# world_model_heartbeat(ShardID, FileCount, Timestamp) - world model status
-Decl world_model_heartbeat(ShardID, FileCount, Timestamp) bound [/string, /number, /number].
 
-# world_model_updating(UpdateType, Scope) - trigger for incremental world model updates
-Decl world_model_updating(UpdateType, Scope) bound [/name, /name].
 
 # session_planner_status(Total, Pending, InProgress, Completed, Blocked, Timestamp)
 Decl session_planner_status(Total, Pending, InProgress, Completed, Blocked, Timestamp) bound [/number, /number, /number, /number, /number, /number].
@@ -675,8 +670,6 @@ Decl task_blocked(TaskID) bound [/string].
 # perception_error(Message, Timestamp) - perception shard error
 Decl perception_error(Message, Timestamp) bound [/string, /number].
 
-# world_model_error(Message, Timestamp) - world model shard error
-Decl world_model_error(Message, Timestamp) bound [/string, /number].
 
 # executive_error(Message, Timestamp) - executive shard error
 Decl executive_error(Message, Timestamp) bound [/string, /number].
@@ -782,7 +775,6 @@ Decl repeated_violation_pattern(Pattern) bound [/string].
 Decl safety_violation(ViolationID, Pattern, ActionType, Timestamp) bound [/string, /string, /name, /number].
 
 # World model derived predicates
-Decl world_model_stale(File) bound [/string].
 Decl file_in_project(File) bound [/string].
 # Priority: 70
 Decl symbol_reachable_bounded(From, To, MaxDepth) bound [/string, /string, /number].
@@ -811,7 +803,7 @@ Decl item_retry_count(ItemID, Count) bound [/string, /number].
 
 # Shard activation derived predicates
 # ShardName is the closed system-shard vocabulary (/perception_firewall,
-# /executive_policy, /constitution_gate, /world_model_ingestor,
+# /executive_policy, /constitution_gate,
 # /tactile_router, /session_planner). The Go consumer of activate_shard
 # (ShardManager.StartSystemShards) normalizes with TrimLeft("/"), so it reads
 # name constants correctly.

@@ -51,11 +51,11 @@ func onDemandTestManager(t *testing.T, activate []types.Fact) *ShardManager {
 	sm.SetParentKernel(kernel)
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
-	sm.RegisterShard("world_model_ingestor", func(id string, cfg types.ShardConfig) types.ShardAgent {
+	sm.RegisterShard("tactile_router", func(id string, cfg types.ShardConfig) types.ShardAgent {
 		return &onDemandFakeAgent{id: id, config: cfg, release: release}
 	})
-	sm.DefineProfile("world_model_ingestor", types.ShardConfig{
-		Name:        "world_model_ingestor",
+	sm.DefineProfile("tactile_router", types.ShardConfig{
+		Name:        "tactile_router",
 		Type:        types.ShardTypeSystem,
 		StartupMode: types.StartupOnDemand,
 	})
@@ -63,20 +63,20 @@ func onDemandTestManager(t *testing.T, activate []types.Fact) *ShardManager {
 }
 
 func TestEnsureOnDemandShardsSpawnsDerived(t *testing.T) {
-	sm := onDemandTestManager(t, []types.Fact{activateFact("/world_model_ingestor")})
+	sm := onDemandTestManager(t, []types.Fact{activateFact("/tactile_router")})
 
 	spawned := sm.EnsureOnDemandShards(context.Background())
 
-	if len(spawned) != 1 || spawned[0] != "world_model_ingestor" {
-		t.Fatalf("expected [world_model_ingestor], got %v", spawned)
+	if len(spawned) != 1 || spawned[0] != "tactile_router" {
+		t.Fatalf("expected [tactile_router], got %v", spawned)
 	}
-	if !sm.hasActiveShardOfType("world_model_ingestor") {
+	if !sm.hasActiveShardOfType("tactile_router") {
 		t.Fatal("shard was reported spawned but is not active")
 	}
 }
 
 func TestEnsureOnDemandShardsNeverDoubleSpawns(t *testing.T) {
-	sm := onDemandTestManager(t, []types.Fact{activateFact("/world_model_ingestor")})
+	sm := onDemandTestManager(t, []types.Fact{activateFact("/tactile_router")})
 
 	first := sm.EnsureOnDemandShards(context.Background())
 	second := sm.EnsureOnDemandShards(context.Background())
@@ -114,8 +114,8 @@ func TestEnsureOnDemandShardsSkipsAutoProfiles(t *testing.T) {
 }
 
 func TestEnsureOnDemandShardsSkipsDisabled(t *testing.T) {
-	sm := onDemandTestManager(t, []types.Fact{activateFact("/world_model_ingestor")})
-	sm.DisableSystemShard("world_model_ingestor")
+	sm := onDemandTestManager(t, []types.Fact{activateFact("/tactile_router")})
+	sm.DisableSystemShard("tactile_router")
 
 	if spawned := sm.EnsureOnDemandShards(context.Background()); len(spawned) != 0 {
 		t.Fatalf("disabled shard must not spawn: %v", spawned)

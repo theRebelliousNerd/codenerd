@@ -227,3 +227,33 @@ func TestLiveAssistant_RejectsPartiallyDecodedMalformedEnvelope(t *testing.T) {
 		t.Fatalf("malformed envelope emitted partially decoded prose: %+v", events)
 	}
 }
+
+func TestResidentServiceKeepsTranscriptOutsideTaskProgress(t *testing.T) {
+	s, _ := installStore(t, "service-session", true)
+	for _, role := range []string{"tactile_router", "session_planner"} {
+		var live []LiveEvent
+		ctx := WithLiveProgress(WithTask(context.Background(), "user-task"), func(_ context.Context, ev LiveEvent) { live = append(live, ev) })
+		_, err := RunService(ctx, role, "service", "on_demand_activation", func(ctx context.Context) (string, error) {
+			if TaskFrom(ctx) != "" {
+				t.Fatal("service inherited user task")
+			}
+			if ScopeFrom(ctx) == nil || !ScopeFrom(ctx).Service {
+				t.Fatal("missing service scope")
+			}
+			if tr := TranscriptFrom(ctx); tr == nil {
+				t.Fatal("service lost diagnostic transcript")
+			}
+			if progress := s.ProgressForTask("service-session", "user-task"); len(progress) != 0 {
+				t.Fatalf("service appears as running agent: %+v", progress)
+			}
+			EmitLiveProgress(ctx, LiveEvent{Kind: EventCallStart, Text: "waiting for model"})
+			return "stopped", nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(live) != 0 {
+			t.Fatalf("service entered delegated live feed: %+v", live)
+		}
+	}
+}

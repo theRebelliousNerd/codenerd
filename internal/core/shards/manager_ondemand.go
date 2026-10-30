@@ -12,7 +12,6 @@ import (
 // shard. It mirrors the rule bodies in
 // internal/core/defaults/policy/system_shards.mg:
 //
-//	activate_shard(/world_model_ingestor) :- modified(_), ...
 //	activate_shard(/tactile_router)       :- action_ready_for_routing(_), ...
 //	activate_shard(/session_planner)      :- current_campaign(_), ...
 //	activate_shard(/session_planner)      :- user_intent(.../plan...), ...
@@ -20,7 +19,6 @@ import (
 // When a rule body gains a new positive predicate, add it here or the
 // runtime watcher (internal/core.StartOnDemandWatcher) will not wake for it.
 var OnDemandTriggerPredicates = []string{
-	"modified",
 	"action_ready_for_routing",
 	"current_campaign",
 	"user_intent",
@@ -31,9 +29,9 @@ var OnDemandTriggerPredicates = []string{
 // names it spawned.
 //
 // Why this exists: StartSystemShards queries activate_shard exactly once, at
-// boot — before any modified/1, action_ready_for_routing/1, or
+// boot — before any action_ready_for_routing/1 or
 // current_campaign/1 fact can exist. Without a runtime re-query, the
-// on-demand rules (world_model_ingestor, tactile_router, session_planner)
+// on-demand rules (tactile_router, session_planner)
 // derive into a void: the kernel activates shards nobody ever starts. The
 // watcher subscribes to OnDemandTriggerPredicates and calls this on every
 // trigger burst, closing that loop.

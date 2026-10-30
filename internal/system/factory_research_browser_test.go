@@ -81,7 +81,7 @@ func pageServer(t *testing.T) *httptest.Server {
 
 func disabledShards() []string {
 	return []string{
-		"constitution_gate", "perception_firewall", "executive_policy", "world_model_ingestor",
+		"constitution_gate", "perception_firewall", "executive_policy",
 		"session_planner", "tactile_router", "campaign_runner", "mangle_repair", "legislator",
 	}
 }

@@ -17,7 +17,15 @@ func RunAgent(ctx context.Context, role, id, task string, run func(context.Conte
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ctx = WithAgent(ctx, role, id)
+	return runTranscript(WithAgent(ctx, role, id), task, run)
+}
+
+// RunService records a resident service without advertising it as delegated work.
+func RunService(ctx context.Context, role, id, task string, run func(context.Context) (string, error)) (string, error) {
+	return runTranscript(WithService(ctx, role, id), task, run)
+}
+
+func runTranscript(ctx context.Context, task string, run func(context.Context) (string, error)) (result string, err error) {
 	tr := TranscriptFrom(ctx)
 	tr.setTask(TaskFrom(ctx))
 	tr.Input(ctx, task)

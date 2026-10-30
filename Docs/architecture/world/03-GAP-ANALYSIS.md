@@ -47,7 +47,7 @@
 
 ### P2 — architecture hygiene
 
-5. **Clarify ownership**: chat incremental vs `WorldModelIngestorShard` (when each runs; who wins).
+5. **Verify single ownership**: the ingestor is retired; execute the real-Cortex write regression and legacy test-symbol migration regression for the shared scanner.
 
 6. **LSP gopls adapter** behind `lsp.Manager` (already sketched in `lsp/README.md`).
 

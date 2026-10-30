@@ -99,7 +99,7 @@
 
 | System A | System B | Overlap |
 |----------|----------|---------|
-| Chat `Scanner` incremental | `WorldModelIngestorShard` + `ASTParser` | Both can feed topology/symbols |
+| Boot and post-write refresh | Chat explicit refresh | Same Scanner.Refresh; ingestor retired |
 | Fast tree-sitter symbols | Cartographer deep graph | Different predicates, same files |
 | FileScope elements | Holographic package parse | Both parse Go package files |
 

@@ -45,7 +45,7 @@
 | `internal/campaign/intelligence_gatherer.go` | Scanner, holographic |
 | `internal/campaign/edge_case_detector.go` | Scanner |
 | `internal/campaign/intelligence_gathering_methods.go` | world APIs |
-| `internal/shards/system/world_model.go` | ASTParser ingestor |
+| `internal/system/world_refresh.go` | Incremental post-write refresh |
 | `internal/shards/system/campaign_runner.go` | Scanner, holographic |
 
 ### core (indirect)

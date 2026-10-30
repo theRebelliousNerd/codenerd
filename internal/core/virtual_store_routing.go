@@ -176,6 +176,11 @@ func (v *VirtualStore) RouteActionResult(ctx context.Context, action Fact) (Acti
 	}
 
 	v.recordActionCompletion(req, result, actionDuration)
+	if err := v.refreshWorldAfterFacts(ctx, result.FactsToAdd); err != nil {
+		// The write already landed. Preserve that outcome and expose the stale
+		// context, so callers can request an explicit refresh before using it.
+		result.Output += "\nWorld refresh failed: " + err.Error()
+	}
 	return result, validationErr
 }
 
@@ -567,8 +572,6 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleInvestigateAnomaly(ctx, req)
 	case ActionInvestigateSystemic:
 		return v.handleInvestigateSystemic(ctx, req)
-	case ActionUpdateWorldModel:
-		return v.handleUpdateWorldModel(ctx, req)
 
 	// Code DOM Query alias
 	case ActionQueryElements:

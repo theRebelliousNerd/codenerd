@@ -4,20 +4,16 @@
 
 ## Q1 — Single owner of world EDB freshness?
 
-Chat incremental sync and `WorldModelIngestorShard` both can write topology/symbols. Should one be deprecated, or is dual-mode intentional (session vs background)?
+**ANSWERED.** Scanner is the single authority for fast world facts. The duplicate
+`world_model_ingestor` has been retired end to end. Boot, explicit refreshes and
+VirtualStore mutation completions share `Scanner.Refresh`, which serializes scan
+and application. Test-file symbol extraction, formerly unique to the ingestor,
+now runs in that scanner's existing pass. Legacy manifests refresh those tests
+once as a delta. The ownership matrix preserves deep, LSP, scope and git facts.
 
-**ANSWERED (2026-08-15).** The Scanner is the sole authority for scanner-owned predicates. Dual
-writers stay (the shard is a background refresh), but the ownership matrix in
-`internal/world/world_predicates.go` states who owns what, and the rule is: a writer may replace
-a predicate only if the same pass re-asserts it. A full scan therefore replaces
-`ScannerPredicates` wholesale — the shard's copies of `file_topology`/`symbol_graph` lose to the
-next scan — and leaves deep, LSP, session-scope and git facts alone. Enforced by
-`TestApplyIncremental_WhenFullScan_ShouldNotWipeFactsItCannotRebuild`.
-
-Residual: the shard still emits `file_topology` with a bare-string language, a bool
-`IsTestFile` and second-resolution mtimes, where the Scanner emits `/go`, `/true` and
-nanoseconds. Those rows do not collide with the Scanner's, they sit beside them.
-`internal/shards/system/world_model.go` is outside this package; aligning it is a follow-up.
+The required production proof is `TestWorldRefreshAfterWriteUsesBootScanner`:
+a real Cortex, a permitted write, fresh consumer facts, and no second full scan.
+The regression is authored and awaits execution; timing claims require that run.
 
 ## Q2 — Should deep map stay Go-first forever?
 

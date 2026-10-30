@@ -16,15 +16,15 @@ import (
 func TestOnDemandActivationRetainsNoResult(t *testing.T) {
 	sm := NewShardManager()
 	kernel := typestest.NewMockKernel()
-	if err := kernel.LoadFacts([]types.Fact{activateFact("/world_model_ingestor")}); err != nil {
+	if err := kernel.LoadFacts([]types.Fact{activateFact("/tactile_router")}); err != nil {
 		t.Fatalf("LoadFacts: %v", err)
 	}
 	sm.SetParentKernel(kernel)
-	sm.RegisterShard("world_model_ingestor", func(id string, cfg types.ShardConfig) types.ShardAgent {
+	sm.RegisterShard("tactile_router", func(id string, cfg types.ShardConfig) types.ShardAgent {
 		return &onDemandFakeAgent{id: id, config: cfg}
 	})
-	sm.DefineProfile("world_model_ingestor", types.ShardConfig{
-		Name: "world_model_ingestor", Type: types.ShardTypeSystem, StartupMode: types.StartupOnDemand,
+	sm.DefineProfile("tactile_router", types.ShardConfig{
+		Name: "tactile_router", Type: types.ShardTypeSystem, StartupMode: types.StartupOnDemand,
 	})
 
 	for range 3 {
@@ -33,7 +33,7 @@ func TestOnDemandActivationRetainsNoResult(t *testing.T) {
 		}
 		// The agent returns at once; the manager drops it from the active set
 		// in the same critical section that records (or skips) its result.
-		for sm.hasActiveShardOfType("world_model_ingestor") {
+		for sm.hasActiveShardOfType("tactile_router") {
 			runtime.Gosched()
 		}
 	}

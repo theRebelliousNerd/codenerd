@@ -1501,17 +1501,13 @@ func refreshWorldModelAtBoot(bctx *bootContext) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	res, err := bctx.scanner.ScanWorkspaceIncremental(ctx, bctx.workspace, bctx.localDB, world.IncrementalOptions{SkipWhenUnchanged: true})
+	res, err := bctx.scanner.Refresh(ctx, bctx.workspace, bctx.localDB, bctx.kernel, world.IncrementalOptions{SkipWhenUnchanged: true})
 	if err != nil {
 		logging.Get(logging.CategoryBoot).Warn("world model refresh at boot failed: %v", err)
 		return
 	}
 	if res == nil {
 		logging.World("world model unchanged at boot")
-		return
-	}
-	if applyErr := world.ApplyIncrementalResult(bctx.kernel, res); applyErr != nil {
-		logging.Get(logging.CategoryBoot).Warn("world model refresh at boot: apply failed: %v", applyErr)
 		return
 	}
 	if res.Unchanged {
@@ -2118,7 +2114,6 @@ func shardRegistryContext(bctx *bootContext) shards.RegistryContext {
 		JITCompiler:  bctx.jitCompiler,
 		JITConfig:    bctx.jitCfg,
 		RolePrompts:  bctx.rolePrompts,
-		World:        bctx.appCfg.GetWorldConfig(),
 	}
 	// The firewall classifies through the same resolved client as the
 	// direct transducer. Until 2026-10-28 it was rebuilt here from the worker
@@ -2238,8 +2233,8 @@ func initShardManagement(bctx *bootContext) error {
 }
 
 // startOnDemandWatcher subscribes the shard manager to kernel fact events so
-// on-demand system shards (world_model_ingestor, tactile_router,
-// session_planner) actually start when their activate_shard rules derive at
+// on-demand system shards (tactile_router and session_planner) start when
+// their activate_shard rules derive at
 // runtime. StartSystemShards queries activate_shard once at boot, before any
 // trigger fact exists; without this watcher those derivations fire into a
 // void and the shards never run.
@@ -2531,6 +2526,7 @@ func initFinalExecutors(bctx *bootContext) error {
 	// a delta leaves every CodeDOM/world rule joining stale, half mis-keyed
 	// facts. A scan error is logged and never fails boot.
 	refreshWorldModelAtBoot(bctx)
+	attachWorldRefresher(bctx)
 
 	sessionVS := &sessionVirtualStoreAdapter{vs: bctx.virtualStore}
 	// CLI spawn/create/TaskExecutor use the worker LLM when configured

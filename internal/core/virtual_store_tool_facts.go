@@ -71,6 +71,7 @@ func (v *VirtualStore) toolFactSink() tools.FactSink {
 					"%s fact for %s not asserted: %v", f.Predicate, rec.ToolName, err)
 			}
 		}
+		_ = v.refreshWorldAfterFacts(ctx, facts)
 	}
 }
 

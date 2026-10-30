@@ -14,9 +14,12 @@ import (
 
 // CacheEntry represents cached metadata for a single file.
 type CacheEntry struct {
-	Hash    string `json:"hash"`
-	ModTime int64  `json:"mod_time"`
-	Size    int64  `json:"size"`
+	// TestSymbols records the scanner's test-symbol coverage. Legacy manifests
+	// lack it; their unchanged tests need one delta parse after ingestor retirement.
+	TestSymbols bool   `json:"test_symbols,omitempty"`
+	Hash        string `json:"hash"`
+	ModTime     int64  `json:"mod_time"`
+	Size        int64  `json:"size"`
 	// Gen is the content generation observed with Hash (NTFS ChangeTime,
 	// inode ctime elsewhere). GenOK false is a legacy entry, or a generation
 	// that could not be read: the next lookup hashes instead of trusting
@@ -279,11 +282,23 @@ func (c *FileCache) storeStamp(path string, info os.FileInfo, hash string, gen i
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if prev, ok := c.Entries[path]; ok {
+		next.TestSymbols = prev.TestSymbols
 		if prev.Hash != hash || prev == next {
 			return
 		}
 	}
 	c.Entries[path] = next
+	c.Dirty = true
+}
+
+// markTestSymbols records completion in the scan's staged manifest. A failed
+// scan never saves that manifest, so it retries the migration next time.
+func (c *FileCache) markTestSymbols(path string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry := c.Entries[path]
+	entry.TestSymbols = true
+	c.Entries[path] = entry
 	c.Dirty = true
 }
 

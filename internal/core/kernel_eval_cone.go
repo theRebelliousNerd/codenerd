@@ -23,7 +23,7 @@ import (
 // every rule on every write. Measured 2026-09-21 on a 24-task campaign: 4,161
 // evaluations, 4,033 s summed, against a 59k-fact world shard with 2,187 rules,
 // where the hot writes (pending_action, action_verified) reach 6-8% of the rules
-// and three more (tool_execution, validation_method_used, world_model_heartbeat)
+// and more (including tool_execution and validation_method_used)
 // reach none.
 //
 // Soundness. The differential path deleted in S23 kept derived facts across

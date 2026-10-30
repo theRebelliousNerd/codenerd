@@ -57,7 +57,8 @@
       Implemented: `internal/world/dependency_links.go` resolves in-workspace imports to
       file→file edges (Go package granularity, exact file for py/ts/js/rs). External imports keep
       their token form. Also fixed: the Go walker never saw grouped `import ( ... )` blocks.
-- [x] Coordinate dual writers: chat incremental vs `WorldModelIngestorShard` (ownership matrix).
+- [x] Consolidate topology, symbols and imports in Scanner; retire the ingestor.
+- [ ] Execute the real-Cortex post-write and legacy test-symbol migration regressions.
       Decision recorded in `world_predicates.go` and enforced at `ApplyIncrementalResult`;
       see OPEN-QUESTIONS Q1.
 

@@ -928,7 +928,6 @@ func systemAndControlRoutes() []ToolRoute {
 		{ActionPattern: "escalate_to_user", ToolName: "user_prompt", Timeout: 0, RequiresSafe: false},
 		{ActionPattern: "interrogative_mode", ToolName: "session_control", Timeout: 1 * time.Second, RequiresSafe: false},
 		{ActionPattern: "refresh_shard_context", ToolName: "session_control", Timeout: 10 * time.Second, RequiresSafe: false},
-		{ActionPattern: "update_world_model", ToolName: "world_model", Timeout: 30 * time.Second, RequiresSafe: false},
 		// Context management
 		{ActionPattern: "create_checkpoint", ToolName: "context_manager", Timeout: 10 * time.Second, RequiresSafe: false},
 		// Knowledge/vector operations (kernel internal - query only)

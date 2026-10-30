@@ -368,7 +368,10 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	// fires below with the actual duration so the scrollback shows the
 	// full lifecycle.
 	taskSummary := types.Ellipsize(task, 60)
-	sm.emitShardEvent(fmt.Sprintf("Spawning %s", typeName), taskSummary, id, 0)
+	isService := config.Type == types.ShardTypeSystem
+	if !isService {
+		sm.emitShardEvent(fmt.Sprintf("Spawning %s", typeName), taskSummary, id, 0)
+	}
 	spawnStart := time.Now()
 
 	// Feed the ShardObserver from the same lifecycle points as Glass Box, so
@@ -377,6 +380,10 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	// the goroutine: sm.mu is already held for writing, and RWMutex is not
 	// reentrant.
 	transparencyMgr := sm.transparencyManager
+	// Resident services are outside the task operation observer.
+	if isService {
+		transparencyMgr = nil
+	}
 	if transparencyMgr != nil {
 		transparencyMgr.StartShard(id, typeName, task)
 	}
@@ -449,7 +456,11 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 			execCtx = types.WithModelName(execCtx, strings.TrimSpace(config.Model.Name))
 		}
 
-		res, err := sessionlog.RunAgent(execCtx, typeName, id, task, func(ctx context.Context) (string, error) {
+		run := sessionlog.RunAgent
+		if isService {
+			run = sessionlog.RunService
+		}
+		res, err := run(execCtx, typeName, id, task, func(ctx context.Context) (string, error) {
 			return agent.Execute(ctx, task)
 		})
 
@@ -463,10 +474,12 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		// summary so the milestone line in scrollback reads as a fault
 		// tombstone rather than a quiet finish.
 		dur := time.Since(spawnStart)
-		if err != nil {
-			sm.emitShardEvent(fmt.Sprintf("%s failed", typeName), errMsg, id, dur)
-		} else {
-			sm.emitShardEvent(fmt.Sprintf("%s done", typeName), types.Ellipsize(res, 120), id, dur)
+		if !isService {
+			if err != nil {
+				sm.emitShardEvent(fmt.Sprintf("%s failed", typeName), errMsg, id, dur)
+			} else {
+				sm.emitShardEvent(fmt.Sprintf("%s done", typeName), types.Ellipsize(res, 120), id, dur)
+			}
 		}
 
 		if transparencyMgr != nil {

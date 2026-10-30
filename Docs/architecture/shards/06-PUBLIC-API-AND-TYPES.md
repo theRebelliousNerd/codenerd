@@ -137,11 +137,10 @@ Common methods on base: `GetID`, `GetState`, `SetState`, `GetConfig`, `Stop`, `S
 | `NewTactileRouterShard` / `WithConfig` | ctors | |
 | `SetBrowserManager` | method | Browser tools |
 
-### World / Planner / Campaign / Legislator / Repair
+### Planner / Campaign / Legislator / Repair
 
 | Symbol | File | Key exports |
 |--------|------|-------------|
-| World model | world_model.go | `WorldModelIngestorShard`, configs, `FileInfo`, `Diagnostic`, `Symbol` |
 | Planner | planner.go | `SessionPlannerShard`, `AgendaItem`, `Checkpoint`, `PlanView` |
 | Campaign | campaign_runner.go | `CampaignRunnerShard`, `SetWorkspaceRoot`, `SetShardManager` |
 | Legislator | legislator.go | `LegislatorShard`, `NewLegislatorShard` |
