@@ -414,13 +414,6 @@ func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Ta
 		defer lease.release()
 	}
 
-	// Apply task-level timeout
-	if o.config.TaskTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, o.config.TaskTimeout)
-		defer cancel()
-	}
-
 	taskTimer := logging.StartTimer(logging.CategoryCampaign, fmt.Sprintf("task(%s)", task.ID))
 
 	logging.Campaign("Task started: %s (type=%s, phase=%s)", task.ID, task.Type, phase.Name)

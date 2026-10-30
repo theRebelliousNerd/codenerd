@@ -8,7 +8,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestNewOrchestrator_RejectsMissingDependencies(t *testing.T) {
@@ -36,7 +35,7 @@ func TestNewOrchestrator_RejectsNegativeConfigurationValues(t *testing.T) {
 		Executor:          tactile.NewDirectExecutor(),
 		VirtualStore:      &core.VirtualStore{},
 		Campaign:          config.CampaignConfig{MaxParallelTasks: -1},
-		CampaignTimeout:   -time.Second,
+		ContextBudget:     -1,
 	})
 	if err == nil {
 		t.Fatal("expected invalid config error")

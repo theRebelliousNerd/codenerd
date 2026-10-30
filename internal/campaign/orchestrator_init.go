@@ -34,8 +34,7 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 	applyOrchestratorDefaults(&cfg)
 
 	logging.Campaign("Initializing campaign orchestrator for workspace: %s", cfg.Workspace)
-	logging.CampaignDebug("Orchestrator policy: %+v; campaignTimeout=%v, taskTimeout=%v",
-		policy.Section, cfg.CampaignTimeout, cfg.TaskTimeout)
+	logging.CampaignDebug("Orchestrator policy: %+v", policy.Section)
 
 	// pauseCh starts CLOSED (state = running/resumed) so the runPhase loop's
 	// `select { case <-o.pauseCh: ... }` returns immediately when not paused.
@@ -88,8 +87,7 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 	o.refreshRiskGateState()
 	o.publishPolicyParams()
 
-	logging.Campaign("Orchestrator initialized with maxParallelTasks=%d, campaignTimeout=%v, taskTimeout=%v",
-		o.policy.MaxParallelTasks, o.config.CampaignTimeout, o.config.TaskTimeout)
+	logging.Campaign("Orchestrator initialized with maxParallelTasks=%d", o.policy.MaxParallelTasks)
 
 	return o, nil
 }
@@ -163,12 +161,6 @@ func validateOrchestratorConfig(cfg OrchestratorConfig) error {
 	if cfg.ContextBudget < 0 {
 		invalid = append(invalid, "context_budget must be >= 0")
 	}
-	if cfg.CampaignTimeout < 0 {
-		invalid = append(invalid, "campaign_timeout must be >= 0")
-	}
-	if cfg.TaskTimeout < 0 {
-		invalid = append(invalid, "task_timeout must be >= 0")
-	}
 	if cfg.RiskGateThreshold < 0 {
 		invalid = append(invalid, "risk_gate_threshold must be >= 0")
 	}
@@ -202,13 +194,14 @@ func (o *Orchestrator) SetPromptProvider(provider PromptProvider) {
 }
 
 func applyOrchestratorDefaults(cfg *OrchestratorConfig) {
-	// No timeout defaults: CampaignTimeout and TaskTimeout are a caller's
-	// own limits, and zero means none. Until 2026-09-19 a zero became 4 hours
-	// per campaign and 30 minutes per task unless DisableTimeouts was set --
-	// which every long-horizon caller (assault, recurse, the campaign runner)
-	// had to remember to do. A campaign stops when it stops making progress,
-	// and each model request is bounded by its client. Every campaign knob
-	// is cfg.Campaign's -- the user's config -- resolved in NewOrchestrator.
+	// No clock of the campaign's own: a caller's limit is its context's
+	// deadline (nerd campaign --timeout sets it). Until 2026-09-19 a zero
+	// limit became 4 hours per campaign and 30 minutes per task; after that
+	// the two config fields stayed as a caller's optional limits that no
+	// caller set, a second spelling of the context deadline, and were
+	// removed. A campaign stops when it stops making progress, and each
+	// model request is bounded by its client. Every campaign knob is
+	// cfg.Campaign's -- the user's config -- resolved in NewOrchestrator.
 	if cfg.RiskGateThreshold <= 0 {
 		cfg.RiskGateThreshold = defaultRiskGateThreshold
 	}

@@ -6,12 +6,6 @@ var (
 	// ErrDecompositionFailed indicates plan decomposition could not produce a valid campaign.
 	ErrDecompositionFailed = errors.New("campaign decomposition failed")
 
-	// ErrTaskTimeout indicates an individual campaign task exceeded its timeout.
-	ErrTaskTimeout = errors.New("campaign task timeout")
-
-	// ErrCampaignTimeout indicates the campaign exceeded overall runtime limits.
-	ErrCampaignTimeout = errors.New("campaign timeout")
-
 	// ErrCheckpointFailed indicates a checkpoint gate failed.
 	ErrCheckpointFailed = errors.New("campaign checkpoint failed")
 

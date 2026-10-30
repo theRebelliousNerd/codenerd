@@ -100,14 +100,6 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// itself — never something that was already there.
 	o.recordRootBaseline()
 
-	// Apply campaign-level timeout
-	if o.config.CampaignTimeout > 0 {
-		var timeoutCancel context.CancelFunc
-		ctx, timeoutCancel = context.WithTimeout(ctx, o.config.CampaignTimeout)
-		defer timeoutCancel()
-		logging.Campaign("Campaign timeout set: %v", o.config.CampaignTimeout)
-	}
-
 	// Start heartbeat/autosave loop for long-running durability.
 	heartbeatCtx, heartbeatCancel := context.WithCancel(ctx)
 	heartbeatDone := make(chan struct{})

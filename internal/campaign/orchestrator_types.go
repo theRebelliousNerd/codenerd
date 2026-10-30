@@ -167,10 +167,8 @@ type OrchestratorConfig struct {
 	// (UserConfig.GetCampaignConfig). It is the only policy input, so every
 	// door a campaign starts through runs it the same way. A zero value is
 	// the config's defaults.
-	Campaign        config.CampaignConfig
-	CampaignTimeout time.Duration // Caller's own limit on the whole campaign; zero means none
-	TaskTimeout     time.Duration // Caller's own limit per task; zero means none
-	ContextBudget   int           // Token budget for context pager (default: from config.ContextWindow.MaxTokens)
+	Campaign      config.CampaignConfig
+	ContextBudget int // Token budget for context pager (default: from config.ContextWindow.MaxTokens)
 
 	// Deterministic risk gating.
 	EnableRiskAutoWiring bool // Enable deterministic risk gate enforcement (default: true)
