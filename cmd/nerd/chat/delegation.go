@@ -40,7 +40,33 @@ import (
 // shardTypeToTaskRequest normalizes these into a valid TaskRequest so the
 // executor's strict IntentVerb validation doesn't trip on persona names.
 func (m *Model) spawnTask(ctx context.Context, shardType string, task string) (string, error) {
+	if out, ok, err := m.spawnSystemShard(ctx, shardType, task); ok {
+		return out, err
+	}
 	return m.spawnTaskRequest(ctx, shardTypeToTaskRequest(shardType, task))
+}
+
+// spawnSystemShard runs a shard type that has a registered system profile
+// (Type S: the Legislator, the Mangle repairer, ...) through the shard
+// manager, the implementation registered for it, and reports ok. It is the
+// dispatch the Cortex front door already makes (Cortex.SpawnTaskWithTarget).
+// The TUI used to send every name to the JIT task executor, so `/legislate`,
+// which promises synthesis and ratification, turned "legislator" into the
+// verb /legislate and ran an ordinary task: no compile, no RuleCourt, no
+// hot-load (audit tui-legislator-dispatch-parity). The manager waits for the
+// shard's result and honors ctx. A name with no system profile is not one
+// (ok false) and goes to the JIT executor as before.
+func (m *Model) spawnSystemShard(ctx context.Context, shardType, task string) (string, bool, error) {
+	if m.shardMgr == nil {
+		return "", false, nil
+	}
+	name := strings.ToLower(strings.TrimSpace(shardType))
+	cfg, ok := m.shardMgr.GetProfile(name)
+	if !ok || cfg.Type != types.ShardTypeSystem {
+		return "", false, nil
+	}
+	out, err := m.shardMgr.Spawn(ctx, name, task)
+	return out, true, err
 }
 
 // spawnTaskRequest runs a request whose fields the caller already resolved
