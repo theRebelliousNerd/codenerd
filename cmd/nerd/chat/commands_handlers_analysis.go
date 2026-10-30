@@ -33,6 +33,9 @@ func (m Model) handleCmdLegislate(input string, parts []string) (tea.Model, tea.
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	m.textarea.Reset()
+	// The task holds the foreground slot (foregroundOperation); the loading
+	// flag is what lets Ctrl+X reach it.
+	m.isLoading = true
 	return m, tea.Batch(m.spinner.Tick, m.spawnShard("legislator", task))
 }
 
@@ -58,6 +61,9 @@ func (m Model) handleCmdClarify(input string, parts []string) (tea.Model, tea.Cm
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	m.textarea.Reset()
+	// The task holds the foreground slot (foregroundOperation); the loading
+	// flag is what lets Ctrl+X reach it.
+	m.isLoading = true
 	return m, tea.Batch(m.spinner.Tick, m.spawnShard("requirements_interrogator", task))
 }
 

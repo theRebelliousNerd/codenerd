@@ -790,10 +790,7 @@ func clonePromptManifest(src *promptpkg.PromptManifest) *promptpkg.PromptManifes
 
 // spawnShard spawns a shard agent for a task
 func (m Model) spawnShard(shardType, task string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := m.sessionOperationContext()
-		defer cancel()
-
+	return m.foregroundOperation(shardType, func(ctx context.Context) tea.Msg {
 		startTime := time.Now()
 		m.ReportStatus(fmt.Sprintf("Spawning %s...", shardType))
 
@@ -853,7 +850,7 @@ func (m Model) spawnShard(shardType, task string) tea.Cmd {
 				Facts:     facts,
 			},
 		}
-	}
+	})
 }
 
 // slashTarget is what a slash command parsed from its arguments: the target
@@ -872,10 +869,7 @@ type slashTarget struct {
 //   - /advisory_with_critique: advise, execute, critique (/fix, /refactor)
 func (m Model) spawnShardWithSpecialists(verb, shardType, task string, parsed slashTarget) tea.Cmd {
 	target := parsed.Target
-	return func() tea.Msg {
-		ctx, cancel := m.sessionOperationContext()
-		defer cancel()
-
+	return m.foregroundOperation(shardType, func(ctx context.Context) tea.Msg {
 		startTime := time.Now()
 
 		// 1. Resolve target files for specialist matching
@@ -931,7 +925,7 @@ func (m Model) spawnShardWithSpecialists(verb, shardType, task string, parsed sl
 			}
 			return m.executeParallelMode(ctx, verb, shardType, task, target, specialists, startTime)
 		}
-	}
+	})
 }
 
 // spawnSimpleShard handles the case where no specialists are matched
