@@ -6203,3 +6203,19 @@ Three whole-suite `go test ./...` runs (4.5-6 min each), each issued mid-fix bes
 most of the rest. The TUI's live feed showed nothing from the coder for the whole run. Briefs R1-39 (narrow checks
 while working, one whole-suite run at the end) and R1-38 (live progress while an agent works) follow.
 
+## R1-39, a fix spent most of its time in whole-suite test runs -- landed with a hand step (2026-10-29, 20:04-21:01)
+
+Brief (symptom only): a 27-minute /fix spent 21 minutes in three mid-edit `go test ./...` runs. Entry point: one chat
+request in the TUI (`--yolo`); it came back held ("Waiting on: where is the test-run policy encoded?") and ran after
+"go" (brief R1-40).
+
+**Landed** `ce5865491`: during /fix the working loop's repository-wide test/build/vet requests are withheld
+(`policy/turn_rounds.mg` `fix_verification_scope`, read by `internal/session/gate_memo.go`); builds default to the
+edited packages; `finalFixTests` runs the whole suite once after the narrow gates pass and keeps every outcome under a
+whole-workspace key; the TDD atom teaches the same order. Two coder passes: the second fixed memo findings the first
+left. Fail-before: the new tests do not build against the old code. Not delivered by codeNERD: the stale prompt
+corpus seed and importance ledger for the edited atom. The coder's catalog held build, lint and test runners only, so
+it reported "No generator-execution tool is available" though the ledger test names its command; both builder
+commands were run by hand (brief R1-41). Merged with lane A's test-gate memoization fix (`b1609df24`): three
+conflicts, both behaviours kept. **Streak 0.**
+
