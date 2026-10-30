@@ -19,7 +19,10 @@ type MemoryKernel interface {
 // MemoryStore is the durable half: cold storage for a promoted preference,
 // vector memory for recallable content.
 type MemoryStore interface {
-	StoreFact(predicate string, args []any, factType string, priority int) error
+	// RememberUserPreference saves or reaffirms a long-term preference; a
+	// reaffirmation renews it against archival
+	// (store.LocalStore.RememberUserPreference).
+	RememberUserPreference(key, value string) error
 	StoreVector(content string, metadata map[string]any) error
 }
 
@@ -79,7 +82,7 @@ func ApplyMemoryOperation(kernel MemoryKernel, store MemoryStore, op articulatio
 				"Memory op promote_to_long_term FAILED, no long-term store on this path: key=%s", op.Key)
 			return fail(articulation.StageFailed, "there is no long-term store on this path")
 		}
-		if err := store.StoreFact(op.Key, []any{op.Value}, "preference", 10); err != nil {
+		if err := store.RememberUserPreference(op.Key, op.Value); err != nil {
 			logging.Get(logging.CategoryContext).Warn(
 				"Memory op promote_to_long_term FAILED, the preference is not persisted: key=%s: %v", op.Key, err)
 			return fail(articulation.StageFailed, "the preference was not persisted: "+err.Error())

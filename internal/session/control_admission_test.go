@@ -13,7 +13,7 @@ import (
 // every write.
 type refusingPersister struct{ memoryPersister }
 
-func (*refusingPersister) StoreFact(string, []any, string, int) error {
+func (*refusingPersister) RememberUserPreference(string, string) error {
 	return errors.New("the knowledge store is read-only")
 }
 

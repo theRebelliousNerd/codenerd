@@ -26,6 +26,53 @@ func (s *LocalStore) UserPreferences() ([]StoredFact, error) {
 	return s.LoadAllFacts(UserPreferenceFactType)
 }
 
+// RememberUserPreference saves value under key as a long-term preference, or
+// reaffirms it when it is already saved. Reaffirmation is a renewal: it
+// resets the access clock archival reads (last_accessed), and when the same
+// preference was already archived the archived copy goes in the same
+// transaction, so the active row is its one record.
+//
+// The generic upsert (StoreFact) it replaces on this path touched only
+// updated_at, and hydration deliberately counts no access, so an old, rarely
+// read preference the person had just reaffirmed was archived at the next
+// maintenance tick and fresh hydration lost it; an archived one reaffirmed
+// came back as a second copy forget could not see (audit
+// user-memory-archival-lifecycle). Other cold facts keep StoreFact's
+// semantics.
+func (s *LocalStore) RememberUserPreference(key, value string) error {
+	argsJSON, err := encodeFactArgs([]any{value})
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(
+		`INSERT INTO cold_storage (predicate, args, fact_type, priority, updated_at, last_accessed)
+		 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		 ON CONFLICT(predicate, args) DO UPDATE SET
+		 fact_type = excluded.fact_type,
+		 priority = excluded.priority,
+		 updated_at = CURRENT_TIMESTAMP,
+		 last_accessed = CURRENT_TIMESTAMP`,
+		key, string(argsJSON), UserPreferenceFactType, userPreferencePriority,
+	); err != nil {
+		return fmt.Errorf("remember preference %s: %w", key, err)
+	}
+	if _, err := tx.Exec(`DELETE FROM archived_facts WHERE predicate = ? AND args = ?`, key, string(argsJSON)); err != nil {
+		return fmt.Errorf("remember preference %s: retire the archived copy: %w", key, err)
+	}
+	return tx.Commit()
+}
+
+// userPreferencePriority is the cold-storage priority a remembered
+// preference is saved at.
+const userPreferencePriority = 10
+
 // DeleteStoredFact removes one cold-storage row by its identity and reports
 // how many rows went (0 when it was already absent). A row is addressed by
 // id, never by predicate: the generic "preference" key holds many values.

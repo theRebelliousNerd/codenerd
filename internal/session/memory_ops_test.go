@@ -18,8 +18,8 @@ func (*memoryPersister) StoreSessionTurn(string, int, string, string, string, st
 	return nil
 }
 func (*memoryPersister) StoreCompressedState(string, int, string, float64) error { return nil }
-func (p *memoryPersister) StoreFact(predicate string, args []any, _ string, _ int) error {
-	p.facts = append(p.facts, predicate)
+func (p *memoryPersister) RememberUserPreference(key, _ string) error {
+	p.facts = append(p.facts, key)
 	return nil
 }
 func (p *memoryPersister) StoreVector(content string, _ map[string]any) error {

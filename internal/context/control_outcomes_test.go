@@ -14,8 +14,8 @@ import (
 // failingStore is a memory store whose writes the backend refuses.
 type failingStore struct{ err error }
 
-func (s failingStore) StoreFact(string, []any, string, int) error { return s.err }
-func (s failingStore) StoreVector(string, map[string]any) error   { return s.err }
+func (s failingStore) RememberUserPreference(string, string) error { return s.err }
+func (s failingStore) StoreVector(string, map[string]any) error    { return s.err }
 
 // scriptedKernel is a MemoryKernel whose two writes can be made to fail
 // independently, and which records what landed.
