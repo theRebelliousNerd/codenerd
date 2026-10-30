@@ -13,7 +13,7 @@ func TestLearningCandidateStoreRecordAndConfirm(t *testing.T) {
 	}
 	defer store.Close()
 
-	count, err := store.RecordLearningCandidate("deploy service", "/deploy", "service", "/unknown_verb")
+	count, err := store.RecordLearningCandidate("deploy service", "/deploy", "service", "/unknown_verb", "staged fact")
 	if err != nil {
 		t.Fatalf("RecordLearningCandidate error = %v", err)
 	}
@@ -21,7 +21,7 @@ func TestLearningCandidateStoreRecordAndConfirm(t *testing.T) {
 		t.Fatalf("count = %d, want 1", count)
 	}
 
-	count, err = store.RecordLearningCandidate("deploy service", "/deploy", "service", "/unknown_verb")
+	count, err = store.RecordLearningCandidate("deploy service", "/deploy", "service", "/unknown_verb", "staged fact")
 	if err != nil {
 		t.Fatalf("RecordLearningCandidate error = %v", err)
 	}
@@ -69,11 +69,11 @@ func TestLearningCandidateStoreConfirmMatch(t *testing.T) {
 	target := "service"
 	reason := "/no_action_derived"
 
-	if _, err := store.RecordLearningCandidate(phrase, verb, target, reason); err != nil {
+	if _, err := store.RecordLearningCandidate(phrase, verb, target, reason, "staged fact"); err != nil {
 		t.Fatalf("RecordLearningCandidate error = %v", err)
 	}
 
-	if err := store.ConfirmLearningCandidateMatch(phrase, verb, target, reason); err != nil {
+	if err := store.ConfirmLearningCandidateMatch(phrase, verb, target, reason, "staged fact"); err != nil {
 		t.Fatalf("ConfirmLearningCandidateMatch error = %v", err)
 	}
 

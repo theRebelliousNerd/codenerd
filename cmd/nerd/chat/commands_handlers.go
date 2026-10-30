@@ -432,11 +432,15 @@ func (m Model) handleLearnCommand(input string, parts []string) (tea.Model, tea.
 			} else {
 				var sb strings.Builder
 				sb.WriteString("## Staging Learning Candidates\n\n")
-				sb.WriteString("| ID | Phrase | Verb | Target | Status | Count |\n")
-				sb.WriteString("|----|--------|------|--------|--------|-------|\n")
+				sb.WriteString("| ID | Phrase | Verb | Target | Qualifier | Confidence | Status | Count |\n")
+				sb.WriteString("|----|--------|------|--------|-----------|------------|--------|-------|\n")
 				for _, c := range candidates {
-					sb.WriteString(fmt.Sprintf("| %d | `%s` | `%s` | `%s` | **%s** | %d |\n",
-						c.ID, c.Phrase, c.Verb, c.Target, c.Status, c.Count))
+					qualifier, confidence := "(unknown: staged before proposals were stored)", "?"
+					if _, _, _, q, conf, err := perception.ParseLearnedFact(c.Fact); err == nil {
+						qualifier, confidence = q, fmt.Sprintf("%.0f", conf)
+					}
+					sb.WriteString(fmt.Sprintf("| %d | `%s` | `%s` | `%s` | `%s` | %s | **%s** | %d |\n",
+						c.ID, c.Phrase, c.Verb, c.Target, qualifier, confidence, c.Status, c.Count))
 				}
 				sb.WriteString("\n*Confirm or reject candidates using `/learn confirm <id>` or `/learn reject <id>`*")
 				m = m.addMessage(Message{
@@ -490,18 +494,21 @@ func (m Model) handleLearnCommand(input string, parts []string) (tea.Model, tea.
 						Content: fmt.Sprintf("Candidate ID %d not found.", id),
 						Time:    time.Now(),
 					})
+				} else if targetCand.Fact == "" {
+					// Staged before proposals were stored: its qualifier and
+					// confidence are unknown, and confirming it used to invent
+					// an empty qualifier and 0.90 (audit
+					// manual-learning-evidence-conservation).
+					m = m.addMessage(Message{
+						Role:    "assistant",
+						Content: fmt.Sprintf("Candidate %d was staged before proposals were stored whole; its qualifier and confidence are unknown, so it is not learned. Teach it again with /learn.", id),
+						Time:    time.Now(),
+					})
 				} else {
 					err := m.localDB.ConfirmLearningCandidate(id)
 					var persistNote string
 					if err == nil && perception.SharedTaxonomy != nil {
-						verb := normalizeVerbAtom(targetCand.Verb)
-						fact := fmt.Sprintf(
-							`learned_exemplar("%s", %s, "%s", "", 0.90).`,
-							escapeMangleString(targetCand.Phrase),
-							verb,
-							escapeMangleString(targetCand.Target),
-						)
-						outcome, persistErr := perception.SharedTaxonomy.PersistLearnedFact(m.learningContext(), fact)
+						outcome, persistErr := perception.SharedTaxonomy.PersistLearnedFact(m.learningContext(), targetCand.Fact)
 						if persistErr != nil {
 							persistNote = fmt.Sprintf(" The mapping was not stored for matching: %v", persistErr)
 						} else {
@@ -575,6 +582,9 @@ func (m Model) handleLearnCommand(input string, parts []string) (tea.Model, tea.
 		return m, nil
 	}
 
+	// The critic reads the history as it was before this command's own
+	// notice, as exchanges (learnTracesFromHistory).
+	traces := learnTracesFromHistory(m.history)
 	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: "Invoking Meta-Cognitive Supervisor (The Critic)... Analyzing recent turns for learning opportunities.",
@@ -585,19 +595,6 @@ func (m Model) handleLearnCommand(input string, parts []string) (tea.Model, tea.
 	m.textarea.Reset()
 
 	return m, func() tea.Msg {
-		// Trigger the Ouroboros Loop
-		var traces []perception.ReasoningTrace
-		for _, msg := range m.history {
-			t := perception.ReasoningTrace{
-				UserPrompt: "...",
-				Response:   msg.Content,
-				Success:    true,
-			}
-			if msg.Role == "user" {
-				t.UserPrompt = msg.Content
-			}
-			traces = append(traces, t)
-		}
 
 		perception.SharedTaxonomy.SetClient(m.client)
 		perception.SharedTaxonomy.SetWorkspace(m.workspace) // Ensure .nerd paths resolve correctly
@@ -615,6 +612,38 @@ func (m Model) handleLearnCommand(input string, parts []string) (tea.Model, tea.
 		return clarification
 	}
 
+}
+
+// learnTracesFromHistory is the TUI history as the critic's exchanges: each
+// user message with the assistant reply right after it, and a trailing user
+// message, often the correction itself, with no reply. A command's output
+// follows no user message (slash commands are not appended as user turns),
+// so it is no exchange; Glass Box (system) entries are skipped. The TUI never
+// measured an exchange's outcome, so each is OutcomeUnknown.
+//
+// /learn used to make every message its own successful exchange -- a user
+// correction labelled an agent action, an answer with no request, its own
+// status notice one more success (audit
+// manual-learning-evidence-conservation).
+func learnTracesFromHistory(history []Message) []perception.ReasoningTrace {
+	var turns []Message
+	for _, msg := range history {
+		if msg.Role == "user" || msg.Role == "assistant" {
+			turns = append(turns, msg)
+		}
+	}
+	var traces []perception.ReasoningTrace
+	for i := 0; i < len(turns); i++ {
+		if turns[i].Role != "user" {
+			continue
+		}
+		tr := perception.ReasoningTrace{UserPrompt: turns[i].Content, OutcomeUnknown: true}
+		if i+1 < len(turns) && turns[i+1].Role == "assistant" {
+			tr.Response = turns[i+1].Content
+		}
+		traces = append(traces, tr)
+	}
+	return traces
 }
 
 // handleCampaignCommand handles the corresponding chat slash-command.

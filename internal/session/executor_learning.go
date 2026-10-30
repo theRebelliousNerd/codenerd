@@ -266,6 +266,7 @@ func (e *Executor) learningWindowDue(result *ExecutionResult, toolErrs []string)
 	// finished; earlier ones are context for spotting the correction.
 	last := &traces[len(traces)-1]
 	last.Success = e.resolveTurnOutcome(result) == types.MangleAtom("/done") && len(toolErrs) == 0
+	last.OutcomeUnknown = false
 	return traces
 }
 
@@ -285,10 +286,10 @@ func tracesFromHistory(history []perception.ConversationTurn) []perception.Reaso
 		traces = append(traces, perception.ReasoningTrace{
 			UserPrompt: history[i].Content,
 			Response:   history[i+1].Content,
-			// Earlier turns default to false rather than claiming a success
-			// this executor cannot re-derive; the critic reads the transcript
-			// for corrections, and a correction is visible in the NEXT user
-			// message whatever this flag says.
+			// An earlier turn's outcome is one this executor cannot
+			// re-derive: unknown, not false. learningWindowDue measures the
+			// last one.
+			OutcomeUnknown: true,
 		})
 	}
 	return traces

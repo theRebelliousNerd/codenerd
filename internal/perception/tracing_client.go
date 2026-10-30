@@ -35,8 +35,12 @@ type ReasoningTrace struct {
 	DurationMs int64  `json:"duration_ms"`
 
 	// Outcome (filled after shard completes)
-	Success      bool   `json:"success"`
-	ErrorMessage string `json:"error_message,omitzero"`
+	Success bool `json:"success"`
+	// OutcomeUnknown: nothing measured this exchange's outcome (a TUI
+	// history entry, an earlier turn), so Success means nothing. The critic
+	// reads "unknown", not "false".
+	OutcomeUnknown bool   `json:"outcome_unknown,omitempty"`
+	ErrorMessage   string `json:"error_message,omitzero"`
 
 	// Learning metadata (filled after analysis)
 	QualityScore  float64  `json:"quality_score,omitzero"`

@@ -337,22 +337,7 @@ func (s *LocalStore) initialize() error {
 	`
 
 	// Learning Candidates (staged taxonomy learnings)
-	learningCandidatesTable := `
-	CREATE TABLE IF NOT EXISTS learning_candidates (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		phrase TEXT NOT NULL,
-		verb TEXT NOT NULL,
-		target TEXT,
-		reason TEXT,
-		count INTEGER DEFAULT 1,
-		status TEXT DEFAULT 'pending',
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		UNIQUE(phrase, verb, target, reason)
-	);
-	CREATE INDEX IF NOT EXISTS idx_learning_candidates_status ON learning_candidates(status);
-	CREATE INDEX IF NOT EXISTS idx_learning_candidates_phrase ON learning_candidates(phrase);
-	`
+	learningCandidatesTable := learningCandidatesDDL("learning_candidates") + learningCandidatesIndexes
 
 	// Prompt Atoms (for Universal JIT Prompt Compiler)
 	// NOTE: Table creation WITHOUT indexes - indexes created after migrations
@@ -487,6 +472,9 @@ func (s *LocalStore) initialize() error {
 	// Run schema migrations for existing databases (adds missing columns like last_accessed, description)
 	if err := RunMigrations(s.db); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+	if err := migrateLearningCandidatePayload(s.db); err != nil {
+		return fmt.Errorf("failed to migrate learning candidates: %w", err)
 	}
 	if err := s.retireMislabelledDependencyEdges(); err != nil {
 		return fmt.Errorf("failed to retire mislabelled dependency edges: %w", err)

@@ -189,7 +189,7 @@ func (e *ExecutivePolicyShard) recordNoActionCandidate(intent *userIntentSnapsho
 		target = ""
 	}
 
-	count, err := store.RecordLearningCandidate(phrase, verb, target, reason)
+	count, err := recordMappingCandidate(store, phrase, verb, target, reason)
 	if err != nil {
 		logging.SystemShardsDebug("[ExecutivePolicy] Failed to record learning candidate: %v", err)
 		return

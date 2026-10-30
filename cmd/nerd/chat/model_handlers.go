@@ -282,9 +282,16 @@ func (m Model) stageLearningCandidateFromFact(fact, reason string) (clarificatio
 	if strings.TrimSpace(fact) == "" {
 		return clarificationMsg{}, fmt.Errorf("empty learned fact")
 	}
-	phrase, verb, target, _, _, err := perception.ParseLearnedFact(fact)
+	phrase, verb, target, qualifier, confidence, err := perception.ParseLearnedFact(fact)
 	if err != nil {
 		return clarificationMsg{}, fmt.Errorf("failed to parse learned fact: %w", err)
+	}
+	// The proposal is staged whole, normalized as it will be persisted:
+	// confirming it, inline or by id, persists this text and nothing
+	// reconstructed (audit manual-learning-evidence-conservation).
+	normalized, err := perception.NormalizeLearnedFact(fact)
+	if err != nil {
+		return clarificationMsg{}, fmt.Errorf("failed to normalize learned fact: %w", err)
 	}
 	phrase = strings.TrimSpace(phrase)
 	target = strings.TrimSpace(target)
@@ -301,7 +308,7 @@ func (m Model) stageLearningCandidateFromFact(fact, reason string) (clarificatio
 
 	var count int
 	if m.localDB != nil {
-		if recorded, err := m.localDB.RecordLearningCandidate(phrase, verb, target, reason); err != nil {
+		if recorded, err := m.localDB.RecordLearningCandidate(phrase, verb, target, reason, normalized); err != nil {
 			return clarificationMsg{}, err
 		} else {
 			count = recorded
@@ -325,7 +332,7 @@ func (m Model) stageLearningCandidateFromFact(fact, reason string) (clarificatio
 				core.MangleAtom(verb),
 				target,
 				core.MangleAtom(reason),
-				fact,
+				normalized,
 			},
 		},
 	}
@@ -339,7 +346,7 @@ func (m Model) stageLearningCandidateFromFact(fact, reason string) (clarificatio
 		return clarificationMsg{}, fmt.Errorf("failed to stage learning candidate: %w", err)
 	}
 
-	question := fmt.Sprintf("I can learn this mapping: %s -> %s. Should I learn it?", phrase, verb)
+	question := fmt.Sprintf("I can learn this mapping: %s -> %s%s. Should I learn it?", phrase, verb, proposalDetail(target, qualifier, confidence))
 	options := []string{
 		"Yes, learn this mapping (/learn_yes)",
 		"No, do not learn this (/learn_no)",
@@ -348,6 +355,20 @@ func (m Model) stageLearningCandidateFromFact(fact, reason string) (clarificatio
 		Question: question,
 		Options:  options,
 	}, nil
+}
+
+// proposalDetail names what a proposal carries beyond phrase and verb, so
+// the user confirms the fact that will be learned, not part of it.
+func proposalDetail(target, qualifier string, confidence float64) string {
+	var parts []string
+	if target != "" {
+		parts = append(parts, "target "+target)
+	}
+	if qualifier != "" {
+		parts = append(parts, fmt.Sprintf("qualifier %q", qualifier))
+	}
+	parts = append(parts, fmt.Sprintf("confidence %.2f", confidence))
+	return " (" + strings.Join(parts, ", ") + ")"
 }
 
 // learningContext is the context of a foreground "learn this" operation: the
@@ -378,27 +399,21 @@ func (m Model) confirmLearningCandidate(candidate *learningCandidate) (perceptio
 	if strings.TrimSpace(candidate.Phrase) == "" {
 		return perception.PersistOutcome{}, fmt.Errorf("invalid learning candidate phrase")
 	}
+	// The staged proposal is what is learned. There used to be a fallback
+	// that rebuilt the fact with an empty qualifier and confidence 0.90 when
+	// the staged one was gone; it learned something nobody proposed.
+	fact := m.loadLearningCandidateFact(candidate)
+	if fact == "" {
+		return perception.PersistOutcome{}, fmt.Errorf("the proposed fact for %q is no longer staged; run /learn again", candidate.Phrase)
+	}
 	if m.localDB != nil {
-		if err := m.localDB.ConfirmLearningCandidateMatch(candidate.Phrase, candidate.Verb, candidate.Target, candidate.Reason); err != nil && err != sql.ErrNoRows {
+		if err := m.localDB.ConfirmLearningCandidateMatch(candidate.Phrase, candidate.Verb, candidate.Target, candidate.Reason, fact); err != nil && err != sql.ErrNoRows {
 			return perception.PersistOutcome{}, err
 		}
 	}
 	if perception.SharedTaxonomy == nil {
 		return perception.PersistOutcome{}, fmt.Errorf("taxonomy engine not available")
 	}
-	if fact := m.loadLearningCandidateFact(candidate); fact != "" {
-		return perception.SharedTaxonomy.PersistLearnedFact(m.learningContext(), fact)
-	}
-	verb := normalizeVerbAtom(candidate.Verb)
-	if verb == "" {
-		return perception.PersistOutcome{}, fmt.Errorf("invalid verb for learning candidate")
-	}
-	fact := fmt.Sprintf(
-		`learned_exemplar("%s", %s, "%s", "", 0.90).`,
-		escapeMangleString(candidate.Phrase),
-		verb,
-		escapeMangleString(candidate.Target),
-	)
 	return perception.SharedTaxonomy.PersistLearnedFact(m.learningContext(), fact)
 }
 
@@ -409,7 +424,7 @@ func (m Model) rejectLearningCandidate(candidate *learningCandidate) error {
 	if m.localDB == nil {
 		return nil
 	}
-	if err := m.localDB.RejectLearningCandidateMatch(candidate.Phrase, candidate.Verb, candidate.Target, candidate.Reason); err != nil && err != sql.ErrNoRows {
+	if err := m.localDB.RejectLearningCandidateMatch(candidate.Phrase, candidate.Verb, candidate.Target, candidate.Reason, m.loadLearningCandidateFact(candidate)); err != nil && err != sql.ErrNoRows {
 		return err
 	}
 	return nil

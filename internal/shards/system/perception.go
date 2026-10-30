@@ -63,9 +63,21 @@ func DefaultPerceptionConfig() PerceptionConfig {
 	}
 }
 
-// LearningCandidateStore records potential taxonomy learnings.
+// LearningCandidateStore records potential taxonomy learnings: the mapping,
+// why, and the whole proposed fact (store.LocalStore.RecordLearningCandidate).
 type LearningCandidateStore interface {
-	RecordLearningCandidate(phrase, verb, target, reason string) (int, error)
+	RecordLearningCandidate(phrase, verb, target, reason, fact string) (int, error)
+}
+
+// recordMappingCandidate stages a mapping a shard saw with no critic fact.
+// Its proposal is the mapping with no qualifier at confidence 0.90, written
+// as the fact now, at proposal time, so confirming it learns exactly that.
+func recordMappingCandidate(store LearningCandidateStore, phrase, verb, target, reason string) (int, error) {
+	fact, err := perception.FormatLearnedFact(phrase, verb, target, "", 0.90)
+	if err != nil {
+		return 0, err
+	}
+	return store.RecordLearningCandidate(phrase, verb, target, reason, fact)
 }
 
 // PerceptionFirewallShard transduces user input to structured atoms.
@@ -384,7 +396,7 @@ func (p *PerceptionFirewallShard) recordLearningCandidate(phrase, verb, target, 
 	if store == nil || strings.TrimSpace(phrase) == "" {
 		return 0, nil
 	}
-	return store.RecordLearningCandidate(phrase, verb, target, reason)
+	return recordMappingCandidate(store, phrase, verb, target, reason)
 }
 
 var (

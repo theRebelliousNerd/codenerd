@@ -209,15 +209,15 @@ func TestReflectionUtils_SanitizeAndClamp(t *testing.T) {
 // and unknown ids fail instead of silently updating nothing.
 func TestLearningCandidates_Lifecycle(t *testing.T) {
 	s := openLocalTestStore(t)
-	n, err := s.RecordLearningCandidate("fix it", "/fix", "code", "r1")
+	n, err := s.RecordLearningCandidate("fix it", "/fix", "code", "r1", "staged fact")
 	if err != nil || n != 1 {
 		t.Fatalf("first record = %d, %v; want 1, nil", n, err)
 	}
-	n, err = s.RecordLearningCandidate("fix it", "/fix", "code", "r1")
+	n, err = s.RecordLearningCandidate("fix it", "/fix", "code", "r1", "staged fact")
 	if err != nil || n != 2 {
 		t.Fatalf("second record = %d, %v; want 2, nil", n, err)
 	}
-	if _, err := s.RecordLearningCandidate("other", "/fix", "code", "r1"); err != nil {
+	if _, err := s.RecordLearningCandidate("other", "/fix", "code", "r1", "staged fact"); err != nil {
 		t.Fatal(err)
 	}
 	cands, err := s.ListLearningCandidates("", 0)
@@ -235,7 +235,7 @@ func TestLearningCandidates_Lifecycle(t *testing.T) {
 	if err := s.ConfirmLearningCandidate(cands[1].ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RejectLearningCandidateMatch("other", "/fix", "code", "r1"); err != nil {
+	if err := s.RejectLearningCandidateMatch("other", "/fix", "code", "r1", "staged fact"); err != nil {
 		t.Fatal(err)
 	}
 	pending, err = s.ListLearningCandidates("pending", 10)

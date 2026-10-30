@@ -263,9 +263,16 @@ func (t *TaxonomyEngine) LearnFromInteraction(ctx context.Context, history []Rea
 	const maxTraceFieldChars = 2000
 	for i := startIdx; i < len(history); i++ {
 		trace := history[i]
-		transcript.WriteString(fmt.Sprintf("User: %s\nAgent Action: %s\nSuccess: %v\n---\n",
-			truncateForCritic(trace.UserPrompt, maxTraceFieldChars),
-			truncateForCritic(visibleTaskOutput(trace.Response), maxTraceFieldChars), trace.Success))
+		action := truncateForCritic(visibleTaskOutput(trace.Response), maxTraceFieldChars)
+		if strings.TrimSpace(trace.Response) == "" {
+			action = "(no reply yet)"
+		}
+		success := fmt.Sprintf("%v", trace.Success)
+		if trace.OutcomeUnknown {
+			success = "unknown"
+		}
+		transcript.WriteString(fmt.Sprintf("User: %s\nAgent Action: %s\nSuccess: %s\n---\n",
+			truncateForCritic(trace.UserPrompt, maxTraceFieldChars), action, success))
 	}
 
 	// 2. Ask the Critic to evaluate
@@ -538,6 +545,17 @@ func (e learnedExemplar) source() string {
 	}
 	return fmt.Sprintf("learned_exemplar(%s, %s, %s, %s, %d).",
 		ast.String(e.Pattern).String(), verbText, ast.String(e.Target).String(), ast.String(e.Constraint).String(), confInt)
+}
+
+// FormatLearnedFact writes a learned_exemplar from its parts, normalized as
+// NormalizeLearnedFact writes it: the proposal of a producer that has a
+// mapping but no critic fact (an unmapped verb the executive saw) is stored
+// and confirmed as exactly this text. verb must be a /name.
+func FormatLearnedFact(pattern, verb, target, constraint string, confidence float64) (string, error) {
+	if _, err := ast.Name(verb); err != nil {
+		return "", fmt.Errorf("learned fact verb %q is not a name: %w", verb, err)
+	}
+	return learnedExemplar{Pattern: pattern, Verb: verb, Target: target, Constraint: constraint, Confidence: confidence}.source(), nil
 }
 
 // ParseLearnedFact extracts components from a learned_exemplar fact string.
