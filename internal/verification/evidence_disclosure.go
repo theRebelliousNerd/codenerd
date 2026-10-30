@@ -24,6 +24,8 @@ func (p *EvidencePacket) unexpandable(id string) string {
 		return "not in the packet"
 	case !it.current():
 		return "its file no longer holds what the attempt left"
+	case it.unavailable != "" && (it.full == "" || it.disclosed >= len(it.full)):
+		return it.unavailable
 	case it.full == "":
 		return "the packet already shows all of it"
 	case it.disclosed >= len(it.full):
@@ -41,8 +43,8 @@ func (p *EvidencePacket) expandable(id string) bool {
 // rangeHead introduces one disclosed range.
 func (it *EvidenceItem) rangeHead(from, to int) string {
 	what := "text"
-	if it.path != "" {
-		what = "post-change content"
+	if it.Representation != "" {
+		what = it.Representation
 	}
 	return fmt.Sprintf("\n[%s] %s of %s, bytes %d-%d of %d\n```\n", it.ID, what, it.Label, from, to, len(it.full))
 }

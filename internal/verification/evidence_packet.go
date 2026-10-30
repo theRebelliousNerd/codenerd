@@ -47,6 +47,8 @@ type EvidenceItem struct {
 	Source string
 	Label  string
 	Body   string
+	// Representation names the bytes shown and retained for a change item.
+	Representation string
 	// Omitted is how many bytes of the item the default packet left out.
 	Omitted int
 
@@ -55,10 +57,12 @@ type EvidenceItem struct {
 	path  string
 	after string
 	// full is what an expansion discloses, range by range, when the packet
-	// shows less: a change's post-change content (once the file is shown to
-	// still hold it), or the whole of a cut body. rest names it to the judge.
+	// shows less: the same representation as Body, including removed text
+	// for a diff. rest names it to the judge.
 	full string
 	rest string
+	// unavailable names source detail that was not retained as readable text.
+	unavailable string
 	// disclosed is how many bytes of full the judge has already been shown:
 	// a cut body's prefix, then each expansion's range. An expansion starts
 	// here, so no range is shown twice.
@@ -140,7 +144,11 @@ func (p *EvidencePacket) header() string {
 
 // head is an item's identity line, never cut.
 func (it *EvidenceItem) head() string {
-	return fmt.Sprintf("\n[%s] source=%s kind=%s: %s\n", it.ID, it.Source, it.Kind, it.Label)
+	representation := ""
+	if it.Representation != "" {
+		representation = " representation=" + it.Representation
+	}
+	return fmt.Sprintf("\n[%s] source=%s kind=%s: %s%s\n", it.ID, it.Source, it.Kind, it.Label, representation)
 }
 
 // marker says how much of the item the packet left out, and how to get it.
@@ -220,33 +228,18 @@ func buildEvidencePacket(ctx context.Context, attempt int64, rubric string, ret 
 		add(EvidenceItem{Kind: "check", Source: v.Source, Label: label, Body: body})
 	}
 
-	// Each changed file, as a diff of what the attempt did to it; when the
-	// diff is cut, the post-change content is retained for expansion.
+	// Retain the same representation that admission bounds, so expansion
+	// can recover removed text as well as additions.
 	for i, w := range ret.Writes {
 		label := w.Path
 		if len(ret.Changed) == len(ret.Writes) {
 			label = ret.Changed[i]
 		}
 		before, after := fileStateLabel(w.Before), fileStateLabel(w.After)
-		body, full := "", ""
-		switch {
-		case !w.After.Known:
-			body = "(what the attempt left could not be read)"
-		case !w.After.Exists:
-			body = "(the attempt deleted the file)"
-		default:
-			full = w.After.Content
-			body = renderDiff(label, w.Before.Content, w.After.Content)
-		}
-		it := EvidenceItem{
-			Kind: "change", Source: sourceObserved,
-			Label: fmt.Sprintf("changed %s (before %s, after %s)", label, before, after),
-			Body:  body,
-			path:  w.Path, after: after, full: full,
-		}
-		if full != "" {
-			it.rest = "the full post-change content"
-		}
+		it := changeEvidence(label, w)
+		it.Kind, it.Source = "change", sourceObserved
+		it.Label = fmt.Sprintf("changed %s (before %s, after %s)", label, before, after)
+		it.path, it.after = w.Path, after
 		add(it)
 	}
 	if len(ret.Writes) == 0 && len(ret.Changed) > 0 {
@@ -312,13 +305,12 @@ func (p *EvidencePacket) admit() error {
 		shown := cutUTF8(whole, alloc[k]-1)
 		it.Body = shown
 		it.Omitted = len(whole) - len(shown)
-		switch {
-		case it.Omitted == 0:
-			// The whole body is shown: a change's content adds nothing to
-			// its whole diff.
-			it.full = ""
-		case it.full == "":
+		if it.Omitted > 0 {
+			// Expansion always continues the exact representation admitted
+			// above, never a different view of the same change.
 			it.full, it.disclosed = whole, len(shown)
+		} else {
+			it.full, it.disclosed = "", 0
 		}
 	}
 	return nil

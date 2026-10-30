@@ -239,7 +239,7 @@ func TestVerifyWithRetry_TheJudgeMayAskForElidedEvidence(t *testing.T) {
 	exec := &stubTaskExecutor{result: "implemented Real", outcome: "/done", writes: []observation.FileWrite{write}, changed: []string{"a.go"}}
 	v := newDelegationVerifier(t, client, nil, exec)
 	d := delegation("implement Real", 2)
-	budget := 12000 // the diff (~11.8 KB) overflows its share, the content (~11.4 KB) fits an expansion
+	budget := 12000 // the diff overflows its share; its remaining bytes fit an expansion
 	d.Config.JudgeEvidenceBytes = &budget
 
 	_, verdict, err := v.VerifyWithRetry(context.Background(), d)
@@ -249,7 +249,7 @@ func TestVerifyWithRetry_TheJudgeMayAskForElidedEvidence(t *testing.T) {
 	if !verdict.Accepted || exec.calls != 1 || len(*users) != 2 {
 		t.Fatalf("accepted=%t worker runs=%d judge rounds=%d, want accepted, 1, 2", verdict.Accepted, exec.calls, len(*users))
 	}
-	if !strings.Contains((*users)[0], "request E2 for the full post-change content") {
+	if !strings.Contains((*users)[0], "request E2 for the remaining diff bytes") {
 		t.Fatalf("first round did not offer the elided change:\n%s", (*users)[0])
 	}
 	if second := (*users)[1]; !strings.Contains(second, "## Requested evidence") || !strings.Contains(second, "func Real() int { return 42 }") {

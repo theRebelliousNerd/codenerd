@@ -49,9 +49,8 @@ func TestVerifyWithRetry_RepeatedRequestsReachEvidencePastTheFirstRange(t *testi
 		t.Fatalf("%d judge rounds; the decisive function lies past the first range", len(users))
 	}
 	last := users[len(users)-1]
-	// The packet's diff shows lines as "+// ..."; a disclosed range shows
-	// them bare. Each line is disclosed once.
-	for _, line := range []string{"\n// filler line 0000 ", "\n// filler line 0300 ", "\n// filler line 0599 "} {
+	// Admission and disclosures walk the same diff, including its prefix.
+	for _, line := range []string{"\n+// filler line 0000 ", "\n+// filler line 0300 ", "\n+// filler line 0599 "} {
 		if n := strings.Count(last, line); n != 1 {
 			t.Fatalf("%q is disclosed %d times in the last request; no range may be disclosed twice", line, n)
 		}
@@ -94,7 +93,7 @@ func TestExpand_DisclosesEachRangeOnceAndThenStops(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var shown int
+	shown := p.Items[1].Body
 	for i := 0; p.expandable("E2"); i++ {
 		if i > 10 {
 			t.Fatal("the item never stopped being expandable")
@@ -103,10 +102,14 @@ func TestExpand_DisclosesEachRangeOnceAndThenStops(t *testing.T) {
 		if len(got) > p.Budget {
 			t.Fatalf("disclosure %d is %d bytes, over the %d budget", i, len(got), p.Budget)
 		}
-		shown += strings.Count(got, "line of the post-change file\n")
+		parts := strings.SplitN(got, "\n```\n", 3)
+		if len(parts) != 3 {
+			t.Fatalf("disclosure has no framed range: %q", got)
+		}
+		shown += parts[1]
 	}
-	if shown != 400 {
-		t.Fatalf("disclosed %d lines across the ranges, want each of the 400 exactly once", shown)
+	if want := renderDiff(path, "", content); shown != want {
+		t.Fatalf("admission plus disclosures do not reconstruct the retained diff: got %d bytes, want %d", len(shown), len(want))
 	}
 	if why := p.unexpandable("E2"); why != "every byte of it has been shown" {
 		t.Fatalf("unexpandable = %q", why)

@@ -1,5 +1,29 @@
 # verification — Public API and Types
 
+## Retained change representation contract
+
+An observed change must disclose a named representation bound to its attempt,
+path, before-state identity and after-state identity. For known text states,
+that representation is a unified diff, including removals and whole-file
+deletions. Initial admission and subsequent byte ranges refer to the same
+retained diff; exhausting a postimage cannot establish coverage of removed
+content. `Omitted` counts bytes of the named representation excluded from the
+initial packet. Requests continue after its admitted prefix without repeating
+ranges. A complete small diff requires no expansion.
+
+Unknown preimages cannot be inferred from empty strings or current files. An
+existing final text file with an unknown preimage supplies only a labeled
+postimage; deleted content with an unknown preimage remains unavailable. Known
+empty, absent, unknown and binary states remain distinct. Binary bytes are not
+rendered as text or exposed by falling back from a binary diff marker to raw
+content. Labels, markers and range framing share the configured packet budget.
+
+Only retained observations are disclosed. Historical removals remain bound to
+the observed final state: recreated deleted paths or subsequent workspace
+changes invalidate applicability under the existing kernel policy. Evidence
+requests neither acquire arbitrary paths nor re-execute the worker. Unavailable
+detail and exhausted acquisition rounds remain unresolved rather than passing.
+
 > Last verified: **2026-07-13**  
 > Package: `codenerd/internal/verification`
 

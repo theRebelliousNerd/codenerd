@@ -9,6 +9,44 @@
 
 ## 0. Judge evidence contract (as built 2026-10-28)
 
+### Retained removal evidence (as built 2026-10-30)
+
+Change coverage follows the representation contract in
+[06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md). Known text observations
+produce a unified diff, including whole-file deletions
+(`internal/verification/evidence_change.go:13`). Unknown preimages supply only
+a labeled postimage when the final file exists; deleted content with an unknown
+preimage and binary text detail remain explicitly unavailable. Empty-file
+deletions and paths absent at both observations have distinct markers.
+
+Each change retains its attempt, path and before/after identity through
+`internal/verification/evidence_packet.go:233`. Admission retains the same
+representation it bounded, with the cursor after the shown prefix
+(`internal/verification/evidence_packet.go:279`). Subsequent disclosures name
+the representation and its byte range, so omitted removed hunks remain
+recoverable and postimage coverage is never credited as diff coverage
+(`internal/verification/evidence_disclosure.go:43`). Complete small diffs need
+no expansion. Whole-packet and per-disclosure framing still count toward
+`delegation.judge_evidence_bytes`.
+
+The normal producer path remains `internal/session/task_executor.go` through
+`internal/session/turn_writes.go`, which already retains preimages and known
+absence. The verifier acquires no new paths or permissions. Retained historical
+removals stay bound to the observed after-state and workspace applicability;
+`internal/verification/applicability.go` and kernel delegation policy continue
+to withhold superseded or unknown evidence without rerunning the worker.
+No Mangle predicates, configuration knobs or prompt atoms change.
+
+Regression fixtures are authored in
+`internal/verification/evidence_change_test.go`: production `VerifyWithRetry`
+requests exercise whole deletion, truncated multi-hunk removal with a nonempty
+postimage, empty surviving-file controls, small deletion, unknown/empty/absent/
+binary states, and a deleted path recreated during judgment. A packet-level
+Unicode long-line fixture reconstructs the retained diff across bounded ranges.
+Existing disclosure fixtures now assert continuation of the same diff.
+Behavioral execution and fail-before confirmation remain pending; source
+inspection and formatting alone do not establish passing tests or judge quality.
+
 Sections below this one predate the judge/v2 rewrite and describe functions that no longer exist; read the code. Current judge evidence contract:
 
 - **Applicability.** After every judge round the host measures whether the packet still describes the workspace (`/current`, `/superseded`, `/unknown`: `internal/verification/applicability.go:52`), from each changed file's identity and the workspace snapshot (`observation.Return.Workspace`, set in `internal/session/turn_writes.go:21`), and asserts `judge_evidence_applicability`. `delegation_attempt_accepted` requires `judge_evidence_current`; anything else is `/unverifiable`, never a retry or an evidence round (`internal/core/defaults/policy/delegation.mg:408-467`).

@@ -1,7 +1,7 @@
 ---
 doc-class: deep-dive
 subsystem: verification
-implementation-status: proposed
+implementation-status: implemented
 last-verified: 2026-10-30
 verified-against: fef98230c20a5751e4c32a2fd2757832a9d39cdc
 verification-method: static-source-inspection and independent source challenge
@@ -174,3 +174,56 @@ No net token saving, speedup, prevalence, cost reduction or accuracy gain is est
 [applicability]: https://github.com/theRebelliousNerd/codenerd/blob/fef98230c20a5751e4c32a2fd2757832a9d39cdc/internal/verification/applicability.go#L52-L84
 [accept-policy]: https://github.com/theRebelliousNerd/codenerd/blob/fef98230c20a5751e4c32a2fd2757832a9d39cdc/internal/core/defaults/policy/delegation.mg#L440-L467
 [disclosure-tests]: https://github.com/theRebelliousNerd/codenerd/blob/fef98230c20a5751e4c32a2fd2757832a9d39cdc/internal/verification/evidence_disclosure_test.go
+
+## As built
+
+Current-source rulings: both coverage findings were **real**. The deletion
+branch discarded known preimage content, and an elided diff with a nonempty
+postimage retained only that postimage for expansion. Neither finding was
+already fixed. The audit's empty surviving postimage qualification was also
+correct: the prior admission fallback retained its diff. No false acceptance
+or production failure is established by these source observations.
+
+`internal/verification/evidence_change.go` now selects a named diff for known
+text states, including deletion diffs, or an explicitly labeled postimage when
+the preimage is unknown. Unknown deleted preimages and binary text detail have
+named unavailable reasons; empty and absent states are distinct.
+`internal/verification/evidence_packet.go` retains the exact representation
+bounded by initial admission and starts its disclosure cursor after the shown
+prefix. `internal/verification/evidence_disclosure.go` labels subsequent ranges
+with that representation and reports unavailable detail honestly. Budget
+accounting includes the added representation labels and existing framing.
+
+The session producer already retains the necessary observations through
+`internal/session/task_executor.go` and `internal/session/turn_writes.go`;
+`TestWithTurnWrites_RecordsEachWriteBeforeAndAfter` covers its deleted-file
+preimage. No caller change, arbitrary source acquisition, new predicate or
+prompt atom was needed. Existing judge reply validation, after-state identity
+and workspace applicability checks, and kernel-owned disposition remain wired.
+The selected contract and implementation are documented in
+`Docs/architecture/verification/06-PUBLIC-API-AND-TYPES.md` and
+`Docs/architecture/verification/IMPLEMENTED_SPEC.md`.
+
+Authored regression coverage in `internal/verification/evidence_change_test.go`:
+`TestVerifyWithRetry_RetainedRemovedTextReachesTheJudge` captures actual judge
+requests through the observed executor boundary, real packet builder, strict
+reply parser and real kernel policy for large deletions, multi-hunk surviving
+files, empty surviving files and small complete deletions.
+`TestVerifyWithRetry_ChangeRepresentationStates` covers unknown, empty, absent,
+new and binary states without worker replay;
+`TestVerifyWithRetry_RecreatedDeletedPathInvalidatesRemovalEvidence` exercises
+superseded applicability after a removal disclosure;
+`TestEvidencePacket_RemovedUnicodeLongLineIsRecoverable` checks byte recovery,
+UTF-8 boundaries and framing budgets. Existing progressive-disclosure tests in
+`evidence_disclosure_test.go` and `verifier_delegation_test.go` now expect ranges
+of the retained diff rather than a switch to the postimage.
+
+Fail-before evidence is **static, not executed**: the deletion witnesses ask
+for a sentinel present only in the known preimage; the former marker branch
+cannot supply it. The nonempty-postimage witness asserts multiple hunks and
+places the removed sentinel beyond initial admission; the former postimage
+backing can never disclose it. Test execution, including actual before/after
+failure confirmation, remains pending under the author-only task constraint.
+Formatting and whitespace review do not establish behavioral success. The
+audit's paired production evaluation and cost measurements remain future
+evaluation work; no accuracy, latency or token improvement is claimed.
