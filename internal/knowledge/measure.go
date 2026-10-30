@@ -104,13 +104,22 @@ func Measure(ctx context.Context, db *sql.DB, agent any, now time.Time) ([]types
 	if tables["knowledge_misses"] {
 		// recovered_at arrived 2026-10-30; a table made before has none,
 		// and its rows have never recovered.
-		recovered := "NULL"
-		if cols, err := tableColumnSet(ctx, db, "knowledge_misses"); err != nil {
+		// Only a miss from a search that found nothing is a gap; a row
+		// written before searches recorded their outcome is not, until
+		// SettleLegacyMisses shows it is (origin). A table with no origin
+		// column holds only such rows.
+		cols, err := tableColumnSet(ctx, db, "knowledge_misses")
+		if err != nil {
 			return nil, err
-		} else if cols["recovered_at"] {
+		}
+		recovered, current := "NULL", "0"
+		if cols["recovered_at"] {
 			recovered = "recovered_at"
 		}
-		rows, err := db.QueryContext(ctx, `SELECT query, misses, last_missed_at, `+recovered+` FROM knowledge_misses`)
+		if cols["origin"] {
+			current = "origin = '" + missOriginLookup + "'"
+		}
+		rows, err := db.QueryContext(ctx, `SELECT query, misses, last_missed_at, `+recovered+` FROM knowledge_misses WHERE `+current)
 		if err != nil {
 			return nil, fmt.Errorf("read misses: %w", err)
 		}

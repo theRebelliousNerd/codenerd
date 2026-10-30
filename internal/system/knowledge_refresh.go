@@ -254,6 +254,14 @@ func measureAgentKB(ctx context.Context, agent rosterKB, now time.Time) ([]types
 		return nil, store.KnowledgeGeneration{}, fmt.Errorf("open KB: %w", err)
 	}
 	defer db.Close()
+	// Misses written before searches recorded their outcome are decided
+	// from what a search shows now (knowledge.SettleLegacyMisses) before
+	// they are measured; until then they are no gap.
+	if current, history, err := knowledge.SettleLegacyMisses(ctx, db.GetDB()); err != nil {
+		return nil, store.KnowledgeGeneration{}, err
+	} else if current+history > 0 {
+		logging.Get(logging.CategoryContext).Info("%s: %d legacy miss(es) settled: %d current, %d history", agent.key, current+history, current, history)
+	}
 	// The generation first: a row written between the two reads is then
 	// newer than the generation, never measured-but-unbound.
 	gen, err := db.KnowledgeGeneration()
