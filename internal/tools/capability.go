@@ -116,16 +116,3 @@ func (t *Tool) DeclaredCapability() (Capability, error) {
 	}
 	return t.Capability, nil
 }
-
-// LookupCapability is the declared capability of a registered or built-in
-// tool, "" when none is declared.
-func LookupCapability(name string) Capability {
-	if c := BuiltinCapability(name); c != "" {
-		return c
-	}
-	if t := Global().Get(name); t != nil {
-		c, _ := t.DeclaredCapability()
-		return c
-	}
-	return ""
-}
