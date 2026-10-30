@@ -358,6 +358,16 @@ type ModelIdentifier interface {
 	ModelIdentity() (provider, model string)
 }
 
+// ClientResolver is a client that serves each call on the client its context
+// selects: a shard profile's provider, or a model the slot's own client is not
+// configured for. Everything that prepares a call -- prompt-atom pinning, the
+// input budget, the turn record -- resolves through it, so preparation names
+// the model dispatch sends to. routed is false when the call stays on the
+// resolver's own wrapped client.
+type ClientResolver interface {
+	ClientFor(ctx context.Context) (client LLMClient, routed bool, err error)
+}
+
 // InputWindowReporter is an optional interface for LLM clients whose input is
 // capped below the session's budget: a worker or planner slot's
 // max_input_tokens. InputWindowTokens is that cap in the tokens

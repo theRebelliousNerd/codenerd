@@ -138,3 +138,30 @@ charge. Boot-path proof: `internal/system/factory_slot_policy_boot_test.go`.
 *Verified 2026-09-20 against `b63e848`; §7-9 against the 2026-10-27 working
 tree. All line ranges are 1-indexed file ranges in `internal/config` unless a
 path is given.*
+
+## 10. Shard profile model resolution — as built 2026-10-29
+
+`shard_profiles.*.model` and `.provider` ride the call's context
+(`ShardProfileContext`). `core.ScheduledLLMCall.ClientFor` (`types.ClientResolver`)
+resolves the client a call runs on:
+
+- **Provider named:** that provider's client for the profile's model, built once per (provider, model) by the slot's router.
+- **Model only, and not the model the slot's client is configured for:** the slot's own provider's client for that model (`profileRouter` with provider `""`, `SecondaryLLMConfig.RouteTo` keeping the slot's endpoint and options).
+- **Otherwise:** the slot's client.
+
+A route that cannot be built refuses the call. It never falls back to the slot's model. Before this, a model-only profile was accepted, and then the clients that build requests from their own configured model (Anthropic, Gemini, Ollama, xAI, Z.AI, OpenRouter) sent the slot's model (audit `ollama-shard-model-override`).
+
+Preparation reads the same resolution (`session.resolveServing`):
+
+- the executor's compile context, re-applied once the persona's profile is on the context (`applyServing`): atom pinning (provider, model) and the prompt budget (the routed client's input cap);
+- the turn record's provider and model;
+- a spawned subagent's config compile, under the subagent's own profile.
+
+Before this, all three named the slot's client: a coder profile on OpenAI behind a Meta main slot was compiled for the Meta model.
+
+Tests:
+
+- `internal/core/scheduled_llm_model_route_test.go`
+- `internal/system/factory_model_override_test.go`, which checks the Ollama request body names the profile's model
+- `internal/session/serving_resolution_test.go`
+

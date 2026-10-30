@@ -536,8 +536,58 @@ func (e *Executor) llmForVerb(verb string) types.LLMClient {
 // which leaves every pinned atom blocked (the dimensions are fail-closed) while
 // unpinned atoms are unaffected. That is logged, because the symptom otherwise
 // is a quietly smaller prompt.
-func (e *Executor) servingIdentity(verb string) (provider, model string) {
-	return clientIdentity(e.llmForVerb(verb))
+func (e *Executor) servingIdentity(ctx context.Context, verb string) (provider, model string) {
+	return clientIdentity(e.servingClient(ctx, verb))
+}
+
+// servingClient is the client this verb's calls under ctx are sent to: the
+// tier llmForVerb picks, resolved through its scheduler for ctx (a shard
+// profile's provider or model routes the call to another client). Prompt
+// pinning, the input budget and the turn record read it, so they name the
+// model dispatch uses rather than the slot's.
+func (e *Executor) servingClient(ctx context.Context, verb string) types.LLMClient {
+	return resolveServing(ctx, e.llmForVerb(verb))
+}
+
+// resolveServing is client as a call under ctx resolves it
+// (types.ClientResolver anywhere in its decorator chain). A client that does
+// not reroute, or a route that cannot be built, leaves client: the call itself
+// then fails by name at dispatch.
+func resolveServing(ctx context.Context, client types.LLMClient) types.LLMClient {
+	if client == nil {
+		return nil
+	}
+	var resolver types.ClientResolver
+	broker.Walk(client, func(layer types.LLMClient) bool {
+		if r, ok := layer.(types.ClientResolver); ok {
+			resolver = r
+			return false
+		}
+		return true
+	})
+	if resolver == nil {
+		return client
+	}
+	routed, ok, err := resolver.ClientFor(ctx)
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("the turn's serving client cannot be resolved; preparing against the slot's client, and its calls will fail: %v", err)
+		return client
+	}
+	if !ok || routed == nil {
+		return client
+	}
+	return routed
+}
+
+// applyServing points cc at the client serving verb under ctx: its identity
+// pins the atoms and its input cap bounds the prompt's budget.
+func (e *Executor) applyServing(ctx context.Context, verb string, cc *prompt.CompilationContext) {
+	client := e.servingClient(ctx, verb)
+	cc.TokenBudget = e.inputBudgetFor(broker.InputWindow(client)).tokens
+	// Both dimensions are fail-closed regime dimensions in jit_compiler.mg:
+	// a context that leaves them empty blocks every pinned atom rather than
+	// admitting them all.
+	cc.Provider, cc.Model = clientIdentity(client)
 }
 
 // clientIdentity is the provider and model client reports through
@@ -1428,6 +1478,9 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// The persona is known from here: its shard profile rides on the context
 	// every model call of the turn is made under.
 	ctx = e.withShardProfile(ctx, compilationCtx.ShardType)
+	// The profile can route the turn to another provider or model: the
+	// compile is pinned and budgeted for the client the calls will reach.
+	e.applyServing(ctx, intent.Verb, compilationCtx)
 	// Delegation frequently supplies only a verb in its structured intent.
 	// The actual task must reach retrieval; searching for the expert's name
 	// instead made every task share a cache key and discard task-specific memory.
@@ -1566,24 +1619,15 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 // buildCompilationContextWith creates a CompilationContext carrying the shard
 // agents the kernel already derived for this intent (experts).
 func (e *Executor) buildCompilationContextWith(ctx context.Context, intent perception.Intent, experts []string) *prompt.CompilationContext {
-	// The client that will be sent this prompt, resolved once for the compile:
-	// its input cap (a slot's max_input_tokens) bounds the prompt's budget as
-	// it bounds every request of the turn, and its identity pins the atoms.
-	client := e.llmForVerb(intent.Verb)
 	cc := &prompt.CompilationContext{
 		IntentVerb:      intent.Verb,
 		IntentTarget:    intent.Target,
 		OperationalMode: "/active",
-		TokenBudget:     e.inputBudgetFor(broker.InputWindow(client)).tokens,
 	}
-
-	// Name the LLM that will consume this prompt, so provider/model-pinned
-	// atoms can be matched against it. This is not optional bookkeeping: both
-	// dimensions are fail-closed regime dimensions in jit_compiler.mg, so a
-	// context that leaves them empty blocks every pinned atom rather than
-	// admitting them all. Leaving this unset would silently retire the entire
-	// evolved corpus.
-	cc.Provider, cc.Model = clientIdentity(client)
+	// The client that will be sent this prompt: its input cap (a slot's
+	// max_input_tokens) bounds the prompt's budget as it bounds every request
+	// of the turn, and its identity pins the atoms.
+	e.applyServing(ctx, intent.Verb, cc)
 
 	if e.kernel != nil {
 		if langFacts, err := e.kernel.Query("project_language"); err != nil {
@@ -2397,7 +2441,7 @@ func (e *Executor) persistTurn(ctx context.Context, input string, intent percept
 		Verified:   outcome == types.MangleAtom("/done"),
 	}, telemetry)
 
-	provider, model := e.servingIdentity(intent.Verb)
+	provider, model := e.servingIdentity(ctx, intent.Verb)
 	e.recordTurn(TurnRecord{
 		SessionID:        sessionID,
 		TurnNumber:       turnNumber,

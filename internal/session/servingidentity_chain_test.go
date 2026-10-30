@@ -142,14 +142,14 @@ func TestServingIdentityChain(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			exec := NewExecutor(nil, nil, tt.client, nil, nil, nil)
-			gotProvider, gotModel := exec.servingIdentity("/general")
+			gotProvider, gotModel := exec.servingIdentity(context.Background(), "/general")
 			if gotProvider != tt.wantProvider || gotModel != tt.wantModel {
 				t.Errorf("Executor.servingIdentity() = (%q, %q), want (%q, %q)",
 					gotProvider, gotModel, tt.wantProvider, tt.wantModel)
 			}
 
 			sp := NewSpawner(nil, nil, tt.client, nil, nil, nil, DefaultSpawnerConfig())
-			gotProvider, gotModel = sp.servingIdentity()
+			gotProvider, gotModel = sp.servingIdentity(context.Background(), SpawnRequest{Name: "coder"})
 			if gotProvider != tt.wantProvider || gotModel != tt.wantModel {
 				t.Errorf("Spawner.servingIdentity() = (%q, %q), want (%q, %q)",
 					gotProvider, gotModel, tt.wantProvider, tt.wantModel)

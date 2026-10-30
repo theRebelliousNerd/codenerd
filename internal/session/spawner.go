@@ -5,6 +5,7 @@ import (
 	"codenerd/internal/approval"
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -732,37 +733,32 @@ func (s *Spawner) countActive() int {
 	return count
 }
 
-// servingIdentity reports the provider and model the spawned subagent will run
-// on, for prompt-atom pinning.
-//
-// This reads the main client rather than routing per verb the way the executor
-// does: generateConfig compiles one config for the subagent as a whole, before
-// any particular verb is in hand, and the subagent resolves its own tier per
-// turn afterwards. The main client is the right approximation because it is the
+// servingClient is the client the spawned subagent's calls will reach: the
+// main client, resolved for the subagent's own shard profile (a profile that
+// names another provider or model routes there). generateConfig compiles one
+// config for the subagent before any verb is in hand; the main client is the
 // tier a subagent stays on unless a verb pulls it to the planner.
-func (s *Spawner) servingIdentity() (provider, model string) {
+func (s *Spawner) servingClient(ctx context.Context, req SpawnRequest) types.LLMClient {
 	s.mu.RLock()
 	client := s.llmClient
 	s.mu.RUnlock()
-
 	if client == nil {
-		return "", ""
+		return nil
 	}
-	var identifier types.ModelIdentifier
-	broker.Walk(client, func(layer types.LLMClient) bool {
-		if id, ok := layer.(types.ModelIdentifier); ok {
-			identifier = id
-			return false
+	if apply := s.currentShardProfileContext(); apply != nil {
+		_, named := types.ModelNameFromContext(ctx)
+		_, routed := types.ProviderFromContext(ctx)
+		if !named && !routed {
+			ctx = apply(ctx, strings.TrimPrefix(strings.TrimSpace(req.Name), "/"))
 		}
-		return true
-	})
-	if identifier == nil {
-		logging.SessionDebug(
-			"LLM client %T does not report a model identity; provider/model-pinned prompt atoms will be skipped for spawned subagents",
-			client)
-		return "", ""
 	}
-	return identifier.ModelIdentity()
+	return resolveServing(ctx, client)
+}
+
+// servingIdentity reports the provider and model the spawned subagent will run
+// on, for prompt-atom pinning.
+func (s *Spawner) servingIdentity(ctx context.Context, req SpawnRequest) (provider, model string) {
+	return clientIdentity(s.servingClient(ctx, req))
 }
 
 // generateConfig creates a JIT config for the subagent.
@@ -787,10 +783,8 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 	// A subagent served by a capped slot (a worker's max_input_tokens, which
 	// its client reports) is compiled for the window it will be sent, not the
 	// session's: the same min its executor applies to every request
-	// (slotCappedBudget). The client is the one servingIdentity names below.
-	s.mu.RLock()
-	served := s.llmClient
-	s.mu.RUnlock()
+	// (slotCappedBudget). served is also the identity the atoms are pinned to.
+	served := s.servingClient(ctx, req)
 	budget, _ = slotCappedBudget(budget, broker.InputWindow(served))
 	compilationCtx := &prompt.CompilationContext{
 		IntentVerb:      intentVerb,
@@ -801,7 +795,7 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 	// Name the serving LLM so provider/model-pinned atoms can match. Both are
 	// fail-closed regime dimensions, so omitting them blocks every pinned atom
 	// rather than admitting them all.
-	compilationCtx.Provider, compilationCtx.Model = s.servingIdentity()
+	compilationCtx.Provider, compilationCtx.Model = clientIdentity(served)
 
 	// If dream mode, pass it to compilation context to potentially select different persona/skills
 	if req.SessionContext != nil && req.SessionContext.DreamMode {
@@ -844,7 +838,7 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 			TokenBudget:     budget, // The configured budget; a smaller fallback budget cut mandatory atoms
 			AvailableTools:  tools,  // The retry prompt gates on the same envelope the subagent holds.
 		}
-		baselineCtx.Provider, baselineCtx.Model = s.servingIdentity()
+		baselineCtx.Provider, baselineCtx.Model = clientIdentity(served)
 		compileResult, err = s.jitCompiler.Compile(ctx, baselineCtx)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {

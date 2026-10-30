@@ -11,12 +11,12 @@ import (
 // Each shard type (coder, tester, reviewer, researcher) can have custom settings.
 type ShardProfile struct {
 	// Model Configuration
-	// Model is the model tag used by the worker/main LLM client for this shard
-	// (e.g. gemma4:12b on Ollama, or grok-4.5 on xAI). Prefer config.worker for
-	// provider selection; this field is the model name within that client.
-	// Model, when set, overrides the client's model for this shard's calls
-	// (types.WithModelName). Empty means the client's configured model; it
-	// used to default to "glm-4.7" regardless of provider.
+	// Model, when set, is the model this shard's calls run on (e.g. gemma4:12b
+	// on Ollama, or grok-4.5 on xAI), carried as types.WithModelName. With no
+	// Provider it runs on the serving slot's provider: a model the slot's
+	// client is not configured for is routed to a client built for it from
+	// that slot (core.ScheduledLLMCall.ClientFor), never sent as the slot's
+	// model. Empty means the client's configured model.
 	Model string `yaml:"model" json:"model"`
 
 	// Provider, when set, routes this shard's calls to that provider's client

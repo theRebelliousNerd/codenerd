@@ -3099,6 +3099,10 @@ func profileRouter(appCfg *config.UserConfig, serving *config.SecondaryLLMConfig
 		return nil
 	}
 	return func(provider, model string) (core.LLMClient, error) {
+		// A model-only shard profile runs on the serving slot's provider.
+		if provider == "" && serving != nil {
+			provider = strings.ToLower(strings.TrimSpace(serving.Provider))
+		}
 		client, err := perception.NewRoutedClientFromUserConfig(appCfg, serving, provider, model)
 		if err != nil {
 			return nil, err

@@ -33,43 +33,87 @@ type ScheduledLLMCall struct {
 	routed  map[string]LLMClient
 }
 
-// ProviderRouter builds the client that serves model on provider. It is called
-// once per provider and model; the result is kept.
+// ProviderRouter builds the client that serves model on provider; provider ""
+// is the serving slot's own provider. It is called once per provider and
+// model; the result is kept.
 type ProviderRouter func(provider, model string) (LLMClient, error)
 
-// clientFor is the client a call under ctx runs on: the wrapped one, unless ctx
-// names a provider, in which case it is that provider's. A route that cannot be
-// built fails the call. It never falls back to the wrapped client: a shard
-// configured for one vendor and silently run on another is the defect this
-// exists to end (2026-09-21: every shard profile named an OpenRouter model under
-// provider "meta", and the Meta client rewrote the model on every call).
-func (c *ScheduledLLMCall) clientFor(ctx context.Context) (LLMClient, error) {
-	provider, ok := types.ProviderFromContext(ctx)
-	if !ok {
-		return c.Client, nil
-	}
+// ClientFor is the client a call under ctx runs on (types.ClientResolver).
+//
+//   - ctx names a provider (a shard profile's): that provider's client for
+//     the context's model.
+//   - ctx names only a model, and it is not the one the wrapped client is
+//     configured for: the slot's own provider's client for that model. Most
+//     clients build their requests from their configured model, so without
+//     this route a model-only profile was accepted and then silently served
+//     by the slot's model.
+//   - otherwise: the wrapped client.
+//
+// A route that cannot be built fails the call. It never falls back to the
+// wrapped client: a shard configured for one model and silently run on
+// another is the defect this exists to end (2026-09-21: every shard profile
+// named an OpenRouter model under provider "meta", and the Meta client
+// rewrote the model on every call).
+func (c *ScheduledLLMCall) ClientFor(ctx context.Context) (LLMClient, bool, error) {
 	model, _ := types.ModelNameFromContext(ctx)
+	model = strings.TrimSpace(model)
+	provider, routed := types.ProviderFromContext(ctx)
+	if !routed {
+		if model == "" || c.Client == nil || model == c.servedModel() {
+			return c.Client, false, nil
+		}
+		provider = ""
+	}
 	if c.Router == nil {
-		return nil, fmt.Errorf("the call is routed to provider %q (model %q) and this client has no provider router", provider, model)
+		if provider == "" {
+			return nil, false, fmt.Errorf("the call names model %q, this slot serves %q, and this client has no router to build a client for it", model, c.servedModel())
+		}
+		return nil, false, fmt.Errorf("the call is routed to provider %q (model %q) and this client has no provider router", provider, model)
 	}
 	key := provider + "|" + model
 	c.routeMu.Lock()
 	defer c.routeMu.Unlock()
 	if client, ok := c.routed[key]; ok {
-		return client, nil
+		return client, true, nil
 	}
 	client, err := c.Router(provider, model)
 	if err != nil {
-		return nil, fmt.Errorf("route to provider %q (model %q): %w", provider, model, err)
+		return nil, false, fmt.Errorf("route to provider %q (model %q): %w", provider, model, err)
 	}
 	if client == nil {
-		return nil, fmt.Errorf("route to provider %q (model %q): no client was built", provider, model)
+		return nil, false, fmt.Errorf("route to provider %q (model %q): no client was built", provider, model)
 	}
 	if c.routed == nil {
 		c.routed = make(map[string]LLMClient)
 	}
 	c.routed[key] = client
-	return client, nil
+	return client, true, nil
+}
+
+var _ types.ClientResolver = (*ScheduledLLMCall)(nil)
+
+// servedModel is the model the wrapped client is configured for, read from the
+// first layer of its decorator chain that reports one ("" when none does, in
+// which case any named model is routed).
+func (c *ScheduledLLMCall) servedModel() string {
+	for layer := c.Client; layer != nil; {
+		if id, ok := layer.(types.ModelIdentifier); ok {
+			if _, model := id.ModelIdentity(); strings.TrimSpace(model) != "" {
+				return strings.TrimSpace(model)
+			}
+		}
+		if getter, ok := layer.(interface{ GetModel() string }); ok {
+			if model := strings.TrimSpace(getter.GetModel()); model != "" {
+				return model
+			}
+		}
+		inner, ok := layer.(interface{ Unwrap() LLMClient })
+		if !ok {
+			return ""
+		}
+		layer = inner.Unwrap()
+	}
+	return ""
 }
 
 // Compile-time assertion that ScheduledLLMCall implements LLMClient
@@ -93,7 +137,7 @@ func (c *ScheduledLLMCall) Complete(ctx context.Context, prompt string) (string,
 	if c.Client == nil {
 		return "", fmt.Errorf("underlying LLM client is nil")
 	}
-	target, routeErr := c.clientFor(ctx)
+	target, _, routeErr := c.ClientFor(ctx)
 	if routeErr != nil {
 		return "", routeErr
 	}
@@ -147,7 +191,7 @@ func (c *ScheduledLLMCall) CompleteWithSystem(ctx context.Context, systemPrompt,
 	if c.Client == nil {
 		return "", fmt.Errorf("underlying LLM client is nil")
 	}
-	target, routeErr := c.clientFor(ctx)
+	target, _, routeErr := c.ClientFor(ctx)
 	if routeErr != nil {
 		return "", routeErr
 	}
@@ -213,7 +257,7 @@ func (c *ScheduledLLMCall) CompleteWithSchema(ctx context.Context, systemPrompt,
 	if c.Client == nil {
 		return "", fmt.Errorf("underlying LLM client is nil")
 	}
-	target, routeErr := c.clientFor(ctx)
+	target, _, routeErr := c.ClientFor(ctx)
 	if routeErr != nil {
 		return "", routeErr
 	}
@@ -273,7 +317,7 @@ func (c *ScheduledLLMCall) CompleteWithTools(ctx context.Context, systemPrompt, 
 	if c.Client == nil {
 		return nil, fmt.Errorf("underlying LLM client is nil")
 	}
-	target, routeErr := c.clientFor(ctx)
+	target, _, routeErr := c.ClientFor(ctx)
 	if routeErr != nil {
 		return nil, routeErr
 	}
@@ -333,7 +377,7 @@ func (c *ScheduledLLMCall) CompleteWithToolResults(ctx context.Context, systemPr
 	if c.Client == nil {
 		return nil, fmt.Errorf("underlying LLM client is nil")
 	}
-	target, routeErr := c.clientFor(ctx)
+	target, _, routeErr := c.ClientFor(ctx)
 	if routeErr != nil {
 		return nil, routeErr
 	}
@@ -631,7 +675,7 @@ func (c *ScheduledLLMCall) stream(ctx context.Context, w *types.StreamWriter, sy
 		w.Fail(fmt.Errorf("underlying LLM client is nil"))
 		return
 	}
-	target, routeErr := c.clientFor(ctx)
+	target, _, routeErr := c.ClientFor(ctx)
 	if routeErr != nil {
 		w.Fail(routeErr)
 		return
@@ -679,7 +723,7 @@ func (c *ScheduledLLMCall) CompleteWithRetry(ctx context.Context, systemPrompt, 
 	if c.Client == nil {
 		return "", fmt.Errorf("underlying LLM client is nil")
 	}
-	target, routeErr := c.clientFor(ctx)
+	target, _, routeErr := c.ClientFor(ctx)
 	if routeErr != nil {
 		return "", routeErr
 	}
