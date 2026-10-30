@@ -718,7 +718,11 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 			m.viewport.GotoBottom()
 			m.textarea.Reset()
 			m.isLoading = true
-			return m, tea.Batch(m.spinner.Tick, m.startRecurseCampaign(parts[2:]))
+			args, err := recurseCommandArgs(input)
+			if err != nil {
+				return m.replyAndReset(err.Error())
+			}
+			return m, tea.Batch(m.spinner.Tick, m.startRecurseCampaign(args))
 		case "add":
 			// The running campaign's plan takes the requirement on the
 			// planning tier (Orchestrator.HandleNewRequirement).

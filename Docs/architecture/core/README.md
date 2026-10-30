@@ -38,3 +38,15 @@ Verified 2026-09-21 against commit `3463477` (`main`).
 - `INTERNALS.md` — fact lifecycle, rebuild/eval order, learned-rule validation, query semantics.
 - `WIRING-AND-NOT-BUILT.md` — what is reachable, what exists but nothing calls, and what the design assumes that the code does not do.
 - `11-OBSERVABILITY.md` — what observability the package exposes and where it goes.
+
+
+## Mission judgments
+
+The schema inventory in `internal/core/kernel_types.go` loads
+`schemas_mission.mg`; `policy/mission.mg` derives mission budget exhaustion,
+design admission, freshness, write admission, serial concurrency and historical
+gate-deficit evidence. Host-only predicates in `mangle_updates.go` protect both
+these observations and their conclusions from model updates and learned rules.
+Mission observations are ephemeral kernel state; durable receipts belong in the
+session directory. The authored integration and pending execution evidence are
+specified in `Docs/architecture/campaign/MISSION-IMPROVEMENT.md`.

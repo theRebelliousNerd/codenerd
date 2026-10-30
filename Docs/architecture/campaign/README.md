@@ -1,5 +1,9 @@
 # campaign — durable multi-phase execution
 
+Mission-linked recurse is specified in [MISSION-IMPROVEMENT.md](MISSION-IMPROVEMENT.md).
+The CLI and chat adapters, conductor, policy and production-path fixture are
+authored; execution validation remains pending.
+
 **Question answered here:** what is `internal/campaign` and how do I run it?
 How it works internally is in [INTERNALS.md](INTERNALS.md);
 what is wired, what is dormant, and what was never built is in

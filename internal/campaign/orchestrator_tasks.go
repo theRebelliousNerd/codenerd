@@ -251,6 +251,10 @@ func (o *Orchestrator) runPhaseTasks(ctx context.Context, phase *Phase) error {
 
 		// Calculate adaptive concurrency limit
 		currentLimit := o.determineConcurrencyLimit(active, phase)
+		if currentLimit <= 0 {
+			drainActive()
+			return fmt.Errorf("campaign has no positive concurrency admission")
+		}
 		logging.CampaignDebug("Concurrency: active=%d, limit=%d", len(active), currentLimit)
 
 		// Schedule eligible tasks up to the concurrency limit. waitingForSlot

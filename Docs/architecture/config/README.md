@@ -54,3 +54,23 @@ value another package can use. Load path: `LoadUserConfig`
 ---
 *Verified 2026-09-20 against `b63e848`. INTERNALS.md answers how it works;
 WIRING-AND-NOT-BUILT.md answers what is wired and what is not.*
+
+
+## Mission invocation configuration
+
+`internal/config/mission.go` owns the optional `mission` section. The same
+defaults and validation reach CLI and chat mission recurse. It has no effect on
+ordinary recurse or ordinary interactive turns. Example:
+
+```json
+{"mission":{"max_cycles":8,"max_seconds":3600,"max_spend_microusd":5000000,"no_progress_cycles":2,"concurrency":1,"context_bytes":65536}}
+```
+
+Omitted or zero numeric fields take defaults; negative values fail. Only serial
+concurrency is supported. `protected_paths` replaces the default relative
+safety/controller path list when explicitly supplied; existing verification
+inputs are pinned independently. `Params` publishes every numeric budget to
+Mangle. Spend limits govern observed price estimates at phase boundaries;
+unpriced or missing reports stop admission. See
+`Docs/architecture/campaign/MISSION-IMPROVEMENT.md` for the policy and evidence
+contract. Implementation is authored; runtime validation is pending.

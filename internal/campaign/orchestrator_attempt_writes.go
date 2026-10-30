@@ -136,7 +136,10 @@ func (rec attemptRecord) release() {
 
 // writeGuard is the guard spawnTask puts on each turn it runs for task.
 func (o *Orchestrator) writeGuard(task *Task) session.WriteGuard {
-	return func(_ context.Context, paths []string) error {
+	return func(ctx context.Context, paths []string) error {
+		if err := o.checkMissionWrite(ctx, paths); err != nil {
+			return err
+		}
 		if o.writeSetLocks == nil {
 			return nil
 		}

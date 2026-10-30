@@ -19,13 +19,14 @@ import (
 
 // Journal steps.
 const (
-	stepPassStart = "pass_start"
-	stepVisit     = "visit"
-	stepAttempt   = "attempt"
-	stepRatchet   = "ratchet"
-	stepVisitDone = "visit_done"
-	stepPassEnd   = "pass_end"
-	stepStopped   = "stopped"
+	stepPassStart       = "pass_start"
+	stepVisit           = "visit"
+	stepAttempt         = "attempt"
+	stepRatchet         = "ratchet"
+	stepVisitDone       = "visit_done"
+	stepPassEnd         = "pass_end"
+	stepStopped         = "stopped"
+	stepMissionDeferred = "mission_deferred"
 	// stepImproveSkipped: the pass's angle had nothing to measure at a node.
 	stepImproveSkipped = "improve_skipped"
 )

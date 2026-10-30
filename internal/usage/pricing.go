@@ -8,6 +8,10 @@ import (
 	"sync"
 )
 
+// MicroUSDPerUSD is the fixed currency conversion, independent of prices and
+// configurable spend limits.
+const MicroUSDPerUSD float64 = 1_000_000
+
 // Price is the USD cost per one million tokens for a model family.
 //
 // Prices are list prices and change often. They exist to give an operator an

@@ -31,9 +31,11 @@ import (
 func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input string) (string, error) {
 	o.mu.RLock()
 	te := o.taskExecutor
+	var mission *MissionReceipt
 	phase := ""
 	if o.campaign != nil {
 		phase = o.campaign.PromptPhase
+		mission = o.campaign.Mission
 	}
 	o.mu.RUnlock()
 
@@ -43,6 +45,14 @@ func (o *Orchestrator) spawnTask(ctx context.Context, task *Task, intent, input 
 	observed, ok := te.(session.ObservedTaskExecutor)
 	if !ok {
 		return "", fmt.Errorf("task executor %T returns no observed result; a campaign reads each task's verdict", te)
+	}
+	if mission != nil {
+		// Carry the admitted design through every refinement and remediation.
+		body, err := json.Marshal(mission)
+		if err != nil {
+			return "", err
+		}
+		input += "\n\nMission receipt:\n" + string(body)
 	}
 	logging.CampaignDebug("spawnTask: using TaskExecutor for intent=%s", intent)
 	req := session.TaskRequest{

@@ -369,6 +369,9 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 	if c.Routing != nil {
 		out = append(out, c.Routing.Check("routing")...)
 	}
+	if c.Mission != nil {
+		out = append(out, c.Mission.Check("mission")...)
+	}
 
 	// --- ambient ---
 	if c.Ambient != nil {

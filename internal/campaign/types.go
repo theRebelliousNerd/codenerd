@@ -177,8 +177,9 @@ type Campaign struct {
 	// the zero-based wave index. Empty/zero for non-recurse campaigns. Each
 	// wave is a normal campaign (resumable, inspectable on its own); the ID
 	// is what ties the sweep together.
-	RecurseID   string `json:"recurse_id,omitzero"`
-	RecurseWave int    `json:"recurse_wave,omitzero"`
+	RecurseID   string          `json:"recurse_id,omitzero"`
+	RecurseWave int             `json:"recurse_wave,omitzero"`
+	Mission     *MissionReceipt `json:"mission,omitempty"`
 
 	// PromptPhase is the JIT campaign_phase selector for this campaign's
 	// task turns (/recurse_fix, /recurse_improve). Empty for campaigns

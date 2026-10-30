@@ -217,3 +217,15 @@ All cards, positive and negative acceptance, rollback, and dependencies live in
 | [12-FAILURE-MODES.md](12-FAILURE-MODES.md) | Failure, degradation, and recovery |
 | [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) | Choices that remain unpinned |
 | [_progress.md](_progress.md) | Signed score and verification receipts |
+
+
+## Mission ownership
+
+`internal/shards/registration.go:DefaultShardPredicateManifests` homes
+`mission_tick`, `mission_context_size`, `mission_design`, `mission_observation`,
+`mission_write_candidate` and `mission_source` on the campaign shard. Their
+rules share `config_param` and remain together for complete negative and
+aggregate judgments. Mission planning reuses the registered deliberation
+proposer and requirements interrogator. The production-path fixture is authored
+and unrun; the scope and acceptance contract are in
+`Docs/architecture/campaign/MISSION-IMPROVEMENT.md`.

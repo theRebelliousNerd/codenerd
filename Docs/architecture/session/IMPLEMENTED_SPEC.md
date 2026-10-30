@@ -876,3 +876,15 @@ in this authoring pass. Both disposable Mangle experiments are also unrun, so
 lattice/proof behavior and strict-bounds compatibility remain validation gates.
 The atom importance, prompt corpus and predicate corpus generators in `nerd.md`
 must run before generated artifacts can be considered fresh.
+
+
+## Mission-owned campaign turns
+
+Mission mode enters the existing session executor through campaign `spawnTask`,
+carrying the admitted design on every dispatch. Its campaign write guard
+measures scope and oracle protection and requires live Mangle
+`mission_write_allowed` in addition to constitutional permission and write
+leases. Session verification still owns the turn's actual verdict; a model's
+mission claim confers no permission or acceptance. Replanned tasks inherit the
+campaign receipt. The production fixture is authored and unrun; see
+`Docs/architecture/campaign/MISSION-IMPROVEMENT.md`.

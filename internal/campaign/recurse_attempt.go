@@ -74,6 +74,7 @@ func RecurseAttemptCampaign(workspace string, a RecurseAttempt) *Campaign {
 	}
 
 	c := &Campaign{
+		Mission:         a.Mission,
 		ID:              campaignID,
 		Type:            CampaignTypeRecurse,
 		Title:           title,

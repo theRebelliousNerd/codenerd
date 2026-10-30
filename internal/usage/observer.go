@@ -37,13 +37,45 @@ type Observer interface {
 type observerKey struct{}
 
 // WithObserver returns a context that also delivers usage reports to obs.
-// A nil observer returns ctx unchanged so callers can pass through optional
-// wiring without branching.
+// Nested captures also deliver to the enclosing observer. In particular a
+// broker's per-call capture must not hide usage from its mission's envelope.
+// A nil observer returns ctx unchanged.
 func WithObserver(ctx context.Context, obs Observer) context.Context {
 	if ctx == nil || obs == nil {
 		return ctx
 	}
+	if parent := ObserverFromContext(ctx); parent != nil {
+		obs = observerPair{parent: parent, current: obs}
+	}
 	return context.WithValue(ctx, observerKey{}, obs)
+}
+
+type observerPair struct{ parent, current Observer }
+
+func (p observerPair) Observed(r Report) {
+	p.current.Observed(r)
+	p.parent.Observed(r)
+}
+
+// IncompleteObserver receives an admitted call whose provider usage could not
+// be fully accounted for. This is uncertainty, not another billed report.
+type IncompleteObserver interface{ UsageUnknown() }
+
+func (p observerPair) UsageUnknown() {
+	if current, ok := p.current.(IncompleteObserver); ok {
+		current.UsageUnknown()
+	}
+	if parent, ok := p.parent.(IncompleteObserver); ok {
+		parent.UsageUnknown()
+	}
+}
+
+// NoteUnknownUsage preserves uncertainty even when other calls in the same
+// enclosing phase reported valid usage.
+func NoteUnknownUsage(ctx context.Context) {
+	if obs, ok := ObserverFromContext(ctx).(IncompleteObserver); ok {
+		obs.UsageUnknown()
+	}
 }
 
 // ObserverFromContext retrieves the observer installed by WithObserver, or nil.

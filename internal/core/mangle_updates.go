@@ -293,6 +293,10 @@ func (k *RealKernel) ExecSinksReachedBy(predicate string) ([]string, error) {
 // named "test_state" outright on the two busiest surfaces there are — the
 // session executor and the chat turn.
 var hostWitnessPredicates = map[string]struct{}{
+	"mission_tick": {}, "mission_context_size": {}, "mission_design": {}, "mission_observation": {},
+	"mission_stop_candidate": {}, "mission_stop_rank": {}, "mission_stop": {}, "mission_stopped": {},
+	"mission_continue": {}, "mission_execute": {}, "mission_evidence": {}, "mission_write_candidate": {}, "mission_write_allowed": {}, "mission_parallelism": {},
+	"mission_source": {}, "mission_fresh": {},
 	"turn_acceptance": {}, "turn_evidence": {}, "turn_executed": {}, "turn_done": {}, "turn_cost": {},
 	"turn_verified": {}, "turn_unverified": {}, "turn_wrote": {}, "turn_build_failed": {},
 	"turn_missing_evidence": {}, "turn_created_source": {}, "has_turn_acceptance": {},

@@ -274,7 +274,7 @@ func Begin(ctx context.Context, root string, c Contract) (*Transaction, error) {
 	if err != nil {
 		return nil, err
 	}
-	tx.protected, err = verificationInputs(ctx, root)
+	tx.protected, err = VerificationInputs(ctx, root)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +328,7 @@ func (tx *Transaction) Verify(ctx context.Context) Report {
 	r.Witnesses = nil
 	r.Unknown = nil
 	r.Status = "unverified"
-	inputs, inputErr := verificationInputs(ctx, tx.root)
+	inputs, inputErr := VerificationInputs(ctx, tx.root)
 	if inputErr != nil || len(inputs) != len(tx.protected) {
 		r.Unknown = append(r.Unknown, "verification inputs added, removed, or unreadable")
 	}
@@ -376,7 +376,10 @@ func (tx *Transaction) Verify(ctx context.Context) Report {
 // This first contract supports source bug fixes with caller-owned tests and
 // build configuration. Changing tests, fixtures or module selection requires
 // a newly reviewed contract, rather than silently weakening its witnesses.
-func verificationInputs(ctx context.Context, root string) (map[string]string, error) {
+// VerificationInputs measures the existing Go tests, module files and testdata
+// used by the source-acceptance contract. Keys are absolute workspace paths;
+// values are content digests. Mission admission uses the same oracle boundary.
+func VerificationInputs(ctx context.Context, root string) (map[string]string, error) {
 	mem, err := workspace.For(root)
 	if err != nil {
 		return nil, err
@@ -407,7 +410,7 @@ func verificationInputs(ctx context.Context, root string) (map[string]string, er
 			return nil
 		}
 		name := d.Name()
-		if !strings.HasSuffix(name, "_test.go") && name != "go.mod" && name != "go.sum" && name != "go.work" && name != "go.work.sum" && !strings.Contains("/"+filepath.ToSlash(rel), "/testdata/") {
+		if !strings.HasSuffix(name, "_test.go") && name != "nerd.md" && name != "go.mod" && name != "go.sum" && name != "go.work" && name != "go.work.sum" && !strings.Contains("/"+filepath.ToSlash(rel), "/testdata/") {
 			return nil
 		}
 		data, err := os.ReadFile(path)

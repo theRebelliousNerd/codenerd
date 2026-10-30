@@ -214,6 +214,30 @@ func (o *Orchestrator) failCampaign(reason string) {
 
 // determineConcurrencyLimit calculates the dynamic parallelism limit based on active workload.
 func (o *Orchestrator) determineConcurrencyLimit(active map[string]bool, phase *Phase) int {
+	o.mu.RLock()
+	missionID := ""
+	if o.campaign != nil && o.campaign.Mission != nil {
+		missionID = o.campaign.Mission.MissionID
+	}
+	o.mu.RUnlock()
+	if missionID != "" {
+		rows, err := o.kernel.Query("mission_parallelism")
+		if err != nil {
+			logging.CampaignWarn("mission parallelism: %v", err)
+			return 0
+		}
+		var limits []int
+		for _, row := range rows {
+			if len(row.Args) == 2 && types.ExtractString(row.Args[0]) == missionID {
+				limits = append(limits, argInt(row.Args[1]))
+			}
+		}
+		if len(limits) == 1 && limits[0] > 0 {
+			return limits[0]
+		}
+		logging.CampaignWarn("mission %s has no unique parallelism admission", missionID)
+		return 0
+	}
 	// Base limit from config
 	limit := o.policy.MaxParallelTasks
 

@@ -13,6 +13,7 @@ import (
 
 func TestCampaignRecurseFlags_CoverEveryRecurseConfigField(t *testing.T) {
 	covered := map[string]string{
+		"Mission":       "mission",
 		"MaxWaves":      "waves",
 		"Subsystems":    "subsystem",
 		"ContextBudget": "context-budget",

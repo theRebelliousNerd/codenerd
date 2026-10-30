@@ -14,6 +14,18 @@ type recordingObserver struct {
 	reports []Report
 }
 
+func TestNestedUsageCapturesPreserveEnclosingBudget(t *testing.T) {
+	mission, call := &recordingObserver{}, &recordingObserver{}
+	outer := WithObserver(context.Background(), mission)
+	inner := WithObserver(outer, call)
+	r := Report{Model: "nested-script", Usage: types.UsageMetadata{InputTokens: 7, Known: types.UsageTokens}}
+	RecordFromContext(inner, r)
+	RecordFromContext(outer, r)
+	if len(mission.reports) != 2 || len(call.reports) != 1 {
+		t.Fatalf("outer=%d inner=%d; nested broker capture must preserve outer accounting exactly once", len(mission.reports), len(call.reports))
+	}
+}
+
 func (o *recordingObserver) Observed(r Report) {
 	o.mu.Lock()
 	defer o.mu.Unlock()

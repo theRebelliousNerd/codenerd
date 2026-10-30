@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"codenerd/internal/campaign"
+	"codenerd/internal/config"
 	"codenerd/internal/gates"
 	"codenerd/internal/northstar"
 	"codenerd/internal/observation"
@@ -38,6 +39,7 @@ var (
 	recurseContextSize int
 	recurseDryRun      bool
 	recursePlan        bool
+	recurseMission     string
 	// recurseGates and recurseGateTests turn on rung R7's measurement: the
 	// error-free gates measured around every cycle, and a cycle that leaves
 	// any of them worse is not kept (internal/gates, policy/gates.mg).
@@ -78,6 +80,7 @@ Examples:
 
 func init() {
 	f := campaignRecurseCmd.Flags()
+	f.StringVar(&recurseMission, "mission", "", "Bounded mission, shaped by proposer/challenger deliberation; limits from config.mission")
 	f.IntVar(&recurseWaves, "waves", 0, "Passes over the graph (0 = until stopped)")
 	f.StringSliceVar(&recurseSubsystems, "subsystem", nil, "Focus nodes (dependencies pulled in); repeatable")
 	f.IntVar(&recurseContextSize, "context-budget", 0, "Token budget for each attempt's campaign context (default 200000)")
@@ -150,6 +153,10 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if cmd.Flags().Changed("mission") && strings.TrimSpace(recurseMission) == "" {
+		return fmt.Errorf("--mission needs an explicit purpose")
+	}
+	cfg.Mission = recurseMission
 
 	cwd := recurseWorkspace()
 	if recursePlan || recurseDryRun {
@@ -197,6 +204,21 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 	startCampaignEventPrinter(eventChan)
 
 	attempts := 0
+	progressOut := cmd.OutOrStdout()
+	var mission *campaign.RecurseMission
+	if strings.TrimSpace(recurseMission) != "" {
+		appCfg, err := config.LoadUserConfig(filepath.Join(cwd, ".nerd", "config.json"))
+		if err != nil {
+			return err
+		}
+		mission, err = newRecurseMission(cortex, cwd, recurseMission, appCfg)
+		if err != nil {
+			return err
+		}
+		orchCfg.Campaign.MaxParallelTasks = mission.Limits.WithDefaults().Concurrency
+		progressOut = &missionProgressOutput{writer: progressOut}
+		ctx = missionProgressContext(ctx, progressOut)
+	}
 	// The attempt's own writes are the orchestrator's kept writes: the loop
 	// undoes exactly those when it stops or reverts the attempt.
 	execute := func(ctx context.Context, a campaign.RecurseAttempt) ([]observation.FileWrite, error) {
@@ -226,12 +248,13 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("\nRecurse: improving %s node by node (%s).\n", cwd, recurseBoundText(cfg))
 	result, err := campaign.RunRecurseCycles(ctx, campaign.RecurseCycleConfig{
+		Mission:              mission,
 		Workspace:            cwd,
 		Kernel:               kernel,
 		Execute:              execute,
 		Passes:               cfg.MaxWaves,
 		Subsystems:           cfg.Subsystems,
-		Progress:             cmd.OutOrStdout(),
+		Progress:             progressOut,
 		MeasureGates:         measureGates,
 		FullGateMeasureEvery: recurseGateFull,
 	})
@@ -247,6 +270,9 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 }
 
 func recurseBoundText(cfg campaign.RecurseConfig) string {
+	if cfg.Mission != "" {
+		return "bounded mission: limits from config.mission"
+	}
 	if cfg.MaxWaves == 0 {
 		return "until stopped: `nerd campaign recurse stop`, or Ctrl+C"
 	}
@@ -280,6 +306,9 @@ func writeRecursePlan(w io.Writer, cwd string, cfg campaign.RecurseConfig) error
 		return err
 	}
 	fmt.Fprintf(w, "Recurse plan for %s (no model; nothing runs)\n", root)
+	if cfg.Mission != "" {
+		fmt.Fprintf(w, "Mission: %s\nEach selected attempt is deliberated within config.mission limits.\n", cfg.Mission)
+	}
 	fmt.Fprintf(w, "\nSweep order, bottom to top (%d nodes):\n", len(nodes))
 	for i, n := range nodes {
 		deps := "-"

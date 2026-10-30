@@ -29,3 +29,18 @@ This record separates implementation evidence from the target design. **PARTIAL:
 | Readout | `internal/broker/filesink.go#ReadReceiptLog` (line 70) reads rotating generations; `internal/broker/epoch.go#Segment` (line 208) excludes refusals. |
 
 Reserve admission is component-qualified by the named root gates; factory and live integration remain open. Source-scanner behavior is verified at its package boundary. Intended broker capabilities remain in the vision, gap analysis, and design documents, independent of implementation status. No component receipt establishes whole-feature or whole-system completion.
+
+## Enclosing mission accounting (authored, execution pending)
+
+`core.settle` in `internal/broker/broker.go` notifies an optional enclosing
+`usage.IncompleteObserver` when a call has no provider reports, incomplete usage
+or conflicting counts. This preserves unknown spend when neighboring calls in
+the same mission phase reported valid usage. Response-only fallback remains
+valid for the broker receipt; it cannot silently fill a separate provider-price
+ledger. The notification creates no extra billed report and does not alter
+reserve/window admission or ledger settlement.
+
+`internal/broker/enclosing_usage_test.go` defines the production-wrapper
+regression fixture, and the mission cycle fixture uses the real broker path.
+Both are unrun here. Full mission admission and estimate limitations remain
+specified in `Docs/architecture/campaign/MISSION-IMPROVEMENT.md`.

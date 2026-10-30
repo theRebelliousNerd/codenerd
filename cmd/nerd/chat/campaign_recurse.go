@@ -4,14 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 
 	"codenerd/internal/campaign"
+	"codenerd/internal/config"
 	"codenerd/internal/observation"
+	"codenerd/internal/sessionlog"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/kballard/go-shellquote"
 )
 
 // Chat surface for /recurse: the improve-everything loop
@@ -46,6 +50,20 @@ type (
 	}
 )
 
+func recurseCommandArgs(input string) ([]string, error) {
+	parts, err := shellquote.Split(input)
+	if err != nil {
+		return nil, fmt.Errorf("recurse arguments: %w", err)
+	}
+	// Match complete command prefixes using their declared token sequences.
+	for _, prefix := range [][]string{{"/recurse"}, {"/campaign", "recurse"}} {
+		if len(parts) >= len(prefix) && slices.Equal(parts[:len(prefix)], prefix) {
+			return parts[len(prefix):], nil
+		}
+	}
+	return nil, fmt.Errorf("expected /recurse or /campaign recurse")
+}
+
 // parseRecurseArgs parses `/recurse` / `/campaign recurse` arguments. Bare
 // tokens name subsystems to focus; unknown flags fail closed. known is the set
 // of node IDs in the workspace's derived DAG (recurseNodeIDs); a subsystem
@@ -68,6 +86,18 @@ func parseRecurseArgs(args []string, known map[string]bool) (campaign.RecurseCon
 			return "", fmt.Errorf("invalid --waves")
 		}
 		switch {
+		case a == "--mission" || strings.HasPrefix(a, "--mission="):
+			if text, ok := strings.CutPrefix(a, "--mission="); ok {
+				cfg.Mission = text
+			} else if i+1 < len(args) {
+				i++
+				cfg.Mission = args[i]
+			} else {
+				return cfg, fmt.Errorf("--mission needs a quoted purpose")
+			}
+			if strings.TrimSpace(cfg.Mission) == "" {
+				return cfg, fmt.Errorf("--mission needs a purpose")
+			}
 		case a == "--waves" || strings.HasPrefix(a, "--waves="):
 			v, err := value()
 			if err != nil {
@@ -93,7 +123,7 @@ func parseRecurseArgs(args []string, known map[string]bool) (campaign.RecurseCon
 			}
 			cfg.Subsystems = append(cfg.Subsystems, v)
 		case strings.HasPrefix(a, "--"):
-			return cfg, fmt.Errorf("unknown flag %q (want --waves, --subsystem)", a)
+			return cfg, fmt.Errorf("unknown flag %q (want --waves, --subsystem, --mission)", a)
 		default:
 			if !known[a] {
 				return cfg, fmt.Errorf("unknown subsystem %q", a)
@@ -158,7 +188,22 @@ func (m Model) runRecurseLoop(ctx context.Context, st *recurseState, cfg campaig
 	return func() tea.Msg {
 		defer st.cancel()
 		out := &recurseLineWriter{lines: st.lines}
+		var mission *campaign.RecurseMission
+		if cfg.Mission != "" {
+			if m.Config == nil {
+				m.Config = config.DefaultUserConfig()
+			}
+			mission = &campaign.RecurseMission{Text: cfg.Mission, Limits: m.Config.GetMissionConfig(), Deliberator: m.deliberator()}
+			// Detached config: serial mission work must not alter the chat's defaults.
+			copyCfg := *m.Config
+			campaignCfg := m.Config.GetCampaignConfig()
+			campaignCfg.MaxParallelTasks = mission.Limits.WithDefaults().Concurrency
+			copyCfg.Campaign = &campaignCfg
+			m.Config = &copyCfg
+			ctx = sessionlog.WithLiveProgress(ctx, m.sendDelegatedProgress)
+		}
 		res, err := campaign.RunRecurseCycles(ctx, campaign.RecurseCycleConfig{
+			Mission:    mission,
 			Workspace:  m.workspace,
 			Kernel:     m.kernel,
 			Passes:     cfg.MaxWaves,

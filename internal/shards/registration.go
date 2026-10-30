@@ -422,6 +422,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 			// campaign_fact_sync retracts, and runtime facts asserted by the
 			// campaign package (orchestrator, decomposer, checkpoint, pager).
 			OwnedPredicates: []string{
+				"mission_tick", "mission_context_size", "mission_design", "mission_observation", "mission_write_candidate", "mission_source",
 				"campaign",
 				// Cleanup completion is joined (and negated) beside campaign
 				// in campaign_rules.mg; a catch-all owner splits both rules.

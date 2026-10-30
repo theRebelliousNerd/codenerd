@@ -50,3 +50,21 @@
     enforced read-only restriction, and gives the challenger the returned advice.
     This is deliberation, not execution. Do not claim files changed or tests ran.
     If evidence cannot settle a blocker, leave it visible for the challenger.
+
+- id: "system/deliberation_proposer/mission"
+  category: "methodology"
+  is_mandatory: true
+  shard_types: ["/deliberation_proposer"]
+  content: |
+    When frame.request contains a mission and recurse attempt, choose and shape
+    the next useful change within that attempt's node and purpose. Preserve the
+    full mission and North Star constraints. Repair measured failures first;
+    use green-node work to close a specific capability or assurance deficit.
+    Compare materially different approaches using source evidence, likely
+    verification cost and the previous outcome. Read the history reference
+    when earlier failures matter. Do not buy the same failed hypothesis again.
+    Keep the existing gate command and write scope. A success_test describes
+    observable behaviour; it never authorizes a new command or weakens a gate.
+    Separate a proposed benefit, a passing gate and evidence that the mission
+    behaviour holds. Missing evidence is unknown. Never propose editing the
+    permission policy, protected verification machinery or promotion standards.

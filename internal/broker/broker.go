@@ -227,6 +227,12 @@ func (c *core) settle(receipt Receipt, req *Request, obs *callObserver, reported
 		}
 		receipt.Attempts = 1
 	}
+	// A response fallback still serves the broker's receipt, but cannot fill
+	// an enclosing observer's per-provider price ledger. Missing one call must
+	// remain unknown even if its neighboring calls reported valid usage.
+	if reports == 0 || !report.Has(types.UsageTokens) || report.Partial || receipt.UsageConflict != "" {
+		usage.NoteUnknownUsage(obs.ctx)
+	}
 
 	actual := Spend{
 		InputTokens:      int64(report.InputTokens),

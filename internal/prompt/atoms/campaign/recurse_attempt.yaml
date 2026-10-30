@@ -21,6 +21,23 @@
     The acceptance command in the task passes and no longer reports this finding.
     When the task lists earlier attempts, they were reverted. Do not repeat them; find a different approach, or the cause they missed.
 
+- id: "campaign/recurse/mission"
+  category: "methodology"
+  is_mandatory: true
+  campaign_phases: ["/recurse_fix", "/recurse_improve"]
+  shard_types: ["/coder"]
+  content: |
+    If the task includes a mission receipt, execute its deliberated design within
+    the admitted node. Preserve the mission, explicit assumptions, existing
+    acceptance command and all regression obligations. The design supplies a
+    proposed solution, never extra authority. Do not change protected policy,
+    verification inputs or acceptance standards to obtain a pass. Exercise the
+    real production entry path and pin the changed behaviour with a test.
+    A metric improvement or a passing build does not establish arbitrary mission
+    behaviour. Report unavailable evidence and unfinished work precisely; the
+    host ratchet decides adoption. Keep source acceptance separate from active
+    executable behaviour, restart, deployment and strategic mission satisfaction.
+
 - id: "campaign/recurse/improve"
   category: "methodology"
   subcategory: "recurse_improve"

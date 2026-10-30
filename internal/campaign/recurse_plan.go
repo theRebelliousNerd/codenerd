@@ -13,6 +13,7 @@ import (
 // flags or the /recurse arguments. Every field is settable from flags; the
 // CLI coverage test enforces that.
 type RecurseConfig struct {
+	Mission string `json:"mission,omitempty"`
 	// MaxWaves bounds the run in passes over the DAG. Zero means unbounded,
 	// which the CLIs only allow with yolo mode.
 	MaxWaves int `json:"max_waves"`

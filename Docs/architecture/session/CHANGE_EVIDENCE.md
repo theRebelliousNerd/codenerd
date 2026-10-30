@@ -47,3 +47,15 @@ runs a controlled local comparison. Each mode uses the same model, tool catalog,
 call/output budgets and independent evaluator. Use a fresh fixture per run and
 retain failed attempts when reporting cost. One fixture is a smoke experiment,
 not a benchmark score or an estimate of general completion rates.
+
+
+## Shared input measurement for mission admission
+
+`internal/evidence/change.go:VerificationInputs` is the common measurement for
+existing Go tests, module files, testdata and `nerd.md` gate definitions.
+Source-acceptance transactions compare the digests; mission admission also uses
+them to protect the oracle before writes. Mission receipts reference a complete
+private sidecar instead of embedding an unbounded input map in a model request.
+This does not widen the supported behavioral contract to other languages or
+prove arbitrary mission requirements. Execution evidence for the new bridge is
+pending the production fixture in `cmd/nerd/cmd_campaign_mission_test.go`.

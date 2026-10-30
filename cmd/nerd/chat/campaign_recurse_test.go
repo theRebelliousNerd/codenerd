@@ -10,6 +10,19 @@ import (
 
 var recurseTestKnown = map[string]bool{"session": true, "cli": true, "wiring": true, "review": true, "bench": true}
 
+func TestRecurseMissionCommandPreservesQuotedPurpose(t *testing.T) {
+	for _, command := range []string{`/recurse --waves 1 --mission "Preserve user edits"`, `/campaign recurse --mission 'Preserve user edits' --waves 1`} {
+		args, err := recurseCommandArgs(command)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := parseRecurseArgs(args, recurseTestKnown)
+		if err != nil || cfg.Mission != "Preserve user edits" || cfg.MaxWaves != 1 {
+			t.Fatalf("%s: %+v %v", command, cfg, err)
+		}
+	}
+}
+
 func TestParseRecurseArgs(t *testing.T) {
 	cfg, err := parseRecurseArgs(nil, recurseTestKnown)
 	if err != nil {

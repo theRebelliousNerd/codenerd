@@ -239,6 +239,7 @@ type UserConfig struct {
 	// Routing is the thresholds the kernel's routing arbitration decides an
 	// interactive turn's lane with (routing.go).
 	Routing *RoutingConfig `json:"routing,omitempty"`
+	Mission *MissionConfig `json:"mission,omitempty"`
 
 	// Explain bounds what a "why was this derived?" answer extracts from the
 	// derivation recorder (explain.go).
@@ -1701,6 +1702,7 @@ func DefaultUserConfig() *UserConfig {
 	sessionCfg := DefaultSessionConfig()
 	classificationCfg := DefaultClassificationConfig()
 	routingCfg := DefaultRoutingConfig()
+	missionCfg := DefaultMissionConfig()
 	explainCfg := DefaultExplainConfig()
 	retrievalCfg := DefaultRetrievalConfig()
 	promptEvolutionCfg := DefaultPromptEvolutionConfig()
@@ -1737,6 +1739,7 @@ func DefaultUserConfig() *UserConfig {
 		Session:                      &sessionCfg,
 		Classification:               &classificationCfg,
 		Routing:                      &routingCfg,
+		Mission:                      &missionCfg,
 		Explain:                      &explainCfg,
 		Retrieval:                    &retrievalCfg,
 		PromptEvolution:              &promptEvolutionCfg,

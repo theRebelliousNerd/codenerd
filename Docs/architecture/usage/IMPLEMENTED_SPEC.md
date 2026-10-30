@@ -438,3 +438,19 @@ five rates, `LookupPriceVersion`); an unpriced model has none. `broker.Drain(ctx
 blocks until every admitted call has settled its receipt (`broker.Pending()`);
 `FileSink.Completeness()` reports failed writes and rotated generations the
 log overwrote, so a cost export can refuse to call an incomplete log cheap.
+
+
+## Nested budget observation
+
+`internal/usage/observer.go:WithObserver` preserves enclosing observers when a
+broker installs its per-call capture. A report reaches each enclosing capture
+once and still reaches the tracker. This is required for mission spend
+accounting across deliberation and workers.
+`TestNestedUsageCapturesPreserveEnclosingBudget` defines the regression fixture;
+execution is pending. Unknown and partial usage remain distinct from free usage.
+Mission policy uses integer micro-USD estimates keyed by price version, with
+limits specified in `Docs/architecture/campaign/MISSION-IMPROVEMENT.md`.
+
+An optional `IncompleteObserver` also receives uncertainty from broker
+settlement without adding a synthetic billing report. This keeps one missing
+call unknown even when other calls in the enclosing phase have complete usage.

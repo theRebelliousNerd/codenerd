@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"codenerd/internal/core"
+	"codenerd/internal/evidence"
 	"codenerd/internal/gates"
 	"codenerd/internal/observation"
 	"codenerd/internal/projectdoc"
@@ -41,9 +42,12 @@ import (
 
 // RecurseAttempt is one attempt handed to the model.
 type RecurseAttempt struct {
-	Pass  int
-	Cycle int
-	Node  SubsystemNode
+	Mission         *MissionReceipt
+	WitnessSnapshot string
+	BaseRevision    string
+	Pass            int
+	Cycle           int
+	Node            SubsystemNode
 	// Finding is what to fix. Its gate, re-run, is the acceptance witness.
 	Finding gates.Finding
 	// Evidence is the output of the gate run that reported the finding.
@@ -97,6 +101,7 @@ type RecurseExecutor func(ctx context.Context, a RecurseAttempt) ([]observation.
 
 // RecurseCycleConfig configures a run.
 type RecurseCycleConfig struct {
+	Mission   *RecurseMission
 	Workspace string
 	// Kernel carries policy/recurse.mg.
 	Kernel core.Kernel
@@ -130,12 +135,17 @@ type RecurseCycleConfig struct {
 
 // RecurseCycleResult is what a run did.
 type RecurseCycleResult struct {
-	Passes     int
-	Cycles     int
-	Kept       int
-	Reverted   int
-	Refused    int
-	Unverified int
+	MissionID        string
+	MissionStatus    string
+	MissionStatePath string
+	MissionQuestion  string
+	MissionOptions   []string
+	Passes           int
+	Cycles           int
+	Kept             int
+	Reverted         int
+	Refused          int
+	Unverified       int
 	// Improved counts kept improvement attempts (included in Kept).
 	Improved int
 	// Stalled and Refusals are the findings the loop stopped attempting.
@@ -158,6 +168,15 @@ func (r *RecurseCycleResult) Summary() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Recurse: %d passes, %d attempts: %d kept (%d improvements), %d reverted, %d refused, %d unverified.",
 		r.Passes, r.Cycles, r.Kept, r.Improved, r.Reverted, r.Refused, r.Unverified)
+	if r.MissionID != "" {
+		fmt.Fprintf(&b, "\nMission %s: %s.", r.MissionID, r.MissionStatus)
+	}
+	if r.MissionStatePath != "" {
+		fmt.Fprintf(&b, "\n  state: %s", r.MissionStatePath)
+	}
+	if r.MissionQuestion != "" {
+		fmt.Fprintf(&b, "\n%s\n%s", r.MissionQuestion, strings.Join(r.MissionOptions, "\n"))
+	}
 	if len(r.Stalled) > 0 {
 		fmt.Fprintf(&b, "\n  stalled (failed the same way twice; retried once their node changes): %d", len(r.Stalled))
 	}
@@ -178,6 +197,7 @@ func (r *RecurseCycleResult) Summary() string {
 
 // gateRun is a gate's last measurement for one node (or the workspace).
 type gateRun struct {
+	snapshot string
 	result   gates.Result
 	findings []gates.Finding
 }
@@ -278,7 +298,7 @@ func gateKey(gateID, node string) string { return gateID + "@" + node }
 // RunRecurseCycles runs the loop until cfg.Passes passes finish or ctx is
 // cancelled. A cancelled run leaves the tree as the last kept attempt left it:
 // an attempt in flight is reverted before it returns, or on the next start.
-func RunRecurseCycles(ctx context.Context, cfg RecurseCycleConfig) (*RecurseCycleResult, error) {
+func RunRecurseCycles(ctx context.Context, cfg RecurseCycleConfig) (result *RecurseCycleResult, runErr error) {
 	if cfg.Kernel == nil || cfg.Execute == nil {
 		return nil, errors.New("recurse: a kernel and an executor are required")
 	}
@@ -313,6 +333,30 @@ func RunRecurseCycles(ctx context.Context, cfg RecurseCycleConfig) (*RecurseCycl
 		return nil, err
 	}
 	defer release()
+	if cfg.Mission != nil {
+		// Both deliberation and recurse must observe the same authoritative kernel.
+		if cfg.Mission.Deliberator == nil {
+			return nil, fmt.Errorf("mission deliberator unavailable")
+		}
+		service := *cfg.Mission.Deliberator
+		service.Kernel = cfg.Kernel
+		cfg.Mission.Deliberator = &service
+		missionCtx, cancel, err := cfg.Mission.begin(ctx, root)
+		if err != nil {
+			return nil, err
+		}
+		ctx = missionCtx
+		defer cancel()
+		defer func() {
+			runErr = cfg.Mission.end(ctx, runErr)
+			r.result.MissionID, r.result.MissionStatus = cfg.Mission.State.ID, cfg.Mission.State.Status
+			r.result.MissionStatePath = cfg.Mission.path
+			r.result.MissionQuestion, r.result.MissionOptions = cfg.Mission.State.Question, cfg.Mission.State.Options
+			if result == nil {
+				result = &r.result
+			}
+		}()
+	}
 	// A stop left over from a run that already ended is not for this one.
 	if err := os.Remove(recurseStopPath(root)); err != nil && !os.IsNotExist(err) {
 		return nil, err
@@ -345,7 +389,7 @@ func RunRecurseCycles(ctx context.Context, cfg RecurseCycleConfig) (*RecurseCycl
 		return nil, err
 	}
 
-	runErr := r.passes(ctx, pass, done)
+	runErr = r.passes(ctx, pass, done)
 	r.result.Stalled, _ = r.policy.stalled()
 	r.result.Refusals, _ = r.policy.refused()
 	return &r.result, runErr
@@ -357,6 +401,11 @@ func RunRecurseCycles(ctx context.Context, cfg RecurseCycleConfig) (*RecurseCycl
 func (r *recurseRun) boundary(ctx context.Context, pass int) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if r.cfg.Mission != nil {
+		if _, err := r.cfg.Mission.admit(); err != nil {
+			return err
+		}
 	}
 	if !recurseStopRequested(r.root) {
 		return nil
@@ -527,6 +576,10 @@ func (r *recurseRun) measureWorkspace(ctx context.Context, set gates.Set, nodes 
 // when none does. A node that is a collapsed import cycle runs the gate once
 // per directory, and fails if any run fails.
 func (r *recurseRun) measure(ctx context.Context, g gates.Gate, nodeID string, nodes []SubsystemNode) gateRun {
+	var snapshot string
+	if r.cfg.Mission != nil {
+		snapshot, _ = evidence.Snapshot(ctx, r.root)
+	}
 	paths := []string{""}
 	if nodeID != "" {
 		paths = []string{nodeID}
@@ -561,6 +614,11 @@ func (r *recurseRun) measure(ctx context.Context, g gates.Gate, nodeID string, n
 		run.result.Passed = run.result.Passed && res.Passed
 		if run.result.Err == nil {
 			run.result.Err = res.Err
+		}
+	}
+	if r.cfg.Mission != nil && snapshot != "" {
+		if after, err := evidence.Snapshot(ctx, r.root); err == nil && after == snapshot {
+			run.snapshot = snapshot
 		}
 	}
 	return run
@@ -816,6 +874,7 @@ func (r *recurseRun) visit(ctx context.Context, pass int, node SubsystemNode, no
 // inFlight is written before an attempt runs and removed after its ratchet,
 // so a run killed in between can put the tree back on its next start.
 type inFlight struct {
+	MissionState    string   `json:"mission_state,omitempty"`
 	Cycle           int      `json:"cycle"`
 	Pass            int      `json:"pass"`
 	Node            string   `json:"node"`
@@ -907,7 +966,7 @@ func (r *recurseRun) improve(ctx context.Context, v visitScope) error {
 
 // run is one attempt from start to verdict: record it in flight, hand it to
 // the executor, re-measure, let the kernel judge, keep or revert.
-func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) error {
+func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) (runErr error) {
 	node := v.node
 	r.cycle++
 	cycle := r.cycle
@@ -922,7 +981,11 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 	if err != nil {
 		return err
 	}
-	if err := writeInFlight(r.root, inFlight{Cycle: cycle, Pass: v.pass, Node: node.ID, Finding: findingID, Angle: spec.angle, UntrackedBefore: sortedSet(untracked)}); err != nil {
+	flight := inFlight{Cycle: cycle, Pass: v.pass, Node: node.ID, Finding: findingID, Angle: spec.angle, UntrackedBefore: sortedSet(untracked)}
+	if r.cfg.Mission != nil {
+		flight.MissionState = r.cfg.Mission.path
+	}
+	if err := writeInFlight(r.root, flight); err != nil {
 		return err
 	}
 	if err := r.journal.append(recurseRecord{Step: stepAttempt, Pass: v.pass, Cycle: cycle, Node: node.ID, Finding: findingID, Angle: spec.angle, Detail: spec.describe}); err != nil {
@@ -938,16 +1001,62 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 	}
 	if spec.finding != nil {
 		a.Finding = *spec.finding
+		a.WitnessSnapshot = r.state[spec.targetKey].snapshot
+	}
+	if r.cfg.Mission != nil {
+		base, err := r.git.run(ctx, nil, "rev-parse", "HEAD")
+		if err != nil {
+			return err
+		}
+		a.BaseRevision = strings.TrimSpace(base)
+		if err := r.cfg.Mission.prepare(ctx, &a); err != nil {
+			// Deliberation is read-only. Nothing was handed to the executor.
+			if journalErr := r.journal.append(recurseRecord{Step: stepMissionDeferred, Pass: v.pass, Cycle: cycle, Node: node.ID,
+				Finding: findingID, Angle: spec.angle, Outcome: outcomeUnverified, Detail: "design not executed: " + err.Error()}); journalErr != nil {
+				return errors.Join(err, journalErr)
+			}
+			if removeErr := os.Remove(inFlightPath(r.root)); removeErr != nil {
+				return errors.Join(err, removeErr)
+			}
+			return err
+		}
+	}
+	var usageBefore int
+	if r.cfg.Mission != nil {
+		_, _, usageBefore = r.cfg.Mission.meter.snapshot()
 	}
 	owned, execErr := r.cfg.Execute(ctx, a)
+	compensated, adoptionStarted := false, false
+	defer func() {
+		if r.cfg.Mission == nil || runErr == nil || compensated || adoptionStarted {
+			return
+		}
+		_, undoErr := r.undoOwned(context.WithoutCancel(ctx), untracked, owned)
+		if undoErr != nil {
+			runErr = errors.Join(runErr, undoErr)
+		}
+	}()
+	if r.cfg.Mission != nil {
+		r.cfg.Mission.meter.phaseEnded(usageBefore)
+		if err := r.cfg.Mission.recordWrites(owned); err != nil {
+			return err
+		}
+	}
 	if ctx.Err() != nil {
 		// Stopped mid-attempt: undo the attempt's own writes now rather than
 		// leave them for the next start. The in-flight record stays until
 		// that succeeds; the journal names what was left in place.
 		if detail, err := r.undoOwned(context.WithoutCancel(ctx), untracked, owned); err == nil {
+			compensated = true
 			_ = r.journal.append(recurseRecord{Step: stepRatchet, Pass: v.pass, Cycle: cycle, Node: node.ID, Finding: findingID, Angle: spec.angle,
 				Outcome: outcomeReverted, Detail: strings.TrimSpace("stopped mid-attempt; " + detail)})
 			_ = os.Remove(inFlightPath(r.root))
+			if r.cfg.Mission != nil {
+				rec := recurseRecord{Cycle: cycle, Outcome: outcomeReverted, Detail: "canceled; " + detail}
+				if err := r.cfg.Mission.finish(context.WithoutCancel(ctx), rec, "", "/unknown"); err != nil {
+					return errors.Join(ctx.Err(), err)
+				}
+			}
 		}
 		return ctx.Err()
 	}
@@ -982,6 +1091,41 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 		Cycle: cycle, TargetID: findingID, Improve: spec.angle,
 		Before: before, After: afterMetrics,
 		Changed: len(changed) > 0, Forbidden: r.forbidden(changed),
+	}
+	if a.Mission != nil {
+		last := map[string]observation.FileWrite{}
+		for _, write := range owned {
+			path := write.Path
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(r.root, filepath.FromSlash(path))
+			}
+			last[filepath.Clean(path)] = write
+		}
+		for _, path := range changed {
+			abs := filepath.Join(r.root, filepath.FromSlash(path))
+			write, attributed := last[abs]
+			if !attributed || !write.Before.Known || !write.After.Known || !holds(abs, write.After) {
+				in.Forbidden = append(in.Forbidden, path)
+			}
+			if _, pinned := a.Mission.VerificationInputs[abs]; pinned {
+				in.Forbidden = append(in.Forbidden, path)
+			}
+			for _, scope := range a.Mission.ProtectedPaths {
+				if missionPathWithin(path, scope) {
+					in.Forbidden = append(in.Forbidden, path)
+					break
+				}
+			}
+			inside := false
+			for _, scope := range a.Mission.Scope {
+				if missionPathWithin(path, scope) {
+					inside = true
+				}
+			}
+			if !inside {
+				in.Forbidden = append(in.Forbidden, path)
+			}
+		}
 	}
 	var gatesAfter *gates.Snapshot
 	if r.cfg.MeasureGates != nil && r.gateBaseline != nil && len(changed) > 0 {
@@ -1030,6 +1174,20 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 	if err != nil {
 		return err
 	}
+	missionAfter, missionWitness := "", "/unknown"
+	if r.cfg.Mission != nil {
+		missionAfter, err = evidence.Snapshot(ctx, r.root)
+		if err != nil {
+			return err
+		}
+		if spec.finding != nil && in.TargetOK && a.WitnessSnapshot != "" &&
+			a.WitnessSnapshot == a.Mission.Before && after[spec.targetKey].snapshot == missionAfter {
+			missionWitness = "/resolved"
+		}
+		if err := r.cfg.Mission.recordChecks(r.state, after, missionAfter, in.GatesBefore, in.GatesAfter); err != nil {
+			return err
+		}
+	}
 
 	rec := recurseRecord{Step: stepRatchet, Pass: v.pass, Cycle: cycle, Node: node.ID, Finding: findingID, Angle: spec.angle, Metrics: metricsDelta(before, afterMetrics)}
 	if execErr != nil {
@@ -1057,6 +1215,9 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 		if trailer == "" {
 			trailer = "improve:" + spec.angle
 		}
+		// Once adoption begins, a failed acknowledgement is ambiguous. Retain
+		// the durable intent for reconciliation rather than undo a possible commit.
+		adoptionStarted = true
 		hash, err := r.git.commit(ctx, changed, spec.subject, cycle, trailer)
 		if err != nil {
 			return err
@@ -1082,6 +1243,7 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 		if err != nil {
 			return err
 		}
+		compensated = true
 		rec.Detail = strings.TrimSpace(rec.Detail + " " + detail)
 		rec.Outcome = outcomeReverted
 		switch {
@@ -1116,6 +1278,11 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) er
 	}
 	if err := r.journal.append(rec); err != nil {
 		return err
+	}
+	if r.cfg.Mission != nil {
+		if err := r.cfg.Mission.finish(ctx, rec, missionAfter, missionWitness); err != nil {
+			return err
+		}
 	}
 	if rec.Outcome != outcomeKept {
 		r.rememberRevert(rec)
@@ -1300,9 +1467,9 @@ func writeInFlight(root string, f inFlight) error {
 	return os.WriteFile(p, data, 0o644)
 }
 
-// settleInFlight finishes an attempt a killed run left behind. If its commit
-// landed, the journal is told it was kept; otherwise its writes are put back.
-// Either way the next run starts from a tree the ratchet has judged.
+// settleInFlight recovers ordinary recurse attempts using their journal and
+// commit trailers. An unsettled mission attempt requires owned-effect
+// reconciliation; it must not enter the ordinary difference-from-HEAD recovery.
 func (r *recurseRun) settleInFlight(ctx context.Context, history []recurseRecord) error {
 	data, err := os.ReadFile(inFlightPath(r.root))
 	if os.IsNotExist(err) {
@@ -1320,6 +1487,9 @@ func (r *recurseRun) settleInFlight(ctx context.Context, history []recurseRecord
 			// Its verdict was journaled; only the cleanup was lost.
 			return os.Remove(inFlightPath(r.root))
 		}
+	}
+	if f.MissionState != "" {
+		return fmt.Errorf("recurse: mission cycle %d has no settled verdict; reconcile owned effects using %s before recovery", f.Cycle, f.MissionState)
 	}
 	journal, err := openRecurseJournal(r.root)
 	if err != nil {

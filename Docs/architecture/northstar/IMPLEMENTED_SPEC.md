@@ -489,3 +489,15 @@ When editing `internal/northstar/`:
 2. Re-verify reverse deps if observers/constructors change.  
 3. Run owning package tests when execution is authorized; identify authored-only evidence explicitly otherwise.
 4. Bump last-verified date.
+
+
+## Mission evidence boundary
+
+Mission recurse uses `northstar.SyncVisionAuthority` to obtain the complete
+structured vision for deliberation, preserving its relationship graph and a
+content version. Its attempt campaigns still use the shared Guardian observer.
+Receipts live in the session directory; they do not write requirement
+satisfaction, risk mitigation or waivers. A retained passing gate is scoped
+source evidence, and the mission remains open. The authored bridge and pending
+production fixture are specified in
+`Docs/architecture/campaign/MISSION-IMPROVEMENT.md`.

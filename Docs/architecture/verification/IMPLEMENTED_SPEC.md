@@ -364,3 +364,16 @@ check and message). `policy/gates.mg` (Decls in `schemas_gates.mg`) derives `gat
 `nerd campaign recurse --gates`, `RecurseCycleConfig.MeasureGates` measures a baseline and a snapshot after
 every changed attempt; `policy/recurse.mg`'s `recurse_cycle_worse` rule over `recurse_cycle_snapshots` and
 `gate_regressed` makes the ratchet revert the cycle.
+
+
+## Mission receipts and protected witnesses
+
+Mission recurse reuses campaign acceptance and the existing gate ratchet.
+`internal/evidence/change.go:VerificationInputs` exposes the Go verification-input
+measurement to admission and also pins `nerd.md` gate declarations. Attempts
+preserve existing test/module/testdata inputs, allow new tests and retain full
+input digests in a sidecar. A receipt can support only its measured gate deficit
+at its source snapshot; metrics and model judgments do not satisfy arbitrary
+mission requirements. Unknown evidence stays unknown. The integration fixture
+is authored, not yet executed; stronger requirement-specific behavioral evidence
+remains specified in `Docs/architecture/campaign/MISSION-IMPROVEMENT.md`.
