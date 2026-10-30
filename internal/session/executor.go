@@ -279,6 +279,12 @@ type Executor struct {
 	// runs on the pushed knowledge alone and says which consultations it
 	// could not run (expert_spawn.go).
 	expertConsultant ExpertConsultant
+	// consultCards are the consultations' cards by question, reused while
+	// their files are unchanged (consult_route.go). Shared with task clones.
+	consultCards *consultCache
+	// consultEscalation applies the stronger consultation profile; nil when
+	// the configuration names none (SetConsultEscalation).
+	consultEscalation func(context.Context) context.Context
 }
 
 // Generated duplicates retain one exact pending authorization until the last
@@ -471,6 +477,7 @@ func NewExecutor(
 		transducer:          transducer,
 		conversationHistory: make([]perception.ConversationTurn, 0),
 		config:              DefaultExecutorConfig(),
+		consultCards:        newConsultCache(),
 	}
 }
 
@@ -726,6 +733,10 @@ func (e *Executor) CloneForTask() *Executor {
 	// A delegated task is where a fix runs: the shard agents the kernel
 	// routes to it are consulted from the clone.
 	clone.expertConsultant = e.expertConsultant
+	// And the cards they produced: a retried task reuses an answer to the
+	// same question on unchanged files (consult_route.go).
+	clone.consultCards = e.consultCards
+	clone.consultEscalation = e.consultEscalation
 	// Deliberately NOT copied: conversationHistory, sessionContext,
 	// sessionPersister (task runs must not be recorded as session turns),
 	// EffectiveAgentRuntimeConfig (set per task by the caller).
@@ -1567,7 +1578,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	systemPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(compileResult.Prompt), intent.Target)
 	// 4c. Spawn second: the consultations the kernel derived (expert_spawn),
 	// and the reviews the turn owes after its writes (expert_critique).
-	systemPrompt = e.withExpertConsultations(ctx, systemPrompt, intent, input, expertSel, result)
+	systemPrompt = e.withExpertConsultations(ctx, systemPrompt, intent, input, expertSel, result, knowledgeDelivered(compileResult))
 	e.recordExpertCritics(result, expertSel)
 
 	// 5+6. LLM ↔ tools loop. The model may request tools, we execute them, then

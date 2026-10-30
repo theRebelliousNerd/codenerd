@@ -184,6 +184,45 @@ Decl turn_expert_finding(Turn, Agent, Idx, Severity) bound [/name, /name, /numbe
 # turn_expert_actionable(Turn, Idx) - a finding the repair round carries.
 Decl turn_expert_actionable(Turn, Idx) bound [/name, /number].
 
+# --- Consultation routing (per ask: one batch of consultations) --------------
+# Producer of the EDB: internal/session (Executor.routeConsultations), which
+# asserts them under one ask id, reads consult_route and retracts them.
+
+# consult_ask(Ask, Agent, Mode) - a consultation expert_spawn derived.
+Decl consult_ask(Ask, Agent, Mode) bound [/string, /name, /name].
+# consult_ask_complex(Ask) - the task is complex (task_complexity /high).
+Decl consult_ask_complex(Ask) bound [/string].
+# consult_knowledge_delivered(Ask, Agent, Rows) - the compile's prompt carries
+# Rows of the agent's knowledge rows.
+Decl consult_knowledge_delivered(Ask, Agent, Rows) bound [/string, /name, /number].
+# consult_card_cached(Ask, Agent, Disposition) - a card for the same question
+# (agent, mode, verb, files, request) is held, with how it ended.
+Decl consult_card_cached(Ask, Agent, Disposition) bound [/string, /name, /name].
+# consult_card_escalated(Ask, Agent) - that card was asked under the stronger
+# consultation profile.
+Decl consult_card_escalated(Ask, Agent) bound [/string, /name].
+# consult_card_file_digest(Ask, Agent, File, Digest) - a file's digest when the
+# cached card was asked.
+Decl consult_card_file_digest(Ask, Agent, File, Digest) bound [/string, /name, /string, /string].
+# consult_file_digest(Ask, File, Digest) - the file's digest now.
+Decl consult_file_digest(Ask, File, Digest) bound [/string, /string, /string].
+# consult_escalation_available(Ask) - the stronger consultation profile is
+# configured (shard_profiles.consultation_escalation).
+Decl consult_escalation_available(Ask) bound [/string].
+
+# Derived.
+Decl consult_file_measured(Ask, File) bound [/string, /string].
+Decl consult_card_stale(Ask, Agent) bound [/string, /name].
+Decl consult_card_usable(Ask, Agent) bound [/string, /name].
+Decl consult_card_unanswered(Ask, Agent) bound [/string, /name].
+Decl consult_escalates(Ask, Agent) bound [/string, /name].
+Decl consult_knowledge_suffices(Ask, Agent) bound [/string, /name].
+Decl consult_settled(Ask, Agent) bound [/string, /name].
+# consult_route(Ask, Agent, Route) - how the consultation is settled: /reuse,
+# /knowledge, /escalate, /consult or /unresolved. Consumer: internal/session
+# (Executor.withExpertConsultations).
+Decl consult_route(Ask, Agent, Route) bound [/string, /name, /name].
+
 # --- Consultation cards (per turn, dealt per planned step) ------------------
 
 # turn_expert_card(Turn, Agent, Mode, Disposition) - a consultation this turn

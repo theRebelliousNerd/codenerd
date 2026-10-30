@@ -25,6 +25,12 @@ const (
 	cardAnswered = "/answered"
 	cardFailed   = "/failed"
 	cardEmpty    = "/empty"
+	// cardKnowledge: not consulted, the expert's knowledge rows were already
+	// in the prompt (routeKnowledge).
+	cardKnowledge = "/knowledge"
+	// cardUnresolved: not consulted, the question is left open
+	// (routeUnresolved).
+	cardUnresolved = "/unresolved"
 )
 
 // expertCard is one consultation's typed outcome.
@@ -38,6 +44,8 @@ type expertCard struct {
 	// Handoffs are the answer's HANDOFF lines: edge-bound advice between
 	// two files (canonical), dealt to the steps on either end.
 	Handoffs []cardHandoff
+	// Route is how the routing ladder settled this card (consult_route).
+	Route string
 }
 
 // cardHandoff is one HANDOFF line of a card: a change in From obliges
@@ -94,7 +102,14 @@ func newExpertCard(r expertConsultation) expertCard {
 
 // render is the card as the model reads it.
 func (c expertCard) render() string {
-	return fmt.Sprintf("\n### %s (%s; %s)\n%s\n", c.Agent, consultationRole(c.Mode), strings.Join(c.Technologies, ", "), c.Body)
+	note := ""
+	switch c.Route {
+	case routeReuse:
+		note = "; reused: asked before on the same request, files unchanged since"
+	case routeEscalate:
+		note = "; asked under the stronger consultation profile"
+	}
+	return fmt.Sprintf("\n### %s (%s; %s%s)\n%s\n", c.Agent, consultationRole(c.Mode), strings.Join(c.Technologies, ", "), note, c.Body)
 }
 
 // consultationHeader opens a consultation section.

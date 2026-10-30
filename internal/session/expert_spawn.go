@@ -65,7 +65,15 @@ type expertConsultation struct {
 // runs each step on a freshly compiled prompt, and the kernel deals each step
 // the cards that apply to its file. An agent already consulted this turn is
 // not consulted again.
-func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt string, intent perception.Intent, input string, sel experts.Selection, result *ExecutionResult) string {
+//
+// Which consultations become model calls is the routing ladder's decision
+// (consult_route.go): a fresh card for the same question is reused, an
+// adviser whose knowledge rows the compile already carried (delivered, by
+// agent key) is not asked, a question that went unanswered is asked under the
+// stronger profile when one is configured, and one that went unanswered there
+// too is left open. Every route leaves a card, so the prompt says why a
+// consultation was bought or not.
+func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt string, intent perception.Intent, input string, sel experts.Selection, result *ExecutionResult, delivered map[string]int) string {
 	var spawns []experts.Need
 	for _, need := range sel.Needs {
 		if need.Spawn != "" && (result == nil || !result.consultedExperts[need.Agent]) {
@@ -75,17 +83,25 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 	if len(spawns) == 0 {
 		return systemPrompt
 	}
+	plans := e.routeConsultations(spawns, intent.Verb, input, sel.Complexity, delivered)
 	consultant := e.consultant()
-	results := make([]expertConsultation, len(spawns))
+	results := make([]expertConsultation, len(plans))
 	var wg sync.WaitGroup
-	for i, need := range spawns {
-		results[i].need = need
+	for i, plan := range plans {
+		results[i].need = plan.need
+		if plan.route != routeConsult && plan.route != routeEscalate {
+			continue
+		}
 		if consultant == nil {
 			results[i].err = fmt.Errorf("no consultation spawner is wired to this executor")
 			continue
 		}
+		callCtx := ctx
+		if plan.route == routeEscalate {
+			callCtx = e.escalatedContext(ctx)
+		}
 		wg.Go(func() {
-			answer, err := consultant.SpawnConsultation(ctx, need.Agent, consultationTask(need, intent, input))
+			answer, err := consultant.SpawnConsultation(callCtx, plan.need.Agent, consultationTask(plan.need, intent, input))
 			results[i].answer, results[i].err = answer, err
 		})
 	}
@@ -95,17 +111,39 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 	var b strings.Builder
 	b.WriteString(consultationHeader)
 	workspace := e.workspaceForVerification()
+	bought := 0
 	for i, r := range results {
-		cards[i] = newExpertCard(r)
-		if cards[i].Disposition == cardAnswered {
-			cards[i].Handoffs = parseHandoffs(workspace, cards[i].Body)
-		}
-		if r.err != nil {
-			logging.Get(logging.CategorySession).Warn("shard agent %s consultation failed: %v", r.need.Agent, r.err)
+		plan := plans[i]
+		switch plan.route {
+		case routeReuse:
+			cards[i] = plan.cached.card
+			cards[i].Route = routeReuse
+		case routeKnowledge:
+			cards[i] = expertCard{Agent: plan.need.Agent, Mode: plan.need.Spawn, Technologies: plan.need.Technologies, Files: plan.need.Files,
+				Disposition: cardKnowledge, Route: routeKnowledge,
+				Body: fmt.Sprintf("Not consulted: %d row(s) of its knowledge base are already in this prompt, and the task is not complex.", plan.rows)}
+		case routeUnresolved:
+			cards[i] = expertCard{Agent: plan.need.Agent, Mode: plan.need.Spawn, Technologies: plan.need.Technologies, Files: plan.need.Files,
+				Disposition: cardUnresolved, Route: routeUnresolved,
+				Body: "Left open: this question went unanswered, also under the stronger consultation profile, on these same files. It is not asked again until they change."}
+		default:
+			bought++
+			cards[i] = newExpertCard(r)
+			cards[i].Route = plan.route
+			if cards[i].Disposition == cardAnswered {
+				cards[i].Handoffs = parseHandoffs(workspace, cards[i].Body)
+			}
+			if r.err != nil {
+				logging.Get(logging.CategorySession).Warn("shard agent %s consultation failed: %v", r.need.Agent, r.err)
+			}
+			e.consultCards.put(plan.key, cachedCard{
+				card: cards[i], digests: fileDigests(workspace, plan.need.Files),
+				escalated: plan.route == routeEscalate || plan.cached.escalated,
+			})
 		}
 		b.WriteString(cards[i].render())
 	}
-	logging.Session("Consulted %d shard agent(s) for %s %s", len(results), intent.Verb, intent.Target)
+	logging.Session("Consultations for %s %s: %d routed, %d bought", intent.Verb, intent.Target, len(plans), bought)
 	if result != nil {
 		if result.consultedExperts == nil {
 			result.consultedExperts = map[string]bool{}

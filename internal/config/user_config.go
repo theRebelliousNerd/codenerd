@@ -1378,6 +1378,25 @@ func (c *UserConfig) GetEffectiveAPISchedulerPolicy() EffectiveAPISchedulerPolic
 }
 
 // GetShardProfile returns the profile for a specific shard type, falling back to defaults.
+// ConsultationEscalationProfile is the shard profile a consultation the
+// routing policy escalates runs under (internal/session, consult_route.go).
+const ConsultationEscalationProfile = "consultation_escalation"
+
+// ExplicitShardProfile returns the profile the configuration names for name,
+// with defaults applied, and whether it routes anywhere (names a provider or
+// a model). Unlike GetShardProfile it never falls back to default_shard: a
+// caller asking whether a profile exists must not read the default as one.
+func (c *UserConfig) ExplicitShardProfile(name string) (ShardProfile, bool) {
+	if c == nil || c.ShardProfiles == nil {
+		return ShardProfile{}, false
+	}
+	profile, ok := c.ShardProfiles[name]
+	if !ok || (strings.TrimSpace(profile.Provider) == "" && strings.TrimSpace(profile.Model) == "") {
+		return ShardProfile{}, false
+	}
+	return applyShardDefaults(profile), true
+}
+
 func (c *UserConfig) GetShardProfile(shardType string) ShardProfile {
 	// Check for explicit profile
 	if c.ShardProfiles != nil {

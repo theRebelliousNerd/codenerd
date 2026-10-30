@@ -222,6 +222,85 @@ expert_critique(Task, Agent) :-
     expert_task(Task, Verb),
     execution_mode(Verb, /advisory_with_critique).
 
+# --- The consultation routing ladder ------------------------------------------
+# expert_spawn says a task needs an expert's own reading; it does not say a
+# model call must buy it. A held card for the same question stays valid while
+# every file it was asked about has the digest it had then (a vanished file
+# is a changed one). Then, in order of what each route rests on:
+#   /reuse      a valid answered card;
+#   /unresolved a valid card that went unanswered under the stronger profile:
+#               the gap is kept, not asked again on the same files;
+#   /escalate   a valid unanswered card not yet escalated, or a complex task's
+#               lead, when the stronger profile is configured;
+#   /knowledge  an adviser whose knowledge rows the compile already carried,
+#               on a task that is not complex;
+#   /consult    everything else.
+
+consult_file_measured(Ask, File) :- consult_file_digest(Ask, File, _).
+
+consult_card_stale(Ask, Agent) :-
+    consult_card_file_digest(Ask, Agent, File, Then),
+    consult_file_digest(Ask, File, Now),
+    Then != Now.
+
+consult_card_stale(Ask, Agent) :-
+    consult_card_file_digest(Ask, Agent, File, _),
+    !consult_file_measured(Ask, File).
+
+consult_card_usable(Ask, Agent) :-
+    consult_card_cached(Ask, Agent, /answered),
+    !consult_card_stale(Ask, Agent).
+
+consult_card_unanswered(Ask, Agent) :-
+    consult_card_cached(Ask, Agent, Disposition),
+    Disposition != /answered,
+    !consult_card_stale(Ask, Agent).
+
+consult_route(Ask, Agent, /reuse) :-
+    consult_ask(Ask, Agent, _),
+    consult_card_usable(Ask, Agent).
+
+consult_route(Ask, Agent, /unresolved) :-
+    consult_ask(Ask, Agent, _),
+    consult_card_unanswered(Ask, Agent),
+    consult_card_escalated(Ask, Agent).
+
+consult_escalates(Ask, Agent) :-
+    consult_ask(Ask, Agent, _),
+    consult_card_unanswered(Ask, Agent),
+    !consult_card_escalated(Ask, Agent),
+    consult_escalation_available(Ask).
+
+consult_escalates(Ask, Agent) :-
+    consult_ask(Ask, Agent, /lead),
+    consult_ask_complex(Ask),
+    consult_escalation_available(Ask),
+    !consult_card_usable(Ask, Agent),
+    !consult_card_unanswered(Ask, Agent).
+
+consult_route(Ask, Agent, /escalate) :- consult_escalates(Ask, Agent).
+
+consult_knowledge_suffices(Ask, Agent) :-
+    consult_ask(Ask, Agent, /advise),
+    consult_knowledge_delivered(Ask, Agent, Rows),
+    Rows > 0,
+    !consult_ask_complex(Ask),
+    !consult_card_usable(Ask, Agent),
+    !consult_card_unanswered(Ask, Agent).
+
+consult_route(Ask, Agent, /knowledge) :- consult_knowledge_suffices(Ask, Agent).
+
+consult_settled(Ask, Agent) :- consult_card_usable(Ask, Agent).
+consult_settled(Ask, Agent) :-
+    consult_card_unanswered(Ask, Agent),
+    consult_card_escalated(Ask, Agent).
+consult_settled(Ask, Agent) :- consult_escalates(Ask, Agent).
+consult_settled(Ask, Agent) :- consult_knowledge_suffices(Ask, Agent).
+
+consult_route(Ask, Agent, /consult) :-
+    consult_ask(Ask, Agent, _),
+    !consult_settled(Ask, Agent).
+
 # Dealing a turn's consultations to its planned steps. A lead's answer lays
 # out the whole work, so every step holds it; an adviser's answer is about the
 # files its domain was selected for, so it goes to the steps on those files.

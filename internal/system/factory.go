@@ -2601,6 +2601,13 @@ func initFinalExecutors(bctx *bootContext) error {
 			return config.ShardProfileContext(ctx, appCfg.GetShardProfile(shardType))
 		}
 		bctx.sessionExecutor.SetShardProfileContext(profileContext)
+		// A stronger consultation profile, when the configuration names one:
+		// the consultation routing policy escalates to it (consult_route).
+		if escalation, ok := appCfg.ExplicitShardProfile(config.ConsultationEscalationProfile); ok {
+			bctx.sessionExecutor.SetConsultEscalation(func(ctx context.Context) context.Context {
+				return config.ShardProfileContext(ctx, escalation)
+			})
+		}
 		// The spawner does not exist yet; it receives the same hook where it is
 		// built, below.
 		bctx.shardProfileContext = profileContext

@@ -34,7 +34,7 @@ func TestPlannedStep_IsDealtTheCardsForItsFile(t *testing.T) {
 		{Agent: "leadexpert", Spawn: experts.SpawnLead, Files: []string{"internal/a/a.go"}},
 		{Agent: "viewexpert", Spawn: experts.SpawnAdvise, Files: []string{"internal/view/view.go"}},
 	}}
-	turnPrompt := e.withExpertConsultations(t.Context(), "turn prompt", perception.Intent{Verb: "/fix", Target: "internal/a/a.go"}, "fix it", sel, result)
+	turnPrompt := e.withExpertConsultations(t.Context(), "turn prompt", perception.Intent{Verb: "/fix", Target: "internal/a/a.go"}, "fix it", sel, result, nil)
 	if !strings.Contains(turnPrompt, "CARD_FROM_leadexpert") || !strings.Contains(turnPrompt, "CARD_FROM_viewexpert") {
 		t.Fatalf("fixture: the turn prompt lacks its consultations:\n%s", turnPrompt)
 	}

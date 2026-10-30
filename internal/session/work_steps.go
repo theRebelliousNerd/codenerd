@@ -844,7 +844,7 @@ func (e *Executor) stepSystemPrompt(
 		stepPrompt = strings.TrimRight(stepPrompt, "\n") + hand
 	}
 	return e.withExpertConsultations(ctx, stepPrompt,
-		perception.Intent{Verb: stepCtx.IntentVerb, Target: stepCtx.IntentTarget}, task, stepSel, result)
+		perception.Intent{Verb: stepCtx.IntentVerb, Target: stepCtx.IntentTarget}, task, stepSel, result, knowledgeDelivered(compiled))
 }
 
 // runPlannedSteps runs each step as its own pass of the tool loop, gives a
