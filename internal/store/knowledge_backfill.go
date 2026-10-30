@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 
 	"codenerd/internal/logging"
 )
@@ -11,6 +12,10 @@ import (
 // BackfillKnowledgeAtomVectors embeds every knowledge_atoms row that lacks a
 // vectors row with content_type=knowledge_atom. It returns how many vectors
 // were added. It is idempotent: atoms that already have a vector are skipped.
+// An atom with no text has nothing to embed and is skipped too: it is kept
+// (an empty paragraph keeps a split body joinable) but never sent to the
+// embedder, which refuses it, so it used to be retried and logged as a
+// failure on every boot.
 func (s *LocalStore) BackfillKnowledgeAtomVectors(ctx context.Context) (int, error) {
 	s.mu.RLock()
 	hasEngine := s.embeddingEngine != nil
@@ -69,7 +74,7 @@ func (s *LocalStore) BackfillKnowledgeAtomVectors(ctx context.Context) (int, err
 		if ctx.Err() != nil {
 			return added, ctx.Err()
 		}
-		if embedded[a.Concept+"\x00"+a.Content] {
+		if embedded[a.Concept+"\x00"+a.Content] || strings.TrimSpace(a.Content) == "" {
 			continue
 		}
 		if err := s.StoreVectorWithEmbedding(ctx, a.Content, map[string]any{

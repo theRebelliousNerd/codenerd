@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"codenerd/internal/embedding"
 	"codenerd/internal/knowledge"
@@ -104,7 +105,10 @@ func backfillMissingVectors(ctx context.Context, db *sql.DB, engine embedding.Em
 		if ctx.Err() != nil {
 			return done
 		}
-		if embedded[a.concept+"\x00"+a.content] {
+		// A row with no text has nothing to embed: it is never sent to the
+		// embedder (which refuses it) and is not a failure to log on every
+		// boot.
+		if embedded[a.concept+"\x00"+a.content] || strings.TrimSpace(a.content) == "" {
 			continue
 		}
 		if err := storeVectorForAtom(ctx, db, engine, model, a); err != nil {

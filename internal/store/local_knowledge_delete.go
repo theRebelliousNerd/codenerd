@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"strings"
 
 	"codenerd/internal/logging"
 )
@@ -148,4 +149,69 @@ func (s *LocalStore) deleteKnowledgeAtoms(body func(exec func(query string, args
 		}
 	}
 	return deleted, nil
+}
+
+// RetireKnowledgeAtomsFromSource deletes every knowledge atom stored with
+// source whose content hash (ComputeContentHash) is not in keep, and their
+// knowledge-atom vectors. An import that owns a source calls it with what it
+// imports now, so a row from a file that is gone, or from a split that no
+// longer exists, does not outlive the import that wrote it. An empty source
+// is refused: it would name rows no import owns.
+func (s *LocalStore) RetireKnowledgeAtomsFromSource(source string, keep map[string]bool) (int64, error) {
+	if strings.TrimSpace(source) == "" {
+		return 0, fmt.Errorf("refusing to retire knowledge atoms with an empty source")
+	}
+	type staleAtom struct {
+		id               int64
+		concept, content string
+	}
+	s.mu.RLock()
+	db := s.db
+	s.mu.RUnlock()
+	if db == nil || !tableExists(db, "knowledge_atoms") {
+		return 0, nil
+	}
+	rows, err := db.Query(`SELECT id, concept, content, COALESCE(content_hash, '') FROM knowledge_atoms WHERE source = ?`, source)
+	if err != nil {
+		return 0, fmt.Errorf("list knowledge atoms from %s: %w", source, err)
+	}
+	var stale []staleAtom
+	for rows.Next() {
+		var a staleAtom
+		var hash string
+		if err := rows.Scan(&a.id, &a.concept, &a.content, &hash); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("list knowledge atoms from %s: %w", source, err)
+		}
+		if hash == "" {
+			hash = ComputeContentHash(a.concept, a.content)
+		}
+		if !keep[hash] {
+			stale = append(stale, a)
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return 0, fmt.Errorf("list knowledge atoms from %s: %w", source, err)
+	}
+	if len(stale) == 0 {
+		return 0, nil
+	}
+	return s.deleteKnowledgeAtoms(func(exec func(query string, args ...any) (int64, error)) (int64, error) {
+		var deleted int64
+		for _, a := range stale {
+			n, err := exec(`DELETE FROM knowledge_atoms WHERE id = ?`, a.id)
+			if err != nil {
+				return deleted, err
+			}
+			deleted += n
+			if _, err := exec(`DELETE FROM vectors
+				WHERE json_extract(metadata, '$.content_type') = 'knowledge_atom'
+				  AND json_extract(metadata, '$.concept') = ? AND content = ?`, a.concept, a.content); err != nil {
+				return deleted, err
+			}
+		}
+		return deleted, nil
+	})
 }

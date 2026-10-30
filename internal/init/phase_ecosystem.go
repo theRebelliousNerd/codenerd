@@ -33,6 +33,10 @@ type ecosystemAtom struct {
 	Kind    string
 }
 
+// ecosystemKnowledgeSource is the source an agent KB stores its ecosystem
+// corpus chunks under; the import owns every row with it.
+const ecosystemKnowledgeSource = "init/ecosystem"
+
 type ecosystemWorkspace struct {
 	researchSet map[string]bool
 	research    map[string][]string
@@ -87,15 +91,18 @@ func ecosystemResearchTopics(ws, name string) ([]string, bool) {
 	return append([]string{}, seed.research[name]...), true
 }
 
-func ecosystemKnowledgeChunks(ws, name string) []ecosystemAtom {
+// ecosystemKnowledgeChunks returns the agent's corpus chunks from this init's
+// ecosystem import; imported is false when no import was published (the
+// phase did not run or failed), which is not the same as "no chunks".
+func ecosystemKnowledgeChunks(ws, name string) (chunks []ecosystemAtom, imported bool) {
 	key := ecosystemWorkspaceKey(ws)
 	ecosystemMu.Lock()
 	defer ecosystemMu.Unlock()
 	seed := ecosystemSeeds[key]
 	if seed == nil {
-		return nil
+		return nil, false
 	}
-	return append([]ecosystemAtom{}, seed.knowledge[name]...)
+	return append([]ecosystemAtom{}, seed.knowledge[name]...), true
 }
 
 // ecosystemDomainResearch returns a vision expert's research questions and

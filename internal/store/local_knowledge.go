@@ -397,7 +397,8 @@ func (s *LocalStore) StoreKnowledgeAtomWithEmbedding(ctx context.Context, concep
 	s.mu.RLock()
 	hasEngine := s.embeddingEngine != nil
 	s.mu.RUnlock()
-	if hasEngine {
+	// An atom with no text is stored but has nothing to embed.
+	if hasEngine && strings.TrimSpace(content) != "" {
 		metadata := map[string]any{
 			"content_type": "knowledge_atom",
 			"concept":      concept,

@@ -84,8 +84,23 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 	// Winning corpus sources are knowledge atoms. Each paragraph (or rune
 	// page, when the orient threshold says so) is stored whole. The vector
 	// row carries the source; a vector failure does not drop the atom.
-	for _, chunk := range ecosystemKnowledgeChunks(i.config.Workspace, agent.Name) {
-		added, err := appendKnowledgeAtom(ctx, agentDB, chunk.Concept, chunk.Content, 0.95, "init/ecosystem", existingHashes)
+	chunks, imported := ecosystemKnowledgeChunks(i.config.Workspace, agent.Name)
+	if imported {
+		// The import owns its rows: one it no longer produces -- a file that
+		// is gone, a checkout since deleted, a paragraph split differently --
+		// is retired with its vector, so it is not backfilled forever.
+		keep := make(map[string]bool, len(chunks))
+		for _, chunk := range chunks {
+			keep[store.ComputeContentHash(chunk.Concept, chunk.Content)] = true
+		}
+		if n, err := agentDB.RetireKnowledgeAtomsFromSource(ecosystemKnowledgeSource, keep); err != nil {
+			logging.Boot("Warning: stale ecosystem atoms for %s were not retired: %v", agent.Name, err)
+		} else if n > 0 {
+			logging.Boot("Retired %d ecosystem atom(s) for %s that the current import no longer has", n, agent.Name)
+		}
+	}
+	for _, chunk := range chunks {
+		added, err := appendKnowledgeAtom(ctx, agentDB, chunk.Concept, chunk.Content, 0.95, ecosystemKnowledgeSource, existingHashes)
 		if err != nil {
 			logging.Boot("Warning: failed to store ecosystem atom for %s: %v", agent.Name, err)
 			continue
