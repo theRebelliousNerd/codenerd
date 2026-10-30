@@ -1061,6 +1061,9 @@ type ExecutionResult struct {
 	// consulted, so a step consults only an expert its own file newly needs.
 	expertConsultation string
 	consultedExperts   map[string]bool
+	// expertDomainFiles are, per critiquing agent key, the task files its
+	// domain covers (experts.Need.Files): its review shows them first.
+	expertDomainFiles map[string][]string
 
 	// gateRuns are the test-gate measurements this turn has made, keyed by
 	// what was measured and the content of every file the turn wrote

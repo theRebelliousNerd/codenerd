@@ -1,7 +1,9 @@
 package session
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -250,8 +252,9 @@ func parseCriticFindings(response string) []CriticFinding {
 const criticMaxFileBytes = 24000
 
 // criticMaxFiles bounds how many files one review covers, newest-written
-// first. Reviewing thirty files in one call produces a shallow pass over all
-// of them rather than a useful pass over any.
+// first (after any files the reviewer is assigned, readWrittenFilesForReview).
+// Reviewing thirty files in one call produces a shallow pass over all of them
+// rather than a useful pass over any.
 const criticMaxFiles = 6
 
 // reviewableSources are the extensions the critic reviews.
@@ -288,8 +291,29 @@ func reviewableSource(path string) bool {
 	return true
 }
 
-// readWrittenFilesForReview loads the turn's written source files for the
-// critic, skipping test files, anything unreadable, and anything past the caps.
+// reviewOmission is a written file a review was not shown, and why. A
+// reviewer is told each one, so a file it was not handed is one it can read
+// with its tools rather than one it never learns of.
+type reviewOmission struct {
+	Path   string
+	Reason string
+}
+
+// readWrittenFilesForReview loads the turn's written source files for a
+// review, skipping test files, anything unreadable, and anything past the
+// cap, and returns what it left out of the review.
+//
+// assigned are the files this reviewer is responsible for (a shard agent's
+// domain files, Need.Files): those the turn wrote come first, so the cap
+// never pushes a reviewer's own subject out of its review. The rest follow
+// newest-written first. Until 2026-10-29 every reviewer got the same first
+// six files in first-seen order (the comment above criticMaxFiles said
+// newest-first), and an expert whose domain file was the seventh write was
+// never shown it, nor told it was missing.
+//
+// Every left-out file is reported: a written source past the cap, and an
+// assigned file the review cannot show (a test, a language it does not
+// read, a file it cannot read).
 //
 // Source means any language the critic can read, not only Go: until
 // 2026-09-25 a Python or TypeScript turn got no review at all, and so none of
@@ -299,14 +323,42 @@ func reviewableSource(path string) bool {
 // the code, and including the tests invites it to review the tests instead —
 // which is both lower value and the easiest place to produce plausible
 // nitpicks.
-func readWrittenFilesForReview(workspace string, writtenPaths []string) map[string]string {
-	out := make(map[string]string)
-	for _, rel := range writtenPaths {
-		if len(out) >= criticMaxFiles {
-			break
-		}
+func readWrittenFilesForReview(workspace string, writtenPaths, assigned []string) (map[string]string, []reviewOmission) {
+	mine := make(map[string]bool, len(assigned))
+	for _, p := range assigned {
+		mine[canonicalizeWrittenPath(p, workspace)] = true
+	}
+	var order []string
+	seen := make(map[string]bool, len(writtenPaths))
+	add := func(rel string) {
 		trimmed := strings.TrimSpace(rel)
+		if trimmed == "" || seen[trimmed] {
+			return
+		}
+		seen[trimmed] = true
+		order = append(order, trimmed)
+	}
+	for _, rel := range writtenPaths {
+		if mine[canonicalizeWrittenPath(rel, workspace)] {
+			add(rel)
+		}
+	}
+	for i := len(writtenPaths) - 1; i >= 0; i-- {
+		add(writtenPaths[i])
+	}
+
+	out := make(map[string]string)
+	var omitted []reviewOmission
+	for _, trimmed := range order {
+		assignedHere := mine[canonicalizeWrittenPath(trimmed, workspace)]
 		if !reviewableSource(trimmed) {
+			if assignedHere {
+				omitted = append(omitted, reviewOmission{Path: trimmed, Reason: "a test or a language this review does not read"})
+			}
+			continue
+		}
+		if len(out) >= criticMaxFiles {
+			omitted = append(omitted, reviewOmission{Path: trimmed, Reason: fmt.Sprintf("past the review's %d-file bound", criticMaxFiles)})
 			continue
 		}
 		abs := trimmed
@@ -317,13 +369,40 @@ func readWrittenFilesForReview(workspace string, writtenPaths []string) map[stri
 		if err != nil {
 			// A file we cannot read is not a file we can review. Skipping is
 			// correct; failing the turn over it is not.
+			if assignedHere {
+				reason := "unreadable: " + err.Error()
+				if errors.Is(err, fs.ErrNotExist) {
+					reason = "deleted by this turn"
+				}
+				omitted = append(omitted, reviewOmission{Path: trimmed, Reason: reason})
+			}
 			continue
 		}
 		// Whole: the view (criticFileView) bounds what is shown, and it has
 		// to see the whole file to find the changed regions in it.
 		out[trimmed] = string(data)
 	}
-	return out
+	return out, omitted
+}
+
+// renderReviewOmissions is the section that names what a review was not
+// shown. A reviewer with tools (a shard agent's consultation) is told to read
+// what it needs; one without (the build critic's single completion) is told
+// its review does not cover them.
+func renderReviewOmissions(omitted []reviewOmission, canRead bool) string {
+	if len(omitted) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	if canRead {
+		b.WriteString("Written by this change but not shown here (read any your review needs with your tools):\n")
+	} else {
+		b.WriteString("Written by this change but not shown here, so not covered by this review:\n")
+	}
+	for _, o := range omitted {
+		fmt.Fprintf(&b, "  - %s (%s)\n", o.Path, o.Reason)
+	}
+	return b.String()
 }
 
 // criticSpan is an inclusive, 1-indexed range of lines in a written file.

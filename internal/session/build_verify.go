@@ -951,7 +951,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	}
 
 	workspace := e.workspaceForVerification()
-	files := readWrittenFilesForReview(workspace, result.WrittenPaths)
+	files, omitted := readWrittenFilesForReview(workspace, result.WrittenPaths, nil)
 	if len(files) == 0 {
 		return nil, nil
 	}
@@ -1002,6 +1002,9 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		return nil, fmt.Errorf("adversarial review: %w", err)
 	}
 	prompt := buildCriticPrompt(views, removals, grounding, request)
+	if section := renderReviewOmissions(omitted, false); section != "" {
+		prompt += "\n" + section
+	}
 
 	// The review is bounded as every request is: by the caller's context and
 	// the client's own request bound (the HTTP client each provider is built

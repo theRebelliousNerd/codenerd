@@ -430,10 +430,10 @@ func TestReadWrittenFilesForReview(t *testing.T) {
 	mk("test_app.py", "def test_f():\n    pass\n")
 	mk("app.test.ts", "test('x', () => {})\n")
 
-	got := readWrittenFilesForReview(ws, []string{
+	got, _ := readWrittenFilesForReview(ws, []string{
 		"real.go", "real_test.go", "notes.md", "missing.go", "big.go", "  ",
 		"app.py", "test_app.py", "app.test.ts",
-	})
+	}, nil)
 
 	if _, ok := got["app.py"]; !ok {
 		t.Error("production Python file was not offered for review")

@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"codenerd/internal/broker"
@@ -43,15 +44,36 @@ func (e *Executor) recordExpertCritics(result *ExecutionResult, sel experts.Sele
 	for _, need := range sel.Needs {
 		if need.Critique {
 			e.assertTurnFact(types.Fact{Predicate: "turn_expert_critic", Args: []any{turn, experts.AgentAtom(need.Agent)}})
+			// The agent's domain files ride with the obligation: its review
+			// is shown them first (readWrittenFilesForReview).
+			if result.expertDomainFiles == nil {
+				result.expertDomainFiles = map[string][]string{}
+			}
+			key := experts.AgentKey(need.Agent)
+			for _, f := range need.Files {
+				if !slices.Contains(result.expertDomainFiles[key], f) {
+					result.expertDomainFiles[key] = append(result.expertDomainFiles[key], f)
+				}
+			}
 		}
 	}
 }
 
 // expertCritiqueTask is what a reviewing shard agent is asked: the change,
-// and the build critic's reply contract, which parseCriticFindings reads.
-func expertCritiqueTask(agent string, views, removals map[string]string, request string) string {
+// the files of its domain it covers, what it was not shown, and the build
+// critic's reply contract, which parseCriticFindings reads.
+func expertCritiqueTask(agent string, views, removals map[string]string, request string, domain []string, omitted []reviewOmission) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "As the %s shard agent, review this change for defects in your domain: a misuse of the technology, a broken contract, a wrong idiom with a real consequence. Do not edit files.\n\n", agent)
+	if len(domain) > 0 {
+		fmt.Fprintf(&b, "Your domain covers these files of the task: %s.\n", strings.Join(domain, ", "))
+	}
+	if section := renderReviewOmissions(omitted, true); section != "" {
+		b.WriteString(section)
+	}
+	if len(domain) > 0 || len(omitted) > 0 {
+		b.WriteString("\n")
+	}
 	b.WriteString("Reply with one line per real defect, exactly:\nFINDING <file>:<line> <high|medium|low>: <what is wrong and why>\n")
 	b.WriteString("Cite a line inside the change. If the change is sound, reply with exactly: NO FINDINGS\n\n")
 	b.WriteString(buildCriticPrompt(views, removals, "", request))
@@ -105,18 +127,26 @@ func (e *Executor) reviewWithShardExperts(
 		return nil, nil
 	}
 	workspace := e.workspaceForVerification()
-	views, removals, windows := turnChangeViews(workspace, readWrittenFilesForReview(workspace, result.WrittenPaths), result)
-	if len(views) == 0 {
-		return nil, nil
-	}
 	request := ""
 	if loop := activeWorkingLoop(ctx); loop != nil {
 		request = loop.task
 	}
 
+	// Each agent's packet puts its own domain files first, so the review's
+	// file bound never drops the subject it was selected for, and names
+	// every written file it was not shown.
 	var onChange []ExpertFinding
 	for _, agent := range agents {
-		answer, err := consultant.SpawnConsultation(ctx, agent, expertCritiqueTask(agent, views, removals, request))
+		domain := result.expertDomainFiles[agent]
+		files, omitted := readWrittenFilesForReview(workspace, result.WrittenPaths, domain)
+		views, removals, windows := turnChangeViews(workspace, files, result)
+		if len(views) == 0 {
+			continue
+		}
+		if len(omitted) > 0 {
+			logging.Get(logging.CategorySession).Info("shard agent %s review: %d written file(s) not shown, named to it", agent, len(omitted))
+		}
+		answer, err := consultant.SpawnConsultation(ctx, agent, expertCritiqueTask(agent, views, removals, request, domain, omitted))
 		if err != nil {
 			// Advisory, like the build critic: a review that did not
 			// complete is a missing opinion, not a failed turn.
