@@ -1,2 +1,5 @@
 chesterton_fence_warning("churn.go", "high_churn_file").
+chesterton_fence_warning("main.go", "recent_change_by_other").
 clarification_needed("churn.go").
+clarification_needed("main.go").
+recent_change_by_other("main.go").

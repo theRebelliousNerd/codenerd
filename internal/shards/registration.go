@@ -62,7 +62,9 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"code_element", "element_visibility", "element_modified",
 				"code_implements", "code_calls", "code_defines", "dependency_link",
 				"file_dir", "file_metadata_only", "treatment_scope", "modified", "active_file", "in_scope",
-				"churn_rate",
+				// The repository facts (world/repo_facts.go): the Chesterton
+				// rules join history, churn and the user to user_intent here.
+				"churn_rate", "current_user",
 				"test_coverage",
 				"test_failed", "modified_interface", "impact_graph",
 

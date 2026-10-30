@@ -92,6 +92,7 @@ unconsumed coder_learning_signal
 unconsumed coder_promote_to_long_term
 unconsumed coder_quality_mode
 unconsumed coder_safe_to_write
+unconsumed commit_file_count
 unconsumed compilation_error
 unconsumed compilation_valid
 unconsumed complex_failure
@@ -135,6 +136,7 @@ unconsumed file_in_project
 unconsumed file_modified_externally
 unconsumed final_context_include
 unconsumed focus_needs_resolution
+unconsumed focused_commit
 unconsumed fragile
 unconsumed function_in_scope
 unconsumed function_too_long

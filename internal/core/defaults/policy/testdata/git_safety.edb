@@ -1,9 +1,15 @@
 # Facts for Git Safety Testing
 
-# Git History: File, Commit, Author, Age (days), Message
-git_history("main.go", "hash1", "bob", 1, "fix bug").
-git_history("utils.go", "hash2", "alice", 5, "refactor").
-git_history("churn.go", "hash3", "charlie", 1, "updates").
+# The user and the clock (unix seconds). The recent-change window is two days
+# (172800 seconds): commits after 827200 are recent.
+current_user("jules_test").
+current_time(1000000).
+
+# Git History: File, Commit, Author, CommitTime (unix seconds), Message
+git_history("main.go", "hash1", "bob", 950000, "fix bug").
+git_history("utils.go", "hash2", "alice", 100000, "refactor").
+git_history("churn.go", "hash3", "charlie", 950000, "updates").
+git_history("mine.go", "hash4", "jules_test", 990000, "my change").
 
 # Churn Rate: File, Frequency
 churn_rate("churn.go", 6).
@@ -13,3 +19,4 @@ churn_rate("main.go", 1).
 user_intent(/current_intent, /mutation, /delete, "main.go", "").
 user_intent(/current_intent, /mutation, /refactor, "churn.go", "").
 user_intent(/current_intent, /mutation, /delete, "utils.go", "").
+user_intent(/current_intent, /mutation, /delete, "mine.go", "").

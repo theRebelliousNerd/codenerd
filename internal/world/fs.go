@@ -29,6 +29,11 @@ type Scanner struct {
 	// NewScannerWithConfig uses the patterns it was given and does not
 	// re-read the file.
 	patternsFromWorkspace bool
+
+	// repoMemo is the repository state the last measurement described
+	// (repo_facts.go), so an unchanged history is not re-read on every scan.
+	repoMu   sync.Mutex
+	repoMemo string
 }
 
 // NewScanner creates a new filesystem Scanner.

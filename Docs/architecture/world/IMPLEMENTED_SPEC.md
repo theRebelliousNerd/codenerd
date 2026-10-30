@@ -345,11 +345,13 @@ Wired by `internal/system/holographic_code_scope.go` so VirtualStore-facing scop
 
 ### 4.11 Git history
 
-**File:** `git_scanner.go` — `ScanGitHistory(ctx, root, depth)`
+**Files:** `git_scanner.go` — `ScanGitHistory(ctx, root, depth)`; `repo_facts.go` — the scan's producer
 
-- Soft skip if not a git repo
-- Emits `git_history` and churn-related facts from `git log --numstat`
-- Not in `WorldPredicates` list
+- Soft skip if not a git repo or before the first commit
+- Emits `git_history(File, Commit, Author, CommitTime, Message)` (one row per commit and file, unix-second `CommitTime`, paths relative to the workspace) and `churn_rate(File, Commits)` from `git log --numstat --relative --no-renames`
+- `ScanWorkspaceIncremental` attaches them, plus `current_user` (the author name `git var GIT_AUTHOR_IDENT` resolves), to every result as `RepoFacts` over the last `RepoHistoryDepth` commits, but only when HEAD or that name moved since the scanner last measured (`RepoMeasured`)
+- `ApplyIncrementalResult` replaces `GitPredicates` whole for a measured result, changed files or not; an unmeasured result leaves them alone
+- Age is not stored: `policy/git_safety.mg` judges recency from `CommitTime` against `current_time`
 
 ---
 

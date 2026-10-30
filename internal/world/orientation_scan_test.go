@@ -132,6 +132,9 @@ func TestIncrementalScanRefreshesOrientationForUnchangedWorldAndTrackedDocumentC
 		t.Fatalf("apply initial result: %v", err)
 	}
 
+	// The initial scan measured the repository, so its apply replaced the git
+	// rows; the stable scan below must retract nothing.
+	kernel.retracted = nil
 	quiet, err := scanner.ScanWorkspaceIncremental(ctx, root, nil, IncrementalOptions{SkipWhenUnchanged: true})
 	if err != nil || quiet == nil || !quiet.Unchanged || quiet.Orientation == nil || quiet.Orientation.Refreshed {
 		t.Fatalf("stable scan: result=%+v err=%v; want unchanged world and stable orientation", quiet, err)
@@ -173,8 +176,10 @@ func TestIncrementalScanRefreshesOrientationForUnchangedWorldAndTrackedDocumentC
 	if kernel.tx.commits != 1 {
 		t.Fatalf("orientation applied in %d transactions; want one", kernel.tx.commits)
 	}
-	if len(kernel.retracted) != 0 {
-		t.Fatalf("world-Unchanged orientation refresh retracted global world facts: %v", kernel.retracted)
+	// The commit moved the repository history, so the repository rows are
+	// replaced; nothing else may be retracted.
+	if !reflect.DeepEqual(kernel.retracted, GitPredicates) {
+		t.Fatalf("world-Unchanged orientation refresh retracted %v; want only the repository rows %v", kernel.retracted, GitPredicates)
 	}
 	var sawOld, sawNew bool
 	for _, row := range refreshed.Orientation.Removed {

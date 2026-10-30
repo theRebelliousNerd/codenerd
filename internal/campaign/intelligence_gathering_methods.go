@@ -126,7 +126,8 @@ func (g *IntelligenceGatherer) gatherGitHistory(ctx context.Context, report *Int
 		case "churn_rate":
 			if len(fact.Args) >= 2 {
 				path, _ := fact.Args[0].(string)
-				rate, _ := fact.Args[1].(int)
+				count, _ := fact.Args[1].(int64)
+				rate := int(count)
 				churnMap[path] = rate
 			}
 		case "git_history":

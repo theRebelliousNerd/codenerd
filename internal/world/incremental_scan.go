@@ -52,6 +52,15 @@ type IncrementalResult struct {
 	// kernel's rows with exactly these.
 	TreatmentFacts []core.Fact
 
+	// RepoMeasured reports that RepoFacts is the complete current set of
+	// repository rows (git_history, churn_rate, current_user). Applying such a
+	// result replaces the kernel's rows for those predicates with exactly these.
+	// It is false for a workspace that is not a repository and when the history
+	// has not moved since this scanner last measured it; applying then leaves
+	// the kernel's rows alone.
+	RepoMeasured bool
+	RepoFacts    []core.Fact
+
 	// Orientation is the exact projection delta observed by orient.Refresh.
 	// It is present even when the workspace source census is unchanged.
 	Orientation *orient.RefreshResult `json:"-"`
@@ -85,7 +94,20 @@ func isNonCanonicalWorldPath(p string) bool {
 
 // ScanWorkspaceIncremental performs a fast, cache-aware scan.
 // It uses FileCache for change detection and LocalStore (if provided) for per-file fact caching.
+// Every result, including an unchanged one, also carries the repository facts
+// when its history moved since this scanner last measured it (git_facts.go).
 func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db *store.LocalStore, opts IncrementalOptions) (*IncrementalResult, error) {
+	res, err := s.scanIncremental(ctx, root, db, opts)
+	if err != nil || res == nil {
+		return res, err
+	}
+	if err := s.attachRepoFacts(ctx, root, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.LocalStore, opts IncrementalOptions) (*IncrementalResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

@@ -115,7 +115,7 @@ func TestScanGitHistory(t *testing.T) {
 					t.Errorf("Expected filename 'test.go', got '%v'", f.Args[0])
 				}
 				// churn_rate is number of commits touching the file, so it should be 2
-				if f.Args[1] != 2 {
+				if f.Args[1] != int64(2) {
 					t.Errorf("Expected churn count 2, got '%v'", f.Args[1])
 				}
 			default:

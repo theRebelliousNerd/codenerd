@@ -424,11 +424,31 @@ coupled_files_linked(FileA, FileB) :-
     N >= 3,
     dependency_link(FileB, FileA, _).
 
-# Helper: Files committed together in the same commit hash
-# Use FileA < FileB to avoid duplicate pairs (A,B) and (B,A)
+# A commit that touches more than this many files (a reformat, a vendored
+# import, an initial import) is not evidence that any two of its files change
+# together, and pairing its files costs the square of its size: a thousand-file
+# commit exceeded the evaluation's fact limit. It costs a count instead.
+Decl coupling_commit_max_files(Files).
+coupling_commit_max_files(15).
+
+Decl commit_file_count(Hash, Files).
+
+commit_file_count(Hash, Files) :-
+    git_history(File, Hash, Author, CommitTime, Message)
+    |> do fn:group_by(Hash), let Files = fn:count().
+
+Decl focused_commit(Hash).
+
+focused_commit(Hash) :-
+    coupling_commit_max_files(Max),
+    commit_file_count(Hash, Files),
+    Files <= Max.
+
+# Helper: Files committed together in the same focused commit
 Decl co_committed_files(FileA, FileB, Hash).
 
 co_committed_files(FileA, FileB, Hash) :-
+    focused_commit(Hash),
     git_history(FileA, Hash, _, _, _),
     git_history(FileB, Hash, _, _, _),
     FileA != FileB.

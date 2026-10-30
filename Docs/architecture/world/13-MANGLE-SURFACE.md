@@ -90,9 +90,9 @@ Used by `ApplyIncrementalResult` when `Full=true` via `kernel.RemoveFactsByPredi
 
 | Predicate | Emitter |
 |-----------|---------|
-| `git_history` (+ churn maps as implemented) | ScanGitHistory |
+| `git_history`, `churn_rate`, `current_user` | ScanGitHistory via the incremental scan (`repo_facts.go`) |
 
-Outside replace set.
+Replaced whole when the history moves (`GitPredicates`); outside the scanner replace set.
 
 ## Policy consumption examples (core corpus)
 

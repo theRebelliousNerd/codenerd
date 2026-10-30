@@ -20,7 +20,7 @@ package world
 //	                             + is_test_function (rides with code_element)
 //	session run (the focus)    code_element + element_* for the file a     per turn,
 //	                           turn is looking at (codedom_facts.go)        re-parsed on edit
-//	git scanner                git_history, churn_rate                 on demand
+//	git scanner                git_history, churn_rate, current_user   when HEAD or the author moves
 //	WorldModelIngestorShard    file_topology, symbol_graph (background) shard lifetime
 //
 // The rule the matrix encodes: a writer may wipe a predicate only if the same
@@ -120,10 +120,14 @@ var SessionScopePredicates = []string{
 	"is_test_function",
 }
 
-// GitPredicates are emitted by the git scanner on demand.
+// GitPredicates are emitted by the git scanner (repo_facts.go) and replaced
+// whole whenever the repository's history moves. current_user is the author
+// identity of the workspace's git config, spelled the way git_history records
+// authors, so a rule can tell "my commit" from "someone else's".
 var GitPredicates = []string{
 	"git_history",
 	"churn_rate",
+	"current_user",
 }
 
 // OwnerGroup is one row of the ownership matrix: a writer, what its
@@ -143,7 +147,7 @@ var OwnerGroups = []OwnerGroup{
 	{"deep / Cartographer", "replaced per file by a deep scan only", DeepPredicates},
 	{"lsp", "projected by language servers; a scan must not delete these", LSPPredicates},
 	{"session scope", "ephemeral, session-lifetime", SessionScopePredicates},
-	{"git", "on-demand git scanner", GitPredicates},
+	{"git", "replaced whole when the repository history moves", GitPredicates},
 }
 
 // WorldPredicates enumerates every EDB predicate produced by the world model,

@@ -220,8 +220,10 @@ Decl any_action_denied(Flag) bound [/name].
 # SECTION 21: GIT-AWARE SAFETY (Chesterton's Fence)
 # =============================================================================
 
-# git_history(FilePath, CommitHash, Author, AgeDays, Message)
-Decl git_history(FilePath, CommitHash, Author, AgeDays, Message) bound [/string, /string, /string, /number, /string].
+# git_history(FilePath, CommitHash, Author, CommitTime, Message)
+# One row per commit and file; CommitTime is unix seconds, a measurement. Age is
+# judged in policy against current_time and never stored.
+Decl git_history(FilePath, CommitHash, Author, CommitTime, Message) bound [/string, /string, /string, /number, /string].
 
 # git_state(Attribute, Value) - summarized git context for session injection
 Decl git_state(Attribute, Value) bound [/name, /string].
@@ -229,8 +231,19 @@ Decl git_state(Attribute, Value) bound [/name, /string].
 # churn_rate(FilePath, ChangeFrequency)
 Decl churn_rate(FilePath, ChangeFrequency) bound [/string, /number].
 
+# current_user(UserName) - the author name the repository would record for a
+# commit made here, spelled like git_history's Author. Absent when it cannot say.
+Decl current_user(UserName) bound [/string].
+
 # current_time(Timestamp) - current system time for learning timestamps
 Decl current_time(Timestamp) bound [/number].
+
+# git_recent_change_days(Days) - what "recently changed" means (a policy constant)
+Decl git_recent_change_days(Days) bound [/number].
+
+# recent_change_by_other(FilePath) - derived predicate
+# True if the file was changed within git_recent_change_days by a different author
+Decl recent_change_by_other(FilePath) bound [/string].
 
 # chesterton_fence_warning(FilePath, Reason) - derived predicate
 # Warns before deleting recently-changed code

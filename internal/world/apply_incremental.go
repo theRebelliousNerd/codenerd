@@ -27,6 +27,11 @@ func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 			return err
 		}
 	}
+	// Repository facts follow the repository's history, not the source census,
+	// so they apply whether or not any file changed.
+	if err := applyRepoFacts(kernel, res); err != nil {
+		return err
+	}
 	if res.Unchanged {
 		// The source world has no delta to apply. Orientation is independent:
 		// publish its exact projection change without retracting world globals.
