@@ -155,6 +155,14 @@ Decl unhandled_case_count_computed(ShardName, Count) bound [/string, /number].
 # Aggregation computed by Go runtime
 Decl pending_subtask_count_computed(Count) bound [/number].
 
+# context_pressure_level(CampaignID, Level) - derived from campaign_context_use
+# against the campaign_context_threshold percentages (campaign_rules.mg 4.1).
+Decl context_pressure_level(CampaignID, Level) bound [/string, /name].
+
+# campaign_context_use(CampaignID, UsedTokens, BudgetTokens) - what the context
+# pager measured: tokens its phase context uses, and the budget.
+Decl campaign_context_use(CampaignID, UsedTokens, BudgetTokens) bound [/string, /number, /number].
+
 # relevant_to_intent(Predicate, Intent) - Maps predicates to user intents
 Decl relevant_to_intent(Predicate, Intent) bound [/string, /name].
 

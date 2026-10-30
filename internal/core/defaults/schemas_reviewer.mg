@@ -427,3 +427,9 @@ Decl guard_dominates(File, Func, GuardLine, EndLine) bound [/string, /name, /num
 # Line: Line number
 # These accesses are inherently safe by the language's semantics
 Decl safe_access(Var, AccessType, File, Line) bound [/name, /name, /string, /number].
+
+# placeholder_site(File, Line, Kind) - a place a file says "not done yet"
+# (world/review_metrics.go). Kind: /todo (a TODO/FIXME/XXX/HACK comment),
+# /empty_function (a named function with no statements), /not_implemented (a
+# body that only panics or returns an error saying so).
+Decl placeholder_site(File, Line, Kind) bound [/string, /number, /name].

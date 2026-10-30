@@ -113,3 +113,32 @@ func TestGoReviewFacts_UnparseableFileStillHasALineCount(t *testing.T) {
 		t.Errorf("an unparseable file yields only its line count: %v", facts)
 	}
 }
+
+func TestGoReviewFacts_PlaceholderSitesAreWhatTheFileSaysIsUnfinished(t *testing.T) {
+	src := `package p
+
+// TODO: handle the error case
+func Pending() {}
+
+func Stub() error { return errors.New("not implemented") }
+
+func Real() int { return 1 }
+
+// Close satisfies io.Closer by doing nothing, on purpose.
+func (t T) Close() {}
+`
+	got := map[string]bool{}
+	for _, f := range goReviewFacts("p/p.go", []byte(src)) {
+		if f.Predicate == "placeholder_site" {
+			got[fmt.Sprint(f.Args[1])+":"+fmt.Sprint(f.Args[2])] = true
+		}
+	}
+	for _, want := range []string{"3:/todo", "4:/empty_function", "6:/not_implemented"} {
+		if !got[want] {
+			t.Errorf("missing placeholder site %s: %v", want, got)
+		}
+	}
+	if len(got) != 3 {
+		t.Errorf("a real function and a deliberate no-op method are not placeholders: %v", got)
+	}
+}

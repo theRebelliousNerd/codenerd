@@ -280,7 +280,11 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 					upcoming = append(upcoming, t)
 				}
 			}
-			_ = o.contextPager.PrefetchNextTasks(ctx, upcoming, 3)
+			// How many tasks to prefetch is the policy's: it shrinks to nothing as
+			// the pager's budget fills (campaign_prefetch_limit).
+			if limit := o.prefetchLimit(); limit > 0 {
+				_ = o.contextPager.PrefetchNextTasks(ctx, upcoming, limit)
+			}
 			o.lastPhaseID = currentPhase.ID
 		}
 

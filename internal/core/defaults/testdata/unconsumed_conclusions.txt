@@ -48,7 +48,6 @@ unconsumed build_command
 unconsumed build_healthy
 unconsumed campaign_block_reason
 unconsumed campaign_coder_focus
-unconsumed campaign_complete
 unconsumed campaign_failure_pattern
 unconsumed campaign_has_issues
 unconsumed campaign_has_multiple_phases
@@ -142,7 +141,6 @@ unconsumed has_compilation_error
 unconsumed has_compression
 unconsumed has_deny_edit
 unconsumed has_edit_block
-unconsumed has_error_check_at
 unconsumed has_errors
 unconsumed has_external_callers
 unconsumed has_file_content
@@ -212,7 +210,6 @@ unconsumed intent_semantic_type
 unconsumed intent_state_category
 unconsumed is_api_handler_function
 unconsumed is_context_aware
-unconsumed is_error_checked
 unconsumed is_error_finding
 unconsumed is_guarded
 unconsumed is_high_priority_test
@@ -236,7 +233,6 @@ unconsumed mcp_server_facet_available
 unconsumed mcp_tool_browsable
 unconsumed method_in_scope
 unconsumed method_of
-unconsumed milestone_reached
 unconsumed minimal_implementation_mode
 unconsumed missing_skeleton_category
 unconsumed moonshot_capability
@@ -293,7 +289,6 @@ unconsumed project_write_protected
 unconsumed propose_new_rule
 unconsumed propose_safety_rule
 unconsumed pytest_repair_priority
-unconsumed quality_violation_detected
 unconsumed recent_armory_success
 unconsumed recommend_downgrade
 unconsumed recommend_extraction
@@ -308,7 +303,6 @@ unconsumed regression_battery_refused
 unconsumed regression_task_forbidden
 unconsumed related_context
 unconsumed related_failures
-unconsumed remediation_task_needed
 unconsumed repeated_violation_pattern
 unconsumed replan_needed
 unconsumed requires_contract_check
@@ -409,7 +403,6 @@ unconsumed turn_tests_green
 unconsumed turn_tests_red
 unconsumed turn_vet_green
 unconsumed unaddressed_high_risk
-unconsumed unchecked_error
 unconsumed unhandled_case_count
 unconsumed unresolved_failure
 unconsumed unsafe_deref

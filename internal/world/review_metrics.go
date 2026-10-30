@@ -17,6 +17,7 @@ import (
 //	cyclomatic_complexity(File, Function, Complexity)
 //	nesting_depth(File, Function, Depth)
 //	detected_security_flow(File, Line, SinkType, SourceType, Confidence)
+//	placeholder_site(File, Line, Kind)
 //
 // These are measurements only. Whether a function is too complex, a file too
 // long, or a flow a finding is policy (reviewer.mg thresholds and
@@ -48,7 +49,7 @@ func goReviewFacts(canonical string, content []byte) []core.Fact {
 		Args:      []any{canonical, int64(lineCount(content))},
 	}}
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, canonical, content, 0)
+	file, err := parser.ParseFile(fset, canonical, content, parser.ParseComments)
 	if err != nil {
 		logging.WorldDebug("review measurements: parse failed for %s: %v", canonical, err)
 		return facts
@@ -66,7 +67,74 @@ func goReviewFacts(canonical string, content []byte) []core.Fact {
 		facts = append(facts, securityFlows(canonical, fset, fn)...)
 	}
 	facts = append(facts, hardcodedCredentials(canonical, fset, file)...)
+	facts = append(facts, placeholderSites(canonical, fset, file)...)
 	return facts
+}
+
+var placeholderMarkers = []string{"TODO", "FIXME", "XXX", "HACK"}
+
+// placeholderSites finds where a file says it is unfinished: marker comments, a
+// named function with no statements, a body that only reports "not implemented".
+// An empty function is flagged only when it is not a method that satisfies an
+// interface by doing nothing on purpose: a bare no-op method with a receiver is
+// common and legitimate, so only plain functions count, and only outside tests.
+func placeholderSites(canonical string, fset *token.FileSet, file *ast.File) []core.Fact {
+	var facts []core.Fact
+	site := func(pos token.Pos, kind string) {
+		facts = append(facts, core.Fact{
+			Predicate: "placeholder_site",
+			Args:      []any{canonical, int64(fset.Position(pos).Line), types.MangleAtom(kind)},
+		})
+	}
+	for _, group := range file.Comments {
+		for _, c := range group.List {
+			text := c.Text
+			for _, m := range placeholderMarkers {
+				if strings.Contains(text, m) {
+					site(c.Pos(), "/todo")
+					break
+				}
+			}
+		}
+	}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil || fn.Recv != nil {
+			continue
+		}
+		switch {
+		case len(fn.Body.List) == 0:
+			site(fn.Pos(), "/empty_function")
+		case len(fn.Body.List) == 1 && reportsNotImplemented(fn.Body.List[0]):
+			site(fn.Pos(), "/not_implemented")
+		}
+	}
+	return facts
+}
+
+// reportsNotImplemented reports a statement that only panics or returns an
+// error whose text says the function is not implemented.
+func reportsNotImplemented(stmt ast.Stmt) bool {
+	var exprs []ast.Expr
+	switch s := stmt.(type) {
+	case *ast.ExprStmt:
+		exprs = []ast.Expr{s.X}
+	case *ast.ReturnStmt:
+		exprs = s.Results
+	}
+	said := false
+	for _, e := range exprs {
+		ast.Inspect(e, func(n ast.Node) bool {
+			if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				lower := strings.ToLower(lit.Value)
+				if strings.Contains(lower, "not implemented") || strings.Contains(lower, "unimplemented") || strings.Contains(lower, "not yet implemented") {
+					said = true
+				}
+			}
+			return true
+		})
+	}
+	return said
 }
 
 func lineCount(content []byte) int {

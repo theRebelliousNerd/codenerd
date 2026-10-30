@@ -16,6 +16,12 @@
 # current_task(TaskID) - the task currently being executed
 Decl current_task(TaskID) bound [/string].
 
+# quality_violation(TaskID, ViolationType) - read by campaign_rules.mg
+# (quality_violation_detected); nothing asserts it yet.
+# ViolationType: /mock_code, /placeholder, /hallucinated_api, /incomplete,
+#                /hardcoded, /empty_function, /missing_errors, /fake_tests
+Decl quality_violation(TaskID, ViolationType) bound [/string, /name].
+
 # escalation_required(TaskID, Reason) - derived (campaign_rules.mg): must
 # escalate to user
 Decl escalation_required(TaskID, Reason) bound [/string, /string].

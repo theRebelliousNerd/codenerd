@@ -210,18 +210,55 @@ phase_blocked(PhaseID, /unverified_tasks) :-
 # 3.2 Code Quality Gates
 # -----------------------------------------------------------------------------
 
-quality_violation_detected(TaskID, /no_tests) :-
-    campaign_task(TaskID, _, _, /completed, /file_create),
+# What a completed task's files measurably carry. These read the plan's
+# artifacts and the world model (placeholder_site, detected_security_flow,
+# unchecked_error, test_file_for), so they run in the world shard; a task that is
+# itself a remediation is never judged again, so a fix that falls short is
+# reported, not re-spawned forever.
+Decl quality_is_remediation(TaskID) bound [/string].
+quality_is_remediation(TaskID) :-
+    task_remediation_target(TaskID, _, _).
+
+Decl quality_has_test(Path) bound [/string].
+quality_has_test(Path) :- test_file_for(_, Path).
+
+quality_violation(TaskID, /placeholder) :-
     task_artifact(TaskID, /source_file, Path, _),
-    !test_coverage(Path).
+    placeholder_site(Path, _, _),
+    !quality_is_remediation(TaskID).
+
+quality_violation(TaskID, /hardcoded) :-
+    task_artifact(TaskID, /source_file, Path, _),
+    detected_security_flow(Path, _, /hardcoded_secret, _, _),
+    !quality_is_remediation(TaskID).
+
+quality_violation(TaskID, /missing_errors) :-
+    task_artifact(TaskID, /source_file, Path, _),
+    unchecked_error(Path, _, _),
+    !quality_is_remediation(TaskID).
+
+quality_violation(TaskID, /no_tests) :-
+    task_artifact(TaskID, /source_file, Path, _),
+    file_topology(Path, _, /go, _, /false),
+    !quality_has_test(Path),
+    !quality_is_remediation(TaskID).
+
+quality_violation_detected(TaskID, ViolationType) :-
+    quality_violation(TaskID, ViolationType).
 
 # Task with quality violations needs remediation
 task_needs_remediation(TaskID) :-
     quality_violation_detected(TaskID, _).
 
-# Auto-spawn remediation task
+# A remediation is owed once per task and violation; the orchestrator appends
+# the task and records what it targets, which retires the debt here.
 remediation_task_needed(TaskID, ViolationType) :-
-    quality_violation_detected(TaskID, ViolationType).
+    quality_violation_detected(TaskID, ViolationType),
+    !remediation_task_exists(TaskID, ViolationType).
+
+Decl remediation_task_exists(OriginalTaskID, ViolationType) bound [/string, /name].
+remediation_task_exists(OriginalTaskID, ViolationType) :-
+    task_remediation_target(_, OriginalTaskID, ViolationType).
 
 # -----------------------------------------------------------------------------
 # 3.3 Build & Test Gates
@@ -260,6 +297,43 @@ phase_blocked(PhaseID, /tests_failed) :-
 # -----------------------------------------------------------------------------
 # 4.1 Context Pressure Detection
 # -----------------------------------------------------------------------------
+
+# Context pressure is a measurement judged here. The context pager reports the
+# tokens its phase context uses and the budget (campaign_context_use); the
+# thresholds are policy facts; integer cross-multiplication does the percentage
+# (Used*100 >= Budget*Percent), so no ratio is computed in Go and no virtual
+# predicate stands in for one. A level at or above a threshold is reached, so a
+# critical campaign is also high.
+Decl campaign_context_threshold(Level, Percent) bound [/name, /number].
+campaign_context_threshold(/high, 80).
+campaign_context_threshold(/critical, 95).
+
+context_pressure_level(CampaignID, Level) :-
+    campaign_context_use(CampaignID, Used, Budget),
+    Budget > 0,
+    campaign_context_threshold(Level, Percent),
+    Scaled = fn:mult(Used, 100),
+    Floor = fn:mult(Budget, Percent),
+    Scaled >= Floor.
+
+context_pressure_high(CampaignID) :-
+    context_pressure_level(CampaignID, /high).
+
+context_pressure_critical(CampaignID) :-
+    context_pressure_level(CampaignID, /critical).
+
+# What the pager does about it: how many upcoming tasks it prefetches context
+# for. Prefetching spends the budget the running phase is already short of.
+# (The orchestrator reads this instead of a constant.)
+Decl campaign_prefetch_limit(CampaignID, Tasks) bound [/string, /number].
+campaign_prefetch_limit(CampaignID, 0) :-
+    context_pressure_critical(CampaignID).
+campaign_prefetch_limit(CampaignID, 1) :-
+    context_pressure_high(CampaignID),
+    !context_pressure_critical(CampaignID).
+campaign_prefetch_limit(CampaignID, 3) :-
+    campaign_context_use(CampaignID, _, _),
+    !context_pressure_high(CampaignID).
 
 # -----------------------------------------------------------------------------
 # 4.2 Phase Context Isolation
@@ -495,6 +569,14 @@ phase_nearly_complete(PhaseID) :-
     campaign_phase(PhaseID, _, _, _, /in_progress, _),
     all_phase_tasks_complete(PhaseID).
 
+# Campaign is past halfway point: at least half its phases are done
+# (Done*2 >= Total, integer arithmetic; no Go-computed flag).
+campaign_past_halfway(CampaignID) :-
+    campaign_progress(CampaignID, Done, Total, _, _),
+    Total > 0,
+    Twice = fn:mult(Done, 2),
+    Twice >= Total.
+
 # -----------------------------------------------------------------------------
 # 7.2 Milestone Detection
 # -----------------------------------------------------------------------------
@@ -507,10 +589,25 @@ milestone_reached(CampaignID, /foundation) :-
 milestone_reached(CampaignID, /completion) :-
     campaign_complete(CampaignID).
 
+# Halfway milestone
+milestone_reached(CampaignID, /halfway) :-
+    campaign_past_halfway(CampaignID).
+
 # Integration phase complete = "integrated" milestone
 milestone_reached(CampaignID, /integrated) :-
     campaign_phase(PhaseID, CampaignID, _, _, /completed, _),
     phase_category(PhaseID, /integration).
+
+# A milestone is announced once: the orchestrator emits an event for each
+# pending one and records it as campaign_milestone, which retires it here.
+Decl milestone_recorded(CampaignID, Milestone) bound [/string, /name].
+milestone_recorded(CampaignID, Milestone) :-
+    campaign_milestone(CampaignID, Milestone, _, _).
+
+Decl milestone_pending(CampaignID, Milestone) bound [/string, /name].
+milestone_pending(CampaignID, Milestone) :-
+    milestone_reached(CampaignID, Milestone),
+    !milestone_recorded(CampaignID, Milestone).
 
 # -----------------------------------------------------------------------------
 # 7.3 Progress Events
@@ -737,7 +834,8 @@ any_phase_stuck(/yes) :-
 campaign_healthy(CampaignID) :-
     current_campaign(CampaignID),
     !campaign_is_blocked(CampaignID),
-    !any_phase_stuck(/yes).
+    !any_phase_stuck(/yes),
+    !context_pressure_critical(CampaignID).
 
 # Campaign has issues
 campaign_has_issues(CampaignID) :-

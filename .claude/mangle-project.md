@@ -111,3 +111,4 @@ real-kernel boot test.
   files. Chain rules must start from a world-owned premise
   (`intelligence_campaign_path`) or they fire partially in the campaign shard.
   Test: `internal/system/plan_intelligence_boot_test.go`.
+- Campaign management (`campaign_rules.mg`, `campaign/orchestrator_policy_signals.go`): the pager's use of its budget -> `campaign_prefetch_limit` (integer cross-multiplication, thresholds are facts); measured placeholders, credentials, dropped errors and missing tests -> `remediation_task_needed` -> fix tasks; progress -> `milestone_pending` -> events. Tests: `internal/system/campaign_policy_boot_test.go`, `internal/campaign/orchestrator_policy_signals_test.go`.

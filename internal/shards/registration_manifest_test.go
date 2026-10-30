@@ -79,6 +79,7 @@ func TestDefaultShardPredicateManifestsAreUnambiguous(t *testing.T) {
 		"mcp_tool_risk_source":        {"policy", "world"},
 		"mcp_tool_schema_hash":        {"policy", "cortex"},
 		"task_artifact":               {"world", "campaign"},
+		"task_remediation_target":     {"world", "campaign"},
 		"intelligence_churn_hotspot":  {"world", "campaign"},
 		"intelligence_code_pattern":   {"world", "campaign"},
 		"intelligence_safety_warning": {"world", "campaign"},

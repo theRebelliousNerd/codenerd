@@ -597,6 +597,7 @@ func (o *Orchestrator) completePhase(phase *Phase) {
 		}
 
 		o.emitEvent(EventPhaseCompleted, phase.ID, "", phase.Name, nil)
+		o.announceMilestones()
 
 		o.mu.Lock()
 		o.persistCampaign("phase completion")

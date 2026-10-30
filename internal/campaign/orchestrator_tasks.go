@@ -154,6 +154,15 @@ func (o *Orchestrator) runPhaseTasks(ctx context.Context, phase *Phase) error {
 		// checkpoint and finish. The kernel is asked only when nothing is
 		// running, not on every poll.
 		if len(active) == 0 && o.phaseTasksDone(phase) {
+			// Before the phase is judged, what its tasks wrote is measured: a
+			// completed task whose files carry placeholders, credentials,
+			// dropped errors or no tests is owed a fix (remediation_task_needed),
+			// and the phase stays open while the fix runs.
+			if appended, err := o.appendQualityRemediation(ctx, phase.ID); err != nil {
+				logging.Get(logging.CategoryCampaign).Warn("Phase %s: quality remediation not appended: %v", phase.ID, err)
+			} else if appended > 0 {
+				continue
+			}
 			logging.Campaign("Phase %s complete, running checkpoint", phase.Name)
 			allPassed, failedSummary, err := o.runPhaseCheckpoint(ctx, phase)
 			if err != nil {

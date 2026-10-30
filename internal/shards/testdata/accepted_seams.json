@@ -36,12 +36,6 @@
     "reason": "reporting only"
   },
   {
-    "clause": "quality_violation_detected(TaskID,/no_tests) :- campaign_task(TaskID,_,_,/completed,/file_create), task_artifact(TaskID,/source_file,Path,_), !test_coverage(Path).",
-    "file": "campaign_rules.mg",
-    "head": "quality_violation_detected",
-    "reason": "needs restructure"
-  },
-  {
     "file": "constitution.mg",
     "head": "human_approval_required",
     "clause": "human_approval_required(ActionID) :- pending_action(ActionID,Action,Target,Payload,_), dangerous_action(Action), human_approvable(Action), !permitted(Action,Target,Payload), !dangerous_content(Action,Payload), !dangerous_content(Action,Target), !restricted_tuple(Action,Target,Payload).",

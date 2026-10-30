@@ -86,7 +86,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"has_pydantic_base", "rs_struct", "rs_derive", "rs_serde_rename",
 				"rs_unsafe_block", "ts_interface", "ts_interface_prop", "ts_class",
 				"mg_negation_rule", "mg_recursive_rule",
-				"cyclomatic_complexity", "nesting_depth", "file_line_count", "detected_security_flow",
+				"cyclomatic_complexity", "nesting_depth", "file_line_count", "detected_security_flow", "placeholder_site",
 				"git_history", "review_finding",
 				"pytest_failure",
 				// Edit plans and pending mutations are judged against the
@@ -312,7 +312,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 			// mandate admission reads a bounded copy here.
 			ConsumerPredicates: []string{
 				"turn_expert_card",
-				"task_artifact",
+				"task_artifact", "task_remediation_target",
 				"intelligence_churn_hotspot", "intelligence_safety_warning",
 				"intelligence_test_coverage", "intelligence_code_pattern",
 			},
@@ -500,10 +500,11 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// intelligence_* facts.
 				"shard_profile",
 				"shard_performing_well",
-
+				"campaign_milestone",
+				"doc_reference",
 				"context_pressure_high",
 				"context_pressure_critical",
-
+				"task_remediation_target",
 				"intelligence_world_fact",
 				"intelligence_churn_hotspot",
 				"intelligence_learning_pattern",
@@ -516,6 +517,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"intelligence_previous_campaign",
 				"intelligence_strategic_knowledge",
 				"intelligence_knowledge_link",
+				"campaign_context_use",
 				"knowledge_ingested",
 				// Traces are scored against the campaign task that produced
 				// them (trace_logic.mg, campaign_autopoiesis.mg).

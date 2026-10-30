@@ -58,6 +58,12 @@ const (
 	EventContextError     OrchestratorEventType = "context_error"
 	EventCompressionError OrchestratorEventType = "compression_error"
 
+	// Progress judged by policy (campaign_rules.mg): a milestone the kernel
+	// derived and had not seen recorded, and the fix tasks appended for
+	// quality violations measured in a completed task's files.
+	EventMilestoneReached   OrchestratorEventType = "milestone_reached"
+	EventQualityRemediation OrchestratorEventType = "quality_remediation"
+
 	// Scheduling and durability.
 	EventTaskLockTimeout     OrchestratorEventType = "task_lock_timeout"
 	EventTaskWriteSetMissing OrchestratorEventType = "task_write_set_missing"
@@ -103,11 +109,13 @@ var orchestratorEventTypes = []OrchestratorEventType{
 	EventDiagnosticTaskInserted,
 	EventGenerationDegraded,
 	EventLogicFailureEscalated,
+	EventMilestoneReached,
 	EventNewRequirementFailed,
 	EventNewRequirementDone,
 	EventNewRequirementReceived,
 	EventPhaseCompleted,
 	EventPhaseStarted,
+	EventQualityRemediation,
 	EventReplan,
 	EventReplanFailed,
 	EventReplanTriggered,

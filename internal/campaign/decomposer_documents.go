@@ -372,6 +372,8 @@ func (d *Decomposer) seedDocFacts(campaignID, goal string, files []FileMetadata)
 		}
 	}
 
+	facts = append(facts, docReferenceFacts(files)...)
+
 	if err := d.kernel.AssertBatch(facts); err != nil {
 		logging.Get(logging.CategoryCampaign).Error(
 			"Failed to assert doc facts batch campaign=%s fact_count=%d: %v",

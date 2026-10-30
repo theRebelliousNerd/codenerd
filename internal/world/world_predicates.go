@@ -68,6 +68,7 @@ var ScannerPredicates = []string{
 	"cyclomatic_complexity",
 	"nesting_depth",
 	"detected_security_flow",
+	"placeholder_site",
 }
 
 // ImportGraphPredicates are whole-graph measurements of the import edges
