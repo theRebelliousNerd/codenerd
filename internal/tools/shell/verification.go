@@ -197,7 +197,7 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 	if cmd.ProcessState != nil {
 		code = cmd.ProcessState.ExitCode()
 		if tests {
-			tools.RecordTestRun(ctx, tools.TestRun{Argv: argv, ExitCode: code})
+			tools.RecordTestRun(ctx, tools.TestRunOf(cmd, argv, code))
 		}
 	} else if runErr != nil {
 		code = -1

@@ -157,13 +157,26 @@ func classifyExit(g gates.Gate, exit int) obligationOutcome {
 }
 
 // matchingReceipt is the latest test process the turn started after its last
-// write whose command is exactly the planned check's. Matching a command is
-// the reference rule for "this process satisfies that obligation"; a process
-// that is merely a passing test is not one.
-func matchingReceipt(result *ExecutionResult, argv []string) (sequencedTestRun, bool) {
+// write that is exactly the planned check's invocation: the same argv, run in
+// the same directory, under the same environment (want, from gates.Command
+// and processutil.Identity). Matching the invocation is the reference rule
+// for "this process satisfies that obligation"; a process that is merely a
+// passing test is not one.
+//
+// Equal argv is not the same check: `cargo test` in an independent nested
+// project selects that project's manifest, and the matcher compared argv
+// alone, so a nested run discharged the root's check without running it
+// (audit workspace-test-receipt-invocation-identity). A receipt with no
+// directory or environment -- a producer that could not see its process --
+// is unknown, never the root, and matches nothing.
+func matchingReceipt(result *ExecutionResult, want tools.TestRun) (sequencedTestRun, bool) {
+	if want.Dir == "" || want.EnvDigest == "" {
+		return sequencedTestRun{}, false
+	}
 	for i := len(result.testReceipts) - 1; i >= 0; i-- {
 		r := result.testReceipts[i]
-		if r.Seq > result.lastWriteSeq && slices.Equal(r.Run.Argv, argv) {
+		if r.Seq > result.lastWriteSeq && slices.Equal(r.Run.Argv, want.Argv) &&
+			r.Run.Dir == want.Dir && r.Run.EnvDigest == want.EnvDigest {
 			return r, true
 		}
 	}

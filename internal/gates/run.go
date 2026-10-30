@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"codenerd/internal/build"
+	"codenerd/internal/processutil"
 )
 
 // Result is one gate run.
@@ -67,26 +68,19 @@ func Run(ctx context.Context, root string, g Gate, node string) Result {
 	res := Result{Gate: g, ExitCode: -1}
 	if g.Scope == ScopeNode {
 		res.Node = node
-		res.Argv = g.ForNode(node)
-	} else {
-		res.Argv = append([]string(nil), g.Argv...)
 	}
-	if len(res.Argv) == 0 {
-		res.Err = errors.New("empty command")
+	cmd, argv, err := Command(ctx, root, g, node)
+	res.Argv = argv
+	if err != nil {
+		res.Err = err
 		return res
-	}
-
-	cmd := command(ctx, root, res.Argv)
-	cmd.Dir = root
-	for _, k := range sortedEnvKeys(g.Env) {
-		cmd.Env = setEnv(cmd.Env, k, g.Env[k])
 	}
 	out := &boundedBuffer{limit: OutputLimit}
 	cmd.Stdout = out
 	cmd.Stderr = out
 
 	start := time.Now()
-	err := cmd.Run()
+	err = processutil.Run(cmd)
 	res.Duration = time.Since(start)
 	res.Output = out.String()
 
@@ -103,6 +97,28 @@ func Run(ctx context.Context, root string, g Gate, node string) Result {
 	}
 	res.Passed = res.Err == nil && g.Passed(res.ExitCode)
 	return res
+}
+
+// Command is the process Run starts for g in root for node, unstarted, and
+// its argv: one resolver for running a gate and for asking what running it
+// would be (a test receipt is reused for a planned check only when it is
+// this invocation, processutil.Identity).
+func Command(ctx context.Context, root string, g Gate, node string) (*exec.Cmd, []string, error) {
+	var argv []string
+	if g.Scope == ScopeNode {
+		argv = g.ForNode(node)
+	} else {
+		argv = append([]string(nil), g.Argv...)
+	}
+	if len(argv) == 0 {
+		return nil, argv, errors.New("empty command")
+	}
+	cmd := command(ctx, root, argv)
+	cmd.Dir = root
+	for _, k := range sortedEnvKeys(g.Env) {
+		cmd.Env = setEnv(cmd.Env, k, g.Env[k])
+	}
+	return cmd, argv, nil
 }
 
 // command builds the process for argv. `go` goes through internal/build, like

@@ -365,7 +365,7 @@ func recordIfTestCommand(ctx context.Context, commandLine string, cmd *exec.Cmd)
 	if cmd.ProcessState == nil || !tools.IsTestCommand(commandLine) {
 		return
 	}
-	tools.RecordTestRun(ctx, tools.TestRun{Argv: cmd.Args, ExitCode: cmd.ProcessState.ExitCode()})
+	tools.RecordTestRun(ctx, tools.TestRunOf(cmd, cmd.Args, cmd.ProcessState.ExitCode()))
 }
 
 // BashTool returns a tool for executing bash scripts.

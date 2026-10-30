@@ -9,6 +9,7 @@ import (
 
 	"codenerd/internal/gates"
 	"codenerd/internal/logging"
+	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
 
@@ -122,9 +123,12 @@ func (e *Executor) runPlannedCheck(ctx context.Context, ws string, result *Execu
 	case ctx.Err() != nil:
 		out.Outcome, out.Reason = outcomeIndeterminate, "stopped: "+ctx.Err().Error()
 	default:
-		if r, ok := matchingReceipt(result, c.Argv); ok {
-			out.Outcome, out.Exit, out.Reused = classifyExit(c.Gate, r.Run.ExitCode), r.Run.ExitCode, true
-			return out
+		if cmd, argv, err := gates.Command(ctx, ws, c.Gate, c.Node); err == nil {
+			want := tools.TestRunOf(cmd, argv, 0)
+			if r, ok := matchingReceipt(result, want); ok {
+				out.Outcome, out.Exit, out.Reused = classifyExit(c.Gate, r.Run.ExitCode), r.Run.ExitCode, true
+				return out
+			}
 		}
 		res := gates.Run(ctx, ws, c.Gate, c.Node)
 		out.Argv, out.Exit, out.output = res.Argv, res.ExitCode, res.Output

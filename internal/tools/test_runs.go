@@ -2,8 +2,11 @@ package tools
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 	"sync"
+
+	"codenerd/internal/processutil"
 )
 
 // A TestRun is one test command the tool layer actually started: the argv it
@@ -12,9 +15,24 @@ import (
 // count as a test execution when it was a dry run, when it selected nothing
 // and when no edit was known to it, all three a success that ran no test
 // (external audit N07, 2026-09-19).
+//
+// Dir and EnvDigest say where and under what environment it ran
+// (processutil.Identity of the process). A planned check is satisfied by a
+// receipt only when argv, Dir and EnvDigest all match its own invocation;
+// a receipt without them -- a producer that cannot see its process -- is
+// never taken for one (audit workspace-test-receipt-invocation-identity).
 type TestRun struct {
-	Argv     []string
-	ExitCode int
+	Argv      []string
+	ExitCode  int
+	Dir       string
+	EnvDigest string
+}
+
+// TestRunOf is the receipt of cmd, which ran argv to exit code: argv as the
+// tool names it, the identity from the process itself.
+func TestRunOf(cmd *exec.Cmd, argv []string, code int) TestRun {
+	dir, env := processutil.Identity(cmd)
+	return TestRun{Argv: argv, ExitCode: code, Dir: dir, EnvDigest: env}
 }
 
 type testRunLogKey struct{}

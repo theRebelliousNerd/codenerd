@@ -117,8 +117,7 @@ func TestWorkspaceTestRun_AnIdenticalRunIsReusedNotRepeated(t *testing.T) {
 	e, result, ws := planTurn(t, nodeGate("check", bin))
 	// value.txt is "bad": running the check would fail. The receipt says the
 	// very same command already exited 0 after the write.
-	e.noteTestRun(result, tools.TestRun{Argv: []string{filepath.ToSlash(bin), "svc"}, ExitCode: 0})
-	_ = ws
+	e.noteTestRun(result, plannedIdentity(t, ws, bin))
 	if ran, _ := e.workspaceTestRun(context.Background(), result); !ran {
 		t.Fatal("the workspace declares a check for the written file")
 	}
