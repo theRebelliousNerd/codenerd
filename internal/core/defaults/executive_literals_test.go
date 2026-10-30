@@ -45,6 +45,11 @@ var boundingField = regexp.MustCompile(`Limit|Timeout|Max|Retries|Attempts|Thres
 func countBigLiterals(n ast.Node) int {
 	count := 0
 	ast.Inspect(n, func(m ast.Node) bool {
+		// len(fact.Args) against a number is the fact's arity -- a schema
+		// fact, fixed by its Decl -- not a decision knob.
+		if bin, ok := m.(*ast.BinaryExpr); ok && (isArgsLen(bin.X) || isArgsLen(bin.Y)) {
+			return false
+		}
 		if call, ok := m.(*ast.CallExpr); ok {
 			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
 				if x, ok := sel.X.(*ast.Ident); ok && (x.Name == "fmt" || x.Name == "logging" || x.Name == "log") {
@@ -62,6 +67,19 @@ func countBigLiterals(n ast.Node) int {
 		return true
 	})
 	return count
+}
+
+// isArgsLen reports whether e is len(<x>.Args): a fact's arity.
+func isArgsLen(e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	if !ok || len(call.Args) != 1 {
+		return false
+	}
+	if fn, ok := call.Fun.(*ast.Ident); !ok || fn.Name != "len" {
+		return false
+	}
+	sel, ok := call.Args[0].(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == "Args"
 }
 
 // isTextHaystack reports whether expr is natural-language or error text: the
@@ -257,6 +275,25 @@ func TestExecutiveLiteralBudget(t *testing.T) {
 			t.Errorf("%s: %d, baseline %d. A new knob arrives through config (config_param), a new classifier through a typed fact -- not a Go literal or a string match.", k, current[k], want)
 		case current[k] < want:
 			t.Errorf("%s: %d, baseline %d -- good; refresh the baseline so the count stays a measurement: CODENERD_UPDATE_LITERALS=1 go test ./internal/core/defaults/ -run TestExecutiveLiteralBudget", k, current[k], want)
+		}
+	}
+}
+
+// A fact's arity guard is not a knob; a bound in a condition still is.
+func TestCountBigLiterals_ArityIsNotAKnob(t *testing.T) {
+	for src, want := range map[string]int{
+		"len(f.Args) < 3":            0,
+		"3 <= len(row.Args)":         0,
+		"retries > 3":                1,
+		"len(items) > 3":             1,
+		"len(f.Args) < 3 || n > 100": 1,
+	} {
+		expr, err := parser.ParseExpr(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := countBigLiterals(expr); got != want {
+			t.Errorf("countBigLiterals(%q) = %d, want %d", src, got, want)
 		}
 	}
 }

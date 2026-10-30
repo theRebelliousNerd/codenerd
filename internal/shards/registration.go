@@ -287,7 +287,16 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// The turn's shard-agent critique (turn_rounds.mg), beside
 				// turn_wrote, which the round's owing joins.
 				"turn_expert_critic", "turn_expert_finding",
+				// Mandates (shard_experts.mg): a card's REQUIRE, the card it
+				// came on and the agent's /mandate grant decide an admitted
+				// mandate, which only this turn's passing test case
+				// (turn_test_case, above) discharges and turn_verified
+				// negates. Elsewhere the admission and its discharge split.
+				"shard_agent_authority", "turn_card_mandate",
 			},
+			// The cards stay home with the dealing rules (cortex); the
+			// mandate admission reads a bounded copy here.
+			ConsumerPredicates: []string{"turn_expert_card"},
 		},
 		{
 			Domain: "tools",
