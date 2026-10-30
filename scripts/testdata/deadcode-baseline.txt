@@ -1,6 +1,4 @@
 cmd/nerd/chat/northstar_types.go	parseGeneratedRequirements
-cmd/nerd/chat/persistence.go	Model.persistActivationScores
-cmd/nerd/chat/persistence.go	Model.persistTurnToKnowledge
 internal/broker/default.go	Meter.Calibrator
 internal/core/predicate_corpus.go	NewPredicateCorpusFromPath
 internal/core/virtual_store.go	CodeDOMScopePredicates

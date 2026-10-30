@@ -120,6 +120,8 @@ func (m *Model) saveSessionState() error {
 	// This enables Mangle queries against session history via virtual predicates
 	if m.localDB != nil {
 		m.syncSessionToSQLite()
+		// The focus the next session resumes from (persistActivation).
+		m.persistActivation()
 	}
 	return errors.Join(stateErr, historyErr)
 }
