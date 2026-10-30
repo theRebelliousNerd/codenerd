@@ -39,16 +39,18 @@ Status: open, in progress, fixed `<commit>`, closed (`<reason>`).
 | `test-gate-memoization-identity` | `research-main-20261029-0850` | fixed `b1609df24` |
 | `test-removal-subject-identity` | `research-main-20261029-0850` | fixed `99da1e661` |
 | `tester-continuation-proposal-admission` | `research-main-20261029-1018` | fixed `d14597d56` |
-| `review-feedback-identity-and-current-verdicts` | `research-main-20261029-1018` | open |
-| `revision-sentinel-build-exclusion-parity` | `research-main-20261029-1018` | open |
-| `omitted-argument-admission-order` | `research-main-20261029-1018` | open |
-| `system-execution-outcome-projection` | `research-main-20261029-1018` | open |
-| `expert-lending-dependency-contract` | `research-main-20261029-2152` | open |
-| `slash-command-specialist-target-continuity` | `research-main-20261029-2221` | open |
-| `planned-step-expert-consultation-continuity` | `research-main-20261029-2241` | open |
-| `advisory-repair-continuation` | `research-main-20261029-2258` | open |
-| `expert-critique-domain-coverage` | `research-main-20261029-2258` | open |
-| `plan-bound-expert-decks` (innovation) | `research-main-20261029-2258` | open |
+| `review-feedback-identity-and-current-verdicts` | `research-main-20261029-1018` | fixed `d2f02c461` |
+| `revision-sentinel-build-exclusion-parity` | `research-main-20261029-1018` | fixed `73215933f` |
+| `omitted-argument-admission-order` | `research-main-20261029-1018` | fixed `41cc23f35` |
+| `system-execution-outcome-projection` | `research-main-20261029-1018` | fixed `5be388e13` |
+| `expert-lending-dependency-contract` | `research-main-20261029-2152` | fixed `a78f92ed0` |
+| `slash-command-specialist-target-continuity` | `research-main-20261029-2221` | fixed `d1bd97fc9` |
+| `planned-step-expert-consultation-continuity` | `research-main-20261029-2241` | fixed `ea0e0a6d3` |
+| `advisory-repair-continuation` | `research-main-20261029-2258` | fixed `23e3a6237` |
+| `expert-critique-domain-coverage` | `research-main-20261029-2258` | fixed `1e9e34bb6` |
+| `plan-bound-expert-decks` (innovation) | `research-main-20261029-2258` | first tranche `3a2470f53`; edge cards, mandates, freshness, routing open (Lane A) |
+| `knowledge-refresh-prune` | `research-main-20261030-0141` | open (Lane A) |
+| `grounded-search-terminal-status` | `research-main-20261030-0141` | open (Lane A) |
 
 ## Lane B: campaign and verification, then the Mangle kernel and world model
 
@@ -85,20 +87,21 @@ One audit per run, briefed as its symptom (the ladder's brief rule), in this ord
 
 | audit | branch | status |
 |---|---|---|
-| `knn-recall-limit-error-contract` | `research-main-20261029-1018` | open |
+| `knn-recall-limit-error-contract` | `research-main-20261029-1018` | open (Lane B) |
 | `legacy-vector-repair-attempt-lifecycle` | `research-main-20261029-1018` | fixed `8ec6b638f` |
 | `knowledge-index-repair-cache-freshness` | `research-main-20261029-1018` | fixed `44d8a7d95` |
 | `embedding-stats-observation-boundary` | `research-main-20261029-1018` | fixed `27bc13b05` |
 | `learned-example-literal-fidelity` | `research-main-20261029-0736` | fixed `8f8a2bb03` |
-| `learning-lexical-candidate-window` | `research-main-20261029-1018` | open (Lane B) |
-| `manual-learning-evidence-conservation` | `research-main-20261029-1018` | open (Lane B) |
-| `project-knowledge-lexical-term-budget` | `research-main-20261029-1018` | open (Lane B) |
-| `user-memory-archival-lifecycle` | `research-main-20261029-1950` | open (Lane B) |
-| `document-extraction-coverage-resumption` | `research-main-20261029-1018` | open (Lane B) |
-| `reflection-observation-publication` | `research-main-20261029-1018` | open (Lane B) |
-| `queued-slash-command-kind-conservation` | `research-main-20261029-1018` | open |
-| `slash-operation-slot-admission` | `research-main-20261029-1018` | open |
-| `tui-legislator-dispatch-parity` | `research-main-20261029-1018` | open |
-| `interaction-audit-surface-projection-parity` | `research-main-20261029-1018` | open |
-| `taxonomy-initialization-completeness` | `research-main-20261029-0736` | open |
-| `queued-history-projection` | `research-main-20261030-0017` | open |
+| `learning-lexical-candidate-window` | `research-main-20261029-1018` | fixed `89dbd36d1` |
+| `manual-learning-evidence-conservation` | `research-main-20261029-1018` | fixed `4b7fe31fa` |
+| `project-knowledge-lexical-term-budget` | `research-main-20261029-1018` | fixed `e178e465e` |
+| `user-memory-archival-lifecycle` | `research-main-20261029-1950` | fixed `073bffe69` |
+| `document-extraction-coverage-resumption` | `research-main-20261029-1018` | fixed `a285f0583` |
+| `reflection-observation-publication` | `research-main-20261029-1018` | fixed `b68849adb` |
+| `queued-slash-command-kind-conservation` | `research-main-20261029-1018` | open (Lane B) |
+| `slash-operation-slot-admission` | `research-main-20261029-1018` | open (Lane B) |
+| `tui-legislator-dispatch-parity` | `research-main-20261029-1018` | open (Lane B) |
+| `interaction-audit-surface-projection-parity` | `research-main-20261029-1018` | open (Lane B) |
+| `taxonomy-initialization-completeness` | `research-main-20261029-0736` | open (Lane B) |
+| `queued-history-projection` | `research-main-20261030-0017` | open (Lane B) |
+| `git-sysfacts-porcelain` | `research-main-20261030-0141` | open (Lane B) |
