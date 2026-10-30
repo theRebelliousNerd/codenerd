@@ -27,24 +27,26 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, apiKey, workspace string) tea.Cmd {
+func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, apiKey, workspace, sessionID string) tea.Cmd {
 	return func() tea.Msg {
-		return performSystemBootShared(cfg, disableSystemShards, apiKey, workspace)
+		return performSystemBootShared(cfg, disableSystemShards, apiKey, workspace, sessionID)
 	}
 }
 
 // sharedBootConfig is the Cortex boot the chat asks for: the launch flags
-// (--disable-system-shard, --api-key) and the chat's loaded config.
-func sharedBootConfig(cfg *config.UserConfig, disableSystemShards []string, apiKey, workspace string) nerdsystem.BootConfig {
+// (--disable-system-shard, --api-key), the chat's loaded config, and the
+// session a restart hands over (empty: a fresh one).
+func sharedBootConfig(cfg *config.UserConfig, disableSystemShards []string, apiKey, workspace, sessionID string) nerdsystem.BootConfig {
 	return nerdsystem.BootConfig{
 		Workspace:           workspace,
 		APIKey:              apiKey,
 		DisableSystemShards: disableSystemShards,
 		UserConfigOverride:  cfg,
+		SessionID:           sessionID,
 	}
 }
 
-func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []string, apiKey, workspace string) tea.Msg {
+func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []string, apiKey, workspace, sessionID string) tea.Msg {
 	bootStart := time.Now()
 	if err := logging.Initialize(workspace); err != nil {
 		// logging.json_format is a removed key, so the boot stops. A
@@ -85,7 +87,7 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 	}
 
 	logStep("Booting shared backend...")
-	cortex, err := nerdsystem.BootCortexWithConfig(context.Background(), sharedBootConfig(appCfg, disableSystemShards, apiKey, workspace))
+	cortex, err := nerdsystem.BootCortexWithConfig(context.Background(), sharedBootConfig(appCfg, disableSystemShards, apiKey, workspace, sessionID))
 	if err != nil {
 		return bootCompleteMsg{err: fmt.Errorf("shared bootstrap failed: %w", err)}
 	}

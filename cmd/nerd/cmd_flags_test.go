@@ -75,3 +75,16 @@ func TestChatLaunchConfig_CarriesRootFlags(t *testing.T) {
 		t.Errorf("--disable-system-shard reached the chat as %v", cfg.DisableSystemShards)
 	}
 }
+
+// A self-restart hands the session over with --restore-session; the bare
+// `nerd` the exec runs must give it to the chat.
+func TestChatLaunchConfig_CarriesTheRestoreFile(t *testing.T) {
+	saved := restoreSession
+	t.Cleanup(func() { restoreSession = saved })
+	if err := rootCmd.ParseFlags([]string{"--restore-session", "/ws/.nerd/restart/restore-1.json"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := chatLaunchConfig().RestoreFile; got != "/ws/.nerd/restart/restore-1.json" {
+		t.Fatalf("--restore-session reached the chat as %q", got)
+	}
+}

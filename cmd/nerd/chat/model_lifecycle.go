@@ -200,7 +200,7 @@ func (m Model) Init() tea.Cmd {
 		m.waitForStatus(),        // Start status listener
 		m.tickMemory(),           // Start memory sampler
 		m.listenDelegatedProgress(),
-		performSystemBoot(m.Config, m.DisableSystemShards, m.apiKeyFlag, m.workspace), // Start heavy system initialization
+		performSystemBoot(m.Config, m.DisableSystemShards, m.apiKeyFlag, m.workspace, m.restoreSessionID()), // Start heavy system initialization
 	)
 }
 
@@ -358,14 +358,4 @@ func reviewFindingMaps(findings []ParsedFinding) []map[string]any {
 		})
 	}
 	return out
-}
-
-// RunInteractiveChat starts the interactive chat session
-func RunInteractiveChat(cfg Config) error {
-	model := InitChat(cfg)
-	p := tea.NewProgram(model, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		return err
-	}
-	return nil
 }

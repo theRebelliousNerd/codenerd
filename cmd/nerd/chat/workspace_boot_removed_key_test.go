@@ -28,7 +28,7 @@ func TestSharedBoot_RemovedLoggingKeyFailsTheBoot(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	msg := performSystemBootShared(nil, nil, "", bad)
+	msg := performSystemBootShared(nil, nil, "", bad, "")
 	done, ok := msg.(bootCompleteMsg)
 	if !ok {
 		t.Fatalf("performSystemBootShared returned %T, want bootCompleteMsg", msg)

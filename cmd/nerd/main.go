@@ -70,7 +70,12 @@ import (
 	"codenerd/internal/features"
 	"codenerd/internal/logging"
 	"codenerd/internal/observability"
+	"codenerd/internal/selfrestart"
 )
+
+// restoreSession is --restore-session, set by a self-restart onto a rebuilt
+// binary (internal/selfrestart), never by a person.
+var restoreSession string
 
 var (
 	// Global flags
@@ -203,6 +208,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "",
 		"API key override for the configured provider (default: .nerd/config.json, then that provider's env var)")
 	rootCmd.PersistentFlags().StringVarP(&workspace, "workspace", "w", "", "Workspace directory (default: current)")
+	rootCmd.PersistentFlags().StringVar(&restoreSession, strings.TrimPrefix(selfrestart.RestoreFlag, "--"), "", "Session state handed over by a restart onto a rebuilt binary")
+	_ = rootCmd.PersistentFlags().MarkHidden(strings.TrimPrefix(selfrestart.RestoreFlag, "--"))
 	// --timeout is the user's own limit on a whole command; operationContext
 	// applies it. Unset means none.
 	rootCmd.PersistentFlags().DurationVar(&timeout, "timeout", 0,
@@ -366,6 +373,7 @@ func chatLaunchConfig() chat.Config {
 		DisableSystemShards: disableSystemShards,
 		Yolo:                yoloMode,
 		APIKey:              apiKey,
+		RestoreFile:         restoreSession,
 	}
 }
 

@@ -7,7 +7,7 @@
 // the process execs the new binary over itself (same PID, same terminal, so
 // tmux and attached terminals stay), with -restore-session naming the file;
 // the new process reads it once and resumes the conversation, its mode, its
-// brief and its queued messages. An exec that fails leaves the old process
+// brief and its held work, and names the work the restart interrupted. An exec that fails leaves the old process
 // running and says why. Where exec in place is not available (Windows), the
 // rebuild is reported and the user is asked to restart.
 package selfrestart
@@ -28,7 +28,7 @@ import (
 )
 
 // RestoreFlag is the command-line flag that names a restore file.
-const RestoreFlag = "-restore-session"
+const RestoreFlag = "--restore-session"
 
 // Identity is what distinguishes one build of the executable from another.
 type Identity struct {
@@ -89,8 +89,11 @@ type State struct {
 	Brief     string   `json:"brief,omitempty"`
 	Queued    []string `json:"queued,omitempty"`
 	Draft     string   `json:"draft,omitempty"`
-	OldBuild  string   `json:"old_build"`
-	NewBuild  string   `json:"new_build"`
+	// Interrupted names the work the restart stopped (background jobs, a
+	// running campaign, an offered step), for the restored session to say.
+	Interrupted []string `json:"interrupted,omitempty"`
+	OldBuild    string   `json:"old_build"`
+	NewBuild    string   `json:"new_build"`
 }
 
 const stateVersion = 1
@@ -136,10 +139,10 @@ func RestoreArgs(args []string, path string) []string {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
-		case a == RestoreFlag || a == "-"+RestoreFlag:
+		case a == RestoreFlag || a == strings.TrimPrefix(RestoreFlag, "-"):
 			i++ // its value
 			continue
-		case strings.HasPrefix(a, RestoreFlag+"=") || strings.HasPrefix(a, "-"+RestoreFlag+"="):
+		case strings.HasPrefix(a, RestoreFlag+"=") || strings.HasPrefix(a, strings.TrimPrefix(RestoreFlag, "-")+"="):
 			continue
 		}
 		out = append(out, a)
@@ -169,6 +172,13 @@ func NewRestarter(current Identity, stateDir string, exec ExecFunc) *Restarter {
 		exec = platformExec
 	}
 	return &Restarter{current: current, exec: exec, dir: stateDir}
+}
+
+// SetExec replaces how the process image is replaced (a test injects it).
+func (r *Restarter) SetExec(exec ExecFunc) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.exec = exec
 }
 
 // BinaryChanged records a rebuilt executable. It reports whether the change is
@@ -215,7 +225,10 @@ func (r *Restarter) Restart(st State, args []string) error {
 		return err
 	}
 	argv := RestoreArgs(slices.Clone(args), path)
-	if err := r.exec(next.Path, argv, os.Environ()); err != nil {
+	r.mu.Lock()
+	exec := r.exec
+	r.mu.Unlock()
+	if err := exec(next.Path, argv, os.Environ()); err != nil {
 		_ = os.Remove(path)
 		return fmt.Errorf("could not start the rebuilt codeNERD (%s); this one keeps running: %w", next.Build, err)
 	}

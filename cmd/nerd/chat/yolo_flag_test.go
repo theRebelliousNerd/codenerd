@@ -58,7 +58,7 @@ func TestInitChat_YoloFlagIsSessionAutonomy(t *testing.T) {
 // one-shot verbs; the factory uses it only as the legacy fallback.
 func TestSharedBootConfig_CarriesLaunchFlags(t *testing.T) {
 	m := InitChat(Config{APIKey: "flag-key", DisableSystemShards: []string{"legislator"}})
-	got := sharedBootConfig(m.Config, m.DisableSystemShards, m.apiKeyFlag, "/ws")
+	got := sharedBootConfig(m.Config, m.DisableSystemShards, m.apiKeyFlag, "/ws", "")
 	if got.APIKey != "flag-key" {
 		t.Fatalf("BootConfig.APIKey = %q, want the --api-key value", got.APIKey)
 	}

@@ -24,6 +24,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/retrieval"
+	"codenerd/internal/selfrestart"
 	"codenerd/internal/session"
 	"codenerd/internal/shards"
 	"codenerd/internal/store"
@@ -68,6 +69,10 @@ type Config struct {
 	// legacy fallback the factory uses only when config and environment name
 	// no client, exactly as the one-shot verbs use it.
 	APIKey string
+
+	// RestoreFile is --restore-session: the state a restart onto a rebuilt
+	// binary handed over (self_restart.go). The session resumes from it.
+	RestoreFile string
 }
 
 // ViewMode determines which component is focused/active
@@ -382,7 +387,17 @@ type Model struct {
 	// advances the plan; chainUnverified records that some step of the chain
 	// ran without verification, so the closing banner never claims more
 	// than its weakest step (continuation_ledger.go).
-	offeredSubtask  *Subtask
+	offeredSubtask *Subtask
+
+	// Self-restart onto a rebuilt binary (self_restart.go): the watcher's
+	// restarter and channel, the state a quit asks RunInteractiveChat to exec
+	// with, a failed exec (no retry until the next rebuild), and the state
+	// this process was restored from, applied once boot has wired the kernel.
+	restarter       *selfrestart.Restarter
+	rebuilds        <-chan selfrestart.Identity
+	restartRequest  *selfrestart.State
+	restartFailed   bool
+	restore         *selfrestart.State
 	planChain       bool
 	chainUnverified bool
 	// chainUnverifiedNote retains unverified plan-step summaries across

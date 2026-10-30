@@ -624,6 +624,14 @@ The strategic knowledge base has been updated with new documentation.%s`, msg.do
 
 	case bootCompleteMsg:
 		return m.handleBootCompleteMsg(msg)
+	case rebuildWatchMsg:
+		return m.handleRebuildWatch(msg)
+	case binaryRebuiltMsg:
+		return m.handleBinaryRebuilt(msg)
+	case restartCheckMsg:
+		return m.handleRestartCheck()
+	case policyReloadMsg:
+		return m.handlePolicyReload(msg)
 	case bootDeferredMsg:
 		return m.handleBootDeferredMsg(msg)
 	case onboardingCheckMsg:
@@ -867,12 +875,23 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 	}
 	bootSessionID := m.sessionID
 
+	// A restart onto a rebuilt binary resumes its session here, once the
+	// boot (under the same session id) has wired the kernel; and every
+	// session watches for the next rebuild.
+	m = m.applyRestore()
+	rebuildWatch := m.startRebuildWatch()
+	var policyReloads tea.Cmd
+	if m.cortex != nil && m.cortex.DevPolicyDir() != "" {
+		m = m.pushAssistantMsg(fmt.Sprintf("Dev mode: policy is read from `%s`; edits are reloaded live once they compile.", m.cortex.DevPolicyDir()))
+		policyReloads = listenPolicyReloads(m.cortex.PolicyReloads())
+	}
+
 	// Now trigger the workspace scan (deferred). This keeps chat input hidden until ready.
 	// Also start listening for tool events, background observer assessments,
 	// and Glass Box events (the latter is no-op if the bus is disabled).
 	// runBootDeferred carries the slow wiring (compressor snapshot load,
 	// observer start) off the Update loop; its result returns as bootDeferredMsg.
-	return m, tea.Batch(m.runBootDeferred(bootSessionID), m.runScan(false), m.listenToolEvents(), m.listenObserverAssessments(), m.listenGlassBoxEvents(), m.listenApprovals())
+	return m, tea.Batch(m.runBootDeferred(bootSessionID), m.runScan(false), m.listenToolEvents(), m.listenObserverAssessments(), m.listenGlassBoxEvents(), m.listenApprovals(), rebuildWatch, policyReloads)
 
 }
 

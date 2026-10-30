@@ -51,6 +51,13 @@ func newSplitPane(styles ui.Styles, appCfg *config.UserConfig) ui.SplitPaneView 
 
 // InitChat initializes the interactive chat model (Lightweight UI only)
 func InitChat(cfg Config) Model {
+	// A restart onto a rebuilt binary names the session it hands over
+	// (self_restart.go). A file that cannot be read starts a fresh session
+	// and says why.
+	restore, restoreErr := readRestore(cfg.RestoreFile)
+	if restoreErr != nil {
+		logging.Get(logging.CategorySession).Warn("--restore-session %s not applied: %v", cfg.RestoreFile, restoreErr)
+	}
 	// Load configuration from unified .nerd/config.json
 	appCfg, _ := config.GlobalConfig()
 	if appCfg == nil {
@@ -205,6 +212,7 @@ func InitChat(cfg Config) Model {
 		workspace:           workspace,
 		DisableSystemShards: cfg.DisableSystemShards,
 		yoloFlag:            cfg.Yolo,
+		restore:             restore,
 		jev:                 jev,
 		background:          newBackgroundJobs(),
 		turn:                newTurnState(),
