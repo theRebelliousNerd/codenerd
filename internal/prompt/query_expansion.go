@@ -156,6 +156,49 @@ func buildExpandedQuery(cc *CompilationContext) string {
 	return strings.Join(orderedTerms, " ")
 }
 
+// buildLexicalQuery is the term plan for bounded lexical knowledge search:
+// the task's own terms -- the target's tokens, then the semantic query's --
+// first, stopwords dropped and deduplicated, then the expanded query's terms.
+//
+// Lexical search keeps only the first few terms (knowledgeLexicalKeywords:
+// eight), and the expanded query leads with generated verb and target
+// synonyms: for /fix on database/checkpoint.go with the task "wal checkpoint
+// stalls" those eight were "fix debug error issue resolve bug database db",
+// and a row about "wal checkpoint" never reached SQL (audit
+// project-knowledge-lexical-term-budget). The synonyms still fill what the
+// task leaves. The semantic search keeps buildExpandedQuery unchanged.
+func buildLexicalQuery(cc *CompilationContext) string {
+	if cc == nil {
+		return ""
+	}
+	seen := make(map[string]struct{})
+	var terms []string
+	add := func(term string) {
+		term = strings.ToLower(strings.TrimSpace(term))
+		if term == "" {
+			return
+		}
+		if _, stop := stopWords[term]; stop {
+			return
+		}
+		if _, dup := seen[term]; dup {
+			return
+		}
+		seen[term] = struct{}{}
+		terms = append(terms, term)
+	}
+	for _, t := range tokenize(cc.IntentTarget) {
+		add(t)
+	}
+	for _, t := range tokenize(cc.SemanticQuery) {
+		add(t)
+	}
+	for _, t := range strings.Fields(buildExpandedQuery(cc)) {
+		add(t)
+	}
+	return strings.Join(terms, " ")
+}
+
 // tokenize splits a string into lowercase alphanumeric keywords, filtering out punctuation.
 func tokenize(text string) []string {
 	var tokens []string

@@ -355,12 +355,14 @@ func (c *JITPromptCompiler) collectKnowledgeAtomsFrom(ctx context.Context, cc *C
 	defer cancel()
 
 	// Explicit task terms precede expanded routing terms in bounded lexical
-	// retrieval. Search the selected expert first so a slow project embedding
-	// cannot consume its entire deadline before the expert is consulted.
-	expertQuery := strings.TrimSpace(cc.SemanticQuery + " " + query)
-	expertAtoms := collectExpertKnowledgeAtoms(searchCtx, cc, shardDB, hasShard, expertQuery, degraded)
-	pushed := collectPushedExpertKnowledge(searchCtx, src.experts, expertQuery, degraded)
-	projectAtoms := c.collectProjectKnowledgeAtoms(searchCtx, db, query, degraded)
+	// retrieval (buildLexicalQuery), for experts and for the project's
+	// lexical fallback alike. Search the selected expert first so a slow
+	// project embedding cannot consume its entire deadline before the
+	// expert is consulted.
+	lexicalQuery := buildLexicalQuery(cc)
+	expertAtoms := collectExpertKnowledgeAtoms(searchCtx, cc, shardDB, hasShard, lexicalQuery, degraded)
+	pushed := collectPushedExpertKnowledge(searchCtx, src.experts, lexicalQuery, degraded)
+	projectAtoms := c.collectProjectKnowledgeAtoms(searchCtx, db, query, lexicalQuery, degraded)
 	if len(projectAtoms) == 0 && len(expertAtoms) == 0 && len(pushed) == 0 {
 		return nil
 	}
@@ -393,9 +395,10 @@ func (c *JITPromptCompiler) collectKnowledgeAtomsFrom(ctx context.Context, cc *C
 }
 
 // collectProjectKnowledgeAtoms searches existing project knowledge.
-// Semantic search runs first; when it yields nothing (for example no
-// embedding engine) a bounded lexical search covers the same table.
-func (c *JITPromptCompiler) collectProjectKnowledgeAtoms(ctx context.Context, db *store.LocalStore, query string, degraded *degradation) []store.KnowledgeAtom {
+// Semantic search over query runs first; when it yields nothing (for example
+// no embedding engine) a bounded lexical search over lexicalQuery, the task's
+// own terms first, covers the same table.
+func (c *JITPromptCompiler) collectProjectKnowledgeAtoms(ctx context.Context, db *store.LocalStore, query, lexicalQuery string, degraded *degradation) []store.KnowledgeAtom {
 	if db == nil {
 		return nil
 	}
@@ -416,7 +419,7 @@ func (c *JITPromptCompiler) collectProjectKnowledgeAtoms(ctx context.Context, db
 		degraded.add("knowledge")
 		return nil
 	}
-	lex, lerr := db.SearchKnowledgeAtomsLexical(ctx, query, knowledgeRowsPerSource)
+	lex, lerr := db.SearchKnowledgeAtomsLexical(ctx, lexicalQuery, knowledgeRowsPerSource)
 	if lerr != nil || len(lex) == 0 {
 		if lerr != nil {
 			degraded.add("knowledge")
