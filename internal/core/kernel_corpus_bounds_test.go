@@ -19,31 +19,17 @@ import (
 // still analyzes with NoBoundsChecking because the analyzer stops at the first
 // mismatch of a whole program; this per-clause inventory reports every one, so
 // the set can only shrink. Each entry is a Decl/rule disagreement to repair
-// (widen the Decl to what the rules derive, or narrow the rule); none is known
+// (repair the producer, rule or incorrect Decl); none is known
 // to corrupt a fact. Removing an entry once repaired is required: the test
 // fails on a stale one.
 var knownBoundsDisagreements = map[string]string{
-	"activation":                     "Decl /string; rules derive tool names (/name) and refs",
-	"beats":                          ":lt over unbounded terms",
-	"campaign_learning":              "pattern/fact slots",
-	"compilation_error":              "Decl /string; category is /name",
-	"context_atom":                   "Decl /string; activation is polymorphic",
-	"delegate_task":                  "Decl /string description; rules pass /name",
-	"escalation_needed":              "Decl /string subject; rules pass /name",
 	"intelligence_relevant_strategy": "campaign id inferred /any",
-	"is_error_checked":               "Decl /string var; data-flow columns are /name",
-	"is_guarded":                     "Decl /string var; data-flow columns are /name",
-	"learning_signal":                "Decl /string rule id; rules pass /name",
-	"missing_hypothesis":             "Decl /string; symptom is /name",
 	"path_of_length":                 "fn:plus over unbounded length",
 	"potential_score":                "fn:plus over unbounded priority",
 	"promote_to_long_term":           "Decl /string value; rules pass /name or /any",
 	"raw_finding":                    "Decl /string file/message; sources inferred /any",
 	"shard_context_atom":             "Decl /string atom; recall yields /any",
 	"system_invariant_violated":      "Decl /number timestamp; invariant_value yields /any",
-	"tool_lifecycle":                 "Decl /string tool; missing_tool_for yields /name",
-	"unchecked_error":                "Decl /string func; data-flow columns are /name",
-	"unsafe_deref":                   "Decl /string var; data-flow columns are /name",
 }
 
 // bootCorpusBoundsMismatches analyzes every clause of the production program

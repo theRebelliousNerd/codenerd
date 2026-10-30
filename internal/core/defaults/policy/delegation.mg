@@ -612,7 +612,7 @@ delegate_task(/tool_generator, Target, /pending) :-
     user_intent(/current_intent, _, /tool_status, Target, _).
 
 # Auto-delegate when missing capability detected (implicit tool generation)
-delegate_task(/tool_generator, Cap, /pending) :-
+delegate_task(/tool_generator, fn:name:to_string(Cap), /pending) :-
     missing_tool_for(_, Cap),
     !tool_generation_blocked(Cap).
 

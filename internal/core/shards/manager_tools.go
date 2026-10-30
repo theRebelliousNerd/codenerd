@@ -162,7 +162,7 @@ func (sm *ShardManager) assertToolRoutingContext(query ToolRelevanceQuery) {
 		tx.RetractFact(types.Fact{Predicate: "user_intent", Args: []any{intentID}})
 		tx.Assert(types.Fact{
 			Predicate: "current_intent",
-			Args:      []any{intentID},
+			Args:      []any{types.MangleAtom(intentID)},
 		})
 		tx.Assert(types.Fact{
 			Predicate: "user_intent",

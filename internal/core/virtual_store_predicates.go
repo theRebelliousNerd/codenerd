@@ -312,7 +312,7 @@ func (v *VirtualStore) QueryActivations(limit int, minScore float64) ([]Fact, er
 	for _, item := range ordered {
 		facts = append(facts, Fact{
 			Predicate: "activation",
-			Args:      []any{item.factID, types.PercentFromRatio(item.score)},
+			Args:      []any{types.MangleString(item.factID), types.PercentFromRatio(item.score)},
 		})
 	}
 	return facts, nil
@@ -639,7 +639,7 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 	// learned_preference, learned_fact and learned_constraint are declared
 	// (Predicate, Args) bound [/string, /string] in schemas_memory.mg, and the
 	// rules that read them treat Args as one value: knowledge.mg binds it
-	// straight into a Reason and into fn:pair. A stored row's args are a
+	// straight into a Reason and into textual context. A stored row's args are a
 	// []any, and asserting that slice into the /string slot was rejected the
 	// moment Decl type checks went live -- every preference, fact and
 	// constraint in the store, on every boot: "hydrate learnings incomplete
@@ -707,15 +707,8 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 		hydrationErrs = append(hydrationErrs, fmt.Errorf("query activations: %w", err))
 	} else {
 		for _, fact := range activations {
-			// Activations are direct facts, not meta-facts
-			safeArgs := make([]any, len(fact.Args))
-			for i, arg := range fact.Args {
-				safeArgs[i] = toAtomOrString(arg)
-			}
-			if err := kernel.Assert(Fact{
-				Predicate: fact.Predicate,
-				Args:      safeArgs,
-			}); err != nil {
+			// QueryActivations supplies typed string IDs, including absolute paths.
+			if err := kernel.Assert(fact); err != nil {
 				hydrationErrs = append(hydrationErrs, fmt.Errorf("assert activation %v: %w", fact.Args[0], err))
 				continue
 			}

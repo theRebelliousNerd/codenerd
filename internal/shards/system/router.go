@@ -513,7 +513,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				Args: []any{
 					route.ToolName,
 					target,
-					route.Timeout.Seconds(),
+					int64(route.Timeout / time.Second),
 					call.ID,
 					time.Now().Unix(),
 				},

@@ -40,7 +40,7 @@ has_higher_priority_item(ItemID) :-
     agenda_item(OtherID, _, OtherPriority, _, _),
     OtherID != ItemID,
     agenda_item_ready(OtherID),
-    priority_higher(OtherPriority, Priority).
+    OtherPriority > Priority.
 
 # Checkpoint needed based on time or completion (10 minutes = 600 seconds)
 checkpoint_due() :-

@@ -874,6 +874,7 @@ func (s *AtomSelector) runSelection(
 	if kernel == nil {
 		return nil, 0, fmt.Errorf("CRITICAL: Mangle kernel not configured for skeleton selection")
 	}
+	skeletonFacts = append(skeletonFacts, candidateOrdinalFacts(atoms)...)
 	if err := kernel.AssertBatch(skeletonFacts); err != nil {
 		return nil, 0, fmt.Errorf("CRITICAL: failed to assert skeleton facts: %w", err)
 	}

@@ -52,6 +52,83 @@ As built 2026-10-28.
   (`cmd/nerd/chat/process.go:1229`) instead of the undeclared
   `self_correction_hypothesis/1`.
 
+## Review contract boundaries
+
+Names remain names throughout the data-flow judgments: scanner variable and
+function identities flow through `is_guarded`, `unsafe_deref`,
+`is_error_checked`, `unchecked_error`, `active_hypothesis`, and
+`prioritized_hypothesis` in `defaults/schemas_reviewer.mg`. System shard
+registry, heartbeat, startup, and unhandled-case identities share `/name`.
+`current_intent/1` uses the same name identity as `user_intent/5`.
+
+Memory values, delegation descriptions, tool lifecycle labels, compilation
+error details, and escalation subjects are strings. Rules serialize a name
+with `fn:name:to_string` when crossing into those content slots. Learned
+context renders both the predicate and its arguments as text and joins the
+current intent's verb. Agenda priority is numeric; campaign priority retains
+its separate named ordering. Intelligence safety actions and coder rejection
+patterns retain their producers' string contracts.
+
+Activation identities admit exactly strings and names through separate whole
+tuple alternatives in `defaults/schemas_memory.mg`:
+`bound [/string, /number] bound [/name, /number]`. Assert-time admission in
+`kernel_fact_decl.go` accepts a fact only when one alternative accepts every
+argument. The parsed `fn:Union(/string, /name)` bound passes strict rule analysis
+on the pinned engine but its runtime type handle rejects both primitive
+identities. Static bounds analysis and interpreter derivation therefore cannot
+replace tests that assert through the production kernel. Each alternative keeps
+the score numeric; neither admits a numeric identity or a textual score.
+File, prompt and trace
+references remain strings; tools retain the name identity supplied by
+`tool_capabilities/2` and `tool_language/2`. Both goal-driven and
+learned-preference boosts preserve that identity. Serializing the tool in an
+activation rule changes the relation's key and prevents name-bound queries
+from finding the boost. `policy/activation.mg` and `policy/knowledge.mg` render
+identities with `fn:string:concat` only when deriving the string-valued
+`context_atom/1` and `context_priority/2` projections. Cold-storage preference
+keys and values remain strings through `VirtualStore.HydrateLearnings`.
+`VirtualStore.QueryActivations` and campaign phase compression emit explicit
+`MangleString` references so absolute paths retain string identity even though
+activation also admits names. Hydration asserts these typed facts directly.
+`TestHydratedLanguagePreferencePreservesToolActivationIdentity` exercises
+storage, hydration, activation and context inclusion through the real kernel;
+`TestActivationAdmitsNamesAndStringsAndRendersContext` covers both identity
+variants and rejects numeric identities. Their execution remains pending.
+`TestCompressPhasePreservesStringActivationIdentity` covers the campaign
+decay producer through the real kernel; its execution is also pending.
+
+Prompt conflict ties use `atom_ordinal/2`, measured once across all candidates
+by `internal/prompt/selector_facts.go` and supplied by `selector.go` before
+selection queries. Mangle compares these integer ordinals to choose the
+lexically first candidate when scores tie. The ordinal is owned by the prompt
+shard in `internal/shards/registration.go` and cleared with the other compile
+inputs in `internal/prompt/compiler.go`. Candidate input order does not change
+the result; skeleton and flesh share one ordinal space.
+
+`VirtualStore.parseBuildDiagnostics` emits the declared five-field diagnostic
+with an integer line, severity name, and separate error-code and message
+strings. Workflow clarification emits `campaign_awaiting_clarification/1` and
+keeps its question in the action result. Summary observations and perception
+ambiguity retain full string content, including a leading slash. Async router
+timeouts use integer seconds. Ouroboros iteration history uses the same
+integer percentage scale as current stability.
+
+`next_action/1` is the executive relation. The three- or four-field Fact values
+passed to VirtualStore routing are Go action envelopes, parsed directly by
+`virtual_store_routing.go`; they are not assertions of that relation. Context
+policy embeds are libraries: `internal/context/working_set.go` loads the core
+schemas and config rules with both working-set and rendering policies.
+Review tooling must follow these assembly and API boundaries.
+
+Behavioral coverage is authored in `internal/core/mangle_review_contracts_test.go`,
+`internal/prompt/selector_conflict_contract_test.go`,
+`internal/shards/system/review_boundary_contracts_test.go`, and
+`internal/autopoiesis/stability_score_test.go`. The existing per-clause strict
+bounds ratchet tracks remaining disagreements; a review without confirmed
+error findings does not imply that the entire corpus passes strict analysis.
+These changes still require execution of the owning packages and sharded boot
+checks before their behavioral acceptance is established.
+
 ## Candidate rule pre-check (kernel_policy.go)
 
 - `HotLoadRule` and `HotLoadLearnedRule` refuse a negated atom with a

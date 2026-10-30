@@ -1,6 +1,9 @@
 package autopoiesis
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // The defect this guards (F-OURO-2, observed live): schemas_state.mg declares
 // Stability as /number and valid_transition compares it with
@@ -75,5 +78,36 @@ func TestStabilityScore_RoundsRatherThanTruncates(t *testing.T) {
 	// compare below an identical one recorded as 1.0.
 	if got := stabilityScore(0.999); got != 100 {
 		t.Errorf("stabilityScore(0.999) = %d, want 100 (rounded, not truncated)", got)
+	}
+}
+
+// updateStability must use the same integer scale for history as for the
+// current state; float history violates /number and cannot be compared.
+func TestUpdateStabilityHistoryPreservesChangesBeforeConvergence(t *testing.T) {
+	loop := NewOuroborosLoop(&MockLLMClient{}, DefaultOuroborosConfig(t.TempDir()))
+	t.Cleanup(func() { _ = loop.engine.Close() })
+	loop.updateStability("review-step", 1, 0.70)
+	loop.updateStability("review-step", 2, 0.80)
+	history, err := loop.engine.Query(context.Background(), `state_at_iteration("review-step", 1, 70)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Bindings) != 1 {
+		t.Fatalf("history must retain the same integer percentage as base_stability: %v", history.Bindings)
+	}
+	rows, err := loop.engine.Query(context.Background(), `converged("review-step")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows.Bindings) != 0 {
+		t.Fatalf("changing confidence converged: %v", rows.Bindings)
+	}
+	loop.updateStability("review-step", 3, 0.80)
+	rows, err = loop.engine.Query(context.Background(), `converged("review-step")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows.Bindings) != 1 {
+		t.Fatalf("equal consecutive confidence should converge: %v", rows.Bindings)
 	}
 }

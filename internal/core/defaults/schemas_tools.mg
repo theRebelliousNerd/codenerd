@@ -66,7 +66,7 @@ Decl tool_lifecycle(ToolName, State) bound [/string, /name].
 # -----------------------------------------------------------------------------
 
 # explicit_tool_request(Capability) - user explicitly requested tool generation
-Decl explicit_tool_request(Capability) bound [/name].
+Decl explicit_tool_request(Target) bound [/string].
 
 # tool_generation_permitted(Capability) - tool generation passes safety checks
 Decl tool_generation_permitted(Capability) bound [/name].
@@ -174,7 +174,7 @@ Decl current_shard_type(ShardType) bound [/name].
 Decl intent_requires_capability(IntentVerb, CapabilityCategory, Weight) bound [/name, /name, /number].
 
 # current_intent(IntentID) - the active intent for routing context
-Decl current_intent(IntentID) bound [/string].
+Decl current_intent(IntentID) bound [/name].
 
 # -----------------------------------------------------------------------------
 # 40.4 Tool Routing Derived Predicates

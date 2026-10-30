@@ -34,10 +34,10 @@ constraint_violation(Action, Reason) :-
 
 # 3. User facts inform context
 # Facts about the user/project activate relevant context
-context_atom(fn:pair(Pred, Args)) :-
+context_atom(fn:string:concat(Pred, ": ", Args)) :-
     learned_fact(Pred, Args),
     relevant_to_intent(Pred, Intent),
-    user_intent(/current_intent, _, _, _, Intent).
+    user_intent(/current_intent, _, Intent, _, _).
 
 # 4. Knowledge graph links spread activation
 # Entity relationships propagate energy along knowledge_link facts that were
@@ -69,7 +69,7 @@ activation(EntityB, 70) :-
 
 # 5. High-activation facts boost related content
 # Recent activations from activation_log inform focus
-context_priority(FactID, 80) :-
+context_priority(fn:string:concat(FactID), 80) :-
     activation(FactID, Score),
     Score > 70.
 

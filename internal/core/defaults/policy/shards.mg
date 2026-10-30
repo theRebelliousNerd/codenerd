@@ -76,7 +76,7 @@ learning_from_traces(/slow_reasoning, ShardType) :-
     slow_reasoning_detected(ShardType).
 
 # Promote learning signals to long-term memory
-promote_to_long_term(/shard_pattern, ShardType) :-
+promote_to_long_term(/shard_pattern, fn:name:to_string(ShardType)) :-
     learning_from_traces(_, ShardType).
 
 # Cross-Shard Learning (Specialist vs Ephemeral)
@@ -100,7 +100,7 @@ activation(TraceID, 90) :-
     reasoning_trace(TraceID, _, /system, _, _, _).
 
 # Alert on system shard failures
-escalation_needed(/system_health, ShardType, "System shard failure") :-
+escalation_needed(/system_health, fn:name:to_string(ShardType), "System shard failure") :-
     reasoning_trace(_, ShardType, /system, _, /false, _).
 
 # Specialist Knowledge Hydration from Traces

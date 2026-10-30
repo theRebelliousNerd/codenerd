@@ -16,12 +16,12 @@ phase_success_pattern(PhaseType) :-
     phase_checkpoint(PhaseID, CheckpointID, /true, ValidatedAt, ValidatorShard).
 
 # Learn from phase completion - promotes success pattern for phase type
-promote_to_long_term(/phase_success, PhaseType) :-
+promote_to_long_term(/phase_success, fn:name:to_string(PhaseType)) :-
     phase_success_pattern(PhaseType).
 
 # Learn from task failures for future avoidance: this campaign's failed tasks,
 # not a failed task of any campaign the kernel holds.
-campaign_learning(CampaignID, /failure_pattern, TaskType, ErrorMsg, Now) :-
+campaign_learning(CampaignID, /failure_pattern, fn:name:to_string(TaskType), ErrorMsg, Now) :-
     current_campaign(CampaignID),
     campaign_phase(PhaseID, CampaignID, _, _, _, _),
     campaign_task(TaskID, PhaseID, _, /failed, TaskType),

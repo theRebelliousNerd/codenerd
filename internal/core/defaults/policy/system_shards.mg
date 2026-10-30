@@ -13,7 +13,7 @@ shard_heartbeat_stale(ShardName) :-
     !system_shard_healthy(ShardName).
 
 # Escalate if critical system shard is unhealthy
-escalation_needed(/system_health, ShardName, "heartbeat_timeout") :-
+escalation_needed(/system_health, fn:name:to_string(ShardName), "heartbeat_timeout") :-
     shard_heartbeat_stale(ShardName),
     shard_startup(ShardName, /auto).
 

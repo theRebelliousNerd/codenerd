@@ -532,11 +532,11 @@ Decl phase_success_pattern(PhaseType) bound [/name].
 # -----------------------------------------------------------------------------
 
 # system_shard(ShardName, Type) - registered system shards with type
-Decl system_shard(ShardName, Type) bound [/string, /name].
+Decl system_shard(ShardName, Type) bound [/name, /name].
 
 # system_shard_state(ShardName, State) - current shard state
 # State: /idle, /starting, /running, /stopping, /stopped, /error
-Decl system_shard_state(ShardName, State) bound [/string, /name].
+Decl system_shard_state(ShardName, State) bound [/name, /name].
 
 # system_heartbeat(ShardName, Timestamp) - last heartbeat from shard
 # ShardName is the system shard's TYPE name from the fixed registry
@@ -638,7 +638,7 @@ Decl rule_proposal_pending(ShardName, MangleCode, Rationale, Confidence, Timesta
 Decl system_shard_healthy(ShardName) bound [/name].
 
 # system_shard_unhealthy(ShardName) - derived: shard heartbeat stale
-Decl system_shard_unhealthy(ShardName) bound [/string].
+Decl system_shard_unhealthy(ShardName) bound [/name].
 
 
 
@@ -780,7 +780,7 @@ Decl routing_succeeded(ActionID) bound [/string].
 Decl routing_failed(ActionID, Error) bound [/string, /string].
 
 # Health monitoring derived predicates
-Decl shard_heartbeat_stale(ShardName) bound [/string].
+Decl shard_heartbeat_stale(ShardName) bound [/name].
 
 # Safety derived predicates
 Decl block_all_actions(Reason) bound [/string].
@@ -830,8 +830,8 @@ Decl system_startup(State) bound [/name].
 Decl shard_startup(ShardName, Mode) bound [/name, /name].
 
 # Autopoiesis derived predicates
-Decl unhandled_case_count(ShardName, Count) bound [/string, /number].
-Decl unhandled_cases(ShardName, Cases) bound [/string, /string].
+Decl unhandled_case_count(ShardName, Count) bound [/name, /number].
+Decl unhandled_cases(ShardName, Cases) bound [/name, /string].
 # ShardName here is a policy-module / shard identity name constant. Nothing
 # derives it: the system_autopoiesis.mg rule binds it from system_shard/2,
 # which nothing (Go or .mg) asserts, and the policy/verification.mg rule

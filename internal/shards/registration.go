@@ -534,7 +534,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 			// jit_logic.mg), so they live with it.
 			OwnedPredicates: []string{
 				"prompt_atom", "atom_selection_score", "shard_prompt_base",
-				"atom_tag", "atom_conflict", "atom_conflicts", "atom_exclusion_group",
+				"atom_tag", "atom_conflict", "atom_conflicts", "atom_ordinal", "atom_exclusion_group",
 				"atom_dependency", "atom_context_boost", "atom_final_order",
 				"prompt_exemplar", "atom_requires", "is_mandatory", "vector_hit",
 				"current_context", "atom_importance", "vector_slot", "atom_relevance",

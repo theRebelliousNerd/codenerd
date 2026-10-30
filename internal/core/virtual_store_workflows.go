@@ -165,7 +165,7 @@ func buildTaskCompletionFacts(taskID, summary string) []Fact {
 	if summary != "" {
 		facts = append(facts, Fact{
 			Predicate: "observation",
-			Args:      []any{"/task_summary", summary},
+			Args:      []any{types.MangleString("/task_summary"), types.MangleString(summary)},
 		})
 	}
 	return facts
@@ -410,7 +410,7 @@ func (v *VirtualStore) handleCampaignClarify(ctx context.Context, req ActionRequ
 			"question":    question,
 		},
 		FactsToAdd: []Fact{
-			{Predicate: "campaign_awaiting_clarification", Args: []any{campaignID, question}},
+			{Predicate: "campaign_awaiting_clarification", Args: []any{campaignID}},
 		},
 	}, nil
 }

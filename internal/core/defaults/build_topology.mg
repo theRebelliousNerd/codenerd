@@ -66,8 +66,10 @@ phase_precedence(PhaseID, Score) :-
 
 # If category provided via synonym, map it
 phase_precedence(PhaseID, Score) :-
-    phase_category(PhaseID, Alias),
+    phase_category(PhaseID, AliasName),
     phase_synonym(Category, Alias),
+    AliasText = fn:name:to_string(AliasName),
+    AliasText = fn:string:concat("/", Alias),
     build_phase_type(Category, Score).
 
 # ----------------------------------------------------------------------------- 

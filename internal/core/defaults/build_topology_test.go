@@ -176,7 +176,7 @@ phase_dependency("p_domain", "p_transport", /hard).
 // this asserts the kernel half still works for anything that reaches it raw.
 func TestBuildTopology_SynonymsResolveToALayer(t *testing.T) {
 	eng := loadTopologyEngine(t, `
-phase_category("p_alias", "testing").
+phase_category("p_alias", /testing).
 `)
 
 	if !derivedFirstArgs(t, eng, "phase_precedence")["p_alias"] {

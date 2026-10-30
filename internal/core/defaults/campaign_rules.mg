@@ -400,7 +400,7 @@ phase_had_failure(PhaseID) :-
     campaign_task(_, PhaseID, _, /failed, _).
 
 # Learn from zero-failure phases
-promote_to_long_term(/phase_pattern, PhaseType) :-
+promote_to_long_term(/phase_pattern, fn:name:to_string(PhaseType)) :-
     phase_zero_failures(PhaseID),
     phase_objective(PhaseID, PhaseType, _, _).
 
@@ -426,14 +426,14 @@ systemic_error_detected(CampaignID, ErrorType) :-
 next_action(/investigate_systemic) :-
     current_campaign(CampaignID),
     systemic_error_detected(CampaignID, ErrorType),
-    !systemic_error_investigated(CampaignID, ErrorType).
+    !systemic_error_investigated(CampaignID, fn:name:to_string(ErrorType)).
 
 # Helper for safe negation
 systemic_error_investigated(CampaignID, ErrorType) :-
     campaign_learning(CampaignID, /failure_pattern, ErrorType, _, _).
 
 # Learn to avoid systemic errors
-learning_signal(/avoid_pattern, ErrorType) :-
+learning_signal(/avoid_pattern, fn:name:to_string(ErrorType)) :-
     systemic_error_detected(_, ErrorType).
 
 # -----------------------------------------------------------------------------

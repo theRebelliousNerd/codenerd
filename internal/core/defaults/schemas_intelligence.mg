@@ -86,7 +86,7 @@ Decl intelligence_requires_refactor(Path) bound [/string].
 Decl intelligence_chestertons_fence(Path, Warning) bound [/string, /string].
 Decl intelligence_is_core_infrastructure(Path) bound [/string].
 Decl intelligence_missing_tests(Path) bound [/string].
-Decl intelligence_action_blocked(CampaignID, TaskID, Action) bound [/string, /string, /name].
+Decl intelligence_action_blocked(CampaignID, TaskID, Action) bound [/string, /string, /string].
 Decl intelligence_has_blocked_action(CampaignID) bound [/string].
 Decl intelligence_advisory_approved(CampaignID) bound [/string].
 # ShardName is projected straight out of intelligence_shard_advice/5 arg 2.

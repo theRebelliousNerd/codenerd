@@ -325,7 +325,9 @@ beats(A, B) :-
     atom_conflicts(A, B),
     candidate_selection(A, Score),
     candidate_selection(B, Score),
-    A < B. # Lexicographical tie-breaker
+    atom_ordinal(A, OrdA),
+    atom_ordinal(B, OrdB),
+    OrdA < OrdB.
 
 # Atom is suppressed if something beats it.
 suppressed(Atom) :- beats(_, Atom).

@@ -353,6 +353,9 @@ Decl atom_requires(AtomID, DependencyID) bound [/string, /string].
 # Mutual exclusion: AtomA and AtomB cannot both be selected
 Decl atom_conflicts(AtomA, AtomB) bound [/string, /string].
 
+# Measured lexical order of the candidates in this compilation.
+Decl atom_ordinal(AtomID, Ordinal) bound [/string, /number].
+
 # atom_importance(AtomID, Level)
 # Jev's build-time importance of the atom's guidance, a Score level
 # (internal/prompt/importance.go): 1 style, 2 convention, 3 efficiency,

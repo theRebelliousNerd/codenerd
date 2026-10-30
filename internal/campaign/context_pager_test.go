@@ -295,7 +295,7 @@ func TestCompressPhase(t *testing.T) {
 	// Should see deactivation of old facts
 	deactivationSeen := false
 	for _, f := range kernel.Facts {
-		if f.Predicate == "activation" && f.Args[0] == "some_atom" && fmt.Sprintf("%v", f.Args[1]) == "-100" {
+		if f.Predicate == "activation" && types.ExtractString(f.Args[0]) == "some_atom" && fmt.Sprintf("%v", f.Args[1]) == "-100" {
 			deactivationSeen = true
 			break
 		}

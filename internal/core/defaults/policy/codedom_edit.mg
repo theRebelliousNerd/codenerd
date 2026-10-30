@@ -164,7 +164,7 @@ proven_safe_edit(Ref, EditType) :-
     N >= 3.
 
 # Promote to long-term memory when edit pattern is proven
-promote_to_long_term(/edit_pattern, EditType) :-
+promote_to_long_term(/edit_pattern, fn:name:to_string(EditType)) :-
     proven_safe_edit(_, EditType).
 
 # --- Code DOM Activation Rules ---

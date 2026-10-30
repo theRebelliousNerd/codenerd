@@ -22,6 +22,6 @@ activation(Dep, 70) :-
     dependency_link(Dep, File, _).
 
 # 5. Context Pruning - Only high-activation facts enter working memory
-context_atom(Fact) :-
+context_atom(fn:string:concat(Fact)) :-
     activation(Fact, Score),
     Score > 30.

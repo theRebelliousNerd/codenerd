@@ -90,7 +90,7 @@ is_tool_registered(ToolName) :-
     tool_registered(ToolName, _).
 
 # Tool lifecycle states
-tool_lifecycle(ToolName, /detected) :-
+tool_lifecycle(fn:name:to_string(ToolName), /detected) :-
     missing_tool_for(_, ToolName).
 
 tool_lifecycle(ToolName, /ready) :-

@@ -9,7 +9,7 @@ Shipped Mangle-only features here become the public examples.
   then learned rules. All three are concatenated and parsed on every
   `rebuildProgram` (`internal/core/kernel_eval.go`). Order is part of the
   trust model, and a parse or analysis error anywhere is a boot failure
-  everywhere. The embed set `coreLogic` is 156 files.
+  everywhere. The embed set `coreLogic` is 172 files.
 - **Orientation**: `internal/orient/*.mg` (`//go:embed *.mg`, `internal/orient/engine.go`).
   A separate engine and program.
 - **Context**: `internal/context/{working_set,holographic_render,working_retention}.mg`
@@ -78,20 +78,23 @@ mangle-cli boundary --root .      # where .mg meets Go (profile codenerd)
 Before calling something done, run the whole owning package and one
 real-kernel boot test.
 
-## Known state (mangle-cli 1.2.0, 2026-10-28)
-- Core program: loose analysis OK; strict bounds fail at 68 sites
-  (E071/E072). Orient: `Decl history_usable().` lacks `bound []` (E083).
-- Boundary:
-  - B001: 66 dead inputs;
-  - B012: 96 to check by hand;
-  - B003: 67 undeclared asserts, mostly VirtualStore action facts;
-  - B004: 27 arity mismatches, e.g. `next_action/3,4` against `Decl next_action/1`,
-    or `orchestrator_task_handlers.go:912`;
-  - B007: 11 type mismatches (`exec_request` float64 into /number;
-    `current_phase("/verify")` a name into /string);
-  - B005: 3 queries of undefined `*_pattern` predicates (`cmd_systems.go`).
-- `jit_compiler.mg:328` compares strings with `<` ("lexicographical
-  tie-breaker"); `<` is integer-only (E069).
+## Known state (mangle-cli 1.3.0, 2026-10-30)
+- Error review: 26 classified tool false positives remain: 22 action-routing
+  envelopes, one visualization fixture (B004), valid task_complexity/1,2
+  overloading (E046), and two context embeds checked without their host's
+  schemas (ENGINE). Cases and exact sites: `_mangle_lab/REVIEW_FALSE_POSITIVES.md`.
+- E071/E072 and B007 findings are repaired at the contract or producer.
+  Existing strict per-clause bounds analysis still tracks disagreements;
+  whole-corpus strict analysis is not yet enabled.
+- Prompt conflict ties compare measured atom_ordinal/2 integers, supplied
+  across both selection phases, homed in the prompt shard and cleared per
+  compile. Mangle still decides the winner. No prompt atom content changed.
+- Activation uses `bound [/string, /number] bound [/name, /number]` alternatives;
+  the parsed `fn:Union(/string, /name)` passes strict analysis but its runtime
+  type handle rejects both primitives at Go assertion (`kernel_fact_decl.go`).
+  Identity stays typed; context_atom and context_priority render it as text.
+- New behavioral tests are authored; their owning-package and sharded-boot
+  execution is pending. Interpreter probes exercise the pinned v0.7.0 engine.
 
 ## Wired chains (read before deleting a "dead" family)
 - Static findings (`reviewer.mg`): the world scan measures per-file Go

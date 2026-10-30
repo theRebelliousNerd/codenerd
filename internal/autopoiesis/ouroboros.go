@@ -1065,7 +1065,7 @@ func (o *OuroborosLoop) updateStability(stepID string, iterNum int, confidence f
 		stepID, iterNum, confidence)
 	_ = o.engine.AddFacts([]mangle.Fact{
 		{Predicate: "base_stability", Args: []any{stepID, stabilityScore(confidence)}},
-		{Predicate: "state_at_iteration", Args: []any{stepID, iterNum, confidence}},
+		{Predicate: "state_at_iteration", Args: []any{stepID, iterNum, stabilityScore(confidence)}},
 	})
 }
 

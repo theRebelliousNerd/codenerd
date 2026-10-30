@@ -88,7 +88,7 @@ Decl recommend_param_object(File, FuncName) bound [/string, /string].
 
 # Learning Patterns
 Decl coder_rejection_pattern(Style) bound [/string].
-Decl coder_error_pattern(ErrorType) bound [/name].
+Decl coder_error_pattern(ErrorType) bound [/string].
 # promote_to_long_term(Type, Value) is ALREADY DECLARED in schemas_analysis.mg
 # Decl promote_to_long_term(Type, Value).
 Decl coder_success_pattern(Pattern) bound [/string].

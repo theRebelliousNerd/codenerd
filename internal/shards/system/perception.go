@@ -684,8 +684,8 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 		_ = p.Kernel.Assert(types.Fact{
 			Predicate: "ambiguity_flag",
 			Args: []any{
-				intentID,
-				truncateForLog(input, 120),
+				types.MangleString(intentID),
+				types.MangleString(input),
 				fmt.Sprintf("confidence=%.2f", intent.Confidence),
 			},
 		})

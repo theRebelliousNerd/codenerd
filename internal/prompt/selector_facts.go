@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"sort"
 	"strings"
 	"sync"
 
@@ -179,6 +180,28 @@ func staticCandidateFacts(atom *PromptAtom) []any {
 			continue
 		}
 		facts = append(facts, Fact{Predicate: "atom_requires_tool", Args: []any{id, tool}})
+	}
+	return facts
+}
+
+// candidateOrdinalFacts measures one order across both selection phases.
+func candidateOrdinalFacts(atoms []*PromptAtom) []any {
+	facts := make([]any, 0, len(atoms))
+	// Measure the lexical order once. Mangle's < compares integers only;
+	// the policy consumes these ordinals to resolve equal-score conflicts.
+	ids := make(map[string]struct{}, len(atoms))
+	for _, atom := range atoms {
+		if atom != nil {
+			ids[atom.ID] = struct{}{}
+		}
+	}
+	ordered := make([]string, 0, len(ids))
+	for id := range ids {
+		ordered = append(ordered, id)
+	}
+	sort.Strings(ordered)
+	for ordinal, id := range ordered {
+		facts = append(facts, Fact{Predicate: "atom_ordinal", Args: []any{id, int64(ordinal)}})
 	}
 	return facts
 }

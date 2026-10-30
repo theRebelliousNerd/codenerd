@@ -252,7 +252,7 @@ missing_skeleton_category(Category) :-
     !has_skeleton_category(Category).
 
 # Report missing skeleton as compilation error
-compilation_error(/missing_skeleton, Category) :-
+compilation_error(/missing_skeleton, fn:name:to_string(Category)) :-
     missing_skeleton_category(Category).
 
 

@@ -1139,12 +1139,20 @@ func (v *VirtualStore) parseBuildDiagnostics(output string) []Fact {
 
 	for line := range lines {
 		// Parse Go-style errors: file.go:line:col: message
-		if strings.Contains(line, ":") && (strings.Contains(line, "error") || strings.Contains(line, "warning")) {
+		if strings.Contains(line, ":") {
 			parts := strings.SplitN(line, ":", 4)
 			if len(parts) >= 4 {
+				lineNumber, err := strconv.ParseInt(parts[1], 10, 64)
+				if err != nil {
+					continue
+				}
+				severity := MangleAtom("/error")
+				if strings.HasPrefix(strings.TrimSpace(parts[3]), "warning:") {
+					severity = MangleAtom("/warning")
+				}
 				facts = append(facts, Fact{
 					Predicate: "diagnostic",
-					Args:      []any{"/error", parts[0], parts[1], parts[3]},
+					Args:      []any{severity, types.MangleString(parts[0]), lineNumber, "", types.MangleString(strings.TrimSpace(parts[3]))},
 				})
 			}
 		}

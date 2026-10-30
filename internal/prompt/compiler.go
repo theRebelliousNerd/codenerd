@@ -129,6 +129,7 @@ var promptEphemeralPredicates = []string{
 	"flesh_carried",
 	"atom_requires",
 	"atom_conflicts",
+	"atom_ordinal",
 	"atom_requires_tool",
 	"available_tool",
 	"compile_shard",

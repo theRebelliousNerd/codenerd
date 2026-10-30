@@ -305,7 +305,7 @@ func (cp *ContextPager) CompressPhase(ctx context.Context, phase *Phase) (string
 			factPredicate := types.ExtractString(fact.Args[1])
 			postFacts = append(postFacts, core.Fact{
 				Predicate: "activation",
-				Args:      []any{factPredicate, -100},
+				Args:      []any{types.MangleString(factPredicate), -100},
 			})
 		}
 	}

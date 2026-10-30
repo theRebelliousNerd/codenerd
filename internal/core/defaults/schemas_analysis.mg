@@ -63,7 +63,7 @@ Decl block_commit(Reason) bound [/string].
 # =============================================================================
 
 # missing_hypothesis(RootCause)
-Decl missing_hypothesis(RootCause) bound [/string].
+Decl missing_hypothesis(SymptomType) bound [/name].
 
 # clarification_needed(Ref) - derived predicate
 Decl clarification_needed(Ref) bound [/string].

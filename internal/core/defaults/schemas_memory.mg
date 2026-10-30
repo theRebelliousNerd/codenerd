@@ -98,8 +98,8 @@ Decl learned_fact(Predicate, Args) bound [/string, /string].
 # learned_constraint(Predicate, Args) - User constraints from cold_storage
 Decl learned_constraint(Predicate, Args) bound [/string, /string].
 
-# activation(FactID, Score) - Recent activation scores
-Decl activation(FactID, Score) bound [/string, /number].
+# activation(FactID, Score) - String references or tool name identities
+Decl activation(FactID, Score) bound [/string, /number] bound [/name, /number].
 
 # strategic_knowledge(Category, Content, Confidence) - Hydrated /init knowledge
 Decl strategic_knowledge(Category, Content, Confidence) bound [/name, /string, /number].
@@ -149,7 +149,7 @@ Decl checkpoint_needed() bound [].
 
 # unhandled_case_count_computed(ShardName, Count) - List count for unhandled cases
 # Mangle doesn't have list length function; Go computes this
-Decl unhandled_case_count_computed(ShardName, Count) bound [/string, /number].
+Decl unhandled_case_count_computed(ShardName, Count) bound [/name, /number].
 
 # pending_subtask_count_computed(Count) - Count of pending subtasks
 # Aggregation computed by Go runtime

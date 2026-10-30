@@ -330,16 +330,16 @@ Decl has_guard(Var, File, Line) bound [/string, /string, /number].
 
 # is_guarded(Var, File, Line) - Derived: variable is protected at this point
 # Computed from guards_block and guards_return
-Decl is_guarded(Var, File, Line) bound [/string, /string, /number].
+Decl is_guarded(Var, File, Line) bound [/name, /string, /number].
 
 # unsafe_deref(File, Var, Line) - Derived: nullable dereference without guard
-Decl unsafe_deref(File, Var, Line) bound [/string, /string, /number].
+Decl unsafe_deref(File, Var, Line) bound [/string, /name, /number].
 
 # is_error_checked(Var, File, Line) - Derived: error variable is checked
-Decl is_error_checked(Var, File, Line) bound [/string, /string, /number].
+Decl is_error_checked(Var, File, Line) bound [/name, /string, /number].
 
 # unchecked_error(File, Func, Line) - Derived: error assigned but not checked
-Decl unchecked_error(File, Func, Line) bound [/string, /string, /number].
+Decl unchecked_error(File, Func, Line) bound [/string, /name, /number].
 
 # -----------------------------------------------------------------------------
 # 47.10 Impact Analysis Derived Predicates (IDB - from policy.mg Section 48)
@@ -362,13 +362,13 @@ Decl context_priority_file(File, Func, Priority) bound [/string, /string, /numbe
 # -----------------------------------------------------------------------------
 
 # active_hypothesis(Type, File, Line, Var) - Post-suppression hypotheses
-Decl active_hypothesis(Type, File, Line, Var) bound [/name, /string, /number, /string].
+Decl active_hypothesis(Type, File, Line, Var) bound [/name, /string, /number, /name].
 
 # priority_boost(File, Boost) - Additional priority for risky files
 Decl priority_boost(File, Boost) bound [/string, /number].
 
 # prioritized_hypothesis(Type, File, Line, Var, Priority) - Final prioritized findings
-Decl prioritized_hypothesis(Type, File, Line, Var, Priority) bound [/name, /string, /number, /string, /number].
+Decl prioritized_hypothesis(Type, File, Line, Var, Priority) bound [/name, /string, /number, /name, /number].
 
 # -----------------------------------------------------------------------------
 # 47.12 Helper Predicates for Safe Negation (IDB)
@@ -377,10 +377,10 @@ Decl prioritized_hypothesis(Type, File, Line, Var, Priority) bound [/name, /stri
 # negation is applied. Required by Mangle's safety constraints.
 
 # has_guard_at(Var, File, Line) - Helper for guarded variable check
-Decl has_guard_at(Var, File, Line) bound [/string, /string, /number].
+Decl has_guard_at(Var, File, Line) bound [/name, /string, /number].
 
 # has_error_check_at(Var, File, Line) - Helper for error check presence
-Decl has_error_check_at(Var, File, Line) bound [/string, /string, /number].
+Decl has_error_check_at(Var, File, Line) bound [/name, /string, /number].
 
 # has_suppression_unsafe_deref(File, Line) - Helper for suppression check
 Decl has_suppression_unsafe_deref(File, Line) bound [/string, /number].
