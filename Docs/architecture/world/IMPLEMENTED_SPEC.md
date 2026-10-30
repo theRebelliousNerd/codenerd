@@ -601,20 +601,26 @@ files. Oversized Go tests retain header-only package/import extraction. Each
 manifest entry records test-symbol coverage; an older manifest schedules only
 its unchanged tests for one delta refresh, without another full scan.
 
-`Scanner.Refresh` holds a mutex across scanning and applying the result. Cortex
-boot, explicit chat/CLI refreshes, and post-write refreshes share this entry point.
+`Scanner.Refresh` holds cancellable exclusive ownership across observation,
+kernel application and the session's knowledge publication. Cortex installs
+the publisher before its boot scan; explicit chat/CLI refreshes, delegation
+preparation and post-write refreshes share this entry point. Returned deltas
+must not be published independently after the call. Deep and partial chat
+scans hold `Scanner.WithRefreshLock` across their observation, cache/kernel
+updates and graph transaction, so they cannot overtake a fast refresh either.
 VirtualStore observes `modified` or `file_deleted` in action results and modular tool completion
 facts and invokes the attached scanner before returning from the completion
 boundary. Explicit `update_world_model` executes that same callback and reports
 failure when no scanner is attached. It no longer emits an unconsumed trigger.
-Fast world rows are persisted by Scanner; post-write knowledge facts and link
-projection use the same live result. Deep, scope, repository and LSP ownership
+Fast world rows are persisted by Scanner; knowledge facts and link projection
+use the same live result within its ownership. Deep, scope, repository and LSP ownership
 remain separate as defined in `world_predicates.go`.
 
 Consumers retain canonical workspace-relative identities: `file_in_project`
 reads topology, expert task complexity reads symbols, and impact/activation
 rules read resolved dependency edges. `RefreshStats` exposes full, delta and
-unchanged refresh counts plus the latest elapsed scan/apply time. A failed
+unchanged refresh counts plus publication failures, pending publication and the
+latest elapsed scan/apply/publish time (excluding admission wait). A failed
 post-write refresh reports stale context through the action output and Glass Box;
 it cannot undo the write that already landed.
 
@@ -623,6 +629,42 @@ checks replacement of old symbols and import edges, checks test symbols and
 impact derivation, and requires one boot full scan followed by deltas through both the action router and modular registry. Its
 execution and timing measurements remain pending. The legacy-manifest regression
 requires a one-file delta followed by an unchanged result.
+
+Publication is an idempotent acknowledgement after world application. The
+scanner retains at most one failed result and its target kernel; no newer
+observation may advance the cache until that result applies and publishes.
+An otherwise unchanged refresh first retries pending publication. Cold-fact
+mirroring and graph replacement are both attempted, with joined errors, so a
+mirror failure cannot suppress source retirement. A publication error says the
+world was applied and publication remains pending; `WorldApplied` and
+`Published` describe successful result receipts. Graph retirement continues to
+use `VirtualStore.ReplaceLinkFacts` and the existing ownership-filtered
+`LocalStore.ReplaceWorldLinks` transaction. No revision schema or second scanner
+is needed for ordering within this scanner.
+
+The lock order is scanner ownership, then VirtualStore/store/kernel operations.
+The publisher must never reenter scanner refresh, update, statistics or publisher
+configuration methods. Admission honors context cancellation. A failed receipt
+is owned by the scanner and is not returned for independent replay by callers.
+Retry never re-executes the mutation that produced the observation.
+
+This receipt lives only in memory. A process failure after cache persistence
+can still require an authoritative ownership-scoped graph reconciliation;
+startup does not claim durable replay or removal of unsupported historical
+edges. Transactions do not span filesystem, cache, kernel, cold storage and
+graph. Separate scanners/processes sharing a database are outside the session
+ordering guarantee, and low-level scan/projection APIs do not acquire it
+automatically. Deep/partial scans retain their existing error/retry contracts;
+the shared lock establishes ordering, not durable recovery for those paths.
+
+The publication regression requires a resolved import cached and applied before
+a paused publication, a canceled competing observation, a queued newer removal,
+an unrelated-file delta, an unchanged control, later re-addition, deletion,
+manual-edge preservation and a reopened graph. The Cortex regression requires
+SQL failure through both action and modular-tool completion, visible pending
+status, repeated failure without a new scan, and successful replay on unchanged
+source. These are authored acceptance cases; runtime and fail-before evidence
+remain outstanding.
 
 ### 7.2 Complete package parses for holographic context
 

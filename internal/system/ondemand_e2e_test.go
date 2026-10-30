@@ -56,6 +56,10 @@ func TestWorldRefreshAfterWriteUsesBootScanner(t *testing.T) {
 	if before.FullScans != 1 {
 		t.Fatalf("boot full scans = %d", before.FullScans)
 	}
+	bootLinks, err := cortex.VirtualStore.QueryKnowledgeGraph("main.go", "incoming")
+	if err != nil || len(bootLinks) == 0 {
+		t.Fatalf("boot must publish its initial symbol projection: links=%v err=%v", bootLinks, err)
+	}
 
 	cortex.VirtualStore.DisableBootGuard()
 	body := "package main\nimport \"example.com/app/lib\"\nfunc After() int { return lib.Value() }\n"
@@ -122,4 +126,6 @@ func TestWorldRefreshAfterWriteUsesBootScanner(t *testing.T) {
 		t.Fatalf("modular write must use one delta and no full scan: before=%+v after=%+v", after, final)
 	}
 	t.Logf("boot refresh=%v; action write refresh=%v; modular write refresh=%v", before.LastDuration, after.LastDuration, final.LastDuration)
+
+	exerciseWorldPublicationRetry(t, ctx, cortex, path, body)
 }

@@ -39,6 +39,8 @@ var legacyWorldLinkSources = []any{"scan", "scan-deep", "scan-path", "scan-dir",
 // when the stored row belongs to the projection (see above); a caller passes
 // in retire the edges its superseded facts supported and that its current
 // facts no longer do.
+// The caller must own observation-to-publication ordering: this mutex orders
+// transaction arrival and cannot detect a delayed delta from an older scan.
 func (s *LocalStore) ReplaceWorldLinks(retire, publish []KnowledgeLink) error {
 	if len(retire) == 0 && len(publish) == 0 {
 		return nil

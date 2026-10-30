@@ -1490,8 +1490,8 @@ func initKernel(bctx *bootContext) error {
 
 // refreshWorldModelAtBoot runs an incremental world scan after the cache is
 // loaded and applies the delta, exactly as the TUI post-boot scan does
-// (cmd/nerd/chat/helpers_scan.go), minus the KG-link persistence block which
-// is TUI-only bookkeeping. It runs on every boot path — nerd chat, nerd fix,
+// (cmd/nerd/chat/helpers_scan.go), including the attached knowledge projection.
+// It runs on every boot path — nerd chat, nerd fix,
 // campaigns, spawned shards — not just the TUI and `nerd run`, which were the
 // only callers that rescanned. When the cache is empty the scan.mg fallback in
 // initKernel stays as is; this scan still runs so a fresh workspace gets a
@@ -2534,8 +2534,10 @@ func initFinalExecutors(bctx *bootContext) error {
 	// weeks ago (only the TUI and `nerd run` rescanned), so loading it without
 	// a delta leaves every CodeDOM/world rule joining stale, half mis-keyed
 	// facts. A scan error is logged and never fails boot.
+	if err := attachWorldRefresher(bctx); err != nil {
+		return err
+	}
 	refreshWorldModelAtBoot(bctx)
-	attachWorldRefresher(bctx)
 
 	sessionVS := &sessionVirtualStoreAdapter{vs: bctx.virtualStore}
 	// CLI spawn/create/TaskExecutor use the worker LLM when configured

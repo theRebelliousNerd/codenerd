@@ -102,30 +102,13 @@ func (m Model) loadWorkspaceFacts(ctx context.Context, intent perception.Intent,
 		return false
 	}
 
-	res, err := m.scanner.Refresh(ctx, m.workspace, m.localDB, m.kernel, world.IncrementalOptions{SkipWhenUnchanged: true})
+	_, err := m.scanner.Refresh(ctx, m.workspace, m.localDB, m.kernel, world.IncrementalOptions{SkipWhenUnchanged: true})
 	if err != nil {
 		if warnings != nil {
 			*warnings = append(*warnings, fmt.Sprintf("Workspace scan skipped: %v", err))
 		}
 		return false
 	}
-	if res == nil {
-		return true
-	}
-
-	if res.Unchanged || len(res.NewFacts) == 0 {
-		return true
-	}
-
-	if m.virtualStore != nil {
-		if err := m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 5); err != nil && warnings != nil {
-			*warnings = append(*warnings, fmt.Sprintf("Knowledge persistence warning: %v", err))
-		}
-		if err := m.virtualStore.ReplaceLinkFacts(res.RetractFacts, res.NewFacts, "scan"); err != nil && warnings != nil {
-			*warnings = append(*warnings, fmt.Sprintf("Knowledge graph warning: %v", err))
-		}
-	}
-
 	return true
 }
 

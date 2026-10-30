@@ -32,6 +32,12 @@ type IncrementalOptions struct {
 // IncrementalResult describes an incremental fast scan.
 // If Full=true, NewFacts contains a full world snapshot.
 type IncrementalResult struct {
+	// WorldApplied and Published are receipts set only by Refresh. Published
+	// means the configured publisher acknowledged this changed result; an
+	// unchanged scan has no new publication. Inspect RefreshStats after an
+	// error to distinguish a pending publication from an unapplied result.
+	WorldApplied   bool
+	Published      bool
 	Full           bool
 	Unchanged      bool
 	NewFacts       []core.Fact

@@ -160,12 +160,17 @@ func (v *VirtualStore) PersistLink(entityA, relation, entityB string, weight flo
 // passes nil.
 //
 // This is the one projection for every producer: full, incremental, deep,
-// partial and directory scans, and the world-model shard. The six copies it
+// partial and directory scans. The six copies it
 // replaced each labelled the dependency edge "depends_on:<import path>", a
 // token that is not a Mangle name, so HydrateKnowledgeGraph landed it as a
 // string constant and the /depends_on activation rule in policy/knowledge.mg
 // matched none of them. The import path rides in the metadata, readable but
 // not part of the edge's identity.
+//
+// This adapter is a transaction, not an observation-order fence. Session
+// refreshes invoke it through Scanner's publisher, while deep/partial updates
+// hold the same scanner ownership from observation through this call. Publishing
+// a saved refresh result independently after Refresh returns is unsafe.
 func (v *VirtualStore) ReplaceLinkFacts(retired, current []Fact, source string) error {
 	v.mu.RLock()
 	db := v.localDB

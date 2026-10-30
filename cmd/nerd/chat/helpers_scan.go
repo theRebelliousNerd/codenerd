@@ -181,16 +181,6 @@ func (m Model) runScan(deep bool) tea.Cmd {
 
 		m.ReportStatus("Updating kernel...")
 
-		// Persist delta facts to knowledge DB and KG links
-		if m.virtualStore != nil && res != nil && len(res.NewFacts) > 0 {
-			if err := m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 5); err != nil {
-				logging.Routing("[helpers] failed to persist facts to knowledge: %v", err)
-			}
-			if err := m.virtualStore.ReplaceLinkFacts(res.RetractFacts, res.NewFacts, "scan"); err != nil {
-				logging.Routing("[helpers] failed to persist knowledge graph links: %v", err)
-			}
-		}
-
 		// Reload profile facts if present
 		factsPath := filepath.Join(m.workspace, ".nerd", "profile.mg")
 		if _, statErr := os.Stat(factsPath); statErr == nil {
@@ -343,6 +333,10 @@ func (m *Model) ensureDeepWorldFacts() error {
 	if m.kernel == nil || m.scanner == nil {
 		return nil
 	}
+	return m.scanner.WithRefreshLock(context.Background(), m.ensureDeepWorldFactsLocked)
+}
+
+func (m *Model) ensureDeepWorldFactsLocked() error {
 
 	fileFacts, _ := m.kernel.Query("file_topology")
 	goFiles := make([]string, 0)
@@ -497,6 +491,21 @@ func (m Model) scanFilesIntoWorld(fsPaths []string, source string) int {
 	if m.kernel == nil || len(fsPaths) == 0 {
 		return 0
 	}
+	if m.scanner == nil {
+		logging.Routing("[helpers] %s: scanner not initialized", source)
+		return 0
+	}
+	var total int
+	if err := m.scanner.WithRefreshLock(context.Background(), func() error {
+		total = m.scanFilesIntoWorldLocked(fsPaths, source)
+		return nil
+	}); err != nil {
+		logging.Routing("[helpers] %s: world update failed: %v", source, err)
+	}
+	return total
+}
+
+func (m Model) scanFilesIntoWorldLocked(fsPaths []string, source string) int {
 	parser := world.NewASTParser()
 	defer parser.Close()
 

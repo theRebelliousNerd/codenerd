@@ -1,9 +1,9 @@
 ---
 doc-class: deep-dive
 subsystem: world-refresh-projection
-implementation-status: proposed
+implementation-status: partial
 last-verified: 2026-10-30
-verified-against: 6cb5f88e00eaf939d10dee46c16c68baf4b53d57
+verified-against: fef98230c20a5751e4c32a2fd2757832a9d39cdc
 source-links-against: 32b8417bb9b0ec70a83b06226c67c906d0b30be0
 verification-method: static-source-inspection
 review-status: independently-challenged-documentation-draft
@@ -139,3 +139,69 @@ The useful outcome is a graph projection that cannot become older while a succes
 [retirement-test]: https://github.com/theRebelliousNerd/codenerd/blob/32b8417bb9b0ec70a83b06226c67c906d0b30be0/internal/world/graph_source_retirement_test.go#L15-L109
 [prior-retrieval]: https://github.com/theRebelliousNerd/codenerd/blob/32b8417bb9b0ec70a83b06226c67c906d0b30be0/Docs/audits/retrieval-delta-publication-fencing.md
 [prior-format]: https://github.com/theRebelliousNerd/codenerd/blob/32b8417bb9b0ec70a83b06226c67c906d0b30be0/Docs/audits/world-cache-rolling-format-admission.md
+
+## As built
+
+Source reinspection against working-tree base `fef98230c` supports the bounded
+interleaving. The original report above describes the pre-repair path; the
+following rulings describe the authored repair. No new commit identifiers are
+available: these changes remain in the working tree for integration.
+
+| Finding or prerequisite | Ruling against the base | Current disposition |
+|---|---|---|
+| Scan/application ownership ends before graph publication, allowing transaction inversion | **Real.** `internal/world/refresh.go`, `internal/system/world_refresh.go`, `cmd/nerd/chat/helpers_scan.go` and `process_dream_delegation.go` retained that handoff. | Scanner now owns observation through publication; all Refresh consumers inherit one attached publisher. Chat/delegation no longer publish returned deltas. |
+| No-op refresh skips a failed or late projection | **Real.** The callback returned on `Unchanged` after the cache had advanced. | One failed result stays pending in memory and is retried before another scan, including an unchanged observation. Repeated failure prevents advancing to a newer delta. |
+| Earlier source-retirement repair is absent | **Already fixed**, as the report itself credits: `4123cef79`, `ReplaceLinkFacts`, `ReplaceWorldLinks` and `graph_source_retirement_test.go`. | Keep its projection-owned retirement and atomic SQL replacement; document that transaction arrival does not establish observation order. |
+| Shared production callbacks can overlap despite serial calls within a model batch | **Real prerequisite.** `orchestrator_tasks.go` launches admitted tasks as goroutines; `orchestrator_task_handlers.go` uses the observed executor; `task_executor.go` clones the executor while `executor.go` shares VirtualStore/registry dependencies. `executor_tools.go` still processes an individual batch serially. | The shared scanner is the owner, independent of caller concurrency or task write-set leases. No campaign scheduling policy changes. |
+| Dependency retirement can be constructed from A's cached import | **Real prerequisite.** `incremental_scan.go` loads canonical old fast facts before replacement and resolves imports before persisting per-file rows. | Preserve that path. Publication now completes before a newer observer can consume its baseline. |
+| Graph readers admit the stale edge without comparing source generations | **Real consumer boundary.** `QueryKnowledgeGraph` reads `QueryLinks` and emits the stored relation. | Order writers; no reader heuristic, global generation discard or per-edge tombstone is introduced. |
+| Cold-mirror ordering is another established defect; permanent corruption or model harm is proven | **Not findings of this audit.** Its stated evidence explicitly excludes these stronger claims. | No such claims are added. Mirror and graph failures are joined, with graph retirement attempted even when the mirror fails. |
+
+No substantive bounded finding was ruled wrong. The retained historical commit
+claims were also checked locally: `f3ad5fc52` retires the ingestor and adds the
+shared refresh boundary; `6cb5f88e0` changes only the five chat continuation/state
+files listed in the report. The prior audit's revision-aware replacement
+proposal and its queue entry are present. This repair selects the report's
+complete-operation serialization option instead of adding revision storage.
+
+Files: `internal/world/{fs.go,refresh.go,incremental_scan.go}` own cancellable
+admission, application/publication receipts and a single pending result;
+`internal/system/{world_refresh.go,factory.go}` install publication before boot;
+`cmd/nerd/chat/{helpers_scan.go,process_dream_delegation.go}` remove duplicate
+publication and serialize deep/partial observation through graph commit.
+`internal/core/virtual_store_predicates.go` and
+`internal/store/local_graph_world.go` clarify their transaction-only contract.
+The as-built contract is in `Docs/architecture/world/IMPLEMENTED_SPEC.md`.
+No Mangle predicates, registration entries or prompt atoms changed.
+
+Tests authored:
+
+- `TestRefresh_PublicationPrecedesNextObservation` in
+  `internal/world/refresh_publication_test.go`: real scanner, kernel, fast cache,
+  resolved local import and graph adapter; barriers around publication and
+  waiting admission; cancellation, unrelated-file delta, unchanged refresh,
+  re-addition, deletion, manual knowledge and reopening the SQL graph.
+- `TestWorldRefreshAfterWriteUsesBootScanner` in
+  `internal/system/ondemand_e2e_test.go`, with
+  `internal/system/world_refresh_publication_test.go`: boot projection plus action and modular
+  completion routes; SQL trigger aborts retirement after the write succeeds;
+  repeated failure must remain pending, and an unchanged refresh must replay the
+  retirement without re-executing the write. Before the repair, the callback
+  lost that retirement and the no-op refresh left the edge in the graph.
+  A separate cold-storage abort also requires healthy graph retirement to
+  proceed while the combined publication remains visibly pending.
+
+Status is **partial** because execution, including fail-before/pass-after and
+race verification, remains outstanding. Only formatting and whitespace checks
+were run; the failure descriptions above are source-derived expectations, not
+observed test results. No throughput or latency measurements are claimed.
+An admitted campaign concurrency fixture was not executed or added; the authored
+tests separate direct ordering evidence from the existing production callback
+routes, without claiming end-to-end campaign scheduling evidence.
+
+The pending receipt supports recovery within the scanner's lifetime. It is not
+a crash-durable outbox: restart reconciliation after cache/kernel/publication
+interruption remains a separate requirement, as do pre-existing stale graph
+reconciliation and coordination between independent scanners/processes. The
+shared lock also does not add publication replay to the separate deep/partial
+scan APIs. None of these boundaries is presented as a successful current graph.

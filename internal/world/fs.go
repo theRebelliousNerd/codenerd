@@ -21,10 +21,13 @@ import (
 
 // Scanner handles file system indexing.
 type Scanner struct {
-	refreshMu    sync.Mutex
-	refreshStats RefreshStats
-	parserPool   sync.Pool
-	config       ScannerConfig
+	refreshOnce      sync.Once
+	refreshGate      chan struct{}
+	refreshStats     RefreshStats
+	refreshPublisher func(context.Context, *IncrementalResult) error
+	pendingRefresh   *pendingRefresh
+	parserPool       sync.Pool
+	config           ScannerConfig
 	// patternsFromWorkspace makes a scan read the target workspace's
 	// world.ignore_patterns. NewScanner sets it so init, scan and campaign
 	// — which construct a scanner with no config — still honour that list.

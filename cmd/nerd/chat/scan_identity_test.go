@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/store"
 	"codenerd/internal/types"
+	"codenerd/internal/world"
 )
 
 // The chat scan commands (/scan-path, /scan-dir) must produce facts under the
@@ -53,6 +54,9 @@ func newScanModel(t *testing.T) (Model, string) {
 	m.workspace = ws
 	m.localDB = db
 	m.virtualStore = vs
+	// Boot hands the chat the shared scanner (model_update.go); partial and
+	// directory scans run under its refresh lock.
+	m.scanner = world.NewScanner()
 	return m, ws
 }
 
