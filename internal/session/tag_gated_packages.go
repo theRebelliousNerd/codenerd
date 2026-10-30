@@ -5,6 +5,7 @@ import (
 	internalbuild "codenerd/internal/build"
 	"codenerd/internal/logging"
 	"context"
+	"fmt"
 	"go/build"
 	"go/build/constraint"
 	"os"
@@ -90,6 +91,16 @@ func tagsForIgnoredFiles(dir string, ignored []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// fileConstraintOrNil is the file's //go:build expression, nil when it has
+// none or cannot be read (an unreadable file has no test to run here).
+func fileConstraintOrNil(path string) constraint.Expr {
+	expr, err := fileConstraint(path)
+	if err != nil {
+		return nil
+	}
+	return expr
 }
 
 func tagsForFile(path string) []string {
@@ -229,8 +240,19 @@ func withWrittenTagGatedTests(ctx context.Context, workspace string, written []s
 		if !filepath.IsAbs(abs) {
 			abs = filepath.Join(workspace, rel)
 		}
-		tags := tagsForFile(abs)
+		if fileConstraintOrNil(abs) == nil {
+			continue
+		}
+		// A configuration that includes the file: a satisfying assignment
+		// of its constraint, not every tag it names (tag_constraint_assignment.go).
+		tags, ok, why := satisfyingTags(abs)
+		if !ok {
+			return TestVerification{Outcome: VerifyIndeterminate,
+				Reason: fmt.Sprintf("the test %s wrote cannot be run: %s", rel, why)}
+		}
 		if len(tags) == 0 {
+			// The default configuration already includes it: the default
+			// suite ran it.
 			continue
 		}
 		body, err := os.ReadFile(abs)
@@ -252,6 +274,15 @@ func withWrittenTagGatedTests(ctx context.Context, workspace string, written []s
 		gated := verifyTests(ctx, workspace, pkgs,
 			"-count=1", "-tags", strings.Join(tags, ","), "-run", "^("+strings.Join(names, "|")+")$")
 		if gated.Verdict() != VerifyPassed {
+			return gated
+		}
+		// A clean exit is not a witness: a run that matched no test exits
+		// 0 too. Each written test must show a pass.
+		if missing := unranTests(gated.Result, names); len(missing) > 0 {
+			gated.OK = false
+			gated.Outcome = VerifyIndeterminate
+			gated.Reason = fmt.Sprintf("the run under -tags %s exited cleanly but ran no passing %s from %s",
+				strings.Join(tags, ","), strings.Join(missing, ", "), rel)
 			return gated
 		}
 	}
