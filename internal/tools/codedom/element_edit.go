@@ -175,10 +175,10 @@ func parsedTarget(ctx context.Context, path, ref string) (*resolvedElement, erro
 // stale revisions with the element as it is now so the edit can be redone
 // without a read.
 func checkRevision(re *resolvedElement, rev string) error {
-	if isMissingRevision(rev) {
+	rev, applies := tools.RevisionPrecondition(rev)
+	if !applies {
 		return nil
 	}
-	rev = strings.TrimSpace(rev)
 	if len(rev) != 12 || strings.Trim(rev, "0123456789abcdef") != "" {
 		return fmt.Errorf("malformed revision %q: expected 12 lowercase hexadecimal characters (for example 1f11f9cf40f7); use the element's rev from get_element or get_elements, or omit revision to edit without a precondition", rev)
 	}
@@ -187,14 +187,6 @@ func checkRevision(re *resolvedElement, rev string) error {
 	}
 	return fmt.Errorf("precondition failed: %s is at rev %s, not %s -- it changed since it was read. It is now:\n%s",
 		RefOf(re.file.rel, re.elem, re.refs), re.elem.Revision, rev, re.model.NumberedLines(re.elem.StartLine, re.elem.EndLine))
-}
-
-// isMissingRevision reports whether a revision argument carries no precondition:
-// empty, or a model's spelling of no value (tools.IsOmittedSentinel, the one
-// list). None of those names a revision, so none of them may be reported as a
-// concurrent change: the edit proceeds without a revision check.
-func isMissingRevision(rev string) bool {
-	return tools.IsOmittedSentinel(rev)
 }
 
 // importResolver is the workspace's resolver for imports in rel, or nil when

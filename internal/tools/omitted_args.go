@@ -66,3 +66,16 @@ func requiredArg(tool *Tool, key string) bool {
 	}
 	return false
 }
+
+// RevisionPrecondition reads a revision argument the way every element tool
+// and every guard projecting one must: an omission sentinel ("None", "null",
+// empty) carries no precondition, and a revision is compared trimmed. It
+// returns the revision to compare and whether one applies. The build-exclusion
+// projector skipped its check for a "None" it took for a stale revision while
+// the handler applied the edit without a precondition.
+func RevisionPrecondition(rev string) (string, bool) {
+	if IsOmittedSentinel(rev) {
+		return "", false
+	}
+	return strings.TrimSpace(rev), true
+}
