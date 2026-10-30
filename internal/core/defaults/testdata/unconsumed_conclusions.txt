@@ -129,7 +129,6 @@ unconsumed edit_warning
 unconsumed editable
 unconsumed effective_prompt_atom
 unconsumed element_edit_blocked
-unconsumed escalate_to_user
 unconsumed excessive_appeal_denials
 unconsumed explicit_tool_request
 unconsumed failed_campaign_task
@@ -189,7 +188,6 @@ unconsumed has_successful_shard
 unconsumed has_suppression_unchecked_error
 unconsumed has_suppression_unsafe_deref
 unconsumed has_test_coverage
-unconsumed has_tool_domain
 unconsumed has_tool_for_action
 unconsumed has_tool_usage
 unconsumed has_unaddressed_high_risk
@@ -280,7 +278,6 @@ unconsumed layer_sequencing_warning
 unconsumed lazy_pattern_detected
 unconsumed learned_proposal
 unconsumed learning_candidate_ready
-unconsumed learning_pattern_detected
 unconsumed learning_signal
 unconsumed left_of
 unconsumed long_file_warning
@@ -358,7 +355,6 @@ unconsumed recommend_param_object
 unconsumed recommend_simplify
 unconsumed refactor_mode
 unconsumed refined_score
-unconsumed refinement_effective
 unconsumed regression_battery_has_forbidden_task
 unconsumed regression_battery_has_task
 unconsumed regression_battery_permitted
@@ -457,12 +453,18 @@ unconsumed too_many_params
 unconsumed tool_advisory_block
 unconsumed tool_available
 unconsumed tool_domain_relevance
-unconsumed tool_generation_hint
+unconsumed tool_exec_last
+unconsumed tool_exec_ok
+unconsumed tool_exec_total
+unconsumed tool_exists
+unconsumed tool_has_ok_execution
 unconsumed tool_lifecycle
 unconsumed tool_quality_acceptable
 unconsumed tool_quality_good
+unconsumed tool_ready
 unconsumed tool_recency_relevance
 unconsumed tool_success_relevance
+unconsumed tool_usage_stats
 unconsumed traceback_to_source_depth
 unconsumed turn_build_green
 unconsumed turn_tests_green

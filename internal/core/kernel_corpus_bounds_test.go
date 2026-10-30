@@ -47,7 +47,6 @@ var knownBoundsDisagreements = map[string]string{
 	"specialist_outperforms":              "reasoning_trace slot types",
 	"symbol_reachable_safe":               "path_of_length is unbounded",
 	"system_invariant_violated":           "Decl /number timestamp; invariant_value yields /any",
-	"tool_generation_hint":                "Decl /string tool; capabilities are /name",
 	"tool_lifecycle":                      "Decl /string tool; missing_tool_for yields /name",
 	"unchecked_error":                     "Decl /string func; data-flow columns are /name",
 	"unsafe_deref":                        "Decl /string var; data-flow columns are /name",

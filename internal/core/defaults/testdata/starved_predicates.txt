@@ -28,7 +28,6 @@ campaign_milestone  # campaign inputs (campaign_rules.mg, selection_policy.mg, c
 campaign_progress_over_50  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
 campaign_prompt_policy
 campaign_shard  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
-capability_similar_to  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
 chaos_safety_violation
 checkpoint_needed
 code_accepted
@@ -51,7 +50,6 @@ file_has_public_api  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, 
 file_line_count
 fix_pattern
 gauntlet_result  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
-generation_state  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
 intelligence_file_action  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 intelligence_file_depends  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 intelligence_file_topology  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
@@ -60,7 +58,6 @@ intelligence_preference
 intelligence_strategic_knowledge  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 invariant_value
 investigation_result
-issue_occurrence_count  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
 item_retry_count
 known_cause
 mutation_approved  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
@@ -74,8 +71,6 @@ patch_tested
 proposed_rule
 quality_violation  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
 reachability_query  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
-refinement_count  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
-refinement_state  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
 rejection
 rejection_count
 relevant_to_intent
@@ -93,7 +88,6 @@ style_violation
 suppressed_rule  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 suppression  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 suppression_confidence  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
-symbol_verified_exists  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
 symptom
 system_invariant
 system_shard
@@ -101,26 +95,17 @@ target_contains_multiple_files
 target_is_complex
 target_is_large
 target_word_count
-task_failure_count  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
-task_failure_reason  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
 task_remediation_target  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
 test_package
 test_passed
 test_scope  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 tester_task
 thunderdome_battle
-tool_compiled  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
-tool_domain  # tool routing (tool_routing.mg): the tool registry asserts tool_registered and tool_capability only; wire usage and domain facts or delete the relevance rules
 tool_in_list  # campaign inputs (campaign_rules.mg, selection_policy.mg, campaign_tasks.mg): nothing asserts them; the rules that read them never fire
 tool_language
-tool_refined  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
-tool_safety_verified  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
-tool_source_ready  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules
-tool_usage_stats  # tool routing (tool_routing.mg): the tool registry asserts tool_registered and tool_capability only; wire usage and domain facts or delete the relevance rules
 trace_error  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 trace_quality  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 trace_task_type  # intelligence and trace facts (intelligence.mg, shards.mg): the campaign intelligence and reasoning-trace producers do not exist; wire them or delete the rules
 type_embeds  # reviewer and analysis inputs (reviewer.mg, data_flow.mg, tester.mg, impact.mg): the world scanner emits function_scope, not these; wire the scanner or delete the rules
 unhandled_case_count_computed
 validation_max_retries_reached  # safety and validation inputs (validation.mg, git_safety.mg, commit_gate.mg, chaos.mg): the rules that read them fail closed or stay silent until a producer is wired
-version_quality  # tool generation lifecycle (autopoiesis.mg): the Ouroboros state is never asserted into the kernel, so its transitions never fire; wire the lifecycle facts or delete the rules

@@ -54,16 +54,6 @@ capability_available(Cap) :-
 explicit_tool_request(Cap) :-
     user_intent(/current_intent, /mutation, /generate_tool, Cap, _).
 
-# Need new tool when repeated failures suggest capability gap.
-# ReasonType is a closed category (/name per schemas_tools.mg), not prose - the
-# prose belongs in the third slot, Detail. Cap flows straight into
-# task_failure_count(Capability, Count) bound [/name, /number], so it is a /name
-# on both sides of that join.
-capability_gap_detected(Cap) :-
-    task_failure_reason(_, /missing_capability, Cap),
-    task_failure_count(Cap, N),
-    N >= 2.
-
 # Tool generation is permitted (safety gate)
 tool_generation_permitted(Cap) :-
     missing_tool_for(_, Cap),
@@ -92,32 +82,8 @@ dangerous_capability(/network_unconstrained).
 dangerous_capability(/system_admin).
 dangerous_capability(/credential_access).
 
-# Ouroboros next actions
-next_action(/ouroboros_detect) :-
-    capability_gap_detected(_).
-
 next_action(/ouroboros_generate) :-
-    tool_generation_permitted(_),
-    !has_active_generation().
-
-next_action(/ouroboros_compile) :-
-    tool_source_ready(ToolName),
-    tool_safety_verified(ToolName),
-    !tool_compiled(ToolName),
-    !tool_ready(ToolName).
-
-next_action(/ouroboros_register) :-
-    tool_compiled(ToolName),
-    !is_tool_registered(ToolName),
-    !tool_ready(ToolName).
-
-# Track active tool generation (prevent parallel generations)
-active_generation(ToolName) :-
-    generation_state(ToolName, /in_progress).
-
-# Helper for safe negation - true if any generation is in progress
-has_active_generation() :-
-    active_generation(_).
+    tool_generation_permitted(_).
 
 # Helper for safe negation - true if tool is registered
 is_tool_registered(ToolName) :-
@@ -126,17 +92,6 @@ is_tool_registered(ToolName) :-
 # Tool lifecycle states
 tool_lifecycle(ToolName, /detected) :-
     missing_tool_for(_, ToolName).
-
-tool_lifecycle(ToolName, /generating) :-
-    generation_state(ToolName, /in_progress).
-
-tool_lifecycle(ToolName, /safety_check) :-
-    tool_source_ready(ToolName),
-    !tool_safety_verified(ToolName).
-
-tool_lifecycle(ToolName, /compiling) :-
-    tool_safety_verified(ToolName),
-    !tool_compiled(ToolName).
 
 tool_lifecycle(ToolName, /ready) :-
     tool_ready(ToolName).
@@ -179,49 +134,7 @@ tool_needs_refinement(ToolName) :-
 
 # Next action for refinement
 next_action(/refine_tool) :-
-    tool_needs_refinement(_),
-    !has_active_refinement().
-
-# Prevent parallel refinements
-active_refinement(ToolName) :-
-    refinement_state(ToolName, /in_progress).
-
-# Helper for safe negation - true if any refinement is in progress
-has_active_refinement() :-
-    active_refinement(_).
-
-# Learning pattern signals
-learning_pattern_detected(ToolName, IssueType) :-
-    tool_known_issue(ToolName, IssueType),
-    issue_occurrence_count(ToolName, IssueType, Count),
-    Count >= 3.
-
-# Promote learnings to tool generation hints
-tool_generation_hint(Capability, "add_pagination") :-
-    learning_pattern_detected(_, /pagination),
-    capability_similar_to(Capability, _).
-
-tool_generation_hint(Capability, "increase_limits") :-
-    learning_pattern_detected(_, /incomplete),
-    capability_similar_to(Capability, _).
-
-tool_generation_hint(Capability, "add_retry") :-
-    learning_pattern_detected(_, /rate_limit),
-    capability_similar_to(Capability, _).
-
-# Track refinement success
-refinement_effective(ToolName) :-
-    tool_refined(ToolName, OldVersion, NewVersion),
-    version_quality(ToolName, OldVersion, OldQuality),
-    version_quality(ToolName, NewVersion, NewQuality),
-    NewQuality > OldQuality.
-
-# Escalate if refinement didn't help
-escalate_to_user(ToolName, "refinement_ineffective") :-
-    tool_refined(ToolName, _, _),
-    tool_quality_poor(ToolName),
-    refinement_count(ToolName, Count),
-    Count >= 2.
+    tool_needs_refinement(_).
 
 # Section 49: Suppression Rules / Autopoiesis (ReviewerShard Beyond-SOTA)
 

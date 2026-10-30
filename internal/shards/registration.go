@@ -88,7 +88,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"modified_function", "modified_file",
 				// Tool domain facts are joined only against file_topology
 				// (tool_routing.mg, policy_mcp.mg).
-				"tool_domain", "mcp_tool_domain", "mcp_tool_registered", "mcp_server_status",
+				"mcp_tool_domain", "mcp_tool_registered", "mcp_server_status",
 				"mcp_tool_capability", "mcp_tool_shard_affinity", "mcp_tool_avg_latency",
 				"mcp_tool_usage", "mcp_tool_vector_score", "mcp_tool_category",
 				// Control-plane classification belongs with the catalog it
@@ -107,7 +107,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"file_edited", "failing_test", "pytest_root_cause",
 				"is_test_file", "project_forbidden_path",
 				"retry_count",
-				"symbol_verified_exists", "traceback_frame", "assertion_mismatch",
+				"traceback_frame", "assertion_mismatch",
 
 				// Facts negated by coder/commit rules whose positive side is
 				// world-model data; a negation evaluated in a shard that never
@@ -155,24 +155,24 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// tool registry those names were checked against lives here.
 				"user_agent_declared_tool",
 				"tool_exists", "tool_usage_stats", "tool_description",
-				"tool_available", "tool_binary_path", "tool_source_ready",
-				"tool_safety_verified", "tool_compiled",
+				"tool_available", "tool_binary_path",
+
 				// tool_generation_blocked is derived (autopoiesis.mg) and no Go
 				// asserts it, so it is not owned: an owner would make the
 				// derivation look incomplete in every other shard.
 				"tool_lifecycle", "tool_known_issue",
-				"capability_similar_to", "tool_refined", "refinement_count",
+
 				"tool_learning", "tool_executed", "tool_exec_success",
 				"tool_exec_failed", "tool_not_found", "tool_execution_count",
 				"tool_last_execution", "tool_execution", "tool_compilation_failed",
 				"tool_generated", "tool_trace", "tool_generation_failed",
 				"tool_issue_pattern", "tool_hot_loaded", "tool_version",
-				"task_failure_reason", "task_failure_count",
-				"issue_occurrence_count", "version_quality", "active_refinement",
+
+				"active_refinement",
 				// Hypotheses are about files (prioritization.mg joins them
 				// against test_coverage).
 				"active_hypothesis", "unsafe_deref", "unchecked_error",
-				"refinement_state",
+
 				// Data-flow facts (data_flow.mg): assignments, uses, guards.
 				"assigns", "uses", "guards_block", "guards_return",
 				"error_checked_block", "error_checked_return", "same_scope",
@@ -586,7 +586,7 @@ func SharedPredicates() []string {
 		"compile_context",
 		"compile_shard",
 		"system_shard_healthy",
-		"generation_state",
+
 		"validation_max_retries_reached",
 		// Small runtime state joined by routing rules
 		"test_state",

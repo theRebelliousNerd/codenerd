@@ -41,20 +41,6 @@ Decl tool_capability(ToolName, Capability) bound [/string, /name].
 # capability_available(Capability) - derived: capability exists
 Decl capability_available(Capability) bound [/name].
 
-# Tool generation lifecycle
-# tool_source_ready(ToolName) - source code has been generated
-Decl tool_source_ready(ToolName) bound [/string].
-
-# tool_safety_verified(ToolName) - passed safety checks
-Decl tool_safety_verified(ToolName) bound [/string].
-
-# tool_compiled(ToolName) - successfully compiled
-Decl tool_compiled(ToolName) bound [/string].
-
-# generation_state(ToolName, State) - current generation state
-# State: /pending, /in_progress, /completed, /failed
-Decl generation_state(ToolName, State) bound [/string, /name].
-
 # has_active_generation - helper for safe negation (true if any generation in progress)
 Decl has_active_generation() bound [].
 
@@ -63,12 +49,6 @@ Decl is_tool_registered(ToolName) bound [/string].
 
 # missing_tool_for(Intent, Capability) - detected capability gap
 Decl missing_tool_for(Intent, Capability) bound [/name, /name].
-
-# task_failure_reason(TaskID, ReasonType, Detail)
-Decl task_failure_reason(TaskID, ReasonType, Detail) bound [/string, /name, /string].
-
-# task_failure_count(Capability, Count) - tracks repeated failures
-Decl task_failure_count(Capability, Count) bound [/name, /number].
 
 # tool_generation_blocked(Capability) - capability blocked from generation
 Decl tool_generation_blocked(Capability) bound [/name].
@@ -88,9 +68,6 @@ Decl tool_lifecycle(ToolName, State) bound [/string, /name].
 # explicit_tool_request(Capability) - user explicitly requested tool generation
 Decl explicit_tool_request(Capability) bound [/name].
 
-# capability_gap_detected(Capability) - repeated failures suggest missing capability
-Decl capability_gap_detected(Capability) bound [/name].
-
 # tool_generation_permitted(Capability) - tool generation passes safety checks
 Decl tool_generation_permitted(Capability) bound [/name].
 
@@ -103,37 +80,15 @@ Decl dangerous_capability(Capability) bound [/name].
 # =============================================================================
 # Predicates for tool quality tracking and refinement
 
-# refinement_state(ToolName, State) - tracks refinement lifecycle
-# State: /idle, /in_progress, /completed, /failed
-Decl refinement_state(ToolName, State) bound [/string, /name].
-
 # tool_known_issue(ToolName, IssueType) - known issues with a tool
 # IssueType: /pagination, /incomplete, /rate_limit, /timeout
 Decl tool_known_issue(ToolName, IssueType) bound [/string, /name].
 
-# issue_occurrence_count(ToolName, IssueType, Count) - how often issue occurs
-Decl issue_occurrence_count(ToolName, IssueType, Count) bound [/string, /name, /number].
-
-# capability_similar_to(Capability, SimilarCapability) - capability relationships
-Decl capability_similar_to(Capability, SimilarCapability) bound [/name, /name].
-
-# tool_refined(ToolName, OldVersion, NewVersion) - refinement history
-Decl tool_refined(ToolName, OldVersion, NewVersion) bound [/string, /string, /string].
-
-# version_quality(ToolName, Version, QualityScore) - quality per version
-Decl version_quality(ToolName, Version, QualityScore) bound [/string, /string, /number].
-
 # tool_quality_poor(ToolName) - derived: tool has low quality
 Decl tool_quality_poor(ToolName) bound [/string].
 
-# refinement_count(ToolName, Count) - number of refinements attempted
-Decl refinement_count(ToolName, Count) bound [/string, /number].
-
 # tool_learning(ToolName, Executions, SuccessRate, AvgQuality) - learning metrics
 Decl tool_learning(ToolName, Executions, SuccessRate, AvgQuality) bound [/string, /number, /number, /number].
-
-# active_generation(ToolName) - tool is being generated
-Decl active_generation(ToolName) bound [/string].
 
 # Tool Execution Tracking (for VirtualStore integration)
 # tool_executed(ToolName, Output) - tool was executed successfully
@@ -160,20 +115,8 @@ Decl tool_quality_acceptable(ToolName) bound [/string].
 # tool_quality_good(ToolName) - derived: tool has good quality
 Decl tool_quality_good(ToolName) bound [/string].
 
-# tool_generation_hint(ToolName, Hint) - hints for tool generation
-Decl tool_generation_hint(ToolName, Hint) bound [/string, /string].
-
 # tool_needs_refinement(ToolName) - derived: tool quality is poor and needs refinement
 Decl tool_needs_refinement(ToolName) bound [/string].
-
-# active_refinement(ToolName) - tool is currently being refined
-Decl active_refinement(ToolName) bound [/string].
-
-# learning_pattern_detected(ToolName, IssueType) - recurring issue pattern found
-Decl learning_pattern_detected(ToolName, IssueType) bound [/string, /name].
-
-# refinement_effective(ToolName) - derived: refinement improved tool quality
-Decl refinement_effective(ToolName) bound [/string].
 
 # escalate_to_user(Subject, Reason) - escalation needed for user decision
 Decl escalate_to_user(Subject, Reason) bound [/string, /string].
@@ -190,13 +133,15 @@ Decl escalate_to_user(Subject, Reason) bound [/string, /string].
 # Categories: /validation, /generation, /inspection, /transformation,
 #             /analysis, /execution, /knowledge, /debugging, /general
 
-# tool_domain(ToolName, Domain) - tool's primary domain
-# Domains: /go, /python, /mangle, /filesystem, /git, /testing, /build, /web
-Decl tool_domain(ToolName, Domain) bound [/string, /name].
-
 # tool_usage_stats(ToolName, ExecuteCount, SuccessCount, LastUsed)
 # Tracks tool execution history for learning-based prioritization
 Decl tool_usage_stats(ToolName, ExecuteCount, SuccessCount, LastUsed) bound [/string, /number, /number, /number].
+
+# Derived by policy/tool_routing.mg from tool_execution (40.3.3b).
+Decl tool_exec_total(ToolName, Count) bound [/string, /number].
+Decl tool_exec_ok(ToolName, Count) bound [/string, /number].
+Decl tool_exec_last(ToolName, LastUsed) bound [/string, /number].
+Decl tool_has_ok_execution(ToolName) bound [/string].
 
 # tool_priority_score(ToolName, Score)
 # Derived score 0.0-1.0 based on combined relevance factors
@@ -378,10 +323,6 @@ Decl review_insight(Index, Insight) bound [/number, /string].
 # of the registry name, Confidence is 0-100.
 # The 4-arg review form that used to sit beside it had no producer.
 Decl specialist_match(Specialist, Task, Confidence) bound [/name, /string, /number].
-
-# symbol_verified_exists(Symbol, File, VerifiedAt)
-# Symbol was verified to exist (counters false "undefined" claims)
-Decl symbol_verified_exists(Symbol, File, VerifiedAt) bound [/string, /string, /number].
 
 # =============================================================================
 # SECTION 41.13: LANGUAGE-AGNOSTIC SECURITY FLOW ANALYSIS

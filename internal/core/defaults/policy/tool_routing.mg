@@ -95,17 +95,37 @@ tool_intent_relevance(ToolName, 0) :-
     tool_registered(ToolName, _),
     !has_current_intent().
 
-# 40.3.3 Domain Boost: Tool matches target file's language/domain
-# Score: 30 (out of 100)
-tool_domain_relevance(ToolName, 30) :-
-    current_intent(IntentID),
-    user_intent(IntentID, _, _, Target, _),
-    file_topology(Target, _, Lang, _, _),
-    tool_domain(ToolName, Lang).
-
 tool_domain_relevance(ToolName, 0) :-
-    tool_registered(ToolName, _),
-    !has_tool_domain(ToolName).
+    tool_registered(ToolName, _).
+
+# 40.3.3b Usage statistics, derived from the executions the tool fact sink
+# asserts (core.VirtualStore.toolFactSink: one tool_execution per completed call,
+# at second resolution, so two calls of one tool in one second count once).
+# tool_usage_stats(Tool, Executions, Successes, LastUsed) was declared with no
+# producer, so the success and recency boosts below never fired.
+tool_exec_total(Tool, N) :-
+    tool_execution(Tool, Outcome, At)
+    |> do fn:group_by(Tool), let N = fn:count().
+
+tool_exec_ok(Tool, N) :-
+    tool_execution(Tool, /true, At)
+    |> do fn:group_by(Tool), let N = fn:count().
+
+tool_exec_last(Tool, Last) :-
+    tool_execution(Tool, Outcome, At)
+    |> do fn:group_by(Tool), let Last = fn:max(At).
+
+tool_has_ok_execution(Tool) :- tool_exec_ok(Tool, N).
+
+tool_usage_stats(Tool, Total, Ok, Last) :-
+    tool_exec_total(Tool, Total),
+    tool_exec_ok(Tool, Ok),
+    tool_exec_last(Tool, Last).
+
+tool_usage_stats(Tool, Total, 0, Last) :-
+    tool_exec_total(Tool, Total),
+    tool_exec_last(Tool, Last),
+    !tool_has_ok_execution(Tool).
 
 # 40.3.4 Success History Boost: Tool succeeded in similar contexts
 # Note: Uses simplified scoring - full implementation would compute rate
@@ -158,9 +178,6 @@ relevant_tool(/system, ToolName) :-
 
 # has_current_intent() - helper for safe negation
 has_current_intent() :- current_intent(_).
-
-# has_tool_domain(ToolName) - helper for safe negation
-has_tool_domain(ToolName) :- tool_domain(ToolName, _).
 
 # has_tool_usage(ToolName) - helper for safe negation
 has_tool_usage(ToolName) :- tool_usage_stats(ToolName, _, _, _).

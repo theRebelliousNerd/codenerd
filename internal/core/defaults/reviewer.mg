@@ -351,12 +351,6 @@ review_suspect(ReviewID, "multiple_rejections") :-
     user_rejected_finding(ReviewID, File, Line2, _, _),
     Line1 != Line2.
 
-# Review is suspect if it flagged a symbol that was verified to exist
-review_suspect(ReviewID, "flagged_existing_symbol") :-
-    review_finding_with_id(ReviewID, File, Line, _, _, Message),
-    symbol_verified_exists(Symbol, File, _),
-    :string:contains(Message, "undefined").
-
 # Review is suspect if >50% findings were rejected
 # NOTE: Mangle can't do percentage math; use rejection_rate_high virtual predicate
 review_suspect(ReviewID, "high_rejection_rate") :-
