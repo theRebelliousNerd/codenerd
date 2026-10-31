@@ -441,6 +441,10 @@ func (sq *SpawnQueue) waitForShardCompletion(ctx context.Context, shardID string
 	for {
 		select {
 		case <-ctx.Done():
+			// The queue worker has abandoned this result, just like a direct
+			// synchronous waiter. Atomically drop an already-recorded result or
+			// suppress its late retention while execution cleanup still runs.
+			sq.shardManager.detach(shardID)
 			return SpawnResult{ShardID: shardID, Error: ctx.Err()}
 		case <-ticker.C:
 			result, ok := sq.shardManager.GetResult(shardID)

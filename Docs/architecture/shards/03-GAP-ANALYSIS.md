@@ -113,6 +113,32 @@ When SpawnWithContext loses its synchronous caller to cancellation, it must atom
 
 **Verified current:** `TestShardManager_CanceledSynchronousWaiterDoesNotRetainResult` (`internal/core/shards/manager_spawn_context_test.go:125`) passes repeatedly, with the full `internal/core/shards` package and race suite also passing.
 
+## Required contract: queued waiter result disposition
+
+A queue worker that abandons a spawned shard's completion wait because its
+request context stops must relinquish that shard's retained result through the
+manager's existing atomic detach operation. This must cover completion before,
+during and after cancellation without skipping execution cleanup or JIT database
+release. Disposition belongs to the individual spawn; unrelated active work,
+retained results and detach marks must remain intact.
+
+Consuming an execution result is different from abandoning a wait. A delivered
+execution error, including `context.Canceled` or `context.DeadlineExceeded`, must
+be returned as that execution's result without adding a phantom detach mark.
+Ordinary attached and explicitly detached requests retain their API semantics.
+
+| Gap ID | Current deficiency | Required exit |
+|---|---|---|
+| GAP-SHARDS-QUEUED-WAITER | The completion-wait cancellation branch now relinquishes ownership through `ShardManager.detach` (`internal/core/shards/spawn_queue.go:441`), which suppresses late retention or removes an already-recorded result under the manager mutex. | A real queued synchronous call that is cancelled while an agent delays completion leaves no retained result, detach mark, active shard or JIT lease after completion; already-recorded and racing completions, execution-error consumption and unrelated-work controls pass under race. |
+
+Status: closed for queued completion-wait result disposition. The public
+`SpawnWithPriority` path is exercised by
+`TestSpawnQueue_CanceledSynchronousWaiterDisposesLateResult`
+(`internal/core/shards/queue_cancellation_test.go:53`); completion-before-stop,
+execution-error consumption and concurrent publication controls are in the same
+file. This does not establish global shutdown, queue restart or live-model
+qualification guarantees.
+
 ## Executive proposal metadata
 
 GAP-SHARDS-EXECUTIVE-METADATA: syntax/schema validation must not substitute for
