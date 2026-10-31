@@ -16,6 +16,17 @@ Constitutional `permitted(...)` is **orthogonal**: this package never requests t
 
 ## 2. Invariants
 
+### Import expansion uses workspace membership before capacity
+
+An import's existence or score grants no context membership. Seeds must be
+admitted before parsing; resolved targets must be admitted before tier selection.
+Go package directories must be admitted before listing, and package sources
+before the three-file cap. Use the existing workspace authority, including
+explicit exclusions of tracked paths, and return no neighbors when it cannot be
+opened/refreshed (`internal/retrieval/tiered_context.go:451`, `:506`;
+`internal/retrieval/go_imports.go:167`). Relevance policy remains the kernel's
+decision over admitted facts, independent of this filesystem boundary.
+
 ### I1 — Read-only filesystem
 
 No `WriteFile`, `Remove`, `Mkdir` in package sources. Violation = critical defect.

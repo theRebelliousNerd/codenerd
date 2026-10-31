@@ -1,5 +1,37 @@
 # retrieval — Gap Analysis
 
+## GAP-RETRIEVAL-TIER3-MEMBERSHIP
+
+Import expansion must use the same workspace membership authority as mention
+resolution and keyword scans. An existing import target does not establish
+membership: explicit world exclusions, Git ignores and reserved directories
+must still reject it. Apply membership before spending Tier-3 capacity and
+before Go's per-package file cap; excluded small files must not crowd out
+eligible package sources. Refuse import expansion if membership is unavailable.
+Retain language resolution, deterministic package ordering, duplicate suppression
+and existing budgets. Membership is independent of relevance: valid neighbors
+remain Tier-3 EDB evidence at score 50, while the kernel alone decides whether
+they enter the rendered brief at the configured relevance floor.
+
+Exit: real filesystem fixtures through BuildContext and the production
+TaskRetriever/SeedIssueFacts/kernel/RenderBrief path show no excluded neighbor
+in asserted tier facts at either the default or lowered floor. Valid neighbors
+survive, including behind more than three excluded smaller Go files. Controls
+cover all four supported language families and cancellation/empty capacity.
+Status: implemented for Go, Python, TypeScript/JavaScript and Rust import
+expansion. `expandImportGraph` obtains one refreshed membership before expansion
+(`internal/retrieval/tiered_context.go:451`), and the shared resolver checks
+seeds and targets before selection (`:506`). Go admits the package directory
+before listing it and filters source files before its three-file cap
+(`internal/retrieval/go_imports.go:167`). Production-path regressions inspect
+real kernel facts and rendered briefs at both relevance floors
+(`internal/retrieval/tier3_membership_test.go:79`), with a tight tier budget
+(`:130`), Git ignores, explicit tracked exclusions and unavailable-authority
+controls (`internal/retrieval/tier3_membership_controls_test.go:16`, `:56`).
+This closes membership admission for Tier 3; it does not add new import
+resolution features, change relevance policy or establish resolver-level
+mid-operation cancellation or Tier-3 completeness reporting.
+
 > Last verified: **2026-07-13**
 > Method: vision (§01) × current state (§02) × wiring evidence
 

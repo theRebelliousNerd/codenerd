@@ -1,5 +1,28 @@
 # retrieval — Implemented Spec (Deep-Dive)
 
+## Tier-3 workspace membership
+
+Import targets are context candidates only after the shared workspace membership
+authority admits them. `expandImportGraph` refreshes membership once per expansion
+(`internal/retrieval/tiered_context.go:451`); `importNeighborsWithMembership`
+checks the seed before parsing and filters resolved targets before they spend
+tier capacity (`:506`). Go also admits the package directory before `ReadDir`
+and each source before sorting and the three-file package cap
+(`internal/retrieval/go_imports.go:167`). Explicit world exclusions therefore
+still apply to tracked files, and ignored small sources cannot displace eligible
+neighbors. Membership failures return no import expansion.
+
+Accepted neighbors remain Tier 3 with score 50. They become kernel evidence
+through `SeedIssueFacts` and `TieredContextFacts` (`internal/retrieval/facts.go:184`,
+`:387`); the kernel's existing relevance floor determines whether they enter
+the rendered task brief (`internal/core/defaults/policy/retrieval.mg:33`). The
+default floor of 60 suppresses those brief entries, while a floor of 50 admits
+eligible neighbors. Neither floor may reintroduce an excluded path. Real-kernel
+task/seed/brief tests cover both floors and all supported language families
+(`internal/retrieval/tier3_membership_test.go:79`), including pre-cap selection
+(`:130`) and Git/explicit tracked exclusion controls
+(`internal/retrieval/tier3_membership_controls_test.go:16`).
+
 > Last verified against codebase: **2026-07-13**  
 > Status: Living Reference Document  
 > Language: Go  

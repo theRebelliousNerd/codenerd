@@ -1,5 +1,19 @@
 # retrieval — Wiring and Integration
 
+## Import-neighbor membership boundary
+
+The production task path remains `TaskRetriever.Retrieve` -> `SeedIssueFacts`
+-> `BuildContext` -> tier facts -> kernel brief rules -> `RenderBrief`
+(`internal/retrieval/decisions.go:326`, `internal/retrieval/facts.go:184`,
+`internal/retrieval/tiered_context.go:208`). Tier-3 expansion now shares one
+refreshed workspace membership across its seeds and neighbors (`:451`, `:506`),
+including Go's directory admission and source filtering before package capacity
+(`internal/retrieval/go_imports.go:167`). No threshold or policy rule changes
+are needed: the existing floor still decides which admitted facts reach the
+brief. The real-kernel regression inspects asserted facts even when the default
+floor hides imports from the brief, then checks the rendered brief with the
+floor lowered (`internal/retrieval/tier3_membership_test.go:79`).
+
 > Last verified: **2026-09-25** (§2a, §7 and §8 rewritten against the code)    
 > Focus: how (and how not) retrieval joins the live agent loop
 

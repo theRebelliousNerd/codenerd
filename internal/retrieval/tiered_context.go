@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/workspace"
 )
 
 // =============================================================================
@@ -448,6 +449,14 @@ func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, request s
 
 // expandImportGraph adds files that import or are imported by Tier 1-2 files.
 func (b *TieredContextBuilder) expandImportGraph(ctx context.Context, existingFiles []ContextFile, addedFiles map[string]bool) []ContextFile {
+	if b.maxTier3 <= 0 || ctx.Err() != nil {
+		return nil
+	}
+	mem, err := membershipFor(b.workDir)
+	if err != nil {
+		logging.Context("TieredContextBuilder: import membership unavailable: %v", err)
+		return nil
+	}
 	var newFiles []ContextFile
 
 	// Collect imports for each existing file
@@ -456,7 +465,7 @@ func (b *TieredContextBuilder) expandImportGraph(ctx context.Context, existingFi
 			break
 		}
 
-		for _, resolvedPath := range b.importNeighbors(file.FilePath) {
+		for _, resolvedPath := range b.importNeighborsWithMembership(file.FilePath, mem) {
 			if len(newFiles) >= b.maxTier3 {
 				break
 			}
@@ -485,23 +494,41 @@ func (b *TieredContextBuilder) expandImportGraph(ctx context.Context, existingFi
 // Go repository — this one — the whole import tier was empty and the builder's
 // 20% import budget went unused.
 func (b *TieredContextBuilder) importNeighbors(filePath string) []string {
-	if strings.EqualFold(filepath.Ext(filePath), ".go") {
-		return b.goImportNeighbors(filePath)
+	mem, err := membershipFor(b.workDir)
+	if err != nil {
+		return nil
 	}
-	if isJSLike(filePath) {
-		return b.jsImportNeighbors(filePath)
-	}
-	if strings.EqualFold(filepath.Ext(filePath), ".rs") {
-		return b.rustImportNeighbors(filePath)
-	}
+	return b.importNeighborsWithMembership(filePath, mem)
+}
 
+// One refreshed membership serves the whole expansion. Check the seed before
+// parsing it and every resolved target before it can spend tier capacity.
+func (b *TieredContextBuilder) importNeighborsWithMembership(filePath string, mem *workspace.Membership) []string {
+	if ok, err := mem.Admit(filePath, false); err != nil || !ok {
+		return nil
+	}
+	if strings.EqualFold(filepath.Ext(filePath), ".go") {
+		return b.goImportNeighborsWithMembership(filePath, mem)
+	}
 	var out []string
-	for _, imp := range b.extractImports(filePath) {
-		if resolved := b.resolveImport(imp, filePath); resolved != "" {
-			out = append(out, resolved)
+	if isJSLike(filePath) {
+		out = b.jsImportNeighbors(filePath)
+	} else if strings.EqualFold(filepath.Ext(filePath), ".rs") {
+		out = b.rustImportNeighbors(filePath)
+	} else {
+		for _, imp := range b.extractImports(filePath) {
+			if resolved := b.resolveImport(imp, filePath); resolved != "" {
+				out = append(out, resolved)
+			}
 		}
 	}
-	return out
+	members := out[:0]
+	for _, path := range out {
+		if ok, err := mem.Admit(path, false); err == nil && ok {
+			members = append(members, path)
+		}
+	}
+	return members
 }
 
 // pyImportPattern matches top-level Python import statements. Package-level

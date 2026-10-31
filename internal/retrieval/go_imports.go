@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"codenerd/internal/workspace"
+
 	"golang.org/x/mod/modfile"
 )
 
@@ -34,6 +36,17 @@ const maxGoPackageFiles = 3
 // goImportNeighbors returns workspace files belonging to the packages imported
 // by a Go source file, nearest-package-first.
 func (b *TieredContextBuilder) goImportNeighbors(filePath string) []string {
+	mem, err := membershipFor(b.workDir)
+	if err != nil {
+		return nil
+	}
+	if ok, err := mem.Admit(filePath, false); err != nil || !ok {
+		return nil
+	}
+	return b.goImportNeighborsWithMembership(filePath, mem)
+}
+
+func (b *TieredContextBuilder) goImportNeighborsWithMembership(filePath string, mem *workspace.Membership) []string {
 	imports := parseGoImports(filePath)
 	if len(imports) == 0 {
 		return nil
@@ -48,7 +61,7 @@ func (b *TieredContextBuilder) goImportNeighbors(filePath string) []string {
 		if dir == "" {
 			continue
 		}
-		for _, f := range goPackageFiles(dir) {
+		for _, f := range goPackageFiles(dir, mem) {
 			if seen[f] || f == filePath {
 				continue
 			}
@@ -151,7 +164,10 @@ func firstSegment(importPath string) string {
 // goPackageFiles lists a package directory's non-test Go sources, smallest
 // first — the small files in a Go package are usually the type and interface
 // declarations, which is what an import edge is worth reading for.
-func goPackageFiles(dir string) []string {
+func goPackageFiles(dir string, mem *workspace.Membership) []string {
+	if ok, err := mem.Admit(dir, true); err != nil || !ok {
+		return nil
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -170,11 +186,17 @@ func goPackageFiles(dir string) []string {
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
+		path := filepath.Join(dir, name)
+		// Filter before ordering/truncation: excluded small files cannot use
+		// the package's three source slots or displace eligible neighbors.
+		if ok, err := mem.Admit(path, false); err != nil || !ok {
+			continue
+		}
 		info, ierr := e.Info()
 		if ierr != nil {
 			continue
 		}
-		candidates = append(candidates, sized{filepath.Join(dir, name), info.Size()})
+		candidates = append(candidates, sized{path, info.Size()})
 	}
 
 	sort.Slice(candidates, func(i, j int) bool {
