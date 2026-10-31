@@ -1,6 +1,8 @@
 package mangle
 
 import (
+	"fmt"
+
 	"codeberg.org/TauCeti/mangle-go/ast"
 	mengine "codeberg.org/TauCeti/mangle-go/engine"
 )
@@ -141,6 +143,30 @@ func (e *Engine) markDirtyLocked(removal bool, preds ...string) {
 	}
 }
 
+// markFailedMutationLocked retains the accepted prefix but withholds derived
+// reads when the aborted operation left pending base changes. A schema waiting
+// for its first evaluation alone is not an accepted mutation prefix. Keep the
+// first unresolved cause until evaluation actually succeeds. Caller holds e.mu.
+func (e *Engine) markFailedMutationLocked(err error) error {
+	if e.derivedReadErr == nil && (e.dirtyRemoval || len(e.dirtyPreds) > 0) {
+		e.derivedReadErr = err
+	}
+	return err
+}
+
+// Base-only predicates remain inspectable after failure. A rule-head predicate
+// contains a materialized conclusion set, which must not look current while
+// recovery is pending. Caller holds at least e.mu.RLock.
+func (e *Engine) derivedReadErrorLocked(sym ast.PredicateSym) error {
+	if e.derivedReadErr == nil || e.programInfo == nil {
+		return nil
+	}
+	if _, derived := e.programInfo.IdbPredicates[sym]; !derived {
+		return nil
+	}
+	return fmt.Errorf("%w for %s: %w", ErrDerivedStateNotReady, sym.Symbol, e.derivedReadErr)
+}
+
 // rederiveLocked brings the derived facts up to date with the base facts and
 // the program: it clears whatever the recorded mutations could have
 // invalidated, then evaluates. Caller holds e.mu.
@@ -174,6 +200,12 @@ func (e *Engine) rederiveLocked() (mengine.Stats, error) {
 	stats, err := e.evalWithGasLimit()
 	if err == nil {
 		e.dirtyAll, e.dirtyRemoval, e.dirtyPreds = false, false, nil
+		e.derivedReadErr = nil
+	} else {
+		e.derivedReadErr = err
+		// A failed evaluation may have materialized only a prefix. Rebuild all
+		// rule heads on recovery, preserving their explicitly asserted bases.
+		e.dirtyAll = true
 	}
 	return stats, err
 }

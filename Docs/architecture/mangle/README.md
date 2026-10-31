@@ -7,6 +7,17 @@ repairs model-generated atoms. The LLM proposes; this package disposes.
 
 Verified 2026-09-21 against commit `0f7253b`.
 
+Current failed-batch contract: accepted base facts survive an insertion or
+hydration failure, while rule-head reads fail with `ErrDerivedStateNotReady`
+until evaluation succeeds. A failed evaluation is similarly withheld and fully
+rederived on recovery, preserving explicitly asserted rule-head bases
+(`internal/mangle/engine_rederive.go:150`, `:160`, `:173`). The guard is called by
+`Query`, `GetFacts` and `AtomStrings`; their errorless compatibility wrappers
+return no rows (`internal/mangle/engine.go:925`, `:1086`, `:1119`, `:1450`).
+Successful deferred evaluation and the proof tracer's caller-owned cache remain
+separate contracts. The requirement, current implementation and regression scope
+are in `INTERNALS.md`, `GAP-MANGLE-FAILED-BATCH-READINESS`.
+
 ## Layout
 
 | Path | What it is |

@@ -55,6 +55,10 @@ func DefaultConfig() Config {
 // ErrDerivedFactsLimitExceeded is returned when inference exceeds the gas limit.
 var ErrDerivedFactsLimitExceeded = fmt.Errorf("derived facts limit exceeded (inference gas limit)")
 
+// ErrDerivedStateNotReady means a failed mutation/evaluation requires recovery
+// before rule conclusions can be read as a current materialization.
+var ErrDerivedStateNotReady = fmt.Errorf("derived state not ready")
+
 // errNoSchemas is the sentinel error for operations attempted before schema loading.
 var errNoSchemas = fmt.Errorf("no schemas loaded; call LoadSchema first")
 
@@ -90,11 +94,12 @@ type Engine struct {
 	// Exact re-derivation (engine_rederive.go): the program's rule graph, what
 	// changed since the last evaluation, and the base facts asserted into
 	// rule-head predicates, which clearing their derived atoms must keep.
-	rules        ruleGraph
-	dirtyPreds   map[string]struct{}
-	dirtyRemoval bool
-	dirtyAll     bool
-	idbBase      map[ast.PredicateSym]map[string]struct{}
+	rules          ruleGraph
+	dirtyPreds     map[string]struct{}
+	dirtyRemoval   bool
+	dirtyAll       bool
+	idbBase        map[ast.PredicateSym]map[string]struct{}
+	derivedReadErr error // Cleared only by successful evaluation or Clear/Reset.
 }
 
 // Fact represents a single fact in the knowledge graph.
@@ -434,7 +439,7 @@ func (e *Engine) WarmFromPersistence(ctx context.Context) error {
 	defer func() { e.autoEval = wasAuto }()
 	for _, fact := range facts {
 		if err := e.insertFactLocked(fact); err != nil {
-			return fmt.Errorf("hydrate fact %s: %w", fact.Predicate, err)
+			return e.markFailedMutationLocked(fmt.Errorf("hydrate fact %s: %w", fact.Predicate, err))
 		}
 	}
 	e.autoEval = wasAuto
@@ -495,12 +500,12 @@ func (e *Engine) AddFactsContext(ctx context.Context, facts []Fact) error {
 		if i%256 == 0 {
 			if err := ctx.Err(); err != nil {
 				logging.Get(logging.CategoryKernel).Warn("AddFactsContext cancelled after %d/%d facts: %v", i, len(facts), err)
-				return err
+				return e.markFailedMutationLocked(err)
 			}
 		}
 		if err := e.insertFactLocked(fact); err != nil {
 			logging.Get(logging.CategoryKernel).Error("Failed to insert fact %s: %v", fact.Predicate, err)
-			return err
+			return e.markFailedMutationLocked(err)
 		}
 	}
 
@@ -537,6 +542,7 @@ func (e *Engine) replaceFactsForFileImpl(file string, facts []Fact, contentHash 
 	removed := e.removeFactsLocked(target)
 	for _, fact := range facts {
 		if err := e.insertFactLocked(fact); err != nil {
+			err = e.markFailedMutationLocked(err)
 			e.mu.Unlock()
 			return err
 		}
@@ -605,13 +611,13 @@ func (e *Engine) ReplaceControlFacts(facts []Fact, predicates ...string) error {
 	for _, predicate := range predicates {
 		sym, ok := e.predicateIndex[predicate]
 		if !ok {
-			return fmt.Errorf("predicate %s is not declared in schemas", predicate)
+			return e.markFailedMutationLocked(fmt.Errorf("predicate %s is not declared in schemas", predicate))
 		}
 		e.removePredicateLocked(sym)
 	}
 	for _, fact := range facts {
 		if err := e.insertFactLocked(fact); err != nil {
-			return err
+			return e.markFailedMutationLocked(err)
 		}
 	}
 	// Always re-derive, even when autoEval is off. This method promises a
@@ -916,6 +922,10 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 		e.mu.RUnlock()
 		return nil, fmt.Errorf("predicate %s is not declared", shape.atom.Predicate.Symbol)
 	}
+	if err := e.derivedReadErrorLocked(shape.atom.Predicate); err != nil {
+		e.mu.RUnlock()
+		return nil, err
+	}
 	// Many schema Decls use bound[/type] without descr[mode(...)]. Synthesize
 	// an all-output mode so TraceQuery / CLI `nerd why` can evaluate them
 	// (same approach as differential.Query).
@@ -1073,6 +1083,9 @@ func (e *Engine) GetFacts(predicate string) ([]Fact, error) {
 	if !ok {
 		return nil, fmt.Errorf("predicate %s is not declared", predicate)
 	}
+	if err := e.derivedReadErrorLocked(sym); err != nil {
+		return nil, err
+	}
 
 	var results []Fact
 	err := e.store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
@@ -1102,6 +1115,9 @@ func (e *Engine) AtomStrings(predicate string) ([]string, error) {
 	sym, ok := e.predicateIndex[predicate]
 	if !ok {
 		return nil, fmt.Errorf("predicate %s is not declared", predicate)
+	}
+	if err := e.derivedReadErrorLocked(sym); err != nil {
+		return nil, err
 	}
 
 	var atoms []string
@@ -1145,6 +1161,7 @@ func (e *Engine) Clear() {
 	e.fileFacts = make(map[string][]ast.Atom)
 	e.idbBase = nil
 	e.dirtyAll, e.dirtyRemoval, e.dirtyPreds = false, false, nil
+	e.derivedReadErr = nil
 	e.lastUpdate = time.Now()
 
 	// The query evaluator holds its own copy of the store reference
@@ -1186,6 +1203,7 @@ func (e *Engine) Reset() {
 	e.rules = ruleGraph{}
 	e.idbBase = nil
 	e.dirtyAll, e.dirtyRemoval, e.dirtyPreds = false, false, nil
+	e.derivedReadErr = nil
 	e.lastUpdate = time.Now()
 }
 

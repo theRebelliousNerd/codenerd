@@ -9,6 +9,21 @@ records what this pass closed and the test that proves each.
 
 ## Wired and reachable
 
+- **Failed batches cannot serve rule conclusions as current.** The generic
+  engine retains accepted base prefixes but marks failed insertion/hydration or
+  replacement generations unready (`internal/mangle/engine.go:442`, `:503`,
+  `:545`, `:614`). Evaluation failures also enter this state. The guard is shared
+  by the error-returning read APIs and their compatibility wrappers
+  (`internal/mangle/engine_rederive.go:160`; `internal/mangle/engine.go:925`,
+  `:1086`, `:1119`, `:1450`, `:1484`, `:1501`). Successful evaluation clears it;
+  failed evaluation forces complete rule-head rederivation on retry
+  (`internal/mangle/engine_rederive.go:173`). Real-engine tests exercise the read
+  boundary, accepted prefixes, recovery and concurrent access
+  (`internal/mangle/engine_readiness_test.go:75`, `:141`;
+  `internal/mangle/engine_readiness_controls_test.go:30`;
+  `internal/mangle/engine_readiness_hydration_test.go:8`). Successful manual mode
+  still defers evaluation, and `ProofTreeTracer` still requires caller cache
+  invalidation after mutations (`internal/mangle/proof_tree.go:139`).
 - `internal/core` — the primary consumer. `RealKernel.GenerateValidatedRule`
   (`internal/core/kernel_policy.go`) builds the prompts, creates the loop
   (`feedback.NewFeedbackLoop`), and passes itself as the validator.

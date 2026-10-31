@@ -5,6 +5,55 @@ describes; anything without a citation is the author's inference, not the code.
 
 ## Engine lifecycle (`engine.go`, 1,410 lines)
 
+### Failed mutation and derived-read readiness
+
+GAP-MANGLE-FAILED-BATCH-READINESS: an insertion/replacement failure or cancellation
+may retain its accepted mutation prefix. Keep that documented non-transactional
+behavior, but do not expose old or partially evaluated rule conclusions as a
+current materialization. After a failed mutation with pending base changes, or any
+failed evaluation, error-returning engine reads of rule-head predicates must
+report unready state and the original cause. Errorless compatibility wrappers
+yield no rows. Base-only reads remain available so callers can inspect accepted
+facts. Only successful evaluation/recomputation, or explicit Clear/Reset, may
+remove the failure state; an empty batch or configuration toggle must not do so.
+
+Keep ordinary successful manual/deferred evaluation behavior, base assertions
+into rule-head predicates, gas limits, schema validation and all permission gates.
+The scope is the engine read APIs, not independently cached client results:
+`ProofTreeTracer` retains its documented caller-owned cache lifetime.
+
+Exit: real-engine negation and gas-limit fixtures fail before the repair across
+query, stored-row, spelling and iterator read surfaces; accepted prefixes survive,
+rejected-before-mutation controls stay usable, recovery is exact, and concurrent
+readers cannot observe a stale successful answer after the failed writer unlocks.
+Status: implemented for engine-owned read APIs. `markFailedMutationLocked`
+(`internal/mangle/engine_rederive.go:150`) retains a failure cause when base
+changes are pending; an unevaluated schema alone does not poison a rejected first
+insert. Batch, persistence-hydration, file-replacement and control-replacement
+insertion failures enter this path (`internal/mangle/engine.go:442`, `:503`,
+`:545`, `:614`). Evaluation failure also records its cause and forces a full
+rule-head rebuild on recovery (`internal/mangle/engine_rederive.go:200`).
+
+`derivedReadErrorLocked` (`internal/mangle/engine_rederive.go:160`) checks rule-head
+membership under the engine lock. `Query`, `GetFacts` and `AtomStrings` call it
+before reading (`internal/mangle/engine.go:925`, `:1086`, `:1119`); `QueryFacts`,
+`GetFactsSeq` and `EvaluateRule` delegate to `GetFacts` (`:1450`, `:1484`, `:1501`).
+The sentinel `ErrDerivedStateNotReady` wraps the failure cause, so callers can
+recognize both with `errors.Is`. Errorless wrappers cannot distinguish this state
+from an empty result; callers requiring readiness must use error-returning APIs.
+Successful evaluation clears the latch (`internal/mangle/engine_rederive.go:201`),
+as do explicit `Clear` and `Reset` (`internal/mangle/engine.go:1164`, `:1206`).
+
+Real-engine regressions cover retained prefixes, cancellation, replacements,
+gas-limit failure and exact recovery (`internal/mangle/engine_readiness_test.go:75`,
+`:141`). Controls cover unchanged-state rejection (`:175`), concurrent readers,
+reset, successful deferred mode, asserted rule-head bases and automatic recovery
+(`internal/mangle/engine_readiness_controls_test.go:30`, `:86`, `:116`, `:135`,
+`:166`). Hydration has its own failure and successful/manual controls
+(`internal/mangle/engine_readiness_hydration_test.go:8`). This closes the named
+failure-readiness gap; it does not change successful deferred snapshots or
+independently cached client results.
+
 `NewEngine` (`engine.go:152-163`) takes a `Config` (`engine.go:34-52`) and
 returns a store with an empty program: no schemas, no facts, no derivations.
 `LoadSchema` / `LoadSchemaString` (`engine.go:285-317`) add source text and call
