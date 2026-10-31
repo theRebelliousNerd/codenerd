@@ -93,8 +93,9 @@ func requireAppendOnly(t *testing.T, before, after []types.Message, what string)
 }
 
 // Between compactions the ledger only grows at its end, and the focus view is
-// appended once -- not rendered and resent at the tail of every request, which
-// is what kept the working section out of every provider cache.
+// appended once. Its current rendered content is checked at every request,
+// since provider dependencies can change independently of the focused file;
+// unchanged bytes are not resent at each new tail.
 func TestWorkingLedger_RequestsAreAppendOnlyAndTheViewIsSentOnce(t *testing.T) {
 	t.Parallel()
 	l := newLedgerLoop(t, 1<<20, 2)
@@ -107,8 +108,8 @@ func TestWorkingLedger_RequestsAreAppendOnlyAndTheViewIsSentOnce(t *testing.T) {
 	if n := strings.Count(requestText(l.sent[4]), "VIEW-OF-TARGET"); n != 1 {
 		t.Fatalf("the focus view appears %d times in the fifth request; it is appended once per focus and revision", n)
 	}
-	if len(l.files.calls) != 1 {
-		t.Fatalf("the focus view was rendered %d times for one focus at one revision", len(l.files.calls))
+	if len(l.files.calls) != 5 {
+		t.Fatalf("the focus view was rendered %d times for five request boundaries, want 5 freshness checks", len(l.files.calls))
 	}
 }
 

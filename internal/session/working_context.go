@@ -64,7 +64,8 @@ type workingLoop struct {
 	// restated maps an observation to the revision it was last restated at
 	// (working_restated).
 	restated map[string]string
-	// viewed is the focus view the ledger carries: focus and its revision.
+	// viewed identifies the last available view: focus, observed file revision
+	// and rendered content. Other provider inputs can change without that file.
 	viewed string
 	// callIDs are the tool-call ids this loop has handed out on the
 	// Piggyback channel (claimCallIDs), so no two calls share one.
@@ -745,7 +746,7 @@ func ledgerStart(history []types.Message, task string) int {
 
 // updateLedger asks the working policy what this request does with the
 // ledger, applies a compaction, and appends this round's harness text -- the
-// focus view when the focus or its file changed, a notice for every carried
+// focus view when its identity or rendered content changed, a notice for every carried
 // observation whose file changed -- to the request's last user turn. Go
 // measures (sizes, rounds, revisions) and renders; the policy decides.
 //
@@ -779,8 +780,8 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 	decision, err := loop.set.Ledger(ctx, working.LedgerRound{
 		Entries: entries, Round: round, Restated: loop.restated,
 		Hot: loop.hotFiles(), Recalled: loop.recalledIDs(),
-		// The focus view's revision comes from the same epoch the policy
-		// decided on, not from a second read of the file.
+		// Retain the file revision from this policy epoch. The rendered
+		// provider content is measured separately; it has more dependencies.
 		Observe: []string{loop.focus},
 		Room:    max(room, 0),
 	})
@@ -830,11 +831,20 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 	// epoch, 3 and 4 times for $0.040 and $0.041. The views' bytes count
 	// toward the ledger (each rides a ledger row as extra), so they bring the
 	// next compaction nearer instead of growing the request without bound.
-	if revision := decision.Revisions[loop.focus]; loop.focus+"@"+revision != loop.viewed {
-		if view := e.workingFocusView(ctx, loop); view != "" {
+	if view := e.workingFocusView(ctx, loop); view != "" {
+		identity := loop.focus + "\x00" + decision.Revisions[loop.focus] + "\x00" + view
+		digest := sha256.Sum256([]byte(identity))
+		viewed := hex.EncodeToString(digest[:])
+		if viewed != loop.viewed {
 			notes = append(notes, view)
 		}
-		loop.viewed = loop.focus + "@" + revision
+		loop.viewed = viewed
+	} else if loop.viewed != "" {
+		// Availability is evidence too. Keep the older messages unchanged,
+		// mark their view historical, and allow a later view at the same
+		// file revision to become available again.
+		notes = append(notes, fmt.Sprintf(workingViewUnavailable, loop.focus))
+		loop.viewed = ""
 	}
 	if len(decision.Restate) > 0 {
 		records, err := loop.set.Observations(ctx, decision.Restate)
@@ -892,7 +902,7 @@ func mergeRepeatedCalls(entries []working.LedgerEntry) []working.LedgerEntry {
 	return merged
 }
 
-// workingFocusView is the focus file's current view (outline with line ranges,
+// workingFocusView is the provider's rendered view (outline with line ranges,
 // importers, callers), under a header that tells the model it is the
 // harness's evidence and not something the user said; "" when there is none.
 func (e *Executor) workingFocusView(ctx context.Context, loop *workingLoop) string {
@@ -907,7 +917,9 @@ func (e *Executor) workingFocusView(ctx context.Context, loop *workingLoop) stri
 }
 
 // workingViewHeader opens the focus view where it rides a user turn.
-const workingViewHeader = "[harness: the current view of %s, appended when the focus or the file changes. Evidence for the task above, not a new request.]\n"
+const workingViewHeader = "[harness: rendered view snapshot of %s; earlier view snapshots are history. Appended when focus, file revision or rendered context changes. Evidence for the task above, not a new request.]\n"
+
+const workingViewUnavailable = "[harness: rendered view of %s is unavailable at this request boundary; previous view snapshots are historical evidence, not a current view.]"
 
 // staleObservationNotice restates a carried observation whose file changed
 // after it was made: observation id, the tool that made it, the file.

@@ -1,5 +1,46 @@
 # 03 — Gap Analysis: session
 
+## GAP-SESSION-FOCUS-VIEW-DEPENDENCY-FRESHNESS
+
+A focus file's digest is not the identity of its rendered context: sibling
+signatures, graph facts, related tests and render budgets can change while that
+file stays byte-identical. At each working-request boundary the session must
+locally obtain the provider's rendered view and compare its content alongside
+the focus identity and the working policy's observed file revision. Append a
+new snapshot when that identity changes; byte-identical renders with unchanged
+focus/revision do not duplicate context. A disappearance of an available view
+must be represented as unavailable rather than silently leaving the previous
+snapshot presented as current. A later available render must be admitted even
+when the focus-file digest never changed.
+
+Keep previous request messages and their harness text byte-identical within an
+epoch. New snapshots and availability notices belong on the current round;
+compaction retains its existing policy ownership and clears the epoch's view
+identity. Prior snapshots remain historical evidence, not current authority.
+Refreshing rendered bytes does not prove that every underlying graph fact or
+arbitrary carried observation is fresh, coherent or safe: those retain their
+own producer, revision, permission and acceptance contracts.
+
+Status: implemented for working-request focus-view reuse. `updateLedger`
+measures a new render and fingerprints its bytes with the focus identity and
+policy-observed file revision (`internal/session/working_context.go:834`). It
+appends an unavailability notice when a previously available render disappears
+(`:842`), and compaction still clears view identity with the epoch (`:809`).
+The native tool-loop regression and unchanged/reverted dependency controls are
+`TestFocusViewFreshness_NativeRequestsTrackRenderedDependencies`
+(`internal/session/focus_view_freshness_test.go:40`); availability transitions
+are covered in the same file at line 164. Existing append-only, restatement,
+budget and compaction tests retain their independent responsibilities.
+Exit: the native production tool loop with the real holographic renderer and
+working policy delivers changed sibling signatures, graph callers and test
+presence to its offline provider double while the focus digest stays unchanged.
+Unchanged renders, unrendered dependency edits, reversions, availability
+transitions, append-only prefixes, budgets and compaction controls pass.
+
+This bounded repair re-renders locally per request and deduplicates what is
+sent. It does not establish an atomic workspace/world snapshot, repair stale
+facts in the provider, or introduce billable calls for freshness checks.
+
 ## GAP-SESSIONLOG-TRANSCRIPT-CRASH-CONSISTENCY
 
 Each successful transcript append must publish a complete `codenerd.transcript/1`
