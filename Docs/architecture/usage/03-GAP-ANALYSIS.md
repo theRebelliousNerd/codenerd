@@ -82,3 +82,11 @@ Verified by `internal/usage/typesafe_pricing_test.go:8`,
 `internal/usage/typesafe_pricing_test.go:25` and
 `internal/campaign/recurse_mission_typesafe_price_test.go:28`. Near-match suffixes
 are refused as unknown; existing prefix and operator-override behavior remains.
+
+## Price-version hash write lint
+
+The new exact-mode hash marker must add no unchecked-write finding while
+preserving the price-version bytes and existing prefix digests. The FNV hash
+writer cannot fail; explicitly discard its write result. Exit: the existing
+price/mission regressions pass and the usage errcheck report returns to its
+pre-existing findings only, without suppressing or changing the linter.

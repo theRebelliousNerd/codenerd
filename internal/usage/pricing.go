@@ -216,7 +216,7 @@ func (p Price) version(key string) string {
 	h := fnv.New32a()
 	fmt.Fprintf(h, "%g/%g/%g/%g", p.InputPerMTok, p.OutputPerMTok, p.CacheReadPerMTok, p.CacheWritePerMTok)
 	if p.ExactModel {
-		fmt.Fprint(h, "/exact")
+		_, _ = fmt.Fprint(h, "/exact")
 	}
 	return fmt.Sprintf("%s@%08x", key, h.Sum32())
 }
