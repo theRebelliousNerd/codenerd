@@ -112,6 +112,18 @@ until that session runs them.
 
 ## Authored integration and remaining evidence
 
+Local verification of the refresh barrier passed the focused mission suite,
+the new boundary race controls, the full offline sqlite_vec suite, build and
+vet. `TestMissionRecurse_CommandAdapterThroughProductionCycle` now also checks
+that its admitted worker cannot call the suspended refresher
+(`cmd/nerd/cmd_campaign_mission_test.go:128`).
+`TestMissionRequiresJoinedBackgroundLease` covers missing/failed hooks,
+missing leases and canceled admission
+(`internal/campaign/recurse_mission_policy_test.go:38`). A broader refresh race
+run found a separate resident-shard shutdown race that also reproduced on the
+untouched base. This local fix is not live R7 qualification, and publication
+is pending the required unavailable private-terms scanner.
+
 `internal/campaign/recurse_mission.go` ferries observations between recurse and
 `internal/deliberation`. Its policy, persistence, metering and scope adapters are
 separate files. `internal/core/defaults/schemas_mission.mg` is explicitly loaded

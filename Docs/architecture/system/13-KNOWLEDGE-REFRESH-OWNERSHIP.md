@@ -3,7 +3,7 @@ doc-class: shipped-with-future
 subsystem: system
 implementation-status: partial
 last-verified: 2026-10-31
-verified-against: 1ae05f6735ad656aa16ecc7a070315d94517427f
+verified-against: 2e467c9f3150d627381e9367d1ef7caad25cb504
 supersedes: []
 ---
 
@@ -88,3 +88,20 @@ and the new boundary suite under `-race` passed. A broader race run found the
 existing resident-shard shutdown race; the same test also failed with that
 race on an untouched base checkout. No fix to that separate ownership path is
 included, and no new live probe or R7 qualification is claimed.
+
+## Verification receipt and publication limit
+
+The implementation commit above passed the full offline sqlite_vec suite:
+112 testable packages, 21996 passing tests and 80 skips; five other packages
+have no tests. The sqlite_vec build and vet passed. The new boundary race suite
+passed 11 tests. The broader refresh/mission race run failed one existing
+shutdown test, and that same test failed once in ten baseline repetitions.
+These are separate outcomes; the targeted pass does not erase the broader
+failure. Existing shard shutdown remains a separate work item.
+
+This change is local and publication is pending: the repository requires a
+private-terms scanner for documentation changes, but no scanner or configured
+denylist was available in the permitted repository/tool paths. Its check is
+unknown, not passed. No merge, push, deployment or new live provider run is
+part of this receipt. Free-text restrictions on other model tools are outside
+this background-acquisition repair.

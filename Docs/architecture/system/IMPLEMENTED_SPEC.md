@@ -10,8 +10,11 @@ active acquisition, and resumes ordinary refresh after the last lease release
 (`internal/system/knowledge_refresh_scope.go:131`). Ordinary scheduled refresh
 has its own Cortex tracker/session, autopoiesis purpose and knowledge-refresh
 phase (`internal/system/knowledge_refresh_boot.go:20`, `initKnowledgeRefresh`).
-The focused integration and new boundary race controls pass; this is not live
-R7 qualification. The contract, witnesses and remaining verification limits
+The focused integration, new boundary race controls, full offline suite,
+sqlite_vec build and vet pass for local implementation
+`2e467c9f3150d627381e9367d1ef7caad25cb504`; this is not live R7 qualification
+or a claim that the broader race run passed. Publication awaits the required
+unavailable private-terms scanner. The contract, witnesses and verification limits
 are in [13-KNOWLEDGE-REFRESH-OWNERSHIP.md](13-KNOWLEDGE-REFRESH-OWNERSHIP.md).
 
 ## Bounded current implementation receipt (2026-10-02)

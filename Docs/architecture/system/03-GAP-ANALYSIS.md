@@ -4,7 +4,7 @@
 
 | Gap ID | Current state | Target | Exit criteria | Status |
 |---|---|---|---|---|
-| GAP-SYSTEM-REFRESH-OWNERSHIP | `initKnowledgeRefresh` suppresses mission scheduling and names ordinary service usage (`internal/system/knowledge_refresh_boot.go:20`); `RecurseMission.begin` requires a joined host suspension lease (`internal/campaign/recurse_mission.go:99`). | Required boundary in [13-KNOWLEDGE-REFRESH-OWNERSHIP.md](13-KNOWLEDGE-REFRESH-OWNERSHIP.md). | Deterministic boot/cache, mission suspension, cancellation/join, usage attribution and unrelated-Cortex controls pass; no live provider calls required. | Implemented; focused and new boundary race tests pass. Aggregate verification and documentation publication checks pending; broader pre-existing shard shutdown race reproduced on base. |
+| GAP-SYSTEM-REFRESH-OWNERSHIP | `initKnowledgeRefresh` suppresses mission scheduling and names ordinary service usage (`internal/system/knowledge_refresh_boot.go:20`); `RecurseMission.begin` requires a joined host suspension lease (`internal/campaign/recurse_mission.go:99`). | Required boundary in [13-KNOWLEDGE-REFRESH-OWNERSHIP.md](13-KNOWLEDGE-REFRESH-OWNERSHIP.md). | Deterministic boot/cache, mission suspension, cancellation/join, usage attribution and unrelated-Cortex controls pass; no live provider calls required. | Implemented locally in `2e467c9f3150d627381e9367d1ef7caad25cb504`; focused, new boundary race, full offline suite, build and vet pass. Publication awaits the required unavailable private-terms scanner. Broader pre-existing shard shutdown race reproduced on base. |
 
 ## Accepted cold-bootstrap cancellation target (2026-10-02)
 
