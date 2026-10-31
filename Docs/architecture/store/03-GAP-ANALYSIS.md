@@ -36,6 +36,12 @@
 
 ## Prioritized gaps
 
+### Trace reflection progress above the watermark
+
+| Gap ID | Deficiency | Target and exit | Status |
+|---|---|---|---|
+| GAP-STORE-REFLECTION-PROGRESS | `processReflectionCycle` retains the smaller failure-first batch, then fills unused capacity from other eligible rows while deduplicating trace IDs (`internal/store/reflection_worker.go:126`). | Failure-first bounded selection fills spare slots with other eligible rows; the all-success backlog drains, mixed priority and duplicate controls hold, and refreshed traces remain recallable after reopening. See `09-SAFETY-AND-INVARIANTS.md`. | Implemented and verified offline: focused and repeated race tests (`internal/store/reflection_backlog_test.go:15`), the full suite, build and vet pass. Continuous-failure fairness and permanent embedding errors remain outside this bounded exit. |
+
 ### P1 — Operational correctness
 
 1. **ANN drift reconcile**  

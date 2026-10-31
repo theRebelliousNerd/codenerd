@@ -123,15 +123,39 @@ func (s *LocalStore) processReflectionCycle() {
 	if count, err := s.traceStore.CountTraceEmbeddingBacklog(expectedModel, expectedDim, expectedTask); err == nil {
 		backlog = count
 	}
-	skipSuccess := cfg.BacklogWatermark > 0 && backlog > cfg.BacklogWatermark
+	prioritizeFailures := cfg.BacklogWatermark > 0 && backlog > cfg.BacklogWatermark
 
 	batchSize := reflectionBatchSize
-	if skipSuccess && batchSize > 16 {
+	if prioritizeFailures && batchSize > 16 {
 		batchSize = 16
 	}
 
-	candidates, err := s.traceStore.ListTraceEmbeddingCandidates(batchSize, skipSuccess, expectedModel, expectedDim, expectedTask)
-	if err != nil || len(candidates) == 0 {
+	candidates, err := s.traceStore.ListTraceEmbeddingCandidates(batchSize, prioritizeFailures, expectedModel, expectedDim, expectedTask)
+	if err != nil {
+		return
+	}
+	if prioritizeFailures && len(candidates) < batchSize {
+		// Failure priority must not strand an idle successful backlog. Fill
+		// unused slots, keeping the failures first and each trace only once.
+		remaining, err := s.traceStore.ListTraceEmbeddingCandidates(batchSize, false, expectedModel, expectedDim, expectedTask)
+		if err != nil {
+			return
+		}
+		seen := make(map[string]bool, len(candidates))
+		for _, candidate := range candidates {
+			seen[candidate.ID] = true
+		}
+		for _, candidate := range remaining {
+			if len(candidates) >= batchSize {
+				break
+			}
+			if !seen[candidate.ID] {
+				candidates = append(candidates, candidate)
+				seen[candidate.ID] = true
+			}
+		}
+	}
+	if len(candidates) == 0 {
 		return
 	}
 

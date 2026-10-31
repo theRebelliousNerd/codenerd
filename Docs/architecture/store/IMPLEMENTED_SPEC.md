@@ -577,6 +577,26 @@ Non-gaps: package is fully implemented for its stated memory roles; absence of l
 | `Docs/architecture/session/` | Session loop that writes turns/state |
 | `Docs/architecture/persist/` | Factsnap helpers (adjacent, not this package) |
 
+## Trace reflection backlog progress
+
+The production cycle (`internal/store/reflection_worker.go:104`) uses the
+configured positive watermark to prioritize failed traces within a 16-row batch
+(`:126`). When failures do not fill that batch, it queries other eligible rows
+and deduplicates IDs before appending them (`:137`). Ordinary 32-row selection
+below the watermark, the disabled/missing-engine guards, and descriptor,
+embedding identity, update and indexing behavior retain their existing paths.
+The public failure-only candidate-query contract is unchanged.
+
+`internal/store/reflection_backlog_test.go:15` invokes the actual cycle with a
+file-backed SQLite store and local deterministic embeddings. It verifies finite
+301-success backlog drainage, priority for older failures, deduplication of newer
+failures, saturated failure batches, watermark boundaries and disabled controls.
+Reopening exercises positive/negative lexical recall, embedding identity and ANN
+recall. Focused and repeated race tests, the full suite, build and vet pass.
+This does not establish fairness
+under an endlessly full failure queue, recovery from permanent embedding errors,
+live-provider behavior or a timed background-worker completion bound.
+
 ---
 
 *End of IMPLEMENTED_SPEC — store memory tiers living reference (2026-07-13).*

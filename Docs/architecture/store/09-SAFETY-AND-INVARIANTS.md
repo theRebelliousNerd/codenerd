@@ -9,6 +9,24 @@ Store enforces **data integrity and process safety**, not **constitutional polic
 
 ## Invariants
 
+### Reflection backlog progress
+
+Above a positive configured backlog watermark, trace reflection retains its
+smaller bounded batch and processes eligible failed traces first. Failures are
+a priority, not an exclusion of all successful traces: unused batch slots must
+admit other eligible traces without duplicates. A finite idle backlog of
+successful, unembedded traces must drain when the embedding engine and store
+succeed. Below the watermark, or with watermark prioritization disabled, retain
+ordinary selection and batch limits. Disabled reflection or a missing engine
+must dispatch no embedding work.
+
+This is work-conserving failure priority, not a fairness guarantee under an
+unbounded influx of failures or permanently failing embeddings. Embedding space,
+descriptor integrity, cancellation/timeouts and store ownership remain governed
+by their existing contracts. Verify the 301-success default-watermark case,
+mixed older failures/newer successes, a saturated failure batch, and durable
+recall after reopening with local deterministic embeddings.
+
 ### I1 — Single-writer process model
 
 - `db.SetMaxOpenConns(1)` on LocalStore, ToolStore, and typical open paths.
