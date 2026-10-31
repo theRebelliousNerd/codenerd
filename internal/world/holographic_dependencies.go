@@ -15,12 +15,14 @@ package world
 // an exported symbol. It is the only one of the three rendered into the prompt.
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // applyImportDimensions splits the target file's parsed imports into
@@ -74,7 +76,7 @@ func (h *HolographicProvider) applyDirectImporters(hc *HolographicContext, fileP
 	if h == nil || h.kernel == nil || hc == nil {
 		return
 	}
-	pkgPath := h.packageImportPath(filePath)
+	pkgPath := h.packageImportPathInScope(filePath, hc.readScope)
 	if pkgPath == "" {
 		return
 	}
@@ -86,8 +88,8 @@ func (h *HolographicProvider) applyDirectImporters(hc *HolographicContext, fileP
 		return
 	}
 
-	self := filepath.ToSlash(filePath)
-	selfDir := filepath.ToSlash(filepath.Dir(filePath))
+	self := types.CanonicalPath(h.workDir, filePath)
+	selfDir := filepath.ToSlash(filepath.Dir(self))
 	seen := make(map[string]struct{}, 16)
 	var importers []string
 	for _, f := range facts {
@@ -98,12 +100,13 @@ func (h *HolographicProvider) applyDirectImporters(hc *HolographicContext, fileP
 			continue
 		}
 		importer := filepath.ToSlash(h.stringArg(f.Args[0]))
-		if importer == "" || importer == self {
+		identity := types.CanonicalPath(h.workDir, importer)
+		if importer == "" || identity == self {
 			continue
 		}
 		// A package importing itself is not an importer; the scanner records
 		// the edge per file, and siblings share the package.
-		if filepath.ToSlash(filepath.Dir(importer)) == selfDir {
+		if filepath.ToSlash(filepath.Dir(identity)) == selfDir {
 			continue
 		}
 		if _, dup := seen[importer]; dup {
@@ -126,14 +129,29 @@ func (h *HolographicProvider) applyDirectImporters(hc *HolographicContext, fileP
 // directory relative to the workspace, which is exactly the form the scanner
 // records as the CalleeID of a dependency_link.
 func (h *HolographicProvider) packageImportPath(filePath string) string {
+	return h.packageImportPathInScope(filePath, nil)
+}
+
+func (h *HolographicProvider) packageImportPathInScope(filePath string, scope *holographicReadScope) string {
 	if h == nil || h.workDir == "" {
 		return ""
 	}
-	module := h.moduleName()
+	if scope == nil {
+		_, fresh, err := h.readScope(context.Background(), filePath)
+		if err != nil {
+			return ""
+		}
+		scope = fresh
+	}
+	resolved, err := scope.resolve(context.Background(), filePath)
+	if err != nil {
+		return ""
+	}
+	module := h.moduleNameInScope(scope)
 	if module == "" {
 		return ""
 	}
-	rel, err := filepath.Rel(h.workDir, filepath.Dir(filePath))
+	rel, err := filepath.Rel(scope.root, filepath.Dir(resolved))
 	if err != nil {
 		return ""
 	}
@@ -141,7 +159,7 @@ func (h *HolographicProvider) packageImportPath(filePath string) string {
 	if rel == "." {
 		return module
 	}
-	if strings.HasPrefix(rel, "..") {
+	if rel == ".." || strings.HasPrefix(rel, "../") {
 		// Outside the workspace: not a package this module can name.
 		return ""
 	}
@@ -154,7 +172,19 @@ func (h *HolographicProvider) packageImportPath(filePath string) string {
 // caching it would mean holding a value that goes stale when the workspace root
 // changes under a long-lived provider.
 func (h *HolographicProvider) moduleName() string {
-	data, err := os.ReadFile(filepath.Join(h.workDir, "go.mod"))
+	_, scope, err := h.readScope(context.Background(), "go.mod")
+	if err != nil {
+		return ""
+	}
+	return h.moduleNameInScope(scope)
+}
+
+func (h *HolographicProvider) moduleNameInScope(scope *holographicReadScope) string {
+	path, err := scope.resolve(context.Background(), filepath.Join(scope.root, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}

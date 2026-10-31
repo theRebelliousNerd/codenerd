@@ -10,6 +10,45 @@
 
 > Spec/vision vs `internal/world` reality.
 
+## GAP-WORLD-HOLOGRAPHIC-WORKSPACE-PATHS
+
+One configured workspace must own every filesystem path used by a holographic
+render. Resolve relative targets against a canonical workspace root, independently
+of process CWD; retain absolute in-workspace targets and legitimate root aliases.
+The outline, package parse, corresponding tests, imports, TODOs and graph joins
+must describe that same file. Keep filesystem paths separate from canonical
+workspace-relative fact identities and preserve the caller's target label.
+
+Use the existing shared path resolver and workspace membership rules. Refuse
+traversal, foreign absolute paths and symlink escapes before rendering. Admit
+the target, sibling files and corresponding test files before reading them;
+excluded paths must not enter a cached parse, and changed membership must
+invalidate any cache entry that could retain excluded content. Keep local
+extension, secret-path, size, syntax-best-effort and cancellation protections.
+Do not change CWD, network settings, permissions or membership policy to make
+a render succeed.
+
+Status: implemented. The constructor captures the canonical root
+(`internal/world/holographic.go:219`); one refreshed render scope resolves paths
+through the shared containment and membership rules before file access
+(`internal/world/holographic_paths.go:26`, `:63`, `:94`). Package cache identity
+includes membership revision (`internal/world/holographic.go:965`), canonical
+file identities own graph joins (`internal/world/holographic.go:1348`), and module
+metadata is admitted in the same scope
+(`internal/world/holographic_dependencies.go:182`). An admitted deleted target
+still yields the existing partial context.
+
+Exit demonstrated offline: distinct workspace/decoy-CWD fixtures prove relative
+and absolute requests agree on source, siblings, tests, imports and graph
+identity; root-relative construction survives later CWD changes
+(`internal/world/holographic_workspace_path_test.go:36`, `:97`). Normal-path,
+root alias, invalid root, exclusion, warm-cache membership changes, traversal,
+symlink and non-Go controls are covered in that file at `:115`, `:170`, `:216`
+and `:252`. The identical final regression file fails on unchanged baseline
+`4de8c37` and passes with this implementation.
+This contract does not establish an atomic workspace/world snapshot or validate
+arbitrary stale graph facts as current.
+
 ## Matrix — vision / schema intent vs reality
 
 | Area | Vision / schema intent | Reality | Gap? |

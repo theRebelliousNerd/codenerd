@@ -16,7 +16,9 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/tools"
 	"codenerd/internal/tools/codedom"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -28,6 +30,10 @@ import (
 // HolographicContext represents the complete context for understanding a code file.
 // It aggregates package-level, architectural, and semantic information.
 type HolographicContext struct {
+	// Private filesystem identity and membership; TargetFile keeps the label
+	// the caller supplied. These never become serialized world facts.
+	sourcePath string
+	readScope  *holographicReadScope
 	// Target file being analyzed
 	TargetFile string `json:"target_file"`
 	TargetPkg  string `json:"target_package"`
@@ -178,8 +184,9 @@ type FactQuerier interface {
 
 // HolographicProvider creates rich context for code analysis.
 type HolographicProvider struct {
-	kernel  FactQuerier
-	workDir string
+	kernel    FactQuerier
+	workDir   string
+	rootError error
 
 	// pkgCache memoises the filesystem-derived package parse. It is created
 	// lazily so a zero-value &HolographicProvider{} — which the tests build
@@ -210,9 +217,11 @@ func (h *HolographicProvider) CacheStats() (hits, misses int64) {
 // NewHolographicProvider creates a new holographic context provider.
 // kernel may be nil (context degrades to filesystem-only analysis).
 func NewHolographicProvider(kernel FactQuerier, workDir string) *HolographicProvider {
+	root, err := tools.CanonicalWorkspaceRoot(workspaceRootOrCwd(workDir))
 	return &HolographicProvider{
-		kernel:  normalizeQuerier(kernel),
-		workDir: workDir,
+		kernel:    normalizeQuerier(kernel),
+		workDir:   root,
+		rootError: err,
 	}
 }
 
@@ -390,7 +399,11 @@ func (h *HolographicProvider) PromptSection(ctx context.Context, filePath string
 // counted block; a nil decide renders every line and does not cut outline
 // signatures.
 func (h *HolographicProvider) promptSection(ctx context.Context, filePath string, budgetBytes int, decide func(ctx context.Context, dimension, target string, total, avgBytes, budgetBytes int) (int, error)) string {
-	if h == nil {
+	if h == nil || filePath == "" {
+		return ""
+	}
+	ctx, _, _, err := h.contextTarget(ctx, filePath)
+	if err != nil {
 		return ""
 	}
 	hc, err := h.GetContextWithContext(ctx, filePath)
@@ -456,7 +469,7 @@ func (h *HolographicProvider) promptSection(ctx context.Context, filePath string
 	// Files the package parse did not read. Stated before the signature and
 	// type lists those files are missing from, so "and N more" on those lists
 	// is not read as the whole package.
-	pkgDir := filepath.Dir(filePath)
+	pkgDir := filepath.Dir(hc.sourcePath)
 	if hc.FilesUnparsed > 0 || len(hc.SkippedSiblings) > 0 {
 		substantive = true
 		writeUnparsedFiles(&b, hc, pkgDir)
@@ -467,7 +480,7 @@ func (h *HolographicProvider) promptSection(ctx context.Context, filePath string
 	// the measured pool. sigPool is every exported signature the parse
 	// collected, which is not the whole package when FilesUnparsed is
 	// non-zero; writePoolRemainder says which, and package_outline reads it.
-	base := filepath.Base(filePath)
+	base := filepath.Base(hc.sourcePath)
 	sigs, sigPool := rankSignaturesForTarget(hc.PackageSignatures, base, hc.ReferencedSymbols, hc.SymbolRefCount)
 	if len(sigs) > 0 {
 		substantive = true
@@ -623,7 +636,7 @@ func (h *HolographicProvider) promptSection(ctx context.Context, filePath string
 	// its way. It is read fresh on every call, so after an edit the ranges are
 	// the current ones. Observed 2026-09-18: a two-file change spent 40
 	// read_file and 13 grep calls around its 10 edits.
-	if outline := h.targetOutline(ctx, filePath, budgetBytes, decide); outline != "" {
+	if outline := h.targetOutline(ctx, hc.sourcePath, budgetBytes, decide); outline != "" {
 		substantive = true
 		b.WriteString(outline)
 	}
@@ -851,7 +864,11 @@ func (h *HolographicProvider) workspaceRel(path string) string {
 }
 
 func (h *HolographicProvider) importerReadArg(filePath string, hc *HolographicContext) string {
-	if arg := h.packageImportPath(filePath); arg != "" {
+	var scope *holographicReadScope
+	if hc != nil {
+		scope = hc.readScope
+	}
+	if arg := h.packageImportPathInScope(filePath, scope); arg != "" {
 		return arg
 	}
 	if hc != nil && hc.TargetPkg != "" {
@@ -868,13 +885,20 @@ func (h *HolographicProvider) getContextInternal(ctx context.Context, filePath s
 			PackageImports: make(map[string][]string),
 		}, nil
 	}
+	ctx, scope, sourcePath, err := h.contextTarget(ctx, filePath)
+	if err != nil {
+		return nil, err
+	}
 
 	logging.WorldDebug("HolographicProvider: generating context for %s", filepath.Base(filePath))
 
 	hc := &HolographicContext{
 		TargetFile:     filePath,
 		PackageImports: make(map[string][]string),
+		sourcePath:     sourcePath,
+		readScope:      scope,
 	}
+	filePath = sourcePath
 
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -939,12 +963,23 @@ const maxCallGraphEdges = 100
 // cancellation and limit protections, served from the package-parse cache when
 // no file in the directory has changed.
 func (h *HolographicProvider) buildGoContextWithContext(ctx context.Context, hc *HolographicContext, filePath string) error {
+	ctx, scope, sourcePath, err := h.contextTarget(ctx, filePath)
+	if err != nil {
+		return err
+	}
+	filePath = sourcePath
 	dir := filepath.Dir(filePath)
 
-	fingerprint, entries, err := directoryFingerprint(dir)
+	fingerprint, entries, err := directoryFingerprintFiltered(dir, func(path string) (bool, error) {
+		return scope.includes(ctx, path)
+	})
 	if err != nil {
 		return fmt.Errorf("failed to read directory: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	fingerprint = scope.members.Revision() + "\x00" + fingerprint
 
 	cache := h.packageCache()
 	parse, hit := cache.get(dir, fingerprint)
@@ -1325,7 +1360,11 @@ func (h *HolographicProvider) queryRelationshipsWithContext(ctx context.Context,
 		return
 	}
 
-	normalPath := strings.ToLower(strings.ReplaceAll(filePath, "\\", "/"))
+	root := h.workDir
+	if scope, _ := ctx.Value(holographicScopeKey{}).(*holographicReadScope); scope != nil {
+		root = scope.root
+	}
+	normalPath := strings.ToLower(types.CanonicalPath(root, filePath))
 	var fileSymbols []string
 
 	for _, fact := range facts {
@@ -1339,8 +1378,8 @@ func (h *HolographicProvider) queryRelationshipsWithContext(ctx context.Context,
 			continue
 		}
 		factFile, _ := fact.Args[0].(string)
-		normalFactFile := strings.ToLower(strings.ReplaceAll(factFile, "\\", "/"))
-		if strings.Contains(normalFactFile, normalPath) || strings.Contains(normalPath, normalFactFile) {
+		normalFactFile := strings.ToLower(types.CanonicalPath(root, factFile))
+		if normalFactFile != "" && normalFactFile == normalPath {
 			if sym, ok := fact.Args[1].(string); ok {
 				fileSymbols = append(fileSymbols, sym)
 			}
@@ -1422,6 +1461,13 @@ func (h *HolographicProvider) checkTestCoverage(ctx *HolographicContext, filePat
 	// Check for corresponding _test.go file
 	ext := filepath.Ext(filePath)
 	testFile := strings.TrimSuffix(filePath, ext) + "_test" + ext
+	if ctx.readScope != nil {
+		resolved, err := ctx.readScope.resolve(context.Background(), testFile)
+		if err != nil {
+			return
+		}
+		testFile = resolved
+	}
 	if _, err := os.Stat(testFile); err == nil {
 		ctx.HasTests = true
 	}
@@ -1429,6 +1475,11 @@ func (h *HolographicProvider) checkTestCoverage(ctx *HolographicContext, filePat
 
 // buildBasicContextWithContext provides minimal context with cancellation support.
 func (h *HolographicProvider) buildBasicContextWithContext(ctx context.Context, hc *HolographicContext, filePath string) {
+	ctx, scope, sourcePath, err := h.contextTarget(ctx, filePath)
+	if err != nil {
+		return
+	}
+	filePath = sourcePath
 
 	// Just set up basic file info
 	dir := filepath.Dir(filePath)
@@ -1450,6 +1501,9 @@ func (h *HolographicProvider) buildBasicContextWithContext(ctx context.Context, 
 		}
 		if filepath.Ext(entry.Name()) == ext {
 			fullPath := filepath.Join(dir, entry.Name())
+			if included, err := scope.includes(ctx, fullPath); err != nil || !included {
+				continue
+			}
 			if fullPath != filePath {
 				hc.PackageSiblings = append(hc.PackageSiblings, fullPath)
 			}

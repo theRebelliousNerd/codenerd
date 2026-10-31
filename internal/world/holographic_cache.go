@@ -247,11 +247,16 @@ func (p *packageParse) referencedBy(fileBase string) map[string]struct{} {
 //
 // It returns the entries it fingerprinted so the caller does not stat twice.
 func directoryFingerprint(dir string) (string, []os.DirEntry, error) {
+	return directoryFingerprintFiltered(dir, nil)
+}
+
+func directoryFingerprintFiltered(dir string, include func(string) (bool, error)) (string, []os.DirEntry, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return "", nil, err
 	}
 	var b strings.Builder
+	admitted := make([]os.DirEntry, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -260,6 +265,16 @@ func directoryFingerprint(dir string) (string, []os.DirEntry, error) {
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
+		if include != nil {
+			ok, err := include(filepath.Join(dir, name))
+			if err != nil {
+				return "", nil, err
+			}
+			if !ok {
+				continue
+			}
+		}
+		admitted = append(admitted, entry)
 		b.WriteString(name)
 		b.WriteByte('|')
 		if info, statErr := entry.Info(); statErr == nil {
@@ -274,7 +289,7 @@ func directoryFingerprint(dir string) (string, []os.DirEntry, error) {
 		}
 		b.WriteByte('\n')
 	}
-	return b.String(), entries, nil
+	return b.String(), admitted, nil
 }
 
 // applyTo copies the cached parse into a HolographicContext for one target
