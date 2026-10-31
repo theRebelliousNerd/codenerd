@@ -51,6 +51,13 @@ blocks further work rather than being counted as free. Preserve the existing
 usage tracker and observers. An invocation has a fresh finite envelope; starting
 another is explicit owner action.
 
+Usage uncertainty applies to attempts inside one provider call as well as to
+separate calls. A successful retry without token metadata cannot inherit the
+preceding attempt's accounting. The provider must preserve the known counts
+and mark the missing attempt unknown through nested observers; the next mission
+admission then derives `/unknown_spend`. A fully reported retry remains eligible
+under the existing limits. GAP-PERCEPTION-RETRY-USAGE owns this adapter repair.
+
 The meter uses the typed `usage.MicroUSDPerUSD` currency conversion from
 `internal/usage/pricing.go` for both overflow detection and rounded accounting.
 The spend limit remains `mission.max_spend_microusd`; the currency unit is fixed.

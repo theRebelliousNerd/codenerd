@@ -1,5 +1,20 @@
 # 09 — Safety and Invariants (perception)
 
+## Retry usage uncertainty
+
+Each completed provider attempt without token metadata must notify enclosing
+`usage.IncompleteObserver` captures before an empty usage report is discarded.
+Reports from other attempts do not resolve that uncertainty. Preserve known
+counts, category-presence semantics and normal answer/retry behavior; do not
+invent zero-cost reports. The adapter supplies observations and the mission's
+existing kernel policy decides whether further work may run.
+
+The regression must exercise the existing reasoning-only retry through the
+broker, nested observers and tracker, plus mission admission with the real
+kernel. A fully reported retry is the positive control; observed zero remains
+distinct from missing metadata. Execution evidence is required before closing
+GAP-PERCEPTION-RETRY-USAGE.
+
 ## Accepted constructor cancellation invariant
 
 **PROPOSED UPLIFT:** every context-aware classifier constructor distinguishes parent cancellation from optional service failure/local hydration cap. Failed or canceled constructors release owned stores/engines and never publish a partial shared classifier. Completed cache writes remain reusable; no timer or detached goroutine stands in for joining work. Compatibility constructors may use Background only when no caller context exists. GAP-PERCEPTION-BOOT-CONTEXT owns the pending exit controls.

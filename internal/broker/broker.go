@@ -113,9 +113,10 @@ func (c *core) currentModel() string {
 // accumulate rather than overwrite: a client that retries internally produces
 // several reports for one logical call, and every one of them was billed.
 type callObserver struct {
-	mu      sync.Mutex
-	usage   types.UsageMetadata
-	reports int
+	mu         sync.Mutex
+	usage      types.UsageMetadata
+	reports    int
+	incomplete bool
 
 	// The session log's view of the call (exchange_log.go). call is nil unless
 	// debug mode opened an exchange; ctx is the call's context, which names
@@ -139,13 +140,26 @@ func (o *callObserver) Observed(r usage.Report) {
 	o.reports++
 }
 
+// UsageUnknown retains an unaccounted attempt independently of report order.
+// It is uncertainty, not another bill or a zero-token usage report.
+func (o *callObserver) UsageUnknown() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.incomplete = true
+}
+
 func (o *callObserver) result() (types.UsageMetadata, int) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return o.usage, o.reports
+	u := o.usage
+	if o.incomplete && o.reports > 0 {
+		u.Partial = true
+	}
+	return u, o.reports
 }
 
 var _ usage.Observer = (*callObserver)(nil)
+var _ usage.IncompleteObserver = (*callObserver)(nil)
 
 // admit counts a request and asks the ledger whether it may proceed. It returns
 // the receipt skeleton either way so a refusal is still recorded.

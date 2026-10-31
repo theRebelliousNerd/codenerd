@@ -1,5 +1,14 @@
 # Safety and invariants
 
+## Incomplete attempts within one call
+
+An adapter's incomplete-attempt notification is monotonic within its broker
+call. It must survive before or after reported usage and concurrent reporting.
+Known counts remain recorded once; when at least one report exists they are
+lower bounds, so the receipt must be partial and must not train calibration.
+No synthetic bill or permission change follows. If no usage report exists the
+receipt remains unreported; enclosing mission uncertainty remains explicit.
+
 ## Invariants
 
 | # | Invariant | Enforced by |

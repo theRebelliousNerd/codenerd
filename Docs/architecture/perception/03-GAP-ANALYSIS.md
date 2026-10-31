@@ -1,5 +1,16 @@
 # 03 — Gap Analysis (perception)
 
+## Retry usage uncertainty
+
+| Gap ID | Capability | Current state | Target state | Severity | Phase | Blocking dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-PERCEPTION-RETRY-USAGE | Account for every completed provider attempt | Open: `internal/perception/usage_track.go:73` drops empty usage; an internal retry can hide its missing usage behind a preceding report | Preserve reported counts and notify enclosing incomplete observers for each attempt without token metadata | P0 | Bounded local repair | Existing nested usage observers and mission admission | The reasoning-only retry fixture preserves known counts and marks a usage-less retry unknown; real-kernel mission admission stops with `/unknown_spend`; fully reported retries remain admitted |
+
+The required contract is in `09-SAFETY-AND-INVARIANTS.md`, under retry usage
+uncertainty. A successful answer is not evidence that every billed attempt was
+accounted for. This gap does not authorize changing model selection, retry
+limits, or mission policy.
+
 ## Accepted cold-classifier lifetime target (2026-10-02)
 
 **VERIFIED CURRENT — bounded implementation/live slice:** strict constructor ownership/cancellation, cache preservation/retry, optional fallback and shared admission controls plus focused race pass (`artifact:.corpus-build/runs/all-features-20261002/round6-coldboot-corrected.receipt.json`, `round6-coldboot-race.receipt.json`). Fresh normal-entry timeout20s now exits21.6602s and preserves448 cache rows with integrity OK, before later prompt initialization. This supersedes the contextless production constructor observation below. The learned-store backend constructor still has contextless SQL and requires a separate store-owned spec/packet; complete suites, global isolation and model-turn/world-model proof remain open.

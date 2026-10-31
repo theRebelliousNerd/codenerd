@@ -66,11 +66,16 @@ func usageProviderID(p Provider) string {
 // A report with neither counts nor a partial flag is dropped: nothing was
 // observed. A partial report with zero counts is still delivered so the
 // receipt can say the accounting is incomplete rather than free.
+// Missing token metadata still marks the attempt unknown before it is dropped;
+// a neighboring retry's valid report cannot account for this attempt.
 //
 // Doing nothing when ctx carries no tracker is deliberate: clients are also
 // constructed in tests and one-shot tools, and metering must never be a reason
 // a completion path fails.
 func reportUsage(ctx context.Context, model string, provider Provider, operation string, u types.UsageMetadata) {
+	if !u.Has(types.UsageTokens) {
+		usage.NoteUnknownUsage(ctx)
+	}
 	if u.InputTokens <= 0 && u.OutputTokens <= 0 && !u.Partial {
 		return
 	}
