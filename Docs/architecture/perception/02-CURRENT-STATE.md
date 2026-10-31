@@ -128,3 +128,13 @@ Chrome socket paths. VCS stamping and assertions are unchanged. Execution logs
 remain outside the architecture corpus. Publication is pending the unavailable
 required private-terms scanner. No live model, R7 qualification, universal
 transport-failure accounting or billing guarantee follows.
+
+
+## Accepted read-error accounting
+
+Local candidate `567d7926565626a24082a7416d11e4144fb03abe` observes unreadable
+HTTP 200 bodies before the compatible-chat retry continues. Known reports are
+preserved, receipts become partial, and the next mission admission stops unknown
+spend. The bounded transport/mission controls and complete offline checks pass;
+see GAP-PERCEPTION-ACCEPTED-READ and IMPLEMENTED_SPEC.md for evidence and limits.
+No broader provider, billing, permission or live-rung guarantee is claimed.

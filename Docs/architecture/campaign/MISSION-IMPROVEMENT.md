@@ -203,3 +203,16 @@ behavioral contracts, dependency-based evidence validity, runtime symptom
 receipts, controlled holdouts and isolated concurrent experiments need their
 own production evidence. This path supplies mission-shaped selection and
 historical gate-deficit receipts; it keeps the mission open.
+
+
+## Accepted response body-read uncertainty
+
+Local candidate `567d7926565626a24082a7416d11e4144fb03abe` extends uncertainty
+observation to unreadable HTTP 200 bodies in compatible non-streaming chat.
+`internal/campaign/recurse_mission_body_read_test.go:16` verifies an accepted
+truncated body followed by a successful retry through the real broker, mission
+meter and kernel. The answer and known 2,000 micro-USD survive, uncertainty is
+persisted and the next admission stops `/unknown_spend`; clean responses remain
+admitted. This is a passing offline control, not proof the failed attempt was
+billed, a universal transport guarantee or a hard billing cap. Existing phase
+limits, ownership and recovery remain unchanged. See GAP-PERCEPTION-ACCEPTED-READ.

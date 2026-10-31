@@ -6397,3 +6397,27 @@ as do tagged build and vet. Existing candidates and main remain untouched.
 Publication is pending the required unavailable private-terms scanner. This is
 four-unit ownership protection, not a universal guard audit or qualifying R7
 result. **Streak 0.**
+
+
+## R7 follow-up, accepted body-read usage — local hand repair (2026-10-31)
+
+Hand-authored by Codex; no CodeNERD edits or provider calls. Corrected offline
+fail-before: an HTTP 200 body read failed and the transport retried successfully;
+both enclosing captures remained certain, the receipt was reported, and the
+real-kernel mission admitted further work at known spend=2,000 micro-USD.
+The initial component fixture had an integer type mismatch; that compile error
+is retained and is not runtime evidence. Clean and cancellation controls pass.
+
+Local repair `567d7926565626a24082a7416d11e4144fb03abe` notifies existing incomplete
+observers in that accepted-response read-error branch. Known counts and answers
+survive; existing broker/meter/policy produce partial/unknown and stop the next
+mission admission. Retry limits, typed cancellation, body closure, permissions,
+guard-source protection and recovery behavior remain intact.
+
+11 focused and 110 repeated race checks pass, including prior retry controls.
+Complete broker/usage/campaign race suites pass (1,834 checks, no skips). Full
+uncached offline sqlite_vec tests pass (22,037 pass, 80 skip, 112 testable
+packages), as do tagged build and vet. Existing candidates and evidence remain
+unchanged. Publication awaits the required unavailable private-terms scanner.
+Pre-connect failures, malformed replies, other transports, streams and billing
+totals remain outside this bounded result. No qualifying R7 claim. **Streak 0.**

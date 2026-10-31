@@ -565,3 +565,30 @@ Chrome socket paths. VCS stamping and assertions are unchanged. Execution logs
 remain outside the architecture corpus. Publication is pending the unavailable
 required private-terms scanner. No live model, R7 qualification, universal
 transport-failure accounting or billing guarantee follows.
+
+
+## Accepted body-read uncertainty: bounded local candidate
+
+**LOCALLY VERIFIED:** candidate `567d7926565626a24082a7416d11e4144fb03abe`
+closes GAP-PERCEPTION-ACCEPTED-READ for HTTP 200 body-read errors in compatible
+non-streaming chat. The error branch of
+`internal/perception/client_openai_compat.go:545` notifies the existing
+incomplete-usage observers before the unchanged retry/error path. Existing
+broker capture preserves known totals as partial lower bounds, and mission
+policy stops subsequent admission with `/unknown_spend`.
+
+`internal/perception/accepted_body_usage_test.go:20` uses a deterministic
+RoundTripper for clean, failed-read/recovered and canceled responses. It verifies
+normal answers, known totals, nested uncertainty, receipt status, request counts
+and body closure. `internal/campaign/recurse_mission_body_read_test.go:16` uses a
+local truncated HTTP response and the real broker/meter/kernel; the saved
+mission retains the known 2,000 micro-USD and uncertainty. Clean admission and
+prior decoded-missing-usage controls pass. Focused repeated race controls,
+complete broker/usage/campaign race suites, full offline tests, build and vet
+pass locally. Execution artifacts remain outside the architecture corpus.
+
+This is not universal transport or billing completeness. Pre-connect failures,
+malformed replies, other adapters and streams need separate evidence; existing
+phase-bound estimated limits remain soft. No permission, guard-source ownership
+or recovery changes are part of the repair. Publication is pending the required
+unavailable private-terms scan; no live R7 qualification follows.

@@ -2,16 +2,19 @@
 
 ## Accepted response body-read uncertainty
 
-GAP-PERCEPTION-ACCEPTED-READ is open. An HTTP 200 response whose body cannot be
-read may already represent billed execution. The compatible chat transport
-retries without notifying incomplete-usage observers; a later complete report
-can hide that uncertainty. Required exit: preserve the existing retry and
-cancellation behavior while signalling uncertainty before retrying the accepted
-response. Keep known counts unchanged. Offline transport and real-kernel mission
-controls must distinguish a clean response from a truncated accepted response,
-retain typed cancellation and body cleanup, and stop subsequent mission
-admission with `/unknown_spend`. No permission or executive policy change is
-part of this bounded repair. Implementation and execution are pending.
+GAP-PERCEPTION-ACCEPTED-READ is closed locally in
+`567d7926565626a24082a7416d11e4144fb03abe` for compatible non-streaming chat.
+`internal/perception/client_openai_compat.go:545` marks an unreadable HTTP 200
+attempt unknown before continuing the existing retry/error path. A later report
+cannot resolve that uncertainty. Known counts, typed cancellation, request
+counts and body cleanup pass the offline transport controls at
+`internal/perception/accepted_body_usage_test.go:20`. Real-kernel mission
+admission stops and persists `/unknown_spend` in
+`internal/campaign/recurse_mission_body_read_test.go:16`; clean responses remain
+admitted. Repeated race and full offline checks pass locally. Publication awaits
+the required private-terms scan. Pre-connect failures, malformed replies, other
+transports and streams remain separate accounting obligations; no billing or
+hard spend guarantee follows.
 
 ## Retry usage uncertainty
 

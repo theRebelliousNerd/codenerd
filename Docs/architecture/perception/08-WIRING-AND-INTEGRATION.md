@@ -120,3 +120,14 @@ This bounded path is locally verified in
 `a6aaaf0f1cbc429dac34f57b3d92bba2486c8fca`; see GAP-PERCEPTION-RETRY-USAGE and
 broker B12. Existing permission, provider selection and executive policy are
 unchanged. Publication and live qualification remain separate.
+
+
+## Accepted response read-error wiring
+
+The compatible chat transport calls `usage.NoteUnknownUsage` on HTTP 200
+body-read failure before retry or cancellation returns. Nested captures reach
+both the existing broker incomplete observer and the mission meter. A later
+successful report retains its counts but cannot clear uncertainty; kernel
+admission stops the next paid phase. This path is locally verified in
+`567d7926565626a24082a7416d11e4144fb03abe` (GAP-PERCEPTION-ACCEPTED-READ).
+Existing retry, close, cancellation and executive policy statements are unchanged.
