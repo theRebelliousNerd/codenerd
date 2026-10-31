@@ -1,5 +1,41 @@
 # Mission-linked recurse
 
+## Recurse command signal ownership
+
+The recurse CLI must retain a distinct cancelable operation owner beneath the
+command's parent context and above its optional `--timeout` child. SIGINT or
+SIGTERM must stop that owner even when the child's first error is already
+`DeadlineExceeded`, so verification/diagnostic completion windows observe the
+stop through `WithOwnerStop`. The child deadline remains exactly the user's
+requested limit; a timeout alone does not cancel the independent owner.
+Normal or failed return must cancel the child, stop signal notification and
+release the owner without canceling the caller's parent. Dry-run/plan paths
+remain offline and allocate no run lifetime.
+
+GAP-RECURSE-SIGNAL-OWNER rejects a handler that cancels only the timed child while
+recording `Background` as its owner. Exit: an offline fixture driven from the
+actual pre-boot context setup observes SIGINT and SIGTERM after the deadline,
+parent cancellation, ordinary operation, timeout-only behavior and normal
+cleanup without invoking Cortex, models or mutation/recovery paths.
+Status: implemented. The run takes Cobra's parent context, registers a distinct
+`signal.NotifyContext` owner, then applies the existing operation deadline
+(`cmd/nerd/cmd_campaign_recurse.go:169`, `:173`, `:175`). Deferred child cancellation
+and signal-owner cleanup retain notifications until the rest of command cleanup
+has finished. The old signal-only waiter is gone; no goroutine remains waiting
+for a signal after an ordinary return. The operation factory still records the
+owner through `session.WithOwnerStop` (`cmd/nerd/operation_context.go:26`).
+
+`TestRecurseSignalOwner_ProductionContextLifetime`
+(`cmd/nerd/recurse_signal_owner_test.go:167`) compiles the actual pre-boot setup
+and operation factory into an offline process, recording the owner argument
+before delegating to the real `WithOwnerStop`. Real SIGINT/SIGTERM arrive only
+after the child deadline barrier. Parent cancellation, normal operation,
+timeout-only behavior and cleanup are separate controls. The race-instrumented
+fixture has its own temporary module and Git identity; dependency checks and
+VCS stamping stay enabled. Its cold-start allowance is separate from the strict
+two-second post-ready stop assertion. This verifies the context producer without
+booting Cortex, running providers or changing attempt compensation/recovery.
+
 The compatible Chat streaming setup path obeys the same uncertainty contract
 as non-streaming inference. Ordinary non-mission setup recovery preserves known
 counts. An explicit mission now refuses the retry after a lost response and

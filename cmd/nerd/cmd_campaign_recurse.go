@@ -163,17 +163,17 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 		return writeRecursePlan(cmd.OutOrStdout(), cwd, cfg)
 	}
 
-	// The run honors --timeout like any other command. Ctrl+C cancels the
-	// shared context; the loop reverts an attempt in flight.
-	ctx, cancel := operationContext(context.Background())
+	// The run honors --timeout like any other command. The signal owner is
+	// separate from that child deadline: a later stop must still reach the
+	// verification/diagnostic completion windows through WithOwnerStop.
+	parent := cmd.Context()
+	if parent == nil {
+		parent = context.Background()
+	}
+	owner, stopSignals := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
+	defer stopSignals()
+	ctx, cancel := operationContext(owner)
 	defer cancel()
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		fmt.Println("\nRecurse stopping; reverting any attempt in flight...")
-		cancel()
-	}()
 
 	key := resolveAPIKey(apiKey, workspace)
 	if strings.TrimSpace(recurseMission) != "" {
