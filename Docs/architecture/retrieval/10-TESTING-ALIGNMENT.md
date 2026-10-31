@@ -1,5 +1,22 @@
 # retrieval — Testing Alignment
 
+## Required integration-tag compilation contract
+
+The external `retrieval_test` integration suite must compile against the public
+retrieval API under `-tags=integration`, then exercise real filesystem search,
+ranking, exclusions and cancellation without provider calls. Test helpers from
+the internal `retrieval` test package are not visible here: qualify exported
+status values and assemble extraction/search/ranking through exported APIs.
+Retain existing behavioral assertions and native backend defaults; this repairs
+the verification fixture rather than changing runtime retrieval behavior.
+Status: implemented in the external fixture. It qualifies `retrieval.StatusComplete`,
+uses a local helper over exported extraction/search/ranking APIs
+(`internal/retrieval/sparse_integration_test.go:20`) and passes the actual retriever
+at its integration and cancellation call sites (`:161`, `:206`). Existing search,
+ranking and exclusion assertions remain intact. The suite uses the native
+default backend despite one historical test name mentioning rg; no live provider
+or external search service is required.
+
 > Last verified: **2026-07-13**
 
 ## 1. Commands

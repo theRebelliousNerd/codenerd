@@ -15,6 +15,17 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
+// findRelevant runs the public pipeline; helpers from package retrieval's
+// internal tests are not part of this external test package.
+func findRelevant(ctx context.Context, r *retrieval.SparseRetriever, issue string, limit int) ([]retrieval.CandidateFile, error) {
+	keywords := retrieval.ExtractKeywords(issue)
+	hits, outcome := r.SearchKeywords(ctx, keywords)
+	if outcome.Status == retrieval.StatusUnavailable {
+		return nil, fmt.Errorf("keyword search unavailable: %s", outcome)
+	}
+	return r.RankFiles(hits, keywords, limit), nil
+}
+
 type SparseRetrieverSuite struct {
 	suite.Suite
 	tempDir string
@@ -54,7 +65,7 @@ func (s *SparseRetrieverSuite) TestSearchKeywords_RealRg() {
 	defer cancel()
 
 	hits, outcome := r.SearchKeywords(ctx, kw)
-	s.Require().Equal(StatusComplete, outcome.Status, outcome.String())
+	s.Require().Equal(retrieval.StatusComplete, outcome.Status, outcome.String())
 	s.Require().Len(hits, 1)
 
 	// Avoid asserting exact path formatting: ripgrep may return absolute or relative paths.
@@ -75,7 +86,7 @@ func (s *SparseRetrieverSuite) TestSearchKeywords_NoMatch() {
 	defer cancel()
 
 	hits, outcome := r.SearchKeywords(ctx, kw)
-	s.Require().Equal(StatusComplete, outcome.Status, outcome.String())
+	s.Require().Equal(retrieval.StatusComplete, outcome.Status, outcome.String())
 	s.Require().Empty(hits)
 }
 
@@ -109,7 +120,7 @@ func (s *SparseRetrieverSuite) TestSearchKeywords_Exclusions() {
 	defer cancel()
 
 	hits, outcome := r.SearchKeywords(ctx, kw)
-	s.Require().Equal(StatusComplete, outcome.Status, outcome.String())
+	s.Require().Equal(retrieval.StatusComplete, outcome.Status, outcome.String())
 	s.Require().Empty(hits, "Should not find file in excluded directory")
 }
 
@@ -147,7 +158,7 @@ func TestSparseRetriever_Integration(t *testing.T) {
 	// The query mentions "TargetError", which should be extracted as a primary keyword.
 	query := "panic: TargetError in production system"
 
-	candidates, err := retrievefindRelevant(ctx, r, query, 10)
+	candidates, err := findRelevant(ctx, retriever, query, 10)
 	require.NoError(t, err)
 
 	// 5. Verification
@@ -192,7 +203,7 @@ func TestSparseRetriever_ContextCancellation(t *testing.T) {
 	// but it must not hang.
 	done := make(chan struct{})
 	go func() {
-		_, _ = retrievefindRelevant(ctx, r, "panic: Something", 10)
+		_, _ = findRelevant(ctx, retriever, "panic: Something", 10)
 		close(done)
 	}()
 
