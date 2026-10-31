@@ -30,3 +30,23 @@ supersedes: []
 | Analytics | `internal/broker/epoch.go#prefixFingerprint` (line 47); `internal/broker/reconcile.go#Reconciler.Observe` (line 73) | Prefix/drift observations are not correctness or routing verdicts. |
 
 Testing requirements and assertion witnesses are in [testing](10-TESTING-ALIGNMENT.md). The B-row capabilities and roadmap remain active design obligations in their existing documents. Their presence does not establish current implementation, coverage, or live acceptance; use the scoped evidence above for those claims.
+
+
+## Incomplete retry capture: bounded local candidate
+
+**LOCALLY VERIFIED:** candidate `a6aaaf0f1cbc429dac34f57b3d92bba2486c8fca`
+closes B12 for adapter-notified incomplete attempts. The mutex-protected
+`internal/broker/broker.go:145` retains uncertainty before, after or concurrently
+with reports. `internal/broker/broker.go:151` returns reported counts as partial
+lower bounds without adding a synthetic report; existing settlement excludes
+partial totals from calibration. No reports remains unreported.
+`internal/broker/incomplete_attempt_test.go:13` covers ordering, unchanged ledger
+counts and calibration exclusion; concurrent reporting is at
+`internal/broker/incomplete_attempt_test.go:47`.
+
+These controls and the complete affected-package race suites pass locally, as
+do the uncached full offline sqlite_vec suite, tagged build and vet. The provider
+retry fixture and mission admission control cross the real broker boundary.
+Publication requires the unavailable private-terms scan. This bounded result
+does not establish universal adapter, malformed-reply or transport-failure
+accounting, nor exact billing totals.

@@ -3,17 +3,17 @@
 Gaps are numbered `B*`. Each states the gap, the consequence, and its disposition
 in this corpus.
 
-## B12 — Missing internal retry usage — **OPEN**
+## B12 — Missing internal retry usage — **CLOSED LOCALLY**
 
-`internal/broker/broker.go:115` captures usage reports but not incomplete-attempt
-notifications. A provider call with both a reported attempt and an unreported
-retry can therefore emit a complete receipt and calibrate from a lower bound.
-GAP-PERCEPTION-RETRY-USAGE owns detection at the adapter boundary. The broker
-must retain that uncertainty independently of report order, preserve known
-counts without a synthetic bill, mark accounted lower bounds partial and skip
-calibration. Exit: the existing reasoning-only retry fixture observes a partial
-broker receipt and a mission `/unknown_spend` stop, with fully reported retries
-and concurrent observer regression controls passing.
+`internal/broker/broker.go:145` retains incomplete-attempt notifications under
+the capture mutex independently of report order. Reported lower bounds become
+partial and do not train calibration; counts and report totals are preserved.
+GAP-PERCEPTION-RETRY-USAGE owns detection at the decoded adapter boundary.
+The existing reasoning-only retry observes a partial receipt and a real-kernel
+mission `/unknown_spend` stop. Order, concurrent capture and fully reported
+retry controls pass locally in `a6aaaf0f1cbc429dac34f57b3d92bba2486c8fca`.
+Publication requires the unavailable private-terms scan. This is not universal
+provider, transport-failure or billing completeness.
 
 ## B1 — No single accounting boundary — **CLOSED**
 

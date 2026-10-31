@@ -58,6 +58,14 @@ and mark the missing attempt unknown through nested observers; the next mission
 admission then derives `/unknown_spend`. A fully reported retry remains eligible
 under the existing limits. GAP-PERCEPTION-RETRY-USAGE owns this adapter repair.
 
+The bounded local candidate `a6aaaf0f1cbc429dac34f57b3d92bba2486c8fca` exercises
+the decoded retry through the provider adapter, broker, mission meter and real
+kernel in `internal/campaign/recurse_mission_retry_usage_test.go:16`.
+Missing usage stops admission and persists uncertainty while preserving the
+known 2,000 micro-USD; the fully reported control retains 3,000 micro-USD and
+remains admitted. This offline fixture is not live R7 qualification. Unknown
+transport failures and malformed replies remain separate accounting obligations.
+
 The meter uses the typed `usage.MicroUSDPerUSD` currency conversion from
 `internal/usage/pricing.go` for both overflow detection and rounded accounting.
 The spend limit remains `mission.max_spend_microusd`; the currency unit is fixed.

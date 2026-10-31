@@ -107,3 +107,16 @@ Before declaring a perception feature “unused”:
 | TraceStore nil | Tracing client may no-op store |
 
 See also CLI [11-CROSS-SYSTEM-WIRING-JOURNAL.md](../cli/11-CROSS-SYSTEM-WIRING-JOURNAL.md) for binary-level boot narrative.
+
+
+## Decoded retry uncertainty wiring
+
+The decoded adapter's `reportUsage` calls `usage.NoteUnknownUsage` when token
+metadata is absent. Nested captures reach both the broker's
+`usage.IncompleteObserver` and the enclosing mission meter. The broker preserves
+reported lower bounds as partial; the mission's existing kernel admission
+then derives `/unknown_spend`. A successful answer does not erase missing usage.
+This bounded path is locally verified in
+`a6aaaf0f1cbc429dac34f57b3d92bba2486c8fca`; see GAP-PERCEPTION-RETRY-USAGE and
+broker B12. Existing permission, provider selection and executive policy are
+unchanged. Publication and live qualification remain separate.

@@ -105,3 +105,26 @@ See [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) §3.2.
 
 Heavy importers: `cmd/nerd/chat`, `cmd/nerd` commands, `internal/session`, e2e tests.  
 Heavy callees: `config`, `core`, `embedding`, `logging`, `types`, `articulation` (aliases/schema), `store`, `mangle`, `sqlpragmas`.
+
+
+## Decoded retry accounting: bounded local candidate
+
+**LOCALLY VERIFIED:** candidate `a6aaaf0f1cbc429dac34f57b3d92bba2486c8fca`
+closes GAP-PERCEPTION-RETRY-USAGE at the decoded usage boundary.
+`internal/perception/usage_track.go:75` marks missing token metadata unknown
+before an empty report is dropped. Known counts and normal answer/retry behavior
+are preserved. The existing reasoning-only retry now exercises the broker,
+nested captures and tracker (`internal/perception/client_openai_compat_empty_retry_test.go:34`);
+metadata-presence and known-zero controls are at
+`internal/perception/client_openai_compat_empty_retry_test.go:107`.
+The real-kernel mission control is at
+`internal/campaign/recurse_mission_retry_usage_test.go:16`.
+
+The focused controls and complete perception/broker/usage/campaign race suites
+pass locally. The uncached full offline sqlite_vec suite, tagged build and vet
+also pass. The test harness gives only session fixtures physical temporary
+storage to avoid a pre-existing invalid `/tmp/.git`; other packages retain short
+Chrome socket paths. VCS stamping and assertions are unchanged. Execution logs
+remain outside the architecture corpus. Publication is pending the unavailable
+required private-terms scanner. No live model, R7 qualification, universal
+transport-failure accounting or billing guarantee follows.

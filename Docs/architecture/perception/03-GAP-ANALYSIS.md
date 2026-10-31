@@ -4,7 +4,7 @@
 
 | Gap ID | Capability | Current state | Target state | Severity | Phase | Blocking dependencies | Exit criteria |
 |---|---|---|---|---|---|---|---|
-| GAP-PERCEPTION-RETRY-USAGE | Account for every completed provider attempt | Open: `internal/perception/usage_track.go:73` drops empty usage; an internal retry can hide its missing usage behind a preceding report | Preserve reported counts and notify enclosing incomplete observers for each attempt without token metadata | P0 | Bounded local repair | Existing nested usage observers and mission admission | The reasoning-only retry fixture preserves known counts and marks a usage-less retry unknown; real-kernel mission admission stops with `/unknown_spend`; fully reported retries remain admitted |
+| GAP-PERCEPTION-RETRY-USAGE | Account for every completed provider attempt | Decoded boundary closed locally in `a6aaaf0f1cbc429dac34f57b3d92bba2486c8fca`: `internal/perception/usage_track.go:75` notifies incomplete captures before dropping empty usage | Preserve reported counts and notify enclosing incomplete observers for each attempt without token metadata | P0 | Locally verified; publication pending | Required private-terms scan unavailable | Reasoning-only retry, known-zero/presence controls and real-kernel mission admission pass; fully reported retries remain admitted; transport failures and malformed replies remain outside this bounded result |
 
 The required contract is in `09-SAFETY-AND-INVARIANTS.md`, under retry usage
 uncertainty. A successful answer is not evidence that every billed attempt was

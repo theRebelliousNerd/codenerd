@@ -6348,3 +6348,25 @@ request in the TUI (`--yolo`); it routed straight to delegation, with no clarify
 not recur). **Landed** `aa014a7ba`: `internal/sessionlog/services.go` keeps one row per resident role (health, last
 activity); the chat and /status render a Resident Services section without task affordances; boot installs the
 registry before resident shards start. Fail-before: the new tests do not build against the old code. **Streak 0.**
+
+
+## R7 follow-up, missing retry usage — local hand repair (2026-10-31)
+
+Hand-edited by Codex; no CodeNERD run or live provider call. Accounting boundaries
+remain outside the agent's self-modification scope. Deterministic before: the
+existing reasoning-only retry returned an answer without reporting the retry's
+usage, both nested captures stayed certain, and the real-kernel mission admitted
+further work with only the known 2,000 micro-USD. Broker ordering/concurrency
+controls also failed. Local repair `a6aaaf0f1cbc429dac34f57b3d92bba2486c8fca`
+marks the missing decoded usage unknown, preserves known counts as partial and
+excludes them from calibration; existing mission policy stops `/unknown_spend`.
+
+13 focused checks and 130 repeated race controls pass; complete affected-package
+race suites pass (3,407 pass, 42 skip). Full uncached offline sqlite_vec tests
+pass (22,022 pass, 80 skip, 112 testable packages), build and vet pass. Three
+failed full-suite environment trials are retained externally; the final test
+wrapper changes only temporary storage for session fixtures, preserving VCS
+stamping and Chrome execution. Main and previous candidates are untouched.
+Publication is pending the required unavailable private-terms scanner. This is
+bounded decoded-response accounting, not universal billing proof or a qualifying
+R7 result. **Streak 0.**
