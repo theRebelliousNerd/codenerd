@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -122,6 +123,9 @@ func goplsDiagnostics(ctx context.Context, workspace string, writtenPaths []stri
 	if len(files) == 0 {
 		return ""
 	}
+	if diagnosticOwnerStopped(ctx) {
+		return filesNotDiagnosed(files, "gopls canceled before dispatch")
+	}
 	bin, err := lookPath("gopls")
 	if err != nil {
 		logging.SessionDebug("gopls not on PATH; skipping static diagnostics")
@@ -132,16 +136,18 @@ func goplsDiagnostics(ctx context.Context, workspace string, writtenPaths []stri
 
 func goplsCheck(ctx context.Context, bin, workspace string, files []string) string {
 	timeout := diagnosticTimeout(ctx)
-	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	runCtx, cancel := diagnosticRequestContext(ctx)
 	defer cancel()
+	if runCtx.Err() != nil || diagnosticOwnerStopped(ctx) {
+		return filesNotDiagnosed(files, "gopls canceled before dispatch")
+	}
 
 	out, err := runGoplsCheck(runCtx, bin, workspace, files)
 	text := keepDiagnosticLines(string(out))
 	if runCtx.Err() != nil {
-		logging.Get(logging.CategorySession).Warn(
-			"gopls diagnostics did not finish within %s for %s", timeout, strings.Join(files, ", "))
-		return joinDiagnosticNotice(text, filesNotDiagnosed(files,
-			fmt.Sprintf("gopls did not finish within %s", timeout)))
+		why := diagnosticIncompleteReason(runCtx, "gopls", timeout)
+		logging.Get(logging.CategorySession).Warn("%s for %s", why, strings.Join(files, ", "))
+		return joinDiagnosticNotice(text, filesNotDiagnosed(files, why))
 	}
 	// `gopls check` exits non-zero when it has findings, so a non-nil err with
 	// output is the normal reporting path, not a failure.
@@ -256,6 +262,10 @@ func lspDiagnostics(ctx context.Context, workspace string, writtenPaths []string
 			}
 		}
 		if len(files) > 0 {
+			if diagnosticOwnerStopped(ctx) {
+				out = append(out, filesNotDiagnosed(files, ls.binary+" canceled before dispatch"))
+				continue
+			}
 			out = append(out, serverDiagnostics(ctx, workspace, ls, files)...)
 		}
 	}
@@ -264,20 +274,36 @@ func lspDiagnostics(ctx context.Context, workspace string, writtenPaths []string
 
 func serverDiagnostics(ctx context.Context, workspace string, ls languageServer, files []string) []string {
 	timeout := diagnosticTimeout(ctx)
-	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	runCtx, cancel := diagnosticRequestContext(ctx)
 	defer cancel()
+	if runCtx.Err() != nil || diagnosticOwnerStopped(ctx) {
+		return []string{filesNotDiagnosed(files, ls.binary+" canceled before dispatch")}
+	}
 	client, err := startLanguageServer(runCtx, ls.lang, ls.binary, ls.args...)
 	if err != nil {
+		if runCtx.Err() != nil {
+			return []string{filesNotDiagnosed(files, diagnosticIncompleteReason(runCtx, ls.binary, timeout))}
+		}
 		logging.SessionDebug("%s unavailable; skipping its diagnostics (%v)", ls.binary, err)
 		return nil
 	}
-	defer func() { _ = client.Shutdown(context.WithoutCancel(ctx)) }()
+	defer closeDiagnosticClient(runCtx, client)()
+	if runCtx.Err() != nil || diagnosticOwnerStopped(ctx) {
+		return []string{filesNotDiagnosed(files, ls.binary+" canceled before initialization")}
+	}
 	if err := client.Initialize(runCtx, workspace); err != nil {
+		if runCtx.Err() != nil {
+			return []string{filesNotDiagnosed(files, diagnosticIncompleteReason(runCtx, ls.binary, timeout))}
+		}
 		logging.SessionDebug("%s did not initialize; skipping its diagnostics (%v)", ls.binary, err)
 		return nil
 	}
 	var lines []string
 	for i, p := range files {
+		if runCtx.Err() != nil || diagnosticOwnerStopped(ctx) {
+			lines = append(lines, filesNotDiagnosed(files[i:], diagnosticIncompleteReason(runCtx, ls.binary, timeout)))
+			break
+		}
 		abs := p
 		if !filepath.IsAbs(abs) {
 			abs = filepath.Join(workspace, p)
@@ -287,14 +313,19 @@ func serverDiagnostics(ctx context.Context, workspace string, ls languageServer,
 			lines = append(lines, filesNotDiagnosed([]string{p}, err.Error()))
 			continue
 		}
+		if diagnosticOwnerStopped(ctx) || runCtx.Err() != nil {
+			lines = append(lines, filesNotDiagnosed(files[i:], ls.binary+" stopped before opening "+p))
+			break
+		}
 		if err := client.DidOpen(abs, ls.ids[strings.ToLower(filepath.Ext(p))], string(data)); err != nil {
 			lines = append(lines, filesNotDiagnosed(files[i:], err.Error()))
 			break
 		}
 		diags, err := client.WaitForDiagnostics(runCtx, abs)
 		if err != nil {
-			logging.Get(logging.CategorySession).Warn("%s published nothing for %s within %s; naming the files not yet diagnosed", ls.binary, p, timeout)
-			lines = append(lines, filesNotDiagnosed(files[i:], fmt.Sprintf("%s did not finish within %s", ls.binary, timeout)))
+			why := diagnosticIncompleteReason(runCtx, ls.binary, timeout)
+			logging.Get(logging.CategorySession).Warn("%s for %s; naming the files not yet diagnosed", why, p)
+			lines = append(lines, filesNotDiagnosed(files[i:], why))
 			break
 		}
 		rel := filepath.ToSlash(p)
@@ -308,4 +339,11 @@ func serverDiagnostics(ctx context.Context, workspace string, ls languageServer,
 		}
 	}
 	return lines
+}
+
+func diagnosticIncompleteReason(ctx context.Context, binary string, timeout time.Duration) string {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return binary + " canceled"
+	}
+	return fmt.Sprintf("%s did not finish within %s", binary, timeout)
 }

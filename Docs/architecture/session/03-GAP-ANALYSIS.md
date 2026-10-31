@@ -1,5 +1,36 @@
 # 03 — Gap Analysis: session
 
+## GAP-SESSION-CRITIC-DIAGNOSTIC-OWNER-STOP
+
+Optional critic grounding has its own positive `session.lsp_timeout` bound, but
+must obey explicit cancellation and `WithOwnerStop`, including an owner stop
+after the caller's soft deadline. A stopped owner must not start later language
+diagnostics, file-open stages or critic requests. Keep the soft-deadline
+completion allowance, absent-server silence, partial findings and unchecked-file
+notices. A canceled or timed-out LSP request must close its transport so blocked
+protocol writes end; cleanup must not detach the owner again. Normal completion
+retains bounded polite shutdown. The critic stays advisory; mandatory proof,
+permission gates and the review's existing request bounds remain unchanged.
+
+Exit: offline gopls and real in-memory LSP fixtures prove pre-cancellation,
+mid-request cancellation and owner stop after a soft deadline terminate owned
+work and suppress later stages. Controls prove ordinary completion, bounded
+timeout, partial findings, absent-server and soft-deadline-only behavior.
+Status: implemented for optional critic diagnostics and stage admission.
+`diagnosticOwnerStopped` and `diagnosticRequestContext` retain the explicit owner
+channel while allowing the existing soft-deadline completion window
+(`internal/session/build_verify.go:1244`, `:1262`). Transport closure is attached
+to the request and joined during cleanup (`:1297`). Go and stdio diagnostics use
+that lifecycle (`internal/session/lsp_diagnostics.go:137`, `:275`), and the critic
+gate checks stop before/between diagnostics and before model dispatch
+(`internal/session/build_verify.go:941`). Offline fail-before and regressions
+exercise owner stop, partial findings, transport closure and later-stage refusal
+(`internal/session/diagnostic_owner_test.go:33`, `:68`, `:133`), plus pre-cancel,
+soft-deadline-only completion and a blocked initialization write
+(`internal/session/diagnostic_owner_controls_test.go:17`, `:43`, `:71`). This is
+request/transport ownership, not a new critic verdict, permission or inference
+budget policy.
+
 ## Required contract: explicit admission for configured live TypeSafe tests
 
 A configured TypeSafe section or nonempty key is not consent for a test to call

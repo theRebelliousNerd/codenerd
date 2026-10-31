@@ -1,5 +1,19 @@
 # 08 — Wiring and Integration: session
 
+## Critic diagnostic stop boundary
+
+`verifyAndUpliftWithCritic` owns optional Go and language-server grounding before
+the review. It checks explicit owner stop at entry, between diagnostic stages
+and before review dispatch (`internal/session/build_verify.go:941`). Both runners
+derive a positive diagnostic budget that ignores only the soft caller deadline,
+then follows direct cancellation and the separately recorded owner channel
+(`internal/session/build_verify.go:1262`). Stdio cleanup closes canceled
+transports and joins closure; successful requests use bounded polite shutdown
+(`:1297`). The real protocol fixture and scripted critic drive these production
+functions with no provider dependency (`internal/session/diagnostic_owner_test.go:68`,
+`:133`). The gap contract and coverage boundary are
+`GAP-SESSION-CRITIC-DIAGNOSTIC-OWNER-STOP` in `03-GAP-ANALYSIS.md`.
+
 > Last verified: 2026-07-13
 
 ## 1. Cortex boot path (primary)

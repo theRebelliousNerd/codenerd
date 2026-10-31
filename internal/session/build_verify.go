@@ -10,6 +10,7 @@ import (
 	"codenerd/internal/testfacts"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
+	"codenerd/internal/world/lsp"
 	"context"
 	"errors"
 	"fmt"
@@ -946,7 +947,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	cfg *jitconfig.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) ([]string, error) {
-	if !e.configSnapshot().CriticReviewAfterEdits || result == nil {
+	if !e.configSnapshot().CriticReviewAfterEdits || result == nil || diagnosticOwnerStopped(ctx) {
 		return nil, nil
 	}
 
@@ -974,6 +975,9 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		}
 		grounding += "Static analysis (gopls) reported:\n" + diags
 	}
+	if diagnosticOwnerStopped(ctx) {
+		return nil, nil
+	}
 	if diags := lspDiagnostics(ctx, workspace, result.WrittenPaths); diags != "" {
 		if result.StaticDiagnostics != "" {
 			result.StaticDiagnostics += "\n"
@@ -986,6 +990,9 @@ func (e *Executor) verifyAndUpliftWithCritic(
 		grounding += "Static analysis (language servers) reported:\n" + diags
 	}
 
+	if diagnosticOwnerStopped(ctx) {
+		return nil, nil
+	}
 	views, removals, windows := turnChangeViews(workspace, files, result)
 	if len(views) == 0 {
 		return nil, nil
@@ -1018,6 +1025,9 @@ func (e *Executor) verifyAndUpliftWithCritic(
 	// The review is the critic's own inference, not a round of the turn: its
 	// spend belongs in the critic account, where a change to the critic can
 	// be measured, not folded into the session total.
+	if diagnosticOwnerStopped(ctx) {
+		return nil, nil
+	}
 	response, err := client.CompleteWithSystem(broker.WithPurpose(ctx, broker.PurposeCritic), criticSystem, prompt)
 	if err != nil {
 		// The critic is advisory. A failed review is a missing opinion, not a
@@ -1226,4 +1236,78 @@ func turnChangeViews(workspace string, files map[string]string, result *Executio
 		views[path], windows[path] = criticFileView(path, content, changed)
 	}
 	return views, removals, windows
+}
+
+// diagnosticOwnerStopped keeps explicit stop separate from a soft work deadline,
+// as verification does. The owner channel remains useful after a deadline has
+// permanently set the parent's error or a completion window detached it.
+func diagnosticOwnerStopped(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return true
+	}
+	select {
+	case <-ownerStop(ctx):
+		return true
+	default:
+		return false
+	}
+}
+
+// diagnosticRequestContext preserves values and the existing independent,
+// positive diagnostic budget. Only a soft caller deadline is detached; explicit
+// cancellation and the operation owner's stop still close this request.
+func diagnosticRequestContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), diagnosticTimeout(parent))
+	if diagnosticOwnerStopped(parent) {
+		cancel()
+		return ctx, cancel
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		parentDone, ownerDone := parent.Done(), ownerStop(parent)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ownerDone:
+				cancel()
+				return
+			case <-parentDone:
+				if errors.Is(parent.Err(), context.Canceled) {
+					cancel()
+					return
+				}
+				parentDone = nil // A soft deadline does not own this budget.
+			}
+		}
+	}()
+	return ctx, func() { cancel(); <-done }
+}
+
+// closeDiagnosticClient makes cancellation interrupt protocol writes too: the
+// stdio client's DidOpen/notify calls do not take contexts. Leave polite
+// shutdown under the same remaining request budget, then join any close callback.
+func closeDiagnosticClient(ctx context.Context, client *lsp.Client) func() {
+	closed := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		defer close(closed)
+		_ = client.Close()
+	})
+	return func() {
+		if ctx.Err() != nil {
+			_ = client.Close()
+		} else {
+			_ = client.Shutdown(ctx)
+		}
+		if !stop() {
+			<-closed
+		}
+	}
 }

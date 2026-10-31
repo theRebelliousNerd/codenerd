@@ -1,5 +1,27 @@
 # session — Implemented Spec (Deep-Dive)
 
+## Optional critic diagnostic ownership
+
+Gopls, Python and TypeScript grounding retain their independent positive
+`session.lsp_timeout` budget while observing explicit cancellation and the
+operation owner's `WithOwnerStop` channel, even after a caller soft deadline
+(`internal/session/build_verify.go:1244`, `:1262`). Cancellation cannot be
+detached again by LSP cleanup: the request closes its transport on stop/timeout,
+normal completion attempts polite shutdown within the remaining request budget,
+and cleanup joins an active close callback (`:1297`). This also unblocks a protocol
+write that otherwise cannot observe its caller's context.
+
+`goplsCheck` preserves partial diagnostic lines and names unchecked files
+(`internal/session/lsp_diagnostics.go:137`). `serverDiagnostics` similarly checks
+stop at initialization and file-open boundaries and retains collected output
+(`:275`). The critic gate refuses later diagnostic/review stages once the owner
+stops (`internal/session/build_verify.go:941`). It remains advisory; mandatory
+build/test gates, permission checks and the review's existing request bounds
+retain their contracts. Real in-memory protocol and gate fixtures exercise
+owner cancellation and normal completion
+(`internal/session/diagnostic_owner_test.go:33`, `:68`, `:133`;
+`internal/session/diagnostic_owner_controls_test.go:17`, `:43`, `:71`).
+
 > Last verified against codebase: 2026-08-09
 > Status: Living Reference Document  
 > Language: Go  
