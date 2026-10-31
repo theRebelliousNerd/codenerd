@@ -1,5 +1,19 @@
 # 03 — Gap Analysis: session
 
+## Required contract: explicit admission for configured live TypeSafe tests
+
+A configured TypeSafe section or nonempty key is not consent for a test to call
+an external provider. The session report-reader fixture must skip before loading
+configuration unless `CODENERD_LIVE_TYPESAFE` is exactly `1`. Approved live runs
+retain their existing configured client, judgments and assertions. Ordinary
+production inference does not read this test-only switch. Workspace gate
+environment allowlists stay unchanged: an ambient switch is not automatically
+forwarded; an owner can explicitly forward it with existing configuration.
+
+| Gap ID | Current deficiency | Target | Status | Exit criteria |
+|---|---|---|---|---|
+| GAP-SESSION-LIVE-TEST-ADMISSION | The former credential-only test admission is replaced by an exact-one switch before configuration loading. | Explicit default-off test admission above. | Closed for this bounded test-admission contract | `internal/session/finish_round_test.go:34` and `internal/session/typesafe_live_admission_test.go:89`: default and malformed admission dispatch zero HTTP requests; exact admission, missing configuration/key, ordinary inference and gate forwarding controls pass. The paired chat regression and build-environment regression cover the other helper and Go/non-Go command construction. |
+
 ## Required contract: Consultation evidence freshness
 
 Completed specialist answers must not be reused across execution results without

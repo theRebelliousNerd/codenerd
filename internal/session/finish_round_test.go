@@ -17,7 +17,7 @@ import (
 // liveReportJudge is the repository's configured Jev, recording every report
 // it reads. The /finish round's behaviour depends on how Jev reads a report,
 // so it is tested against Jev itself; a workspace with no typesafe section
-// skips.
+// skips. Explicit CODENERD_LIVE_TYPESAFE=1 admission is required first.
 type recordingAsker struct {
 	next    learnjudge.Asker
 	reports []string
@@ -33,6 +33,9 @@ func (r *recordingAsker) Ask(ctx context.Context, state any, questions map[strin
 
 func liveReportJudge(t *testing.T) (*ReportJudge, *recordingAsker) {
 	t.Helper()
+	if os.Getenv("CODENERD_LIVE_TYPESAFE") != "1" {
+		t.Skip("live TypeSafe test: set CODENERD_LIVE_TYPESAFE=1 to enable configured provider calls")
+	}
 	cfg, err := config.LoadUserConfig("../../.nerd/config.json")
 	if err != nil || cfg == nil || cfg.TypeSafe == nil {
 		t.Skipf("no typesafe section in .nerd/config.json: %v", err)

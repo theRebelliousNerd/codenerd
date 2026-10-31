@@ -77,3 +77,18 @@ It has exactly two production callers; see WIRING-AND-NOT-BUILT.md.
   :32-52 and the non-test-files scope rule at :26-28.
 - Tag behavior is pinned by `TestTestTagsForWorkspace_Detection`
   (`internal/build/tags_test.go:12`).
+
+## Live-test admission remains caller-owned
+
+Workspace command environment filtering does not implicitly forward
+`CODENERD_LIVE_TYPESAFE`. Both Go gates and other declared commands retain their
+existing allowlists. An owner may explicitly forward the test-only admission
+switch through `execution.allowed_env_vars` or the declared command environment.
+Unlisted credentials and proxy variables retain their existing behavior. This
+is environment selection, not a network sandbox or cross-process usage meter.
+
+`internal/build/live_test_admission_test.go:13` verifies this contract for Go and
+non-Go commands. The gate-subprocess controls in
+`internal/session/typesafe_live_admission_test.go:89` and
+`cmd/nerd/chat/typesafe_live_admission_test.go:89` verify default refusal and
+explicit admission through the existing gate runner using in-memory HTTP.

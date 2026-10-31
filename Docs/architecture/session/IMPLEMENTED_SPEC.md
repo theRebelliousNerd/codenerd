@@ -888,3 +888,22 @@ leases. Session verification still owns the turn's actual verdict; a model's
 mission claim confers no permission or acceptance. Replanned tasks inherit the
 campaign receipt. The production fixture is authored and unrun; see
 `Docs/architecture/campaign/MISSION-IMPROVEMENT.md`.
+
+## Configured live TypeSafe test admission
+
+The test-only report-reader helper in `internal/session/finish_round_test.go:34`
+requires `CODENERD_LIVE_TYPESAFE=1` before loading configuration. The paired chat
+helper in `cmd/nerd/chat/request_delivery_test.go:286` follows the same contract.
+A configured key is insufficient. Without admission, these live tests report a
+skip; their existing assertions remain intact. Production Jev and other
+explicitly selected `jevlive` probes retain their existing behavior.
+
+`internal/session/typesafe_live_admission_test.go:89` and
+`cmd/nerd/chat/typesafe_live_admission_test.go:89` run the real helpers in child
+processes using synthetic configuration and an in-memory HTTP transport. They
+cover default/malformed admission, missing configuration/key, exact admission,
+ordinary inference without the switch, default gate filtering and both existing
+explicit environment-forwarding paths. No control dispatches to the network.
+`internal/build/live_test_admission_test.go:13` checks the retained environment
+contract for Go and non-Go workspace commands. This is a test-admission boundary,
+not an egress sandbox or cross-process usage meter.

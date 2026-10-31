@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -281,9 +282,12 @@ func TestGapShard_PrefersTheLastWritingStep(t *testing.T) {
 	}
 }
 
-// liveJev is the configured Jev client, or a skip.
+// liveJev requires explicit live-test admission before reading configuration.
 func liveJev(t *testing.T) (*typesafe.Client, *config.TypeSafeConfig) {
 	t.Helper()
+	if os.Getenv("CODENERD_LIVE_TYPESAFE") != "1" {
+		t.Skip("live TypeSafe test: set CODENERD_LIVE_TYPESAFE=1 to enable configured provider calls")
+	}
 	cfg, err := config.LoadUserConfig(filepath.Join("..", "..", "..", ".nerd", "config.json"))
 	if err != nil || cfg == nil || cfg.TypeSafe == nil {
 		t.Skipf("no typesafe section in .nerd/config.json: %v", err)

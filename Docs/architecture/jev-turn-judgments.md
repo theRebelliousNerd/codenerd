@@ -1065,3 +1065,28 @@ context limit, and any model other than `jev-latest`.
 | Atom relevance: state and question shape, any missing answer fails the whole, switch and thresholds | `internal/atomjudge/atomjudge_test.go`, `internal/config/typesafe_test.go` |
 | Atom relevance in the selector: pool, bands as facts, one judgment per turn, failure or lateness is no evidence | `internal/prompt/relevance_test.go` |
 | Atom admission table and importance conflicts in Mangle | `internal/core/jit_atom_relevance_test.go` |
+
+## Configured live test admission
+
+The delivery and final-report live fixtures compiled into ordinary `go test`
+require `CODENERD_LIVE_TYPESAFE=1` before reading configuration. Configuration,
+credentials, `CODENERD_LIVE_LLM=1`, and malformed switch values cannot opt them in.
+The tests and their assertions remain compiled and report an explicit skip when
+not admitted. Their existing configured provider path remains available after
+admission. Other Jev probe suites already selected by the `jevlive` build tag
+retain that explicit build-time admission.
+
+This switch belongs to tests only; it does not disable production Jev or change
+its permissions. Gate environment allowlists are retained. Ordinary gates do not
+inherit the ambient switch automatically, while explicitly declared forwarding
+uses existing configuration. No network sandbox, universal no-web guarantee or
+cross-process provider-usage accounting is implied. Deterministic regressions
+must use synthetic configuration and an HTTP transport that never dispatches to
+the network, including the admitted positive controls.
+
+Implemented by `cmd/nerd/chat/request_delivery_test.go:286` and
+`internal/session/finish_round_test.go:34`. Deterministic wiring checks are
+`cmd/nerd/chat/typesafe_live_admission_test.go:89`,
+`internal/session/typesafe_live_admission_test.go:89`, and
+`internal/build/live_test_admission_test.go:13`. Existing live-test assertions
+and the production inference/environment implementations are unchanged.

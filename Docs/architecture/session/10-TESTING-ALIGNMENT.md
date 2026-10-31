@@ -76,3 +76,24 @@ Mocks: `mocks_test.go` (+ extras in spawner_gaps_test).
 ## 7. Alignment with north star
 
 Tests that assert **fail-closed**, **preset intent skips perception**, and **isolation** are the highest-value north-star tests. Prefer extending those over snapshot-style text matching of LLM baselines.
+
+## Configured TypeSafe live tests
+
+Ordinary package and gate runs retain the deterministic delivery, report and
+wiring tests. The configured-provider fixtures require exact test admission:
+
+```bash
+CODENERD_LIVE_TYPESAFE=1 go test -tags sqlite_vec ./cmd/nerd/chat ./internal/session -run 'TestDeliveryLive_|TestFinishRound_UnfinishedWorkIsPushedBack|TestUnwiredRound_UnreachedCodeIsPushedBack'
+```
+
+That command permits configured TypeSafe requests. Configuration and credentials
+must also resolve. Other provider switches do not opt these fixtures in. An
+ambient admission switch is dropped by ordinary workspace gate allowlists;
+explicitly declared forwarding retains the existing operator-controlled path.
+Production inference does not require this test switch.
+
+Offline admission checks are `TestLiveReportJudgeAdmission`,
+`TestLiveJevAdmission` and `TestWorkspaceCommandLiveTestAdmissionEnvironment`.
+Their positive controls replace HTTP dispatch in memory, so they require no live
+provider, credential or network listener. The real helpers run in child processes
+to isolate working-directory and transport changes from unrelated package tests.
