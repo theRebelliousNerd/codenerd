@@ -1,5 +1,18 @@
 # system — Implemented Spec (Motherboard / Cortex Factory)
 
+## Local test-kernel concurrency repair (2026-10-31)
+
+`MockSystemKernel.Query`, `Assert` and `AssertBatch` now use a shared fixture
+mutex and detached argument containers (`internal/system/mocks_test.go:24`,
+`internal/system/mocks_test.go:40`, `internal/system/mocks_test.go:48`). This
+type exists only in test compilation, including the explicit Chrome rollback
+override. Local implementation `31f9264e307db3f9710e58dacefbb26df1d51b0d`
+passes deterministic fail-before/after regressions, repeated real Chrome controls,
+the complete Cortex race suite, full offline tests, build and vet. Production
+Go source and runtime behavior are unchanged. Detailed scope and limits are
+recorded in [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md); publication awaits
+the required unavailable private-terms scan.
+
 ## Bounded knowledge refresh ownership fix (2026-10-31)
 
 `WithoutKnowledgeRefresh` suppresses acquisition before mission boot

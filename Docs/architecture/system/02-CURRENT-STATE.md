@@ -1,5 +1,18 @@
 # Current state: the live Cortex composition root
 
+## Local test-fixture concurrency repair (2026-10-31)
+
+The test-only `MockSystemKernel` now serializes mutable fact storage and returns
+detached argument containers (`internal/system/mocks_test.go:14`,
+`internal/system/mocks_test.go:24`, `MockSystemKernel.Query`). Its Chrome rollback
+injection remains unchanged (`internal/system/factory_research_browser_test.go:142`,
+`TestBootRollback_EndsResearchHeadlessChrome`). Production boot still selects
+`NewDomainCortex` unless explicitly overridden (`internal/system/factory.go:1439`,
+`initKernel`); no production Go source changed. The bounded before/after and
+Chrome controls pass under race, including the complete Cortex package. The
+contract and receipts are in [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md).
+Publication remains pending the required private-terms check.
+
 ## Root-qualified cold-bootstrap lifetime slice (2026-10-02)
 
 **VERIFIED CURRENT — bounded checkout evidence:** `internal/system/factory.go#GetOrBootCortex` (line210) uses caller-aware cache admission; `#bootCortexWithSteps` (line2648) checks cancellation around every stage and joins transaction rollback. Kernel and intelligence initialization use context-aware perception/embedding construction. `artifact:.corpus-build/runs/all-features-20261002/round6-coldboot-corrected.receipt.json` and `round6-coldboot-race.receipt.json` pass the default full-bootstrap blocked-HTTP, parent cancellation, rollback error, cache publication/reuse and constructor/cache preservation controls. The original invalid-provider fixture failure remains recorded separately, not erased.

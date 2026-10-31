@@ -3,7 +3,7 @@ doc-class: shipped-with-future
 subsystem: system
 implementation-status: partial
 last-verified: 2026-10-31
-verified-against: adde9087e867a8e111b59536d8d2274e5c3d7c25
+verified-against: 31f9264e307db3f9710e58dacefbb26df1d51b0d
 supersedes: []
 ---
 
@@ -120,3 +120,17 @@ mock kernel; that failure also reproduced on the untouched baseline. This
 supersedes only the old timestamp-failure status above and does not establish
 joined manager shutdown or a blanket race pass. Publication remains pending
 the required private-terms scan; no live probe has been repeated.
+
+## Local Chrome fixture follow-up (2026-10-31)
+
+The later Chrome/mock race above is repaired locally in
+`31f9264e307db3f9710e58dacefbb26df1d51b0d`. It was a test-only
+`MockSystemKernel` storage/snapshot defect (`internal/system/mocks_test.go:14`),
+not a production kernel change. Deterministic before/after tests, repeated real
+Chrome rollback and production-kernel close controls, the complete Cortex race
+suite, full offline tests, build and vet pass. The verification details and
+limited mock contract are in [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md).
+This supersedes the historical Chrome/mock failure status for the current local
+candidate; it is not a general production-browser race guarantee, joined
+manager-shutdown proof or live R7 qualification. Publication still awaits the
+required private-terms scan, whose rule is unchanged.

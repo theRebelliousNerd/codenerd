@@ -32,6 +32,17 @@ The mock is a test-only type, not the kernel used by ordinary boot:
 (`internal/system/factory.go:1439`). This evidence does not establish a general
 absence of production browser races.
 
+Verification at local implementation `31f9264e307db3f9710e58dacefbb26df1d51b0d`:
+the five ownership cases and one concurrent case fail before repair without
+Chrome; all six pass ten repetitions under race after repair. Five repetitions
+each of the actual rollback and production-kernel close controls pass without
+skips. The complete Cortex race suite passes (295 pass, one skip), as do full
+offline sqlite_vec tests (22010 pass, 80 skip), build and vet. `go list` places
+the mock and regressions only in TestGoFiles; the change contains no production
+Go files. These receipts supersede the earlier Chrome/mock failure status for
+this local candidate only. No live model/R7 qualification or publication is
+claimed, and the required private-terms scan remains unavailable.
+
 > Last verified: 2026-07-13. Tests are selected by risk boundary, not file count.
 
 ## Verification ladder
