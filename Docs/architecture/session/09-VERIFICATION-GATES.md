@@ -85,22 +85,38 @@ Timeout handling: if the run exhausts `buildVerifyTimeout`, `verifyBuild` return
 | Item | Fact |
 |------|------|
 | **Purpose** | Fine-grained signal `go test` cannot give: which blocks in files the turn actually wrote were never executed, even when tests are green. An added function with an added test file that never calls it is green but uncovered. |
-| **Primary functions** | `func verifyTestsWithCoverage(ctx, workspace, packages, writtenPaths) (TestVerification, []UncoveredBlock)` and `func uncoveredWrittenCode(ctx, workspace, packages, writtenPaths) ([]UncoveredBlock, error)` in `internal/session/coverage_profile.go`; `func parseCoverProfile(r io.Reader, writtenFiles []string) ([]UncoveredBlock, error)` (pure predicate) |
+| **Primary functions** | `verifyTestsWithCoverage(ctx, workspace, packages, writtenPaths)` and `parseCoverBlocks(r, workspace, writtenFiles)` in `internal/session/coverage_profile.go`; `newCoverSourceResolver` in `internal/session/coverage_source.go` |
 | **Helpers** | `func NormalizeCoverPath(p string) string` (forward slashes, strip leading `./`), `func summarizeUncovered(blocks []UncoveredBlock) string` (caps at 8 entries) |
-| **Outcome type** | `type UncoveredBlock struct { File string; StartLine int; EndLine int; NumStmts int }` — `File` is the import-qualified path as it appears in the profile |
-| **Constants** | `coverVerifyTimeout = 4 * time.Minute` |
-| **Can fail a turn** | **No — advisory only** |
+| **Outcome type** | `UncoveredBlock` carries import-qualified `File`, resolved workspace `Source`, statement range, `NumStmts`, and execution `Count` |
+| **Execution bound** | Shares the test runner's context and verification bound; coverage does not launch a second timed test process |
+| **Completion effect** | A passing test verdict stands, but a changed element without execution evidence can withhold `/done` and leave the turn `/unverified` |
 
 **What it does:**
 
 1. The executor's test gate calls `verifyTestsWithCoverage` instead of two separate invocations. That function creates a temp file, runs `verifyTests(ctx, workspace, packages, "-covermode=set", "-coverprofile="+path)`, and always returns the `TestVerification` verdict.
 2. If `!verification.Ran`, coverage is `nil` (no signal).
-3. Otherwise it opens the temp profile and calls `parseCoverProfile(f, writtenPaths)`. `parseCoverProfile` requires a `mode: ...` first line, then expects lines of form `file.go:start.col,end.col numStmts count`; it returns an error on any malformed line. Only blocks with `count == 0` whose slash-normalised `File` has a suffix matching a `NormalizeCoverPath`-normalised entry in `writtenFiles` are kept.
-4. If the profile cannot be opened or parsed, the error is logged at `Warn`/`Debug` and `verifyTestsWithCoverage` returns `(verification, nil)` — **the test verdict stands, coverage is simply empty**.
-5. `uncoveredWrittenCode` is a standalone entry point with the same suffix-matching logic, used independently. It runs `go test -covermode=set -coverprofile=<tmp>`, handles timeout as `nil, nil`, handles missing `go` toolchain as `nil, nil`, and returns `nil, nil` for empty workspace or empty package list (unknown, not covered).
-6. When blocks are found, the test gate stores them in `result.UncoveredBlocks`, logs `Turn wrote N block(s) of Go that no test executes: <summary>`, and passes `summarizeUncovered(uncovered)` into Gate 4's prompt as `uncoveredSummary`.
+3. Otherwise it opens the temp profile and calls `parseCoverBlocks(f, workspace, writtenPaths)`. The parser requires a `mode: ...` first line, then expects lines of form `file.go:start.col,end.col numStmts count`; it returns an error on malformed input. It retains both executed and unexecuted statement blocks belonging to written files, carrying each resolved source identity.
+4. If the profile cannot be opened or parsed, the error is logged at `Warn`/`Debug` and `verifyTestsWithCoverage` returns `(verification, nil)` — **the test verdict stands; execution evidence is unknown**.
+5. `elementUncoveredRefs` records which changed elements were measured and which had no executed statement block. `narrowToChangedLines` then retains unexecuted changed-line blocks for file-level debt. The executed blocks must survive until element measurement; dropping them earlier would discard the proof that a function ran.
+6. The executor asserts turn-scoped evidence for the Mangle witness rules. A green test run can meet a changed element's witness only when its own statement blocks executed; another file's block cannot satisfy that obligation.
 
-Coverage never turns a passing turn into a failing one.
+**Module-source identity contract:** a profile file belongs to the written path
+whose nearest module path, joined to that file's module-relative path, matches
+exactly. Standard, quoted, and parenthesized Go module declarations must produce
+the same identity; comments cannot become part of it. `modulePath` reads the
+complete manifest using `modfile.ParseLax`, also used by retrieval, so unrelated
+future directives are tolerated and malformed or duplicate module declarations
+cannot invent an exact identity. Missing, unreadable, or malformed manifests keep
+the existing whole-component suffix fallback, choosing the most specific written
+path. A nested module owns its own files; parent and foreign module identities
+cannot claim them.
+
+Regression evidence: `TestCoverageModulePath` checks declaration syntax and
+malformed inputs; `TestCoverSource_ParenthesizedModule` checks exact and nested
+source identity. `TestWitnessStep6_ParenthesizedModuleExecutionEvidence` runs real
+Go tests with coverage through turn evidence and Mangle verdict derivation:
+executing every changed element permits `/done`, while a green run missing one
+changed element remains `/unverified` and names only that element.
 
 ---
 

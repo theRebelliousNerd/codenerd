@@ -1,11 +1,12 @@
 package session
 
 import (
-	"bufio"
+	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
+
+	"golang.org/x/mod/modfile"
 )
 
 // A coverage profile names each block's file by import path and file name
@@ -88,25 +89,20 @@ func moduleOf(dir string, cache map[string]string) (string, string) {
 	}
 }
 
-// modulePath reads the module directive of a go.mod.
+// modulePath reads a complete go.mod with the same lax parser retrieval uses:
+// quoted and parenthesized module directives are identities, while unrelated
+// future directives are tolerated. Missing, unreadable or malformed manifests
+// supply no exact identity; the resolver keeps its component-bound fallback.
 func modulePath(f *os.File) string {
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		rest, ok := strings.CutPrefix(line, "module")
-		if !ok || (rest != "" && rest[0] != ' ' && rest[0] != '\t') {
-			continue
-		}
-		rest = strings.TrimSpace(rest)
-		if i := strings.Index(rest, "//"); i >= 0 {
-			rest = strings.TrimSpace(rest[:i])
-		}
-		if unq, err := strconv.Unquote(rest); err == nil {
-			rest = unq
-		}
-		return rest
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return ""
 	}
-	return ""
+	parsed, err := modfile.ParseLax(f.Name(), data, nil)
+	if err != nil || parsed.Module == nil {
+		return ""
+	}
+	return parsed.Module.Mod.Path
 }
 
 // blockIn reports whether block b is in the written file: by the source the

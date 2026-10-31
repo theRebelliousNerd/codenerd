@@ -2,9 +2,67 @@ package session
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestCoverageModulePath(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, manifest, want string
+	}{
+		{"plain", "module example.com/probe\n", "example.com/probe"},
+		{"quoted", "module \"example.com/probe\" // comment\n", "example.com/probe"},
+		{"parenthesized", "module (\n example.com/probe\n)\n", "example.com/probe"},
+		{"quoted_parenthesized", "// module example.com/wrong\nmodule ( // comment\n \"example.com/probe\" // comment\n)\ngo 1.21\n", "example.com/probe"},
+		{"future_directive", "module (\n \"example.com/probe\"\n)\nfuture_directive value\n", "example.com/probe"},
+		{"missing", "go 1.21\n", ""},
+		{"empty_block", "module (\n)\n", ""},
+		{"unclosed_block", "module (\n example.com/probe\n", ""},
+		{"duplicate", "module example.com/first\nmodule example.com/second\n", ""},
+		{"malformed", "module example.com/probe extra\n", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "go.mod")
+			if err := os.WriteFile(path, []byte(tc.manifest), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			f, err := os.Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			if got := modulePath(f); got != tc.want {
+				t.Errorf("modulePath = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCoverSource_ParenthesizedModule(t *testing.T) {
+	t.Parallel()
+	ws := writeBaselineModule(t, map[string]string{
+		"go.mod":        "module (\n \"example.com/probe\"\n)\ngo 1.21\n",
+		"a.go":          "package probe\n",
+		"nested/go.mod": "module (\n \"example.com/nested\"\n)\ngo 1.21\n",
+		"nested/a.go":   "package nested\n",
+	})
+	r := newCoverSourceResolver(ws, []string{"a.go", "nested/a.go"})
+	for profile, want := range map[string]string{
+		"example.com/probe/a.go":        "a.go",
+		"example.com/nested/a.go":       "nested/a.go",
+		"example.com/probe/extra.go":    "",
+		"example.com/foreign/a.go":      "",
+		"example.com/probe/nested/a.go": "",
+	} {
+		if got := r.source(profile); got != want {
+			t.Errorf("source(%q) = %q, want %q", profile, got, want)
+		}
+	}
+}
 
 const (
 	collideBefore = "package collide\n\n// Changed is edited by the turn.\nfunc Changed() int {\n\treturn 1\n}\n"

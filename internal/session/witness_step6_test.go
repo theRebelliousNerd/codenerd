@@ -28,12 +28,17 @@ const (
 // caller asserts on the kernel and the outcome.
 func witnessVerdict(t *testing.T, testFile string) (*Executor, *ExecutionResult) {
 	t.Helper()
+	return witnessVerdictInModule(t, "module witnessprobe\n\ngo 1.21\n", testFile)
+}
+
+func witnessVerdictInModule(t *testing.T, manifest, testFile string) (*Executor, *ExecutionResult) {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("compiles and tests a throwaway package")
 	}
 	written := filepath.Join("sub", "calc.go")
 	ws := writeBaselineModule(t, map[string]string{
-		"go.mod":           "module witnessprobe\n\ngo 1.21\n",
+		"go.mod":           manifest,
 		"sub/calc.go":      witnessCalcAfter,
 		"sub/calc_test.go": testFile,
 	})
@@ -53,6 +58,47 @@ func witnessVerdict(t *testing.T, testFile string) (*Executor, *ExecutionResult)
 	e.captureTurnOutcome(testTurn, result, nil)
 	t.Cleanup(e.cleanupTurnFacts)
 	return e, result
+}
+
+// A quoted, parenthesized module declaration must keep real coverage joined
+// to the written file. Executing both changed elements meets their witnesses;
+// executing only Add still leaves Sub unverified under the same syntax.
+func TestWitnessStep6_ParenthesizedModuleExecutionEvidence(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, tests, outcome string
+		unwitnessed          []string
+	}{
+		{"full", witnessTestBoth, "/done", nil},
+		{"partial", witnessTestAdd, "/unverified", []string{"fn:calc.Sub"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e, result := witnessVerdictInModule(t, "module (\n \"example.com/witnessprobe\"\n)\n\ngo 1.21\n", tc.tests)
+			if !result.TestCheck.Ran || !result.TestCheck.OK {
+				t.Fatalf("real coverage tests did not pass: %+v", result.TestCheck)
+			}
+			for _, ref := range []string{"fn:calc.Add", "fn:calc.Sub"} {
+				if !containsString(result.ElementMeasured, ref) {
+					t.Errorf("ElementMeasured = %v, missing %s", result.ElementMeasured, ref)
+				}
+			}
+			if got := factStrings(t, e, "witness_met", 1); !containsString(got, "fn:calc.Add") {
+				t.Errorf("witness_met = %v, want executed Add", got)
+			}
+			if result.TurnOutcome != types.MangleAtom(tc.outcome) {
+				t.Errorf("TurnOutcome = %q (missing %v), want %s", result.TurnOutcome, result.MissingEvidence, tc.outcome)
+			}
+			if len(result.UnwitnessedElements) != len(tc.unwitnessed) {
+				t.Fatalf("UnwitnessedElements = %v, want %v", result.UnwitnessedElements, tc.unwitnessed)
+			}
+			for _, ref := range tc.unwitnessed {
+				if !containsString(result.UnwitnessedElements, ref) {
+					t.Errorf("UnwitnessedElements = %v, want %s", result.UnwitnessedElements, ref)
+				}
+			}
+		})
+	}
 }
 
 // Changed Add+Sub, the passing run executes Add only: the turn is unverified,
