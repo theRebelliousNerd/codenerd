@@ -308,10 +308,11 @@ func (c *JITPromptCompiler) compileMiss(ctx context.Context, in missInput) (any,
 
 	// Step 2: Select atoms based on context (Mangle rules + vector search)
 	selectStart := time.Now()
-	scored, vectorMs, err := c.selector.selectAtomsWithTimingKernel(ctx, candidates, cc, in.kernel)
+	scored, vectorMs, carry, err := c.selector.selectAtomsWithTimingKernel(ctx, candidates, cc, in.kernel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select atoms: %w", err)
 	}
+	cc.stagedCarry = carry
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("prompt compilation canceled during selection: %w", err)
 	}

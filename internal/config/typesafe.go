@@ -82,6 +82,13 @@ type TypeSafeConfig struct {
 	RelevanceHeadBytes  int `json:"relevance_head_bytes,omitempty"`
 	FindingContextLines int `json:"finding_context_lines,omitempty"`
 	AtomRelevancePool   int `json:"atom_relevance_pool,omitempty"`
+	// Hard limits on one compile's uncached atom judgments, including carried
+	// atoms. Exceeding either work budget leaves selection to vector slots.
+	// Input tokens are estimates over serialized state and questions, summed
+	// across batches (including repeated state), not a provider billing cap.
+	AtomRelevanceMaxAtoms             int `json:"atom_relevance_max_atoms,omitempty"`
+	AtomRelevanceMaxInputTokens       int `json:"atom_relevance_max_input_tokens,omitempty"`
+	AtomRelevanceMaxConcurrentBatches int `json:"atom_relevance_max_concurrent_batches,omitempty"`
 }
 
 // TypeSafeUses is the typesafe section resolved: which uses are on, and the
@@ -111,9 +118,13 @@ type TypeSafeUses struct {
 	// FindingContextLines is how many lines either side of a review
 	// finding's citation Jev sees.
 	FindingContextLines int
-	// AtomRelevancePool bounds the flesh atoms judged per compile: the
-	// vector channel's slots plus the next most similar eligible atoms.
+	// AtomRelevancePool is a recall target; vector slots and carry may exceed it.
 	AtomRelevancePool int
+	// AtomRelevanceMaxAtoms and AtomRelevanceMaxInputTokens bound the combined
+	// uncached work before any batch is dispatched. Cached answers are free.
+	AtomRelevanceMaxAtoms, AtomRelevanceMaxInputTokens int
+	// AtomRelevanceMaxConcurrentBatches bounds in-flight Ask calls per judgment.
+	AtomRelevanceMaxConcurrentBatches int
 	// AtomRelevanceTimeout bounds one compile's judgment.
 	AtomRelevanceTimeout time.Duration
 }
@@ -129,6 +140,7 @@ func DefaultTypeSafeUses() TypeSafeUses {
 		TurnJudgmentTimeout: defaultTurnJudgmentTimeout,
 		RecentTurns:         12, BatchSize: 20, RelevancePoolFactor: 6, RelevanceHeadBytes: 3000, FindingContextLines: 12,
 		AtomRelevancePool: 40, AtomRelevanceTimeout: defaultAtomRelevanceTimeout,
+		AtomRelevanceMaxAtoms: 80, AtomRelevanceMaxInputTokens: 80000, AtomRelevanceMaxConcurrentBatches: 2,
 	}
 }
 
@@ -169,6 +181,9 @@ func (c *TypeSafeConfig) Uses() TypeSafeUses {
 	set(c.RelevanceHeadBytes, &u.RelevanceHeadBytes)
 	set(c.FindingContextLines, &u.FindingContextLines)
 	set(c.AtomRelevancePool, &u.AtomRelevancePool)
+	set(c.AtomRelevanceMaxAtoms, &u.AtomRelevanceMaxAtoms)
+	set(c.AtomRelevanceMaxInputTokens, &u.AtomRelevanceMaxInputTokens)
+	set(c.AtomRelevanceMaxConcurrentBatches, &u.AtomRelevanceMaxConcurrentBatches)
 	// Check refuses a timeout that does not parse, and Resolve with it, so a
 	// running client never reaches here with one.
 	if d, err := parseTypeSafeDuration(c.TurnJudgmentTimeout, defaultTurnJudgmentTimeout); err == nil {
@@ -232,8 +247,8 @@ func (TypeSafeConfig) OffWhenAbsent() {}
 const (
 	defaultTypeSafeTimeout     = "30s"
 	defaultTurnJudgmentTimeout = 5 * time.Second
-	// defaultAtomRelevanceTimeout bounds one compile's atom judgment. A
-	// 40-atom pool is about 30k input tokens in two parallel requests.
+	// defaultAtomRelevanceTimeout bounds one compile's atom judgment, including
+	// waiting for its bounded batch workers and any transport retries.
 	defaultAtomRelevanceTimeout = 4 * time.Second
 )
 
@@ -289,7 +304,10 @@ func (c TypeSafeConfig) Check(prefix string) []Problem {
 	for field, v := range map[string]int{
 		"recent_turns": c.RecentTurns, "batch_size": c.BatchSize, "relevance_pool_factor": c.RelevancePoolFactor,
 		"relevance_head_bytes": c.RelevanceHeadBytes, "finding_context_lines": c.FindingContextLines,
-		"atom_relevance_pool": c.AtomRelevancePool,
+		"atom_relevance_pool":                   c.AtomRelevancePool,
+		"atom_relevance_max_atoms":              c.AtomRelevanceMaxAtoms,
+		"atom_relevance_max_input_tokens":       c.AtomRelevanceMaxInputTokens,
+		"atom_relevance_max_concurrent_batches": c.AtomRelevanceMaxConcurrentBatches,
 	} {
 		if v < 0 {
 			add(field, fmt.Sprintf("%d is negative", v), "a positive number, or remove the key for the default")

@@ -683,7 +683,7 @@ func (s *AtomSelector) SelectAtoms(
 	atoms []*PromptAtom,
 	cc *CompilationContext,
 ) ([]*ScoredAtom, error) {
-	merged, _, err := s.runSelection(ctx, atoms, cc, s.kernel, false)
+	merged, _, _, err := s.runSelection(ctx, atoms, cc, s.kernel, false)
 	return merged, err
 }
 
@@ -698,7 +698,8 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 	atoms []*PromptAtom,
 	cc *CompilationContext,
 ) ([]*ScoredAtom, int64, error) {
-	return s.selectAtomsWithTimingKernel(ctx, atoms, cc, s.kernel)
+	selected, vectorMs, _, err := s.selectAtomsWithTimingKernel(ctx, atoms, cc, s.kernel)
+	return selected, vectorMs, err
 }
 
 func (s *AtomSelector) selectAtomsWithTimingKernel(
@@ -706,7 +707,7 @@ func (s *AtomSelector) selectAtomsWithTimingKernel(
 	atoms []*PromptAtom,
 	cc *CompilationContext,
 	kernel KernelQuerier,
-) ([]*ScoredAtom, int64, error) {
+) ([]*ScoredAtom, int64, *carryStage, error) {
 	return s.runSelection(ctx, atoms, cc, kernel, true)
 }
 
@@ -732,21 +733,22 @@ func (s *AtomSelector) runSelection(
 	cc *CompilationContext,
 	kernel KernelQuerier,
 	wantTiming bool,
-) ([]*ScoredAtom, int64, error) {
+) ([]*ScoredAtom, int64, *carryStage, error) {
 	timer := logging.StartTimer(logging.CategoryJIT, "AtomSelector.runSelection")
 	defer timer.Stop()
 
 	if len(atoms) == 0 {
-		return nil, 0, nil
+		return nil, 0, nil, nil
 	}
 
 	if cc == nil {
 		cc = NewCompilationContext()
 	} else {
-		// Attach selection-local settings without changing caller-owned context.
+		// Keep settings local; stagedCarry is returned separately to the compile.
 		contextCopy := *cc
 		cc = &contextCopy
 	}
+	cc.stagedCarry = nil
 	if cc.selectorVectorConfig == nil {
 		settings := s.vectorConfigSnapshot()
 		cc.selectorVectorConfig = &settings
@@ -754,7 +756,7 @@ func (s *AtomSelector) runSelection(
 
 	atoms = filterAtomsForStructuredOutput(atoms, cc)
 	if len(atoms) == 0 {
-		return nil, 0, nil
+		return nil, 0, nil, nil
 	}
 
 	forcedMandatory := selectMangleMandatoryIDs(cc, atoms)
@@ -852,7 +854,7 @@ func (s *AtomSelector) runSelection(
 	wg.Wait()
 
 	if skeletonBuildErr != nil {
-		return nil, 0, skeletonBuildErr
+		return nil, 0, nil, skeletonBuildErr
 	}
 	// A flesh build panic degrades to no flesh (the retired sequential
 	// flesh loader turned the same panic into a flesh error, which also
@@ -872,11 +874,11 @@ func (s *AtomSelector) runSelection(
 	// =========================================================================
 	fleshReady := false
 	if kernel == nil {
-		return nil, 0, fmt.Errorf("CRITICAL: Mangle kernel not configured for skeleton selection")
+		return nil, 0, nil, fmt.Errorf("CRITICAL: Mangle kernel not configured for skeleton selection")
 	}
 	skeletonFacts = append(skeletonFacts, candidateOrdinalFacts(atoms)...)
 	if err := kernel.AssertBatch(skeletonFacts); err != nil {
-		return nil, 0, fmt.Errorf("CRITICAL: failed to assert skeleton facts: %w", err)
+		return nil, 0, nil, fmt.Errorf("CRITICAL: failed to assert skeleton facts: %w", err)
 	}
 	if !fleshFailed && fleshFacts != nil {
 		if err := kernel.AssertBatch(fleshFacts); err != nil {
@@ -921,7 +923,7 @@ func (s *AtomSelector) runSelection(
 	wg.Wait()
 
 	if skeletonErr != nil {
-		return nil, 0, skeletonErr
+		return nil, 0, nil, skeletonErr
 	}
 	if fleshErr != nil {
 		// Flesh failure is NOT critical - continue with skeleton only.
@@ -943,7 +945,9 @@ func (s *AtomSelector) runSelection(
 		len(skeleton), len(flesh), len(merged), vectorMs,
 	)
 
-	return merged, vectorMs, nil
+	// Return the stage from our local copy without mutating caller-owned context.
+	// Finalization publishes only its fitted survivors; vector fallback has no stage.
+	return merged, vectorMs, cc.stagedCarry, nil
 }
 
 func recoverSelectionPanic(phase string, errp *error) {

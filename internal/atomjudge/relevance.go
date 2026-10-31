@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"codenerd/internal/config"
+	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
 	"codenerd/internal/typesafe"
 )
@@ -17,49 +18,65 @@ import (
 // prompt.AtomRelevanceJudge.
 type RelevanceJudge struct {
 	Asker Asker
+	// Limits apply to the combined uncached pool passed by the selector, not
+	// separately to vector slots and carry. Zero uses the config defaults.
+	MaxAtoms, MaxInputTokens, MaxConcurrentBatches int
 }
 
 var _ prompt.AtomRelevanceJudge = RelevanceJudge{}
 
-// JudgeAtomRelevance returns each atom's probability of applying. Batches run
-// in parallel; any failed batch, missing answer or oversized atom fails the
-// whole judgment, so a partial verdict never reorders the flesh.
+// JudgeAtomRelevance preflights the whole uncached pool before sending any
+// batch. Workers bound concurrent Ask calls per judgment; the caller's deadline
+// covers queueing and retries. Any budget refusal, failed batch, missing answer
+// or oversized atom fails the whole judgment, leaving the vector channel alone.
 func (j RelevanceJudge) JudgeAtomRelevance(ctx context.Context, req prompt.AtomRelevanceRequest, atoms []*prompt.PromptAtom) (map[string]float64, error) {
-	groups, tooLarge := batches(atoms)
-	if len(tooLarge) > 0 {
-		return nil, tooLarge[0]
+	plan, err := j.planRelevance(ctx, req, atoms)
+	if err != nil {
+		return nil, err
 	}
-	state := requestState(req)
+	logging.Get(logging.CategoryJIT).Info("Jev atom relevance plan: %d uncached atoms, %d batches, %d estimated input tokens, max %d concurrent batches per judgment (retries may resend input)",
+		len(atoms), len(plan.batches), plan.inputTokens, plan.parallel)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	ctx = typesafe.WithOperation(ctx, OpAtomRelevance)
 	type part struct {
 		out map[string]float64
 		err error
 	}
-	parts := make([]part, len(groups))
+	parts := make([]part, len(plan.batches))
+	jobs := make(chan int, len(plan.batches))
+	for i := range plan.batches {
+		jobs <- i
+	}
+	close(jobs)
 	var wg sync.WaitGroup
-	for gi, group := range groups {
+	for range min(plan.parallel, len(plan.batches)) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			questions := make(map[string]typesafe.Question, len(group))
-			for i, a := range group {
-				questions["atom_"+strconv.Itoa(i)] = relevanceQuestion(guidanceOf(a))
-			}
-			resp, err := j.Asker.Ask(ctx, state, questions)
-			if err != nil {
-				parts[gi] = part{err: err}
-				return
-			}
-			out := make(map[string]float64, len(group))
-			for i, a := range group {
-				p, err := resp.Noul("atom_" + strconv.Itoa(i))
-				if err != nil {
-					parts[gi] = part{err: fmt.Errorf("relevance of %s: %w", a.ID, err)}
+			for gi := range jobs {
+				if ctx.Err() != nil {
 					return
 				}
-				out[a.ID] = p
+				batch := plan.batches[gi]
+				resp, err := j.Asker.Ask(ctx, plan.state, batch.questions)
+				if err != nil {
+					parts[gi] = part{err: err}
+					cancel()
+					return
+				}
+				out := make(map[string]float64, len(batch.atoms))
+				for i, a := range batch.atoms {
+					p, err := resp.Noul("atom_" + strconv.Itoa(i))
+					if err != nil {
+						parts[gi] = part{err: fmt.Errorf("relevance of %s: %w", a.ID, err)}
+						cancel()
+						return
+					}
+					out[a.ID] = p
+				}
+				parts[gi] = part{out: out}
 			}
-			parts[gi] = part{out: out}
 		}()
 	}
 	wg.Wait()
@@ -71,6 +88,9 @@ func (j RelevanceJudge) JudgeAtomRelevance(ctx context.Context, req prompt.AtomR
 		for k, v := range p.out {
 			all[k] = v
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	return all, nil
 }
@@ -85,7 +105,9 @@ func RelevanceFor(a Asker, sec *config.TypeSafeConfig) prompt.AtomRelevance {
 	}
 	yes, no := sec.Thresholds()
 	return prompt.AtomRelevance{
-		Judge:      RelevanceJudge{Asker: a},
+		Judge: RelevanceJudge{Asker: a,
+			MaxAtoms: uses.AtomRelevanceMaxAtoms, MaxInputTokens: uses.AtomRelevanceMaxInputTokens,
+			MaxConcurrentBatches: uses.AtomRelevanceMaxConcurrentBatches},
 		Pool:       uses.AtomRelevancePool,
 		Timeout:    uses.AtomRelevanceTimeout,
 		YesPercent: yes,

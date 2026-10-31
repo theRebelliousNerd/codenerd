@@ -64,8 +64,9 @@ type AtomRelevanceJudge interface {
 // AtomRelevance configures the per-turn judgment. A nil Judge is off.
 type AtomRelevance struct {
 	Judge AtomRelevanceJudge
-	// Pool bounds the atoms judged per compile: the vector channel's slots
-	// plus the next most similar eligible atoms up to this many.
+	// Pool is a recall target: all vector slots are preserved, then the next
+	// most similar atoms fill it. Carry may widen it. The judge separately
+	// bounds the combined uncached work; a budget refusal is no evidence.
 	Pool int
 	// Timeout bounds one compile's judgment; past it the compile proceeds on
 	// the vector channel alone.

@@ -241,3 +241,29 @@ func TestTypeSafeUses_AtomRelevance(t *testing.T) {
 		t.Fatalf("Thresholds = %d/%d", yes, no)
 	}
 }
+
+func TestTypeSafeUses_AtomRelevanceWorkLimits(t *testing.T) {
+	got := (&TypeSafeConfig{}).Uses()
+	if got.AtomRelevanceMaxAtoms != 80 || got.AtomRelevanceMaxInputTokens != 80000 || got.AtomRelevanceMaxConcurrentBatches != 2 {
+		t.Fatalf("default work limits: %+v", got)
+	}
+	c := TypeSafeConfig{Model: "m", BaseURL: "https://x", APIKey: "k",
+		AtomRelevanceMaxAtoms: 12, AtomRelevanceMaxInputTokens: 5000, AtomRelevanceMaxConcurrentBatches: 1}
+	got = c.Uses()
+	if got.AtomRelevanceMaxAtoms != 12 || got.AtomRelevanceMaxInputTokens != 5000 || got.AtomRelevanceMaxConcurrentBatches != 1 {
+		t.Fatalf("configured limits: %+v", got)
+	}
+	if problems := c.Check("typesafe"); len(problems) != 0 {
+		t.Fatalf("valid work limits refused: %v", problems)
+	}
+	c.AtomRelevanceMaxAtoms, c.AtomRelevanceMaxInputTokens, c.AtomRelevanceMaxConcurrentBatches = -1, -1, -1
+	var fields []string
+	for _, p := range c.Check("typesafe") {
+		fields = append(fields, p.Path)
+	}
+	for _, name := range []string{"atom_relevance_max_atoms", "atom_relevance_max_input_tokens", "atom_relevance_max_concurrent_batches"} {
+		if !slices.Contains(fields, "typesafe."+name) {
+			t.Errorf("negative %s accepted: %v", name, fields)
+		}
+	}
+}

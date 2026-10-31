@@ -253,7 +253,7 @@ func TestProbabilityPercent(t *testing.T) {
 
 // runSelectionFor runs one selection against the given kernel.
 func (s *AtomSelector) runSelectionFor(ctx context.Context, atoms []*PromptAtom, cc *CompilationContext, k KernelQuerier) ([]*ScoredAtom, error) {
-	merged, _, err := s.runSelection(ctx, atoms, cc, k, false)
+	merged, _, _, err := s.runSelection(ctx, atoms, cc, k, false)
 	return merged, err
 }
 

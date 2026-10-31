@@ -146,9 +146,14 @@ func TestRelevanceFor_SwitchAndThresholds(t *testing.T) {
 	if r := RelevanceFor(f, &config.TypeSafeConfig{AtomRelevance: &off}); r.Judge != nil {
 		t.Fatal("atom_relevance: false, yet a judge")
 	}
-	r := RelevanceFor(f, &config.TypeSafeConfig{JudgmentYesPercent: 75, JudgmentNoPercent: 25, AtomRelevancePool: 9})
+	r := RelevanceFor(f, &config.TypeSafeConfig{JudgmentYesPercent: 75, JudgmentNoPercent: 25, AtomRelevancePool: 9,
+		AtomRelevanceMaxAtoms: 15, AtomRelevanceMaxInputTokens: 12345, AtomRelevanceMaxConcurrentBatches: 3})
 	if r.Judge == nil || r.YesPercent != 75 || r.NoPercent != 25 || r.Pool != 9 || r.Timeout <= 0 {
 		t.Fatalf("resolved %+v", r)
+	}
+	j := r.Judge.(RelevanceJudge)
+	if j.MaxAtoms != 15 || j.MaxInputTokens != 12345 || j.MaxConcurrentBatches != 3 {
+		t.Fatalf("work limits did not reach the judge: %+v", j)
 	}
 }
 
