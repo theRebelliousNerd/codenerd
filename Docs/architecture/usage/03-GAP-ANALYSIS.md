@@ -90,3 +90,20 @@ preserving the price-version bytes and existing prefix digests. The FNV hash
 writer cannot fail; explicitly discard its write result. Exit: the existing
 price/mission regressions pass and the usage errcheck report returns to its
 pre-existing findings only, without suppressing or changing the linter.
+
+## Mission attempt uncertainty stop
+
+An explicit mission must close its request scope when an admitted attempt has unknown or unpriced spend. Later provider dispatches, including retries and direct judgments, must be refused; already admitted requests receive cancellation. The scope belongs to the caller context, survives nested observer captures and cannot stop another mission or ordinary non-mission requests. Counts reported by already admitted work remain accounted exactly once. Mangle retains the final mission stop judgment and durable state; the scope supplies cancellation and a monotone dispatch interlock, not an alternative policy engine or dollar quota.
+
+| Gap ID | Deficiency | Target | Status | Exit criteria |
+|---|---|---|---|---|
+| GAP-USAGE-MISSION-ATTEMPT | Unknown is retained but a transport may retry before phase admission. | Context-owned uncertainty stop at each provider dispatch. | Closed locally for detected uncertainty | Offline consumed-request/lost-response fixtures refuse the second mission attempt across transports and direct TypeSafe; unpriced reports close the scope; known reports survive; independent scopes and ordinary retries remain operational under race checks. |
+
+Admission linearizes before dispatch. Already admitted concurrent work may have reached the provider and cancellation cannot prove it was free. Historical missing billing remains unknown. This requirement does not establish per-provider dollar reservations, a hard billing ceiling or complete attribution of optional tools.
+
+The local controls are `internal/campaign/recurse_mission_attempt_stop_test.go:46`,
+`internal/campaign/recurse_mission_attempt_stop_test.go:204`,
+`internal/campaign/recurse_mission_attempt_stop_test.go:236` and
+`internal/usage/attempt_scope_test.go:47`. Historical missing bills, boot before
+mission scope installation, CLI engines, independently owned paid tools and
+hard per-provider reservations remain outside this bounded result.

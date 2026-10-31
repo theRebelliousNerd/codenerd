@@ -71,7 +71,7 @@ func postResponses(ctx context.Context, e responsesEndpoint, reqBody responsesRe
 			return nil, err
 		}
 		attemptStart := time.Now()
-		resp, err := e.httpClient.Do(req)
+		resp, err := doProviderRequest(e.httpClient, req)
 		if err != nil {
 			// Later recovery cannot establish that this failed exchange was free.
 			usage.NoteUnknownUsage(ctx)

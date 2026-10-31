@@ -162,11 +162,13 @@ func (m *RecurseMission) begin(ctx context.Context, root string) (context.Contex
 	// The duration is a kernel output. Cancellation uses recurse's existing
 	// owned-write compensation; no second timer loop owns effects.
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(remaining)*time.Second)
+	ctx, attempts := usage.WithAttemptScope(ctx)
+	m.meter.attempts = attempts
 	ctx = sessionlog.WithAgent(ctx, "mission", m.State.ID)
 	ctx = usage.WithObserver(ctx, &m.meter)
 	sessionlog.EmitLiveProgress(ctx, sessionlog.LiveEvent{Kind: "plan", Text: "Mission: " + m.Text})
 	accepted = true
-	return ctx, func() { cancel(); release() }, nil
+	return ctx, func() { attempts.Close(); cancel(); release() }, nil
 }
 
 func (m *RecurseMission) prepare(ctx context.Context, a *RecurseAttempt) (err error) {

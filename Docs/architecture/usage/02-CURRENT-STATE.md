@@ -123,3 +123,14 @@ system.initCoreComponents / chat.session
         ▼
   .nerd/usage.json  ◄── Stats() ── ui.UsagePageModel
 ```
+
+## Explicit mission attempt scope
+
+`internal/usage/attempt_scope.go:28` supplies a caller-owned, monotone uncertainty
+interlock and cancellation context. `BeforeAttempt` at line 51 is a no-op for
+ordinary callers. A closed scope survives nested observers and detached
+cancellation, refusing later dispatch admission. `internal/campaign/recurse_mission_meter.go`
+closes it on unknown or unpriced usage; known reports arriving after closure
+remain accounted. `internal/usage/attempt_scope_test.go:11` and line 47 cover
+independent/nested scopes, caller cancellation and concurrent closure. This is
+local deterministic evidence, not a hard billing cap or live qualification.

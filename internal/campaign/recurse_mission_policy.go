@@ -83,7 +83,8 @@ func (m *RecurseMission) end(ctx context.Context, runErr error) error {
 		if runErr != nil {
 			m.State.Status = "interrupted"
 		}
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		_, unknown, _ := m.meter.snapshot()
+		if unknown || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			_, err := m.admit()
 			if !errors.Is(err, errMissionStopped) {
 				runErr = errors.Join(runErr, err)

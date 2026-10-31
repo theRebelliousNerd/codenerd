@@ -82,20 +82,26 @@ func TestMissionAdmissionCompatStreamingLostResponse(t *testing.T) {
 			_, _, before := mission.meter.snapshot()
 			content, done := client.CompleteWithStreaming(ctx, "system", "request", false)
 			text, terminal := types.CollectStream(context.Background(), content, done, nil)
-			requests := int32(1)
-			if kind == "recover" {
-				requests = 2
+			if seen.Load() != 1 {
+				t.Fatalf("unexpected stream dispatches: %d", seen.Load())
 			}
-			if terminal.Err != nil || terminal.Outcome() != types.StreamComplete || text != "answer" || seen.Load() != requests {
-				t.Fatalf("stream behavior changed: %q / %+v / %d requests", text, terminal, seen.Load())
+			if kind == "recover" {
+				if terminal.Err == nil || terminal.Outcome() == types.StreamComplete || text != "" || ctx.Err() == nil {
+					t.Fatalf("uncertain stream retried: %q/%+v/%v", text, terminal, ctx.Err())
+				}
+			} else if terminal.Err != nil || terminal.Outcome() != types.StreamComplete || text != "answer" {
+				t.Fatalf("stream=%q/%+v", text, terminal)
 			}
 			mission.meter.phaseEnded(before)
 			spend, unknown, reports := mission.meter.snapshot()
-			wantSpend := int64(2000)
+			wantSpend, wantReports := int64(2000), 1
+			if kind == "recover" {
+				wantSpend, wantReports = 0, 0
+			}
 			if kind == "known_over_budget" {
 				wantSpend = 4000
 			}
-			if spend != wantSpend || unknown != (kind == "recover") || reports != 1 {
+			if spend != wantSpend || unknown != (kind == "recover") || reports != wantReports {
 				t.Errorf("meter=%d/%v/%d want %d/%v/1", spend, unknown, reports, wantSpend, kind == "recover")
 			}
 			_, err = mission.admit()
@@ -118,7 +124,7 @@ func TestMissionAdmissionCompatStreamingLostResponse(t *testing.T) {
 				t.Fatal(err)
 			}
 			var saved MissionState
-			if err := json.Unmarshal(data, &saved); err != nil || saved.SpendMicroUSD != wantSpend || saved.UnknownSpend != (kind == "recover") || saved.UsageReports != 1 || saved.Cycles != 0 || saved.Pending != nil {
+			if err := json.Unmarshal(data, &saved); err != nil || saved.SpendMicroUSD != wantSpend || saved.UnknownSpend != (kind == "recover") || saved.UsageReports != wantReports || saved.Cycles != 0 || saved.Pending != nil {
 				t.Fatalf("durable accounting=%+v err=%v", saved, err)
 			}
 			if kind != "clean" && saved.Status != wantStatus {

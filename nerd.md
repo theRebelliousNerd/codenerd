@@ -133,6 +133,8 @@ forbid:
       Derives permitted/3. Every other guard is downstream of it, so an agent
       able to edit this can authorise anything it likes, including its own
       exemptions.
+  - match: internal/usage/attempt_scope.go
+    reason: The mission uncertainty interlock cannot be changed by its own attempt.
   - match: internal/perception/usage_track.go
     reason: >-
       Observes provider usage and preserves missing-attempt uncertainty.

@@ -134,7 +134,7 @@ func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, us
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "text/event-stream")
 
-		resp, err := c.httpClient.Do(req)
+		resp, err := doProviderRequest(c.httpClient, req)
 		if err != nil {
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue

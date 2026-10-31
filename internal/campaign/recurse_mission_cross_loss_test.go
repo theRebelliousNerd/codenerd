@@ -112,20 +112,26 @@ func TestMissionAdmissionCrossProviderLostResponse(t *testing.T) {
 				} else {
 					answer, err = client.CompleteWithSystem(ctx, "system", "request")
 				}
-				wantRequests := int32(1)
-				if kind == "recover" {
-					wantRequests = 2
+				if requests.Load() != 1 {
+					t.Fatalf("unexpected dispatches: %d", requests.Load())
 				}
-				if err != nil || answer != "answer" || requests.Load() != wantRequests {
-					t.Fatalf("completion=%q err=%v requests=%d", answer, err, requests.Load())
+				if kind == "recover" {
+					if err == nil || ctx.Err() == nil || answer != "" {
+						t.Fatalf("uncertain retry admitted: %q/%v/%v", answer, err, ctx.Err())
+					}
+				} else if err != nil || answer != "answer" {
+					t.Fatalf("completion=%q err=%v", answer, err)
 				}
 				mission.meter.phaseEnded(before)
 				spend, unknown, reports := mission.meter.snapshot()
-				wantSpend := int64(2000)
+				wantSpend, wantReports := int64(2000), 1
+				if kind == "recover" {
+					wantSpend, wantReports = 0, 0
+				}
 				if kind == "known_over_budget" {
 					wantSpend = 4000
 				}
-				if spend != wantSpend || unknown != (kind == "recover") || reports != 1 {
+				if spend != wantSpend || unknown != (kind == "recover") || reports != wantReports {
 					t.Errorf("meter=%d/%v/%d want %d/%v/1", spend, unknown, reports, wantSpend, kind == "recover")
 				}
 				_, err = mission.admit()
@@ -148,7 +154,7 @@ func TestMissionAdmissionCrossProviderLostResponse(t *testing.T) {
 					t.Fatal(err)
 				}
 				var saved MissionState
-				if err := json.Unmarshal(data, &saved); err != nil || saved.SpendMicroUSD != wantSpend || saved.UnknownSpend != (kind == "recover") || saved.UsageReports != 1 || saved.Cycles != 0 || saved.Pending != nil {
+				if err := json.Unmarshal(data, &saved); err != nil || saved.SpendMicroUSD != wantSpend || saved.UnknownSpend != (kind == "recover") || saved.UsageReports != wantReports || saved.Cycles != 0 || saved.Pending != nil {
 					t.Fatalf("durable accounting=%+v err=%v", saved, err)
 				}
 				if kind != "clean" && saved.Status != wantStatus {

@@ -60,15 +60,25 @@ func TestMissionAdmissionAnthropicIncompleteAttempts(t *testing.T) {
 			_, _, before := m.meter.snapshot()
 			answer, err := client.CompleteWithTools(ctx, "system", "request", nil)
 			wantRequests := int32(2)
-			if kind == "clean" {
+			if kind == "clean" || kind == "missing" {
 				wantRequests = 1
 			}
-			if err != nil || answer == nil || answer.Text != "answer" || requests.Load() != wantRequests {
-				t.Fatalf("completion: %+v / %v / %d requests", answer, err, requests.Load())
+			if requests.Load() != wantRequests {
+				t.Fatalf("requests=%d want=%d", requests.Load(), wantRequests)
+			}
+			if kind == "missing" {
+				if err == nil || ctx.Err() == nil || answer != nil {
+					t.Fatalf("unknown incomplete attempt retried: %+v/%v", answer, err)
+				}
+			} else if err != nil || answer == nil || answer.Text != "answer" {
+				t.Fatalf("completion: %+v/%v", answer, err)
 			}
 			m.meter.phaseEnded(before)
 			spend, unknown, reports := m.meter.snapshot()
 			wantSpend, wantReports := int64(2000), 1
+			if kind == "missing" {
+				wantSpend, wantReports = 0, 0
+			}
 			if kind == "over_budget" {
 				wantSpend, wantReports = 4000, 2
 			}

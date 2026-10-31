@@ -312,7 +312,7 @@ func ExecuteOpenAIRequest(ctx context.Context, client *http.Client, baseURL, api
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 
-		resp, err := client.Do(req)
+		resp, err := doProviderRequest(client, req)
 		if err != nil {
 			lastErr = fmt.Errorf("request failed: %w", err)
 			lastWasRateLimit = false

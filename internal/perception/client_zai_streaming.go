@@ -168,7 +168,7 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-			resp, err := c.httpClient.Do(req)
+			resp, err := doProviderRequest(c.httpClient, req)
 			if err != nil {
 				if acquired {
 					<-c.sem

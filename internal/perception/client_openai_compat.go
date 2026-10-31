@@ -568,7 +568,7 @@ func (c *OpenAICompatClient) executeChat(ctx context.Context, reqBody OpenAIRequ
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
 		attemptStart := time.Now()
-		resp, err := c.httpClient.Do(req)
+		resp, err := doProviderRequest(c.httpClient, req)
 		if err != nil {
 			// The endpoint may have received the request before its response was lost.
 			usage.NoteUnknownUsage(ctx)
@@ -882,7 +882,7 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 			req.Header.Set("Authorization", "Bearer "+c.apiKey)
 			req.Header.Set("Accept", "text/event-stream")
 
-			resp, err := c.httpClient.Do(req)
+			resp, err := doProviderRequest(c.httpClient, req)
 			if err != nil {
 				// A received setup request may have lost its response before headers.
 				usage.NoteUnknownUsage(ctx)

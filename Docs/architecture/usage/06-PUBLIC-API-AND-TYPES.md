@@ -144,3 +144,15 @@ preserves the supplied mode, so callers may retain prefix overrides or request
 an exact identity. The built-in Jev 1.14.0 entry uses exact matching; aliases and
 undocumented response identities remain unknown. This adds no model default,
 provider selection, billing reservation or change to mission admission policy.
+
+## Optional request-stop scope
+
+`WithAttemptScope(ctx)` returns a context plus its owned `AttemptScope`.
+`StopUnknown` closes admission before cancellation with `ErrUnknownSpend`;
+`Close` releases the owned context without inventing uncertainty.
+`BeforeAttempt(ctx)` refuses closed scopes and propagates caller cancellation
+when scoped. Without a scope it preserves ordinary transport behavior.
+`HasAttemptScope` lets adapters report ambiguous mission transport losses without
+changing ordinary retry/accounting behavior. No helper sends a request, chooses
+a model, prices a call or grants an effect. `internal/usage/attempt_scope.go:18`
+defines the API; source and behavioral controls are linked in current state.

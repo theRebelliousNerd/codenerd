@@ -1,21 +1,12 @@
 # Mission-linked recurse
 
-The compatible Chat streaming setup path obeys the same lost-response cost
-contract as non-streaming inference. A complete streamed answer after setup
-recovery must preserve known counts and still stop the next mission admission
-with `/unknown_spend`. GAP-PERCEPTION-COMPAT-STREAM-LOSS owns the bounded adapter
-repair. Actual endpoint-receipt, broker and production-factory mission controls
-must distinguish clean, recovered and fully known over-budget streams without
-changing gate or recovery implementations.
-
-This boundary is closed locally in
-`85da34c28503eb5637994ef010db0cd35d67270d`.
-`internal/campaign/recurse_mission_compat_stream_loss_test.go:23` proves that a
-complete stream after setup recovery retains 2,000 micro-USD of known usage and
-persists `/unknown_spend`. A clean stream remains admitted and known 4,000
-micro-USD under a 3,000 micro-USD cap persists `/spend`. Saved state preserves
-counts and status. This is offline accounting evidence; other stream
-transports, hard billing caps and live qualification remain separate.
+The compatible Chat streaming setup path obeys the same uncertainty contract
+as non-streaming inference. Ordinary non-mission setup recovery preserves known
+counts. An explicit mission now refuses the retry after a lost response and
+persists `/unknown_spend`, retaining any counts from already admitted work.
+`internal/campaign/recurse_mission_compat_stream_loss_test.go:23` covers the
+mission refusal, clean stream admission and known over-budget stop. Streaming
+completion, hard billing caps and live qualification remain distinct claims.
 
 The mission mode of recurse keeps an owner-supplied purpose under continuous
 pressure while bounding each invocation. It extends the existing dependency
@@ -35,7 +26,8 @@ The decoded usage sensor (`internal/perception/usage_track.go`), broker capture
 (`internal/system/knowledge_refresh_scope.go`,
 `internal/system/knowledge_refresh_boot.go`) constrain the mission and remain
 owner-controlled source. Default mission protection and the repository's
-`nerd.md` forbid rules must refuse model writes to all four, including when they
+`nerd.md` forbid rules must refuse model writes to all four and the attempt
+scope (`internal/usage/attempt_scope.go`), including when they
 are within the admitted node. Existing protections remain in force. Ordinary
 source writes and protected-file reads remain available under their existing
 permissions. A writer that bypasses the tool guard must still be refused by the
@@ -106,51 +98,33 @@ and mark the missing attempt unknown through nested observers; the next mission
 admission then derives `/unknown_spend`. A fully reported retry remains eligible
 under the existing limits. GAP-PERCEPTION-RETRY-USAGE owns this adapter repair.
 
-An inference request whose response was lost must retain the same uncertainty
-even when the transport retries internally and returns a counted success. The
-Anthropic adapter must notify incomplete observers at that transport boundary;
-the mission retains known successful spend and refuses further admission via
-`/unknown_spend`. A local server that reads the first request before closing
-without headers is the required control, with clean success still admitted.
-GAP-PERCEPTION-ANTHROPIC-LOST-RESPONSE owns this bounded adapter strengthening;
-mission gate and recovery implementations must remain unchanged.
+An inference request whose response was lost retains uncertainty at the transport
+boundary. Under an explicit mission the meter immediately closes the owned
+attempt scope and cancels its context. Each perception HTTP dispatch and direct
+TypeSafe attempt checks this scope before entering its HTTP client. Nested
+observers, other provider slots and a context with cancellation detached cannot
+reopen it. Ordinary non-mission retries continue to preserve known usage under
+the existing adapter contract. This supplies the request stop required by
+GAP-USAGE-MISSION-ATTEMPT; Mangle still derives final `/unknown_spend` admission.
 
-The same lost-response contract applies to compatible Chat, Meta Responses
-completions and explicit grounded search. Their transport retries must not hide
-an unknown exchange behind a counted success. GAP-PERCEPTION-CROSS-LOSS owns
-this bounded batch. Production single-key factory controls must exercise each
-path through the broker and real mission kernel, retaining known spend and
-persisting `/unknown_spend`; clean admission and the known-spend stop remain
-distinct. Gate and recovery implementations are not changed by this contract.
+`internal/campaign/recurse_mission_attempt_stop_test.go:46` exercises consumed
+requests with lost responses through the production broker/factory and direct
+TypeSafe client. Single-key and two-key failover controls cover Chat, Meta Responses, explicit grounded search,
+Anthropic, OpenAI and compatible/OpenAI streaming setup, alongside ordinary
+retry and clean mission controls. Dedicated accepted-body-read, lost-response,
+stream-setup and decoded-Anthropic fixtures now require refusal before the
+uncertain retry. The earlier counted-success-after-uncertainty behavior remains
+an ordinary adapter accounting obligation; it is no longer mission admission.
+A first lost response supplies no known bill, so its mission fixture retains
+zero observed spend together with uncertainty, never a claim of zero cost.
 
-Local repair `33bf57d2731bde876270dfe635b4efa4177be869` closes that boundary.
-`internal/campaign/recurse_mission_cross_loss_test.go:23` routes all three
-single-key factory paths through actual local endpoints, the broker and real
-kernel. A received request with a lost response followed by counted success
-retains 2,000 micro-USD known and persists `/unknown_spend`. Clean 2,000
-micro-USD remains admitted; known 4,000 micro-USD under a 3,000 micro-USD cap
-persists `/spend`. Grounded routes declare web search on `/responses`; no live
-search is performed. Saved state retains counts and stop status. Publication
-requires the private-terms scan; gate and recovery code remain unchanged.
-
-That adapter boundary is closed locally in
-`271336b1b43d9feeda0450ae1b76fdac00caf617`. The actual single-key production
-factory and real-kernel mission control in
-`internal/campaign/recurse_mission_lost_response_test.go:21` retains 2,000
-micro-USD of reported spend after a lost response and derives `/unknown_spend`.
-A clean 2,000 micro-USD call stays admitted; fully reported 4,000 micro-USD under
-a 3,000 micro-USD cap derives `/spend`. Saved mission state retains counts and
-stop status. The local server consumes the inference request before losing
-its response; this proves uncertainty, not an actual provider charge. Gate and
-recovery code is unchanged; publication requires the private-terms scan.
-
-The bounded local candidate `a6aaaf0f1cbc429dac34f57b3d92bba2486c8fca` exercises
-the decoded retry through the provider adapter, broker, mission meter and real
-kernel in `internal/campaign/recurse_mission_retry_usage_test.go:16`.
-Missing usage stops admission and persists uncertainty while preserving the
-known 2,000 micro-USD; the fully reported control retains 3,000 micro-USD and
-remains admitted. This offline fixture is not live R7 qualification. Unknown
-transport failures and malformed replies remain separate accounting obligations.
+The decoded retry control in
+`internal/campaign/recurse_mission_retry_usage_test.go:16` still preserves the
+known preceding 2,000 micro-USD when a later answer omits usage. Fully reported
+retries retain all reports and remain governed by the existing phase-level
+spend limit. Clean 2,000 micro-USD and known 4,000 micro-USD under a 3,000
+micro-USD cap still distinguish admission from `/spend`; this change does not
+create per-provider reservations or prevent a known paid phase crossing a cap.
 
 The meter uses the typed `usage.MicroUSDPerUSD` currency conversion from
 `internal/usage/pricing.go` for both overflow detection and rounded accounting.
@@ -160,15 +134,15 @@ in `cmd/nerd/chat/campaign_recurse.go`, independent of routing budgets.
 
 Anthropic's incomplete-message retries and pause/resume parts must obey the
 same accounting contract. Each decoded attempt is observed before validation,
-and the accepted exchange aggregate is not counted again. Missing usage stays
-unknown even when another attempt reports. Local adapter candidate
+and the accepted exchange aggregate is not counted again. Missing usage closes the mission attempt scope before another retry; usage
+already reported by admitted work remains known. Local adapter candidate
 `ac50802fe1441b05d1530c76df6d31868596d14f` is controlled through the broker,
 mission meter and real kernel in
 `internal/campaign/recurse_mission_anthropic_usage_test.go:20`: under a 3,000
-micro-USD limit, 4,000 micro-USD of counted retries derives `/spend`, a missing
-attempt with 2,000 micro-USD known derives `/unknown_spend`, and a clean 2,000
+micro-USD limit, 4,000 micro-USD of counted retries derives `/spend`, a first missing
+attempt refuses the retry with unknown spend and no observed bill, and a clean 2,000
 micro-USD call remains admitted. The saved mission retains the accounting and
-stop status. Admission and recovery implementations are unchanged. Recovered
+stop status. The uncertainty stop adds cancellation and dispatch refusal; recovery implementations are unchanged. Recovered
 wire failures, server-tool per-use fees and hard billing guarantees remain
 outside this bounded local result; publication requires the private-terms scan.
 
@@ -276,15 +250,13 @@ historical gate-deficit receipts; it keeps the mission open.
 
 ## Accepted response body-read uncertainty
 
-Local candidate `567d7926565626a24082a7416d11e4144fb03abe` extends uncertainty
-observation to unreadable HTTP 200 bodies in compatible non-streaming chat.
-`internal/campaign/recurse_mission_body_read_test.go:16` verifies an accepted
-truncated body followed by a successful retry through the real broker, mission
-meter and kernel. The answer and known 2,000 micro-USD survive, uncertainty is
-persisted and the next admission stops `/unknown_spend`; clean responses remain
-admitted. This is a passing offline control, not proof the failed attempt was
-billed, a universal transport guarantee or a hard billing cap. Existing phase
-limits, ownership and recovery remain unchanged. See GAP-PERCEPTION-ACCEPTED-READ.
+An unreadable accepted HTTP 200 body in compatible chat closes the mission
+attempt scope before a retry. The clean response control still completes with
+known usage. `internal/campaign/recurse_mission_body_read_test.go:16` verifies
+one consumed attempt, no second dispatch and durable `/unknown_spend` under
+the real broker, mission meter and kernel. The missing bill remains unknown;
+ordinary non-mission retry accounting and existing recovery retain their
+contracts. See GAP-PERCEPTION-ACCEPTED-READ and GAP-USAGE-MISSION-ATTEMPT.
 
 ## Known TypeSafe response prices
 
@@ -298,5 +270,9 @@ and no estimate supplies a hard billing guarantee.
 `internal/campaign/recurse_mission_typesafe_price_test.go:28` exercises the real
 TypeSafe client, observer, durable mission state and existing admission policy
 with an in-memory transport. The checks cover known below/over-budget spend and
-alias, future, near-match and missing identity stops. The production mission
-policy and meter are unchanged.
+alias, future, near-match and missing identity stops. Unpriced usage also closes the mission request scope immediately.
+The kernel remains the final admission authority.
+
+## Immediate uncertainty cancellation
+
+The mission meter must close a context-owned provider-attempt scope upon unknown or unpriced usage and cancel admitted mission requests. A later paid dispatch is refused even through a nested usage observer or a context with cancellation detached. The durable final disposition remains the kernel's existing unknown-spend judgment. Known usage arriving from already admitted work must still be recorded. Independent missions and ordinary non-mission requests retain their behavior. GAP-USAGE-MISSION-ATTEMPT is covered locally by cross-provider, direct TypeSafe and concurrency controls in `internal/campaign/recurse_mission_attempt_stop_test.go:46` and `internal/campaign/recurse_mission_attempt_stop_test.go:204`. Historical bills and hard per-provider reservations remain unresolved; this mechanism supplies neither. New guard implementation units must join existing protected source sets without removing prior protections.

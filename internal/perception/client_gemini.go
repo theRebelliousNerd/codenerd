@@ -545,7 +545,7 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := c.httpClient.Do(req)
+		resp, err := doProviderRequest(c.httpClient, req)
 		if err != nil {
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
@@ -814,7 +814,7 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := c.httpClient.Do(req)
+		resp, err := doProviderRequest(c.httpClient, req)
 		if err != nil {
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
@@ -970,7 +970,7 @@ func (c *GeminiClient) CountTokens(ctx context.Context, systemPrompt, userPrompt
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := doProviderRequest(c.httpClient, req)
 	if err != nil {
 		return 0, err
 	}

@@ -79,3 +79,15 @@ Tracker only writes its configured `filePath` under `.nerd`. No user-controlled 
 2. Assert Mangle facts that change `next_action` without an explicit higher-level design.  
 3. Store API keys or prompt bodies in `usage.json` (only counters and ids).  
 4. Panic the session because metering failed.
+
+## Mission uncertainty interlock
+
+The optional attempt scope supplies cancellation and refusal after the mission's
+existing unknown-spend condition. It cannot authorize effects or replace kernel
+judgments. Closure is monotone and serialized with admission checks; no mutable
+process-global scope is introduced. Already admitted work may still have reached
+the provider, so cancellation cannot establish its cost. Report delivery continues
+after closure, preserving known evidence. Independent contexts stay independent.
+The scope implementation joins existing protected source sets in mission defaults
+and the shipped project document; refusal-before-mutation and rollback controls
+remain required. See `internal/campaign/recurse_guard_source_test.go:16`.

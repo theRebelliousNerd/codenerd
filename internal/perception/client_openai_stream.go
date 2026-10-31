@@ -89,7 +89,7 @@ func (c *OpenAIClient) openStream(ctx context.Context, req *responsesRequest) (*
 		if err != nil {
 			return nil, err
 		}
-		resp, err := c.httpClient.Do(httpReq)
+		resp, err := doProviderRequest(c.httpClient, httpReq)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()

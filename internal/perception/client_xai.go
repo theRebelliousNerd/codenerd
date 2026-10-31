@@ -123,7 +123,7 @@ func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-		resp, err := c.httpClient.Do(req)
+		resp, err := doProviderRequest(c.httpClient, req)
 		if err != nil {
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue

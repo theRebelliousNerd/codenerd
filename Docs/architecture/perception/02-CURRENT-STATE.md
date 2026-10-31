@@ -192,3 +192,18 @@ preserved, receipts become partial, and the next mission admission stops unknown
 spend. The bounded transport/mission controls and complete offline checks pass;
 see GAP-PERCEPTION-ACCEPTED-READ and IMPLEMENTED_SPEC.md for evidence and limits.
 No broader provider, billing, permission or live-rung guarantee is claimed.
+
+## Mission-owned dispatch refusal
+
+`internal/perception/usage_track.go:14` is the shared interlock used at all 30
+HTTP dispatch sites in perception, including retry/stream setup and provider
+file/cache operations. It checks the optional mission attempt scope immediately
+before entering the HTTP client and reports ambiguous mission transport loss
+before the caller retries. Ordinary requests retain their previous HTTP and
+retry behavior. Direct TypeSafe checks the same context contract before its own
+client dispatch. `internal/perception/attempt_dispatch_test.go:21` uses a transport
+that ignores cancellation to prove refusal before dispatch; the cross-provider
+mission and ordinary retry controls live in
+`internal/campaign/recurse_mission_attempt_stop_test.go:46`. This does not cover
+pre-mission boot, independently owned tools or CLI-internal retries, and does
+not establish a billing reservation or a general network sandbox.

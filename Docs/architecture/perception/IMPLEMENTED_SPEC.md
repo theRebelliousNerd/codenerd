@@ -645,3 +645,15 @@ malformed replies, other adapters and streams need separate evidence; existing
 phase-bound estimated limits remain soft. No permission, guard-source ownership
 or recovery changes are part of the repair. Publication is pending the required
 unavailable private-terms scan; no live R7 qualification follows.
+
+## Mission request dispatch interlock
+
+`internal/perception/usage_track.go:14` now interlocks the 30 perception HTTP
+send sites with the caller's optional attempt scope. Mission-owned transport
+loss marks usage unknown before retry dispatch; ordinary request behavior is
+unchanged. The cancellation-ignoring transport control is
+`internal/perception/attempt_dispatch_test.go:21`, and the production factory,
+broker and direct TypeSafe controls are
+`internal/campaign/recurse_mission_attempt_stop_test.go:46`. This closes the
+bounded request-stop gap, not hard billing, pre-mission boot, CLI engine or
+independent paid-tool coverage.

@@ -272,7 +272,7 @@ func postGroundedSearch(ctx context.Context, e responsesEndpoint, reqBody respon
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+e.apiKey)
 
-		resp, err := httpClient.Do(req)
+		resp, err := doProviderRequest(httpClient, req)
 		if err != nil {
 			// Signal uncertainty without exposing the raw transport error.
 			usage.NoteUnknownUsage(ctx)

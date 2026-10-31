@@ -13,7 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var guardSourcePaths = []string{"internal/perception/usage_track.go", "internal/broker/broker.go",
+var guardSourcePaths = []string{"internal/usage/attempt_scope.go", "internal/perception/usage_track.go", "internal/broker/broker.go",
 	"internal/system/knowledge_refresh_scope.go", "internal/system/knowledge_refresh_boot.go"}
 
 func TestMissionGuardSourcesAreProtectedWithinAdmittedScope(t *testing.T) {

@@ -8,17 +8,27 @@ import (
 )
 
 type missionMeter struct {
-	mu      sync.Mutex
-	spend   int64
-	unknown bool
-	reports int
-	byPrice map[string]int64
+	mu       sync.Mutex
+	spend    int64
+	unknown  bool
+	reports  int
+	byPrice  map[string]int64
+	attempts *usage.AttemptScope
 }
 
 func (b *missionMeter) UsageUnknown() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.markUnknown()
+}
+
+// markUnknown requires mu. Closing admission is synchronous; cancellation does
+// not wait for provider goroutines or erase their later usage reports.
+func (b *missionMeter) markUnknown() {
 	b.unknown = true
+	if b.attempts != nil {
+		b.attempts.StopUnknown()
+	}
 }
 
 func (b *missionMeter) Observed(r usage.Report) {
@@ -28,7 +38,7 @@ func (b *missionMeter) Observed(r usage.Report) {
 	u := r.Usage
 	cost, version, priced := usage.EstimateCostVersioned(r.Model, int64(u.InputTokens), int64(u.OutputTokens), int64(u.CachedContentTokens), int64(u.CacheWriteTokens))
 	if !priced || u.Partial || !u.Has(types.UsageTokens) || u.InputTokens < 0 || u.OutputTokens < 0 || cost < 0 || math.IsNaN(cost) || math.IsInf(cost, 0) || cost*usage.MicroUSDPerUSD >= float64(math.MaxInt64-b.spend) {
-		b.unknown = true
+		b.markUnknown()
 		return
 	}
 	micros := int64(math.Ceil(cost * usage.MicroUSDPerUSD))
@@ -48,7 +58,7 @@ func (b *missionMeter) phaseEnded(before int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.reports == before {
-		b.unknown = true
+		b.markUnknown()
 	}
 }
 func (b *missionMeter) prices() map[string]int64 {

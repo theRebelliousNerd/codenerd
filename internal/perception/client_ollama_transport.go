@@ -131,7 +131,7 @@ func (c *ollamaTransport) CompleteWithSystem(ctx context.Context, systemPrompt, 
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-		resp, err := c.httpClient.Do(req)
+		resp, err := doProviderRequest(c.httpClient, req)
 		if err != nil {
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
@@ -278,7 +278,7 @@ func (c *ollamaTransport) CompleteWithStreaming(ctx context.Context, systemPromp
 			req.Header.Set("Authorization", "Bearer "+c.apiKey)
 			req.Header.Set("Accept", "text/event-stream")
 
-			resp, err := c.httpClient.Do(req)
+			resp, err := doProviderRequest(c.httpClient, req)
 			if err != nil {
 				lastErr = fmt.Errorf("request failed: %w", err)
 				continue

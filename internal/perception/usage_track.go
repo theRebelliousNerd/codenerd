@@ -2,10 +2,26 @@ package perception
 
 import (
 	"context"
+	"net/http"
 
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
 )
+
+// doProviderRequest interlocks every HTTP attempt, including retry/stream setup,
+// with an explicitly owned mission scope. Ordinary requests retain the exact
+// http.Client behavior. A mission transport loss is ambiguous before any retry.
+func doProviderRequest(client *http.Client, req *http.Request) (*http.Response, error) {
+	ctx := req.Context()
+	if err := usage.BeforeAttempt(ctx); err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil && usage.HasAttemptScope(ctx) {
+		usage.NoteUnknownUsage(ctx)
+	}
+	return resp, err
+}
 
 // Operation ids recorded on the usage tracker's ByOperation dimension. They are
 // a closed vocabulary on purpose: an operation string invented per call site

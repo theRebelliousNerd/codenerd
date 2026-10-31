@@ -385,7 +385,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			"url":                  c.baseURL + "/chat/completions",
 		})
 
-		resp, err := c.httpClient.Do(req)
+		resp, err := doProviderRequest(c.httpClient, req)
 		httpDuration := time.Since(httpStart)
 
 		if err != nil {
@@ -761,7 +761,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 			"url":                  c.baseURL + "/chat/completions",
 		})
 
-		resp, err := c.httpClient.Do(req)
+		resp, err := doProviderRequest(c.httpClient, req)
 		httpDuration := time.Since(httpStart)
 
 		if err != nil {
@@ -965,7 +965,7 @@ func (c *ZAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPro
 			}
 		}
 
-		resp, err := c.httpClient.Do(req)
+		resp, err := doProviderRequest(c.httpClient, req)
 
 		// Release semaphore
 		if !c.semDisabled && c.sem != nil {

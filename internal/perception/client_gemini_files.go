@@ -67,7 +67,7 @@ func (c *GeminiClient) UploadFile(ctx context.Context, path string, mimeType str
 	req.Header.Set("X-Goog-Upload-Header-Content-Length", fmt.Sprintf("%d", size))
 	req.Header.Set("X-Goog-Upload-Header-Content-Type", mimeType)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := doProviderRequest(c.httpClient, req)
 	if err != nil {
 		return "", fmt.Errorf("upload start request failed: %w", err)
 	}
@@ -94,7 +94,7 @@ func (c *GeminiClient) UploadFile(ctx context.Context, path string, mimeType str
 	reqUpload.Header.Set("X-Goog-Upload-Offset", "0")
 	reqUpload.Header.Set("X-Goog-Upload-Command", "upload, finalize")
 
-	respUpload, err := c.httpClient.Do(reqUpload)
+	respUpload, err := doProviderRequest(c.httpClient, reqUpload)
 	if err != nil {
 		return "", fmt.Errorf("upload data failed: %w", err)
 	}
@@ -133,7 +133,7 @@ func (c *GeminiClient) ListFiles(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := doProviderRequest(c.httpClient, req)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +185,7 @@ func (c *GeminiClient) GetFile(ctx context.Context, fileNameOrURI string) (any, 
 		return nil, err
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := doProviderRequest(c.httpClient, req)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +218,7 @@ func (c *GeminiClient) DeleteFile(ctx context.Context, fileID string) error {
 		return err
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := doProviderRequest(c.httpClient, req)
 	if err != nil {
 		return err
 	}
@@ -296,7 +296,7 @@ func (c *GeminiClient) CreateCachedContent(ctx context.Context, files []string, 
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := doProviderRequest(c.httpClient, req)
 	if err != nil {
 		return "", fmt.Errorf("create cache request failed: %w", err)
 	}
@@ -328,7 +328,7 @@ func (c *GeminiClient) GetCachedContent(ctx context.Context, cacheName string) (
 		return nil, err
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := doProviderRequest(c.httpClient, req)
 	if err != nil {
 		return nil, err
 	}
@@ -359,7 +359,7 @@ func (c *GeminiClient) DeleteCachedContent(ctx context.Context, cacheName string
 		return err
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := doProviderRequest(c.httpClient, req)
 	if err != nil {
 		return err
 	}
@@ -385,7 +385,7 @@ func (c *GeminiClient) ListCachedContent(ctx context.Context) ([]string, error) 
 		return nil, err
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := doProviderRequest(c.httpClient, req)
 	if err != nil {
 		return nil, err
 	}

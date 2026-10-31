@@ -241,6 +241,9 @@ func (c *Client) once(ctx context.Context, method, path string, body []byte, out
 	if c.longContext {
 		req.Header.Set("TypeSafe-Danger-Zone-Long-Context", "true")
 	}
+	if err := usage.BeforeAttempt(ctx); err != nil {
+		return nil, err
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("typesafe: %s %s: %w", method, path, err)

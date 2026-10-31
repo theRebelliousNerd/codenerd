@@ -13,13 +13,13 @@ import (
 	"codenerd/internal/usage"
 )
 
-func TestMissionAdmissionStopsAfterAcceptedBodyReadRetry(t *testing.T) {
+func TestMissionAdmissionStopsBeforeAcceptedBodyReadRetry(t *testing.T) {
 	const model = "mission-body-read-fixture"
 	usage.RegisterPrice(model, usage.Price{InputPerMTok: 1, OutputPerMTok: 1})
 	for _, truncated := range []bool{false, true} {
 		name := "clean"
 		if truncated {
-			name = "truncated_then_success"
+			name = "truncated_retry_refused"
 		}
 		t.Run(name, func(t *testing.T) {
 			m, ctx := missionPolicyFixture(t)
@@ -49,16 +49,23 @@ func TestMissionAdmissionStopsAfterAcceptedBodyReadRetry(t *testing.T) {
 			}
 			_, _, before := m.meter.snapshot()
 			answer, err := client.CompleteWithTools(ctx, "system", "request", nil)
-			wantRequests := int32(1)
-			if truncated {
-				wantRequests = 2
+			if requests.Load() != 1 {
+				t.Fatalf("unexpected accepted-body retry: %d", requests.Load())
 			}
-			if err != nil || answer == nil || answer.Text != "answer" || requests.Load() != wantRequests {
-				t.Fatalf("retry behavior changed: answer=%+v err=%v requests=%d", answer, err, requests.Load())
+			if truncated {
+				if err == nil || ctx.Err() == nil || answer != nil {
+					t.Fatalf("unknown accepted attempt retried: %+v/%v", answer, err)
+				}
+			} else if err != nil || answer == nil || answer.Text != "answer" {
+				t.Fatalf("completion: %+v/%v", answer, err)
 			}
 			m.meter.phaseEnded(before)
+			wantSpend, wantReports := int64(2000), 1
+			if truncated {
+				wantSpend, wantReports = 0, 0
+			}
 			spend, unknown, reports := m.meter.snapshot()
-			if spend != 2000 || reports != 1 || unknown != truncated {
+			if spend != wantSpend || reports != wantReports || unknown != truncated {
 				t.Errorf("spend=%d reports=%d unknown=%v; want 2000/1/%v", spend, reports, unknown, truncated)
 			}
 			_, err = m.admit()
@@ -77,7 +84,7 @@ func TestMissionAdmissionStopsAfterAcceptedBodyReadRetry(t *testing.T) {
 				t.Fatal(err)
 			}
 			var saved MissionState
-			if err := json.Unmarshal(data, &saved); err != nil || saved.UnknownSpend != truncated || saved.SpendMicroUSD != 2000 || saved.UsageReports != 1 || saved.Pending != nil {
+			if err := json.Unmarshal(data, &saved); err != nil || saved.UnknownSpend != truncated || saved.SpendMicroUSD != wantSpend || saved.UsageReports != wantReports || saved.Pending != nil {
 				t.Fatalf("durable accounting lost: %+v err=%v", saved, err)
 			}
 		})

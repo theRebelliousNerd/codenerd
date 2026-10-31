@@ -476,3 +476,14 @@ Wiring: `internal/usage/pricing.go:20` defines the opt-in mode,
 `internal/usage/typesafe_pricing_test.go:8`,
 `internal/usage/typesafe_pricing_test.go:25`, and
 `internal/campaign/recurse_mission_typesafe_price_test.go:28`.
+
+## Explicit mission uncertainty scope
+
+`internal/usage/attempt_scope.go:28` supplies the optional caller-owned scope;
+`BeforeAttempt` at line 51 refuses closed scopes while ordinary callers remain
+unchanged. The scope performs no network I/O, authorizes no effect and invents
+no price. Concurrent closure/isolation and cross-provider mission behavior are
+covered by `internal/usage/attempt_scope_test.go:47` and
+`internal/campaign/recurse_mission_attempt_stop_test.go:46`. GAP-USAGE-MISSION-ATTEMPT
+is closed locally for detected uncertainty, with historical billing, pre-mission
+boot and hard per-provider reservation gaps retained.

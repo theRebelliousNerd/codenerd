@@ -181,7 +181,7 @@ func (c *AnthropicClient) sendMessages(ctx context.Context, reqBody AnthropicReq
 		if reqBody.Stream {
 			req.Header.Set("Accept", "text/event-stream")
 		}
-		resp, err := c.httpClient.Do(req)
+		resp, err := doProviderRequest(c.httpClient, req)
 		if err != nil {
 			// A transport error cannot establish that the endpoint did no work.
 			// Preserve uncertainty even when this retry loop later succeeds.

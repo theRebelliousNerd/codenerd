@@ -161,7 +161,7 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 		c.setAttribution(req.Header)
 
-		resp, err := c.httpClient.Do(req)
+		resp, err := doProviderRequest(c.httpClient, req)
 		if err != nil {
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
@@ -307,7 +307,7 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 			req.Header.Set("Accept", "text/event-stream")
 			c.setAttribution(req.Header)
 
-			resp, err := c.httpClient.Do(req)
+			resp, err := doProviderRequest(c.httpClient, req)
 			if err != nil {
 				lastErr = fmt.Errorf("request failed: %w", err)
 				continue
