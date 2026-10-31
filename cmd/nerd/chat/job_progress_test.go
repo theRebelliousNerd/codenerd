@@ -26,8 +26,9 @@ func TestJobProgress_ReachesTheMainAgentsContext(t *testing.T) {
 	m.background.add(job, func() {})
 	m.assertBackgroundJob(job, "/running")
 
-	reached, release := make(chan struct{}), make(chan struct{})
+	reached, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() {
+		defer close(finished)
 		ctx := sessionlog.WithTask(usage.WithSessionID(context.Background(), "session-jp"), job.ID)
 		_, _ = sessionlog.RunAgent(ctx, "coder", "9", job.Task, func(ctx context.Context) (string, error) {
 			tr := sessionlog.TranscriptFrom(ctx)
@@ -38,8 +39,8 @@ func TestJobProgress_ReachesTheMainAgentsContext(t *testing.T) {
 			return "", nil
 		})
 	}()
+	defer func() { close(release); <-finished }()
 	<-reached
-	defer close(release)
 
 	m.refreshJobProgress(time.Now())
 	rows, err := m.kernel.Query("injectable_context")

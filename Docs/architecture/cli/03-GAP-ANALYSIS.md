@@ -34,6 +34,31 @@ remain explicitly unresolved; no continuation handle or automatic retry is impli
 
 ## Other CLI obligations
 
+### GAP-CLI-PROGRESS-FIXTURE-JOIN
+
+The offline chat progress fixtures own their transcript workers. Their release
+callback must wait for `RunAgent` and the final transcript publication before
+returning; test cleanup must perform the same idempotent join before removing
+the store or temporary workspace. This is a test lifecycle requirement and
+changes no production inference or transcript behavior.
+
+Status: implemented in `cmd/nerd/chat/running_work_test.go:28`. The release and
+cleanup callbacks join the worker after its final transcript. Unchanged baseline
+`4de8c37` reproduced two temporary-directory cleanup failures in ten runs of
+`TestSideTurn_AQuestionNeverTouchesTheBrief`; the renderer candidate reproduced
+one in ten. `TestProgressModel_ReleaseJoinsFinalTranscript` (`:54`) also failed
+before the join, observing unfinished progress immediately after release.
+Exit: that regression and both existing progress controls pass 20 normal and
+10 race repetitions. The complete offline suite is the final aggregate gate;
+no tests or production recording paths are disabled to avoid cleanup failures.
+
+The background job progress fixture (`cmd/nerd/chat/job_progress_test.go:29`)
+has the same obligation: join `RunAgent` before removing the temporary session.
+The aggregate gate exposed its unjoined release independently of the foreground
+fixture; unchanged baseline reproduced six cleanup failures in 100 repetitions.
+It now defers release and join together, and passes 100 repetitions. The related
+delegated-progress fixture already joins its worker and retains that behavior.
+
 | Gap ID | Capability | Current state | Target state | Severity | Phase | Blocking dependencies | Exit criteria |
 |---|---|---|---|---|---|---|---|
 | GAP-CLI-01 | Explicit headless-chat command deadline | **PARTIAL:** `cmd/nerd/cmd_chat.go#runChatWith` (`cmd/nerd/cmd_chat.go:168`) now derives commandContext before boot and shares cancellation/deadline through turns and idle input. Root filtered behavioral CLI gate passes: `artifact:.corpus-build/runs/all-features-20261002/round2-cli.log`. Baseline dogfood-stop.json records the former 616-second overrun. Fresh production boot/shutdown exit and bounded cleanup remain unqualified. | **PROPOSED UPLIFT:** [headless chat constraints](06-HEADLESS-CHAT-CONSTRAINTS.md) applies an explicit caller deadline to boot, turns, input waiting, and cancellation-aware shutdown while preserving unlimited duration when no deadline is selected. | High | Partial; lifecycle tests pass, production exit/cleanup open | CLI owner; shared shutdown or boot changes require separate ownership if necessary | Root-run behavioral regression proves explicit deadline and inherited cancellation reach boot/turn processing and prevent later turns; zero or negative timeout adds no deadline. Production `nerd chat --timeout` exits under the chosen bound plus documented bounded cleanup and independently preserves completed edits. |

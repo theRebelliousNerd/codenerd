@@ -25,8 +25,9 @@ func progressModel(t *testing.T, session string, intents ...perception.Intent) (
 	m.sessionID = session
 	owner := m.turn.current()
 
-	reached, release := make(chan struct{}), make(chan struct{})
+	reached, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() {
+		defer close(finished)
 		actx := sessionlog.WithTask(usage.WithSessionID(context.Background(), session), foregroundTask(owner))
 		_, _ = sessionlog.RunAgent(actx, "coder", "7", "fix README.md", func(ctx context.Context) (string, error) {
 			tr := sessionlog.TranscriptFrom(ctx)
@@ -37,12 +38,38 @@ func progressModel(t *testing.T, session string, intents ...perception.Intent) (
 			return "", nil
 		})
 	}()
+	var once sync.Once
+	finish := func() {
+		once.Do(func() { close(release) })
+		<-finished // RunAgent publishes its final transcript before returning.
+	}
+	t.Cleanup(finish)
 	<-reached
 	if err := m.kernel.Assert(core.Fact{Predicate: "file_written", Args: []any{"README.md", "h1", session, time.Now().Unix()}}); err != nil {
 		t.Fatal(err)
 	}
-	var once sync.Once
-	return m, ctx, func() { once.Do(func() { close(release) }) }
+	return m, ctx, finish
+}
+
+func TestProgressModel_ReleaseJoinsFinalTranscript(t *testing.T) {
+	m, _, release := progressModel(t, "session-release")
+	defer release()
+	store := sessionlog.Current()
+	task := foregroundTask(m.turn.current())
+	before := store.ProgressForTask("session-release", task)
+	if len(before) != 1 || before[0].Finished {
+		t.Fatalf("fixture was not running: %+v", before)
+	}
+	release()
+	after := store.ProgressForTask("session-release", task)
+	if len(after) != 1 || !after[0].Finished {
+		t.Fatalf("release returned before the final transcript: %+v", after)
+	}
+	// The explicit defer and cleanup also release this same worker.
+	release()
+	if failures, err := store.Failures(); failures != 0 || err != nil {
+		t.Fatalf("fixture transcript failure: %d, %v", failures, err)
+	}
 }
 
 // While a coder turn ran, "how is progress?" got "I'll check current progress
