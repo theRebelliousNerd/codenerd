@@ -1,5 +1,19 @@
 # 02 — Current State (perception)
 
+## Bounded Anthropic usage accounting
+
+Local candidate `ac50802fe1441b05d1530c76df6d31868596d14f` reports decoded
+non-streaming Messages attempts before validating their envelopes, including
+discarded incomplete retries and paused turns
+(`internal/perception/anthropic_transport.go:254`). Missing usage and later
+send/read/decode failures remain unknown; known counts survive. The accepted
+response aggregate is returned without a second observation. Broker/tracker
+controls cover all four non-streaming surfaces, and real-kernel mission controls
+stop unknown or over-budget spend while admitting a clean call. This closes
+GAP-PERCEPTION-ANTHROPIC-ATTEMPTS locally; recovered wire failures, per-use fees,
+hard billing bounds and live recurse qualification remain separate. Publication
+requires the unavailable private-terms scanner.
+
 ## Bounded current evidence (2026-10-02)
 
 **VERIFIED CURRENT — constructor lifetime:** `internal/perception/transducer.go#InitPerceptionLayerWithContext` (line405) and `semantic_classifier.go#NewSemanticClassifierFromConfigWithContext` (line173) carry boot context into embedding, cache traversal/SQL and hydration. Shared-classifier admission is caller-aware; canceled constructors close owned resources and never publish partial classifiers. Root strict constructor/cache preservation controls and focused race pass in `artifact:.corpus-build/runs/all-features-20261002/round6-coldboot-corrected.receipt.json` and `round6-coldboot-race.receipt.json`. A real normal-entry cold20s probe exits21.6602s, retains448 cache rows with integrity OK and stops before the later prompt corpus (`round6-firstboot-idle.receipt.json`, `round6-firstboot-cache-witness.json`). This is not model-turn/world/CodeDOM acceptance or a universal database/shutdown deadline.

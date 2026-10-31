@@ -6421,3 +6421,36 @@ packages), as do tagged build and vet. Existing candidates and evidence remain
 unchanged. Publication awaits the required unavailable private-terms scanner.
 Pre-connect failures, malformed replies, other transports, streams and billing
 totals remain outside this bounded result. No qualifying R7 claim. **Streak 0.**
+
+
+## R7 follow-up, Anthropic decoded attempts — local hand repair (2026-10-31)
+
+Codex hand-authored this repair; no CodeNERD edits or provider calls. Corrected
+offline fail-before loses counted incomplete retries and missing-usage
+uncertainty across chat, tools, history and schema. Failed continuations also
+lose earlier reports. Under a 3,000 micro-USD mission limit, the real kernel
+admits both an unknown attempt and 4,000 micro-USD of counted work while seeing
+only 2,000 micro-USD. Clean controls pass. An initial test-only interface-name
+typo and its compile error remain in external evidence, separately from the
+corrected runtime failures.
+
+Local repair `ac50802fe1441b05d1530c76df6d31868596d14f` observes each decoded
+non-streaming attempt before validation, removes aggregate observations and
+retains uncertainty on send/read/decode failure. Known counts, cache subcounts,
+operation attribution, accepted continuation content/usage, limits and typed
+cancellation survive. Existing mission policy now persists `/unknown_spend` or
+`/spend`; clean work remains admitted. Permissions, guard declarations, recovery
+and streaming are unchanged.
+
+All Anthropic controls pass offline (115 pass including mission controls, one
+live test skipped); their perception race run passes 111 with one live skip.
+New controls pass 280 repeated race checks. Complete broker/usage/campaign race
+suites pass 1,838 checks. The full uncached sqlite_vec suite passes 22,065 with
+80 skips after selective external temporary-directory isolation, as do tagged
+build and vet. The initial full suite had one unrelated nested-build VCS-status
+failure; a single-test repeat passed even before isolation. The exact
+intermittent trigger is unproven. Both logs are retained; VCS checks, assertions
+and unrelated source were preserved. Main, prior candidates and evidence remain
+unchanged. Recovered transport retries, per-use fees, all-zero usage presence
+and hard billing limits remain outside this result. Publication awaits the
+required unavailable private-terms scanner. No qualifying R7 claim. **Streak 0.**

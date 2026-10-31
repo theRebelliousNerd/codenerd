@@ -1,19 +1,24 @@
 # 03 — Gap Analysis (perception)
 
-## Accepted Anthropic decoded-attempt accounting target
+## Anthropic decoded-attempt accounting
 
-GAP-PERCEPTION-ANTHROPIC-ATTEMPTS: the non-streaming adapter discards usage
-from decoded incomplete HTTP 200 messages before retrying. It also reports only
-after the complete pause/resume exchange, so later refusal or failure hides
-earlier paid work. The accepted bounded target is one observation per decoded
-attempt before envelope validation, with sticky missing-usage uncertainty and
-no second aggregate observation. Preserve accepted response content/usage,
-continuation admission, retry/cancellation behavior and streaming. A later
-undecodable attempt must not become known merely because an earlier attempt
-reported. Exit requires offline broker/tracker controls, continuation/error
-controls and real-kernel mission stops for unknown and over-budget spend.
-Wire retries hidden inside sendMessages and server-tool per-use fees remain
-separate obligations. No hard billing guarantee or live rung result follows.
+GAP-PERCEPTION-ANTHROPIC-ATTEMPTS is closed locally in
+`ac50802fe1441b05d1530c76df6d31868596d14f`.
+`internal/perception/anthropic_transport.go:254` observes each decoded
+non-streaming HTTP 200 attempt before envelope validation. Incomplete retries
+and paused turns retain their counts even if later work fails. Missing usage
+and send/read/decode failures retain uncertainty through enclosing observers.
+Callers do not report the accepted exchange aggregate again. Accepted response
+content/usage, continuation admission, retry/cancellation and streaming retain
+their existing behavior. Offline broker/tracker and continuation/error controls
+are in `internal/perception/anthropic_attempt_usage_test.go:54` and
+`internal/perception/anthropic_attempt_usage_test.go:146`; the real-kernel
+unknown-spend and over-budget stops are exercised in
+`internal/campaign/recurse_mission_anthropic_usage_test.go:20`.
+Recovered wire failures hidden inside sendMessages and server-tool per-use fees
+remain separate accounting obligations. All-zero Anthropic usage retains the
+existing conservative unknown interpretation. Publication awaits the required
+private-terms scanner. No hard billing guarantee or live rung result follows.
 
 ## Accepted response body-read uncertainty
 

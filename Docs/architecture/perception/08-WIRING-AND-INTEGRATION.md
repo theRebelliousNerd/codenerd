@@ -1,5 +1,17 @@
 # 08 — Wiring and Integration (perception)
 
+## Non-streaming Anthropic accounting
+
+`completeText` and `completeTools` pass their existing operation category through
+`exchange` and `postMessages` to `postMessagesOnce`
+(`internal/perception/anthropic_transport.go:254`). Each decoded attempt reports
+before validation to the tracker and nested observers, including the broker
+and mission meter. Missing metadata and send/read/decode failure notify those
+same captures. Exchange still merges accepted continuation content and usage;
+its callers no longer observe that aggregate. Streaming uses its separate
+`sendMessages`/stream-reader/terminal-report path unchanged. The real-kernel
+mission control is `internal/campaign/recurse_mission_anthropic_usage_test.go:20`.
+
 > Last verified: **2026-07-13**  
 > How perception is **registered and called** at runtime.
 

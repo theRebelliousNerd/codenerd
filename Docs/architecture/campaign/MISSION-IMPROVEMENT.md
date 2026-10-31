@@ -103,6 +103,20 @@ The spend limit remains `mission.max_spend_microusd`; the currency unit is fixed
 Chat command prefixes are token sequences whose lengths define their grammar
 in `cmd/nerd/chat/campaign_recurse.go`, independent of routing budgets.
 
+Anthropic's incomplete-message retries and pause/resume parts must obey the
+same accounting contract. Each decoded attempt is observed before validation,
+and the accepted exchange aggregate is not counted again. Missing usage stays
+unknown even when another attempt reports. Local adapter candidate
+`ac50802fe1441b05d1530c76df6d31868596d14f` is controlled through the broker,
+mission meter and real kernel in
+`internal/campaign/recurse_mission_anthropic_usage_test.go:20`: under a 3,000
+micro-USD limit, 4,000 micro-USD of counted retries derives `/spend`, a missing
+attempt with 2,000 micro-USD known derives `/unknown_spend`, and a clean 2,000
+micro-USD call remains admitted. The saved mission retains the accounting and
+stop status. Admission and recovery implementations are unchanged. Recovered
+wire failures, server-tool per-use fees and hard billing guarantees remain
+outside this bounded local result; publication requires the private-terms scan.
+
 ## Durable state and recovery
 
 Mission snapshots live under `.nerd/sessions/<session>/missions/<id>.json` with

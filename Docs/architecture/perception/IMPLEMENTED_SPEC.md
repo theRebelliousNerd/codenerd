@@ -1,5 +1,20 @@
 # perception — Implemented Spec (Deep-Dive)
 
+## Decoded Anthropic attempt observations
+
+Each decoded non-streaming Messages attempt supplies its own usage observation
+before validation (`internal/perception/anthropic_transport.go:254`). Discarded
+incomplete responses and accepted pause/resume parts are counted once; a later
+error cannot hide prior reports or missing usage. Send/read/decode failures
+notify existing incomplete observers. Callers retain the accepted content and
+usage aggregate without observing that aggregate again. The chat/schema and
+tool/history operation categories propagate to each attempt. Streaming retains
+its separate terminal reporting path. Offline controls in
+`internal/perception/anthropic_attempt_usage_test.go:54` and
+`internal/perception/anthropic_attempt_usage_test.go:146` verify this local
+contract in `ac50802fe1441b05d1530c76df6d31868596d14f`; recovered transport
+retries and server-tool per-use charges remain outside this bounded result.
+
 ## Root-qualified context-aware construction (2026-10-02)
 
 **VERIFIED CURRENT:** `internal/perception/transducer.go#InitPerceptionLayerWithContext` at line405 and `semantic_classifier.go#NewSemanticClassifierFromConfigWithContext` at line173 preserve caller cancellation through construction/hydration/cache access. Owned-resource failure cleanup, partial cache durability/retry, alive-parent optional fallback and shared admission/publication controls pass `artifact:.corpus-build/runs/all-features-20261002/round6-coldboot-corrected.receipt.json` and focused race `round6-coldboot-race.receipt.json`. The normal-entry fresh binary exits21.6602s for20s and retains448 cache rows without reaching later prompt corpus initialization (`round6-firstboot-idle.receipt.json`, `round6-firstboot-cache-witness.json`). No model-turn/world/CodeDOM, semantic namespace or universal SQL/shutdown guarantee follows. Historical July inventory below is not globally reverified.
