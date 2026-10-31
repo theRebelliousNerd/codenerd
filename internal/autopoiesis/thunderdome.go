@@ -379,6 +379,13 @@ func (t *Thunderdome) findEntryPointCall(code string) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("failed to parse tool code: %w", err)
 	}
+	// When a native wrapper can compile this tool, attack exactly the function
+	// that wrapper will execute. Broader signatures below remain standalone
+	// arena support, not a different entry choice for a compilable tool.
+	if entry := compiledToolEntryPoint(file); entry != nil {
+		name := entry.Name.Name
+		return name, fmt.Sprintf("_, toolErr = %s(ctx, input)", name), nil
+	}
 
 	var bestFunc string
 	var bestCall string

@@ -320,29 +320,41 @@ func (tc *ToolCompiler) findEntryPoint(code string) (string, error) {
 		return "", err
 	}
 
-	var foundFunc string
-	ast.Inspect(file, func(n ast.Node) bool {
-		fn, ok := n.(*ast.FuncDecl)
-		if !ok {
-			return true
-		}
-
-		name := fn.Name.Name
-		if name == "main" || strings.HasPrefix(name, "Register") {
-			return true
-		}
-
-		if isExactEntryPoint(fn) {
-			foundFunc = name
-			return false // stop inspect
-		}
-		return true
-	})
-
-	if foundFunc == "" {
+	entry := compiledToolEntryPoint(file)
+	if entry == nil {
 		return "", fmt.Errorf("no suitable entry point function found with signature 'func(context.Context, string) (string, error)'")
 	}
-	return foundFunc, nil
+	return entry.Name.Name, nil
+}
+
+// compiledToolEntryPoint is shared by the native wrapper and its arena.
+// Every eligible function has the same protocol. Preserve the arena's ranking
+// among those functions, with declaration order as the deterministic tie break.
+func compiledToolEntryPoint(file *ast.File) *ast.FuncDecl {
+	var best *ast.FuncDecl
+	bestScore := -1
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv != nil || (fn.Type.TypeParams != nil && len(fn.Type.TypeParams.List) != 0) || !isExactEntryPoint(fn) {
+			continue
+		}
+		name := fn.Name.Name
+		if name == "main" || name == "init" || strings.HasPrefix(name, "Test") || strings.HasPrefix(name, "Benchmark") || strings.HasPrefix(name, "Register") {
+			continue
+		}
+		score := 0
+		if fn.Name.IsExported() {
+			score += 10
+		}
+		lower := strings.ToLower(name)
+		if strings.Contains(lower, "execute") || strings.Contains(lower, "run") || strings.Contains(lower, "process") || strings.Contains(lower, "handle") {
+			score += 8
+		}
+		if score > bestScore {
+			best, bestScore = fn, score
+		}
+	}
+	return best
 }
 
 // writeWrapper generates the main.go wrapper

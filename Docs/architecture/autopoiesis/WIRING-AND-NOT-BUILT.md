@@ -174,3 +174,14 @@ Generated publication and execution must synchronize by tool identity without se
 | Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
 |---|---|---|---|---|---|---|---|
 | GAP-AUTOPOIESIS-COMMIT-CONCURRENCY | Per-tool context-aware publication synchronization | `OuroborosLoop` now owns keyed `toolOperations`, and `commitTool`/`ExecuteTool` acquire the per-name context-aware lock before publication or execution (`internal/autopoiesis/ouroboros.go:92-96`, `:807-817`, `:1088-1096`; `internal/autopoiesis/tool_operation_lock.go:9-82`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing publication snapshot/rollback boundary | `TestToolOperationCoordination_IsPerToolAndCancellationAware` blocks A while compiling and running B, then verifies canceled same-tool execution and commit waiters return `context.Canceled` without writing before lock acquisition (`internal/autopoiesis/tool_operation_lock_test.go:17`); `TestExecuteGeneratedBackendWaitHonorsToolOperationCancellation` proves a canceled backend waiter returns before process start (`:182`). The lock implementation is exercised under the focused race suite; same-tool rollback and package tests pass. |
+
+## Required contract: Arena and compiled wrapper entry parity
+
+The adversarial arena must exercise the function that the native wrapper will
+execute. `INTERNALS.md` specifies the exact-protocol selection and broader arena
+fallback. A successful attack run against a different function is insufficient
+evidence for a compiled tool.
+
+| Gap ID | Capability | Current implementation | Status and evidence | Remaining scope |
+|---|---|---|---|---|
+| GAP-AUTOPOIESIS-ENTRY-PARITY | Arena and compiled wrapper entry parity | `internal/autopoiesis/tool_compiler.go:333` selects one eligible exact-protocol function; the compiler (`:316`) and arena (`internal/autopoiesis/thunderdome.go:376`) share it. | Implemented and verified offline: actual arena/native-process safe and panic controls (`internal/autopoiesis/entrypoint_parity_test.go:13`), selector controls (`:78`), focused race checks and aggregate tests pass. | Explicit package-main, interpreted execution and requalification of existing compiled artifacts remain outside this bounded repair. |

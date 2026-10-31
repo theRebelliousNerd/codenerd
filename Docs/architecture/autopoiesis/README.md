@@ -89,3 +89,14 @@ Prompt self-improvement lives in the `prompt_evolution` subpackage
 live alongside the code. One placement quirk is documented in
 WIRING-AND-NOT-BUILT: `TestThunderdomeArena` is defined in the production
 file `thunderdome.go:293`, not in a `_test.go` file.
+
+Wrapper-compiled tool entry selection has a shared implementation in
+`internal/autopoiesis/tool_compiler.go:333`. The compiler's wrapper selector
+(`:316`) and `Thunderdome.findEntryPointCall`
+(`internal/autopoiesis/thunderdome.go:376`) choose the same exact-protocol
+function before execution. `internal/autopoiesis/entrypoint_parity_test.go:13`
+executes real arena and native processes with safe and panicking alternatives;
+the controls at `:78` cover eligibility and ties. The package, focused race,
+aggregate offline, build and vet checks pass. This establishes wrapper entry
+parity only; explicit package-main and interpreted execution need separate
+qualification.

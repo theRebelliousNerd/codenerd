@@ -277,3 +277,24 @@ stats via `GetStats` (`:701`) and `ExportStats` (`:868`).
 `Fields` (`:102`), and `String` (`:121`); per-run latency is recorded by
 `recordGenerationLatency` (`ouroboros.go:1078`) into `OuroborosStats`
 (`autopoiesis_types.go:172`).
+
+## Shared compiled-tool entry selection
+
+GAP-AUTOPOIESIS-ENTRY-PARITY: for wrapper-compiled tools, the arena and native
+compiler must select the same callable entry with the exact configured protocol
+`func(context.Context, string) (string, error)`. Multiple eligible functions must
+have one deterministic choice: retain the arena's exported/common-name ranking
+and first-declaration tie break. Methods, generic functions and registration/test
+helpers are not eligible wrapper entries. The arena's standalone broader-signature
+support remains available only when no exact compiler-protocol entry exists.
+Exit: a real arena and native compiled wrapper agree for multiple-function tools,
+including declaration reordering, supported signatures, wrong-signature helpers
+and panic controls; all existing adversarial, compilation and registration gates
+remain active. Explicit package-main programs and their main-protocol contract
+remain outside this bounded selector repair. The shared selector is implemented
+in `internal/autopoiesis/tool_compiler.go:333` and consumed by both the wrapper
+selector (`:316`) and arena (`internal/autopoiesis/thunderdome.go:376`). Native
+process and arena regressions (`internal/autopoiesis/entrypoint_parity_test.go:13`)
+and selector controls (`:78`) satisfy this bounded exit; focused race checks and
+the aggregate offline suite pass. Explicit package-main and interpreted execution
+remain separate contracts; existing compiled artifacts are not requalified.
