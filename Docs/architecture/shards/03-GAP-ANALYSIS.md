@@ -112,3 +112,17 @@ When SpawnWithContext loses its synchronous caller to cancellation, it must atom
 | GAP-SHARDS-CANCELLED-WAITER | Cancelled synchronous waiter retention | `ShardManager.SpawnWithContext` relinquishes the cancelled waiter result and suppresses late retention (`internal/core/shards/manager_spawn.go:139`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | A gated late-returning shard leaves zero active shard, detached marker, and retained result entries after caller cancellation and execution cleanup. |
 
 **Verified current:** `TestShardManager_CanceledSynchronousWaiterDoesNotRetainResult` (`internal/core/shards/manager_spawn_context_test.go:125`) passes repeatedly, with the full `internal/core/shards` package and race suite also passing.
+
+## Executive proposal metadata
+
+GAP-SHARDS-EXECUTIVE-METADATA: syntax/schema validation must not substitute for
+proposal confidence. The executive must retain confidence and rationale from
+the exact successful model attempt, retain the validated/sanitized rule as the
+only executable code, and keep missing, malformed, non-finite or out-of-range
+confidence pending under the existing threshold. Metadata from failed attempts
+must not leak into a successful retry. Status: closed locally for the executive path by deterministic
+handler-to-kernel regression, positive adoption controls and package checks.
+The pending fact carries integer percentage confidence, matching the declared
+number slot; the proposal and threshold retain their 0..1 ratio scale.
+No confidence threshold, constitutional permission, protected-head validation
+or feedback retry budget may be weakened by this repair.

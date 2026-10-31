@@ -40,10 +40,10 @@ func TestBuildPolicyProposalPrompt_Stable(t *testing.T) {
 
 // Proposed-rule confidence documents 0.0-1.0 and gates HotLoad: 1.5 must
 // not auto-apply, nor -0.5 linger.
-func TestParseProposedRule_ConfidenceClamped(t *testing.T) {
+func TestParseProposedRule_InvalidConfidenceStaysUnknown(t *testing.T) {
 	e := NewExecutivePolicyShard()
-	if got := e.parseProposedRule("RULE: x :- y.\nCONFIDENCE: 1.5\n", nil).Confidence; got != 1 {
-		t.Errorf("1.5 -> %v, want 1", got)
+	if got := e.parseProposedRule("RULE: x :- y.\nCONFIDENCE: 1.5\n", nil).Confidence; got != 0 {
+		t.Errorf("1.5 -> %v, want 0", got)
 	}
 	if got := e.parseProposedRule("RULE: x :- y.\nCONFIDENCE: -0.5\n", nil).Confidence; got != 0 {
 		t.Errorf("-0.5 -> %v, want 0", got)

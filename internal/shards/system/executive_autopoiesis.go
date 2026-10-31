@@ -2,9 +2,12 @@ package system
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,13 +17,16 @@ import (
 
 // executiveLLMAdapter wraps the shard's GuardedLLMCall to implement feedback.LLMClient.
 type executiveLLMAdapter struct {
-	shard *ExecutivePolicyShard
-	ctx   context.Context
+	shard    *ExecutivePolicyShard
+	ctx      context.Context
+	response string // The exact latest attempt, kept separate from validated code.
 }
 
 // Complete implements feedback.LLMClient.
 func (a *executiveLLMAdapter) Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	return a.shard.GuardedLLMCall(ctx, systemPrompt, userPrompt)
+	response, err := a.shard.GuardedLLMCall(ctx, systemPrompt, userPrompt)
+	a.response = response
+	return response, err
 }
 
 func (a *executiveLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
@@ -137,14 +143,10 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 		return
 	}
 
-	// FeedbackLoop validated the rule; extract metadata via parseProposedRule
-	proposedRule := e.parseProposedRule(result.Rule, cases)
+	// Validation deliberately strips prose. Metadata belongs to the successful
+	// model attempt; only the separately validated code is eligible to execute.
+	proposedRule := e.parseProposedRule(llmAdapter.response, cases)
 	proposedRule.MangleCode = result.Rule // Use the validated (possibly sanitized) rule
-
-	// If parseProposedRule couldn't extract confidence, use a high default since it validated
-	if proposedRule.Confidence == 0 {
-		proposedRule.Confidence = 0.9 // Validated rules have high implicit confidence
-	}
 
 	e.Autopoiesis.RecordProposal(proposedRule)
 
@@ -164,7 +166,7 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 				"executive_policy",
 				proposedRule.MangleCode,
 				proposedRule.Rationale,
-				proposedRule.Confidence,
+				types.PercentFromRatio(proposedRule.Confidence),
 				time.Now().Unix(),
 			},
 		}); assertErr != nil {
@@ -239,6 +241,20 @@ func (e *ExecutivePolicyShard) parseProposedRule(output string, cases []Unhandle
 		BasedOn:    cases,
 		ProposedAt: time.Now(),
 	}
+	// Guarded calls may return the normal piggyback surface envelope or a JSON
+	// string. Unknown envelopes keep unknown confidence rather than inventing it.
+	var envelope struct {
+		SurfaceResponse string `json:"surface_response"`
+	}
+	if json.Unmarshal([]byte(output), &envelope) == nil && envelope.SurfaceResponse != "" {
+		output = envelope.SurfaceResponse
+	} else {
+		var text string
+		if json.Unmarshal([]byte(output), &text) == nil {
+			output = text
+		}
+	}
+	confidenceFields := 0
 
 	lines := strings.SplitSeq(output, "\n")
 	for line := range lines {
@@ -246,14 +262,17 @@ func (e *ExecutivePolicyShard) parseProposedRule(output string, cases []Unhandle
 		if after, ok := strings.CutPrefix(line, "RULE:"); ok {
 			rule.MangleCode = strings.TrimSpace(after)
 		} else if after, ok := strings.CutPrefix(line, "CONFIDENCE:"); ok {
-			confStr := strings.TrimSpace(after)
-			fmt.Sscanf(confStr, "%f", &rule.Confidence)
-			// The format documents 0.0-1.0 and the value gates HotLoad: a
-			// model writing 1.5 must not auto-apply, nor -0.5 linger.
-			rule.Confidence = min(max(rule.Confidence, 0), 1)
+			confidenceFields++
+			confidence, err := strconv.ParseFloat(strings.TrimSpace(after), 64)
+			if err == nil && !math.IsNaN(confidence) && !math.IsInf(confidence, 0) && confidence >= 0 && confidence <= 1 {
+				rule.Confidence = confidence
+			}
 		} else if after, ok := strings.CutPrefix(line, "RATIONALE:"); ok {
 			rule.Rationale = strings.TrimSpace(after)
 		}
+	}
+	if confidenceFields != 1 {
+		rule.Confidence = 0
 	}
 
 	return rule

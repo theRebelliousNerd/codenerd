@@ -524,3 +524,18 @@ The world shard owns the raw check receipts, allowed exit rows, execution-error
 rows and their derived receipt judgments together with the existing turn check
 gate. Registration must preserve the full membership/negation join locally.
 Authored changes still require the standing shard-join and defaults audits.
+
+## Executive proposal metadata
+
+`internal/shards/system/executive_autopoiesis.go:25` retains the exact latest
+model response separately from feedback's validated code. The handler parses
+metadata from that successful response and always executes only the validated
+rule. Syntax validation no longer invents confidence. The parser at line 239
+accepts the documented labels and the normal surface-response JSON/string
+wrappers; missing, duplicate, malformed, non-finite and out-of-range confidence
+stays unknown. The existing 0.8 threshold and core rule gates remain unchanged.
+Pending confidence uses integer percentages in Mangle, while the proposal keeps
+its 0..1 ratio. `internal/shards/system/executive_metadata_test.go:43` exercises
+the actual handler, scripted generation/retry, real feedback validation and real
+kernel adoption/pending outcomes. This is offline evidence, not live model
+qualification; the separate constitution autopoiesis path is unchanged.
