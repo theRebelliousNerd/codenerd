@@ -454,3 +454,25 @@ limits specified in `Docs/architecture/campaign/MISSION-IMPROVEMENT.md`.
 An optional `IncompleteObserver` also receives uncertainty from broker
 settlement without adding a synthetic billing report. This keeps one missing
 call unknown even when other calls in the enclosing phase have complete usage.
+
+## Versioned TypeSafe price
+
+The documented Jev 1.14.0 response identity is priced at $0.042 per million input
+tokens, with free output, from [TypeSafe models](https://docs.typesafe.ai/models)
+(verified 2026-10-31). `Price.ExactModel` opts this entry into normalized identity
+equality; its matching mode contributes to its price-version digest. Existing
+entries and registered prices retain default prefix behavior and their previous
+version digests. A registered override may explicitly select either mode.
+
+Moving aliases, missing response identity and undocumented versions or suffixes
+remain unpriced. The configured model selection is unchanged; each response
+provides its answered version. Complete below-budget usage may proceed, complete
+over-budget usage stops, and unknown identity remains a stop. Prices remain
+estimates, not invoices, reservations or hard billing quotas.
+
+Wiring: `internal/usage/pricing.go:20` defines the opt-in mode,
+`internal/usage/pricing.go:194` enforces it and
+`internal/usage/pricing.go:215` versions it. Pricing and mission controls are in
+`internal/usage/typesafe_pricing_test.go:8`,
+`internal/usage/typesafe_pricing_test.go:25`, and
+`internal/campaign/recurse_mission_typesafe_price_test.go:28`.

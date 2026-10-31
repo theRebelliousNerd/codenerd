@@ -134,3 +134,13 @@ stats := tracker.Stats()
 | JSON field names on aggregates | **De facto stable** — on-disk contract |
 | `Events` / `Cost` semantics | **Unstable / reserved** |
 | String context keys | **De facto contract** with shards; changing breaks attribution |
+
+## Exact model price entries
+
+`Price.ExactModel` is opt-in. False retains the existing normalized-prefix
+matching and version digest. True requires equality with the normalized model
+ID and adds the matching mode to the price-version digest. `RegisterPrice`
+preserves the supplied mode, so callers may retain prefix overrides or request
+an exact identity. The built-in Jev 1.14.0 entry uses exact matching; aliases and
+undocumented response identities remain unknown. This adds no model default,
+provider selection, billing reservation or change to mission admission policy.

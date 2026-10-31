@@ -62,3 +62,23 @@ Shard **name** is read from context but not aggregated. Session table is tracked
 | Failure modes | [12-FAILURE-MODES.md](12-FAILURE-MODES.md) |
 | Backlog | [TODO.md](TODO.md) |
 | Design forks | [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) |
+
+## Required contract: versioned TypeSafe cost estimation
+
+A TypeSafe response naming the documented `jev-1.14.0` must be priced at
+$0.042 per million input tokens, with zero output cost, under a reproducible
+price version. Source: [TypeSafe models](https://docs.typesafe.ai/models),
+verified 2026-10-31. Configured aliases remain unchanged: the response model
+identifies the answering version. Moving aliases, missing version identity and
+undocumented future versions remain unpriced and must stop mission admission.
+Partial/missing usage retains its existing fail-closed behavior. This estimate
+is not an invoice or a hard provider billing cap.
+
+| Gap ID | Deficiency | Target | Status | Exit criteria |
+|---|---|---|---|---|
+| GAP-USAGE-TYPESAFE-PRICE | Jev 1.14 responses have no recorded price, so mission spend becomes unknown. | The versioned estimation contract above. | Closed for the documented exact-version estimate | Pricing and real TypeSafe-client-to-mission fixtures retain reported counts and one versioned charge, admit known below-budget usage, stop known over-budget usage, and refuse alias/future/absent identity. |
+
+Verified by `internal/usage/typesafe_pricing_test.go:8`,
+`internal/usage/typesafe_pricing_test.go:25` and
+`internal/campaign/recurse_mission_typesafe_price_test.go:28`. Near-match suffixes
+are refused as unknown; existing prefix and operator-override behavior remains.

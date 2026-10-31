@@ -18,6 +18,9 @@ const MicroUSDPerUSD float64 = 1_000_000
 // order-of-magnitude answer to "what did this session cost", not an invoice.
 // TokenCounts.Cost is always an estimate; the provider's billing is the record.
 type Price struct {
+	// ExactModel applies this entry only to its normalized model ID. The
+	// default preserves prefix matching, including operator-registered prices.
+	ExactModel    bool
 	InputPerMTok  float64
 	OutputPerMTok float64
 	// CacheReadPerMTok/CacheWritePerMTok price the cached sub-counts of
@@ -61,13 +64,18 @@ func (p Price) CostDetailed(input, output, cacheRead, cacheWrite int64) float64 
 }
 
 // priceTable maps a lowercase model-name prefix to its price. Lookup picks the
-// longest matching prefix, so "claude-opus-4-5-20260101" resolves through
+// longest matching entry (respecting ExactModel), so "claude-opus-4-5-20260101" resolves through
 // "claude-opus-4-5" rather than the shorter "claude-opus".
 //
 // Unknown models resolve to no price and contribute zero cost, which is why
 // Stats reports CostKnown alongside Cost: a $0.00 total means "nothing priced",
 // not "nothing spent".
 var priceTable = map[string]Price{
+	// TypeSafe: https://docs.typesafe.ai/models, verified 2026-10-31.
+	// Price the answered version only; moving aliases and future versions
+	// remain unknown. Jev bills input tokens only; output tokens are free.
+	"jev-1.14.0": {ExactModel: true, InputPerMTok: 0.042},
+
 	// Anthropic (Haiku 5.5's rate holds for prompts up to 100K tokens; above
 	// that it is $0.50/$2.50, which this table does not model)
 	"claude-fable-5":   {InputPerMTok: 10, OutputPerMTok: 50.00, CacheReadPerMTok: 1, CacheWritePerMTok: 12.5},
@@ -175,7 +183,8 @@ func priceKeys() []string {
 // LookupPriceVersion resolves a model name to its price and the version of
 // the entry that priced it: the table key it matched and a digest of its
 // rates. The bool reports whether the model was found; callers must not treat
-// a zero Price as "free". Matching is prefix-based on the lowercased name
+// a zero Price as "free". Matching is prefix-based unless ExactModel requires
+// equality, over the lowercased name
 // after stripping any provider route prefix ("openai/gpt-4o",
 // "anthropic.claude-sonnet-4" → "gpt-4o", "claude-sonnet-4"), because engines
 // name the same model several ways. The version is stamped
@@ -192,21 +201,29 @@ func LookupPriceVersion(model string) (Price, string, bool) {
 			priceMu.RLock()
 			p := priceTable[k]
 			priceMu.RUnlock()
+			if p.ExactModel && name != k {
+				continue
+			}
 			return p, p.version(k), true
 		}
 	}
 	return Price{}, "", false
 }
 
-// version names a price entry: its table key and a digest of every rate.
+// version names a price entry: its key and a digest of rates and matching mode.
+// Default prefix entries retain their existing version digest.
 func (p Price) version(key string) string {
 	h := fnv.New32a()
 	fmt.Fprintf(h, "%g/%g/%g/%g", p.InputPerMTok, p.OutputPerMTok, p.CacheReadPerMTok, p.CacheWritePerMTok)
+	if p.ExactModel {
+		fmt.Fprint(h, "/exact")
+	}
 	return fmt.Sprintf("%s@%08x", key, h.Sum32())
 }
 
 // RegisterPrice adds or overrides a price entry at runtime, for operators whose
-// negotiated rates differ from list price. The key is matched as a prefix.
+// negotiated rates differ from list price. The key is matched as a prefix
+// unless p.ExactModel explicitly requires equality.
 func RegisterPrice(modelPrefix string, p Price) {
 	key := normalizeModelName(modelPrefix)
 	if key == "" {

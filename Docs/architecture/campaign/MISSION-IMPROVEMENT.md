@@ -285,3 +285,18 @@ persisted and the next admission stops `/unknown_spend`; clean responses remain
 admitted. This is a passing offline control, not proof the failed attempt was
 billed, a universal transport guarantee or a hard billing cap. Existing phase
 limits, ownership and recovery remain unchanged. See GAP-PERCEPTION-ACCEPTED-READ.
+
+## Known TypeSafe response prices
+
+Configured TypeSafe judgments participate in mission accounting through their
+response model and reported usage. Documented version prices may admit complete
+usage below the envelope and stop complete usage above it. A missing or moving
+model identity, an undocumented version, or incomplete usage must retain the
+existing unknown-spend stop. No judgment is disabled to make a mission proceed,
+and no estimate supplies a hard billing guarantee.
+
+`internal/campaign/recurse_mission_typesafe_price_test.go:28` exercises the real
+TypeSafe client, observer, durable mission state and existing admission policy
+with an in-memory transport. The checks cover known below/over-budget spend and
+alias, future, near-match and missing identity stops. The production mission
+policy and meter are unchanged.
