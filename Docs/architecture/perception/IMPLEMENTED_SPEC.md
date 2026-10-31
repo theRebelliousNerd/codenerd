@@ -1,5 +1,17 @@
 # perception — Implemented Spec (Deep-Dive)
 
+## Compatible and Responses transport uncertainty
+
+Compatible Chat (`internal/perception/client_openai_compat.go:545`), shared
+non-streaming Responses (`internal/perception/responses_transport.go:57`) and
+grounded search (`internal/perception/client_openai_compat_grounding.go:239`)
+notify existing incomplete captures after HTTP transport errors. Later success
+keeps its known counts without resolving the failed exchange's unknown cost.
+Retry, cancellation and grounded error sanitization retain their contracts.
+Local repair `33bf57d2731bde876270dfe635b4efa4177be869` is controlled by actual
+server/broker fixtures and the real mission kernel; other transport loops,
+non-200 billing and hard billing bounds remain outside this result.
+
 ## Ambiguous Anthropic transport exchanges
 
 `internal/perception/anthropic_transport.go:147` notifies existing incomplete

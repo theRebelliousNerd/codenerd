@@ -1,5 +1,18 @@
 # 02 — Current State (perception)
 
+## Bounded compatible and Responses transport uncertainty
+
+Local repair `33bf57d2731bde876270dfe635b4efa4177be869` preserves uncertainty
+after transport errors in compatible Chat, shared non-streaming Responses and
+explicit grounded search. Known successful counts remain present; recovered
+lost responses produce partial broker receipts and stop mission admission via
+`/unknown_spend`. Actual endpoint-receipt and production single-key factory
+controls are in `internal/perception/cross_provider_lost_response_test.go:17`
+and `internal/campaign/recurse_mission_cross_loss_test.go:23`. Clean success,
+typed cancellation, retry limits, grounded sanitization and shared OpenAI
+controls pass. This does not classify non-200 billing or hard billing limits;
+publication requires the unavailable private-terms scanner.
+
 ## Bounded Anthropic lost-response uncertainty
 
 Local repair `271336b1b43d9feeda0450ae1b76fdac00caf617` notifies incomplete

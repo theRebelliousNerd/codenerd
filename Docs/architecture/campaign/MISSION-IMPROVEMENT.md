@@ -106,6 +106,16 @@ path through the broker and real mission kernel, retaining known spend and
 persisting `/unknown_spend`; clean admission and the known-spend stop remain
 distinct. Gate and recovery implementations are not changed by this contract.
 
+Local repair `33bf57d2731bde876270dfe635b4efa4177be869` closes that boundary.
+`internal/campaign/recurse_mission_cross_loss_test.go:23` routes all three
+single-key factory paths through actual local endpoints, the broker and real
+kernel. A received request with a lost response followed by counted success
+retains 2,000 micro-USD known and persists `/unknown_spend`. Clean 2,000
+micro-USD remains admitted; known 4,000 micro-USD under a 3,000 micro-USD cap
+persists `/spend`. Grounded routes declare web search on `/responses`; no live
+search is performed. Saved state retains counts and stop status. Publication
+requires the private-terms scan; gate and recovery code remain unchanged.
+
 That adapter boundary is closed locally in
 `271336b1b43d9feeda0450ae1b76fdac00caf617`. The actual single-key production
 factory and real-kernel mission control in

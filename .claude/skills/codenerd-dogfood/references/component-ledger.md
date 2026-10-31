@@ -6485,3 +6485,34 @@ no charge or missing amount is invented. Non-200 billing classification, other
 provider transports, per-use fees and hard billing limits remain outside this
 result. Publication awaits the required unavailable private-terms scanner.
 No qualifying R7 claim. **Streak 0.**
+
+
+## R7 follow-up, compatible and Meta lost responses — local hand repair (2026-10-31)
+
+Codex hand-authored this bounded batch; no CodeNERD edits or provider calls.
+Actual local endpoints consume inference bodies then close without headers.
+Fail-before recovers in compatible Chat, search-enabled Meta Responses and
+explicit grounded search with reported broker receipts and unknown=false.
+All three production single-key factory/real-kernel missions admit further
+work with only 2,000 micro-USD of known successful usage. Clean, cancellation,
+exhaustion and known-budget controls pass. Fail-before has 15 pass and 8 fail
+events, including parent events, with no fixture compile errors.
+
+Local repair `33bf57d2731bde876270dfe635b4efa4177be869` adds existing incomplete
+notifications at the three HTTP transport-error boundaries. Known counts stay
+present, recovered receipts become partial, and missions persist
+`/unknown_spend`. Clean calls stay admitted; known over-budget calls persist
+`/spend`. Retry, cancellation, grounded error sanitization and shared OpenAI
+controls retain their behavior. No gate, permission or recovery code changes.
+
+23 focused controls and 230 repeated race checks pass. Broader compatible,
+Meta, grounded, OpenAI, usage and key-pool race controls pass 233 with nine live
+skips. Complete broker/usage/campaign race suites pass 1,852 checks. Full
+uncached offline sqlite_vec tests pass 22,106 with 80 skips; tagged build and
+vet pass. Assertions and VCS stamping are retained under the established
+selective temporary-directory wrapper. Main, prior candidates and evidence
+remain unchanged. Transport errors are conservatively unknown and no missing
+charge is invented. Non-200 billing, malformed replies, other transport loops,
+stream setup/midstream failures, per-use fees and hard billing limits remain
+outside this result. Publication awaits the required unavailable private-terms
+scanner. No qualifying R7 claim. **Streak 0.**

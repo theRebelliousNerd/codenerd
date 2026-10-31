@@ -1,18 +1,23 @@
 # 03 — Gap Analysis (perception)
 
-## Accepted cross-provider lost-response uncertainty target
+## Cross-provider lost-response uncertainty
 
-GAP-PERCEPTION-CROSS-LOSS: compatible Chat, Meta Responses and explicit
-grounded-search transports can lose a response, retry internally and report
-only the counted success. The accepted bounded target is to notify existing
-incomplete observers immediately after their HTTP exchange fails, before retry
-or cancellation, preserving every known count and inventing no charge. Keep
-clean success, retry bounds, typed cancellation and grounded error sanitization
-intact. Shared Responses/search helpers must retain OpenAI behavior. Exit:
-actual local servers consume inference bodies and close without headers;
-broker receipts retain counts as partial, real-kernel missions stop unknown
-spend, and clean/known-budget controls remain distinct. This covers the three
-non-streaming funnels; non-200 billing and other transports remain separate.
+GAP-PERCEPTION-CROSS-LOSS is closed locally in
+`33bf57d2731bde876270dfe635b4efa4177be869`. Compatible Chat
+(`internal/perception/client_openai_compat.go:545`), shared non-streaming
+Responses (`internal/perception/responses_transport.go:57`) and grounded search
+(`internal/perception/client_openai_compat_grounding.go:239`) notify existing
+incomplete observers after transport errors, before retry/cancellation.
+Known counts survive and missing cost stays unknown without inventing a bill.
+Actual-server broker controls are in
+`internal/perception/cross_provider_lost_response_test.go:17`; the three
+production single-key factory/real-kernel mission paths are controlled in
+`internal/campaign/recurse_mission_cross_loss_test.go:23`. They preserve clean
+success, cancellation, retry bounds and known-budget stops while persisting
+`/unknown_spend` after recovery. Existing sanitizer and shared OpenAI controls
+pass. This covers three non-streaming funnels; non-200 billing, other transport
+loops and hard billing limits remain separate. Publication awaits the required
+private-terms scanner; no live qualification follows.
 
 ## Anthropic lost-response uncertainty
 

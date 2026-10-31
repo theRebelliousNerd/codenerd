@@ -1,5 +1,16 @@
 # 08 — Wiring and Integration (perception)
 
+## Compatible and Responses transport uncertainty
+
+The compatible Chat, shared non-streaming Responses and grounded-search HTTP
+error branches notify the existing `usage.IncompleteObserver` chain before
+retry/cancellation. Broker and enclosing mission captures retain that signal
+alongside the later successful report; no synthetic usage is added. The normal
+single-key factory paths for Chat, search-enabled Meta completion and explicit
+grounded search are controlled in
+`internal/campaign/recurse_mission_cross_loss_test.go:23`. Shared OpenAI and
+key-pool wrappers retain their existing routing and error behavior.
+
 ## Anthropic lost-response uncertainty
 
 `sendMessages` (`internal/perception/anthropic_transport.go:147`) notifies the

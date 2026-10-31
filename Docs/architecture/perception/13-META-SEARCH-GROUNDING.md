@@ -48,7 +48,7 @@ Google Search grounding.
   `internal/perception/client_meta_responses.go:1043`) and land where Gemini's grounding sources
   land.
 - **Tool.** `grounded_web_search` (`GroundedWebSearch`,
-  `internal/perception/client_openai_compat_grounding.go:166`) returns text, citations, every
+  `internal/perception/client_openai_compat_grounding.go:167`) returns text, citations, every
   retrieved page (title, url, snippet) and usage (`internal/tools/research/grounded_web_search.go`),
   so a model can read an uncited page in full with `web_fetch`.
 
