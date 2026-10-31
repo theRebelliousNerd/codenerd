@@ -1,5 +1,19 @@
 # 03 — Gap Analysis (perception)
 
+## Accepted cross-provider lost-response uncertainty target
+
+GAP-PERCEPTION-CROSS-LOSS: compatible Chat, Meta Responses and explicit
+grounded-search transports can lose a response, retry internally and report
+only the counted success. The accepted bounded target is to notify existing
+incomplete observers immediately after their HTTP exchange fails, before retry
+or cancellation, preserving every known count and inventing no charge. Keep
+clean success, retry bounds, typed cancellation and grounded error sanitization
+intact. Shared Responses/search helpers must retain OpenAI behavior. Exit:
+actual local servers consume inference bodies and close without headers;
+broker receipts retain counts as partial, real-kernel missions stop unknown
+spend, and clean/known-budget controls remain distinct. This covers the three
+non-streaming funnels; non-200 billing and other transports remain separate.
+
 ## Anthropic lost-response uncertainty
 
 GAP-PERCEPTION-ANTHROPIC-LOST-RESPONSE is closed locally in

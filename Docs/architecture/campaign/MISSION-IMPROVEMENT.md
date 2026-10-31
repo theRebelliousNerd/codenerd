@@ -98,6 +98,14 @@ without headers is the required control, with clean success still admitted.
 GAP-PERCEPTION-ANTHROPIC-LOST-RESPONSE owns this bounded adapter strengthening;
 mission gate and recovery implementations must remain unchanged.
 
+The same lost-response contract applies to compatible Chat, Meta Responses
+completions and explicit grounded search. Their transport retries must not hide
+an unknown exchange behind a counted success. GAP-PERCEPTION-CROSS-LOSS owns
+this bounded batch. Production single-key factory controls must exercise each
+path through the broker and real mission kernel, retaining known spend and
+persisting `/unknown_spend`; clean admission and the known-spend stop remain
+distinct. Gate and recovery implementations are not changed by this contract.
+
 That adapter boundary is closed locally in
 `271336b1b43d9feeda0450ae1b76fdac00caf617`. The actual single-key production
 factory and real-kernel mission control in

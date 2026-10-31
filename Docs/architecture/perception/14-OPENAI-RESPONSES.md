@@ -1,5 +1,15 @@
 # 14 — OpenAI on the Responses API (as built, 2026-10-29)
 
+## Accepted transport uncertainty contract
+
+Shared non-streaming Responses and grounded-search helpers must notify enclosing
+incomplete-usage observers after an HTTP transport error, before retry or typed
+cancellation returns. A later counted success preserves its counts and cannot
+resolve the failed exchange's unknown cost. GAP-PERCEPTION-CROSS-LOSS owns this
+bounded strengthening across the shared helpers. Keep OpenAI request, answer,
+retry and sanitized grounded-error behavior intact; no billing amount is
+invented and non-200 billing classification remains separate.
+
 ## What changed
 
 `OpenAIClient` (`internal/perception/client_openai*.go`) sends every request to

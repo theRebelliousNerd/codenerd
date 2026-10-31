@@ -570,6 +570,8 @@ func (c *OpenAICompatClient) executeChat(ctx context.Context, reqBody OpenAIRequ
 		attemptStart := time.Now()
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
+			// The endpoint may have received the request before its response was lost.
+			usage.NoteUnknownUsage(ctx)
 			lastErr = fmt.Errorf("request failed: %w", err)
 			// Log it. A transport-level failure was the one retry path with no
 			// log line at all, while 429s and retryable statuses both logged —

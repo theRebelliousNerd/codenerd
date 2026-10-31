@@ -1,5 +1,18 @@
 # 09 — Safety and Invariants (perception)
 
+## Compatible and Responses transport uncertainty
+
+A lost response in compatible Chat, shared non-streaming Responses or explicit
+grounded search may hide endpoint work. Notify existing incomplete captures at
+the HTTP transport-error boundary before retry or cancellation. Known reports
+remain lower bounds; later success cannot make the missing exchange free. Do
+not invent a token report. Keep error identity and the grounded transport's
+sanitized messages intact: uncertainty signaling must not expose vendor text,
+keys or new payloads. Clean responses remain certain. Actual local-server,
+broker and real-kernel mission controls must cover all three funnels, with
+cancellation, bounded exhaustion and known-budget positive controls. Other
+transports and non-200 billing classification are outside this bounded target.
+
 ## Anthropic transport-error uncertainty
 
 A failed Messages transport exchange may have reached the endpoint and lost

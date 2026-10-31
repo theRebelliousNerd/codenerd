@@ -13,6 +13,7 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
+	"codenerd/internal/usage"
 )
 
 // compile-time assertion that OpenAICompatClient implements GroundedWebSearcher.
@@ -273,6 +274,8 @@ func postGroundedSearch(ctx context.Context, e responsesEndpoint, reqBody respon
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
+			// Signal uncertainty without exposing the raw transport error.
+			usage.NoteUnknownUsage(ctx)
 			// Never expose API key or arbitrary provider text from a custom
 			// RoundTripper. Preserve context cancellation/deadline identity so
 			// callers can distinguish timeouts, but otherwise return a generic
