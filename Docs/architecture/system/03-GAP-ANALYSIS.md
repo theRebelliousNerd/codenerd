@@ -1,5 +1,11 @@
 # Gap analysis: system
 
+## Test-kernel concurrency (2026-10-31)
+
+| Gap ID | Current evidence | Required boundary | Exit criteria | Status |
+|---|---|---|---|---|
+| GAP-SYSTEM-TEST-KERNEL-CONCURRENCY | The Chrome rollback fixture injects the test-only mock (`internal/system/factory_research_browser_test.go:142`, `TestBootRollback_EndsResearchHeadlessChrome`); baseline race traces report concurrent mock AssertBatch/Query access. | Test fixture fact storage must serialize mutation and detach ingestion/query containers. Production kernel and browser code remain unchanged. | Deterministic ownership/no-loss tests, actual Chrome rollback/close race controls and system package verification pass. | Locally implemented; verification pending. Publication still requires the unavailable private-terms scan. |
+
 ## Knowledge refresh invocation ownership (2026-10-31)
 
 | Gap ID | Current state | Target | Exit criteria | Status |

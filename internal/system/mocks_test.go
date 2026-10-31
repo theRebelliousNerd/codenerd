@@ -2,6 +2,8 @@ package system
 
 import (
 	"context"
+	"slices"
+	"sync"
 
 	"codenerd/internal/core"
 	"codenerd/internal/types"
@@ -10,20 +12,22 @@ import (
 // --- MockSystemKernel ---
 
 type MockSystemKernel struct {
+	mu      sync.RWMutex
 	facts   []core.Fact
 	asserts []core.Fact
 }
 
 func (m *MockSystemKernel) LoadFacts(facts []core.Fact) error {
-	m.facts = append(m.facts, facts...)
-	return nil
+	return m.AssertBatch(facts)
 }
 
 func (m *MockSystemKernel) Query(predicate string) ([]core.Fact, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	var results []core.Fact
 	for _, f := range m.facts {
 		if f.Predicate == predicate {
-			results = append(results, f)
+			results = append(results, cloneMockFact(f))
 		}
 	}
 	return results, nil
@@ -34,14 +38,27 @@ func (m *MockSystemKernel) QueryAll() (map[string][]core.Fact, error) {
 }
 
 func (m *MockSystemKernel) Assert(fact core.Fact) error {
-	m.facts = append(m.facts, fact)
-	m.asserts = append(m.asserts, fact)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.facts = append(m.facts, cloneMockFact(fact))
+	m.asserts = append(m.asserts, cloneMockFact(fact))
 	return nil
 }
 
 func (m *MockSystemKernel) AssertBatch(facts []core.Fact) error {
-	m.facts = append(m.facts, facts...)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, fact := range facts {
+		m.facts = append(m.facts, cloneMockFact(fact))
+	}
 	return nil
+}
+
+// Keep fixture fact/argument containers owned across browser callbacks and
+// snapshot readers. The values inside Args keep their existing semantics.
+func cloneMockFact(fact core.Fact) core.Fact {
+	fact.Args = slices.Clone(fact.Args)
+	return fact
 }
 
 func (m *MockSystemKernel) Retract(predicate string) error {

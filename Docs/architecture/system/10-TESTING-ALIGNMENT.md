@@ -1,5 +1,37 @@
 # Testing alignment: system
 
+## Required concurrent fixture contract (2026-10-31)
+
+The Chrome rollback fixture explicitly injects `MockSystemKernel`
+(`internal/system/factory_research_browser_test.go:142`,
+`TestBootRollback_EndsResearchHeadlessChrome`). Browser event producers and
+fact readers legitimately run concurrently. The mock must serialize mutations
+of its fact/assertion slices and return detached fact/argument containers;
+caller-owned ingestion or query slices must not mutate its stored evidence.
+Deterministic ownership and concurrent no-loss tests must run without Chrome,
+followed by the actual Chrome rollback and normal production-kernel close
+fixtures under race. Preserve the mock's intentionally limited semantics:
+exact predicate matching, nil QueryAll, existing assertion recording and no-op
+retractions. This is a test-helper repair, not a change to production kernel,
+browser behavior, permissions or lifecycle acceptance standards.
+
+The local helper implementation serializes writes through `MockSystemKernel.Assert`
+and `AssertBatch` and clones argument containers for `Query`
+(`internal/system/mocks_test.go:40`, `internal/system/mocks_test.go:48`,
+`internal/system/mocks_test.go:24`). `cloneMockFact` detaches the argument slice
+while retaining the existing semantics of values inside it
+(`internal/system/mocks_test.go:59`). `TestMockSystemKernelOwnsIngestedFacts`,
+`TestMockSystemKernelQueryOwnsItsSnapshot` and
+`TestMockSystemKernelConcurrentFactProducersAndReaders` provide the deterministic
+ownership/no-loss regressions (`internal/system/mock_kernel_concurrency_test.go:12`,
+`internal/system/mock_kernel_concurrency_test.go:39`,
+`internal/system/mock_kernel_concurrency_test.go:60`). Their fail-before receipts
+and local race checks are retained; aggregate verification is recorded separately.
+The mock is a test-only type, not the kernel used by ordinary boot:
+`initKernel` uses `NewDomainCortex` unless a caller explicitly overrides it
+(`internal/system/factory.go:1439`). This evidence does not establish a general
+absence of production browser races.
+
 > Last verified: 2026-07-13. Tests are selected by risk boundary, not file count.
 
 ## Verification ladder

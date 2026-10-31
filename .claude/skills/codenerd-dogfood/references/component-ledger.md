@@ -1,5 +1,28 @@
 # codeNERD Component Ledger
 
+## 2026-10-31 local Chrome fixture mock-kernel repair
+
+The Chrome rollback race found during timestamp verification was traced to
+`MockSystemKernel`, a test-only type explicitly injected by the fixture
+(`internal/system/mocks_test.go:14`,
+`internal/system/factory_research_browser_test.go:142`,
+`TestBootRollback_EndsResearchHeadlessChrome`). Normal boot selects the production
+Cortex kernel unless explicitly overridden (`internal/system/factory.go:1439`,
+`initKernel`). No production Go source changed in this hand-edited follow-up.
+
+Deterministic tests failed before repair on aliased ingestion/query containers;
+an independent concurrent producer/reader test also failed under race without
+Chrome. The helper now serializes fact writes and returns detached argument
+containers, retaining its existing limited mock semantics. All six new cases
+pass ten repetitions under race (60 pass), and five repetitions each of the
+actual mock rollback and production-kernel close fixtures pass (10 pass, no
+skips). The complete Cortex race suite passes (295 pass, one skip). Full offline
+sqlite_vec tests (22010 pass, 80 skip), build and vet pass. The old failures are
+retained as fail-before evidence; this is not a new production-browser race
+finding or a live R7 qualification. Existing candidate branches are preserved.
+No live provider calls, merge or push occurred. Publication still awaits the
+required unavailable private-terms scan; the rule was not changed.
+
 ## 2026-10-31 local resident-shard timestamp race repair
 
 The earlier refresh verification exposed a shutdown timestamp race, independently
