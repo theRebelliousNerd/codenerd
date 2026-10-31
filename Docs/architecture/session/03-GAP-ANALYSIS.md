@@ -1,5 +1,45 @@
 # 03 — Gap Analysis: session
 
+## GAP-SESSIONLOG-TRANSCRIPT-CRASH-CONSISTENCY
+
+Each successful transcript append must publish a complete `codenerd.transcript/1`
+JSON snapshot while preserving the previous committed snapshot until replacement
+is ready. Use the existing atomic-file protocol: a unique sibling temporary
+file, sync before replacement and best-effort containing-directory sync. Keep
+the schema, ordered header/extensions, line arrays, event order, sequence
+continuation and existing file mode. A failed append must not consume a sequence
+number or destroy earlier committed events.
+
+Legacy in-place appends can leave a recognized transcript's final event or
+closing tail incomplete. Recover only fully decoded events under an intact
+matching schema, text encoding, session and agent header. Preserve raw history
+through the last complete event; do not invent a missing event or rewrite
+unknown identity, malformed earlier content or unrelated JSON. Reopening must
+atomically publish recovered history before appending. Search may read that
+recoverable prefix without modifying the file and must ignore unfinished
+temporary snapshots. Unrecoverable files remain untouched and visibly counted
+by the existing recording-failure path.
+
+Status: implemented for transcript snapshot publication and recognized torn-tail
+recovery. `Transcript.open` repairs recognized legacy tails before sequence
+continuation (`internal/sessionlog/transcript.go:217`); `Transcript.write`
+publishes complete ordered snapshots through atomic replacement (`:281`).
+`recoverTranscriptTail` validates the recovery boundary (`:323`), and Search
+uses that same read-only recovery (`internal/sessionlog/search.go:142`).
+Deterministic interruption, old-reader, reopen/search, identity refusal, retry,
+initial-mode and concurrent-reader controls live in
+`internal/sessionlog/transcript_durability_test.go`.
+Exit: deterministic interrupted legacy writes, including early residual-tail
+bytes and a fully encoded event missing its tail, remain searchable and resume
+recording after reopening. An old open reader retains its complete prior
+snapshot across a new append. Negative identity/corruption, unknown-field,
+concurrent append and incomplete-temporary-file controls pass under race.
+
+Snapshot publication reads and rewrites the current transcript per event, with
+memory, temporary space and I/O proportional to its size. This bounded repair
+retains the existing single-Store writer ownership; it does not add cross-process
+append coordination or claim physical power-loss guarantees on every filesystem.
+
 ## GAP-SESSION-CRITIC-DIAGNOSTIC-OWNER-STOP
 
 Optional critic grounding has its own positive `session.lsp_timeout` bound, but

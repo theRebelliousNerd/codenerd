@@ -135,7 +135,15 @@ func Search(workspace, text string, opt SearchOptions) ([]Hit, error) {
 			if !agentMatches(agent, opt.Agent) {
 				return nil
 			}
-			data, err := os.ReadFile(path)
+			var data []byte
+			if d.Name() == TranscriptFile {
+				data, err = readTranscriptFile(path)
+				if err == nil {
+					data, err = recoverTranscriptTail(data, transcriptHeader{Session: s.ID, Agent: agent})
+				}
+			} else {
+				data, err = os.ReadFile(path)
+			}
 			if err != nil {
 				return nil
 			}

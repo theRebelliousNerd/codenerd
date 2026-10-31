@@ -1,8 +1,10 @@
 package sessionlog
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/atomicfile"
 	"codenerd/internal/usage"
 )
 
@@ -47,9 +50,9 @@ type TranscriptEvent struct {
 // when the call returns, so an agent that crashes or is cancelled leaves a
 // transcript complete up to that point. All methods are nil-safe.
 //
-// The file is a JSON document that stays valid after every append: a fixed
-// closing tail is overwritten by the next event and the tail rewritten after
-// it.
+// Each append atomically replaces a complete JSON snapshot. A reader sees the
+// previous committed history until its replacement is ready. Writers in one
+// Store are serialized by mu; separate processes must not share an agent path.
 type Transcript struct {
 	store  *Store
 	path   string
@@ -215,13 +218,27 @@ func (t *Transcript) open() error {
 	if t.opened {
 		return nil
 	}
-	if data, err := os.ReadFile(t.path); err == nil && len(data) > 0 {
+	data, err := readTranscriptFile(t.path)
+	missing := os.IsNotExist(err)
+	if err != nil && !missing {
+		return err
+	}
+	if len(data) > 0 {
+		recovered, err := recoverTranscriptTail(data, t.header)
+		if err != nil {
+			return fmt.Errorf("transcript %s cannot be recovered: %w", t.path, err)
+		}
+		if !bytes.Equal(data, recovered) {
+			if err := atomicfile.WriteFilePreservingMode(t.path, recovered, 0o644); err != nil {
+				return err
+			}
+		}
 		var existing struct {
 			Events []struct {
 				Seq int `json:"seq"`
 			} `json:"events"`
 		}
-		if err := json.Unmarshal(data, &existing); err != nil {
+		if err := json.Unmarshal(recovered, &existing); err != nil {
 			return fmt.Errorf("transcript %s exists and is not valid JSON: %w", t.path, err)
 		}
 		for _, e := range existing.Events {
@@ -239,47 +256,152 @@ func (t *Transcript) open() error {
 	// head ends "...\n}\n": reopen the object to add the events array.
 	head = head[:len(head)-len("\n}\n")]
 	doc := append(head, []byte(",\n  \"events\": ["+transcriptTail)...)
-	if err := os.WriteFile(t.path, doc, 0o644); err != nil {
+	if missing {
+		// Let the OS apply the inherited umask, as the old first write did.
+		// Only an empty new file is exposed before atomic publication; no
+		// completed event or header is ever mutated in place.
+		f, err := os.OpenFile(t.path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err != nil {
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
+	}
+	if err := atomicfile.WriteFilePreservingMode(t.path, doc, 0o644); err != nil {
 		return err
 	}
 	t.opened = true
 	return nil
 }
 
-// write appends one event body before the tail.
-func (t *Transcript) write(body []byte) (err error) {
-	f, err := os.OpenFile(t.path, os.O_RDWR, 0o644)
+// write publishes an extended snapshot without modifying the committed inode.
+// Preserve ordered/unknown fields and exact json.Number values, not only fields
+// known to this version. This costs a read and rewrite proportional to history.
+func (t *Transcript) write(body []byte) error {
+	data, err := readTranscriptFile(t.path)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if cerr := f.Close(); err == nil {
-			err = cerr
+	tree, err := DecodeOrdered(data)
+	if err != nil {
+		return err
+	}
+	doc, ok := tree.(*Object)
+	if !ok {
+		return fmt.Errorf("transcript %s is not an object", t.path)
+	}
+	events, ok := doc.Values["events"].([]any)
+	if !ok {
+		return fmt.Errorf("transcript %s has no events array", t.path)
+	}
+	event, err := DecodeOrdered(body)
+	if err != nil {
+		return err
+	}
+	doc.Values["events"] = append(events, event)
+	snapshot, err := MarshalFile(doc)
+	if err != nil {
+		return err
+	}
+	return atomicfile.WriteFilePreservingMode(t.path, snapshot, 0o644)
+}
+
+// readTranscriptFile allows atomic replacement while a Windows reader is open.
+func readTranscriptFile(path string) ([]byte, error) {
+	f, err := atomicfile.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(f)
+}
+
+// recoverTranscriptTail repairs only a recognized legacy append interruption.
+// Complete prior event bytes and header extensions are retained verbatim. Bad
+// earlier syntax or an unknown identity remains an error, never a new document.
+func recoverTranscriptTail(data []byte, expected transcriptHeader) ([]byte, error) {
+	if json.Valid(data) {
+		return data, nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, fmt.Errorf("invalid transcript header")
+	}
+	header := make(map[string]json.RawMessage)
+	for dec.More() {
+		tok, err := dec.Token()
+		key, ok := tok.(string)
+		if err != nil || !ok {
+			return nil, fmt.Errorf("invalid transcript header field")
 		}
-	}()
-	size, err := f.Seek(0, io.SeekEnd)
-	if err != nil {
-		return err
+		if _, duplicate := header[key]; duplicate {
+			return nil, fmt.Errorf("duplicate transcript header field")
+		}
+		if key != "events" {
+			var value json.RawMessage
+			if err := dec.Decode(&value); err != nil {
+				return nil, err
+			}
+			header[key] = value
+			continue
+		}
+		for name, want := range map[string]string{"schema": TranscriptSchema, "text_encoding": TextEncoding, "session": expected.Session, "agent": expected.Agent} {
+			var got string
+			if err := json.Unmarshal(header[name], &got); err != nil || got != want {
+				return nil, fmt.Errorf("unrecognized transcript identity")
+			}
+		}
+		if tok, err := dec.Token(); err != nil || tok != json.Delim('[') {
+			return nil, fmt.Errorf("invalid transcript events array")
+		}
+		last := dec.InputOffset()
+		partial := false
+		for dec.More() {
+			var raw json.RawMessage
+			if err := dec.Decode(&raw); err != nil {
+				if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) && !interruptedTranscriptTail(data[last:]) {
+					return nil, err
+				}
+				partial = true
+				break
+			}
+			var ev TranscriptEvent
+			if err := json.Unmarshal(raw, &ev); err != nil || ev.Seq <= 0 || ev.Kind == "" {
+				return nil, fmt.Errorf("invalid completed transcript event")
+			}
+			last = dec.InputOffset()
+		}
+		// More also returns false on a closing delimiter or EOF. Refuse any
+		// unrelated bytes after a completed array instead of erasing them.
+		if !partial && !interruptedTranscriptTail(data[last:]) {
+			return nil, fmt.Errorf("invalid transcript closing tail")
+		}
+		recovered := append(append([]byte(nil), data[:last]...), transcriptTail...)
+		if !json.Valid(recovered) {
+			return nil, fmt.Errorf("invalid recovered transcript")
+		}
+		return recovered, nil
 	}
-	tail := int64(len(transcriptTail))
-	if size < tail {
-		return fmt.Errorf("transcript %s is shorter than its tail", t.path)
+	return nil, fmt.Errorf("transcript events array not found")
+}
+
+// Very early writes can leave closing bytes of the old fixed tail after a
+// comma/whitespace prefix. Later partial events must end at EOF instead.
+func interruptedTranscriptTail(data []byte) bool {
+	compact := bytes.Map(func(r rune) rune {
+		if r == ' ' || r == '\n' || r == '\r' || r == '\t' {
+			return -1
+		}
+		return r
+	}, data)
+	compact = bytes.TrimPrefix(compact, []byte(","))
+	switch string(compact) {
+	case "", "]", "}", "]}":
+		return true
+	default:
+		return false
 	}
-	// An empty array ends "[" + tail; a non-empty one ends "}" + tail.
-	probe := make([]byte, 1)
-	if _, err := f.ReadAt(probe, size-tail-1); err != nil {
-		return err
-	}
-	sep := "\n"
-	if probe[0] == '}' {
-		sep = ",\n"
-	}
-	if _, err := f.Seek(size-tail, io.SeekStart); err != nil {
-		return err
-	}
-	indented := indentEvent(body)
-	_, err = f.WriteString(sep + indented + transcriptTail)
-	return err
 }
 
 // indentEvent indents an event body (rendered at column 0) to sit inside the
