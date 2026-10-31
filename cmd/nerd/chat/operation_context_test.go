@@ -1,4 +1,14 @@
 package chat
+// TODO: Add negative test for null m.usageTracker behavior
+// TODO: Add boundary test for empty string m.sessionID
+// TODO: Add test verifying fallback to context.Background() when m.shutdownCtx is nil
+// TODO: Add adversarial test coercing extreme string lengths into m.sessionID (100MB string)
+// TODO: Add adversarial test for non-UTF8 / null byte injection in m.sessionID
+// TODO: Add test verifying context key collision resistance (are keys unexported types or strings?)
+// TODO: Add stress test simulating 1,000,000 concurrent context creations (Goroutine leak detection)
+// TODO: Add long-running duration simulation to test memory usage of un-cancelled contexts over 45 days
+// TODO: Add `-race` enabled concurrency test with 100 goroutines mutating the usage tracker on the same session
+// TODO: Add context cancellation race condition test (simultaneous cancel and tracker write)
 
 import (
 	"codenerd/internal/types"
