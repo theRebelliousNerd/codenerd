@@ -31,7 +31,9 @@ func DefaultMissionConfig() MissionConfig {
 			"internal/campaign/orchestrator_attempt_writes.go", "internal/campaign/orchestrator_utils.go",
 			"internal/campaign/recurse_mission_scope.go", "internal/session/write_guard.go",
 			"internal/session/build_verify.go", "internal/session/test_verify.go", "internal/session/critic.go",
-			"internal/campaign/orchestrator_acceptance.go", "internal/campaign/risk_gate_contract.go"}}
+			"internal/campaign/orchestrator_acceptance.go", "internal/campaign/risk_gate_contract.go",
+			"internal/perception/usage_track.go", "internal/broker/broker.go",
+			"internal/system/knowledge_refresh_scope.go", "internal/system/knowledge_refresh_boot.go"}}
 }
 
 func (c MissionConfig) WithDefaults() MissionConfig {

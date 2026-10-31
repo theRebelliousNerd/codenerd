@@ -9,6 +9,26 @@ still apply. Ordinary recurse retains its current behaviour.
 
 ## Required contract
 
+### Guard-source ownership
+
+GAP-CAMPAIGN-GUARD-SOURCES is accepted for a bounded host-authored restriction.
+The decoded usage sensor (`internal/perception/usage_track.go`), broker capture
+(`internal/broker/broker.go`) and refresh suspension/boot units
+(`internal/system/knowledge_refresh_scope.go`,
+`internal/system/knowledge_refresh_boot.go`) constrain the mission and remain
+owner-controlled source. Default mission protection and the repository's
+`nerd.md` forbid rules must refuse model writes to all four, including when they
+are within the admitted node. Existing protections remain in force. Ordinary
+source writes and protected-file reads remain available under their existing
+permissions. A writer that bypasses the tool guard must still be refused by the
+ratchet, with its owned writes restored. No recovery or permission-widening
+change belongs to this repair. Before closure, deterministic controls must show
+refusal before mutation, rollback after a bypass and ordinary-write success.
+Implementation and execution are pending; publication also requires the
+currently unavailable private-terms scanner.
+
+### Mission admission
+
 Before mission admission, the host must close knowledge-refresh admission,
 cancel and join its active refresh, and hold that suspension until mission end.
 The CLI also suppresses scheduling during mission Cortex boot. Missing or failed

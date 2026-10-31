@@ -165,3 +165,14 @@ Tests:
 - `internal/system/factory_model_override_test.go`, which checks the Ollama request body names the profile's model
 - `internal/session/serving_resolution_test.go`
 
+## Mission guard-source protection
+
+Accepted target: `DefaultMissionConfig().ProtectedPaths` adds the four guard
+units named by GAP-CAMPAIGN-GUARD-SOURCES in
+`../campaign/MISSION-IMPROVEMENT.md`. Extend the existing list; preserve defaults,
+caller configuration semantics, budgets and all existing protections. The
+repository's `nerd.md` also forbids tool writes to those exact units. These are
+source ownership restrictions, not new executive decisions or a change to
+mission recovery. Implementation and offline refusal/rollback controls are
+pending.
+

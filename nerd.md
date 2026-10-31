@@ -133,6 +133,22 @@ forbid:
       Derives permitted/3. Every other guard is downstream of it, so an agent
       able to edit this can authorise anything it likes, including its own
       exemptions.
+  - match: internal/perception/usage_track.go
+    reason: >-
+      Observes provider usage and preserves missing-attempt uncertainty.
+      The model must not alter the accounting that constrains its own work.
+  - match: internal/broker/broker.go
+    reason: >-
+      Owns inference admission, usage capture and settlement. Changes belong
+      to the owner, outside the model's tool execution path.
+  - match: internal/system/knowledge_refresh_scope.go
+    reason: >-
+      Suspends and joins knowledge refresh before mission admission. The
+      model must not amend the boundary that isolates its bounded mission.
+  - match: internal/system/knowledge_refresh_boot.go
+    reason: >-
+      Owns mission boot suppression and background refresh identity. These
+      restrictions must remain outside the model's write authority.
 require:
   - Run `go test ./...` before declaring work complete.
   - All Mangle predicates need a Decl before use, and no predicate may be
