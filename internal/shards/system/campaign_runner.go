@@ -145,10 +145,9 @@ func (s *CampaignRunnerShard) SetShardManager(sm *coreshards.ShardManager) {
 // Execute runs the Campaign Runner supervision loop.
 func (s *CampaignRunnerShard) Execute(ctx context.Context, task string) (string, error) {
 	logging.SystemShards("[CampaignRunner] Starting supervision loop")
-	s.SetState(types.ShardStateRunning)
+	s.beginRun()
 	s.mu.Lock()
 	s.running = true
-	s.StartTime = time.Now()
 	s.mu.Unlock()
 
 	defer func() {

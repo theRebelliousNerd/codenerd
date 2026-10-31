@@ -1,5 +1,27 @@
 # codeNERD Component Ledger
 
+## 2026-10-31 local resident-shard timestamp race repair
+
+The earlier refresh verification exposed a shutdown timestamp race, independently
+reproduced once in ten baseline repetitions. This bounded follow-up is hand-edited:
+the six timestamp-writing resident loops now publish runtime metadata under the
+base owner, and every reader takes a locked snapshot. `BaseSystemShard.beginRun`
+and `StartedAt` own the boundary (`internal/shards/system/base.go:330`,
+`internal/shards/system/base.go:339`). The eight new concurrency cases cover the
+six actual Execute paths, summaries, planner views, router identity, repeated
+Stop, atomic publication and instance isolation
+(`internal/shards/system/runtime_timestamp_test.go:75`,
+`internal/shards/system/runtime_timestamp_test.go:153`).
+
+The full offline suite, sqlite_vec build and vet pass. The resident-shard and
+manager packages pass under race, and the previously failing Cortex fixture
+passes ten of ten repetitions. The broader Cortex race suite fails on a
+different Chrome rollback fixture using an unsynchronized mock kernel; that
+failure also reproduced on the untouched baseline (two failures in three
+runs). Its code is unchanged. This repair does not add manager joins or change
+permission policy. No live provider calls, R7 qualification, merge or push are
+claimed. Publication remains pending the required unavailable private-terms scan.
+
 ## 2026-10-31 exploratory R7 refresh ownership finding and hand repair
 
 Brief: one isolated full-workspace `campaign recurse --waves 1 --gates all

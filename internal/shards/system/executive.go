@@ -375,10 +375,9 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 	e.mu.Unlock()
 	logging.SystemShardsDebug("[ExecutivePolicy] FeedbackLoop validation budget reset at session start")
 
-	e.SetState(types.ShardStateRunning)
+	e.beginRun()
 	e.mu.Lock()
 	e.running = true
-	e.StartTime = time.Now()
 	e.mu.Unlock()
 
 	defer func() {

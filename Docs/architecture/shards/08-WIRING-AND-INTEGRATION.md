@@ -1,5 +1,17 @@
 # Wiring and integration: shards
 
+## Local resident runtime metadata wiring (2026-10-31)
+
+Perception, constitution, executive, planner, tactile router and campaign runner
+initialize their runtime metadata through `BaseSystemShard.beginRun`
+(`internal/shards/system/base.go:330`). Shutdown reads under the same owner;
+summaries, planner views and router metadata read `BaseSystemShard.StartedAt`
+(`internal/shards/system/base.go:339`). The production entry-point concurrency
+witness is `TestResidentShardTimestampStartupStopAndReaders`
+(`internal/shards/system/runtime_timestamp_test.go:75`). Factory registration,
+permission routing and manager shutdown sequencing are not changed by this
+bounded slice; SH-G11 owns its acceptance status.
+
 ## Production construction
 
 ```text

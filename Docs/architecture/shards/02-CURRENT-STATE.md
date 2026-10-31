@@ -1,5 +1,16 @@
 # Current state: shards
 
+## Local timestamp ownership repair (2026-10-31)
+
+`BaseSystemShard.beginRun` publishes a resident loop's timestamp and Running
+state under one base mutex; `StartedAt` returns a locked snapshot of private
+storage (`internal/shards/system/base.go:330`,
+`internal/shards/system/base.go:339`). Six previously racing startup paths and
+their runtime readers use that owner. This corrects the independently
+reproduced timestamp race; it does not add goroutine joining to StopAll.
+The contract and current verification status are tracked as SH-G11 in
+[09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md).
+
 > Evidence snapshot: 2026-07-13, HEAD
 > `cfc537e96495e1fbccd7efff8bb8e4001c93ca9c`. The tree was dirty; the
 > verification receipt and current fingerprint are recorded in

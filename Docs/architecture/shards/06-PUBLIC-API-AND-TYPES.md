@@ -1,5 +1,17 @@
 # 06 — Public API and Types: shards
 
+## Local runtime metadata API (2026-10-31)
+
+`BaseSystemShard.StartedAt` is the locked timestamp snapshot accessor
+(`internal/shards/system/base.go:339`). Callers no longer read or assign an
+exported timestamp field. The six timestamp-initializing resident loops use
+the internal `BaseSystemShard.beginRun` transition
+(`internal/shards/system/base.go:330`). This is an internal Go API ownership
+change; summary text, planner view fields and router session-ID formats remain
+the same. Existing SetState/Stop behavior outside timestamp publication is
+preserved (`internal/shards/system/base.go:314`, `BaseSystemShard.SetState`;
+`internal/shards/system/base.go:367`, `BaseSystemShard.Stop`).
+
 > Last verified against codebase: 2026-07-13  
 > Exported surface that matters for integrators
 

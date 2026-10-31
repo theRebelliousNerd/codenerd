@@ -432,10 +432,9 @@ var (
 // Execute runs the Perception Firewall's continuous parsing loop.
 func (p *PerceptionFirewallShard) Execute(ctx context.Context, task string) (string, error) {
 	logging.SystemShards("[PerceptionFirewall] Starting continuous parsing loop")
-	p.SetState(types.ShardStateRunning)
+	p.beginRun()
 	p.mu.Lock()
 	p.running = true
-	p.StartTime = time.Now()
 	p.mu.Unlock()
 
 	defer func() {
@@ -907,6 +906,7 @@ func isNonResolvableTarget(target string) bool {
 
 // generateShutdownSummary creates a summary of the shard's activity.
 func (p *PerceptionFirewallShard) generateShutdownSummary(reason string) string {
+	started := p.StartedAt()
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -915,7 +915,7 @@ func (p *PerceptionFirewallShard) generateShutdownSummary(reason string) string 
 		reason,
 		p.intentsProcessed,
 		p.clarifications,
-		time.Since(p.StartTime).String(),
+		time.Since(started).String(),
 	)
 }
 

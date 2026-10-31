@@ -3,7 +3,15 @@ package system
 import (
 	"strings"
 	"testing"
+	"time"
 )
+
+// Fixtures may backdate a timestamp, but must use its base-shard owner.
+func setStartedAtForTest(b *BaseSystemShard, started time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.startTime = started
+}
 
 func TestTruncateRule(t *testing.T) {
 	// Newlines are flattened to spaces.

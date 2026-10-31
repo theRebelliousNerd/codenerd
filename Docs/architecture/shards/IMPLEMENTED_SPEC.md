@@ -1,5 +1,19 @@
 # Shards implemented specification
 
+## Local resident timestamp ownership repair (2026-10-31)
+
+Private timestamp storage is owned by the base-shard mutex. The six resident
+loops that initialize a start time call `BaseSystemShard.beginRun`, which
+publishes Running and the timestamp together
+(`internal/shards/system/base.go:330`). `BaseSystemShard.StartedAt` supplies
+runtime readers with a locked snapshot (`internal/shards/system/base.go:339`).
+`BaseSystemShard.Stop` reads the same private storage under that mutex
+(`internal/shards/system/base.go:367`). The bounded contract and verification
+status are SH-G11 in [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md).
+This repairs timestamp synchronization; it does not establish joined manager
+shutdown or change safety/permission policy. Publication remains pending the
+required unavailable private-terms scanner.
+
 > Status: source-grounded living reference
 >
 > Owner: `internal/shards`

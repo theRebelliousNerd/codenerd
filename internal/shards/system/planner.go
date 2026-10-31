@@ -142,10 +142,9 @@ func NewSessionPlannerShardWithConfig(cfg PlannerConfig) *SessionPlannerShard {
 // Execute runs the Session Planner's orchestration loop.
 func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string, error) {
 	logging.SystemShards("[SessionPlanner] Starting orchestration loop")
-	s.SetState(types.ShardStateRunning)
+	s.beginRun()
 	s.mu.Lock()
 	s.running = true
-	s.StartTime = time.Now()
 	s.lastActivity = time.Now()
 	s.mu.Unlock()
 
@@ -737,6 +736,7 @@ func (s *SessionPlannerShard) emitStatusFacts() {
 
 // generateShutdownSummary creates a summary of the shard's activity.
 func (s *SessionPlannerShard) generateShutdownSummary(reason string) string {
+	started := s.StartedAt()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -747,7 +747,7 @@ func (s *SessionPlannerShard) generateShutdownSummary(reason string) string {
 		s.tasksCompleted,
 		s.tasksBlocked,
 		len(s.checkpoints),
-		time.Since(s.StartTime).String(),
+		time.Since(started).String(),
 	)
 }
 
@@ -796,6 +796,7 @@ func (s *SessionPlannerShard) AddTask(description string, priority int) string {
 
 // GetCurrentPlan returns a structured view of the current plan.
 func (s *SessionPlannerShard) GetCurrentPlan() *PlanView {
+	started := s.StartedAt()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -804,7 +805,7 @@ func (s *SessionPlannerShard) GetCurrentPlan() *PlanView {
 		TotalTasks:   len(s.agenda),
 		Tasks:        make([]AgendaItem, len(s.agenda)),
 		Checkpoints:  make([]Checkpoint, len(s.checkpoints)),
-		StartedAt:    s.StartTime,
+		StartedAt:    started,
 		LastActivity: s.lastActivity,
 	}
 
@@ -829,7 +830,7 @@ func (s *SessionPlannerShard) GetCurrentPlan() *PlanView {
 	}
 
 	// Calculate runtime
-	view.RuntimeSec = int(time.Since(s.StartTime).Seconds())
+	view.RuntimeSec = int(time.Since(started).Seconds())
 
 	// Copy checkpoints
 	copy(view.Checkpoints, s.checkpoints)

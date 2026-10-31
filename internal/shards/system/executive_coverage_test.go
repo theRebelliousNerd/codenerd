@@ -196,7 +196,7 @@ func TestExecutivePolicyShard_EvaluatePolicy_WhenNilKernel_ShouldReturnNil(t *te
 
 func TestExecutivePolicyShard_GenerateShutdownSummary_ShouldContainStats(t *testing.T) {
 	shard := NewExecutivePolicyShard()
-	shard.StartTime = time.Now().Add(-10 * time.Second)
+	setStartedAtForTest(shard.BaseSystemShard, time.Now().Add(-10*time.Second))
 	shard.mu.Lock()
 	shard.decisionsCount = 42
 	shard.blockCount = 5
@@ -380,7 +380,7 @@ func TestPerceptionFirewallShard_ResolveTarget_WhenFilePath_ShouldResolveHighCon
 
 func TestPerceptionFirewallShard_GenerateShutdownSummary_ShouldContainStats(t *testing.T) {
 	shard := NewPerceptionFirewallShard()
-	shard.StartTime = time.Now().Add(-5 * time.Second)
+	setStartedAtForTest(shard.BaseSystemShard, time.Now().Add(-5*time.Second))
 	shard.mu.Lock()
 	shard.intentsProcessed = 10
 	shard.clarifications = 2

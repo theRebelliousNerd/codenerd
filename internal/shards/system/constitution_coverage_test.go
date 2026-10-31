@@ -405,7 +405,7 @@ func TestConstitutionGateShard_GetActiveOverrides_WhenEmpty_ShouldReturnEmpty(t 
 
 func TestConstitutionGateShard_GenerateShutdownSummary_ShouldContainStats(t *testing.T) {
 	shard := NewConstitutionGateShard()
-	shard.StartTime = time.Now().Add(-10 * time.Second)
+	setStartedAtForTest(shard.BaseSystemShard, time.Now().Add(-10*time.Second))
 	shard.recordViolation("test", "", "test", nil, "")
 	shard.mu.Lock()
 	shard.permitted = append(shard.permitted, "/read_file")

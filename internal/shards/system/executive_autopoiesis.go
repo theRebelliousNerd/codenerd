@@ -261,6 +261,7 @@ func (e *ExecutivePolicyShard) parseProposedRule(output string, cases []Unhandle
 
 // generateShutdownSummary creates a summary of the shard's activity.
 func (e *ExecutivePolicyShard) generateShutdownSummary(reason string) string {
+	started := e.StartedAt()
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -270,6 +271,6 @@ func (e *ExecutivePolicyShard) generateShutdownSummary(reason string) string {
 		e.decisionsCount,
 		e.blockCount,
 		e.strategyChanges,
-		time.Since(e.StartTime).String(),
+		time.Since(started).String(),
 	)
 }

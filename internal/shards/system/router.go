@@ -200,10 +200,9 @@ func (r *TactileRouterShard) SetBrowserManager(mgr *browser.SessionManager) {
 // Execute runs the Tactile Router's action routing loop.
 // This shard is ON-DEMAND: it starts when asked and runs until ctx or StopCh.
 func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, error) {
-	r.SetState(types.ShardStateRunning)
+	r.beginRun()
 	r.mu.Lock()
 	r.running = true
-	r.StartTime = time.Now()
 	r.lastActivity = time.Now()
 	r.mu.Unlock()
 
@@ -483,7 +482,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 					Success:          call.Error == "",
 					DurationMs:       duration.Milliseconds(),
 					ResultSize:       len(call.Result),
-					SessionRuntimeMs: time.Since(r.StartTime).Milliseconds(),
+					SessionRuntimeMs: time.Since(r.StartedAt()).Milliseconds(),
 				}
 				if err := r.ToolStore.Store(exec); err != nil {
 					logging.Get(logging.CategoryTools).Warn("Failed to persist tool execution: %v", err)
@@ -873,6 +872,7 @@ func (r *TactileRouterShard) parseProposedRoute(output string) ToolRoute {
 
 // generateShutdownSummary creates a summary of the shard's activity.
 func (r *TactileRouterShard) generateShutdownSummary(reason string) string {
+	started := r.StartedAt()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -882,7 +882,7 @@ func (r *TactileRouterShard) generateShutdownSummary(reason string) string {
 		len(r.completedCalls),
 		len(r.pendingCalls),
 		len(r.routes),
-		time.Since(r.StartTime).String(),
+		time.Since(started).String(),
 	)
 }
 
@@ -908,7 +908,7 @@ func (r *TactileRouterShard) GetRoutes() map[string]ToolRoute {
 // getSessionID returns the session ID for tool persistence.
 // Generates a stable ID from the router's start time.
 func (r *TactileRouterShard) getSessionID() string {
-	return fmt.Sprintf("session-%d", r.StartTime.Unix())
+	return fmt.Sprintf("session-%d", r.StartedAt().Unix())
 }
 
 func normalizePayload(arg any) (map[string]any, string) {

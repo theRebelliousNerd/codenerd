@@ -320,10 +320,9 @@ func (c *ConstitutionGateShard) applyPredicateLimits(sel *prompt.PredicateSelect
 // This shard is AUTO-START and runs for the entire session.
 func (c *ConstitutionGateShard) Execute(ctx context.Context, task string) (string, error) {
 	logging.SystemShards("[ConstitutionGate] Starting safety enforcement loop")
-	c.SetState(types.ShardStateRunning)
+	c.beginRun()
 	c.mu.Lock()
 	c.running = true
-	c.StartTime = time.Now()
 	c.mu.Unlock()
 
 	defer func() {
@@ -999,6 +998,7 @@ func (c *ConstitutionGateShard) buildRuleProposalPrompt(cases []UnhandledCase) s
 
 // generateShutdownSummary creates a summary of the shard's activity.
 func (c *ConstitutionGateShard) generateShutdownSummary(reason string) string {
+	started := c.StartedAt()
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -1007,7 +1007,7 @@ func (c *ConstitutionGateShard) generateShutdownSummary(reason string) string {
 		reason,
 		len(c.violations),
 		len(c.permitted),
-		time.Since(c.StartTime).String(),
+		time.Since(started).String(),
 	)
 }
 

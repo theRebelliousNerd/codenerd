@@ -66,6 +66,40 @@ the current correlated envelope.
 
 ## Boot and lifecycle safety
 
+### Required timestamp ownership (2026-10-31, SH-G11)
+
+One base-shard mutex must own the start timestamp read by shutdown, summaries,
+planner views and router persistence. A resident loop that initializes this
+timestamp must publish it together with its Running transition. Derived shard
+mutexes continue to own their counters and queues; sharing a field through Go
+embedding does not make those mutexes interchangeable. Runtime readers take a
+base-owned timestamp snapshot before taking derived locks.
+
+The observed baseline race joined `BaseSystemShard.Stop` with
+`PerceptionFirewallShard.Execute`: perception wrote the embedded timestamp under
+its own mutex while Stop read it under the base mutex. The same write shape
+occurred in five other resident loops. Current attachment points are
+`BaseSystemShard.Stop` (`internal/shards/system/base.go:367`) and
+`PerceptionFirewallShard.Execute` (`internal/shards/system/perception.go:433`).
+The bounded repair must cover all
+six writers and every timestamp reader, with concurrency tests plus the
+independently failing Cortex race fixture. This contract does not redesign
+StopAll, join execution goroutines, or change any permission/policy decision.
+Preserve zero timestamps before startup, repeated Stop behavior, summary and
+router identity formats, and per-instance isolation.
+
+The local implementation makes storage private, initializes timestamp and
+Running together through `BaseSystemShard.beginRun`, and provides a locked
+`BaseSystemShard.StartedAt` snapshot (`internal/shards/system/base.go:330`,
+`internal/shards/system/base.go:339`). The six writing loops use that shared
+transition; derived statistics locks do not own base metadata. Regression
+witnesses are `TestResidentShardTimestampStartupStopAndReaders` and
+`TestBaseShardTimestampPublicationAndIsolation`
+(`internal/shards/system/runtime_timestamp_test.go:75`,
+`internal/shards/system/runtime_timestamp_test.go:153`). Aggregate verification
+is recorded separately before this slice is closed; publication remains pending
+the required unavailable private-terms scan.
+
 - Executive boot guard begins active and suppresses actions until genuine user
   interaction disables it.
 - Executive clears stale intent/processed/pending EDB facts when its loop starts.

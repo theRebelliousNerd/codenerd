@@ -266,7 +266,7 @@ type BaseSystemShard struct {
 	learningEnabled bool
 
 	// Lifecycle
-	StartTime time.Time
+	startTime time.Time // owned by mu, never a derived shard's mutex
 	StopCh    chan struct{}
 
 	// Event-driven fact subscription (replaces polling)
@@ -314,11 +314,32 @@ func (b *BaseSystemShard) GetState() types.ShardState {
 func (b *BaseSystemShard) SetState(state types.ShardState) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.setStateLocked(state)
+}
+
+func (b *BaseSystemShard) setStateLocked(state types.ShardState) {
 	oldState := b.State
 	b.State = state
 	if oldState != state {
 		logging.SystemShardsDebug("[%s] State transition: %v -> %v", b.ID, oldState, state)
 	}
+}
+
+// beginRun publishes the resident loop's start time and Running state under
+// their shared owner. A derived shard's mutex only owns its own local state.
+func (b *BaseSystemShard) beginRun() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.startTime = time.Now()
+	b.setStateLocked(types.ShardStateRunning)
+}
+
+// StartedAt returns a detached snapshot of this instance's start timestamp.
+// It is zero until a resident loop initializes its runtime metadata.
+func (b *BaseSystemShard) StartedAt() time.Time {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.startTime
 }
 
 // GetConfig returns the shard configuration.
@@ -353,7 +374,7 @@ func (b *BaseSystemShard) Stop() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.State == types.ShardStateRunning {
-		logging.SystemShards("[%s] Stopping shard (was running for %v)", b.ID, time.Since(b.StartTime))
+		logging.SystemShards("[%s] Stopping shard (was running for %v)", b.ID, time.Since(b.startTime))
 		close(b.StopCh)
 		b.State = types.ShardStateCompleted
 		// Unsubscribe from event bus if subscribed

@@ -17,6 +17,7 @@ This document compares the verified current tree with the north star in
 | SH-G08 | P2 | logs, facts, audit, Glass Box, ToolStore, heartbeats | signals do not join boot generation, shard/task/action, readiness, cancellation, terminal state | versioned redacted lifecycle receipt | `shards-terminal-outcomes-v1` |
 | SH-G09 | P2 | deterministic technology matcher is tested | path/import/content hints miss semantic fit and evidence freshness | retrieval may nominate candidates, while logic applies typed eligibility/budget gates | supporting backlog |
 | SH-G10 | P2 | broad unit/race suite passes | missing negative controls line up with G01-G04 and boot readiness | risk-selected regression and campaign matrix | all cards |
+| SH-G11 | P1; locally implemented, aggregate verification pending | `BaseSystemShard.beginRun` atomically initializes runtime metadata and `StartedAt` provides its snapshot (`internal/shards/system/base.go:330`, `internal/shards/system/base.go:339`). | The baseline's distinct base/derived mutexes previously raced over the embedded timestamp; current storage is private to the base. | All six writers and every timestamp reader use the base owner; concurrency and baseline-reproduction fixtures pass under race. | Required timestamp ownership in [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md). |
 
 ## Verified non-gaps
 
