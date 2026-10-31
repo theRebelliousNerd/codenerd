@@ -1,5 +1,17 @@
 # 08 — Wiring and Integration (perception)
 
+## Compatible streaming setup uncertainty
+
+The Chat branch of `CompleteWithStreaming`
+(`internal/perception/client_openai_compat.go:824`) notifies enclosing incomplete
+captures after setup transport errors. Successful usage still reports once
+after stream consumption and before terminal publication. Broker settlement
+retains partial billing while the stream's successful terminal evidence stays
+complete; the mission retains known spend and stops its next admission.
+`internal/campaign/recurse_mission_compat_stream_loss_test.go:23` exercises the
+normal single-key factory path. Grounded Meta's whole-response branch and
+other providers' stream parsers/transports are unchanged.
+
 ## Compatible and Responses transport uncertainty
 
 The compatible Chat, shared non-streaming Responses and grounded-search HTTP

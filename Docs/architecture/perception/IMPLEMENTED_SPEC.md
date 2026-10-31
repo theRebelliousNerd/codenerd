@@ -1,5 +1,17 @@
 # perception — Implemented Spec (Deep-Dive)
 
+## Compatible streaming setup uncertainty
+
+`internal/perception/client_openai_compat.go:824` notifies the incomplete-usage
+chain on setup HTTP transport errors before unchanged retry/cancellation
+handling. Later stream success remains complete and keeps its known counts;
+billing uncertainty is retained independently in broker/mission captures.
+Local repair `85da34c28503eb5637994ef010db0cd35d67270d` is controlled by a real
+endpoint losing a received request's response, cache/count checks and the
+production-factory mission kernel. One midstream EOF control preserves partial
+counts without replay; other stream transports and non-200 billing remain
+outside this bounded result.
+
 ## Compatible and Responses transport uncertainty
 
 Compatible Chat (`internal/perception/client_openai_compat.go:545`), shared

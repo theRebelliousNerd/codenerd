@@ -6516,3 +6516,35 @@ charge is invented. Non-200 billing, malformed replies, other transport loops,
 stream setup/midstream failures, per-use fees and hard billing limits remain
 outside this result. Publication awaits the required unavailable private-terms
 scanner. No qualifying R7 claim. **Streak 0.**
+
+
+## R7 follow-up, compatible streaming setup — local hand repair (2026-10-31)
+
+Codex hand-authored this repair; no CodeNERD edits or provider calls. Actual
+local endpoints consume the streaming inference body then close before
+headers. Corrected fail-before recovers a complete answer and known token/cache
+counts, but broker receipts stay reported and the production single-key
+factory/real-kernel mission admits further work with 2,000 micro-USD known and
+unknown=false. Clean, cancellation, exhaustion, HTTP 400, known-budget and one
+EOF-before-terminal/no-replay control pass. Runtime evidence has 7 pass and 4
+fail events including parents. Initial fixtures used Outcome as a field rather
+than a method; that compile error is retained separately and is not runtime
+evidence.
+
+Local repair `85da34c28503eb5637994ef010db0cd35d67270d` adds one incomplete
+notification before unchanged setup retry/cancellation handling. Recovery
+keeps a complete answer and all known counts, while broker billing becomes
+partial and the mission persists `/unknown_spend`. Clean streams remain
+admitted and known over-budget streams persist `/spend`. Stream parsing,
+replay, gate, permission and recovery implementations are unchanged.
+
+11 focused controls and 110 repeated race checks pass. Broader streaming,
+compatible, grounded, OpenAI, Meta and key-pool race controls pass 370 with 12
+skips. Complete broker/usage/campaign race suites pass 1,856 checks. Full
+uncached offline sqlite_vec tests pass 22,117 with 80 skips; tagged build and
+vet pass. Established temporary-directory isolation preserves assertions and
+VCS stamping. Main, prior candidates and evidence remain unchanged. The one
+EOF control is not exhaustive midstream accounting proof. Other stream setup
+loops, malformed events, missing terminal usage, non-200 billing, per-use fees
+and hard billing limits remain outside this result. Publication awaits the
+required unavailable private-terms scanner. No qualifying R7 claim. **Streak 0.**

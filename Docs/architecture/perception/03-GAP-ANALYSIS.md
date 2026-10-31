@@ -1,18 +1,22 @@
 # 03 — Gap Analysis (perception)
 
-## Accepted compatible streaming setup uncertainty target
+## Compatible streaming setup uncertainty
 
-GAP-PERCEPTION-COMPAT-STREAM-LOSS: compatible Chat streaming can recover a
-lost setup response and report only the successful stream. Notify incomplete
-captures after the HTTP transport error, before retry/cancellation returns.
-Retain visible content, successful terminal evidence, known usage and cache
-subcounts; an unknown bill must not turn a complete answer into a failed
-stream. Verify with a local endpoint consuming the inference body before
-closing without headers, nested broker/tracker captures and the production
-single-key factory/mission meter. Clean admission, known-budget stops,
-cancellation, exhaustion, terminal HTTP errors and no replay after stream
-output remain required controls. Other stream transports and non-200 billing
-remain separate obligations; no gate or retry-policy change is authorized.
+GAP-PERCEPTION-COMPAT-STREAM-LOSS is closed locally in
+`85da34c28503eb5637994ef010db0cd35d67270d`.
+`internal/perception/client_openai_compat.go:824` notifies incomplete observers
+after a Chat streaming setup transport error, before retry/cancellation. A
+recovered stream retains its complete answer and token/cache counts while its
+broker bill stays partial. A local endpoint consumes the inference request
+before closing without headers in
+`internal/perception/compat_stream_lost_response_test.go:23`. Clean completion,
+typed cancellation, exhaustion, HTTP 400 and one midstream EOF/no-replay
+control pass. The production single-key factory/real-kernel mission control in
+`internal/campaign/recurse_mission_compat_stream_loss_test.go:23` retains known
+spend and persists `/unknown_spend`; clean and known-budget controls remain
+distinct. Other stream setup loops, malformed events, missing terminal usage,
+non-200 billing and hard limits remain separate obligations. Publication awaits
+the required private-terms scanner; no live qualification follows.
 
 ## Cross-provider lost-response uncertainty
 

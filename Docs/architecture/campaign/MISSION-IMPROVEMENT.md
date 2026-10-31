@@ -8,6 +8,15 @@ repair. Actual endpoint-receipt, broker and production-factory mission controls
 must distinguish clean, recovered and fully known over-budget streams without
 changing gate or recovery implementations.
 
+This boundary is closed locally in
+`85da34c28503eb5637994ef010db0cd35d67270d`.
+`internal/campaign/recurse_mission_compat_stream_loss_test.go:23` proves that a
+complete stream after setup recovery retains 2,000 micro-USD of known usage and
+persists `/unknown_spend`. A clean stream remains admitted and known 4,000
+micro-USD under a 3,000 micro-USD cap persists `/spend`. Saved state preserves
+counts and status. This is offline accounting evidence; other stream
+transports, hard billing caps and live qualification remain separate.
+
 The mission mode of recurse keeps an owner-supplied purpose under continuous
 pressure while bounding each invocation. It extends the existing dependency
 sweep and ratchet rather than introducing another scheduler. Start it with

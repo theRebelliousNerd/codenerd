@@ -1,5 +1,18 @@
 # 02 — Current State (perception)
 
+## Bounded compatible streaming setup uncertainty
+
+Local repair `85da34c28503eb5637994ef010db0cd35d67270d` closes the Chat streaming
+setup transport-error gap (`internal/perception/client_openai_compat.go:824`).
+Recovery keeps the complete answer and known token/cache counts, while broker
+receipts remain partial and mission admission stops unknown spend. Actual
+endpoint/broker and production-factory mission controls are in
+`internal/perception/compat_stream_lost_response_test.go:23` and
+`internal/campaign/recurse_mission_compat_stream_loss_test.go:23`. Clean,
+cancellation, exhaustion, HTTP 400 and one midstream EOF/no-replay control pass.
+This does not establish exhaustive streaming accounting or a billing cap;
+publication requires the unavailable private-terms scanner.
+
 ## Bounded compatible and Responses transport uncertainty
 
 Local repair `33bf57d2731bde876270dfe635b4efa4177be869` preserves uncertainty
