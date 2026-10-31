@@ -1,5 +1,20 @@
 # 03 — Gap Analysis (perception)
 
+## Accepted Anthropic decoded-attempt accounting target
+
+GAP-PERCEPTION-ANTHROPIC-ATTEMPTS: the non-streaming adapter discards usage
+from decoded incomplete HTTP 200 messages before retrying. It also reports only
+after the complete pause/resume exchange, so later refusal or failure hides
+earlier paid work. The accepted bounded target is one observation per decoded
+attempt before envelope validation, with sticky missing-usage uncertainty and
+no second aggregate observation. Preserve accepted response content/usage,
+continuation admission, retry/cancellation behavior and streaming. A later
+undecodable attempt must not become known merely because an earlier attempt
+reported. Exit requires offline broker/tracker controls, continuation/error
+controls and real-kernel mission stops for unknown and over-budget spend.
+Wire retries hidden inside sendMessages and server-tool per-use fees remain
+separate obligations. No hard billing guarantee or live rung result follows.
+
 ## Accepted response body-read uncertainty
 
 GAP-PERCEPTION-ACCEPTED-READ is closed locally in

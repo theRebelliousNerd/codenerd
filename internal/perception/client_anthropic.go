@@ -277,11 +277,10 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, system, user s
 func (c *AnthropicClient) completeText(ctx context.Context, req AnthropicRequest, in anthropicInput, operation, usageOperation string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.httpClient.Timeout)
 	defer cancel()
-	resp, err := c.exchange(ctx, req, anthropicCachePlan{system: c.systemCaching()}, in)
+	resp, err := c.exchange(ctx, req, anthropicCachePlan{system: c.systemCaching()}, in, usageOperation)
 	if err != nil {
 		return "", err
 	}
-	reportUsage(ctx, req.Model, ProviderAnthropic, usageOperation, resp.Usage.usageMetadata())
 	var text strings.Builder
 	for _, b := range resp.Content {
 		if b.Type == "text" {
@@ -361,11 +360,10 @@ func (c *AnthropicClient) completeTools(ctx context.Context, req AnthropicReques
 	defs := in.defs
 	ctx, cancel := context.WithTimeout(ctx, c.httpClient.Timeout)
 	defer cancel()
-	resp, err := c.exchange(ctx, req, plan, in)
+	resp, err := c.exchange(ctx, req, plan, in, usageOpFor(len(defs)))
 	if err != nil {
 		return nil, err
 	}
-	reportUsage(ctx, req.Model, ProviderAnthropic, usageOpFor(len(defs)), resp.Usage.usageMetadata())
 	out := anthropicToolResponse(resp)
 	if types.LengthStop(resp.StopReason) {
 		return nil, outputTruncated(ProviderAnthropic, req.Model, operation, resp.StopReason, out.Text, req.MaxTokens, resp.Usage.OutputTokens)

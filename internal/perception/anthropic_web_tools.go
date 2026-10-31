@@ -73,22 +73,24 @@ func serverDeclarationTokens(server []AnthropicTool) (int, error) {
 // A turn the endpoint paused while its server tools ran (pause_turn) is
 // resumed by sending the paused content back as the assistant's turn so far,
 // up to anthropicMaxPauseResumes times; the returned response carries every
-// part's content in order and the usage of every request, each of which was
-// billed. The first request was admitted by the caller; each resumption is a
-// larger request (the paused content is cumulative and carries every fetched
+// part's content in order and the usage of each accepted part. postMessages
+// observes usage for each decoded attempt, including discarded retries, so
+// callers must not also report this aggregate. The first request was admitted
+// by the caller; each resumption is a larger request (the paused content is
+// cumulative and carries every fetched
 // page), so it is admitted here, after a cancelled context is seen and before
 // it is sent, against the same window and with the same declarations as the
 // first. The turn's grounding sources -- the results its searches and fetches
 // returned and the URLs its text cites -- are recorded for
 // GetLastGroundingSources, cleared first so a later call never reports a page
 // it did not use.
-func (c *AnthropicClient) exchange(ctx context.Context, req AnthropicRequest, plan anthropicCachePlan, in anthropicInput) (*AnthropicResponse, error) {
+func (c *AnthropicClient) exchange(ctx context.Context, req AnthropicRequest, plan anthropicCachePlan, in anthropicInput, usageOperation string) (*AnthropicResponse, error) {
 	c.recordGroundingSources(nil)
 	server := c.serverTools(req.Model)
 	if len(server) > 0 {
 		req.Tools = append(append([]AnthropicTool(nil), req.Tools...), server...)
 	}
-	resp, err := c.postMessages(ctx, req, plan)
+	resp, err := c.postMessages(ctx, req, plan, usageOperation)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +108,7 @@ func (c *AnthropicClient) exchange(ctx context.Context, req AnthropicRequest, pl
 		}
 		next := req
 		next.Messages = append(append([]AnthropicMessage(nil), req.Messages...), AnthropicMessage{Role: "assistant", Content: resp.Content})
-		more, err := c.postMessages(ctx, next, plan)
+		more, err := c.postMessages(ctx, next, plan, usageOperation)
 		if err != nil {
 			return nil, fmt.Errorf("resume the paused Anthropic turn: %w", err)
 		}

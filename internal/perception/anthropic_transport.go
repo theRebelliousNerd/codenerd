@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/usage"
 )
 
 const anthropicResponseLimit = 10 * 1024 * 1024
@@ -226,7 +227,7 @@ func (e *anthropicIncompleteError) Error() string {
 // failures. No tool has run yet — the response is unusable before any block
 // is interpreted — so replaying the same request is safe. One such response
 // used to fail an entire shard delegation outright.
-func (c *AnthropicClient) postMessages(ctx context.Context, req AnthropicRequest, plan anthropicCachePlan) (*AnthropicResponse, error) {
+func (c *AnthropicClient) postMessages(ctx context.Context, req AnthropicRequest, plan anthropicCachePlan, usageOperation string) (*AnthropicResponse, error) {
 	var lastErr error
 	for attempt := 0; attempt <= llmMaxRetries(); attempt++ {
 		if attempt > 0 {
@@ -234,7 +235,7 @@ func (c *AnthropicClient) postMessages(ctx context.Context, req AnthropicRequest
 				return nil, fmt.Errorf("request cancelled during retry backoff: %w", err)
 			}
 		}
-		message, err := c.postMessagesOnce(ctx, req, plan)
+		message, err := c.postMessagesOnce(ctx, req, plan, usageOperation)
 		if err == nil {
 			return message, nil
 		}
@@ -250,7 +251,15 @@ func (c *AnthropicClient) postMessages(ctx context.Context, req AnthropicRequest
 	return nil, fmt.Errorf("Anthropic max retries exceeded: %w", lastErr)
 }
 
-func (c *AnthropicClient) postMessagesOnce(ctx context.Context, req AnthropicRequest, plan anthropicCachePlan) (*AnthropicResponse, error) {
+func (c *AnthropicClient) postMessagesOnce(ctx context.Context, req AnthropicRequest, plan anthropicCachePlan, usageOperation string) (*AnthropicResponse, error) {
+	decoded := false
+	defer func() {
+		if !decoded {
+			// Earlier decoded attempts may already have reported. A later
+			// send/read/decode failure must not make their sum a known bill.
+			usage.NoteUnknownUsage(ctx)
+		}
+	}()
 	resp, err := c.sendMessages(ctx, req, plan)
 	if err != nil {
 		return nil, err
@@ -264,6 +273,11 @@ func (c *AnthropicClient) postMessagesOnce(ctx context.Context, req AnthropicReq
 	if err := json.Unmarshal(body, &message); err != nil {
 		return nil, fmt.Errorf("parse Anthropic response: %w", err)
 	}
+	decoded = true
+	// Incomplete envelopes can be retried and paused turns can later fail.
+	// Observe their usage before validation, exactly once per decoded attempt.
+	// reportUsage also preserves uncertainty for missing token metadata.
+	reportUsage(ctx, req.Model, ProviderAnthropic, usageOperation, message.Usage.usageMetadata())
 	if message.Error != nil {
 		return nil, anthropicError(anthropicErrorStatus(message.Error.Type), body, resp.Header.Get("request-id"))
 	}

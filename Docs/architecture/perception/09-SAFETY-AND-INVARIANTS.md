@@ -1,5 +1,19 @@
 # 09 — Safety and Invariants (perception)
 
+## Anthropic decoded-attempt accounting
+
+Observe each decoded non-streaming Messages attempt exactly once before
+validating its envelope, including incomplete messages and paused turns.
+Missing token metadata notifies enclosing incomplete observers; known counts
+remain a lower bound. A send/read/decode failure must retain uncertainty even
+after earlier reports. Do not also report the accepted exchange's aggregate.
+Keep its content, returned usage and pause/resume limits intact, including
+refusal before sending an inadmissible continuation and typed cancellation.
+Streaming keeps its own accounting boundary. Verify exact report counts through
+the broker and tracker, plus the mission kernel's existing unknown-spend and
+spend stops with clean positive controls. This contract does not change retry
+limits, permissions, recovery, model selection or provider billing policy.
+
 ## Accepted response read failures
 
 An unreadable HTTP 200 body is an accepted attempt with unaccounted usage.
