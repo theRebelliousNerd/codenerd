@@ -14,6 +14,14 @@ This repairs timestamp synchronization; it does not establish joined manager
 shutdown or change safety/permission policy. Publication remains pending the
 required unavailable private-terms scanner.
 
+Verification at local implementation `adde9087e867a8e111b59536d8d2274e5c3d7c25`:
+all eight new timestamp cases pass under race; the resident-shard and manager
+race packages pass; the original failing Cortex fixture passes ten of ten
+repetitions; full offline sqlite_vec tests (22004 pass, 80 skip), build and vet
+pass. The broader Cortex race suite fails a separate unchanged Chrome/mock
+fixture, also reproduced on untouched base. SH-G11 is closed locally for the
+timestamp boundary only; merge/push remains pending the private-terms check.
+
 > Status: source-grounded living reference
 >
 > Owner: `internal/shards`

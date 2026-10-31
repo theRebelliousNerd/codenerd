@@ -96,9 +96,15 @@ transition; derived statistics locks do not own base metadata. Regression
 witnesses are `TestResidentShardTimestampStartupStopAndReaders` and
 `TestBaseShardTimestampPublicationAndIsolation`
 (`internal/shards/system/runtime_timestamp_test.go:75`,
-`internal/shards/system/runtime_timestamp_test.go:153`). Aggregate verification
-is recorded separately before this slice is closed; publication remains pending
-the required unavailable private-terms scan.
+`internal/shards/system/runtime_timestamp_test.go:153`). Local implementation
+`adde9087e867a8e111b59536d8d2274e5c3d7c25` passes all eight new cases under
+race, the resident-shard/manager race suites, ten repetitions of the previously
+failing Cortex fixture, the full offline suite (22004 pass, 80 skip), sqlite_vec
+build and vet. The broader Cortex race run fails on a different Chrome rollback
+test using an unsynchronized mock kernel, reproduced on untouched base in two
+of three runs. That separate failure remains unresolved. Publication is pending
+the required unavailable private-terms scan; no global shutdown/race guarantee
+or live qualification follows from this bounded repair.
 
 - Executive boot guard begins active and suppresses actions until genuine user
   interaction disables it.

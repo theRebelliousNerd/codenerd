@@ -3,7 +3,7 @@ doc-class: shipped-with-future
 subsystem: system
 implementation-status: partial
 last-verified: 2026-10-31
-verified-against: 2e467c9f3150d627381e9367d1ef7caad25cb504
+verified-against: adde9087e867a8e111b59536d8d2274e5c3d7c25
 supersedes: []
 ---
 
@@ -105,3 +105,18 @@ denylist was available in the permitted repository/tool paths. Its check is
 unknown, not passed. No merge, push, deployment or new live provider run is
 part of this receipt. Free-text restrictions on other model tools are outside
 this background-acquisition repair.
+
+## Local timestamp follow-up (2026-10-31)
+
+The resident-shard timestamp race recorded by the earlier standalone refresh
+repair is fixed locally in `adde9087e867a8e111b59536d8d2274e5c3d7c25` through
+base-owned startup metadata (`internal/shards/system/base.go:330`,
+`BaseSystemShard.beginRun`; `internal/shards/system/base.go:339`,
+`BaseSystemShard.StartedAt`). Its eight new cases and resident-shard/manager
+packages pass under race, and the original failing Cortex fixture passes ten
+repetitions. The full offline suite, build and vet pass. The broader Cortex
+race run still fails a different Chrome rollback fixture with an unsynchronized
+mock kernel; that failure also reproduced on the untouched baseline. This
+supersedes only the old timestamp-failure status above and does not establish
+joined manager shutdown or a blanket race pass. Publication remains pending
+the required private-terms scan; no live probe has been repeated.
