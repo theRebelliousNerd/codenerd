@@ -18,6 +18,25 @@ Constitutional `permitted(...)` is **not** implemented here. Side-effect tools t
 
 ## Invariants
 
+### Import resolution follows admitted workspace membership
+
+An unchanged importer must acquire and retire resolved `dependency_link`,
+`file_imports` and `imports_project_file` facts when an admitted target is added
+or deleted. Compare incremental application and persisted owner rows with a fresh
+full scan, using independent correct baselines for addition and deletion. Raw
+external import tokens remain external; test-only and excluded Go files do not
+become package targets, and unrelated edits do not invalidate an importer.
+
+With persisted prior facts, refresh affected admitted importers through the
+existing per-file staging and replacement path. Without that prior fact set,
+stage a complete census to determine whether import resolution changes. Use a
+complete replacement when it changes or missing prior importer/module data
+prevents proving it unchanged; otherwise retain the existing delta contract.
+Preserve changed/new/deleted path reporting,
+canonical identity, membership/treatment filters, cancellation and failure-before-
+publication contracts. Body-only and unchanged scans retain their incremental
+behavior. No new permission or private-directory exception is introduced.
+
 ### I1 — Topology independence
 
 Parse failure must not prevent `file_topology` emission when the file is readable/hashable.

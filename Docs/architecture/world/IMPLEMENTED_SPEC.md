@@ -751,6 +751,43 @@ go test ./internal/system/... -count=1
 go test ./internal/init/... -count=1
 ```
 
+## Import target membership refresh
+
+On an admitted file addition or deletion, the incremental scanner compares
+cached import facts with resolution under the current complete file index
+(`internal/world/incremental_imports.go:61`). The prior-fact query is a
+context-aware read through a borrowed store handle; cursor/decode/query failures
+stop this preparation. Only admitted, otherwise unqueued importers whose resolved
+facts differ join the regular parse/retract/persist pipeline
+(`internal/world/incremental_scan.go:415`). This refreshes `dependency_link`,
+`file_imports` and `imports_project_file` together, including unresolved-to-local
+and last-target-to-external transitions. Body-only changes retain the existing
+incremental path; this contract does not generalize to arbitrary resolver or
+module-identity changes without file membership changes.
+
+Without a facts DB, a manifest cannot supply the previous import graph to
+retract. The scanner stages a full census (`internal/world/incremental_scan.go:324`)
+and compares current import resolution with resolution against the previous file
+set (`internal/world/incremental_imports.go:26`). If resolution differs, or a
+removed possible importer/touched module leaves it unknown, the result is a full
+replacement retaining changed/new/deleted path reporting. Other additions retain
+the established delta contract. A successful replacement prunes only deleted
+entries within its scan root; other roots' entries in a shared manifest are
+preserved (`internal/world/incremental_imports.go:18`). This adds a full census
+cost to no-database membership scans. Unchanged and body-only scans retain their
+existing behavior.
+
+`internal/world/incremental_import_membership_test.go:34` compares actual kernel
+application and persisted importer rows with fresh full scans. Each addition and
+deletion has an independent correct baseline, in persisted, reopened and
+no-database modes. Negative controls cover test-only, excluded and unrelated
+files, body edits and external imports. `internal/world/incremental_import_failure_test.go:17`
+checks prior-fact and importer-read failures, replacement-census failure and
+cancellation, unchanged generations and successful retries; the shared-manifest
+control is at `:132`. Focused and repeated race checks, the full suite, build
+and vet pass. These are offline
+scanner/kernel tests, not live model or full-recurse qualification.
+
 ---
 
 *End of IMPLEMENTED_SPEC — living document, last verified 2026-07-13.*

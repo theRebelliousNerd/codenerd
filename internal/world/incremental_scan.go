@@ -317,8 +317,54 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 
 	deleted := make([]string, 0)
 	for path := range prevEntries {
-		if _, ok := currentFiles[path]; !ok {
+		if _, ok := currentFiles[path]; !ok && pathWithinScanRoot(root, path) {
 			deleted = append(deleted, path)
+		}
+	}
+	if db == nil && (len(newFiles) > 0 || len(deleted) > 0) {
+		// A manifest has file identities, not the previous import facts to
+		// retract. Stage the census to prove whether imports need replacement;
+		// otherwise retain the ordinary delta contract.
+		prepared, err := s.prepareDirectoryScan(ctx, root, opts.fullScan)
+		if err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if needsImportReplacement(root, prevEntries, prepared.result.Facts, changed, newFiles, deleted) {
+			res := &IncrementalResult{
+				Full: true, NewFacts: prepared.result.Facts,
+				ChangedFiles: changed, NewFiles: newFiles, DeletedFiles: deleted,
+				FileCount: prepared.result.FileCount, DirectoryCount: prepared.result.DirectoryCount,
+				ProjectLanguage: detectProjectLanguage(prepared.result.Facts),
+			}
+			if err := refreshOrientationForScan(ctx, root, res); err != nil {
+				return nil, err
+			}
+			// The staged full cache can contain entries loaded from the previous
+			// manifest. Prune to this completed census before publishing it, or a
+			// deleted target would force the same replacement on every scan.
+			live := make(map[string]bool, prepared.result.FileCount)
+			for _, f := range res.NewFacts {
+				if f.Predicate == "file_topology" && len(f.Args) > 0 {
+					if p, ok := f.Args[0].(string); ok {
+						live[p] = true
+					}
+				}
+			}
+			prepared.cache.mu.Lock()
+			for p := range prepared.cache.Entries {
+				if pathWithinScanRoot(root, p) && !live[canonicalScanPath(root, p)] {
+					delete(prepared.cache.Entries, p)
+					prepared.cache.Dirty = true
+				}
+			}
+			prepared.cache.mu.Unlock()
+			cache = prepared.cache
+			res.Duration = time.Since(start)
+			saveCache()
+			return res, nil
 		}
 	}
 
@@ -354,6 +400,27 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 	if len(callSiblings) > 0 {
 		logging.World("incremental scan: declaration change remaps %d Go sibling(s)", len(callSiblings))
 	}
+	pathsToParse := append([]string{}, changed...)
+	pathsToParse = append(pathsToParse, newFiles...)
+	pathsToParse = append(pathsToParse, callSiblings...)
+
+	// Resolve against the whole admitted census. Membership changes can also
+	// change an unchanged importer's edges; its own content hash cannot detect
+	// that dependency. Reuse the regular owner-based staging/retraction path.
+	canonicalAll := make([]string, 0, len(currentFiles))
+	for p := range currentFiles {
+		canonicalAll = append(canonicalAll, canonicalScanPath(root, p))
+	}
+	importIndex := newRepoFileIndex(root, canonicalAll)
+	var importDependents []string
+	if len(newFiles) > 0 || len(deleted) > 0 {
+		var err error
+		importDependents, err = importRefreshPaths(ctx, root, db, currentFiles, importIndex, pathsToParse)
+		if err != nil {
+			return nil, err
+		}
+		pathsToParse = append(pathsToParse, importDependents...)
+	}
 
 	// Gather old facts for retraction (fast depth) before mutating cache/DB.
 	// Keyed by CANONICAL path: the store rows are written under the canonical
@@ -367,6 +434,7 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 	retractPaths = append(retractPaths, changed...)
 	retractPaths = append(retractPaths, deleted...)
 	retractPaths = append(retractPaths, callSiblings...)
+	retractPaths = append(retractPaths, importDependents...)
 	if db != nil {
 		for _, p := range retractPaths {
 			oldInputs, _, err := db.LoadWorldFactsForFile(canonicalScanPath(root, p), "fast")
@@ -378,10 +446,6 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 			}
 		}
 	}
-
-	pathsToParse := append([]string{}, changed...)
-	pathsToParse = append(pathsToParse, newFiles...)
-	pathsToParse = append(pathsToParse, callSiblings...)
 
 	maxConc := s.config.MaxConcurrency
 	if maxConc <= 0 {
@@ -402,19 +466,6 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 
 	// Always refresh directory facts on delta scans.
 	newFacts = append(newFacts, dirFacts...)
-
-	// Import resolution index over the WHOLE current file set, not just the
-	// delta: an edge from a changed file into an untouched package still has to
-	// resolve. Built once, read-only, shared by the workers so each file's
-	// resolved edges become part of that file's fact set — which is what makes
-	// them persist and retract with the file. Resolving after the DB write
-	// instead would leave resolved edges in the kernel that no later scan could
-	// retract, so a deleted import kept its edge forever.
-	canonicalAll := make([]string, 0, len(currentFiles))
-	for p := range currentFiles {
-		canonicalAll = append(canonicalAll, canonicalScanPath(root, p))
-	}
-	importIndex := newRepoFileIndex(root, canonicalAll)
 
 	var admissionErr error
 	for _, path := range pathsToParse {

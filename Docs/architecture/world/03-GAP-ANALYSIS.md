@@ -1,5 +1,11 @@
 # world — Gap Analysis
 
+## Import target membership invalidation
+
+| Gap ID | Deficiency | Target and exit | Status |
+|---|---|---|---|
+| GAP-WORLD-IMPORT-MEMBERSHIP | `importRefreshPaths` compares cached resolved facts with the current admitted index (`internal/world/incremental_imports.go:61`); affected importers join regular per-file replacement. Without a prior facts DB, membership changes stage a complete census and replace only when resolution changes or missing prior importer/module data requires replacement (`internal/world/incremental_scan.go:324`). | Independent addition/deletion baselines apply incremental results equal to a fresh full scan for import facts; persisted rows, external/test/excluded/unrelated controls and generation-failure boundaries hold. See `09-SAFETY-AND-INVARIANTS.md`. | Implemented and verified offline: focused and repeated race checks (`internal/world/incremental_import_membership_test.go:34`, `internal/world/incremental_import_failure_test.go:17`), full suite, build and vet pass. Arbitrary resolver/configuration invalidation remains outside this bounded exit. |
+
 > Last verified: **2026-08-09** — truth-corrected for commit 1ad8238e: runtime canonical first-source precedence is fixed (embedded first, DB deduplicated) so stale database copies no longer shadow embedded atoms during prompt collection; boot database reconciliation and stale built-in removal remain OPEN and project-only atoms must be preserved. Pre-delegation world scan was fresh and exposed dirty state; cleanup was allowed because ownership baseline and shell scope enforcement were absent; world became stale only after unreported shell mutations because no incremental refresh ran. Coupled to prompt/03-GAP-ANALYSIS G9/G10, prompt/12-FAILURE-MODES FM17/FM18, session/03-GAP-ANALYSIS §7, session/09-SAFETY-AND-INVARIANTS I18–I21. New OPEN incident gaps added; do not mark closed until the seeded temp-corpus.db and both temp-repo negative exams exist and pass.
 
 > Spec/vision vs `internal/world` reality.
