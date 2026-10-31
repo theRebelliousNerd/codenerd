@@ -1,5 +1,19 @@
 # 03 — Gap Analysis (perception)
 
+## Accepted Anthropic lost-response uncertainty target
+
+GAP-PERCEPTION-ANTHROPIC-LOST-RESPONSE: an unpooled Messages request can reach
+the endpoint, lose its response, then recover inside sendMessages. The outer
+decoded-attempt guard sees only the successful reply and misses the earlier
+uncertainty. The bounded target is to notify incomplete observers at the
+transport-error boundary before retry or cancellation returns, without
+inventing a charge. Preserve known successful counts, retry limits, typed
+cancellation, clean responses and pooled behavior. Exit requires a local HTTP
+server that consumes the first inference request and closes without headers,
+then returns counted success; broker/tracker and real-kernel mission controls
+must preserve known spend, mark unknown and refuse further work. Non-200
+billing classification and other providers remain separate obligations.
+
 ## Anthropic decoded-attempt accounting
 
 GAP-PERCEPTION-ANTHROPIC-ATTEMPTS is closed locally in

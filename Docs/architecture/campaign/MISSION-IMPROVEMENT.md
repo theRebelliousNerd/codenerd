@@ -89,6 +89,15 @@ and mark the missing attempt unknown through nested observers; the next mission
 admission then derives `/unknown_spend`. A fully reported retry remains eligible
 under the existing limits. GAP-PERCEPTION-RETRY-USAGE owns this adapter repair.
 
+An inference request whose response was lost must retain the same uncertainty
+even when the transport retries internally and returns a counted success. The
+Anthropic adapter must notify incomplete observers at that transport boundary;
+the mission retains known successful spend and refuses further admission via
+`/unknown_spend`. A local server that reads the first request before closing
+without headers is the required control, with clean success still admitted.
+GAP-PERCEPTION-ANTHROPIC-LOST-RESPONSE owns this bounded adapter strengthening;
+mission gate and recovery implementations must remain unchanged.
+
 The bounded local candidate `a6aaaf0f1cbc429dac34f57b3d92bba2486c8fca` exercises
 the decoded retry through the provider adapter, broker, mission meter and real
 kernel in `internal/campaign/recurse_mission_retry_usage_test.go:16`.

@@ -1,5 +1,17 @@
 # 09 — Safety and Invariants (perception)
 
+## Anthropic transport-error uncertainty
+
+A failed Messages transport exchange may have reached the endpoint and lost
+its response. Notify existing incomplete observers before retry or cancellation
+returns; later success cannot establish that the failed exchange was free.
+Keep its cost unknown rather than inventing counts, and preserve every known
+report. This conservative boundary does not assert that every transport error
+was billed. Clean success remains certain; retries, cancellation identity,
+stream content and existing mission policy retain their behavior. Verify with
+an actual local server that reads the inference body before closing without
+headers, plus broker receipts and real-kernel mission stop/clean controls.
+
 ## Anthropic decoded-attempt accounting
 
 Observe each decoded non-streaming Messages attempt exactly once before

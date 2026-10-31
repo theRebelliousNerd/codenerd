@@ -183,6 +183,9 @@ func (c *AnthropicClient) sendMessages(ctx context.Context, reqBody AnthropicReq
 		}
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
+			// A transport error cannot establish that the endpoint did no work.
+			// Preserve uncertainty even when this retry loop later succeeds.
+			usage.NoteUnknownUsage(ctx)
 			if ctx.Err() != nil {
 				return nil, fmt.Errorf("Anthropic request canceled: %w", ctx.Err())
 			}
