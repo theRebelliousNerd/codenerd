@@ -532,3 +532,22 @@ re-opened this turn and lose to this section where they differ.
   `working_repeat_threshold_test.go:15-29` names it; directory inventory
   claims no package-owned `.mg`); production import edges; `ProcessTurn`
   caller set. None of the three is asserted above.
+
+## C3 masking in newly compressed rendered history
+
+`compress` (`internal/context/compressor_turns.go:331`) reads the accepted
+kernel mask before collecting Key Atoms. At `:355` it copies the turn structs
+and removes only masked turns' result references from those copies. The original
+records, reasoning selection, caps, mask/preserve rules and empty-mask behavior
+are retained. Summary generation reads the same mask; atom-summary replacement
+and later merges consume the already filtered sidecar. Policy masking remains
+distinct from cap-loss accounting.
+
+The final `GetContextString` renderer (`internal/context/compressor.go:856`)
+is covered by `internal/context/mask_render_test.go:14` with real kernel-derived
+old/ancient masking, mid/recent and shared-result controls, forced atom-summary
+fallback and a subsequent merge. Focused, package race and aggregate tests,
+build and vet pass. This
+establishes the bounded `GAP-CTX-MASK-SIDECAR` contract; it does not repair legacy
+saved segments, redact separately selected current kernel facts, or close the
+broader eviction/recoverability obligations in `GAP-CTX-05` and `GAP-CTX-06`.

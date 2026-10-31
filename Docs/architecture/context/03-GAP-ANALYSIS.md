@@ -103,6 +103,16 @@ done until resolved:
 A closed gap stays in the §1 table, marked closed with the commit that closed
 it; it is never deleted. R7 recursion picks its next item from this table.
 
+## Required contract: C3 masking through the final history renderer
+
+The rendered-history masking contract in `06-RETENTION-EVICTION-ORDERING.md`
+applies to the summary, Key Atoms sidecar, atom-summary fallback and subsequent
+merges, using the same kernel decision for each representation.
+
+| Gap ID | Current implementation | Target | Exit criteria | Status |
+|---|---|---|---|---|
+| GAP-CTX-MASK-SIDECAR | `compress` applies its accepted kernel mask to copied turn structs before collecting Key Atoms (`internal/context/compressor_turns.go:350`). The filtered sidecar also supplies atom-summary fallback and later merges. | One accepted kernel mask controls summary and sidecar observation selection. | Real-kernel compression plus `GetContextString` hides only masked history observations; age, reasoning, unmasked, fallback and merge controls pass (`internal/context/mask_render_test.go:14`). | Implemented and verified offline: focused, package race and aggregate tests, build and vet pass. The broader GAP-CTX-05/06 obligations remain open. |
+
 
 ## Required contract: Unverifiable revision freshness
 

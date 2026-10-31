@@ -101,3 +101,22 @@ supersedes: []
   caller check calibration, and none in this package does.
 - **Section order** (core → atoms → history → recent) is fixed in Go; the
   kernel orders facts within the active block only (TODO-CTX-06B).
+
+## C3 history masking at the rendered-context boundary
+
+New compression uses one accepted kernel mask for narrative observations and
+the Key Atoms sidecar (`internal/context/compressor_turns.go:350`). The filtered
+sidecar is also the input to atom-summary fallback and later segment merges.
+`internal/context/mask_render_test.go:14` exercises these paths with real kernel
+rules and the public `GetContextString` renderer
+(`internal/context/compressor.go:856`), including reasoning, unmasked and
+same-value fresh-observation controls. Focused, package race and aggregate
+tests, build and vet pass.
+
+The concrete chat consumers of this renderer are
+`cmd/nerd/chat/model_session_context.go:92` (session compressed history) and
+`cmd/nerd/chat/process.go:986` (articulation history). Completed governed turns
+enter through `ProcessTurnWithAppliedControls` at `cmd/nerd/chat/process.go:1098`.
+These are source-traced callers; the regression verifies the rendered context
+boundary without a live provider request. Legacy saved sidecars and separately
+selected current kernel facts remain outside this bounded repair.

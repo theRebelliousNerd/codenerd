@@ -51,6 +51,23 @@ In the finished package:
    are preserved across merges, and every cap that sheds atoms announces
    itself where the model reads the segment.
 
+### C3 rendered-history masking contract
+
+For a newly compressed segment, one kernel-derived
+`should_mask_observation/1` decision, subject to the existing
+`should_preserve_reasoning/1` check, must govern every observation copy in the
+segment. A masked turn's result atoms must not return through `KeyAtoms`, an
+atom-serialized replacement summary, or later segment merges. Keep intent,
+focus, action and control-outcome handling, unmasked results, caps and their
+accounting under their existing contracts. An empty or unavailable mask keeps
+the existing unmasked behavior; Go must not invent a new masking policy.
+
+Exit: a real kernel and compression loop feed the public final context renderer;
+old/ancient result sentinels are absent, mid/recent sentinels remain, and the
+same holds under atom-summary fallback and a later segment merge. This bounded
+contract governs newly compressed segments; it does not assert redaction of
+independently selected current kernel facts or repair legacy saved segments.
+
 ## 2. Anchor seams in today's code (cited)
 
 ### 2.1 Retention accounting — retention is token math today

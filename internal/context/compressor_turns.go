@@ -340,9 +340,6 @@ func (c *Compressor) compress(ctx context.Context) error {
 	turnsToCompress := c.recentTurns[:cutoff]
 	logging.Context("Compressing %d turns (keeping %d recent)", cutoff, c.config.RecentTurnWindow)
 
-	keyAtoms, droppedAtoms := c.collectKeyAtoms(turnsToCompress, 64)
-	logging.ContextDebug("Collected %d key atoms for compression segment (%d dropped by the caps)", len(keyAtoms), droppedAtoms)
-
 	// NERD-EVOLVE-START: c3_observation_mask
 	// C3: Use observation masking instead of LLM summarization.
 	// Assert turn age categories into kernel, then read the kernel's masking
@@ -351,6 +348,21 @@ func (c *Compressor) compress(ctx context.Context) error {
 	// keep their reasoning atoms (intent/focus/action) and drop observations.
 	c.assertTurnAgeCategories(turnsToCompress)
 	masked := c.maskedObservationTurns()
+	// The sidecar is also rendered, and may replace the summary under token
+	// pressure. Apply the same accepted kernel mask before collecting it so
+	// neither path can reintroduce observations the summary removed. Copy the
+	// turn structs before clearing results; the original records remain intact.
+	keyAtomTurns := turnsToCompress
+	if len(masked) > 0 {
+		keyAtomTurns = slices.Clone(turnsToCompress)
+		for i, turn := range keyAtomTurns {
+			if masked[turnMaskID(turn.TurnNumber)] {
+				keyAtomTurns[i].ResultAtoms = nil
+			}
+		}
+	}
+	keyAtoms, droppedAtoms := c.collectKeyAtoms(keyAtomTurns, 64)
+	logging.ContextDebug("Collected %d key atoms for compression segment (%d dropped by the caps)", len(keyAtoms), droppedAtoms)
 	summaryTimer := logging.StartTimer(logging.CategoryContext, "GenerateObservationMaskedSummary")
 	summary, maskedCount := c.generateObservationMaskedSummary(turnsToCompress, masked)
 	summaryTimer.Stop()
