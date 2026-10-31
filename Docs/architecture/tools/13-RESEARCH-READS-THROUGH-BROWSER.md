@@ -50,7 +50,8 @@ it returns.
 Manifest discovery must carry its requested and observed document/base locator
 into linked-document reads. Relative links resolve against that manifest's base,
 including its selected repository ref; absolute links preserve their destination
-with the existing credential-stripping resolver. A manifest found on `master`
+with the existing credential-stripping resolver, except for the equivalent
+GitHub raw-file representation specified below. A manifest found on `master`
 must never cause a linked guide to be manufactured on `main`.
 
 Common-document fallback uses bounded candidates `main`, then `master`, and selects
@@ -81,6 +82,49 @@ acquisition ledger/KB and factory-built expert compiler, with missing-source and
 sibling-expert controls. The acquisition adapter retains body and source headers
 as separate paragraph atoms; the fixture queries both subject identity and body
 terms. This test does not establish automatic provenance pairing for every query.
+
+## Required contract: linked file representation and version claims
+
+A GitHub file-view URL wraps a source file in repository navigation, scripts and
+rendered markup. For HTTPS `github.com/owner/repo/blob/ref/file` links to Markdown
+or text documentation (`.md`, `.markdown`, `.txt`, `.rst`, `.adoc`), Context7 reads
+the equivalent raw file through its existing browser path. Preserve the owner,
+repository, escaped ref and complete path. Query-bearing links, explicit
+ports, other hosts, URL kinds and file types retain their original destination;
+do not guess how to rewrite them. The original manifest link is retained beside
+the actual observed raw-document source URL. A raw linked-document read does not
+retry the file-view UI or manufacture a different ref. Normal no-document and
+common-fallback rules continue to apply to the overall request.
+
+Return the entire selected file, including content beyond the former 8k cut.
+This representation choice removes repository UI, not documentation sections.
+Keep the explicit 1MB single-document process guard and its cut marker; add no
+smaller content cap. The current cut happens after DOM extraction; it does not
+establish an earlier browser-allocation or network-byte bound. Caller
+cancellation, cleanup, browser ownership and the
+working-context archive/recall mechanism retain their existing contracts.
+
+The tool's result explicitly states that compatibility with a requested
+dependency version is unverified. Discovery still uses repository branch
+candidates and manifest order. `Context7Source` passes a module/topic string;
+its fetch callback and the topic cache do not carry the subject's exact version.
+No exact-version/ref mapping or relevance-ranking contract is established by
+this path. A major suffix in a topic must not be used to invent a repository
+branch or claim that a returned migration guide applies to the pinned version.
+
+| Gap ID | Deficiency | Target and exit criterion | State |
+|---|---|---|---|
+| GAP-TOOLS-CONTEXT7-FILE-VIEW | A Markdown file-view link returned repository HTML rather than the source file. | Preserve full file content and both link/source provenance through real browser reads, registered tool execution, acquisition and expert compilation; retain guards and ref identity. | Implemented; controlled browser and compiler regression tests define the scoped evidence. |
+| GAP-TOOLS-CONTEXT7-VERSION-SELECTION | Repository discovery and manifest order do not establish pinned-version relevance. | Define an explicit version/ref input and propagation/cache identity contract, or an explicit applicability judgment; verify mismatched-major and migration-guide controls without inferring branch names. | Open; this file-representation fix does not supply version selection. |
+
+`TestContext7FileViewPayload` serves a controlled repository view and its complete
+raw file, measures their byte counts, and checks that tool output contains the
+whole file, both locators and the version-compatibility notice, with no repository
+UI. `TestContext7LinkedReadURL` checks conservative routing boundaries.
+`TestContext7MasterDocumentationReachesProductionExpertPrompt` follows a GitHub
+file-view manifest link through the registered tool, KB and factory-built expert
+compiler, retaining body and source. These checks do not measure model tokens,
+task quality or live-provider cost.
 
 ## Browser evidence
 

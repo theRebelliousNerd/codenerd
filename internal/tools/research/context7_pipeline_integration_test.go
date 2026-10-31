@@ -41,6 +41,7 @@ func TestContext7MasterDocumentationReachesProductionExpertPrompt(t *testing.T) 
 		t.Fatal("factory omitted production JIT compiler")
 	}
 	const marker = "zephyrquark calibration master-ref-acquisition-witness"
+	const manifestLink = "https://github.com/fixtureowner/fixturerepo/blob/master/docs/intro.md"
 	sourceURL := research.PinContext7MasterForIntegration(t, "# Calibration\n"+marker+". Keep the module documentation on its discovered ref.")
 	registry := tools.NewRegistry()
 	if err := registry.Register(research.Context7Tool()); err != nil {
@@ -90,7 +91,7 @@ func TestContext7MasterDocumentationReachesProductionExpertPrompt(t *testing.T) 
 		acquiredContent = append(acquiredContent, atom.Content)
 	}
 	stored := strings.Join(acquiredContent, "\n")
-	if !strings.Contains(stored, marker) || !strings.Contains(stored, sourceURL) {
+	if !strings.Contains(stored, marker) || !strings.Contains(stored, sourceURL) || !strings.Contains(stored, manifestLink) {
 		t.Fatalf("acquisition dropped master body/provenance: %+v", atoms)
 	}
 	cc := prompt.NewCompilationContext().WithShard("refexpert", "refexpert", "").
@@ -113,7 +114,7 @@ func TestContext7MasterDocumentationReachesProductionExpertPrompt(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(after.Prompt, marker) || !strings.Contains(after.Prompt, sourceURL) {
+	if !strings.Contains(after.Prompt, marker) || !strings.Contains(after.Prompt, sourceURL) || !strings.Contains(after.Prompt, manifestLink) {
 		t.Fatal("production compiler dropped acquired master body or provenance")
 	}
 	sibling, err := compiler.Compile(t.Context(), prompt.NewCompilationContext().WithShard("sibling", "sibling", "").

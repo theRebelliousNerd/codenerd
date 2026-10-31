@@ -3,6 +3,7 @@ package research
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"codenerd/internal/config"
@@ -105,6 +106,7 @@ func executeContext7(ctx context.Context, args map[string]any) (string, error) {
 	// Combine results with headers
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("# Documentation for %s\n\n", topic))
+	sb.WriteString("[Discovery uses repository branch candidates; compatibility with any requested dependency version is unverified.]\n\n")
 	for i, doc := range results {
 		if i >= maxDocs {
 			break
@@ -303,8 +305,11 @@ func parseLlmsTxt(ctx context.Context, baseURL, content string, maxDocs int) ([]
 			skipped++
 			continue
 		}
-		doc, err := fetchContext7Document(ctx, docURL)
+		doc, err := fetchContext7Document(ctx, context7LinkedReadURL(docURL))
 		if err == nil && len(doc.content) > 50 {
+			if doc.requestedURL != docURL {
+				doc.manifestLink = docURL
+			}
 			results = append(results, doc.section())
 			docCount++
 		}
@@ -314,6 +319,31 @@ func parseLlmsTxt(ctx context.Context, baseURL, content string, maxDocs int) ([]
 	}
 
 	return results, nil
+}
+
+// context7LinkedReadURL selects the raw file representation of an unparameterized
+// GitHub Markdown/text blob link. It keeps the repository, escaped ref and full
+// file path; it does not discover a ref or infer a dependency version. Other
+// hosts, URL kinds, query-bearing links and file types keep their destination.
+// The raw file is still read by the normal browser and archived whole.
+func context7LinkedReadURL(link string) string {
+	u, err := url.Parse(link)
+	if err != nil || u.Scheme != "https" || !strings.EqualFold(u.Host, "github.com") || u.RawQuery != "" || u.ForceQuery {
+		return link
+	}
+	parts := strings.SplitN(strings.TrimPrefix(u.EscapedPath(), "/"), "/", 5)
+	if len(parts) != 5 || parts[0] == "" || parts[1] == "" || parts[2] != "blob" || parts[3] == "" || parts[4] == "" {
+		return link
+	}
+	filename := strings.ToLower(u.Path)
+	textFile := false
+	for _, ext := range []string{".md", ".markdown", ".txt", ".rst", ".adoc"} {
+		textFile = textFile || strings.HasSuffix(filename, ext)
+	}
+	if !textFile {
+		return link
+	}
+	return rawGitHubFileURL(parts[0], parts[1], parts[3], parts[4])
 }
 
 // fetchCommonDocs tries a bounded main, then master policy. Once a ref
@@ -356,6 +386,7 @@ func fetchCommonDocs(ctx context.Context, r repoRef, maxDocs int) ([]string, err
 // A manifest's base resolves links; a document's observed URL names its bytes.
 type context7Document struct {
 	requestedURL, documentURL, baseURI, content string
+	manifestLink                                string
 }
 
 func (d context7Document) sourceURL() string {
@@ -373,6 +404,9 @@ func (d context7Document) linkBase() string {
 }
 
 func (d context7Document) section() string {
+	if d.manifestLink != "" {
+		return fmt.Sprintf("## Source: %s\n\n[Manifest link: %s]\n\n%s", d.sourceURL(), d.manifestLink, d.content)
+	}
 	return fmt.Sprintf("## Source: %s\n\n%s", d.sourceURL(), d.content)
 }
 
