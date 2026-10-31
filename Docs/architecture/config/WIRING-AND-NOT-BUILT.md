@@ -143,3 +143,20 @@ at `internal/config/llm_timeouts.go:120` use synchronized value snapshots;
 `internal/config/llm_timeout_publication_test.go:12` passes under the race
 detector. Independent policy families and simultaneous workspaces still lack a
 single atomic ownership/publication transaction.
+
+
+## Four mission guard units: bounded local protection
+
+Local candidate `6e3506acc0f4c3e5d06672c7539d1f55536e236e` adds four exact guard
+units to the default mission path list and the repository's shipped `nerd.md`
+forbid rules (GAP-CAMPAIGN-GUARD-SOURCES). Receipt construction carries default
+protection to real-kernel write admission. The ordinary tool dispatcher reads
+the document facts, and the recurse ratchet reads the same forbid data after
+execution. Reads and ordinary source writes remain available under existing
+permissions. No recovery, dispatch or guard-unit implementation changed.
+
+Offline refusal-before-mutation, in-scope admission, bypass rollback and
+positive controls pass, as do repeated race checks and the full offline suite.
+This is local verification of four units; explicit caller configuration
+semantics remain unchanged and no universal ownership inventory or live rung
+qualification is claimed. Publication awaits the required private-terms scan.

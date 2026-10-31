@@ -11,7 +11,8 @@ still apply. Ordinary recurse retains its current behaviour.
 
 ### Guard-source ownership
 
-GAP-CAMPAIGN-GUARD-SOURCES is accepted for a bounded host-authored restriction.
+GAP-CAMPAIGN-GUARD-SOURCES is closed locally for four named guard units in
+`6e3506acc0f4c3e5d06672c7539d1f55536e236e`. This is a host-authored restriction.
 The decoded usage sensor (`internal/perception/usage_track.go`), broker capture
 (`internal/broker/broker.go`) and refresh suspension/boot units
 (`internal/system/knowledge_refresh_scope.go`,
@@ -24,8 +25,18 @@ permissions. A writer that bypasses the tool guard must still be refused by the
 ratchet, with its owned writes restored. No recovery or permission-widening
 change belongs to this repair. Before closure, deterministic controls must show
 refusal before mutation, rollback after a bypass and ordinary-write success.
-Implementation and execution are pending; publication also requires the
-currently unavailable private-terms scanner.
+The default list is supplied by `internal/config/mission.go:22`. The real-kernel
+in-scope control is `internal/campaign/recurse_guard_source_test.go:19`; the
+shipped project-document tool refusal and read/ordinary-write controls are
+`internal/session/guard_source_protection_test.go:18`. The real recurse ratchet
+refuses and restores owned bypass writes in
+`internal/campaign/recurse_guard_source_test.go:65`. These controls and their
+race checks pass locally; byte-identical tests fail against the pinned parent.
+The tool fixture isolates the document gate with the existing mock
+constitutional seam; existing permission/allowlist precedence and unrelated
+write isolation remain separately verified. This is not a universal guard
+inventory or live qualification. Publication requires the currently unavailable
+private-terms scanner.
 
 ### Mission admission
 

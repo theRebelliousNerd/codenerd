@@ -167,12 +167,16 @@ Tests:
 
 ## Mission guard-source protection
 
-Accepted target: `DefaultMissionConfig().ProtectedPaths` adds the four guard
+Locally verified in `6e3506acc0f4c3e5d06672c7539d1f55536e236e`:
+`DefaultMissionConfig().ProtectedPaths` adds the four guard
 units named by GAP-CAMPAIGN-GUARD-SOURCES in
 `../campaign/MISSION-IMPROVEMENT.md`. Extend the existing list; preserve defaults,
 caller configuration semantics, budgets and all existing protections. The
 repository's `nerd.md` also forbids tool writes to those exact units. These are
 source ownership restrictions, not new executive decisions or a change to
-mission recovery. Implementation and offline refusal/rollback controls are
-pending.
+mission recovery. `internal/config/mission.go:22` retains every preceding
+protected path in order and adds only the four named entries. In-scope mission
+refusal, protected reads, ordinary writes and bypass rollback pass local
+controls cited in the mission specification, including repeated race checks.
+Publication is pending the required unavailable private-terms scan.
 

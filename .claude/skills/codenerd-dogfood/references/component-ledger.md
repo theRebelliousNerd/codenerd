@@ -6370,3 +6370,30 @@ stamping and Chrome execution. Main and previous candidates are untouched.
 Publication is pending the required unavailable private-terms scanner. This is
 bounded decoded-response accounting, not universal billing proof or a qualifying
 R7 result. **Streak 0.**
+
+
+## R7 follow-up, guard-source ownership — local hand repair (2026-10-31)
+
+Hand-authored by Codex; CodeNERD made no edits and no provider was called.
+The four accounting/refresh guard units introduced or repaired by the prior
+local candidates lacked both default mission protection and repository forbids.
+Byte-identical final tests on independent parent `41aa724d8498a335f664a025b12a3302308be4a8`
+show four actual tool writes mutating source, real-kernel in-scope admission
+allowing them, and four bypass repairs kept by recurse. Ordinary source succeeds.
+
+Local repair `6e3506acc0f4c3e5d06672c7539d1f55536e236e` adds exactly those four paths
+to both declarations, retaining every preceding protection. Permission checks retain their implementation; source ownership is stricter.
+Dispatch, guard implementations and recovery behavior are unchanged. Refused tool writes
+leave bytes unchanged, protected reads and ordinary writes remain available,
+and the ratchet refuses bypasses and restores their owned edits. The dispatcher
+fixture isolates document gating; existing permission-order and unrelated-write
+controls also pass. Draft read-format/preimage assertion errors remain in the
+external evidence; final tests fail on the independent baseline and pass here.
+
+11 focused controls and 110 repeated race checks pass. Complete config,
+projectdoc and campaign race suites pass (1,833 checks, no skips). Full uncached
+offline sqlite_vec suite passes (22,030 pass, 80 skip, 112 testable packages),
+as do tagged build and vet. Existing candidates and main remain untouched.
+Publication is pending the required unavailable private-terms scanner. This is
+four-unit ownership protection, not a universal guard audit or qualifying R7
+result. **Streak 0.**
