@@ -176,6 +176,9 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 	}()
 
 	key := resolveAPIKey(apiKey, workspace)
+	if strings.TrimSpace(recurseMission) != "" {
+		ctx = coresys.WithoutKnowledgeRefresh(ctx)
+	}
 	cortex, err := coresys.GetOrBootCortex(ctx, cwd, key, disableSystemShards)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)

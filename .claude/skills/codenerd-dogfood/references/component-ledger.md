@@ -1,5 +1,36 @@
 # codeNERD Component Ledger
 
+## 2026-10-31 exploratory R7 refresh ownership finding and hand repair
+
+Brief: one isolated full-workspace `campaign recurse --waves 1 --gates all
+--gate-full-every 1 --mission ...` at `1ae05f6735ad`, capped at three serial
+attempts and 20 minutes with an external observed-usage stop. The run was
+interrupted after 426.537 seconds, before the first repair attempt: scheduled
+knowledge acquisition made three Meta grounded-search requests despite the
+mission's no-web instruction (two completed, one canceled with unreported
+usage). Reported usage was 217174 input, 22395 output and 146404 cached tokens;
+the pinned-price estimate was $0.011848808 plus unknown canceled-call cost.
+The mission ledger had zero reports/spend; the background service added 147
+atoms inside isolated KBs. No repair edits, kept commits, pushes or qualification
+of R7 or skipped rungs resulted. These were background provider requests, not
+model-issued repair tool calls.
+
+The follow-up is deliberately hand-edited: a model must not change the safety
+boundary constraining its own work. Mission boot now suppresses refresh, and a
+mission on an existing Cortex requires a cancel-and-join suspension lease;
+normal refresh keeps its own usage owner and resumes after the final lease.
+Contract and witnesses: `initKnowledgeRefresh`
+(`internal/system/knowledge_refresh_boot.go:20`) and
+`Cortex.SuspendKnowledgeRefresh`
+(`internal/system/knowledge_refresh_scope.go:131`), specified in
+`Docs/architecture/system/13-KNOWLEDGE-REFRESH-OWNERSHIP.md`.
+The focused deterministic suite, new boundary race controls, full offline suite,
+sqlite_vec build and vet pass. A broader race check failed in resident-shard
+shutdown; the same race reproduced in the untouched base checkout. No unrelated
+shard fix or live rerun is included. Publication remains pending the required
+private-terms scanner, which was not available in this environment; do not
+classify the repair as a live-verified or published upgrade.
+
 ## 2026-10-02 cold-bootstrap lifetime repair witness
 
 Brief: repeat normal cold `nerd chat --timeout 20s`, stdin open, no submitted turns, on a new independent fixture after caller-context propagation. Root/delegated hand edits are intentional: cold boot is the broken prerequisite for using codeNERD to fix itself. Fresh sqlite_vec binary SHA25661820661540A43937CEB1AD04969A1BC5496B05FB94F56D703D0DE1DB77DC140. Runtime0.36min (21.6602s), exit1 with typed kernel/classifier deadline failure, no external kill, output drained; before repair58.4495s. Independent cache witness:448 durable rows, integrity OK, fixture source bytes unchanged, later prompt corpus absent. Strict actual default-bootstrap HTTP/cancellation/cache/ownership controls and focused race pass. This satisfies only the explicit20s-plus5s allowance, not successful chat/model-turn/world/CodeDOM or universal shutdown. Submitted turns/tool calls: none; boot work is not counted as model tool calls. Backend learned-store SQL and worst-case cleanup remain open. Receipts: `.corpus-build/runs/all-features-20261002/round6-firstboot-idle.receipt.json`, `round6-firstboot-cache-witness.json`, `round6-coldboot-corrected.receipt.json`, `round6-coldboot-race.receipt.json`. Source remains uncommitted; do not classify as UPGRADED under this ledger's commit rule.

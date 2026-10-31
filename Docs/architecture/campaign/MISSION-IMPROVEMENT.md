@@ -9,6 +9,16 @@ still apply. Ordinary recurse retains its current behaviour.
 
 ## Required contract
 
+Before mission admission, the host must close knowledge-refresh admission,
+cancel and join its active refresh, and hold that suspension until mission end.
+The CLI also suppresses scheduling during mission Cortex boot. Missing or failed
+host quiescence refuses the mission. All refresh is suppressed during a bounded
+mission rather than interpreting free-text no-web instructions as executable
+policy. Ordinary refresh resumes after the final suspension lease; unrelated
+Cortex services and caller usage observers remain isolated. The ownership
+contract is specified in
+[system/13-KNOWLEDGE-REFRESH-OWNERSHIP.md](../system/13-KNOWLEDGE-REFRESH-OWNERSHIP.md).
+
 Mangle owns run admission, budget exhaustion, stalled progress, and whether a
 deliberated attempt may execute. The existing proposer and requirements
 interrogator shape each selected repair or improvement. Their input preserves

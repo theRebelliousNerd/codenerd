@@ -64,5 +64,6 @@ func newRecurseMission(cortex *coresys.Cortex, root, text string, cfg *config.Us
 			}
 			return answer.Advice, nil
 		}}
-	return &campaign.RecurseMission{Text: text, Limits: cfg.GetMissionConfig(), Deliberator: s}, nil
+	return &campaign.RecurseMission{Text: text, Limits: cfg.GetMissionConfig(), Deliberator: s,
+		QuiesceBackground: cortex.SuspendKnowledgeRefresh}, nil
 }

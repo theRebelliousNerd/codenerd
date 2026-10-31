@@ -1,5 +1,17 @@
 # system — Wiring and Integration
 
+## Mission refresh barrier (2026-10-31)
+
+`runCampaignRecurse` supplies the monotonic boot suppression before fetching a
+Cortex (`cmd/nerd/cmd_campaign_recurse.go:151`). The CLI's `newRecurseMission`
+and chat's `Model.runRecurseLoop` wire `Cortex.SuspendKnowledgeRefresh` into
+mission admission (`cmd/nerd/cmd_campaign_mission.go:40`,
+`cmd/nerd/chat/campaign_recurse.go:187`,
+`internal/system/knowledge_refresh_scope.go:131`). `RecurseMission.begin`
+refuses a missing barrier (`internal/campaign/recurse_mission.go:99`). Existing
+permission and tool routing still govern model work. The narrower background
+contract is [13-KNOWLEDGE-REFRESH-OWNERSHIP.md](13-KNOWLEDGE-REFRESH-OWNERSHIP.md).
+
 > Last verified: **2026-07-13**
 
 ## 1. Why this package exists

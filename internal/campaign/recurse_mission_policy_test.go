@@ -25,13 +25,57 @@ func missionPolicyFixture(t *testing.T) (*RecurseMission, context.Context) {
 		t.Fatal(err)
 	}
 	m := &RecurseMission{Text: "Preserve unrelated user edits", Limits: config.DefaultMissionConfig(),
-		Deliberator: &deliberation.Service{Workspace: root, Session: "mission-policy", Kernel: k}}
+		QuiesceBackground: func(context.Context) (func(), error) { return func() {}, nil }, // no Cortex in this kernel-only fixture
+		Deliberator:       &deliberation.Service{Workspace: root, Session: "mission-policy", Kernel: k}}
 	ctx, cancel, err := m.begin(context.Background(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cancel)
 	return m, ctx
+}
+
+func TestMissionRequiresJoinedBackgroundLease(t *testing.T) {
+	base, _ := missionPolicyFixture(t)
+	for _, name := range []string{"missing", "failed", "nil-lease", "canceled", "joined"} {
+		t.Run(name, func(t *testing.T) {
+			m := &RecurseMission{Text: "No web research during this bounded mission", Limits: config.DefaultMissionConfig(), Deliberator: base.Deliberator}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			released := 0
+			if name != "missing" {
+				m.QuiesceBackground = func(context.Context) (func(), error) {
+					if name == "failed" {
+						return nil, errors.New("refresh did not join")
+					}
+					if name == "nil-lease" {
+						return nil, nil
+					}
+					if name == "canceled" {
+						cancel()
+					}
+					return func() { released++ }, nil
+				}
+			}
+			_, end, err := m.begin(ctx, base.Deliberator.Workspace)
+			if name == "joined" {
+				if err != nil || end == nil || released != 0 {
+					t.Fatalf("joined lease not retained: err=%v released=%d", err, released)
+				}
+				end()
+				if released != 1 {
+					t.Fatalf("lease not released: %d", released)
+				}
+			} else {
+				if err == nil || end != nil || m.path != "" {
+					t.Fatalf("unquiesced mission acquired state: path=%q err=%v", m.path, err)
+				}
+				if name == "canceled" && (!errors.Is(err, context.Canceled) || released != 1) {
+					t.Fatalf("canceled admission leaked its lease: %v / %d", err, released)
+				}
+			}
+		})
+	}
 }
 
 func TestMissionPolicyBoundsAndUnknownSpend(t *testing.T) {
@@ -119,7 +163,7 @@ func TestMissionInterruptedIntentCannotBeReplayed(t *testing.T) {
 	if err := m.end(ctx, errors.New("lost completion")); err == nil {
 		t.Fatal("error disappeared")
 	}
-	other := &RecurseMission{Text: m.Text, Deliberator: m.Deliberator}
+	other := &RecurseMission{Text: m.Text, Deliberator: m.Deliberator, QuiesceBackground: m.QuiesceBackground}
 	_, _, err := other.begin(context.Background(), m.Deliberator.Workspace)
 	if err == nil || !strings.Contains(err.Error(), "unsettled cycle 9") {
 		t.Fatalf("replay admitted: %v", err)

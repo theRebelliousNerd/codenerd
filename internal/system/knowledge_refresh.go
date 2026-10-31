@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"codenerd/internal/embedding"
@@ -47,8 +46,7 @@ type knowledgeRefresher struct {
 	engine    embedding.EmbeddingEngine
 	acquirer  knowledge.Acquirer
 	now       func() time.Time
-	// mu serializes runs (a scheduled run and an explicit one).
-	mu sync.Mutex
+	admission refreshAdmission
 }
 
 // KnowledgeRefreshReport is what one knowledge refresh run did.
@@ -70,8 +68,11 @@ type rosterKB struct {
 
 // run measures, asserts, and does what the policy derives.
 func (r *knowledgeRefresher) run(ctx context.Context) (KnowledgeRefreshReport, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	ctx, release, err := r.admission.enter(ctx)
+	if err != nil {
+		return KnowledgeRefreshReport{}, err
+	}
+	defer release()
 	var report KnowledgeRefreshReport
 	if r.kernel == nil || strings.TrimSpace(r.workspace) == "" {
 		return report, nil
@@ -398,6 +399,7 @@ func refreshSchedule(kernel types.Kernel) (knowledgeRefreshSchedule, error) {
 
 // serve runs the refresh on its schedule until lifetime ends.
 func (r *knowledgeRefresher) serve(lifetime context.Context, schedule knowledgeRefreshSchedule) {
+	r.admission.init()
 	timer := time.NewTimer(schedule.Delay)
 	defer timer.Stop()
 	for {
@@ -405,11 +407,12 @@ func (r *knowledgeRefresher) serve(lifetime context.Context, schedule knowledgeR
 		case <-lifetime.Done():
 			return
 		case <-timer.C:
+		case <-r.admission.wake:
 		}
 		started := time.Now()
 		report, err := r.run(lifetime)
 		log := logging.Get(logging.CategoryContext)
-		if err != nil {
+		if err != nil && !errors.Is(err, errKnowledgeRefreshSuspended) {
 			log.Warn("knowledge refresh: %v", err)
 		}
 		if len(report.Refreshed) > 0 || report.Pruned > 0 {

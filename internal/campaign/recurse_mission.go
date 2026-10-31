@@ -33,10 +33,14 @@ type RecurseMission struct {
 	Text        string
 	Limits      config.MissionConfig
 	Deliberator *deliberation.Service
-	State       MissionState
-	path        string
-	started     time.Time
-	meter       missionMeter
+	// QuiesceBackground closes host knowledge-refresh admission and joins any
+	// active acquisition. Its lease must outlive mission accounting/cleanup.
+	// A missing hook refuses admission rather than leaving ambient spending.
+	QuiesceBackground func(context.Context) (func(), error)
+	State             MissionState
+	path              string
+	started           time.Time
+	meter             missionMeter
 }
 
 type MissionState struct {
@@ -96,6 +100,9 @@ func (m *RecurseMission) begin(ctx context.Context, root string) (context.Contex
 	if m.Deliberator == nil || m.Deliberator.Kernel == nil || strings.TrimSpace(m.Text) == "" || m.path != "" {
 		return nil, nil, fmt.Errorf("mission requires a fresh conductor, explicit mission and deliberator")
 	}
+	if m.QuiesceBackground == nil {
+		return nil, nil, fmt.Errorf("mission requires host knowledge-refresh quiescence")
+	}
 	serviceRoot, err := tools.CanonicalWorkspaceRoot(m.Deliberator.Workspace)
 	if err != nil || filepath.Clean(serviceRoot) != filepath.Clean(root) {
 		return nil, nil, fmt.Errorf("mission and deliberation workspaces differ")
@@ -124,6 +131,22 @@ func (m *RecurseMission) begin(ctx context.Context, root string) (context.Contex
 	if err := m.checkInterrupted(); err != nil {
 		return nil, nil, err
 	}
+	release, err := m.QuiesceBackground(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mission knowledge-refresh quiescence: %w", err)
+	}
+	if release == nil {
+		return nil, nil, fmt.Errorf("mission knowledge-refresh quiescence returned no lease")
+	}
+	accepted := false
+	defer func() {
+		if !accepted {
+			release()
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	m.started = time.Now()
 	m.State = MissionState{ID: "mission-" + uuid.NewString(), Session: m.Deliberator.Session,
 		Mission: m.Text, Version: fmt.Sprintf("%x", sha256.Sum256([]byte(m.Text))),
@@ -142,7 +165,8 @@ func (m *RecurseMission) begin(ctx context.Context, root string) (context.Contex
 	ctx = sessionlog.WithAgent(ctx, "mission", m.State.ID)
 	ctx = usage.WithObserver(ctx, &m.meter)
 	sessionlog.EmitLiveProgress(ctx, sessionlog.LiveEvent{Kind: "plan", Text: "Mission: " + m.Text})
-	return ctx, cancel, nil
+	accepted = true
+	return ctx, func() { cancel(); release() }, nil
 }
 
 func (m *RecurseMission) prepare(ctx context.Context, a *RecurseAttempt) (err error) {

@@ -93,14 +93,15 @@ type BootConfig struct {
 // boot produces a new identity without retaining credential text in the
 // identity or cache key.
 type cortexIdentity struct {
-	Workspace           string   `json:"workspace"`
-	Engine              string   `json:"engine"`
-	Provider            string   `json:"provider"`
-	Model               string   `json:"model"`
-	ConfigDigest        string   `json:"config_digest"`
-	APIKeyDigest        string   `json:"api_key_digest,omitempty"`
-	Context7KeyDigest   string   `json:"context7_key_digest,omitempty"`
-	DisableSystemShards []string `json:"disable_system_shards,omitempty"`
+	Workspace               string   `json:"workspace"`
+	Engine                  string   `json:"engine"`
+	Provider                string   `json:"provider"`
+	Model                   string   `json:"model"`
+	ConfigDigest            string   `json:"config_digest"`
+	APIKeyDigest            string   `json:"api_key_digest,omitempty"`
+	Context7KeyDigest       string   `json:"context7_key_digest,omitempty"`
+	DisableSystemShards     []string `json:"disable_system_shards,omitempty"`
+	DisableKnowledgeRefresh bool     `json:"disable_knowledge_refresh,omitempty"`
 }
 
 func newCortexIdentity(workspace string, cfg *config.UserConfig, apiKey string, disableSystemShards []string) (cortexIdentity, error) {
@@ -166,6 +167,7 @@ func (identity cortexIdentity) cacheKey() string {
 			identity.ConfigDigest,
 			identity.APIKeyDigest,
 			identity.Context7KeyDigest,
+			fmt.Sprint(identity.DisableKnowledgeRefresh),
 		},
 		normalizeDisableSystemShards(identity.DisableSystemShards)...,
 	)
@@ -307,6 +309,7 @@ func getOrBootCortexWithConfig(
 	if cacheable {
 		identity, identityErr := newCortexIdentity(ws, userCfg, apiKey, disabled)
 		if identityErr == nil {
+			identity.DisableKnowledgeRefresh = knowledgeRefreshDisabled(ctx)
 			key = identity.cacheKey()
 		} else {
 			cacheable = false

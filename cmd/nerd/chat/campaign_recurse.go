@@ -193,7 +193,8 @@ func (m Model) runRecurseLoop(ctx context.Context, st *recurseState, cfg campaig
 			if m.Config == nil {
 				m.Config = config.DefaultUserConfig()
 			}
-			mission = &campaign.RecurseMission{Text: cfg.Mission, Limits: m.Config.GetMissionConfig(), Deliberator: m.deliberator()}
+			mission = &campaign.RecurseMission{Text: cfg.Mission, Limits: m.Config.GetMissionConfig(), Deliberator: m.deliberator(),
+				QuiesceBackground: m.cortex.SuspendKnowledgeRefresh}
 			// Detached config: serial mission work must not alter the chat's defaults.
 			copyCfg := *m.Config
 			campaignCfg := m.Config.GetCampaignConfig()

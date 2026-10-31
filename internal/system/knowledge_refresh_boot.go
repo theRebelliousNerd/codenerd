@@ -3,9 +3,12 @@ package system
 import (
 	"context"
 
+	"codenerd/internal/broker"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/knowledge"
 	"codenerd/internal/logging"
+	"codenerd/internal/sessionlog"
+	"codenerd/internal/usage"
 )
 
 // initKnowledgeRefresh is the last boot step: it schedules the background
@@ -16,6 +19,10 @@ import (
 // the pinned go doc, and the repository's importers from the world model.
 func initKnowledgeRefresh(bctx *bootContext) error {
 	if bctx == nil || bctx.kernel == nil {
+		return nil
+	}
+	if knowledgeRefreshDisabled(bctx.ctx) {
+		logging.Get(logging.CategoryContext).Info("knowledge refresh suppressed for bounded mission boot")
 		return nil
 	}
 	schedule, err := refreshSchedule(bctx.kernel)
@@ -47,6 +54,13 @@ func initKnowledgeRefresh(bctx *bootContext) error {
 		}),
 	}
 	lifetime, cancel := context.WithCancel(context.Background())
+	// This is a resident service, not the first boot caller's request. Carry
+	// its own usage/session identity without retaining a caller's observer.
+	lifetime = usage.NewContext(lifetime, bctx.tracker)
+	lifetime = usage.WithSessionID(lifetime, bctx.sessionID)
+	lifetime = broker.WithPurpose(lifetime, broker.PurposeAutopoiesis)
+	lifetime = broker.WithPhase(lifetime, "knowledge_refresh")
+	lifetime = sessionlog.WithService(lifetime, "knowledge-refresh", bctx.sessionID)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

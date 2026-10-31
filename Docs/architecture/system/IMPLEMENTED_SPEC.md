@@ -1,5 +1,19 @@
 # system — Implemented Spec (Motherboard / Cortex Factory)
 
+## Bounded knowledge refresh ownership fix (2026-10-31)
+
+`WithoutKnowledgeRefresh` suppresses acquisition before mission boot
+(`internal/system/knowledge_refresh_scope.go:15`); `getOrBootCortexWithConfig`
+binds this restriction into cache identity (`internal/system/factory.go:287`).
+`Cortex.SuspendKnowledgeRefresh` closes refresh admission, cancels and joins
+active acquisition, and resumes ordinary refresh after the last lease release
+(`internal/system/knowledge_refresh_scope.go:131`). Ordinary scheduled refresh
+has its own Cortex tracker/session, autopoiesis purpose and knowledge-refresh
+phase (`internal/system/knowledge_refresh_boot.go:20`, `initKnowledgeRefresh`).
+The focused integration and new boundary race controls pass; this is not live
+R7 qualification. The contract, witnesses and remaining verification limits
+are in [13-KNOWLEDGE-REFRESH-OWNERSHIP.md](13-KNOWLEDGE-REFRESH-OWNERSHIP.md).
+
 ## Bounded current implementation receipt (2026-10-02)
 
 **VERIFIED CURRENT:** caller-aware cache admission and stage-boundary cancellation/rollback in `internal/system/factory.go#GetOrBootCortex` at line210 and `#bootCortexWithSteps` at line2648 pass the real default-bootstrap blocked-embedding and lifecycle/cache controls in `artifact:.corpus-build/runs/all-features-20261002/round6-coldboot-corrected.receipt.json` and focused race in `round6-coldboot-race.receipt.json`. Canceled construction cannot return/publish its partial Cortex; errors preserve cancellation and rollback causes. No-deadline callers and valid cache reuse retain their contracts.

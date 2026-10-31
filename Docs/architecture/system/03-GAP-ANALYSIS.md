@@ -1,5 +1,11 @@
 # Gap analysis: system
 
+## Knowledge refresh invocation ownership (2026-10-31)
+
+| Gap ID | Current state | Target | Exit criteria | Status |
+|---|---|---|---|---|
+| GAP-SYSTEM-REFRESH-OWNERSHIP | `initKnowledgeRefresh` suppresses mission scheduling and names ordinary service usage (`internal/system/knowledge_refresh_boot.go:20`); `RecurseMission.begin` requires a joined host suspension lease (`internal/campaign/recurse_mission.go:99`). | Required boundary in [13-KNOWLEDGE-REFRESH-OWNERSHIP.md](13-KNOWLEDGE-REFRESH-OWNERSHIP.md). | Deterministic boot/cache, mission suspension, cancellation/join, usage attribution and unrelated-Cortex controls pass; no live provider calls required. | Implemented; focused and new boundary race tests pass. Aggregate verification and documentation publication checks pending; broader pre-existing shard shutdown race reproduced on base. |
+
 ## Accepted cold-bootstrap cancellation target (2026-10-02)
 
 **VERIFIED CURRENT — bounded implementation/live exit:** default full-bootstrap HTTP cancellation, stage/cache/rollback controls and focused race pass in `artifact:.corpus-build/runs/all-features-20261002/round6-coldboot-corrected.receipt.json` and `round6-coldboot-race.receipt.json`. Fresh normal-entry cold20s probe exits21.6602s with typed deadline failure and drained output (`round6-firstboot-idle.receipt.json`), within the specified5s allowance. This supersedes the unimplemented observation below for these exact behaviors. Backend learned-store SQL, worst-case cleanup, complete affected suites and model-turn/world context remain separate obligations; GAP-CLI-01 is not globally closed.

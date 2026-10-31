@@ -207,6 +207,9 @@ func TestMissionRecurse_CommandAdapterThroughProductionCycle(t *testing.T) {
 	})
 	res, err := campaign.RunRecurseCycles(ctx, campaign.RecurseCycleConfig{Workspace: root, Kernel: cortex.Kernel, Mission: mission,
 		Execute: func(ctx context.Context, a campaign.RecurseAttempt) ([]observation.FileWrite, error) {
+			if _, err := cortex.RefreshKnowledge(ctx); err == nil || !strings.Contains(err.Error(), "suspended") {
+				return nil, fmt.Errorf("mission worker reached an unsuspended knowledge refresher: %v", err)
+			}
 			camp := campaign.RecurseAttemptCampaign(root, a)
 			defer campaign.ReleaseRecurseAttempt(root, cortex.Kernel, camp)
 			cfg, prompts, err := buildCampaignOrchestratorConfig(cortex, root, nil, nil)
