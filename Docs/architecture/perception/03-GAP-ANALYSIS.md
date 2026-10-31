@@ -1,5 +1,18 @@
 # 03 — Gap Analysis (perception)
 
+## Accepted response body-read uncertainty
+
+GAP-PERCEPTION-ACCEPTED-READ is open. An HTTP 200 response whose body cannot be
+read may already represent billed execution. The compatible chat transport
+retries without notifying incomplete-usage observers; a later complete report
+can hide that uncertainty. Required exit: preserve the existing retry and
+cancellation behavior while signalling uncertainty before retrying the accepted
+response. Keep known counts unchanged. Offline transport and real-kernel mission
+controls must distinguish a clean response from a truncated accepted response,
+retain typed cancellation and body cleanup, and stop subsequent mission
+admission with `/unknown_spend`. No permission or executive policy change is
+part of this bounded repair. Implementation and execution are pending.
+
 ## Retry usage uncertainty
 
 | Gap ID | Capability | Current state | Target state | Severity | Phase | Blocking dependencies | Exit criteria |

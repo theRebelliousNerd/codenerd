@@ -1,5 +1,14 @@
 # 09 — Safety and Invariants (perception)
 
+## Accepted response read failures
+
+An unreadable HTTP 200 body is an accepted attempt with unaccounted usage.
+Notify the existing incomplete-usage observer before retry or cancellation
+returns; a successful retry cannot restore certainty about the failed read.
+Preserve known reports, retry limits, typed cancellation and body closure. This
+contract covers the compatible chat transport's accepted-response read boundary;
+it does not classify pre-connect failures or other transports as billed or free.
+
 ## Retry usage uncertainty
 
 Each completed provider attempt without token metadata must notify enclosing

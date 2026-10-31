@@ -15,6 +15,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
+	"codenerd/internal/usage"
 )
 
 // OpenAICompatClient implements LLMClient for vendors that speak the OpenAI
@@ -591,6 +592,11 @@ func (c *OpenAICompatClient) executeChat(ctx context.Context, reqBody OpenAIRequ
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 		resp.Body.Close()
 		if readErr != nil {
+			if resp.StatusCode == http.StatusOK {
+				// The accepted attempt may have billed usage we could not read.
+				// A successful retry cannot account for that missing attempt.
+				usage.NoteUnknownUsage(ctx)
+			}
 			lastErr = fmt.Errorf("failed to read response: %w", readErr)
 			if sleepErr := sleepCtx(ctx, retryDelay(resp, attempt)); sleepErr != nil {
 				return nil, sleepErr
