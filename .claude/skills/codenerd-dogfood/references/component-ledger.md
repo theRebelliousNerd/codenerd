@@ -6454,3 +6454,34 @@ and unrelated source were preserved. Main, prior candidates and evidence remain
 unchanged. Recovered transport retries, per-use fees, all-zero usage presence
 and hard billing limits remain outside this result. Publication awaits the
 required unavailable private-terms scanner. No qualifying R7 claim. **Streak 0.**
+
+
+## R7 follow-up, Anthropic lost response — local hand repair (2026-10-31)
+
+Codex hand-authored this repair; no CodeNERD edits or provider calls. A local
+HTTP endpoint consumes the inference body, then closes without headers.
+Fail-before recovers in chat, tools and stream setup with reported receipts and
+unknown=false; a recovered continuation likewise conceals uncertainty. The
+production single-key factory/real-kernel mission admits further work with
+2,000 micro-USD known and unknown=false. Clean, cancellation, exhaustion and
+known-over-budget controls pass. Fail-before has 11 pass and 7 fail events,
+including parent events, with no fixture compile errors.
+
+Local repair `271336b1b43d9feeda0450ae1b76fdac00caf617` adds one existing
+incomplete-observer notification before unchanged transport retry/cancellation
+handling. Known successful counts and continuation parts survive; broker
+receipts become partial and the mission saves `/unknown_spend`. Clean work
+stays admitted and known over-budget work saves `/spend`. Gate, permission,
+recovery, stream parsing and retry-policy implementations are unchanged.
+
+18 focused controls and 180 repeated race checks pass. Anthropic/key-pool race
+controls pass 153 with one live skip. Complete broker/usage/campaign race suites
+pass 1,842 checks. Full uncached offline sqlite_vec tests pass 22,083 with 80
+skips, as do tagged build and vet. The inherited selective physical temporary
+storage preserves VCS checks and assertions; this suite has no environment
+failures. Main, prior candidates and evidence remain unchanged. Transport
+errors are conservatively unknown, including possible pre-connect failures;
+no charge or missing amount is invented. Non-200 billing classification, other
+provider transports, per-use fees and hard billing limits remain outside this
+result. Publication awaits the required unavailable private-terms scanner.
+No qualifying R7 claim. **Streak 0.**

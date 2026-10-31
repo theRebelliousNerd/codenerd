@@ -1,16 +1,30 @@
 # 02 — Current State (perception)
 
+## Bounded Anthropic lost-response uncertainty
+
+Local repair `271336b1b43d9feeda0450ae1b76fdac00caf617` notifies incomplete
+observers at the Messages transport-error boundary
+(`internal/perception/anthropic_transport.go:147`), so a recovered request with
+a lost response cannot leave its bill falsely certain. Known successful usage
+survives; chat, tools, stream setup and continuation recovery produce partial
+broker receipts. The real single-key factory/mission control in
+`internal/campaign/recurse_mission_lost_response_test.go:21` stops unknown spend
+and preserves clean admission and the known-spend stop. Notification is
+conservative even when a transport failure preceded connection. Non-200 status
+billing, other provider transports and hard billing limits remain unclassified.
+Publication awaits the required private-terms scanner; no live qualification.
+
 ## Bounded Anthropic usage accounting
 
 Local candidate `ac50802fe1441b05d1530c76df6d31868596d14f` reports decoded
 non-streaming Messages attempts before validating their envelopes, including
 discarded incomplete retries and paused turns
-(`internal/perception/anthropic_transport.go:254`). Missing usage and later
+(`internal/perception/anthropic_transport.go:257`). Missing usage and later
 send/read/decode failures remain unknown; known counts survive. The accepted
 response aggregate is returned without a second observation. Broker/tracker
 controls cover all four non-streaming surfaces, and real-kernel mission controls
 stop unknown or over-budget spend while admitting a clean call. This closes
-GAP-PERCEPTION-ANTHROPIC-ATTEMPTS locally; recovered wire failures, per-use fees,
+GAP-PERCEPTION-ANTHROPIC-ATTEMPTS locally; recovered non-200 replies, per-use fees,
 hard billing bounds and live recurse qualification remain separate. Publication
 requires the unavailable private-terms scanner.
 

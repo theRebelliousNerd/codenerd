@@ -98,6 +98,17 @@ without headers is the required control, with clean success still admitted.
 GAP-PERCEPTION-ANTHROPIC-LOST-RESPONSE owns this bounded adapter strengthening;
 mission gate and recovery implementations must remain unchanged.
 
+That adapter boundary is closed locally in
+`271336b1b43d9feeda0450ae1b76fdac00caf617`. The actual single-key production
+factory and real-kernel mission control in
+`internal/campaign/recurse_mission_lost_response_test.go:21` retains 2,000
+micro-USD of reported spend after a lost response and derives `/unknown_spend`.
+A clean 2,000 micro-USD call stays admitted; fully reported 4,000 micro-USD under
+a 3,000 micro-USD cap derives `/spend`. Saved mission state retains counts and
+stop status. The local server consumes the inference request before losing
+its response; this proves uncertainty, not an actual provider charge. Gate and
+recovery code is unchanged; publication requires the private-terms scan.
+
 The bounded local candidate `a6aaaf0f1cbc429dac34f57b3d92bba2486c8fca` exercises
 the decoded retry through the provider adapter, broker, mission meter and real
 kernel in `internal/campaign/recurse_mission_retry_usage_test.go:16`.

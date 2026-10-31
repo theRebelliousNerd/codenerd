@@ -1,10 +1,21 @@
 # 08 — Wiring and Integration (perception)
 
+## Anthropic lost-response uncertainty
+
+`sendMessages` (`internal/perception/anthropic_transport.go:147`) notifies the
+existing incomplete-observer chain after `httpClient.Do` fails. The signal
+reaches enclosing broker and mission captures even if that inner retry loop
+later returns a decoded or streamed success. Counts continue through their
+existing decode/stream report sites; no synthetic usage report is added. The
+single-key production factory control is
+`internal/campaign/recurse_mission_lost_response_test.go:21`; key-pool failure
+and retry behavior retains its existing transport/router path.
+
 ## Non-streaming Anthropic accounting
 
 `completeText` and `completeTools` pass their existing operation category through
 `exchange` and `postMessages` to `postMessagesOnce`
-(`internal/perception/anthropic_transport.go:254`). Each decoded attempt reports
+(`internal/perception/anthropic_transport.go:257`). Each decoded attempt reports
 before validation to the tracker and nested observers, including the broker
 and mission meter. Missing metadata and send/read/decode failure notify those
 same captures. Exchange still merges accepted continuation content and usage;

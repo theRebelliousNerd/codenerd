@@ -1,24 +1,31 @@
 # 03 — Gap Analysis (perception)
 
-## Accepted Anthropic lost-response uncertainty target
+## Anthropic lost-response uncertainty
 
-GAP-PERCEPTION-ANTHROPIC-LOST-RESPONSE: an unpooled Messages request can reach
-the endpoint, lose its response, then recover inside sendMessages. The outer
-decoded-attempt guard sees only the successful reply and misses the earlier
-uncertainty. The bounded target is to notify incomplete observers at the
-transport-error boundary before retry or cancellation returns, without
-inventing a charge. Preserve known successful counts, retry limits, typed
-cancellation, clean responses and pooled behavior. Exit requires a local HTTP
-server that consumes the first inference request and closes without headers,
-then returns counted success; broker/tracker and real-kernel mission controls
-must preserve known spend, mark unknown and refuse further work. Non-200
-billing classification and other providers remain separate obligations.
+GAP-PERCEPTION-ANTHROPIC-LOST-RESPONSE is closed locally in
+`271336b1b43d9feeda0450ae1b76fdac00caf617`.
+`internal/perception/anthropic_transport.go:147` notifies incomplete observers
+after a Messages transport error, before retry or cancellation returns. The
+endpoint may have received the request and lost its response; later success
+cannot establish that the first exchange was free. This conservative boundary
+preserves known reports and does not invent charges. A local HTTP server reads
+the complete inference body then closes without headers in
+`internal/perception/anthropic_lost_response_test.go:52`; chat, tools, stream,
+cancellation and retry-limit controls preserve their behavior. Counted
+continuation parts remain present in
+`internal/perception/anthropic_lost_response_test.go:143`. The production
+single-key factory, broker and real-kernel mission control is
+`internal/campaign/recurse_mission_lost_response_test.go:21`: known spend is
+retained, unknown stops admission, and clean/known-budget controls remain
+distinct. Non-200 billing classification, other provider transports and hard
+billing bounds remain separate obligations. Publication awaits the required
+private-terms scanner; no live rung result follows.
 
 ## Anthropic decoded-attempt accounting
 
 GAP-PERCEPTION-ANTHROPIC-ATTEMPTS is closed locally in
 `ac50802fe1441b05d1530c76df6d31868596d14f`.
-`internal/perception/anthropic_transport.go:254` observes each decoded
+`internal/perception/anthropic_transport.go:257` observes each decoded
 non-streaming HTTP 200 attempt before envelope validation. Incomplete retries
 and paused turns retain their counts even if later work fails. Missing usage
 and send/read/decode failures retain uncertainty through enclosing observers.
@@ -29,7 +36,7 @@ are in `internal/perception/anthropic_attempt_usage_test.go:54` and
 `internal/perception/anthropic_attempt_usage_test.go:146`; the real-kernel
 unknown-spend and over-budget stops are exercised in
 `internal/campaign/recurse_mission_anthropic_usage_test.go:20`.
-Recovered wire failures hidden inside sendMessages and server-tool per-use fees
+Recovered non-200 replies hidden inside sendMessages and server-tool per-use fees
 remain separate accounting obligations. All-zero Anthropic usage retains the
 existing conservative unknown interpretation. Publication awaits the required
 private-terms scanner. No hard billing guarantee or live rung result follows.

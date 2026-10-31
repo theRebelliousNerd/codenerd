@@ -1,9 +1,23 @@
 # perception — Implemented Spec (Deep-Dive)
 
+## Ambiguous Anthropic transport exchanges
+
+`internal/perception/anthropic_transport.go:147` notifies existing incomplete
+observers when a Messages HTTP exchange fails, before retry/cancellation
+handling. Later recovery retains all known counts without resolving the lost
+response's unknown cost. This also covers stream setup through that same
+funnel; stream parsing/replay and pause/resume behavior retain their existing
+contracts. Local repair `271336b1b43d9feeda0450ae1b76fdac00caf617` is verified
+with a server that consumes inference bodies then closes without headers in
+`internal/perception/anthropic_lost_response_test.go:52` and the production
+unpooled factory/mission control in
+`internal/campaign/recurse_mission_lost_response_test.go:21`. The notification
+does not assert every transport error was billed or classify non-200 statuses.
+
 ## Decoded Anthropic attempt observations
 
 Each decoded non-streaming Messages attempt supplies its own usage observation
-before validation (`internal/perception/anthropic_transport.go:254`). Discarded
+before validation (`internal/perception/anthropic_transport.go:257`). Discarded
 incomplete responses and accepted pause/resume parts are counted once; a later
 error cannot hide prior reports or missing usage. Send/read/decode failures
 notify existing incomplete observers. Callers retain the accepted content and
@@ -12,7 +26,7 @@ tool/history operation categories propagate to each attempt. Streaming retains
 its separate terminal reporting path. Offline controls in
 `internal/perception/anthropic_attempt_usage_test.go:54` and
 `internal/perception/anthropic_attempt_usage_test.go:146` verify this local
-contract in `ac50802fe1441b05d1530c76df6d31868596d14f`; recovered transport
+contract in `ac50802fe1441b05d1530c76df6d31868596d14f`; recovered non-200
 retries and server-tool per-use charges remain outside this bounded result.
 
 ## Root-qualified context-aware construction (2026-10-02)
