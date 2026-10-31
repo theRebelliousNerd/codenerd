@@ -1,5 +1,16 @@
 # 09 — Safety and Invariants (perception)
 
+## Compatible streaming setup uncertainty
+
+Compatible Chat setup transport errors may hide received inference requests.
+Notify enclosing incomplete observers before retry/cancellation; later stream
+success retains known usage but cannot resolve the earlier unknown cost. The
+stream may still finish successfully: answer completion and billing certainty
+are distinct. Preserve content, typed cancellation, cache counts, HTTP errors,
+retry bounds and the existing rule that a started stream is not replayed.
+Require actual local-server broker and mission stop/clean controls. This is
+conservative uncertainty, not an assertion that every connect error was billed.
+
 ## Compatible and Responses transport uncertainty
 
 A lost response in compatible Chat, shared non-streaming Responses or explicit

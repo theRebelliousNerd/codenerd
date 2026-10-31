@@ -1,5 +1,13 @@
 # Mission-linked recurse
 
+The compatible Chat streaming setup path obeys the same lost-response cost
+contract as non-streaming inference. A complete streamed answer after setup
+recovery must preserve known counts and still stop the next mission admission
+with `/unknown_spend`. GAP-PERCEPTION-COMPAT-STREAM-LOSS owns the bounded adapter
+repair. Actual endpoint-receipt, broker and production-factory mission controls
+must distinguish clean, recovered and fully known over-budget streams without
+changing gate or recovery implementations.
+
 The mission mode of recurse keeps an owner-supplied purpose under continuous
 pressure while bounding each invocation. It extends the existing dependency
 sweep and ratchet rather than introducing another scheduler. Start it with

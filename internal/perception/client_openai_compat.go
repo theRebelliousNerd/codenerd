@@ -884,6 +884,8 @@ func (c *OpenAICompatClient) CompleteWithStreaming(ctx context.Context, systemPr
 
 			resp, err := c.httpClient.Do(req)
 			if err != nil {
+				// A received setup request may have lost its response before headers.
+				usage.NoteUnknownUsage(ctx)
 				lastErr = fmt.Errorf("request failed: %w", err)
 				if sleepErr := sleepCtx(ctx, retryDelay(nil, attempt)); sleepErr != nil {
 					w.Fail(sleepErr)

@@ -1,5 +1,19 @@
 # 03 — Gap Analysis (perception)
 
+## Accepted compatible streaming setup uncertainty target
+
+GAP-PERCEPTION-COMPAT-STREAM-LOSS: compatible Chat streaming can recover a
+lost setup response and report only the successful stream. Notify incomplete
+captures after the HTTP transport error, before retry/cancellation returns.
+Retain visible content, successful terminal evidence, known usage and cache
+subcounts; an unknown bill must not turn a complete answer into a failed
+stream. Verify with a local endpoint consuming the inference body before
+closing without headers, nested broker/tracker captures and the production
+single-key factory/mission meter. Clean admission, known-budget stops,
+cancellation, exhaustion, terminal HTTP errors and no replay after stream
+output remain required controls. Other stream transports and non-200 billing
+remain separate obligations; no gate or retry-policy change is authorized.
+
 ## Cross-provider lost-response uncertainty
 
 GAP-PERCEPTION-CROSS-LOSS is closed locally in
