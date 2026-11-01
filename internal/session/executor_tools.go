@@ -1057,6 +1057,7 @@ func (e *Executor) executeAndRecordToolCall(
 	toolCtx, checkRuns := tools.WithAcceptanceRunLog(toolCtx)
 	toolCtx, familyDecisions := tools.WithFamilyDecisionLog(toolCtx)
 	toolCtx, validationOf := withToolValidationLog(toolCtx)
+	toolCtx, generatedReceipts := withGeneratedReceiptLog(toolCtx)
 	toolCtx, consumedOf := tools.WithConsumptionLog(toolCtx)
 	started := time.Now()
 	// A test call that names no packages tests what this turn wrote, the same
@@ -1066,6 +1067,7 @@ func (e *Executor) executeAndRecordToolCall(
 	if guardErr == nil {
 		out, err = e.executeToolCall(toolCtx, ToolCall{ID: call.ID, Name: call.Name, Args: call.Input}, cfg)
 	}
+	result.generatedToolReceipts = append(result.generatedToolReceipts, generatedReceipts()...)
 	result.ToolCallsExecuted++
 	// A test execution is a test process the tool layer started and recorded
 	// (tools.TestRun), whether its tests passed or failed. A tool's name is
@@ -2822,6 +2824,7 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 				return "", fmt.Errorf("generated bridge unavailable; raw execution refused")
 			}
 			receipt, err := generatedBridge.ExecuteGeneratedToolCall(toolCtx, generatedRequest)
+			recordGeneratedReceipt(ctx, receipt)
 			if err != nil {
 				return generatedObservation(receipt), err
 			}

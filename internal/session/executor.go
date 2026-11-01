@@ -994,6 +994,9 @@ type ExecutionResult struct {
 	// ToolReceipts is each effectful call's receipt: what it changed and
 	// what its validation established, in call order.
 	ToolReceipts []ToolEffectReceipt
+	// Raw generated-bridge outcomes are caller-visible through an explicit
+	// accessor, separate from recognized-write receipts and acceptance.
+	generatedToolReceipts []types.GeneratedToolReceipt
 	// SelfReportedIncomplete is set when the turn's own final report says
 	// part of the requested work was not done (auditFinalReport). A model's
 	// claim of success is not evidence; its admission of failure is.
