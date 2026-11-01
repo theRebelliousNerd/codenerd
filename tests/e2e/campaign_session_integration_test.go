@@ -127,6 +127,7 @@ func setupCampaignEnvironment(t *testing.T) (*campaign.Orchestrator, *campaignMo
 		t.Fatalf("Failed to create orchestrator: %v", err)
 	}
 
+	registerCampaignFixtureCleanup(t, orch)
 	return orch, vStore, llm, trans, taskExec
 }
 
@@ -144,6 +145,7 @@ func createDummyCampaign(id string) *campaign.Campaign {
 				Tasks: []campaign.Task{
 					{
 						ID:          "/task_1",
+						PhaseID:     "/phase_1",
 						Description: "Fix file A",
 						Status:      campaign.TaskPending,
 						Type:        campaign.TaskTypeFileModify,
@@ -287,6 +289,7 @@ func TestE2E_CampaignSession_Contract_ConcurrentInlineExecutionDataRace(t *testi
 	for i := 0; i < 10; i++ {
 		task := campaign.Task{
 			ID:          fmt.Sprintf("/task_race_%d", i),
+			PhaseID:     camp.Phases[0].ID,
 			Description: fmt.Sprintf("Fix file %d", i),
 			Status:      campaign.TaskPending,
 			Type:        campaign.TaskTypeFileModify,
@@ -349,6 +352,7 @@ func TestE2E_CampaignSession_Contract_MixedInlineAndAsyncTasks(t *testing.T) {
 	// Add an async task
 	asyncTask := campaign.Task{
 		ID:          "/task_async_1",
+		PhaseID:     camp.Phases[0].ID,
 		Description: "Research the code",
 		Status:      campaign.TaskPending,
 		Type:        campaign.TaskTypeResearch,
@@ -374,6 +378,7 @@ func TestE2E_CampaignSession_Contract_ContextBleed(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		task := campaign.Task{
 			ID:          fmt.Sprintf("/task_bleed_%d", i),
+			PhaseID:     camp.Phases[0].ID,
 			Description: fmt.Sprintf("Fix bleed %d", i),
 			Status:      campaign.TaskPending,
 			Type:        campaign.TaskTypeFileModify,
@@ -401,6 +406,7 @@ func TestE2E_CampaignSession_Contract_AsyncSubagentExecutionCompletesCorrectly(t
 	camp.Phases[0].Tasks = []campaign.Task{
 		{
 			ID:          "/task_complex",
+			PhaseID:     camp.Phases[0].ID,
 			Description: "Complex Research",
 			Status:      campaign.TaskPending,
 			Type:        campaign.TaskTypeResearch, // This uses intent /research which is a complex intent
@@ -462,6 +468,7 @@ func TestE2E_CampaignSession_StateCorruption_DataRaceInConversationHistory(t *te
 	for i := 0; i < 10; i++ {
 		task := campaign.Task{
 			ID:          fmt.Sprintf("/task_race_%d", i),
+			PhaseID:     camp.Phases[0].ID,
 			Description: fmt.Sprintf("Fix file %d", i),
 			Status:      campaign.TaskPending,
 			Type:        campaign.TaskTypeFileModify,
@@ -523,6 +530,7 @@ func TestE2E_CampaignSession_ResourceExhaustion_TaskSpamLimits(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		task := campaign.Task{
 			ID:          fmt.Sprintf("/task_spam_%d", i),
+			PhaseID:     camp.Phases[0].ID,
 			Description: fmt.Sprintf("Spam task %d", i),
 			Status:      campaign.TaskPending,
 			Type:        campaign.TaskTypeFileModify,
@@ -620,12 +628,14 @@ func TestE2E_CampaignSession_Cascading_ContextBleedCausesWrongFileEdit(t *testin
 	camp.Phases[0].Tasks = []campaign.Task{
 		{
 			ID:          "/task_A",
+			PhaseID:     camp.Phases[0].ID,
 			Description: "Fix file A",
 			Status:      campaign.TaskPending,
 			Type:        campaign.TaskTypeFileModify,
 		},
 		{
 			ID:          "/task_B",
+			PhaseID:     camp.Phases[0].ID,
 			Description: "Fix file B",
 			Status:      campaign.TaskPending,
 			Type:        campaign.TaskTypeFileModify,
@@ -671,6 +681,7 @@ func TestE2E_CampaignSession_Cascading_SpawnerExhaustionCausesReplan(t *testing.
 	for i := 0; i < 100; i++ {
 		task := campaign.Task{
 			ID:          fmt.Sprintf("/task_async_%d", i),
+			PhaseID:     camp.Phases[0].ID,
 			Description: "Research task",
 			Status:      campaign.TaskPending,
 			Type:        campaign.TaskTypeResearch,

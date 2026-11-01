@@ -1,5 +1,57 @@
 # testing — Gap Analysis
 
+## GAP-TESTING-CAMPAIGN-PLAN-MEMBERSHIP
+
+Campaign/session fixtures must supply each task's owning `PhaseID`, including
+tasks appended or substituted after base-plan construction. The production
+decomposer supplies this relationship and `campaign_task/5` requires its phase
+reference to exist in the admitted plan. Preserve that inclusion guard; do not
+normalize malformed caller plans in production or bypass quarantine to make a
+fixture run.
+
+Repair the explicit fixture construction sites while preserving original task
+types, dependencies, descriptions, effect/target obligations, failure injection,
+assertions and caller deadlines. Keep logs/journals under owned temporary
+workspaces and release fixture-owned orchestrator resources. Negative controls
+must still reject missing/foreign phase references and dangling dependencies
+before publishing task rows.
+
+Plan admission is separate from execution. Existing fixtures with absent file
+targets, unwired role prompts, weak/ignored Run results or no actual tool witness
+do not become verified campaign pipelines merely because SetCampaign succeeds.
+Exit: compare unchanged baseline and corrected fixture plans through the real
+admission path, run affected and broader offline/race checks, and record every
+newly exposed execution failure and remaining full-suite failure honestly.
+
+Admission repair verified: ten explicit task construction sites now supply the
+parent phase ID in `tests/e2e/campaign_session_integration_test.go`; its setup
+also registers owned orchestrator cleanup. Admission-only controls in
+`tests/e2e/campaign_plan_fixture_test.go` exercise valid base/appended/replaced
+plans and the real quarantine boundary. The identical final controls on
+unchanged main report 7 pass / 33 fail events (30 legacy admission failures and
+the two failing base/appended controls plus their parent); the repaired
+family/control set passes all 40 events. Three race-enabled repetitions of the
+controls and representative cases pass all 36 events. All 64 existing assertion,
+log, subtest and caller-deadline expressions remain unchanged. Production
+decomposition (`internal/campaign/decomposer_planning.go:462`) already supplies
+the identity required by `internal/core/defaults/schemas_campaign.mg:85`; neither
+that schema nor production admission is changed.
+
+Execution coverage remains open: 29 legacy cases discard Run errors, the smoke
+allows DeadlineExceeded, and the separate JIT-failure placeholder never runs a
+plan. No additional execution failure is asserted by these old bodies; their
+green names do not prove concurrency, tool effects, recovery or acceptance.
+
+Broader offline execution: default sqlite_vec tests report 22,446 pass / 80 skip;
+build, default/tagged vet and tagged compilation pass. The complete tagged
+census reports 820 top-level pass / 61 fail (all 881 top-level tests finished),
+resolving those 30 prior failures and observing one additional unchanged spawner
+timing failure: 1.053s against a 1s cutoff. That timing case passes five isolated
+repetitions and three parallel-cohort repetitions on both baseline and candidate;
+the whole 17-test cohort reports the same 45 pass / 6 fail events in each.
+Its full-suite timing failure remains unresolved, not repaired or removed from
+the census. No full-suite, task-execution or recurse qualification is claimed.
+
 ## GAP-TESTING-SYNTHETIC-STATE-DECLARATIONS
 
 Synthetic kernel-state fixtures must declare their own predicates, at the
