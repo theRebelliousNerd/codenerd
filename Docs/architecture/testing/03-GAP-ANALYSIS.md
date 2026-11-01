@@ -1,5 +1,70 @@
 # testing — Gap Analysis
 
+## GAP-TESTING-INLINE-RECOVERY
+
+The legacy inline recovery case must interrupt an attempt and then complete a
+real carrier edit through the same JITExecutor. Retain the original one-
+millisecond deadline, /fix routing, first-error handling, follow-up request and
+assertions. A write stub missing workspace, role and post-write evidence cannot
+establish recovery; use the existing verified private Go fixture and its caller
+behavior contract rather than relaxing the gates.
+
+The interrupted attempt must leave source and the protected oracle unchanged
+and emit no worker edit. The valid follow-up must use the same executor/model
+without host source reset, produce the actual fix, and record a failed-before/
+passed-after witness on the current snapshot with an independent passing test.
+Check explicit cancellation, an expired deadline and the original immediate
+one-millisecond deadline. Red follow-up tests and missing role prompts still
+refuse completion. A subsequently changed source must invalidate persisted
+witness applicability. Preserve unrelated files and global registry ownership.
+
+Exit: independently reproduce the original failure; pass identical recovery
+controls on baseline and candidate, including typed owner-stop and refusal
+controls, then focused/race and a serial full tagged census. Keep every original
+assertion and deadline unchanged. This is pre-worker cancellation/recovery
+coverage; do not infer in-flight provider, async/subagent or arbitrary multi-fix
+replay behavior from it.
+
+`TestInlineRecoveryBeforeWorker` in
+`tests/e2e/orchestrator_recovery_contract_test.go:20` checks explicit cancellation,
+expired and immediately dispatched one-millisecond deadlines. It requires typed
+stop errors, zero worker edits, unchanged source/snapshot and unchanged protected
+test before retry. The same executor/model then performs the actual edit with
+native build/tests, persisted failed-before/passed-after current-snapshot
+acceptance and an independent passing Go test. No host reset precedes recovery.
+
+The same controls keep red retry tests and missing roles unverified. A deliberate
+source change only after measuring success makes the persisted witness
+inapplicable, even though its old Status still reads verified. Unrelated files
+and the prior global registry binding stay intact. This measures pre-worker
+owner-stop and recovery, not in-flight provider or async/subagent cancellation.
+
+The legacy case independently fails on pinned main at the healthy follow-up's
+missing final-report role. Identical new controls pass all seven baseline
+events. Only that case's fixture/context binding now uses
+`setupVerifiedInlineEnvironment`; its original one-millisecond deadline, /fix
+requests, first-error handling and string API remain. All 54 original assertion/
+log/skip/deadline calls and 21 original test bodies are identical after normalizing
+the one new binding and two unchanged prior bindings. Three focused repetitions
+pass 24 events; the race check passes eight. No production recovery defect is
+established by the former fixture failure and no runtime rule changes are made.
+
+The serial full tagged census completes all 915 top-level tests with 880 pass /
+35 fail (1,103 pass / 36 fail events including subtests). The targeted recovery
+case resolves, while the unchanged spawner timing case recurs, offsetting that
+count reduction. The parallel census measures a 3.51-second spawn return against
+a 50 ms owner deadline and the original one-second assertion. Three isolated
+baseline and three identical candidate repetitions all pass; older unchanged
+censuses also record this failure class. The overrun remains unresolved and the
+full red run is retained. No latency fix is claimed.
+
+The default sqlite_vec suite passes 22,465 events with 80 skips. Tagged
+compilation, build and both vet checks pass. All 1,528 production Go files and
+212 logic files are byte-identical to baseline. The seven recognized-write
+refusals and 18 remaining legacy orchestrator failures are preserved. This is
+real offline carrier-write/witness execution, not in-flight provider, async,
+generated-pipeline or recurse qualification.
+
 ## GAP-TESTING-INLINE-WRITE-WITNESS
 
 Single-turn inline orchestrator fixtures must provide a coherent workspace and

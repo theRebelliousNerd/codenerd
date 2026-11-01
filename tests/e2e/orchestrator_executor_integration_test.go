@@ -401,7 +401,7 @@ func TestE2E_OrchestratorExecutor_Cascading_ContextCorruption(t *testing.T) {
 
 func TestE2E_OrchestratorExecutor_Recovery_AfterFailure(t *testing.T) {
 	ctx := context.Background()
-	_, jitExecutor := setupTestEnvironment(t)
+	_, jitExecutor, ctx := setupVerifiedInlineEnvironment(t, ctx)
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, 1*time.Millisecond)
 	defer cancel()
