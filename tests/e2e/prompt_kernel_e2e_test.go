@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"codenerd/internal/core"
@@ -41,7 +42,9 @@ func (a *promptKernelAdapter) AssertBatch(facts []any) error {
 	for _, f := range facts {
 		switch v := f.(type) {
 		case string:
-			parsed, err := core.ParseFactString(v)
+			// Context producers emit clauses; ParseFactString adds its own
+			// terminator. Remove only that boundary, not quoted punctuation.
+			parsed, err := core.ParseFactString(strings.TrimSuffix(strings.TrimSpace(v), "."))
 			if err != nil {
 				return fmt.Errorf("parse fact string %q: %w", v, err)
 			}

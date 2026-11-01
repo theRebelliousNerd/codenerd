@@ -1,5 +1,29 @@
 # testing — Gap Analysis
 
+## GAP-TESTING-PROMPT-FACT-ADAPTER
+
+The e2e prompt-kernel adapter must accept the fact representation emitted by
+`CompilationContext.ToContextFacts`: complete Mangle clauses with terminating
+periods. `core.ParseFactString` accepts an atom without its clause terminator
+and appends that terminator itself. Normalize only surrounding whitespace and
+one final clause period at this boundary; preserve quoted content, typed facts,
+name constants, schema validation and rejection before batch mutation on a
+parse/type error. The production system adapter already handles clause syntax;
+this mismatch is a fixture defect, not a production parser failure.
+
+Status: the producer/adapter boundary and unchanged compiler smoke pass, with
+generated/string/name/typed parity and invalid-batch controls. The identical
+final controls fail on the unchanged baseline and pass after normalization,
+including ten race-enabled repetitions. Other fixture composition and actual
+execution obligations remain open.
+
+Exit: reproduce the unchanged prompt-compiler smoke failure, establish parity
+with the production adapter for generated, dotted, bare and typed context facts,
+retain malformed/unsupported input refusal controls, and exercise the actual
+compiled-prompt/LLM-fixture flow. Run focused race, complete tagged and default
+offline suites; report unrelated runtime failures without weakening their
+assertions or treating fixture compatibility as full-recurse qualification.
+
 ## GAP-TESTING-INTEGRATION-FIXTURE-CONTRACTS
 
 The `sqlite_vec,integration` e2e fixtures must compile against the current
@@ -33,15 +57,19 @@ contracts offline; ten race-enabled repetitions pass.
 The default offline `sqlite_vec` suite passes (22,446 pass and 80 skip events),
 as do the build and default/tagged vet checks.
 
-The complete tagged suite was executed, not merely compiled: 737 top-level tests
-passed and 132 failed (840 pass and 137 fail events including subtests). It is
+The complete tagged suite was executed, not merely compiled: 740 top-level tests
+passed and 131 failed (850 pass and 137 fail events including subtests). It is
 not a green integration gate. Examples requiring separate repairs are campaign
 fixture plans rejected by inclusion constraints, executors lacking the
-`final_report_auditor` role-prompt compiler, an invalid private compile-context
-fact, and generated-tool fixtures failing current catalog admission. Preserve
+`final_report_auditor` role-prompt compiler, and generated-tool fixtures failing
+current catalog admission. Preserve
 these failures and the existing assertions; do not bypass the production
 admission guards to obtain a passing fixture. The unchanged baseline package
-cannot compile, so baseline runtime equivalence has not been demonstrated.
+before the fixture-contract repair could not compile, so that earlier baseline's
+runtime equivalence was not demonstrated. A learning-store wall-clock threshold
+also failed under the concurrent full-suite run; focused baseline and candidate
+repetitions pass. That timing difference remains recorded, not suppressed by
+widening its threshold.
 
 Exit: compile the complete tagged package, exercise the affected offline
 fixtures and streaming success/error/cancellation controls, and run relevant
