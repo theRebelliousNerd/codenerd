@@ -1,5 +1,81 @@
 # testing — Gap Analysis
 
+## GAP-TESTING-INLINE-WRITE-WITNESS
+
+Single-turn inline orchestrator fixtures must provide a coherent workspace and
+real revision-bound evidence for their carrier edit. Keep the original /fix
+routing, task text, session contexts and assertions. Replace the incomplete
+legacy setup only in the selected one-call cases; do not relax hollow-success,
+constitutional, postcondition, role, build/test or acceptance requirements.
+
+Reuse the verified Go fixture: an independently failing Sum test, real private
+write tool and workspace, shipped role prompts and production verification
+defaults. The caller declares the behavioral obligation through the existing
+typed evidence contract. After the string API returns, require the actual fixed
+artifact, independent passing test and persisted verified report with a failing
+baseline, passing post-write witness and current after-snapshot. This contract
+supplies evidence obligations, never tool or permission authority.
+
+Exit: reproduce the two old single-turn failures, inspect their actual tool
+errors, and run identical inline positive/negative controls on baseline and
+candidate. A red behavior test, missing role, outside-workspace write or canceled owner
+must not become /done. A no-contract turn may be mechanically /done under
+existing policy, but must not claim behavior_verified or a caller acceptance
+report. Retain unrelated work and global
+registry ownership. Keep every original assertion/deadline unchanged, run
+focused/race and a serial full tagged census, and preserve remaining legacy
+multi-turn/concurrent/async cases. Do not claim these old shallow assertions
+prove context isolation or configuration-poisoning resistance by themselves.
+
+`tests/e2e/orchestrator_inline_contract_test.go:55` reuses the private verified
+Go fixture only for the selected E2E_DataIntegrity and ConfigPoisoning cases.
+Both retain their /fix string API, task text and session setup. All 54 original
+assertion/log/skip/deadline calls remain AST-identical; all 21 original test
+bodies are identical after normalizing exactly those two fixture/context
+binding assignments. The helper adds a bounded owner context and leaves every
+production verification default enabled.
+
+`inlinePersistedWitness` at line 24 reads the runtime's persisted report and
+requires different before/after snapshots, a failing baseline, a passing witness
+on the after snapshot, executed stable toolchain/command/output identities and
+a fresh matching workspace snapshot. The helper additionally requires the
+actual fixed source, unchanged TestSum oracle, independent passing Go test and
+unchanged global registry binding. It fabricates no receipt or verification.
+
+`TestInlineWitnessLegacyRefusal` at line 86 explicitly binds the normal write
+handler in a scoped registry before unchanged legacy setup. Its actual ToolErrors
+record a path escaping the configured workspace, zero recognized writes and
+/hollow. In an isolated old test process the legacy stub instead writes and
+then encounters missing-role/post-write-test evidence. This dependence on global
+first registration is fixture drift, not a reason to loosen either gate.
+
+The inline-clone controls at line 115 require native build/tests, changed
+artifact, persisted caller acceptance and matching observed snapshot. Red tests,
+missing role, outside-workspace writes and owner cancellation remain refused;
+unrelated files and the test oracle remain intact. The no-contract control
+preserves the separate mechanical completion arm: /done at checks_passed with
+native green gates, no Acceptance and no behavior_verified claim. That is the
+existing distinction in `internal/core/defaults/policy/coder_safety.mg:709`.
+
+The old two cases fail on clean pinned main. Identical corrected controls pass
+all eight baseline events; the migrated cases and controls pass ten focused and
+ten race events. The old assertions remain shallow context/configuration
+checks; their new carrier-write evidence does not
+by itself establish context-isolation or poisoning-resistance behavior.
+
+The serial full tagged census completes all 914 top-level tests with 879 pass /
+35 fail (1,096 pass / 36 fail events including subtests). Exactly the two selected
+cases resolve against the prior 37-failure census, with no added failures. The
+seven generated recognized-write refusals and 19 remaining legacy orchestrator
+failures stay red. The unchanged spawner timing case passes again; no latency
+repair is claimed. All 1,528 production Go files and 212 logic files are byte-
+identical to baseline. These are real offline carrier edits and executed
+witnesses driven by an inert model, not live-provider, generated-pipeline or
+recurse qualification.
+
+The default sqlite_vec suite passes 22,465 events with 80 skips. Tagged
+compilation, the sqlite_vec build and both default/tagged vet checks pass.
+
 ## GAP-TESTING-PERCEPTION-RENDERING
 
 Perception integration fixtures must observe the actual request sent through

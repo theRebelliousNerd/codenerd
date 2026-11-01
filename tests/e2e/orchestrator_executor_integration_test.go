@@ -423,7 +423,7 @@ func TestE2E_OrchestratorExecutor_Recovery_AfterFailure(t *testing.T) {
 
 func TestE2E_OrchestratorExecutor_E2E_DataIntegrity(t *testing.T) {
 	ctx := context.Background()
-	executor, jitExecutor := setupTestEnvironment(t)
+	executor, jitExecutor, ctx := setupVerifiedInlineEnvironment(t, ctx)
 
 	executor.SetSessionContext(&types.SessionContext{
 		ExtraContext: map[string]string{"key": "value"},
@@ -511,7 +511,7 @@ func TestE2E_OrchestratorExecutor_PartialFailure_JITCompilationFails(t *testing.
 
 func TestE2E_OrchestratorExecutor_ConfigPoisoning(t *testing.T) {
 	ctx := context.Background()
-	executor, jitExecutor := setupTestEnvironment(t)
+	executor, jitExecutor, ctx := setupVerifiedInlineEnvironment(t, ctx)
 
 	initialCtx := &types.SessionContext{
 		ExtraContext: map[string]string{"system_state": "secure"},
