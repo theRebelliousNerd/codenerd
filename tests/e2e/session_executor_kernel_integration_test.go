@@ -73,7 +73,7 @@ func (m *sekMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 }
 
 func (m *sekMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
-	return types.StreamWhole(ctx, func(context.Context) (string, error) { return "mock streaming response", nil })
+	return types.StreamWhole(ctx, func(context.Context) (string, []string, error) { return "mock streaming response", nil, nil })
 }
 
 type sekMockTransducer struct{}

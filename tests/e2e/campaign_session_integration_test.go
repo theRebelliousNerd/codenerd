@@ -117,9 +117,9 @@ func setupCampaignEnvironment(t *testing.T) (*campaign.Orchestrator, *campaignMo
 		ShardManager:      coreshards.NewShardManager(),
 		TaskExecutor:      taskExec,
 		// One retry after the first attempt: two attempts.
-		Campaign:        nerdconfig.CampaignConfig{MaxParallelTasks: 3, MaxTaskAttempts: 2},
-		CampaignTimeout: 5 * time.Minute,
-		TaskTimeout:     1 * time.Minute,
+		// Run uses each test's explicit caller context (one or two seconds).
+		// Campaign and task timeout defaults are no longer policy inputs.
+		Campaign: nerdconfig.CampaignConfig{MaxParallelTasks: 3, MaxTaskAttempts: 2},
 	}
 
 	orch, err := campaign.NewOrchestrator(orchCfg)
@@ -240,7 +240,7 @@ func (m *campaignMockLLMClient) ShouldUsePiggybackTools() bool {
 }
 
 func (m *campaignMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
-	return types.StreamWhole(ctx, func(context.Context) (string, error) { return "mock streaming response", nil })
+	return types.StreamWhole(ctx, func(context.Context) (string, []string, error) { return "mock streaming response", nil, nil })
 }
 func (m *campaignMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
 func (m *campaignMockTransducer) SetStrategicContext(ctx string)                   {}

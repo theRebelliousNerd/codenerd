@@ -173,8 +173,8 @@ func TestE2E_PromptCompiler_ContractViolation_UTF8Truncation(t *testing.T) {
 			Atom: &prompt.PromptAtom{
 				ID:       "utf8_test",
 				Category: prompt.CategoryCapability,
-				Priority: int(prompt.PriorityHigh),
-				Content:  longString,
+
+				Content: longString,
 			},
 			RenderMode: "standard",
 		},
@@ -188,7 +188,7 @@ func TestE2E_PromptCompiler_ContractViolation_UTF8Truncation(t *testing.T) {
 	// though TokenBudgetManager operates on a token level, string truncation
 	// might happen elsewhere if token counts are imprecise. Let's force fit.
 
-	fitted, err := mgr.Fit(atoms, 100) // Small budget to force truncation
+	fitted, err := mgr.Fit(atoms, 100, pcbRenderCounter()) // Small budget to force truncation
 	if err != nil {
 		t.Fatalf("Fit failed: %v", err)
 	}
@@ -282,8 +282,8 @@ func TestE2E_PromptCompiler_ContractViolation_PiggybackStarvation(t *testing.T) 
 			Atom: &prompt.PromptAtom{
 				ID:       id,
 				Category: prompt.CategoryCapability,
-				Priority: int(prompt.PriorityHigh),
-				Content:  content,
+
+				Content: content,
 			},
 			RenderMode: "standard",
 		}
@@ -300,7 +300,7 @@ func TestE2E_PromptCompiler_ContractViolation_PiggybackStarvation(t *testing.T) 
 
 	// Run 1: headroom reserved. Only the small atom fits.
 	mgr.SetReservedHeadroom(500)
-	fitted, err := mgr.Fit([]*prompt.OrderedAtom{massive, medium, small}, totalBudget)
+	fitted, err := mgr.Fit([]*prompt.OrderedAtom{massive, medium, small}, totalBudget, pcbRenderCounter())
 	if err != nil {
 		t.Fatalf("Fit failed: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestE2E_PromptCompiler_ContractViolation_PiggybackStarvation(t *testing.T) 
 	// massive atom stays out: it exceeds the total budget whole.
 	mgr2 := prompt.NewTokenBudgetManager()
 	mgr2.SetReservedHeadroom(0)
-	fitted2, err := mgr2.Fit([]*prompt.OrderedAtom{massive, medium, small}, totalBudget)
+	fitted2, err := mgr2.Fit([]*prompt.OrderedAtom{massive, medium, small}, totalBudget, pcbRenderCounter())
 	if err != nil {
 		t.Fatalf("Fit without headroom failed: %v", err)
 	}
@@ -354,8 +354,8 @@ func TestE2E_PromptCompiler_ResourceExhaustion_MillionAtoms(t *testing.T) {
 			Atom: &prompt.PromptAtom{
 				ID:       fmt.Sprintf("atom_%d", i),
 				Category: prompt.CategoryCapability,
-				Priority: int(prompt.PriorityLow),
-				Content:  "tiny",
+
+				Content: "tiny",
 			},
 			RenderMode: "standard",
 		}
@@ -364,7 +364,7 @@ func TestE2E_PromptCompiler_ResourceExhaustion_MillionAtoms(t *testing.T) {
 	// Run Fit. We expect it to truncate gracefully due to maxAtomsInput.
 
 	start := time.Now()
-	_, err := mgr.Fit(atoms, 10000) // Budget 10k
+	_, err := mgr.Fit(atoms, 10000, pcbRenderCounter()) // Budget 10k
 	duration := time.Since(start)
 
 	if err != nil {
@@ -482,19 +482,19 @@ func TestE2E_PromptCompiler_ContractViolation_MandatoryAtomsExceedBudget(t *test
 	atoms := []*prompt.OrderedAtom{
 		{
 			Atom: &prompt.PromptAtom{
-				ID:       "mandatory_1",
-				Category: prompt.CategoryCapability,
-				Priority: int(prompt.PriorityMandatory),
-				Content:  strings.Repeat("token ", 1500),
+				ID:          "mandatory_1",
+				Category:    prompt.CategoryCapability,
+				IsMandatory: true,
+				Content:     strings.Repeat("token ", 1500),
 			},
 			RenderMode: "standard",
 		},
 		{
 			Atom: &prompt.PromptAtom{
-				ID:       "mandatory_2",
-				Category: prompt.CategoryCapability,
-				Priority: int(prompt.PriorityMandatory),
-				Content:  strings.Repeat("token ", 1500),
+				ID:          "mandatory_2",
+				Category:    prompt.CategoryCapability,
+				IsMandatory: true,
+				Content:     strings.Repeat("token ", 1500),
 			},
 			RenderMode: "standard",
 		},
@@ -503,7 +503,7 @@ func TestE2E_PromptCompiler_ContractViolation_MandatoryAtomsExceedBudget(t *test
 	// Ensure reserved headroom doesn't mess with this specific test
 	mgr.SetReservedHeadroom(0)
 
-	_, err := mgr.Fit(atoms, 2000)
+	_, err := mgr.Fit(atoms, 2000, pcbRenderCounter())
 
 	// Note: in the current implementation, TokenBudgetManager might prioritize
 	// returning what it can rather than erroring out on mandatory atoms failing.
@@ -522,7 +522,7 @@ func TestE2E_PromptCompiler_StateCorruption_EmptyAtoms(t *testing.T) {
 
 	mgr := prompt.NewTokenBudgetManager()
 
-	fitted, err := mgr.Fit(nil, 1000)
+	fitted, err := mgr.Fit(nil, 1000, pcbRenderCounter())
 	if err != nil {
 		t.Fatalf("Fit failed with nil input: %v", err)
 	}
@@ -530,7 +530,7 @@ func TestE2E_PromptCompiler_StateCorruption_EmptyAtoms(t *testing.T) {
 		t.Errorf("Expected empty fitted list for nil input")
 	}
 
-	fitted, err = mgr.Fit([]*prompt.OrderedAtom{}, 1000)
+	fitted, err = mgr.Fit([]*prompt.OrderedAtom{}, 1000, pcbRenderCounter())
 	if err != nil {
 		t.Fatalf("Fit failed with empty input: %v", err)
 	}
@@ -574,14 +574,14 @@ func TestE2E_PromptCompiler_Boundary_NegativeHeadroom(t *testing.T) {
 			Atom: &prompt.PromptAtom{
 				ID:       "test_atom",
 				Category: prompt.CategoryCapability,
-				Priority: int(prompt.PriorityHigh),
-				Content:  "tiny content",
+
+				Content: "tiny content",
 			},
 			RenderMode: "standard",
 		},
 	}
 
-	fitted, err := mgr.Fit(atoms, 1000)
+	fitted, err := mgr.Fit(atoms, 1000, pcbRenderCounter())
 	if err != nil {
 		t.Fatalf("Fit failed after setting negative headroom: %v", err)
 	}
@@ -602,14 +602,14 @@ func TestE2E_PromptCompiler_ContractViolation_ZeroTokenBudget(t *testing.T) {
 			Atom: &prompt.PromptAtom{
 				ID:       "test_atom",
 				Category: prompt.CategoryCapability,
-				Priority: int(prompt.PriorityHigh),
-				Content:  "content",
+
+				Content: "content",
 			},
 			RenderMode: "standard",
 		},
 	}
 
-	_, err := mgr.Fit(atoms, 0)
+	_, err := mgr.Fit(atoms, 0, pcbRenderCounter())
 
 	if err == nil {
 		t.Fatalf("Expected error when total budget is 0, got nil")
@@ -631,8 +631,8 @@ func TestE2E_PromptCompiler_ContractViolation_HugeSingleAtom(t *testing.T) {
 			Atom: &prompt.PromptAtom{
 				ID:       "huge_atom",
 				Category: prompt.CategoryCapability,
-				Priority: int(prompt.PriorityHigh),
-				Content:  strings.Repeat("token ", 10000),
+
+				Content: strings.Repeat("token ", 10000),
 			},
 			RenderMode: "standard",
 		},
@@ -640,14 +640,14 @@ func TestE2E_PromptCompiler_ContractViolation_HugeSingleAtom(t *testing.T) {
 			Atom: &prompt.PromptAtom{
 				ID:       "small_atom",
 				Category: prompt.CategoryCapability,
-				Priority: int(prompt.PriorityHigh),
-				Content:  "tiny",
+
+				Content: "tiny",
 			},
 			RenderMode: "standard",
 		},
 	}
 
-	fitted, err := mgr.Fit(atoms, 1000)
+	fitted, err := mgr.Fit(atoms, 1000, pcbRenderCounter())
 	if err != nil {
 		t.Fatalf("Fit failed: %v", err)
 	}

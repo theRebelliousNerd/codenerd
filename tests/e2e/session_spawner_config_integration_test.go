@@ -226,8 +226,9 @@ func (m *mockRealLLM) CompleteWithSystem(ctx context.Context, sys, user string) 
 }
 
 func (m *mockRealLLM) CompleteWithStreaming(ctx context.Context, system, prompt string, requireSchema bool) (<-chan string, <-chan types.StreamResult) {
-	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
-		return m.CompleteWithSystem(ctx, system, prompt)
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, []string, error) {
+		text, err := m.CompleteWithSystem(ctx, system, prompt)
+		return text, nil, err
 	})
 }
 

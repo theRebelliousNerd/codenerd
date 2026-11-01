@@ -1,5 +1,53 @@
 # testing — Gap Analysis
 
+## GAP-TESTING-INTEGRATION-FIXTURE-CONTRACTS
+
+The `sqlite_vec,integration` e2e fixtures must compile against the current
+runtime interfaces while preserving the behavior each fixture supplies and
+every meaningful assertion. A whole-completion streaming mock returns its
+original text/error and the grounding URLs it actually has (`nil` for no
+sources), through `types.StreamWhole`. It must not invent grounding or turn an
+error into a successful terminal result. Delegating mocks must retain their
+existing failure and cancellation paths.
+
+Budget fixtures must supply the current `Fit` token-counter argument. Use a
+fresh native render-session counter for each fit, including declared count
+floors and the selected render-mode text; do not substitute a zero counter,
+duplicate the fitter or relax the existing resource and mutation assertions.
+Legacy atom-level `Priority` fields must use current ownership: category
+priority comes from the budget manager, while a fixture explicitly declaring
+mandatory atoms sets `IsMandatory`. Do not invent atom importance levels or
+discard mandatory behavior to obtain compilation.
+
+Campaign fixture limits belong to caller contexts under the current lifecycle
+contract. Do not restore removed orchestrator-wide campaign/task timeout knobs,
+discard existing caller deadlines or widen policy/permissions to make tests
+run. Keep ignored legacy fixtures and unrelated production contracts separate.
+
+Status: fixture compilation restored. Active streaming mocks now implement the
+three-result callback, removed campaign timeout fields defer to unchanged caller
+deadlines, and budget fixtures use the native counter and current mandatory
+flag. `TestE2E_FixtureStreamContract_*` and
+`TestE2E_FixtureBudgetCounter_DeclaredRenderedAndMandatory` exercise the adapted
+contracts offline; ten race-enabled repetitions pass.
+The default offline `sqlite_vec` suite passes (22,446 pass and 80 skip events),
+as do the build and default/tagged vet checks.
+
+The complete tagged suite was executed, not merely compiled: 737 top-level tests
+passed and 132 failed (840 pass and 137 fail events including subtests). It is
+not a green integration gate. Examples requiring separate repairs are campaign
+fixture plans rejected by inclusion constraints, executors lacking the
+`final_report_auditor` role-prompt compiler, an invalid private compile-context
+fact, and generated-tool fixtures failing current catalog admission. Preserve
+these failures and the existing assertions; do not bypass the production
+admission guards to obtain a passing fixture. The unchanged baseline package
+cannot compile, so baseline runtime equivalence has not been demonstrated.
+
+Exit: compile the complete tagged package, exercise the affected offline
+fixtures and streaming success/error/cancellation controls, and run relevant
+race/default regression gates. Record actual behavioral failures separately
+from compilation; a compilable fixture is not proof its named pipeline works.
+
 ## Accepted pipeline acceptance target (2026-10-02)
 
 **PARTIAL — GAP-TESTING-08-01:** this corpus owns tests/e2e in corpus.toml, but `tests/e2e/Session_Executor_VirtualStore_Autopoiesis_integration_test.go` does not exercise its named pipeline. Root reproduced Scenario1 failure in artifact:.corpus-build/runs/all-features-20261002/baseline-e2e.log. Forty equivalent scenarios assert undeclared predicates and query them after a timer; `internal/core/kernel_undeclared.go` deliberately excludes them from ordinary schema queries. This does not prove kernel data loss. Ten named cases also contain unused cancellation, duplicate flood assertions, absent panic injection and logging-only bodies. The source-grounded obligation map is artifact:.corpus-build/runs/all-features-20261002/08-verification/handoff-3.json, not a passing receipt.

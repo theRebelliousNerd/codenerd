@@ -85,7 +85,7 @@ func (m *pbMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, u
 }
 
 func (m *pbMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
-	return types.StreamWhole(ctx, func(context.Context) (string, error) { return "mock streaming response", nil })
+	return types.StreamWhole(ctx, func(context.Context) (string, []string, error) { return "mock streaming response", nil, nil })
 }
 
 // ShouldUsePiggybackTools forces the executor into Piggyback mode.

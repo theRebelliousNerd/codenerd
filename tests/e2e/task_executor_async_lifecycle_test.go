@@ -113,7 +113,7 @@ func (m *talMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 func (m *talMockLLMClient) ShouldUsePiggybackTools() bool { return false }
 
 func (m *talMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
-	return types.StreamWhole(ctx, func(context.Context) (string, error) { return "mock streaming response", nil })
+	return types.StreamWhole(ctx, func(context.Context) (string, []string, error) { return "mock streaming response", nil, nil })
 }
 
 // talMockVirtualStore — minimal VirtualStore implementation

@@ -53,7 +53,7 @@ func (m *pceMockLLMClient) CompleteWithTools(ctx context.Context, sys, user stri
 }
 
 func (m *pceMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
-	return types.StreamWhole(ctx, func(context.Context) (string, error) { return "mock streaming response", nil })
+	return types.StreamWhole(ctx, func(context.Context) (string, []string, error) { return "mock streaming response", nil, nil })
 }
 
 func (m *pceMockLLMClient) getRecordedUser(idx int) string {

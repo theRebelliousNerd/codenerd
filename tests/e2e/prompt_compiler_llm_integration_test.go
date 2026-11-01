@@ -130,6 +130,13 @@ func (m *pcbMockLLMClient) CompleteWithStreaming(ctx context.Context, systemProm
 	return ch, done
 }
 
+// Each fit gets the native rendered-fragment counter, with no template
+// context in these literal atom fixtures. Counters share no mutable cache
+// across fits or concurrent tests, and retain declared per-mode floors.
+func pcbRenderCounter() prompt.TokenCounter {
+	return prompt.NewFinalAssembler().NewRenderSession(nil).Tokens
+}
+
 // =============================================================================
 // TESTS
 // =============================================================================
@@ -162,7 +169,7 @@ func TestE2E_PromptCompilerLLM_Smoke_ValidPipeline(t *testing.T) {
 		},
 	}
 
-	fitted, err := budgetMgr.Fit(atoms, 1000)
+	fitted, err := budgetMgr.Fit(atoms, 1000, pcbRenderCounter())
 	if err != nil {
 		t.Fatalf("Failed to fit atoms: %v", err)
 	}
@@ -219,7 +226,7 @@ func TestE2E_PromptCompilerLLM_ResourceExhaustion_10MBPayload(t *testing.T) {
 	// Apply budget constraint of exactly 4000 tokens
 	maxBudget := 4000
 	start := time.Now()
-	fitted, err := budgetMgr.Fit(atoms, maxBudget)
+	fitted, err := budgetMgr.Fit(atoms, maxBudget, pcbRenderCounter())
 	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("Fit failed unexpectedly: %v", err)
@@ -307,7 +314,7 @@ func TestE2E_PromptCompilerLLM_StateCorruption_ConcurrentBudgetMutation(t *testi
 					},
 				},
 			}
-			_, _ = budgetMgr.Fit(atoms, 1000)
+			_, _ = budgetMgr.Fit(atoms, 1000, pcbRenderCounter())
 		}()
 	}
 
@@ -353,7 +360,7 @@ func TestE2E_PromptCompilerLLM_ContractViolation_ExtremeBudgetSqueeze(t *testing
 	}
 
 	// Extreme squeeze: 10 tokens total
-	fitted, err := budgetMgr.Fit(atoms, 10)
+	fitted, err := budgetMgr.Fit(atoms, 10, pcbRenderCounter())
 	if err != nil {
 		t.Fatalf("Should not error on squeeze, got: %v", err)
 	}
@@ -397,7 +404,7 @@ func TestE2E_PromptCompilerLLM_ContractViolation_UTF8Boundary(t *testing.T) {
 		// Because the Fit method might map tokens 1:1 or similarly,
 		// we just want to ensure that whatever truncation happens, the
 		// resulting string is valid UTF-8.
-		fitted, _ := budgetMgr.Fit(atoms, i)
+		fitted, _ := budgetMgr.Fit(atoms, i, pcbRenderCounter())
 		if len(fitted) > 0 {
 			resStr := fitted[0].Atom.Content
 			if !utf8.ValidString(resStr) {
@@ -422,7 +429,7 @@ func TestE2E_PromptCompilerLLM_Temporal_ZeroBudgetPanic(t *testing.T) {
 		},
 	}
 
-	fitted, err := budgetMgr.Fit(atoms, 0)
+	fitted, err := budgetMgr.Fit(atoms, 0, pcbRenderCounter())
 	if err == nil {
 		t.Log("KNOWN: Fit allows 0 budget but truncates aggressively")
 		// If it allows it, it should return empty or heavily truncated content.
@@ -467,7 +474,7 @@ func TestE2E_PromptCompilerLLM_Recovery_PartialAtomRead(t *testing.T) {
 	}
 
 	// It should handle the nil gracefully or return an error, but not panic
-	_, err := budgetMgr.Fit(atoms, 1000)
+	_, err := budgetMgr.Fit(atoms, 1000, pcbRenderCounter())
 	if err != nil {
 		t.Log("KNOWN: Fit returned error for nil atoms, which is acceptable recovery.")
 	}
@@ -496,7 +503,7 @@ func TestE2E_PromptCompilerLLM_EndToEndDataIntegrity(t *testing.T) {
 		},
 	}
 
-	fitted, err := budgetMgr.Fit(atoms, 1000)
+	fitted, err := budgetMgr.Fit(atoms, 1000, pcbRenderCounter())
 	if err != nil {
 		t.Fatalf("Failed to fit: %v", err)
 	}
@@ -542,7 +549,7 @@ func TestE2E_PromptCompilerLLM_MultiTurnStateAccumulation(t *testing.T) {
 		}
 
 		// Ensure the budget manager can handle the continuously growing context window
-		fitted, err := budgetMgr.Fit(atoms, 5000) // generous budget
+		fitted, err := budgetMgr.Fit(atoms, 5000, pcbRenderCounter()) // generous budget
 		if err != nil {
 			t.Fatalf("Failed on turn %d: %v", i, err)
 		}
@@ -576,7 +583,7 @@ func TestE2E_PromptCompilerLLM_PartialPipelineFailure(t *testing.T) {
 		},
 	}
 
-	fitted, err := budgetMgr.Fit(atoms, 1000)
+	fitted, err := budgetMgr.Fit(atoms, 1000, pcbRenderCounter())
 	if err != nil {
 		t.Fatalf("Fit failed: %v", err)
 	}
@@ -640,7 +647,7 @@ func TestE2E_PromptCompilerLLM_HighContention(t *testing.T) {
 			}
 
 			// Constant fitting
-			_, err := budgetMgr.Fit(atoms, 100)
+			_, err := budgetMgr.Fit(atoms, 100, pcbRenderCounter())
 			if err != nil {
 				errCh <- err
 			}
@@ -670,7 +677,7 @@ func TestE2E_PromptCompilerLLM_MissingConfigurations(t *testing.T) {
 	}
 
 	// Should gracefully process or omit unknown categories, but not panic
-	fitted, err := budgetMgr.Fit(atoms, 1000)
+	fitted, err := budgetMgr.Fit(atoms, 1000, pcbRenderCounter())
 	if err != nil {
 		t.Log("Expected behavior: system returned error for unknown category.")
 	} else if len(fitted) == 0 {
@@ -705,7 +712,7 @@ func TestE2E_PromptCompilerLLM_OversizedEmbedded(t *testing.T) {
 	}
 
 	// Strict budget of 100
-	fitted, err := budgetMgr.Fit(atoms, 100)
+	fitted, err := budgetMgr.Fit(atoms, 100, pcbRenderCounter())
 	if err != nil {
 		t.Fatalf("Unexpected error fitting massive atom: %v", err)
 	}
@@ -728,7 +735,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_1(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 1*100)
+	_, err := budget.Fit(atoms, 1*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -748,7 +755,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_2(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 2*100)
+	_, err := budget.Fit(atoms, 2*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -768,7 +775,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_3(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 3*100)
+	_, err := budget.Fit(atoms, 3*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -788,7 +795,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_4(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 4*100)
+	_, err := budget.Fit(atoms, 4*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -808,7 +815,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_5(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 5*100)
+	_, err := budget.Fit(atoms, 5*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -828,7 +835,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_6(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 6*100)
+	_, err := budget.Fit(atoms, 6*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -848,7 +855,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_7(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 7*100)
+	_, err := budget.Fit(atoms, 7*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -868,7 +875,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_8(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 8*100)
+	_, err := budget.Fit(atoms, 8*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -888,7 +895,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_9(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 9*100)
+	_, err := budget.Fit(atoms, 9*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -908,7 +915,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_10(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 10*100)
+	_, err := budget.Fit(atoms, 10*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -928,7 +935,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_11(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 11*100)
+	_, err := budget.Fit(atoms, 11*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -948,7 +955,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_12(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 12*100)
+	_, err := budget.Fit(atoms, 12*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -968,7 +975,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_13(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 13*100)
+	_, err := budget.Fit(atoms, 13*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -988,7 +995,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_14(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 14*100)
+	_, err := budget.Fit(atoms, 14*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1008,7 +1015,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_15(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 15*100)
+	_, err := budget.Fit(atoms, 15*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1028,7 +1035,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_16(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 16*100)
+	_, err := budget.Fit(atoms, 16*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1048,7 +1055,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_17(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 17*100)
+	_, err := budget.Fit(atoms, 17*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1068,7 +1075,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_18(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 18*100)
+	_, err := budget.Fit(atoms, 18*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1088,7 +1095,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_19(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 19*100)
+	_, err := budget.Fit(atoms, 19*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1108,7 +1115,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_20(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 20*100)
+	_, err := budget.Fit(atoms, 20*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1128,7 +1135,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_21(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 21*100)
+	_, err := budget.Fit(atoms, 21*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1148,7 +1155,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_22(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 22*100)
+	_, err := budget.Fit(atoms, 22*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1168,7 +1175,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_23(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 23*100)
+	_, err := budget.Fit(atoms, 23*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1188,7 +1195,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_24(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 24*100)
+	_, err := budget.Fit(atoms, 24*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1208,7 +1215,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_25(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 25*100)
+	_, err := budget.Fit(atoms, 25*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1228,7 +1235,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_26(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 26*100)
+	_, err := budget.Fit(atoms, 26*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1248,7 +1255,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_27(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 27*100)
+	_, err := budget.Fit(atoms, 27*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1268,7 +1275,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_28(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 28*100)
+	_, err := budget.Fit(atoms, 28*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1288,7 +1295,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_29(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 29*100)
+	_, err := budget.Fit(atoms, 29*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1308,7 +1315,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_30(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 30*100)
+	_, err := budget.Fit(atoms, 30*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1328,7 +1335,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_31(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 31*100)
+	_, err := budget.Fit(atoms, 31*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1348,7 +1355,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_32(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 32*100)
+	_, err := budget.Fit(atoms, 32*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1368,7 +1375,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_33(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 33*100)
+	_, err := budget.Fit(atoms, 33*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1388,7 +1395,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_34(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 34*100)
+	_, err := budget.Fit(atoms, 34*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1408,7 +1415,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_35(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 35*100)
+	_, err := budget.Fit(atoms, 35*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1428,7 +1435,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_36(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 36*100)
+	_, err := budget.Fit(atoms, 36*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1448,7 +1455,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_37(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 37*100)
+	_, err := budget.Fit(atoms, 37*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1468,7 +1475,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_38(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 38*100)
+	_, err := budget.Fit(atoms, 38*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}
@@ -1488,7 +1495,7 @@ func TestE2E_PromptCompilerLLM_StructuralIntegrity_39(t *testing.T) {
 			},
 		},
 	}
-	_, err := budget.Fit(atoms, 39*100)
+	_, err := budget.Fit(atoms, 39*100, pcbRenderCounter())
 	if err != nil {
 		t.Log("Safe rejection")
 	}

@@ -173,8 +173,9 @@ func (m *pipelineModel) CompleteWithSystem(ctx context.Context, systemPrompt, in
 }
 
 func (m *pipelineModel) CompleteWithStreaming(ctx context.Context, systemPrompt, input string, _ bool) (<-chan string, <-chan types.StreamResult) {
-	return types.StreamWhole(ctx, func(ctx context.Context) (string, error) {
-		return m.CompleteWithSystem(ctx, systemPrompt, input)
+	return types.StreamWhole(ctx, func(ctx context.Context) (string, []string, error) {
+		text, err := m.CompleteWithSystem(ctx, systemPrompt, input)
+		return text, nil, err
 	})
 }
 
