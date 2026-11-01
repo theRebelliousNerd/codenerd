@@ -1,5 +1,38 @@
 # testing — Gap Analysis
 
+## GAP-TESTING-VERIFIED-ORCHESTRATOR-FIXTURE
+
+A positive orchestrator smoke fixture must provide one coherent owned workspace:
+the executor's root, the edited file, and the package tests must name the same
+module. Its real test must fail on the initial source and pass after the fixture
+model's bounded edit. Keep production build/test/critic/audit gates enabled and
+install the role compiler that boot supplies. A write and a completion sentence
+cannot stand in for a revision-bound post-write test witness.
+
+Use an executor-owned modular registry and exact precompiled envelope for the
+fixture; do not swap or broaden the process-global registry. Preserve normal
+Mangle authorization, Dreamer preflight, workspace containment and tool-effect
+validation. A deterministic model may propose the fixture edit, but it must not
+assert gate facts, synthesize receipts, repeatedly invent fresh writes, or
+declare its own acceptance.
+
+Status: the representative inline smoke uses this coherent fixture. The same
+final controls pass on unchanged production code while the old smoke setup
+fails; the adapted smoke and controls pass, including concurrent private
+workspaces and repeated race checks. Actual native acceptance reports retain a
+failed pre-edit witness and a passing post-edit witness bound to the final
+workspace snapshot. Existing smoke assertions remain intact.
+
+Exit: repair the representative existing smoke without removing its assertions;
+show the fail-before test, actual native build/test evidence and verified task
+return; retain missing-role, red-test, unfinished-report and isolation controls.
+Distinguish the existing policy arms: green mechanical gates alone cannot
+overrule an unfinished-work admission; an independently verified caller-owned
+behavior contract still verifies its declared scope. Neither arm lets model
+prose create acceptance or a passing test receipt.
+Other legacy fixture families and the preserved role-wiring trial remain
+separate work until their own execution and verification obligations are met.
+
 ## GAP-TESTING-PROMPT-FACT-ADAPTER
 
 The e2e prompt-kernel adapter must accept the fact representation emitted by
@@ -57,8 +90,8 @@ contracts offline; ten race-enabled repetitions pass.
 The default offline `sqlite_vec` suite passes (22,446 pass and 80 skip events),
 as do the build and default/tagged vet checks.
 
-The complete tagged suite was executed, not merely compiled: 740 top-level tests
-passed and 131 failed (850 pass and 137 fail events including subtests). It is
+The complete tagged suite was executed, not merely compiled: 744 top-level tests
+passed and 130 failed (861 pass and 135 fail events including subtests). It is
 not a green integration gate. Examples requiring separate repairs are campaign
 fixture plans rejected by inclusion constraints, executors lacking the
 `final_report_auditor` role-prompt compiler, and generated-tool fixtures failing
@@ -66,10 +99,9 @@ current catalog admission. Preserve
 these failures and the existing assertions; do not bypass the production
 admission guards to obtain a passing fixture. The unchanged baseline package
 before the fixture-contract repair could not compile, so that earlier baseline's
-runtime equivalence was not demonstrated. A learning-store wall-clock threshold
-also failed under the concurrent full-suite run; focused baseline and candidate
-repetitions pass. That timing difference remains recorded, not suppressed by
-widening its threshold.
+runtime equivalence was not demonstrated. Timing and deadline cases vary across
+full runs; retain their failure provenance rather than count an incidental pass
+as another repair or widen thresholds to suppress failures.
 
 Exit: compile the complete tagged package, exercise the affected offline
 fixtures and streaming success/error/cancellation controls, and run relevant

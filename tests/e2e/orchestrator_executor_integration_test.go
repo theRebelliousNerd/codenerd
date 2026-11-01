@@ -186,9 +186,11 @@ func setupTestEnvironment(t *testing.T) (*session.Executor, *session.JITExecutor
 
 func TestE2E_OrchestratorExecutor_Smoke(t *testing.T) {
 	ctx := context.Background()
-	_, jitExecutor := setupTestEnvironment(t)
+	f := newVerifiedOrchestratorFixture(t)
+	ctx = f.withContract(ctx)
+	jitExecutor := f.jit
 
-	result, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "fix the bug"})
+	result, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "correct Sum in calc.go"})
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
