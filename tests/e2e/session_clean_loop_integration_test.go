@@ -15,7 +15,6 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
-	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
 
@@ -91,7 +90,15 @@ func (m *sclMockConfigFactory) Generate(ctx context.Context, result *prompt.Comp
 	if m.panicMode {
 		panic("mock config factory panic")
 	}
-	return m.configToReturn, m.errToReturn
+	if m.configToReturn == nil {
+		return nil, m.errToReturn
+	}
+	// Like the production factory, each generation owns its config. The
+	// executor overlays this turn's catalog without mutating another turn.
+	generated := *m.configToReturn
+	generated.AllowedTools = append([]string(nil), m.configToReturn.AllowedTools...)
+	generated.Policies = append([]string(nil), m.configToReturn.Policies...)
+	return &generated, m.errToReturn
 }
 
 type sclMockLLMClient struct {
@@ -183,7 +190,7 @@ func (m *sclMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 		}, nil
 	}
 
-	return m.responseToReturn, m.errToReturn
+	return sclResponseSnapshot(m.responseToReturn), m.errToReturn
 }
 
 func (m *sclMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan types.StreamResult) {
@@ -192,47 +199,13 @@ func (m *sclMockLLMClient) CompleteWithStreaming(ctx context.Context, systemProm
 
 // --- Setup Helpers ---
 
-// registerSCLToolsOnce guards the global dummy_tool/hanging_tool
-// registration. tools.Global().Register is first-wins and errors on
-// duplicates, so registering on every setup call is registration spam that
-// hides real failures behind ignored errors.
-var registerSCLToolsOnce sync.Once
-
-func registerSCLTools(t *testing.T) {
-	t.Helper()
-	registerSCLToolsOnce.Do(func() {
-		if err := tools.Global().Register(&tools.Tool{
-			Name:   "dummy_tool",
-			Effect: tools.EffectRead,
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				return "dummy result", nil
-			},
-		}); err != nil {
-			panic(fmt.Sprintf("register dummy_tool: %v", err))
-		}
-		if err := tools.Global().Register(&tools.Tool{
-			Name:   "hanging_tool",
-			Effect: tools.EffectRead,
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				<-ctx.Done()
-				return "", ctx.Err()
-			},
-		}); err != nil {
-			panic(fmt.Sprintf("register hanging_tool: %v", err))
-		}
-	})
-}
-
 func setupExecutor(t *testing.T, tr *sclMockTransducer, jc *sclMockJITCompiler, cf *sclMockConfigFactory, lc *sclMockLLMClient) *session.Executor {
 	t.Helper()
-	registerSCLTools(t)
-
-	exec := session.NewExecutor(nil, nil, lc, jc, cf, tr)
-	cfg := session.DefaultExecutorConfig()
-	cfg.WorkspaceRoot = t.TempDir()
-	cfg.EnableSafetyGate = false
-	exec.SetConfig(cfg)
-	return exec
+	var ceiling []string
+	if cf.configToReturn != nil {
+		ceiling = cf.configToReturn.AllowedTools
+	}
+	return newSCLFixture(t, tr, jc, cf, lc, ceiling).executor
 }
 
 // --- Smoke Tests ---

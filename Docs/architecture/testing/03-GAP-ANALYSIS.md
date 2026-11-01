@@ -1,5 +1,81 @@
 # testing — Gap Analysis
 
+## GAP-TESTING-CLEAN-CATALOG
+
+The clean-loop mechanics fixture must supply the turn catalog before prompt
+compilation. Its config factory's declared tools alone cannot make a native
+request offerable. Project only a copied, explicit fixture ceiling for a matching
+live turn; registration must never expand that ceiling. Empty/foreign catalogs
+and config generation errors or panics must still produce no tool dispatch.
+Keep the factory in the normal Generate path so its fault injection remains
+observable; a precompiled config must not bypass those failures.
+Like the production factory, the fixture must return a fresh config object and
+independent slices for each generation. The executor overlays the derived
+catalog on that owned result; concurrent turns must not share one mutable
+template. Retain the template's values and the existing nil/error/panic cases.
+The scripted native model must also return an independent response per call: the
+host marks consumed controls on that response. Copy its tool/content containers
+without serializing opaque Go arguments; retain nil, error, cancellation and
+infinite-loop behavior. A shared scripted response is not a provider contract.
+
+Each fixture owns a private registry and workspace binding for its existing
+inert read handlers. Pin the executor to that registry rather than relying on
+process-global first registration or a once flag that survives another owner.
+Preserve the existing intents, safety setting, assertions, deadlines and handler
+behavior. The scripted kernel is a mechanics double, not constitutional policy
+derivation or evidence of accepted write tasks.
+
+Exit: reproduce the old dispatch failures, observe actual private callbacks and
+matching compiler/provider offerings, retain empty/ungranted and real-kernel
+refusal, exercise factory failure and panic before dispatch, and verify repeated
+registry ownership. Run the original family, repeated/race controls and serial
+full suites. Unrelated stale history-unit or fallback-prompt expectations stay
+visible; do not change production defaults to hide them.
+
+
+`tests/e2e/clean_catalog_fixture_test.go:22` projects only a matching live turn
+from the copied fixture ceiling. `newSCLFixture` at line 57 owns and pins its
+private read registry; it neither changes global registration nor makes a
+registered tool grant itself. Normal `Generate` still runs. The fixture factory
+at `tests/e2e/session_clean_loop_integration_test.go:89` returns fresh config
+objects/slices, and the native mock at line 193 returns a response snapshot.
+`clean_catalog_fixture_test.go:84` copies tool/content and JSON-like input
+containers while preserving opaque Go values. This does not promise arbitrary
+opaque-object immutability or qualify shared-output third-party producers.
+
+`tests/e2e/clean_catalog_contract_test.go:74` checks prior/later registry ownership;
+line 110 observes actual callbacks and compiler/provider offerings, including
+empty/ungranted catalogs, config faults and real-kernel refusal with default
+safety enabled. Line 194 checks copied ceilings, foreign/missing turns and live
+sibling isolation after retirement. Line 217 synchronizes four same-executor calls; lines 266
+and 304 independently check config and response snapshots and nil/error/cancel/
+loop behavior. The standard production factory snapshot control passes on
+unchanged main; the reviewed native provider mappers construct fresh responses.
+
+The original family reproduces 13 pass / 6 fail on baseline and completes at
+17 pass / 2 fail after repair. All 19 original test bodies and 62 assertion/log/
+deadline expressions remain AST-identical. Identical final baseline controls
+produce 16 pass / 6 fail events, exposing fixture registry/config/response
+ownership; the response-only baseline control produces 4 pass / 2 fail events.
+The intermediate config and response race reports are retained. The final
+candidate passes all 117 events in three focused repetitions and all 117 in
+three race repetitions. The two initial response-check invocations stopped in
+the temporary-storage wrapper before any test ran and are unqualified.
+
+The serial full tagged census completes all 905 top-level tests with 863 pass /
+42 fail (1,040 pass / 43 fail events including subtests). Exactly the four
+native-dispatch failures resolve, with no added failures versus the prior
+46-failure census. All seven recognized-write refusal cases, the two unrelated
+clean-loop history/prompt expectation cases and the existing spawner cutoff
+remain red. Production Go and all 212 logic files are byte-identical to baseline;
+no permission, safety or acceptance rules change. These inert modular-read
+fixtures do not establish actual writes, accepted tasks, provider behavior,
+generated pipelines or recurse qualification.
+
+The default sqlite_vec suite passes 22,465 events with 80 skips. Tagged
+compilation, the sqlite_vec build and both default/tagged vet checks pass.
+
+
 ## GAP-TESTING-CANCEL-OBSERVATION
 
 An asynchronous task's terminal result belongs to the JITExecutor cache. Its
