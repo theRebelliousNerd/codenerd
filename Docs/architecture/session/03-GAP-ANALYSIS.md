@@ -1,5 +1,45 @@
 # 03 — Gap Analysis: session
 
+## GAP-SESSION-ISOLATED-CONSULT-ESCALATION
+
+Composing a JIT task executor must carry its parent executor's configured
+consultation escalation hook into the spawner. A fresh isolated executor must
+receive that hook just as an inline task clone does. Capture it under the
+parent's configuration lock, install it under the spawner's lock, and snapshot
+it for each spawn. Later configuration changes apply to future compositions
+and spawns; they must not mutate already-created executors.
+
+The hook applies only when the existing consultation routing policy chooses
+escalation. Do not alter ordinary persona/planner clients, caller context
+ownership, capability or permission rules, provider resolution, or consultation
+attempt-history ownership. An isolated executor retains its own attempt history;
+an inline clone retains the existing shared history. No explicit escalation
+profile means no hook; a default shard profile is not an escalation profile.
+
+Status: implemented. `NewJITExecutor` snapshots the parent's hook when composing
+the two execution paths (`internal/session/task_executor.go:305`). The spawner
+owns the hook under its configuration lock (`internal/session/spawner.go:284`)
+and forwards a snapshot to each new executor (`:543`). Direct spawner users can
+install or clear the same hook explicitly; changing only the parent after
+composition does not retroactively reconfigure that spawner or existing children.
+
+Exit demonstrated offline: production composition and Spawn controls prove
+configured, absent/default-only/empty profiles behave consistently for isolated
+and inline executors; real-kernel consultation routing applies the configured
+stronger provider/model/sampling/effort only to escalated calls
+(`internal/session/consult_escalation_propagation_test.go:71`). Snapshot updates,
+clearing, nil dependencies and concurrent composition/spawn controls are at
+`:146` and `:169`. The identical final fixture fails on unchanged baseline
+`f8c2d0a`; repeated race controls pass with this handoff. Existing boot profile
+and routing tests remain independent checks of configuration and policy.
+
+The separate `tests/e2e` integration-tag package cannot currently compile on
+either that baseline or the candidate: its fixtures still use the older
+`types.StreamWhole` callback shape and removed campaign timeout fields. This
+does not qualify those end-to-end paths; fixture alignment and behavioral
+integration acceptance remain separate work. No policy or provider ownership
+change is used to avoid that gap.
+
 ## GAP-SESSION-FOCUS-VIEW-DEPENDENCY-FRESHNESS
 
 A focus file's digest is not the identity of its rendered context: sibling

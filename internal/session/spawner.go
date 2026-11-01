@@ -75,6 +75,10 @@ type Spawner struct {
 	// for a subagent's turn (expert_spawn.go). A consultation is itself a
 	// subagent running as the agent, which expert_spawn never fires for.
 	expertConsultant ExpertConsultant
+	// consultEscalation is the configured stronger consultation profile, copied
+	// from the parent when task execution is composed and snapshotted per spawn.
+	// It never changes the subagent's ordinary serving or planner client.
+	consultEscalation func(context.Context) context.Context
 
 	// codeElements parses the file a turn is looking at into the CodeDOM fact
 	// layer. It MUST be forwarded to every spawned subagent: `nerd fix`
@@ -273,6 +277,20 @@ func (s *Spawner) currentExpertConsultant() ExpertConsultant {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.expertConsultant
+}
+
+// SetConsultEscalation installs the hook inherited by future subagents.
+// Nil clears it; already-created executors retain their own snapshot.
+func (s *Spawner) SetConsultEscalation(apply func(context.Context) context.Context) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.consultEscalation = apply
+}
+
+func (s *Spawner) currentConsultEscalation() func(context.Context) context.Context {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.consultEscalation
 }
 
 // currentReportJudge reads the report-judge slot under the read lock.
@@ -522,6 +540,7 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	if c := s.currentExpertConsultant(); c != nil {
 		agent.executor.SetExpertConsultant(c)
 	}
+	agent.executor.SetConsultEscalation(s.currentConsultEscalation())
 	// Forward the parent session's executor config — the workspace the shard
 	// works in, its wall-clock constraints, its gates. Guard on whether one
 	// was actually supplied: a zero ExecutorConfig would clear the workspace

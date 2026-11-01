@@ -303,6 +303,15 @@ const maxCachedResults = 256
 
 // NewJITExecutor creates a TaskExecutor using the new architecture.
 func NewJITExecutor(executor *Executor, spawner *Spawner, transducer perception.Transducer) *JITExecutor {
+	// Inline tasks clone the parent; isolated tasks use the spawner's fresh
+	// executors. Carry the same configured escalation hook into that path,
+	// without sharing attempt history or changing either provider's ownership.
+	if executor != nil && spawner != nil {
+		executor.mu.RLock()
+		escalation := executor.consultEscalation
+		executor.mu.RUnlock()
+		spawner.SetConsultEscalation(escalation)
+	}
 	return &JITExecutor{
 		executor:   executor,
 		spawner:    spawner,
