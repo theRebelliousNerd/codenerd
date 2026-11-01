@@ -1,4 +1,74 @@
+## GAP-PROMPT-REVIEW-TEST-BEHAVIOR-EVIDENCE
+
+The existing reviewer and tester already carry contract, boundary and evidence
+protocols. Their prompts must also carry the existing host-evidence distinction:
+execution, changed artifacts, green checks and verified requested behavior are
+separate claims. Missing, skipped, timed-out or stale checks remain unverified;
+caller acceptance obligations cannot be weakened. The existing
+`system/change_evidence` atom currently selects only four mutation intents and
+therefore misses ordinary review/test turns. Extend only its intent selectors
+to the existing reviewer/tester intent families, retaining all mutation scopes.
+Do not add a shard, a dispatch, new model calls, new authored priority, or a
+second completion authority. Existing orchestration and gates remain in charge.
+
+Exit: independently reproduce the omission at the actual compiled-prompt
+boundary using the shipped corpus and real Mangle selection. Exercise review,
+audit, inspect, analyze, check, test, cover, verify and validate, including empty
+and runnable catalogs. Retain mutation positives and unrelated-intent negatives,
+repeat mixed contexts on one compiler, and check unchanged scored content plus
+rendered inclusion and unchanged capability envelope. Reconcile the seed and
+run required atom validation, prompt/sync/builder and relevant ownership/evidence
+checks, races, fresh default suite and the serial tagged census. No behavioral
+accuracy or efficiency gain follows merely from shipping better guidance.
+
 # Prompt JIT gap analysis
+
+Implemented by extending only `system/change_evidence` intent selection in
+`internal/prompt/atoms/system/change_evidence.yaml`. The existing tester contract
+and normal/boundary/error-case protocol remains at
+`internal/prompt/atoms/shards/tester/cognitive_protocol.yaml`; reviewer reachability, triggering
+input and UNCERTAIN guidance remains at
+`internal/prompt/atoms/shards/reviewer/hypothesis_verification.yaml`. No replacement verifier
+shard is introduced. Mangle still chooses routes and completion; Jev still judges
+context relevance rather than behavior truth. The mutation verification lane and
+existing advisory post-edit critic are unchanged. This does not add a new
+risk-only scheduler or reduce existing invocation frequency.
+
+`TestReviewerTesterHostEvidenceCompiled` in
+`internal/prompt/reviewer_tester_evidence_test.go:12` uses the full shipped corpus,
+a real Mangle kernel, private compile scopes and the actual renderer. On pinned
+baseline, thirteen review/test scenarios omit the host-evidence guidance while
+seven mutation/unrelated-intent controls pass. With the selector correction,
+three uncached repetitions and their race check pass 63 events each. The test
+also observes existing contract/boundary/error and uncertainty protocols,
+unchanged tool catalogs, scored original content, and mixed-context reuse.
+This establishes delivery, not model adherence or independent capability proof.
+
+Strict atom validation passes. Affected prompt/sync/builder/validator/verifier/
+evidence packages pass 1,596 events with one skip; required prompt/sync race
+checks pass 1,378 with one skip. The fresh default suite passes 22,529 events,
+zero failures and 80 skips. The existing guidance adds 134 estimated tokens on
+matching compilations; accuracy, net token savings and monetary benefit remain
+unmeasured. No new model dispatch path or completion authority is added.
+
+The required importance command uses an owned localhost spy and fake temporary
+configuration: zero atoms scored, zero requests, all 958 ledger entries and the
+entire ledger byte-identical. No authored priority or fabricated score is used.
+Canonical seed reconciliation adds nine normalized intent tags and advances
+SQLite's normal insertion sequence. A read-only comparison of every real and
+vector shadow table shows unchanged prompt/embedding rows and existing tags;
+all runtime user-data tables are empty. No external provider calls are made.
+Existing safety, permissions, caller contracts, artifact checks and cost
+ownership are preserved. JIT failure fallback and legacy duplicate reviewer
+hypothesis protocols are unchanged; this increment does not claim to resolve
+those separate behavior and report-format limitations.
+
+The serial full tagged census completes all 923 top-level tests at 894 pass /
+29 fail (1,145 pass / 30 fail events including subtests), matching the pinned
+baseline failure set exactly. No integration test is added, removed or newly
+failed by this prompt change. The CLI build and both vets pass. The full tagged
+suite remains red; these results do not qualify autonomous verification, live
+provider operation, the generated pipeline or recurse.
 
 ## GAP-PROMPT-RELEVANCE-INFLIGHT-MEMO
 

@@ -1,7 +1,7 @@
 - id: "system/change_evidence"
   category: "protocol"
   is_mandatory: true
-  intent_verbs: ["/fix", "/create", "/refactor", "/implement"]
+  intent_verbs: ["/fix", "/create", "/refactor", "/implement", "/review", "/audit", "/analyze", "/inspect", "/check", "/test", "/cover", "/verify", "/validate"]
   content: |
     Describe execution, artifact changes, passing checks, and verified behavior
     separately. A successful write is not acceptance of the requested behavior.
