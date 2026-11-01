@@ -1,5 +1,66 @@
 # testing — Gap Analysis
 
+## GAP-TESTING-LIFECYCLE-ROLE-WIRING
+
+Lifecycle and context-isolation fixtures must install the role compiler that
+production boot gives both inline executors and spawners. A missing final-report
+role correctly fails a write-intent turn, even when the worker returns text.
+Compile the shipped role atoms through the production private-scope adapter;
+do not disable the audit, replace its prompt with literal Go text or change
+fixture intents to avoid the obligation. Own and close the compiler after owned
+workers drain, without changing process-global registries or configuration.
+
+Count worker invocations separately from admission-audit invocations using the
+broker phase, not the first words of a compiled prompt. Script the audit's
+one-word answer while retaining worker markers, blocking and cancellation.
+Preserve the existing assertions, deadlines, failure injection and capacity
+limits. These nil-kernel, inert-model fixtures measure task/result transport
+and isolation; they do not establish actual write effects or accepted tasks.
+
+Exit: reproduce missing-role failures on unchanged main, then verify real role
+atoms and the actual task/report at the model boundary, one worker invocation,
+cached-result replay without another model call, missing/failed-role refusal,
+an unfinished-report signal, concurrent isolation and cleanup. Run repeated and
+race controls and serial full suites. Keep obsolete cancellation-registry
+expectations red for a separate result-disposition repair; do not restore a
+retained terminal agent merely to satisfy those expectations.
+
+Fixture wiring is implemented by `wireLifecycleRoles` in
+`tests/e2e/lifecycle_role_fixture_test.go`, used by both
+`task_executor_async_lifecycle_test.go` and `session_context_isolation_test.go`.
+It installs the real shipped-atom compiler on inline and spawned execution,
+stops owned workers before compiler cleanup, and leaves execution kernels,
+tool availability, intents and audit defaults unchanged. The lifecycle mock
+counts broker phases; the misleading-prompt control checks each call separately
+so two swapped classifications cannot cancel out in an aggregate count.
+
+All 67 original assertion/log/deadline expressions and all nine original test
+bodies remain unchanged apart from explicit role-wiring calls. The complete
+family moves from 2 pass / 7 fail to 7 pass / 2 fail. Identical final controls
+report 6 pass / 2 fail on unchanged main; three repaired repetitions and three
+race repetitions each pass all 45 affected/control events.
+
+`TestLifecycleRoleModelBoundary` checks the shipped auditor contract and actual
+task/report input, missing and failed compiler refusal, and the unfinished-report
+signal. `TestLifecycleFixtureInstalledAudit` observes one worker and one audit,
+then cached replay without another model call. The cancellation control retains
+the live agent handle before stopping it and verifies its cached cancellation,
+registry removal and absence of later audit dispatch. The two unchanged older
+cancellation cases still poll a removed registry entry and remain red; production
+result disposition is not changed to satisfy them. None of these inert fixtures
+establishes a real mutation or a caller-owned behavior acceptance witness.
+
+The serial full tagged census completes all 897 top-level tests with 849 pass /
+48 fail. All five targeted missing-role failures resolve. The previously
+observed spawner timeout cutoff recurs at 1.031 seconds against its unchanged
+one-second limit; its isolated three-repeat controls pass on both baseline and
+candidate. This remains an unresolved loaded-spawn result, not a latency repair
+or a green full suite. All seven generated-pipeline recognized-write acceptance
+refusals remain red, and no pipeline or recurse qualification follows.
+The default sqlite_vec suite passes 22,465 events with 80 skips; build, tagged
+compilation and both vet checks pass. Production Go and all 212 logic files are
+unchanged by this fixture repair.
+
 ## GAP-TESTING-READ-MECHANICS-CATALOG
 
 The lightweight executor/store/kernel fixture exercises inert read-tool

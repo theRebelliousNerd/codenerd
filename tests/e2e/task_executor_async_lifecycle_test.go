@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/broker"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -40,9 +41,9 @@ type talMockLLMClient struct {
 }
 
 // record counts one call and keeps the head of its system prompt.
-func (m *talMockLLMClient) record(systemPrompt string) {
+func (m *talMockLLMClient) record(ctx context.Context, systemPrompt string) {
 	atomic.AddInt64(&m.callCount, 1)
-	if !strings.HasPrefix(systemPrompt, "You read an agent's final report") {
+	if broker.PhaseFromContext(ctx) != broker.PhaseAdmissionAudit {
 		atomic.AddInt64(&m.workCount, 1)
 	}
 	head, _, _ := strings.Cut(strings.TrimSpace(systemPrompt), "\n")
@@ -66,7 +67,7 @@ func (m *talMockLLMClient) Complete(ctx context.Context, prompt string) (string,
 }
 
 func (m *talMockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userInput string) (string, error) {
-	m.record(systemPrompt)
+	m.record(ctx, systemPrompt)
 
 	// If blockCh is set, block until it's closed or ctx expires
 	if m.blockCh != nil {
@@ -85,11 +86,14 @@ func (m *talMockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 		}
 	}
 
+	if broker.PhaseFromContext(ctx) == broker.PhaseAdmissionAudit {
+		return "COMPLETE", nil
+	}
 	return "mock response:" + userInput, nil
 }
 
 func (m *talMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userInput string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	m.record(systemPrompt)
+	m.record(ctx, systemPrompt)
 
 	if m.blockCh != nil {
 		select {
@@ -201,6 +205,7 @@ func setupTALEnvironment(t *testing.T) *talEnv {
 
 	spawnerCfg := session.DefaultSpawnerConfig()
 	spawner := session.NewSpawner(nil, vstore, llm, jit, cfgFactory, trans, spawnerCfg)
+	wireLifecycleRoles(t, exec, spawner)
 
 	taskExec := session.NewJITExecutor(exec, spawner, trans)
 
@@ -500,6 +505,7 @@ func TestE2E_TaskExecutor_ExecuteAsync_CapacityLimit(t *testing.T) {
 	// Set max to 3
 	spawnerCfg := session.SpawnerConfig{MaxActiveSubagents: 3}
 	spawner := session.NewSpawner(nil, vstore, llm, jit, cfgFactory, trans, spawnerCfg)
+	wireLifecycleRoles(t, exec, spawner)
 	taskExec := session.NewJITExecutor(exec, spawner, trans)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

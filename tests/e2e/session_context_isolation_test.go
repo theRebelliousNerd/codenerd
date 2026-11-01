@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/broker"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -34,6 +35,9 @@ func (m *sciMockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 	m.mu.Lock()
 	m.systemPrompts = append(m.systemPrompts, systemPrompt)
 	m.mu.Unlock()
+	if broker.PhaseFromContext(ctx) == broker.PhaseAdmissionAudit {
+		return "COMPLETE", nil
+	}
 	return "sci-system:" + systemPrompt + "\nsci-input:" + userInput, nil
 }
 func (m *sciMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userInput string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
@@ -167,6 +171,7 @@ func TestE2E_SessionContext_ConcurrentExecute_NoBleed(t *testing.T) {
 	exec.SetConfig(session.DefaultExecutorConfig())
 
 	spawner := session.NewSpawner(nil, vstore, llm, jit, cfgFactory, trans, session.DefaultSpawnerConfig())
+	wireLifecycleRoles(t, exec, spawner)
 	taskExec := session.NewJITExecutor(exec, spawner, trans)
 
 	const goroutines = 10
@@ -238,6 +243,7 @@ func TestE2E_SessionContext_SequentialExecution_NoStateBleed(t *testing.T) {
 
 	parent := session.NewExecutor(nil, vstore, llm, jit, cfgFactory, trans)
 	parent.SetConfig(session.DefaultExecutorConfig())
+	wireLifecycleRoles(t, parent, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
