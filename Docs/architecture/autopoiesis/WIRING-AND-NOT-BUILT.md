@@ -6,6 +6,39 @@ Go files modified). Read from `internal/autopoiesis/` (façade files,
 `thunderdome.go`, `panic_maker.go`) and the `prompt_evolution`
 subpackage.
 
+## GAP-AUTOPOIESIS-LEARNING-CONTEXT-OWNERSHIP
+
+Independent generated-tool executions may publish durable feedback concurrently.
+Each completed publication refreshes the orchestrator and Ouroboros generators'
+shared learning-context strings. Those writes and generation's prompt reads
+require synchronization per generator; a per-tool execution lease cannot own
+state shared by different tools.
+
+Publish each whole immutable string under a dedicated generator lock, and read
+one snapshot per generation prompt. Release the lock before prompt/model work;
+feedback refresh must progress while a model request is outstanding. Preserve
+empty-context clearing, injection text, JIT requirements, caller cancellation,
+durable-record ordering and independent-tool execution. This does not add a
+revision-order guarantee to concurrent aggregate refreshes or change permissions.
+
+Exit: reproduce concurrent setters/readers on unchanged production code using
+offline generation requests; verify whole prompt snapshots, replacement/clear,
+refresh during an outstanding request and ordinary/canceled completion. Then
+run the independent-tool production overlap regression and relevant package,
+race and full suites. Retain every write-acceptance and same-tool lease guard.
+
+Ownership repair: `ToolGenerator.learningsMu`, `SetLearningsContext` and
+`learningContextSnapshot` (`internal/autopoiesis/toolgen.go`) protect every
+production access; `generateToolCode` (`tool_generation.go`) injects one local
+snapshot. No lock crosses JIT compilation, model dispatch or logging. The
+identical offline regression in `tool_learning_context_test.go` reports 5 pass /
+1 race failure on unchanged production code; five repaired repetitions pass all
+30 events. It covers concurrent writers/readers, replacement/clear, the actual
+prompt boundary, refresh during a blocked request and cancellation. The whole
+affected package passes 829 race-enabled events with 6 skips; the distinct-tool
+production fixture passes 28 repeated integration race events. This ownership
+evidence does not qualify arbitrary generated effects as accepted write turns.
+
 ## GAP-AUTOPOIESIS-STRATEGY-CACHE-OWNERSHIP
 
 Concurrent prompt compiles may select strategies from one `StrategyStore`.

@@ -252,12 +252,13 @@ func (m *pipelineModel) CompleteWithToolResults(ctx context.Context, systemPromp
 }
 
 type pipelineFixture struct {
-	t        *testing.T
-	root     string
-	cortex   *system.Cortex
-	model    *pipelineModel
-	identity types.GeneratedToolIdentity
-	baseline []types.Fact
+	t          *testing.T
+	root       string
+	cortex     *system.Cortex
+	model      *pipelineModel
+	identity   types.GeneratedToolIdentity
+	identities map[string]types.GeneratedToolIdentity
+	baseline   []types.Fact
 }
 
 func newPipelineUserConfig(test *testing.T) *config.UserConfig {
@@ -272,6 +273,10 @@ func newPipelineUserConfig(test *testing.T) *config.UserConfig {
 }
 
 func newPipelineFixture(t *testing.T, malformed bool) *pipelineFixture {
+	return newPipelineFixtureWithCompanion(t, malformed, "")
+}
+
+func newPipelineFixtureWithCompanion(t *testing.T, malformed bool, companion string) *pipelineFixture {
 	t.Helper()
 	root := t.TempDir()
 	ownGeneratedFixtureWorkspace(t, root)
@@ -303,6 +308,10 @@ func newPipelineFixture(t *testing.T, malformed bool) *pipelineFixture {
 	}
 	if err := os.WriteFile(binary+".identity.json", encoded, 0600); err != nil {
 		t.Fatal(err)
+	}
+	identities := map[string]types.GeneratedToolIdentity{identity.Name: identity}
+	if companion != "" {
+		identities[companion] = compilePipelineCompanion(t, root, companion)
 	}
 	// Untyped generated tools use the supported text-envelope transport. The
 	// bool retains the original deliberately malformed-envelope fault case.
@@ -336,7 +345,12 @@ func newPipelineFixture(t *testing.T, malformed bool) *pipelineFixture {
 	if err != nil || backendIdentity.BinaryPath != identity.BinaryPath || backendIdentity.BinaryHash != identity.BinaryHash || backendIdentity.Protocol != identity.Protocol {
 		t.Fatalf("factory/runtime restored identity mismatch: %+v, %v", backendIdentity, err)
 	}
-	f := &pipelineFixture{t: t, root: root, cortex: cortex, model: model, identity: identity}
+	for name, expected := range identities {
+		if name != identity.Name {
+			verifyPipelineCompanion(t, cortex, expected)
+		}
+	}
+	f := &pipelineFixture{t: t, root: root, cortex: cortex, model: model, identity: identity, identities: identities}
 	f.configure(cortex.SessionExecutor)
 	baselinePath := filepath.Join(root, "baseline-only.go")
 	baselineContents := "package fixture\n// immutable baseline\n"
@@ -364,7 +378,7 @@ func (f *pipelineFixture) configure(executor *session.Executor) {
 		f.t.Fatal(err)
 	}
 	cfg := &jitconfig.EffectiveAgentRuntimeConfig{IdentityPrompt: "Exercise the single approved generated tool and report its actual result.",
-		IntentVerb: "/implement", Persona: "coder", AllowedTools: []string{productionPipelineChild}, Policies: policies}
+		IntentVerb: "/implement", Persona: "coder", AllowedTools: f.pipelineToolNames(), Policies: policies}
 	if err := cfg.Validate(); err != nil {
 		f.t.Fatal(err)
 	}
@@ -391,7 +405,7 @@ func (f *pipelineFixture) request(plan pipelinePlan) types.GeneratedToolRequest 
 		f.t.Fatal(err)
 	}
 	return types.GeneratedToolRequest{ScopeID: "pipeline/" + plan.Call.ID, CallID: plan.Call.ID, AuthorizationID: "exec-" + plan.Call.ID,
-		Action: types.MangleAtom("/" + productionPipelineChild), Target: plan.Call.Input["path"].(string), CanonicalArgs: canonical, Tool: f.identity}
+		Action: types.MangleAtom("/" + plan.Call.Name), Target: plan.Call.Input["path"].(string), CanonicalArgs: canonical, Tool: f.pipelineIdentity(plan.Call.Name)}
 }
 
 func (f *pipelineFixture) approve(plan pipelinePlan) {
@@ -559,7 +573,7 @@ func (f *pipelineFixture) positiveWitness(plan pipelinePlan, outcome pipelineOut
 		problems = append(problems, errors.New("correlated durable acknowledgment missing after LearningStore reopen"))
 	}
 	feedback, recorded := store.ExecutionFeedback(request.Key())
-	if !recorded || !feedback.Success || feedback.ToolName != productionPipelineChild || feedback.Input != request.CanonicalArgs || feedback.RequestFingerprint != request.Fingerprint() || feedback.Output != "literal effect: "+request.Target {
+	if !recorded || !feedback.Success || feedback.ToolName != request.Tool.Name || feedback.Input != request.CanonicalArgs || feedback.RequestFingerprint != request.Fingerprint() || feedback.Output != "literal effect: "+request.Target {
 		problems = append(problems, errors.New("successful persisted execution feedback missing or differs"))
 	}
 	for key, want := range map[string]string{"call_id": request.CallID, "authorization_id": request.AuthorizationID, "action": string(request.Action), "target": request.Target, "binary_hash": request.Tool.BinaryHash, "protocol": string(request.Tool.Protocol)} {
@@ -643,7 +657,7 @@ func (f *pipelineFixture) assertTotals(starts, effects, acknowledgments int) {
 		f.t.Errorf("literal effects=%d, want %d", actual, effects)
 	}
 	store := f.learning()
-	learning := store.GetLearning(productionPipelineChild)
+	learning := f.pipelineLearningTotals(store)
 	if acknowledgments == 0 {
 		if learning != nil && learning.TotalExecutions != 0 {
 			f.t.Errorf("preflight refusal or failed publication fabricated learning: %+v", learning)
@@ -833,11 +847,11 @@ func TestE2E_ProductionGeneratedPipeline_ContextCancellation_TemporalFailure(t *
 }
 
 func TestE2E_ProductionGeneratedPipeline_StateCorruption(t *testing.T) {
-	f := newPipelineFixture(t, false)
+	f := newPipelineFixtureWithCompanion(t, false, productionPipelineCompanion)
 	gate := newPipelineGate(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	plans := []pipelinePlan{f.plan("concurrent-a", "distinct A\n", "", gate.server.URL), f.plan("concurrent-b", "distinct B\n", "", gate.server.URL)}
+	plans := []pipelinePlan{f.plan("concurrent-a", "distinct A\n", "", gate.server.URL), f.planForTool(productionPipelineCompanion, "concurrent-b", "distinct B\n", "", gate.server.URL)}
 	var completions []<-chan pipelineOutcome
 	for _, plan := range plans {
 		f.approve(plan)

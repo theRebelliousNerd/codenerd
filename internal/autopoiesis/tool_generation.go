@@ -345,13 +345,13 @@ IMPORTANT: Generate ONLY standalone code. Do NOT generate registration functions
 		toPascalCase(need.Name))
 
 	// Inject learnings context if available
-	if tg.learningsContext != "" {
+	if learnings := tg.learningContextSnapshot(); learnings != "" {
 		userPrompt += fmt.Sprintf(`
 
 LEARNINGS FROM PAST TOOL GENERATION:
 %s
 
-Apply these learnings to generate better code.`, tg.learningsContext)
+Apply these learnings to generate better code.`, learnings)
 		logging.AutopoiesisDebug("Injected learnings into JIT generation prompt")
 	}
 

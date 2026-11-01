@@ -33,6 +33,7 @@ type ToolGenerator struct {
 	rolePrompts     types.RolePromptCompiler
 
 	// Learnings injection - aggregated patterns from past tool generation
+	learningsMu      sync.RWMutex
 	learningsContext string
 
 	// gapDecider is the kernel's tool-need decision (tool_need.go),
@@ -54,10 +55,19 @@ func NewToolGenerator(client LLMClient, toolsDir string) *ToolGenerator {
 // SetLearningsContext injects aggregated learnings from past tool generation.
 // These learnings are added to generation prompts to improve future tools.
 func (tg *ToolGenerator) SetLearningsContext(ctx string) {
+	tg.learningsMu.Lock()
 	tg.learningsContext = ctx
+	tg.learningsMu.Unlock()
 	if ctx != "" {
 		logging.Autopoiesis("ToolGenerator: Injected learnings context (%d bytes)", len(ctx))
 	}
+}
+
+// Snapshot once for each prompt; never hold the lock during JIT or model work.
+func (tg *ToolGenerator) learningContextSnapshot() string {
+	tg.learningsMu.RLock()
+	defer tg.learningsMu.RUnlock()
+	return tg.learningsContext
 }
 
 // SetPromptAssembler attaches the JIT prompt assembler tool code is generated

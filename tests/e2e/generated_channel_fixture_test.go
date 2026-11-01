@@ -46,7 +46,7 @@ func (m *pipelineModel) completePipelineEnvelope(ctx context.Context, system, in
 			return string(data), err
 		}
 	}
-	if !strings.Contains(system, "**"+productionPipelineChild+"**") {
+	if !strings.Contains(system, "**"+plan.Call.Name+"**") {
 		return "", errors.New("generated tool absent from this request's text catalog")
 	}
 	m.mu.Lock()

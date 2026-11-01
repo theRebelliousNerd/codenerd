@@ -1,5 +1,58 @@
 # testing — Gap Analysis
 
+## GAP-TESTING-GENERATED-IDENTITY-CONCURRENCY
+
+The generated-tool state-isolation fixture requires two actual native processes
+to reach an admission barrier before either is released. Those operations must
+use distinct restored tool identities: production deliberately serializes
+publication and execution of the same tool. Two call IDs for one tool do not
+establish independent operation ownership. Preserve the existing overlap,
+literal-effect, durable-learning and task-acceptance assertions; do not release
+the first process early or bypass the operation lease to manufacture overlap.
+
+Compile and restore both fixture identities through the normal production
+compiler and boot path. Correlate each plan's actual name, immutable identity,
+exact permission, action validation and durable feedback. Aggregate only the
+observed per-tool execution counts for fixture totals; never inject feedback or
+grant another tool's approval. Single-tool fixtures must keep their original
+identity, transport, effect and acceptance obligations.
+
+Exit: independently reproduce the baseline same-tool barrier and write refusal,
+then prove distinct-tool overlap before gate release, retained same-tool
+serialization/cancellation, per-identity durable counts and refusal before
+dispatch for missing or wrong-identity permission. Preserve unrelated state and
+run focused/race/full tagged checks. Actual generated effects still do not
+satisfy the recognized-write acceptance contract. Any remaining acceptance
+failure stays red and is not pipeline or recurse qualification.
+
+Fixture repair: `newPipelineFixtureWithCompanion` and
+`generated_identity_fixture_test.go` compile/restore separate named artifacts;
+`request`, the text catalog and `positiveWitness` bind the actual planned tool.
+Both children must reach the unopened gate without effects or completed
+acknowledgments. After release, each needs its own real effect, validation,
+model result and reopened identity-correlated receipt. No or wrong-tool action
+approval starts any process. Single-tool fixtures remain singleton and the
+existing production same-tool coordination/cancellation contract is retained.
+
+The original state-isolation test now reaches both literal effects and fails
+only its two unchanged write-acceptance assertions. The other six positive
+generated cases have the same independent completion obligation. All 106 old
+assertion/log/subtest/deadline expressions across the modified fixture files
+are unchanged. The real overlap control exposed a shared production learning
+context race; the ownership repair is specified in
+`autopoiesis/WIRING-AND-NOT-BUILT.md`. Repeated affected integration race checks
+pass all 28 events, including the real overlap and refusal controls.
+
+Final offline census: all 888 top-level tagged tests complete, with 830 pass /
+58 fail and exactly the published baseline's failure set. All seven positive
+generated cases remain red at recognized-write acceptance; no failure-count
+improvement is attributed to the concurrency/ownership repair. Default sqlite_vec
+tests pass 22,457 events with 80 skips; build, tagged compilation and both vet
+checks pass. The earlier experiment's learning-store performance cutoff remains
+recorded in external evidence; its complete isolated cohort passes two repeats
+on both baseline and candidate. No timing repair or full-pipeline qualification
+is claimed.
+
 ## GAP-TESTING-WORKSPACE-BINDING-ISOLATION
 
 A nonparallel generated-tool fixture boots a real Cortex that binds both the
@@ -104,15 +157,18 @@ All 90 original assertion/log/subtest/deadline expressions remain unchanged.
 
 Three original groups now pass: admitted cancellation, partial process failure
 and disconnected-witness controls. Seven generated groups still fail at write
-acceptance or the original barrier that waits for overlapping executions of the
-same leased tool. No task acceptance or native-provider support is claimed.
+acceptance. The identity-concurrency fixture repair above replaces its original
+same-tool overlap setup with independent restored tools while retaining the
+overlap and acceptance assertions. No task acceptance or native-provider support
+is claimed.
 The original exploratory full suite exposed a conversation-drift failure even
 though isolated and original-cohort repeats passed. The workspace/registration
 controls above now reproduce and repair that fixture-order dependency. The
-combined verified fixture stack reports 828 top-level pass / 58 fail with no
+verified workspace/transport stack reports 828 top-level pass / 58 fail with no
 added failures against published main. The separately verified strategy-cache
 repair is already in that baseline; neither this transport repair nor workspace
-isolation closes the remaining recognized-write or same-tool overlap gaps.
+isolation closes the remaining recognized-write admission gap. Independent-tool
+overlap and shared learning-context ownership are checked separately above.
 
 ## GAP-TESTING-CAMPAIGN-PLAN-MEMBERSHIP
 
