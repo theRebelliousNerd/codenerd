@@ -6,6 +6,35 @@ Go files modified). Read from `internal/autopoiesis/` (façade files,
 `thunderdome.go`, `panic_maker.go`) and the `prompt_evolution`
 subpackage.
 
+## GAP-AUTOPOIESIS-STRATEGY-CACHE-OWNERSHIP
+
+Concurrent prompt compiles may select strategies from one `StrategyStore`.
+Selection holds the store's shared database/lifecycle lock, but cache expiry,
+population and invalidation mutate the cache map and timestamp. Those mutations
+require exclusive cache ownership even when the enclosing operation is a read.
+The shared store lock alone cannot protect writes by concurrent selectors.
+
+Give all cache helpers one exclusive cache lock, ordered inside the existing
+store lock. Preserve concurrent database reads, TTL/key/limit semantics and the
+store write lock's ordering of mutation, invalidation and Close. Cache helpers
+must not reacquire the store lock or change strategy policy or caller authority.
+
+Exit: independently reproduce the concurrent-selection race on unchanged code;
+pass repeated race-enabled public selection with forced expiry and warm-cache
+controls, plus create/refine/outcome/delete invalidation and expiry reload
+controls. Recheck concurrent production JIT callers and relevant offline suites.
+Do not qualify generated execution or task acceptance from cache correctness.
+
+Ownership repair verified: `StrategyStore.cacheMu` and all four cache helpers
+(`prompt_evolution/strategy_store.go:31`, `:424`) provide that exclusive ownership;
+the enclosing store/database locks remain unchanged. The identical regression
+file on unchanged production code passes the warm/invalidation/expiry controls
+and reports the concurrent expiry race (3 pass / 2 fail events). Five repaired
+race repetitions pass all 25 events; the whole prompt-evolution package passes
+208 race-enabled checks. Regression controls live in
+`prompt_evolution/strategy_cache_concurrency_test.go`; the independent task
+acceptance and native-schema limitations remain open.
+
 ## Wired and reachable (inside the package)
 
 - Façade delegates: every `Orchestrator` method in

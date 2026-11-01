@@ -26,6 +26,9 @@ type StrategyStore struct {
 	storePath string
 
 	// Cache for frequently used strategies
+	// SelectStrategies holds mu for reading but can expire/populate this
+	// cache. Helpers take cacheMu inside mu; they never reacquire mu.
+	cacheMu   sync.Mutex
 	cache     map[string][]*Strategy // key: problemType:shardType
 	cacheTime time.Time
 	cacheTTL  time.Duration
@@ -419,6 +422,8 @@ func (ss *StrategyStore) scanStrategies(rows *sql.Rows) []*Strategy {
 
 // Cache helpers
 func (ss *StrategyStore) getCached(key string) ([]*Strategy, bool) {
+	ss.cacheMu.Lock()
+	defer ss.cacheMu.Unlock()
 	if time.Since(ss.cacheTime) > ss.cacheTTL {
 		ss.cache = make(map[string][]*Strategy)
 		return nil, false
@@ -428,16 +433,22 @@ func (ss *StrategyStore) getCached(key string) ([]*Strategy, bool) {
 }
 
 func (ss *StrategyStore) setCache(key string, strategies []*Strategy) {
+	ss.cacheMu.Lock()
+	defer ss.cacheMu.Unlock()
 	ss.cache[key] = strategies
 	ss.cacheTime = time.Now()
 }
 
 func (ss *StrategyStore) invalidateCache(problemType, shardType string) {
+	ss.cacheMu.Lock()
+	defer ss.cacheMu.Unlock()
 	key := fmt.Sprintf("%s:%s", problemType, shardType)
 	delete(ss.cache, key)
 }
 
 func (ss *StrategyStore) invalidateCacheForStrategy(strategyID string) {
+	ss.cacheMu.Lock()
+	defer ss.cacheMu.Unlock()
 	// Clear entire cache since we don't track which keys contain which strategies
 	ss.cache = make(map[string][]*Strategy)
 }
