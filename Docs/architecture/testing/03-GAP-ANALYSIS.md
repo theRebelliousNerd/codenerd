@@ -1,3 +1,54 @@
+## GAP-TESTING-DREAMER-PROJECTION-TYPES
+
+Dreamer integration safety policies must match the declared projection tuple:
+string action ID, name action type, string target. A filesystem path is a string;
+writing it as a Mangle path atom produces an unreachable rule rather than an
+unsafe verdict. Repair only the four accidentally atom-valued target literals
+in the legacy safe/unsafe/concurrent/injection fixture policies. Preserve their requests,
+all assertions, the fifty-worker concurrency case and every other test byte.
+Keep intentionally wrong-type controls unchanged. Do not coerce production
+strings into names or loosen schema, safety, permission or panic-state rules.
+
+Exit: reproduce the unsafe smoke failure on pinned main and compare identical
+new controls on unchanged production. Inspect each projected value and exact
+request/action ID; prove correctly typed rule firing and reason provenance,
+nonmatching targets/actions and wrong literal kinds, cancellation, recovery,
+concurrent opposite decisions and parent fact isolation. Simulation is actual
+Dreamer/Mangle execution but does not execute a file mutation or qualify routed
+tool dispatch, live providers or recurse. Preserve all remaining obligations.
+Run repeated focused, relevant race/default controls and a serial full tagged
+census, reporting every residual failure.
+
+`TestDreamerProjectionContract` in
+`tests/e2e/dreamer_projection_contract_test.go` executes the real Dreamer and
+Mangle clone against independently loaded policies. It inspects the exact
+string/name/string projection tuple and current action ID; the correctly typed
+rule produces its exact panic reason. Wrong literal kinds, other actions and
+targets do not match; an injection-shaped target remains data. Pre-canceled
+ownership fails closed before projection. A blocked request followed by a safe
+request has distinct identity and verdicts. Sixteen synchronized simulations
+must produce eight safe and eight unsafe decisions without parent fact changes.
+These are speculative-kernel execution witnesses, not tool dispatch or file
+mutation. The old fifty-worker case remains an unchanged nonpanic/race check.
+
+Pinned main independently reproduces the unsafe smoke failure. All ten new
+control events pass on unchanged production, establishing a fixture-literal
+mismatch rather than a current projection defect. Exactly four policy targets
+become quoted strings. Normalizing only those four substitutions restores the
+entire old file byte for byte, including every original assertion, request,
+worker count, five-second performance bound and deliberate wrong-action-kind
+control. No earlier successful enforcement is inferred from legacy test names.
+
+Three uncached smoke repetitions pass. Repeated focused controls pass 42
+events; the broader Dreamer group and its integration race check pass 46 each.
+Relevant default core unit races pass 42. The serial full tagged census
+completes all 923 top-level tests: 894 pass / 29 fail (1,145 pass / 30 fail events
+including subtests), no skips. Only the targeted smoke failure resolves, with
+none added or removed. All production and default-suite inputs are unchanged;
+the prior full default runtime is referenced, not claimed freshly rerun here.
+Seven generated-write refusals and the other red obligations remain intact.
+Host-authored offline fixture work does not qualify live dogfood or recurse.
+
 ## GAP-TESTING-NIL-SESSION-EXECUTION
 
 The single-turn nil SessionContext compatibility case must retain its explicit
