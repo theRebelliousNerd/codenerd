@@ -382,12 +382,12 @@ func TestE2E_SessionExecutor_ConcurrentProcess_NoPanic(t *testing.T) {
 		}
 	}
 
-	// History is append-locked per turn (pairs may interleave) and capped at
-	// 50 entries, so 50 concurrent turns land as the newest 50 with no
-	// corruption: every entry well-formed, every content from the known set.
+	// Stored history is append-only and append-locked (pairs may interleave).
+	// The generation window is bounded separately. Every completed request
+	// must retain its whole user input and reply, without loss or duplication.
 	history := exec.GetHistory()
-	if len(history) != 50 {
-		t.Fatalf("Expected the 50-entry bounded history after %d concurrent requests, got %d", concurrent, len(history))
+	if len(history) != 2*concurrent {
+		t.Fatalf("Expected all %d history events after %d concurrent requests, got %d", 2*concurrent, concurrent, len(history))
 	}
 	wantInputs := make(map[string]struct{}, concurrent)
 	for i := 0; i < concurrent; i++ {
@@ -406,6 +406,12 @@ func TestE2E_SessionExecutor_ConcurrentProcess_NoPanic(t *testing.T) {
 		default:
 			t.Errorf("history[%d] has unexpected role %q", i, turn.Role)
 		}
+	}
+	if err := sclCompletedHistoryError(history, wantInputs, "concurrent response"); err != nil {
+		t.Fatalf("Completed concurrent history is incomplete or corrupted: %v", err)
+	}
+	if lc.Invocations() != concurrent {
+		t.Errorf("Expected %d model calls for completed requests, got %d", concurrent, lc.Invocations())
 	}
 }
 
@@ -704,7 +710,8 @@ func TestE2E_SessionExecutor_ConfigMutation_Immutable(t *testing.T) {
 
 // TestE2E_SessionExecutor_FallbackToBaseline_OnCompilationFailure tests pipeline resilience
 // CONTRACT: when JIT compilation fails entirely, the model is served the
-// hardcoded baseline prompt — not an empty system prompt, not a crash.
+// embedded mandatory identity, safety and protocol atoms, without an empty
+// system prompt or a crash.
 func TestE2E_SessionExecutor_FallbackToBaseline_OnCompilationFailure(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{errToReturn: fmt.Errorf("JIT totally failed")}
@@ -724,7 +731,7 @@ func TestE2E_SessionExecutor_FallbackToBaseline_OnCompilationFailure(t *testing.
 	if len(prompts) != 1 {
 		t.Fatalf("Expected exactly 1 captured system prompt, got %d", len(prompts))
 	}
-	if !strings.Contains(prompts[0], "You are an AI assistant helping with software development.") {
+	if err := sclMandatoryBaselineError(prompts[0]); err != nil {
 		t.Errorf("Model did not see the baseline prompt after JIT failure: %q", prompts[0])
 	}
 }

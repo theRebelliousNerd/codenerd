@@ -1,5 +1,73 @@
 # testing — Gap Analysis
 
+## GAP-TESTING-CLEAN-EXPECTATIONS
+
+The clean-loop history fixture must distinguish stored conversation from the
+bounded generating-model window. Completed input/reply events stay whole in
+append-only storage. Fifty completed concurrent requests must retain all one
+hundred events, with each expected user input exactly once and fifty intact
+replies; do not impose a silent storage cap to satisfy an old test. Retain the
+existing error, role and content checks and calibrate the stronger completeness
+check against missing, duplicated, foreign and malformed history.
+
+JIT failure must reach the provider with the current embedded mandatory identity,
+constitutional safety/default-deny and Piggyback protocol atoms. An obsolete
+handwritten sentence is not the baseline contract. Compare the actual config
+and provider prompts with embedded assembly for the observed compilation
+context, retain successful-JIT selection, and require cancellation or an
+insufficient mandatory budget to stop before config/provider dispatch.
+
+Exit: reproduce the two old expectations on unchanged main; run identical
+production-path storage/window/copy and fallback/refusal controls on baseline
+and candidate, including negative calibration of the revised assertions. Keep
+all other original cases unchanged. Pass repeated focused/race checks and a
+serial full tagged census without hiding residual failures. No production
+history, prompt, permission or acceptance behavior changes are justified by
+stale expectations alone.
+
+`tests/e2e/clean_expectation_contract_test.go:19` validates exact completed
+history cardinality, every expected input once, known roles and whole replies.
+The revised concurrent case retains all old role/content/error checks and
+requires exactly 50 model calls. Its only replaced assertion call is the stale
+50-entry count; two completeness checks are added. All 61 other original
+assertion/log/skip/deadline calls and 17 unrelated original test bodies remain
+AST-identical. Interleaving is allowed; loss and duplication are refused.
+
+The history oracle at line 66 rejects missing/extra events, duplicated/foreign
+inputs and malformed roles/replies. The baseline oracle at line 96 rejects an
+empty, legacy or unrelated prompt and removal of each required marker.
+`TestCleanExpectationsHistoryStorageAndWindow` at line 130 retains more than
+50 events, checks Set/GetHistory role/content copy isolation, and observes the
+actual text-only generating request under default, lowered, disabled and tiny
+character-budget windows, including visible eviction notices. Storage never
+shrinks to satisfy the generating window. This is not a new native-message or
+recall-tool qualification.
+
+`TestCleanExpectationsBaselineRequest` at line 231 compares the actual config
+and provider prompt with embedded assembly for the compiler's observed context.
+It retains successful-JIT selection, checks the mandatory prompt fits the actual
+available budget, and requires real owner cancellation or insufficient budget
+to stop before config/provider work. `internal/session/executor.go:2208` stores
+whole events, while `priorTurnWindow` at line 2274 bounds generation separately.
+`embeddedBaselineCompilation` at line 1242 enforces the fallback/refusal contract.
+
+Both original expectations independently fail on unchanged main, while identical
+new controls pass all 28 baseline events. The final family/control selection
+passes 207 events in three normal repetitions and 207 in three race repetitions;
+all 19 original cases pass in each repetition. No production history, fallback,
+safety, permission or acceptance change is made.
+
+The serial full tagged census completes all 909 top-level tests with 869 pass /
+40 fail (1,070 pass / 41 fail events including subtests). Exactly the two targeted
+expectations resolve against the prior 42-failure census, with no added failures.
+All seven recognized-write refusals and the existing spawner timing cutoff remain
+red. All 1,528 production Go files and 212 logic files are byte-identical to
+baseline. This is verified offline fixture repair, not accepted writes, live
+provider behavior, billing, generated-pipeline or recurse qualification.
+
+The default sqlite_vec suite passes 22,465 events with 80 skips. Tagged
+compilation, the sqlite_vec build and both default/tagged vet checks pass.
+
 ## GAP-TESTING-CLEAN-CATALOG
 
 The clean-loop mechanics fixture must supply the turn catalog before prompt
