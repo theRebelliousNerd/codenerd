@@ -364,7 +364,8 @@ func TestE2E_TaskExecutor_WaitForResult_Cancellation_StopsAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
-	talWaitForAgentState(t, env.spawner, taskID, session.SubAgentStateRunning, 5*time.Second)
+	agent := talWaitForAgentState(t, env.spawner, taskID, session.SubAgentStateRunning, 5*time.Second)
+	talWaitForModelEntry(t, env.llm, 5*time.Second)
 
 	// Cancel WaitForResult via short timeout
 	waitCtx, waitCancel := context.WithTimeout(parentCtx, 500*time.Millisecond)
@@ -376,13 +377,14 @@ func TestE2E_TaskExecutor_WaitForResult_Cancellation_StopsAgent(t *testing.T) {
 	}
 
 	// WaitForResult must reap the agent it stopped waiting for.
-	agent := talWaitForAgentState(t, env.spawner, taskID, session.SubAgentStateFailed, 5*time.Second)
+	talWaitForRetainedTerminal(t, agent, session.SubAgentStateFailed, 5*time.Second)
 	if _, resultErr := agent.GetResult(); !errors.Is(resultErr, context.Canceled) {
 		t.Fatalf("cancelled agent result error is %v, want context canceled", resultErr)
 	}
 	if activeAgents := env.spawner.ListActive(); len(activeAgents) != 0 {
 		t.Fatalf("%d agents remain active after WaitForResult cancellation", len(activeAgents))
 	}
+	talRequireCachedCancellation(t, env, taskID)
 }
 
 // =============================================================================
@@ -405,18 +407,20 @@ func TestE2E_TaskExecutor_ExecuteAsync_ContextBackground(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
-	talWaitForAgentState(t, env.spawner, taskID, session.SubAgentStateRunning, 5*time.Second)
+	agent := talWaitForAgentState(t, env.spawner, taskID, session.SubAgentStateRunning, 5*time.Second)
+	talWaitForModelEntry(t, env.llm, 5*time.Second)
 
 	// Cancel the parent context
 	cancel()
 
-	agent := talWaitForAgentState(t, env.spawner, taskID, session.SubAgentStateFailed, 5*time.Second)
+	talWaitForRetainedTerminal(t, agent, session.SubAgentStateFailed, 5*time.Second)
 	if _, resultErr := agent.GetResult(); !errors.Is(resultErr, context.Canceled) {
 		t.Fatalf("cancelled agent result error is %v, want context canceled", resultErr)
 	}
 	if activeAgents := env.spawner.ListActive(); len(activeAgents) != 0 {
 		t.Fatalf("%d agents remain active after parent context cancellation", len(activeAgents))
 	}
+	talRequireCachedCancellation(t, env, taskID)
 }
 
 // =============================================================================

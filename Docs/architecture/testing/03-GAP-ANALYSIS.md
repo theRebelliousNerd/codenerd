@@ -1,5 +1,64 @@
 # testing — Gap Analysis
 
+## GAP-TESTING-CANCEL-OBSERVATION
+
+An asynchronous task's terminal result belongs to the JITExecutor cache. Its
+owner publishes that result and removes the spawner registry entry without
+requiring a subsequent poll. Cancellation fixtures must retain the live handle
+before stopping the task; looking the failed agent up after settlement is an
+obsolete observation, not a requirement to retain terminal agents.
+
+Preserve the existing failed-state and typed-error assertions, the parent and
+waiter deadlines, and the requirement that no active worker remains. Admit the
+blocking model before cancellation, observe the retained handle's completion
+and failed state, then require automatic registry removal before reading cached
+results. Verify stable cached cancellation and no later model/audit dispatch.
+Do not restore terminal registration or make a canceled waiter merely detach.
+
+Deterministic controls must observe the worker's actual context and returned
+error, distinguish waiter cancellation from parent cancellation and ordinary
+execution failure, retain normal completion and result replay, and show that
+canceling one task does not cancel another task on the same spawner. Keep the
+worker blocked until cancellation or an explicit normal-release control; a
+timer alone is not evidence that an in-flight model stopped.
+
+Exit: independently reproduce both old registry-poll failures, run identical
+owner/context/settlement controls on baseline and candidate, then pass repeated
+focused and race checks and a serial full tagged census. This repair changes
+test observation only; inert-model lifecycle evidence does not establish real
+write effects, provider billing, task acceptance, or recurse qualification.
+
+`talWaitForRetainedTerminal` and `talRequireCachedCancellation` in
+`tests/e2e/lifecycle_cancel_fixture_test.go` implement the observation contract.
+The original two cases retain their live handle and wait for model admission;
+all 54 existing assertion/log/deadline expressions remain unchanged. They still
+require the waiter deadline error, the retained worker's failed state and typed
+cancellation, and no active agent. Automatic removal is observed before cached
+result APIs are called, so a consumer cannot repair missing owner settlement.
+
+`TestCancellationObservedOwner` observes the model's actual context and returned
+error for waiter cancellation, parent cancellation, ordinary completion and
+execution failure. It retains stable cached replay and rejects extra model or
+audit work. `TestCancellationUnrelatedOwnerIsolation` keeps another model call
+blocked on the same spawner, proves it survives the first waiter's cancellation,
+then releases it and verifies its independent result. No test injects terminal
+state, a settlement callback or a cache entry.
+
+Both original cases fail on unchanged main, while identical new controls pass
+all 18 baseline events. The repaired cases pass both exact reruns; three combined
+lifecycle/context/control repetitions and three race repetitions each pass all
+69 events. This supports stale fixture observation rather than a cancellation
+regression in the covered cooperative-client paths. It does not prove that a
+remote provider stopped processing or stopped billing after cancellation.
+
+The serial full tagged census completes all 899 top-level tests with 853 pass /
+46 fail. Exactly the two targeted cancellation-registry failures resolve, with
+no added failures. The existing spawner timing failure and all seven generated
+recognized-write refusal cases remain red; no latency, pipeline or recurse
+qualification is inferred. Production Go and all 212 logic files are unchanged.
+The default sqlite_vec suite passes 22,465 events with 80 skips; build, tagged
+compilation and both vet checks pass.
+
 ## GAP-TESTING-LIFECYCLE-ROLE-WIRING
 
 Lifecycle and context-isolation fixtures must install the role compiler that
@@ -21,9 +80,9 @@ Exit: reproduce missing-role failures on unchanged main, then verify real role
 atoms and the actual task/report at the model boundary, one worker invocation,
 cached-result replay without another model call, missing/failed-role refusal,
 an unfinished-report signal, concurrent isolation and cleanup. Run repeated and
-race controls and serial full suites. Keep obsolete cancellation-registry
-expectations red for a separate result-disposition repair; do not restore a
-retained terminal agent merely to satisfy those expectations.
+race controls and serial full suites. Cancellation observations follow
+`GAP-TESTING-CANCEL-OBSERVATION`; do not restore a retained terminal agent merely
+to satisfy obsolete registry-poll expectations.
 
 Fixture wiring is implemented by `wireLifecycleRoles` in
 `tests/e2e/lifecycle_role_fixture_test.go`, used by both
@@ -34,32 +93,24 @@ tool availability, intents and audit defaults unchanged. The lifecycle mock
 counts broker phases; the misleading-prompt control checks each call separately
 so two swapped classifications cannot cancel out in an aggregate count.
 
-All 67 original assertion/log/deadline expressions and all nine original test
-bodies remain unchanged apart from explicit role-wiring calls. The complete
-family moves from 2 pass / 7 fail to 7 pass / 2 fail. Identical final controls
-report 6 pass / 2 fail on unchanged main; three repaired repetitions and three
-race repetitions each pass all 45 affected/control events.
+All 67 original assertion/log/deadline expressions remain preserved. The
+role-wiring controls retain missing/failed-role refusal, actual shipped atoms
+and worker/audit separation. The cancellation observation repair above retains
+the original failed-state and error checks while following terminal ownership;
+combined repeated and race checks cover all nine original lifecycle/context
+cases and both groups of boundary controls.
 
 `TestLifecycleRoleModelBoundary` checks the shipped auditor contract and actual
 task/report input, missing and failed compiler refusal, and the unfinished-report
 signal. `TestLifecycleFixtureInstalledAudit` observes one worker and one audit,
 then cached replay without another model call. The cancellation control retains
 the live agent handle before stopping it and verifies its cached cancellation,
-registry removal and absence of later audit dispatch. The two unchanged older
-cancellation cases still poll a removed registry entry and remain red; production
-result disposition is not changed to satisfy them. None of these inert fixtures
-establishes a real mutation or a caller-owned behavior acceptance witness.
-
-The serial full tagged census completes all 897 top-level tests with 849 pass /
-48 fail. All five targeted missing-role failures resolve. The previously
-observed spawner timeout cutoff recurs at 1.031 seconds against its unchanged
-one-second limit; its isolated three-repeat controls pass on both baseline and
-candidate. This remains an unresolved loaded-spawn result, not a latency repair
-or a green full suite. All seven generated-pipeline recognized-write acceptance
-refusals remain red, and no pipeline or recurse qualification follows.
-The default sqlite_vec suite passes 22,465 events with 80 skips; build, tagged
-compilation and both vet checks pass. Production Go and all 212 logic files are
-unchanged by this fixture repair.
+registry removal and absence of later audit dispatch. Both older cancellation
+cases now observe their retained live handles and cached terminal errors as
+specified above. Production result disposition is unchanged. None of these
+inert fixtures establishes a real mutation or caller-owned behavior acceptance
+witness, and the generated-pipeline recognized-write obligations remain
+independent. No pipeline or recurse qualification follows from these fixtures.
 
 ## GAP-TESTING-READ-MECHANICS-CATALOG
 
