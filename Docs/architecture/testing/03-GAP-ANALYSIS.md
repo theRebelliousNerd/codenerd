@@ -1,3 +1,20 @@
+## GAP-TESTING-ASYNC-RESEARCH-EXECUTION
+
+The legacy async normal-completion and result-cache cases route /research and
+script write_file with incoherent write/working directories and handler state.
+The research catalog does include write_file; classify its actual refusal from
+tool evidence, not an assumed missing grant. Use a coherent owned workspace and a real
+read_file handler for these research fixtures; preserve their verbs, task text,
+model delay, result APIs and assertions. The inert model learns a fresh file
+marker only from the actual provider-facing tool result. Prove one successful
+read and stable cached output without replay, unchanged source/unrelated files,
+registry ownership, tool failure/cancellation and allowlist refusal controls.
+
+The historically named AsyncPanic case injects no panic and asserts ordinary
+success. Retain that contract and explicitly report normal-completion coverage;
+it does not qualify panic recovery. Do not weaken write acceptance or generated
+write refusals to make this read-only cluster pass.
+
 # testing — Gap Analysis
 
 ## GAP-TESTING-INLINE-RECOVERY

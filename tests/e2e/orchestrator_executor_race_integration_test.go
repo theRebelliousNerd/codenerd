@@ -321,7 +321,7 @@ func TestE2E_OrchestratorExecutor_Cascading_AsyncPanic(t *testing.T) {
 	// The JITExecutor must recover the panic and return it as an error to WaitForResult.
 
 	ctx := context.Background()
-	_, jitExecutor := setupRaceEnvironment(t, 1*time.Millisecond)
+	_, jitExecutor := setupAsyncReadEnvironment(t, 1*time.Millisecond)
 
 	// Start task that normally works
 	taskID, err := jitExecutor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/research", Task: "panic task"})
@@ -444,7 +444,7 @@ func TestE2E_OrchestratorExecutor_E2E_ResultCaching(t *testing.T) {
 	// Subsequent calls to `GetResult` must return the exact same data without re-executing.
 
 	ctx := context.Background()
-	_, jitExecutor := setupRaceEnvironment(t, 2*time.Millisecond)
+	_, jitExecutor := setupAsyncReadEnvironment(t, 2*time.Millisecond)
 
 	taskID, err := jitExecutor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/research", Task: "caching task"})
 	if err != nil {

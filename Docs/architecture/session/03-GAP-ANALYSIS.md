@@ -1,3 +1,22 @@
+## GAP-SESSION-ISOLATED-MODULAR-REGISTRY
+
+An explicitly configured executor-owned Go tool registry is session composition
+state: inline clones and freshly spawned isolated executors must retain the same
+binding. Snapshot an explicit parent binding when composing NewJITExecutor,
+carry it under the spawner configuration lock and install it before admitting a
+child. Recomposition updates future children only. An absent explicit parent
+binding preserves a directly configured spawner or the existing dynamic global
+default; do not capture the global registry as an explicit binding. Nil explicit
+bindings remain invalid, like Executor.SetModularTools.
+
+This forwards registry ownership, not tool authority. Keep capability catalogs,
+exact permission, registry allowlists, workspace containment and action gates
+unchanged. The default boot still uses its existing global registry. Exit:
+inline/isolated, recomposition, existing-child and concurrent independent-owner
+controls; real async research reads must reach the configured production handler
+and never another registry owner. Reads and cached results are execution evidence,
+not artifact-change or behavioral-acceptance qualification.
+
 ## GAP-SESSION-SPAWN-CANCELLATION-ADMISSION
 
 A withdrawn spawn must not advance from catalog derivation to compilation,

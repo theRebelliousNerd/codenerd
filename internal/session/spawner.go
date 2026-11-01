@@ -17,6 +17,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/prompt"
+	"codenerd/internal/tools"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
 )
@@ -79,6 +80,9 @@ type Spawner struct {
 	// from the parent when task execution is composed and snapshotted per spawn.
 	// It never changes the subagent's ordinary serving or planner client.
 	consultEscalation func(context.Context) context.Context
+	// modularTools is an explicit parent/session-owned handler registry. Nil
+	// preserves the executor's dynamic process-global default.
+	modularTools *tools.Registry
 
 	// codeElements parses the file a turn is looking at into the CodeDOM fact
 	// layer. It MUST be forwarded to every spawned subagent: `nerd fix`
@@ -437,6 +441,23 @@ type SpawnRequest struct {
 	SessionContext *types.SessionContext
 }
 
+// SetModularTools forwards an explicitly owned registry to future children.
+// Like Executor.SetModularTools, nil is not an explicit tool environment.
+func (s *Spawner) SetModularTools(registry *tools.Registry) {
+	if registry == nil {
+		panic("session: Spawner.SetModularTools(nil)")
+	}
+	s.mu.Lock()
+	s.modularTools = registry
+	s.mu.Unlock()
+}
+
+func (s *Spawner) currentModularTools() *tools.Registry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.modularTools
+}
+
 // Spawn creates and starts a new subagent based on the request.
 // The subagent's identity, tools, and policies are all JIT-compiled.
 func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error) {
@@ -525,6 +546,9 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 		s.configFactory,
 		s.transducer,
 	)
+	if registry := s.currentModularTools(); registry != nil {
+		agent.executor.SetModularTools(registry)
+	}
 	agent.SetPlannerClient(s.currentPlannerClient())
 	agent.executor.SetRolePrompts(s.currentRolePrompts())
 	// Forward the parent's nerd.md project instructions. Executor.SetProjectDoc

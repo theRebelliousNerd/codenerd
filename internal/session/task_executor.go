@@ -311,6 +311,12 @@ func NewJITExecutor(executor *Executor, spawner *Spawner, transducer perception.
 		escalation := executor.consultEscalation
 		executor.mu.RUnlock()
 		spawner.SetConsultEscalation(escalation)
+		// Inline clones already retain this explicit binding. Fresh isolated
+		// executors must use the same session owner, rather than silently
+		// falling back to a different process-global registry.
+		if registry := executor.modular.Load(); registry != nil {
+			spawner.SetModularTools(registry)
+		}
 	}
 	return &JITExecutor{
 		executor:   executor,
