@@ -88,3 +88,14 @@ user_intent(/i1, /mutation, /fix, "a.go", "").
 		t.Fatalf("standalone, the program is valid:\n%s", out.String())
 	}
 }
+
+// TODO: Test checkMangleFiles with an empty patterns slice to ensure it doesn't panic and handles the condition gracefully.
+// TODO: Test evalMangleFile with an empty predicates slice to verify it silently succeeds or reports properly without executing arbitrary rules.
+// TODO: Test passing a directory path to check-mangle (e.g., ".") and verify the EISDIR error is properly handled when os.ReadFile is invoked.
+// TODO: Test passing a non-UTF8 binary file to check-mangle to verify the Mangle engine lexer/parser safely rejects garbage data without panicking.
+// TODO: Test passing malformed strings containing invalid characters to the --eval flag to verify AtomStrings handles them gracefully.
+// TODO: Test passing broken symlinks (pointing to non-existent files) to check-mangle to verify proper ENOENT error handling.
+// TODO: Test parsing extremely large Mangle files (e.g., 50MB+) to verify the system correctly returns an error instead of crashing due to OOM before os.ReadFile completes.
+// TODO: Test evaluating Mangle files with infinite recursive rules to ensure the process can be cancelled or hits a predefined context timeout instead of hanging forever.
+// TODO: Test checkMangleFiles with an extreme number of file arguments (e.g., 100k+) to ensure it scales correctly or limits the concurrent file handle usage.
+// TODO: Test file paths with restricted permissions (e.g., chmod 000) to ensure os.ReadFile permission errors are correctly reported back to the user.
