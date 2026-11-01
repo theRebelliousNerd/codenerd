@@ -266,8 +266,11 @@ func TestE2E_Perception_Adversarial_InputTruncation(t *testing.T) {
 	if len(prompt) > 60000 {
 		t.Errorf("Prompt too large: %d chars (expected truncation at ~50000)", len(prompt))
 	}
-	if !strings.Contains(prompt, "[Input truncated due to length]") {
+	if !types.IsClamped(prompt) {
 		t.Error("Prompt missing truncation marker")
+	}
+	if _, current, ok := strings.Cut(prompt, "## Current Request\n\n"); !ok || current != types.ClampText(hugeInput, 50000, "user input") {
+		t.Error("Provider request differs from the canonical bounded head/tail input")
 	}
 
 	// Intent target must not contain the full 100KB payload

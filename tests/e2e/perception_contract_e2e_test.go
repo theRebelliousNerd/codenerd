@@ -459,8 +459,14 @@ func TestE2E_Perception_PromptConstruction_AmbientContext(t *testing.T) {
 	if !strings.Contains(prompt, "Turn 7") {
 		t.Error("Prompt missing Turn 7")
 	}
-	if !strings.Contains(prompt, "I analyzed the auth flow") {
-		t.Error("Prompt missing ThoughtSummary from Turn 6")
+	if strings.Contains(prompt, "I analyzed the auth flow") {
+		t.Error("Provider ThoughtSummary leaked into classification context")
+	}
+	if !strings.Contains(prompt, history[5].Content) {
+		t.Error("Prompt missing visible assistant content from Turn 6")
+	}
+	if history[5].ThoughtSummary != "I analyzed the auth flow." {
+		t.Error("Classification mutated the caller-owned provider summary")
 	}
 
 	// Section headers

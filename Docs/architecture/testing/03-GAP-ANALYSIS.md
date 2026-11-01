@@ -1,5 +1,73 @@
 # testing — Gap Analysis
 
+## GAP-TESTING-PERCEPTION-RENDERING
+
+Perception integration fixtures must observe the actual request sent through
+the JIT-wired UnderstandingTransducer. Large current requests use the shared
+truncation marker and preserve both ends with valid UTF-8; short and exact-limit
+requests stay intact without a cut marker. A retired literal marker is not the
+contract. Retain the size, parsed-target and fact-argument bounds and add exact
+head/tail and omitted-middle controls at the recorded provider request.
+
+Classification history includes visible conversation content under its own
+count/byte policy. Provider ThoughtSummary is excluded, including summary-only
+turns; do not restore it merely to satisfy a stale expectation. Keep the visible
+assistant body, caller-owned history and all ambient/strategic/current-request
+assertions. Check whole-turn eviction and the oversized-newest-turn exception,
+visible drop notices, default/lowered/disabled policies, policy restoration and
+independent concurrent request owners. No permission or routing authority is
+inferred from a rendered prompt.
+
+Exit: independently reproduce both old expectations on unchanged main; pass
+identical new request-boundary positive/negative controls on baseline and
+candidate, then repeated focused/race checks and a serial full tagged census.
+Keep unrelated assertions and test bodies unchanged. Do not change production
+rendering or disclose provider summaries to make the fixtures pass.
+
+`tests/e2e/perception_render_contract_test.go:21` observes the actual current
+request after the JIT-wired transducer. It checks short/exact-limit inputs,
+bounded ASCII/UTF-8 cuts, intact head/tail, omitted middle and equality with
+canonical clamping. `internal/perception/understanding_adapter.go:313` applies
+that input bound; the marker is the shared `types.IsClamped` contract rather
+than a retired literal sentence. Existing prompt-size, parsed-target and
+fact-argument bounds remain in the original adversarial case.
+
+The history control at line 64 checks default/lowered/disabled count windows,
+byte-budget eviction, whole oversized newest content, visible drop notices,
+summary-only omission and caller-owned history. It restores resolved policy
+values after each scoped case. `internal/perception/transducer_llm.go:475`
+selects visible history and clears summaries on copied turns; the renderer
+writes only Content. The original ambient case now requires summary exclusion,
+retained visible assistant text and unchanged caller summary, preserving every
+ambient/strategic/history-window/section-header check.
+
+The concurrent control at line 134 drives eight private transducers and models;
+each actual request contains its own current input and visible history, with no
+other owner's text or provider summary. This measures payload ownership, not
+classification accuracy or model reasoning. No global policy changes occur
+while those concurrent requests run.
+
+Both old expectations independently fail on unchanged main; identical new
+request controls pass all 13 baseline events. The repaired family and controls
+pass 66 events in three normal repetitions and 66 in three race repetitions;
+all nine original cases pass each time. One summary diagnostic changes and
+three checks are added; all 98 other original assertion/log/skip/deadline calls
+and seven unrelated original test bodies remain AST-identical. No production
+rendering, JIT atoms, routing, safety, permission or acceptance behavior changes.
+
+The serial full tagged census completes all 912 top-level tests with 875 pass /
+37 fail (1,086 pass / 38 fail events including subtests), with no added failures.
+The two targeted perception cases resolve against the prior 40-failure census.
+The unchanged spawner cutoff also passes this run; its earlier red census and
+passing controls remain recorded, and no latency repair is claimed. All seven
+recognized-write refusals and the 21-case legacy orchestrator cluster remain red.
+All 1,528 production Go files and 212 logic files are byte-identical to baseline.
+These are offline request-rendering controls, not live-provider accuracy,
+billing, accepted writes, generated-pipeline or recurse qualification.
+
+The default sqlite_vec suite passes 22,465 events with 80 skips. Tagged
+compilation, the sqlite_vec build and both default/tagged vet checks pass.
+
 ## GAP-TESTING-CLEAN-EXPECTATIONS
 
 The clean-loop history fixture must distinguish stored conversation from the
