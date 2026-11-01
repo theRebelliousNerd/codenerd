@@ -1,5 +1,45 @@
 # Prompt JIT gap analysis
 
+## GAP-PROMPT-RELEVANCE-INFLIGHT-MEMO
+
+Concurrent compiles with distinct prompt-cache identities can ask the same
+request/atom/content relevance question. Within one selector, a cold request
+must admit only one judgment owner at a time and recheck the answer memo after
+admission, before dispatch. Waiting must fit the caller's existing relevance
+timeout and cancellation; a canceled waiter must neither cancel another owner
+nor dispatch its own work. Unrelated requests remain independent.
+
+Keep the judge's whole-uncached-pool preflight and per-plan limits. Do not split
+the pool into per-atom calls or widen budgets to coalesce work. Only complete,
+timely judgments publish memo entries and facts. Failure is not cached: after
+the failed owner has finished, a surviving waiter may make its own normally
+budgeted attempt; every failed attempt still falls back without partial facts.
+No detached judgment worker or new provider path is introduced.
+
+Status: implemented. Per-request admission releases only after the owned judge
+has returned (`internal/prompt/relevance.go:97`); selection rechecks the memo
+after admission, includes waiting in its existing timeout, and withholds late
+answers before publication (`internal/prompt/relevance.go:357`). Identical cold
+misses reuse the completed judgment; overlapping pools ask only their remaining
+uncached atoms. The existing judge still preflights that complete uncached pool.
+
+Exit demonstrated offline: controlled concurrent memo misses, overlapping pools,
+changed content, independent requests, cancellation, timeout and failed/late/
+incomplete/panicking judgments are covered in
+`internal/prompt/relevance_inflight_test.go:108`, `:166`, `:208`, `:230`, `:261`.
+Actual compiler calls with distinct prompt keys reach the real Mangle rules and
+Jev adapter with one successful Ask, while whole-pool atom/input refusal makes
+zero calls (`internal/atomjudge/relevance_inflight_test.go:41`). Compiler-owned
+shutdown and caller-cancellation controls are at `:106` and `:146`. The identical
+final fixtures reproduce duplicate dispatch and late publication on unchanged
+baseline `24aa04f`; repeated and affected-package race checks pass with the fix.
+
+This admission is local to one selector, not distributed deduplication or a
+monetary cap. Cold pools for the same request serialize, even when disjoint;
+each waiter's timeout includes that wait. Existing memo eviction and a completed
+failed owner can require a later judgment. No judgment is detached from its
+existing compiler/selection owner, and no permanent failure answer is stored.
+
 ## Accepted perception contract activation target (2026-10-02)
 
 **PARTIAL — GAP-PROMPT-PERCEPTION-CONTRACT:** the original inspection found perception excluded from `internal/prompt/output_mode.go#IsStructuredOutputOnly` and a conflicting field blacklist downstream. The repaired selection now retains the canonical owner `internal/prompt/atoms/system/perception.yaml#system/perception/output_format` (`internal/prompt/atoms/system/perception.yaml:13`), its dependency closure and legitimate nested scope.target while excluding competing envelopes. Production-bridge controls and their focused race gate pass; full prompt/perception suites now pass in `artifact:.corpus-build/runs/all-features-20261002/round5-prompt-perception-full.receipt.json`. That aggregate gate remains red only in the separate validator's stale oracle. These are real-assembly/captured-model-request component controls, not a successful live provider turn or world/CodeDOM witness.

@@ -86,6 +86,42 @@ const relevanceCacheLimit = 8192
 type relevanceCache struct {
 	mu      sync.Mutex
 	entries map[string]float64
+	active  map[string]chan struct{}
+}
+
+// admit serializes cold judgments for one request. The owner keeps its caller
+// context and joins the judge before releasing admission; waiters neither own
+// nor cancel that work. After admission they must recheck the memo, because a
+// preceding owner may have answered some or all of their pool in the meantime.
+// Failed work is not shared as evidence or cached as a permanent failure.
+func (c *relevanceCache) admit(ctx context.Context, request string) (func(), error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		c.mu.Lock()
+		if done, busy := c.active[request]; busy {
+			c.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-done:
+				continue
+			}
+		}
+		if c.active == nil {
+			c.active = make(map[string]chan struct{})
+		}
+		done := make(chan struct{})
+		c.active[request] = done
+		c.mu.Unlock()
+		return func() {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			delete(c.active, request)
+			close(done)
+		}, nil
+	}
 }
 
 func relevanceCacheKey(reqKey string, atom *PromptAtom) string {
@@ -326,6 +362,9 @@ func (s *AtomSelector) judgeRelevance(
 	fleshAtoms []*PromptAtom,
 ) relevanceOutcome {
 	start := time.Now()
+	if err := ctx.Err(); err != nil {
+		return relevanceOutcome{Elapsed: time.Since(start), Err: err}
+	}
 	req := relevanceRequestFor(cc)
 	reqKey := req.key()
 	byID := make(map[string]*PromptAtom, len(fleshAtoms))
@@ -342,17 +381,21 @@ func (s *AtomSelector) judgeRelevance(
 	}
 	sort.Strings(ids)
 
-	out := relevanceOutcome{Percent: make(map[string]int64, len(ids))}
-	var ask []*PromptAtom
-	for _, id := range ids {
-		atom := byID[id]
-		if p, ok := s.relevanceCache.get(relevanceCacheKey(reqKey, atom)); ok {
-			out.Percent[id] = probabilityPercent(p)
-			out.CacheHits++
-			continue
+	lookup := func() (relevanceOutcome, []*PromptAtom) {
+		out := relevanceOutcome{Percent: make(map[string]int64, len(ids))}
+		var ask []*PromptAtom
+		for _, id := range ids {
+			atom := byID[id]
+			if p, ok := s.relevanceCache.get(relevanceCacheKey(reqKey, atom)); ok {
+				out.Percent[id] = probabilityPercent(p)
+				out.CacheHits++
+				continue
+			}
+			ask = append(ask, atom)
 		}
-		ask = append(ask, atom)
+		return out, ask
 	}
+	out, ask := lookup()
 	if len(ask) > 0 {
 		jctx := ctx
 		if cfg.Timeout > 0 {
@@ -360,7 +403,23 @@ func (s *AtomSelector) judgeRelevance(
 			jctx, cancel = context.WithTimeout(ctx, cfg.Timeout)
 			defer cancel()
 		}
+		release, err := s.relevanceCache.admit(jctx, reqKey)
+		if err != nil {
+			return relevanceOutcome{Elapsed: time.Since(start), Err: err, CacheHits: out.CacheHits}
+		}
+		defer release()
+		out, ask = lookup()
+		if err := jctx.Err(); err != nil {
+			return relevanceOutcome{Elapsed: time.Since(start), Err: err, CacheHits: out.CacheHits}
+		}
+		if len(ask) == 0 {
+			out.Elapsed = time.Since(start)
+			return out
+		}
 		answers, err := cfg.Judge.JudgeAtomRelevance(jctx, req, ask)
+		if err == nil {
+			err = jctx.Err()
+		}
 		if err == nil {
 			for _, atom := range ask {
 				if _, ok := answers[atom.ID]; !ok {
@@ -377,6 +436,9 @@ func (s *AtomSelector) judgeRelevance(
 			p := answers[atom.ID]
 			fresh[relevanceCacheKey(reqKey, atom)] = p
 			out.Percent[atom.ID] = probabilityPercent(p)
+		}
+		if err := jctx.Err(); err != nil {
+			return relevanceOutcome{Elapsed: time.Since(start), Err: err, CacheHits: out.CacheHits}
 		}
 		s.relevanceCache.putAll(fresh)
 		out.Judged = len(ask)
