@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -680,6 +681,15 @@ func (c *CortexKernel) readShards(predicate string) ([]*KernelShard, readRoute, 
 // owner, it fans out to the shards readShards names and merges the results,
 // deduplicated.
 func (c *CortexKernel) Query(predicate string) ([]types.Fact, error) {
+	return c.QueryContext(context.Background(), predicate)
+}
+
+// QueryContext preserves routing and joins all fan-out workers while forwarding
+// the same cancellation owner to each inner kernel's parser wait.
+func (c *CortexKernel) QueryContext(ctx context.Context, predicate string) ([]types.Fact, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	c.adoptionMu.RLock()
 	defer c.adoptionMu.RUnlock()
 	shards, route, err := c.readShards(predicate)
@@ -688,9 +698,9 @@ func (c *CortexKernel) Query(predicate string) ([]types.Fact, error) {
 	}
 	switch route {
 	case readReplica:
-		return shards[0].queryLocal(predicate)
+		return shards[0].queryLocalContext(ctx, predicate)
 	case readOwner:
-		return shards[0].Query(predicate)
+		return shards[0].QueryContext(ctx, predicate)
 	}
 	if len(shards) == 0 {
 		return nil, nil
@@ -711,7 +721,7 @@ func (c *CortexKernel) Query(predicate string) ([]types.Fact, error) {
 		wg.Add(1)
 		go func(i int, shard *KernelShard) {
 			defer wg.Done()
-			facts, err := shard.Query(predicate)
+			facts, err := shard.QueryContext(ctx, predicate)
 			results[i] = shardResult{facts: facts, err: err}
 		}(i, shard)
 	}

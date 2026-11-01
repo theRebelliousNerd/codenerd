@@ -1,13 +1,14 @@
 package mangle
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
-	"sync"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/parse"
+	"golang.org/x/sync/semaphore"
 )
 
 // parseMu serializes ALL Mangle source parsing across the process.
@@ -23,9 +24,9 @@ import (
 // This lock is the single, process-wide chokepoint. The mangle package is the
 // lowest layer that owns Mangle parsing, and everything that parses (the engine,
 // the schema validator, and — via mangle.ParseUnit — the core kernel) funnels
-// through it. Parsing is cheap relative to evaluation, so serializing it is not a
-// throughput concern.
-var parseMu sync.Mutex
+// through it. A large unit parse can hold it long enough to exceed an unrelated
+// query's deadline, so context-owned atom waiters must be able to withdraw.
+var parseMu = semaphore.NewWeighted(1)
 
 // ParseUnit is the serialized, process-wide entry point for the Mangle parser.
 // Callers in any package MUST use this instead of parse.Unit directly so the
@@ -34,8 +35,8 @@ func ParseUnit(reader io.Reader) (parse.SourceUnit, error) {
 	if reader == nil {
 		return parse.SourceUnit{}, fmt.Errorf("mangle: ParseUnit called with nil reader")
 	}
-	parseMu.Lock()
-	defer parseMu.Unlock()
+	_ = parseMu.Acquire(context.Background(), 1)
+	defer parseMu.Release(1)
 	return parse.Unit(reader)
 }
 
@@ -43,9 +44,21 @@ func ParseUnit(reader io.Reader) (parse.SourceUnit, error) {
 // Mangle atom. It shares the same ANTLR prediction state as ParseUnit, so it
 // must take the same lock.
 func ParseAtom(s string) (ast.Atom, error) {
-	parseMu.Lock()
-	defer parseMu.Unlock()
+	return ParseAtomContext(context.Background(), s)
+}
+
+// ParseAtomContext preserves ParseAtom's serialized, full-input semantics but
+// lets a caller withdraw while another parser owns the shared ANTLR state.
+// It does not preempt a parse already in progress or release another owner.
+func ParseAtomContext(ctx context.Context, s string) (ast.Atom, error) {
+	if err := parseMu.Acquire(ctx, 1); err != nil {
+		return ast.Atom{}, err
+	}
+	defer parseMu.Release(1)
 	atom, err := parse.Atom(s)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ast.Atom{}, ctxErr
+	}
 	if err != nil {
 		return atom, err
 	}

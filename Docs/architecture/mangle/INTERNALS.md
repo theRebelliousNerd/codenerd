@@ -1,3 +1,14 @@
+## GAP-MANGLE-PARSER-WAIT-CANCELLATION
+
+The process-wide ANTLR lock remains mandatory for both unit and atom parsing.
+An atom query owned by a context must be able to stop waiting for another
+parser owner, without releasing that owner's lock, entering the unsafe parser,
+or detaching a worker. Ordinary parsing retains its blocking serialized API,
+full-input validation and exact atom semantics. Cancellation does not preempt an
+already running upstream parse. Exit: hold a unit reader inside the real parser,
+cancel atom waiters, prove the owner remains exclusive, and verify successful,
+malformed, trailing-input and concurrent parser controls under the race detector.
+
 # mangle internals — how the package works
 
 Verified 2026-09-21 against commit `0f7253b`. Every section cites the code it

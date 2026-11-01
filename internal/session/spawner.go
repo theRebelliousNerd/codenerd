@@ -440,6 +440,9 @@ type SpawnRequest struct {
 // Spawn creates and starts a new subagent based on the request.
 // The subagent's identity, tools, and policies are all JIT-compiled.
 func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("spawn %s: %w", req.Name, err)
+	}
 	// Phase 1: Check capacity & pre-reserve (lock held briefly)
 	s.mu.Lock()
 	if s.closed {
@@ -479,6 +482,11 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 
 	// Phase 2: Generate JIT config (no lock - may involve IO/LLM calls)
 	EffectiveAgentRuntimeConfig, err := s.generateConfig(ctx, req)
+	// A dependency may return a usable result after its owner withdrew.
+	// Cancellation governs admission even when that dependency reports success.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, fmt.Errorf("spawn %s: %w", req.Name, ctxErr)
+	}
 	if err != nil {
 		// A cancelled or expired context is the caller withdrawing the
 		// request, not a compile failure to degrade around: continuing here
@@ -572,6 +580,10 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 
 	// Phase 5: Register subagent (lock held briefly)
 	s.mu.Lock()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("spawn %s: %w", req.Name, ctxErr)
+	}
 	if s.closed {
 		s.mu.Unlock()
 		return nil, ErrSpawnerClosed
@@ -776,6 +788,9 @@ func (s *Spawner) servingClient(ctx context.Context, req SpawnRequest) types.LLM
 
 // generateConfig creates a JIT config for the subagent.
 func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config.EffectiveAgentRuntimeConfig, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if s.configFactory == nil {
 		return &config.EffectiveAgentRuntimeConfig{}, nil
 	}
@@ -827,6 +842,9 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 	// failed derivation fail-closes both (no tools, and the prompt compiled
 	// against none). No tools is not all tools.
 	tools, derr := s.deriveSpawnTools(ctx, intentVerb)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if derr != nil {
 		logging.Get(logging.CategorySession).Warn("turn catalog: %v; spawned config has no tools", derr)
 		tools = nil
@@ -834,6 +852,9 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 	compilationCtx.AvailableTools = tools
 
 	compileResult, err := s.jitCompiler.Compile(ctx, compilationCtx)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if err != nil {
 		// The caller's context ending is not a compile failure to retry
 		// around; the baseline retry would fail the same way and the empty
@@ -853,6 +874,9 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 		}
 		baselineCtx.Provider, baselineCtx.Model = clientIdentity(served)
 		compileResult, err = s.jitCompiler.Compile(ctx, baselineCtx)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return nil, ctxErr
@@ -864,6 +888,9 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 	}
 
 	cfg, err := s.configFactory.Generate(ctx, compileResult, intentVerb)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if err != nil {
 		return nil, err
 	}

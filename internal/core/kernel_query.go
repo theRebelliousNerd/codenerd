@@ -1,10 +1,12 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/mangle"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
 )
@@ -20,6 +22,13 @@ import (
 // Pattern filtering follows Mangle term identity: variables are wildcards and
 // constants match only constants of the same Mangle type and value.
 func (k *RealKernel) Query(predicate string) ([]Fact, error) {
+	return k.QueryContext(context.Background(), predicate)
+}
+
+// QueryContext lets pattern queries withdraw while waiting for the process-wide
+// parser. Kernel lock acquisition, evaluation and external callbacks remain
+// synchronous; this is not a hard wall-clock bound for arbitrary kernel work.
+func (k *RealKernel) QueryContext(ctx context.Context, predicate string) ([]Fact, error) {
 	// A nil receiver is an error, not a crash. Query is reached through
 	// interfaces (core.Kernel, world.FactQuerier, the shadow-mode querier), and
 	// a nil *RealKernel stored in one of those is a NON-nil interface, so a
@@ -33,6 +42,19 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 	}
 	if predicate == "" {
 		return nil, fmt.Errorf("cannot query empty predicate string")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	// Parse before kernel ownership: a unit parser in another subsystem may
+	// hold the shared ANTLR lock for seconds. A canceled pattern must never
+	// fall back to a broader predicate-only read.
+	queryPattern, err := parseQueryPatternDetailsContext(ctx, predicate)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	timer := logging.StartTimer(logging.CategoryKernel, "Query")
 	// Suppress per-query debug logging for idle queries; only log at trace level
@@ -54,6 +76,9 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 		k.mu.RLock()
 	}
 	defer k.mu.RUnlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	if !k.initialized {
 		err := fmt.Errorf("kernel not initialized")
@@ -64,7 +89,6 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 		return nil, err
 	}
 
-	queryPattern := parseQueryPatternDetails(predicate)
 	predicateName, hasPattern := queryPattern.predicate, queryPattern.hasPattern
 
 	queryDeclExternal := false
@@ -152,16 +176,23 @@ type parsedQueryPattern struct {
 }
 
 func parseQueryPatternDetails(query string) parsedQueryPattern {
+	parsed, _ := parseQueryPatternDetailsContext(context.Background(), query)
+	return parsed
+}
+
+func parseQueryPatternDetailsContext(ctx context.Context, query string) (parsedQueryPattern, error) {
 	parsed := parsedQueryPattern{predicate: query}
 	if idx := strings.Index(query, "("); idx > 0 {
 		parsed.predicate = strings.TrimSpace(query[:idx])
-		if atom, err := parseAtom(query); err == nil {
+		if atom, err := mangle.ParseAtomContext(ctx, query); err == nil {
 			parsed.predicate = atom.Predicate.Symbol
 			parsed.atom = atom
 			parsed.hasPattern = true
+		} else if ctxErr := ctx.Err(); ctxErr != nil {
+			return parsedQueryPattern{}, ctxErr
 		}
 	}
-	return parsed
+	return parsed, nil
 }
 
 // atomMatchesQueryPattern filters before converting to Fact. Public Fact

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -186,13 +187,21 @@ func (r *ShardFactRouter) AssertVia(caller *KernelShard, fact types.Fact) error 
 // predicate, that shard's Query is invoked. If no owner is registered, the
 // local kernel is used as a fallback.
 func (r *ShardFactRouter) QueryVia(caller *KernelShard, predicate string) ([]types.Fact, error) {
+	return r.QueryViaContext(context.Background(), caller, predicate)
+}
+
+// QueryViaContext keeps the exact owner/fallback route and caller cancellation.
+func (r *ShardFactRouter) QueryViaContext(ctx context.Context, caller *KernelShard, predicate string) ([]types.Fact, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	owner := r.Route(caller, predicate)
 	if owner == nil || owner == caller {
-		return caller.queryLocal(predicate)
+		return caller.queryLocalContext(ctx, predicate)
 	}
 	logging.KernelDebug("[shard-router] Query routed %s '%s' -> '%s'",
 		predicate, caller.Domain(), owner.Domain())
-	return owner.queryLocal(predicate)
+	return owner.queryLocalContext(ctx, predicate)
 }
 
 // AssertBatchVia groups facts by owning shard and asserts each batch in one

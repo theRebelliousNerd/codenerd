@@ -1,3 +1,24 @@
+## GAP-SESSION-SPAWN-CANCELLATION-ADMISSION
+
+A withdrawn spawn must not advance from catalog derivation to compilation,
+from compilation to configuration, or from configuration to registration merely
+because a dependency returns a successful result. Check the caller's context at
+these synchronous handoffs, including the baseline compile retry, and release
+any capacity reservation on refusal. Ordinary compilation failure retains its
+existing fail-closed fallback; another caller's context and reservation stay
+independent.
+
+Exit: deterministic offline controls cancel inside each dependency before it
+returns success, prove no later stage or registered child, and admit a healthy
+follow-up with the same capacity. Include deadline, concurrent-owner and ordinary
+fallback controls. This is an admission guarantee at observed handoffs, not a
+hard wall-clock bound: synchronous kernel calls and mutex acquisition still lack
+context cancellation, and scheduler delays can exceed the caller's deadline.
+The unchanged integration timeout assertion remains an independent latency gate.
+Use a kernel context-query extension when available so the catalog stops waiting
+for the shared parser; kernels without that extension retain synchronous query
+compatibility. Temporary turn facts are still retracted by the owning spawn.
+
 # 03 — Gap Analysis: session
 
 ## GAP-SESSION-ISOLATED-CONSULT-ESCALATION

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -242,21 +243,33 @@ func (s *KernelShard) retractFactLocal(fact types.Fact) error {
 // owning shard via the coordinator when this shard does not own the
 // predicate and a router has been installed.
 func (s *KernelShard) Query(predicate string) ([]types.Fact, error) {
-	if r := s.getRouter(); r != nil && !s.OwnsPredicate(barePredicate(predicate)) {
-		return r.QueryVia(s, predicate)
+	return s.QueryContext(context.Background(), predicate)
+}
+
+// QueryContext forwards query ownership through the same shard/router route.
+func (s *KernelShard) QueryContext(ctx context.Context, predicate string) ([]types.Fact, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	return s.queryLocal(predicate)
+	if r := s.getRouter(); r != nil && !s.OwnsPredicate(barePredicate(predicate)) {
+		return r.QueryViaContext(ctx, s, predicate)
+	}
+	return s.queryLocalContext(ctx, predicate)
 }
 
 // queryLocal queries THIS shard's inner kernel unconditionally and tracks
 // metrics. Router-internal use only.
 func (s *KernelShard) queryLocal(predicate string) ([]types.Fact, error) {
+	return s.queryLocalContext(context.Background(), predicate)
+}
+
+func (s *KernelShard) queryLocalContext(ctx context.Context, predicate string) ([]types.Fact, error) {
 	s.mu.Lock()
 	s.queryCount++
 	s.mu.Unlock()
 
 	start := time.Now()
-	results, err := s.kernel.Query(predicate)
+	results, err := s.kernel.QueryContext(ctx, predicate)
 	elapsed := time.Since(start)
 
 	// Track eval duration if evaluation was triggered (lazy eval)

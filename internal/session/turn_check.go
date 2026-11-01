@@ -91,7 +91,25 @@ func (s *Spawner) deriveSpawnTools(ctx context.Context, verb string) ([]string, 
 		asserted = append(asserted, fact)
 	}
 	defer retractSpawnCatalogFacts(s.kernel, asserted)
-	return prompt.DeriveTurnTools(s.kernel, verb, string(turn))
+	kernel := s.kernel
+	if contextual, ok := kernel.(interface {
+		QueryContext(context.Context, string) ([]types.Fact, error)
+	}); ok {
+		kernel = spawnCatalogQuery{Kernel: kernel, ctx: ctx, query: contextual.QueryContext}
+	}
+	return prompt.DeriveTurnTools(kernel, verb, string(turn))
+}
+
+// Keep the catalog's single policy projection and compatibility with kernels
+// that only implement Query, while forwarding this spawn's cancellation owner.
+type spawnCatalogQuery struct {
+	types.Kernel
+	ctx   context.Context
+	query func(context.Context, string) ([]types.Fact, error)
+}
+
+func (k spawnCatalogQuery) Query(predicate string) ([]types.Fact, error) {
+	return k.query(k.ctx, predicate)
 }
 
 func retractSpawnCatalogFacts(kernel types.Kernel, facts []types.Fact) {

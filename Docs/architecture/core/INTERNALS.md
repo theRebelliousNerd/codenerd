@@ -1,3 +1,18 @@
+## GAP-CORE-CATALOG-QUERY-PARSER-DEADLINE
+
+Context-owned pattern queries must propagate cancellation while waiting for the
+process-wide parser before acquiring kernel read ownership or evaluating a
+catalog. They retain the same exact term, arity, readiness and external-query
+semantics as ordinary Query. Cortex owner/replica/fan-out and cross-shard router
+reads must forward that same owner context, retain routing/metrics/deduplication,
+and join every fan-out worker before returning. Cancellation must return its cause, never degrade
+into a predicate-only unfiltered query. Existing ordinary malformed-pattern
+fallback stays compatible. Kernel mutex acquisition, fixpoint evaluation and
+external callbacks remain synchronous; this is not a hard deadline for every
+kernel operation. Exit: a real spawner catalog query stops while another reader
+holds the parser; temporary facts and reservations are reclaimed, a healthy
+follow-up succeeds, and ordinary/literal-type query controls remain green.
+
 # core internals
 
 Verified 2026-09-21 against commit `3463477` (`main`). All line references
