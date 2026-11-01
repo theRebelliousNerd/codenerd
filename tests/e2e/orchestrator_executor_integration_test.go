@@ -469,29 +469,8 @@ func TestE2E_OrchestratorExecutor_MultiTurn_HistoryAccumulation(t *testing.T) {
 func TestE2E_OrchestratorExecutor_PartialFailure_JITCompilationFails(t *testing.T) {
 	ctx := context.Background()
 
-	kernel, _ := core.NewRealKernel()
-	virtualStore := core.NewVirtualStore(nil)
-	wireDreamer(virtualStore, kernel)
-	llm := &oeMockLLMClient{
-		responseToReturn: &types.LLMToolResponse{
-			Text:      "default success",
-			ToolCalls: []types.ToolCall{writeTurnCall(t)},
-		},
-		writeDir: t.TempDir(),
-	}
-	transducer := &oeMockTransducer{intentToReturn: "/fix"}
 	compiler := &oeMockJITCompiler{errToReturn: fmt.Errorf("JIT failed")}
-	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{AllowedTools: writeTurnAllowedTools()}}
-
-	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
-	execCfg := writeTurnExecutorConfig(t)
-	executor.SetConfig(execCfg)
-
-	// The spawner's subagents (isolated verbs, async tasks) run on the same
-	// executor config, as the production boot wires it (system/factory.go).
-	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
-	spawner.SetExecutorConfig(&execCfg)
-	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
+	_, jitExecutor, ctx := setupVerifiedJITFailureEnvironment(t, ctx, compiler)
 
 	res, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "trigger error"})
 	if err == nil && res != "mock response" {

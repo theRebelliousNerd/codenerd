@@ -54,14 +54,15 @@ func (verifiedFixtureCompiler) Compile(_ context.Context, cc *prompt.Compilation
 // executive and validators; build/test/critic/audit remain the normal defaults.
 type verifiedFixtureModel struct {
 	*oeMockLLMClient
-	mu          sync.Mutex
-	path        string
-	content     string
-	emitted     bool
-	workerCalls int
-	auditAnswer string
-	auditSystem string
-	auditUser   string
+	mu                    sync.Mutex
+	path                  string
+	content               string
+	emitted               bool
+	workerCalls           int
+	auditAnswer           string
+	auditSystem           string
+	auditUser             string
+	workerRequestObserver func(string, []types.ToolDefinition) error
 }
 
 func (m *verifiedFixtureModel) next(ctx context.Context) (*types.LLMToolResponse, error) {
@@ -81,13 +82,32 @@ func (m *verifiedFixtureModel) next(ctx context.Context) (*types.LLMToolResponse
 	return &types.LLMToolResponse{Text: "Changed Sum to add its arguments."}, nil
 }
 
-func (m *verifiedFixtureModel) CompleteWithTools(ctx context.Context, _, _ string, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+func (m *verifiedFixtureModel) observeWorkerRequest(system string, definitions []types.ToolDefinition) error {
+	m.mu.Lock()
+	observe := m.workerRequestObserver
+	m.mu.Unlock()
+	if observe != nil {
+		return observe(system, definitions)
+	}
+	return nil
+}
+
+func (m *verifiedFixtureModel) CompleteWithTools(ctx context.Context, system, _ string, definitions []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if err := m.observeWorkerRequest(system, definitions); err != nil {
+		return nil, err
+	}
 	return m.next(ctx)
 }
-func (m *verifiedFixtureModel) ToolCallWithSystem(ctx context.Context, _, _ string, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+func (m *verifiedFixtureModel) ToolCallWithSystem(ctx context.Context, system, _ string, definitions []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if err := m.observeWorkerRequest(system, definitions); err != nil {
+		return nil, err
+	}
 	return m.next(ctx)
 }
-func (m *verifiedFixtureModel) CompleteWithToolResults(ctx context.Context, _ string, _ []types.Message, _ []types.ToolDefinition) (*types.LLMToolResponse, error) {
+func (m *verifiedFixtureModel) CompleteWithToolResults(ctx context.Context, system string, _ []types.Message, definitions []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if err := m.observeWorkerRequest(system, definitions); err != nil {
+		return nil, err
+	}
 	return m.next(ctx)
 }
 func (m *verifiedFixtureModel) CompleteWithSystem(ctx context.Context, system, user string) (string, error) {
@@ -130,6 +150,13 @@ func fixtureGoTest(t *testing.T, root string) ([]byte, error) {
 
 func newVerifiedOrchestratorFixture(t *testing.T) *verifiedOrchestratorFixture {
 	t.Helper()
+	return newVerifiedOrchestratorFixtureWithRuntime(t, verifiedFixtureCompiler{}, nil)
+}
+
+// Runtime injection is for degradation controls. Existing callers retain their
+// precompiled write-only fixture; a supplied factory exercises normal config.
+func newVerifiedOrchestratorFixtureWithRuntime(t *testing.T, worker session.JITCompiler, factory session.ConfigFactory) *verifiedOrchestratorFixture {
+	t.Helper()
 	root := t.TempDir()
 	for name, body := range map[string]string{"go.mod": "module fixture.local/sum\n\ngo 1.24\n", "calc.go": fixtureBrokenSum, "calc_test.go": fixtureSumTests} {
 		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0600); err != nil {
@@ -160,7 +187,7 @@ func newVerifiedOrchestratorFixture(t *testing.T) *verifiedOrchestratorFixture {
 	}
 	model := &verifiedFixtureModel{oeMockLLMClient: &oeMockLLMClient{}, path: filepath.Join(root, "calc.go"), content: fixtureFixedSum}
 	transducer := &oeMockTransducer{intentToReturn: "/fix"}
-	executor := session.NewExecutor(kernel, vstore, model, verifiedFixtureCompiler{}, nil, transducer)
+	executor := session.NewExecutor(kernel, vstore, model, worker, factory, transducer)
 	cfg := session.DefaultExecutorConfig()
 	cfg.WorkspaceRoot = root
 	if !cfg.EnableSafetyGate || !cfg.VerifyBuildAfterEdits || !cfg.VerifyTestsAfterEdits || !cfg.CriticReviewAfterEdits || !cfg.AuditFinalReport {
@@ -168,7 +195,9 @@ func newVerifiedOrchestratorFixture(t *testing.T) *verifiedOrchestratorFixture {
 	}
 	executor.SetConfig(cfg)
 	executor.SetModularTools(registry)
-	executor.SetAgentConfig(&jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: []string{"write_file"}})
+	if factory == nil {
+		executor.SetAgentConfig(&jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: []string{"write_file"}})
+	}
 	// Role selection uses real shipped atoms and the production private-scope
 	// adapter, separately from the deterministic worker prompt above.
 	roleKernel, err := core.NewRealKernel()

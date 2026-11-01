@@ -1,3 +1,25 @@
+## GAP-TESTING-DEGRADED-JIT-WITNESS
+
+Ordinary worker JIT errors use the embedded mandatory identity, constitutional
+safety and output protocol baseline. Integration tests must exercise that
+current contract through the real task path, not expect every compile error to
+escape unchanged or accept an unverified carrier write. Preserve the legacy
+/fix request, its exact JIT-failure injection and every result/error assertion.
+Give its fixture coherent workspace, exact tool envelope and shipped role
+prompts so normal audit and post-edit gates remain enabled. This models a
+stage-local worker compile failure while role compilation is available, not a
+global compiler outage. Empty precompiled capability controls use the direct
+Executor entry; inline task clones intentionally clear the parent agent config.
+
+Exit: observe the mandatory baseline at configuration and native worker-request
+boundaries; independently fail the Go reproducer before execution, make one real
+production write, and verify native checks plus current persisted failed-before/
+passed-after acceptance and independent green tests. Ordinary failure and absent
+compiler controls may complete. Cancellation and insufficient mandatory budget
+must stop before config/provider work; empty capability, red tests and missing
+roles must remain unverified. Do not change production degradation, permission,
+budget, role, acceptance or recovery behavior to make the fixture pass.
+
 ## GAP-TESTING-ASYNC-RESEARCH-EXECUTION
 
 The legacy async normal-completion and result-cache cases route /research and
