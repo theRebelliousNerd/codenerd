@@ -1,5 +1,9 @@
 //go:build integration
 
+// The forty legacy ScenarioN cases below exercise kernel state retention at
+// a local timer/context boundary. Their names remain for selector compatibility;
+// they do not instantiate the Session/Executor/VirtualStore/autopoiesis chain.
+// Its acceptance coverage remains open under GAP-TESTING-08-01.
 package e2e_test
 
 import (
@@ -138,7 +142,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario1(t *testing.T) {
 	t.Log("Executing cross-boundary verification for Scenario 1.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(1)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 1")
 	}
@@ -180,7 +184,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario2(t *testing.T) {
 	t.Log("Executing cross-boundary verification for Scenario 2.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(2)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 2")
 	}
@@ -222,7 +226,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario3(t *testing.T) {
 	t.Log("Executing cross-boundary verification for Scenario 3.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(3)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 3")
 	}
@@ -264,7 +268,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario4(t *testing.T) {
 	t.Log("Executing cross-boundary verification for Scenario 4.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(4)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 4")
 	}
@@ -306,7 +310,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario5(t *testing.T) {
 	t.Log("Executing cross-boundary verification for Scenario 5.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(5)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 5")
 	}
@@ -348,7 +352,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario6(t *testing.T) {
 	t.Log("Executing cross-boundary verification for Scenario 6.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(6)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 6")
 	}
@@ -390,7 +394,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario7(t *testing.T) {
 	t.Log("Executing cross-boundary verification for Scenario 7.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(7)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 7")
 	}
@@ -432,7 +436,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario8(t *testing.T) {
 	t.Log("Executing cross-boundary verification for Scenario 8.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(8)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 8")
 	}
@@ -474,7 +478,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario9(t *testing.T) {
 	t.Log("Executing cross-boundary verification for Scenario 9.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(9)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 9")
 	}
@@ -516,7 +520,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario10(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 10.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(10)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 10")
 	}
@@ -558,7 +562,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario11(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 11.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(11)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 11")
 	}
@@ -600,7 +604,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario12(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 12.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(12)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 12")
 	}
@@ -642,7 +646,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario13(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 13.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(13)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 13")
 	}
@@ -684,7 +688,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario14(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 14.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(14)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 14")
 	}
@@ -726,7 +730,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario15(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 15.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(15)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 15")
 	}
@@ -768,7 +772,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario16(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 16.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(16)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 16")
 	}
@@ -810,7 +814,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario17(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 17.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(17)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 17")
 	}
@@ -852,7 +856,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario18(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 18.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(18)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 18")
 	}
@@ -894,7 +898,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario19(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 19.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(19)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 19")
 	}
@@ -936,7 +940,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario20(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 20.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(20)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 20")
 	}
@@ -978,7 +982,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario21(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 21.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(21)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 21")
 	}
@@ -1020,7 +1024,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario22(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 22.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(22)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 22")
 	}
@@ -1062,7 +1066,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario23(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 23.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(23)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 23")
 	}
@@ -1104,7 +1108,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario24(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 24.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(24)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 24")
 	}
@@ -1146,7 +1150,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario25(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 25.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(25)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 25")
 	}
@@ -1188,7 +1192,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario26(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 26.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(26)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 26")
 	}
@@ -1230,7 +1234,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario27(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 27.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(27)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 27")
 	}
@@ -1272,7 +1276,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario28(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 28.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(28)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 28")
 	}
@@ -1314,7 +1318,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario29(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 29.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(29)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 29")
 	}
@@ -1356,7 +1360,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario30(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 30.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(30)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 30")
 	}
@@ -1398,7 +1402,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario31(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 31.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(31)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 31")
 	}
@@ -1440,7 +1444,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario32(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 32.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(32)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 32")
 	}
@@ -1482,7 +1486,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario33(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 33.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(33)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 33")
 	}
@@ -1524,7 +1528,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario34(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 34.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(34)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 34")
 	}
@@ -1566,7 +1570,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario35(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 35.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(35)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 35")
 	}
@@ -1608,7 +1612,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario36(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 36.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(36)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 36")
 	}
@@ -1650,7 +1654,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario37(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 37.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(37)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 37")
 	}
@@ -1692,7 +1696,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario38(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 38.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(38)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 38")
 	}
@@ -1734,7 +1738,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario39(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 39.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(39)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 39")
 	}
@@ -1776,7 +1780,7 @@ func TestE2E_Session_Executor_VirtualStore_Autopoiesis_Scenario40(t *testing.T) 
 	t.Log("Executing cross-boundary verification for Scenario 40.")
 
 	// Step 1: Initialize isolated kernel for this specific scenario
-	k, err := core.NewRealKernel()
+	k, err := newScenarioStateKernel(40)
 	if err != nil || k == nil {
 		t.Fatalf("Kernel initialization failed for Scenario 40")
 	}

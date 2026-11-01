@@ -1,5 +1,34 @@
 # testing — Gap Analysis
 
+## GAP-TESTING-SYNTHETIC-STATE-DECLARATIONS
+
+Synthetic kernel-state fixtures must declare their own predicates, at the
+asserted arity, before expecting ordinary queries to return their facts. Use
+`RealKernel.AppendSchema` on a fresh fixture kernel so existing production
+schemas remain intact. Do not change production query visibility, permit
+undeclared predicates globally, replace the schema corpus, or introduce action
+grants to make a fixture pass.
+
+The forty legacy `..._ScenarioN` cases assert `scenario_N_baseline/0` without a
+declaration, then label an empty normal query as lost state. Establish the
+declaration/visibility distinction with controls on unchanged production code,
+retain their original assertions and timer/context boundary, and supply only
+the matching fixture declaration. Check wrong arity, still-undeclared state,
+independent fresh kernels and unchanged action authority.
+
+Status: the identical final control file passes five controls on unchanged main,
+while all forty old numbered cases fail. With their matching private declarations,
+all 45 affected checks pass, including three race-enabled repetitions (135 pass
+events). All 561 existing assertion/log/subtest/deadline expressions are unchanged.
+The wrapper remains separately failing.
+
+These cases currently exercise kernel state retention only. Their legacy names
+are not evidence of Session/Executor/VirtualStore/autopoiesis wiring, and making
+their schema setup valid does not close GAP-TESTING-08-01. The wrapper's separate
+typed/string parsing setup must be diagnosed separately, not silently folded
+into this repair. Exit requires before/control comparison, the affected cases,
+race/full offline checks and an honest remaining tagged-suite census.
+
 ## GAP-TESTING-VERIFIED-ORCHESTRATOR-FIXTURE
 
 A positive orchestrator smoke fixture must provide one coherent owned workspace:
@@ -90,8 +119,8 @@ contracts offline; ten race-enabled repetitions pass.
 The default offline `sqlite_vec` suite passes (22,446 pass and 80 skip events),
 as do the build and default/tagged vet checks.
 
-The complete tagged suite was executed, not merely compiled: 744 top-level tests
-passed and 130 failed (861 pass and 135 fail events including subtests). It is
+The complete tagged suite was executed, not merely compiled: 789 top-level tests
+passed and 90 failed (906 pass and 95 fail events including subtests). It is
 not a green integration gate. Examples requiring separate repairs are campaign
 fixture plans rejected by inclusion constraints, executors lacking the
 `final_report_auditor` role-prompt compiler, and generated-tool fixtures failing
@@ -110,7 +139,7 @@ from compilation; a compilable fixture is not proof its named pipeline works.
 
 ## Accepted pipeline acceptance target (2026-10-02)
 
-**PARTIAL — GAP-TESTING-08-01:** this corpus owns tests/e2e in corpus.toml, but `tests/e2e/Session_Executor_VirtualStore_Autopoiesis_integration_test.go` does not exercise its named pipeline. Root reproduced Scenario1 failure in artifact:.corpus-build/runs/all-features-20261002/baseline-e2e.log. Forty equivalent scenarios assert undeclared predicates and query them after a timer; `internal/core/kernel_undeclared.go` deliberately excludes them from ordinary schema queries. This does not prove kernel data loss. Ten named cases also contain unused cancellation, duplicate flood assertions, absent panic injection and logging-only bodies. The source-grounded obligation map is artifact:.corpus-build/runs/all-features-20261002/08-verification/handoff-3.json, not a passing receipt.
+**PARTIAL — GAP-TESTING-08-01:** this corpus owns tests/e2e in corpus.toml, but `tests/e2e/Session_Executor_VirtualStore_Autopoiesis_integration_test.go` does not exercise its named pipeline. Root reproduced Scenario1 failure in artifact:.corpus-build/runs/all-features-20261002/baseline-e2e.log. Forty equivalent scenarios now declare their private zero-arity state and query it after a timer; they still instantiate only the kernel and do not exercise the named pipeline. `internal/core/kernel_undeclared.go` continues to exclude undeclared predicates from ordinary schema queries; the original empty results were fixture visibility failures, not evidence of kernel data loss. The wrapper still ignores a fact-string parse error and lacks its own fixture declaration. Declaration repair does not close this pipeline acceptance obligation. Ten named cases also contain unused cancellation, duplicate flood assertions, absent panic injection and logging-only bodies. The source-grounded obligation map is artifact:.corpus-build/runs/all-features-20261002/08-verification/handoff-3.json, not a passing receipt.
 
 **PROPOSED UPLIFT:** preserve smoke, malformed control, admitted-work cancellation/join, concurrent distinct state, actual resource bounds, articulation/pipeline panic isolation, failure/recovery, exact baseline integrity, five-turn state/isolation and partial-failure obligations. Replace synthetic repeats only after explicit mapping and decisive stronger receipts. A recorder panic is supplemental, not a substitute for articulation panic isolation. Pin missing resource/concurrency contracts and build required seams; do not invent thresholds, skip cases or silently narrow the target.
 
