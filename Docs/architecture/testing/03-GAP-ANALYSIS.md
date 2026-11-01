@@ -1,3 +1,58 @@
+## GAP-TESTING-NIL-SESSION-EXECUTION
+
+The single-turn nil SessionContext compatibility case must retain its explicit
+nil argument, /fix request, one-millisecond inert worker delay and every result
+assertion while exercising an actual production write. Its old write stub,
+workspace mismatch and absent auditor role cannot prove the requested contract.
+Use the existing private Go fixture with default safety, build/test/critic and
+final-audit gates. Independently reproduce the broken Go behavior before the
+turn, then require current persisted failed-before/passed-after acceptance and
+an independent passing Go test. Do not change production context propagation or
+clear protected gates to obtain success.
+
+Exit: prove nil explicit SessionContext with absent and context-carried caller
+state. A task clone must not inherit parent session state or history; a caller's
+typed context remains visible at worker compilation. Keep cancellation, red
+post-edit tests, absent role and out-of-workspace writes unverified; leave the
+protected oracle, unrelated files and global registry bindings unchanged.
+Compare identical new controls on pinned baseline and candidate, run focused
+and race controls, then a serial full tagged census. These deterministic single-
+turn witnesses do not qualify arbitrary multi-turn fixes, concurrent mutation,
+DreamMode side-effect enforcement, live providers or recurse.
+
+`TestNilSessionExecutionWitnessControls` in
+`tests/e2e/orchestrator_nil_session_contract_test.go:110` passes six modes:
+absent and typed caller context complete actual fixes; canceled owners, red
+tests, missing roles and outside-workspace writes remain unverified. The
+compilation probe observes caller context and the native worker offer; the
+parent's deliberately distinct DreamMode/history never becomes task state.
+Every positive retains the independently failing Go oracle, real core write,
+native build/test evidence, current persisted caller witness and independent
+green test. The protected test, unrelated sentinel and global registry binding
+remain intact. This proves one task per fixture; no multi-turn or speculative
+side-effect enforcement claim follows from it.
+
+Pinned main independently fails the legacy nil SessionContext case at the
+missing final-report auditor role. The same seven new control events pass on
+unchanged production. Exactly one legacy fixture binding changes; after
+normalizing that binding the entire original file is byte-identical, including
+the explicit nil argument, /fix task, result assertions and all other tests.
+The original one-millisecond inert native worker delay is retained. The first
+probe compared an interface nil with a typed nil pointer and falsely rejected
+absence; the test now unwraps the optional interface. That failed run is kept;
+no production change or expectation relaxation was used to correct it.
+
+Three uncached legacy repetitions pass; repeated focused controls pass 24
+events. Shared controls and their integration race check pass 45 each; relevant
+default unit race controls pass nine. The serial full tagged census completes
+all 922 top-level tests: 892 pass / 30 fail (1,134 pass / 31 fail events including
+subtests), no skips. Exactly the legacy nil-session failure resolves; none are
+added or removed. All production and default-suite inputs remain byte-identical.
+The prior full default runtime is referenced, not claimed freshly rerun in this
+integration-only change. The seven generated-write refusals and all other red
+obligations remain intact. This is host-authored offline fixture validation,
+not live model dogfood, pipeline acceptance or recurse qualification.
+
 ## GAP-TESTING-DEGRADED-JIT-WITNESS
 
 Ordinary worker JIT errors use the embedded mandatory identity, constitutional

@@ -480,7 +480,7 @@ func TestE2E_OrchestratorExecutor_Contract_NilContext(t *testing.T) {
 	// must fall back gracefully to the Executor's default behavior, not panic.
 
 	ctx := context.Background()
-	_, jitExecutor := setupRaceEnvironment(t, 1*time.Millisecond)
+	_, jitExecutor, ctx := setupVerifiedNilSessionEnvironment(t, ctx)
 
 	// This should not panic
 	res, err := jitExecutor.ExecuteWithContext(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "nil context task"}, nil, types.PriorityNormal)
