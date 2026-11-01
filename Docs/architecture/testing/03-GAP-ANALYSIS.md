@@ -1,5 +1,119 @@
 # testing — Gap Analysis
 
+## GAP-TESTING-WORKSPACE-BINDING-ISOLATION
+
+A nonparallel generated-tool fixture boots a real Cortex that binds both the
+process registry's workspace root and its environment fallback. The fixture
+must retain that containment while it runs and restore the prior bindings only
+after all owned Cortex instances close. A deleted fixture workspace must not
+become the containment boundary of an unrelated later fixture. Do not change
+production workspace resolution, permission rules or active execution guards.
+
+Scope cleanup to the registry instance and values the fixture actually bound.
+Restore prior set/unset environment state and registry roots independently;
+preserve a different registry instance or a later binding installed by another
+owner. Keep fixture use nonparallel because these are process-global bindings.
+
+Exit: reproduce the boot/close-to-conversation transition on unchanged main and
+the held transport experiment. Add deterministic prior-set/prior-unset,
+live-binding and later-owner controls, then run baseline/candidate repeats,
+production transport/race checks and full offline suites. Preserve every old
+acceptance assertion. A legacy conversation test that ignores `result.Error`
+can pass with unverified write turns; restoring isolation does not turn that
+pass into accepted task or pipeline evidence.
+
+The legacy conversation fixture also depends on first registration of the
+global `write_file` name. Its stub ignores containment; the real handler left
+by boot correctly rejects a target outside the fixture's separately allocated
+executor workspace. Give that fixture a private real write registry and one
+coherent workspace for the target, registry and executor. Preserve the intent
+cycle, existing verification configuration and every original assertion; do
+not replace the real handler with a permissive stub or silence `result.Error`.
+Controls must force the production handler to register first and verify that
+the unchanged conversation assertions are independent of that order.
+
+Fixture repair verified in `tests/e2e/conversation_workspace_fixture_test.go`
+and `tests/e2e/generated_workspace_fixture_test.go`. Boot/close diagnostics on
+both unchanged main and the held transport experiment reproduce the real
+handler's path-containment refusal. Restoring generated workspace bindings
+alone does not repair the conversation's mismatched roots or first-registration
+dependency. The final private-registry fixture fixes those separate setup
+contracts without changing production tools, workspace resolution or acceptance.
+
+The identical final baseline controls report 13 pass / 9 fail events. Repeated
+workspace restoration controls pass 33 events; production-first conversation
+and real-handler/refusal controls pass 15. Five isolated repetitions of the old
+conversation test pass on both revisions, demonstrating why isolation alone
+missed the order dependency. The new controls explicitly retain the successful
+write's soft unverified/auditor error and reject outside-workspace writes. All
+143 existing assertion/log/subtest/deadline expressions across the two modified
+legacy fixtures remain unchanged; their old outer-error/history checks still
+do not establish task acceptance.
+
+Final offline checks: 52 focused race events pass; default sqlite_vec tests
+report 22,451 pass / 80 skip; build, default/tagged vet and tagged compilation
+pass. All 886 top-level tagged tests finish: 828 pass / 58 fail, including the
+conversation test and production-first control passing. No top-level failure
+is added against the published-main census; three generated-fixture failures
+resolve through the channel repair below. The tagged suite remains red and
+does not qualify a full pipeline or recurse run.
+
+## GAP-TESTING-GENERATED-TOOL-CHANNEL
+
+Generated-tool fixtures must use a channel that can carry their actual argument
+contract. A restored Ouroboros binary has no declared typed argument schema;
+the current production offer correctly exposes it on the text-envelope channel
+and withholds it from native provider function calling (`internal/session/tool_offer.go`).
+The fixture's native OS-process obligations remain independent of provider
+transport. Retain the native-channel refusal; adding typed metadata and native
+provider support remains separate product work, not an invented fixture schema.
+
+Repair only the scripted model's channel and envelope/result continuation.
+Preserve malformed-envelope injection and every existing process, literal effect,
+cancellation, partial-failure, isolation, payload and durable-reopen assertion.
+Do not inject catalog conclusions, relax schemas, add permissions, replace the
+execution backend or fabricate receipts. The positive witness must observe the
+actual compiled process, literal file effect, named-result validation, real model
+tool-result continuation and correlated durable learning after reopen. Admission
+alone is insufficient.
+
+Task acceptance remains independent of transport. The current generated fixture
+has no recognized write-mutation classification, so the write-oriented turn
+still owes that completion contract after a real effect. Preserve its hollow
+success refusal and the original positive acceptance assertions; do not change
+the intent, remove the error, register a shadow handler or count an unclassified
+generated call as a recognized write. Channel controls must require every real
+execution/learning witness while also retaining this acceptance refusal. Closing
+that separate typed-effect/acceptance gap requires its own design and controls.
+
+Exit: compare unchanged main with the repaired default, independently exercise
+the already-supported valid text envelope on unchanged production, and preserve
+all existing assertions/deadlines. Native-channel withholding, a disconnected
+generated registry and missing exact action permission must prevent dispatch;
+the malformed envelope and disconnected execution/effect/learning controls must
+remain effective. Run affected and broader offline/race checks and retain an
+honest full tagged census, including newly exposed failures.
+
+Transport status: seven transport/refusal controls pass, including real
+compiled-process effects, validation, model-result continuation and reopened
+learning receipts; both write-acceptance error surfaces remain required. The
+same final controls on unchanged production pass four and fail the default
+fixture plus its parent (4 pass / 2 fail events). Twenty repeated integration
+race checks pass after the separately reproduced strategy-cache ownership fix.
+All 90 original assertion/log/subtest/deadline expressions remain unchanged.
+
+Three original groups now pass: admitted cancellation, partial process failure
+and disconnected-witness controls. Seven generated groups still fail at write
+acceptance or the original barrier that waits for overlapping executions of the
+same leased tool. No task acceptance or native-provider support is claimed.
+The original exploratory full suite exposed a conversation-drift failure even
+though isolated and original-cohort repeats passed. The workspace/registration
+controls above now reproduce and repair that fixture-order dependency. The
+combined verified fixture stack reports 828 top-level pass / 58 fail with no
+added failures against published main. The separately verified strategy-cache
+repair is already in that baseline; neither this transport repair nor workspace
+isolation closes the remaining recognized-write or same-tool overlap gaps.
+
 ## GAP-TESTING-CAMPAIGN-PLAN-MEMBERSHIP
 
 Campaign/session fixtures must supply each task's owning `PhaseID`, including

@@ -429,11 +429,11 @@ func TestE2E_CrossBoundary_Executor_MultiTurn_ConversationDrift(t *testing.T) {
 	}}
 	lc := &cbMockLLMClient{toolResponse: &types.LLMToolResponse{
 		Text:      "working",
-		ToolCalls: []types.ToolCall{writeTurnCall(t)},
+		ToolCalls: []types.ToolCall{conversationFixtureWriteCall(t)},
 	}}
 
 	exec := session.NewExecutor(kernel, vs, lc, jc, cf, tr)
-	exec.SetConfig(writeTurnExecutorConfig(t))
+	configureConversationFixture(t, exec, lc.toolResponse.ToolCalls[0])
 
 	var durations []time.Duration
 

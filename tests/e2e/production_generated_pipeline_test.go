@@ -119,6 +119,7 @@ type pipelineModel struct {
 	issued    map[string]int
 	observed  map[string]int
 	piggyback bool
+	malformed bool
 	envelopes int
 	native    int
 }
@@ -151,6 +152,9 @@ func (m *pipelineModel) CompleteWithSystem(ctx context.Context, systemPrompt, in
 		return "", err
 	}
 	plan, _ := m.planFor(input)
+	if m.piggyback && !m.malformed && pipelineEnvelopeRequest(systemPrompt, input) {
+		return m.completePipelineEnvelope(ctx, systemPrompt, input)
+	}
 	if m.piggyback && strings.Contains(systemPrompt, "## Available Tools") {
 		m.mu.Lock()
 		m.envelopes++
@@ -267,9 +271,10 @@ func newPipelineUserConfig(test *testing.T) *config.UserConfig {
 	return configuration
 }
 
-func newPipelineFixture(t *testing.T, piggyback bool) *pipelineFixture {
+func newPipelineFixture(t *testing.T, malformed bool) *pipelineFixture {
 	t.Helper()
 	root := t.TempDir()
+	ownGeneratedFixtureWorkspace(t, root)
 	compiled := filepath.Join(root, ".nerd", "tools", ".compiled")
 	if err := os.MkdirAll(compiled, 0700); err != nil {
 		t.Fatal(err)
@@ -299,7 +304,9 @@ func newPipelineFixture(t *testing.T, piggyback bool) *pipelineFixture {
 	if err := os.WriteFile(binary+".identity.json", encoded, 0600); err != nil {
 		t.Fatal(err)
 	}
-	model := &pipelineModel{plans: make(map[string]pipelinePlan), issued: make(map[string]int), observed: make(map[string]int), piggyback: piggyback}
+	// Untyped generated tools use the supported text-envelope transport. The
+	// bool retains the original deliberately malformed-envelope fault case.
+	model := &pipelineModel{plans: make(map[string]pipelinePlan), issued: make(map[string]int), observed: make(map[string]int), piggyback: true, malformed: malformed}
 	userConfig := newPipelineUserConfig(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	cortex, err := system.BootCortexWithConfig(ctx, system.BootConfig{Workspace: root,
