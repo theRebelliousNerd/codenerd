@@ -1,5 +1,57 @@
 # testing — Gap Analysis
 
+## GAP-TESTING-READ-MECHANICS-CATALOG
+
+The lightweight executor/store/kernel fixture exercises inert read-tool
+mechanics. Its scripted kernel must supply the current `turn_catalog` contract
+before compilation and config generation; a factory's tool list alone is no
+longer a catalog. Keep one explicit fixture ceiling and project it only for a
+live, matching turn. Registration must not expand it, an empty scripted query
+must still deny dispatch, and unrelated query/failure injection stays intact.
+This script is a test double, not evidence of production policy derivation.
+
+Retirement must match the real kernel's predicate-and-first-argument contract:
+one completed turn cannot erase another live turn's catalog. Refuse missing
+retraction keys without mutation. Nonparallel fixtures own fresh registry
+bindings so repetitions receive their own callbacks and cleanup preserves prior
+or newer owners. Keep the original intents, limits, failure injections and every
+assertion/deadline; do not replace a failed dispatch with a fabricated counter.
+
+Exit: reproduce the five dispatch failures on unchanged main; observe real
+fixture callbacks and the compiler/model catalog, retain empty/foreign-turn,
+ungranted-registration and real-kernel refusal controls, compare scoped
+retraction with production and prove registry restoration. Run repeated/race
+controls, the original family and full offline suites. These mechanics do not
+qualify accepted write tasks, full pipelines or recurse.
+
+Verified fixture repair: `mechanics_catalog_fixture_test.go` shares the existing
+explicit ceiling, projects only the matching live turn, models first-key
+retirement and owns each nonparallel registry binding. The executor is pinned
+to that owned registry. `mechanics_catalog_contract_test.go` observes real
+fixture callbacks and the actual compile/provider offerings, retains empty
+and ungranted-catalog refusals, compares retraction with the real kernel, and
+checks prior/later registry ownership. The real-kernel refusal control retains
+the default safety gate; registration and exact action approval cannot create
+a catalog capability. All 33 existing assertion/log/deadline expressions remain
+unchanged, as do all production Go and 212 logic files.
+
+The original family is 10 pass / 5 fail on unchanged main and 15 pass after the
+repair. Identical controls are 2 pass / 9 fail on baseline, then 33 pass across
+three repaired repetitions; two race repetitions of the family plus controls
+pass all 52 events. The default sqlite_vec suite passes 22,465 events with 80
+skips; build, tagged compilation and both vet checks pass.
+
+The complete tagged census is 839 top-level pass / 54 fail: all five targeted
+dispatch failures resolve, and the previously observed learning-store timing
+case fails at 5.721 seconds against its unchanged 5-second cutoff. Its isolated
+three-repeat cohort also fails on unchanged main (three repeats) and the
+candidate (two repeats). This remains an unresolved timing failure, with both
+red control runs retained in external evidence; no performance repair is
+claimed. All seven generated-pipeline acceptance refusals remain red. Several
+legacy mechanics cases ignore result errors, lack model loop continuation or
+recover their own panic; passing their broad names establishes only the actual
+callback/ownership observations above, without pipeline or recurse qualification.
+
 ## GAP-TESTING-GENERATED-IDENTITY-CONCURRENCY
 
 The generated-tool state-isolation fixture requires two actual native processes

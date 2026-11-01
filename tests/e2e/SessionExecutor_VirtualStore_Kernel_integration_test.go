@@ -73,6 +73,9 @@ func (m *mockKernel) Query(query string) ([]types.Fact, error) {
 	if res, ok := m.queryResults[query]; ok {
 		return res, nil
 	}
+	if rows, ok := m.mechanicsCatalogRows(query); ok {
+		return rows, nil
+	}
 	return []types.Fact{}, nil
 }
 
@@ -173,10 +176,7 @@ type mockConfigFactory struct{}
 
 func (m *mockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 	return &config.EffectiveAgentRuntimeConfig{
-		AllowedTools: []string{
-			"read_file", "write_file", "shell_exec", "mock_tool", "blocking_tool", "huge_tool",
-			"restricted_tool", "race_tool", "heavy_tool", "leaky_tool", "timing_tool",
-		},
+		AllowedTools: mechanicsFixtureTools(),
 	}, nil
 }
 
@@ -196,6 +196,7 @@ func (m *mockTransducer) ParseIntent(ctx context.Context, input string) (percept
 
 func setupTestExecutor(t *testing.T) (*session.Executor, *mockKernel, *mockLLMClient) {
 	t.Helper()
+	ownMechanicsFixtureRegistry(t)
 	kernel := newMockKernel()
 	vStore := &mockVirtualStore{}
 	llm := &mockLLMClient{}
@@ -224,6 +225,7 @@ func setupTestExecutor(t *testing.T) (*session.Executor, *mockKernel, *mockLLMCl
 	}
 
 	exec := session.NewExecutor(kernel, vStore, llm, jit, cf, trans)
+	exec.SetModularTools(tools.Global())
 
 	cfg := session.DefaultExecutorConfig()
 	cfg.WorkspaceRoot = t.TempDir()
@@ -527,7 +529,7 @@ func TestE2E_Recovery_InvalidPiggybackThenSuccess(t *testing.T) {
 		t.Errorf("Unexpected response: %v", res.Response)
 	}
 }
-func (m *mockKernel) RetractFact(fact types.Fact) error                              { return m.Retract(fact.Predicate) }
+func (m *mockKernel) RetractFact(fact types.Fact) error                              { return m.retractMechanicsFact(fact) }
 func (m *mockKernel) AssertBatch(facts []types.Fact) error                           { return nil }
 func (m *mockKernel) QueryAll() (map[string][]types.Fact, error)                     { return nil, nil }
 func (m *mockKernel) UpdateSystemFacts() error                                       { return nil }
