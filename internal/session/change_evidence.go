@@ -261,14 +261,20 @@ func closingTestGate(e *Executor, result *ExecutionResult) (passed, red bool) {
 	if result == nil {
 		return false, false
 	}
-	turn := result.turn
-	if e != nil && e.kernel != nil {
-		turn = result.turnAtom()
+	if e == nil || e.kernel == nil {
+		exit := suiteExit(result)
+		if exit == VerifyFailed {
+			return false, true
+		}
+		return exit == VerifyPassed, false
 	}
-	if e.testGateRed(turn, result) {
+	turn := result.turnAtom()
+	e.syncTestGateFacts(turn, result)
+	pass, fail := e.derivedGate(turn, "/test")
+	if fail {
 		return false, true
 	}
-	return e.testGatePassed(turn, result), false
+	return pass, false
 }
 
 // turnRecoveredFromToolErrors reports whether the closing evidence answers the

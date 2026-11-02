@@ -37,6 +37,14 @@ func (k *recordingKernel) Assert(f types.Fact) error {
 	return nil
 }
 
+func (k *recordingKernel) AssertBatch(facts []types.Fact) error {
+	if k.assertErr != nil {
+		return k.assertErr
+	}
+	k.asserted = append(k.asserted, facts...)
+	return nil
+}
+
 func (k *recordingKernel) RetractFact(f types.Fact) error {
 	k.retracted = append(k.retracted, f)
 	return nil

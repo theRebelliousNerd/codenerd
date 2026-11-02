@@ -68,6 +68,7 @@ func (m *MockKernel) AssertBatch(facts []types.Fact) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.facts = append(m.facts, facts...)
+	m.asserts = append(m.asserts, facts...)
 	return nil
 }
 

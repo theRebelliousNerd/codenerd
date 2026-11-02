@@ -387,45 +387,34 @@ func (m Model) renderHeader() string {
 	// Status indicators — live elapsed + latest beat so the header never
 	// freezes on a static "Thinking..." while the system works.
 	var status string
-	if m.isLoading {
+	if m.isLoading || m.recurse != nil {
 		spin := m.spinner.View()
 		msg := m.statusMessage
+		startedAt := m.turnStartedAt
+		if !m.isLoading && m.recurse != nil {
+			msg = m.recurse.lastStatus
+			startedAt = m.recurse.startedAt
+		}
 		if msg == "" {
 			msg = m.activityLine
 		}
 		if msg == "" {
-			msg = "Working..."
+			if m.isLoading {
+				msg = "Working..."
+			} else {
+				msg = "Recurse running..."
+			}
 		}
 		// Prefer the freshest activity beat when status is generic.
-		if m.activityLine != "" && (msg == "Thinking..." || msg == "Working...") {
+		if m.activityLine != "" && (!m.isLoading || msg == "Thinking..." || msg == "Working...") {
 			msg = m.activityLine
 		}
 		if len(msg) > 48 {
 			msg = msg[:45] + "..."
 		}
 		elapsed := ""
-		if !m.turnStartedAt.IsZero() {
-			elapsed = fmt.Sprintf(" %s", formatElapsedShort(time.Since(m.turnStartedAt)))
-		}
-		status = lipgloss.JoinHorizontal(lipgloss.Center,
-			spin, " ",
-			m.styles.Components.Badge.Render(msg+elapsed),
-		)
-	} else if m.recurse != nil {
-		spin := m.spinner.View()
-		msg := m.recurse.lastStatus
-		if m.activityLine != "" {
-			msg = m.activityLine
-		}
-		if msg == "" {
-			msg = "Recurse running..."
-		}
-		if len(msg) > 48 {
-			msg = msg[:45] + "..."
-		}
-		elapsed := ""
-		if !m.recurse.startedAt.IsZero() {
-			elapsed = fmt.Sprintf(" %s", formatElapsedShort(time.Since(m.recurse.startedAt)))
+		if !startedAt.IsZero() {
+			elapsed = fmt.Sprintf(" %s", formatElapsedShort(time.Since(startedAt)))
 		}
 		status = lipgloss.JoinHorizontal(lipgloss.Center,
 			spin, " ",

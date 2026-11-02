@@ -283,6 +283,9 @@ func finalFixTests(ctx context.Context, workspace string, result *ExecutionResul
 	if verdict := result.ImporterCheck.Verdict(); verdict != VerifySkipped && verdict != VerifyPassed {
 		return result.ImporterCheck, nil
 	}
+	if sc := types.GetSessionContext(ctx); sc != nil && (sc.CampaignPhase == "/recurse_fix" || sc.CampaignPhase == "/recurse_improve") {
+		return own, nil
+	}
 	key := "full|" + workspace + "|" + before
 	if run, ok := recalledGate(result, key); ok {
 		return run.v, nil
@@ -310,6 +313,10 @@ func finalFixTests(ctx context.Context, workspace string, result *ExecutionResul
 	result.gateRuns[key] = gateRun{v: v}
 	return v, nil
 }
+
+type narrowFixPolicyError string
+
+func (e narrowFixPolicyError) Error() string { return string(e) }
 
 // constrainFixVerification applies the working phase's executive scope before
 // dispatch. It never advances a model call into the host-owned final phase.
@@ -364,13 +371,13 @@ func (e *Executor) constrainFixVerification(call *types.ToolCall, result *Execut
 		}
 		explicit = true
 		if filepath.ToSlash(filepath.Clean(pkg)) == "..." || pkg == "all" {
-			return errors.New("narrow-first fix policy: repository-wide checks belong to the final gate; run covering tests or edited packages while editing (the host runs repository-wide gates and ratchet metrics automatically after your turn completes; do not report them as unverified or blocked)")
+			return narrowFixPolicyError("narrow-first fix policy: repository-wide checks belong to the final gate; run covering tests or edited packages while editing (the host runs repository-wide gates and ratchet metrics automatically after your turn completes; do not report them as unverified or blocked)")
 		}
 	}
 	if !explicit && call.Name == "run_build" {
 		packages = packagesForPaths(result.WrittenPaths)
 		if len(packages) == 0 {
-			return errors.New("narrow-first fix policy: specify the package to diagnose before any Go edits")
+			return narrowFixPolicyError("narrow-first fix policy: specify the package to diagnose before any Go edits")
 		}
 		input := make(map[string]any, len(call.Input)+1)
 		for k, v := range call.Input {

@@ -145,7 +145,7 @@ func (e *Executor) runToolLoopPass(
 					"no tools were offered to a turn that must act: intent_requires_tool_call(%s) derives but the runtime compiled zero tool definitions; check the boot log for rejected facts (EDB fact limit) and the compiled config's allowed tools",
 					result.Intent.Verb)
 			}
-			logging.Get(logging.CategorySession).Warn(
+			logging.Get(logging.CategorySession).Info(
 				"runToolLoop: intent_requires_tool_call(%q) derived true but model returned no tool_calls; recompiling prompt with no-tool-retry nudge atom",
 				result.Intent.Verb,
 			)
@@ -983,7 +983,8 @@ func (e *Executor) executeToolBatch(
 		out, execErr := e.executeAndRecordToolCall(ctx, call, cfg, result)
 
 		if execErr != nil {
-			if strings.HasPrefix(execErr.Error(), "narrow-first fix policy:") {
+			var narrowErr narrowFixPolicyError
+			if errors.As(execErr, &narrowErr) {
 				logging.Get(logging.CategorySession).Info("Tool call %s steered to narrow scope: %v", call.Name, execErr)
 			} else {
 				logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, execErr)

@@ -39,9 +39,7 @@ func (e *Executor) assertTurnTestFacts(turn types.MangleAtom, result *ExecutionR
 	if e == nil || e.kernel == nil || result == nil || !result.TestCheck.Ran || result.TestCheck.Result == nil {
 		return
 	}
-	for _, fact := range turnScopedTestFacts(turn, result.TestCheck.Result) {
-		e.assertTurnFact(fact)
-	}
+	e.assertTurnFactsBatch(turnScopedTestFacts(turn, result.TestCheck.Result))
 }
 
 // turnScopedTestFacts is Result.Facts() with Turn as the first argument and

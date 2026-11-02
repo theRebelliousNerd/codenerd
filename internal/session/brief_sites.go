@@ -31,6 +31,27 @@ var briefURL = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.\-]*://\S+`)
 // outside the workspace came back as a site inside it.
 var briefPathToken = regexp.MustCompile(`(?:[A-Za-z]:)?(?:[A-Za-z0-9_.\-/\\]|~[0-9])+\.[A-Za-z][A-Za-z0-9]{0,7}(?::(\d+))?`)
 
+// hostBriefSectionHeaders marks host-appended reference sections (such as
+// campaign structure outlines and write-set listings) that are not part of the
+// task's own brief when counting edit sites for step planning.
+var hostBriefSectionHeaders = []string{
+	"\n\n## Code this task names",
+	"\n\n## Evidence from earlier tasks",
+	"\n\n=== CONTEXT FROM TASK ",
+	"\n\nFILES THIS TASK MAY MODIFY",
+	"\n\nTHIS TASK'S PLANNED TARGET DOES NOT EXIST",
+}
+
+func stripHostBriefSections(brief string) string {
+	cut := len(brief)
+	for _, header := range hostBriefSectionHeaders {
+		if idx := strings.Index(brief, header); idx >= 0 && idx < cut {
+			cut = idx
+		}
+	}
+	return brief[:cut]
+}
+
 // briefSites measures the edit sites a brief names. A candidate is a site
 // when it names a directory (a/b.go) or a file that exists in the workspace
 // (b.go): a qualified identifier (fmt.Errorf, errors.New) has neither, and an
@@ -39,7 +60,7 @@ var briefPathToken = regexp.MustCompile(`(?:[A-Za-z]:)?(?:[A-Za-z0-9_.\-/\\]|~[0
 // names two sites. Go measures this; whether it is enough sites to plan is
 // the policy's (turn_needs_step_plan).
 func briefSites(workspace, brief string) []briefSite {
-	text := briefURL.ReplaceAllString(brief, " ")
+	text := briefURL.ReplaceAllString(stripHostBriefSections(brief), " ")
 	var sites []briefSite
 	seen := map[briefSite]bool{}
 	for _, m := range briefPathToken.FindAllStringSubmatch(text, -1) {

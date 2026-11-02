@@ -34,6 +34,9 @@ func TestBriefSites(t *testing.T) {
 		{"an absolute path inside the workspace", "edit " + filepath.Join(ws, "internal", "a.go") + ":7", []briefSite{{"internal/a.go", 7}}},
 		{"an absolute path outside the workspace", "edit " + outside, nil},
 		{"backslashes are directories too", `edit internal\session\executor.go`, []briefSite{{"internal/session/executor.go", 0}}},
+		{"host-appended structure outline is not counted as brief sites",
+			"In internal/atomicfile, stabilize error paths.\n\n## Code this task names (structure index; rev is the element revision an edit verb takes as its precondition)\n  - internal/atomicfile/atomicfile.go\n    - function WriteFile (internal/atomicfile/atomicfile.go:19-60, rev=abc)\n    - function WriteReader (internal/atomicfile/atomicfile.go:62-95, rev=def)\n\nFILES THIS TASK MAY MODIFY (workspace-relative):\n  - internal/atomicfile/atomicfile.go\n  - internal/atomicfile/atomicfile_test.go",
+			nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

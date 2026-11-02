@@ -2783,6 +2783,22 @@ func (e *Executor) assertTurnFact(fact types.Fact) bool {
 	return true
 }
 
+// assertTurnFactsBatch asserts a slice of turn-scoped facts in one kernel
+// batch and records them for cleanupTurnFacts.
+func (e *Executor) assertTurnFactsBatch(facts []types.Fact) bool {
+	if len(facts) == 0 {
+		return true
+	}
+	if err := e.kernel.AssertBatch(facts); err != nil {
+		logging.Get(logging.CategorySession).Warn("failed to assert batch (%d facts, first %s): %v", len(facts), facts[0].Predicate, err)
+		return false
+	}
+	e.mu.Lock()
+	e.turnFacts = append(e.turnFacts, facts...)
+	e.mu.Unlock()
+	return true
+}
+
 // assertTurnEvidence records this turn's observable outcome (Go measures) as
 // facts keyed by the turn, so the policy corpus can derive the verdict (Mangle
 // decides): one turn_evidence fact, the gates, the coverage debt, the

@@ -70,4 +70,3 @@ func TestScopeGateToNodes_NarrowsFocusedGoWorkspaceGate(t *testing.T) {
 		t.Fatalf("unfocused.Argv = %v, want %v", unfocused.Argv, g.Argv)
 	}
 }
-
