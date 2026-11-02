@@ -115,6 +115,9 @@ func (e *Executor) finishUnfinishedWork(
 	}
 	ctx = broker.WithPhase(ctx, broker.PhaseFinish)
 	report := current.Text
+	if strings.TrimSpace(result.StepReport) != "" {
+		report = result.StepReport
+	}
 	var answer *types.LLMToolResponse
 	var errs []string
 	wroteAny := false
@@ -123,7 +126,7 @@ func (e *Executor) finishUnfinishedWork(
 		if !e.readReport(ctx, result, task, report) || !e.turnHolds("turn_finish_pushback", result) {
 			break
 		}
-		logging.Get(logging.CategorySession).Warn("the turn's report says part of the task is not done; pushing it back to the model")
+		logging.Get(logging.CategorySession).Info("the turn's report says part of the task is not done; pushing it back to the model")
 		resp, _, _, attemptErrs, _, wrote, err := e.workingAttempt(ctx, trp, systemPrompt, &history, toolDefs, cfg, result, prompt, false)
 		errs = append(errs, attemptErrs...)
 		if err != nil {
@@ -178,8 +181,8 @@ func (e *Executor) rearmGateRounds(result *ExecutionResult) {
 // and a cut admission could drop the part that names what is left.
 func finishPrompt(report string) string {
 	return "Your report says part of the task is not done. Your report:\n\n" + strings.TrimSpace(report) +
-		"\n\nFinish it now: do the remaining work with your tools. If an obstacle you cannot clear yourself stops you " +
-		"(a permission or policy denial, a missing credential or input, a choice only the user can make), " +
+		"\n\nFinish it now: do the remaining work with your tools. Note: repository-wide checks (`./...`) and post-turn ratchet metrics are run automatically by the host gate after your turn—do not run repository-wide `./...` checks yourself or report host-owned ratchet gates as unfinished or blocked. If an obstacle you cannot clear yourself stops you " +
+		"(a permission or policy denial on a target file, a missing credential or input, a choice only the user can make), " +
 		"say exactly what it is and what you need, instead of doing more."
 }
 

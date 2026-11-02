@@ -1834,7 +1834,7 @@ func initIntelligenceLayer(bctx *bootContext) error {
 		logging.Get(logging.CategoryContext).Info("Materialized default prompt corpus to %s", corpusPath)
 	}
 	if _, statErr := os.Stat(corpusPath); statErr == nil {
-		projectDB, dbErr := sql.Open("sqlite3", corpusPath)
+		projectDB, dbErr := sql.Open("sqlite3", corpusPath+"?_txlock=immediate&_busy_timeout=15000")
 		if dbErr == nil {
 			projectDB.SetMaxOpenConns(1)
 			sqlpragmas.ApplyDefaultPragmas(projectDB, sqlpragmas.ProfileHot)
@@ -3073,7 +3073,7 @@ func IngestHybridPrompts(ctx context.Context, workspace string, kernel SystemKer
 		return 0, fmt.Errorf("failed to create prompts dir for hybrid corpus: %w", err)
 	}
 
-	db, err := sql.Open("sqlite3", corpusPath)
+	db, err := sql.Open("sqlite3", corpusPath+"?_txlock=immediate&_busy_timeout=15000")
 	if err != nil {
 		return 0, fmt.Errorf("failed to open hybrid prompt corpus DB: %w", err)
 	}

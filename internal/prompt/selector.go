@@ -1123,15 +1123,20 @@ func unexplainedSkeletonGaps(selected []*ScoredAtom, candidates []*PromptAtom, s
 			found[sa.Atom.Category] = true
 		}
 	}
+	hasCandidate := make(map[AtomCategory]bool)
 	explained := make(map[AtomCategory]bool)
 	for _, a := range candidates {
-		if a != nil && superseded[a.ID] {
+		if a == nil {
+			continue
+		}
+		hasCandidate[a.Category] = true
+		if superseded[a.ID] {
 			explained[a.Category] = true
 		}
 	}
 	var gaps []AtomCategory
 	for cat := range skeletonCategories {
-		if !found[cat] && !explained[cat] {
+		if !found[cat] && hasCandidate[cat] && !explained[cat] {
 			gaps = append(gaps, cat)
 		}
 	}

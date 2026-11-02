@@ -983,7 +983,11 @@ func (e *Executor) executeToolBatch(
 		out, execErr := e.executeAndRecordToolCall(ctx, call, cfg, result)
 
 		if execErr != nil {
-			logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, execErr)
+			if strings.HasPrefix(execErr.Error(), "narrow-first fix policy:") {
+				logging.Get(logging.CategorySession).Info("Tool call %s steered to narrow scope: %v", call.Name, execErr)
+			} else {
+				logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, execErr)
+			}
 			toolErrs = append(toolErrs, fmt.Sprintf("%s: %v", call.Name, execErr))
 			content := execErr.Error()
 			if out != "" {

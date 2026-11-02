@@ -227,6 +227,9 @@ func (e *Executor) planTurnSteps(ctx context.Context, client types.LLMClient, ta
 		if err == nil {
 			break
 		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		// An empty answer is not something an identical second request fixes:
 		// measured 2026-09-17 21:20, both attempts came back empty (finish_reason
 		// "stop", no content) and cost about 40 s before the task ran as one pass.
@@ -325,7 +328,7 @@ func workStepAnchor(task string, steps, beyond []workStep, current int, retry bo
 	if retry {
 		b.WriteString("This step's first pass made no edit. Reading is closed: the observations already gathered are in the working section, and recall_context recovers any of them whole. Make this step's edit now with the edit tools. If the change is already in place, or the task's own condition for it does not hold, make no edit and reply with one line starting \"NO CHANGE NEEDED:\" followed by the evidence (the file and line you checked and what is there).")
 	} else {
-		b.WriteString("Make exactly this step's change now with the edit tools; the remaining steps run after it, and the executive runs build, lint, and tests once after all steps complete, so do not make later edits or run build/test tools here. When the edit is made, reply with one sentence saying what changed.")
+		b.WriteString("Make only this step's change now with the edit tools; do not edit other steps' files or call build/lint/test tools in this pass. When the edit is made, reply with one sentence stating the completed change to this file (do not say verification or remaining steps are pending).")
 	}
 	return b.String()
 }
@@ -982,6 +985,7 @@ func (e *Executor) runPlannedSteps(
 	if last == nil {
 		last = &types.LLMToolResponse{Text: workStepReport(steps, beyond)}
 	}
+	result.StepReport = workStepReport(steps, beyond)
 
 	// One gate for the whole task, inside a working loop so a repair round
 	// sees what the steps gathered.

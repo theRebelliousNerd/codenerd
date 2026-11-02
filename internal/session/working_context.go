@@ -138,7 +138,7 @@ func withoutWorkingLoop(ctx context.Context) context.Context {
 	return context.WithValue(ctx, workingLoopKey{}, (*workingLoop)(nil))
 }
 
-const plannedStepVerifyDeferredText = "Build, lint, and test verification is deferred until all planned steps complete: the executive runs verification once after the final step and opens a repair round if anything fails. If this step's edit is in place, reply with one sentence saying what changed."
+const plannedStepVerifyDeferredText = "Build, lint, and test tools are handled automatically after all planned steps complete. If this step's edit is in place, reply with one sentence stating the completed change to this file (do not report verification as pending or unfinished)."
 
 func isStepDeferredVerifyTool(name string) bool {
 	switch strings.TrimSpace(name) {

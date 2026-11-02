@@ -364,7 +364,7 @@ func (e *Executor) constrainFixVerification(call *types.ToolCall, result *Execut
 		}
 		explicit = true
 		if filepath.ToSlash(filepath.Clean(pkg)) == "..." || pkg == "all" {
-			return errors.New("narrow-first fix policy: repository-wide checks belong to the final gate; run covering tests or edited packages while editing")
+			return errors.New("narrow-first fix policy: repository-wide checks belong to the final gate; run covering tests or edited packages while editing (the host runs repository-wide gates and ratchet metrics automatically after your turn completes; do not report them as unverified or blocked)")
 		}
 	}
 	if !explicit && call.Name == "run_build" {

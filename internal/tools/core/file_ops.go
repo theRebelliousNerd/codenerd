@@ -168,33 +168,6 @@ func secretFilesNote(n int) string {
 	return fmt.Sprintf("%d secret files (execution.secret_paths)", n)
 }
 
-// resolveCaseInsensitiveReadPath resolves a missing file path to an existing
-// non-secret file in the same directory when there is a unique case-insensitive
-// filename match (e.g., AGENTS.md -> agents.md on Linux).
-func resolveCaseInsensitiveReadPath(absPath string) (string, bool) {
-	dir := filepath.Dir(absPath)
-	base := filepath.Base(absPath)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return "", false
-	}
-	var match string
-	for _, e := range entries {
-		if e.IsDir() || !strings.EqualFold(e.Name(), base) {
-			continue
-		}
-		candidate := filepath.Join(dir, e.Name())
-		if tools.IsSecretPath(candidate) {
-			continue
-		}
-		if match != "" {
-			return "", false
-		}
-		match = candidate
-	}
-	return match, match != ""
-}
-
 func directoryReadWithListing(absPath, rawPath string) error {
 	entries, err := os.ReadDir(absPath)
 	if err != nil {
@@ -249,12 +222,6 @@ func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 	logging.ToolsDebug("read_file: path=%s", path)
 
 	content, err := projectdoc.ReadFileForTool(path)
-	if err != nil && os.IsNotExist(err) {
-		if matched, ok := resolveCaseInsensitiveReadPath(path); ok {
-			path = matched
-			content, err = projectdoc.ReadFileForTool(path)
-		}
-	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			auditErr := notFoundWithSuggestions(path, rawPath)

@@ -32,6 +32,7 @@ phase_synonym(/research, "discovery").
 phase_synonym(/research, "analysis").
 phase_synonym(/service, "implementation").
 phase_synonym(/service, "remediation").
+phase_synonym(/service, "recurse").
 phase_synonym(/scaffold, "setup").
 phase_synonym(/scaffold, "config").
 phase_synonym(/scaffold, "bootstrap").

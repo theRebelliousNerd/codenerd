@@ -39,6 +39,7 @@ var (
 		// these three the assault plan's four phases collapse onto one layer.
 		"implementation": "/service",
 		"remediation":    "/service",
+		"recurse":        "/service",
 		"review":         "/test",
 		"setup":          "/scaffold",
 		"config":         "/scaffold",
