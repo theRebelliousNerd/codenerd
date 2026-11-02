@@ -21,6 +21,7 @@
 //	internal/tools/shell — verification.go (run_build / run_tests, via GoInvocation)
 //	internal/tools/codedom — run_impacted_tests.go (via GoInvocation)
 //	internal/tools       — build_exclusion.go (build-constraint tag detection via TestTagsForWorkspace)
+//	cmd/nerd/chat        — self_restart.go (self-rebuild onto watched binary via BuildBinary)
 //
 // The historical list in this comment named preflight, attack_runner and tester,
 // none of which ever imported the package; that fiction is what the inventory

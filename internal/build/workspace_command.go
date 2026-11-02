@@ -55,9 +55,37 @@ func WorkspaceCommand(ctx context.Context, root string, argv []string, env map[s
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		cmd.Env = setEnvVar(cmd.Env, k, env[k])
+		cmd.Env = setEnvVar(cmd.Env, k, resolveWorkspaceEnvValue(root, k, env[k]))
 	}
 	return cmd
+}
+
+// resolveWorkspaceEnvValue adapts workspace-declared include paths (such as a
+// Windows-authored CGO_CFLAGS: -IC:/.../sqlite_headers in nerd.md) to the
+// active workspace root when the declared path does not exist on the host OS
+// but the workspace's own sqlite_headers directory does.
+func resolveWorkspaceEnvValue(root, k, v string) string {
+	if !strings.EqualFold(k, "CGO_CFLAGS") || strings.TrimSpace(root) == "" {
+		return v
+	}
+	trimmed := strings.TrimSpace(v)
+	if !strings.HasPrefix(trimmed, "-I") {
+		return v
+	}
+	incPath := strings.TrimSpace(strings.TrimPrefix(trimmed, "-I"))
+	if incPath == "" {
+		return v
+	}
+	if _, err := os.Stat(incPath); err == nil {
+		return v
+	}
+	if strings.HasSuffix(filepath.ToSlash(incPath), "/sqlite_headers") {
+		localHeaders := filepath.Join(root, "sqlite_headers")
+		if info, err := os.Stat(localHeaders); err == nil && info.IsDir() {
+			return "-I" + localHeaders
+		}
+	}
+	return v
 }
 
 // AllowedEnv is the allowlisted ambient environment for a workspace-declared

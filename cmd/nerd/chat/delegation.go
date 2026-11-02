@@ -511,9 +511,10 @@ func formatShardTask(verb, target, constraint, workspace string) string {
 		}
 	}
 
-	// Discover files if target is broad (codebase, all files, etc.)
+	// Discover files if target is broad (codebase, all files, etc.) for verbs that consume fileList.
 	var fileList string
-	if target == "codebase" || strings.Contains(strings.ToLower(target), "all") || strings.Contains(target, "*") {
+	if (verb == "/review" || verb == "/security" || verb == "/analyze") &&
+		(target == "codebase" || strings.Contains(strings.ToLower(target), "all") || strings.Contains(target, "*")) {
 		files := discoverFiles(workspace, constraint)
 		if len(files) > 0 {
 			fileList = strings.Join(files, ",")

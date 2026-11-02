@@ -31,8 +31,19 @@ func (m *Model) checkContinuation(ctx context.Context, dc *deliveryChain, shardT
 	if next := m.nextStep(ctx, dc); next != nil {
 		return next, ""
 	}
+	var changed []string
 	if dc != nil {
+		dc.mu.Lock()
+		changed = append(changed, dc.changed...)
+		dc.mu.Unlock()
 		m.endDelivery()
+	} else {
+		changed = ret.Changed
+	}
+	if ret.Outcome == "/done" && m.shouldRebuildWatchedExecutable(changed) {
+		if err := m.rebuildWatchedExecutable(ctx, changed); err != nil {
+			logging.Get(logging.CategoryBoot).Warn("self-rebuild after turn failed: %v", err)
+		}
 	}
 	return nil, dc.summaryNote()
 }
@@ -111,6 +122,17 @@ func (m Model) executeSubtask(step Subtask) tea.Cmd {
 		// THIS step succeeded, which is why the summary is derived from the
 		// step's own verdict and evidence rather than from having run out of
 		// work.
+		changed := ret.Changed
+		if m.delivery != nil {
+			m.delivery.mu.Lock()
+			changed = append([]string(nil), m.delivery.changed...)
+			m.delivery.mu.Unlock()
+		}
+		if ret.Outcome == "/done" && m.shouldRebuildWatchedExecutable(changed) {
+			if err := m.rebuildWatchedExecutable(ctx, changed); err != nil {
+				logging.Get(logging.CategoryBoot).Warn("self-rebuild after continuation failed: %v", err)
+			}
+		}
 		return continuationDoneMsg{
 			stepCount:            m.continuationStep,
 			summary:              continuationSummary(m.continuationStep, ret, m.delivery.summaryNote()),

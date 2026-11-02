@@ -83,10 +83,13 @@ func splitPlan(plan []workStep) (run, beyond []workStep) {
 // toolLoopPass is how one pass of the tool loop is run. verify runs the
 // post-edit gate (build, tests, review) at the pass's terminal path; a
 // planned task verifies once after its last step instead. regime, when set,
-// starts the pass's working loop under that regime.
+// starts the pass's working loop under that regime. plannedStep marks a step
+// pass inside runPlannedSteps so build/lint/test tools are deferred until all
+// planned steps finish.
 type toolLoopPass struct {
-	verify bool
-	regime string
+	verify      bool
+	regime      string
+	plannedStep bool
 }
 
 // parseWorkSteps reads STEP lines out of a plan. Anything else on a line, a
@@ -322,7 +325,7 @@ func workStepAnchor(task string, steps, beyond []workStep, current int, retry bo
 	if retry {
 		b.WriteString("This step's first pass made no edit. Reading is closed: the observations already gathered are in the working section, and recall_context recovers any of them whole. Make this step's edit now with the edit tools. If the change is already in place, or the task's own condition for it does not hold, make no edit and reply with one line starting \"NO CHANGE NEEDED:\" followed by the evidence (the file and line you checked and what is there).")
 	} else {
-		b.WriteString("Make exactly this step's change now with the edit tools; the remaining steps run after it, so do not make them here. When the edit is made, reply with one sentence saying what changed.")
+		b.WriteString("Make exactly this step's change now with the edit tools; the remaining steps run after it, and the executive runs build, lint, and tests once after all steps complete, so do not make later edits or run build/test tools here. When the edit is made, reply with one sentence saying what changed.")
 	}
 	return b.String()
 }
@@ -908,7 +911,7 @@ func (e *Executor) runPlannedSteps(
 		// none of the /mangle corpus in it. Both passes of the step share it.
 		stepPrompt := e.stepSystemPrompt(ctx, systemPrompt, &stepCtx, cfg, task, result)
 
-		resp, errs, err := e.runToolLoopPass(ctx, stepPrompt, workStepAnchor(task, steps, beyond, i, false), cfg, &stepCtx, result, toolLoopPass{})
+		resp, errs, err := e.runToolLoopPass(ctx, stepPrompt, workStepAnchor(task, steps, beyond, i, false), cfg, &stepCtx, result, toolLoopPass{plannedStep: true})
 		toolErrs = append(toolErrs, errs...)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -933,10 +936,10 @@ func (e *Executor) runPlannedSteps(
 				result.StepReport = workStepReport(steps, beyond)
 				return last, toolErrs, fmt.Errorf("step %d (%s): the commit retry could not be recorded", stepNum, step.File)
 			}
-			logging.Get(logging.CategorySession).Warn(
+			logging.Get(logging.CategorySession).Info(
 				"Step %d/%d (%s) made no edit in %d tool call(s); one more pass with reading closed",
 				stepNum, len(steps), step.File, passCalls)
-			retried, retryErrs, retryErr := e.runToolLoopPass(ctx, stepPrompt, workStepAnchor(task, steps, beyond, i, true), cfg, &stepCtx, result, toolLoopPass{regime: commitRegime})
+			retried, retryErrs, retryErr := e.runToolLoopPass(ctx, stepPrompt, workStepAnchor(task, steps, beyond, i, true), cfg, &stepCtx, result, toolLoopPass{regime: commitRegime, plannedStep: true})
 			toolErrs = append(toolErrs, retryErrs...)
 			if retryErr != nil {
 				if ctx.Err() != nil {

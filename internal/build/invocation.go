@@ -1,6 +1,8 @@
 package build
 
 import (
+	"context"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -48,6 +50,21 @@ func GoInvocation(workspaceRoot, dir string, args []string) (env []string, argv 
 // not as a tagless build with its gated files missing.
 func GoToolEnv(workspaceRoot, dir string) []string {
 	return GetBuildEnv(WorkspaceUserConfig(workspaceRoot), detectionRootWithin(workspaceRoot, dir))
+}
+
+// BuildBinary compiles pkg in workspaceRoot into outputBinary under the
+// workspace's configured build environment and detected build tags.
+func BuildBinary(ctx context.Context, workspaceRoot, outputBinary, pkg string) ([]byte, error) {
+	args := []string{"build"}
+	if tags := TestTagsForWorkspace(workspaceRoot); len(tags) > 0 {
+		args = append(args, "-tags", strings.Join(tags, ","))
+	}
+	args = append(args, "-o", outputBinary, pkg)
+	env, argv := GoInvocation(workspaceRoot, workspaceRoot, args)
+	cmd := exec.CommandContext(ctx, "go", argv...)
+	cmd.Dir = workspaceRoot
+	cmd.Env = env
+	return cmd.CombinedOutput()
 }
 
 // WorkspaceUserConfig loads <workspaceRoot>/.nerd/config.json for a caller

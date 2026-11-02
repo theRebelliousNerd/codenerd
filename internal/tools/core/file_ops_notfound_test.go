@@ -95,3 +95,15 @@ func TestNotFoundWithSuggestions_ListsLargeDirectoriesWhole(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveCaseInsensitiveReadPath_MatchesUniqueLowercaseFile(t *testing.T) {
+	dir := t.TempDir()
+	want := filepath.Join(dir, "agents.md")
+	if err := os.WriteFile(want, []byte("# instructions\n"), 0644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	got, ok := resolveCaseInsensitiveReadPath(filepath.Join(dir, "AGENTS.md"))
+	if !ok || got != want {
+		t.Fatalf("resolveCaseInsensitiveReadPath = (%q, %v), want (%q, true)", got, ok, want)
+	}
+}

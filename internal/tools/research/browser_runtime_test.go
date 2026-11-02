@@ -7,12 +7,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -384,55 +386,154 @@ func TestReadBrowserPage_CleanupFailureKeepsContentAndReportsPending(t *testing.
 }
 
 // Closing the runtime while a read is blocked on the network ends the read,
-// joins it, and takes the headless Chrome down with the runtime.
+// joins it, and waits for the headless control listener to stop accepting TCP.
 func TestBrowserRuntime_Close_EndsInFlightReadAndChrome(t *testing.T) {
-	kernel := &retiringKernel{}
-	rt := liveRuntime(t, kernel)
-	headless := rt.headlessIfStarted()
-	controlURL := headless.ControlURL()
-	if !chromeAcceptsConnections(controlURL) {
-		t.Skipf("cannot probe Chrome at %q", controlURL)
+	for _, tt := range []struct {
+		name         string
+		stopListener bool
+		wantErr      error
+	}{
+		{name: "waits_for_control_listener_to_stop", stopListener: true},
+		{name: "reachable_control_listener_expires", wantErr: context.DeadlineExceeded},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// Keep a proxy listener open independently of manager shutdown so
+			// Chrome's delayed TCP listener exit is reproducible, not a race.
+			owner := liveRuntime(t, &retiringKernel{})
+			upstream, err := url.Parse(owner.headlessIfStarted().ControlURL())
+			if err != nil {
+				t.Fatalf("parse Chrome control URL: %v", err)
+			}
+			upstream.Scheme = "http"
+			controlPath := upstream.Path
+			upstream.Path = ""
+			started := make(chan struct{})
+			probed := make(chan struct{}, 1)
+			server := httptest.NewUnstartedServer(httputil.NewSingleHostReverseProxy(upstream))
+			t.Cleanup(server.Close)
+			cfg := browser.DefaultConfig()
+			cfg.DebuggerURL = "ws://" + server.Listener.Addr().String() + controlPath
+			cfg.SessionStore = filepath.Join(t.TempDir(), "sessions.json")
+			headless := browser.NewSessionManagerWithSink(cfg, nil)
+			server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+				select {
+				case <-started:
+					if state == http.StateNew && !headless.IsConnected() {
+						select {
+						case probed <- struct{}{}:
+						default:
+						}
+					}
+				default:
+				}
+			}
+			server.Start()
+			startCtx, startCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer startCancel()
+			if err := headless.Start(startCtx); err != nil {
+				t.Fatalf("start CDP fixture: %v", err)
+			}
+			t.Cleanup(func() {
+				if err := headless.Shutdown(context.Background()); err != nil {
+					t.Errorf("shutdown CDP fixture: %v", err)
+				}
+			})
+			close(started)
+			controlURL := headless.ControlURL()
+			runtimeCtx, runtimeCancel := context.WithCancel(context.Background())
+			rt := &BrowserRuntime{
+				mgr: browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil),
+				ctx: runtimeCtx, cancel: runtimeCancel, headless: headless,
+			}
+			closeCtx, closeCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer closeCancel()
+			done := make(chan error, 1)
+			go func() { done <- rt.Close(closeCtx) }()
+			t.Cleanup(func() {
+				closeCancel()
+				server.Close()
+				select {
+				case <-done:
+				case <-time.After(5 * time.Second):
+					t.Error("Close did not finish after fixture cleanup")
+				}
+			})
+			select {
+			case <-probed:
+			case err := <-done:
+				done <- err
+				t.Fatalf("Close returned before probing the still-open control listener: %v", err)
+			case <-closeCtx.Done():
+				t.Fatal("Close never probed the control listener after manager shutdown")
+			}
+			if tt.stopListener {
+				if err := server.Listener.Close(); err != nil {
+					t.Fatalf("stop control listener: %v", err)
+				}
+			}
+			select {
+			case err := <-done:
+				done <- err // Let cleanup join the close goroutine on every path.
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("Close() error = %v, want %v", err, tt.wantErr)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("Close exceeded its shutdown deadline")
+			}
+			if reachable := chromeAcceptsConnections(controlURL); reachable == tt.stopListener {
+				t.Fatalf("control listener reachable = %v, want %v", reachable, !tt.stopListener)
+			}
+		})
 	}
-
-	started := make(chan struct{}, 1)
-	release := make(chan struct{})
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case started <- struct{}{}:
-		default:
+	t.Run("in_flight_read", func(t *testing.T) {
+		kernel := &retiringKernel{}
+		rt := liveRuntime(t, kernel)
+		headless := rt.headlessIfStarted()
+		controlURL := headless.ControlURL()
+		if !chromeAcceptsConnections(controlURL) {
+			t.Skipf("cannot probe Chrome at %q", controlURL)
 		}
-		<-release
-	}))
-	t.Cleanup(func() { close(release); ts.Close() })
 
-	var wg sync.WaitGroup
-	var readErr error
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		_, readErr = readBrowserPage(context.Background(), ts.URL)
-	}()
-	select {
-	case <-started:
-	case <-time.After(20 * time.Second):
-		t.Fatal("the read never reached the server")
-	}
+		started := make(chan struct{}, 1)
+		release := make(chan struct{})
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			select {
+			case started <- struct{}{}:
+			default:
+			}
+			<-release
+		}))
+		t.Cleanup(func() { close(release); ts.Close() })
 
-	closeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := rt.Close(closeCtx); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	wg.Wait()
-	if readErr == nil {
-		t.Fatal("the in-flight read survived runtime close")
-	}
-	if chromeAcceptsConnections(controlURL) {
-		t.Fatal("headless Chrome is still serving after the runtime closed")
-	}
-	if n := kernel.browserFactCount(); n != 0 {
-		t.Fatalf("%d transient facts left behind by the cancelled read", n)
-	}
+		var wg sync.WaitGroup
+		var readErr error
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, readErr = readBrowserPage(context.Background(), ts.URL)
+		}()
+		select {
+		case <-started:
+		case <-time.After(20 * time.Second):
+			t.Fatal("the read never reached the server")
+		}
+
+		closeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := rt.Close(closeCtx); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+		wg.Wait()
+		if readErr == nil {
+			t.Fatal("the in-flight read survived runtime close")
+		}
+		if chromeAcceptsConnections(controlURL) {
+			t.Fatal("headless Chrome is still serving after the runtime closed")
+		}
+		if n := kernel.browserFactCount(); n != 0 {
+			t.Fatalf("%d transient facts left behind by the cancelled read", n)
+		}
+	})
 }
 
 // Rebinding the process-wide runtime while a read is in flight leaves the
@@ -472,5 +573,229 @@ let n = 0; const t = setInterval(function(){ n++; const s = document.createEleme
 	}
 	if n := other.browserFactCount() + other.factsOf("dom_updated"); n != 0 {
 		t.Fatalf("the replacement kernel received %d facts from another runtime's read", n)
+	}
+}
+
+// controlEndpointProbeConn records disposal of a successful TCP probe without
+// requiring a browser process or an operating-system-specific socket failure.
+type controlEndpointProbeConn struct {
+	net.Conn
+	closeErr error
+	closes   int
+}
+
+func (c *controlEndpointProbeConn) Close() error {
+	c.closes++
+	return c.closeErr
+}
+
+func TestWaitResearchControlEndpoint_RejectsInvalidURLsWithoutDialing(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		url  string
+		want string
+	}{
+		{name: "malformed_url", url: "ws://%zz", want: "parse research headless control URL"},
+		{name: "missing_host", url: "/devtools/browser/local", want: "has no TCP endpoint"},
+		{name: "empty_url", url: "", want: "has no TCP endpoint"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			err := waitResearchControlEndpoint(context.Background(), tt.url, func(context.Context, string, string) (net.Conn, error) {
+				calls++
+				return nil, errors.New("unexpected dial")
+			})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("wait error = %v, want %q", err, tt.want)
+			}
+			if calls != 0 {
+				t.Fatalf("invalid URL caused %d TCP probes", calls)
+			}
+			if tt.name == "malformed_url" {
+				var parseErr *url.Error
+				if !errors.As(err, &parseErr) {
+					t.Fatalf("parse error was not preserved: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestWaitResearchControlEndpoint_ReportsProbeFailures(t *testing.T) {
+	probeErr := errors.New("TCP probe failed")
+	closeErr := errors.New("probe connection close failed")
+	for _, tt := range []struct {
+		name        string
+		dialErr     error
+		closeErr    error
+		want        error
+		wantMessage string
+		wantCloses  int
+	}{
+		{name: "non_network_error", dialErr: probeErr, want: probeErr, wantMessage: "probe research headless control endpoint"},
+		{name: "non_timeout_network_error", dialErr: &net.DNSError{Err: "no such host", Name: "localhost"}, wantMessage: "probe research headless control endpoint"},
+		{name: "connection_close_error", closeErr: closeErr, want: closeErr, wantMessage: "close research headless control endpoint probe", wantCloses: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			conn := &controlEndpointProbeConn{closeErr: tt.closeErr}
+			calls := 0
+			err := waitResearchControlEndpoint(ctx, "ws://127.0.0.1:9222/devtools/browser/test", func(_ context.Context, network, address string) (net.Conn, error) {
+				calls++
+				if network != "tcp" || address != "127.0.0.1:9222" {
+					t.Fatalf("probe target = %q %q, want TCP host without URL path", network, address)
+				}
+				if tt.dialErr != nil {
+					return nil, tt.dialErr
+				}
+				return conn, nil
+			})
+			want := tt.want
+			if want == nil {
+				want = tt.dialErr
+			}
+			if !errors.Is(err, want) || err == nil || !strings.Contains(err.Error(), tt.wantMessage) {
+				t.Fatalf("wait error = %v, want wrapped %v with %q", err, want, tt.wantMessage)
+			}
+			if calls != 1 || conn.closes != tt.wantCloses {
+				t.Fatalf("probes = %d, closes = %d; want 1, %d", calls, conn.closes, tt.wantCloses)
+			}
+		})
+	}
+}
+
+func TestWaitResearchControlEndpoint_ContextErrorDuringDial(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		expired bool
+		want    error
+	}{
+		{name: "cancelled_during_probe", want: context.Canceled},
+		{name: "deadline_expired", expired: true, want: context.DeadlineExceeded},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			if tt.expired {
+				cancel()
+				ctx, cancel = context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+			}
+			defer cancel()
+			calls := 0
+			err := waitResearchControlEndpoint(ctx, "ws://127.0.0.1:9222", func(probeCtx context.Context, _, _ string) (net.Conn, error) {
+				calls++
+				cancel()
+				if probeCtx.Err() == nil {
+					t.Fatal("dial did not receive the shutdown context")
+				}
+				// Even refusal is not proof of shutdown after the probe's
+				// context expires: the context failure takes precedence.
+				return nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+			})
+			if !errors.Is(err, tt.want) || !strings.Contains(err.Error(), "did not stop before shutdown expired") {
+				t.Fatalf("wait error = %v, want wrapped %v", err, tt.want)
+			}
+			if calls != 1 {
+				t.Fatalf("dial calls = %d, want 1", calls)
+			}
+		})
+	}
+}
+
+func TestWaitResearchControlEndpoint_RetriesUntilConnectionRefused(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		timeout bool
+	}{
+		{name: "reachable_endpoint"},
+		{name: "inconclusive_probe_timeout", timeout: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			conn := &controlEndpointProbeConn{}
+			calls := 0
+			err := waitResearchControlEndpoint(ctx, "ws://127.0.0.1:9222", func(context.Context, string, string) (net.Conn, error) {
+				calls++
+				if calls == 1 {
+					if tt.timeout {
+						return nil, &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded}
+					}
+					return conn, nil
+				}
+				return nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+			})
+			if err != nil || calls != 2 {
+				t.Fatalf("wait error = %v, probes = %d; want nil, 2", err, calls)
+			}
+			wantCloses := 1
+			if tt.timeout {
+				wantCloses = 0
+			}
+			if conn.closes != wantCloses {
+				t.Fatalf("probe closes = %d, want %d", conn.closes, wantCloses)
+			}
+		})
+	}
+}
+
+func TestBrowserRuntime_Close_ExpiredDrainContextStillRetiresHeadless(t *testing.T) {
+	mgr := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
+	rt := newBrowserRuntime(mgr, nil, BrowserRuntimeOptions{})
+	bindForTest(t, rt)
+	// An allocated but not started manager must also be retired when the
+	// read-drain deadline has expired. This case needs no Chrome installation.
+	rt.headless = browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
+	rt.reads.Add(1)
+	released := false
+	defer func() {
+		if !released {
+			rt.reads.Done()
+		}
+	}()
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	err := rt.Close(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "research reads still draining at close") {
+		t.Fatalf("Close error = %v, want read-drain deadline error", err)
+	}
+	if strings.Contains(err.Error(), "shut down research headless browser") {
+		t.Fatalf("expired read context prevented independent headless cleanup: %v", err)
+	}
+	if rt.headless != nil {
+		t.Fatal("expired read deadline left the headless manager attached")
+	}
+	if rt.ctx.Err() != context.Canceled {
+		t.Fatalf("runtime context error = %v, want canceled", rt.ctx.Err())
+	}
+	// The second Close waits for reads too. Release the synthetic straggler
+	// now, rather than deferring its release until after that wait returns.
+	rt.reads.Done()
+	released = true
+	closeCtx, closeCancel := context.WithTimeout(context.Background(), time.Second)
+	defer closeCancel()
+	if err := rt.Close(closeCtx); err != nil {
+		t.Fatalf("idempotent Close after reads drain: %v", err)
+	}
+}
+
+func TestBrowserRuntime_Close_UnstartedHeadlessNeedsNoControlEndpoint(t *testing.T) {
+	mgr := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
+	rt := newBrowserRuntime(mgr, nil, BrowserRuntimeOptions{})
+	headless := browser.NewSessionManagerWithSink(browser.DefaultConfig(), nil)
+	rt.headless = headless
+	if controlURL := headless.ControlURL(); controlURL != "" {
+		t.Fatalf("unstarted headless control URL = %q, want empty", controlURL)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := rt.Close(ctx); err != nil {
+		t.Fatalf("Close with no headless control endpoint = %v, want nil", err)
+	}
+	if rt.headless != nil {
+		t.Fatal("Close left the unstarted headless manager attached")
+	}
+	if err := rt.ctx.Err(); err != context.Canceled {
+		t.Fatalf("runtime context error = %v, want canceled", err)
 	}
 }

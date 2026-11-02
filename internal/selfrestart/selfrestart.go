@@ -46,6 +46,27 @@ func (id Identity) Changed(other Identity) bool {
 	return id.Size != other.Size || !id.ModTime.Equal(other.ModTime) || id.Inode != other.Inode
 }
 
+// ExecutablePath resolves the running binary's on-disk path. On Linux, if the
+// executable was replaced by rename while running, /proc/self/exe carries a
+// trailing " (deleted)" suffix; stripping it recovers the replacement path.
+func ExecutablePath() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	exe = CleanExecutablePath(exe)
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = CleanExecutablePath(resolved)
+	}
+	return filepath.Clean(exe), nil
+}
+
+// CleanExecutablePath strips the kernel's " (deleted)" suffix from an unlinked
+// /proc/self/exe target so callers still address the on-disk binary path.
+func CleanExecutablePath(exe string) string {
+	return strings.TrimSuffix(strings.TrimSpace(exe), " (deleted)")
+}
+
 // IdentityOf reads the executable at path.
 func IdentityOf(path string) (Identity, error) {
 	st, err := os.Stat(path)
@@ -83,12 +104,14 @@ func buildLabel(path string, mod time.Time) string {
 
 // State is what the restarted process needs to resume the session.
 type State struct {
-	Version   int      `json:"version"`
-	SessionID string   `json:"session_id"`
-	WorkMode  string   `json:"work_mode,omitempty"`
-	Brief     string   `json:"brief,omitempty"`
-	Queued    []string `json:"queued,omitempty"`
-	Draft     string   `json:"draft,omitempty"`
+	Version     int      `json:"version"`
+	SessionID   string   `json:"session_id"`
+	WorkMode    string   `json:"work_mode,omitempty"`
+	Brief       string   `json:"brief,omitempty"`
+	Queued      []string `json:"queued,omitempty"`
+	Draft       string   `json:"draft,omitempty"`
+	Recurse     bool     `json:"recurse,omitempty"`
+	RecurseArgs []string `json:"recurse_args,omitempty"`
 	// Interrupted names the work the restart stopped (background jobs, a
 	// running campaign, an offered step), for the restored session to say.
 	Interrupted []string `json:"interrupted,omitempty"`
@@ -179,6 +202,13 @@ func (r *Restarter) SetExec(exec ExecFunc) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.exec = exec
+}
+
+// CurrentPath returns the on-disk path of the watched executable.
+func (r *Restarter) CurrentPath() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.current.Path
 }
 
 // BinaryChanged records a rebuilt executable. It reports whether the change is

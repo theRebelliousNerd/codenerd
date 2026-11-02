@@ -1,13 +1,17 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"codenerd/internal/build"
+	"codenerd/internal/campaign"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/selfrestart"
@@ -46,13 +50,10 @@ type rebuildWatchMsg struct {
 func (m Model) startRebuildWatch() tea.Cmd {
 	ctx, workspace := m.shutdownCtx, m.workspace
 	return func() tea.Msg {
-		exe, err := os.Executable()
+		exe, err := selfrestart.ExecutablePath()
 		if err != nil {
 			logging.Get(logging.CategoryBoot).Warn("self-restart off: executable path unknown: %v", err)
 			return rebuildWatchMsg{}
-		}
-		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-			exe = resolved
 		}
 		current, err := selfrestart.IdentityOf(exe)
 		if err != nil {
@@ -108,20 +109,48 @@ func (m Model) handleBinaryRebuilt(msg binaryRebuiltMsg) (Model, tea.Cmd) {
 	if m.restartFailed != nil && !m.restartFailed.Changed(msg.id) {
 		return m, listen
 	}
-	m = m.pushAssistantMsg(fmt.Sprintf("A rebuilt codeNERD (%s) is on disk; restarting onto it when the session is idle, keeping this conversation.", msg.id.Build))
+	m = m.prepareRecurseForRestart()
+	if m.recurse != nil {
+		m = m.pushAssistantMsg(fmt.Sprintf("A rebuilt codeNERD (%s) is on disk; pausing `/recurse` after the current attempt to restart onto it and auto-resume.", msg.id.Build))
+	} else {
+		m = m.pushAssistantMsg(fmt.Sprintf("A rebuilt codeNERD (%s) is on disk; restarting onto it when the session is idle, keeping this conversation.", msg.id.Build))
+	}
 	return m, tea.Batch(listen, restartCheckTick())
+}
+
+// prepareRecurseForRestart asks a running /recurse loop to stop cleanly at the
+// next attempt boundary so the new binary can take over and auto-resume from
+// the journal.
+func (m Model) prepareRecurseForRestart() Model {
+	if m.recurse == nil || m.recurse.stoppingForRestart {
+		return m
+	}
+	m.recurse.stoppingForRestart = true
+	m.resumeRecurse = true
+	m.resumeRecurseArgs = slices.Clone(m.recurse.args)
+	if err := campaign.RequestRecurseStop(m.workspace); err != nil {
+		logging.Get(logging.CategorySession).Warn("self-restart: could not request /recurse boundary stop: %v", err)
+	}
+	return m
+}
+
+// hasPendingRestart reports whether a new binary build is waiting to replace
+// this process once it becomes idle.
+func (m Model) hasPendingRestart() bool {
+	if m.restarter == nil {
+		return false
+	}
+	next, pending := m.restarter.Pending()
+	return pending && (m.restartFailed == nil || m.restartFailed.Changed(next))
 }
 
 // handleRestartCheck restarts when the session is idle, and asks again later
 // when it is not.
 func (m Model) handleRestartCheck() (Model, tea.Cmd) {
-	if m.restarter == nil {
+	if !m.hasPendingRestart() {
 		return m, nil
 	}
-	next, pending := m.restarter.Pending()
-	if !pending || (m.restartFailed != nil && !m.restartFailed.Changed(next)) {
-		return m, nil
-	}
+	m = m.prepareRecurseForRestart()
 	if !m.restarter.ShouldRestart(m.restartBusy()) {
 		return m, restartCheckTick()
 	}
@@ -131,9 +160,10 @@ func (m Model) handleRestartCheck() (Model, tea.Cmd) {
 }
 
 // restartBusy reports work a restart must not cut: a turn in progress, the
-// boot, or a person deciding an approval.
+// boot, a person deciding an approval, or an active /recurse or campaign run
+// that has not yet settled at its boundary.
 func (m Model) restartBusy() bool {
-	return m.isLoading || m.isBooting || m.viewMode == ApprovalView
+	return m.isLoading || m.isBooting || m.viewMode == ApprovalView || m.recurse != nil || m.campaignOrch != nil
 }
 
 // restartState is what the new process restores.
@@ -150,6 +180,13 @@ func (m Model) restartState() selfrestart.State {
 	}
 	if m.pendingWork != nil && strings.TrimSpace(m.pendingWork.Input) != "" {
 		st.Queued = append(st.Queued, m.pendingWork.Input)
+	}
+	if m.resumeRecurse {
+		st.Recurse = true
+		st.RecurseArgs = slices.Clone(m.resumeRecurseArgs)
+	} else if m.recurse != nil {
+		st.Recurse = true
+		st.RecurseArgs = slices.Clone(m.recurse.args)
 	}
 	for _, job := range m.background.list() {
 		st.Interrupted = append(st.Interrupted, fmt.Sprintf("background job %s (%s: %s)", job.ID, job.Shard, job.Task))
@@ -255,6 +292,10 @@ func (m Model) applyRestore() Model {
 	if st.Draft != "" {
 		m.textarea.SetValue(st.Draft)
 	}
+	if st.Recurse {
+		m.resumeRecurse = true
+		m.resumeRecurseArgs = slices.Clone(st.RecurseArgs)
+	}
 	notice := fmt.Sprintf("codeNERD updated (%s → %s build), session restored.", st.OldBuild, st.NewBuild)
 	if len(st.Interrupted) > 0 {
 		notice += "\n\nInterrupted by the restart:\n- " + strings.Join(st.Interrupted, "\n- ")
@@ -262,7 +303,71 @@ func (m Model) applyRestore() Model {
 	if len(st.Queued) > 0 {
 		notice += "\n\nHeld work carried over: " + st.Queued[0]
 	}
+	if st.Recurse {
+		notice += "\n\nResuming `/recurse` once workspace scan completes."
+	}
 	return m.pushAssistantMsg(notice)
+}
+
+// shouldRebuildWatchedExecutable reports whether a verified turn or kept
+// /recurse cycle modified executable source (.go excluding *_test.go, or .mg)
+// in the workspace that owns the watched binary.
+func (m Model) shouldRebuildWatchedExecutable(changed []string) bool {
+	if m.restarter == nil || strings.TrimSpace(m.workspace) == "" || !hasExecutableSourceChanges(changed) {
+		return false
+	}
+	exe := selfrestart.CleanExecutablePath(m.restarter.CurrentPath())
+	if exe == "" {
+		return false
+	}
+	wsClean := filepath.Clean(m.workspace)
+	rel, err := filepath.Rel(wsClean, filepath.Clean(exe))
+	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(wsClean, "cmd", "nerd"))
+	return err == nil && info.IsDir()
+}
+
+func hasExecutableSourceChanges(changed []string) bool {
+	for _, p := range changed {
+		clean := strings.ToLower(strings.TrimSpace(p))
+		switch {
+		case strings.HasSuffix(clean, "_test.go"):
+			continue
+		case strings.HasSuffix(clean, ".go"), strings.HasSuffix(clean, ".mg"):
+			return true
+		}
+	}
+	return false
+}
+
+// rebuildWatchedExecutable compiles ./cmd/nerd into a sibling temp file and
+// atomically renames it over the watched executable so the self-restart
+// watcher picks up the new build without ETXTBSY or partial reads.
+func (m Model) rebuildWatchedExecutable(ctx context.Context, changed []string) error {
+	if !m.shouldRebuildWatchedExecutable(changed) {
+		return nil
+	}
+	exe := selfrestart.CleanExecutablePath(m.restarter.CurrentPath())
+	tmp := fmt.Sprintf("%s.rebuild-%d.tmp", exe, os.Getpid())
+	defer func() { _ = os.Remove(tmp) }()
+
+	out, err := build.BuildBinary(ctx, m.workspace, tmp, "./cmd/nerd")
+	if err != nil {
+		return fmt.Errorf("self-rebuild ./cmd/nerd failed: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	if err := os.Chmod(tmp, 0o755); err != nil {
+		return fmt.Errorf("chmod rebuilt binary: %w", err)
+	}
+	if err := os.Rename(tmp, exe); err != nil {
+		return fmt.Errorf("install rebuilt binary over %s: %w", exe, err)
+	}
+	if id, err := selfrestart.IdentityOf(exe); err == nil {
+		m.restarter.BinaryChanged(id)
+	}
+	logging.Get(logging.CategoryBoot).Info("self-rebuild: updated %s after source changes", exe)
+	return nil
 }
 
 // readRestore reads the restore file the launch named, once.

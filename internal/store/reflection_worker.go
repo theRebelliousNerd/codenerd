@@ -487,6 +487,12 @@ func (ls *LearningStore) processLearningReflectionCycle() {
 	defer cancel()
 
 	for _, shardType := range shardTypes {
+		if db, err := ls.getDB(shardType); err == nil && tableExists(db, "learnings_vec") {
+			if err := ensureLearningVecTable(db, expectedDim); err != nil {
+				logging.Get(logging.CategoryStore).Warn("Learning vector index upgrade failed for %s: %v", shardType, err)
+			}
+		}
+
 		backlog := 0
 		if count, err := ls.CountLearningEmbeddingBacklog(shardType, expectedModel, expectedDim, expectedTask); err == nil {
 			backlog = count
@@ -616,14 +622,15 @@ func learningVecSchema(dim int) string {
 	return fmt.Sprintf("CREATE VIRTUAL TABLE learnings_vec USING vec0(embedding float[%d], learning_id INTEGER, embedding_model_id TEXT, embedding_task TEXT, handle_hash TEXT)", dim)
 }
 
-// learningVecVersioned reports whether the existing index carries the
-// version columns.
+// learningVecVersioned reports whether the existing index carries all of the
+// version columns used by recall. Inspect columns rather than DDL substrings:
+// a partial schema with handle_hash alone cannot support the versioned join.
 func learningVecVersioned(db *sql.DB) (bool, error) {
-	var ddl string
-	if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'learnings_vec'`).Scan(&ddl); err != nil {
-		return false, err
+	columns, err := migrationTableColumns(db, "learnings_vec")
+	if err != nil {
+		return false, fmt.Errorf("inspect learning vector index columns: %w", err)
 	}
-	return strings.Contains(ddl, "handle_hash"), nil
+	return columns["embedding_model_id"] && columns["embedding_task"] && columns["handle_hash"], nil
 }
 
 func syncLearningVectorIndex(db *sql.DB, updates []LearningEmbeddingUpdate, dim int) error {

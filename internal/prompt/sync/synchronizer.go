@@ -130,6 +130,7 @@ func (s *AgentSynchronizer) syncAgent(ctx context.Context, agentID string, yamlP
 		return false, fmt.Errorf("db open failed: %w", err)
 	}
 	defer db.Close()
+	db.SetMaxOpenConns(1)
 	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
 
 	// 3. Ensure Table Schema (including sync metadata)

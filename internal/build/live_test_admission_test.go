@@ -56,3 +56,18 @@ func TestWorkspaceCommandLiveTestAdmissionEnvironment(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspaceCommandAdaptsForeignSqliteHeadersPath(t *testing.T) {
+	root := t.TempDir()
+	headersDir := filepath.Join(root, "sqlite_headers")
+	if err := os.MkdirAll(headersDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := WorkspaceCommand(context.Background(), root, []string{"go", "test", "./..."}, map[string]string{
+		"CGO_CFLAGS": "-IC:/CodeProjects/codeNERD/sqlite_headers",
+	})
+	want := "-I" + headersDir
+	if got := envValue(cmd.Env, "CGO_CFLAGS"); got != want {
+		t.Fatalf("CGO_CFLAGS = %q, want %q", got, want)
+	}
+}

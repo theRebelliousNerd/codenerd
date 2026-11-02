@@ -32,14 +32,21 @@ func (m Model) addMessage(msg Message) Model {
 
 	// Pre-render and cache the message (saves work during View())
 	if m.renderedCache != nil {
+		if m.renderedCacheWidth != m.wrapWidth {
+			clear(m.renderedCache)
+			m.renderedCacheWidth = m.wrapWidth
+			m.cacheInvalidFrom = 0
+		}
 		rendered := m.renderSingleMessage(msg)
 		if rendered != "" {
 			m.renderedCache[idx] = rendered
 		}
+		if m.cacheInvalidFrom == idx {
+			m.cacheInvalidFrom = len(m.history)
+		}
+	} else {
+		m.cacheInvalidFrom = len(m.history)
 	}
-
-	// Mark all messages as cached
-	m.cacheInvalidFrom = len(m.history)
 
 	return m
 }
@@ -86,6 +93,11 @@ func (m Model) addMessages(msgs ...Message) Model {
 
 	// Pre-render all new messages
 	if m.renderedCache != nil {
+		if m.renderedCacheWidth != m.wrapWidth {
+			clear(m.renderedCache)
+			m.renderedCacheWidth = m.wrapWidth
+			m.cacheInvalidFrom = 0
+		}
 		for i, msg := range msgs {
 			idx := startIdx + i
 			rendered := m.renderSingleMessage(msg)
@@ -93,10 +105,12 @@ func (m Model) addMessages(msgs ...Message) Model {
 				m.renderedCache[idx] = rendered
 			}
 		}
+		if m.cacheInvalidFrom == startIdx {
+			m.cacheInvalidFrom = len(m.history)
+		}
+	} else {
+		m.cacheInvalidFrom = len(m.history)
 	}
-
-	// Mark all messages as cached
-	m.cacheInvalidFrom = len(m.history)
 
 	return m
 }

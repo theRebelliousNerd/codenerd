@@ -401,7 +401,7 @@ func (e *Executor) verifyAndRepairCoverage(
 	if trp == nil {
 		return nil, nil, nil
 	}
-	logging.Get(logging.CategorySession).Warn(
+	logging.Get(logging.CategorySession).Info(
 		"Code this turn changed is executed by no test (%d block(s)); giving the model repair rounds to write the tests", len(result.UncoveredBlocks))
 	// The state a red give-up is undone to: the round's start, then each
 	// attempt that left the suite green, so a good attempt survives a bad one.
@@ -534,6 +534,9 @@ func (e *Executor) verifyAndRepairRemovedTests(
 // already restored (problems log 2026-10-28). green is the gate's pass; the
 // failure seeds the next attempt; uncovered is measured only withCoverage.
 func (e *Executor) recheckOwnTests(ctx context.Context, workspace string, result *ExecutionResult, withCoverage bool) (uncovered []UncoveredBlock, green bool, failure repairFailure, verdict VerifyOutcome) {
+	if result != nil {
+		formatWrittenGoFiles(workspace, result.WrittenPaths)
+	}
 	v, uncovered := gateOwnTests(ctx, workspace, result, withCoverage)
 	switch v.Verdict() {
 	case VerifyPassed, VerifyFailed:

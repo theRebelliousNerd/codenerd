@@ -587,7 +587,7 @@ func verifyPinning(ctx context.Context, workspace string, result *ExecutionResul
 		survived, _ := measureUnits(ctx, workspace, conditions, runArg, names, pkgs, bound)
 		result.PinAdvisory = survived
 		if len(survived) > 0 {
-			logging.Get(logging.CategorySession).Warn(
+			logging.Get(logging.CategorySession).Info(
 				"%d decision(s) this turn made are not distinguished by the tests it wrote (not charged):\n%s",
 				len(survived), strings.Join(survived, "\n"))
 		}

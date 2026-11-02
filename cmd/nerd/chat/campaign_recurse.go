@@ -27,8 +27,10 @@ import (
 
 // recurseState lives on the Model while the loop runs.
 type recurseState struct {
-	cancel context.CancelFunc
-	lines  chan string
+	args               []string
+	cancel             context.CancelFunc
+	lines              chan string
+	stoppingForRestart bool
 }
 
 type (
@@ -176,7 +178,7 @@ func (m Model) startRecurseCampaign(args []string) tea.Cmd {
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
-		st := &recurseState{cancel: cancel, lines: make(chan string, 64)}
+		st := &recurseState{args: slices.Clone(args), cancel: cancel, lines: make(chan string, 64)}
 		return recurseStartedMsg{state: st, run: m.runRecurseLoop(ctx, st, cfg, m.campaignPromptProvider())}
 	}
 }
@@ -252,6 +254,18 @@ func (m Model) runRecurseLoop(ctx context.Context, st *recurseState, cfg campaig
 				err = orch.Run(ctx)
 				return orch.KeptWrites(), err
 			},
+			OnKept: func(ctx context.Context, changed []string) {
+				if !m.shouldRebuildWatchedExecutable(changed) {
+					return
+				}
+				fmt.Fprintf(out, "recurse: rebuilding codeNERD binary after kept changes...\n")
+				if err := m.rebuildWatchedExecutable(ctx, changed); err != nil {
+					fmt.Fprintf(out, "recurse: self-rebuild failed: %v\n", err)
+					return
+				}
+				st.stoppingForRestart = true
+				_ = campaign.RequestRecurseStop(m.workspace)
+			},
 		})
 		out.flush()
 		close(st.lines)
@@ -307,6 +321,9 @@ func (m Model) stopRecurse() (Model, bool) {
 	if m.recurse == nil {
 		return m, false
 	}
+	m.resumeRecurse = false
+	m.resumeRecurseArgs = nil
+	m.recurse.stoppingForRestart = false
 	m.recurse.cancel()
 	m = m.pushAssistantMsg("Recurse stopping: an attempt in flight is reverted. `/recurse` resumes from the journal.")
 	return m, true
@@ -350,7 +367,15 @@ func (m Model) handleRecurseMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 		m = m.pushAssistantMsg(msg.line)
 		return m, listenRecurseLines(msg.lines), true
 	case recurseFinishedMsg:
+		prev := m.recurse
 		m.recurse = nil
+		if prev != nil && errors.Is(msg.err, campaign.ErrRecurseStopped) && (prev.stoppingForRestart || m.hasPendingRestart()) {
+			m.resumeRecurse = true
+			m.resumeRecurseArgs = slices.Clone(prev.args)
+		} else if !errors.Is(msg.err, campaign.ErrRecurseStopped) {
+			m.resumeRecurse = false
+			m.resumeRecurseArgs = nil
+		}
 		summary := msg.result.Summary()
 		if msg.err != nil && !errors.Is(msg.err, context.Canceled) && !errors.Is(msg.err, campaign.ErrRecurseStopped) {
 			summary = strings.TrimSpace(summary + fmt.Sprintf("\nStopped by an error: %v", msg.err))
@@ -359,6 +384,9 @@ func (m Model) handleRecurseMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 			summary = "Recurse ended."
 		}
 		m = m.pushAssistantMsg(summary)
+		if m.hasPendingRestart() {
+			return m, func() tea.Msg { return restartCheckMsg{} }, true
+		}
 		return m, nil, true
 	}
 	return m, nil, false

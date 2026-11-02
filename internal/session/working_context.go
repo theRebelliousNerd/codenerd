@@ -50,6 +50,9 @@ type workingLoop struct {
 	// searchOpen is the policy's working_search_open. False at the start of a
 	// loop: the raw search tools are withheld until the policy derives it.
 	searchOpen bool
+	// plannedStep is true while a single step of runPlannedSteps is running;
+	// build/lint/test verification is deferred until all steps complete.
+	plannedStep bool
 
 	// The context ledger's state, carried from request to request so what a
 	// request already carried is sent again byte for byte.
@@ -126,6 +129,24 @@ var ErrInputBudgetExceeded = errors.New("working request exceeds the input budge
 func activeWorkingLoop(ctx context.Context) *workingLoop {
 	value, _ := ctx.Value(workingLoopKey{}).(*workingLoop)
 	return value
+}
+
+func withoutWorkingLoop(ctx context.Context) context.Context {
+	if ctx == nil || activeWorkingLoop(ctx) == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, workingLoopKey{}, (*workingLoop)(nil))
+}
+
+const plannedStepVerifyDeferredText = "Build, lint, and test verification is deferred until all planned steps complete: the executive runs verification once after the final step and opens a repair round if anything fails. If this step's edit is in place, reply with one sentence saying what changed."
+
+func isStepDeferredVerifyTool(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "run_tests", "run_impacted_tests", "run_build", "run_lint":
+		return true
+	default:
+		return false
+	}
 }
 
 // workingLoopWorkspace is the workspace a working set persists this turn's

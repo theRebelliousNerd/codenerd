@@ -56,10 +56,11 @@ func (s *LocalStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
 		s.backfillMu.Lock()
 		s.backfillDone = done
 		s.backfillMu.Unlock()
+		hold := backfillStartHold
 		logging.Store("Spawning background goroutine for vector index backfill")
 		go func() {
 			defer close(done)
-			if hold := backfillStartHold; hold != nil {
+			if hold != nil {
 				<-hold
 			}
 			logging.Store("Background vector index backfill starting (dim=%d)", dim)
@@ -1136,12 +1137,16 @@ func (s *LocalStore) backfillVecIndex(dim int, space string, vecExt bool, done c
 		var queryBuilder strings.Builder
 		queryBuilder.WriteString("INSERT OR REPLACE INTO vec_index (rowid, embedding, content, metadata) VALUES ")
 		args := make([]any, 0, len(batch)*4)
+		deleteArgs := make([]any, 0, len(batch))
+		placeholders := make([]string, 0, len(batch))
 		for j, row := range batch {
 			if j > 0 {
 				queryBuilder.WriteString(", ")
 			}
 			queryBuilder.WriteString("(?, ?, ?, ?)")
 			args = append(args, row.id, row.vecBlob, row.content, row.metaJSON)
+			deleteArgs = append(deleteArgs, row.id)
+			placeholders = append(placeholders, "?")
 		}
 
 		stmt, err := tx.Prepare(queryBuilder.String())
@@ -1151,13 +1156,23 @@ func (s *LocalStore) backfillVecIndex(dim int, space string, vecExt bool, done c
 			continue
 		}
 
-		batchSuccess := 0
-		if _, err := stmt.Exec(args...); err == nil {
-			batchSuccess = len(batch)
-		} else {
+		// sqlite-vec does not replace conflicting rowids, even with OR REPLACE.
+		// Delete them in the same transaction so repeated backfills are idempotent.
+		if _, err = tx.Exec("DELETE FROM vec_index WHERE rowid IN ("+strings.Join(placeholders, ", ")+")", deleteArgs...); err != nil {
+			logging.Get(logging.CategoryStore).Warn("Failed to delete existing rows for backfill: %v", err)
+		} else if _, err = stmt.Exec(args...); err != nil {
 			logging.Get(logging.CategoryStore).Warn("Failed to execute batch statement for backfill: %v", err)
 		}
-		stmt.Close()
+		if closeErr := stmt.Close(); closeErr != nil {
+			logging.Get(logging.CategoryStore).Warn("Failed to close batch statement for backfill: %v", closeErr)
+		}
+		if err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				logging.Get(logging.CategoryStore).Warn("Failed to roll back backfill batch: %v", rollbackErr)
+			}
+			continue
+		}
+		batchSuccess := len(batch)
 
 		if err := tx.Commit(); err != nil {
 			logging.Get(logging.CategoryStore).Warn("Failed to commit backfill batch: %v", err)

@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"codenerd/internal/campaign"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
@@ -267,5 +268,110 @@ func TestPolicyReload_OnlyARejectedGenerationClaimsUnchanged(t *testing.T) {
 				t.Fatalf("missing %q in %s", want, last)
 			}
 		}
+	}
+}
+
+// A rebuild while /recurse runs asks the loop to stop at the next cycle
+// boundary, waits for the loop to finish, carries the recurse arguments
+// through the restore file, and auto-resumes /recurse once the startup scan
+// completes.
+func TestSelfRestart_PausesAndAutoResumesRecurseAcrossRebuild(t *testing.T) {
+	old, _ := journeyModel(t, config.WorkModeYolo)
+	old.isBooting = false
+	old.sessionID = "sess-recurse-restart"
+	old.recurse = &recurseState{
+		args:   []string{"--waves", "2", "--subsystem", "session"},
+		cancel: func() {},
+		lines:  make(chan string, 4),
+	}
+	r := selfrestart.NewRestarter(
+		selfrestart.Identity{Path: "/bin/nerd", Size: 10, ModTime: time.Unix(1700000000, 0), Inode: 1, Build: "aaaa"},
+		t.TempDir(),
+		nil,
+	)
+	old.restarter = r
+
+	// 1. Rebuild lands while /recurse is running: requests a boundary stop and stays busy.
+	nextID := selfrestart.Identity{Path: "/bin/nerd", Size: 11, ModTime: time.Unix(1700000100, 0), Inode: 2, Build: "bbbb"}
+	old, cmd := old.handleBinaryRebuilt(binaryRebuiltMsg{id: nextID})
+	if cmd == nil || !old.recurse.stoppingForRestart || !old.resumeRecurse {
+		t.Fatalf("rebuild did not arm recurse boundary stop: cmd=%v stopping=%v resume=%v", cmd != nil, old.recurse.stoppingForRestart, old.resumeRecurse)
+	}
+	if _, err := os.Stat(filepath.Join(old.workspace, ".nerd", "recurse", "stop")); err != nil {
+		t.Fatalf("boundary stop file not written: %v", err)
+	}
+	old, cmd = old.handleRestartCheck()
+	if old.restartRequest != nil || cmd == nil {
+		t.Fatal("restarted while /recurse was still in flight")
+	}
+
+	// 2. /recurse finishes at the cycle boundary (ErrRecurseStopped).
+	old, _, _ = old.handleRecurseMsg(recurseFinishedMsg{
+		result: &campaign.RecurseCycleResult{Passes: 1, Cycles: 1, Kept: 1},
+		err:    campaign.ErrRecurseStopped,
+	})
+	if old.recurse != nil || !old.resumeRecurse {
+		t.Fatalf("recurse state after boundary stop: recurse=%v resumeRecurse=%v", old.recurse, old.resumeRecurse)
+	}
+
+	// 3. Next restart check quits and writes the restore file with Recurse=true.
+	old, cmd = old.handleRestartCheck()
+	if old.restartRequest == nil || cmd == nil {
+		t.Fatal("did not request restart after /recurse settled")
+	}
+	var argv []string
+	old, err := old.performRestart(func(_ string, a []string, _ []string) error { argv = a; return nil })
+	if err != nil {
+		t.Fatalf("performRestart: %v", err)
+	}
+	restore, err := readRestore(argv[len(argv)-1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !restore.Recurse || len(restore.RecurseArgs) != 4 || restore.RecurseArgs[3] != "session" {
+		t.Fatalf("restore missing recurse state: %+v", restore)
+	}
+
+	// 4. Fresh process applies restore and auto-resumes /recurse when startup scan completes.
+	fresh, _ := journeyModel(t, config.WorkModeYolo)
+	fresh.workspace = old.workspace
+	fresh.sessionID = restore.SessionID
+	fresh.restore = restore
+	fresh = fresh.applyRestore()
+	if !fresh.resumeRecurse || len(fresh.resumeRecurseArgs) != 4 {
+		t.Fatalf("applyRestore did not restore recurse resume: %+v", fresh.resumeRecurseArgs)
+	}
+	fresh.isBooting = true
+	fresh.bootStage = BootStageScanning
+	fresh, scanCmd, startup := fresh.handleScanCompleteMsg(scanCompleteMsg{fileCount: 5, directoryCount: 2, factCount: 20, duration: time.Millisecond})
+	if !startup || scanCmd == nil || fresh.resumeRecurse {
+		t.Fatalf("startup scan did not consume and dispatch recurse resume: startup=%v cmd=%v resumeRecurse=%v", startup, scanCmd != nil, fresh.resumeRecurse)
+	}
+}
+
+func TestShouldRebuildWatchedExecutable(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, "cmd", "nerd"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exeInWS := filepath.Join(ws, "nerd")
+	m := NewTestModel()
+	m.workspace = ws
+	m.restarter = selfrestart.NewRestarter(selfrestart.Identity{Path: exeInWS, Size: 10}, t.TempDir(), nil)
+
+	if m.shouldRebuildWatchedExecutable([]string{"internal/store/learning_vec_version_test.go", "README.md"}) {
+		t.Fatal("test-only or doc changes should not rebuild the executable")
+	}
+	if !m.shouldRebuildWatchedExecutable([]string{"internal/store/reflection_worker.go"}) {
+		t.Fatal("production .go change in workspace should rebuild watched executable")
+	}
+	if !m.shouldRebuildWatchedExecutable([]string{"internal/core/defaults/policy/request_delivery.mg"}) {
+		t.Fatal("embedded .mg change in workspace should rebuild watched executable")
+	}
+
+	outside := selfrestart.NewRestarter(selfrestart.Identity{Path: "/usr/local/bin/nerd", Size: 10}, t.TempDir(), nil)
+	m.restarter = outside
+	if m.shouldRebuildWatchedExecutable([]string{"internal/store/reflection_worker.go"}) {
+		t.Fatal("binary outside workspace should not be rebuilt")
 	}
 }

@@ -147,6 +147,7 @@ func TestBuildImporters_WhenNewConsumerAppears_ShouldBeDocumented(t *testing.T) 
 		"internal/tools/codedom": true, // run_impacted_tests.go (run_impacted_tests via GoInvocation)
 		"internal/tools":         true, // build_exclusion.go (build-constraint detection via TestTagsForWorkspace)
 		"internal/gates":         true, // run.go (a workspace's go gates via GoInvocation)
+		"cmd/nerd/chat":          true, // self_restart.go (self-rebuild onto watched binary via BuildBinary)
 	}
 
 	seen := map[string][]string{}

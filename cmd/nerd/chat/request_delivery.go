@@ -138,10 +138,15 @@ func (m *Model) judgeDelivery(ctx context.Context, dc *deliveryChain) bool {
 		return false
 	}
 	missing := dc.fragmentsIn("delivery_fragment_missing", m.kernel)
-	if len(missing) > 0 {
+	actionable := dc.fragmentsIn("delivery_fragment_actionable", m.kernel)
+	offerParts := actionable
+	if len(offerParts) == 0 {
+		offerParts = missing
+	}
+	if len(offerParts) > 0 {
 		offer := types.Fact{Predicate: "delivery_step_offer", Args: []any{
 			dc.request, int64(dc.round), fmt.Sprintf("delivery_%d_%d", time.Now().UnixNano(), dc.round),
-			gapStepTask(dc.text, missing), types.MangleAtom("/" + dc.shardType),
+			gapStepTask(dc.text, offerParts), types.MangleAtom("/" + dc.shardType),
 		}}
 		if err := m.kernel.Assert(offer); err != nil {
 			log.Warn("delivery: the step for the missing parts was not offered: %v", err)

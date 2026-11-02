@@ -20,6 +20,7 @@
 Decl delivery_active(Request) bound [/name].
 Decl delivery_reading(Request, Round, Fragment, Asked, Delivered) bound [/name, /number, /string, /number, /number].
 Decl delivery_blocker_reading(Request, Round, Blocked) bound [/name, /number, /number].
+Decl delivery_fragment_blocker_reading(Request, Round, Fragment, Blocked) bound [/name, /number, /string, /number].
 Decl delivery_result_cut(Request, Round) bound [/name, /number].
 Decl delivery_step_offer(Request, Round, TaskID, Description, ShardType) bound [/name, /number, /string, /string, /name].
 
@@ -28,7 +29,11 @@ Decl delivery_asked(Request, Round, Fragment) bound [/name, /number, /string].
 Decl delivery_fragment_delivered(Request, Round, Fragment) bound [/name, /number, /string].
 Decl delivery_fragment_missing(Request, Round, Fragment) bound [/name, /number, /string].
 Decl delivery_fragment_unsettled(Request, Round, Fragment) bound [/name, /number, /string].
+Decl delivery_has_fragment_blocker_reading(Request, Round) bound [/name, /number].
+Decl delivery_fragment_blocked(Request, Round, Fragment) bound [/name, /number, /string].
+Decl delivery_fragment_actionable(Request, Round, Fragment) bound [/name, /number, /string].
 Decl delivery_gap(Request, Round) bound [/name, /number].
+Decl delivery_actionable_gap(Request, Round) bound [/name, /number].
 Decl delivery_has_unsettled(Request, Round) bound [/name, /number].
 Decl delivery_blocked(Request, Round) bound [/name, /number].
 Decl delivery_resolved_some(Request, Round) bound [/name, /number].
@@ -77,10 +82,35 @@ delivery_gap(Request, Round) :-
 delivery_has_unsettled(Request, Round) :-
     delivery_fragment_unsettled(Request, Round, _).
 
-delivery_blocked(Request, Round) :-
+delivery_has_fragment_blocker_reading(Request, Round) :-
+    delivery_fragment_blocker_reading(Request, Round, _, _).
+
+delivery_fragment_blocked(Request, Round, Fragment) :-
+    delivery_fragment_missing(Request, Round, Fragment),
+    delivery_fragment_blocker_reading(Request, Round, Fragment, Blocked),
+    config_param(/jev_yes_percent, Yes),
+    Blocked >= Yes.
+
+delivery_fragment_blocked(Request, Round, Fragment) :-
+    delivery_fragment_missing(Request, Round, Fragment),
+    !delivery_has_fragment_blocker_reading(Request, Round),
     delivery_blocker_reading(Request, Round, Blocked),
     config_param(/jev_yes_percent, Yes),
     Blocked >= Yes.
+
+delivery_fragment_actionable(Request, Round, Fragment) :-
+    delivery_fragment_missing(Request, Round, Fragment),
+    !delivery_fragment_blocked(Request, Round, Fragment).
+
+delivery_actionable_gap(Request, Round) :-
+    delivery_fragment_actionable(Request, Round, _).
+
+# A round is blocked only when every missing fragment is blocked and no
+# actionable missing fragment remains for codeNERD to deliver.
+delivery_blocked(Request, Round) :-
+    delivery_gap(Request, Round),
+    delivery_fragment_blocked(Request, Round, _),
+    !delivery_actionable_gap(Request, Round).
 
 # Progress: a part the previous round left missing is no longer missing.
 delivery_resolved_some(Request, Round) :-
@@ -98,7 +128,7 @@ delivery_stalled(Request, Round) :-
     !delivery_resolved_some(Request, Round).
 
 delivery_pushback(Request, Round) :-
-    delivery_gap(Request, Round),
+    delivery_actionable_gap(Request, Round),
     !delivery_blocked(Request, Round),
     !delivery_stalled(Request, Round).
 

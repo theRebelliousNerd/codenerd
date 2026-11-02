@@ -273,4 +273,12 @@ func TestTestValidator(t *testing.T) {
 	if vr.Verified {
 		t.Error("Expected test failure detection")
 	}
+
+	// Passing run_impacted_tests / run_tests output containing "-timeout" flags
+	// or test names with "Timeout"/"Error" must not false-fail validation.
+	passingImpacted := "Found 2 impacted tests:\n\nHigh Priority (2 tests):\n  - internal/tools/research.TestBrowserRuntime_TimeoutAndConnectionRefused\n\nExecuting tests...\n\nCommand: go test -tags sqlite_vec -count=1 -timeout 10m0s ./internal/tools/research\nDirectory: /workspace\n\nok  \tcodenerd/internal/tools/research\t1.234s\n"
+	vrPass := v.Validate(ctx, req, ActionResult{Success: true, Output: passingImpacted})
+	if !vrPass.Verified {
+		t.Fatalf("Expected passing impacted test output to verify, got error: %s (%v)", vrPass.Error, vrPass.Details)
+	}
 }

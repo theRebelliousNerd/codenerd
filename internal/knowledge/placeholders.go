@@ -56,6 +56,13 @@ func PrunePlaceholders(ctx context.Context, db *sql.DB) (int64, error) {
 	if exists == 0 {
 		return 0, nil
 	}
+	var placeholderCount int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM knowledge_atoms WHERE `+PlaceholderSQL).Scan(&placeholderCount); err != nil {
+		return 0, fmt.Errorf("count placeholder atoms: %w", err)
+	}
+	if placeholderCount == 0 {
+		return 0, nil
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("begin placeholder prune: %w", err)

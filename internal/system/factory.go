@@ -1836,6 +1836,7 @@ func initIntelligenceLayer(bctx *bootContext) error {
 	if _, statErr := os.Stat(corpusPath); statErr == nil {
 		projectDB, dbErr := sql.Open("sqlite3", corpusPath)
 		if dbErr == nil {
+			projectDB.SetMaxOpenConns(1)
 			sqlpragmas.ApplyDefaultPragmas(projectDB, sqlpragmas.ProfileHot)
 			if err := bctx.atomLoader.EnsureSchema(bctx.ctx, projectDB); err != nil {
 				logging.Get(logging.CategoryContext).Warn("Failed to ensure project corpus schema: %v", err)
@@ -3077,6 +3078,7 @@ func IngestHybridPrompts(ctx context.Context, workspace string, kernel SystemKer
 		return 0, fmt.Errorf("failed to open hybrid prompt corpus DB: %w", err)
 	}
 	defer db.Close()
+	db.SetMaxOpenConns(1)
 	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileBulkBuild)
 
 	if err := atomLoader.EnsureSchema(ctx, db); err != nil {

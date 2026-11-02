@@ -100,6 +100,7 @@ func (e *Executor) runToolLoopPass(
 	defer closeWorking()
 	if loop := activeWorkingLoop(ctx); loop != nil {
 		loop.result = result
+		loop.plannedStep = pass.plannedStep
 		if pass.regime != "" {
 			loop.regime = pass.regime
 		}
@@ -2561,6 +2562,9 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	// them (completeWithWorkingContext): this is where the policy holds.
 	if loop := activeWorkingLoop(ctx); loop != nil && loop.regime == commitRegime && e.closedForReading(call.Name) {
 		return workingRegimeText(commitRegime), nil
+	}
+	if loop := activeWorkingLoop(ctx); loop != nil && loop.plannedStep && isStepDeferredVerifyTool(call.Name) {
+		return plannedStepVerifyDeferredText, nil
 	}
 	// The same for a raw search tool the policy has not opened yet, when this
 	// agent holds the structural query that stands in for it.

@@ -87,6 +87,36 @@ func TestMessageRenderingCache(t *testing.T) {
 	t.Logf("✅ Cache test passed: 3 messages cached, rendered in %v", duration)
 }
 
+// TestRenderHistoryPopulatesCacheAfterRestore verifies that when history is
+// restored or invalidated (empty renderedCache, cacheInvalidFrom=0) and a
+// notice is appended via addMessage, renderHistory caches all visible messages
+// rather than leaving historical messages uncached on subsequent turns.
+func TestRenderHistoryPopulatesCacheAfterRestore(t *testing.T) {
+	m := Model{
+		history: []Message{
+			{Role: "user", Content: "Restored user question", Time: time.Now()},
+			{Role: "assistant", Content: "Restored **markdown** answer", Time: time.Now()},
+		},
+		renderedCache:    make(map[int]string),
+		cacheInvalidFrom: 0,
+		styles:           ui.DefaultStyles(),
+	}
+
+	// Simulate applyRestore appending a restore notice before renderHistory runs.
+	m = m.addMessage(Message{Role: "assistant", Content: "Session restored.", Time: time.Now()})
+	if m.cacheInvalidFrom != 0 {
+		t.Fatalf("cacheInvalidFrom = %d after addMessage on uncached history, want 0", m.cacheInvalidFrom)
+	}
+
+	_ = m.renderHistory()
+	if len(m.renderedCache) != 3 {
+		t.Fatalf("len(renderedCache) = %d after renderHistory, want 3", len(m.renderedCache))
+	}
+	if m.cacheInvalidFrom != 3 {
+		t.Fatalf("cacheInvalidFrom = %d after renderHistory, want 3", m.cacheInvalidFrom)
+	}
+}
+
 // TestAddMessagesHelper verifies bulk message addition
 func TestAddMessagesHelper(t *testing.T) {
 	m := Model{

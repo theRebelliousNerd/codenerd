@@ -392,13 +392,15 @@ type Model struct {
 	// restarter and channel, the state a quit asks RunInteractiveChat to exec
 	// with, a failed exec (no retry until the next rebuild), and the state
 	// this process was restored from, applied once boot has wired the kernel.
-	restarter       *selfrestart.Restarter
-	rebuilds        <-chan selfrestart.Identity
-	restartRequest  *selfrestart.State
-	restartFailed   *selfrestart.Identity // suppress only the executable whose attempt failed
-	restore         *selfrestart.State
-	planChain       bool
-	chainUnverified bool
+	restarter         *selfrestart.Restarter
+	rebuilds          <-chan selfrestart.Identity
+	restartRequest    *selfrestart.State
+	restartFailed     *selfrestart.Identity // suppress only the executable whose attempt failed
+	restore           *selfrestart.State
+	resumeRecurse     bool
+	resumeRecurseArgs []string
+	planChain         bool
+	chainUnverified   bool
 	// chainUnverifiedNote retains unverified plan-step summaries across
 	// advances, so the closing verdict explains the missing evidence.
 	chainUnverifiedNote string
@@ -914,6 +916,7 @@ type (
 		stateJSON   string
 		turnNumber  int
 		hasState    bool
+		hydrated    bool
 		observerErr error
 	}
 

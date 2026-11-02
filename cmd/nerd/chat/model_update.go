@@ -897,14 +897,29 @@ func (m *Model) prepareBootHydration(sessionID string) {
 func (m Model) runBootDeferred(sessionID string) tea.Cmd {
 	localDB := m.localDB
 	observerMgr := m.observerMgr
+	compressor := m.compressor
 	return func() tea.Msg {
 		out := bootDeferredMsg{sessionID: sessionID}
-		if localDB != nil && m.compressor != nil {
+		if localDB != nil && compressor != nil {
 			stateJSON, turnNumber, _, err := localDB.LoadLatestCompressedState(sessionID)
 			if err == nil && len(stateJSON) > 0 {
 				out.stateJSON = stateJSON
 				out.turnNumber = turnNumber
 				out.hasState = true
+			}
+		}
+		if compressor != nil && (compressor.GetSessionID() == "" || compressor.GetSessionID() == sessionID) {
+			if out.hasState {
+				state, err := ctxcompress.UnmarshalCompressedState([]byte(out.stateJSON))
+				if err == nil && (state.SessionID == "" || state.SessionID == sessionID) {
+					state.SessionID = sessionID
+					if loadErr := compressor.LoadState(state); loadErr == nil {
+						out.hydrated = true
+					}
+				}
+			} else {
+				compressor.RefreshBudget()
+				out.hydrated = true
 			}
 		}
 		if observerMgr != nil {
@@ -930,7 +945,11 @@ func (m Model) handleBootDeferredMsg(msg bootDeferredMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if msg.hasState {
+	if msg.hydrated {
+		if msg.hasState && msg.turnNumber > m.turnCount {
+			m.turnCount = msg.turnNumber
+		}
+	} else if msg.hasState {
 		m.applyBootHydratedState(msg.stateJSON, msg.turnNumber, msg.sessionID)
 	} else if m.compressor != nil {
 		m.compressor.RefreshBudget()
@@ -1066,6 +1085,15 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 		m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
 		m.textarea.Focus()
 
+		var resumeCmd tea.Cmd
+		if m.resumeRecurse {
+			args := make([]string, len(m.resumeRecurseArgs))
+			copy(args, m.resumeRecurseArgs)
+			m.resumeRecurse = false
+			m.resumeRecurseArgs = nil
+			resumeCmd = m.startRecurseCampaign(args)
+		}
+
 		// Fire first-run onboarding check AND LLM health check in parallel.
 		// The health check is a non-blocking smoke test that also generates
 		// a project-aware welcome message. If it fails, the user sees a
@@ -1074,6 +1102,7 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			persistCmd,
 			checkFirstRun(m.workspace),
 			m.performWelcomeHealthCheck(msg),
+			resumeCmd,
 		), true
 	}
 

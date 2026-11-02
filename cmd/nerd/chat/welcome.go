@@ -123,18 +123,31 @@ func (m Model) placeWelcome(text string) Model {
 		return m.pushAssistantMsg(text)
 	}
 	greeting := Message{Role: "assistant", Content: text, Time: time.Now()}
+	greeting = m.attribute(greeting)
 	m.history = slices.Insert(slices.Clone(m.history), at, greeting)
-	// Every message from the insertion on moved down one: their cached
-	// renders are keyed by the old index.
+	// Every message from the insertion on moved down one: shift their cached
+	// renders by +1 and cache only the newly inserted greeting.
 	if m.renderedCache != nil {
-		for idx := range m.renderedCache {
-			if idx >= at {
-				delete(m.renderedCache, idx)
+		if m.renderedCacheWidth != m.wrapWidth {
+			clear(m.renderedCache)
+			m.renderedCacheWidth = m.wrapWidth
+			m.cacheInvalidFrom = 0
+		} else {
+			for idx := len(m.history) - 2; idx >= at; idx-- {
+				if cached, ok := m.renderedCache[idx]; ok {
+					m.renderedCache[idx+1] = cached
+				} else {
+					delete(m.renderedCache, idx+1)
+				}
+			}
+			delete(m.renderedCache, at)
+			if rendered := m.renderSingleMessage(greeting); rendered != "" {
+				m.renderedCache[at] = rendered
+			}
+			if m.cacheInvalidFrom > at {
+				m.cacheInvalidFrom++
 			}
 		}
-	}
-	if m.cacheInvalidFrom < 0 || m.cacheInvalidFrom > at {
-		m.cacheInvalidFrom = at
 	}
 	m.viewport.SetContent(m.renderHistory())
 	return m

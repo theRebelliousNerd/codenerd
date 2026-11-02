@@ -700,6 +700,8 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 		// judged against it once the plan has run (request_delivery.go).
 		var ran []string
 		var reports []observation.Return
+		stepReturns := make(map[int]observation.Return)
+		var lastShardResult *ShardResultPayload
 		results = append(results, fmt.Sprintf("## Multi-Step Task Execution\n\n**Original Request**: %s\n**Steps**: %d\n", intent.Response, len(steps)))
 
 		for i, step := range steps {
@@ -723,9 +725,24 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 				i+1, strings.TrimPrefix(step.Verb, "/"), step.Target, step.ShardType))
 
 			if step.ShardType != "" {
+				if depIdx, depRet, ok := satisfiedTesterDependency(step, stepReturns); ok {
+					summary := strings.TrimSpace(depRet.Output)
+					if depRet.Tests != nil && strings.TrimSpace(depRet.Tests.Detail) != "" {
+						summary = strings.TrimSpace(depRet.Tests.Detail)
+					}
+					stepResults[i] = summary
+					stepReturns[i] = depRet
+					ran = append(ran, normalizeShardType(step.ShardType))
+					reports = append(reports, depRet)
+					verifiedSteps++
+					results = append(results, fmt.Sprintf("**Status**: Complete (satisfied by step %d's verified post-edit test & coverage gates)\n```\n%s\n```\n",
+						depIdx+1, summary))
+					continue
+				}
+
 				req := shardTypeToTaskRequest(step.ShardType, step.Task)
 				req.Target = step.Target
-				ret, err := m.spawnTaskWithContext(ctx, req, nil, types.PriorityNormal)
+				ret, err := m.spawnTaskWithContext(ctx, req, m.buildSessionContext(ctx), types.PriorityNormal)
 				result := ret.Output
 
 				// CRITICAL FIX: Inject multi-step shard results as facts
@@ -741,8 +758,17 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 					continue
 				}
 
+				m.storeShardResult(step.ShardType, step.Task, result, facts)
+				lastShardResult = &ShardResultPayload{
+					ShardType: step.ShardType,
+					Task:      step.Task,
+					Result:    result,
+					Facts:     facts,
+				}
+
 				// Store result for dependencies
 				stepResults[i] = result
+				stepReturns[i] = ret
 				ran = append(ran, normalizeShardType(step.ShardType))
 				reports = append(reports, ret)
 				if continuationOutcomeFor(ret, nil) == continuationCompleted {
@@ -773,6 +799,10 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 
 		// A part of the request the plan did not deliver goes on as a
 		// continuation step, to the plan's writing shard.
+		var allChanged []string
+		for _, r := range reports {
+			allChanged = append(allChanged, r.Changed...)
+		}
 		if dc := m.startDelivery(rawInput, m.gapShard(ran)); dc != nil && len(ran) > 0 {
 			for _, r := range reports {
 				dc.record(r)
@@ -780,6 +810,7 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 			if next := m.nextStep(ctx, dc); next != nil {
 				return continuationInitMsg{
 					completedSurface: strings.Join(results, ""),
+					firstResult:      lastShardResult,
 					next:             *next,
 					delivery:         dc,
 				}
@@ -787,7 +818,42 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 			m.endDelivery()
 			results = append(results, "\n"+dc.summaryNote()+"\n")
 		}
+		if verifiedSteps > 0 && m.shouldRebuildWatchedExecutable(allChanged) {
+			if err := m.rebuildWatchedExecutable(ctx, allChanged); err != nil {
+				logging.Get(logging.CategoryBoot).Warn("self-rebuild after multi-step plan failed: %v", err)
+			}
+		}
 
-		return responseMsg(strings.Join(results, ""))
+		return assistantMsg{
+			Surface:     strings.Join(results, ""),
+			ShardResult: lastShardResult,
+		}
 	}
+}
+
+// satisfiedTesterDependency reports whether a tester/test step is already
+// satisfied by a preceding dependent step whose own post-edit test and
+// coverage gates verified the changed Go code with no pending test obligation.
+func satisfiedTesterDependency(step TaskStep, stepReturns map[int]observation.Return) (int, observation.Return, bool) {
+	if normalizeShardType(step.ShardType) != "tester" && step.Verb != "/test" {
+		return 0, observation.Return{}, false
+	}
+	if len(step.DependsOn) == 0 {
+		return 0, observation.Return{}, false
+	}
+	for _, depIdx := range step.DependsOn {
+		depRet, ok := stepReturns[depIdx]
+		if !ok {
+			continue
+		}
+		if depRet.Outcome == "/done" &&
+			changedGoSource(depRet.Changed) &&
+			!pendingTestOwed(depRet) &&
+			depRet.Tests != nil &&
+			depRet.Tests.Ran &&
+			depRet.Tests.OK {
+			return depIdx, depRet, true
+		}
+	}
+	return 0, observation.Return{}, false
 }

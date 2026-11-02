@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"regexp"
 	"strings"
 	"sync"
@@ -152,6 +153,17 @@ func (v *ExecutionValidator) Validate(ctx context.Context, req ActionRequest, re
 	// a failure that sat in the middle of a long log.
 	output := stripANSI(result.Output)
 
+	if req.Type == ActionRunTests && isPassingGoTestOutput(output) {
+		return ValidationResult{
+			Verified:   true,
+			Confidence: 0.95,
+			Method:     ValidationMethodOutputScan,
+			Details: map[string]any{
+				"output_length": len(output),
+			},
+		}
+	}
+
 	v.mu.RLock()
 	patterns := v.failurePatterns
 	v.mu.RUnlock()
@@ -277,6 +289,44 @@ func (v *ExecutionValidator) validateCommandSpecific(ctx context.Context, req Ac
 
 // Name returns the validator name.
 func (v *ExecutionValidator) Name() string { return "execution_validator" }
+
+// isPassingGoTestOutput reports whether output comes from a passing `go test`
+// tool invocation (either plain text from run_impacted_tests or JSON from
+// run_tests) where at least one package reported `ok` and no test or runtime
+// panic failed. Passing test suites routinely contain substrings like
+// "-timeout 10m0s", "Test...Timeout...", or "connection refused" in test names
+// and log lines.
+func isPassingGoTestOutput(output string) bool {
+	trimmed := strings.TrimSpace(output)
+	if strings.HasPrefix(trimmed, "{") {
+		var env struct {
+			ExitCode *int   `json:"exit_code"`
+			Output   string `json:"output"`
+		}
+		if err := json.Unmarshal([]byte(trimmed), &env); err == nil && env.ExitCode != nil {
+			if *env.ExitCode != 0 {
+				return false
+			}
+			output = env.Output
+		}
+	}
+	hasOK := false
+	for _, line := range strings.Split(output, "\n") {
+		l := strings.TrimSpace(line)
+		if strings.HasPrefix(l, "--- FAIL:") ||
+			strings.HasPrefix(l, "FAIL\t") ||
+			strings.HasPrefix(l, "FAIL ") ||
+			l == "FAIL" ||
+			strings.HasPrefix(strings.ToLower(l), "panic:") ||
+			strings.HasPrefix(strings.ToLower(l), "fatal:") {
+			return false
+		}
+		if strings.HasPrefix(l, "ok\t") || strings.HasPrefix(l, "ok  \t") || strings.HasPrefix(l, "ok ") {
+			hasOK = true
+		}
+	}
+	return hasOK
+}
 
 // Priority returns the validator priority.
 func (v *ExecutionValidator) Priority() int { return 10 }

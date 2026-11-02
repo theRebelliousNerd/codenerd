@@ -133,6 +133,9 @@ type RecurseCycleConfig struct {
 	// can move findings into a package it did not touch, which only a full
 	// measurement sees. Zero measures in full only at the start.
 	FullGateMeasureEvery int
+	// OnKept is called after a kept attempt has been committed to git,
+	// recorded in the journal, and cleared from inflight.json.
+	OnKept func(ctx context.Context, changed []string)
 }
 
 // RecurseCycleResult is what a run did.
@@ -1280,7 +1283,13 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) (r
 		r.rememberRevert(rec)
 	}
 	r.logf("recurse cycle %d: %s %s", cycle, strings.TrimPrefix(rec.Outcome, "/"), rec.Metrics)
-	return os.Remove(inFlightPath(r.root))
+	if err := os.Remove(inFlightPath(r.root)); err != nil {
+		return err
+	}
+	if rec.Outcome == outcomeKept && r.cfg.OnKept != nil {
+		r.cfg.OnKept(ctx, changed)
+	}
+	return nil
 }
 
 // metrics measures the numbers an attempt is judged by, reading coverage

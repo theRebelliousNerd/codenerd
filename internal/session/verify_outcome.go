@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"reflect"
 	"time"
 
 	"codenerd/internal/processutil"
@@ -80,6 +81,14 @@ func runVerificationProcess(ctx context.Context, dir string, env []string, name 
 var verifyBuildRunner verifyCommandRunner = runVerificationProcess
 
 var verifyTestRunner verifyCommandRunner = runVerificationProcess
+
+// hasDefaultVerificationRunners reports whether both verification runners
+// still point to runVerificationProcess rather than a test seam.
+func hasDefaultVerificationRunners() bool {
+	defaultPtr := reflect.ValueOf(runVerificationProcess).Pointer()
+	return reflect.ValueOf(verifyBuildRunner).Pointer() == defaultPtr &&
+		reflect.ValueOf(verifyTestRunner).Pointer() == defaultPtr
+}
 
 // verifyLookPath resolves the Go toolchain. A seam so missing-toolchain
 // tests do not depend on PATH surgery.

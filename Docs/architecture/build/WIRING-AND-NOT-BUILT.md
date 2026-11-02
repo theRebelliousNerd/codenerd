@@ -51,6 +51,9 @@ the configured `build.go_flags` (`AppendGoFlags`). Its callers:
   (`WorkspaceUserConfig`).
 - `internal/campaign/recurse_workspace.go` — `go list -e -json ./...`, which
   derives the recurse DAG's Go packages.
+- `cmd/nerd/chat/self_restart.go` — `BuildBinary` (`internal/build/invocation.go`),
+  which recompiles `./cmd/nerd` into the watched executable after verified
+  `.go`/`.mg` changes so the self-restart watcher hot-reloads the running TUI.
 
 `GetBuildEnvForModule` was deleted: `GoInvocation` computes the same
 detection root and, unlike it, never adopts headers above the workspace.

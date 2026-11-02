@@ -4,8 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
 
 	"codenerd/internal/browser"
 	"codenerd/internal/config"
@@ -234,7 +238,8 @@ func (rt *BrowserRuntime) headlessManager(ctx context.Context) (*browser.Session
 // started. The interactive manager belongs to Cortex and is shut down by it
 // after this returns. Close is idempotent; a replacement runtime's binding and
 // resources are never touched. A bounded ctx that expires before the reads
-// drain still shuts the headless browser down and reports the stragglers.
+// drain still shuts the headless browser down with a bounded cleanup context
+// and reports the stragglers.
 func (rt *BrowserRuntime) Close(ctx context.Context) error {
 	if rt == nil {
 		return nil
@@ -267,13 +272,60 @@ func (rt *BrowserRuntime) Close(ctx context.Context) error {
 	if headless != nil {
 		shutdownCtx := ctx
 		if shutdownCtx.Err() != nil {
-			shutdownCtx = context.Background()
+			// Cleanup must outlive the caller's expired read-drain context,
+			// but a surviving control listener must not keep Close alive forever.
+			var cancel context.CancelFunc
+			shutdownCtx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 		}
+		controlURL := headless.ControlURL()
 		if err := headless.Shutdown(shutdownCtx); err != nil {
 			errs = append(errs, fmt.Errorf("shut down research headless browser: %w", err))
 		}
+		if controlURL != "" {
+			dialer := net.Dialer{Timeout: 100 * time.Millisecond}
+			if err := waitResearchControlEndpoint(shutdownCtx, controlURL, dialer.DialContext); err != nil {
+				errs = append(errs, err)
+			}
+		}
 	}
 	return errors.Join(errs...)
+}
+
+// waitResearchControlEndpoint only verifies shutdown on connection refusal.
+// A probe timeout is inconclusive and is retried within ctx's lifetime.
+func waitResearchControlEndpoint(ctx context.Context, controlURL string, dial func(context.Context, string, string) (net.Conn, error)) error {
+	endpoint, err := url.Parse(controlURL)
+	if err != nil {
+		return fmt.Errorf("parse research headless control URL: %w", err)
+	}
+	if endpoint.Host == "" {
+		return errors.New("research headless control URL has no TCP endpoint")
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		conn, err := dial(ctx, "tcp", endpoint.Host)
+		if err != nil {
+			if ctx.Err() != nil {
+				return fmt.Errorf("research headless control endpoint did not stop before shutdown expired: %w", ctx.Err())
+			}
+			if errors.Is(err, syscall.ECONNREFUSED) {
+				return nil
+			}
+			var netErr net.Error
+			if !errors.As(err, &netErr) || !netErr.Timeout() {
+				return fmt.Errorf("probe research headless control endpoint: %w", err)
+			}
+		} else if err := conn.Close(); err != nil {
+			return fmt.Errorf("close research headless control endpoint probe: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("research headless control endpoint did not stop before shutdown expired: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 // runtimeKernelSink writes the headless browser's facts into the kernel its

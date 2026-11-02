@@ -87,7 +87,54 @@ func CheckDelivery(ctx context.Context, a Asker, in DeliveryInput) (DeliveryRead
 			reading.Verdicts = append(reading.Verdicts, CoverageVerdict{Fragment: in.Fragments[i], Asked: asked, Delivered: delivered})
 		}
 	}
+	if countUndeliveredCandidates(reading.Verdicts) >= 2 && reading.Blocked >= 0.5 {
+		if err := populateFragmentBlockers(ctx, a, state, &reading); err != nil {
+			return DeliveryReading{}, err
+		}
+	}
 	return reading, nil
+}
+
+func countUndeliveredCandidates(verdicts []CoverageVerdict) int {
+	n := 0
+	for _, v := range verdicts {
+		if v.Asked > 0.3 && v.Delivered < 0.7 {
+			n++
+		}
+	}
+	return n
+}
+
+func fragmentBlockedQuestion(fragment string) typesafe.Question {
+	return typesafe.Noul{
+		Instructions: fmt.Sprintf("In `result`, is %q blocked by an obstacle codeNERD cannot clear by itself?", fragment),
+		Criteria: &typesafe.NoulCriteria{
+			True:  "That specific part cannot be completed because of a permission or policy denial, a missing credential or input from the user, or a choice only the user can make.",
+			False: "No such obstacle blocks that specific part: it is done, or it is work codeNERD could still do in the repository without waiting on the user.",
+		},
+	}
+}
+
+func populateFragmentBlockers(ctx context.Context, a Asker, state map[string]any, reading *DeliveryReading) error {
+	for start := 0; start < len(reading.Verdicts); start += coverageQuestionsPerRequest {
+		end := min(start+coverageQuestionsPerRequest, len(reading.Verdicts))
+		questions := make(map[string]typesafe.Question, end-start)
+		for i := start; i < end; i++ {
+			questions[fmt.Sprintf("blocked_%d", i)] = fragmentBlockedQuestion(reading.Verdicts[i].Fragment)
+		}
+		resp, err := a.Ask(typesafe.WithOperation(ctx, OpRequestDelivery), state, questions)
+		if err != nil {
+			return err
+		}
+		for i := start; i < end; i++ {
+			blocked, err := resp.Noul(fmt.Sprintf("blocked_%d", i))
+			if err != nil {
+				return err
+			}
+			reading.Verdicts[i].Blocked = blocked
+		}
+	}
+	return nil
 }
 
 // deliveryState is what a person would look at: the request, what the steps
@@ -116,18 +163,24 @@ func deliveryState(in DeliveryInput) map[string]any {
 // Kernel projections (policy/request_delivery.mg). Percents are whole
 // numbers, as config_param(/jev_yes_percent) and /jev_no_percent are.
 const (
-	DeliveryReadingPredicate = "delivery_reading"
-	DeliveryBlockerPredicate = "delivery_blocker_reading"
-	DeliveryCutPredicate     = "delivery_result_cut"
+	DeliveryReadingPredicate         = "delivery_reading"
+	DeliveryBlockerPredicate         = "delivery_blocker_reading"
+	DeliveryFragmentBlockerPredicate = "delivery_fragment_blocker_reading"
+	DeliveryCutPredicate             = "delivery_result_cut"
 )
 
 // DeliveryFacts projects one round's reading for one request.
 func DeliveryFacts(request any, round int, r DeliveryReading) []types.Fact {
-	facts := make([]types.Fact, 0, len(r.Verdicts)+2)
+	facts := make([]types.Fact, 0, 2*len(r.Verdicts)+2)
 	for _, v := range r.Verdicts {
 		facts = append(facts, types.Fact{Predicate: DeliveryReadingPredicate, Args: []any{
 			request, int64(round), v.Fragment, types.PercentFromRatio(v.Asked), types.PercentFromRatio(v.Delivered),
 		}})
+		if v.Blocked > 0 {
+			facts = append(facts, types.Fact{Predicate: DeliveryFragmentBlockerPredicate, Args: []any{
+				request, int64(round), v.Fragment, types.PercentFromRatio(v.Blocked),
+			}})
+		}
 	}
 	facts = append(facts, types.Fact{Predicate: DeliveryBlockerPredicate, Args: []any{request, int64(round), types.PercentFromRatio(r.Blocked)}})
 	if r.ResultCut {

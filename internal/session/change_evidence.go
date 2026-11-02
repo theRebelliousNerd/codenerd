@@ -167,14 +167,28 @@ func (e *Executor) remeasureGates(ctx context.Context, workspace string, result 
 		result.BuildCheck = fresh
 	}
 	// Coverage is owed exactly when the tests are (turn_rounds.mg), and is
-	// measured by the same run.
+	// measured by the same run. Overlap the local AST-based untested-file and
+	// removed-test scans with gateTests so disk AST parsing runs in parallel
+	// with go test.
+	var removed []string
+	var removedCh chan []string
+	if ran["/removed_tests"] && ran["/test"] && cfg.VerifyTestsAfterEdits {
+		removedCh = make(chan []string, 1)
+		go func() {
+			removedCh <- removedTestFunctions(workspace, result.WrittenPaths, result.PreWriteContents)
+		}()
+	}
 	if ran["/test"] && cfg.VerifyTestsAfterEdits {
-		result.UntestedPaths = untestedWithoutCoverageOnDisk(workspace, result.WrittenPaths)
+		untestedCh := make(chan []string, 1)
+		go func() {
+			untestedCh <- untestedWithoutCoverageOnDisk(workspace, result.WrittenPaths)
+		}()
 		// Must stay the same helper the post-edit gate uses (gateTests), or a
 		// tag-gated package fails the turn twice over. With coverage: the
 		// blocks no test runs are this revision's too, whichever way they
 		// moved -- a later round can add one or pay one off.
 		fresh, uncovered := gateTests(ctx, workspace, result, true)
+		result.UntestedPaths = <-untestedCh
 		fresh.Repair = inheritRepair(fresh.Verdict(), result.TestCheck.Repair)
 		result.TestCheck = fresh
 		result.UncoveredBlocks = narrowToChangedLines(workspace, result, uncovered)
@@ -200,7 +214,12 @@ func (e *Executor) remeasureGates(ctx context.Context, workspace string, result 
 		result.VetCheck = fresh
 	}
 	if ran["/removed_tests"] {
-		if removed := removedTestFunctions(workspace, result.WrittenPaths, result.PreWriteContents); e.removedTestsGateRed(result.turnAtom(), removed) {
+		if removedCh != nil {
+			removed = <-removedCh
+		} else {
+			removed = removedTestFunctions(workspace, result.WrittenPaths, result.PreWriteContents)
+		}
+		if e.removedTestsGateRed(result.turnAtom(), removed) {
 			return removedTestsError(removed)
 		}
 	}

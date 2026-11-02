@@ -102,3 +102,35 @@ func TestDeliveryFacts_ProjectsWholePercentsPerRound(t *testing.T) {
 		t.Fatalf("cut fact = %v", facts[2])
 	}
 }
+
+func TestCheckDelivery_PopulatesFragmentBlockersWhenMultipleFragmentsUndeliveredAndBlocked(t *testing.T) {
+	a := &autopoiesisAsker{answers: map[string]float64{
+		"asked_0": 0.99, "delivered_0": 0.05,
+		"asked_1": 0.98, "delivered_1": 0.03,
+		DeliveryNamesBlocker: 0.95,
+		"blocked_0":          0.04,
+		"blocked_1":          0.97,
+	}}
+	in := DeliveryInput{
+		Request:   "fix the index migration and trace problem 2 from the log line",
+		Reports:   []string{"Send the Problem 2 log line to trace it."},
+		Fragments: []string{"fix the index migration", "trace problem 2 from the log line"},
+	}
+	got, err := CheckDelivery(context.Background(), a, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Verdicts) != 2 || got.Verdicts[0].Blocked != 0.04 || got.Verdicts[1].Blocked != 0.97 {
+		t.Fatalf("verdicts = %+v, want per-fragment blocker readings", got.Verdicts)
+	}
+	facts := DeliveryFacts(types.MangleAtom("/delivery_partial"), 1, got)
+	foundFragBlocker := 0
+	for _, f := range facts {
+		if f.Predicate == DeliveryFragmentBlockerPredicate {
+			foundFragBlocker++
+		}
+	}
+	if foundFragBlocker != 2 {
+		t.Fatalf("expected 2 %s facts, got %d (%v)", DeliveryFragmentBlockerPredicate, foundFragBlocker, facts)
+	}
+}

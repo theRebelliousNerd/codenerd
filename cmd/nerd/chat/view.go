@@ -69,10 +69,19 @@ func (m *Model) renderHistory() string {
 
 		// Message not cached or cache invalidated - render it now
 		rendered := m.renderSingleMessage(msg)
-
-		// Note: Can't update cache here (View() is value receiver, updates won't persist)
-		// Cache is populated in Update() via updateMessageCache() helper
+		if m.renderedCache != nil {
+			if m.renderedCacheWidth != m.wrapWidth {
+				clear(m.renderedCache)
+				m.renderedCacheWidth = m.wrapWidth
+			}
+			if rendered != "" {
+				m.renderedCache[idx] = rendered
+			}
+		}
 		sb.WriteString(rendered)
+	}
+	if m.renderedCache != nil && m.renderedCacheWidth == m.wrapWidth {
+		m.cacheInvalidFrom = len(m.history)
 	}
 
 	return sb.String()

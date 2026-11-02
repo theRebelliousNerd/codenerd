@@ -517,3 +517,64 @@ func TestGateKey_IncludesBaselineIdentity(t *testing.T) {
 		t.Fatal("duplicate written path invalidated an unchanged obligation")
 	}
 }
+
+func TestGateMemo_TestOnlyEditInOwnPackageReusesImporterMeasurement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	ws := importerModule(t, aBefore)
+	result := mutationResult()
+	result.Intent.Verb = "/fix"
+	result.WrittenPaths = []string{"a/a.go"}
+	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aBefore)}
+	launches := countTestLaunches(t)
+
+	first, _ := gateTests(context.Background(), ws, result, true)
+	if first.Verdict() != VerifyPassed || result.ImporterCheck.Verdict() != VerifyPassed {
+		t.Fatalf("initial gate: own=%s importers=%s", first.Verdict(), result.ImporterCheck.Verdict())
+	}
+	afterInitial := *launches
+
+	// Adding or editing a *_test.go file in package a (as /coverage or /pinned
+	// does) must re-run package a's own tests but reuse the importer measurement,
+	// because importer package b never compiles a/*_test.go.
+	extraTest := "package a\n\nimport \"testing\"\n\nfunc TestExtra(t *testing.T) {\n\tif Name() != \"widget\" {\n\t\tt.Fatal(\"unexpected\")\n\t}\n}\n"
+	if err := os.WriteFile(filepath.Join(ws, "a", "extra_test.go"), []byte(extraTest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result.WrittenPaths = append(result.WrittenPaths, "a/extra_test.go")
+	result.PreWriteContents["a/extra_test.go"] = PreImage{}
+
+	second, _ := gateTests(context.Background(), ws, result, true)
+	if second.Verdict() != VerifyPassed || result.ImporterCheck.Verdict() != VerifyPassed {
+		t.Fatalf("after _test.go edit: own=%s importers=%s", second.Verdict(), result.ImporterCheck.Verdict())
+	}
+	if got := *launches - afterInitial; got != 1 {
+		t.Fatalf("_test.go-only edit in own package launched %d go test run(s), want 1 (own package only, importers reused)", got)
+	}
+}
+
+func TestGateTestsConcurrent_RunsOwnAndImportersAndCaches(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	ws := importerModule(t, aBefore)
+	result := mutationResult()
+	result.Intent.Verb = "/fix"
+	result.WrittenPaths = []string{"a/a.go"}
+	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aBefore)}
+
+	own, _ := gateTestsConcurrent(context.Background(), ws, result, true)
+	if own.Verdict() != VerifyPassed || result.ImporterCheck.Verdict() != VerifyPassed {
+		t.Fatalf("gateTestsConcurrent: own=%s importers=%s", own.Verdict(), result.ImporterCheck.Verdict())
+	}
+
+	launches := countTestLaunches(t)
+	again, _ := gateTests(context.Background(), ws, result, true)
+	if again.Verdict() != VerifyPassed || result.ImporterCheck.Verdict() != VerifyPassed {
+		t.Fatalf("recalled gateTests: own=%s importers=%s", again.Verdict(), result.ImporterCheck.Verdict())
+	}
+	if *launches != 0 {
+		t.Fatalf("recalled gateTests after gateTestsConcurrent launched %d go test run(s), want 0", *launches)
+	}
+}

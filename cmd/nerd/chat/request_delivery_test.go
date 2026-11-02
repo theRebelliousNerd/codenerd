@@ -59,6 +59,7 @@ func TestDeliveryPolicy_TruthTable(t *testing.T) {
 	}
 	type round struct {
 		asked, delivered []int64
+		fragBlocked      []int64
 		blocked          int64
 		cut              bool
 	}
@@ -74,6 +75,7 @@ func TestDeliveryPolicy_TruthTable(t *testing.T) {
 		{name: "everything delivered", rounds: []round{{asked: []int64{97, 97}, delivered: []int64{96, 91}, blocked: 2}}, outcome: "/delivered"},
 		{name: "a missing part goes back", rounds: []round{{asked: []int64{97, 97}, delivered: []int64{96, 4}, blocked: 2}}, outcome: "/pushback", pending: true},
 		{name: "a named blocker stops it", rounds: []round{{asked: []int64{97, 97}, delivered: []int64{96, 21}, blocked: 98}}, outcome: "/blocked"},
+		{name: "a partial blocker still pushes actionable missing parts", rounds: []round{{asked: []int64{97, 97}, delivered: []int64{4, 5}, fragBlocked: []int64{3, 98}, blocked: 98}}, outcome: "/pushback", pending: true},
 		{name: "an unsettled blocker still pushes", rounds: []round{{asked: []int64{97, 97}, delivered: []int64{96, 4}, blocked: 50}}, outcome: "/pushback", pending: true},
 		{name: "an unsettled part is reported, not pushed", rounds: []round{{asked: []int64{97, 97}, delivered: []int64{96, 52}, blocked: 2}}, outcome: "/unsettled"},
 		{name: "a cut result reads no part missing", rounds: []round{{asked: []int64{97, 97}, delivered: []int64{96, 4}, blocked: 2, cut: true}}, outcome: "/unsettled"},
@@ -100,6 +102,9 @@ func TestDeliveryPolicy_TruthTable(t *testing.T) {
 			for r, rd := range tc.rounds {
 				for f := range frags {
 					mustAssert(t, k, types.Fact{Predicate: learnjudge.DeliveryReadingPredicate, Args: []any{req, int64(r + 1), frags[f], rd.asked[f], rd.delivered[f]}})
+					if len(rd.fragBlocked) > f {
+						mustAssert(t, k, types.Fact{Predicate: learnjudge.DeliveryFragmentBlockerPredicate, Args: []any{req, int64(r + 1), frags[f], rd.fragBlocked[f]}})
+					}
 				}
 				mustAssert(t, k, types.Fact{Predicate: learnjudge.DeliveryBlockerPredicate, Args: []any{req, int64(r + 1), rd.blocked}})
 				if rd.cut {
@@ -353,5 +358,34 @@ func TestDeliveryMultiStep_APlanThatMissedAPartGoesOn(t *testing.T) {
 	}
 	if !strings.Contains(init.completedSurface, "Multi-Step Task Execution") {
 		t.Fatalf("the plan's own report was dropped:\n%s", init.completedSurface)
+	}
+}
+
+func TestSatisfiedTesterDependency_SkipsTesterWhenCoderAlreadyVerifiedGoTests(t *testing.T) {
+	t.Parallel()
+	step := TaskStep{
+		Verb:      "/test",
+		Target:    "internal/foo/bar.go",
+		ShardType: "tester",
+		DependsOn: []int{0},
+	}
+	verifiedCoderReturn := observation.Return{
+		Outcome: "/done",
+		Changed: []string{"internal/foo/bar.go", "internal/foo/bar_test.go"},
+		Tests: &observation.Verification{
+			Ran:    true,
+			OK:     true,
+			Detail: "ok codenerd/internal/foo 0.12s",
+		},
+	}
+	depIdx, depRet, ok := satisfiedTesterDependency(step, map[int]observation.Return{0: verifiedCoderReturn})
+	if !ok || depIdx != 0 || depRet.Tests.Detail != verifiedCoderReturn.Tests.Detail {
+		t.Fatalf("satisfiedTesterDependency = (%d, %+v, %v), want (0, verifiedCoderReturn, true)", depIdx, depRet, ok)
+	}
+
+	untestedCoderReturn := verifiedCoderReturn
+	untestedCoderReturn.Untested = []string{"internal/foo/untested.go"}
+	if _, _, ok := satisfiedTesterDependency(step, map[int]observation.Return{0: untestedCoderReturn}); ok {
+		t.Fatal("satisfiedTesterDependency returned true when Untested files remain")
 	}
 }

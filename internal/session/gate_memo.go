@@ -57,6 +57,41 @@ func writtenFingerprint(workspace string, written []string) string {
 	return filesFingerprint(files, dirs)
 }
 
+func isGoTestSource(path string) bool {
+	return strings.HasSuffix(strings.ToLower(filepath.Base(path)), "_test.go")
+}
+
+// writtenNonTestFingerprint hashes the non-test files of the packages the turn
+// wrote. Importer packages compile the imported packages' non-test files, never
+// their *_test.go files; the importers' own files (including their tests) are
+// hashed separately by dirsFingerprint(scope.dirs).
+func writtenNonTestFingerprint(workspace string, written []string) string {
+	files := map[string]bool{}
+	dirs := map[string]bool{}
+	for _, p := range written {
+		abs := p
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(workspace, filepath.FromSlash(p))
+		}
+		if !isGoTestSource(abs) {
+			files[abs] = true
+		}
+		dirs[filepath.Dir(abs)] = true
+	}
+	for dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.Type().IsRegular() && !isGoTestSource(entry.Name()) {
+				files[filepath.Join(dir, entry.Name())] = true
+			}
+		}
+	}
+	return filesFingerprint(files, nil)
+}
+
 // dirsFingerprint identifies the regular files of each directory as they
 // stand: the packages a measurement read beyond the turn's own.
 func dirsFingerprint(dirList []string) string {
@@ -112,6 +147,12 @@ func filesFingerprint(files, dirs map[string]bool) string {
 // its own bytes adds a path without changing a byte. An unavailable snapshot
 // disables memoization; it never supplies a stale pass.
 func gateKey(ctx context.Context, kind, workspace string, result *ExecutionResult) string {
+	if kind == "importers" {
+		if ctx != nil && ctx.Err() != nil {
+			return ""
+		}
+		return kind + "|" + workspace + "|" + writtenNonTestFingerprint(workspace, result.WrittenPaths) + "|" + writtenNonTestMembership(result)
+	}
 	fingerprint := writtenFingerprint(workspace, result.WrittenPaths)
 	if result.Intent.Verb == "/fix" {
 		var err error
@@ -124,9 +165,23 @@ func gateKey(ctx context.Context, kind, workspace string, result *ExecutionResul
 	return kind + "|" + workspace + "|" + fingerprint + "|" + writtenMembership(result)
 }
 
+func writtenNonTestMembership(result *ExecutionResult) string {
+	filtered := make([]string, 0, len(result.WrittenPaths))
+	for _, p := range result.WrittenPaths {
+		if !isGoTestSource(p) {
+			filtered = append(filtered, p)
+		}
+	}
+	return membershipDigest(filtered, result.PreWriteContents)
+}
+
 // writtenMembership digests the written path set and each path's preimage.
 func writtenMembership(result *ExecutionResult) string {
-	paths := append([]string(nil), result.WrittenPaths...)
+	return membershipDigest(result.WrittenPaths, result.PreWriteContents)
+}
+
+func membershipDigest(written []string, preimages map[string]PreImage) string {
+	paths := append([]string(nil), written...)
 	for i, p := range paths {
 		paths[i] = filepath.ToSlash(filepath.Clean(p))
 	}
@@ -134,7 +189,7 @@ func writtenMembership(result *ExecutionResult) string {
 	paths = slices.Compact(paths) // a path written twice is one member
 	h := sha256.New()
 	for _, p := range paths {
-		img, ok := result.PreWriteContents[p]
+		img, ok := preimages[p]
 		switch {
 		case !ok:
 			fmt.Fprintf(h, "%s\x00nopreimage\x00", p)
@@ -232,7 +287,7 @@ func finalFixTests(ctx context.Context, workspace string, result *ExecutionResul
 	if run, ok := recalledGate(result, key); ok {
 		return run.v, nil
 	}
-	v := verifyTests(ctx, workspace, []string{"./..."}, "-count=1")
+	v := verifyTests(ctx, workspace, []string{"./..."})
 	after, err := evidence.Snapshot(ctx, workspace)
 	if err != nil {
 		v.Outcome = VerifyIndeterminate

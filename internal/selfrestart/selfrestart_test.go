@@ -73,7 +73,18 @@ func TestRestarter_ExecsTheNewBuildWithTheSession(t *testing.T) {
 		return nil
 	})
 	r.BinaryChanged(fakeIdentity("/opt/nerd-new", "bbbb", 11))
-	st := State{SessionID: "sess-1", WorkMode: "yolo", Brief: "fix the retry loop", Queued: []string{"then run the tests"}, Draft: "half typed"}
+	if got := r.CurrentPath(); got != "/bin/nerd" {
+		t.Fatalf("CurrentPath = %q, want /bin/nerd", got)
+	}
+	st := State{
+		SessionID:   "sess-1",
+		WorkMode:    "yolo",
+		Brief:       "fix the retry loop",
+		Queued:      []string{"then run the tests"},
+		Draft:       "half typed",
+		Recurse:     true,
+		RecurseArgs: []string{"--waves", "2", "session"},
+	}
 	if err := r.Restart(st, []string{"nerd", "chat", RestoreFlag, "/stale.json"}); err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +95,7 @@ func TestRestarter_ExecsTheNewBuildWithTheSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if back.SessionID != "sess-1" || back.WorkMode != "yolo" || back.Brief != st.Brief || len(back.Queued) != 1 || back.Draft != st.Draft || back.OldBuild != "aaaa" || back.NewBuild != "bbbb" {
+	if back.SessionID != "sess-1" || back.WorkMode != "yolo" || back.Brief != st.Brief || len(back.Queued) != 1 || back.Draft != st.Draft || !back.Recurse || len(back.RecurseArgs) != 3 || back.RecurseArgs[2] != "session" || back.OldBuild != "aaaa" || back.NewBuild != "bbbb" {
 		t.Fatalf("restored %+v", back)
 	}
 	if _, err := ReadState(gotArgv[3]); err == nil {
@@ -167,5 +178,14 @@ func TestWatch_SeesARenameOverAndAnInPlaceWrite(t *testing.T) {
 	written := await("an in-place write")
 	if !renamed.Changed(written) {
 		t.Fatal("the in-place write reported the previous identity")
+	}
+}
+
+func TestCleanExecutablePath_StripsDeletedSuffix(t *testing.T) {
+	if got := CleanExecutablePath("/workspace/nerd (deleted)"); got != "/workspace/nerd" {
+		t.Fatalf("CleanExecutablePath = %q, want /workspace/nerd", got)
+	}
+	if path, err := ExecutablePath(); err != nil || path == "" || strings.HasSuffix(path, " (deleted)") {
+		t.Fatalf("ExecutablePath = %q, %v", path, err)
 	}
 }

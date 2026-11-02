@@ -340,6 +340,12 @@ func (ls *LearningStore) recallLearningsInShard(ctx context.Context, query Query
 		return nil, err
 	}
 	if hasIndex {
+		// Persisted shards can have current canonical embeddings but a legacy
+		// index, so reflection has no updates to trigger its migration. Ensure
+		// the version columns before preparing the versioned recall query.
+		if err := ensureLearningVecTable(db, len(query.Vector)); err != nil {
+			return nil, fmt.Errorf("ensure learning vector index for shard %q: %w", shardType, err)
+		}
 		queryBlob := encodeFloat32Slice(query.Vector)
 		rows, err := db.QueryContext(ctx, `
 			SELECT l.id, COALESCE(l.semantic_handle, ''), l.fact_predicate, l.shard_type, l.learned_at,

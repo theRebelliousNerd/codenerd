@@ -304,3 +304,36 @@ func TestCriticUplift_ADeletedTestIsHandedBack(t *testing.T) {
 		t.Fatalf("TestDoubleZero must be back on disk:\n%s", data)
 	}
 }
+
+// A pre-existing test failure in the workspace (already failing before the
+// turn) does not cause recheckUplift to undo a valid Critic uplift.
+func TestCriticUplift_PreExistingTestFailureDoesNotUndoUplift(t *testing.T) {
+	t.Parallel()
+	preExistingFail := "package main\n\nimport \"testing\"\n\nfunc TestLegacyBroken(t *testing.T) { t.Fatal(\"already broken before turn\") }\n"
+	h, result, err := criticTurn(t,
+		map[string]string{
+			"main.go":        closureDoubleBefore,
+			"main_test.go":   closureTestDouble,
+			"legacy_test.go": preExistingFail,
+		},
+		map[string]string{"main.go": closureDouble},
+		func(prompt string) map[string]string {
+			switch {
+			case strings.Contains(prompt, upliftAsk):
+				return map[string]string{"main.go": closureHalf}
+			case strings.Contains(prompt, "no test executes these lines"):
+				return map[string]string{"main_test.go": closureTestHalf}
+			}
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("ProcessWithIntent with pre-existing failure and valid uplift: %v", err)
+	}
+	data, readErr := os.ReadFile(filepath.Join(h.ws, "main.go"))
+	if readErr != nil || string(data) != closureHalf {
+		t.Fatalf("uplift was undone because of a pre-existing failure; main.go:\n%s", data)
+	}
+	if !failuresAllPredate(result.TestCheck) {
+		t.Fatalf("expected remaining failure to be attributed to baseline: %+v", result.TestCheck)
+	}
+}

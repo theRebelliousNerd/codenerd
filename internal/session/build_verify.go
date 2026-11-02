@@ -371,7 +371,7 @@ func (e *Executor) verifyAndRepairTests(
 	// can.
 	if len(uncovered) > 0 {
 		result.UncoveredBlocks = uncovered
-		logging.Get(logging.CategorySession).Warn(
+		logging.Get(logging.CategorySession).Info(
 			"Turn wrote %d block(s) of Go that no test executes: %s",
 			len(uncovered), summarizeUncovered(uncovered))
 	}
@@ -514,6 +514,18 @@ func (e *Executor) verifyAndRepairTests(
 // result.ImporterCheck. The /test rule reads both; this function does not
 // merge them into one verdict.
 func gateTests(ctx context.Context, workspace string, result *ExecutionResult, withCoverage bool) (TestVerification, []UncoveredBlock) {
+	ws := goWorkspace(workspace)
+	ownCached := false
+	if _, ok := recalledGate(result, gateKey(ctx, "own+coverage", ws, result)); ok {
+		ownCached = true
+	} else if !withCoverage {
+		if _, ok := recalledGate(result, gateKey(ctx, "own", ws, result)); ok {
+			ownCached = true
+		}
+	}
+	if !ownCached && hasDefaultVerificationRunners() {
+		return gateTestsConcurrent(ctx, workspace, result, withCoverage)
+	}
 	v, uncovered := gateOwnTests(ctx, workspace, result, withCoverage)
 	// Importers still run when the turn's own named failures all predate it,
 	// so a new importer failure is measured. That comparison schedules the
@@ -541,7 +553,7 @@ func gateTests(ctx context.Context, workspace string, result *ExecutionResult, w
 		result.ImporterCheck = TestVerification{Outcome: VerifySkipped, Reason: scope.why}
 		return v, uncovered
 	}
-	key := gateKey(ctx, "importers", goWorkspace(workspace), result) + "|" +
+	key := gateKey(ctx, "importers", ws, result) + "|" +
 		strings.Join(scope.runnable, ",") + "|" + dirsFingerprint(scope.dirs)
 	if run, ok := recalledGate(result, key); ok {
 		result.ImporterCheck = run.v
@@ -549,6 +561,75 @@ func gateTests(ctx context.Context, workspace string, result *ExecutionResult, w
 	}
 	result.ImporterCheck = verifyImporters(ctx, workspace, result, scope.runnable)
 	rememberGate(result, key, result.ImporterCheck, nil)
+	return v, uncovered
+}
+
+// gateTestsConcurrent runs the turn's own package tests and reverse-dependency
+// importer discovery/tests concurrently, canceling the background importer run
+// early if the turn's own tests fail with a new failure. All result and
+// working-set mutations happen on the calling goroutine after joining.
+func gateTestsConcurrent(ctx context.Context, workspace string, result *ExecutionResult, withCoverage bool) (TestVerification, []UncoveredBlock) {
+	ws := goWorkspace(workspace)
+	impBaseKey := gateKey(ctx, "importers", ws, result)
+	var cachedImporters map[string]TestVerification
+	if result != nil && len(result.gateRuns) > 0 {
+		cachedImporters = make(map[string]TestVerification, len(result.gateRuns))
+		for k, run := range result.gateRuns {
+			cachedImporters[k] = run.v
+		}
+	}
+
+	type impOutcome struct {
+		scope  importerScope
+		key    string
+		v      TestVerification
+		cached bool
+	}
+	impCtx, cancelImp := context.WithCancel(withoutWorkingLoop(ctx))
+	defer cancelImp()
+	impCh := make(chan impOutcome, 1)
+	go func() {
+		scope := discoverImporters(impCtx, workspace, result)
+		if scope.why != "" || impCtx.Err() != nil {
+			impCh <- impOutcome{scope: scope}
+			return
+		}
+		key := impBaseKey + "|" + strings.Join(scope.runnable, ",") + "|" + dirsFingerprint(scope.dirs)
+		if v, ok := cachedImporters[key]; ok {
+			impCh <- impOutcome{scope: scope, key: key, v: v, cached: true}
+			return
+		}
+		v := verifyImporters(impCtx, workspace, result, scope.runnable)
+		impCh <- impOutcome{scope: scope, key: key, v: v}
+	}()
+
+	v, uncovered := gateOwnTests(ctx, workspace, result, withCoverage)
+	if v.Verdict() != VerifyPassed && !failuresAllPredate(v) {
+		cancelImp()
+		<-impCh
+		switch v.Verdict() {
+		case VerifyCanceled, VerifyIndeterminate:
+		default:
+			if result != nil {
+				result.ImporterCheck = TestVerification{}
+			}
+		}
+		return v, uncovered
+	}
+
+	imp := <-impCh
+	if result == nil {
+		return v, uncovered
+	}
+	if imp.scope.why != "" {
+		result.ImporterCheck = TestVerification{Outcome: VerifySkipped, Reason: imp.scope.why}
+		return v, uncovered
+	}
+	if !imp.cached {
+		annotateFailingTestRecall(ctx, &imp.v)
+		rememberGate(result, imp.key, imp.v, nil)
+	}
+	result.ImporterCheck = imp.v
 	return v, uncovered
 }
 
@@ -1063,7 +1144,7 @@ func (e *Executor) verifyAndUpliftWithCritic(
 			"Adversarial review: %d finding(s) cite code this turn did not change; not charged to it", len(offChange))
 	}
 	worth := e.actionableCriticFindings(result.turnAtom(), onChange)
-	logging.Get(logging.CategorySession).Warn(
+	logging.Get(logging.CategorySession).Info(
 		"Adversarial review reported %d finding(s), %d worth acting on", len(findings), len(worth))
 	if len(worth) == 0 {
 		return nil, nil
@@ -1121,6 +1202,9 @@ func recheckUplift(ctx context.Context, workspace string, result *ExecutionResul
 	if build.Verdict() == VerifyFailed {
 		broke = "build"
 	} else {
+		// Format the uplift's Go edits before measuring gateTests so the memo
+		// key recorded here matches the gofmt-clean files at turn closure.
+		formatWrittenGoFiles(workspace, result.WrittenPaths)
 		// The same helper the test gate uses, with coverage: a tag-gated
 		// package is compile-checked, not failed, and the blocks the uplift
 		// left unexecuted reach the coverage round.
@@ -1133,10 +1217,13 @@ func recheckUplift(ctx context.Context, workspace string, result *ExecutionResul
 		case VerifyCanceled:
 			return fmt.Errorf("uplift test re-verification canceled: %w", context.Canceled)
 		case VerifyFailed:
-			// Raw suite, including an importer failure whose names all
-			// predate the turn. The undo puts the previous workspace back;
-			// the derived charge is not what decides the undo.
-			broke, failure = "tests", suiteFailureText(&measured)
+			// Only undo the uplift when a failing suite has a failure not
+			// already present in the pre-turn baseline. Pre-existing test
+			// failures (in the turn's own package or its importers) do not
+			// turn a valid Critic uplift into a regression.
+			if upliftBrokeTests(&measured) {
+				broke, failure = "tests", suiteFailureText(&measured)
+			}
 		}
 	}
 	if broke != "" {
@@ -1183,6 +1270,21 @@ func recheckUplift(ctx context.Context, workspace string, result *ExecutionResul
 			"Uplift test re-verification timed out; prior pass invalidated, recovery NOT verified")
 	}
 	return nil
+}
+
+// upliftBrokeTests reports whether the post-uplift measurement contains a
+// failing test run whose failures do not all predate the turn.
+func upliftBrokeTests(measured *ExecutionResult) bool {
+	if measured == nil {
+		return false
+	}
+	if measured.TestCheck.Verdict() == VerifyFailed && !failuresAllPredate(measured.TestCheck) {
+		return true
+	}
+	if measured.ImporterCheck.Verdict() == VerifyFailed && !failuresAllPredate(measured.ImporterCheck) {
+		return true
+	}
+	return false
 }
 
 // wroteGo reports whether any written path is a Go file.

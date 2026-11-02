@@ -25,11 +25,14 @@ const coverageResultLimit = 60000
 const coverageQuestionsPerRequest = 40
 
 // CoverageVerdict is Jev's reading of one fragment: the probability that it
-// is a deliverable the person asked for, and that the result delivers it.
+// is a deliverable the person asked for, that the result delivers it, and
+// (when a blocker was named on a multi-part request) that this fragment is
+// blocked by an obstacle codeNERD cannot clear by itself.
 type CoverageVerdict struct {
 	Fragment  string
 	Asked     float64
 	Delivered float64
+	Blocked   float64
 }
 
 // CheckCoverage judges every fragment against the person's request and the
