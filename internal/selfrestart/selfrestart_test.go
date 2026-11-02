@@ -2,12 +2,16 @@ package selfrestart
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func fakeIdentity(path, build string, size int64) Identity {
@@ -187,5 +191,103 @@ func TestCleanExecutablePath_StripsDeletedSuffix(t *testing.T) {
 	}
 	if path, err := ExecutablePath(); err != nil || path == "" || strings.HasSuffix(path, " (deleted)") {
 		t.Fatalf("ExecutablePath = %q, %v", path, err)
+	}
+}
+
+func TestRestoreArgs_ReplacesFlagsWithoutMutatingInput(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "empty", want: []string{RestoreFlag, "/new.json"}},
+		{name: "no restore flag", args: []string{"nerd", "chat", "--verbose"}, want: []string{"nerd", "chat", "--verbose", RestoreFlag, "/new.json"}},
+		{name: "double dash separate", args: []string{"nerd", RestoreFlag, "/old.json", "chat"}, want: []string{"nerd", "chat", RestoreFlag, "/new.json"}},
+		{name: "single dash separate", args: []string{"nerd", "-restore-session", "/old.json", "chat"}, want: []string{"nerd", "chat", RestoreFlag, "/new.json"}},
+		{name: "double dash equals", args: []string{"nerd", "--restore-session=/old.json", "chat"}, want: []string{"nerd", "chat", RestoreFlag, "/new.json"}},
+		{name: "single dash equals", args: []string{"nerd", "-restore-session=/old.json", "chat"}, want: []string{"nerd", "chat", RestoreFlag, "/new.json"}},
+		{name: "multiple stale flags", args: []string{"nerd", RestoreFlag, "/first.json", "-restore-session=/second.json", "chat"}, want: []string{"nerd", "chat", RestoreFlag, "/new.json"}},
+		{name: "missing trailing value", args: []string{"nerd", RestoreFlag}, want: []string{"nerd", RestoreFlag, "/new.json"}},
+		{name: "similar flag preserved", args: []string{"nerd", "--restore-session-extra=value"}, want: []string{"nerd", "--restore-session-extra=value", RestoreFlag, "/new.json"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Spare capacity makes accidental reuse of the caller's backing array visible.
+			args := make([]string, len(tt.args), len(tt.args)+4)
+			copy(args, tt.args)
+			backing := args[:cap(args)]
+			for i := len(args); i < len(backing); i++ {
+				backing[i] = "caller-owned"
+			}
+			before := slices.Clone(backing)
+			got := RestoreArgs(args, "/new.json")
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("RestoreArgs() = %q, want %q", got, tt.want)
+			}
+			if !slices.Equal(backing, before) {
+				t.Fatalf("RestoreArgs changed caller storage: got %q, want %q", backing, before)
+			}
+			if again := RestoreArgs(got, "/new.json"); !slices.Equal(again, tt.want) {
+				t.Fatalf("RestoreArgs repeated = %q, want %q", again, tt.want)
+			}
+		})
+	}
+}
+
+func TestReadState_RejectsInvalidRestoreFiles(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name       string
+		data       string
+		missing    bool
+		checkError func(*testing.T, error)
+	}{
+		{name: "missing file", missing: true, checkError: func(t *testing.T, err error) {
+			t.Helper()
+			if !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("ReadState error = %v, want os.ErrNotExist", err)
+			}
+		}},
+		{name: "malformed JSON", data: `{"version":1,`, checkError: func(t *testing.T, err error) {
+			t.Helper()
+			var syntaxErr *json.SyntaxError
+			if !errors.As(err, &syntaxErr) {
+				t.Fatalf("ReadState error = %v, want *json.SyntaxError", err)
+			}
+		}},
+		{name: "wrong field type", data: `{"version":1,"session_id":42}`, checkError: func(t *testing.T, err error) {
+			t.Helper()
+			var typeErr *json.UnmarshalTypeError
+			if !errors.As(err, &typeErr) {
+				t.Fatalf("ReadState error = %v, want *json.UnmarshalTypeError", err)
+			}
+		}},
+		{name: "unsupported version", data: `{"version":2,"session_id":"must-not-resume"}`},
+		{name: "missing version", data: `{"session_id":"must-not-resume"}`},
+		{name: "null state", data: `null`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "restore.json")
+			if !tt.missing {
+				if err := os.WriteFile(path, []byte(tt.data), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := ReadState(path)
+			if err == nil {
+				t.Fatal("ReadState accepted an invalid restore file")
+			}
+			if tt.checkError != nil {
+				tt.checkError(t, err)
+			}
+			if diff := cmp.Diff(State{}, got); diff != "" {
+				t.Errorf("ReadState returned partial state (-want +got):\n%s", diff)
+			}
+			if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("invalid restore file remains replayable: stat error = %v", err)
+			}
+		})
 	}
 }
