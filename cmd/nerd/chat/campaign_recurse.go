@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
@@ -31,6 +32,8 @@ type recurseState struct {
 	cancel             context.CancelFunc
 	lines              chan string
 	stoppingForRestart bool
+	startedAt          time.Time
+	lastStatus         string
 }
 
 type (
@@ -203,8 +206,8 @@ func (m Model) runRecurseLoop(ctx context.Context, st *recurseState, cfg campaig
 			campaignCfg.MaxParallelTasks = mission.Limits.WithDefaults().Concurrency
 			copyCfg.Campaign = &campaignCfg
 			m.Config = &copyCfg
-			ctx = sessionlog.WithLiveProgress(ctx, m.sendDelegatedProgress)
 		}
+		ctx = sessionlog.WithLiveProgress(ctx, m.sendDelegatedProgress)
 		res, err := campaign.RunRecurseCycles(ctx, campaign.RecurseCycleConfig{
 			Mission:    mission,
 			Workspace:  m.workspace,
@@ -359,11 +362,18 @@ func (m Model) recurseStatus() Model {
 func (m Model) handleRecurseMsg(msg tea.Msg) (Model, tea.Cmd, bool) {
 	switch msg := msg.(type) {
 	case recurseStartedMsg:
+		if msg.state != nil {
+			msg.state.startedAt = time.Now()
+			msg.state.lastStatus = "Recurse: measuring gates..."
+		}
 		m.recurse = msg.state
 		m.isLoading = false
 		m = m.pushAssistantMsg("Recurse started: improving the workspace node by node. `/recurse stop` ends it.")
-		return m, tea.Batch(msg.run, listenRecurseLines(msg.state.lines)), true
+		return m, tea.Batch(msg.run, listenRecurseLines(msg.state.lines), m.spinner.Tick), true
 	case recurseLineMsg:
+		if m.recurse != nil && strings.TrimSpace(msg.line) != "" {
+			m.recurse.lastStatus = strings.TrimSpace(msg.line)
+		}
 		m = m.pushAssistantMsg(msg.line)
 		return m, listenRecurseLines(msg.lines), true
 	case recurseFinishedMsg:

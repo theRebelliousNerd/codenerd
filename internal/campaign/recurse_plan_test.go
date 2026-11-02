@@ -4,6 +4,8 @@ import (
 	"context"
 	"slices"
 	"testing"
+
+	"codenerd/internal/gates"
 )
 
 func TestRecurseConfig_Normalize(t *testing.T) {
@@ -46,3 +48,26 @@ func TestRecurseSweepOrder_NarrowsToSubsystemsAndTheirDependencies(t *testing.T)
 		t.Fatal("an unknown subsystem must fail, not sweep nothing")
 	}
 }
+
+func TestScopeGateToNodes_NarrowsFocusedGoWorkspaceGate(t *testing.T) {
+	g := gates.Gate{
+		ID:       "nerd.md:test",
+		Kind:     gates.Test,
+		Scope:    gates.ScopeAll,
+		Language: "go",
+		Argv:     []string{"go", "test", "-count=1", "./..."},
+	}
+	nodes := []SubsystemNode{
+		{ID: "internal/selfrestart", Paths: []string{"internal/selfrestart"}, Languages: []string{"go"}},
+	}
+	scoped := scopeGateToNodes(g, nodes, true)
+	want := []string{"go", "test", "-count=1", "./internal/selfrestart"}
+	if !slices.Equal(scoped.Argv, want) {
+		t.Fatalf("scoped.Argv = %v, want %v", scoped.Argv, want)
+	}
+	unfocused := scopeGateToNodes(g, nodes, false)
+	if !slices.Equal(unfocused.Argv, g.Argv) {
+		t.Fatalf("unfocused.Argv = %v, want %v", unfocused.Argv, g.Argv)
+	}
+}
+

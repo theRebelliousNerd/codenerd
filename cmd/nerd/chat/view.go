@@ -411,6 +411,26 @@ func (m Model) renderHeader() string {
 			spin, " ",
 			m.styles.Components.Badge.Render(msg+elapsed),
 		)
+	} else if m.recurse != nil {
+		spin := m.spinner.View()
+		msg := m.recurse.lastStatus
+		if m.activityLine != "" {
+			msg = m.activityLine
+		}
+		if msg == "" {
+			msg = "Recurse running..."
+		}
+		if len(msg) > 48 {
+			msg = msg[:45] + "..."
+		}
+		elapsed := ""
+		if !m.recurse.startedAt.IsZero() {
+			elapsed = fmt.Sprintf(" %s", formatElapsedShort(time.Since(m.recurse.startedAt)))
+		}
+		status = lipgloss.JoinHorizontal(lipgloss.Center,
+			spin, " ",
+			m.styles.Components.Badge.Render(msg+elapsed),
+		)
 	} else {
 		status = m.styles.Status.Success.Render("● Ready")
 	}

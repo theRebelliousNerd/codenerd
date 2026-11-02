@@ -78,7 +78,7 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.processClarificationResponse(string(msg), m.clarificationState.PendingIntent, m.clarificationState.Context, 0)
 
 	case spinner.TickMsg:
-		if m.isLoading || m.isBooting {
+		if m.isLoading || m.isBooting || m.recurse != nil {
 			m.spinner, spCmd = m.spinner.Update(msg)
 			return m, spCmd
 		}

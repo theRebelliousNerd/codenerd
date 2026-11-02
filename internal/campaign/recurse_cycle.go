@@ -11,12 +11,14 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"codenerd/internal/core"
 	"codenerd/internal/evidence"
 	"codenerd/internal/gates"
 	"codenerd/internal/observation"
 	"codenerd/internal/projectdoc"
+	"codenerd/internal/sessionlog"
 	"codenerd/internal/tools"
 )
 
@@ -237,6 +239,8 @@ type recurseRun struct {
 	// a finding absent last pass is a regression this pass.
 	seenLastPass map[string]bool
 	seenThisPass map[string]bool
+	seenMu       sync.Mutex
+	allNodes     []SubsystemNode
 	// notedUnattributed are finding IDs already written to the progress log.
 	// The summary is rebuilt from the current measurement; the log line is once.
 	notedUnattributed map[string]bool
@@ -472,6 +476,7 @@ func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) e
 	if err := sweepGraphSound(r.policy.k, derived); err != nil {
 		return err
 	}
+	r.allNodes = derived
 	nodes := derived
 	if len(r.cfg.Subsystems) > 0 {
 		nodes, err = FilterDAG(derived, r.cfg.Subsystems)
@@ -502,10 +507,13 @@ func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) e
 		return err
 	}
 
-	if len(done) == 0 || len(r.state) == 0 {
+	keptBefore := r.result.Kept
+	if len(r.state) == 0 {
 		if err := r.measureWorkspace(ctx, set, nodes); err != nil {
 			return err
 		}
+	} else {
+		r.seedSeenFromState()
 	}
 	if err := r.journal.append(recurseRecord{Step: stepPassStart, Pass: pass, Open: r.openCount()}); err != nil {
 		return err
@@ -546,11 +554,90 @@ func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) e
 		}
 	}
 
-	if err := r.measureWorkspace(ctx, set, nodes); err != nil {
-		return err
+	if r.result.Kept != keptBefore {
+		if err := r.measureWorkspace(ctx, set, nodes); err != nil {
+			return err
+		}
 	}
 	r.seenLastPass, r.seenThisPass = r.seenThisPass, map[string]bool{}
 	return r.journal.append(recurseRecord{Step: stepPassEnd, Pass: pass, Open: r.openCount()})
+}
+
+func (r *recurseRun) seedSeenFromState() {
+	r.seenMu.Lock()
+	defer r.seenMu.Unlock()
+	if r.seenThisPass == nil {
+		r.seenThisPass = map[string]bool{}
+	}
+	for _, run := range r.state {
+		for _, f := range run.findings {
+			r.seenThisPass[f.ID] = true
+		}
+	}
+}
+
+func hasCrossCuttingNode(nodes []SubsystemNode) bool {
+	for _, n := range nodes {
+		if n.CrossCutting {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *recurseRun) isFocusedSweep(nodes []SubsystemNode) bool {
+	return len(r.cfg.Subsystems) > 0 && len(nodes) > 0 && !hasCrossCuttingNode(nodes)
+}
+
+func goPackagePatterns(nodes []SubsystemNode) []string {
+	seen := make(map[string]bool, len(nodes))
+	var out []string
+	for _, n := range nodes {
+		if n.CrossCutting {
+			continue
+		}
+		paths := n.Paths
+		if len(paths) == 0 && n.ID != "" {
+			paths = []string{n.ID}
+		}
+		for _, p := range paths {
+			pkg := "./" + strings.TrimPrefix(filepath.ToSlash(p), "./")
+			if p == "." || pkg == "./." {
+				pkg = "."
+			}
+			if !seen[pkg] {
+				seen[pkg] = true
+				out = append(out, pkg)
+			}
+		}
+	}
+	return out
+}
+
+func scopeGateToNodes(g gates.Gate, nodes []SubsystemNode, focused bool) gates.Gate {
+	if !focused || g.Scope != gates.ScopeAll || g.Language != "go" {
+		return g
+	}
+	pkgs := goPackagePatterns(nodes)
+	if len(pkgs) == 0 {
+		return g
+	}
+	var argv []string
+	replaced := false
+	for _, arg := range g.Argv {
+		if arg == "./..." {
+			argv = append(argv, pkgs...)
+			replaced = true
+		} else {
+			argv = append(argv, arg)
+		}
+	}
+	if !replaced {
+		return g
+	}
+	cp := g
+	cp.Argv = argv
+	return cp
 }
 
 func (r *recurseRun) noteUnavailable(set gates.Set) {
@@ -562,14 +649,52 @@ func (r *recurseRun) noteUnavailable(set gates.Set) {
 
 // measureWorkspace runs every workspace-scoped gate.
 func (r *recurseRun) measureWorkspace(ctx context.Context, set gates.Set, nodes []SubsystemNode) error {
+	focused := r.isFocusedSweep(nodes)
+	var all []gates.Gate
 	for _, g := range set.Gates {
-		if g.Scope != gates.ScopeAll {
-			continue
+		if g.Scope == gates.ScopeAll {
+			if focused && g.Kind == gates.Audit {
+				continue
+			}
+			all = append(all, g)
 		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		r.state[gateKey(g.ID, "")] = r.measure(ctx, g, "", nodes)
+	}
+	if len(all) == 0 {
+		r.reportUnattributed()
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	sessionlog.EmitLiveProgress(ctx, sessionlog.LiveEvent{
+		Kind: "step",
+		Text: fmt.Sprintf("recurse: measuring %d workspace gate(s)", len(all)),
+	})
+	runs := make([]gateRun, len(all))
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
+	for i, g := range all {
+		wg.Add(1)
+		go func(idx int, gate gates.Gate) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-sem }()
+			if ctx.Err() != nil {
+				return
+			}
+			runs[idx] = r.measure(ctx, gate, "", nodes)
+		}(i, g)
+	}
+	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for i, g := range all {
+		r.state[gateKey(g.ID, "")] = runs[i]
 	}
 	r.reportUnattributed()
 	return nil
@@ -581,6 +706,10 @@ func (r *recurseRun) measureWorkspace(ctx context.Context, set gates.Set, nodes 
 // when none does. A node that is a collapsed import cycle runs the gate once
 // per directory, and fails if any run fails.
 func (r *recurseRun) measure(ctx context.Context, g gates.Gate, nodeID string, nodes []SubsystemNode) gateRun {
+	focused := r.isFocusedSweep(nodes)
+	if nodeID == "" {
+		g = scopeGateToNodes(g, nodes, focused)
+	}
 	var snapshot string
 	if r.cfg.Mission != nil {
 		snapshot, _ = evidence.Snapshot(ctx, r.root)
@@ -596,15 +725,29 @@ func (r *recurseRun) measure(ctx context.Context, g gates.Gate, nodeID string, n
 	for i, path := range paths {
 		res := gates.Run(ctx, r.root, g, path)
 		fs := gates.Findings(r.root, res)
+		var kept []gates.Finding
 		for j := range fs {
 			if nodeID != "" {
 				fs[j].Node = nodeID
 			} else {
 				fs[j].Node = attributeNode(fs[j].Target, nodes)
+				if focused && fs[j].Node == RecurseUnattributedNodeID && len(r.allNodes) > 0 {
+					if other := attributeNode(fs[j].Target, r.allNodes); other != RecurseUnattributedNodeID {
+						// In a focused subsystem sweep, findings that belong to
+						// another known subsystem outside the focused set are
+						// out of scope rather than unattributed.
+						continue
+					}
+				}
 			}
-			r.seenThisPass[fs[j].ID] = true
+			r.seenMu.Lock()
+			if r.seenThisPass != nil {
+				r.seenThisPass[fs[j].ID] = true
+			}
+			r.seenMu.Unlock()
+			kept = append(kept, fs[j])
 		}
-		run.findings = append(run.findings, fs...)
+		run.findings = append(run.findings, kept...)
 		if i == 0 {
 			run.result = res
 			continue
