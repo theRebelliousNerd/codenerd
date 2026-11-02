@@ -208,7 +208,7 @@ Not performed: application startup, reproduction, test execution, benchmarks, pr
 [embedding]: https://github.com/theRebelliousNerd/codenerd/blob/99d87a96ea0a2d11e8b0e539f4fe9bd223abe682/cmd/nerd/chat/commands_handlers.go#L277-L340
 [work-mode]: https://github.com/theRebelliousNerd/codenerd/blob/99d87a96ea0a2d11e8b0e539f4fe9bd223abe682/cmd/nerd/chat/work_mode.go#L14-L41
 [save]: https://github.com/theRebelliousNerd/codenerd/blob/99d87a96ea0a2d11e8b0e539f4fe9bd223abe682/internal/config/user_config.go#L801-L813
-[atomic]: https://github.com/theRebelliousNerd/codenerd/blob/99d87a96ea0a2d11e8b0e539f4fe9bd223abe682/internal/config/persistence.go#L35-L92
+[atomic]: https://github.com/theRebelliousNerd/codenerd/blob/99d87a96ea0a2d11e8b0e539f4fe9bd223abe682/internal/config/persistence.go#L35-L84
 [guidance]: https://github.com/theRebelliousNerd/codenerd/blob/99d87a96ea0a2d11e8b0e539f4fe9bd223abe682/internal/config/agents.md#L1-L16
 [boot-load]: https://github.com/theRebelliousNerd/codenerd/blob/99d87a96ea0a2d11e8b0e539f4fe9bd223abe682/cmd/nerd/chat/session.go#L53-L65
 [boot-model]: https://github.com/theRebelliousNerd/codenerd/blob/99d87a96ea0a2d11e8b0e539f4fe9bd223abe682/cmd/nerd/chat/session.go#L198-L214
