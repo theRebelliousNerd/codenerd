@@ -2,6 +2,7 @@ package atomicfile
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -495,5 +496,111 @@ func TestWriteFile_WhenTheDirectoryIsReadOnly_ShouldFailLoudly(t *testing.T) {
 	}
 	if string(got) != "old" {
 		t.Errorf("contents = %q, want the previous copy untouched", got)
+	}
+}
+
+func TestOpen_RejectsMissingAndNULPaths(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	tests := []struct {
+		name    string
+		path    string
+		wantErr error
+	}{
+		{name: "missing file", path: filepath.Join(dir, "missing"), wantErr: os.ErrNotExist},
+		{name: "embedded NUL", path: filepath.Join(dir, "invalid\x00path")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, err := Open(tt.path)
+			if f != nil {
+				if closeErr := f.Close(); closeErr != nil {
+					t.Errorf("close unexpected file: %v", closeErr)
+				}
+				t.Error("Open returned a file for an invalid path")
+			}
+			if err == nil {
+				t.Fatal("Open succeeded for an invalid path")
+			}
+			if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
+				t.Errorf("Open error = %v, want errors.Is(_, %v)", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestReplace_FailurePreservesSourceAndDestination(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		missingSource bool
+	}{
+		{name: "missing source preserves existing destination", missingSource: true},
+		{name: "nonempty destination directory preserves source"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			src := filepath.Join(dir, "src")
+			dst := filepath.Join(dir, "dst")
+			preserved := dst
+			if !tt.missingSource {
+				if err := os.WriteFile(src, []byte("source"), 0o600); err != nil {
+					t.Fatalf("seed source: %v", err)
+				}
+				if err := os.Mkdir(dst, 0o700); err != nil {
+					t.Fatalf("create destination directory: %v", err)
+				}
+				preserved = filepath.Join(dst, "child")
+			}
+			if err := os.WriteFile(preserved, []byte("previous"), 0o600); err != nil {
+				t.Fatalf("seed destination: %v", err)
+			}
+
+			err := Replace(src, dst)
+			if err == nil {
+				t.Fatal("Replace succeeded despite an invalid source or destination")
+			}
+			if tt.missingSource && !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("Replace error = %v, want os.ErrNotExist", err)
+			}
+			got, err := os.ReadFile(preserved)
+			if err != nil {
+				t.Fatalf("read preserved destination: %v", err)
+			}
+			if string(got) != "previous" {
+				t.Errorf("destination contents = %q, want previous", got)
+			}
+			if !tt.missingSource {
+				got, err := os.ReadFile(src)
+				if err != nil {
+					t.Fatalf("read preserved source: %v", err)
+				}
+				if string(got) != "source" {
+					t.Errorf("source contents = %q, want source", got)
+				}
+			}
+		})
+	}
+}
+
+func TestRemoveTemp_PreservesNonEmptyDirectory(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "child")
+	if err := os.WriteFile(path, []byte("retained"), 0o600); err != nil {
+		t.Fatalf("seed child: %v", err)
+	}
+
+	// A persistent removal error must exhaust the retry budget and return,
+	// without recursively deleting anything to force cleanup to succeed.
+	removeTemp(dir)
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read retained child: %v", err)
+	}
+	if string(got) != "retained" {
+		t.Errorf("child contents = %q, want retained", got)
 	}
 }
