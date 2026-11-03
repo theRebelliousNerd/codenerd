@@ -10,6 +10,20 @@ scope: stopped mission values questions and same-session restoration
 
 # Recurse values questions need a durable continuation owner
 
+
+## Current-main addendum: ownership isolation landed; continuation remains partial
+
+Static review at public main `440276a52c52cbc8b003b5830ca70a5d708e5126`, November 3, 2026. No tests or application paths were run. The original analysis below describes its explicitly pinned pre-fix revision.
+
+**Implemented:** [commit 97a4245](https://github.com/theRebelliousNerd/codenerd/commit/97a4245a50f1159901d2f89bff375fe41e7d5998) tags new mission threads with an owner, retains stopped values questions for that owner, and excludes mission-owned questions from ordinary session `Pending()`. New tagged mission questions no longer produce the historical chat-selector collision. Owner-specific lookup primitives also exist. [Mission settlement](https://github.com/theRebelliousNerd/codenerd/blob/440276a52c52cbc8b003b5830ca70a5d708e5126/internal/campaign/recurse_mission.go#L244-L286) [Selectors](https://github.com/theRebelliousNerd/codenerd/blob/440276a52c52cbc8b003b5830ca70a5d708e5126/internal/deliberation/persistence.go#L77-L172)
+
+**Legacy records remain an unrun upgrade case:** pre-fix thread records lack owner fields. Current `Load()` unmarshals them without reconciling mission receipts; empty owner fields fail `IsMissionOwned()`. Two such pending mission records can still collide in ordinary `Pending()`; one can still be restored as a chat clarification. This is not a failure of the new-thread correction or an observed incident. [Load and selection](https://github.com/theRebelliousNerd/codenerd/blob/440276a52c52cbc8b003b5830ca70a5d708e5126/internal/deliberation/persistence.go#L58-L108) [Ownership predicate](https://github.com/theRebelliousNerd/codenerd/blob/440276a52c52cbc8b003b5830ca70a5d708e5126/internal/deliberation/types.go#L73-L101)
+
+**Continuation remains partial:** bounded repository-wide searches found `PendingForOwner` and `PendingMissionThreads` in definitions and tests, but no production callers. The inspected session loader calls conversational `Pending()`; mission completion displays the question as text, and the generic design-only answer returns a note without updating or restarting the stopped mission. The new authored fixtures cover tagged isolation and lower-level lookup, not a legacy migration or owner-addressed user journey; this review did not execute them. [Session loader](https://github.com/theRebelliousNerd/codenerd/blob/440276a52c52cbc8b003b5830ca70a5d708e5126/cmd/nerd/chat/session_persistence.go#L251-L285) [Answer handler](https://github.com/theRebelliousNerd/codenerd/blob/440276a52c52cbc8b003b5830ca70a5d708e5126/cmd/nerd/chat/deliberation.go#L70-L93) [Mission fixtures](https://github.com/theRebelliousNerd/codenerd/blob/440276a52c52cbc8b003b5830ca70a5d708e5126/internal/campaign/recurse_audits_test.go#L388-L482)
+
+A future migration should require validated receipt-to-thread linkage or explicitly retain unresolved ownership; `DesignOnly` alone is not proof of mission ownership. Test legacy, mixed chat/mission, duplicate-answer and crash-recovery cases. Answering a preference must remain separate from authorizing execution.
+
+
 ## Decision and finding
 
 Keep mission values decisions durable, but do not equate every persisted `awaiting_values` thread with the single active chat clarification. A stopped mission, a live conversational question, and a design-only historical thread need explicit ownership and restoration semantics.
