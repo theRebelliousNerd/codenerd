@@ -94,6 +94,109 @@ func TestReserve_ExpiredApprovalFailsClosedWhenExpiryJournalFails(t *testing.T) 
 	}
 }
 
+// Expiry failure followed by a healthy reserve journal must still fail closed:
+// the expiry append fails, the journal is healed so a reserve append would
+// succeed if attempted, and Reserve on an elapsed approval must still return
+// an error without ever becoming reserved.
+func TestReserve_ExpiryFailureThenHealthyReserveStillFailsClosed(t *testing.T) {
+	tests := []struct {
+		name    string
+		advance time.Duration
+	}{
+		{
+			name:    "just past deadline expiry fails then reserve journal healthy",
+			advance: 2 * time.Minute,
+		},
+		{
+			name:    "far past deadline expiry fails then reserve journal healthy",
+			advance: 24 * time.Hour,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Unix(1000, 0)
+			var mu sync.Mutex
+			clock := func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+			journalPath := filepath.Join(t.TempDir(), "journal.jsonl")
+			b, err := NewBroker(Options{
+				TTL:              time.Minute,
+				PreviewMaxBytes:  4096,
+				JournalRetention: time.Hour,
+				JournalPath:      journalPath,
+				Now:              clock,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = b.Close() })
+			h, err := b.AttachHost("tui:test", "operator")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			subject := testSubject()
+			digest, err := subject.Digest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, err := b.open("exec-1", subject, digest, testPreview(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := h.Decide(DecisionInput{
+				RequestID: id, RequestVersion: 1, RequestDigest: digest,
+				EventID: "ev-1", Verdict: VerdictApprove,
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			mu.Lock()
+			now = now.Add(tt.advance)
+			mu.Unlock()
+
+			// Fail the expiry journal append.
+			if err := b.journal.file.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			// Drive the failing expiry append directly.
+			b.mu.Lock()
+			b.expireLocked(b.requests[id])
+			afterExpiry := b.requests[id].clone()
+			b.mu.Unlock()
+			if afterExpiry.Status != StatusExpired {
+				t.Fatalf("status after failed expiry append = %s, want %s", afterExpiry.Status, StatusExpired)
+			}
+
+			// Heal the journal so the reserve append would succeed if attempted.
+			f, err := os.OpenFile(journalPath, os.O_WRONLY|os.O_APPEND, 0o600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b.mu.Lock()
+			b.journal.file = f
+			b.mu.Unlock()
+
+			grant := &Grant{broker: b, requestID: id, intentID: "exec-1", digest: digest, eventID: "ev-1"}
+			if err := grant.Reserve("exec-1", subject); !errors.Is(err, ErrExpired) {
+				t.Errorf("Reserve after failed expiry with healthy reserve journal = %v, want %v", err, ErrExpired)
+			}
+
+			got, ok := b.Get(id)
+			if !ok {
+				t.Fatalf("request %s missing after Reserve", id)
+			}
+			if got.Status == StatusReserved {
+				t.Errorf("status after failed expiry with healthy reserve journal = %s, must never become reserved", got.Status)
+			}
+			if got.Status != StatusExpired {
+				t.Errorf("status after failed expiry with healthy reserve journal = %s, want %s", got.Status, StatusExpired)
+			}
+		})
+	}
+}
+
 // The same fault at the expireLocked level: after a failed expiry append the
 // request must read Expired, not stay Approved where a later Reserve admits it.
 func TestExpireLocked_FailingJournalStillExpiresElapsedRequest(t *testing.T) {
