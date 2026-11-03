@@ -819,15 +819,17 @@ func parseCargoManifest(manifestDir, content string) *cargoManifestInfo {
 					subKey = segs[1]
 				}
 			case 3:
+				third := segs[2]
 				if segs[0] == "workspace" && segs[1] == "dependencies" {
 					info.hasWorkspace = true
 					sec = secWorkspaceDeps
-					subKey = segs[2]
-				} else if segs[0] == "target" && isCargoDepTable(segs[2]) {
+					subKey = third
+				} else if segs[0] == "target" && isCargoDepTable(third) {
 					sec = secCrateDeps
 				}
 			case 4:
-				if segs[0] == "target" && isCargoDepTable(segs[2]) {
+				third := segs[2]
+				if segs[0] == "target" && isCargoDepTable(third) {
 					sec = secCrateDeps
 					subKey = segs[3]
 				}

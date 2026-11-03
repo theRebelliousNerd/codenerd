@@ -84,6 +84,15 @@ type Orchestrator struct {
 	// evidenceMu).
 	citeCache map[string]citeCacheEntry
 
+	// testRunMu serializes TaskTypeTestRun executions and caches the last
+	// green witness per (target, workspace snapshot) so parallel /test_run
+	// tasks in the same phase do not spawn duplicate concurrent go test runs.
+	testRunMu        sync.Mutex
+	lastTestTarget   string
+	lastTestSnapshot string
+	lastTestOutput   string
+	lastTestWitness  *TestExecutionWitness
+
 	// Task result storage for context injection between tasks
 	taskResults map[string]string
 	resultsMu   sync.RWMutex

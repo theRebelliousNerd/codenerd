@@ -563,7 +563,21 @@ func (p *DefaultConfigAtomProvider) GetAtom(intent string) (ConfigAtom, bool) {
 	}
 	// Chat delegation uses /consult/<name> while spawn uses /<name>.
 	if after, found := strings.CutPrefix(intent, "/consult/"); found {
-		if atom, ok = p.atoms["/"+strings.ToLower(strings.TrimSpace(after))]; ok {
+		key := "/" + strings.ToLower(strings.TrimSpace(after))
+		if atom, ok = p.atoms[key]; ok {
+			return atom.Clone(), true
+		}
+		switch key {
+		case "/coder":
+			key = "/fix"
+		case "/tester":
+			key = "/test"
+		case "/reviewer":
+			key = "/review"
+		case "/researcher":
+			key = "/research"
+		}
+		if atom, ok = p.atoms[key]; ok {
 			return atom.Clone(), true
 		}
 	}

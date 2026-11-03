@@ -502,7 +502,7 @@ type RawTask struct {
 const planResponseSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
-  "additionalProperties": true,
+  "additionalProperties": false,
   "required": ["title", "confidence", "phases"],
   "properties": {
     "title": { "type": "string", "minLength": 1 },
@@ -511,7 +511,7 @@ const planResponseSchema = `{
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
         "required": [
           "name",
           "order",
@@ -549,7 +549,7 @@ const planResponseSchema = `{
             "type": "array",
             "items": {
               "type": "object",
-              "additionalProperties": true,
+              "additionalProperties": false,
               "required": ["description", "type", "priority", "depends_on", "artifacts"],
               "properties": {
                 "description": { "type": "string", "minLength": 1 },

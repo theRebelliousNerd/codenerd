@@ -862,3 +862,54 @@ func TestExecuteFileTask_BriefingForModifyOnly(t *testing.T) {
 		}
 	})
 }
+
+func TestExecuteResearchTask_MultiBatchContinuation(t *testing.T) {
+	t.Parallel()
+	ws := t.TempDir()
+	calls := 0
+	o := &Orchestrator{
+		kernel:    newAssertTestKernel(t),
+		workspace: ws,
+		campaign:  &Campaign{ID: "/campaign_batch_test"},
+		taskExecutor: &MockTaskExecutor{
+			ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
+				calls++
+				if calls == 1 {
+					return "## Batch 1\n- `Docs/audits/a.md` verified\n\nPartial result: 1 of 2 documents done. Remaining work: `Docs/audits/b.md`.", nil
+				}
+				return "## Batch 2\n- `Docs/audits/b.md` verified\n\nAll documents verified.", nil
+			},
+		},
+	}
+	task := &Task{
+		ID:          "/task_batch_1",
+		PhaseID:     "/phase_1",
+		Type:        TaskTypeResearch,
+		Description: "Verify all audit documents",
+	}
+	res, err := o.executeResearchTask(context.Background(), task)
+	if err != nil {
+		t.Fatalf("executeResearchTask() error = %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected 2 batch calls, got %d", calls)
+	}
+	resMap, ok := res.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map result, got %T", res)
+	}
+	combined, _ := resMap["research_result"].(string)
+	if !strings.Contains(combined, "Docs/audits/a.md") || !strings.Contains(combined, "Docs/audits/b.md") {
+		t.Fatalf("expected combined result to contain both batches, got:\n%s", combined)
+	}
+	if len(task.Artifacts) != 1 {
+		t.Fatalf("expected 1 persisted output artifact, got %d", len(task.Artifacts))
+	}
+	onDisk, err := os.ReadFile(filepath.Join(ws, task.Artifacts[0].Path))
+	if err != nil {
+		t.Fatalf("read persisted artifact: %v", err)
+	}
+	if !strings.Contains(string(onDisk), "Docs/audits/b.md") {
+		t.Fatalf("expected persisted artifact to include Batch 2, got:\n%s", string(onDisk))
+	}
+}

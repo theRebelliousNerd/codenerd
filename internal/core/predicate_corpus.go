@@ -2,9 +2,11 @@
 package core
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -69,6 +71,47 @@ type PredicateExampleInfo struct {
 	Source        string
 }
 
+var sharedPredicateCorpusFileMu sync.Mutex
+
+func ensureSharedPredicateCorpusFile(data []byte) (string, error) {
+	sum := sha256.Sum256(data)
+	sharedPath := filepath.Join(os.TempDir(), fmt.Sprintf("codenerd_predicate_corpus_%x.db", sum[:8]))
+
+	sharedPredicateCorpusFileMu.Lock()
+	defer sharedPredicateCorpusFileMu.Unlock()
+
+	if info, err := os.Stat(sharedPath); err == nil && info.Size() == int64(len(data)) {
+		return sharedPath, nil
+	}
+
+	f, err := os.CreateTemp(os.TempDir(), "codenerd_predicate_corpus_tmp_*.db")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpPath := f.Name()
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmpPath)
+		return "", fmt.Errorf("failed to write temp corpus: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmpPath)
+		return "", fmt.Errorf("failed to close temp corpus: %w", err)
+	}
+	if err := os.Chmod(tmpPath, 0644); err != nil {
+		os.Remove(tmpPath)
+		return "", fmt.Errorf("failed to chmod temp corpus: %w", err)
+	}
+	if err := os.Rename(tmpPath, sharedPath); err != nil {
+		os.Remove(tmpPath)
+		if info, statErr := os.Stat(sharedPath); statErr == nil && info.Size() == int64(len(data)) {
+			return sharedPath, nil
+		}
+		return "", fmt.Errorf("failed to publish shared corpus: %w", err)
+	}
+	return sharedPath, nil
+}
+
 // NewPredicateCorpus creates a new PredicateCorpus from the embedded database.
 func NewPredicateCorpus() (*PredicateCorpus, error) {
 	// Check if embedded corpus is available
@@ -82,23 +125,14 @@ func NewPredicateCorpus() (*PredicateCorpus, error) {
 		return nil, fmt.Errorf("failed to read embedded corpus: %w", err)
 	}
 
-	// Write to a unique temp file for SQLite access to prevent concurrent test interference
-	f, err := os.CreateTemp("", "predicate_corpus_*.db")
+	tempPath, err := ensureSharedPredicateCorpusFile(data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temp file: %w", err)
-	}
-	tempPath := f.Name()
-	f.Close() // Close the handle immediately so we can write to it and open via SQLite
-
-	if err := os.WriteFile(tempPath, data, 0644); err != nil {
-		os.Remove(tempPath)
-		return nil, fmt.Errorf("failed to write temp corpus: %w", err)
+		return nil, err
 	}
 
-	// Open database
+	// Open database read-only
 	db, err := sql.Open("sqlite3", tempPath+"?mode=ro")
 	if err != nil {
-		os.Remove(tempPath)
 		return nil, fmt.Errorf("failed to open corpus database: %w", err)
 	}
 	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileReadOnly)
@@ -122,16 +156,14 @@ func NewPredicateCorpusFromPath(path string) (*PredicateCorpus, error) {
 	}, nil
 }
 
-// Close closes the corpus database and cleans up temp files.
+// Close closes the corpus database. The content-addressed shared file in
+// os.TempDir() is immutable and reused across instances, so it is not deleted.
 func (pc *PredicateCorpus) Close() error {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 
 	if pc.db != nil {
 		pc.db.Close()
-	}
-	if pc.tempFile != "" {
-		os.Remove(pc.tempFile)
 	}
 	return nil
 }

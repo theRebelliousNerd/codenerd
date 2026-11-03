@@ -1,15 +1,14 @@
 package store
 
 import (
-	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
 
 func TestArchivalTier(t *testing.T) {
 	// Create temporary database
-	dbPath := "test_archival.db"
-	defer os.Remove(dbPath)
+	dbPath := filepath.Join(t.TempDir(), "test_archival.db")
 
 	store, err := NewLocalStore(dbPath)
 	if err != nil {
@@ -94,8 +93,7 @@ func TestArchivalTier(t *testing.T) {
 }
 
 func TestRestoreArchivedFact(t *testing.T) {
-	dbPath := "test_restore.db"
-	defer os.Remove(dbPath)
+	dbPath := filepath.Join(t.TempDir(), "test_restore.db")
 
 	store, err := NewLocalStore(dbPath)
 	if err != nil {
@@ -151,8 +149,7 @@ func TestRestoreArchivedFact(t *testing.T) {
 }
 
 func TestAccessTracking(t *testing.T) {
-	dbPath := "test_access.db"
-	defer os.Remove(dbPath)
+	dbPath := filepath.Join(t.TempDir(), "test_access.db")
 
 	store, err := NewLocalStore(dbPath)
 	if err != nil {
@@ -192,8 +189,7 @@ func TestAccessTracking(t *testing.T) {
 }
 
 func TestMaintenanceCleanup(t *testing.T) {
-	dbPath := "test_maintenance.db"
-	defer os.Remove(dbPath)
+	dbPath := filepath.Join(t.TempDir(), "test_maintenance.db")
 
 	store, err := NewLocalStore(dbPath)
 	if err != nil {
@@ -267,8 +263,7 @@ func TestMaintenanceCleanup(t *testing.T) {
 }
 
 func TestPurgeOldArchivedFacts(t *testing.T) {
-	dbPath := "test_purge.db"
-	defer os.Remove(dbPath)
+	dbPath := filepath.Join(t.TempDir(), "test_purge.db")
 
 	store, err := NewLocalStore(dbPath)
 	if err != nil {

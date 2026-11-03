@@ -19,6 +19,17 @@ import (
 // INDIVIDUAL GATHERING METHODS
 // =============================================================================
 
+func scanDirectoryRoot(paths []string) string {
+	root := "."
+	if len(paths) > 0 && strings.TrimSpace(paths[0]) != "" {
+		root = paths[0]
+	}
+	if info, err := os.Stat(root); err == nil && !info.IsDir() {
+		root = filepath.Dir(root)
+	}
+	return root
+}
+
 func (g *IntelligenceGatherer) gatherWorldModel(ctx context.Context, report *IntelligenceReport, paths []string, addError func(string)) {
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherWorldModel")
 	defer timer.Stop()
@@ -27,10 +38,7 @@ func (g *IntelligenceGatherer) gatherWorldModel(ctx context.Context, report *Int
 	defer cancel()
 
 	// Determine root path for scanning
-	root := "."
-	if len(paths) > 0 {
-		root = paths[0] // Use first path as root
-	}
+	root := scanDirectoryRoot(paths)
 
 	facts, err := g.worldScanner.ScanWorkspaceCtx(ctx, root)
 	if err != nil {
@@ -108,10 +116,7 @@ func (g *IntelligenceGatherer) gatherGitHistory(ctx context.Context, report *Int
 	ctx, cancel := g.boundSystem(ctx)
 	defer cancel()
 
-	root := "."
-	if len(paths) > 0 {
-		root = paths[0]
-	}
+	root := scanDirectoryRoot(paths)
 
 	facts, err := world.ScanGitHistory(ctx, root, g.config.GitHistoryDepth)
 	if err != nil {

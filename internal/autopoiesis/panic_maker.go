@@ -168,10 +168,30 @@ func (p *PanicMaker) parseAttackResponse(response string) ([]AttackVector, error
 
 	var attacks []AttackVector
 	if err := json.Unmarshal([]byte(response), &attacks); err != nil {
-		return nil, fmt.Errorf("failed to parse attack JSON: %w", err)
+		sanitized := escapeRawJSONControlBytes(response)
+		if err2 := json.Unmarshal([]byte(sanitized), &attacks); err2 != nil {
+			return nil, fmt.Errorf("failed to parse attack JSON: %w", err)
+		}
 	}
 
 	return attacks, nil
+}
+
+// escapeRawJSONControlBytes replaces raw ASCII control bytes (< 0x20 other than
+// \t, \n, \r) with \u00XX escapes so LLM-emitted NUL/control bytes inside JSON
+// string literals do not fail json.Unmarshal.
+func escapeRawJSONControlBytes(s string) string {
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if b < 0x20 && b != '\t' && b != '\n' && b != '\r' {
+			sb.WriteString(fmt.Sprintf(`\u%04x`, b))
+			continue
+		}
+		sb.WriteByte(b)
+	}
+	return sb.String()
 }
 
 // filterAttacks removes attacks that don't match the current config.

@@ -329,6 +329,10 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 
 	logging.CampaignDebug("Shard %s completed for task %s, result_len=%d", shardType, task.ID, len(result))
 
+	if !isFileProducingType(task.Type) {
+		result = o.runMultiBatchAnalysis(ctx, task, shardType, input, result)
+	}
+
 	// F-DURABLE-1: an explicit-shard task that produces analysis (research,
 	// audit, review, discovery) rather than a file returns its result only in
 	// memory. Persist it as a durable artifact so the findings survive and the
@@ -417,6 +421,8 @@ func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any
 	}
 	logging.CampaignDebug("Researcher shard completed for task %s", task.ID)
 
+	result = o.runMultiBatchAnalysis(ctx, task, verb, input, result)
+
 	// F-DURABLE-1: research/audit tasks previously returned their findings only
 	// in memory, leaving nothing on disk. The phase-checkpoint reviewer then
 	// correctly reported "no durable discovery outputs" and failed the phase even
@@ -434,6 +440,148 @@ func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any
 		return nil, fmt.Errorf("%w: the research turn for %s ended done with no findings to persist", ErrNoDeliverable, task.ID)
 	}
 	return map[string]any{"research_result": result}, nil
+}
+
+var partialBatchReportPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\bpartial\s+result\b`),
+	regexp.MustCompile(`(?i)\bthis\s+is\s+partial\b`),
+	regexp.MustCompile(`(?i)\bstatus\s*:\s*\*{0,2}partial\b`),
+	regexp.MustCompile(`(?i)\bcontinue\s+in\s+batches\b`),
+	regexp.MustCompile(`(?i)\bleft\s+for\s+the\s+next\s+batch\b`),
+	regexp.MustCompile(`(?i)\bremaining\s+(?:work|audits|documents|items)\s*:`),
+	regexp.MustCompile(`(?i)\bbatch\s+\d+\s+of\s+\d+\b`),
+}
+
+func reportAdmitsPartialBatch(report string) bool {
+	trimmed := strings.TrimSpace(report)
+	if trimmed == "" {
+		return false
+	}
+	for _, re := range partialBatchReportPatterns {
+		if re.MatchString(trimmed) {
+			return true
+		}
+	}
+	return false
+}
+
+func extractBatchOutline(batches []string) string {
+	var lines []string
+	seen := make(map[string]bool)
+	for _, b := range batches {
+		for _, raw := range strings.Split(b, "\n") {
+			line := strings.TrimSpace(raw)
+			if line == "" {
+				continue
+			}
+			if strings.HasPrefix(line, "#") || strings.Contains(line, ".md") || strings.HasPrefix(line, "| `") || strings.HasPrefix(line, "- `") || strings.HasPrefix(line, "* `") {
+				if !seen[line] {
+					seen[line] = true
+					lines = append(lines, line)
+				}
+			}
+		}
+	}
+	joined := strings.Join(lines, "\n")
+	maxOutline := 6000
+	return types.ClampText(joined, maxOutline, "covered batch outline")
+}
+
+// runMultiBatchAnalysis continues a non-file-producing analysis/research task
+// across fresh turns when its report explicitly states that it completed a
+// partial batch and has remaining items left to verify. Each batch is written
+// immediately to the task's durable artifact so progress is preserved on disk.
+func (o *Orchestrator) runMultiBatchAnalysis(ctx context.Context, task *Task, verb, baseInput, firstBatch string) string {
+	if task == nil || !reportAdmitsPartialBatch(firstBatch) {
+		return firstBatch
+	}
+	batches := []string{strings.TrimSpace(firstBatch)}
+	combined := batches[0]
+	o.writeTaskOutputArtifact(task, combined)
+
+	maxBatches := 24
+	tailChars := 2500
+	for batch := 2; batch <= maxBatches; batch++ {
+		if ctx.Err() != nil {
+			break
+		}
+		lastBatch := batches[len(batches)-1]
+		tail := lastBatch
+		if len(tail) > tailChars {
+			tail = tail[len(tail)-tailChars:]
+		}
+		outline := extractBatchOutline(batches)
+		artifactPath := o.defaultTaskArtifactPath(task)
+		contInput := fmt.Sprintf(
+			"%s\n\n=== MULTI-BATCH CONTINUATION (BATCH %d) ===\n"+
+				"Earlier batches of this task have already been persisted to %s.\n"+
+				"Items/headings already covered in previous batches (DO NOT repeat these):\n%s\n\n"+
+				"Closing section of the previous batch:\n%s\n\n"+
+				"Now execute Batch %d: verify the next batch of remaining items with concrete file:line citations. "+
+				"Do NOT re-verify items already covered above. "+
+				"If items still remain after this batch, list the remaining items at the end and mark 'Partial result'; "+
+				"once all remaining items for this task are covered, do NOT mark the output as partial.",
+			baseInput, batch, artifactPath, outline, tail, batch,
+		)
+		logging.Campaign("Task %s reported partial batch; dispatching continuation batch %d", task.ID, batch)
+		nextBatch, err := o.spawnTask(ctx, task, verb, contInput)
+		if err != nil {
+			logging.Get(logging.CategoryCampaign).Warn("Multi-batch continuation %d for task %s stopped: %v", batch, task.ID, err)
+			break
+		}
+		trimmedNext := strings.TrimSpace(nextBatch)
+		if trimmedNext == "" || trimmedNext == lastBatch {
+			break
+		}
+		batches = append(batches, trimmedNext)
+		combined = combined + fmt.Sprintf("\n\n---\n\n## Continuation Batch %d\n\n%s", batch, trimmedNext)
+		o.writeTaskOutputArtifact(task, combined)
+		if !reportAdmitsPartialBatch(trimmedNext) {
+			logging.Campaign("Task %s completed multi-batch analysis after %d batches (%d bytes)", task.ID, batch, len(combined))
+			break
+		}
+	}
+	return combined
+}
+
+// writeTaskOutputArtifact writes or updates the task's durable .doc artifact
+// inside the campaign artifacts directory.
+func (o *Orchestrator) writeTaskOutputArtifact(task *Task, result string) bool {
+	if task == nil {
+		return false
+	}
+	trimmed := strings.TrimSpace(result)
+	if trimmed == "" || isFileProducingType(task.Type) {
+		return false
+	}
+	relPath := o.defaultTaskArtifactPath(task)
+	fullPath := filepath.Join(o.workspace, relPath)
+	if !o.insideCampaignArtifacts(fullPath) {
+		logging.Get(logging.CategoryCampaign).Warn("Refusing durable-output write outside the campaign artifacts dir: %s", fullPath)
+		return false
+	}
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("Failed to create artifact dir for task %s: %v", task.ID, err)
+		return false
+	}
+	header := fmt.Sprintf("# %s\n\n_Durable output for task %s (%s)._\n\n", task.Description, task.ID, task.Type)
+	if err := os.WriteFile(fullPath, []byte(header+trimmed+"\n"), 0o644); err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("Failed to persist output artifact for task %s: %v", task.ID, err)
+		return false
+	}
+	hasArtifact := false
+	for _, a := range task.Artifacts {
+		if a.Path == relPath {
+			hasArtifact = true
+			break
+		}
+	}
+	if !hasArtifact {
+		task.Artifacts = append(task.Artifacts, TaskArtifact{Type: "/doc", Path: relPath})
+	}
+	logging.Campaign("Persisted durable output artifact for task %s: %s (%d bytes)", task.ID, relPath, len(trimmed))
+	o.emitEvent(EventArtifactPersisted, task.PhaseID, task.ID, relPath, nil)
+	return true
 }
 
 // persistTaskOutputArtifact writes an analysis/research/audit task's textual
@@ -466,27 +614,7 @@ func (o *Orchestrator) persistTaskOutputArtifact(task *Task, result string) {
 			}
 		}
 	}
-	relPath := o.defaultTaskArtifactPath(task)
-	fullPath := filepath.Join(o.workspace, relPath)
-	// This is the one direct write the orchestrator keeps, and only because it
-	// targets the campaign's own artifacts directory. Refuse anything that
-	// resolves outside it: repository files go through the VirtualStore.
-	if !o.insideCampaignArtifacts(fullPath) {
-		logging.Get(logging.CategoryCampaign).Warn("Refusing durable-output write outside the campaign artifacts dir: %s", fullPath)
-		return
-	}
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
-		logging.Get(logging.CategoryCampaign).Warn("Failed to create artifact dir for task %s: %v", task.ID, err)
-		return
-	}
-	header := fmt.Sprintf("# %s\n\n_Durable output for task %s (%s)._\n\n", task.Description, task.ID, task.Type)
-	if err := os.WriteFile(fullPath, []byte(header+trimmed+"\n"), 0o644); err != nil {
-		logging.Get(logging.CategoryCampaign).Warn("Failed to persist output artifact for task %s: %v", task.ID, err)
-		return
-	}
-	task.Artifacts = append(task.Artifacts, TaskArtifact{Type: "/doc", Path: relPath})
-	logging.Campaign("Persisted durable output artifact for task %s: %s (%d bytes)", task.ID, relPath, len(trimmed))
-	o.emitEvent(EventArtifactPersisted, task.PhaseID, task.ID, relPath, nil)
+	o.writeTaskOutputArtifact(task, trimmed)
 }
 
 // resolveFileTaskTargetPath resolves the file-task target path from the task's
@@ -763,9 +891,19 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 	if o.kernel == nil {
 		return nil, fmt.Errorf("test execution requires kernel authorization")
 	}
+	o.testRunMu.Lock()
+	defer o.testRunMu.Unlock()
 	before, err := evidence.Snapshot(ctx, o.workspace)
 	if err != nil {
 		return nil, err
+	}
+	if before != "" && o.lastTestWitness != nil && o.lastTestTarget == target && o.lastTestSnapshot == before {
+		cached := *o.lastTestWitness
+		o.mu.Lock()
+		task.TestWitness = &cached
+		o.mu.Unlock()
+		logging.Campaign("Reusing cached green test witness for %s on unchanged snapshot", target)
+		return map[string]any{"target": target, "passed": true, "output": o.lastTestOutput, "witness": &cached, "witness_source": "virtual_store/run_tests_cached"}, nil
 	}
 	// Workspace build tags and configured go_flags (e.g. -p=4): a tagless run in
 	// codeNERD's own tree tests a different build (sqlite-vec files excluded), and
@@ -805,6 +943,10 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 		return nil, fmt.Errorf("workspace changed during test execution; witness invalidated")
 	}
 	witness := &TestExecutionWitness{Snapshot: after, Command: command, OutputHash: fmt.Sprintf("%x", sha256.Sum256([]byte(result.Output))), RecordedAt: time.Now().UTC()}
+	o.lastTestTarget = target
+	o.lastTestSnapshot = after
+	o.lastTestOutput = result.Output
+	o.lastTestWitness = witness
 	o.mu.Lock()
 	task.TestWitness = witness
 	o.mu.Unlock()
