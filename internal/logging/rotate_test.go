@@ -1,6 +1,8 @@
 package logging
 
 import (
+	"errors"
+	"github.com/google/go-cmp/cmp"
 	"os"
 	"path/filepath"
 	"strings"
@@ -171,5 +173,125 @@ func TestRotation_WhenCategoryLoggerExceedsBudget_ShouldRotateOnDisk(t *testing.
 
 	if got := rotatedSegments(filepath.Join(ws, ".nerd", "logs", filepath.Base(logger.sink.Path()))); len(got) == 0 {
 		t.Error("a category logger past its budget did not rotate")
+	}
+}
+
+func TestRotation_ReopenedSegmentPreservesRecordsAtSizeBoundary(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		initial     string
+		incoming    string
+		maxBytes    int64
+		wantArchive bool
+	}{
+		{name: "below budget", initial: "seed\n", incoming: "next\n", maxBytes: 11},
+		{name: "exact budget", initial: "seed\n", incoming: "next\n", maxBytes: 10},
+		{name: "incoming exceeds budget", initial: "seed\n", incoming: "next\n", maxBytes: 9, wantArchive: true},
+		{name: "existing segment exceeds budget", initial: "seed\n", incoming: "next\n", maxBytes: 4, wantArchive: true},
+		{name: "oversized first record stays whole", incoming: "next\n", maxBytes: 1},
+		{name: "size rotation disabled", initial: "seed\n", incoming: "next\n", maxBytes: 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "run_kernel.log")
+			if err := os.WriteFile(path, []byte(tt.initial), 0o600); err != nil {
+				t.Fatalf("seed existing segment: %v", err)
+			}
+			sink, err := openRotatingFile(path)
+			if err != nil {
+				t.Fatalf("reopen segment: %v", err)
+			}
+			t.Cleanup(func() {
+				if err := sink.Close(); err != nil {
+					t.Errorf("close segment: %v", err)
+				}
+			})
+			sink.maxBytes = tt.maxBytes
+			sink.maxAge = 0
+			sink.keep = 2
+
+			n, err := sink.WriteString(tt.incoming)
+			if err != nil || n != len(tt.incoming) {
+				t.Fatalf("WriteString() = (%d, %v), want (%d, nil)", n, err, len(tt.incoming))
+			}
+			if err := sink.Close(); err != nil {
+				t.Fatalf("close before reading: %v", err)
+			}
+
+			wantLive := tt.initial + tt.incoming
+			wantArchives := 0
+			if tt.wantArchive {
+				wantLive = tt.incoming
+				wantArchives = 1
+			}
+			live, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read live segment: %v", err)
+			}
+			if diff := cmp.Diff(wantLive, string(live)); diff != "" {
+				t.Errorf("live segment mismatch (-want +got):\n%s", diff)
+			}
+			archives := rotatedSegments(path)
+			if len(archives) != wantArchives {
+				t.Fatalf("archive count = %d, want %d", len(archives), wantArchives)
+			}
+			if tt.wantArchive {
+				archived, err := os.ReadFile(archives[0])
+				if err != nil {
+					t.Fatalf("read archived segment: %v", err)
+				}
+				if diff := cmp.Diff(tt.initial, string(archived)); diff != "" {
+					t.Errorf("archived segment mismatch (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
+func TestRotation_ClosedSinkRejectsWritesWithoutChangingRecords(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		write func(*rotatingFile) (int, error)
+	}{
+		{name: "bytes", write: func(sink *rotatingFile) (int, error) { return sink.Write([]byte("late\n")) }},
+		{name: "string", write: func(sink *rotatingFile) (int, error) { return sink.WriteString("late\n") }},
+		{name: "empty bytes", write: func(sink *rotatingFile) (int, error) { return sink.Write(nil) }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "run_kernel.log")
+			sink, err := openRotatingFile(path)
+			if err != nil {
+				t.Fatalf("open segment: %v", err)
+			}
+			t.Cleanup(func() {
+				if err := sink.Close(); err != nil {
+					t.Errorf("close segment: %v", err)
+				}
+			})
+			sink.maxBytes = 0
+			sink.maxAge = 0
+			const record = "before close\n"
+			if n, err := sink.WriteString(record); err != nil || n != len(record) {
+				t.Fatalf("seed WriteString() = (%d, %v), want (%d, nil)", n, err, len(record))
+			}
+			if err := sink.Close(); err != nil {
+				t.Fatalf("close segment: %v", err)
+			}
+			if err := sink.Close(); err != nil {
+				t.Fatalf("repeated Close() = %v, want nil", err)
+			}
+			if n, err := tt.write(sink); n != 0 || !errors.Is(err, os.ErrClosed) {
+				t.Errorf("write after Close() = (%d, %v), want (0, os.ErrClosed)", n, err)
+			}
+			live, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read closed segment: %v", err)
+			}
+			if diff := cmp.Diff(record, string(live)); diff != "" {
+				t.Errorf("closed segment mismatch (-want +got):\n%s", diff)
+			}
+			if archives := rotatedSegments(path); len(archives) != 0 {
+				t.Errorf("write after Close() created archives: %v", archives)
+			}
+		})
 	}
 }
