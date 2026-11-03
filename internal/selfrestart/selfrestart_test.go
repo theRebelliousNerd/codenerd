@@ -128,6 +128,97 @@ func TestRestarter_AFailedExecKeepsTheOldProcess(t *testing.T) {
 	}
 }
 
+// A failed exec can be retried with fresh session state, whether the same
+// build is still pending or a later rebuild has superseded it.
+func TestRestarter_RetriesWithFreshStateAfterExecFailure(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name    string
+		rebuilt bool
+	}{
+		{name: "same pending build"},
+		{name: "newer pending build", rebuilt: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			execErr := errors.New("exec rejected")
+			var failedPath string
+			failedCalls := 0
+			old := fakeIdentity("/bin/nerd", "running", 10)
+			next := fakeIdentity("/bin/nerd", "first rebuild", 11)
+			r := NewRestarter(old, t.TempDir(), func(_ string, argv []string, _ []string) error {
+				failedCalls++
+				if len(argv) != 4 || argv[2] != RestoreFlag {
+					t.Fatalf("failed exec argv = %q, want program, chat and restore flag with path", argv)
+				}
+				failedPath = argv[3]
+				return execErr
+			})
+			if !r.BinaryChanged(next) {
+				t.Fatal("initial rebuild was ignored")
+			}
+			args := []string{"nerd", "chat", RestoreFlag, "/stale.json"}
+			before := slices.Clone(args)
+			if err := r.Restart(State{SessionID: "before failure"}, args); !errors.Is(err, execErr) {
+				t.Fatalf("first Restart error = %v, want wrapped exec error", err)
+			}
+			if _, err := os.Stat(failedPath); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("failed handoff remains: stat error = %v", err)
+			}
+			if tt.rebuilt {
+				next = fakeIdentity("/bin/nerd", "later rebuild", 12)
+				if !r.BinaryChanged(next) {
+					t.Fatal("later rebuild was ignored after exec failure")
+				}
+			}
+			if r.BinaryChanged(next) {
+				t.Fatal("duplicate pending build was admitted after exec failure")
+			}
+			pending, ok := r.Pending()
+			if !ok || pending != next || !r.ShouldRestart(false) || r.ShouldRestart(true) {
+				t.Fatalf("retry lost pending build or idle guard: pending = %+v, present = %v", pending, ok)
+			}
+			want := State{
+				SessionID: "after failure", WorkMode: "safe", Brief: "resume updated work",
+				Queued: []string{"run tests"}, Draft: "updated draft", Recurse: true,
+				RecurseArgs: []string{"session"}, Interrupted: []string{"background analysis"},
+			}
+			retryCalls := 0
+			r.SetExec(func(path string, argv []string, _ []string) error {
+				retryCalls++
+				if path != next.Path || len(argv) != 4 || argv[0] != "nerd" || argv[1] != "chat" || argv[2] != RestoreFlag {
+					t.Fatalf("retry exec = %q %q, want pending build and original args with one restore flag", path, argv)
+				}
+				got, err := ReadState(argv[3])
+				if err != nil {
+					t.Fatal(err)
+				}
+				expected := want
+				expected.Version, expected.OldBuild, expected.NewBuild = stateVersion, old.Build, next.Build
+				if diff := cmp.Diff(expected, got); diff != "" {
+					t.Errorf("retry state mismatch (-want +got):\n%s", diff)
+				}
+				if _, err := ReadState(argv[3]); !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("retry handoff is replayable: error = %v", err)
+				}
+				return nil
+			})
+			if err := r.Restart(want, args); err != nil {
+				t.Fatal(err)
+			}
+			if failedCalls != 1 || retryCalls != 1 {
+				t.Errorf("exec calls = (%d failed, %d retry), want (1, 1)", failedCalls, retryCalls)
+			}
+			if diff := cmp.Diff(before, args); diff != "" {
+				t.Errorf("Restart mutated caller args (-want +got):\n%s", diff)
+			}
+			if want.Version != 0 || want.OldBuild != "" || want.NewBuild != "" {
+				t.Errorf("Restart mutated caller state: %+v", want)
+			}
+		})
+	}
+}
+
 func TestRestarter_PreservesExecAndCleanupErrors(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
