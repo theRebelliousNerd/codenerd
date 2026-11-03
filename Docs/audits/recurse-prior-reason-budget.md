@@ -9,6 +9,23 @@ verification-method: static-source-inspection
 
 # Recurse prior attempt reasons escape the history byte budget
 
+## Current-main addendum: reason-only growth is bounded; strict-ceiling and omission details remain
+
+Static review at public main `3330b2cc242f7878326649867aee2a93d7348ce5`, November 3, 2026. Main was resolved and rechecked at this revision. The original analysis below describes `388205138ba6d47c1cff0c5e97c896dfa642a391`; its statement that the renderer charges only patch strings is no longer current. [Commit 6148ca4](https://github.com/theRebelliousNerd/codenerd/commit/6148ca4efc3ab0f587902382099a7fa629c39852) changes that accounting.
+
+`writePriorAttempts` now formats each cycle/reason header, stops when the next header does not fit, and subtracts the full written header from the remaining budget. It reserves the diff label and fences before allocating patch content, then charges the complete rendered diff entry. The first, newest oversized reason is clamped rather than copied without a bound. Thus ordinary empty-patch history consumes the balance and cannot grow with every retained reason as in the original witness. Newest-first ordering remains. [Renderer](https://github.com/theRebelliousNerd/codenerd/blob/3330b2cc242f7878326649867aee2a93d7348ce5/internal/campaign/recurse_attempt.go#L172-L206)
+
+This closes the original unbounded reason-only rendering mechanism, not every part of the proposed strict budget and progressive-disclosure contract:
+
+- **The rendered section is not a strict 12,000-byte ceiling.** Both the oversized newest header and oversized diff pass their entire available content balance to `types.ClampText`, without reserving its marker. That helper expressly permits its result to exceed the passed bound by the marker length. For a long single-line reason with no nearby line boundary to snap to, the retained head and tail can consume the complete allowance before the marker is inserted. This is a small bounded overshoot, not a return of history-length-dependent growth. [Calls](https://github.com/theRebelliousNerd/codenerd/blob/3330b2cc242f7878326649867aee2a93d7348ce5/internal/campaign/recurse_attempt.go#L180-L202) [Helper contract and implementation](https://github.com/theRebelliousNerd/codenerd/blob/3330b2cc242f7878326649867aee2a93d7348ce5/internal/types/elide.go#L78-L104)
+- **Whole-record omission is silent.** When an older header does not fit, the loop breaks without an omitted-record count or cycle range. Exhausting the budget also ends the loop without such a notice. A marker inside a shortened newest reason or patch describes that text's truncation, not the older records withheld. The broader proposal's honest omission metadata and any scoped retrieval route remain unimplemented here. [Renderer stopping branches](https://github.com/theRebelliousNerd/codenerd/blob/3330b2cc242f7878326649867aee2a93d7348ce5/internal/campaign/recurse_attempt.go#L176-L205)
+
+An authored regression supplies 50 reason-only records and checks that the newest appears and the result is no larger than `recurseEvidenceLimit + 256`. It supports the intended bounded-history shape but does not assert an exact 12,000-byte result, an omission notice, or the mixed reason/diff boundary. This fixture was read, not run. [Regression source](https://github.com/theRebelliousNerd/codenerd/blob/3330b2cc242f7878326649867aee2a93d7348ce5/internal/campaign/recurse_attempt_task_test.go#L251-L267)
+
+Qualification should preserve the already-landed fix, add explicit tests for marker-inclusive accounting and omitted whole records, and exercise oversized newest reasons, mixed header/diff exhaustion, UTF-8 and empty histories. Journal retention, replay cost and whether shorter context improves task outcomes remain separate questions. No test, build, application path, model, benchmark or reproduction was run in this review; no runtime correctness, token savings or task-quality gain is established.
+
+
+
 ## Decision
 
 Bound the entire rendered prior-attempt section, not just its patch strings. `writePriorAttempts` promises newest-first history within `recurseEvidenceLimit`, but it charges only `PriorAttempt.Tried`. It writes every reason and cycle header without charging them. When prior attempts have empty patches, its 12,000-byte balance never decreases, so every retained reason is copied into the next task. This is reachable through ordinary no-net-change improvement attempts, not only through a synthetic oversized string. [Renderer][renderer], [patch producer][diff], [retention][retention].
