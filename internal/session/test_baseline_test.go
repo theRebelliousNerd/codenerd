@@ -492,3 +492,62 @@ func TestPartitionPreExisting_SameNameInAnotherPackageIsNew(t *testing.T) {
 		t.Fatal("failuresAllPredate = true; example/b.TestLoad is new")
 	}
 }
+
+func TestTestGate_TDDRedPhaseTestOnlyTurnPassesWhenPinningTestsFail(t *testing.T) {
+	e := newObligationExec(t)
+	v := TestVerification{
+		Ran:     true,
+		Outcome: VerifyFailed,
+		Result: &testfacts.Result{
+			Packages: []*testfacts.Package{
+				{
+					Name:   "example/pkg",
+					Status: testfacts.StatusFail,
+					Tests:  []*testfacts.Test{{Name: "TestNewPinningReproducer", Status: testfacts.StatusFail}},
+				},
+			},
+			Failures: []testfacts.Failure{
+				{Package: "example/pkg", Test: "TestNewPinningReproducer", File: "pin_test.go", Line: 12, Message: "bug reproduced"},
+			},
+		},
+	}
+
+	// 1. A /test turn that writes only *_test.go files and compiles cleanly
+	// derives turn_tdd_red_phase and passes /test so verifyAndRepairTests does
+	// not enter a repair loop trying to weaken the reproducer test.
+	redPhaseResult := &ExecutionResult{
+		WrittenPaths: []string{"pkg/pin_test.go"},
+		TestCheck:    v,
+	}
+	redPhaseResult.Intent.Verb = "/test"
+	if e.testGateRed(testTurn, redPhaseResult) {
+		t.Fatal("testGateRed = true for TDD Red-Phase /test turn writing only *_test.go; want false")
+	}
+	if !e.testGatePassed(testTurn, redPhaseResult) {
+		t.Fatal("testGatePassed = false for TDD Red-Phase /test turn writing only *_test.go; want true")
+	}
+
+	// 2. A /fix turn with the same failing test and even the same written files
+	// is NOT a TDD Red-Phase turn and must still fail /test.
+	eFix := newObligationExec(t)
+	fixResult := &ExecutionResult{
+		WrittenPaths: []string{"pkg/pin_test.go"},
+		TestCheck:    v,
+	}
+	fixResult.Intent.Verb = "/fix"
+	if !eFix.testGateRed(testTurn, fixResult) {
+		t.Fatal("testGateRed = false for /fix turn with failing test; want true")
+	}
+
+	// 3. A /test turn that ALSO writes a production .go file is NOT a pure
+	// TDD Red-Phase turn and must still fail /test.
+	eMixed := newObligationExec(t)
+	mixedResult := &ExecutionResult{
+		WrittenPaths: []string{"pkg/pin_test.go", "pkg/prod.go"},
+		TestCheck:    v,
+	}
+	mixedResult.Intent.Verb = "/test"
+	if !eMixed.testGateRed(testTurn, mixedResult) {
+		t.Fatal("testGateRed = false for /test turn that also edited production .go file; want true")
+	}
+}

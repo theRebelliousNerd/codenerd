@@ -242,6 +242,8 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// A written path put back as it was (turn_net_written joins
 				// it against turn_written, negated: it must live beside it).
 				"turn_write_reverted", "turn_net_written", "has_turn_net_written",
+				"turn_test_go_written", "turn_has_test_go_written", "turn_has_non_test_go_written",
+				"turn_has_test_build_failure", "turn_has_unnamed_failing_test", "turn_tdd_red_phase",
 				"turn_pkg_depends", "turn_build_depends_on_written",
 				"turn_build_has_diagnostic", "turn_build_failure_attributed",
 				"turn_build_failure_foreign", "turn_has_build_failure_foreign",

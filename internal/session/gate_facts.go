@@ -64,6 +64,8 @@ func (e *Executor) syncTestGateFacts(turn types.MangleAtom, result *ExecutionRes
 		"turn_test_measured", "turn_test_failed_before",
 		"turn_test_case", "turn_test_failure_at", "turn_test_build_failure",
 		"turn_test_output_repeat", "turn_failing_test")
+	e.assertTurnVerb(turn, result.Intent.Verb, result)
+	e.assertTurnWrites(turn, result)
 	switch result.TestCheck.Verdict() {
 	case VerifyPassed:
 		e.assertTurnFact(types.Fact{

@@ -381,12 +381,47 @@ Decl turn_importer_failure(Turn, Pkg, Name) bound [/name, /string, /string].
 Decl turn_has_importer_failure(Turn) bound [/name].
 Decl turn_has_importer_failing_test(Turn) bound [/name].
 Decl turn_importer_blocks(Turn) bound [/name].
+Decl turn_write_reverted(Turn, Path) bound [/name, /string].
+Decl turn_net_written(Turn, Path, Ext) bound [/name, /string, /string].
+Decl has_turn_net_written(Turn) bound [/name].
+Decl turn_verb(Turn, Verb) bound [/name, /name].
+Decl turn_test_go_written(Turn, Path) bound [/name, /string].
+Decl turn_has_test_go_written(Turn) bound [/name].
+Decl turn_has_non_test_go_written(Turn) bound [/name].
+Decl turn_has_test_build_failure(Turn) bound [/name].
+Decl turn_has_unnamed_failing_test(Turn) bound [/name].
+Decl turn_tdd_red_phase(Turn) bound [/name].
 
 turn_own_test_failure(Turn, Pkg, Name) :-
     turn_failing_test(Turn, Pkg, Name, Msg),
     !turn_test_failed_before(Turn, Pkg, Name).
 turn_has_own_test_failure(Turn) :- turn_own_test_failure(Turn, Pkg, Name).
 turn_has_failing_test(Turn) :- turn_failing_test(Turn, Pkg, Name, Msg).
+
+turn_has_test_go_written(Turn) :-
+    turn_net_written(Turn, Path, ".go"),
+    turn_test_go_written(Turn, Path).
+turn_has_non_test_go_written(Turn) :-
+    turn_net_written(Turn, Path, ".go"),
+    !turn_test_go_written(Turn, Path).
+turn_has_test_build_failure(Turn) :-
+    turn_test_build_failure(Turn, _, _, _, _).
+turn_has_unnamed_failing_test(Turn) :-
+    turn_failing_test(Turn, _, "", _).
+
+# A /test turn that net-writes only *_test.go files (no production .go files),
+# compiles the test binaries cleanly (!turn_has_test_build_failure,
+# !turn_has_unnamed_failing_test), and observes named failing test cases
+# (turn_has_failing_test) is a TDD Red-Phase reproducer turn: the new pinning
+# tests are expected to fail against the unfixed production code until the
+# subsequent /fix turn lands.
+turn_tdd_red_phase(Turn) :-
+    turn_verb(Turn, /test),
+    turn_has_test_go_written(Turn),
+    !turn_has_non_test_go_written(Turn),
+    !turn_has_test_build_failure(Turn),
+    !turn_has_unnamed_failing_test(Turn),
+    turn_has_failing_test(Turn).
 
 turn_importer_failure(Turn, Pkg, Name) :-
     turn_importer_failing_test(Turn, Pkg, Name, Msg),
@@ -405,7 +440,8 @@ turn_importer_blocks(Turn) :-
 
 turn_gate(Turn, /test, /failing) :-
     turn_test_measured(Turn, /failing),
-    turn_has_own_test_failure(Turn).
+    turn_has_own_test_failure(Turn),
+    !turn_tdd_red_phase(Turn).
 # No failing_test row at all. The projection is what negation can see:
 # !turn_failing_test(Turn, _, _, _) is deleted (engine truth 020 item 1).
 turn_gate(Turn, /test, /failing) :-
@@ -424,6 +460,10 @@ turn_gate(Turn, /test, /passing) :-
     turn_test_measured(Turn, /failing),
     turn_has_failing_test(Turn),
     !turn_has_own_test_failure(Turn),
+    !turn_importer_blocks(Turn).
+turn_gate(Turn, /test, /passing) :-
+    turn_test_measured(Turn, /failing),
+    turn_tdd_red_phase(Turn),
     !turn_importer_blocks(Turn).
 # turn_doc_write: the written path lies under a path the workspace's nerd.md
 # declares as docs (the executor measures it; assertTurnWrites).
@@ -455,9 +495,6 @@ has_turn_written(Turn) :- turn_written(Turn, _, _).
 # R1-24 an .mg edit reverted byte for byte still owed /test_run. It stays a
 # turn_written row, so the build graph and the no-recorded-write rule below
 # still see that the turn wrote.
-Decl turn_write_reverted(Turn, Path) bound [/name, /string].
-Decl turn_net_written(Turn, Path, Ext) bound [/name, /string, /string].
-Decl has_turn_net_written(Turn) bound [/name].
 turn_net_written(Turn, Path, Ext) :- turn_written(Turn, Path, Ext), !turn_write_reverted(Turn, Path).
 has_turn_net_written(Turn) :- turn_net_written(Turn, _, _).
 turn_write_class(Turn, Class) :- turn_net_written(Turn, _, Ext), write_class(Ext, Class).
@@ -492,7 +529,6 @@ turn_owes_gate(Turn, /test) :- turn_wrote(Turn), !has_turn_written(Turn).
 # optimisation keeps behaviour by definition, so no test can fail without it,
 # and documentation has none to pin. turn_verb is the intent the turn serves,
 # asserted by the executor before its forcing rounds ask what the turn owes.
-Decl turn_verb(Turn, Verb) bound [/name, /name].
 Decl behavior_change_intent(Verb) bound [/name].
 behavior_change_intent(/fix).
 behavior_change_intent(/create).

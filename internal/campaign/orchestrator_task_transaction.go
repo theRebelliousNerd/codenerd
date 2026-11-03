@@ -120,7 +120,7 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 }
 
 func (o *Orchestrator) canPreservePartialFileModifyProgress(task *Task, snapshot taskExecutionSnapshot, err error) bool {
-	if task == nil || task.Type != TaskTypeFileModify || snapshot.campaign != nil || err == nil {
+	if task == nil || (task.Type != TaskTypeFileModify && task.Type != TaskTypeTestWrite) || snapshot.campaign != nil || err == nil {
 		return false
 	}
 	if errors.Is(err, ErrTaskNotDone) {
@@ -151,11 +151,17 @@ func (o *Orchestrator) canPreservePartialFileModifyProgress(task *Task, snapshot
 		return false
 	}
 	for _, w := range writes {
+		if task.Type == TaskTypeTestWrite {
+			if !strings.HasSuffix(strings.ToLower(w.Path), "_test.go") {
+				return false
+			}
+			continue
+		}
 		if !snapshot.covers(w.Path) && !(len(snapshot.declaredGlobs) > 0 && w.Before.Known && w.Before.Exists) {
 			return false
 		}
 	}
-	if validateFileModifyOutcome(task, snapshot, writes) != nil {
+	if task.Type == TaskTypeFileModify && validateFileModifyOutcome(task, snapshot, writes) != nil {
 		return false
 	}
 	if o.runTaskMicroCheckpoint(context.Background(), task) != nil {

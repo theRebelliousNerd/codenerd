@@ -351,6 +351,8 @@ var hostWitnessPredicates = map[string]struct{}{
 	// turn_last_check would be a second source for the gate.
 	"turn_test_failed_before": {}, "turn_test_measured": {},
 	"turn_own_test_failure": {}, "turn_has_own_test_failure": {}, "turn_has_failing_test": {},
+	"turn_test_go_written": {}, "turn_has_test_go_written": {}, "turn_has_non_test_go_written": {},
+	"turn_has_test_build_failure": {}, "turn_has_unnamed_failing_test": {}, "turn_tdd_red_phase": {},
 	// The importer run of the same /test gate. A model that could write
 	// these could mint or hide an importer charge, or withhold a pass by
 	// asserting /unfinished.

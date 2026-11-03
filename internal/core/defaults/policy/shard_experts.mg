@@ -371,6 +371,11 @@ turn_mandate_discharged(Turn, Test) :-
     turn_mandate_admitted(Turn, Test),
     turn_test_case(Turn, _, Test, /pass, _).
 
+turn_mandate_discharged(Turn, Test) :-
+    turn_mandate_admitted(Turn, Test),
+    turn_tdd_red_phase(Turn),
+    turn_test_case(Turn, _, Test, /fail, _).
+
 turn_mandate_unmet(Turn, Test) :-
     turn_mandate_admitted(Turn, Test),
     !turn_mandate_discharged(Turn, Test).

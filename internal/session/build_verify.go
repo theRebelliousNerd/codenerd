@@ -1278,6 +1278,9 @@ func upliftBrokeTests(measured *ExecutionResult) bool {
 	if measured == nil {
 		return false
 	}
+	if isTDDRedPhaseTurn(measured) {
+		return false
+	}
 	if measured.TestCheck.Verdict() == VerifyFailed && !failuresAllPredate(measured.TestCheck) {
 		return true
 	}
@@ -1285,6 +1288,27 @@ func upliftBrokeTests(measured *ExecutionResult) bool {
 		return true
 	}
 	return false
+}
+
+func isTDDRedPhaseTurn(result *ExecutionResult) bool {
+	if result == nil || strings.TrimSpace(result.Intent.Verb) != "/test" {
+		return false
+	}
+	if testBuildFailed(result.TestCheck.Result) {
+		return false
+	}
+	hasTestGo := false
+	for _, p := range result.WrittenPaths {
+		trimmed := strings.ToLower(strings.TrimSpace(p))
+		if !strings.HasSuffix(trimmed, ".go") {
+			continue
+		}
+		if !strings.HasSuffix(trimmed, "_test.go") {
+			return false
+		}
+		hasTestGo = true
+	}
+	return hasTestGo
 }
 
 // wroteGo reports whether any written path is a Go file.

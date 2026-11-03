@@ -1063,7 +1063,8 @@ type ExecutionResult struct {
 
 	// verbAsserted is set once turn_verb is asserted for this turn
 	// (assertTurnVerb).
-	verbAsserted bool
+	verbAsserted     bool
+	verbAssertedTurn types.MangleAtom
 
 	// writeToolsAsserted is set once turn_write_tools is asserted for this
 	// turn, and roundsRan holds the post-edit rounds that ran
@@ -2725,7 +2726,8 @@ func (e *Executor) assertTurnWrites(turn types.MangleAtom, result *ExecutionResu
 	}
 	docs := e.docPaths(result)
 	for _, path := range result.WrittenPaths {
-		if result.writtenAsserted[path] {
+		key := string(turn) + "\x00" + path
+		if result.writtenAsserted[key] {
 			continue
 		}
 		ext := strings.ToLower(filepath.Ext(path))
@@ -2734,8 +2736,13 @@ func (e *Executor) assertTurnWrites(turn types.MangleAtom, result *ExecutionResu
 				continue
 			}
 		}
+		if ext == ".go" && strings.HasSuffix(strings.ToLower(path), "_test.go") {
+			if !e.assertTurnFact(types.Fact{Predicate: "turn_test_go_written", Args: []any{turn, types.MangleString(path)}}) {
+				continue
+			}
+		}
 		if e.assertTurnFact(types.Fact{Predicate: "turn_written", Args: []any{turn, types.MangleString(path), types.MangleString(ext)}}) {
-			result.writtenAsserted[path] = true
+			result.writtenAsserted[key] = true
 		}
 	}
 }
@@ -2761,11 +2768,12 @@ func (e *Executor) docPaths(result *ExecutionResult) []string {
 // the verb too.
 func (e *Executor) assertTurnVerb(turn types.MangleAtom, verb string, result *ExecutionResult) {
 	verb = strings.TrimSpace(verb)
-	if result.verbAsserted || verb == "" {
+	if (result.verbAsserted && result.verbAssertedTurn == turn) || verb == "" {
 		return
 	}
 	if e.assertTurnFact(types.Fact{Predicate: "turn_verb", Args: []any{turn, types.MangleAtom(verb)}}) {
 		result.verbAsserted = true
+		result.verbAssertedTurn = turn
 	}
 }
 

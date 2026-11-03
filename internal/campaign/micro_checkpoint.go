@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"codenerd/internal/logging"
 )
@@ -51,7 +54,48 @@ func (o *Orchestrator) runTaskMicroCheckpoint(ctx context.Context, task *Task) e
 		if _, err := os.Stat(p); err == nil {
 			return nil
 		}
+		if strings.ContainsAny(p, "*?[") {
+			if matches, err := filepath.Glob(p); err == nil && len(matches) > 0 {
+				return nil
+			}
+		}
 		logging.Get(logging.CategoryCampaign).Warn("micro-checkpoint: planned path %s is not on disk", p)
 	}
+	if task.Type == TaskTypeTestWrite {
+		if existing := dirtyWorkspaceTestFiles(o.workspace); len(existing) > 0 {
+			logging.Campaign("micro-checkpoint: task %s (%s) satisfied by dirty/untracked workspace test files: %s", task.ID, task.Type, strings.Join(existing, ", "))
+			return nil
+		}
+	}
 	return fmt.Errorf("micro-checkpoint: none of the planned write_set paths exist and the attempt wrote none of its own: %v", writeSet)
+}
+
+func dirtyWorkspaceTestFiles(workspace string) []string {
+	ws := strings.TrimSpace(workspace)
+	if ws == "" {
+		return nil
+	}
+	cmd := exec.Command("git", "-C", ws, "status", "--porcelain", "--untracked-files=all")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	var found []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		rel := strings.TrimSpace(line[3:])
+		if idx := strings.Index(rel, " -> "); idx >= 0 {
+			rel = strings.TrimSpace(rel[idx+4:])
+		}
+		rel = strings.Trim(rel, `"`)
+		if !strings.HasSuffix(strings.ToLower(rel), "_test.go") {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(ws, filepath.FromSlash(rel))); err == nil {
+			found = append(found, rel)
+		}
+	}
+	return found
 }
