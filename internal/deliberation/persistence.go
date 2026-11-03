@@ -75,7 +75,8 @@ func (s *Service) Load(id string) (*Thread, error) {
 }
 
 // Pending restores the single values question for a loaded session. Completed
-// threads are history and cannot hijack the next request.
+// threads and stopped mission-owned questions are history for their own owner
+// and cannot hijack or block the next conversational request.
 func (s *Service) Pending() (*Thread, error) {
 	dir, err := sessionlog.SessionDir(s.Workspace, s.Session)
 	if err != nil {
@@ -97,7 +98,7 @@ func (s *Service) Pending() (*Thread, error) {
 		if err != nil {
 			return nil, err
 		}
-		if t.Status == "awaiting_values" {
+		if t.Status == "awaiting_values" && !t.IsMissionOwned() {
 			if pending != nil {
 				return nil, fmt.Errorf("multiple pending deliberations in session")
 			}
@@ -105,4 +106,68 @@ func (s *Service) Pending() (*Thread, error) {
 		}
 	}
 	return pending, nil
+}
+
+// PendingForOwner restores the single pending values question owned by a
+// specific continuation owner (such as a mission ID).
+func (s *Service) PendingForOwner(ownerKind, ownerID string) (*Thread, error) {
+	dir, err := sessionlog.SessionDir(s.Workspace, s.Session)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(filepath.Join(dir, "deliberation"))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var pending *Thread
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		t, err := s.Load(e.Name()[:len(e.Name())-len(".json")])
+		if err != nil {
+			return nil, err
+		}
+		if t.Status == "awaiting_values" && t.OwnerKind == ownerKind && t.OwnerID == ownerID {
+			if pending != nil {
+				return nil, fmt.Errorf("multiple pending deliberations for owner %s:%s", ownerKind, ownerID)
+			}
+			pending = t
+		}
+	}
+	return pending, nil
+}
+
+// PendingMissionThreads returns all pending mission-owned values questions in
+// the session in deterministic ID order so each stopped mission retains its
+// own question provenance without colliding with conversational clarifications.
+func (s *Service) PendingMissionThreads() ([]*Thread, error) {
+	dir, err := sessionlog.SessionDir(s.Workspace, s.Session)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(filepath.Join(dir, "deliberation"))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []*Thread
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		t, err := s.Load(e.Name()[:len(e.Name())-len(".json")])
+		if err != nil {
+			return nil, err
+		}
+		if t.Status == "awaiting_values" && t.IsMissionOwned() {
+			out = append(out, t)
+		}
+	}
+	return out, nil
 }

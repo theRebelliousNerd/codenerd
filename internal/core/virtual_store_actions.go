@@ -1213,7 +1213,7 @@ func (v *VirtualStore) GetStrategicSummary() string {
 // dumps os.Environ() — so unioning it with getAllowedEnv widens what these two
 // commands can build with, not what they can read.
 func (v *VirtualStore) buildToolEnv() []string {
-	env := build.GetBuildEnv(nil, v.workingDir)
+	env := build.GetBuildEnv(build.WorkspaceUserConfig(v.workingDir), v.workingDir)
 	return append(env, v.getAllowedEnv()...)
 }
 

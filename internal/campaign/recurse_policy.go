@@ -138,6 +138,9 @@ func (p *recursePolicy) improveAngle(node string, pass int, measurable map[strin
 	}
 	facts := []core.Fact{{Predicate: "recurse_current_pass", Args: []interface{}{pass}}}
 	for _, m := range sortedMetricNames(measurable) {
+		if strings.Contains(m, ":") {
+			continue
+		}
 		facts = append(facts, core.Fact{Predicate: "recurse_node_measures", Args: []interface{}{node, "/" + m}})
 	}
 	if err := p.k.AssertBatch(facts); err != nil {
@@ -220,7 +223,25 @@ func (p *recursePolicy) ratchet(in ratchetInput) (string, error) {
 	if in.Tested {
 		facts = append(facts, core.Fact{Predicate: "recurse_ratchet_tested", Args: []interface{}{in.Cycle}})
 	}
+	hasGateCoverage := false
 	for _, m := range sortedMetricNames(in.Before) {
+		if strings.HasPrefix(m, gates.MetricCoverage+":") {
+			hasGateCoverage = true
+			break
+		}
+	}
+	for _, m := range sortedMetricNames(in.Before) {
+		if strings.HasPrefix(m, gates.MetricCoverage+":") {
+			afterVal, ok := in.After[m]
+			if !ok {
+				afterVal = -1
+			}
+			facts = append(facts, core.Fact{Predicate: "recurse_metric", Args: []interface{}{in.Cycle, "/" + gates.MetricCoverage, in.Before[m], afterVal}})
+			continue
+		}
+		if m == gates.MetricCoverage && hasGateCoverage {
+			continue
+		}
 		if after, ok := in.After[m]; ok {
 			facts = append(facts, core.Fact{Predicate: "recurse_metric", Args: []interface{}{in.Cycle, "/" + m, in.Before[m], after}})
 		}

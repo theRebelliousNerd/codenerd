@@ -173,7 +173,7 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"tool_learning", "tool_executed", "tool_exec_success",
 				"tool_exec_failed", "tool_not_found", "tool_execution_count",
 				"tool_last_execution", "tool_execution", "tool_compilation_failed",
-				"tool_generated", "tool_trace", "tool_generation_failed",
+				"tool_generated", "tool_trace", "tool_generation_failed", "tool_delegation_complete",
 				"tool_issue_pattern", "tool_hot_loaded", "tool_version",
 
 				"active_refinement",

@@ -246,14 +246,14 @@ func TestDeriveWorkspaceDAG_ExcludesDotDirsAndIncludesGoTestImports(t *testing.T
 	}
 	root := t.TempDir()
 	writeTree(t, root, map[string]string{
-		"go.mod":                             "module example.com/m\n\ngo 1.21\n",
-		"testkit/kit.go":                     "package testkit\n\nfunc Helper() int { return 42 }\n",
-		"store/store.go":                     "package store\n\nfunc Get() int { return 1 }\n",
-		"store/store_test.go":                "package store_test\n\nimport (\n\t\"testing\"\n\t\"example.com/m/testkit\"\n)\n\nfunc TestGet(t *testing.T) { _ = testkit.Helper() }\n",
-		".agents/skills/codex/scripts/p.py":  "import os\n",
-		".claude/skills/foo/bar.py":          "import sys\n",
-		"harnesses/custom/script.py":         "import os\n",
-		".nerdignore":                        "harnesses/\n",
+		"go.mod":                            "module example.com/m\n\ngo 1.21\n",
+		"testkit/kit.go":                    "package testkit\n\nfunc Helper() int { return 42 }\n",
+		"store/store.go":                    "package store\n\nfunc Get() int { return 1 }\n",
+		"store/store_test.go":               "package store_test\n\nimport (\n\t\"testing\"\n\t\"example.com/m/testkit\"\n)\n\nfunc TestGet(t *testing.T) { _ = testkit.Helper() }\n",
+		".agents/skills/codex/scripts/p.py": "import os\n",
+		".claude/skills/foo/bar.py":         "import sys\n",
+		"harnesses/custom/script.py":        "import os\n",
+		".nerdignore":                       "harnesses/\n",
 	})
 	ids := sweepOrder(t, root)
 	if !before(ids, "testkit", "store") {

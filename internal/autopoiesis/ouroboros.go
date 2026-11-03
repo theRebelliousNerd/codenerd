@@ -311,7 +311,7 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 	stateContent, err := core.GetDefaultContent("schemas_state.mg")
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to get embedded schemas_state.mg: %v. Operating in open-loop mode", err)
-	} else if err := loop.engine.LoadSchemaString(stateContent); err != nil {
+	} else if err := loop.engine.LoadSchemaString(stateContent + "\n" + ouroborosEngineDecls); err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to parse schemas_state.mg: %v. Operating in open-loop mode", err)
 	} else {
 		logging.AutopoiesisDebug("State machine rules loaded successfully from embedded core")
@@ -322,6 +322,21 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 	logging.Autopoiesis("Ouroboros Loop initialized: TargetOS=%s, TargetArch=%s", config.TargetOS, config.TargetArch)
 	return loop
 }
+
+// ouroborosEngineDecls declares the tool-lifecycle and Thunderdome predicates
+// that OuroborosLoop asserts into its standalone state-machine engine alongside
+// schemas_state.mg.
+const ouroborosEngineDecls = `
+Decl thunderdome_result(ToolName, AttackType, Outcome) bound [/string, /name, /name].
+Decl panic_maker_verdict(ToolName, Verdict, Timestamp) bound [/string, /name, /number].
+Decl attack_killed(AttackID, ToolName, FailureType, StackDump) bound [/string, /string, /string, /string].
+Decl battle_hardened(ToolName, Timestamp) bound [/string, /number].
+Decl tool_registered(ToolName, RegisteredAt) bound [/string, /string].
+Decl tool_hash(ToolName, Hash) bound [/string, /string].
+Decl has_capability(Cap) bound [/string].
+Decl tool_description(ToolName, Description) bound [/string, /string].
+Decl tool_binary_path(ToolName, BinaryPath) bound [/string, /string].
+`
 
 func runtimeWorkspaceRoot(config OuroborosConfig) string {
 	if workspace := strings.TrimSpace(config.WorkspaceRoot); workspace != "" {
@@ -813,8 +828,8 @@ func (o *OuroborosLoop) simulateTransition(ctx context.Context, stepID string, n
 		return false
 	}
 
-	// Check ?stagnation_detected
-	stagnant, err := simEngine.Query(ctx, "stagnation_detected")
+	// Check ?stagnation_detected()
+	stagnant, err := simEngine.Query(ctx, "stagnation_detected()")
 	if err == nil && len(stagnant.Bindings) > 0 {
 		logging.Get(logging.CategoryAutopoiesis).Warn("Stagnation detected: solution repeats history")
 		result.Error = "stagnation detected: solution repeats history"

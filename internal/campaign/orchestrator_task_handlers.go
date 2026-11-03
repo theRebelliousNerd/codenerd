@@ -756,10 +756,7 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 	if o.virtualStore == nil {
 		return nil, fmt.Errorf("test execution requires VirtualStore")
 	}
-	target := "./..."
-	if len(task.Artifacts) > 0 {
-		target = task.Artifacts[0].Path
-	}
+	target := o.resolveTestRunTarget(task)
 	if target == "" || strings.HasPrefix(target, "-") || strings.ContainsAny(target, "\\ :;|&$`\"'\n\r\t(){}[]<>") {
 		return nil, fmt.Errorf("invalid test package target %q", target)
 	}
@@ -770,10 +767,11 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 	if err != nil {
 		return nil, err
 	}
-	// Workspace build tags: a tagless run in codeNERD's own tree tests a
-	// different build (sqlite-vec files excluded). No-op elsewhere.
-	cmdParts := append([]string{"go", "test", "-count=1"}, build.TestTagsForWorkspace(o.workspace)...)
-	command := strings.Join(append(cmdParts, target), " ")
+	// Workspace build tags and configured go_flags (e.g. -p=4): a tagless run in
+	// codeNERD's own tree tests a different build (sqlite-vec files excluded), and
+	// omitting go_flags spawns unbounded parallel package builds on wide hosts.
+	_, goArgs := build.GoInvocation(o.workspace, o.workspace, append(append([]string{"test", "-count=1"}, build.TestTagsForWorkspace(o.workspace)...), target))
+	command := strings.Join(append([]string{"go"}, goArgs...), " ")
 	actionID := "campaign-check-" + task.ID
 	// campaign.test_run_timeout, in the seconds the run_tests action takes.
 	// permitted/3 matches the payload the action is routed with, so the
@@ -811,6 +809,83 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 	task.TestWitness = witness
 	o.mu.Unlock()
 	return map[string]any{"target": target, "passed": true, "output": result.Output, "witness": witness, "witness_source": "virtual_store/run_tests"}, nil
+}
+
+// resolveTestRunTarget returns the package target for a TaskTypeTestRun task.
+// When the task carries no explicit Artifact (for example an inferred repro
+// task created after a red-suite failure), it scopes the run to the single Go
+// package directory named by the task's or its inferred parent's WriteSet
+// before falling back to "./...".
+func (o *Orchestrator) resolveTestRunTarget(task *Task) string {
+	if task == nil {
+		return "./..."
+	}
+	if len(task.Artifacts) > 0 {
+		return task.Artifacts[0].Path
+	}
+	candidates := append([]string(nil), task.WriteSet...)
+	if len(candidates) == 0 && o != nil {
+		o.mu.RLock()
+		if o.campaign != nil {
+			if task.InferredFrom != "" {
+				for _, p := range o.campaign.Phases {
+					for _, t := range p.Tasks {
+						if t.ID == task.InferredFrom {
+							for _, a := range t.Artifacts {
+								candidates = append(candidates, a.Path)
+							}
+							candidates = append(candidates, t.WriteSet...)
+						}
+					}
+				}
+			}
+			if len(candidates) == 0 {
+				for _, p := range o.campaign.Phases {
+					if task.PhaseID != "" && p.ID != task.PhaseID {
+						continue
+					}
+					for _, t := range p.Tasks {
+						candidates = append(candidates, t.WriteSet...)
+					}
+				}
+			}
+		}
+		o.mu.RUnlock()
+	}
+	var pkgDir string
+	for _, raw := range candidates {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || filepath.IsAbs(trimmed) {
+			continue
+		}
+		clean := filepath.ToSlash(filepath.Clean(trimmed))
+		if clean == "." || strings.HasPrefix(clean, "..") {
+			continue
+		}
+		dir := ""
+		if strings.HasSuffix(clean, ".go") {
+			dir = filepath.ToSlash(filepath.Dir(clean))
+		} else if o != nil && strings.TrimSpace(o.workspace) != "" {
+			if info, err := os.Stat(filepath.Join(o.workspace, filepath.FromSlash(clean))); err == nil && info.IsDir() {
+				dir = clean
+			}
+		}
+		if dir == "" {
+			continue
+		}
+		if pkgDir == "" {
+			pkgDir = dir
+		} else if pkgDir != dir {
+			return "./..."
+		}
+	}
+	if pkgDir == "" {
+		return "./..."
+	}
+	if pkgDir == "." {
+		return "."
+	}
+	return "./" + strings.TrimPrefix(pkgDir, "./")
 }
 
 // testFailureSummary leads a failed run's error with the parsed failure list

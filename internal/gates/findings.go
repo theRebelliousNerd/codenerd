@@ -102,15 +102,24 @@ var (
 // the module root. An unverified run reports nothing either -- it is not
 // evidence of anything, and the caller records it as unverified.
 func Findings(root string, r Result) []Finding {
+	out := FindingsAll(root, r)
+	if len(out) > MaxFindingsPerRun {
+		return out[:MaxFindingsPerRun]
+	}
+	return out
+}
+
+// FindingsAll extracts every distinct finding r reported without applying the
+// MaxFindingsPerRun work-selection cap, so callers can compute an accurate
+// census and check whether a specific target finding remains open even when
+// more than MaxFindingsPerRun diagnostics precede it.
+func FindingsAll(root string, r Result) []Finding {
 	if r.Passed || r.Unverified() {
 		return nil
 	}
 	var out []Finding
 	seen := map[string]bool{}
 	add := func(target, msg string, keyByMessage bool) {
-		if len(out) >= MaxFindingsPerRun {
-			return
-		}
 		target = relTarget(root, target)
 		msg = strings.TrimSpace(msg)
 		sig := signature(root, msg)

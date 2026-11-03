@@ -77,14 +77,27 @@ func (m *RecurseMission) recordWrites(writes []observation.FileWrite) error {
 	return m.save()
 }
 
-type missionCheckObservation struct {
-	Snapshot    string   `json:"snapshot"`
+type missionCheckInvocation struct {
+	Node        string   `json:"node,omitempty"`
 	Status      string   `json:"status"`
+	NoTests     bool     `json:"no_tests,omitempty"`
 	Command     []string `json:"command"`
 	OKExitCodes []int    `json:"ok_exit_codes,omitempty"`
 	ExitCode    int      `json:"exit_code"`
 	Output      string   `json:"output"`
 	Error       string   `json:"error,omitempty"`
+}
+
+type missionCheckObservation struct {
+	Snapshot    string                   `json:"snapshot"`
+	Status      string                   `json:"status"`
+	NoTests     bool                     `json:"no_tests,omitempty"`
+	Command     []string                 `json:"command"`
+	OKExitCodes []int                    `json:"ok_exit_codes,omitempty"`
+	ExitCode    int                      `json:"exit_code"`
+	Output      string                   `json:"output"`
+	Error       string                   `json:"error,omitempty"`
+	Invocations []missionCheckInvocation `json:"invocations,omitempty"`
 }
 
 // recordChecks retains complete runner output independently of the disposable
@@ -93,10 +106,27 @@ func (m *RecurseMission) recordChecks(before, after map[string]gateRun, source s
 	project := func(runs map[string]gateRun) map[string]missionCheckObservation {
 		out := make(map[string]missionCheckObservation, len(runs))
 		for key, run := range runs {
-			row := missionCheckObservation{Snapshot: run.snapshot, Status: run.verdict(), Command: run.result.Argv,
+			row := missionCheckObservation{Snapshot: run.snapshot, Status: run.verdict(), NoTests: run.noTests(), Command: run.result.Argv,
 				OKExitCodes: run.result.Gate.OKExitCodes, ExitCode: run.result.ExitCode, Output: run.result.Output}
 			if run.result.Err != nil {
 				row.Error = run.result.Err.Error()
+			}
+			for _, inv := range run.invocations {
+				invStatus := verdictFail
+				switch {
+				case inv.Unverified():
+					invStatus = verdictUnverified
+				case inv.Passed:
+					invStatus = verdictPass
+				}
+				item := missionCheckInvocation{
+					Node: inv.Node, Status: invStatus, NoTests: inv.Gate.NoTests(inv.ExitCode),
+					Command: inv.Argv, OKExitCodes: inv.Gate.OKExitCodes, ExitCode: inv.ExitCode, Output: inv.Output,
+				}
+				if inv.Err != nil {
+					item.Error = inv.Err.Error()
+				}
+				row.Invocations = append(row.Invocations, item)
 			}
 			out[key] = row
 		}

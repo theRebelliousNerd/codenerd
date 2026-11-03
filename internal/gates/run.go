@@ -24,6 +24,8 @@ type Result struct {
 	ExitCode int
 	// Output is combined stdout and stderr, bounded by OutputLimit.
 	Output string
+	// Truncated reports whether Output dropped middle bytes to stay within OutputLimit.
+	Truncated bool
 	// Passed is the gate's verdict: it ran and its exit code is a pass.
 	Passed bool
 	// Err is why the gate produced no verdict: the program would not start, or
@@ -62,6 +64,7 @@ func Run(ctx context.Context, root string, g Gate, node string) Result {
 	err = processutil.Run(cmd)
 	res.Duration = time.Since(start)
 	res.Output = out.String()
+	res.Truncated = out.dropped > 0
 
 	var exitErr *exec.ExitError
 	switch {

@@ -242,6 +242,7 @@ func (m *RecurseMission) prepare(ctx context.Context, a *RecurseAttempt) (err er
 		return err
 	}
 	thread := &deliberation.Thread{Request: string(body), Mode: "propose", DesignOnly: true,
+		OwnerKind: "mission", OwnerID: m.State.ID,
 		Intent: perception.Intent{Category: "/mutation", Verb: "/fix", Target: a.Node.ID}}
 	_, _, reports := m.meter.snapshot()
 	out, err := m.Deliberator.Run(ctx, thread)
@@ -270,6 +271,12 @@ func (m *RecurseMission) prepare(ctx context.Context, a *RecurseAttempt) (err er
 		return err
 	}
 	if _, err := m.admit(); err != nil {
+		if thread.Status == "awaiting_values" {
+			thread.OwnerDisposition = "retained_for_owner"
+			if saveThreadErr := m.Deliberator.Save(thread); saveThreadErr != nil {
+				return errors.Join(err, saveThreadErr)
+			}
+		}
 		receipt.Outcome = disposition
 		m.State.Receipts = append(m.State.Receipts, *receipt)
 		m.State.Pending = nil // read-only deliberation cannot leave effects

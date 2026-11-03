@@ -40,6 +40,9 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Performance instrumentation: Track slow Update() handlers
 	startTime := time.Now()
 	defer func() {
+		if m.shutdownCtx != nil && m.shutdownCtx.Err() != nil {
+			return
+		}
 		elapsed := time.Since(startTime)
 		// Warn if Update() takes > 100ms (Bubbletea target is 60fps = 16ms per frame)
 		if elapsed > 100*time.Millisecond {

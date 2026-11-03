@@ -71,21 +71,33 @@ type Round struct {
 // Thread is the durable continuation, including the original intent. An answer
 // is never reclassified as a fresh /approve request.
 type Thread struct {
-	Brief       *perception.Brief `json:"brief,omitempty"`
-	ID          string            `json:"id"`
-	Session     string            `json:"session"`
-	Request     string            `json:"request"`
-	Intent      perception.Intent `json:"intent"`
-	Mode        string            `json:"mode"`
-	DesignOnly  bool              `json:"design_only"`
-	Rounds      []Round           `json:"rounds"`
-	Unchanged   int               `json:"unchanged"`
-	Fingerprint string            `json:"fingerprint"`
-	Asked       bool              `json:"asked"`
-	Question    string            `json:"question,omitempty"`
-	Options     []string          `json:"options,omitempty"`
-	Answer      string            `json:"answer,omitempty"`
-	Status      string            `json:"status"`
+	Brief            *perception.Brief `json:"brief,omitempty"`
+	ID               string            `json:"id"`
+	Session          string            `json:"session"`
+	OwnerKind        string            `json:"owner_kind,omitempty"`
+	OwnerID          string            `json:"owner_id,omitempty"`
+	OwnerDisposition string            `json:"owner_disposition,omitempty"`
+	Request          string            `json:"request"`
+	Intent           perception.Intent `json:"intent"`
+	Mode             string            `json:"mode"`
+	DesignOnly       bool              `json:"design_only"`
+	Rounds           []Round           `json:"rounds"`
+	Unchanged        int               `json:"unchanged"`
+	Fingerprint      string            `json:"fingerprint"`
+	Asked            bool              `json:"asked"`
+	Question         string            `json:"question,omitempty"`
+	Options          []string          `json:"options,omitempty"`
+	Answer           string            `json:"answer,omitempty"`
+	Status           string            `json:"status"`
+}
+
+// IsMissionOwned reports whether the thread belongs to a mission continuation
+// owner rather than the foreground conversational chat clarification surface.
+func (t *Thread) IsMissionOwned() bool {
+	if t == nil {
+		return false
+	}
+	return t.OwnerKind == "mission" || t.OwnerID != "" || t.OwnerDisposition == "retained_for_owner"
 }
 
 // Frame is data, never an embedded system prompt. The role's JIT atoms define

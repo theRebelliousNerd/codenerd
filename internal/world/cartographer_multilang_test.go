@@ -214,6 +214,7 @@ func TestCartographer_WhenNonGoFile_ShouldNotEmitRefSpelledCalls(t *testing.T) {
 		})
 	}
 }
+
 // TODO: Gap 01: Null/Undefined/Empty: Empty File Inputs: Add test for empty file parsing to verify MapFileAs handles 0-byte or whitespace-only inputs without crashing.
 // TODO: Gap 02: Null/Undefined/Empty: Empty Language Strings: Add test passing empty string as language.
 // TODO: Gap 03: Null/Undefined/Empty: Missing File Permissions: Add test simulating os.ErrPermission.

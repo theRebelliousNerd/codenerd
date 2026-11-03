@@ -310,7 +310,7 @@ func (o *Orchestrator) getCampaignBlockReason() string {
 			continue
 		}
 		reason := "unknown"
-		if len(f.Args) >= 2 {
+		if len(f.Args) > 1 {
 			reason = types.ExtractString(f.Args[1])
 		}
 		logging.CampaignDebug("Campaign blocked detected: %s", reason)

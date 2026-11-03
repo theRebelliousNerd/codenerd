@@ -77,6 +77,9 @@ Decl tool_trace(ToolName, TraceID) bound [/string, /string].
 # tool_generation_failed(ToolName, ErrorMessage) - tool generation failure record
 Decl tool_generation_failed(ToolName, ErrorMessage) bound [/string, /string].
 
+# tool_delegation_complete(Capability, ToolName) - kernel-delegated tool generation satisfied
+Decl tool_delegation_complete(Capability, ToolName) bound [/string, /string].
+
 # tool_issue_pattern(ToolName, IssueType, Occurrences, Confidence)
 # Detected patterns from tool learning (pagination, incomplete, rate_limit, timeout)
 Decl tool_issue_pattern(ToolName, IssueType, Occurrences, Confidence) bound [/string, /name, /number, /number].

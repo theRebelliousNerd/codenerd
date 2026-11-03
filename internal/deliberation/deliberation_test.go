@@ -132,6 +132,51 @@ func TestPersistence_RoundTripAndPending(t *testing.T) {
 	}
 }
 
+func TestPersistence_MissionValuesThreadsDoNotCollideWithSessionPending(t *testing.T) {
+	ws := t.TempDir()
+	s := &Service{Workspace: ws, Session: "sess-1"}
+	m1 := &Thread{
+		ID: "t-mission-1", Session: "sess-1", OwnerKind: "mission", OwnerID: "mission-1",
+		OwnerDisposition: "retained_for_owner", DesignOnly: true, Status: "awaiting_values", Asked: true,
+		Question: "First mission question?", Options: []string{"a: first (Recommended)", "b: second"},
+	}
+	m2 := &Thread{
+		ID: "t-mission-2", Session: "sess-1", OwnerKind: "mission", OwnerID: "mission-2",
+		OwnerDisposition: "retained_for_owner", DesignOnly: true, Status: "awaiting_values", Asked: true,
+		Question: "Second mission question?", Options: []string{"a: first (Recommended)", "b: second"},
+	}
+	for _, th := range []*Thread{m1, m2} {
+		if err := s.Save(th); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Two stopped mission threads in the same session must not cause Pending()
+	// to fail with "multiple pending deliberations in session" or hijack chat.
+	if pending, err := s.Pending(); err != nil || pending != nil {
+		t.Fatalf("session Pending() with two mission threads = %+v, %v; want nil, nil", pending, err)
+	}
+	if got1, err := s.PendingForOwner("mission", "mission-1"); err != nil || got1 == nil || got1.ID != "t-mission-1" {
+		t.Fatalf("PendingForOwner mission-1 = %+v, %v", got1, err)
+	}
+	if got2, err := s.PendingForOwner("mission", "mission-2"); err != nil || got2 == nil || got2.ID != "t-mission-2" {
+		t.Fatalf("PendingForOwner mission-2 = %+v, %v", got2, err)
+	}
+	if all, err := s.PendingMissionThreads(); err != nil || len(all) != 2 {
+		t.Fatalf("PendingMissionThreads = %d, %v; want 2", len(all), err)
+	}
+	// Adding one conversational chat question alongside the two mission threads
+	// restores that chat question cleanly.
+	chatWait := &Thread{
+		ID: "t-chat-wait", Session: "sess-1", Request: "q", Status: "awaiting_values", Asked: true,
+	}
+	if err := s.Save(chatWait); err != nil {
+		t.Fatal(err)
+	}
+	if pending, err := s.Pending(); err != nil || pending == nil || pending.ID != "t-chat-wait" {
+		t.Fatalf("session Pending() with chat + mission threads = %+v, %v; want t-chat-wait", pending, err)
+	}
+}
+
 func TestOutcomeNote_StatesAssumptions(t *testing.T) {
 	c := Candidate{ID: "a", Brief: "keep the API", SuccessTest: "tests pass", Assumptions: []string{"callers unchanged"}}
 	out := Outcome{Thread: &Thread{Status: "ready"}, Action: "proceed_assuming", Candidate: &c}

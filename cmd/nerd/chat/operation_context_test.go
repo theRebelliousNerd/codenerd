@@ -1,4 +1,5 @@
 package chat
+
 // TODO: Add negative test for null m.usageTracker behavior
 // TODO: Add boundary test for empty string m.sessionID
 // TODO: Add test verifying fallback to context.Background() when m.shutdownCtx is nil

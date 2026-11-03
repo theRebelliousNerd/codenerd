@@ -20,6 +20,7 @@ import (
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/sessionlog"
 	"codenerd/internal/tools"
+	"codenerd/internal/workspace"
 )
 
 // The recurse cycle: measure, pick, fix, ratchet, one node at a time, bottom
@@ -204,9 +205,54 @@ func (r *RecurseCycleResult) Summary() string {
 
 // gateRun is a gate's last measurement for one node (or the workspace).
 type gateRun struct {
-	snapshot string
-	result   gates.Result
-	findings []gates.Finding
+	snapshot      string
+	result        gates.Result
+	invocations   []gates.Result
+	byFinding     map[string]gates.Result
+	findingPath   map[string]string
+	allFindingIDs map[string]bool
+	truncated     bool
+	findings      []gates.Finding
+}
+
+func (g gateRun) totalFindings() int {
+	if len(g.allFindingIDs) > len(g.findings) {
+		return len(g.allFindingIDs)
+	}
+	return len(g.findings)
+}
+
+func (g gateRun) hasFinding(id string) bool {
+	if g.allFindingIDs[id] {
+		return true
+	}
+	return hasFinding(g.findings, id)
+}
+
+func (g gateRun) noTests() bool {
+	if g.result.Gate.NoTests(g.result.ExitCode) {
+		return true
+	}
+	for _, inv := range g.invocations {
+		if inv.Gate.NoTests(inv.ExitCode) {
+			return true
+		}
+	}
+	return false
+}
+
+func (g gateRun) noTestsForTarget(before gateRun, findingID string) bool {
+	if g.noTests() {
+		return true
+	}
+	if p, ok := before.findingPath[findingID]; ok && p != "" {
+		for _, inv := range g.invocations {
+			if inv.Node == p && inv.Gate.NoTests(inv.ExitCode) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (g gateRun) verdict() string {
@@ -726,18 +772,26 @@ func (r *recurseRun) measure(ctx context.Context, g gates.Gate, nodeID string, n
 			paths = n.Paths
 		}
 	}
-	var run gateRun
+	run := gateRun{
+		byFinding:     map[string]gates.Result{},
+		findingPath:   map[string]string{},
+		allFindingIDs: map[string]bool{},
+	}
 	for i, path := range paths {
 		res := gates.Run(ctx, r.root, g, path)
-		fs := gates.Findings(r.root, res)
+		run.invocations = append(run.invocations, res)
+		if res.Truncated || strings.Contains(res.Output, " bytes dropped] ...") {
+			run.truncated = true
+		}
+		all := gates.FindingsAll(r.root, res)
 		var kept []gates.Finding
-		for j := range fs {
+		for j := range all {
 			if nodeID != "" {
-				fs[j].Node = nodeID
+				all[j].Node = nodeID
 			} else {
-				fs[j].Node = attributeNode(fs[j].Target, nodes)
-				if focused && fs[j].Node == RecurseUnattributedNodeID && len(r.allNodes) > 0 {
-					if other := attributeNode(fs[j].Target, r.allNodes); other != RecurseUnattributedNodeID {
+				all[j].Node = attributeNodeInRoot(r.root, all[j].Target, nodes)
+				if focused && all[j].Node == RecurseUnattributedNodeID && len(r.allNodes) > 0 {
+					if other := attributeNodeInRoot(r.root, all[j].Target, r.allNodes); other != RecurseUnattributedNodeID {
 						// In a focused subsystem sweep, findings that belong to
 						// another known subsystem outside the focused set are
 						// out of scope rather than unattributed.
@@ -745,12 +799,20 @@ func (r *recurseRun) measure(ctx context.Context, g gates.Gate, nodeID string, n
 					}
 				}
 			}
+			id := all[j].ID
+			run.allFindingIDs[id] = true
+			if _, exists := run.byFinding[id]; !exists {
+				run.byFinding[id] = res
+				run.findingPath[id] = path
+			}
 			r.seenMu.Lock()
 			if r.seenThisPass != nil {
-				r.seenThisPass[fs[j].ID] = true
+				r.seenThisPass[id] = true
 			}
 			r.seenMu.Unlock()
-			kept = append(kept, fs[j])
+			if len(kept) < gates.MaxFindingsPerRun {
+				kept = append(kept, all[j])
+			}
 		}
 		run.findings = append(run.findings, kept...)
 		if i == 0 {
@@ -802,6 +864,10 @@ const RecurseUnattributedNodeID = "unattributed"
 // node's directory -- an unresolved import path such as
 // "example.com/r7b/testsfail::TestFails" — are RecurseUnattributedNodeID.
 func attributeNode(target string, nodes []SubsystemNode) string {
+	return attributeNodeInRoot("", target, nodes)
+}
+
+func attributeNodeInRoot(root, target string, nodes []SubsystemNode) string {
 	t, _, _ := strings.Cut(target, "::")
 	// "<unattributed>" has no slash. Checked before the root-file rule so
 	// the module root does not claim a failure that named no location.
@@ -810,11 +876,13 @@ func attributeNode(target string, nodes []SubsystemNode) string {
 	}
 	best, bestLen := "", -1
 	rootID := ""
+	var rootNode SubsystemNode
 	for _, n := range nodes {
 		for _, p := range n.Paths {
 			if p == "." {
 				if rootID == "" {
 					rootID = n.ID
+					rootNode = n
 				}
 				continue
 			}
@@ -838,7 +906,33 @@ func attributeNode(target string, nodes []SubsystemNode) string {
 	if rootID != "" && !strings.Contains(t, "/") {
 		return rootID
 	}
+	// A root Cargo crate ("." with language "rust") owns its descendant .rs
+	// source files (such as "src/main.rs") when no nested member crate matched.
+	if rootID != "" && slices.Contains(rootNode.Languages, "rust") && isAdmittedRustSource(root, t) {
+		return rootID
+	}
 	return RecurseUnattributedNodeID
+}
+
+func isAdmittedRustSource(root, rel string) bool {
+	rel = filepath.ToSlash(strings.TrimSpace(rel))
+	if !strings.HasSuffix(rel, ".rs") || strings.HasPrefix(rel, "/") || strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") {
+		return false
+	}
+	if root == "" {
+		return true
+	}
+	abs := filepath.Join(root, filepath.FromSlash(rel))
+	info, err := os.Stat(abs)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	if mem, err := workspace.For(root); err == nil {
+		if ok, admErr := mem.Admit(abs, false); admErr != nil || !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // reportUnattributed rebuilds RecurseCycleResult.Unattributed from the
@@ -1100,11 +1194,33 @@ func (r *recurseRun) improve(ctx context.Context, v visitScope) error {
 		r.logf("recurse: %s: no improvement this pass (its angle has nothing to measure here)", v.node.ID)
 		return r.journal.append(recurseRecord{Step: stepImproveSkipped, Pass: v.pass, Node: v.node.ID, Detail: "the pass's angle has no measurable metric on this node"})
 	}
+	if !hasGateKind(v.own, gates.Test) && !hasApplicableWorkspaceTest(v.set.Gates, v.node.Languages) {
+		r.logf("recurse: %s: no improvement this pass (no runnable test gate can verify this node)", v.node.ID)
+		return r.journal.append(recurseRecord{Step: stepImproveSkipped, Pass: v.pass, Node: v.node.ID, Angle: angle, Detail: "the configured test scope cannot currently certify this improvement"})
+	}
 	return r.run(ctx, v, attemptSpec{
 		angle:    angle,
 		describe: "improve: " + angle,
 		subject:  fmt.Sprintf("recurse: %s: %s", v.node.ID, angle),
 	})
+}
+
+func hasGateKind(gs []gates.Gate, kind gates.Kind) bool {
+	for _, g := range gs {
+		if g.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func hasApplicableWorkspaceTest(gs []gates.Gate, languages []string) bool {
+	for _, g := range gs {
+		if g.Scope == gates.ScopeAll && g.Kind == gates.Test && g.AppliesTo(languages) {
+			return true
+		}
+	}
+	return false
 }
 
 // run is one attempt from start to verdict: record it in flight, hand it to
@@ -1215,9 +1331,11 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) (r
 		for _, g := range v.own {
 			after[gateKey(g.ID, node.ID)] = r.measure(ctx, g, node.ID, v.nodes)
 		}
+		needsWorkspaceTest := spec.finding == nil && spec.angle != "" && !hasGateKind(v.own, gates.Test)
 		for _, g := range v.set.Gates {
 			isTarget := spec.finding != nil && g.ID == spec.finding.Gate
-			if g.Scope == gates.ScopeAll && (v.ratchetKinds[g.Kind] || isTarget) {
+			isImproveTest := needsWorkspaceTest && g.Kind == gates.Test && g.AppliesTo(node.Languages)
+			if g.Scope == gates.ScopeAll && (v.ratchetKinds[g.Kind] || isTarget || isImproveTest) {
 				after[gateKey(g.ID, "")] = r.measure(ctx, g, "", v.nodes)
 			}
 		}
@@ -1302,16 +1420,23 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) (r
 	targetUnverified := false
 	for _, k := range keys {
 		b, a := r.state[k], after[k]
-		if a.result.Gate.Kind == gates.Test && !a.result.Unverified() {
+		if a.result.Gate.Kind == gates.Test && !a.result.Unverified() && !a.noTests() {
 			in.Tested = true
+		}
+		bCount := b.totalFindings()
+		aCount := a.totalFindings()
+		if !a.result.Passed && a.truncated && aCount <= bCount {
+			aCount = bCount + 1
 		}
 		in.Gates = append(in.Gates, ratchetGate{
 			Gate: k, Before: b.verdict(), After: a.verdict(),
-			BeforeCount: len(b.findings), AfterCount: len(a.findings),
+			BeforeCount: bCount, AfterCount: aCount,
 		})
 		if spec.finding != nil && !witnessRan && k == spec.targetKey {
 			targetUnverified = a.result.Unverified()
-			in.TargetOK = !targetUnverified && !hasFinding(a.findings, findingID)
+			targetNoTests := a.result.Gate.Kind == gates.Test && a.noTestsForTarget(b, findingID)
+			targetTruncatedFail := !a.result.Passed && a.truncated
+			in.TargetOK = !targetUnverified && !targetNoTests && !targetTruncatedFail && !a.hasFinding(findingID)
 		}
 	}
 	verdict, err := r.policy.ratchet(in)
@@ -1432,11 +1557,7 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) (r
 		r.rememberRevert(rec)
 	}
 	if rec.Outcome == outcomeKept {
-		shortHash := rec.Commit
-		if len(shortHash) > 9 {
-			shortHash = shortHash[:9]
-		}
-		r.logf("recurse cycle %d [%s]: kept %s %s", cycle, node.ID, shortHash, rec.Metrics)
+		r.logf("recurse cycle %d [%s]: kept %.9s %s", cycle, node.ID, rec.Commit, rec.Metrics)
 	} else if why := strings.TrimSpace(rec.Why); why != "" {
 		r.logf("recurse cycle %d [%s]: %s %s (%s)", cycle, node.ID, strings.TrimPrefix(rec.Outcome, "/"), rec.Metrics, why)
 	} else {
@@ -1463,22 +1584,39 @@ func (r *recurseRun) metrics(node SubsystemNode, own []gates.Gate, runs map[stri
 			m[gates.MetricLines] = n
 		}
 	}
+	hasCov := false
+	minCov := 0
 	for _, g := range own {
 		if g.Kind != gates.Test {
 			continue
 		}
 		if cov, ok := gates.Coverage(runs[gateKey(g.ID, node.ID)].result.Output); ok {
-			m[gates.MetricCoverage] = cov
-			break
+			m[gates.MetricCoverage+":"+g.ID] = cov
+			if !hasCov || cov < minCov {
+				minCov = cov
+				hasCov = true
+			}
 		}
+	}
+	if hasCov {
+		m[gates.MetricCoverage] = minCov
 	}
 	return m
 }
 
 // metricsDelta renders before and after for the journal: "tests 10->12".
 func metricsDelta(before, after map[string]int) string {
+	covCount := 0
+	for name := range before {
+		if strings.HasPrefix(name, gates.MetricCoverage+":") {
+			covCount++
+		}
+	}
 	var parts []string
 	for _, name := range sortedMetricNames(before) {
+		if strings.HasPrefix(name, gates.MetricCoverage+":") && covCount <= 1 {
+			continue
+		}
 		if a, ok := after[name]; ok {
 			parts = append(parts, fmt.Sprintf("%s %d->%d", name, before[name], a))
 		}
@@ -1536,12 +1674,21 @@ func (r *recurseRun) changedByAttempt(ctx context.Context, untrackedBefore map[s
 	return out, nil
 }
 
-// sourceOf is the gate run that reported f.
+// sourceOf is the gate run that reported f, preserving the exact invocation
+// result that produced f when a collapsed multi-path node ran the gate once
+// per directory.
 func (r *recurseRun) sourceOf(f gates.Finding, node SubsystemNode) gateRun {
-	if run, ok := r.state[gateKey(f.Gate, node.ID)]; ok && hasFinding(run.findings, f.ID) {
+	if run, ok := r.state[gateKey(f.Gate, node.ID)]; ok && run.hasFinding(f.ID) {
+		if inv, hasInv := run.byFinding[f.ID]; hasInv {
+			run.result = inv
+		}
 		return run
 	}
-	return r.state[gateKey(f.Gate, "")]
+	run := r.state[gateKey(f.Gate, "")]
+	if inv, hasInv := run.byFinding[f.ID]; hasInv {
+		run.result = inv
+	}
+	return run
 }
 
 // sourceNode is the state key's node part for f's gate.
@@ -1574,6 +1721,12 @@ func (r *recurseRun) failureSignature(cycle int, target gates.Finding, after gat
 		if f.ID == target.ID {
 			return "open: " + f.Signature
 		}
+	}
+	if after.hasFinding(target.ID) {
+		return "open: " + target.Signature
+	}
+	if after.result.Gate.Kind == gates.Test && after.noTests() {
+		return "no_tests: " + target.Signature
 	}
 	worse, err := r.policy.worseGates(cycle)
 	if err == nil && len(worse) > 0 {
