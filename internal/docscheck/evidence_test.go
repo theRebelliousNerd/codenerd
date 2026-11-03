@@ -3,6 +3,9 @@ package docscheck
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/google/go-cmp/cmp"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -390,6 +393,122 @@ func TestEvidenceJSONShape(t *testing.T) {
 	}
 	if strings.Join(kinds, ",") != "reference,resolution,manifest" {
 		t.Fatalf("record order %v", kinds)
+	}
+}
+
+type evidenceWriterFunc func([]byte) (int, error)
+
+func (f evidenceWriterFunc) Write(p []byte) (int, error) { return f(p) }
+
+func TestWriteEvidenceJSONPropagatesWriterErrors(t *testing.T) {
+	c, _ := evWorkspace(t, map[string]string{
+		pkgA + "adr/ADR-001.md": adr("shipped", "file:marker.txt"),
+		"marker.txt":            "x\n",
+	})
+	ev := evidenceOf(t, c, "a")
+	for _, tt := range []struct {
+		name        string
+		empty       bool
+		failAt      int
+		wantRecords string
+	}{
+		{name: "reference", failAt: 1},
+		{name: "resolution", failAt: 2, wantRecords: "reference"},
+		{name: "manifest", failAt: 3, wantRecords: "reference,resolution"},
+		{name: "manifest_without_references", empty: true, failAt: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			input := ev
+			if tt.empty {
+				input.References = nil
+				input.Resolutions = nil
+			}
+			wantErr := errors.New("writer unavailable")
+			var out bytes.Buffer
+			calls := 0
+			w := evidenceWriterFunc(func(p []byte) (int, error) {
+				calls++
+				if calls >= tt.failAt {
+					return 0, wantErr
+				}
+				return out.Write(p)
+			})
+			if err := WriteEvidenceJSON(w, input); !errors.Is(err, wantErr) || errors.Unwrap(err) == nil {
+				t.Fatalf("WriteEvidenceJSON error = %v, want wrapped writer error", err)
+			}
+			if calls != tt.failAt {
+				t.Errorf("writer calls = %d, want %d (stop at first error)", calls, tt.failAt)
+			}
+			var records []string
+			dec := json.NewDecoder(&out)
+			for dec.More() {
+				var record struct {
+					Record string `json:"record"`
+				}
+				if err := dec.Decode(&record); err != nil {
+					t.Fatalf("decode emitted prefix: %v", err)
+				}
+				records = append(records, record.Record)
+			}
+			if got := strings.Join(records, ","); got != tt.wantRecords {
+				t.Errorf("emitted records = %q, want %q", got, tt.wantRecords)
+			}
+		})
+	}
+}
+
+func TestEvidenceTextBoundsCandidatesWithoutTruncatingJSON(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		candidates int
+		wantMore   bool
+	}{
+		{name: "at_limit", candidates: 4},
+		{name: "over_limit", candidates: 6, wantMore: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			files := map[string]string{pkgA + "adr/ADR-001.md": adr("shipped", "symbol:Shared")}
+			for i := 0; i < tt.candidates; i++ {
+				files[fmt.Sprintf("internal/p%d/p.go", i)] = fmt.Sprintf("package p%d\n\nfunc Shared() {}\n", i)
+			}
+			c, _ := evWorkspace(t, files)
+			ev := evidenceOf(t, c, "a")
+			_, resolution := byRef(t, ev, "Shared")
+			if resolution.Grade != GradeAmbiguous || len(resolution.Candidates) != tt.candidates {
+				t.Fatalf("resolution = %+v, want %d ambiguous candidates", resolution, tt.candidates)
+			}
+			text := EvidenceText(ev)
+			if got := strings.Count(text, "    candidate "); got != 4 {
+				t.Errorf("text candidate count = %d, want 4:\n%s", got, text)
+			}
+			for i := 0; i < 4; i++ {
+				if want := fmt.Sprintf("    candidate internal/p%d/p.go:3\n", i); !strings.Contains(text, want) {
+					t.Errorf("text missing %q:\n%s", want, text)
+				}
+			}
+			more := "    ... 2 more candidates (use --json for all)\n"
+			if got := strings.Contains(text, more); got != tt.wantMore {
+				t.Errorf("overflow notice present = %v, want %v:\n%s", got, tt.wantMore, text)
+			}
+			var out bytes.Buffer
+			if err := WriteEvidenceJSON(&out, ev); err != nil {
+				t.Fatalf("WriteEvidenceJSON: %v", err)
+			}
+			dec := json.NewDecoder(&out)
+			var ref Reference
+			var got Resolution
+			if err := dec.Decode(&ref); err != nil {
+				t.Fatalf("decode reference: %v", err)
+			}
+			if err := dec.Decode(&got); err != nil {
+				t.Fatalf("decode resolution: %v", err)
+			}
+			if diff := cmp.Diff(resolution, got); diff != "" {
+				t.Errorf("JSON resolution mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
