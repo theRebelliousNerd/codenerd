@@ -16,6 +16,19 @@ import (
 // worker and a fresh reopen to simulate a new process.
 
 func TestLearningRecall_FreshReopenReturnsSavedContent(t *testing.T) {
+	// TODO: Test what happens if shardID is empty string ("")
+	// TODO: Test what happens if predicate string is empty or contains only whitespace
+	// TODO: Test what happens if args is nil or an initialized empty slice []any{}
+	// TODO: Test what happens if args contains explicit nil interface values or empty strings ""
+	// TODO: Test what happens if an integer (42) or float (3.14) is passed to Save when Mangle schema expects a string "42"
+	// TODO: Test what happens if args contains a []byte instead of a string
+	// TODO: Test what happens if a malformed update attempts to coerce handle_version from integer to string
+	// TODO: Test what happens if a 50MB string is passed to Save
+	// TODO: Test what happens if args contains highly exotic unicode characters, zero-width joiners, and right-to-left text
+	// TODO: Test what happens if Save is fired concurrently in a tight loop (e.g. 100,000 times)
+	// TODO: Test what happens if RecallLearningsLexicalContext is invoked precisely while a SaveBatch is mid-transaction
+	// TODO: Test what happens if the underlying learnings.db file is deleted from the filesystem while the Go learningStore holds an open connection
+	// TODO: Test what happens if two separate sub-agents independently learn the exact same pattern and call Save simultaneously
 	dir := t.TempDir()
 
 	ls, err := NewLearningStore(dir)
