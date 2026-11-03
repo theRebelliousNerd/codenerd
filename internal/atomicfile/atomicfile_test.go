@@ -346,6 +346,99 @@ func TestReplace_MovesOntoAnExistingFile(t *testing.T) {
 	}
 }
 
+func TestReplace_CreatesMissingDestination(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{name: "empty source"},
+		{name: "binary source", data: []byte{0x00, 0xff, '\n', 0x80, 0x00}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			src := filepath.Join(dir, "src")
+			dst := filepath.Join(dir, "dst")
+			if err := os.WriteFile(src, tt.data, 0o600); err != nil {
+				t.Fatalf("seed source: %v", err)
+			}
+
+			if err := Replace(src, dst); err != nil {
+				t.Fatalf("Replace onto missing destination: %v", err)
+			}
+			got, err := os.ReadFile(dst)
+			if err != nil {
+				t.Fatalf("read destination: %v", err)
+			}
+			if string(got) != string(tt.data) {
+				t.Errorf("destination contents = %q, want %q", got, tt.data)
+			}
+			if _, err := os.Stat(src); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("stat moved source = %v, want os.ErrNotExist", err)
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatalf("read directory: %v", err)
+			}
+			if len(entries) != 1 || entries[0].Name() != "dst" {
+				t.Errorf("directory entries = %v, want only dst", entries)
+			}
+		})
+	}
+}
+
+func TestWriteFile_RejectsInvalidPathsWithoutArtifacts(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "embedded NUL", path: "invalid\x00path"},
+		{name: "non-directory ancestor", path: filepath.Join("blocker", "target")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			blocker := filepath.Join(dir, "blocker")
+			if err := os.WriteFile(blocker, []byte("retained"), 0o600); err != nil {
+				t.Fatalf("seed blocker: %v", err)
+			}
+			path := filepath.Join(dir, tt.path)
+			_, statErr := os.Stat(path)
+			var cause *os.PathError
+			if !errors.As(statErr, &cause) {
+				t.Fatalf("stat invalid path = %v, want *os.PathError", statErr)
+			}
+
+			err := WriteFile(path, []byte("replacement"), 0o644)
+			var pathErr *os.PathError
+			if !errors.As(err, &pathErr) {
+				t.Fatalf("WriteFile error = %v, want wrapped *os.PathError", err)
+			}
+			if !errors.Is(err, cause.Err) {
+				t.Errorf("WriteFile error = %v, want cause %v", err, cause.Err)
+			}
+			got, err := os.ReadFile(blocker)
+			if err != nil {
+				t.Fatalf("read blocker: %v", err)
+			}
+			if string(got) != "retained" {
+				t.Errorf("blocker contents = %q, want retained", got)
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatalf("read directory: %v", err)
+			}
+			if len(entries) != 1 || entries[0].Name() != "blocker" {
+				t.Errorf("directory entries = %v, want only blocker", entries)
+			}
+		})
+	}
+}
+
 func TestReplace_ReportsAMissingSource(t *testing.T) {
 	dir := t.TempDir()
 	if err := Replace(filepath.Join(dir, "absent"), filepath.Join(dir, "dst")); err == nil {
