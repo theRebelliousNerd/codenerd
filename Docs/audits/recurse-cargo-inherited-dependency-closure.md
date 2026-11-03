@@ -9,6 +9,16 @@ verification-method: static-source-inspection
 
 # Recurse omits Cargo workspace-inherited dependency edges
 
+
+## Current-main addendum: inherited local edges now acquired
+
+Static review on November 3, 2026, at public main `ab687f41b2a1d42c6af4f05bd43f7f17ec03846f`. The finding below describes its earlier pinned revision. [Commit 17a6ae4](https://github.com/theRebelliousNerd/codenerd/commit/17a6ae47aac878d44147509a7d7c6ae803fafda0) parses crate and workspace dependency records, resolves inherited paths from the workspace declaration, and adds edges when targets are admitted crates. The original ordinary `z.workspace = true` omission is addressed in source. [Acquisition and resolution](https://github.com/theRebelliousNerd/codenerd/blob/ab687f41b2a1d42c6af4f05bd43f7f17ec03846f/internal/campaign/recurse_workspace.go#L627-L733)
+
+An authored fixture asserts inherited focused closure, dependency-first order and exclusion of unused workspace entries. A second exercises a chain and parser fallback. These are source-inspected assertions, not executed results. [Fixtures](https://github.com/theRebelliousNerd/codenerd/blob/ab687f41b2a1d42c6af4f05bd43f7f17ec03846f/internal/campaign/recurse_audits_test.go#L483-L571)
+
+This remains a custom manifest parser, not Cargo metadata or complete resolver conformance. The second fixture uses different workspace/member keys and a `package` key on an inherited dependency; Cargo's documented inherited supplemental keys do not include `package`. Do not treat it as a Cargo-valid renamed-inheritance witness. Full TOML semantics, activation, membership and failure dispositions need independent qualification. No tests or Cargo commands were run in this review. [Parser](https://github.com/theRebelliousNerd/codenerd/blob/ab687f41b2a1d42c6af4f05bd43f7f17ec03846f/internal/campaign/recurse_workspace.go#L735-L904) [Cargo inheritance](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#inheriting-a-dependency-from-a-workspace)
+
+
 ## Decision
 
 Preserve Cargo workspace inheritance when producing recurse's local dependency graph. At the inspected main, a member crate that inherits a local dependency through `workspace = true` becomes a node, but the inherited dependency does not become its edge. A focused sweep can therefore omit a prerequisite that its contract says it includes; a full sweep can visit the dependent before that prerequisite. The defect is at the host's graph observation, before the kernel orders work. [Producer][producer] [Closure contract][closure] [Ordering][ordering]
