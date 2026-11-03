@@ -169,20 +169,34 @@ func (cr *CheckpointRunner) runTestsCheckpoint(ctx context.Context) (bool, strin
 		// Try to request JSON where supported (e.g., jest). This is best-effort.
 		testCmdStr = testCmdStr + " -- --json --outputFile=.nerd/npm-test.json"
 	}
-	// Workspace build tags: without them the gate judges a different build
-	// than dev/CI in tag-gated trees. No-op elsewhere.
-	if tags := build.TestTagsForWorkspace(cr.workspace); len(tags) > 0 && strings.HasPrefix(testCmdStr, "go test") {
-		testCmdStr = "go test " + strings.Join(tags, " ") + strings.TrimPrefix(testCmdStr, "go test")
-	}
 	parts := strings.Fields(testCmdStr)
+	var env []string
+	if isGoTest {
+		var args []string
+		env, args = build.GoInvocation(cr.workspace, cr.workspace, parts[1:])
+		// The configured or explicit tag selection takes precedence over the
+		// workspace default, just as it does in the shared invocation helper.
+		hasTags := false
+		for _, arg := range args[1:] {
+			if arg == "-tags" || strings.HasPrefix(arg, "-tags=") {
+				hasTags = true
+				break
+			}
+		}
+		if !hasTags {
+			tags := build.TestTagsForWorkspace(cr.workspace)
+			args = append(append(args[:1:1], tags...), args[1:]...)
+		}
+		parts = append([]string{parts[0]}, args...)
+	} else {
+		env = build.GetBuildEnv(nil, cr.workspace)
+	}
 
 	cmd := tactile.Command{
 		Binary:           parts[0],
 		Arguments:        parts[1:],
 		WorkingDirectory: cr.workspace,
-		// Build env carries the CGO flags the tagged build needs; without
-		// them the tag above would turn the gate red on missing headers.
-		Environment: build.GetBuildEnv(nil, cr.workspace),
+		Environment:      env,
 		Limits: &tactile.ResourceLimits{
 			TimeoutMs: cr.commandTimeout.Milliseconds(),
 		},

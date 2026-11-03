@@ -275,7 +275,12 @@ func (b *Broker) open(intentID string, subject Subject, digest string, preview P
 // expireLocked moves an open request past its deadline to expired.
 func (b *Broker) expireLocked(r *Request) {
 	if (r.Status == StatusAwaitingHuman || r.Status == StatusApproved) && !b.now().Before(r.ExpiresAt) {
-		b.transitionLocked(r, StatusExpired, "no claim before the request's deadline")
+		if err := b.transitionLocked(r, StatusExpired, "no claim before the request's deadline"); err != nil {
+			// Expiry is a safety boundary even if its journal record cannot be written.
+			r.Status = StatusExpired
+			r.StatusReason = "expiry journal failed: " + err.Error()
+			b.notifyLocked(r)
+		}
 	}
 }
 

@@ -78,17 +78,22 @@ func (r *Redactor) SanitizeString(value string) string {
 	return assignmentPattern.ReplaceAllString(value, `${1}${2}`+Redacted)
 }
 
-// RedactURL removes values for sensitive query parameters.
+// RedactURL removes URL userinfo and values for sensitive query parameters.
 func (r *Redactor) RedactURL(raw string) string {
 	if r == nil {
 		return raw
 	}
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.RawQuery == "" {
+	if err != nil {
 		return raw
 	}
-	query := parsed.Query()
 	changed := false
+	if parsed.User != nil {
+		parsed.User = nil
+		changed = true
+	}
+	query := parsed.Query()
+	queryChanged := false
 	for key, values := range query {
 		if !r.IsSensitiveKey(key) {
 			continue
@@ -97,10 +102,13 @@ func (r *Redactor) RedactURL(raw string) string {
 			values[i] = Redacted
 		}
 		query[key] = values
+		queryChanged = true
+	}
+	if queryChanged {
+		parsed.RawQuery = query.Encode()
 		changed = true
 	}
 	if changed {
-		parsed.RawQuery = query.Encode()
 		return parsed.String()
 	}
 	return raw

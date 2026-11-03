@@ -79,3 +79,57 @@ func TestApprovalPreview_OversizedDeleteNamesWhatItWithheld(t *testing.T) {
 		t.Errorf("Incomplete = %q; want it to name big.bin", prev.Incomplete)
 	}
 }
+
+func TestApprovalPreview_ReportsUnavailableDeleteContent(t *testing.T) {
+	const maxBytes = 4096
+	tests := []struct {
+		name           string
+		read           fileRevision
+		wantIncomplete string
+		wantComplete   bool
+	}{
+		{
+			name:           "oversized content reports its actual size",
+			read:           fileRevision{path: "large.txt", exists: true, size: 8193},
+			wantIncomplete: "large.txt is 8193 bytes, over the 4096-byte preview limit; the diff is not shown",
+		},
+		{
+			name:           "unavailable content at limit is not called oversized",
+			read:           fileRevision{path: "missing-content.txt", exists: true, size: maxBytes},
+			wantIncomplete: "missing-content.txt content is unavailable; the diff is not shown",
+		},
+		{
+			name:         "retained content is previewed",
+			read:         fileRevision{path: "small.txt", exists: true, size: 5, content: []byte("hello")},
+			wantComplete: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			call := ToolCall{Name: "delete_file"}
+			subject := approval.Subject{Tool: "delete_file", Payload: `{"path":"file"}`}
+			preview, err := approvalPreview(call, subject, []fileRevision{tt.read}, maxBytes)
+			if err != nil {
+				t.Fatalf("approvalPreview: %v", err)
+			}
+			if !preview.Verify() {
+				t.Error("preview digest does not verify")
+			}
+			if preview.Complete != tt.wantComplete {
+				t.Errorf("Complete = %v, want %v", preview.Complete, tt.wantComplete)
+			}
+			if tt.wantComplete {
+				if preview.Diff == nil || len(preview.Incomplete) != 0 {
+					t.Errorf("retained content: diff = %v, incomplete = %q", preview.Diff, preview.Incomplete)
+				}
+				return
+			}
+			if preview.Diff != nil {
+				t.Error("unavailable content must not produce a diff")
+			}
+			if len(preview.Incomplete) != 1 || preview.Incomplete[0] != tt.wantIncomplete {
+				t.Errorf("incomplete = %q, want [%q]", preview.Incomplete, tt.wantIncomplete)
+			}
+		})
+	}
+}

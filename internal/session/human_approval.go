@@ -263,8 +263,9 @@ func approvalPreview(call ToolCall, subject approval.Subject, reads []fileRevisi
 		}
 		change := &approval.FileChange{Path: r.path, Exists: r.exists, IsDir: r.isDir, Before: r.content}
 		if r.exists && !r.isDir && r.content == nil {
-			// Over the preview bound: say so rather than show a partial file.
-			change.Before = make([]byte, r.size)
+			// Preserve the reason and size without allocating the omitted content.
+			change.BeforeUnavailable = true
+			change.BeforeSize = r.size
 		}
 		in.File = change
 		return approval.BuildPreview(in)

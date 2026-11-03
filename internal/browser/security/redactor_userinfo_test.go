@@ -61,3 +61,37 @@ func TestRedactURL_UserinfoControls(t *testing.T) {
 		t.Errorf("RedactURL of a sensitive query = %q; want the value redacted", got)
 	}
 }
+
+// TestRedactURL_RemovesUserinfoAndPreservesCleanURLs pins both sides of the
+// userinfo decision, including exact preservation of an untouched URL.
+func TestRedactURL_RemovesUserinfoAndPreservesCleanURLs(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "password and username removed without query",
+			raw:  "https://account:sample-password@example.com/path",
+			want: "https://example.com/path",
+		},
+		{
+			name: "username removed and ordinary query preserved",
+			raw:  "https://account@example.com/path?b=2&a=%2f",
+			want: "https://example.com/path?b=2&a=%2f",
+		},
+		{
+			name: "clean URL with empty fragment remains byte-for-byte unchanged",
+			raw:  "https://example.com/path#",
+			want: "https://example.com/path#",
+		},
+	}
+	redactor := NewRedactor(nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := redactor.RedactURL(tt.raw); got != tt.want {
+				t.Errorf("RedactURL(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}

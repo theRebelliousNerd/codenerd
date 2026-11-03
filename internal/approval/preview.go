@@ -84,6 +84,10 @@ type FileChange struct {
 	Exists bool
 	// IsDir reports a directory at Path; its contents are not previewed.
 	IsDir bool
+	// BeforeUnavailable means the original bytes were not retained.
+	BeforeUnavailable bool
+	// BeforeSize is the original size when BeforeUnavailable is true.
+	BeforeSize int64
 }
 
 // BuildPreview renders a preview and seals it with its digest.
@@ -117,6 +121,10 @@ func BuildPreview(in PreviewInput) (Preview, error) {
 			withhold(fmt.Sprintf("%s is a directory; its contents are not previewed", f.Path))
 		case !f.Exists && f.After == nil:
 			withhold(fmt.Sprintf("%s does not exist; there is no content to show", f.Path))
+		case f.BeforeUnavailable && f.BeforeSize > int64(in.MaxBytes):
+			withhold(fmt.Sprintf("%s is %d bytes, over the %d-byte preview limit; the diff is not shown", f.Path, f.BeforeSize, in.MaxBytes))
+		case f.BeforeUnavailable:
+			withhold(fmt.Sprintf("%s content is unavailable; the diff is not shown", f.Path))
 		case isBinary(f.Before) || isBinary(f.After):
 			withhold(fmt.Sprintf("%s is binary; its bytes are not shown", f.Path))
 		case len(f.Before) > in.MaxBytes || len(f.After) > in.MaxBytes:

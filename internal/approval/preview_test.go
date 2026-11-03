@@ -133,3 +133,26 @@ func TestBuildPreview_RejectsNonPositiveLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildPreview_WithholdsUnavailableBefore(t *testing.T) {
+	cases := []struct {
+		name string
+		size int64
+		want string
+	}{
+		{name: "over limit", size: 9, want: "file is 9 bytes, over the 8-byte preview limit; the diff is not shown"},
+		{name: "at limit", size: 8, want: "file content is unavailable; the diff is not shown"},
+		{name: "unknown size", size: 0, want: "file content is unavailable; the diff is not shown"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := BuildPreview(PreviewInput{MaxBytes: 8, File: &FileChange{Path: "file", Exists: true, BeforeUnavailable: true, BeforeSize: tc.size}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.Complete || p.Diff != nil || len(p.Incomplete) != 1 || p.Incomplete[0] != tc.want || !p.Verify() {
+				t.Errorf("unexpected withheld preview: %+v; want reason %q and a valid seal", p, tc.want)
+			}
+		})
+	}
+}
