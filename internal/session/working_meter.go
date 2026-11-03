@@ -75,6 +75,9 @@ func (c *workingMeter) observe(calls []types.ToolCall, results []types.ToolResul
 			}
 		}
 		if !paired || result.IsError {
+			if paired && isFocusedVerificationCall(call) && strings.Contains(result.Content, `"exit_code":`) {
+				verifies++
+			}
 			continue
 		}
 		if isWriteMutationTool(call.Name) {

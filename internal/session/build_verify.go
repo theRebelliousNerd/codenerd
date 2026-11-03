@@ -938,15 +938,25 @@ func (e *Executor) workingAttempt(
 			break
 		}
 		allCalls = append(allCalls, repaired.ToolCalls)
+		prevTestRuns := 0
+		prevReceipts := 0
+		if result != nil {
+			prevTestRuns = result.TestRunCalls
+			prevReceipts = len(result.testReceipts)
+		}
 		results, errs := e.executeToolBatch(ctx, repaired.ToolCalls, cfg, result)
 		repairErrs = append(repairErrs, errs...)
 		toolResults = append(toolResults, results...)
 		meter.observe(repaired.ToolCalls, results)
 		failedRounds++
-		for _, r := range results {
-			if !r.IsError {
-				failedRounds = 0
-				break
+		if result != nil && (result.TestRunCalls > prevTestRuns || len(result.testReceipts) > prevReceipts) {
+			failedRounds = 0
+		} else {
+			for _, r := range results {
+				if !r.IsError {
+					failedRounds = 0
+					break
+				}
 			}
 		}
 		wrote = result != nil && result.WriteToolEffects > before

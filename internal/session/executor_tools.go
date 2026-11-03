@@ -278,15 +278,25 @@ func (e *Executor) runToolLoopPass(
 			explorationCtx, cancelExploration = context.WithDeadline(ctx, finalizationCutoff)
 		}
 
+		prevTestRuns := 0
+		prevReceipts := 0
+		if result != nil {
+			prevTestRuns = result.TestRunCalls
+			prevReceipts = len(result.testReceipts)
+		}
 		// Execute all tool calls from this turn and collect tool_result blocks.
 		toolResults, batchErrs := e.executeToolBatch(explorationCtx, currentResponse.ToolCalls, cfg, result)
 		toolErrs = append(toolErrs, batchErrs...)
 		meter.observe(currentResponse.ToolCalls, toolResults)
 		failedRounds++
-		for _, r := range toolResults {
-			if !r.IsError {
-				failedRounds = 0
-				break
+		if result != nil && (result.TestRunCalls > prevTestRuns || len(result.testReceipts) > prevReceipts) {
+			failedRounds = 0
+		} else {
+			for _, r := range toolResults {
+				if !r.IsError {
+					failedRounds = 0
+					break
+				}
 			}
 		}
 		// The policy sees the whole-turn shape (write intent, rounds,
@@ -1138,6 +1148,9 @@ func (e *Executor) executeAndRecordToolCall(
 	}
 	sessionlog.EmitLiveProgress(ctx, sessionlog.LiveEvent{Kind: sessionlog.EventToolResult, Tool: call.Name, CallID: call.ID, Text: subject, Failed: failed, Status: status})
 	if err != nil {
+		if len(testRuns()) > 0 || len(checkRuns()) > 0 {
+			result.SuccessfulToolCalls++
+		}
 		return out, errors.Join(err, memoryErr)
 	}
 	result.SuccessfulToolCalls++

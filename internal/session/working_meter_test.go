@@ -66,6 +66,22 @@ func TestWorkingMeter_FailedCallIsNotProgress(t *testing.T) {
 	}
 }
 
+func TestWorkingMeter_FailingTestRunnerCountsAsVerification(t *testing.T) {
+	meter := newWorkingMeter(2)
+	meter.observe(read("r1", "a.go", "package a"))
+	meter.observe(
+		[]types.ToolCall{{ID: "t1", Name: "run_tests", Input: map[string]any{"packages": []string{"./internal/session"}}}},
+		[]types.ToolResult{{
+			ToolUseID: "t1",
+			Content:   "modular tool execution failed: exit status 1\n\n{\"argv\":[\"go\",\"test\",\"./internal/session\"],\"exit_code\":1,\"output\":\"--- FAIL: TestPin\"}",
+			IsError:   true,
+		}},
+	)
+	if got := meter.workingProgress(true, 0); got.SinceVerify != 0 {
+		t.Fatalf("SinceVerify = %d after a failing run_tests measurement, want 0", got.SinceVerify)
+	}
+}
+
 // The span that makes a repeat a cycle is the policy's
 // working_repeat_threshold, handed in by the loop. Comparing the whole event
 // signature means a re-read whose returned bytes changed is progress, while
