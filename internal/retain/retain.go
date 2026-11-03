@@ -54,9 +54,9 @@ type Config struct {
 // process for memory that matters.
 func DefaultConfig() Config {
 	return Config{
-		MaxEntries: 64,
+		MaxEntries: 256,
 		MaxBytes:   8 << 20,
-		TTL:        30 * time.Minute,
+		TTL:        6 * time.Hour,
 		Prefix:     "h:",
 	}
 }

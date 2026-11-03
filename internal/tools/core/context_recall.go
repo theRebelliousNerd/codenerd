@@ -49,6 +49,9 @@ func RecallContextTool() *tools.Tool {
 					return redeem(ctx, handleArgs)
 				}
 			}
+			if strings.HasPrefix(strings.TrimSpace(id), "obs:fr:") {
+				return "", fmt.Errorf("%q is a read_file precondition token (used with apply_edits/write_file), not an archived observation body; call read_file on the path if you need its contents", strings.TrimSpace(id))
+			}
 			recall := tools.ContextRecallFrom(ctx)
 			if recall == nil {
 				return "", fmt.Errorf("working context recall unavailable")
