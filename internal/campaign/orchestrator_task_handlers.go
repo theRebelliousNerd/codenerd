@@ -305,9 +305,18 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 		return nil, err
 	}
 	logging.CampaignDebug("Built shard input (%d bytes) for task %s", len(input), task.ID)
+	if task.Type == TaskTypeFileModify {
+		input += o.writeSetBriefing(task)
+	}
+	spawnIntent := shardType
+	if isFileProducingType(task.Type) {
+		if verb, vErr := o.taskVerb(task); vErr == nil && verb != "" {
+			spawnIntent = verb
+		}
+	}
 
 	// Spawn the shard via unified spawnTask
-	result, err := o.spawnTask(ctx, task, shardType, input)
+	result, err := o.spawnTask(ctx, task, spawnIntent, input)
 	if err != nil {
 		// F-DOC-1: /document tasks are the campaign's deliverables (reports,
 		// rubrics). The decomposer often routes them to the coder shard, which

@@ -166,6 +166,7 @@ func isNonTerminalResumeAttempt(a TaskAttempt) bool {
 		"status 429",
 		"working_stop(",
 		"hollow success blocked",
+		"none of the planned write_set paths exist",
 		"task turn ended before work was done",
 	}, func(sub string) bool {
 		return strings.Contains(a.Error, sub)
