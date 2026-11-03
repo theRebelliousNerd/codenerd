@@ -1,0 +1,92 @@
+# Multi shard review needs to retain the scope beyond its first fifty files
+
+## Finding and decision
+
+Keep the existing uncapped broad-target discovery, but carry its remaining scope through multi-shard review normalization and execution. At main [`388205138ba6d47c1cff0c5e97c896dfa642a391`](https://github.com/theRebelliousNerd/codenerd/commit/388205138ba6d47c1cff0c5e97c896dfa642a391), a normal `/review` with a populated agent registry can resolve more than fifty admitted source files, then reduce the generic reviewer task and specialist-selection input to the first fifty. The normalizer returns only those selected paths, not an omitted set, continuation, or coverage disposition. The aggregate subsequently retains the original broad target alongside the shortened file list.
+
+When every dispatched worker returns without an error, the aggregate can display `Complete` and `Files Reviewed: 50`. The count is real disclosure and must not be ignored. It does not say that fifty were selected from fifty-one, identify the omitted file, or preserve an obligation to review it. A diagnostic log also records resolved and normalized counts. The finding is therefore **loss of the assignment remainder and its coverage meaning**, not total secrecy about the selected count.
+
+The clean witness uses fifty-one admitted Python files below `src/`, a nonempty agent registry, no workspace-root `go.mod`, and unset `NEMESIS_REVIEW`. These conditions avoid the independent Nemesis path, which can receive the original broad target. Even in this witness, the worker may discover additional files itself. This report establishes the pre-dispatch scope reduction and missing remainder contract, not a universal fifty-file execution ceiling or an observed missed defect.
+
+**Recommended decision:** represent requested scope, admitted scope, current assignment, remaining work, and completion evidence separately. A bounded batch may be useful; silently replacing the requested scope with that batch is not. Either continue the retained remainder under ordinary policy or report partial coverage with an actionable continuation.
+
+This is static source inspection on October 30, 2026. No application, tests, model calls, benchmarks, or repository writes were performed. Main, relevant guidance, active branch heads, and audit inventories through `research-main-20261030-1246` were checked. The source-derived witness below was not executed.
+
+## A downstream residual of an existing coverage repair
+
+The repository already identified first-fifty truncation as a defect. `discoverFiles` now deliberately returns its complete admitted extension-filtered list; its comment explains that the former cap turned whole-codebase requests into an arbitrary prefix. Preserve that repair. The separate `normalizeReviewFilesInternal` called afterward by multi-shard review still contains a fifty-file break. This is a downstream reintroduction of the same incomplete-scope representation, not a newly discovered principle that caps need coverage semantics. [Discovery and no-cap rationale](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/delegation_multistep.go#L257-L314), [downstream cap](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator.go#L1003-L1085).
+
+Related work has different boundaries:
+
+- The [target-substring audit](https://github.com/theRebelliousNerd/codenerd/blob/4585e7fa4732597bd37e0bfe36357f0a3ba71031/Docs/audits/delegation-target-substring-scope.md) concerns a literal narrow filename being interpreted as broad scope. Here the user intentionally asks for a directory, the resolver initially respects it, and later normalization narrows it. The specialist route remains a valid exact-file control for that earlier witness.
+- The [finding-location audit](https://github.com/theRebelliousNerd/codenerd/blob/58c84997ba39254e22c590f6cb3bab43a58509c1/Docs/audits/review-finding-location-deduplication.md) concerns returned findings collapsing during deduplication. This report stops first at the file assignment boundary and does not require any worker to produce findings.
+- The [TUI search-coverage audit](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/Docs/audits/tui-search-evidence-coverage.md) records an implemented typed outcome for a different search helper. Its retained positives, coverage notices, and explicit uncertainty are useful precedents, not missing features to report again.
+
+The normalizer was also compared with the three active lane heads and orchestration QA head: its function body was identical at `a53cfc30`, `80af1863`, `aa7988de`, and `51cfd426`. The complete aggregator file at cartographer QA head `767a3291` matched main. Other aggregator changes exist on the older lanes, so this is a scoped comparison, not a claim that every branch is otherwise identical.
+
+## Production path
+
+### The command can select a broad multi shard review
+
+`handleReviewCommand` uses multi-shard review when the loaded registry exists and has at least one agent. The condition does not require that an agent ultimately match the requested files. Otherwise the handler uses the single-reviewer fallback. The aggregator always schedules the generic reviewer after resolving its file set. [Command branch](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/commands_handlers.go#L1028-L1070), [generic reviewer dispatch](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator.go#L512-L531).
+
+`resolveReviewTarget` maps `.` and `codebase` to discovery. For an explicit directory such as `src/`, it stats that path, walks that directory, and admits each file through workspace membership. For an explicit file, it returns that admitted file. The fifty-one-file witness assumes successful traversal and admission; it does not depend on ignored files, read errors, unsupported extensions, or an unresolved target. [Target resolution](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator.go#L947-L1000).
+
+### Normalization converts the scope into a prefix
+
+`spawnMultiShardReview` calls `normalizeReviewFiles` and logs the original and normalized counts. The helper cleans paths, refreshes membership, checks each admission, optionally filters extensions, converts to workspace-relative paths, and deduplicates them. After appending its fiftieth accepted path it breaks. It returns two parallel slices, not a structure that can say that another requested file remains. [Caller and log](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator.go#L438-L463), [normalization](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator.go#L1003-L1085).
+
+This is not merely shortening a user-facing preview. `matchSpecialistsForReview` receives the shortened absolute list. The generic task is `review files:` plus the shortened relative list. Specialist matching and task construction consequently start from the selected prefix rather than from the full requested candidate set. [Selection](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator.go#L456-L463), [tasks](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator.go#L515-L550).
+
+The omitted path is not inaccessible or forbidden. It simply is not part of these explicit assignments. A worker may inspect it through other available context or tools, and matching experts may cover overlapping domains. Those possibilities do not constitute an assignment or evidence that the requested remainder was covered.
+
+### Completion records only the selected set
+
+The aggregator is constructed with `target` and `relFiles`: its `Target` remains `src/`, while `Files` contains the shortened list. `IsComplete` starts true. The caller marks it false for worker errors, not for normalization omissions, because no omission result reaches that stage. [Aggregate construction](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator.go#L638-L649), [error handling](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator.go#L583-L593).
+
+The header renders `Complete` from that Boolean. The summary names the original target and reports `len(agg.Files)` as files reviewed. Narrative context receives the same count and any worker-error reasons. Conditional persistence and Markdown export carry the aggregate's target, selected files, and completion state. The count measures an assigned list here; this code does not establish that each listed file was actually inspected. [Header](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator.go#L349-L356), [summary](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator.go#L845-L879), [narrative context](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator.go#L715-L734), [persistence projection](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator.go#L603-L630).
+
+## Exact conditional witness and counterevidence
+
+Use an initialized idle TUI with a functioning task executor and a valid nonempty `.nerd/agents.json`. Place exactly fifty-one distinct, admitted, supported `.py` files under `src/`; membership refresh and directory traversal succeed. There is no workspace-root `go.mod`, and `NEMESIS_REVIEW` is unset. Submit `/review src/` through ordinary command handling.
+
+The resolver can return all fifty-one paths. The normalizer admits fifty and stops; the generic task and initial specialist selector receive those fifty. Identify the omitted file from the actual resolver order rather than relying on a filename convention in an acceptance test. The original fifty-one-path local slice is not transformed into a retained remainder or scheduled second batch. If dispatched workers all return nil errors, the visible aggregate can say `Complete` and `Files Reviewed: 50` without saying that one eligible requested file was omitted.
+
+Two repositories with identical first fifty normalized files but different fifty-first files produce the same explicit generic assignment and specialist-selection input. This is an observational-equivalence witness at that boundary, **not** proof that complete model requests or subsequent behavior are identical: world context, retrieval, worker tool use, logs, and an independent reviewer can differ.
+
+Controls and alternatives:
+
+- **Nemesis:** when enabled it receives the original target, not the fifty-file list. A root `go.mod` enables it by default, and a nonempty environment setting can override that behavior. It can independently reach an omitted file. The non-Go witness uses the actual default-off configuration rather than disabling normal tools. [Original-target dispatch](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator.go#L554-L575), [enablement](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator.go#L1182-L1202).
+- **Small or exact-file scopes:** no file is omitted by this cap when at most fifty paths survive normalization. A correct exact-file specialist review is not contradicted by this finding.
+- **Membership and extension filters:** normal exclusions remain legitimate and are not automatically owed work. The witness uses only admitted supported files to isolate the cap. Empty filtered results also have a non-code-target fallback; that is not the fifty-one-file trigger.
+- **Honest error state:** worker errors still mark the aggregate incomplete. Successful dispatch without an error is not proof of full requested coverage or review correctness.
+- **Observable selected count:** the report says fifty, and the log can show fifty-one resolved versus fifty normalized. A user may notice the mismatch; neither surface carries the omitted identity or continuation contract.
+- **Downstream recovery:** models retain ordinary tools, world/CodeDOM context, and normal policy. Additional inspection may recover coverage. No missed vulnerability, wrong edit, or specific model compliance is established.
+
+## Proposed coverage and continuation contract
+
+Separate scope resolution from assignment sizing. Resolve one request to an admitted candidate set and record its source/membership identity, traversal outcome, and exclusions. Selection then returns an explicit batch plus a remainder descriptor. Do not label an initial assignment as observed review coverage.
+
+Useful states are requested, admitted, assigned, evidence received, unresolved, and intentionally excluded. A completion statement should name which state it describes. The existing worker-error Boolean may continue to mean that dispatched workers settled, but it cannot alone certify that the user's broader review scope was handled.
+
+For large scopes, let existing policy choose bounded batches or another appropriate partition. Preserve pending files across those batches, carry specialist-selection requirements for the unassigned portion, and settle each assignment against returned evidence. The executive derives whether enough coverage exists to finish, whether another batch is owed, or whether a real blocker requires a partial answer. Do not add an unrelated parallel permission engine in the normalizer.
+
+If the product intentionally offers a sample review, say so before treating it as complete: report selected versus eligible counts where known, the selection rule, and the remaining scope. Offer a continuation that consumes that retained remainder rather than resolving the same broad target and reviewing the same first fifty again. A renamed or changed source must not silently reuse an old coverage claim; bind continuation to a suitable scope generation or explicitly reacquire and reconcile it. This is a proposed lifecycle contract, not a claim that the current resolver provides an atomic filesystem snapshot.
+
+Preserve membership, supported-language handling, path deduplication, actual worker errors, complete broad discovery, existing findings, and optional Nemesis. An omitted file is not automatically authorization to read or modify it later. New model-facing coverage instructions belong in JIT atoms, and relevant architectural specifications should define the contract before implementation.
+
+A smaller first repair is possible: return a typed partial result from normalization, retain omitted identities, and prevent unqualified scope completion while offering explicit next work. Simply removing the cap preserves assignment scope but can enlarge prompts; simply adding an omitted-count label is honest but does not conserve the remaining work. These are different implementation milestones and should be evaluated separately.
+
+## Costs and fair evaluation
+
+Complete assignment can increase worker input, specialist selection, model calls, review time, and findings that require follow-up. Batching adds scheduling, scope identity, partial-result aggregation, cancellation/resume handling, and storage. The existing resolver already traverses the full directory before the cap, so the fifty-file break is not a guarantee of bounded discovery IO. No latency, token, or dollar savings are established here.
+
+The inspected summary tests construct one- and two-file aggregates and assert their displayed counts. Specialist-task tests preserve their supplied file lists and knowledge. Those are useful controls but do not traverse an actual greater-than-fifty resolver→normalizer→dispatch chain. Tests were read, not run. [Summary fixtures](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator_test.go#L78-L130), [specialist task fixture](https://github.com/theRebelliousNerd/codenerd/blob/388205138ba6d47c1cff0c5e97c896dfa642a391/cmd/nerd/chat/review_aggregator_specialists_test.go#L149-L168).
+
+For a separately authorized evaluation, enter real `/review` commands with 0, 1, 49, 50, 51, and larger admitted scopes. Capture resolved candidates, normalized assignments, selected specialists, dispatched task text, remainder state, returned evidence, narrative input, visible counts, and completion disposition. Include mixed extensions, duplicate paths, membership exclusions, explicit non-code targets, worker errors, changing source between batches, cancellation and resume, populated-registry aggregation, and single-reviewer fallback. At exactly fifty, do not invent an omitted file; at fifty-one, do not lose the known extra candidate.
+
+Place a held-out review concern in a file outside the initial batch and vary its position without changing the concern. First establish deterministic assignment conservation; then separately evaluate whether normal model execution detects and explains it. Keep real tools, world/CodeDOM context, model settings, permission checks, and normal production routing. Measure Nemesis on and off as distinct supported configurations, preserving the no-root-`go.mod`, unset-environment default-off witness. Count unsolicited worker expansion as recovery, not as proof that the assignment was complete.
+
+Report requested-scope coverage, correctly explained partial answers, remainder resumption without repeats, false completion, finding quality, total tokens, tool calls, IO, wall time, and retained-state cost. A faster fifty-file result is not a successful whole-directory review merely because omitted work reduced its cost.
+
+The acceptance condition is narrow: a genuinely broad review cannot lose its fifty-first admitted candidate merely because one assignment was limited to fifty; the system must either preserve and discharge the remainder or make its unresolved coverage explicit.
