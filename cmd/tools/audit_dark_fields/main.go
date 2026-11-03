@@ -275,7 +275,18 @@ func collectUses(f *ast.File, order, ftypes map[string][]string, writes, reads m
 	calls := map[ast.Node]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
 		if c, ok := n.(*ast.CallExpr); ok {
-			calls[c.Fun] = true
+			// Parentheses do not turn a method call into a field read. Record
+			// the underlying function node, leaving receivers and arguments
+			// visible to the normal selector walk.
+			fun := c.Fun
+			for {
+				paren, ok := fun.(*ast.ParenExpr)
+				if !ok {
+					break
+				}
+				fun = paren.X
+			}
+			calls[fun] = true
 			markSyscallBuffer(c, varTypes, order, ftypes, writes)
 		}
 		switch x := n.(type) {
