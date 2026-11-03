@@ -804,6 +804,12 @@ func executeListFiles(ctx context.Context, args map[string]any) (string, error) 
 	} else {
 		entries, err := os.ReadDir(path)
 		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				parent := filepath.ToSlash(filepath.Dir(rawPath))
+				if parent != "" && parent != "." {
+					return "", fmt.Errorf("failed to read directory: %w (subdirectory %q does not exist; list %q instead of guessing subdirectories)", err, rawPath, parent)
+				}
+			}
 			return "", fmt.Errorf("failed to read directory: %w", err)
 		}
 

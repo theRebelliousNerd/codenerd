@@ -120,22 +120,23 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 }
 
 func (o *Orchestrator) canPreservePartialFileModifyProgress(task *Task, snapshot taskExecutionSnapshot, err error) bool {
-	if task == nil || task.Type != TaskTypeFileModify || snapshot.campaign != nil {
+	if task == nil || task.Type != TaskTypeFileModify || snapshot.campaign != nil || err == nil {
 		return false
 	}
-	if !errors.Is(err, ErrTaskNotDone) {
-		return false
-	}
-	sigs := failureSignals(err)
-	if !slices.Contains(sigs, "/self_reported_incomplete") {
-		return false
-	}
-	for _, s := range sigs {
-		switch s {
-		case "/turn_not_done", "/unverified", "/self_reported_incomplete", "/blocked", "/stalled":
-		default:
+	if errors.Is(err, ErrTaskNotDone) {
+		sigs := failureSignals(err)
+		if !slices.Contains(sigs, "/self_reported_incomplete") {
 			return false
 		}
+		for _, s := range sigs {
+			switch s {
+			case "/turn_not_done", "/unverified", "/self_reported_incomplete", "/blocked", "/stalled":
+			default:
+				return false
+			}
+		}
+	} else if !strings.Contains(err.Error(), "working_stop(") {
+		return false
 	}
 	writes := o.attemptWrites(task)
 	if len(writes) == 0 {

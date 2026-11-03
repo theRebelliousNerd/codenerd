@@ -190,6 +190,10 @@ establish the named identity contracts, not live-model quality or cost effects.
 
 These rows cover documents in the census above that did not already have a row. `--` means the branch is not recorded here. The census is not a verified recursive inventory; existing historical rows retain their recorded statuses without implying independent verification.
 
+Remaining `open (untriaged)` rows are unverified: the cited code has not been read for those rows in the current pass. Earlier research remains evidence for later investigation, not a current-turn disposition.
+
+Directory discrepancy: prior research reported `read_file` not-found for `new`, `sweeps`, `gemini`, `gpt`, `glm`, `kimi`, `mimo`, and `minimax`, but its recursive listing was refused. Their current presence is unverified; no subdirectory documents were dispositioned in this pass.
+
 | audit | branch | status |
 |---|---|---|
 | `ASTRA_QUEUE` | -- | open (untriaged) |
@@ -198,7 +202,7 @@ These rows cover documents in the census above that did not already have a row. 
 | `MANGLE_FACT_APIS_INVENTORY` | -- | open (untriaged) |
 | `UPLIFT_LEDGER` | -- | open (untriaged) |
 | `WRITE_MUTATION_INVENTORY` | -- | open (untriaged) |
-| `acceptance-fixture-census` | -- | open (untriaged) |
+| `acceptance-fixture-census` | -- | confirmed-open: acceptance-fixture-census#1, defect (conditional, source only): the protected-input census and snapshot both filter by workspace membership, `internal/evidence/change.go:204-218,273-277,402-413`; working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`. Excluded-fixture execution witness and remaining subitems unverified. |
 | `agent-native-architecture-grand-design` | -- | open (untriaged) |
 | `anthropic-native-context-admission` | -- | open (untriaged) |
 | `approval-expiry-journal-failure` | -- | open (untriaged) |
@@ -210,28 +214,28 @@ These rows cover documents in the census above that did not already have a row. 
 | `background-outcome-and-continuation-ownership` | -- | open (untriaged) |
 | `brief-go-intent-handoff` | -- | open (untriaged) |
 | `browser-evidence-url-userinfo` | -- | open (untriaged) |
-| `campaign-acceptance-case-identity` | -- | open (untriaged) |
+| `campaign-acceptance-case-identity` | -- | confirmed-open: campaign-acceptance-case-identity#1, defect (conditional, source only): case-insensitive deduplication can merge distinct paths on case-sensitive filesystems, `internal/campaign/orchestrator_acceptance.go:314-326,342-350`; the resulting scope is assigned to the acceptance remediation task at `internal/campaign/orchestrator_acceptance.go:251-255,283-292`. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41` (element revs `fade04239e1d`, `b5a6bd5cf680`); execution witness and remaining subitems unverified. |
 | `campaign-analysis-artifact-role-continuity` | -- | open (untriaged) |
 | `campaign-capability-checkpoint-continuity` | -- | open (untriaged) |
 | `campaign-checkpoint-build-profile` | -- | open (untriaged) |
-| `campaign-checkpoint-report-freshness` | -- | open (untriaged) |
-| `campaign-checkpoint-scope-idempotence` | -- | open (untriaged) |
-| `campaign-completion-storage-hold` | -- | open (untriaged) |
-| `campaign-deletion-microcheckpoint` | -- | open (untriaged) |
-| `campaign-evidence-workspace-admission` | -- | open (untriaged) |
-| `campaign-finalization-artifact-scope` | -- | open (untriaged) |
+| `campaign-checkpoint-report-freshness` | -- | confirmed-open: campaign-checkpoint-report-freshness#1, defect (conditional, source only): a fixed npm report may replace current counts without invocation-freshness checks, `internal/campaign/checkpoint.go:168-170,218-229`; working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`. Execution witness and #2 proposal unverified. |
+| `campaign-checkpoint-scope-idempotence` | -- | confirmed-open: campaign-checkpoint-scope-idempotence#1, defect (conditional, source only): scope takes the parent of every task write-set entry, including prior remediation scopes, `internal/campaign/orchestrator_checkpoint_remediation.go:60,79-89,111-131`; working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`. Runtime consequence and #2 proposal unverified. |
+| `campaign-completion-storage-hold` | -- | confirmed-open: campaign-completion-storage-hold#1, defect (source only): the task completion path ignores the snapshot save result before publishing success, `internal/campaign/orchestrator_tasks.go:467-480`; the persistence wrapper emits a failure event and storage hold, `internal/campaign/orchestrator_lifecycle.go:125-139`. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`; dependent dispatch and #2 remain unverified. |
+| `campaign-deletion-microcheckpoint` | -- | confirmed-open: campaign-deletion-microcheckpoint#1, defect (conditional, source only): for a nonempty write set the gate accepts a surviving path via `os.Stat` and fails if none survives, `internal/campaign/micro_checkpoint.go:23-35,40-56`; working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`. Admitted deletion route, runtime witness and remaining subitems unverified. |
+| `campaign-evidence-workspace-admission` | -- | confirmed-open: campaign-evidence-workspace-admission#1, defect (conditional, source only): brief path admission rejects lexical escapes but uses `os.Stat`, while the evidence renderer resolves the named path and reads it without a symlink containment check, `internal/campaign/task_preload.go:57-73`, `internal/campaign/task_evidence.go:91-98,578-591`. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41` (element revs `36d4a335b862`, `2f5d7795a5f0`, `fba28993be13`); end-to-end exploit witness and remaining subitems unverified. |
+| `campaign-finalization-artifact-scope` | -- | confirmed-open: campaign-finalization-artifact-scope#1, defect (conditional, source only): a nonempty write set prevents artifact fallback, while the root sweep declares only basenames from the resolved write set and moves new undeclared root files, `internal/campaign/orchestrator_tasks.go:580-588,873-885,900-910`; `Run` invokes the sweep after acceptance and before completion, `internal/campaign/orchestrator_execution.go:180-185,219-238`. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41` (element revs `5f93c485bb26`, `60f016214731`, `a926fb79d24d`); runtime witness and remaining subitems unverified. |
 | `campaign-generation-admission-and-recovery` | -- | open (untriaged) |
-| `campaign-intake-pause-ownership` | -- | open (untriaged) |
-| `campaign-learning-receipt-fidelity` | -- | open (untriaged) |
-| `campaign-pending-phase-admission` | -- | open (untriaged) |
+| `campaign-intake-pause-ownership` | -- | confirmed-open: campaign-intake-pause-ownership#1, defect (conditional, source only): requirement intake restores its captured pause state even if `Resume` runs in between, `internal/campaign/orchestrator_utils.go:335-357`, `internal/campaign/orchestrator_control.go:31-44`. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`; interleaving, panic witness and remaining subitems unverified. |
+| `campaign-learning-receipt-fidelity` | -- | confirmed-open: campaign-learning-receipt-fidelity#1, defect (source only): the completion path invokes `applyLearnings`, which records the first promotion argument and task text but not the second promotion argument, `internal/campaign/orchestrator_tasks.go:467-474,702-746`; the two-argument declaration is `internal/core/defaults/schemas_analysis.mg:96-99`. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`; runtime and remaining subitems unverified. |
+| `campaign-pending-phase-admission` | -- | confirmed-open: campaign-pending-phase-admission#1, defect (conditional, source only): policy derives a current phase from an eligible phase, `internal/core/defaults/policy/campaign_phases.mg:52-55`; `Run` starts a phase only when no current phase was selected, but otherwise executes it, `internal/campaign/orchestrator_execution.go:177-179,253-255,287-288`; phase-start status and observer handling live in `internal/campaign/orchestrator_phases.go:405-411,425-426,456-461`. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`; actual policy evaluation, execution witness and remaining subitems unverified. |
 | `campaign-recurse-scheduling-ownership` | -- | open (untriaged) |
-| `campaign-refinement-dependency-kind` | -- | open (untriaged) |
-| `campaign-refinement-scope-deduplication` | -- | open (untriaged) |
-| `campaign-reproduction-outcome-contract` | -- | open (untriaged) |
-| `campaign-resume-return-evidence` | -- | open (untriaged) |
-| `campaign-rollback-file-metadata` | -- | open (untriaged) |
-| `campaign-rollback-permission-mode` | -- | open (untriaged) |
-| `campaign-specialist-retrieval-contract` | -- | open (untriaged) |
+| `campaign-refinement-dependency-kind` | -- | confirmed-open: campaign-refinement-dependency-kind#1, defect (source only): add and unmatched-update paths merge `depends_on` into `ContextFrom` without assigning `DependsOn`, `internal/campaign/replan.go:536-548,649-663,730-744`; working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`. Scheduling consequence, tests and remaining subitems unverified. |
+| `campaign-refinement-scope-deduplication` | -- | confirmed-open: campaign-refinement-scope-deduplication#1, defect (source only): the refinement guard strips qualifying path suffixes and drops a matching task before applying its targets, `internal/campaign/replan.go:592-599,642-664,1253-1263`. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`; execution witness and remaining subitems unverified. |
+| `campaign-reproduction-outcome-contract` | -- | confirmed-open: campaign-reproduction-outcome-contract#1, defect (conditional, source only): `/repro_first` inserts a test-run diagnostic as a dependency, `internal/campaign/orchestrator_failure.go:91-101,221-245`; unsuccessful tests return `/tests_red`, `internal/campaign/orchestrator_task_handlers.go:975-983`, while incomplete dependencies block, `internal/core/defaults/policy/campaign_tasks.mg:20-24`. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41` (element revs `78f171793625`, `cb4346d7b776`, `ab66a2014d43`, `78a8698af1cd`); execution witness, policy evaluation and remaining subitems unverified. |
+| `campaign-resume-return-evidence` | -- | confirmed-open: campaign-resume-return-evidence#2, defect (source only): missing or empty task returns are silently omitted, `internal/campaign/orchestrator_task_results.go:205-218`; `taskContextSection` and `buildTaskInput` feed that context into shard input, `internal/campaign/task_evidence.go:431-450`, `internal/campaign/orchestrator_task_results.go:173-199`. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`; resume behavior and remaining subitems unverified. |
+| `campaign-rollback-file-metadata` | -- | confirmed-open: campaign-rollback-file-metadata#1, defect (conditional, source only): the file snapshot retains path, existence and bytes but not mode, and rollback writes a restored file using `0644`, `internal/campaign/orchestrator_task_transaction.go:23-27,389-398,538-546`. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41` (element revs `37148452b7fe`, `ed260b6ef997`, `6e04ac6227bc`); deletion reachability, execution witness and remaining subitems unverified. |
+| `campaign-rollback-permission-mode` | -- | duplicate-of: campaign-rollback-permission-mode#1 tracks the same missing snapshot mode and `0644` restore as campaign-rollback-file-metadata#1, `internal/campaign/orchestrator_task_transaction.go:23-27,538-546`. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`; deletion reachability, execution witness and remaining subitems unverified. |
+| `campaign-specialist-retrieval-contract` | -- | confirmed-open: campaign-specialist-retrieval-contract#1, defect (conditional, source only): the provider opens a new store and calls semantic search, then falls back to a task-derived concept, `internal/campaign/specialist_knowledge.go:73-83,97-100,124-142`; the constructor does not attach an embedding engine, `internal/store/local_core.go:114-153`, the semantic method returns no results without one, and fallback matches concept exactly, `internal/store/local_knowledge.go:197-199,434-440`. Explicit-shard execution calls the enrichment path, `internal/campaign/orchestrator_task_handlers.go:298-303`; runtime retrieval, downstream JIT compensation and remaining subitems unverified. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41` (element revs `8172b17954dd`, `54416854fdff`, `11904593f5b3`, `77eadfae97ff`, `2939cb6d5999`). |
 | `chat-expert-role-projection` | -- | open (untriaged) |
 | `chat-session-memory-ownership-and-recovery` | -- | open (untriaged) |
 | `classifier-fallback-scheduler-ownership` | -- | open (untriaged) |
@@ -360,10 +364,10 @@ These rows cover documents in the census above that did not already have a row. 
 | `research-browser-ownership-and-evidence-retirement` | -- | open (untriaged) |
 | `research-cache-workspace-destination` | -- | open (untriaged) |
 | `research-observation-identity-and-admission` | -- | open (untriaged) |
-| `retrieval-definition-scan-amplification` | -- | open (untriaged) |
-| `retrieval-delta-publication-fencing` | -- | open (untriaged) |
+| `retrieval-definition-scan-amplification` | -- | confirmed-open: retrieval-definition-scan-amplification#1, concern: the definition fallback invokes a scan for each keyword; #2, defect: it reads hits but does not propagate the result cap, `internal/retrieval/tiered_context.go:697-710`; semantic expansion calls it at `internal/retrieval/tiered_context.go:633-645`. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`; cost and runtime witnesses unverified. |
+| `retrieval-delta-publication-fencing` | -- | confirmed-open: retrieval-delta-publication-fencing#1, defect (conditional, source only): delta captures keyword keys then applies to the current same-key entry without an epoch or domain check, `internal/retrieval/keyword_cache.go:152-165,179-208`; working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`. Interleaving and remaining subitems unverified. |
 | `retrieval-freshness-coverage-and-context-value` | -- | open (untriaged) |
-| `retrieval-relevance-head-acquisition` | -- | open (untriaged) |
+| `retrieval-relevance-head-acquisition` | -- | confirmed-open: retrieval-relevance-head-acquisition#1, concern (source only): the candidate reads the entire file before limiting the excerpt, `internal/retrieval/relevance.go:75-90`; Tier 2 judging calls it at `internal/retrieval/relevance.go:42-50`. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`; cost and runtime witnesses unverified. |
 | `retrieval-saturation-outcomes-and-producer-lifecycle` | -- | open (untriaged) |
 | `review-finding-location-deduplication` | -- | open (untriaged) |
 | `review-fix-citation-scope` | -- | open (untriaged) |
@@ -383,7 +387,7 @@ These rows cover documents in the census above that did not already have a row. 
 | `strategy-refinement-scope-before-limit` | -- | open (untriaged) |
 | `stream-completion-contract` | -- | open (untriaged) |
 | `structure-coverage-and-refactor-preconditions` | -- | open (untriaged) |
-| `tactile-docker-execution-contract` | -- | open (untriaged) |
+| `tactile-docker-execution-contract` | -- | proposal-decision: implement now for tactile-docker-execution-contract#1, defect (source only): consecutive `--` arguments precede the image in both `internal/tactile/docker.go:443-450` and `internal/tactile/persistent_docker.go:384-392`. Proposed write set: those two files and `internal/tactile/docker_platform_test.go` plus `internal/tactile/persistent_docker_unix_test.go` for complete argv assertions; verify with `go test -count=1 ./internal/tactile/...` and the required build environment. Docker execution not reproduced; test plan not run. Working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41` (element revs `851aa8509ecb`, `3ab607261f80`); remaining subitems unverified. |
 | `task-terminal-ownership` | -- | open (untriaged) |
 | `terminal-error-clarification-disposition` | -- | open (untriaged) |
 | `terminal-knowledge-synthesis-grounding` | -- | open (untriaged) |
