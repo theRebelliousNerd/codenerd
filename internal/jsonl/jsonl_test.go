@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/google/go-cmp/cmp"
 	"os"
 	"path/filepath"
 	"sync"
@@ -224,6 +225,136 @@ func TestReadMissingLogIsNotAnError(t *testing.T) {
 	}
 	if len(got) != 0 || truncated != 0 {
 		t.Fatalf("got %d records / %d truncated from a missing log", len(got), truncated)
+	}
+}
+
+func TestReadPreservesGenerationPrefixes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		backup        string
+		live          string
+		missingBackup bool
+		missingLive   bool
+		want          []rec
+		wantTruncated int
+	}{
+		{name: "empty generations"},
+		{
+			name:   "complete records without final newlines",
+			backup: `{"n":1,"text":"backup"}`,
+			live:   `{"n":2,"text":"live"}`,
+			want:   []rec{{N: 1, Text: "backup"}, {N: 2, Text: "live"}},
+		},
+		{
+			name:        "backup survives missing live log",
+			backup:      "{\"n\":1}\n",
+			missingLive: true,
+			want:        []rec{{N: 1}},
+		},
+		{
+			name:          "live survives missing backup",
+			live:          "{\"n\":2}\n",
+			missingBackup: true,
+			want:          []rec{{N: 2}},
+		},
+		{
+			name:          "damaged backup does not hide live records",
+			backup:        "{\"n\":1}\n{\"n\":",
+			live:          "{\"n\":2}\n",
+			want:          []rec{{N: 1}, {N: 2}},
+			wantTruncated: 1,
+		},
+		{
+			name:          "both damaged generations stop at their first bad record",
+			backup:        "{\"n\":1}\ninvalid\n{\"n\":2}\n",
+			live:          "{\"n\":3}\ninvalid\n{\"n\":4}\n",
+			want:          []rec{{N: 1}, {N: 3}},
+			wantTruncated: 2,
+		},
+		{
+			name:          "type mismatch preserves only the valid prefix",
+			live:          "{\"n\":1}\n{\"n\":\"wrong type\"}\n{\"n\":2}\n",
+			want:          []rec{{N: 1}},
+			wantTruncated: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "log.jsonl")
+			if !tt.missingBackup {
+				if err := os.WriteFile(path+".1", []byte(tt.backup), 0o600); err != nil {
+					t.Fatalf("write backup fixture: %v", err)
+				}
+			}
+			if !tt.missingLive {
+				if err := os.WriteFile(path, []byte(tt.live), 0o600); err != nil {
+					t.Fatalf("write live fixture: %v", err)
+				}
+			}
+			got, truncated, err := Read[rec](path)
+			if err != nil {
+				t.Fatalf("Read(%q): %v", path, err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("Read() mismatch (-want +got):\n%s", diff)
+			}
+			if truncated != tt.wantTruncated {
+				t.Errorf("Read() truncated = %d, want %d", truncated, tt.wantTruncated)
+			}
+		})
+	}
+}
+
+func TestOpenRejectsFilesystemConflicts(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		parentIsFile bool
+	}{
+		{name: "parent is a file", parentIsFile: true},
+		{name: "log is a directory"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "conflict")
+			if tt.parentIsFile {
+				if err := os.WriteFile(path, []byte("parent must remain intact"), 0o600); err != nil {
+					t.Fatalf("write conflicting parent: %v", err)
+				}
+				path = filepath.Join(path, "log.jsonl")
+			} else if err := os.Mkdir(path, 0o700); err != nil {
+				t.Fatalf("create conflicting directory: %v", err)
+			}
+			a, err := Open(path)
+			if a != nil {
+				t.Cleanup(func() {
+					if err := a.Close(); err != nil {
+						t.Errorf("Close unexpected appender: %v", err)
+					}
+				})
+				t.Errorf("Open(%q) returned an appender for a filesystem conflict", path)
+			}
+			var pathErr *os.PathError
+			if !errors.As(err, &pathErr) {
+				t.Fatalf("Open(%q) error = %v, want wrapped *os.PathError", path, err)
+			}
+			if tt.parentIsFile {
+				got, err := os.ReadFile(filepath.Dir(path))
+				if err != nil {
+					t.Fatalf("read conflicting parent: %v", err)
+				}
+				if string(got) != "parent must remain intact" {
+					t.Errorf("parent contents = %q, want unchanged fixture", got)
+				}
+			} else if info, err := os.Stat(path); err != nil {
+				t.Fatalf("stat conflicting directory: %v", err)
+			} else if !info.IsDir() {
+				t.Error("Open replaced the conflicting directory")
+			}
+		})
 	}
 }
 
