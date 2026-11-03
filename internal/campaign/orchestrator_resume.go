@@ -3,6 +3,8 @@ package campaign
 import (
 	"codenerd/internal/logging"
 	"fmt"
+	"slices"
+	"strings"
 )
 
 // PrepareResume re-arms a failed/blocked campaign so the next Run can make
@@ -114,6 +116,7 @@ func resetResumeTask(task *Task, maxAttempts int) {
 	if task.Status != TaskFailed && task.Status != TaskInProgress && task.Status != TaskBlocked {
 		return
 	}
+	reclassifyNonTerminalAttempts(task)
 	if failedAttempts(task) >= maxAttempts {
 		task.Status = TaskFailed
 		logging.Get(logging.CategoryCampaign).Warn(
@@ -122,6 +125,40 @@ func resetResumeTask(task *Task, maxAttempts int) {
 		return
 	}
 	task.Status = TaskPending
+	task.ReplannedAtCap = false
+}
+
+// reclassifyNonTerminalAttempts converts attempts that ended due to context
+// cancellation, provider rate-limiting, or multi-batch continuation boundaries
+// from /failure to /partial so a resumed task does not treat interrupted
+// batches as terminal logic failures.
+func reclassifyNonTerminalAttempts(task *Task) {
+	if task == nil {
+		return
+	}
+	for i := range task.Attempts {
+		a := &task.Attempts[i]
+		if a.Outcome == "/failure" && isNonTerminalResumeAttempt(*a) {
+			a.Outcome = "/partial"
+		}
+	}
+}
+
+func isNonTerminalResumeAttempt(a TaskAttempt) bool {
+	for _, sig := range a.Signals {
+		switch sig {
+		case "/canceled", "/refused", "/deadline", "/self_reported_incomplete":
+			return true
+		}
+	}
+	return slices.ContainsFunc([]string{
+		"context canceled",
+		"status 429",
+		"working_stop(",
+		"task turn ended before work was done",
+	}, func(sub string) bool {
+		return strings.Contains(a.Error, sub)
+	})
 }
 
 // findResumeTargetPhase returns the first phase holding any non-completed

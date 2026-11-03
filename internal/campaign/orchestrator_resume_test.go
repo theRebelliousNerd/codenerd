@@ -136,3 +136,46 @@ func TestPrepareResume_PausedIsNoop(t *testing.T) {
 		t.Fatalf("ResumeCount = %d, want 0 (unchanged)", o.campaign.ResumeCount)
 	}
 }
+
+func TestPrepareResume_ReclassifiesNonTerminalAttempts(t *testing.T) {
+	o := &Orchestrator{
+		policy: testPolicy(func(c *config.CampaignConfig) { c.MaxTaskAttempts = 3 }),
+		campaign: &Campaign{
+			ID:          "/campaign_nonterminal",
+			Status:      StatusFailed,
+			BlockReason: "/all_tasks_blocked",
+			Phases: []Phase{
+				{
+					ID: "phase_0", Order: 0, Status: PhaseFailed,
+					Tasks: []Task{
+						{
+							ID: "task_multi_batch", PhaseID: "phase_0", Type: TaskTypeFileModify,
+							Status: TaskFailed, Order: 0, Description: "multi-batch task",
+							ReplannedAtCap: true,
+							Attempts: []TaskAttempt{
+								{Number: 1, Outcome: "/failure", Error: "incomplete", Signals: []string{"/self_reported_incomplete"}},
+								{Number: 2, Outcome: "/failure", Error: "provider request failed with status 429", Signals: []string{"/failed"}},
+								{Number: 3, Outcome: "/failure", Error: "context canceled", Signals: []string{"/canceled"}},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := o.PrepareResume(); err != nil {
+		t.Fatalf("PrepareResume returned error on non-terminal attempts: %v", err)
+	}
+	task := o.campaign.Phases[0].Tasks[0]
+	if task.Status != TaskPending {
+		t.Fatalf("task status = %s, want %s", task.Status, TaskPending)
+	}
+	if task.ReplannedAtCap {
+		t.Fatalf("expected ReplannedAtCap to be reset to false")
+	}
+	for i, a := range task.Attempts {
+		if a.Outcome != "/partial" {
+			t.Fatalf("attempt %d outcome = %s, want /partial", i+1, a.Outcome)
+		}
+	}
+}
