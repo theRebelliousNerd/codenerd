@@ -589,7 +589,15 @@ func (e *Executor) verifyCompletedToolTurn(
 	// Every round can edit; the closure measures what they left, all gates at
 	// one revision, with no model in the loop.
 	closeErr := e.closeChangeEvidence(ctx, result, before)
-	if closeErr != nil && result.FinalTestCheck != nil && result.FinalTestCheck.Verdict() == VerifyFailed && trp != nil {
+	// A failed final suite is repaired here whether the derived /test gate
+	// charged it (closeErr) or left it unsettled. Unsettled is not green: the
+	// turn ends /unverified with /tests_not_green and the verdict loop
+	// redispatches the whole task to fix the same failure (live 2026-11-03:
+	// a 29-minute turn ended on one name-slot sweep failure, and the
+	// redispatch re-ran all eleven planned steps). The repair episode is the
+	// cheaper place to answer it, with the failure and the turn's diff.
+	finalRed := result.FinalTestCheck != nil && result.FinalTestCheck.Verdict() == VerifyFailed && result.ChangeStage != "checks_passed"
+	if finalRed && trp != nil {
 		resp, errs, repairErr := e.repairFinalTestCheck(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
 		toolErrs = append(toolErrs, errs...)
 		if repairErr == nil {

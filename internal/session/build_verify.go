@@ -571,12 +571,26 @@ func (e *Executor) repairFinalTestCheck(
 				result.FinalTestCheck = &ft
 				return false, repairFailure{Output: ft.Output}, VerifyFailed
 			}
+			// The final failure is fixed. What is measured next is whether the
+			// edit that fixed it broke the turn's own or importing suites. That
+			// failure is not this round's subject: it is a suite the edit broke
+			// on the way, so it is reported as TestsBroke and becomes the final
+			// check the next attempt is seeded from. Reporting it as the round's
+			// own subject re-seeded the prompt with the already-fixed failure,
+			// and the policy undid the fix (live 2026-11-03: a name-slot fix in
+			// orchestrator_phases.go was reverted because a test in the same
+			// package still asserted the old Go string).
 			rt, _ := gateTests(epCtx, workspace, result, false)
 			if rt.Verdict() == VerifyPassed || rt.Verdict() == VerifyFailed {
 				result.TestCheck = rt
 			}
-			if rt.Verdict() == VerifyFailed {
-				return false, repairFailure{Output: rt.Output}, VerifyFailed
+			broke := rt
+			if broke.Verdict() != VerifyFailed {
+				broke = result.ImporterCheck
+			}
+			if broke.Verdict() == VerifyFailed {
+				result.FinalTestCheck = &broke
+				return false, repairFailure{Output: broke.Output, TestsBroke: true}, VerifyFailed
 			}
 			return true, repairFailure{}, VerifyPassed
 		},

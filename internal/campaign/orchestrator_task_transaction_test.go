@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -1147,3 +1148,60 @@ func (o *Orchestrator) computeCampaignRiskDecision() *CampaignRiskDecision {
 // TODO: TEST_GAP: [Type Coercion] Verify expandSnapshotPaths handles path traversal attempts gracefully without resolving outside the workspace (e.g., "../../../etc/passwd").
 // TODO: TEST_GAP: [User request Extremes] Verify performance of listNewBroadGlobMatches when evaluating deeply nested, explosive glob patterns (e.g., "*/*/*/*/") on a large mock directory structure.
 // TODO: TEST_GAP: [State Conflicts] Verify validateFileModifyOutcome handles concurrent file deletion or permission changes (e.g., os.ReadFile failing with permission denied mid-flight) accurately and without panicking.
+
+// Live 2026-11-03: an eight-file file_modify attempt compiled and passed its
+// narrow gates, then failed on one whole-repo sweep test. The rollback undid
+// all eight files and the replanned attempt dropped two of them. A failure
+// that names only red tests keeps the attempt's writes for the next attempt;
+// a red build still rolls back.
+func TestWithTaskMutationSnapshot_KeepsCompilingWritesOnTestOnlyVerificationFailure(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		keep bool
+	}{
+		{"final suite only", fmt.Errorf("execution failed: %w: final workspace failed mechanical checks: final suite fails: TestSweep", session.ErrVerificationFailed), true},
+		{"own tests red", fmt.Errorf("%w: tests fail: TestValue", session.ErrVerificationFailed), true},
+		{"build red", fmt.Errorf("%w: final workspace failed mechanical checks: build fails: x.go:1: undefined: y", session.ErrVerificationFailed), false},
+		{"build repair gave up", fmt.Errorf("%w: edits broke the build and the repair loop did not converge", session.ErrVerificationFailed), false},
+		{"unrelated failure", errors.New("provider exploded"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			existing := filepath.Join(dir, "existing.go")
+			const original = "package sample\n// original\n"
+			const edited = "package sample\n// edited\n"
+			if err := os.WriteFile(existing, []byte(original), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			orch := newSnapshotTestOrchestrator()
+			orch.workspace = dir
+			task := &orch.campaign.Phases[0].Tasks[0]
+			task.Type = TaskTypeFileModify
+			task.WriteSet = []string{existing}
+
+			_, err := orch.withTaskMutationSnapshot(task, func() (any, error) {
+				if err := os.WriteFile(existing, []byte(edited), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				orch.recordAttemptWrites(task, []observation.FileWrite{{
+					Path:   existing,
+					Before: observation.FileState{Known: true, Exists: true, Content: original},
+					After:  observation.FileState{Known: true, Exists: true, Content: edited},
+				}})
+				return nil, tc.err
+			})
+			if !errors.Is(err, tc.err) {
+				t.Fatalf("err = %v, want %v", err, tc.err)
+			}
+			got, _ := os.ReadFile(existing)
+			if tc.keep && string(got) != edited {
+				t.Fatalf("compiling writes were rolled back on a test-only failure: %q", got)
+			}
+			if !tc.keep && string(got) != original {
+				t.Fatalf("writes survived a failure that must roll back: %q", got)
+			}
+		})
+	}
+}

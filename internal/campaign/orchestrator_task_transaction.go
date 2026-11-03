@@ -17,6 +17,7 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
+	"codenerd/internal/session"
 	"codenerd/internal/workspace"
 )
 
@@ -135,6 +136,13 @@ func (o *Orchestrator) canPreservePartialFileModifyProgress(task *Task, snapshot
 				return false
 			}
 		}
+	} else if verifiedCompileProgress(err) {
+		// The attempt's edits compile and its narrow gates ran; only a test
+		// suite is red. Undoing every file throws away work the next attempt
+		// has to redo from scratch (live 2026-11-03: an eight-file task lost
+		// all eight on a one-line name-slot sweep failure, and its replanned
+		// attempt dropped two of the files entirely). The next attempt starts
+		// from these files and is handed the failure.
 	} else {
 		msg := err.Error()
 		if !errors.Is(err, context.Canceled) &&
@@ -168,6 +176,23 @@ func (o *Orchestrator) canPreservePartialFileModifyProgress(task *Task, snapshot
 		return false
 	}
 	return true
+}
+
+// verifiedCompileProgress reports whether a failed attempt failed only on a
+// red test suite after its edits compiled: the session's verification failure,
+// with no build failure named. failedChecksSummary names a red build "build
+// fails", and the build repair's give-up says the edits "broke the build";
+// either keeps the rollback, because a tree that does not compile is not
+// progress the next attempt can build on.
+func verifiedCompileProgress(err error) bool {
+	if err == nil || !errors.Is(err, session.ErrVerificationFailed) {
+		return false
+	}
+	if slices.Contains(failureSignals(err), "/build_failed") {
+		return false
+	}
+	msg := err.Error()
+	return !strings.Contains(msg, "build fails") && !strings.Contains(msg, "broke the build")
 }
 
 // validateFileModifyOutcome requires a file_modify task to change at least one
