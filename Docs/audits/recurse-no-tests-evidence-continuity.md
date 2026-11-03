@@ -10,6 +10,18 @@ continues: Docs/audits/test-evidence-capability.md
 
 # Recurse drops the known distinction between a passing gate and no collected tests
 
+
+## Current-main addendum: known empty collection blocks affirmative evidence
+
+Static review at public main `27dc83bd5f881123c1c9e87fdf57d9fd20d86278`, November 3, 2026. The original finding below describes its pre-fix revision. [Commit 97a4245](https://github.com/theRebelliousNerd/codenerd/commit/97a4245a50f1159901d2f89bff375fe41e7d5998) preserves known empty collection at this consumer.
+
+`gateRun.noTests` now inspects aggregate and retained invocations. The outer loop excludes that disposition from `Tested` and `targetNoTests` from ordinary `TargetOK`; the mission witness requires the latter. Thus the original detected-pytest exit-5 path cannot obtain `/resolved` through this join. Mission sidecars also retain aggregate and per-invocation no-tests fields. Process pass semantics remain unchanged. [Helpers](https://github.com/theRebelliousNerd/codenerd/blob/27dc83bd5f881123c1c9e87fdf57d9fd20d86278/internal/campaign/recurse_cycle.go#L232-L256) [Ratchet and mission](https://github.com/theRebelliousNerd/codenerd/blob/27dc83bd5f881123c1c9e87fdf57d9fd20d86278/internal/campaign/recurse_cycle.go#L1421-L1457) [Sidecars](https://github.com/theRebelliousNerd/codenerd/blob/27dc83bd5f881123c1c9e87fdf57d9fd20d86278/internal/campaign/recurse_mission_storage.go#L80-L141)
+
+The correction is conservative for collapsed nodes: any child's known no-tests result can make `noTestsForTarget` true before target-path inspection, even if another child exercised the target. This is a separate qualification concern, not the original false-positive. Unknown runner semantics and broader target-execution identity remain outside what this marker establishes.
+
+An authored regression constructs gate results and checks helper/Boolean projections; it does not execute pytest, a production attempt or mission persistence. No tests or application paths ran in this review. Keep unrun controls for genuine repair, mixed executing/empty children, independent smoke tests and end-to-end mission reporting. [Fixture](https://github.com/theRebelliousNerd/codenerd/blob/27dc83bd5f881123c1c9e87fdf57d9fd20d86278/internal/campaign/recurse_audits_test.go#L264-L306)
+
+
 ## Finding and evidence boundary
 
 Carry the detected test runner's `no_tests` disposition into recurse's ratchet and mission evidence. The shared gate type already distinguishes pytest exit 5 from an accepted invocation without a no-tests marker. The ordinary session test planner consumes that distinction. Recurse does not: a completed test process sets its `Tested` bit, and an empty-collection rerun removes all target findings and can set `TargetOK`. Stable source snapshots cannot establish that a missing target was exercised. [Gate contract][gate] [Session classifier][classify] [Outer ratchet][outer]
