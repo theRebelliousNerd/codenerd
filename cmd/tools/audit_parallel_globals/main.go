@@ -252,7 +252,12 @@ type testFile struct {
 
 func scan(root, module string) ([]finding, error) {
 	fset := token.NewFileSet()
-	byDir := make(map[string][]testFile)
+	// Internal and external test packages can share a directory, but not helpers.
+	type packageKey struct {
+		dir  string
+		name string
+	}
+	byPackage := make(map[packageKey][]testFile)
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -274,8 +279,8 @@ func scan(root, module string) ([]finding, error) {
 			// to report; the compiler says it louder.
 			return nil
 		}
-		dir := filepath.Dir(path)
-		byDir[dir] = append(byDir[dir], testFile{file: file, names: importNames(file)})
+		key := packageKey{dir: filepath.Dir(path), name: file.Name.Name}
+		byPackage[key] = append(byPackage[key], testFile{file: file, names: importNames(file)})
 		return nil
 	})
 	if err != nil {
@@ -283,8 +288,8 @@ func scan(root, module string) ([]finding, error) {
 	}
 
 	var found []finding
-	for dir, files := range byDir {
-		pkg := packagePath(root, module, filepath.Join(dir, "x_test.go"))
+	for key, files := range byPackage {
+		pkg := packagePath(root, module, filepath.Join(key.dir, "x_test.go"))
 		found = append(found, scanPackage(fset, files, pkg)...)
 	}
 	return found, nil
