@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -492,8 +493,11 @@ func measureUnits(ctx context.Context, workspace string, units []pinUnit, runArg
 			defer func() { <-slots }()
 			verdict, why := runPinUnit(ctx, workspace, u, runArg, names, pkgs, bound)
 			if verdict == "unpinned" && !u.forced {
-				if pinned, existingWhy := pinnedByExistingTests(ctx, workspace, u); pinned {
-					verdict, why = "pinned", existingWhy
+				unitPkgs := packagesForPaths([]string{u.path})
+				if len(unitPkgs) > 0 && !slices.Contains(pkgs, unitPkgs[0]) {
+					if pinned, existingWhy := pinnedByExistingTests(ctx, workspace, u); pinned {
+						verdict, why = "pinned", existingWhy
+					}
 				}
 			}
 			logging.Get(logging.CategorySession).Info("pinning gate: %s -> %s%s", u.label(), verdict, suffixed(why))

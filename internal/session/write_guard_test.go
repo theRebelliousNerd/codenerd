@@ -194,6 +194,10 @@ func TestNamedWriteSet_StaysAtThePreGateSnapshot(t *testing.T) {
 	if got := namedWriteSet(ctx, result); len(got) != 1 || got[0] != "a.go" {
 		t.Fatalf("named = %v, want the pre-gate snapshot [a.go]", got)
 	}
+	merged := WithTurnWriteSet(ctx, []string{"c.go", "a.go"})
+	if got := namedWriteSet(merged, result); len(got) != 2 || got[0] != "a.go" || got[1] != "c.go" {
+		t.Fatalf("merged named = %v, want [a.go c.go]", got)
+	}
 	owned := turnOwnedPaths(ctx, result)
 	if len(owned) != 2 || owned[0] != "a.go" || owned[1] != "b.go" {
 		t.Fatalf("owned = %v, want a.go then b.go", owned)

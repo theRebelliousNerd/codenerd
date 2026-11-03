@@ -992,7 +992,19 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 		return nil, err
 	}
 	if !result.Success {
-		return nil, withSignals(fmt.Errorf("test execution failed: %s", testFailureSummary(target, result.Error, result.Output)), "/tests_red")
+		summary := testFailureSummary(target, result.Error, result.Output)
+		if isReproDiagnosticTask(task) {
+			after, snapErr := evidence.Snapshot(ctx, o.workspace)
+			if snapErr != nil {
+				return nil, snapErr
+			}
+			witness := &TestExecutionWitness{Snapshot: after, Command: command, OutputHash: fmt.Sprintf("%x", sha256.Sum256([]byte(result.Output))), RecordedAt: time.Now().UTC()}
+			o.mu.Lock()
+			task.TestWitness = witness
+			o.mu.Unlock()
+			return map[string]any{"target": target, "passed": false, "reproduced_red_suite": true, "output": summary, "witness": witness, "witness_source": "virtual_store/run_tests_repro"}, nil
+		}
+		return nil, withSignals(fmt.Errorf("test execution failed: %s", summary), "/tests_red")
 	}
 	after, err := evidence.Snapshot(ctx, o.workspace)
 	if err != nil {

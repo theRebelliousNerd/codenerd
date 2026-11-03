@@ -243,6 +243,9 @@ func (o *Orchestrator) insertReproDiagnosticTaskLocked(phaseIdx, taskIdx, attemp
 			if ensureTaskDependsOn(&phase.Tasks[idx], reproTaskID) {
 				o.assertTaskFacts(failedTaskID, core.Fact{Predicate: "task_dependency", Args: []any{failedTaskID, reproTaskID}})
 			}
+			if !slices.Contains(phase.Tasks[idx].ContextFrom, reproTaskID) {
+				phase.Tasks[idx].ContextFrom = append(phase.Tasks[idx].ContextFrom, reproTaskID)
+			}
 			break
 		}
 	}

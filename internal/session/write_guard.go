@@ -47,7 +47,24 @@ type turnWriteSetKey struct{}
 func WithTurnWriteSet(ctx context.Context, paths []string) context.Context {
 	// A non-nil empty slice stays distinguishable from "no snapshot": a nil
 	// value stored in a context comes back as a missing value.
-	frozen := append([]string{}, paths...)
+	frozen := make([]string, 0, len(paths))
+	seen := make(map[string]bool, len(paths))
+	if ctx != nil {
+		if existing, ok := ctx.Value(turnWriteSetKey{}).([]string); ok {
+			for _, p := range existing {
+				if p != "" && !seen[p] {
+					seen[p] = true
+					frozen = append(frozen, p)
+				}
+			}
+		}
+	}
+	for _, p := range paths {
+		if p != "" && !seen[p] {
+			seen[p] = true
+			frozen = append(frozen, p)
+		}
+	}
 	return context.WithValue(ctx, turnWriteSetKey{}, frozen)
 }
 

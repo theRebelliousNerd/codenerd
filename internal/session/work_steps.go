@@ -1001,6 +1001,15 @@ func (e *Executor) runPlannedSteps(
 		return last, toolErrs, workingErr
 	}
 	defer closeWorking()
+	var plannedPaths []string
+	for _, s := range steps {
+		if f := strings.TrimSpace(s.File); f != "" {
+			plannedPaths = append(plannedPaths, f)
+		}
+	}
+	if len(plannedPaths) > 0 {
+		gateCtx = WithTurnWriteSet(gateCtx, plannedPaths)
+	}
 	history := append(e.priorTurnMessages(),
 		types.Message{Role: "user", Text: task},
 		types.Message{Role: "assistant", Text: last.Text})

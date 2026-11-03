@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -497,6 +498,96 @@ func (e *Executor) verifyAndRepairTests(
 	}
 	repaired, repairErrs, rec, err := e.repairLoop(ctx, trp, systemPrompt, &history, toolDefs, cfg, result, seed, spec)
 	result.TestCheck.Repair = rec
+	if err != nil {
+		return nil, repairErrs, err
+	}
+	return repaired, repairErrs, nil
+}
+
+func failingPackagesFromResult(res *testfacts.Result) []string {
+	if res == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var pkgs []string
+	for _, f := range res.Failures {
+		if pkg := strings.TrimSpace(f.Package); pkg != "" && !seen[pkg] {
+			seen[pkg] = true
+			pkgs = append(pkgs, pkg)
+		}
+	}
+	for _, bf := range res.BuildFailures {
+		if pkg := strings.TrimSpace(bf.Package); pkg != "" && !seen[pkg] {
+			seen[pkg] = true
+			pkgs = append(pkgs, pkg)
+		}
+	}
+	sort.Strings(pkgs)
+	return pkgs
+}
+
+func (e *Executor) repairFinalTestCheck(
+	ctx context.Context,
+	trp types.ToolResultsProvider,
+	systemPrompt string,
+	history []types.Message,
+	toolDefs []types.ToolDefinition,
+	cfg *jitconfig.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+) (*types.LLMToolResponse, []string, error) {
+	if result == nil || result.FinalTestCheck == nil || result.FinalTestCheck.Verdict() != VerifyFailed || trp == nil {
+		return nil, nil, nil
+	}
+	workspace := e.workspaceForVerification()
+	failingPkgs := failingPackagesFromResult(result.FinalTestCheck.Result)
+	if len(failingPkgs) == 0 {
+		return nil, nil, nil
+	}
+	seed := suiteFailureText(result)
+	spec := repairSpec{
+		kind:         "tests",
+		brokenPhrase: "edits broke the final repository tests",
+		promptFor: func(seed string) string {
+			return testRepairPrompt(seed, failingTestSection(workspace, suiteFailureResult(result, seed), result.WrittenPaths)) +
+				turnDiffSection(workspace, result.WrittenPaths, result.PreWriteContents, e.configSnapshot().repairDiffBudget())
+		},
+		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
+			if rb := verifyBuild(epCtx, workspace, nil, buildPackagesForTurn(result)...); rb.Verdict() == VerifyFailed {
+				result.BuildCheck = rb
+				if e.buildGateRed(epCtx, result.turnAtom(), result) {
+					return false, repairFailure{Output: rb.Output}, VerifyFailed
+				}
+			} else if rb.Verdict() == VerifyCanceled {
+				return false, repairFailure{}, VerifyCanceled
+			}
+			ft := verifyTests(epCtx, workspace, failingPkgs)
+			if ft.Verdict() == VerifyCanceled {
+				return false, repairFailure{}, VerifyCanceled
+			}
+			if ft.Verdict() == VerifyIndeterminate {
+				return false, repairFailure{Output: ft.Output}, VerifyIndeterminate
+			}
+			if ft.Verdict() == VerifyFailed {
+				result.FinalTestCheck = &ft
+				return false, repairFailure{Output: ft.Output}, VerifyFailed
+			}
+			rt, _ := gateTests(epCtx, workspace, result, false)
+			if rt.Verdict() == VerifyPassed || rt.Verdict() == VerifyFailed {
+				result.TestCheck = rt
+			}
+			if rt.Verdict() == VerifyFailed {
+				return false, repairFailure{Output: rt.Output}, VerifyFailed
+			}
+			return true, repairFailure{}, VerifyPassed
+		},
+		followups: func() []string {
+			return repairFollowups(workspace, failingPkgs, result, "tests")
+		},
+	}
+	repaired, repairErrs, rec, err := e.repairLoop(ctx, trp, systemPrompt, &history, toolDefs, cfg, result, seed, spec)
+	if result.FinalTestCheck != nil {
+		result.FinalTestCheck.Repair = rec
+	}
 	if err != nil {
 		return nil, repairErrs, err
 	}

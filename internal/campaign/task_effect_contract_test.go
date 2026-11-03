@@ -23,7 +23,7 @@ func (e *witnessExecutor) Execute(ctx context.Context, cmd tactile.Command) (*ta
 }
 func TestTestRunRequiresHostWitness(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"passed", "infra_failure", "failed_with_PASS_prose", "changed_snapshot", "explicit_shard"} {
+	for _, name := range []string{"passed", "infra_failure", "failed_with_PASS_prose", "changed_snapshot", "explicit_shard", "repro_red_suite"} {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			path := filepath.Join(root, "sample.go")
@@ -43,6 +43,10 @@ func TestTestRunRequiresHostWitness(t *testing.T) {
 			case "failed_with_PASS_prose":
 				ex.res.ExitCode = 1
 				ex.res.Stdout = "PASS: described but not demonstrated"
+			case "repro_red_suite":
+				ex.res.Success = false
+				ex.res.ExitCode = 1
+				ex.res.Stdout = "--- FAIL: TestSample (0.00s)\nFAIL\tsample"
 			case "changed_snapshot":
 				ex.run = func() {
 					calls++
@@ -62,6 +66,9 @@ func TestTestRunRequiresHostWitness(t *testing.T) {
 				return "PASS", nil
 			}}}
 			task := &Task{ID: "/test_witness", Type: TaskTypeTestRun, TestWitness: &TestExecutionWitness{Snapshot: "stale"}}
+			if name == "repro_red_suite" {
+				task.InferenceReason = reproInferenceReason
+			}
 			var result any
 			if name == "explicit_shard" {
 				task.Shard = "tester"
@@ -69,7 +76,7 @@ func TestTestRunRequiresHostWitness(t *testing.T) {
 			} else {
 				result, err = o.executeTestRunTask(context.Background(), task)
 			}
-			want := name == "passed" || name == "explicit_shard"
+			want := name == "passed" || name == "explicit_shard" || name == "repro_red_suite"
 			if (err == nil) != want {
 				t.Fatalf("result=%v err=%v want pass=%v", result, err, want)
 			}

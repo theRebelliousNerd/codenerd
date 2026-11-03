@@ -588,7 +588,19 @@ func (e *Executor) verifyCompletedToolTurn(
 
 	// Every round can edit; the closure measures what they left, all gates at
 	// one revision, with no model in the loop.
-	return current, toolErrs, e.closeChangeEvidence(ctx, result, before)
+	closeErr := e.closeChangeEvidence(ctx, result, before)
+	if closeErr != nil && result.FinalTestCheck != nil && result.FinalTestCheck.Verdict() == VerifyFailed && trp != nil {
+		resp, errs, repairErr := e.repairFinalTestCheck(ctx, trp, systemPrompt, history, toolDefs, cfg, result)
+		toolErrs = append(toolErrs, errs...)
+		if repairErr == nil {
+			if resp != nil && strings.TrimSpace(resp.Text) != "" {
+				current = resp
+			}
+			e.formatWrittenGo(result, " at turn end")
+			closeErr = e.closeChangeEvidence(ctx, result, before)
+		}
+	}
+	return current, toolErrs, closeErr
 }
 
 // formatWrittenGo gofmts the Go files the turn wrote; any other path is left
