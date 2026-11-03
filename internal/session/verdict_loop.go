@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -92,6 +93,18 @@ func outcomeWord(ret observation.Return) string {
 	return ret.Outcome
 }
 
+func onlyWriteNotPerformed(missing []string) bool {
+	if len(missing) == 0 {
+		return true
+	}
+	for _, m := range missing {
+		if m != "/write_not_performed" {
+			return false
+		}
+	}
+	return true
+}
+
 var loopSeq atomic.Int64
 
 // RunUntilVerified dispatches req and, while the turn's verdict is not /done
@@ -116,12 +129,25 @@ func RunUntilVerified(ctx context.Context, k types.Kernel, dispatch Dispatch, re
 		}
 	}()
 	current := req
+	prevWrote := false
 	for n := int64(1); ; n++ {
 		ret, err := dispatch(ctx, current)
+		wroteThisDispatch := len(ret.Changed) > 0 || len(ret.Writes) > 0
 		if n == 1 {
 			merged = ret
 		} else {
 			merged = mergeReturns(merged, ret)
+		}
+		if err != nil && n > 1 && (len(merged.Writes) > 0 || len(merged.Changed) > 0) && isHollowSuccessError(err) {
+			if onlyWriteNotPerformed(ret.Missing) {
+				merged.Outcome = "/done"
+				merged.Missing = nil
+				return merged, nil
+			}
+			if prevWrote && slices.Contains(ret.Missing, "/self_reported_incomplete") {
+				logging.Get(logging.CategorySession).Info("verdict loop %s: continuation dispatch %d read without mutating after a write dispatch; continuing to next batch", loop, n)
+				err = nil
+			}
 		}
 		if err != nil {
 			return merged, err
@@ -135,6 +161,12 @@ func RunUntilVerified(ctx context.Context, k types.Kernel, dispatch Dispatch, re
 		if loop == "" {
 			loop = types.MangleAtom(fmt.Sprintf("/task_loop_%d", loopSeq.Add(1)))
 		}
+		if !wroteThisDispatch && prevWrote && slices.Contains(ret.Missing, "/self_reported_incomplete") {
+			// Allow a single read-only continuation dispatch after a write dispatch
+			// to redispatch with an explicit write reminder instead of stalling.
+			ret.Changed = merged.Changed
+		}
+		prevWrote = wroteThisDispatch
 		rows := dispatchFacts(loop, n, ret)
 		if err := k.AssertBatch(rows); err != nil {
 			return merged, fmt.Errorf("verdict loop: record dispatch %d: %w", n, err)

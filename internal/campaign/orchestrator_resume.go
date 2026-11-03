@@ -155,6 +155,7 @@ func isNonTerminalResumeAttempt(a TaskAttempt) bool {
 		"context canceled",
 		"status 429",
 		"working_stop(",
+		"hollow success blocked",
 		"task turn ended before work was done",
 	}, func(sub string) bool {
 		return strings.Contains(a.Error, sub)

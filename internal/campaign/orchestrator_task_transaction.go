@@ -139,6 +139,7 @@ func (o *Orchestrator) canPreservePartialFileModifyProgress(task *Task, snapshot
 		msg := err.Error()
 		if !errors.Is(err, context.Canceled) &&
 			!strings.Contains(msg, "context canceled") &&
+			!strings.Contains(msg, "hollow success blocked") &&
 			!strings.Contains(msg, "working_stop(") &&
 			!strings.Contains(msg, "finishing the unfinished work:") &&
 			!strings.Contains(msg, "provider request failed with status") {
