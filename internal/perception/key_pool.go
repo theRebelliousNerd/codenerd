@@ -294,7 +294,7 @@ func (r *providerKeyRouter) attempt(ctx context.Context, excluded map[int]bool) 
 		return ctx, nil, nil, -1, err
 	}
 	child, cancel := context.WithCancel(ctx)
-	attempt := &keyPoolAttempt{cancel: cancel}
+	attempt := &keyPoolAttempt{cancel: cancel, hasFallback: r.pin() < 0 && len(excluded)+1 < len(r.clients)}
 	child = context.WithValue(child, keyPoolAttemptContext{}, attempt)
 	child = usage.WithCredentialAlias(child, string(r.provider)+"/"+r.aliases[i])
 	return child, cancel, attempt, i, nil

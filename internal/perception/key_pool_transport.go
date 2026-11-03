@@ -18,6 +18,7 @@ type keyPoolAttemptContext struct{}
 type keyPoolAttempt struct {
 	mu             sync.Mutex
 	cancel         context.CancelFunc
+	hasFallback    bool
 	status         int
 	retryAfter     time.Duration
 	networkFailure bool
@@ -31,6 +32,13 @@ func (a *keyPoolAttempt) failure(status int, after time.Duration, network bool) 
 		a.retryAfter = after
 		a.networkFailure = network
 	}
+}
+func (a *keyPoolAttempt) clearFailure() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.status = 0
+	a.retryAfter = 0
+	a.networkFailure = false
 }
 func (a *keyPoolAttempt) result() (int, time.Duration, bool) {
 	a.mu.Lock()
@@ -56,6 +64,10 @@ func (t poolObservedTransport) RoundTrip(req *http.Request) (*http.Response, err
 		}
 		return resp, err
 	}
+	if resp.StatusCode < 400 {
+		attempt.clearFailure()
+		return resp, nil
+	}
 	if resp.StatusCode >= 400 {
 		payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 		resp.Body.Close()
@@ -68,8 +80,11 @@ func (t poolObservedTransport) RoundTrip(req *http.Request) (*http.Response, err
 		resp.Body = io.NopCloser(bytes.NewReader(payload))
 	}
 	if resp.StatusCode == 401 || resp.StatusCode == 403 || resp.StatusCode == 429 || isTransientHTTPStatus(resp.StatusCode) {
-		attempt.failure(resp.StatusCode, anthropicRetryAfter(resp.Header.Get("Retry-After"), time.Now()), false)
-		resp.Body = &poolFailureBody{ReadCloser: resp.Body, cancel: attempt.cancel}
+		after := anthropicRetryAfter(resp.Header.Get("Retry-After"), time.Now())
+		attempt.failure(resp.StatusCode, after, false)
+		if resp.StatusCode == 401 || resp.StatusCode == 403 || attempt.hasFallback || after > 15*time.Second {
+			resp.Body = &poolFailureBody{ReadCloser: resp.Body, cancel: attempt.cancel}
+		}
 	}
 	return resp, nil
 }

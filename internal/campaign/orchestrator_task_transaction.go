@@ -135,8 +135,13 @@ func (o *Orchestrator) canPreservePartialFileModifyProgress(task *Task, snapshot
 				return false
 			}
 		}
-	} else if !strings.Contains(err.Error(), "working_stop(") {
-		return false
+	} else {
+		msg := err.Error()
+		if !strings.Contains(msg, "working_stop(") &&
+			!strings.Contains(msg, "finishing the unfinished work:") &&
+			!strings.Contains(msg, "provider request failed with status") {
+			return false
+		}
 	}
 	writes := o.attemptWrites(task)
 	if len(writes) == 0 {
