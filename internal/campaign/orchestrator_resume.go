@@ -46,8 +46,11 @@ func (o *Orchestrator) PrepareResume() error {
 			for ti := range o.campaign.Phases[pi].Tasks {
 				if o.campaign.Phases[pi].Tasks[ti].Status == TaskPending {
 					reclassifyNonTerminalAttempts(&o.campaign.Phases[pi].Tasks[ti])
+					o.campaign.Phases[pi].Tasks[ti].ReplannedAtCap = false
+					o.campaign.Phases[pi].Tasks[ti].NextRetryAt = time.Time{}
 				}
 			}
+			linkCompletedPhaseResearchToPendingTasks(&o.campaign.Phases[pi])
 		}
 		if o.kernel != nil {
 			_ = syncCampaignFacts(o.kernel, o.campaign, o.campaign, "")
