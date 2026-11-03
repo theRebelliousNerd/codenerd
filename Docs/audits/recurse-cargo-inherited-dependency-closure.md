@@ -21,7 +21,7 @@ The most bounded initial repair is to obtain a versioned, host-owned Cargo metad
 
 ## Source freeze and prior-art screen
 
-GitHub's main branch resolved at 04:08 UTC on 2026-11-03 to [`fe7a7507e2b8a2673dbae1ce4d306884ffd94ae1`][main], committed at 03:57:08 UTC. All implementation links below use that pin. Root guidance, the public-repository rule, campaign guidance, campaign architecture README/internals/wiring/mission documentation, the audit queue and all current `recurse-*.md` audits were inspected. Older architecture descriptions were treated as intent or historical context, not as substitutes for current code. [Guidance][guidance] [Campaign guidance][campaign-guidance] [Architecture][architecture]
+GitHub's main branch resolved at 04:08 UTC on 2026-11-03 to [`fe7a7507e2b8a2673dbae1ce4d306884ffd94ae1`][main], committed at 03:57:08 UTC. All implementation links below use that pin. Root guidance, the public-repository rule, campaign guidance and relevant campaign architecture sections were read. The audit queue and current `recurse-*.md` inventory were screened with targeted content searches, followed by inspection of adjacent reports. Older architecture descriptions were treated as intent or historical context, not as substitutes for current code. [Guidance][guidance] [Campaign guidance][campaign-guidance] [Architecture][architecture]
 
 A bounded GitHub audit search returned no `workspace.dependencies` or `cargoPathDeps` matches. The single `scanRustCrates` match was the root-crate diagnostic-ownership audit. The eight Cargo-matching audit files were inspected, including the portable-crucible proposal, workspace-test receipt and recurse workspace-test witness reports. This is a documented search boundary, not a claim to have read every historical branch or discussion.
 
@@ -138,7 +138,7 @@ This section is a proposal, not a completed or evaluated implementation.
 6. **Bind and refresh.** Associate the observation with manifest/configuration identity and source generation. Refresh or invalidate it when those inputs change. Keep the existing per-pass refresh; do not mutate an already admitted attempt's scope or reinterpret a saved visit under a new graph without an explicit transition. Adding edges may alter SCCs, node IDs, focus closure and mission scope.
 7. **Leave executive control in Mangle.** Go acquires and validates package/dependency facts. Mangle retains readiness, ordering, admission and stop decisions. No second scheduler or model-authored dependency proof is required.
 
-Cargo's metadata documentation distinguishes declared package dependencies from its resolved graph, provides local paths and manifest paths, and gives no-deps/format/lock/network controls. It does not by itself establish that a new adapter is correct under every toolchain or repository configuration. Adapter behavior needs the evaluation below. [Cargo metadata](https://doc.rust-lang.org/cargo/commands/cargo-metadata.html)
+The new adapter's correctness under supported toolchains and configurations remains an engineering obligation; documentation of the metadata format is not a substitute for the evaluation below.
 
 An alternate implementation can parse TOML and resolve workspace inheritance directly. That avoids a Cargo subprocess but must explicitly implement workspace-root lookup, dependency tables and aliases, path bases, invalid/missing definitions, and supported configuration limits. Simply scanning the virtual root and adding all its paths to every member would invent dependencies for members that never inherit them.
 
@@ -207,7 +207,7 @@ Report missing/extra edges, focus membership, visit order, false out-of-scope cl
 [cli]: https://github.com/theRebelliousNerd/codenerd/blob/fe7a7507e2b8a2673dbae1ce4d306884ffd94ae1/cmd/nerd/cmd_campaign_recurse.go#L253-L263
 [chat]: https://github.com/theRebelliousNerd/codenerd/blob/fe7a7507e2b8a2673dbae1ce4d306884ffd94ae1/cmd/nerd/chat/campaign_recurse.go#L218-L236
 [test]: https://github.com/theRebelliousNerd/codenerd/blob/fe7a7507e2b8a2673dbae1ce4d306884ffd94ae1/internal/campaign/recurse_workspace_test.go#L163-L182
-[go-current]: https://github.com/theRebelliousNerd/codenerd/blob/fe7a7507e2b8a2673dbae1ce4d306884ffd94ae1/internal/campaign/recurse_workspace.go#L376-L463
+[go-current]: https://github.com/theRebelliousNerd/codenerd/blob/fe7a7507e2b8a2673dbae1ce4d306884ffd94ae1/internal/campaign/recurse_workspace.go#L367-L463
 [portable]: https://github.com/theRebelliousNerd/codenerd/blob/fe7a7507e2b8a2673dbae1ce4d306884ffd94ae1/Docs/audits/portable-recurse-deliberation-crucible.md#L23-L57
 [prior-go]: https://github.com/theRebelliousNerd/codenerd/blob/fe7a7507e2b8a2673dbae1ce4d306884ffd94ae1/Docs/audits/recurse-go-test-dependency-closure.md
 [prior-root]: https://github.com/theRebelliousNerd/codenerd/blob/fe7a7507e2b8a2673dbae1ce4d306884ffd94ae1/Docs/audits/recurse-root-crate-diagnostic-ownership.md
