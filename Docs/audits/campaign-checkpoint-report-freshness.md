@@ -162,3 +162,25 @@ Measure current-versus-consumed report identity, exit status, parsed counts, che
 [jest-source]: https://github.com/jestjs/jest/blob/855864e3f9751366455246790be2bf912d4d0dac/packages/jest-core/src/runJest.ts#L90-L129
 [jest-results]: https://github.com/jestjs/jest/blob/855864e3f9751366455246790be2bf912d4d0dac/packages/jest-core/src/runJest.ts#L313-L334
 
+
+## Landed implementation update 2026 11 03
+
+Inspected public main at `0e792aa7a7ed487418a3ce68b1a18076c0f94457` on 2026-11-03. The changes below landed in [`2b6211532fa0d8e48718d0e894e82b38637b6624`](https://github.com/theRebelliousNerd/codenerd/commit/2b6211532fa0d8e48718d0e894e82b38637b6624). This appendix preserves the original review and distinguishes source implementation from runtime verification.
+
+**Status correction:** `campaign-checkpoint-report-freshness#1`'s fixed-path stale-report substitution has a source remedy. The original claim that a previous `.nerd/npm-test.json` can replace the current invocation's counts is superseded for this implementation. The broader capability-aware evidence contract remains partial and unverified.
+
+### Implemented invocation ownership
+
+For an npm command without an existing `--`, the runner allocates a unique `.npm-test-*.json` file in the workspace, passes that file's basename through `--outputFile`, and consumes only that invocation-local path. It no longer reads the historical fixed report. The allocated file is removed on return; creation/close failures are returned, and a cleanup failure sets `passed=false` and joins an error. A positive fresh JSON total can still replace parsed stdout counts. Current nonzero exit status remains a failure independently of the optional report. [Allocation and cleanup](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/internal/campaign/checkpoint.go#L159-L190), [current-only consumption and exit precedence](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/internal/campaign/checkpoint.go#L234-L265).
+
+### Remaining scope
+
+This is a unique-path freshness repair, not a full implementation of the proposed reporter/receipt design. JSON flags remain best-effort for generic `npm test`; this change adds no capability negotiation, content digest, persisted invocation receipt, report byte bound or explicit malformed/missing-report disposition. It retains the existing stdout fallback when the report supplies no positive total. Freshness does not establish that selected tests are adequate or that a live reporter accepts the arguments. The original coverage, compatibility, cancellation/crash and production-consumer evaluation obligations still apply.
+
+### Test evidence and limits
+
+The revised fixture uses a fake executor that can write the requested path. Cases cover no report, ignored stale red and green fixed reports, fresh failures and nonzero exit precedence. It does not execute npm/Jest or the complete campaign consumer, and does not establish runtime cleanup/crash behavior. [Fixture producer](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/internal/campaign/checkpoint_npm_report_freshness_test.go#L15-L43), [freshness cases](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/internal/campaign/checkpoint_npm_report_freshness_test.go#L79-L143).
+
+The implementing commit's message reports `go test -tags sqlite_vec ./internal/campaign ./cmd/nerd/chat` succeeded and reports `internal/core TestFactNameSlotProducersPassNames` succeeded. These are author-reported results at that commit, not independently inspected test logs or a verified clean-head run. This review read source and test text only; it ran no application, tests, model inference or benchmarks.
+
+The [queue row](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/Docs/audits/ASTRA_QUEUE.md#L223) predates the repair. Its fixed-path `#1` claim is superseded; the unique-path portion of `#2` is now present, while capability-aware parsing and the remaining evidence design are not established by this change.
