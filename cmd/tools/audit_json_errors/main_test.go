@@ -1,10 +1,16 @@
 package main
 
 import (
+	"errors"
 	"go/ast"
 	"go/parser"
+	"go/scanner"
 	"go/token"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -111,5 +117,166 @@ func TestDiffCountsDuplicates(t *testing.T) {
 	added, removed = diff([]string{"a"}, []string{"b"})
 	if len(added) != 1 || len(removed) != 1 {
 		t.Errorf("a swap should report both sides: added=%v removed=%v", added, removed)
+	}
+}
+
+func writeAuditFixture(t *testing.T, dir, path, source string) {
+	t.Helper()
+	fullPath := filepath.Join(dir, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		t.Fatalf("create fixture directory: %v", err)
+	}
+	if err := os.WriteFile(fullPath, []byte(source), 0o644); err != nil {
+		t.Fatalf("write fixture %s: %v", path, err)
+	}
+}
+
+func TestScanFindingsAndBaselineRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	fixtures := map[string]string{
+		"internal/example/a.go":               "package fixture\nfunc save() {\n b, _ := json.Marshal(v)\n b, _ = json.Marshal(v)\n}\n",
+		"internal/example/b.go":               "package fixture\nfunc (s *Store) save() {\n json.Unmarshal(data, &value)\n}\n",
+		"cmd/example/main.go":                 "package fixture\nfunc log() {\n _, _ = json.Marshal(struct {\n Value string\n }{Value: \"value\"})\n}\n",
+		"pkg/example/init.go":                 "package fixture\nvar result = func() int {\n json.Unmarshal(data, &value)\n return 0\n}()\n",
+		"internal/example/ignored_test.go":    "not Go syntax",
+		"internal/example/readme.txt":         "not Go syntax",
+		"internal/vendor/nested/ignored.go":   "not Go syntax",
+		"internal/testdata/nested/ignored.go": "not Go syntax",
+		"internal/.hidden/nested/ignored.go":  "not Go syntax",
+	}
+	for path, source := range fixtures {
+		writeAuditFixture(t, dir, path, source)
+	}
+	t.Chdir(dir)
+
+	got, err := scan()
+	if err != nil {
+		t.Fatalf("scan(): %v", err)
+	}
+	want := []finding{
+		{key: "cmd/example\tlog\tjson.Marshal(struct { Value string }{Value: \"value\"})", file: "cmd/example/main.go", line: 3},
+		{key: "internal/example\tStore.save\tjson.Unmarshal(data)", file: "internal/example/b.go", line: 3},
+		{key: "internal/example\tsave\tjson.Marshal(v)", file: "internal/example/a.go", line: 3},
+		{key: "internal/example\tsave\tjson.Marshal(v)", file: "internal/example/a.go", line: 4},
+		{key: "pkg/example\t<file scope>\tjson.Unmarshal(data)", file: "pkg/example/init.go", line: 3},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("scan() = %#v, want %#v", got, want)
+	}
+
+	keys := make([]string, len(got))
+	for i, f := range got {
+		keys[i] = f.key
+	}
+	writeAuditFixture(t, dir, baselinePath, header+strings.Join(keys, "\n")+"\n")
+	baseline, err := readBaseline()
+	if err != nil {
+		t.Fatalf("readBaseline(): %v", err)
+	}
+	if !reflect.DeepEqual(baseline, keys) {
+		t.Errorf("baseline round trip = %q, want %q", baseline, keys)
+	}
+	if added, removed := diff(baseline, keys); len(added) != 0 || len(removed) != 0 {
+		t.Errorf("baseline round trip drift: added=%q removed=%q", added, removed)
+	}
+}
+
+func TestScanRejectsEmptyOrMalformedTrees(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		files        map[string]string
+		wantErr      bool
+		wantParseErr bool
+	}{
+		{name: "missing roots", wantErr: true},
+		{name: "only excluded files", files: map[string]string{
+			"internal/testdata/ignored.go": "not Go syntax",
+			"internal/ignored_test.go":     "not Go syntax",
+			"internal/readme.txt":          "not Go syntax",
+		}, wantErr: true},
+		{name: "clean source with missing sibling roots", files: map[string]string{
+			"internal/clean.go": "package fixture\nfunc clean() {}\n",
+		}},
+		{name: "parse failure discards partial findings", files: map[string]string{
+			"internal/a.go": "package fixture\nfunc save() { _, _ = json.Marshal(v) }\n",
+			"internal/z.go": "package fixture\nfunc broken(\n",
+		}, wantErr: true, wantParseErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for path, source := range tt.files {
+				writeAuditFixture(t, dir, path, source)
+			}
+			t.Chdir(dir)
+			got, err := scan()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("scan() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if len(got) != 0 {
+				t.Errorf("scan() returned findings from an empty, clean or invalid tree: %#v", got)
+			}
+			if tt.wantParseErr {
+				var parseErrors scanner.ErrorList
+				if !errors.As(err, &parseErrors) {
+					t.Errorf("scan() error = %v, want wrapped scanner.ErrorList", err)
+				}
+			}
+		})
+	}
+}
+
+func TestReadBaselinePreservesSortedDuplicates(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		body    string
+		missing bool
+		want    []string
+	}{
+		{name: "missing", missing: true},
+		{name: "empty"},
+		{name: "comments and blank lines", body: "# header\n\n# another comment\n"},
+		{name: "LF without final newline", body: "# header\nz\na\na", want: []string{"a", "a", "z"}},
+		{name: "CRLF", body: "# header\r\n\r\nz\r\na\r\na\r\n", want: []string{"a", "a", "z"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if !tt.missing {
+				writeAuditFixture(t, dir, baselinePath, tt.body)
+			}
+			t.Chdir(dir)
+			got, err := readBaseline()
+			if tt.missing {
+				if !errors.Is(err, fs.ErrNotExist) {
+					t.Fatalf("readBaseline() error = %v, want fs.ErrNotExist", err)
+				}
+			} else if err != nil {
+				t.Fatalf("readBaseline(): %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("readBaseline() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOneLineCollapsesWhitespace(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "empty"},
+		{name: "whitespace only", input: " \t\r\n "},
+		{name: "already one line", input: "value.Field", want: "value.Field"},
+		{name: "multiline expression", input: "\nstruct {\r\n\tValue string\n}{Value: value}\t", want: "struct { Value string }{Value: value}"},
+		{name: "unicode whitespace", input: " left\u2003right\u00a0", want: "left right"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := oneLine(tt.input); got != tt.want {
+				t.Errorf("oneLine(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
 	}
 }
