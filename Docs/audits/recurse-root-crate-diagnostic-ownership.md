@@ -9,6 +9,12 @@ verification-method: static-source-inspection
 
 # Recurse loses the owner of located root-crate diagnostics
 
+## Current-main addendum: root Rust source attribution added
+
+Static review at public main `a4fd84e66accf2780b3ddfcc6a77bef7d16def5d`, November 3, 2026. The root-crate witness below is historical. [Commit 97a4245](https://github.com/theRebelliousNerd/codenerd/commit/97a4245a50f1159901d2f89bff375fe41e7d5998) adds root-aware attribution for existing descendant `.rs` files after more-specific node matching, with membership checks when available. The conventional admitted `src/main.rs` diagnostic can now be assigned to the root crate. [Measurement](https://github.com/theRebelliousNerd/codenerd/blob/a4fd84e66accf2780b3ddfcc6a77bef7d16def5d/internal/campaign/recurse_cycle.go#L786-L800) [Attribution](https://github.com/theRebelliousNerd/codenerd/blob/a4fd84e66accf2780b3ddfcc6a77bef7d16def5d/internal/campaign/recurse_cycle.go#L870-L936)
+
+An authored fixture combines DAG derivation, supplied diagnostic parsing, root/nested precedence, missing-file rejection and unlocated libtest controls. It does not run Cargo or the full repair path. Location-free test ownership and broader typed provenance remain open. Membership-check errors and rootless compatibility calls have different safeguards; do not treat the helper as universally fail-closed. No tests ran in this review. [Fixture](https://github.com/theRebelliousNerd/codenerd/blob/a4fd84e66accf2780b3ddfcc6a77bef7d16def5d/internal/campaign/recurse_audits_test.go#L308-L360)
+
 ## Decision and evidence boundary
 
 Give recurse a typed, workspace-bound relationship between a diagnostic's source file and the node that owns it. The Rust graph producer represents a root Cargo package as one node with `Paths=["."]`; its modules remain descendants of that crate rather than separate graph nodes. The workspace finding consumer treats the same `.` path as only a root-directory package. It accepts `main.go` or `.` for the root node, but rejects a located target such as `src/main.rs`. A standard root-crate compiler failure is therefore parsed successfully, retained as failure, and then reported as unattributed instead of entering the crate's repair candidates. [Crate producer][crates] [Component projection][components] [Attribution][attribute]
