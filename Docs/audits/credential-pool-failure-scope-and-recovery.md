@@ -168,3 +168,69 @@ Test: `TestKeyPool_A403DeniesTheRequestNotTheCredential` (one provider hit for t
 ### Left open
 
 The scoped failure descriptor (cause, scope, reset evidence) and provider-specific budget handling: no provider contract is pinned and no consumer reads a scope yet. Production-path fixtures beyond the pooled factory (broker, scheduler) were not added; the test drives `NewClientFromConfig`, which installs the broker.
+
+## Addendum 2026 11 03 on failure identity across same credential retries
+
+**Finding:** the newly permitted same-credential retry can settle the pool using an earlier response's status and cooldown. A later authentication failure can remain classified as a rate limit, and a later, longer `Retry-After` can be discarded.
+
+**Evidence boundary:** static inspection at main `a4981591c95307eab5df20f82c07132b79ef9375`, observed 2026-11-03 at 08:38 UTC. The original report and its historical as-built section above are preserved unchanged. No tests, builds, application runs, model inference, benchmarks or provider requests were executed for this addendum. Its witnesses are conditional deductions from the cited code, not reproduced incidents.
+
+### What changed and what remains fixed
+
+Commit [`cd06a6336b3a311b6723c8c11a572526d8c9b8f7`](https://github.com/theRebelliousNerd/codenerd/commit/cd06a6336b3a311b6723c8c11a572526d8c9b8f7) changed the observed transport so a 429 or transient HTTP failure need not cancel an adapter's own retry loop when the router reports no fallback and `Retry-After` is at most 15 seconds. It also clears the recorded failure after an HTTP response below 400. [Retry eligibility][retry20261103-transport]
+
+That makes multiple failed HTTP responses possible within one `keyPoolAttempt`. Its `failure` method still records only the first failure: a nonzero status or network-failure flag prevents subsequent observations from replacing either status or retry duration. [First failure retention][retry20261103-state]
+
+The earlier direct-403 repair remains present: `release` disables only a 401, and `rotates` excludes 403. This addendum does not reopen the original direct-403 poisoning claim. It extends the existing audit with response identity across retries, rather than proposing the larger provider-specific scope descriptor again. [Health settlement][retry20261103-release] [Rotation rule][retry20261103-rotate]
+
+### Production path and conditional witnesses
+
+A one-entry explicit API pool is supported configuration. The public client factory routes a nonempty pool to `newPooledClient`, which installs the observed transport and broker for each leaf. The router computes `hasFallback=false` for that one-entry pool. This witness concerns that explicit pool, not a legacy scalar-key client that does not use the pool router. Assume at least one configured adapter retry, successful admission, an alive parent context, and no intervening successful HTTP response between the two failures. [Configuration][retry20261103-config] [Factory][retry20261103-factory] [Pool wiring][retry20261103-wiring] [Attempt construction][retry20261103-attempt]
+
+The actual Anthropic transport retries 429 and transient HTTP failures, waits using its retry settings, and returns a later nonretryable HTTP error. Thus the following sequences can traverse production code without directly calling an internal state helper. [Adapter loop][retry20261103-loop]
+
+1. **429 followed by 401.** The first 429 has a short or absent `Retry-After` and leaves the child context alive. The retry receives 401, whose body closure cancels the child. However, `failure(401,...)` cannot replace the stored 429. `finish` consults the adapter error only if the recorded status is zero; it therefore calls `release` with 429 and applies cooldown instead of disabling the credential. Once that cooldown expires, a later request can select the credential again. The returned error can still retain the inner typed 401 as its cause, so the supported claim is incorrect pool settlement and inconsistent outer status, not complete loss of diagnostic evidence. [First failure retention][retry20261103-state] [Transport][retry20261103-transport] [Finish][retry20261103-finish] [Selection][retry20261103-selection]
+
+2. **429 with one second followed by 429 with 60 seconds.** The first response permits an adapter retry. The second response's longer delay causes child cancellation, but its call to `failure` cannot replace the stored one-second duration. Pool settlement consequently derives its new cooldown from one second, not the latest response's 60 seconds. The canceled adapter does not wait out the 60-second interval. A later independently initiated request can become selectable before that later window ends. This follows the repository's own parsed-header contract; no claim is made about an observed provider quota or incident. [Transport][retry20261103-transport] [Adapter loop][retry20261103-loop] [Health settlement][retry20261103-release]
+
+A 429 followed by 403 similarly leaves stale outer rate-limit state. Do not infer an alternate-key replay of that denial from these witnesses: the same-key retry is admitted when fallback is unavailable, and the one-entry witness has no second key. Actual behavior under changing pin state or other concurrent requests is outside this trace.
+
+### Required contract and bounded repair
+
+One credential lease can contain several HTTP exchanges. Its terminal failure identity must describe the exchange that ended it, while any still-applicable cooldown is retained with the correct response time and credential scope.
+
+- Preserve terminal authentication, denial and malformed-request status through pool settlement. An earlier retryable response must not mask a later 401 or 403.
+- Do not discard a later applicable cooldown or restart its clock from an unrelated event. Represent the response's deadline or equivalent elapsed-time-aware evidence explicitly.
+- Keep retry history separate from terminal disposition if history is needed. A successful retry must not leave a stale failure on a completed call; success on an unrelated token-count request must not erase an unresolved inference outcome.
+- Keep request denials nonrotating, preserve pinned credential ownership, parent cancellation, stream no-replay after output, configured retry limits and broker usage uncertainty. Do not introduce a provider/model fallback or retain raw credentials or bodies.
+
+A bounded per-exchange observation and explicit terminal settlement can live within the existing attempt object. Before choosing a simple overwrite rule, account for the fact that its context also covers token counting. Reconcile the owning perception contract with the chosen identity and concurrency rules. No implementation is supplied here. [Attempt ownership][retry20261103-state] [Perception guidance][retry20261103-guidance]
+
+### Unrun checks and costs
+
+The inspected `key_pool_test.go` covers direct 401 isolation, long-429 failover/cooldown, and direct 403 nonrotation. Those fixtures were read only; they do not contain the mixed-response sequences above. [401 and cooldown controls][retry20261103-tests] [403 control][retry20261103-403test]
+
+Proposed checks should use a scripted local server through the public pooled factory, without live inference:
+
+- 429 → 401: settle authentication failure, disable the credential, and refuse a subsequent selection without another provider hit.
+- 429 → 403 and 429 → 400: preserve the terminal class; never replay a denial or deterministic bad request on another key.
+- 429 with one second → 429 with 60 seconds: preserve the later cooldown; use controlled time rather than sleeping for the interval.
+- 429 → 200: successful completion clears obsolete failure state; legitimate future calls remain available.
+- Exercise one-entry pools, the last untried credential, pinned ownership, zero configured retries, caller cancellation, token-count versus inference outcomes, and streaming before/after first output. Preserve the existing direct-401 and direct-403 controls.
+
+Compare identical scripted responses before and after the repair. Measure provider and token-count calls, lease releases, retry waits, selected/disabled state, cooldown deadlines and terminal error identity. Bounded state updates should not require storing response history or raw payloads, but locking and exchange identity need concurrency checks. Actual provider traffic, latency, cost and incident frequency remain unmeasured. Reduced unwanted requests are a hypothesis; do not turn a local state-machine fix into a claim of measured token or coding-quality savings.
+
+[retry20261103-state]: https://github.com/theRebelliousNerd/codenerd/blob/a4981591c95307eab5df20f82c07132b79ef9375/internal/perception/key_pool_transport.go#L15-L46
+[retry20261103-transport]: https://github.com/theRebelliousNerd/codenerd/blob/a4981591c95307eab5df20f82c07132b79ef9375/internal/perception/key_pool_transport.go#L67-L87
+[retry20261103-release]: https://github.com/theRebelliousNerd/codenerd/blob/a4981591c95307eab5df20f82c07132b79ef9375/internal/perception/key_pool.go#L187-L205
+[retry20261103-rotate]: https://github.com/theRebelliousNerd/codenerd/blob/a4981591c95307eab5df20f82c07132b79ef9375/internal/perception/key_pool.go#L240-L246
+[retry20261103-config]: https://github.com/theRebelliousNerd/codenerd/blob/a4981591c95307eab5df20f82c07132b79ef9375/internal/config/api_key_pools.go#L29-L38
+[retry20261103-factory]: https://github.com/theRebelliousNerd/codenerd/blob/a4981591c95307eab5df20f82c07132b79ef9375/internal/perception/client_factory.go#L837-L856
+[retry20261103-wiring]: https://github.com/theRebelliousNerd/codenerd/blob/a4981591c95307eab5df20f82c07132b79ef9375/internal/perception/key_pool_factory.go#L12-L74
+[retry20261103-attempt]: https://github.com/theRebelliousNerd/codenerd/blob/a4981591c95307eab5df20f82c07132b79ef9375/internal/perception/key_pool.go#L289-L300
+[retry20261103-loop]: https://github.com/theRebelliousNerd/codenerd/blob/a4981591c95307eab5df20f82c07132b79ef9375/internal/perception/anthropic_transport.go#L155-L210
+[retry20261103-finish]: https://github.com/theRebelliousNerd/codenerd/blob/a4981591c95307eab5df20f82c07132b79ef9375/internal/perception/key_pool.go#L303-L327
+[retry20261103-selection]: https://github.com/theRebelliousNerd/codenerd/blob/a4981591c95307eab5df20f82c07132b79ef9375/internal/perception/key_pool.go#L118-L175
+[retry20261103-guidance]: https://github.com/theRebelliousNerd/codenerd/blob/a4981591c95307eab5df20f82c07132b79ef9375/internal/perception/agents.md#L33-L44
+[retry20261103-tests]: https://github.com/theRebelliousNerd/codenerd/blob/a4981591c95307eab5df20f82c07132b79ef9375/internal/perception/key_pool_test.go#L123-L240
+[retry20261103-403test]: https://github.com/theRebelliousNerd/codenerd/blob/a4981591c95307eab5df20f82c07132b79ef9375/internal/perception/key_pool_test.go#L549-L604
