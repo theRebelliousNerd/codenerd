@@ -1,9 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 // The gate's whole job is telling compiled programs apart from everything
@@ -52,5 +58,181 @@ func TestExecutableKind(t *testing.T) {
 func TestExecutableKind_MissingFile_IsNotTheGatesBusiness(t *testing.T) {
 	if kind, ok := executableKind(filepath.Join(t.TempDir(), "nope")); ok {
 		t.Errorf("missing file reported as %q", kind)
+	}
+}
+
+func newAuditRepository(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Chdir(dir)
+	// Keep the fixture independent of any repository selected by the caller.
+	t.Setenv("GIT_DIR", filepath.Join(dir, ".git"))
+	t.Setenv("GIT_COMMON_DIR", filepath.Join(dir, ".git"))
+	t.Setenv("GIT_WORK_TREE", dir)
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(dir, ".git", "index"))
+	auditGit(t, "init", "--quiet")
+}
+
+func auditGit(t *testing.T, args ...string) {
+	t.Helper()
+	if out, err := exec.CommandContext(t.Context(), "git", args...).CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func TestTrackedFiles_IndexSelection(t *testing.T) {
+	cases := []struct {
+		name    string
+		tracked []string
+	}{
+		{name: "empty index"},
+		{name: "names preserved without quoting", tracked: []string{"-leading.txt", "file with spaces.txt", "unicode-λ.txt"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			newAuditRepository(t)
+			for _, name := range tc.tracked {
+				if err := os.WriteFile(name, []byte("source\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				auditGit(t, "add", "--", name)
+			}
+			for name, data := range map[string][]byte{
+				".gitignore":      []byte("ignored-build\n"),
+				"ignored-build":   {0x7f, 'E', 'L', 'F'},
+				"untracked-build": {'M', 'Z'},
+			} {
+				if err := os.WriteFile(name, data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := trackedFiles()
+			if err != nil {
+				t.Fatalf("trackedFiles(): %v", err)
+			}
+			if diff := cmp.Diff(tc.tracked, got); diff != "" {
+				t.Errorf("trackedFiles() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestTrackedFiles_PreservesGitFailure(t *testing.T) {
+	t.Setenv("GIT_DIR", filepath.Join(t.TempDir(), "missing.git"))
+	files, err := trackedFiles()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("trackedFiles() error = %v, want wrapped *exec.ExitError", err)
+	}
+	if files != nil {
+		t.Errorf("trackedFiles() = %q on git failure, want nil", files)
+	}
+}
+
+func TestMain_IgnoresUntrackedExecutables(t *testing.T) {
+	newAuditRepository(t)
+	for name, data := range map[string][]byte{
+		"source.go":       []byte("package main\n"),
+		"fixture.png":     {0x89, 'P', 'N', 'G'},
+		"untracked-build": {'M', 'Z'},
+	} {
+		if err := os.WriteFile(name, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	auditGit(t, "add", "--", "source.go", "fixture.png")
+	out, err := os.CreateTemp(t.TempDir(), "stdout-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stdout
+	os.Stdout = out
+	t.Cleanup(func() {
+		os.Stdout = original
+		if err := out.Close(); err != nil {
+			t.Errorf("close captured stdout: %v", err)
+		}
+	})
+	main()
+	got, err := os.ReadFile(out.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "audit_committed_binaries: 2 tracked files, no compiled executables\n"
+	if string(got) != want {
+		t.Errorf("main() stdout = %q, want %q", got, want)
+	}
+}
+
+func TestMain_ExitCodes(t *testing.T) {
+	const childKey = "CODENERD_AUDIT_BINARIES_TEST_CHILD"
+	if os.Getenv(childKey) == "1" {
+		main()
+		return
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name         string
+		gitFailure   bool
+		wantCode     int
+		wantMessages []string
+	}{
+		{
+			name:     "tracked executables rejected together",
+			wantCode: 1,
+			wantMessages: []string{
+				"2 compiled executable(s) tracked in git:",
+				"  linux-build  (ELF (Linux), 0.0 MB)",
+				"  windows-build  (PE (Windows), 0.0 MB)",
+				"Use `go run ./cmd/tools/foo` instead",
+			},
+		},
+		{
+			name:         "git failure is distinct from a finding",
+			gitFailure:   true,
+			wantCode:     2,
+			wantMessages: []string{"audit_committed_binaries: git ls-files:"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			newAuditRepository(t)
+			if tc.gitFailure {
+				t.Setenv("GIT_DIR", filepath.Join(t.TempDir(), "missing.git"))
+			} else {
+				for name, data := range map[string][]byte{
+					"linux-build":   {0x7f, 'E', 'L', 'F'},
+					"windows-build": {'M', 'Z'},
+				} {
+					if err := os.WriteFile(name, data, 0o600); err != nil {
+						t.Fatal(err)
+					}
+					auditGit(t, "add", "--", name)
+				}
+			}
+			cmd := exec.CommandContext(t.Context(), executable, "-test.run=^TestMain_ExitCodes$")
+			cmd.Env = append(os.Environ(), childKey+"=1")
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			err := cmd.Run()
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) {
+				t.Fatalf("main() error = %v, want exit code %d; stderr: %s", err, tc.wantCode, &stderr)
+			}
+			if got := exitErr.ExitCode(); got != tc.wantCode {
+				t.Errorf("main() exit code = %d, want %d; stderr: %s", got, tc.wantCode, &stderr)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("main() stdout = %q, want empty on failure", stdout.String())
+			}
+			for _, message := range tc.wantMessages {
+				if !strings.Contains(stderr.String(), message) {
+					t.Errorf("main() stderr = %q, want diagnostic %q", stderr.String(), message)
+				}
+			}
+		})
 	}
 }
