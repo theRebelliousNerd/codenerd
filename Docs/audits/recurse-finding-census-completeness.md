@@ -60,7 +60,7 @@ A custom project lint check can measure a constraint that independent compiler/t
 
 Let a selected target T be the 50th unique retained diagnostic in the baseline. In the after-output, place 50 other unique diagnostics before the same T, with T unchanged and still present. Both commands fail normally. The returned after slice contains no T.
 
-At the ordinary target projection, `!hasFinding(after, T)` is true and the command is not unverified; therefore `TargetOK` becomes true. Its actual meaning is “not among the retained first 50,” not “absent from the completed diagnostic stream.” [Target absence][target]
+For an ordinary single-finding attempt without a group witness, `!hasFinding(after, T)` is true and the command is not unverified; therefore `TargetOK` becomes true. Grouped error-free attempts instead use a separate `RunWitness` verdict and do not take this target-absence path. [Grouped witness](https://github.com/theRebelliousNerd/codenerd/blob/1a179efba7deb5c6149aea1da4970e66f92592b5/internal/campaign/recurse_cycle.go#L1282-L1315) Its actual meaning is “not among the retained first 50,” not “absent from the completed diagnostic stream.” [Target absence][target]
 
 This demonstrates the projection defect without claiming the complete campaign necessarily succeeds. The selected gate's acceptance command can still fail and trigger remediation, and failed task attempts are undone. Those are real countercontrols. [Acceptance contract][campaign-witness] [Acceptance construction][acceptance] [Authored controls][acceptance-controls] [Failed-task undo][failed-undo]
 
