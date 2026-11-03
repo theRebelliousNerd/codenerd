@@ -1,5 +1,11 @@
 # Recurse finding-census completeness
 
+## Current-main addendum: capped witnesses addressed
+
+Static review at public main `a4fd84e66accf2780b3ddfcc6a77bef7d16def5d`, November 3, 2026. The capped-list witnesses below are historical. [Commit 97a4245](https://github.com/theRebelliousNerd/codenerd/commit/97a4245a50f1159901d2f89bff375fe41e7d5998) adds uncapped extraction from captured output while preserving a bounded work list; measurement retains finding IDs and ratchet counts and target membership use them. The described single-invocation 50-to-51 and displaced-target cases no longer follow from the cap. [Collector](https://github.com/theRebelliousNerd/codenerd/blob/a4fd84e66accf2780b3ddfcc6a77bef7d16def5d/internal/gates/findings.go#L104-L139) [Measurement](https://github.com/theRebelliousNerd/codenerd/blob/a4fd84e66accf2780b3ddfcc6a77bef7d16def5d/internal/campaign/recurse_cycle.go#L775-L817) [Ratchet](https://github.com/theRebelliousNerd/codenerd/blob/a4fd84e66accf2780b3ddfcc6a77bef7d16def5d/internal/campaign/recurse_cycle.go#L1421-L1439)
+
+Failed truncated after-results are now handled conservatively, not recovered as a complete census. Mission sidecars still lack typed census/parser-completeness fields, and collapsed-path duplicate counting needs separate qualification. An authored test constructs measurement state rather than executing the whole campaign or truncation path; no tests ran here. [Truncation](https://github.com/theRebelliousNerd/codenerd/blob/a4fd84e66accf2780b3ddfcc6a77bef7d16def5d/internal/campaign/recurse_cycle.go#L1426-L1439) [Fixture](https://github.com/theRebelliousNerd/codenerd/blob/a4fd84e66accf2780b3ddfcc6a77bef7d16def5d/internal/campaign/recurse_audits_test.go#L193-L262)
+
 ## Finding and evidence boundary
 
 At public main `1a179efba7deb5c6149aea1da4970e66f92592b5`, ordinary recurse uses a work-selection list capped at **50 findings per gate invocation** as if it were the complete diagnostic census for two acceptance questions: whether a failing gate gained findings, and whether the selected finding disappeared. The cap preserves useful bounded work, but the returned slice has no completeness or saturation status. The ratchet receives its length and a membership test, not the limits of those observations. [Cap][cap] [Collector][collector] [Consumer][target] [Policy projection][policy-input]
