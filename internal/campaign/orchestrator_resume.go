@@ -41,6 +41,16 @@ func (o *Orchestrator) PrepareResume() error {
 		return fmt.Errorf("no campaign loaded")
 	}
 	if o.campaign.Status != StatusFailed {
+		for pi := range o.campaign.Phases {
+			for ti := range o.campaign.Phases[pi].Tasks {
+				if o.campaign.Phases[pi].Tasks[ti].Status == TaskPending {
+					reclassifyNonTerminalAttempts(&o.campaign.Phases[pi].Tasks[ti])
+				}
+			}
+		}
+		if o.kernel != nil {
+			_ = syncCampaignFacts(o.kernel, o.campaign, o.campaign, "")
+		}
 		return nil
 	}
 
