@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 // PrepareResume re-arms a failed/blocked campaign so the next Run can make
@@ -116,13 +117,57 @@ func resetResumeTasks(phases []Phase, maxAttempts int) {
 		for ti := range phases[pi].Tasks {
 			resetResumeTask(&phases[pi].Tasks[ti], maxAttempts)
 		}
+		linkCompletedPhaseResearchToPendingTasks(&phases[pi])
+	}
+}
+
+func linkCompletedPhaseResearchToPendingTasks(phase *Phase) {
+	if phase == nil {
+		return
+	}
+	var completedResearch []string
+	researchDeps := make(map[string][]string)
+	for i := range phase.Tasks {
+		t := &phase.Tasks[i]
+		if t.Status == TaskCompleted && t.Type == TaskTypeResearch && t.ID != "" {
+			completedResearch = append(completedResearch, t.ID)
+			researchDeps[t.ID] = t.DependsOn
+		}
+	}
+	if len(completedResearch) == 0 {
+		return
+	}
+	for i := range phase.Tasks {
+		t := &phase.Tasks[i]
+		if t.Status != TaskPending || t.Type == TaskTypeResearch {
+			continue
+		}
+		for _, resID := range completedResearch {
+			if slices.Contains(researchDeps[resID], t.ID) {
+				continue
+			}
+			if !slices.Contains(t.DependsOn, resID) {
+				t.DependsOn = append(t.DependsOn, resID)
+			}
+			if !slices.Contains(t.ContextFrom, resID) {
+				t.ContextFrom = append(t.ContextFrom, resID)
+			}
+		}
 	}
 }
 
 // resetResumeTask resets one task to pending when it is retryable and below
-// the attempt cap. Tasks that already completed, were skipped, or never
-// started are left alone.
+// the attempt cap. Tasks that already completed or were skipped are left alone;
+// pending tasks with prior non-terminal attempts are also reclassified.
 func resetResumeTask(task *Task, maxAttempts int) {
+	if task.Status == TaskPending {
+		reclassifyNonTerminalAttempts(task)
+		if failedAttempts(task) < maxAttempts {
+			task.ReplannedAtCap = false
+			task.NextRetryAt = time.Time{}
+		}
+		return
+	}
 	if task.Status != TaskFailed && task.Status != TaskInProgress && task.Status != TaskBlocked {
 		return
 	}
@@ -136,6 +181,7 @@ func resetResumeTask(task *Task, maxAttempts int) {
 	}
 	task.Status = TaskPending
 	task.ReplannedAtCap = false
+	task.NextRetryAt = time.Time{}
 }
 
 // reclassifyNonTerminalAttempts converts attempts that ended due to context

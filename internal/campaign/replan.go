@@ -1099,8 +1099,23 @@ func (r *Replanner) applyFixes(campaign *Campaign, fixes *ReplanResult) error {
 				taskID := fmt.Sprintf("/task_%s_%d_%d", campaignSlug(campaign.ID), i, len(campaign.Phases[i].Tasks))
 				newTask := add
 				newTask.ID = taskID
+				newTask.Order = len(campaign.Phases[i].Tasks)
 				campaign.Phases[i].Tasks = append(campaign.Phases[i].Tasks, newTask)
 				campaign.TotalTasks++
+				if newTask.Type == TaskTypeResearch {
+					for j := range campaign.Phases[i].Tasks {
+						t := &campaign.Phases[i].Tasks[j]
+						if t.ID == taskID || t.Status != TaskPending || t.Type == TaskTypeResearch {
+							continue
+						}
+						if !slices.Contains(t.DependsOn, taskID) {
+							t.DependsOn = append(t.DependsOn, taskID)
+						}
+						if !slices.Contains(t.ContextFrom, taskID) {
+							t.ContextFrom = append(t.ContextFrom, taskID)
+						}
+					}
+				}
 				break
 			}
 		}

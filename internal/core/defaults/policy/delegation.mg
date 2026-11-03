@@ -120,6 +120,16 @@ tool_capabilities(/run_lint, /lint).
 tool_capabilities(/run_lint, /staticcheck).
 tool_capabilities(/run_lint, /golangci_lint).
 tool_capabilities(/run_lint, /static_analysis).
+tool_capabilities(/run_tests, /run_tests).
+tool_capabilities(/run_tests, /run_impacted_tests).
+tool_capabilities(/run_tests, /go_test).
+tool_capabilities(/run_tests, /test).
+tool_capabilities(/run_tests, /cargo_test).
+tool_capabilities(/run_tests, /pytest).
+tool_capabilities(/run_build, /run_build).
+tool_capabilities(/run_build, /go_build).
+tool_capabilities(/run_build, /build).
+tool_capabilities(/run_build, /cargo_build).
 
 # Goal capability requirements
 goal_requires(Goal, /read) :-

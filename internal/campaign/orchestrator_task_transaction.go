@@ -151,7 +151,7 @@ func (o *Orchestrator) canPreservePartialFileModifyProgress(task *Task, snapshot
 		return false
 	}
 	for _, w := range writes {
-		if !snapshot.covers(w.Path) {
+		if !snapshot.covers(w.Path) && !(len(snapshot.declaredGlobs) > 0 && w.Before.Known && w.Before.Exists) {
 			return false
 		}
 	}
@@ -222,12 +222,15 @@ func validateFileModifyOutcome(task *Task, snapshot taskExecutionSnapshot, write
 	if modified {
 		return nil
 	}
-	if declaredExisted {
+	if declaredExisted && len(snapshot.declaredGlobs) == 0 {
 		return fmt.Errorf("task %s (%s) modified no pre-existing file in its declared write set", taskIDOrUnknown(task), task.Type)
 	}
 	if changed := changedPreexistingFiles(writes); len(changed) > 0 {
-		logging.Campaign("Task %s (%s): nothing its write set declares existed; it changed existing code in %s", taskIDOrUnknown(task), task.Type, strings.Join(changed, ", "))
+		logging.Campaign("Task %s (%s): broad-glob or absent write set; changed existing code in %s", taskIDOrUnknown(task), task.Type, strings.Join(changed, ", "))
 		return nil
+	}
+	if declaredExisted {
+		return fmt.Errorf("task %s (%s) modified no pre-existing file in its declared write set", taskIDOrUnknown(task), task.Type)
 	}
 	return fmt.Errorf("task %s (%s) modified no pre-existing file: nothing its write set declares existed, and it changed no existing file -- creating the planned file does not satisfy a modification; find the existing code this task changes and change it there", taskIDOrUnknown(task), task.Type)
 }

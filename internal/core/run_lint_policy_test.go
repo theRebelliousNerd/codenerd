@@ -25,9 +25,11 @@ func TestPolicy_TheStaticGatesAreRunLintNotAGeneratedTool(t *testing.T) {
 	facts, blocked := FilterMangleUpdates(k, []string{
 		"missing_tool_for(/lint, /go_vet).",
 		"missing_tool_for(/lint, /staticcheck).",
+		"missing_tool_for(/test, /go_test).",
+		"missing_tool_for(/build, /go_build).",
 		"missing_tool_for(/build, /frobnicate_widgets).",
 	}, ModelObservationPolicy())
-	if len(blocked) != 0 || len(facts) != 3 {
+	if len(blocked) != 0 || len(facts) != 5 {
 		t.Fatalf("the control packet's missing_tool_for was not admitted: facts=%v blocked=%v", facts, blocked)
 	}
 	for _, f := range facts {
@@ -48,9 +50,9 @@ func TestPolicy_TheStaticGatesAreRunLintNotAGeneratedTool(t *testing.T) {
 			}
 		}
 	}
-	for _, capability := range []string{"/go_vet", "/staticcheck"} {
+	for _, capability := range []string{"/go_vet", "/staticcheck", "/go_test", "/go_build"} {
 		if delegated[capability] {
-			t.Errorf("delegate_task(/tool_generator, %s, /pending) derived: run_lint provides it", capability)
+			t.Errorf("delegate_task(/tool_generator, %s, /pending) derived: built-in gate provides it", capability)
 		}
 	}
 	if !delegated["/frobnicate_widgets"] {
