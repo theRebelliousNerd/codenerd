@@ -2,6 +2,7 @@ package diff
 
 import (
 	"fmt"
+	"github.com/google/go-cmp/cmp"
 	"strings"
 	"sync"
 	"testing"
@@ -125,6 +126,66 @@ func TestCache_ShouldEvictBeyondMaxEntries(t *testing.T) {
 	}
 	if s.Evicted == 0 {
 		t.Error("expected evictions once the entry bound was exceeded")
+	}
+}
+
+// TestCache_HitsRefreshEvictionOrder pins LRU behavior through ComputeDiff,
+// independently for the entry and byte limits and with content verification.
+func TestCache_HitsRefreshEvictionOrder(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name      string
+		byteLimit bool
+		verify    bool
+	}{
+		{name: "entry limit"},
+		{name: "entry limit with verification", verify: true},
+		{name: "byte limit", byteLimit: true},
+		{name: "byte limit with verification", byteLimit: true, verify: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			opts := Options{VerifyCacheContent: tt.verify, MaxCacheEntries: 2}
+			probe := NewEngineWith(opts)
+			probe.ComputeDiff("f", "f", "old-a\n", "new-a\n")
+			entryBytes := probe.Stats().Bytes
+			if entryBytes <= 0 {
+				t.Fatal("expected a resident diff to consume cache bytes")
+			}
+			if tt.byteLimit {
+				opts.MaxCacheEntries = 100
+				opts.MaxCacheBytes = 2 * entryBytes
+			}
+			e := NewEngineWith(opts)
+			a := e.ComputeDiff("f", "f", "old-a\n", "new-a\n")
+			b := e.ComputeDiff("f", "f", "old-b\n", "new-b\n")
+			if diff := cmp.Diff(a, e.ComputeDiff("f", "f", "old-a\n", "new-a\n")); diff != "" {
+				t.Fatalf("cache hit mismatch (-want +got):\n%s", diff)
+			}
+			e.ComputeDiff("f", "f", "old-c\n", "new-c\n")
+			want := Stats{Hits: 1, Misses: 3, Computes: 3, Evicted: 1, Entries: 2, Bytes: 2 * entryBytes}
+			if diff := cmp.Diff(want, e.Stats()); diff != "" {
+				t.Fatalf("stats after insertion mismatch (-want +got):\n%s", diff)
+			}
+
+			// A was read more recently than B, so C must evict B, not A.
+			if diff := cmp.Diff(a, e.ComputeDiff("f", "f", "old-a\n", "new-a\n")); diff != "" {
+				t.Fatalf("retained diff mismatch (-want +got):\n%s", diff)
+			}
+			want.Hits++
+			if diff := cmp.Diff(want, e.Stats()); diff != "" {
+				t.Fatalf("recently read entry was not retained (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(b, e.ComputeDiff("f", "f", "old-b\n", "new-b\n")); diff != "" {
+				t.Fatalf("recomputed diff mismatch (-want +got):\n%s", diff)
+			}
+			want.Misses++
+			want.Computes++
+			want.Evicted++
+			if diff := cmp.Diff(want, e.Stats()); diff != "" {
+				t.Fatalf("least recently used entry was not evicted (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
