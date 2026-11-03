@@ -65,6 +65,7 @@
 package atomicfile
 
 import (
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"os"
@@ -242,6 +243,8 @@ func WriteFilePreservingMode(path string, data []byte, fallback os.FileMode) err
 	perm := fallback
 	if info, err := os.Stat(path); err == nil {
 		perm = info.Mode().Perm()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat existing file %s: %w", path, err)
 	}
 	return WriteFile(path, data, perm)
 }

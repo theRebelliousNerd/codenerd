@@ -459,6 +459,104 @@ func TestWriteFilePreservingMode_IsStillAtomic(t *testing.T) {
 	}
 }
 
+func TestWriteFilePreservingMode_RejectsStatErrors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "embedded NUL", path: "invalid\x00path"},
+		{name: "non-directory ancestor", path: filepath.Join("blocker", "target")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			blocker := filepath.Join(dir, "blocker")
+			if err := os.WriteFile(blocker, []byte("retained"), 0o600); err != nil {
+				t.Fatalf("seed blocker: %v", err)
+			}
+			path := filepath.Join(dir, tt.path)
+			_, statErr := os.Stat(path)
+			if statErr == nil {
+				t.Fatal("fixture must fail stat")
+			}
+			var cause *os.PathError
+			if !errors.As(statErr, &cause) {
+				t.Fatalf("stat error = %T, want *os.PathError", statErr)
+			}
+
+			err := WriteFilePreservingMode(path, []byte("replacement"), 0o644)
+			var got *os.PathError
+			if !errors.As(err, &got) {
+				t.Fatalf("WriteFilePreservingMode error = %v, want wrapped stat error", err)
+			}
+			if !errors.Is(err, cause.Err) {
+				t.Errorf("WriteFilePreservingMode error = %v, want cause %v", err, cause.Err)
+			}
+			// Some platforms classify a non-directory ancestor as not existing.
+			// Only other stat errors must stop the write before temp creation.
+			if !errors.Is(statErr, os.ErrNotExist) && (got.Op != cause.Op || got.Path != path) {
+				t.Errorf("WriteFilePreservingMode error = %v, want original stat failure %v", err, statErr)
+			}
+			contents, err := os.ReadFile(blocker)
+			if err != nil {
+				t.Fatalf("read blocker: %v", err)
+			}
+			if string(contents) != "retained" {
+				t.Errorf("blocker contents = %q, want retained", contents)
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatalf("read directory: %v", err)
+			}
+			if len(entries) != 1 || entries[0].Name() != "blocker" {
+				t.Errorf("unexpected files after rejected write: %v", entries)
+			}
+		})
+	}
+}
+
+func TestWriteFilePreservingMode_PreservesSymlinkOnStatFailure(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "loop")
+	if err := os.Symlink("loop", path); err != nil {
+		if runtime.GOOS == "windows" && errors.Is(err, os.ErrPermission) {
+			t.Skipf("symlink creation requires privileges: %v", err)
+		}
+		t.Fatalf("create symlink loop: %v", err)
+	}
+	_, statErr := os.Stat(path)
+	if statErr == nil || errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("symlink loop must fail stat without indicating absence: %v", statErr)
+	}
+	var cause *os.PathError
+	if !errors.As(statErr, &cause) {
+		t.Fatalf("stat error = %T, want *os.PathError", statErr)
+	}
+
+	err := WriteFilePreservingMode(path, []byte("replacement"), 0o600)
+	if err == nil {
+		t.Error("WriteFilePreservingMode succeeded despite failing to determine the existing mode")
+	} else if !errors.Is(err, cause.Err) {
+		t.Errorf("WriteFilePreservingMode error = %v, want wrapped stat cause %v", err, cause.Err)
+	}
+	target, err := os.Readlink(path)
+	if err != nil {
+		t.Fatalf("symlink was not preserved: %v", err)
+	}
+	if target != "loop" {
+		t.Errorf("symlink target = %q, want loop", target)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read directory: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "loop" {
+		t.Errorf("unexpected files after rejected write: %v", entries)
+	}
+}
+
 func TestWriteFile_WhenTheDirectoryIsReadOnly_ShouldFailLoudly(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows directory permissions do not gate file creation this way")
