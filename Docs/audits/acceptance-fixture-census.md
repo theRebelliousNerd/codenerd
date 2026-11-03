@@ -115,3 +115,40 @@ Use a deliberately broken source and a separately retained original expectation 
 [verify]: https://github.com/theRebelliousNerd/codenerd/blob/486db57ce490302c65d7f484e7f6070ee0e70862/internal/evidence/change.go#L326-L373
 [runner]: https://github.com/theRebelliousNerd/codenerd/blob/486db57ce490302c65d7f484e7f6070ee0e70862/internal/evidence/change.go#L486-L577
 [tests]: https://github.com/theRebelliousNerd/codenerd/blob/486db57ce490302c65d7f484e7f6070ee0e70862/internal/evidence/change_test.go
+
+## November 3 addendum on campaign test witness reuse
+
+**Finding:** the campaign test cache introduced by [commit 519ac934](https://github.com/theRebelliousNerd/codenerd/commit/519ac934b6780f67b7401fd6d4f424a1f23e2d6f) adds another consumer of the verification-input gap above. A changed, already-excluded fixture can leave the cache key unchanged and cause a later test task to receive an earlier pass without executing the test again. This is a bounded extension of this audit, not a new discovery that workspace membership is an incomplete verification domain.
+
+**Freeze and evidence limit:** source inspected at public main [`7ae9bb54dfdc65410954aa1d347bf44af4d48a7c`](https://github.com/theRebelliousNerd/codenerd/commit/7ae9bb54dfdc65410954aa1d347bf44af4d48a7c), November 3, 2026. The sequence below is conditional source analysis. No application, tests, build, model inference or benchmark was run. This addendum does not establish a production incident, overall campaign completion or a permission bypass.
+
+### The new consumer
+
+`executeTestRunTask` resolves and validates the package target, requires VirtualStore and kernel objects, serializes test tasks, and obtains `evidence.Snapshot`. If the last green witness has the same target and snapshot, it copies that witness into the new task and returns `passed: true` with `witness_source: virtual_store/run_tests_cached`. The hit precedes command construction, pending-action admission and VirtualStore execution. The cached witness retains its original command, output hash and timestamp; the code does not forge a new execution timestamp. [Cache lookup and dispatch](https://github.com/theRebelliousNerd/codenerd/blob/7ae9bb54dfdc65410954aa1d347bf44af4d48a7c/internal/campaign/orchestrator_task_handlers.go#L921-L975).
+
+On a miss, the handler executes the check, rejects cancellation or a failed result, and compares before/after snapshots. Only then does it save the green witness and output. Those controls remain useful. The cache fields belong to the orchestrator, so two tasks on that same object can reuse the result. [Witness population](https://github.com/theRebelliousNerd/codenerd/blob/7ae9bb54dfdc65410954aa1d347bf44af4d48a7c/internal/campaign/orchestrator_task_handlers.go#L975-L1000), [cache state](https://github.com/theRebelliousNerd/codenerd/blob/7ae9bb54dfdc65410954aa1d347bf44af4d48a7c/internal/campaign/orchestrator_types.go#L87-L94).
+
+The key's input domain remains narrower than the process's. `Snapshot` skips directories and files excluded by membership. Membership reads `world.ignore_patterns` and applies explicit exclusions even to tracked files. The real test action runs a process in the configured working directory, not a membership-filtered filesystem. [Snapshot](https://github.com/theRebelliousNerd/codenerd/blob/7ae9bb54dfdc65410954aa1d347bf44af4d48a7c/internal/evidence/change.go#L173-L246), [membership admission](https://github.com/theRebelliousNerd/codenerd/blob/7ae9bb54dfdc65410954aa1d347bf44af4d48a7c/internal/workspace/membership.go#L299-L331), [explicit patterns](https://github.com/theRebelliousNerd/codenerd/blob/7ae9bb54dfdc65410954aa1d347bf44af4d48a7c/internal/workspace/membership.go#L412-L444), [configuration source](https://github.com/theRebelliousNerd/codenerd/blob/7ae9bb54dfdc65410954aa1d347bf44af4d48a7c/internal/workspace/membership.go#L659-L698), [process execution](https://github.com/theRebelliousNerd/codenerd/blob/7ae9bb54dfdc65410954aa1d347bf44af4d48a7c/internal/core/virtual_store_actions.go#L437-L465).
+
+### Conditional repeated-task witness
+
+Use an ordinary Go module with an unchanged test that reads `testdata/expected.txt` and compares its integer value with a fixed correct result of `5`. Before either task, explicitly exclude that fixture using `world.ignore_patterns`. Keep the configuration, test, source, target, toolchain and all included files unchanged throughout.
+
+1. A first admitted `/test_run` task for target `.` runs on an orchestrator with no cached witness. The fixture contains `5`, the real process succeeds, both snapshots agree, and the handler stores its witness.
+2. Between tasks, an independently authorized external editor changes only the excluded fixture to `6`. The witness does not assume a model tool can bypass membership or write guards.
+3. A second test task for the same target uses the same orchestrator. The fixture remains absent from the refreshed snapshot. The target and snapshot match, so the handler returns the old pass without reaching the process runner.
+
+Under these assumptions, the later task reports success although the current fixture would make an actual run fail. This differs from the original acceptance witness, which executed a new test against changed expectations. Here reuse omits that new execution entirely. Further phase checks or acceptance obligations can still detect the change; no unconditional final-success claim follows.
+
+**Negative controls:** editing an included fixture, source or test changes the snapshot. Editing `.nerd/config.json` itself also changes it because that file is explicitly included. The defect requires an exclusion already in force, not a configuration change hidden from hashing. A different target or fresh orchestrator misses this cache. [Configuration exception](https://github.com/theRebelliousNerd/codenerd/blob/7ae9bb54dfdc65410954aa1d347bf44af4d48a7c/internal/evidence/change.go#L200-L218).
+
+### Proposed checks and repair boundary
+
+All following checks are unrun:
+
+- Traverse the production campaign test-task route twice on the same orchestrator with a real gated host executor. Count actual executions and inspect both task witnesses, output hashes and provenance. Change only the already-excluded fixture between calls.
+- Require a rerun that exposes the current failure, or an explicit unsupported/unverified input-domain outcome. A stale `passed: true` must not satisfy the second task.
+- Repeat with an included fixture, changed configuration, changed target and fresh orchestrator. Preserve safe same-input reuse for a declared complete input domain.
+- Retain failed-run, canceled-run and changed-during-run controls. Confirm cache reuse neither fabricates a new execution time nor discards its cached provenance.
+
+Do not make indexing exclusions globally ineffective. Bind reuse to an adequate verification-input manifest and its completeness, or decline reuse where that identity is unavailable. Reuse may save process launches, but hashing/discovery, manifest storage, synchronization and extra reruns have costs. No latency, token or monetary benefit was measured. This extension belongs beside the existing fixture-domain finding rather than reopening the separate session memoization and invocation-receipt repairs.
