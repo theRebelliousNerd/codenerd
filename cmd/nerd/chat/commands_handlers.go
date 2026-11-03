@@ -670,6 +670,12 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 					Content: fmt.Sprintf("A campaign is already running (%s); stop or finish it before starting another.", m.activeCampaign.Title),
 					Time:    time.Now(),
 				})
+			} else if m.recurse != nil {
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: "A recurse loop is already running; `/recurse stop` ends it before starting a campaign.",
+					Time:    time.Now(),
+				})
 			} else {
 				goal := strings.Join(parts[2:], " ")
 				m = m.addMessage(Message{
@@ -684,6 +690,24 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 				return m, tea.Batch(m.spinner.Tick, m.startCampaign(goal))
 			}
 		case "assault":
+			if m.campaignOrch != nil {
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("A campaign is already running (%s); stop or finish it before starting another.", m.activeCampaign.Title),
+					Time:    time.Now(),
+				})
+				m.textarea.Reset()
+				return m, nil
+			}
+			if m.recurse != nil {
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: "A recurse loop is already running; `/recurse stop` ends it before starting a campaign.",
+					Time:    time.Now(),
+				})
+				m.textarea.Reset()
+				return m, nil
+			}
 			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Starting adversarial assault campaign...",

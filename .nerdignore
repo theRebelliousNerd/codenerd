@@ -1,0 +1,9 @@
+# Agent harness, skill, and workflow mirrors (not codeNERD runtime subsystems)
+.agents/
+.claude/
+.codex/
+.grok/
+.gemini/
+.github/
+.quality_assurance/
+_mangle_lab/

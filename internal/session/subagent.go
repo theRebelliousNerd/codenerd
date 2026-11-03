@@ -323,6 +323,9 @@ func (s *SubAgent) Run(ctx context.Context, task string) {
 			ctx, timeoutCancel = context.WithTimeout(ctx, s.config.Timeout)
 			defer timeoutCancel()
 		}
+		if usage.SessionIDFromContext(ctx) == "" && s.executor != nil && s.executor.SessionID() != "" {
+			ctx = usage.WithSessionID(ctx, s.executor.SessionID())
+		}
 
 		// Run the task. The transcript is the harness's: it records the task,
 		// the answers, the tool calls and results, and the outcome whatever the

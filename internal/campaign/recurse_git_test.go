@@ -174,3 +174,28 @@ func TestRecurseGit_WorkspaceInASubdirectory(t *testing.T) {
 		t.Fatal("a file outside the workspace is not the loop's to remove")
 	}
 }
+
+func TestRecurseGit_CommitExcludesPreStagedForeignIndexEntries(t *testing.T) {
+	ctx := context.Background()
+	g := gitFixture(t, map[string]string{
+		"owned.txt":   "v1\n",
+		"foreign.txt": "v1\n",
+	})
+	// Pre-stage a foreign modification before the recurse cycle runs.
+	writeTree(t, g.root, map[string]string{"foreign.txt": "foreign-staged\n"})
+	gitOut(t, g, "add", "foreign.txt")
+
+	// The recurse cycle edits only owned.txt.
+	writeTree(t, g.root, map[string]string{"owned.txt": "v2\n"})
+	hash, err := g.commit(ctx, []string{"owned.txt"}, "recurse: update owned", 1, "deadbeef")
+	if err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if files := gitOut(t, g, "show", "--name-only", "--format=", hash); files != "owned.txt" {
+		t.Fatalf("commit swept foreign staged file: %q", files)
+	}
+	// foreign.txt remains staged in the index, untouched by the scoped commit.
+	if cached := gitOut(t, g, "diff", "--cached", "--name-only"); cached != "foreign.txt" {
+		t.Fatalf("foreign staged file missing from index after scoped commit: %q", cached)
+	}
+}

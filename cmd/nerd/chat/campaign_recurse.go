@@ -14,6 +14,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/observation"
 	"codenerd/internal/sessionlog"
+	"codenerd/internal/usage"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/kballard/go-shellquote"
@@ -170,6 +171,9 @@ func (m Model) startRecurseCampaign(args []string) tea.Cmd {
 		if m.recurse != nil {
 			return campaignErrorMsg{err: fmt.Errorf("a recurse loop is already running; `/recurse stop` ends it")}
 		}
+		if m.campaignOrch != nil {
+			return campaignErrorMsg{err: fmt.Errorf("a campaign is already running; stop or finish it before starting recurse")}
+		}
 
 		known, err := recurseNodeIDs(m.workspace)
 		if err != nil {
@@ -206,6 +210,9 @@ func (m Model) runRecurseLoop(ctx context.Context, st *recurseState, cfg campaig
 			campaignCfg.MaxParallelTasks = mission.Limits.WithDefaults().Concurrency
 			copyCfg.Campaign = &campaignCfg
 			m.Config = &copyCfg
+		}
+		if m.sessionID != "" {
+			ctx = usage.WithSessionID(ctx, m.sessionID)
 		}
 		ctx = sessionlog.WithLiveProgress(ctx, m.sendDelegatedProgress)
 		res, err := campaign.RunRecurseCycles(ctx, campaign.RecurseCycleConfig{

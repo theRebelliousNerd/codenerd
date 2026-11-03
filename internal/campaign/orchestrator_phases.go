@@ -22,26 +22,23 @@ func (o *Orchestrator) getCurrentPhase() *Phase {
 		return nil
 	}
 
-	if len(facts[0].Args) == 0 || facts[0].Args[0] == nil {
-		logging.CampaignDebug("current_phase fact is malformed: no or nil arguments")
-		return nil
-	}
-
-	phaseID := types.ExtractString(facts[0].Args[0])
-	if phaseID == "" {
-		logging.CampaignDebug("current_phase fact argument is empty string")
-		return nil
-	}
-	logging.CampaignDebug("Current phase from kernel: %s", phaseID)
-
-	// Find phase in campaign
-	for i := range o.campaign.Phases {
-		if o.campaign.Phases[i].ID == phaseID {
-			return &o.campaign.Phases[i]
+	for _, fact := range facts {
+		if len(fact.Args) == 0 || fact.Args[0] == nil {
+			continue
+		}
+		phaseID := types.ExtractString(fact.Args[0])
+		if phaseID == "" {
+			continue
+		}
+		for i := range o.campaign.Phases {
+			if o.campaign.Phases[i].ID == phaseID {
+				logging.CampaignDebug("Current phase from kernel: %s", phaseID)
+				return &o.campaign.Phases[i]
+			}
 		}
 	}
 
-	logging.CampaignDebug("Phase %s not found in campaign structure", phaseID)
+	logging.CampaignDebug("No owned current_phase found in campaign structure")
 	return nil
 }
 
@@ -305,12 +302,21 @@ func (o *Orchestrator) getCampaignBlockReason() string {
 		return ""
 	}
 
-	reason := "unknown"
-	if len(facts[0].Args) >= 2 {
-		reason = types.ExtractString(facts[0].Args[1])
+	for _, f := range facts {
+		if len(f.Args) == 0 {
+			continue
+		}
+		if o.campaign != nil && o.campaign.ID != "" && types.ExtractString(f.Args[0]) != types.ExtractString(o.campaign.ID) {
+			continue
+		}
+		reason := "unknown"
+		if len(f.Args) >= 2 {
+			reason = types.ExtractString(f.Args[1])
+		}
+		logging.CampaignDebug("Campaign blocked detected: %s", reason)
+		return reason
 	}
-	logging.CampaignDebug("Campaign blocked detected: %s", reason)
-	return reason
+	return ""
 }
 
 // phaseTasksDone asks the kernel whether every task of the phase is completed
@@ -361,11 +367,33 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 		return fmt.Errorf("no eligible phases")
 	}
 
-	phaseID := types.ExtractString(facts[0].Args[0])
-	logging.Campaign("Phase transition: starting phase %s", phaseID)
-
-	// Find and update phase
+	// Find and update the first eligible phase owned by this campaign.
 	o.mu.Lock()
+	var phaseID string
+	for _, f := range facts {
+		if len(f.Args) == 0 || f.Args[0] == nil {
+			continue
+		}
+		cand := types.ExtractString(f.Args[0])
+		if cand == "" {
+			continue
+		}
+		for i := range o.campaign.Phases {
+			if o.campaign.Phases[i].ID == cand {
+				phaseID = cand
+				break
+			}
+		}
+		if phaseID != "" {
+			break
+		}
+	}
+	if phaseID == "" {
+		o.mu.Unlock()
+		logging.CampaignDebug("No owned eligible phases found")
+		return fmt.Errorf("no eligible phases")
+	}
+	logging.Campaign("Phase transition: starting phase %s", phaseID)
 
 	var phaseName string
 	var phaseOrder int

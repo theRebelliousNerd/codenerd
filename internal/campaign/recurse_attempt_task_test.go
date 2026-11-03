@@ -248,6 +248,24 @@ func TestSpawnTask_SetsRecursePromptPhase(t *testing.T) {
 	}
 }
 
+func TestWritePriorAttempts_BoundsReasonOnlyTotalSize(t *testing.T) {
+	var priors []PriorAttempt
+	for i := 1; i <= 50; i++ {
+		priors = append(priors, PriorAttempt{
+			Cycle: i,
+			Why:   strings.Repeat("reason-", 100),
+		})
+	}
+	var b strings.Builder
+	writePriorAttempts(&b, priors)
+	if b.Len() > recurseEvidenceLimit+256 {
+		t.Fatalf("writePriorAttempts len = %d, exceeds budget %d", b.Len(), recurseEvidenceLimit)
+	}
+	if !strings.Contains(b.String(), "Cycle 50, reverted:") {
+		t.Fatalf("newest prior attempt missing from bounded output")
+	}
+}
+
 func TestWritePriorAttempts_StripsTurnLocalRecallContextNotes(t *testing.T) {
 	var b strings.Builder
 	writePriorAttempts(&b, []PriorAttempt{

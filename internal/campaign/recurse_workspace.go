@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"codenerd/internal/build"
+	"codenerd/internal/projectdoc"
 	"codenerd/internal/tools"
 	"codenerd/internal/workspace"
 )
@@ -72,13 +73,21 @@ func DeriveWorkspaceDAG(ctx context.Context, root string) ([]SubsystemNode, erro
 	if err != nil {
 		return nil, fmt.Errorf("recurse DAG: %w", err)
 	}
+	mem, err := workspace.For(abs)
+	if err != nil {
+		return nil, fmt.Errorf("recurse DAG: %w", err)
+	}
+	if err := mem.Refresh(); err != nil {
+		return nil, fmt.Errorf("recurse DAG: %w", err)
+	}
+	doc, _ := projectdoc.Load(abs)
 	g := newWorkspaceGraph()
-	files, err := collectSourceFiles(abs)
+	files, err := collectSourceFiles(abs, mem, doc)
 	if err != nil {
 		return nil, fmt.Errorf("recurse DAG: walk %s: %w", abs, err)
 	}
 	if fileExists(filepath.Join(abs, "go.mod")) {
-		if err := scanGoPackages(ctx, abs, g); err != nil {
+		if err := scanGoPackages(ctx, abs, mem, doc, g); err != nil {
 			return nil, err
 		}
 	}
@@ -254,17 +263,12 @@ func appendCrossCutting(nodes []SubsystemNode) []SubsystemNode {
 
 // collectSourceFiles walks the workspace once and groups the files the
 // scanners read: ".py", ".js" (every JS/TS flavour) and "Cargo.toml".
-// Which directories are the workspace is membership's decision.
-func collectSourceFiles(root string) (map[string][]string, error) {
-	mem, err := workspace.For(root)
-	if err != nil {
-		return nil, err
-	}
-	if err := mem.Refresh(); err != nil {
-		return nil, err
-	}
+// Which directories are the workspace is membership's decision, supplemented
+// by hidden dot-directory and projectdoc forbidden-path exclusions so agent
+// harnesses (.agents, .claude, .codex, .grok) are never swept as subsystems.
+func collectSourceFiles(root string, mem *workspace.Membership, doc *projectdoc.Document) (map[string][]string, error) {
 	out := map[string][]string{}
-	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if p == root {
 				return err
@@ -274,6 +278,19 @@ func collectSourceFiles(root string) (map[string][]string, error) {
 				return filepath.SkipDir
 			}
 			return nil
+		}
+		if p != root && d.IsDir() && strings.HasPrefix(d.Name(), ".") {
+			return filepath.SkipDir
+		}
+		if p != root && doc != nil {
+			if rel, relErr := filepath.Rel(root, p); relErr == nil {
+				if _, forbidden := doc.ForbidsPath(filepath.ToSlash(rel)); forbidden {
+					if d.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+			}
 		}
 		member, admErr := mem.Admit(p, d.IsDir())
 		if admErr != nil {
@@ -297,6 +314,18 @@ func collectSourceFiles(root string) (map[string][]string, error) {
 		return nil
 	})
 	return out, err
+}
+
+func hasHiddenDirSegment(rel string) bool {
+	if rel == "" || rel == "." {
+		return false
+	}
+	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+		if len(seg) > 1 && strings.HasPrefix(seg, ".") {
+			return true
+		}
+	}
+	return false
 }
 
 var jsExts = []string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"}
@@ -337,9 +366,11 @@ func dirExists(p string) bool {
 
 // goListPackage is the slice of `go list -json` recurse reads.
 type goListPackage struct {
-	Dir        string   `json:"Dir"`
-	ImportPath string   `json:"ImportPath"`
-	Imports    []string `json:"Imports"`
+	Dir          string   `json:"Dir"`
+	ImportPath   string   `json:"ImportPath"`
+	Imports      []string `json:"Imports"`
+	TestImports  []string `json:"TestImports"`
+	XTestImports []string `json:"XTestImports"`
 }
 
 // runGoList is `go list -e -json ./...` in root under the build environment.
@@ -359,8 +390,8 @@ var runGoList = func(ctx context.Context, root string) ([]byte, error) {
 }
 
 // scanGoPackages adds one node per package in the module and an edge per
-// import between them.
-func scanGoPackages(ctx context.Context, root string, g *workspaceGraph) error {
+// import (production, in-package test, and external test) between them.
+func scanGoPackages(ctx context.Context, root string, mem *workspace.Membership, doc *projectdoc.Document, g *workspaceGraph) error {
 	out, err := runGoList(ctx, root)
 	if err != nil {
 		return fmt.Errorf("recurse DAG: %w", err)
@@ -387,17 +418,31 @@ func scanGoPackages(ctx context.Context, root string, g *workspaceGraph) error {
 		if err != nil || strings.HasPrefix(rel, "..") {
 			continue
 		}
-		dirOf[p.ImportPath] = filepath.ToSlash(rel)
-		g.addNode(filepath.ToSlash(rel), "go")
+		relSlash := filepath.ToSlash(rel)
+		if hasHiddenDirSegment(relSlash) {
+			continue
+		}
+		if doc != nil {
+			if _, forbidden := doc.ForbidsPath(relSlash); forbidden {
+				continue
+			}
+		}
+		if mem != nil && relSlash != "." && !mem.IncludesDir(relSlash) {
+			continue
+		}
+		dirOf[p.ImportPath] = relSlash
+		g.addNode(relSlash, "go")
 	}
 	for _, p := range pkgs {
 		from, ok := dirOf[p.ImportPath]
 		if !ok {
 			continue
 		}
-		for _, imp := range p.Imports {
-			if to, ok := dirOf[imp]; ok {
-				g.addEdge(from, to)
+		for _, list := range [][]string{p.Imports, p.TestImports, p.XTestImports} {
+			for _, imp := range list {
+				if to, ok := dirOf[imp]; ok {
+					g.addEdge(from, to)
+				}
 			}
 		}
 	}

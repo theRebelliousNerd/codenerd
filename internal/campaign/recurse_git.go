@@ -133,7 +133,7 @@ func (g recurseGit) commit(ctx context.Context, paths []string, subject string, 
 		return "", err
 	}
 	msg := fmt.Sprintf("%s\n\n%s: %d\n%s: %s\n", subject, recurseCycleTrailer, cycle, recurseFindingTrailer, findingID)
-	args := []string{"commit", "--quiet", "--file=-"}
+	args := append([]string{"commit", "--quiet", "--file=-", "--"}, paths...)
 	if name, _ := g.run(ctx, nil, "config", "user.email"); strings.TrimSpace(name) == "" {
 		// No identity configured: commit as the loop rather than fail every
 		// kept attempt. A configured identity always wins.

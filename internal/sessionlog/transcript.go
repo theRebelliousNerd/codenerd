@@ -62,6 +62,9 @@ type Transcript struct {
 	seq    int
 	opened bool
 	broken bool
+	// progMu guards task and prog so live progress queries (Store.ProgressForTask)
+	// never block behind whole-history JSON decoding and atomicfile synchronization.
+	progMu sync.Mutex
 	// task is the task id the agent works on (WithTask), so a caller holding
 	// the id can find this agent's progress (Store.ProgressForTask).
 	task string
@@ -192,7 +195,9 @@ func (t *Transcript) append(ev TranscriptEvent) {
 	t.seq++
 	ev.Seq = t.seq
 	ev.Time = time.Now()
+	t.progMu.Lock()
 	t.prog.observe(ev)
+	t.progMu.Unlock()
 	body, err := marshalEvent(ev)
 	if err != nil {
 		t.seq--

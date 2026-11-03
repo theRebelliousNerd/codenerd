@@ -136,7 +136,11 @@ func (tc *TracingLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt
 
 	duration := time.Since(start)
 	if err != nil {
-		logging.Get(logging.CategoryAPI).Error("LLM call failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			logging.API("LLM call canceled: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+		} else {
+			logging.Get(logging.CategoryAPI).Error("LLM call failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+		}
 	} else {
 		logging.API("LLM call completed: shard=%s duration=%v response_len=%d", tctx.shardID, duration, len(response))
 	}
@@ -186,6 +190,8 @@ func (tc *TracingLLMClient) CompleteWithSchema(ctx context.Context, systemPrompt
 	if err != nil {
 		if errors.Is(err, core.ErrSchemaNotSupported) {
 			logging.APIDebug("LLM schema call skipped: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+		} else if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			logging.API("LLM schema call canceled: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
 		} else {
 			logging.Get(logging.CategoryAPI).Error("LLM schema call failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
 		}
@@ -236,7 +242,11 @@ func (tc *TracingLLMClient) CompleteWithStreaming(ctx context.Context, systemPro
 
 		duration := time.Since(start)
 		if res.Err != nil {
-			logging.Get(logging.CategoryAPI).Error("LLM streaming call %s: shard=%s duration=%v error=%s", res.Outcome(), tctx.shardID, duration, res.Err.Error())
+			if errors.Is(res.Err, context.Canceled) || ctx.Err() != nil {
+				logging.API("LLM streaming call %s: shard=%s duration=%v error=%s", res.Outcome(), tctx.shardID, duration, res.Err.Error())
+			} else {
+				logging.Get(logging.CategoryAPI).Error("LLM streaming call %s: shard=%s duration=%v error=%s", res.Outcome(), tctx.shardID, duration, res.Err.Error())
+			}
 		} else {
 			logging.API("LLM streaming call completed: shard=%s duration=%v response_len=%d", tctx.shardID, duration, full.Len())
 		}
@@ -393,7 +403,11 @@ func (tc *TracingLLMClient) CompleteWithTools(ctx context.Context, systemPrompt,
 
 	duration := time.Since(start)
 	if err != nil {
-		logging.Get(logging.CategoryAPI).Error("LLM tool call failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			logging.API("LLM tool call canceled: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+		} else {
+			logging.Get(logging.CategoryAPI).Error("LLM tool call failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+		}
 	} else {
 		logging.API("LLM tool call completed: shard=%s duration=%v tool_calls=%d text_len=%d", tctx.shardID, duration, toolCallCount, len(responseText))
 	}
@@ -432,7 +446,11 @@ func (tc *TracingLLMClient) CompleteWithToolResults(ctx context.Context, systemP
 			n = len(resp.ToolCalls)
 		}
 		if err != nil {
-			logging.Get(logging.CategoryAPI).Error("LLM tool-results failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+				logging.API("LLM tool-results canceled: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+			} else {
+				logging.Get(logging.CategoryAPI).Error("LLM tool-results failed: shard=%s duration=%v error=%s", tctx.shardID, duration, err.Error())
+			}
 		} else {
 			logging.API("LLM tool-results completed: shard=%s duration=%v tool_calls=%d", tctx.shardID, duration, n)
 		}

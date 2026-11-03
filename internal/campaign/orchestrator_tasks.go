@@ -397,11 +397,10 @@ func (o *Orchestrator) triggerRollingWave(ctx context.Context, completedPhase *P
 			return
 		}
 
-		// Reload campaign facts after refinement to keep Mangle view up to date
-		logging.CampaignDebug("Reloading campaign facts after refinement")
-		o.kernel.Retract("campaign_phase")
-		o.kernel.Retract("campaign_task")
-		if err := o.kernel.LoadFacts(o.campaign.ToFacts()); err != nil {
+		// RefineNextPhase already synchronizes scoped campaign facts via
+		// syncCampaignFacts when a successor phase is refined; only reload
+		// scoped facts when a custom or mock replanner did not sync them.
+		if err := syncCampaignFacts(o.kernel, o.campaign, o.campaign, ""); err != nil {
 			logging.CampaignWarn("failed to reload campaign facts after refinement: %v", err)
 		}
 

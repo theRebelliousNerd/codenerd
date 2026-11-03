@@ -14,6 +14,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/sessionlog"
 	"codenerd/internal/types"
+	"codenerd/internal/usage"
 )
 
 // TaskRequest represents a structured request for task execution.
@@ -454,6 +455,9 @@ func (j *JITExecutor) executeObserved(ctx context.Context, req TaskRequest, sess
 		name = agentName(req.IntentVerb)
 	}
 	ctx = withShardUsage(ctx, req.IntentVerb, name)
+	if usage.SessionIDFromContext(ctx) == "" && exec.SessionID() != "" {
+		ctx = usage.WithSessionID(ctx, exec.SessionID())
+	}
 
 	// The delegated task is an agent of its own in the session log: its model
 	// calls, tool results and outcome file under <role>-<id>/.

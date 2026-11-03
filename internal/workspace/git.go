@@ -287,7 +287,7 @@ func checkIgnore(root string, rels []string, asDir bool) (map[string]bool, error
 }
 
 type snapStamps struct {
-	index, head, headRef, gitignore, exclude fileStamp
+	index, head, headRef, gitignore, nerdignore, exclude fileStamp
 }
 
 type fileStamp struct {
@@ -319,10 +319,11 @@ func resolveGitPaths(root string) (gitPaths, error) {
 // switch is a different ref and pays one more git-path lookup.
 func stampCached(root string, gp gitPaths, refName, refPath string) (snapStamps, string, string) {
 	st := snapStamps{
-		index:     statStamp(gp.index),
-		head:      statStamp(gp.head),
-		exclude:   statStamp(gp.exclude),
-		gitignore: statStamp(filepath.Join(root, ".gitignore")),
+		index:      statStamp(gp.index),
+		head:       statStamp(gp.head),
+		exclude:    statStamp(gp.exclude),
+		gitignore:  statStamp(filepath.Join(root, ".gitignore")),
+		nerdignore: statStamp(filepath.Join(root, ".nerdignore")),
 	}
 	if gp.head == "" {
 		return st, "", ""

@@ -120,7 +120,7 @@ func (s *Store) ProgressForTask(session, task string) []Progress {
 	s.mu.Unlock()
 	var out []Progress
 	for _, t := range ts {
-		t.mu.Lock()
+		t.progMu.Lock()
 		if t.task == task {
 			p := t.prog
 			out = append(out, Progress{
@@ -131,7 +131,7 @@ func (s *Store) ProgressForTask(session, task string) []Progress {
 				Finished: p.finished, FinalError: p.finalError,
 			})
 		}
-		t.mu.Unlock()
+		t.progMu.Unlock()
 	}
 	sortProgress(out)
 	return out
@@ -150,9 +150,9 @@ func (t *Transcript) setTask(task string) {
 	if t == nil {
 		return
 	}
-	t.mu.Lock()
+	t.progMu.Lock()
 	t.task = task
-	t.mu.Unlock()
+	t.progMu.Unlock()
 }
 
 // LiveEvent is a compact, session-owned execution update, not a tool payload or

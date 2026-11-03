@@ -177,14 +177,30 @@ func writePriorAttempts(b *strings.Builder, prior []PriorAttempt) {
 	for i := len(prior) - 1; i >= 0 && budget > 0; i-- {
 		p := prior[i]
 		why := priorAttemptRecallNotePattern.ReplaceAllString(p.Why, "")
-		fmt.Fprintf(b, "\nCycle %d, reverted: %s\n", p.Cycle, why)
-		tried := p.Tried
-		if len(tried) > budget {
-			tried = types.ClampText(tried, budget, fmt.Sprintf("cycle %d diff", p.Cycle))
+		header := fmt.Sprintf("\nCycle %d, reverted: %s\n", p.Cycle, why)
+		if len(header) > budget {
+			if i == len(prior)-1 {
+				header = types.ClampText(header, budget, fmt.Sprintf("cycle %d reason", p.Cycle))
+				b.WriteString(header)
+			}
+			break
 		}
-		budget -= len(tried)
-		if strings.TrimSpace(tried) != "" {
-			fmt.Fprintf(b, "It changed:\n```diff\n%s\n```\n", strings.TrimRight(tried, "\n"))
+		b.WriteString(header)
+		budget -= len(header)
+		tried := p.Tried
+		if strings.TrimSpace(tried) != "" && budget > 0 {
+			const prefix = "It changed:\n```diff\n"
+			const suffix = "\n```\n"
+			wrapperLen := len(prefix) + len(suffix)
+			if budget > wrapperLen {
+				diffBudget := budget - wrapperLen
+				if len(tried) > diffBudget {
+					tried = types.ClampText(tried, diffBudget, fmt.Sprintf("cycle %d diff", p.Cycle))
+				}
+				entry := prefix + strings.TrimRight(tried, "\n") + suffix
+				b.WriteString(entry)
+				budget -= len(entry)
+			}
 		}
 	}
 }

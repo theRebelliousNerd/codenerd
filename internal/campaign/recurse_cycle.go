@@ -430,6 +430,9 @@ func (r *recurseRun) boundary(ctx context.Context, pass int) error {
 }
 
 func (r *recurseRun) logf(format string, args ...any) {
+	if r == nil || r.out == nil {
+		return
+	}
 	fmt.Fprintf(r.out, format+"\n", args...)
 }
 
@@ -670,6 +673,7 @@ func (r *recurseRun) measureWorkspace(ctx context.Context, set gates.Set, nodes 
 		Kind: "step",
 		Text: fmt.Sprintf("recurse: measuring %d workspace gate(s)", len(all)),
 	})
+	r.logf("recurse: measuring %d workspace baseline gate(s)...", len(all))
 	runs := make([]gateRun, len(all))
 	sem := make(chan struct{}, 4)
 	var wg sync.WaitGroup
@@ -687,6 +691,7 @@ func (r *recurseRun) measureWorkspace(ctx context.Context, set gates.Set, nodes 
 				return
 			}
 			runs[idx] = r.measure(ctx, gate, "", nodes)
+			r.logf("recurse baseline [%s]: %s (%d finding(s))", gate.ID, strings.TrimPrefix(runs[idx].verdict(), "/"), len(runs[idx].findings))
 		}(i, g)
 	}
 	wg.Wait()
@@ -962,6 +967,7 @@ func (r *recurseRun) visit(ctx context.Context, pass int, node SubsystemNode, no
 		return err
 	}
 	open := r.open(node, own, set)
+	r.logf("recurse visit [%s]: %d open finding(s)", node.ID, len(open))
 	scope := visitScope{pass: pass, node: node, nodes: nodes, set: set, own: own, ratchetKinds: ratchetKinds}
 	if err := r.journal.append(recurseRecord{Step: stepVisit, Pass: pass, Node: node.ID, Open: len(open)}); err != nil {
 		return err
@@ -1425,7 +1431,17 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) (r
 	if rec.Outcome != outcomeKept {
 		r.rememberRevert(rec)
 	}
-	r.logf("recurse cycle %d: %s %s", cycle, strings.TrimPrefix(rec.Outcome, "/"), rec.Metrics)
+	if rec.Outcome == outcomeKept {
+		shortHash := rec.Commit
+		if len(shortHash) > 9 {
+			shortHash = shortHash[:9]
+		}
+		r.logf("recurse cycle %d [%s]: kept %s %s", cycle, node.ID, shortHash, rec.Metrics)
+	} else if why := strings.TrimSpace(rec.Why); why != "" {
+		r.logf("recurse cycle %d [%s]: %s %s (%s)", cycle, node.ID, strings.TrimPrefix(rec.Outcome, "/"), rec.Metrics, why)
+	} else {
+		r.logf("recurse cycle %d [%s]: %s %s", cycle, node.ID, strings.TrimPrefix(rec.Outcome, "/"), rec.Metrics)
+	}
 	if err := os.Remove(inFlightPath(r.root)); err != nil {
 		return err
 	}

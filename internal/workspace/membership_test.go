@@ -977,3 +977,38 @@ func TestNeedsAskUsesTrackedExceptionsWithoutACensusHit(t *testing.T) {
 		})
 	}
 }
+
+func TestNerdIgnoreExcludesTrackedFilesWhileImplicitDefaultsYield(t *testing.T) {
+	root := t.TempDir()
+	files := []string{
+		"internal/build/source.go",
+		".agents/skills/foo/probe.py",
+		".claude/skills/bar/test.py",
+		"cmd/nerd/main.go",
+	}
+	for _, rel := range files {
+		writeFile(t, filepath.Join(root, filepath.FromSlash(rel)), "package main\n")
+	}
+	writeFile(t, filepath.Join(root, ".nerdignore"), "# comment\n.agents/\n.claude/\n")
+	runGit(t, root, "init")
+	runGit(t, root, append([]string{"add", ".nerdignore"}, files...)...)
+
+	m, err := For(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.Includes("internal/build/source.go") || !m.IncludesDir("internal/build") {
+		t.Fatal("implicit defaults must still preserve tracked internal/build package when .nerdignore is present")
+	}
+	for _, excluded := range []string{".agents/skills/foo/probe.py", ".claude/skills/bar/test.py"} {
+		if m.Includes(excluded) {
+			t.Errorf(".nerdignore did not exclude tracked file %s", excluded)
+		}
+		if slices.Contains(m.Files(), excluded) {
+			t.Errorf("Files() included .nerdignore path %s", excluded)
+		}
+	}
+	if m.IncludesDir(".agents") || m.IncludesDir(".claude") {
+		t.Error(".nerdignore did not block excluded directories")
+	}
+}

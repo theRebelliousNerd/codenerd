@@ -29,8 +29,9 @@ var ErrNotMember = errors.New("workspace: path is not a member")
 // For and Open cache one value per canonical root and pattern list.
 // The value is safe for concurrent use.
 type Membership struct {
-	root     string
-	patterns patternSet
+	root       string
+	patterns   patternSet
+	nerdignore patternSet
 	// implicitDefaults distinguishes fallback heuristics from operator exclusions.
 	implicitDefaults bool
 	tracked          map[string]struct{}
@@ -157,6 +158,7 @@ func newMembership(root string, patterns []string) (*Membership, error) {
 	m := &Membership{
 		root:             root,
 		patterns:         compilePatterns(patterns),
+		nerdignore:       compilePatterns(loadNerdIgnoreFile(root)),
 		implicitDefaults: implicit,
 		decided:          map[string]bool{},
 		readDir:          os.ReadDir,
@@ -227,8 +229,10 @@ func (m *Membership) Refresh() error {
 	}
 	m.refreshMu.Lock()
 	defer m.refreshMu.Unlock()
+	nerdignore := compilePatterns(loadNerdIgnoreFile(m.root))
 	if !m.git {
 		m.mu.Lock()
+		m.nerdignore = nerdignore
 		m.fileList = nil
 		m.decided = map[string]bool{}
 		m.mu.Unlock()
@@ -239,6 +243,7 @@ func (m *Membership) Refresh() error {
 		return err
 	}
 	m.mu.Lock()
+	m.nerdignore = nerdignore
 	m.storeSnap(snap)
 	m.mu.Unlock()
 	return nil
@@ -415,6 +420,15 @@ func (m *Membership) patternsExclude(rel string, isDir bool) bool {
 // patternsExcludeLocked requires m.mu so exceptions and patterns are evaluated
 // against one snapshot, including while constructing the cached file list.
 func (m *Membership) patternsExcludeLocked(rel string, isDir bool) bool {
+	if isDir {
+		if m.nerdignore.blocksDir(rel) {
+			return true
+		}
+	} else {
+		if m.nerdignore.excluded(rel, false) {
+			return true
+		}
+	}
 	if m.implicitDefaults {
 		paths := m.tracked
 		if isDir {
@@ -682,4 +696,27 @@ func loadIgnorePatterns(root string) []string {
 		return nil
 	}
 	return list
+}
+
+// loadNerdIgnoreFile reads .nerdignore at the workspace root. Lines starting
+// with '#' and blank lines are ignored. Patterns in .nerdignore are explicit
+// operator exclusions and apply even to git-tracked files.
+func loadNerdIgnoreFile(root string) []string {
+	p := filepath.Join(root, ".nerdignore")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("workspace: .nerdignore: cannot read %s: %v", p, err)
+		}
+		return nil
+	}
+	var out []string
+	for _, raw := range strings.Split(string(b), "\n") {
+		line := strings.TrimSpace(strings.TrimSuffix(raw, "\r"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
 }
