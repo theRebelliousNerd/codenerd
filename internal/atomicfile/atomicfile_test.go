@@ -795,3 +795,131 @@ func TestRemoveTemp_PreservesNonEmptyDirectory(t *testing.T) {
 		t.Errorf("child contents = %q, want retained", got)
 	}
 }
+
+func TestWriteFile_PreservesHardLinkedOriginal(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("pins POSIX hard-link identity; Windows uses ReplaceFileW")
+	}
+	tests := []struct {
+		name  string
+		write func(string, []byte, os.FileMode) error
+	}{
+		{name: "explicit mode", write: WriteFile},
+		{name: "preserved mode", write: WriteFilePreservingMode},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			path := filepath.Join(dir, "target")
+			alias := filepath.Join(dir, "original")
+			original := []byte("original contents must survive through the hard link")
+			if err := os.WriteFile(path, original, 0o600); err != nil {
+				t.Fatalf("seed target: %v", err)
+			}
+			if err := os.Link(path, alias); err != nil {
+				t.Fatalf("create hard link: %v", err)
+			}
+
+			// A truncating write, or chmod of the destination before replacing
+			// it, would also mutate this independently named original.
+			replacement := []byte{0x00, 0x01, 0xff, '\n'}
+			if err := tt.write(path, replacement, 0o644); err != nil {
+				t.Fatalf("write replacement: %v", err)
+			}
+			got, err := os.ReadFile(alias)
+			if err != nil {
+				t.Fatalf("read hard-linked original: %v", err)
+			}
+			if string(got) != string(original) {
+				t.Errorf("hard-linked original = %q, want %q", got, original)
+			}
+			got, err = os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read replacement: %v", err)
+			}
+			if string(got) != string(replacement) {
+				t.Errorf("replacement = %q, want %q", got, replacement)
+			}
+			originalInfo, err := os.Stat(alias)
+			if err != nil {
+				t.Fatalf("stat original: %v", err)
+			}
+			if got := originalInfo.Mode().Perm(); got != 0o600 {
+				t.Errorf("original mode = %o, want 0600", got)
+			}
+			replacementInfo, err := os.Stat(path)
+			if err != nil {
+				t.Fatalf("stat replacement: %v", err)
+			}
+			if os.SameFile(originalInfo, replacementInfo) {
+				t.Error("replacement still shares the original inode")
+			}
+		})
+	}
+}
+
+func TestWriteFilePreservingMode_PreservesDirectoryOnFailure(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		withChild bool
+	}{
+		{name: "empty directory"},
+		{name: "nonempty directory", withChild: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			path := filepath.Join(dir, "target")
+			if err := os.Mkdir(path, 0o700); err != nil {
+				t.Fatalf("create destination directory: %v", err)
+			}
+			child := filepath.Join(path, "child")
+			if tt.withChild {
+				if err := os.WriteFile(child, []byte("retained"), 0o600); err != nil {
+					t.Fatalf("seed child: %v", err)
+				}
+			}
+
+			// Stat succeeds here, so the helper must propagate the later
+			// replacement failure rather than treating it as a successful write.
+			if err := WriteFilePreservingMode(path, []byte("replacement"), 0o644); err == nil {
+				t.Fatal("write onto a directory succeeded")
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatalf("stat preserved directory: %v", err)
+			}
+			if !info.IsDir() {
+				t.Fatal("destination directory was replaced")
+			}
+			if tt.withChild {
+				got, err := os.ReadFile(child)
+				if err != nil {
+					t.Fatalf("read preserved child: %v", err)
+				}
+				if string(got) != "retained" {
+					t.Errorf("child contents = %q, want retained", got)
+				}
+			} else {
+				entries, err := os.ReadDir(path)
+				if err != nil {
+					t.Fatalf("read preserved directory: %v", err)
+				}
+				if len(entries) != 0 {
+					t.Errorf("empty destination gained entries: %v", entries)
+				}
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatalf("read parent directory: %v", err)
+			}
+			if len(entries) != 1 || entries[0].Name() != "target" {
+				t.Errorf("parent entries = %v, want only target with no temp artifacts", entries)
+			}
+		})
+	}
+}
