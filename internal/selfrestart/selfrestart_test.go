@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -124,6 +125,136 @@ func TestRestarter_AFailedExecKeepsTheOldProcess(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Fatalf("a failed exec left a restore file: %v", entries)
+	}
+}
+
+func TestRestarter_PreservesExecAndCleanupErrors(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name         string
+		consumed     bool
+		blockCleanup bool
+	}{
+		{name: "restore file removed after exec failure"},
+		{name: "already consumed restore file", consumed: true},
+		{name: "restore cleanup fails", blockCleanup: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			execErr := errors.New("exec rejected")
+			var restorePath string
+			r := NewRestarter(fakeIdentity("/bin/nerd", "aaaa", 10), t.TempDir(), func(_ string, argv []string, _ []string) error {
+				if len(argv) != 3 || argv[1] != RestoreFlag {
+					t.Fatalf("exec argv = %q, want program and restore flag with path", argv)
+				}
+				restorePath = argv[2]
+				if tt.consumed || tt.blockCleanup {
+					if err := os.Remove(restorePath); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if tt.blockCleanup {
+					if err := os.Mkdir(restorePath, 0o700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(filepath.Join(restorePath, "occupied"), []byte("keep"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return execErr
+			})
+			next := fakeIdentity("/bin/nerd", "bbbb", 11)
+			r.BinaryChanged(next)
+			err := r.Restart(State{SessionID: "s"}, []string{"nerd"})
+			if !errors.Is(err, execErr) {
+				t.Fatalf("Restart error = %v, want wrapped exec error", err)
+			}
+			var pathErr *os.PathError
+			if got := errors.As(err, &pathErr); got != tt.blockCleanup {
+				t.Fatalf("Restart cleanup error present = %v, want %v; error = %v", got, tt.blockCleanup, err)
+			}
+			if tt.blockCleanup {
+				if pathErr.Op != "remove" || pathErr.Path != restorePath {
+					t.Errorf("cleanup error = %+v, want remove of %q", pathErr, restorePath)
+				}
+			} else if _, err := os.Stat(restorePath); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("restore file remains after exec failure: stat error = %v", err)
+			}
+			pending, ok := r.Pending()
+			if !ok {
+				t.Fatal("exec failure cleared the pending build")
+			}
+			if diff := cmp.Diff(next, pending); diff != "" {
+				t.Errorf("pending build mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestRestarter_DoesNotExecWithoutSavedState(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name      string
+		pending   bool
+		blockDir  bool
+		blockFile bool
+	}{
+		{name: "no pending build"},
+		{name: "state directory is a file", pending: true, blockDir: true},
+		{name: "restore destination is a directory", pending: true, blockFile: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := filepath.Join(t.TempDir(), "state")
+			if tt.blockDir {
+				if err := os.WriteFile(dir, []byte("occupied"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tt.blockFile {
+				path := filepath.Join(dir, fmt.Sprintf("restore-%d.json", os.Getpid()))
+				if err := os.MkdirAll(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			called := false
+			r := NewRestarter(fakeIdentity("/bin/nerd", "aaaa", 10), dir, func(string, []string, []string) error {
+				called = true
+				return errors.New("unexpected exec")
+			})
+			next := fakeIdentity("/bin/nerd", "bbbb", 11)
+			if tt.pending {
+				r.BinaryChanged(next)
+			}
+			err := r.Restart(State{SessionID: "must-not-resume"}, []string{"nerd"})
+			if err == nil {
+				t.Fatal("Restart accepted a restart without saved state")
+			}
+			if called {
+				t.Fatal("Restart invoked exec without saved state")
+			}
+			var pathErr *os.PathError
+			if tt.blockDir && !errors.As(err, &pathErr) {
+				t.Errorf("Restart error = %v, want wrapped filesystem error", err)
+			}
+			if tt.blockFile {
+				var linkErr *os.LinkError
+				if !errors.As(err, &linkErr) {
+					t.Errorf("Restart error = %v, want wrapped rename error", err)
+				}
+			}
+			pending, ok := r.Pending()
+			if ok != tt.pending {
+				t.Fatalf("Pending = %v, want %v", ok, tt.pending)
+			}
+			if ok {
+				if diff := cmp.Diff(next, pending); diff != "" {
+					t.Errorf("pending build mismatch (-want +got):\n%s", diff)
+				}
+			} else if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("Restart without pending build touched state directory: stat error = %v", err)
+			}
+		})
 	}
 }
 

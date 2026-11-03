@@ -248,8 +248,8 @@ func (r *Restarter) ShouldRestart(busy bool) bool {
 
 // Restart writes st and execs the pending build in place with args (the
 // process's own, os.Args) carrying the restore flag. It returns only on
-// failure: the restore file is removed, the pending build stays pending, and
-// the error says why, with the old process still running.
+// failure: restore file cleanup is attempted, the pending build stays pending,
+// and the error reports exec and cleanup failures, with the old process still running.
 func (r *Restarter) Restart(st State, args []string) error {
 	next, ok := r.Pending()
 	if !ok {
@@ -265,7 +265,9 @@ func (r *Restarter) Restart(st State, args []string) error {
 	exec := r.exec
 	r.mu.Unlock()
 	if err := exec(next.Path, argv, os.Environ()); err != nil {
-		_ = os.Remove(path)
+		if cleanupErr := os.Remove(path); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+			err = errors.Join(err, fmt.Errorf("remove restore file %q: %w", path, cleanupErr))
+		}
 		return fmt.Errorf("could not start the rebuilt codeNERD (%s); this one keeps running: %w", next.Build, err)
 	}
 	return nil
