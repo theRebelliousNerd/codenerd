@@ -179,20 +179,18 @@ func (o *Orchestrator) canPreservePartialFileModifyProgress(task *Task, snapshot
 }
 
 // verifiedCompileProgress reports whether a failed attempt failed only on a
-// red test suite after its edits compiled: the session's verification failure,
-// with no build failure named. failedChecksSummary names a red build "build
-// fails", and the build repair's give-up says the edits "broke the build";
-// either keeps the rollback, because a tree that does not compile is not
-// progress the next attempt can build on.
+// red test suite after its edits compiled. It reads the turn verdict's typed
+// signals, not the error text: /tests_not_green with no /build_not_green or
+// /build_failed. A tree that does not compile is not progress the next
+// attempt can build on, so a red build keeps the rollback.
 func verifiedCompileProgress(err error) bool {
 	if err == nil || !errors.Is(err, session.ErrVerificationFailed) {
 		return false
 	}
-	if slices.Contains(failureSignals(err), "/build_failed") {
-		return false
-	}
-	msg := err.Error()
-	return !strings.Contains(msg, "build fails") && !strings.Contains(msg, "broke the build")
+	sigs := failureSignals(err)
+	return slices.Contains(sigs, "/tests_not_green") &&
+		!slices.Contains(sigs, "/build_not_green") &&
+		!slices.Contains(sigs, "/build_failed")
 }
 
 // validateFileModifyOutcome requires a file_modify task to change at least one

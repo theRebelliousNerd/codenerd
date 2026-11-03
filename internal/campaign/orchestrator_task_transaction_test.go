@@ -1160,10 +1160,11 @@ func TestWithTaskMutationSnapshot_KeepsCompilingWritesOnTestOnlyVerificationFail
 		err  error
 		keep bool
 	}{
-		{"final suite only", fmt.Errorf("execution failed: %w: final workspace failed mechanical checks: final suite fails: TestSweep", session.ErrVerificationFailed), true},
-		{"own tests red", fmt.Errorf("%w: tests fail: TestValue", session.ErrVerificationFailed), true},
-		{"build red", fmt.Errorf("%w: final workspace failed mechanical checks: build fails: x.go:1: undefined: y", session.ErrVerificationFailed), false},
-		{"build repair gave up", fmt.Errorf("%w: edits broke the build and the repair loop did not converge", session.ErrVerificationFailed), false},
+		{"final suite only", withSignals(fmt.Errorf("execution failed: %w: final workspace failed mechanical checks: final suite fails: TestSweep", session.ErrVerificationFailed), "/failed", "/tests_not_green"), true},
+		{"own tests red", withSignals(fmt.Errorf("%w: tests fail: TestValue", session.ErrVerificationFailed), "/tests_not_green"), true},
+		{"build red", withSignals(fmt.Errorf("%w: final workspace failed mechanical checks: build fails: x.go:1: undefined: y", session.ErrVerificationFailed), "/build_not_green", "/tests_not_green"), false},
+		{"build gate failed", withSignals(fmt.Errorf("%w: go build exited 1", session.ErrVerificationFailed), "/build_failed"), false},
+		{"no verdict signal", fmt.Errorf("%w: edits broke the build and the repair loop did not converge", session.ErrVerificationFailed), false},
 		{"unrelated failure", errors.New("provider exploded"), false},
 	}
 	for _, tc := range cases {
