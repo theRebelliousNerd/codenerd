@@ -156,7 +156,7 @@ func RunUntilVerified(ctx context.Context, k types.Kernel, dispatch Dispatch, re
 			return merged, err
 		}
 		current = req
-		current.Task = strings.TrimSpace(req.Task) + redispatchBrief(ret)
+		current.Task = strings.TrimSpace(req.Task) + redispatchBrief(ret, merged.Writes)
 	}
 }
 
@@ -200,7 +200,7 @@ func loopVerdict(k types.Kernel, loop types.MangleAtom) (string, error) {
 // redispatchBrief hands the task back with what the last dispatch left: the
 // verdict and the unmet evidence the kernel named, the unwritten tests and
 // the notes the executor measured, and the dispatch's own report, whole.
-func redispatchBrief(ret observation.Return) string {
+func redispatchBrief(ret observation.Return, mergedWrites ...[]observation.FileWrite) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n\n=== THE PREVIOUS DISPATCH OF THIS TASK ENDED %s, NOT VERIFIED ===\n", strings.ToUpper(strings.TrimPrefix(outcomeWord(ret), "/")))
 	if why := DescribeMissingEvidence(ret.Missing); why != "" {
@@ -215,10 +215,46 @@ func redispatchBrief(ret observation.Return) string {
 	if report := strings.TrimSpace(ret.Output); report != "" {
 		b.WriteString("\nIts report:\n" + report + "\n")
 	}
+	writes := ret.Writes
+	if len(mergedWrites) > 0 && len(mergedWrites[0]) > 0 {
+		writes = mergedWrites[0]
+	}
+	if pending := pendingLedgerRows(writes); pending != "" {
+		b.WriteString(pending)
+	}
 	b.WriteString("\nWhat it did is in the workspace: read what is there and close what is missing, rather than repeating it. " +
+		"Where upstream research outputs omitted an in-scope document or left it unverified/unread, read the underlying workspace document and its cited source files directly to verify and complete it. " +
 		"If an obstacle you cannot clear yourself stops you (a permission or policy denial, a missing credential or input, " +
 		"a choice only the user can make), say exactly what it is and what you need, instead of doing more.")
 	return b.String()
+}
+
+func pendingLedgerRows(writes []observation.FileWrite) string {
+	for _, w := range writes {
+		if len(w.After.Content) == 0 || !strings.HasSuffix(strings.ToLower(w.Path), ".md") {
+			continue
+		}
+		lines := strings.Split(w.After.Content, "\n")
+		var pending []string
+		total := 0
+		for i, raw := range lines {
+			line := strings.TrimSpace(raw)
+			if !strings.HasPrefix(line, "|") || !strings.Contains(line, "open (untriaged)") {
+				continue
+			}
+			total++
+			if len(pending) < 8 {
+				pending = append(pending, fmt.Sprintf("  L%d: %s", i+1, line))
+			}
+		}
+		if len(pending) > 0 {
+			return fmt.Sprintf(
+				"\nRemaining untriaged rows in %s (%d total; in this dispatch, DO NOT re-edit rows that already have a verified disposition—instead, resolve this next batch of %d untriaged rows by reading each named audit document under Docs/audits/<name>.md and the source files it cites directly, then replacing 'open (untriaged)' on these exact lines with a verified disposition):\n%s\n",
+				w.Path, total, len(pending), strings.Join(pending, "\n"),
+			)
+		}
+	}
+	return ""
 }
 
 // mergeReturns folds the next dispatch into the loop's return. The verdict

@@ -467,7 +467,8 @@ func (o *Orchestrator) taskContextSection(ctx context.Context, task *Task) (stri
 			task.ID, pc[preloadOutline], pc[preloadElement], pc[preloadCount], pc[preloadSignature], len(preload))
 	}
 	var parts []string
-	for _, p := range []string{contextFrom, evidence, preload} {
+	pendingBatch := pendingTargetLedgerRows(task, m.workspace)
+	for _, p := range []string{contextFrom, evidence, preload, pendingBatch} {
 		if p != "" {
 			parts = append(parts, strings.TrimRight(p, "\n"))
 		}
@@ -476,6 +477,57 @@ func (o *Orchestrator) taskContextSection(ctx context.Context, task *Task) (stri
 		return "", nil
 	}
 	return strings.Join(parts, "\n\n") + "\n", nil
+}
+
+func pendingTargetLedgerRows(task *Task, workspace string) string {
+	if task == nil || task.Type != TaskTypeFileModify {
+		return ""
+	}
+	seen := map[string]bool{}
+	var paths []string
+	for _, p := range task.WriteSet {
+		if p != "" && !seen[p] {
+			seen[p] = true
+			paths = append(paths, p)
+		}
+	}
+	for _, a := range task.Artifacts {
+		if a.Path != "" && !seen[a.Path] {
+			seen[a.Path] = true
+			paths = append(paths, a.Path)
+		}
+	}
+	for _, rel := range paths {
+		if !strings.HasSuffix(strings.ToLower(rel), ".md") {
+			continue
+		}
+		full := resolveWorkspacePath(workspace, rel)
+		data, err := os.ReadFile(full)
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		lines := strings.Split(string(data), "\n")
+		var pending []string
+		total := 0
+		for i, raw := range lines {
+			line := strings.TrimSpace(raw)
+			if !strings.HasPrefix(line, "|") || !strings.Contains(line, "open (untriaged)") {
+				continue
+			}
+			total++
+			if len(pending) < 8 {
+				pending = append(pending, fmt.Sprintf("  L%d: %s", i+1, line))
+			}
+		}
+		if len(pending) > 0 {
+			return fmt.Sprintf(
+				"## Next Batch of Untriaged Ledger Rows (%s)\n"+
+					"There are %d remaining 'open (untriaged)' rows in %s. In this dispatch, DO NOT re-edit rows that already have a verified disposition—instead, resolve this next batch of %d untriaged rows by reading each named audit document under Docs/audits/<name>.md and the source files it cites directly, then replacing 'open (untriaged)' on these exact lines with a verified disposition:\n%s",
+				rel, total, rel, len(pending), strings.Join(pending, "\n"),
+			)
+		}
+	}
+	return ""
 }
 
 // askContextProjections are the task's context edges whose returns the
@@ -572,7 +624,7 @@ func renderEvidence(rows []evidenceRow, arts []measuredArtifact, workspace strin
 	}
 	var sb strings.Builder
 	sb.WriteString("## Upstream findings (durable artifacts)\n")
-	sb.WriteString("The following are durable outputs from upstream tasks. Use them as the evidence base for this task; do not claim there are no findings without addressing them.\n")
+	sb.WriteString("The following are durable outputs from upstream tasks. Use them as the evidence base for this task; do not claim there are no findings without addressing them. Where an upstream research task output omitted an in-scope document or left it 'unverified' / unread (for example, 'read only the status and title lines' or 'didn't read them'), read that workspace document (e.g. Docs/audits/<name>.md) and the source files it cites directly in this turn to establish a verified disposition rather than leaving the row 'open (untriaged)'.\n")
 	handles := 0
 	for _, r := range rows {
 		full, ok := fullOf[r.path]

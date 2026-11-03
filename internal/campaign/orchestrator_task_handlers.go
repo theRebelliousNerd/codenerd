@@ -453,6 +453,9 @@ var partialBatchReportPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\bremaining\s+(?:work|audits|documents|items)\s*:`),
 	regexp.MustCompile(`(?i)\bbatch\s+\d+\s+of\s+\d+\b`),
 	regexp.MustCompile(`(?i)##+\s*(?:what\s+i\s+need\s+to\s+finish|not\s+dispositioned|next\s+steps?)\b`),
+	regexp.MustCompile(`(?i)\b(?:other|remaining)\s+~?\d+\s+(?:docs?|documents?|items?|audits?|rows?)\b.*\bunverified\b`),
+	regexp.MustCompile(`(?i)\bread\s+only\s+the\s+status\s+and\s+title\s+lines\b`),
+	regexp.MustCompile(`(?i)\bcould\s+not\s+verify\s+any\s+row\b`),
 }
 
 func reportAdmitsPartialBatch(report string) bool {
