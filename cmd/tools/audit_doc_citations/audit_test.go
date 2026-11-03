@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,6 +125,74 @@ func TestCLIExitCodes(t *testing.T) {
 	errb.Reset()
 	if code := run([]string{"-root", root, "-docs", "docs/clean", "extra"}, &out, &errb); code != 2 {
 		t.Fatalf("extra arg exit %d", code)
+	}
+}
+
+func TestReportWritersPropagateErrors(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name   string
+		write  func(io.Writer, Report) error
+		report Report
+	}{
+		{name: "text finding", write: writeText, report: Report{Findings: []Finding{{Doc: "docs/bad.md", Line: 1, Kind: kindMissingPath}}}},
+		{name: "text summary", write: writeText, report: newReport()},
+		{name: "json report", write: writeJSON, report: newReport()},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			reader, writer := io.Pipe()
+			t.Cleanup(func() {
+				if err := writer.Close(); err != nil {
+					t.Errorf("writer.Close() = %v, want nil", err)
+				}
+			})
+			if err := reader.Close(); err != nil {
+				t.Fatalf("reader.Close() = %v, want nil", err)
+			}
+			if err := tt.write(writer, tt.report); !errors.Is(err, io.ErrClosedPipe) {
+				t.Errorf("write(closed pipe) = %v, want %v", err, io.ErrClosedPipe)
+			}
+		})
+	}
+}
+
+func TestCLIRejectsReportWriteFailures(t *testing.T) {
+	t.Parallel()
+	root := writeFixture(t)
+	for _, tt := range []struct {
+		name string
+		docs string
+		json bool
+	}{
+		{name: "clean text", docs: "docs/clean"},
+		{name: "broken text", docs: "docs/bad"},
+		{name: "clean json", docs: "docs/clean", json: true},
+		{name: "broken json", docs: "docs/bad", json: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			reader, writer := io.Pipe()
+			t.Cleanup(func() {
+				if err := writer.Close(); err != nil {
+					t.Errorf("writer.Close() = %v, want nil", err)
+				}
+			})
+			if err := reader.Close(); err != nil {
+				t.Fatalf("reader.Close() = %v, want nil", err)
+			}
+			args := []string{"-root", root, "-docs", tt.docs}
+			if tt.json {
+				args = append(args, "-json")
+			}
+			var stderr bytes.Buffer
+			if got := run(args, writer, &stderr); got != 2 {
+				t.Errorf("run(%q, closed stdout) = %d, want 2", args, got)
+			}
+			if !strings.HasPrefix(stderr.String(), "audit_doc_citations: ") {
+				t.Errorf("run(%q) stderr = %q, want an audit error diagnostic", args, stderr.String())
+			}
+		})
 	}
 }
 
