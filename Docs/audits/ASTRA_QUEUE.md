@@ -192,18 +192,18 @@ These rows cover documents in the census above that did not already have a row. 
 
 Remaining `open (untriaged)` rows are unverified: the cited code has not been read for those rows in the current pass. Earlier research remains evidence for later investigation, not a current-turn disposition.
 
-Directory discrepancy: prior research reported `read_file` not-found for `new`, `sweeps`, `gemini`, `gpt`, `glm`, `kimi`, `mimo`, and `minimax`, but its recursive listing was refused. Their current presence is unverified; no subdirectory documents were dispositioned in this pass.
+Directory discrepancy: prior research reported `read_file` not-found for `new`, `sweeps`, `gemini`, `gpt`, `glm`, `kimi`, `mimo`, and `minimax`. A current listing attempt for each named path returned `no such file or directory` at HEAD `714f27f88fbbe40779ef553591366614f8e07399`; none was dispositioned. This does not verify the census as a recursive inventory.
 
 | audit | branch | status |
 |---|---|---|
 | `ASTRA_QUEUE` | -- | open (untriaged) |
 | `AUDIT` | -- | open (untriaged) |
-| `LEAK_FINDINGS` | -- | open (untriaged) |
-| `MANGLE_FACT_APIS_INVENTORY` | -- | open (untriaged) |
+| `LEAK_FINDINGS` | -- | stale-closed (partial): LEAK_FINDINGS#1, stale for the claimed absence of a shared taxonomy shutdown hook: initialization still starts the worker, `internal/perception/taxonomy.go:88-107`, but an exported shutdown function now delegates to worker shutdown, `internal/perception/taxonomy.go:170-177,859-873`; campaign test cleanup and chat shutdown call it, `internal/campaign/main_test.go:20-23`, `cmd/nerd/chat/model_lifecycle.go:80-87`. Working-tree reads with HEAD `714f27f88fbbe40779ef553591366614f8e07399`; runtime shutdown and other findings, including database handles, remain unverified. |
+| `MANGLE_FACT_APIS_INVENTORY` | -- | stale-closed (partial): MANGLE_FACT_APIS_INVENTORY#1, stale for the claimed absence of a Go producer: a write action builds and attempts to assert the fact, `internal/core/pending_edit.go:49-56,69-87`, and VirtualStore dispatch calls that producer before handling the action, `internal/core/virtual_store_routing.go:402-405,421-433`. Assertion is conditional on write classification and a live kernel. Working-tree reads with HEAD `714f27f88fbbe40779ef553591366614f8e07399` (element revs `9b737dc4080a`, `1a08907488b4`, `1240ecdd1c29`); runtime assertions, policy evaluation and remaining inventory claims unverified. |
 | `UPLIFT_LEDGER` | -- | open (untriaged) |
-| `WRITE_MUTATION_INVENTORY` | -- | open (untriaged) |
+| `WRITE_MUTATION_INVENTORY` | -- | stale-closed (partial): WRITE_MUTATION_INVENTORY#1, stale as a current uncertainty: the previously unlocated action router is present; `RouteAction` calls `RouteActionResult`, which dispatches through `executeAction`, `internal/core/virtual_store_routing.go:28-30,138-142,425-435`. Working-tree reads with HEAD `714f27f88fbbe40779ef553591366614f8e07399` (element revs `e456b29ef192`, `b842d5c9badd`, `1240ecdd1c29`); runtime dispatch, 2PC wiring and remaining inventory claims are unverified. |
 | `acceptance-fixture-census` | -- | confirmed-open: acceptance-fixture-census#1, defect (conditional, source only): the protected-input census and snapshot both filter by workspace membership, `internal/evidence/change.go:204-218,273-277,402-413`; working-tree read with HEAD `1e902faad7974b133aac17920c125c2f6187cf41`. Excluded-fixture execution witness and remaining subitems unverified. |
-| `agent-native-architecture-grand-design` | -- | open (untriaged) |
+| `agent-native-architecture-grand-design` | -- | deferred (partial): agent-native-architecture-grand-design#1, upgrade idea: the research proposes a program of experiments rather than an approved implementation plan. Existing CodeDOM elements include source spans and element revisions, `internal/world/codemodel/model.go:99-113,146-149`; defer broader architecture changes pending an experiment and verification plan. The proposal's remaining claims, production wiring and evaluation are unverified. Working-tree read with HEAD `714f27f88fbbe40779ef553591366614f8e07399` (element rev `c5522753beb3`). |
 | `anthropic-native-context-admission` | -- | open (untriaged) |
 | `approval-expiry-journal-failure` | -- | open (untriaged) |
 | `approval-oversized-preview-metadata` | -- | open (untriaged) |
@@ -239,8 +239,8 @@ Directory discrepancy: prior research reported `read_file` not-found for `new`, 
 | `chat-expert-role-projection` | -- | open (untriaged) |
 | `chat-session-memory-ownership-and-recovery` | -- | open (untriaged) |
 | `classifier-fallback-scheduler-ownership` | -- | open (untriaged) |
-| `codedom-governed-code-replication` | -- | open (untriaged) |
-| `coder_token_cost_proposal` | -- | open (untriaged) |
+| `codedom-governed-code-replication` | -- | deferred (partial): codedom-governed-code-replication#1, upgrade idea: the proposal asks for shared-obligation reviews across declared code families. A policy rule now derives an obligation for each other member and shared requirement when a member changes, `internal/core/defaults/policy/code_families.mg:32-36`. Defer the broader proposal pending a current lifecycle and verification review; wiring, evaluation, other proposed mechanisms and remaining subitems are unverified. Working-tree read with HEAD `714f27f88fbbe40779ef553591366614f8e07399` (rule rev `b246131f3f91`). |
+| `coder_token_cost_proposal` | -- | deferred (partial): coder_token_cost_proposal#1, concern: framework matching checks selectors only when both framework lists are nonempty, `internal/prompt/atoms.go:488-509`; the baseline assembler uses that predicate, `internal/prompt/baseline.go:52-60`. Defer the proposed selection changes pending a quality evaluation and investigation of framework-context population; the older token measurements, actual selection impact, and remaining proposals are unverified. Working-tree reads with HEAD `714f27f88fbbe40779ef553591366614f8e07399`. |
 | `compressed-control-outcome-fallback` | -- | open (untriaged) |
 | `compressed-observation-escape-fidelity` | -- | open (untriaged) |
 | `configuration-mutation-ownership` | -- | open (untriaged) |
@@ -326,7 +326,7 @@ Directory discrepancy: prior research reported `read_file` not-found for `new`, 
 | `northstar-unchanged-projection-recovery` | -- | open (untriaged) |
 | `orientation-history-rename-identity` | -- | open (untriaged) |
 | `orientation-treatment-disclosure-contract` | -- | open (untriaged) |
-| `pending_edit_inventory` | -- | open (untriaged) |
+| `pending_edit_inventory` | -- | stale-closed (partial): pending_edit_inventory#1, stale citation: the inventory identifies `internal/core/defaults/schemas_shards.mg:131-132` as the declaration; the current declaration is `internal/core/defaults/schemas_shards.mg:345-346` and binds two string arguments. pending_edit_inventory#2, duplicate-of MANGLE_FACT_APIS_INVENTORY#1: the inventory's claimed absence of a Go producer is stale; VirtualStore dispatch invokes a conditional fact assertion before handling write actions, `internal/core/pending_edit.go:69-87`, `internal/core/virtual_store_routing.go:421-433`. Policy derives a target from that predicate, `internal/core/defaults/policy/coder_world.mg:31-32`. Working-tree reads with HEAD `714f27f88fbbe40779ef553591366614f8e07399` (element revs `288a2df65f9c`, `1a08907488b4`, `1240ecdd1c29`, `72409b085349`); runtime assertions, policy evaluation and remaining inventory claims are unverified. |
 | `perception-capability-recovery` | -- | open (untriaged) |
 | `perception-classification-outcomes-and-recovery` | -- | open (untriaged) |
 | `perception-classification-root-identity` | -- | open (untriaged) |
