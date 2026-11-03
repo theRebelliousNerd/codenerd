@@ -86,3 +86,25 @@ No evaluations below were run. Prefer deterministic request/dispatch capture thr
 
 For the two-phase diagnostic, count both callbacks and actual phase-gate model requests: first-phase reuse can correctly produce a callback without a request. Hold task outcomes and initial risk inputs fixed. Record task dispatch order, observer phase identity, state/facts/events, assessment coverage, all model attempts/tokens and total elapsed work. Success means the enabled transition contract is reached exactly when needed and enforced consistently, not that the model blocks more work.
 
+
+## Landed implementation update 2026 11 03
+
+Inspected public main at `0e792aa7a7ed487418a3ce68b1a18076c0f94457` on 2026-11-03. The changes below landed in [`2b6211532fa0d8e48718d0e894e82b38637b6624`](https://github.com/theRebelliousNerd/codenerd/commit/2b6211532fa0d8e48718d0e894e82b38637b6624). This appendix preserves the original review and distinguishes source implementation from runtime verification.
+
+**Status correction:** the prior transition-rollback companion, tracked as `campaign-pending-phase-admission#2`, has a source remedy. The report's main missing-admission edge, `#1`, remains present. This is partial implementation, not closure of phase admission.
+
+### Implemented rollback scope
+
+`startNextPhase` retains the previous phase status, checks the observer before retracting/replacing the kernel phase row or starting the phase clock, and restores the in-memory status on observer error. Retraction or start-assertion failures attempt to restore the prior phase fact; a restoration failure is joined with the original error. Timing and the started event occur only after successful publication. The function still temporarily sets in-memory status before the observer call, so the source change should not be described as a fully atomic admission transaction. [Transition implementation](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/internal/campaign/orchestrator_phases.go#L399-L496).
+
+### Remaining admission boundary
+
+The policy still derives `current_phase` from an eligible pending phase, `getCurrentPhase` returns the matching phase without requiring in-progress status, and `Run` calls `startNextPhase` only when no current phase was returned. A selected pending phase still proceeds to `runPhase` by the original route. The new rollback handling therefore does not connect the missing normal phase-start callback. Kernel-owned selected-versus-admitted state, production-route evaluation, cancellation and restart coverage remain separate work. [Pending selection](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/internal/core/defaults/policy/campaign_phases.mg#L29-L55), [lookup](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/internal/campaign/orchestrator_phases.go#L14-L44), [selection branch](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/internal/campaign/orchestrator_execution.go#L177-L180), [start and execution branches](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/internal/campaign/orchestrator_execution.go#L253-L294).
+
+### Test evidence and limits
+
+The added fixtures directly call `startNextPhase` with a stub kernel. They check an actual observer's blocked response using a deterministic client, preserved pending state, absence of timing/events, and kernel failure/restoration cases. They do not drive normal `Run` through the real pending-selection policy. [Observer fixture](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/internal/campaign/orchestrator_phase_start_rollback_test.go#L155-L212), [publication failure fixtures](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/internal/campaign/orchestrator_phase_start_rollback_test.go#L247-L320).
+
+The implementing commit's message reports `go test -tags sqlite_vec ./internal/campaign ./cmd/nerd/chat` succeeded and reports `internal/core TestFactNameSlotProducersPassNames` succeeded. These are author-reported results at that commit, not independently inspected test logs or a verified clean-head run. This review read source and test text only; it ran no application, tests, model inference or benchmarks.
+
+The [queue row](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/Docs/audits/ASTRA_QUEUE.md#L232) predates this repair. Its `#2` description is superseded for the scoped source behavior above; `#1` is not.
