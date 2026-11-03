@@ -128,3 +128,23 @@ func TestSpawner_ForwardsIssueRetriever(t *testing.T) {
 		t.Fatal("CloneForTask dropped the issue retriever")
 	}
 }
+
+type queryCapturingRetriever struct {
+	got string
+}
+
+func (q *queryCapturingRetriever) Retrieve(_ context.Context, _, taskText string) (string, func()) {
+	q.got = taskText
+	return "", func() {}
+}
+
+func TestRetrieveForTurn_UsesRecallQueryFromContext(t *testing.T) {
+	e := &Executor{}
+	cap := &queryCapturingRetriever{}
+	e.SetIssueRetriever(cap)
+	ctx := WithRecallQuery(context.Background(), "concise task brief")
+	e.retrieveForTurn(ctx, "/fix", "concise task brief\n\n100KB of upstream evidence artifacts...")
+	if cap.got != "concise task brief" {
+		t.Fatalf("Retrieve got %q, want %q", cap.got, "concise task brief")
+	}
+}

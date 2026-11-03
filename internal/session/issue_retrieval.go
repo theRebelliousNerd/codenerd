@@ -47,7 +47,11 @@ func (e *Executor) retrieveForTurn(ctx context.Context, intentID, input string) 
 	if r == nil {
 		return ctx, func() {}
 	}
-	brief, release := r.Retrieve(ctx, intentID, input)
+	query := RecallQueryFromContext(ctx)
+	if strings.TrimSpace(query) == "" {
+		query = input
+	}
+	brief, release := r.Retrieve(ctx, intentID, query)
 	if release == nil {
 		release = func() {}
 	}
