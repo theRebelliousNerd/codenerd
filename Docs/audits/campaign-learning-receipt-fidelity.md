@@ -199,3 +199,25 @@ Measure exact value retention, unique proposition count, support-event count, ob
 [golden-output]: https://github.com/theRebelliousNerd/codenerd/blob/6cbe3962fbdb24a1639b26e71f8096e4f4330048/internal/core/defaults/policy/testdata/campaign.golden
 [prov]: https://www.w3.org/TR/2013/REC-prov-dm-20130430/#section-entity-activity
 
+
+## Landed implementation update 2026 11 03
+
+Inspected public main at `0e792aa7a7ed487418a3ce68b1a18076c0f94457` on 2026-11-03. The changes below landed in [`2b6211532fa0d8e48718d0e894e82b38637b6624`](https://github.com/theRebelliousNerd/codenerd/commit/2b6211532fa0d8e48718d0e894e82b38637b6624). This appendix preserves the original review and distinguishes source implementation from runtime verification.
+
+**Status correction:** `campaign-learning-receipt-fidelity#1` (dropped promotion value) and `#4` (logging the slice length after unlocking) have source remedies. The broader receipt identity, repetition, labeling and application contract remains only partly implemented and unverified.
+
+### Implemented value and count scope
+
+When a promotion has a second argument, `applyLearnings` now appends its string extraction to `Learning.Fact` as `[promotion: ...]`, after the task description and optional result context. It also captures `learningCount` while holding the campaign mutex and logs that local count after unlocking. These changes preserve the previously omitted value in the displayed fact text and remove the specific unlocked length read. [Adapter](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/internal/campaign/orchestrator_tasks.go#L705-L758).
+
+### Remaining receipt boundaries
+
+The same adapter still queries the standing promotion relation, appends one record for every returned tuple on every invocation, sets every `Type` to `/success_pattern`, stores argument zero in `Pattern`, and sets `AppliedAt` at capture time. The value is included in composite text rather than a separate typed value/provenance field. There is no persisted deduplication or distinct application receipt in this change. Thus `#2`'s repeated-observation issue and `#3`'s labeling concern are not closed; capture counts still require the original reporting/application qualifications. [Current construction and append](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/internal/campaign/orchestrator_tasks.go#L714-L758).
+
+### Test evidence and limits
+
+The revised value fixture checks that `Learning.Fact` contains argument one, including nil-result and query-error controls. A new concurrency fixture exercises concurrent appends and expects one record per tuple per call; it is not a deduplication test. Its comment recommends `-race`, but the implementing commit's reported package command does not include that flag. No race-detector result is established here. [Value cases](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/internal/campaign/orchestrator_learning_receipt_test.go#L34-L139), [concurrency fixture](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/internal/campaign/orchestrator_learning_receipt_test.go#L142-L200).
+
+The implementing commit's message reports `go test -tags sqlite_vec ./internal/campaign ./cmd/nerd/chat` succeeded and reports `internal/core TestFactNameSlotProducersPassNames` succeeded. These are author-reported results at that commit, not independently inspected test logs or a verified clean-head run. This review read source and test text only; it ran no application, tests, model inference or benchmarks.
+
+The [queue row](https://github.com/theRebelliousNerd/codenerd/blob/0e792aa7a7ed487418a3ce68b1a18076c0f94457/Docs/audits/ASTRA_QUEUE.md#L231) predates these changes. Credit `#1` and `#4` narrowly without closing its remaining receipt proposals or claiming downstream learning effects.
