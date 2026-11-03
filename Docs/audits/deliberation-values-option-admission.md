@@ -319,3 +319,54 @@ Closing this gap establishes selection-domain continuity. It does not establish 
 [crucible]: https://github.com/theRebelliousNerd/codenerd/blob/1540beaad60f3a01ab5ffdc162800225c0b74c90/Docs/audits/portable-recurse-deliberation-crucible.md
 [approval-audit]: https://github.com/theRebelliousNerd/codenerd/blob/1540beaad60f3a01ab5ffdc162800225c0b74c90/Docs/audits/request-bound-human-approval.md
 
+## Addendum: a selected offered option must also round-trip (2026-11-03)
+
+**Status:** source-grounded, conditional and unrun. This complementary subfinding belongs to the offered-choice contract above, not a separate audit. Inspected at public `main` **d0f1800ec854b62987091a147349c7f90c8d297c**, rechecked unchanged at 18:55 UTC. The earlier text and its historical pin are preserved verbatim; this addendum's links use the new pin. No repository programs, tests, model inference, implementation, credentials or settings changes were performed. [Addendum pin][rt-pin]
+
+### Exact UI witness
+
+The original finding accepts an **unoffered** proposed candidate. The converse also fails: a genuine UI selection of an **offered, eligible** candidate can miss the saved-choice path because only the submitted label is normalized.
+
+1. `validateRound` checks that a trimmed brief is nonempty, but neither normalizes the stored brief nor rejects trailing whitespace. Thus candidate `c1` with brief `"Keep the existing API "` is structurally admitted. [Validation][rt-validation]
+2. `option(c)` preserves that brief. Publication displays `"c1: Keep the existing API  (Recommended)"` for the recommended choice, including two spaces before the decoration. Chat passes the options unchanged. With an empty textarea, the real clarification handler submits `Options[selectedOption]` verbatim; resume loads the same awaiting-values thread and assigns the answer. [Publication/parser][rt-option] [Adapter/resume][rt-chat] [UI submission][rt-ui]
+3. `choice` applies `TrimSpace(TrimSuffix(answer, " (Recommended)"))`. The result is `"c1: Keep the existing API"`, which equals neither `"c1"` nor the raw option `"c1: Keep the existing API "`. With a distinct ordinary `c2`, no candidate matches. The undecorated alternative fails similarly. This follows documented Go string behavior, not a model interpretation. [Parser][rt-option] [Go strings][rt-strings]
+4. A recognized choice would reassert the saved round and answer fact without another participant round. A miss instead saves `running` and ticks `len(Rounds)+1`. If the asking round was the last allowed round, policy derives `round_cap`; the service saves that status and returns stopped **before** `collectRound`. Chat returns the non-ready note. [Continuation][rt-service] [Cap rule][rt-policy] [Resume][rt-chat]
+
+**Shortest proposed fixture:** through normal `/deliberate` and UI handling, use one design-only thread, non-yolo mode, no queued work, unchanged evidence and healthy kernel/proof/persistence. Script two candidates with honest citations, nonblank success tests, successful assessments and only critical values blockers; recommend `c1` and supply one valid question. Set the fixture-local round cap to one, a supported positive configuration, and give only `c1` the trailing space above. Select its displayed option with the textarea empty. The source implies a tick-2 cap stop, not readiness, with zero new participant calls. This fixture has **not been executed**. [Configuration][rt-config]
+
+For the default cap of four, first reach a legitimate values question in round four after three admissible nonterminal rounds with real progress sufficient to avoid the separate stagnation stop. Four unchanged rounds are not an equivalent fixture. Below the cap, the consequence is accidental refinement, not guaranteed failure. Saved history survives; this is neither data deletion nor an authorization bypass.
+
+### Distinction and contract extension
+
+This adds a concrete asymmetric-normalization failure and terminal-cap consequence to the existing typed offered-choice proposal, whose display-change controls already anticipate representation risks. It does not introduce another architecture. It requires no unoffered candidate, stale evidence, evaluation error, control command or competing queued question. Later refinement-context loss is not needed because the cap witness stops before another role frame. The common host protocol is language-independent; the demonstrated adapter is the TUI, not every recurse host.
+
+Add the invariant: **every published, still-valid offered option must resolve to its exact saved candidate when selected under the same question identity.** Reuse the offered record in Section 6. Carry a selected-choice reference separately from free text; validate its owner/question binding and admission, leaving disposition to Mangle and work authority unchanged. Do not ask a model to infer the identity of an option the UI already knows.
+
+A symmetric trim can close this particular witness, but needs an explicit equivalence policy: normalized labels may collide and recommendation-like suffixes may be genuine content. Legacy mapping must be unique within the saved offered set or return a recoverable incompatibility, not silently become new requirements, reset a budget or fabricate readiness. Round-trip laws modulo explicitly chosen equivalence, rather than arbitrary string normalization, have a formal precedent in *Quotient Lenses*; that is a design analogy, not a proof of this proposed repair. [Foster, Pilkiewicz and Pierce, 2008][rt-lenses]
+
+### Proposed unrun controls and acceptance
+
+Extend Section 9's suite through the **real UI → persistence/reload → service → kernel/proof** path, scripting only participant replies. Existing clean-label unit coverage and the chat test's direct service resumption do not exercise this full UI witness. [Unit tests][rt-unit] [Chat test][rt-test]
+
+- Pair the spaced recommended selection with clean-brief and clean-ID controls. Repeat for the nonrecommended option and with remaining rounds versus the final round.
+- Include final tabs/newline escapes/Unicode whitespace, genuine decoration-like content and normalization collisions. Leading whitespace inside a brief alone is not this witness because the full label starts with the ID.
+- Generate structurally admitted records, render them through production publication and check every offered selection, including restart and uniquely resolvable legacy records.
+- Retain the original unoffered-ID rejection control. Preserve meaningful free-text qualifications, wrong-owner/stale-question rejection, evidence freshness and ordinary permission gates.
+- Observe exact candidate/option/answer bytes, offered identity, answer facts, next tick, proof/disposition, persisted status and actual role/tool calls. Acceptance requires correct saved-choice resolution without a presentation-induced refinement round, not merely a better surface note.
+
+Compare baseline, narrowly normalized labels and typed choices with identical sources, role replies, bounds and admission. A later paired live-model study must separate deliberately injected trailing-space cases from natural incidence; no production frequency is established here. Count all attempts and unsuccessful continuations.
+
+**Cost qualification:** the terminal-cap witness adds no participant call, so it cannot establish token savings. Below cap, accidental refinement can add proposer/challenger provider exchanges, evidence reads, consultations/probes, retries and JIT/context work. Keep Section 7's full accounting, including proof/persistence CPU and I/O, user reentry time, and added mapping/schema/migration/maintenance costs. No measured savings or quality gain is claimed. Raising the round cap or silently choosing the recommendation does not satisfy the round-trip contract.
+
+[rt-pin]: https://github.com/theRebelliousNerd/codenerd/commit/d0f1800ec854b62987091a147349c7f90c8d297c
+[rt-validation]: https://github.com/theRebelliousNerd/codenerd/blob/d0f1800ec854b62987091a147349c7f90c8d297c/internal/deliberation/types.go#L144-L181
+[rt-option]: https://github.com/theRebelliousNerd/codenerd/blob/d0f1800ec854b62987091a147349c7f90c8d297c/internal/deliberation/outcome.go#L43-L86
+[rt-chat]: https://github.com/theRebelliousNerd/codenerd/blob/d0f1800ec854b62987091a147349c7f90c8d297c/cmd/nerd/chat/deliberation.go#L53-L120
+[rt-ui]: https://github.com/theRebelliousNerd/codenerd/blob/d0f1800ec854b62987091a147349c7f90c8d297c/cmd/nerd/chat/model_handlers.go#L441-L504
+[rt-service]: https://github.com/theRebelliousNerd/codenerd/blob/d0f1800ec854b62987091a147349c7f90c8d297c/internal/deliberation/service.go#L82-L120
+[rt-policy]: https://github.com/theRebelliousNerd/codenerd/blob/d0f1800ec854b62987091a147349c7f90c8d297c/internal/core/defaults/policy/deliberation.mg#L38-L58
+[rt-config]: https://github.com/theRebelliousNerd/codenerd/blob/d0f1800ec854b62987091a147349c7f90c8d297c/internal/config/routing.go#L18-L102
+[rt-unit]: https://github.com/theRebelliousNerd/codenerd/blob/d0f1800ec854b62987091a147349c7f90c8d297c/internal/deliberation/deliberation_test.go#L33-L97
+[rt-test]: https://github.com/theRebelliousNerd/codenerd/blob/d0f1800ec854b62987091a147349c7f90c8d297c/cmd/nerd/chat/deliberation_test.go#L179-L219
+[rt-strings]: https://pkg.go.dev/strings#TrimSpace
+[rt-lenses]: https://www.cis.upenn.edu/~bcpierce/papers/quotient-lenses.pdf
