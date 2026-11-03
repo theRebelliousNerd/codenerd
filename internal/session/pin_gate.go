@@ -491,6 +491,11 @@ func measureUnits(ctx context.Context, workspace string, units []pinUnit, runArg
 			slots <- struct{}{}
 			defer func() { <-slots }()
 			verdict, why := runPinUnit(ctx, workspace, u, runArg, names, pkgs, bound)
+			if verdict == "unpinned" && !u.forced {
+				if pinned, existingWhy := pinnedByExistingTests(ctx, workspace, u); pinned {
+					verdict, why = "pinned", existingWhy
+				}
+			}
 			logging.Get(logging.CategorySession).Info("pinning gate: %s -> %s%s", u.label(), verdict, suffixed(why))
 			results[i] = measured{verdict, why}
 		}(i, u)

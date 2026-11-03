@@ -13,15 +13,15 @@
    "instructions": "Does `report` say that part of the work `task` asks for was not done?",
    "criteria": {
     "true": "The report says something the task asks for was skipped, left for later, not finished, or not done because of an obstacle.",
-    "false": "The report says the work is done, even with caveats, suggested follow-ups, or a note that some extra check could not run."
+    "false": "The report says the work is done, even with caveats, suggested follow-ups, a note that some extra check could not run, quoted ledger or audit notes (such as 'deferred' or 'unverified' subitems), or a statement that already-resolved or out-of-scope items were left unchanged as instructed."
    }
   },
   "names_blocker": {
    "type": "noul",
    "instructions": "Does `report` name an obstacle to finishing that codeNERD cannot clear by itself?",
    "criteria": {
-    "true": "A permission or policy denial, a missing credential or input, or a choice only the user can make.",
-    "false": "No such obstacle is named: the work is done, or what is left is work codeNERD could still do, even if it believes otherwise."
+    "true": "Every remaining unfinished part is blocked by a permission or policy denial, a missing credential or input from the user, or a choice only the user can make.",
+    "false": "No such obstacle blocks all remaining work: the work is done, or at least one unfinished part is work codeNERD could still do in the repository without waiting on the user (including remaining batches, rows, or files left for a follow-up turn or re-invocation because of turn, token, or tool-call limits), even if another part is blocked or codeNERD believes otherwise."
    }
   }
  }
@@ -35,11 +35,11 @@
   },
   "names_blocker": {
    "type": "noul",
-   "noul": 0.08
+   "noul": 0.12
   }
  },
  "usage": {
-  "input_tokens": 560,
+  "input_tokens": 660,
   "output_tokens": 44
  }
 }

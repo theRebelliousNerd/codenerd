@@ -62,9 +62,19 @@ func pinnedByExistingTests(ctx context.Context, workspace string, u pinUnit) (bo
 	// -failfast: the first test that notices answers the question, and most
 	// answer early. Only a change nothing pins pays for a whole run, which is
 	// exactly when the gate is about to ask the model for a test and had
-	// better be sure.
+	// better be sure. Check the unit's own package first before the whole repo.
+	env := internalbuild.GetBuildEnv(nil, workspace)
+	if pkgDir := filepath.ToSlash(filepath.Dir(u.path)); pkgDir != "" && pkgDir != "." {
+		pkgArgs := []string{"test", "-json", "-overlay", overlayPath, "-count=1", "-failfast", "./" + pkgDir}
+		pkgOut, pkgOutcome, _ := runVerificationCommand(ctx, workspace, env, testVerifyTimeout, "go", pkgArgs, verifyTestRunner)
+		if pkgOutcome == VerifyFailed {
+			if failed := failedTestNames(parseTestJSON(workspace, pkgOut)); len(failed) > 0 {
+				return true, strings.Join(failed, ", ")
+			}
+		}
+	}
 	args := []string{"test", "-json", "-overlay", overlayPath, "-count=1", "-failfast", "./..."}
-	out, outcome, _ := runVerificationCommand(ctx, workspace, internalbuild.GetBuildEnv(nil, workspace), testVerifyTimeout, "go", args, verifyTestRunner)
+	out, outcome, _ := runVerificationCommand(ctx, workspace, env, testVerifyTimeout, "go", args, verifyTestRunner)
 	res := parseTestJSON(workspace, out)
 	switch outcome {
 	case VerifyFailed:

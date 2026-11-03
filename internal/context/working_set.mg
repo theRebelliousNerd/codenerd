@@ -178,7 +178,7 @@ working_nudge(/implement) :-
     working_nudge_rounds(N), Rounds >= N.
 working_nudge(/verify) :-
     working_progress(/write, _, Writes, SinceWrite, SinceVerify), Writes > 0,
-    SinceWrite >= 3, SinceVerify >= 3.
+    SinceWrite >= 3, SinceVerify >= 3, SinceVerify >= SinceWrite.
 working_nudge(/conclude) :-
     working_progress(/read, Rounds, _, _, _),
     working_nudge_rounds(N), Rounds >= N.

@@ -51,7 +51,7 @@ func ReportRequest(in ReportInput) (map[string]any, map[string]typesafe.Question
 			Instructions: "Does `report` say that part of the work `task` asks for was not done?",
 			Criteria: &typesafe.NoulCriteria{
 				True:  "The report says something the task asks for was skipped, left for later, not finished, or not done because of an obstacle.",
-				False: "The report says the work is done, even with caveats, suggested follow-ups, or a note that some extra check could not run.",
+				False: "The report says the work is done, even with caveats, suggested follow-ups, a note that some extra check could not run, quoted ledger or audit notes (such as 'deferred' or 'unverified' subitems), or a statement that already-resolved or out-of-scope items were left unchanged as instructed.",
 			},
 		},
 		ReportNamesBlocker: blockerQuestion("report"),

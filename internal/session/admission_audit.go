@@ -76,6 +76,13 @@ func (e *Executor) auditFinalReport(ctx context.Context, input string, result *E
 	// asks, and the kernel decides (turn_report_unfinished, turn_finish.mg):
 	// ~150ms instead of a main-model call.
 	if e.currentReportJudge() != nil {
+		if result.roundsRan["/finish"] && result.reportReading != nil {
+			if e.turnHolds("turn_report_unfinished", result) {
+				result.SelfReportedIncomplete = true
+				logging.Get(logging.CategorySession).Warn("the turn's own report says the work is not finished; /done is withheld")
+			}
+			return nil
+		}
 		if e.readReport(ctx, result, input, report) && e.turnHolds("turn_report_unfinished", result) {
 			result.SelfReportedIncomplete = true
 			logging.Get(logging.CategorySession).Warn("the turn's own report says the work is not finished; /done is withheld")

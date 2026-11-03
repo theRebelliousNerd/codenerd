@@ -80,6 +80,40 @@ func Unwatched() string { return "new" }
 			t.Fatal("a change nothing pins was reported as pinned; the gate would stop asking for the test that is genuinely missing")
 		}
 	})
+
+	t.Run("verifyPinningCreditsExistingTestsWhenTurnAlsoWritesNewTest", func(t *testing.T) {
+		// When a turn writes a new test for one change (other/other_test.go)
+		// and also changes subject/subject.go (which guard/guard_test.go
+		// already pins), verifyPinning must consult existing tests for
+		// subject/subject.go instead of only running other/other_test.go.
+		_ = os.Remove(filepath.Join(ws, "subject", "extra.go"))
+		mustWrite(t, filepath.Join(ws, "other", "other.go"), `package other
+
+func Helper() int { return 42 }
+`)
+		mustWrite(t, filepath.Join(ws, "other", "other_test.go"), `package other
+
+import "testing"
+
+func TestHelper(t *testing.T) {
+	if Helper() != 42 {
+		t.Fatal("Helper changed")
+	}
+}
+`)
+		res := mutationResult()
+		res.Intent.Verb = "/fix"
+		res.WrittenPaths = []string{"subject/subject.go", "other/other.go", "other/other_test.go"}
+		res.PreWriteContents = map[string]PreImage{
+			"subject/subject.go":  existed("package subject\n\nfunc Emit() string { return \"lost\" }\n"),
+			"other/other.go":      {},
+			"other/other_test.go": {},
+		}
+		v := verifyPinning(context.Background(), ws, res, false)
+		if v.Verdict() != VerifyPassed {
+			t.Fatalf("verifyPinning verdict = %s (%s):\n%s\nwant passed because guard_test.go already pins subject.Emit", v.Verdict(), v.Reason, v.Output)
+		}
+	})
 }
 
 func writeMod(t *testing.T, ws string) {
