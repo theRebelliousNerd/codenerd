@@ -1,5 +1,17 @@
 # Workspace scoped tests and recurse improvement admission
 
+
+## Current-main addendum: missing workspace-test schedule addressed
+
+Static review at public main `27dc83bd5f881123c1c9e87fdf57d9fd20d86278`, November 3, 2026. The original finding below describes its pre-fix revision. [Commit 97a4245](https://github.com/theRebelliousNerd/codenerd/commit/97a4245a50f1159901d2f89bff375fe41e7d5998) adds both early missing-test-route deferral and a workspace-test fallback.
+
+`improve` now defers before an attempt if neither an applicable own-node Test nor workspace Test exists. For a changed improvement with no own-node Test, applicable ScopeAll Test gates are added to after-measurements. The original workspace-only configuration therefore no longer necessarily lacks a producer for `Tested`. [Admission](https://github.com/theRebelliousNerd/codenerd/blob/27dc83bd5f881123c1c9e87fdf57d9fd20d86278/internal/campaign/recurse_cycle.go#L1184-L1223) [Scheduling](https://github.com/theRebelliousNerd/codenerd/blob/27dc83bd5f881123c1c9e87fdf57d9fd20d86278/internal/campaign/recurse_cycle.go#L1328-L1349)
+
+Only a completed Test without a known no-tests disposition supplies `Tested`; metric and other guards remain. This does not establish that a language-matching command exercises the changed node. An own-node Test suppresses fallback even if it subsequently collects nothing. [Projection](https://github.com/theRebelliousNerd/codenerd/blob/27dc83bd5f881123c1c9e87fdf57d9fd20d86278/internal/campaign/recurse_cycle.go#L1421-L1439)
+
+An authored fixture exercises a declared workspace Go test and a retained simplify change. Native JS/Rust coverage, empty collection, missing executables and early deferral remain unrun qualification cases in this review. No tests or application paths were executed here. [Fixture](https://github.com/theRebelliousNerd/codenerd/blob/27dc83bd5f881123c1c9e87fdf57d9fd20d86278/internal/campaign/recurse_audits_test.go#L362-L386)
+
+
 **Status: static source-derived audit and proposed contract.** Public CodeNERD revision `158be02e0641acd01b85d323405d256ccb6eb308`, inspected 2026-11-03. No implementation, repository write, build, test, gate, application path, model call, inference or benchmark was run. The witness is a conditional derivation, not an executed reproduction or an observed user incident.
 
 ## Decision in brief
