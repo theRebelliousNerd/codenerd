@@ -10,6 +10,12 @@ supersedes: []
 
 # Collapsed recurse nodes lose the selected finding's invocation
 
+## Current-main addendum: producing invocation retained
+
+Static review at public main `a4fd84e66accf2780b3ddfcc6a77bef7d16def5d`, November 3, 2026. The original witness below is historical. [Commit 97a4245](https://github.com/theRebelliousNerd/codenerd/commit/97a4245a50f1159901d2f89bff375fe41e7d5998) retains each invocation and maps finding IDs to producing results and paths. `sourceOf` substitutes that result so an attempt takes the selected producer's command, exits and environment rather than the sibling aggregate. Mission sidecars also retain individual invocations. [Measurement](https://github.com/theRebelliousNerd/codenerd/blob/a4fd84e66accf2780b3ddfcc6a77bef7d16def5d/internal/campaign/recurse_cycle.go#L775-L839) [Lookup](https://github.com/theRebelliousNerd/codenerd/blob/a4fd84e66accf2780b3ddfcc6a77bef7d16def5d/internal/campaign/recurse_cycle.go#L1677-L1693) [Sidecars](https://github.com/theRebelliousNerd/codenerd/blob/a4fd84e66accf2780b3ddfcc6a77bef7d16def5d/internal/campaign/recurse_mission_storage.go#L80-L141)
+
+An authored fixture checks two constructed finding-to-result associations, not real measurement through the complete campaign or persistence. Duplicate IDs retain the first producer rather than a many-to-many relation, and sidecars do not serialize that association. No tests were run in this review. [Fixture](https://github.com/theRebelliousNerd/codenerd/blob/a4fd84e66accf2780b3ddfcc6a77bef7d16def5d/internal/campaign/recurse_audits_test.go#L22-L86)
+
 ## Decision and evidence boundary
 
 Preserve a selected finding's producing invocation when a recurse node contains several source directories. The current measurement combines every directory's findings into one node result, while retaining only one directory's command. A later finding can consequently be handed a sibling directory's command as its own acceptance witness. Both the task's governed `run_check` and the campaign's independent acceptance round then execute that wrong command faithfully. [Measurement][measure] [Selection handoff][attempt] [Acceptance construction][adapter] [Task handoff][task-check]
