@@ -3,6 +3,7 @@ package observability
 import (
 	"runtime"
 	"runtime/metrics"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -51,6 +52,71 @@ func TestFormatSample_Uint64(t *testing.T) {
 	}
 	if display == "" || display == "n/a" {
 		t.Errorf("expected numeric display string, got %q", display)
+	}
+}
+
+func TestFormatSample_ValueKinds(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		metric   string
+		kind     metrics.ValueKind
+		expected func(metrics.Value) (any, string)
+	}{
+		{
+			name:   "float64 preserves numeric value and six decimal places",
+			metric: "/cpu/classes/total:cpu-seconds",
+			kind:   metrics.KindFloat64,
+			expected: func(v metrics.Value) (any, string) {
+				return v.Float64(), strconv.FormatFloat(v.Float64(), 'f', 6, 64)
+			},
+		},
+		{
+			name:   "histogram reports bucket boundaries rather than counts",
+			metric: "/gc/heap/allocs-by-size:bytes",
+			kind:   metrics.KindFloat64Histogram,
+			expected: func(v metrics.Value) (any, string) {
+				buckets := len(v.Float64Histogram().Buckets)
+				return buckets, "hist[" + strconv.Itoa(buckets) + "]"
+			},
+		},
+		{
+			name:   "unsupported metric remains unavailable",
+			metric: "/codenerd/unsupported:metric",
+			kind:   metrics.KindBad,
+			expected: func(metrics.Value) (any, string) {
+				return nil, "n/a"
+			},
+		},
+		{
+			name: "zero sample remains unavailable",
+			kind: metrics.KindBad,
+			expected: func(metrics.Value) (any, string) {
+				return nil, "n/a"
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			samples := []metrics.Sample{{Name: tc.metric}}
+			if tc.metric != "" {
+				metrics.Read(samples)
+			}
+			sample := samples[0]
+			if got := sample.Value.Kind(); got != tc.kind {
+				t.Fatalf("metric %q kind = %v, want %v", tc.metric, got, tc.kind)
+			}
+			wantValue, wantDisplay := tc.expected(sample.Value)
+			gotValue, gotDisplay := formatSample(sample)
+			if gotValue != wantValue {
+				t.Errorf("formatSample() value = %v (%T), want %v (%T)", gotValue, gotValue, wantValue, wantValue)
+			}
+			if gotDisplay != wantDisplay {
+				t.Errorf("formatSample() display = %q, want %q", gotDisplay, wantDisplay)
+			}
+		})
 	}
 }
 

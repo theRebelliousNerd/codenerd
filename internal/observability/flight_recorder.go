@@ -115,7 +115,10 @@ func startFlightRecorder(sizeBytes int, period time.Duration, growthCap uint64, 
 	// Baseline BEFORE Start so the delta the watchdog measures is
 	// dominated by the tracer's own allocations rather than whatever the
 	// process was already using.
-	baseline := flightMemSample()
+	// Capture the source for this generation before launching its watchdog.
+	// A later test/configuration change must not race with an older watchdog.
+	sample := flightMemSample
+	baseline := sample()
 
 	fr := trace.NewFlightRecorder(cfg)
 	if err := fr.Start(); err != nil {
@@ -126,7 +129,7 @@ func startFlightRecorder(sizeBytes int, period time.Duration, growthCap uint64, 
 	if interval > 0 {
 		stopCh := make(chan struct{})
 		flightWatchdogStop = stopCh
-		go flightMemWatchdog(stopCh, baseline, growthCap, interval)
+		go flightMemWatchdog(stopCh, baseline, growthCap, interval, sample)
 	}
 
 	logging.Get(logging.CategoryBoot).Info(
@@ -165,8 +168,9 @@ var flightMemSample = otherMemoryBytes
 // or (b) it trips the cap and stops the recorder itself. The
 // flightWatchdogStop == stopCh identity check ensures a watchdog only ever
 // stops the exact recorder generation it was launched for, even across
-// rapid stop/start cycles.
-func flightMemWatchdog(stopCh chan struct{}, baseline, capBytes uint64, interval time.Duration) {
+// rapid stop/start cycles. Its sampler is captured by startFlightRecorder
+// so it never reads a later generation's memory source.
+func flightMemWatchdog(stopCh chan struct{}, baseline, capBytes uint64, interval time.Duration, sample func() uint64) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -175,7 +179,7 @@ func flightMemWatchdog(stopCh chan struct{}, baseline, capBytes uint64, interval
 		case <-stopCh:
 			return
 		case <-ticker.C:
-			cur := flightMemSample()
+			cur := sample()
 			var grew uint64
 			if cur > baseline {
 				grew = cur - baseline

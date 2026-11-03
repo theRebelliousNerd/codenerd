@@ -40,6 +40,47 @@ func TestStartFlightRecorder_StartStop(t *testing.T) {
 	}
 }
 
+func TestStartFlightRecorder_WatchdogKeepsStartingSampler(t *testing.T) {
+	resetFlightRecorder(t)
+	original := flightMemSample
+	t.Cleanup(func() {
+		if err := StopFlightRecorder(); err != nil {
+			t.Errorf("StopFlightRecorder: %v", err)
+		}
+		flightMemSample = original
+	})
+
+	// An unbuffered, nonblocking notification cannot retain samples from
+	// before the source changes. At most one old-source call can be in flight.
+	sampled := make(chan struct{})
+	flightMemSample = func() uint64 {
+		select {
+		case sampled <- struct{}{}:
+		default:
+		}
+		return 100
+	}
+	if err := startFlightRecorder(2<<20, 30*time.Millisecond, 8, time.Millisecond); err != nil {
+		t.Fatalf("startFlightRecorder: %v", err)
+	}
+
+	// Changing the source for future starts must not affect this generation.
+	// Reading this replacement would exceed the guard and stop the recorder.
+	flightMemSample = func() uint64 { return 200 }
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for range 2 {
+		select {
+		case <-sampled:
+		case <-timer.C:
+			t.Fatal("watchdog stopped sampling the source captured at start")
+		}
+	}
+	if !FlightRecorderEnabled() {
+		t.Fatal("replacing the source for future starts stopped the active recorder")
+	}
+}
+
 func TestDumpFlightRecord_WritesNonEmptyFile(t *testing.T) {
 	resetFlightRecorder(t)
 	t.Cleanup(func() { _ = StopFlightRecorder() })
