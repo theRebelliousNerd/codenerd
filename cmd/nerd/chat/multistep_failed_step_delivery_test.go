@@ -1,10 +1,10 @@
 package chat
 
 import (
-	"context"
 	"strings"
 	"testing"
 
+	"codenerd/internal/config"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/observation"
 	"codenerd/internal/perception"
@@ -51,35 +51,48 @@ func TestExecuteMultiStepTask_RecordsFailedStepForDelivery(t *testing.T) {
 		}
 	})
 
-	t.Run("failed spawn step is absent from delivery reports", func(t *testing.T) {
-		t.Parallel()
-		// Audited failing input: a single-step plan whose spawn fails
-		// (nil taskExecutor). Current executeMultiStepTask hits `continue`
-		// before appending to ran/reports, so the failed step never reaches
-		// record and a plan whose steps all failed skips the delivery judge
-		// (len(ran)==0). The fix records the failed return.
-		m := NewTestModel()
-		m.taskExecutor = nil
-		m.shardMgr = coreshards.NewShardManager()
-		m.kernel = nil
-		m.jev = nil
-		steps := []TaskStep{{Verb: "/build", Target: "svc", ShardType: "coder", Task: "build svc"}}
-		intent := perception.Intent{Response: "build svc"}
-		msg := m.executeMultiStepTask(context.Background(), intent, "build svc", steps)()
-		asst, ok := msg.(assistantMsg)
-		if !ok {
-			t.Fatalf("executeMultiStepTask msg = %T, want assistantMsg", msg)
-		}
-		if !strings.Contains(asst.Surface, "Failed") {
-			t.Fatalf("surface should show Failed for nil executor, got: %q", asst.Surface)
-		}
-		// Desired: the failed step is recorded for delivery, so the summary
-		// counts it as ran. Current: "0/1 steps ran".
-		if strings.Contains(asst.Surface, "0/1 steps ran") {
-			t.Errorf("BUG PINNED: failed step absent from ran/reports; surface=%q", asst.Surface)
-		}
-		if !strings.Contains(asst.Surface, "1/1 steps ran") {
-			t.Errorf("want failed step counted as ran (1/1), surface=%q", asst.Surface)
-		}
-	})
+	tests := []struct {
+		name     string
+		steps    []TaskStep
+		wantSkip bool
+	}{
+		{
+			name:  "failed only step",
+			steps: []TaskStep{{Verb: "/fix", Target: "cmd/nerd/cmd_status.go", ShardType: "coder", Task: "add a --json flag"}},
+		},
+		{
+			name: "failed step blocks its dependent",
+			steps: []TaskStep{
+				{Verb: "/fix", Target: "cmd/nerd/cmd_status.go", ShardType: "coder", Task: "add a --json flag"},
+				{Verb: "/test", Target: "cmd/nerd/cmd_status.go", ShardType: "tester", Task: "test the flag", DependsOn: []int{0}},
+			},
+			wantSkip: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m, _ := journeyModel(t, config.WorkModeYolo)
+			m.shardMgr = coreshards.NewShardManager()
+			m.taskExecutor = nil
+			m = withJev(t, m, &fakeJevServer{probs: deliveryProbs(0.02, 0.96, 0.04)})
+			msg := m.executeMultiStepTask(m.shutdownCtx, perception.Intent{Response: "Two steps."}, jsonFlagRequest, tt.steps)()
+			init, ok := msg.(continuationInitMsg)
+			if !ok {
+				t.Fatalf("failed step did not reach delivery judgment: got %T, want continuationInitMsg", msg)
+			}
+			if init.delivery == nil {
+				t.Fatal("continuation has no delivery chain")
+			}
+			if len(init.delivery.reports) != 1 || !strings.Contains(init.delivery.reports[0], "taskExecutor not initialized") {
+				t.Errorf("delivery reports = %q, want the failed step's error", init.delivery.reports)
+			}
+			if !strings.Contains(init.completedSurface, "**Status**: Failed") || !strings.Contains(init.completedSurface, "0 verified") {
+				t.Errorf("surface does not retain failure and unverified status: %q", init.completedSurface)
+			}
+			if tt.wantSkip && !strings.Contains(init.completedSurface, "SKIPPED (dependencies not met)") {
+				t.Errorf("failed step's dependent was not skipped: %q", init.completedSurface)
+			}
+		})
+	}
 }

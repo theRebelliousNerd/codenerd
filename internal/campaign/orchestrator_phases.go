@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/northstar"
 	"codenerd/internal/types"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -398,6 +399,8 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 	var phaseName string
 	var phaseOrder int
 	var phaseContextProfile string
+	var previousStatus PhaseStatus
+	var previousCampaignID string
 	var found bool
 	var campaignID string
 	var alignmentScope northstar.AlignmentScope
@@ -408,6 +411,8 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 			logging.CampaignDebug("Phase details: order=%d, tasks=%d, complexity=%s",
 				o.campaign.Phases[i].Order, len(o.campaign.Phases[i].Tasks), o.campaign.Phases[i].EstimatedComplexity)
 
+			previousStatus = o.campaign.Phases[i].Status
+			previousCampaignID = o.campaign.Phases[i].CampaignID
 			o.campaign.Phases[i].Status = PhaseInProgress
 
 			phaseName = o.campaign.Phases[i].Name
@@ -423,40 +428,24 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 	o.mu.Unlock()
 
 	if found {
-		o.markPhaseStart(phaseID)
-		// Update kernel.
-		//
-		// The retract removes the phase's old campaign_phase row, so if the
-		// re-assert is dropped the kernel is left with NO row for the phase at
-		// all: phase_eligible, task gating and every phase-scoped rule go blind
-		// while the orchestrator's in-memory copy says /in_progress. This used
-		// to be a bare Assert with the error discarded, which made that state
-		// unreportable. The phase has not started as far as the kernel is
-		// concerned, so say so — the run loop records lastError and retries.
-		_ = o.kernel.RetractFact(core.Fact{
-			Predicate: "campaign_phase",
-			Args:      []any{phaseID},
-		})
-		if err := o.kernel.Assert(core.Fact{
-			Predicate: "campaign_phase",
-			Args: []any{
-				phaseID,
-				campaignID,
-				phaseName,
-				phaseOrder,
-				"/in_progress",
-				phaseContextProfile,
-			},
-		}); err != nil {
-			logging.Get(logging.CategoryCampaign).Error(
-				"Phase %s started in memory but its campaign_phase fact was rejected: %v", phaseID, err)
-			return fmt.Errorf("assert campaign_phase for %s: %w", phaseID, err)
+		restorePhase := func() {
+			o.mu.Lock()
+			defer o.mu.Unlock()
+			if o.campaign != nil && o.campaign.ID == campaignID {
+				for i := range o.campaign.Phases {
+					if o.campaign.Phases[i].ID == phaseID && o.campaign.Phases[i].Status == PhaseInProgress {
+						o.campaign.Phases[i].Status = previousStatus
+						break
+					}
+				}
+			}
 		}
 
-		// Northstar alignment check at phase transition
+		// Check admission before changing the kernel or starting the phase clock.
 		if o.northstarObserver != nil {
 			check, err := o.northstarObserver.OnPhaseStart(ctx, phaseID, phaseName, alignmentScope)
 			if err != nil {
+				restorePhase()
 				logging.Campaign("Northstar blocked phase %s: %v", phaseID, err)
 				return fmt.Errorf("northstar alignment failed: %w", err)
 			}
@@ -471,6 +460,38 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 			}
 		}
 
+		previousFact := core.Fact{
+			Predicate: "campaign_phase",
+			Args:      []any{phaseID, previousCampaignID, phaseName, phaseOrder, types.MangleAtom(previousStatus), phaseContextProfile},
+		}
+		restoreKernel := func(cause error) error {
+			restorePhase()
+			if err := o.kernel.Assert(previousFact); err != nil {
+				return errors.Join(cause, fmt.Errorf("restore campaign_phase for %s: %w", phaseID, err))
+			}
+			return cause
+		}
+		if err := o.kernel.RetractFact(core.Fact{
+			Predicate: "campaign_phase",
+			Args:      []any{phaseID},
+		}); err != nil {
+			return restoreKernel(fmt.Errorf("retract campaign_phase for %s: %w", phaseID, err))
+		}
+		if err := o.kernel.Assert(core.Fact{
+			Predicate: "campaign_phase",
+			Args: []any{
+				phaseID,
+				campaignID,
+				phaseName,
+				phaseOrder,
+				"/in_progress",
+				phaseContextProfile,
+			},
+		}); err != nil {
+			return restoreKernel(fmt.Errorf("assert campaign_phase for %s: %w", phaseID, err))
+		}
+
+		o.markPhaseStart(phaseID)
 		o.emitEvent(EventPhaseStarted, phaseID, "", phaseName, nil)
 		return nil
 	}

@@ -698,8 +698,9 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 
 		// The plan's steps are one request: what they deliver together is
 		// judged against it once the plan has run (request_delivery.go).
-		var ran []string
+		var ran, attempted []string
 		var reports []observation.Return
+		var allChanged []string
 		stepReturns := make(map[int]observation.Return)
 		var lastShardResult *ShardResultPayload
 		results = append(results, fmt.Sprintf("## Multi-Step Task Execution\n\n**Original Request**: %s\n**Steps**: %d\n", intent.Response, len(steps)))
@@ -734,6 +735,7 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 					stepReturns[i] = depRet
 					ran = append(ran, normalizeShardType(step.ShardType))
 					reports = append(reports, depRet)
+					allChanged = append(allChanged, depRet.Changed...)
 					verifiedSteps++
 					results = append(results, fmt.Sprintf("**Status**: Complete (satisfied by step %d's verified post-edit test & coverage gates)\n```\n%s\n```\n",
 						depIdx+1, summary))
@@ -742,6 +744,7 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 
 				req := shardTypeToTaskRequest(step.ShardType, step.Task)
 				req.Target = step.Target
+				attempted = append(attempted, normalizeShardType(step.ShardType))
 				ret, err := m.spawnTaskWithContext(ctx, req, m.buildSessionContext(ctx), types.PriorityNormal)
 				result := ret.Output
 
@@ -753,6 +756,14 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 				}
 
 				if err != nil {
+					// record projects Output, so include the failure alongside any
+					// partial output without losing the observed write set.
+					deliveryRet := ret
+					if strings.TrimSpace(deliveryRet.Failure) == "" {
+						deliveryRet.Failure = err.Error()
+					}
+					deliveryRet.Output = fmt.Sprintf("Step %d (%s), task: %s\n%s\nThe step failed: %s", i+1, step.ShardType, step.Task, ret.Output, deliveryRet.Failure)
+					reports = append(reports, deliveryRet)
 					results = append(results, fmt.Sprintf("**Status**: Failed\n**Error**: %v\n", withPartialState(err, ret)))
 					// Don't continue to dependent steps if this fails
 					continue
@@ -771,6 +782,7 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 				stepReturns[i] = ret
 				ran = append(ran, normalizeShardType(step.ShardType))
 				reports = append(reports, ret)
+				allChanged = append(allChanged, ret.Changed...)
 				if continuationOutcomeFor(ret, nil) == continuationCompleted {
 					verifiedSteps++
 				}
@@ -795,28 +807,33 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 		// the first under the second's name is how a plan of unverified steps
 		// reads as a plan that worked.
 		results = append(results, fmt.Sprintf("\n---\n**Summary**: %d/%d steps ran, %d verified\n",
-			len(stepResults), len(steps), verifiedSteps))
+			len(reports), len(steps), verifiedSteps))
 
 		// A part of the request the plan did not deliver goes on as a
-		// continuation step, to the plan's writing shard.
-		var allChanged []string
-		for _, r := range reports {
-			allChanged = append(allChanged, r.Changed...)
-		}
-		if dc := m.startDelivery(rawInput, m.gapShard(ran)); dc != nil && len(ran) > 0 {
-			for _, r := range reports {
-				dc.record(r)
+		// continuation step, to the plan's writing shard. Failed attempts
+		// provide a shard only when no successful step ran.
+		if len(attempted) > 0 && ctx.Err() == nil {
+			shards := ran
+			if len(shards) == 0 {
+				shards = attempted
 			}
-			if next := m.nextStep(ctx, dc); next != nil {
-				return continuationInitMsg{
-					completedSurface: strings.Join(results, ""),
-					firstResult:      lastShardResult,
-					next:             *next,
-					delivery:         dc,
+			if dc := m.startDelivery(rawInput, m.gapShard(shards)); dc != nil {
+				for _, r := range reports {
+					dc.record(r)
 				}
+				if ctx.Err() == nil {
+					if next := m.nextStep(ctx, dc); next != nil {
+						return continuationInitMsg{
+							completedSurface: strings.Join(results, ""),
+							firstResult:      lastShardResult,
+							next:             *next,
+							delivery:         dc,
+						}
+					}
+				}
+				m.endDelivery()
+				results = append(results, "\n"+dc.summaryNote()+"\n")
 			}
-			m.endDelivery()
-			results = append(results, "\n"+dc.summaryNote()+"\n")
 		}
 		if verifiedSteps > 0 && m.shouldRebuildWatchedExecutable(allChanged) {
 			if err := m.rebuildWatchedExecutable(ctx, allChanged); err != nil {

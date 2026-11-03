@@ -679,7 +679,7 @@ func (o *Orchestrator) completeTask(task *Task, result any) {
 	// error to return, so a rejected assert is logged at Error.
 	if err := o.kernel.Assert(core.Fact{
 		Predicate: "task_result",
-		Args:      []any{task.ID, "/success", resultSummary},
+		Args:      []any{task.ID, types.MangleAtom("/success"), resultSummary},
 	}); err != nil {
 		logging.Get(logging.CategoryCampaign).Error(
 			"Task %s completed but its task_result fact was rejected; the kernel still sees it unfinished: %v",
@@ -740,6 +740,9 @@ func (o *Orchestrator) applyLearnings(ctx context.Context, task *Task, result an
 		if resultContext != "" {
 			factStr = fmt.Sprintf("%s [result: %s]", task.Description, resultContext)
 		}
+		if len(fact.Args) > 1 {
+			factStr = fmt.Sprintf("%s [promotion: %s]", factStr, types.ExtractString(fact.Args[1]))
+		}
 		learning := Learning{
 			Type:      "/success_pattern",
 			Pattern:   types.ExtractString(fact.Args[0]),
@@ -749,9 +752,10 @@ func (o *Orchestrator) applyLearnings(ctx context.Context, task *Task, result an
 		o.campaign.Learnings = append(o.campaign.Learnings, learning)
 		logging.CampaignDebug("Learning captured: %s", learning.Pattern)
 	}
+	learningCount := len(o.campaign.Learnings)
 	o.mu.Unlock()
 
-	logging.Campaign("Captured %d learnings (total=%d)", len(facts), len(o.campaign.Learnings))
+	logging.Campaign("Captured %d learnings (total=%d)", len(facts), learningCount)
 }
 
 // snapshotWorkspaceRoot lists the files directly in the workspace root.

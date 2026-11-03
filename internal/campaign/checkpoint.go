@@ -3,6 +3,7 @@ package campaign
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -156,7 +157,7 @@ func (cr *CheckpointRunner) Run(ctx context.Context, phase *Phase, method Verifi
 }
 
 // runTestsCheckpoint runs tests and checks if they pass.
-func (cr *CheckpointRunner) runTestsCheckpoint(ctx context.Context) (bool, string, error) {
+func (cr *CheckpointRunner) runTestsCheckpoint(ctx context.Context) (passed bool, details string, err error) {
 	// Detect project type and run appropriate test command
 	testCmdStr := cr.detectTestCommand()
 	logging.CampaignDebug("runTestsCheckpoint: detected command=%s workspace=%s", testCmdStr, cr.workspace)
@@ -165,9 +166,25 @@ func (cr *CheckpointRunner) runTestsCheckpoint(ctx context.Context) (bool, strin
 	if isGoTest && !strings.Contains(testCmdStr, "-json") {
 		testCmdStr = testCmdStr + " -json"
 	}
+	var jsonPath string
 	if isNpmTest && !strings.Contains(testCmdStr, "--") {
+		// A unique report avoids attributing another invocation's results to this one.
+		report, createErr := os.CreateTemp(cr.workspace, ".npm-test-*.json")
+		if createErr != nil {
+			return false, "", fmt.Errorf("create npm test report: %w", createErr)
+		}
+		jsonPath = report.Name()
+		defer func() {
+			if removeErr := os.Remove(jsonPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				passed = false
+				err = errors.Join(err, fmt.Errorf("remove npm test report: %w", removeErr))
+			}
+		}()
+		if closeErr := report.Close(); closeErr != nil {
+			return false, "", fmt.Errorf("close npm test report: %w", closeErr)
+		}
 		// Try to request JSON where supported (e.g., jest). This is best-effort.
-		testCmdStr = testCmdStr + " -- --json --outputFile=.nerd/npm-test.json"
+		testCmdStr = testCmdStr + " -- --json --outputFile=" + filepath.Base(jsonPath)
 	}
 	parts := strings.Fields(testCmdStr)
 	var env []string
@@ -231,12 +248,13 @@ func (cr *CheckpointRunner) runTestsCheckpoint(ctx context.Context) (bool, strin
 
 	if isNpmTest {
 		passedCount, failedCount := cr.parseTestOutput(output)
-		// Also try to read the JSON file if it exists
-		jsonPath := filepath.Join(cr.workspace, ".nerd", "npm-test.json")
-		if data, err := os.ReadFile(jsonPath); err == nil {
-			p, f := cr.parseJestJSON(data)
-			if p+f > 0 {
-				passedCount, failedCount = p, f
+		// Only read the report requested for this invocation.
+		if jsonPath != "" {
+			if data, readErr := os.ReadFile(jsonPath); readErr == nil {
+				p, f := cr.parseJestJSON(data)
+				if p+f > 0 {
+					passedCount, failedCount = p, f
+				}
 			}
 		}
 		if failedCount > 0 || hasExitError {
