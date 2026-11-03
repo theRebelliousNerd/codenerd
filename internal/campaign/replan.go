@@ -662,6 +662,7 @@ Current Tasks:
 				ContextFrom: ctxFrom,
 			}
 			applyRefinedTargets(r.workspace, &task, t.Artifacts, t.WriteSet)
+			inheritPhaseTargets(nextPhase, &task)
 			oldTaskType := task.Type
 			if changed, reason := applyTaskTypeDefenses(r.workspace, &task); changed {
 				logging.CampaignWarn("Retyped task %s from %s to %s: %s",
@@ -742,6 +743,7 @@ Current Tasks:
 					ContextFrom: ctxFrom,
 				}
 				applyRefinedTargets(r.workspace, &task, t.Artifacts, t.WriteSet)
+				inheritPhaseTargets(nextPhase, &task)
 				oldTaskType := task.Type
 				if changed, reason := applyTaskTypeDefenses(r.workspace, &task); changed {
 					logging.CampaignWarn("Retyped task %s from %s to %s: %s",
@@ -793,6 +795,22 @@ Current Tasks:
 
 func defaultPriority(p string) string {
 	return string(normalizeTaskPriority(p))
+}
+
+func inheritPhaseTargets(phase *Phase, task *Task) {
+	if phase == nil || task == nil || !requiresFileTarget(task.Type) {
+		return
+	}
+	if len(task.Artifacts) > 0 || len(task.WriteSet) > 0 {
+		return
+	}
+	for _, existing := range phase.Tasks {
+		if existing.Type == task.Type && (len(existing.Artifacts) > 0 || len(existing.WriteSet) > 0) {
+			task.Artifacts = append([]TaskArtifact(nil), existing.Artifacts...)
+			task.WriteSet = append([]string(nil), existing.WriteSet...)
+			return
+		}
+	}
 }
 
 // getFailedTasks returns all failed tasks in the campaign.

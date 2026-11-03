@@ -156,9 +156,18 @@ func (o *Orchestrator) computeNeededResultIDs() map[string]bool {
 // getTaskResult retrieves a stored task result for context injection.
 func (o *Orchestrator) getTaskResult(taskID string) (string, bool) {
 	o.resultsMu.RLock()
-	defer o.resultsMu.RUnlock()
 	result, ok := o.taskResults[taskID]
-	return result, ok
+	o.resultsMu.RUnlock()
+	if ok {
+		return result, true
+	}
+	if o != nil && o.workspace != "" && o.campaign != nil && strings.TrimSpace(taskID) != "" {
+		rel := o.defaultTaskArtifactPath(&Task{ID: taskID})
+		if data, err := os.ReadFile(filepath.Join(o.workspace, filepath.FromSlash(rel))); err == nil && len(data) > 0 {
+			return string(data), true
+		}
+	}
+	return "", false
 }
 
 // buildTaskInput constructs the input for a shard: the task's

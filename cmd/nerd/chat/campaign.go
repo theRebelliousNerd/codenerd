@@ -85,6 +85,67 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 	}
 }
 
+func (m Model) resumePersistedCampaign(idFilter string) tea.Cmd {
+	return func() tea.Msg {
+		if m.kernel == nil || m.client == nil || m.shardMgr == nil {
+			return campaignErrorMsg{err: fmt.Errorf("system not ready for campaign resume")}
+		}
+		campaignsDir := filepath.Join(m.workspace, ".nerd", "campaigns")
+		entries, err := os.ReadDir(campaignsDir)
+		if err != nil {
+			return campaignErrorMsg{err: fmt.Errorf("read campaigns dir: %w", err)}
+		}
+		var targetID string
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(campaignsDir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			var c campaign.Campaign
+			if err := json.Unmarshal(data, &c); err != nil || c.ID == "" {
+				continue
+			}
+			if idFilter != "" {
+				if c.ID == idFilter || strings.HasSuffix(c.ID, idFilter) {
+					targetID = c.ID
+					break
+				}
+				continue
+			}
+			if c.Status == campaign.StatusPaused || c.Status == campaign.StatusActive || c.Status == campaign.StatusFailed {
+				targetID = c.ID
+			}
+		}
+		if targetID == "" {
+			return campaignErrorMsg{err: fmt.Errorf("no matching persisted campaign found to resume")}
+		}
+		progressChan := make(chan campaign.Progress, 100)
+		eventChan := make(chan campaign.OrchestratorEvent, 200)
+		orch, err := m.newCampaignOrchestrator(progressChan, eventChan, m.campaignPromptProvider())
+		if err != nil {
+			return campaignErrorMsg{err: err}
+		}
+		if _, err := orch.ResumeCampaign(targetID, campaign.AdmissionPolicy{AdoptSnapshot: true}); err != nil {
+			_ = orch.Close()
+			return campaignErrorMsg{err: fmt.Errorf("failed to resume campaign %s: %w", targetID, err)}
+		}
+		_ = campaign.ClearPauseRequest(m.workspace, targetID)
+		if err := orch.PrepareResume(); err != nil {
+			_ = orch.Close()
+			return campaignErrorMsg{err: fmt.Errorf("failed to prepare resumed campaign %s: %w", targetID, err)}
+		}
+		return campaignStartedMsg{
+			campaign:     orch.GetCampaign(),
+			orch:         orch,
+			progressChan: progressChan,
+			eventChan:    eventChan,
+		}
+	}
+}
+
 // runCampaignOrchestrator starts the orchestrator in a background goroutine and
 // returns a tea.Cmd that listens for real-time channel updates.
 func (m Model) runCampaignOrchestrator() tea.Cmd {

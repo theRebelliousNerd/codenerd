@@ -445,11 +445,14 @@ func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any
 var partialBatchReportPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\bpartial\s+result\b`),
 	regexp.MustCompile(`(?i)\bthis\s+is\s+partial\b`),
+	regexp.MustCompile(`(?i)\b(?:review|triage|inventory|result|analysis|audit)\s+is\s+partial\b`),
 	regexp.MustCompile(`(?i)\bstatus\s*:\s*\*{0,2}partial\b`),
 	regexp.MustCompile(`(?i)\bcontinue\s+in\s+batches\b`),
+	regexp.MustCompile(`(?i)\bin\s+batches\b`),
 	regexp.MustCompile(`(?i)\bleft\s+for\s+the\s+next\s+batch\b`),
 	regexp.MustCompile(`(?i)\bremaining\s+(?:work|audits|documents|items)\s*:`),
 	regexp.MustCompile(`(?i)\bbatch\s+\d+\s+of\s+\d+\b`),
+	regexp.MustCompile(`(?i)##+\s*(?:what\s+i\s+need\s+to\s+finish|not\s+dispositioned|next\s+steps?)\b`),
 }
 
 func reportAdmitsPartialBatch(report string) bool {
@@ -628,43 +631,87 @@ func (o *Orchestrator) resolveFileTaskTargetPath(task *Task) string {
 		return ""
 	}
 	if len(task.Artifacts) > 0 {
-		if p := strings.TrimSpace(task.Artifacts[0].Path); p != "" {
+		if p := strings.TrimSpace(task.Artifacts[0].Path); p != "" && !containsGlobMeta(p) {
 			return p
 		}
 	}
 	for _, raw := range task.WriteSet {
 		p := strings.TrimSpace(raw)
-		if p == "" {
+		if p == "" || containsGlobMeta(p) {
 			continue
 		}
-		if containsGlobMeta(p) {
-			continue
+		if rel := o.relativizeTargetPath(p); rel != "" {
+			return rel
 		}
-		if filepath.IsAbs(filepath.FromSlash(p)) {
-			ws := ""
-			if o != nil {
-				ws = o.workspace
-			}
-			if ws != "" {
-				rel, err := filepath.Rel(ws, filepath.FromSlash(p))
-				if err != nil {
-					continue
-				}
-				rel = filepath.ToSlash(filepath.Clean(rel))
-				if rel == "" || rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
-					continue
-				}
-				return rel
-			}
-		}
-		return filepath.ToSlash(filepath.Clean(filepath.FromSlash(p)))
 	}
 	if task.Description != "" {
-		if inferred := extractPathFromDescription(task.Description); inferred != "" {
+		if inferred := extractPathFromDescription(task.Description); inferred != "" && !containsGlobMeta(inferred) {
 			return inferred
 		}
 	}
+	for _, a := range task.Artifacts {
+		if dir := globDirectoryPrefix(a.Path); dir != "" {
+			if rel := o.relativizeTargetPath(dir); rel != "" {
+				return rel
+			}
+		}
+	}
+	for _, raw := range task.WriteSet {
+		if dir := globDirectoryPrefix(raw); dir != "" {
+			if rel := o.relativizeTargetPath(dir); rel != "" {
+				return rel
+			}
+		}
+	}
 	return ""
+}
+
+func (o *Orchestrator) relativizeTargetPath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	if filepath.IsAbs(filepath.FromSlash(p)) {
+		ws := ""
+		if o != nil {
+			ws = o.workspace
+		}
+		if ws != "" {
+			rel, err := filepath.Rel(ws, filepath.FromSlash(p))
+			if err != nil {
+				return ""
+			}
+			rel = filepath.ToSlash(filepath.Clean(rel))
+			if rel == "" || rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+				return ""
+			}
+			return rel
+		}
+	}
+	return filepath.ToSlash(filepath.Clean(filepath.FromSlash(p)))
+}
+
+func globDirectoryPrefix(raw string) string {
+	p := filepath.ToSlash(strings.TrimSpace(raw))
+	if p == "" || !containsGlobMeta(p) {
+		return ""
+	}
+	parts := strings.Split(p, "/")
+	var keep []string
+	for _, part := range parts {
+		if containsGlobMeta(part) {
+			break
+		}
+		keep = append(keep, part)
+	}
+	if len(keep) == 0 {
+		return ""
+	}
+	prefix := strings.Join(keep, "/")
+	if prefix == "" || prefix == "." {
+		return ""
+	}
+	return prefix
 }
 
 // executeFileTask creates or modifies a file using the Coder shard.

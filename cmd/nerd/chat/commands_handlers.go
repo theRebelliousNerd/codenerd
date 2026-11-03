@@ -793,6 +793,22 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 				}
 			}
 		case "resume":
+			if m.campaignOrch == nil {
+				idArg := ""
+				if len(parts) >= 3 {
+					idArg = strings.TrimSpace(parts[2])
+				}
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: "Resuming persisted campaign...",
+					Time:    time.Now(),
+				})
+				m.viewport.SetContent(m.renderHistory())
+				m.viewport.GotoBottom()
+				m.textarea.Reset()
+				m.isLoading = true
+				return m, tea.Batch(m.spinner.Tick, m.resumePersistedCampaign(idArg))
+			}
 			progress, controlErr := m.liveCampaignControlProgress()
 			if controlErr == nil && progress.CampaignStatus != string(campaign.StatusPaused) {
 				controlErr = fmt.Errorf("campaign is not paused (live status %s)", progress.CampaignStatus)

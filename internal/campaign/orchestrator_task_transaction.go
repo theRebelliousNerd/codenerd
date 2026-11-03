@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"strings"
 
@@ -104,7 +106,53 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 		rec.release()
 		return result, nil
 	}
+	if o.canPreservePartialFileModifyProgress(task, snapshot, err) {
+		rec := o.endAttempt(task)
+		o.keepAttemptWrites(rec.writes)
+		rec.release()
+		if snapshot.campaign == nil && snapshot.scopedTask != nil {
+			o.updateTaskStatus(snapshot.scopedTask, snapshot.scopedStatus)
+		}
+		logging.Campaign("Preserved verified partial batch writes (%d) for task %s across attempt boundary", len(rec.writes), taskIDOrUnknown(task))
+		return nil, err
+	}
 	return nil, o.undoFailedAttempt(task, snapshot, err)
+}
+
+func (o *Orchestrator) canPreservePartialFileModifyProgress(task *Task, snapshot taskExecutionSnapshot, err error) bool {
+	if task == nil || task.Type != TaskTypeFileModify || snapshot.campaign != nil {
+		return false
+	}
+	if !errors.Is(err, ErrTaskNotDone) {
+		return false
+	}
+	sigs := failureSignals(err)
+	if !slices.Contains(sigs, "/self_reported_incomplete") {
+		return false
+	}
+	for _, s := range sigs {
+		switch s {
+		case "/turn_not_done", "/unverified", "/self_reported_incomplete", "/blocked", "/stalled":
+		default:
+			return false
+		}
+	}
+	writes := o.attemptWrites(task)
+	if len(writes) == 0 {
+		return false
+	}
+	for _, w := range writes {
+		if !snapshot.covers(w.Path) {
+			return false
+		}
+	}
+	if validateFileModifyOutcome(task, snapshot, writes) != nil {
+		return false
+	}
+	if o.runTaskMicroCheckpoint(context.Background(), task) != nil {
+		return false
+	}
+	return true
 }
 
 // validateFileModifyOutcome requires a file_modify task to change at least one

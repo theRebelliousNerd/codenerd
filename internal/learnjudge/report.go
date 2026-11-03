@@ -66,7 +66,7 @@ func blockerQuestion(field string) typesafe.Question {
 		Instructions: fmt.Sprintf("Does `%s` name an obstacle to finishing that codeNERD cannot clear by itself?", field),
 		Criteria: &typesafe.NoulCriteria{
 			True:  "Every remaining unfinished part is blocked by a permission or policy denial, a missing credential or input from the user, or a choice only the user can make.",
-			False: "No such obstacle blocks all remaining work: the work is done, or at least one unfinished part is work codeNERD could still do in the repository without waiting on the user, even if another part is blocked or codeNERD believes otherwise.",
+			False: "No such obstacle blocks all remaining work: the work is done, or at least one unfinished part is work codeNERD could still do in the repository without waiting on the user (including remaining batches, rows, or files left for a follow-up turn or re-invocation because of turn, token, or tool-call limits), even if another part is blocked or codeNERD believes otherwise.",
 		},
 	}
 }

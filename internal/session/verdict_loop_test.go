@@ -76,6 +76,7 @@ func TestTaskVerdictPolicy_TruthTable(t *testing.T) {
 		{"second wrote nothing and cleared nothing", []dispatch{{"/unverified", 1, []string{"/tests_not_green"}, -1}, {"/unverified", 0, []string{"/tests_not_green"}, -1}}, "/stalled"},
 		{"a new gap is not a cleared one", []dispatch{{"/unverified", 1, []string{"/tests_not_green"}, -1}, {"/unverified", 0, []string{"/tests_not_green", "/vet_not_clean"}, -1}}, "/stalled"},
 		{"a named blocker stops the first", []dispatch{{"/unverified", 0, []string{"/self_reported_incomplete"}, 97}}, "/blocked"},
+		{"a moving dispatch with a blocker reading still redispatches", []dispatch{{"/unverified", 1, []string{"/self_reported_incomplete"}, 83}}, "/redispatch"},
 		{"a blocker reading under the bar does not", []dispatch{{"/unverified", 0, []string{"/self_reported_incomplete"}, 34}}, "/redispatch"},
 		{"the blocker of the last dispatch decides", []dispatch{{"/unverified", 0, []string{"/tests_not_green"}, 98}, {"/unverified", 1, []string{"/tests_not_green"}, 3}}, "/redispatch"},
 		{"no verdict", []dispatch{{"/no_verdict", 0, nil, -1}}, "/unjudged"},

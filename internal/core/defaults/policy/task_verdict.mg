@@ -61,6 +61,7 @@ task_dispatch_open(Loop) :-
 
 task_dispatch_blocker(Loop) :-
     task_dispatch_last(Loop, N),
+    !task_dispatch_moved(Loop),
     task_dispatch_blocked(Loop, N, Pct),
     config_param(/jev_yes_percent, Yes),
     Pct >= Yes.

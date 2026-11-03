@@ -101,6 +101,13 @@ func (o *Orchestrator) Close() error {
 	return firstErr
 }
 
+// GetCampaign returns the currently loaded campaign.
+func (o *Orchestrator) GetCampaign() *Campaign {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.campaign
+}
+
 // GetProgress returns current campaign progress.
 func (o *Orchestrator) GetProgress() Progress {
 	o.mu.RLock()

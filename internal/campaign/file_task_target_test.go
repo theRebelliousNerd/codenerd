@@ -231,3 +231,16 @@ func TestTargetPath_ArtifactBeatsWriteSet(t *testing.T) {
 		t.Fatalf("resolveFileTaskTargetPath = %q, want %q", got, "internal/a/b.go")
 	}
 }
+
+func TestTargetPath_GlobFallsBackToDirectoryPrefix(t *testing.T) {
+	o := &Orchestrator{workspace: t.TempDir()}
+	task := &Task{
+		ID:        "t_glob",
+		Type:      TaskTypeFileModify,
+		Artifacts: []TaskArtifact{{Type: "/source_file", Path: "internal/session/*.go"}},
+		WriteSet:  []string{"internal/session/*.go"},
+	}
+	if got := o.resolveFileTaskTargetPath(task); got != "internal/session" {
+		t.Fatalf("resolveFileTaskTargetPath = %q, want %q", got, "internal/session")
+	}
+}
