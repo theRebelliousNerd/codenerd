@@ -1,5 +1,59 @@
 # core: wiring and what is NOT built
 
+## GAP-CORE-DELEGATION-EVIDENCE-AUTHORITY
+
+Delegation evidence currency, attempt acceptance, judge-round decisions and
+rubric ownership are host measurements or Mangle conclusions. Models may not
+supply those heads through either control packets or learned programs. Keep the
+shared `hostWitnessPredicates` protection complete for the delegation-judgment
+schema, before any caller allowlist or prefix can apply. Preserve trusted host
+assertions, ordinary observations and legitimate narrowing learning.
+
+Exit: reproduce any admitted forged conclusion through the real public filter
+and the production learned-rule loader, then observe its actual Mangle effect.
+Use correct declared arities, test default and permissive/prefix/exact policies,
+reject before persistence and cover boot-time healing. Preserve current pass,
+unknown, superseded, insufficient-evidence and grounded-defect controls plus
+unrelated observations and narrowing rules. Add no risk policy that lets model
+relevance or confidence grant verification. No provider calls are required.
+Distinguish a permissive-filter contract defect from exposure in the default
+session allowlist; inspect the shared learned-rule entry separately.
+
+
+The current shared hard block now includes the thirteen omitted heads. A
+read-only source audit restores the entire old production file after removing
+only that additive block: every existing protection remains. The same set feeds
+`learnedHostOnlyHeads`, so hot-load validation and boot healing use it too.
+
+`internal/core/delegation_evidence_authority_test.go` pins all nineteen declared
+judgment-family heads to correct-arity examples. The default observation policy
+already refuses them; permissive, prefix and exact policies on pinned baseline
+admit thirteen. More seriously, the production learned-rule loader persists a
+rule that changes an actual `/unverified` attempt from `/escalate` to `/accept`.
+A second admitted rule changes exhausted evidence rounds from `/unverifiable`
+to `/acquire_evidence`; boot also reloads the acceptance rule. These are local
+real-kernel, persistence and boot witnesses, not live model exploitation.
+
+The fix refuses both rules before persistence and keeps their prior derived
+moves. Boot comments out the authority rule while retaining and executing a
+legitimate narrowing rule. Trusted host current-pass, unknown, superseded,
+insufficient-evidence and grounded-defect dispositions remain valid; ordinary
+observations still pass. The exact baseline controls yield ten pass / seventeen
+fail events, while the fixed controls pass all 27. Three uncached repetitions
+pass 81; affected suites pass 4,144 with five skips; relevant repeated races pass
+429. The fresh default suite passes 22,556 events with zero failures and 80 skips.
+No Mangle policy, threshold, new judge call, risk-only scheduler or completion
+authority is introduced. Other 1,527 production Go files and all 212 logic files
+remain byte-identical. A separate source-derived repair-validation entry that
+uses `HotLoadRule` still requires its own offline investigation; this fix does
+not establish all-ingress safety, autonomous verification or recurse readiness.
+
+The final serial tagged census completes all 923 top-level tests at 894 pass /
+29 fail (1,145 pass / 30 fail events), exactly the pinned baseline failure set.
+No integration cases are added, removed or newly failed. The CLI build and both
+vets pass. No model/provider mission or deployment was run. The separate repair
+entry remains an unconfirmed follow-up, not an additional completed fix.
+
 ## Accepted prompt-seed synchronization obligation (2026-10-02)
 
 **PARTIAL:** `internal/core/defaults/prompt_corpus.db` is the canonical prompt corpus's shipped first-boot consumable. GAP-PROMPT-PERCEPTION-CONTRACT cannot close with corrected YAML and stale seed content. Root reconciliation now preserves 682 exact unchanged-input vector/task values and invalidates 29 changed-input vectors, rather than discarding all vectors (`artifact:.corpus-build/runs/all-features-20261002/round5-seed-retention.json`). `round5-seed-publication.json` records generated-asset publication and a preserved backup; no Git publication occurred. The seed freshness test (`internal/prompt/prompt_corpus_seed_freshness_test.go:23`) and full prompt/perception/sync/builder suites pass in `round5-prompt-perception-full.receipt.json`; that combined gate remains red only in the validator's stale 917-ID oracle. A fresh sqlite_vec binary creates a 923-row first-boot prompt database with the corrected perception hash (`round5-firstboot-db-witness.json`), but its 20-second idle deadline exits after 58.4 seconds (`round5-firstboot-idle.receipt.json`). This proves seed synchronization, not successful boot lifecycle, a completed model turn, world/CodeDOM consumption or semantic namespace/ANN compatibility. No schema/policy, active user database or protected-file edits are authorized here.

@@ -467,6 +467,15 @@ var hostWitnessPredicates = map[string]struct{}{
 	// its own attempt.
 	"delegation_request": {}, "delegation_attempt": {}, "judge_verdict": {}, "judge_round": {},
 	"judge_evidence_requested": {}, "delegation_move": {},
+	// Evidence currency, round budgets and dispositions are host-owned or
+	// derived from those witnesses too. The learned-rule validator consumes
+	// this same set: learning one of these heads could otherwise accept an
+	// unverified attempt or keep acquiring evidence past the host's budget.
+	"judge_evidence_applicability": {}, "judge_evidence_current": {}, "judge_evidence_historical": {},
+	"judge_unresolved": {}, "judge_last_round": {}, "judge_may_acquire": {},
+	"delegation_attempt_failed": {}, "delegation_judge_due": {}, "analysis_persona": {},
+	"delegation_judge_rubric": {}, "judge_rejects": {},
+	"delegation_attempt_accepted": {}, "delegation_attempt_count": {},
 }
 
 func predicateAllowed(predicate string, policy MangleUpdatePolicy) bool {
