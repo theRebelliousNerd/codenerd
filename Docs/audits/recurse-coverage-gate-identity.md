@@ -1,5 +1,11 @@
 # Recurse coverage gate identity and the improvement ratchet
 
+## Current-main addendum: baseline gate coverage is compared
+
+Static review at public main `a4fd84e66accf2780b3ddfcc6a77bef7d16def5d`, November 3, 2026. The first-parseable-gate witness below is historical. [Commit 97a4245](https://github.com/theRebelliousNerd/codenerd/commit/97a4245a50f1159901d2f89bff375fe41e7d5998) collects per-gate coverage keys; the policy bridge pairs each baseline key with its after value, treating a missing after value as -1. One gate's rise therefore no longer hides another baseline gate's fall in the stated witness. [Collection](https://github.com/theRebelliousNerd/codenerd/blob/a4fd84e66accf2780b3ddfcc6a77bef7d16def5d/internal/campaign/recurse_cycle.go#L1575-L1604) [Projection](https://github.com/theRebelliousNerd/codenerd/blob/a4fd84e66accf2780b3ddfcc6a77bef7d16def5d/internal/campaign/recurse_policy.go#L226-L248)
+
+The authored fixture checks rising, falling and missing reports with constructed results and a real-kernel helper; it does not run checks or the full adoption path. Pairing still lacks explicit domain/toolchain identity, and combined output does not preserve separate invocation domains. No tests ran in this review. [Fixture](https://github.com/theRebelliousNerd/codenerd/blob/a4fd84e66accf2780b3ddfcc6a77bef7d16def5d/internal/campaign/recurse_audits_test.go#L88-L191)
+
 **Status: source-derived audit and proposed contract.** Inspected public CodeNERD revision `1a179efba7deb5c6149aea1da4970e66f92592b5` on 2026-11-03. No implementation, build, test, gate, application path, model call, inference or benchmark was run. The witness below is a conditional derivation from the pinned source, not an executed reproduction or an observed user incident.
 
 ## Decision in brief
