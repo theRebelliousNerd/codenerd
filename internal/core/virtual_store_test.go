@@ -480,7 +480,7 @@ func TestRouteActionReadFile_PersistsContentFacts(t *testing.T) {
 		target := f.Args[2]
 		success := f.Args[3]
 
-		if actionID == "act_test" && actionType == "read_file" && target == filename {
+		if actionID == "act_test" && actionType == "/read_file" && target == filename {
 			if success != "/true" {
 				t.Fatalf("execution_result success=%v, want /true", success)
 			}

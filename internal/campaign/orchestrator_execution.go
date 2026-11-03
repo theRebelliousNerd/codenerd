@@ -286,11 +286,12 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 		// 3. Execute the phase with parallelism + rolling checkpoints
 		if err := o.runPhase(ctx, currentPhase); err != nil {
-			logging.Get(logging.CategoryCampaign).Error("Phase execution error: %v", err)
 			o.lastError = err
 			if ctx.Err() != nil {
+				logging.Get(logging.CategoryCampaign).Info("Phase execution canceled: %v", err)
 				return err
 			}
+			logging.Get(logging.CategoryCampaign).Error("Phase execution error: %v", err)
 		}
 	}
 }

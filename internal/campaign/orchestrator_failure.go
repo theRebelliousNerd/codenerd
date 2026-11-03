@@ -35,7 +35,11 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 		errStr = err.Error()
 	}
 	signals := failureSignals(err)
-	logging.Get(logging.CategoryCampaign).Warn("Handling task failure: %s %v - %s", task.ID, signals, errStr)
+	if ctx.Err() != nil || slices.Contains(signals, "/canceled") {
+		logging.Get(logging.CategoryCampaign).Info("Handling task failure: %s %v - %s", task.ID, signals, errStr)
+	} else {
+		logging.Get(logging.CategoryCampaign).Warn("Handling task failure: %s %v - %s", task.ID, signals, errStr)
+	}
 
 	phaseID := ""
 	if phase != nil {

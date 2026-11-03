@@ -98,8 +98,8 @@ func TestRouteActionResult_DispatchedHandlerErrorHasCorrelatedFailureObservation
 	if success, ok := types.ExtractBool(correlated[0].Args[3]); !ok || success {
 		t.Fatalf("execution_result success = %#v, want false", correlated[0].Args[3])
 	}
-	if got := types.ExtractString(correlated[0].Args[1]); got != "write_file" {
-		t.Fatalf("execution_result action = %q, want write_file", got)
+	if got := types.ExtractString(correlated[0].Args[1]); got != "/write_file" {
+		t.Fatalf("execution_result action = %q, want /write_file", got)
 	}
 	if got := types.ExtractString(correlated[0].Args[2]); got != target {
 		t.Fatalf("execution_result target = %q, want %q", got, target)

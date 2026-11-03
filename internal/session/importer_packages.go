@@ -102,7 +102,7 @@ type importerScope struct {
 
 func discoverImporters(ctx context.Context, workspace string, result *ExecutionResult) importerScope {
 	workspace = goWorkspace(workspace)
-	own, _ := splitTagGatedPackages(workspace, packagesForPaths(result.WrittenPaths))
+	own, _ := splitTagGatedPackages(workspace, packagesForPaths(nonTestPaths(result.WrittenPaths)))
 	importers, dirs, why := discoverImporterPackages(ctx, workspace, own)
 	if why != "" {
 		return importerScope{why: why}

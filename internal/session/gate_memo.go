@@ -165,14 +165,18 @@ func gateKey(ctx context.Context, kind, workspace string, result *ExecutionResul
 	return kind + "|" + workspace + "|" + fingerprint + "|" + writtenMembership(result)
 }
 
-func writtenNonTestMembership(result *ExecutionResult) string {
-	filtered := make([]string, 0, len(result.WrittenPaths))
-	for _, p := range result.WrittenPaths {
+func nonTestPaths(paths []string) []string {
+	filtered := make([]string, 0, len(paths))
+	for _, p := range paths {
 		if !isGoTestSource(p) {
 			filtered = append(filtered, p)
 		}
 	}
-	return membershipDigest(filtered, result.PreWriteContents)
+	return filtered
+}
+
+func writtenNonTestMembership(result *ExecutionResult) string {
+	return membershipDigest(nonTestPaths(result.WrittenPaths), result.PreWriteContents)
 }
 
 // writtenMembership digests the written path set and each path's preimage.

@@ -205,7 +205,7 @@ func (v *VirtualStore) recordActionCompletion(req ActionRequest, result ActionRe
 		// declared in schemas_reviewer.mg and never joined on Output — so the
 		// bound costs nothing and the excerpt still serves `nerd query` and
 		// the glass box. The caller keeps the full result.
-		Args: []any{req.ActionID, string(req.Type), req.Target, result.Success, types.TruncateFactText(result.Output), completedAt.Unix()},
+		Args: []any{req.ActionID, types.MangleAtom("/" + strings.TrimPrefix(string(req.Type), "/")), req.Target, result.Success, types.TruncateFactText(result.Output), completedAt.Unix()},
 	})
 	v.injectFacts(factsToInject)
 	v.maybePruneActionLogs(completedAt)

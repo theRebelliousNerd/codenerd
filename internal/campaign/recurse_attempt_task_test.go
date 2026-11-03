@@ -247,3 +247,21 @@ func TestSpawnTask_SetsRecursePromptPhase(t *testing.T) {
 		t.Fatal("an empty prompt phase attached a session context")
 	}
 }
+
+func TestWritePriorAttempts_StripsTurnLocalRecallContextNotes(t *testing.T) {
+	var b strings.Builder
+	writePriorAttempts(&b, []PriorAttempt{
+		{
+			Cycle: 1,
+			Why:   `reverted; executor: tests fail (codenerd/internal/foo TestBar:foo_test.go:12: boom; recall_context id="18" returns this test's full output)`,
+			Tried: "return 0",
+		},
+	})
+	got := b.String()
+	if strings.Contains(got, "recall_context") {
+		t.Fatalf("writePriorAttempts kept turn-local recall_context handle:\n%s", got)
+	}
+	if !strings.Contains(got, "TestBar:foo_test.go:12: boom)") {
+		t.Fatalf("writePriorAttempts lost failure summary:\n%s", got)
+	}
+}

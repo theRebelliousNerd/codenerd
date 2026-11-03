@@ -621,7 +621,7 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 		// hides the real shard failure. Surface the shard error, wrapped with
 		// the task identity, instead of falling back.
 		if ctxErr := ctx.Err(); ctxErr != nil || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			logging.Get(logging.CategoryCampaign).Warn("Shard failed for task %s with an expired context; surfacing shard error instead of falling back: %v", task.ID, err)
+			logging.Get(logging.CategoryCampaign).Info("Shard failed for task %s with an expired context; surfacing shard error instead of falling back: %v", task.ID, err)
 			return nil, fmt.Errorf("coder shard failed for %s task %s on %s: %w", task.Type, task.ID, targetPath, err)
 		}
 		// F-CAMP-1: the fallback is a creator, never an editor. For a directory

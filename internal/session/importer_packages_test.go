@@ -188,3 +188,22 @@ func TestImporterPackages_OneHopThroughCodeAndTests(t *testing.T) {
 		t.Fatalf("importers = %v, want [impprobe/b impprobe/c]: b imports a in code, c only in its test, d is a hop further out", got)
 	}
 }
+
+func TestGateTests_TestFileOnlyEditsSkipImporterTests(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	ws := importerModule(t, aAfter)
+	result := mutationResult()
+	result.WrittenPaths = []string{"a/a_test.go"}
+	result.PreWriteContents = map[string]PreImage{"a/a_test.go": existed("package a\n")}
+
+	v, _ := gateTests(context.Background(), ws, result, false)
+	if v.Verdict() != VerifyPassed {
+		t.Fatalf("own run = %s (%s), want passed", v.Verdict(), v.Output)
+	}
+	if result.ImporterCheck.Verdict() != VerifySkipped {
+		t.Fatalf("importer run on _test.go-only edit = %s (%s), want skipped", result.ImporterCheck.Verdict(), result.ImporterCheck.Reason)
+	}
+}

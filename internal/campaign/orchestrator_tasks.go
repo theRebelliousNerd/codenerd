@@ -454,7 +454,11 @@ func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Ta
 	o.reportUnexpectedRootWrites(task, rootBefore)
 	if err != nil {
 		o.observeTaskDuration(phase.ID, task, "failed", elapsed)
-		logging.Get(logging.CategoryCampaign).Error("Task failed: %s - %v", task.ID, err)
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			logging.Get(logging.CategoryCampaign).Info("Task canceled: %s - %v", task.ID, err)
+		} else {
+			logging.Get(logging.CategoryCampaign).Error("Task failed: %s - %v", task.ID, err)
+		}
 		taskTimer.Stop()
 		o.handleTaskFailure(ctx, phase, task, err)
 		results <- taskResult{taskID: task.ID, err: err}

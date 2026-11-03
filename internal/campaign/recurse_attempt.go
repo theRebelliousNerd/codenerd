@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -166,6 +167,8 @@ func recurseAttemptTask(a RecurseAttempt, scope string) string {
 // The instruction not to repeat them is in the recurse attempt atoms; a
 // retry that is not shown the diff makes the same change again, and the
 // loop then stops the finding as stalled after two identical failures.
+var priorAttemptRecallNotePattern = regexp.MustCompile(`;\s*recall_context id="[^"]+"\s*returns this test's full output`)
+
 func writePriorAttempts(b *strings.Builder, prior []PriorAttempt) {
 	if len(prior) == 0 {
 		return
@@ -173,7 +176,8 @@ func writePriorAttempts(b *strings.Builder, prior []PriorAttempt) {
 	budget := recurseEvidenceLimit
 	for i := len(prior) - 1; i >= 0 && budget > 0; i-- {
 		p := prior[i]
-		fmt.Fprintf(b, "\nCycle %d, reverted: %s\n", p.Cycle, p.Why)
+		why := priorAttemptRecallNotePattern.ReplaceAllString(p.Why, "")
+		fmt.Fprintf(b, "\nCycle %d, reverted: %s\n", p.Cycle, why)
 		tried := p.Tried
 		if len(tried) > budget {
 			tried = types.ClampText(tried, budget, fmt.Sprintf("cycle %d diff", p.Cycle))
