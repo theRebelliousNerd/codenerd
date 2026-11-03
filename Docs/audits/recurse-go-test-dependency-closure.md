@@ -9,6 +9,14 @@ verification-method: static-source-inspection
 
 # Recurse dependency closure omits Go test imports
 
+
+## Current-main addendum: Go test imports now enter the graph
+
+Static review at public main `ab687f41b2a1d42c6af4f05bd43f7f17ec03846f`, November 3, 2026. The finding below describes its earlier pinned revision. [Commit 6148ca4](https://github.com/theRebelliousNerd/codenerd/commit/6148ca4efc3ab0f587902382099a7fa629c39852) adds `TestImports` and `XTestImports` to the Go package observation and joins all three import lists to admitted local packages. The original omission is addressed in source. [Current producer](https://github.com/theRebelliousNerd/codenerd/blob/ab687f41b2a1d42c6af4f05bd43f7f17ec03846f/internal/campaign/recurse_workspace.go#L367-L449)
+
+An authored fixture asserts that an external-test-only dependency precedes its package, alongside hidden-directory and ignore controls. It does not cover all proposed cases such as same-package imports, focused closure, test cycles or configured build domains. No fixture or Go command was executed during this review. [Fixture](https://github.com/theRebelliousNerd/codenerd/blob/ab687f41b2a1d42c6af4f05bd43f7f17ec03846f/internal/campaign/recurse_workspace_test.go#L242-L267)
+
+
 ## Decision
 
 Include the Go test-import relationships that the recurse node's test gate actually depends on when deriving its dependency closure and sweep order. The current Go package projection keeps only `Imports`, dropping `TestImports` and `XTestImports` from the existing `go list -e -json ./...` response. A package imported exclusively by another package's tests is therefore a workspace node but not a dependency of that importer. A focused sweep can omit it, and an unfocused sweep can visit the importer first. [Go projection][projection], [focus closure][filter], [ordering policy][ordering].
