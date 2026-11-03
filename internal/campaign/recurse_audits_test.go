@@ -479,3 +479,93 @@ func TestRecurseMissionValuesContinuationOwnership(t *testing.T) {
 	}
 	_ = observation.FileWrite{}
 }
+
+// Audit 8: Docs/audits/recurse-cargo-inherited-dependency-closure.md
+// Cargo workspace-inherited dependencies (`z.workspace = true`, `z = { workspace = true }`,
+// renamed `package = "z"`, dev/build/target dependencies, and two-hop chains)
+// produce the same local dependency edges and focused closure as direct `path`
+// dependencies, without falsely attaching `[workspace.dependencies]` entries
+// to a root package or members that never inherit them.
+func TestRecurseCargoInheritedDependencyClosure(t *testing.T) {
+	t.Parallel()
+
+	t.Run("virtual_workspace_inherited_dependency_and_focus_closure", func(t *testing.T) {
+		root := t.TempDir()
+		writeTree(t, root, map[string]string{
+			"Cargo.toml":               "[workspace]\nmembers = [\"crates/a\", \"crates/z\", \"crates/unused\"]\nresolver = \"2\"\n\n[workspace.dependencies]\nz = { path = \"crates/z\" }\nunused = { path = \"crates/unused\" }\n",
+			"crates/a/Cargo.toml":      "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nz.workspace = true\n",
+			"crates/a/src/lib.rs":      "pub fn a() {}\n",
+			"crates/z/Cargo.toml":      "[package]\nname = \"z\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+			"crates/z/src/lib.rs":      "pub fn z() {}\n",
+			"crates/unused/Cargo.toml": "[package]\nname = \"unused\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+			"crates/unused/src/lib.rs": "pub fn u() {}\n",
+		})
+
+		nodes, err := DeriveWorkspaceDAG(context.Background(), root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		focused, err := FilterDAG(nodes, []string{"crates/a"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var focusedIDs []string
+		for _, n := range focused {
+			focusedIDs = append(focusedIDs, n.ID)
+		}
+		if !slices.Contains(focusedIDs, "crates/z") {
+			t.Fatalf("FilterDAG(crates/a) omitted workspace-inherited prerequisite crates/z: %v", focusedIDs)
+		}
+		if slices.Contains(focusedIDs, "crates/unused") {
+			t.Fatalf("FilterDAG(crates/a) included uninherited workspace dependency crates/unused: %v", focusedIDs)
+		}
+
+		ids := sweepOrder(t, root)
+		if !before(ids, "crates/z", "crates/a") {
+			t.Fatalf("crates/z must sweep before dependent crates/a: %v", ids)
+		}
+	})
+
+	t.Run("root_package_and_two_hop_renamed_and_target_inherited_dependencies", func(t *testing.T) {
+		root := t.TempDir()
+		writeTree(t, root, map[string]string{
+			"Cargo.toml":             "[package]\nname = \"root-pkg\"\nversion = \"0.1.0\"\n\n[workspace]\nmembers = [\"crates/app\", \"crates/mid\", \"crates/base\"]\n\n[workspace.dependencies]\nmid_ws = { package = \"mid\", path = \"crates/mid\" }\nbase = { path = \"crates/base\" }\n",
+			"src/lib.rs":             "pub fn root() {}\n",
+			"crates/app/Cargo.toml":  "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nmy_mid = { package = \"mid\", workspace = true }\n",
+			"crates/app/src/lib.rs":  "pub fn app() {}\n",
+			"crates/mid/Cargo.toml":  "[package]\nname = \"mid\"\nversion = \"0.1.0\"\n\n[target.'cfg(unix)'.dev-dependencies]\nbase = { workspace = true }\n",
+			"crates/mid/src/lib.rs":  "pub fn mid() {}\n",
+			"crates/base/Cargo.toml": "[package]\nname = \"base\"\nversion = \"0.1.0\"\n",
+			"crates/base/src/lib.rs": "pub fn base() {}\n",
+		})
+
+		nodes, err := DeriveWorkspaceDAG(context.Background(), root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		byID := map[string]SubsystemNode{}
+		for _, n := range nodes {
+			byID[n.ID] = n
+		}
+		if len(byID["."].DependsOn) != 0 {
+			t.Fatalf("root package '.' falsely inherited [workspace.dependencies] as its own dependencies: %v", byID["."].DependsOn)
+		}
+
+		focused, err := FilterDAG(nodes, []string{"crates/app"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var focusedIDs []string
+		for _, n := range focused {
+			focusedIDs = append(focusedIDs, n.ID)
+		}
+		if !slices.Contains(focusedIDs, "crates/mid") || !slices.Contains(focusedIDs, "crates/base") {
+			t.Fatalf("two-hop workspace-inherited closure for crates/app incomplete: %v", focusedIDs)
+		}
+
+		ids := sweepOrder(t, root)
+		if !before(ids, "crates/base", "crates/mid") || !before(ids, "crates/mid", "crates/app") {
+			t.Fatalf("expected crates/base -> crates/mid -> crates/app order, got %v", ids)
+		}
+	})
+}

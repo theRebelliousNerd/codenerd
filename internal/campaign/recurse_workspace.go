@@ -608,40 +608,548 @@ func resolveJSSpecifier(fromDir, spec string) (string, bool) {
 // Rust
 // ---------------------------------------------------------------------------
 
-var (
-	cargoPackage  = regexp.MustCompile(`(?m)^\s*\[package\]`)
-	cargoPathDeps = regexp.MustCompile(`path\s*=\s*"([^"]+)"`)
-)
+type cargoDepSpec struct {
+	key       string
+	path      string
+	pkg       string
+	workspace bool
+}
+
+type cargoManifestInfo struct {
+	dir           string
+	hasPackage    bool
+	hasWorkspace  bool
+	workspaceRoot string
+	workspaceDeps map[string]cargoDepSpec
+	crateDeps     []cargoDepSpec
+}
 
 // scanRustCrates adds one node per crate (a Cargo.toml with [package]) and an
-// edge per path dependency on another crate in the workspace.
+// edge per declared local dependency (direct path or workspace-inherited) on
+// another admitted crate in the workspace.
 func scanRustCrates(root string, manifests []string, g *workspaceGraph) {
 	crates := map[string]string{} // manifest dir (abs) -> node dir
+	parsed := map[string]*cargoManifestInfo{}
 	for _, m := range manifests {
-		data, err := os.ReadFile(m)
-		if err != nil || !cargoPackage.Match(data) {
-			continue
-		}
-		dir := relDir(root, m)
-		crates[filepath.Dir(m)] = dir
-		g.addNode(dir, "rust")
-	}
-	for _, m := range manifests {
-		from, ok := crates[filepath.Dir(m)]
-		if !ok {
-			continue
-		}
 		data, err := os.ReadFile(m)
 		if err != nil {
 			continue
 		}
-		for _, dep := range cargoPathDeps.FindAllSubmatch(data, -1) {
-			target := filepath.Clean(filepath.Join(filepath.Dir(m), filepath.FromSlash(string(dep[1]))))
+		absDir := filepath.Clean(filepath.Dir(m))
+		info := parseCargoManifest(absDir, string(data))
+		parsed[absDir] = info
+		if !info.hasPackage {
+			continue
+		}
+		dir := relDir(root, m)
+		crates[absDir] = dir
+		g.addNode(dir, "rust")
+	}
+
+	cleanRoot := filepath.Clean(root)
+	findWorkspaceDeps := func(info *cargoManifestInfo) map[string]cargoDepSpec {
+		if info.workspaceRoot != "" {
+			wsDir := filepath.Clean(filepath.Join(info.dir, filepath.FromSlash(info.workspaceRoot)))
+			if ws, ok := parsed[wsDir]; ok && len(ws.workspaceDeps) > 0 {
+				return ws.workspaceDeps
+			}
+		}
+		for cur := info.dir; ; {
+			if ws, ok := parsed[cur]; ok && (ws.hasWorkspace || len(ws.workspaceDeps) > 0) {
+				if len(ws.workspaceDeps) > 0 {
+					return ws.workspaceDeps
+				}
+			}
+			if cur == cleanRoot {
+				break
+			}
+			parent := filepath.Dir(cur)
+			if parent == cur {
+				break
+			}
+			cur = parent
+		}
+		return nil
+	}
+
+	for _, m := range manifests {
+		absDir := filepath.Clean(filepath.Dir(m))
+		from, ok := crates[absDir]
+		if !ok {
+			continue
+		}
+		info := parsed[absDir]
+		if info == nil {
+			continue
+		}
+		var wsDeps map[string]cargoDepSpec
+		for _, dep := range info.crateDeps {
+			target := ""
+			if dep.path != "" {
+				target = filepath.Clean(filepath.Join(absDir, filepath.FromSlash(dep.path)))
+			} else if dep.workspace {
+				if wsDeps == nil {
+					wsDeps = findWorkspaceDeps(info)
+				}
+				target = resolveWorkspaceDepTarget(dep, wsDeps)
+			}
+			if target == "" {
+				continue
+			}
 			if to, ok := crates[target]; ok {
 				g.addEdge(from, to)
 			}
 		}
 	}
+}
+
+func resolveWorkspaceDepTarget(dep cargoDepSpec, wsDeps map[string]cargoDepSpec) string {
+	if len(wsDeps) == 0 {
+		return ""
+	}
+	if ws, ok := wsDeps[dep.key]; ok && ws.path != "" {
+		return ws.path
+	}
+	if dep.pkg != "" {
+		if ws, ok := wsDeps[dep.pkg]; ok && ws.path != "" {
+			return ws.path
+		}
+		matched := ""
+		ambiguous := false
+		for _, ws := range wsDeps {
+			if ws.pkg == dep.pkg && ws.path != "" {
+				if matched != "" && matched != ws.path {
+					ambiguous = true
+					break
+				}
+				matched = ws.path
+			}
+		}
+		if !ambiguous {
+			return matched
+		}
+	}
+	return ""
+}
+
+func parseCargoManifest(manifestDir, content string) *cargoManifestInfo {
+	info := &cargoManifestInfo{
+		dir:           manifestDir,
+		workspaceDeps: map[string]cargoDepSpec{},
+	}
+	type sectionKind int
+	const (
+		secOther sectionKind = iota
+		secPackage
+		secWorkspace
+		secWorkspaceDeps
+		secCrateDeps
+	)
+	sec := secOther
+	subKey := ""
+	crateDepsByKey := map[string]*cargoDepSpec{}
+	var crateDepOrder []string
+
+	getCrateDep := func(k string) *cargoDepSpec {
+		if existing, ok := crateDepsByKey[k]; ok {
+			return existing
+		}
+		spec := &cargoDepSpec{key: k}
+		crateDepsByKey[k] = spec
+		crateDepOrder = append(crateDepOrder, k)
+		return spec
+	}
+	getWorkspaceDep := func(k string) cargoDepSpec {
+		if existing, ok := info.workspaceDeps[k]; ok {
+			return existing
+		}
+		return cargoDepSpec{key: k}
+	}
+	applyAttr := func(spec *cargoDepSpec, attr, val string, baseDir string, resolveAbs bool) {
+		switch attr {
+		case "path":
+			if p, ok := unquoteTOMLString(val); ok && p != "" {
+				if resolveAbs {
+					spec.path = filepath.Clean(filepath.Join(baseDir, filepath.FromSlash(p)))
+				} else {
+					spec.path = p
+				}
+			}
+		case "package":
+			if p, ok := unquoteTOMLString(val); ok && p != "" {
+				spec.pkg = p
+			}
+		case "workspace":
+			if strings.TrimSpace(val) == "true" {
+				spec.workspace = true
+			}
+		}
+	}
+
+	for _, line := range logicalTOMLLines(content) {
+		if strings.HasPrefix(line, "[[") {
+			sec = secOther
+			subKey = ""
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			segs := splitTOMLKey(strings.TrimSpace(line[1 : len(line)-1]))
+			sec = secOther
+			subKey = ""
+			switch len(segs) {
+			case 1:
+				switch segs[0] {
+				case "package":
+					info.hasPackage = true
+					sec = secPackage
+				case "workspace":
+					info.hasWorkspace = true
+					sec = secWorkspace
+				default:
+					if isCargoDepTable(segs[0]) {
+						sec = secCrateDeps
+					}
+				}
+			case 2:
+				if segs[0] == "workspace" && segs[1] == "dependencies" {
+					info.hasWorkspace = true
+					sec = secWorkspaceDeps
+				} else if isCargoDepTable(segs[0]) {
+					sec = secCrateDeps
+					subKey = segs[1]
+				}
+			case 3:
+				if segs[0] == "workspace" && segs[1] == "dependencies" {
+					info.hasWorkspace = true
+					sec = secWorkspaceDeps
+					subKey = segs[2]
+				} else if segs[0] == "target" && isCargoDepTable(segs[2]) {
+					sec = secCrateDeps
+				}
+			case 4:
+				if segs[0] == "target" && isCargoDepTable(segs[2]) {
+					sec = secCrateDeps
+					subKey = segs[3]
+				}
+			}
+			continue
+		}
+
+		lhs, rhs, ok := splitTOMLAssignment(line)
+		if !ok {
+			continue
+		}
+		switch sec {
+		case secPackage:
+			if lhs == "workspace" {
+				if p, ok := unquoteTOMLString(rhs); ok {
+					info.workspaceRoot = p
+				}
+			}
+		case secWorkspaceDeps:
+			if subKey != "" {
+				ws := getWorkspaceDep(subKey)
+				applyAttr(&ws, lhs, rhs, manifestDir, true)
+				info.workspaceDeps[subKey] = ws
+				continue
+			}
+			keys := splitTOMLKey(lhs)
+			switch len(keys) {
+			case 1:
+				ws := getWorkspaceDep(keys[0])
+				parseInlineTOMLTable(rhs, func(k, v string) {
+					applyAttr(&ws, k, v, manifestDir, true)
+				})
+				info.workspaceDeps[keys[0]] = ws
+			case 2:
+				ws := getWorkspaceDep(keys[0])
+				applyAttr(&ws, keys[1], rhs, manifestDir, true)
+				info.workspaceDeps[keys[0]] = ws
+			}
+		case secCrateDeps:
+			if subKey != "" {
+				spec := getCrateDep(subKey)
+				applyAttr(spec, lhs, rhs, manifestDir, false)
+				continue
+			}
+			keys := splitTOMLKey(lhs)
+			switch len(keys) {
+			case 1:
+				spec := getCrateDep(keys[0])
+				parseInlineTOMLTable(rhs, func(k, v string) {
+					applyAttr(spec, k, v, manifestDir, false)
+				})
+			case 2:
+				spec := getCrateDep(keys[0])
+				applyAttr(spec, keys[1], rhs, manifestDir, false)
+			}
+		}
+	}
+
+	for _, k := range crateDepOrder {
+		info.crateDeps = append(info.crateDeps, *crateDepsByKey[k])
+	}
+	return info
+}
+
+func isCargoDepTable(name string) bool {
+	switch name {
+	case "dependencies", "dev-dependencies", "build-dependencies", "dev_dependencies", "build_dependencies":
+		return true
+	default:
+		return false
+	}
+}
+
+func logicalTOMLLines(content string) []string {
+	rawLines := strings.Split(content, "\n")
+	var out []string
+	var buf strings.Builder
+	braceDepth := 0
+	for _, raw := range rawLines {
+		clean := strings.TrimSpace(stripTOMLComment(raw))
+		if clean == "" {
+			continue
+		}
+		if braceDepth > 0 {
+			buf.WriteByte(' ')
+			buf.WriteString(clean)
+		} else {
+			buf.Reset()
+			buf.WriteString(clean)
+		}
+		braceDepth += countTOMLBraceDelta(clean)
+		if braceDepth <= 0 {
+			braceDepth = 0
+			out = append(out, buf.String())
+		}
+	}
+	if braceDepth > 0 && buf.Len() > 0 {
+		out = append(out, buf.String())
+	}
+	return out
+}
+
+func stripTOMLComment(s string) string {
+	inDouble := false
+	inSingle := false
+	escaped := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inDouble && ch == '\\' {
+			escaped = true
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			continue
+		}
+		if ch == '#' && !inDouble && !inSingle {
+			return s[:i]
+		}
+	}
+	return s
+}
+
+func countTOMLBraceDelta(s string) int {
+	inDouble := false
+	inSingle := false
+	escaped := false
+	delta := 0
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inDouble && ch == '\\' {
+			escaped = true
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			continue
+		}
+		if !inDouble && !inSingle {
+			switch ch {
+			case '{':
+				delta++
+			case '}':
+				delta--
+			}
+		}
+	}
+	return delta
+}
+
+func splitTOMLKey(s string) []string {
+	var parts []string
+	var cur strings.Builder
+	inDouble := false
+	inSingle := false
+	escaped := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if escaped {
+			cur.WriteByte(ch)
+			escaped = false
+			continue
+		}
+		if inDouble && ch == '\\' {
+			cur.WriteByte(ch)
+			escaped = true
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			cur.WriteByte(ch)
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			cur.WriteByte(ch)
+			continue
+		}
+		if ch == '.' && !inDouble && !inSingle {
+			parts = append(parts, cleanTOMLKeySegment(cur.String()))
+			cur.Reset()
+			continue
+		}
+		cur.WriteByte(ch)
+	}
+	if cur.Len() > 0 {
+		parts = append(parts, cleanTOMLKeySegment(cur.String()))
+	}
+	return parts
+}
+
+func cleanTOMLKeySegment(seg string) string {
+	seg = strings.TrimSpace(seg)
+	if u, ok := unquoteTOMLString(seg); ok {
+		return u
+	}
+	return seg
+}
+
+func splitTOMLAssignment(s string) (string, string, bool) {
+	inDouble := false
+	inSingle := false
+	escaped := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inDouble && ch == '\\' {
+			escaped = true
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			continue
+		}
+		if ch == '=' && !inDouble && !inSingle {
+			return strings.TrimSpace(s[:i]), strings.TrimSpace(s[i+1:]), true
+		}
+	}
+	return "", "", false
+}
+
+func parseInlineTOMLTable(rhs string, fn func(k, v string)) {
+	rhs = strings.TrimSpace(rhs)
+	if !strings.HasPrefix(rhs, "{") || !strings.HasSuffix(rhs, "}") {
+		return
+	}
+	inner := strings.TrimSpace(rhs[1 : len(rhs)-1])
+	if inner == "" {
+		return
+	}
+	var fields []string
+	var cur strings.Builder
+	inDouble := false
+	inSingle := false
+	escaped := false
+	depth := 0
+	for i := 0; i < len(inner); i++ {
+		ch := inner[i]
+		if escaped {
+			cur.WriteByte(ch)
+			escaped = false
+			continue
+		}
+		if inDouble && ch == '\\' {
+			cur.WriteByte(ch)
+			escaped = true
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			cur.WriteByte(ch)
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			cur.WriteByte(ch)
+			continue
+		}
+		if !inDouble && !inSingle {
+			switch ch {
+			case '{', '[':
+				depth++
+			case '}', ']':
+				if depth > 0 {
+					depth--
+				}
+			case ',':
+				if depth == 0 {
+					fields = append(fields, cur.String())
+					cur.Reset()
+					continue
+				}
+			}
+		}
+		cur.WriteByte(ch)
+	}
+	if cur.Len() > 0 {
+		fields = append(fields, cur.String())
+	}
+	for _, f := range fields {
+		if k, v, ok := splitTOMLAssignment(f); ok {
+			fn(cleanTOMLKeySegment(k), v)
+		}
+	}
+}
+
+func unquoteTOMLString(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if inner, ok := strings.CutPrefix(s, "\""); ok {
+		if inner, ok := strings.CutSuffix(inner, "\""); ok {
+			return inner, true
+		}
+	}
+	if inner, ok := strings.CutPrefix(s, "'"); ok {
+		if inner, ok := strings.CutSuffix(inner, "'"); ok {
+			return inner, true
+		}
+	}
+	return "", false
 }
 
 func sortedKeys(m map[string]bool) []string {
