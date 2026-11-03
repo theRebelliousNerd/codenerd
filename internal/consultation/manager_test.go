@@ -3,6 +3,7 @@ package consultation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -259,6 +260,48 @@ func TestBatch_DedupesAndKeepsPartialSuccess(t *testing.T) {
 	failed := b.Failed()
 	if len(failed) != 1 || failed[0].Specialist != "tester" || !failed[0].Retryable || b.Complete() || b.Err() == nil {
 		t.Fatalf("failed = %+v complete=%v", failed, b.Complete())
+	}
+}
+
+func TestBatch_PreservesErrorIdentityAndRetryability(t *testing.T) {
+	t.Parallel()
+	transportErr := errors.New("transport unavailable")
+	tests := []struct {
+		name      string
+		cause     error
+		status    EntryStatus
+		retryable bool
+	}{
+		{name: "cancelled", cause: context.Canceled, status: EntryCancelled, retryable: true},
+		{name: "deadline exceeded", cause: context.DeadlineExceeded, status: EntryCancelled, retryable: true},
+		{name: "transport failure", cause: transportErr, status: EntryFailed, retryable: true},
+		{name: "configuration failure", cause: ErrNoSpawner, status: EntryFailed},
+		{name: "configuration takes precedence over cancellation", cause: errors.Join(ErrNoSpawner, context.Canceled), status: EntryFailed},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := New(funcSpawner(func(context.Context, string, string) (string, error) {
+				return "ADVICE: must not be published", fmt.Errorf("specialist invocation: %w", tt.cause)
+			}))
+			batch := m.RequestBatchConsultation(t.Context(), BatchRequest{Specialists: []string{"coder"}})
+			if batch.RequestErr != nil || len(batch.Entries) != 1 {
+				t.Fatalf("batch = %+v, want one specialist outcome and no request error", batch)
+			}
+			entry := batch.Entries[0]
+			if entry.Specialist != "coder" || entry.Status != tt.status || entry.Retryable != tt.retryable || entry.Response != nil {
+				t.Errorf("entry = %+v, want specialist coder, status %s, retryable %v, and no response", entry, tt.status, tt.retryable)
+			}
+			if !errors.Is(entry.Err, tt.cause) {
+				t.Errorf("entry error = %v, want cause %v", entry.Err, tt.cause)
+			}
+			if !errors.Is(batch.Err(), tt.cause) {
+				t.Errorf("batch error = %v, want cause %v", batch.Err(), tt.cause)
+			}
+			if batch.Complete() || len(batch.Succeeded()) != 0 || len(batch.Failed()) != 1 {
+				t.Errorf("batch = %+v, want incomplete with one failure and no successes", batch)
+			}
+		})
 	}
 }
 
