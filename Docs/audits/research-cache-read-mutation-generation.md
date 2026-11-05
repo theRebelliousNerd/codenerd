@@ -120,7 +120,7 @@ Measure lock wait, filesystem operations, hit/miss results, resident entries and
 [handlers]: https://github.com/theRebelliousNerd/codenerd/blob/a28ef2677172b7daa4df4d26d86c67118acc1771/internal/tools/research/cache.go#L178-L245
 [eviction]: https://github.com/theRebelliousNerd/codenerd/blob/a28ef2677172b7daa4df4d26d86c67118acc1771/internal/tools/research/cache.go#L133-L147
 [disk-read]: https://github.com/theRebelliousNerd/codenerd/blob/a28ef2677172b7daa4df4d26d86c67118acc1771/internal/tools/research/cache_disk.go#L133-L164
-[disk-remove]: https://github.com/theRebelliousNerd/codenerd/blob/a28ef2677172b7daa4df4d26d86c67118acc1771/internal/tools/research/cache_disk.go#L166-L170
+[disk-remove]: https://github.com/theRebelliousNerd/codenerd/blob/a28ef2677172b7daa4df4d26d86c67118acc1771/internal/tools/research/cache_disk.go#L163-L167
 [disk-dir]: https://github.com/theRebelliousNerd/codenerd/blob/a28ef2677172b7daa4df4d26d86c67118acc1771/internal/tools/research/cache_disk.go#L58-L100
 [disk-write]: https://github.com/theRebelliousNerd/codenerd/blob/a28ef2677172b7daa4df4d26d86c67118acc1771/internal/tools/research/cache_disk.go#L103-L130
 [register]: https://github.com/theRebelliousNerd/codenerd/blob/a28ef2677172b7daa4df4d26d86c67118acc1771/internal/tools/research/register.go#L7-L49
