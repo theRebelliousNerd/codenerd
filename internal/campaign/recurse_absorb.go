@@ -82,10 +82,11 @@ func (r *recurseRun) startBase(ctx context.Context, history []recurseRecord, sta
 }
 
 // absorbBase merges the base's new commits, when it has any. It reports
-// whether the tree changed. A conflict is aborted, the tree left exactly as it
-// was, and recorded; the run goes on with the base it has and tries again once
-// the base has moved past the commit that conflicted. A base that cannot be
-// read is a warning, not the end of the run.
+// whether the tree changed. A conflict is settled for the base package by
+// package (recurseGit.yieldToBase) and the merge completes. One that cannot be
+// settled is aborted, the tree left exactly as it was, and recorded; the run
+// goes on with the base it has and tries again once the base moves. A base
+// that cannot be read is a warning, not the end of the run.
 func (r *recurseRun) absorbBase(ctx context.Context, pass int) (bool, error) {
 	if r.base == nil {
 		return false, nil
@@ -130,6 +131,10 @@ func (r *recurseRun) absorbed(ctx context.Context, pass int, res absorbResult) e
 	touched := r.touchedNodes(ctx, res.Changed)
 	r.cycle++
 	detail := fmt.Sprintf("merged %d commit(s) of %s into %s (%.9s -> %.9s), %d file(s) changed", res.Commits, r.base.name, r.branch, res.Before, res.After, len(res.Changed))
+	if len(res.Yielded) > 0 {
+		detail += fmt.Sprintf("; the merge conflicted in %s, so the base's version of %s was kept and the run's own changes there were replaced",
+			strings.Join(res.Conflicts, ", "), strings.Join(res.Yielded, ", "))
+	}
 	// The ledger first: it is what resume replays.
 	rec := recurseRecord{Step: stepAbsorb, Pass: pass, Cycle: r.cycle, Base: r.base.name, Commit: res.BaseTip, Nodes: touched, Detail: detail}
 	if err := r.journal.append(rec); err != nil {
