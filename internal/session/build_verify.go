@@ -181,7 +181,7 @@ func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConf
 		return BuildVerification{Outcome: VerifySkipped, Reason: "no Go toolchain on PATH", Duration: time.Since(start)}
 	}
 
-	done := liveVerification(ctx, command)
+	done := liveVerification(ctx, command, "")
 	out, outcome, reason := runVerificationCommand(ctx, workspace, build.GetBuildEnv(userCfg, workspace), buildVerifyTimeout, command[0], command[1:], verifyBuildRunner)
 	done(outcome)
 	elapsed := time.Since(start)
@@ -668,7 +668,7 @@ func gateTests(ctx context.Context, workspace string, result *ExecutionResult, w
 		result.ImporterCheck = run.v
 		return v, uncovered
 	}
-	result.ImporterCheck = verifyImporters(impCtx, workspace, result, scope.runnable)
+	result.ImporterCheck = verifyImporters(impCtx, workspace, result, scope)
 	rememberGate(result, key, result.ImporterCheck, nil)
 	return v, uncovered
 }
@@ -708,7 +708,7 @@ func gateTestsConcurrent(ctx context.Context, workspace string, result *Executio
 			impCh <- impOutcome{scope: scope, key: key, v: v, cached: true}
 			return
 		}
-		v := verifyImporters(impCtx, workspace, result, scope.runnable)
+		v := verifyImporters(impCtx, workspace, result, scope)
 		impCh <- impOutcome{scope: scope, key: key, v: v}
 	}()
 

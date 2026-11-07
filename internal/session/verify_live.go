@@ -19,9 +19,16 @@ var verifyLiveSeq atomic.Uint64
 // progress as it starts, and returns the call that reports how it ended. The
 // gate runs after the model's last answer and can take minutes over large
 // packages; without this the view still read "waiting for model" throughout.
-func liveVerification(ctx context.Context, command []string) func(VerifyOutcome) {
+//
+// note says what the gate chose to run, when it chose (the importer gate's
+// test selection: how many packages and tests, or why it fell back to all);
+// it leads the subject, so the view names the choice before the command.
+func liveVerification(ctx context.Context, command []string, note string) func(VerifyOutcome) {
 	callID := fmt.Sprintf("verify-%d", verifyLiveSeq.Add(1))
 	subject := strings.Join(command, " ")
+	if note = strings.TrimSpace(note); note != "" {
+		subject = note + ": " + subject
+	}
 	sessionlog.EmitLiveProgress(ctx, sessionlog.LiveEvent{Kind: "tool_started", Tool: "verify", CallID: callID, Text: subject})
 	return func(outcome VerifyOutcome) {
 		status := strings.ToUpper(string(outcome))
