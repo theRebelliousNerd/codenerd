@@ -952,10 +952,11 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 	}
 	o.testRunMu.Lock()
 	defer o.testRunMu.Unlock()
-	before, err := evidence.Snapshot(ctx, o.workspace)
+	beforeManifest, err := evidence.SnapshotManifest(ctx, o.workspace)
 	if err != nil {
 		return nil, err
 	}
+	before := beforeManifest.Digest()
 	if before != "" && o.lastTestWitness != nil && o.lastTestTarget == target && o.lastTestSnapshot == before {
 		cached := *o.lastTestWitness
 		o.mu.Lock()
@@ -1006,12 +1007,13 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 		}
 		return nil, withSignals(fmt.Errorf("test execution failed: %s", summary), "/tests_red")
 	}
-	after, err := evidence.Snapshot(ctx, o.workspace)
+	afterManifest, err := evidence.SnapshotManifest(ctx, o.workspace)
 	if err != nil {
 		return nil, err
 	}
+	after := afterManifest.Digest()
 	if before != after {
-		return nil, fmt.Errorf("workspace changed during test execution; witness invalidated")
+		return nil, witnessInvalidated(evidence.ChangedPaths(beforeManifest, afterManifest))
 	}
 	witness := &TestExecutionWitness{Snapshot: after, Command: command, OutputHash: fmt.Sprintf("%x", sha256.Sum256([]byte(result.Output))), RecordedAt: time.Now().UTC()}
 	o.lastTestTarget = target
@@ -1521,4 +1523,10 @@ func extractPathFromDescription(desc string) string {
 	}
 
 	return ""
+}
+
+// witnessInvalidated names every file that changed while the check ran, so a
+// replan sees which writer to stop instead of guessing.
+func witnessInvalidated(changed []string) error {
+	return fmt.Errorf("workspace changed during test execution; witness invalidated: %d file(s) changed: %s", len(changed), strings.Join(changed, ", "))
 }

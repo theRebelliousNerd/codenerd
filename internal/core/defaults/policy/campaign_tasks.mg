@@ -47,6 +47,56 @@ task_conflict(TaskID, OtherTaskID) :-
     task_write_path(OtherTaskID, Path),
     TaskID != OtherTaskID.
 
+# A workspace witness (/test_run) certifies a snapshot of the whole workspace:
+# a writer running beside it changes the snapshot and invalidates the witness
+# however green the run was. Seen live: a check retried 8 times beside a
+# file_modify task still writing its phase's test file.
+workspace_writer_task_type(/file_create).
+workspace_writer_task_type(/file_modify).
+workspace_writer_task_type(/test_write).
+workspace_writer_task_type(/refactor).
+workspace_writer_task_type(/integrate).
+workspace_writer_task_type(/document).
+workspace_writer_task_type(/tool_create).
+workspace_witness_task_type(/test_run).
+
+workspace_writer_task(TaskID) :-
+    campaign_task(TaskID, _, _, _, TaskType),
+    workspace_writer_task_type(TaskType).
+
+# Any other task that declares a write target writes too.
+workspace_writer_task(TaskID) :-
+    task_write_target(TaskID, _),
+    campaign_task(TaskID, _, _, _, TaskType),
+    !workspace_witness_task_type(TaskType).
+
+workspace_witness_task(TaskID) :-
+    campaign_task(TaskID, _, _, _, TaskType),
+    workspace_witness_task_type(TaskType).
+
+# Neither starts while the other is in progress (task_conflict_active).
+task_conflict(CheckID, WriterID) :-
+    workspace_witness_task(CheckID),
+    workspace_writer_task(WriterID),
+    CheckID != WriterID.
+
+task_depends_on(TaskID, AncestorID) :-
+    task_dependency(TaskID, AncestorID).
+
+task_depends_on(TaskID, AncestorID) :-
+    task_dependency(TaskID, MidID),
+    task_depends_on(MidID, AncestorID).
+
+# Both pending: the writers go first, so the check certifies their result. A
+# writer that waits on the check, directly or through others, does not hold
+# it back (that would deadlock).
+witness_awaits_writer(CheckID) :-
+    workspace_witness_task(CheckID),
+    campaign_task(CheckID, PhaseID, _, /pending, _),
+    campaign_task(WriterID, PhaseID, _, /pending, _),
+    workspace_writer_task(WriterID),
+    !task_depends_on(WriterID, CheckID).
+
 # Helper: check if there's an earlier pending task. A task still waiting on
 # a dependency cannot go first, so it holds nothing back: a higher-priority task
 # that depends on a lower-priority one in the same phase would otherwise leave
@@ -104,7 +154,8 @@ eligible_task(TaskID) :-
     !task_in_backoff(TaskID),
     !has_blocking_task_dep(TaskID),
     !has_earlier_task(TaskID, PhaseID),
-    !task_conflict_active(TaskID).
+    !task_conflict_active(TaskID),
+    !witness_awaits_writer(TaskID).
 
 # Next task remains available for single-dispatch clients
 next_campaign_task(TaskID) :-

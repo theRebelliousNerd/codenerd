@@ -522,8 +522,6 @@ func (s *LocalStore) PurgeOldArchivedFacts(olderThanDays int) (int, error) {
 		return 0, fmt.Errorf("olderThanDays must be positive")
 	}
 
-	logging.Get(logging.CategoryStore).Warn("Purging archived facts older than %d days (IRREVERSIBLE)", olderThanDays)
-
 	result, err := s.db.Exec(
 		`DELETE FROM archived_facts
 		 WHERE datetime(archived_at) < datetime('now', '-' || ? || ' days')`,
@@ -535,7 +533,13 @@ func (s *LocalStore) PurgeOldArchivedFacts(olderThanDays int) (int, error) {
 	}
 
 	rowsAffected, _ := result.RowsAffected()
-	logging.Store("Purged %d archived facts older than %d days", rowsAffected, olderThanDays)
+	// A deletion is irreversible, so one that removed rows is a warning; the
+	// routine maintenance pass that finds nothing old enough is not.
+	if rowsAffected > 0 {
+		logging.Get(logging.CategoryStore).Warn("Purged %d archived facts older than %d days (irreversible)", rowsAffected, olderThanDays)
+	} else {
+		logging.StoreDebug("No archived facts older than %d days to purge", olderThanDays)
+	}
 	return int(rowsAffected), nil
 }
 

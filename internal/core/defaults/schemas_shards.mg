@@ -469,6 +469,8 @@ Decl has_incomplete_phase(CampaignID) bound [/string].
 
 # has_incomplete_phase_task(PhaseID) - helper: phase has incomplete tasks
 Decl has_incomplete_phase_task(PhaseID) bound [/string].
+# phase_has_running_task(PhaseID) - helper: a task of the phase is in progress
+Decl phase_has_running_task(PhaseID) bound [/string].
 
 # has_incomplete_hard_dep(TaskID) - helper: task has incomplete hard dependencies
 Decl has_incomplete_hard_dep(TaskID) bound [/string].
