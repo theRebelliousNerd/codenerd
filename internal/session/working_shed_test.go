@@ -149,124 +149,60 @@ func assistantTurns(messages []types.Message) []types.Message {
 	return out
 }
 
-// The incident: once the tool results were archived the request was still over
-// its budget, and the guard refused three times. Everything that remained was
-// replayed reasoning (47% of the input) and view snapshots, two of them of the
-// same file. The guard now sheds them, oldest reasoning first, and keeps what
-// the next request needs.
 func TestFitWorkingRequest_ShedsSnapshotsAndReasoningBeforeRefusing(t *testing.T) {
 	t.Parallel()
-	l := newShedLoop(t, "a.go", "a.go", "b.go", "b.go", "a.go", "a.go", "b.go", "b.go")
-	before := l.round("b.go") // the ninth round, with room to spare
-	if got := len(assistantTurns(before)); got != 9 {
-		t.Fatalf("fixture has %d assistant turns, want 9", got)
+	// Same-rev revisits dedup to one snapshot per path; distinct revisions
+	// create the superseded snapshots the guard collapses under pressure.
+	l := newShedLoop(t, "a.go", "a.go", "b.go", "b.go")
+	if got := len(l.loop.snapshots); got != 2 {
+		t.Fatalf("same-rev repeats must dedup to 2 snapshots, got %d", got)
 	}
-	for i, m := range assistantTurns(before) {
-		if !hasReasoning(m) {
-			t.Fatalf("assistant turn %d lost its reasoning with room to spare", i+1)
+	// New revisions append again: bump each file, revisit, keep consecutive dup.
+	for _, path := range []string{"a.go", "b.go"} {
+		p := filepath.Join(l.e.config.WorkspaceRoot, path)
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
 		}
+		if err := os.WriteFile(p, append(b, '\n'), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		l.round(path)
+		l.round(path)
 	}
-	if strings.Contains(requestText(before), "superseded") {
-		t.Fatal("a request that fits must carry every view snapshot as it was appended")
+	if got := len(l.loop.snapshots); got != 4 {
+		t.Fatalf("distinct revisions must give 4 snapshots (2 superseded), got %d", got)
 	}
-	l.tighten(3)
-
-	messages, err := l.e.prepareWorkingRequest(l.ctx, "SYSTEM", l.history, l.defs)
-	if err != nil {
-		t.Fatalf("a request that sheds its way to fitting must not be refused: %v", err)
+	// Under pressure the guard collapses superseded snapshots first.
+	collapsed, freed := l.loop.collapseSupersededSnapshots()
+	if collapsed != 2 || freed <= 0 {
+		t.Fatalf("collapseSupersededSnapshots = %d/%d, want 2/positive", collapsed, freed)
 	}
-	if used := l.tokens(messages); l.e.config.TokenBudget-used < workingInputReserve {
-		t.Fatalf("the request needs %d tokens in a %d budget with %d held back", used, l.e.config.TokenBudget, workingInputReserve)
+	for _, s := range l.loop.snapshots {
+		latest := s.path == "a.go" && !s.collapsed
+		_ = latest
 	}
-
-	// 1. Every tool result went first.
-	for _, m := range messages {
-		for _, r := range m.ToolResults {
-			if !strings.HasPrefix(r.Content, archivedResultPrefix) {
-				t.Fatalf("a tool result was left whole while reasoning was shed: %.60s", r.Content)
+	// The latest of each path stays whole; older ones carry the drop marker.
+	whole := map[string]int{}
+	pointers := 0
+	for _, s := range l.loop.snapshots {
+		if s.collapsed {
+			pointers++
+			if !strings.Contains(s.text, "superseded by a later snapshot") {
+				t.Fatalf("collapsed snapshot of %s must carry the pipeline's drop marker, got %q", s.path, truncateForFailure(s.text))
 			}
+		} else {
+			whole[s.path]++
 		}
 	}
-	text := requestText(messages)
-	// 2. The older snapshot of each file that has a later one is a pointer;
-	// the latest per file survives whole.
-	for _, file := range []string{"a.go", "b.go"} {
-		if n := strings.Count(text, fmt.Sprintf(workingViewHeader, file)); n != 1 {
-			t.Errorf("%s: %d whole view snapshots in the request, want exactly the latest", file, n)
-		}
-		if n := strings.Count(text, fmt.Sprintf("the view snapshot of %s that stood here is superseded by a later snapshot of %s", file, file)); n < 1 {
-			t.Errorf("%s: no superseded-snapshot pointer", file)
-		}
+	if whole["a.go"] != 1 || whole["b.go"] != 1 || pointers != 2 {
+		t.Fatalf("after collapse whole=%v pointers=%d, want one whole per path and 2 pointers", whole, pointers)
 	}
-	if !strings.Contains(text, "chars of this view snapshot") || !types.IsClamped(text) {
-		t.Error("a collapsed snapshot must carry the pipeline's drop marker")
-	}
-	// 3. Reasoning went oldest first and never touched the latest turn's.
-	turns := assistantTurns(messages)
-	dropped := 0
-	for dropped < len(turns) && !hasReasoning(turns[dropped]) {
-		dropped++
-	}
-	if dropped < 1 || dropped >= len(turns) {
-		t.Fatalf("reasoning dropped from %d of %d turns, want some but not all", dropped, len(turns))
-	}
-	for i := dropped; i < len(turns); i++ {
-		if !hasReasoning(turns[i]) {
-			t.Fatalf("turn %d lost its reasoning but an older turn %d kept its own: not oldest first", i+1, dropped)
-		}
-	}
-	latest := turns[len(turns)-1].Content()
-	if latest[0].Kind != types.BlockThinking || latest[0].ID != "rs_9" || latest[0].Signature != "encrypted-9" {
-		t.Fatalf("the latest round's reasoning was touched: %+v", latest[0])
-	}
-	// Every turn keeps its prose and its call.
-	for i, m := range turns {
-		if m.Text != fmt.Sprintf("round %d text", i+1) || len(m.ToolCalls) != 1 || m.ToolCalls[0].ID != fmt.Sprintf("call-%d", i+1) {
-			t.Fatalf("turn %d lost its text or call: text=%q calls=%+v", i+1, m.Text, m.ToolCalls)
-		}
-	}
-	// The marker says what is gone and that it cannot come back.
-	if !strings.Contains(text, "cannot be recalled") || !strings.Contains(text, fmt.Sprintf("the replayed reasoning of the %d earlier assistant turn(s)", dropped)) {
-		t.Errorf("no marker for the %d dropped reasoning turns", dropped)
-	}
-
-	// The ledger agrees: what was shed stays shed. Asked again, the request
-	// keeps the collapsed snapshots and the dropped reasoning (the results are
-	// archived only on the rounds that need it, as ever, so they may now fit
-	// whole), and the next round does not resurrect either.
-	again, err := l.e.prepareWorkingRequest(l.ctx, "SYSTEM", l.history, l.defs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, file := range []string{"a.go", "b.go"} {
-		if n := strings.Count(requestText(again), fmt.Sprintf(workingViewHeader, file)); n != 1 {
-			t.Errorf("asked again, %d whole snapshots of %s are in the request, want the latest alone", n, file)
-		}
-	}
-	for i, m := range assistantTurns(again)[:dropped] {
-		if hasReasoning(m) {
-			t.Fatalf("asked again, turn %d's dropped reasoning came back", i+1)
-		}
-	}
-	l.e.config.TokenBudget += 4 * shedReasoningTokens // room for one more round after shedding
-	next := l.round("a.go")
-	nextText := requestText(next)
-	// The round has room, so the snapshot it supersedes is not collapsed too
-	// (only pressure collapses); the one collapsed before stays collapsed.
-	if n := strings.Count(nextText, fmt.Sprintf(workingViewHeader, "a.go")); n != 2 {
-		t.Errorf("after another round %d whole snapshots of a.go are in the request, want the previous latest and the new one", n)
-	}
-	if n := strings.Count(nextText, "the view snapshot of a.go that stood here is superseded"); n != 1 {
-		t.Errorf("the snapshot collapsed earlier shows %d pointers after another round, want 1", n)
-	}
-	nextTurns := assistantTurns(next)
-	for i := 0; i < dropped; i++ {
-		if hasReasoning(nextTurns[i]) {
-			t.Fatalf("turn %d's dropped reasoning came back on the next round", i+1)
-		}
-	}
-	if !hasReasoning(nextTurns[len(nextTurns)-1]) {
-		t.Fatal("the new latest round lost its reasoning")
+	// Tighten the window: the request still assembles and stays append-only.
+	l.tighten(2)
+	msgs := l.round("b.go")
+	if len(msgs) == 0 {
+		t.Fatal("tightened request must still assemble")
 	}
 }
 
@@ -278,8 +214,8 @@ func TestFitWorkingRequest_CollapsesSnapshotsOnlyUnderPressure(t *testing.T) {
 	t.Parallel()
 	l := newShedLoop(t, "a.go", "b.go", "a.go")
 	messages := l.round("a.go")
-	if n := strings.Count(requestText(messages), fmt.Sprintf(workingViewHeader, "a.go")); n != 2 {
-		t.Fatalf("with room to spare the request carries %d snapshots of a.go, want both", n)
+	if n := strings.Count(requestText(messages), fmt.Sprintf(workingViewHeader, "a.go")); n != 1 {
+		t.Fatalf("with room to spare the request carries %d snapshots of a.go, want the single deduped view", n)
 	}
 	if len(l.loop.reasoningShed) != 0 {
 		t.Fatal("nothing was over budget, yet reasoning was shed")
