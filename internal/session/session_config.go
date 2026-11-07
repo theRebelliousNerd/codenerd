@@ -25,20 +25,21 @@ var defaultSessionPolicy = func() config.SessionPolicy {
 // enabled: those are not the file's to switch off (see config.SessionConfig).
 func ExecutorConfigFrom(p config.SessionPolicy, working config.WorkingConfig) ExecutorConfig {
 	return ExecutorConfig{
-		ToolTimeout:         p.ToolTimeout,
-		LSPTimeout:          p.LSPTimeout,
-		Working:             working,
-		RepairMaxAttempts:   p.RepairMaxAttempts,
-		RepairDiffFileBytes: p.RepairDiffFileBytes,
-		RepairDiffTurnBytes: p.RepairDiffTurnBytes,
-		FinalAnswerReserve:  p.FinalAnswerReserve,
-		EnableSafetyGate:    true,
-		TokenBudget:         DefaultTokenBudget(),
-		HistoryTurnWindow:   p.HistoryTurnWindow,
-		HistoryCharBudget:   p.HistoryCharBudget,
-		StepPlanMinSites:    p.StepPlanMinSites,
-		StepPlanMaxSteps:    p.StepPlanMaxSteps,
-		StepPlanTimeout:     p.StepPlanTimeout,
+		ToolTimeout:          p.ToolTimeout,
+		LSPTimeout:           p.LSPTimeout,
+		TestSelectionTimeout: p.TestSelectionTimeout,
+		Working:              working,
+		RepairMaxAttempts:    p.RepairMaxAttempts,
+		RepairDiffFileBytes:  p.RepairDiffFileBytes,
+		RepairDiffTurnBytes:  p.RepairDiffTurnBytes,
+		FinalAnswerReserve:   p.FinalAnswerReserve,
+		EnableSafetyGate:     true,
+		TokenBudget:          DefaultTokenBudget(),
+		HistoryTurnWindow:    p.HistoryTurnWindow,
+		HistoryCharBudget:    p.HistoryCharBudget,
+		StepPlanMinSites:     p.StepPlanMinSites,
+		StepPlanMaxSteps:     p.StepPlanMaxSteps,
+		StepPlanTimeout:      p.StepPlanTimeout,
 		// On by default: the failure this prevents (confident, non-compiling
 		// edits reported as complete) is silent, and a default-off guard against
 		// a silent failure protects nobody.

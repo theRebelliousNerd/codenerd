@@ -3,6 +3,7 @@ package session
 import (
 	"bytes"
 	"go/ast"
+	"go/build/constraint"
 	"go/parser"
 	"go/printer"
 	"go/token"
@@ -238,18 +239,27 @@ func inspectGoSource(name string, src []byte) (goDecls, string) {
 	if err != nil {
 		return d, "does not parse (" + err.Error() + ")"
 	}
+	// Directives are read with the toolchain's own parsers, not by prefix:
+	// ast.ParseDirective for //go: directives, go/build/constraint for
+	// // +build lines. A //line directive remaps positions, so it shows as a
+	// difference between the file end's adjusted and raw positions. //export
+	// matters only beside import "C", which is refused as unsound already.
 	for _, cg := range withComments.Comments {
 		for _, c := range cg.List {
-			text := c.Text
-			switch {
-			case strings.HasPrefix(text, "//go:linkname"):
-				d.linkname = true
-				d.directives = append(d.directives, text)
-			case strings.HasPrefix(text, "//go:"), strings.HasPrefix(text, "//line "),
-				strings.HasPrefix(text, "//export "), strings.HasPrefix(text, "// +build"):
-				d.directives = append(d.directives, text)
+			if dir, ok := ast.ParseDirective(c.Pos(), c.Text); ok && dir.Tool == "go" {
+				d.directives = append(d.directives, c.Text)
+				if dir.Name == "linkname" {
+					d.linkname = true
+				}
+				continue
+			}
+			if constraint.IsPlusBuild(c.Text) {
+				d.directives = append(d.directives, c.Text)
 			}
 		}
+	}
+	if end := withComments.FileEnd; fset.PositionFor(end, true) != fset.PositionFor(end, false) {
+		d.directives = append(d.directives, "//line")
 	}
 
 	bare, err := parser.ParseFile(token.NewFileSet(), name, src, parser.SkipObjectResolution)

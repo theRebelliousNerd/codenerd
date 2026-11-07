@@ -120,6 +120,12 @@ func rtsFiles(a rtsBodies, extra map[string]string) map[string]string {
 // (whose pre-turn contents these are), and plans the importer gate.
 func rtsPlan(t *testing.T, files, pre map[string]string) importerPlan {
 	t.Helper()
+	return rtsPlanCtx(t, context.Background(), files, pre)
+}
+
+// rtsPlanCtx is rtsPlan under ctx (a test-selection timeout on it, say).
+func rtsPlanCtx(t *testing.T, ctx context.Context, files, pre map[string]string) importerPlan {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
@@ -131,11 +137,11 @@ func rtsPlan(t *testing.T, files, pre map[string]string) importerPlan {
 		result.PreWriteContents[path] = existed(content)
 	}
 	slices.Sort(result.WrittenPaths)
-	scope := discoverImporters(context.Background(), ws, result)
+	scope := discoverImporters(ctx, ws, result)
 	if scope.why != "" {
 		t.Fatalf("importers not discovered: %s", scope.why)
 	}
-	return selectImporterRuns(context.Background(), ws, result, scope)
+	return selectImporterRuns(ctx, ws, result, scope)
 }
 
 // selectedTests reads the plan's -run patterns back as package -> test names;
@@ -431,10 +437,8 @@ func TestAlreadyRed(t *testing.T) { t.Fatal("red, and nothing the change reaches
 }
 
 func TestSelectImporterRuns_AnAnalysisOverItsBudgetRunsEverything(t *testing.T) {
-	old := rtsAnalysisBudget
-	rtsAnalysisBudget = time.Nanosecond
-	t.Cleanup(func() { rtsAnalysisBudget = old })
+	ctx := withTestSelectionTimeout(context.Background(), time.Nanosecond)
 	after := rtsBefore
 	after.leaf = "2"
-	requireFallback(t, rtsPlan(t, rtsFiles(after, nil), map[string]string{"a/a.go": rtsBefore.aGo()}), "budget")
+	requireFallback(t, rtsPlanCtx(t, ctx, rtsFiles(after, nil), map[string]string{"a/a.go": rtsBefore.aGo()}), "budget")
 }

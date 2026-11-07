@@ -1,7 +1,9 @@
 package session
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 
@@ -69,27 +71,30 @@ func listImporters(ctx context.Context, workspace string, pkgs []string) (import
 	if len(own) == 0 {
 		return importerListing{}, ""
 	}
-	const format = "{{.ImportPath}}\t{{.Dir}}\t{{join .Imports \" \"}}\t{{join .TestImports \" \"}} {{join .XTestImports \" \"}}"
+	// go list -json, decoded: typed fields, not a tab-split template.
 	out, outcome, reason := runVerificationCommand(ctx, workspace, internalbuild.GetBuildEnv(nil, workspace), buildVerifyTimeout,
-		"go", []string{"list", "-e", "-f", format, "./..."}, verifyBuildRunner)
+		"go", []string{"list", "-e", "-json=ImportPath,Dir,Imports,TestImports,XTestImports", "./..."}, verifyBuildRunner)
 	if outcome != VerifyPassed {
 		logging.Get(logging.CategorySession).Warn("importers not listed (%s%s); the gate runs the turn's own packages only", outcome, suffixed(reason))
 		return importerListing{}, "importers not listed (" + string(outcome) + suffixed(reason) + ")"
 	}
 	type modulePackage struct {
-		dir         string
-		imports     []string
-		testImports []string
+		ImportPath   string
+		Dir          string
+		Imports      []string
+		TestImports  []string
+		XTestImports []string
 	}
 	module := map[string]modulePackage{}
 	var order []string
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Split(strings.TrimRight(line, "\r\n"), "\t")
-		if len(fields) < 4 {
-			continue
+	dec := json.NewDecoder(bytes.NewReader(out))
+	for dec.More() {
+		var mp modulePackage
+		if err := dec.Decode(&mp); err != nil {
+			return importerListing{}, "importers not listed (go list -json: " + err.Error() + ")"
 		}
-		module[fields[0]] = modulePackage{dir: fields[1], imports: strings.Fields(fields[2]), testImports: strings.Fields(fields[3])}
-		order = append(order, fields[0])
+		module[mp.ImportPath] = mp
+		order = append(order, mp.ImportPath)
 	}
 	var l importerListing
 	for _, path := range order {
@@ -97,10 +102,10 @@ func listImporters(ctx context.Context, workspace string, pkgs []string) (import
 		if own[path] {
 			continue
 		}
-		for _, imp := range slices.Concat(mp.imports, mp.testImports) {
+		for _, imp := range slices.Concat(mp.Imports, mp.TestImports, mp.XTestImports) {
 			if own[imp] {
 				l.importers = append(l.importers, path)
-				l.dirs = append(l.dirs, mp.dir)
+				l.dirs = append(l.dirs, mp.Dir)
 				break
 			}
 		}
@@ -115,11 +120,11 @@ func listImporters(ctx context.Context, workspace string, pkgs []string) (import
 			return
 		}
 		need[path] = true
-		for _, imp := range mp.imports {
+		for _, imp := range mp.Imports {
 			visit(imp, false)
 		}
 		if withTests {
-			for _, imp := range mp.testImports {
+			for _, imp := range slices.Concat(mp.TestImports, mp.XTestImports) {
 				visit(imp, false)
 			}
 		}

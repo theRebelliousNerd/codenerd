@@ -327,6 +327,9 @@ type ExecutorConfig struct {
 	// LSPTimeout bounds one language-server diagnostic request
 	// (session.lsp_timeout). Zero takes the section's default.
 	LSPTimeout time.Duration
+	// TestSelectionTimeout bounds the importer gate's test-selection
+	// analysis (session.test_selection_timeout).
+	TestSelectionTimeout time.Duration
 
 	// Working is the working section of .nerd/config.json: the spans the
 	// working policy decides a tool loop's regime, steering, stop and finalize
@@ -1327,6 +1330,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	}
 	ctx = e.withSessionContext(ctx)
 	ctx = withDiagnosticTimeout(ctx, e.diagnosticTimeout())
+	ctx = withTestSelectionTimeout(ctx, e.configSnapshot().TestSelectionTimeout)
 
 	result := &ExecutionResult{}
 	if contract, ok := evidence.ContractFromContext(ctx); ok {

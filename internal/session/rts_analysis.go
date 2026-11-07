@@ -56,10 +56,32 @@ import (
 // global or field and handed to a library by a function other than the one
 // that made it.
 
-// rtsAnalysisBudget bounds loading, SSA construction and the walks. A package
-// graph the tooling cannot analyse in that time is not worth waiting for: the
-// gate runs everything instead.
-var rtsAnalysisBudget = 3 * time.Minute
+// testSelectionTimeoutKey carries session.test_selection_timeout, which
+// bounds loading, SSA construction and the walks. A package graph past it
+// is not a measurement: the gate runs every importer test.
+type testSelectionTimeoutKey struct{}
+
+// withTestSelectionTimeout attaches the bound; non-positive takes the
+// session section's default.
+func withTestSelectionTimeout(ctx context.Context, d time.Duration) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if d <= 0 {
+		d = defaultSessionPolicy.TestSelectionTimeout
+	}
+	return context.WithValue(ctx, testSelectionTimeoutKey{}, d)
+}
+
+// testSelectionTimeout is the bound in force on ctx, else the default.
+func testSelectionTimeout(ctx context.Context) time.Duration {
+	if ctx != nil {
+		if d, ok := ctx.Value(testSelectionTimeoutKey{}).(time.Duration); ok && d > 0 {
+			return d
+		}
+	}
+	return defaultSessionPolicy.TestSelectionTimeout
+}
 
 // importerTests is what the analysis decided for one importer package.
 type importerTests struct {
@@ -122,7 +144,8 @@ var testOnlyEscapes = map[string]bool{
 // importer test then.
 func analyzeImporterTests(ctx context.Context, workspace string, env []string, loadSet, importers []string, changes bodyChanges) (rtsAnalysis, string) {
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(ctx, rtsAnalysisBudget)
+	budget := testSelectionTimeout(ctx)
+	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 
 	type outcome struct {
@@ -145,7 +168,7 @@ func analyzeImporterTests(ctx context.Context, workspace string, env []string, l
 		return o.a, o.why
 	case <-ctx.Done():
 		if ctx.Err() == context.DeadlineExceeded {
-			return rtsAnalysis{Elapsed: time.Since(start)}, "the analysis exceeded its " + rtsAnalysisBudget.String() + " budget"
+			return rtsAnalysis{Elapsed: time.Since(start)}, "the analysis exceeded its " + budget.String() + " budget (session.test_selection_timeout)"
 		}
 		return rtsAnalysis{Elapsed: time.Since(start)}, "the analysis was canceled"
 	}

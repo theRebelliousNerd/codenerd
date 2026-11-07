@@ -81,23 +81,31 @@ type SessionConfig struct {
 	// graph does not drop the signal. Every file the turn wrote is checked.
 	// A request that does not finish names the files it did not diagnose.
 	LSPTimeout string `json:"lsp_timeout,omitempty"`
+
+	// TestSelectionTimeout bounds the static analysis that picks which
+	// importer tests a change can reach (internal/session/rts_analysis.go):
+	// loading the importers with their tests, SSA, the call graph and the
+	// walks. Past it the gate runs every importer test. Measured 10-13 s on a
+	// quiet machine and 21-38 s loaded over codeNERD's 31-package edit.
+	TestSelectionTimeout string `json:"test_selection_timeout,omitempty"`
 }
 
 // DefaultSessionConfig is the session section with every field written down.
 func DefaultSessionConfig() SessionConfig {
 	window := 6
 	return SessionConfig{
-		StepPlanMinSites:    2,
-		StepPlanMaxSteps:    12,
-		StepPlanTimeout:     "2m",
-		RepairMaxAttempts:   3,
-		RepairDiffFileBytes: 8192,
-		RepairDiffTurnBytes: 24576,
-		ToolTimeout:         "5m",
-		FinalAnswerReserve:  "5m",
-		HistoryTurnWindow:   &window,
-		HistoryCharBudget:   24000,
-		LSPTimeout:          "90s",
+		StepPlanMinSites:     2,
+		StepPlanMaxSteps:     12,
+		StepPlanTimeout:      "2m",
+		RepairMaxAttempts:    3,
+		RepairDiffFileBytes:  8192,
+		RepairDiffTurnBytes:  24576,
+		ToolTimeout:          "5m",
+		FinalAnswerReserve:   "5m",
+		HistoryTurnWindow:    &window,
+		HistoryCharBudget:    24000,
+		LSPTimeout:           "90s",
+		TestSelectionTimeout: "3m",
 	}
 }
 
@@ -132,6 +140,7 @@ func (c SessionConfig) WithDefaults() SessionConfig {
 	strOr(&c.ToolTimeout, d.ToolTimeout)
 	strOr(&c.FinalAnswerReserve, d.FinalAnswerReserve)
 	strOr(&c.LSPTimeout, d.LSPTimeout)
+	strOr(&c.TestSelectionTimeout, d.TestSelectionTimeout)
 	if c.HistoryTurnWindow == nil {
 		c.HistoryTurnWindow = d.HistoryTurnWindow
 	}
@@ -143,17 +152,18 @@ func (c SessionConfig) WithDefaults() SessionConfig {
 // filled, durations parsed. Resolve is the only way to make one, so a policy
 // in hand has passed Check.
 type SessionPolicy struct {
-	StepPlanMinSites    int
-	StepPlanMaxSteps    int
-	StepPlanTimeout     time.Duration
-	RepairMaxAttempts   int
-	RepairDiffFileBytes int
-	RepairDiffTurnBytes int
-	ToolTimeout         time.Duration
-	FinalAnswerReserve  time.Duration
-	HistoryTurnWindow   int
-	HistoryCharBudget   int
-	LSPTimeout          time.Duration
+	StepPlanMinSites     int
+	StepPlanMaxSteps     int
+	StepPlanTimeout      time.Duration
+	RepairMaxAttempts    int
+	RepairDiffFileBytes  int
+	RepairDiffTurnBytes  int
+	ToolTimeout          time.Duration
+	FinalAnswerReserve   time.Duration
+	HistoryTurnWindow    int
+	HistoryCharBudget    int
+	LSPTimeout           time.Duration
+	TestSelectionTimeout time.Duration
 }
 
 // Resolve defaults, checks and parses the section. Every problem Check finds
@@ -172,17 +182,18 @@ func (c SessionConfig) Resolve() (SessionPolicy, error) {
 		return v
 	}
 	return SessionPolicy{
-		StepPlanMinSites:    c.StepPlanMinSites,
-		StepPlanMaxSteps:    c.StepPlanMaxSteps,
-		StepPlanTimeout:     d(c.StepPlanTimeout),
-		RepairMaxAttempts:   c.RepairMaxAttempts,
-		RepairDiffFileBytes: c.RepairDiffFileBytes,
-		RepairDiffTurnBytes: c.RepairDiffTurnBytes,
-		ToolTimeout:         d(c.ToolTimeout),
-		FinalAnswerReserve:  d(c.FinalAnswerReserve),
-		HistoryTurnWindow:   *c.HistoryTurnWindow,
-		HistoryCharBudget:   c.HistoryCharBudget,
-		LSPTimeout:          d(c.LSPTimeout),
+		StepPlanMinSites:     c.StepPlanMinSites,
+		StepPlanMaxSteps:     c.StepPlanMaxSteps,
+		StepPlanTimeout:      d(c.StepPlanTimeout),
+		RepairMaxAttempts:    c.RepairMaxAttempts,
+		RepairDiffFileBytes:  c.RepairDiffFileBytes,
+		RepairDiffTurnBytes:  c.RepairDiffTurnBytes,
+		ToolTimeout:          d(c.ToolTimeout),
+		FinalAnswerReserve:   d(c.FinalAnswerReserve),
+		HistoryTurnWindow:    *c.HistoryTurnWindow,
+		HistoryCharBudget:    c.HistoryCharBudget,
+		LSPTimeout:           d(c.LSPTimeout),
+		TestSelectionTimeout: d(c.TestSelectionTimeout),
 	}, nil
 }
 
@@ -241,6 +252,7 @@ func (c SessionConfig) Check(prefix string) []Problem {
 		{"tool_timeout", c.ToolTimeout},
 		{"final_answer_reserve", c.FinalAnswerReserve},
 		{"lsp_timeout", c.LSPTimeout},
+		{"test_selection_timeout", c.TestSelectionTimeout},
 	} {
 		d, err := time.ParseDuration(f.v)
 		switch {
