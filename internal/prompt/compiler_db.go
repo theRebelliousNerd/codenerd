@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
@@ -603,4 +604,52 @@ func truncateQuery(s string, maxLen int) string {
 		return string(runes[:maxLen]) + "..."
 	}
 	return s
+}
+
+// StartPromptVectorBackfill embeds, in the background, every project corpus
+// atom that has no vector from engine's model, in bounded batches until none
+// is left: a fresh workspace's corpus ships without vectors (no model is known
+// when it is built), and vector atom retrieval skipped every atom until a
+// manual `nerd embedding reembed`. The work is the compiler's: it runs under
+// the compiler's stop context and Close joins it before the project database
+// closes. It reports whether the backfill started.
+func (c *JITPromptCompiler) StartPromptVectorBackfill(engine embedding.EmbeddingEngine) bool {
+	if engine == nil {
+		return false
+	}
+	c.lifecycleMu.Lock()
+	if c.closed {
+		c.lifecycleMu.Unlock()
+		return false
+	}
+	c.dbMu.RLock()
+	db := c.projectDB
+	c.dbMu.RUnlock()
+	if db == nil {
+		c.lifecycleMu.Unlock()
+		return false
+	}
+	c.wg.Add(1)
+	c.lifecycleMu.Unlock()
+	go func() {
+		defer c.wg.Done()
+		total := 0
+		for {
+			n, err := BackfillMissingPromptVectors(c.stopContext, db, "project corpus", engine, BackfillPromptLimit)
+			total += n
+			if err != nil {
+				if c.stopContext.Err() == nil {
+					logging.Get(logging.CategoryStore).Warn("Prompt vector backfill stopped after %d atom(s): %v", total, err)
+				}
+				return
+			}
+			if n == 0 {
+				if total > 0 {
+					logging.Get(logging.CategoryStore).Info("Prompt vector backfill: %d atom(s) embedded with %s", total, engine.Name())
+				}
+				return
+			}
+		}
+	}()
+	return true
 }
