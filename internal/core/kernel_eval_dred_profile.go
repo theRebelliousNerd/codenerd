@@ -40,6 +40,7 @@ type dredProfile struct {
 	supportChecks  atomic.Int64 // over-deleted facts tested for support in the new state
 	rederiveRounds atomic.Int64 // passes of re-derivation: the seed pass, then one per frontier
 	variantsBuilt  atomic.Int64 // rule variants listed for a phase, before they run
+	derivations    atomic.Int64 // heads the variants produced, before deduplication
 }
 
 func (p *dredProfile) charge(head string, d time.Duration) {
@@ -78,7 +79,7 @@ func (p *dredProfile) summary(top int) string {
 	for i, h := range heads {
 		costly[i] = fmt.Sprintf("%s %v", h, p.byHead[h].Round(time.Millisecond))
 	}
-	work := fmt.Sprintf("support checks %d, re-derive rounds %d, variants built %d",
-		p.supportChecks.Load(), p.rederiveRounds.Load(), p.variantsBuilt.Load())
+	work := fmt.Sprintf("support checks %d, re-derive rounds %d, variants built %d, derivations %d",
+		p.supportChecks.Load(), p.rederiveRounds.Load(), p.variantsBuilt.Load(), p.derivations.Load())
 	return strings.Join(parts, ", ") + "; " + work + "; costliest heads: " + strings.Join(costly, ", ")
 }

@@ -24,6 +24,7 @@ type dredVariant struct {
 	negated bool
 	delta   *factstore.MultiIndexedArrayInMemoryStore
 	order   []int // memoized premise order for this variant
+	before  *dredBefore
 }
 
 // seedVariants lists a phase's variants over the lower strata's change: a
@@ -33,13 +34,22 @@ type dredVariant struct {
 // premises of changed predicates are looked at (the trigger index).
 func (r *dredRun) seedVariants(members map[int]struct{}, ctx engine.QueryContext, pos, neg deltaStores, inStratum func(ast.PredicateSym) bool) []dredVariant {
 	out := r.idx.triggered(ctx, members, pos, false, inStratum, nil)
-	return r.idx.triggered(ctx, members, neg, true, nil, out)
+	return ordered(r.idx.triggered(ctx, members, neg, true, nil, out), &dredBefore{pos: pos, neg: neg})
+}
+
+// ordered gives every variant of one phase the phase's change, so a premise
+// before its delta premise reads the state without it (dredBefore).
+func ordered(vs []dredVariant, before *dredBefore) []dredVariant {
+	for i := range vs {
+		vs[i].before = before
+	}
+	return vs
 }
 
 // recursiveVariants lists a phase's variants over the stratum's own newest
 // rows (its recursion): the positive premises reading them.
 func (r *dredRun) recursiveVariants(members map[int]struct{}, ctx engine.QueryContext, cur deltaStores) []dredVariant {
-	return r.idx.triggered(ctx, members, cur, false, nil, nil)
+	return ordered(r.idx.triggered(ctx, members, cur, false, nil, nil), &dredBefore{pos: cur})
 }
 
 // runVariants evaluates a phase's variants and hands their heads to apply in
@@ -55,8 +65,9 @@ func (r *dredRun) runVariants(vs []dredVariant, apply func([]ast.Atom)) error {
 	results := make([][]ast.Atom, len(vs))
 	timed := func(v dredVariant) ([]ast.Atom, error) {
 		started := time.Now()
-		heads, err := r.variant(v.ctx, v.clause, v.pi, v.negated, v.delta, v.order)
+		heads, err := r.variant(v.ctx, v.clause, v.pi, v.negated, v.delta, v.order, v.before)
 		r.profile.charge(v.clause.Head.Predicate.Symbol, time.Since(started))
+		r.profile.derivations.Add(int64(len(heads)))
 		return heads, err
 	}
 	if len(vs) < 2 || rows < dredParallelMinRows {
