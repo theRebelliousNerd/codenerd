@@ -310,15 +310,11 @@ func (c *FileCache) Stats() CacheStats {
 }
 
 func (c *FileCache) statsLocked() CacheStats {
-	dirty := 0
-	if c.Dirty {
-		dirty = len(c.Entries)
-	}
 	return CacheStats{
 		Hits:    c.hits.Load(),
 		Misses:  c.misses.Load(),
 		Entries: len(c.Entries),
-		Dirty:   dirty,
+		Unsaved: c.Dirty,
 	}
 }
 
@@ -333,7 +329,10 @@ type CacheStats struct {
 	Hits    int64 // Number of cache hits
 	Misses  int64 // Number of cache misses
 	Entries int   // Number of cached entries
-	Dirty   int   // Number of entries pending persistence
+	// Unsaved is whether the manifest has changes not yet written. The cache
+	// keeps one flag, not a per-entry count; it used to print len(Entries)
+	// here, so every scan that refreshed a single stamp read as "dirty=6841".
+	Unsaved bool
 }
 
 // HitRate returns the cache hit rate as a percentage (0-100).
@@ -348,6 +347,6 @@ func (s CacheStats) HitRate() float64 {
 
 // String returns a human-readable summary of cache statistics.
 func (s CacheStats) String() string {
-	return fmt.Sprintf("hits=%d misses=%d entries=%d dirty=%d hitRate=%.1f%%",
-		s.Hits, s.Misses, s.Entries, s.Dirty, s.HitRate())
+	return fmt.Sprintf("hits=%d misses=%d entries=%d unsaved=%t hitRate=%.1f%%",
+		s.Hits, s.Misses, s.Entries, s.Unsaved, s.HitRate())
 }

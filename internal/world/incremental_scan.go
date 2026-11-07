@@ -49,6 +49,10 @@ type IncrementalResult struct {
 	FileCount      int
 	DirectoryCount int
 	Duration       time.Duration
+	// Cache is the delta pass's change-detection effectiveness: a hit is a
+	// file whose stored stamp was trusted without reading it, a miss one the
+	// pass had to hash (or had never seen). Zero on full and unchanged scans.
+	Cache CacheStats
 
 	// New fields for Mangle integration
 	ProjectLanguage string
@@ -300,12 +304,14 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 		}
 		prev, ok := prevEntries[path]
 		if !ok {
+			cache.misses.Add(1)
 			newFiles = append(newFiles, path)
 			continue
 		}
 		if isTestFile(path) && !prev.TestSymbols {
 			// The previous scanner only read Go test headers. Rebuild just these
 			// files' facts once; source equality cannot prove extraction equality.
+			cache.misses.Add(1)
 			changed = append(changed, path)
 			continue
 		}
@@ -317,6 +323,13 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 		// return Unchanged.
 		stored := stampFromEntry(prev)
 		cur := currentStamps[path]
+		// The same effectiveness counters FileCache.Get keeps: a trusted
+		// stamp is a hit, anything that has to read the file is a miss.
+		if stored.trusts(cur, now) {
+			cache.hits.Add(1)
+		} else {
+			cache.misses.Add(1)
+		}
 		hash, contentChanged, hashErr := resolveContent(path, cur, stored, now)
 		if hashErr != nil {
 			return nil, fmt.Errorf("incremental content %s: %w", path, hashErr)
@@ -754,6 +767,8 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 	// SnapshotGlobalPredicates); entry_point is per-file and retracts with its
 	// file.
 	cache.LogStats("incremental")
+	res.Cache = cache.Stats()
+	logScanBreakdown(root, changed, newFiles, deleted, callSiblings, importDependents)
 	res.Duration = time.Since(start)
 	saveCache()
 
