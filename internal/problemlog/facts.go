@@ -2,6 +2,7 @@ package problemlog
 
 import (
 	"errors"
+	"fmt"
 
 	"codenerd/internal/types"
 )
@@ -21,6 +22,17 @@ const (
 	levelWarnAtom  = types.MangleAtom("/warn")
 )
 
+// problemLevelAtom is the single mapping from a Problem level to its kernel
+// /name: every error is /error, everything else (WARN or an unexpected
+// level) is /warn. Facts and Hot must agree, so both go through here;
+// two copies of the if would drift.
+func problemLevelAtom(level string) types.MangleAtom {
+	if level == LevelError {
+		return levelErrorAtom
+	}
+	return levelWarnAtom
+}
+
 // Predicates are the base predicates Facts writes, for retract-and-replace.
 var Predicates = []string{ProblemPredicate, SeenPredicate, OmittedPredicate}
 
@@ -34,10 +46,7 @@ func (r *Report) Facts() []types.Fact {
 	}
 	out := make([]types.Fact, 0, 2*len(r.Problems)+1)
 	for _, p := range r.Problems {
-		level := levelWarnAtom
-		if p.Level == LevelError {
-			level = levelErrorAtom
-		}
+		level := problemLevelAtom(p.Level)
 		sig := types.MangleString(p.Signature)
 		cat := types.MangleString(p.Category)
 		out = append(out,
@@ -62,15 +71,19 @@ type Kernel interface {
 // a problem that fell out of the cut must not linger. Every retraction error
 // and the assert error come back joined.
 func Replace(k Kernel, r *Report) error {
+	if k == nil {
+		return errors.New("problemlog: nil Kernel")
+	}
 	var errs []error
-	for _, pred := range Predicates {
+	preds := append([]string(nil), Predicates...)
+	for _, pred := range preds {
 		if err := k.Retract(pred); err != nil {
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("problemlog: retract %s: %w", pred, err))
 		}
 	}
 	if facts := r.Facts(); len(facts) > 0 {
 		if err := k.AssertBatch(facts); err != nil {
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("problemlog: assert %d facts: %w", len(facts), err))
 		}
 	}
 	return errors.Join(errs...)
@@ -85,28 +98,61 @@ type Querier interface {
 	Query(predicate string) ([]types.Fact, error)
 }
 
+// factString extracts the join key text of a hot fact argument. Query readback
+// renders a /name as a plain string while freshly built facts carry a
+// MangleAtom, and signatures carry MangleString: all three must compare
+// equal, so each is unwrapped explicitly instead of relying on fmt fallback.
+func factString(arg any) string {
+	switch v := arg.(type) {
+	case string:
+		return v
+	case types.MangleString:
+		return string(v)
+	case types.MangleAtom:
+		return string(v)
+	default:
+		return types.ExtractString(arg)
+	}
+}
+
+// normalizeLevelName keeps the hot join stable when the kernel renders a
+// level /name as "warn" instead of "/warn": both spellings join the same.
+func normalizeLevelName(s string) string {
+	if s == "" {
+		return s
+	}
+	if s[0] == '/' {
+		return s
+	}
+	return "/" + s
+}
+
 // Hot returns the report's problems the kernel derives as hot, in the
 // report's order (most urgent first). The kernel decides; this only joins
 // its verdict back to the whole problems.
 func (r *Report) Hot(k Querier) ([]Problem, error) {
+	if k == nil {
+		return nil, errors.New("problemlog: nil Querier")
+	}
 	if r == nil {
 		return nil, nil
 	}
 	rows, err := k.Query(HotPredicate)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("problemlog: query %s: %w", HotPredicate, err)
 	}
-	type key struct{ sig, cat string }
+	type key struct{ sig, level, cat string }
 	hot := make(map[key]bool, len(rows))
 	for _, f := range rows {
 		if len(f.Args) != 3 {
 			continue
 		}
-		hot[key{types.ExtractString(f.Args[0]), types.ExtractString(f.Args[2])}] = true
+		hot[key{factString(f.Args[0]), normalizeLevelName(factString(f.Args[1])), factString(f.Args[2])}] = true
 	}
-	var out []Problem
+	out := make([]Problem, 0, len(r.Problems))
 	for _, p := range r.Problems {
-		if hot[key{p.Signature, p.Category}] {
+		level := normalizeLevelName(string(problemLevelAtom(p.Level)))
+		if hot[key{p.Signature, level, p.Category}] {
 			out = append(out, p)
 		}
 	}

@@ -47,9 +47,24 @@ var stampRe = regexp.MustCompile(`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?
 // non-nil, drops an entry before it is emitted (the caller's own notes that
 // the log would otherwise feed back to itself). Lines before the first record
 // belong to no entry and are ignored: a chunk read from the middle of a file
-// can start inside a multi-line message.
+// can start inside a multi-line message. A record owns every line up to the
+// next record, up to maxEntryLines lines and maxEntryBytes bytes; the rest of
+// an overlong record is dropped and the kept sample carries a truncation
+// marker, so one runaway dump cannot grow an Entry without bound. The bounds
+// are generous: the multi-line samples in the fixture stay whole.
 func Scan(r io.Reader, skip func(Entry) bool, emit func(Entry)) error {
+	if r == nil {
+		return errors.New("problemlog: nil reader")
+	}
+	if emit == nil {
+		return errors.New("problemlog: nil emit")
+	}
+	const maxEntryLines = 200
+	const maxEntryBytes = 32 << 10
+	const truncatedMarker = "\n…[truncated]"
 	var cur *Entry
+	curLines := 0
+	truncated := false
 	flush := func() {
 		if cur == nil {
 			return
@@ -59,22 +74,46 @@ func Scan(r io.Reader, skip func(Entry) bool, emit func(Entry)) error {
 			emit(*cur)
 		}
 		cur = nil
+		curLines = 0
+		truncated = false
 	}
 	br := bufio.NewReader(r)
+	firstLine := true
 	for {
 		line, err := br.ReadString('\n')
 		if line != "" {
-			line = strings.TrimRight(line, "\r\n")
+			line = strings.ToValidUTF8(strings.TrimRight(line, "\r\n"), "")
+			if firstLine {
+				line = strings.TrimPrefix(line, string([]byte{239, 187, 191}))
+				firstLine = false
+			}
 			if m := entryRe.FindStringSubmatch(line); m != nil {
 				flush()
 				at, perr := time.ParseInLocation(timeLayout, m[1], time.Local)
 				if perr == nil && (m[2] == LevelError || m[2] == LevelWarn) {
-					cur = &Entry{Time: at, Level: m[2], Category: m[3], Message: m[4]}
+					msg := m[4]
+					if len(msg) > maxEntryBytes {
+						msg = strings.ToValidUTF8(msg[:maxEntryBytes], "") + " …[truncated]"
+						truncated = true
+					}
+					cur = &Entry{Time: at, Level: m[2], Category: strings.TrimSpace(m[3]), Message: msg}
+					curLines = 1
 				}
 			} else if stampRe.MatchString(line) {
 				flush()
 			} else if cur != nil {
-				cur.Message += "\n" + line
+				if truncated || curLines >= maxEntryLines || len(cur.Message) >= maxEntryBytes {
+					if !truncated {
+						cur.Message += truncatedMarker
+						truncated = true
+					}
+				} else if len(cur.Message)+1+len(line) > maxEntryBytes {
+					cur.Message += truncatedMarker
+					truncated = true
+				} else {
+					cur.Message += "\n" + line
+					curLines++
+				}
 			}
 		}
 		if err != nil {
@@ -102,6 +141,10 @@ var (
 // that differ late in the headline are two problems.
 func Signature(msg string) string {
 	head, _, _ := strings.Cut(msg, "\n")
+	head = strings.ToValidUTF8(strings.TrimSuffix(head, "\r"), "")
+	// Order is load-bearing: uuid before path before hex before numbers, so a
+	// placeholder introduced by an earlier step is never re-mangled by a later
+	// one. Only the headline feeds the key.
 	s := uuidRe.ReplaceAllString(head, "<uuid>")
 	s = pathRe.ReplaceAllString(s, "<path>")
 	s = hexRe.ReplaceAllString(s, "<hex>")
