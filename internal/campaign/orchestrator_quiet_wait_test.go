@@ -34,18 +34,31 @@ func TestEligibilityWake_AQuietLoopWaitsForAResultOrADueRetry(t *testing.T) {
 		t.Fatal("a loop that is not quiet stopped polling")
 	}
 
-	phase.Tasks = append(phase.Tasks, Task{ID: "/t_backoff", Status: TaskPending, NextRetryAt: time.Now().Add(300 * time.Millisecond)})
-	start := time.Now()
+	// A retry far ahead: the quiet loop must wake for it. Far ahead so no
+	// scheduling delay on a loaded host can make it overdue first.
+	phase.Tasks = append(phase.Tasks, Task{ID: "/t_later", Status: TaskPending, NextRetryAt: time.Now().Add(time.Hour)})
+	if o.eligibilityWake(phase, true) == nil {
+		t.Fatal("a quiet loop with a retry coming due never wakes for it")
+	}
+
+	// A retry coming due soon: the wake fires, and never before it is due. If
+	// the host stalled this goroutine past the due time, the retry is overdue
+	// and no wake is the right answer: an overdue retry is eligible now.
+	due := time.Now().Add(300 * time.Millisecond)
+	phase.Tasks = append(phase.Tasks, Task{ID: "/t_backoff", Status: TaskPending, NextRetryAt: due})
 	wake := o.eligibilityWake(phase, true)
 	if wake == nil {
-		t.Fatal("a quiet loop with a retry coming due never wakes for it")
+		if time.Now().Before(due) {
+			t.Fatal("a quiet loop with a retry coming due never wakes for it")
+		}
+		return
 	}
 	select {
 	case <-wake:
-		if waited := time.Since(start); waited < 200*time.Millisecond {
-			t.Fatalf("woke after %v, before the retry came due", waited)
+		if early := due.Sub(time.Now()); early > 0 {
+			t.Fatalf("woke %v before the retry came due", early)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("the wake for a due retry never fired")
 	}
 }
