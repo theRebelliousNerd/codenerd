@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -17,6 +18,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/projectdoc"
 	"codenerd/internal/specs"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
@@ -219,6 +221,20 @@ func (s *Scanner) specCensus(ctx context.Context, root string) (*specCensus, err
 	})
 	if err != nil {
 		return nil, err
+	}
+	// A nerd.md beside an agents.md carries that agents.md as its body
+	// (projectdoc.AgentDocTwins): the same sections a second time, so it
+	// would double every link and every drift row. The agents.md is the
+	// source; its twin is not measured.
+	for doc := range c.docs {
+		if !strings.EqualFold(pathpkg.Base(doc), "agents.md") {
+			continue
+		}
+		twin := pathpkg.Join(pathpkg.Dir(doc), projectdoc.FileName)
+		if _, ok := c.docs[twin]; ok {
+			delete(c.docs, twin)
+			delete(c.abs, twin)
+		}
 	}
 	for d := range topLevel {
 		c.roots = append(c.roots, d)
