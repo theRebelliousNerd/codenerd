@@ -2,6 +2,7 @@ package core
 
 import (
 	"maps"
+	"sync/atomic"
 
 	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codeberg.org/TauCeti/mangle-go/ast"
@@ -44,6 +45,27 @@ type edbIndex struct {
 	// content is the multiset hash of the held facts
 	// (kernel_content_fingerprint.go).
 	content [2]uint64
+	// ownBuckets and ownAtoms name the inner maps this index may write. A
+	// clone shares every inner map with its source and owns none, and so
+	// does the source afterwards: whichever writes a predicate first copies
+	// that predicate's map (copy-on-write). Cloning a 290K-row index used to
+	// copy every map, 80% of a 24 ms kernel clone (measured 2026-11-06); a
+	// dream check clones the kernel once per gated action.
+	ownBuckets map[string]bool
+	ownAtoms   map[string]bool
+	// shared is raised by clone, which runs under the kernel's read lock and
+	// so may not touch the ownership maps; the next write, under the write
+	// lock, drops every ownership before it writes (settleShared).
+	shared atomic.Bool
+}
+
+// settleShared gives up ownership of every inner map once a clone shares them.
+// Callers hold the kernel's write lock.
+func (x *edbIndex) settleShared() {
+	if x.shared.Swap(false) {
+		clear(x.ownBuckets)
+		clear(x.ownAtoms)
+	}
 }
 
 // admittedAtom is a fact's store atom as admitted under one program.
@@ -54,12 +76,41 @@ type admittedAtom struct {
 
 func newEDBIndex() *edbIndex {
 	return &edbIndex{
-		buckets:   make(map[string]map[string]Fact),
-		arities:   make(map[string]map[int]struct{}),
-		atoms:     make(map[string]map[string]admittedAtom),
-		aliasRows: make(map[string]int),
-		delta:     newEDBDelta(false),
+		buckets:    make(map[string]map[string]Fact),
+		arities:    make(map[string]map[int]struct{}),
+		atoms:      make(map[string]map[string]admittedAtom),
+		aliasRows:  make(map[string]int),
+		delta:      newEDBDelta(false),
+		ownBuckets: make(map[string]bool),
+		ownAtoms:   make(map[string]bool),
 	}
+}
+
+// writableBucket returns pred's bucket for writing, copying it first when it
+// is shared with a clone; nil when pred holds nothing.
+func (x *edbIndex) writableBucket(pred string) map[string]Fact {
+	x.settleShared()
+	bucket := x.buckets[pred]
+	if bucket == nil || x.ownBuckets[pred] {
+		return bucket
+	}
+	bucket = maps.Clone(bucket)
+	x.buckets[pred] = bucket
+	x.ownBuckets[pred] = true
+	return bucket
+}
+
+// writableAtoms is writableBucket for the atom memo.
+func (x *edbIndex) writableAtoms(pred string) map[string]admittedAtom {
+	x.settleShared()
+	memo := x.atoms[pred]
+	if memo == nil || x.ownAtoms[pred] {
+		return memo
+	}
+	memo = maps.Clone(memo)
+	x.atoms[pred] = memo
+	x.ownAtoms[pred] = true
+	return memo
 }
 
 // has reports whether a fact with this canonical key is held.
@@ -70,13 +121,14 @@ func (x *edbIndex) has(pred, key string) bool {
 
 // insert records f under key; it reports false when the key was already held.
 func (x *edbIndex) insert(key string, f Fact) bool {
-	bucket := x.buckets[f.Predicate]
+	if _, dup := x.buckets[f.Predicate][key]; dup {
+		return false
+	}
+	bucket := x.writableBucket(f.Predicate)
 	if bucket == nil {
 		bucket = make(map[string]Fact)
 		x.buckets[f.Predicate] = bucket
-	}
-	if _, dup := bucket[key]; dup {
-		return false
+		x.ownBuckets[f.Predicate] = true
 	}
 	bucket[key] = f
 	if hostAliasCapable(f) {
@@ -97,13 +149,13 @@ func (x *edbIndex) insert(key string, f Fact) bool {
 
 // remove drops the fact held under key.
 func (x *edbIndex) remove(pred, key string) {
-	bucket := x.buckets[pred]
-	f, ok := bucket[key]
+	f, ok := x.buckets[pred][key]
 	if !ok {
 		return
 	}
 	atom, hadAtom := x.atoms[pred][key]
 	x.delta.noteRemove(pred, key, f, atom, hadAtom)
+	bucket := x.writableBucket(pred)
 	delete(bucket, key)
 	if hostAliasCapable(f) {
 		if x.aliasRows[pred]--; x.aliasRows[pred] <= 0 {
@@ -115,6 +167,7 @@ func (x *edbIndex) remove(pred, key string) {
 	x.size--
 	if len(bucket) == 0 {
 		delete(x.buckets, pred)
+		delete(x.ownBuckets, pred)
 	}
 }
 
@@ -127,10 +180,11 @@ func (x *edbIndex) rememberAtom(pred, key string, atom ast.Atom, program *analys
 	if _, held := x.buckets[pred][key]; !held {
 		return
 	}
-	memo := x.atoms[pred]
+	memo := x.writableAtoms(pred)
 	if memo == nil {
 		memo = make(map[string]admittedAtom)
 		x.atoms[pred] = memo
+		x.ownAtoms[pred] = true
 	}
 	memo[key] = admittedAtom{atom: atom, program: program}
 }
@@ -146,13 +200,14 @@ func (x *edbIndex) atomOf(pred, key string, program *analysis.ProgramInfo) (ast.
 }
 
 func (x *edbIndex) forgetAtom(pred, key string) {
-	memo := x.atoms[pred]
-	if memo == nil {
+	if _, held := x.atoms[pred][key]; !held {
 		return
 	}
+	memo := x.writableAtoms(pred)
 	delete(memo, key)
 	if len(memo) == 0 {
 		delete(x.atoms, pred)
+		delete(x.ownAtoms, pred)
 	}
 }
 
@@ -166,23 +221,30 @@ func (x *edbIndex) aritiesOf(pred string) map[int]struct{} {
 	return x.arities[pred]
 }
 
-// clone copies the index structure; the facts and keys are shared.
+// clone shares every bucket and atom memo with x, copy-on-write: the outer
+// maps are copied (one entry per predicate) and neither index owns an inner
+// map afterwards, so the first write to a predicate, on either side, copies
+// that predicate alone. The facts and keys are immutable and always shared.
+// It runs under the kernel's read lock, so it only flags x as shared.
 func (x *edbIndex) clone() *edbIndex {
 	out := &edbIndex{
-		buckets:   make(map[string]map[string]Fact, len(x.buckets)),
-		arities:   make(map[string]map[int]struct{}, len(x.arities)),
-		atoms:     make(map[string]map[string]admittedAtom, len(x.atoms)),
-		aliasRows: maps.Clone(x.aliasRows),
-		delta:     x.delta.clone(),
-		content:   x.content,
-		size:      x.size,
+		buckets:    maps.Clone(x.buckets),
+		arities:    make(map[string]map[int]struct{}, len(x.arities)),
+		atoms:      maps.Clone(x.atoms),
+		aliasRows:  maps.Clone(x.aliasRows),
+		delta:      x.delta.clone(),
+		content:    x.content,
+		size:       x.size,
+		ownBuckets: make(map[string]bool),
+		ownAtoms:   make(map[string]bool),
 	}
-	for pred, memo := range x.atoms {
-		out.atoms[pred] = maps.Clone(memo)
+	if out.buckets == nil {
+		out.buckets = make(map[string]map[string]Fact)
 	}
-	for pred, bucket := range x.buckets {
-		out.buckets[pred] = maps.Clone(bucket)
+	if out.atoms == nil {
+		out.atoms = make(map[string]map[string]admittedAtom)
 	}
+	x.shared.Store(true)
 	for pred, arities := range x.arities {
 		out.arities[pred] = maps.Clone(arities)
 	}
