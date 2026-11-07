@@ -61,6 +61,11 @@ func TestSelectsKeyByComparison(t *testing.T) {
 			body: `for name, n := range m { total += n; last = name }`,
 			want: false,
 		},
+		{
+			name: "key used only to index or transform a value, not recorded as the winner",
+			body: `for i, v := range s { if v > max { max = v; best = other[i] } }`,
+			want: false,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			file, err := parser.ParseFile(token.NewFileSet(), "fixture.go",

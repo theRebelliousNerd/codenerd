@@ -43,6 +43,9 @@ type Orchestrator struct {
 	attempts map[string]*attemptRecord
 	// keptWrites are the successful attempts' writes, in order (KeptWrites).
 	keptWrites []observation.FileWrite
+	// preservedTaskWrites are partial writes preserved across attempt boundaries
+	// by canPreservePartialFileModifyProgress, keyed by task ID. Guarded by mu.
+	preservedTaskWrites map[string][]observation.FileWrite
 
 	// Campaign-specific components
 	contextPager                *ContextPager

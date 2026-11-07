@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/gates"
 	"codenerd/internal/types"
 
 	"github.com/google/uuid"
@@ -105,6 +106,9 @@ func RecurseAttemptCampaign(workspace string, a RecurseAttempt) *Campaign {
 			OKExitCodes:     append([]int(nil), a.OKExitCodes...),
 			RuntimeContract: true,
 			GateID:          a.Finding.Gate,
+			GateKind:        a.Finding.Kind,
+			FindingID:       a.Finding.ID,
+			NodePaths:       append([]string(nil), a.Node.Paths...),
 			runtime: &acceptanceRuntime{
 				workspace: workspace, gateID: a.Finding.Gate, env: cloneStringMap(a.CheckEnv),
 				command: append([]string(nil), a.Check...), okExits: append([]int(nil), a.OKExitCodes...),
@@ -145,10 +149,7 @@ func RecurseAttemptCampaign(workspace string, a RecurseAttempt) *Campaign {
 // the evidence, and the check. How to approach the fix and what done means
 // are the campaign/recurse/fix atom, selected by RecurseFixPromptPhase.
 func recurseAttemptTask(a RecurseAttempt, scope string) string {
-	evidence := a.Evidence
-	if len(evidence) > recurseEvidenceLimit {
-		evidence = "...\n" + evidence[len(evidence)-recurseEvidenceLimit:]
-	}
+	evidence := gates.ScopeFindingOutput("", a.Evidence, a.Node.Paths, recurseEvidenceLimit)
 	var b strings.Builder
 	fmt.Fprintf(&b, "FIX (recurse pass %d, cycle %d) in %s (%s).\n\n", a.Pass, a.Cycle, a.Node.Title, scope)
 	fmt.Fprintf(&b, "The workspace's %s gate %s reports:\n  %s\n  target: %s\n\n", a.Finding.Kind, a.Finding.Gate, a.Finding.Message, a.Finding.Target)

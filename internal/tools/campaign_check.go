@@ -28,6 +28,15 @@ type CampaignCheck struct {
 	OKExitCodes []int
 	// Workspace binds the command to its admitting workspace when supplied.
 	Workspace string
+	// GateID, GateKind, FindingID, and NodePaths identify a single-node
+	// recurse finding when the check is a workspace-wide gate.
+	GateID    string
+	GateKind  string
+	FindingID string
+	NodePaths []string
+	// ResolveOutput evaluates whether a non-zero exit resolved a single-node
+	// recurse finding and scopes multi-node gate output to the node's paths.
+	ResolveOutput func(exitCode int, output string) (resolved bool, scopedOutput string) `json:"-"`
 	// Environment is trusted execution configuration, excluded from JSON.
 	Environment []string `json:"-"`
 }
@@ -58,6 +67,7 @@ func CampaignCheckFrom(ctx context.Context) (check CampaignCheck, ok bool) {
 func cloneCampaignCheck(check CampaignCheck) CampaignCheck {
 	check.Argv = append([]string(nil), check.Argv...)
 	check.OKExitCodes = append([]int(nil), check.OKExitCodes...)
+	check.NodePaths = append([]string(nil), check.NodePaths...)
 	check.Environment = append([]string(nil), check.Environment...)
 	return check
 }

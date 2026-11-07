@@ -161,7 +161,10 @@ func (e *Executor) noteToolCall(call types.ToolCall, content string, execErr err
 	if meter == nil {
 		return
 	}
-	args, _ := json.Marshal(call.Input)
+	args, err := json.Marshal(call.Input)
+	if err != nil {
+		args = nil
+	}
 	channel, origin := e.toolChannelOf(call.Name, result)
 	measure := types.ToolCallMeasure{
 		Tool: call.Name, Origin: origin, Channel: channel, SessionID: e.SessionID(),

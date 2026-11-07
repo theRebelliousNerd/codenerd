@@ -79,11 +79,11 @@ func listImporters(ctx context.Context, workspace string, pkgs []string) (import
 		return importerListing{}, "importers not listed (" + string(outcome) + suffixed(reason) + ")"
 	}
 	type modulePackage struct {
-		ImportPath   string
-		Dir          string
-		Imports      []string
-		TestImports  []string
-		XTestImports []string
+		ImportPath   string   `json:"ImportPath"`
+		Dir          string   `json:"Dir"`
+		Imports      []string `json:"Imports"`
+		TestImports  []string `json:"TestImports"`
+		XTestImports []string `json:"XTestImports"`
 	}
 	module := map[string]modulePackage{}
 	var order []string

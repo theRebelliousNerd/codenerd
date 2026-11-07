@@ -58,13 +58,61 @@ task_preload_path(TaskID, Path) :-
     task_artifact_on_disk(Producer, Path, ArtType, Ext, Bytes),
     code_outline(Path, Shape, Rows).
 
-Decl task_preload(TaskID, Target, Form) bound [/string, /string, /name].
+Decl task_preload_outline_candidate(TaskID, Path, Rows) bound [/string, /string, /number].
+Decl task_preload_outline_total(TaskID, Total) bound [/string, /number].
+Decl task_preload_output_outline_candidate(TaskID, Path, Rows) bound [/string, /string, /number].
+Decl task_preload_output_outline_total(TaskID, Total) bound [/string, /number].
+Decl task_preload_element_candidate(TaskID, Ref, Lines) bound [/string, /string, /number].
+Decl task_preload_element_total(TaskID, Total) bound [/string, /number].
 
-task_preload(TaskID, Path, /outline) :-
+task_preload_outline_candidate(TaskID, Path, Rows) :-
     task_preload_path(TaskID, Path),
     code_outline(Path, Shape, Rows),
     config_param(/campaign_preload_outline_max_rows, Max),
     Rows <= Max.
+
+task_preload_outline_total(TaskID, Total) :-
+    task_preload_outline_candidate(TaskID, Path, Rows)
+    |> do fn:group_by(TaskID),
+       let Total = fn:sum(Rows).
+
+task_preload_output_outline_candidate(TaskID, Path, Rows) :-
+    task_output_path(TaskID, Path),
+    code_outline(Path, Shape, Rows),
+    config_param(/campaign_preload_outline_max_rows, Max),
+    Rows <= Max.
+
+task_preload_output_outline_total(TaskID, Total) :-
+    task_preload_output_outline_candidate(TaskID, Path, Rows)
+    |> do fn:group_by(TaskID),
+       let Total = fn:sum(Rows).
+
+task_preload_element_candidate(TaskID, Ref, Lines) :-
+    task_brief_element(TaskID, Ref, Lines, Revision),
+    config_param(/campaign_preload_element_max_lines, Max),
+    Lines <= Max.
+
+task_preload_element_total(TaskID, Total) :-
+    task_preload_element_candidate(TaskID, Ref, Lines)
+    |> do fn:group_by(TaskID),
+       let Total = fn:sum(Lines).
+
+Decl task_preload(TaskID, Target, Form) bound [/string, /string, /name].
+
+task_preload(TaskID, Path, /outline) :-
+    task_preload_outline_candidate(TaskID, Path, Rows),
+    task_preload_outline_total(TaskID, Total),
+    config_param(/campaign_preload_outline_max_rows, Max),
+    Total <= Max.
+
+task_preload(TaskID, Path, /outline) :-
+    task_preload_outline_candidate(TaskID, Path, Rows),
+    task_preload_outline_total(TaskID, Total),
+    config_param(/campaign_preload_outline_max_rows, Max),
+    Total > Max,
+    task_output_path(TaskID, Path),
+    task_preload_output_outline_total(TaskID, OutTotal),
+    OutTotal <= Max.
 
 task_preload(TaskID, Path, /count) :-
     task_preload_path(TaskID, Path),
@@ -72,12 +120,35 @@ task_preload(TaskID, Path, /count) :-
     config_param(/campaign_preload_outline_max_rows, Max),
     Rows > Max.
 
+task_preload(TaskID, Path, /count) :-
+    task_preload_outline_candidate(TaskID, Path, Rows),
+    task_preload_outline_total(TaskID, Total),
+    config_param(/campaign_preload_outline_max_rows, Max),
+    Total > Max,
+    !task_output_path(TaskID, Path).
+
+task_preload(TaskID, Path, /count) :-
+    task_preload_outline_candidate(TaskID, Path, Rows),
+    task_preload_outline_total(TaskID, Total),
+    config_param(/campaign_preload_outline_max_rows, Max),
+    Total > Max,
+    task_output_path(TaskID, Path),
+    task_preload_output_outline_total(TaskID, OutTotal),
+    OutTotal > Max.
+
 task_preload(TaskID, Ref, /element) :-
-    task_brief_element(TaskID, Ref, Lines, Revision),
+    task_preload_element_candidate(TaskID, Ref, Lines),
+    task_preload_element_total(TaskID, Total),
     config_param(/campaign_preload_element_max_lines, Max),
-    Lines <= Max.
+    Total <= Max.
 
 task_preload(TaskID, Ref, /signature) :-
     task_brief_element(TaskID, Ref, Lines, Revision),
     config_param(/campaign_preload_element_max_lines, Max),
     Lines > Max.
+
+task_preload(TaskID, Ref, /signature) :-
+    task_preload_element_candidate(TaskID, Ref, Lines),
+    task_preload_element_total(TaskID, Total),
+    config_param(/campaign_preload_element_max_lines, Max),
+    Total > Max.

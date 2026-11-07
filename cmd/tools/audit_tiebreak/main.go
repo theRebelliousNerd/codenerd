@@ -88,90 +88,27 @@ func selectsKeyByComparison(rng *ast.RangeStmt) bool {
 	}
 
 	found := false
-	usesKey := func(expr ast.Expr) bool {
-		if expr == nil {
-			return false
-		}
-		hit := false
-		ast.Inspect(expr, func(n ast.Node) bool {
-			if n == nil {
-				return false
-			}
-			if hit {
-				return false
-			}
-			if id, ok := n.(*ast.Ident); ok && id.Name == key.Name {
-				hit = true
-				return false
-			}
-			return true
-		})
-		return hit
-	}
-	recordsKey := func(n ast.Node) bool {
-		if n == nil {
-			return false
-		}
-		if found {
-			return false
-		}
-		assign, ok := n.(*ast.AssignStmt)
-		if !ok {
-			return true
-		}
-		for _, rhs := range assign.Rhs {
-			if usesKey(rhs) {
-				found = true
-				return false
-			}
-		}
-		return true
-	}
 	ast.Inspect(rng.Body, func(n ast.Node) bool {
-		if n == nil {
-			return false
-		}
-		if found {
-			return false
-		}
 		ifs, ok := n.(*ast.IfStmt)
 		if !ok {
 			return true
 		}
-		cond := ifs.Cond
-		if cond == nil {
-			return false
+		cmp, ok := ifs.Cond.(*ast.BinaryExpr)
+		if !ok || (cmp.Op != token.GTR && cmp.Op != token.LSS) {
+			return true
 		}
-		if ifs.Body == nil {
-			return false
-		}
-		hasOrdering := false
-		ast.Inspect(cond, func(n ast.Node) bool {
-			if n == nil {
-				return false
-			}
-			if hasOrdering {
-				return false
-			}
-			cmp, ok := n.(*ast.BinaryExpr)
+		ast.Inspect(ifs.Body, func(m ast.Node) bool {
+			assign, ok := m.(*ast.AssignStmt)
 			if !ok {
 				return true
 			}
-			if cmp.Op == token.GTR || cmp.Op == token.LSS || cmp.Op == token.GEQ || cmp.Op == token.LEQ {
-				hasOrdering = true
-				return false
+			for _, rhs := range assign.Rhs {
+				if id, ok := rhs.(*ast.Ident); ok && id.Name == key.Name {
+					found = true
+				}
 			}
 			return true
 		})
-		if !hasOrdering {
-			return true
-		}
-		if ifs.Body != nil {
-			ast.Inspect(ifs.Body, recordsKey)
-		}
-		if !found && ifs.Else != nil {
-			ast.Inspect(ifs.Else, recordsKey)
-		}
 		return true
 	})
 	return found

@@ -115,8 +115,18 @@ func executeRunCheck(ctx context.Context, args map[string]any) (string, error) {
 	output, exitCode := "", -1
 	if res != nil {
 		output, exitCode = res.Output(), res.ExitCode
+		okCodes := append([]int(nil), check.OKExitCodes...)
+		if check.ResolveOutput != nil {
+			resolved, scoped := check.ResolveOutput(exitCode, output)
+			if resolved && execErr == nil && ctx.Err() == nil {
+				okCodes = append(okCodes, exitCode)
+			}
+			if scoped != "" {
+				output = scoped
+			}
+		}
 		tools.RecordAcceptanceRun(ctx, tools.AcceptanceRun{Argv: argv, ExitCode: exitCode,
-			OKExitCodes: check.OKExitCodes, ExecutionFailed: execErr != nil || ctx.Err() != nil})
+			OKExitCodes: okCodes, ExecutionFailed: execErr != nil || ctx.Err() != nil})
 	}
 
 	// The output is returned whole. A check log is exactly the kind of

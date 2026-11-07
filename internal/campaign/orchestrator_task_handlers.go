@@ -16,6 +16,7 @@ import (
 	"codenerd/internal/build"
 	"codenerd/internal/core"
 	"codenerd/internal/evidence"
+	"codenerd/internal/gates"
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
 	"codenerd/internal/session"
@@ -136,13 +137,39 @@ func (o *Orchestrator) campaignCheck(task *Task) (tools.CampaignCheck, bool, err
 	if o.campaign == nil || o.campaign.Acceptance == nil || len(o.campaign.Acceptance.Command) == 0 {
 		return tools.CampaignCheck{}, false, nil
 	}
+	workspace := o.workspace
+	gateID := o.campaign.Acceptance.GateID
+	gateKind := o.campaign.Acceptance.GateKind
+	findingID := o.campaign.Acceptance.FindingID
+	nodePaths := append([]string(nil), o.campaign.Acceptance.NodePaths...)
+	okExits := append([]int(nil), o.campaign.Acceptance.OKExitCodes...)
+	argv := append([]string(nil), o.campaign.Acceptance.Command...)
 	return tools.CampaignCheck{
 		Environment: env,
-		Workspace:   o.workspace,
-		OKExitCodes: append([]int(nil), o.campaign.Acceptance.OKExitCodes...),
+		Workspace:   workspace,
+		GateID:      gateID,
+		GateKind:    string(gateKind),
+		FindingID:   findingID,
+		NodePaths:   nodePaths,
+		ResolveOutput: func(exitCode int, output string) (bool, string) {
+			gate := gates.Gate{ID: gateID, Kind: gateKind, OKExitCodes: okExits}
+			resolved := !gate.Passed(exitCode) && gates.ScopedFindingResolved(workspace, gates.Result{
+				Gate:     gate,
+				Argv:     argv,
+				ExitCode: exitCode,
+				Passed:   false,
+				Output:   output,
+			}, findingID, nodePaths)
+			scoped := output
+			if len(nodePaths) > 0 {
+				scoped = gates.ScopeFindingOutput(workspace, output, nodePaths, 0)
+			}
+			return resolved, scoped
+		},
+		OKExitCodes: okExits,
 		CampaignID:  o.campaign.ID,
 		TaskID:      task.ID,
-		Argv:        append([]string(nil), o.campaign.Acceptance.Command...),
+		Argv:        argv,
 	}, true, nil
 }
 

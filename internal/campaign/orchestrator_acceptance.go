@@ -39,8 +39,11 @@ type Acceptance struct {
 	OKExitCodes []int `json:"ok_exit_codes,omitempty"`
 	// RuntimeContract marks a measured recurse invocation. Its environment is
 	// intentionally absent from snapshots; restoration requires a fresh run.
-	RuntimeContract bool   `json:"runtime_contract,omitempty"`
-	GateID          string `json:"gate_id,omitempty"`
+	RuntimeContract bool       `json:"runtime_contract,omitempty"`
+	GateID          string     `json:"gate_id,omitempty"`
+	GateKind        gates.Kind `json:"gate_kind,omitempty"`
+	FindingID       string     `json:"finding_id,omitempty"`
+	NodePaths       []string   `json:"node_paths,omitempty"`
 	runtime         *acceptanceRuntime
 	// Rounds is every run, in order. Its length is the round count the policy
 	// compares with config_param(/campaign_acceptance_rounds, _).
@@ -162,6 +165,10 @@ func (o *Orchestrator) runAcceptanceRound(ctx context.Context) error {
 	o.mu.RLock()
 	argv := append([]string(nil), o.campaign.Acceptance.Command...)
 	okCodes := append([]int(nil), o.campaign.Acceptance.OKExitCodes...)
+	gateID := o.campaign.Acceptance.GateID
+	gateKind := o.campaign.Acceptance.GateKind
+	findingID := o.campaign.Acceptance.FindingID
+	nodePaths := append([]string(nil), o.campaign.Acceptance.NodePaths...)
 	env, contractErr := o.acceptanceEnvironmentLocked()
 	round := len(o.campaign.Acceptance.Rounds) + 1
 	campaignID := o.campaign.ID
@@ -193,8 +200,20 @@ func (o *Orchestrator) runAcceptanceRound(ctx context.Context) error {
 	// Same rule as the gate that produced the finding. execErr is a command
 	// that did not run; a non-zero exit the executor reports with a nil error
 	// (DirectExecutor) is judged by the codes, and exit 5 is a pass when the
-	// gate says so.
-	passed := execErr == nil && res != nil && gates.Gate{OKExitCodes: okCodes}.Passed(exitCode)
+	// gate says so. For a single-node recurse fix attempt on a workspace-wide
+	// gate, the round also passes when the target finding is resolved and zero
+	// findings remain in the node's own paths.
+	gate := gates.Gate{ID: gateID, Kind: gateKind, OKExitCodes: okCodes}
+	passed := execErr == nil && res != nil && gate.Passed(exitCode)
+	if !passed && execErr == nil && res != nil && gates.ScopedFindingResolved(o.workspace, gates.Result{
+		Gate:     gate,
+		Argv:     argv,
+		ExitCode: exitCode,
+		Passed:   false,
+		Output:   output,
+	}, findingID, nodePaths) {
+		passed = true
+	}
 
 	rel := path.Join(".nerd", "campaigns", strings.TrimPrefix(campaignID, "/"), "acceptance", fmt.Sprintf("round_%d.txt", round))
 	abs := filepath.Join(o.workspace, filepath.FromSlash(rel))
@@ -258,12 +277,13 @@ func (o *Orchestrator) appendAcceptanceRemediation() error {
 		profile = c.Phases[n-1].ContextProfile
 	}
 	judge := acceptanceJudge(c.Acceptance.OKExitCodes)
+	scopedOutput := gates.ScopeFindingOutput(o.workspace, string(output), c.Acceptance.NodePaths, recurseEvidenceLimit)
 	description := fmt.Sprintf(
 		"Every phase of this campaign is done and its acceptance check still fails (round %d, exit %d).\n\n"+
 			"Acceptance command, run in the workspace root:\n    %s\n\nIts output:\n\n%s\n\n"+
 			"Bring the check to a pass by changing %s. The check is the judge: %s, and it runs again when this task is done. "+
 			"Do not delete content or weaken a true statement to get there, and do not touch the checker.",
-		last.Round, last.ExitCode, strings.Join(c.Acceptance.Command, " "), indentBlock(string(output)), scope, judge)
+		last.Round, last.ExitCode, strings.Join(c.Acceptance.Command, " "), indentBlock(scopedOutput), scope, judge)
 
 	c.Phases = append(c.Phases, Phase{
 		ID:             phaseID,

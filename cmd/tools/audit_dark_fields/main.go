@@ -611,12 +611,17 @@ func compare(lines []string, dark []field) {
 		os.Exit(2)
 	}
 	want := map[string]bool{}
+	wantSite := map[string]string{}
 	for _, l := range strings.Split(string(raw), "\n") {
 		l = strings.TrimSpace(l)
 		if l == "" || strings.HasPrefix(l, "#") {
 			continue
 		}
-		want[strings.Split(l, "\t")[0]] = true
+		parts := strings.Split(l, "\t")
+		want[parts[0]] = true
+		if len(parts) > 1 && strings.TrimSpace(parts[1]) != "" {
+			wantSite[parts[0]] = strings.TrimSpace(parts[1])
+		}
 	}
 	site := map[string]field{}
 	for _, d := range dark {
@@ -665,6 +670,9 @@ and say why in the commit.
 		fmt.Printf("\nFields that are no longer dark (%d):\n", len(removed))
 		for _, l := range removed {
 			fmt.Printf("  %s\n", l)
+			if s := wantSite[l]; s != "" {
+				fmt.Printf("%s: field is no longer dark: %s (refresh baseline with regenerate id=dark-fields-baseline)\n", s, l)
+			}
 		}
 		fmt.Print(`
 Good. Refresh the baseline so the count stays a real measurement:

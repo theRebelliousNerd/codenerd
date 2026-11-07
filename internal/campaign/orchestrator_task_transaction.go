@@ -111,17 +111,19 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 
 	result, err = run()
 	if err == nil && task != nil && task.Type == TaskTypeFileModify {
-		err = validateFileModifyOutcome(task, snapshot, o.attemptWrites(task))
+		err = validateFileModifyOutcome(task, snapshot, o.taskWritesWithPreserved(task))
 	}
 	if err == nil {
 		rec := o.endAttempt(task)
 		o.keepAttemptWrites(rec.writes)
+		o.clearPreservedTaskWrites(task)
 		rec.release()
 		return result, nil
 	}
 	if o.canPreservePartialFileModifyProgress(task, snapshot, err) {
 		rec := o.endAttempt(task)
 		o.keepAttemptWrites(rec.writes)
+		o.preserveTaskWrites(task, rec.writes)
 		rec.release()
 		if snapshot.campaign == nil && snapshot.scopedTask != nil {
 			o.updateTaskStatus(snapshot.scopedTask, snapshot.scopedStatus)
@@ -263,10 +265,16 @@ func validateFileModifyOutcome(task *Task, snapshot taskExecutionSnapshot, write
 	if modified {
 		return nil
 	}
+	changed := changedPreexistingFiles(writes)
+	for _, p := range changed {
+		if snapshot.covers(p) {
+			return nil
+		}
+	}
 	if declaredExisted && len(snapshot.declaredGlobs) == 0 {
 		return fmt.Errorf("task %s (%s) modified no pre-existing file in its declared write set", taskIDOrUnknown(task), task.Type)
 	}
-	if changed := changedPreexistingFiles(writes); len(changed) > 0 {
+	if len(changed) > 0 {
 		logging.Campaign("Task %s (%s): broad-glob or absent write set; changed existing code in %s", taskIDOrUnknown(task), task.Type, strings.Join(changed, ", "))
 		return nil
 	}
@@ -592,6 +600,11 @@ func (o *Orchestrator) rollbackTaskExecutionSnapshot(snapshot taskExecutionSnaps
 	// File mutations are always reverted, for both structural and scoped snapshots.
 	for _, fs := range snapshot.fileMutations {
 		if fs.Exists {
+			if info, statErr := os.Stat(fs.Path); statErr == nil && info.Mode().Perm() == fs.restoreMode() {
+				if cur, readErr := os.ReadFile(fs.Path); readErr == nil && bytes.Equal(cur, fs.Content) {
+					continue
+				}
+			}
 			if err := os.MkdirAll(filepath.Dir(fs.Path), 0755); err != nil {
 				return fmt.Errorf("rollback mkdir %s: %w", fs.Path, err)
 			}

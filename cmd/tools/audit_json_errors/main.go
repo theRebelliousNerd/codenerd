@@ -317,11 +317,30 @@ value bound for a log line), record it:
 	if len(removed) > 0 {
 		fmt.Fprintf(os.Stderr, "%d baseline entry/entries no longer present (fixed or moved):\n\n", len(removed))
 		for _, k := range removed {
-			fmt.Fprintf(os.Stderr, "  %s\n", strings.ReplaceAll(k, "\t", "  "))
+			file := removedEntryFile(k)
+			fmt.Fprintf(os.Stderr, "%s:1: baseline entry no longer present (run: go run ./cmd/tools/audit_json_errors -update): %s\n",
+				file, strings.ReplaceAll(k, "\t", "  "))
 		}
 		fmt.Fprintf(os.Stderr, "\nRecord the improvement:\n\n  go run ./cmd/tools/audit_json_errors -update\n\n")
 	}
 	os.Exit(1)
+}
+
+func removedEntryFile(key string) string {
+	dir, _, ok := strings.Cut(key, "\t")
+	if !ok || strings.TrimSpace(dir) == "" {
+		return baselinePath
+	}
+	entries, err := os.ReadDir(filepath.FromSlash(dir))
+	if err == nil {
+		for _, entry := range entries {
+			name := entry.Name()
+			if !entry.IsDir() && strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") {
+				return filepath.ToSlash(filepath.Join(dir, name))
+			}
+		}
+	}
+	return filepath.ToSlash(filepath.Join(dir, "baseline_removed.go"))
 }
 
 // diff compares two sorted multisets of keys. Multiset, not set: one function

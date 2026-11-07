@@ -24,6 +24,18 @@ generators:
     run: go run ./cmd/tools/predicate_corpus_builder
     outputs: [internal/core/defaults/predicate_corpus.db]
     when: after adding, changing or removing a Decl in any .mg under internal/core/defaults
+  - id: dark-fields-baseline
+    run: go run ./cmd/tools/audit_dark_fields -update
+    outputs: [scripts/testdata/dark-fields-baseline.txt]
+    when: after wiring a previously dark struct field so it is now written in production, or intentionally recording a new dark field with its reason
+  - id: deadcode-baseline
+    run: bash ./scripts/deadcode-budget.sh --update
+    outputs: [scripts/testdata/deadcode-baseline.txt]
+    when: after wiring or removing a previously unreachable function so the dead-code baseline shrinks
+  - id: json-errors-baseline
+    run: go run ./cmd/tools/audit_json_errors -update
+    outputs: [scripts/testdata/json-errors-baseline.txt]
+    when: after handling a previously discarded JSON error so the baseline shrinks, or recording a genuinely safe struct-of-strings/ints Marshal
   - id: agent-docs
     run: go run ./cmd/tools/agent_docs
     outputs:

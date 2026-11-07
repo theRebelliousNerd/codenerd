@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -722,4 +723,85 @@ func leadingWS(s string) bool {
 // SortFindings orders findings by ID, the order every consumer sees them in.
 func SortFindings(fs []Finding) {
 	sort.Slice(fs, func(i, j int) bool { return fs[i].ID < fs[j].ID })
+}
+
+// TargetInPaths reports whether a finding target ("dir/file.go", "dir", or
+// "dir::TestName") falls inside any of the workspace-relative node paths.
+func TargetInPaths(target string, nodePaths []string) bool {
+	t, _, _ := strings.Cut(filepath.ToSlash(strings.TrimSpace(target)), "::")
+	if t == "" || t == UnattributedTarget {
+		return false
+	}
+	for _, raw := range nodePaths {
+		p := strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(raw)), "./")
+		p = strings.TrimSuffix(p, "/")
+		if p == "" {
+			continue
+		}
+		if p == "." {
+			if t == "." || !strings.Contains(t, "/") {
+				return true
+			}
+			continue
+		}
+		if t == p || strings.HasPrefix(t, p+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// ScopedFindingResolved reports whether a non-zero gate run for a single-node
+// recurse fix attempt has resolved its target finding and left zero findings in
+// the node's own paths, with all remaining findings strictly attributed to
+// other subsystems in the workspace.
+func ScopedFindingResolved(root string, r Result, findingID string, nodePaths []string) bool {
+	if findingID == "" || len(nodePaths) == 0 || r.Unverified() || r.Truncated || strings.Contains(r.Output, " bytes dropped] ...") {
+		return false
+	}
+	findings := FindingsAll(root, r)
+	if len(findings) == 0 {
+		return false
+	}
+	for _, f := range findings {
+		if f.ID == findingID || f.Target == "" || f.Target == UnattributedTarget {
+			return false
+		}
+		if TargetInPaths(f.Target, nodePaths) {
+			return false
+		}
+	}
+	return true
+}
+
+// ScopeFindingOutput filters positioned file:line diagnostic lines that belong
+// to other subsystems outside nodePaths when a workspace-wide gate output is
+// handed to a single-node task or acceptance remediation, and bounds the result
+// to limit bytes (keeping matching node lines and the tail).
+func ScopeFindingOutput(root, output string, nodePaths []string, limit int) string {
+	res := output
+	if len(nodePaths) > 0 && output != "" {
+		lines := strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n")
+		var kept []string
+		omitted := 0
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if m := fileLineMsg.FindStringSubmatch(trimmed); m != nil {
+				rel := relTarget(root, m[1])
+				if rel != "" && rel != UnattributedTarget && !TargetInPaths(rel, nodePaths) {
+					omitted++
+					continue
+				}
+			}
+			kept = append(kept, line)
+		}
+		if omitted > 0 {
+			kept = append(kept, fmt.Sprintf("(... %d finding line(s) in other subsystems omitted ...)", omitted))
+			res = strings.Join(kept, "\n")
+		}
+	}
+	if limit > 0 && len(res) > limit {
+		res = "...\n" + res[len(res)-limit:]
+	}
+	return res
 }

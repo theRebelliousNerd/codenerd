@@ -145,6 +145,49 @@ func TestTaskPreload_OverTheSizesIsACountOrASignature(t *testing.T) {
 	}
 }
 
+// When individual files or elements fit under the per-item limit, but their
+// sum across the brief exceeds the limit, the task's own write target keeps
+// its outline while non-output files degrade to /count and excess elements
+// degrade to /signature.
+func TestTaskPreload_TotalBudgetPrioritizesOutputPathAndCapsElements(t *testing.T) {
+	t.Parallel()
+	ws := preloadWorkspace(t)
+	c := preloadCampaign(Task{
+		ID: "/task_fix", Type: TaskTypeFileModify, Status: TaskPending,
+		Description: "Check pkg/widget/widget.go and pkg/widget/util.go: `Widget.Render`, `escape`, and `NewWidget`",
+		WriteSet:    []string{filepath.ToSlash(filepath.Join(ws, "pkg", "widget", "util.go"))},
+	})
+	// widget.go has 3 declarations and util.go has 1 (total 4).
+	// With PreloadOutlineMaxRows = 3, each file individually fits (3 <= 3, 1 <= 3),
+	// but their sum (4) exceeds 3: util.go (the output path, 1 <= 3) stays /outline
+	// while widget.go degrades to /count.
+	// Render (4 lines), escape (3 lines), NewWidget (1 line) each fit <= 4,
+	// but their sum (8) exceeds 4: all degrade to /signature.
+	o := evidenceOrchestrator(t, ws, c, func(cc *config.CampaignConfig) {
+		cc.PreloadOutlineMaxRows = 3
+		cc.PreloadElementMaxLines = 4
+	})
+	if _, err := o.taskContextSection(context.Background(), &c.Phases[0].Tasks[0]); err != nil {
+		t.Fatal(err)
+	}
+	forms, err := o.askTaskPreload("/task_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"pkg/widget/util.go":       preloadOutline,
+		"pkg/widget/widget.go":     preloadCount,
+		"pkg/widget.Widget.Render": preloadSignature,
+		"pkg/widget.escape":        preloadSignature,
+		"pkg/widget.NewWidget":     preloadSignature,
+	}
+	for target, form := range want {
+		if forms[target] != form {
+			t.Errorf("task_preload(%s) = %q, want %q (all: %v)", target, forms[target], form, forms)
+		}
+	}
+}
+
 // The code a task's dependency wrote is preloaded even when its brief does not
 // name it; a directory the brief names is preloaded as the package outline.
 func TestTaskPreload_ADependencysCodeAndANamedPackageArrive(t *testing.T) {
