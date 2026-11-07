@@ -481,3 +481,135 @@ func TestVerify_WhenFileMissing_ShouldReturnError(t *testing.T) {
 		t.Errorf("Expected error for missing file, got nil")
 	}
 }
+
+func TestCodecName_WhenAllCodecs_ShouldRenderExpectedStrings(t *testing.T) {
+	cases := []struct {
+		codec Codec
+		want  string
+	}{
+		{CodecGzip, "gzip"},
+		{CodecZstd, "zstd"},
+		{CodecAuto, "auto"},
+		{Codec(999), "json"},
+		{Codec(-1), "json"},
+	}
+	for _, tc := range cases {
+		if got := CodecName(tc.codec); got != tc.want {
+			t.Errorf("CodecName(%d) = %q, want %q", int(tc.codec), got, tc.want)
+		}
+	}
+}
+
+func TestCollectFacts_WhenStoreNil_ShouldReturnError(t *testing.T) {
+	if _, err := collectFacts(nil); err == nil {
+		t.Fatal("expected error for nil store, got nil")
+	} else if !strings.Contains(err.Error(), "nil store") {
+		t.Fatalf("expected nil store error, got %v", err)
+	}
+}
+
+func TestVerify_WhenSidecarEmpty_ShouldReturnErrIntegrity(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "snap.sc.gz")
+	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.WriteFile(path+ExtSHA256, []byte{}, 0o644); err != nil {
+		t.Fatalf("WriteFile sidecar: %v", err)
+	}
+	if err := Verify(path); !errors.Is(err, ErrIntegrity) {
+		t.Fatalf("expected ErrIntegrity for empty sidecar, got %v", err)
+	}
+}
+
+func TestVerify_WhenSidecarIsDirectory_ShouldReturnReadError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "snap.sc.gz")
+	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.Mkdir(path+ExtSHA256, 0o755); err != nil {
+		t.Fatalf("Mkdir sidecar: %v", err)
+	}
+	err := Verify(path)
+	if err == nil {
+		t.Fatal("expected error when sidecar is a directory, got nil")
+	}
+	if errors.Is(err, ErrIntegrity) {
+		t.Fatalf("directory sidecar should be a read error, not ErrIntegrity: %v", err)
+	}
+}
+
+func TestRead_WhenMagicCorruptWithoutSidecar_ShouldReturnDecodeError(t *testing.T) {
+	dir := t.TempDir()
+	gzPath := filepath.Join(dir, "corrupt.sc.gz")
+	if err := os.WriteFile(gzPath, []byte{0x1f, 0x8b, 0x00, 0x01, 0x02, 0x03}, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, err := Read(gzPath); err == nil {
+		t.Fatal("expected gzip decode error, got nil")
+	} else if errors.Is(err, ErrIntegrity) {
+		t.Fatalf("corrupt gzip without sidecar should decode-fail, not integrity-fail: %v", err)
+	} else if !strings.Contains(err.Error(), "gzip decode") {
+		t.Fatalf("expected gzip decode error, got %v", err)
+	}
+	zstPath := filepath.Join(dir, "corrupt.sc.zst")
+	if err := os.WriteFile(zstPath, []byte{0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x01, 0x02}, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, err := Read(zstPath); err == nil {
+		t.Fatal("expected zstd decode error, got nil")
+	} else if errors.Is(err, ErrIntegrity) {
+		t.Fatalf("corrupt zstd without sidecar should decode-fail, not integrity-fail: %v", err)
+	} else if !strings.Contains(err.Error(), "zstd decode") {
+		t.Fatalf("expected zstd decode error, got %v", err)
+	}
+}
+
+func TestRead_WhenFileMissing_ShouldReturnReadError(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Read(filepath.Join(dir, "missing.sc.gz")); err == nil {
+		t.Fatal("expected error for missing snapshot, got nil")
+	} else if !strings.Contains(err.Error(), "read") {
+		t.Fatalf("expected read error, got %v", err)
+	}
+}
+
+func TestWritePath_WhenFactToAtomFails_ShouldReturnErrorAndLeaveNoFile(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "bad")
+	facts := []types.Fact{{Predicate: "", Args: []any{"a"}}}
+	if _, err := WritePath(base, facts, Options{}); err == nil {
+		t.Fatal("expected ToAtom error for empty predicate, got nil")
+	} else if !strings.Contains(err.Error(), "to atom") {
+		t.Fatalf("expected to-atom error, got %v", err)
+	}
+	if _, statErr := os.Stat(CanonicalPath(base, CodecGzip)); statErr == nil {
+		t.Fatal("no snapshot file should remain after a ToAtom failure")
+	}
+}
+
+func TestWriteFileAtomic_WhenWriterFails_ShouldReturnErrorAndLeaveNoFile(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "dest.sc.gz")
+	err := writeFileAtomic(dest, func(w io.Writer) error {
+		return errors.New("boom")
+	})
+	if err == nil {
+		t.Fatal("expected writer error, got nil")
+	} else if !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("expected boom error, got %v", err)
+	}
+	if _, statErr := os.Stat(dest); statErr == nil {
+		t.Fatal("destination should not exist after writer failure")
+	}
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		t.Fatalf("readdir: %v", readErr)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp") {
+			t.Fatalf("temp file left behind: %s", e.Name())
+		}
+	}
+}

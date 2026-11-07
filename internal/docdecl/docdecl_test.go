@@ -182,3 +182,153 @@ func TestLoadPredicates_MissingRootReturnsNoPredicates(t *testing.T) {
 		t.Errorf("error path = %q, want %q", pathErr.Path, root)
 	}
 }
+
+func TestPackageStabilizeNilGuardsAndLookupCopy(t *testing.T) {
+	var nilPkg *Package
+	nilPkg.AddFile(nil, "a.go", "x/a.go", []byte("package x\nfunc A() {}\n"))
+	if nilPkg.Has("A") {
+		t.Errorf("Has on nil *Package = true, want false")
+	}
+	if got := nilPkg.Lookup("A"); got != nil {
+		t.Errorf("Lookup on nil *Package = %#v, want nil", got)
+	}
+	if nilPkg.Has("") {
+		t.Errorf("Has(\"\") on nil *Package = true, want false")
+	}
+
+	var zero Package
+	zero.AddFile(nil, "a.go", "x/a.go", []byte("package x\nfunc Zeroed() {}\n"))
+	if zero.Names == nil || zero.PkgNames == nil || zero.ParseErr == nil {
+		t.Fatalf("AddFile on zero Package did not initialise maps: %#v", &zero)
+	}
+	if !zero.Has("Zeroed") {
+		t.Errorf("Has(Zeroed) = false after AddFile with nil FileSet on zero Package")
+	}
+	if !zero.Has("x.Zeroed") {
+		t.Errorf("Has(x.Zeroed) = false, want PkgNames-qualified match")
+	}
+	if zero.Has("other.Zeroed") {
+		t.Errorf("Has(other.Zeroed) = true, want false")
+	}
+	if got := zero.Lookup("Missing"); got != nil {
+		t.Errorf("Lookup(Missing) = %#v, want nil", got)
+	}
+	if got := zero.Lookup(""); got != nil {
+		t.Errorf("Lookup(\"\") = %#v, want nil", got)
+	}
+
+	ghost := NewPackage("x")
+	ghost.Names["Ghost"] = true
+	if !ghost.Has("Ghost") {
+		t.Fatalf("Has(Ghost) = false for manually recorded name")
+	}
+	if got := ghost.Lookup("Ghost"); got != nil {
+		t.Errorf("Lookup(Ghost) = %#v, want nil when no site was recorded", got)
+	}
+
+	p := NewPackage("internal/sample")
+	p.AddFile(token.NewFileSet(), "sample.go", "internal/sample/sample.go", []byte(sample))
+	sites := p.Lookup("Good")
+	if len(sites) != 1 {
+		t.Fatalf("Lookup(Good) = %#v, want one site", sites)
+	}
+	sites[0].Name = "MUTATED"
+	again := p.Lookup("Good")
+	if len(again) != 1 || again[0].Name != "Good" {
+		t.Fatalf("Lookup copy is aliased: second Lookup(Good) = %#v", again)
+	}
+}
+
+func TestPackageStabilizeCitationSpellings(t *testing.T) {
+	p := NewPackage("internal/sample")
+	p.AddFile(token.NewFileSet(), "sample.go", "internal/sample/sample.go", []byte(sample))
+	for _, want := range []string{"Engine.Clear", "(Engine).Clear", "(*Engine).Clear", "Clear"} {
+		if !p.Has(want) {
+			t.Errorf("Has(%q) = false, want receiver spelling to resolve", want)
+		}
+		if sites := p.Lookup(want); len(sites) == 0 || sites[0].Kind != KindMethod {
+			t.Errorf("Lookup(%q) = %#v, want method sites", want, sites)
+		}
+	}
+	for _, bad := range []string{"", "Missing", "Other.Clear", "(Other).Clear", "(*Other).Clear"} {
+		if p.Has(bad) {
+			t.Errorf("Has(%q) = true, want false", bad)
+		}
+		if got := p.Lookup(bad); got != nil {
+			t.Errorf("Lookup(%q) = %#v, want nil", bad, got)
+		}
+	}
+
+	dir := NewPackage("internal/sample")
+	dir.AddFile(token.NewFileSet(), "a.go", "internal/sample/a.go", []byte("package other\nfunc Good() {}\n"))
+	if !dir.Has("sample.Good") {
+		t.Errorf("Has(sample.Good) = false, want DirBase fallback when package clause is other")
+	}
+	if !dir.Has("other.Good") {
+		t.Errorf("Has(other.Good) = false, want PkgNames match")
+	}
+	if dir.Has("bogus.Good") {
+		t.Errorf("Has(bogus.Good) = true, want false")
+	}
+
+	blank := NewPackage("x")
+	blank.AddFile(token.NewFileSet(), "a.go", "x/a.go", []byte("package x\nvar _ = 1\nfunc _() {}\ntype _ struct{}\nfunc Real() {}\n"))
+	if blank.Has("_") {
+		t.Errorf("Has(_) = true, want blank identifier ignored")
+	}
+	if !blank.Has("Real") {
+		t.Errorf("Has(Real) = false, want true alongside blank identifiers")
+	}
+
+	broken := NewPackage("x")
+	broken.AddFile(token.NewFileSet(), "a.go", "x/a.go", []byte("package x\n\nfunc Kept() {}\n\nfunc Broken( {\n"))
+	if _, ok := broken.ParseErr["x/a.go"]; !ok {
+		t.Fatalf("parse error not recorded for broken file")
+	}
+	if !broken.Has("Kept") {
+		t.Errorf("Has(Kept) = false, want recovered declaration to survive parse error")
+	}
+}
+
+func TestAddFilePreservesExistingState(t *testing.T) {
+	p := &Package{}
+	p.AddFile(nil, "a.go", "a.go", []byte("package alpha\nfunc First() {}\n"))
+	p.AddFile(nil, "err.go", "err.go", []byte("package alpha\nfunc Broken( {}\n"))
+	shared := token.NewFileSet()
+	p.AddFile(shared, "b.go", "b.go", []byte("package beta\nfunc Second() {}\n"))
+	if !p.Names["First"] {
+		t.Fatalf("Names lost First after second AddFile: %v", p.Names)
+	}
+	if !p.Names["Second"] {
+		t.Fatalf("Names missing Second after AddFile: %v", p.Names)
+	}
+	if !p.PkgNames["alpha"] {
+		t.Fatalf("PkgNames lost alpha after AddFile: %v", p.PkgNames)
+	}
+	if !p.PkgNames["beta"] {
+		t.Fatalf("PkgNames missing beta after AddFile: %v", p.PkgNames)
+	}
+	if _, ok := p.ParseErr["err.go"]; !ok {
+		t.Fatalf("ParseErr lost err.go after AddFile: %v", p.ParseErr)
+	}
+	if !p.Has("First") || !p.Has("Second") {
+		t.Fatalf("Has lost entries after AddFile: First=%v Second=%v", p.Has("First"), p.Has("Second"))
+	}
+	if len(p.Lookup("First")) == 0 {
+		t.Fatalf("Lookup lost First sites after AddFile")
+	}
+	if len(p.Lookup("Second")) == 0 {
+		t.Fatalf("Lookup missing Second sites after AddFile")
+	}
+	found := false
+	shared.Iterate(func(f *token.File) bool {
+		if f.Name() == "b.go" {
+			found = true
+			return false
+		}
+		return true
+	})
+	if !found {
+		t.Fatalf("provided FileSet was not used for parse of b.go")
+	}
+}

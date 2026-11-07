@@ -70,6 +70,9 @@ func (r *Report) add(f Finding) {
 	f.Reason = oneLine(f.Reason)
 	r.Findings = append(r.Findings, f)
 	r.Broken++
+	if r.ByKind == nil {
+		r.ByKind = map[string]int{}
+	}
 	r.ByKind[f.Kind]++
 }
 

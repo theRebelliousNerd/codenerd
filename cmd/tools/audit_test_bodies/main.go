@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -19,6 +20,9 @@ func inert(body *ast.BlockStmt) bool {
 		return true
 	}
 	for _, stmt := range body.List {
+		if _, ok := stmt.(*ast.EmptyStmt); ok {
+			continue
+		}
 		expr, ok := stmt.(*ast.ExprStmt)
 		if !ok {
 			return false
@@ -28,7 +32,12 @@ func inert(body *ast.BlockStmt) bool {
 			return false
 		}
 		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || (sel.Sel.Name != "Log" && sel.Sel.Name != "Logf") {
+		if !ok {
+			return false
+		}
+		switch sel.Sel.Name {
+		case "Log", "Logf", "Skip", "Skipf", "SkipNow", "Helper":
+		default:
 			return false
 		}
 	}
@@ -50,6 +59,9 @@ func audit(root string) ([]string, error) {
 		if !strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
+		if strings.HasPrefix(filepath.Base(path), ".") {
+			return nil
+		}
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {
@@ -57,7 +69,13 @@ func audit(root string) ([]string, error) {
 		}
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || !strings.HasPrefix(fn.Name.Name, "Test") || fn.Type.Params == nil || len(fn.Type.Params.List) != 1 {
+			if !ok || !strings.HasPrefix(fn.Name.Name, "Test") || fn.Name.Name == "TestMain" {
+				continue
+			}
+			if fn.Type.Params == nil || len(fn.Type.Params.List) != 1 {
+				continue
+			}
+			if _, ok := fn.Type.Params.List[0].Type.(*ast.StarExpr); !ok {
 				continue
 			}
 			if inert(fn.Body) {
@@ -66,6 +84,7 @@ func audit(root string) ([]string, error) {
 		}
 		return nil
 	})
+	sort.Strings(failures)
 	return failures, err
 }
 

@@ -122,6 +122,9 @@ func writeJSON(w io.Writer, r Report) error {
 // gitignored grader hardcodes C:/CodeProjects/codeNERD; a gate has to run
 // against whatever checkout it was pointed at.
 func findModuleRoot(start string) (string, error) {
+	if start == "" {
+		return "", fmt.Errorf("no go.mod found from %s", start)
+	}
 	dir, err := filepath.Abs(start)
 	if err != nil {
 		return "", err
@@ -129,8 +132,12 @@ func findModuleRoot(start string) (string, error) {
 	for {
 		gomod := filepath.Join(dir, "go.mod")
 		st, err := os.Stat(gomod)
-		if err == nil && !st.IsDir() {
-			return dir, nil
+		if err == nil {
+			if !st.IsDir() {
+				return dir, nil
+			}
+		} else if !os.IsNotExist(err) {
+			return "", fmt.Errorf("stat %s: %w", gomod, err)
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {

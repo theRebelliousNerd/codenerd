@@ -62,17 +62,25 @@ func (r *Report) Summary() string {
 
 // ReadFile reads and groups the problems log at path.
 func ReadFile(path string, opts Options) (*Report, error) {
+	if path == "" {
+		return nil, fmt.Errorf("read problems log: empty path")
+	}
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read problems log %s: %w", path, err)
 	}
 	defer f.Close()
 	rep := &Report{Path: path}
-	groups := map[string]*Problem{}
+	type groupKey struct {
+		level     string
+		category  string
+		signature string
+	}
+	groups := map[groupKey]*Problem{}
 	err = Scan(f, opts.Skip, func(e Entry) {
 		rep.Entries++
 		sig := Signature(e.Message)
-		key := e.Level + "|" + e.Category + "|" + sig
+		key := groupKey{level: e.Level, category: e.Category, signature: sig}
 		if p, ok := groups[key]; ok {
 			p.Count++
 			if e.Time.Before(p.First) {
@@ -95,10 +103,20 @@ func ReadFile(path string, opts Options) (*Report, error) {
 	for _, p := range groups {
 		all = append(all, *p)
 	}
-	sort.Slice(all, func(i, j int) bool {
+	rank := func(level string) int {
+		switch level {
+		case LevelError:
+			return 0
+		case LevelWarn:
+			return 1
+		default:
+			return 2
+		}
+	}
+	sort.SliceStable(all, func(i, j int) bool {
 		a, b := all[i], all[j]
-		if a.Level != b.Level {
-			return a.Level == LevelError
+		if ar, br := rank(a.Level), rank(b.Level); ar != br {
+			return ar < br
 		}
 		if a.Count != b.Count {
 			return a.Count > b.Count
@@ -106,10 +124,16 @@ func ReadFile(path string, opts Options) (*Report, error) {
 		if !a.Last.Equal(b.Last) {
 			return a.Last.After(b.Last)
 		}
+		if a.Level != b.Level {
+			return a.Level < b.Level
+		}
 		if a.Category != b.Category {
 			return a.Category < b.Category
 		}
-		return a.Signature < b.Signature
+		if a.Signature != b.Signature {
+			return a.Signature < b.Signature
+		}
+		return a.Sample < b.Sample
 	})
 	limit := opts.MaxProblems
 	if limit <= 0 {

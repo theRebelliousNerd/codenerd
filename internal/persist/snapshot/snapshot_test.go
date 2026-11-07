@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"codenerd/internal/persist/factsnap"
 	"codenerd/internal/types"
@@ -328,5 +329,149 @@ func TestDir_WhenVariousRoots_ShouldReturnCanonicalPath(t *testing.T) {
 				t.Fatalf("Dir(%q) = %q, want %q", tc.root, actual, tc.expected)
 			}
 		})
+	}
+}
+
+func TestResolve_WhenReferenceIsOnlyCodecSuffix_ShouldFailWithDirectoryHint(t *testing.T) {
+	root := t.TempDir()
+	for _, ref := range []string{factsnap.ExtGzip, factsnap.ExtZstd, factsnap.ExtJSON} {
+		_, err := Resolve(root, ref)
+		if err == nil {
+			t.Fatalf("Resolve(%q) should fail, it is only a codec suffix", ref)
+		}
+		if !strings.Contains(err.Error(), Dir(root)) {
+			t.Fatalf("Resolve(%q) error should name snapshot dir, got: %v", ref, err)
+		}
+	}
+}
+
+func TestSummarize_WhenEmptyPredicate_ShouldCountAndSort(t *testing.T) {
+	in := []types.Fact{
+		{Predicate: "", Args: []any{int64(1)}},
+		{Predicate: "a", Args: []any{int64(1)}},
+		{Predicate: "", Args: []any{int64(2)}},
+	}
+	got := Summarize(in)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 rows, got %d: %+v", len(got), got)
+	}
+	if got[0].Predicate != "" || got[0].Count != 2 {
+		t.Fatalf("first row = %+v, want empty predicate with count 2", got[0])
+	}
+	if got[1].Predicate != "a" || got[1].Count != 1 {
+		t.Fatalf("second row = %+v, want a/1", got[1])
+	}
+	if out := Summarize(nil); len(out) != 0 {
+		t.Fatalf("Summarize(nil) = %+v, want empty", out)
+	}
+}
+
+func TestSanitizeName_WhenExtremelyLongName_ShouldAccept(t *testing.T) {
+	long := strings.Repeat("a", 300)
+	got, err := SanitizeName(long)
+	if err != nil {
+		t.Fatalf("SanitizeName(300 chars): %v", err)
+	}
+	if got != long {
+		t.Fatalf("long name round-trip = %q, want %q", got, long)
+	}
+}
+
+func TestExport_WhenExtremelyLongName_ShouldNotEscape(t *testing.T) {
+	root := t.TempDir()
+	long := strings.Repeat("b", 300)
+	path, err := Export(root, long, facts(1), factsnap.CodecGzip)
+	if err != nil {
+		// Filesystem name limit (typically 255 bytes) makes failure acceptable;
+		// the invariant is containment, not success.
+		if _, statErr := os.Stat(filepath.Join(filepath.Dir(root), long+factsnap.ExtGzip)); statErr == nil {
+			t.Fatal("long-name export wrote outside the snapshot directory")
+		}
+		return
+	}
+	if !strings.HasPrefix(path, Dir(root)) {
+		t.Fatalf("export path %q escapes snapshot dir %q", path, Dir(root))
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("exported long-name snapshot missing: %v", err)
+	}
+}
+
+func TestDefaultName_WhenPrefixLooksLikeTimestamp_ShouldStillPrefix(t *testing.T) {
+	prefix := "20260815-140501"
+	got := DefaultName(prefix)
+	want := regexp.MustCompile(`^20260815-140501-\d{8}-\d{6}$`)
+	if !want.MatchString(got) {
+		t.Fatalf("DefaultName(%q) = %q, want prefix plus fresh timestamp", prefix, got)
+	}
+	if got == prefix {
+		t.Fatalf("DefaultName returned the prefix unchanged: %q", got)
+	}
+}
+
+func TestList_WhenSameModTime_ShouldFallbackToNameOrder(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Export(root, "beta", facts(2), factsnap.CodecGzip); err != nil {
+		t.Fatalf("Export beta: %v", err)
+	}
+	if _, err := Export(root, "alpha", facts(2), factsnap.CodecGzip); err != nil {
+		t.Fatalf("Export alpha: %v", err)
+	}
+	fixed := time.Date(2026, 8, 15, 14, 5, 1, 0, time.UTC)
+	for _, name := range []string{"alpha", "beta"} {
+		p := filepath.Join(Dir(root), name+factsnap.ExtGzip)
+		if err := os.Chtimes(p, fixed, fixed); err != nil {
+			t.Fatalf("Chtimes %s: %v", name, err)
+		}
+		if sc := p + factsnap.ExtSHA256; true {
+			_ = os.Chtimes(sc, fixed, fixed)
+		}
+	}
+	entries, err := List(root)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	if entries[0].Name != "alpha" || entries[1].Name != "beta" {
+		t.Fatalf("same-ModTime entries should sort by name, got %q then %q", entries[0].Name, entries[1].Name)
+	}
+}
+
+func TestList_WhenSnapshotsPathIsFile_ShouldReturnError(t *testing.T) {
+	root := t.TempDir()
+	dir := Dir(root)
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir, []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := List(root); err == nil {
+		t.Fatal("expected List to fail when snapshots path is a regular file")
+	} else if !strings.Contains(err.Error(), "snapshot") {
+		t.Fatalf("error should mention snapshot, got: %v", err)
+	}
+}
+
+func TestResolve_WhenBareNameHasBothCodecs_ShouldPreferGzip(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(Dir(root), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gz := filepath.Join(Dir(root), "dupe"+factsnap.ExtGzip)
+	zst := filepath.Join(Dir(root), "dupe"+factsnap.ExtZstd)
+	for _, p := range []string{gz, zst} {
+		if err := os.WriteFile(p, []byte("data"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := Resolve(root, "dupe")
+	if err != nil {
+		t.Fatalf("Resolve dupe: %v", err)
+	}
+	if got != gz {
+		t.Fatalf("Resolve dupe = %q, want deterministic gzip %q", got, gz)
 	}
 }

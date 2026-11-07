@@ -10,9 +10,11 @@
 package codefamily
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -63,10 +65,17 @@ func Load(nerdDir string) ([]Family, error) {
 // Parse decodes and validates a contract file. Unknown fields are refused so a
 // misspelled key cannot silently drop a requirement.
 func Parse(data []byte) ([]Family, error) {
-	dec := json.NewDecoder(strings.NewReader(string(data)))
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	var doc Document
 	if err := dec.Decode(&doc); err != nil {
+		return nil, fmt.Errorf("%s: %w", FileName, err)
+	}
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("%s: unexpected trailing data", FileName)
+		}
 		return nil, fmt.Errorf("%s: %w", FileName, err)
 	}
 	if doc.SchemaVersion != SchemaVersion {

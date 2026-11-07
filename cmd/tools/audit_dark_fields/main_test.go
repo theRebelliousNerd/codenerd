@@ -200,6 +200,8 @@ func TestAuditDarkFields_Command(t *testing.T) {
 		{name: "test only trees excluded", source: "package fixture", extra: map[string]string{"internal/testing/bad.go": "not Go", "internal/types/typestest/bad.go": "not Go", "cmd/fixture_test.go": "not Go", "internal/notes.txt": "not Go"}, output: "budget holds: 0 fields"},
 		{name: "update baseline", source: dark, update: true, output: "Baseline updated: 1 dark fields.", saved: "Item.Dark\tinternal/fixture.go:2\n"},
 		{name: "annotate dead file", source: dark, update: true, extra: map[string]string{deadcodeBaselinePath: "# comment\n\n internal/fixture.go\tunusedFunction\n"}, output: "Baseline updated: 1 dark fields.", saved: "Item.Dark\tinternal/fixture.go:2\t(dead file)\n"},
+		{name: "new dark fields sorted", source: "package fixture\ntype Item struct {\nZed int\nAlpha int\n}\nfunc read(x Item) int { return x.Zed + x.Alpha }\n", exit: 1, output: "Item.Alpha\tinternal/fixture.go:4\n  Item.Zed"},
+		{name: "update baseline sorts entries", source: "package fixture\ntype Item struct {\nZed int\nAlpha int\n}\nfunc read(x Item) int { return x.Zed + x.Alpha }\n", update: true, output: "Baseline updated: 2 dark fields.", saved: "Item.Alpha\tinternal/fixture.go:4\nItem.Zed\tinternal/fixture.go:3\n"},
 	}
 	executable, err := os.Executable()
 	if err != nil {
@@ -270,4 +272,70 @@ func TestAuditDarkFields_Command(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWriteBaseline_SortsLinesDeterministically(t *testing.T) {
+	if err := os.MkdirAll(filepath.Dir(baselinePath), 0o755); err != nil {
+		t.Fatalf("mkdir baseline dir: %v", err)
+	}
+	orig, readErr := os.ReadFile(baselinePath)
+	hadOrig := readErr == nil
+	t.Cleanup(func() {
+		if hadOrig {
+			_ = os.WriteFile(baselinePath, orig, 0o644)
+		} else {
+			_ = os.Remove(baselinePath)
+		}
+	})
+	unsorted := []string{"Zebra.Field", "Apple.Field", "Mango.Field"}
+	before := append([]string(nil), unsorted...)
+	writeBaseline(unsorted, nil)
+	for i := range unsorted {
+		if unsorted[i] != before[i] {
+			t.Fatalf("writeBaseline mutated input: got %v want %v", unsorted, before)
+		}
+	}
+	raw, err := os.ReadFile(baselinePath)
+	if err != nil {
+		t.Fatalf("read baseline: %v", err)
+	}
+	var got []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		got = append(got, strings.Split(line, "\t")[0])
+	}
+	want := []string{"Apple.Field", "Mango.Field", "Zebra.Field"}
+	if len(got) != len(want) {
+		t.Fatalf("baseline entries = %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("baseline entries = %v want %v", got, want)
+		}
+	}
+}
+
+func TestCompare_HoldsOnUnsortedInput(t *testing.T) {
+	if err := os.MkdirAll(filepath.Dir(baselinePath), 0o755); err != nil {
+		t.Fatalf("mkdir baseline dir: %v", err)
+	}
+	orig, readErr := os.ReadFile(baselinePath)
+	hadOrig := readErr == nil
+	t.Cleanup(func() {
+		if hadOrig {
+			_ = os.WriteFile(baselinePath, orig, 0o644)
+		} else {
+			_ = os.Remove(baselinePath)
+		}
+	})
+	sorted := []string{"Apple.Field", "Mango.Field", "Zebra.Field"}
+	unsorted := []string{"Zebra.Field", "Apple.Field", "Mango.Field"}
+	writeBaseline(sorted, nil)
+	compare(unsorted, nil)
+	compare(sorted, nil)
+	writeBaseline(nil, nil)
+	compare(nil, nil)
 }

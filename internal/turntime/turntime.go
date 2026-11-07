@@ -71,6 +71,9 @@ func New() *Ledger { return NewWithClock(time.Now) }
 // NewWithClock starts a ledger on the given clock. Tests use it to give each
 // phase a known duration.
 func NewWithClock(now func() time.Time) *Ledger {
+	if now == nil {
+		now = time.Now
+	}
 	t := now()
 	return &Ledger{
 		now: now, start: t, last: t,
@@ -123,12 +126,17 @@ func lowest(active map[string]int) string {
 
 // span runs begin under the lock after charging the time so far, and returns
 // the once-only call that charges the time so far and runs finish.
+// Spans opened after Close record nothing.
 func (l *Ledger) span(begin, finish func()) func() {
 	if l == nil {
 		return func() {}
 	}
 	l.mu.Lock()
 	l.advance()
+	if l.closed {
+		l.mu.Unlock()
+		return func() {}
+	}
 	begin()
 	l.mu.Unlock()
 	var once sync.Once
@@ -374,6 +382,9 @@ func WithVerifyKind(ctx context.Context, kind string) context.Context {
 
 // VerifyKindFrom returns the kind WithVerifyKind set, or "".
 func VerifyKindFrom(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
 	k, _ := ctx.Value(kindKey{}).(string)
 	return k
 }

@@ -155,16 +155,28 @@ func (a Acquirer) Acquire(ctx context.Context, subject Subject) ([]Atom, []Outco
 	return a.acquire(ctx, subject, nil)
 }
 
-// acquire runs the sources done does not name.
+// acquire runs the sources done does not name, in deterministic source-name
+// order so repeated runs record outcomes in the same sequence.
 func (a Acquirer) acquire(ctx context.Context, subject Subject, done map[string]bool) ([]Atom, []Outcome) {
-	var atoms []Atom
-	outcomes := make([]Outcome, 0, len(a.Sources))
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ordered := make([]Source, 0, len(a.Sources))
 	for _, src := range a.Sources {
+		if src == nil {
+			continue
+		}
 		if done[src.Name()] {
 			continue
 		}
-		if ctx.Err() != nil {
-			outcomes = append(outcomes, Outcome{Source: src.Name(), Subject: subject.Key(), Version: subject.Version, Status: StatusFailed, Detail: ctx.Err().Error()})
+		ordered = append(ordered, src)
+	}
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Name() < ordered[j].Name() })
+	var atoms []Atom
+	outcomes := make([]Outcome, 0, len(ordered))
+	for _, src := range ordered {
+		if err := ctx.Err(); err != nil {
+			outcomes = append(outcomes, Outcome{Source: src.Name(), Subject: subject.Key(), Version: subject.Version, Status: StatusFailed, Detail: err.Error()})
 			continue
 		}
 		got, err := src.Acquire(ctx, subject)
@@ -176,6 +188,8 @@ func (a Acquirer) acquire(ctx context.Context, subject Subject, done map[string]
 			out.Status, out.Detail = StatusUnavailable, err.Error()
 		case err != nil:
 			out.Status, out.Detail = StatusFailed, err.Error()
+		case ctx.Err() != nil:
+			out.Status, out.Detail = StatusFailed, ctx.Err().Error()
 		case len(got) == 0:
 			out.Status = StatusEmpty
 		default:
@@ -226,8 +240,14 @@ func Refresh(ctx context.Context, db *store.LocalStore, acq Acquirer, subjects [
 }
 
 func fill(ctx context.Context, db *store.LocalStore, acq Acquirer, subjects []Subject, again bool) (int, []Outcome, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if db == nil {
 		return 0, nil, fmt.Errorf("no knowledge base")
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, nil, err
 	}
 	if err := ensureAcquisitionsTable(ctx, db.GetDB()); err != nil {
 		return 0, nil, err
@@ -265,6 +285,9 @@ func fill(ctx context.Context, db *store.LocalStore, acq Acquirer, subjects []Su
 	added := 0
 	var all []Outcome
 	for _, subject := range subjects {
+		if err := ctx.Err(); err != nil {
+			return added, all, err
+		}
 		atoms, outcomes := acq.acquire(ctx, subject, acquired[subject.Key()])
 		// A source that acquired the subject again replaces what its last
 		// acquisition wrote, the rows it writes again included (their
@@ -330,8 +353,18 @@ var acquisitionsColumns = []struct{ name, def string }{
 }
 
 // ensureAcquisitionsTable creates the outcomes table, or adds to one an
-// earlier build created the columns it lacks.
+// earlier build created the columns it lacks. It is idempotent: repeated
+// calls, including against a table another writer just upgraded, succeed.
 func ensureAcquisitionsTable(ctx context.Context, db *sql.DB) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if db == nil {
+		return fmt.Errorf("acquisitions table: no database")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if _, err := db.ExecContext(ctx, acquisitionsSchema); err != nil {
 		return fmt.Errorf("acquisitions table: %w", err)
 	}
@@ -343,7 +376,13 @@ func ensureAcquisitionsTable(ctx context.Context, db *sql.DB) error {
 		if cols[col.name] {
 			continue
 		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if _, err := db.ExecContext(ctx, `ALTER TABLE knowledge_acquisitions ADD COLUMN `+col.name+` `+col.def); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+				continue
+			}
 			return fmt.Errorf("add acquisitions column %s: %w", col.name, err)
 		}
 	}

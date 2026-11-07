@@ -165,3 +165,76 @@ func TestGreenTeaStatus(t *testing.T) {
 		t.Errorf("disabled status without nogreenteagc in detail: %q", detail)
 	}
 }
+
+func TestStartupMetricPaths_NonEmpty(t *testing.T) {
+	t.Parallel()
+	if len(startupMetricPaths) == 0 {
+		t.Fatal("startupMetricPaths must not be empty: boot snapshot must sample something")
+	}
+}
+
+func TestMetricFieldKey_EdgeCases(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in, want string
+	}{
+		{"/a/b", "a_b"},
+		{"a/b:c", "a_b"},
+		{"foo", "foo"},
+		{"/a-b/c-d:e-f", "a_b_c_d"},
+		{"", ""},
+		{"/sched/goroutines:goroutines", "sched_goroutines"},
+	}
+	for _, c := range cases {
+		if got := metricFieldKey(c.in); got != c.want {
+			t.Errorf("metricFieldKey(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestShortMetric_EdgeCases(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in, want string
+	}{
+		{"total", "total"},
+		{"/a/total:x", "a_total"},
+		{"/a/b", "b"},
+		{"a/b:c", "b"},
+		{"", ""},
+		{"/a/live:bytes", "a_live"},
+		{"/sched/goroutines:goroutines", "goroutines"},
+	}
+	for _, c := range cases {
+		if got := shortMetric(c.in); got != c.want {
+			t.Errorf("shortMetric(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestGreenTeaStatus_NogreenteagcDisables(t *testing.T) {
+	t.Setenv("GOEXPERIMENT", "nogreenteagc")
+	enabled, detail := greenTeaStatus()
+	if enabled {
+		t.Fatalf("greenTeaStatus with GOEXPERIMENT=nogreenteagc must report disabled, detail=%q", detail)
+	}
+	if detail == "" {
+		t.Fatal("greenTeaStatus returned empty detail")
+	}
+}
+
+func TestGreenTeaStatus_UnrelatedExperimentStaysEnabled(t *testing.T) {
+	t.Setenv("GOEXPERIMENT", "greenteaon")
+	enabled, detail := greenTeaStatus()
+	if detail == "" {
+		t.Fatal("greenTeaStatus returned empty detail")
+	}
+	// A build baked with nogreenteagc stays disabled regardless of env;
+	// otherwise an unrelated experiment flag must keep Green Tea enabled.
+	if !enabled {
+		if strings.Contains(detail, "nogreenteagc") {
+			t.Skip("binary built with GOEXPERIMENT=nogreenteagc, env cannot re-enable")
+		}
+		t.Fatalf("greenTeaStatus with unrelated GOEXPERIMENT must stay enabled, detail=%q", detail)
+	}
+}

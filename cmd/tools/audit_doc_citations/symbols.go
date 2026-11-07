@@ -25,10 +25,14 @@ func (c *checker) loadPkg(dir string) (*docdecl.Package, error) {
 	p := docdecl.NewPackage(dir)
 	fset := token.NewFileSet()
 	for _, ent := range ents {
-		if ent.IsDir() || !strings.EqualFold(filepath.Ext(ent.Name()), ".go") {
+		name := ent.Name()
+		if ent.IsDir() || !strings.EqualFold(filepath.Ext(name), ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		p.AddFile(fset, filepath.Join(abs, ent.Name()), dir+"/"+ent.Name(), nil)
+		p.AddFile(fset, filepath.Join(abs, name), dir+"/"+name, nil)
+	}
+	if c.pkgs == nil {
+		c.pkgs = map[string]*docdecl.Package{}
 	}
 	c.pkgs[dir] = p
 	return p, nil
