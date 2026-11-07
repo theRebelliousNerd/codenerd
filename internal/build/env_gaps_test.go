@@ -425,3 +425,80 @@ func TestDeriveGOCACHE_TMPDIR(t *testing.T) {
 		t.Errorf("deriveGOCACHE() = %q, want %q", got, want)
 	}
 }
+
+func TestEnvValue_WhenKeyPresent_ShouldReturnValue(t *testing.T) {
+	env := []string{"PATH=/usr/bin", "FOO=bar", "EMPTY="}
+	if got := envValue(env, "FOO"); got != "bar" {
+		t.Errorf("envValue(FOO) = %q, want %q", got, "bar")
+	}
+	if got := envValue(env, "EMPTY"); got != "" {
+		t.Errorf("envValue(EMPTY) = %q, want empty", got)
+	}
+}
+
+func TestEnvValue_WhenKeyAbsentOrMalformed_ShouldReturnEmpty(t *testing.T) {
+	env := []string{"FOO=bar", "BARE", "=novalue", "FOOBAR=baz"}
+	if got := envValue(env, "MISSING"); got != "" {
+		t.Errorf("envValue(MISSING) = %q, want empty", got)
+	}
+	if got := envValue(env, "FOO"); got != "bar" {
+		t.Errorf("envValue(FOO) = %q, want %q", got, "bar")
+	}
+	if got := envValue([]string{"A=1", "A=2"}, "A"); got != "1" {
+		t.Errorf("envValue first match = %q, want %q", got, "1")
+	}
+	if got := envValue([]string{"FOO=bar=baz"}, "FOO"); got != "bar=baz" {
+		t.Errorf("envValue with equals in value = %q, want %q", got, "bar=baz")
+	}
+}
+
+func TestRedactedPlaceholder_WhenEmptyOrSet_ShouldReturnMarker(t *testing.T) {
+	if got := redactedPlaceholder(""); got != "<empty>" {
+		t.Errorf("redactedPlaceholder(\"\") = %q, want %q", got, "<empty>")
+	}
+	if got := redactedPlaceholder("secret"); got != "<redacted>" {
+		t.Errorf("redactedPlaceholder(secret) = %q, want %q", got, "<redacted>")
+	}
+}
+
+func TestGoFlagName_WhenFlagOrPattern_ShouldExtractName(t *testing.T) {
+	cases := []struct {
+		arg  string
+		want string
+	}{
+		{"-count=1", "-count"},
+		{"-tags=sqlite_vec", "-tags"},
+		{"-v", "-v"},
+		{"./...", ""},
+		{"", ""},
+		{"test", ""},
+	}
+	for _, tc := range cases {
+		if got := goFlagName(tc.arg); got != tc.want {
+			t.Errorf("goFlagName(%q) = %q, want %q", tc.arg, got, tc.want)
+		}
+	}
+}
+
+func TestWithCountOne_WhenEmptyOrSet_ShouldFoldCountOne(t *testing.T) {
+	if got := withCountOne(""); got != "-count=1" {
+		t.Errorf("withCountOne(\"\") = %q, want %q", got, "-count=1")
+	}
+	if got := withCountOne("-tags=sqlite_vec"); got != "-tags=sqlite_vec -count=1" {
+		t.Errorf("withCountOne(tags) = %q, want suffix %q", got, "-count=1")
+	}
+	pinned := "-count=5 -tags=sqlite_vec"
+	if got := withCountOne(pinned); got != pinned {
+		t.Errorf("withCountOne(%q) = %q, want unchanged", pinned, got)
+	}
+}
+
+func TestSummarizeEnv_WhenDuplicatesAndMalformed_ShouldDedupeAndSkip(t *testing.T) {
+	env := []string{"B=2", "A=1", "B=3", "NOEQUALS", "=bad", "C="}
+	if got := SummarizeEnv(env); got != "A,B,C" {
+		t.Errorf("SummarizeEnv() = %q, want %q", got, "A,B,C")
+	}
+	if got := SummarizeEnv(nil); got != "" {
+		t.Errorf("SummarizeEnv(nil) = %q, want empty", got)
+	}
+}
