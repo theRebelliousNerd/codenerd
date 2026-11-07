@@ -3,6 +3,9 @@ package campaign
 import (
 	"context"
 	"fmt"
+	"maps"
+	"path"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -160,6 +163,10 @@ type absorbResult struct {
 	Conflicts []string
 	// Reason says why a conflict or a skip happened.
 	Reason string
+	// Yielded lists the directories (packages) where the merge conflicted and
+	// the base's version was kept whole (merged only): the run's own changes
+	// there were replaced, and those nodes are stabilized again on the new code.
+	Yielded []string
 }
 
 // absorb merges the base's commit tip into the checked-out branch. It starts
@@ -192,6 +199,12 @@ func (g recurseGit) absorb(ctx context.Context, base, tip string, commits int) (
 			if files, err := g.run(ctx, nil, "diff", "--name-only", "--diff-filter=U"); err == nil {
 				res.Conflicts = strings.Fields(files)
 			}
+			if yielded, why := g.yieldToBase(ctx, base, tip, res.Conflicts); len(yielded) > 0 {
+				res.Yielded, res.Reason = yielded, ""
+				return g.finishMerge(ctx, res)
+			} else if why != "" {
+				res.Reason = why + "; " + res.Reason
+			}
 			if _, err := g.run(ctx, nil, "merge", "--abort"); err != nil {
 				return res, fmt.Errorf("recurse: the merge of %s conflicted and could not be aborted; the checkout needs the owner: %w", base, err)
 			}
@@ -201,6 +214,12 @@ func (g recurseGit) absorb(ctx context.Context, base, tip string, commits int) (
 		}
 		return res, nil
 	}
+	return g.finishMerge(ctx, res)
+}
+
+// finishMerge records a completed merge: the new HEAD and the files it changed.
+func (g recurseGit) finishMerge(ctx context.Context, res absorbResult) (absorbResult, error) {
+	before := res.Before
 	after, err := g.commitOf(ctx, "HEAD")
 	if err != nil {
 		return res, err
@@ -216,6 +235,66 @@ func (g recurseGit) absorb(ctx context.Context, base, tip string, commits int) (
 		}
 	}
 	return res, nil
+}
+
+// yieldToBase settles a conflicted merge in progress by keeping the base's
+// version of every package (directory) that conflicted: each file the run
+// changed there since the merge base is put back to the base's tip, and one
+// the base does not have is removed, so the run's tests in that package never
+// compile against code it no longer has. The run's changes elsewhere stay. It
+// commits the merge and returns the packages, or returns none and why, with
+// the merge still in progress for the caller to abort. A forever run that only
+// aborted would never absorb again once the base held a change to a package
+// the run had also changed: the conflicting commit stays in the base's history.
+func (g recurseGit) yieldToBase(ctx context.Context, base, tip string, conflicts []string) ([]string, string) {
+	if len(conflicts) == 0 {
+		return nil, ""
+	}
+	mergeBase, err := g.run(ctx, nil, "merge-base", "HEAD", tip)
+	if err != nil {
+		return nil, "no merge base: " + oneLine(err.Error())
+	}
+	ours, err := g.run(ctx, nil, "diff", "--name-only", "-z", strings.TrimSpace(mergeBase), "HEAD")
+	if err != nil {
+		return nil, "the run's own changes could not be listed: " + oneLine(err.Error())
+	}
+	dirs := map[string]bool{}
+	for _, c := range conflicts {
+		dirs[path.Dir(c)] = true
+	}
+	paths := map[string]bool{}
+	for _, c := range conflicts {
+		paths[c] = true
+	}
+	for _, p := range strings.Split(ours, "\x00") {
+		if p != "" && dirs[path.Dir(p)] {
+			paths[p] = true
+		}
+	}
+	for _, p := range slices.Sorted(maps.Keys(paths)) {
+		spec := ":(top)" + p
+		if _, err := g.run(ctx, nil, "cat-file", "-e", tip+":"+p); err == nil {
+			if _, err := g.run(ctx, nil, "checkout", tip, "--", spec); err != nil {
+				return nil, "the base's " + p + " could not be checked out: " + oneLine(err.Error())
+			}
+			continue
+		}
+		if _, err := g.run(ctx, nil, "rm", "-q", "-f", "--ignore-unmatch", "--", spec); err != nil {
+			return nil, p + " could not be removed: " + oneLine(err.Error())
+		}
+	}
+	if left, err := g.run(ctx, nil, "diff", "--name-only", "--diff-filter=U"); err != nil || strings.TrimSpace(left) != "" {
+		return nil, "files still unmerged: " + oneLine(left)
+	}
+	yielded := slices.Sorted(maps.Keys(dirs))
+	args := append(g.identityArgs(ctx), "commit", "--no-verify",
+		"-m", fmt.Sprintf("recurse: absorb %s at %.9s", base, tip),
+		"-m", "The base's version was kept in "+strings.Join(yielded, ", ")+" (the merge conflicted there); the run stabilizes those packages again.",
+		"-m", fmt.Sprintf("%s: %s", recurseAbsorbTrailer, tip))
+	if _, err := g.run(ctx, nil, args...); err != nil {
+		return nil, "the merge could not be committed: " + oneLine(err.Error())
+	}
+	return yielded, ""
 }
 
 // requireUnchanged errors unless HEAD is head and no tracked file differs.

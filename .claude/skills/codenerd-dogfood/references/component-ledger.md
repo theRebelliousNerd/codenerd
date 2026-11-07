@@ -6548,3 +6548,24 @@ EOF control is not exhaustive midstream accounting proof. Other stream setup
 loops, malformed events, missing terminal usage, non-200 billing, per-use fees
 and hard billing limits remain outside this result. Publication awaits the
 required unavailable private-terms scanner. No qualifying R7 claim. **Streak 0.**
+
+## TUI coder, cmd/query-kb error branches -- landed with a hand repair (2026-11-07, 10:45-11:03)
+
+Brief (TUI, yolo, debug-self): the recurse loop's coverage repair gave up on
+cmd/query-kb twice because its `rows.Next()`/`rows.Err()` branches were
+executed by no test and its attempts corrupted SQLite files to reach them;
+make every error branch reachable by a deterministic test, with no test that
+corrupts a database file. 18 minutes, one turn.
+
+Landed: a `queryRowIter` seam (`Next`/`Scan`/`Err`, satisfied by `*sql.Rows`)
+and print helpers that take it, with fake-iterator tests for every scan and
+iteration error. Missed: it dropped deep_query.go's `//go:build ignore` to
+make it testable but gave its view no entry point (the gate said "3 functions
+no production path reaches"), so `go run deep_query.go` was gone with no
+replacement; it also seeded decoy tables "so success paths trigger regardless
+of exact table naming". The verdict did not converge: coverage left 8 blocks,
+and pinning called `queryDB` unpinned -- an extract-function refactor whose
+old body passes every test by design. Hand repair: `run(args, w)` dispatches
+`<db> [--deep|--vectors|--atoms]`, a dispatch test, decoys removed. Coverage
+58.1% -> 93.4%. Open: the pinning gate cannot tell a behavior-preserving
+extraction from an untested change.

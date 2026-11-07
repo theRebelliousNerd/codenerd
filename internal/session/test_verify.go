@@ -103,6 +103,12 @@ type TestVerification struct {
 	BaselineRan      bool
 	BaselineFailures []TestKey
 
+	// Unreproduced keys each failure that was new to this turn (the
+	// baseline passed it) and passed when the edited tree ran it again: a
+	// flaky test, not a breakage this turn can be shown to have made. Set by
+	// attributeTestFailures; the /test rules do not charge them.
+	Unreproduced []TestKey
+
 	// Selection is set by the importer gate: which importer tests it ran
 	// and why, or why it ran them all. Nil on every other gate.
 	Selection *TestSelection

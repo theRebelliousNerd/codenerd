@@ -71,6 +71,22 @@ func (k TestKey) String() string {
 // failedTestKeys keys every failed test, deduplicated and sorted by package
 // then name. A test with no name (a package-level failure) has no key: it
 // cannot predate the turn, so it is never attributed to the baseline.
+// passedTestKeys keys every test the run executed and passed.
+func passedTestKeys(res *testfacts.Result) map[TestKey]bool {
+	out := map[TestKey]bool{}
+	if res == nil {
+		return out
+	}
+	for _, p := range res.Packages {
+		for _, t := range p.Tests {
+			if t.Status == testfacts.StatusPass && t.Name != "" {
+				out[TestKey{Pkg: p.Name, Name: t.Name}] = true
+			}
+		}
+	}
+	return out
+}
+
 func failedTestKeys(res *testfacts.Result) []TestKey {
 	if res == nil {
 		return nil

@@ -92,7 +92,7 @@ func (e *Executor) syncImporterGateFacts(turn types.MangleAtom, result *Executio
 		return
 	}
 	e.retractTurnPredicates(turn,
-		"turn_importer_measured", "turn_importer_failed_before", "turn_importer_failing_test")
+		"turn_importer_measured", "turn_importer_failed_before", "turn_importer_failing_test", "turn_importer_unreproduced")
 	var outcome types.MangleAtom
 	switch result.ImporterCheck.Verdict() {
 	case VerifyPassed:
@@ -121,6 +121,12 @@ func (e *Executor) syncImporterGateFacts(turn types.MangleAtom, result *Executio
 				Args:      []any{turn, types.MangleString(k.Pkg), types.MangleString(k.Name)},
 			})
 		}
+	}
+	for _, k := range result.ImporterCheck.Unreproduced {
+		e.assertTurnFact(types.Fact{
+			Predicate: "turn_importer_unreproduced",
+			Args:      []any{turn, types.MangleString(k.Pkg), types.MangleString(k.Name)},
+		})
 	}
 	if result.ImporterCheck.Result == nil {
 		return

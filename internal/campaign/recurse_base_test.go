@@ -148,45 +148,57 @@ func TestRecurseGit_AbsorbMergesAndKeepsKeptCommitIdentity(t *testing.T) {
 	}
 }
 
-// A conflict is aborted and the tree is exactly as it was.
-func TestRecurseGit_AbsorbConflictLeavesTheTreeUntouched(t *testing.T) {
+// A conflict is settled for the base package by package: where the merge
+// conflicted, the base's version is kept whole (the run's added test there
+// goes too); the run's work in other packages stays.
+func TestRecurseGit_AbsorbConflictKeepsTheBasePackageWhole(t *testing.T) {
 	ctx := context.Background()
-	g := gitFixture(t, map[string]string{"a.txt": "line\n", "keep.txt": "k\n"})
+	g := gitFixture(t, map[string]string{"pkg/a/a.go": "a v0\n", "pkg/b/b.go": "b v0\n", "keep.txt": "k\n"})
 	if err := g.prepare(ctx, DefaultRecurseBranch); err != nil {
 		t.Fatal(err)
 	}
-	writeTree(t, g.root, map[string]string{"a.txt": "ours\n"})
-	if _, err := g.commit(ctx, []string{"a.txt"}, "recurse: fix a", 1, "f"); err != nil {
+	// The run changes package a (and adds a test there) and package b.
+	writeTree(t, g.root, map[string]string{"pkg/a/a.go": "a ours\n", "pkg/a/a_test.go": "tests ours\n", "pkg/b/b.go": "b ours\n"})
+	if _, err := g.commit(ctx, []string{"pkg/a/a.go", "pkg/a/a_test.go", "pkg/b/b.go"}, "recurse: fix a and b", 1, "f"); err != nil {
 		t.Fatal(err)
 	}
 	writeTree(t, g.root, map[string]string{"owner.txt": "the owner's untracked file\n"})
 	before := headOf(t, g)
-	tip := landOnBase(t, g, "main", map[string]string{"a.txt": "theirs\n", "keep.txt": "base keep\n"}, "base edits a")
+	tip := landOnBase(t, g, "main", map[string]string{"pkg/a/a.go": "a theirs\n", "keep.txt": "base keep\n"}, "base edits a")
 
 	res, err := g.absorb(ctx, "main", tip, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Outcome != absorbConflict || !slices.Equal(res.Conflicts, []string{"a.txt"}) {
-		t.Fatalf("absorb = %+v; want a conflict on a.txt", res)
+	if res.Outcome != absorbMerged || !slices.Equal(res.Conflicts, []string{"pkg/a/a.go"}) || !slices.Equal(res.Yielded, []string{"pkg/a"}) || res.Reason != "" {
+		t.Fatalf("absorb = %+v; want merged, conflict on pkg/a/a.go settled for the base in pkg/a", res)
 	}
-	if headOf(t, g) != before {
-		t.Fatal("HEAD moved on a conflict")
+	if !isAncestor(g, tip) || !isAncestor(g, before) {
+		t.Fatal("the merge commit does not join the run's history and the base's")
 	}
 	if status := gitOut(t, g, "status", "--porcelain", "--untracked-files=no"); status != "" {
-		t.Fatalf("the tree is not clean after the abort: %q", status)
+		t.Fatalf("the tree is not clean after the merge: %q", status)
 	}
 	if _, err := os.Stat(filepath.Join(g.root, ".git", "MERGE_HEAD")); err == nil {
 		t.Fatal("a merge is still in progress")
 	}
-	if got, _ := readFile(t, g.root, "a.txt"); got != "ours\n" {
-		t.Fatalf("a.txt = %q", got)
+	for rel, want := range map[string]string{"pkg/a/a.go": "a theirs\n", "pkg/b/b.go": "b ours\n", "keep.txt": "base keep\n"} {
+		if got, _ := readFile(t, g.root, rel); got != want {
+			t.Fatalf("%s = %q, want %q", rel, got, want)
+		}
 	}
-	if got, _ := readFile(t, g.root, "keep.txt"); got != "k\n" {
-		t.Fatalf("keep.txt = %q: a clean part of the base must not leak in", got)
+	if _, ok := readFile(t, g.root, "pkg/a/a_test.go"); ok {
+		t.Fatal("the run's test in the package the base won survived: it would compile against code that is gone")
 	}
 	if got, ok := readFile(t, g.root, "owner.txt"); !ok || got != "the owner's untracked file\n" {
 		t.Fatal("the owner's untracked file was touched")
+	}
+	if !slices.Contains(res.Changed, "pkg/a/a.go") || !slices.Contains(res.Changed, "pkg/a/a_test.go") {
+		t.Fatalf("changed = %v: the package the base won must count as changed so its node is stabilized again", res.Changed)
+	}
+	msg := gitOut(t, g, "log", "-1", "--format=%B")
+	if !strings.Contains(msg, recurseAbsorbTrailer+": "+tip) || !strings.Contains(msg, "kept in pkg/a") {
+		t.Fatalf("merge message lacks the trailer or the settled package:\n%s", msg)
 	}
 }
 

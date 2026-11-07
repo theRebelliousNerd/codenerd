@@ -262,8 +262,9 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// which this shard owns; a catch-all home would split those
 				// joins and the gate would never fire. The importer run's
 				// rows join the same /test gate.
-				"turn_test_failed_before", "turn_test_measured",
+				"turn_test_failed_before", "turn_test_measured", "turn_test_unreproduced",
 				"turn_importer_failed_before", "turn_importer_failing_test", "turn_importer_measured",
+				"turn_importer_unreproduced",
 				"turn_write_seq", "turn_test_run",
 				"turn_test_obligation", "turn_test_obligation_run",
 				"turn_vet_ran", "turn_vet_finding", "turn_vet_before",

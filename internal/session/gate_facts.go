@@ -63,7 +63,7 @@ func (e *Executor) syncTestGateFacts(turn types.MangleAtom, result *ExecutionRes
 	e.retractTurnPredicates(turn,
 		"turn_test_measured", "turn_test_failed_before",
 		"turn_test_case", "turn_test_failure_at", "turn_test_build_failure",
-		"turn_test_output_repeat", "turn_failing_test")
+		"turn_test_output_repeat", "turn_failing_test", "turn_test_unreproduced")
 	e.assertTurnVerb(turn, result.Intent.Verb, result)
 	e.assertTurnWrites(turn, result)
 	switch result.TestCheck.Verdict() {
@@ -88,6 +88,12 @@ func (e *Executor) syncTestGateFacts(turn types.MangleAtom, result *ExecutionRes
 				Args:      []any{turn, types.MangleString(k.Pkg), types.MangleString(k.Name)},
 			})
 		}
+	}
+	for _, k := range result.TestCheck.Unreproduced {
+		e.assertTurnFact(types.Fact{
+			Predicate: "turn_test_unreproduced",
+			Args:      []any{turn, types.MangleString(k.Pkg), types.MangleString(k.Name)},
+		})
 	}
 	e.assertTurnTestFacts(turn, result)
 	// The importer run is the other measurement of this same gate.

@@ -129,40 +129,24 @@ func TestRecurseCycles_AbsorbsABaseCommitLandedAfterStart(t *testing.T) {
 	}
 }
 
-// A conflicting base commit leaves the tree as it was and is recorded; the run
-// goes on, does not retry the same base commit at every boundary, and merges
-// once the base has moved to something that fits.
-func TestRecurseCycles_ConflictingBaseIsRecordedAndRetriedWhenBaseMoves(t *testing.T) {
+// A base commit that conflicts with the run's own kept change is settled for
+// the base at the next boundary: the merge completes with the base's version
+// of the package, nothing is left for a later retry, and the run goes on to
+// stabilize that package again. Aborting instead froze a forever run on its old
+// base: the conflicting commit stays in the base's history, so every retry
+// conflicted again (live, 2026-11-07).
+func TestRecurseCycles_ConflictingBaseIsSettledForTheBase(t *testing.T) {
 	root := recurseFixture(t, nil)
 	g := recurseGit{root: root}
-	var conflicting, fitting string
+	const theirs = "package store\n\nfunc Get() int { return 3 }\n"
+	var conflicting string
 	progress := &lineHook{}
-	progress.onLine = func(line string) {
-		if !strings.HasPrefix(line, "recurse pass 1:") || fitting != "" {
-			return
-		}
-		recs := journalOf(t, root)
-		if n := len(stepsOf(recs, stepAbsorbConflict)); n != 1 {
-			t.Errorf("at the second pass the conflict is recorded once, not retried at every boundary: %d records", n)
-		}
-		if isAncestor(g, conflicting) {
-			t.Error("the conflicting base commit is in the tree")
-		}
-		if status := gitOut(t, g, "status", "--porcelain", "--untracked-files=no"); status != "" {
-			t.Errorf("the conflicted merge left changes behind: %q", status)
-		}
-		if got := mustRead(t, root, "store/store.go"); got != fixedStore {
-			t.Errorf("store.go = %q after the conflict", got)
-		}
-		// The base moves on to the same fix the loop kept: it now merges.
-		fitting = landOnBase(t, g, "main", map[string]string{"store/store.go": fixedStore}, "base lands the same fix")
-	}
 	res, err := runCycles(t, context.Background(), root, 2, progress, func(ctx context.Context, a RecurseAttempt) error {
 		if a.Angle == "" {
 			write(t, root, "store/store.go", fixedStore)
 		}
 		if conflicting == "" {
-			conflicting = landOnBase(t, g, "main", map[string]string{"store/store.go": "package store\n\nfunc Get() int { return 3 }\n"}, "base fixes it differently")
+			conflicting = landOnBase(t, g, "main", map[string]string{"store/store.go": theirs}, "base fixes it differently")
 		}
 		return nil
 	}, nil)
@@ -171,28 +155,30 @@ func TestRecurseCycles_ConflictingBaseIsRecordedAndRetriedWhenBaseMoves(t *testi
 		t.Fatalf("RunRecurseCycles: %v", err)
 	}
 	if res.Passes != 2 {
-		t.Fatalf("the run stopped after %d passes: a conflict must not end it", res.Passes)
+		t.Fatalf("the run stopped after %d passes", res.Passes)
 	}
 	recs := journalOf(t, root)
-	conflicts := stepsOf(recs, stepAbsorbConflict)
-	if len(conflicts) != 1 || conflicts[0].Commit != conflicting || !strings.Contains(conflicts[0].Detail, "store/store.go") {
-		t.Fatalf("conflict records = %+v; want one for %s naming store/store.go", conflicts, conflicting)
+	if n := len(stepsOf(recs, stepAbsorbConflict)); n != 0 {
+		t.Fatalf("%d conflict record(s): a settled conflict leaves nothing to retry", n)
 	}
 	absorbs := stepsOf(recs, stepAbsorb)
-	if len(absorbs) != 1 || absorbs[0].Commit != fitting {
-		t.Fatalf("absorb records = %+v; want one for the retry at %s", absorbs, fitting)
+	if len(absorbs) != 1 || absorbs[0].Commit != conflicting || !strings.Contains(absorbs[0].Detail, "the base's version of store was kept") {
+		t.Fatalf("absorb records = %+v; want one for %s settling store for the base", absorbs, conflicting)
 	}
-	if !isAncestor(g, fitting) || !isAncestor(g, conflicting) {
-		t.Fatal("after the retry the base's history is in the branch")
+	if !slices.Contains(absorbs[0].Nodes, "store") {
+		t.Fatalf("absorb touched nodes %v: the package the base won must be stabilized again", absorbs[0].Nodes)
 	}
-	if got := mustRead(t, root, "store/store.go"); got != fixedStore {
-		t.Fatalf("store.go = %q", got)
+	if !isAncestor(g, conflicting) {
+		t.Fatal("the conflicting base commit is not in the branch")
 	}
-	if !strings.Contains(progress.String(), "WARN") {
-		t.Fatalf("a conflict is a WARN in the log:\n%s", progress)
+	if status := gitOut(t, g, "status", "--porcelain", "--untracked-files=no"); status != "" {
+		t.Fatalf("the settled merge left changes behind: %q", status)
 	}
-	if st, _ := ReadRecurseStatus(root); len(st.Base.Conflicts) != 1 || !strings.Contains(st.String(), "Merge conflicts: 1") {
-		t.Fatalf("status does not show the conflict:\n%s", st)
+	if strings.Contains(progress.String(), "WARN") {
+		t.Fatalf("a settled conflict is not a warning:\n%s", progress)
+	}
+	if st, _ := ReadRecurseStatus(root); len(st.Base.Conflicts) != 0 || st.Base.LastAbsorbed != conflicting {
+		t.Fatalf("status = %+v; want the conflicting commit absorbed and no open conflict", st.Base)
 	}
 }
 
