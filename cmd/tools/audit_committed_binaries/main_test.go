@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
+	"codenerd/internal/executable"
 )
 
 // The gate's whole job is telling compiled programs apart from everything
@@ -50,19 +52,19 @@ func TestExecutableKind(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := executableKind(write(tc.name, tc.data))
+			got, ok := executable.Kind(write(tc.name, tc.data))
 			if tc.want == "" && ok {
-				t.Errorf("executableKind(%s) = %q, want no match", tc.name, got)
+				t.Errorf("executable.Kind(%s) = %q, want no match", tc.name, got)
 			}
 			if tc.want != "" && (!ok || got != tc.want) {
-				t.Errorf("executableKind(%s) = (%q, %v), want (%q, true)", tc.name, got, ok, tc.want)
+				t.Errorf("executable.Kind(%s) = (%q, %v), want (%q, true)", tc.name, got, ok, tc.want)
 			}
 		})
 	}
 }
 
 func TestExecutableKind_MissingFile_IsNotTheGatesBusiness(t *testing.T) {
-	if kind, ok := executableKind(filepath.Join(t.TempDir(), "nope")); ok {
+	if kind, ok := executable.Kind(filepath.Join(t.TempDir(), "nope")); ok {
 		t.Errorf("missing file reported as %q", kind)
 	}
 }
@@ -88,12 +90,12 @@ func TestExecutableKind_TruncatedPrefixNeverMatches(t *testing.T) {
 		if err := os.WriteFile(p, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if kind, ok := executableKind(p); ok {
+		if kind, ok := executable.Kind(p); ok {
 			t.Errorf("truncated header %d (%q) reported as %q, want no match", i, data, kind)
 		}
 	}
-	if kind, ok := executableKind(dir); ok {
-		t.Errorf("executableKind(directory) = %q, want no match", kind)
+	if kind, ok := executable.Kind(dir); ok {
+		t.Errorf("executable.Kind(directory) = %q, want no match", kind)
 	}
 }
 
@@ -128,12 +130,12 @@ func TestExecutableKind_PinsHeaderPrefixSemantics(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := executableKind(write(tc.name, tc.data))
+			got, ok := executable.Kind(write(tc.name, tc.data))
 			if tc.want == "" && ok {
-				t.Errorf("executableKind(%s) = %q, want no match", tc.name, got)
+				t.Errorf("executable.Kind(%s) = %q, want no match", tc.name, got)
 			}
 			if tc.want != "" && (!ok || got != tc.want) {
-				t.Errorf("executableKind(%s) = (%q, %v), want (%q, true)", tc.name, got, ok, tc.want)
+				t.Errorf("executable.Kind(%s) = (%q, %v), want (%q, true)", tc.name, got, ok, tc.want)
 			}
 		})
 	}
@@ -376,11 +378,11 @@ func TestMain_ExitCodes(t *testing.T) {
 
 func TestExecutableKind_OpenErrorStaysSilent(t *testing.T) {
 	missing := "/nonexistent-dir-for-audit-test/nope"
-	if kind, ok := executableKind(missing); ok {
-		t.Errorf("executableKind(missing) = %q, want no match", kind)
+	if kind, ok := executable.Kind(missing); ok {
+		t.Errorf("executable.Kind(missing) = %q, want no match", kind)
 	}
 	brokenLink := "/tmp/definitely-missing-audit-link-xyz"
-	if kind, ok := executableKind(brokenLink); ok {
-		t.Errorf("executableKind(broken) = %q, want no match", kind)
+	if kind, ok := executable.Kind(brokenLink); ok {
+		t.Errorf("executable.Kind(broken) = %q, want no match", kind)
 	}
 }

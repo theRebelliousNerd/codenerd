@@ -23,26 +23,16 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
+
+	"codenerd/internal/executable"
 )
 
-// Magic numbers for the three executable formats a Go build can produce.
-// Deliberately not "is this file binary": PNG fixtures and test corpora are
-// binary and belong here. A compiled program does not.
-var executableMagic = []struct {
-	name  string
-	magic []byte
-}{
-	{"ELF (Linux)", []byte{0x7F, 'E', 'L', 'F'}},
-	{"PE (Windows)", []byte{'M', 'Z'}},
-	{"Mach-O 64 (macOS)", []byte{0xCF, 0xFA, 0xED, 0xFE}},
-	{"Mach-O 32 (macOS)", []byte{0xCE, 0xFA, 0xED, 0xFE}},
-	{"Mach-O universal (macOS)", []byte{0xCA, 0xFE, 0xBA, 0xBE}},
-}
-
+// main fails when a tracked file is a compiled executable
+// (executable.Kind). Deliberately not "is this file binary": PNG fixtures and
+// test corpora are binary and belong here. A compiled program does not.
 func main() {
 	files, err := trackedFiles()
 	if err != nil {
@@ -52,7 +42,7 @@ func main() {
 
 	var found []string
 	for _, path := range files {
-		if kind, ok := executableKind(path); ok {
+		if kind, ok := executable.Kind(path); ok {
 			info, statErr := os.Stat(path)
 			size := "unknown size"
 			if statErr == nil {
@@ -95,26 +85,4 @@ func trackedFiles() ([]string, error) {
 		}
 	}
 	return files, nil
-}
-
-func executableKind(path string) (string, bool) {
-	f, err := os.Open(path)
-	if err != nil {
-		// A tracked path that will not open is a sparse checkout or a symlink
-		// to nowhere. Neither is this gate's business, and failing the build
-		// over one would make the gate the problem.
-		return "", false
-	}
-	defer func() { _ = f.Close() }()
-
-	header := make([]byte, 4)
-	n, _ := io.ReadFull(f, header)
-	header = header[:n]
-
-	for _, kind := range executableMagic {
-		if bytes.HasPrefix(header, kind.magic) {
-			return kind.name, true
-		}
-	}
-	return "", false
 }
