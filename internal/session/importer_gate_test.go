@@ -179,3 +179,34 @@ func TestTestGate_SameNameInAnotherPackageIsCharged(t *testing.T) {
 		t.Fatalf("/test = %v; want passed: both failures predate the turn", got)
 	}
 }
+
+// A failure that did not reproduce on a rerun of the edited tree is charged
+// by neither run of the /test gate.
+func TestTestGate_UnreproducedFailureIsNotCharged(t *testing.T) {
+	t.Parallel()
+	failing := func() TestVerification {
+		return TestVerification{
+			Ran: true, Outcome: VerifyFailed, Output: "FAIL TestTiming",
+			BaselineRan: true,
+			Result: &testfacts.Result{Failures: []testfacts.Failure{
+				{Package: "example/a", Test: "TestTiming", Message: "late", File: "a/timing_test.go", Line: 1},
+			}},
+		}
+	}
+	own := failing()
+	if got := chargeTestGate(t, own, TestVerification{}); got != VerifyFailed {
+		t.Fatalf("/test = %v; want failed before the rerun is known", got)
+	}
+	own.Unreproduced = []TestKey{{Pkg: "example/a", Name: "TestTiming"}}
+	if got := chargeTestGate(t, own, TestVerification{}); got != VerifyPassed {
+		t.Fatalf("/test = %v; want passed: the own failure did not reproduce", got)
+	}
+	importer := failing()
+	if got := chargeTestGate(t, ownPass(), importer); got != VerifyFailed {
+		t.Fatalf("/test = %v; want failed on the importer failure", got)
+	}
+	importer.Unreproduced = []TestKey{{Pkg: "example/a", Name: "TestTiming"}}
+	if got := chargeTestGate(t, ownPass(), importer); got != VerifyPassed {
+		t.Fatalf("/test = %v; want passed: the importer failure did not reproduce", got)
+	}
+}

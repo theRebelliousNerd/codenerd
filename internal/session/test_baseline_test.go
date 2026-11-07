@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -218,6 +219,9 @@ func TestAttributeTestFailures_MixedNewAndPreExisting(t *testing.T) {
 	}
 	if !strings.Contains(got.Output, "TestOK") {
 		t.Errorf("output should still contain TestOK's failure, got %q", got.Output)
+	}
+	if len(got.Unreproduced) != 0 {
+		t.Fatalf("Unreproduced = %v: TestOK fails every run on the edited tree", got.Unreproduced)
 	}
 	if got := derivedVerify(t, testGateExec(t, got), testTurn, "/test"); got != VerifyFailed {
 		t.Fatalf("test gate = %v, want failing: TestOK did not fail before the turn", got)
@@ -437,9 +441,9 @@ func TestRunBaselineTests_UsesGateRunnerAndArgs(t *testing.T) {
 
 	const overlayPath = "test-overlay.json"
 	const runArg = "^(TestX)$"
-	res, outcome := runBaselineTests(context.Background(), t.TempDir(), overlayPath, runArg, []string{"."})
+	res, outcome := runSelectedTests(context.Background(), t.TempDir(), overlayPath, runArg, []string{"."})
 	if outcome != VerifyFailed {
-		t.Fatalf("runBaselineTests should report outcome=VerifyFailed for a failed baseline run, got %v", outcome)
+		t.Fatalf("runSelectedTests should report outcome=VerifyFailed for a failed baseline run, got %v", outcome)
 	}
 	if names := failedTopLevels(res); len(names) != 1 || names[0] != "TestX" {
 		t.Errorf("baseline Result names %v; want [TestX]", names)
@@ -549,5 +553,45 @@ func TestTestGate_TDDRedPhaseTestOnlyTurnPassesWhenPinningTestsFail(t *testing.T
 	mixedResult.Intent.Verb = "/test"
 	if !eMixed.testGateRed(testTurn, mixedResult) {
 		t.Fatal("testGateRed = false for /test turn that also edited production .go file; want true")
+	}
+}
+
+// A test that fails once and passes when the same edited tree runs it again
+// is flaky, not this turn's breakage: a campaign coder's one-file edit was
+// sent through three repair rounds for a timing test it could not reach.
+func TestAttributeTestFailures_FlakyFailureIsNotCharged(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	marker := filepath.Join(t.TempDir(), "ran-once")
+	origCalc := "package verifyprobe\n\nfunc Add(a, b int) int { return a + b }\n"
+	testFile := "package verifyprobe\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\n" +
+		"func TestFlaky(t *testing.T) {\n" +
+		"\tif _, err := os.Stat(" + strconv.Quote(marker) + "); err != nil {\n" +
+		"\t\t_ = os.WriteFile(" + strconv.Quote(marker) + ", nil, 0o644)\n" +
+		"\t\tt.Fatal(\"first run fails\")\n\t}\n}\n" +
+		"func TestOK(t *testing.T) { if Add(2, 3) != 5 { t.Fatal(\"bad\") } }\n"
+	ws := writeBaselineModule(t, map[string]string{
+		"go.mod":       "module verifyprobe\n\ngo 1.21\n",
+		"calc.go":      origCalc,
+		"calc_test.go": testFile,
+	})
+	preWrite := map[string]PreImage{"calc.go": existed(origCalc)}
+	writeWorkspaceFile(t, ws, "calc.go", origCalc+"\nfunc Sub(a, b int) int { return a - b }\n")
+
+	head := verifyTests(context.Background(), ws, []string{"."})
+	if head.Outcome != VerifyFailed {
+		t.Fatalf("head should fail on TestFlaky's first run, got %v: %q", head.Outcome, head.Output)
+	}
+	got := attributeTestFailures(context.Background(), ws, []string{"."}, []string{"calc.go"}, preWrite, head)
+	if len(got.Unreproduced) != 1 || got.Unreproduced[0] != (TestKey{Pkg: "verifyprobe", Name: "TestFlaky"}) {
+		t.Fatalf("Unreproduced = %v, want [verifyprobe TestFlaky]", got.Unreproduced)
+	}
+	if !strings.HasPrefix(got.Output, "Flaky (failed once, passed when run again on the same code; not yours to fix): verifyprobe.TestFlaky") {
+		t.Fatalf("output does not name the flaky test first: %q", got.Output)
+	}
+	if verdict := derivedVerify(t, testGateExec(t, got), testTurn, "/test"); verdict == VerifyFailed {
+		t.Fatal("test gate charged the turn with a failure that did not reproduce")
 	}
 }

@@ -369,7 +369,12 @@ Decl turn_failing_test(Turn, Pkg, TestName, ErrorMessage) bound [/name, /string,
 # repaired. A skipped importer run, or one this turn did not make, asserts
 # nothing, and the own rules stand. A failure is the turn's when the
 # importer head named it and the importer baseline did not.
+# turn_test_unreproduced / turn_importer_unreproduced: a failure the baseline
+# passed that also passed when the edited tree ran it again. A test that fails
+# once and passes on the same code is flaky, not a breakage the turn made.
 Decl turn_test_failed_before(Turn, Pkg, TestName) bound [/name, /string, /string].
+Decl turn_test_unreproduced(Turn, Pkg, TestName) bound [/name, /string, /string].
+Decl turn_importer_unreproduced(Turn, Pkg, TestName) bound [/name, /string, /string].
 Decl turn_test_measured(Turn, Outcome) bound [/name, /name].
 Decl turn_own_test_failure(Turn, Pkg, Name) bound [/name, /string, /string].
 Decl turn_has_own_test_failure(Turn) bound [/name].
@@ -394,7 +399,8 @@ Decl turn_tdd_red_phase(Turn) bound [/name].
 
 turn_own_test_failure(Turn, Pkg, Name) :-
     turn_failing_test(Turn, Pkg, Name, Msg),
-    !turn_test_failed_before(Turn, Pkg, Name).
+    !turn_test_failed_before(Turn, Pkg, Name),
+    !turn_test_unreproduced(Turn, Pkg, Name).
 turn_has_own_test_failure(Turn) :- turn_own_test_failure(Turn, Pkg, Name).
 turn_has_failing_test(Turn) :- turn_failing_test(Turn, Pkg, Name, Msg).
 
@@ -425,7 +431,8 @@ turn_tdd_red_phase(Turn) :-
 
 turn_importer_failure(Turn, Pkg, Name) :-
     turn_importer_failing_test(Turn, Pkg, Name, Msg),
-    !turn_importer_failed_before(Turn, Pkg, Name).
+    !turn_importer_failed_before(Turn, Pkg, Name),
+    !turn_importer_unreproduced(Turn, Pkg, Name).
 turn_has_importer_failure(Turn) :- turn_importer_failure(Turn, Pkg, Name).
 turn_has_importer_failing_test(Turn) :- turn_importer_failing_test(Turn, Pkg, Name, Msg).
 # A run that did not finish, a new importer failure, or a failing run that

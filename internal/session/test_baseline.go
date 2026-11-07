@@ -61,7 +61,7 @@ func attributeTestFailures(ctx context.Context, workspace string, packages []str
 		return head
 	}
 	defer os.RemoveAll(tmpDir)
-	baseline, baselineOutcome := runBaselineTests(ctx, workspace, overlayPath, baselineRunRegex(failedTopLevels(head.Result)), packages)
+	baseline, baselineOutcome := runSelectedTests(ctx, workspace, overlayPath, baselineRunRegex(failedTopLevels(head.Result)), packages)
 	if baselineOutcome != VerifyPassed && baselineOutcome != VerifyFailed {
 		logging.SessionDebug("test gate: no baseline attribution: baseline run inconclusive (outcome %s)", baselineOutcome)
 		return head
@@ -72,11 +72,70 @@ func attributeTestFailures(ctx context.Context, workspace string, packages []str
 	head.BaselineRan = true
 	head.BaselineFailures = failedTestKeys(baseline)
 	preExisting := partitionPreExisting(headFailed, baseline)
+	head = noteUnreproduced(head, rerunNewFailures(ctx, workspace, packages, headFailed, preExisting))
 	if len(preExisting) == 0 {
 		logging.SessionDebug("test gate: no baseline attribution: every failure is new to this turn (%d failed)", len(headFailed))
 		return head
 	}
 	return notePreExisting(head, preExisting, len(preExisting) == len(headFailed))
+}
+
+// rerunNewFailures runs the failures new to this turn once more on the
+// edited tree and returns those that ran and passed. A test that fails once
+// and passes on the same code is flaky; charging it sent a campaign coder
+// through three repair rounds for a timing test its one-file edit could not
+// reach (2026-11-07). A rerun that does not finish proves nothing: none.
+func rerunNewFailures(ctx context.Context, workspace string, packages []string, headFailed, preExisting []TestKey) []TestKey {
+	old := make(map[TestKey]bool, len(preExisting))
+	for _, k := range preExisting {
+		old[k] = true
+	}
+	var fresh []TestKey
+	tops := map[string]bool{}
+	var topNames []string
+	for _, k := range headFailed {
+		if old[k] {
+			continue
+		}
+		fresh = append(fresh, k)
+		top := strings.SplitN(k.Name, "/", 2)[0]
+		if !tops[top] {
+			tops[top] = true
+			topNames = append(topNames, top)
+		}
+	}
+	if len(fresh) == 0 || errors.Is(ctx.Err(), context.Canceled) {
+		return nil
+	}
+	rerun, outcome := runSelectedTests(ctx, workspace, "", baselineRunRegex(topNames), packages)
+	if outcome != VerifyPassed && outcome != VerifyFailed {
+		logging.SessionDebug("test gate: rerun of new failures inconclusive (outcome %s)", outcome)
+		return nil
+	}
+	passed := passedTestKeys(rerun)
+	var unreproduced []TestKey
+	for _, k := range fresh {
+		if passed[k] {
+			unreproduced = append(unreproduced, k)
+		}
+	}
+	return unreproduced
+}
+
+// noteUnreproduced records the failures that did not reproduce and names
+// them for the model and the operator. It does not change the outcome.
+func noteUnreproduced(head TestVerification, unreproduced []TestKey) TestVerification {
+	if len(unreproduced) == 0 {
+		return head
+	}
+	labels := make([]string, len(unreproduced))
+	for i, k := range unreproduced {
+		labels[i] = k.String()
+	}
+	logging.Get(logging.CategorySession).Warn("test gate: %d failure(s) passed when the edited tree ran them again (flaky), not charged to the turn: %s", len(labels), strings.Join(labels, ", "))
+	head.Unreproduced = unreproduced
+	head.Output = "Flaky (failed once, passed when run again on the same code; not yours to fix): " + strings.Join(labels, ", ") + "\n" + head.Output
+	return head
 }
 
 // notePreExisting names the failures that also fail without this turn's
@@ -142,8 +201,15 @@ func baselineRunRegex(names []string) string {
 	return "^(" + strings.Join(quoted, "|") + ")$"
 }
 
-func runBaselineTests(ctx context.Context, workspace, overlayPath, runArg string, packages []string) (*testfacts.Result, VerifyOutcome) {
-	args := []string{"test", "-json", "-overlay", overlayPath, "-count=1", "-run", runArg}
+// runSelectedTests runs the tests runArg selects in packages: through
+// overlayPath (the pre-turn files) for the baseline, or on the tree as it
+// stands when overlayPath is empty.
+func runSelectedTests(ctx context.Context, workspace, overlayPath, runArg string, packages []string) (*testfacts.Result, VerifyOutcome) {
+	args := []string{"test", "-json"}
+	if overlayPath != "" {
+		args = append(args, "-overlay", overlayPath)
+	}
+	args = append(args, "-count=1", "-run", runArg)
 	args = append(args, packages...)
 	out, outcome, _ := runVerificationCommand(ctx, workspace, build.GetBuildEnv(nil, workspace), testVerifyTimeout, "go", args, verifyTestRunner)
 	switch outcome {
