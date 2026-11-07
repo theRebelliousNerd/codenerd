@@ -265,3 +265,123 @@ func TestAnalyzer_UserRequestExtremes_MassiveSchema(t *testing.T) {
 		t.Logf("buildAnalysisPrompt took %v, formatting large JSON is slow", duration)
 	}
 }
+
+func TestStabilize_NormalizeDomainEdges(t *testing.T) {
+	cases := map[string]string{
+		"":            "/general",
+		"   ":         "/general",
+		"/go":         "/go",
+		"  /Python  ": "/python",
+		"/unknown":    "/general",
+		"unknown":     "/general",
+		"Go":          "/go",
+	}
+	for in, want := range cases {
+		if got := normalizeDomain(in); got != want {
+			t.Errorf("normalizeDomain(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestStabilize_NormalizeCapabilitiesDefaultsAndSlashPrefix(t *testing.T) {
+	if got := normalizeCapabilities(nil); len(got) != 1 || got[0] != "/read" {
+		t.Fatalf("normalizeCapabilities(nil) = %v, want [/read]", got)
+	}
+	if got := normalizeCapabilities([]string{"bogus", "nope"}); len(got) != 1 || got[0] != "/read" {
+		t.Fatalf("normalizeCapabilities(all-invalid) = %v, want [/read]", got)
+	}
+	got := normalizeCapabilities([]string{"read", " /WRITE ", "/delete"})
+	want := map[string]bool{"/read": true, "/write": true, "/delete": true}
+	if len(got) != 3 {
+		t.Fatalf("normalizeCapabilities slash-prefix = %v, want 3", got)
+	}
+	for _, c := range got {
+		if !want[c] {
+			t.Fatalf("unexpected capability %q in %v", c, got)
+		}
+	}
+}
+
+func TestStabilize_NormalizeCategoriesMixedValidInvalid(t *testing.T) {
+	got := normalizeCategories([]string{"filesystem", "bogus", "  GIT ", "CODE_ANALYSIS"})
+	want := map[string]bool{"filesystem": true, "git": true, "code_analysis": true}
+	if len(got) != 3 {
+		t.Fatalf("normalizeCategories mixed = %v, want 3", got)
+	}
+	for _, c := range got {
+		if !want[c] {
+			t.Fatalf("unexpected category %q in %v", c, got)
+		}
+	}
+}
+
+func TestStabilize_NormalizeAffinitiesNilAndCaseInsensitive(t *testing.T) {
+	got := normalizeAffinities(nil)
+	if got["coder"] != 50 || got["tester"] != 30 || got["reviewer"] != 40 || got["researcher"] != 40 {
+		t.Fatalf("normalizeAffinities(nil) = %v, want defaults", got)
+	}
+	got = normalizeAffinities(map[string]int{"  CODER ": 80, "Tester": 10})
+	if got["coder"] != 80 {
+		t.Errorf("coder = %d, want 80", got["coder"])
+	}
+	if got["tester"] != 10 {
+		t.Errorf("tester = %d, want 10", got["tester"])
+	}
+	if got["reviewer"] != 40 {
+		t.Errorf("reviewer should keep default 40, got %d", got["reviewer"])
+	}
+}
+
+func TestStabilize_InferEmptySchemaDefaults(t *testing.T) {
+	cats := inferCategories(MCPToolSchema{})
+	if len(cats) != 1 || cats[0] != "general" {
+		t.Fatalf("inferCategories(empty) = %v, want [general]", cats)
+	}
+	caps := inferCapabilities(MCPToolSchema{})
+	if len(caps) != 1 || caps[0] != "/read" {
+		t.Fatalf("inferCapabilities(empty) = %v, want [/read]", caps)
+	}
+}
+
+func TestStabilize_BuildAnalysisPromptOutputSchemaSection(t *testing.T) {
+	base := buildAnalysisPrompt(MCPToolSchema{Name: "n", Description: "d"})
+	if strings.Contains(base, "Output Schema:") {
+		t.Fatalf("prompt without output schema must omit section, got %q", base)
+	}
+	withOut := buildAnalysisPrompt(MCPToolSchema{Name: "n", Description: "d", OutputSchema: json.RawMessage(`{"type":"object"}`)})
+	if !strings.Contains(withOut, "Output Schema:") {
+		t.Fatalf("prompt with output schema must include section, got %q", withOut)
+	}
+	if !strings.Contains(withOut, "n") || !strings.Contains(withOut, "d") {
+		t.Fatalf("prompt must contain name and description, got %q", withOut)
+	}
+}
+
+func TestStabilize_ExtractJSONPrefixAndGenericBlock(t *testing.T) {
+	payload := `{"a":1}`
+	if got := extractJSON("prefix text " + payload + " trailing"); got != payload {
+		t.Fatalf("extractJSON prefix = %q, want %q", got, payload)
+	}
+	generic := "```\n" + payload + "\n```"
+	if got := extractJSON(generic); got != payload {
+		t.Fatalf("extractJSON generic block = %q, want %q", got, payload)
+	}
+	if got := extractJSON("no braces here"); got != "no braces here" {
+		t.Fatalf("extractJSON without JSON must return input, got %q", got)
+	}
+}
+
+func TestStabilize_ParseAnalysisResponseCondensedFallback(t *testing.T) {
+	analyzer := NewToolAnalyzer(nil, nil, nil)
+	schema := MCPToolSchema{Name: "t", Description: "  fallback desc  "}
+	got, err := analyzer.parseAnalysisResponse(`{"categories":["general"],"capabilities":["/read"],"domain":"/go","condensed":"   "}`, schema)
+	if err != nil {
+		t.Fatalf("parseAnalysisResponse: %v", err)
+	}
+	if got.Condensed != "fallback desc" {
+		t.Fatalf("Condensed = %q, want fallback %q", got.Condensed, "fallback desc")
+	}
+	if got.ToolID != "t" {
+		t.Fatalf("ToolID = %q, want t", got.ToolID)
+	}
+}
