@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -89,6 +90,12 @@ func missesColumns(ctx context.Context, db *sql.DB) (map[string]bool, error) {
 // (missOriginLookup). A failed search decides nothing; the row waits for the
 // next run. It returns how many rows became current and how many history.
 func SettleLegacyMisses(ctx context.Context, db *sql.DB) (current, history int, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
 	if db == nil {
 		return 0, 0, nil
 	}
@@ -99,7 +106,7 @@ func SettleLegacyMisses(ctx context.Context, db *sql.DB) (current, history int, 
 	if err := ensureMissesTable(ctx, db); err != nil {
 		return 0, 0, err
 	}
-	rows, err := db.QueryContext(ctx, `SELECT query FROM knowledge_misses WHERE origin IS NULL`)
+	rows, err := db.QueryContext(ctx, `SELECT query FROM knowledge_misses WHERE origin IS NULL ORDER BY query`)
 	if err != nil {
 		return 0, 0, fmt.Errorf("read legacy misses: %w", err)
 	}
@@ -117,8 +124,17 @@ func SettleLegacyMisses(ctx context.Context, db *sql.DB) (current, history int, 
 		return 0, 0, fmt.Errorf("read legacy misses: %w", err)
 	}
 	for _, q := range queries {
+		if err := ctx.Err(); err != nil {
+			return current, history, err
+		}
+		if q == "" {
+			continue
+		}
 		atoms, searchErr := store.SearchKnowledgeAtomsLexicalDB(ctx, db, q, legacySettleRows)
 		if searchErr != nil {
+			if ctx.Err() != nil {
+				return current, history, ctx.Err()
+			}
 			continue
 		}
 		origin := missOriginLookup
@@ -145,20 +161,43 @@ func SettleLegacyMisses(ctx context.Context, db *sql.DB) (current, history int, 
 const legacySettleRows = 5
 
 // RecordRetrieval counts one consultation's retrieval of each concept.
+// Concepts are trimmed, deduplicated, and written in sorted order so the same
+// consultation stored in a different order settles the same rows. The timestamp
+// comes only from the injected now clock.
 func RecordRetrieval(ctx context.Context, db *sql.DB, concepts []string, now time.Time) error {
-	if db == nil || len(concepts) == 0 {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if db == nil {
+		return nil
+	}
+	seen := make(map[string]bool, len(concepts))
+	for _, concept := range concepts {
+		concept = strings.TrimSpace(concept)
+		if concept == "" || seen[concept] {
+			continue
+		}
+		seen[concept] = true
+	}
+	if len(seen) == 0 {
 		return nil
 	}
 	if _, err := db.ExecContext(ctx, usageSchema); err != nil {
 		return fmt.Errorf("usage table: %w", err)
 	}
 	at := now.UTC().Format(time.RFC3339)
-	seen := make(map[string]bool, len(concepts))
-	for _, concept := range concepts {
-		if concept == "" || seen[concept] {
-			continue
+	ordered := make([]string, 0, len(seen))
+	for concept := range seen {
+		ordered = append(ordered, concept)
+	}
+	sort.Strings(ordered)
+	for _, concept := range ordered {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		seen[concept] = true
 		if _, err := db.ExecContext(ctx,
 			`INSERT INTO knowledge_usage (concept, retrieved, last_retrieved_at) VALUES (?, 1, ?)
 			 ON CONFLICT(concept) DO UPDATE SET retrieved = retrieved + 1, last_retrieved_at = excluded.last_retrieved_at`,
@@ -170,8 +209,16 @@ func RecordRetrieval(ctx context.Context, db *sql.DB, concepts []string, now tim
 }
 
 // RecordMiss counts a consultation that found nothing for query (the task's
-// own words, kept whole: it is what a gap is researched as).
+// own words, kept whole: it is what a gap is researched as). The timestamp
+// comes only from the injected now clock; the upsert keeps the write
+// idempotent across retries.
 func RecordMiss(ctx context.Context, db *sql.DB, query string, now time.Time) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	query = strings.TrimSpace(query)
 	if db == nil || query == "" {
 		return nil
@@ -179,10 +226,11 @@ func RecordMiss(ctx context.Context, db *sql.DB, query string, now time.Time) er
 	if err := ensureMissesTable(ctx, db); err != nil {
 		return err
 	}
+	at := now.UTC().Format(time.RFC3339)
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO knowledge_misses (query, misses, last_missed_at, origin) VALUES (?, 1, ?, ?)
 		 ON CONFLICT(query) DO UPDATE SET misses = misses + 1, last_missed_at = excluded.last_missed_at, origin = excluded.origin`,
-		query, now.UTC().Format(time.RFC3339), missOriginLookup); err != nil {
+		query, at, missOriginLookup); err != nil {
 		return fmt.Errorf("record miss: %w", err)
 	}
 	return nil
@@ -193,6 +241,12 @@ func RecordMiss(ctx context.Context, db *sql.DB, query string, now time.Time) er
 // recovered while no miss is newer (knowledge_miss_recovered), and a later
 // genuine miss reopens it. A query with no miss row records nothing.
 func RecordRecovery(ctx context.Context, db *sql.DB, query string, now time.Time) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	query = strings.TrimSpace(query)
 	if db == nil || query == "" {
 		return nil
@@ -200,9 +254,10 @@ func RecordRecovery(ctx context.Context, db *sql.DB, query string, now time.Time
 	if err := ensureMissesTable(ctx, db); err != nil {
 		return err
 	}
+	at := now.UTC().Format(time.RFC3339)
 	if _, err := db.ExecContext(ctx,
 		`UPDATE knowledge_misses SET recovered_at = ? WHERE query = ?`,
-		now.UTC().Format(time.RFC3339), query); err != nil {
+		at, query); err != nil {
 		return fmt.Errorf("record recovery: %w", err)
 	}
 	return nil

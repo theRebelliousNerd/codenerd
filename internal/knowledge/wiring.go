@@ -51,6 +51,9 @@ func (w WebChain) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
 		case len(atoms) == 0:
 			notes = append(notes, p.Name()+" answered nothing")
 		default:
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			return atoms, nil
 		}
 	}

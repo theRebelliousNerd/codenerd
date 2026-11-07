@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,9 @@ import (
 func Measure(ctx context.Context, db *sql.DB, agent any, now time.Time) ([]types.Fact, error) {
 	if db == nil {
 		return nil, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	tables, err := tableSet(ctx, db)
 	if err != nil {
@@ -39,7 +43,7 @@ func Measure(ctx context.Context, db *sql.DB, agent any, now time.Time) ([]types
 		} else if cols["version"] {
 			version = "version"
 		}
-		rows, err := db.QueryContext(ctx, `SELECT source, subject, status, CAST(strftime('%s', attempted_at) AS INTEGER), `+version+` FROM knowledge_acquisitions`)
+		rows, err := db.QueryContext(ctx, `SELECT source, subject, status, CAST(strftime('%s', attempted_at) AS INTEGER), `+version+` FROM knowledge_acquisitions ORDER BY source, subject`)
 		if err != nil {
 			return nil, fmt.Errorf("read outcomes: %w", err)
 		}
@@ -61,7 +65,7 @@ func Measure(ctx context.Context, db *sql.DB, agent any, now time.Time) ([]types
 	}
 
 	if tables["knowledge_atoms"] {
-		rows, err := db.QueryContext(ctx, `SELECT concept, content, COALESCE(source, ''), CAST(strftime('%s', created_at) AS INTEGER) FROM knowledge_atoms`)
+		rows, err := db.QueryContext(ctx, `SELECT concept, content, COALESCE(source, ''), CAST(strftime('%s', created_at) AS INTEGER) FROM knowledge_atoms ORDER BY concept, content, COALESCE(source, '')`)
 		if err != nil {
 			return nil, fmt.Errorf("read knowledge: %w", err)
 		}
@@ -83,7 +87,7 @@ func Measure(ctx context.Context, db *sql.DB, agent any, now time.Time) ([]types
 	}
 
 	if tables["knowledge_usage"] {
-		rows, err := db.QueryContext(ctx, `SELECT concept, retrieved FROM knowledge_usage`)
+		rows, err := db.QueryContext(ctx, `SELECT concept, retrieved FROM knowledge_usage ORDER BY concept`)
 		if err != nil {
 			return nil, fmt.Errorf("read usage: %w", err)
 		}
@@ -119,7 +123,7 @@ func Measure(ctx context.Context, db *sql.DB, agent any, now time.Time) ([]types
 		if cols["origin"] {
 			current = "origin = '" + missOriginLookup + "'"
 		}
-		rows, err := db.QueryContext(ctx, `SELECT query, misses, last_missed_at, `+recovered+` FROM knowledge_misses WHERE `+current)
+		rows, err := db.QueryContext(ctx, `SELECT query, misses, last_missed_at, `+recovered+` FROM knowledge_misses WHERE `+current+` ORDER BY query`)
 		if err != nil {
 			return nil, fmt.Errorf("read misses: %w", err)
 		}
@@ -142,6 +146,12 @@ func Measure(ctx context.Context, db *sql.DB, agent any, now time.Time) ([]types
 			return nil, fmt.Errorf("read misses: %w", err)
 		}
 	}
+	sort.Slice(facts, func(i, j int) bool {
+		if facts[i].Predicate != facts[j].Predicate {
+			return facts[i].Predicate < facts[j].Predicate
+		}
+		return fmt.Sprint(facts[i].Args) < fmt.Sprint(facts[j].Args)
+	})
 	return facts, nil
 }
 
@@ -171,7 +181,10 @@ func SourceKind(source string) string {
 }
 
 func tableSet(ctx context.Context, db *sql.DB) (map[string]bool, error) {
-	rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table'`)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list tables: %w", err)
 	}
@@ -184,10 +197,16 @@ func tableSet(ctx context.Context, db *sql.DB) (map[string]bool, error) {
 		out[name] = true
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return nil, fmt.Errorf("list tables: %w", err)
+	}
+	return out, nil
 }
 
 func scanRows(rows *sql.Rows, each func(*sql.Rows) error) error {
+	if rows == nil {
+		return fmt.Errorf("scan nil rows")
+	}
 	defer rows.Close()
 	for rows.Next() {
 		if err := each(rows); err != nil {

@@ -48,12 +48,21 @@ type WebSource struct {
 func (w WebSource) Name() string { return "web/" + w.Provider }
 
 func (w WebSource) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if w.Searcher == nil || !w.Searcher.SupportsGroundedWebSearch() {
 		return nil, fmt.Errorf("%w: provider %s offers no grounded web search", ErrUnavailable, w.Provider)
 	}
 	question := webQuestion(s)
 	result, err := w.Searcher.GroundedWebSearch(ctx, question)
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	sources := citedSources(result)
@@ -122,6 +131,12 @@ func (Context7Source) Name() string { return "context7" }
 func (c Context7Source) Available() bool { return c.Fetch != nil }
 
 func (c Context7Source) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if c.Fetch == nil {
 		return nil, fmt.Errorf("%w: no Context7 fetch is wired", ErrUnavailable)
 	}
@@ -129,8 +144,14 @@ func (c Context7Source) Acquire(ctx context.Context, s Subject) ([]Atom, error) 
 	if s.Module != "" {
 		topic = s.Module
 	}
+	if strings.TrimSpace(topic) == "" {
+		return nil, fmt.Errorf("%w: no topic to fetch from Context7", ErrInapplicable)
+	}
 	body, err := c.Fetch(ctx, topic)
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	var atoms []Atom
@@ -182,6 +203,12 @@ func (g GoDocSource) Available() bool {
 }
 
 func (g GoDocSource) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if g.Workspace == "" {
 		return nil, fmt.Errorf("%w: no workspace to run go doc in", ErrUnavailable)
 	}
@@ -190,12 +217,22 @@ func (g GoDocSource) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
 	}
 	run := g.Run
 	if run == nil {
+		if _, err := exec.LookPath("go"); err != nil {
+			return nil, fmt.Errorf("%w: no go toolchain to run go doc", ErrUnavailable)
+		}
 		run = ExecRun
 	}
 	version := ModuleVersion(ctx, run, g.Workspace, s.Module)
 	pkgs := []string{s.Module}
 	if g.Packages != nil {
-		if used, err := g.Packages(ctx, s.Module); err == nil && len(used) > 0 {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if used, err := g.Packages(ctx, s.Module); err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+		} else if len(used) > 0 {
 			pkgs = used
 		}
 	}
@@ -203,6 +240,9 @@ func (g GoDocSource) Acquire(ctx context.Context, s Subject) ([]Atom, error) {
 	var atoms []Atom
 	var failures []string
 	for _, pkg := range pkgs {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		out, err := run(ctx, g.Workspace, "go", "doc", pkg)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %s", pkg, firstLine(string(out), err)))
@@ -231,7 +271,19 @@ func ModuleVersion(ctx context.Context, run RunFunc, workspace, module string) s
 	if IsStdPackage(module) {
 		return "std"
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		return "unknown"
+	}
+	if run == nil || strings.TrimSpace(workspace) == "" || strings.TrimSpace(module) == "" {
+		return "unknown"
+	}
 	out, err := run(ctx, workspace, "go", "list", "-m", "-f", "{{.Version}}", module)
+	if ctx.Err() != nil {
+		return "unknown"
+	}
 	if v := strings.TrimSpace(string(out)); err == nil && v != "" {
 		return v
 	}
