@@ -217,6 +217,9 @@ func scan() ([]finding, error) {
 		if out[i].key != out[j].key {
 			return out[i].key < out[j].key
 		}
+		if out[i].file != out[j].file {
+			return out[i].file < out[j].file
+		}
 		return out[i].line < out[j].line
 	})
 	return out, nil
