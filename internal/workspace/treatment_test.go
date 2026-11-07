@@ -194,3 +194,57 @@ func TestGenerationTracksMemberSet(t *testing.T) {
 		t.Fatal("a new member did not move the generation")
 	}
 }
+
+func TestTreatmentSkipsBodiesAndEnforced(t *testing.T) {
+	t.Parallel()
+	if TreatmentIndexAndParse.SkipsBodies() {
+		t.Error("index_and_parse must not skip bodies")
+	}
+	if !TreatmentIndexNamesOnly.SkipsBodies() {
+		t.Error("index_names_only must skip bodies")
+	}
+	if !TreatmentExclude.SkipsBodies() {
+		t.Error("exclude must skip bodies")
+	}
+	if (Treatment("")).SkipsBodies() {
+		t.Error("zero treatment must not skip bodies")
+	}
+	for _, tc := range []struct {
+		name string
+		dec  TreatmentDecision
+		want bool
+	}{
+		{"operator names-only enforced", TreatmentDecision{Treatment: TreatmentIndexNamesOnly, Authority: AuthorityOperator}, true},
+		{"access restriction exclude enforced", TreatmentDecision{Treatment: TreatmentExclude, Authority: AuthorityAccessRestriction}, true},
+		{"inferred names-only is shadow", TreatmentDecision{Treatment: TreatmentIndexNamesOnly, Authority: AuthorityInferred}, false},
+		{"operator parse is not enforced", TreatmentDecision{Treatment: TreatmentIndexAndParse, Authority: AuthorityOperator}, false},
+		{"unclassified is not enforced", TreatmentDecision{}, false},
+		{"conflict never enforced", TreatmentDecision{Treatment: TreatmentIndexNamesOnly, Authority: AuthorityOperator, Dir: "fx", Conflict: true}, false},
+		{"stale never enforced", TreatmentDecision{Treatment: TreatmentIndexNamesOnly, Authority: AuthorityOperator, Dir: "data", Stale: true}, false},
+		{"stale conflict never enforced", TreatmentDecision{Dir: "fx", Conflict: true, Stale: true}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.dec.Enforced(); got != tc.want {
+				t.Errorf("Enforced() = %v, want %v for %+v", got, tc.want, tc.dec)
+			}
+		})
+	}
+	var nilView *TreatmentView
+	if nilView.Generation() != "" || nilView.PolicyDigest() != "" || nilView.Current() {
+		t.Error("nil view must report empty generation, digest and non-current")
+	}
+	if got := nilView.Treatment("data/a.go"); got != (TreatmentDecision{}) {
+		t.Errorf("nil view Treatment = %+v, want zero", got)
+	}
+	var nilMember *Membership
+	if nilMember.Generation() != "" || nilMember.Revision() != "" {
+		t.Error("nil membership must report empty generation and revision")
+	}
+	if err := nilMember.Refresh(); err == nil {
+		t.Error("nil membership Refresh must fail")
+	}
+	if _, err := nilMember.TreatmentView(); err == nil {
+		t.Error("nil membership TreatmentView must fail")
+	}
+}
