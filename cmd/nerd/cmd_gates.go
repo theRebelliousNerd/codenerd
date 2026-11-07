@@ -12,7 +12,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"codenerd/internal/core"
@@ -202,9 +205,28 @@ func (policyCorpusGate) Measure(_ context.Context, root string) gates.Measuremen
 		}
 		files = append(files, matches...)
 	}
-	for _, f := range files {
-		if _, err := checkFile(io.Discard, f, false); err != nil {
-			m.Findings = append(m.Findings, lintreport.Finding{File: lintreport.Path(f, root), Check: "check-mangle", Message: err.Error()})
+	// Each file loads into its own engine after the shared schemas, so the files
+	// are checked concurrently (one worker per CPU); findings keep file order.
+	failures := make([]error, len(files))
+	var wg sync.WaitGroup
+	var next atomic.Int64
+	for w := 0; w < min(runtime.GOMAXPROCS(0), len(files)); w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				i := int(next.Add(1)) - 1
+				if i >= len(files) {
+					return
+				}
+				_, failures[i] = checkFile(io.Discard, files[i], false)
+			}
+		}()
+	}
+	wg.Wait()
+	for i, err := range failures {
+		if err != nil {
+			m.Findings = append(m.Findings, lintreport.Finding{File: lintreport.Path(files[i], root), Check: "check-mangle", Message: err.Error()})
 		}
 	}
 	m.Duration = time.Since(start)
