@@ -566,3 +566,83 @@ func TestDRedAggregateGroupsANumberWithTheFloatThatPrintsLikeIt(t *testing.T) {
 		axRetract(t, computed, src("/b", float64(1)))
 	})
 }
+
+// A group key can be a pair or a list. int64(1) and float64(1) still print as
+// 1 inside it, and the engine's group_by folds the two keys together. The
+// count is of the printed key, so one pair of (1, /k) from each side is a
+// group of 2.
+func TestDRedAggregateGroupsAPairThatHoldsTheFloatThatPrintsLikeItsNumber(t *testing.T) {
+	names := newPolicyKernel(t, newRealKernelBase(), `
+		Decl np_n(N) bound [/name].
+		Decl np_p(P).
+		Decl np_h(P, C).
+		np_p(P) :- np_n(N), P = fn:pair(N, /k).
+		np_h(P, C) :- np_p(P) |> do fn:group_by(P), let C = fn:count().
+	`)
+	axApply(t, names, "two name pairs", "dred", func() {
+		axAssert(t, names, axFactOf("np_n", MangleAtom("/a")), axFactOf("np_n", MangleAtom("/b")))
+	})
+
+	const pairPolicy = `
+		Decl pk_a(N) bound [/any].
+		Decl pk_b(N) bound [/any].
+		Decl pk_p(P).
+		Decl pk_h(P, C).
+		Decl pk_big(P).
+		pk_p(P) :- pk_a(N), P = fn:pair(N, /k).
+		pk_p(P) :- pk_b(N), P = fn:pair(N, /k).
+		pk_h(P, C) :- pk_p(P) |> do fn:group_by(P), let C = fn:count().
+		pk_big(P) :- pk_h(P, C), C >= 2.
+	`
+	k := newPolicyKernel(t, newRealKernelBase(), pairPolicy)
+	axApply(t, k, "one number pair", "dred", func() {
+		axAssert(t, k, axFactOf("pk_a", int64(1)))
+	})
+	axApply(t, k, "the float's pair joins it", "", func() {
+		axAssert(t, k, axFactOf("pk_b", float64(1)))
+	})
+	axApply(t, k, "the float's pair leaves", "", func() {
+		axRetract(t, k, axFactOf("pk_b", float64(1)))
+	})
+
+	lists := newPolicyKernel(t, newRealKernelBase(), `
+		Decl lk_a(N) bound [/any].
+		Decl lk_b(N) bound [/any].
+		Decl lk_p(L).
+		Decl lk_h(L, C).
+		Decl lk_big(L).
+		lk_p(L) :- lk_a(N), L = fn:list(N, /k).
+		lk_p(L) :- lk_b(N), L = fn:list(N, /k).
+		lk_h(L, C) :- lk_p(L) |> do fn:group_by(L), let C = fn:count().
+		lk_big(L) :- lk_h(L, C), C >= 2.
+	`)
+	axApply(t, lists, "one number list", "dred", func() {
+		axAssert(t, lists, axFactOf("lk_a", int64(1)))
+	})
+	axApply(t, lists, "the float's list joins it", "", func() {
+		axAssert(t, lists, axFactOf("lk_b", float64(1)))
+	})
+	axApply(t, lists, "the float's list leaves", "", func() {
+		axRetract(t, lists, axFactOf("lk_b", float64(1)))
+	})
+
+	// The pair is computed in the aggregate body, so no premise column carries
+	// it. A later row of the number still belongs to the float's group.
+	computed := newPolicyKernel(t, newRealKernelBase(), `
+		Decl cpk_src(Id, N) bound [/name, /any].
+		Decl cpk_h(P, C).
+		Decl cpk_big(P).
+		cpk_h(P, C) :- cpk_src(_, N), P = fn:pair(N, /k) |> do fn:group_by(P), let C = fn:count().
+		cpk_big(P) :- cpk_h(P, C), C >= 2.
+	`)
+	src := func(id string, v any) Fact { return axFactOf("cpk_src", MangleAtom(id), v) }
+	axApply(t, computed, "computed pair, number and float", "", func() {
+		axAssert(t, computed, src("/a", int64(1)), src("/b", float64(1)))
+	})
+	axApply(t, computed, "computed pair, another number joins", "", func() {
+		axAssert(t, computed, src("/c", int64(1)))
+	})
+	axApply(t, computed, "computed pair, the float leaves", "", func() {
+		axRetract(t, computed, src("/b", float64(1)))
+	})
+}

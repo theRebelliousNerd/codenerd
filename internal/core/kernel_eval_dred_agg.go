@@ -602,11 +602,51 @@ func keyFromFact(a ast.Atom, argToKey map[int]int, n int) ([]ast.Constant, bool)
 
 func keyHasNumber(key []ast.Constant) bool {
 	for _, c := range key {
-		if c.Type == ast.NumberType || c.Type == ast.Float64Type {
+		if constantHasNumber(c) {
 			return true
 		}
 	}
 	return false
+}
+
+// constantHasNumber reports a number or float64 anywhere in c. A pair, list,
+// map, or struct prints with the element text, so fn:pair(1, /k) and
+// fn:pair(1.0, /k) are one engine group and two Mangle atoms.
+func constantHasNumber(c ast.Constant) bool {
+	switch c.Type {
+	case ast.NumberType, ast.Float64Type:
+		return true
+	case ast.PairShape:
+		fst, snd, err := c.PairValue()
+		return err == nil && (constantHasNumber(fst) || constantHasNumber(snd))
+	case ast.ListShape:
+		seq, err := c.ListSeq()
+		if err != nil {
+			return false
+		}
+		for elem := range seq {
+			if constantHasNumber(elem) {
+				return true
+			}
+		}
+		return false
+	case ast.MapShape:
+		found := false
+		_, _ = c.MapValues(func(k, v ast.Constant) error {
+			found = found || constantHasNumber(k) || constantHasNumber(v)
+			return nil
+		}, func() error { return nil })
+		return found
+	case ast.StructShape:
+		found := false
+		_, _ = c.StructValues(func(k, v ast.Constant) error {
+			found = found || constantHasNumber(k) || constantHasNumber(v)
+			return nil
+		}, func() error { return nil })
+		return found
+	default:
+		return false
+	}
 }
 
 // keysPrintAlike reports two keys the engine treats as one group and Mangle
