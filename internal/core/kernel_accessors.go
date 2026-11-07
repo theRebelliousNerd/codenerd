@@ -11,9 +11,7 @@ func (k *RealKernel) GetBaseFacts() []Fact {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 	// Return a copy to be safe
-	facts := make([]Fact, len(k.facts))
-	copy(facts, k.facts)
-	return facts
+	return k.facts.slice()
 }
 
 // GetProgramInfo returns the analyzed program info.

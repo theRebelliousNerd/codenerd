@@ -3,12 +3,14 @@ package core
 import "math"
 
 // retractionPlan is a transaction's buffered retractions compiled into sets,
-// so Commit removes all of them in one pass over the EDB.
+// so Commit removes all of them without a pass over the EDB.
 //
 // Commit used to run one compaction pass per retraction: K exact retractions
 // over N facts cost K full scans, and orientation's refresh queues one exact
 // retraction per removed row (Docs/audits/mangle-kernel-performance.md §5).
-// The plan makes the pass O(N) with a constant-time membership test per fact.
+// A compiled plan tests each fact of a predicate retracted whole or by first
+// argument in constant time, and reaches each exact retraction through the
+// index (retractPlanLocked), so no retraction costs the size of the EDB.
 //
 // Equality is not changed by the compilation. A retraction matches exactly the
 // facts argsEqual / argsSliceEqual matched before, including their cross-type
@@ -92,22 +94,38 @@ func compileRetractions(tx *KernelTransaction) *retractionPlan {
 	return p
 }
 
-// predicates names every predicate the plan can remove facts of.
-func (p *retractionPlan) predicates() map[string]struct{} {
+// scans reports whether pred's retractions need its rows walked: it is
+// retracted whole or by first argument. A predicate with only exact
+// retractions is reached by one index lookup per retraction.
+func (p *retractionPlan) scans(pred string) bool {
+	if _, whole := p.whole[pred]; whole {
+		return true
+	}
+	pr := p.byPred[pred]
+	return pr != nil && (pr.firstArg != nil || pr.slowFirst != nil)
+}
+
+// scanned names every predicate scans reports true for.
+func (p *retractionPlan) scanned() map[string]struct{} {
 	out := make(map[string]struct{}, len(p.whole)+len(p.byPred))
 	for pred := range p.whole {
 		out[pred] = struct{}{}
 	}
 	for pred := range p.byPred {
-		out[pred] = struct{}{}
+		if p.scans(pred) {
+			out[pred] = struct{}{}
+		}
 	}
 	return out
 }
 
-// keeps is the compaction predicate: a fact survives unless a retraction
-// matches it.
-func (p *retractionPlan) keeps(f Fact) bool {
-	return !p.removes(f)
+// allExact lists every exact retraction's argument list.
+func (pr *predicateRetractions) allExact() [][]any {
+	var out [][]any
+	for _, lists := range pr.exact {
+		out = append(out, lists...)
+	}
+	return append(out, pr.slowExact...)
 }
 
 // removes reports whether any compiled retraction matches f.

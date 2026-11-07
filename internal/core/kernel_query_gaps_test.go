@@ -204,7 +204,6 @@ func TestKernelQueryGap_UpdateSystemFacts_MissingWorkspace(t *testing.T) {
 	// Use a bare kernel with only the needed declarations to avoid
 	// policy-level analysis errors from the full setupMockKernel.
 	k := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}

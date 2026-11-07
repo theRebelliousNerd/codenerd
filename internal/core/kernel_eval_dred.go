@@ -403,8 +403,8 @@ func (k *RealKernel) evaluateDRedLocked(stats *EvaluationStats) error {
 		return errDRedIneligible
 	}
 	changedRows := k.factIndex.delta.rows()
-	if changedRows >= dredCutoverMinRows && float64(changedRows) > dredMaxChangeRatio*float64(len(k.facts)) {
-		return fmt.Errorf("%w: %d changed rows, %d held", errChangeTooLarge, changedRows, len(k.facts))
+	if changedRows >= dredCutoverMinRows && float64(changedRows) > dredMaxChangeRatio*float64(k.facts.len()) {
+		return fmt.Errorf("%w: %d changed rows, %d held", errChangeTooLarge, changedRows, k.facts.len())
 	}
 	idx := k.cone.dredIndex(k.programInfo)
 	plan := idx.plan(k.cone, k.dirtyPreds)

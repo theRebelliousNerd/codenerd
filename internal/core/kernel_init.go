@@ -44,7 +44,6 @@ func filterBootFacts(bootFacts []Fact) []Fact {
 // kernels with a nil bus whose Subscribe would panic.)
 func newRealKernelBase() *RealKernel {
 	return &RealKernel{
-		facts:             make([]Fact, 0),
 		cachedAtoms:       make([]ast.Atom, 0), // OPTIMIZATION: Initialize atom cache
 		factIndex:         newEDBIndex(),
 		bootFacts:         make([]Fact, 0),
@@ -67,10 +66,7 @@ func (k *RealKernel) injectBootFacts() {
 	// rebuilding the index over every remaining fact.
 	k.rebuildFactIndexLocked()
 	for _, f := range filterBootFacts(k.bootFacts) {
-		if !k.factIndex.insert(k.canonFact(f), f) {
-			continue
-		}
-		k.facts = append(k.facts, f)
+		k.storeFactLocked(k.canonFact(f), f)
 	}
 }
 

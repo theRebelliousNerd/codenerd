@@ -380,11 +380,11 @@ func TestCortexTransaction_WhenRetractAndAssert_ShouldOrderCorrectly(t *testing.
 	}
 	if len(facts) != 1 {
 		fmt.Printf("DEBUG: facts length is %d\n", len(facts))
-		fmt.Printf("DEBUG: shard total facts: %d\n", len(shard.kernel.facts))
+		fmt.Printf("DEBUG: shard total facts: %d\n", shard.kernel.facts.len())
 		fmt.Printf("DEBUG: shard initialized: %v\n", shard.kernel.IsInitialized())
 		fmt.Printf("DEBUG: shard dirty: %v\n", shard.kernel.IsDirty())
 
-		allFacts := shard.kernel.facts
+		allFacts := shard.kernel.facts.slice()
 		for i, f := range allFacts {
 			fmt.Printf("DEBUG: fact %d: %v\n", i, f)
 		}

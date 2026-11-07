@@ -297,11 +297,9 @@ func TestCompiledRetractionsMatchSequentialPasses(t *testing.T) {
 	k := newRealKernelBase()
 	k.mu.Lock()
 	for _, f := range facts {
-		if k.factIndex.insert(k.canonFact(f), f) {
-			k.facts = append(k.facts, f)
-		}
+		k.storeFactLocked(k.canonFact(f), f)
 	}
-	stored := slices.Clone(k.facts)
+	stored := k.facts.slice()
 	k.mu.Unlock()
 
 	first := []Fact{
@@ -345,7 +343,7 @@ func TestCompiledRetractionsMatchSequentialPasses(t *testing.T) {
 
 	want := sequentialRetractReference(stored, preds, set, first, exact)
 	k.mu.Lock()
-	got := slices.Clone(k.facts)
+	got := k.facts.slice()
 	gotIndex, gotSize := k.factIndex.buckets, k.factIndex.len()
 	k.rebuildFactIndexLocked()
 	wantIndex, wantSize := k.factIndex.buckets, k.factIndex.len()
@@ -430,8 +428,8 @@ func TestCloneSharesFactsButNotEDBStructure(t *testing.T) {
 	if len(parent.factIndex.bucket("perf_edge")) != 8 || parent.factIndex.has("perf_bulk", parent.canonFact(Fact{Predicate: "perf_bulk", Args: []any{"clone-only", int64(1)}})) {
 		t.Fatal("clone writes reached the parent's EDB index")
 	}
-	if len(parent.facts) != 24 {
-		t.Fatalf("parent EDB holds %d facts, want 24", len(parent.facts))
+	if parent.facts.len() != 24 {
+		t.Fatalf("parent EDB holds %d facts, want 24", parent.facts.len())
 	}
 	if _, ok := parent.store.(factstore.FactStoreWithRemove); !ok {
 		t.Fatal("parent store lost removal support")

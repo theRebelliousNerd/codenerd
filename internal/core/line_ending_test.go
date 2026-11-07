@@ -208,7 +208,7 @@ func TestTransactionManagerCommit_PreservesCRLF(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	kernel := &RealKernel{facts: make([]Fact, 0), policyDirty: true}
+	kernel := &RealKernel{policyDirty: true}
 	tm := NewTransactionManager(kernel, dir)
 	if _, err := tm.Begin(context.Background(), "preserve CRLF"); err != nil {
 		t.Fatal(err)

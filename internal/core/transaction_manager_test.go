@@ -14,7 +14,6 @@ func TestTransactionManager_Begin(t *testing.T) {
 
 	// Create a minimal kernel for testing
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}
@@ -62,7 +61,6 @@ func TestTransactionManager_AddEdit(t *testing.T) {
 	}
 
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}
@@ -123,7 +121,6 @@ func TestTransactionManager_Abort(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}
@@ -166,7 +163,6 @@ func TestTransactionManager_IsTransactionActive(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}
@@ -203,7 +199,6 @@ func TestTransactionManager_GetActiveTransaction(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}
@@ -302,7 +297,6 @@ func TestTransactionManager_ToFacts(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}
@@ -428,7 +422,6 @@ func TestTransactionManager_Concurrency(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}
@@ -528,7 +521,6 @@ func TestTransactionManager_MultiFileEdit(t *testing.T) {
 	os.WriteFile(file3, []byte("interface IUser {\n\tuserId: string;\n}\n"), 0644)
 
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}
@@ -615,7 +607,6 @@ func TestTransactionManager_MultiFileAbort(t *testing.T) {
 	os.WriteFile(file2, original2, 0644)
 
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}
@@ -679,7 +670,6 @@ func TestTransactionManager_MultiFileFactGeneration(t *testing.T) {
 	os.WriteFile(pyFile, []byte("# models\n"), 0644)
 
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}
@@ -780,7 +770,6 @@ func TestTransactionManager_MixedEditTypes(t *testing.T) {
 	os.WriteFile(toDeleteFile, []byte("package main\n// to be deleted\n"), 0644)
 
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}

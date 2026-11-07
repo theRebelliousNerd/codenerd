@@ -47,7 +47,6 @@ func TestKnowledgeGraphHydration(t *testing.T) {
 	// Create a minimal test kernel without loading full policy files
 	// to avoid parsing errors during testing
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		store:       nil, // Will be set by evaluate
 		policyDirty: true,
 		initialized: false,

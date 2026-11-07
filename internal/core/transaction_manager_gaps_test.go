@@ -21,7 +21,6 @@ import (
 func TestTransactionManagerGap_Begin_EmptyDescription(t *testing.T) {
 	tmpDir := t.TempDir()
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}
@@ -50,7 +49,6 @@ func TestTransactionManagerGap_Begin_EmptyDescription(t *testing.T) {
 func TestTransactionManagerGap_AddEdit_EmptyFilePath(t *testing.T) {
 	tmpDir := t.TempDir()
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}
@@ -94,7 +92,6 @@ func TestTransactionManagerGap_AddEdit_NilContent(t *testing.T) {
 	os.WriteFile(testFile, []byte("package main\n"), 0644)
 
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}
@@ -137,7 +134,6 @@ func TestTransactionManagerGap_AddEdit_NilContent(t *testing.T) {
 func TestTransactionManagerGap_Operations_NoActiveTransaction(t *testing.T) {
 	tmpDir := t.TempDir()
 	kernel := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}
@@ -177,7 +173,7 @@ func TestTransactionManagerGap_Operations_NoActiveTransaction(t *testing.T) {
 func TestTransactionManagerGap_InvalidStateTransitions(t *testing.T) {
 	t.Run("Begin_WhenAlreadyActive", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		kernel := &RealKernel{facts: make([]Fact, 0), policyDirty: true}
+		kernel := &RealKernel{policyDirty: true}
 		tm := NewTransactionManager(kernel, tmpDir)
 
 		_, err := tm.Begin(context.Background(), "first")
@@ -196,7 +192,7 @@ func TestTransactionManagerGap_InvalidStateTransitions(t *testing.T) {
 
 	t.Run("Commit_WhenNotReady", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		kernel := &RealKernel{facts: make([]Fact, 0), policyDirty: true}
+		kernel := &RealKernel{policyDirty: true}
 		tm := NewTransactionManager(kernel, tmpDir)
 
 		_, err := tm.Begin(context.Background(), "test")
@@ -219,7 +215,7 @@ func TestTransactionManagerGap_InvalidStateTransitions(t *testing.T) {
 		testFile := filepath.Join(tmpDir, "test.go")
 		os.WriteFile(testFile, []byte("package main\n"), 0644)
 
-		kernel := &RealKernel{facts: make([]Fact, 0), policyDirty: true}
+		kernel := &RealKernel{policyDirty: true}
 		tm := NewTransactionManager(kernel, tmpDir)
 
 		_, err := tm.Begin(context.Background(), "test")
@@ -256,7 +252,7 @@ func TestTransactionManagerGap_InvalidStateTransitions(t *testing.T) {
 
 	t.Run("AddEdit_WhenNotPending", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		kernel := &RealKernel{facts: make([]Fact, 0), policyDirty: true}
+		kernel := &RealKernel{policyDirty: true}
 		tm := NewTransactionManager(kernel, tmpDir)
 
 		_, err := tm.Begin(context.Background(), "test")
@@ -285,7 +281,7 @@ func TestTransactionManagerGap_InvalidStateTransitions(t *testing.T) {
 
 	t.Run("Prepare_WhenNotPending", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		kernel := &RealKernel{facts: make([]Fact, 0), policyDirty: true}
+		kernel := &RealKernel{policyDirty: true}
 		tm := NewTransactionManager(kernel, tmpDir)
 
 		_, err := tm.Begin(context.Background(), "test")
@@ -332,7 +328,7 @@ func TestTransactionManagerGap_Commit_RollbackOnWriteFailure(t *testing.T) {
 	os.MkdirAll(readOnlyDir, 0755)
 	failFile := filepath.Join(readOnlyDir, "sub", "fail.go")
 
-	kernel := &RealKernel{facts: make([]Fact, 0), policyDirty: true}
+	kernel := &RealKernel{policyDirty: true}
 	tm := NewTransactionManager(kernel, tmpDir)
 
 	_, err := tm.Begin(context.Background(), "rollback test")
@@ -400,7 +396,7 @@ func TestTransactionManagerGap_ExternalModification_HashMismatch(t *testing.T) {
 	original := []byte("package main\n// v1\n")
 	os.WriteFile(testFile, original, 0644)
 
-	kernel := &RealKernel{facts: make([]Fact, 0), policyDirty: true}
+	kernel := &RealKernel{policyDirty: true}
 	tm := NewTransactionManager(kernel, tmpDir)
 
 	_, err := tm.Begin(context.Background(), "conflict test")
@@ -454,7 +450,7 @@ func TestTransactionManagerGap_ExternalModification_HashMismatch(t *testing.T) {
 // but silently skips it during Commit.
 func TestTransactionManagerGap_AddEdit_InvalidEditType(t *testing.T) {
 	tmpDir := t.TempDir()
-	kernel := &RealKernel{facts: make([]Fact, 0), policyDirty: true}
+	kernel := &RealKernel{policyDirty: true}
 	tm := NewTransactionManager(kernel, tmpDir)
 
 	_, err := tm.Begin(context.Background(), "invalid type test")
@@ -512,7 +508,7 @@ func TestTransactionManagerGap_ManyEdits_Stress(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	kernel := &RealKernel{facts: make([]Fact, 0), policyDirty: true}
+	kernel := &RealKernel{policyDirty: true}
 	tm := NewTransactionManager(kernel, tmpDir)
 
 	_, err := tm.Begin(context.Background(), "stress test")
@@ -577,7 +573,7 @@ func TestTransactionManagerGap_Prepare_ContextCancellation(t *testing.T) {
 	testFile := filepath.Join(tmpDir, "cancel_test.go")
 	os.WriteFile(testFile, []byte("package main\n"), 0644)
 
-	kernel := &RealKernel{facts: make([]Fact, 0), policyDirty: true}
+	kernel := &RealKernel{policyDirty: true}
 	tm := NewTransactionManager(kernel, tmpDir)
 
 	_, err := tm.Begin(context.Background(), "cancel test")
@@ -626,7 +622,7 @@ func TestTransactionManagerGap_Concurrency_InterleavedOperations(t *testing.T) {
 		os.WriteFile(f, []byte("package main\n"), 0644)
 	}
 
-	kernel := &RealKernel{facts: make([]Fact, 0), policyDirty: true}
+	kernel := &RealKernel{policyDirty: true}
 	tm := NewTransactionManager(kernel, tmpDir)
 
 	_, err := tm.Begin(context.Background(), "concurrency test")
@@ -682,7 +678,7 @@ func TestTransactionManagerGap_Concurrency_InterleavedOperations(t *testing.T) {
 // that concurrent Begin calls are serialized correctly by the mutex.
 func TestTransactionManagerGap_Concurrency_MultipleBeginAttempts(t *testing.T) {
 	tmpDir := t.TempDir()
-	kernel := &RealKernel{facts: make([]Fact, 0), policyDirty: true}
+	kernel := &RealKernel{policyDirty: true}
 	tm := NewTransactionManager(kernel, tmpDir)
 
 	const attempts = 20

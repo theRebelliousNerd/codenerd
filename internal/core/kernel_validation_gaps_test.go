@@ -42,7 +42,6 @@ func TestKernelValidationGap_ValidateLearnedRules_NilEmpty(t *testing.T) {
 func TestKernelValidationGap_ValidateLearnedRule_SchemaValidatorNil(t *testing.T) {
 	// Create kernel WITHOUT calling SetSchemas (schemaValidator stays nil)
 	k := &RealKernel{
-		facts:       make([]Fact, 0),
 		policyDirty: true,
 		initialized: false,
 	}

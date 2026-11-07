@@ -8,7 +8,6 @@ import (
 
 func TestKernelQueryPatternFiltering(t *testing.T) {
 	k := &RealKernel{
-		facts:       make([]Fact, 0),
 		factIndex:   newEDBIndex(),
 		store:       factstore.NewSimpleInMemoryStore(),
 		policyDirty: true,
@@ -21,13 +20,14 @@ Decl name_probe(A).
 	k.policy = ``
 	k.learned = ``
 
-	k.facts = append(k.facts,
-		Fact{Predicate: "probe", Args: []any{"alpha", "one"}},
-		Fact{Predicate: "probe", Args: []any{"beta", "one"}},
-		Fact{Predicate: "probe", Args: []any{"beta", "two"}},
-		Fact{Predicate: "name_probe", Args: []any{"/foo"}},
-	)
-	k.rebuildFactIndexLocked()
+	for _, f := range []Fact{
+		{Predicate: "probe", Args: []any{"alpha", "one"}},
+		{Predicate: "probe", Args: []any{"beta", "one"}},
+		{Predicate: "probe", Args: []any{"beta", "two"}},
+		{Predicate: "name_probe", Args: []any{"/foo"}},
+	} {
+		k.storeFactLocked(k.canonFact(f), f)
+	}
 
 	if err := k.evaluate(); err != nil {
 		t.Fatalf("evaluate() error = %v", err)

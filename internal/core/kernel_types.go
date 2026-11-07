@@ -48,7 +48,7 @@ type LearnedRuleInterceptor interface {
 // RealKernel wraps the pinned mangle-go engine (codeberg.org/TauCeti/mangle-go) with proper EDB/IDB separation.
 type RealKernel struct {
 	mu             sync.RWMutex
-	facts          []Fact
+	facts          edbFacts       // ordered base facts, chunked and copy-on-write (kernel_edb_facts.go)
 	cachedAtoms    []ast.Atom     // OPTIMIZATION: Cached Mangle atoms to avoid O(N) ToAtom() conversions
 	atomCacheStale bool           // cachedAtoms were built without Decls (pre-first-eval) or under an older policy; force one reconversion
 	factIndex      *edbIndex      // Canonical fact set for deduplication, bucketed by predicate (kernel_edb_index.go)

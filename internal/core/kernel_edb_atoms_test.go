@@ -39,12 +39,28 @@ func TestEDBIndexRemembersAdmittedAtoms(t *testing.T) {
 	}
 
 	// A new program: the remembered atom belongs to the old one.
+	k.mu.RLock()
+	oldProgram := k.programInfo
+	k.mu.RUnlock()
 	k.AppendPolicy("Decl am_other(X) bound [/string].\n")
 	if _, err := k.Query("am_seen"); err != nil {
 		t.Fatal(err)
 	}
-	if memoAtom(k, a) {
-		t.Fatal("an atom admitted under the previous program is offered under the new one")
+	// The full evaluation the new program forced converted every row again, and
+	// remembered each atom under the program it converted it for: the memo
+	// holds nothing admitted under the old one.
+	k.mu.RLock()
+	remembered, rememberedHeld := k.factIndex.atoms[a.Predicate][k.canonFact(internFact(a))]
+	newProgram := k.programInfo
+	k.mu.RUnlock()
+	if newProgram == oldProgram {
+		t.Fatal("appending policy did not produce a new program")
+	}
+	if rememberedHeld && remembered.program != newProgram {
+		t.Fatal("an atom admitted under the previous program survived into the new one")
+	}
+	if !memoAtom(k, a) {
+		t.Fatal("the full evaluation did not remember the atom it converted under the new program")
 	}
 	// The next write is admitted under the new program and remembered; its
 	// DRed evaluation adds just that row (a stays in the store as the full evaluation

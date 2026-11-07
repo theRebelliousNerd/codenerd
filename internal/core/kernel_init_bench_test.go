@@ -11,7 +11,6 @@ import (
 func BenchmarkLoadMangleFiles(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		k := &RealKernel{
-			facts:             make([]Fact, 0),
 			cachedAtoms:       make([]ast.Atom, 0),
 			factIndex:         newEDBIndex(),
 			bootFacts:         make([]Fact, 0),

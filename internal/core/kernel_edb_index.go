@@ -16,8 +16,10 @@ import (
 // to find the rows of the few predicates it re-derives
 // (Docs/audits/mangle-kernel-performance.md §4).
 //
-// Buckets hold the stored Fact values themselves, never positions in k.facts,
-// which compaction shifts. Stored facts are immutable, so a clone shares them.
+// Buckets hold the stored Fact values themselves. Stored facts are immutable,
+// so a clone shares them. Where a fact sits in the EDB's ordered storage
+// (kernel_edb_facts.go) is kept apart, in slots, so a removal by canonical key
+// reaches its slot without a scan.
 type edbIndex struct {
 	buckets map[string]map[string]Fact // predicate -> canonical key -> fact
 	// arities records every arity ever indexed under a name. It never shrinks
@@ -39,6 +41,10 @@ type edbIndex struct {
 	// predicate at zero cannot have two rows on one atom, so its extensional
 	// delta needs no support check (kernel_edb_delta.go).
 	aliasRows map[string]int
+	// slots is each held fact's position in the EDB's ordered storage, by
+	// predicate and key. Positions are stable until the storage compacts, which
+	// reports every move (setSlot).
+	slots map[string]map[string]int
 	// delta is what changed since the store was last evaluated
 	// (kernel_edb_delta.go).
 	delta edbDelta
@@ -53,6 +59,7 @@ type edbIndex struct {
 	// dream check clones the kernel once per gated action.
 	ownBuckets map[string]bool
 	ownAtoms   map[string]bool
+	ownSlots   map[string]bool
 	// shared is raised by clone, which runs under the kernel's read lock and
 	// so may not touch the ownership maps; the next write, under the write
 	// lock, drops every ownership before it writes (settleShared).
@@ -65,6 +72,7 @@ func (x *edbIndex) settleShared() {
 	if x.shared.Swap(false) {
 		clear(x.ownBuckets)
 		clear(x.ownAtoms)
+		clear(x.ownSlots)
 	}
 }
 
@@ -80,9 +88,11 @@ func newEDBIndex() *edbIndex {
 		arities:    make(map[string]map[int]struct{}),
 		atoms:      make(map[string]map[string]admittedAtom),
 		aliasRows:  make(map[string]int),
+		slots:      make(map[string]map[string]int),
 		delta:      newEDBDelta(false),
 		ownBuckets: make(map[string]bool),
 		ownAtoms:   make(map[string]bool),
+		ownSlots:   make(map[string]bool),
 	}
 }
 
@@ -113,14 +123,39 @@ func (x *edbIndex) writableAtoms(pred string) map[string]admittedAtom {
 	return memo
 }
 
+// writableSlots is writableBucket for the slot positions.
+func (x *edbIndex) writableSlots(pred string) map[string]int {
+	x.settleShared()
+	pos := x.slots[pred]
+	if pos == nil || x.ownSlots[pred] {
+		return pos
+	}
+	pos = maps.Clone(pos)
+	x.slots[pred] = pos
+	x.ownSlots[pred] = true
+	return pos
+}
+
+// slotOf returns where the fact held under key sits in the EDB's storage.
+func (x *edbIndex) slotOf(pred, key string) (int, bool) {
+	pos, ok := x.slots[pred][key]
+	return pos, ok
+}
+
+// setSlot records a held fact's new position after the storage compacted.
+func (x *edbIndex) setSlot(pred, key string, pos int) {
+	x.writableSlots(pred)[key] = pos
+}
+
 // has reports whether a fact with this canonical key is held.
 func (x *edbIndex) has(pred, key string) bool {
 	_, ok := x.buckets[pred][key]
 	return ok
 }
 
-// insert records f under key; it reports false when the key was already held.
-func (x *edbIndex) insert(key string, f Fact) bool {
+// insert records f under key, stored at slot pos of the EDB's storage; it
+// reports false when the key was already held.
+func (x *edbIndex) insert(key string, f Fact, pos int) bool {
 	if _, dup := x.buckets[f.Predicate][key]; dup {
 		return false
 	}
@@ -131,6 +166,13 @@ func (x *edbIndex) insert(key string, f Fact) bool {
 		x.ownBuckets[f.Predicate] = true
 	}
 	bucket[key] = f
+	slots := x.writableSlots(f.Predicate)
+	if slots == nil {
+		slots = make(map[string]int)
+		x.slots[f.Predicate] = slots
+		x.ownSlots[f.Predicate] = true
+	}
+	slots[key] = pos
 	if hostAliasCapable(f) {
 		x.aliasRows[f.Predicate]++
 	}
@@ -157,6 +199,8 @@ func (x *edbIndex) remove(pred, key string) {
 	x.delta.noteRemove(pred, key, f, atom, hadAtom)
 	bucket := x.writableBucket(pred)
 	delete(bucket, key)
+	slots := x.writableSlots(pred)
+	delete(slots, key)
 	if hostAliasCapable(f) {
 		if x.aliasRows[pred]--; x.aliasRows[pred] <= 0 {
 			delete(x.aliasRows, pred)
@@ -168,6 +212,8 @@ func (x *edbIndex) remove(pred, key string) {
 	if len(bucket) == 0 {
 		delete(x.buckets, pred)
 		delete(x.ownBuckets, pred)
+		delete(x.slots, pred)
+		delete(x.ownSlots, pred)
 	}
 }
 
@@ -232,11 +278,16 @@ func (x *edbIndex) clone() *edbIndex {
 		arities:    make(map[string]map[int]struct{}, len(x.arities)),
 		atoms:      maps.Clone(x.atoms),
 		aliasRows:  maps.Clone(x.aliasRows),
+		slots:      maps.Clone(x.slots),
 		delta:      x.delta.clone(),
 		content:    x.content,
 		size:       x.size,
 		ownBuckets: make(map[string]bool),
 		ownAtoms:   make(map[string]bool),
+		ownSlots:   make(map[string]bool),
+	}
+	if out.slots == nil {
+		out.slots = make(map[string]map[string]int)
 	}
 	if out.buckets == nil {
 		out.buckets = make(map[string]map[string]Fact)
