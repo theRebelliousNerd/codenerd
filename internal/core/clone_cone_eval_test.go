@@ -1,9 +1,9 @@
 package core
 
 import (
-	"strings"
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 

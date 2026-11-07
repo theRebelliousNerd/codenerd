@@ -172,7 +172,7 @@ func TestResidentServicesDoNotAdvertiseTaskLifetimes(t *testing.T) {
 			if _, err := sm.SpawnWithContext(context.Background(), name, "on_demand_activation", nil); err != nil {
 				t.Fatal(err)
 			}
-			if services := serviceStore.Services(); len(services) != 1 || services[0].Name != name || services[0].Health != "stopped" || services[0].LastActivity.IsZero() {
+			if services := serviceStore.Services(); len(services) != 1 || services[0].Name != name || services[0].Health != "idle" || services[0].LastActivity.IsZero() {
 				t.Fatalf("spawn did not publish service health: %+v", services)
 			}
 			started, phases, ended, ops := fake.snapshot()

@@ -15,7 +15,7 @@ func TestServices_LifecycleHealthAndActivity(t *testing.T) {
 		panicValue string
 		want       string
 	}{
-		{name: "stopped", want: "stopped"},
+		{name: "ended cleanly", want: "idle"},
 		{name: "failed", err: errors.New("unavailable"), want: "failed"},
 		{name: "cancelled", err: context.Canceled, want: "failed"},
 		{name: "panic", panicValue: "service panic", want: "failed"},
@@ -76,7 +76,7 @@ func TestServices_SnapshotIsBoundedSortedAndDetached(t *testing.T) {
 		t.Fatalf("activations duplicated or unordered: %+v", snapshot)
 	}
 	snapshot[0].Health = "changed"
-	if s.Services()[0].Health != "stopped" {
+	if s.Services()[0].Health != "idle" {
 		t.Fatal("snapshot aliases registry")
 	}
 	if _, err := RunAgent(WithTask(context.Background(), "task"), "coder", "worker", "work", func(context.Context) (string, error) { return "", nil }); err != nil {
@@ -103,7 +103,7 @@ func TestServices_OverlappingActivationsStayReadyUntilBothStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := s.Services()[0].Health; got != "stopped" {
+	if got := s.Services()[0].Health; got != "idle" {
 		t.Fatalf("settled service = %q", got)
 	}
 }
