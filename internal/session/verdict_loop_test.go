@@ -82,6 +82,18 @@ func TestTaskVerdictPolicy_TruthTable(t *testing.T) {
 		{"no verdict", []dispatch{{"/no_verdict", 0, nil, -1}}, "/unjudged"},
 		{"unverified naming nothing", []dispatch{{"/unverified", 3, nil, -1}}, "/unjudged"},
 		{"done after a stall", []dispatch{{"/unverified", 1, []string{"/tests_not_green"}, -1}, {"/done", 0, nil, -1}}, "/verified"},
+		{"fourth verification-only dispatch with no cleared gap stalls", []dispatch{
+			{"/unverified", 1, []string{"/tests_not_green"}, -1},
+			{"/unverified", 1, []string{"/tests_not_green"}, -1},
+			{"/unverified", 1, []string{"/tests_not_green"}, -1},
+			{"/unverified", 1, []string{"/tests_not_green"}, -1},
+		}, "/stalled"},
+		{"fourth self-reported incomplete dispatch with writes still redispatches", []dispatch{
+			{"/unverified", 1, []string{"/self_reported_incomplete"}, -1},
+			{"/unverified", 1, []string{"/self_reported_incomplete"}, -1},
+			{"/unverified", 1, []string{"/self_reported_incomplete"}, -1},
+			{"/unverified", 1, []string{"/self_reported_incomplete"}, -1},
+		}, "/redispatch"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			k := loopKernel(t)

@@ -42,6 +42,7 @@ Decl task_dispatch_verified(Loop) bound [/name].
 Decl task_dispatch_open(Loop) bound [/name].
 Decl task_dispatch_blocker(Loop) bound [/name].
 Decl task_dispatch_unjudged(Loop) bound [/name].
+Decl task_dispatch_gap_cleared(Loop, N) bound [/name, /number].
 Decl task_dispatch_moved(Loop) bound [/name].
 Decl task_dispatch_stalled(Loop) bound [/name].
 Decl task_loop_verdict(Loop, Verdict) bound [/name, /name].
@@ -73,17 +74,34 @@ task_dispatch_unjudged(Loop) :-
     task_dispatch_last(Loop, N),
     !task_dispatch_has_gap(Loop, N).
 
-# Progress between two dispatches: the later one wrote, or cleared a gap the
-# earlier one left.
+# Progress between two dispatches: the later one cleared a gap the earlier one
+# left, or wrote new changes while still working through self-reported
+# incomplete batches or within the bounded verification retry window.
+task_dispatch_gap_cleared(Loop, N) :-
+    task_dispatch_seq(Loop, N),
+    Before = fn:minus(N, 1),
+    task_dispatch_gap(Loop, Before, Gap),
+    !task_dispatch_gap(Loop, N, Gap).
+
 task_dispatch_moved(Loop) :-
     task_dispatch_last(Loop, N),
+    task_dispatch_gap_cleared(Loop, N).
+task_dispatch_moved(Loop) :-
+    task_dispatch_last(Loop, N),
+    task_dispatch(Loop, N, _, Changed),
+    Changed > 0,
+    task_dispatch_gap(Loop, N, /self_reported_incomplete).
+task_dispatch_moved(Loop) :-
+    task_dispatch_last(Loop, N),
+    N <= 3,
     task_dispatch(Loop, N, _, Changed),
     Changed > 0.
 task_dispatch_moved(Loop) :-
     task_dispatch_last(Loop, N),
     Before = fn:minus(N, 1),
-    task_dispatch_gap(Loop, Before, Gap),
-    !task_dispatch_gap(Loop, N, Gap).
+    task_dispatch_gap_cleared(Loop, Before),
+    task_dispatch(Loop, N, _, Changed),
+    Changed > 0.
 task_dispatch_stalled(Loop) :-
     task_dispatch_last(Loop, N),
     N > 1,
