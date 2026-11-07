@@ -441,7 +441,7 @@ func TestReconcileSeed_MainIsCredentialFreeAndUsesCanonicalCorpus(test *testing.
 			reportFound = true
 		}
 	}
-	expected := prompt.ReconcileCounts{Upserted: len(canonical), Deleted: 1, RetainedEmbeddings: 1, ClearedEmbeddings: 1}
+	expected := prompt.ReconcileCounts{Upserted: len(canonical), Deleted: 1, RetainedEmbeddings: 1, ClearedEmbeddings: 2}
 	if !reportFound || reported != expected {
 		test.Fatalf("reported counts = %+v, want %+v\n%s", reported, expected, output)
 	}

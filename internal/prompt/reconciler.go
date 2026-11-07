@@ -65,6 +65,9 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 		return empty, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
+	if err := ensurePromptEmbeddingColumns(ctx, tx); err != nil {
+		return empty, err
+	}
 
 	// Build set of embedded IDs for obsolete deletion.
 	embeddedIDs := make([]string, 0, len(atoms))
@@ -92,7 +95,7 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 	// The statements below run once per atom (hundreds of atoms per boot), so
 	// each is prepared once for the transaction: preparing per call made
 	// SQLite's statement compiler the largest cost of reconciling the corpus.
-	selectAtom, err := tx.PrepareContext(ctx, "SELECT content, description, embedding, embedding_task FROM prompt_atoms WHERE atom_id = ?")
+	selectAtom, err := tx.PrepareContext(ctx, "SELECT content, description, embedding, embedding_task, embedding_model FROM prompt_atoms WHERE atom_id = ?")
 	if err != nil {
 		return empty, fmt.Errorf("prepare atom select: %w", err)
 	}
@@ -139,7 +142,8 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 		var existingDescription sql.NullString
 		var existingEmbedding []byte
 		var existingTask sql.NullString
-		qerr := selectAtom.QueryRowContext(ctx, atom.ID).Scan(&existingContent, &existingDescription, &existingEmbedding, &existingTask)
+		var existingModel sql.NullString
+		qerr := selectAtom.QueryRowContext(ctx, atom.ID).Scan(&existingContent, &existingDescription, &existingEmbedding, &existingTask, &existingModel)
 		if qerr != nil && qerr != sql.ErrNoRows {
 			return empty, fmt.Errorf("select atom %s: %w", atom.ID, qerr)
 		}
@@ -164,6 +168,7 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 
 		var embeddingBlob []byte
 		var embeddingTask any
+		var embeddingModel any
 		if !isNew && embeddingInputEqual && hadEmbedding {
 			embeddingBlob = existingEmbedding
 			if existingTask.Valid {
@@ -171,13 +176,19 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 			} else {
 				embeddingTask = nil
 			}
+			if existingModel.Valid {
+				embeddingModel = existingModel.String
+			} else {
+				embeddingModel = nil
+			}
 			counts.RetainedEmbeddings++
 		} else {
-			if !isNew && hadEmbedding && !embeddingInputEqual {
+			if !isNew && hadEmbedding {
 				counts.ClearedEmbeddings++
 			}
 			embeddingBlob = nil
 			embeddingTask = nil
+			embeddingModel = nil
 			// A vector row is valid only while the corresponding prompt row has a
 			// retained embedding for the same input. This also removes orphaned
 			// vectors left by older partial invalidation paths.
@@ -191,7 +202,7 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 			nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
 			string(atom.Category), nullableString(atom.Subcategory),
 			importanceColumn(atom.Importance), atom.IsMandatory, nullableString(atom.IsExclusive),
-			nullableBytes(embeddingBlob), embeddingTask,
+			nullableBytes(embeddingBlob), embeddingTask, embeddingModel,
 		)
 		if err != nil {
 			return empty, fmt.Errorf("upsert atom %s: %w", atom.ID, err)
@@ -280,14 +291,15 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 }
 
 // upsertAtomSQL writes one embedded atom's canonical fields. source_file is set
-// to 'embedded' to mark ownership.
+// to 'embedded' to mark ownership. Unstamped embeddings are never retained:
+// only a vector stamped with both a non-empty task and model survives.
 const upsertAtomSQL = `
 	INSERT INTO prompt_atoms (
 		atom_id, version, content, token_count, content_hash,
 		description, content_concise, content_min,
 		category, subcategory, importance, is_mandatory, is_exclusive,
-		source_file, embedding, embedding_task
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'embedded', ?, ?)
+		source_file, embedding, embedding_task, embedding_model
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'embedded', ?, ?, ?)
 	ON CONFLICT(atom_id) DO UPDATE SET
 		version = excluded.version,
 		content = excluded.content,
@@ -303,7 +315,8 @@ const upsertAtomSQL = `
 		is_exclusive = excluded.is_exclusive,
 		source_file = excluded.source_file,
 		embedding = excluded.embedding,
-		embedding_task = excluded.embedding_task
+		embedding_task = excluded.embedding_task,
+		embedding_model = excluded.embedding_model
 `
 
 // ReconcileEmbeddedCorpus loads the embedded corpus and reconciles the DB to it.
@@ -313,7 +326,113 @@ func ReconcileEmbeddedCorpus(ctx context.Context, db *sql.DB) (ReconcileCounts, 
 	if err != nil {
 		return ReconcileCounts{}, fmt.Errorf("load embedded corpus: %w", err)
 	}
-	return ReconcilePromptCorpus(ctx, db, corpus.All())
+	counts, err := ReconcilePromptCorpus(ctx, db, corpus.All())
+	if err != nil {
+		return ReconcileCounts{}, err
+	}
+	dropped, err := DropUnstampedPromptEmbeddings(ctx, db)
+	if err != nil {
+		return ReconcileCounts{}, err
+	}
+	counts.ClearedEmbeddings += dropped
+	return counts, nil
+}
+
+func DropUnstampedPromptEmbeddings(ctx context.Context, db *sql.DB) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if err := ensurePromptEmbeddingColumns(ctx, tx); err != nil {
+		return 0, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT atom_id, embedding, embedding_task, embedding_model FROM prompt_atoms WHERE embedding IS NOT NULL`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var unstamped []string
+	for rows.Next() {
+		var id string
+		var blob []byte
+		var task, model sql.NullString
+		if err := rows.Scan(&id, &blob, &task, &model); err != nil {
+			return 0, err
+		}
+		if len(blob) == 0 {
+			continue
+		}
+		taskStamped := task.Valid && strings.TrimSpace(task.String) != ""
+		modelStamped := model.Valid && strings.TrimSpace(model.String) != ""
+		if !taskStamped || !modelStamped {
+			unstamped = append(unstamped, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	rows.Close()
+	for _, id := range unstamped {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE prompt_atoms SET embedding = NULL, embedding_task = NULL, embedding_model = NULL WHERE atom_id = ?`, id); err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM vec_prompt_atoms WHERE atom_id = ?`, id); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "no such table") {
+				continue
+			}
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(unstamped), nil
+}
+
+func ensurePromptEmbeddingColumns(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `PRAGMA table_info(prompt_atoms)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dflt any
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		cols[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if !cols["embedding"] {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE prompt_atoms ADD COLUMN embedding BLOB`); err != nil {
+			return err
+		}
+	}
+	if !cols["embedding_task"] {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE prompt_atoms ADD COLUMN embedding_task TEXT`); err != nil {
+			return err
+		}
+	}
+	if !cols["embedding_model"] {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE prompt_atoms ADD COLUMN embedding_model TEXT`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // nullableBytes returns nil for empty blobs so SQLite stores NULL.

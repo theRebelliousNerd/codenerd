@@ -67,14 +67,15 @@ campaign_blocked(CampaignID, /no_eligible_phases) :-
 
 
 # Campaign blocked if the current phase has incomplete tasks and none can run:
-# no next task, and none waiting out a retry backoff (a backoff is a wait, not
-# a block).
+# no next task, none waiting out a retry backoff, and none running (a task held
+# back by a running dependency or conflict is waiting, not blocked).
 campaign_blocked(CampaignID, /all_tasks_blocked) :-
     current_campaign(CampaignID),
     campaign_phase(PhaseID, CampaignID, _, _, _, _),
     current_phase(PhaseID),
     !has_next_campaign_task(),
     !phase_has_backoff_task(PhaseID),
+    !phase_has_running_task(PhaseID),
     has_incomplete_phase_task(PhaseID).
 
 # --- Helpers ---
@@ -93,6 +94,10 @@ has_incomplete_phase(CampaignID) :-
 has_in_progress_phase() :-
     campaign_phase(_, CampaignID, _, _, /in_progress, _),
     current_campaign(CampaignID).
+
+# Helper: a task of the phase is running
+phase_has_running_task(PhaseID) :-
+    campaign_task(_, PhaseID, _, /in_progress, _).
 
 # Helper: check if all phase tasks are complete
 has_incomplete_phase_task(PhaseID) :-

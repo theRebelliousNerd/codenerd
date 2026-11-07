@@ -39,9 +39,25 @@ func promptAtomColumns() map[string]Column {
 var PromptCorpus = Spec{
 	Name: "prompt_corpus",
 	Tables: map[string]Table{
-		"prompt_atoms": {Columns: promptAtomColumns()},
+		"prompt_atoms": {Columns: shippedCorpusColumns()},
 	},
 	OtherTables: sharedStoreSchema,
+}
+
+// shippedVector is why the shipped seed carries no atom vectors: a vector is
+// only comparable with queries from the model that made it, and the model is
+// the workspace's configuration. The compiler embeds the project corpus with
+// the workspace's engine (internal/prompt StartPromptVectorBackfill).
+const shippedVector = "an atom vector belongs to the workspace's embedding model; the shipped seed carries none and the compiler's backfill embeds the project corpus"
+
+// shippedCorpusColumns is promptAtomColumns with the vector columns the
+// shipped seed leaves to the workspace.
+func shippedCorpusColumns() map[string]Column {
+	cols := promptAtomColumns()
+	for _, col := range []string{"embedding", "embedding_task", "embedding_model"} {
+		cols[col] = Column{Optional: shippedVector}
+	}
+	return cols
 }
 
 // PredicateCorpus is internal/core/defaults/predicate_corpus.db, the schema

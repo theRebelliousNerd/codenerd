@@ -1848,6 +1848,11 @@ func initIntelligenceLayer(bctx *bootContext) error {
 					if counts, err := prompt.ReconcilePromptCorpus(bctx.ctx, projectDB, embeddedCorpus.All()); err != nil {
 						logging.Get(logging.CategoryContext).Warn("Failed to reconcile project corpus: %v", err)
 					} else {
+						if dropped, derr := prompt.DropUnstampedPromptEmbeddings(bctx.ctx, projectDB); derr != nil {
+							logging.Get(logging.CategoryContext).Warn("Failed to drop unstamped prompt vectors: %v", derr)
+						} else {
+							counts.ClearedEmbeddings += dropped
+						}
 						logging.Get(logging.CategoryContext).Info("Reconciled project corpus: upserted=%d deleted=%d retained_embeddings=%d cleared_embeddings=%d", counts.Upserted, counts.Deleted, counts.RetainedEmbeddings, counts.ClearedEmbeddings)
 					}
 				}
@@ -1865,6 +1870,11 @@ func initIntelligenceLayer(bctx *bootContext) error {
 		return fmt.Errorf("failed to init JIT compiler: %w", err)
 	}
 	bctx.jitCompiler = jitCompiler
+	// Atoms with no vector from this workspace's embedding model are embedded
+	// in the background, owned by the compiler (joined by its Close).
+	if bctx.embeddingEngine != nil && jitCompiler.StartPromptVectorBackfill(bctx.embeddingEngine) {
+		logging.Get(logging.CategoryContext).Info("Prompt vector backfill started for %s", bctx.embeddingEngine.Name())
+	}
 	rolePrompts, err := prompt.NewRoleCompiler(jitCompiler, bctx.jitCfg)
 	if err != nil {
 		return fmt.Errorf("failed to init role prompt compiler: %w", err)

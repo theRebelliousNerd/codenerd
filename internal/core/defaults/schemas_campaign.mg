@@ -97,6 +97,22 @@ Decl eligible_task(TaskID) bound [/string].
 # task_conflict(TaskID, OtherTaskID) - optional: tasks that must not run together
 Decl task_conflict(TaskID, OtherTaskID) bound [/string, /string].
 
+# Workspace witnesses. A /test_run certifies a snapshot of the whole workspace,
+# so it must not overlap any task that writes there (policy/campaign_tasks.mg).
+# workspace_writer_task_type(TaskType) - task types that change workspace files.
+Decl workspace_writer_task_type(TaskType) bound [/name].
+# workspace_witness_task_type(TaskType) - task types whose result certifies the workspace snapshot.
+Decl workspace_witness_task_type(TaskType) bound [/name].
+# workspace_writer_task(TaskID) - derived: the task writes workspace files.
+Decl workspace_writer_task(TaskID) bound [/string].
+# workspace_witness_task(TaskID) - derived: the task certifies the workspace snapshot.
+Decl workspace_witness_task(TaskID) bound [/string].
+# task_depends_on(TaskID, AncestorID) - derived: transitive closure of task_dependency.
+Decl task_depends_on(TaskID, AncestorID) bound [/string, /string].
+# witness_awaits_writer(TaskID) - derived: a pending witness waits for a pending
+# writer of its phase that does not itself wait on the witness.
+Decl witness_awaits_writer(TaskID) bound [/string].
+
 # task_priority(TaskID, Priority)
 # Priority: /critical, /high, /normal, /low
 Decl task_priority(TaskID, Priority) bound [/string, /name].

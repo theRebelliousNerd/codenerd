@@ -586,6 +586,13 @@ type AtomSelector struct {
 	relevance      AtomRelevance
 	relevanceCache relevanceCache
 	carry          carryMemory
+
+	// stop is the owning compiler's stop context (JITPromptCompiler.Close),
+	// read synchronously before a judgment is dispatched. The compile's own
+	// context hears the stop through context.AfterFunc, one goroutine per
+	// compile, so the next admitted compile could still read it as live and
+	// ask once more after shutdown.
+	stop context.Context
 }
 
 // NewAtomSelector creates a new atom selector with default settings.

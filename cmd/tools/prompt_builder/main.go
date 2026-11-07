@@ -262,7 +262,7 @@ func reconcilePromptSeed(ctx context.Context, outputPath string, atoms []*prompt
 		return counts, fmt.Errorf("existing database is not a prompt corpus: required tables are missing")
 	}
 	for _, schemaQuery := range []string{
-		"SELECT atom_id, version, content, token_count, content_hash, category, subcategory, is_mandatory, is_exclusive, source_file, embedding, embedding_task FROM prompt_atoms LIMIT 0",
+		"SELECT atom_id, version, content, token_count, content_hash, category, subcategory, is_mandatory, is_exclusive, source_file, embedding, embedding_task, embedding_model FROM prompt_atoms LIMIT 0",
 		"SELECT atom_id, dimension, tag, is_exclusion FROM atom_context_tags LIMIT 0",
 	} {
 		columns, err := database.QueryContext(ctx, schemaQuery)
@@ -296,9 +296,19 @@ func reconcilePromptSeed(ctx context.Context, outputPath string, atoms []*prompt
 		return counts, err
 	}
 	if atoms == nil {
-		return prompt.ReconcileEmbeddedCorpus(ctx, database)
+		counts, err = prompt.ReconcileEmbeddedCorpus(ctx, database)
+	} else {
+		counts, err = prompt.ReconcilePromptCorpus(ctx, database, atoms)
 	}
-	return prompt.ReconcilePromptCorpus(ctx, database, atoms)
+	if err != nil {
+		return counts, err
+	}
+	// The seed is embedded in every binary: pages freed by dropped vectors and
+	// replaced rows are compacted away instead of shipped.
+	if _, err := database.ExecContext(ctx, "VACUUM"); err != nil {
+		return counts, fmt.Errorf("compact corpus: %w", err)
+	}
+	return counts, nil
 }
 
 // getAPIKey retrieves the Gemini API key from environment or config file.

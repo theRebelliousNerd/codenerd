@@ -412,6 +412,12 @@ func (s *AtomSelector) judgeRelevance(
 		if err := jctx.Err(); err != nil {
 			return relevanceOutcome{Elapsed: time.Since(start), Err: err, CacheHits: out.CacheHits}
 		}
+		// The owner's stop is read here, not only through jctx: jctx hears it
+		// through an AfterFunc goroutine that may not have run yet when the
+		// previous holder of this admission returned on it.
+		if s.stop != nil && s.stop.Err() != nil {
+			return relevanceOutcome{Elapsed: time.Since(start), Err: s.stop.Err(), CacheHits: out.CacheHits}
+		}
 		if len(ask) == 0 {
 			out.Elapsed = time.Since(start)
 			return out

@@ -171,21 +171,76 @@ func (c Contract) Validate() error {
 // project configuration and agent definitions are included explicitly.
 // Symlinks are rejected: an external target cannot supply bounded evidence.
 func Snapshot(ctx context.Context, root string) (string, error) {
+	m, err := SnapshotManifest(ctx, root)
+	if err != nil {
+		return "", err
+	}
+	return m.Digest(), nil
+}
+
+// Manifest is a snapshot's per-file record, in walk order. Its Digest is the
+// Snapshot digest; two manifests can also name the files that differ, so a
+// witness invalidated by a change says which file changed.
+type Manifest struct {
+	entries []manifestEntry
+}
+
+type manifestEntry struct {
+	path string
+	line string
+}
+
+// Digest is the snapshot digest of the manifest.
+func (m Manifest) Digest() string {
+	h := sha256.New()
+	for _, e := range m.entries {
+		io.WriteString(h, e.line)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// Len is the number of files the manifest certifies.
+func (m Manifest) Len() int { return len(m.entries) }
+
+// ChangedPaths lists, sorted, every path added, removed, or changed in mode
+// or content between before and after.
+func ChangedPaths(before, after Manifest) []string {
+	was := make(map[string]string, len(before.entries))
+	for _, e := range before.entries {
+		was[e.path] = e.line
+	}
+	var changed []string
+	for _, e := range after.entries {
+		line, ok := was[e.path]
+		if !ok || line != e.line {
+			changed = append(changed, e.path)
+		}
+		delete(was, e.path)
+	}
+	for p := range was {
+		changed = append(changed, p)
+	}
+	sort.Strings(changed)
+	return changed
+}
+
+// SnapshotManifest walks root as Snapshot does and keeps each file's record.
+func SnapshotManifest(ctx context.Context, root string) (Manifest, error) {
 	if strings.TrimSpace(root) == "" {
-		return "", errors.New("explicit workspace required for evidence")
+		return Manifest{}, errors.New("explicit workspace required for evidence")
 	}
 	root, err := tools.CanonicalWorkspaceRoot(root)
 	if err != nil {
-		return "", err
+		return Manifest{}, err
 	}
 	mem, err := workspace.For(root)
 	if err != nil {
-		return "", err
+		return Manifest{}, err
 	}
 	if err := mem.Refresh(); err != nil {
-		return "", err
+		return Manifest{}, err
 	}
-	h := sha256.New()
+	var m Manifest
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -237,13 +292,13 @@ func Snapshot(ctx context.Context, root string) (string, error) {
 		if closeErr != nil {
 			return closeErr
 		}
-		fmt.Fprintf(h, "%q:%o:%x\n", filepath.ToSlash(rel), info.Mode(), fh.Sum(nil))
+		m.entries = append(m.entries, manifestEntry{path: slash, line: fmt.Sprintf("%q:%o:%x\n", slash, info.Mode(), fh.Sum(nil))})
 		return nil
 	})
 	if err != nil {
-		return "", err
+		return Manifest{}, err
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return m, nil
 }
 
 func Begin(ctx context.Context, root string, c Contract) (*Transaction, error) {
