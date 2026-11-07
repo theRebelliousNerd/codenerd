@@ -1,5 +1,8 @@
 # Session contributor guidance
 
+This package owns the clean execution loop, the tool dispatch path, and the
+verification gates. It is where a turn's honesty about its own work is enforced.
+
 - Preserve the control split: the model proposes; the effective capability
   envelope narrows availability; exact Mangle `permitted(Action,Target,Payload)`
   authorizes; VirtualStore validates and executes.

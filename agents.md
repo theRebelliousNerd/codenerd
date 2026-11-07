@@ -116,7 +116,7 @@ running at all.
 - Preserve the north star, hard requirements, live command snippets, and a current file map.
 - Move deep reference material into scoped docs such as `internal/mangle/agents.md`, `internal/prompt/agents.md`, and `internal/core/agents.md`.
 - When editing this file, verify that every path and command still works.
-- `agents.md` is a byte-identical clone of this file (this file is gitignored; `agents.md` is the tracked twin). Edit here, copy there, `cmp` them before committing.
+- Every `agents.md` (and `AGENTS.md`) outside the harness mirrors is the source for two generated twins in the same directory: a byte-identical `CLAUDE.md` (gitignored, for Claude Code) and the body of `nerd.md` (tracked, for codeNERD; an existing `nerd.md` keeps its frontmatter). Edit `agents.md`, then run `go run ./cmd/tools/agent_docs`; `TestAgentDocTwinsAreCurrent` fails while a twin is stale.
 
 ## Quick Commands
 
@@ -171,6 +171,7 @@ If you see `debug_program_ERROR.mg`, the system crashed and dumped combined `.mg
 - **OODA loop**: Observe -> Orient -> Decide -> Act.
 - **Fact flow**: user input -> perception -> `user_intent` -> kernel derives `next_action` -> VirtualStore executes -> articulation responds.
 - **Constitutional safety**: every action must derive `permitted(...)`; default deny.
+- **nerd.md frontmatter is enforced, not advice**: `forbid` paths become `project_forbidden_path` facts at boot and are checked before any write-mutation tool runs.
 
 ## Working Map
 
