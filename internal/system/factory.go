@@ -1520,6 +1520,11 @@ func refreshWorldModelAtBoot(bctx *bootContext) {
 		logging.World("world model unchanged at boot")
 		return
 	}
+	// A refused spec file checks none of its obligations: say so, rather than
+	// let a green kernel read as "all requirements met".
+	for _, warning := range res.SpecWarnings {
+		fmt.Fprintf(os.Stderr, "Warning: spec file refused, none of its requirements are checked: %s\n", warning)
+	}
 	if res.Unchanged {
 		logging.World("world model unchanged at boot: files=%d in %v", res.FileCount, res.Duration)
 		return

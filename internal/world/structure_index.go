@@ -616,6 +616,11 @@ func (s *StructureIndex) Callers(ctx context.Context, query string) ([]StructSym
 	if len(targets) == 0 {
 		return nil, nil, stats, nil
 	}
+	return targets, s.callersOfLocked(targets), stats, nil
+}
+
+// callersOfLocked is the call sites of the resolved targets, exact matches first.
+func (s *StructureIndex) callersOfLocked(targets []StructSymbol) []StructCallerMatch {
 	names := make(map[string][]StructSymbol)
 	for _, t := range targets {
 		names[t.name] = append(names[t.name], t)
@@ -680,7 +685,7 @@ func (s *StructureIndex) Callers(ctx context.Context, query string) ([]StructSym
 		}
 		return out[i].Line < out[j].Line
 	})
-	return targets, out, stats, nil
+	return out
 }
 
 // StructCallee is one call made from inside a symbol, with the declarations
@@ -703,6 +708,11 @@ func (s *StructureIndex) Callees(ctx context.Context, query string) ([]StructSym
 	if len(targets) == 0 {
 		return nil, nil, stats, nil
 	}
+	return targets, s.calleesOfLocked(targets), stats, nil
+}
+
+// calleesOfLocked is the calls made inside the resolved targets.
+func (s *StructureIndex) calleesOfLocked(targets []StructSymbol) []StructCallee {
 	byName := make(map[string][]StructSymbol)
 	for _, f := range s.files {
 		for _, sym := range f.symbols {
@@ -746,7 +756,7 @@ func (s *StructureIndex) Callees(ctx context.Context, query string) ([]StructSym
 			out = append(out, callee)
 		}
 	}
-	return targets, out, stats, nil
+	return out
 }
 
 // Unreferenced returns the Go, Python, TypeScript and JavaScript declarations

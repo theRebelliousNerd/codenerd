@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/orient"
+	"codenerd/internal/specs"
 	"codenerd/internal/store"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
@@ -67,6 +68,17 @@ type IncrementalResult struct {
 	RepoMeasured bool
 	RepoFacts    []core.Fact
 
+	// SpecMeasured reports that SpecFacts is the complete current set of spec
+	// pairing rows (spec_facts.go). Applying such a result replaces the
+	// kernel's rows for exactly the SpecPredicates. It is false when no file the
+	// pairing reads has changed since this scanner last measured it.
+	SpecMeasured bool
+	SpecFacts    []core.Fact
+	// SpecWarnings name the spec files the measurement refused whole;
+	// SpecProblems are the citations it read and refused (an ambiguous name).
+	SpecWarnings []string
+	SpecProblems []specs.Problem `json:"-"`
+
 	// Orientation is the exact projection delta observed by orient.Refresh.
 	// It is present even when the workspace source census is unchanged.
 	Orientation *orient.RefreshResult `json:"-"`
@@ -108,6 +120,9 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		return res, err
 	}
 	if err := s.attachRepoFacts(ctx, root, res); err != nil {
+		return nil, err
+	}
+	if err := s.attachSpecFacts(ctx, root, res); err != nil {
 		return nil, err
 	}
 	return res, nil

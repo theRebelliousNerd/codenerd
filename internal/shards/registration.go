@@ -88,6 +88,13 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"mg_negation_rule", "mg_recursive_rule",
 				"cyclomatic_complexity", "nesting_depth", "file_line_count", "detected_security_flow", "placeholder_site",
 				"git_history", "review_finding",
+				// Spec pairing (world/spec_facts.go, policy/spec_pairing.mg):
+				// every rule joins these against each other and nothing else,
+				// so the measured pairing and its judgments live together.
+				"spec_section", "spec_element", "spec_link", "spec_element_property",
+				"spec_element_calls", "spec_requirement", "requires", "requires_calls",
+				"spec_drift", "dangling_spec_link", "unspecced_element", "spec_coverage",
+				"requirement_violated",
 				"pytest_failure",
 				// Edit plans and pending mutations are judged against the
 				// dependency graph (coder_impact.mg, coder_safety.mg,

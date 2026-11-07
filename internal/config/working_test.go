@@ -190,3 +190,32 @@ func TestWorkingConfig_CheckNamesEachContradiction(t *testing.T) {
 		t.Fatal("a working section with repeat_threshold 1 loaded")
 	}
 }
+
+// The specs block of the holographic context spends its own share, and its
+// excerpt floor is a rune count: below 1 is refused, and it has no percent cap.
+func TestWorkingConfig_SpecBlockReachesThePolicy(t *testing.T) {
+	def := DefaultWorkingConfig()
+	if def.HolographicSpecsSharePercent != 2 || def.HolographicSpecExcerptFloor != 160 {
+		t.Fatalf("spec defaults = share %d, floor %d; want 2, 160", def.HolographicSpecsSharePercent, def.HolographicSpecExcerptFloor)
+	}
+	keys := map[string]int64{}
+	for _, p := range def.Params() {
+		keys[p.Key] = p.Value
+	}
+	if keys["/working_holographic_specs_share_percent"] != 2 || keys["/working_holographic_spec_excerpt_floor"] != 160 {
+		t.Fatalf("the policy does not receive the spec params: %v", keys)
+	}
+	cfg, err := LoadUserConfig(writeCampaignConfig(t, `{"working": {"holographic_specs_share_percent": 7, "holographic_spec_excerpt_floor": 500}}`))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := cfg.GetWorkingConfig(); got.HolographicSpecsSharePercent != 7 || got.HolographicSpecExcerptFloor != 500 {
+		t.Fatalf("spec keys = share %d, floor %d; want 7, 500", got.HolographicSpecsSharePercent, got.HolographicSpecExcerptFloor)
+	}
+	if _, err := LoadUserConfig(writeCampaignConfig(t, `{"working": {"holographic_specs_share_percent": 101}}`)); err == nil {
+		t.Fatal("a specs share of 101 loaded; the checker must refuse it")
+	}
+	if _, err := LoadUserConfig(writeCampaignConfig(t, `{"working": {"holographic_spec_excerpt_floor": -1}}`)); err == nil {
+		t.Fatal("a spec excerpt floor of -1 loaded; the checker must refuse it")
+	}
+}

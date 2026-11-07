@@ -39,6 +39,9 @@ type Scanner struct {
 	// (repo_facts.go), so an unchanged history is not re-read on every scan.
 	repoMu   sync.Mutex
 	repoMemo string
+
+	// specMeasure caches the spec pairing measurement (spec_facts.go).
+	specMeasure specMeasurer
 }
 
 // NewScanner creates a new filesystem Scanner.

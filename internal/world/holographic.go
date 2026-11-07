@@ -641,6 +641,13 @@ func (h *HolographicProvider) promptSection(ctx context.Context, filePath string
 		b.WriteString(outline)
 	}
 
+	// The specs that name this file's elements (or, for a Markdown file, the
+	// code its sections name), with what the kernel derived about them.
+	if specBlock := h.specBlock(ctx, filePath, h.workspaceRel(hc.sourcePath), budgetBytes, decide); specBlock != "" {
+		substantive = true
+		b.WriteString(specBlock)
+	}
+
 	if !substantive {
 		return ""
 	}

@@ -21,6 +21,8 @@ package world
 //	session run (the focus)    code_element + element_* for the file a     per turn,
 //	                           turn is looking at (codedom_facts.go)        re-parsed on edit
 //	git scanner                git_history, churn_rate, current_user   when HEAD or the author moves
+//	spec pairing               spec_section/element/link and the      when a document, a code
+//	(spec_facts.go)            requirement facts of Docs/specs        file or a spec file changes
 //
 // The rule the matrix encodes: a writer may wipe a predicate only if the same
 // pass re-asserts it. A fast scan re-asserts scanner-owned predicates, so it
@@ -149,6 +151,7 @@ var OwnerGroups = []OwnerGroup{
 	{"lsp", "projected by language servers; a scan must not delete these", LSPPredicates},
 	{"session scope", "ephemeral, session-lifetime", SessionScopePredicates},
 	{"git", "replaced whole when the repository history moves", GitPredicates},
+	{"spec pairing", "replaced whole when a document, a code file or a spec file changes (spec_facts.go)", SpecPredicates},
 }
 
 // WorldPredicates enumerates every EDB predicate produced by the world model,

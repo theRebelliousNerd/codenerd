@@ -32,6 +32,11 @@ func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 	if err := applyRepoFacts(kernel, res); err != nil {
 		return err
 	}
+	// The spec pairing follows the documents and the code it pairs, so it
+	// applies whether or not the source census changed.
+	if err := applySpecFacts(kernel, res); err != nil {
+		return err
+	}
 	if res.Unchanged {
 		// The source world has no delta to apply. Orientation is independent:
 		// publish its exact projection change without retracting world globals.
