@@ -134,16 +134,22 @@ func (g recurseGit) commit(ctx context.Context, paths []string, subject string, 
 	}
 	msg := fmt.Sprintf("%s\n\n%s: %d\n%s: %s\n", subject, recurseCycleTrailer, cycle, recurseFindingTrailer, findingID)
 	args := append([]string{"commit", "--quiet", "--file=-", "--"}, paths...)
-	if name, _ := g.run(ctx, nil, "config", "user.email"); strings.TrimSpace(name) == "" {
-		// No identity configured: commit as the loop rather than fail every
-		// kept attempt. A configured identity always wins.
-		args = append([]string{"-c", "user.name=codeNERD recurse", "-c", "user.email=recurse@codenerd.invalid"}, args...)
-	}
+	args = append(g.identityArgs(ctx), args...)
 	if _, err := g.run(ctx, []byte(msg), args...); err != nil {
 		return "", err
 	}
 	head, err := g.run(ctx, nil, "rev-parse", "HEAD")
 	return strings.TrimSpace(head), err
+}
+
+// identityArgs are the leading git arguments that give a commit an author
+// when none is configured: the loop commits as itself rather than fail every
+// kept attempt. A configured identity always wins.
+func (g recurseGit) identityArgs(ctx context.Context) []string {
+	if email, _ := g.run(ctx, nil, "config", "user.email"); strings.TrimSpace(email) == "" {
+		return []string{"-c", "user.name=codeNERD recurse", "-c", "user.email=recurse@codenerd.invalid"}
+	}
+	return nil
 }
 
 // attemptDiff is what an attempt changed, for the next attempt at the same
@@ -223,9 +229,11 @@ func (g recurseGit) revert(ctx context.Context, paths []string) error {
 }
 
 // keptCycles reads the cycles the log records as kept, newest first, up to
-// limit commits back.
+// limit commits back. It follows the first-parent chain only: the loop's own
+// commits and its absorb merges are on it, the base's commits that an absorb
+// brought in are not (recurse_base.go).
 func (g recurseGit) keptCycles(ctx context.Context, limit int) (map[int]string, error) {
-	out, err := g.run(ctx, nil, "log", fmt.Sprintf("-%d", limit), "--format=%H%x00%(trailers:key="+recurseCycleTrailer+",valueonly)%x01")
+	out, err := g.run(ctx, nil, "log", "--first-parent", fmt.Sprintf("-%d", limit), "--format=%H%x00%(trailers:key="+recurseCycleTrailer+",valueonly)%x01")
 	if err != nil {
 		return nil, err
 	}

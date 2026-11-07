@@ -207,6 +207,7 @@ type EvaluationStats struct {
 	SupportChecks   int           // dred: over-deleted facts tested for support in the new state
 	RederiveRounds  int           // dred: re-derivation passes (the seed pass, then one per frontier)
 	VariantsBuilt   int           // dred: rule variants listed for a phase
+	Derivations     int           // dred: heads the variants produced before deduplication; ordered variants find each derivation once
 	Profile         string        // dred: time per phase and costliest rule heads
 }
 

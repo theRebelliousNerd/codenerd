@@ -17,3 +17,8 @@ schema: nerd/v1
   directories so a scan of the wrong project cannot pass unnoticed.
 - Coverage and architecture-hint gathering consume the scanner's FileTopology;
   join that producer before reading its map. Keep independent collectors parallel.
+- Recurse refreshes itself only at the safe point between node visits: absorb
+  the base branch (`--no-ff` merge; a conflict is aborted with the tree
+  verified unchanged), then rebuild and re-exec when the kept or absorbed
+  changes touch the codeNERD binary's build set. Never absorb or re-exec
+  mid-attempt, and never let `nerd.md` text choose a binary to exec.

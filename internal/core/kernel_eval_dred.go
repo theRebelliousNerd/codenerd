@@ -400,7 +400,7 @@ func (d deltaStores) each(fn func(ast.Atom)) {
 // dredOldView reads the store as it was before this evaluation for every
 // predicate whose change is recorded: inserted rows hidden, removed rows shown.
 type dredOldView struct {
-	cur         factstore.FactStore
+	cur         factstore.ReadOnlyFactStore
 	plus, minus deltaStores
 }
 
@@ -553,7 +553,7 @@ func (k *RealKernel) evaluateDRedLocked(stats *EvaluationStats) error {
 		DeltaVariants: int(run.variants.Load()), DeltaFacts: run.inserted, OverDeleted: run.overDeleted, Rederived: run.rederived,
 		ChangedRows: changedRows, AggByDelta: run.aggDelta, AggRecomputed: run.aggRecomputed, Profile: run.profile.summary(5),
 		SupportChecks: int(run.profile.supportChecks.Load()), RederiveRounds: int(run.profile.rederiveRounds.Load()),
-		VariantsBuilt: int(run.profile.variantsBuilt.Load()),
+		VariantsBuilt: int(run.profile.variantsBuilt.Load()), Derivations: int(run.profile.derivations.Load()),
 	}
 	logging.KernelDebug("evaluate.dred: written=%v maintain=%d replace=%d inserted=%d overdeleted=%d rederived=%d variants=%d",
 		written, len(plan.maintain), len(plan.replace), run.inserted, run.overDeleted, run.rederived, run.variants.Load())
@@ -839,19 +839,62 @@ func (r *dredRun) isDeferred(sym ast.PredicateSym) bool {
 // joined first when that cannot leave a later premise unbound: an atom over
 // plain terms binds variables and needs none. order is the memoized premise
 // order for this variant; when nil the order is computed as before.
-func (r *dredRun) variant(ctx engine.QueryContext, clause ast.Clause, pi int, negated bool, delta factstore.ReadOnlyFactStore, order []int) ([]ast.Atom, error) {
-	solutions, err := r.variantSolutions(ctx, clause, pi, negated, delta, order)
+func (r *dredRun) variant(ctx engine.QueryContext, clause ast.Clause, pi int, negated bool, delta factstore.ReadOnlyFactStore, order []int, before *dredBefore) ([]ast.Atom, error) {
+	solutions, err := r.variantSolutions(ctx, clause, pi, negated, delta, order, before)
 	if err != nil || len(solutions) == 0 {
 		return nil, err
 	}
 	return headsOf(clause, solutions)
 }
 
+// dredBefore is a phase's change as its variants must not read it at a
+// premise written before the variant's delta premise: pos are the rows the
+// phase's positive premises read as delta (removals when over-deleting,
+// inserts when inserting, a recursive round's newest rows), neg the rows its
+// negated premises read (the other sign).
+//
+// Semi-naive variants that read the full state at every other premise find a
+// derivation once for each changed premise it uses: a rule over four
+// relations all replaced in one write derived every row four times (the spec
+// pairing rules, 3.2 s of one boot pass). Ordered, variant i reads the delta
+// at premise i, the state without the change at every premise before i (a
+// positive premise without pos, a negated one with neg, so "!q" holds only
+// where q was absent before and after), and the phase state after i. A
+// derivation is then found by exactly one variant: the one of its first
+// changed premise.
+type dredBefore struct {
+	pos, neg deltaStores
+}
+
+// ctxFor is the context premise i reads in a variant whose delta premise is
+// pi: the phase context, or for a premise written before pi, that context
+// without the change.
+func (b *dredBefore) ctxFor(ctx engine.QueryContext, premise ast.Term, i, pi int, isDeferred func(ast.PredicateSym) bool) engine.QueryContext {
+	if b == nil || i > pi {
+		return ctx
+	}
+	switch p := premise.(type) {
+	case ast.Atom:
+		if isDeferred(p.Predicate) || b.pos[p.Predicate] == nil {
+			return ctx
+		}
+		ctx.Store = dredOldView{cur: ctx.Store, plus: b.pos}
+	case ast.NegAtom:
+		if isDeferred(p.Atom.Predicate) || b.neg[p.Atom.Predicate] == nil {
+			return ctx
+		}
+		ctx.Store = dredOldView{cur: ctx.Store, minus: b.neg}
+	}
+	return ctx
+}
+
 // variantSolutions is variant's body: the substitutions under which clause's
 // premises hold with premise pi reading only delta. order is the memoized
 // premise order for this variant; when nil the order is computed as before,
-// so the evaluation is the sequential one either way.
-func (r *dredRun) variantSolutions(ctx engine.QueryContext, clause ast.Clause, pi int, negated bool, delta factstore.ReadOnlyFactStore, order []int) ([]unionfind.UnionFind, error) {
+// so the evaluation is the sequential one either way. before, when set, hides
+// the phase's change from the premises written before pi (dredBefore); nil
+// reads the phase state at every other premise.
+func (r *dredRun) variantSolutions(ctx engine.QueryContext, clause ast.Clause, pi int, negated bool, delta factstore.ReadOnlyFactStore, order []int, before *dredBefore) ([]unionfind.UnionFind, error) {
 	r.variants.Add(1)
 	var deltaPremise ast.Atom
 	if negated {
@@ -884,7 +927,7 @@ func (r *dredRun) variantSolutions(ctx engine.QueryContext, clause ast.Clause, p
 			if i == pi {
 				step, err = deltaCtx.EvalPremise(deltaPremise, s)
 			} else {
-				step, err = ctx.EvalPremise(clause.Premises[i], s)
+				step, err = before.ctxFor(ctx, clause.Premises[i], i, pi, r.isDeferred).EvalPremise(clause.Premises[i], s)
 			}
 			if err != nil {
 				return nil, err

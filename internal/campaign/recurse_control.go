@@ -102,6 +102,9 @@ type RecurseStatus struct {
 	OpenByPass []int
 	// ThisPass are the current pass's ratchets, oldest first.
 	ThisPass []recurseRecord
+	// Base is the base branch the run absorbs and the binaries it built for
+	// itself (recurse_status.go).
+	Base RecurseBaseStatus
 }
 
 // ReadRecurseStatus reads a workspace's loop status. A workspace recurse has
@@ -113,6 +116,7 @@ func ReadRecurseStatus(workspace string) (RecurseStatus, error) {
 		return st, err
 	}
 	for _, r := range recs {
+		st.Base.note(r)
 		switch r.Step {
 		case stepPassStart:
 			if r.Pass != st.Pass {
@@ -165,6 +169,7 @@ func (s RecurseStatus) String() string {
 		}
 		fmt.Fprintf(&b, "Open findings at the end of each pass: %s\n", strings.Join(trend, " -> "))
 	}
+	b.WriteString(s.Base.render())
 	for _, r := range s.ThisPass {
 		fmt.Fprintf(&b, "  cycle %d  %-9s %s", r.Cycle, strings.TrimPrefix(r.Outcome, "/"), r.Node)
 		if r.Commit != "" {

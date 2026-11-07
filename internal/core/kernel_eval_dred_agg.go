@@ -204,7 +204,7 @@ func (r *dredRun) eachChange(rule dredRule, oldCtx, newCtx engine.QueryContext, 
 		if delta == nil {
 			return nil
 		}
-		sols, err := r.variantSolutions(ctx, clause, i, negated, delta, rule.orders[i])
+		sols, err := r.variantSolutions(ctx, clause, i, negated, delta, rule.orders[i], nil)
 		if err != nil {
 			return err
 		}
