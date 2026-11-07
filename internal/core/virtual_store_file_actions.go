@@ -15,6 +15,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/observation"
 	"codenerd/internal/observation/precondition"
+	"codenerd/internal/tactile"
 	"codenerd/internal/tools"
 	toolscore "codenerd/internal/tools/core"
 	"codenerd/internal/types"
@@ -240,31 +241,28 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 		}, nil
 	}
 
-	// Overwriting an existing file keeps that file's line ending; a new file
-	// keeps the previous behaviour. See internal/core/line_ending.go.
-	ending, exists, err := existingLineEnding(path)
-	if err != nil {
-		return ActionResult{Success: false, Error: err.Error()}, nil
+	// Overwriting an existing file keeps every line the write did not change
+	// byte-identical, line endings included (tactile.SpliceLineEndings); a new
+	// file keeps the previous behaviour. before nil is a new file.
+	before, readErr := os.ReadFile(path)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return ActionResult{Success: false, Error: readErr.Error()}, nil
 	}
-	if exists {
-		content = normalizeLineEnding(content, ending)
+	if readErr == nil {
+		content = string(tactile.SpliceLineEndings(before, content))
+	} else {
+		before = nil
 	}
 
 	// A write that hides its own file from the build is refused before it
 	// lands (dogfood run 5: a repair added //go:build ignore to make the
-	// build pass). before nil is a new file; a file that cannot be read
-	// for another reason skips the check rather than failing the write.
-	if before, readErr := os.ReadFile(path); readErr == nil || os.IsNotExist(readErr) {
-		if readErr != nil {
-			before = nil
-		}
-		if refuse := v.rejectBuildExclusion(path, before, []byte(content)); refuse != nil {
-			logging.Get(logging.CategoryVirtualStore).Warn("Write refused: %v", refuse)
-			return ActionResult{Success: false, Error: refuse.Error()}, nil
-		}
+	// build pass).
+	if refuse := v.rejectBuildExclusion(path, before, []byte(content)); refuse != nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("Write refused: %v", refuse)
+		return ActionResult{Success: false, Error: refuse.Error()}, nil
 	}
 
-	err = atomicfile.WriteFilePreservingMode(path, []byte(content), 0o644)
+	err := atomicfile.WriteFilePreservingMode(path, []byte(content), 0o644)
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Failed to write file %s: %v", path, err)
 		return ActionResult{
@@ -325,11 +323,10 @@ func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (A
 	}
 
 	// Match in LF space so model-emitted multi-line text can target either LF
-	// or CRLF files. Restore the file's original convention after replacement.
-	originalEnding := detectLineEnding(data)
-	content := normalizeLineEnding(string(data), "\n")
-	oldContent = normalizeLineEnding(oldContent, "\n")
-	newContent = normalizeLineEnding(newContent, "\n")
+	// or CRLF files. The splice below restores each line's own ending.
+	content := tactile.NormalizeLineEnding(string(data), "\n")
+	oldContent = tactile.NormalizeLineEnding(oldContent, "\n")
+	newContent = tactile.NormalizeLineEnding(newContent, "\n")
 	if !strings.Contains(content, oldContent) {
 		logging.Get(logging.CategoryVirtualStore).Warn("Edit failed: pattern not found in %s", path)
 		return ActionResult{
@@ -343,11 +340,12 @@ func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (A
 
 	newFileContent := strings.Replace(content, oldContent, newContent, 1)
 
-	// The spliced-in replacement carries whatever line ending the model emitted,
-	// which is how a CRLF file ended up with 36 lone LFs in it. Re-normalize the
-	// whole file to its own convention. The file exists by construction here —
-	// it was just read — so this branch always applies.
-	newFileContent = normalizeLineEnding(newFileContent, originalEnding)
+	// The replacement carries whatever line ending the model emitted, which is
+	// how a CRLF file ended up with 36 lone LFs in it. Splice the result onto
+	// the bytes just read: the replaced lines take the endings of the lines
+	// they replace and every other line keeps its own, so a file with mixed
+	// endings is not renormalized outside the edit.
+	newFileContent = string(tactile.SpliceLineEndings(data, newFileContent))
 
 	// Like the write path: an edit that hides its own file from the build
 	// is refused before it lands. content is the file as read; only added

@@ -99,11 +99,14 @@ func (v *FileWriteValidator) Validate(ctx context.Context, req ActionRequest, re
 	}
 
 	// 4. Hash comparison
-	// File writers preserve the destination newline convention. Compare the
-	// content they were instructed to write after that documented conversion.
-	expectedContent = tactile.NormalizeLineEnding(expectedContent, tactile.DetectLineEnding(actualContent))
+	// File writers keep every line they did not change in its own ending
+	// (tactile.SpliceLineEndings), so a file may legitimately mix LF and CRLF.
+	// The write is judged on its content: both sides are folded to LF first.
+	// Expected bytes cannot be recomputed here without the pre-write file.
+	expectedContent = tactile.NormalizeLineEnding(expectedContent, "\n")
+	actualLF := tactile.NormalizeLineEnding(string(actualContent), "\n")
 	expectedHash := sha256.Sum256([]byte(expectedContent))
-	actualHash := sha256.Sum256(actualContent)
+	actualHash := sha256.Sum256([]byte(actualLF))
 
 	if expectedHash != actualHash {
 		return ValidationResult{
@@ -115,7 +118,7 @@ func (v *FileWriteValidator) Validate(ctx context.Context, req ActionRequest, re
 				"expected_hash": hex.EncodeToString(expectedHash[:8]),
 				"actual_hash":   hex.EncodeToString(actualHash[:8]),
 				"expected_size": len(expectedContent),
-				"actual_size":   len(actualContent),
+				"actual_size":   len(actualLF),
 			},
 		}
 	}

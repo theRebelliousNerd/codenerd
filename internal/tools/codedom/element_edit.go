@@ -222,11 +222,11 @@ func applyChange(ctx context.Context, re *resolvedElement, ch codemodel.Change, 
 	return &elementEdit{lf: re.file, before: re.model, out: out, refs: re.refs}, nil
 }
 
-// commit writes the edit in the file's own line-ending convention, records
+// commit writes the edit with every line the edit left alone byte-identical
+// (mixed line endings included), records
 // what it changed for the kernel, and renders the answer.
 func (ee *elementEdit) commit(ctx context.Context, verb string) (string, error) {
-	ending := tactile.DetectLineEnding(ee.lf.data)
-	data := []byte(tactile.NormalizeLineEnding(ee.out.File.Source, ending))
+	data := tactile.SpliceLineEndings(ee.lf.data, ee.out.File.Source)
 	mode := os.FileMode(0o644)
 	if info, err := os.Stat(ee.lf.abs); err == nil {
 		mode = info.Mode().Perm()

@@ -113,8 +113,6 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 		}
 	}
 
-	expectedBytes := []byte(expectedContent)
-
 	// CHECK 1: File exists and basic stat
 	info, err := os.Stat(path)
 	if err != nil {
@@ -175,53 +173,36 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 		}
 	}
 
-	// Writers preserve LF/CRLF convention. Size selects a possible normalized
-	// representation; the following independent hashes still verify every byte.
-	if _, hasContent := req.Payload["content"]; hasContent && fileSize != int64(len(expectedBytes)) {
-		for _, ending := range []string{"\n", "\r\n"} {
-			candidate := []byte(tactile.NormalizeLineEnding(expectedContent, ending))
-			if int64(len(candidate)) == fileSize {
-				expectedBytes = candidate
-				break
-			}
-		}
-	}
+	// Writers keep every line they did not change in its own ending
+	// (tactile.SpliceLineEndings), so a file may legitimately mix LF and CRLF.
+	// The write is judged on its content: both sides are folded to LF before
+	// the size and hash checks. The pre-write file is not available here to
+	// recompute the exact expected bytes.
+	expectedBytes := []byte(tactile.NormalizeLineEnding(expectedContent, "\n"))
 	expectedSize := int64(len(expectedBytes))
-	if fileSize != expectedSize {
-		return ValidationResult{
-			Verified:   false,
-			Confidence: 1.0,
-			Method:     "paranoid_validation",
-			Error:      fmt.Sprintf("file size mismatch: got %d bytes, expected %d", fileSize, expectedSize),
-			Details: map[string]any{
-				"check_failed":  "size_match",
-				"actual_size":   fileSize,
-				"expected_size": expectedSize,
-			},
-		}
-	}
 
-	// Helper for CHECK 4 & 5
-	hashFile := func(attempt string) (string, error) {
+	// Helper for CHECK 4 & 5: the LF-folded size and hash of one full read.
+	hashFile := func(attempt string) (string, int64, error) {
 		f, err := os.Open(path)
 		if err != nil {
-			return "", err
+			return "", 0, err
 		}
 		defer f.Close()
 
-		h := sha256.New()
-		cr := &contextReader{ctx: ctx, r: f}
-		if _, err := io.Copy(h, cr); err != nil {
-			return "", err
+		data, err := io.ReadAll(&contextReader{ctx: ctx, r: f})
+		if err != nil {
+			return "", 0, err
 		}
-		return hex.EncodeToString(h.Sum(nil)), nil
+		folded := []byte(tactile.NormalizeLineEnding(string(data), "\n"))
+		sum := sha256.Sum256(folded)
+		return hex.EncodeToString(sum[:]), int64(len(folded)), nil
 	}
 
 	sum := sha256.Sum256(expectedBytes)
 	expectedHash := hex.EncodeToString(sum[:])
 
-	// CHECK 4: First read & hash
-	firstHashStr, err := hashFile("first")
+	// CHECK 4: First read, size & hash
+	firstHashStr, firstSize, err := hashFile("first")
 	if err != nil {
 		if ctx.Err() != nil {
 			return ValidationResult{
@@ -237,6 +218,20 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 			Method:     "paranoid_validation",
 			Error:      fmt.Sprintf("cannot read file (first attempt): %v", err),
 			Details:    map[string]any{"check_failed": "first_read"},
+		}
+	}
+
+	if firstSize != expectedSize {
+		return ValidationResult{
+			Verified:   false,
+			Confidence: 1.0,
+			Method:     "paranoid_validation",
+			Error:      fmt.Sprintf("file size mismatch: got %d bytes, expected %d", firstSize, expectedSize),
+			Details: map[string]any{
+				"check_failed":  "size_match",
+				"actual_size":   firstSize,
+				"expected_size": expectedSize,
+			},
 		}
 	}
 
@@ -258,7 +253,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 	if v.RequireDoubleRead {
 		time.Sleep(50 * time.Millisecond)
 
-		secondHashStr, err := hashFile("second")
+		secondHashStr, _, err := hashFile("second")
 		if err != nil {
 			if ctx.Err() != nil {
 				return ValidationResult{

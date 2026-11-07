@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/tactile"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -304,8 +305,8 @@ func (mw *MangleWatcher) validateAndRepair(ctx context.Context, path string) {
 
 	// Rewrite file if any rules were repaired
 	if needsRewrite {
-		newContent := normalizeLineEnding(text, detectLineEnding(content))
-		if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+		newContent := tactile.SpliceLineEndings(content, text)
+		if err := os.WriteFile(path, newContent, 0644); err != nil {
 			logging.Get(logging.CategoryKernel).Error("MangleWatcher: failed to write repaired file: %v", err)
 			mw.mu.Lock()
 			mw.stats.Errors++
