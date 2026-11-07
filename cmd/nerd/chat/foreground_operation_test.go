@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -181,5 +182,56 @@ func TestForegroundOperation_APanicReleasesItsOwnSlot(t *testing.T) {
 	}
 	if m.turn.current() != 0 {
 		t.Fatal("a panicking foreground task stranded the slot")
+	}
+}
+
+// A continuation step (a step the chain runs on its own, such as handing back
+// the parts of a request not done yet) is a foreground execution: Ctrl+X
+// cancels it. It used to run under the session context only, so Ctrl+X found
+// no owner and answered "this command cannot be canceled" while it ran on.
+func TestContinuationStep_CtrlXCancelsIt(t *testing.T) {
+	t.Parallel()
+	exec := newHeldExecutor()
+	m := slotTestModel(t, exec)
+	m.continuationStep, m.continuationTotal = 2, 2
+
+	m, cmd := m.dispatchSubtask(Subtask{ID: "gap", Description: "Part of this request is not done yet", ShardType: "coder"})
+	if m.turn.current() == 0 {
+		t.Fatal("a running continuation step holds no foreground slot")
+	}
+	msgs := make(chan tea.Msg, 4)
+	runChildren(cmd, msgs)
+	var taskCtx context.Context
+	select {
+	case taskCtx = <-exec.started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the continuation step never reached the executor")
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
+	m = next.(Model)
+	if got := lastChatMessage(m); !strings.Contains(got, "Stopping") {
+		t.Fatalf("Ctrl+X on a continuation step answered %q", got)
+	}
+	select {
+	case <-taskCtx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("Ctrl+X did not cancel the continuation step's context")
+	}
+	close(exec.release)
+	for {
+		select {
+		case msg := <-msgs:
+			if done, ok := msg.(continuationDoneMsg); ok {
+				if done.outcome != continuationInterrupted {
+					t.Fatalf("a stopped step settled as %v (%s), want interrupted", done.outcome, done.summary)
+				}
+				if m.turn.current() != 0 {
+					t.Fatal("the settled step still holds the slot")
+				}
+				return
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("the stopped continuation step never settled")
+		}
 	}
 }

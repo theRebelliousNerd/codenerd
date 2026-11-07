@@ -3,8 +3,10 @@
 package chat
 
 import (
+	"codenerd/internal/sessionlog"
 	"context"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -54,26 +56,42 @@ func (m *Model) checkContinuation(ctx context.Context, dc *deliveryChain, shardT
 // (continuation_ledger.go).
 func (m Model) executeSubtask(step Subtask) tea.Cmd {
 	subtaskID, description, shardType := step.ID, step.Description, step.ShardType
-	return func() tea.Msg {
-		// Log start of subtask execution
+	// A step is a foreground execution (foregroundOperation's contract): it
+	// takes the slot here, on the Update thread, and registers its cancel
+	// when it starts. Under the session context alone Ctrl+X found no owner
+	// and answered "this command cannot be canceled" while the step ran on.
+	turnID := m.turn.accept()
+	interrupted := continuationDoneMsg{
+		stepCount: m.continuationStep,
+		summary:   "Stopped by user (Ctrl+X)",
+		outcome:   continuationInterrupted,
+		ran:       step,
+	}
+	return func() (result tea.Msg) {
+		defer m.turn.end(turnID)
+		defer func() {
+			if r := recover(); r != nil {
+				logging.API("PANIC in continuation step (recovered): %v\n%s", r, debug.Stack())
+				result = continuationDoneMsg{
+					stepCount: m.continuationStep,
+					summary:   fmt.Sprintf("Step %d failed: internal error (recovered panic): %v", m.continuationStep, r),
+					outcome:   continuationFailed,
+					ran:       step,
+				}
+			}
+		}()
 		logging.Get(logging.CategoryRouting).Info("Executing subtask %s (%s) with shard %s", subtaskID, description, shardType)
 
-		// Parent on the session's shutdown context so Ctrl+X cancels the
-		// in-flight shard call, not just the next step's pre-flight check; a
-		// bare Background here made continuation steps uncancellable once
-		// started. No clock: a subtask runs while it makes progress (the
-		// per-shard max_execution_time_sec and the 30-minute shard ceiling
-		// were removed 2026-09-19).
+		// No clock: a subtask runs while it makes progress (the per-shard
+		// max_execution_time_sec and the 30-minute shard ceiling were
+		// removed 2026-09-19). Quitting cancels it through the session
+		// context; Ctrl+X through the slot.
 		ctx, cancel := m.sessionOperationContext()
 		defer cancel()
-
-		if m.isInterrupted {
-			return continuationDoneMsg{
-				stepCount: m.continuationStep,
-				summary:   "Stopped by user (Ctrl+X)",
-				outcome:   continuationInterrupted,
-				ran:       step,
-			}
+		ctx = sessionlog.WithTask(ctx, foregroundTask(turnID))
+		m.turn.begin(turnID, cancel)
+		if m.isInterrupted || ctx.Err() != nil {
+			return interrupted
 		}
 
 		// Build session context for shard execution
@@ -92,6 +110,11 @@ func (m Model) executeSubtask(step Subtask) tea.Cmd {
 			Facts:     nil,
 		}
 
+		if err != nil && ctx.Err() != nil {
+			// Stopped, not failed: the step's work is what it left.
+			interrupted.completedShardResult = payload
+			return interrupted
+		}
 		if err != nil {
 			return continuationDoneMsg{
 				stepCount:            m.continuationStep,
