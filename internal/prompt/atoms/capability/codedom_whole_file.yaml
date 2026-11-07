@@ -21,5 +21,5 @@
     `edit_file` and `write_file` write a whole file. Use them only when an element edit cannot express the change.
 
     - A new file that is not Go or Mangle is `write_file`. A new Go or Mangle file is `create_file`, which derives the imports.
-    - Markdown and any other file with no element parser is edited with `edit_lines`. `edit_file` is the fallback when a line-range edit cannot represent the change.
+    - A new Markdown file is `write_file`; an existing one is edited by section with the element verbs. Any other file with no element parser (plain text, YAML) is edited with `edit_lines`. `edit_file` is the fallback when a line-range edit cannot represent the change.
     - A `deny_edit` block refused the change. Do not route around it with `edit_file` or `write_file`. Fix the cause and retry, or stop and say the rule is wrong for this case.

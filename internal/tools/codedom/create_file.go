@@ -63,6 +63,9 @@ func executeCreateFile(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("%s already exists; the element verbs (edit_element, replace_element, insert_element) change an existing file", rel)
 	}
 	lang := codemodel.LanguageOf(rel)
+	if lang == "" && codemodel.IsMarkdownPath(rel) {
+		return "", fmt.Errorf("create_file validates Go, Mangle, Python, TypeScript and JavaScript files; a new Markdown file is write_file, and every later change to it is a section edit (edit_element, insert_element)")
+	}
 	if lang == "" {
 		return "", fmt.Errorf("create_file makes files CodeDOM parses (Go, Mangle, Python, TypeScript or JavaScript); %s is none of those", rel)
 	}

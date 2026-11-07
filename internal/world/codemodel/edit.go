@@ -82,6 +82,18 @@ func Apply(old *File, ch Change, targeted []string, res Resolver) (*Outcome, err
 		}
 	}
 
+	// A Markdown section contains its subsections, so an edit inside one
+	// reshapes every section around it; a heading change renames its subtree.
+	explicit := make(map[string]bool, len(targeted))
+	for _, k := range targeted {
+		explicit[k] = true
+	}
+	if old.Language == LangMarkdown {
+		for _, k := range markdownTargets(old, ch.Start, ch.End) {
+			target[k] = true
+		}
+	}
+
 	parse := func(s string) *File {
 		nf, _ := Parse(old.Path, s)
 		return nf
@@ -150,6 +162,11 @@ func Apply(old *File, ch Change, targeted []string, res Resolver) (*Outcome, err
 			continue
 		}
 		ne := newByKey[oe.Key]
+		// A duplicate heading renumbered by an insertion or deletion above
+		// it is the same section under a new key.
+		if old.Language == LangMarkdown && (ne == nil || ne.Revision != oe.Revision) && markdownRenumbered(nf, oe) {
+			continue
+		}
 		switch {
 		case ne == nil:
 			violations = append(violations, fmt.Sprintf("%s (lines %d-%d) would disappear", oe.Key, oe.StartLine, oe.EndLine))
@@ -166,7 +183,13 @@ func Apply(old *File, ch Change, targeted []string, res Resolver) (*Outcome, err
 	for i := range nf.Elements {
 		ne := &nf.Elements[i]
 		oe := oldByKey[ne.Key]
-		if oe != nil && !target[ne.Key] {
+		if oe != nil && !target[ne.Key] && (old.Language != LangMarkdown || oe.Revision == ne.Revision) {
+			continue
+		}
+		// A section that only changed because the edit is inside it is not an
+		// element the edit touched: reporting every enclosing section would
+		// print most of the document back for a one-line change.
+		if old.Language == LangMarkdown && oe != nil && !explicit[ne.Key] && oe.Start < ch.Start && ch.End <= oe.End {
 			continue
 		}
 		if oe != nil && oe.Revision == ne.Revision && ne.Kind != KindHeader {

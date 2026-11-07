@@ -74,12 +74,18 @@ var (
 // ElementsFromSource returns the declarations of source text the caller
 // already holds, from the element model when CodeDOM parses the language
 // (Go, Mangle, Python, TypeScript, JavaScript) and from the per-language
-// regexes otherwise.
+// regexes otherwise (Markdown included, see below).
 //
 // It takes the text rather than a path so the observation codec can project
 // exactly the bytes it observed: a helper that went back to disk would let the
 // projection describe a file that had changed since the search ran.
 func ElementsFromSource(path, content string) []CodeElement {
+	// Markdown has an element model (sections) for the element verbs, but the
+	// read, search and outline codecs list declarations; a document's headings
+	// are not that, and they keep the line-pattern listing they always had.
+	if codemodel.IsMarkdownPath(path) {
+		return regexElements(path, content)
+	}
 	if f, ok := codemodel.Parse(path, content); ok {
 		out := make([]CodeElement, 0, len(f.Elements))
 		for _, e := range f.Elements {
@@ -377,7 +383,7 @@ func GetElementsTool() *tools.Tool {
 	return &tools.Tool{
 		Name:          "get_elements",
 		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral},
-		Description: "List every element of one file with its line span, kind, ref, rev, signature and doc line: for Go the header (package clause, file doc, build tags, imports) and every func, method, type, const and var; for Mangle every Decl, rule, fact and query. " +
+		Description: "List every element of one file with its line span, kind, ref, rev, signature and doc line: for Go the header (package clause, file doc, build tags, imports) and every func, method, type, const and var; for Mangle every Decl, rule, fact and query; for Markdown every section (a heading with its body and nested sections, ref \"docs/guide.md:Install > Linux\"), fenced code block and table. " +
 			"A file that does not parse is listed too, with its errors and its broken region as a syntax_error element. Pass a row's ref to get_element to see the source, or to the element edit verbs.",
 		Category: tools.CategoryCode,
 		Priority: 80,
@@ -387,7 +393,7 @@ func GetElementsTool() *tools.Tool {
 			Required: []string{"path"},
 			Properties: map[string]tools.Property{
 				"path": {Type: "string", Description: "Workspace-relative file path"},
-				"kind": {Type: "string", Description: "Optional filter: header, function, method, hook, component, class, struct, interface, type, enum, namespace, const, var, decl, rule, fact, query, syntax_error"},
+				"kind": {Type: "string", Description: "Optional filter: header, function, method, hook, component, class, struct, interface, type, enum, namespace, const, var, decl, rule, fact, query, section, code_block, table, syntax_error"},
 			},
 		},
 	}
@@ -587,7 +593,7 @@ func GetElementTool() *tools.Tool {
 		Name:          "get_element",
 		AltCategories: []tools.ToolCategory{tools.CategoryReview, tools.CategoryGeneral},
 		Description: "Return an element's source -- doc comment included, line-numbered -- with its ref and rev (pass the rev to an edit verb as its precondition). " +
-			"Address it by ref as any structural tool prints it; path is optional and narrows the lookup to one file. " +
+			"Address it by ref as any structural tool prints it; path is optional and narrows the lookup to one file. A Markdown section is its heading path (path=docs/guide.md ref=\"Install > Linux\"): its heading, body and nested sections. " +
 			"An element over " + fmt.Sprint(elementPageLines) + " lines answers with an outline of its nested parts (statements, case clauses, closures); ask for one with part, or for all of it with full.",
 		Category: tools.CategoryCode,
 		Priority: 80,
@@ -662,12 +668,15 @@ func resolveElement(ctx context.Context, ref, path string) (*resolvedElement, er
 	}
 	model, ok := codemodel.Parse(lf.rel, string(lf.data))
 	if !ok {
-		return nil, fmt.Errorf("%s is not a file CodeDOM parses (Go, Mangle, Python, TypeScript or JavaScript); it has no elements to address by ref", lf.rel)
+		return nil, fmt.Errorf("%s is not a file CodeDOM parses (Go, Mangle, Python, TypeScript, JavaScript or Markdown); it has no elements to address by ref", lf.rel)
 	}
 	refs := canonicalRefs(ctx, lf.rel, model)
 	matches := lookupInFile(model, lf.rel, ref, refs)
 	switch len(matches) {
 	case 0:
+		if model.Language == codemodel.LangMarkdown {
+			return nil, markdownMiss(lf.rel, ref, model)
+		}
 		return nil, fmt.Errorf("%s has no element %q; get_elements path=%s lists what it has", lf.rel, ref, lf.rel)
 	case 1:
 		return &resolvedElement{file: lf, model: model, elem: matches[0], refs: refs}, nil
@@ -683,6 +692,15 @@ func resolveElement(ctx context.Context, ref, path string) (*resolvedElement, er
 // the ref with the directory prefix or @file discriminator removed, or any
 // name the model's Lookup accepts.
 func lookupInFile(model *codemodel.File, rel, ref string, refs map[string]string) []*codemodel.Element {
+	if model.Language == codemodel.LangMarkdown {
+		// A heading's text is free: it can hold dots, colons and "@". Only a
+		// file-scoped prefix is stripped, never a directory or @file one.
+		key := ref
+		if p, k, ok := splitFileRef(ref); ok && filepath.ToSlash(filepath.Clean(p)) == filepath.ToSlash(rel) {
+			key = k
+		}
+		return model.Lookup(key)
+	}
 	for i := range model.Elements {
 		e := &model.Elements[i]
 		if r := RefOf(rel, e, refs); r == ref {
@@ -725,13 +743,31 @@ func sameScriptExt(file, rel string) bool {
 
 // splitFileRef reads a file-scoped ref, "path/to/file.go:Key". Longer
 // extensions come first: ".mts:" contains ".ts:" as a suffix.
+//
+// The earliest extension wins: a Markdown key is a heading path, and a heading
+// may itself read "Edit main.go: the entry point".
 func splitFileRef(ref string) (path, key string, ok bool) {
-	for _, ext := range []string{".mangle:", ".mts:", ".cts:", ".tsx:", ".jsx:", ".pyi:", ".mjs:", ".cjs:", ".go:", ".mg:", ".dl:", ".ts:", ".js:", ".py:"} {
-		if i := strings.Index(ref, ext); i > 0 {
-			return ref[:i+len(ext)-1], ref[i+len(ext):], true
+	best, bestLen := -1, 0
+	for _, ext := range []string{".mangle:", ".markdown:", ".mts:", ".cts:", ".tsx:", ".jsx:", ".pyi:", ".mjs:", ".cjs:", ".go:", ".mg:", ".dl:", ".ts:", ".js:", ".py:", ".md:"} {
+		if i := strings.Index(ref, ext); i > 0 && (best < 0 || i < best) {
+			best, bestLen = i, len(ext)
 		}
 	}
-	return "", "", false
+	if best < 0 {
+		return "", "", false
+	}
+	return ref[:best+bestLen-1], ref[best+bestLen:], true
+}
+
+// markdownMiss is the answer to a section ref that names nothing: the sections
+// the file does have, with their spans. A heading that was renamed or removed
+// since the ref was printed is the usual cause, and the list is the repair.
+func markdownMiss(rel, ref string, model *codemodel.File) error {
+	sections := model.MarkdownSections()
+	if len(sections) == 0 {
+		return fmt.Errorf("%s has no element %q, and no headings at all; its elements are listed by get_elements path=%s", rel, ref, rel)
+	}
+	return fmt.Errorf("%s has no section %q; its sections are: %s. Code blocks and tables are listed by get_elements path=%s", rel, ref, strings.Join(sections, "; "), rel)
 }
 
 func refAmbiguity(ref string, candidates []StructureSymbol) error {

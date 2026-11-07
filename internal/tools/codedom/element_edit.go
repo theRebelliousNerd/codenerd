@@ -62,7 +62,9 @@ func EditElementTool() *tools.Tool {
 		Name: "edit_element",
 		Description: "Replace text inside one element: old must occur exactly once in that element (or in the part named), so a short anchor is enough. " +
 			"The file must parse afterwards, every other element keeps its bytes, the element is gofmt'd and imports are derived. " +
-			"Answers with the element's new text and rev. Use this for most code changes; replace_element rewrites a whole element.",
+			"Answers with the element's new text and rev. Use this for most code changes; replace_element rewrites a whole element. " +
+			"In a Markdown file the element is a section (ref = its heading path, \"Install > Linux\"; its heading, body and nested sections): " +
+			"edit a doc's text this way, not by line numbers.",
 		Category: tools.CategoryCode,
 		Priority: 85,
 		Effect:   tools.EffectWrite,
@@ -86,7 +88,8 @@ func ReplaceElementTool() *tools.Tool {
 	return &tools.Tool{
 		Name: "replace_element",
 		Description: "Replace one whole element -- its doc comment included -- with new source (one or more declarations). " +
-			"Validated like edit_element; the answer carries the new text and rev. Also repairs a broken file: ref=syntax_error replaces the region that does not parse.",
+			"Validated like edit_element; the answer carries the new text and rev. Also repairs a broken file: ref=syntax_error replaces the region that does not parse. " +
+			"A Markdown section is replaced whole, heading and nested sections included: source starts with the heading. Change only some of a section's text with edit_element.",
 		Category: tools.CategoryCode,
 		Priority: 84,
 		Effect:   tools.EffectWrite,
@@ -108,7 +111,9 @@ func InsertElementTool() *tools.Tool {
 	return &tools.Tool{
 		Name: "insert_element",
 		Description: "Insert new declarations before or after an anchor element; anchor header puts them after the imports, anchor end at the end of the file. " +
-			"Validated like edit_element (imports derived, gofmt'd); answers with the new elements' refs, text and revs.",
+			"Validated like edit_element (imports derived, gofmt'd); answers with the new elements' refs, text and revs. " +
+			"In Markdown the anchor is a section: position before or after adds a sibling section (after the anchor's nested sections), position inside adds a child as its last subsection; " +
+			"the source's headings are re-levelled to fit and the answer says by how much.",
 		Category: tools.CategoryCode,
 		Priority: 83,
 		Effect:   tools.EffectWrite,
@@ -118,7 +123,7 @@ func InsertElementTool() *tools.Tool {
 			Properties: map[string]tools.Property{
 				"path":     pathProperty,
 				"anchor":   {Type: "string", Description: "Ref or name of the element to insert next to, or header, or end"},
-				"position": {Type: "string", Description: "before or after the anchor (default after)", Enum: []any{"before", "after"}},
+				"position": {Type: "string", Description: "before or after the anchor (default after); inside (Markdown only) adds a child section at the end of the anchor section", Enum: []any{"before", "after", "inside"}},
 				"source":   {Type: "string", Description: "The declarations to insert, doc comments included"},
 			},
 		},
@@ -130,7 +135,8 @@ func DeleteElementTool() *tools.Tool {
 	return &tools.Tool{
 		Name: "delete_element",
 		Description: "Delete one element, doc comment included. Refused while anything outside it still uses its name -- the uses are listed -- unless replace_with names what those uses should point at instead " +
-			"(a package-qualified name, e.g. articulation.PiggybackEnvelope) and paths lists every file holding a use: then the uses are rewritten and the element deleted in one transaction.",
+			"(a package-qualified name, e.g. articulation.PiggybackEnvelope) and paths lists every file holding a use: then the uses are rewritten and the element deleted in one transaction. " +
+			"A Markdown section is deleted with its nested sections.",
 		Category: tools.CategoryCode,
 		Priority: 82,
 		Effect:   tools.EffectWrite,
@@ -260,11 +266,15 @@ func editedElements(rel string, before *codemodel.File, out *codemodel.Outcome) 
 func renderOutcome(verb, rel string, before *codemodel.File, out *codemodel.Outcome, refs map[string]string) string {
 	nf := out.File
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%s: %s now parses", verb, rel)
-	if nf.Language == codemodel.LangGo {
-		sb.WriteString(" and is gofmt'd where it changed")
+	if nf.Language == codemodel.LangMarkdown {
+		fmt.Fprintf(&sb, "%s: %s written; %d lines (%+d); every other section keeps its ref and rev, except same-named duplicates, which renumber (#2, #3) in file order.\n", verb, rel, nf.LineCount(), nf.LineCount()-before.LineCount())
+	} else {
+		fmt.Fprintf(&sb, "%s: %s now parses", verb, rel)
+		if nf.Language == codemodel.LangGo {
+			sb.WriteString(" and is gofmt'd where it changed")
+		}
+		fmt.Fprintf(&sb, "; %d lines (%+d); every other element keeps its ref and rev.\n", nf.LineCount(), nf.LineCount()-before.LineCount())
 	}
-	fmt.Fprintf(&sb, "; %d lines (%+d); every other element keeps its ref and rev.\n", nf.LineCount(), nf.LineCount()-before.LineCount())
 	if !nf.Parsed {
 		sb.Reset()
 		fmt.Fprintf(&sb, "%s: %s still does not parse (it did not before either); %d lines.\n", verb, rel, nf.LineCount())
@@ -501,6 +511,9 @@ func executeReplaceElement(ctx context.Context, args map[string]any) (string, er
 	if err := checkRevision(re, rev); err != nil {
 		return "", err
 	}
+	if re.elem.Kind == codemodel.KindSection && !codemodel.StartsWithMarkdownHeading(source) {
+		return "", fmt.Errorf("replace_element replaces the whole section %s, heading included, so source must start with a heading; to change some of its text use edit_element", RefOf(re.file.rel, re.elem, re.refs))
+	}
 	ee, err := applyChange(ctx, re, codemodel.Change{Start: re.elem.Start, End: re.elem.End, Text: strings.Trim(source, "\n")}, []string{re.elem.Key})
 	if err != nil {
 		return "", err
@@ -524,14 +537,19 @@ func executeInsertElement(ctx context.Context, args map[string]any) (string, err
 	if position == "" {
 		position = "after"
 	}
-	if position != "before" && position != "after" {
-		return "", fmt.Errorf("position must be before or after, got %q", position)
+	if position != "before" && position != "after" && position != "inside" {
+		return "", fmt.Errorf("position must be before, after or inside, got %q", position)
 	}
 	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("path is required: it is what the write gates check")
 	}
+	markdown := codemodel.IsMarkdownPath(path)
+	if position == "inside" && !markdown {
+		return "", fmt.Errorf("position inside adds a child section to a Markdown section; code is inserted before or after an element")
+	}
 
 	var re *resolvedElement
+	var note string
 	var ch codemodel.Change
 	if strings.TrimSpace(anchorRef) == codemodel.EndKey {
 		lf, err := loadFile(ctx, path)
@@ -540,11 +558,21 @@ func executeInsertElement(ctx context.Context, args map[string]any) (string, err
 		}
 		model, ok := codemodel.Parse(lf.rel, string(lf.data))
 		if !ok {
-			return "", fmt.Errorf("%s is not a file CodeDOM parses (Go, Mangle, Python, TypeScript or JavaScript)", lf.rel)
+			return "", fmt.Errorf("%s is not a file CodeDOM parses (Go, Mangle, Python, TypeScript, JavaScript or Markdown)", lf.rel)
+		}
+		if position == "inside" {
+			return "", fmt.Errorf("position inside needs a section as the anchor, not end")
 		}
 		re = &resolvedElement{file: lf, model: model, refs: canonicalRefs(ctx, lf.rel, model)}
 		tail := strings.TrimRight(model.Source, "\n")
 		ch = codemodel.Change{Start: len(tail), End: len(model.Source), Text: "\n\n" + source + "\n"}
+		if markdown {
+			// A document keeps the ending it had: no trailing newline stays none.
+			ch.Text = "\n\n" + source + model.Source[len(tail):]
+			if tail == "" {
+				ch.Text = source + "\n"
+			}
+		}
 	} else {
 		var err error
 		re, err = parsedTarget(ctx, path, anchorRef)
@@ -556,10 +584,16 @@ func executeInsertElement(ctx context.Context, args map[string]any) (string, err
 		if e.Grouped {
 			sep = "\n"
 		}
+		if markdown {
+			source, note, err = markdownInsertSource(re, position, source)
+			if err != nil {
+				return "", err
+			}
+		}
 		switch {
 		case e.Kind == codemodel.KindHeader && position == "before":
 			return "", fmt.Errorf("nothing goes before the header; insert after it, or before the first declaration")
-		case position == "after":
+		case position == "after" || position == "inside":
 			ch = codemodel.Change{Start: e.End, End: e.End, Text: sep + source}
 		default:
 			ch = codemodel.Change{Start: e.Start, End: e.Start, Text: source + sep}
@@ -569,10 +603,87 @@ func executeInsertElement(ctx context.Context, args map[string]any) (string, err
 	if err != nil {
 		return "", err
 	}
-	if len(ee.out.Touched) == 0 {
+	// Text inserted into a Markdown section declares no new element; the edit
+	// is the lines it added, shown below.
+	if len(ee.out.Touched) == 0 && !markdown {
 		return "", fmt.Errorf("the source declares nothing new")
 	}
-	return ee.commit(ctx, "insert_element")
+	answer, err := ee.commit(ctx, "insert_element")
+	if err != nil {
+		return "", err
+	}
+	if markdown && len(ee.out.Touched) == 0 {
+		answer += "\n" + renderInsertedText(ee, ch)
+	}
+	if note != "" {
+		answer += "\n-- " + note + "\n"
+	}
+	return answer, nil
+}
+
+// markdownInsertSource fits the source of an insert into the section it goes
+// next to. A section anchor takes sections: the source starts with a heading
+// (text put after a section's last nested section would become that
+// subsection's body, not the anchor's), and its headings are re-levelled so
+// the shallowest is a sibling of the anchor (before, after) or its child
+// (inside). Other anchors take the source as written.
+func markdownInsertSource(re *resolvedElement, position, source string) (string, string, error) {
+	e := re.elem
+	ref := RefOf(re.file.rel, e, re.refs)
+	if e.Kind != codemodel.KindSection {
+		if position == "inside" {
+			return "", "", fmt.Errorf("position inside needs a section as the anchor; %s is a %s", ref, e.Kind)
+		}
+		return source, "", nil
+	}
+	if !codemodel.StartsWithMarkdownHeading(source) {
+		return "", "", fmt.Errorf("insert_element next to the section %s adds sections, so source must start with a heading; to add text inside a section use edit_element, or anchor on one of its code blocks or tables", ref)
+	}
+	level := e.Level
+	if position == "inside" {
+		level++
+	}
+	out, shift, err := codemodel.RelevelMarkdown(source, level)
+	if err != nil {
+		return "", "", err
+	}
+	if shift == 0 {
+		return out, "", nil
+	}
+	return out, fmt.Sprintf("the source's headings were moved %+d level(s) so its top heading is level %d, %s %s", shift, level, positionPhrase(position), ref), nil
+}
+
+func positionPhrase(position string) string {
+	if position == "inside" {
+		return "a child of"
+	}
+	return "a sibling of"
+}
+
+// renderInsertedText shows where text inserted into a Markdown section
+// landed: the innermost element of the new file that holds it, with the
+// inserted lines in context.
+func renderInsertedText(ee *elementEdit, ch codemodel.Change) string {
+	nf := ee.out.File
+	// The separating blank lines around the text are not the text.
+	inserted := codemodel.Normalize(ch.Text)
+	lead := len(inserted) - len(strings.TrimLeft(inserted, "\n"))
+	body := strings.TrimRight(inserted[lead:], "\n")
+	first := nf.LineOf(ch.Start + lead)
+	last := nf.LineOf(max(ch.Start+lead+len(body)-1, ch.Start+lead))
+	var inner *codemodel.Element
+	for i := range nf.Elements {
+		e := &nf.Elements[i]
+		if e.StartLine <= last && e.EndLine >= first && (inner == nil || e.End-e.Start < inner.End-inner.Start) {
+			inner = e
+		}
+	}
+	lo, hi := max(1, first-resultContextLines), min(nf.LineCount(), last+resultContextLines)
+	if inner == nil {
+		return "inserted at lines " + fmt.Sprintf("%d-%d", first, last) + ":\n" + nf.NumberedLines(lo, hi)
+	}
+	lo, hi = max(inner.StartLine, lo), min(inner.EndLine, hi)
+	return fmt.Sprintf("inserted into %s:%d-%d (rev %s), lines %d-%d with context:\n%s", nf.Path+":"+inner.Key, inner.StartLine, inner.EndLine, inner.Revision, lo, hi, nf.NumberedLines(lo, hi))
 }
 
 // deletionChange removes an element's whole lines, and one blank line with
@@ -584,7 +695,11 @@ func deletionChange(f *codemodel.File, e *codemodel.Element) codemodel.Change {
 		end = len(f.Source)
 	}
 	before, after := f.Source[:start], f.Source[end:]
-	if strings.HasSuffix(before, "\n\n") && strings.HasPrefix(after, "\n") {
+	if before == "" {
+		// The first element of a file (a Markdown section at the top) leaves no
+		// blank lines to start the file with.
+		end += len(after) - len(strings.TrimLeft(after, "\n"))
+	} else if strings.HasSuffix(before, "\n\n") && strings.HasPrefix(after, "\n") {
 		end++
 	} else if start > 0 && after == "" && strings.HasSuffix(before, "\n\n") {
 		start--
@@ -639,6 +754,10 @@ func executeDeleteElement(ctx context.Context, args map[string]any) (string, err
 // to be used.
 func usesOutside(ctx context.Context, re *resolvedElement) ([]StructureUse, Observation, error) {
 	if re.elem.Kind == codemodel.KindSyntaxError || re.elem.Name == "_" || re.elem.Name == "init" {
+		return nil, Observation{}, nil
+	}
+	// A Markdown section is not a name the index resolves uses of.
+	if re.model.Language == codemodel.LangMarkdown {
 		return nil, Observation{}, nil
 	}
 	// Uses is the Go and Mangle scan. A script name is resolved from the

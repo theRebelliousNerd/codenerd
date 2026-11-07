@@ -5,7 +5,7 @@
 //
 // Tools:
 //   - get_elements: Every element of a file with its span, kind, ref and rev
-//   - get_element: An element's source with its doc comment, by ref
+//   - get_element: An element's source with its doc comment, by ref (a Markdown section by its heading path)
 //   - find_symbol: Declarations by name, several names, pattern, kind and path
 //   - package_outline: Every declaration in a directory or file, with line spans
 //   - callers_of: Every call site of a function, method, hook or component
@@ -16,8 +16,8 @@
 //   - predicate_outline: Where a Mangle predicate is declared, derived and read
 //   - edit_element: Replace text inside one element, anchored uniquely within it
 //   - replace_element: Replace one whole element, doc comment included
-//   - insert_element: Insert declarations before or after an element, the header or the end
-//   - delete_element: Delete an element nothing else uses, or repoint its Go uses in the same call
+//   - insert_element: Insert declarations before or after an element, the header or the end; a Markdown section also takes children (position inside)
+//   - delete_element: Delete an element nothing else uses, or repoint its Go uses in the same call; a Markdown section goes with its nested sections
 //   - family_no_change: Record that a declared code family peer needs no change after its sibling changed
 //   - create_file: Create a Go, Mangle, Python, TypeScript or JavaScript file, validated as a unit
 //   - repoint: Rename a symbol across the references that resolve to it, in one transaction

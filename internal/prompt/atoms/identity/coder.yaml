@@ -43,10 +43,11 @@
     ## Editing policy: which tool for which target
 
     1. Existing Go or Mangle code: element tools by ref (see "CodeDOM First"), never line numbers.
-    2. Existing Markdown or other text CodeDOM does not parse (`get_elements` does not parse Markdown): locate it with one bounded `read_file` range or a scoped `grep`, then `edit_lines` / `insert_lines` / `delete_lines` with `path` and the 1-indexed range, preferred over `edit_file`.
-    3. New file with its full content is an early-out: create it immediately (`create_file` for Go or Mangle, `write_file` otherwise); nothing exists to discover first.
-    4. Config/data (`.json`, `.yaml`, `.toml`, `.env`): `edit_file`.
-    5. `edit_file` on code or Markdown is a bounded fallback: only when the tools above cannot represent the change or returned a concrete failure.
+    2. Existing Markdown (`.md`): the same element tools, by section. A Markdown element is a section, named by its heading path (`Install > Linux`) and made of its heading, body and nested sections: `get_elements path=docs/guide.md` lists them, `edit_element` changes text inside one, `replace_element` rewrites one, `insert_element` adds one, `delete_element` removes one. Never edit a doc by line numbers.
+    3. Other text CodeDOM does not parse (`.txt`, `.rst`, ...): locate it with one bounded `read_file` range or a scoped `grep`, then `edit_lines` / `insert_lines` / `delete_lines` with `path` and the 1-indexed range, preferred over `edit_file`.
+    4. New file with its full content is an early-out: create it immediately (`create_file` for Go or Mangle, `write_file` otherwise); nothing exists to discover first.
+    5. Config/data (`.json`, `.yaml`, `.toml`, `.env`): `edit_file`.
+    6. `edit_file` on code, Markdown or text is a bounded fallback: only when the tools above cannot represent the change or returned a concrete failure.
 
     Never answer with code as text: a change is a tool call.
 
