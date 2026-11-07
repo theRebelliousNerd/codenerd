@@ -85,3 +85,46 @@ func TestAsk_RetriedAnswerPreservesUnknownAttemptUsage(t *testing.T) {
 		t.Fatalf("attempts=%d reports=%d unknown=%d", calls, len(obs.reports), obs.unknown)
 	}
 }
+
+func TestWithOperation_BlankIsDefault(t *testing.T) {
+	if got := operationFrom(WithOperation(context.Background(), "")); got != defaultOperation {
+		t.Errorf("empty operation = %q, want %q", got, defaultOperation)
+	}
+	if got := operationFrom(WithOperation(context.Background(), "   ")); got != defaultOperation {
+		t.Errorf("whitespace operation = %q, want %q", got, defaultOperation)
+	}
+	if got := operationFrom(WithOperation(context.Background(), "jev_turn_judgments")); got != "jev_turn_judgments" {
+		t.Errorf("named operation = %q", got)
+	}
+	if got := operationFrom(context.WithValue(context.Background(), operationKey{}, 123)); got != defaultOperation {
+		t.Errorf("wrong-type operation = %q, want %q", got, defaultOperation)
+	}
+}
+
+func TestRecordUsage_FallsBackToConfiguredModel(t *testing.T) {
+	c, _ := newTestClient(t, reply(http.StatusOK, answersJSON), nil)
+	obs := &captureObserver{}
+	ctx := usage.WithObserver(context.Background(), obs)
+	c.recordUsage(ctx, &Response{Usage: Usage{InputTokens: 5, OutputTokens: 7}})
+	if len(obs.reports) != 1 {
+		t.Fatalf("reports = %d, want 1", len(obs.reports))
+	}
+	r := obs.reports[0]
+	if r.Model != "jev-latest" {
+		t.Errorf("model = %q, want configured fallback %q", r.Model, "jev-latest")
+	}
+	if r.Usage.InputTokens != 5 || r.Usage.OutputTokens != 7 || r.Usage.TotalTokens != 12 {
+		t.Errorf("tokens = %+v, want 5/7/12", r.Usage)
+	}
+	if r.Provider != Provider || r.Operation != defaultOperation {
+		t.Errorf("report = %+v", r)
+	}
+}
+
+func TestExchangeUsage_FallsBackToConfiguredModel(t *testing.T) {
+	c, _ := newTestClient(t, reply(http.StatusOK, answersJSON), nil)
+	u := c.exchangeUsage(&Response{Usage: Usage{InputTokens: 5, OutputTokens: 7}})
+	if u == nil || u.InputTokens != 5 || u.OutputTokens != 7 || u.Status != "reported" {
+		t.Fatalf("usage = %+v", u)
+	}
+}
