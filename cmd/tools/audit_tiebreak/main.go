@@ -369,7 +369,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "%d selection(s) whose winner depends on iteration order:\n\n", len(added))
 		for _, k := range added {
 			f := byKey[k]
-			fmt.Fprintf(os.Stderr, "  %s:%d\n    %s\n", f.file, f.line, strings.ReplaceAll(k, "\t", "  "))
+			fmt.Fprintf(os.Stderr, "%s:%d: winner depends on iteration order: %s\n", f.file, f.line, strings.ReplaceAll(k, "\t", "  "))
 		}
 		fmt.Fprintf(os.Stderr, `
 If this ranges a MAP, the tie-break is Go's randomised iteration order and the
