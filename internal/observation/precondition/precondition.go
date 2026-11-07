@@ -294,6 +294,14 @@ func (s *Store) Verify(handle, path string, current []byte) (Verification, error
 		Truncated:    r.Truncated,
 	}
 
+	// An empty retained file has no lines, so its empty region would otherwise
+	// verify against anything: Region(..., 1, 0) is "" on both sides and the
+	// digests match. Tie it to the live file so a file that grew from empty
+	// fails closed instead of passing with a warning.
+	if len(observed) == 0 {
+		v.RegionIntact = len(live) == 0
+	}
+
 	if !v.RegionIntact && regionText != "" {
 		// The region may still exist, just somewhere else — an insertion above
 		// it is much the commonest way a precondition fails. Saying where it

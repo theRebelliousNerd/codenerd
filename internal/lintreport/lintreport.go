@@ -52,8 +52,9 @@ func CompileFindings(text, dir string) []Finding {
 		}
 		ln, _ := strconv.Atoi(m[2])
 		col, _ := strconv.Atoi(m[3])
-		out = append(out, Finding{File: Path(m[1], dir), Line: ln, Column: col, Check: CompileCheck, Message: m[4]})
+		out = append(out, Finding{File: Path(m[1], dir), Line: ln, Column: col, Check: CompileCheck, Message: strings.TrimSpace(m[4])})
 	}
+	Sort(out)
 	return out
 }
 
@@ -62,6 +63,9 @@ func CompileFindings(text, dir string) []Finding {
 func Path(path, dir string) string {
 	if path == "" {
 		return ""
+	}
+	if dir == "" {
+		return filepath.ToSlash(path)
 	}
 	abs := path
 	if !filepath.IsAbs(abs) {
@@ -77,15 +81,15 @@ func Path(path, dir string) string {
 // splitPosition parses "file:line:col" from the right, so a Windows drive's
 // colon stays in the file.
 func splitPosition(posn string) (file string, line, col int) {
-	rest := posn
+	rest := strings.TrimSpace(posn)
 	if i := strings.LastIndex(rest, ":"); i > 0 {
-		if n, err := strconv.Atoi(rest[i+1:]); err == nil {
-			col, rest = n, rest[:i]
+		if n, err := strconv.Atoi(strings.TrimSpace(rest[i+1:])); err == nil && n >= 0 {
+			col, rest = n, strings.TrimSpace(rest[:i])
 		}
 	}
 	if i := strings.LastIndex(rest, ":"); i > 0 {
-		if n, err := strconv.Atoi(rest[i+1:]); err == nil {
-			line, rest = n, rest[:i]
+		if n, err := strconv.Atoi(strings.TrimSpace(rest[i+1:])); err == nil && n >= 0 {
+			line, rest = n, strings.TrimSpace(rest[:i])
 		}
 	}
 	return rest, line, col
@@ -97,6 +101,7 @@ func splitPosition(posn string) (file string, line, col int) {
 // not type-check is reported as text ("vet: ./a.go:3:23: undefined: x"),
 // which becomes compile findings. rest is the output that was neither.
 func VetFindings(output, dir string) (findings []Finding, rest string, err error) {
+	output = strings.TrimPrefix(output, "\ufeff")
 	var textPart strings.Builder
 	s := output
 	for {
@@ -107,7 +112,8 @@ func VetFindings(output, dir string) (findings []Finding, rest string, err error
 		if s[0] != '{' {
 			line, after, _ := strings.Cut(s, "\n")
 			if line = strings.TrimRight(line, "\r"); !strings.HasPrefix(line, "# ") {
-				textPart.WriteString(line + "\n")
+				textPart.WriteString(line)
+				textPart.WriteByte('\n')
 			}
 			s = after
 			continue
@@ -136,7 +142,17 @@ func VetFindings(output, dir string) (findings []Finding, rest string, err error
 	compile := CompileFindings(text, dir)
 	findings = append(findings, compile...)
 	if len(compile) > 0 {
-		text = ""
+		var kept []string
+		for line := range strings.SplitSeq(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			if positionedLine.FindStringSubmatch(trimmed) == nil {
+				kept = append(kept, trimmed)
+			}
+		}
+		text = strings.Join(kept, "\n")
 	}
 	Sort(findings)
 	return findings, strings.TrimSpace(text), nil
@@ -147,9 +163,14 @@ func VetFindings(output, dir string) (findings []Finding, rest string, err error
 // that does not compile is code "compile" with the compiler's text as its
 // message, whose positioned lines become compile findings.
 func StaticcheckFindings(stdout, dir string) ([]Finding, error) {
+	stdout = strings.TrimPrefix(stdout, "\ufeff")
 	var findings []Finding
 	sc := bufio.NewScanner(strings.NewReader(stdout))
-	sc.Buffer(make([]byte, 0, 64*1024), len(stdout)+1)
+	max := len(stdout) + 1
+	if max < 64*1024 {
+		max = 64 * 1024
+	}
+	sc.Buffer(make([]byte, 0, 64*1024), max)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" {
@@ -179,7 +200,7 @@ func StaticcheckFindings(stdout, dir string) ([]Finding, error) {
 		})
 	}
 	if err := sc.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("staticcheck output scan: %w", err)
 	}
 	Sort(findings)
 	return findings, nil
@@ -202,7 +223,7 @@ func GolangciFindings(stdout, dir string) (findings []Finding, rest string, err 
 			} `json:"Pos"`
 		} `json:"Issues"`
 	}
-	trimmed := strings.TrimSpace(stdout)
+	trimmed := strings.TrimSpace(strings.TrimPrefix(stdout, "\ufeff"))
 	dec := json.NewDecoder(strings.NewReader(trimmed))
 	if derr := dec.Decode(&report); derr != nil {
 		return nil, "", fmt.Errorf("golangci-lint JSON report is not JSON: %w", derr)
@@ -225,6 +246,9 @@ func GolangciFindings(stdout, dir string) (findings []Finding, rest string, err 
 }
 
 func Sort(f []Finding) {
+	if len(f) < 2 {
+		return
+	}
 	sort.SliceStable(f, func(i, j int) bool {
 		a, b := f[i], f[j]
 		if a.File != b.File {

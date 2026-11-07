@@ -146,3 +146,307 @@ func TestParseInventsNoNamesForUnnamedFailures(t *testing.T) {
 		t.Errorf("FailedNames = %v, want none: this runner named nothing", c.FailedNames)
 	}
 }
+
+func TestContainsWord_ShouldTreatDigitsAndUnderscoreAsWordChars(t *testing.T) {
+	cases := []struct {
+		s, word string
+		want    bool
+	}{
+		{"ok2", "ok", false},
+		{"2ok", "ok", false},
+		{"ok_test", "ok", false},
+		{"_ok", "ok", false},
+		{"ok!", "ok", true},
+		{"(ok)", "ok", true},
+		{"ok, finished", "ok", true},
+		{"1 passed", "passed", true},
+		{"1passing", "passing", false},
+		{"error2", "error", false},
+		{"2 errors", "errors", true},
+		{"ok", "", false},
+	}
+	for _, tc := range cases {
+		if got := containsWord(tc.s, tc.word); got != tc.want {
+			t.Errorf("containsWord(%q, %q) = %v, want %v", tc.s, tc.word, got, tc.want)
+		}
+	}
+}
+
+func TestFailedTestName_ShouldRejectNonBoundaryMarkers(t *testing.T) {
+	if got := failedTestName("--- FAILED: TestX", 0); got != "" {
+		t.Errorf("failedTestName(%q) = %q, want empty: --- FAILED is not a --- FAIL marker", "--- FAILED: TestX", got)
+	}
+	if got := failedTestName("--- FAIL", 0); got != "" {
+		t.Errorf("failedTestName(%q) = %q, want empty: marker names nothing", "--- FAIL", got)
+	}
+	if got := failedTestName("--- FAIL:   ", 0); got != "" {
+		t.Errorf("failedTestName(%q) = %q, want empty: colon with no name names nothing", "--- FAIL:   ", got)
+	}
+	if got := failedTestName("anything", -1); got != "" {
+		t.Errorf("failedTestName with markerAt -1 = %q, want empty", got)
+	}
+	if got := failedTestName("--- FAIL: TestX", -1); got != "" {
+		t.Errorf("failedTestName with markerAt -1 = %q, want empty", got)
+	}
+	if got := failedTestName("short", 100); got != "" {
+		t.Errorf("failedTestName with out-of-range markerAt = %q, want empty", got)
+	}
+}
+
+func TestFailedTestName_ShouldTrimDurationAndKeepSubtests(t *testing.T) {
+	cases := []struct {
+		line     string
+		markerAt int
+		want     string
+	}{
+		{"--- FAIL: TestBeta (0.01s)", 0, "TestBeta"},
+		{"--- FAIL: TestGamma/empty_input (0.00s)", 0, "TestGamma/empty_input"},
+		{"--- FAIL TestSpace (0.00s)", 0, "TestSpace"},
+		{"--- FAIL:\tTestTab (0.00s)", 0, "TestTab"},
+		{"--- FAIL: TestFailedLogin (0.00s)", 0, "TestFailedLogin"},
+		{"--- FAIL: TestMixedCase (0.00s)", 0, "TestMixedCase"},
+		{"   --- FAIL: TestIndented (0.00s)", 3, "TestIndented"},
+	}
+	for _, tc := range cases {
+		if got := failedTestName(tc.line, tc.markerAt); got != tc.want {
+			t.Errorf("failedTestName(%q, %d) = %q, want %q", tc.line, tc.markerAt, got, tc.want)
+		}
+	}
+}
+
+func TestParseShouldNotNameMalformedFailMarkers(t *testing.T) {
+	c := Parse("--- FAILED: TestX")
+	if !c.Parsed {
+		t.Fatal("Parse did not recognise a --- FAILED line as test output")
+	}
+	if c.Failed != 1 {
+		t.Errorf("Failed = %d, want 1", c.Failed)
+	}
+	if len(c.FailedNames) != 0 {
+		t.Errorf("FailedNames = %v, want none: --- FAILED must not yield a trimmed name", c.FailedNames)
+	}
+
+	c = Parse("--- FAIL")
+	if !c.Parsed {
+		t.Fatal("Parse did not recognise a bare --- FAIL line as test output")
+	}
+	if c.Failed != 1 {
+		t.Errorf("Failed = %d, want 1 for a bare --- FAIL line", c.Failed)
+	}
+	if len(c.FailedNames) != 0 {
+		t.Errorf("FailedNames = %v, want none: a bare marker names nothing", c.FailedNames)
+	}
+
+	c = Parse("--- FAIL: TestFailedLogin (0.00s)")
+	if c.Failed != 1 {
+		t.Errorf("Failed = %d, want 1: a name containing Failed must count once", c.Failed)
+	}
+	if len(c.FailedNames) != 1 || c.FailedNames[0] != "TestFailedLogin" {
+		t.Errorf("FailedNames = %v, want [TestFailedLogin]", c.FailedNames)
+	}
+	if c.Passed != 0 {
+		t.Errorf("Passed = %d, want 0: a failure line must not also count as a pass", c.Passed)
+	}
+}
+
+func TestParseOptimisticShouldStayOptimisticForSkipOnlyOutput(t *testing.T) {
+	c := Parse("--- SKIP: TestDelta (0.00s)")
+	if !c.Parsed {
+		t.Fatal("Parse did not recognise a skip-only line as test output")
+	}
+	if c.Passed != 0 || c.Failed != 0 {
+		t.Errorf("skip-only counts = %+v, want zero passes and zero failures", c)
+	}
+	if len(c.FailedNames) != 0 {
+		t.Errorf("FailedNames = %v, want none for skip-only output", c.FailedNames)
+	}
+	if p, f := ParseOptimistic("--- SKIP: TestDelta (0.00s)"); p != 1 || f != 0 {
+		t.Errorf("ParseOptimistic(skip-only) = %d pass / %d fail, want 1/0", p, f)
+	}
+	if p, f := ParseOptimistic(""); p != 1 || f != 0 {
+		t.Errorf("ParseOptimistic(empty) = %d pass / %d fail, want 1/0", p, f)
+	}
+}
+
+func TestGenericLines_ShouldRecognizePassFailWords(t *testing.T) {
+	if !genericPassLine("12 passing") {
+		t.Error("genericPassLine did not recognise 'passing'")
+	}
+	if !genericPassLine("ok  pkg 0.02s") {
+		t.Error("genericPassLine did not recognise 'ok'")
+	}
+	if genericPassLine("processing token stream") {
+		t.Error("genericPassLine matched 'ok' inside 'token'")
+	}
+	if genericPassLine("broken pipe") {
+		t.Error("genericPassLine matched 'ok' inside 'broken'")
+	}
+	if !genericFailureLine("1 failing") {
+		t.Error("genericFailureLine did not recognise 'failing'")
+	}
+	if !genericFailureLine("2 errors") {
+		t.Error("genericFailureLine did not recognise 'errors'")
+	}
+	if !genericFailureLine("an error occurred") {
+		t.Error("genericFailureLine did not recognise 'error'")
+	}
+	if genericFailureLine("errorless") {
+		t.Error("genericFailureLine matched 'error' inside 'errorless'")
+	}
+	if genericFailureLine("terror") {
+		t.Error("genericFailureLine matched 'error' inside 'terror'")
+	}
+	c := Parse("1 failed, 3 passed")
+	if c.Failed != 1 || c.Passed != 0 {
+		t.Errorf("reversed mixed summary = %+v, want the failure to win the line", c)
+	}
+}
+
+func TestWordChar_ShouldClassifyWordCharacters(t *testing.T) {
+	for _, b := range []byte{'a', 'z', 'A', 'Z'} {
+		if !isASCIILetter(b) {
+			t.Errorf("isASCIILetter(%q) = false, want true", b)
+		}
+		if !isWordChar(b) {
+			t.Errorf("isWordChar(%q) = false, want true", b)
+		}
+	}
+	for _, b := range []byte{'0', '_', ' ', '!', '.', '-'} {
+		if isASCIILetter(b) {
+			t.Errorf("isASCIILetter(%q) = true, want false", b)
+		}
+	}
+	for _, b := range []byte{'0', '9', '_'} {
+		if !isWordChar(b) {
+			t.Errorf("isWordChar(%q) = false, want true: digits and underscore are word chars", b)
+		}
+	}
+	for _, b := range []byte{' ', '!', '.', ',', ':', '('} {
+		if isWordChar(b) {
+			t.Errorf("isWordChar(%q) = true, want false", b)
+		}
+	}
+}
+
+func TestParse_GenericPassVariantsCountAsPass(t *testing.T) {
+	cases := []string{
+		"12 passed",
+		"3 passing",
+		"ok suite",
+		"OK suite",
+	}
+	for _, input := range cases {
+		c := Parse(input)
+		if !c.Parsed {
+			t.Errorf("Parse(%q).Parsed = false, want true", input)
+		}
+		if c.Passed != 1 {
+			t.Errorf("Parse(%q).Passed = %d, want 1", input, c.Passed)
+		}
+		if c.Failed != 0 {
+			t.Errorf("Parse(%q).Failed = %d, want 0", input, c.Failed)
+		}
+	}
+}
+
+func TestParse_GenericFailureVariantsCountAsFail(t *testing.T) {
+	cases := []string{
+		"1 failed",
+		"2 failing",
+		"error occurred",
+		"3 errors",
+		"ERROR boom",
+	}
+	for _, input := range cases {
+		c := Parse(input)
+		if !c.Parsed {
+			t.Errorf("Parse(%q).Parsed = false, want true", input)
+		}
+		if c.Failed != 1 {
+			t.Errorf("Parse(%q).Failed = %d, want 1", input, c.Failed)
+		}
+		if c.Passed != 0 {
+			t.Errorf("Parse(%q).Passed = %d, want 0", input, c.Passed)
+		}
+	}
+}
+
+func TestParse_GenericSubstringsDoNotCountViaCaller(t *testing.T) {
+	cases := []string{
+		"token refreshed",
+		"broken pipe",
+		"errorless run",
+		"unpassed check",
+	}
+	for _, input := range cases {
+		c := Parse(input)
+		if c.Parsed {
+			t.Errorf("Parse(%q).Parsed = true, want false", input)
+		}
+		if c.Passed != 0 || c.Failed != 0 {
+			t.Errorf("Parse(%q) = %+v, want zero counts", input, c)
+		}
+	}
+}
+
+func TestContainsWord_EmptyWordReturnsFalse(t *testing.T) {
+	for _, s := range []string{"", " ", "anything", "ok"} {
+		if containsWord(s, "") {
+			t.Errorf("containsWord(%q, %q) = true, want false", s, "")
+		}
+	}
+}
+
+func TestGenericFailureLine_PinsFailureWordsDirectly(t *testing.T) {
+	mustBeFailure := []string{
+		"failed",
+		"failing",
+		"error",
+		"errors",
+		"1 failed",
+		"2 failing",
+		"error occurred",
+		"3 errors",
+	}
+	for _, s := range mustBeFailure {
+		if !genericFailureLine(s) {
+			t.Errorf("genericFailureLine(%q) = false, want true", s)
+		}
+	}
+	mustNotBeFailure := []string{
+		"",
+		"fail",
+		"err",
+		"passed",
+		"passing",
+		"ok",
+		"token refreshed",
+		"broken pipe",
+		"errorless run",
+		"failedx",
+		"xfailed",
+		"2failing",
+		"failing2",
+		"failing_test",
+		"error2",
+		"2error",
+		"error_x",
+		"errorsx",
+		"xerrors",
+	}
+	for _, s := range mustNotBeFailure {
+		if genericFailureLine(s) {
+			t.Errorf("genericFailureLine(%q) = true, want false", s)
+		}
+	}
+}
+
+func TestParse_FailureWinsTieOverPass(t *testing.T) {
+	c := Parse("1 failed, 3 passed")
+	if c.Failed != 1 || c.Passed != 0 {
+		t.Errorf("Parse tie = %+v, want 1 failure and 0 passes", c)
+	}
+	if !c.Parsed {
+		t.Errorf("Parse tie Parsed = false, want true")
+	}
+}

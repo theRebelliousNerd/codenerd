@@ -484,3 +484,62 @@ func TestDefaultUserConfig_ShouldHaveSensibleDefaults(t *testing.T) {
 		t.Errorf("Theme = %q, want 'light'", cfg.Theme)
 	}
 }
+
+func TestDefaultBuildConfig_ShouldReturnNonNilCollections(t *testing.T) {
+	cfg := DefaultBuildConfig()
+	if cfg.EnvVars == nil {
+		t.Error("EnvVars = nil, want non-nil empty map")
+	}
+	if cfg.GoFlags == nil {
+		t.Error("GoFlags = nil, want non-nil empty slice")
+	}
+	if cfg.CGOPackages == nil {
+		t.Error("CGOPackages = nil, want non-nil empty slice")
+	}
+	if len(cfg.EnvVars) != 0 {
+		t.Errorf("len(EnvVars) = %d, want 0", len(cfg.EnvVars))
+	}
+	if len(cfg.GoFlags) != 0 {
+		t.Errorf("len(GoFlags) = %d, want 0", len(cfg.GoFlags))
+	}
+	if len(cfg.CGOPackages) != 0 {
+		t.Errorf("len(CGOPackages) = %d, want 0", len(cfg.CGOPackages))
+	}
+}
+
+func TestDefaultBuildConfig_ShouldReturnFreshCollections(t *testing.T) {
+	first := DefaultBuildConfig()
+	first.EnvVars["X"] = "1"
+	first.GoFlags = append(first.GoFlags, "-tags=foo")
+	second := DefaultBuildConfig()
+	if _, ok := second.EnvVars["X"]; ok {
+		t.Error("second EnvVars shares backing map with first call")
+	}
+	if len(second.GoFlags) != 0 {
+		t.Errorf("len(second.GoFlags) = %d, want 0 (fresh slice per call)", len(second.GoFlags))
+	}
+}
+
+func TestGetDev_WhenNilReceiver_ShouldReturnZeroConfig(t *testing.T) {
+	var cfg *UserConfig
+	got := cfg.GetDev()
+	if got.PolicyHotReload {
+		t.Error("GetDev on nil receiver = PolicyHotReload true, want false")
+	}
+}
+
+func TestGetDev_WhenNilDevSection_ShouldReturnZeroConfig(t *testing.T) {
+	cfg := &UserConfig{}
+	got := cfg.GetDev()
+	if got != (DevConfig{}) {
+		t.Errorf("GetDev with nil Dev = %+v, want zero DevConfig", got)
+	}
+}
+
+func TestGetDev_WhenSet_ShouldReturnStoredValue(t *testing.T) {
+	cfg := &UserConfig{Dev: &DevConfig{PolicyHotReload: true}}
+	got := cfg.GetDev()
+	if !got.PolicyHotReload {
+		t.Error("GetDev = PolicyHotReload false, want true")
+	}
+}

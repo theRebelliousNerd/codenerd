@@ -109,6 +109,14 @@ func failedTestName(line string, markerAt int) string {
 	if markerAt < 0 || markerAt+len("--- fail") > len(line) {
 		return ""
 	}
+	// The marker must end at a boundary (":", whitespace, or end of line).
+	// Without this, "--- FAILED" would yield "ED: ..." as a test name.
+	if after := markerAt + len("--- fail"); after < len(line) {
+		c := line[after]
+		if c != ':' && c != ' ' && c != '\t' {
+			return ""
+		}
+	}
 	rest := strings.TrimSpace(line[markerAt+len("--- fail"):])
 	rest = strings.TrimSpace(strings.TrimPrefix(rest, ":"))
 	// Go appends a duration, "TestName (0.00s)". Subtest names keep their
@@ -137,24 +145,27 @@ func ParseOptimistic(output string) (passed, failed int) {
 
 // genericPassLine reports whether a non-Go runner's line announces success.
 func genericPassLine(lower string) bool {
-	return strings.Contains(lower, "passed") ||
-		strings.Contains(lower, "passing") ||
+	return containsWord(lower, "passed") ||
+		containsWord(lower, "passing") ||
 		containsWord(lower, "ok")
 }
 
 // genericFailureLine reports whether a non-Go runner's line announces failure.
 func genericFailureLine(lower string) bool {
-	return strings.Contains(lower, "failed") ||
-		strings.Contains(lower, "failing") ||
+	return containsWord(lower, "failed") ||
+		containsWord(lower, "failing") ||
 		containsWord(lower, "error") ||
 		containsWord(lower, "errors")
 }
 
-// containsWord reports whether word appears in s bounded by non-letters.
+// containsWord reports whether word appears in s bounded by non-word characters.
 //
 // The bound is the point: strings.Contains(s, "ok") is true of "token" and
 // "broken", and every `go test` summary line names a package path.
 func containsWord(s, word string) bool {
+	if word == "" {
+		return false
+	}
 	for i := 0; ; {
 		idx := strings.Index(s[i:], word)
 		if idx < 0 {
@@ -162,8 +173,8 @@ func containsWord(s, word string) bool {
 		}
 		start := i + idx
 		end := start + len(word)
-		beforeOK := start == 0 || !isASCIILetter(s[start-1])
-		afterOK := end == len(s) || !isASCIILetter(s[end])
+		beforeOK := start == 0 || !isWordChar(s[start-1])
+		afterOK := end == len(s) || !isWordChar(s[end])
 		if beforeOK && afterOK {
 			return true
 		}
@@ -176,4 +187,8 @@ func containsWord(s, word string) bool {
 
 func isASCIILetter(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+func isWordChar(b byte) bool {
+	return isASCIILetter(b) || (b >= '0' && b <= '9') || b == '_'
 }

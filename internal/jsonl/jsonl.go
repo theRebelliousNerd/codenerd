@@ -75,6 +75,9 @@ func Open(path string) (*Appender, error) {
 // the default rather than disabling rotation: an unbounded log in a long agent
 // session is the failure the cap exists to prevent.
 func (a *Appender) SetMaxBytes(n int64) {
+	if a == nil {
+		return
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if n <= 0 {
@@ -85,6 +88,9 @@ func (a *Appender) SetMaxBytes(n int64) {
 
 // Append marshals v and writes it as one line.
 func (a *Appender) Append(v any) {
+	if a == nil {
+		return
+	}
 	line, err := json.Marshal(v)
 	if err != nil {
 		a.noteErr(err)
@@ -145,6 +151,9 @@ func (a *Appender) rotateLocked() error {
 }
 
 func (a *Appender) noteErr(err error) {
+	if a == nil {
+		return
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.recordErrLocked(err)
@@ -164,6 +173,9 @@ func (a *Appender) recordErrLocked(err error) {
 // nothing happened" from "no data because the writer has been broken since
 // boot", and that distinction has nowhere else to live.
 func (a *Appender) Failures() (count int, first error) {
+	if a == nil {
+		return 0, nil
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.errCount, a.firstErr
@@ -173,16 +185,27 @@ func (a *Appender) Failures() (count int, first error) {
 // reader that needs every record (a cost export) must treat a non-zero count
 // as an incomplete log, since a record older than the kept generation is gone.
 func (a *Appender) Dropped() int {
+	if a == nil {
+		return 0
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.dropped
 }
 
 // Path returns the live log path.
-func (a *Appender) Path() string { return a.path }
+func (a *Appender) Path() string {
+	if a == nil {
+		return ""
+	}
+	return a.path
+}
 
 // Close closes the log. Safe to call more than once.
 func (a *Appender) Close() error {
+	if a == nil {
+		return nil
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.file == nil {

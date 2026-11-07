@@ -541,3 +541,134 @@ func TestRotationWhileAReaderHoldsTheBackupOpen(t *testing.T) {
 	}
 	_ = a.Close()
 }
+
+func TestNilAppenderMethodsAreSafe(t *testing.T) {
+	var a *Appender
+	// Every accessor and mutator on a nil appender must be inert rather than
+	// panicking: shutdown ordering is not something a hot-path writer can rely on.
+	a.SetMaxBytes(10)
+	a.Append(rec{N: 1})
+	if got := a.Path(); got != "" {
+		t.Fatalf("nil Path() = %q, want empty", got)
+	}
+	if got := a.Dropped(); got != 0 {
+		t.Fatalf("nil Dropped() = %d, want 0", got)
+	}
+	if n, err := a.Failures(); n != 0 || err != nil {
+		t.Fatalf("nil Failures() = (%d, %v), want (0, nil)", n, err)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatalf("nil Close() = %v, want nil", err)
+	}
+}
+
+func TestDroppedCountsOverwrittenGenerations(t *testing.T) {
+	path := tempLog(t)
+	a, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = a.Close() }()
+	if got := a.Dropped(); got != 0 {
+		t.Fatalf("fresh Dropped() = %d, want 0", got)
+	}
+	a.SetMaxBytes(120)
+	for i := 0; i < 200; i++ {
+		a.Append(rec{N: i, Text: "yyyyyyyyyy"})
+	}
+	if n, failErr := a.Failures(); failErr != nil {
+		t.Fatalf("rotation failed %d times: %v", n, failErr)
+	}
+	if got := a.Dropped(); got < 1 {
+		t.Fatalf("Dropped() = %d after repeated rotation, want at least 1 overwritten generation", got)
+	}
+}
+
+func TestFailuresKeepsFirstError(t *testing.T) {
+	path := tempLog(t)
+	a, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	a.Append(map[string]any{"bad": make(chan int)})
+	a.Append(map[string]any{"bad": make(chan int)})
+
+	n, failErr := a.Failures()
+	if n != 2 {
+		t.Fatalf("Failures count = %d, want 2", n)
+	}
+	if failErr == nil {
+		t.Fatal("Failures first error is nil after two marshal failures")
+	}
+	var typeErr *json.UnsupportedTypeError
+	if !errors.As(failErr, &typeErr) {
+		t.Fatalf("first error = %T (%v), want json.UnsupportedTypeError", failErr, failErr)
+	}
+}
+
+func TestReadSurfacesNonMissingErrors(t *testing.T) {
+	// A NUL byte makes atomicfile.Open fail with EINVAL, which os.IsNotExist
+	// reports as false, so Read must surface it rather than treating it as a
+	// missing log.
+	if _, _, err := Read[rec]("bad\x00path.jsonl"); err == nil {
+		t.Fatal("Read of a NUL path succeeded, want an error")
+	}
+
+	// ENOTDIR is likewise not a missing log: the parent exists but is a file.
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "parent")
+	if err := os.WriteFile(parent, []byte("x"), 0o600); err != nil {
+		t.Fatalf("write parent file: %v", err)
+	}
+	if _, _, err := Read[rec](filepath.Join(parent, "log.jsonl")); err == nil {
+		t.Fatal("Read through a file parent succeeded, want an ENOTDIR error")
+	}
+}
+
+func TestNilAppenderNoteErrIsSafe(t *testing.T) {
+	var a *Appender
+	a.noteErr(nil)
+	if n, first := a.Failures(); n != 0 || first != nil {
+		t.Fatalf("nil Failures after noteErr = (%d, %v), want (0, nil)", n, first)
+	}
+	if got := a.Dropped(); got != 0 {
+		t.Fatalf("nil Dropped after noteErr = %d, want 0", got)
+	}
+}
+
+func TestPathReturnsLivePathForOpenAppender(t *testing.T) {
+	path := tempLog(t)
+	a, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer func() { _ = a.Close() }()
+	if got := a.Path(); got != path {
+		t.Fatalf("Path() = %q, want %q", got, path)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+}
+
+func TestCloseOnLiveAppenderPreventsFurtherWrites(t *testing.T) {
+	path := tempLog(t)
+	a, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	a.Append(map[string]string{"k": "v1"})
+	if err := a.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	a.Append(map[string]string{"k": "v2"})
+	recs, _, err := Read[map[string]string](path)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if len(recs) != 1 {
+		t.Fatalf("expected 1 record after Close, got %d", len(recs))
+	}
+}
