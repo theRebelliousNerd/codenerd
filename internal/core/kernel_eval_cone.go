@@ -65,8 +65,8 @@ type coneIndex struct {
 	syms         map[string][]ast.PredicateSym // name -> every symbol the program knows under it
 	plans        conePlans
 
-	deltaOnce sync.Once   // builds delta on first use (kernel_eval_delta.go)
-	delta     *deltaIndex // the insert-only evaluator's view of the program
+	dredOnce sync.Once  // builds dred on first use (kernel_eval_dred.go)
+	dred     *dredIndex // the DRed evaluator's view of the program
 }
 
 // errConeIneligible makes evaluate() take the full path. It is not a fault.

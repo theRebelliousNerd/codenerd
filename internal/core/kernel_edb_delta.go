@@ -107,10 +107,10 @@ func (d edbDelta) clone() edbDelta {
 
 // applyExtensionalDeltaLocked brings the store's rows of pred, a predicate no
 // rule derives, up to the EDB: it removes the rows retracted since the last
-// evaluation and adds the rows asserted since. It returns how many atoms it
-// removed and added. Caller holds k.mu; the delta is known
-// (coneIneligibilityLocked).
-func (k *RealKernel) applyExtensionalDeltaLocked(pred string) (removed, added int, err error) {
+// evaluation and adds the rows asserted since. It returns the atoms whose
+// presence in the store actually changed, which DRed propagates. Caller holds
+// k.mu; the delta is known (coneIneligibilityLocked).
+func (k *RealKernel) applyExtensionalDeltaLocked(pred string) (removed, added []ast.Atom, err error) {
 	remover := k.store.(factstore.FactStoreWithRemove)
 	x := k.factIndex
 	// The store is a set and the EDB is not: two host representations of one
@@ -130,7 +130,7 @@ func (k *RealKernel) applyExtensionalDeltaLocked(pred string) (removed, added in
 			}
 		}
 		if remover.Remove(atom) {
-			removed++
+			removed = append(removed, atom)
 			if aliasCapable || hostAliasCapable(row.fact) {
 				if taken == nil {
 					taken = make(map[string]ast.Atom)
@@ -141,6 +141,7 @@ func (k *RealKernel) applyExtensionalDeltaLocked(pred string) (removed, added in
 	}
 	bucket := x.bucket(pred)
 	if len(taken) > 0 {
+		kept := newAtomSet()
 		for key, f := range bucket {
 			atom, err := k.edbAtomLocked(pred, key, f)
 			if err != nil {
@@ -148,9 +149,10 @@ func (k *RealKernel) applyExtensionalDeltaLocked(pred string) (removed, added in
 			}
 			if _, shared := taken[atom.String()]; shared && k.store.Add(atom) {
 				// The atom was never gone as far as the EDB is concerned.
-				removed--
+				kept.add(atom)
 			}
 		}
+		removed = kept.without(removed)
 	}
 	for key := range x.delta.added[pred] {
 		f, held := bucket[key]
@@ -162,10 +164,58 @@ func (k *RealKernel) applyExtensionalDeltaLocked(pred string) (removed, added in
 			return removed, added, err
 		}
 		if k.store.Add(atom) {
-			added++
+			added = append(added, atom)
 		}
 	}
-	return removed, added, nil
+	return netChange(removed, added)
+}
+
+// netChange drops an atom both removed and added: a row retracted and asserted
+// again since the last evaluation was in the store before and is after, so it
+// is no change, and DRed must not read it as one ("!p" did not become true).
+// Atoms are compared as Mangle compares them: int64(1) and float64(1) print
+// alike and are different atoms.
+func netChange(removed, added []ast.Atom) ([]ast.Atom, []ast.Atom, error) {
+	if len(removed) == 0 || len(added) == 0 {
+		return removed, added, nil
+	}
+	gone := newAtomSet()
+	for _, a := range removed {
+		gone.add(a)
+	}
+	back := newAtomSet()
+	came := added[:0]
+	for _, a := range added {
+		if gone.has(a) {
+			back.add(a)
+			continue
+		}
+		came = append(came, a)
+	}
+	return back.without(removed), came, nil
+}
+
+// atomSet is a set of atoms under Mangle's own equality.
+type atomSet struct {
+	s *factstore.MultiIndexedArrayInMemoryStore
+}
+
+func newAtomSet() atomSet             { return atomSet{factstore.NewMultiIndexedArrayInMemoryStore()} }
+func (a atomSet) add(x ast.Atom)      { a.s.Add(x) }
+func (a atomSet) has(x ast.Atom) bool { return a.s.Contains(x) }
+
+// without returns atoms minus the set's members, reusing atoms' array.
+func (a atomSet) without(atoms []ast.Atom) []ast.Atom {
+	if a.s.EstimateFactCount() == 0 {
+		return atoms
+	}
+	out := atoms[:0]
+	for _, x := range atoms {
+		if !a.has(x) {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // edbAtomLocked returns the store atom of the fact held under key: the one

@@ -89,8 +89,8 @@ func TestExtensionalDelta_RemovingOneAliasKeepsTheAtomTheOtherSupports(t *testin
 				t.Fatal(err)
 			}
 			got := aliasAnswers(t, k)
-			if mode := k.LastEvaluation().Mode; mode != "cone" {
-				t.Fatalf("evaluation mode %q, want cone: the witness is the delta path", mode)
+			if mode := k.LastEvaluation().Mode; mode != "dred" {
+				t.Fatalf("evaluation mode %q, want dred: the witness is the EDB write delta, which DRed applies", mode)
 			}
 			if !strings.Contains(got, "alias_probe:/tmp") || !strings.Contains(got, "alias_visible:/tmp") {
 				t.Fatalf("a retained EDB row still supports the atom, but the cone answer is %q", got)

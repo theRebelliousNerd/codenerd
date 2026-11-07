@@ -47,7 +47,7 @@ func TestEDBIndexRemembersAdmittedAtoms(t *testing.T) {
 		t.Fatal("an atom admitted under the previous program is offered under the new one")
 	}
 	// The next write is admitted under the new program and remembered; its
-	// delta evaluation adds just that row (a stays in the store as the full evaluation
+	// DRed evaluation adds just that row (a stays in the store as the full evaluation
 	// left it), and the answer is the full fixpoint's.
 	if err := k.Assert(b); err != nil {
 		t.Fatal(err)
@@ -56,8 +56,8 @@ func TestEDBIndexRemembersAdmittedAtoms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := k.LastEvaluation().Mode; got != "delta" {
-		t.Fatalf("evaluation mode %q, want delta", got)
+	if got := k.LastEvaluation().Mode; got != "dred" {
+		t.Fatalf("evaluation mode %q, want dred", got)
 	}
 	if len(seen) != 2 {
 		t.Fatalf("am_seen = %v, want both rows", seen)
@@ -93,15 +93,16 @@ func TestEDBIndexRemembersAdmittedAtoms(t *testing.T) {
 		t.Fatal(err)
 	}
 	seen, err = k.Query("am_seen")
-	if err != nil || len(seen) != 0 || k.LastEvaluation().Mode != "cone" {
-		t.Fatalf("am_seen after retracting a = %v, %v (%s); want none, by cone", seen, err, k.LastEvaluation().Mode)
+	if err != nil || len(seen) != 0 || k.LastEvaluation().Mode != "dred" {
+		t.Fatalf("am_seen after retracting a = %v, %v (%s); want none, by dred", seen, err, k.LastEvaluation().Mode)
 	}
 }
 
 // A write to a predicate no rule derives keeps the rows the EDB still holds in
 // the store: only the new row is added and only the retracted one removed (the
-// EDB write delta). An insert keeps the derived rows too and derives only what
-// the new row adds (kernel_eval_delta.go); a retract re-derives the cone.
+// EDB write delta), and DRed (kernel_eval_dred.go) touches only the derived
+// rows the change supported: an insert adds what the new row derives, a
+// retract over-deletes what the old one did.
 func TestConeKeepsUnchangedRowsOfAWrittenExtensionalPredicate(t *testing.T) {
 	k := newRealKernelBase()
 	k.AppendPolicy(atomMemoPolicy)
@@ -124,14 +125,14 @@ func TestConeKeepsUnchangedRowsOfAWrittenExtensionalPredicate(t *testing.T) {
 		t.Fatalf("am_seen = %d rows, %v; want 51", len(seen), err)
 	}
 	ev := k.LastEvaluation()
-	if ev.Mode != "delta" || ev.RestoredFacts != 1 || ev.RemovedFacts != 0 || ev.DeltaFacts != 1 {
-		t.Fatalf("%q restored %d, removed %d, derived %d rows; want delta: 1 restored (the new row), 0 removed, 1 derived (its am_seen)",
+	if ev.Mode != "dred" || ev.RestoredFacts != 1 || ev.RemovedFacts != 0 || ev.DeltaFacts != 1 {
+		t.Fatalf("%q restored %d, removed %d, inserted %d rows; want dred: 1 restored (the new row), 0 removed, 1 inserted (its am_seen)",
 			ev.Mode, ev.RestoredFacts, ev.RemovedFacts, ev.DeltaFacts)
 	}
 	// Nothing was listed: neither am_row's 50 held rows nor am_seen's 50
 	// derived ones. The insert's work is the one new row.
 	if ev.ListedFacts != 0 {
-		t.Fatalf("delta listed %d stored rows; want 0", ev.ListedFacts)
+		t.Fatalf("dred listed %d stored rows; want 0", ev.ListedFacts)
 	}
 
 	if err := k.RetractExactFact(Fact{Predicate: "am_row", Args: []any{"r7"}}); err != nil {
@@ -141,8 +142,10 @@ func TestConeKeepsUnchangedRowsOfAWrittenExtensionalPredicate(t *testing.T) {
 	if err != nil || len(seen) != 50 {
 		t.Fatalf("am_seen after retract = %d rows, %v; want 50", len(seen), err)
 	}
-	if ev := k.LastEvaluation(); ev.Mode != "cone" || ev.RestoredFacts != 0 || ev.RemovedFacts != 52 {
-		t.Fatalf("cone %q restored %d and removed %d rows; want 0 restored and 52 removed (r7 and 51 am_seen)",
-			ev.Mode, ev.RestoredFacts, ev.RemovedFacts)
+	// The retract removes r7 and over-deletes the one am_seen row it
+	// supported; the other 50 are never touched (the cone removed all 51).
+	if ev := k.LastEvaluation(); ev.Mode != "dred" || ev.RemovedFacts != 1 || ev.OverDeleted != 1 || ev.Rederived != 0 || ev.ListedFacts != 0 {
+		t.Fatalf("%q removed %d, over-deleted %d, re-derived %d, listed %d; want dred: 1 removed (r7), 1 over-deleted (its am_seen), none re-derived or listed",
+			ev.Mode, ev.RemovedFacts, ev.OverDeleted, ev.Rederived, ev.ListedFacts)
 	}
 }

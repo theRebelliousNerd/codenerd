@@ -182,20 +182,22 @@ type EvaluationStats struct {
 	InputFacts int
 	Duration   time.Duration
 
-	Mode            string // "full", "cone" or "delta"
+	Mode            string // "full", "cone" or "dred"
 	ConeFallback    string // why a named write set ran the full path; "" otherwise
 	StoreKind       string // "simple" or "indexed": the store the engine ran against
 	PrepareDuration time.Duration
 	EngineDuration  time.Duration
-	Touched         int // cone: predicates whose rows were replaced
-	RemovedFacts    int // cone: store rows removed before re-derivation
-	RestoredFacts   int // cone: EDB rows put back
-	ListedFacts     int // cone: store rows listed to prepare it (a known write delta lists none)
-	Rules           int // rules the engine was given
-	Strata          int // strata the engine was given
-	DeltaDuration   time.Duration // delta: semi-naive propagation of the inserted rows
-	DeltaVariants   int           // delta: rule variants evaluated over new rows
-	DeltaFacts      int // delta: derived facts added by propagation
+	Touched         int           // cone: predicates whose rows were replaced
+	RemovedFacts    int           // cone: store rows removed before re-derivation
+	RestoredFacts   int           // cone: EDB rows put back
+	ListedFacts     int           // cone: store rows listed to prepare it (a known write delta lists none)
+	Rules           int           // rules the engine was given
+	Strata          int           // strata the engine was given
+	DeltaDuration   time.Duration // dred: maintenance of the derived facts (over-delete, re-derive, insert)
+	DeltaVariants   int           // dred: rule variants evaluated over a change
+	DeltaFacts      int           // dred: derived facts inserted (net)
+	OverDeleted     int           // dred: derived facts over-deleted
+	Rederived       int           // dred: over-deleted facts that still had support
 }
 
 // storeKind names a fact store's physical kind for EvaluationStats.

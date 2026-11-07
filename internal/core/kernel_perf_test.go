@@ -63,24 +63,23 @@ func TestCloneStoreKindAndConeEquivalence(t *testing.T) {
 				t.Fatalf("parent store kind = %s, want %s", got, tc.parentKind)
 			}
 			c := parent.Clone()
-			// An insert is propagated by delta (kernel_eval_delta.go), even one
-			// whose cone holds a rule negating it: that rule's head is replaced
-			// inside the delta evaluation. A retract re-derives the cone.
+			// Every write here is maintained by DRed (kernel_eval_dred.go):
+			// inserts, retracts, and a write that turns a negation.
 			steps := []struct {
 				name  string
 				mode  string
 				write func(*RealKernel) error
 			}{
-				{"stage quiet", "delta", func(k *RealKernel) error {
+				{"stage quiet", "dred", func(k *RealKernel) error {
 					return k.AssertWithoutEval(Fact{Predicate: "perf_quiet", Args: []any{"n1"}})
 				}},
-				{"stage probe (negation turns)", "delta", func(k *RealKernel) error {
+				{"stage probe (negation turns)", "dred", func(k *RealKernel) error {
 					return k.AssertWithoutEval(Fact{Predicate: "perf_probe", Args: []any{"n1"}})
 				}},
-				{"retract an edge", "cone", func(k *RealKernel) error {
+				{"retract an edge", "dred", func(k *RealKernel) error {
 					return k.RetractExactFact(Fact{Predicate: "perf_edge", Args: []any{"n1", fmt.Sprintf("n%d", 8%tc.edges)}})
 				}},
-				{"retract probe", "cone", func(k *RealKernel) error { return k.Retract("perf_probe") }},
+				{"retract probe", "dred", func(k *RealKernel) error { return k.Retract("perf_probe") }},
 			}
 			apply := func(who string, k *RealKernel, kind string) {
 				for _, step := range steps {
@@ -407,8 +406,8 @@ func TestTransactionRetractionsKeepFixpointEquivalence(t *testing.T) {
 	if _, err := k.Query("perf_hit"); err != nil {
 		t.Fatal(err)
 	}
-	if ev := k.LastEvaluation(); ev.Mode != "cone" {
-		t.Fatalf("transaction evaluated as %q (fallback %q), want cone", ev.Mode, ev.ConeFallback)
+	if ev := k.LastEvaluation(); ev.Mode != "dred" {
+		t.Fatalf("transaction evaluated as %q (fallback %q), want dred", ev.Mode, ev.ConeFallback)
 	}
 	requireSameStore(t, "after transaction", dumpStore(t, k), fullOracle(t, k))
 	if got := k.FactCount(); got != 64-20+64-1+1 {

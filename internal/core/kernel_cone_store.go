@@ -35,7 +35,9 @@ func (k *RealKernel) prepareConeStoreLocked(plan *conePlan) (removed, restored, 
 		if derived {
 			r, a, l, err = k.replaceStoredRowsLocked(pred, remover)
 		} else {
-			r, a, err = k.applyExtensionalDeltaLocked(pred)
+			var gone, came []ast.Atom
+			gone, came, err = k.applyExtensionalDeltaLocked(pred)
+			r, a = len(gone), len(came)
 		}
 		if err != nil {
 			return removed, restored, listed, fmt.Errorf("cone: %s: %w", pred, err)

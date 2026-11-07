@@ -302,19 +302,19 @@ func (k *RealKernel) evaluate() (err error) {
 		logging.KernelDebug("evaluate: using cached programInfo")
 	}
 
-	// A write whose predicates were named is brought up to date by delta when
-	// it only inserts (kernel_eval_delta.go), else by re-deriving its cone.
+	// A write whose predicates were named is maintained by DRed
+	// (kernel_eval_dred.go), else re-derived as a cone.
 	named := !k.dirtyAll && len(k.dirtyPreds) > 0
-	deltaErr := k.evaluateDeltaLocked(&stats)
-	if deltaErr == nil {
+	dredErr := k.evaluateDRedLocked(&stats)
+	if dredErr == nil {
 		k.clearDirtyLocked()
 		return nil
 	}
-	if !errors.Is(deltaErr, errDeltaIneligible) {
-		// The pass may have added rows; only a fresh store is known good,
+	if !errors.Is(dredErr, errDRedIneligible) {
+		// The pass may have changed rows; only a fresh store is known good,
 		// and until one replaces it no incremental path may build on it.
-		logging.Get(logging.CategoryKernel).Warn("evaluate: delta evaluation failed, running the full fixpoint: %v", deltaErr)
-		stats.ConeFallback = deltaErr.Error()
+		logging.Get(logging.CategoryKernel).Warn("evaluate: dred evaluation failed, running the full fixpoint: %v", dredErr)
+		stats.ConeFallback = dredErr.Error()
 		k.storeTainted = true
 	} else if err := k.evaluateConeLocked(&stats); err == nil {
 		k.clearDirtyLocked()
