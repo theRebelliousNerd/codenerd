@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 
+	"codenerd/internal/types"
+
 	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
@@ -455,4 +457,30 @@ func init() {
 
 func TestDRedAdversarialWalkRecursionShapes(t *testing.T) {
 	axWalk(t, dxPolicy, []string{"dx_e", "dx_e", "dx_e", "dx_off", "dx_v"}, []int64{41, 42, 43, 44, 45, 46}, 150)
+}
+
+// A row retracted and a row of the same canonical key asserted in its place
+// can admit to two atoms that print alike (int64(1) and float64(1)). The
+// string is types.MangleString, so the retraction takes the alias-support
+// path, which used to treat the float as the removed int because both print
+// as 1. The derived copy and the rule that matches only the float then
+// disappeared.
+func TestDRedAliasPredicateSwapsANumberForAnEqualFloat(t *testing.T) {
+	k := newPolicyKernel(t, newRealKernelBase(), `
+		Decl al_p(S, N) bound [/string, /any].
+		Decl al_q(S, N).
+		Decl al_seen(S).
+		al_q(S, N) :- al_p(S, N).
+		al_seen(S) :- al_q(S, N), N = 1.0.
+	`)
+	as := func(n any) Fact { return axFactOf("al_p", types.MangleString("x"), n) }
+	axApply(t, k, "number", "dred", func() { axAssert(t, k, as(int64(1))) })
+	axApply(t, k, "swap for a float", "dred", func() {
+		axRetract(t, k, as(int64(1)))
+		axAssert(t, k, as(float64(1)))
+	})
+	axApply(t, k, "swap back", "dred", func() {
+		axRetract(t, k, as(float64(1)))
+		axAssert(t, k, as(int64(1)))
+	})
 }
