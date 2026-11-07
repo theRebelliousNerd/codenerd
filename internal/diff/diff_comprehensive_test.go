@@ -463,3 +463,204 @@ func TestComputeDiff_WhenTrailingNewlineDiffers_ShouldDetect(t *testing.T) {
 		t.Fatal("expected non-nil diff")
 	}
 }
+
+func TestClampContextLines_ShouldBoundExtremes(t *testing.T) {
+	t.Parallel()
+	cases := map[string]struct {
+		in   int
+		want int
+	}{
+		"negative clamps to zero": {in: -5, want: 0},
+		"zero stays zero":         {in: 0, want: 0},
+		"small value passes":      {in: 3, want: 3},
+		"limit passes":            {in: maxContextLines, want: maxContextLines},
+		"above limit clamps":      {in: maxContextLines + 1, want: maxContextLines},
+		"huge clamps":             {in: 1 << 30, want: maxContextLines},
+	}
+	for name, tc := range cases {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := clampContextLines(tc.in); got != tc.want {
+				t.Errorf("clampContextLines(%d) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestOptions_ContextLines_ShouldResolveAndClamp(t *testing.T) {
+	t.Parallel()
+	if got := (Options{}).contextLines(); got != defaultContextLines {
+		t.Errorf("zero Options contextLines = %d, want %d", got, defaultContextLines)
+	}
+	if got := (Options{ContextLines: 5}).contextLines(); got != 5 {
+		t.Errorf("ContextLines 5 resolves to %d, want 5", got)
+	}
+	if got := (Options{ContextLines: -1}).contextLines(); got != 0 {
+		t.Errorf("negative ContextLines resolves to %d, want 0 (genuinely zero context)", got)
+	}
+	if got := (Options{ContextLines: maxContextLines + 500}).contextLines(); got != maxContextLines {
+		t.Errorf("huge ContextLines resolves to %d, want clamp %d", got, maxContextLines)
+	}
+}
+
+func TestNewDiffCache_ShouldFallBackToDefaultsOnNonPositive(t *testing.T) {
+	t.Parallel()
+	c := newDiffCache(0, 0)
+	if c.maxEntries != defaultMaxCacheEntries {
+		t.Errorf("maxEntries = %d, want default %d", c.maxEntries, defaultMaxCacheEntries)
+	}
+	if c.maxBytes != defaultMaxCacheBytes {
+		t.Errorf("maxBytes = %d, want default %d", c.maxBytes, defaultMaxCacheBytes)
+	}
+	neg := newDiffCache(-3, -100)
+	if neg.maxEntries != defaultMaxCacheEntries || neg.maxBytes != defaultMaxCacheBytes {
+		t.Errorf("negative bounds should fall back to defaults, got entries=%d bytes=%d", neg.maxEntries, neg.maxBytes)
+	}
+	custom := newDiffCache(2, 1024)
+	if custom.maxEntries != 2 || custom.maxBytes != 1024 {
+		t.Errorf("positive bounds should be kept, got entries=%d bytes=%d", custom.maxEntries, custom.maxBytes)
+	}
+}
+
+func TestDiffCache_PutNil_ShouldNotPanicOrStore(t *testing.T) {
+	t.Parallel()
+	c := newDiffCache(4, 1<<20)
+	c.put(cacheKey{}, nil, "", "", false)
+	if got := c.stats().Entries; got != 0 {
+		t.Errorf("Entries after nil put = %d, want 0", got)
+	}
+}
+
+func TestDiffCache_PutOverwrite_ShouldReplaceWithoutDuplicating(t *testing.T) {
+	t.Parallel()
+	c := newDiffCache(4, 1<<20)
+	key := cacheKey{oldHash: 11, newHash: 22, oldLen: 1, newLen: 1}
+	first := &FileDiff{
+		OldPath: "a", NewPath: "b",
+		Hunks: []Hunk{{OldStart: 1, OldCount: 1, NewStart: 1, NewCount: 1,
+			Lines: []Line{{LineNum: 1, Content: "x", Type: LineAdded}}}},
+	}
+	second := &FileDiff{
+		OldPath: "a", NewPath: "b",
+		Hunks: []Hunk{{OldStart: 1, OldCount: 1, NewStart: 1, NewCount: 1,
+			Lines: []Line{{LineNum: 1, Content: "y", Type: LineAdded}}}},
+	}
+	c.put(key, first, "", "", false)
+	c.put(key, second, "", "", false)
+	if got := c.stats().Entries; got != 1 {
+		t.Fatalf("Entries after overwrite = %d, want 1", got)
+	}
+	got := c.get(key, "", "")
+	if got == nil {
+		t.Fatal("expected cached diff after overwrite, got nil")
+	}
+	if len(got.Hunks) != 1 || len(got.Hunks[0].Lines) != 1 || got.Hunks[0].Lines[0].Content != "y" {
+		t.Errorf("overwrite should serve the second diff, got %+v", got.Hunks)
+	}
+}
+
+func TestFileDiff_ApproxSize_ShouldGrowWithContent(t *testing.T) {
+	t.Parallel()
+	empty := (&FileDiff{}).approxSize()
+	if empty != 0 {
+		t.Errorf("empty diff approxSize = %d, want 0", empty)
+	}
+	withPaths := (&FileDiff{OldPath: "a.txt", NewPath: "b.txt"}).approxSize()
+	if withPaths <= empty {
+		t.Errorf("paths should increase approxSize: empty=%d paths=%d", empty, withPaths)
+	}
+	withHunks := (&FileDiff{
+		OldPath: "a.txt", NewPath: "b.txt",
+		Hunks: []Hunk{{OldStart: 1, OldCount: 1, NewStart: 1, NewCount: 1,
+			Lines: []Line{{LineNum: 1, Content: "hello", Type: LineContext}}}},
+	}).approxSize()
+	if withHunks <= withPaths {
+		t.Errorf("hunks should increase approxSize: paths=%d hunks=%d", withPaths, withHunks)
+	}
+}
+
+func TestConvertToHunks_WhenNoDiffs_ShouldReturnNil(t *testing.T) {
+	t.Parallel()
+	e := NewEngine()
+	if got := e.convertToHunks(nil, defaultContextLines); got != nil {
+		t.Errorf("convertToHunks(nil) = %+v, want nil", got)
+	}
+	if got := e.groupIntoHunks(nil, defaultContextLines); got != nil {
+		t.Errorf("groupIntoHunks(nil) = %+v, want nil", got)
+	}
+}
+
+func TestComputeDiff_WhenBothEmpty_ShouldFlagNewAndDelete(t *testing.T) {
+	t.Parallel()
+	d := NewEngine().ComputeDiff("a.txt", "b.txt", "", "")
+	if d == nil {
+		t.Fatal("expected non-nil diff")
+	}
+	if !d.IsNew || !d.IsDelete {
+		t.Errorf("both-empty should set IsNew and IsDelete, got IsNew=%v IsDelete=%v", d.IsNew, d.IsDelete)
+	}
+	if d.IsBinary {
+		t.Error("both-empty must not be flagged binary")
+	}
+	if len(d.Hunks) != 0 {
+		t.Errorf("both-empty should have no hunks, got %d", len(d.Hunks))
+	}
+}
+
+func TestComputeDiff_CacheHit_ShouldRetargetPathsWithoutMutatingCache(t *testing.T) {
+	t.Parallel()
+	e := NewEngine()
+	old := "a\nb\n"
+	new := "a\nc\n"
+	first := e.ComputeDiff("old1", "new1", old, new)
+	second := e.ComputeDiff("old2", "new2", old, new)
+	if second.OldPath != "old2" || second.NewPath != "new2" {
+		t.Errorf("cache hit should retarget paths, got %q %q", second.OldPath, second.NewPath)
+	}
+	if first.OldPath != "old1" || first.NewPath != "new1" {
+		t.Errorf("retarget must not mutate the first result, got %q %q", first.OldPath, first.NewPath)
+	}
+	if len(first.Hunks) != len(second.Hunks) {
+		t.Errorf("cached hunks should match: first=%d second=%d", len(first.Hunks), len(second.Hunks))
+	}
+	if got := e.Stats().Hits; got < 1 {
+		t.Errorf("expected at least one cache hit, got %d", got)
+	}
+}
+
+func TestComputeDiff_ZeroContext_ShouldContainOnlyChanges(t *testing.T) {
+	t.Parallel()
+	e := NewEngineWith(Options{ContextLines: -1})
+	old := "l1\nl2\nl3\nl4\nl5\nchange1\nl7\nl8\nl9\nl10\nl11\n"
+	new := "l1\nl2\nl3\nl4\nl5\nchange2\nl7\nl8\nl9\nl10\nl11\n"
+	d := e.ComputeDiff("a", "b", old, new)
+	if d == nil || len(d.Hunks) == 0 {
+		t.Fatal("expected hunks for zero-context change")
+	}
+	for hi, h := range d.Hunks {
+		for _, l := range h.Lines {
+			if l.Type == LineContext {
+				t.Errorf("hunk %d should have no context lines with zero context, found %q", hi, l.Content)
+			}
+		}
+	}
+}
+
+func TestFileDiff_Clone_WhenHunkHasNilLines_ShouldPreserveNil(t *testing.T) {
+	t.Parallel()
+	fd := &FileDiff{
+		OldPath: "a", NewPath: "b",
+		Hunks: []Hunk{{OldStart: 1, OldCount: 0, NewStart: 1, NewCount: 0, Lines: nil}},
+	}
+	cloned := fd.Clone()
+	if cloned == nil {
+		t.Fatal("expected non-nil clone")
+	}
+	if len(cloned.Hunks) != 1 {
+		t.Fatalf("expected 1 hunk, got %d", len(cloned.Hunks))
+	}
+	if cloned.Hunks[0].Lines != nil {
+		t.Errorf("nil Lines should stay nil after Clone, got %+v", cloned.Hunks[0].Lines)
+	}
+}
