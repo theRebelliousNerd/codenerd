@@ -15,9 +15,6 @@ func TestParanoidValidator_New(t *testing.T) {
 	if v == nil {
 		t.Fatal("NewParanoidFileValidator returned nil")
 	}
-	if v.MaxStaleSeconds != 30 {
-		t.Errorf("Expected MaxStaleSeconds 30, got %d", v.MaxStaleSeconds)
-	}
 	if !v.RequireDoubleRead {
 		t.Error("Expected RequireDoubleRead to be true by default")
 	}
@@ -48,7 +45,6 @@ func TestParanoidValidator_CanValidate(t *testing.T) {
 func TestParanoidValidator_ValidateSuccess(t *testing.T) {
 	v := NewParanoidFileValidator()
 	v.RequireDoubleRead = false // Speed up test
-	v.MaxStaleSeconds = 60
 
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "test.txt")
@@ -81,7 +77,6 @@ func TestParanoidValidator_ValidateSuccess(t *testing.T) {
 func TestParanoidValidator_ValidateMismatch(t *testing.T) {
 	v := NewParanoidFileValidator()
 	v.RequireDoubleRead = false
-	v.MaxStaleSeconds = 60
 
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "test.txt")
@@ -109,36 +104,27 @@ func TestParanoidValidator_ValidateMismatch(t *testing.T) {
 	}
 }
 
-func TestParanoidValidator_ValidateStale(t *testing.T) {
+// A file whose bytes are what was asked for is verified however long ago it
+// was last modified: a write of content it already held is a no-op, and
+// validation may run long after the write. Wrong bytes still fail.
+func TestParanoidValidator_OldFileWithTheRightContentIsVerified(t *testing.T) {
 	t.Parallel()
 	v := NewParanoidFileValidator()
-	v.MaxStaleSeconds = 1 // 1 second max
-
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test.txt")
-	content := "content"
-
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("Failed to write temp file: %v", err)
+	path := filepath.Join(t.TempDir(), "test.txt")
+	if err := os.WriteFile(path, []byte("content"), 0644); err != nil {
+		t.Fatal(err)
 	}
-
-	// Wait for file to become stale
-	time.Sleep(2 * time.Second)
-
-	req := ActionRequest{
-		Type:   ActionWriteFile,
-		Target: path,
-		Payload: map[string]any{
-			"content": content,
-		},
+	old := time.Now().Add(-10 * time.Minute)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
 	}
-	result := ActionResult{Success: true}
-
-	ctx := context.Background()
-	vr := v.Validate(ctx, req, result)
-
-	if vr.Verified {
-		t.Errorf("Expected Verified=false for stale file")
+	req := ActionRequest{Type: ActionWriteFile, Target: path, Payload: map[string]any{"content": "content"}}
+	if vr := v.Validate(context.Background(), req, ActionResult{Success: true}); !vr.Verified {
+		t.Fatalf("an old file holding the requested bytes was rejected: %s", vr.Error)
+	}
+	req.Payload["content"] = "other"
+	if vr := v.Validate(context.Background(), req, ActionResult{Success: true}); vr.Verified {
+		t.Fatal("an old file holding other bytes was verified")
 	}
 }
 
@@ -148,7 +134,6 @@ func TestParanoidValidator_ValidateStale(t *testing.T) {
 func TestParanoidValidator_DoubleReadRaceCondition(t *testing.T) {
 	v := NewParanoidFileValidator()
 	v.RequireDoubleRead = true
-	v.MaxStaleSeconds = 5 // Give enough time
 
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "race.txt")
@@ -329,7 +314,7 @@ func TestParanoidValidator_ContentSamplingRuns(t *testing.T) {
 		t.Fatal("Details['checks_passed'] not found or not []string")
 	}
 
-	// The paranoid validator tracks: existence, timestamp_freshness, size_sanity,
+	// The paranoid validator tracks: existence, size_sanity,
 	// size_match, first_read, hash_first_read, double_read_consistency, hash_second_read
 	expected := []string{"existence", "hash_first_read"}
 	for _, exp := range expected {

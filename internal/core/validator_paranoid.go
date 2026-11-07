@@ -21,7 +21,6 @@ import (
 // 4. Double-read consistency (hash twice, both match)
 // 5. Size sanity check (non-zero, reasonable size)
 type ParanoidFileValidator struct {
-	MaxStaleSeconds   int
 	RequireDoubleRead bool
 	MinFileSizeBytes  int64
 	MaxFileSizeBytes  int64
@@ -30,7 +29,6 @@ type ParanoidFileValidator struct {
 // NewParanoidFileValidator creates a paranoid validator with sensible defaults.
 func NewParanoidFileValidator() *ParanoidFileValidator {
 	return &ParanoidFileValidator{
-		MaxStaleSeconds:   30,
 		RequireDoubleRead: true,
 		MinFileSizeBytes:  0,
 		MaxFileSizeBytes:  100 * 1024 * 1024,
@@ -139,36 +137,13 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 		}
 	}
 
-	// CHECK 2: Timestamp freshness
-	modTime := info.ModTime()
-	age := time.Since(modTime).Seconds()
-	if age < 0 {
-		return ValidationResult{
-			Verified:   false,
-			Confidence: 1.0,
-			Method:     "paranoid_validation",
-			Error:      fmt.Sprintf("file modification time is in the future (negative age): %.1fs", age),
-			Details: map[string]any{
-				"check_failed": "timestamp_freshness",
-				"age_seconds":  age,
-				"modified_at":  modTime.Format(time.RFC3339),
-			},
-		}
-	}
-	if age > float64(v.MaxStaleSeconds) {
-		return ValidationResult{
-			Verified:   false,
-			Confidence: 1.0,
-			Method:     "paranoid_validation",
-			Error:      fmt.Sprintf("file modification time is stale: %.1fs old (max: %ds)", age, v.MaxStaleSeconds),
-			Details: map[string]any{
-				"check_failed": "timestamp_freshness",
-				"age_seconds":  age,
-				"max_age":      v.MaxStaleSeconds,
-				"modified_at":  modTime.Format(time.RFC3339),
-			},
-		}
-	}
+	age := time.Since(info.ModTime()).Seconds() // reported, never judged
+	// No timestamp check: the hashes below verify every byte against what
+	// was asked for. A modification time judged the wrong thing: a write of
+	// content the file already held changes nothing and keeps its old time,
+	// and a validation that runs after a long build sees any time as old;
+	// both rejected a correct write ("file modification time is stale: 54.1s
+	// old (max: 30s)", 2026-11-06).
 
 	// CHECK 3: Size sanity
 	fileSize := info.Size()
@@ -339,7 +314,6 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 		Details: map[string]any{
 			"checks_passed": []string{
 				"existence",
-				"timestamp_freshness",
 				"size_sanity",
 				"size_match",
 				"first_read",
