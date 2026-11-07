@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"fmt"
 	"go/parser"
 	"go/token"
 	"path/filepath"
@@ -20,7 +19,7 @@ func RejectUnparseableGo(path string, content []byte) error {
 	}
 	if _, err := parser.ParseFile(token.NewFileSet(), path, content, parser.AllErrors); err != nil {
 		first, _, _ := strings.Cut(err.Error(), "\n")
-		return fmt.Errorf("refusing to write %s: Go syntax invalid: %s", path, first)
+		return Refuse("refusing to write %s: Go syntax invalid: %s", path, first)
 	}
 	return nil
 }

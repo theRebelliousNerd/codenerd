@@ -219,7 +219,7 @@ func checkDelimiterBalance(path string, startLine int, oldLines []string, before
 		}
 	}
 
-	return fmt.Errorf("refusing edit: it changes delimiter balance in %s (whole-file result is delimiter-unbalanced).\n"+
+	return tools.Refuse("refusing edit: it changes delimiter balance in %s (whole-file result is delimiter-unbalanced).\n"+
 		"The lines you replaced were holding a delimiter your new content does not reproduce,\n"+
 		"which would leave the file unparseable below the edit.\n"+
 		"Replaced lines %d-%d were:\n%s",

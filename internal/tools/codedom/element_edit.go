@@ -617,7 +617,7 @@ func executeDeleteElement(ctx context.Context, args map[string]any) (string, err
 		return "", unresolvedUses("delete", ref, len(uses), obs)
 	}
 	if len(uses) > 0 && strings.TrimSpace(replaceWith) == "" {
-		return "", fmt.Errorf("refusing to delete %s: %d uses remain outside it --\n%s\nRewrite them first, or call again with replace_with (what they should point at) and paths (their files)", ref, len(uses), renderUses(uses))
+		return "", tools.Refuse("refusing to delete %s: %d uses remain outside it --\n%s\nRewrite them first, or call again with replace_with (what they should point at) and paths (their files)", ref, len(uses), renderUses(uses))
 	}
 	if len(uses) > 0 {
 		return repointAndDelete(ctx, re, uses, replaceWith, parseStringArray(args["paths"]))

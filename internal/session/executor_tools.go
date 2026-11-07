@@ -1018,6 +1018,10 @@ func (e *Executor) executeToolBatch(
 				logging.Get(logging.CategorySession).Info("Tool call %s steered to narrow scope: %v", call.Name, execErr)
 			} else if isStepDeferredVerifyTool(call.Name) || ctx.Err() != nil || errors.Is(execErr, context.Canceled) {
 				logging.Get(logging.CategorySession).Info("Tool call %s exited with error: %v", call.Name, execErr)
+			} else if tools.ModelFacing(execErr) {
+				// The call's own fault (a refused edit, a path it guessed):
+				// the model reads it and re-plans. Not a codeNERD defect.
+				logging.Get(logging.CategorySession).Warn("Tool call %s refused or misdirected: %v", call.Name, execErr)
 			} else {
 				logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, execErr)
 			}

@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"fmt"
 	"go/build/constraint"
 	"go/version"
 	"os"
@@ -60,7 +59,7 @@ func RejectAddedBuildExclusion(root, path string, before, after []byte) error {
 	}
 	tags := currentBuildTags(root)
 	if buildConstraintsExclude(afterGo, afterPlus, tags) && !buildConstraintsExclude(beforeGo, beforePlus, tags) {
-		return fmt.Errorf("refusing to write %s: the edit adds %s, which excludes this file from the current build (GOOS=%s GOARCH=%s tags=%s); hiding a file from the build is not a fix",
+		return Refuse("refusing to write %s: the edit adds %s, which excludes this file from the current build (GOOS=%s GOARCH=%s tags=%s); hiding a file from the build is not a fix",
 			path, strings.Join(added, ", "), runtime.GOOS, runtime.GOARCH, formatBuildTags(tags))
 	}
 	return nil
