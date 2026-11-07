@@ -124,25 +124,12 @@ func NewKernelShards(configs []KernelShardConfig) ([]*KernelShard, error) {
 		}
 		kernel := b.kernel
 		if taken[key] {
-			kernel = b.kernel.cloneBooted()
+			kernel = b.kernel.Clone()
 		}
 		taken[key] = true
 		shards = append(shards, newKernelShardAround(config, kernel))
 	}
 	return shards, nil
-}
-
-// cloneBooted is Clone for a kernel that stays in service: a shard's kernel is
-// later swapped onto a reloaded constitution (ReloadConstitution), which needs
-// the constitution/extension split the boot recorded, and Clone leaves that
-// split empty (it is a trial kernel's copy). The clone is not yet shared, so
-// its fields are written without a lock.
-func (k *RealKernel) cloneBooted() *RealKernel {
-	clone := k.Clone()
-	k.mu.RLock()
-	clone.constSchemas, clone.constPolicy = k.constSchemas, k.constPolicy
-	k.mu.RUnlock()
-	return clone
 }
 
 // bootShardKernel boots the kernel a shard wraps. It uses

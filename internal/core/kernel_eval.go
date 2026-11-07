@@ -603,16 +603,22 @@ func (k *RealKernel) Clone() *RealKernel {
 // cloneLocked is Clone's body; the caller holds at least k.mu.RLock.
 func (k *RealKernel) cloneLocked() *RealKernel {
 	clone := &RealKernel{
-		cachedAtoms:       nil, // Rebuild fresh to avoid shared memory pointers
-		bootFacts:         slices.Clone(k.bootFacts),
-		bootIntents:       make([]HybridIntent, len(k.bootIntents)),
-		bootPrompts:       make([]HybridPrompt, len(k.bootPrompts)),
-		store:             factstore.NewSimpleInMemoryStore(), // Fresh store
-		programInfo:       k.programInfo,                      // Share programInfo (immutable after analysis)
-		strata:            k.strata,                           // Share strata (immutable after stratification)
-		predToStratum:     k.predToStratum,                    // Share predToStratum (immutable after stratification)
-		schemas:           k.schemas,
-		policy:            k.policy,
+		cachedAtoms:   nil, // Rebuild fresh to avoid shared memory pointers
+		bootFacts:     slices.Clone(k.bootFacts),
+		bootIntents:   make([]HybridIntent, len(k.bootIntents)),
+		bootPrompts:   make([]HybridPrompt, len(k.bootPrompts)),
+		store:         factstore.NewSimpleInMemoryStore(), // Fresh store
+		programInfo:   k.programInfo,                      // Share programInfo (immutable after analysis)
+		strata:        k.strata,                           // Share strata (immutable after stratification)
+		predToStratum: k.predToStratum,                    // Share predToStratum (immutable after stratification)
+		schemas:       k.schemas,
+		policy:        k.policy,
+		// The constitution/extension split travels with schemas and policy:
+		// a clone that is later put in service (a shard kernel cloned from
+		// one boot) is swapped onto a reloaded constitution by
+		// ReloadConstitution, which needs it.
+		constSchemas:      k.constSchemas,
+		constPolicy:       k.constPolicy,
 		learned:           k.learned,
 		loadedPolicyFiles: make(map[string]struct{}, len(k.loadedPolicyFiles)),
 		sandbox:           k.sandbox,         // A clone of a trial kernel is still a trial kernel

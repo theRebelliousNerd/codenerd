@@ -173,3 +173,20 @@ func TestLoadMangleFiles_LearnedWithExtensions_PrependsConstitution(t *testing.T
 		t.Fatalf("learned finalization must prepend constitution to policy, got %d vs const %d", len(k.policy), len(k.constPolicy))
 	}
 }
+
+// A clone carries the constitution/extension split with schemas and policy:
+// shard kernels are clones of one boot and are later swapped onto a reloaded
+// constitution, which reads the split.
+func TestClone_KeepsConstitutionSplit(t *testing.T) {
+	k, err := NewRealKernelWithWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k.constSchemas == "" || k.constPolicy == "" {
+		t.Fatal("fixture: the boot recorded no constitution split")
+	}
+	c := k.Clone()
+	if c.constSchemas != k.constSchemas || c.constPolicy != k.constPolicy {
+		t.Fatalf("clone split = %d/%d bytes, parent %d/%d", len(c.constSchemas), len(c.constPolicy), len(k.constSchemas), len(k.constPolicy))
+	}
+}
