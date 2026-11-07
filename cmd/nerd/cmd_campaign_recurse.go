@@ -13,9 +13,11 @@ import (
 
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
+	"codenerd/internal/core"
 	"codenerd/internal/gates"
 	"codenerd/internal/northstar"
 	"codenerd/internal/observation"
+	"codenerd/internal/selfrestart"
 	coresys "codenerd/internal/system"
 
 	"github.com/spf13/cobra"
@@ -46,6 +48,12 @@ var (
 	recurseGates     []string
 	recurseGateTests []string
 	recurseGateFull  int
+	// recurseBaseBranch overrides the branch the loop merges in between
+	// attempts (campaign.RecurseConfig.BaseBranch).
+	recurseBaseBranch string
+	// recurseHandover replaces this process with a rebuilt binary of itself;
+	// tests inject it. See restartRecurse.
+	recurseHandover = selfrestart.Handover
 )
 
 var campaignRecurseCmd = &cobra.Command{
@@ -84,6 +92,7 @@ func init() {
 	f.IntVar(&recurseWaves, "waves", 0, "Passes over the graph (0 = until stopped)")
 	f.StringSliceVar(&recurseSubsystems, "subsystem", nil, "Focus nodes (dependencies pulled in); repeatable")
 	f.IntVar(&recurseContextSize, "context-budget", 0, "Token budget for each attempt's campaign context (default 200000)")
+	f.StringVar(&recurseBaseBranch, "base-branch", "", "Branch merged into nerd/recurse between attempts (default: the branch the run started from, recorded in the ledger)")
 	f.BoolVar(&recursePlan, "plan", false, "Print the derived sweep order and the workspace's gates; runs nothing")
 	f.BoolVar(&recurseDryRun, "dry-run", false, "Same as --plan")
 	f.StringSliceVar(&recurseGates, "gates", nil, "Measure the error-free gates around every cycle and keep none that leaves one worse: all, or names/labels (vet,G4,gofmt,...)")
@@ -127,11 +136,12 @@ func recurseWorkspace() string {
 
 // resolveRecurseConfig validates flags into a campaign.RecurseConfig. Pure
 // (no I/O) so tests pin every flag-to-field mapping.
-func resolveRecurseConfig(waves int, subsystems []string, contextSize int) (campaign.RecurseConfig, error) {
+func resolveRecurseConfig(waves int, subsystems []string, contextSize int, baseBranch string) (campaign.RecurseConfig, error) {
 	return campaign.RecurseConfig{
 		MaxWaves:      waves,
 		Subsystems:    subsystems,
 		ContextBudget: contextSize,
+		BaseBranch:    baseBranch,
 	}.Normalize()
 }
 
@@ -148,19 +158,45 @@ func recurseAttemptConfig(base campaign.OrchestratorConfig, n int, newObserver f
 	return attemptCfg
 }
 
+// runCampaignRecurse runs the loop, and when the loop ended to continue on its
+// own rebuilt binary, replaces this process with it once everything the run
+// held (cortex, lock, journal) is closed: runRecurse has returned by then.
 func runCampaignRecurse(cmd *cobra.Command, args []string) error {
-	cfg, err := resolveRecurseConfig(recurseWaves, recurseSubsystems, recurseContextSize)
-	if err != nil {
+	restart, err := runRecurse(cmd, args)
+	if err != nil || restart == nil {
 		return err
 	}
+	return restartRecurse(cmd.ErrOrStderr(), restart, os.Args[1:], recurseHandover)
+}
+
+// restartRecurse hands over to the rebuilt binary with the arguments this run
+// was started with. The new process resumes from the ledger. It returns only
+// when the hand-over failed; the run has already ended, so the error says how
+// to resume by hand.
+func restartRecurse(w io.Writer, restart *campaign.RecurseRestart, args []string, handover func(argv0 string, argv, envv []string) error) error {
+	fmt.Fprintf(w, "recurse: continuing on %s (built from %.9s), resuming from the ledger\n", restart.Binary, restart.Commit)
+	if err := handover(restart.Binary, append([]string{restart.Binary}, args...), os.Environ()); err != nil {
+		return fmt.Errorf("recurse: could not start the rebuilt binary %s: %w; run `%s %s` to resume where the ledger stopped",
+			restart.Binary, err, restart.Binary, strings.Join(args, " "))
+	}
+	return nil
+}
+
+// runRecurse is one process's run of the loop. It returns the restart the
+// loop asked for, if any.
+func runRecurse(cmd *cobra.Command, args []string) (*campaign.RecurseRestart, error) {
+	cfg, err := resolveRecurseConfig(recurseWaves, recurseSubsystems, recurseContextSize, recurseBaseBranch)
+	if err != nil {
+		return nil, err
+	}
 	if cmd.Flags().Changed("mission") && strings.TrimSpace(recurseMission) == "" {
-		return fmt.Errorf("--mission needs an explicit purpose")
+		return nil, fmt.Errorf("--mission needs an explicit purpose")
 	}
 	cfg.Mission = recurseMission
 
 	cwd := recurseWorkspace()
 	if recursePlan || recurseDryRun {
-		return writeRecursePlan(cmd.OutOrStdout(), cwd, cfg)
+		return nil, writeRecursePlan(cmd.OutOrStdout(), cwd, cfg)
 	}
 
 	// The run honors --timeout like any other command. The signal owner is
@@ -181,28 +217,28 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 	}
 	cortex, err := coresys.GetOrBootCortex(ctx, cwd, key, disableSystemShards)
 	if err != nil {
-		return fmt.Errorf("failed to boot cortex: %w", err)
+		return nil, fmt.Errorf("failed to boot cortex: %w", err)
 	}
 	defer cortex.Close()
 	if cortex.VirtualStore != nil {
 		cortex.VirtualStore.DisableBootGuard()
 	}
 	if cortex.LLMClient == nil {
-		return fmt.Errorf("campaign recurse: cortex boot did not provide an LLM client")
+		return nil, fmt.Errorf("campaign recurse: cortex boot did not provide an LLM client")
 	}
 	kernel := cortex.Kernel
 	if kernel == nil && cortex.RealKernel != nil {
 		kernel = cortex.RealKernel
 	}
 	if kernel == nil {
-		return fmt.Errorf("campaign recurse: cortex boot did not provide a kernel")
+		return nil, fmt.Errorf("campaign recurse: cortex boot did not provide a kernel")
 	}
 
 	progressChan := make(chan campaign.Progress, 10)
 	eventChan := make(chan campaign.OrchestratorEvent, 100)
 	orchCfg, promptProvider, err := buildCampaignOrchestratorConfig(cortex, cwd, progressChan, eventChan)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	startCampaignEventPrinter(eventChan)
 
@@ -212,11 +248,11 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 	if strings.TrimSpace(recurseMission) != "" {
 		appCfg, err := config.LoadUserConfig(filepath.Join(cwd, ".nerd", "config.json"))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		mission, err = newRecurseMission(cortex, cwd, recurseMission, appCfg)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		orchCfg.Campaign.MaxParallelTasks = mission.Limits.WithDefaults().Concurrency
 		progressOut = &missionProgressOutput{writer: progressOut}
@@ -247,29 +283,46 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 
 	measureGates, err := recurseGateMeasure(cwd, recurseGates, recurseGateTests)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fmt.Printf("\nRecurse: improving %s node by node (%s).\n", cwd, recurseBoundText(cfg))
-	result, err := campaign.RunRecurseCycles(ctx, campaign.RecurseCycleConfig{
+	result, err := campaign.RunRecurseCycles(ctx, recurseCycleConfig(cfg, mission, cwd, kernel, execute, progressOut, measureGates))
+	printRecurseResult(cmd.OutOrStdout(), result)
+	switch {
+	case errors.Is(err, campaign.ErrRecurseStopped):
+		return nil, nil
+	case errors.Is(err, campaign.ErrRecurseRestart):
+		return result.Restart, nil
+	case err != nil:
+		cmd.SilenceUsage = true
+		return nil, err
+	}
+	return nil, nil
+}
+
+// recurseCycleConfig is the loop's configuration for this command. Besides the
+// flags it switches on what keeps a long run current: absorbing the base
+// branch (BaseBranch; empty keeps the ledger's or the start branch) and, in
+// the codeNERD module itself, rebuilding and continuing on its own binary
+// (SelfUpdate). A bounded mission does neither (campaign.RunRecurseCycles).
+func recurseCycleConfig(cfg campaign.RecurseConfig, mission *campaign.RecurseMission, cwd string, kernel core.Kernel,
+	execute campaign.RecurseExecutor, progress io.Writer, measureGates func(context.Context, []string) gates.Snapshot) campaign.RecurseCycleConfig {
+	out := campaign.RecurseCycleConfig{
 		Mission:              mission,
 		Workspace:            cwd,
 		Kernel:               kernel,
 		Execute:              execute,
 		Passes:               cfg.MaxWaves,
 		Subsystems:           cfg.Subsystems,
-		Progress:             progressOut,
+		Progress:             progress,
 		MeasureGates:         measureGates,
 		FullGateMeasureEvery: recurseGateFull,
-	})
-	printRecurseResult(cmd.OutOrStdout(), result)
-	if errors.Is(err, campaign.ErrRecurseStopped) {
-		return nil
+		BaseBranch:           cfg.BaseBranch,
 	}
-	if err != nil {
-		cmd.SilenceUsage = true
-		return err
+	if mission == nil {
+		out.SelfUpdate = &campaign.RecurseSelfUpdate{}
 	}
-	return nil
+	return out
 }
 
 func recurseBoundText(cfg campaign.RecurseConfig) string {

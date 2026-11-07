@@ -17,6 +17,7 @@ func TestCampaignRecurseFlags_CoverEveryRecurseConfigField(t *testing.T) {
 		"MaxWaves":      "waves",
 		"Subsystems":    "subsystem",
 		"ContextBudget": "context-budget",
+		"BaseBranch":    "base-branch",
 	}
 	cfgType := reflect.TypeOf(campaign.RecurseConfig{})
 	for i := range cfgType.NumField() {
@@ -33,11 +34,11 @@ func TestCampaignRecurseFlags_CoverEveryRecurseConfigField(t *testing.T) {
 }
 
 func TestResolveRecurseConfig_MapsFlags(t *testing.T) {
-	cfg, err := resolveRecurseConfig(3, []string{"session"}, 1000)
+	cfg, err := resolveRecurseConfig(3, []string{"session"}, 1000, "trunk")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if cfg.MaxWaves != 3 || cfg.ContextBudget != 1000 {
+	if cfg.MaxWaves != 3 || cfg.ContextBudget != 1000 || cfg.BaseBranch != "trunk" {
 		t.Fatalf("scalars wrong: %+v", cfg)
 	}
 	if len(cfg.Subsystems) != 1 || cfg.Subsystems[0] != "session" {
@@ -46,10 +47,10 @@ func TestResolveRecurseConfig_MapsFlags(t *testing.T) {
 }
 
 func TestResolveRecurseConfig_RejectsBadInput(t *testing.T) {
-	if _, err := resolveRecurseConfig(-1, nil, 0); err == nil {
+	if _, err := resolveRecurseConfig(-1, nil, 0, ""); err == nil {
 		t.Error("negative passes must fail")
 	}
-	if _, err := resolveRecurseConfig(1, nil, -5); err == nil {
+	if _, err := resolveRecurseConfig(1, nil, -5, ""); err == nil {
 		t.Error("a negative context budget must fail")
 	}
 }

@@ -128,8 +128,18 @@ func parseRecurseArgs(args []string, known map[string]bool) (campaign.RecurseCon
 				return cfg, fmt.Errorf("unknown subsystem %q", v)
 			}
 			cfg.Subsystems = append(cfg.Subsystems, v)
+		case a == "--base-branch" || strings.HasPrefix(a, "--base-branch="):
+			if v, ok := strings.CutPrefix(a, "--base-branch="); ok {
+				cfg.BaseBranch = strings.TrimSpace(v)
+			} else if i+1 < len(args) {
+				i++
+				cfg.BaseBranch = strings.TrimSpace(args[i])
+			}
+			if cfg.BaseBranch == "" {
+				return cfg, fmt.Errorf("--base-branch needs a branch name")
+			}
 		case strings.HasPrefix(a, "--"):
-			return cfg, fmt.Errorf("unknown flag %q (want --waves, --subsystem, --mission)", a)
+			return cfg, fmt.Errorf("unknown flag %q (want --waves, --subsystem, --mission, --base-branch)", a)
 		default:
 			if !known[a] {
 				return cfg, fmt.Errorf("unknown subsystem %q", a)
@@ -221,6 +231,7 @@ func (m Model) runRecurseLoop(ctx context.Context, st *recurseState, cfg campaig
 			Kernel:     m.kernel,
 			Passes:     cfg.MaxWaves,
 			Subsystems: cfg.Subsystems,
+			BaseBranch: cfg.BaseBranch,
 			Progress:   out,
 			// The attempt's own writes are its orchestrator's kept writes:
 			// the loop undoes exactly those when it stops or reverts it.

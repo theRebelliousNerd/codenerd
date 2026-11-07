@@ -49,7 +49,17 @@ func TestParseRecurseArgs(t *testing.T) {
 		t.Fatalf("bare subsystems wrong: %+v", cfg.Subsystems)
 	}
 
+	// The base the loop absorbs can be named from the chat too.
+	for _, args := range [][]string{{"--base-branch", "trunk"}, {"--base-branch=trunk"}} {
+		cfg, err = parseRecurseArgs(args, recurseTestKnown)
+		if err != nil || cfg.BaseBranch != "trunk" {
+			t.Fatalf("%v parsed to %+v, %v; want base branch trunk", args, cfg, err)
+		}
+	}
+
 	for _, args := range [][]string{
+		{"--base-branch"},
+		{"--base-branch="},
 		{"--waves", "x"},
 		{"--waves", "-1"},
 		{"--angles", "harden"},

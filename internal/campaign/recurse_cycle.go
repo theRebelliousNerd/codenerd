@@ -139,6 +139,15 @@ type RecurseCycleConfig struct {
 	// OnKept is called after a kept attempt has been committed to git,
 	// recorded in the journal, and cleared from inflight.json.
 	OnKept func(ctx context.Context, changed []string)
+	// BaseBranch is the branch the loop absorbs at its safe points
+	// (recurse_base.go). Empty means the default: the base the ledger
+	// recorded, else the branch the run started on or the recurse branch was
+	// created from, else the remote's default branch or a local main.
+	BaseBranch string
+	// SelfUpdate, when set and the workspace is the codeNERD module, makes
+	// the run rebuild and continue on its own binary when its commits change
+	// what the binary is built from (recurse_self.go). Nil is off.
+	SelfUpdate *RecurseSelfUpdate
 }
 
 // RecurseCycleResult is what a run did.
@@ -166,6 +175,9 @@ type RecurseCycleResult struct {
 	// node's directory. They stay in the measurement and are listed here;
 	// the loop does not assign them to a subsystem.
 	Unattributed []string
+	// Restart is set when the run ended to continue on a rebuilt binary
+	// (ErrRecurseRestart); the caller replaces the process with it.
+	Restart *RecurseRestart
 }
 
 // Summary is the run in a few lines, the same on every surface.
@@ -267,8 +279,13 @@ func (g gateRun) verdict() string {
 }
 
 type recurseRun struct {
-	cfg     RecurseCycleConfig
-	root    string
+	cfg    RecurseCycleConfig
+	root   string
+	branch string
+	// base and self are nil when absorbing the base or updating onto the
+	// run's own binary is off (recurse_absorb.go, recurse_self.go).
+	base    *recurseBaseState
+	self    *recurseSelfState
 	git     recurseGit
 	policy  recursePolicy
 	journal *recurseJournal
@@ -377,7 +394,7 @@ func RunRecurseCycles(ctx context.Context, cfg RecurseCycleConfig) (result *Recu
 		return nil, fmt.Errorf("recurse: %w", err)
 	}
 	r := &recurseRun{
-		cfg: cfg, root: root, git: recurseGit{root: root}, policy: recursePolicy{k: cfg.Kernel},
+		cfg: cfg, root: root, branch: branch, git: recurseGit{root: root}, policy: recursePolicy{k: cfg.Kernel},
 		doc: doc, out: out, state: map[string]gateRun{}, seenThisPass: map[string]bool{},
 	}
 
@@ -426,6 +443,8 @@ func RunRecurseCycles(ctx context.Context, cfg RecurseCycleConfig) (result *Recu
 	if err := r.settleInFlight(ctx, history); err != nil {
 		return nil, err
 	}
+	// Read before prepare switches branches: it is the base's default.
+	startBranch, _ := r.git.currentBranch(ctx)
 	if err := r.git.prepare(ctx, branch); err != nil {
 		return nil, err
 	}
@@ -443,6 +462,10 @@ func RunRecurseCycles(ctx context.Context, cfg RecurseCycleConfig) (result *Recu
 	if err != nil {
 		return nil, err
 	}
+	if err := r.startBase(ctx, history, startBranch); err != nil {
+		return nil, err
+	}
+	r.startSelf()
 
 	runErr = r.passes(ctx, pass, done)
 	r.result.Stalled, _ = r.policy.stalled()
@@ -512,31 +535,64 @@ func (r *recurseRun) passes(ctx context.Context, first int, done map[string]bool
 	}
 }
 
-func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) error {
-	// The graph and the gates are re-derived each pass: the loop changes the
-	// code, and the code is what they are derived from. sweepGraphSound asks
-	// the kernel whether that graph has an order and fails closed when it
-	// does not, before any node is attempted. The loop below asks again, one
-	// node at a time; it does not replay a list computed here.
+// sweep is what a pass derives from the tree: its graph, the gates that judge
+// it and the kinds every attempt is re-measured against.
+type sweep struct {
+	nodes        []SubsystemNode
+	byID         map[string]SubsystemNode
+	set          gates.Set
+	ratchetKinds map[gates.Kind]bool
+}
+
+// deriveSweep derives the pass's graph and gates from the tree as it stands.
+// A pass derives them at its start and again whenever an absorb changed the
+// tree under it. sweepGraphSound asks the kernel whether the graph has an
+// order and fails closed when it does not, before any node is attempted.
+func (r *recurseRun) deriveSweep(ctx context.Context, pass int) (*sweep, error) {
 	derived, err := deriveRecurseDAG(ctx, r.root)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := sweepGraphSound(r.policy.k, derived); err != nil {
-		return err
+		return nil, err
 	}
 	r.allNodes = derived
 	nodes := derived
 	if len(r.cfg.Subsystems) > 0 {
 		nodes, err = FilterDAG(derived, r.cfg.Subsystems)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if err := assertSweepGraph(r.policy.k, nodes); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if err := assertSweepPass(r.policy.k, pass); err != nil {
+		return nil, err
+	}
+	set, err := gates.Detect(r.root)
+	if err != nil {
+		return nil, err
+	}
+	r.noteUnavailable(set)
+	ratchetKinds, err := r.policy.ratchetKinds()
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]SubsystemNode, len(nodes))
+	for _, n := range nodes {
+		byID[n.ID] = n
+	}
+	return &sweep{nodes: nodes, byID: byID, set: set, ratchetKinds: ratchetKinds}, nil
+}
+
+func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) error {
+	// The graph and the gates are re-derived each pass: the loop changes the
+	// code, and the code is what they are derived from. The loop below asks the
+	// kernel for the next node one node at a time; it does not replay a list
+	// computed here.
+	sw, err := r.deriveSweep(ctx, pass)
+	if err != nil {
 		return err
 	}
 	// A resumed pass's finished nodes are visits. The next-node rule skips
@@ -546,19 +602,10 @@ func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) e
 			return err
 		}
 	}
-	set, err := gates.Detect(r.root)
-	if err != nil {
-		return err
-	}
-	r.noteUnavailable(set)
-	ratchetKinds, err := r.policy.ratchetKinds()
-	if err != nil {
-		return err
-	}
 
 	keptBefore := r.result.Kept
 	if len(r.state) == 0 {
-		if err := r.measureWorkspace(ctx, set, nodes); err != nil {
+		if err := r.measureWorkspace(ctx, sw.set, sw.nodes); err != nil {
 			return err
 		}
 	} else {
@@ -567,12 +614,8 @@ func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) e
 	if err := r.journal.append(recurseRecord{Step: stepPassStart, Pass: pass, Open: r.openCount()}); err != nil {
 		return err
 	}
-	r.logf("recurse pass %d: %d nodes, %d open findings", pass, len(nodes), r.openCount())
+	r.logf("recurse pass %d: %d nodes, %d open findings", pass, len(sw.nodes), r.openCount())
 
-	byID := make(map[string]SubsystemNode, len(nodes))
-	for _, n := range nodes {
-		byID[n.ID] = n
-	}
 	for {
 		complete, err := sweepPassComplete(r.policy.k, pass)
 		if err != nil {
@@ -584,6 +627,24 @@ func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) e
 		if err := r.boundary(ctx, pass); err != nil {
 			return err
 		}
+		// Between visits nothing is in flight and the tree is clean: the one
+		// place the run takes in its base and moves onto its own new binary.
+		fresh, err := r.safePoint(ctx, pass)
+		if err != nil {
+			return err
+		}
+		if fresh {
+			// The merge changed the tree: derive the graph and the gates
+			// again, measure the workspace again, and ask the kernel afresh.
+			if sw, err = r.deriveSweep(ctx, pass); err != nil {
+				return err
+			}
+			if err := r.measureWorkspace(ctx, sw.set, sw.nodes); err != nil {
+				return err
+			}
+			r.logf("recurse pass %d: %d nodes after the absorb, %d open findings", pass, len(sw.nodes), r.openCount())
+			continue
+		}
 		id, err := sweepNextNode(r.policy.k)
 		if err != nil {
 			return err
@@ -591,11 +652,11 @@ func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) e
 		if id == "" {
 			return sweepStuckError(r.policy.k)
 		}
-		node, ok := byID[id]
+		node, ok := sw.byID[id]
 		if !ok {
 			return fmt.Errorf("recurse: the kernel's next node %q is not in this pass", id)
 		}
-		if err := r.visit(ctx, pass, node, nodes, set, ratchetKinds); err != nil {
+		if err := r.visit(ctx, pass, node, sw.nodes, sw.set, sw.ratchetKinds); err != nil {
 			return err
 		}
 		if err := assertNodeVisited(r.policy.k, pass, id); err != nil {
@@ -604,7 +665,7 @@ func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) e
 	}
 
 	if r.result.Kept != keptBefore {
-		if err := r.measureWorkspace(ctx, set, nodes); err != nil {
+		if err := r.measureWorkspace(ctx, sw.set, sw.nodes); err != nil {
 			return err
 		}
 	}
@@ -1494,6 +1555,7 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) (r
 		for k, run := range after {
 			r.state[k] = run
 		}
+		r.noteTreeChange(changed)
 		if gatesAfter != nil {
 			merged := r.gateBaseline.Overlay(*gatesAfter)
 			r.gateBaseline = &merged
@@ -1857,6 +1919,13 @@ func (r *recurseRun) resume(history []recurseRecord) (int, map[string]bool, erro
 		case stepPassEnd:
 			if h.Pass == pass {
 				ended = true
+			}
+		case stepAbsorb:
+			// A merge changed these nodes: a change lifts their stalls.
+			for _, id := range h.Nodes {
+				if err := r.policy.nodeKept(id, h.Cycle); err != nil {
+					return 0, nil, err
+				}
 			}
 		case stepRatchet:
 			var err error

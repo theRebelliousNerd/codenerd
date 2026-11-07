@@ -29,6 +29,19 @@ const (
 	stepMissionDeferred = "mission_deferred"
 	// stepImproveSkipped: the pass's angle had nothing to measure at a node.
 	stepImproveSkipped = "improve_skipped"
+	// stepBase records the base branch a run absorbs (recurse_base.go).
+	stepBase = "base"
+	// stepAbsorb is a base commit merged into the recurse branch;
+	// stepAbsorbConflict a merge that conflicted and was aborted, the tree
+	// left exactly as it was (recurse_absorb.go).
+	stepAbsorb         = "absorb"
+	stepAbsorbConflict = "absorb_conflict"
+	// stepRebuild is a binary built from the tree; stepRebuildFailed a build
+	// or self-check that failed, the old binary kept; stepReexec the loop
+	// handing over to a rebuilt binary (recurse_self.go).
+	stepRebuild       = "rebuild"
+	stepRebuildFailed = "rebuild_failed"
+	stepReexec        = "reexec"
 )
 
 // recurseRecord is one journal line.
@@ -56,6 +69,12 @@ type recurseRecord struct {
 	// work is handed both, so it does not repeat the attempt that failed.
 	Tried string `json:"tried,omitempty"`
 	Why   string `json:"why,omitempty"`
+	// Base is the base branch of a stepBase, stepAbsorb or
+	// stepAbsorbConflict; Commit is then the base commit it names.
+	Base string `json:"base,omitempty"`
+	// Nodes are the sweep nodes whose files a stepAbsorb changed: resume
+	// replays each as a kept change, which lifts their "failed twice" marks.
+	Nodes []string `json:"nodes,omitempty"`
 }
 
 // RecurseJournalPath is where the journal lives in a workspace.

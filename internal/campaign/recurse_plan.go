@@ -22,6 +22,9 @@ type RecurseConfig struct {
 	// ContextBudget overrides each attempt campaign's context budget. Zero
 	// keeps the default.
 	ContextBudget int `json:"context_budget"`
+	// BaseBranch overrides the branch the loop absorbs between attempts.
+	// Empty keeps the default (RecurseCycleConfig.BaseBranch).
+	BaseBranch string `json:"base_branch,omitempty"`
 }
 
 // Normalize validates the configuration.
