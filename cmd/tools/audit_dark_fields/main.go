@@ -559,6 +559,9 @@ func dedupe(in []string) []string {
 }
 
 func writeBaseline(lines []string, dark []field) {
+	sorted := append([]string(nil), lines...)
+	sort.Strings(sorted)
+	lines = sorted
 	site := map[string]field{}
 	for _, d := range dark {
 		key := d.Type + "." + d.Name
@@ -599,6 +602,9 @@ func writeBaseline(lines []string, dark []field) {
 }
 
 func compare(lines []string, dark []field) {
+	sorted := append([]string(nil), lines...)
+	sort.Strings(sorted)
+	lines = sorted
 	raw, err := os.ReadFile(baselinePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "no baseline at %s; create it with -update\n", baselinePath)
