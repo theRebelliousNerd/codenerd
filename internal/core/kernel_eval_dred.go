@@ -51,7 +51,9 @@ import (
 // first and the work is the change, not the store.
 //
 // An aggregation is maintained by group: only the groups whose body rows
-// changed are recomputed (kernel_eval_dred_agg.go).
+// changed are recomputed (kernel_eval_dred_agg.go), or, for counts and integer
+// sums, moved by the change without reading the group
+// (kernel_eval_dred_agg_delta.go).
 //
 // Not maintained, but replaced after the pass exactly as the cone path does
 // it, are temporal rules, lattices, deferred heads, rules reading a deferred
@@ -369,7 +371,6 @@ type dredRun struct {
 	// stratum (their old rows must stay visible until it over-deletes).
 	edbPlus, edbMinus deltaStores
 	edbHeld           map[string]deltaStores // pred name -> EDB rows as atoms, built on demand
-	scratchDropped    map[string]struct{}    // aggregate heads whose scratch relations are gone
 	profile           dredProfile            // where the time went (kernel_eval_dred_profile.go)
 	limit             int
 	edbAdded          int // EDB rows the pass added to the store
@@ -378,6 +379,8 @@ type dredRun struct {
 	rederived         int
 	inserted          int
 	variants          atomic.Int64
+	aggDelta          int // aggregate groups brought to their new output by delta
+	aggRecomputed     int // aggregate groups recomputed from their rows
 }
 
 // evaluateDRedLocked brings the store to the new fixpoint of the write set.
@@ -474,7 +477,7 @@ func (k *RealKernel) evaluateDRedLocked(stats *EvaluationStats) error {
 		Touched: len(plan.maintain) + len(plan.replace), RemovedFacts: work.removed + run.edbRemoved, RestoredFacts: work.restored + run.edbAdded,
 		ListedFacts: work.listed, Rules: replacedRules, Strata: replacedStrata,
 		DeltaVariants: int(run.variants.Load()), DeltaFacts: run.inserted, OverDeleted: run.overDeleted, Rederived: run.rederived,
-		ChangedRows: changedRows, Profile: run.profile.summary(5),
+		ChangedRows: changedRows, AggByDelta: run.aggDelta, AggRecomputed: run.aggRecomputed, Profile: run.profile.summary(5),
 	}
 	logging.KernelDebug("evaluate.dred: written=%v maintain=%d replace=%d inserted=%d overdeleted=%d rederived=%d variants=%d",
 		written, len(plan.maintain), len(plan.replace), run.inserted, run.overDeleted, run.rederived, run.variants.Load())

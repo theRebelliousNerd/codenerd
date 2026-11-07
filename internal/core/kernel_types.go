@@ -105,6 +105,9 @@ type RealKernel struct {
 	// holds rows of an unfinished pass. Only the full path, which builds a
 	// fresh store, may evaluate next (coneIneligibilityLocked).
 	storeTainted bool
+	// scratchGone: aggregate heads whose engine scratch relations DRed has
+	// already emptied in this store (kernel_eval_dred_agg.go).
+	scratchGone scratchRecord
 	// programKey hashes the program text the kernel last compiled: half of
 	// its content fingerprint (kernel_content_fingerprint.go).
 	programKey [sha256.Size]byte
@@ -199,6 +202,8 @@ type EvaluationStats struct {
 	OverDeleted     int           // dred: derived facts over-deleted
 	Rederived       int           // dred: over-deleted facts that still had support
 	ChangedRows     int           // dred: EDB rows the write set added or removed
+	AggByDelta      int           // dred: aggregate groups (counts, integer sums) maintained by delta
+	AggRecomputed   int           // dred: aggregate groups recomputed from their rows
 	Profile         string        // dred: time per phase and costliest rule heads
 }
 

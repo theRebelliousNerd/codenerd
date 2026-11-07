@@ -53,6 +53,9 @@ func (k *RealKernel) prepareConeStoreLocked(plan *conePlan) (removed, restored, 
 // relations for the plan's derived predicates and returns how many it removed.
 func (k *RealKernel) dropScratchRelationsLocked(plan *conePlan, remover factstore.FactStoreWithRemove) int {
 	var scratch []ast.PredicateSym
+	for _, pred := range plan.touched {
+		k.scratchGone.forget(pred) // the engine run that follows rebuilds it
+	}
 	for _, sym := range k.store.ListPredicates() {
 		base, ok := strings.CutSuffix(sym.Symbol, ast.InternalPredicateSuffix)
 		if !ok {
