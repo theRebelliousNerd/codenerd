@@ -33,8 +33,12 @@ var passEnv = []string{
 // the session's own build agree on the environment and flags. Everything else
 // gets the allowlisted environment (AllowedEnv). A workspace-relative program
 // (./scripts/check.sh) is resolved against root, not against this process's
-// directory. env (nerd.md commands.env) is overlaid last.
+// directory. env (nerd.md commands.env) is overlaid last. An empty argv has
+// no program to run and returns nil.
 func WorkspaceCommand(ctx context.Context, root string, argv []string, env map[string]string) *exec.Cmd {
+	if len(argv) == 0 {
+		return nil
+	}
 	var cmd *exec.Cmd
 	if argv[0] == "go" {
 		goEnv, args := GoInvocation(root, root, argv[1:])

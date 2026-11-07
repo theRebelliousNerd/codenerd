@@ -71,3 +71,24 @@ func TestWorkspaceCommandAdaptsForeignSqliteHeadersPath(t *testing.T) {
 		t.Fatalf("CGO_CFLAGS = %q, want %q", got, want)
 	}
 }
+
+func TestWorkspaceCommand_WhenEmptyArgv_ShouldReturnNil(t *testing.T) {
+	for _, argv := range [][]string{nil, {}} {
+		if got := WorkspaceCommand(context.Background(), t.TempDir(), argv, nil); got != nil {
+			t.Fatalf("WorkspaceCommand with argv=%v = %v, want nil", argv, got)
+		}
+	}
+}
+
+func TestWorkspaceCommand_WhenArgvPresent_ShouldReturnCommand(t *testing.T) {
+	root := t.TempDir()
+	for _, argv := range [][]string{{"go", "test", "./..."}, {"synthetic-command"}} {
+		cmd := WorkspaceCommand(context.Background(), root, argv, nil)
+		if cmd == nil {
+			t.Fatalf("WorkspaceCommand with argv=%v = nil, want non-nil command", argv)
+		}
+		if cmd.Dir != root {
+			t.Errorf("WorkspaceCommand Dir = %q, want %q", cmd.Dir, root)
+		}
+	}
+}
