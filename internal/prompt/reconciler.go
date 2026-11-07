@@ -89,11 +89,41 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 	`).Scan(&hasVectorTable); err != nil {
 		return empty, fmt.Errorf("detect vec_prompt_atoms: %w", err)
 	}
+	// The statements below run once per atom (hundreds of atoms per boot), so
+	// each is prepared once for the transaction: preparing per call made
+	// SQLite's statement compiler the largest cost of reconciling the corpus.
+	selectAtom, err := tx.PrepareContext(ctx, "SELECT content, description, embedding, embedding_task FROM prompt_atoms WHERE atom_id = ?")
+	if err != nil {
+		return empty, fmt.Errorf("prepare atom select: %w", err)
+	}
+	defer selectAtom.Close()
+	upsertAtom, err := tx.PrepareContext(ctx, upsertAtomSQL)
+	if err != nil {
+		return empty, fmt.Errorf("prepare atom upsert: %w", err)
+	}
+	defer upsertAtom.Close()
+	deleteTags, err := tx.PrepareContext(ctx, "DELETE FROM atom_context_tags WHERE atom_id = ?")
+	if err != nil {
+		return empty, fmt.Errorf("prepare tag delete: %w", err)
+	}
+	defer deleteTags.Close()
+	insertTag, err := tx.PrepareContext(ctx, "INSERT INTO atom_context_tags (atom_id, dimension, tag) VALUES (?, ?, ?)")
+	if err != nil {
+		return empty, fmt.Errorf("prepare tag insert: %w", err)
+	}
+	defer insertTag.Close()
+	var deleteVector *sql.Stmt
+	if hasVectorTable {
+		if deleteVector, err = tx.PrepareContext(ctx, "DELETE FROM vec_prompt_atoms WHERE atom_id = ?"); err != nil {
+			return empty, fmt.Errorf("prepare vector delete: %w", err)
+		}
+		defer deleteVector.Close()
+	}
 	deleteVectorRow := func(atomID string) error {
 		if !hasVectorTable {
 			return nil
 		}
-		if _, err := tx.ExecContext(ctx, "DELETE FROM vec_prompt_atoms WHERE atom_id = ?", atomID); err != nil {
+		if _, err := deleteVector.ExecContext(ctx, atomID); err != nil {
 			return fmt.Errorf("delete vector row %s: %w", atomID, err)
 		}
 		return nil
@@ -109,7 +139,7 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 		var existingDescription sql.NullString
 		var existingEmbedding []byte
 		var existingTask sql.NullString
-		qerr := tx.QueryRowContext(ctx, "SELECT content, description, embedding, embedding_task FROM prompt_atoms WHERE atom_id = ?", atom.ID).Scan(&existingContent, &existingDescription, &existingEmbedding, &existingTask)
+		qerr := selectAtom.QueryRowContext(ctx, atom.ID).Scan(&existingContent, &existingDescription, &existingEmbedding, &existingTask)
 		if qerr != nil && qerr != sql.ErrNoRows {
 			return empty, fmt.Errorf("select atom %s: %w", atom.ID, qerr)
 		}
@@ -157,30 +187,7 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 		}
 
 		// Canonical fields. source_file is set to 'embedded' to mark ownership.
-		_, err = tx.ExecContext(ctx, `
-				INSERT INTO prompt_atoms (
-					atom_id, version, content, token_count, content_hash,
-					description, content_concise, content_min,
-					category, subcategory, importance, is_mandatory, is_exclusive,
-					source_file, embedding, embedding_task
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'embedded', ?, ?)
-				ON CONFLICT(atom_id) DO UPDATE SET
-					version = excluded.version,
-					content = excluded.content,
-					token_count = excluded.token_count,
-					content_hash = excluded.content_hash,
-					description = excluded.description,
-					content_concise = excluded.content_concise,
-					content_min = excluded.content_min,
-					category = excluded.category,
-					subcategory = excluded.subcategory,
-					importance = excluded.importance,
-					is_mandatory = excluded.is_mandatory,
-					is_exclusive = excluded.is_exclusive,
-					source_file = excluded.source_file,
-					embedding = excluded.embedding,
-					embedding_task = excluded.embedding_task
-			`, atom.ID, atom.Version, atom.Content, atom.TokenCount, atom.ContentHash,
+		_, err = upsertAtom.ExecContext(ctx, atom.ID, atom.Version, atom.Content, atom.TokenCount, atom.ContentHash,
 			nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
 			string(atom.Category), nullableString(atom.Subcategory),
 			importanceColumn(atom.Importance), atom.IsMandatory, nullableString(atom.IsExclusive),
@@ -192,7 +199,7 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 		counts.Upserted++
 
 		// Exact tags: delete then insert.
-		if _, err := tx.ExecContext(ctx, "DELETE FROM atom_context_tags WHERE atom_id = ?", atom.ID); err != nil {
+		if _, err := deleteTags.ExecContext(ctx, atom.ID); err != nil {
 			return empty, fmt.Errorf("clear tags %s: %w", atom.ID, err)
 		}
 		type tagRow struct {
@@ -216,24 +223,9 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 			add(tag.Dimension, tag.Tag)
 		}
 
-		if len(rows) > 0 {
-			const chunkSize = 300
-			for i := 0; i < len(rows); i += chunkSize {
-				end := i + chunkSize
-				if end > len(rows) {
-					end = len(rows)
-				}
-				chunk := rows[i:end]
-				placeholders := make([]string, len(chunk))
-				args := make([]any, 0, len(chunk)*3)
-				for j, r := range chunk {
-					placeholders[j] = "(?, ?, ?)"
-					args = append(args, atom.ID, r.dim, r.tag)
-				}
-				q := "INSERT INTO atom_context_tags (atom_id, dimension, tag) VALUES " + strings.Join(placeholders, ", ")
-				if _, err := tx.ExecContext(ctx, q, args...); err != nil {
-					return empty, fmt.Errorf("insert tags %s: %w", atom.ID, err)
-				}
+		for _, r := range rows {
+			if _, err := insertTag.ExecContext(ctx, atom.ID, r.dim, r.tag); err != nil {
+				return empty, fmt.Errorf("insert tags %s: %w", atom.ID, err)
 			}
 		}
 	}
@@ -286,6 +278,33 @@ func ReconcilePromptCorpus(ctx context.Context, db *sql.DB, atoms []*PromptAtom)
 	}
 	return counts, nil
 }
+
+// upsertAtomSQL writes one embedded atom's canonical fields. source_file is set
+// to 'embedded' to mark ownership.
+const upsertAtomSQL = `
+	INSERT INTO prompt_atoms (
+		atom_id, version, content, token_count, content_hash,
+		description, content_concise, content_min,
+		category, subcategory, importance, is_mandatory, is_exclusive,
+		source_file, embedding, embedding_task
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'embedded', ?, ?)
+	ON CONFLICT(atom_id) DO UPDATE SET
+		version = excluded.version,
+		content = excluded.content,
+		token_count = excluded.token_count,
+		content_hash = excluded.content_hash,
+		description = excluded.description,
+		content_concise = excluded.content_concise,
+		content_min = excluded.content_min,
+		category = excluded.category,
+		subcategory = excluded.subcategory,
+		importance = excluded.importance,
+		is_mandatory = excluded.is_mandatory,
+		is_exclusive = excluded.is_exclusive,
+		source_file = excluded.source_file,
+		embedding = excluded.embedding,
+		embedding_task = excluded.embedding_task
+`
 
 // ReconcileEmbeddedCorpus loads the embedded corpus and reconciles the DB to it.
 // Convenience wrapper for boot paths that already have a DB handle.

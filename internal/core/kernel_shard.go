@@ -62,10 +62,95 @@ func NewKernelShard(config KernelShardConfig) (*KernelShard, error) {
 	if config.Domain == "" {
 		return nil, fmt.Errorf("KernelShard domain name is required")
 	}
+	kernel, err := bootShardKernel(config)
+	if err != nil {
+		return nil, err
+	}
+	return newKernelShardAround(config, kernel), nil
+}
 
-	// Create the underlying kernel. We use NewRealKernelWithWorkspace if available,
-	// otherwise the default constructor which loads all embedded schemas/policy.
-	// For domain shards, the caller will replace schemas/policy with domain-specific content.
+// kernelBootKey is what a shard's kernel boot reads: configs with the same key
+// boot the same kernel.
+type kernelBootKey struct{ workspaceRoot, manglePath string }
+
+func (c KernelShardConfig) bootKey() kernelBootKey {
+	if c.WorkspaceRoot != "" {
+		return kernelBootKey{workspaceRoot: c.WorkspaceRoot}
+	}
+	return kernelBootKey{manglePath: c.ManglePath}
+}
+
+// NewKernelShards builds one shard per config, in config order. Every kernel
+// boot parses the constitution and evaluates it, and a Cortex boots a shard per
+// domain from the same workspace, so the shards of one boot key share a single
+// boot: the first config's kernel is booted and each further shard takes an
+// independent Clone of it (RealKernel.Clone: its own writes, the parent's
+// evaluated program and store read-only underneath). Distinct boot keys boot
+// concurrently.
+func NewKernelShards(configs []KernelShardConfig) ([]*KernelShard, error) {
+	for _, config := range configs {
+		if config.Domain == "" {
+			return nil, fmt.Errorf("KernelShard domain name is required")
+		}
+	}
+	type boot struct {
+		kernel *RealKernel
+		err    error
+	}
+	boots := make(map[kernelBootKey]*boot)
+	var wg sync.WaitGroup
+	for _, config := range configs {
+		key := config.bootKey()
+		if _, started := boots[key]; started {
+			continue
+		}
+		b := &boot{}
+		boots[key] = b
+		wg.Add(1)
+		go func(config KernelShardConfig) {
+			defer wg.Done()
+			b.kernel, b.err = bootShardKernel(config)
+		}(config)
+	}
+	wg.Wait()
+
+	shards := make([]*KernelShard, 0, len(configs))
+	taken := make(map[kernelBootKey]bool, len(boots))
+	for _, config := range configs {
+		key := config.bootKey()
+		b := boots[key]
+		if b.err != nil {
+			return nil, b.err
+		}
+		kernel := b.kernel
+		if taken[key] {
+			kernel = b.kernel.cloneBooted()
+		}
+		taken[key] = true
+		shards = append(shards, newKernelShardAround(config, kernel))
+	}
+	return shards, nil
+}
+
+// cloneBooted is Clone for a kernel that stays in service: a shard's kernel is
+// later swapped onto a reloaded constitution (ReloadConstitution), which needs
+// the constitution/extension split the boot recorded, and Clone leaves that
+// split empty (it is a trial kernel's copy). The clone is not yet shared, so
+// its fields are written without a lock.
+func (k *RealKernel) cloneBooted() *RealKernel {
+	clone := k.Clone()
+	k.mu.RLock()
+	clone.constSchemas, clone.constPolicy = k.constSchemas, k.constPolicy
+	k.mu.RUnlock()
+	return clone
+}
+
+// bootShardKernel boots the kernel a shard wraps. It uses
+// NewRealKernelWithWorkspace if a workspace is configured, NewRealKernelWithPath
+// for an explicit corpus, otherwise the default constructor, which loads all
+// embedded schemas/policy. For domain shards, the caller will replace
+// schemas/policy with domain-specific content.
+func bootShardKernel(config KernelShardConfig) (*RealKernel, error) {
 	var kernel *RealKernel
 	var err error
 	if config.WorkspaceRoot != "" {
@@ -78,7 +163,11 @@ func NewKernelShard(config KernelShardConfig) (*KernelShard, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kernel for shard %s: %w", config.Domain, err)
 	}
+	return kernel, nil
+}
 
+// newKernelShardAround wraps kernel as the shard config describes.
+func newKernelShardAround(config KernelShardConfig, kernel *RealKernel) *KernelShard {
 	// Build owned predicates map
 	ownedPreds := make(map[string]bool, len(config.OwnedPredicates))
 	for _, pred := range config.OwnedPredicates {
@@ -93,7 +182,7 @@ func NewKernelShard(config KernelShardConfig) (*KernelShard, error) {
 
 	logging.Kernel("[shard:%s] created (owned=%d predicates)", config.Domain, len(ownedPreds))
 
-	return shard, nil
+	return shard
 }
 
 // Domain returns the shard's domain name.

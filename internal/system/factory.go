@@ -1376,25 +1376,17 @@ func NewDomainCortex(workspace string) (*core.CortexKernel, error) {
 		return nil, fmt.Errorf("configure shared kernel predicates: %w", err)
 	}
 
-	// Each shard is an independent kernel that parses the schemas, policy and
-	// workspace projections on its own, so the seven are built concurrently
-	// (measured 2026-10-27: 4.9 s of a 28.6 s boot built one at a time).
-	// Registration stays in config order.
-	built := make([]*core.KernelShard, len(shardConfigs))
-	buildErrs := make([]error, len(shardConfigs))
-	var wg sync.WaitGroup
-	for i, scfg := range shardConfigs {
-		wg.Add(1)
-		go func(i int, scfg core.KernelShardConfig) {
-			defer wg.Done()
-			built[i], buildErrs[i] = core.NewKernelShard(scfg)
-		}(i, scfg)
+	// Each shard is an independent kernel over the same schemas, policy and
+	// workspace projections. They are booted once and cloned per shard
+	// (core.NewKernelShards): the seven boots were each a full parse and
+	// evaluation of the same constitution (measured 2026-10-27: 4.9 s of a
+	// 28.6 s boot built one at a time, and the cost of seven concurrent boots
+	// is the same CPU). Registration stays in config order.
+	built, err := core.NewKernelShards(shardConfigs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create shards: %w", err)
 	}
-	wg.Wait()
 	for i, scfg := range shardConfigs {
-		if buildErrs[i] != nil {
-			return nil, fmt.Errorf("failed to create shard %s: %w", scfg.Domain, buildErrs[i])
-		}
 		if err := cortex.RegisterShard(built[i]); err != nil {
 			return nil, fmt.Errorf("failed to register shard %s: %w", scfg.Domain, err)
 		}
@@ -1641,7 +1633,7 @@ func buildKernelDerivationMap(shardConfigs []core.KernelShardConfig) (*core.Deri
 	for _, p := range shards.SharedPredicates() {
 		shared[p] = struct{}{}
 	}
-	return core.BuildDerivationMapWithConsumerRoutes(schemas+"\n"+policy, core.IntentCorpusPredicates(), owners, shared, shards.PredicateConsumerRoutes(), "cortex")
+	return cachedDerivationMap(schemas+"\n"+policy, core.IntentCorpusPredicates(), owners, shared, shards.PredicateConsumerRoutes(), "cortex")
 }
 
 func defaultKernelShardConfigs(workspace string) []core.KernelShardConfig {
