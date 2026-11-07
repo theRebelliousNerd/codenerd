@@ -81,12 +81,18 @@ func changedBodies(workspace string, written []string, pre map[string]PreImage) 
 		base := strings.ToLower(filepath.Base(clean))
 		switch {
 		case base == "go.mod" || base == "go.sum" || base == "go.work" || base == "go.work.sum":
+			if writeReverted(workspace, p, pre) {
+				continue
+			}
 			return fail("the module definition changed (" + clean + ")")
 		case strings.HasSuffix(base, "_test.go"):
 			// A test file is never part of what an importer links.
 		case strings.HasSuffix(base, ".go"):
 			goFiles = append(goFiles, p)
 		case ownDirs[filepath.ToSlash(filepath.Dir(clean))]:
+			if writeReverted(workspace, p, pre) {
+				continue
+			}
 			return fail("a non-Go file was written beside Go code (" + clean + "): it may be embedded, assembled or compiled in")
 		}
 	}

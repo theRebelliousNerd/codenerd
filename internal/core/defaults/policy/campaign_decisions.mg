@@ -139,6 +139,7 @@ campaign_blocked(CampaignID, /unverifiable_objective) :-
 Decl task_failed_attempt(TaskID, Attempt) bound [/string, /number].
 Decl campaign_task_failure_count(TaskID, Count) bound [/string, /number].
 Decl task_last_failed_attempt(TaskID, Attempt) bound [/string, /number].
+Decl recurse_phase_task(TaskID) bound [/string].
 Decl task_exhausted(TaskID) bound [/string].
 Decl task_replan_due(TaskID) bound [/string].
 Decl red_suite_signal(Signal) bound [/name].
@@ -179,8 +180,23 @@ task_exhausted(TaskID) :-
     task_last_failed_attempt(TaskID, N),
     task_attempt_signal(TaskID, N, /blocked).
 
+# A recurse attempt campaign (phase_category(PhaseID, /recurse)) is already one
+# attempt inside visitNode's outer retry loop, and spawnTask already ran
+# RunUntilVerified inside it. When its verdict loop ends /stalled, the attempt
+# is exhausted and does not replan inside the 1-task campaign so visitNode can
+# roll back unverified writes and record the PriorAttempt.
+recurse_phase_task(TaskID) :-
+    campaign_task(TaskID, PhaseID, _, _, _),
+    phase_category(PhaseID, /recurse).
+
+task_exhausted(TaskID) :-
+    recurse_phase_task(TaskID),
+    task_last_failed_attempt(TaskID, N),
+    task_attempt_signal(TaskID, N, /stalled).
+
 task_replan_due(TaskID) :-
     task_exhausted(TaskID),
+    !recurse_phase_task(TaskID),
     config_param(/campaign_replan_at_attempt_cap, 1),
     !task_replanned_at_cap(TaskID).
 
