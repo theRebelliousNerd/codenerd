@@ -210,3 +210,59 @@ func TestSubSchemas(t *testing.T) {
 		t.Error("useSchema failed")
 	}
 }
+
+func TestBuildSchema_SingleClauseConstraints(t *testing.T) {
+	single := buildSchema(true)
+	program, ok := single["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("single schema missing properties")
+	}
+	prog, ok := program["program"].(map[string]any)
+	if !ok {
+		t.Fatal("single schema missing program")
+	}
+	progProps, ok := prog["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("single schema missing program properties")
+	}
+	clauses, ok := progProps["clauses"].(map[string]any)
+	if !ok {
+		t.Fatal("single schema missing clauses")
+	}
+	if clauses["minItems"] != 1 {
+		t.Errorf("single clauses minItems = %v, want 1", clauses["minItems"])
+	}
+	if clauses["maxItems"] != 1 {
+		t.Errorf("single clauses maxItems = %v, want 1", clauses["maxItems"])
+	}
+
+	multi := buildSchema(false)
+	mprogram, _ := multi["properties"].(map[string]any)
+	mprog, _ := mprogram["program"].(map[string]any)
+	mprops, _ := mprog["properties"].(map[string]any)
+	mclauses, ok := mprops["clauses"].(map[string]any)
+	if !ok {
+		t.Fatal("multi schema missing clauses")
+	}
+	if _, ok := mclauses["minItems"]; ok {
+		t.Errorf("multi clauses must not constrain minItems, got %v", mclauses["minItems"])
+	}
+	if _, ok := mclauses["maxItems"]; ok {
+		t.Errorf("multi clauses must not constrain maxItems, got %v", mclauses["maxItems"])
+	}
+}
+
+func TestSchemaV1SingleClauseJSON_Stable(t *testing.T) {
+	first := SchemaV1SingleClauseJSON()
+	second := SchemaV1SingleClauseJSON()
+	if first == "" {
+		t.Fatal("SchemaV1SingleClauseJSON returned empty string")
+	}
+	if first != second {
+		t.Error("SchemaV1SingleClauseJSON is not stable across calls")
+	}
+	var schema map[string]any
+	if err := json.Unmarshal([]byte(first), &schema); err != nil {
+		t.Fatalf("cached schema is not valid JSON: %v", err)
+	}
+}
