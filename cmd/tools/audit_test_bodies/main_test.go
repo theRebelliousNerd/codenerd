@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -39,6 +40,15 @@ func TestInertClassifiesStatements(t *testing.T) {
 		{name: "empty body", declaration: `func TestProbe(t *testing.T) {}`, want: true},
 		{name: "formatted logging", declaration: `func TestProbe(t *testing.T) { t.Logf("value: %d", 1) }`, want: true},
 		{name: "multiple logging calls", declaration: `func TestProbe(t *testing.T) { t.Log("first"); t.Logf("second: %d", 2) }`, want: true},
+		{name: "empty statement only", declaration: `func TestProbe(t *testing.T) { ; }`, want: true},
+		{name: "stray semicolons with logging", declaration: `func TestProbe(t *testing.T) { ;; t.Log("only logging");; }`, want: true},
+		{name: "skip", declaration: `func TestProbe(t *testing.T) { t.Skip("not applicable") }`, want: true},
+		{name: "formatted skip", declaration: `func TestProbe(t *testing.T) { t.Skipf("skip %d", 1) }`, want: true},
+		{name: "skip now", declaration: `func TestProbe(t *testing.T) { t.SkipNow() }`, want: true},
+		{name: "helper mark", declaration: `func TestProbe(t *testing.T) { t.Helper() }`, want: true},
+		{name: "mixed logging and skip", declaration: `func TestProbe(t *testing.T) { t.Log("note"); t.Skip("not applicable") }`, want: true},
+		{name: "skip before behavior", declaration: `func TestProbe(t *testing.T) { t.Skip("start"); verify() }`},
+		{name: "helper before behavior", declaration: `func TestProbe(t *testing.T) { t.Helper(); verify() }`},
 		{name: "assignment", declaration: `func TestProbe(t *testing.T) { value := 1 }`},
 		{name: "noncall expression", declaration: `func TestProbe(t *testing.T) { value }`},
 		{name: "unqualified call", declaration: `func TestProbe(t *testing.T) { verify() }`},
@@ -132,6 +142,37 @@ func TestAuditIgnoresExcludedFilesAndDeclarations(t *testing.T) {
 	}
 }
 
+func TestAuditSkipsTestMainValueReceiverDotfileAndSorts(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	fixtures := map[string]string{
+		"z_test.go":    "package fixture\nfunc TestZoo(t *testing.T) {}\n",
+		"a_test.go":    "package fixture\nfunc TestApple(t *testing.T) { t.Skip(\"not applicable\") }\n",
+		"main_test.go": "package fixture\nfunc TestMain(m *testing.M) {}\nfunc TestValueParam(t testing.T) {}\nfunc TestTwoValues(t testing.T, extra int) {}\n",
+		".dot_test.go": "package fixture\nfunc TestDot(t *testing.T) {}\n",
+	}
+	for name, source := range fixtures {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("create fixture directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+	}
+	got, err := audit(root)
+	if err != nil {
+		t.Fatalf("audit(): %v", err)
+	}
+	want := []string{
+		filepath.Join(root, "a_test.go") + ":2:1: TestApple has no executable behavior beyond logging",
+		filepath.Join(root, "z_test.go") + ":2:1: TestZoo has no executable behavior beyond logging",
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("audit() mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestAuditReturnsTraversalAndParseErrors(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
@@ -167,5 +208,28 @@ func TestAuditReturnsTraversalAndParseErrors(t *testing.T) {
 				t.Errorf("audit() failures = %v, want none", failures)
 			}
 		})
+	}
+}
+
+func TestAuditIgnoresNonStandardTestSignatures(t *testing.T) {
+	dir := t.TempDir()
+	src := "package foo\nimport \"testing\"\nfunc TestNoParams() { t.Log(\"hi\") }\nfunc TestTwoParams(a int, b int) {}\nfunc TestStandardLogOnly(t *testing.T) { t.Log(\"hi\") }\n"
+	if err := os.WriteFile(filepath.Join(dir, "foo_test.go"), []byte(src), 0644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+	failures, err := audit(dir)
+	if err != nil {
+		t.Fatalf("audit returned error: %v", err)
+	}
+	if len(failures) != 1 {
+		t.Fatalf("expected 1 failure for standard log-only test, got %d: %v", len(failures), failures)
+	}
+	if !strings.Contains(failures[0], "TestStandardLogOnly") {
+		t.Fatalf("expected failure to name TestStandardLogOnly, got %v", failures)
+	}
+	for _, f := range failures {
+		if strings.Contains(f, "TestNoParams") || strings.Contains(f, "TestTwoParams") {
+			t.Fatalf("non-standard signature was flagged but must be ignored: %v", failures)
+		}
 	}
 }
