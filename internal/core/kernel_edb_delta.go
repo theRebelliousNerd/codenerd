@@ -85,6 +85,18 @@ func (d *edbDelta) noteRemove(pred, key string, f Fact, atom admittedAtom, hadAt
 	rows[key] = row
 }
 
+// rows is how many EDB rows the delta adds or removes.
+func (d *edbDelta) rows() int {
+	n := 0
+	for _, set := range d.added {
+		n += len(set)
+	}
+	for _, rows := range d.removed {
+		n += len(rows)
+	}
+	return n
+}
+
 // reset starts a new delta: the store now matches the EDB.
 func (d *edbDelta) reset() {
 	*d = newEDBDelta(true)

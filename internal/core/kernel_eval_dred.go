@@ -64,6 +64,25 @@ import (
 // errDRedIneligible makes evaluate() try the cone path. It is not a fault.
 var errDRedIneligible = errors.New("dred evaluation not eligible")
 
+// errChangeTooLarge makes evaluate() run the full fixpoint without trying the
+// cone: the change is most of the store. It is not a fault.
+var errChangeTooLarge = errors.New("change is most of the store")
+
+// dredMaxChangeRatio is the share of the EDB a change may be and still be
+// maintained. DRed's cost follows the rows changed and the full fixpoint's the
+// facts held; over the production policy they cross near 0.65 (measured
+// 2026-11-06: 48K rows into a 50K-fact EDB, DRed 1.25 s vs full 0.66 s; into a
+// 74K one, 0.81 s vs 0.87 s; 144K into 290K, 2.57 s vs 3.74 s). Above it the
+// cone is worse still: it re-derives every downstream predicate, which was
+// 15.8 s for boot's 540K-row world load, where a full fixpoint is a few.
+const dredMaxChangeRatio = 0.6
+
+// dredCutoverMinRows is the change size below which the ratio does not apply:
+// a few thousand rows take DRed and the full fixpoint alike tens of
+// milliseconds (6K rows over an empty world: 92 ms vs 90 ms), and DRed keeps
+// the store.
+const dredCutoverMinRows = 4096
+
 // dredRule is one rule's static shape.
 type dredRule struct {
 	clause    ast.Clause
@@ -366,6 +385,9 @@ type dredRun struct {
 func (k *RealKernel) evaluateDRedLocked(stats *EvaluationStats) error {
 	if k.coneIneligibilityLocked() != "" {
 		return errDRedIneligible
+	}
+	if changed := k.factIndex.delta.rows(); changed >= dredCutoverMinRows && float64(changed) > dredMaxChangeRatio*float64(len(k.facts)) {
+		return fmt.Errorf("%w: %d changed rows, %d held", errChangeTooLarge, changed, len(k.facts))
 	}
 	idx := k.cone.dredIndex(k.programInfo)
 	plan := idx.plan(k.cone, k.dirtyPreds)

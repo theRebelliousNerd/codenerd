@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"testing"
 	"time"
 )
@@ -432,4 +433,30 @@ func TestDRedParallelPhasesMatchFullFixpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireSameStore(t, "after the bulk retract", dumpStore(t, k), fullOracle(t, k))
+}
+
+// A change that is most of the EDB runs the full fixpoint, neither DRed nor
+// the cone: both cost more than rebuilding at that size.
+func TestDRedHandsAChangeThatIsMostOfTheStoreToTheFullPath(t *testing.T) {
+	k := setupMockKernel(t)
+	worldBatch(t, k, "base", 20)
+	if err := k.Evaluate(); err != nil {
+		t.Fatal(err)
+	}
+	worldBatch(t, k, "flood", 3000) // ~18K rows over a few thousand held
+	if err := k.EvaluatePending(); err != nil {
+		t.Fatal(err)
+	}
+	ev := k.LastEvaluation()
+	if ev.Mode != "full" || !strings.Contains(ev.ConeFallback, "change is most of the store") {
+		t.Fatalf("a flood evaluated as %q (fallback %q); want full, naming the change size", ev.Mode, ev.ConeFallback)
+	}
+	requireSameStore(t, "after the flood", dumpStore(t, k), fullOracle(t, k))
+	worldBatch(t, k, "trickle", 2)
+	if err := k.EvaluatePending(); err != nil {
+		t.Fatal(err)
+	}
+	if ev := k.LastEvaluation(); ev.Mode != "dred" {
+		t.Fatalf("a small write after the flood evaluated as %q; want dred", ev.Mode)
+	}
 }

@@ -310,7 +310,11 @@ func (k *RealKernel) evaluate() (err error) {
 		k.clearDirtyLocked()
 		return nil
 	}
-	if !errors.Is(dredErr, errDRedIneligible) {
+	if errors.Is(dredErr, errChangeTooLarge) {
+		// Most of the store changed: the full fixpoint is the cheapest way
+		// there, and nothing was touched yet.
+		stats.ConeFallback = dredErr.Error()
+	} else if !errors.Is(dredErr, errDRedIneligible) {
 		// The pass may have changed rows; only a fresh store is known good,
 		// and until one replaces it no incremental path may build on it.
 		logging.Get(logging.CategoryKernel).Warn("evaluate: dred evaluation failed, running the full fixpoint: %v", dredErr)
