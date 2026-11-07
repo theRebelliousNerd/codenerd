@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"codenerd/internal/sessionlog"
+	"codenerd/internal/turntime"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
 )
@@ -126,6 +127,12 @@ type callObserver struct {
 	out        any
 	stream     *streamText
 	streamStop string
+
+	// endTurnTime closes the call's span on the turn's time ledger
+	// (turntime), opened where the call goes out and closed where it settles,
+	// so a streamed call is timed until its stream ends. Nil when the call
+	// was observed outside a turn's accounting.
+	endTurnTime func()
 }
 
 // Observed implements usage.Observer.
@@ -214,6 +221,9 @@ func (c *core) admit(ctx context.Context, req *Request) (Receipt, *AdmissionErro
 // added as a second charge.
 func (c *core) settle(receipt Receipt, req *Request, obs *callObserver, reported *types.UsageMetadata, callErr error) {
 	defer inflight.end()
+	if obs != nil && obs.endTurnTime != nil {
+		defer obs.endTurnTime()
+	}
 	receipt.Duration = time.Since(receipt.Started)
 	if callErr != nil {
 		receipt.Err = callErr.Error()
@@ -369,6 +379,9 @@ func (c *core) observed(ctx context.Context, receipt Receipt, req *Request) (con
 	obs := &callObserver{}
 	ctx, obs.call = c.beginLog(ctx, receipt, req)
 	obs.ctx = ctx
+	// Every model call of a turn is charged to its time ledger here and
+	// released in settle: the one place all methods, streamed or not, pass.
+	obs.endTurnTime = turntime.From(ctx).Model()
 	// The agent's transcript says the call went out, so a long call reads as
 	// "waiting on the model" while it runs (sessionlog.Progress).
 	sessionlog.TranscriptFrom(ctx).CallStarted(ctx, receipt.Model)

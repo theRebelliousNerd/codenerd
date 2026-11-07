@@ -3,10 +3,12 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
+	"codenerd/internal/turntime"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
 )
@@ -233,6 +235,9 @@ type turnCost struct {
 	completionTokens int64
 	toolCalls        int
 	outcome          types.MangleAtom
+	// timing is where the turn's wall time went (turntime); the zero value
+	// logs no split.
+	timing turntime.Split
 }
 
 // assertTurnCost records one turn_cost fact per turn — the denominator for
@@ -253,6 +258,17 @@ func (e *Executor) assertTurnCost(cost turnCost) {
 				cost.sessionID, cost.turnNumber, err)
 		}
 	}
-	logging.Get(logging.CategorySession).Info("turn_cost session=%s turn=%d prompt=%d completion=%d tools=%d outcome=%s",
-		cost.sessionID, cost.turnNumber, cost.promptTokens, cost.completionTokens, cost.toolCalls, cost.outcome)
+	logging.Get(logging.CategorySession).Info("%s", cost.logLine())
+}
+
+// logLine is the per-turn cost line: the token denominator, the verdict, and
+// (when the turn kept a ledger) the seconds each phase took and the repair
+// rounds it ran.
+func (c turnCost) logLine() string {
+	line := fmt.Sprintf("turn_cost session=%s turn=%d prompt=%d completion=%d tools=%d outcome=%s",
+		c.sessionID, c.turnNumber, c.promptTokens, c.completionTokens, c.toolCalls, c.outcome)
+	if c.timing.Recorded() {
+		line += " " + c.timing.LogFields()
+	}
+	return line
 }

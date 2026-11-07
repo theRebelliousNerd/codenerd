@@ -55,6 +55,10 @@ func observedReturn(agent, task string, res *ExecutionResult) observation.Return
 
 	out.Output = res.Response
 	out.Duration = res.Duration
+	if res.Timing.Recorded() {
+		timing := res.Timing
+		out.Timing = &timing
+	}
 	if res.Error != nil {
 		out.Failure = res.Error.Error()
 	}

@@ -25,6 +25,7 @@ import (
 	jitconfig "codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/testfacts"
+	"codenerd/internal/turntime"
 	"codenerd/internal/types"
 )
 
@@ -542,6 +543,9 @@ func conditionsFor(workspace string, result *ExecutionResult) []pinUnit {
 // re-measures without it, because nothing reads the answer.
 func verifyPinning(ctx context.Context, workspace string, result *ExecutionResult, withConditions bool) BuildVerification {
 	start := time.Now()
+	// Every test process this gate starts, the mutants' runs and the baseline,
+	// is pinning time on the turn's ledger.
+	ctx = turntime.WithVerifyKind(ctx, turntime.KindPin)
 	workspace = goWorkspace(workspace)
 	units := pinUnits(workspace, result.WrittenPaths, result.PreWriteContents)
 	if len(units) == 0 {

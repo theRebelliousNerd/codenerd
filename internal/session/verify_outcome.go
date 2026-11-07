@@ -114,6 +114,7 @@ type verifyRunResult struct {
 // Returns the captured output (partial output survives timeouts and cancels),
 // the outcome, and a human reason for non-pass outcomes.
 func runVerificationCommand(parent context.Context, dir string, env []string, budget time.Duration, name string, args []string, runner verifyCommandRunner) (out []byte, outcome VerifyOutcome, reason string) {
+	defer verificationSpan(parent, name, args)()
 	if err := parent.Err(); err != nil {
 		if errors.Is(err, context.Canceled) {
 			return nil, VerifyCanceled, "verification canceled before it started"

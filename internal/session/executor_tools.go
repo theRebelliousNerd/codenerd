@@ -26,6 +26,7 @@ import (
 	"codenerd/internal/prompt"
 	"codenerd/internal/sessionlog"
 	"codenerd/internal/tools"
+	"codenerd/internal/turntime"
 	"codenerd/internal/types"
 )
 
@@ -1069,6 +1070,9 @@ func (e *Executor) executeAndRecordToolCall(
 	cfg *config.EffectiveAgentRuntimeConfig,
 	result *ExecutionResult,
 ) (string, error) {
+	// The call's wall time is tool time on the turn's ledger; a harness
+	// verification it triggers is charged to verification (package turntime).
+	defer turntime.From(ctx).Tool()()
 	// One argument view for every guard, the snapshot, dispatch and the
 	// receipts: the registry's, with omitted optionals left out
 	// (tools.Registry.NormalizedArgs).

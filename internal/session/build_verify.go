@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/testfacts"
 	"codenerd/internal/tools"
+	"codenerd/internal/turntime"
 	"codenerd/internal/types"
 	"codenerd/internal/world/lsp"
 	"context"
@@ -655,7 +656,8 @@ func gateTests(ctx context.Context, workspace string, result *ExecutionResult, w
 	// Discovery runs every time: it is a listing, the run is the cost, and
 	// the importers' own files are part of what the run reads. A listing
 	// that did not finish is not "nothing imports this" and is not kept.
-	scope := discoverImporters(ctx, workspace, result)
+	impCtx := turntime.WithVerifyKind(ctx, turntime.KindImporter)
+	scope := discoverImporters(impCtx, workspace, result)
 	if scope.why != "" {
 		result.ImporterCheck = TestVerification{Outcome: VerifySkipped, Reason: scope.why}
 		return v, uncovered
@@ -666,7 +668,7 @@ func gateTests(ctx context.Context, workspace string, result *ExecutionResult, w
 		result.ImporterCheck = run.v
 		return v, uncovered
 	}
-	result.ImporterCheck = verifyImporters(ctx, workspace, result, scope.runnable)
+	result.ImporterCheck = verifyImporters(impCtx, workspace, result, scope.runnable)
 	rememberGate(result, key, result.ImporterCheck, nil)
 	return v, uncovered
 }
@@ -692,7 +694,7 @@ func gateTestsConcurrent(ctx context.Context, workspace string, result *Executio
 		v      TestVerification
 		cached bool
 	}
-	impCtx, cancelImp := context.WithCancel(withoutWorkingLoop(ctx))
+	impCtx, cancelImp := context.WithCancel(turntime.WithVerifyKind(withoutWorkingLoop(ctx), turntime.KindImporter))
 	defer cancelImp()
 	impCh := make(chan impOutcome, 1)
 	go func() {
