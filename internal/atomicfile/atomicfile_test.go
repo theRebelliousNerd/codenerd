@@ -923,3 +923,94 @@ func TestWriteFilePreservingMode_PreservesDirectoryOnFailure(t *testing.T) {
 		})
 	}
 }
+
+func TestLockPath_CleanedPathsShareSameStripe(t *testing.T) {
+	mu1 := lockPath(filepath.Join("a", "..", "b"))
+	mu1.Unlock()
+	mu2 := lockPath("b")
+	mu2.Unlock()
+	if mu1 != mu2 {
+		t.Fatalf("lockPath returned different stripes for equivalent paths")
+	}
+}
+
+func TestRemoveTemp_DeletesExistingTempFile(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, ".target.tmp-123")
+	if err := os.WriteFile(p, []byte("temp"), 0o600); err != nil {
+		t.Fatalf("setup write: %v", err)
+	}
+	removeTemp(p)
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Fatalf("removeTemp left %s behind: %v", p, err)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("removeTemp removed the directory: %v", err)
+	}
+}
+
+func TestRemoveTemp_MissingPathIsNoop(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, ".missing.tmp-xyz")
+	removeTemp(missing)
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("removeTemp on a missing file harmed the directory: %v", err)
+	}
+}
+
+func TestWriteFilePreservingMode_SecondWriteIgnoresFallback(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not portable to Windows")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "script.sh")
+	if err := WriteFile(target, []byte("v1"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := WriteFilePreservingMode(target, []byte("v2"), 0o777); err != nil {
+		t.Fatalf("WriteFilePreservingMode: %v", err)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("second preserving write changed mode to %04o, want 0600", got)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(data) != "v2" {
+		t.Fatalf("second preserving write left contents %q, want %q", data, "v2")
+	}
+}
+
+func TestWriteFile_SecondWriteUpdatesContentsAndLeavesNoTemp(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "file.txt")
+	if err := WriteFile(target, []byte("first"), 0o644); err != nil {
+		t.Fatalf("first WriteFile: %v", err)
+	}
+	if err := WriteFile(target, []byte("second"), 0o644); err != nil {
+		t.Fatalf("second WriteFile: %v", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(data) != "second" {
+		t.Fatalf("second write left contents %q, want %q", data, "second")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "file.txt" {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("directory holds %v, want only [file.txt]", names)
+	}
+}
