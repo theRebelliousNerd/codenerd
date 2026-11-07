@@ -337,7 +337,6 @@ func BenchmarkProductionWorldRetractPending(b *testing.B) {
 		ev.Mode, ev.DeltaDuration, ev.OverDeleted, ev.Rederived, ev.PrepareDuration, ev.EngineDuration, ev.Rules, ev.ConeFallback)
 }
 
-
 // Every aggregation of deltaPolicy is maintained by group: a write that
 // reaches all of them replaces nothing, and the store, scratch relations
 // aside, equals the full fixpoint.
@@ -406,4 +405,31 @@ func TestDRedKeepsAProgramFactWhoseAssertedCopyIsRetracted(t *testing.T) {
 		t.Fatalf("dl_edge = %v, %v; want the program fact", edges, err)
 	}
 	requireSameStore(t, "after retracting the copy", dumpStore(t, k), fullOracle(t, k))
+}
+
+// A batch above dredParallelMinRows evaluates each phase's variants in
+// parallel; the store must still equal the full fixpoint (run with -race).
+func TestDRedParallelPhasesMatchFullFixpoint(t *testing.T) {
+	k := setupMockKernel(t)
+	worldBatch(t, k, "base", 200)
+	if err := k.Evaluate(); err != nil {
+		t.Fatal(err)
+	}
+	worldBatch(t, k, "bulk", 150) // ~900 rows
+	if err := k.EvaluatePending(); err != nil {
+		t.Fatal(err)
+	}
+	if ev := k.LastEvaluation(); ev.Mode != "dred" || ev.RestoredFacts < dredParallelMinRows {
+		t.Fatalf("bulk insert evaluated as %q restoring %d rows; want dred over at least %d", ev.Mode, ev.RestoredFacts, dredParallelMinRows)
+	}
+	requireSameStore(t, "after the bulk insert", dumpStore(t, k), fullOracle(t, k))
+	for i := 0; i < 150; i++ {
+		if err := k.RetractExactFact(Fact{Predicate: "file_topology", Args: []any{fmt.Sprintf("bulk/f%d.go", i), "h", MangleAtom("/go"), int64(1), MangleAtom("/false")}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := k.Query("file_topology"); err != nil {
+		t.Fatal(err)
+	}
+	requireSameStore(t, "after the bulk retract", dumpStore(t, k), fullOracle(t, k))
 }

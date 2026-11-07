@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codenerd/internal/logging"
@@ -356,7 +357,7 @@ type dredRun struct {
 	overDeleted       int
 	rederived         int
 	inserted          int
-	variants          int
+	variants          atomic.Int64
 }
 
 // evaluateDRedLocked brings the store to the new fixpoint of the write set.
@@ -448,10 +449,10 @@ func (k *RealKernel) evaluateDRedLocked(stats *EvaluationStats) error {
 		PrepareDuration: work.prepare, EngineDuration: work.engine, DeltaDuration: dredDuration,
 		Touched: len(plan.maintain) + len(plan.replace), RemovedFacts: work.removed + run.edbRemoved, RestoredFacts: work.restored + run.edbAdded,
 		ListedFacts: work.listed, Rules: replacedRules, Strata: replacedStrata,
-		DeltaVariants: run.variants, DeltaFacts: run.inserted, OverDeleted: run.overDeleted, Rederived: run.rederived,
+		DeltaVariants: int(run.variants.Load()), DeltaFacts: run.inserted, OverDeleted: run.overDeleted, Rederived: run.rederived,
 	}
 	logging.KernelDebug("evaluate.dred: written=%v maintain=%d replace=%d inserted=%d overdeleted=%d rederived=%d variants=%d",
-		written, len(plan.maintain), len(plan.replace), run.inserted, run.overDeleted, run.rederived, run.variants)
+		written, len(plan.maintain), len(plan.replace), run.inserted, run.overDeleted, run.rederived, run.variants.Load())
 	return nil
 }
 
@@ -540,43 +541,14 @@ func (r *dredRun) stratum(group []int, heads map[ast.PredicateSym]struct{}) erro
 			mark(gone)
 		}
 	}
-	for _, ri := range group {
-		rule := r.idx.rules[ri]
-		for _, pi := range rule.positives {
-			p := rule.clause.Premises[pi].(ast.Atom).Predicate
-			if d := r.minus[p]; d != nil && !inStratum(p) {
-				heads, err := r.variant(oldCtx, rule.clause, pi, false, d)
-				if err != nil {
-					return err
-				}
-				mark(heads)
-			}
-		}
-		for _, ni := range rule.negatives {
-			p := rule.clause.Premises[ni].(ast.NegAtom).Atom.Predicate
-			if d := r.plus[p]; d != nil {
-				heads, err := r.variant(oldCtx, rule.clause, ni, true, d)
-				if err != nil {
-					return err
-				}
-				mark(heads)
-			}
-		}
+	if err := r.runVariants(r.seedVariants(group, oldCtx, r.minus, r.plus, inStratum), mark); err != nil {
+		return err
 	}
 	for len(frontier) > 0 {
 		cur := frontier
 		frontier = make(deltaStores)
-		for _, ri := range group {
-			rule := r.idx.rules[ri]
-			for _, pi := range rule.positives {
-				if d := cur[rule.clause.Premises[pi].(ast.Atom).Predicate]; d != nil {
-					heads, err := r.variant(oldCtx, rule.clause, pi, false, d)
-					if err != nil {
-						return err
-					}
-					mark(heads)
-				}
-			}
+		if err := r.runVariants(r.recursiveVariants(group, oldCtx, cur), mark); err != nil {
+			return err
 		}
 		if err := r.checkLimit(); err != nil {
 			return err
@@ -628,43 +600,14 @@ func (r *dredRun) stratum(group []int, heads map[ast.PredicateSym]struct{}) erro
 			add(came)
 		}
 	}
-	for _, ri := range group {
-		rule := r.idx.rules[ri]
-		for _, pi := range rule.positives {
-			p := rule.clause.Premises[pi].(ast.Atom).Predicate
-			if d := r.plus[p]; d != nil && !inStratum(p) {
-				heads, err := r.variant(newCtx, rule.clause, pi, false, d)
-				if err != nil {
-					return err
-				}
-				add(heads)
-			}
-		}
-		for _, ni := range rule.negatives {
-			p := rule.clause.Premises[ni].(ast.NegAtom).Atom.Predicate
-			if d := r.minus[p]; d != nil {
-				heads, err := r.variant(newCtx, rule.clause, ni, true, d)
-				if err != nil {
-					return err
-				}
-				add(heads)
-			}
-		}
+	if err := r.runVariants(r.seedVariants(group, newCtx, r.plus, r.minus, inStratum), add); err != nil {
+		return err
 	}
 	for len(frontier) > 0 {
 		cur := frontier
 		frontier = make(deltaStores)
-		for _, ri := range group {
-			rule := r.idx.rules[ri]
-			for _, pi := range rule.positives {
-				if d := cur[rule.clause.Premises[pi].(ast.Atom).Predicate]; d != nil {
-					heads, err := r.variant(newCtx, rule.clause, pi, false, d)
-					if err != nil {
-						return err
-					}
-					add(heads)
-				}
-			}
+		if err := r.runVariants(r.recursiveVariants(group, newCtx, cur), add); err != nil {
+			return err
 		}
 		if err := r.checkLimit(); err != nil {
 			return err
@@ -789,7 +732,7 @@ func (r *dredRun) variant(ctx engine.QueryContext, clause ast.Clause, pi int, ne
 // variantSolutions is variant's body: the substitutions under which clause's
 // premises hold with premise pi reading only delta.
 func (r *dredRun) variantSolutions(ctx engine.QueryContext, clause ast.Clause, pi int, negated bool, delta factstore.ReadOnlyFactStore) ([]unionfind.UnionFind, error) {
-	r.variants++
+	r.variants.Add(1)
 	var deltaPremise ast.Atom
 	if negated {
 		deltaPremise = clause.Premises[pi].(ast.NegAtom).Atom
