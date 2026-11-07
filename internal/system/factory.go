@@ -2694,6 +2694,7 @@ func initFinalExecutors(bctx *bootContext) error {
 		session.DefaultSpawnerConfig(),
 	)
 	bctx.sessionSpawner.SetProjectDoc(bctx.projectDoc)
+	bctx.sessionSpawner.SetProjectModuleDocs(bctx.projectModuleDocs)
 	if fileContextProvider != nil {
 		bctx.sessionSpawner.SetFileContextProvider(fileContextProvider)
 	}

@@ -58,6 +58,11 @@ type Spawner struct {
 	// Executor.SetProjectDoc so withProjectInstructions can append the rendered
 	// prose to the compiled system prompt.
 	projectDoc *projectdoc.Document
+	// projectModules are the workspace's module nerd.md documents, forwarded
+	// to every subagent with projectDoc: a delegated coder is where a turn's
+	// work happens, so it is where module guidance has to reach
+	// (module_guidance.go).
+	projectModules []*projectdoc.Document
 
 	// fileContext is the holographic per-file context provider. Nil means
 	// subagents run without holographic context, preserving current behaviour.
@@ -220,6 +225,15 @@ func (s *Spawner) SetProjectDoc(doc *projectdoc.Document) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.projectDoc = doc
+}
+
+// SetProjectModuleDocs attaches the workspace's module nerd.md documents so
+// every subagent spawned from here on gets the guidance of the directory it
+// works in. Mirrors Executor.SetProjectModuleDocs.
+func (s *Spawner) SetProjectModuleDocs(docs []*projectdoc.Document) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.projectModules = docs
 }
 
 // currentProjectDoc reads the project doc slot under the read lock.
@@ -557,6 +571,10 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	if doc := s.currentProjectDoc(); doc != nil {
 		agent.executor.SetProjectDoc(doc)
 	}
+	s.mu.RLock()
+	modules := s.projectModules
+	s.mu.RUnlock()
+	agent.executor.SetProjectModuleDocs(modules)
 	if fc := s.currentFileContext(); fc != nil {
 		agent.executor.SetFileContextProvider(fc)
 	}

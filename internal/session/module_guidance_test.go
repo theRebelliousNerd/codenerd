@@ -129,3 +129,19 @@ func TestModuleGuidance_AbsoluteTargetsResolveAgainstTheWorkspace(t *testing.T) 
 		t.Fatalf("a target outside the workspace got guidance:\n%s", got)
 	}
 }
+
+// Module guidance has to reach where a turn's work happens: an inline task's
+// cloned executor and a spawned subagent's executor, not only the session's.
+func TestModuleGuidance_ReachesClonedAndSpawnedExecutors(t *testing.T) {
+	parent, _ := routeFixture(t)
+	parent.SetProjectModuleDocs(moduleDocs())
+	if got := parent.CloneForTask().moduleGuidance("internal/core/kernel.go", 0, "test"); !strings.Contains(got, "CORE-GUIDE") {
+		t.Fatalf("an inline task's executor lost the module docs: %q", got)
+	}
+	s := escalationSpawner(parent)
+	s.SetProjectModuleDocs(moduleDocs())
+	child := spawnEscalationFixture(t, s)
+	if got := child.moduleGuidance("internal/core/kernel.go", 0, "test"); !strings.Contains(got, "CORE-GUIDE") {
+		t.Fatalf("a spawned subagent's executor has no module docs: %q", got)
+	}
+}

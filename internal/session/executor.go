@@ -710,6 +710,7 @@ func (e *Executor) CloneForTask() *Executor {
 	clone.plannerClient = e.plannerClient
 	clone.rolePrompts = e.rolePrompts
 	clone.projectDoc = e.projectDoc
+	clone.projectModules = e.projectModules
 	clone.fileContext = e.fileContext
 	// A delegated task is exactly the turn a retrieval brief is for: the
 	// clone is what a `nerd fix` runs on.
