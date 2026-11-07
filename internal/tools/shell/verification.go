@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -59,6 +60,10 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 	if len(argv) == 0 {
 		return "", fmt.Errorf("empty verification runner")
 	}
+	bench, err := benchmarkArgs(args, tests, argv[0])
+	if err != nil {
+		return "", err
+	}
 	scope := "" // set when the package list was derived, so the result says what it covers
 	count := 1
 	if value, exists := args["count"]; exists && value != nil {
@@ -80,9 +85,16 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 			if race, _ := args["race"].(bool); race {
 				argv = append(argv, "-race")
 			}
-			if pattern != "" {
+			switch {
+			case pattern != "":
 				argv = append(argv, "-run", pattern)
+			case len(bench) > 0:
+				// A benchmark run without a test filter runs no tests: the
+				// suite's verdict is not what was asked, and its time is not
+				// the benchmark's.
+				argv = append(argv, "-run", "^$")
 			}
+			argv = append(argv, bench...)
 		}
 		packages, err := goPackagesArg(args)
 		if err != nil {
@@ -144,6 +156,11 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 				}
 				return string(out), code, verificationRunError(runCtx, runErr, code, buildArgv[0], seconds)
 			}
+			// The binary is discarded, so a VCS stamp in it is worth nothing,
+			// and stamping fails the whole build when the enclosing git state
+			// is unreadable: a repository owned by another user ("dubious
+			// ownership"), or a stray .git above the working directory.
+			argv = append(argv, "-buildvcs=false")
 			reported := append(append(append([]string{}, argv...), "-o", "<discarded-temp-dir>"), packages...)
 			out, code, runErr := run(append(append(append([]string{}, argv...), "-o", tmpDir), packages...))
 			if runErr != nil && strings.Contains(out, "no main packages to build") {
@@ -367,4 +384,40 @@ func optionalPackages(pkgs []string) []string {
 		out = append(out, p)
 	}
 	return out
+}
+
+// benchTimePattern is go test's -benchtime: an iteration count ("100x") or a
+// duration ("2s", "500ms").
+var benchTimePattern = regexp.MustCompile(`^(?:[1-9][0-9]{0,6}x|[0-9]{1,6}(?:\.[0-9]{1,3})?(?:ns|us|µs|ms|s|m))$`)
+
+// benchmarkArgs reads run_tests' typed benchmark fields into go test flags:
+// bench is a -bench regexp, benchtime its -benchtime and benchmem adds
+// -benchmem. They are Go-only and test-only; nil when none is given.
+func benchmarkArgs(args map[string]any, tests bool, runner string) ([]string, error) {
+	bench, _ := args["bench"].(string)
+	benchtime, _ := args["benchtime"].(string)
+	benchmem, _ := args["benchmem"].(bool)
+	if bench == "" {
+		if benchtime != "" || benchmem {
+			return nil, fmt.Errorf("benchtime and benchmem need a bench pattern")
+		}
+		return nil, nil
+	}
+	if !tests || runner != "go" {
+		return nil, fmt.Errorf("bench is supported only by run_tests on a Go project")
+	}
+	if len(bench) > 4096 || strings.ContainsRune(bench, 0) {
+		return nil, fmt.Errorf("invalid bench pattern")
+	}
+	out := []string{"-bench", bench}
+	if benchtime != "" {
+		if !benchTimePattern.MatchString(benchtime) {
+			return nil, fmt.Errorf("invalid benchtime %q: want an iteration count like 10x or a duration like 2s", benchtime)
+		}
+		out = append(out, "-benchtime", benchtime)
+	}
+	if benchmem {
+		out = append(out, "-benchmem")
+	}
+	return out, nil
 }

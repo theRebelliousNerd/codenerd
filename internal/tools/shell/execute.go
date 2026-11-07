@@ -570,6 +570,9 @@ func RunTestsTool() *tools.Tool {
 					Type:        "string",
 					Description: "Test pattern/filter to run specific tests",
 				},
+				"bench":     {Type: "string", Description: "Go only: run benchmarks matching this regexp (go test -bench). Without a pattern, no tests run alongside them"},
+				"benchtime": {Type: "string", Description: "Go only, with bench: iterations like \"10x\" or a duration like \"2s\""},
+				"benchmem":  {Type: "boolean", Description: "Go only, with bench: report allocations"},
 				"timeout_seconds": {
 					Type:        "integer",
 					Description: "Timeout in seconds (default: 600)",

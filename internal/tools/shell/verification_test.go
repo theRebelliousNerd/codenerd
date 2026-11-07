@@ -324,3 +324,100 @@ func TestOptionalWorkingDir_NonStringIsOmitted(t *testing.T) {
 		}
 	}
 }
+
+// run_tests runs Go benchmarks through typed fields: a bench pattern alone
+// runs no tests ("-run ^$"), benchtime and benchmem pass through validated,
+// and the benchmark's result line is in the output. Found when a shard asked
+// to measure a change could not run the benchmark it had just written.
+func TestTypedVerification_RunsGoBenchmarks(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no Go toolchain on PATH")
+	}
+	root := goWorkspace(t)
+	probe := filepath.Join(root, "probe")
+	if err := os.MkdirAll(probe, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(probe, "probe_test.go"), []byte(`package probe
+
+import "testing"
+
+func TestMustNotRun(t *testing.T) { t.Fatal("a bench-only call ran a test") }
+
+func BenchmarkProbe(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = make([]byte, 64)
+	}
+}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := executeTypedVerification(shellWsCtx(root), map[string]any{
+		"working_dir": root,
+		"packages":    []any{"./probe"},
+		"bench":       "BenchmarkProbe",
+		"benchtime":   "3x",
+		"benchmem":    true,
+	}, true)
+	if err != nil {
+		t.Fatalf("bench run: %v\n%s", err, out)
+	}
+	for _, want := range []string{`"-run","^$"`, `"-bench","BenchmarkProbe"`, `"-benchtime","3x"`, `"-benchmem"`, "BenchmarkProbe", "allocs/op"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("bench output lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestTypedVerification_ValidatesBenchmarkFields(t *testing.T) {
+	t.Parallel()
+	root := goWorkspace(t)
+	cases := []struct {
+		args  map[string]any
+		tests bool
+		want  string
+	}{
+		{map[string]any{"benchtime": "2s"}, true, "need a bench pattern"},
+		{map[string]any{"benchmem": true}, true, "need a bench pattern"},
+		{map[string]any{"bench": "X", "benchtime": "2s; rm -rf /"}, true, "invalid benchtime"},
+		{map[string]any{"bench": "X", "benchtime": "0x"}, true, "invalid benchtime"},
+		{map[string]any{"bench": "X\x00"}, true, "invalid bench pattern"},
+		{map[string]any{"bench": "X"}, false, "only by run_tests"},
+	}
+	for _, c := range cases {
+		c.args["working_dir"] = root
+		if _, err := executeTypedVerification(shellWsCtx(root), c.args, c.tests); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("%v (tests=%v): want %q, got %v", c.args, c.tests, c.want, err)
+		}
+	}
+}
+
+// A verification build discards its binary, so it does not stamp VCS state:
+// a .git above the module that git cannot read (here, an empty stray one)
+// must not fail the build.
+func TestTypedVerification_BuildIgnoresUnreadableEnclosingVCS(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no Go toolchain on PATH")
+	}
+	parent := t.TempDir()
+	if err := os.Mkdir(filepath.Join(parent, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(parent, "mod")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module vcs_probe\n\ngo 1.22\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := executeTypedVerification(shellWsCtx(root), map[string]any{"working_dir": root}, false)
+	if err != nil {
+		t.Fatalf("build under a stray .git: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "-buildvcs=false") {
+		t.Fatalf("build argv lacks -buildvcs=false: %s", out)
+	}
+}
