@@ -49,3 +49,18 @@ func TestRedactURL(t *testing.T) {
 		t.Errorf("an unparseable URL must not be echoed, got %q", got)
 	}
 }
+
+func TestPriceUsageStabilizeNilSafety(t *testing.T) {
+	PriceUsage("any-model", nil)
+}
+
+func TestPriceUsageStabilizeUnpricedModelLeavesPricedFalse(t *testing.T) {
+	u := &Usage{InputTokens: 10, OutputTokens: 5}
+	PriceUsage("no-such-model-xyz-stabilize", u)
+	if u.Price == nil {
+		t.Fatal("PriceUsage must always fill Price for non-nil Usage")
+	}
+	if u.Price.Priced {
+		t.Errorf("unknown model must leave Priced false, got %+v", u.Price)
+	}
+}
