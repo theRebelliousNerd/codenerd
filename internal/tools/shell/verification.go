@@ -64,7 +64,8 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 	if err != nil {
 		return "", err
 	}
-	scope := "" // set when the package list was derived, so the result says what it covers
+	scope := ""      // set when the package list was derived, so the result says what it covers
+	profileDir := "" // set when the run writes CPU or memory profiles (profileSetup)
 	count := 1
 	if value, exists := args["count"]; exists && value != nil {
 		n, ok := coerceInt(value)
@@ -180,10 +181,24 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 			}{reported, dir, code, out})
 			return string(data), runErr
 		}
+		if tests {
+			profileFlags, dir, err := profileSetup(args, len(bench) > 0, packages)
+			if err != nil {
+				return "", err
+			}
+			if dir != "" {
+				profileDir = dir
+				defer os.RemoveAll(dir)
+				argv = append(argv, profileFlags...)
+			}
+		}
 		argv = append(argv, packages...)
 	} else {
 		if _, exists := args["packages"]; exists {
 			return "", fmt.Errorf("packages currently requires a Go project")
+		}
+		if wantsProfile(args) {
+			return "", fmt.Errorf("cpuprofile and memprofile are supported only by run_tests on a Go project")
 		}
 		if pattern != "" {
 			switch argv[0] {
@@ -223,13 +238,18 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 	// The output is returned whole. A build or test log is exactly the kind
 	// of result the working context archives and pages; cutting it here would
 	// hand the model the head of a log whose failures are at the tail.
+	profile := ""
+	if profileDir != "" {
+		profile = profileSummary(runCtx, dir, goEnv, profileDir)
+	}
 	data, _ := json.Marshal(struct {
 		Argv      []string `json:"argv"`
 		Directory string   `json:"directory"`
 		Scope     string   `json:"scope,omitempty"`
 		ExitCode  int      `json:"exit_code"`
 		Output    string   `json:"output"`
-	}{argv, dir, scope, code, string(out)})
+		Profile   string   `json:"profile,omitempty"`
+	}{argv, dir, scope, code, string(out), profile})
 	return string(data), verificationRunError(runCtx, runErr, code, argv[0], seconds)
 }
 
@@ -420,4 +440,84 @@ func benchmarkArgs(args map[string]any, tests bool, runner string) ([]string, er
 		out = append(out, "-benchmem")
 	}
 	return out, nil
+}
+
+// wantsProfile reports whether a run_tests call asked for a profile.
+func wantsProfile(args map[string]any) bool {
+	cpu, _ := args["cpuprofile"].(bool)
+	mem, _ := args["memprofile"].(bool)
+	return cpu || mem
+}
+
+// profileSetup turns run_tests' cpuprofile and memprofile fields into go test
+// flags writing into a fresh temp directory, which the caller removes; the
+// test binary goes there too (-o), so nothing lands in the workspace. go test
+// profiles one package at a time. A shard asked to find where time goes had
+// no way to profile (no shell, by design); this is the typed way.
+func profileSetup(args map[string]any, benching bool, packages []string) (flags []string, dir string, err error) {
+	cpu, _ := args["cpuprofile"].(bool)
+	mem, _ := args["memprofile"].(bool)
+	if !cpu && !mem {
+		return nil, "", nil
+	}
+	if len(packages) != 1 || strings.Contains(packages[0], "...") {
+		return nil, "", fmt.Errorf("cpuprofile and memprofile need exactly one package (go test profiles one package at a time)")
+	}
+	if !benching {
+		if pattern, _ := args["pattern"].(string); pattern == "" {
+			return nil, "", fmt.Errorf("cpuprofile and memprofile need a bench or a test pattern: profiling a whole suite measures the suite")
+		}
+	}
+	dir, err = os.MkdirTemp("", "nerd-profile-*")
+	if err != nil {
+		return nil, "", fmt.Errorf("create profile directory: %w", err)
+	}
+	flags = []string{"-o", filepath.Join(dir, "pkg.test")}
+	if cpu {
+		flags = append(flags, "-cpuprofile", filepath.Join(dir, "cpu.prof"))
+	}
+	if mem {
+		flags = append(flags, "-memprofile", filepath.Join(dir, "mem.prof"))
+	}
+	return flags, dir, nil
+}
+
+// profileSummary is pprof's top functions for each profile the run wrote: CPU
+// by flat and by cumulative time, memory by bytes allocated. A profile that
+// is missing (the run failed before writing it) says so.
+func profileSummary(ctx context.Context, workdir string, env []string, dir string) string {
+	bin := filepath.Join(dir, "pkg.test")
+	var b strings.Builder
+	views := []struct {
+		file, title string
+		extra       []string
+	}{
+		{"cpu.prof", "CPU, by flat time", nil},
+		{"cpu.prof", "CPU, by cumulative time", []string{"-cum"}},
+		{"mem.prof", "memory, by bytes allocated", []string{"-sample_index=alloc_space"}},
+	}
+	for _, v := range views {
+		prof := filepath.Join(dir, v.file)
+		if _, err := os.Stat(prof); err != nil {
+			continue
+		}
+		argv := append([]string{"tool", "pprof", "-top", "-nodecount=30"}, v.extra...)
+		argv = append(argv, bin, prof)
+		cmd := newCommand(ctx, "go", argv...)
+		cmd.Dir = workdir
+		if env != nil {
+			cmd.Env = env
+		}
+		out, err := processutil.CombinedOutput(cmd)
+		fmt.Fprintf(&b, "== %s ==\n", v.title)
+		if err != nil {
+			fmt.Fprintf(&b, "pprof failed: %v\n", err)
+		}
+		b.Write(out)
+		b.WriteString("\n")
+	}
+	if b.Len() == 0 {
+		return "no profile was written (the run ended before go test could write one)"
+	}
+	return b.String()
 }

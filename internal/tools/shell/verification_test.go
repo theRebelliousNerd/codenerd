@@ -421,3 +421,59 @@ func TestTypedVerification_BuildIgnoresUnreadableEnclosingVCS(t *testing.T) {
 		t.Fatalf("build argv lacks -buildvcs=false: %s", out)
 	}
 }
+
+// run_tests profiles one package's benchmark and returns pprof's top
+// functions; the test binary and profiles stay out of the workspace.
+func TestTypedVerification_ProfilesABenchmark(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no Go toolchain on PATH")
+	}
+	root := goWorkspace(t)
+	probe := filepath.Join(root, "probe")
+	if err := os.MkdirAll(probe, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(probe, "probe_test.go"), []byte(`package probe
+
+import "testing"
+
+func spin(n int) int {
+	s := 0
+	for i := 0; i < n; i++ {
+		s += i % 7
+	}
+	return s
+}
+
+func BenchmarkSpin(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = spin(1 << 20)
+	}
+}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := executeTypedVerification(shellWsCtx(root), map[string]any{
+		"working_dir": root, "packages": []any{"./probe"},
+		"bench": "BenchmarkSpin", "benchtime": "20x", "cpuprofile": true, "memprofile": true,
+	}, true)
+	if err != nil {
+		t.Fatalf("profiled bench: %v\n%s", err, out)
+	}
+	for _, want := range []string{"CPU, by flat time", "CPU, by cumulative time", "memory, by bytes allocated", "spin"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("profile output lacks %q:\n%s", want, out)
+		}
+	}
+	entries, _ := os.ReadDir(probe)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".test") || strings.HasSuffix(e.Name(), ".prof") {
+			t.Fatalf("profiling left %s in the workspace", e.Name())
+		}
+	}
+	if _, err := executeTypedVerification(shellWsCtx(root), map[string]any{
+		"working_dir": root, "packages": []any{"./..."}, "bench": "X", "cpuprofile": true,
+	}, true); err == nil || !strings.Contains(err.Error(), "exactly one package") {
+		t.Fatalf("a multi-package profile must be refused, got %v", err)
+	}
+}
