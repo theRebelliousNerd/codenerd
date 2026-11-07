@@ -52,15 +52,18 @@ func GoToolEnv(workspaceRoot, dir string) []string {
 	return GetBuildEnv(WorkspaceUserConfig(workspaceRoot), detectionRootWithin(workspaceRoot, dir))
 }
 
+// BuildBinaryArgs is the `go build` argv (without "go") BuildBinary runs. The
+// workspace's gate tags arrive already as flags (TestTagsForWorkspace returns
+// ["-tags", "sqlite_vec"]); they are passed through, not re-wrapped.
+func BuildBinaryArgs(workspaceRoot, outputBinary, pkg string) []string {
+	args := append([]string{"build"}, TestTagsForWorkspace(workspaceRoot)...)
+	return append(args, "-o", outputBinary, pkg)
+}
+
 // BuildBinary compiles pkg in workspaceRoot into outputBinary under the
 // workspace's configured build environment and detected build tags.
 func BuildBinary(ctx context.Context, workspaceRoot, outputBinary, pkg string) ([]byte, error) {
-	args := []string{"build"}
-	if tags := TestTagsForWorkspace(workspaceRoot); len(tags) > 0 {
-		args = append(args, "-tags", strings.Join(tags, ","))
-	}
-	args = append(args, "-o", outputBinary, pkg)
-	env, argv := GoInvocation(workspaceRoot, workspaceRoot, args)
+	env, argv := GoInvocation(workspaceRoot, workspaceRoot, BuildBinaryArgs(workspaceRoot, outputBinary, pkg))
 	cmd := exec.CommandContext(ctx, "go", argv...)
 	cmd.Dir = workspaceRoot
 	cmd.Env = env
