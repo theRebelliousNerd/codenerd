@@ -47,7 +47,7 @@ func TestEDBIndexRemembersAdmittedAtoms(t *testing.T) {
 		t.Fatal("an atom admitted under the previous program is offered under the new one")
 	}
 	// The next write is admitted under the new program and remembered; its
-	// cone adds just that row (a stays in the store as the full evaluation
+	// delta evaluation adds just that row (a stays in the store as the full evaluation
 	// left it), and the answer is the full fixpoint's.
 	if err := k.Assert(b); err != nil {
 		t.Fatal(err)
@@ -56,8 +56,8 @@ func TestEDBIndexRemembersAdmittedAtoms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := k.LastEvaluation().Mode; got != "cone" {
-		t.Fatalf("evaluation mode %q, want cone", got)
+	if got := k.LastEvaluation().Mode; got != "delta" {
+		t.Fatalf("evaluation mode %q, want delta", got)
 	}
 	if len(seen) != 2 {
 		t.Fatalf("am_seen = %v, want both rows", seen)
@@ -100,8 +100,8 @@ func TestEDBIndexRemembersAdmittedAtoms(t *testing.T) {
 
 // A write to a predicate no rule derives keeps the rows the EDB still holds in
 // the store: only the new row is added and only the retracted one removed (the
-// EDB write delta), with the rest of the cone (its derived rows) re-derived as
-// before.
+// EDB write delta). An insert keeps the derived rows too and derives only what
+// the new row adds (kernel_eval_delta.go); a retract re-derives the cone.
 func TestConeKeepsUnchangedRowsOfAWrittenExtensionalPredicate(t *testing.T) {
 	k := newRealKernelBase()
 	k.AppendPolicy(atomMemoPolicy)
@@ -124,15 +124,14 @@ func TestConeKeepsUnchangedRowsOfAWrittenExtensionalPredicate(t *testing.T) {
 		t.Fatalf("am_seen = %d rows, %v; want 51", len(seen), err)
 	}
 	ev := k.LastEvaluation()
-	if ev.Mode != "cone" || ev.RestoredFacts != 1 || ev.RemovedFacts != 50 {
-		t.Fatalf("cone %q restored %d and removed %d rows; want 1 restored (the new row) and 50 removed (am_seen)",
-			ev.Mode, ev.RestoredFacts, ev.RemovedFacts)
+	if ev.Mode != "delta" || ev.RestoredFacts != 1 || ev.RemovedFacts != 0 || ev.DeltaFacts != 1 {
+		t.Fatalf("%q restored %d, removed %d, derived %d rows; want delta: 1 restored (the new row), 0 removed, 1 derived (its am_seen)",
+			ev.Mode, ev.RestoredFacts, ev.RemovedFacts, ev.DeltaFacts)
 	}
-	// The written predicate's 50 held rows were never listed: only the
-	// derived am_seen rows were, to be re-derived. The write delta is the
-	// whole preparation of am_row.
-	if ev.ListedFacts != 50 {
-		t.Fatalf("cone listed %d stored rows; want 50 (am_seen only)", ev.ListedFacts)
+	// Nothing was listed: neither am_row's 50 held rows nor am_seen's 50
+	// derived ones. The insert's work is the one new row.
+	if ev.ListedFacts != 0 {
+		t.Fatalf("delta listed %d stored rows; want 0", ev.ListedFacts)
 	}
 
 	if err := k.RetractExactFact(Fact{Predicate: "am_row", Args: []any{"r7"}}); err != nil {

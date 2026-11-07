@@ -101,6 +101,10 @@ type RealKernel struct {
 	// storeShared: a clone reads the (plain) evaluated store as its base, so
 	// the next in-place write wraps it first (kernel_overlay_store.go).
 	storeShared atomic.Bool
+	// storeTainted: an incremental evaluation failed part-way, so k.store
+	// holds rows of an unfinished pass. Only the full path, which builds a
+	// fresh store, may evaluate next (coneIneligibilityLocked).
+	storeTainted bool
 	// programKey hashes the program text the kernel last compiled: half of
 	// its content fingerprint (kernel_content_fingerprint.go).
 	programKey [sha256.Size]byte
@@ -178,7 +182,7 @@ type EvaluationStats struct {
 	InputFacts int
 	Duration   time.Duration
 
-	Mode            string // "full" or "cone"
+	Mode            string // "full", "cone" or "delta"
 	ConeFallback    string // why a named write set ran the full path; "" otherwise
 	StoreKind       string // "simple" or "indexed": the store the engine ran against
 	PrepareDuration time.Duration
@@ -189,6 +193,9 @@ type EvaluationStats struct {
 	ListedFacts     int // cone: store rows listed to prepare it (a known write delta lists none)
 	Rules           int // rules the engine was given
 	Strata          int // strata the engine was given
+	DeltaDuration   time.Duration // delta: semi-naive propagation of the inserted rows
+	DeltaVariants   int           // delta: rule variants evaluated over new rows
+	DeltaFacts      int // delta: derived facts added by propagation
 }
 
 // storeKind names a fact store's physical kind for EvaluationStats.

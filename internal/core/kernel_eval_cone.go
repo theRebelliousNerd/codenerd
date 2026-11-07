@@ -2,16 +2,15 @@ package core
 
 import (
 	"errors"
-	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"codenerd/internal/logging"
 
 	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codeberg.org/TauCeti/mangle-go/ast"
-	"codeberg.org/TauCeti/mangle-go/engine"
 	"codeberg.org/TauCeti/mangle-go/factstore"
 )
 
@@ -65,6 +64,9 @@ type coneIndex struct {
 	strataByPred map[string][]int              // predicate name -> indexes into strata, ascending
 	syms         map[string][]ast.PredicateSym // name -> every symbol the program knows under it
 	plans        conePlans
+
+	deltaOnce sync.Once   // builds delta on first use (kernel_eval_delta.go)
+	delta     *deltaIndex // the insert-only evaluator's view of the program
 }
 
 // errConeIneligible makes evaluate() take the full path. It is not a fault.
@@ -313,6 +315,8 @@ func (k *RealKernel) coneIneligibilityLocked() string {
 		return "write set unknown"
 	case !k.initialized || k.store == nil:
 		return "no evaluated store"
+	case k.storeTainted:
+		return "store left by a failed incremental evaluation"
 	case k.policyDirty || k.programInfo == nil || k.cone == nil:
 		return "program changed"
 	case k.atomCacheStale:
@@ -346,32 +350,16 @@ func (k *RealKernel) evaluateConeLocked(stats *EvaluationStats) error {
 	prepareStarted := time.Now()
 
 	plan := k.cone.plan(k.dirtyPreds)
+	planned := time.Since(prepareStarted)
 
-	removedCount, restored, listed, err := k.prepareConeStoreLocked(plan)
+	work, err := k.rederiveConeLocked(plan)
 	if err != nil {
 		return err
 	}
-
-	// Run the engine even when the cone holds no rule: it is what re-adds a
-	// program fact of a written predicate, removed above with the rest.
-	sub := &analysis.ProgramInfo{
-		EdbPredicates:    k.programInfo.EdbPredicates,
-		IdbPredicates:    k.programInfo.IdbPredicates,
-		InitialFacts:     k.programInfo.InitialFacts,
-		InitialFactTimes: k.programInfo.InitialFactTimes,
-		Rules:            plan.rules,
-		Decls:            k.programInfo.Decls,
-	}
-	opts := append([]engine.EvalOption{engine.WithCreatedFactLimit(k.effectiveDerivedFactLimitLocked())},
-		k.externalPredicateOptionsLocked()...)
-	prepared := time.Since(prepareStarted)
-	engineStarted := time.Now()
-	if _, err := engine.EvalStratifiedProgramWithStats(sub, plan.strata, plan.predToStratum, k.store, opts...); err != nil {
-		return fmt.Errorf("cone: fixpoint: %w", err)
-	}
+	removedCount, restored, listed := work.removed, work.restored, work.listed
 	*stats = EvaluationStats{
 		InputFacts: stats.InputFacts, Mode: "cone", StoreKind: storeKind(k.store),
-		PrepareDuration: prepared, EngineDuration: time.Since(engineStarted),
+		PrepareDuration: work.prepare + planned, EngineDuration: work.engine,
 		Touched: len(plan.touched), RemovedFacts: removedCount, RestoredFacts: restored, ListedFacts: listed,
 		Rules: len(plan.rules), Strata: len(plan.strata),
 	}

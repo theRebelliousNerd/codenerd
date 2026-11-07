@@ -63,20 +63,24 @@ func TestCloneStoreKindAndConeEquivalence(t *testing.T) {
 				t.Fatalf("parent store kind = %s, want %s", got, tc.parentKind)
 			}
 			c := parent.Clone()
+			// An insert is propagated by delta (kernel_eval_delta.go), even one
+			// whose cone holds a rule negating it: that rule's head is replaced
+			// inside the delta evaluation. A retract re-derives the cone.
 			steps := []struct {
 				name  string
+				mode  string
 				write func(*RealKernel) error
 			}{
-				{"stage quiet", func(k *RealKernel) error {
+				{"stage quiet", "delta", func(k *RealKernel) error {
 					return k.AssertWithoutEval(Fact{Predicate: "perf_quiet", Args: []any{"n1"}})
 				}},
-				{"stage probe (negation turns)", func(k *RealKernel) error {
+				{"stage probe (negation turns)", "delta", func(k *RealKernel) error {
 					return k.AssertWithoutEval(Fact{Predicate: "perf_probe", Args: []any{"n1"}})
 				}},
-				{"retract an edge", func(k *RealKernel) error {
+				{"retract an edge", "cone", func(k *RealKernel) error {
 					return k.RetractExactFact(Fact{Predicate: "perf_edge", Args: []any{"n1", fmt.Sprintf("n%d", 8%tc.edges)}})
 				}},
-				{"retract probe", func(k *RealKernel) error { return k.Retract("perf_probe") }},
+				{"retract probe", "cone", func(k *RealKernel) error { return k.Retract("perf_probe") }},
 			}
 			apply := func(who string, k *RealKernel, kind string) {
 				for _, step := range steps {
@@ -86,8 +90,8 @@ func TestCloneStoreKindAndConeEquivalence(t *testing.T) {
 					if err := k.EvaluatePending(); err != nil {
 						t.Fatalf("%s %s: EvaluatePending: %v", who, step.name, err)
 					}
-					if ev := k.LastEvaluation(); ev.Mode != "cone" || ev.StoreKind != kind {
-						t.Fatalf("%s %s: evaluation mode=%q store=%q, want cone over %s (fallback %q)", who, step.name, ev.Mode, ev.StoreKind, kind, ev.ConeFallback)
+					if ev := k.LastEvaluation(); ev.Mode != step.mode || ev.StoreKind != kind {
+						t.Fatalf("%s %s: evaluation mode=%q store=%q, want %s over %s (fallback %q)", who, step.name, ev.Mode, ev.StoreKind, step.mode, kind, ev.ConeFallback)
 					}
 					requireSameStore(t, who+" "+step.name, dumpStore(t, k), fullOracle(t, k))
 				}

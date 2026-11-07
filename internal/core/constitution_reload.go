@@ -100,7 +100,7 @@ func (k *RealKernel) publishConstitutionLocked(next *RealKernel) {
 	k.programInfo, k.programKey = next.programInfo, next.programKey
 	k.strata, k.predToStratum, k.cone = next.strata, next.predToStratum, next.cone
 	k.facts, k.cachedAtoms, k.factIndex = next.facts, next.cachedAtoms, next.factIndex
-	k.store, k.initialized = next.store, next.initialized
+	k.store, k.initialized, k.storeTainted = next.store, next.initialized, next.storeTainted
 	k.atomCacheStale, k.policyDirty, k.evalErr = false, false, nil
 	k.lastEvaluation, k.proofRecorder = next.lastEvaluation, next.proofRecorder
 	k.generation.Add(1)

@@ -302,14 +302,27 @@ func (k *RealKernel) evaluate() (err error) {
 		logging.KernelDebug("evaluate: using cached programInfo")
 	}
 
-	// A write whose predicates were named re-derives only their cone.
+	// A write whose predicates were named is brought up to date by delta when
+	// it only inserts (kernel_eval_delta.go), else by re-deriving its cone.
 	named := !k.dirtyAll && len(k.dirtyPreds) > 0
-	if err := k.evaluateConeLocked(&stats); err == nil {
+	deltaErr := k.evaluateDeltaLocked(&stats)
+	if deltaErr == nil {
+		k.clearDirtyLocked()
+		return nil
+	}
+	if !errors.Is(deltaErr, errDeltaIneligible) {
+		// The pass may have added rows; only a fresh store is known good,
+		// and until one replaces it no incremental path may build on it.
+		logging.Get(logging.CategoryKernel).Warn("evaluate: delta evaluation failed, running the full fixpoint: %v", deltaErr)
+		stats.ConeFallback = deltaErr.Error()
+		k.storeTainted = true
+	} else if err := k.evaluateConeLocked(&stats); err == nil {
 		k.clearDirtyLocked()
 		return nil
 	} else if !errors.Is(err, errConeIneligible) {
 		logging.Get(logging.CategoryKernel).Warn("evaluate: cone evaluation failed, running the full fixpoint: %v", err)
 		stats.ConeFallback = err.Error()
+		k.storeTainted = true
 	} else if named {
 		stats.ConeFallback = k.coneIneligibilityLocked()
 	}
@@ -408,6 +421,7 @@ func (k *RealKernel) evaluate() (err error) {
 
 	k.store = baseStore
 	k.storeShared.Store(false) // a fresh store: no clone reads it
+	k.storeTainted = false
 	k.clearDirtyLocked()
 
 	// Log evaluation stats
@@ -518,6 +532,7 @@ func (k *RealKernel) clearFactsLocked() {
 	k.factIndex = newEDBIndex()
 	k.store = factstore.NewSimpleInMemoryStore()
 	k.storeShared.Store(false)
+	k.storeTainted = false
 	k.initialized = false
 	k.evalErr = nil // the store is new, there is no failed evaluation to answer for
 	// factsDirty stays as-is (Clear does not set dirty): the !initialized
