@@ -101,3 +101,51 @@ func TestRedactForLog_WhenPayloadExceedsLimit_ShouldTruncate(t *testing.T) {
 		t.Errorf("expected truncation marker, got %q", got)
 	}
 }
+
+func TestRedactForLog_WhenMaxLenDisabled_ShouldNotTruncate(t *testing.T) {
+	long := strings.Repeat("b", 200)
+	for _, maxLen := range []int{0, -1} {
+		got := RedactForLog(long, maxLen)
+		if strings.HasSuffix(got, "...[truncated]") {
+			t.Errorf("maxLen=%d should disable truncation, got %q", maxLen, got)
+		}
+		if got != strings.TrimSpace(long) {
+			t.Errorf("maxLen=%d should return payload trimmed, got %q", maxLen, got)
+		}
+	}
+}
+
+func TestRedactForLog_WhenPayloadHasPadding_ShouldTrimSpaces(t *testing.T) {
+	got := RedactForLog("   hello world   ", 0)
+	if got != "hello world" {
+		t.Errorf("expected trimmed payload, got %q", got)
+	}
+}
+
+func TestRedactForLog_WhenSecretExceedsLimit_ShouldRedactBeforeTruncating(t *testing.T) {
+	secret := "sk-abcdefghij0123456789ABCDEF"
+	payload := "key " + secret + " " + strings.Repeat("x", 200)
+	got := RedactForLog(payload, 50)
+	if strings.Contains(got, secret) {
+		t.Errorf("secret survived RedactForLog: %q", got)
+	}
+	if !strings.Contains(got, RedactionPlaceholder) {
+		t.Errorf("expected placeholder after redaction, got %q", got)
+	}
+	if !strings.HasSuffix(got, "...[truncated]") {
+		t.Errorf("expected truncation marker, got %q", got)
+	}
+}
+
+func TestRedactSecrets_WhenEmpty_ShouldReturnEmptyWithoutPlaceholder(t *testing.T) {
+	if got := RedactSecrets(""); got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+}
+
+func TestRedactSecrets_WhenBearerValueTooShort_ShouldPreserve(t *testing.T) {
+	in := "bearer abc"
+	if got := RedactSecrets(in); got != in {
+		t.Errorf("short bearer token should not redact, got %q", got)
+	}
+}
