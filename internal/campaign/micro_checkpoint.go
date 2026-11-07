@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"codenerd/internal/logging"
 )
@@ -40,8 +41,17 @@ func (o *Orchestrator) runTaskMicroCheckpoint(ctx context.Context, task *Task) e
 	// Ladder C2: what the attempt wrote is where its change landed -- a
 	// modification whose planned target was a guess changes existing code
 	// elsewhere -- so those paths are checked with the declared ones.
+	var removed []string
 	for _, w := range o.attemptWrites(task) {
 		writeSet = append(writeSet, w.Path)
+		// A removal the attempt made and that still stands is the change
+		// landing, not its absence: nothing of a deleted path survives to be
+		// statted (campaign-deletion-microcheckpoint #1).
+		if w.Before.Known && w.Before.Exists && w.After.Known && !w.After.Exists {
+			if _, err := os.Stat(w.Path); os.IsNotExist(err) {
+				removed = append(removed, w.Path)
+			}
+		}
 	}
 
 	// The change landed where the task declared it or where the attempt wrote
@@ -62,12 +72,60 @@ func (o *Orchestrator) runTaskMicroCheckpoint(ctx context.Context, task *Task) e
 		logging.Get(logging.CategoryCampaign).Warn("micro-checkpoint: planned path %s is not on disk", p)
 	}
 	if task.Type == TaskTypeTestWrite {
-		if existing := dirtyWorkspaceTestFiles(o.workspace); len(existing) > 0 {
-			logging.Campaign("micro-checkpoint: task %s (%s) satisfied by dirty/untracked workspace test files: %s", task.ID, task.Type, strings.Join(existing, ", "))
+		if owned := ownedDirtyTestFiles(o.workspace, o.resolveTaskWriteSet(task), dirtyWorkspaceTestFiles(o.workspace), o.attemptStarted(task)); len(owned) > 0 {
+			logging.Campaign("micro-checkpoint: task %s (%s) satisfied by test files changed this attempt beside its write set: %s", task.ID, task.Type, strings.Join(owned, ", "))
 			return nil
 		}
 	}
-	return fmt.Errorf("micro-checkpoint: none of the planned write_set paths exist and the attempt wrote none of its own: %v", writeSet)
+	if len(removed) > 0 {
+		logging.Campaign("micro-checkpoint: task %s (%s) removed %s; the removal is its change", task.ID, task.Type, strings.Join(removed, ", "))
+		return nil
+	}
+	// What was checked is existence, not authorship: none of the declared or
+	// attempt-written paths is on disk, and the attempt recorded no removal
+	// (campaign-deletion-microcheckpoint #3).
+	// The phrase "none of the planned write_set paths exist" is read by
+	// resume classification (isNonTerminalResumeAttempt); keep it.
+	return fmt.Errorf("micro-checkpoint: none of the planned write_set paths exist (declared or attempt-written) and the attempt recorded no removal: %v", writeSet)
+}
+
+// ownedDirtyTestFiles keeps the dirty test files a test_write attempt can be
+// credited with: in a directory the task's write set names (a declared
+// directory, or the directory of a declared file), and modified since the
+// attempt began. Any dirty test file in the workspace used to satisfy the
+// gate, including another agent's or a human's work that predated the
+// campaign (campaign-testwrite-checkpoint-ownership). With no attempt start
+// known nothing is credited.
+func ownedDirtyTestFiles(workspace string, writeSet, dirty []string, since time.Time) []string {
+	if since.IsZero() || len(writeSet) == 0 {
+		return nil
+	}
+	dirs := map[string]bool{}
+	for _, p := range writeSet {
+		abs := p
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(workspace, filepath.FromSlash(p))
+		}
+		abs = filepath.Clean(abs)
+		if info, err := os.Stat(abs); err == nil && info.IsDir() {
+			dirs[abs] = true
+		} else {
+			dirs[filepath.Dir(abs)] = true
+		}
+	}
+	var out []string
+	for _, rel := range dirty {
+		abs := filepath.Join(workspace, filepath.FromSlash(rel))
+		if !dirs[filepath.Dir(abs)] {
+			continue
+		}
+		info, err := os.Stat(abs)
+		if err != nil || info.ModTime().Before(since) {
+			continue
+		}
+		out = append(out, rel)
+	}
+	return out
 }
 
 func dirtyWorkspaceTestFiles(workspace string) []string {

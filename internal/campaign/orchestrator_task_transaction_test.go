@@ -1206,3 +1206,38 @@ func TestWithTaskMutationSnapshot_KeepsCompilingWritesOnTestOnlyVerificationFail
 		})
 	}
 }
+
+// campaign-rollback-file-metadata #1: a rollback that recreates a file
+// writes its captured permission bits, not 0644.
+func TestRollback_RestoresCapturedFileMode(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "run.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho ok\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orch := newSnapshotTestOrchestrator()
+	orch.workspace = dir
+	task := &orch.campaign.Phases[0].Tasks[0]
+	task.Type = TaskTypeFileModify
+	task.WriteSet = []string{script}
+	snapshot, err := orch.captureTaskExecutionSnapshot(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(script); err != nil {
+		t.Fatal(err)
+	}
+	if err := orch.rollbackTaskExecutionSnapshot(snapshot); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	info, err := os.Stat(script)
+	if err != nil {
+		t.Fatalf("script not restored: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("restored mode = %o, want 755", got)
+	}
+}

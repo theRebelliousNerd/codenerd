@@ -1,6 +1,8 @@
 package campaign
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -185,3 +187,30 @@ func TestIsWindowsAbs(t *testing.T) {
 // TODO: TEST_GAP: [Type Coercion] Verify campaignWriteSet correctly handles identical files that only differ by casing on strict case-sensitive file systems, ensuring deduplication does not inadvertently drop explicit distinct targets.
 // TODO: TEST_GAP: [Null/Undefined/Empty] Verify canonicalRemediationPath safely handles an empty workspace string specifically when evaluating relative paths, ensuring it doesn't default to the entire system root.
 // TODO: TEST_GAP: [User request Extremes] Verify campaignWriteSet safely handles extremely large WriteSets (e.g., 100,000 entries) without significant CPU blocking or memory exhaustion.
+
+// campaign-acceptance-case-identity #1: on a case-sensitive filesystem two
+// spellings that differ only by case can be two files, and both are scope.
+func TestCampaignWriteSet_KeepsDistinctCaseVariantFiles(t *testing.T) {
+	workspace := t.TempDir()
+	dir := filepath.Join(workspace, "docs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("upper\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("lower\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, errA := os.Stat(filepath.Join(dir, "README.md"))
+	b, errB := os.Stat(filepath.Join(dir, "readme.md"))
+	if errA != nil || errB != nil || os.SameFile(a, b) {
+		t.Skip("case-insensitive filesystem: the two spellings are one file")
+	}
+	c := &Campaign{Phases: []Phase{{Tasks: []Task{{WriteSet: []string{"docs/README.md", "docs/readme.md"}}}}}}
+	got := campaignWriteSet(workspace, c)
+	want := []string{"docs/README.md", "docs/readme.md"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("scope = %q, want both files %q", got, want)
+	}
+}

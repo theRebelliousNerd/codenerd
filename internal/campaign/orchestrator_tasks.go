@@ -476,8 +476,12 @@ func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Ta
 	o.applyLearnings(ctx, task, result)
 	o.emitProgress()
 
+	// persistCampaign, not saveCampaign: a completion whose snapshot fails
+	// holds dispatch for storage and tells the operator, instead of letting
+	// dependents run on progress that exists only in memory
+	// (campaign-completion-storage-hold #1).
 	o.mu.Lock()
-	o.saveCampaign()
+	o.persistCampaign("task completed " + task.ID)
 	o.mu.Unlock()
 
 	results <- taskResult{taskID: task.ID, result: result}
@@ -734,28 +738,56 @@ func (o *Orchestrator) applyLearnings(ctx context.Context, task *Task, result an
 	}
 
 	o.mu.Lock()
+	// The promotion is derived state: the same row comes back on every later
+	// task's query. A campaign records each (kind, value) once
+	// (campaign-learning-receipt-fidelity #2), and labels it with its own
+	// kind: only a /phase_success promotion is a success pattern (#3).
+	recorded := make(map[string]bool, len(o.campaign.Learnings))
+	for _, l := range o.campaign.Learnings {
+		recorded[l.Type+"\x00"+l.Pattern+"\x00"+l.Value] = true
+	}
+	captured := 0
 	for _, fact := range facts {
+		if len(fact.Args) == 0 {
+			continue
+		}
+		kind := types.ExtractString(fact.Args[0])
+		value := ""
+		if len(fact.Args) > 1 {
+			value = types.ExtractString(fact.Args[1])
+		}
+		learningType := kind
+		if kind == "/phase_success" {
+			learningType = "/success_pattern"
+		}
+		key := learningType + "\x00" + kind + "\x00" + value
+		if recorded[key] {
+			continue
+		}
+		recorded[key] = true
 		// Combine task description with result context for richer learning
 		factStr := task.Description
 		if resultContext != "" {
 			factStr = fmt.Sprintf("%s [result: %s]", task.Description, resultContext)
 		}
-		if len(fact.Args) > 1 {
-			factStr = fmt.Sprintf("%s [promotion: %s]", factStr, types.ExtractString(fact.Args[1]))
+		if value != "" {
+			factStr = fmt.Sprintf("%s [promotion: %s]", factStr, value)
 		}
 		learning := Learning{
-			Type:      "/success_pattern",
-			Pattern:   types.ExtractString(fact.Args[0]),
+			Type:      learningType,
+			Pattern:   kind,
+			Value:     value,
 			Fact:      factStr,
 			AppliedAt: time.Now(),
 		}
 		o.campaign.Learnings = append(o.campaign.Learnings, learning)
-		logging.CampaignDebug("Learning captured: %s", learning.Pattern)
+		captured++
+		logging.CampaignDebug("Learning captured: %s %s", learning.Pattern, value)
 	}
 	learningCount := len(o.campaign.Learnings)
 	o.mu.Unlock()
 
-	logging.Campaign("Captured %d learnings (total=%d)", len(facts), learningCount)
+	logging.Campaign("Captured %d learnings (total=%d)", captured, learningCount)
 }
 
 // snapshotWorkspaceRoot lists the files directly in the workspace root.

@@ -187,7 +187,10 @@ func TestApplyLearnings_ConcurrentCount(t *testing.T) {
 			close(start)
 			workersDone.Wait()
 
-			if got, want := len(campaign.Learnings), workers*callsPerWorker*len(tt.facts); got != want {
+			// A promotion is recorded once however many tasks see it
+			// (campaign-learning-receipt-fidelity #2); concurrent calls must
+			// neither race nor record it twice.
+			if got, want := len(campaign.Learnings), len(tt.facts); got != want {
 				t.Errorf("learning count = %d, want %d", got, want)
 			}
 		})

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"codenerd/internal/observation"
 	"codenerd/internal/session"
@@ -32,8 +33,9 @@ import (
 // Records exist only while an attempt is open (beginAttempt .. endAttempt), so
 // a task that runs without a mutation snapshot leaves nothing behind.
 type attemptRecord struct {
-	writes []observation.FileWrite
-	leases []*writeSetLockLease
+	writes  []observation.FileWrite
+	leases  []*writeSetLockLease
+	started time.Time
 }
 
 func (o *Orchestrator) beginAttempt(task *Task) {
@@ -45,7 +47,20 @@ func (o *Orchestrator) beginAttempt(task *Task) {
 	if o.attempts == nil {
 		o.attempts = map[string]*attemptRecord{}
 	}
-	o.attempts[task.ID] = &attemptRecord{}
+	o.attempts[task.ID] = &attemptRecord{started: time.Now()}
+}
+
+// attemptStarted is when the task's open attempt began; zero with none open.
+func (o *Orchestrator) attemptStarted(task *Task) time.Time {
+	if task == nil {
+		return time.Time{}
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if rec := o.attempts[task.ID]; rec != nil {
+		return rec.started
+	}
+	return time.Time{}
 }
 
 func (o *Orchestrator) recordAttemptWrites(task *Task, writes []observation.FileWrite) {

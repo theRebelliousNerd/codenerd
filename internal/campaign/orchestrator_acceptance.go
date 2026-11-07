@@ -323,6 +323,21 @@ func campaignWriteSet(workspace string, c *Campaign) []string {
 					continue
 				}
 				key := strings.ToLower(rel)
+				if idx, dup := seen[key]; dup && distinctCaseVariants(workspace, out[idx], rel) {
+					// On a case-sensitive filesystem two spellings that differ
+					// only by case can be two files; merging them dropped one
+					// from the remediation scope (campaign-acceptance-case-identity #1).
+					// Exact spellings live in their own key space: an
+					// all-lower spelling equals its folded key.
+					key = "\x00" + rel
+					if _, again := seen[key]; again {
+						continue
+					}
+					seen[key] = len(out)
+					fromAbsByKey[key] = fromAbs
+					out = append(out, rel)
+					continue
+				}
 				if idx, dup := seen[key]; dup {
 					// Keep one spelling: prefer a relative-as-written entry
 					// over an absolute-derived one, and a case-preserving
@@ -351,12 +366,33 @@ func campaignWriteSet(workspace string, c *Campaign) []string {
 			}
 		}
 	}
-	// The dedup above keys on the lower-cased path, so no two entries are
-	// equal ignoring case and this order is total.
+	// Entries equal ignoring case are distinct files only on a
+	// case-sensitive filesystem; the exact spelling breaks that tie so the
+	// order stays total.
 	sort.Slice(out, func(i, j int) bool {
-		return strings.ToLower(out[i]) < strings.ToLower(out[j])
+		li, lj := strings.ToLower(out[i]), strings.ToLower(out[j])
+		if li != lj {
+			return li < lj
+		}
+		return out[i] < out[j]
 	})
 	return out
+}
+
+// distinctCaseVariants reports whether two workspace-relative spellings that
+// differ only by case name two different files on disk. Both must exist and
+// not be the same file; anything else (one missing, a case-insensitive
+// filesystem resolving both to one file) is one entry.
+func distinctCaseVariants(workspace, a, b string) bool {
+	if a == b {
+		return false
+	}
+	ia, errA := os.Stat(filepath.Join(workspace, filepath.FromSlash(a)))
+	ib, errB := os.Stat(filepath.Join(workspace, filepath.FromSlash(b)))
+	if errA != nil || errB != nil {
+		return false
+	}
+	return !os.SameFile(ia, ib)
 }
 
 // canonicalRemediationPath maps one declared write-set entry to its single

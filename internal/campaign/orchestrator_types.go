@@ -69,6 +69,9 @@ type Orchestrator struct {
 	// Execution tracking
 	isRunning bool
 	isPaused  bool
+	// intakeOwnsPause marks a pause HandleNewRequirement opened and nobody
+	// has since claimed with Pause or Resume; only then does the intake lift it.
+	intakeOwnsPause bool
 	// pauseCh signals pause state transitions to the phase scheduler loop.
 	// Closed channel = running/resumed. Open channel = paused. Recreated by
 	// Pause(), closed by Resume(). Always read while holding o.mu.

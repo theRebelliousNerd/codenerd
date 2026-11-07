@@ -335,24 +335,33 @@ func (o *Orchestrator) HandleNewRequirement(ctx context.Context, requirement str
 	// Pause temporarily to safely modify plan.
 	// Manage both isPaused and pauseCh so the scheduler loop's select on
 	// pauseCh stays consistent with the boolean flag.
+	//
+	// The intake owns the pause only while nobody else touches it. A Pause or
+	// Resume that arrives during intake takes ownership (intakeOwnsPause goes
+	// false), and the intake then leaves the state alone: restoring a captured
+	// flag used to re-pause a campaign the user resumed with no open channel,
+	// close a channel twice, or un-pause one the user paused mid-intake
+	// (campaign-intake-pause-ownership #1-#3).
 	o.mu.Lock()
-	wasPaused := o.isPaused
 	if !o.isPaused {
 		// Transition resumed → paused: open a fresh pauseCh.
 		o.pauseCh = make(chan struct{})
+		o.isPaused = true
+		o.intakeOwnsPause = true
 	}
-	o.isPaused = true
 	logging.CampaignDebug("Temporarily pausing campaign to integrate new requirement")
 	o.mu.Unlock()
 
 	defer func() {
 		o.mu.Lock()
-		// Restore previous state. If we were the ones that paused, close pauseCh.
-		if !wasPaused && o.isPaused && o.pauseCh != nil {
-			close(o.pauseCh)
+		if o.intakeOwnsPause {
+			if o.pauseCh != nil {
+				close(o.pauseCh)
+			}
+			o.isPaused = false
+			o.intakeOwnsPause = false
+			logging.CampaignDebug("Resuming campaign after requirement integration")
 		}
-		o.isPaused = wasPaused
-		logging.CampaignDebug("Resuming campaign after requirement integration")
 		o.mu.Unlock()
 	}()
 

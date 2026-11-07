@@ -25,6 +25,18 @@ type fileMutationSnapshot struct {
 	Path    string
 	Exists  bool
 	Content []byte
+	// Mode is the file's permission bits at capture; a restore writes them
+	// back, so an executable script is not restored as 0644
+	// (campaign-rollback-file-metadata #1). Zero means unknown: 0644.
+	Mode os.FileMode
+}
+
+// restoreMode is the mode a rollback writes a captured file with.
+func (f fileMutationSnapshot) restoreMode() os.FileMode {
+	if f.Mode == 0 {
+		return 0o644
+	}
+	return f.Mode
 }
 
 // taskExecutionSnapshot captures mutable orchestrator state that must be rolled back.
@@ -435,6 +447,7 @@ func (o *Orchestrator) captureTaskExecutionSnapshot(task *Task) (taskExecutionSn
 			Path:    absPath,
 			Exists:  true,
 			Content: content,
+			Mode:    info.Mode().Perm(),
 		})
 	}
 	snapshot.snapshotPaths = make(map[string]struct{}, len(snapshot.fileMutations))
@@ -506,7 +519,7 @@ func snapshotDirectoryFiles(mem *workspace.Membership, dir string, into *[]fileM
 		if numFiles > maxDirectorySnapshotFiles || numBytes > maxDirectorySnapshotBytes {
 			return fmt.Errorf("directory write set %s too large to snapshot (> %d files or > %d bytes)", dir, maxDirectorySnapshotFiles, maxDirectorySnapshotBytes)
 		}
-		*into = append(*into, fileMutationSnapshot{Path: filepath.Clean(path), Exists: true, Content: data})
+		*into = append(*into, fileMutationSnapshot{Path: filepath.Clean(path), Exists: true, Content: data, Mode: info.Mode().Perm()})
 		return nil
 	})
 	if err != nil {
@@ -582,8 +595,12 @@ func (o *Orchestrator) rollbackTaskExecutionSnapshot(snapshot taskExecutionSnaps
 			if err := os.MkdirAll(filepath.Dir(fs.Path), 0755); err != nil {
 				return fmt.Errorf("rollback mkdir %s: %w", fs.Path, err)
 			}
-			if err := os.WriteFile(fs.Path, fs.Content, 0644); err != nil {
+			if err := os.WriteFile(fs.Path, fs.Content, fs.restoreMode()); err != nil {
 				return fmt.Errorf("rollback write %s: %w", fs.Path, err)
+			}
+			// WriteFile applies the mode only when it creates the file.
+			if err := os.Chmod(fs.Path, fs.restoreMode()); err != nil {
+				return fmt.Errorf("rollback chmod %s: %w", fs.Path, err)
 			}
 			continue
 		}
