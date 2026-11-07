@@ -102,7 +102,7 @@ func readCommittedPredicates(path string) (map[predicateKey]struct{}, error) {
 	// up the same pragmas every other site in the repo does.
 	// TestSQLOpenSites_WhenOpeningSQLite_ShouldApplyPragmasOrBeExempt enforces
 	// it, and caught this file on its first commit.
-	db, err := sql.Open("sqlite3", path+"?mode=ro")
+	db, err := sql.Open("sqlite3", "file:"+path+"?mode=ro&immutable=1")
 	if err != nil {
 		return nil, err
 	}

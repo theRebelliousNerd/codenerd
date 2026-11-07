@@ -263,11 +263,17 @@ func (r *recurseRun) saveWorkspaceState(ctx context.Context, pass int) {
 		State:  make(map[string]persistedGateRun, len(r.state)),
 	}
 	for k, run := range r.state {
+		var invs []gates.Result
+		var byFinding map[string]gates.Result
+		if len(run.invocations) > 1 {
+			invs = run.invocations
+			byFinding = run.byFinding
+		}
 		saved.State[k] = persistedGateRun{
 			Snapshot:      run.snapshot,
 			Result:        run.result,
-			Invocations:   run.invocations,
-			ByFinding:     run.byFinding,
+			Invocations:   invs,
+			ByFinding:     byFinding,
 			FindingPath:   run.findingPath,
 			AllFindingIDs: run.allFindingIDs,
 			Truncated:     run.truncated,
@@ -298,12 +304,30 @@ func (r *recurseRun) loadWorkspaceState(ctx context.Context, pass int) bool {
 	if saved.Commit != head || saved.Pass != pass || len(saved.State) == 0 {
 		return false
 	}
+	for _, run := range saved.State {
+		for _, f := range run.Findings {
+			if strings.Contains(f.Message, "_corpus.db-wal") || strings.Contains(f.Message, "_corpus.db-shm") {
+				return false
+			}
+		}
+	}
 	for k, run := range saved.State {
+		invs := run.Invocations
+		if len(invs) == 0 {
+			invs = []gates.Result{run.Result}
+		}
+		byFinding := run.ByFinding
+		if len(byFinding) == 0 && len(run.Findings) > 0 {
+			byFinding = make(map[string]gates.Result, len(run.Findings))
+			for _, f := range run.Findings {
+				byFinding[f.ID] = run.Result
+			}
+		}
 		r.state[k] = gateRun{
 			snapshot:      run.Snapshot,
 			result:        run.Result,
-			invocations:   run.Invocations,
-			byFinding:     run.ByFinding,
+			invocations:   invs,
+			byFinding:     byFinding,
 			findingPath:   run.FindingPath,
 			allFindingIDs: run.AllFindingIDs,
 			truncated:     run.Truncated,

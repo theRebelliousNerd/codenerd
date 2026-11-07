@@ -56,7 +56,7 @@ func (fakeEmbedder) Name() string    { return "fake-embedder" }
 
 func openReadOnly(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite3", "file:"+path+"?mode=ro")
+	db, err := sql.Open("sqlite3", "file:"+path+"?mode=ro&immutable=1")
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}

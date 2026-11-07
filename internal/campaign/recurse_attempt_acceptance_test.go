@@ -237,4 +237,3 @@ func TestRecurseAttempt_WorkspaceGateScopesResolutionAndRemediationToNode(t *tes
 		t.Error("campaign_complete is not derived after the node's finding resolved")
 	}
 }
-

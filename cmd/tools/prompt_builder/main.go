@@ -198,6 +198,10 @@ func main() {
 		fmt.Printf("ERROR: Failed to store atoms: %v\n", err)
 		os.Exit(1)
 	}
+	if _, err := db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode=DELETE;"); err != nil {
+		fmt.Printf("ERROR: Failed to finalize prompt corpus journal mode: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Step 7: Print summary
 	printSummary(db, *outputDB)
