@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -279,6 +280,80 @@ type testRun struct {
 // beside the commands, for a gate that has something to say about what it
 // chose to run.
 func verifyTestRuns(ctx context.Context, workspace, note string, runs ...testRun) TestVerification {
+	v := verifyTestRunsOnce(ctx, workspace, note, runs...)
+	if v.Verdict() != VerifyFailed {
+		return v
+	}
+	cause, ok := environmentBuildFailure(workspace, v.Result)
+	if !ok {
+		return v
+	}
+	// The toolchain or the build cache failed under the run, not the code:
+	// a cache entry another build trimmed mid-run made a shared 247 GB cache
+	// report crypto/ecdsa "not in std" in 22 packages, and a live campaign
+	// reverted a correct edit for it (2026-11-07). Such a failure is usually
+	// gone on the next run; run once more before any verdict.
+	logging.Get(logging.CategorySession).Warn("test verification hit a Go toolchain or build cache failure (%s); running it once more", cause)
+	again := verifyTestRunsOnce(ctx, workspace, note, runs...)
+	if again.Verdict() != VerifyFailed {
+		return again
+	}
+	if cause, ok := environmentBuildFailure(workspace, again.Result); ok {
+		again.Outcome, again.OK = VerifyIndeterminate, false
+		again.Reason = "the Go toolchain or build cache failed twice, not the code under test: " + cause
+		logging.Get(logging.CategorySession).Warn("test verification indeterminate: %s", again.Reason)
+	}
+	return again
+}
+
+// environmentLoadErrors are the go command's messages for a toolchain or
+// build cache it could not read, as opposed to code that does not compile.
+var environmentLoadErrors = []string{
+	"no such file or directory",
+	"is not in std",
+	"cannot find package",
+	"could not import",
+	"unexpected EOF",
+}
+
+// environmentBuildFailure reports whether a failed run failed only in the
+// environment: no test failed, and every compiler diagnostic is located
+// outside the workspace (the Go root, the module or build cache) with a
+// loader or I/O message. A change in the workspace cannot cause that; a
+// dependency bump that breaks a module's code reports type errors there and
+// stays the change's failure. It returns the first diagnostic as the cause.
+func environmentBuildFailure(workspace string, res *testfacts.Result) (string, bool) {
+	if res == nil || len(res.Failures) != 0 || len(res.BuildFailures) == 0 {
+		return "", false
+	}
+	workspace = goWorkspace(workspace)
+	for _, bf := range res.BuildFailures {
+		file := strings.TrimSpace(bf.File)
+		if file == "" {
+			return "", false
+		}
+		rel := workspaceFile(workspace, file)
+		if !filepath.IsAbs(rel) && !strings.HasPrefix(rel, "../") {
+			return "", false
+		}
+		loader := false
+		for _, msg := range environmentLoadErrors {
+			if strings.Contains(bf.Message, msg) {
+				loader = true
+				break
+			}
+		}
+		if !loader {
+			return "", false
+		}
+	}
+	first := res.BuildFailures[0]
+	return fmt.Sprintf("%s:%d: %s", first.File, first.Line, first.Message), true
+}
+
+// verifyTestRunsOnce is one measurement of runs; verifyTestRuns repeats it
+// once when the toolchain, not the code, failed.
+func verifyTestRunsOnce(ctx context.Context, workspace, note string, runs ...testRun) TestVerification {
 	start := time.Now()
 
 	if strings.TrimSpace(workspace) == "" {
