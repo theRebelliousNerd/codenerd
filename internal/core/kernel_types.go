@@ -198,6 +198,8 @@ type EvaluationStats struct {
 	DeltaFacts      int           // dred: derived facts inserted (net)
 	OverDeleted     int           // dred: derived facts over-deleted
 	Rederived       int           // dred: over-deleted facts that still had support
+	ChangedRows     int           // dred: EDB rows the write set added or removed
+	Profile         string        // dred: time per phase and costliest rule heads
 }
 
 // storeKind names a fact store's physical kind for EvaluationStats.

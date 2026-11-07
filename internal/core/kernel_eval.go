@@ -288,7 +288,15 @@ func (k *RealKernel) evaluate() (err error) {
 	defer func() { k.settleEvaluationLocked(err) }()
 	started := time.Now()
 	stats := EvaluationStats{InputFacts: len(k.facts)}
-	defer func() { stats.Duration = time.Since(started); k.lastEvaluation = stats }()
+	defer func() {
+		stats.Duration = time.Since(started)
+		k.lastEvaluation = stats
+		if err == nil && stats.Duration > slowEvaluationLog {
+			logging.Get(logging.CategoryKernel).Info("evaluate: slow %s evaluation, %v: %d EDB facts, %d changed rows, %d inserted, %d over-deleted, %d re-derived, %d variants, %d rules replaced (fallback %q); %s",
+				stats.Mode, stats.Duration.Round(time.Millisecond), stats.InputFacts, stats.ChangedRows, stats.DeltaFacts,
+				stats.OverDeleted, stats.Rederived, stats.DeltaVariants, stats.Rules, stats.ConeFallback, stats.Profile)
+		}
+	}()
 	timer := logging.StartTimer(logging.CategoryKernel, "evaluate")
 	defer timer.Stop()
 

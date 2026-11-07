@@ -2,6 +2,7 @@ package core
 
 import (
 	"runtime"
+	"time"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/engine"
@@ -71,9 +72,15 @@ func (r *dredRun) runVariants(vs []dredVariant, apply func([]ast.Atom)) error {
 		rows += v.delta.EstimateFactCount()
 	}
 	results := make([][]ast.Atom, len(vs))
+	timed := func(v dredVariant) ([]ast.Atom, error) {
+		started := time.Now()
+		heads, err := r.variant(v.ctx, v.clause, v.pi, v.negated, v.delta)
+		r.profile.charge(v.clause.Head.Predicate.Symbol, time.Since(started))
+		return heads, err
+	}
 	if len(vs) < 2 || rows < dredParallelMinRows {
 		for i, v := range vs {
-			heads, err := r.variant(v.ctx, v.clause, v.pi, v.negated, v.delta)
+			heads, err := timed(v)
 			if err != nil {
 				return err
 			}
@@ -84,7 +91,7 @@ func (r *dredRun) runVariants(vs []dredVariant, apply func([]ast.Atom)) error {
 		g.SetLimit(runtime.GOMAXPROCS(0))
 		for i, v := range vs {
 			g.Go(func() error {
-				heads, err := r.variant(v.ctx, v.clause, v.pi, v.negated, v.delta)
+				heads, err := timed(v)
 				results[i] = heads
 				return err
 			})

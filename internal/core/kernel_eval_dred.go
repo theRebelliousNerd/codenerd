@@ -370,6 +370,7 @@ type dredRun struct {
 	edbPlus, edbMinus deltaStores
 	edbHeld           map[string]deltaStores // pred name -> EDB rows as atoms, built on demand
 	scratchDropped    map[string]struct{}    // aggregate heads whose scratch relations are gone
+	profile           dredProfile            // where the time went (kernel_eval_dred_profile.go)
 	limit             int
 	edbAdded          int // EDB rows the pass added to the store
 	edbRemoved        int // EDB rows the pass removed from it
@@ -386,8 +387,9 @@ func (k *RealKernel) evaluateDRedLocked(stats *EvaluationStats) error {
 	if k.coneIneligibilityLocked() != "" {
 		return errDRedIneligible
 	}
-	if changed := k.factIndex.delta.rows(); changed >= dredCutoverMinRows && float64(changed) > dredMaxChangeRatio*float64(len(k.facts)) {
-		return fmt.Errorf("%w: %d changed rows, %d held", errChangeTooLarge, changed, len(k.facts))
+	changedRows := k.factIndex.delta.rows()
+	if changedRows >= dredCutoverMinRows && float64(changedRows) > dredMaxChangeRatio*float64(len(k.facts)) {
+		return fmt.Errorf("%w: %d changed rows, %d held", errChangeTooLarge, changedRows, len(k.facts))
 	}
 	idx := k.cone.dredIndex(k.programInfo)
 	plan := idx.plan(k.cone, k.dirtyPreds)
@@ -472,6 +474,7 @@ func (k *RealKernel) evaluateDRedLocked(stats *EvaluationStats) error {
 		Touched: len(plan.maintain) + len(plan.replace), RemovedFacts: work.removed + run.edbRemoved, RestoredFacts: work.restored + run.edbAdded,
 		ListedFacts: work.listed, Rules: replacedRules, Strata: replacedStrata,
 		DeltaVariants: int(run.variants.Load()), DeltaFacts: run.inserted, OverDeleted: run.overDeleted, Rederived: run.rederived,
+		ChangedRows: changedRows, Profile: run.profile.summary(5),
 	}
 	logging.KernelDebug("evaluate.dred: written=%v maintain=%d replace=%d inserted=%d overdeleted=%d rederived=%d variants=%d",
 		written, len(plan.maintain), len(plan.replace), run.inserted, run.overDeleted, run.rederived, run.variants.Load())
@@ -535,10 +538,14 @@ func (r *dredRun) stratum(group []int, heads map[ast.PredicateSym]struct{}) erro
 	// (a layer's components are independent), so they go first, alone.
 	plain := group[:0:0]
 	for _, ri := range group {
-		if r.idx.rules[ri].agg != nil {
-			if err := r.aggregate(r.idx.rules[ri], oldCtx); err != nil {
+		if rule := r.idx.rules[ri]; rule.agg != nil {
+			started := time.Now()
+			if err := r.aggregate(rule, oldCtx); err != nil {
 				return err
 			}
+			d := time.Since(started)
+			r.profile.addPhase(phaseAggregate, d)
+			r.profile.charge(rule.head.Symbol, d)
 			continue
 		}
 		plain = append(plain, ri)
@@ -546,6 +553,7 @@ func (r *dredRun) stratum(group []int, heads map[ast.PredicateSym]struct{}) erro
 	group = plain
 
 	// 1. Over-delete, against the old state.
+	phaseStarted := time.Now()
 	over := make(deltaStores)
 	frontier := make(deltaStores)
 	mark := func(atoms []ast.Atom) {
@@ -582,8 +590,10 @@ func (r *dredRun) stratum(group []int, heads map[ast.PredicateSym]struct{}) erro
 		remover.Remove(a)
 		pending = append(pending, a)
 	})
+	r.profile.addPhase(phaseOverDelete, time.Since(phaseStarted))
 
 	// 2. Re-derive what still has support in the new state.
+	phaseStarted = time.Now()
 	newCtx := r.ctx(k.store)
 	for changed := true; changed && len(pending) > 0; {
 		changed = false
@@ -604,7 +614,10 @@ func (r *dredRun) stratum(group []int, heads map[ast.PredicateSym]struct{}) erro
 		pending = rest
 	}
 
+	r.profile.addPhase(phaseRederive, time.Since(phaseStarted))
+
 	// 3. Insert, against the new state.
+	phaseStarted = time.Now()
 	ins := make(deltaStores)
 	frontier = make(deltaStores)
 	add := func(atoms []ast.Atom) {
@@ -635,6 +648,8 @@ func (r *dredRun) stratum(group []int, heads map[ast.PredicateSym]struct{}) erro
 			return err
 		}
 	}
+
+	r.profile.addPhase(phaseInsert, time.Since(phaseStarted))
 
 	// The stratum's net change is what the strata above read.
 	over.each(func(a ast.Atom) {
@@ -667,7 +682,9 @@ func (r *dredRun) supported(ctx engine.QueryContext, a ast.Atom) (bool, error) {
 		}
 	}
 	for _, ri := range r.idx.bySym[a.Predicate] {
+		started := time.Now()
 		ok, err := r.derives(ctx, r.idx.rules[ri], a)
+		r.profile.charge(a.Predicate.Symbol, time.Since(started))
 		if err != nil || ok {
 			return ok, err
 		}
