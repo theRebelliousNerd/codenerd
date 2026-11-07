@@ -358,3 +358,148 @@ func TestParseConfidence_Matrix(t *testing.T) {
 		}
 	}
 }
+
+func TestConsult_BlankSpecialistIsRequestErrorWithoutSpawning(t *testing.T) {
+	var calls atomic.Int32
+	m := New(funcSpawner(func(context.Context, string, string) (string, error) {
+		calls.Add(1)
+		return "ADVICE: fine", nil
+	}))
+	for _, spec := range []string{"", "   "} {
+		if _, err := m.Consult(context.Background(), Request{Specialist: spec, Question: "q"}); err == nil || strings.Contains(err.Error(), "failed:") {
+			t.Fatalf("Consult(%q) err = %v, want request error without spawner wrapping", spec, err)
+		}
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("spawner calls = %d, want 0: blank specialist must not spawn", calls.Load())
+	}
+}
+
+func TestConsult_NilManagerFailsVisibly(t *testing.T) {
+	var m *Manager
+	if _, err := m.Consult(context.Background(), Request{Specialist: "coder"}); !errors.Is(err, ErrNoSpawner) {
+		t.Fatalf("nil manager err = %v, want ErrNoSpawner", err)
+	}
+}
+
+func TestConsult_ConcurrentIdenticalFailuresShareOneSpawnAndRetry(t *testing.T) {
+	var calls atomic.Int32
+	release := make(chan struct{})
+	m := New(funcSpawner(func(ctx context.Context, spec, task string) (string, error) {
+		if calls.Add(1) == 1 {
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+			return "", errors.New("boom")
+		}
+		return "ADVICE: recovered", nil
+	}))
+	req := Request{Specialist: "coder", Question: "q"}
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	for i := range errs {
+		wg.Go(func() {
+			_, errs[i] = m.Consult(context.Background(), req)
+		})
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for calls.Load() < 1 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	for {
+		m.mu.Lock()
+		joined := len(m.inflight) == 1 && m.inflight[contentKey(Request{Requester: DefaultRequester, Specialist: "coder", Question: "q"})].waiters == 2
+		m.mu.Unlock()
+		if joined || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(release)
+	wg.Wait()
+	if calls.Load() != 1 {
+		t.Fatalf("spawner calls = %d, want 1: concurrent failures share one computation", calls.Load())
+	}
+	for _, err := range errs {
+		if err == nil || !strings.Contains(err.Error(), "boom") {
+			t.Fatalf("coalesced failure err = %v, want boom", err)
+		}
+	}
+	m.mu.Lock()
+	n := len(m.inflight)
+	m.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("inflight entries = %d after failure, want 0: failures are never retained", n)
+	}
+	if _, err := m.Consult(context.Background(), req); err != nil {
+		t.Fatalf("retry after failure err = %v, want success", err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("spawner calls = %d, want 2: failure must not be cached", calls.Load())
+	}
+}
+
+func TestConsult_CancelledCtxPrefersCompletedSuccess(t *testing.T) {
+	var calls atomic.Int32
+	m := New(funcSpawner(func(context.Context, string, string) (string, error) {
+		calls.Add(1)
+		return "ADVICE: must not be called", nil
+	}))
+	base := Request{Requester: "coder", Specialist: "coder", Question: "q"}
+	key := contentKey(base)
+	artifact := parseArtifact(key, "coder", "ADVICE:\nuse interfaces\nCONFIDENCE: 80\nREFERENCES:\nref-a\nCAVEATS:\nwatch cycles", time.Millisecond)
+	f := &flight{waiters: 1, done: make(chan struct{}), artifact: artifact}
+	close(f.done)
+	m.mu.Lock()
+	m.inflight[key] = f
+	m.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for range 100 {
+		resp, err := m.Consult(ctx, base)
+		if err != nil {
+			t.Fatalf("cancelled consumer with completed computation err = %v, want success: completed receipt wins over abandonment", err)
+		}
+		if resp.Advice != "use interfaces" {
+			t.Fatalf("advice = %q, want %q", resp.Advice, "use interfaces")
+		}
+		if resp.Reuse != ReuseCoalesced {
+			t.Fatalf("reuse = %q, want %q: joining a completed flight is coalesced", resp.Reuse, ReuseCoalesced)
+		}
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("spawner calls = %d, want 0: completed flight must not spawn", calls.Load())
+	}
+}
+
+func TestConsult_CancelledCtxPrefersCompletedFailure(t *testing.T) {
+	var calls atomic.Int32
+	m := New(funcSpawner(func(context.Context, string, string) (string, error) {
+		calls.Add(1)
+		return "ADVICE: must not be called", nil
+	}))
+	base := Request{Requester: "coder", Specialist: "coder", Question: "q"}
+	key := contentKey(base)
+	f := &flight{waiters: 1, done: make(chan struct{}), err: errors.New("boom")}
+	close(f.done)
+	m.mu.Lock()
+	m.inflight[key] = f
+	m.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for range 100 {
+		_, err := m.Consult(ctx, base)
+		if err == nil || !strings.Contains(err.Error(), "boom") {
+			t.Fatalf("cancelled consumer with failed computation err = %v, want boom: completed failure wins over abandonment", err)
+		}
+		if strings.Contains(err.Error(), "abandoned") {
+			t.Fatalf("cancelled consumer with failed computation err = %v, must not report abandonment when the computation already failed", err)
+		}
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("spawner calls = %d, want 0: completed flight must not spawn", calls.Load())
+	}
+}

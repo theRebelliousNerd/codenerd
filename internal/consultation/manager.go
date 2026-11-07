@@ -81,6 +81,19 @@ func (m *Manager) Consult(ctx context.Context, req Request) (*Response, error) {
 		}
 		return f.artifact.receipt(req, reuse, time.Since(start)), nil
 	case <-ctx.Done():
+		// A computation that finished concurrently with cancellation wins:
+		// prefer the completed receipt over reporting abandonment when both
+		// are ready, so the outcome does not depend on select's random
+		// choice among ready cases.
+		select {
+		case <-f.done:
+			m.leave(key, f)
+			if f.err != nil {
+				return nil, fmt.Errorf("consultation with %s failed: %w", req.Specialist, f.err)
+			}
+			return f.artifact.receipt(req, reuse, time.Since(start)), nil
+		default:
+		}
 		m.leave(key, f)
 		return nil, fmt.Errorf("consultation with %s abandoned: %w", req.Specialist, ctx.Err())
 	}
