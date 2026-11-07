@@ -146,6 +146,7 @@ func (i *Initializer) runPhase2Scanning(ctx context.Context, runner *phaseRunner
 	fmt.Fprintf(i.output(), "   Scanned %d files in %d directories\n", scanResult.FileCount, scanResult.DirectoryCount)
 
 	facts := scanResult.ToFacts()
+	result.FactsGenerated = len(facts)
 	if len(facts) > 0 {
 		if err := i.kernel.LoadFacts(facts); err != nil {
 			result.Failures = append(result.Failures, fmt.Sprintf("Failed to load scan facts: %v", err))
@@ -203,7 +204,9 @@ func (i *Initializer) runPhase5Facts(runner *phaseRunner, result *InitResult, ne
 		result.Failures = append(result.Failures, fmt.Sprintf("Failed to generate facts: %v", err))
 	} else {
 		result.FilesCreated = append(result.FilesCreated, factsPath)
-		result.FactsGenerated = factsCount
+		// Added to the scan's count (phase 2), which this used to overwrite;
+		// the line itself still reports what profile.mg holds.
+		result.FactsGenerated += factsCount
 		fmt.Fprintf(i.output(), "✓ Generated %d Mangle facts\n", factsCount)
 	}
 	runner.complete("facts")
