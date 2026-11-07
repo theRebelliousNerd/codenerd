@@ -151,10 +151,9 @@ func (k *RealKernel) applyExtensionalDeltaLocked(pred string) (removed, added []
 			}
 		}
 	}
-	bucket := x.bucket(pred)
 	if len(taken) > 0 {
 		kept := newAtomSet()
-		for key, f := range bucket {
+		for key, f := range x.eachRow(pred) {
 			atom, err := k.edbAtomLocked(pred, key, f)
 			if err != nil {
 				return removed, added, err
@@ -167,7 +166,7 @@ func (k *RealKernel) applyExtensionalDeltaLocked(pred string) (removed, added []
 		removed = kept.without(removed)
 	}
 	for key := range x.delta.added[pred] {
-		f, held := bucket[key]
+		f, held := x.row(pred, key)
 		if !held {
 			continue
 		}

@@ -675,7 +675,7 @@ func (k *RealKernel) assertHeartbeat(fact Fact) error {
 // heartbeatOfLocked finds the first-asserted system_heartbeat row of a shard
 // among the heartbeats the index holds: its fact, key and storage position.
 func (k *RealKernel) heartbeatOfLocked(shardKey string) (fact Fact, key string, pos int, found bool) {
-	for candidateKey, candidate := range k.factIndex.bucket("system_heartbeat") {
+	for candidateKey, candidate := range k.factIndex.eachRow("system_heartbeat") {
 		if len(candidate.Args) == 0 || fmt.Sprint(candidate.Args[0]) != shardKey {
 			continue
 		}

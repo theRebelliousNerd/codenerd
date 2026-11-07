@@ -344,9 +344,9 @@ func TestCompiledRetractionsMatchSequentialPasses(t *testing.T) {
 	want := sequentialRetractReference(stored, preds, set, first, exact)
 	k.mu.Lock()
 	got := k.facts.slice()
-	gotIndex, gotSize := k.factIndex.buckets, k.factIndex.len()
+	gotIndex, gotSize := k.factIndex.bucketsMap(), k.factIndex.len()
 	k.rebuildFactIndexLocked()
-	wantIndex, wantSize := k.factIndex.buckets, k.factIndex.len()
+	wantIndex, wantSize := k.factIndex.bucketsMap(), k.factIndex.len()
 	k.mu.Unlock()
 	if len(got) == len(stored) || len(got) == 0 {
 		t.Fatalf("fixture removed %d of %d facts; it must remove some and keep some", len(stored)-len(got), len(stored))
@@ -425,7 +425,7 @@ func TestCloneSharesFactsButNotEDBStructure(t *testing.T) {
 	}
 	parent.mu.RLock()
 	defer parent.mu.RUnlock()
-	if len(parent.factIndex.bucket("perf_edge")) != 8 || parent.factIndex.has("perf_bulk", parent.canonFact(Fact{Predicate: "perf_bulk", Args: []any{"clone-only", int64(1)}})) {
+	if parent.factIndex.rowCount("perf_edge") != 8 || parent.factIndex.has("perf_bulk", parent.canonFact(Fact{Predicate: "perf_bulk", Args: []any{"clone-only", int64(1)}})) {
 		t.Fatal("clone writes reached the parent's EDB index")
 	}
 	if parent.facts.len() != 24 {

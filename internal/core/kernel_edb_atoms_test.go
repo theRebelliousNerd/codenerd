@@ -50,7 +50,7 @@ func TestEDBIndexRemembersAdmittedAtoms(t *testing.T) {
 	// remembered each atom under the program it converted it for: the memo
 	// holds nothing admitted under the old one.
 	k.mu.RLock()
-	remembered, rememberedHeld := k.factIndex.atoms[a.Predicate][k.canonFact(internFact(a))]
+	remembered, rememberedHeld := k.factIndex.atoms[a.Predicate].get(k.canonFact(internFact(a)))
 	newProgram := k.programInfo
 	k.mu.RUnlock()
 	if newProgram == oldProgram {
@@ -91,7 +91,7 @@ func TestEDBIndexRemembersAdmittedAtoms(t *testing.T) {
 		t.Fatal(err)
 	}
 	k.mu.RLock()
-	_, held := k.factIndex.atoms["am_row"][k.canonFact(internFact(b))]
+	_, held := k.factIndex.atoms["am_row"].get(k.canonFact(internFact(b)))
 	k.mu.RUnlock()
 	if held {
 		t.Fatal("a retracted fact's atom is still remembered")

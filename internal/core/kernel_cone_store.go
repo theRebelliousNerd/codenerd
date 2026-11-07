@@ -102,9 +102,8 @@ func (k *RealKernel) storedRowsLocked(pred string) ([]ast.Atom, error) {
 
 // heldAtomsLocked is every EDB row of pred as its store atom.
 func (k *RealKernel) heldAtomsLocked(pred string) ([]ast.Atom, error) {
-	bucket := k.factIndex.bucket(pred)
-	atoms := make([]ast.Atom, 0, len(bucket))
-	for key, f := range bucket {
+	atoms := make([]ast.Atom, 0, k.factIndex.rowCount(pred))
+	for key, f := range k.factIndex.eachRow(pred) {
 		atom, err := k.edbAtomLocked(pred, key, f)
 		if err != nil {
 			return nil, err

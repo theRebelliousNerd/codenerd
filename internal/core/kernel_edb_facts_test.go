@@ -23,7 +23,7 @@ func requireEDBConsistent(t *testing.T, k *RealKernel, stage string) {
 				if got, ok := k.factIndex.slotOf(s.fact.Predicate, s.key); !ok || got != pos {
 					t.Fatalf("%s: %s sits at slot %d, the index says %d (held %v)", stage, s.key, pos, got, ok)
 				}
-				if held, ok := k.factIndex.bucket(s.fact.Predicate)[s.key]; !ok || !reflect.DeepEqual(held, s.fact) {
+				if held, ok := k.factIndex.row(s.fact.Predicate, s.key); !ok || !reflect.DeepEqual(held, s.fact) {
 					t.Fatalf("%s: %s is stored but not indexed as itself", stage, s.key)
 				}
 			}

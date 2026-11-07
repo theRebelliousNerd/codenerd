@@ -58,7 +58,7 @@ func (k *RealKernel) retractMatchingLocked(pred string, match func(Fact) bool) i
 		return 0
 	}
 	var keys []string
-	for key, f := range k.factIndex.bucket(pred) {
+	for key, f := range k.factIndex.eachRow(pred) {
 		if match(f) {
 			keys = append(keys, key)
 		}
@@ -143,9 +143,8 @@ func (k *RealKernel) retractExactLocked(f Fact) int {
 		})
 	}
 	var matched []string
-	bucket := k.factIndex.bucket(f.Predicate)
 	for _, key := range keys {
-		if held, ok := bucket[key]; ok && argsSliceEqual(held.Args, f.Args) {
+		if held, ok := k.factIndex.row(f.Predicate, key); ok && argsSliceEqual(held.Args, f.Args) {
 			matched = append(matched, key)
 		}
 	}

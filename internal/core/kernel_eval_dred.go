@@ -503,10 +503,9 @@ func (k *RealKernel) evaluateDRedLocked(stats *EvaluationStats) error {
 func (r *dredRun) stageDerivedEDB(pred string) error {
 	k := r.k
 	x := k.factIndex
-	bucket := x.bucket(pred)
 	var added, removed []ast.Atom
 	for key := range x.delta.added[pred] {
-		if f, held := bucket[key]; held {
+		if f, held := x.row(pred, key); held {
 			atom, err := k.edbAtomLocked(pred, key, f)
 			if err != nil {
 				return fmt.Errorf("dred: %s: %w", pred, err)
