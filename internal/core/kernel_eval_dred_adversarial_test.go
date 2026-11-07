@@ -3,7 +3,12 @@ package core
 import (
 	"fmt"
 	"math/rand"
+	"sort"
+	"strings"
+	"sync"
 	"testing"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
 // axPolicy stresses the places DRed's soundness argument leans on: a predicate
@@ -50,9 +55,17 @@ const axPolicy = `
 
 var axNodes = []string{"/root", "/pf", "/a", "/b", "/c", "/d"}
 
+// axGen builds a random fact of a predicate; a predicate absent from it is
+// unary over axNodes.
+var axGen = map[string]func(rng *rand.Rand) []any{}
+
 func axFact(rng *rand.Rand, preds []string) Fact {
 	pick := func() MangleAtom { return MangleAtom(axNodes[rng.Intn(len(axNodes))]) }
-	switch pred := preds[rng.Intn(len(preds))]; pred {
+	pred := preds[rng.Intn(len(preds))]
+	if gen, ok := axGen[pred]; ok {
+		return Fact{Predicate: pred, Args: gen(rng)}
+	}
+	switch pred {
 	case "ax_e":
 		return Fact{Predicate: pred, Args: []any{pick(), pick()}}
 	case "ax_reach":
@@ -74,6 +87,8 @@ func axWalk(t *testing.T, policy string, preds []string, seeds []int64, steps in
 			rng := rand.New(rand.NewSource(seed))
 			k := newPolicyKernel(t, newRealKernelBase(), policy)
 			var held []Fact
+			modes := map[string]int{}
+			defer func() { t.Logf("modes %v", modes) }()
 			for step := 0; step < steps; step++ {
 				batch := 1 + rng.Intn(4)
 				var log []string
@@ -106,6 +121,7 @@ func axWalk(t *testing.T, policy string, preds []string, seeds []int64, steps in
 				if err := k.EvaluatePending(); err != nil {
 					t.Fatalf("step %d: EvaluatePending: %v", step, err)
 				}
+				modes[k.LastEvaluation().Mode]++
 				requireSameStore(t, fmt.Sprintf("seed %d step %d mode %s batch %v", seed, step, k.LastEvaluation().Mode, log), dumpStore(t, k), fullOracle(t, k))
 			}
 		})
@@ -175,4 +191,268 @@ func TestDRedAggregateKeepsAProgramFactOfItsHead(t *testing.T) {
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("pf_cnt = %v, %v; want the program fact alone", rows, err)
 	}
+}
+
+// bxPolicy: let transforms, aggregates of every function and shape, numeric
+// atoms and expressions.
+const bxPolicy = `
+	Decl bx_a(X).
+	Decl bx_b(X, Y).
+	Decl bx_n(N).
+	Decl bx_v(K, V).
+	Decl bx_lab(N, L).
+	Decl bx_nolab(N).
+	Decl bx_has_lab(N).
+	Decl bx_inc(M).
+	Decl bx_cnt(F, N).
+	Decl bx_cnt_swapped(N, F).
+	Decl bx_stats(K, C, M, S).
+	Decl bx_global(C).
+	Decl bx_glob_neg(C).
+	Decl bx_self(A, C).
+	Decl bx_const(N).
+	Decl bx_rep(F, N).
+	Decl bx_chain(K, M2).
+	Decl bx_last(M).
+
+	bx_lab(N, L) :- bx_b(N, W) |> let L = fn:pair(N, W).
+	bx_has_lab(N) :- bx_lab(N, _).
+	bx_nolab(N) :- bx_a(N), !bx_has_lab(N).
+	bx_inc(M) :- bx_n(X), M = fn:plus(X, 1).
+
+	bx_cnt(F, N) :- bx_b(F, _) |> do fn:group_by(F), let N = fn:count().
+	bx_cnt_swapped(N, F) :- bx_b(F, _) |> do fn:group_by(F), let N = fn:count().
+	bx_stats(K, C, M, S) :- bx_v(K, V) |> do fn:group_by(K), let C = fn:count(), let M = fn:max(V), let S = fn:sum(V).
+	bx_global(C) :- bx_n(_) |> do fn:group_by(), let C = fn:count().
+	bx_glob_neg(C) :- bx_n(X), !bx_a(X) |> do fn:group_by(), let C = fn:count().
+	bx_self(A, C) :- bx_b(A, B), bx_b(B, _) |> do fn:group_by(A), let C = fn:count().
+	bx_const(N) :- bx_b(/a, _) |> do fn:group_by(), let N = fn:count().
+	bx_rep(F, N) :- bx_b(F, F) |> do fn:group_by(F), let N = fn:count().
+	bx_chain(K, M2) :- bx_stats(K, _, M, _), M2 = fn:plus(M, 1).
+	bx_last(M) :- bx_cnt(_, C) |> do fn:group_by(), let M = fn:max(C).
+`
+
+func init() {
+	axGen["bx_n"] = func(rng *rand.Rand) []any { return []any{int64(rng.Intn(5))} }
+	axGen["bx_v"] = func(rng *rand.Rand) []any {
+		return []any{MangleAtom(axNodes[rng.Intn(3)]), int64(rng.Intn(5))}
+	}
+	axGen["bx_b"] = func(rng *rand.Rand) []any {
+		return []any{MangleAtom(axNodes[rng.Intn(4)]), MangleAtom(axNodes[rng.Intn(4)])}
+	}
+}
+
+func TestDRedAdversarialWalkAggregatesAndLets(t *testing.T) {
+	axWalk(t, bxPolicy, []string{"bx_a", "bx_b", "bx_n", "bx_v"}, []int64{21, 22, 23, 24, 25, 26}, 150)
+}
+
+// cxPolicy: an average. (fn:collect and fn:float:sum are left out: their value
+// depends on the order rows arrive, which a maintained store cannot share with
+// a fresh one.)
+const cxPolicy = `
+	Decl cx_v(K, V).
+	Decl cx_avg(K, S).
+
+	cx_avg(K, S) :- cx_v(K, V) |> do fn:group_by(K), let S = fn:avg(V).
+`
+
+func init() {
+	axGen["cx_v"] = func(rng *rand.Rand) []any {
+		return []any{MangleAtom(axNodes[rng.Intn(2)]), int64(rng.Intn(6))}
+	}
+}
+
+func TestDRedAdversarialWalkAverage(t *testing.T) {
+	axWalk(t, cxPolicy, []string{"cx_v"}, []int64{31, 32, 33, 34}, 150)
+}
+
+// axKernelWalk is one kernel's state in a clone walk.
+type axKernelWalk struct {
+	k    *RealKernel
+	held []Fact
+	name string
+}
+
+func (w *axKernelWalk) step(t *testing.T, rng *rand.Rand, preds []string, stage string) {
+	t.Helper()
+	for i, n := 0, 1+rng.Intn(4); i < n; i++ {
+		if len(w.held) > 0 && rng.Intn(3) == 0 {
+			j := rng.Intn(len(w.held))
+			f := w.held[j]
+			w.held = append(w.held[:j:j], w.held[j+1:]...)
+			if err := w.k.RetractExactFact(f); err != nil {
+				t.Errorf("%s %s: retract %s: %v", stage, w.name, f.String(), err)
+				return
+			}
+			continue
+		}
+		f := axFact(rng, preds)
+		if err := w.k.AssertWithoutEval(f); err != nil {
+			t.Errorf("%s %s: assert %s: %v", stage, w.name, f.String(), err)
+			return
+		}
+		w.held = append(w.held, f)
+	}
+	if err := w.k.EvaluatePending(); err != nil {
+		t.Errorf("%s %s: EvaluatePending: %v", stage, w.name, err)
+	}
+}
+
+// Clones written on both sides, and clones of clones, each match their own
+// full fixpoint, and a write on one never reaches another.
+func TestDRedClonesWrittenOnBothSidesMatchFullFixpoint(t *testing.T) {
+	preds := []string{"ax_src", "ax_cand", "ax_blk", "ax_e", "ax_u", "ax_d", "ax_num"}
+	for _, seed := range []int64{101, 102, 103} {
+		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
+			rng := rand.New(rand.NewSource(seed))
+			root := &axKernelWalk{k: newPolicyKernel(t, newRealKernelBase(), axPolicy), name: "root"}
+			walks := []*axKernelWalk{root}
+			frozen := map[*axKernelWalk][]string{}
+			for step := 0; step < 120; step++ {
+				switch rng.Intn(6) {
+				case 0:
+					src := walks[rng.Intn(len(walks))]
+					if len(walks) < 6 {
+						c := &axKernelWalk{k: src.k.Clone(), held: append([]Fact(nil), src.held...), name: fmt.Sprintf("%s>c%d", src.name, step)}
+						walks = append(walks, c)
+						requireSameStore(t, "fresh clone "+c.name, dumpStore(t, c.k), dumpStore(t, src.k))
+					}
+				default:
+					w := walks[rng.Intn(len(walks))]
+					w.step(t, rng, preds, fmt.Sprintf("seed %d step %d", seed, step))
+					if t.Failed() {
+						return
+					}
+					requireSameStore(t, fmt.Sprintf("seed %d step %d %s mode %s", seed, step, w.name, w.k.LastEvaluation().Mode), dumpStore(t, w.k), fullOracle(t, w.k))
+					frozen[w] = dumpStore(t, w.k)
+					// Every kernel not written this step still holds what it held.
+					for _, o := range walks {
+						if o != w && frozen[o] != nil {
+							requireSameStore(t, fmt.Sprintf("seed %d step %d: %s changed by a write to %s", seed, step, o.name, w.name), dumpStore(t, o.k), frozen[o])
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+// Concurrent clones, each written and evaluated on its own goroutine while the
+// parent keeps writing (run with -race).
+func TestDRedConcurrentClonesMatchFullFixpoint(t *testing.T) {
+	preds := []string{"ax_src", "ax_cand", "ax_blk", "ax_e", "ax_u", "ax_d", "ax_num"}
+	parent := &axKernelWalk{k: newPolicyKernel(t, newRealKernelBase(), axPolicy), name: "parent"}
+	rng := rand.New(rand.NewSource(7))
+	for i := 0; i < 20; i++ {
+		parent.step(t, rng, preds, "warm")
+	}
+	var wg sync.WaitGroup
+	results := make(chan string, 64)
+	for g := 0; g < 4; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			grng := rand.New(rand.NewSource(int64(g) + 900))
+			for round := 0; round < 10; round++ {
+				c := &axKernelWalk{k: parent.k.Clone(), name: fmt.Sprintf("g%d-r%d", g, round)}
+				c.held = nil
+				for s := 0; s < 6; s++ {
+					c.step(t, grng, preds, c.name)
+					if t.Failed() {
+						return
+					}
+					got, want := dumpStoreNoT(c.k), oracleNoT(c.k)
+					if strings.Join(got, "\n") != strings.Join(want, "\n") {
+						results <- fmt.Sprintf("%s step %d mode %s: store has %d facts, full fixpoint %d", c.name, s, c.k.LastEvaluation().Mode, len(got), len(want))
+						return
+					}
+				}
+			}
+		}(g)
+	}
+	for s := 0; s < 40; s++ {
+		parent.step(t, rng, preds, "parent")
+	}
+	wg.Wait()
+	close(results)
+	for msg := range results {
+		t.Error(msg)
+	}
+	requireSameStore(t, "parent after the clones", dumpStore(t, parent.k), fullOracle(t, parent.k))
+}
+
+func dumpStoreNoT(k *RealKernel) []string {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	var out []string
+	for _, sym := range k.store.ListPredicates() {
+		if strings.HasSuffix(sym.Symbol, ast.InternalPredicateSuffix) {
+			continue
+		}
+		_ = k.store.GetFacts(ast.NewQuery(sym), func(a ast.Atom) error {
+			out = append(out, a.String())
+			return nil
+		})
+	}
+	sort.Strings(out)
+	return out
+}
+
+func oracleNoT(k *RealKernel) []string {
+	ref := k.Clone()
+	if err := ref.Evaluate(); err != nil {
+		return []string{"oracle error: " + err.Error()}
+	}
+	return dumpStoreNoT(ref)
+}
+
+// dxPolicy: recursion shapes (non-linear, mutual) with negation and
+// aggregation above them, and aggregate heads of unusual shape.
+const dxPolicy = `
+	Decl dx_e(X, Y).
+	Decl dx_off(X).
+	Decl dx_v(K, V).
+	Decl dx_tc(X, Y).
+	Decl dx_even(X, Y).
+	Decl dx_odd(X, Y).
+	Decl dx_unlinked(X, Y).
+	Decl dx_node(X).
+	Decl dx_tc_count(X, N).
+	Decl dx_const_head(K, N).
+	Decl dx_twice(F, G, N).
+	Decl dx_filtered(K, N).
+	Decl dx_eq(K, N).
+	Decl dx_big_hubs(X).
+
+	dx_tc(X, Y) :- dx_e(X, Y).
+	dx_tc(X, Z) :- dx_tc(X, Y), dx_tc(Y, Z).
+
+	dx_odd(X, Y) :- dx_e(X, Y), !dx_off(X).
+	dx_even(X, Z) :- dx_odd(X, Y), dx_e(Y, Z).
+	dx_odd(X, Z) :- dx_even(X, Y), dx_e(Y, Z).
+
+	dx_node(X) :- dx_e(X, _).
+	dx_node(X) :- dx_e(_, X).
+	dx_unlinked(X, Y) :- dx_node(X), dx_node(Y), !dx_tc(X, Y).
+
+	dx_tc_count(X, N) :- dx_tc(X, _) |> do fn:group_by(X), let N = fn:count().
+	dx_big_hubs(X) :- dx_tc_count(X, N), N >= 3.
+
+	dx_const_head(/k, N) :- dx_v(_, V) |> do fn:group_by(), let N = fn:count().
+	dx_twice(F, F, N) :- dx_v(F, _) |> do fn:group_by(F), let N = fn:count().
+	dx_filtered(K, N) :- dx_v(K, V), V > 2 |> do fn:group_by(K), let N = fn:count().
+	dx_eq(K, N) :- dx_v(K, V), W = fn:plus(V, 1), W > 3 |> do fn:group_by(K), let N = fn:count().
+`
+
+func init() {
+	axGen["dx_e"] = func(rng *rand.Rand) []any {
+		return []any{MangleAtom(axNodes[rng.Intn(5)]), MangleAtom(axNodes[rng.Intn(5)])}
+	}
+	axGen["dx_v"] = func(rng *rand.Rand) []any {
+		return []any{MangleAtom(axNodes[rng.Intn(3)]), int64(rng.Intn(6))}
+	}
+}
+
+func TestDRedAdversarialWalkRecursionShapes(t *testing.T) {
+	axWalk(t, dxPolicy, []string{"dx_e", "dx_e", "dx_e", "dx_off", "dx_v"}, []int64{41, 42, 43, 44, 45, 46}, 150)
 }
