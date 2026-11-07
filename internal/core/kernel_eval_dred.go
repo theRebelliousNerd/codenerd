@@ -49,12 +49,14 @@ import (
 // before) is what the next stratum reads, so each variant joins the change
 // first and the work is the change, not the store.
 //
+// An aggregation is maintained by group: only the groups whose body rows
+// changed are recomputed (kernel_eval_dred_agg.go).
+//
 // Not maintained, but replaced after the pass exactly as the cone path does
-// it, are aggregations (the engine's per-stratum scratch relations, named in
-// rewrite order, are only kept exact by the engine itself), temporal rules,
-// lattices, deferred heads, rules reading a deferred affected predicate,
-// heads fed by an external predicate (re-derived every time), and everything
-// downstream of any of them. That set is downstream-closed: no maintained
+// it, are temporal rules, lattices, deferred heads, rules reading a deferred
+// affected predicate, aggregations of a shape the group recompute does not
+// cover, heads fed by an external predicate (re-derived every time), and
+// everything downstream of any of them. That set is downstream-closed: no maintained
 // rule reads a replaced predicate, and a replaced rule reads only predicates
 // the pass has already brought to their fixpoint.
 
@@ -69,7 +71,8 @@ type dredRule struct {
 	negatives []int               // premise indexes: negated non-builtin atoms
 	deferred  map[string]struct{} // deferred predicate names it reads (answered top-down)
 	letVars   map[ast.Variable]struct{}
-	intrinsic bool // never maintained: aggregation, time, lattice or deferred head
+	agg       *dredAggregate // a maintained do-transform (kernel_eval_dred_agg.go)
+	intrinsic bool           // never maintained: time, lattice, deferred head, unmaintainable aggregation
 }
 
 // dredIndex is DRed's view of one program, built once per coneIndex on first
@@ -93,6 +96,7 @@ type dredPlan struct {
 	replace  map[string]struct{} // derived predicates re-derived as a cone
 	strata   [][]int             // maintained rules grouped by head stratum, in order
 	heads    []map[ast.PredicateSym]struct{}
+	aggHeads []ast.PredicateSym // heads of the maintained aggregations
 }
 
 func (c *coneIndex) dredIndex(info *analysis.ProgramInfo) *dredIndex {
@@ -139,9 +143,6 @@ func buildDRedIndex(c *coneIndex, info *analysis.ProgramInfo) *dredIndex {
 			r.intrinsic = true
 		}
 		if t := clause.Transform; t != nil {
-			if !t.IsLetTransform() {
-				r.intrinsic = true
-			}
 			r.letVars = make(map[ast.Variable]struct{})
 			for ; t != nil; t = t.Next {
 				for _, stmt := range t.Statements {
@@ -174,6 +175,12 @@ func buildDRedIndex(c *coneIndex, info *analysis.ProgramInfo) *dredIndex {
 		idx.byHead[r.head.Symbol] = append(idx.byHead[r.head.Symbol], ri)
 		idx.bySym[r.head] = append(idx.bySym[r.head], ri)
 		idx.rules = append(idx.rules, r)
+	}
+	for i := range idx.rules {
+		if t := idx.rules[i].clause.Transform; t != nil && !t.IsLetTransform() {
+			idx.rules[i].agg = idx.aggregateShape(idx.rules[i])
+			idx.rules[i].intrinsic = idx.rules[i].intrinsic || idx.rules[i].agg == nil
+		}
 	}
 	for _, head := range c.volatile {
 		idx.volatileDown[head] = struct{}{}
@@ -234,6 +241,9 @@ func (d *dredIndex) plan(c *coneIndex, written map[string]struct{}) *dredPlan {
 		}
 		p.maintain[head] = struct{}{}
 		for _, ri := range d.byHead[head] {
+			if d.rules[ri].agg != nil {
+				p.aggHeads = append(p.aggHeads, d.rules[ri].head)
+			}
 			sym := d.rules[ri].head
 			s := d.predToStratum[sym]
 			byStratum[s] = append(byStratum[s], ri)
@@ -339,6 +349,7 @@ type dredRun struct {
 	// stratum (their old rows must stay visible until it over-deletes).
 	edbPlus, edbMinus deltaStores
 	edbHeld           map[string]deltaStores // pred name -> EDB rows as atoms, built on demand
+	scratchDropped    map[string]struct{}    // aggregate heads whose scratch relations are gone
 	limit             int
 	edbAdded          int // EDB rows the pass added to the store
 	edbRemoved        int // EDB rows the pass removed from it
@@ -359,6 +370,13 @@ func (k *RealKernel) evaluateDRedLocked(stats *EvaluationStats) error {
 	plan := idx.plan(k.cone, k.dirtyPreds)
 	if len(plan.maintain) == 0 {
 		return errDRedIneligible // nothing to maintain: the cone is the same work
+	}
+	for _, sym := range plan.aggHeads {
+		if k.factIndex.aritiesOf(sym.Symbol) != nil {
+			// An asserted row beside a maintained aggregate: the group
+			// recompute would not know it. Rare; the cone handles it.
+			return errDRedIneligible
+		}
 	}
 	k.ownStoreLocked()
 	timer := logging.StartTimer(logging.CategoryKernel, "evaluate.dred")
@@ -385,6 +403,18 @@ func (k *RealKernel) evaluateDRedLocked(stats *EvaluationStats) error {
 		if err != nil {
 			return fmt.Errorf("dred: %s: %w", pred, err)
 		}
+		kept := gone[:0]
+		for _, a := range gone {
+			// A program fact holds whatever the EDB does: retracting an
+			// asserted copy of it removes nothing. (The cone path got this
+			// from its engine run, which re-adds every program fact.)
+			if idx.programFacts.has(a) {
+				k.store.Add(a)
+				continue
+			}
+			kept = append(kept, a)
+		}
+		gone = kept
 		for _, a := range gone {
 			run.minus.add(a)
 		}
@@ -477,6 +507,20 @@ func (r *dredRun) stratum(group []int, heads map[ast.PredicateSym]struct{}) erro
 	k := r.k
 	inStratum := func(sym ast.PredicateSym) bool { _, ok := heads[sym]; return ok }
 	oldCtx := r.ctx(dredOldView{cur: k.store, plus: r.plus, minus: r.minus})
+
+	// Aggregates read only lower strata and nothing in this one reads them
+	// (a layer's components are independent), so they go first, alone.
+	plain := group[:0:0]
+	for _, ri := range group {
+		if r.idx.rules[ri].agg != nil {
+			if err := r.aggregate(r.idx.rules[ri], oldCtx); err != nil {
+				return err
+			}
+			continue
+		}
+		plain = append(plain, ri)
+	}
+	group = plain
 
 	// 1. Over-delete, against the old state.
 	over := make(deltaStores)
@@ -735,6 +779,16 @@ func (r *dredRun) derives(ctx engine.QueryContext, rule dredRule, a ast.Atom) (b
 // joined first when that cannot leave a later premise unbound: an atom over
 // plain terms binds variables and needs none.
 func (r *dredRun) variant(ctx engine.QueryContext, clause ast.Clause, pi int, negated bool, delta factstore.ReadOnlyFactStore) ([]ast.Atom, error) {
+	solutions, err := r.variantSolutions(ctx, clause, pi, negated, delta)
+	if err != nil || len(solutions) == 0 {
+		return nil, err
+	}
+	return headsOf(clause, solutions)
+}
+
+// variantSolutions is variant's body: the substitutions under which clause's
+// premises hold with premise pi reading only delta.
+func (r *dredRun) variantSolutions(ctx engine.QueryContext, clause ast.Clause, pi int, negated bool, delta factstore.ReadOnlyFactStore) ([]unionfind.UnionFind, error) {
 	r.variants++
 	var deltaPremise ast.Atom
 	if negated {
@@ -780,7 +834,7 @@ func (r *dredRun) variant(ctx engine.QueryContext, clause ast.Clause, pi int, ne
 			return nil, nil
 		}
 	}
-	return headsOf(clause, solutions)
+	return solutions, nil
 }
 
 // headsOf instantiates clause's head for each solution, through its let

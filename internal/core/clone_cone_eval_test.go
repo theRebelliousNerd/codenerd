@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"fmt"
 	"sort"
 	"testing"
@@ -10,12 +11,20 @@ import (
 )
 
 // dumpStore renders every atom of a kernel's store, sorted, for comparison.
+// dumpStore lists every observable fact of k's store, sorted. The engine's
+// aggregate scratch relations ("<head><n>__tmp") are left out: they are
+// engine-private (QueryAll lists declared predicates only), named in rewrite
+// order, and DRed drops them for an aggregate it maintains by group
+// (kernel_eval_dred_agg.go).
 func dumpStore(t *testing.T, k *RealKernel) []string {
 	t.Helper()
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 	var out []string
 	for _, sym := range k.store.ListPredicates() {
+		if strings.HasSuffix(sym.Symbol, ast.InternalPredicateSuffix) {
+			continue
+		}
 		if err := k.store.GetFacts(ast.NewQuery(sym), func(a ast.Atom) error {
 			out = append(out, a.String())
 			return nil

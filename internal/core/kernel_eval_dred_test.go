@@ -7,12 +7,12 @@ import (
 	"time"
 )
 
-// deltaPolicy has every shape the delta pass must get right or hand to the
-// replace set: recursion, a multi-premise join, a let transform, a negation of
-// a predicate no write touches (delta-safe), a negation of one a write does
-// touch (replaced), an aggregation (replaced) and a rule downstream of the
-// replaced head (replaced with it), a predicate both asserted and derived,
-// and a program fact.
+// deltaPolicy has every shape DRed must maintain: recursion, a multi-premise
+// join, a let transform, negations of written and of derived predicates,
+// aggregations (a global count; group-by over a single atom with a wildcard,
+// one row per fact; over a multi-premise body, one row per distinct tuple;
+// over a body with a negation) and rules downstream of them, a predicate
+// both asserted and derived, and a program fact.
 const deltaPolicy = `
 	Decl dl_edge(From, To).
 	Decl dl_reach(From, To).
@@ -29,6 +29,10 @@ const deltaPolicy = `
 	Decl dl_mixed(Node).
 	Decl dl_mixed_seen(Node).
 	Decl dl_frozen(Node).
+	Decl dl_owner_reach_count(Who, N).
+	Decl dl_edge_out(From, N).
+	Decl dl_unfrozen_owned(Who, N).
+	Decl dl_busy_owner(Who).
 
 	dl_reach(X, Y) :- dl_edge(X, Y).
 	dl_reach(X, Z) :- dl_reach(X, Y), dl_edge(Y, Z).
@@ -47,6 +51,11 @@ const deltaPolicy = `
 	dl_mixed_seen(N) :- dl_mixed(N), dl_owner(N, _).
 
 	dl_edge(/root, /a).
+
+	dl_owner_reach_count(W, N) :- dl_owner(Nd, W), dl_reach(Nd, _) |> do fn:group_by(W), let N = fn:count().
+	dl_edge_out(F, N) :- dl_edge(F, _) |> do fn:group_by(F), let N = fn:count().
+	dl_unfrozen_owned(W, N) :- dl_owner(Nd, W), !dl_frozen(Nd) |> do fn:group_by(W), let N = fn:count().
+	dl_busy_owner(W) :- dl_edge_out(Nd, N), dl_owner(Nd, W), N >= 2.
 `
 
 var dredWritable = []string{"dl_edge", "dl_owner", "dl_banned", "dl_quarantine", "dl_mixed", "dl_frozen"}
@@ -326,4 +335,75 @@ func BenchmarkProductionWorldRetractPending(b *testing.B) {
 	b.ReportMetric(float64(total.Microseconds())/float64(b.N), "eval-us/op")
 	b.Logf("mode=%s dred=%v overdeleted=%d rederived=%d replace(prepare=%v engine=%v rules=%d) fallback=%q",
 		ev.Mode, ev.DeltaDuration, ev.OverDeleted, ev.Rederived, ev.PrepareDuration, ev.EngineDuration, ev.Rules, ev.ConeFallback)
+}
+
+
+// Every aggregation of deltaPolicy is maintained by group: a write that
+// reaches all of them replaces nothing, and the store, scratch relations
+// aside, equals the full fixpoint.
+func TestDRedMaintainsAggregatesByGroup(t *testing.T) {
+	k := newPolicyKernel(t, newRealKernelBase(), deltaPolicy)
+	owner := func(n, w string) Fact { return Fact{Predicate: "dl_owner", Args: []any{MangleAtom(n), MangleAtom(w)}} }
+	edge := func(a, b string) Fact { return Fact{Predicate: "dl_edge", Args: []any{MangleAtom(a), MangleAtom(b)}} }
+	steps := []struct {
+		name  string
+		write func() error
+	}{
+		{"owners", func() error {
+			for _, f := range []Fact{owner("/a", "/ana"), owner("/b", "/ana"), owner("/c", "/bo")} {
+				if err := k.AssertWithoutEval(f); err != nil {
+					return err
+				}
+			}
+			return nil
+		}},
+		{"edges", func() error {
+			for _, f := range []Fact{edge("/a", "/b"), edge("/a", "/c"), edge("/b", "/c")} {
+				if err := k.AssertWithoutEval(f); err != nil {
+					return err
+				}
+			}
+			return nil
+		}},
+		{"freeze", func() error { return k.AssertWithoutEval(Fact{Predicate: "dl_frozen", Args: []any{MangleAtom("/b")}}) }},
+		{"retract an edge", func() error { return k.RetractExactFact(edge("/a", "/c")) }},
+		{"retract an owner", func() error { return k.RetractExactFact(owner("/a", "/ana")) }},
+	}
+	for _, step := range steps {
+		if err := step.write(); err != nil {
+			t.Fatalf("%s: %v", step.name, err)
+		}
+		if err := k.EvaluatePending(); err != nil {
+			t.Fatalf("%s: %v", step.name, err)
+		}
+		ev := k.LastEvaluation()
+		if ev.Mode != "dred" || ev.Rules != 0 {
+			t.Fatalf("%s: evaluated as %q replacing %d rules (fallback %q); want dred replacing none", step.name, ev.Mode, ev.Rules, ev.ConeFallback)
+		}
+		requireSameStore(t, step.name, dumpStore(t, k), fullOracle(t, k))
+	}
+	counts, err := k.Query("dl_edge_out")
+	if err != nil || len(counts) == 0 {
+		t.Fatalf("dl_edge_out = %v, %v; want maintained counts", counts, err)
+	}
+}
+
+// A program fact outlives a retract of an asserted copy of itself.
+func TestDRedKeepsAProgramFactWhoseAssertedCopyIsRetracted(t *testing.T) {
+	k := newPolicyKernel(t, newRealKernelBase(), deltaPolicy)
+	copyOfProgramFact := Fact{Predicate: "dl_edge", Args: []any{MangleAtom("/root"), MangleAtom("/a")}}
+	if err := k.Assert(copyOfProgramFact); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.Query("dl_reach"); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.RetractExactFact(copyOfProgramFact); err != nil {
+		t.Fatal(err)
+	}
+	edges, err := k.Query("dl_edge")
+	if err != nil || len(edges) != 1 {
+		t.Fatalf("dl_edge = %v, %v; want the program fact", edges, err)
+	}
+	requireSameStore(t, "after retracting the copy", dumpStore(t, k), fullOracle(t, k))
 }
