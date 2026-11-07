@@ -23,6 +23,15 @@ import (
 // sent when the focus enters a module and replaced when the focus moves to
 // another, not resent every round.
 
+// Where module guidance is rendered (moduleGuidance's where).
+const (
+	guidanceOnSystemPrompt = "system prompt"
+	guidanceInFocusView    = "focus view"
+)
+
+// moduleGuidanceHeading opens one module's guidance; the directory follows.
+const moduleGuidanceHeading = "## Module guidance: "
+
 // SetProjectModuleDocs attaches the workspace's module nerd.md documents
 // (projectdoc.LoadAll without the root document).
 func (e *Executor) SetProjectModuleDocs(docs []*projectdoc.Document) {
@@ -35,7 +44,8 @@ func (e *Executor) SetProjectModuleDocs(docs []*projectdoc.Document) {
 // nearest first. budget is in bytes: 0 is unbounded, negative leaves no room.
 // A module whose body does not fit is not cut: it and the farther ones are
 // named in one line instead, with their size, so the model knows guidance
-// exists and where to read it. where names the destination in the log line.
+// exists and where to read it. where is guidanceOnSystemPrompt or
+// guidanceInFocusView; only a system-prompt render is logged as a send.
 func (e *Executor) moduleGuidance(target string, budget int, where string) string {
 	e.mu.RLock()
 	docs := e.projectModules
@@ -62,7 +72,7 @@ func (e *Executor) moduleGuidance(target string, budget int, where string) strin
 		if body == "" {
 			continue
 		}
-		section := fmt.Sprintf("## Module guidance: %s\n\n%s", path.Dir(doc.Path), body)
+		section := moduleGuidanceHeading + path.Dir(doc.Path) + "\n\n" + body
 		if len(left) > 0 || budget < 0 || (budget > 0 && used+len(section) > budget) {
 			left = append(left, doc.Path)
 			leftBytes += len(section)
@@ -70,12 +80,19 @@ func (e *Executor) moduleGuidance(target string, budget int, where string) strin
 		}
 		parts = append(parts, section)
 		used += len(section)
-		logging.Session("Injected module guidance %s into %s for %s (%d chars)", doc.Path, where, target, len(section))
+		if where == guidanceOnSystemPrompt {
+			// The focus view is rendered every round and appended only when
+			// it changed; the ledger logs that append (updateLedger), so a
+			// render is not reported as a send here.
+			logging.Session("Injected module guidance %s into the system prompt for %s (%d chars)", doc.Path, target, len(section))
+		}
 	}
 	if len(left) > 0 {
 		parts = append(parts, fmt.Sprintf("[module guidance not shown, %d chars over the budget: %s; read them with read_file when the task needs them]",
 			leftBytes, strings.Join(left, ", ")))
-		logging.Session("Module guidance for %s left out of %s for the budget: %s (%d chars)", target, where, strings.Join(left, ", "), leftBytes)
+		if where == guidanceOnSystemPrompt {
+			logging.Session("Module guidance for %s left out of the system prompt for the budget: %s (%d chars)", target, strings.Join(left, ", "), leftBytes)
+		}
 	}
 	return strings.Join(parts, "\n\n")
 }
@@ -108,4 +125,19 @@ func moduleChain(docs []*projectdoc.Document, target string) []*projectdoc.Docum
 		}
 	}
 	return chain
+}
+
+// moduleGuidanceNote names the modules whose guidance a rendered view carries,
+// for the ledger's append log line; "" when it carries none.
+func moduleGuidanceNote(view string) string {
+	var dirs []string
+	for _, line := range strings.Split(view, "\n") {
+		if dir, ok := strings.CutPrefix(line, moduleGuidanceHeading); ok {
+			dirs = append(dirs, dir)
+		}
+	}
+	if len(dirs) == 0 {
+		return ""
+	}
+	return ", module guidance: " + strings.Join(dirs, ", ")
 }

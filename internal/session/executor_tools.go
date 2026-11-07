@@ -1435,7 +1435,7 @@ func (e *Executor) withProjectInstructions(ctx context.Context, systemPrompt, ta
 	if activeWorkingLoop(ctx) != nil {
 		return systemPrompt
 	}
-	if guidance := e.moduleGuidance(target, 0, "system prompt"); guidance != "" {
+	if guidance := e.moduleGuidance(target, 0, guidanceOnSystemPrompt); guidance != "" {
 		systemPrompt += "\n\n" + guidance
 	}
 	return systemPrompt
@@ -1517,7 +1517,7 @@ func (e *Executor) withFileContext(ctx context.Context, systemPrompt, target str
 				remaining = -1
 			}
 		}
-		if guidance := e.moduleGuidance(target, remaining, "focus view"); guidance != "" {
+		if guidance := e.moduleGuidance(target, remaining, guidanceInFocusView); guidance != "" {
 			systemPrompt += "\n\n" + guidance
 		}
 	}

@@ -161,7 +161,7 @@ func runVerificationCommand(parent context.Context, dir string, env []string, bu
 			if errors.Is(parent.Err(), context.Canceled) {
 				cancel() // kills the subprocess via budgetCtx
 				r := <-done
-				return r.out, VerifyCanceled, "operator canceled verification"
+				return r.out, VerifyCanceled, canceledReason(parent)
 			}
 			// Parent soft deadline: keep the independent budget. A cancel
 			// landing after it arrives through the owner's stop, below; it
@@ -174,4 +174,21 @@ func runVerificationCommand(parent context.Context, dir string, env []string, bu
 			return r.out, VerifyCanceled, "operator canceled verification"
 		}
 	}
+}
+
+// errOwnTestsFailedFirst is the cause the test gate cancels its concurrent
+// importer run with when the turn's own tests fail with a new failure: the
+// gate stopped it, not the operator.
+var errOwnTestsFailedFirst = errors.New("the turn's own tests failed first, so the importer run was stopped")
+
+// canceledReason says who canceled a run whose parent context was canceled.
+// A cancel with a cause the harness set names that cause; any other cancel
+// (Ctrl+X, a side turn's stop, a closing session) is the operator's. Both
+// read "operator canceled verification" before, so a gate's own decision
+// looked like a stop nobody made.
+func canceledReason(parent context.Context) string {
+	if cause := context.Cause(parent); errors.Is(cause, errOwnTestsFailedFirst) {
+		return "canceled: " + cause.Error()
+	}
+	return "operator canceled verification"
 }

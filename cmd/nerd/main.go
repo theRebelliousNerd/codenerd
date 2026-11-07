@@ -163,6 +163,8 @@ Run without arguments to start the interactive chat interface.`,
 				fmt.Fprintf(os.Stderr, "Warning: Failed to initialize file logging (telemetry disabled): %v\n", err)
 			}
 		}
+		// After logging knows its directory and whether debug-self is on.
+		startDebugSelfDiagnostics()
 
 		return nil
 	},

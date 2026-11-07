@@ -145,3 +145,16 @@ func TestModuleGuidance_ReachesClonedAndSpawnedExecutors(t *testing.T) {
 		t.Fatalf("a spawned subagent's executor has no module docs: %q", got)
 	}
 }
+
+// The ledger's append line names the modules a focus view carries.
+func TestModuleGuidanceNote(t *testing.T) {
+	e := &Executor{}
+	e.SetProjectModuleDocs(moduleDocs())
+	view := "outline...\n\n" + e.moduleGuidance("internal/tools/research/fetch.go", 0, guidanceInFocusView)
+	if got, want := moduleGuidanceNote(view), ", module guidance: internal/tools/research, internal/tools"; got != want {
+		t.Fatalf("note = %q, want %q", got, want)
+	}
+	if got := moduleGuidanceNote("outline only"); got != "" {
+		t.Fatalf("a view with no guidance noted %q", got)
+	}
+}

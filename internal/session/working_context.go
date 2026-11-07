@@ -849,6 +849,7 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 		if viewed != loop.viewed {
 			notes = append(notes, view)
 			snapshot = view
+			logging.Session("Working ledger: focus view of %s appended (%d chars%s)", loop.focus, len(view), moduleGuidanceNote(view))
 		}
 		loop.viewed = viewed
 	} else if loop.viewed != "" {

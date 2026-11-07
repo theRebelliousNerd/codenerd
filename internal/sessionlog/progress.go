@@ -194,6 +194,7 @@ func EmitLiveProgress(ctx context.Context, ev LiveEvent) {
 	if ctx == nil {
 		return
 	}
+	beat()
 	scope := ScopeFrom(ctx)
 	if scope != nil && scope.Service {
 		Current().observeService(scope, ev)

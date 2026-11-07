@@ -131,6 +131,9 @@ func (m Model) processInput(input string, request uint64) tea.Cmd {
 		ctx = sessionlog.WithTask(ctx, foregroundTask(turnID))
 		// Ctrl+X and a side turn's stop reach this turn through m.turn.
 		m.turn.begin(turnID, cancel)
+		// The stall watch (debug-self) counts this turn as active until it
+		// returns; its live progress events are the heartbeat.
+		defer sessionlog.BeginActivity()()
 
 		oodaStart := time.Now()
 		trimmed := strings.TrimSpace(input)
