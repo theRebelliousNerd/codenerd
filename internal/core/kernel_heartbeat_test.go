@@ -64,7 +64,7 @@ func TestAssertHeartbeat_DoesNotDirtyOnRefresh(t *testing.T) {
 
 	// Only one EDB row per shard (upsert, not append).
 	var count int
-	for _, f := range k.facts {
+	for f := range k.facts.all() {
 		if f.Predicate == "system_heartbeat" {
 			count++
 		}

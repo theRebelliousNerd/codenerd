@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"codenerd/internal/build"
@@ -99,6 +101,10 @@ type TestVerification struct {
 	// so nothing is known to predate the turn.
 	BaselineRan      bool
 	BaselineFailures []TestKey
+
+	// Selection is set by the importer gate: which importer tests it ran
+	// and why, or why it ran them all. Nil on every other gate.
+	Selection *TestSelection
 }
 
 // Verdict returns the authoritative outcome, deriving one for hand-built
@@ -254,21 +260,47 @@ func packageHasTestFile(dir string) bool {
 // ask for a coverage profile from the same invocation instead of paying for a
 // second full test run.
 func verifyTests(ctx context.Context, workspace string, packages []string, extraArgs ...string) TestVerification {
+	return verifyTestRuns(ctx, workspace, "", testRun{Packages: packages, Args: extraArgs})
+}
+
+// testRun is one `go test` invocation: the packages it names and the flags
+// that go before them. A gate that selects tests per package needs several,
+// because -run applies to every package of an invocation.
+type testRun struct {
+	Packages []string
+	Args     []string
+}
+
+// verifyTestRuns runs each testRun (concurrently when there are several) and
+// reads one verdict from their combined `-json` streams, as if they were one
+// invocation: a failure in any run is the gate's failure, a run that did not
+// finish leaves the verdict unfinished unless another run failed, and the
+// Result holds every run's packages. note is shown in the live progress
+// beside the commands, for a gate that has something to say about what it
+// chose to run.
+func verifyTestRuns(ctx context.Context, workspace, note string, runs ...testRun) TestVerification {
 	start := time.Now()
 
 	if strings.TrimSpace(workspace) == "" {
 		return TestVerification{Outcome: VerifySkipped, Reason: "empty workspace path", Duration: time.Since(start)}
 	}
-	if len(packages) == 0 {
-		return TestVerification{Outcome: VerifySkipped, Reason: "no packages to verify", Duration: time.Since(start)}
-	}
-	filtered := make([]string, 0, len(packages))
-	for _, p := range packages {
-		if strings.TrimSpace(p) != "" {
-			filtered = append(filtered, strings.TrimSpace(p))
+	var commands [][]string
+	for _, r := range runs {
+		filtered := make([]string, 0, len(r.Packages))
+		for _, p := range r.Packages {
+			if strings.TrimSpace(p) != "" {
+				filtered = append(filtered, strings.TrimSpace(p))
+			}
 		}
+		if len(filtered) == 0 {
+			continue
+		}
+		// -json: the verdicts below are read from the parsed Result, not
+		// scanned from human-readable text (testfacts_helpers.go).
+		args := append([]string{"test", "-json"}, r.Args...)
+		commands = append(commands, append([]string{"go"}, append(args, filtered...)...))
 	}
-	if len(filtered) == 0 {
+	if len(commands) == 0 {
 		return TestVerification{Outcome: VerifySkipped, Reason: "no packages to verify", Duration: time.Since(start)}
 	}
 	if _, err := verifyLookPath("go"); err != nil {
@@ -276,16 +308,42 @@ func verifyTests(ctx context.Context, workspace string, packages []string, extra
 			"test verification skipped: no Go toolchain on PATH (%v)", err)
 		return TestVerification{Outcome: VerifySkipped, Reason: "no Go toolchain on PATH", Duration: time.Since(start)}
 	}
+	command := commands[0]
 
-	// -json: the verdicts below are read from the parsed Result, not
-	// scanned from human-readable text (testfacts_helpers.go).
-	args := append([]string{"test", "-json"}, extraArgs...)
-	args = append(args, filtered...)
-	command := append([]string{"go"}, args...)
-
-	done := liveVerification(ctx, command)
-	out, outcome, reason := runVerificationCommand(ctx, workspace, build.GetBuildEnv(nil, workspace), testVerifyTimeout, command[0], command[1:], verifyTestRunner)
-	done(outcome)
+	type runOutcome struct {
+		out     []byte
+		outcome VerifyOutcome
+		reason  string
+	}
+	env := build.GetBuildEnv(nil, workspace)
+	outcomes := make([]runOutcome, len(commands))
+	var wg sync.WaitGroup
+	// One invocation per package of a selected gate is what `go test` does
+	// across packages anyway: -p, by default one per core, builds, links and
+	// runs that many at once. Fewer slots than that serialise the gate.
+	slots := make(chan struct{}, min(len(commands), runtime.GOMAXPROCS(0)))
+	for i, c := range commands {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			done := liveVerification(ctx, c, note)
+			out, outcome, reason := runVerificationCommand(ctx, workspace, env, testVerifyTimeout, c[0], c[1:], verifyTestRunner)
+			done(outcome)
+			outcomes[i] = runOutcome{out, outcome, reason}
+		}()
+	}
+	wg.Wait()
+	var out []byte
+	outcome, reason := VerifyPassed, ""
+	for _, o := range outcomes {
+		out = append(out, o.out...)
+		outcome = combineVerifyOutcomes(outcome, o.outcome)
+		if o.reason != "" && (reason == "" || o.outcome == VerifyFailed) {
+			reason = o.reason
+		}
+	}
 	elapsed := time.Since(start)
 	res := parseTestJSON(workspace, out)
 
@@ -318,6 +376,28 @@ func verifyTests(ctx context.Context, workspace string, packages []string, extra
 	}
 	annotateFailingTestRecall(ctx, &v)
 	return v
+}
+
+// combineVerifyOutcomes folds two runs' outcomes into the verdict of both: a
+// failure is a measurement and wins, a run that did not finish beats a pass
+// (a pass for half the packages is no pass), and a cancel beats a timeout.
+func combineVerifyOutcomes(a, b VerifyOutcome) VerifyOutcome {
+	rank := func(o VerifyOutcome) int {
+		switch o {
+		case VerifyFailed:
+			return 3
+		case VerifyCanceled:
+			return 2
+		case VerifyPassed:
+			return 0
+		default:
+			return 1
+		}
+	}
+	if rank(b) > rank(a) {
+		return b
+	}
+	return a
 }
 
 // untestedGoFiles returns the subset of paths that are non-test .go files

@@ -12,6 +12,7 @@ import (
 
 	"codenerd/internal/approval"
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -39,10 +40,7 @@ func newRestrictionRig(t *testing.T) *restrictionRig {
 		Execute: func(context.Context, map[string]any) (string, error) { rig.writes.Add(1); return "wrote", nil }})
 	registerTestTool(t, &tools.Tool{Name: "read_file", Effect: tools.EffectRead, Description: "counting read",
 		Execute: func(context.Context, map[string]any) (string, error) { rig.reads.Add(1); return "read", nil }})
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kerneltest.New(t)
 	rig.kernel = k
 	rig.exec = NewExecutor(k, &testExecutiveStore{}, nil, nil, nil, nil)
 	cfg := DefaultExecutorConfig()

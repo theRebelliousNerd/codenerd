@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"codenerd/internal/config"
-	"codenerd/internal/session"
+	"codenerd/internal/ownerstop"
 
 	"github.com/spf13/cobra"
 )
@@ -19,7 +19,7 @@ import (
 // deadline; it used to mean one that had already passed.
 //
 // parent is the operation's owner: its signal handling, the operator. It is
-// recorded on the context (session.WithOwnerStop) so work that outlives the
+// recorded on the context (ownerstop.With) so work that outlives the
 // --timeout deadline -- verification keeps its own budget -- still stops when
 // the owner does; through the timed context alone it could not, because a
 // context's first error (the deadline) is permanent.
@@ -29,10 +29,10 @@ func operationContext(parent context.Context) (context.Context, context.CancelFu
 	}
 	if timeout <= 0 {
 		ctx, cancel := context.WithCancel(parent)
-		return session.WithOwnerStop(ctx, parent), cancel
+		return ownerstop.With(ctx, parent), cancel
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
-	return session.WithOwnerStop(ctx, parent), cancel
+	return ownerstop.With(ctx, parent), cancel
 }
 
 // commandContext is the context a subcommand runs on. The only deadline is

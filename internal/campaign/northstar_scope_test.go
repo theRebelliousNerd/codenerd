@@ -40,6 +40,7 @@ func (c *campaignScopeClient) CompleteWithSystem(_ context.Context, system, user
 // deriving the inherited purpose from the project mission. Before the repair,
 // the prose goal reached ModuleForPath and the requirement never reached the LLM.
 func TestNorthstarRiskGate_ProseGoalCarriesKernelModuleRefinement(t *testing.T) {
+	t.Parallel()
 	workspace := t.TempDir()
 	store, err := northstar.NewStore(filepath.Join(workspace, ".nerd"))
 	if err != nil {
@@ -88,6 +89,7 @@ func TestNorthstarRiskGate_ProseGoalCarriesKernelModuleRefinement(t *testing.T) 
 }
 
 func TestNorthstarRiskGate_RecurseFixAndEveryImprovementCarryNodePaths(t *testing.T) {
+	t.Parallel()
 	for _, angle := range []string{"", "stabilize", "harden", "simplify", "extend"} {
 		t.Run("angle="+angle, func(t *testing.T) {
 			workspace := t.TempDir()

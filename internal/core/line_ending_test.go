@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"codenerd/internal/tactile"
 )
 
 func countLineEndings(data []byte) (lf int, crlf int, lone int) {
@@ -51,8 +53,8 @@ func TestDetectLineEnding(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := detectLineEnding([]byte(tc.in)); got != tc.want {
-				t.Errorf("detectLineEnding(%q) = %q, want %q", tc.in, got, tc.want)
+			if got := tactile.DetectLineEnding([]byte(tc.in)); got != tc.want {
+				t.Errorf("tactile.DetectLineEnding(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}
@@ -60,7 +62,7 @@ func TestDetectLineEnding(t *testing.T) {
 
 func TestNormalizeLineEnding_DoesNotDoubleUp(t *testing.T) {
 	// Content already CRLF, normalized to CRLF, must not become \r\r\n.
-	got := normalizeLineEnding("a\r\nb\r\n", "\r\n")
+	got := tactile.NormalizeLineEnding("a\r\nb\r\n", "\r\n")
 	if got != "a\r\nb\r\n" {
 		t.Errorf("re-normalizing CRLF produced %q", got)
 	}
@@ -130,12 +132,12 @@ func TestWriteFile_NewFileKeepsLF(t *testing.T) {
 
 // Splicing an LF replacement into a CRLF file must not leave lone LFs behind.
 // This is exactly how internal/session/subagent.go ended up with 36 of them.
-func TestNormalizeLineEnding_SplicedEditLeavesNoLoneLF(t *testing.T) {
+func TestSpliceLineEndings_SplicedEditLeavesNoLoneLF(t *testing.T) {
 	original := "package p\r\n\r\nfunc A() {}\r\n"
 	// A replacement emitted with LF endings, as a model would produce it.
 	spliced := "package p\r\n\r\nfunc A() {\n\treturn\n}\r\n"
 
-	fixed := normalizeLineEnding(spliced, detectLineEnding([]byte(original)))
+	fixed := string(tactile.SpliceLineEndings([]byte(original), spliced))
 
 	_, crlf, lone := countLineEndings([]byte(fixed))
 	if lone != 0 {
@@ -208,7 +210,7 @@ func TestTransactionManagerCommit_PreservesCRLF(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	kernel := &RealKernel{facts: make([]Fact, 0), policyDirty: true}
+	kernel := &RealKernel{policyDirty: true}
 	tm := NewTransactionManager(kernel, dir)
 	if _, err := tm.Begin(context.Background(), "preserve CRLF"); err != nil {
 		t.Fatal(err)

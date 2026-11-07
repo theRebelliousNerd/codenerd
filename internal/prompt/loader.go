@@ -1,16 +1,14 @@
-// Package prompt - Runtime YAML → SQLite ingestion for prompt atoms.
-// This loader enables runtime loading of agent-specific and project-level prompt atoms
-// from YAML files into SQLite databases for JIT prompt compilation.
+// Package prompt - SQLite persistence for prompt atoms (AtomLoader).
+// Agent prompts.yaml reach their knowledge DBs through prompt/sync.AgentSynchronizer,
+// which parses with AtomLoader.ParseYAML and writes with AtomLoader.ReplaceAtoms.
 package prompt
 
 import (
 	"context"
 	"database/sql"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"math"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -18,7 +16,6 @@ import (
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/sqlpragmas"
-	"codenerd/internal/types"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -51,31 +48,6 @@ func (l *AtomLoader) EmbeddingEngine() embedding.EmbeddingEngine {
 		return nil
 	}
 	return l.embeddingEngine
-}
-
-// LoadFromYAML loads prompt atoms from a YAML file and stores them in the database.
-// Returns the number of atoms loaded.
-func (l *AtomLoader) LoadFromYAML(ctx context.Context, yamlPath string, db *sql.DB) (int, error) {
-	timer := logging.StartTimer(logging.CategoryStore, "LoadFromYAML")
-	defer timer.Stop()
-
-	logging.Get(logging.CategoryStore).Info("Loading prompt atoms from YAML: %s", yamlPath)
-
-	// Parse YAML file
-	atoms, err := l.ParseYAML(yamlPath)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse YAML file %s: %w", yamlPath, err)
-	}
-
-	logging.Get(logging.CategoryStore).Info("Parsed %d atoms from %s", len(atoms), filepath.Base(yamlPath))
-
-	// Store atoms in database, all or none.
-	if err := l.storeAtoms(ctx, db, atoms); err != nil {
-		return 0, fmt.Errorf("store atoms from %s: %w", yamlPath, err)
-	}
-
-	logging.Get(logging.CategoryStore).Info("Successfully stored %d atoms", len(atoms))
-	return len(atoms), nil
 }
 
 // EnsureSchema creates the prompt_atoms table and atom_context_tags table.
@@ -233,8 +205,7 @@ func (l *AtomLoader) StoreAtom(ctx context.Context, db *sql.DB, atom *PromptAtom
 }
 
 // storeAtoms embeds what changed, then upserts every atom in one
-// transaction: one commit per file instead of one per atom (667 commits per
-// boot on this repository's agents).
+// transaction: one commit per call instead of one per atom.
 func (l *AtomLoader) storeAtoms(ctx context.Context, db *sql.DB, atoms []*PromptAtom) error {
 	vecs := make([]atomVector, len(atoms))
 	for i, atom := range atoms {
@@ -443,8 +414,7 @@ func (l *AtomLoader) embedAtom(ctx context.Context, db rowQuerier, atom *PromptA
 		taskType := embedding.SelectTaskType(embedding.ContentTypePromptAtom, false)
 		if blob, ok := storedAtomEmbedding(ctx, db, atom.ID, textToEmbed, taskType, l.embeddingEngine.Name()); ok {
 			// The stored vector embeds this same text with this same model
-			// and task: every boot re-syncs every prompts.yaml, and
-			// re-embedding unchanged atoms was ~9.6 s of each boot
+			// and task: re-embedding unchanged atoms was ~9.6 s of a rewrite
 			// (measured 2026-10-29, ~1,000 atoms at ~9 ms each).
 			embeddingBlob, embeddingTask = blob, taskType
 		} else {
@@ -549,139 +519,6 @@ func storedAtomEmbedding(ctx context.Context, db rowQuerier, atomID, text, taskT
 		return nil, false
 	}
 	return blob, true
-}
-
-// LoadAgentPrompts loads prompt atoms for a specific agent from .nerd/agents/{name}/prompts.yaml
-// into the agent's unified knowledge database at .nerd/shards/{name}_knowledge.db.
-func LoadAgentPrompts(ctx context.Context, agentName string, nerdDir string, embeddingEngine embedding.EmbeddingEngine) (int, error) {
-	timer := logging.StartTimer(logging.CategoryStore, "LoadAgentPrompts")
-	defer timer.Stop()
-
-	logging.Get(logging.CategoryStore).Info("Loading prompts for agent: %s", agentName)
-
-	// Check if agent prompts.yaml exists
-	promptsPath := filepath.Join(nerdDir, "agents", agentName, "prompts.yaml")
-	if _, err := os.Stat(promptsPath); os.IsNotExist(err) {
-		logging.Get(logging.CategoryStore).Debug("No prompts.yaml found for agent %s", agentName)
-		return 0, nil
-	}
-
-	// Initialize loader
-	loader := NewAtomLoader(embeddingEngine)
-
-	// Open agent's unified knowledge database (NOT a separate prompts DB)
-	dbPath := types.AgentKnowledgeDBPath(nerdDir, agentName)
-
-	// Ensure the knowledge DB exists
-	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return 0, fmt.Errorf("agent knowledge database does not exist: %s (run 'nerd init' first)", dbPath)
-	}
-
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		return 0, fmt.Errorf("failed to open agent knowledge database: %w", err)
-	}
-	defer db.Close()
-	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
-
-	// Ensure prompt_atoms table exists in this knowledge DB
-	// This is safe to call multiple times (CREATE TABLE IF NOT EXISTS)
-	if err := loader.EnsureSchema(ctx, db); err != nil {
-		return 0, fmt.Errorf("failed to ensure prompt_atoms table: %w", err)
-	}
-
-	// Load from YAML into the agent's knowledge DB
-	count, err := loader.LoadFromYAML(ctx, promptsPath, db)
-	if err != nil {
-		return 0, fmt.Errorf("failed to load prompts: %w", err)
-	}
-
-	logging.Get(logging.CategoryStore).Info("Loaded %d prompts for agent %s into %s", count, agentName, dbPath)
-	return count, nil
-}
-
-// LoadProjectPrompts loads project-level prompt atoms from .nerd/prompts/*.yaml
-// Note: Project-level prompts are currently NOT USED. Prompts are stored per-agent.
-// This function is kept for backward compatibility but logs a deprecation warning.
-func LoadProjectPrompts(ctx context.Context, nerdDir string, embeddingEngine embedding.EmbeddingEngine) (int, error) {
-	timer := logging.StartTimer(logging.CategoryStore, "LoadProjectPrompts")
-	defer timer.Stop()
-
-	promptsDir := filepath.Join(nerdDir, "prompts")
-	if _, err := os.Stat(promptsDir); os.IsNotExist(err) {
-		logging.Get(logging.CategoryStore).Debug("No prompts directory found")
-		return 0, nil
-	}
-
-	// Check for YAML files - if they exist, warn user to migrate
-	entries, err := os.ReadDir(promptsDir)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read prompts directory: %w", err)
-	}
-
-	yamlCount := 0
-	for _, entry := range entries {
-		if !entry.IsDir() && (strings.HasSuffix(entry.Name(), ".yaml") || strings.HasSuffix(entry.Name(), ".yml")) {
-			yamlCount++
-		}
-	}
-
-	if yamlCount > 0 {
-		logging.Get(logging.CategoryStore).Warn("LoadProjectPrompts called but project-level prompts are deprecated - prompts should be per-agent in .nerd/agents/{name}/prompts.yaml")
-		logging.Get(logging.CategoryStore).Warn("Found %d YAML files in .nerd/prompts/ - these should be migrated to per-agent prompts.yaml files", yamlCount)
-	} else {
-		logging.Get(logging.CategoryStore).Debug("No legacy project-level prompt YAML files found")
-	}
-
-	return 0, nil
-}
-
-// ReloadAllPrompts reloads all prompt atoms (project-level and agent-specific).
-func ReloadAllPrompts(ctx context.Context, nerdDir string, embeddingEngine embedding.EmbeddingEngine) (int, error) {
-	timer := logging.StartTimer(logging.CategoryStore, "ReloadAllPrompts")
-	defer timer.Stop()
-
-	logging.Get(logging.CategoryStore).Info("Reloading all prompt atoms")
-
-	totalCount := 0
-	var failures []error
-
-	// Load project-level prompts
-	count, err := LoadProjectPrompts(ctx, nerdDir, embeddingEngine)
-	if err != nil {
-		logging.Get(logging.CategoryStore).Error("Failed to load project prompts: %v", err)
-		failures = append(failures, err)
-	} else {
-		totalCount += count
-	}
-
-	// Find all agents
-	agentsDir := filepath.Join(nerdDir, "agents")
-	if _, err := os.Stat(agentsDir); err == nil {
-		entries, err := os.ReadDir(agentsDir)
-		if err != nil {
-			logging.Get(logging.CategoryStore).Warn("Failed to read agents directory: %v", err)
-			failures = append(failures, err)
-		} else {
-			for _, entry := range entries {
-				if !entry.IsDir() {
-					continue
-				}
-
-				agentName := entry.Name()
-				count, err := LoadAgentPrompts(ctx, agentName, nerdDir, embeddingEngine)
-				if err != nil {
-					logging.Get(logging.CategoryStore).Error("Failed to load prompts for agent %s: %v", agentName, err)
-					failures = append(failures, fmt.Errorf("agent %s: %w", agentName, err))
-				} else {
-					totalCount += count
-				}
-			}
-		}
-	}
-
-	logging.Get(logging.CategoryStore).Info("Reloaded total of %d prompt atoms", totalCount)
-	return totalCount, errors.Join(failures...)
 }
 
 // ============================================================================

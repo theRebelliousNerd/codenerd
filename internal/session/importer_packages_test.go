@@ -20,6 +20,10 @@ func importerModule(t *testing.T, aSrc string) string {
 }
 
 const (
+	// aPrior is a pre-turn file whose Name differs from aBefore's in its body,
+	// for gates whose disk state is aBefore: a write that changes no function
+	// reaches no importer test, and these tests are about the importer run.
+	aPrior  = "package a\n\nfunc Name() string { return \"prior\" }\n"
 	aBefore = "package a\n\nfunc Name() string { return \"widget\" }\n"
 	aAfter  = "package a\n\nfunc Name() string { return \"a.widget\" }\n"
 )
@@ -70,7 +74,7 @@ func TestGateTests_AnImporterThatStillHoldsIsNoFailure(t *testing.T) {
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
-	ws := importerModule(t, "package a\n\nfunc Name() string { return \"widget\" }\n\nfunc Extra() int { return 1 }\n")
+	ws := importerModule(t, "package a\n\nfunc Name() string {\n\tname := \"widget\"\n\treturn name\n}\n")
 	result := mutationResult()
 	result.WrittenPaths = []string{"a/a.go"}
 	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aBefore)}
@@ -102,8 +106,9 @@ func TestGateTests_AnImporterFailingBeforeTheTurnIsNotCharged(t *testing.T) {
 		"package b\n\nimport \"testing\"\n\nfunc TestAlreadyRed(t *testing.T) { t.Fatal(\"red before the turn\") }\n")
 	result := mutationResult()
 	result.WrittenPaths = []string{"a/a.go"}
-	// The turn added a function; b's failure has nothing to do with it.
-	writeWorkspaceFile(t, ws, "a/a.go", aBefore+"\nfunc Added() int { return 2 }\n")
+	// The turn added a package-level const, which no call graph can vouch for, so
+	// every importer test runs; b's failure has nothing to do with it.
+	writeWorkspaceFile(t, ws, "a/a.go", aBefore+"\nconst Added = 2\n")
 	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aBefore)}
 
 	v, _ := gateTests(context.Background(), ws, result, false)
@@ -135,7 +140,7 @@ func TestGateTests_AnUnfinishedImporterRunDoesNotPass(t *testing.T) {
 	if testing.Short() {
 		t.Skip("shells out to the real go toolchain")
 	}
-	ws := importerModule(t, "package a\n\nfunc Name() string { return \"widget\" }\n\nfunc Extra() int { return 1 }\n")
+	ws := importerModule(t, "package a\n\nfunc Name() string {\n\tname := \"widget\"\n\treturn name\n}\n")
 	result := mutationResult()
 	result.WrittenPaths = []string{"a/a.go"}
 	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aBefore)}

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
@@ -18,10 +18,7 @@ import (
 // nothing could tell is asked as /undetected and carries /authoring_code only.
 func TestCompilationContextCarriesTheKernelsDerivedNeeds(t *testing.T) {
 	t.Parallel()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	k := kerneltest.New(t)
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
 
 	for _, tc := range []struct {
@@ -55,10 +52,7 @@ func TestCompilationContextCarriesTheKernelsDerivedNeeds(t *testing.T) {
 // document whose plan edits a Go file compiles that step with the Go need.
 func TestStepCompileDerivesTheStepFilesNeeds(t *testing.T) {
 	t.Parallel()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	k := kerneltest.New(t)
 	var compiled []string
 	jit := &MockJITCompiler{CompileFunc: func(_ context.Context, cc *prompt.CompilationContext) (*prompt.CompilationResult, error) {
 		compiled = slices.Clone(cc.DerivedNeeds)
@@ -84,10 +78,7 @@ func TestStepCompileDerivesTheStepFilesNeeds(t *testing.T) {
 // taught knowledge_requests, which only the chat turn's articulation consults.
 func TestCompilationContextCarriesTheConsumersNeeds(t *testing.T) {
 	t.Parallel()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	k := kerneltest.New(t)
 	for _, tc := range []struct {
 		name     string
 		client   types.LLMClient

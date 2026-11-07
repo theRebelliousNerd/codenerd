@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/turntime"
 	"codenerd/internal/types"
 
 	jitconfig "codenerd/internal/jit/config"
@@ -270,7 +271,12 @@ func (e *Executor) repairLoop(
 		logging.Get(logging.CategorySession).Warn(
 			"Repair attempt %d (%s)%s", attempt, spec.kind, regimeNote)
 
+		// A repair round is counted and its own (model and tool) time is
+		// kept per kind on the turn's ledger; the recheck below is
+		// verification, not repair (package turntime).
+		endRound := turntime.From(epCtx).Repair(spec.kind)
 		repaired, llmCalls, allCalls, repairErrs, toolResults, wrote, err := e.repairRound(epCtx, trp, systemPrompt, history, toolDefs, cfg, result, prompt, useCommitRegime, spec.writesTests)
+		endRound()
 		allErrs = append(allErrs, repairErrs...)
 		if err != nil {
 			att.Verdict = VerifyIndeterminate

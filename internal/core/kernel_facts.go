@@ -30,7 +30,7 @@ func (k *RealKernel) LoadFactsSeq(seq iter.Seq[Fact]) error {
 	var prevCount int
 
 	k.mu.Lock()
-	prevCount = len(k.facts)
+	prevCount = k.facts.len()
 	k.mu.Unlock()
 
 	for f := range seq {
@@ -43,7 +43,7 @@ func (k *RealKernel) LoadFactsSeq(seq iter.Seq[Fact]) error {
 	}
 
 	k.mu.RLock()
-	newCount := len(k.facts)
+	newCount := k.facts.len()
 	k.mu.RUnlock()
 
 	logging.KernelDebug("LoadFactsSeq: added %d facts, EDB: %d -> %d facts", added, prevCount, newCount)
@@ -72,7 +72,7 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	prevCount := len(k.facts)
+	prevCount := k.facts.len()
 	sanitizedFacts := make([]Fact, len(facts))
 	for i, f := range facts {
 		sanitizedFacts[i] = sanitizeFactForNumericPredicates(f)
@@ -85,7 +85,7 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 			loadedPreds[f.Predicate] = struct{}{}
 		}
 	}
-	logging.KernelDebug("LoadFacts: added %d/%d facts, EDB: %d -> %d facts", added, len(sanitizedFacts), prevCount, len(k.facts))
+	logging.KernelDebug("LoadFacts: added %d/%d facts, EDB: %d -> %d facts", added, len(sanitizedFacts), prevCount, k.facts.len())
 
 	// Count JIT-related facts for debugging
 	jitCounts := make(map[string]int)
@@ -455,10 +455,7 @@ func (k *RealKernel) ensureFactIndexLocked() {
 // rebuildFactIndexLocked rebuilds the dedupe index from current EDB.
 // Call only while holding k.mu.
 func (k *RealKernel) rebuildFactIndexLocked() {
-	k.factIndex = newEDBIndex()
-	for _, f := range k.facts {
-		k.factIndex.insert(k.canonFact(f), f)
-	}
+	k.indexFactsLocked()
 }
 
 // addFactIfNewLocked appends a fact only if it is not already present.
@@ -491,10 +488,10 @@ func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
 func (k *RealKernel) addFactIfNewLockedErr(f Fact) (bool, error) {
 	// Enforce EDB size limit to prevent unbounded memory growth
 	maxFacts := k.effectiveMaxFactsLocked()
-	if len(k.facts) >= maxFacts {
+	if k.facts.len() >= maxFacts {
 		logging.Get(logging.CategoryKernel).Warn("EDB fact limit reached (%d/%d), rejecting fact: %s",
-			len(k.facts), maxFacts, f.Predicate)
-		return false, fmt.Errorf("EDB fact limit reached (%d/%d), rejected %s", len(k.facts), maxFacts, f.Predicate)
+			k.facts.len(), maxFacts, f.Predicate)
+		return false, fmt.Errorf("EDB fact limit reached (%d/%d), rejected %s", k.facts.len(), maxFacts, f.Predicate)
 	}
 
 	// Intern predicate name + string args so repeated values across
@@ -518,8 +515,8 @@ func (k *RealKernel) addFactIfNewLockedErr(f Fact) (bool, error) {
 		return false, fmt.Errorf("fact %s rejected by the kernel: %w", f.Predicate, err)
 	}
 
-	cacheInSync := !k.atomCacheStale && k.cachedAtoms != nil && len(k.cachedAtoms) == len(k.facts)
-	k.facts = append(k.facts, f)
+	cacheInSync := !k.atomCacheStale && k.cachedAtoms != nil && len(k.cachedAtoms) == k.facts.len()
+	k.storeFactLocked(key, f)
 	// cachedAtoms == nil means "invalid, evaluate must rebuild". Appending onto
 	// a nil cache after rebuild()/LoadFacts created a short slice of only the
 	// facts asserted since invalidation (live: atoms=25 facts=8529 after
@@ -530,7 +527,6 @@ func (k *RealKernel) addFactIfNewLockedErr(f Fact) (bool, error) {
 	} else {
 		k.cachedAtoms = nil
 	}
-	k.factIndex.insert(key, f)
 	k.factIndex.rememberAtom(f.Predicate, key, atom, k.programInfo)
 	k.warnIfUndeclaredLocked(f)
 	return true, nil
@@ -597,7 +593,7 @@ func (k *RealKernel) Assert(fact Fact) (err error) {
 		return nil
 	}
 	k.markDirtyLocked(fact.Predicate)
-	logging.KernelDebug("Assert: fact added successfully, total facts=%d", len(k.facts))
+	logging.KernelDebug("Assert: fact added successfully, total facts=%d", k.facts.len())
 	k.mu.Unlock()
 
 	// Publish AFTER releasing lock to avoid holding mutex during channel sends
@@ -620,14 +616,11 @@ func (k *RealKernel) assertHeartbeat(fact Fact) error {
 		shardKey = fmt.Sprint(fact.Args[0])
 	}
 
-	// Refresh existing heartbeat for this shard — no re-eval.
-	for i, existing := range k.facts {
-		if existing.Predicate != "system_heartbeat" || len(existing.Args) == 0 {
-			continue
-		}
-		if fmt.Sprint(existing.Args[0]) != shardKey {
-			continue
-		}
+	// Refresh existing heartbeat for this shard — no re-eval. The index names
+	// the heartbeats; the EDB is not scanned for them.
+	k.ensureFactIndexLocked()
+	existing, oldKey, pos, found := k.heartbeatOfLocked(shardKey)
+	if found {
 		// Same timestamp → pure no-op
 		if len(existing.Args) > 1 && len(fact.Args) > 1 &&
 			fmt.Sprint(existing.Args[1]) == fmt.Sprint(fact.Args[1]) {
@@ -635,9 +628,9 @@ func (k *RealKernel) assertHeartbeat(fact Fact) error {
 			return nil
 		}
 
-		oldKey := k.canonFact(existing)
 		fact = internFact(fact)
-		k.facts[i] = fact
+		newKey := k.canonFact(fact)
+		k.facts.replace(pos, fact, newKey)
 		// The evaluated store outlives a write now, so keep its copy of the row
 		// current as well; nothing derives from the timestamp.
 		k.ownStoreLocked() // written in place below
@@ -648,18 +641,12 @@ func (k *RealKernel) assertHeartbeat(fact Fact) error {
 				}
 			}
 		}
-		if k.cachedAtoms != nil && i < len(k.cachedAtoms) {
-			if atom, err := k.factToAtomLocked(fact); err == nil {
-				k.cachedAtoms[i] = atom
-			} else {
-				// Leaving the previous atom in place would desync it from
-				// k.facts[i]; make the next evaluate() reconvert and evict.
-				k.atomCacheStale = true
-			}
-		}
-		k.ensureFactIndexLocked()
+		// cachedAtoms is dense over the live facts and the row's place in it is
+		// not tracked; the next full evaluation rebuilds it from the index's
+		// remembered atoms, which costs no conversion.
+		k.cachedAtoms = nil
 		k.factIndex.remove(existing.Predicate, oldKey)
-		k.factIndex.insert(k.canonFact(fact), fact)
+		k.factIndex.insert(newKey, fact, pos)
 		// Intentionally NOT setting factsDirty — existence is unchanged.
 		k.mu.Unlock()
 		return nil
@@ -683,6 +670,21 @@ func (k *RealKernel) assertHeartbeat(fact Fact) error {
 		k.eventBus.Publish(fact.Predicate)
 	}
 	return nil
+}
+
+// heartbeatOfLocked finds the first-asserted system_heartbeat row of a shard
+// among the heartbeats the index holds: its fact, key and storage position.
+func (k *RealKernel) heartbeatOfLocked(shardKey string) (fact Fact, key string, pos int, found bool) {
+	for candidateKey, candidate := range k.factIndex.eachRow("system_heartbeat") {
+		if len(candidate.Args) == 0 || fmt.Sprint(candidate.Args[0]) != shardKey {
+			continue
+		}
+		at, _ := k.factIndex.slotOf(candidate.Predicate, candidateKey)
+		if !found || at < pos {
+			fact, key, pos, found = candidate, candidateKey, at, true
+		}
+	}
+	return fact, key, pos, found
 }
 
 // AssertBatch adds multiple facts and re-evaluates once.
@@ -736,7 +738,7 @@ func (k *RealKernel) AssertBatch(facts []Fact) (err error) {
 	k.markDirtyLocked(predicateNames(addedPredicates)...)
 
 	logging.KernelDebug("AssertBatch: successfully added %d/%d facts, total facts=%d",
-		addedCount, len(facts), len(k.facts))
+		addedCount, len(facts), k.facts.len())
 	k.mu.Unlock()
 
 	// Publish AFTER releasing lock — one event per unique predicate
@@ -835,48 +837,6 @@ func (k *RealKernel) Evaluate() error {
 	return nil
 }
 
-// compactFactsLocked removes every fact for which keep returns false, using an
-// in-place compaction that preserves EDB order, and zeroes the truncated
-// tail for GC. It does NOT rebuild the dedupe index: single-shot retracts
-// use filterFactsLocked, while multi-phase callers (transactions) compact
-// several times and rebuild once. Call only while holding k.mu.
-func (k *RealKernel) compactFactsLocked(keep func(Fact) bool) (removed int) {
-	prevCount := len(k.facts)
-	newLen := 0
-	for _, f := range k.facts {
-		if !keep(f) {
-			removed++
-			// The dedupe index follows the removal fact by fact: k.facts
-			// holds no two canonically equal facts (every write goes through
-			// the index), so the removed fact's key is free. Rebuilding the
-			// whole index after each retract re-canonicalized every
-			// remaining fact (7.9 s of one 52 s turn, measured 2026-10-27).
-			if k.factIndex != nil {
-				k.factIndex.remove(f.Predicate, k.canonFact(f))
-			}
-			continue
-		}
-		k.facts[newLen] = f
-		newLen++
-	}
-	if removed == 0 {
-		return 0
-	}
-	for i := newLen; i < prevCount; i++ {
-		k.facts[i] = Fact{}
-	}
-	k.facts = k.facts[:newLen]
-	return removed
-}
-
-// filterFactsLocked compacts the EDB by keep; compactFactsLocked keeps the
-// dedupe index in step. The atom cache is deliberately NOT maintained here:
-// every retract path funnels through rebuild(), which invalidates it. Call
-// only while holding k.mu.
-func (k *RealKernel) filterFactsLocked(keep func(Fact) bool) (removed int) {
-	return k.compactFactsLocked(keep)
-}
-
 // Retract removes all facts of a given predicate.
 func (k *RealKernel) Retract(predicate string) (err error) {
 	defer func() { err = k.noteMutationFailure("retract", predicate, err) }()
@@ -889,10 +849,8 @@ func (k *RealKernel) Retract(predicate string) (err error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	prevCount := len(k.facts)
-	retractedCount := k.filterFactsLocked(func(f Fact) bool {
-		return f.Predicate != predicate
-	})
+	prevCount := k.facts.len()
+	retractedCount := k.retractMatchingLocked(predicate, func(Fact) bool { return true })
 
 	if retractedCount == 0 {
 		// Empty retract is a no-op — suppress debug to avoid log spam
@@ -900,7 +858,7 @@ func (k *RealKernel) Retract(predicate string) (err error) {
 	}
 
 	logging.KernelDebug("Retract: removed %d facts (predicate=%s), EDB: %d -> %d facts",
-		retractedCount, predicate, prevCount, len(k.facts))
+		retractedCount, predicate, prevCount, k.facts.len())
 
 	if err := k.rebuild(predicate); err != nil {
 		logging.Get(logging.CategoryKernel).Error("Retract: rebuild failed after retracting %s: %v", predicate, err)
@@ -928,18 +886,10 @@ func (k *RealKernel) RetractFact(fact Fact) (err error) {
 		return err
 	}
 
-	prevCount := len(k.facts)
-	retractedCount := k.filterFactsLocked(func(f Fact) bool {
-		// Keep facts that don't match predicate OR don't match first argument
-		if f.Predicate != fact.Predicate {
-			return true
-		}
-		// Same predicate - check first argument
-		if len(f.Args) > 0 && len(fact.Args) > 0 {
-			// Matching predicate and first arg - don't keep (retract it)
-			return !argsEqual(f.Args[0], fact.Args[0])
-		}
-		return true
+	prevCount := k.facts.len()
+	retractedCount := k.retractMatchingLocked(fact.Predicate, func(f Fact) bool {
+		// Same predicate: retract the facts whose first argument matches.
+		return len(f.Args) > 0 && argsEqual(f.Args[0], fact.Args[0])
 	})
 
 	if retractedCount == 0 {
@@ -952,7 +902,7 @@ func (k *RealKernel) RetractFact(fact Fact) (err error) {
 	}
 
 	logging.KernelDebug("RetractFact: removed %d facts, EDB: %d -> %d facts",
-		retractedCount, prevCount, len(k.facts))
+		retractedCount, prevCount, k.facts.len())
 
 	if err := k.rebuild(fact.Predicate); err != nil {
 		logging.Get(logging.CategoryKernel).Error("RetractFact: rebuild failed: %v", err)
@@ -978,13 +928,11 @@ func (k *RealKernel) RetractExactFact(fact Fact) (err error) {
 		return err
 	}
 
-	prevCount := len(k.facts)
-	retractedCount := k.filterFactsLocked(func(f Fact) bool {
-		return f.Predicate != fact.Predicate || !argsSliceEqual(f.Args, fact.Args)
-	})
+	prevCount := k.facts.len()
+	retractedCount := k.retractExactLocked(fact)
 
 	logging.KernelDebug("RetractExactFact: removed %d facts, EDB: %d -> %d facts",
-		retractedCount, prevCount, len(k.facts))
+		retractedCount, prevCount, k.facts.len())
 
 	// Only rebuild if something changed
 	if retractedCount > 0 {
@@ -1011,19 +959,11 @@ func (k *RealKernel) RetractExactFactsBatch(facts []Fact) (err error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	toRemove := make(map[string]struct{}, len(facts))
-	for _, f := range facts {
-		toRemove[k.canonFact(f)] = struct{}{}
-	}
-
-	prevCount := len(k.facts)
-	retractedCount := k.filterFactsLocked(func(f Fact) bool {
-		_, ok := toRemove[k.canonFact(f)]
-		return !ok
-	})
+	prevCount := k.facts.len()
+	retractedCount := k.retractKeysLocked(facts)
 
 	logging.KernelDebug("RetractExactFactsBatch: removed %d facts, EDB: %d -> %d facts",
-		retractedCount, prevCount, len(k.facts))
+		retractedCount, prevCount, k.facts.len())
 
 	if retractedCount > 0 {
 		batchPreds := make(map[string]struct{}, 4)
@@ -1051,14 +991,14 @@ func (k *RealKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) e
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	prevCount := len(k.facts)
-	retractedCount := k.filterFactsLocked(func(f Fact) bool {
-		_, ok := predicates[f.Predicate]
-		return !ok
-	})
+	prevCount := k.facts.len()
+	retractedCount := 0
+	for predicate := range predicates {
+		retractedCount += k.retractMatchingLocked(predicate, func(Fact) bool { return true })
+	}
 
 	logging.KernelDebug("RemoveFactsByPredicateSet: removed %d facts, EDB: %d -> %d facts",
-		retractedCount, prevCount, len(k.facts))
+		retractedCount, prevCount, k.facts.len())
 
 	if retractedCount > 0 {
 		if err := k.rebuild(predicateNames(predicates)...); err != nil {
@@ -1350,7 +1290,7 @@ func (k *RealKernel) GetFactsSnapshotSeq() iter.Seq[Fact] {
 	return func(yield func(Fact) bool) {
 		k.mu.RLock()
 		defer k.mu.RUnlock()
-		for _, f := range k.facts {
+		for f := range k.facts.all() {
 			if !yield(f) {
 				return
 			}
@@ -1362,7 +1302,7 @@ func (k *RealKernel) GetFactsSnapshotSeq() iter.Seq[Fact] {
 func (k *RealKernel) FactCount() int {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
-	return len(k.facts)
+	return k.facts.len()
 }
 
 // GetAllFactsSeq returns all facts in the EDB as an iterator (thread-safe snapshot).

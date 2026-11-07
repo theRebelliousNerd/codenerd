@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 )
 
 // TestDelegationDecisions_OnProductionCortex is the sharded form of the two
@@ -18,10 +19,7 @@ func TestDelegationDecisions_OnProductionCortex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDomainCortex: %v", err)
 	}
-	single, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	single := kerneltest.New(t)
 	both := verdictPair{t: t, cortex: ck, single: single}
 
 	// Count wins: three lows beat one critical.

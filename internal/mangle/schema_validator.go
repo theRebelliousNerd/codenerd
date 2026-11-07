@@ -2,13 +2,57 @@ package mangle
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codeberg.org/TauCeti/mangle-go/ast"
 )
+
+// schemaDeclCache holds the schemas-derived portion of a validator inventory,
+// keyed by the schemas text itself (constitution, extensions, orientation
+// decls). That text is identical across the kernels booting one workspace,
+// while learnedText varies per heal pass, so caching the scan turns the
+// per-boot double LoadDeclaredPredicates (early heal build and final refresh,
+// times every parallel kernel) into one scan. The key is the full text, never
+// a hash of it: two constitutions that collided would share an inventory and
+// slip schema-drift validation. A process sees few distinct constitutions;
+// the cap only bounds a pathological one.
+var schemaDeclCache = struct {
+	sync.Mutex
+	entries map[string]schemaDeclCacheEntry
+}{entries: make(map[string]schemaDeclCacheEntry)}
+
+const schemaDeclCacheMax = 16
+
+type schemaDeclCacheEntry struct {
+	preds   map[string]bool
+	arities map[string]int
+}
+
+// cachedSchemaDecls returns a copy of the inventory scanned from schemasText.
+func cachedSchemaDecls(schemasText string) (map[string]bool, map[string]int, bool) {
+	schemaDeclCache.Lock()
+	e, ok := schemaDeclCache.entries[schemasText]
+	schemaDeclCache.Unlock()
+	if !ok {
+		return nil, nil, false
+	}
+	return maps.Clone(e.preds), maps.Clone(e.arities), true
+}
+
+// storeSchemaDecls records a copy of the inventory scanned from schemasText.
+func storeSchemaDecls(schemasText string, preds map[string]bool, arities map[string]int) {
+	schemaDeclCache.Lock()
+	defer schemaDeclCache.Unlock()
+	if len(schemaDeclCache.entries) >= schemaDeclCacheMax {
+		clear(schemaDeclCache.entries)
+	}
+	schemaDeclCache.entries[schemasText] = schemaDeclCacheEntry{preds: maps.Clone(preds), arities: maps.Clone(arities)}
+}
 
 // =============================================================================
 // SCHEMA VALIDATOR (Bug #18 Fix - Schema Drift Prevention)
@@ -90,11 +134,25 @@ func NewSchemaValidator(schemasText, learnedText string) *SchemaValidator {
 }
 
 // LoadDeclaredPredicates parses schemas.mg and extracts all Decl statements.
+// The schemas-derived scan is cached process-wide: every kernel booting the same
+// workspace shares one regex pass over the constitution, while the small
+// learnedText portion is still parsed per validator so healing stays exact.
 func (sv *SchemaValidator) LoadDeclaredPredicates() error {
-	// Parse schemas to extract declarations
+	// Parse schemas to extract declarations, reusing the process cache when the
+	// same constitution text was scanned before.
 	if sv.schemasText != "" {
-		if err := sv.extractDeclsFromText(sv.schemasText); err != nil {
-			return fmt.Errorf("failed to parse schemas: %w", err)
+		if preds, arities, ok := cachedSchemaDecls(sv.schemasText); ok {
+			for p := range preds {
+				sv.declaredPredicates[p] = true
+			}
+			for p, a := range arities {
+				sv.predicateArities[p] = a
+			}
+		} else {
+			if err := sv.extractDeclsFromText(sv.schemasText); err != nil {
+				return fmt.Errorf("failed to parse schemas: %w", err)
+			}
+			storeSchemaDecls(sv.schemasText, sv.declaredPredicates, sv.predicateArities)
 		}
 	}
 
@@ -121,8 +179,11 @@ func (sv *SchemaValidator) extractDeclsFromText(text string) error {
 			continue
 		}
 		predicate := text[m[2]:m[3]]
-		sv.declaredPredicates[predicate] = true
 		argsStr := balancedArgs(text, m[1])
+		if argsStr == "" && !(m[1] < len(text) && text[m[1]] == ')') {
+			return fmt.Errorf("unbalanced parentheses in Decl %s", predicate)
+		}
+		sv.declaredPredicates[predicate] = true
 		sv.predicateArities[predicate] = countTopLevelArgs(argsStr)
 	}
 

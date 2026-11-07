@@ -115,7 +115,6 @@ func executeEditLines(ctx context.Context, args map[string]any) (string, error) 
 // planEditLines computes edit_lines' whole-file candidate from content
 // without writing it, so a batch can plan every entry before committing any.
 func planEditLines(path string, content []byte, startLine, endLine int, newContent string) (lineEditPlan, error) {
-	ending := tactile.DetectLineEnding(content)
 	lines := strings.Split(tactile.NormalizeLineEnding(string(content), "\n"), "\n")
 
 	// Validate line numbers
@@ -146,7 +145,7 @@ func planEditLines(path string, content []byte, startLine, endLine int, newConte
 	// Only the whole file decides, so build the candidate output first and
 	// judge that. Failing here costs one retry; not failing costs a corrupted
 	// file that looks like a successful write.
-	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
+	output := string(tactile.SpliceLineEndings(content, strings.Join(result, "\n")))
 	if err := checkDelimiterBalance(path, startLine, lines[startIdx:endIdx], string(content), output); err != nil {
 		return lineEditPlan{}, err
 	}
@@ -449,7 +448,6 @@ func executeInsertLines(ctx context.Context, args map[string]any) (string, error
 // planInsertLines computes insert_lines' whole-file candidate without
 // writing it.
 func planInsertLines(path string, content []byte, afterLine int, insertContent string) (lineEditPlan, error) {
-	ending := tactile.DetectLineEnding(content)
 	lines := strings.Split(tactile.NormalizeLineEnding(string(content), "\n"), "\n")
 
 	// Validate line number
@@ -466,7 +464,7 @@ func planInsertLines(path string, content []byte, afterLine int, insertContent s
 	result = append(result, newLines...)
 	result = append(result, lines[afterLine:]...)
 
-	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
+	output := string(tactile.SpliceLineEndings(content, strings.Join(result, "\n")))
 	if err := tools.RejectGoSyntaxRegression(path, content, []byte(output)); err != nil {
 		return lineEditPlan{}, err
 	}
@@ -567,7 +565,6 @@ func executeDeleteLines(ctx context.Context, args map[string]any) (string, error
 // planDeleteLines computes delete_lines' whole-file candidate without
 // writing it.
 func planDeleteLines(path string, content []byte, startLine, endLine int) (lineEditPlan, error) {
-	ending := tactile.DetectLineEnding(content)
 	lines := strings.Split(tactile.NormalizeLineEnding(string(content), "\n"), "\n")
 
 	// Validate line numbers
@@ -587,7 +584,7 @@ func planDeleteLines(path string, content []byte, startLine, endLine int) (lineE
 	result = append(result, lines[:startIdx]...)
 	result = append(result, lines[endIdx:]...)
 
-	output := tactile.NormalizeLineEnding(strings.Join(result, "\n"), ending)
+	output := string(tactile.SpliceLineEndings(content, strings.Join(result, "\n")))
 	if err := tools.RejectGoSyntaxRegression(path, content, []byte(output)); err != nil {
 		return lineEditPlan{}, err
 	}

@@ -26,9 +26,6 @@ type EnhancedEditValidator struct {
 
 	// RequireExactMatch - new content must match byte-for-byte
 	RequireExactMatch bool
-
-	// MaxStaleSeconds - file must be recently modified
-	MaxStaleSeconds int
 }
 
 // NewEnhancedEditValidator creates an enhanced edit validator.
@@ -36,7 +33,6 @@ func NewEnhancedEditValidator() *EnhancedEditValidator {
 	return &EnhancedEditValidator{
 		VerifyContext:     3,    // Check 3 lines before/after for corruption
 		RequireExactMatch: true, // Exact byte match required
-		MaxStaleSeconds:   30,   // Must be modified within 30s
 	}
 }
 
@@ -91,20 +87,11 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 		}
 	}
 
-	// CHECK 2: Timestamp freshness
-	age := time.Since(info.ModTime()).Seconds()
-	if age > float64(v.MaxStaleSeconds) {
-		return ValidationResult{
-			Verified:   false,
-			Confidence: 1.0,
-			Method:     "enhanced_edit_validation",
-			Error:      fmt.Sprintf("file not recently modified: %.1fs old", age),
-			Details: map[string]any{
-				"age_seconds": age,
-				"max_age":     v.MaxStaleSeconds,
-			},
-		}
-	}
+	age := time.Since(info.ModTime()).Seconds() // reported, never judged
+	// No timestamp check: the content checks below decide (the old text is
+	// gone, the new text is there). An edit that left the file as it was, or
+	// a validation late after a long build, kept an old time and was
+	// rejected as "not recently modified".
 
 	// CHECK 3: Read actual content
 	actualBytes, err := os.ReadFile(path)
@@ -300,7 +287,6 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 		Details: map[string]any{
 			"checks_passed": []string{
 				"file_exists",
-				"timestamp_freshness",
 				"old_content_removal",
 				"old_content_fragment_check",
 				"new_content_presence",

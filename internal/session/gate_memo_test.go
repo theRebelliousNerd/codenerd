@@ -41,7 +41,7 @@ func TestGateTests_AnUnchangedTreeIsMeasuredOnce(t *testing.T) {
 	ws := importerModule(t, aAfter)
 	result := mutationResult()
 	result.WrittenPaths = []string{"a/a.go"}
-	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aBefore)}
+	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aPrior)}
 	launches := countTestLaunches(t)
 
 	first, _ := gateTests(context.Background(), ws, result, true)
@@ -526,7 +526,7 @@ func TestGateMemo_TestOnlyEditInOwnPackageReusesImporterMeasurement(t *testing.T
 	result := mutationResult()
 	result.Intent.Verb = "/fix"
 	result.WrittenPaths = []string{"a/a.go"}
-	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aBefore)}
+	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aPrior)}
 	launches := countTestLaunches(t)
 
 	first, _ := gateTests(context.Background(), ws, result, true)
@@ -562,7 +562,7 @@ func TestGateTestsConcurrent_RunsOwnAndImportersAndCaches(t *testing.T) {
 	result := mutationResult()
 	result.Intent.Verb = "/fix"
 	result.WrittenPaths = []string{"a/a.go"}
-	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aBefore)}
+	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aPrior)}
 
 	own, _ := gateTestsConcurrent(context.Background(), ws, result, true)
 	if own.Verdict() != VerifyPassed || result.ImporterCheck.Verdict() != VerifyPassed {

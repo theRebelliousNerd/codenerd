@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/types"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
@@ -13,10 +14,7 @@ import (
 
 func newRealKernelForModularity(t *testing.T) *core.RealKernel {
 	t.Helper()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel failed: %v", err)
-	}
+	k := kerneltest.New(t)
 	return k
 }
 

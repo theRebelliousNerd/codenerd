@@ -960,6 +960,7 @@ type bootContext struct {
 	ouroborosQueue        chan core.ToolNeed
 	projectDB             *sql.DB
 	atomLoader            *prompt.AtomLoader
+	agentSync             *prsync.AgentSynchronizer
 	jitCompiler           *prompt.JITPromptCompiler
 	rolePrompts           types.RolePromptCompiler
 	promptAssembler       *articulation.PromptAssembler
@@ -1375,25 +1376,17 @@ func NewDomainCortex(workspace string) (*core.CortexKernel, error) {
 		return nil, fmt.Errorf("configure shared kernel predicates: %w", err)
 	}
 
-	// Each shard is an independent kernel that parses the schemas, policy and
-	// workspace projections on its own, so the seven are built concurrently
-	// (measured 2026-10-27: 4.9 s of a 28.6 s boot built one at a time).
-	// Registration stays in config order.
-	built := make([]*core.KernelShard, len(shardConfigs))
-	buildErrs := make([]error, len(shardConfigs))
-	var wg sync.WaitGroup
-	for i, scfg := range shardConfigs {
-		wg.Add(1)
-		go func(i int, scfg core.KernelShardConfig) {
-			defer wg.Done()
-			built[i], buildErrs[i] = core.NewKernelShard(scfg)
-		}(i, scfg)
+	// Each shard is an independent kernel over the same schemas, policy and
+	// workspace projections. They are booted once and cloned per shard
+	// (core.NewKernelShards): the seven boots were each a full parse and
+	// evaluation of the same constitution (measured 2026-10-27: 4.9 s of a
+	// 28.6 s boot built one at a time, and the cost of seven concurrent boots
+	// is the same CPU). Registration stays in config order.
+	built, err := core.NewKernelShards(shardConfigs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create shards: %w", err)
 	}
-	wg.Wait()
 	for i, scfg := range shardConfigs {
-		if buildErrs[i] != nil {
-			return nil, fmt.Errorf("failed to create shard %s: %w", scfg.Domain, buildErrs[i])
-		}
 		if err := cortex.RegisterShard(built[i]); err != nil {
 			return nil, fmt.Errorf("failed to register shard %s: %w", scfg.Domain, err)
 		}
@@ -1520,6 +1513,11 @@ func refreshWorldModelAtBoot(bctx *bootContext) {
 		logging.World("world model unchanged at boot")
 		return
 	}
+	// A refused spec file checks none of its obligations: say so, rather than
+	// let a green kernel read as "all requirements met".
+	for _, warning := range res.SpecWarnings {
+		fmt.Fprintf(os.Stderr, "Warning: spec file refused, none of its requirements are checked: %s\n", warning)
+	}
 	if res.Unchanged {
 		logging.World("world model unchanged at boot: files=%d in %v", res.FileCount, res.Duration)
 		return
@@ -1635,7 +1633,7 @@ func buildKernelDerivationMap(shardConfigs []core.KernelShardConfig) (*core.Deri
 	for _, p := range shards.SharedPredicates() {
 		shared[p] = struct{}{}
 	}
-	return core.BuildDerivationMapWithConsumerRoutes(schemas+"\n"+policy, core.IntentCorpusPredicates(), owners, shared, shards.PredicateConsumerRoutes(), "cortex")
+	return cachedDerivationMap(schemas+"\n"+policy, core.IntentCorpusPredicates(), owners, shared, shards.PredicateConsumerRoutes(), "cortex")
 }
 
 func defaultKernelShardConfigs(workspace string) []core.KernelShardConfig {
@@ -1789,6 +1787,7 @@ func initIntelligenceLayer(bctx *bootContext) error {
 		logging.Get(logging.CategoryContext).Info("Re-atomized %d agent prompts.yaml file(s) to the atom cap", n)
 	}
 	synchronizer := prsync.NewAgentSynchronizer(bctx.workspace, bctx.atomLoader)
+	bctx.agentSync = synchronizer
 	if err := synchronizer.SyncAll(bctx.ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Agent sync failed: %v\n", err)
 	}
@@ -2157,21 +2156,17 @@ func initShardManagement(bctx *bootContext) error {
 
 	nerdDir := filepath.Join(bctx.workspace, ".nerd")
 	bctx.shardManager.SetNerdDir(nerdDir)
-	bctx.shardManager.SetPromptLoader(func(ctx context.Context, agentName, nerdDir string) (int, error) {
-		return prompt.LoadAgentPrompts(ctx, agentName, nerdDir, bctx.embeddingEngine)
+	// Boot's SyncAll (initExecutionLayer) already moved every prompts.yaml into
+	// its knowledge DB, before the JIT compiler existed and before the agent
+	// DBs were registered with it, so the compiler sees freshly synced atoms
+	// in the same boot. A spawn re-syncs only its own agent, through the same
+	// synchronizer: unchanged YAML is skipped by hash, changed YAML replaces
+	// the atom set transactionally.
+	bctx.shardManager.SetPromptSyncer(func(ctx context.Context, agentName string) error {
+		_, err := bctx.agentSync.SyncAgent(ctx, agentName)
+		return err
 	})
 	bctx.shardManager.SetJITRegistrar(prompt.CreateJITDBRegistrar(bctx.jitCompiler))
-
-	// Sync all agent prompts.yaml -> knowledge DBs at boot (upsert semantics).
-	// This must run AFTER the agent knowledge DBs exist and AFTER the JIT
-	// registrar is wired so the freshly synced atoms are visible to the
-	// compiler in the same boot; otherwise the JIT would serve stale prompts
-	// until the next TUI/init run.
-	if promptCount, syncErr := prompt.ReloadAllPrompts(bctx.ctx, nerdDir, bctx.embeddingEngine); syncErr != nil {
-		logging.BootWarn("Failed to sync agent prompts: %v", syncErr)
-	} else if promptCount > 0 {
-		logging.Boot("Synced %d prompt atoms from YAML to knowledge DBs", promptCount)
-	}
 
 	bctx.shardManager.RegisterShard("tactile_router", func(id string, _ types.ShardConfig) types.ShardAgent {
 		shard := system.NewTactileRouterShard()
@@ -2674,6 +2669,9 @@ func initFinalExecutors(bctx *bootContext) error {
 	// callees_of, unreferenced_symbols) answer from the workspace-wide structure
 	// index. It needs no kernel, so it is wired for every boot with a workspace.
 	wireStructureProvider(bctx.workspace)
+	// confirm_spec_link settles a spec link's drift in the same kernel the
+	// world scan loaded the spec rows into.
+	wireSpecLinkConfirmer(bctx.kernel, bctx.workspace)
 	// The working set above queries code_element for every entity it selects.
 	// Nothing populated that predicate in a headless run -- only the CodeDOM
 	// scope does, and only VirtualStore.handleOpenFile opens one, which the

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"time"
 
+	"codenerd/internal/ownerstop"
 	"codenerd/internal/processutil"
 )
 
@@ -108,12 +109,13 @@ type verifyRunResult struct {
 // subprocess — through the supervisor below. A parent soft deadline (parent
 // Done with DeadlineExceeded) is ignored: verification keeps its own budget.
 // Only Canceled aborts -- the parent's, or, after the parent's deadline has
-// fired, the operation owner's (WithOwnerStop): a context's first error is
+// fired, the operation owner's (ownerstop.With): a context's first error is
 // permanent, so the parent alone can never report a cancel that comes later.
 //
 // Returns the captured output (partial output survives timeouts and cancels),
 // the outcome, and a human reason for non-pass outcomes.
 func runVerificationCommand(parent context.Context, dir string, env []string, budget time.Duration, name string, args []string, runner verifyCommandRunner) (out []byte, outcome VerifyOutcome, reason string) {
+	defer verificationSpan(parent, name, args)()
 	if err := parent.Err(); err != nil {
 		if errors.Is(err, context.Canceled) {
 			return nil, VerifyCanceled, "verification canceled before it started"
@@ -144,7 +146,7 @@ func runVerificationCommand(parent context.Context, dir string, env []string, bu
 		done <- verifyRunResult{out: out, err: err}
 	}()
 	parentDone := parent.Done()
-	ownerDone := ownerStop(parent)
+	ownerDone := ownerstop.Done(parent)
 	for {
 		select {
 		case r := <-done:

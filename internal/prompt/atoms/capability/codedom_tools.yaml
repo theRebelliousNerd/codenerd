@@ -16,7 +16,7 @@
     - `get_element`: `ref  kind  path:start-end  rev <rev>`, then the source with line numbers.
     - `find_text`: `path:line  ref  in string|comment|identifier  <the literal or comment line>`.
 
-    Kinds: `header`, `function`, `method`, `struct`, `interface`, `type`, `const`, `var`, `syntax_error`; Mangle `decl`, `rule`, `fact`, `query`.
+    Kinds: `header`, `function`, `method`, `struct`, `interface`, `type`, `const`, `var`, `syntax_error`; Mangle `decl`, `rule`, `fact`, `query`; Markdown `section`, `code_block`, `table`.
 
 - id: "capability/codedom_test_tools"
   category: "capability"
@@ -104,5 +104,5 @@
     1. **Query**: Find elements matching criteria
     2. **Analyze**: Review the results
     3. **Plan**: Decide which elements to modify
-    4. **Edit**: Go and Mangle by element ref; Markdown and other files CodeDOM does not parse by line range
+    4. **Edit**: Go, Mangle and Markdown (by section) by element ref; other files CodeDOM does not parse by line range
     5. **Verify**: Run impacted tests

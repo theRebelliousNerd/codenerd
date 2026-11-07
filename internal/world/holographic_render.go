@@ -17,6 +17,8 @@ const (
 	holoImporters        = "/importers"
 	holoOutline          = "/outline"
 	holoOutlineSignature = "/outline_signature"
+	holoSpecs            = "/specs"
+	holoSpecExcerpt      = "/spec_excerpt"
 )
 
 // PromptSectionWithBudget renders holographic context for prompt injection

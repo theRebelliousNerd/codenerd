@@ -24,6 +24,8 @@ func TestHolographicDimensionAtomsMatchThePolicy(t *testing.T) {
 		{holoImporters, working.HolographicDimImporters},
 		{holoOutline, working.HolographicDimOutline},
 		{holoOutlineSignature, working.HolographicDimOutlineSignature},
+		{holoSpecs, working.HolographicDimSpecs},
+		{holoSpecExcerpt, working.HolographicDimSpecExcerpt},
 	}
 	for _, pair := range pairs {
 		if pair[0] != pair[1] {

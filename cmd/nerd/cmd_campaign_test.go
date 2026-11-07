@@ -39,6 +39,7 @@ func (p *panelExecutor) Execute(ctx context.Context, req session.TaskRequest) (s
 // a failed tester must neither erase the coder's rejection nor let the panel
 // approve, and every specialist is addressed as /consult/<name>.
 func TestCampaignCLIDoor_RejectionSurvivesTimeout(t *testing.T) {
+	t.Parallel()
 	exec := &panelExecutor{}
 	var provider campaign.ConsultationProvider = consultation.New(session.TaskConsultationSpawner{Executor: exec})
 	board := campaign.NewShardAdvisoryBoard(provider)

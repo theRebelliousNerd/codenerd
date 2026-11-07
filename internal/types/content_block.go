@@ -247,6 +247,36 @@ func (m Message) WithTrailingText(text string) Message {
 	return m
 }
 
+// WithoutThinking returns the message without its BlockThinking blocks, and
+// how many it removed. Every other block -- the text, the tool calls, the
+// results, a provider's server-tool blocks -- stays, in its order, so the turn
+// still says and calls exactly what it did; only the replayed reasoning leaves.
+//
+// It changes nothing, and reports 0, when the message has no native blocks
+// (reasoning only ever rides blocks), carries no thinking block, or would be
+// left with no content at all: an assistant turn of reasoning and nothing else
+// would encode as an empty turn, which providers reject, so it keeps its
+// reasoning. Reasoning that is dropped cannot be recalled: a provider's
+// attestation is replayable only from the reply that produced it.
+func (m Message) WithoutThinking() (Message, int) {
+	if len(m.blocks) == 0 {
+		return m, 0
+	}
+	kept := make([]ContentBlock, 0, len(m.blocks))
+	dropped := 0
+	for _, b := range m.blocks {
+		if b.Kind == BlockThinking {
+			dropped++
+			continue
+		}
+		kept = append(kept, b)
+	}
+	if dropped == 0 || len(kept) == 0 {
+		return m, 0
+	}
+	return NewMessage(m.Role, kept...), dropped
+}
+
 // HasNativeBlocks reports whether this message carries a real ordered block
 // list rather than one lifted from the flat fields. Adapters use it to tell a
 // turn whose ordering is known from one whose ordering was never recorded.

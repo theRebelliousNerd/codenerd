@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 )
 
 // The secret-path gate through the executor's own safety check and the real
@@ -12,10 +12,7 @@ import (
 // production uses, and the constitution must still deny.
 func TestCheckSafety_RefusesEveryToolOnASecretFile(t *testing.T) {
 	t.Parallel()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kerneltest.New(t)
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
 	e.SetConfig(DefaultExecutorConfig())
 
@@ -52,10 +49,7 @@ func TestCheckSafety_RefusesEveryToolOnASecretFile(t *testing.T) {
 
 func TestCheckSafety_SecretRefusalSaysWhy(t *testing.T) {
 	t.Parallel()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kerneltest.New(t)
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
 	e.SetConfig(DefaultExecutorConfig())
 	_, reason := e.checkSafetyWithGate(ToolCall{ID: "w1", Name: "read_file", Args: map[string]any{"path": ".env"}}, true)

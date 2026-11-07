@@ -34,14 +34,14 @@ func newTracedKernel(t *testing.T, program string, facts []Fact) *RealKernel {
 	t.Helper()
 
 	k := &RealKernel{
-		facts:       make([]Fact, 0, len(facts)),
 		factIndex:   newEDBIndex(),
 		store:       factstore.NewSimpleInMemoryStore(),
 		policyDirty: true,
 	}
 	k.schemas = program
-	k.facts = append(k.facts, facts...)
-	k.rebuildFactIndexLocked()
+	for _, f := range facts {
+		k.storeFactLocked(k.canonFact(f), f)
+	}
 
 	// Installing clauses does not run the fixpoint; without this every derived
 	// predicate reads empty and the test passes for the wrong reason.

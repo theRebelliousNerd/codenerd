@@ -7,8 +7,10 @@ import (
 	"codenerd/internal/gates"
 	jitconfig "codenerd/internal/jit/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/ownerstop"
 	"codenerd/internal/testfacts"
 	"codenerd/internal/tools"
+	"codenerd/internal/turntime"
 	"codenerd/internal/types"
 	"codenerd/internal/world/lsp"
 	"context"
@@ -180,7 +182,7 @@ func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConf
 		return BuildVerification{Outcome: VerifySkipped, Reason: "no Go toolchain on PATH", Duration: time.Since(start)}
 	}
 
-	done := liveVerification(ctx, command)
+	done := liveVerification(ctx, command, "")
 	out, outcome, reason := runVerificationCommand(ctx, workspace, build.GetBuildEnv(userCfg, workspace), buildVerifyTimeout, command[0], command[1:], verifyBuildRunner)
 	done(outcome)
 	elapsed := time.Since(start)
@@ -655,7 +657,8 @@ func gateTests(ctx context.Context, workspace string, result *ExecutionResult, w
 	// Discovery runs every time: it is a listing, the run is the cost, and
 	// the importers' own files are part of what the run reads. A listing
 	// that did not finish is not "nothing imports this" and is not kept.
-	scope := discoverImporters(ctx, workspace, result)
+	impCtx := turntime.WithVerifyKind(ctx, turntime.KindImporter)
+	scope := discoverImporters(impCtx, workspace, result)
 	if scope.why != "" {
 		result.ImporterCheck = TestVerification{Outcome: VerifySkipped, Reason: scope.why}
 		return v, uncovered
@@ -666,7 +669,7 @@ func gateTests(ctx context.Context, workspace string, result *ExecutionResult, w
 		result.ImporterCheck = run.v
 		return v, uncovered
 	}
-	result.ImporterCheck = verifyImporters(ctx, workspace, result, scope.runnable)
+	result.ImporterCheck = verifyImporters(impCtx, workspace, result, scope)
 	rememberGate(result, key, result.ImporterCheck, nil)
 	return v, uncovered
 }
@@ -692,7 +695,7 @@ func gateTestsConcurrent(ctx context.Context, workspace string, result *Executio
 		v      TestVerification
 		cached bool
 	}
-	impCtx, cancelImp := context.WithCancel(withoutWorkingLoop(ctx))
+	impCtx, cancelImp := context.WithCancel(turntime.WithVerifyKind(withoutWorkingLoop(ctx), turntime.KindImporter))
 	defer cancelImp()
 	impCh := make(chan impOutcome, 1)
 	go func() {
@@ -706,7 +709,7 @@ func gateTestsConcurrent(ctx context.Context, workspace string, result *Executio
 			impCh <- impOutcome{scope: scope, key: key, v: v, cached: true}
 			return
 		}
-		v := verifyImporters(impCtx, workspace, result, scope.runnable)
+		v := verifyImporters(impCtx, workspace, result, scope)
 		impCh <- impOutcome{scope: scope, key: key, v: v}
 	}()
 
@@ -1492,7 +1495,7 @@ func diagnosticOwnerStopped(ctx context.Context) bool {
 		return true
 	}
 	select {
-	case <-ownerStop(ctx):
+	case <-ownerstop.Done(ctx):
 		return true
 	default:
 		return false
@@ -1514,7 +1517,7 @@ func diagnosticRequestContext(parent context.Context) (context.Context, context.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		parentDone, ownerDone := parent.Done(), ownerStop(parent)
+		parentDone, ownerDone := parent.Done(), ownerstop.Done(parent)
 		for {
 			select {
 			case <-ctx.Done():

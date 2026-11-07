@@ -47,6 +47,7 @@ func vecIndexRows(t *testing.T, ls *store.LocalStore) int64 {
 // (audit embedding-stats-observation-boundary). Stats reads; it attaches
 // nothing and calls no provider.
 func TestEmbeddingStats_ObservesWithoutAttachingAnEngine(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(ws, ".nerd"), 0o755); err != nil {
 		t.Fatal(err)

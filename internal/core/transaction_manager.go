@@ -14,6 +14,7 @@ import (
 
 	"codenerd/internal/atomicfile"
 	"codenerd/internal/logging"
+	"codenerd/internal/tactile"
 	"codenerd/internal/types"
 )
 
@@ -404,16 +405,12 @@ func (tm *TransactionManager) Commit(ctx context.Context) error {
 				return txn.Error
 			}
 
-			content := edit.Content
-			ending, exists, err := existingLineEnding(edit.FilePath)
+			content, err := tactile.SpliceOntoFile(edit.FilePath, string(edit.Content))
 			if err != nil {
 				tm.rollback(txn, committedFiles)
 				txn.Status = TxnStatusAborted
-				txn.Error = fmt.Errorf("failed to detect line ending: %s - %w", edit.FilePath, err)
+				txn.Error = fmt.Errorf("failed to read existing file for line endings: %s - %w", edit.FilePath, err)
 				return txn.Error
-			}
-			if exists {
-				content = []byte(normalizeLineEnding(string(content), ending))
 			}
 
 			// Write the file.

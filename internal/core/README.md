@@ -276,10 +276,15 @@ Used by:
 
 ### 1. Mangle Engine Rebuild
 
-The engine rebuilds on every fact change. This ensures:
-- IDB rules always reflect current EDB
-- No stale derivations
-- Consistent query results
+`evaluate` in `kernel_eval.go` tries three paths in order: incremental DRed, then cone, then full fixpoint. `ensureEvaluated` triggers this lazily when facts changed since the last evaluation.
+
+1. Incremental DRed (`evaluateDRedLocked` in `kernel_eval_dred.go`) maintains the live store in place. Per stratum `dredRun.stratum` runs aggregates first via `dredRun.aggregate` in `kernel_eval_dred_agg.go` (by-group delta maintenance, else per-group recompute via `recomputeGroup`), then 1. over-delete against the old state, 2. re-derive via `dredRun.rederive` in `kernel_eval_dred_rederive.go` for what still has support in the new state, 3. semi-naive insert against the new state. EDB deltas come from `edbIndex` in `kernel_edb_index.go` and `edbFacts` in `kernel_edb_facts.go`.
+
+DRed falls back when `coneIneligibilityLocked` in `kernel_eval_cone.go` reports a reason (write set unknown, no evaluated store, tainted store, changed program, stale atom cache), when there is nothing to maintain, or when an asserted row sits beside a maintained aggregate. A change larger than `dredMaxChangeRatio` past `dredCutoverMinRows` returns `errChangeTooLarge` and goes straight to the full fixpoint; a mid-pass `errDRedFallsBack` or other error taints the store and goes to the full fixpoint.
+
+2. Cone (`evaluateConeLocked` in `kernel_eval_cone.go`) re-derives only the written predicates' cone via `rederiveConeLocked`, which replaces those rows and runs the engine over the cone plan's rules. It returns `errConeIneligible` when `coneIneligibilityLocked` reports a reason; any other cone error taints the store and falls through.
+
+3. Full fixpoint rebuilds a fresh store via `newEvaluationFactStore` in `kernel_eval.go`, repopulates it from the EDB, and evaluates the stratified program to fixpoint. It is the repair path for tainted stores and ineligible or failed incremental passes.
 
 ### 2. Fact Immutability
 
@@ -384,18 +389,51 @@ var (
 
 The `internal/core/` package has been modularized for better maintainability:
 
-### Kernel Modularization (8 files)
+### Kernel Modularization (41 files)
 
 | File | Purpose |
 |------|---------|
 | `kernel_types.go` | Core type definitions (RealKernel, Fact) |
 | `kernel_init.go` | Constructor, Mangle engine boot |
-| `kernel_facts.go` | LoadFacts, Assert, Retract |
+| `kernel_facts.go` | Fact storage, Assert, Retract |
+| `kernel_facts_intern.go` | Fact interning and canonicalization |
+| `kernel_fact_decl.go` | Fact declarations |
+| `kernel_edb_facts.go` | EDB fact container |
+| `kernel_edb_index.go` | EDB index |
+| `kernel_edb_delta.go` | EDB deltas |
+| `kernel_edb_writes.go` | EDB write path |
 | `kernel_query.go` | Query execution, pattern matching |
-| `kernel_eval.go` | Policy evaluation, rule execution |
+| `kernel_eval.go` | Policy evaluation, rule execution (`evaluate`, `ensureEvaluated`) |
+| `kernel_eval_cone.go` | Cone evaluation path |
+| `kernel_cone_plan.go` | Cone planning |
+| `kernel_cone_store.go` | Cone backing store |
+| `kernel_eval_dred.go` | Incremental DRed driver |
+| `kernel_eval_dred_plan.go` | DRed planning |
+| `kernel_eval_dred_trigger.go` | DRed trigger deltas |
+| `kernel_eval_dred_rederive.go` | DRed re-derivation |
+| `kernel_eval_dred_agg.go` | DRed aggregates by group |
+| `kernel_eval_dred_agg_delta.go` | Aggregate delta maintenance |
+| `kernel_eval_dred_par.go` | Parallel DRed variants |
+| `kernel_eval_dred_profile.go` | DRed profiling and cutover thresholds |
+| `kernel_eval_failure.go` | Evaluation failure handling |
 | `kernel_validation.go` | Schema validation, safety checks |
 | `kernel_policy.go` | Policy/schema loading |
 | `kernel_virtual.go` | Virtual predicate handling |
+| `kernel_accessors.go` | Kernel accessors |
+| `kernel_content_fingerprint.go` | Program content fingerprinting |
+| `kernel_explanation.go` | Explanations |
+| `kernel_generation.go` | Kernel generation tracking |
+| `kernel_inclusion.go` | Predicate inclusion |
+| `kernel_overlay_store.go` | Overlay store |
+| `kernel_provenance.go` | Provenance |
+| `kernel_retract_plan.go` | Retraction planning |
+| `kernel_rule_bounds.go` | Rule bounds |
+| `kernel_safe_action.go` | Safe-action derivation |
+| `kernel_shard.go` | Shard kernel |
+| `kernel_sysfacts.go` | System facts |
+| `kernel_transactions.go` | Transactions |
+| `kernel_undeclared.go` | Undeclared-predicate handling |
+| `kernel_utils.go` | Shared helpers |
 
 ### VirtualStore Modularization
 

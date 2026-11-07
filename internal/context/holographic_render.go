@@ -19,6 +19,8 @@ const (
 	HolographicDimImporters        = "/importers"
 	HolographicDimOutline          = "/outline"
 	HolographicDimOutlineSignature = "/outline_signature"
+	HolographicDimSpecs            = "/specs"
+	HolographicDimSpecExcerpt      = "/spec_excerpt"
 )
 
 // DecideRenderCount derives how many of one holographic pool the renderer
@@ -57,7 +59,7 @@ func (w *WorkingSet) DecideRenderCount(ctx context.Context, dimension, target st
 	}
 	// The signature rule divides the outline allowance by the entries shown.
 	// Zero entries has no per-entry allowance, and fn:div would abort.
-	if dimension == HolographicDimOutlineSignature && total < 1 {
+	if runeAllowance(dimension) && total < 1 {
 		return 0, fmt.Errorf("holographic outline signature allowance needs the entries being rendered, got %d", total)
 	}
 	facts := []mangle.Fact{
@@ -88,10 +90,16 @@ func (w *WorkingSet) DecideRenderCount(ctx context.Context, dimension, target st
 	if n < 0 {
 		n = 0
 	}
-	if dimension != HolographicDimOutlineSignature && n > total {
+	if !runeAllowance(dimension) && n > total {
 		n = total
 	}
 	return n, nil
+}
+
+// runeAllowance reports a dimension whose answer is a per-entry rune
+// allowance, not a count of lines.
+func runeAllowance(dimension string) bool {
+	return dimension == HolographicDimOutlineSignature || dimension == HolographicDimSpecExcerpt
 }
 
 // validHolographicDimension is query hygiene. The dimension is spliced into

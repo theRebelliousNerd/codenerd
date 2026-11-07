@@ -10,6 +10,7 @@ import (
 )
 
 func TestYolo_TogglesAndPersists(t *testing.T) {
+	t.Parallel()
 	m := NewTestModel()
 	m.workspace = t.TempDir()
 	if err := os.MkdirAll(filepath.Join(m.workspace, ".nerd"), 0o755); err != nil {

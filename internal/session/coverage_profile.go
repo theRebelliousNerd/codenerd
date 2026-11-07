@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/turntime"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
@@ -232,6 +233,7 @@ func verifyTestsWithCoverage(
 	packages []string,
 	writtenPaths []string,
 ) (TestVerification, []UncoveredBlock) {
+	ctx = turntime.WithVerifyKind(ctx, turntime.KindCoverage)
 	tmp, err := os.CreateTemp("", "coverprofile-*.out")
 	if err != nil {
 		// No profile is possible, but the tests still matter.

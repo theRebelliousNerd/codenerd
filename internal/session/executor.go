@@ -39,6 +39,7 @@ import (
 	"codenerd/internal/prompt"
 	"codenerd/internal/sessionlog"
 	"codenerd/internal/tools"
+	"codenerd/internal/turntime"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
 )
@@ -326,6 +327,9 @@ type ExecutorConfig struct {
 	// LSPTimeout bounds one language-server diagnostic request
 	// (session.lsp_timeout). Zero takes the section's default.
 	LSPTimeout time.Duration
+	// TestSelectionTimeout bounds the importer gate's test-selection
+	// analysis (session.test_selection_timeout).
+	TestSelectionTimeout time.Duration
 
 	// Working is the working section of .nerd/config.json: the spans the
 	// working policy decides a tool loop's regime, steering, stop and finalize
@@ -1152,6 +1156,12 @@ type ExecutionResult struct {
 	// Duration is how long the execution took.
 	Duration time.Duration
 
+	// Timing is where Duration went: model calls, tool execution, each
+	// verification kind, repair rounds, the rest (package turntime has the
+	// accounting rule). Set when the turn is settled; the chat's end-of-turn
+	// line and the turn_cost log line render it.
+	Timing turntime.Split
+
 	// ToolErrors are the tool failures the working loop recorded, in order.
 	// On a turn that ended in an error they are evidence about it; on one
 	// that recovered they are history, and only the closing evidence says
@@ -1320,6 +1330,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	}
 	ctx = e.withSessionContext(ctx)
 	ctx = withDiagnosticTimeout(ctx, e.diagnosticTimeout())
+	ctx = withTestSelectionTimeout(ctx, e.configSnapshot().TestSelectionTimeout)
 
 	result := &ExecutionResult{}
 	if contract, ok := evidence.ContractFromContext(ctx); ok {
@@ -1381,6 +1392,19 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// shares the session id, so a session-level delta absorbed sibling shards'
 	// tokens (one coder turn read 4.9 M). Per-turn counts are exact and local.
 	ctx = usage.WithTurnID(ctx, fmt.Sprintf("%s#%d#%d", e.SessionID(), auditTurnNum, time.Now().UnixNano()))
+	// The turn's time ledger: where its wall time goes (package turntime).
+	// A turn always installs its own, so a delegated turn's model and tool
+	// time is its own and the parent sees the delegation as one tool call.
+	ledger := turntime.New()
+	ctx = turntime.WithLedger(ctx, ledger)
+	defer func() {
+		ledger.Close()
+		// Exits that never reached persistTurn (a baseline that does not fit,
+		// a restriction that cannot be recorded) still report their time.
+		if turnResult != nil && !turnResult.Timing.Recorded() {
+			turnResult.Timing = ledger.Snapshot()
+		}
+	}()
 	// Settle this turn's prompt-atom selections against its outcome. The
 	// compiler records what was selected; only here is it known whether the
 	// selection worked. The id is read into a local rather than out of ctx at
@@ -2453,6 +2477,9 @@ func (e *Executor) persistTurn(ctx context.Context, input string, intent percept
 	// Cost denominator: usage delta across this turn plus the kernel verdict.
 	promptTokens, completionTokens := telemetry.usageBefore.delta(snapshotTurnUsage(ctx, sessionID))
 	outcome := e.resolveTurnOutcome(result)
+	// The time split to this point: persisting is the turn's last phase, and
+	// the same split goes on the result the chat renders.
+	result.Timing = turntime.From(ctx).Snapshot()
 	e.assertTurnCost(turnCost{
 		sessionID:        sessionID,
 		turnNumber:       turnNumber,
@@ -2460,6 +2487,7 @@ func (e *Executor) persistTurn(ctx context.Context, input string, intent percept
 		completionTokens: completionTokens,
 		toolCalls:        result.ToolCallsExecuted,
 		outcome:          outcome,
+		timing:           result.Timing,
 	})
 
 	// Report the turn to the learning sink with the same verdict turn_cost

@@ -62,7 +62,9 @@ const (
 	KindSyntaxError Kind = "syntax_error"
 )
 
-// Language names.
+// Language names. LanguageOf names code languages only; Markdown is modelled
+// (Parse accepts it, IsMarkdownPath names it) but is not a language the
+// structure index walks, imports from or resolves names in.
 const (
 	LangGo         = "go"
 	LangMangle     = "mangle"
@@ -70,6 +72,7 @@ const (
 	LangTypeScript = "typescript"
 	LangTSX        = "tsx"
 	LangJavaScript = "javascript"
+	LangMarkdown   = "markdown"
 )
 
 // IsScriptLang reports a language whose element model comes from a
@@ -150,6 +153,13 @@ type Element struct {
 
 	// Err is the parser's message for a syntax_error element.
 	Err string
+
+	// Level is the heading level (1-6) of a Markdown section.
+	Level int
+	// path is a Markdown section's heading texts from the outermost heading to
+	// its own. headEnd is the byte offset where its heading construct ends.
+	path    []string
+	headEnd int
 }
 
 // ImportedName is one name a Python from-import or a TS/JS named import binds.
@@ -253,8 +263,9 @@ type SyntaxError struct {
 	Msg          string
 }
 
-// LanguageOf returns the language CodeDOM models path in, or "" for a file it
-// has no element model for.
+// LanguageOf returns the code language CodeDOM models path in, or "" for a
+// file with none. Markdown has an element model but is not a code language:
+// ask IsMarkdownPath, or Parse, which accepts it.
 func LanguageOf(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".go":
@@ -287,6 +298,9 @@ func Normalize(src string) string {
 // Parse builds the model of path from src. ok is false for a language
 // CodeDOM has no model for.
 func Parse(path, src string) (f *File, ok bool) {
+	if IsMarkdownPath(path) {
+		return ParseMarkdown(path, src), true
+	}
 	switch LanguageOf(path) {
 	case LangGo:
 		return ParseGo(path, src), true
@@ -303,6 +317,9 @@ func Parse(path, src string) (f *File, ok bool) {
 // file (the workspace-relative one the structure index addresses). When root
 // is empty, resolved files are absolute if absPath is.
 func ParseRoot(path, absPath, root, src string) (f *File, ok bool) {
+	if IsMarkdownPath(path) {
+		return ParseMarkdown(path, src), true
+	}
 	switch LanguageOf(path) {
 	case LangGo:
 		return ParseGo(path, src), true
@@ -427,6 +444,9 @@ func (f *File) Lookup(query string) []*Element {
 	}
 	if e := f.Element(query); e != nil {
 		return []*Element{e}
+	}
+	if f.Language == LangMarkdown {
+		return f.lookupMarkdown(query)
 	}
 	recv, name, qualified := splitReceiverQuery(query)
 	var out []*Element

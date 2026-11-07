@@ -2,13 +2,53 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"codenerd/internal/gates"
 )
+
+// The policy corpus gate checks its files concurrently; its findings are the
+// failing files, once each, in the order the globs list them, however the
+// workers interleave.
+func TestPolicyCorpusGate_ConcurrentChecksKeepFindingsInFileOrder(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := filepath.Join(root, "internal", "core", "defaults", "policy")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var wantFailing []string
+	for i := 0; i < 12; i++ {
+		name := fmt.Sprintf("rule_%02d.mg", i)
+		body := fmt.Sprintf("Decl fixture_ok_%02d(X).\nfixture_ok_%02d(1).\n", i, i)
+		if i%3 == 1 {
+			body = fmt.Sprintf("fixture_bad_%02d(X :- .\n", i)
+			wantFailing = append(wantFailing, "internal/core/defaults/policy/"+name)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := policyCorpusGate{}.Measure(t.Context(), root)
+	if m.Status != gates.MeasureFail {
+		t.Fatalf("status = %s (%s), want fail", m.Status, m.Reason)
+	}
+	var got []string
+	for _, f := range m.Findings {
+		got = append(got, filepath.ToSlash(f.File))
+	}
+	if !slices.Equal(got, wantFailing) {
+		t.Fatalf("findings = %v\nwant       %v", got, wantFailing)
+	}
+	if !strings.Contains(m.Reason, "12 file(s) checked") {
+		t.Fatalf("reason = %q", m.Reason)
+	}
+}
 
 // `nerd gates measure` twice around a planted vet finding, then `nerd gates
 // diff`: the second snapshot is worse on G2, the diff names the new finding
@@ -74,6 +114,7 @@ func TestGatesCommand_MeasureTwiceAndDiffRefusesARegression(t *testing.T) {
 // corpus's failing Mangle examples from the files on disk -- the count the
 // atom-corpus ratchet test holds.
 func TestGatesCommand_CodeNERDTreeGates(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)

@@ -126,6 +126,7 @@ func TestCampaignRunIsRetiredByItsTerminalReceipt(t *testing.T) {
 // chat quitting before it showed the completion) used to rewrite /completed
 // to /paused.
 func TestStopKeepsACompletedRunCompleted(t *testing.T) {
+	t.Parallel()
 	m, orch := settledRun(t)
 	receipt := awaitSettled(t, m.runCampaignOrchestrator())
 	if receipt.status != campaign.StatusCompleted {

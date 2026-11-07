@@ -59,10 +59,15 @@ type FileCache struct {
 
 // cacheOwnerDir resolves the workspace that owns the file-cache manifest for a
 // scan rooted at scanRoot. It walks up from scanRoot (inclusive) to the nearest
-// ancestor containing a .nerd/config.json file, bounded by the filesystem root.
-// If no such ancestor exists, it returns scanRoot unchanged, preserving the
-// previous behaviour for tests and non-workspace scans. A stray .nerd/cache
-// directory without a config.json never captures the cache.
+// ancestor containing a .nerd/config.json file, bounded by the filesystem root
+// and by the repository scanRoot sits in: a directory holding a .git entry
+// (a repository root, or a linked worktree's .git file) owns its own manifest
+// when it has no config of its own. Climbing past it put a nested worktree's
+// files into the enclosing checkout's manifest; that checkout's next scan read
+// them as 459 deletions and re-resolved 138 importers (2026-11-07). With no
+// owner found it returns scanRoot unchanged, the behaviour for tests and
+// non-workspace scans. A stray .nerd/cache directory without a config.json
+// never captures the cache.
 func cacheOwnerDir(scanRoot string) string {
 	abs, err := filepath.Abs(scanRoot)
 	if err != nil {
@@ -71,6 +76,9 @@ func cacheOwnerDir(scanRoot string) string {
 	dir := filepath.Clean(abs)
 	for {
 		if _, err := os.Stat(filepath.Join(dir, ".nerd", "config.json")); err == nil {
+			return dir
+		}
+		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
@@ -310,15 +318,11 @@ func (c *FileCache) Stats() CacheStats {
 }
 
 func (c *FileCache) statsLocked() CacheStats {
-	dirty := 0
-	if c.Dirty {
-		dirty = len(c.Entries)
-	}
 	return CacheStats{
 		Hits:    c.hits.Load(),
 		Misses:  c.misses.Load(),
 		Entries: len(c.Entries),
-		Dirty:   dirty,
+		Unsaved: c.Dirty,
 	}
 }
 
@@ -333,7 +337,10 @@ type CacheStats struct {
 	Hits    int64 // Number of cache hits
 	Misses  int64 // Number of cache misses
 	Entries int   // Number of cached entries
-	Dirty   int   // Number of entries pending persistence
+	// Unsaved is whether the manifest has changes not yet written. The cache
+	// keeps one flag, not a per-entry count; it used to print len(Entries)
+	// here, so every scan that refreshed a single stamp read as "dirty=6841".
+	Unsaved bool
 }
 
 // HitRate returns the cache hit rate as a percentage (0-100).
@@ -348,6 +355,6 @@ func (s CacheStats) HitRate() float64 {
 
 // String returns a human-readable summary of cache statistics.
 func (s CacheStats) String() string {
-	return fmt.Sprintf("hits=%d misses=%d entries=%d dirty=%d hitRate=%.1f%%",
-		s.Hits, s.Misses, s.Entries, s.Dirty, s.HitRate())
+	return fmt.Sprintf("hits=%d misses=%d entries=%d unsaved=%t hitRate=%.1f%%",
+		s.Hits, s.Misses, s.Entries, s.Unsaved, s.HitRate())
 }

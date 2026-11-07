@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/perception"
 	"codenerd/internal/turnjudge"
 	"codenerd/internal/typesafe"
@@ -66,10 +67,7 @@ func fakeJevFor(t *testing.T, probs map[string]float64) (*typesafe.Client, *conf
 func TestInstructionAuthorization_ThenCommitItIsCarriedAndTheJudgmentsAreTakenBack(t *testing.T) {
 	logger = zap.NewNop()
 	client, ts := fakeJevFor(t, map[string]float64{"asks_to_commit": 0.98, "rules_out_changes": 0.02, "hypothetical": 0.02})
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kerneltest.New(t)
 	got := authorizationFromJev(t.Context(), client, ts, k, "fix the typo in README.md, then commit it")
 	if !got.Has(perception.AuthorizeCommit) {
 		t.Fatalf("authorization = %v, want commit", got.Kinds())
@@ -111,10 +109,7 @@ func TestInstructionAuthorization_NothingAuthorizedWithoutAYes(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = client
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kerneltest.New(t)
 	if got := authorizationFromJev(t.Context(), failing, ts, k, "fix it, then commit it"); !got.IsZero() {
 		t.Fatalf("a failed Jev call produced %v", got.Kinds())
 	}

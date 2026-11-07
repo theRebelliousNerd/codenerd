@@ -73,12 +73,18 @@ type WorkingConfig struct {
 	HolographicTypesSharePercent      int `json:"holographic_types_share_percent,omitempty"`
 	HolographicImportersSharePercent  int `json:"holographic_importers_share_percent,omitempty"`
 	HolographicOutlineSharePercent    int `json:"holographic_outline_share_percent,omitempty"`
+	HolographicSpecsSharePercent      int `json:"holographic_specs_share_percent,omitempty"`
 	// HolographicOutlineSignatureFloor is the minimum runes kept of one
 	// outline signature (/working_holographic_outline_signature_floor). The
 	// per-entry allowance is the outline block's bytes divided by the entries
 	// the count decision kept, and it is never below this floor. It is not a
 	// share of the budget.
 	HolographicOutlineSignatureFloor int `json:"holographic_outline_signature_floor,omitempty"`
+	// HolographicSpecExcerptFloor is the minimum runes kept of one spec
+	// section's excerpt (/working_holographic_spec_excerpt_floor). The
+	// per-entry allowance is the specs block's bytes divided by the entries the
+	// count decision kept, and it is never below this floor. It is not a share.
+	HolographicSpecExcerptFloor int `json:"holographic_spec_excerpt_floor,omitempty"`
 }
 
 // BytesPerToken converts a token budget into the byte count a renderer
@@ -164,7 +170,9 @@ func DefaultWorkingConfig() WorkingConfig {
 		HolographicTypesSharePercent:      1,
 		HolographicImportersSharePercent:  1,
 		HolographicOutlineSharePercent:    2,
+		HolographicSpecsSharePercent:      2,
 		HolographicOutlineSignatureFloor:  40,
+		HolographicSpecExcerptFloor:       160,
 	}
 }
 
@@ -214,7 +222,9 @@ func (c WorkingConfig) WithDefaults() WorkingConfig {
 		{&c.HolographicTypesSharePercent, &d.HolographicTypesSharePercent},
 		{&c.HolographicImportersSharePercent, &d.HolographicImportersSharePercent},
 		{&c.HolographicOutlineSharePercent, &d.HolographicOutlineSharePercent},
+		{&c.HolographicSpecsSharePercent, &d.HolographicSpecsSharePercent},
 		{&c.HolographicOutlineSignatureFloor, &d.HolographicOutlineSignatureFloor},
+		{&c.HolographicSpecExcerptFloor, &d.HolographicSpecExcerptFloor},
 	} {
 		if *f.v == 0 {
 			*f.v = *f.def
@@ -266,6 +276,7 @@ func (c WorkingConfig) Check(prefix string) []Problem {
 		{"holographic_types_share_percent", c.HolographicTypesSharePercent},
 		{"holographic_importers_share_percent", c.HolographicImportersSharePercent},
 		{"holographic_outline_share_percent", c.HolographicOutlineSharePercent},
+		{"holographic_specs_share_percent", c.HolographicSpecsSharePercent},
 	} {
 		atLeast(share.field, share.v, 1, "a share below 1 withholds that block on every render")
 		if share.v > 100 {
@@ -280,6 +291,7 @@ func (c WorkingConfig) Check(prefix string) []Problem {
 	// The floor is a rune count, not a percent, so it has no upper bound.
 	// WithDefaults has already turned an absent 0 into the default.
 	atLeast("holographic_outline_signature_floor", c.HolographicOutlineSignatureFloor, 1, "a floor below 1 keeps no characters of an outline signature")
+	atLeast("holographic_spec_excerpt_floor", c.HolographicSpecExcerptFloor, 1, "a floor below 1 keeps no characters of a spec excerpt")
 	if c.StallRounds < c.CommitRounds {
 		out = append(out, Problem{
 			Severity: SeverityError,
@@ -313,6 +325,8 @@ func (c WorkingConfig) Params() []Param {
 		{Key: "/working_holographic_types_share_percent", Value: int64(c.HolographicTypesSharePercent)},
 		{Key: "/working_holographic_importers_share_percent", Value: int64(c.HolographicImportersSharePercent)},
 		{Key: "/working_holographic_outline_share_percent", Value: int64(c.HolographicOutlineSharePercent)},
+		{Key: "/working_holographic_specs_share_percent", Value: int64(c.HolographicSpecsSharePercent)},
 		{Key: "/working_holographic_outline_signature_floor", Value: int64(c.HolographicOutlineSignatureFloor)},
+		{Key: "/working_holographic_spec_excerpt_floor", Value: int64(c.HolographicSpecExcerptFloor)},
 	}
 }

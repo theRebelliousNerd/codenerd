@@ -292,4 +292,7 @@ func renderChatTurn(w io.Writer, errW io.Writer, turnNum int, result *session.Ex
 	}
 	fmt.Fprintf(w, "[tools executed=%d ok=%d writes=%d err=%s elapsed=%s]\n",
 		result.ToolCallsExecuted, result.SuccessfulToolCalls, result.WriteToolEffects, errFlag, elapsed)
+	if line := result.Timing.Line(); line != "" {
+		fmt.Fprintf(w, "[%s]\n", line)
+	}
 }

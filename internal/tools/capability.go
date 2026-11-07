@@ -47,7 +47,7 @@ var builtinCapabilities = func() map[string]Capability {
 		"find_symbol", "package_outline", "callers_of", "callees_of",
 		"unreferenced_symbols", "importers_of", "predicate_outline",
 		// Evidence and settlement the kernel records.
-		"get_impacted_tests", "run_impacted_tests", "run_check", "family_no_change",
+		"get_impacted_tests", "run_impacted_tests", "run_check", "family_no_change", "confirm_spec_link",
 		// The shell.
 		"run_command",
 		// The only writer of generated files under the shell gate: it runs a

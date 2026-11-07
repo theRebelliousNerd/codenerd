@@ -645,7 +645,7 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	}
 
 	// Phase 12: Prompt Sync
-	i.runPhase12PromptSync(ctx, runner, result, nerdDir)
+	i.runPhase12PromptSync(ctx, runner, result)
 	if err := checkContext("prompt synchronization"); err != nil {
 		return result, err
 	}

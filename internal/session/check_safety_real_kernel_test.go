@@ -1,6 +1,7 @@
 package session
 
 import (
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/types"
 	"strings"
 	"testing"
@@ -10,10 +11,7 @@ import (
 
 func TestCheckSafety_GlobAndWriteFile_RealKernel(t *testing.T) {
 	t.Parallel()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kerneltest.New(t)
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
 	e.SetConfig(DefaultExecutorConfig())
 

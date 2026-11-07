@@ -1,4 +1,4 @@
-# CodeDOM First — edit Go and Mangle code by element, validated before it is written
+# CodeDOM First — edit Go and Mangle code and Markdown docs by element, validated before it is written
 
 - id: "capability/codedom_first"
   category: "capability"
@@ -47,4 +47,25 @@
 
     A file that does not parse lists its broken region as a `syntax_error` element: see it with `get_element`, repair it with `replace_element ref=syntax_error`.
 
-    Line-range and whole-file editing is for files CodeDOM does not parse: Markdown, YAML, other languages.
+    Line-range and whole-file editing is for files CodeDOM does not parse: plain text, YAML, other languages.
+
+- id: "capability/codedom_first/markdown"
+  section_of: "capability/codedom_first"
+  section_order: 3
+  category: "capability"
+  is_mandatory: false
+  shard_types: [coder, reviewer, tester]
+  requires_tools: [get_elements, get_element, edit_element, replace_element, insert_element, delete_element]
+  description: "Edit Markdown docs by section with the element verbs: heading-path refs, re-levelled inserts"
+  content: |
+    ## CodeDOM First (Markdown)
+
+    A Markdown file (`.md`) is parsed too. Every heading opens a **section** element: its heading, body and nested sections, ref = its heading path (`docs/guide.md:Install > Linux`; a repeated heading is `Install > Linux#2`). Fenced code blocks and tables are elements (`... > code#1`, `... > table#1`); `#` lines inside fences and front matter are not headings.
+
+    The same verbs apply:
+    - `edit_element ref="Install > Linux" old=... new=...`: text inside a section.
+    - `replace_element`: a whole section; `source` starts with its heading.
+    - `insert_element anchor=<section> position=before|after|inside source="## Heading..."`: a new section; its headings are re-levelled to fit and the answer says by how much.
+    - `delete_element`: a section with its nested sections.
+
+    A ref to a section that is gone is refused with the sections the file has.

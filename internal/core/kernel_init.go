@@ -44,7 +44,6 @@ func filterBootFacts(bootFacts []Fact) []Fact {
 // kernels with a nil bus whose Subscribe would panic.)
 func newRealKernelBase() *RealKernel {
 	return &RealKernel{
-		facts:             make([]Fact, 0),
 		cachedAtoms:       make([]ast.Atom, 0), // OPTIMIZATION: Initialize atom cache
 		factIndex:         newEDBIndex(),
 		bootFacts:         make([]Fact, 0),
@@ -67,10 +66,7 @@ func (k *RealKernel) injectBootFacts() {
 	// rebuilding the index over every remaining fact.
 	k.rebuildFactIndexLocked()
 	for _, f := range filterBootFacts(k.bootFacts) {
-		if !k.factIndex.insert(k.canonFact(f), f) {
-			continue
-		}
-		k.facts = append(k.facts, f)
+		k.storeFactLocked(k.canonFact(f), f)
 	}
 }
 
@@ -334,9 +330,10 @@ func (k *RealKernel) loadMangleFiles() error {
 		logging.Get(logging.CategoryKernel).Error("Failed to load the constitution: %v", err)
 		return err
 	}
-	schemasBuilder.WriteString(constSchemas)
-	policyBuilder.WriteString(constPolicy)
 	k.constSchemas, k.constPolicy = constSchemas, constPolicy
+	// Fast path: when no user extensions exist, k.schemas/k.policy alias the
+	// cached constitution strings directly (no builder copy). Builders below
+	// accumulate only user extensions; the final assembly prepends const.
 	for _, mod := range coreModules {
 		k.loadedPolicyFiles[strings.ToLower(mod)] = struct{}{}
 	}
@@ -467,15 +464,20 @@ func (k *RealKernel) loadMangleFiles() error {
 
 			// Track path and content for self-healing
 			k.userLearnedPath = learnedPath
-			// Finalize schemas and policy before validator usage
+			// Finalize schemas and policy before validator usage.
+			// Builders hold only extensions; prepend cached constitution.
 			if learnedBuilder.Len() > 0 {
 				k.learned = learnedBuilder.String()
 			}
 			if schemasBuilder.Len() > 0 {
-				k.schemas = schemasBuilder.String()
+				k.schemas = constSchemas + schemasBuilder.String()
+			} else {
+				k.schemas = constSchemas
 			}
 			if policyBuilder.Len() > 0 {
-				k.policy = policyBuilder.String()
+				k.policy = constPolicy + policyBuilder.String()
+			} else {
+				k.policy = constPolicy
 			}
 
 			// Initialize schema validator early so we can heal user rules before appending
@@ -497,15 +499,26 @@ func (k *RealKernel) loadMangleFiles() error {
 		}
 	}
 	logging.KernelDebug("Loaded %d user extension files", userExtensionsLoaded)
-	// Finalize strings if not already done
+	// Finalize strings if not already done.
+	// Builders hold only extensions; prepend cached constitution to preserve
+	// the exact pre-optimization content (const + extensions).
 	if learnedBuilder.Len() > 0 {
 		k.learned = learnedBuilder.String()
 	}
-	if schemasBuilder.Len() > 0 {
-		k.schemas = schemasBuilder.String()
-	}
-	if policyBuilder.Len() > 0 {
-		k.policy = policyBuilder.String()
+	if userExtensionsLoaded == 0 {
+		k.schemas = constSchemas
+		k.policy = constPolicy
+	} else {
+		if schemasBuilder.Len() > 0 {
+			k.schemas = constSchemas + schemasBuilder.String()
+		} else {
+			k.schemas = constSchemas
+		}
+		if policyBuilder.Len() > 0 {
+			k.policy = constPolicy + policyBuilder.String()
+		} else {
+			k.policy = constPolicy
+		}
 	}
 
 	// Ensure schema validator reflects the final schemas + learned rules.

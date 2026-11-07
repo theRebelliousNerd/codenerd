@@ -17,8 +17,9 @@ import (
 // tools means no line number the model is still editing by can shift under
 // it. A file that does not parse is left alone (the build gate already
 // failed it or it is not compiled); a file already formatted is not
-// rewritten. The file keeps its own line endings, because later stages diff
-// it against its pre-turn snapshot. It returns the workspace-relative paths
+// rewritten. Every line gofmt did not change keeps its own bytes (mixed
+// line endings included), because later stages diff it against its pre-turn
+// snapshot. It returns the workspace-relative paths
 // it rewrote.
 func formatWrittenGoFiles(workspace string, writtenPaths []string) []string {
 	var formattedPaths []string
@@ -36,12 +37,11 @@ func formatWrittenGoFiles(workspace string, writtenPaths []string) []string {
 		if err != nil {
 			continue
 		}
-		ending := tactile.DetectLineEnding(data)
 		formatted, err := format.Source([]byte(tactile.NormalizeLineEnding(string(data), "\n")))
 		if err != nil {
 			continue
 		}
-		out := []byte(tactile.NormalizeLineEnding(string(formatted), ending))
+		out := tactile.SpliceLineEndings(data, string(formatted))
 		if bytes.Equal(data, out) {
 			continue
 		}

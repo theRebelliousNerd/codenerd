@@ -380,6 +380,24 @@ func (m Model) submitWhileBusy() (Model, tea.Cmd) {
 	return m, m.sideTurn(input, request)
 }
 
+// submitWhileBooting queues a message typed before the system is up; it runs
+// as the first turn once the boot is done (Update starts the queue).
+func (m Model) submitWhileBooting() (Model, tea.Cmd) {
+	raw := m.textarea.Value()
+	input := strings.TrimSpace(raw)
+	if input == "" {
+		return m, nil
+	}
+	m.textarea.Reset()
+	m = m.addMessage(Message{Role: "user", Content: input})
+	q := queuedMessage{input: input, request: m.lastRequest()}
+	if strings.HasPrefix(input, "/") {
+		q.input, q.command = strings.TrimLeft(raw, " \t\r\n"), true
+	}
+	m.turn.enqueue(q)
+	return m, nil
+}
+
 // sideTurn reads a message typed while work runs (see the file comment). The
 // running execution and the message's queue place are captured here, on the
 // Update thread, when the message is received.

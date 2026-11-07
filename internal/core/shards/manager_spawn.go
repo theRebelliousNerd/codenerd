@@ -310,10 +310,14 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	id := fmt.Sprintf("%s-%d-%d", config.Name, time.Now().UnixNano(), seq)
 	agent := factory(id, config)
 
-	if (config.Type == types.ShardTypePersistent || config.Type == types.ShardTypeUser) && sm.nerdDir != "" && sm.promptLoader != nil {
+	if (config.Type == types.ShardTypePersistent || config.Type == types.ShardTypeUser) && sm.nerdDir != "" && sm.promptSyncer != nil {
 		promptsPath := filepath.Join(sm.nerdDir, "agents", typeName, "prompts.yaml")
 		if _, err := os.Stat(promptsPath); err == nil {
-			sm.promptLoader(ctx, typeName, sm.nerdDir)
+			// The agent runs on the atoms its KB already holds when the sync
+			// fails, so a failure is logged, not fatal to the spawn.
+			if err := sm.promptSyncer(ctx, typeName); err != nil {
+				logging.Get(logging.CategoryShards).Warn("Prompt sync for %s failed; spawning with the KB's current atoms: %v", typeName, err)
+			}
 		}
 	}
 

@@ -12,6 +12,7 @@ import (
 // attribution, visit projection and the shipped selection policy. The unit
 // command passes while the independent workspace integration check fails.
 func TestRecurseSelection_IndependentWorkspaceCheckReachesPolicy(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "go.mod", "module example.com/selection\n\ngo 1.21\n")
 	write(t, root, "store/store.go", "package store\n")

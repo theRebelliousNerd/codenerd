@@ -182,3 +182,25 @@ func TestVerifyCompletedToolTurn_LateRoundWriteEndsFormatted(t *testing.T) {
 		t.Fatalf("main_test.go is not gofmt-clean when the turn ends:\ngot:\n%s\nwant:\n%s", data, formatted)
 	}
 }
+
+// A file with mixed endings is formatted in place: only the lines gofmt
+// changed are rewritten, and every other line keeps its own ending.
+func TestFormatWrittenGoFiles_MixedEndingsKeepUntouchedLines(t *testing.T) {
+	ws := t.TempDir()
+	const mixed = "package a\n\nvar X=1\nvar Y = 2\r\n\r\nfunc F() {}\r\n"
+	const want = "package a\n\nvar X = 1\nvar Y = 2\r\n\r\nfunc F() {}\r\n"
+	path := filepath.Join(ws, "mixed.go")
+	if err := os.WriteFile(path, []byte(mixed), 0o644); err != nil {
+		t.Fatalf("failed to write mixed.go: %v", err)
+	}
+	if got := formatWrittenGoFiles(ws, []string{"mixed.go"}); len(got) != 1 {
+		t.Fatalf("formatWrittenGoFiles() = %q, want mixed.go rewritten", got)
+	}
+	onDisk, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read mixed.go: %v", err)
+	}
+	if string(onDisk) != want {
+		t.Errorf("mixed.go = %q, want %q", onDisk, want)
+	}
+}

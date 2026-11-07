@@ -11,6 +11,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/experts"
 	"codenerd/internal/orient"
 	"codenerd/internal/types"
@@ -135,10 +136,7 @@ func TestBootHealsAgentDomainsAnExistingWorkspaceNeverRecorded(t *testing.T) {
 
 func newRosterKernel(t *testing.T) *core.RealKernel {
 	t.Helper()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	k := kerneltest.New(t)
 	return k
 }
 

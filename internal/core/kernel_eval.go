@@ -287,8 +287,16 @@ func compileProgram(programStr string, sandbox bool) (compiledProgram, error) {
 func (k *RealKernel) evaluate() (err error) {
 	defer func() { k.settleEvaluationLocked(err) }()
 	started := time.Now()
-	stats := EvaluationStats{InputFacts: len(k.facts)}
-	defer func() { stats.Duration = time.Since(started); k.lastEvaluation = stats }()
+	stats := EvaluationStats{InputFacts: k.facts.len()}
+	defer func() {
+		stats.Duration = time.Since(started)
+		k.lastEvaluation = stats
+		if err == nil && stats.Duration > slowEvaluationLog {
+			logging.Get(logging.CategoryKernel).Info("evaluate: slow %s evaluation, %v: %d EDB facts, %d changed rows, %d inserted, %d over-deleted, %d re-derived, %d variants, %d rules replaced (fallback %q); %s",
+				stats.Mode, stats.Duration.Round(time.Millisecond), stats.InputFacts, stats.ChangedRows, stats.DeltaFacts,
+				stats.OverDeleted, stats.Rederived, stats.DeltaVariants, stats.Rules, stats.ConeFallback, stats.Profile)
+		}
+	}()
 	timer := logging.StartTimer(logging.CategoryKernel, "evaluate")
 	defer timer.Stop()
 
@@ -317,7 +325,11 @@ func (k *RealKernel) evaluate() (err error) {
 	} else if !errors.Is(dredErr, errDRedIneligible) {
 		// The pass may have changed rows; only a fresh store is known good,
 		// and until one replaces it no incremental path may build on it.
-		logging.Get(logging.CategoryKernel).Warn("evaluate: dred evaluation failed, running the full fixpoint: %v", dredErr)
+		if errors.Is(dredErr, errDRedFallsBack) {
+			logging.KernelDebug("evaluate: %v; running the full fixpoint", dredErr)
+		} else {
+			logging.Get(logging.CategoryKernel).Warn("evaluate: dred evaluation failed, running the full fixpoint: %v", dredErr)
+		}
 		stats.ConeFallback = dredErr.Error()
 		k.storeTainted = true
 	} else if err := k.evaluateConeLocked(&stats); err == nil {
@@ -335,26 +347,37 @@ func (k *RealKernel) evaluate() (err error) {
 
 	// Create fresh store and populate with EDB facts
 	// OPTIMIZATION: Use cached atoms instead of converting every time
-	logging.KernelDebug("evaluate: populating store with %d EDB facts", len(k.facts))
-	baseStore := newEvaluationFactStore(len(k.facts))
+	logging.KernelDebug("evaluate: populating store with %d EDB facts", k.facts.len())
+	baseStore := newEvaluationFactStore(k.facts.len())
 
 	// Defensive sync check: ensure cache is valid
-	if k.cachedAtoms == nil || len(k.cachedAtoms) != len(k.facts) || k.atomCacheStale {
+	if k.cachedAtoms == nil || len(k.cachedAtoms) != k.facts.len() || k.atomCacheStale {
 		switch {
 		case k.atomCacheStale:
-			logging.KernelDebug("evaluate: atom cache built without Decls or under an older policy, reconverting %d facts", len(k.facts))
+			logging.KernelDebug("evaluate: atom cache built without Decls or under an older policy, reconverting %d facts", k.facts.len())
 		case len(k.cachedAtoms) > 0:
-			logging.Get(logging.CategoryKernel).Warn("evaluate: cache desync (atoms=%d facts=%d), rebuilding cache", len(k.cachedAtoms), len(k.facts))
+			logging.Get(logging.CategoryKernel).Warn("evaluate: cache desync (atoms=%d facts=%d), rebuilding cache", len(k.cachedAtoms), k.facts.len())
 		default:
-			logging.KernelDebug("evaluate: cache empty (facts=%d), populating cache", len(k.facts))
+			logging.KernelDebug("evaluate: cache empty (facts=%d), populating cache", k.facts.len())
 		}
 		// Cleared first so factToAtomLocked's own staleness signal (programInfo
 		// still nil) is not immediately overwritten by this pass.
+		wasStale := k.atomCacheStale
 		k.atomCacheStale = false
-		k.cachedAtoms = make([]ast.Atom, 0, len(k.facts))
-		kept := make([]Fact, 0, len(k.facts))
-		dropped := 0
-		for _, f := range k.facts {
+		k.cachedAtoms = make([]ast.Atom, 0, k.facts.len())
+		type evicted struct{ pred, key string }
+		var unconvertible []evicted
+		reuse := !wasStale
+		for f, key := range k.facts.each() {
+			// The index remembers each row's atom under the program it was
+			// admitted for: a retract-then-evaluate reconverts only what has no
+			// remembered atom, not the whole world.
+			if reuse {
+				if atom, ok := k.factIndex.atomOf(f.Predicate, key, k.programInfo); ok {
+					k.cachedAtoms = append(k.cachedAtoms, atom)
+					continue
+				}
+			}
 			atom, err := k.factToAtomLocked(f)
 			if err != nil {
 				// A single malformed fact must not stop the kernel from
@@ -363,19 +386,19 @@ func (k *RealKernel) evaluate() (err error) {
 				// Reachable only for facts admitted before programInfo existed
 				// (boot facts); addFactIfNewLocked rejects the rest up front.
 				logging.Get(logging.CategoryKernel).Error("evaluate: evicting unconvertible fact %s: %v", f.Predicate, err)
-				dropped++
+				unconvertible = append(unconvertible, evicted{f.Predicate, key})
 				continue
 			}
-			kept = append(kept, f)
+			k.factIndex.rememberAtom(f.Predicate, key, atom, k.programInfo)
 			k.cachedAtoms = append(k.cachedAtoms, atom)
 		}
 		// Keep facts, atoms and the dedupe index in lockstep; leaving evicted
-		// facts in k.facts would make every later evaluate() see a length
+		// facts in the EDB would make every later evaluate() see a length
 		// mismatch and redo this whole conversion.
-		if dropped > 0 {
-			k.facts = kept
-			k.rebuildFactIndexLocked()
+		for _, e := range unconvertible {
+			k.removeKeyLocked(e.pred, e.key)
 		}
+		k.settleRemovalsLocked()
 	}
 
 	// Use cached atoms (fast path - no conversions!)
@@ -531,7 +554,7 @@ func (k *RealKernel) IsInitialized() bool {
 // to a fresh empty store; without that, reads after a clear would error
 // with "kernel not initialized". Caller must hold k.mu.
 func (k *RealKernel) clearFactsLocked() {
-	k.facts = make([]Fact, 0)
+	k.facts.reset()
 	k.cachedAtoms = make([]ast.Atom, 0) // OPTIMIZATION: Clear atom cache
 	k.factIndex = newEDBIndex()
 	k.store = factstore.NewSimpleInMemoryStore()
@@ -580,17 +603,22 @@ func (k *RealKernel) Clone() *RealKernel {
 // cloneLocked is Clone's body; the caller holds at least k.mu.RLock.
 func (k *RealKernel) cloneLocked() *RealKernel {
 	clone := &RealKernel{
-		facts:             slices.Clone(k.facts),
-		cachedAtoms:       nil, // Rebuild fresh to avoid shared memory pointers
-		bootFacts:         slices.Clone(k.bootFacts),
-		bootIntents:       make([]HybridIntent, len(k.bootIntents)),
-		bootPrompts:       make([]HybridPrompt, len(k.bootPrompts)),
-		store:             factstore.NewSimpleInMemoryStore(), // Fresh store
-		programInfo:       k.programInfo,                      // Share programInfo (immutable after analysis)
-		strata:            k.strata,                           // Share strata (immutable after stratification)
-		predToStratum:     k.predToStratum,                    // Share predToStratum (immutable after stratification)
-		schemas:           k.schemas,
-		policy:            k.policy,
+		cachedAtoms:   nil, // Rebuild fresh to avoid shared memory pointers
+		bootFacts:     slices.Clone(k.bootFacts),
+		bootIntents:   make([]HybridIntent, len(k.bootIntents)),
+		bootPrompts:   make([]HybridPrompt, len(k.bootPrompts)),
+		store:         factstore.NewSimpleInMemoryStore(), // Fresh store
+		programInfo:   k.programInfo,                      // Share programInfo (immutable after analysis)
+		strata:        k.strata,                           // Share strata (immutable after stratification)
+		predToStratum: k.predToStratum,                    // Share predToStratum (immutable after stratification)
+		schemas:       k.schemas,
+		policy:        k.policy,
+		// The constitution/extension split travels with schemas and policy:
+		// a clone that is later put in service (a shard kernel cloned from
+		// one boot) is swapped onto a reloaded constitution by
+		// ReloadConstitution, which needs it.
+		constSchemas:      k.constSchemas,
+		constPolicy:       k.constPolicy,
 		learned:           k.learned,
 		loadedPolicyFiles: make(map[string]struct{}, len(k.loadedPolicyFiles)),
 		sandbox:           k.sandbox,         // A clone of a trial kernel is still a trial kernel
@@ -634,9 +662,7 @@ func (k *RealKernel) cloneLocked() *RealKernel {
 		}
 	}
 
-	if clone.facts == nil {
-		clone.facts = make([]Fact, 0)
-	}
+	k.facts.snapshotTo(&clone.facts)
 	if k.factIndex != nil {
 		clone.factIndex = k.factIndex.clone()
 	}
@@ -649,7 +675,7 @@ func (k *RealKernel) cloneLocked() *RealKernel {
 		clone.loadedPolicyFiles[key] = struct{}{}
 	}
 
-	logging.KernelDebug("Kernel cloned (facts=%d, policy=%d bytes)", len(clone.facts), len(clone.policy))
+	logging.KernelDebug("Kernel cloned (facts=%d, policy=%d bytes)", clone.facts.len(), len(clone.policy))
 	return clone
 }
 

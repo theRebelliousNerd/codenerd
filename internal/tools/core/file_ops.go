@@ -400,16 +400,15 @@ func executeWriteFile(ctx context.Context, args map[string]any) (string, error) 
 		}
 	}
 
-	// One read is both the line-ending sample and the preimage the impact
-	// chain diffs. ExistingLineEnding discarded the bytes, so a write could
-	// not say which elements it had replaced. A missing file is a new file
-	// (before empty): every element it creates is recorded.
+	// One read is both the line-ending source and the preimage the impact
+	// chain diffs, so a write can say which elements it replaced. A missing
+	// file is a new file (before empty): every element it creates is recorded.
 	before, readErr := os.ReadFile(path)
 	if readErr != nil && !os.IsNotExist(readErr) {
 		return "", fmt.Errorf("failed to detect existing line ending: %w", readErr)
 	}
 	if readErr == nil {
-		content = tactile.NormalizeLineEnding(content, tactile.DetectLineEnding(before))
+		content = string(tactile.SpliceLineEndings(before, content))
 	}
 
 	if err := tools.RejectUnparseableGo(path, []byte(content)); err != nil {
@@ -525,7 +524,6 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 		return "", err
 	}
 
-	originalEnding := tactile.DetectLineEnding(content)
 	contentStr := tactile.NormalizeLineEnding(string(content), "\n")
 	oldText = tactile.NormalizeLineEnding(oldText, "\n")
 	newText = tactile.NormalizeLineEnding(newText, "\n")
@@ -562,7 +560,7 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 		count = 1
 		newContent = strings.Replace(contentStr, oldText, newText, 1)
 	}
-	newContent = tactile.NormalizeLineEnding(newContent, originalEnding)
+	newContent = string(tactile.SpliceLineEndings(content, newContent))
 
 	if err := tools.RejectUnparseableGo(path, []byte(newContent)); err != nil {
 		return "", err

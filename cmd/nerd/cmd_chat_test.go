@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"codenerd/internal/session"
+	"codenerd/internal/turntime"
 )
 
 func drainChatTurns(src *chatTurnSource) []string {
@@ -278,4 +279,28 @@ func TestRenderChatTurn(t *testing.T) {
 			t.Fatalf("stderr = %q, want it to contain the soft error", errGot)
 		}
 	})
+}
+
+// The `nerd chat` footer carries the turn's time split as one line of its own,
+// and only for a turn that measured one.
+func TestRenderChatTurnShowsTheTimeSplit(t *testing.T) {
+	var out, errOut bytes.Buffer
+	result := &session.ExecutionResult{
+		Response: "done",
+		Timing: turntime.Split{
+			Total: 90 * time.Second, Model: 60 * time.Second, Tool: 10 * time.Second, Other: 5 * time.Second,
+			ModelCalls: 3, ToolCalls: 4,
+			Verify: []turntime.Kind{{Kind: turntime.KindBuild, Count: 1, Time: 15 * time.Second}},
+		},
+	}
+	renderChatTurn(&out, &errOut, 1, result, time.Second)
+	if !strings.Contains(out.String(), "[Time 1m30s: model 1m0s (3 calls), tools 10s (4), verify 15s (build 15s), other 5.0s]\n") {
+		t.Fatalf("stdout = %q, want the one-line time split", out.String())
+	}
+
+	out.Reset()
+	renderChatTurn(&out, &errOut, 2, &session.ExecutionResult{Response: "done"}, time.Second)
+	if strings.Contains(out.String(), "Time ") {
+		t.Fatalf("stdout = %q, a turn with no ledger prints no time line", out.String())
+	}
 }

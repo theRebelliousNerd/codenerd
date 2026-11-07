@@ -87,14 +87,3 @@ func TestFileEditorMutationsPreserveCRLF(t *testing.T) {
 		})
 	}
 }
-
-func TestExistingLineEndingDistinguishesMissingFromUnreadable(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "missing.go")
-	if _, exists, err := ExistingLineEnding(missing); err != nil || exists {
-		t.Fatalf("missing file: exists=%v err=%v", exists, err)
-	}
-
-	if _, exists, err := ExistingLineEnding(t.TempDir()); err == nil || exists {
-		t.Fatalf("directory must be an existing-path read error: exists=%v err=%v", exists, err)
-	}
-}

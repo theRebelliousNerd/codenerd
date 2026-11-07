@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/ownerstop"
 	"codenerd/internal/world/lsp"
 )
 
@@ -27,7 +28,7 @@ func diagnosticOwnerContext(t *testing.T, afterDeadline bool) (context.Context, 
 			t.Fatal("fixture did not expire its soft deadline")
 		}
 	}
-	return withDiagnosticTimeout(WithOwnerStop(parent, owner), 5*time.Second), stop
+	return withDiagnosticTimeout(ownerstop.With(parent, owner), 5*time.Second), stop
 }
 
 func TestDiagnosticOwner_GoplsStopsDuringRequest(t *testing.T) {

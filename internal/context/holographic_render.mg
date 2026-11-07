@@ -27,6 +27,7 @@ holographic_count_dimension(/signatures).
 holographic_count_dimension(/types).
 holographic_count_dimension(/importers).
 holographic_count_dimension(/outline).
+holographic_count_dimension(/specs).
 
 Decl holographic_share_key(Dim, Key) bound [/name, /name].
 holographic_share_key(/callers, /working_holographic_callers_share_percent).
@@ -34,13 +35,16 @@ holographic_share_key(/signatures, /working_holographic_signatures_share_percent
 holographic_share_key(/types, /working_holographic_types_share_percent).
 holographic_share_key(/importers, /working_holographic_importers_share_percent).
 holographic_share_key(/outline, /working_holographic_outline_share_percent).
+holographic_share_key(/specs, /working_holographic_specs_share_percent).
 
 config_param_required(/working, /working_holographic_callers_share_percent).
 config_param_required(/working, /working_holographic_signatures_share_percent).
 config_param_required(/working, /working_holographic_types_share_percent).
 config_param_required(/working, /working_holographic_importers_share_percent).
 config_param_required(/working, /working_holographic_outline_share_percent).
+config_param_required(/working, /working_holographic_specs_share_percent).
 config_param_required(/working, /working_holographic_outline_signature_floor).
+config_param_required(/working, /working_holographic_spec_excerpt_floor).
 
 Decl holographic_render_share(Dim, Percent) bound [/name, /number].
 holographic_render_share(Dim, P) :-
@@ -50,6 +54,10 @@ holographic_render_share(Dim, P) :-
 Decl holographic_outline_signature_floor(N) bound [/number].
 holographic_outline_signature_floor(N) :-
     config_param(/working_holographic_outline_signature_floor, N).
+
+Decl holographic_spec_excerpt_floor(N) bound [/number].
+holographic_spec_excerpt_floor(N) :-
+    config_param(/working_holographic_spec_excerpt_floor, N).
 
 Decl holographic_render_pool(Dim, Target, Total) bound [/name, /string, /number].
 Decl holographic_render_bytes(Dim, Target, Avg) bound [/name, /string, /number].
@@ -94,5 +102,26 @@ holographic_to_render(/outline_signature, Target, Floor) :-
     Entries > 0,
     holographic_render_allowance(/outline, Target, Allowance),
     holographic_outline_signature_floor(Floor),
+    Per = fn:div(Allowance, Entries),
+    Floor > Per.
+
+# /spec_excerpt is the per-entry rune allowance of the specs block, the way
+# /outline_signature is the outline's: the block's allowance (/specs' share of
+# the budget) divided by the entries the count decision kept, never below
+# /working_holographic_spec_excerpt_floor. Entries is the count /specs kept,
+# passed back as the pool; Go never asserts zero (fn:div by zero aborts the
+# fixpoint). The two rules split on the floor so exactly one allowance derives.
+holographic_to_render(/spec_excerpt, Target, Per) :-
+    holographic_render_pool(/spec_excerpt, Target, Entries),
+    Entries > 0,
+    holographic_render_allowance(/specs, Target, Allowance),
+    holographic_spec_excerpt_floor(Floor),
+    Per = fn:div(Allowance, Entries),
+    Floor <= Per.
+holographic_to_render(/spec_excerpt, Target, Floor) :-
+    holographic_render_pool(/spec_excerpt, Target, Entries),
+    Entries > 0,
+    holographic_render_allowance(/specs, Target, Allowance),
+    holographic_spec_excerpt_floor(Floor),
     Per = fn:div(Allowance, Entries),
     Floor > Per.

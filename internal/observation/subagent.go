@@ -12,6 +12,7 @@ import (
 
 	"codenerd/internal/retain"
 	"codenerd/internal/testoutput"
+	"codenerd/internal/turntime"
 )
 
 // Finding is one issue a subagent reported, with the citation that makes it
@@ -179,6 +180,11 @@ type Return struct {
 	// account behind Changed. A receipt whose validation rejected or never
 	// measured its change is projected as uncertainty.
 	Effects []EffectReceipt `json:"effects,omitempty"`
+
+	// Timing is where the turn's wall time went: model calls, tool
+	// execution, each verification kind, repair rounds, the rest. Nil means
+	// the producer kept no ledger, which says nothing about how long it took.
+	Timing *turntime.Split `json:"timing,omitempty"`
 }
 
 // ReportReading is a final report read by Jev, as whole percents: Unfinished

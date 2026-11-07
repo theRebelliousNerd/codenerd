@@ -78,6 +78,9 @@ func InitChat(cfg Config) Model {
 	ta.SetWidth(80)
 	ta.SetHeight(3) // 3 lines default
 	ta.ShowLineNumbers = false
+	// Focused from the start: what is typed during boot is kept, and Enter
+	// queues it for when the boot is done (submitWhileBooting).
+	ta.Focus()
 
 	// Initialize spinner — MiniDot reads as a continuous pulse rather than
 	// a single blinking cursor, which sells the "still working" feel.

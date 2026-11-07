@@ -70,25 +70,26 @@ func TestCodeDOMEditingPolicy(t *testing.T) {
 		t.Errorf("CodeDOM contract violation (%s): combined corpus missing any of %q", why, substrings)
 	}
 
-	// 1. Existing Markdown uses edit_lines / insert_lines / delete_lines with path + 1-indexed ranges.
-	mustContain("existing markdown", "existing Markdown must be documented as using line-range tools")
-	mustContain("edit_lines", "existing Markdown must use edit_lines")
-	mustContain("insert_lines", "existing Markdown must use insert_lines")
-	mustContain("delete_lines", "existing Markdown must use delete_lines")
+	// 1. Other text CodeDOM does not parse uses edit_lines / insert_lines / delete_lines with path + 1-indexed ranges.
+	mustContain("other text codedom does not parse", "text CodeDOM does not parse must be documented as using line-range tools")
+	mustContain("edit_lines", "unparsed text must use edit_lines")
+	mustContain("insert_lines", "unparsed text must use insert_lines")
+	mustContain("delete_lines", "unparsed text must use delete_lines")
 	mustContain("path", "line-range tools require path param")
 	mustContain("1-indexed", "line-range tools must be documented as 1-indexed file ranges")
 	mustContainAny([]string{
 		"preferred over `edit_file`",
 		"preferred over edit_file",
-	}, "existing Markdown must be documented as preferred over edit_file")
+	}, "unparsed text must be documented as preferred over edit_file")
 
-	// 2. Markdown has no semantic get_elements parser.
-	mustContain("get_elements", "Markdown no-parser rule must mention get_elements")
-	mustContain("does not parse markdown", "Markdown must state get_elements does NOT parse Markdown")
-	mustContainAny([]string{
-		"no semantic",
-		"has no semantic",
-	}, "Markdown must state it has no semantic CodeElement parser")
+	// 2. Markdown is parsed into sections: it is edited by section, not by line.
+	mustContain("get_elements", "Markdown section rule must mention get_elements")
+	mustContain("existing markdown", "existing Markdown must be documented")
+	mustContain("markdown section", "Markdown must be documented as sections")
+	mustContain("heading path", "a Markdown section must be documented as addressed by its heading path")
+	if strings.Contains(lower, "does not parse markdown") || strings.Contains(lower, "markdown has no semantic parser") {
+		t.Errorf("CodeDOM contract violation: the corpus still says Markdown is not parsed")
+	}
 
 	// 3. Existing code uses get_elements or get_element then CodeDOM line tools.
 	mustContain("existing code", "existing code workflow must be documented")
@@ -149,6 +150,47 @@ func TestCodeDOMEditingPolicy_AtomsAreMandatoryWhereExpected(t *testing.T) {
 		}
 		if !atom.IsMandatory {
 			t.Errorf("atom %q should be is_mandatory=true per YAML, got false", id)
+		}
+	}
+}
+
+// TestCodeDOMEditingPolicy_MarkdownIsEditedBySection pins that every atom a
+// coder is shown about editing tells it a Markdown file is edited with the
+// element verbs by section, and that no atom still sends it to line numbers
+// for Markdown.
+func TestCodeDOMEditingPolicy_MarkdownIsEditedBySection(t *testing.T) {
+	corpus, err := LoadEmbeddedCorpus()
+	if err != nil {
+		t.Fatalf("LoadEmbeddedCorpus failed: %v", err)
+	}
+	for id, wants := range map[string][]string{
+		"identity/coder/codedom_premier":        {"Markdown", "section", "heading path", "edit_element", "insert_element"},
+		"capability/codedom_first/markdown":     {"Markdown", "section", "heading path", "position=before|after|inside", "re-levelled"},
+		"capability/codedom_selection":          {"Markdown section", "heading path", "Guide > Usage", "never edit a doc by line numbers"},
+		"capability/codedom_selection/markdown": {"position=\"inside\"", "Markdown By Section", "nested sections"},
+		"capability/codedom_tools":              {"`section`", "Markdown"},
+		"capability/codedom_whole_file":         {"Markdown", "by section"},
+	} {
+		atom, ok := corpus.Get(id)
+		if !ok {
+			t.Errorf("atom %q missing from the embedded corpus", id)
+			continue
+		}
+		for _, want := range wants {
+			if !strings.Contains(atom.Content, want) {
+				t.Errorf("atom %q does not say %q about Markdown sections:\n%s", id, want, atom.Content)
+			}
+		}
+	}
+	for _, atom := range corpus.All() {
+		if !strings.HasPrefix(atom.ID, "capability/codedom") && !strings.HasPrefix(atom.ID, "identity/coder/") {
+			continue
+		}
+		lower := strings.ToLower(atom.Content)
+		for _, stale := range []string{"markdown has no semantic parser", "does not parse markdown", "markdown and other files codedom does not parse", "markdown, yaml, other languages"} {
+			if strings.Contains(lower, stale) {
+				t.Errorf("atom %q still sends Markdown to line tools (%q)", atom.ID, stale)
+			}
 		}
 	}
 }

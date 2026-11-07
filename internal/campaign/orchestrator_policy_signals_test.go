@@ -6,15 +6,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 )
 
 func policyOrchestrator(t *testing.T, workspace string) *Orchestrator {
 	t.Helper()
-	kernel, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	kernel := kerneltest.New(t)
 	return &Orchestrator{
 		workspace:    workspace,
 		kernel:       kernel,

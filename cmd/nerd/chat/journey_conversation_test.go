@@ -11,6 +11,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/perception"
 )
 
@@ -61,10 +62,7 @@ func (s *scriptedTransducer) SetStrategicContext(string) {}
 func journeyModel(t *testing.T, mode config.WorkMode, intents ...perception.Intent) (Model, *processControlTaskExecutor) {
 	t.Helper()
 	workspace := SetupLiveWorkspace(t)
-	kernel, err := core.NewRealKernelWithWorkspace(workspace)
-	if err != nil {
-		t.Fatalf("create kernel: %v", err)
-	}
+	kernel := kerneltest.WithWorkspace(t, workspace)
 	m := NewTestModel(WithSize(120, 50), WithWorkspace(workspace))
 	t.Cleanup(m.shutdownCancel)
 	m.kernel = kernel

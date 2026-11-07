@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	jitconfig "codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -145,10 +146,7 @@ func TestTurnCatalog_RunCheckFollowsTheDeclaredCheck(t *testing.T) {
 // is not re-derived, so a frozen catalog stays frozen.
 func TestTurn_ACampaignCheckOffersRunCheck(t *testing.T) {
 	registerProductionTools(t)
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	k := kerneltest.New(t)
 	offer := func(t *testing.T, verb string, ctx context.Context, precompiled []string) (compiled, offered []string) {
 		t.Helper()
 		var mu sync.Mutex

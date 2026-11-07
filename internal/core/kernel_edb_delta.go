@@ -132,6 +132,12 @@ func (k *RealKernel) applyExtensionalDeltaLocked(pred string) (removed, added []
 	// here is put back when a retained row still admits to it.
 	// aliasCapable says whether any such pair can exist; for the ordinary
 	// predicate it is false and the delta stays O(delta).
+	//
+	// Printed text is not identity. int64(1) and float64(1) both render as
+	// "1", and a fact that carries a host alias (types.MangleString) takes
+	// this path even when the collision is in another argument. A retained
+	// row supports the removed atom only when the two are the same atom;
+	// anything else is a real replacement, reported below with the additions.
 	aliasCapable := x.aliasRows[pred] > 0
 	var taken map[string]ast.Atom
 	for _, row := range x.delta.removed[pred] {
@@ -151,15 +157,15 @@ func (k *RealKernel) applyExtensionalDeltaLocked(pred string) (removed, added []
 			}
 		}
 	}
-	bucket := x.bucket(pred)
 	if len(taken) > 0 {
 		kept := newAtomSet()
-		for key, f := range bucket {
+		for key, f := range x.eachRow(pred) {
 			atom, err := k.edbAtomLocked(pred, key, f)
 			if err != nil {
 				return removed, added, err
 			}
-			if _, shared := taken[atom.String()]; shared && k.store.Add(atom) {
+			prev, shared := taken[atom.String()]
+			if shared && prev.Equals(atom) && k.store.Add(atom) {
 				// The atom was never gone as far as the EDB is concerned.
 				kept.add(atom)
 			}
@@ -167,7 +173,7 @@ func (k *RealKernel) applyExtensionalDeltaLocked(pred string) (removed, added []
 		removed = kept.without(removed)
 	}
 	for key := range x.delta.added[pred] {
-		f, held := bucket[key]
+		f, held := x.row(pred, key)
 		if !held {
 			continue
 		}

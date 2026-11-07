@@ -223,7 +223,7 @@ func planRepoint(ctx context.Context, from StructureSymbol, uses []StructureUse,
 		if info, err := os.Stat(lf.abs); err == nil {
 			mode = info.Mode().Perm()
 		}
-		data := []byte(tactile.NormalizeLineEnding(out.File.Source, tactile.DetectLineEnding(lf.data)))
+		data := tactile.SpliceLineEndings(lf.data, out.File.Source)
 		planned = append(planned, plannedWrite{abs: lf.abs, rel: lf.rel, orig: lf.data, data: data, mode: mode})
 		touched = append(touched, &touchedFile{rel: lf.rel, lf: lf, before: model, out: out, sites: len(byFile[file])})
 	}

@@ -56,7 +56,7 @@ func TestGateTests_ImporterIdentityAndFailedDiscovery(t *testing.T) {
 	ws := importerModule(t, aBefore)
 	result := mutationResult()
 	result.WrittenPaths = []string{"a/a.go"}
-	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aBefore)}
+	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aPrior)}
 	launches := countTestLaunches(t)
 
 	gateTests(context.Background(), ws, result, false)
@@ -66,7 +66,7 @@ func TestGateTests_ImporterIdentityAndFailedDiscovery(t *testing.T) {
 	measured := *launches
 
 	// An edit to the importer's test, which no write tool recorded.
-	failing := "package b\n\nimport \"testing\"\n\nfunc TestOutside(t *testing.T) { t.Fatal(\"changed outside the turn\") }\n"
+	failing := "package b\n\nimport \"testing\"\n\nfunc TestOutside(t *testing.T) { _ = Label(); t.Fatal(\"changed outside the turn\") }\n"
 	if err := os.WriteFile(filepath.Join(ws, "b", "outside_test.go"), []byte(failing), 0o644); err != nil {
 		t.Fatal(err)
 	}

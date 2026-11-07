@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"codenerd/internal/logging"
@@ -72,12 +73,37 @@ func DevConstitutionDir() string {
 	return ""
 }
 
+var (
+	embeddedConstitutionOnce    sync.Once
+	embeddedConstitutionSchemas string
+	embeddedConstitutionPolicy  string
+	embeddedConstitutionModules []string
+	embeddedConstitutionErr     error
+)
+
 // assembleConstitution builds the constitution's schema and policy text from
 // fsys exactly as a kernel boots it: the schema index and every module of
 // defaultSchemaFiles (marked), every defaults/policy/*.mg (marked), then the
 // root policy modules. A file that cannot be read is an error: a dropped
 // module would remove Decls or rules silently.
 func assembleConstitution(fsys fs.FS) (schemas, policy string, coreModules []string, err error) {
+	if DevConstitutionDir() == "" {
+		embeddedConstitutionOnce.Do(func() {
+			s, p, m, e := assembleConstitutionUncached(fsys)
+			embeddedConstitutionSchemas = s
+			embeddedConstitutionPolicy = p
+			embeddedConstitutionModules = m
+			embeddedConstitutionErr = e
+		})
+		if embeddedConstitutionErr != nil {
+			return "", "", nil, embeddedConstitutionErr
+		}
+		return embeddedConstitutionSchemas, embeddedConstitutionPolicy, embeddedConstitutionModules, nil
+	}
+	return assembleConstitutionUncached(fsys)
+}
+
+func assembleConstitutionUncached(fsys fs.FS) (schemas, policy string, coreModules []string, err error) {
 	var sb, pb strings.Builder
 	data, err := readRequiredEmbeddedFile(fsys, "defaults/schemas.mg")
 	if err != nil {

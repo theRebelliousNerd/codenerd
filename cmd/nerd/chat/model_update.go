@@ -27,8 +27,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if nm, ok := next.(Model); ok && nm.turn.stopSettled() {
 		next = nm.pushAssistantMsg(nm.stoppedNotice())
 	}
-	// A message queued while a turn ran starts once nothing is in flight.
-	if nm, ok := next.(Model); ok && !nm.isLoading && nm.turn.queuedCount() > 0 {
+	// A message queued while a turn ran, or while the system booted, starts
+	// once nothing is in flight and the boot is done.
+	if nm, ok := next.(Model); ok && !nm.isLoading && !nm.isBooting && nm.turn.queuedCount() > 0 {
 		var queued tea.Cmd
 		nm, queued = nm.startQueuedTurn()
 		return nm, tea.Batch(cmd, queued)
@@ -1062,20 +1063,30 @@ func (m Model) handleScanCompleteMsg(msg scanCompleteMsg) (Model, tea.Cmd, bool)
 			Content: fmt.Sprintf("**Scan failed:** %v", msg.err),
 			Time:    time.Now(),
 		})
+	} else if msg.unchanged {
+		kernelCount, hasKernel := msg.kernelFactCount, msg.hasKernelFacts
+		if !hasKernel {
+			// Older receipts carry no count: measure the live kernel rather
+			// than print a fake zero.
+			kernelCount, hasKernel = countKernelFacts(m.kernel)
+		}
+		content := fmt.Sprintf("**Scan complete (unchanged)**\n\n| Metric | Value |\n|--------|-------|\n| Files indexed | %d |\n| Directories | %d |\n| Duration | %.2fs |", msg.fileCount, msg.directoryCount, msg.duration.Seconds())
+		if hasKernel {
+			content += fmt.Sprintf("\n| Kernel facts retained | %d |", kernelCount)
+			content += "\n\nWorkspace unchanged since last scan; no new facts generated; kernel facts retained."
+		} else {
+			content += "\n\nWorkspace unchanged since last scan; no new facts generated; kernel fact count unavailable."
+		}
+		m = m.addMessage(Message{
+			Role:    "assistant",
+			Content: content,
+			Time:    time.Now(),
+		})
 	} else {
 		m = m.addMessage(Message{
-			Role: "assistant",
-			Content: fmt.Sprintf(`**Scan complete**
-
-| Metric | Value |
-|--------|-------|
-| Files indexed | %d |
-| Directories | %d |
-| Facts generated | %d |
-| Duration | %.2fs |
-
-The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.directoryCount, msg.factCount, msg.duration.Seconds()),
-			Time: time.Now(),
+			Role:    "assistant",
+			Content: fmt.Sprintf("**Scan complete**\n\n| Metric | Value |\n|--------|-------|\n| Files indexed | %d |\n| Directories | %d |\n| Facts generated | %d |\n| Duration | %.2fs |\n\nThe kernel has been updated with fresh codebase facts.", msg.fileCount, msg.directoryCount, msg.factCount, msg.duration.Seconds()),
+			Time:    time.Now(),
 		})
 	}
 	m.viewport.SetContent(m.renderHistory())

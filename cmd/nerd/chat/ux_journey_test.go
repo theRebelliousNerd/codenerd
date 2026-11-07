@@ -38,6 +38,7 @@ func uxModel(t *testing.T, ws string) Model {
 // journey state. Every half existed; nothing counted anything, so no user ever
 // left the state their preferences file started in.
 func TestUXJourney_WhenASessionEarnsIt_ShouldMoveTheUserOn(t *testing.T) {
+	t.Parallel()
 	ws := uxWorkspace(t, `{"version":"2.0",
   "user_journey":{"state":"learning","onboarding_completed":true},
   "metrics":{"sessions_count":14,"successful_tasks":19,"clarifications_needed":1}}`)

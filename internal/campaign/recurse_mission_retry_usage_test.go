@@ -14,6 +14,7 @@ import (
 )
 
 func TestMissionAdmissionAccountsForUsageInsideProviderRetries(t *testing.T) {
+	t.Parallel()
 	const model = "mission-retry-usage-fixture"
 	usage.RegisterPrice(model, usage.Price{InputPerMTok: 1, OutputPerMTok: 1})
 	for _, missing := range []bool{false, true} {

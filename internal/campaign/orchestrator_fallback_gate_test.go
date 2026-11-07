@@ -11,6 +11,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/session"
 )
 
@@ -30,10 +31,7 @@ import (
 func fallbackGateFixture(t *testing.T, coderErr error) (o *Orchestrator, root string, generated *int) {
 	t.Helper()
 	root = t.TempDir()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kerneltest.New(t)
 	cfg := core.DefaultVirtualStoreConfig()
 	cfg.WorkingDir = root
 	vs := core.NewVirtualStoreWithConfig(&mockTactileExecutor{}, cfg)

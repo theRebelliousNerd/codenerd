@@ -24,10 +24,10 @@ func TestFactIndexFollowsRetractionsIncrementally(t *testing.T) {
 	check := func(stage string) {
 		t.Helper()
 		k.mu.Lock()
-		got := k.factIndex.buckets
+		got := k.factIndex.bucketsMap()
 		gotSize := k.factIndex.len()
 		k.rebuildFactIndexLocked()
-		want := k.factIndex.buckets
+		want := k.factIndex.bucketsMap()
 		wantSize := k.factIndex.len()
 		k.mu.Unlock()
 		if !reflect.DeepEqual(got, want) || gotSize != wantSize {

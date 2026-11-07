@@ -7,6 +7,7 @@ import (
 	"codenerd/internal/approval"
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"time"
 )
 
@@ -18,10 +19,7 @@ func TestToolValue_WithoutAutopoiesisSaysNoLedgerIsKept(t *testing.T) {
 
 func TestToolValue_RendersTheKernelsClassification(t *testing.T) {
 	t.Parallel()
-	kernel, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	kernel := kerneltest.New(t)
 	orch := autopoiesis.NewOrchestrator(nil, autopoiesis.DefaultConfig(t.TempDir()))
 	orch.SetKernel(kernel)
 	got := (Model{autopoiesis: orch}).renderToolValue()

@@ -109,3 +109,52 @@ func TestCacheOwner_StrayCacheDirDoesNotCapture(t *testing.T) {
 		t.Fatalf("Expected no manifest under stray dir, stat err = %v", err)
 	}
 }
+
+// A linked worktree (a .git file) or a nested repository (a .git directory)
+// inside a configured workspace is its own repository: a scan rooted in it
+// keeps its manifest there, even with no .nerd/config.json of its own, and
+// never writes its paths into the enclosing workspace's manifest. A
+// subdirectory scan inside the nested repository resolves to the same owner.
+func TestCacheOwner_NestedRepositoryOwnsItsManifest(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mark func(t *testing.T, dir string)
+	}{
+		{"linked worktree", func(t *testing.T, dir string) {
+			if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: /elsewhere/.git/worktrees/x\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"nested repository", func(t *testing.T, dir string) {
+			if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(workspace, ".nerd"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(workspace, ".nerd", "config.json"), []byte("{}"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			nested := filepath.Join(workspace, ".claude", "worktrees", "agent-x")
+			sub := filepath.Join(nested, "cmd", "tool")
+			if err := os.MkdirAll(sub, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			tc.mark(t, nested)
+
+			want := filepath.Join(nested, ".nerd", "cache", "manifest.json")
+			for _, root := range []string{nested, sub} {
+				if got := NewFileCache(root).path; got != want {
+					t.Fatalf("scan at %s: manifest %s, want %s", root, got, want)
+				}
+			}
+			if got := NewFileCache(filepath.Join(workspace, ".claude")).path; got != filepath.Join(workspace, ".nerd", "cache", "manifest.json") {
+				t.Fatalf("a scan outside the nested repository left the workspace manifest: %s", got)
+			}
+		})
+	}
+}

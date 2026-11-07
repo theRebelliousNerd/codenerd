@@ -106,20 +106,16 @@ func (tx *KernelTransaction) Commit() error {
 	timer := logging.StartTimer(logging.CategoryKernel, "Transaction.Commit")
 	defer timer.Stop()
 
-	// Phase 1: every retraction, compiled into one plan and applied in one
-	// pass over the EDB (kernel_retract_plan.go). A plan whose predicates the
-	// EDB holds no rows of removes nothing, so the pass is skipped.
-	mutated := false
+	// Phase 1: every retraction, compiled into one plan (kernel_retract_plan.go).
+	// An exact retraction is one index lookup and one slot; a predicate
+	// retracted whole or by first argument walks its own rows. Nothing walks
+	// the EDB, and a plan naming predicates the EDB holds no rows of removes
+	// nothing.
 	plan := compileRetractions(tx)
 	k.ensureFactIndexLocked()
-	for pred := range plan.predicates() {
-		if len(k.factIndex.bucket(pred)) > 0 {
-			mutated = k.compactFactsLocked(plan.keeps) > 0
-			break
-		}
-	}
+	mutated := k.retractPlanLocked(plan) > 0
 
-	// The dedupe index followed each removal (compactFactsLocked).
+	// The dedupe index and the ordered storage followed each removal.
 	if mutated {
 		k.cachedAtoms = nil // Invalidate atom cache
 	}

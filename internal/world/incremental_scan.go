@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/orient"
+	"codenerd/internal/specs"
 	"codenerd/internal/store"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
@@ -48,6 +49,10 @@ type IncrementalResult struct {
 	FileCount      int
 	DirectoryCount int
 	Duration       time.Duration
+	// Cache is the delta pass's change-detection effectiveness: a hit is a
+	// file whose stored stamp was trusted without reading it, a miss one the
+	// pass had to hash (or had never seen). Zero on full and unchanged scans.
+	Cache CacheStats
 
 	// New fields for Mangle integration
 	ProjectLanguage string
@@ -66,6 +71,17 @@ type IncrementalResult struct {
 	// the kernel's rows alone.
 	RepoMeasured bool
 	RepoFacts    []core.Fact
+
+	// SpecMeasured reports that SpecFacts is the complete current set of spec
+	// pairing rows (spec_facts.go). Applying such a result replaces the
+	// kernel's rows for exactly the SpecPredicates. It is false when no file the
+	// pairing reads has changed since this scanner last measured it.
+	SpecMeasured bool
+	SpecFacts    []core.Fact
+	// SpecWarnings name the spec files the measurement refused whole;
+	// SpecProblems are the citations it read and refused (an ambiguous name).
+	SpecWarnings []string
+	SpecProblems []specs.Problem `json:"-"`
 
 	// Orientation is the exact projection delta observed by orient.Refresh.
 	// It is present even when the workspace source census is unchanged.
@@ -108,6 +124,9 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		return res, err
 	}
 	if err := s.attachRepoFacts(ctx, root, res); err != nil {
+		return nil, err
+	}
+	if err := s.attachSpecFacts(ctx, root, res); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -285,12 +304,14 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 		}
 		prev, ok := prevEntries[path]
 		if !ok {
+			cache.misses.Add(1)
 			newFiles = append(newFiles, path)
 			continue
 		}
 		if isTestFile(path) && !prev.TestSymbols {
 			// The previous scanner only read Go test headers. Rebuild just these
 			// files' facts once; source equality cannot prove extraction equality.
+			cache.misses.Add(1)
 			changed = append(changed, path)
 			continue
 		}
@@ -302,6 +323,13 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 		// return Unchanged.
 		stored := stampFromEntry(prev)
 		cur := currentStamps[path]
+		// The same effectiveness counters FileCache.Get keeps: a trusted
+		// stamp is a hit, anything that has to read the file is a miss.
+		if stored.trusts(cur, now) {
+			cache.hits.Add(1)
+		} else {
+			cache.misses.Add(1)
+		}
 		hash, contentChanged, hashErr := resolveContent(path, cur, stored, now)
 		if hashErr != nil {
 			return nil, fmt.Errorf("incremental content %s: %w", path, hashErr)
@@ -739,6 +767,8 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 	// SnapshotGlobalPredicates); entry_point is per-file and retracts with its
 	// file.
 	cache.LogStats("incremental")
+	res.Cache = cache.Stats()
+	logScanBreakdown(root, changed, newFiles, deleted, callSiblings, importDependents)
 	res.Duration = time.Since(start)
 	saveCache()
 
@@ -927,16 +957,18 @@ func siblingsInGoDir(root string, db *store.LocalStore, dir string, current map[
 			continue
 		}
 		libCandidates := notIn(r.lib, already)
-		if len(libCandidates) > 0 && packageDeclsChanged(dir, pkg, false, db, root, evidenceFiles(r.lib, r.deletedLib, added)) {
-			out = append(out, libCandidates...)
+		if len(libCandidates) > 0 {
+			if changed, names := packageDeclsChanged(dir, pkg, false, db, root, evidenceFiles(r.lib, r.deletedLib, added)); changed {
+				out = append(out, siblingsMentioning(libCandidates, names)...)
+			}
 		}
 		testCandidates := notIn(r.test, already)
 		if len(testCandidates) == 0 {
 			continue
 		}
 		testEvidence := evidenceFiles(append(append([]string{}, r.lib...), r.test...), append(append([]string{}, r.deletedLib...), r.deletedTest...), added)
-		if packageDeclsChanged(dir, pkg, true, db, root, testEvidence) {
-			out = append(out, testCandidates...)
+		if changed, names := packageDeclsChanged(dir, pkg, true, db, root, testEvidence); changed {
+			out = append(out, siblingsMentioning(testCandidates, names)...)
 		}
 	}
 	return out
@@ -1003,17 +1035,26 @@ func notIn(paths []string, skip map[string]struct{}) []string {
 	return out
 }
 
-func packageDeclsChanged(dir, pkg string, includeTests bool, db *store.LocalStore, root string, evidence []string) bool {
+// packageDeclsChanged reports whether pkg's declaration set moved, and the
+// identifiers whose declarations differ (empty when they cannot be told).
+func packageDeclsChanged(dir, pkg string, includeTests bool, db *store.LocalStore, root string, evidence []string) (bool, map[string]struct{}) {
 	before, had := peekPkgSymbols(dir, pkg, includeTests)
 	after, ok := loadSymbols(dir, pkg, includeTests)
 	if !ok {
-		return false
+		return false, nil
 	}
 	if had && !before.sameDeclarations(after) {
-		return true
+		return true, before.changedNames(after)
 	}
 	keys, complete := storedDeclKeys(db, root, evidence, had)
-	return complete && !declKeyEqual(keys, after.declKeys(pkg))
+	if !complete {
+		return false, nil
+	}
+	afterKeys := after.declKeys(pkg)
+	if declKeyEqual(keys, afterKeys) {
+		return false, nil
+	}
+	return true, namesFromKeyDiff(keys, afterKeys)
 }
 
 func storedDeclKeys(db *store.LocalStore, root string, files []string, requireCommittedContent bool) (map[string]struct{}, bool) {

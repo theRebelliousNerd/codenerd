@@ -392,6 +392,7 @@ func TestRecurseWorkspaceTestWitnessForImprovements(t *testing.T) {
 // session restoration via Deliberator.Pending() does not fail with
 // "multiple pending deliberations in session".
 func TestRecurseMissionValuesContinuationOwnership(t *testing.T) {
+	t.Parallel()
 	const model = "mission-values-owner-fixture"
 	usage.RegisterPrice(model, usage.Price{InputPerMTok: 1, OutputPerMTok: 1})
 

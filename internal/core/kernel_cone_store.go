@@ -53,6 +53,9 @@ func (k *RealKernel) prepareConeStoreLocked(plan *conePlan) (removed, restored, 
 // relations for the plan's derived predicates and returns how many it removed.
 func (k *RealKernel) dropScratchRelationsLocked(plan *conePlan, remover factstore.FactStoreWithRemove) int {
 	var scratch []ast.PredicateSym
+	for _, pred := range plan.touched {
+		k.scratchGone.forget(pred) // the engine run that follows rebuilds it
+	}
 	for _, sym := range k.store.ListPredicates() {
 		base, ok := strings.CutSuffix(sym.Symbol, ast.InternalPredicateSuffix)
 		if !ok {
@@ -99,9 +102,8 @@ func (k *RealKernel) storedRowsLocked(pred string) ([]ast.Atom, error) {
 
 // heldAtomsLocked is every EDB row of pred as its store atom.
 func (k *RealKernel) heldAtomsLocked(pred string) ([]ast.Atom, error) {
-	bucket := k.factIndex.bucket(pred)
-	atoms := make([]ast.Atom, 0, len(bucket))
-	for key, f := range bucket {
+	atoms := make([]ast.Atom, 0, k.factIndex.rowCount(pred))
+	for key, f := range k.factIndex.eachRow(pred) {
 		atom, err := k.edbAtomLocked(pred, key, f)
 		if err != nil {
 			return nil, err

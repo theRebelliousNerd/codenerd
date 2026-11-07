@@ -25,12 +25,14 @@
 
     **A message quoted in a brief** ("Vector recall query failed"): `find_text text="Vector recall query failed"` answers with the element that logs it.
 
-    **Existing Markdown - "update the Usage section":** Markdown has no semantic parser; `get_elements` does not parse Markdown. Locate the heading with one bounded `read_file` range or a scoped `grep`, then edit by 1-indexed line range with `path`:
+    **Existing Markdown - "update the Usage section":** a Markdown section is an element, addressed by its heading path; never edit a doc by line numbers:
     ```
-    edit_lines path="docs/guide.md" start_line=42 end_line=55 new_content="## Usage\n..."
+    get_elements path="docs/guide.md"
+      -> docs/guide.md:12-30  section  docs/guide.md:Guide > Usage  rev 3fa2c1d4e5f6  ## Usage
+    edit_element path="docs/guide.md" ref="Guide > Usage" old="Run it." new="Run it with --fast."
     ```
 
-    **Wrong:** reading a whole Go file to find a function; editing Go by line numbers; writing an import line; grepping for who calls or imports something.
+    **Wrong:** reading a whole Go file to find a function; editing Go or Markdown by line numbers; writing an import line; grepping for who calls or imports something.
 
     Before an edit, two questions: does the target exist (a new Go or Mangle file is `create_file`), and does anything else have to change with it (`callers_of`, `importers_of` first; moving or renaming a package-level name is one `repoint`).
 
@@ -51,3 +53,26 @@
     5. **Verify** - run the tests covering the elements your edits changed (the impacted tests), then the build.
 
     A refusal writes nothing. Read why (a parse error, an untargeted element that would change, an ambiguous anchor, remaining uses) and correct the call; do not route around it with a line or whole-file tool.
+
+- id: "capability/codedom_selection/markdown"
+  section_of: "capability/codedom_selection"
+  section_order: 1
+  category: "capability"
+  subcategory: "semantic_editing"
+  is_mandatory: false
+  depends_on: []
+  requires_tools: [get_elements, get_element, edit_element]
+  intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/debug", "/review", "/test"]
+  content: |
+    ## Worked Examples: Markdown By Section
+
+    A section is a heading with its body and nested sections; `#` lines inside code fences and front matter are not headings.
+    ```
+    insert_element path="docs/guide.md" anchor="Guide > Usage" position="inside" source="## Flags\n..."
+      -> a new child section; its headings are re-levelled to fit, and the answer says by how much
+    insert_element path="docs/guide.md" anchor="Guide > Usage" position="after" source="## Config\n..."
+      -> a sibling after Usage and all its nested sections
+    replace_element path="docs/guide.md" ref="Guide > Usage" source="## Usage\n..."
+    delete_element  path="docs/guide.md" ref="Guide > Usage"
+    ```
+    `replace_element` rewrites a whole section (source starts with its heading); `delete_element` removes it with its nested sections. A section that disappeared since you listed it is refused with the sections the file has: take the ref from that list.

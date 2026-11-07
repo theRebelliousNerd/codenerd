@@ -17,6 +17,7 @@ import (
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
 	"codenerd/internal/tactile"
@@ -602,10 +603,7 @@ func WithLLMClient(client perception.LLMClient) TestModelOption {
 // This requires a valid workspace path to be set first.
 func WithRealKernel(t *testing.T, workspace string) TestModelOption {
 	return func(m *Model) {
-		kernel, err := core.NewRealKernelWithWorkspace(workspace)
-		if err != nil {
-			t.Fatalf("Failed to create real kernel: %v", err)
-		}
+		kernel := kerneltest.WithWorkspace(t, workspace)
 		m.kernel = kernel
 		m.workspace = workspace
 	}

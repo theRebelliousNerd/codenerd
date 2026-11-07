@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"codenerd/internal/config"
-	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 )
 
 // goldenArchitectPersona pins the architect's words. *.golden is eol=lf in
@@ -102,10 +102,7 @@ func TestMainChatSystemPrompt_AlwaysCarriesArchitectPersona(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			k, err := core.NewRealKernel()
-			if err != nil {
-				t.Fatalf("NewRealKernel: %v", err)
-			}
+			k := kerneltest.New(t)
 			m := NewTestModel()
 			m.kernel = k
 			m.Config = tc.cfg

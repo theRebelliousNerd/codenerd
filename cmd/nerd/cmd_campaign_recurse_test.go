@@ -118,6 +118,7 @@ func TestRecurseAttemptConfig_FreshObserverPerLaterAttempt(t *testing.T) {
 }
 
 func TestRecurseAttemptConfig_ObserverRefsAreIndependent(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	nerdDir := filepath.Join(ws, ".nerd")
 	a := northstar.BuildCampaignObserver(ws, nil, nil)

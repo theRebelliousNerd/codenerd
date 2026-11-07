@@ -48,7 +48,7 @@ type LearnedRuleInterceptor interface {
 // RealKernel wraps the pinned mangle-go engine (codeberg.org/TauCeti/mangle-go) with proper EDB/IDB separation.
 type RealKernel struct {
 	mu             sync.RWMutex
-	facts          []Fact
+	facts          edbFacts       // ordered base facts, chunked and copy-on-write (kernel_edb_facts.go)
 	cachedAtoms    []ast.Atom     // OPTIMIZATION: Cached Mangle atoms to avoid O(N) ToAtom() conversions
 	atomCacheStale bool           // cachedAtoms were built without Decls (pre-first-eval) or under an older policy; force one reconversion
 	factIndex      *edbIndex      // Canonical fact set for deduplication, bucketed by predicate (kernel_edb_index.go)
@@ -105,6 +105,9 @@ type RealKernel struct {
 	// holds rows of an unfinished pass. Only the full path, which builds a
 	// fresh store, may evaluate next (coneIneligibilityLocked).
 	storeTainted bool
+	// scratchGone: aggregate heads whose engine scratch relations DRed has
+	// already emptied in this store (kernel_eval_dred_agg.go).
+	scratchGone scratchRecord
 	// programKey hashes the program text the kernel last compiled: half of
 	// its content fingerprint (kernel_content_fingerprint.go).
 	programKey [sha256.Size]byte
@@ -198,6 +201,13 @@ type EvaluationStats struct {
 	DeltaFacts      int           // dred: derived facts inserted (net)
 	OverDeleted     int           // dred: derived facts over-deleted
 	Rederived       int           // dred: over-deleted facts that still had support
+	ChangedRows     int           // dred: EDB rows the write set added or removed
+	AggByDelta      int           // dred: aggregate groups (counts, integer sums) maintained by delta
+	AggRecomputed   int           // dred: aggregate groups recomputed from their rows
+	SupportChecks   int           // dred: over-deleted facts tested for support in the new state
+	RederiveRounds  int           // dred: re-derivation passes (the seed pass, then one per frontier)
+	VariantsBuilt   int           // dred: rule variants listed for a phase
+	Profile         string        // dred: time per phase and costliest rule heads
 }
 
 // storeKind names a fact store's physical kind for EvaluationStats.
@@ -285,6 +295,7 @@ var defaultSchemaFiles = []string{
 	"schemas_coder.mg",            // Coder Shard Declarations
 	"schemas_projectdoc.mg",       // nerd.md project instructions (see internal/projectdoc)
 	"schemas_gates.mg",            // Error-free gates compared (policy/gates.mg, internal/gates)
+	"schemas_spec.mg",             // Spec sections paired with code elements (policy/spec_pairing.mg, internal/specs)
 	// NERD-EVOLVE-START: context_compilation_schemas_c1_c4
 	"schemas_context.mg", // Context Compilation Pipeline (C1+C4)
 	// NERD-EVOLVE-END: context_compilation_schemas_c1_c4

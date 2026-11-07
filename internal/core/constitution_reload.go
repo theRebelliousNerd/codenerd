@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io/fs"
+	"iter"
 	"slices"
 	"strings"
 
@@ -81,7 +82,7 @@ func (k *RealKernel) stageConstitutionLocked(src constitutionSnapshot) (*RealKer
 func evaluateConstitution(next *RealKernel) error {
 	// The ordinary evaluator evicts malformed boot facts. A reload must instead
 	// reject the candidate, preserving every fact admitted by the old program.
-	for _, f := range next.facts {
+	for f := range next.facts.all() {
 		if _, err := next.factToAtomLocked(f); err != nil {
 			return fmt.Errorf("retained fact %s is incompatible with the candidate: %w", f.Predicate, err)
 		}
@@ -99,7 +100,8 @@ func (k *RealKernel) publishConstitutionLocked(next *RealKernel) {
 	k.schemaValidator, k.admission = next.schemaValidator, next.admission
 	k.programInfo, k.programKey = next.programInfo, next.programKey
 	k.strata, k.predToStratum, k.cone = next.strata, next.predToStratum, next.cone
-	k.facts, k.cachedAtoms, k.factIndex = next.facts, next.cachedAtoms, next.factIndex
+	k.facts.adopt(&next.facts)
+	k.cachedAtoms, k.factIndex = next.cachedAtoms, next.factIndex
 	k.store, k.initialized, k.storeTainted = next.store, next.initialized, next.storeTainted
 	k.atomCacheStale, k.policyDirty, k.evalErr = false, false, nil
 	k.lastEvaluation, k.proofRecorder = next.lastEvaluation, next.proofRecorder
@@ -181,7 +183,7 @@ func (c *CortexKernel) ReloadConstitution() (ConstitutionReload, error) {
 	}
 	out.Stage = "evaluate"
 	for i, next := range staged {
-		if err := c.hydrateSharedLocked(next, shards[i].domain, primary.kernel.facts, dm); err != nil {
+		if err := c.hydrateSharedLocked(next, shards[i].domain, primary.kernel.facts.all(), dm); err != nil {
 			return out, fmt.Errorf("shard %s: hydrate shared inventory: %w", shards[i].domain, err)
 		}
 		if err := evaluateConstitution(next); err != nil {
@@ -219,16 +221,14 @@ func (c *CortexKernel) stagedDerivationMap(staged []*RealKernel) (*DerivationMap
 
 // Replace replicas from canonical EDB, rather than unioning stale replicas
 // into the new generation. No derived facts are copied into the EDB.
-func (c *CortexKernel) hydrateSharedLocked(next *RealKernel, domain string, canonical []Fact, dm *DerivationMap) error {
-	kept := make([]Fact, 0, len(next.facts))
-	for _, f := range next.facts {
-		if _, shared := c.sharedPredicates[f.Predicate]; !shared {
-			kept = append(kept, f)
-		}
-	}
-	next.facts, next.cachedAtoms = kept, nil
+func (c *CortexKernel) hydrateSharedLocked(next *RealKernel, domain string, canonical iter.Seq[Fact], dm *DerivationMap) error {
+	next.facts.removeWhere(func(f Fact) bool {
+		_, shared := c.sharedPredicates[f.Predicate]
+		return shared
+	})
+	next.cachedAtoms = nil
 	next.rebuildFactIndexLocked()
-	for _, f := range canonical {
+	for f := range canonical {
 		if _, shared := c.sharedPredicates[f.Predicate]; !shared {
 			continue
 		}

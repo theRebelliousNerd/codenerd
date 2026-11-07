@@ -44,6 +44,7 @@ func TestLearnTraces_PairExchangesAndKeepOutcomesUnknown(t *testing.T) {
 // confidence survive. Staging kept only phrase, verb and target, and the id
 // route rebuilt the fact with an empty qualifier and 0.90.
 func TestLearnCandidate_StagedFactSurvivesConfirmationByID(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModePropose)
 	db, err := store.NewLocalStore(t.TempDir() + "/knowledge.db")
 	if err != nil {

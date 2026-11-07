@@ -83,6 +83,30 @@ Facts generated: %d | Scan duration: %.2fs`,
 			scanStats.fileCount, scanStats.directoryCount,
 			scanStats.factCount, scanStats.duration.Seconds(),
 		)
+		if scanStats.unchanged {
+			// An unchanged boot scan generated nothing new: report the
+			// retained kernel facts (when measured) so the welcome does not
+			// repeat a fake "Facts generated: 0" as if the kernel were empty.
+			if scanStats.hasKernelFacts {
+				userPrompt = fmt.Sprintf(`Project: %s
+Engine: %s | Model: %s
+Files seen: %d | Directories: %d
+Workspace unchanged; kernel facts retained: %d | Scan duration: %.2fs`,
+					projectName, provider, model,
+					scanStats.fileCount, scanStats.directoryCount,
+					scanStats.kernelFactCount, scanStats.duration.Seconds(),
+				)
+			} else {
+				userPrompt = fmt.Sprintf(`Project: %s
+Engine: %s | Model: %s
+Files seen: %d | Directories: %d
+Workspace unchanged; no new facts generated | Scan duration: %.2fs`,
+					projectName, provider, model,
+					scanStats.fileCount, scanStats.directoryCount,
+					scanStats.duration.Seconds(),
+				)
+			}
+		}
 
 		logging.BootDebug("LLM health check: engine=%s model=%s project=%s", provider, model, projectName)
 

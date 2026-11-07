@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/types"
 )
 
@@ -15,10 +16,7 @@ import (
 func TestStepPlan_MatchesOnShardedKernel(t *testing.T) {
 	t.Parallel()
 	cortex := bootRetentionCortex(t)
-	single, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	single := kerneltest.New(t)
 	both := retentionPair{t: t, cortex: cortex, single: single}
 
 	const (

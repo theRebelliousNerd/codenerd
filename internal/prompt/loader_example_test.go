@@ -1,6 +1,3 @@
-//go:build ignore
-
-// Example test to demonstrate loader functionality (not meant to run as part of test suite)
 package prompt_test
 
 import (
@@ -11,43 +8,31 @@ import (
 	"path/filepath"
 
 	"codenerd/internal/prompt"
+	prsync "codenerd/internal/prompt/sync"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// ExampleLoadProjectPrompts demonstrates loading project-level prompt atoms
-func ExampleLoadProjectPrompts() {
+// Example_syncAgentPrompts demonstrates syncing one agent's prompts.yaml into
+// its knowledge database. An unchanged file is skipped by content hash.
+func Example_syncAgentPrompts() {
 	ctx := context.Background()
-	nerdDir := ".nerd"
-
-	// Load project-level prompts (no embedding engine for this example)
-	count, err := prompt.LoadProjectPrompts(ctx, nerdDir, nil)
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		return
-	}
-
-	fmt.Printf("Loaded %d project-level prompt atoms\n", count)
-}
-
-// ExampleLoadAgentPrompts demonstrates loading agent-specific prompt atoms
-func ExampleLoadAgentPrompts() {
-	ctx := context.Background()
-	nerdDir := ".nerd"
+	workspace := "."
 	agentName := "my-custom-agent"
 
-	// Load agent-specific prompts
-	count, err := prompt.LoadAgentPrompts(ctx, agentName, nerdDir, nil)
+	// No embedding engine for this example.
+	synchronizer := prsync.NewAgentSynchronizer(workspace, prompt.NewAtomLoader(nil))
+	skipped, err := synchronizer.SyncAgent(ctx, agentName)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
 
-	fmt.Printf("Loaded %d prompts for agent %s\n", count, agentName)
+	fmt.Printf("Synced agent %s (skipped=%v)\n", agentName, skipped)
 }
 
-// ExampleInitializePromptDatabase demonstrates creating a new prompt database
-func ExampleInitializePromptDatabase() {
+// Example_initializePromptDatabase demonstrates creating a new prompt database.
+func Example_initializePromptDatabase() {
 	ctx := context.Background()
 	dbPath := filepath.Join(".nerd", "prompts", "corpus.db")
 
@@ -67,13 +52,16 @@ func ExampleInitializePromptDatabase() {
 	fmt.Printf("Initialized corpus database at %s\n", dbPath)
 }
 
-// ExampleCreateAgentPrompts demonstrates creating prompts.yaml for an agent
-func ExampleCreateAgentPrompts() {
-	// Create agent directory
-	agentDir := filepath.Join(".nerd", "agents", "my-agent")
-	os.MkdirAll(agentDir, 0755)
+// Example_createAgentPrompts demonstrates writing prompts.yaml for an agent
+// and syncing it.
+func Example_createAgentPrompts() {
+	workspace := "."
+	agentDir := filepath.Join(workspace, ".nerd", "agents", "my-agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
 
-	// Create prompts.yaml
 	yamlContent := `- id: "my-agent/identity"
   category: "identity"
   is_mandatory: true
@@ -96,21 +84,16 @@ func ExampleCreateAgentPrompts() {
 `
 
 	promptsPath := filepath.Join(agentDir, "prompts.yaml")
-	err := os.WriteFile(promptsPath, []byte(yamlContent), 0644)
-	if err != nil {
+	if err := os.WriteFile(promptsPath, []byte(yamlContent), 0644); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
-
 	fmt.Printf("Created prompts.yaml at %s\n", promptsPath)
 
-	// Now load the prompts
-	ctx := context.Background()
-	count, err := prompt.LoadAgentPrompts(ctx, "my-agent", ".nerd", nil)
-	if err != nil {
-		fmt.Printf("Error loading: %v\n", err)
+	synchronizer := prsync.NewAgentSynchronizer(workspace, prompt.NewAtomLoader(nil))
+	if _, err := synchronizer.SyncAgent(context.Background(), "my-agent"); err != nil {
+		fmt.Printf("Error syncing: %v\n", err)
 		return
 	}
-
-	fmt.Printf("Successfully loaded %d atoms for my-agent\n", count)
+	fmt.Println("Synced my-agent")
 }

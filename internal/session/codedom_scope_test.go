@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/types"
 	"codenerd/internal/world"
 )
@@ -18,10 +19,7 @@ import (
 func scopeProbe(t *testing.T) (*codedomScope, *core.RealKernel, string) {
 	t.Helper()
 	ws := t.TempDir()
-	kernel, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	kernel := kerneltest.New(t)
 	return &codedomScope{
 		src:   world.NewCodeElementFacts(ws),
 		root:  ws,

@@ -3,6 +3,7 @@ package session
 import (
 	"codenerd/internal/evidence"
 	"codenerd/internal/logging"
+	"codenerd/internal/turntime"
 	"codenerd/internal/types"
 	"context"
 	"crypto/sha256"
@@ -294,7 +295,7 @@ func finalFixTests(ctx context.Context, workspace string, result *ExecutionResul
 	if run, ok := recalledGate(result, key); ok {
 		return run.v, nil
 	}
-	v := verifyTests(ctx, workspace, []string{"./..."})
+	v := verifyTests(turntime.WithVerifyKind(ctx, turntime.KindFinal), workspace, []string{"./..."})
 	after, err := evidence.Snapshot(ctx, workspace)
 	if err != nil {
 		v.Outcome = VerifyIndeterminate

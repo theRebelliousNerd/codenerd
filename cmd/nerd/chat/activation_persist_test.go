@@ -15,6 +15,7 @@ import (
 // kernel's activation of every fact in working memory (context_atom), and
 // the log hands it back on the scale hydration reads.
 func TestSaveSession_PersistsTheKernelsFocus(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModeYolo)
 	db, err := store.NewLocalStore(filepath.Join(t.TempDir(), "knowledge.db"))
 	if err != nil {

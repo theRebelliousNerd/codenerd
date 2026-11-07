@@ -79,6 +79,7 @@ func TestMissionRequiresJoinedBackgroundLease(t *testing.T) {
 }
 
 func TestMissionPolicyBoundsAndUnknownSpend(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, reason string
 		change       func(*RecurseMission)
@@ -140,6 +141,7 @@ func TestMissionScopeUsesLiveKernelAdmission(t *testing.T) {
 }
 
 func TestMissionEvidenceCannotTurnMetricsIntoRequirementSupport(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ outcome, witness, before, after, want string }{
 		{outcomeKept, "/resolved", "old", "new", "/supported_gate_deficit"},
 		{outcomeKept, "/unknown", "old", "new", "/unknown"},
@@ -194,6 +196,7 @@ func TestMissionMeterKeepsUnknownAndVersionedSpend(t *testing.T) {
 }
 
 func TestMissionDeliberationStopsBeforeEffectsForValuesUnknownSpendAndDrift(t *testing.T) {
+	t.Parallel()
 	const model = "mission-design-script"
 	usage.RegisterPrice(model, usage.Price{InputPerMTok: 1, OutputPerMTok: 1})
 	for _, kind := range []string{"values", "unknown_spend", "source_changed"} {

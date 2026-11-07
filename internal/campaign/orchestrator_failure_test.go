@@ -465,6 +465,7 @@ func TestOrchestratorFailure_CanceledContext(t *testing.T) {
 }
 
 func TestOrchestratorFailure_MassiveAttempts(t *testing.T) {
+	t.Parallel()
 	orch, _, _ := newFailureTestOrchestrator(t, 5)
 	phase := &orch.campaign.Phases[0]
 	task := &orch.campaign.Phases[0].Tasks[0]

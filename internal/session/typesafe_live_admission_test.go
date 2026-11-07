@@ -110,6 +110,11 @@ func TestLiveReportJudgeAdmission(t *testing.T) {
 		{name: "gate_owner_allowlists_admission", flag: "1", gate: true, forward: true, wantCalls: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// The gate cases set the ambient environment process-wide (t.Setenv), so
+			// they run serially; every other case only reads it and spawns its own child.
+			if !tc.gate {
+				t.Parallel()
+			}
 			root := t.TempDir()
 			cwd := filepath.Join(root, "internal/session")
 			if err := os.MkdirAll(cwd, 0700); err != nil {

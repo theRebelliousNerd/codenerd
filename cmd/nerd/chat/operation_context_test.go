@@ -24,6 +24,7 @@ import (
 // an entire /init run of planner-tier calls was invisible in usage.json —
 // or land under BySession "unknown".
 func TestSessionOperationContext_CarriesUsageTrackerAndSession(t *testing.T) {
+	t.Parallel()
 	tracker, err := usage.NewTracker(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewTracker: %v", err)

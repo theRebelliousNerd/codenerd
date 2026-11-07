@@ -250,6 +250,13 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 
+		// While the system boots, a message waits in the queue and runs
+		// once the boot is done; the input was blurred and dropped every key.
+		if m.isBooting {
+			model, cmd := m.submitWhileBooting()
+			return model, cmd, true
+		}
+
 		// Enter sends the message if not loading and no stopped turn is
 		// still winding down (turnState).
 		if !m.isLoading && m.turn.current() == 0 {

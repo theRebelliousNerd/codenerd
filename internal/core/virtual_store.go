@@ -1285,15 +1285,11 @@ func (v *VirtualStore) WriteFile(path string, content []string) error {
 	// and left them mixed — codeNERD's own world scanner flagged two files it
 	// had edited (encoding_issue /crlf_inconsistent). A new file keeps the old
 	// behaviour rather than inventing a convention.
-	out := strings.Join(content, "\n")
-	ending, exists, err := existingLineEnding(path)
+	data, err := tactile.SpliceOntoFile(path, strings.Join(content, "\n"))
 	if err != nil {
-		return fmt.Errorf("detect line ending for %s: %w", path, err)
+		return fmt.Errorf("read existing %s for line endings: %w", path, err)
 	}
-	if exists {
-		out = normalizeLineEnding(out, ending)
-	}
-	return os.WriteFile(path, []byte(out), 0644)
+	return os.WriteFile(path, data, 0644)
 }
 
 // ReadRaw reads a file and returns its raw bytes.

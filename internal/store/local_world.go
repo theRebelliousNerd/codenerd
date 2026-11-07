@@ -1,6 +1,8 @@
 package store
 
 import (
+	"time"
+
 	"codenerd/internal/logging"
 )
 
@@ -169,8 +171,10 @@ func (s *LocalStore) LoadAllWorldFacts(depth string) ([]WorldFactInput, error) {
 		depth = "fast"
 	}
 
+	start := time.Now()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	locked := time.Now()
 
 	rows, err := s.db.Query(
 		"SELECT predicate, args FROM world_facts WHERE depth = ? ORDER BY path",
@@ -197,6 +201,12 @@ func (s *LocalStore) LoadAllWorldFacts(depth string) ([]WorldFactInput, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	// A copy of a live 564k-row cache reads in 1.4 s; the boot measured
+	// 5.9 s. Report the mutex wait apart from the read when it is slow.
+	if total := time.Since(start); total >= worldWriteSlow {
+		logging.StoreWarn("world cache read slow: %d rows in %v (store lock wait %v)",
+			len(out), total.Round(time.Millisecond), locked.Sub(start).Round(time.Millisecond))
+	}
 	return out, nil
 }
 
@@ -213,8 +223,14 @@ func (s *LocalStore) UpdateWorldFilesAndFacts(depth string, updates []FileUpdate
 		depth = "fast"
 	}
 
+	// The phases are timed apart: on a boot this call measured 13.3 s for
+	// 989 files that a copy of the same database writes in 1.8 s, so the
+	// difference is waiting (this store's mutex, or SQLite's write lock held
+	// by another connection), and the log has to say which.
+	phase := worldWritePhases{start: time.Now()}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	phase.locked = time.Now()
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -251,10 +267,17 @@ func (s *LocalStore) UpdateWorldFilesAndFacts(depth string, updates []FileUpdate
 	}
 	defer factStmt.Close()
 
-	for _, u := range updates {
+	rows := 0
+	for i, u := range updates {
 		if _, err := fileStmt.Exec(u.Meta.Path, u.Meta.Lang, u.Meta.Size, u.Meta.ModTime, u.Meta.Hash, u.Meta.Fingerprint); err != nil {
 			return err
 		}
+		if i == 0 {
+			// The first write takes SQLite's RESERVED lock; a busy wait for
+			// another connection's write transaction lands here.
+			phase.firstWrite = time.Now()
+		}
+		rows += len(u.Facts)
 
 		if _, err := delStmt.Exec(u.Meta.Path, depth); err != nil {
 			return err
@@ -267,7 +290,36 @@ func (s *LocalStore) UpdateWorldFilesAndFacts(depth string, updates []FileUpdate
 		}
 	}
 
-	return tx.Commit()
+	phase.written = time.Now()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	phase.log(len(updates), rows)
+	return nil
+}
+
+// worldWritePhases splits one world-cache write into the time spent waiting
+// for the store mutex, waiting for SQLite's write lock, writing rows, and
+// committing.
+type worldWritePhases struct {
+	start, locked, firstWrite, written time.Time
+}
+
+// worldWriteSlow is the total above which a write reports its phases.
+const worldWriteSlow = time.Second
+
+func (p worldWritePhases) log(files, rows int) {
+	done := time.Now()
+	total := done.Sub(p.start)
+	if total < worldWriteSlow {
+		return
+	}
+	logging.StoreWarn("world cache write slow: %d files, %d rows in %v (store lock wait %v, sqlite write lock %v, rows %v, commit %v)",
+		files, rows, total.Round(time.Millisecond),
+		p.locked.Sub(p.start).Round(time.Millisecond),
+		p.firstWrite.Sub(p.locked).Round(time.Millisecond),
+		p.written.Sub(p.firstWrite).Round(time.Millisecond),
+		done.Sub(p.written).Round(time.Millisecond))
 }
 
 // DeleteWorldFiles removes world_files and all cached facts for multiple files.

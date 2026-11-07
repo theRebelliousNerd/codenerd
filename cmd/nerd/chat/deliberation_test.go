@@ -228,6 +228,7 @@ func TestDeliberationValuesForkYoloUsesRecommendation(t *testing.T) {
 }
 
 func TestDeliberationEmpiricalUsesRealReadToolAndContinues(t *testing.T) {
+	t.Parallel()
 	m, _, _ := deliberationFixture(t, "empirical", config.WorkModeYolo)
 	thread := &deliberation.Thread{Request: "Fix the dropped request", Mode: "yolo"}
 	out, err := m.deliberator().Run(context.Background(), thread)
@@ -243,6 +244,7 @@ func TestDeliberationEmpiricalUsesRealReadToolAndContinues(t *testing.T) {
 }
 
 func TestDeliberationStopsAtConfiguredBounds(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name              string
 		rounds, unchanged int
@@ -288,6 +290,7 @@ func TestClarificationAnswerKeepsOriginalIntentWithoutReperception(t *testing.T)
 }
 
 func TestDeliberationReadEnvelopeCannotExecuteOrWrite(t *testing.T) {
+	t.Parallel()
 	m, _, _ := deliberationFixture(t, "ready", config.WorkModeYolo)
 	reads := deliberation.ReadTools{Kernel: m.kernel, Registry: m.virtualStore.GetModularTools(), ContextBytes: m.Config.GetRoutingConfig().DeliberationContextBytes}
 	for _, name := range []string{"write_file", "run_command", "mcp_call", "ask_user"} {
@@ -298,6 +301,7 @@ func TestDeliberationReadEnvelopeCannotExecuteOrWrite(t *testing.T) {
 }
 
 func TestDeliberationPersistedRestrictionRetainsConsent(t *testing.T) {
+	t.Parallel()
 	m, _, _ := deliberationFixture(t, "values", config.WorkModePropose)
 	thread := &deliberation.Thread{Request: "Fix request.go after confirmation", Mode: "propose", Intent: perception.Intent{
 		Verb: "/fix", Category: "/mutation", Restriction: perception.RestrictionOf("confirm first", perception.RestrictConfirmFirst)}}
@@ -347,6 +351,7 @@ func TestDeliberateCommandReturnsConvergedDesign(t *testing.T) {
 }
 
 func TestDeliberationNeverAsksASecondValuesQuestion(t *testing.T) {
+	t.Parallel()
 	m, client, _ := deliberationFixture(t, "values", config.WorkModePropose)
 	thread := &deliberation.Thread{Request: "Settle the preference", Mode: "propose"}
 	out, err := m.deliberator().Run(context.Background(), thread)

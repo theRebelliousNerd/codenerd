@@ -11,6 +11,7 @@ import (
 )
 
 func TestCompressPhasePreservesStringActivationIdentity(t *testing.T) {
+	t.Parallel()
 	k, err := core.NewRealKernel()
 	require.NoError(t, err)
 	require.NoError(t, k.Assert(core.Fact{

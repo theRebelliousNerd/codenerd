@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/prompt"
 )
 
@@ -29,7 +29,7 @@ func goldenCore() []string {
 
 func goldenCodeDom() []string {
 	return []string{
-		"apply_edits", "callees_of", "callers_of", "create_file", "delete_element",
+		"apply_edits", "callees_of", "callers_of", "confirm_spec_link", "create_file", "delete_element",
 		"delete_lines", "edit_element", "edit_lines", "family_no_change", "find_symbol", "find_text",
 		"get_element", "get_elements", "importers_of", "insert_element", "insert_lines",
 		"package_outline", "predicate_outline", "replace_element", "repoint",
@@ -144,10 +144,7 @@ func goldenVerbPersona() map[string]string {
 // kernel is the only source left.
 func TestTurnCatalog_KernelEnvelope(t *testing.T) {
 	t.Parallel()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	k := kerneltest.New(t)
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
 	verbs := goldenVerbPersona()
 

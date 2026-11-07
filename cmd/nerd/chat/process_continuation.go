@@ -365,6 +365,14 @@ func continuationSummary(steps int, ret observation.Return, delivery string) str
 	if delivery != "" {
 		out += " " + delivery
 	}
+	if ret.Timing != nil {
+		// Where the turn's wall time went, in one line: a ten-minute turn
+		// is a model problem, a tool problem or a gate problem, and the
+		// verdict above does not say which.
+		if line := ret.Timing.Line(); line != "" {
+			out += " " + line + "."
+		}
+	}
 	return out
 }
 

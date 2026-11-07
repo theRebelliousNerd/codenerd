@@ -61,6 +61,7 @@ func TestPrepareBootHydration_NilCompressorNoop(t *testing.T) {
 // TestRunBootDeferred_EmptyDB covers the DB call with no snapshot (910-911
 // execute, hasState stays false) plus observer Start (918-919).
 func TestRunBootDeferred_EmptyDB(t *testing.T) {
+	t.Parallel()
 	b := bootTestBroker(t)
 	m := bootTestModel(t, b)
 	m.compressor = newTestCompressor()
@@ -85,6 +86,7 @@ func TestRunBootDeferred_EmptyDB(t *testing.T) {
 // TestRunBootDeferred_LoadsSnapshot covers the success branch (912-915):
 // a stored snapshot is returned with hasState true.
 func TestRunBootDeferred_LoadsSnapshot(t *testing.T) {
+	t.Parallel()
 	b := bootTestBroker(t)
 	m := bootTestModel(t, b)
 	m.compressor = newTestCompressor()

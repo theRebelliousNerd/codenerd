@@ -34,6 +34,7 @@ const deltaPolicy = `
 	Decl dl_edge_out(From, N).
 	Decl dl_unfrozen_owned(Who, N).
 	Decl dl_busy_owner(Who).
+	Decl dl_pair(A, P).
 
 	dl_reach(X, Y) :- dl_edge(X, Y).
 	dl_reach(X, Z) :- dl_reach(X, Y), dl_edge(Y, Z).
@@ -57,6 +58,7 @@ const deltaPolicy = `
 	dl_edge_out(F, N) :- dl_edge(F, _) |> do fn:group_by(F), let N = fn:count().
 	dl_unfrozen_owned(W, N) :- dl_owner(Nd, W), !dl_frozen(Nd) |> do fn:group_by(W), let N = fn:count().
 	dl_busy_owner(W) :- dl_edge_out(Nd, N), dl_owner(Nd, W), N >= 2.
+	dl_pair(A, P) :- dl_edge(A, B), P = fn:pair(A, B), !dl_banned(B), dl_owner(A, _).
 `
 
 var dredWritable = []string{"dl_edge", "dl_owner", "dl_banned", "dl_quarantine", "dl_mixed", "dl_frozen"}
@@ -459,4 +461,43 @@ func TestDRedHandsAChangeThatIsMostOfTheStoreToTheFullPath(t *testing.T) {
 	if ev := k.LastEvaluation(); ev.Mode != "dred" {
 		t.Fatalf("a small write after the flood evaluated as %q; want dred", ev.Mode)
 	}
+}
+
+const conflictPolicy = `
+	Decl cf_candidate(A).
+	Decl cf_conflicts(A, B).
+	Decl cf_mandatory(A).
+	Decl cf_loser(A).
+	cf_loser(A) :- cf_candidate(A), cf_conflicts(A, M), cf_mandatory(M).
+	cf_loser(A) :- cf_candidate(A), cf_conflicts(M, A), cf_mandatory(M).
+`
+
+// BenchmarkDRedConflictJoin is the JIT selection's conflict rule over 5,000
+// candidates: new mandatory rows bind M, and the join must use it.
+func BenchmarkDRedConflictJoin(b *testing.B) {
+	k := newRealKernelBase()
+	k.AppendPolicy(conflictPolicy)
+	for i := 0; i < 5000; i++ {
+		_ = k.AssertWithoutEval(Fact{Predicate: "cf_candidate", Args: []any{MangleAtom(fmt.Sprintf("/a%d", i))}})
+		for j := 1; j <= 4; j++ {
+			_ = k.AssertWithoutEval(Fact{Predicate: "cf_conflicts", Args: []any{MangleAtom(fmt.Sprintf("/a%d", i)), MangleAtom(fmt.Sprintf("/a%d", (i+j*97)%5000))}})
+		}
+	}
+	if err := k.Evaluate(); err != nil {
+		b.Fatal(err)
+	}
+	var total time.Duration
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for j := 0; j < 50; j++ {
+			_ = k.AssertWithoutEval(Fact{Predicate: "cf_mandatory", Args: []any{MangleAtom(fmt.Sprintf("/a%d", (i*50+j)%5000))}})
+		}
+		started := time.Now()
+		if err := k.EvaluatePending(); err != nil {
+			b.Fatal(err)
+		}
+		total += time.Since(started)
+	}
+	b.ReportMetric(float64(total.Microseconds())/float64(b.N), "eval-us/op")
+	b.Logf("mode=%s", k.LastEvaluation().Mode)
 }
