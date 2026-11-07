@@ -211,8 +211,13 @@ func analyzeLoaded(ctx context.Context, workspace string, env []string, loadSet,
 			return rtsAnalysis{}, "importer " + path + " was not loaded"
 		}
 	}
+	// Every package the SSA program is built from must load: ssautil skips an
+	// ill-typed package, and a changed function in one then had "no SSA
+	// function", which named the wrong cause (a turn whose own test file did
+	// not compile, 2026-11-07). The written packages' test variants are roots
+	// but not importers, so they are visited here too.
 	var bad string
-	packages.Visit(flatten(variants, importers), nil, func(p *packages.Package) {
+	packages.Visit(append(flatten(variants, importers), roots...), nil, func(p *packages.Package) {
 		if bad == "" && len(p.Errors) > 0 {
 			bad = p.PkgPath + " does not load (" + p.Errors[0].Error() + ")"
 		}

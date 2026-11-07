@@ -442,3 +442,17 @@ func TestSelectImporterRuns_AnAnalysisOverItsBudgetRunsEverything(t *testing.T) 
 	after.leaf = "2"
 	requireFallback(t, rtsPlanCtx(t, ctx, rtsFiles(after, nil), map[string]string{"a/a.go": rtsBefore.aGo()}), "budget")
 }
+
+func TestSelectImporterRuns_AWrittenPackageWhoseTestsDoNotCompileNamesTheLoadError(t *testing.T) {
+	t.Parallel()
+	// The turn changed a body in a and left a test file in a that does not
+	// type-check. Selection must fall back naming the load error, not report
+	// the changed function as having no SSA function.
+	after := rtsBefore
+	after.leaf = "2"
+	files := rtsFiles(after, map[string]string{"a/a_test.go": "package a\n\nimport \"testing\"\n\nfunc TestBroken(t *testing.T) { notDeclaredAnywhere() }\n"})
+	plan := rtsPlan(t, files, map[string]string{"a/a.go": rtsBefore.aGo()})
+	if !strings.Contains(plan.selection.Fallback, "does not load") || strings.Contains(plan.selection.Fallback, "no SSA function") {
+		t.Fatalf("fallback = %q, want the load error named", plan.selection.Fallback)
+	}
+}
