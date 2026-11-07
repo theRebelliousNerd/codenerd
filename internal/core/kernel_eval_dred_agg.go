@@ -254,23 +254,34 @@ func (r *dredRun) recomputeGroup(rule dredRule, newCtx engine.QueryContext, key 
 
 // groupOutput binds one group's key and reads the group's output rows from
 // the store.
+// A program fact of the head in the group is never part of the output: the
+// engine adds it before any rule runs and never replaces it, so a recompute
+// must not remove it (it did: an adversarial review found the group recompute
+// deleting it). hasProgramFact says one matched, and the delta path then
+// recomputes instead, since the stored rows no longer tell the old output.
 func (r *dredRun) groupOutput(rule dredRule, key []ast.Constant) (unionfind.UnionFind, []ast.Atom, error) {
-	bound, err := unionfind.UnifyTermsExtend(varsAsTerms(rule.agg.groupVars), constsAsTerms(key), unionfind.New())
+	bound, old, _, err := r.groupOutputFacts(rule, key)
+	return bound, old, err
+}
+
+func (r *dredRun) groupOutputFacts(rule dredRule, key []ast.Constant) (bound unionfind.UnionFind, old []ast.Atom, hasProgramFact bool, err error) {
+	bound, err = unionfind.UnifyTermsExtend(varsAsTerms(rule.agg.groupVars), constsAsTerms(key), unionfind.New())
 	if err != nil {
-		return bound, nil, fmt.Errorf("dred: %s: bind group: %w", rule.head.Symbol, err)
+		return bound, nil, false, fmt.Errorf("dred: %s: bind group: %w", rule.head.Symbol, err)
 	}
 	pattern, err := functional.EvalAtom(rule.clause.Head, bound)
 	if err != nil {
-		return bound, nil, fmt.Errorf("dred: %s: group pattern: %w", rule.head.Symbol, err)
+		return bound, nil, false, fmt.Errorf("dred: %s: group pattern: %w", rule.head.Symbol, err)
 	}
-	var old []ast.Atom
-	if err := r.k.store.GetFacts(pattern, func(a ast.Atom) error {
+	err = r.k.store.GetFacts(pattern, func(a ast.Atom) error {
+		if r.idx.programFacts.has(a) {
+			hasProgramFact = true
+			return nil
+		}
 		old = append(old, a)
 		return nil
-	}); err != nil {
-		return bound, nil, err
-	}
-	return bound, old, nil
+	})
+	return bound, old, hasProgramFact, err
 }
 
 // replaceOutput swaps a group's output rows old for fresh in the store and

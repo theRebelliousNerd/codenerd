@@ -322,11 +322,11 @@ func existsSolution(ctx engine.QueryContext, clause ast.Clause, order []int, s u
 func (r *dredRun) applyGroupDelta(rule dredRule, newCtx engine.QueryContext, g *aggGroup, remover factstore.FactStoreWithRemove) error {
 	agg := rule.agg
 	recompute := func() error { return r.recomputeGroup(rule, newCtx, g.key, remover) }
-	bound, old, err := r.groupOutput(rule, g.key)
+	bound, old, hasProgramFact, err := r.groupOutputFacts(rule, g.key)
 	if err != nil {
 		return err
 	}
-	if g.bad || len(old) > 1 {
+	if g.bad || len(old) > 1 || hasProgramFact {
 		return recompute()
 	}
 	haveCount := false
