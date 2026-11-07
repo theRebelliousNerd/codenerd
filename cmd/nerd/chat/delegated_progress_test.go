@@ -511,7 +511,7 @@ func TestResidentServices_EmptyAndBoundedPanels(t *testing.T) {
 	if !strings.Contains(panel, "+2 services; see /status") || strings.Contains(panel, fmt.Sprintf("service-%02d", maxActivityTrail+1)) {
 		t.Fatalf("service overflow not summarized: %s", panel)
 	}
-	if status := m.buildStatusReport(); !strings.Contains(status, fmt.Sprintf("service-%02d: stopped", maxActivityTrail+1)) {
+	if status := m.buildStatusReport(); !strings.Contains(status, fmt.Sprintf("service-%02d: idle", maxActivityTrail+1)) {
 		t.Fatalf("status omitted a service: %s", status)
 	}
 }
