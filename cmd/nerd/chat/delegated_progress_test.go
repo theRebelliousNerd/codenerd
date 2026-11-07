@@ -37,7 +37,8 @@ func TestDelegatedProgress_ReachesChatBeforeAgentFinishes(t *testing.T) {
 		})
 	}()
 	defer func() { close(release); <-done }()
-	for i := 0; i < 4; i++ {
+	// input, call_done, the plan's prose, the step, the tool start
+	for i := 0; i < 5; i++ {
 		cmd := m.listenDelegatedProgress()
 		received := make(chan tea.Msg, 1)
 		go func() { received <- cmd() }()
@@ -512,5 +513,29 @@ func TestResidentServices_EmptyAndBoundedPanels(t *testing.T) {
 	}
 	if status := m.buildStatusReport(); !strings.Contains(status, fmt.Sprintf("service-%02d: stopped", maxActivityTrail+1)) {
 		t.Fatalf("status omitted a service: %s", status)
+	}
+}
+
+// A model call that answered no longer reads "waiting for model": the pinned
+// line follows the answer, and the gate run after it shows as itself. Found
+// when a shard's final test gate ran 10+ minutes under "waiting for model".
+func TestDelegatedProgress_AnsweredCallAndGateLeaveWaitingForModel(t *testing.T) {
+	m := NewTestModel(WithSize(100, 50))
+	defer m.shutdownCancel()
+	m.sessionID = "gate"
+	m.wrapWidth = 96
+	at := time.Unix(100, 0)
+	m.handleDelegatedProgress(sessionlog.LiveEvent{Session: "gate", Agent: "coder-1", Kind: sessionlog.EventCallStart, Text: "waiting for model", At: at})
+	before := len(m.history)
+	m.handleDelegatedProgress(sessionlog.LiveEvent{Session: "gate", Agent: "coder-1", Kind: sessionlog.LiveCallDone, Text: "model answered: final", At: at.Add(5 * time.Second)})
+	if len(m.history) != before {
+		t.Fatalf("call_done added scrollback: %s", m.history[len(m.history)-1].Content)
+	}
+	if line := m.renderDelegatedProgress(at.Add(6 * time.Second)); strings.Contains(line, "waiting for model") || !strings.Contains(line, "model answered: final") {
+		t.Fatalf("pinned line after the answer: %s", line)
+	}
+	m.handleDelegatedProgress(sessionlog.LiveEvent{Session: "gate", Agent: "coder-1", Kind: "tool_started", Tool: "verify", Text: "go test -json ./cmd/nerd/chat", CallID: "verify-1", At: at.Add(7 * time.Second)})
+	if line := m.renderDelegatedProgress(at.Add(10 * time.Minute)); !strings.Contains(line, "verify go test -json ./cmd/nerd/chat") {
+		t.Fatalf("a running gate is not on the pinned line: %s", line)
 	}
 }

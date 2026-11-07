@@ -75,8 +75,8 @@ func TestLiveProgress_ReportsBeforeAgentReturns(t *testing.T) {
 				tr := TranscriptFrom(ctx)
 				tr.CallStarted(ctx, "model")
 				tr.Assistant(ctx, "model", &Response{Text: []string{`{"control_packet":{"private":"do not display"},"surface_response":"Plan: inspect loader\nThen fix it"}`}})
-				if len(events) != 4 {
-					t.Fatalf("before return: got %d events, want start, waiting and both plan lines", len(events))
+				if len(events) != 5 || events[2].Kind != LiveCallDone {
+					t.Fatalf("before return: got %d events, want start, waiting, answered and both plan lines", len(events))
 				}
 				tr.CallFailed(ctx, "model", errors.New("provider failed"))
 				return "partial", context.Canceled
@@ -84,7 +84,7 @@ func TestLiveProgress_ReportsBeforeAgentReturns(t *testing.T) {
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("run error = %v", err)
 			}
-			if len(events) != 6 || events[5].Kind != EventFinal || !events[5].Failed {
+			if len(events) != 7 || events[6].Kind != EventFinal || !events[6].Failed {
 				t.Fatalf("events = %+v", events)
 			}
 			for _, ev := range events {
@@ -305,5 +305,24 @@ func TestEmitLiveProgress_DeliversDelegatedObservationWithoutStore(t *testing.T)
 	}
 	if got.Session != "task-session" || got.Agent != "coder-worker" || got.At.Before(before) {
 		t.Fatalf("observation ownership/time not supplied by context: %+v", got)
+	}
+}
+
+// An answered model call is reported live, with what it asked for, so a view
+// stops reading "waiting for model" the moment the answer is in.
+func TestTranscriptAssistant_ReportsTheAnswerLive(t *testing.T) {
+	var events []LiveEvent
+	ctx := WithAgent(WithLiveProgress(context.Background(), func(_ context.Context, ev LiveEvent) { events = append(events, ev) }), "coder", "answered")
+	var tr *Transcript
+	tr.Assistant(ctx, "m", &Response{ToolCalls: []ToolCall{{Name: "read_file"}, {Name: "edit_file"}}})
+	tr.Assistant(ctx, "m", &Response{})
+	var done []string
+	for _, ev := range events {
+		if ev.Kind == LiveCallDone {
+			done = append(done, ev.Text)
+		}
+	}
+	if len(done) != 2 || done[0] != "model answered: 2 tool call(s)" || done[1] != "model answered: final" {
+		t.Fatalf("call_done events = %q", done)
 	}
 }

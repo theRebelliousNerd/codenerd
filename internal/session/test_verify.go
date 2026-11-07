@@ -283,7 +283,9 @@ func verifyTests(ctx context.Context, workspace string, packages []string, extra
 	args = append(args, filtered...)
 	command := append([]string{"go"}, args...)
 
+	done := liveVerification(ctx, command)
 	out, outcome, reason := runVerificationCommand(ctx, workspace, build.GetBuildEnv(nil, workspace), testVerifyTimeout, command[0], command[1:], verifyTestRunner)
+	done(outcome)
 	elapsed := time.Since(start)
 	res := parseTestJSON(workspace, out)
 

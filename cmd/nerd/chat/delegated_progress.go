@@ -114,6 +114,11 @@ func (m *Model) handleDelegatedProgress(ev sessionlog.LiveEvent) {
 		delete(m.delegatedActive, key)
 	case sessionlog.EventCallStart, sessionlog.EventCallFailed, sessionlog.EventInput:
 		a.Current, a.CurrentAt = text, ev.At
+	case sessionlog.LiveCallDone:
+		// The pinned line moves on; scrollback already has the call.
+		a.Current, a.CurrentAt = text, ev.At
+		m.delegatedActive[key] = a
+		return
 	case sessionlog.EventAssistant:
 		// Prose stays in scrollback without resetting the step clock.
 	default:

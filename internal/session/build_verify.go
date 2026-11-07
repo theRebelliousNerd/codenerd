@@ -180,7 +180,9 @@ func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConf
 		return BuildVerification{Outcome: VerifySkipped, Reason: "no Go toolchain on PATH", Duration: time.Since(start)}
 	}
 
+	done := liveVerification(ctx, command)
 	out, outcome, reason := runVerificationCommand(ctx, workspace, build.GetBuildEnv(userCfg, workspace), buildVerifyTimeout, command[0], command[1:], verifyBuildRunner)
+	done(outcome)
 	elapsed := time.Since(start)
 
 	switch outcome {

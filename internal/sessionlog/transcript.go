@@ -27,6 +27,11 @@ const (
 	EventFinal      = "final"        // the agent's final answer or the error that ended it
 	EventCallStart  = "call_started" // a model call went out; its answer or failure follows
 	EventCallFailed = "call_failed"  // a model call ended in an error
+
+	// LiveCallDone is a live-progress kind only, never a transcript entry:
+	// the model answered, so whatever follows (tools, the turn's gates) is no
+	// longer "waiting for model".
+	LiveCallDone = "call_done"
 )
 
 // TranscriptEvent is one entry of a transcript.
@@ -135,6 +140,11 @@ func (t *Transcript) Assistant(ctx context.Context, model string, r *Response) {
 	if r == nil {
 		return
 	}
+	answered := "model answered: final"
+	if n := len(r.ToolCalls); n > 0 {
+		answered = fmt.Sprintf("model answered: %d tool call(s)", n)
+	}
+	EmitLiveProgress(ctx, LiveEvent{Kind: LiveCallDone, Text: answered})
 	liveAssistant(ctx, Join(r.Text))
 	if t == nil {
 		return
