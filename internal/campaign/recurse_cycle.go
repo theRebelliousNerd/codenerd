@@ -589,6 +589,9 @@ func (r *recurseRun) deriveSweep(ctx context.Context, pass int) (*sweep, error) 
 }
 
 func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) error {
+	if _, err := r.safePoint(ctx, pass); err != nil {
+		return err
+	}
 	// The graph and the gates are re-derived each pass: the loop changes the
 	// code, and the code is what they are derived from. The loop below asks the
 	// kernel for the next node one node at a time; it does not replay a list
