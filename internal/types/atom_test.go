@@ -80,3 +80,52 @@ func TestFact_ToAtom_RejectsInvalidPredicateName(t *testing.T) {
 		}
 	}
 }
+
+func TestAtom_WhenGivenStabilizeEdges_ShouldPinNormalization(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		in   string
+		want MangleAtom
+	}{
+		{"leading digit gains n prefix", "9lives", "/n_9lives"},
+		{"all digits gain n prefix", "123", "/n_123"},
+		{"digit with underscores gains n prefix", "9starts_with_digit", "/n_9starts_with_digit"},
+		{"single digit gains n prefix", "0", "/n_0"},
+		{"leading dash trims", "/-foo-", "/foo"},
+		{"only dashes is unknown", "/---", "/unknown"},
+		{"bare dashes is unknown", "---", "/unknown"},
+		{"surrounding dashes trim", "-foo-", "/foo"},
+		{"only underscores is unknown", "___", "/unknown"},
+		{"whitespace only is unknown", "   ", "/unknown"},
+		{"dash underscore mix is unknown", "-_-", "/unknown"},
+		{"underscore runs collapse", "a__b", "/a_b"},
+		{"long underscore runs collapse", "a___b", "/a_b"},
+		{"trailing slash trims", "foo/", "/foo"},
+		{"surrounding spaces with slash trim", "  /foo  ", "/foo"},
+		{"upper case with digit folds", "FOO_9", "/foo_9"},
+		{"inner slashes flatten and trim", "foo/bar/", "/foo_bar"},
+		{"repeated leading slashes collapse", "//a//b", "/a_b"},
+		{"surrounding dashes with spaces trim", "  --weird--  ", "/weird"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := Atom(tt.in)
+			if got != tt.want {
+				t.Fatalf("Atom(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+			if !isValidMangleNameConstant(string(got)) {
+				t.Fatalf("Atom(%q) produced %q, which is not a valid name constant", tt.in, got)
+			}
+			atom, err := (Fact{Predicate: "p", Args: []any{got}}).ToAtom()
+			if err != nil {
+				t.Fatalf("Atom(%q) produced %q which ToAtom rejects: %v", tt.in, got, err)
+			}
+			c, ok := atom.Args[0].(ast.Constant)
+			if !ok || c.Type != ast.NameType {
+				t.Fatalf("Atom(%q) reached the kernel as %#v, want a NameType constant", tt.in, atom.Args[0])
+			}
+		})
+	}
+}

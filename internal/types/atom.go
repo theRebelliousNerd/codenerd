@@ -21,30 +21,46 @@ import "strings"
 // user-facing labels, where the alternative today is a bare string.
 //
 // The result is always a valid name: everything outside [a-z0-9_-] becomes "_",
-// upper case folds down, and an input that reduces to nothing yields /unknown
+// upper case folds down, runs of "_" collapse to one, leading/trailing "_"
+// and "-" trim away, a leading digit gains an "n_" prefix so the atom stays
+// letter-leading, and an input that reduces to nothing yields /unknown
 // rather than the bare "/" that ast.Name rejects.
 func Atom(s string) MangleAtom {
 	tail := strings.TrimLeft(strings.TrimSpace(s), "/")
-	mapped := strings.Map(func(r rune) rune {
+	var b strings.Builder
+	b.Grow(len(tail))
+	prevUnderscore := false
+	for _, r := range tail {
+		var out rune
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '-':
-			return r
+			out = r
 		case r >= 'A' && r <= 'Z':
-			return r + ('a' - 'A')
+			out = r + ('a' - 'A')
 		default:
-			return '_'
+			out = '_'
 		}
-	}, tail)
+		if out == '_' {
+			if prevUnderscore {
+				continue
+			}
+			prevUnderscore = true
+		} else {
+			prevUnderscore = false
+		}
+		b.WriteRune(out)
+	}
 	// Collapse runs of underscores so "not found: pattern" does not become
 	// /not_found__pattern; the atom is a policy-visible identifier and the
 	// difference between one and two underscores is invisible to whoever
-	// writes the matching rule.
-	for strings.Contains(mapped, "__") {
-		mapped = strings.ReplaceAll(mapped, "__", "_")
-	}
-	mapped = strings.Trim(mapped, "_")
+	// writes the matching rule. Single pass above already collapses; trimming
+	// both "_" and "-" keeps "/-foo-" and "/---" from escaping as invalid names.
+	mapped := strings.Trim(b.String(), "_-")
 	if mapped == "" {
 		return MangleAtom("/unknown")
+	}
+	if mapped[0] >= '0' && mapped[0] <= '9' {
+		return MangleAtom("/n_" + mapped)
 	}
 	return MangleAtom("/" + mapped)
 }
