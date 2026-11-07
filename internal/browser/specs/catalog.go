@@ -71,6 +71,9 @@ func (c *Catalog) Load(ctx context.Context) (LoadResult, error) {
 	if c == nil || !c.config.IsEnabled() {
 		return LoadResult{}, fmt.Errorf("browser specs are disabled")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	result := LoadResult{}
 	candidates := make([]specCandidate, 0, c.config.MaxFiles)
 	seen := make(map[string]struct{})
@@ -145,6 +148,15 @@ type specCandidate struct {
 
 func (c *Catalog) collectSource(ctx context.Context, source Source, candidates *[]specCandidate, seen map[string]struct{}, limit int, entriesScanned *int, maxEntries int) (bool, []string) {
 	warnings := make([]string, 0)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if candidates == nil || seen == nil || entriesScanned == nil {
+		return true, appendBoundedWarning(warnings, "browser spec catalog state is unavailable")
+	}
+	if limit <= 0 || maxEntries <= 0 {
+		return true, warnings
+	}
 	truncated := false
 	appendCandidate := func(path, patternRelative string) {
 		if len(*candidates) >= limit {
@@ -263,6 +275,9 @@ func (c *Catalog) collectSource(ctx context.Context, source Source, candidates *
 }
 
 func (c *Catalog) resolveReadPath(configured string) (string, string, error) {
+	if c == nil || strings.TrimSpace(c.workspace) == "" {
+		return "", "", fmt.Errorf("browser spec catalog workspace is unavailable")
+	}
 	configured = strings.TrimSpace(configured)
 	if configured == "" {
 		return "", "", fmt.Errorf("empty browser spec path")
@@ -396,7 +411,13 @@ func MatchSpecs(specs []Spec, input MatchInput, maxExcerptBytes int) []Match {
 		if ranked[left].score != ranked[right].score {
 			return ranked[left].score > ranked[right].score
 		}
-		return ranked[left].doc.Path < ranked[right].doc.Path
+		if ranked[left].doc.Path != ranked[right].doc.Path {
+			return ranked[left].doc.Path < ranked[right].doc.Path
+		}
+		if ranked[left].doc.Corpus != ranked[right].doc.Corpus {
+			return ranked[left].doc.Corpus < ranked[right].doc.Corpus
+		}
+		return ranked[left].doc.Name < ranked[right].doc.Name
 	})
 	if len(ranked) > input.Max {
 		ranked = ranked[:input.Max]
@@ -430,6 +451,7 @@ func CountMatchingSpecs(specs []Spec, input MatchInput) int {
 
 // SelectInvariants returns bounded invariants matching file/binding/term scope.
 func SelectInvariants(specs []Spec, input MatchInput, max int) ([]SelectedInvariant, bool) {
+	// Clamp invariant delivery to a hard bound; non-positive requests the default.
 	max = boundedInt(max, 100, 100)
 	result := make([]SelectedInvariant, 0)
 	truncated := false
