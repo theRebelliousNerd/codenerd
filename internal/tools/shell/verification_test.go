@@ -455,7 +455,10 @@ func BenchmarkSpin(b *testing.B) {
 	}
 	out, err := executeTypedVerification(shellWsCtx(root), map[string]any{
 		"working_dir": root, "packages": []any{"./probe"},
-		"bench": "BenchmarkSpin", "benchtime": "20x", "cpuprofile": true, "memprofile": true,
+		// A duration, not an iteration count: the CPU profiler samples every
+		// 10 ms, and 20 iterations of spin ran in about 5 ms, so a loaded
+		// host sometimes recorded no sample inside spin at all.
+		"bench": "BenchmarkSpin", "benchtime": "300ms", "cpuprofile": true, "memprofile": true,
 	}, true)
 	if err != nil {
 		t.Fatalf("profiled bench: %v\n%s", err, out)
