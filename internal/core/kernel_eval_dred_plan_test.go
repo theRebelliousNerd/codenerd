@@ -6,12 +6,12 @@ import (
 	"testing"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
-	"codeberg.org/TauCeti/mangle-go/parse"
+	"codenerd/internal/mangle"
 )
 
 func planClause(t *testing.T, src string) ast.Clause {
 	t.Helper()
-	unit, err := parse.Unit(strings.NewReader(src))
+	unit, err := mangle.ParseUnit(strings.NewReader(src))
 	if err != nil || len(unit.Clauses) != 1 {
 		t.Fatalf("parse %q: %v (%d clauses)", src, err, len(unit.Clauses))
 	}
