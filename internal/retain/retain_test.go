@@ -353,3 +353,108 @@ func TestAReMintedHandleLivesATTLFromTheReMint(t *testing.T) {
 		t.Fatalf("a handle re-minted 2s ago did not resolve: %q, %v", payload, err)
 	}
 }
+
+func TestGetToleratesSurroundingWhitespace(t *testing.T) {
+	s, _ := testStore(t, Config{})
+	id := s.Mint("k", []byte("payload"))
+	if id == "" {
+		t.Fatal("setup: Mint stored nothing")
+	}
+	kind, payload, err := s.Get("  " + id + " \t\n")
+	if err != nil {
+		t.Fatalf("Get with surrounding whitespace did not resolve: %v", err)
+	}
+	if kind != "k" {
+		t.Errorf("kind = %q, want k", kind)
+	}
+	if string(payload) != "payload" {
+		t.Errorf("payload = %q, want payload", payload)
+	}
+}
+
+func TestStatsTracksLiveEntriesAndBytes(t *testing.T) {
+	s, _ := testStore(t, Config{MaxEntries: 10, MaxBytes: 1000, TTL: time.Hour})
+	if got := s.Stats(); got.Entries != 0 || got.Bytes != 0 {
+		t.Fatalf("empty Stats = %+v, want zero entries and bytes", got)
+	}
+	a := make([]byte, 100)
+	for i := range a {
+		a[i] = 'a'
+	}
+	b := make([]byte, 200)
+	for i := range b {
+		b[i] = 'b'
+	}
+	idA := s.Mint("k", a)
+	if idA == "" {
+		t.Fatal("setup: first Mint stored nothing")
+	}
+	idB := s.Mint("k", b)
+	if idB == "" {
+		t.Fatal("setup: second Mint stored nothing")
+	}
+	st := s.Stats()
+	if st.Entries != 2 {
+		t.Errorf("Entries = %d, want 2", st.Entries)
+	}
+	if st.Bytes != 300 {
+		t.Errorf("Bytes = %d, want 300", st.Bytes)
+	}
+	if st.MaxEntries != 10 || st.MaxBytes != 1000 {
+		t.Errorf("ceilings = %d entries / %d bytes, want 10 / 1000", st.MaxEntries, st.MaxBytes)
+	}
+	var hooked []string
+	s.SetEvictionHook(func(id string) { hooked = append(hooked, id) })
+	if again := s.Mint("k", a); again != idA {
+		t.Fatalf("re-mint = %q, want %q", again, idA)
+	}
+	if len(hooked) != 0 {
+		t.Errorf("re-mint fired the hook with %v, want no eviction", hooked)
+	}
+	if got := s.Stats(); got.Entries != 2 || got.Bytes != 300 {
+		t.Errorf("Stats after re-mint = %+v, want 2 entries and 300 bytes", got)
+	}
+}
+
+func TestTTLBatchEvictionHookOrderIsSorted(t *testing.T) {
+	s, clock := testStore(t, Config{TTL: time.Minute})
+	first := s.Mint("k", []byte("stale-one"))
+	second := s.Mint("k", []byte("stale-two"))
+	if first == "" || second == "" || first == second {
+		t.Fatalf("setup: mints = %q, %q", first, second)
+	}
+	var evicted []string
+	s.SetEvictionHook(func(id string) { evicted = append(evicted, id) })
+	*clock = clock.Add(2 * time.Minute)
+	third := s.Mint("k", []byte("fresh"))
+	if third == "" {
+		t.Fatal("setup: fresh Mint stored nothing")
+	}
+	if len(evicted) != 2 {
+		t.Fatalf("hook fired %v, want the two expired ids", evicted)
+	}
+	for i := 1; i < len(evicted); i++ {
+		if evicted[i-1] > evicted[i] {
+			t.Fatalf("hook order %v is not sorted; multi-expiry must be reproducible", evicted)
+		}
+	}
+	seen := map[string]bool{}
+	for _, id := range evicted {
+		seen[id] = true
+		if id == third {
+			t.Errorf("fresh id %q was reported evicted", third)
+		}
+	}
+	if !seen[first] || !seen[second] {
+		t.Errorf("hook fired %v, want {%s %s}", evicted, first, second)
+	}
+	if _, _, err := s.Get(first); !errors.Is(err, ErrNotFound) {
+		t.Error("expired entry survived the batch eviction")
+	}
+	if _, _, err := s.Get(second); !errors.Is(err, ErrNotFound) {
+		t.Error("expired entry survived the batch eviction")
+	}
+	if _, _, err := s.Get(third); err != nil {
+		t.Errorf("fresh entry did not survive: %v", err)
+	}
+}

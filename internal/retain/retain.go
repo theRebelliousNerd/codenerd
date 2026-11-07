@@ -252,6 +252,9 @@ func (s *Store) evictLocked(now time.Time) []string {
 			evicted = append(evicted, id)
 		}
 	}
+	// Map iteration is random, so sort the TTL batch: hook order must be
+	// reproducible, or multi-expiry tests flake on ordering.
+	sort.Strings(evicted)
 	if len(s.entries) <= s.cfg.MaxEntries && s.curBytes <= s.cfg.MaxBytes {
 		return evicted
 	}
