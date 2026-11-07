@@ -390,7 +390,13 @@ var runGoList = func(ctx context.Context, root string) ([]byte, error) {
 }
 
 // scanGoPackages adds one node per package in the module and an edge per
-// import (production, in-package test, and external test) between them.
+// import between them. Production and in-package test imports are edges
+// outright: Go rejects a cycle in either, so they order the sweep. An
+// external test package's import (package foo_test) is an edge only when it
+// closes no cycle: foo_test may import a package that imports foo, which Go
+// allows, and taken outright that edge folded ~70 of codeNERD's packages into
+// one strongly connected node (2026-11-06). Kept where it is acyclic, it still
+// sweeps a test helper before the package whose external tests use it.
 func scanGoPackages(ctx context.Context, root string, mem *workspace.Membership, doc *projectdoc.Document, g *workspaceGraph) error {
 	out, err := runGoList(ctx, root)
 	if err != nil {
@@ -433,20 +439,62 @@ func scanGoPackages(ctx context.Context, root string, mem *workspace.Membership,
 		dirOf[p.ImportPath] = relSlash
 		g.addNode(relSlash, "go")
 	}
+	type edge struct{ from, to string }
+	var soft []edge
 	for _, p := range pkgs {
 		from, ok := dirOf[p.ImportPath]
 		if !ok {
 			continue
 		}
-		for _, list := range [][]string{p.Imports, p.TestImports, p.XTestImports} {
+		for _, list := range [][]string{p.Imports, p.TestImports} {
 			for _, imp := range list {
 				if to, ok := dirOf[imp]; ok {
 					g.addEdge(from, to)
 				}
 			}
 		}
+		for _, imp := range p.XTestImports {
+			if to, ok := dirOf[imp]; ok && to != from {
+				soft = append(soft, edge{from, to})
+			}
+		}
+	}
+	sort.Slice(soft, func(i, j int) bool {
+		if soft[i].from != soft[j].from {
+			return soft[i].from < soft[j].from
+		}
+		return soft[i].to < soft[j].to
+	})
+	for _, e := range soft {
+		if !g.reaches(e.to, e.from) {
+			g.addEdge(e.from, e.to)
+		}
 	}
 	return nil
+}
+
+// reaches reports whether dst is reachable from src along dependency edges.
+func (g *workspaceGraph) reaches(src, dst string) bool {
+	seen := map[string]bool{src: true}
+	stack := []string{src}
+	for len(stack) > 0 {
+		v := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if v == dst {
+			return true
+		}
+		node := g.nodes[v]
+		if node == nil {
+			continue
+		}
+		for w := range node.deps {
+			if !seen[w] {
+				seen[w] = true
+				stack = append(stack, w)
+			}
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------

@@ -265,3 +265,29 @@ func TestDeriveWorkspaceDAG_ExcludesDotDirsAndIncludesGoTestImports(t *testing.T
 		}
 	}
 }
+
+// An external test package may import a package that imports the package under
+// test; Go allows it. That edge must not merge the two into one node: the
+// sweep keeps them apart, the imported one first.
+func TestDeriveWorkspaceDAG_AnExternalTestCycleDoesNotMergePackages(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no go toolchain")
+	}
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{
+		"go.mod":            "module example.com/m\n\ngo 1.21\n",
+		"core/core.go":      "package core\n\nfunc V() int { return 1 }\n",
+		"web/web.go":        "package web\n\nimport \"example.com/m/core\"\n\nfunc W() int { return core.V() }\n",
+		"core/core_test.go": "package core_test\n\nimport (\n\t\"testing\"\n\t\"example.com/m/web\"\n)\n\nfunc TestV(t *testing.T) { _ = web.W() }\n",
+	})
+	ids := sweepOrder(t, root)
+	for _, id := range ids {
+		if strings.Contains(id, "+") {
+			t.Fatalf("an external-test import merged packages into %q: %v", id, ids)
+		}
+	}
+	if !before(ids, "core", "web") {
+		t.Fatalf("core must sweep before web, which imports it: %v", ids)
+	}
+}
