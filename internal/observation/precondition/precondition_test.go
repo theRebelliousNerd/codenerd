@@ -455,3 +455,70 @@ func TestVerify_ShouldKeyOnIdentityNotOnTheDisplayedName(t *testing.T) {
 		t.Errorf("the explanation must use the display name, not the identity:\n%s", v.Explain())
 	}
 }
+
+// TestVerify_WhenTheRetainedFileWasEmpty_ShouldFailClosedAsItGrows pins the
+// empty-file guard in Verify.
+//
+// An empty retained file has no lines, so its empty region would otherwise
+// verify against anything: Region(..., 1, 0) is "" on both sides and the
+// digests match. The guard ties it to the live file so a file that grew from
+// empty fails closed instead of passing with a warning.
+func TestVerify_WhenTheRetainedFileWasEmpty_ShouldFailClosedAsItGrows(t *testing.T) {
+	t.Parallel()
+
+	s := New(retain.DefaultConfig())
+	handle := s.Mint(Read{Path: "widget.go", Content: ""})
+	if handle == "" {
+		t.Fatal("a read must mint a handle, or no edit can be checked against it")
+	}
+
+	if v := mustVerify(t, s, handle, "widget.go", ""); !v.RegionIntact || !v.FileIntact {
+		t.Errorf("an empty file that stayed empty must satisfy both digests; got region=%v file=%v", v.RegionIntact, v.FileIntact)
+	}
+
+	v := mustVerify(t, s, handle, "widget.go", "package widget\n")
+	if v.RegionIntact {
+		t.Error("a file that grew from empty satisfied the precondition; an edit would proceed on text nobody read")
+	}
+	if v.MovedTo != 0 {
+		t.Errorf("moved-to = %d, want 0: an empty region has nowhere to have moved", v.MovedTo)
+	}
+	if !strings.Contains(v.Explain(), "FAILED") {
+		t.Errorf("a failed precondition must say so plainly:\n%s", v.Explain())
+	}
+}
+
+func TestVerify_WhenObservedNonEmpty_ShouldHoldDespiteEmptyFileGuard(t *testing.T) {
+	s := New(retain.DefaultConfig())
+	r := Read{Path: "/tmp/widget_guard.go", Content: "line1\nline2\nline3\n", Start: 1, End: 2}
+	handle := s.Mint(r)
+	if handle == "" {
+		t.Fatal("Mint returned no handle")
+	}
+	v, err := s.Verify(handle, "/tmp/widget_guard.go", []byte("line1\nline2\nline3\n"))
+	if err != nil {
+		t.Fatalf("Verify returned error: %v", err)
+	}
+	if !v.RegionIntact {
+		t.Fatalf("non-empty observed region should stay intact, got %+v", v)
+	}
+}
+
+func TestVerify_WhenEmptyFileStaysEmpty_ShouldHold(t *testing.T) {
+	s := New(retain.DefaultConfig())
+	r := Read{Path: "/tmp/empty_stays.go", Content: ""}
+	handle := s.Mint(r)
+	if handle == "" {
+		t.Fatal("Mint returned no handle")
+	}
+	v, err := s.Verify(handle, "/tmp/empty_stays.go", []byte(""))
+	if err != nil {
+		t.Fatalf("Verify returned error: %v", err)
+	}
+	if !v.RegionIntact {
+		t.Fatalf("empty file staying empty should hold, got %+v", v)
+	}
+	if !v.FileIntact {
+		t.Fatalf("empty file staying empty should be file-intact, got %+v", v)
+	}
+}
