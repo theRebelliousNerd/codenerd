@@ -204,6 +204,70 @@ func TestScan_MissingRootReturnsError(t *testing.T) {
 	}
 }
 
+func TestScan_SkipsReceiverMethodsAndNonTestFunctions(t *testing.T) {
+	root := t.TempDir()
+	writeFixture(t, root, "skip_test.go", "package sample\nimport (\"testing\"; \"runtime\")\ntype harness struct{}\nfunc (h *harness) TestMethod(t *testing.T) { t.Parallel(); _ = runtime.NumGoroutine() }\nfunc helper() { _ = runtime.NumGoroutine() }\nfunc ExampleFoo() { _ = runtime.NumGoroutine() }\nfunc TestSerial(t *testing.T) { _ = runtime.NumGoroutine() }\n")
+	found, err := scan(root, "example.test/module")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 0 {
+		t.Fatalf("findings = %+v; want none: methods, uncalled helpers, examples and serial tests are not parallel scopes", found)
+	}
+}
+
+func TestScan_WatchedCallRequiresWatchedImportReceiver(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+		want   int
+	}{
+		{"unknown receiver", "package sample\nimport (\"testing\"; \"runtime\")\nfunc TestProbe(t *testing.T) { t.Parallel(); foo.NumGoroutine() }", 0},
+		{"missing import", "package sample\nimport \"testing\"\nfunc TestProbe(t *testing.T) { t.Parallel(); runtime.NumGoroutine() }", 0},
+		{"function value is not a call", "package sample\nimport (\"testing\"; \"runtime\")\nfunc TestProbe(t *testing.T) { t.Parallel(); var _ = runtime.NumGoroutine }", 0},
+		{"parallel with args is not parallel", "package sample\nimport (\"testing\"; \"runtime\")\nfunc TestProbe(t *testing.T) { t.Parallel(\"arg\"); _ = runtime.NumGoroutine() }", 0},
+		{"chained parallel receiver is not parallel", "package sample\nimport (\"testing\"; \"runtime\")\nfunc TestProbe(t *testing.T) { foo.Bar.Parallel(); _ = runtime.NumGoroutine() }", 0},
+		{"gomaxprocs zero is a read", "package sample\nimport (\"testing\"; \"runtime\")\nfunc TestProbe(t *testing.T) { t.Parallel(); _ = runtime.GOMAXPROCS(0) }", 0},
+		{"gomaxprocs nonzero is a write", "package sample\nimport (\"testing\"; \"runtime\")\nfunc TestProbe(t *testing.T) { t.Parallel(); _ = runtime.GOMAXPROCS(1) }", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeFixture(t, root, "probe_test.go", tc.source)
+			found, err := scan(root, "example.test/module")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(found) != tc.want {
+				t.Fatalf("findings = %+v; want %d", found, tc.want)
+			}
+		})
+	}
+}
+
+func TestPackagePath_RootAndNested(t *testing.T) {
+	root := t.TempDir()
+	module := "example.test/module"
+	if got := packagePath(root, module, filepath.Join(root, "x_test.go")); got != module {
+		t.Fatalf("packagePath root = %q; want %q", got, module)
+	}
+	if got := packagePath(root, module, filepath.Join(root, "sub", "x_test.go")); got != module+"/sub" {
+		t.Fatalf("packagePath sub = %q; want %q", got, module+"/sub")
+	}
+	if got := packagePath(root, module, filepath.Join(root, "sub", "nested", "x_test.go")); got != module+"/sub/nested" {
+		t.Fatalf("packagePath nested = %q; want %q", got, module+"/sub/nested")
+	}
+}
+
+func TestModuleName_WhitespaceAndComments(t *testing.T) {
+	root := t.TempDir()
+	writeFixture(t, root, "go.mod", "// module example.test/ignored\n   module example.test/spaced  \ngo 1.27\n")
+	got, err := moduleName(root)
+	if err != nil || got != "example.test/spaced" {
+		t.Fatalf("moduleName = %q, %v; want %q", got, err, "example.test/spaced")
+	}
+}
+
 func TestModuleName(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
