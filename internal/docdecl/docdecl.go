@@ -83,6 +83,24 @@ func NewPackage(dir string) *Package {
 // the parser reports positions against and reads when src is nil; rel is the
 // slash-relative key used in ParseErr and Decl.File.
 func (p *Package) AddFile(fset *token.FileSet, filename, rel string, src []byte) {
+	if p == nil {
+		return
+	}
+	if fset == nil {
+		fset = token.NewFileSet()
+	}
+	if p.Names == nil {
+		p.Names = map[string]bool{}
+	}
+	if p.PkgNames == nil {
+		p.PkgNames = map[string]bool{}
+	}
+	if p.ParseErr == nil {
+		p.ParseErr = map[string]string{}
+	}
+	if p.sites == nil {
+		p.sites = map[string][]Decl{}
+	}
 	var source any
 	if src != nil {
 		source = src
@@ -141,7 +159,13 @@ func (p *Package) Lookup(cited string) []Decl {
 	if !ok {
 		return nil
 	}
-	return p.sites[k]
+	sites := p.sites[k]
+	if len(sites) == 0 {
+		return nil
+	}
+	out := make([]Decl, len(sites))
+	copy(out, sites)
+	return out
 }
 
 // key maps a citation spelling to the Names key it matched.
