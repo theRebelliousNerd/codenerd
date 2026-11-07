@@ -59,10 +59,15 @@ type FileCache struct {
 
 // cacheOwnerDir resolves the workspace that owns the file-cache manifest for a
 // scan rooted at scanRoot. It walks up from scanRoot (inclusive) to the nearest
-// ancestor containing a .nerd/config.json file, bounded by the filesystem root.
-// If no such ancestor exists, it returns scanRoot unchanged, preserving the
-// previous behaviour for tests and non-workspace scans. A stray .nerd/cache
-// directory without a config.json never captures the cache.
+// ancestor containing a .nerd/config.json file, bounded by the filesystem root
+// and by the repository scanRoot sits in: a directory holding a .git entry
+// (a repository root, or a linked worktree's .git file) owns its own manifest
+// when it has no config of its own. Climbing past it put a nested worktree's
+// files into the enclosing checkout's manifest; that checkout's next scan read
+// them as 459 deletions and re-resolved 138 importers (2026-11-07). With no
+// owner found it returns scanRoot unchanged, the behaviour for tests and
+// non-workspace scans. A stray .nerd/cache directory without a config.json
+// never captures the cache.
 func cacheOwnerDir(scanRoot string) string {
 	abs, err := filepath.Abs(scanRoot)
 	if err != nil {
@@ -71,6 +76,9 @@ func cacheOwnerDir(scanRoot string) string {
 	dir := filepath.Clean(abs)
 	for {
 		if _, err := os.Stat(filepath.Join(dir, ".nerd", "config.json")); err == nil {
+			return dir
+		}
+		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
