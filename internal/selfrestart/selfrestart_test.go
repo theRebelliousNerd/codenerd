@@ -513,3 +513,152 @@ func TestReadState_RejectsInvalidRestoreFiles(t *testing.T) {
 		})
 	}
 }
+
+func TestIdentity_ChangedIgnoresBuildLabel(t *testing.T) {
+	t.Parallel()
+	base := Identity{Path: "/bin/nerd", Size: 10, ModTime: time.Unix(1000, 0).UTC(), Inode: 7, Build: "a"}
+	if base.Changed(base) {
+		t.Fatal("identical identity reports Changed")
+	}
+	displayOnly := base
+	displayOnly.Build = "display-only change"
+	if base.Changed(displayOnly) {
+		t.Fatal("build label change reports Changed")
+	}
+	sized := base
+	sized.Size++
+	if !base.Changed(sized) {
+		t.Fatal("size change was ignored")
+	}
+	timed := base
+	timed.ModTime = base.ModTime.Add(time.Second)
+	if !base.Changed(timed) {
+		t.Fatal("modtime change was ignored")
+	}
+	inoded := base
+	inoded.Inode++
+	if !base.Changed(inoded) {
+		t.Fatal("inode change was ignored")
+	}
+}
+
+func TestIdentityOf_SeesRealFileAndMissingFile(t *testing.T) {
+	t.Parallel()
+	missing := filepath.Join(t.TempDir(), "no-such-binary")
+	if _, err := IdentityOf(missing); err == nil {
+		t.Fatal("IdentityOf accepted a missing file")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nerd")
+	if err := os.WriteFile(path, []byte("not a go binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	first, err := IdentityOf(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Path != path {
+		t.Fatalf("IdentityOf Path = %q, want %q", first.Path, path)
+	}
+	if first.Size != int64(len("not a go binary")) {
+		t.Fatalf("IdentityOf Size = %d, want %d", first.Size, len("not a go binary"))
+	}
+	if !strings.HasPrefix(first.Build, "built ") {
+		t.Fatalf("IdentityOf Build = %q, want fallback built label", first.Build)
+	}
+	second, err := IdentityOf(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Changed(second) {
+		t.Fatal("unchanged file reports Changed")
+	}
+}
+
+func TestWriteState_ReadState_RoundTrip(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	in := State{SessionID: "s1", WorkMode: "work", Brief: "brief", Queued: []string{"a"}, Draft: "draft", Recurse: true, RecurseArgs: []string{"--x"}, Interrupted: []string{"job"}}
+	path, err := WriteState(dir, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path == "" {
+		t.Fatal("WriteState returned an empty path")
+	}
+	got, err := ReadState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Version != 1 {
+		t.Fatalf("ReadState Version = %d, want 1", got.Version)
+	}
+	in.Version = 1
+	if diff := cmp.Diff(in, got); diff != "" {
+		t.Fatalf("round trip mismatch (-want +got):\n%s", diff)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("restore file remains replayable: stat error = %v", err)
+	}
+	if _, err := ReadState(path); err == nil {
+		t.Fatal("second ReadState accepted a consumed restore file")
+	}
+}
+
+func TestRunChild_SucceedsWithZeroExit(t *testing.T) {
+	if os.Getenv("SELFRESTART_ZERO_CHILD") == "1" {
+		os.Exit(0)
+	}
+	t.Setenv("SELFRESTART_ZERO_CHILD", "1")
+	code, err := runChild(os.Args[0], []string{"child", "-test.run=^TestRunChild_SucceedsWithZeroExit$"}, os.Environ())
+	if err != nil || code != 0 {
+		t.Fatalf("runChild = %d, %v; want exit status 0", code, err)
+	}
+}
+
+func TestWatch_RejectsUnwatchableDirectory(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	missing := filepath.Join(t.TempDir(), "no-such-dir", "nerd")
+	if err := Watch(ctx, missing, func(Identity) {
+		t.Error("changed called for an unwatcheable directory")
+	}); err == nil {
+		t.Fatal("Watch accepted an unwatcheable directory")
+	}
+}
+
+func TestRestarter_InitialState(t *testing.T) {
+	t.Parallel()
+	cur := Identity{Path: "/bin/nerd", Size: 1, ModTime: time.Unix(2000, 0).UTC(), Inode: 1, Build: "a"}
+	r := NewRestarter(cur, t.TempDir(), func(string, []string, []string) error { return nil })
+	if got := r.CurrentPath(); got != cur.Path {
+		t.Fatalf("CurrentPath = %q, want %q", got, cur.Path)
+	}
+	if _, ok := r.Pending(); ok {
+		t.Fatal("new Restarter reports a pending build")
+	}
+	if r.ShouldRestart(false) {
+		t.Fatal("ShouldRestart without a pending build wants a restart while idle")
+	}
+	if r.ShouldRestart(true) {
+		t.Fatal("ShouldRestart without a pending build wants a restart while busy")
+	}
+	quiescent := NewRestarter(cur, t.TempDir(), nil)
+	if got := quiescent.CurrentPath(); got != cur.Path {
+		t.Fatalf("nil-exec CurrentPath = %q, want %q", got, cur.Path)
+	}
+	called := false
+	r.SetExec(func(string, []string, []string) error {
+		called = true
+		return errors.New("boom")
+	})
+	next := cur
+	next.Size++
+	if !r.BinaryChanged(next) {
+		t.Fatal("changed identity was ignored")
+	}
+	if err := r.Restart(State{SessionID: "x"}, []string{"nerd"}); err == nil || !called {
+		t.Fatalf("Restart with replaced exec = %v, called = %v; want error and called", err, called)
+	}
+}
