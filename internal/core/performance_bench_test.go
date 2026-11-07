@@ -81,28 +81,28 @@ func BenchmarkKernelQuery(b *testing.B) {
 	}
 }
 
-// Benchmark: CRITICAL - LoadFacts with ToAtom conversion
+// BenchmarkKernelLoadFacts measures the pure EDB write path (internFact,
+// canonFact/canonical key, ToAtom/admission, dedupe index) for 150k facts
+// shaped like the spec-pairing corpus (see specGenFacts in
+// kernel_eval_spec_pairing_bench_test.go). It drives LoadFacts on a bare
+// kernel so no policy evaluation dominates the profile.
 func BenchmarkKernelLoadFacts(b *testing.B) {
-	for b.Loop() {
-		b.StopTimer()
-		kernel, err := NewRealKernel()
-		if err != nil {
-			b.Fatalf("Failed to create kernel: %v", err)
+	links, elements, sections, confirmed := specGenFacts(0, 37500, 37500, 37500)
+	facts := make([]Fact, 0, len(links)+len(elements)+len(sections)+len(confirmed))
+	facts = append(facts, links...)
+	facts = append(facts, elements...)
+	facts = append(facts, sections...)
+	facts = append(facts, confirmed...)
+	if len(facts) != 150000 {
+		b.Fatalf("expected 150000 facts, got %d", len(facts))
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		k := newRealKernelBase()
+		if err := k.LoadFacts(facts); err != nil {
+			b.Fatal(err)
 		}
-
-		facts := make([]Fact, 1000)
-		for j := range 1000 {
-			facts[j] = Fact{
-				Predicate: "load_test",
-				Args:      []any{fmt.Sprintf("arg_%d", j), j},
-			}
-		}
-
-		b.StartTimer()
-		kernel.LoadFacts(facts)
-		b.StopTimer()
-		kernel.Reset()
-		b.StartTimer() // b.Loop() requires timer running at loop boundary
 	}
 }
 

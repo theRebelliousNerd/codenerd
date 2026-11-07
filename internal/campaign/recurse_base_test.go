@@ -222,3 +222,19 @@ func TestRecurseGit_AbsorbRefusedAndSkippedLeaveTheTreeAlone(t *testing.T) {
 		t.Fatal("the skipped absorb touched the tree")
 	}
 }
+
+// The creation record's start point is a base only when git has a branch by
+// that name: a branch named like a hash counts, a bare commit does not.
+func TestRecurseBase_CreatedFromAsksGitForABranch(t *testing.T) {
+	ctx := context.Background()
+	g := gitFixture(t, map[string]string{"a.txt": "a\n"})
+	gitOut(t, g, "branch", "abcdef1") // a branch whose name looks like a hash
+	gitOut(t, g, "branch", "from-hashy", "abcdef1")
+	if got := g.createdFrom(ctx, "from-hashy"); got != "abcdef1" {
+		t.Fatalf("created from a hash-shaped branch: got %q, want abcdef1", got)
+	}
+	gitOut(t, g, "branch", "from-commit", headOf(t, g))
+	if got := g.createdFrom(ctx, "from-commit"); got != "" {
+		t.Fatalf("created from a bare commit named a base: %q", got)
+	}
+}

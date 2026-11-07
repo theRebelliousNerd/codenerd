@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"codenerd/internal/evidence"
+	"codenerd/internal/testfacts"
 	"codenerd/internal/types"
 )
 
@@ -39,7 +40,7 @@ func failedChecksSummary(result *ExecutionResult) string {
 	nameFailures := func(label string, v TestVerification) string {
 		part := label
 		if names := failedTopLevels(v.Result); len(names) > 0 {
-			part += ": " + strings.Join(names, ", ")
+			part += ": " + strings.Join(withFirstFailure(v.Result, names), ", ")
 		} else if reason := strings.TrimSpace(v.Reason); reason != "" {
 			part += ": " + reason
 		}
@@ -490,4 +491,30 @@ func doneSentence(result *ExecutionResult) string {
 	}
 	return "Verified by evidence: " + strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1] +
 		" were each measured green after the final edit."
+}
+
+// withFirstFailure names each failing test with the first failure line it
+// printed (file:line: message), when it printed one. The summary is all a
+// replanned campaign task gets of a failed attempt: "final suite fails:
+// TestExecutiveLiteralBudget" told the retry which test, not that a package
+// went two literals over its budget and how to stay under it (2026-11-07).
+func withFirstFailure(res *testfacts.Result, names []string) []string {
+	if res == nil {
+		return names
+	}
+	first := make(map[string]testfacts.Failure, len(names))
+	for _, f := range res.Failures {
+		top := topLevelTestName(f.Test)
+		if _, seen := first[top]; !seen && strings.TrimSpace(f.Message) != "" {
+			first[top] = f
+		}
+	}
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = n
+		if f, ok := first[n]; ok {
+			out[i] = fmt.Sprintf("%s (%s:%d: %s)", n, f.File, f.Line, strings.TrimSpace(f.Message))
+		}
+	}
+	return out
 }

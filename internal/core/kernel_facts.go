@@ -73,28 +73,33 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 	defer k.mu.Unlock()
 
 	prevCount := k.facts.len()
-	sanitizedFacts := make([]Fact, len(facts))
-	for i, f := range facts {
-		sanitizedFacts[i] = sanitizeFactForNumericPredicates(f)
-	}
+	// Write-path fast path: sanitize inline without a 150k Fact copy.
+	// sanitizeFactForNumericPredicates is a no-op for spec-shaped
+	// predicates (it only clones the three numeric-coercion predicates),
+	// so the old make+copy loop paid a full slice alloc for nothing.
+	// JIT counts are folded into the same single pass.
 	added := 0
-	loadedPreds := make(map[string]struct{})
-	for _, f := range sanitizedFacts {
-		if k.addFactIfNewLocked(f) {
+	var loadedPreds map[string]struct{}
+	var jitCounts map[string]int
+	for _, f := range facts {
+		sf := sanitizeFactForNumericPredicates(f)
+		if k.addFactIfNewLocked(sf) {
 			added++
-			loadedPreds[f.Predicate] = struct{}{}
+			if loadedPreds == nil {
+				loadedPreds = make(map[string]struct{})
+			}
+			loadedPreds[sf.Predicate] = struct{}{}
 		}
-	}
-	logging.KernelDebug("LoadFacts: added %d/%d facts, EDB: %d -> %d facts", added, len(sanitizedFacts), prevCount, k.facts.len())
-
-	// Count JIT-related facts for debugging
-	jitCounts := make(map[string]int)
-	for _, f := range sanitizedFacts {
-		switch f.Predicate {
+		switch sf.Predicate {
 		case "is_mandatory", "atom_tag", "atom_importance", "current_context", "atom":
-			jitCounts[f.Predicate]++
+			if jitCounts == nil {
+				jitCounts = make(map[string]int)
+			}
+			jitCounts[sf.Predicate]++
 		}
 	}
+	logging.KernelDebug("LoadFacts: added %d/%d facts, EDB: %d -> %d facts", added, len(facts), prevCount, k.facts.len())
+
 	if len(jitCounts) > 0 {
 		logging.Kernel("LoadFacts JIT: is_mandatory=%d atom_tag=%d atom_importance=%d current_context=%d atom=%d",
 			jitCounts["is_mandatory"], jitCounts["atom_tag"], jitCounts["atom_importance"],
@@ -102,13 +107,13 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 	}
 
 	// Log sample of facts being loaded (first 5)
-	if len(sanitizedFacts) > 0 && logging.IsDebugMode() {
-		sampleSize := min(len(sanitizedFacts), 5)
+	if len(facts) > 0 && logging.IsDebugMode() {
+		sampleSize := min(len(facts), 5)
 		for i := range sampleSize {
-			logging.KernelDebug("  [%d] %s", i, sanitizedFacts[i].String())
+			logging.KernelDebug("  [%d] %s", i, sanitizeFactForNumericPredicates(facts[i]).String())
 		}
-		if len(sanitizedFacts) > sampleSize {
-			logging.KernelDebug("  ... and %d more facts", len(sanitizedFacts)-sampleSize)
+		if len(facts) > sampleSize {
+			logging.KernelDebug("  ... and %d more facts", len(facts)-sampleSize)
 		}
 	}
 
@@ -155,68 +160,104 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 // Fact Deduplication Helpers
 // =============================================================================
 
-// canonFact returns a stable string key for a fact.
+// canonFact returns a stable string key for a fact. Every boot loads hundreds
+// of thousands of facts, and a strings.Builder plus an intermediate string per
+// argument (canonValue, strconv.Quote, FormatInt) was a third of the write
+// path's allocations (2026-11-07); the arguments now append into one buffer.
 func (k *RealKernel) canonFact(f Fact) string {
-	var sb strings.Builder
-	sb.WriteString(f.Predicate)
-	sb.WriteString("(")
+	// Built in a stack buffer when it fits and copied once at its exact
+	// size: the key is stored in the dedupe index for the fact's life, and a
+	// key that viewed an oversized buffer pinned its spare capacity (23 MB
+	// over 570k world facts, 2026-11-07).
+	var stack [256]byte
+	buf := append(stack[:0], f.Predicate...)
+	buf = append(buf, '(')
 	for i, arg := range f.Args {
 		if i > 0 {
-			sb.WriteString(",")
+			buf = append(buf, ',')
 		}
-		sb.WriteString(canonValue(arg))
+		buf = appendCanonValue(buf, arg)
 	}
-	sb.WriteString(")")
-	return sb.String()
+	buf = append(buf, ')')
+	return string(buf)
+}
+
+// appendCanonValue appends canonValue(v) to buf: scalars directly, containers
+// through canonValue. Both share appendCanonScalar, so a fact's key cannot
+// depend on which of them built it.
+func appendCanonValue(buf []byte, v any) []byte {
+	if out, ok := appendCanonScalar(buf, v); ok {
+		return out
+	}
+	return append(buf, canonValue(v)...)
+}
+
+// appendCanonScalar appends the canonical form of a scalar value and reports
+// whether v was one. It is the one definition of a scalar's key form.
+func appendCanonScalar(buf []byte, v any) ([]byte, bool) {
+	switch t := v.(type) {
+	case nil:
+		return append(buf, "null"...), true
+	case MangleAtom:
+		return appendCanonString(buf, string(t)), true
+	case string:
+		return appendCanonString(buf, t), true
+	case bool:
+		if t {
+			return append(buf, "/true"...), true
+		}
+		return append(buf, "/false"...), true
+	case int:
+		return strconv.AppendInt(buf, int64(t), 10), true
+	case int8:
+		return strconv.AppendInt(buf, int64(t), 10), true
+	case int16:
+		return strconv.AppendInt(buf, int64(t), 10), true
+	case int32:
+		return strconv.AppendInt(buf, int64(t), 10), true
+	case int64:
+		return strconv.AppendInt(buf, t, 10), true
+	case uint:
+		return strconv.AppendUint(buf, uint64(t), 10), true
+	case uint8:
+		return strconv.AppendUint(buf, uint64(t), 10), true
+	case uint16:
+		return strconv.AppendUint(buf, uint64(t), 10), true
+	case uint32:
+		return strconv.AppendUint(buf, uint64(t), 10), true
+	case uint64:
+		return strconv.AppendUint(buf, t, 10), true
+	case float32:
+		return strconv.AppendFloat(buf, float64(t), 'g', -1, 64), true
+	case float64:
+		return strconv.AppendFloat(buf, t, 'g', -1, 64), true
+	case json.Number:
+		if i, err := t.Int64(); err == nil {
+			return strconv.AppendInt(buf, i, 10), true
+		}
+		if f, err := t.Float64(); err == nil {
+			return strconv.AppendFloat(buf, f, 'g', -1, 64), true
+		}
+		return strconv.AppendQuote(buf, t.String()), true
+	case []byte:
+		return strconv.AppendQuote(buf, string(t)), true
+	}
+	return buf, false
+}
+
+// appendCanonString appends canonString(v).
+func appendCanonString(buf []byte, v string) []byte {
+	if isValidMangleNameConstant(v) {
+		return append(buf, v...)
+	}
+	return strconv.AppendQuote(buf, v)
 }
 
 func canonValue(v any) string {
+	if out, ok := appendCanonScalar(nil, v); ok {
+		return string(out)
+	}
 	switch t := v.(type) {
-	case nil:
-		return "null"
-	case MangleAtom:
-		return canonString(string(t))
-	case string:
-		return canonString(t)
-	case bool:
-		if t {
-			return "/true"
-		}
-		return "/false"
-	case int:
-		return strconv.FormatInt(int64(t), 10)
-	case int8:
-		return strconv.FormatInt(int64(t), 10)
-	case int16:
-		return strconv.FormatInt(int64(t), 10)
-	case int32:
-		return strconv.FormatInt(int64(t), 10)
-	case int64:
-		return strconv.FormatInt(t, 10)
-	case uint:
-		return strconv.FormatUint(uint64(t), 10)
-	case uint8:
-		return strconv.FormatUint(uint64(t), 10)
-	case uint16:
-		return strconv.FormatUint(uint64(t), 10)
-	case uint32:
-		return strconv.FormatUint(uint64(t), 10)
-	case uint64:
-		return strconv.FormatUint(t, 10)
-	case float32:
-		return canonFloat64(float64(t))
-	case float64:
-		return canonFloat64(t)
-	case json.Number:
-		if i, err := t.Int64(); err == nil {
-			return strconv.FormatInt(i, 10)
-		}
-		if f, err := t.Float64(); err == nil {
-			return canonFloat64(f)
-		}
-		return strconv.Quote(t.String())
-	case []byte:
-		return strconv.Quote(string(t))
 	case []any:
 		return canonSliceInterface(t)
 	case []string:

@@ -416,7 +416,9 @@ func TestFailedChecksSummary_NamesWhatFailed(t *testing.T) {
 		BuildCheck: BuildVerification{Outcome: VerifyPassed},
 		TestCheck:  TestVerification{Outcome: VerifyFailed, Output: verificationOutput(res), Result: res},
 	}
-	if got, want := failedChecksSummary(result), "tests fail: TestA, TestB"; got != want {
+	// Each test is named with the first failure it printed, so a replanned
+	// task learns why, not only which (TestB's comes from its subtest).
+	if got, want := failedChecksSummary(result), "tests fail: TestA (a_test.go:5: boom), TestB (a_test.go:6: sub)"; got != want {
 		t.Fatalf("failedChecksSummary = %q, want %q", got, want)
 	}
 	result = &ExecutionResult{

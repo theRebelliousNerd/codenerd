@@ -22,43 +22,74 @@
 package core
 
 import (
+	"sync"
 	"unique"
 )
 
-// internFact returns a new Fact whose Predicate and string-typed Args
-// have been interned. The original Fact is not modified. Args slice is
-// only re-allocated when at least one argument is a string-shaped value
-// that benefits from interning; otherwise the original slice header is
-// re-used (the underlying array is never mutated).
+// predicateInternCache holds the canonical copy of each predicate name.
+// The predicate vocabulary is bounded by the schema and every fact repeats
+// one: unique.Make per fact cost a hash and a canonical-map lookup that
+// allocated (11.0M allocations to load 150k facts, 2026-11-07), where a
+// map[string]string lookup hashes the string in place. Arguments are not
+// cached here: their vocabulary is unbounded (paths, ids), and a strong map
+// would grow for the life of the process; they stay on unique, whose
+// canonical copies are collected once no fact holds them.
+var (
+	predicateInternCacheMu sync.RWMutex
+	predicateInternCache   = make(map[string]string)
+)
+
+func internPredicate(p string) string {
+	predicateInternCacheMu.RLock()
+	if v, ok := predicateInternCache[p]; ok {
+		predicateInternCacheMu.RUnlock()
+		return v
+	}
+	predicateInternCacheMu.RUnlock()
+	v := unique.Make(p).Value()
+	predicateInternCacheMu.Lock()
+	if existing, ok := predicateInternCache[p]; ok {
+		predicateInternCacheMu.Unlock()
+		return existing
+	}
+	predicateInternCache[p] = v
+	predicateInternCacheMu.Unlock()
+	return v
+}
+
+// internFact returns a Fact whose predicate is the cached canonical name and
+// whose string and MangleAtom arguments are unique's canonical copies, so
+// facts that repeat a path share one string: 570k world facts hold 533 MB
+// interned against 592 MB without argument interning. The Args slice is
+// copied only from the first argument that changes, and never for a fact
+// with no string-shaped argument. The original Fact is not modified.
 func internFact(f Fact) Fact {
-	f.Predicate = unique.Make(f.Predicate).Value()
+	f.Predicate = internPredicate(f.Predicate)
 	if len(f.Args) == 0 {
 		return f
 	}
-	// Detect any string-shaped args before allocating a new slice.
-	needCopy := false
-	for _, arg := range f.Args {
-		switch arg.(type) {
-		case string, MangleAtom:
-			needCopy = true
-		}
-		if needCopy {
-			break
-		}
-	}
-	if !needCopy {
-		return f
-	}
-	newArgs := make([]any, len(f.Args))
-	copy(newArgs, f.Args)
-	for i, arg := range newArgs {
+	var newArgs []any
+	for i, arg := range f.Args {
+		var interned any
 		switch v := arg.(type) {
 		case string:
-			newArgs[i] = unique.Make(v).Value()
+			interned = unique.Make(v).Value()
 		case MangleAtom:
-			newArgs[i] = MangleAtom(unique.Make(string(v)).Value())
+			interned = MangleAtom(unique.Make(string(v)).Value())
+		default:
+			if newArgs != nil {
+				newArgs[i] = arg
+			}
+			continue
 		}
+		if newArgs == nil {
+			newArgs = make([]any, len(f.Args))
+			copy(newArgs, f.Args[:i])
+		}
+		newArgs[i] = interned
 	}
-	f.Args = newArgs
+	if newArgs != nil {
+		f.Args = newArgs
+	}
 	return f
 }
