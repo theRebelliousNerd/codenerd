@@ -491,3 +491,105 @@ func TestOpenShared_OneBrokerPerJournal(t *testing.T) {
 		t.Fatal("the last release did not close the broker")
 	}
 }
+
+func TestStabilize_BrokerAccessorsAndCloseIdempotent(t *testing.T) {
+	b := newTestBroker(t, time.Minute, "")
+	if b.HostAttached() {
+		t.Fatal("new broker should have no host attached")
+	}
+	if got := b.PreviewMaxBytes(); got != 4096 {
+		t.Fatalf("PreviewMaxBytes should be 4096, got %d", got)
+	}
+	if _, ok := b.Get("apr-does-not-exist"); ok {
+		t.Fatal("Get of an unknown ID must report missing")
+	}
+	if snap := b.Snapshot(); len(snap) != 0 {
+		t.Fatalf("fresh broker Snapshot should be empty, got %d requests", len(snap))
+	}
+	h, err := b.AttachHost("chan-a", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !b.HostAttached() {
+		t.Fatal("broker should report a host after AttachHost")
+	}
+	if _, err := b.AttachHost("chan-b", "bob"); !errors.Is(err, ErrHostAttached) {
+		t.Fatalf("second AttachHost must fail with ErrHostAttached, got %v", err)
+	}
+	if pending := h.Pending(); len(pending) != 0 {
+		t.Fatalf("fresh host Pending should be empty, got %d", len(pending))
+	}
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("second Close must be nil, got %v", err)
+	}
+}
+
+func TestStabilize_AwaitValidatesInput(t *testing.T) {
+	ctx := context.Background()
+	b := newTestBroker(t, time.Minute, "")
+	if _, err := b.AttachHost("chan-a", "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := b.Await(ctx, "   ", testSubject(), testPreview(t)); err == nil || !strings.Contains(err.Error(), "execution intent") {
+		t.Fatalf("empty intent must be refused, got %v", err)
+	}
+	if _, _, err := b.Await(ctx, "intent-bad-preview", testSubject(), Preview{}); err == nil || !strings.Contains(err.Error(), "sealed") {
+		t.Fatalf("unsealed preview must be refused, got %v", err)
+	}
+	if snap := b.Snapshot(); len(snap) != 0 {
+		t.Fatalf("failed Await must create no request, got %d", len(snap))
+	}
+}
+
+func TestStabilize_DecideValidationPins(t *testing.T) {
+	ctx := context.Background()
+	b := newTestBroker(t, time.Minute, "")
+	h, err := b.AttachHost("chan-a", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	subj := testSubject()
+	digest, err := subj.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview := testPreview(t)
+	id, err := b.open("intent-decide-pins", subj, digest, preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, ok := b.Get(id)
+	if !ok {
+		t.Fatal("open request should be visible via Get")
+	}
+	if _, err := h.Decide(DecisionInput{RequestID: "apr-unknown", RequestVersion: 1, RequestDigest: req.Digest, Verdict: VerdictApprove, EventID: "evt-unknown"}); !errors.Is(err, ErrUnknownRequest) {
+		t.Fatalf("Decide of unknown request must fail with ErrUnknownRequest, got %v", err)
+	}
+	if _, err := h.Decide(DecisionInput{RequestID: req.ID, RequestVersion: req.Version, RequestDigest: req.Digest, Verdict: VerdictApprove, EventID: "   "}); err == nil || !strings.Contains(err.Error(), "event ID") {
+		t.Fatalf("Decide without event ID must be refused, got %v", err)
+	}
+	if _, err := h.Decide(DecisionInput{RequestID: req.ID, RequestVersion: req.Version, RequestDigest: req.Digest, Verdict: Verdict("maybe"), EventID: "evt-bad-verdict"}); err == nil || !strings.Contains(err.Error(), "unknown verdict") {
+		t.Fatalf("Decide with unknown verdict must be refused, got %v", err)
+	}
+	if _, err := h.Decide(DecisionInput{RequestID: req.ID, RequestVersion: req.Version, RequestDigest: "deadbeef", Verdict: VerdictApprove, EventID: "evt-mismatch"}); !errors.Is(err, ErrDecisionMismatch) {
+		t.Fatalf("Decide with wrong digest must fail with ErrDecisionMismatch, got %v", err)
+	}
+	decided, err := h.Decide(DecisionInput{RequestID: req.ID, RequestVersion: req.Version, RequestDigest: req.Digest, Verdict: VerdictApprove, EventID: "evt-real", Reason: "looks good"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decided.Status != StatusApproved {
+		t.Fatalf("approved request should be %s, got %s", StatusApproved, decided.Status)
+	}
+	dup, err := h.Decide(DecisionInput{RequestID: req.ID, RequestVersion: req.Version, RequestDigest: req.Digest, Verdict: VerdictApprove, EventID: "evt-real", Reason: "double click"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dup.Decision == nil || dup.Decision.EventID != "evt-real" {
+		t.Fatalf("duplicate event must return the committed decision, got %+v", dup.Decision)
+	}
+	_ = ctx
+}
