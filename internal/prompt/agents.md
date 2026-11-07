@@ -43,7 +43,7 @@
   `grounded_web_search` is in the effective JIT catalog, never for ordinary
   `/test`, `/benchmark`, or `/profile` intents.
 
-- `ReloadAllPrompts` aggregates discovered-agent failures for its caller; a partial atom count must not hide a missing or invalid expert database.
+- `AgentSynchronizer` (`internal/prompt/sync`) is the only path from an agent's `prompts.yaml` to its knowledge DB: `SyncAll` at boot, init and activation, `SyncAgent` at spawn. It skips unchanged YAML by content hash, replaces a changed atom set transactionally, and aggregates discovered-agent failures for its caller; a skipped agent must not hide a missing or invalid expert database.
 - Knowledge retrieval combines project knowledge with only the selected expert's
   registered database. Keep queries bounded and cancellable, preserve source and
   confidence in compiled context, and never close a borrowed handle. Test both

@@ -85,9 +85,15 @@
   whole file. A `read_file` observation
   records its line span; a later read of the same file at the same revision
   that covers it supersedes it (`working_span`), as a repeated body does
-  (`working_digest`). Separately, a result is archived only when the request
-  cannot otherwise fit the input window, largest first; the tool catalog is
-  charged to the window. Recall returns a whole body unless the caller pages.
+  (`working_digest`). Separately, a request that cannot fit the input window
+  sheds, in order (`working_shed.go`): tool results, largest first; then view
+  snapshots a later snapshot of the same path supersedes; then replayed
+  reasoning, oldest turn first, never the latest assistant turn's. Snapshot
+  and reasoning sheds happen only under that pressure and stay shed for the
+  loop, so the cached prefix breaks once. Every shed leaves a marker, and
+  reasoning's says it cannot be recalled. A request that still does not fit
+  is refused with its parts' token counts. The tool catalog is charged to the
+  window. Recall returns a whole body unless the caller pages.
 - New LLM-facing behavior is a prompt atom first. `AvailableTools` describes the
   effective envelope; it is not authority.
 - Pass bounded task text into JIT retrieval even when delegation supplies only
