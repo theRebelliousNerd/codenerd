@@ -33,6 +33,7 @@ type LimitsEnforcer struct {
 	// Callbacks for violation handling
 	onMemoryViolation func(usedMB, limitMB int)
 	onShardViolation  func(active, limit int)
+	memUsageFn        func() int
 }
 
 // NewLimitsEnforcer creates a new enforcer with the given config.
@@ -74,11 +75,7 @@ func (le *LimitsEnforcer) CheckMemory() error {
 		return nil // No limit configured
 	}
 
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-
-	// Alloc is bytes of allocated heap objects
-	usedMB := int(m.Alloc / 1024 / 1024)
+	usedMB := le.GetMemoryUsage()
 
 	if usedMB > le.config.MaxTotalMemoryMB {
 		logging.Get(logging.CategoryKernel).Error("MEMORY LIMIT EXCEEDED: %dMB used > %dMB limit",
@@ -101,6 +98,12 @@ func (le *LimitsEnforcer) CheckMemory() error {
 
 // GetMemoryUsage returns current memory usage in MB.
 func (le *LimitsEnforcer) GetMemoryUsage() int {
+	le.mu.RLock()
+	fn := le.memUsageFn
+	le.mu.RUnlock()
+	if fn != nil {
+		return fn()
+	}
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	return int(m.Alloc / 1024 / 1024)

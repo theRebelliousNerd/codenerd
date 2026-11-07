@@ -142,6 +142,7 @@ status=0
 if [[ -n "$ADDED" ]]; then
     echo "New unreachable functions ($(echo "$ADDED" | wc -l)):"
     echo "$ADDED" | sed 's/^/  /'
+    echo "$ADDED" | awk -F'\t' 'NF>=2 {printf "%s:1: unreachable function: %s\n", $1, $2}'
     echo
     echo "Each is production code nothing calls. Wire it, delete it, or — if it is"
     echo "genuinely reachable only from a path this analysis cannot see — record it"
@@ -152,6 +153,7 @@ fi
 if [[ -n "$REMOVED" ]]; then
     echo "Functions that are no longer unreachable ($(echo "$REMOVED" | wc -l)):"
     echo "$REMOVED" | sed 's/^/  /'
+    echo "$REMOVED" | awk -F'\t' 'NF>=2 {printf "%s:1: function is no longer unreachable: %s (refresh baseline with regenerate id=deadcode-baseline)\n", $1, $2}'
     echo
     echo "Good. Refresh the baseline so the count stays a real measurement:"
     echo "  $0 --update"

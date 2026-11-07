@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"codenerd/internal/observation"
 	"codenerd/internal/session"
@@ -32,8 +33,9 @@ import (
 // Records exist only while an attempt is open (beginAttempt .. endAttempt), so
 // a task that runs without a mutation snapshot leaves nothing behind.
 type attemptRecord struct {
-	writes []observation.FileWrite
-	leases []*writeSetLockLease
+	writes  []observation.FileWrite
+	leases  []*writeSetLockLease
+	started time.Time
 }
 
 func (o *Orchestrator) beginAttempt(task *Task) {
@@ -45,7 +47,20 @@ func (o *Orchestrator) beginAttempt(task *Task) {
 	if o.attempts == nil {
 		o.attempts = map[string]*attemptRecord{}
 	}
-	o.attempts[task.ID] = &attemptRecord{}
+	o.attempts[task.ID] = &attemptRecord{started: time.Now()}
+}
+
+// attemptStarted is when the task's open attempt began; zero with none open.
+func (o *Orchestrator) attemptStarted(task *Task) time.Time {
+	if task == nil {
+		return time.Time{}
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if rec := o.attempts[task.ID]; rec != nil {
+		return rec.started
+	}
+	return time.Time{}
 }
 
 func (o *Orchestrator) recordAttemptWrites(task *Task, writes []observation.FileWrite) {
@@ -128,6 +143,43 @@ func (o *Orchestrator) KeptWrites() []observation.FileWrite {
 	return append([]observation.FileWrite(nil), o.keptWrites...)
 }
 
+func (o *Orchestrator) preserveTaskWrites(task *Task, writes []observation.FileWrite) {
+	if task == nil || len(writes) == 0 {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.preservedTaskWrites == nil {
+		o.preservedTaskWrites = map[string][]observation.FileWrite{}
+	}
+	o.preservedTaskWrites[task.ID] = append(o.preservedTaskWrites[task.ID], writes...)
+}
+
+func (o *Orchestrator) taskWritesWithPreserved(task *Task) []observation.FileWrite {
+	if task == nil {
+		return nil
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	var out []observation.FileWrite
+	if preserved := o.preservedTaskWrites[task.ID]; len(preserved) > 0 {
+		out = append(out, preserved...)
+	}
+	if rec := o.attempts[task.ID]; rec != nil && len(rec.writes) > 0 {
+		out = append(out, rec.writes...)
+	}
+	return out
+}
+
+func (o *Orchestrator) clearPreservedTaskWrites(task *Task) {
+	if task == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	delete(o.preservedTaskWrites, task.ID)
+}
+
 func (rec attemptRecord) release() {
 	for _, lease := range rec.leases {
 		lease.release()
@@ -163,14 +215,21 @@ func (o *Orchestrator) writeGuard(task *Task) session.WriteGuard {
 func (o *Orchestrator) undoFailedAttempt(task *Task, snapshot taskExecutionSnapshot, cause error) error {
 	rec := o.endAttempt(task)
 	defer rec.release()
-	var outside []observation.FileWrite
+	var outside, inside []observation.FileWrite
 	for _, w := range rec.writes {
 		if !snapshot.covers(w.Path) {
 			outside = append(outside, w)
+		} else {
+			inside = append(inside, w)
 		}
 	}
 	err := cause
 	left, undoErr := undoAttemptWrites(outside)
+	if len(inside) > 0 {
+		var insideLeft []string
+		snapshot, insideLeft = filterSnapshotForConcurrentWrites(snapshot, inside)
+		left = append(left, insideLeft...)
+	}
 	if len(left) > 0 {
 		err = fmt.Errorf("%w; the attempt's writes left in place: %s", err, strings.Join(left, ", "))
 	}
@@ -181,6 +240,63 @@ func (o *Orchestrator) undoFailedAttempt(task *Task, snapshot taskExecutionSnaps
 		err = fmt.Errorf("%w (rollback failed: %v)", err, rollbackErr)
 	}
 	return err
+}
+
+// filterSnapshotForConcurrentWrites removes from a rollback snapshot any file
+// within the write set that a concurrent writer changed during the attempt (not
+// in inside writes, yet different from the snapshot) or changed after the
+// attempt wrote it (in inside writes, yet no longer holding the attempt's
+// final content).
+func filterSnapshotForConcurrentWrites(snapshot taskExecutionSnapshot, inside []observation.FileWrite) (taskExecutionSnapshot, []string) {
+	type span struct{ before, after observation.FileState }
+	spans := make(map[string]*span, len(inside))
+	for _, w := range inside {
+		clean := filepath.Clean(w.Path)
+		if s, seen := spans[clean]; seen {
+			s.after = w.After
+			continue
+		}
+		spans[clean] = &span{before: w.Before, after: w.After}
+	}
+
+	var left []string
+	keptMutations := make([]fileMutationSnapshot, 0, len(snapshot.fileMutations))
+	var clonedPaths map[string]struct{}
+	protectPath := func(clean string) {
+		if snapshot.snapshotPaths == nil {
+			return
+		}
+		if clonedPaths == nil {
+			clonedPaths = make(map[string]struct{}, len(snapshot.snapshotPaths)+4)
+			for k, v := range snapshot.snapshotPaths {
+				clonedPaths[k] = v
+			}
+			snapshot.snapshotPaths = clonedPaths
+		}
+		snapshot.snapshotPaths[clean] = struct{}{}
+	}
+
+	for _, fm := range snapshot.fileMutations {
+		clean := filepath.Clean(fm.Path)
+		if s, written := spans[clean]; written {
+			if !s.after.Known || !holds(clean, s.after) {
+				left = append(left, fm.Path+" (changed since the attempt wrote it)")
+				protectPath(clean)
+				continue
+			}
+			keptMutations = append(keptMutations, fm)
+			continue
+		}
+		snapState := observation.FileState{Known: true, Exists: fm.Exists, Content: string(fm.Content)}
+		if !holds(clean, snapState) {
+			left = append(left, fm.Path+" (changed by another writer during the attempt)")
+			protectPath(clean)
+			continue
+		}
+		keptMutations = append(keptMutations, fm)
+	}
+	snapshot.fileMutations = keptMutations
+	return snapshot, left
 }
 
 // undoAttemptWrites puts each path the attempt wrote back as it was before

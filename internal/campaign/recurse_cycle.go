@@ -445,8 +445,10 @@ func RunRecurseCycles(ctx context.Context, cfg RecurseCycleConfig) (result *Recu
 	}
 	// Read before prepare switches branches: it is the base's default.
 	startBranch, _ := r.git.currentBranch(ctx)
-	if err := r.git.prepare(ctx, branch); err != nil {
-		return nil, err
+	if len(history) == 0 || strings.TrimSpace(startBranch) != branch {
+		if err := r.git.prepare(ctx, branch); err != nil {
+			return nil, err
+		}
 	}
 	journal, err := openRecurseJournal(root)
 	if err != nil {
@@ -587,6 +589,9 @@ func (r *recurseRun) deriveSweep(ctx context.Context, pass int) (*sweep, error) 
 }
 
 func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) error {
+	if _, err := r.safePoint(ctx, pass); err != nil {
+		return err
+	}
 	// The graph and the gates are re-derived each pass: the loop changes the
 	// code, and the code is what they are derived from. The loop below asks the
 	// kernel for the next node one node at a time; it does not replay a list
@@ -1301,6 +1306,7 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) (r
 	if err != nil {
 		return err
 	}
+	dirtyBefore := r.captureDirtyBefore(ctx, untracked)
 	flight := inFlight{Cycle: cycle, Pass: v.pass, Node: node.ID, Finding: findingID, Angle: spec.angle, UntrackedBefore: sortedSet(untracked)}
 	if r.cfg.Mission != nil {
 		flight.MissionState = r.cfg.Mission.path
@@ -1389,6 +1395,7 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) (r
 	if changed, err = r.discardBuiltExecutables(ctx, changed, untracked); err != nil {
 		return err
 	}
+	changed = r.filterAttemptChanges(changed, dirtyBefore, owned, a.Mission != nil)
 	after := map[string]gateRun{}
 	afterMetrics := before
 	if len(changed) > 0 {
@@ -1737,6 +1744,67 @@ func (r *recurseRun) changedByAttempt(ctx context.Context, untrackedBefore map[s
 		}
 	}
 	return out, nil
+}
+
+// captureDirtyBefore snapshots the exact file state of any workspace paths
+// that were already modified before the attempt started (e.g. concurrent human
+// edits or files left in place by undoOwned on an earlier cycle).
+func (r *recurseRun) captureDirtyBefore(ctx context.Context, untrackedBefore map[string]bool) map[string]observation.FileState {
+	paths, err := r.changedByAttempt(ctx, untrackedBefore)
+	if err != nil || len(paths) == 0 {
+		return nil
+	}
+	out := make(map[string]observation.FileState, len(paths))
+	for _, p := range paths {
+		abs := filepath.Join(r.root, filepath.FromSlash(p))
+		data, rerr := os.ReadFile(abs)
+		if errors.Is(rerr, os.ErrNotExist) {
+			out[p] = observation.FileState{Known: true, Exists: false}
+			continue
+		}
+		if rerr == nil {
+			out[p] = observation.FileState{Known: true, Exists: true, Content: string(data)}
+		}
+	}
+	return out
+}
+
+// filterAttemptChanges excludes files that were already dirty before the
+// attempt started and were not modified during the attempt, and (in non-mission
+// runs with recorded attempt writes) files modified by an outside writer that
+// this attempt never wrote.
+func (r *recurseRun) filterAttemptChanges(changed []string, dirtyBefore map[string]observation.FileState, owned []observation.FileWrite, isMission bool) []string {
+	if len(changed) == 0 || (len(dirtyBefore) == 0 && (isMission || len(owned) == 0)) {
+		return changed
+	}
+	ownedRel := make(map[string]bool, len(owned))
+	for _, w := range owned {
+		p := w.Path
+		if filepath.IsAbs(p) {
+			if rel, err := filepath.Rel(r.root, p); err == nil && !strings.HasPrefix(rel, "..") {
+				p = rel
+			}
+		}
+		ownedRel[filepath.ToSlash(filepath.Clean(p))] = true
+	}
+	out := make([]string, 0, len(changed))
+	for _, p := range changed {
+		if ownedRel[p] {
+			out = append(out, p)
+			continue
+		}
+		if pre, wasDirty := dirtyBefore[p]; wasDirty {
+			abs := filepath.Join(r.root, filepath.FromSlash(p))
+			if holds(abs, pre) {
+				continue
+			}
+		}
+		if !isMission && len(ownedRel) > 0 {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // sourceOf is the gate run that reported f, preserving the exact invocation

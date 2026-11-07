@@ -25,6 +25,18 @@ type fileMutationSnapshot struct {
 	Path    string
 	Exists  bool
 	Content []byte
+	// Mode is the file's permission bits at capture; a restore writes them
+	// back, so an executable script is not restored as 0644
+	// (campaign-rollback-file-metadata #1). Zero means unknown: 0644.
+	Mode os.FileMode
+}
+
+// restoreMode is the mode a rollback writes a captured file with.
+func (f fileMutationSnapshot) restoreMode() os.FileMode {
+	if f.Mode == 0 {
+		return 0o644
+	}
+	return f.Mode
 }
 
 // taskExecutionSnapshot captures mutable orchestrator state that must be rolled back.
@@ -99,17 +111,19 @@ func (o *Orchestrator) withTaskMutationSnapshot(task *Task, run func() (any, err
 
 	result, err = run()
 	if err == nil && task != nil && task.Type == TaskTypeFileModify {
-		err = validateFileModifyOutcome(task, snapshot, o.attemptWrites(task))
+		err = validateFileModifyOutcome(task, snapshot, o.taskWritesWithPreserved(task))
 	}
 	if err == nil {
 		rec := o.endAttempt(task)
 		o.keepAttemptWrites(rec.writes)
+		o.clearPreservedTaskWrites(task)
 		rec.release()
 		return result, nil
 	}
 	if o.canPreservePartialFileModifyProgress(task, snapshot, err) {
 		rec := o.endAttempt(task)
 		o.keepAttemptWrites(rec.writes)
+		o.preserveTaskWrites(task, rec.writes)
 		rec.release()
 		if snapshot.campaign == nil && snapshot.scopedTask != nil {
 			o.updateTaskStatus(snapshot.scopedTask, snapshot.scopedStatus)
@@ -251,10 +265,16 @@ func validateFileModifyOutcome(task *Task, snapshot taskExecutionSnapshot, write
 	if modified {
 		return nil
 	}
+	changed := changedPreexistingFiles(writes)
+	for _, p := range changed {
+		if snapshot.covers(p) {
+			return nil
+		}
+	}
 	if declaredExisted && len(snapshot.declaredGlobs) == 0 {
 		return fmt.Errorf("task %s (%s) modified no pre-existing file in its declared write set", taskIDOrUnknown(task), task.Type)
 	}
-	if changed := changedPreexistingFiles(writes); len(changed) > 0 {
+	if len(changed) > 0 {
 		logging.Campaign("Task %s (%s): broad-glob or absent write set; changed existing code in %s", taskIDOrUnknown(task), task.Type, strings.Join(changed, ", "))
 		return nil
 	}
@@ -435,6 +455,7 @@ func (o *Orchestrator) captureTaskExecutionSnapshot(task *Task) (taskExecutionSn
 			Path:    absPath,
 			Exists:  true,
 			Content: content,
+			Mode:    info.Mode().Perm(),
 		})
 	}
 	snapshot.snapshotPaths = make(map[string]struct{}, len(snapshot.fileMutations))
@@ -506,7 +527,7 @@ func snapshotDirectoryFiles(mem *workspace.Membership, dir string, into *[]fileM
 		if numFiles > maxDirectorySnapshotFiles || numBytes > maxDirectorySnapshotBytes {
 			return fmt.Errorf("directory write set %s too large to snapshot (> %d files or > %d bytes)", dir, maxDirectorySnapshotFiles, maxDirectorySnapshotBytes)
 		}
-		*into = append(*into, fileMutationSnapshot{Path: filepath.Clean(path), Exists: true, Content: data})
+		*into = append(*into, fileMutationSnapshot{Path: filepath.Clean(path), Exists: true, Content: data, Mode: info.Mode().Perm()})
 		return nil
 	})
 	if err != nil {
@@ -579,11 +600,20 @@ func (o *Orchestrator) rollbackTaskExecutionSnapshot(snapshot taskExecutionSnaps
 	// File mutations are always reverted, for both structural and scoped snapshots.
 	for _, fs := range snapshot.fileMutations {
 		if fs.Exists {
+			if info, statErr := os.Stat(fs.Path); statErr == nil && info.Mode().Perm() == fs.restoreMode() {
+				if cur, readErr := os.ReadFile(fs.Path); readErr == nil && bytes.Equal(cur, fs.Content) {
+					continue
+				}
+			}
 			if err := os.MkdirAll(filepath.Dir(fs.Path), 0755); err != nil {
 				return fmt.Errorf("rollback mkdir %s: %w", fs.Path, err)
 			}
-			if err := os.WriteFile(fs.Path, fs.Content, 0644); err != nil {
+			if err := os.WriteFile(fs.Path, fs.Content, fs.restoreMode()); err != nil {
 				return fmt.Errorf("rollback write %s: %w", fs.Path, err)
+			}
+			// WriteFile applies the mode only when it creates the file.
+			if err := os.Chmod(fs.Path, fs.restoreMode()); err != nil {
+				return fmt.Errorf("rollback chmod %s: %w", fs.Path, err)
 			}
 			continue
 		}

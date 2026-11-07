@@ -79,6 +79,10 @@ type workingLoop struct {
 	// viewed identifies the last available view: focus, observed file revision
 	// and rendered content. Other provider inputs can change without that file.
 	viewed string
+	// carriedViews holds the focus-view identities already appended this epoch,
+	// keyed by focus + revision + rendered content. It enforces the ledger rule
+	// that the same file at the same revision is never carried twice.
+	carriedViews map[string]struct{}
 	// callIDs are the tool-call ids this loop has handed out on the
 	// Piggyback channel (claimCallIDs), so no two calls share one.
 	callIDs map[string]bool
@@ -240,6 +244,7 @@ func (e *Executor) beginWorkingLoop(ctx context.Context, client types.LLMClient,
 		evicted:      make(map[string]bool),
 		appended:     make(map[string]string),
 		restated:     make(map[string]string),
+		carriedViews: make(map[string]struct{}),
 		inputCap:     broker.InputWindow(client),
 	}
 	ctx = context.WithValue(ctx, workingLoopKey{}, loop)
@@ -814,6 +819,7 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 		loop.snapshots = nil
 		loop.restated = make(map[string]string)
 		loop.viewed = ""
+		loop.carriedViews = make(map[string]struct{})
 		logging.Context("Working ledger: compaction at round %d moved %d result(s) out behind their recall handles", round, len(decision.Evict))
 	}
 
@@ -846,9 +852,20 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 		identity := loop.focus + "\x00" + decision.Revisions[loop.focus] + "\x00" + view
 		digest := sha256.Sum256([]byte(identity))
 		viewed := hex.EncodeToString(digest[:])
-		if viewed != loop.viewed {
+		if loop.carriedViews == nil {
+			loop.carriedViews = make(map[string]struct{})
+		}
+		if _, dup := loop.carriedViews[viewed]; dup {
+			// Same file at same revision already carried this epoch: never
+			// carry the same focus view twice. Keep viewed current so later
+			// identical views still dedup, but append nothing.
+			if viewed != loop.viewed {
+				logging.Session("Working ledger: focus view of %s deduped (%d chars%s)", loop.focus, len(view), moduleGuidanceNote(view))
+			}
+		} else if viewed != loop.viewed {
 			notes = append(notes, view)
 			snapshot = view
+			loop.carriedViews[viewed] = struct{}{}
 			logging.Session("Working ledger: focus view of %s appended (%d chars%s)", loop.focus, len(view), moduleGuidanceNote(view))
 		}
 		loop.viewed = viewed

@@ -176,3 +176,65 @@ func TestRecurseAttempt_APassingCheckIsAccepted(t *testing.T) {
 		t.Fatalf("verdict = %q, want /pass", v)
 	}
 }
+
+// A single-node attempt against a workspace-wide audit gate is accepted when
+// its own finding and node are clean, even if the workspace command still exits
+// non-zero due to findings in another subsystem; when its own node still fails,
+// remediation scopes the failure output to its node's paths.
+func TestRecurseAttempt_WorkspaceGateScopesResolutionAndRemediationToNode(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no go toolchain")
+	}
+	ws := t.TempDir()
+	files := attemptModule()
+	files["audit.go"] = "package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n)\n\nfunc main() {\n\tif _, err := os.Stat(\"store/bad.txt\"); err == nil {\n\t\tfmt.Println(\"store/bad.txt:1: store still broken\")\n\t}\n\tfmt.Println(\"other/other.go:10: unrelated subsystem finding\")\n\tos.Exit(1)\n}\n"
+	files["store/bad.txt"] = "bad\n"
+	writeTree(t, ws, files)
+
+	targetFinding := gates.FindingsAll(ws, gates.Result{
+		Gate:     gates.Gate{ID: "nerd:audit:tiebreak", Kind: gates.Audit},
+		Output:   "store/bad.txt:1: store still broken\n",
+		ExitCode: 1,
+	})[0]
+	a := RecurseAttempt{
+		Cycle:   1,
+		Node:    attemptNode(),
+		Check:   []string{"go", "run", "audit.go"},
+		Finding: targetFinding,
+	}
+
+	// Still failing in store/: should remediate with output scoped to store/.
+	orchFail := attemptOrchestrator(t, ws, a)
+	outcome, err := orchFail.settleAcceptance(context.Background())
+	if err != nil || outcome != acceptanceRemediating {
+		t.Fatalf("outcome = %v, err = %v; want remediating when node finding persists", outcome, err)
+	}
+	remTask := orchFail.campaign.Phases[len(orchFail.campaign.Phases)-1].Tasks[0].Description
+	if !strings.Contains(remTask, "store/bad.txt:1: store still broken") {
+		t.Fatalf("remediation task missing node finding:\n%s", remTask)
+	}
+	if strings.Contains(remTask, "other/other.go:10") {
+		t.Fatalf("remediation task leaked unrelated subsystem finding:\n%s", remTask)
+	}
+
+	// Resolved in store/ (bad.txt removed), though other/ still fails exit 1.
+	writeTree(t, ws, map[string]string{
+		"go.mod":   files["go.mod"],
+		"audit.go": files["audit.go"],
+	})
+	wsResolved := t.TempDir()
+	writeTree(t, wsResolved, map[string]string{
+		"go.mod":   files["go.mod"],
+		"audit.go": files["audit.go"],
+	})
+	orchPass := attemptOrchestrator(t, wsResolved, a)
+	outcome, err = orchPass.settleAcceptance(context.Background())
+	if err != nil || outcome != acceptanceSatisfied {
+		t.Fatalf("outcome = %v, err = %v; want satisfied when node finding is resolved", outcome, err)
+	}
+	if !orchPass.acceptanceDerived("campaign_complete") {
+		t.Error("campaign_complete is not derived after the node's finding resolved")
+	}
+}
+

@@ -2,6 +2,7 @@ package codedom
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -347,7 +348,21 @@ func changedLines(before, nf *codemodel.File, e *codemodel.Element) (int, int) {
 	return lo, hi
 }
 
+func withOptimisticRetry(fn func() (string, error)) (string, error) {
+	out, err := fn()
+	if err != nil && errors.Is(err, errOptimisticConflict) {
+		return fn()
+	}
+	return out, err
+}
+
 func executeEditElement(ctx context.Context, args map[string]any) (string, error) {
+	return withOptimisticRetry(func() (string, error) {
+		return executeEditElementOnce(ctx, args)
+	})
+}
+
+func executeEditElementOnce(ctx context.Context, args map[string]any) (string, error) {
 	path, _ := args["path"].(string)
 	ref, _ := args["ref"].(string)
 	oldText, _ := args["old"].(string)
@@ -375,15 +390,49 @@ func executeEditElement(ctx context.Context, args map[string]any) (string, error
 		}
 		spanStart, spanEnd, where = p.Start, p.End, where+" part "+p.Path
 	}
-	start, end, err := anchor(re.model, spanStart, spanEnd, codemodel.Normalize(oldText), where)
+	oldNorm := codemodel.Normalize(oldText)
+	newNorm := codemodel.Normalize(newText)
+	start, end, err := anchor(re.model, spanStart, spanEnd, oldNorm, where)
 	if err != nil {
+		if alreadyAppliedEditElement(ctx, re, spanStart, spanEnd, oldNorm, newNorm, where) {
+			out := &codemodel.Outcome{File: re.model, Touched: []*codemodel.Element{re.elem}}
+			tools.RecordEdit(ctx, editedElements(re.file.rel, re.model, out)...)
+			logging.Tools("edit_element completed (already in target state): %s", re.file.rel)
+			return renderOutcome("edit_element", re.file.rel, re.model, out, re.refs), nil
+		}
 		return "", err
+	}
+	if oldNorm == newNorm {
+		out := &codemodel.Outcome{File: re.model, Touched: []*codemodel.Element{re.elem}}
+		tools.RecordEdit(ctx, editedElements(re.file.rel, re.model, out)...)
+		logging.Tools("edit_element completed (no-op target state): %s", re.file.rel)
+		return renderOutcome("edit_element", re.file.rel, re.model, out, re.refs), nil
 	}
 	ee, err := applyChange(ctx, re, codemodel.Change{Start: start, End: end, Text: newText}, []string{re.elem.Key})
 	if err != nil {
 		return "", err
 	}
 	return ee.commit(ctx, "edit_element")
+}
+
+// alreadyAppliedEditElement reports whether an edit_element whose old text is
+// absent from [spanStart, spanEnd) has already been applied on disk (for
+// example by a concurrent human edit or a preserved prior attempt): new occurs
+// uniquely in [spanStart, spanEnd), old does not occur elsewhere in the file,
+// and replacing new back with old parses cleanly.
+func alreadyAppliedEditElement(ctx context.Context, re *resolvedElement, spanStart, spanEnd int, oldNorm, newNorm, where string) bool {
+	if strings.TrimSpace(newNorm) == "" || len(strings.TrimSpace(newNorm)) < 3 || oldNorm == newNorm {
+		return false
+	}
+	if strings.Count(re.model.Source, oldNorm) > 0 {
+		return false
+	}
+	newStart, newEnd, err := anchor(re.model, spanStart, spanEnd, newNorm, where)
+	if err != nil {
+		return false
+	}
+	revOut, err := codemodel.Apply(re.model, codemodel.Change{Start: newStart, End: newEnd, Text: oldNorm}, []string{re.elem.Key}, importResolver(ctx, re.file.rel))
+	return err == nil && revOut.File != nil && revOut.File.Parsed
 }
 
 // anchor finds old within [spanStart, spanEnd) of the source: exactly once,
@@ -497,6 +546,12 @@ func trimmedLines(s string) []string {
 }
 
 func executeReplaceElement(ctx context.Context, args map[string]any) (string, error) {
+	return withOptimisticRetry(func() (string, error) {
+		return executeReplaceElementOnce(ctx, args)
+	})
+}
+
+func executeReplaceElementOnce(ctx context.Context, args map[string]any) (string, error) {
 	path, _ := args["path"].(string)
 	ref, _ := args["ref"].(string)
 	source, _ := args["source"].(string)
@@ -514,17 +569,35 @@ func executeReplaceElement(ctx context.Context, args map[string]any) (string, er
 	if re.elem.Kind == codemodel.KindSection && !codemodel.StartsWithMarkdownHeading(source) {
 		return "", fmt.Errorf("replace_element replaces the whole section %s, heading included, so source must start with a heading; to change some of its text use edit_element", RefOf(re.file.rel, re.elem, re.refs))
 	}
-	ee, err := applyChange(ctx, re, codemodel.Change{Start: re.elem.Start, End: re.elem.End, Text: strings.Trim(source, "\n")}, []string{re.elem.Key})
+	out, err := codemodel.Apply(re.model, codemodel.Change{Start: re.elem.Start, End: re.elem.End, Text: strings.Trim(source, "\n")}, []string{re.elem.Key}, importResolver(ctx, re.file.rel))
 	if err != nil {
 		return "", err
 	}
-	if len(ee.out.Touched) == 0 {
+	if out.File.Source == re.model.Source {
+		ne := out.File.Element(re.elem.Key)
+		if ne == nil {
+			return "", fmt.Errorf("the source declares nothing; delete_element removes an element")
+		}
+		out.Touched = []*codemodel.Element{ne}
+		tools.RecordEdit(ctx, editedElements(re.file.rel, re.model, out)...)
+		refs := canonicalRefs(ctx, re.file.rel, out.File)
+		logging.Tools("replace_element completed (already in target state): %s", re.file.rel)
+		return renderOutcome("replace_element", re.file.rel, re.model, out, refs), nil
+	}
+	if len(out.Touched) == 0 {
 		return "", fmt.Errorf("the source declares nothing; delete_element removes an element")
 	}
+	ee := &elementEdit{lf: re.file, before: re.model, out: out, refs: re.refs}
 	return ee.commit(ctx, "replace_element")
 }
 
 func executeInsertElement(ctx context.Context, args map[string]any) (string, error) {
+	return withOptimisticRetry(func() (string, error) {
+		return executeInsertElementOnce(ctx, args)
+	})
+}
+
+func executeInsertElementOnce(ctx context.Context, args map[string]any) (string, error) {
 	path, _ := args["path"].(string)
 	anchorRef, _ := args["anchor"].(string)
 	position, _ := args["position"].(string)

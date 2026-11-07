@@ -456,6 +456,7 @@ type ContextProfile struct {
 type Learning struct {
 	Type      string    `json:"type"` // /success_pattern, /failure_pattern, /preference, /optimization
 	Pattern   string    `json:"pattern"`
+	Value     string    `json:"value,omitempty"` // the promotion's value (promote_to_long_term's second argument)
 	Fact      string    `json:"fact"`
 	AppliedAt time.Time `json:"applied_at"`
 }

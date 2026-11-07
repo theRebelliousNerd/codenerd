@@ -122,6 +122,7 @@ func TestLimitsEnforcer_ExtraCornerCases(t *testing.T) {
 		MaxConcurrentShards: 2,
 	}
 	leTrigger := NewLimitsEnforcer(cfgTrigger)
+	leTrigger.memUsageFn = func() int { return 80 }
 	if err := leTrigger.CheckAll(0); err == nil || !errors.Is(err, ErrMemoryLimitExceeded) {
 		t.Errorf("expected ErrMemoryLimitExceeded in CheckAll, got: %v", err)
 	}
@@ -137,16 +138,14 @@ func TestLimitsEnforcer_ExtraCornerCases(t *testing.T) {
 	}
 
 	// Trigger EstimateCapacity memory > 70% and slots < 1
-	currentMem := leTrigger.GetMemoryUsage()
-	if currentMem > 0 {
-		cfgHighMem := LimitsConfig{
-			MaxTotalMemoryMB:    int(float64(currentMem) / 0.80),
-			MaxConcurrentShards: 1, // Only 1 shard allowed
-		}
-		leHighMem := NewLimitsEnforcer(cfgHighMem)
-		slots, reason := leHighMem.EstimateCapacity(0) // activeShards = 0, so slots initially 1
-		if slots != 1 || !strings.Contains(reason, "reduced due to high memory") {
-			t.Errorf("expected slots = 1, reason to contain high memory; got slots=%d, reason=%q", slots, reason)
-		}
+	cfgHighMem := LimitsConfig{
+		MaxTotalMemoryMB:    100,
+		MaxConcurrentShards: 1, // Only 1 shard allowed
+	}
+	leHighMem := NewLimitsEnforcer(cfgHighMem)
+	leHighMem.memUsageFn = func() int { return 80 }
+	slots, reason := leHighMem.EstimateCapacity(0) // activeShards = 0, so slots initially 1
+	if slots != 1 || !strings.Contains(reason, "reduced due to high memory") {
+		t.Errorf("expected slots = 1, reason to contain high memory; got slots=%d, reason=%q", slots, reason)
 	}
 }

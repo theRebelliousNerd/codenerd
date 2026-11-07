@@ -2,7 +2,9 @@ package campaign
 
 import (
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -117,7 +119,15 @@ func phaseWriteScope(workspace string, p *Phase) []string {
 		if file == "" || (nerdDir != "" && (file == nerdDir || strings.HasPrefix(file, nerdDir+"/"))) {
 			return
 		}
-		if dir := path.Dir(file); !seen[dir] {
+		// A directory is already a scope entry -- a previous remediation's
+		// write set is this function's own output. Taking its parent widened
+		// the scope one level per failed round (pkg, then internal/, then the
+		// root): campaign-checkpoint-scope-idempotence #1.
+		dir := path.Dir(file)
+		if info, err := os.Stat(filepath.FromSlash(file)); err == nil && info.IsDir() {
+			dir = file
+		}
+		if !seen[dir] {
 			seen[dir] = true
 			out = append(out, dir)
 		}

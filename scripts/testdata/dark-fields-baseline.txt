@@ -14,16 +14,14 @@
 # A line marked (dead file) declares the field in a file that also has
 # entries in the dead-code budget. Those fields are usually dark BECAUSE
 # nothing calls the functions that would fill them — triage them last.
-Acquirer.Now	internal/knowledge/acquire.go:136
 BootConfig.KernelOverride	internal/system/factory.go:87
 BootOptions.Heartbeat	internal/sessionlog/boot.go:25
-BootOptions.Now	internal/sessionlog/boot.go:23
-FileEdit.EditType	internal/core/transaction_manager.go:88
+FileEdit.EditType	internal/core/transaction_manager.go:89
 InitConfig.InteractiveIO	internal/init/initializer.go:127
 IntegrationPath.InputArity	internal/core/integration_path.go:10
 IntegrationPath.OutputArity	internal/core/integration_path.go:12
 InteractiveConfig.PromptTimeout	internal/init/interactive.go:69
-KernelShardConfig.ManglePath	internal/core/kernel_shard.go:55
+KernelShardConfig.ManglePath	internal/core/kernel_shard.go:56
 MangleUpdatePolicy.AllowedPrefixes	internal/core/mangle_updates.go:15
 MeterConfig.PrimaryModel	internal/broker/default.go:66
 MeterConfig.ReceiptBuffer	internal/broker/default.go:57
@@ -32,14 +30,12 @@ Options.MaxCacheBytes	internal/diff/diff.go:174	(dead file)
 Options.MaxCacheEntries	internal/diff/diff.go:170	(dead file)
 Options.MaxProblems	internal/problemlog/report.go:43
 Options.NoSidecar	internal/persist/factsnap/factsnap.go:84
-Options.Now	internal/approval/broker.go:23
 Options.VerifyCacheContent	internal/diff/diff.go:187	(dead file)
-OrchestratorConfig.CampaignRiskOverride	internal/campaign/orchestrator_types.go:188
-OrchestratorConfig.TaskRiskOverrides	internal/campaign/orchestrator_types.go:189
+OrchestratorConfig.CampaignRiskOverride	internal/campaign/orchestrator_types.go:203
+OrchestratorConfig.TaskRiskOverrides	internal/campaign/orchestrator_types.go:204
 OuroborosConfig.AllowCompilationFallback	internal/autopoiesis/ouroboros.go:154
 RouterConfig.CustomRoutes	internal/shards/system/router.go:49
 Turn.ExtractedAtoms	internal/context/types.go:336
-WebSource.Now	internal/knowledge/sources.go:45
 fileIDExtdDirInfo.ChangeTime	internal/world/cartographer_rev_windows.go:35
 fileIDExtdDirInfo.EndOfFile	internal/world/cartographer_rev_windows.go:36
 fileIDExtdDirInfo.FileAttributes	internal/world/cartographer_rev_windows.go:38

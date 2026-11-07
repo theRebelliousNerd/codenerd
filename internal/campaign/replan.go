@@ -641,16 +641,16 @@ Current Tasks:
 			}
 			if rkey := replanDedupeKey(t.Description); rkey != "" {
 				if existingID, ok := seenReplanKeys[rkey]; ok {
-					logging.CampaignWarn("Planner emitted a near-duplicate task %s of %s in phase %s; dropping it: %.80q", newID, existingID, workingNextPhase.ID, t.Description)
-					continue
+					if !refinedTargetsDisjoint(r.workspace, workingNextPhase, existingID, t.Artifacts, t.WriteSet) {
+						logging.CampaignWarn("Planner emitted a near-duplicate task %s of %s in phase %s; dropping it: %.80q", newID, existingID, workingNextPhase.ID, t.Description)
+						continue
+					}
+					logging.CampaignWarn("Planner task %s restates %s in phase %s but names disjoint targets; keeping it: %.80q", newID, existingID, workingNextPhase.ID, t.Description)
+				} else {
+					seenReplanKeys[rkey] = newID
 				}
-				seenReplanKeys[rkey] = newID
 			}
-			var deps []string
-			deps = append(deps, []string(t.DependsOn)...)
-			deps = append(deps, []string(t.ContextFrom)...)
-			deps = append(deps, []string(t.Dependencies)...)
-			ctxFrom := resolveReplannerContextFrom(workingNextPhase, deps)
+			hard, ctxFrom := refinedTaskEdges(workingNextPhase, newID, t.DependsOn, t.ContextFrom, t.Dependencies)
 			task := Task{
 				ID:          newID,
 				PhaseID:     workingNextPhase.ID,
@@ -659,6 +659,7 @@ Current Tasks:
 				Type:        normalizeTaskType(t.Type, defaultTaskTypeForCategory(workingNextPhase.Category)),
 				Priority:    normalizeTaskPriority(t.Priority),
 				Order:       len(workingNextPhase.Tasks),
+				DependsOn:   hard,
 				ContextFrom: ctxFrom,
 			}
 			applyRefinedTargets(r.workspace, &task, t.Artifacts, t.WriteSet)
@@ -686,6 +687,9 @@ Current Tasks:
 					if t.Priority != "" {
 						workingNextPhase.Tasks[i].Priority = normalizeTaskPriority(t.Priority)
 					}
+					hard, ctxFrom := refinedTaskEdges(workingNextPhase, workingNextPhase.Tasks[i].ID, t.DependsOn, t.ContextFrom, t.Dependencies)
+					workingNextPhase.Tasks[i].DependsOn = mergeTaskIDs(workingNextPhase.Tasks[i].DependsOn, hard)
+					workingNextPhase.Tasks[i].ContextFrom = mergeTaskIDs(workingNextPhase.Tasks[i].ContextFrom, ctxFrom)
 					updated = true
 					break
 				}
@@ -722,16 +726,16 @@ Current Tasks:
 				}
 				if rkey := replanDedupeKey(t.Description); rkey != "" {
 					if existingID, ok := seenReplanKeys[rkey]; ok {
-						logging.CampaignWarn("Planner emitted a near-duplicate task %s of %s in phase %s; dropping it: %.80q", newID, existingID, workingNextPhase.ID, t.Description)
-						continue
+						if !refinedTargetsDisjoint(r.workspace, workingNextPhase, existingID, t.Artifacts, t.WriteSet) {
+							logging.CampaignWarn("Planner emitted a near-duplicate task %s of %s in phase %s; dropping it: %.80q", newID, existingID, workingNextPhase.ID, t.Description)
+							continue
+						}
+						logging.CampaignWarn("Planner task %s restates %s in phase %s but names disjoint targets; keeping it: %.80q", newID, existingID, workingNextPhase.ID, t.Description)
+					} else {
+						seenReplanKeys[rkey] = newID
 					}
-					seenReplanKeys[rkey] = newID
 				}
-				var deps []string
-				deps = append(deps, []string(t.DependsOn)...)
-				deps = append(deps, []string(t.ContextFrom)...)
-				deps = append(deps, []string(t.Dependencies)...)
-				ctxFrom := resolveReplannerContextFrom(workingNextPhase, deps)
+				hard, ctxFrom := refinedTaskEdges(workingNextPhase, newID, t.DependsOn, t.ContextFrom, t.Dependencies)
 				task := Task{
 					ID:          newID,
 					PhaseID:     workingNextPhase.ID,
@@ -740,6 +744,7 @@ Current Tasks:
 					Type:        normalizeTaskType(t.Type, defaultTaskTypeForCategory(workingNextPhase.Category)),
 					Priority:    normalizeTaskPriority(t.Priority),
 					Order:       len(workingNextPhase.Tasks),
+					DependsOn:   hard,
 					ContextFrom: ctxFrom,
 				}
 				applyRefinedTargets(r.workspace, &task, t.Artifacts, t.WriteSet)
@@ -1283,6 +1288,94 @@ func replanDedupeKey(desc string) string {
 		return ""
 	}
 	return key
+}
+
+// refinedTargetsDisjoint reports whether a refinement's explicit targets
+// (artifacts and write set) name files none of which the near-duplicate task
+// existingID already targets. A restated description over disjoint files is a
+// second piece of work, not a restatement: dropping it lost coverage
+// (campaign-refinement-scope-deduplication #1). No explicit targets, or an
+// existing task with none, keeps the drop.
+func refinedTargetsDisjoint(workspace string, phase *Phase, existingID string, artifacts, writes []string) bool {
+	var existing *Task
+	for i := range phase.Tasks {
+		if sameTaskID(phase.Tasks[i].ID, existingID) {
+			existing = &phase.Tasks[i]
+			break
+		}
+	}
+	if existing == nil {
+		return false
+	}
+	have := map[string]bool{}
+	for _, p := range normalizeWriteSetPaths(workspace, append(append([]string(nil), existing.WriteSet...), artifactPaths(existing.Artifacts)...)) {
+		have[filepath.ToSlash(filepath.Clean(p))] = true
+	}
+	want := normalizeWriteSetPaths(workspace, append(append([]string(nil), artifacts...), writes...))
+	if len(have) == 0 || len(want) == 0 {
+		return false
+	}
+	for _, p := range want {
+		if have[filepath.ToSlash(filepath.Clean(p))] {
+			return false
+		}
+	}
+	return true
+}
+
+func artifactPaths(arts []TaskArtifact) []string {
+	out := make([]string, 0, len(arts))
+	for _, a := range arts {
+		if strings.TrimSpace(a.Path) != "" {
+			out = append(out, a.Path)
+		}
+	}
+	return out
+}
+
+// refinedTaskEdges resolves a refinement's dependency fields for task self.
+// depends_on and dependencies are ordering edges: the task waits for them
+// (DependsOn), and their returns are its context too. context_from is context
+// only. Merging all three into ContextFrom alone, as the add and unmatched
+// update paths did, let a refined task be scheduled before the predecessor it
+// named (campaign-refinement-dependency-kind #1). A task never depends on
+// itself.
+func refinedTaskEdges(phase *Phase, self string, dependsOn, contextFrom, dependencies []string) (hard, ctx []string) {
+	var ordering []string
+	ordering = append(ordering, dependsOn...)
+	ordering = append(ordering, dependencies...)
+	hard = withoutTaskID(resolveReplannerContextFrom(phase, ordering), self)
+	all := append(append([]string(nil), ordering...), contextFrom...)
+	ctx = withoutTaskID(resolveReplannerContextFrom(phase, all), self)
+	return hard, ctx
+}
+
+func withoutTaskID(ids []string, self string) []string {
+	out := ids[:0:0]
+	for _, id := range ids {
+		if !sameTaskID(id, self) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// mergeTaskIDs appends the IDs of add not already in base, keeping order.
+func mergeTaskIDs(base, add []string) []string {
+	out := append([]string(nil), base...)
+	for _, id := range add {
+		dup := false
+		for _, have := range out {
+			if sameTaskID(have, id) {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // resolveReplannerContextFrom maps named dependencies to task IDs in the phase.

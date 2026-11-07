@@ -127,7 +127,10 @@ func progressFingerprint(r Round) string {
 		}
 	}
 	for _, p := range r.Probes {
-		b, _ := json.Marshal(p)
+		b, err := json.Marshal(p)
+		if err != nil {
+			b = []byte(err.Error())
+		}
 		parts = append(parts, string(b))
 	}
 	sort.Strings(parts)

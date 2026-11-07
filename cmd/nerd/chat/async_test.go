@@ -130,7 +130,6 @@ func TestContextCancellation_WithTimeout(t *testing.T) {
 // =============================================================================
 
 func TestGoroutineCount_AfterOperations(t *testing.T) {
-	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping goroutine count test in short mode")
 	}

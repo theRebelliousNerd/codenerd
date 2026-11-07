@@ -262,6 +262,23 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 		logging.CampaignDebug("Current phase: %s (%s)", currentPhase.Name, currentPhase.ID)
 
+		// current_phase also names an eligible phase that nothing has started
+		// yet (campaign_phases.mg's second rule). Running it here skipped the
+		// phase start -- the northstar admission, the /in_progress fact and
+		// the phase clock -- so a phase the observer would refuse ran anyway
+		// (campaign-pending-phase-admission #1). A selected phase is started
+		// first; the next pass runs it as admitted.
+		if currentPhase.Status == PhasePending {
+			if err := o.startNextPhase(ctx); err != nil {
+				logging.Get(logging.CategoryCampaign).Warn("Failed to start selected phase %s: %v", currentPhase.ID, err)
+				o.lastError = err
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+			}
+			continue
+		}
+
 		// 2. Page in context for current phase only on transition
 		if o.contextPager != nil && currentPhase.ID != o.lastPhaseID {
 			o.contextPager.ResetPhaseContext()

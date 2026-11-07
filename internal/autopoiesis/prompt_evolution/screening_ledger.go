@@ -56,8 +56,8 @@ func (c *screeningCapture) UsageUnknown() { c.mu.Lock(); defer c.mu.Unlock(); c.
 func (c *screeningCapture) snapshot() ([]byte, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	b, _ := json.Marshal(c.reports)
-	complete := len(c.reports) > 0 && !c.unknown
+	b, err := json.Marshal(c.reports)
+	complete := err == nil && len(c.reports) > 0 && !c.unknown
 	for _, r := range c.reports {
 		if !r.Usage.Reported() || r.Usage.Partial {
 			complete = false

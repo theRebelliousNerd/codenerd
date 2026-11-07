@@ -43,6 +43,9 @@ type Orchestrator struct {
 	attempts map[string]*attemptRecord
 	// keptWrites are the successful attempts' writes, in order (KeptWrites).
 	keptWrites []observation.FileWrite
+	// preservedTaskWrites are partial writes preserved across attempt boundaries
+	// by canPreservePartialFileModifyProgress, keyed by task ID. Guarded by mu.
+	preservedTaskWrites map[string][]observation.FileWrite
 
 	// Campaign-specific components
 	contextPager                *ContextPager
@@ -69,6 +72,9 @@ type Orchestrator struct {
 	// Execution tracking
 	isRunning bool
 	isPaused  bool
+	// intakeOwnsPause marks a pause HandleNewRequirement opened and nobody
+	// has since claimed with Pause or Resume; only then does the intake lift it.
+	intakeOwnsPause bool
 	// pauseCh signals pause state transitions to the phase scheduler loop.
 	// Closed channel = running/resumed. Open channel = paused. Recreated by
 	// Pause(), closed by Resume(). Always read while holding o.mu.

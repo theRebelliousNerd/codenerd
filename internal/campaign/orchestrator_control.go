@@ -20,6 +20,9 @@ func (o *Orchestrator) Pause() {
 		o.pauseCh = make(chan struct{})
 	}
 	o.isPaused = true
+	// An explicit pause during requirement intake is the user's: the intake
+	// must not lift it when it finishes.
+	o.intakeOwnsPause = false
 	o.updateCampaignStatus(StatusPaused)
 	if err := o.saveCampaign(); err != nil {
 		logging.CampaignWarn("failed to save campaign on pause: %v", err)
@@ -41,6 +44,8 @@ func (o *Orchestrator) Resume() {
 		close(o.pauseCh)
 	}
 	o.isPaused = false
+	// The user resumed: an intake in flight no longer owns a pause to lift.
+	o.intakeOwnsPause = false
 	o.updateCampaignStatus(StatusActive)
 }
 

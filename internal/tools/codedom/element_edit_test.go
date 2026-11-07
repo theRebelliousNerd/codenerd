@@ -325,3 +325,75 @@ func TestReplaceElement_RepairsABrokenRegion(t *testing.T) {
 		t.Fatalf("the broken region is replaced:\n%s", after)
 	}
 }
+
+func TestEditElement_IdempotentWhenExternalEditAlreadyAppliedChange(t *testing.T) {
+	alreadyEdited := strings.Replace(twoMethods, "return t.a", "return t.b", 1)
+	reg, abs, rel := editFixture(t, "demo.go", alreadyEdited)
+	out, edits, err := execTool(reg, "edit_element", map[string]any{
+		"path": rel, "ref": "T.M", "old": "return t.a", "new": "return t.b",
+	})
+	if err != nil {
+		t.Fatalf("edit_element should succeed idempotently when target state is already present: %v", err)
+	}
+	if !strings.Contains(out, "./T.M  method  demo.go:7-10  rev ") || !strings.Contains(out, "return t.b") {
+		t.Fatalf("unexpected output:\n%s", out)
+	}
+	if len(edits) != 1 || edits[0].Name != "M" || edits[0].Receiver != "T" {
+		t.Fatalf("expected M to be recorded in EditedElements, got %+v", edits)
+	}
+	if got := fileText(t, abs); got != alreadyEdited {
+		t.Fatalf("file should remain unchanged:\n%s", got)
+	}
+}
+
+func TestReplaceElement_IdempotentWhenExternalEditAlreadyAppliedChange(t *testing.T) {
+	reg, abs, rel := editFixture(t, "demo.go", twoMethods)
+	out, edits, err := execTool(reg, "replace_element", map[string]any{
+		"path":   rel,
+		"ref":    "T.M",
+		"source": "// M returns a.\nfunc (t *T) M() int {\n\treturn t.a\n}",
+	})
+	if err != nil {
+		t.Fatalf("replace_element should succeed idempotently when target source matches disk: %v", err)
+	}
+	if !strings.Contains(out, "./T.M  method  demo.go:7-10  rev ") {
+		t.Fatalf("unexpected output:\n%s", out)
+	}
+	if len(edits) != 1 || edits[0].Name != "M" || edits[0].Receiver != "T" {
+		t.Fatalf("expected M to be recorded in EditedElements, got %+v", edits)
+	}
+	if got := fileText(t, abs); got != twoMethods {
+		t.Fatalf("file should remain unchanged:\n%s", got)
+	}
+}
+
+func TestEditElement_PreservesConcurrentExternalEditToSiblingElement(t *testing.T) {
+	reg, abs, rel := editFixture(t, "demo.go", twoMethods)
+	hookCalls := 0
+	commitBeforeHook = func() {
+		hookCalls++
+		if hookCalls == 1 {
+			// Simulate a human saving an edit to T.N right before T.M's commit lock.
+			concurrent := strings.Replace(twoMethods, "return fmt.Sprint(t.a)", "return fmt.Sprint(t.b)", 1)
+			_ = os.WriteFile(abs, []byte(concurrent), 0o644)
+		}
+	}
+	t.Cleanup(func() { commitBeforeHook = nil })
+
+	out, edits, err := execTool(reg, "edit_element", map[string]any{
+		"path": rel, "ref": "T.M", "old": "return t.a", "new": "return t.b",
+	})
+	if err != nil {
+		t.Fatalf("concurrent edit to sibling element should be absorbed via optimistic retry: %v", err)
+	}
+	if hookCalls != 2 {
+		t.Fatalf("expected 2 commit attempts (initial conflict + retry), got %d", hookCalls)
+	}
+	after := fileText(t, abs)
+	if !strings.Contains(after, "return t.b") || !strings.Contains(after, "return fmt.Sprint(t.b)") {
+		t.Fatalf("both T.M edit and concurrent T.N edit must be preserved:\n%s", after)
+	}
+	if len(edits) != 1 || edits[0].Name != "M" || !strings.Contains(out, "rev ") {
+		t.Fatalf("unexpected edits=%+v out=%s", edits, out)
+	}
+}
