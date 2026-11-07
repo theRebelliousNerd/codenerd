@@ -48,6 +48,30 @@ func TestPlanOrder_StartsFromABoundHead(t *testing.T) {
 	}
 }
 
+// X = Y marks X bound for the rewriter, so the negation stays in front of the
+// atom that would ground X. The engine still runs that negation while X is a
+// variable. The variant over p or q must not move either atom ahead of it.
+func TestPlanOrder_DoesNotGroundANegationTheEngineRunsUnbound(t *testing.T) {
+	c := planClause(t, `h(Z) :- X = Y, !r(X), p(Y), q(Z).`)
+	for _, first := range []int{-1, 2, 3} {
+		if got := planOrder(c, first, nil, noDeferred); !slices.Equal(got, []int{0, 1, 2, 3}) {
+			t.Fatalf("first=%d order = %v, want source order [0 1 2 3]", first, got)
+		}
+	}
+}
+
+// The atom between the equality and the negation is what grounds X. A variant
+// over q must not treat X = Y as having bound X, or the negation runs first
+// and the row disappears.
+func TestPlanOrder_NegationStaysAfterTheAtomThatGroundsIt(t *testing.T) {
+	c := planClause(t, `h(Z) :- X = Y, p(Y), !r(X), q(Z).`)
+	for _, first := range []int{-1, 1, 3} {
+		if got := planOrder(c, first, nil, noDeferred); !slices.Equal(got, []int{0, 1, 2, 3}) {
+			t.Fatalf("first=%d order = %v, want [0 1 2 3]", first, got)
+		}
+	}
+}
+
 // A body with a deferred premise keeps source order: its inputs follow modes.
 func TestPlanOrder_DeferredBodyKeepsSourceOrder(t *testing.T) {
 	c := planClause(t, `h(A) :- a(A), d(A, B), b(B).`)
