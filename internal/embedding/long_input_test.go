@@ -242,3 +242,72 @@ func TestEmbedLong_PropagatesPieceErrorsWithoutPartialVector(t *testing.T) {
 		})
 	}
 }
+
+func TestPoolVectors_RejectsMismatchedLengths(t *testing.T) {
+	if _, err := poolVectors([]float32{1, 2}, 1, []float32{1}, 1); err == nil {
+		t.Fatal("poolVectors with different lengths should return error")
+	}
+}
+
+func TestPoolVectors_ZeroVectorsStayZero(t *testing.T) {
+	got, err := poolVectors([]float32{0, 0}, 3, []float32{0, 0}, 5)
+	if err != nil {
+		t.Fatalf("poolVectors(zero, zero) error: %v", err)
+	}
+	if len(got) != 2 || got[0] != 0 || got[1] != 0 {
+		t.Fatalf("poolVectors(zero, zero) = %v, want [0 0]", got)
+	}
+}
+
+func TestPoolVectors_WeightedMeanIsUnitLength(t *testing.T) {
+	got, err := poolVectors([]float32{1, 0}, 1, []float32{0, 1}, 3)
+	if err != nil {
+		t.Fatalf("poolVectors error: %v", err)
+	}
+	var norm float64
+	for _, v := range got {
+		norm += float64(v) * float64(v)
+	}
+	if math.Abs(norm-1) > 1e-5 {
+		t.Fatalf("pooled vector norm = %v, want 1", norm)
+	}
+	// Weight 1:3 of (1,0) and (0,1) normalizes to (1,3)/sqrt(10).
+	if math.Abs(float64(got[0])-1/math.Sqrt(10)) > 1e-6 || math.Abs(float64(got[1])-3/math.Sqrt(10)) > 1e-6 {
+		t.Fatalf("pooled vector = %v, want [0.316 0.949]", got)
+	}
+}
+
+func TestInputCeiling_LearnsShortestRefusalOnly(t *testing.T) {
+	var c inputCeiling
+	if c.tooLong(1000) {
+		t.Fatal("zero ceiling must not refuse anything")
+	}
+	c.note(300)
+	if !c.tooLong(300) || !c.tooLong(500) {
+		t.Fatal("ceiling of 300 must refuse lengths >= 300")
+	}
+	if c.tooLong(299) {
+		t.Fatal("ceiling of 300 must accept 299")
+	}
+	c.note(500)
+	if !c.tooLong(300) {
+		t.Fatal("a longer refusal must not raise the learned ceiling")
+	}
+	c.note(100)
+	if !c.tooLong(100) || c.tooLong(99) {
+		t.Fatal("a shorter refusal must lower the learned ceiling to 100")
+	}
+}
+
+func TestAbsInt_HandlesSign(t *testing.T) {
+	if absInt(-7) != 7 || absInt(7) != 7 || absInt(0) != 0 {
+		t.Fatalf("absInt(-7/7/0) = %d/%d/%d", absInt(-7), absInt(7), absInt(0))
+	}
+}
+
+func TestInputTooLongError_MessageMentionsCharsAndModel(t *testing.T) {
+	err := (&InputTooLongError{Chars: 1234, Model: "tiny-model"}).Error()
+	if !strings.Contains(err, "1234") || !strings.Contains(err, "tiny-model") {
+		t.Fatalf("InputTooLongError.Error() = %q, want chars and model", err)
+	}
+}
