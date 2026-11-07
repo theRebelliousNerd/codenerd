@@ -918,16 +918,25 @@ func (r *dredRun) variantSolutions(ctx engine.QueryContext, clause ast.Clause, p
 	}
 	deltaCtx := ctx
 	deltaCtx.Store = delta
+	premiseCtxs := make([]engine.QueryContext, len(order))
+	for idx, i := range order {
+		if i == pi {
+			premiseCtxs[idx] = deltaCtx
+		} else {
+			premiseCtxs[idx] = before.ctxFor(ctx, clause.Premises[i], i, pi, r.isDeferred)
+		}
+	}
 	solutions := []unionfind.UnionFind{unionfind.New()}
-	for _, i := range order {
+	for idx, i := range order {
 		out := make([]unionfind.UnionFind, 0, len(solutions))
 		for _, s := range solutions {
+			premiseCtx := premiseCtxs[idx]
 			var step []unionfind.UnionFind
 			var err error
 			if i == pi {
-				step, err = deltaCtx.EvalPremise(deltaPremise, s)
+				step, err = premiseCtx.EvalPremise(deltaPremise, s)
 			} else {
-				step, err = before.ctxFor(ctx, clause.Premises[i], i, pi, r.isDeferred).EvalPremise(clause.Premises[i], s)
+				step, err = premiseCtx.EvalPremise(clause.Premises[i], s)
 			}
 			if err != nil {
 				return nil, err
