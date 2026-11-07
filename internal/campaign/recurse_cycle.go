@@ -1386,6 +1386,9 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) (r
 	if err != nil {
 		return err
 	}
+	if changed, err = r.discardBuiltExecutables(ctx, changed, untracked); err != nil {
+		return err
+	}
 	after := map[string]gateRun{}
 	afterMetrics := before
 	if len(changed) > 0 {
