@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -599,6 +600,12 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					return
 				}
 				if err := m.captureDOMFacts(ctx, sessionID, page, true); err != nil {
+					// A session closing cancels the capture it was making:
+					// that is its lifecycle, not a fault to surface.
+					if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+						logging.BrowserDebug("[session:%s] DOM capture stopped: %v", sessionID, err)
+						return
+					}
 					logging.BrowserError("[session:%s] DOM capture error: %v", sessionID, err)
 				}
 			},
