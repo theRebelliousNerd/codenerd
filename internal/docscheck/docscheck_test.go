@@ -623,3 +623,198 @@ func TestTruncateRunes(t *testing.T) {
 		t.Errorf("multibyte: got %d runes", len([]rune(got)))
 	}
 }
+
+func TestStabilize_NormalizeTextConvertsCRLF(t *testing.T) {
+	if got := normalizeText("a\r\nb\r\n"); got != "a\nb\n" {
+		t.Fatalf("normalizeText CRLF = %q", got)
+	}
+	if got := normalizeText("plain\n"); got != "plain\n" {
+		t.Fatalf("normalizeText LF passthrough = %q", got)
+	}
+}
+
+func TestStabilize_ArchRelBuildsSlashPaths(t *testing.T) {
+	if got := archRel("pkg"); got != "Docs/architecture/pkg" {
+		t.Fatalf("archRel pkg = %q", got)
+	}
+	if got := archRel("pkg", "01-VISION.md"); got != "Docs/architecture/pkg/01-VISION.md" {
+		t.Fatalf("archRel pkg+rel = %q", got)
+	}
+}
+
+func TestStabilize_SplitCellsTrimsAndLowers(t *testing.T) {
+	got := splitCells("| GAP ID | Exit |", false)
+	if len(got) != 2 || got[0] != "GAP ID" || got[1] != "Exit" {
+		t.Fatalf("splitCells = %#v", got)
+	}
+	lower := splitCells("| GAP ID |", true)
+	if len(lower) != 1 || lower[0] != "gap id" {
+		t.Fatalf("splitCells lower = %#v", lower)
+	}
+}
+
+func TestStabilize_WorkspacePathRejectsEscapes(t *testing.T) {
+	root := t.TempDir()
+	if _, ok := workspacePath(root, "../outside.go"); ok {
+		t.Fatal("workspacePath accepted ../ escape")
+	}
+	if _, ok := workspacePath(root, "/abs.go"); ok {
+		t.Fatal("workspacePath accepted absolute path")
+	}
+	if _, ok := workspacePath(root, ""); ok {
+		t.Fatal("workspacePath accepted empty rel")
+	}
+	got, ok := workspacePath(root, "internal/docscheck/docscheck.go")
+	if !ok || got == "" {
+		t.Fatal("workspacePath rejected in-workspace rel")
+	}
+}
+
+func TestStabilize_AllDigitsEdgeCases(t *testing.T) {
+	if !allDigits("0123") {
+		t.Fatal("allDigits 0123 = false")
+	}
+	if allDigits("") {
+		t.Fatal("allDigits empty = true")
+	}
+	if allDigits("12a") {
+		t.Fatal("allDigits 12a = true")
+	}
+}
+
+func TestStabilize_FileWitnessPathStripsLineCol(t *testing.T) {
+	root := t.TempDir()
+	got, ok := fileWitnessPath(root, "internal/a.go:120:5")
+	if !ok {
+		t.Fatal("fileWitnessPath rejected file:line:col")
+	}
+	want, ok2 := workspacePath(root, "internal/a.go")
+	if !ok2 || got != want {
+		t.Fatalf("fileWitnessPath = %q want %q", got, want)
+	}
+	if _, ok := fileWitnessPath(root, "../escape.go"); ok {
+		t.Fatal("fileWitnessPath accepted escape")
+	}
+}
+
+func TestStabilize_AsciiHelpersClassifyBytes(t *testing.T) {
+	if !isASCIISpace(' ') || !isASCIISpace('\t') {
+		t.Fatal("isASCIISpace missed blank")
+	}
+	if isASCIISpace('a') {
+		t.Fatal("isASCIISpace accepted letter")
+	}
+	if got := trimASCIISpace("   abc"); got != "abc" {
+		t.Fatalf("trimASCIISpace = %q", got)
+	}
+	if !isIdentByte('a') || !isIdentByte('Z') || !isIdentByte('0') || !isIdentByte('_') {
+		t.Fatal("isIdentByte missed ident byte")
+	}
+	if isIdentByte('-') || isIdentByte('.') {
+		t.Fatal("isIdentByte accepted separator")
+	}
+}
+
+func TestStabilize_WordSetSplitsAsciiRuns(t *testing.T) {
+	set := wordSet([]byte("foo bar_1 baz-qux"))
+	for _, w := range []string{"foo", "bar_1", "baz", "qux"} {
+		if _, ok := set[w]; !ok {
+			t.Fatalf("wordSet missing %q in %#v", w, set)
+		}
+	}
+	if !isWord("foo_1") || isWord("") || isWord("has space") || isWord("dash-x") {
+		t.Fatal("isWord classification wrong")
+	}
+}
+
+func TestStabilize_StripLineSuffixDropsRanges(t *testing.T) {
+	if got := stripLineSuffix("internal/a.go:12"); got != "internal/a.go" {
+		t.Fatalf("stripLineSuffix line = %q", got)
+	}
+	if got := stripLineSuffix("internal/a.go:12-20"); got != "internal/a.go" {
+		t.Fatalf("stripLineSuffix range = %q", got)
+	}
+	if got := stripLineSuffix("internal/a.go"); got != "internal/a.go" {
+		t.Fatalf("stripLineSuffix bare changed = %q", got)
+	}
+	if got := stripLineSuffix("internal/a.go:abc"); got != "internal/a.go:abc" {
+		t.Fatalf("stripLineSuffix nondigits changed = %q", got)
+	}
+}
+
+func TestStabilize_BodyRolePrecedence(t *testing.T) {
+	if bodyRole("this is not yet implemented", "Overview", false) != RoleNegative {
+		t.Fatal("bodyRole missed negative line cue")
+	}
+	if bodyRole("removed in v2", "Overview", false) != RoleHistorical {
+		t.Fatal("bodyRole missed history line cue")
+	}
+	if bodyRole("plain cite", "Known gaps here", false) != RoleNegative {
+		t.Fatal("bodyRole missed negative heading cue")
+	}
+	if bodyRole("plain cite", "Overview", true) != RolePlannedSeam {
+		t.Fatal("bodyRole missed planned seam")
+	}
+	if bodyRole("plain cite", "Overview", false) != RoleCited {
+		t.Fatal("bodyRole default should be cited")
+	}
+}
+
+func TestStabilize_WitnessTargetsSplitsAndFallback(t *testing.T) {
+	refs := witnessTargets("test:TestFoo symbol:Bar")
+	if len(refs) != 2 || refs[0].kind != "test" || refs[1].kind != "symbol" {
+		t.Fatalf("witnessTargets split = %#v", refs)
+	}
+	fallback := witnessTargets("just some words")
+	if len(fallback) != 1 || fallback[0].kind != "unsupported" {
+		t.Fatalf("witnessTargets fallback = %#v", fallback)
+	}
+}
+
+func TestStabilize_GradeSatisfiesAndRoleExempt(t *testing.T) {
+	for _, g := range []Grade{GradeDeclared, GradeTestDeclared, GradeFilePresent} {
+		if !g.satisfies() {
+			t.Fatalf("grade %q should satisfy", g)
+		}
+	}
+	if GradeUnresolved.satisfies() || GradeAmbiguous.satisfies() || GradeUnobserved.satisfies() {
+		t.Fatal("non-terminal grade should not satisfy")
+	}
+	for _, r := range []Role{RolePlannedWitness, RoleNegative, RoleHistorical} {
+		if !r.exemptFromResolution() {
+			t.Fatalf("role %q should be exempt", r)
+		}
+	}
+	if RoleWitness.exemptFromResolution() || RoleCited.exemptFromResolution() {
+		t.Fatal("witness/cited should not be exempt")
+	}
+}
+
+func TestStabilize_EvidenceCleanRequiresCompleteWithoutFailing(t *testing.T) {
+	clean := Evidence{Manifest: Manifest{Terminal: TerminalComplete}}
+	if !clean.Clean() {
+		t.Fatal("complete manifest with zero failing should be clean")
+	}
+	failing := Evidence{Manifest: Manifest{Terminal: TerminalComplete, Failing: 1}}
+	if failing.Clean() {
+		t.Fatal("manifest with failing should not be clean")
+	}
+	incomplete := Evidence{Manifest: Manifest{Terminal: TerminalIncomplete}}
+	if incomplete.Clean() {
+		t.Fatal("incomplete manifest should not be clean")
+	}
+}
+
+func TestStabilize_SummarizeCountsAcrossReports(t *testing.T) {
+	reports := []PackageReport{
+		{Package: "a", Files: 2, Problems: []Problem{{Message: "one"}, {Message: "two"}}},
+		{Package: "b", Files: 3, Problems: []Problem{{Message: "three"}}},
+	}
+	s := Summarize(reports)
+	if s.Packages != 2 || s.Files != 5 || s.Problems != 3 {
+		t.Fatalf("Summarize = %#v", s)
+	}
+	if got := Text(reports); !strings.Contains(got, "one") || !strings.Contains(got, "three") {
+		t.Fatalf("Text missing problems: %q", got)
+	}
+}
