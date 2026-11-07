@@ -7,6 +7,7 @@ import (
 	"codenerd/internal/gates"
 	jitconfig "codenerd/internal/jit/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/ownerstop"
 	"codenerd/internal/testfacts"
 	"codenerd/internal/tools"
 	"codenerd/internal/turntime"
@@ -1494,7 +1495,7 @@ func diagnosticOwnerStopped(ctx context.Context) bool {
 		return true
 	}
 	select {
-	case <-ownerStop(ctx):
+	case <-ownerstop.Done(ctx):
 		return true
 	default:
 		return false
@@ -1516,7 +1517,7 @@ func diagnosticRequestContext(parent context.Context) (context.Context, context.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		parentDone, ownerDone := parent.Done(), ownerStop(parent)
+		parentDone, ownerDone := parent.Done(), ownerstop.Done(parent)
 		for {
 			select {
 			case <-ctx.Done():

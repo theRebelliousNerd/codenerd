@@ -23,7 +23,7 @@ import (
 // Lift the command's actual context setup into an offline process fixture.
 // Running RunE itself would boot Cortex/providers. The setup and operationContext
 // are read from production source; the only instrumentation records the owner
-// argument before delegating to the real session.WithOwnerStop.
+// argument before delegating to the real ownerstop.With.
 func buildRecurseSignalFixture(t *testing.T) string {
 	t.Helper()
 	runSource, err := os.ReadFile("cmd_campaign_recurse.go")
@@ -50,10 +50,10 @@ func buildRecurseSignalFixture(t *testing.T) string {
 			operation = string(opSource[fs.Position(fn.Pos()).Offset:fs.Position(fn.End()).Offset])
 		}
 	}
-	if operation == "" || !strings.Contains(operation, "session.WithOwnerStop") {
+	if operation == "" || !strings.Contains(operation, "ownerstop.With") {
 		t.Fatal("production operation context no longer records its owner")
 	}
-	operation = strings.ReplaceAll(operation, "session.WithOwnerStop", "recordOwner")
+	operation = strings.ReplaceAll(operation, "ownerstop.With", "recordOwner")
 	fixture := `package main
 import (
  "context"
@@ -63,7 +63,7 @@ import (
  "os/signal"
  "syscall"
  "time"
- "codenerd/internal/session"
+ "codenerd/internal/ownerstop"
  "github.com/spf13/cobra"
 )
 var timeout time.Duration
@@ -74,7 +74,7 @@ var _ = signal.NotifyContext
 var _ = syscall.SIGINT
 func recordOwner(ctx, owner context.Context) context.Context {
  recordedOwner = owner
- return session.WithOwnerStop(ctx, owner)
+ return ownerstop.With(ctx, owner)
 }
 ` + operation + `
 func scope(scenario string) error {
@@ -119,7 +119,7 @@ func main() {
 	if err := os.WriteFile(source, []byte(fixture), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// A named child module keeps the real internal/session import legal while
+	// A named child module keeps the real internal/ownerstop import legal while
 	// leaving generated source outside the checkout and preserving readonly deps.
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
@@ -165,6 +165,7 @@ func main() {
 }
 
 func TestRecurseSignalOwner_ProductionContextLifetime(t *testing.T) {
+	t.Parallel()
 	binary := buildRecurseSignalFixture(t)
 	for _, scenario := range []struct {
 		name   string
@@ -178,7 +179,8 @@ func TestRecurseSignalOwner_ProductionContextLifetime(t *testing.T) {
 		{"cleanup", nil},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			// Loading the race-instrumented session dependency can be cold under
+			t.Parallel()
+			// The race-instrumented fixture (cobra and the owner-stop leaf) can be cold under
 			// concurrent builds. The fixture's post-ready stop assertion stays 2s.
 			ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 			defer cancel()

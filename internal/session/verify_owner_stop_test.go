@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"codenerd/internal/ownerstop"
 )
 
 // A cancel that lands after the parent's soft deadline still stops
@@ -19,7 +21,7 @@ func TestVerification_OwnerCancelAfterTheParentDeadlineStopsIt(t *testing.T) {
 	defer stopOwner()
 	timed, cancelTimed := context.WithTimeout(owner, 20*time.Millisecond)
 	defer cancelTimed()
-	parent := WithOwnerStop(timed, owner)
+	parent := ownerstop.With(timed, owner)
 
 	started := make(chan struct{})
 	runner := func(ctx context.Context, _ string, _ []string, _ string, _ []string) ([]byte, error) {

@@ -165,7 +165,7 @@ func runCampaignRecurse(cmd *cobra.Command, args []string) error {
 
 	// The run honors --timeout like any other command. The signal owner is
 	// separate from that child deadline: a later stop must still reach the
-	// verification/diagnostic completion windows through WithOwnerStop.
+	// verification/diagnostic completion windows through ownerstop.With.
 	parent := cmd.Context()
 	if parent == nil {
 		parent = context.Background()
