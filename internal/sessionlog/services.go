@@ -53,7 +53,11 @@ func (s *Store) observeService(scope *Scope, ev LiveEvent) {
 	if ev.Kind == EventFinal {
 		delete(service.active, scope.Folder)
 		if len(service.active) == 0 {
-			service.status.Health = "stopped"
+			// Its activations ended, cleanly: the service is idle, and the
+			// next request activates it again. An on-demand interceptor
+			// (mangle_repair) ends its startup activation at once, and read
+			// as "stopped" beside services that were healthy all along.
+			service.status.Health = "idle"
 		}
 	} else {
 		service.active[scope.Folder] = struct{}{}

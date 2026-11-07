@@ -326,3 +326,24 @@ func TestTranscriptAssistant_ReportsTheAnswerLive(t *testing.T) {
 		t.Fatalf("call_done events = %q", done)
 	}
 }
+
+// A service whose activation ended cleanly is idle, not stopped: it is still
+// installed and the next request activates it. A failed one says so.
+func TestResidentService_ACleanEndIsIdle(t *testing.T) {
+	s, _ := installStore(t, "idle-services", false)
+	if _, err := RunService(context.Background(), "mangle_repair", "one", "system_start", func(context.Context) (string, error) {
+		return "MangleRepair ready.", nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = RunService(context.Background(), "watcher", "one", "watch", func(context.Context) (string, error) {
+		return "", errors.New("watch failed")
+	})
+	health := map[string]string{}
+	for _, svc := range s.Services() {
+		health[svc.Name] = svc.Health
+	}
+	if health["mangle_repair"] != "idle" || health["watcher"] != "failed" {
+		t.Fatalf("service health = %v; want mangle_repair idle, watcher failed", health)
+	}
+}
