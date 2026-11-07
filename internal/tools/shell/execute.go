@@ -747,11 +747,11 @@ func executeGitLog(ctx context.Context, args map[string]any) (string, error) {
 	})
 }
 
-// GitOperationTool returns a tool for general git operations.
+// GitOperationTool returns a tool for general git and GitHub CLI (gh) operations.
 func GitOperationTool() *tools.Tool {
 	return &tools.Tool{
 		Name:        "git_operation",
-		Description: "Execute git operations: " + strings.Join(gitOperations(), ", "),
+		Description: "Execute git or GitHub CLI (gh) operations: " + strings.Join(gitOperations(), ", "),
 		Category:    tools.CategoryCode,
 		Priority:    70,
 		Execute:     executeGitOperation,
@@ -760,11 +760,11 @@ func GitOperationTool() *tools.Tool {
 			Properties: map[string]tools.Property{
 				"operation": {
 					Type:        "string",
-					Description: "Git operation: " + strings.Join(gitOperations(), ", "),
+					Description: "Git operation (" + strings.Join(gitOperations(), ", ") + ") or GitHub CLI operation ('gh' or a gh subcommand such as 'pr', 'issue', 'run', 'workflow', 'release', 'repo', 'api', 'search', 'auth', 'gist')",
 				},
 				"args": {
 					Type:        "string",
-					Description: "Additional arguments for the operation (e.g., file paths, branch names, commit messages)",
+					Description: "Additional arguments for the operation (e.g., file paths, branch names, or gh subcommand arguments like 'pr list --state open')",
 				},
 				"message": {
 					Type:        "string",
@@ -834,6 +834,33 @@ var gitPassThroughOps = map[string]bool{
 	"push": true, "pull": true, "fetch": true, "stash": true, "reset": true,
 }
 
+// ghSubcommands are the GitHub CLI (gh) top-level subcommands that
+// git_operation can invoke directly or via operation="gh".
+var ghSubcommands = map[string]bool{
+	"pr":          true,
+	"issue":       true,
+	"run":         true,
+	"workflow":    true,
+	"release":     true,
+	"repo":        true,
+	"api":         true,
+	"gist":        true,
+	"search":      true,
+	"auth":        true,
+	"label":       true,
+	"project":     true,
+	"cache":       true,
+	"variable":    true,
+	"secret":      true,
+	"ruleset":     true,
+	"attestation": true,
+	"browse":      true,
+	"codespace":   true,
+	"org":         true,
+	"gpg-key":     true,
+	"ssh-key":     true,
+}
+
 // gitReadingTools answers an operation git_operation does not run but a read
 // tool does. Reading git is git_diff's and git_log's, which the working
 // policy withholds with the other read tools when it closes reading; running
@@ -849,14 +876,75 @@ func gitOperations() []string {
 	for op := range gitPassThroughOps {
 		ops = append(ops, op)
 	}
+	ops = append(ops, "gh")
 	sort.Strings(ops[5:])
 	return ops
+}
+
+func buildGitHubCLICommand(operation string, args map[string]any) (string, bool, error) {
+	op := strings.TrimSpace(operation)
+	lowerOp := strings.ToLower(op)
+	extraArgs, _ := args["args"].(string)
+	extraArgs = strings.TrimSpace(extraArgs)
+
+	switch {
+	case lowerOp == "gh":
+		if extraArgs == "" {
+			return "", true, fmt.Errorf("args are required for gh operation (e.g., 'pr list', 'issue view 1', 'run list')")
+		}
+		quoted, err := splitModelArgs(extraArgs)
+		if err != nil {
+			return "", true, err
+		}
+		return "gh " + strings.Join(quoted, " "), true, nil
+	case strings.HasPrefix(lowerOp, "gh "):
+		sub := strings.TrimSpace(op[3:])
+		if sub == "" {
+			return "", true, fmt.Errorf("gh subcommand is required")
+		}
+		parts, err := splitModelArgs(sub)
+		if err != nil {
+			return "", true, err
+		}
+		if extraArgs != "" {
+			extra, err := splitModelArgs(extraArgs)
+			if err != nil {
+				return "", true, err
+			}
+			parts = append(parts, extra...)
+		}
+		return "gh " + strings.Join(parts, " "), true, nil
+	case ghSubcommands[lowerOp]:
+		parts := []string{lowerOp}
+		if extraArgs != "" {
+			extra, err := splitModelArgs(extraArgs)
+			if err != nil {
+				return "", true, err
+			}
+			parts = append(parts, extra...)
+		}
+		return "gh " + strings.Join(parts, " "), true, nil
+	default:
+		return "", false, nil
+	}
 }
 
 func executeGitOperation(ctx context.Context, args map[string]any) (string, error) {
 	operation, _ := args["operation"].(string)
 	if operation == "" {
 		return "", fmt.Errorf("operation is required")
+	}
+
+	if ghCmd, isGH, err := buildGitHubCLICommand(operation, args); isGH {
+		if err != nil {
+			return "", err
+		}
+		logging.ToolsDebug("git_operation (gh): cmd=%s", ghCmd)
+		return executeRunCommand(ctx, map[string]any{
+			"command":         ghCmd,
+			"working_dir":     args["working_dir"],
+			"timeout_seconds": 120,
+		})
 	}
 
 	var cmdArgs []string
