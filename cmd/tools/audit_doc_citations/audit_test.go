@@ -519,3 +519,164 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestSplitPkg_PinSelectorShapes(t *testing.T) {
+	cases := []struct {
+		in  string
+		pkg string
+		sel string
+		ok  bool
+	}{
+		{"pkg.Good", "pkg", "Good", true},
+		{"sync.Map", "sync", "Map", true},
+		{"a.b.c", "a", "b.c", true},
+		{"(Engine).Clear", "", "", false},
+		{"(*Engine).Clear", "", "", false},
+		{"pkg/sub.Func", "", "", false},
+		{".Func", "", "", false},
+		{"pkg.", "", "", false},
+		{"noseparator", "", "", false},
+		{"", "", "", false},
+	}
+	for _, tc := range cases {
+		pkg, sel, ok := splitPkg(tc.in)
+		if pkg != tc.pkg || sel != tc.sel || ok != tc.ok {
+			t.Errorf("splitPkg(%q) = %q,%q,%v want %q,%q,%v", tc.in, pkg, sel, ok, tc.pkg, tc.sel, tc.ok)
+		}
+	}
+}
+
+func TestLineReason_PinBranches(t *testing.T) {
+	if got := lineReason([][2]int{{5, 2}}, 10); !strings.Contains(got, "ends before it starts") {
+		t.Errorf("inverted range: %q", got)
+	}
+	if got := lineReason([][2]int{{0, 0}}, 8); !strings.Contains(got, "outside the file") {
+		t.Errorf("zero line: %q", got)
+	}
+	if got := lineReason([][2]int{{1, 1000}}, 8); !strings.Contains(got, "past end of file") {
+		t.Errorf("range past end: %q", got)
+	}
+	if got := lineReason([][2]int{{9, 9}}, 8); !strings.Contains(got, "past end of file") {
+		t.Errorf("single past end: %q", got)
+	}
+	if got := lineReason([][2]int{{1, 2}}, 8); got != "" {
+		t.Errorf("in-range reason should be empty, got %q", got)
+	}
+	if got := oneLine("a\r\nb\nc\rd"); got != "a b c d" {
+		t.Errorf("oneLine = %q", got)
+	}
+	if skipDocsDir(".git") != true || skipDocsDir("vendor") != true || skipDocsDir("node_modules") != true {
+		t.Error("excluded dirs must skip")
+	}
+	if skipDocsDir("docs") || skipDocsDir("internal") {
+		t.Error("ordinary dirs must not skip")
+	}
+}
+
+func TestPathHelpers_PinSlashSemantics(t *testing.T) {
+	if got := slashBase("internal/pkg/a.go"); got != "a.go" {
+		t.Errorf("slashBase = %q", got)
+	}
+	if got := slashBase("plain"); got != "plain" {
+		t.Errorf("slashBase bare = %q", got)
+	}
+	if got := pkgDir("internal/pkg/a.go"); got != "internal/pkg" {
+		t.Errorf("pkgDir = %q", got)
+	}
+	root := t.TempDir()
+	if got := absJoin(root, "internal/pkg/a.go"); got != filepath.Join(root, "internal", "pkg", "a.go") {
+		t.Errorf("absJoin = %q", got)
+	}
+	inside := filepath.Join(root, "sub", "f.md")
+	if got := relSlash(root, inside); got != "sub/f.md" {
+		t.Errorf("relSlash = %q", got)
+	}
+	if !withinRoot(root, inside) {
+		t.Errorf("inside %q should be within %q", inside, root)
+	}
+	outside := filepath.Join(filepath.Dir(root), "outside-root-check.md")
+	if withinRoot(root, outside) {
+		t.Errorf("outside %q should not be within %q", outside, root)
+	}
+	if withinRoot(root, root) != true {
+		t.Errorf("root should be within itself")
+	}
+}
+
+func TestReportAdd_NormalizesMultilineReason(t *testing.T) {
+	r := newReport()
+	if len(r.Findings) != 0 || r.Broken != 0 {
+		t.Fatalf("newReport should start empty: %+v", r)
+	}
+	r.add(Finding{Doc: "docs/d.md", Line: 1, Citation: "c", Kind: kindMissingPath, Reason: "a\nb\r\nc\rd"})
+	if r.Broken != 1 || len(r.Findings) != 1 {
+		t.Fatalf("add did not count: %+v", r)
+	}
+	if strings.ContainsAny(r.Findings[0].Reason, "\r\n") {
+		t.Errorf("reason not one line: %q", r.Findings[0].Reason)
+	}
+	if r.ByKind[kindMissingPath] != 1 {
+		t.Errorf("by_kind: %#v", r.ByKind)
+	}
+	var nilKind Report
+	nilKind.add(Finding{Doc: "d", Citation: "c2", Kind: kindLineOutOfRange, Reason: "x"})
+	if nilKind.ByKind[kindLineOutOfRange] != 1 {
+		t.Errorf("nil ByKind map was not initialised: %#v", nilKind.ByKind)
+	}
+}
+
+func TestAudit_RejectsBadRoots(t *testing.T) {
+	if _, err := Audit(Options{RepoRoot: "   ", DocsRoot: "docs"}); err == nil {
+		t.Error("empty repo root should fail")
+	}
+	root := t.TempDir()
+	marker := filepath.Join(root, "file-not-dir")
+	if err := os.WriteFile(marker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Audit(Options{RepoRoot: marker, DocsRoot: "docs"}); err == nil {
+		t.Error("file repo root should fail")
+	}
+	if _, err := Audit(Options{RepoRoot: root, DocsRoot: "no/such/docs"}); err == nil {
+		t.Error("missing docs root should fail")
+	}
+	docsFile := filepath.Join(root, "docsfile.md")
+	if err := os.WriteFile(docsFile, []byte("# x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Audit(Options{RepoRoot: root, DocsRoot: docsFile}); err == nil {
+		t.Error("file docs root should fail")
+	}
+}
+
+func TestMarkdownFiles_SkipsExcludedDirsAndSorts(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "b.md"), "# b\n")
+	writeFile(t, filepath.Join(root, "a.md"), "# a\n")
+	writeFile(t, filepath.Join(root, "notes.txt"), "not markdown\n")
+	writeFile(t, filepath.Join(root, "vendor", "hidden.md"), "# hidden\n")
+	writeFile(t, filepath.Join(root, ".git", "hidden.md"), "# hidden\n")
+	writeFile(t, filepath.Join(root, "node_modules", "hidden.md"), "# hidden\n")
+	writeFile(t, filepath.Join(root, "sub", "c.MD"), "# upper ext\n")
+	files, err := markdownFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if strings.Contains(f, "vendor") || strings.Contains(f, ".git") || strings.Contains(f, "node_modules") {
+			t.Errorf("excluded dir was walked: %s", f)
+		}
+		if filepath.Ext(f) == ".txt" {
+			t.Errorf("non-markdown was collected: %s", f)
+		}
+	}
+	if len(files) != 3 {
+		t.Fatalf("files = %v", files)
+	}
+	if !(strings.HasSuffix(files[0], "a.md") && strings.HasSuffix(files[1], "b.md")) {
+		t.Errorf("files are not sorted: %v", files)
+	}
+	if _, err := markdownFiles(filepath.Join(root, "no-such-dir")); err == nil {
+		t.Error("missing docs dir should fail")
+	}
+}
