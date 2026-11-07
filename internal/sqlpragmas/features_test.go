@@ -3,7 +3,10 @@ package sqlpragmas
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -312,4 +315,307 @@ func TestPragmaProfile_String_ShouldNameEveryProfile(t *testing.T) {
 	require.Equal(t, "ReadOnly", ProfileReadOnly.String())
 	require.Equal(t, "PragmaProfile(42)", PragmaProfile(42).String(),
 		"an undeclared value must still be identifiable in a log line")
+}
+
+// ---------------------------------------------------------------------------
+// Stabilize: pragmasForHost shape (unknown profile, ReadOnly, ordering)
+// ---------------------------------------------------------------------------
+
+func TestPragmasForHost_WhenProfileUnknown_ShouldDefaultToHot(t *testing.T) {
+	hot := pragmasForHost(ProfileHot, HostWorkstation)
+	unknown := pragmasForHost(PragmaProfile(99), HostWorkstation)
+	require.Equal(t, hot, unknown, "future profile values must fall back to the Hot preset")
+}
+
+func TestPragmasForHost_WhenReadOnly_ShouldOmitJournalAndCheckpoint(t *testing.T) {
+	for _, host := range []HostClass{HostWorkstation, HostLaptop, HostMicro} {
+		got := pragmasForHost(ProfileReadOnly, host)
+		for _, p := range got {
+			require.NotContains(t, p, "journal_mode", "ReadOnly must not change the journal")
+			require.NotContains(t, p, "synchronous", "ReadOnly must not change synchronous")
+			require.NotContains(t, p, "wal_autocheckpoint", "ReadOnly must not set a checkpoint")
+		}
+		require.Contains(t, got, "PRAGMA temp_store = MEMORY")
+	}
+}
+
+func TestPragmasForHost_WhenWritable_ShouldOrderJournalFirst(t *testing.T) {
+	for _, profile := range []PragmaProfile{ProfileHot, ProfileBulkBuild, ProfileQuery} {
+		got := pragmasForHost(profile, HostWorkstation)
+		require.GreaterOrEqual(t, len(got), 2)
+		require.Equal(t, "PRAGMA journal_mode = WAL", got[0], "journal_mode must precede WAL-dependent pragmas")
+		require.Equal(t, "PRAGMA synchronous = NORMAL", got[1])
+	}
+}
+
+func TestPragmasForHost_WhenQuery_ShouldOmitCheckpointButKeepJournal(t *testing.T) {
+	got := pragmasForHost(ProfileQuery, HostWorkstation)
+	require.Contains(t, got, "PRAGMA journal_mode = WAL")
+	for _, p := range got {
+		require.NotContains(t, p, "wal_autocheckpoint", "Query opens are short-lived: no checkpoint threshold")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Stabilize: HostClass fallbacks and override lifecycle
+// ---------------------------------------------------------------------------
+
+func TestHostClass_WhenUnknown_ShouldFallBackToWorkstation(t *testing.T) {
+	require.Equal(t, "workstation", HostClass(99).String())
+	require.Equal(t, HostClass(99).String(), HostWorkstation.String())
+	require.Equal(t, int64(1), HostClass(99).divisor())
+	require.Equal(t, int64(12345), HostClass(99).scale(12345), "unknown classes must not scale budgets")
+	require.Equal(t, "laptop", HostLaptop.String())
+	require.Equal(t, "micro", HostMicro.String())
+}
+
+func TestSetHostClass_WhenCleared_ShouldRestoreEnv(t *testing.T) {
+	ClearHostClass()
+	t.Cleanup(ClearHostClass)
+	t.Setenv(EnvHostClass, "micro")
+	require.Equal(t, HostMicro, ActiveHostClass())
+
+	SetHostClass(HostLaptop)
+	require.Equal(t, HostLaptop, ActiveHostClass(), "explicit SetHostClass must outrank the env")
+
+	ClearHostClass()
+	require.Equal(t, HostMicro, ActiveHostClass(), "ClearHostClass must return resolution to the env")
+}
+
+// ---------------------------------------------------------------------------
+// Stabilize: metrics copies, sorting, reset and toggle
+// ---------------------------------------------------------------------------
+
+func TestPragmaMetrics_WhenCopiesMutated_ShouldNotAffectInternal(t *testing.T) {
+	ClearHostClass()
+	db := openFreshTempDB(t)
+	require.NoError(t, db.Close())
+
+	ResetPragmaMetrics()
+	SetMetricsEnabled(true)
+	t.Cleanup(func() {
+		SetMetricsEnabled(false)
+		ResetPragmaMetrics()
+	})
+
+	ApplyDefaultPragmas(db, ProfileHot)
+	require.Greater(t, PragmaFailureTotal(), uint64(0))
+
+	byProfile := PragmaFailuresByProfile()
+	byProfile["Hot"] = 999999
+	byStmt := PragmaFailuresByStatement()
+	for k := range byStmt {
+		byStmt[k] = 999999
+	}
+	require.NotEqual(t, uint64(999999), PragmaFailuresByProfile()["Hot"], "returned profile map must be a copy")
+	for _, v := range PragmaFailuresByStatement() {
+		require.NotEqual(t, uint64(999999), v, "returned statement map must be a copy")
+	}
+}
+
+func TestPragmaMetrics_WhenFailingPragmas_ShouldBeSortedAndResettable(t *testing.T) {
+	ClearHostClass()
+	db := openFreshTempDB(t)
+	require.NoError(t, db.Close())
+
+	ResetPragmaMetrics()
+	SetMetricsEnabled(true)
+	t.Cleanup(func() {
+		SetMetricsEnabled(false)
+		ResetPragmaMetrics()
+	})
+
+	ApplyDefaultPragmas(db, ProfileHot)
+	got := FailingPragmas()
+	require.NotEmpty(t, got)
+	require.True(t, sort.StringsAreSorted(got), "operator report must be sorted")
+
+	ResetPragmaMetrics()
+	require.Zero(t, PragmaFailureTotal())
+	require.Empty(t, PragmaFailuresByProfile())
+	require.Empty(t, PragmaFailuresByStatement())
+	require.Empty(t, FailingPragmas())
+}
+
+func TestMetricsEnabled_WhenToggled_ShouldReportState(t *testing.T) {
+	SetMetricsEnabled(true)
+	require.True(t, MetricsEnabled())
+	SetMetricsEnabled(false)
+	require.False(t, MetricsEnabled())
+	t.Cleanup(ResetPragmaMetrics)
+}
+
+// ---------------------------------------------------------------------------
+// Stabilize: connector wiring (plain driver, passthrough, errors)
+// ---------------------------------------------------------------------------
+
+type stabilizeStubResult struct{}
+
+func (stabilizeStubResult) LastInsertId() (int64, error) { return 0, nil }
+func (stabilizeStubResult) RowsAffected() (int64, error) { return 0, nil }
+
+type stabilizeStubTx struct{}
+
+func (stabilizeStubTx) Commit() error   { return nil }
+func (stabilizeStubTx) Rollback() error { return nil }
+
+type stabilizeStubConn struct {
+	prepareFn func(query string) (driver.Stmt, error)
+}
+
+func (c *stabilizeStubConn) Prepare(query string) (driver.Stmt, error) {
+	if c.prepareFn != nil {
+		return c.prepareFn(query)
+	}
+	return &stabilizeLegacyStmt{}, nil
+}
+func (c *stabilizeStubConn) Close() error { return nil }
+func (c *stabilizeStubConn) Begin() (driver.Tx, error) {
+	return stabilizeStubTx{}, nil
+}
+
+type stabilizeLegacyStmt struct{}
+
+func (s *stabilizeLegacyStmt) Close() error  { return nil }
+func (s *stabilizeLegacyStmt) NumInput() int { return -1 }
+func (s *stabilizeLegacyStmt) Exec([]driver.Value) (driver.Result, error) {
+	return stabilizeStubResult{}, nil
+}
+func (s *stabilizeLegacyStmt) Query([]driver.Value) (driver.Rows, error) {
+	return nil, errors.New("query not supported")
+}
+
+type stabilizeExecCtxStmt struct{ stabilizeLegacyStmt }
+
+func (s *stabilizeExecCtxStmt) ExecContext(context.Context, []driver.NamedValue) (driver.Result, error) {
+	return stabilizeStubResult{}, nil
+}
+
+type stabilizeExecCtxConn struct {
+	stabilizeStubConn
+}
+
+func (c *stabilizeExecCtxConn) ExecContext(context.Context, string, []driver.NamedValue) (driver.Result, error) {
+	return stabilizeStubResult{}, nil
+}
+
+type stabilizePrepareCtxConn struct {
+	stabilizeStubConn
+	stmt driver.Stmt
+	err  error
+}
+
+func (c *stabilizePrepareCtxConn) PrepareContext(_ context.Context, query string) (driver.Stmt, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	if c.stmt != nil {
+		return c.stmt, nil
+	}
+	return c.stabilizeStubConn.Prepare(query)
+}
+
+type stabilizePlainDriver struct {
+	conn driver.Conn
+	err  error
+	got  string
+}
+
+func (d *stabilizePlainDriver) Open(name string) (driver.Conn, error) {
+	d.got = name
+	if d.err != nil {
+		return nil, d.err
+	}
+	return d.conn, nil
+}
+
+type stabilizeTestConnector struct {
+	conn driver.Conn
+	err  error
+	drv  driver.Driver
+}
+
+func (c *stabilizeTestConnector) Connect(context.Context) (driver.Conn, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	return c.conn, nil
+}
+func (c *stabilizeTestConnector) Driver() driver.Driver { return c.drv }
+
+type stabilizeContextDriver struct {
+	connector driver.Connector
+	err       error
+}
+
+func (d *stabilizeContextDriver) Open(string) (driver.Conn, error) {
+	return nil, errors.New("Open unused")
+}
+func (d *stabilizeContextDriver) OpenConnector(string) (driver.Connector, error) {
+	if d.err != nil {
+		return nil, d.err
+	}
+	return d.connector, nil
+}
+
+func TestNewConnector_WhenPlainDriver_ShouldAdaptViaDSN(t *testing.T) {
+	ResetPragmaMetrics()
+	SetMetricsEnabled(false)
+	t.Cleanup(ResetPragmaMetrics)
+	ClearHostClass()
+	t.Cleanup(ClearHostClass)
+
+	plain := &stabilizePlainDriver{conn: &stabilizeStubConn{}}
+	connector, err := NewConnector(plain, "file:plain.db", ProfileHot)
+	require.NoError(t, err)
+	require.Equal(t, plain, connector.Driver(), "dsnConnector must report the wrapped driver")
+
+	conn, err := connector.Connect(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	require.Equal(t, "file:plain.db", plain.got, "DSN must reach the wrapped driver")
+}
+
+func TestNewConnector_WhenDriverExposesContext_ShouldPassthroughDriver(t *testing.T) {
+	plain := &stabilizePlainDriver{conn: &stabilizeStubConn{}}
+	drv := &stabilizeContextDriver{connector: &stabilizeTestConnector{conn: &stabilizeStubConn{}, drv: plain}}
+	connector, err := NewConnector(drv, "file:ctx.db", ProfileQuery)
+	require.NoError(t, err)
+	require.Equal(t, plain, connector.Driver(), "pragmaConnector must report the base connector's driver")
+}
+
+func TestOpenWithPragmas_WhenDriverUnknown_ShouldError(t *testing.T) {
+	db, err := OpenWithPragmas("sqlpragmas-no-such-driver-xyz", ":memory:", ProfileHot)
+	require.Error(t, err, "unknown driver name must surface sql.Open failure")
+	require.Nil(t, db)
+}
+
+func TestPragmaConnector_WhenBaseFails_ShouldPropagateError(t *testing.T) {
+	boom := errors.New("boom")
+	inner := &stabilizeTestConnector{err: boom}
+	c := &pragmaConnector{base: inner, profile: ProfileHot}
+	_, err := c.Connect(context.Background())
+	require.ErrorIs(t, err, boom)
+}
+
+func TestExecOnDriverConn_WhenBranches_ShouldExec(t *testing.T) {
+	ctx := context.Background()
+
+	require.NoError(t, execOnDriverConn(ctx, &stabilizeExecCtxConn{}, "PRAGMA journal_mode = WAL"))
+
+	prepareCtx := &stabilizePrepareCtxConn{stmt: &stabilizeExecCtxStmt{}}
+	require.NoError(t, execOnDriverConn(ctx, prepareCtx, "PRAGMA journal_mode = WAL"))
+
+	legacy := &stabilizeStubConn{}
+	require.NoError(t, execOnDriverConn(ctx, legacy, "PRAGMA journal_mode = WAL"))
+
+	wantErr := errors.New("prepare failed")
+	failing := &stabilizePrepareCtxConn{err: wantErr}
+	require.ErrorIs(t, execOnDriverConn(ctx, failing, "PRAGMA journal_mode = WAL"), wantErr)
+}
+
+func TestEnableForeignKeys_WhenDBClosed_ShouldError(t *testing.T) {
+	db := openFreshTempDB(t)
+	require.NoError(t, db.Close())
+	require.Error(t, EnableForeignKeys(db), "closed handle cannot enforce FKs")
 }
