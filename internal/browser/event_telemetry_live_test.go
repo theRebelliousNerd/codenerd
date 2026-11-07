@@ -13,6 +13,7 @@ import (
 
 	"codenerd/internal/mangle"
 
+	"github.com/go-rod/rod"
 	"github.com/gorilla/websocket"
 )
 
@@ -182,6 +183,12 @@ setTimeout(() => { window.__dialogResult = confirm('access_token=dialog-secret-m
 	}
 	if result, evalErr := page.Context(ctx).Eval(`() => window.__dialogResult`); evalErr != nil || result.Value.Bool() {
 		t.Fatalf("confirm result = %v, %v; default-denied dialogs must return false", result, evalErr)
+	}
+	// The frame arrives on its own schedule: on a loaded host it was still in
+	// flight when this read it once (2026-11-07). Wait for it within the
+	// test's deadline, then assert its content.
+	if err := page.Context(ctx).Wait(rod.Eval(`() => window.__wsMessage !== undefined`)); err != nil {
+		t.Fatalf("local WebSocket fixture delivered no message before the deadline: %v", err)
 	}
 	if result, evalErr := page.Context(ctx).Eval(`() => window.__wsMessage`); evalErr != nil || result.Value.Str() != "WS_FRAME_PAYLOAD_MUST_NOT_ENTER_FACTS" {
 		t.Fatalf("local WebSocket fixture did not deliver its control payload: %v, %v", result, evalErr)
