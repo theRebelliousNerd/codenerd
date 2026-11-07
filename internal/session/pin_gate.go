@@ -481,6 +481,21 @@ func turnTests(workspace string, written []string, preWrite map[string]PreImage,
 // measureUnits runs the turn's tests against each unit, a few at a time, and
 // reports the units the tests did not notice and the ones that were not
 // measured.
+// pinRoundOutcome is how one round of mutant runs ends in the live view: the
+// gate's own verdict is reported where verifyPinning returns.
+func pinRoundOutcome(ctx context.Context, unpinned, unmeasured []string) VerifyOutcome {
+	switch {
+	case errors.Is(ctx.Err(), context.Canceled):
+		return VerifyCanceled
+	case len(unpinned) > 0:
+		return VerifyFailed
+	case len(unmeasured) > 0:
+		return VerifyIndeterminate
+	default:
+		return VerifyPassed
+	}
+}
+
 func measureUnits(ctx context.Context, workspace string, units []pinUnit, runArg string, names, pkgs []string, bound time.Duration) (unpinned, unmeasured []string) {
 	type measured struct{ verdict, why string }
 	results := make([]measured, len(units))
@@ -584,7 +599,9 @@ func verifyPinning(ctx context.Context, workspace string, result *ExecutionResul
 	if bound <= 0 {
 		return BuildVerification{Outcome: VerifyIndeterminate, Reason: "the turn's tests were not measured on their own first: " + why, Duration: time.Since(start)}
 	}
+	doneUnits := liveVerification(ctx, []string{"pinning:", fmt.Sprintf("%d change(s) taken out one at a time against %d test(s)", len(units), len(names))}, "")
 	unpinned, unmeasured := measureUnits(ctx, workspace, units, runArg, names, pkgs, bound)
+	doneUnits(pinRoundOutcome(ctx, unpinned, unmeasured))
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return BuildVerification{Outcome: VerifyCanceled, Reason: "canceled while measuring", Duration: time.Since(start)}
 	}
@@ -597,7 +614,9 @@ func verifyPinning(ctx context.Context, workspace string, result *ExecutionResul
 		// sometimes unanswerable. The round hands them to the model, the log
 		// and the record keep them for the review.
 		conditions := conditionsFor(workspace, result)
+		doneConditions := liveVerification(ctx, []string{"pinning:", fmt.Sprintf("%d condition(s) forced one at a time (advisory)", len(conditions))}, "")
 		survived, _ := measureUnits(ctx, workspace, conditions, runArg, names, pkgs, bound)
+		doneConditions(pinRoundOutcome(ctx, nil, nil))
 		result.PinAdvisory = survived
 		if len(survived) > 0 {
 			logging.Get(logging.CategorySession).Info(
