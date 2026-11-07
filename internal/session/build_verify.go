@@ -695,7 +695,8 @@ func gateTestsConcurrent(ctx context.Context, workspace string, result *Executio
 		v      TestVerification
 		cached bool
 	}
-	impCtx, cancelImp := context.WithCancel(turntime.WithVerifyKind(withoutWorkingLoop(ctx), turntime.KindImporter))
+	impCtx, cancelImpCause := context.WithCancelCause(turntime.WithVerifyKind(withoutWorkingLoop(ctx), turntime.KindImporter))
+	cancelImp := func() { cancelImpCause(errOwnTestsFailedFirst) }
 	defer cancelImp()
 	impCh := make(chan impOutcome, 1)
 	go func() {
