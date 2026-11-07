@@ -576,14 +576,17 @@ func (m Model) renderBootScreen() string {
 	}
 	subtitle := m.styles.Components.Badge.Render(subtitleText)
 
-	body := lipgloss.JoinVertical(
-		lipgloss.Center,
-		"\n",
-		spin,
-		"\n",
-		subtitle,
-		m.styles.Text.Muted.Render(detailText),
-	)
+	lines := []string{"\n", spin, "\n", subtitle, m.styles.Text.Muted.Render(detailText)}
+	// What is typed during boot is kept: the draft, and how much waits.
+	if n := m.turn.queuedCount(); n > 0 {
+		lines = append(lines, "\n", m.styles.Text.Muted.Render(fmt.Sprintf("%d message(s) queued; they run when the boot is done", n)))
+	}
+	if draft := strings.TrimSpace(m.textarea.Value()); draft != "" {
+		lines = append(lines, "\n", m.styles.Text.Muted.Render("› "+draft+"  (Enter queues it)"))
+	} else {
+		lines = append(lines, "\n", m.styles.Text.Muted.Render("You can type now; Enter queues the message for when the boot is done."))
+	}
+	body := lipgloss.JoinVertical(lipgloss.Center, lines...)
 	// The embedded ASCII logo is the title when the terminal has room for it
 	// above the status lines; a small terminal keeps the one-line title.
 	if logo := ui.Logo(m.styles); lipgloss.Width(logo) <= m.width && lipgloss.Height(logo)+lipgloss.Height(body) <= m.height {

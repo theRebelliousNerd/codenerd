@@ -27,8 +27,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if nm, ok := next.(Model); ok && nm.turn.stopSettled() {
 		next = nm.pushAssistantMsg(nm.stoppedNotice())
 	}
-	// A message queued while a turn ran starts once nothing is in flight.
-	if nm, ok := next.(Model); ok && !nm.isLoading && nm.turn.queuedCount() > 0 {
+	// A message queued while a turn ran, or while the system booted, starts
+	// once nothing is in flight and the boot is done.
+	if nm, ok := next.(Model); ok && !nm.isLoading && !nm.isBooting && nm.turn.queuedCount() > 0 {
 		var queued tea.Cmd
 		nm, queued = nm.startQueuedTurn()
 		return nm, tea.Batch(cmd, queued)
