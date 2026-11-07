@@ -59,7 +59,9 @@ func (g recurseGit) commitOf(ctx context.Context, rev string) (string, error) {
 
 // createdFrom reads the branch a branch was created from out of its reflog
 // ("branch: Created from main"), the one record git keeps of a worktree's
-// start point. "" when the log says HEAD or a hash, or has no such entry.
+// start point. "" when the log names HEAD, a commit or anything else that is
+// not a local branch now, or has no such entry. Git says whether the name is
+// a branch: the string's shape cannot (a branch may be named like a hash).
 func (g recurseGit) createdFrom(ctx context.Context, branch string) string {
 	out, err := g.run(ctx, nil, "reflog", "show", "--format=%gs", "refs/heads/"+branch)
 	if err != nil {
@@ -72,18 +74,13 @@ func (g recurseGit) createdFrom(ctx context.Context, branch string) string {
 		return ""
 	}
 	from = strings.TrimPrefix(strings.TrimSpace(from), "refs/heads/")
-	if from == "" || from == "HEAD" || isHexHash(from) {
+	if from == "" || from == "HEAD" {
+		return ""
+	}
+	if _, err := g.run(ctx, nil, "show-ref", "--verify", "--quiet", "refs/heads/"+from); err != nil {
 		return ""
 	}
 	return from
-}
-
-func isHexHash(s string) bool {
-	if len(s) < 7 || len(s) > 64 {
-		return false
-	}
-	_, err := strconv.ParseUint(s[:7], 16, 64)
-	return err == nil && strings.Trim(s, "0123456789abcdef") == ""
 }
 
 // resolveBase names the branch the run absorbs. An explicit flag wins and
