@@ -50,12 +50,27 @@ func ServerContentTokens(raw []byte) int {
 	return (types.ServerBlockChars(raw) + 3) / 4
 }
 
-// nativeBlockTokens is the tokens of what the messages' public projection
-// omits and the provider is sent: server-tool blocks and signed reasoning. A
-// redacted reasoning block is charged at the tokens the provider counted when
+// ReasoningTokens is the tokens replaying one reasoning block puts in a
+// request. A redacted block is charged at the tokens the provider counted when
 // it produced it where it reported them, because its encrypted signature runs
 // ~13 characters per reasoning token and its length measures nothing. Unsigned
-// reasoning is not replayed (the adapters drop it) and costs nothing.
+// reasoning is not replayed (the adapters drop it) and costs nothing; neither
+// does a block of any other kind. The working-request guard measures what
+// dropping a block frees with it.
+func ReasoningTokens(b types.ContentBlock) int {
+	switch {
+	case b.Kind != types.BlockThinking, b.Signature == "":
+		return 0
+	case b.Redacted && b.Tokens > 0:
+		return b.Tokens
+	default:
+		return EstimateTokens(b.Text) + EstimateTokens(b.Signature)
+	}
+}
+
+// nativeBlockTokens is the tokens of what the messages' public projection
+// omits and the provider is sent: server-tool blocks and signed reasoning
+// (ReasoningTokens).
 func nativeBlockTokens(messages []types.Message) int {
 	total := 0
 	for i := range messages {
@@ -64,13 +79,7 @@ func nativeBlockTokens(messages []types.Message) int {
 			case types.BlockServerTool:
 				total += ServerContentTokens(b.Raw)
 			case types.BlockThinking:
-				switch {
-				case b.Signature == "":
-				case b.Redacted && b.Tokens > 0:
-					total += b.Tokens
-				default:
-					total += EstimateTokens(b.Text) + EstimateTokens(b.Signature)
-				}
+				total += ReasoningTokens(b)
 			}
 		}
 	}

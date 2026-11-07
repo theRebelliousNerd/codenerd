@@ -126,6 +126,7 @@ func responsesInputFromHistory(systemPrompt string, history []types.Message, opt
 		}
 		blocks := msg.Content()
 		lastItemID = ""
+		turnStart := len(input)
 
 		for _, b := range blocks {
 			if b.Kind != types.BlockText {
@@ -204,8 +205,27 @@ func responsesInputFromHistory(systemPrompt string, history []types.Message, opt
 				input = append(input, responsesFunctionOutputItem(b.ToolUseID, b.Text))
 			}
 		}
+		input = trimDanglingReasoning(input, turnStart)
 	}
 
+	return input
+}
+
+// trimDanglingReasoning removes the reasoning items a turn left at its end,
+// from input[turnStart:]. The Responses API rejects a reasoning item that is
+// not followed by the item it produced (a message or a function call), and a
+// turn can end on one when what followed it was dropped: the text was blank, a
+// duplicate call id was skipped, or the history shed the turn's other content.
+// A reasoning item before an output item of its own turn is never touched.
+func trimDanglingReasoning(input []any, turnStart int) []any {
+	for len(input) > turnStart {
+		item, ok := input[len(input)-1].(map[string]any)
+		if !ok || item["type"] != "reasoning" {
+			break
+		}
+		logging.Get(logging.CategoryAPI).Warn("responses: reasoning item %v has no output item after it in its turn; not replayed", item["id"])
+		input = input[:len(input)-1]
+	}
 	return input
 }
 

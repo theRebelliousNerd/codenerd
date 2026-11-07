@@ -64,6 +64,15 @@ type workingLoop struct {
 	// file's view, stale-observation notices -- keyed by the message it rides
 	// (ledgerKey), written once and resent unchanged.
 	appended map[string]string
+	// snapshots are the focus-view snapshots in appended, oldest first: what
+	// the budget guard collapses when a later snapshot of the same path
+	// supersedes one (working_shed.go). A compaction clears them with appended.
+	snapshots []viewSnapshot
+	// reasoningShed names the messages (priorLedgerKey, anchorLedgerKey,
+	// ledgerKey) whose replayed reasoning the budget guard dropped. It is kept
+	// for the life of the loop: reasoning cannot be recalled, and every later
+	// request sends the turn as the one that dropped it did.
+	reasoningShed map[string]shedReasoning
 	// restated maps an observation to the revision it was last restated at
 	// (working_restated).
 	restated map[string]string
@@ -121,9 +130,12 @@ const searchOpenedText = "Raw search (grep, glob, list_files, search_code) is no
 const workingInputReserve = 256 + 512
 
 // ErrInputBudgetExceeded is a working request that does not fit the input
-// budget once every tool result in it has been archived: what is left -- the
-// task, the instructions, the tool catalog -- is never cut, so the request is
-// refused before any model call rather than sent truncated.
+// budget once the guard has shed everything it may -- every tool result
+// archived, every superseded view snapshot collapsed, every replayed reasoning
+// block but the latest assistant turn's dropped: what is left -- the task, the
+// instructions, the tool catalog, the latest round -- is never cut, so the
+// request is refused before any model call rather than sent truncated. The
+// error names the remaining parts and their token counts.
 var ErrInputBudgetExceeded = errors.New("working request exceeds the input budget")
 
 func activeWorkingLoop(ctx context.Context) *workingLoop {
@@ -580,7 +592,7 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 	// against it (working_ledger_room), so a ledger that outgrows the request
 	// is compacted by the policy, once an epoch, and not cut by the guard
 	// below at a different place every round.
-	messages, err := loop.assemble(ctx, history, start)
+	messages, _, err := loop.assemble(ctx, history, start)
 	if err != nil {
 		return nil, err
 	}
@@ -591,54 +603,21 @@ func (e *Executor) prepareWorkingRequest(ctx context.Context, system string, his
 	if err := e.updateLedger(ctx, loop, history, start, free-workingInputReserve); err != nil {
 		return nil, err
 	}
-	if messages, err = loop.assemble(ctx, history, start); err != nil {
-		return nil, err
-	}
-
-	remaining, err := workingWindowRemaining(window.tokens, system, messages, definitions)
-	if err != nil {
-		return nil, err
-	}
-	for remaining < workingInputReserve {
-		i, j, size := largestToolResult(messages)
-		if size == 0 {
-			return nil, inputBudgetExceeded(window, remaining)
-		}
-		results := append([]types.ToolResult(nil), messages[i].ToolResults...)
-		result := &results[j]
-		storageID := loop.observations[result.ToolUseID]
-		if storageID == "" {
-			return nil, fmt.Errorf("oversize tool result has no durable observation")
-		}
-		handle, err := loop.modelHandle(ctx, storageID)
-		if err != nil {
-			return nil, err
-		}
-		// The pipeline's marker rides with the pointer. This path already told
-		// the model the size and the handle, which is most of what a marker is
-		// for, but it said it in words of its own — so an audit that walks the
-		// assembled messages looking for unannounced cuts could not tell this
-		// from a result that was simply short. One prefix, every cutter.
-		result.Content = fmt.Sprintf("%s %s recall_context id=%q returns it from offset 0, or in offset/limit pages. Historical evidence requires a current revision check.",
-			archivedResultPrefix,
-			types.DroppedNotice(size, size, "chars of this tool result; it does not fit the request", ""),
-			handle)
-		// Both views: assigning Content on the flat projection alone would leave
-		// a block-built turn sending the payload this archive accounted as gone.
-		messages[i] = messages[i].WithToolResults(results)
-		if remaining, err = workingWindowRemaining(window.tokens, system, messages, definitions); err != nil {
-			return nil, err
-		}
-	}
-	return messages, nil
+	return e.fitWorkingRequest(ctx, loop, system, history, start, definitions, window)
 }
 
 // assemble is the request the loop sends as its ledger now stands: the prior
 // turns, the anchor and every round since, each evicted result rendered as
-// its recall handle and the harness text appended where it arose.
-func (loop *workingLoop) assemble(ctx context.Context, history []types.Message, start int) ([]types.Message, error) {
-	messages := append([]types.Message(nil), loop.prior...)
+// its recall handle, the harness text appended where it arose, and the
+// reasoning the budget guard dropped left out. keys names the ledger key of
+// each message (priorLedgerKey, anchorLedgerKey, ledgerKey), in order.
+func (loop *workingLoop) assemble(ctx context.Context, history []types.Message, start int) (messages []types.Message, keys []string, err error) {
+	messages = append([]types.Message(nil), loop.prior...)
+	for i := range loop.prior {
+		keys = append(keys, priorLedgerKey(i))
+	}
 	messages = append(messages, types.Message{Role: "user", Text: loop.anchor}.WithTrailingText(loop.appended[anchorLedgerKey]))
+	keys = append(keys, anchorLedgerKey)
 	for i := start; i < len(history); i++ {
 		// WithToolResults, not a field assignment: a block-built turn sends
 		// its blocks, so a copy made on the flat field alone would share (and
@@ -648,14 +627,15 @@ func (loop *workingLoop) assemble(ctx context.Context, history []types.Message, 
 			if loop.evicted[results[j].ToolUseID] {
 				handle, err := loop.modelHandle(ctx, loop.observations[results[j].ToolUseID])
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				results[j].Content = compactedResultHandle(results[j].Content, handle)
 			}
 		}
 		messages = append(messages, history[i].WithToolResults(results).WithTrailingText(loop.appended[ledgerKey(i)]))
+		keys = append(keys, ledgerKey(i))
 	}
-	return messages, nil
+	return loop.withoutShedReasoning(messages, keys), keys, nil
 }
 
 // inputBudget is the input window one request is measured against, in tokens,
@@ -695,14 +675,15 @@ func slotCappedBudget(budget, slotCap int) (int, bool) {
 }
 
 // inputBudgetExceeded refuses a request that does not fit its window with
-// nothing left to archive, naming the limit that bound it.
-func inputBudgetExceeded(window inputBudget, remaining int) error {
+// nothing left to shed, naming the limit that bound it and the parts that
+// remain, in tokens: what to cut, or which window to raise, is read off them.
+func inputBudgetExceeded(window inputBudget, remaining int, parts requestParts) error {
 	source := "half of context_window.max_tokens after its output reserves"
 	if window.slotCapped {
 		source = "the serving slot's max_input_tokens, below the session budget"
 	}
-	return fmt.Errorf("%w: the request needs about %d tokens and the budget is %d (%s), with %d held back for the reply; no tool result is left to archive, and the task, the instructions and the tool catalog are sent whole or not at all",
-		ErrInputBudgetExceeded, window.tokens-remaining, window.tokens, source, workingInputReserve)
+	return fmt.Errorf("%w: the request needs about %d tokens and the budget is %d (%s), with %d held back for the reply; nothing is left to shed (every tool result archived, every superseded view snapshot collapsed, all replayed reasoning but the latest assistant turn's dropped), and the task, the instructions, the tool catalog and the latest round are sent whole or not at all. Remaining parts in tokens: %s",
+		ErrInputBudgetExceeded, window.tokens-remaining, window.tokens, source, workingInputReserve, parts)
 }
 
 // singleShotRequest is the one call a client with no message channel gets
@@ -726,7 +707,11 @@ func (e *Executor) singleShotRequest(ctx context.Context, system, userInput stri
 		return "", err
 	}
 	if remaining < workingInputReserve {
-		return "", inputBudgetExceeded(window, remaining)
+		parts := requestParts{system: prompt.EstimateTokens(system), task: prompt.EstimateTokens(userInput), catalog: catalogTokens(definitions)}
+		for _, m := range loop.prior {
+			parts.prior += messageTokens(m)
+		}
+		return "", inputBudgetExceeded(window, remaining, parts)
 	}
 	return userInput, nil
 }
@@ -826,6 +811,7 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 			loop.evicted[call] = true
 		}
 		loop.appended = make(map[string]string)
+		loop.snapshots = nil
 		loop.restated = make(map[string]string)
 		loop.viewed = ""
 		logging.Context("Working ledger: compaction at round %d moved %d result(s) out behind their recall handles", round, len(decision.Evict))
@@ -842,6 +828,7 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 		key = ledgerKey(n - 1)
 	}
 	var notes []string
+	snapshot := "" // the focus view this round appends, when it does
 	// A newer view of a file is appended where it arises; the older views of
 	// that file stay where they are until the epoch ends, when a compaction
 	// takes every appended text with it. Retiring an older view to a stub
@@ -852,12 +839,16 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 	// epoch, 3 and 4 times for $0.040 and $0.041. The views' bytes count
 	// toward the ledger (each rides a ledger row as extra), so they bring the
 	// next compaction nearer instead of growing the request without bound.
+	// Only a request that cannot fit its window retires them early: the budget
+	// guard (fitWorkingRequest) collapses a view a later one of the same file
+	// supersedes, once, in loop.appended, so it stays collapsed.
 	if view := e.workingFocusView(ctx, loop); view != "" {
 		identity := loop.focus + "\x00" + decision.Revisions[loop.focus] + "\x00" + view
 		digest := sha256.Sum256([]byte(identity))
 		viewed := hex.EncodeToString(digest[:])
 		if viewed != loop.viewed {
 			notes = append(notes, view)
+			snapshot = view
 		}
 		loop.viewed = viewed
 	} else if loop.viewed != "" {
@@ -891,6 +882,9 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 			text = prior + "\n\n" + text
 		}
 		loop.appended[key] = text
+		if snapshot != "" {
+			loop.recordSnapshot(key, loop.focus, snapshot)
+		}
 	}
 	return nil
 }
