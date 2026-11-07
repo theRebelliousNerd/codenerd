@@ -143,6 +143,21 @@ func initProgressStatus(p nerdinit.InitProgress) string {
 	return fmt.Sprintf("[init %d/%d, %s] %s", p.CurrentPhaseNo, p.TotalPhases, p.ElapsedTime.Round(time.Second), p.Message)
 }
 
+// countKernelFacts returns how many facts the kernel holds (its EDB, the
+// world facts included). The second result is false when the kernel cannot
+// say, so callers omit the count instead of reporting a fake zero. The count
+// is the kernel's own (O(1) per shard): QueryAll would convert every derived
+// fact of every predicate to answer it, on the Update thread.
+func countKernelFacts(kernel chatKernel) (int, bool) {
+	switch k := kernel.(type) {
+	case interface{ TotalFactCount() int }:
+		return k.TotalFactCount(), true
+	case interface{ FactCount() int }:
+		return k.FactCount(), true
+	}
+	return 0, false
+}
+
 // scanCompleteMsg is sent when scan completes
 type scanCompleteMsg struct {
 	fileCount      int
@@ -150,6 +165,12 @@ type scanCompleteMsg struct {
 	factCount      int
 	duration       time.Duration
 	err            error
+	unchanged      bool
+	// kernelFactCount is the number of facts already in the kernel when the
+	// scan found no changes. hasKernelFacts reports whether that count was
+	// measured; when false the UI must omit the count rather than show 0.
+	kernelFactCount int
+	hasKernelFacts  bool
 }
 
 // runScan performs a codebase rescan without full reinitialization.
@@ -170,12 +191,23 @@ func (m Model) runScan(deep bool) tea.Cmd {
 		}
 
 		if res != nil && res.Unchanged {
+			// An unchanged fast scan still honors an explicit deep request:
+			// source freshness is not deep-coverage evidence.
+			if deep {
+				if err := m.ensureDeepWorldFacts(); err != nil {
+					logging.Routing("[helpers] failed to ensure deep world facts: %v", err)
+				}
+			}
 			m.ReportStatus("Workspace unchanged")
+			kernelCount, hasKernel := countKernelFacts(m.kernel)
 			return scanCompleteMsg{
-				fileCount:      res.FileCount,
-				directoryCount: res.DirectoryCount,
-				factCount:      0,
-				duration:       res.Duration,
+				fileCount:       res.FileCount,
+				directoryCount:  res.DirectoryCount,
+				factCount:       0,
+				duration:        res.Duration,
+				unchanged:       true,
+				kernelFactCount: kernelCount,
+				hasKernelFacts:  hasKernel,
 			}
 		}
 
