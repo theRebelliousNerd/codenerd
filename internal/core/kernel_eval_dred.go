@@ -40,8 +40,10 @@ import (
 //     strata iterate over their own over-deleted rows.
 //  2. Re-derive. An over-deleted fact that still has support in the NEW state
 //     comes back: a rule body with the head bound, a program fact, or an EDB
-//     row of a predicate both asserted and derived. Iterated to a fixpoint, so
-//     support through another re-derived fact counts.
+//     row of a predicate both asserted and derived. Each over-deleted fact is
+//     tested once; what comes back then restores its dependents semi-naively,
+//     so support through another re-derived fact counts without a rescan
+//     (kernel_eval_dred_rederive.go).
 //  3. Insert. Semi-naively: a positive premise reads the inserted rows, a
 //     negated one the removed rows (a gone row makes "!p" true), every other
 //     premise the new state; recursive strata iterate over their own inserts.
@@ -107,6 +109,7 @@ type dredIndex struct {
 	topDown       map[ast.PredicateSym][]ast.Clause // rules answering deferred premises
 	volatileDown  map[string]struct{}               // external-fed heads and their downstream
 	programFacts  deltaStores                       // the program's own facts, by symbol
+	triggers      map[dredTrigKey][]dredTrigger     // premises by the predicate and sign they read (kernel_eval_dred_trigger.go)
 
 	mu    sync.Mutex
 	plans map[string]*dredPlan
@@ -118,6 +121,7 @@ type dredPlan struct {
 	replace  map[string]struct{} // derived predicates re-derived as a cone
 	strata   [][]int             // maintained rules grouped by head stratum, in order
 	heads    []map[ast.PredicateSym]struct{}
+	members  []map[int]struct{} // per stratum: its rules evaluated by variants (not aggregations)
 	aggHeads []ast.PredicateSym // heads of the maintained aggregations
 }
 
@@ -204,6 +208,7 @@ func buildDRedIndex(c *coneIndex, info *analysis.ProgramInfo) *dredIndex {
 			idx.rules[i].intrinsic = idx.rules[i].intrinsic || idx.rules[i].agg == nil
 		}
 	}
+	idx.buildTriggers()
 	for _, head := range c.volatile {
 		idx.volatileDown[head] = struct{}{}
 		for pred := range c.downstream(head) {
@@ -285,6 +290,13 @@ func (d *dredIndex) plan(c *coneIndex, written map[string]struct{}) *dredPlan {
 		sort.Ints(rules)
 		p.strata = append(p.strata, rules)
 		p.heads = append(p.heads, headsOf[s])
+		members := make(map[int]struct{}, len(rules))
+		for _, ri := range rules {
+			if d.rules[ri].agg == nil {
+				members[ri] = struct{}{}
+			}
+		}
+		p.members = append(p.members, members)
 	}
 
 	d.mu.Lock()
@@ -455,7 +467,7 @@ func (k *RealKernel) evaluateDRedLocked(stats *EvaluationStats) error {
 	sort.Strings(written)
 
 	for i, group := range plan.strata {
-		if err := run.stratum(group, plan.heads[i]); err != nil {
+		if err := run.stratum(group, plan.heads[i], plan.members[i]); err != nil {
 			return err
 		}
 	}
@@ -478,6 +490,8 @@ func (k *RealKernel) evaluateDRedLocked(stats *EvaluationStats) error {
 		ListedFacts: work.listed, Rules: replacedRules, Strata: replacedStrata,
 		DeltaVariants: int(run.variants.Load()), DeltaFacts: run.inserted, OverDeleted: run.overDeleted, Rederived: run.rederived,
 		ChangedRows: changedRows, AggByDelta: run.aggDelta, AggRecomputed: run.aggRecomputed, Profile: run.profile.summary(5),
+		SupportChecks: int(run.profile.supportChecks.Load()), RederiveRounds: int(run.profile.rederiveRounds.Load()),
+		VariantsBuilt: int(run.profile.variantsBuilt.Load()),
 	}
 	logging.KernelDebug("evaluate.dred: written=%v maintain=%d replace=%d inserted=%d overdeleted=%d rederived=%d variants=%d",
 		written, len(plan.maintain), len(plan.replace), run.inserted, run.overDeleted, run.rederived, run.variants.Load())
@@ -532,14 +546,13 @@ func (r *dredRun) checkLimit() error {
 }
 
 // stratum maintains the predicates heads, derived by the rules of group.
-func (r *dredRun) stratum(group []int, heads map[ast.PredicateSym]struct{}) error {
+func (r *dredRun) stratum(group []int, heads map[ast.PredicateSym]struct{}, members map[int]struct{}) error {
 	k := r.k
 	inStratum := func(sym ast.PredicateSym) bool { _, ok := heads[sym]; return ok }
 	oldCtx := r.ctx(dredOldView{cur: k.store, plus: r.plus, minus: r.minus})
 
 	// Aggregates read only lower strata and nothing in this one reads them
 	// (a layer's components are independent), so they go first, alone.
-	plain := group[:0:0]
 	for _, ri := range group {
 		if rule := r.idx.rules[ri]; rule.agg != nil {
 			started := time.Now()
@@ -549,11 +562,8 @@ func (r *dredRun) stratum(group []int, heads map[ast.PredicateSym]struct{}) erro
 			d := time.Since(started)
 			r.profile.addPhase(phaseAggregate, d)
 			r.profile.charge(rule.head.Symbol, d)
-			continue
 		}
-		plain = append(plain, ri)
 	}
-	group = plain
 
 	// 1. Over-delete, against the old state.
 	phaseStarted := time.Now()
@@ -574,13 +584,13 @@ func (r *dredRun) stratum(group []int, heads map[ast.PredicateSym]struct{}) erro
 			mark(gone)
 		}
 	}
-	if err := r.runVariants(r.seedVariants(group, oldCtx, r.minus, r.plus, inStratum), mark); err != nil {
+	if err := r.runVariants(r.seedVariants(members, oldCtx, r.minus, r.plus, inStratum), mark); err != nil {
 		return err
 	}
 	for len(frontier) > 0 {
 		cur := frontier
 		frontier = make(deltaStores)
-		if err := r.runVariants(r.recursiveVariants(group, oldCtx, cur), mark); err != nil {
+		if err := r.runVariants(r.recursiveVariants(members, oldCtx, cur), mark); err != nil {
 			return err
 		}
 		if err := r.checkLimit(); err != nil {
@@ -598,23 +608,8 @@ func (r *dredRun) stratum(group []int, heads map[ast.PredicateSym]struct{}) erro
 	// 2. Re-derive what still has support in the new state.
 	phaseStarted = time.Now()
 	newCtx := r.ctx(k.store)
-	for changed := true; changed && len(pending) > 0; {
-		changed = false
-		rest := pending[:0]
-		for _, a := range pending {
-			ok, err := r.supported(newCtx, a)
-			if err != nil {
-				return err
-			}
-			if ok {
-				k.store.Add(a)
-				r.rederived++
-				changed = true
-			} else {
-				rest = append(rest, a)
-			}
-		}
-		pending = rest
+	if err := r.rederive(members, newCtx, over, pending); err != nil {
+		return err
 	}
 
 	r.profile.addPhase(phaseRederive, time.Since(phaseStarted))
@@ -638,13 +633,13 @@ func (r *dredRun) stratum(group []int, heads map[ast.PredicateSym]struct{}) erro
 			add(came)
 		}
 	}
-	if err := r.runVariants(r.seedVariants(group, newCtx, r.plus, r.minus, inStratum), add); err != nil {
+	if err := r.runVariants(r.seedVariants(members, newCtx, r.plus, r.minus, inStratum), add); err != nil {
 		return err
 	}
 	for len(frontier) > 0 {
 		cur := frontier
 		frontier = make(deltaStores)
-		if err := r.runVariants(r.recursiveVariants(group, newCtx, cur), add); err != nil {
+		if err := r.runVariants(r.recursiveVariants(members, newCtx, cur), add); err != nil {
 			return err
 		}
 		if err := r.checkLimit(); err != nil {
@@ -672,6 +667,7 @@ func (r *dredRun) stratum(group []int, heads map[ast.PredicateSym]struct{}) erro
 // supported reports whether a, just over-deleted, still holds in the new
 // state: as a program fact, an EDB row, or the head of a rule whose body holds.
 func (r *dredRun) supported(ctx engine.QueryContext, a ast.Atom) (bool, error) {
+	r.profile.supportChecks.Add(1)
 	if r.idx.programFacts.has(a) {
 		return true, nil
 	}

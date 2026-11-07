@@ -15,9 +15,10 @@ import (
 // less than scheduling it across cores.
 const dredParallelMinRows = 512
 
-// dredVariant is one rule variant of a phase: premise pi reads only delta.
+// dredVariant is one rule variant of a phase: premise pi of rule reads only delta.
 type dredVariant struct {
 	ctx     engine.QueryContext
+	rule    int // index into dredIndex.rules
 	clause  ast.Clause
 	pi      int
 	negated bool
@@ -27,39 +28,17 @@ type dredVariant struct {
 // seedVariants lists a phase's variants over the lower strata's change: a
 // positive premise reads pos (the phase's own sign: removals when
 // over-deleting, inserts when inserting), a negated premise reads neg (the
-// other sign).
-func (r *dredRun) seedVariants(group []int, ctx engine.QueryContext, pos, neg deltaStores, inStratum func(ast.PredicateSym) bool) []dredVariant {
-	var out []dredVariant
-	for _, ri := range group {
-		rule := r.idx.rules[ri]
-		for _, pi := range rule.positives {
-			p := rule.clause.Premises[pi].(ast.Atom).Predicate
-			if d := pos[p]; d != nil && !inStratum(p) {
-				out = append(out, dredVariant{ctx, rule.clause, pi, false, d})
-			}
-		}
-		for _, ni := range rule.negatives {
-			if d := neg[rule.clause.Premises[ni].(ast.NegAtom).Atom.Predicate]; d != nil {
-				out = append(out, dredVariant{ctx, rule.clause, ni, true, d})
-			}
-		}
-	}
-	return out
+// other sign). members are the stratum's variant-evaluated rules; only the
+// premises of changed predicates are looked at (the trigger index).
+func (r *dredRun) seedVariants(members map[int]struct{}, ctx engine.QueryContext, pos, neg deltaStores, inStratum func(ast.PredicateSym) bool) []dredVariant {
+	out := r.idx.triggered(ctx, members, pos, false, inStratum, nil)
+	return r.idx.triggered(ctx, members, neg, true, nil, out)
 }
 
 // recursiveVariants lists a phase's variants over the stratum's own newest
-// rows (its recursion).
-func (r *dredRun) recursiveVariants(group []int, ctx engine.QueryContext, cur deltaStores) []dredVariant {
-	var out []dredVariant
-	for _, ri := range group {
-		rule := r.idx.rules[ri]
-		for _, pi := range rule.positives {
-			if d := cur[rule.clause.Premises[pi].(ast.Atom).Predicate]; d != nil {
-				out = append(out, dredVariant{ctx, rule.clause, pi, false, d})
-			}
-		}
-	}
-	return out
+// rows (its recursion): the positive premises reading them.
+func (r *dredRun) recursiveVariants(members map[int]struct{}, ctx engine.QueryContext, cur deltaStores) []dredVariant {
+	return r.idx.triggered(ctx, members, cur, false, nil, nil)
 }
 
 // runVariants evaluates a phase's variants and hands their heads to apply in
@@ -67,6 +46,7 @@ func (r *dredRun) recursiveVariants(group []int, ctx engine.QueryContext, cur de
 // runs after every variant has been evaluated, so variants of one phase may
 // run in parallel and the outcome is the sequential one.
 func (r *dredRun) runVariants(vs []dredVariant, apply func([]ast.Atom)) error {
+	r.profile.variantsBuilt.Add(int64(len(vs)))
 	rows := 0
 	for _, v := range vs {
 		rows += v.delta.EstimateFactCount()

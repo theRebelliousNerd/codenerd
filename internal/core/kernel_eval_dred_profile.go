@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -28,10 +29,17 @@ var dredPhaseNames = [dredPhases]string{"over-delete", "re-derive", "insert", "a
 
 // dredProfile is where one DRed evaluation spent its time: per phase, and per
 // rule head across phases. Variants of a phase may run in parallel, so it locks.
+// It also counts the work the phases did, which shows what a change cost
+// beyond the clock: support checks attempted, re-derivation rounds run and rule
+// variants built.
 type dredProfile struct {
 	mu     sync.Mutex
 	phase  [dredPhases]time.Duration
 	byHead map[string]time.Duration
+
+	supportChecks  atomic.Int64 // over-deleted facts tested for support in the new state
+	rederiveRounds atomic.Int64 // passes of re-derivation: the seed pass, then one per frontier
+	variantsBuilt  atomic.Int64 // rule variants listed for a phase, before they run
 }
 
 func (p *dredProfile) charge(head string, d time.Duration) {
@@ -70,5 +78,7 @@ func (p *dredProfile) summary(top int) string {
 	for i, h := range heads {
 		costly[i] = fmt.Sprintf("%s %v", h, p.byHead[h].Round(time.Millisecond))
 	}
-	return strings.Join(parts, ", ") + "; costliest heads: " + strings.Join(costly, ", ")
+	work := fmt.Sprintf("support checks %d, re-derive rounds %d, variants built %d",
+		p.supportChecks.Load(), p.rederiveRounds.Load(), p.variantsBuilt.Load())
+	return strings.Join(parts, ", ") + "; " + work + "; costliest heads: " + strings.Join(costly, ", ")
 }

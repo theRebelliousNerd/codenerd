@@ -204,6 +204,9 @@ type EvaluationStats struct {
 	ChangedRows     int           // dred: EDB rows the write set added or removed
 	AggByDelta      int           // dred: aggregate groups (counts, integer sums) maintained by delta
 	AggRecomputed   int           // dred: aggregate groups recomputed from their rows
+	SupportChecks   int           // dred: over-deleted facts tested for support in the new state
+	RederiveRounds  int           // dred: re-derivation passes (the seed pass, then one per frontier)
+	VariantsBuilt   int           // dred: rule variants listed for a phase
 	Profile         string        // dred: time per phase and costliest rule heads
 }
 
