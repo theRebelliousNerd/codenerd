@@ -181,3 +181,163 @@ func TestLookupPrice_GPT6FamilyResolvesToItsOwnRow(t *testing.T) {
 		t.Errorf("gpt-6.1-sol detailed cost = %v", got)
 	}
 }
+
+func TestCostDetailed_StabilizeClampsNegativeCache(t *testing.T) {
+	p := Price{InputPerMTok: 10, OutputPerMTok: 20, CacheReadPerMTok: 1, CacheWritePerMTok: 2}
+	got := p.CostDetailed(1000, 500, -5, -10)
+	want := p.CostDetailed(1000, 500, 0, 0)
+	if got != want {
+		t.Errorf("negative cache not clamped: got %v want %v", got, want)
+	}
+}
+
+func TestCostDetailed_StabilizeClampsExcessOverInput(t *testing.T) {
+	p := Price{InputPerMTok: 10, OutputPerMTok: 20, CacheReadPerMTok: 1, CacheWritePerMTok: 2}
+	if got, want := p.CostDetailed(100, 0, 80, 50), p.CostDetailed(100, 0, 80, 20); got != want {
+		t.Errorf("excess cache not clamped to input: got %v want %v", got, want)
+	}
+	if got, want := p.CostDetailed(100, 0, 150, 10), p.CostDetailed(100, 0, 100, 0); got != want {
+		t.Errorf("oversized cache-read not clamped to input: got %v want %v", got, want)
+	}
+}
+
+func TestCostDetailed_StabilizeFallsBackToInputRate(t *testing.T) {
+	p := Price{InputPerMTok: 4}
+	approx(t, p.CostDetailed(1000000, 0, 1000000, 0), 4, "cache-read fallback")
+	approx(t, p.CostDetailed(1000000, 0, 0, 1000000), 4, "cache-write fallback")
+}
+
+func TestLookupPrice_StabilizeEmptyUnknownExactAndColon(t *testing.T) {
+	if _, _, ok := LookupPriceVersion(""); ok {
+		t.Errorf("empty model should be unknown")
+	}
+	if _, _, ok := LookupPriceVersion("   "); ok {
+		t.Errorf("blank model should be unknown")
+	}
+	if _, _, ok := LookupPriceVersion("no-such-model-xyz-stabilize"); ok {
+		t.Errorf("unknown model should be unknown")
+	}
+	if _, _, ok := LookupPriceVersion("jev-1.14.0-extra"); ok {
+		t.Errorf("exact entry must not prefix-match a longer id")
+	}
+	if _, _, ok := LookupPriceVersion("JEV-1.14.0"); !ok {
+		t.Errorf("exact entry should match case-insensitively")
+	}
+	if _, _, ok := LookupPriceVersion("anthropic.claude-sonnet-4-v1:0"); !ok {
+		t.Errorf("provider dot-prefix and colon suffix should normalize to a known row")
+	}
+	if cost, _, ok := EstimateCostVersioned("no-such-model-xyz-stabilize", 10, 10, 0, 0); ok || cost != 0 {
+		t.Errorf("EstimateCostVersioned unknown = %v,%v want 0,false", cost, ok)
+	}
+}
+
+func TestRegisterPrice_StabilizeEmptyPrefixNoOp(t *testing.T) {
+	RegisterPrice("   ", Price{InputPerMTok: 999})
+	if _, _, ok := LookupPriceVersion("   "); ok {
+		t.Errorf("blank prefix registration should stay unknown")
+	}
+	if _, _, ok := LookupPriceVersion("gpt-4o"); !ok {
+		t.Errorf("empty registration must not clear the table")
+	}
+	RegisterPrice("openai/stabilize-probe-xyz", Price{InputPerMTok: 7})
+	if _, _, ok := LookupPriceVersion("stabilize-probe-xyz"); !ok {
+		t.Errorf("registered prefix should resolve after route normalization")
+	}
+	if _, _, ok := LookupPriceVersion("openai/stabilize-probe-xyz"); !ok {
+		t.Errorf("registered prefix should resolve through the same route")
+	}
+}
+
+func TestObserverAndCredential_StabilizeNilSafety(t *testing.T) {
+	if got := ObserverFromContext(nil); got != nil {
+		t.Errorf("ObserverFromContext(nil) = %v want nil", got)
+	}
+	if got := ObserverFromContext(context.Background()); got != nil {
+		t.Errorf("ObserverFromContext(background) = %v want nil", got)
+	}
+	base := context.Background()
+	if got := WithObserver(base, nil); got != base {
+		t.Errorf("WithObserver(nil obs) should return ctx unchanged")
+	}
+	if WithObserver(nil, nil) != nil {
+		t.Errorf("WithObserver(nil,nil) should be nil")
+	}
+	NoteUnknownUsage(nil)
+	NoteUnknownUsage(context.Background())
+	RecordFromContext(nil, Report{Model: "gpt-4o", Provider: "openai"})
+	if got := CredentialAliasFromContext(nil); got != "" {
+		t.Errorf("CredentialAliasFromContext(nil) = %q want empty", got)
+	}
+	if got := CredentialAliasFromContext(context.Background()); got != "" {
+		t.Errorf("CredentialAliasFromContext(background) = %q want empty", got)
+	}
+	aliasCtx := WithCredentialAlias(context.Background(), "alias-x")
+	if got := CredentialAliasFromContext(aliasCtx); got != "alias-x" {
+		t.Errorf("credential alias roundtrip = %q want alias-x", got)
+	}
+	if got := FromContext(nil); got != nil {
+		t.Errorf("FromContext(nil) should be nil")
+	}
+	if got := SessionIDFromContext(nil); got != "" {
+		t.Errorf("SessionIDFromContext(nil) = %q want empty", got)
+	}
+	if n, tn := ShardFromContext(nil); n != "" || tn != "" {
+		t.Errorf("ShardFromContext(nil) = %q,%q want empty", n, tn)
+	}
+	if got := TurnIDFromContext(nil); got != "" {
+		t.Errorf("TurnIDFromContext(nil) = %q want empty", got)
+	}
+	var nilTracker *Tracker
+	if got := nilTracker.TurnTokens(""); got != (TokenCounts{}) {
+		t.Errorf("nil TurnTokens should be zero")
+	}
+	if got := nilTracker.SessionTokens(""); got != (TokenCounts{}) {
+		t.Errorf("nil SessionTokens should be zero")
+	}
+	m := map[string]TokenCounts{}
+	addUsageToMap(m, "", types.UsageMetadata{InputTokens: 10, OutputTokens: 5}, 0)
+	entry, ok := m["unknown"]
+	if !ok {
+		t.Fatalf("empty key should bucket as unknown")
+	}
+	if entry.Input != 10 || entry.Output != 5 || entry.Total != 15 {
+		t.Errorf("unknown bucket = %+v want input 10 output 5 total 15", entry)
+	}
+	sessCtx := WithSessionID(nil, "sess-stabilize")
+	if got := SessionIDFromContext(sessCtx); got != "sess-stabilize" {
+		t.Errorf("WithSessionID(nil) roundtrip = %q", got)
+	}
+	turnCtx := WithTurnID(nil, "turn-stabilize")
+	if got := TurnIDFromContext(turnCtx); got != "turn-stabilize" {
+		t.Errorf("WithTurnID(nil) roundtrip = %q", got)
+	}
+}
+
+func TestRecord_StabilizeRejectsEveryNegativeField(t *testing.T) {
+	cases := map[string]types.UsageMetadata{
+		"input":   {InputTokens: -1, OutputTokens: 10},
+		"output":  {InputTokens: 10, OutputTokens: -1},
+		"cached":  {InputTokens: 10, OutputTokens: 10, CachedContentTokens: -1},
+		"written": {InputTokens: 10, OutputTokens: 10, CacheWriteTokens: -1},
+		"reason":  {InputTokens: 10, OutputTokens: 10, ThinkingTokens: -1},
+	}
+	for name, meta := range cases {
+		tr, _ := newTestTracker(t)
+		ctx := context.Background()
+		tr.Record(ctx, Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: meta})
+		stats := tr.Stats()
+		if stats.TotalProject.Input != 0 || stats.TotalProject.Output != 0 || stats.TotalProject.Total != 0 {
+			t.Errorf("%s: negative report was recorded: %+v", name, stats.TotalProject)
+		}
+		_ = tr.Close()
+	}
+	tr, _ := newTestTracker(t)
+	tr.Record(context.Background(), Report{Model: "gpt-4o", Provider: "openai", Operation: "chat", Usage: types.UsageMetadata{}})
+	if got := tr.Stats().TotalProject; got.Input != 0 || got.Output != 0 {
+		t.Errorf("zero-token report should be ignored: %+v", got)
+	}
+	_ = tr.Close()
+	if math.IsNaN(float64(tr.Stats().TotalProject.Input)) {
+		t.Errorf("stats after close should be readable")
+	}
+}
