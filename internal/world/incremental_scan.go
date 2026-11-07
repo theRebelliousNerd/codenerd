@@ -957,16 +957,18 @@ func siblingsInGoDir(root string, db *store.LocalStore, dir string, current map[
 			continue
 		}
 		libCandidates := notIn(r.lib, already)
-		if len(libCandidates) > 0 && packageDeclsChanged(dir, pkg, false, db, root, evidenceFiles(r.lib, r.deletedLib, added)) {
-			out = append(out, libCandidates...)
+		if len(libCandidates) > 0 {
+			if changed, names := packageDeclsChanged(dir, pkg, false, db, root, evidenceFiles(r.lib, r.deletedLib, added)); changed {
+				out = append(out, siblingsMentioning(libCandidates, names)...)
+			}
 		}
 		testCandidates := notIn(r.test, already)
 		if len(testCandidates) == 0 {
 			continue
 		}
 		testEvidence := evidenceFiles(append(append([]string{}, r.lib...), r.test...), append(append([]string{}, r.deletedLib...), r.deletedTest...), added)
-		if packageDeclsChanged(dir, pkg, true, db, root, testEvidence) {
-			out = append(out, testCandidates...)
+		if changed, names := packageDeclsChanged(dir, pkg, true, db, root, testEvidence); changed {
+			out = append(out, siblingsMentioning(testCandidates, names)...)
 		}
 	}
 	return out
@@ -1033,17 +1035,26 @@ func notIn(paths []string, skip map[string]struct{}) []string {
 	return out
 }
 
-func packageDeclsChanged(dir, pkg string, includeTests bool, db *store.LocalStore, root string, evidence []string) bool {
+// packageDeclsChanged reports whether pkg's declaration set moved, and the
+// identifiers whose declarations differ (empty when they cannot be told).
+func packageDeclsChanged(dir, pkg string, includeTests bool, db *store.LocalStore, root string, evidence []string) (bool, map[string]struct{}) {
 	before, had := peekPkgSymbols(dir, pkg, includeTests)
 	after, ok := loadSymbols(dir, pkg, includeTests)
 	if !ok {
-		return false
+		return false, nil
 	}
 	if had && !before.sameDeclarations(after) {
-		return true
+		return true, before.changedNames(after)
 	}
 	keys, complete := storedDeclKeys(db, root, evidence, had)
-	return complete && !declKeyEqual(keys, after.declKeys(pkg))
+	if !complete {
+		return false, nil
+	}
+	afterKeys := after.declKeys(pkg)
+	if declKeyEqual(keys, afterKeys) {
+		return false, nil
+	}
+	return true, namesFromKeyDiff(keys, afterKeys)
 }
 
 func storedDeclKeys(db *store.LocalStore, root string, files []string, requireCommittedContent bool) (map[string]struct{}, bool) {
