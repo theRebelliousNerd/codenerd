@@ -842,7 +842,7 @@ func (e *Executor) stepSystemPrompt(
 	}
 	NoteCompile(ctx, compiled)
 	logging.Session("Step prompt compiled for %s (language=%s, %d chars)", stepCtx.IntentTarget, stepCtx.Language, len(compiled.Prompt))
-	stepPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(compiled.Prompt), stepCtx.IntentTarget)
+	stepPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(ctx, compiled.Prompt, stepCtx.IntentTarget), stepCtx.IntentTarget)
 	// The turn's consultations dealt to this step's file ride into it (the
 	// advice was asked before the edits, for them), then any this step's
 	// file newly calls for.

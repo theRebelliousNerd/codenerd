@@ -976,7 +976,8 @@ type bootContext struct {
 	researchBrowser       *research.BrowserRuntime
 	scanner               *world.Scanner
 	tracker               *usage.Tracker
-	projectDoc            *projectdoc.Document // nerd.md, nil when absent or invalid
+	projectDoc            *projectdoc.Document   // nerd.md, nil when absent or invalid
+	projectModuleDocs     []*projectdoc.Document // module nerd.md bodies retained for per-turn guidance injection, root excluded
 	// sessionID is the process-unique session identity minted in
 	// initFinalExecutors (or taken from BootConfig.SessionID). It is the
 	// single source of truth propagated to the session executor, the
@@ -1536,16 +1537,7 @@ func refreshWorldModelAtBoot(bctx *bootContext) {
 // quietly would leave them believing a write-protection rule is in force when it
 // is not — which is the more dangerous of the two. So: boot, and say loudly
 // which directives are not being enforced.
-// loadProjectDoc reads nerd.md and asserts its frontmatter into the kernel.
-//
-// It runs after world facts so that a project rule is in place before the first
-// turn can act. nerd.md is optional; a missing file is silent.
-//
-// A malformed file is NOT silent and is NOT fatal. Refusing to boot would strand
-// the user with no way to run the agent that could fix the file, but degrading
-// quietly would leave them believing a write-protection rule is in force when it
-// is not — which is the more dangerous of the two. So: boot, and say loudly
-// which directives are not being enforced.
+// Module-level nerd.md bodies are retained on bootContext for per-turn guidance.
 func loadProjectDoc(bctx *bootContext) {
 	docs, err := projectdoc.LoadAll(bctx.workspace)
 	if err != nil {
@@ -1589,6 +1581,17 @@ func loadProjectDoc(bctx *bootContext) {
 		}
 	}
 	bctx.projectDoc = rootDoc
+	// Retain module bodies beyond facts so later steps can inject the nearest
+	// enclosing module nerd.md then its ancestors as per-turn guidance. Root is
+	// excluded; it stays the project-wide instructions.
+	var moduleDocs []*projectdoc.Document
+	for _, doc := range docs {
+		if doc == rootDoc {
+			continue
+		}
+		moduleDocs = append(moduleDocs, doc)
+	}
+	bctx.projectModuleDocs = moduleDocs
 
 	totalForbid := 0
 	totalCommands := 0
@@ -2658,6 +2661,7 @@ func initFinalExecutors(bctx *bootContext) error {
 	// loadProjectDoc, so a construction site that forgets this line loses the
 	// prose, not the guarantee.
 	bctx.sessionExecutor.SetProjectDoc(bctx.projectDoc)
+	bctx.sessionExecutor.SetProjectModuleDocs(bctx.projectModuleDocs)
 	// The holographic provider and the impacted-test tools read world-owned
 	// predicates. GetPrimaryRealKernel is the catch-all and does not hold
 	// them; installContextProviders passes the cortex. See that function.

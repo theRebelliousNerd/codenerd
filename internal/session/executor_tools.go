@@ -1415,22 +1415,30 @@ func (e *Executor) SetProjectDoc(doc *projectdoc.Document) {
 }
 
 // withProjectInstructions appends nerd.md's rendered instructions to a compiled
-// system prompt.
+// system prompt, and, for a turn with a target outside a working loop, the
+// guidance of the module nerd.md files enclosing it (module_guidance.go).
+// Inside a working loop the modules ride the focus view instead
+// (withFileContext), so they follow the focus rather than being resent.
 //
 // The frontmatter is restated in prose even though it is already in the kernel:
 // the model cannot read the fact store, and learning that a path is protected
 // by being denied mid-edit costs a whole turn.
-func (e *Executor) withProjectInstructions(systemPrompt string) string {
+func (e *Executor) withProjectInstructions(ctx context.Context, systemPrompt, target string) string {
 	e.mu.RLock()
 	doc := e.projectDoc
 	e.mu.RUnlock()
 
-	section := doc.PromptSection()
-	if section == "" {
+	if section := doc.PromptSection(); section != "" {
+		logging.Session("Injected %s instructions into system prompt (%d chars)", doc.Path, len(section))
+		systemPrompt += "\n\n" + section
+	}
+	if activeWorkingLoop(ctx) != nil {
 		return systemPrompt
 	}
-	logging.Session("Injected %s instructions into system prompt (%d chars)", doc.Path, len(section))
-	return systemPrompt + "\n\n" + section
+	if guidance := e.moduleGuidance(target, 0, "system prompt"); guidance != "" {
+		systemPrompt += "\n\n" + guidance
+	}
+	return systemPrompt
 }
 
 // FileContextProvider is the narrow interface for per-file holographic context.
@@ -1479,25 +1487,41 @@ func (e *Executor) withFileContext(ctx context.Context, systemPrompt, target str
 	e.mu.RLock()
 	p := e.fileContext
 	e.mu.RUnlock()
-	if p == nil {
-		return systemPrompt
-	}
 	// Inside a working loop every counted block is sized by policy: the budget
 	// is this turn's token window in bytes (the same window prepareWorkingRequest
 	// measures the request against), and the loop's own engine derives each
 	// count from the measured pool. Outside a loop there is no engine, so the
 	// section renders whole rather than guessing a number.
-	section := ""
-	if loop := activeWorkingLoop(ctx); loop != nil && loop.set != nil {
-		section = p.PromptSectionWithBudget(ctx, target, e.holographicBudgetBytes(loop), loop.set.DecideRenderCount)
-	} else {
+	loop := activeWorkingLoop(ctx)
+	section, budget := "", 0
+	if loop != nil && loop.set != nil {
+		budget = e.holographicBudgetBytes(loop)
+		if p != nil {
+			section = p.PromptSectionWithBudget(ctx, target, budget, loop.set.DecideRenderCount)
+		}
+	} else if p != nil {
 		section = p.PromptSection(ctx, target)
 	}
-	if strings.TrimSpace(section) == "" {
-		return systemPrompt
+	if strings.TrimSpace(section) != "" {
+		logging.Session("Injected holographic context for %s into system prompt (%d chars)", target, len(section))
+		systemPrompt += "\n\n" + section
 	}
-	logging.Session("Injected holographic context for %s into system prompt (%d chars)", target, len(section))
-	return systemPrompt + "\n\n" + section
+	// Inside a loop this is the focus view (workingFocusView), so the module
+	// guidance for the focused file joins it there, in what the file's own
+	// section left of the same budget, and changes when the focus moves to
+	// another module. Outside a loop withProjectInstructions already added it.
+	if loop != nil {
+		remaining := 0
+		if budget > 0 {
+			if remaining = budget - len(section); remaining <= 0 {
+				remaining = -1
+			}
+		}
+		if guidance := e.moduleGuidance(target, remaining, "focus view"); guidance != "" {
+			systemPrompt += "\n\n" + guidance
+		}
+	}
+	return systemPrompt
 }
 
 // holographicBudgetBytes is the render budget the holographic policy divides:
@@ -2481,7 +2505,7 @@ func (e *Executor) retryWithNoToolNudge(
 	// project's write-protection rules from the retry — on precisely the turn
 	// where the model has already shown it is confused about what it may do.
 	// That is a safety regression, not just a context one.
-	retryPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(compileResult.Prompt), retryCtx.IntentTarget)
+	retryPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(ctx, compileResult.Prompt, retryCtx.IntentTarget), retryCtx.IntentTarget)
 	return e.generateResponse(ctx, client, retryPrompt, userInput, cfg)
 }
 

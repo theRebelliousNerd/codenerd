@@ -160,7 +160,7 @@ func TestWithFileContext_AppendsAndDegrades(t *testing.T) {
 func TestWithProjectInstructions_NilDocIsANoOp(t *testing.T) {
 	e := &Executor{}
 	const base = "SYSTEM PROMPT"
-	if got := e.withProjectInstructions(base); got != base {
+	if got := e.withProjectInstructions(context.Background(), base, ""); got != base {
 		t.Fatalf("got %q, want the prompt unchanged", got)
 	}
 }
