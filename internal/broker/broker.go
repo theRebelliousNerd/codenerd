@@ -273,7 +273,7 @@ func (c *core) settle(receipt Receipt, req *Request, obs *callObserver, reported
 	// count from a stream cut before its usage block, is not the bill of the
 	// request that was counted, and training on it would teach the ratio a
 	// prompt size that was never sent. Spend still counts every attempt above.
-	if receipt.Attempts <= 1 && !report.Partial {
+	if receipt.Attempts <= 1 && !report.Partial && (req == nil || !req.ServerLoop) {
 		c.calibrate(req, actual)
 		// Reconciliation compares the prediction against the bill. Calibration
 		// alone cannot detect a bias shared by both sides -- it would quietly

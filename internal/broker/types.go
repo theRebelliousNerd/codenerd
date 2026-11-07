@@ -99,6 +99,14 @@ type Request struct {
 	User     string
 	Messages []types.Message
 	Tools    []types.ToolDefinition
+
+	// ServerLoop says the provider runs its own tool loop for this call
+	// (grounded search: it searches and fetches pages server-side) and bills
+	// what that loop read as input. measure() sees only what was sent, so the
+	// bill is no evidence about the count: a 47-token query was billed 641K
+	// (2026-11-06). Such a call is spent on the ledger and never calibrates
+	// or reconciles.
+	ServerLoop bool
 }
 
 // Purpose identifies the subsystem spending the tokens. It travels on the

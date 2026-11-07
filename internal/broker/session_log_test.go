@@ -315,15 +315,21 @@ func TestLiveProgress_ModelMessagesDoNotRequireDiskLogging(t *testing.T) {
 			if !failed && err != nil {
 				t.Fatal(err)
 			}
-			if len(events) != 2 || events[0].Kind != sessionlog.EventCallStart {
-				t.Fatalf("live model events = %+v", events)
-			}
 			if failed {
+				if len(events) != 2 || events[0].Kind != sessionlog.EventCallStart {
+					t.Fatalf("live model events = %+v", events)
+				}
 				if events[1].Kind != sessionlog.EventCallFailed || !events[1].Failed {
 					t.Fatalf("failure = %+v", events[1])
 				}
-			} else if events[1].Kind != sessionlog.EventAssistant || events[1].Text != "Plan: inspect loader" {
-				t.Fatalf("visible plan missing: %+v", events[1])
+			} else {
+				// Started, answered (live-only), then the visible plan.
+				if len(events) != 3 || events[0].Kind != sessionlog.EventCallStart || events[1].Kind != sessionlog.LiveCallDone {
+					t.Fatalf("live model events = %+v", events)
+				}
+				if events[2].Kind != sessionlog.EventAssistant || events[2].Text != "Plan: inspect loader" {
+					t.Fatalf("visible plan missing: %+v", events[2])
+				}
 			}
 		})
 	}

@@ -70,3 +70,26 @@ func TestWrapReportsNoGroundedWebSearchForAClientWithout(t *testing.T) {
 		}
 	}
 }
+
+// A grounded search bills what the provider's own search loop read, which
+// the request never carried: it is spent, but it is no evidence about the
+// count, so it neither calibrates nor reconciles. Two such calls made the
+// reconciler report a 28% "drift" for a counter within 2% on every other call.
+func TestGroundedWebSearchIsSpentButNeverReconciled(t *testing.T) {
+	ledger := NewLedger(LedgerConfig{Window: 100000})
+	rec := NewReconciler()
+	inner := &fakeGroundedSearcher{fakeClient: newFakeClient(), supports: true}
+	client, err := Wrap(inner, Config{Provider: "test", Model: "m", Counter: fixedCounter{tokens: 10, confidence: ConfidenceExact}, Ledger: ledger, Reconciler: rec})
+	if err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	if _, err := client.(types.GroundedWebSearcher).GroundedWebSearch(context.Background(), "q"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ledger.Total(); got.Total() == 0 {
+		t.Fatal("the grounded search was not spent")
+	}
+	if drift := rec.Drift(); len(drift) != 0 {
+		t.Fatalf("a server-side search loop reached reconciliation: %+v", drift)
+	}
+}

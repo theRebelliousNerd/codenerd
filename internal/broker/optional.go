@@ -147,10 +147,11 @@ func (c *core) GroundedWebSearch(ctx context.Context, query string) (*types.Grou
 		return nil, ErrNoUnderlying
 	}
 	req := &Request{
-		Provider: c.cfg.Provider,
-		Model:    c.currentModel(),
-		Method:   "GroundedWebSearch",
-		User:     query,
+		Provider:   c.cfg.Provider,
+		Model:      c.currentModel(),
+		Method:     "GroundedWebSearch",
+		User:       query,
+		ServerLoop: true,
 	}
 	return compressing(c, ctx, req, true, groundedUsage, func(ctx context.Context, instruction string) (*types.GroundedWebSearchResult, error) {
 		return searcher.GroundedWebSearch(ctx, withInstruction(query, instruction))
