@@ -263,18 +263,28 @@ func campaignNorthstarObserver(cortex *coresys.Cortex, cwd string) *northstar.Ca
 }
 
 // runCampaignStart starts a new campaign
-func runCampaignStart(cmd *cobra.Command, args []string) error {
-	ctx, cancel := operationContext(context.Background())
-	defer cancel()
-
-	// Handle graceful shutdown
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		fmt.Println("\nCampaign start cancelled")
+// campaignRunContext is a campaign command's context. Ctrl+C or SIGTERM
+// cancels it, so the orchestrator pauses at its next boundary and persists
+// the campaign as paused, and --timeout bounds it (operationContext). Without
+// the handler the signal killed the process: `campaign resume` had none, and
+// a Ctrl+C left the campaign /active with its task /in_progress and the coder
+// stopped mid-turn (2026-11-07).
+func campaignRunContext(cmd *cobra.Command) (context.Context, context.CancelFunc) {
+	parent := context.Background()
+	if cmd != nil && cmd.Context() != nil {
+		parent = cmd.Context()
+	}
+	owner, stopSignals := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := operationContext(owner)
+	return ctx, func() {
 		cancel()
-	}()
+		stopSignals()
+	}
+}
+
+func runCampaignStart(cmd *cobra.Command, args []string) error {
+	ctx, cancel := campaignRunContext(cmd)
+	defer cancel()
 
 	goal := joinArgs(args)
 
@@ -638,7 +648,7 @@ func runCampaignPause(cmd *cobra.Command, args []string) error {
 
 // runCampaignResume resumes a paused campaign
 func runCampaignResume(cmd *cobra.Command, args []string) error {
-	ctx, cancel := operationContext(context.Background())
+	ctx, cancel := campaignRunContext(cmd)
 	defer cancel()
 
 	// Resolve workspace
