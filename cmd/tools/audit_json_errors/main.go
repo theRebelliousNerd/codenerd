@@ -299,7 +299,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "%d discarded JSON error(s) not in the baseline:\n\n", len(added))
 		for _, k := range added {
 			f := byKey[k]
-			fmt.Fprintf(os.Stderr, "  %s:%d\n    %s\n", f.file, f.line, strings.ReplaceAll(k, "\t", "  "))
+			fmt.Fprintf(os.Stderr, "%s:%d: discarded JSON error: %s\n", f.file, f.line, strings.ReplaceAll(k, "\t", "  "))
 		}
 		fmt.Fprintf(os.Stderr, `
 Before adding to the baseline, check where the bytes go. A failed Marshal

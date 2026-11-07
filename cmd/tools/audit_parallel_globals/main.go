@@ -197,9 +197,7 @@ func main() {
 	if len(added) > 0 {
 		fmt.Printf("%d parallel test(s) touching process-global state, not in the baseline:\n\n", len(added))
 		for _, f := range added {
-			fmt.Printf("  %s\n", f.pos)
-			fmt.Printf("    %s  %s  %s\n", f.pkg, f.fn, f.call)
-			fmt.Printf("    %s\n", f.reason)
+			fmt.Printf("%s: parallel test touches process-global state: %s  %s  %s: %s\n", f.pos, f.pkg, f.fn, f.call, f.reason)
 		}
 		fmt.Println()
 		fmt.Println("A parallel test reading a process-wide number is measuring its neighbours,")

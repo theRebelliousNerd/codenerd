@@ -650,7 +650,7 @@ func compare(lines []string, dark []field) {
 		fmt.Printf("New dark fields (%d):\n", len(added))
 		for _, l := range added {
 			d := site[l]
-			fmt.Printf("  %s\t%s:%d\n", l, d.File, d.Line)
+			fmt.Printf("%s:%d: dark field (read, never written): %s\n", d.File, d.Line, l)
 		}
 		fmt.Print(`
 Each is read by production code and written by none of it, so it reads as its

@@ -70,6 +70,20 @@ func TestFindings_ReadsEachToolchainsFailures(t *testing.T) {
 			want:   []string{"src/main.rs"},
 		},
 		{
+			// cmd/tools/audit_*: each new finding is one positioned line, so
+			// recurse attributes it to the package that holds it. Indented,
+			// they read as test logs and the whole run was one unattributed
+			// "exit status 1".
+			name: "codeNERD audits name the file of each finding",
+			gate: Gate{ID: "nerd.md:audits", Kind: Audit},
+			output: "7 discarded JSON error(s) not in the baseline:\n\n" +
+				"internal/session/tool_meter.go:164: discarded JSON error: internal/session  Executor.noteToolCall  json.Marshal(call.Input)\n" +
+				"internal/core/kernel_eval_dred_plan.go:106: winner depends on iteration order: internal/core  planOrder  range i\n" +
+				"cmd/nerd/chat/async_test.go:140: parallel test touches process-global state: codenerd/cmd/nerd/chat  TestGoroutineCount_AfterOperations  assertNoGoroutineLeak(): counts goroutines across the whole process\n" +
+				"internal/session/importer_packages.go:82: dark field (read, never written): modulePackage.ImportPath\n",
+			want: []string{"internal/session/tool_meter.go", "internal/core/kernel_eval_dred_plan.go", "cmd/nerd/chat/async_test.go", "internal/session/importer_packages.go"},
+		},
+		{
 			name:   "unreadable failure still reports one finding",
 			gate:   Gate{ID: "nerd.md:deadcode", Kind: Audit},
 			output: "counting...\nNew unreachable functions (1): pkg.F\n\n",
