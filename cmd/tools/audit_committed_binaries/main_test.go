@@ -37,6 +37,12 @@ func TestExecutableKind(t *testing.T) {
 		{"macho64", []byte{0xCF, 0xFA, 0xED, 0xFE}, "Mach-O 64 (macOS)"},
 		{"macho32", []byte{0xCE, 0xFA, 0xED, 0xFE}, "Mach-O 32 (macOS)"},
 		{"machouniv", []byte{0xCA, 0xFE, 0xBA, 0xBE}, "Mach-O universal (macOS)"},
+		// Short-read pin: a 2-byte PE header fills fewer bytes than the
+		// 4-byte window, so io.ReadFull reports ErrUnexpectedEOF. The
+		// header prefix must still be examined (header[:n]) instead of
+		// treating the short read as "not executable".
+		{"pe-minimal", []byte{'M', 'Z'}, "PE (Windows)"},
+		{"elf-truncated", []byte{0x7F, 'E', 'L'}, ""},
 		{"png", []byte{0x89, 'P', 'N', 'G'}, ""},
 		{"text", []byte("package main\n"), ""},
 		{"empty", []byte{}, ""},
@@ -58,6 +64,78 @@ func TestExecutableKind(t *testing.T) {
 func TestExecutableKind_MissingFile_IsNotTheGatesBusiness(t *testing.T) {
 	if kind, ok := executableKind(filepath.Join(t.TempDir(), "nope")); ok {
 		t.Errorf("missing file reported as %q", kind)
+	}
+}
+
+func TestExecutableKind_TruncatedPrefixNeverMatches(t *testing.T) {
+	dir := t.TempDir()
+	truncated := [][]byte{
+		{0x7F},
+		{0x7F, 'E'},
+		{0x7F, 'E', 'L'},
+		{'M'},
+		{0xCF},
+		{0xCF, 0xFA},
+		{0xCF, 0xFA, 0xED},
+		{0xCE},
+		{0xCE, 0xFA, 0xED},
+		{0xCA},
+		{0xCA, 0xFE},
+		{0xCA, 0xFE, 0xBA},
+	}
+	for i, data := range truncated {
+		p := filepath.Join(dir, "trunc")
+		if err := os.WriteFile(p, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if kind, ok := executableKind(p); ok {
+			t.Errorf("truncated header %d (%q) reported as %q, want no match", i, data, kind)
+		}
+	}
+	if kind, ok := executableKind(dir); ok {
+		t.Errorf("executableKind(directory) = %q, want no match", kind)
+	}
+}
+
+func TestExecutableKind_PinsHeaderPrefixSemantics(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string, data []byte) string {
+		t.Helper()
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, data, 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+		return p
+	}
+	cases := []struct {
+		name string
+		data []byte
+		want string
+	}{
+		// Minimal exact headers must match. The 2-byte PE case is the
+		// pin: a short read (io.ReadFull returns ErrUnexpectedEOF) must
+		// still be examined instead of treated as "not executable".
+		{"pe-minimal", []byte{'M', 'Z'}, "PE (Windows)"},
+		{"elf-minimal", []byte{0x7F, 'E', 'L', 'F'}, "ELF (Linux)"},
+		{"macho64-minimal", []byte{0xCF, 0xFA, 0xED, 0xFE}, "Mach-O 64 (macOS)"},
+		// Magic must be at offset zero: a leading byte defeats every entry.
+		{"pe-offset", []byte{0x00, 'M', 'Z'}, ""},
+		{"elf-offset", []byte{0x00, 0x7F, 'E', 'L', 'F'}, ""},
+		// Only the first four bytes are examined: magic past the header
+		// window must not match a whole-file scan.
+		{"pe-late", []byte{0x00, 0x00, 0x00, 0x00, 'M', 'Z'}, ""},
+		{"elf-late", []byte{0x00, 0x00, 0x00, 0x00, 0x7F, 'E', 'L', 'F'}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := executableKind(write(tc.name, tc.data))
+			if tc.want == "" && ok {
+				t.Errorf("executableKind(%s) = %q, want no match", tc.name, got)
+			}
+			if tc.want != "" && (!ok || got != tc.want) {
+				t.Errorf("executableKind(%s) = (%q, %v), want (%q, true)", tc.name, got, ok, tc.want)
+			}
+		})
 	}
 }
 
@@ -164,6 +242,65 @@ func TestMain_IgnoresUntrackedExecutables(t *testing.T) {
 	}
 }
 
+func TestMain_EmptyIndexReportsZero(t *testing.T) {
+	newAuditRepository(t)
+	out, err := os.CreateTemp(t.TempDir(), "stdout-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stdout
+	os.Stdout = out
+	t.Cleanup(func() {
+		os.Stdout = original
+		if err := out.Close(); err != nil {
+			t.Errorf("close captured stdout: %v", err)
+		}
+	})
+	main()
+	got, err := os.ReadFile(out.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "audit_committed_binaries: 0 tracked files, no compiled executables\n"
+	if string(got) != want {
+		t.Errorf("main() stdout = %q, want %q", got, want)
+	}
+}
+
+func TestMain_TrackedMinimalPeViaCallerIsRejected(t *testing.T) {
+	const childKey = "CODENERD_AUDIT_BINARIES_TEST_CHILD_MINIMAL"
+	if os.Getenv(childKey) == "1" {
+		main()
+		return
+	}
+	newAuditRepository(t)
+	if err := os.WriteFile("tiny-build", []byte{'M', 'Z'}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	auditGit(t, "add", "--", "tiny-build")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(t.Context(), executable, "-test.run=^TestMain_TrackedMinimalPeViaCallerIsRejected$")
+	cmd.Env = append(os.Environ(), childKey+"=1")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err = cmd.Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("main() error = %v, want exit code 1; stderr: %s", err, &stderr)
+	}
+	if got := exitErr.ExitCode(); got != 1 {
+		t.Errorf("main() exit code = %d, want 1; stderr: %s", got, &stderr)
+	}
+	for _, want := range []string{"1 compiled executable(s) tracked in git:", "tiny-build", "PE (Windows)"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("main() stderr = %q, want diagnostic %q", stderr.String(), want)
+		}
+	}
+}
+
 func TestMain_ExitCodes(t *testing.T) {
 	const childKey = "CODENERD_AUDIT_BINARIES_TEST_CHILD"
 	if os.Getenv(childKey) == "1" {
@@ -234,5 +371,16 @@ func TestMain_ExitCodes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestExecutableKind_OpenErrorStaysSilent(t *testing.T) {
+	missing := "/nonexistent-dir-for-audit-test/nope"
+	if kind, ok := executableKind(missing); ok {
+		t.Errorf("executableKind(missing) = %q, want no match", kind)
+	}
+	brokenLink := "/tmp/definitely-missing-audit-link-xyz"
+	if kind, ok := executableKind(brokenLink); ok {
+		t.Errorf("executableKind(broken) = %q, want no match", kind)
 	}
 }

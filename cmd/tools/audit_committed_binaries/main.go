@@ -23,6 +23,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -107,7 +108,7 @@ func executableKind(path string) (string, bool) {
 	defer func() { _ = f.Close() }()
 
 	header := make([]byte, 4)
-	n, _ := f.Read(header)
+	n, _ := io.ReadFull(f, header)
 	header = header[:n]
 
 	for _, kind := range executableMagic {
