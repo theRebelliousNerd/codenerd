@@ -352,6 +352,7 @@ func NewJITPromptCompiler(opts ...CompilerOption) (*JITPromptCompiler, error) {
 		preflight:    newLRUCache[preflightKey, preflightEntry](promptCacheLimit),
 	}
 	compiler.stopContext, compiler.stop = context.WithCancel(context.Background())
+	compiler.selector.stop = compiler.stopContext
 
 	// Default the canonical built-in atoms. The embedded corpus is a
 	// compile-time constant and production treats it as mandatory (the system
