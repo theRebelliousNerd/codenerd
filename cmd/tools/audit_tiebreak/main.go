@@ -76,6 +76,9 @@ type finding struct {
 // selectsKeyByComparison reports whether the body of rng records its key as a
 // running best inside an inequality.
 func selectsKeyByComparison(rng *ast.RangeStmt) bool {
+	if rng == nil || rng.Body == nil {
+		return false
+	}
 	if rng.Key == nil || rng.Value == nil {
 		return false
 	}
@@ -85,39 +88,105 @@ func selectsKeyByComparison(rng *ast.RangeStmt) bool {
 	}
 
 	found := false
+	usesKey := func(expr ast.Expr) bool {
+		if expr == nil {
+			return false
+		}
+		hit := false
+		ast.Inspect(expr, func(n ast.Node) bool {
+			if n == nil {
+				return false
+			}
+			if hit {
+				return false
+			}
+			if id, ok := n.(*ast.Ident); ok && id.Name == key.Name {
+				hit = true
+				return false
+			}
+			return true
+		})
+		return hit
+	}
+	recordsKey := func(n ast.Node) bool {
+		if n == nil {
+			return false
+		}
+		if found {
+			return false
+		}
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		for _, rhs := range assign.Rhs {
+			if usesKey(rhs) {
+				found = true
+				return false
+			}
+		}
+		return true
+	}
 	ast.Inspect(rng.Body, func(n ast.Node) bool {
+		if n == nil {
+			return false
+		}
+		if found {
+			return false
+		}
 		ifs, ok := n.(*ast.IfStmt)
 		if !ok {
 			return true
 		}
-		cmp, ok := ifs.Cond.(*ast.BinaryExpr)
-		if !ok || (cmp.Op != token.GTR && cmp.Op != token.LSS) {
-			return true
+		cond := ifs.Cond
+		if cond == nil {
+			return false
 		}
-		ast.Inspect(ifs.Body, func(m ast.Node) bool {
-			assign, ok := m.(*ast.AssignStmt)
+		if ifs.Body == nil {
+			return false
+		}
+		hasOrdering := false
+		ast.Inspect(cond, func(n ast.Node) bool {
+			if n == nil {
+				return false
+			}
+			if hasOrdering {
+				return false
+			}
+			cmp, ok := n.(*ast.BinaryExpr)
 			if !ok {
 				return true
 			}
-			for _, rhs := range assign.Rhs {
-				if id, ok := rhs.(*ast.Ident); ok && id.Name == key.Name {
-					found = true
-				}
+			if cmp.Op == token.GTR || cmp.Op == token.LSS || cmp.Op == token.GEQ || cmp.Op == token.LEQ {
+				hasOrdering = true
+				return false
 			}
 			return true
 		})
+		if !hasOrdering {
+			return true
+		}
+		if ifs.Body != nil {
+			ast.Inspect(ifs.Body, recordsKey)
+		}
+		if !found && ifs.Else != nil {
+			ast.Inspect(ifs.Else, recordsKey)
+		}
 		return true
 	})
 	return found
 }
 
 func enclosingFunc(file *ast.File, pos token.Pos) string {
+	if file == nil || !pos.IsValid() {
+		return "<file scope>"
+	}
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || pos < fn.Pos() || pos > fn.End() {
+		if !ok || fn.Name == nil || pos < fn.Pos() || pos > fn.End() {
 			continue
 		}
-		if fn.Recv != nil && len(fn.Recv.List) == 1 {
+		if fn.Recv != nil && len(fn.Recv.List) > 0 && fn.Recv.List[0].Type != nil {
 			var buf bytes.Buffer
 			_ = printer.Fprint(&buf, token.NewFileSet(), fn.Recv.List[0].Type)
 			return strings.TrimPrefix(buf.String(), "*") + "." + fn.Name.Name
@@ -160,7 +229,11 @@ func scan() ([]finding, error) {
 				if !ok || !selectsKeyByComparison(rng) {
 					return true
 				}
-				keyName := rng.Key.(*ast.Ident).Name
+				keyIdent, ok := rng.Key.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				keyName := keyIdent.Name
 				out = append(out, finding{
 					key: fmt.Sprintf("%s\t%s\trange %s",
 						filepath.ToSlash(filepath.Dir(path)),
@@ -188,6 +261,9 @@ func scan() ([]finding, error) {
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].key != out[j].key {
 			return out[i].key < out[j].key
+		}
+		if out[i].file != out[j].file {
+			return out[i].file < out[j].file
 		}
 		return out[i].line < out[j].line
 	})
