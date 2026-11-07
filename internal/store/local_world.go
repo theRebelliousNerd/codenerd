@@ -204,7 +204,7 @@ func (s *LocalStore) LoadAllWorldFacts(depth string) ([]WorldFactInput, error) {
 	// A copy of a live 564k-row cache reads in 1.4 s; the boot measured
 	// 5.9 s. Report the mutex wait apart from the read when it is slow.
 	if total := time.Since(start); total >= worldWriteSlow {
-		logging.StoreWarn("world cache read slow: %d rows in %v (store lock wait %v)",
+		reportWorldCacheTiming(locked.Sub(start), "world cache read: %d rows in %v (store lock wait %v)",
 			len(out), total.Round(time.Millisecond), locked.Sub(start).Round(time.Millisecond))
 	}
 	return out, nil
@@ -305,8 +305,26 @@ type worldWritePhases struct {
 	start, locked, firstWrite, written time.Time
 }
 
-// worldWriteSlow is the total above which a write reports its phases.
+// worldWriteSlow is the total above which a world-cache read or write
+// reports its phases.
 const worldWriteSlow = time.Second
+
+// worldCacheWaitWarn is the lock wait that makes a slow world-cache call a
+// warning. Reading or writing a few hundred thousand rows takes a second or
+// two by itself (564k rows read in 1.4-1.7 s at boot); that is reported at
+// INFO. Time spent waiting for this store's mutex or SQLite's write lock is
+// contention, and that is the warning.
+const worldCacheWaitWarn = 500 * time.Millisecond
+
+// reportWorldCacheTiming logs a slow world-cache call: a warning when wait,
+// the time spent on locks, is contention, else an INFO line.
+func reportWorldCacheTiming(wait time.Duration, format string, args ...any) {
+	if wait >= worldCacheWaitWarn {
+		logging.StoreWarn(format, args...)
+		return
+	}
+	logging.Store(format, args...)
+}
 
 func (p worldWritePhases) log(files, rows int) {
 	done := time.Now()
@@ -314,7 +332,7 @@ func (p worldWritePhases) log(files, rows int) {
 	if total < worldWriteSlow {
 		return
 	}
-	logging.StoreWarn("world cache write slow: %d files, %d rows in %v (store lock wait %v, sqlite write lock %v, rows %v, commit %v)",
+	reportWorldCacheTiming(p.locked.Sub(p.start)+p.firstWrite.Sub(p.locked), "world cache write: %d files, %d rows in %v (store lock wait %v, sqlite write lock %v, rows %v, commit %v)",
 		files, rows, total.Round(time.Millisecond),
 		p.locked.Sub(p.start).Round(time.Millisecond),
 		p.firstWrite.Sub(p.locked).Round(time.Millisecond),
