@@ -359,7 +359,18 @@ func structuredShellCommand(toolName string, args map[string]any) string {
 	case "git_log":
 		return joinStructuredCommand("git log", args, "format", "since", "author", "path")
 	case "git_operation":
-		return joinStructuredCommand("git "+stringArg(args, "operation"), args, "args", "message", "branch", "files")
+		op := stringArg(args, "operation")
+		lowerOp := strings.ToLower(op)
+		if lowerOp == "gh" {
+			return joinStructuredCommand("gh", args, "args", "message", "branch", "files")
+		}
+		if strings.HasPrefix(lowerOp, "gh ") {
+			return joinStructuredCommand("gh "+strings.TrimSpace(op[3:]), args, "args", "message", "branch", "files")
+		}
+		if ghSubcommands[lowerOp] {
+			return joinStructuredCommand("gh "+lowerOp, args, "args", "message", "branch", "files")
+		}
+		return joinStructuredCommand("git "+op, args, "args", "message", "branch", "files")
 	case "run_tests":
 		return joinStructuredCommand(ShellCommand(args), args, "pattern")
 	default:
@@ -396,6 +407,110 @@ var knownMutations = []string{
 	"remove-item", "clear-content", "set-content", "add-content",
 	"new-item", "move-item", "copy-item", "rename-item", "out-file",
 	"export-csv", "set-item", "set-acl",
+}
+
+// ghSubcommands are the GitHub CLI (gh) top-level subcommands that
+// git_operation can invoke directly or via operation="gh".
+var ghSubcommands = map[string]bool{
+	"pr":          true,
+	"issue":       true,
+	"run":         true,
+	"workflow":    true,
+	"release":     true,
+	"repo":        true,
+	"api":         true,
+	"gist":        true,
+	"search":      true,
+	"auth":        true,
+	"label":       true,
+	"project":     true,
+	"cache":       true,
+	"variable":    true,
+	"secret":      true,
+	"ruleset":     true,
+	"attestation": true,
+	"browse":      true,
+	"codespace":   true,
+	"org":         true,
+	"gpg-key":     true,
+	"ssh-key":     true,
+}
+
+// ghAllowedSubcommands includes ghSubcommands plus observational top-level gh
+// verbs that do not collide with git_operation's native git verbs when invoked
+// explicitly as "gh <verb>".
+var ghAllowedSubcommands = map[string]bool{
+	"pr":          true,
+	"issue":       true,
+	"run":         true,
+	"workflow":    true,
+	"release":     true,
+	"repo":        true,
+	"api":         true,
+	"gist":        true,
+	"search":      true,
+	"auth":        true,
+	"label":       true,
+	"project":     true,
+	"cache":       true,
+	"variable":    true,
+	"secret":      true,
+	"ruleset":     true,
+	"attestation": true,
+	"browse":      true,
+	"codespace":   true,
+	"org":         true,
+	"gpg-key":     true,
+	"ssh-key":     true,
+	"status":      true,
+	"version":     true,
+	"--version":   true,
+	"help":        true,
+	"--help":      true,
+}
+
+var ghMutatingPrefixes = []string{
+	"gh pr checkout",
+	"gh co",
+	"gh repo clone",
+	"gh repo sync",
+	"gh repo delete",
+	"gh repo archive",
+	"gh repo rename",
+	"gh release download",
+	"gh run download",
+	"gh attestation download",
+	"gh codespace cp",
+	"gh config set",
+	"gh alias",
+	"gh extension",
+	"gh auth login",
+	"gh auth logout",
+	"gh auth setup-git",
+}
+
+func classifyGitHubCLI(lower string) (ShellEffectKind, bool) {
+	if !hasCommandPrefix(lower, "gh") {
+		return ShellEffectNone, false
+	}
+	for _, prefix := range ghMutatingPrefixes {
+		if hasCommandPrefix(lower, prefix) {
+			return ShellEffectMutating, true
+		}
+	}
+	for _, flag := range []string{"--clobber", "--dir "} {
+		if strings.Contains(lower+" ", flag) {
+			return ShellEffectMutating, true
+		}
+	}
+	fields := strings.Fields(lower)
+	if len(fields) < 2 {
+		return ShellEffectUnknownMutating, true
+	}
+	if ghAllowedSubcommands[fields[1]] {
+		return ShellEffectReadOnly, true
+	}
+	return ShellEffectUnknownMutating, true
 }
 
 // maskQuotedSegments replaces every character inside a balanced pair of
@@ -505,6 +620,10 @@ func ClassifyShellEffect(command string) ShellEffectKind {
 			return ShellEffectReadOnly
 		}
 		return ShellEffectUnknownMutating
+	}
+
+	if kind, ok := classifyGitHubCLI(lower); ok {
+		return kind
 	}
 
 	readOnly := []string{

@@ -561,3 +561,44 @@ func TestTargetPaths_ReadsTheDeclaredWriteSet(t *testing.T) {
 		t.Fatal("paths must be an array")
 	}
 }
+
+func TestValidateShellToolInvocation_GitHubCLI(t *testing.T) {
+	allowed := []map[string]any{
+		{"operation": "gh", "args": "pr list --state open"},
+		{"operation": "gh pr view", "args": "12 --json title,state"},
+		{"operation": "issue", "args": "create --title 'Bug' --body 'Details'"},
+		{"operation": "run", "args": "list --limit 5"},
+		{"operation": "workflow", "args": "list"},
+		{"operation": "release", "args": "list"},
+		{"operation": "repo", "args": "view --json name,defaultBranchRef"},
+		{"operation": "api", "args": "repos/owner/repo/pulls"},
+		{"operation": "search", "args": "issues --repo owner/repo bug"},
+		{"operation": "auth", "args": "status"},
+		{"operation": "gh status"},
+	}
+	for _, args := range allowed {
+		kind, cmd, err := ValidateShellToolInvocation("git_operation", args)
+		if err != nil {
+			t.Errorf("ValidateShellToolInvocation(%v) unexpected error: %v (cmd=%q)", args, err, cmd)
+		}
+		if kind != ShellEffectReadOnly {
+			t.Errorf("ValidateShellToolInvocation(%v) kind = %s, want read_only (cmd=%q)", args, kind, cmd)
+		}
+	}
+
+	blocked := []map[string]any{
+		{"operation": "gh", "args": "pr checkout 12"},
+		{"operation": "gh", "args": "repo clone owner/repo"},
+		{"operation": "gh", "args": "repo delete owner/repo --yes"},
+		{"operation": "gh", "args": "release download v1.0.0"},
+		{"operation": "gh", "args": "run download 12345"},
+		{"operation": "gh", "args": "config set editor vim"},
+		{"operation": "gh", "args": "extension install owner/gh-ext"},
+	}
+	for _, args := range blocked {
+		kind, cmd, err := ValidateShellToolInvocation("git_operation", args)
+		if err == nil {
+			t.Errorf("ValidateShellToolInvocation(%v) succeeded (kind=%s cmd=%q), want blocked", args, kind, cmd)
+		}
+	}
+}

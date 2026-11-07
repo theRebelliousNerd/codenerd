@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/evidence"
 	"codenerd/internal/testfacts"
+	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
 
@@ -133,6 +134,7 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 			if buildRed || testsRed {
 				return fmt.Errorf("%w: final workspace failed mechanical checks: %s", ErrVerificationFailed, failedChecksSummary(result))
 			}
+			e.closeCampaignCheck(ctx, result)
 		}
 	}
 	if result.acceptanceTransaction != nil {
@@ -145,6 +147,34 @@ func (e *Executor) closeChangeEvidence(ctx context.Context, result *ExecutionRes
 		}
 	}
 	return nil
+}
+
+// closeCampaignCheck measures the declared campaign acceptance check at turn
+// closure when the post-edit rounds left it unmet (for example because a
+// narrow-steered turn deferred repository-wide checks to closure, or a
+// post-edit round wrote after an earlier run_check). An already passing or
+// failing post-write receipt is preserved without re-running.
+func (e *Executor) closeCampaignCheck(ctx context.Context, result *ExecutionResult) {
+	if e == nil || e.kernel == nil || result == nil {
+		return
+	}
+	if _, ok := tools.CampaignCheckFrom(ctx); !ok {
+		return
+	}
+	if !e.modularTools().Has("run_check") {
+		return
+	}
+	turn := result.turnAtom()
+	e.ensureWriteSequenced(turn, result)
+	pass, fail := e.derivedGate(turn, "/check")
+	if pass || fail {
+		return
+	}
+	checkCtx, takeRuns := tools.WithAcceptanceRunLog(ctx)
+	_, _ = e.modularTools().Execute(checkCtx, "run_check", map[string]any{})
+	for _, run := range takeRuns() {
+		e.noteCheckRun(result, run)
+	}
 }
 
 // remeasureGates measures again, on the workspace as it is now, every gate

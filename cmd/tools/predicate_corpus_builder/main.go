@@ -146,6 +146,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Switch the embedded database from WAL back to rollback-journal mode so
+	// read-only consumers never create transient -wal/-shm sidecar files in
+	// internal/core/defaults/.
+	_, _ = db.Exec("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode=DELETE;")
+
 	// Print summary
 	printSummary(db)
 

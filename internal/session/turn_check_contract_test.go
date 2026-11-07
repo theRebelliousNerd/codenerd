@@ -152,3 +152,66 @@ func TestCheckContract_ReceiptRulesAreScopedAndProtected(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckContract_CloseChangeEvidenceRunsUnmetCheckAfterPostEditWrite(t *testing.T) {
+	reg := tools.NewRegistry()
+	if err := toolscore.RegisterAll(reg); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Register(toolshell.RunCheckTool()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(tools.SwapGlobal(reg))
+	ws := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", ws)
+	kernel, err := core.NewRealKernelWithWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewExecutor(kernel, &testExecutiveStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+	e.config.WorkspaceRoot = ws
+	e.config.EnableSafetyGate = false
+	e.config.VerifyBuildAfterEdits = false
+	e.config.VerifyTestsAfterEdits = false
+	defer e.cleanupTurnFacts()
+	exec := &contractCheckExecutor{exit: 0}
+	toolshell.SetCheckExecutor(exec)
+	defer toolshell.ClearCheckExecutor(exec)
+
+	ctx := tools.WithCampaignCheck(context.Background(), tools.CampaignCheck{
+		CampaignID: "/campaign_closure", TaskID: "/task_closure", Argv: []string{"checker"}, Workspace: ws,
+	})
+	cfg := &jitconfig.EffectiveAgentRuntimeConfig{AllowedTools: []string{"write_file", "run_check"}}
+	result := &ExecutionResult{roundsRan: map[string]bool{"/build": true}}
+	e.prepareTurnCatalog(ctx, result, "/fix")
+
+	// Write in main loop, run_check, then simulate a post-edit round writing again.
+	_, errs := e.executeToolBatch(ctx, []types.ToolCall{{ID: "w1", Name: "write_file", Input: map[string]any{"path": filepath.Join(ws, "notes.md"), "content": "first\n"}}}, cfg, result)
+	if len(errs) != 0 {
+		t.Fatalf("write w1: %v", errs)
+	}
+	e.executeToolBatch(ctx, []types.ToolCall{{ID: "check1", Name: "run_check", Input: map[string]any{}}}, cfg, result)
+	_, errs = e.executeToolBatch(ctx, []types.ToolCall{{ID: "w2", Name: "write_file", Input: map[string]any{"path": filepath.Join(ws, "notes.md"), "content": "second\n"}}}, cfg, result)
+	if len(errs) != 0 {
+		t.Fatalf("write w2: %v", errs)
+	}
+	if got := derivedVerify(t, e, result.turnAtom(), "/check"); got != VerifySkipped {
+		t.Fatalf("before closure check = %v, want VerifySkipped after post-check write", got)
+	}
+
+	if err := e.closeChangeEvidence(ctx, result, ""); err != nil {
+		t.Fatalf("closeChangeEvidence: %v", err)
+	}
+	if got := derivedVerify(t, e, result.turnAtom(), "/check"); got != VerifyPassed {
+		t.Fatalf("after closure check = %v, want VerifyPassed", got)
+	}
+	if len(exec.commands) != 2 {
+		t.Fatalf("exec.commands = %d, want 2 (initial run_check + closure run_check)", len(exec.commands))
+	}
+
+	// Calling closeCampaignCheck again when /check is already passing must not re-run.
+	e.closeCampaignCheck(ctx, result)
+	if len(exec.commands) != 2 {
+		t.Fatalf("exec.commands after second closeCampaignCheck = %d, want 2", len(exec.commands))
+	}
+}

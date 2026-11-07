@@ -582,6 +582,18 @@ dangerous_content(/git_operation, Payload) :-
     :string:contains(Payload, "\"operation\":\"push\""),
     :string:contains(Payload, "-f").
 
+dangerous_content(/run_command, Payload) :-
+    pending_action(_, /run_command, _, Payload, _),
+    :string:contains(Payload, "gh repo delete").
+
+dangerous_content(/bash, Payload) :-
+    pending_action(_, /bash, _, Payload, _),
+    :string:contains(Payload, "gh repo delete").
+
+dangerous_content(/git_operation, Payload) :-
+    pending_action(_, /git_operation, _, Payload, _),
+    :string:contains(Payload, "repo delete").
+
 # Investigation operations
 safe_action(/investigate_anomaly).
 

@@ -489,3 +489,31 @@ func TestOrchestratorFailure_MassiveAttempts(t *testing.T) {
 		t.Fatalf("handleTaskFailure took too long with 100k attempts: %v", duration)
 	}
 }
+
+func TestOrchestratorFailure_RecursePhaseStalledTaskFailsWithoutReplan(t *testing.T) {
+	t.Parallel()
+	replanTrue := true
+	orch, kernel := newPolicyFailureOrchestrator(t, func(c *config.CampaignConfig) {
+		c.MaxTaskAttempts = 4
+		c.ReplanAtAttemptCap = &replanTrue
+	}, Task{
+		ID:          "/task_recurse_0_0",
+		PhaseID:     "/phase_0",
+		Description: "fix recurse finding",
+		Status:      TaskInProgress,
+		Type:        TaskTypeFileModify,
+	})
+	orch.campaign.Phases[0].Category = "/recurse"
+	if err := kernel.Assert(core.Fact{Predicate: "phase_category", Args: []any{orch.campaign.Phases[0].ID, core.MangleAtom("/recurse")}}); err != nil {
+		t.Fatalf("assert phase_category: %v", err)
+	}
+	phase := &orch.campaign.Phases[0]
+	live := &phase.Tasks[0]
+	orch.handleTaskFailure(context.Background(), phase, live, withSignals(errors.New("verdict loop stalled"), "/unverified", "/stalled"))
+	if live.Status != TaskFailed {
+		t.Fatalf("recurse stalled task status = %s, want %s", live.Status, TaskFailed)
+	}
+	if live.ReplannedAtCap {
+		t.Fatalf("recurse stalled task triggered replan inside single-task attempt campaign")
+	}
+}
