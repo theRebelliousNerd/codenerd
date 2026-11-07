@@ -144,6 +144,7 @@
 "capability/regenerate":{"content_hash":"ac1f79f9d055acfd4b2902233777b5ca341c3aa2212e8ef255897acc2123ac00","level":4,"score":3.03,"probabilities":[0,0.01,0.1,0.74,0.15]},
 "capability/run_check":{"content_hash":"8ad200d7ce60db481b06e5a63a0190f7ffee20283f7f03b3dcd9a0508862e010","level":4,"score":2.81,"probabilities":[0,0.01,0.18,0.8,0.01]},
 "capability/run_lint":{"content_hash":"69f0de0d8d8173ec34f34ca3413d71564ede3fee20710bca42179af3bf34cd17","level":4,"score":2.5,"probabilities":[0,0.02,0.48,0.47,0.03]},
+"capability/spec_links":{"content_hash":"18d83f38a7a0ec9a7a8d003b352cee8b8262c43327c686dcfa8586f104c15a27","level":3,"score":2.25,"probabilities":[0,0.18,0.37,0.45,0]},
 "capability/specialist_fallback":{"content_hash":"5a5498ac0b749be18ba932691dd2e1c36a13dfebd859019991f360fea48f4aff","level":3,"score":2.09,"probabilities":[0.01,0.08,0.71,0.2,0]},
 "capability/structure_queries":{"content_hash":"c692303ae0293508d5dd6bdc48524189bfa803df281d8d2fadf611f8537d1ed5","level":3,"score":2.03,"probabilities":[0,0.01,0.95,0.04,0]},
 "capability/structure_queries/caller-marks-and-search-gate":{"content_hash":"2d8a3584f128b993e6dc00593fff1867bb419b8a0c876ad9a14d62ffdb6b3a3f","level":4,"score":2.51,"probabilities":[0,0,0.48,0.52,0]},
