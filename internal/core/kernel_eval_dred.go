@@ -729,30 +729,47 @@ func (r *dredRun) derives(ctx engine.QueryContext, rule dredRule, a ast.Atom) (b
 	if err != nil {
 		return false, nil // the head cannot take a's values
 	}
-	solutions := []unionfind.UnionFind{sol}
-	for _, premise := range rule.clause.Premises {
-		var out []unionfind.UnionFind
-		for _, s := range solutions {
-			step, err := ctx.EvalPremise(premise, s)
+	bound := make(map[ast.Variable]bool, len(xs))
+	for _, x := range xs {
+		if v, ok := x.(ast.Variable); ok {
+			bound[v] = true
+		}
+	}
+	order := planOrder(rule.clause, -1, bound, r.isDeferred)
+	// Existential: the first body solution whose head is a ends the search.
+	// An evaluation error still ends it as an error, as before.
+	var witness func(k int, s unionfind.UnionFind) (bool, error)
+	witness = func(k int, s unionfind.UnionFind) (bool, error) {
+		if k == len(order) {
+			heads, err := headsOf(rule.clause, []unionfind.UnionFind{s})
 			if err != nil {
 				return false, err
 			}
-			out = append(out, step...)
-		}
-		if solutions = out; len(solutions) == 0 {
+			for _, h := range heads {
+				if h.Equals(a) {
+					return true, nil
+				}
+			}
 			return false, nil
 		}
-	}
-	heads, err := headsOf(rule.clause, solutions)
-	if err != nil {
-		return false, err
-	}
-	for _, h := range heads {
-		if h.Equals(a) {
-			return true, nil
+		step, err := ctx.EvalPremise(rule.clause.Premises[order[k]], s)
+		if err != nil {
+			return false, err
 		}
+		for _, next := range step {
+			if ok, err := witness(k+1, next); ok || err != nil {
+				return ok, err
+			}
+		}
+		return false, nil
 	}
-	return false, nil
+	return witness(0, sol)
+}
+
+// isDeferred reports whether sym is answered top-down (deferred()).
+func (r *dredRun) isDeferred(sym ast.PredicateSym) bool {
+	d := r.k.programInfo.Decls[sym]
+	return d != nil && d.DeferredPredicate()
 }
 
 // variant evaluates clause with premise pi reading only delta (a negated
@@ -778,15 +795,11 @@ func (r *dredRun) variantSolutions(ctx engine.QueryContext, clause ast.Clause, p
 	} else {
 		deltaPremise = clause.Premises[pi].(ast.Atom)
 	}
-	order := make([]int, 0, len(clause.Premises))
+	var order []int
 	if plainAtom(deltaPremise) {
-		order = append(order, pi)
-		for i := range clause.Premises {
-			if i != pi {
-				order = append(order, i)
-			}
-		}
+		order = planOrder(clause, pi, nil, r.isDeferred)
 	} else {
+		order = make([]int, 0, len(clause.Premises))
 		for i := range clause.Premises {
 			order = append(order, i)
 		}

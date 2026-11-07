@@ -283,8 +283,13 @@ func (r *dredRun) groupRows(ctx engine.QueryContext, rule dredRule, sub unionfin
 		})
 		return rows, err
 	}
+	bound := make(map[ast.Variable]bool, len(rule.agg.groupVars))
+	for _, v := range rule.agg.groupVars {
+		bound[v] = true
+	}
 	solutions := []unionfind.UnionFind{sub}
-	for _, premise := range clause.Premises {
+	for _, i := range planOrder(clause, -1, bound, r.isDeferred) {
+		premise := clause.Premises[i]
 		var out []unionfind.UnionFind
 		for _, s := range solutions {
 			step, err := ctx.EvalPremise(premise, s)
