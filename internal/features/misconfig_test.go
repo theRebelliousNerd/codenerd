@@ -60,3 +60,73 @@ func TestMisconfigurations_WhenEveryValueParses_ShouldBeEmpty(t *testing.T) {
 		t.Errorf("Misconfigurations() = %v for values that all parse", got)
 	}
 }
+
+func TestEnvInt_CanonicalGarbageFallsThroughToLegacy(t *testing.T) {
+	SetActive(nil)
+	t.Cleanup(func() { SetActive(nil) })
+	// A garbage canonical value is "no override", so the legacy var still decides.
+	t.Setenv("CODENERD_FAST_SCAN_WORKERS", "eight")
+	t.Setenv("NERD_FAST_SCAN_WORKERS", "6")
+	if got := FastScanWorkers(); got != 6 {
+		t.Fatalf("FastScanWorkers() = %d, want 6 (garbage canonical must fall through to legacy)", got)
+	}
+	t.Setenv("CODENERD_FAST_AST_MAX_BYTES", "huge")
+	t.Setenv("NERD_FAST_AST_MAX_BYTES", "4096")
+	if got := FastASTMaxBytes(); got != 4096 {
+		t.Fatalf("FastASTMaxBytes() = %d, want 4096 (garbage canonical must fall through to legacy)", got)
+	}
+}
+
+func TestEnvInt_WhitespaceTrimmedAndZeroIgnored(t *testing.T) {
+	SetActive(nil)
+	t.Cleanup(func() { SetActive(nil) })
+	// envInt trims surrounding whitespace before parsing.
+	t.Setenv("CODENERD_FAST_SCAN_WORKERS", "  8  ")
+	t.Setenv("NERD_FAST_SCAN_WORKERS", "")
+	if got := FastScanWorkers(); got != 8 {
+		t.Fatalf("FastScanWorkers() = %d, want 8 (surrounding spaces must be trimmed)", got)
+	}
+	// "0" is not a positive integer, so it is ignored like an unset var.
+	t.Setenv("CODENERD_FAST_SCAN_WORKERS", "0")
+	t.Setenv("NERD_FAST_SCAN_WORKERS", "")
+	if got := FastScanWorkers(); got != 0 {
+		t.Fatalf("FastScanWorkers() = %d, want 0 (zero must resolve as unset)", got)
+	}
+	got := strings.Join(Misconfigurations(), "\n")
+	if !strings.Contains(got, `CODENERD_FAST_SCAN_WORKERS="0"`) {
+		t.Errorf("Misconfigurations() should report the ignored zero value:\n%s", got)
+	}
+}
+
+func TestMisconfigurations_WhitespaceOnlyIsUnset(t *testing.T) {
+	SetActive(nil)
+	t.Cleanup(func() { SetActive(nil) })
+	t.Setenv("CODENERD_DARK_MODE", "   ")
+	t.Setenv("CODENERD_FAST_SCAN_WORKERS", "   ")
+	if got := Misconfigurations(); len(got) != 0 {
+		t.Errorf("Misconfigurations() = %v, want empty for whitespace-only values", got)
+	}
+}
+
+func TestDeprecations_GarbageLegacyStillReported(t *testing.T) {
+	SetActive(nil)
+	t.Cleanup(func() { SetActive(nil) })
+	// Deprecations keys off presence, not parseability: a garbage legacy value
+	// is still doing nothing the operator must hear about, and Misconfigurations
+	// reports the same var as ignored.
+	t.Setenv("CODENERD_FLIGHT_RECORDER", "")
+	t.Setenv("NERD_FLIGHTREC", "on")
+	dep := strings.Join(Deprecations(), "\n")
+	if !strings.Contains(dep, "NERD_FLIGHTREC") {
+		t.Fatalf("Deprecations() omitted garbage legacy value:\n%s", dep)
+	}
+	mis := strings.Join(Misconfigurations(), "\n")
+	if !strings.Contains(mis, `NERD_FLIGHTREC="on"`) {
+		t.Errorf("Misconfigurations() omitted garbage legacy value:\n%s", mis)
+	}
+	// Whitespace-only legacy is unset and must stay silent on both surfaces.
+	t.Setenv("NERD_FLIGHTREC", "   ")
+	if got := Deprecations(); len(got) != 0 {
+		t.Errorf("Deprecations() = %v, want empty for whitespace-only legacy", got)
+	}
+}
