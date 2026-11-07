@@ -225,6 +225,9 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 		return ast.Atom{}, fmt.Errorf("Fact: invalid predicate name %q \u2014 must start with a lowercase letter and contain only letters, digits, and underscore", f.Predicate)
 	}
 	var terms []ast.BaseTerm
+	if len(f.Args) > 0 {
+		terms = make([]ast.BaseTerm, 0, len(f.Args))
+	}
 	for _, arg := range f.Args {
 		switch v := arg.(type) {
 		case MangleAtom:

@@ -6,11 +6,31 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"hash/fnv"
 	"reflect"
 	"slices"
 	"strconv"
+	"sync"
 )
+
+// digestBufPool reuses the per-fact digest scratch buffer. edbDigest runs
+// once per inserted fact (150k per boot); the old make([]byte,0,64+len)
+// paid one backing-array alloc per fact.
+var digestBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, 256)
+		return &b
+	},
+}
+
+// digestHashPool reuses the FNV-128a hasher. fnv.New128a allocates a fresh
+// hasher struct per call; Reset lets one hasher serve the whole boot.
+var digestHashPool = sync.Pool{
+	New: func() any {
+		return fnv.New128a()
+	},
+}
 
 // =============================================================================
 // CONTENT FINGERPRINT
@@ -48,17 +68,25 @@ import (
 
 // edbDigest is one held fact's contribution to the EDB content sum.
 func edbDigest(f Fact) [2]uint64 {
-	buf := make([]byte, 0, 64+len(f.Predicate))
+	bufPtr := digestBufPool.Get().(*[]byte)
+	buf := (*bufPtr)[:0]
+	if cap(buf) < len(f.Predicate)+64 {
+		buf = make([]byte, 0, len(f.Predicate)+256)
+	}
 	buf = append(buf, f.Predicate...)
 	buf = append(buf, 0)
 	for _, arg := range f.Args {
 		buf = appendTypedValue(buf, arg)
 		buf = append(buf, 0)
 	}
-	h := fnv.New128a()
+	h := digestHashPool.Get().(hash.Hash)
+	h.Reset()
 	_, _ = h.Write(buf)
 	var sum [16]byte
 	h.Sum(sum[:0])
+	digestHashPool.Put(h)
+	*bufPtr = buf[:0]
+	digestBufPool.Put(bufPtr)
 	return [2]uint64{binary.BigEndian.Uint64(sum[:8]), binary.BigEndian.Uint64(sum[8:])}
 }
 

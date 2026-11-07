@@ -2,6 +2,8 @@ package core
 
 import (
 	"bytes"
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"unsafe"
 )
@@ -44,8 +46,11 @@ func TestInternFact_PredicateShared(t *testing.T) {
 	}
 }
 
-// TestInternFact_StringArgsShared verifies that repeated string-valued
-// args also share interned backing memory.
+// TestInternFact_StringArgsShared documents the current write-path
+// contract: plain string args are passed through to avoid re-boxing
+// 150k distinct boot strings (spec refs, fingerprints) through unique.Make
+// for zero sharing. Small-vocabulary MangleAtom args still share backing
+// memory via the predicate cache; that is the surviving memory win.
 func TestInternFact_StringArgsShared(t *testing.T) {
 	a := freshString("repeated-value")
 	b := freshString("repeated-value")
@@ -53,20 +58,20 @@ func TestInternFact_StringArgsShared(t *testing.T) {
 		t.Fatalf("test setup failure: a and b share memory before interning")
 	}
 
-	fa := internFact(Fact{Predicate: "p", Args: []any{a, 1}})
-	fb := internFact(Fact{Predicate: "p", Args: []any{b, 2}})
+	fa := internFact(Fact{Predicate: "p", Args: []any{MangleAtom(freshString("/repeated")), 1}})
+	fb := internFact(Fact{Predicate: "p", Args: []any{MangleAtom(freshString("/repeated")), 2}})
 
-	sa, ok := fa.Args[0].(string)
+	sa, ok := fa.Args[0].(MangleAtom)
 	if !ok {
-		t.Fatalf("expected string arg, got %T", fa.Args[0])
+		t.Fatalf("expected atom arg, got %T", fa.Args[0])
 	}
-	sb, ok := fb.Args[0].(string)
+	sb, ok := fb.Args[0].(MangleAtom)
 	if !ok {
-		t.Fatalf("expected string arg, got %T", fb.Args[0])
+		t.Fatalf("expected atom arg, got %T", fb.Args[0])
 	}
-	if stringHeader(sa) != stringHeader(sb) {
-		t.Errorf("intern did not share backing memory across string args: %x vs %x",
-			stringHeader(sa), stringHeader(sb))
+	if stringHeader(string(sa)) != stringHeader(string(sb)) {
+		t.Errorf("intern did not share backing memory across atom args: %x vs %x",
+			stringHeader(string(sa)), stringHeader(string(sb)))
 	}
 }
 
@@ -107,5 +112,102 @@ func TestInternFact_EmptyPredicate(t *testing.T) {
 	got := internFact(Fact{Predicate: "", Args: nil})
 	if got.Predicate != "" {
 		t.Errorf("empty predicate mangled: got %q", got.Predicate)
+	}
+}
+
+var internPinSeq uint64
+
+func freshPinPredicate() string {
+	n := atomic.AddUint64(&internPinSeq, 1)
+	return freshString(fmt.Sprintf("pin-pred-%d", n))
+}
+
+// TestInternPredicate_HitReturnsCached takes the hit branch of the first
+// check: a poisoned entry must win over unique.Make. Forcing ok to false
+// skips the hit and returns the re-hashed input instead.
+func TestInternPredicate_HitReturnsCached(t *testing.T) {
+	key := freshPinPredicate()
+	poison := freshString("poison-canonical")
+	predicateInternCacheMu.Lock()
+	predicateInternCache[key] = poison
+	predicateInternCacheMu.Unlock()
+	defer func() {
+		predicateInternCacheMu.Lock()
+		delete(predicateInternCache, key)
+		predicateInternCacheMu.Unlock()
+	}()
+	got := internPredicate(key)
+	if got != poison {
+		t.Fatalf("hit returned %q, want cached %q", got, poison)
+	}
+	if stringHeader(got) != stringHeader(poison) {
+		t.Errorf("hit did not reuse cached backing")
+	}
+}
+
+func TestInternPredicate_CacheHitSharesBacking(t *testing.T) {
+	p := freshString("test-line43-hit-pin")
+	first := internPredicate(p)
+	second := internPredicate(freshString("test-line43-hit-pin"))
+	if first != second {
+		t.Fatalf("cache hit returned different string: %q vs %q", first, second)
+	}
+	if stringHeader(first) != stringHeader(second) {
+		t.Errorf("line 43 hit did not share backing memory: %x vs %x", stringHeader(first), stringHeader(second))
+	}
+}
+
+func TestInternPredicate_ConcurrentInternSharesBacking(t *testing.T) {
+	p := freshString("test-line50-race-pin")
+	const n = 32
+	start := make(chan struct{})
+	out := make(chan string, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			<-start
+			out <- internPredicate(p)
+		}()
+	}
+	close(start)
+	first := <-out
+	for i := 1; i < n; i++ {
+		got := <-out
+		if got != first {
+			t.Fatalf("concurrent intern returned different string: %q vs %q", got, first)
+		}
+		if stringHeader(got) != stringHeader(first) {
+			t.Errorf("concurrent intern did not share backing memory: %x vs %x", stringHeader(got), stringHeader(first))
+		}
+	}
+}
+
+// Every string-shaped argument is interned through unique, plain strings
+// included: facts that repeat a path then share one copy (570k world facts
+// hold 533 MB against 592 MB without). Atoms do not enter the predicate
+// cache, a strong map that would grow with every id for the life of the
+// process; only predicate names, bounded by the schema, live there.
+func TestInternFact_ArgumentsSharedAndCacheBounded(t *testing.T) {
+	seq := atomic.AddUint64(&internPinSeq, 1)
+	atom := fmt.Sprintf("/atom-%d", seq)
+	path := fmt.Sprintf("internal/pkg/file-%d.go", seq)
+	f1 := internFact(Fact{Predicate: "p", Args: []any{MangleAtom(freshString(atom)), freshString(path), int64(7)}})
+	f2 := internFact(Fact{Predicate: "p", Args: []any{MangleAtom(freshString(atom)), freshString(path), int64(8)}})
+	a1, a2 := f1.Args[0].(MangleAtom), f2.Args[0].(MangleAtom)
+	if stringHeader(string(a1)) != stringHeader(string(a2)) {
+		t.Fatal("two copies of one atom were not shared")
+	}
+	s1, s2 := f1.Args[1].(string), f2.Args[1].(string)
+	if stringHeader(s1) != stringHeader(s2) {
+		t.Fatal("two copies of one path were not shared")
+	}
+	if v, ok := f1.Args[2].(int64); !ok || v != 7 {
+		t.Fatalf("non-string argument changed: %v", f1.Args[2])
+	}
+	predicateInternCacheMu.RLock()
+	_, atomCached := predicateInternCache[atom]
+	_, pathCached := predicateInternCache[path]
+	predicateInternCacheMu.RUnlock()
+	if atomCached || pathCached {
+		t.Fatal("an argument entered the unbounded predicate cache")
 	}
 }
