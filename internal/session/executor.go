@@ -197,6 +197,11 @@ type Executor struct {
 	// projectDoc is the workspace's parsed nerd.md, or nil. Used only to render
 	// instructions into the prompt; enforcement reads the kernel.
 	projectDoc *projectdoc.Document
+	// projectModules are the workspace's module nerd.md documents (every
+	// nerd.md below the root). Their bodies are a directory's contributor
+	// guidance, rendered for a turn whose target lies under the directory
+	// (module_guidance.go); their frontmatter is in the kernel like the root's.
+	projectModules []*projectdoc.Document
 
 	// issueRetriever runs the kernel-gated retrieval pass for a turn, or nil.
 	// See issue_retrieval.go.
@@ -1612,7 +1617,7 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	// because it is per-workspace user content, not part of the shipped corpus:
 	// the atom selector has no way to score a document it has never seen, and
 	// budget-driven eviction could silently drop the project's own rules.
-	systemPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(compileResult.Prompt), intent.Target)
+	systemPrompt := e.withCompiledFileContext(ctx, e.withProjectInstructions(ctx, compileResult.Prompt, intent.Target), intent.Target)
 	// 4c. Spawn second: the consultations the kernel derived (expert_spawn),
 	// and the reviews the turn owes after its writes (expert_critique).
 	systemPrompt = e.withExpertConsultations(ctx, systemPrompt, intent, input, expertSel, result, knowledgeDelivered(compileResult))

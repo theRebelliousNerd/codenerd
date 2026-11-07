@@ -183,7 +183,7 @@ func TestProjectForbidsWrite_EnforcedWithoutThePromptCopy(t *testing.T) {
 	if _, denied := e.projectForbidsWrite(call); !denied {
 		t.Fatal("write protection must come from the kernel facts, not from the prompt-rendering field")
 	}
-	if e.withProjectInstructions("system") != "system" {
+	if e.withProjectInstructions(context.Background(), "system", "") != "system" {
 		t.Error("with no doc attached the prompt must be unchanged")
 	}
 }
@@ -225,7 +225,7 @@ func TestProjectForbidsWrite_NoDocMeansNoRestrictions(t *testing.T) {
 
 func TestWithProjectInstructions_AppendsRenderedDoc(t *testing.T) {
 	e := newProtectedExecutor(t)
-	got := e.withProjectInstructions("COMPILED PROMPT")
+	got := e.withProjectInstructions(context.Background(), "COMPILED PROMPT", "")
 
 	if !strings.HasPrefix(got, "COMPILED PROMPT") {
 		t.Error("the compiled prompt must be preserved verbatim at the front")
