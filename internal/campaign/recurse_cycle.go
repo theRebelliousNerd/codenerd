@@ -227,6 +227,93 @@ type gateRun struct {
 	findings      []gates.Finding
 }
 
+type persistedGateRun struct {
+	Snapshot      string                  `json:"snapshot,omitempty"`
+	Result        gates.Result            `json:"result"`
+	Invocations   []gates.Result          `json:"invocations,omitempty"`
+	ByFinding     map[string]gates.Result `json:"by_finding,omitempty"`
+	FindingPath   map[string]string       `json:"finding_path,omitempty"`
+	AllFindingIDs map[string]bool         `json:"all_finding_ids,omitempty"`
+	Truncated     bool                    `json:"truncated,omitempty"`
+	Findings      []gates.Finding         `json:"findings,omitempty"`
+}
+
+type persistedWorkspaceState struct {
+	Commit string                      `json:"commit"`
+	Pass   int                         `json:"pass"`
+	State  map[string]persistedGateRun `json:"state"`
+}
+
+func workspaceStatePath(root string) string {
+	return filepath.Join(recurseDir(root), "state.json")
+}
+
+func (r *recurseRun) saveWorkspaceState(ctx context.Context, pass int) {
+	if len(r.state) == 0 {
+		_ = os.Remove(workspaceStatePath(r.root))
+		return
+	}
+	head, err := r.git.commitOf(ctx, "HEAD")
+	if err != nil || head == "" {
+		return
+	}
+	saved := persistedWorkspaceState{
+		Commit: head,
+		Pass:   pass,
+		State:  make(map[string]persistedGateRun, len(r.state)),
+	}
+	for k, run := range r.state {
+		saved.State[k] = persistedGateRun{
+			Snapshot:      run.snapshot,
+			Result:        run.result,
+			Invocations:   run.invocations,
+			ByFinding:     run.byFinding,
+			FindingPath:   run.findingPath,
+			AllFindingIDs: run.allFindingIDs,
+			Truncated:     run.truncated,
+			Findings:      run.findings,
+		}
+	}
+	data, err := json.Marshal(saved)
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(recurseDir(r.root), 0o755)
+	_ = os.WriteFile(workspaceStatePath(r.root), data, 0o644)
+}
+
+func (r *recurseRun) loadWorkspaceState(ctx context.Context, pass int) bool {
+	head, err := r.git.commitOf(ctx, "HEAD")
+	if err != nil || head == "" {
+		return false
+	}
+	data, err := os.ReadFile(workspaceStatePath(r.root))
+	if err != nil {
+		return false
+	}
+	var saved persistedWorkspaceState
+	if err := json.Unmarshal(data, &saved); err != nil {
+		return false
+	}
+	if saved.Commit != head || saved.Pass != pass || len(saved.State) == 0 {
+		return false
+	}
+	for k, run := range saved.State {
+		r.state[k] = gateRun{
+			snapshot:      run.Snapshot,
+			result:        run.Result,
+			invocations:   run.Invocations,
+			byFinding:     run.ByFinding,
+			findingPath:   run.FindingPath,
+			allFindingIDs: run.AllFindingIDs,
+			truncated:     run.Truncated,
+			findings:      run.Findings,
+		}
+	}
+	r.reportUnattributed()
+	return true
+}
+
 func (g gateRun) totalFindings() int {
 	if len(g.allFindingIDs) > len(g.findings) {
 		return len(g.allFindingIDs)
@@ -609,10 +696,11 @@ func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) e
 	}
 
 	keptBefore := r.result.Kept
-	if len(r.state) == 0 {
+	if len(r.state) == 0 && !r.loadWorkspaceState(ctx, pass) {
 		if err := r.measureWorkspace(ctx, sw.set, sw.nodes); err != nil {
 			return err
 		}
+		r.saveWorkspaceState(ctx, pass)
 	} else {
 		r.seedSeenFromState()
 	}
@@ -647,6 +735,7 @@ func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) e
 			if err := r.measureWorkspace(ctx, sw.set, sw.nodes); err != nil {
 				return err
 			}
+			r.saveWorkspaceState(ctx, pass)
 			r.logf("recurse pass %d: %d nodes after the absorb, %d open findings", pass, len(sw.nodes), r.openCount())
 			continue
 		}
@@ -674,6 +763,7 @@ func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) e
 			return err
 		}
 	}
+	_ = os.Remove(workspaceStatePath(r.root))
 	r.seenLastPass, r.seenThisPass = r.seenThisPass, map[string]bool{}
 	return r.journal.append(recurseRecord{Step: stepPassEnd, Pass: pass, Open: r.openCount()})
 }
@@ -1565,6 +1655,7 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) (r
 		for k, run := range after {
 			r.state[k] = run
 		}
+		r.saveWorkspaceState(ctx, v.pass)
 		r.noteTreeChange(changed)
 		if gatesAfter != nil {
 			merged := r.gateBaseline.Overlay(*gatesAfter)

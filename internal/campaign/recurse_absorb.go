@@ -3,6 +3,7 @@ package campaign
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"slices"
 	"strings"
@@ -156,6 +157,7 @@ func (r *recurseRun) absorbed(ctx context.Context, pass int, res absorbResult) e
 // (deriveSweep); the next cycles measure the new tree.
 func (r *recurseRun) invalidateTree() {
 	r.state = map[string]gateRun{}
+	_ = os.Remove(workspaceStatePath(r.root))
 	r.gateBaseline = nil
 	r.efGroups, r.efOpen = nil, nil
 	r.efDirty = true

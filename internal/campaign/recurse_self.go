@@ -160,6 +160,7 @@ func (r *recurseRun) selfUpdate(ctx context.Context, pass int) error {
 	if err := r.journal.append(recurseRecord{Step: stepReexec, Pass: pass, Commit: head, Detail: bin}); err != nil {
 		return err
 	}
+	r.saveWorkspaceState(ctx, pass)
 	r.result.Restart = &RecurseRestart{Binary: bin, Commit: head}
 	return ErrRecurseRestart
 }
