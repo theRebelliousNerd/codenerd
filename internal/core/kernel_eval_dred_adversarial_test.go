@@ -484,3 +484,85 @@ func TestDRedAliasPredicateSwapsANumberForAnEqualFloat(t *testing.T) {
 		axAssert(t, k, as(int64(1)))
 	})
 }
+
+// int64(1) and float64(1) are different atoms that print as 1. The engine's
+// group_by folds them into one group, so the count is 2 and the rule on that
+// count fires. A numeric group whose values are one type stays maintained.
+func TestDRedAggregateGroupsANumberWithTheFloatThatPrintsLikeIt(t *testing.T) {
+	plain := newPolicyKernel(t, newRealKernelBase(), `
+		Decl ng_p(K, V).
+		Decl ng_h(K, C).
+		ng_h(K, C) :- ng_p(K, V) |> do fn:group_by(K), let C = fn:count().
+	`)
+	row := func(k, v any) Fact { return axFactOf("ng_p", k, v) }
+	axApply(t, plain, "two ints in one group", "dred", func() {
+		axAssert(t, plain, row(MangleAtom("/a"), int64(1)), row(MangleAtom("/a"), int64(2)))
+	})
+	axApply(t, plain, "one int leaves", "dred", func() {
+		axRetract(t, plain, row(MangleAtom("/a"), int64(1)))
+	})
+
+	policy := `
+		Decl ag_a(N) bound [/any].
+		Decl ag_b(N) bound [/any].
+		Decl ag_e(N, X).
+		Decl ag_p(N).
+		Decl ag_h(N, C).
+		Decl ag_big(N).
+		Decl ag_hj(N, C).
+		Decl ag_hj_big(N).
+		ag_p(N) :- ag_a(N).
+		ag_p(N) :- ag_b(N).
+		ag_h(N, C) :- ag_p(N) |> do fn:group_by(N), let C = fn:count().
+		ag_big(N) :- ag_h(N, C), C >= 2.
+		ag_hj(N, C) :- ag_p(N), ag_e(N, X) |> do fn:group_by(N), let C = fn:count().
+		ag_hj_big(N) :- ag_hj(N, C), C >= 2.
+	`
+	k := newPolicyKernel(t, newRealKernelBase(), policy)
+	axApply(t, k, "int and the float that prints as it", "", func() {
+		axAssert(t, k,
+			axFactOf("ag_a", int64(1)), axFactOf("ag_b", float64(1)),
+			axFactOf("ag_e", int64(1), MangleAtom("/a")), axFactOf("ag_e", float64(1), MangleAtom("/b")))
+	})
+	axApply(t, k, "the float leaves", "", func() {
+		axRetract(t, k, axFactOf("ag_b", float64(1)), axFactOf("ag_e", float64(1), MangleAtom("/b")))
+	})
+	axApply(t, k, "the float returns", "", func() {
+		axAssert(t, k, axFactOf("ag_b", float64(1)), axFactOf("ag_e", float64(1), MangleAtom("/b")))
+	})
+
+	// The float already in the store, and the number asserted after it, are
+	// still one group. Which of the two atoms stands for the group follows
+	// the store's iteration order; the count does not.
+	k2 := newPolicyKernel(t, newRealKernelBase(), policy)
+	axApply(t, k2, "float first", "", func() {
+		axAssert(t, k2, axFactOf("ag_b", float64(1)), axFactOf("ag_e", float64(1), MangleAtom("/b")))
+	})
+	axApply(t, k2, "the number joins it", "", func() {
+		axAssert(t, k2, axFactOf("ag_a", int64(1)), axFactOf("ag_e", int64(1), MangleAtom("/a")))
+	})
+	axApply(t, k2, "the number leaves", "", func() {
+		axRetract(t, k2, axFactOf("ag_a", int64(1)), axFactOf("ag_e", int64(1), MangleAtom("/a")))
+	})
+
+	// The group variable is computed (N = V), so no body atom carries it. A
+	// later row of the number, beside a float that prints as that number,
+	// still counts toward the same group.
+	computed := newPolicyKernel(t, newRealKernelBase(), `
+		Decl cg_src(Id, V) bound [/name, /any].
+		Decl cg_h(N, C).
+		Decl cg_big(N).
+		cg_h(N, C) :- cg_src(_, V), N = V |> do fn:group_by(N), let C = fn:count().
+		cg_big(N) :- cg_h(N, C), C >= 2.
+	`)
+	src := func(id string, v any) Fact { return axFactOf("cg_src", MangleAtom(id), v) }
+	axApply(t, computed, "computed key, number and float", "", func() {
+		axAssert(t, computed, src("/a", int64(1)), src("/b", float64(1)))
+	})
+	axApply(t, computed, "computed key, another number joins the group", "", func() {
+		axAssert(t, computed, src("/c", int64(1)))
+	})
+	axApply(t, computed, "computed key, the float leaves", "", func() {
+		axRetract(t, computed, src("/b", float64(1)))
+	})
+}

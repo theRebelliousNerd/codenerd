@@ -68,6 +68,11 @@ import (
 // errDRedIneligible makes evaluate() try the cone path. It is not a fault.
 var errDRedIneligible = errors.New("dred evaluation not eligible")
 
+// errDRedFallsBack is a pass that stopped on a case only a fresh fixpoint
+// decides (an aggregate group key that prints like a different atom): the
+// full path runs, as after a failure, but it is no fault and logs none.
+var errDRedFallsBack = errors.New("dred defers to a fresh fixpoint")
+
 // errChangeTooLarge makes evaluate() run the full fixpoint without trying the
 // cone: the change is most of the store. It is not a fault.
 var errChangeTooLarge = errors.New("change is most of the store")

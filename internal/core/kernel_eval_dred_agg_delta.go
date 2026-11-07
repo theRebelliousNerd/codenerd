@@ -217,6 +217,16 @@ func (r *dredRun) aggregateByDelta(rule dredRule, oldCtx engine.QueryContext) er
 	if len(changes.order) == 0 {
 		return nil
 	}
+	// As for the recompute: a group whose key prints like another atom is the
+	// engine's one group (it keys by printed text), and only a fresh fixpoint
+	// says which atom stands for it.
+	keys := make([][]ast.Constant, len(changes.order))
+	for i, g := range changes.order {
+		keys[i] = g.key
+	}
+	if err := r.printAlikeGroupKeys(rule, keys); err != nil {
+		return err
+	}
 	remover := k.store.(factstore.FactStoreWithRemove)
 	r.dropScratchOf(rule.head.Symbol, remover)
 	for _, g := range changes.order {

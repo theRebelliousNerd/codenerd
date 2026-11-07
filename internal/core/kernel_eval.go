@@ -325,7 +325,11 @@ func (k *RealKernel) evaluate() (err error) {
 	} else if !errors.Is(dredErr, errDRedIneligible) {
 		// The pass may have changed rows; only a fresh store is known good,
 		// and until one replaces it no incremental path may build on it.
-		logging.Get(logging.CategoryKernel).Warn("evaluate: dred evaluation failed, running the full fixpoint: %v", dredErr)
+		if errors.Is(dredErr, errDRedFallsBack) {
+			logging.KernelDebug("evaluate: %v; running the full fixpoint", dredErr)
+		} else {
+			logging.Get(logging.CategoryKernel).Warn("evaluate: dred evaluation failed, running the full fixpoint: %v", dredErr)
+		}
 		stats.ConeFallback = dredErr.Error()
 		k.storeTainted = true
 	} else if err := k.evaluateConeLocked(&stats); err == nil {

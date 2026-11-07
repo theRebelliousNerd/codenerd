@@ -175,6 +175,12 @@ func (r *dredRun) aggregate(rule dredRule, oldCtx engine.QueryContext) error {
 	if len(keys) == 0 {
 		return nil
 	}
+	// The engine groups by the printed key (transformer.groupKeyString), so
+	// int64(1) and float64(1) are one group. Equality keeps them apart, and
+	// the fresh fixpoint is what chooses which atom stands for the group.
+	if err := r.printAlikeGroupKeys(rule, keys); err != nil {
+		return err
+	}
 	remover := k.store.(factstore.FactStoreWithRemove)
 	r.dropScratchOf(rule.head.Symbol, remover)
 	for _, key := range keys {
@@ -451,6 +457,182 @@ func (r *dredRun) dropScratchOf(head string, remover factstore.FactStoreWithRemo
 			remover.Remove(a)
 		}
 	}
+}
+
+// printAlikeGroupKeys reports when a changed group shares its printed key
+// with a different atom: another changed key, a row the head still holds,
+// or a body row an equality-keyed recompute would not read.
+func (r *dredRun) printAlikeGroupKeys(rule dredRule, keys [][]ast.Constant) error {
+	numeric := false
+	for _, key := range keys {
+		if keyHasNumber(key) {
+			numeric = true
+			break
+		}
+	}
+	if !numeric {
+		return nil
+	}
+	for i := range keys {
+		for j := i + 1; j < len(keys); j++ {
+			if keysPrintAlike(keys[i], keys[j]) {
+				return printAlikeGroupError(rule, keys[i])
+			}
+		}
+	}
+	indexes := groupHeadIndexes(rule)
+	if err := r.k.store.GetFacts(ast.NewQuery(rule.head), func(a ast.Atom) error {
+		got, ok := constantsAt(a.Args, indexes)
+		if !ok {
+			return nil
+		}
+		for _, key := range keys {
+			if keysPrintAlike(key, got) {
+				return printAlikeGroupError(rule, key)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	slots, covered := groupKeySlots(rule)
+	if !covered {
+		// The key is computed, not read off one premise, so a twin of it can
+		// sit in the body unseen. A numeric key then cannot be split safely.
+		return printAlikeGroupError(rule, keys[0])
+	}
+	for _, slot := range slots {
+		if err := r.k.store.GetFacts(ast.NewQuery(slot.pred), func(a ast.Atom) error {
+			got, ok := keyFromFact(a, slot.argToKey, len(rule.agg.groupVars))
+			if !ok {
+				return nil
+			}
+			for _, key := range keys {
+				if keysPrintAlike(key, got) {
+					return printAlikeGroupError(rule, key)
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// groupSlot is one positive premise that carries every group variable.
+type groupSlot struct {
+	pred     ast.PredicateSym
+	argToKey map[int]int // premise arg index -> group-key index
+}
+
+func groupKeySlots(rule dredRule) ([]groupSlot, bool) {
+	want := make(map[ast.Variable]int, len(rule.agg.groupVars))
+	for i, v := range rule.agg.groupVars {
+		want[v] = i
+	}
+	var slots []groupSlot
+	for _, pi := range rule.positives {
+		atom := rule.clause.Premises[pi].(ast.Atom)
+		argToKey := make(map[int]int)
+		seen := make(map[int]bool, len(want))
+		for ai, arg := range atom.Args {
+			v, ok := arg.(ast.Variable)
+			if !ok {
+				continue
+			}
+			ki, isGroup := want[v]
+			if !isGroup {
+				continue
+			}
+			argToKey[ai] = ki
+			seen[ki] = true
+		}
+		if len(seen) != len(want) {
+			continue
+		}
+		slots = append(slots, groupSlot{pred: atom.Predicate, argToKey: argToKey})
+	}
+	return slots, len(slots) > 0
+}
+
+func groupHeadIndexes(rule dredRule) []int {
+	indexes := make([]int, len(rule.agg.groupVars))
+	for i, v := range rule.agg.groupVars {
+		for j, arg := range rule.clause.Head.Args {
+			hv, ok := arg.(ast.Variable)
+			if ok && hv == v {
+				indexes[i] = j
+				break
+			}
+		}
+	}
+	return indexes
+}
+
+func constantsAt(args []ast.BaseTerm, indexes []int) ([]ast.Constant, bool) {
+	got := make([]ast.Constant, len(indexes))
+	for i, ix := range indexes {
+		if ix >= len(args) {
+			return nil, false
+		}
+		c, ok := args[ix].(ast.Constant)
+		if !ok {
+			return nil, false
+		}
+		got[i] = c
+	}
+	return got, true
+}
+
+func keyFromFact(a ast.Atom, argToKey map[int]int, n int) ([]ast.Constant, bool) {
+	indexes := make([]int, n)
+	filled := make([]bool, n)
+	for ai, ki := range argToKey {
+		indexes[ki] = ai
+		filled[ki] = true
+	}
+	for _, ok := range filled {
+		if !ok {
+			return nil, false
+		}
+	}
+	return constantsAt(a.Args, indexes)
+}
+
+func keyHasNumber(key []ast.Constant) bool {
+	for _, c := range key {
+		if c.Type == ast.NumberType || c.Type == ast.Float64Type {
+			return true
+		}
+	}
+	return false
+}
+
+// keysPrintAlike reports two keys the engine treats as one group and Mangle
+// equality treats as two.
+func keysPrintAlike(a, b []ast.Constant) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	same := true
+	for i := range a {
+		if a[i].String() != b[i].String() {
+			return false
+		}
+		if !a[i].Equals(b[i]) {
+			same = false
+		}
+	}
+	return !same
+}
+
+func printAlikeGroupError(rule dredRule, key []ast.Constant) error {
+	parts := make([]string, len(key))
+	for i, c := range key {
+		parts[i] = c.String()
+	}
+	return fmt.Errorf("%w: %s: group key %s prints like a different atom", errDRedFallsBack, rule.head.Symbol, strings.Join(parts, ","))
 }
 
 func varsAsTerms(vs []ast.Variable) []ast.BaseTerm {
