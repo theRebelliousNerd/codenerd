@@ -960,6 +960,7 @@ type bootContext struct {
 	ouroborosQueue        chan core.ToolNeed
 	projectDB             *sql.DB
 	atomLoader            *prompt.AtomLoader
+	agentSync             *prsync.AgentSynchronizer
 	jitCompiler           *prompt.JITPromptCompiler
 	rolePrompts           types.RolePromptCompiler
 	promptAssembler       *articulation.PromptAssembler
@@ -1794,6 +1795,7 @@ func initIntelligenceLayer(bctx *bootContext) error {
 		logging.Get(logging.CategoryContext).Info("Re-atomized %d agent prompts.yaml file(s) to the atom cap", n)
 	}
 	synchronizer := prsync.NewAgentSynchronizer(bctx.workspace, bctx.atomLoader)
+	bctx.agentSync = synchronizer
 	if err := synchronizer.SyncAll(bctx.ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Agent sync failed: %v\n", err)
 	}
@@ -2162,21 +2164,17 @@ func initShardManagement(bctx *bootContext) error {
 
 	nerdDir := filepath.Join(bctx.workspace, ".nerd")
 	bctx.shardManager.SetNerdDir(nerdDir)
-	bctx.shardManager.SetPromptLoader(func(ctx context.Context, agentName, nerdDir string) (int, error) {
-		return prompt.LoadAgentPrompts(ctx, agentName, nerdDir, bctx.embeddingEngine)
+	// Boot's SyncAll (initExecutionLayer) already moved every prompts.yaml into
+	// its knowledge DB, before the JIT compiler existed and before the agent
+	// DBs were registered with it, so the compiler sees freshly synced atoms
+	// in the same boot. A spawn re-syncs only its own agent, through the same
+	// synchronizer: unchanged YAML is skipped by hash, changed YAML replaces
+	// the atom set transactionally.
+	bctx.shardManager.SetPromptSyncer(func(ctx context.Context, agentName string) error {
+		_, err := bctx.agentSync.SyncAgent(ctx, agentName)
+		return err
 	})
 	bctx.shardManager.SetJITRegistrar(prompt.CreateJITDBRegistrar(bctx.jitCompiler))
-
-	// Sync all agent prompts.yaml -> knowledge DBs at boot (upsert semantics).
-	// This must run AFTER the agent knowledge DBs exist and AFTER the JIT
-	// registrar is wired so the freshly synced atoms are visible to the
-	// compiler in the same boot; otherwise the JIT would serve stale prompts
-	// until the next TUI/init run.
-	if promptCount, syncErr := prompt.ReloadAllPrompts(bctx.ctx, nerdDir, bctx.embeddingEngine); syncErr != nil {
-		logging.BootWarn("Failed to sync agent prompts: %v", syncErr)
-	} else if promptCount > 0 {
-		logging.Boot("Synced %d prompt atoms from YAML to knowledge DBs", promptCount)
-	}
 
 	bctx.shardManager.RegisterShard("tactile_router", func(id string, _ types.ShardConfig) types.ShardAgent {
 		shard := system.NewTactileRouterShard()

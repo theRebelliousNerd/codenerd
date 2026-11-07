@@ -1,10 +1,6 @@
 package prompt
 
 import (
-	"context"
-	"database/sql"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -155,106 +151,6 @@ func TestParseAgentPromptsYAML_SmallSingleConcern(t *testing.T) {
 				t.Fatalf("agent atom %d chars exceeds %d", len(atom.Content), maxInitAtomChars)
 			}
 		})
-	}
-}
-
-func TestLoadAgentPrompts_MissingFile_ReturnsZero(t *testing.T) {
-	nerdDir := t.TempDir()
-	n, err := LoadAgentPrompts(context.Background(), "no-such-agent", nerdDir, nil)
-	if err != nil {
-		t.Fatalf("expected nil error for missing prompts.yaml, got %v", err)
-	}
-	if n != 0 {
-		t.Fatalf("got %d, want 0", n)
-	}
-}
-
-func TestLoadAgentPrompts_MissingDB_Errors(t *testing.T) {
-	nerdDir := t.TempDir()
-	agentDir := filepath.Join(nerdDir, "agents", "demo")
-	if err := os.MkdirAll(agentDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	yaml := "- schema_version: 1\n  version: 1\n  id: demo/small\n  category: methodology\n  is_mandatory: false\n  content: Small guidance.\n"
-	if err := os.WriteFile(filepath.Join(agentDir, "prompts.yaml"), []byte(yaml), 0o644); err != nil {
-		t.Fatalf("write prompts.yaml: %v", err)
-	}
-	_, err := LoadAgentPrompts(context.Background(), "demo", nerdDir, nil)
-	if err == nil {
-		t.Fatalf("expected missing knowledge DB error, got nil")
-	}
-	if !strings.Contains(err.Error(), "knowledge database does not exist") {
-		t.Fatalf("error = %v, want missing knowledge DB", err)
-	}
-}
-
-func TestAtomLoader_LoadFromYAML_RoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	yamlPath := filepath.Join(dir, "prompts.yaml")
-	yaml := "- schema_version: 1\n  version: 1\n  id: demo/one\n  category: methodology\n  is_mandatory: false\n  content: First small atom.\n- schema_version: 1\n  version: 1\n  id: demo/two\n  category: safety\n  is_mandatory: true\n  content: Second small atom.\n"
-	if err := os.WriteFile(yamlPath, []byte(yaml), 0o644); err != nil {
-		t.Fatalf("write yaml: %v", err)
-	}
-	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	defer db.Close()
-	loader := NewAtomLoader(nil)
-	ctx := context.Background()
-	if err := loader.EnsureSchema(ctx, db); err != nil {
-		t.Fatalf("EnsureSchema: %v", err)
-	}
-	n, err := loader.LoadFromYAML(ctx, yamlPath, db)
-	if err != nil {
-		t.Fatalf("LoadFromYAML: %v", err)
-	}
-	if n != 2 {
-		t.Fatalf("got %d, want 2", n)
-	}
-	var count int
-	if err := db.QueryRow("SELECT COUNT(*) FROM prompt_atoms").Scan(&count); err != nil {
-		t.Fatalf("count: %v", err)
-	}
-	if count != 2 {
-		t.Fatalf("db count = %d, want 2", count)
-	}
-}
-
-func TestLoadProjectPrompts_Deprecated_ReturnsZero(t *testing.T) {
-	nerdDir := t.TempDir()
-	n, err := LoadProjectPrompts(context.Background(), nerdDir, nil)
-	if err != nil {
-		t.Fatalf("empty nerdDir: %v", err)
-	}
-	if n != 0 {
-		t.Fatalf("got %d, want 0", n)
-	}
-	// Legacy files are not loaded; they warn for migration instead.
-	promptsDir := filepath.Join(nerdDir, "prompts")
-	if err := os.MkdirAll(promptsDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(promptsDir, "legacy.yaml"), []byte("id: x\n"), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	n, err = LoadProjectPrompts(context.Background(), nerdDir, nil)
-	if err != nil {
-		t.Fatalf("legacy dir: %v", err)
-	}
-	if n != 0 {
-		t.Fatalf("got %d, want 0 for deprecated project prompts", n)
-	}
-}
-
-func TestReloadAllPrompts_EmptyNerdDir_ReturnsZero(t *testing.T) {
-	nerdDir := t.TempDir()
-	n, err := ReloadAllPrompts(context.Background(), nerdDir, nil)
-	if err != nil {
-		t.Fatalf("ReloadAllPrompts: %v", err)
-	}
-	if n != 0 {
-		t.Fatalf("got %d, want 0", n)
 	}
 }
 

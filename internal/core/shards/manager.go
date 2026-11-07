@@ -85,10 +85,10 @@ type ShardManager struct {
 	sessionID string
 
 	// Workspace paths and callbacks for prompt loading
-	nerdDir      string                 // Path to .nerd directory
-	promptLoader types.PromptLoaderFunc // Callback to load agent prompts (avoids import cycle)
-	jitRegistrar types.JITDBRegistrar   // Callback to register agent DBs with JIT compiler
-	activeJITDBs map[string]func()      // Scoped DB releases, bound to the acquisition at spawn
+	nerdDir      string                    // Path to .nerd directory
+	promptSyncer types.AgentPromptSyncFunc // Callback to sync agent prompts into the agent KB (avoids import cycle)
+	jitRegistrar types.JITDBRegistrar      // Callback to register agent DBs with JIT compiler
+	activeJITDBs map[string]func()         // Scoped DB releases, bound to the acquisition at spawn
 
 	// Optional Glass Box event bus for TUI activity overlay. When set,
 	// the manager emits shard lifecycle events (spawn / completion) so
@@ -213,11 +213,11 @@ func (sm *ShardManager) SetNerdDir(nerdDir string) {
 	logging.ShardsDebug("Nerd directory set: %s", nerdDir)
 }
 
-func (sm *ShardManager) SetPromptLoader(loader types.PromptLoaderFunc) {
+func (sm *ShardManager) SetPromptSyncer(syncer types.AgentPromptSyncFunc) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	sm.promptLoader = loader
-	logging.ShardsDebug("Prompt loader callback set")
+	sm.promptSyncer = syncer
+	logging.ShardsDebug("Prompt syncer callback set")
 }
 
 func (sm *ShardManager) SetJITRegistrar(registrar types.JITDBRegistrar) {

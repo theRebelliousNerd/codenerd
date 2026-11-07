@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	gosync "sync"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
@@ -18,13 +20,24 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// ErrNoAgentPrompts reports that an agent has no .nerd/agents/<name>/prompts.yaml.
+var ErrNoAgentPrompts = errors.New("agent has no prompts.yaml")
+
 // AgentSynchronizer handles the synchronization of agent definitions
-// from YAML files into shard-specific SQLite databases.
+// from YAML files into shard-specific SQLite databases. It is the only path
+// agent prompts.yaml takes into a knowledge DB: boot, init, mid-session
+// activation and the shard manager's per-spawn refresh all come through
+// SyncAll or SyncAgent, so an unchanged file is skipped by content hash and a
+// changed one replaces the atom set in one transaction.
 type AgentSynchronizer struct {
-	baseDir          string // .nerd/agents
-	shardsDir        string // .nerd/shards
-	atomLoader       *prompt.AtomLoader
-	discoveredAgents []DiscoveredAgent // Agents found during last SyncAll
+	baseDir    string // .nerd/agents
+	shardsDir  string // .nerd/shards
+	atomLoader *prompt.AtomLoader
+
+	// mu serializes syncs (one writer per knowledge DB) and guards
+	// discoveredAgents against the concurrent per-spawn SyncAgent calls.
+	mu               gosync.Mutex
+	discoveredAgents []DiscoveredAgent // Agents synced by SyncAll/SyncAgent so far
 }
 
 // DiscoveredAgent contains info about a user-defined agent found during sync.
@@ -48,10 +61,15 @@ func (s *AgentSynchronizer) SyncAll(ctx context.Context) error {
 	timer := logging.StartTimer(logging.CategoryStore, "AgentSynchronizer.SyncAll")
 	defer timer.Stop()
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	// Ensure directories exist
 	if err := os.MkdirAll(s.shardsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create shards dir: %w", err)
 	}
+
+	s.warnLegacyProjectPrompts()
 
 	// 1. Discover Agent subdirectories
 	entries, err := os.ReadDir(s.baseDir)
@@ -75,26 +93,15 @@ func (s *AgentSynchronizer) SyncAll(ctx context.Context) error {
 		}
 
 		agentID := entry.Name()
-		yamlPath := filepath.Join(s.baseDir, agentID, "prompts.yaml")
-
-		// Check if prompts.yaml exists in this subdirectory
-		if _, err := os.Stat(yamlPath); os.IsNotExist(err) {
+		skipped, err := s.syncAgentLocked(ctx, agentID)
+		if errors.Is(err, ErrNoAgentPrompts) {
 			continue
 		}
-
-		skipped, err := s.syncAgent(ctx, agentID, yamlPath)
 		if err != nil {
 			logging.Get(logging.CategoryStore).Error("Failed to sync agent %s: %v", agentID, err)
 			syncErrors = append(syncErrors, fmt.Errorf("agent %s: %w", agentID, err))
 			continue
 		}
-
-		// Track discovered agent for JIT registration
-		dbPath := types.AgentKnowledgeDBPath(filepath.Dir(s.shardsDir), agentID)
-		s.discoveredAgents = append(s.discoveredAgents, DiscoveredAgent{
-			ID:     agentID,
-			DBPath: dbPath,
-		})
 		if skipped {
 			skippedCount++
 		} else {
@@ -106,17 +113,85 @@ func (s *AgentSynchronizer) SyncAll(ctx context.Context) error {
 	return errors.Join(syncErrors...)
 }
 
-// GetDiscoveredAgents returns all agents found during the last SyncAll call.
-// Used by BootCortex to register agents with JIT compiler and ShardManager.
-func (s *AgentSynchronizer) GetDiscoveredAgents() []DiscoveredAgent {
-	return s.discoveredAgents
+// SyncAgent syncs one agent's prompts.yaml into its knowledge DB with the same
+// hash-skip and transactional replacement as SyncAll, and records the agent as
+// discovered. Returns skipped=true when the YAML is unchanged since the last
+// sync. An agent without a prompts.yaml yields ErrNoAgentPrompts.
+func (s *AgentSynchronizer) SyncAgent(ctx context.Context, agentID string) (skipped bool, err error) {
+	timer := logging.StartTimer(logging.CategoryStore, "AgentSynchronizer.SyncAgent")
+	defer timer.Stop()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.MkdirAll(s.shardsDir, 0755); err != nil {
+		return false, fmt.Errorf("failed to create shards dir: %w", err)
+	}
+	return s.syncAgentLocked(ctx, agentID)
 }
 
-// syncAgent syncs a single agent's atoms to its shard database.
+// GetDiscoveredAgents returns the agents synced so far by SyncAll and
+// SyncAgent. Used by BootCortex to register agents with JIT compiler and
+// ShardManager.
+func (s *AgentSynchronizer) GetDiscoveredAgents() []DiscoveredAgent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]DiscoveredAgent(nil), s.discoveredAgents...)
+}
+
+// recordDiscovered notes a successfully synced agent, once per ID.
+// The caller holds s.mu.
+func (s *AgentSynchronizer) recordDiscovered(agentID, dbPath string) {
+	for i := range s.discoveredAgents {
+		if strings.EqualFold(s.discoveredAgents[i].ID, agentID) {
+			s.discoveredAgents[i].DBPath = dbPath
+			return
+		}
+	}
+	s.discoveredAgents = append(s.discoveredAgents, DiscoveredAgent{ID: agentID, DBPath: dbPath})
+}
+
+// warnLegacyProjectPrompts flags .nerd/prompts/*.yaml. Nothing loads
+// project-level prompt YAML; agent prompts live in
+// .nerd/agents/<name>/prompts.yaml. The warning keeps those files from being
+// silently ignored.
+func (s *AgentSynchronizer) warnLegacyProjectPrompts() {
+	promptsDir := filepath.Join(filepath.Dir(s.shardsDir), "prompts")
+	entries, err := os.ReadDir(promptsDir)
+	if err != nil {
+		return
+	}
+	legacy := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() && (strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")) {
+			legacy++
+		}
+	}
+	if legacy > 0 {
+		logging.Get(logging.CategoryStore).Warn("Found %d YAML file(s) in .nerd/prompts/ that nothing loads; move them to .nerd/agents/<name>/prompts.yaml", legacy)
+	}
+}
+
+// syncAgentLocked syncs a single agent's atoms to its shard database and
+// records it as discovered. The caller holds s.mu.
 // Returns (skipped, error) where skipped=true means the YAML hasn't changed since last sync.
+func (s *AgentSynchronizer) syncAgentLocked(ctx context.Context, agentID string) (bool, error) {
+	yamlPath := filepath.Join(s.baseDir, agentID, "prompts.yaml")
+	skipped, err := s.syncAgent(ctx, agentID, yamlPath)
+	if err != nil {
+		return false, err
+	}
+	s.recordDiscovered(agentID, types.AgentKnowledgeDBPath(filepath.Dir(s.shardsDir), agentID))
+	return skipped, nil
+}
+
+// syncAgent is the hash-gated sync of one prompts.yaml into the agent's DB.
 func (s *AgentSynchronizer) syncAgent(ctx context.Context, agentID string, yamlPath string) (bool, error) {
 	// 1. Read YAML and compute content hash
 	yamlContent, err := os.ReadFile(yamlPath)
+	if os.IsNotExist(err) {
+		return false, fmt.Errorf("%w: %s", ErrNoAgentPrompts, agentID)
+	}
 	if err != nil {
 		return false, fmt.Errorf("read YAML failed: %w", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/northstar"
 	"codenerd/internal/prompt"
+	prsync "codenerd/internal/prompt/sync"
 	"codenerd/internal/regression"
 	"codenerd/internal/store"
 	"codenerd/internal/world"
@@ -505,7 +506,7 @@ func restrictAgentTools(agents []CreatedAgent, registered []ToolDefinition) ([]C
 	return out, notes
 }
 
-func (i *Initializer) runPhase12PromptSync(ctx context.Context, runner *phaseRunner, result *InitResult, nerdDir string) {
+func (i *Initializer) runPhase12PromptSync(ctx context.Context, runner *phaseRunner, result *InitResult) {
 	runner.start("prompt_sync", "Syncing agent prompts to knowledge DBs...")
 	fmt.Fprintln(i.output(), "\n📝 Phase 12: Syncing Agent Prompts")
 	if err := initializeDiscoveredAgentStores(ctx, i.config.Workspace); err != nil {
@@ -514,13 +515,15 @@ func (i *Initializer) runPhase12PromptSync(ctx context.Context, runner *phaseRun
 		return
 	}
 
-	promptCount, syncErr := prompt.ReloadAllPrompts(ctx, nerdDir, i.embedEngine)
+	synchronizer := prsync.NewAgentSynchronizer(i.config.Workspace, prompt.NewAtomLoader(i.embedEngine))
+	syncErr := synchronizer.SyncAll(ctx)
+	agentCount := len(synchronizer.GetDiscoveredAgents())
 	if syncErr != nil {
 		result.Failures = append(result.Failures, fmt.Sprintf("Failed to sync agent prompts: %v", syncErr))
 		fmt.Fprintf(i.output(), "   ✗ Required failure: %v\n", syncErr)
-	} else if promptCount > 0 {
-		fmt.Fprintf(i.output(), "   ✓ Synced %d prompt atoms to knowledge DBs\n", promptCount)
-		logging.Boot("Synced %d prompt atoms from YAML to knowledge DBs", promptCount)
+	} else if agentCount > 0 {
+		fmt.Fprintf(i.output(), "   ✓ Synced prompts for %d agents to knowledge DBs\n", agentCount)
+		logging.Boot("Synced prompts for %d agents from YAML to knowledge DBs", agentCount)
 	} else {
 		fmt.Fprintln(i.output(), "   ✓ No prompt atoms to sync")
 	}

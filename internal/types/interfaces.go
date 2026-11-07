@@ -180,8 +180,10 @@ type ShardAgent interface {
 // ShardFactory is a function that creates a new shard instance.
 type ShardFactory func(id string, config ShardConfig) ShardAgent
 
-// PromptLoaderFunc is a callback for loading agent prompts from YAML files.
-type PromptLoaderFunc func(context.Context, string, string) (int, error)
+// AgentPromptSyncFunc syncs one agent's prompts.yaml into its knowledge DB (the
+// prompt synchronizer; a callback to avoid an import cycle). It returns nil
+// when the DB is current, whether the YAML was unchanged or was just replaced.
+type AgentPromptSyncFunc func(ctx context.Context, agentName string) error
 
 // JITDBRegistrar acquires a scoped registration of an agent knowledge DB.
 // The returned release function relinquishes only that acquisition and is idempotent.

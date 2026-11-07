@@ -25,7 +25,7 @@ type agentActivator struct {
 	kernel    types.Kernel
 	compiler  *prompt.JITPromptCompiler
 	shards    *coreshards.ShardManager
-	loader    *prompt.AtomLoader
+	syncer    *prsync.AgentSynchronizer // boot's synchronizer: one writer per agent KB
 }
 
 // Activate brings the named agent into the running session.
@@ -33,12 +33,14 @@ func (a agentActivator) Activate(ctx context.Context, name string) error {
 	if strings.TrimSpace(a.workspace) == "" {
 		return fmt.Errorf("activate agent %q: no workspace", name)
 	}
-	synchronizer := prsync.NewAgentSynchronizer(a.workspace, a.loader)
+	if a.syncer == nil {
+		return fmt.Errorf("activate agent %q: no prompt synchronizer (execution layer not booted)", name)
+	}
 	var errs []error
-	if err := synchronizer.SyncAll(ctx); err != nil {
+	if err := a.syncer.SyncAll(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("sync agent prompts: %w", err))
 	}
-	discovered := synchronizer.GetDiscoveredAgents()
+	discovered := a.syncer.GetDiscoveredAgents()
 	found := false
 	onDisk := make([]AgentOnDisk, 0, len(discovered))
 	for _, agent := range discovered {
@@ -84,7 +86,7 @@ func (bctx *bootContext) activator() agentActivator {
 		kernel:    bctx.kernel,
 		compiler:  bctx.jitCompiler,
 		shards:    bctx.shardManager,
-		loader:    bctx.atomLoader,
+		syncer:    bctx.agentSync,
 	}
 }
 
