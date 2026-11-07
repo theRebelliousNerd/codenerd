@@ -1456,6 +1456,7 @@ func (e *Engine) QueryFacts(predicate string, args ...string) []Fact {
 
 	// Filter by args if provided
 	if len(args) == 0 {
+		sort.Slice(facts, func(i, j int) bool { return facts[i].String() < facts[j].String() })
 		return facts
 	}
 
@@ -1477,6 +1478,7 @@ func (e *Engine) QueryFacts(predicate string, args ...string) []Fact {
 			filtered = append(filtered, f)
 		}
 	}
+	sort.Slice(filtered, func(i, j int) bool { return filtered[i].String() < filtered[j].String() })
 	return filtered
 }
 
