@@ -264,7 +264,9 @@ func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {
 		VirtualStore:      &core.VirtualStore{},
 		Campaign: testCampaignConfig(func(c *config.CampaignConfig) {
 			c.MaxParallelTasks = 2
-			c.WriteSetLockTimeout = "1s"
+			// Liveness bounds only: the assertion is that the second task waits
+			// for the first. One second expired under load before the release.
+			c.WriteSetLockTimeout = "30s"
 			c.WriteSetLockRetry = "200ms"
 			c.WriteSetLockPoll = "20ms"
 		}),
@@ -321,7 +323,7 @@ func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {
 
 	select {
 	case <-firstStarted:
-	case <-time.After(time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("first task did not start")
 	}
 
@@ -340,7 +342,7 @@ func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("runPhase failed: %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(60 * time.Second):
 		t.Fatal("runPhase timed out")
 	}
 

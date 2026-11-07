@@ -101,7 +101,11 @@ func TestRunAdvisoryRiskGate_RejectionSurvivesTimeoutAndReportsCoverage(t *testi
 	t.Parallel()
 	board := NewShardAdvisoryBoard(consultation.New(rejectAndTimeoutSpawner{}))
 	cfg := DefaultAdvisoryConfig()
-	cfg.ConsultTimeout = 50 * time.Millisecond
+	// The tester never answers, so the run lasts this long. The others answer
+	// at once, but "at once" is a goroutine the scheduler has to run: at
+	// 50 ms a loaded host (load 110+, 2026-11-07) timed every advisor out and
+	// the coder's rejection was lost with them.
+	cfg.ConsultTimeout = 2 * time.Second
 	board.WithConfig(cfg)
 	o := &Orchestrator{
 		campaign:      manifestCampaign(),

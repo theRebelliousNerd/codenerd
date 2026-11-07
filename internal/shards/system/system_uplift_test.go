@@ -112,7 +112,9 @@ func (rejectAndTimeoutSpawner) SpawnConsultation(ctx context.Context, spec, _ st
 func TestCampaignRunnerDoor_RejectionSurvivesTimeout(t *testing.T) {
 	board := campaign.NewShardAdvisoryBoard(consultation.New(rejectAndTimeoutSpawner{}))
 	cfg := campaign.DefaultAdvisoryConfig()
-	cfg.ConsultTimeout = 50 * time.Millisecond
+	// The tester never answers, so the run lasts this long; the others must
+	// beat it on a loaded scheduler too (50 ms timed them all out at load 110+).
+	cfg.ConsultTimeout = 2 * time.Second
 	board.WithConfig(cfg)
 	responses, err := board.ConsultAdvisors(context.Background(), campaign.AdvisoryRequest{CampaignID: "/c", Goal: "g"})
 	if err != nil {
