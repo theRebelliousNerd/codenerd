@@ -176,6 +176,36 @@ now, and are owed only for /go writes, as today.
 * `nerd campaign recurse status` shows the ledger: pass, node, what was measured,
   picked, kept, reverted and stalled, with the gate trend.
 
+## Fresh code, forever
+
+A run that lasts days must not keep measuring the tree it started on.
+Between node visits (the safe point: never mid-attempt, so `--waves N` still
+bounds a run across a restart) recurse:
+
+* **Absorbs its base branch.** The base is `--base-branch`, else the one the
+  ledger recorded, else the branch the run started on, else the branch's
+  creation record, else the remote default or `main`. New base commits are
+  merged into `nerd/recurse` with `--no-ff`, so kept commits keep their
+  hashes; the kept-commit lookup follows first parents only. A merge
+  re-derives the DAG and gates, re-measures the gates, and lifts the stalls of
+  nodes whose files changed. A conflict is aborted, the tree is verified
+  unchanged, and it is retried only once the base moves past it.
+* **Runs its own latest code.** When the workspace is the codeNERD module
+  (`go.mod`'s module path and `cmd/nerd`; never a `nerd.md` claim, which is
+  workspace text), and an absorb or a kept commit changed a file the binary is
+  built from (`go list -deps` of `cmd/nerd`, embedded files included, plus any
+  non-test `.go` file and `go.mod`/`go.sum`), it builds into
+  `.nerd/recurse/bin`, runs the self-check (`campaign recurse --plan` exits 0),
+  and replaces its process with the new binary and the same arguments,
+  resuming from the journal. A failed build or check keeps the running binary
+  and is retried once the tree moves again.
+* Missions neither absorb nor self-update: their evidence is tied to the tree
+  they measured. Chat `/recurse` absorbs but does not re-exec; the chat has its
+  own restart onto a rebuilt executable.
+* The journal records `base`, `absorb`, `absorb_conflict`, `rebuild`,
+  `rebuild_failed` and `reexec`; `status` shows the base, the last absorbed
+  base commit, open conflicts and the binary generations.
+
 ## CLI
 
 * `nerd campaign recurse` runs forever by default, and `/recurse` in chat does
@@ -188,6 +218,7 @@ now, and are owed only for /go writes, as today.
   `nerd campaign recurse stop` stops the loop.
 * `--subsystem` narrows the derived DAG to named nodes and what they depend
   on. The pass's angle rotates; it is not a flag.
+* `--base-branch` names the branch recurse absorbs (see Fresh code, forever).
 
 ## Status
 
