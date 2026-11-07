@@ -5,13 +5,47 @@
 # reads Markdown and code and measures; every judgment here is derived.
 
 # -----------------------------------------------------------------------------
-# Drift: the code changed after the section that specifies it.
+# Drift, judged from content, per link. A link was confirmed when both sides said
+# what spec_confirmed records. The code moved and the spec did not follow: drift.
+# The spec moved and the code did not: stale code. Both moved, or neither, is
+# neither: Go confirms the pair again when both moved in one scan.
 # -----------------------------------------------------------------------------
 spec_drift(SpecRef, CodeRef) :-
     spec_link(SpecRef, CodeRef, _, _),
-    spec_section(SpecRef, _, _, SectionTime),
-    spec_element(CodeRef, _, _, _, _, CodeTime),
-    CodeTime > SectionTime.
+    spec_confirmed(SpecRef, CodeRef, SpecPrint, CodePrint, _),
+    spec_section(SpecRef, _, _, SpecPrint),
+    spec_element(CodeRef, _, _, _, _, NowPrint),
+    NowPrint != CodePrint.
+
+spec_stale_code(SpecRef, CodeRef) :-
+    spec_link(SpecRef, CodeRef, _, _),
+    spec_confirmed(SpecRef, CodeRef, SpecPrint, CodePrint, _),
+    spec_section(SpecRef, _, _, NowPrint),
+    spec_element(CodeRef, _, _, _, _, CodePrint),
+    NowPrint != SpecPrint.
+
+spec_drift_since(SpecRef, CodeRef, At) :-
+    spec_drift(SpecRef, CodeRef),
+    spec_changed_since(SpecRef, CodeRef, /code, At).
+
+spec_stale_since(SpecRef, CodeRef, At) :-
+    spec_stale_code(SpecRef, CodeRef),
+    spec_changed_since(SpecRef, CodeRef, /spec, At).
+
+# What changed it, when git knows: the latest commit to touch the drifted
+# element's file after the link was confirmed (the history is per file).
+spec_drift_last_commit(SpecRef, CodeRef, Latest) :-
+    spec_drift(SpecRef, CodeRef),
+    spec_confirmed(SpecRef, CodeRef, _, _, ConfirmedAt),
+    spec_element(CodeRef, _, File, _, _, _),
+    git_history(File, _, _, CommitTime, _),
+    CommitTime >= ConfirmedAt
+    |> do fn:group_by(SpecRef, CodeRef), let Latest = fn:max(CommitTime).
+
+spec_drift_commit(SpecRef, CodeRef, Commit, Latest) :-
+    spec_drift_last_commit(SpecRef, CodeRef, Latest),
+    spec_element(CodeRef, _, File, _, _, _),
+    git_history(File, Commit, _, Latest, _).
 
 # -----------------------------------------------------------------------------
 # Dangling: a link with an end that is not in the world any more. A citation of a

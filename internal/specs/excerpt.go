@@ -34,13 +34,18 @@ func SectionText(path, src, key string) (text string, ok bool) {
 	for _, span := range ownSpans(model, sections, index) {
 		parts = append(parts, model.Source[span[0]:span[1]])
 	}
-	lines := strings.Split(strings.Join(parts, "\n"), "\n")
-	// Drop the heading construct: an ATX heading is one line, a setext
-	// heading is its text and an underline.
+	return strings.Join(strings.Fields(dropHeading(strings.Join(parts, "\n"))), " "), true
+}
+
+// dropHeading removes the heading construct from the start of a section's
+// text: an ATX heading is one line, a setext heading is its text and an
+// underline.
+func dropHeading(text string) string {
+	lines := strings.Split(text, "\n")
 	if len(lines) >= 2 && setextUnderline.MatchString(lines[1]) {
 		lines = lines[2:]
 	} else if len(lines) >= 1 {
 		lines = lines[1:]
 	}
-	return strings.Join(strings.Fields(strings.Join(lines, " ")), " "), true
+	return strings.Join(lines, "\n")
 }

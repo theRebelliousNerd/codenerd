@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -37,6 +38,11 @@ import (
 // after an edit rereads only the files that moved; resolving the cached scans
 // against the structure index is in memory. When no file's fingerprint moved,
 // the scan measures nothing and the kernel's rows stay as they are.
+//
+// Drift is a judgment about content (internal/specs/confirm.go): the scan
+// attaches each side's fingerprint and the link's confirmation, which it reads
+// from and writes back to .nerd/specs/links.json in the same step. The modified
+// time of a file is not an input: a checkout, a touch or a reformat moves no link.
 
 // SpecPredicates are the spec pairing predicates a scan replaces whole.
 var SpecPredicates = specs.Predicates
@@ -46,6 +52,9 @@ type specMeasurer struct {
 	mu    sync.Mutex
 	memo  string
 	roots string
+	// now is the scan clock in unix seconds; nil is the wall clock. Confirmations
+	// are stamped with it, so a test that needs a pinned time sets it.
+	now   func() int64
 	docs  map[string]specDocEntry
 	codes map[string]specCodeEntry
 	files map[string]specFileEntry
@@ -71,8 +80,7 @@ type specFileEntry struct {
 type specCensus struct {
 	docs  map[string]string // canonical path -> fingerprint
 	codes map[string]string
-	mtime map[string]int64 // unix seconds, docs and code
-	roots []string         // top-level directories
+	roots []string // top-level directories
 	// abs maps a canonical path to its filesystem path.
 	abs map[string]string
 }
@@ -120,7 +128,21 @@ func (s *Scanner) attachSpecFacts(ctx context.Context, root string, res *Increme
 		logging.WorldWarn("spec pairing not measured: %v", err)
 		return nil
 	}
-	result := specs.Resolve(input)
+	// The confirmations are read, the measurement judged against them, and the
+	// advanced set written back as one step: the review tool shares the store.
+	var result specs.Result
+	_, err = specs.OpenStore(canonicalRoot).Update(func(prev specs.Confirmations) (specs.Confirmations, error) {
+		input.Confirmed, input.Now = prev, m.clock()
+		result = specs.Resolve(input)
+		return result.Confirmed, nil
+	})
+	if err != nil {
+		// Judging against a measurement that could not be recorded would lose
+		// what a reviewer confirmed: say so, and measure again next scan.
+		logging.WorldWarn("spec pairing not measured: %v", err)
+		res.SpecWarnings = append(append([]string(nil), warnings...), err.Error())
+		return nil
+	}
 	res.SpecMeasured = true
 	res.SpecFacts = toWorldFacts(result.Facts())
 	res.SpecWarnings = warnings
@@ -132,6 +154,13 @@ func (s *Scanner) attachSpecFacts(ctx context.Context, root string, res *Increme
 		logging.WorldWarn("spec file refused: %s", w)
 	}
 	return nil
+}
+
+func (m *specMeasurer) clock() int64 {
+	if m.now != nil {
+		return m.now()
+	}
+	return time.Now().Unix()
 }
 
 func toWorldFacts(in []types.Fact) []core.Fact {
@@ -149,7 +178,7 @@ func (s *Scanner) specCensus(ctx context.Context, root string) (*specCensus, err
 	if err != nil {
 		return nil, err
 	}
-	c := &specCensus{docs: map[string]string{}, codes: map[string]string{}, mtime: map[string]int64{}, abs: map[string]string{}}
+	c := &specCensus{docs: map[string]string{}, codes: map[string]string{}, abs: map[string]string{}}
 	topLevel := map[string]bool{}
 	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if err := ctx.Err(); err != nil {
@@ -181,7 +210,6 @@ func (s *Scanner) specCensus(ctx context.Context, root string) (*specCensus, err
 			return infoErr
 		}
 		c.abs[canonical] = path
-		c.mtime[canonical] = info.ModTime().Unix()
 		if isDoc {
 			c.docs[canonical] = fingerprintOf(info)
 		} else {
@@ -362,7 +390,6 @@ func (m *specMeasurer) input(ctx context.Context, root string, c *specCensus, sp
 		}
 	}
 	in.Specs = specFiles
-	in.Modified = func(file string) int64 { return c.mtime[file] }
 
 	// Nothing to resolve means nothing to ask the structure index, whose first
 	// build parses every code file in the workspace.

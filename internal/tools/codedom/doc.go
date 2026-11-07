@@ -19,6 +19,7 @@
 //   - insert_element: Insert declarations before or after an element, the header or the end; a Markdown section also takes children (position inside)
 //   - delete_element: Delete an element nothing else uses, or repoint its Go uses in the same call; a Markdown section goes with its nested sections
 //   - family_no_change: Record that a declared code family peer needs no change after its sibling changed
+//   - confirm_spec_link: Confirm that a spec section and its linked code element agree after a review, clearing their drift
 //   - create_file: Create a Go, Mangle, Python, TypeScript or JavaScript file, validated as a unit
 //   - repoint: Rename a symbol across the references that resolve to it, in one transaction
 //   - edit_lines: Replace specific lines in a file

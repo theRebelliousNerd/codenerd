@@ -12,6 +12,8 @@ var Predicates = []string{
 	"spec_section",
 	"spec_element",
 	"spec_link",
+	"spec_confirmed",
+	"spec_changed_since",
 	"spec_element_property",
 	"spec_element_calls",
 	"spec_requirement",
@@ -33,15 +35,26 @@ func (r Result) Facts() []types.Fact {
 	var out []types.Fact
 	for _, s := range r.Sections {
 		out = append(out, types.Fact{Predicate: "spec_section",
-			Args: []any{s.Ref, s.File, s.Heading, r.SectionModified[s.Ref]}})
+			Args: []any{s.Ref, s.File, s.Heading, s.Fingerprint}})
 	}
 	for _, e := range r.Elements {
 		out = append(out, types.Fact{Predicate: "spec_element",
-			Args: []any{e.Ref, e.Dir, e.File, name(e.Kind), boolAtom(e.Exported), r.ElementModified[e.Ref]}})
+			Args: []any{e.Ref, e.Dir, e.File, name(e.Kind), boolAtom(e.Exported), e.Fingerprint}})
 	}
 	for _, l := range r.Links {
 		out = append(out, types.Fact{Predicate: "spec_link",
 			Args: []any{l.SpecRef, l.CodeRef, name(string(l.Relation)), name(string(l.Source))}})
+	}
+	for _, k := range r.Confirmed.Keys() {
+		c := r.Confirmed[k]
+		out = append(out, types.Fact{Predicate: "spec_confirmed",
+			Args: []any{k.Spec, k.Code, c.SpecFingerprint, c.CodeFingerprint, c.ConfirmedAt}})
+		if c.SpecChangedAt != 0 {
+			out = append(out, types.Fact{Predicate: "spec_changed_since", Args: []any{k.Spec, k.Code, name("spec"), c.SpecChangedAt}})
+		}
+		if c.CodeChangedAt != 0 {
+			out = append(out, types.Fact{Predicate: "spec_changed_since", Args: []any{k.Spec, k.Code, name("code"), c.CodeChangedAt}})
+		}
 	}
 	refs := make([]string, 0, len(r.Measured))
 	for ref := range r.Measured {

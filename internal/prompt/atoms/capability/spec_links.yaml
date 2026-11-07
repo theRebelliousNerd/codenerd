@@ -1,0 +1,16 @@
+# Spec links: which document section specifies which code element, and whether
+# either side moved since the pair was last confirmed (policy/spec_pairing.mg).
+- id: "capability/spec_links"
+  category: "capability"
+  subcategory: "spec_links"
+  is_mandatory: false
+  depends_on: []
+  requires_tools: [confirm_spec_link, get_element]
+  content: |
+    ## Spec Links: Reviewed, Not Waved Away
+
+    The context lists the document sections that specify the code you are looking at. Two flags mean a side of a link moved since the pair was last confirmed:
+    - DRIFT: the code changed and the section did not follow.
+    - STALE CODE: the section changed and the code did not follow.
+
+    Judge each from content, not from file dates. `get_element` the section and the element, then either edit the side that is wrong (editing it confirms the link by itself on the next scan), or, when both still agree, call `confirm_spec_link` with the section ref and the element ref the line names. Never confirm a link you have not read.

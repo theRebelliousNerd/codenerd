@@ -58,9 +58,15 @@ func TestResultFactsCarryEveryLayer(t *testing.T) {
 		t.Fatal(err)
 	}
 	ix := fixtureIndex()
+	doc := scanGuide(t)
+	install := doc.Sections[1]
 	res := Resolve(Input{
-		Docs: []*DocScan{scanGuide(t)}, Code: ix, Specs: []*SpecFile{sf},
-		Modified: func(string) int64 { return 5 },
+		Docs: []*DocScan{doc}, Code: ix, Specs: []*SpecFile{sf}, Now: 9,
+		// The code of one link and the section of another moved since they were confirmed.
+		Confirmed: Confirmations{
+			{Spec: install.Ref, Code: "internal/core.Func"}:        {SpecFingerprint: install.Fingerprint, CodeFingerprint: "older", ConfirmedAt: 1},
+			{Spec: install.Ref, Code: "internal/core.Kernel.Eval"}: {SpecFingerprint: "older", CodeFingerprint: "fp:internal/core.Kernel.Eval", ConfirmedAt: 1},
+		},
 		Measure: func(e Element) Measurement {
 			return Measurement{HasTest: true, Calls: []string{"internal/core.Func"}}
 		},

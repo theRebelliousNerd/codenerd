@@ -93,7 +93,9 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// so the measured pairing and its judgments live together.
 				"spec_section", "spec_element", "spec_link", "spec_element_property",
 				"spec_element_calls", "spec_requirement", "requires", "requires_calls",
-				"spec_drift", "dangling_spec_link", "unspecced_element", "spec_coverage",
+				"spec_confirmed", "spec_changed_since",
+				"spec_drift", "spec_stale_code", "spec_drift_since", "spec_stale_since",
+				"spec_drift_commit", "dangling_spec_link", "unspecced_element", "spec_coverage",
 				"requirement_violated",
 				"pytest_failure",
 				// Edit plans and pending mutations are judged against the

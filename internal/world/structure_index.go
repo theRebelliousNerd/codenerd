@@ -60,6 +60,11 @@ type StructSymbol struct {
 	Doc       string `json:"doc,omitempty"`
 	Revision  string `json:"revision,omitempty"`
 	Exported  bool   `json:"exported"`
+	// Fingerprint is what the element says with its layout folded away
+	// (codemodel.Fingerprint): the spec pairing judges drift by it, so a
+	// reformat is not a change and an edit to a neighbour is not this element's.
+	// A file's header element carries the fingerprint of the whole file.
+	Fingerprint string `json:"-"`
 
 	name     string
 	receiver string
@@ -105,6 +110,8 @@ type structFile struct {
 	size        int
 	fingerprint string
 	sourcePath  string // resolved filesystem identity; canonical remains the workspace-facing alias
+	// contentFP is the fingerprint of the whole file (codemodel.Fingerprint).
+	contentFP   string
 	lang        string
 	pkg         string
 	dir         string
@@ -213,6 +220,7 @@ func parseStructSource(data []byte, modelPath, canonical, fingerprint string) *s
 		importNames: make(map[string]string),
 		idents:      make(map[string]int),
 	}
+	f.contentFP = codemodel.Fingerprint(f.lang, string(data))
 	if codemodel.IsScriptLang(f.lang) {
 		indexScriptFile(f, modelPath, canonical, string(data))
 		return f
@@ -225,7 +233,7 @@ func parseStructSource(data []byte, modelPath, canonical, fingerprint string) *s
 		}
 		for i := range model.Elements {
 			e := &model.Elements[i]
-			sym := symbolFromElement(e, canonical, "", f.dir, f.lang)
+			sym := symbolFromElement(e, model.Text(e), canonical, "", f.dir, f.lang)
 			sym.ID = e.Key
 			sym.bodyPreds = codemodel.MangleBodyPredicates(model.Text(e))
 			f.symbols = append(f.symbols, sym)
@@ -248,7 +256,7 @@ func parseStructSource(data []byte, modelPath, canonical, fingerprint string) *s
 		if e.Kind == codemodel.KindHeader {
 			continue
 		}
-		f.symbols = append(f.symbols, symbolFromElement(e, canonical, f.pkg, f.dir, f.lang))
+		f.symbols = append(f.symbols, symbolFromElement(e, model.Text(e), canonical, f.pkg, f.dir, f.lang))
 	}
 	if node == nil {
 		return f
@@ -293,12 +301,13 @@ func parseStructSource(data []byte, modelPath, canonical, fingerprint string) *s
 	return f
 }
 
-func symbolFromElement(e *codemodel.Element, canonical, pkg, dir, lang string) StructSymbol {
+func symbolFromElement(e *codemodel.Element, text, canonical, pkg, dir, lang string) StructSymbol {
 	sym := StructSymbol{
 		Key: e.Key, Kind: string(e.Kind), File: canonical,
 		StartLine: e.StartLine, EndLine: e.EndLine,
 		Signature: e.Signature, Doc: e.Doc, Revision: e.Revision, Exported: e.Exported,
-		name: e.Name, receiver: e.Receiver, pkg: pkg, dir: dir, lang: lang,
+		Fingerprint: codemodel.Fingerprint(lang, text),
+		name:        e.Name, receiver: e.Receiver, pkg: pkg, dir: dir, lang: lang,
 	}
 	if e.Kind == codemodel.KindSyntaxError {
 		sym.Doc = e.Err
@@ -357,7 +366,7 @@ func indexScriptFile(f *structFile, fsPath, canonical, src string) {
 		if e.Kind == codemodel.KindHeader {
 			continue
 		}
-		f.symbols = append(f.symbols, symbolFromElement(e, canonical, f.pkg, f.dir, f.lang))
+		f.symbols = append(f.symbols, symbolFromElement(e, model.Text(e), canonical, f.pkg, f.dir, f.lang))
 	}
 	owner := func(l int) (id, key string) {
 		bestSpan := int(^uint(0) >> 1)

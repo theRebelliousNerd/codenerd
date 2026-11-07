@@ -66,11 +66,11 @@ func TestCheckedInCorpusOrderedParity(t *testing.T) {
 	// each as identity plus output contract
 	// (2026-10-30); 958 with the mission atoms for the recurse attempt and
 	// the proposer (2026-10-30); 960 with the Markdown section atoms for
-	// CodeDOM (2026-11-07). To
+	// CodeDOM and 961 with capability/spec_links (2026-11-07). To
 	// refresh it after an intended corpus change, take the count and digest
 	// this test prints.
-	const wantCount = 960
-	const wantDigest = "ee73ef668086269cf7a40a8820fd4d544161e0405f7f6d616beb8fa0affb2f27"
+	const wantCount = 961
+	const wantDigest = "e07d62774f3f368cfb09dec7aedf2401eb361dd7371b8cc01510b18c86e1b79c"
 	if len(stats.AtomIDs) != wantCount {
 		t.Fatalf("atom count = %d, want golden %d", len(stats.AtomIDs), wantCount)
 	}

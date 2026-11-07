@@ -19,7 +19,7 @@ func specWorld(t *testing.T, edb string) *mangle.Engine {
 		t.Fatalf("NewEngine: %v", err)
 	}
 	t.Cleanup(func() { eng.Close() })
-	for _, f := range []string{"../schemas_spec.mg", "spec_pairing.mg"} {
+	for _, f := range []string{"../schemas_spec.mg", "../schemas_safety.mg", "spec_pairing.mg"} {
 		src, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
@@ -60,19 +60,22 @@ func wantRows(t *testing.T, eng *mangle.Engine, pred string, want ...string) {
 	}
 }
 
-// One package, internal/core, reached by two sections. Spec times: guide 100,
-// notes 300. Code times: foo.go 200 (after guide, before notes).
+// One package, internal/core, reached by two sections. Each side carries a
+// fingerprint; spec_confirmed says what both sides said when the link was last
+// confirmed. Func has moved since (code fingerprint fp200 against a confirmed
+// fp100) while the guide section has not; the notes section moved (fp300
+// against fp250) while the code it names did not.
 const specEDB = `
-spec_section("Docs/guide.md:Guide > Install", "Docs/guide.md", "Install", 100).
-spec_section("Docs/notes.md:Notes", "Docs/notes.md", "Notes", 300).
+spec_section("Docs/guide.md:Guide > Install", "Docs/guide.md", "Install", "fp-guide").
+spec_section("Docs/notes.md:Notes", "Docs/notes.md", "Notes", "fp300").
 
-spec_element("internal/core.Func", "internal/core", "internal/core/foo.go", /function, /true, 200).
-spec_element("internal/core.Kernel", "internal/core", "internal/core/foo.go", /struct, /true, 200).
-spec_element("internal/core.Kernel.Eval", "internal/core", "internal/core/foo.go", /method, /true, 200).
-spec_element("internal/core.Orphan", "internal/core", "internal/core/foo.go", /function, /true, 200).
-spec_element("internal/core.helper", "internal/core", "internal/core/foo.go", /function, /false, 200).
-spec_element("internal/core/foo.go:header", "internal/core", "internal/core/foo.go", /header, /true, 200).
-spec_element("internal/lonely.Thing", "internal/lonely", "internal/lonely/a.go", /function, /true, 200).
+spec_element("internal/core.Func", "internal/core", "internal/core/foo.go", /function, /true, "fp200").
+spec_element("internal/core.Kernel", "internal/core", "internal/core/foo.go", /struct, /true, "fp-kernel").
+spec_element("internal/core.Kernel.Eval", "internal/core", "internal/core/foo.go", /method, /true, "fp200").
+spec_element("internal/core.Orphan", "internal/core", "internal/core/foo.go", /function, /true, "fp200").
+spec_element("internal/core.helper", "internal/core", "internal/core/foo.go", /function, /false, "fp200").
+spec_element("internal/core/foo.go:header", "internal/core", "internal/core/foo.go", /header, /true, "fp-file").
+spec_element("internal/lonely.Thing", "internal/lonely", "internal/lonely/a.go", /function, /true, "fp200").
 
 spec_link("Docs/guide.md:Guide > Install", "internal/core.Func", /cites, /doc_citation).
 spec_link("Docs/guide.md:Guide > Install", "internal/core.Kernel", /cites, /doc_citation).
@@ -80,17 +83,81 @@ spec_link("Docs/notes.md:Notes", "internal/core.Kernel", /implements, /annotatio
 spec_link("Docs/notes.md:Notes", "internal/core/foo.go:header", /cites, /doc_citation).
 spec_link("Docs/guide.md:Guide > Install", "internal/core/foo.go:Removed", /cites, /doc_citation).
 spec_link("Docs/gone.md:Gone Heading", "internal/core.Func", /specifies, /code_comment).
+
+spec_confirmed("Docs/guide.md:Guide > Install", "internal/core.Func", "fp-guide", "fp100", 1000).
+spec_confirmed("Docs/guide.md:Guide > Install", "internal/core.Kernel", "fp-guide", "fp-kernel", 1000).
+spec_confirmed("Docs/notes.md:Notes", "internal/core.Kernel", "fp250", "fp-kernel", 1000).
+spec_confirmed("Docs/notes.md:Notes", "internal/core/foo.go:header", "fp250", "fp-file", 1000).
+spec_confirmed("Docs/gone.md:Gone Heading", "internal/core.Func", "fp-gone", "fp100", 1000).
+
+spec_changed_since("Docs/guide.md:Guide > Install", "internal/core.Func", /code, 1500).
+spec_changed_since("Docs/notes.md:Notes", "internal/core.Kernel", /spec, 1600).
 `
 
-func TestSpecDriftIsTheCodeChangingAfterTheSection(t *testing.T) {
+func TestSpecDriftIsTheCodeSayingSomethingElseWhileTheSpecDoesNot(t *testing.T) {
 	eng := specWorld(t, specEDB)
-	// foo.go (200) is newer than guide.md (100): both guide links drift. It is
-	// older than notes.md (300): neither notes link does. A link whose section
-	// is gone has no section time to compare.
-	wantRows(t, eng, "spec_drift",
-		"Docs/guide.md:Guide > Install|internal/core.Func",
-		"Docs/guide.md:Guide > Install|internal/core.Kernel",
+	// Func says fp200, confirmed fp100, and its section is as it was: drift. Kernel
+	// is as confirmed on both of its links. A link whose section is gone has no
+	// section to be the same as, so it is dangling, not drifted.
+	wantRows(t, eng, "spec_drift", "Docs/guide.md:Guide > Install|internal/core.Func")
+	wantRows(t, eng, "spec_drift_since", "Docs/guide.md:Guide > Install|internal/core.Func|1500")
+}
+
+func TestSpecStaleCodeIsTheSectionSayingSomethingElseWhileTheCodeDoesNot(t *testing.T) {
+	eng := specWorld(t, specEDB)
+	// The notes section says fp300, confirmed fp250, and Kernel and the header
+	// are as confirmed: the spec moved and the code did not follow.
+	wantRows(t, eng, "spec_stale_code",
+		"Docs/notes.md:Notes|internal/core.Kernel",
+		"Docs/notes.md:Notes|internal/core/foo.go:header",
 	)
+	wantRows(t, eng, "spec_stale_since", "Docs/notes.md:Notes|internal/core.Kernel|1600")
+}
+
+func TestNeitherSideMovingOrBothMovingIsNotDriftNorStale(t *testing.T) {
+	eng := specWorld(t, `
+spec_section("Docs/a.md:A", "Docs/a.md", "A", "s2").
+spec_element("pkg.Both", "pkg", "pkg/x.go", /function, /true, "c2").
+spec_element("pkg.Same", "pkg", "pkg/x.go", /function, /true, "c1").
+spec_link("Docs/a.md:A", "pkg.Both", /cites, /doc_citation).
+spec_link("Docs/a.md:A", "pkg.Same", /cites, /doc_citation).
+spec_confirmed("Docs/a.md:A", "pkg.Both", "s1", "c1", 1).
+spec_confirmed("Docs/a.md:A", "pkg.Same", "s2", "c1", 1).
+`)
+	// Both moved: the scan confirms the pair again before the kernel sees it
+	// (specs.Reconcile), so a row like this one is judged neither way.
+	wantRows(t, eng, "spec_drift")
+	wantRows(t, eng, "spec_stale_code")
+}
+
+func TestALinkNeverConfirmedHasNoDrift(t *testing.T) {
+	eng := specWorld(t, `
+spec_section("Docs/a.md:A", "Docs/a.md", "A", "s1").
+spec_element("pkg.F", "pkg", "pkg/x.go", /function, /true, "c1").
+spec_link("Docs/a.md:A", "pkg.F", /cites, /doc_citation).
+`)
+	wantRows(t, eng, "spec_drift")
+	wantRows(t, eng, "spec_stale_code")
+}
+
+func TestDriftNamesTheLatestCommitSinceTheLinkWasConfirmed(t *testing.T) {
+	eng := specWorld(t, specEDB+`
+spec_element("internal/core.Other", "internal/core", "internal/core/bar.go", /function, /true, "fp1").
+git_history("internal/core/foo.go", "aaa111", "ann", 900, "before the link was confirmed").
+git_history("internal/core/foo.go", "bbb222", "ann", 1200, "first change since").
+git_history("internal/core/foo.go", "ccc333", "ann", 1400, "latest change").
+git_history("internal/core/bar.go", "ddd444", "bob", 1450, "another file").
+`)
+	// Only commits to the drifted element's file at or after the confirmation count.
+	wantRows(t, eng, "spec_drift_commit", "Docs/guide.md:Guide > Install|internal/core.Func|ccc333|1400")
+}
+
+func TestDriftHasNoCommitWhenTheChangeIsNotCommitted(t *testing.T) {
+	eng := specWorld(t, specEDB+`
+git_history("internal/core/foo.go", "aaa111", "ann", 900, "before the link was confirmed").
+`)
+	wantRows(t, eng, "spec_drift", "Docs/guide.md:Guide > Install|internal/core.Func")
+	wantRows(t, eng, "spec_drift_commit")
 }
 
 func TestDanglingLinkHasAnEndThatIsGone(t *testing.T) {
@@ -118,9 +185,9 @@ func TestSpecCoverageCountsExportedDeclarationsPerReachedPackage(t *testing.T) {
 
 func TestSpecCoverageOfAReachedPackageWithNothingSpeccedIsZero(t *testing.T) {
 	eng := specWorld(t, `
-spec_section("Docs/a.md:A", "Docs/a.md", "A", 1).
-spec_element("pkg/x.go:header", "pkg", "pkg/x.go", /header, /true, 1).
-spec_element("pkg.F", "pkg", "pkg/x.go", /function, /true, 1).
+spec_section("Docs/a.md:A", "Docs/a.md", "A", "fp1").
+spec_element("pkg/x.go:header", "pkg", "pkg/x.go", /header, /true, "fp1").
+spec_element("pkg.F", "pkg", "pkg/x.go", /function, /true, "fp1").
 spec_link("Docs/a.md:A", "pkg/x.go:header", /cites, /doc_citation).
 `)
 	wantRows(t, eng, "spec_coverage", "pkg|0|1")
@@ -128,9 +195,9 @@ spec_link("Docs/a.md:A", "pkg/x.go:header", /cites, /doc_citation).
 }
 
 const requirementEDB = `
-spec_element("internal/core.Kernel.Eval", "internal/core", "internal/core/foo.go", /method, /true, 200).
-spec_element("internal/core.Func", "internal/core", "internal/core/foo.go", /function, /true, 200).
-spec_element("internal/core.helper", "internal/core", "internal/core/foo.go", /function, /false, 200).
+spec_element("internal/core.Kernel.Eval", "internal/core", "internal/core/foo.go", /method, /true, "fp200").
+spec_element("internal/core.Func", "internal/core", "internal/core/foo.go", /function, /true, "fp200").
+spec_element("internal/core.helper", "internal/core", "internal/core/foo.go", /function, /false, "fp200").
 spec_element_property("internal/core.Func", /has_doc_comment).
 spec_element_property("internal/core.Func", /has_test).
 spec_element_calls("internal/core.Func", "internal/core.helper").
@@ -170,7 +237,7 @@ func TestRequirementViolatedAgainstTheCodeModel(t *testing.T) {
 
 func TestRequirementNeedsNothingWhenTheCodeMeetsIt(t *testing.T) {
 	eng := specWorld(t, `
-spec_element("internal/core.Func", "internal/core", "internal/core/foo.go", /function, /true, 1).
+spec_element("internal/core.Func", "internal/core", "internal/core/foo.go", /function, /true, "fp1").
 spec_element_property("internal/core.Func", /has_test).
 spec_requirement(/ok, "fine").
 requires(/ok, "internal/core.Func", /exists).

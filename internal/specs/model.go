@@ -45,6 +45,10 @@ type Element struct {
 	HasDoc bool
 	// Test reports an element in a test file.
 	Test bool
+	// Fingerprint is what the element says (codemodel.Fingerprint of its span,
+	// leading comment included): whitespace-only edits and edits to a
+	// neighbouring element leave it alone. A header's is the whole file's.
+	Fingerprint string
 }
 
 // Section is one Markdown section, as a spec.
@@ -60,6 +64,11 @@ type Section struct {
 	Level   int
 	// Revision is the hash of the section's bytes.
 	Revision string
+	// Fingerprint is what the section says (codemodel.Fingerprint of its own
+	// text after the heading, code blocks included, nested sections not):
+	// reflowing a paragraph does not move it, rewording does, and an edit to a
+	// sub-section is that sub-section's.
+	Fingerprint string
 }
 
 // Link is one edge between a spec section and a code element.

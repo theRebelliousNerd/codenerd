@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/tools/codedom"
 	"codenerd/internal/types"
 )
 
@@ -83,14 +84,27 @@ requires(/plan_tested, "internal/core.Eval", /has_doc_comment).
 	if !has("spec_link", section+"|internal/core.Eval|/specifies|/code_comment") || !has("spec_link", section+"|internal/core.Eval|/cites|/doc_citation") {
 		t.Errorf("the booted kernel holds no link between the section and Eval: %v", rows("spec_link"))
 	}
-	if !has("spec_drift", section+"|internal/core.Eval") {
-		t.Errorf("Eval changed an hour ago, the section three days: %v", rows("spec_drift"))
+	// Drift is content, not file dates: Eval's file is newer than the section, and a
+	// first boot confirms every link as it stands.
+	if got := rows("spec_drift"); len(got) != 0 {
+		t.Errorf("a first boot confirms every link and has no drift: %v", got)
+	}
+	if !has("spec_confirmed", section+"|internal/core.Eval|") {
+		t.Errorf("the booted kernel holds no confirmation for the Eval link: %v", rows("spec_confirmed"))
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".nerd", "specs", "links.json")); err != nil {
+		t.Errorf("the confirmations are persisted under .nerd: %v", err)
 	}
 	if !has("dangling_spec_link", section+"|internal/core/foo.go:Gone") {
 		t.Errorf("the citation of a removed function must dangle: %v", rows("dangling_spec_link"))
 	}
 	if !has("unspecced_element", "internal/core.Plan") {
 		t.Errorf("Plan is exported in a package a spec reaches and no spec names it: %v", rows("unspecced_element"))
+	}
+	// confirm_spec_link reaches the booted kernel: the production wiring, not a test double.
+	out, err := codedom.ConfirmSpecLinkTool().Execute(ctx, map[string]any{"spec_ref": section, "code_ref": "internal/core.Eval"})
+	if err != nil || !strings.Contains(out, "Confirmed") {
+		t.Errorf("confirm_spec_link through the booted wiring: %q %v", out, err)
 	}
 	if got := rows("requirement_violated"); len(got) != 1 || !strings.Contains(got[0], "/plan_tested|internal/core.Plan|/has_test") {
 		t.Errorf("only the missing test violates a requirement: %v", got)

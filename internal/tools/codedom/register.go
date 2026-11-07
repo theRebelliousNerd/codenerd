@@ -28,6 +28,8 @@ func RegisterAll(registry *tools.Registry) error {
 		DeleteElementTool(),
 		// A reviewed judgment that a code family peer needs no change
 		FamilyNoChangeTool(),
+		// A reviewed judgment that a spec section and its code still agree
+		ConfirmSpecLinkTool(),
 		CreateFileTool(),
 		RepointTool(),
 

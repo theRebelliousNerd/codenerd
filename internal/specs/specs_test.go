@@ -21,6 +21,9 @@ func fixtureIndex() *CodeIndex {
 		{Ref: "internal/other.Func", Key: "Func", ID: "other.Func", Name: "Func", Kind: "function", File: "internal/other/bar.go", Dir: "internal/other", Exported: true},
 		{Ref: "internal/core/policy.mg:decl:impact_caller/2", Key: "decl:impact_caller/2", Name: "impact_caller", Kind: "decl", File: "internal/core/policy.mg", Dir: "internal/core", Exported: true},
 	}
+	for i := range elems {
+		elems[i].Fingerprint = "fp:" + elems[i].Ref
+	}
 	return NewCodeIndex(elems, []string{"internal/core/foo.go", "internal/other/bar.go", "internal/core/policy.mg", "Docs/guide.md"})
 }
 
@@ -226,10 +229,7 @@ func TestCommentsWithoutSpecLinesAreNotParsed(t *testing.T) {
 }
 
 func TestElementsAreTargetsPlusTheExportedUniverseOfLinkedPackages(t *testing.T) {
-	res := Resolve(Input{
-		Docs: []*DocScan{scanGuide(t)}, Code: fixtureIndex(),
-		Modified: func(f string) int64 { return int64(len(f)) },
-	})
+	res := Resolve(Input{Docs: []*DocScan{scanGuide(t)}, Code: fixtureIndex()})
 	refs := map[string]bool{}
 	for _, e := range res.Elements {
 		refs[e.Ref] = true
@@ -244,19 +244,16 @@ func TestElementsAreTargetsPlusTheExportedUniverseOfLinkedPackages(t *testing.T)
 			t.Errorf("%s is outside the universe (unexported or a test)", no)
 		}
 	}
-	if res.ElementModified["internal/core.Func"] != int64(len("internal/core/foo.go")) {
-		t.Fatalf("element time not measured through the caller's clock: %v", res.ElementModified)
-	}
 }
 
 func TestSectionsListedAreOnlyThoseWithALink(t *testing.T) {
-	res := Resolve(Input{Docs: []*DocScan{scanGuide(t)}, Code: fixtureIndex(), Modified: func(string) int64 { return 7 }})
+	res := Resolve(Input{Docs: []*DocScan{scanGuide(t)}, Code: fixtureIndex()})
 	if len(res.Sections) != 4 {
 		t.Fatalf("sections: %+v", res.Sections)
 	}
 	for _, s := range res.Sections {
-		if res.SectionModified[s.Ref] != 7 {
-			t.Fatalf("section time: %v", res.SectionModified)
+		if s.Fingerprint == "" {
+			t.Fatalf("section %s has no fingerprint", s.Ref)
 		}
 	}
 }

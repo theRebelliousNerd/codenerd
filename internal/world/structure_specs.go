@@ -16,6 +16,10 @@ import (
 // Go index lists no header element, so every file contributes one: its ref is
 // "path:header", the spelling the element tools use for the top of a file.
 //
+// Every element carries its content fingerprint (codemodel.Fingerprint of its
+// span); a file's header carries the whole file's, so a citation of the file
+// follows any change in it.
+//
 // measure names the elements a requirement demands things of. The index
 // measures only those: a caller search over every test file is not free.
 //
@@ -45,16 +49,21 @@ func (s *StructureIndex) SpecSnapshot(ctx context.Context, measure []string) ([]
 			if sym.Kind == string(codemodel.KindHeader) {
 				headered = true
 			}
+			fingerprint := sym.Fingerprint
+			if sym.Kind == string(codemodel.KindHeader) {
+				fingerprint = f.contentFP
+			}
 			elems = append(elems, specs.Element{
 				Ref: sym.Ref, Key: sym.Key, ID: sym.ID, Name: sym.name, Receiver: sym.receiver,
 				Kind: sym.Kind, File: canonical, Dir: f.dir, Exported: sym.Exported,
-				HasDoc: sym.Doc != "", Test: isTestFile(canonical),
+				HasDoc: sym.Doc != "", Test: isTestFile(canonical), Fingerprint: fingerprint,
 			})
 		}
 		if !headered {
 			elems = append(elems, specs.Element{
 				Ref: canonical + ":" + codemodel.HeaderKey, Key: codemodel.HeaderKey, Name: codemodel.HeaderKey,
 				Kind: string(codemodel.KindHeader), File: canonical, Dir: f.dir, Exported: true, Test: isTestFile(canonical),
+				Fingerprint: f.contentFP,
 			})
 		}
 	}

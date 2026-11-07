@@ -20,6 +20,8 @@ const specLongGuide = "# Guide\n\n## Evaluation\n" +
 
 // specKernel scans a workspace holding the Go file, the guide and a spec file
 // into a real kernel, as a boot would, and returns the kernel and the root.
+// Every link is confirmed by that first scan; Func's body is then edited and the
+// workspace scanned again, so the link to Func is the one that has drifted.
 func specKernel(t *testing.T, guide string) (*core.RealKernel, string) {
 	t.Helper()
 	old := time.Now().Add(-48 * time.Hour).Truncate(time.Second)
@@ -38,7 +40,12 @@ requires(/unit, "internal/core.Unspecced", /has_test).
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewScanner().Refresh(context.Background(), root, nil, kernel, IncrementalOptions{}); err != nil {
+	scanner := NewScanner()
+	if _, err := scanner.Refresh(context.Background(), root, nil, kernel, IncrementalOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	writeSpecFile(t, root, "internal/core/foo.go", strings.Replace(specGoFile, "func Func() {}", "func Func() { helper() }", 1), old, recent)
+	if _, err := scanner.Refresh(context.Background(), root, nil, kernel, IncrementalOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	return kernel, root
@@ -56,8 +63,13 @@ func TestHolographicContextShowsTheSpecBesideTheCode(t *testing.T) {
 		"Evaluation derives the fixpoint from the extensional facts",
 		// the section that cites the type
 		"`internal/core.Kernel`: `Docs/guide.md:Guide > Evaluation` (cites)",
-		// the kernel's judgments: the docs are older than the code, a citation names a removed element, an exported function no section reaches, a requirement unmet
-		"DRIFT",
+		// the kernel's judgments: Func changed since its link was confirmed and the
+		// section did not, with how to settle it; a citation names a removed element,
+		// an exported function no section reaches, a requirement unmet
+		"`internal/core.Func`: `Docs/guide.md:Guide > Evaluation` (cites) DRIFT: the code changed since this link was confirmed",
+		"first seen ",
+		"no commit since; the change is uncommitted or git history is not loaded",
+		"`confirm_spec_link spec_ref=\"Docs/guide.md:Guide > Evaluation\" code_ref=\"internal/core.Func\"`",
 		"`internal/core/foo.go:Removed`: `Docs/guide.md:Guide > Stale` (cites) DANGLING: the cited element no longer exists",
 		"No section specifies:",
 		"`internal/core.Unspecced`",
@@ -66,6 +78,20 @@ func TestHolographicContextShowsTheSpecBesideTheCode(t *testing.T) {
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("holographic context lacks %q:\n%s", want, section)
+		}
+	}
+}
+
+// The unedited neighbours of a changed function are not reported as drifted.
+func TestHolographicContextReportsDriftOnlyOnTheLinkWhoseCodeChanged(t *testing.T) {
+	kernel, root := specKernel(t, specLongGuide)
+	section := NewHolographicProvider(kernel, root).PromptSection(context.Background(), filepath.Join(root, "internal/core/foo.go"))
+	if got := strings.Count(section, "DRIFT"); got != 1 {
+		t.Fatalf("only the link to Func drifted, got %d DRIFT lines:\n%s", got, section)
+	}
+	for _, neighbour := range []string{"`internal/core.Kernel.Eval`: `Docs/guide.md:Guide > Evaluation` (specifies)\n", "`internal/core.Kernel`: `Docs/guide.md:Guide > Evaluation` (cites)\n"} {
+		if !strings.Contains(section, neighbour) {
+			t.Errorf("the neighbour line must carry no flag: %q in\n%s", neighbour, section)
 		}
 	}
 }

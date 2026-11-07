@@ -2679,6 +2679,9 @@ func initFinalExecutors(bctx *bootContext) error {
 	// callees_of, unreferenced_symbols) answer from the workspace-wide structure
 	// index. It needs no kernel, so it is wired for every boot with a workspace.
 	wireStructureProvider(bctx.workspace)
+	// confirm_spec_link settles a spec link's drift in the same kernel the
+	// world scan loaded the spec rows into.
+	wireSpecLinkConfirmer(bctx.kernel, bctx.workspace)
 	// The working set above queries code_element for every entity it selects.
 	// Nothing populated that predicate in a headless run -- only the CodeDOM
 	// scope does, and only VirtualStore.handleOpenFile opens one, which the

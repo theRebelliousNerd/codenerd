@@ -59,6 +59,9 @@ func ScanDoc(path, src string, lex *docdecl.Lexer) *DocScan {
 	}
 	text := model.Source
 	for i, e := range sections {
+		// What the section says: its own text after the heading, code blocks
+		// included (an example is part of a spec), nested sections excluded.
+		scan.Sections[i].Fingerprint = codemodel.Fingerprint(codemodel.LangMarkdown, dropHeading(text[e.Start:ownEnd(sections, i)]))
 		for _, span := range ownSpans(model, sections, i) {
 			scan.scanSpan(e.Key, text[span[0]:span[1]], lex)
 		}
@@ -68,15 +71,22 @@ func ScanDoc(path, src string, lex *docdecl.Lexer) *DocScan {
 	return scan
 }
 
+// ownEnd is where section i's own text stops: at the next heading of any
+// level, or at the end of the section.
+func ownEnd(sections []*codemodel.Element, i int) int {
+	end := sections[i].End
+	if i+1 < len(sections) && sections[i+1].Start < end {
+		end = sections[i+1].Start
+	}
+	return end
+}
+
 // ownSpans are the byte ranges of section i's own text: from its heading to
 // the next heading of any level, with fenced code blocks left out. The nested
 // sections are not part of it; each owns its text.
 func ownSpans(model *codemodel.File, sections []*codemodel.Element, i int) [][2]int {
 	e := sections[i]
-	end := e.End
-	if i+1 < len(sections) && sections[i+1].Start < end {
-		end = sections[i+1].Start
-	}
+	end := ownEnd(sections, i)
 	spans := [][2]int{{e.Start, end}}
 	for k := range model.Elements {
 		b := &model.Elements[k]

@@ -601,6 +601,9 @@ safe_action(/get_element).
 # Records a reasoned no-change decision for a code family peer; writes nothing
 # (code_families.mg, 2026-10-28).
 safe_action(/family_no_change).
+# Records that a spec section and its code were reviewed and agree
+# (.nerd/specs/links.json, codeNERD's own state; spec_pairing.mg reads it).
+safe_action(/confirm_spec_link).
 # Structural reads and element-addressed edits (CodeDOM, R8, 2026-09-23). The
 # edits are the same class as edit_lines and write_file: every one names its
 # file(s) in path/paths, so the secret-path and write gates see its target.

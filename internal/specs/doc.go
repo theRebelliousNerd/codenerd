@@ -37,6 +37,20 @@
 // dangling_spec_link from it. A bare identifier that resolves to nothing is
 // not a stale citation (it may not be a citation at all) and yields nothing.
 //
+// # Drift
+//
+// Every section and every element carries a content fingerprint
+// (codemodel.Fingerprint: its own text, layout folded away), and every link a
+// confirmation: what both sides said when the pair was last confirmed
+// (confirm.go). The kernel derives spec_drift (the code says something else,
+// the section does not: the code moved, the spec did not follow) and
+// spec_stale_code (the reverse) by comparing current to confirmed. Reconcile
+// confirms a link on first sight and when both sides moved in one scan; the
+// confirm_spec_link tool confirms it after a review. The confirmations persist
+// in .nerd/specs/links.json (store.go), local to the checkout like the world
+// cache: a fresh checkout confirms what it finds and reports no drift. A file's
+// modification time is not an input anywhere.
+//
 // # Machine-checkable specs
 //
 // A spec file is a Mangle file of ground facts under Docs/specs/ or

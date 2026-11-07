@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"codenerd/internal/core"
@@ -20,7 +21,8 @@ import (
 // A coder looking at code is told which section of which document specifies
 // it, with a bounded excerpt of what the section says; looking at a Markdown
 // section, which code elements it names. Beside each, what the kernel has
-// derived: that the code changed after the section (spec_drift), that a link
+// derived: that the code changed since the pair was confirmed while the section
+// did not (spec_drift), or the reverse (spec_stale_code), that a link
 // names something that is gone (dangling_spec_link), that a stated requirement
 // is not met (requirement_violated), and which exported declarations of the
 // package no section reaches (unspecced_element, spec_coverage). Go reads the
@@ -39,8 +41,22 @@ type specEntry struct {
 	code     string // code ref
 	relation string
 	drift    bool
-	dangling string // why the link is dangling, "" when it is not
-	subject  string // what the line is about, in the target's terms
+	stale    bool   // the section changed, the code did not follow
+	driftAt  int64  // unix seconds of the first scan that saw the changed side, 0 when unknown
+	commit   string // the latest commit to the changed file since the link was confirmed, "" when git does not say
+	commitAt int64
+	// specRef and codeRef name the two ends whichever way the block is read, so
+	// the line can say how to confirm the link.
+	specRef, codeRef string
+	dangling         string // why the link is dangling, "" when it is not
+	subject          string // what the line is about, in the target's terms
+}
+
+// specCommit is the latest commit to a drifted element's file since its link
+// was confirmed (spec_drift_commit).
+type specCommit struct {
+	hash string
+	at   int64
 }
 
 type specView struct {
@@ -48,6 +64,10 @@ type specView struct {
 	sections  map[string]core.Fact // spec_section by ref
 	links     []core.Fact
 	drift     map[string]bool
+	stale     map[string]bool
+	driftAt   map[string]int64 // first scan that saw the code differ
+	staleAt   map[string]int64 // first scan that saw the section differ
+	commits   map[string]specCommit
 	dangling  map[string]bool
 	violated  []core.Fact
 	reqText   map[string]string
@@ -138,7 +158,12 @@ func specEntryLine(e specEntry, excerpt string, rest int) string {
 		fmt.Fprintf(&b, " DANGLING: %s", e.dangling)
 	}
 	if e.drift {
-		b.WriteString(" DRIFT: the code changed after this section was last edited")
+		b.WriteString(" DRIFT: the code changed since this link was confirmed; the section did not follow")
+		b.WriteString(specChangeDetail(e))
+	}
+	if e.stale {
+		b.WriteString(" STALE CODE: the section changed since this link was confirmed; the code did not follow")
+		b.WriteString(specChangeDetail(e))
 	}
 	b.WriteString("\n")
 	if excerpt != "" {
@@ -150,6 +175,32 @@ func specEntryLine(e specEntry, excerpt string, rest int) string {
 	}
 	return b.String()
 }
+
+// specChangeDetail says what changed and how to settle it: when the first scan
+// saw the side differ, the commit git attributes to it when git is loaded and
+// the change is committed, and the call that confirms the link after a review.
+func specChangeDetail(e specEntry) string {
+	var parts []string
+	if e.driftAt > 0 {
+		parts = append(parts, "first seen "+specTime(e.driftAt))
+	}
+	if e.commit != "" {
+		hash := e.commit
+		if len(hash) > 8 {
+			hash = hash[:8]
+		}
+		parts = append(parts, fmt.Sprintf("latest commit to the file since: %s %s", hash, specTime(e.commitAt)))
+	} else if e.drift {
+		parts = append(parts, "no commit since; the change is uncommitted or git history is not loaded")
+	}
+	detail := ""
+	if len(parts) > 0 {
+		detail = " (" + strings.Join(parts, "; ") + ")"
+	}
+	return detail + fmt.Sprintf(". Read both; edit the side that is wrong, or `confirm_spec_link spec_ref=%q code_ref=%q` if they still agree", e.specRef, e.codeRef)
+}
+
+func specTime(unix int64) string { return time.Unix(unix, 0).UTC().Format("2006-01-02 15:04 UTC") }
 
 // specExcerpt is the prose of the section a spec ref names. cut says a policy
 // bounded it to chars runes; without one the whole prose is the excerpt.
@@ -201,7 +252,8 @@ func (h *HolographicProvider) loadSpecView() *specView {
 	}
 	v := &specView{
 		elements: map[string]core.Fact{}, sections: map[string]core.Fact{}, links: links,
-		drift: map[string]bool{}, dangling: map[string]bool{},
+		drift: map[string]bool{}, stale: map[string]bool{}, driftAt: map[string]int64{}, staleAt: map[string]int64{},
+		commits: map[string]specCommit{}, dangling: map[string]bool{},
 		reqText: map[string]string{}, unspecced: map[string]bool{}, coverage: map[string][2]int64{},
 	}
 	elements, _ := h.kernel.Query("spec_element")
@@ -220,6 +272,34 @@ func (h *HolographicProvider) loadSpecView() *specView {
 	for _, f := range drift {
 		if len(f.Args) >= 2 {
 			v.drift[specStr(f.Args[0])+"\x00"+specStr(f.Args[1])] = true
+		}
+	}
+	stale, _ := h.kernel.Query("spec_stale_code")
+	for _, f := range stale {
+		if len(f.Args) >= 2 {
+			v.stale[specStr(f.Args[0])+"\x00"+specStr(f.Args[1])] = true
+		}
+	}
+	driftSince, _ := h.kernel.Query("spec_drift_since")
+	for _, f := range driftSince {
+		if len(f.Args) >= 3 {
+			v.driftAt[specStr(f.Args[0])+"\x00"+specStr(f.Args[1])] = specNum(f.Args[2])
+		}
+	}
+	staleSince, _ := h.kernel.Query("spec_stale_since")
+	for _, f := range staleSince {
+		if len(f.Args) >= 3 {
+			v.staleAt[specStr(f.Args[0])+"\x00"+specStr(f.Args[1])] = specNum(f.Args[2])
+		}
+	}
+	commits, _ := h.kernel.Query("spec_drift_commit")
+	for _, f := range commits {
+		if len(f.Args) >= 4 {
+			key := specStr(f.Args[0]) + "\x00" + specStr(f.Args[1])
+			// Several commits can share the latest second: the first by hash, so the line is stable.
+			if c, ok := v.commits[key]; !ok || specStr(f.Args[2]) < c.hash {
+				v.commits[key] = specCommit{hash: specStr(f.Args[2]), at: specNum(f.Args[3])}
+			}
 		}
 	}
 	dangling, _ := h.kernel.Query("dangling_spec_link")
@@ -253,7 +333,16 @@ func (h *HolographicProvider) loadSpecView() *specView {
 func (v *specView) entry(l core.Fact) specEntry {
 	spec, code := specStr(l.Args[0]), specStr(l.Args[1])
 	key := spec + "\x00" + code
-	e := specEntry{section: spec, code: code, relation: strings.TrimPrefix(specStr(l.Args[2]), "/"), drift: v.drift[key]}
+	e := specEntry{section: spec, code: code, specRef: spec, codeRef: code, relation: strings.TrimPrefix(specStr(l.Args[2]), "/"), drift: v.drift[key], stale: v.stale[key]}
+	if e.drift {
+		e.driftAt = v.driftAt[key]
+		if c, ok := v.commits[key]; ok {
+			e.commit, e.commitAt = c.hash, c.at
+		}
+	}
+	if e.stale {
+		e.driftAt = v.staleAt[key]
+	}
 	if v.dangling[key] {
 		if _, ok := v.sections[spec]; !ok {
 			e.dangling = "the section no longer exists"

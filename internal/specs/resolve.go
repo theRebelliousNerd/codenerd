@@ -24,9 +24,11 @@ type Input struct {
 	Code  *CodeIndex
 	// Specs are the parsed machine-checkable spec files.
 	Specs []*SpecFile
-	// Modified is a file's last-modified time in unix seconds. The clock is the
-	// caller's: the kernel compares two measurements, it never reads a clock.
-	Modified func(file string) int64
+	// Confirmed is what each link's sides said when it was last confirmed (the
+	// store's content), and Now the scan's time in unix seconds. The clock is
+	// the caller's: the kernel compares fingerprints, it never reads a clock.
+	Confirmed Confirmations
+	Now       int64
 	// Measure answers for a requirement target. Nil measures nothing.
 	Measure func(e Element) Measurement
 }
@@ -36,13 +38,13 @@ type Result struct {
 	Links []Link
 	// Sections are the sections some link has an end in.
 	Sections []Section
-	// SectionModified is each listed section's document time.
-	SectionModified map[string]int64
 	// Elements are the elements the kernel is told about: link targets, the
 	// exported elements of every package a link reaches (the universe
 	// unspecced_element is derived over), and the targets of requirements.
-	Elements        []Element
-	ElementModified map[string]int64
+	Elements []Element
+	// Confirmed is Input.Confirmed advanced by this measurement (Reconcile).
+	// The caller persists it when it differs from what it passed in.
+	Confirmed Confirmations
 	// Measured holds the measurement of each requirement target, by ref.
 	Measured     map[string]Measurement
 	Requirements []Requirement
@@ -203,17 +205,9 @@ func ambiguity(sym string, found []Element) string {
 func (r *resolver) result() Result {
 	in := r.in
 	out := Result{
-		Links:           r.links,
-		Problems:        r.plist,
-		SectionModified: map[string]int64{},
-		ElementModified: map[string]int64{},
-		Measured:        map[string]Measurement{},
-	}
-	modified := func(file string) int64 {
-		if in.Modified == nil {
-			return 0
-		}
-		return in.Modified(file)
+		Links:    r.links,
+		Problems: r.plist,
+		Measured: map[string]Measurement{},
 	}
 	// Sections with a link end.
 	linked := map[string]bool{}
@@ -224,7 +218,6 @@ func (r *resolver) result() Result {
 		for _, s := range d.Sections {
 			if linked[s.Ref] {
 				out.Sections = append(out.Sections, s)
-				out.SectionModified[s.Ref] = modified(d.Path)
 			}
 		}
 	}
@@ -261,10 +254,19 @@ func (r *resolver) result() Result {
 	for _, e := range in.Code.Elements() {
 		if want[e.Ref] || (pkgs[e.Dir] && inUniverse(e)) {
 			out.Elements = append(out.Elements, e)
-			out.ElementModified[e.Ref] = modified(e.File)
 		}
 	}
 	sort.Slice(out.Elements, func(i, j int) bool { return out.Elements[i].Ref < out.Elements[j].Ref })
+
+	sectionPrints := make(map[string]string, len(out.Sections))
+	for _, s := range out.Sections {
+		sectionPrints[s.Ref] = s.Fingerprint
+	}
+	elementPrints := make(map[string]string, len(out.Elements))
+	for _, e := range out.Elements {
+		elementPrints[e.Ref] = e.Fingerprint
+	}
+	out.Confirmed = Reconcile(in.Confirmed, out.Links, sectionPrints, elementPrints, in.Now)
 	return out
 }
 
