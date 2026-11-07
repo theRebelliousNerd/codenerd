@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/metrics"
 	"runtime/trace"
 	"sync"
 	"testing"
@@ -278,5 +279,197 @@ func TestStopFlightRecorder_Active(t *testing.T) {
 
 	if FlightRecorderEnabled() {
 		t.Fatal("recorder should not be enabled after Stop")
+	}
+}
+
+func TestStartFlightRecorder_ZeroSelectsDefaults(t *testing.T) {
+	resetFlightRecorder(t)
+	t.Cleanup(func() { _ = StopFlightRecorder() })
+
+	// 0/0 must select runtime defaults, not error.
+	if err := StartFlightRecorder(0, 0); err != nil {
+		t.Fatalf("StartFlightRecorder(0,0): %v", err)
+	}
+	if !FlightRecorderEnabled() {
+		t.Fatal("recorder should be enabled after StartFlightRecorder(0,0)")
+	}
+}
+
+func TestStartFlightRecorder_DoubleStartPreservesRecorder(t *testing.T) {
+	resetFlightRecorder(t)
+	t.Cleanup(func() { _ = StopFlightRecorder() })
+
+	if err := StartFlightRecorder(2<<20, 250*time.Millisecond); err != nil {
+		t.Fatalf("StartFlightRecorder: %v", err)
+	}
+	flightMu.Lock()
+	first := flight
+	flightMu.Unlock()
+	if first == nil {
+		t.Fatal("flight must be non-nil after Start")
+	}
+	if err := StartFlightRecorder(4<<20, 100*time.Millisecond); err != nil {
+		t.Fatalf("second StartFlightRecorder: %v", err)
+	}
+	flightMu.Lock()
+	second := flight
+	flightMu.Unlock()
+	if second != first {
+		t.Fatal("second Start must preserve the existing recorder, not replace it")
+	}
+	if !FlightRecorderEnabled() {
+		t.Fatal("recorder should stay enabled across double Start")
+	}
+}
+
+func TestStartFlightRecorder_NoWatchdogWhenIntervalNonPositive(t *testing.T) {
+	resetFlightRecorder(t)
+	t.Cleanup(func() { _ = StopFlightRecorder() })
+
+	// Interval <= 0 starts the ring without a watchdog generation.
+	if err := startFlightRecorder(1<<20, 50*time.Millisecond, 1<<20, 0); err != nil {
+		t.Fatalf("startFlightRecorder with interval 0: %v", err)
+	}
+	if !FlightRecorderEnabled() {
+		t.Fatal("recorder should be enabled even without a watchdog")
+	}
+	flightMu.Lock()
+	stopCh := flightWatchdogStop
+	flightMu.Unlock()
+	if stopCh != nil {
+		t.Fatalf("interval<=0 must not create a watchdog channel, got %v", stopCh)
+	}
+}
+
+func TestDumpFlightRecord_SameSecondDumpsAreDistinct(t *testing.T) {
+	resetFlightRecorder(t)
+	t.Cleanup(func() { _ = StopFlightRecorder() })
+
+	if err := StartFlightRecorder(2<<20, 50*time.Millisecond); err != nil {
+		t.Fatalf("StartFlightRecorder: %v", err)
+	}
+	ws := t.TempDir()
+	// No sleep: the per-process sequence must disambiguate dumps that land
+	// in the same wall-clock second. This pins flightDumpSeq without the
+	// 1.1s wall-clock dependency of the lifecycle double-dump test.
+	first, err := DumpFlightRecord(ws)
+	if err != nil {
+		t.Fatalf("first DumpFlightRecord: %v", err)
+	}
+	second, err := DumpFlightRecord(ws)
+	if err != nil {
+		t.Fatalf("second DumpFlightRecord: %v", err)
+	}
+	if first == second {
+		t.Fatalf("same-second dumps must be distinct via sequence, both=%q", first)
+	}
+}
+
+func TestMemClassOther_Supported(t *testing.T) {
+	t.Parallel()
+	descs := metrics.All()
+	for _, d := range descs {
+		if d.Name == memClassOther {
+			return
+		}
+	}
+	t.Fatalf("watchdog metric path %q not present in runtime/metrics.All() — Go %s", memClassOther, runtime.Version())
+}
+
+func TestOtherMemoryBytes_DoesNotPanic(t *testing.T) {
+	t.Parallel()
+	// otherMemoryBytes backs the watchdog baseline; it must never panic even
+	// on an unexpected toolchain where the metric kind changes (returns 0).
+	_ = otherMemoryBytes()
+	_ = otherMemoryBytes()
+}
+
+func TestPruneFlightTraces_EmptyDirIsNoOp(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// No flight_*.trace files: must not error or panic.
+	pruneFlightTraces(dir, maxFlightTraces)
+	// Missing directory entirely: Glob finds nothing, must be a no-op.
+	pruneFlightTraces(filepath.Join(dir, "does-not-exist"), maxFlightTraces)
+}
+
+func TestPruneFlightTraces_KeepLargerThanMatchesIsNoOp(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, name := range []string{"flight_20000101T000001Z_001.trace", "flight_20000101T000002Z_001.trace"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pruneFlightTraces(dir, 10)
+	left, _ := filepath.Glob(filepath.Join(dir, "flight_*.trace"))
+	if len(left) != 2 {
+		t.Fatalf("prune with keep > matches must keep everything, left=%v", left)
+	}
+}
+
+func TestPruneFlightTraces_KeepZeroRemovesAllFlightTraces(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, name := range []string{"flight_20000101T000001Z_001.trace", "flight_20000101T000002Z_001.trace"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unrelated := filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(unrelated, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pruneFlightTraces(dir, 0)
+	left, _ := filepath.Glob(filepath.Join(dir, "flight_*.trace"))
+	if len(left) != 0 {
+		t.Fatalf("prune with keep=0 must remove all flight traces, left=%v", left)
+	}
+	if _, err := os.Stat(unrelated); err != nil {
+		t.Fatalf("pruning must not remove non-flight files: %v", err)
+	}
+}
+
+func TestPruneFlightTraces_KeepsNewestLexicalOrder(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	names := []string{
+		"flight_20000101T000001Z_001.trace",
+		"flight_20000101T000002Z_001.trace",
+		"flight_20000101T000003Z_001.trace",
+	}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pruneFlightTraces(dir, 2)
+	if _, err := os.Stat(filepath.Join(dir, names[0])); !os.IsNotExist(err) {
+		t.Errorf("oldest trace should have been pruned: %v", err)
+	}
+	for _, name := range names[1:] {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("newest trace %s should survive pruning: %v", name, err)
+		}
+	}
+}
+
+func TestFlightWatchdog_StaleGenerationDoesNotStopNewRecorder(t *testing.T) {
+	resetFlightRecorder(t)
+	t.Cleanup(func() { _ = StopFlightRecorder() })
+
+	// Real generation with an unreachable guard so only our stale
+	// watchdog's tripping sample is in play.
+	if err := startFlightRecorder(2<<20, 50*time.Millisecond, 1<<50, 10*time.Millisecond); err != nil {
+		t.Fatalf("startFlightRecorder: %v", err)
+	}
+	// A watchdog from an older generation (different stop channel) must not
+	// stop the current recorder even when its sample exceeds its cap. This
+	// pins the flightWatchdogStop == stopCh identity guard across rapid
+	// stop/start cycles.
+	staleStop := make(chan struct{})
+	flightMemWatchdog(staleStop, 0, 0, 10*time.Millisecond, func() uint64 { return 1 << 20 })
+	if !FlightRecorderEnabled() {
+		t.Fatal("stale watchdog generation stopped the current recorder; identity guard failed")
 	}
 }
