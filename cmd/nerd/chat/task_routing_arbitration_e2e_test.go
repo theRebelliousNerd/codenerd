@@ -10,6 +10,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/perception"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -42,10 +43,7 @@ func setupRoutingModel(t *testing.T, intent perception.Intent) (Model, *chatLoop
 	mockClient := NewMockLLMClient()
 	mockClient.SetDefaultResponse("Mock articulation response.")
 
-	kernel, err := core.NewRealKernelWithWorkspace(workspace)
-	if err != nil {
-		t.Fatalf("Kernel creation failed: %v", err)
-	}
+	kernel := kerneltest.WithWorkspace(t, workspace)
 
 	tr := &chatLoopTransducer{intent: intent}
 

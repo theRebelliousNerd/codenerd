@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/tools"
@@ -90,10 +90,7 @@ func (c *recordingLLMClient) CompleteWithToolResults(ctx context.Context, sys st
 // policy corpus decides routing) with a distinguishable client in each slot.
 func newRoutingExecutor(t *testing.T) (*Executor, *recordingLLMClient, *recordingLLMClient) {
 	t.Helper()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	k := kerneltest.New(t)
 	worker := &recordingLLMClient{name: "worker"}
 	planner := &recordingLLMClient{name: "planner"}
 
@@ -131,10 +128,7 @@ func TestLLMForVerb_RoutesReasoningIntentsToPlanner(t *testing.T) {
 // byte-identical to the single-tier executor.
 func TestLLMForVerb_NoPlannerKeepsEverythingOnDefault(t *testing.T) {
 	t.Parallel()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	k := kerneltest.New(t)
 	worker := &recordingLLMClient{name: "worker"}
 	e := NewExecutor(k, &MockVirtualStore{}, worker, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
 

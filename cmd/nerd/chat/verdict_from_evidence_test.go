@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/observation"
 	"codenerd/internal/types"
 )
@@ -368,10 +368,7 @@ func TestInjectShardResultFacts_DerivesContinuationThroughRealKernel(t *testing.
 // default corpus — the rules under test are the shipped ones, not a stub.
 func newKernelBackedModel(t *testing.T) *Model {
 	t.Helper()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	k := kerneltest.New(t)
 	m := NewTestModel()
 	m.kernel = k
 	return &m

@@ -13,6 +13,7 @@ import (
 )
 
 func TestDurablePauseSurvivesSnapshotSaveAndStopsRun(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	// The caller is the process's working directory, the package directory
 	// go test runs in, and not the configured workspace. It is not changed:

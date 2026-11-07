@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 )
 
 // The defect this guards (F-JIT-4, observed live 1,209 times in one day):
@@ -30,10 +31,7 @@ import (
 
 func newFloatTestKernel(t *testing.T) *core.RealKernel {
 	t.Helper()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	k := kerneltest.New(t)
 	return k
 }
 

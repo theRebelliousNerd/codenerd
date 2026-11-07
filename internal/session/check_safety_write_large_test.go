@@ -4,15 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 )
 
 func TestCheckSafety_WriteFileLargeContent(t *testing.T) {
 	t.Parallel()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kerneltest.New(t)
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
 	e.SetConfig(DefaultExecutorConfig())
 	content := "package todo\n\n" + strings.Repeat("// line\n", 200) + "type Task struct{ ID int; Title string }\n"

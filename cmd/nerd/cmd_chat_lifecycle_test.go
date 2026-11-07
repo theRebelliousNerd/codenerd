@@ -352,6 +352,7 @@ func TestChatLifecycle_ProductionStdinIdleDeadline(test *testing.T) {
 }
 
 func TestChatLifecycle_FileInputPreservesPartialAndBlankLineBehavior(test *testing.T) {
+	test.Parallel()
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		test.Fatal(err)

@@ -21,6 +21,7 @@ import (
 )
 
 func TestMissionAdmissionCompatStreamingLostResponse(t *testing.T) {
+	t.Parallel()
 	const model = "mission-compat-stream-loss-fixture"
 	usage.RegisterPrice(model, usage.Price{InputPerMTok: 1, OutputPerMTok: 1})
 	for _, kind := range []string{"clean", "recover", "known_over_budget"} {

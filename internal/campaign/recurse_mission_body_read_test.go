@@ -14,6 +14,7 @@ import (
 )
 
 func TestMissionAdmissionStopsBeforeAcceptedBodyReadRetry(t *testing.T) {
+	t.Parallel()
 	const model = "mission-body-read-fixture"
 	usage.RegisterPrice(model, usage.Price{InputPerMTok: 1, OutputPerMTok: 1})
 	for _, truncated := range []bool{false, true} {

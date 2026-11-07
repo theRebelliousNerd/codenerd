@@ -101,6 +101,7 @@ func TestMatchSpecialistsForReview_UnreadyAgentIsNotMatched(t *testing.T) {
 
 // A specialist's ingested knowledge must reach the review task.
 func TestLoadAndQueryKnowledgeBase_ReturnsMatchingAtoms(t *testing.T) {
+	t.Parallel()
 	kbPath := filepath.Join(t.TempDir(), "goexpert_knowledge.db")
 	db, err := sql.Open("sqlite3", kbPath)
 	if err != nil {

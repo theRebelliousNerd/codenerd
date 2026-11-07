@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	jitconfig "codenerd/internal/jit/config"
 	"codenerd/internal/tools"
 	toolscore "codenerd/internal/tools/core"
@@ -59,10 +60,7 @@ func TestTestRunGate_IsTheLastRunAfterTheLastWrite(t *testing.T) {
 		{"a later write sets the verdict aside", []types.ToolCall{write("w1"), run("r", 0), write("w2")}, VerifySkipped},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			kernel, err := core.NewRealKernel()
-			if err != nil {
-				t.Fatal(err)
-			}
+			kernel := kerneltest.New(t)
 			e := NewExecutor(kernel, &testExecutiveStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
 			e.config.WorkspaceRoot = ws
 			e.config.EnableSafetyGate = false

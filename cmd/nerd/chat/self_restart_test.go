@@ -53,6 +53,7 @@ func TestSelfRestart_WaitsForTheTurnToSettle(t *testing.T) {
 // yolo, brief, held work and draft come back, and the notice names the builds
 // and what the restart interrupted.
 func TestSelfRestart_TheSessionRoundTripsThroughTheRestoreFile(t *testing.T) {
+	t.Parallel()
 	old, _ := journeyModel(t, config.WorkModePropose)
 	old.isBooting = false
 	old.sessionID = "sess-restart"
@@ -115,6 +116,7 @@ func contents(history []Message) []string {
 // An exec that fails keeps this process and session, says why, and stops
 // retrying until the next rebuild.
 func TestSelfRestart_AFailedExecKeepsTheSession(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModeYolo)
 	m.isBooting = false
 	m.sessionID = "sess-keep"
@@ -134,6 +136,7 @@ func TestSelfRestart_AFailedExecKeepsTheSession(t *testing.T) {
 }
 
 func TestSelfRestart_FailureIsScopedToTheAttemptedIdentity(t *testing.T) {
+	t.Parallel()
 	if !selfrestart.ExecSupported {
 		t.Skip("automatic exec is unavailable")
 	}
@@ -199,6 +202,7 @@ func TestSelfRestart_FailureIsScopedToTheAttemptedIdentity(t *testing.T) {
 }
 
 func TestSelfRestart_RestoreWriteFailureCanRecoverOnAnotherBuild(t *testing.T) {
+	t.Parallel()
 	if !selfrestart.ExecSupported {
 		t.Skip("automatic exec is unavailable")
 	}
@@ -253,6 +257,7 @@ func TestPolicyReload_IsShownToTheSession(t *testing.T) {
 }
 
 func TestPolicyReload_OnlyARejectedGenerationClaimsUnchanged(t *testing.T) {
+	t.Parallel()
 	for _, disposition := range []string{"rejected", ""} {
 		m, _ := journeyModel(t, config.WorkModeYolo)
 		m, _ = m.handlePolicyReload(policyReloadMsg{ev: nerdsystem.PolicyReloadEvent{
@@ -276,6 +281,7 @@ func TestPolicyReload_OnlyARejectedGenerationClaimsUnchanged(t *testing.T) {
 // through the restore file, and auto-resumes /recurse once the startup scan
 // completes.
 func TestSelfRestart_PausesAndAutoResumesRecurseAcrossRebuild(t *testing.T) {
+	t.Parallel()
 	old, _ := journeyModel(t, config.WorkModeYolo)
 	old.isBooting = false
 	old.sessionID = "sess-recurse-restart"

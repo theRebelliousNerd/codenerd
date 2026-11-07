@@ -49,6 +49,7 @@ func northstarTUIFrame(t *testing.T, text string) (string, bool) {
 }
 
 func TestNorthstarTUI_DocumentsUseLosslessLibrary(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "research.md")
 	body := strings.Repeat("full text\n", 10000) + "tail evidence\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {

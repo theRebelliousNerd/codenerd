@@ -10,6 +10,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/learnjudge"
 	"codenerd/internal/observation"
 	"codenerd/internal/perception"
@@ -309,10 +310,7 @@ func liveJev(t *testing.T) (*typesafe.Client, *config.TypeSafeConfig) {
 // request delivered. Without Jev configured this skips.
 func TestDeliveryLive_ShardSaysDoneButMissedAPart(t *testing.T) {
 	client, sec := liveJev(t)
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kerneltest.New(t)
 	m := Model{kernel: k, jev: client, Config: &config.UserConfig{TypeSafe: sec}}
 	dc := m.startDelivery(jsonFlagRequest, "coder")
 	if dc == nil {

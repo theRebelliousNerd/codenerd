@@ -18,6 +18,7 @@ import (
 )
 
 func TestMissionAdmissionAnthropicIncompleteAttempts(t *testing.T) {
+	t.Parallel()
 	const model = "mission-anthropic-attempt-fixture"
 	usage.RegisterPrice(model, usage.Price{InputPerMTok: 1, OutputPerMTok: 1})
 	for _, kind := range []string{"clean", "missing", "over_budget"} {

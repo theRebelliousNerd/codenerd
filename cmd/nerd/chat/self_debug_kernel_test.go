@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/logging"
 	"codenerd/internal/problemlog"
 	"codenerd/internal/types"
@@ -64,10 +65,7 @@ func TestDebugSelf_ProjectsProblemsLogIntoKernel(t *testing.T) {
 		t.Fatal("no problems log was opened")
 	}
 
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kerneltest.New(t)
 	m := NewTestModel()
 	m.Config = config.DefaultUserConfig()
 	// The threshold comes from config, as in production: a warning seen

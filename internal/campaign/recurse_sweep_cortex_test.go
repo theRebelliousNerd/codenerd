@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	nerdsystem "codenerd/internal/system"
 	"codenerd/internal/types"
 )
@@ -20,10 +21,7 @@ func TestRecurseSweep_OnProductionCortex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDomainCortex: %v", err)
 	}
-	single, err := core.NewRealKernelWithWorkspace(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewRealKernelWithWorkspace: %v", err)
-	}
+	single := kerneltest.WithWorkspace(t, t.TempDir())
 	both := recursePair{t: t, cortex: ck, single: single}
 
 	both.assert(

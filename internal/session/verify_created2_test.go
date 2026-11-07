@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/types"
 )
 
@@ -27,10 +27,7 @@ import (
 // than one that fails.
 func newObligationExec(t *testing.T) *Executor {
 	t.Helper()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	k := kerneltest.New(t)
 	e := NewExecutor(k, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
 	e.kernel = k
 	e.config.WorkspaceRoot = t.TempDir()

@@ -13,6 +13,7 @@ import (
 // check-kb names the unfilled fields of every shard-agent KB in the
 // workspace: here a knowledge row with no source.
 func TestCheckKBNamesAnUnfilledField(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	dir := filepath.Join(ws, ".nerd", "shards")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -46,6 +47,7 @@ func TestCheckKBNamesAnUnfilledField(t *testing.T) {
 // check-kb says what each KB knows by source, calls placeholder rows what
 // they are, and shows every source attempt that did not acquire.
 func TestCheckKBReportsKnowledgeBySourceAndSourceOutcomes(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	dir := filepath.Join(ws, ".nerd", "shards")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

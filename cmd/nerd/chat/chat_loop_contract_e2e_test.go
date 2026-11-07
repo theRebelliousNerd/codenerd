@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/perception"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -388,10 +389,7 @@ func TestE2E_ChatLoop_PerceptionPanic_RecoveredAsErrorAndIdle(t *testing.T) {
 
 	// 5-6. Verify we can submit a second normal message (app survived)
 	// Reset with a non-panicking transducer and add kernel for full OODA path
-	kernel, kerr := core.NewRealKernelWithWorkspace(workspace)
-	if kerr != nil {
-		t.Fatalf("Kernel creation failed: %v", kerr)
-	}
+	kernel := kerneltest.WithWorkspace(t, workspace)
 	m.kernel = kernel
 	m.virtualStore = core.NewVirtualStore(nil)
 	m.isLoading = false // Manual reset since the gap exists
@@ -643,10 +641,7 @@ func TestE2E_ChatLoop_ReadOnlyReview_DoesNotSpawnCoderOrWrite(t *testing.T) {
 	mockClient := NewMockLLMClient()
 	mockClient.SetDefaultResponse("The auth.go file has potential SQL injection on line 42.")
 
-	kernel, err := core.NewRealKernelWithWorkspace(workspace)
-	if err != nil {
-		t.Fatalf("Kernel creation failed: %v", err)
-	}
+	kernel := kerneltest.WithWorkspace(t, workspace)
 
 	tr := &chatLoopTransducer{
 		intent: perception.Intent{
@@ -708,10 +703,7 @@ func TestE2E_ChatLoop_AmbiguousIntent_ClarificationThenResume(t *testing.T) {
 	mockClient := NewMockLLMClient()
 	mockClient.SetDefaultResponse("Fixed auth.go login bug.")
 
-	kernel, err := core.NewRealKernelWithWorkspace(workspace)
-	if err != nil {
-		t.Fatalf("Kernel creation failed: %v", err)
-	}
+	kernel := kerneltest.WithWorkspace(t, workspace)
 
 	tr := &chatLoopTransducer{
 		intent: perception.Intent{

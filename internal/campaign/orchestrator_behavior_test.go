@@ -7,6 +7,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
@@ -118,10 +119,7 @@ func TestKernel_AMissingCampaignThresholdIsNamed(t *testing.T) {
 
 func TestContextPager_ResetPhaseContextClearsFacts(t *testing.T) {
 	t.Parallel()
-	kernel, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel() error = %v", err)
-	}
+	kernel := kerneltest.New(t)
 
 	cp := NewContextPager(kernel, &stubLLM{}, 0) // 0 uses default budget
 	_ = kernel.Assert(core.Fact{

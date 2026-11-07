@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 )
 
 // The campaign context-paging path had nine bare `cp.kernel.Assert(f)` calls in
@@ -14,10 +15,7 @@ import (
 
 func newAssertTestKernel(t *testing.T) *core.RealKernel {
 	t.Helper()
-	k, err := core.NewRealKernelWithWorkspace(t.TempDir())
-	if err != nil {
-		t.Fatalf("new kernel: %v", err)
-	}
+	k := kerneltest.WithWorkspace(t, t.TempDir())
 	return k
 }
 

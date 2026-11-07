@@ -108,6 +108,7 @@ func TestHandleTaskFailure_TerminalCanStillReplan(t *testing.T) {
 // with worker goroutines. This test proves cancellation leaves no active task
 // worker.
 func TestRunPhase_CancellationDrainsWorkers(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	kernel := &MockKernel{}
 	// Current phase derived from kernel.

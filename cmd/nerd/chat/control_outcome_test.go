@@ -7,7 +7,7 @@ import (
 
 	"codenerd/internal/articulation"
 	ctxcompress "codenerd/internal/context"
-	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/perception"
 )
 
@@ -16,10 +16,7 @@ import (
 // and kept.
 func TestApplyArticulationControlPacket_FailedMemoryWriteIsNotRecordedAsRemembered(t *testing.T) {
 	t.Parallel()
-	kernel, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	kernel := kerneltest.New(t)
 	m := Model{kernel: kernel} // no localDB
 	note := articulation.MemoryOperation{Op: "note", Key: "focus", Value: "auth"}
 	pref := articulation.MemoryOperation{Op: "promote_to_long_term", Key: "indent", Value: "tabs"}

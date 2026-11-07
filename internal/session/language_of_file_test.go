@@ -4,16 +4,14 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 )
 
 // realKernel is the production kernel over the embedded policy corpus, for
 // tests whose subject is a decision the policy makes.
 func realKernel(t *testing.T) *core.RealKernel {
 	t.Helper()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kerneltest.New(t)
 	return k
 }
 

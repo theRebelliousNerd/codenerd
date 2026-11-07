@@ -19,6 +19,7 @@ import (
 )
 
 func TestMissionAdmissionAnthropicLostResponse(t *testing.T) {
+	t.Parallel()
 	const model = "mission-anthropic-lost-response-fixture"
 	usage.RegisterPrice(model, usage.Price{InputPerMTok: 1, OutputPerMTok: 1})
 	for _, kind := range []string{"clean", "recover", "known_over_budget"} {

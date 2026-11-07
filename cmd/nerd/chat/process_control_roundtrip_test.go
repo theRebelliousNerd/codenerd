@@ -11,6 +11,7 @@ import (
 
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/observation"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
@@ -314,10 +315,7 @@ func TestProcessInputControlPacketIsGovernedBeforeKnowledgeConsultation(t *testi
 func TestProcessInputMutationWithoutVerifierDoesNotClaimCompletion(t *testing.T) {
 	t.Parallel()
 	workspace := SetupLiveWorkspace(t)
-	kernel, err := core.NewRealKernelWithWorkspace(workspace)
-	if err != nil {
-		t.Fatalf("create kernel: %v", err)
-	}
+	kernel := kerneltest.WithWorkspace(t, workspace)
 	client := NewMockLLMClient()
 
 	intent := perception.Intent{

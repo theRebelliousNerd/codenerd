@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -35,6 +36,14 @@ func (f *contentJev) attach(t *testing.T, m Model, sec config.TypeSafeConfig) Mo
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.calls.Add(1)
+		// The body is read before any delay: net/http only watches the connection
+		// (and so cancels r.Context when the client gives up) once the request
+		// body is consumed. An unread body made a client that timed out leave this
+		// handler asleep for the whole delay, and srv.Close waited for it.
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request: %v", err)
+		}
 		if f.delay > 0 {
 			select {
 			case <-time.After(f.delay):
@@ -49,7 +58,7 @@ func (f *contentJev) attach(t *testing.T, m Model, sec config.TypeSafeConfig) Mo
 		var req struct {
 			Questions map[string]json.RawMessage `json:"questions"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.Unmarshal(body, &req); err != nil {
 			t.Errorf("decode: %v", err)
 		}
 		answers := map[string]any{}
@@ -85,6 +94,7 @@ func (f *contentJev) attach(t *testing.T, m Model, sec config.TypeSafeConfig) Mo
 // A Jev slower than turn_judgment_timeout holds routing no longer than the
 // timeout, and its late answer is no evidence.
 func TestJevTurn_SlowJevIsBoundedByTheTurnTimeout(t *testing.T) {
+	t.Parallel()
 	m, _ := journeyModel(t, config.WorkModeYolo)
 	jev := &contentJev{probs: map[string]float64{"changes_files": 0.05}, delay: 5 * time.Second}
 	m = jev.attach(t, m, config.TypeSafeConfig{TurnJudgmentTimeout: "100ms"})

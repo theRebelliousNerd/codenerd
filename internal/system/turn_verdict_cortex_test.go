@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/types"
 )
 
@@ -36,10 +37,7 @@ func TestTurnVerdict_OnProductionCortex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDomainCortex: %v", err)
 	}
-	single, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	single := kerneltest.New(t)
 	both := verdictPair{t: t, cortex: ck, single: single}
 
 	// (c) before the write: the catalog offers run_check, and nothing is owed

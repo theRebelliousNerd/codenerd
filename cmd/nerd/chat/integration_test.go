@@ -659,6 +659,7 @@ func TestView_LargeTerminal(t *testing.T) {
 
 // TestFormatShardTask tests shard task formatting
 func TestFormatShardTask(t *testing.T) {
+	t.Parallel()
 	workspace := t.TempDir()
 
 	tests := []struct {

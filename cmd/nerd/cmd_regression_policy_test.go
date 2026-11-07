@@ -12,6 +12,7 @@ import (
 // nothing projected them, so the rules decided nothing for anyone.
 // The batteries here are never run: only their policy verdict is computed.
 func TestBatteryPolicyRefusals_ShouldNameWhatTheConstitutionRefuses(t *testing.T) {
+	t.Parallel()
 	path := t.TempDir() + "/battery.yaml"
 
 	clean := &regression.Battery{Tasks: []regression.Task{{ID: "build", Type: "shell", Command: "go build ./..."}}}

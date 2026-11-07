@@ -60,6 +60,7 @@ func testEvent() shards.ObserverEvent {
 }
 
 func TestNorthstarHandlerAdapter_WhenGuardianBlocks_ShouldReturnBlockAssessment(t *testing.T) {
+	t.Parallel()
 	adapter := newTestAdapter(t, "SCORE: 0.1\nRESULT: blocked\nEXPLANATION: contradicts the mission\nSUGGESTIONS: revert, rescope")
 
 	got, err := adapter.HandleEvent(context.Background(), testEvent())
@@ -96,6 +97,7 @@ func TestNorthstarHandlerAdapter_WhenGuardianBlocks_ShouldReturnBlockAssessment(
 }
 
 func TestNorthstarHandlerAdapter_WhenGuardianPasses_ShouldReturnProceed(t *testing.T) {
+	t.Parallel()
 	adapter := newTestAdapter(t, "SCORE: 0.95\nRESULT: passed\nEXPLANATION: on mission\nSUGGESTIONS: none")
 
 	got, err := adapter.HandleEvent(context.Background(), testEvent())
@@ -117,6 +119,7 @@ func TestNorthstarHandlerAdapter_WhenGuardianPasses_ShouldReturnProceed(t *testi
 }
 
 func TestNorthstarHandlerAdapter_WhenNoVisionDefined_ShouldReturnNilAssessment(t *testing.T) {
+	t.Parallel()
 	t.Cleanup(northstar.ResetGuardianRegistry)
 
 	nerdDir := t.TempDir()
@@ -141,6 +144,7 @@ func TestNorthstarHandlerAdapter_WhenNoVisionDefined_ShouldReturnNilAssessment(t
 }
 
 func TestNorthstarHandlerAdapter_WhenEventTypeIsFileModified_ShouldUseHighImpactTrigger(t *testing.T) {
+	t.Parallel()
 	adapter := newTestAdapter(t, "SCORE: 0.8\nRESULT: passed\nEXPLANATION: fine\nSUGGESTIONS: none")
 
 	event := testEvent()

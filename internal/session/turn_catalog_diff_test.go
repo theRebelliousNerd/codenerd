@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/prompt"
 )
 
@@ -144,10 +144,7 @@ func goldenVerbPersona() map[string]string {
 // kernel is the only source left.
 func TestTurnCatalog_KernelEnvelope(t *testing.T) {
 	t.Parallel()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	k := kerneltest.New(t)
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
 	verbs := goldenVerbPersona()
 

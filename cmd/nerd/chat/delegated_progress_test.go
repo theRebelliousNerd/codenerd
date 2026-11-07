@@ -271,6 +271,7 @@ func TestDelegatedProgress_UpdateReservesAndReleasesPanelSpace(t *testing.T) {
 }
 
 func TestDelegatedProgress_BackpressuredFinalSurvivesCancellationAndUnblocksOnShutdown(t *testing.T) {
+	t.Parallel()
 	for _, shutdown := range []bool{false, true} {
 		t.Run(fmt.Sprintf("shutdown=%v", shutdown), func(t *testing.T) {
 			m := NewTestModel()

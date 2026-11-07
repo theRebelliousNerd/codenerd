@@ -44,6 +44,7 @@ func attemptStopMission(t *testing.T) (*RecurseMission, context.Context) {
 // Every failed fixture consumes the entire request before losing its response.
 // This establishes ambiguous spend, not that a real provider billed it.
 func TestMissionUnknownStopsProviderAttempts(t *testing.T) {
+	t.Parallel()
 	for _, surface := range []string{"chat", "meta_responses", "grounded_search", "anthropic", "openai", "compat_stream", "openai_stream", "typesafe"} {
 		for _, pooled := range []bool{false, true} {
 			if pooled && surface == "typesafe" {
@@ -52,6 +53,9 @@ func TestMissionUnknownStopsProviderAttempts(t *testing.T) {
 			for _, mode := range []string{"clean", "lost", "ordinary_lost"} {
 				lost := mode != "clean"
 				t.Run(fmt.Sprintf("%s/pool=%v/%s", surface, pooled, mode), func(t *testing.T) {
+					// Each case owns its mission, kernel and HTTP server; the price
+					// registered for a surface's model is the same in every case.
+					t.Parallel()
 					m, ctx := attemptStopMission(t)
 					if mode == "ordinary_lost" {
 						ctx = t.Context()
@@ -202,6 +206,7 @@ func TestMissionUnknownStopsProviderAttempts(t *testing.T) {
 }
 
 func TestMissionConcurrentUnknownPreservesKnownUsageAndIsolation(t *testing.T) {
+	t.Parallel()
 	m, ctx := attemptStopMission(t)
 	other, otherCtx := attemptStopMission(t)
 	const model = "attempt-stop-concurrent-counts"
@@ -234,6 +239,7 @@ func TestMissionConcurrentUnknownPreservesKnownUsageAndIsolation(t *testing.T) {
 }
 
 func TestMissionTypeSafeUnknownStopsRetry(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"retryable", "unpriced"} {
 		t.Run(kind, func(t *testing.T) {
 			m, ctx := attemptStopMission(t)

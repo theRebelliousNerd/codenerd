@@ -63,9 +63,11 @@ func guardSourceFixtureDoc(t *testing.T) string {
 }
 
 func TestRecurseGuardSourceBypassIsRefusedAndRolledBack(t *testing.T) {
+	t.Parallel()
 	paths := append(append([]string(nil), guardSourcePaths...), "internal/perception/ordinary.go")
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
+			t.Parallel() // each path gets its own git fixture and kernel
 			const source = "package guard\n"
 			root := recurseFixture(t, map[string]string{"nerd.md": guardSourceFixtureDoc(t), path: source})
 			calls := 0

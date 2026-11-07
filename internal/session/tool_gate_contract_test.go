@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 )
 
 // TestIntentRequiresToolCall_AdapterVerbs pins the executor's live hollow gate
@@ -12,10 +12,7 @@ import (
 // and a prose-terminal verb must return false (direct answers pass through).
 func TestIntentRequiresToolCall_AdapterVerbs(t *testing.T) {
 	t.Parallel()
-	kernel, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	kernel := kerneltest.New(t)
 	executor := &Executor{kernel: kernel}
 	cases := map[string]bool{
 		// New mappings: execution verbs the adapter emits.

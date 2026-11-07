@@ -943,6 +943,7 @@ func TestActivatePhase_TasksWithNilArtifacts(t *testing.T) {
 }
 
 func TestScopedDocsForPhase_PerformanceExtremes(t *testing.T) {
+	t.Parallel()
 	kernel := &MockKernel{}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
 	cp.SetPromptProvider(testPromptProvider{})

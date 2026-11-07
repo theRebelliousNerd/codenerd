@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 )
 
 func lastAssistantContent(m Model) string {
@@ -105,10 +106,7 @@ func TestCountKernelFacts_NilKernelIsUnavailable(t *testing.T) {
 
 func TestCountKernelFacts_RealKernelCountsFacts(t *testing.T) {
 	t.Parallel()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	k := kerneltest.New(t)
 	if _, ok := countKernelFacts(k); !ok {
 		t.Fatal("empty real kernel should still report an available (possibly zero) count, not unavailable")
 	}

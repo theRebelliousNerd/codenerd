@@ -37,6 +37,10 @@ func TestRecurseContractProcess(t *testing.T) {
 }
 
 func TestRecurseContract_EnvironmentAndExitsReachTaskAndAcceptance(t *testing.T) {
+	// The only campaign test that binds the process-wide run_check executor, so
+	// it can overlap every other test; its own cases share that binding and
+	// stay sequential.
+	t.Parallel()
 	binary, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)

@@ -5,6 +5,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/perception"
 )
 
@@ -19,10 +20,7 @@ func (m Model) kernelDerives(pred string) bool {
 // policy corpus.
 func newRoundtripModel(t *testing.T) Model {
 	t.Helper()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel failed: %v", err)
-	}
+	k := kerneltest.New(t)
 	m := NewTestModel()
 	m.kernel = k
 	return m

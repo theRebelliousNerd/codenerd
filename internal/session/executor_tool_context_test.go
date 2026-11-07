@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
@@ -16,10 +16,7 @@ func TestCompilationContextUsesPermittedToolEnvelope(t *testing.T) {
 	// The compile lists what the request can carry, so the granted tools
 	// need their backends, as boot hydration registers them (tool_offer.go).
 	registerProductionTools(t)
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("NewRealKernel: %v", err)
-	}
+	k := kerneltest.New(t)
 	for _, requestContext := range []bool{false, true} {
 		suffix := map[bool]string{true: "/request-context", false: "/default-context"}[requestContext]
 		ctx := t.Context()

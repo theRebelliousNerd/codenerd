@@ -18,6 +18,7 @@ import (
 // A quiet loop wakes only when a withheld retry comes due; every other state
 // keeps polling.
 func TestEligibilityWake_AQuietLoopWaitsForAResultOrADueRetry(t *testing.T) {
+	t.Parallel()
 	o := &Orchestrator{}
 	phase := &Phase{Tasks: []Task{
 		{ID: "/t_done", Status: TaskCompleted, NextRetryAt: time.Now().Add(50 * time.Millisecond)},

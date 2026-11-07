@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	nerdinit "codenerd/internal/init"
 	nerdsystem "codenerd/internal/system"
 	"codenerd/internal/types"
@@ -163,10 +163,7 @@ func TestRunInitialization_PlannerPhasesUseTheSessionPlanner(t *testing.T) {
 	chatInitGit(t, root, "add", ".")
 	chatInitGit(t, root, "commit", "-m", "origin")
 
-	kernel, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatal(err)
-	}
+	kernel := kerneltest.New(t)
 	main := &initEntryClient{model: "main-model"}
 	planner := &initEntryClient{model: "planner-model"}
 	m := NewTestModel()

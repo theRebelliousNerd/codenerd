@@ -26,6 +26,7 @@ func (f typesafePriceTransport) RoundTrip(req *http.Request) (*http.Response, er
 // The production TypeSafe client reports the answered version to the real
 // mission observer. Every request is answered in memory, without network I/O.
 func TestMissionTypeSafeVersionedPriceAdmission(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, model, status string
 		input               int

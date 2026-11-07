@@ -72,6 +72,7 @@ sibling(A, B) :- parent(P, A), parent(P, B), A != B.
 // declares a predicate codeNERD also declares collides; standalone checks the
 // program on its own.
 func TestCheckMangle_StandaloneSkipsTheSharedSchemas(t *testing.T) {
+	t.Parallel()
 	path := writeMangleProgram(t, `
 Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/name, /name, /name, /string, /string].
 user_intent(/i1, /mutation, /fix, "a.go", "").

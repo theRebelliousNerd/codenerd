@@ -8,15 +8,13 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/jit/config"
 )
 
 func newExecWithRealKernel(t *testing.T, workspace string) *Executor {
 	t.Helper()
-	k, err := core.NewRealKernel()
-	if err != nil {
-		t.Fatalf("kernel: %v", err)
-	}
+	k := kerneltest.New(t)
 	e := NewExecutor(k, nil, nil, nil, nil, nil)
 	if workspace != "" {
 		e.SetConfig(ExecutorConfig{WorkspaceRoot: workspace})

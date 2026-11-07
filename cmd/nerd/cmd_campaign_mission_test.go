@@ -129,6 +129,7 @@ func TestMissionRecurse_CommandAdapterThroughProductionCycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("production cortex and host gates")
 	}
+	t.Parallel()
 	root := t.TempDir()
 	for path, body := range map[string]string{
 		"go.mod":              "module example.com/mission\n\ngo 1.21\n",
@@ -184,8 +185,10 @@ func TestMissionRecurse_CommandAdapterThroughProductionCycle(t *testing.T) {
 	if _, err := config.LoadUserConfig(filepath.Join(root, ".nerd/config.json")); err != nil {
 		t.Fatalf("campaign fixture config: %v", err)
 	}
-	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "XAI_API_KEY", "ZAI_API_KEY", "OPENROUTER_API_KEY"} {
-		t.Setenv(key, "")
+	for _, key := range providerKeyEnv {
+		if os.Getenv(key) != "" {
+			t.Fatalf("%s reached the offline mission fixture; TestMain clears ambient provider keys", key)
+		}
 	}
 	cortex, err := coresys.BootCortexWithConfig(t.Context(), coresys.BootConfig{Workspace: root, SessionID: "mission-cycle",
 		UserConfigOverride: cfg, LLMClientOverride: client,

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"codenerd/internal/core"
+	"codenerd/internal/core/kerneltest"
 	"codenerd/internal/gates"
 )
 
@@ -13,10 +13,7 @@ import (
 // under test are rules, so a mock kernel would only test the mock.
 func newRecursePolicy(t *testing.T) *recursePolicy {
 	t.Helper()
-	k, err := core.NewRealKernelWithWorkspace(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kerneltest.WithWorkspace(t, t.TempDir())
 	return &recursePolicy{k: k}
 }
 

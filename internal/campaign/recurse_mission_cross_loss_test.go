@@ -21,6 +21,7 @@ import (
 )
 
 func TestMissionAdmissionCrossProviderLostResponse(t *testing.T) {
+	t.Parallel()
 	for _, surface := range []string{"chat", "meta_responses", "grounded_search"} {
 		for _, kind := range []string{"clean", "recover", "known_over_budget"} {
 			t.Run(surface+"/"+kind, func(t *testing.T) {
