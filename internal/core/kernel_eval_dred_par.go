@@ -23,6 +23,7 @@ type dredVariant struct {
 	pi      int
 	negated bool
 	delta   *factstore.MultiIndexedArrayInMemoryStore
+	order   []int // memoized premise order for this variant
 }
 
 // seedVariants lists a phase's variants over the lower strata's change: a
@@ -54,7 +55,7 @@ func (r *dredRun) runVariants(vs []dredVariant, apply func([]ast.Atom)) error {
 	results := make([][]ast.Atom, len(vs))
 	timed := func(v dredVariant) ([]ast.Atom, error) {
 		started := time.Now()
-		heads, err := r.variant(v.ctx, v.clause, v.pi, v.negated, v.delta)
+		heads, err := r.variant(v.ctx, v.clause, v.pi, v.negated, v.delta, v.order)
 		r.profile.charge(v.clause.Head.Predicate.Symbol, time.Since(started))
 		return heads, err
 	}

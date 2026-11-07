@@ -97,6 +97,7 @@ type dredRule struct {
 	letVars   map[ast.Variable]struct{}
 	agg       *dredAggregate // a maintained do-transform (kernel_eval_dred_agg.go)
 	intrinsic bool           // never maintained: time, lattice, deferred head, unmaintainable aggregation
+	orders    map[int][]int  // memoized premise orders per delta premise (kernel_eval_dred_plan.go)
 }
 
 // dredIndex is DRed's view of one program, built once per coneIndex on first
@@ -111,8 +112,14 @@ type dredIndex struct {
 	programFacts  deltaStores                       // the program's own facts, by symbol
 	triggers      map[dredTrigKey][]dredTrigger     // premises by the predicate and sign they read (kernel_eval_dred_trigger.go)
 
-	mu    sync.Mutex
-	plans map[string]*dredPlan
+	mu            sync.Mutex
+	plans         map[string]*dredPlan
+	variantOrders map[variantOrderKey][]int // memoized premise orders for variants (kernel_eval_dred_plan.go)
+}
+
+// variantOrderKey names one variant's premise order: rule and delta premise.
+type variantOrderKey struct {
+	rule, pi int
 }
 
 // dredPlan is the immutable split of one written-predicate set.
@@ -140,6 +147,7 @@ func buildDRedIndex(c *coneIndex, info *analysis.ProgramInfo) *dredIndex {
 		volatileDown:  make(map[string]struct{}),
 		programFacts:  make(deltaStores),
 		plans:         make(map[string]*dredPlan),
+		variantOrders: make(map[variantOrderKey][]int),
 	}
 	for i, stratum := range c.strata {
 		for sym := range stratum {
@@ -207,6 +215,55 @@ func buildDRedIndex(c *coneIndex, info *analysis.ProgramInfo) *dredIndex {
 			idx.rules[i].agg = idx.aggregateShape(idx.rules[i])
 			idx.rules[i].intrinsic = idx.rules[i].intrinsic || idx.rules[i].agg == nil
 		}
+	}
+	for i := range idx.rules {
+		clause := idx.rules[i].clause
+		n := len(clause.Premises)
+		if n == 0 {
+			continue
+		}
+		orders := make(map[int][]int, len(idx.rules[i].positives)+len(idx.rules[i].negatives))
+		deferred := func(sym ast.PredicateSym) bool { return isDeferred(sym) }
+		addOrder := func(pi int) {
+			if n == 1 {
+				orders[pi] = []int{pi}
+				return
+			}
+			var deltaPremise ast.Atom
+			if pi < 0 || pi >= n {
+				return
+			}
+			switch p := clause.Premises[pi].(type) {
+			case ast.Atom:
+				deltaPremise = p
+			case ast.NegAtom:
+				deltaPremise = p.Atom
+			default:
+				id := make([]int, n)
+				for k := range id {
+					id[k] = k
+				}
+				orders[pi] = id
+				return
+			}
+			if plainAtom(deltaPremise) {
+				orders[pi] = planOrder(clause, pi, nil, deferred)
+			} else {
+				id := make([]int, n)
+				for k := range id {
+					id[k] = k
+				}
+				orders[pi] = id
+			}
+			idx.variantOrders[variantOrderKey{rule: i, pi: pi}] = orders[pi]
+		}
+		for _, pi := range idx.rules[i].positives {
+			addOrder(pi)
+		}
+		for _, ni := range idx.rules[i].negatives {
+			addOrder(ni)
+		}
+		idx.rules[i].orders = orders
 	}
 	idx.buildTriggers()
 	for _, head := range c.volatile {
@@ -710,7 +767,8 @@ func (r *dredRun) heldEDB(pred string) (deltaStores, error) {
 // derives reports whether rule derives a in ctx's state. The head is bound to
 // a first (except variables a let defines), so the body is a lookup, not a scan.
 func (r *dredRun) derives(ctx engine.QueryContext, rule dredRule, a ast.Atom) (bool, error) {
-	var xs, ys []ast.BaseTerm
+	xs := make([]ast.BaseTerm, 0, len(rule.clause.Head.Args))
+	ys := make([]ast.BaseTerm, 0, len(rule.clause.Head.Args))
 	for i, arg := range rule.clause.Head.Args {
 		switch v := arg.(type) {
 		case ast.Variable:
@@ -774,9 +832,10 @@ func (r *dredRun) isDeferred(sym ast.PredicateSym) bool {
 // premise read as the positive atom it negates) and every other premise
 // reading ctx.Store, and returns the heads it derives. The delta premise is
 // joined first when that cannot leave a later premise unbound: an atom over
-// plain terms binds variables and needs none.
-func (r *dredRun) variant(ctx engine.QueryContext, clause ast.Clause, pi int, negated bool, delta factstore.ReadOnlyFactStore) ([]ast.Atom, error) {
-	solutions, err := r.variantSolutions(ctx, clause, pi, negated, delta)
+// plain terms binds variables and needs none. order is the memoized premise
+// order for this variant; when nil the order is computed as before.
+func (r *dredRun) variant(ctx engine.QueryContext, clause ast.Clause, pi int, negated bool, delta factstore.ReadOnlyFactStore, order []int) ([]ast.Atom, error) {
+	solutions, err := r.variantSolutions(ctx, clause, pi, negated, delta, order)
 	if err != nil || len(solutions) == 0 {
 		return nil, err
 	}
@@ -784,8 +843,10 @@ func (r *dredRun) variant(ctx engine.QueryContext, clause ast.Clause, pi int, ne
 }
 
 // variantSolutions is variant's body: the substitutions under which clause's
-// premises hold with premise pi reading only delta.
-func (r *dredRun) variantSolutions(ctx engine.QueryContext, clause ast.Clause, pi int, negated bool, delta factstore.ReadOnlyFactStore) ([]unionfind.UnionFind, error) {
+// premises hold with premise pi reading only delta. order is the memoized
+// premise order for this variant; when nil the order is computed as before,
+// so the evaluation is the sequential one either way.
+func (r *dredRun) variantSolutions(ctx engine.QueryContext, clause ast.Clause, pi int, negated bool, delta factstore.ReadOnlyFactStore, order []int) ([]unionfind.UnionFind, error) {
 	r.variants.Add(1)
 	var deltaPremise ast.Atom
 	if negated {
@@ -793,20 +854,25 @@ func (r *dredRun) variantSolutions(ctx engine.QueryContext, clause ast.Clause, p
 	} else {
 		deltaPremise = clause.Premises[pi].(ast.Atom)
 	}
-	var order []int
-	if plainAtom(deltaPremise) {
-		order = planOrder(clause, pi, nil, r.isDeferred)
-	} else {
-		order = make([]int, 0, len(clause.Premises))
-		for i := range clause.Premises {
-			order = append(order, i)
+	if order == nil {
+		if len(clause.Premises) == 1 {
+			// Only one premise: it is the delta premise, and planOrder would
+			// return [pi] after its map and scan setup. Skip that work.
+			order = []int{pi}
+		} else if plainAtom(deltaPremise) {
+			order = planOrder(clause, pi, nil, r.isDeferred)
+		} else {
+			order = make([]int, 0, len(clause.Premises))
+			for i := range clause.Premises {
+				order = append(order, i)
+			}
 		}
 	}
 	deltaCtx := ctx
 	deltaCtx.Store = delta
 	solutions := []unionfind.UnionFind{unionfind.New()}
 	for _, i := range order {
-		var out []unionfind.UnionFind
+		out := make([]unionfind.UnionFind, 0, len(solutions))
 		for _, s := range solutions {
 			var step []unionfind.UnionFind
 			var err error

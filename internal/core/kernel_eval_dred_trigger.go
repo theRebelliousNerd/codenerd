@@ -60,7 +60,12 @@ func (d *dredIndex) triggered(ctx engine.QueryContext, members map[int]struct{},
 		}
 		for _, t := range d.triggers[dredTrigKey{sym: sym, negated: negated}] {
 			if _, ok := members[t.rule]; ok {
-				into = append(into, dredVariant{ctx: ctx, rule: t.rule, clause: d.rules[t.rule].clause, pi: t.pi, negated: negated, delta: delta})
+				rule := d.rules[t.rule]
+				order := rule.orders[t.pi]
+				if order == nil {
+					order = d.variantOrders[variantOrderKey{rule: t.rule, pi: t.pi}]
+				}
+				into = append(into, dredVariant{ctx: ctx, rule: t.rule, clause: rule.clause, pi: t.pi, negated: negated, delta: delta, order: order})
 			}
 		}
 	}
