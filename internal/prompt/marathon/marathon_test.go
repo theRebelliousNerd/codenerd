@@ -493,3 +493,227 @@ func TestRun_RequiresAnAdmissionBound(t *testing.T) {
 		t.Fatalf("Run without a bound: %v", err)
 	}
 }
+
+func TestHasDocs_PinTruthTable(t *testing.T) {
+	var nilProfile *ModelDocProfile
+	if nilProfile.HasDocs() {
+		t.Error("nil profile must not report docs")
+	}
+	cases := []struct {
+		name    string
+		profile *ModelDocProfile
+		want    bool
+	}{
+		{"both present", &ModelDocProfile{Guidance: "g", Citations: []Citation{{URL: "https://docs.example/x"}}}, true},
+		{"no citations", &ModelDocProfile{Guidance: "g"}, false},
+		{"no guidance", &ModelDocProfile{Citations: []Citation{{URL: "https://docs.example/x"}}}, false},
+		{"empty", &ModelDocProfile{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.profile.HasDocs(); got != tc.want {
+				t.Errorf("HasDocs = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestModelPinToken_PinFamilyPreference(t *testing.T) {
+	if got := modelPinToken(""); got != "" {
+		t.Errorf("modelPinToken(\"\") = %q, want empty", got)
+	}
+	dated := modelPinToken("claude-opus-4-20260501")
+	family := modelPinToken("claude-opus-4")
+	if dated == "" {
+		t.Error("modelPinToken(dated snapshot) is empty; checkpoint pin would be empty")
+	}
+	if family == "" {
+		t.Error("modelPinToken(family) is empty")
+	}
+	if dated != family {
+		t.Errorf("family granularity broken: dated=%q family=%q, want equal", dated, family)
+	}
+}
+
+func TestResearchQueries_ThreeQueriesAndProviderFallback(t *testing.T) {
+	withModel := researchQueries("anthropic", "claude-opus-4")
+	if len(withModel) != 3 {
+		t.Fatalf("researchQueries = %d queries, want 3", len(withModel))
+	}
+	for _, q := range withModel {
+		if strings.TrimSpace(q) == "" {
+			t.Error("research query must not be blank")
+		}
+	}
+	noModel := researchQueries("anthropic", "")
+	if len(noModel) != 3 {
+		t.Fatalf("researchQueries without model = %d queries, want 3", len(noModel))
+	}
+	for _, q := range noModel {
+		if !strings.Contains(q, "anthropic") {
+			t.Errorf("fallback query %q does not mention the provider", q)
+		}
+	}
+}
+
+func TestOptimize_NilAndEmptyBaseIsNoChange(t *testing.T) {
+	o, err := NewOptimizer(&fakeClient{}, testProfile())
+	if err != nil {
+		t.Fatalf("NewOptimizer: %v", err)
+	}
+	if got, err := o.Optimize(context.Background(), nil); err != nil || got != nil {
+		t.Errorf("Optimize(nil) = (%v, %v), want (nil, nil)", got, err)
+	}
+	empty := baseAtom()
+	empty.Content = "   "
+	if got, err := o.Optimize(context.Background(), empty); err != nil || got != nil {
+		t.Errorf("Optimize(empty content) = (%v, %v), want (nil, nil)", got, err)
+	}
+}
+
+func TestNewOptimizer_RequiresClientAndSourcedProfile(t *testing.T) {
+	if _, err := NewOptimizer(nil, testProfile()); err == nil {
+		t.Error("NewOptimizer(nil client) succeeded; optimizer would have no model to ask")
+	}
+	var nilProfile *ModelDocProfile
+	if _, err := NewOptimizer(&fakeClient{}, nilProfile); !errors.Is(err, ErrNoModelDocs) {
+		t.Errorf("NewOptimizer(nil profile) = %v, want ErrNoModelDocs", err)
+	}
+	if _, err := NewOptimizer(&fakeClient{}, &ModelDocProfile{}); !errors.Is(err, ErrNoModelDocs) {
+		t.Errorf("NewOptimizer(empty profile) = %v, want ErrNoModelDocs", err)
+	}
+}
+
+func TestServingIdentity_PartialIdentitySucceeds(t *testing.T) {
+	onlyProvider := identifyingClient{&fakeClient{provider: "anthropic"}}
+	if p, m, err := ServingIdentity(onlyProvider); err != nil || p != "anthropic" || m != "" {
+		t.Errorf("ServingIdentity(provider only) = (%q, %q, %v)", p, m, err)
+	}
+	onlyModel := identifyingClient{&fakeClient{model: "claude-opus-4"}}
+	if p, m, err := ServingIdentity(onlyModel); err != nil || p != "" || m != "claude-opus-4" {
+		t.Errorf("ServingIdentity(model only) = (%q, %q, %v)", p, m, err)
+	}
+}
+
+func TestParseOptimizeResponse_RejectsEmptyAndUnparseable(t *testing.T) {
+	if _, err := parseOptimizeResponse("   "); err == nil {
+		t.Error("empty optimizer response was accepted; caller would treat it as a decision")
+	}
+	if _, err := parseOptimizeResponse("```\n: [unclosed\n```"); err == nil {
+		t.Error("unparseable optimizer response was accepted")
+	}
+	parsed, err := parseOptimizeResponse("changed: false\nrationale: \"nothing relevant\"\n")
+	if err != nil {
+		t.Fatalf("parseOptimizeResponse: %v", err)
+	}
+	if parsed.Changed {
+		t.Error("Changed = true, want false")
+	}
+}
+
+func TestSelectBases_SkipsNilAndEmptyContent(t *testing.T) {
+	all := []*prompt.PromptAtom{
+		nil,
+		{ID: "empty", Content: "   ", Category: prompt.CategoryMethodology},
+		{ID: "good", Content: "x", Category: prompt.CategoryMethodology},
+	}
+	got := selectBases(all, nil)
+	if len(got) != 1 || got[0].ID != "good" {
+		ids := make([]string, 0, len(got))
+		for _, a := range got {
+			ids = append(ids, a.ID)
+		}
+		t.Errorf("selectBases = %v, want [good]", ids)
+	}
+}
+
+func TestBuildVariant_EmptyPinsAndConflictCarry(t *testing.T) {
+	profile := &ModelDocProfile{
+		Provider:    "local",
+		Model:       "local-model",
+		ProviderPin: "",
+		ModelPin:    "",
+		Guidance:    "g",
+		Citations:   []Citation{{URL: "https://docs.example/x"}},
+	}
+	o, err := NewOptimizer(&fakeClient{}, testProfile())
+	if err != nil {
+		t.Fatalf("NewOptimizer: %v", err)
+	}
+	o.profile = profile
+	base := baseAtom()
+	base.ConflictsWith = []string{"other/atom"}
+	variant := o.buildVariant(base, "  new content  ")
+	if variant.ID != base.ID {
+		t.Errorf("variant ID without pin = %q, want base ID %q", variant.ID, base.ID)
+	}
+	if len(variant.Providers) != 0 {
+		t.Errorf("Providers = %v, want empty when ProviderPin is empty", variant.Providers)
+	}
+	if len(variant.Models) != 0 {
+		t.Errorf("Models = %v, want empty when ModelPin is empty", variant.Models)
+	}
+	if len(variant.ConflictsWith) != 2 || variant.ConflictsWith[1] != base.ID {
+		t.Errorf("ConflictsWith = %v, want [other/atom %s]", variant.ConflictsWith, base.ID)
+	}
+	if variant.Content != "new content" {
+		t.Errorf("Content = %q, want trimmed", variant.Content)
+	}
+	if variant.Importance != base.Importance {
+		t.Error("variant did not carry the base build-time importance")
+	}
+}
+
+func TestBuildUserPrompt_MarksMandatoryAndCarriesGuidance(t *testing.T) {
+	o, err := NewOptimizer(&fakeClient{}, testProfile())
+	if err != nil {
+		t.Fatalf("NewOptimizer: %v", err)
+	}
+	promptText := o.buildUserPrompt(baseAtom())
+	if !strings.Contains(promptText, "Mandatory: yes") {
+		t.Error("mandatory base was not marked; optimizer may loosen a tight atom")
+	}
+	if !strings.Contains(promptText, "Prefer XML tags.") {
+		t.Error("model guidance missing from the optimizer user prompt")
+	}
+	if !strings.Contains(promptText, "Write the failing test first.") {
+		t.Error("base content missing from the optimizer user prompt")
+	}
+	optional := baseAtom()
+	optional.IsMandatory = false
+	if strings.Contains(o.buildUserPrompt(optional), "Mandatory: yes") {
+		t.Error("optional atom was marked mandatory")
+	}
+}
+
+func TestResearch_RejectsBlankIdentity(t *testing.T) {
+	client := groundingClient{identifyingClient{&fakeClient{supports: true, searchResult: groundedResult("text", "https://docs.example/x")}}}
+	r, err := NewResearcher(client)
+	if err != nil {
+		t.Fatalf("NewResearcher: %v", err)
+	}
+	if _, err := r.Research(context.Background(), "", ""); !errors.Is(err, ErrNoModelIdentity) {
+		t.Errorf("Research(blank identity) = %v, want ErrNoModelIdentity", err)
+	}
+}
+
+func TestResearch_DedupesCitationsAcrossQueries(t *testing.T) {
+	client := groundingClient{identifyingClient{&fakeClient{
+		supports:     true,
+		searchResult: groundedResult("Use XML tags.", "https://docs.example/claude"),
+	}}}
+	r, err := NewResearcher(client)
+	if err != nil {
+		t.Fatalf("NewResearcher: %v", err)
+	}
+	profile, err := r.Research(context.Background(), "anthropic", "claude-opus-4")
+	if err != nil {
+		t.Fatalf("Research: %v", err)
+	}
+	if len(profile.Citations) != 1 {
+		t.Errorf("citations = %d, want 1 after dedup across the three repeated queries", len(profile.Citations))
+	}
+	if !strings.Contains(profile.Guidance, "Use XML tags.") {
+		t.Error("guidance text from grounded search was lost")
+	}
+}
