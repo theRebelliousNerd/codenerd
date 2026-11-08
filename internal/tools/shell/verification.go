@@ -173,6 +173,15 @@ func executeTypedVerification(ctx context.Context, args map[string]any, tests bo
 				reported = plain
 				out, code, runErr = run(plain)
 			}
+			if runErr != nil && strings.Contains(out, "no non-test Go files in ") {
+				// Test-only package(s): `go build` refuses directories that
+				// contain only *_test.go files. Compile-check via `go test
+				// -run=^$ -bench=^$` without running any tests.
+				_, testGoArgs := build.GoInvocation(root, dir, []string{"test", "-buildvcs=false", "-run=^$", "-bench=^$"})
+				testCompile := append(append([]string{argv[0]}, testGoArgs...), packages...)
+				reported = testCompile
+				out, code, runErr = run(testCompile)
+			}
 			data, _ := json.Marshal(struct {
 				Argv      []string `json:"argv"`
 				Directory string   `json:"directory"`

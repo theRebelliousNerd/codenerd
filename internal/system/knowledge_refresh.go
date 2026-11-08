@@ -115,6 +115,9 @@ func (r *knowledgeRefresher) run(ctx context.Context) (KnowledgeRefreshReport, e
 		facts = append(facts, types.Fact{Predicate: "dependency_pin", Args: []any{pin.Module, pin.Version}})
 	}
 	for _, agent := range roster {
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
 		wanted := nerdinit.KnowledgeSubjects(r.workspace, agent.key, techs[agent.key], agent.topics, pins)
 		subjects[agent.key] = map[string]knowledge.Subject{}
 		for _, s := range wanted {
@@ -123,11 +126,17 @@ func (r *knowledgeRefresher) run(ctx context.Context) (KnowledgeRefreshReport, e
 		}
 		measured, gen, err := measureAgentKB(ctx, agent, now())
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return report, ctxErr
+			}
 			failures = append(failures, fmt.Sprintf("%s: %v", agent.key, err))
 			continue
 		}
 		generations[agent.key] = gen
 		facts = append(facts, measured...)
+	}
+	if err := ctx.Err(); err != nil {
+		return report, err
 	}
 	for _, source := range r.acquirer.Available() {
 		facts = append(facts, types.Fact{Predicate: "knowledge_source_available", Args: []any{source}})
@@ -152,6 +161,9 @@ func (r *knowledgeRefresher) run(ctx context.Context) (KnowledgeRefreshReport, e
 		byAgent[agent.key] = agent
 	}
 	for _, key := range sortedKeys(plan.refresh) {
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
 		agent := byAgent[key]
 		db, err := store.NewLocalStore(agent.path)
 		if err != nil {
@@ -169,10 +181,16 @@ func (r *knowledgeRefresher) run(ctx context.Context) (KnowledgeRefreshReport, e
 			report.Refreshed = append(report.Refreshed, fmt.Sprintf("%s:%s (%s)", key, s.Key(), plan.reasons[key+"\x00"+s.Key()]))
 		}
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return report, ctxErr
+			}
 			failures = append(failures, fmt.Sprintf("%s: refresh: %v", key, err))
 		}
 	}
 	for _, key := range sortedKeys(plan.prune) {
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
 		agent := byAgent[key]
 		db, err := store.NewLocalStore(agent.path)
 		if err != nil {
@@ -412,7 +430,7 @@ func (r *knowledgeRefresher) serve(lifetime context.Context, schedule knowledgeR
 		started := time.Now()
 		report, err := r.run(lifetime)
 		log := logging.Get(logging.CategoryContext)
-		if err != nil && !errors.Is(err, errKnowledgeRefreshSuspended) {
+		if err != nil && !errors.Is(err, errKnowledgeRefreshSuspended) && !errors.Is(err, context.Canceled) && lifetime.Err() == nil {
 			log.Warn("knowledge refresh: %v", err)
 		}
 		if len(report.Refreshed) > 0 || report.Pruned > 0 {

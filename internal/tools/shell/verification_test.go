@@ -480,3 +480,27 @@ func BenchmarkSpin(b *testing.B) {
 		t.Fatalf("a multi-package profile must be refused, got %v", err)
 	}
 }
+
+func TestTypedVerification_BuildTestOnlyPackage(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no Go toolchain on PATH")
+	}
+	root := goWorkspace(t)
+	policyDir := filepath.Join(root, "policy")
+	if err := os.MkdirAll(policyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(policyDir, "safety_test.go"), []byte("package policy\nimport \"testing\"\nfunc TestPolicy(t *testing.T) {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := executeTypedVerification(shellWsCtx(root), map[string]any{
+		"working_dir": root,
+		"packages":    []any{"./policy"},
+	}, false)
+	if err != nil {
+		t.Fatalf("run_build on test-only package failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, `"exit_code":0`) {
+		t.Fatalf("expected exit_code 0, got: %s", out)
+	}
+}

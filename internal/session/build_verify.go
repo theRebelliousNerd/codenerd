@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -168,7 +169,8 @@ func (e *Executor) workspaceForVerification() string {
 // worse than not verifying at all.
 func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConfig, packages ...string) BuildVerification {
 	start := time.Now()
-	if len(packages) == 0 {
+	explicitPackages := len(packages) > 0
+	if !explicitPackages {
 		packages = []string{"./..."}
 	}
 	command := append([]string{"go", "build"}, packages...)
@@ -180,6 +182,17 @@ func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConf
 		logging.Get(logging.CategorySession).Warn(
 			"build verification skipped: no Go toolchain on PATH (%v)", err)
 		return BuildVerification{Outcome: VerifySkipped, Reason: "no Go toolchain on PATH", Duration: time.Since(start)}
+	}
+	if explicitPackages {
+		buildable, skippedTestOnly := filterBuildableGoPackages(workspace, packages)
+		if skippedTestOnly {
+			if len(buildable) == 0 {
+				logging.SessionDebug("build verification skipped test-only package(s) %v (compiled by test gate)", packages)
+				return BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed, Command: command, Duration: time.Since(start)}
+			}
+			packages = buildable
+			command = append([]string{"go", "build"}, packages...)
+		}
 	}
 
 	done := liveVerification(ctx, command, "")
@@ -221,6 +234,52 @@ func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConf
 			"build verification timed out after %s; recovery not verified", buildVerifyTimeout)
 		return BuildVerification{Ran: true, Output: strings.TrimSpace(string(out)), Outcome: VerifyIndeterminate, Command: command, Reason: reason, Duration: elapsed}
 	}
+}
+
+// filterBuildableGoPackages drops package directories on disk that contain
+// only *_test.go files and no non-test .go files. `go build` on an explicit
+// test-only package directory always exits 1 with "no non-test Go files in ...",
+// whereas `gateTests` compiles and executes the test binary for those packages.
+func filterBuildableGoPackages(workspace string, packages []string) ([]string, bool) {
+	var buildable []string
+	skipped := false
+	for _, pkg := range packages {
+		trimmed := strings.TrimSpace(pkg)
+		if trimmed == "" || trimmed == "./..." || trimmed == "..." || strings.HasSuffix(trimmed, "/...") {
+			buildable = append(buildable, pkg)
+			continue
+		}
+		if isTestOnlyGoPackageDir(filepath.Join(workspace, trimmed)) {
+			skipped = true
+			continue
+		}
+		buildable = append(buildable, pkg)
+	}
+	return buildable, skipped
+}
+
+func isTestOnlyGoPackageDir(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	nonTestGo := 0
+	testGo := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := strings.ToLower(entry.Name())
+		if !strings.HasSuffix(name, ".go") {
+			continue
+		}
+		if strings.HasSuffix(name, "_test.go") {
+			testGo++
+		} else {
+			nonTestGo++
+		}
+	}
+	return nonTestGo == 0 && testGo > 0
 }
 
 // verifyAndRepairBuild compiles the workspace after a turn's edits and, if the

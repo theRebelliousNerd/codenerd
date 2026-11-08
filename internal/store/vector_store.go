@@ -1050,7 +1050,7 @@ func encodeFloat32Slice(vec []float32) []byte {
 // NOTE: This function runs in a background goroutine to avoid blocking startup.
 // Uses transaction batching for 30-50x speedup over individual INSERTs.
 func (s *LocalStore) backfillVecIndex(dim int, space string, vecExt bool, done chan struct{}) {
-	if !vecExt || s.db == nil || dim <= 0 || space == "" {
+	if !vecExt || s.db == nil || dim <= 0 || space == "" || !s.isCurrentBackfill(done) {
 		return
 	}
 
@@ -1061,6 +1061,10 @@ func (s *LocalStore) backfillVecIndex(dim int, space string, vecExt bool, done c
 	// connection returns to the pool before the transaction phase begins.
 	rows, err := s.db.Query("SELECT id, content, embedding, metadata FROM vectors WHERE "+vectorEligibleClause, space)
 	if err != nil {
+		if !s.isCurrentBackfill(done) || strings.Contains(err.Error(), "database is closed") {
+			logging.StoreDebug("vec backfill stopped before query: store closed or superseded")
+			return
+		}
 		logging.Get(logging.CategoryStore).Warn("Failed to query embeddings for backfill: %v", err)
 		return
 	}
@@ -1130,6 +1134,10 @@ func (s *LocalStore) backfillVecIndex(dim int, space string, vecExt bool, done c
 		// Use a transaction for each batch
 		tx, err := s.db.Begin()
 		if err != nil {
+			if !s.isCurrentBackfill(done) || strings.Contains(err.Error(), "database is closed") {
+				logging.StoreDebug("vec backfill stopped during batch transaction: store closed or superseded")
+				return
+			}
 			logging.Get(logging.CategoryStore).Warn("Failed to begin transaction for backfill batch: %v", err)
 			continue
 		}

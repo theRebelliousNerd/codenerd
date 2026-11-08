@@ -154,3 +154,28 @@ func TestVerifyAndRepairBuild_FixCompilesOnlyWrittenPackages(t *testing.T) {
 		t.Fatalf("build command %q, want go build ./a", got)
 	}
 }
+
+func TestVerifyAndRepairBuild_TestOnlyGoPackagePasses(t *testing.T) {
+	e, result := verifyGateExecutor(t)
+	ws := e.config.WorkspaceRoot
+	for path, text := range map[string]string{
+		"go.mod":             "module buildscope\n\ngo 1.22\n",
+		"policy/safety_test.go": "package policy\nimport \"testing\"\nfunc TestPolicy(t *testing.T) {}\n",
+	} {
+		abs := filepath.Join(ws, path)
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result.Intent.Verb = "/fix"
+	result.WrittenPaths = []string{"policy/safety_test.go"}
+	if _, _, err := e.verifyAndRepairBuild(context.Background(), nil, "", nil, nil, nil, nil, result); err != nil {
+		t.Fatalf("test-only package failed build gate: %v", err)
+	}
+	if !result.BuildCheck.Ran || !result.BuildCheck.OK || result.BuildCheck.Verdict() != VerifyPassed {
+		t.Fatalf("BuildCheck = %+v, want Passed", result.BuildCheck)
+	}
+}

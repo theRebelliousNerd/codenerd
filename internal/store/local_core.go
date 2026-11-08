@@ -521,6 +521,9 @@ func (s *LocalStore) GetTraceStore() *TraceStore {
 func (s *LocalStore) Close() error {
 	logging.Store("Closing LocalStore database connection")
 	s.stopReflectionWorker()
+	s.backfillMu.Lock()
+	s.backfillDone = nil
+	s.backfillMu.Unlock()
 	return s.db.Close()
 }
 
