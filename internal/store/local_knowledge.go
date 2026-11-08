@@ -40,6 +40,58 @@ type KnowledgeAtom struct {
 	CreatedAt  time.Time
 }
 
+// deriveKnowledgeAtomTags builds a deterministic non-empty tag slice from a
+// knowledge atom's concept and source provenance so knowledge_atoms.tags and
+// KnowledgeAtom.Tags are populated across both SQLite and vector storage.
+func deriveKnowledgeAtomTags(concept, source string) []string {
+	seen := make(map[string]bool, 4)
+	var tags []string
+	add := func(raw string) {
+		t := strings.ToLower(strings.TrimSpace(raw))
+		if t == "" || seen[t] {
+			return
+		}
+		seen[t] = true
+		tags = append(tags, t)
+	}
+	for _, part := range strings.FieldsFunc(source, func(r rune) bool {
+		return r == '/' || r == ':' || r == '@'
+	}) {
+		add(part)
+	}
+	for _, part := range strings.FieldsFunc(concept, func(r rune) bool {
+		return r == '/' || r == ':' || r == '@'
+	}) {
+		add(part)
+	}
+	if len(tags) == 0 {
+		tags = []string{"knowledge"}
+	}
+	return tags
+}
+
+func encodeKnowledgeAtomTags(tags []string) string {
+	if len(tags) == 0 {
+		tags = []string{"knowledge"}
+	}
+	data, err := json.Marshal(tags)
+	if err != nil {
+		return `["knowledge"]`
+	}
+	return string(data)
+}
+
+func decodeKnowledgeAtomTags(raw, concept, source string) []string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed != "" && trimmed != "[]" && trimmed != "null" {
+		var parsed []string
+		if err := json.Unmarshal([]byte(trimmed), &parsed); err == nil && len(parsed) > 0 {
+			return parsed
+		}
+	}
+	return deriveKnowledgeAtomTags(concept, source)
+}
+
 // StoreKnowledgeAtom stores a knowledge atom for agent knowledge bases.
 // This is used by Type 3 agents to persist their expertise. source names the
 // producer that learned it ("init/research", "chat/ingest", ...): the row's
@@ -56,12 +108,19 @@ func (s *LocalStore) StoreKnowledgeAtom(concept, content string, confidence floa
 
 	// Compute content hash for deduplication
 	contentHash := ComputeContentHash(concept, content)
+	tagsJSON := encodeKnowledgeAtomTags(deriveKnowledgeAtomTags(concept, source))
 
-	// Insert the knowledge atom with content_hash
+	// Insert the knowledge atom with content_hash and tags
 	_, err := s.db.Exec(
-		`INSERT INTO knowledge_atoms (concept, content, confidence, content_hash, source) VALUES (?, ?, ?, ?, ?)`,
-		concept, content, confidence, contentHash, source,
+		`INSERT INTO knowledge_atoms (concept, content, confidence, content_hash, source, tags) VALUES (?, ?, ?, ?, ?, ?)`,
+		concept, content, confidence, contentHash, source, tagsJSON,
 	)
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "tags") {
+		_, err = s.db.Exec(
+			`INSERT INTO knowledge_atoms (concept, content, confidence, content_hash, source) VALUES (?, ?, ?, ?, ?)`,
+			concept, content, confidence, contentHash, source,
+		)
+	}
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to store knowledge atom %s: %v", concept, err)
 		return err
@@ -95,6 +154,7 @@ func (s *LocalStore) ensureContentHashes() error {
 		return fmt.Errorf("failed to get table info: %w", err)
 	}
 	hasContentHash := false
+	hasTags := false
 	for rows.Next() {
 		var cid int
 		var name, ctype string
@@ -105,11 +165,19 @@ func (s *LocalStore) ensureContentHashes() error {
 		}
 		if name == "content_hash" {
 			hasContentHash = true
-			break
+		}
+		if name == "tags" {
+			hasTags = true
 		}
 	}
 	if err := rows.Close(); err != nil {
 		logging.Get(logging.CategoryStore).Warn("ensureContentHashes: rows.Close() failed: %v", err)
+	}
+
+	if hasTags {
+		if err := s.backfillKnowledgeAtomTags(); err != nil {
+			logging.Get(logging.CategoryStore).Warn("ensureContentHashes: backfillKnowledgeAtomTags failed: %v", err)
+		}
 	}
 
 	if !hasContentHash {
@@ -184,6 +252,53 @@ func (s *LocalStore) ensureContentHashes() error {
 	return nil
 }
 
+func (s *LocalStore) backfillKnowledgeAtomTags() error {
+	var missing int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM knowledge_atoms WHERE tags IS NULL OR trim(tags) IN ('', '[]', 'null')`).Scan(&missing); err != nil || missing == 0 {
+		return err
+	}
+	rows, err := s.db.Query(`SELECT id, COALESCE(concept, ''), COALESCE(source, '') FROM knowledge_atoms WHERE tags IS NULL OR trim(tags) IN ('', '[]', 'null')`)
+	if err != nil {
+		return err
+	}
+	type pendingTag struct {
+		id   int64
+		tags string
+	}
+	var pending []pendingTag
+	for rows.Next() {
+		var id int64
+		var concept, source string
+		if err := rows.Scan(&id, &concept, &source); err != nil {
+			continue
+		}
+		pending = append(pending, pendingTag{
+			id:   id,
+			tags: encodeKnowledgeAtomTags(deriveKnowledgeAtomTags(concept, source)),
+		})
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.Prepare(`UPDATE knowledge_atoms SET tags = ? WHERE id = ?`)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	for _, p := range pending {
+		_, _ = stmt.Exec(p.tags, p.id)
+	}
+	_ = stmt.Close()
+	return tx.Commit()
+}
+
 // GetKnowledgeAtoms retrieves knowledge atoms by concept.
 func (s *LocalStore) GetKnowledgeAtoms(concept string) ([]KnowledgeAtom, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "GetKnowledgeAtoms")
@@ -195,7 +310,7 @@ func (s *LocalStore) GetKnowledgeAtoms(concept string) ([]KnowledgeAtom, error) 
 	logging.StoreDebug("Retrieving knowledge atoms: concept=%s", concept)
 
 	rows, err := s.db.Query(
-		`SELECT id, concept, content, confidence, COALESCE(source, ''), created_at FROM knowledge_atoms WHERE concept = ?`,
+		`SELECT id, concept, content, confidence, COALESCE(source, ''), COALESCE(tags, '[]'), created_at FROM knowledge_atoms WHERE concept = ?`,
 		concept,
 	)
 	if err != nil {
@@ -207,9 +322,11 @@ func (s *LocalStore) GetKnowledgeAtoms(concept string) ([]KnowledgeAtom, error) 
 	var atoms []KnowledgeAtom
 	for rows.Next() {
 		var atom KnowledgeAtom
-		if err := rows.Scan(&atom.ID, &atom.Concept, &atom.Content, &atom.Confidence, &atom.Source, &atom.CreatedAt); err != nil {
+		var rawTags string
+		if err := rows.Scan(&atom.ID, &atom.Concept, &atom.Content, &atom.Confidence, &atom.Source, &rawTags, &atom.CreatedAt); err != nil {
 			continue
 		}
+		atom.Tags = decodeKnowledgeAtomTags(rawTags, atom.Concept, atom.Source)
 		atoms = append(atoms, atom)
 	}
 	if err := rows.Err(); err != nil {
@@ -230,7 +347,7 @@ func (s *LocalStore) GetAllKnowledgeAtoms() ([]KnowledgeAtom, error) {
 
 	logging.StoreDebug("Retrieving all knowledge atoms")
 
-	rows, err := s.db.Query(`SELECT id, concept, content, confidence, COALESCE(source, ''), created_at FROM knowledge_atoms ORDER BY created_at DESC`)
+	rows, err := s.db.Query(`SELECT id, concept, content, confidence, COALESCE(source, ''), COALESCE(tags, '[]'), created_at FROM knowledge_atoms ORDER BY created_at DESC`)
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to query all knowledge atoms: %v", err)
 		return nil, err
@@ -240,9 +357,11 @@ func (s *LocalStore) GetAllKnowledgeAtoms() ([]KnowledgeAtom, error) {
 	var atoms []KnowledgeAtom
 	for rows.Next() {
 		var atom KnowledgeAtom
-		if err := rows.Scan(&atom.ID, &atom.Concept, &atom.Content, &atom.Confidence, &atom.Source, &atom.CreatedAt); err != nil {
+		var rawTags string
+		if err := rows.Scan(&atom.ID, &atom.Concept, &atom.Content, &atom.Confidence, &atom.Source, &rawTags, &atom.CreatedAt); err != nil {
 			continue
 		}
+		atom.Tags = decodeKnowledgeAtomTags(rawTags, atom.Concept, atom.Source)
 		atoms = append(atoms, atom)
 	}
 	if err := rows.Err(); err != nil {
@@ -267,7 +386,7 @@ func (s *LocalStore) GetKnowledgeAtomsByPrefix(conceptPrefix string) ([]Knowledg
 	// Use LIKE with % wildcard for prefix matching
 	pattern := conceptPrefix + "%"
 	rows, err := s.db.Query(
-		`SELECT id, concept, content, confidence, COALESCE(source, ''), created_at FROM knowledge_atoms WHERE concept LIKE ? ORDER BY confidence DESC`,
+		`SELECT id, concept, content, confidence, COALESCE(source, ''), COALESCE(tags, '[]'), created_at FROM knowledge_atoms WHERE concept LIKE ? ORDER BY confidence DESC`,
 		pattern,
 	)
 	if err != nil {
@@ -284,9 +403,11 @@ func (s *LocalStore) GetKnowledgeAtomsByPrefix(conceptPrefix string) ([]Knowledg
 	var atoms []KnowledgeAtom
 	for rows.Next() {
 		var atom KnowledgeAtom
-		if err := rows.Scan(&atom.ID, &atom.Concept, &atom.Content, &atom.Confidence, &atom.Source, &atom.CreatedAt); err != nil {
+		var rawTags string
+		if err := rows.Scan(&atom.ID, &atom.Concept, &atom.Content, &atom.Confidence, &atom.Source, &rawTags, &atom.CreatedAt); err != nil {
 			continue
 		}
+		atom.Tags = decodeKnowledgeAtomTags(rawTags, atom.Concept, atom.Source)
 		atoms = append(atoms, atom)
 	}
 	if err := rows.Err(); err != nil {

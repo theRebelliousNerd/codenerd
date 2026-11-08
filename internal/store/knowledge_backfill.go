@@ -81,6 +81,7 @@ func (s *LocalStore) BackfillKnowledgeAtomVectors(ctx context.Context) (int, err
 			"content_type": "knowledge_atom",
 			"concept":      a.Concept,
 			"confidence":   a.Confidence,
+			"tags":         a.Tags,
 		}); err != nil {
 			logging.Get(logging.CategoryStore).Warn("Backfill vector for %s failed: %v", a.Concept, err)
 			continue

@@ -26,6 +26,9 @@ func TestLocalStore_Knowledge_Extra(t *testing.T) {
 	if len(atoms) != 1 || atoms[0].Content != "content1" {
 		t.Errorf("Expected 1 atom with content1, got %v", atoms)
 	}
+	if len(atoms) == 1 && len(atoms[0].Tags) == 0 {
+		t.Errorf("Expected derived Tags on stored atom, got empty")
+	}
 
 	// 3. GetAllKnowledgeAtoms
 	allAtoms, err := s.GetAllKnowledgeAtoms()
@@ -45,7 +48,7 @@ func TestLocalStore_Knowledge_Extra(t *testing.T) {
 		t.Errorf("Expected 1 atom for prefix, got %d", len(prefixAtoms))
 	}
 
-	// 5. ensureContentHashes (trigger it by manually inserting a row with NULL hash)
+	// 5. ensureContentHashes (trigger it by manually inserting a row with NULL hash and default '[]' tags)
 	_, err = s.db.Exec("INSERT INTO knowledge_atoms (concept, content, confidence) VALUES ('concept2', 'content2', 0.8)")
 	if err != nil {
 		t.Fatalf("Manual insert failed: %v", err)
@@ -53,6 +56,10 @@ func TestLocalStore_Knowledge_Extra(t *testing.T) {
 	err = s.ensureContentHashes()
 	if err != nil {
 		t.Errorf("ensureContentHashes failed: %v", err)
+	}
+	backfilledAtoms, err := s.GetKnowledgeAtoms("concept2")
+	if err != nil || len(backfilledAtoms) != 1 || len(backfilledAtoms[0].Tags) == 0 {
+		t.Errorf("Expected backfilled Tags on concept2, got %v (err=%v)", backfilledAtoms, err)
 	}
 
 	// 6. StoreKnowledgeAtomWithEmbedding / SearchKnowledgeAtomsSemantic (with nil embeddingEngine)
