@@ -171,3 +171,52 @@ func TestFindJSONObject_Escapes(t *testing.T) {
 		t.Fatal("expected true")
 	}
 }
+
+func TestFindJSONObject_StrayClosingBrace(t *testing.T) {
+	payload, ok := findJSONObject(`} {"format":"mangle_synth_v1","program":{}}`)
+	if !ok {
+		t.Fatal("expected true for payload with stray closing brace")
+	}
+	if payload[0] != '{' {
+		t.Fatalf("expected payload to start at object, got %q", payload)
+	}
+	if !strings.Contains(payload, "mangle_synth_v1") {
+		t.Fatalf("expected payload to contain spec, got %q", payload)
+	}
+}
+
+func TestFindJSONObject_NestedAndMissing(t *testing.T) {
+	nested, ok := findJSONObject(`prefix {"a": {"b": 1}} suffix`)
+	if !ok {
+		t.Fatal("expected true for nested object")
+	}
+	if nested != `{"a": {"b": 1}}` {
+		t.Fatalf("unexpected nested extraction, got %q", nested)
+	}
+	if _, ok := findJSONObject(`no braces here`); ok {
+		t.Fatal("expected false when no object present")
+	}
+	if _, ok := findJSONObject(`{"a":1`); ok {
+		t.Fatal("expected false for unbalanced object")
+	}
+}
+
+func TestDecodeSpecPayload_TrailingValidJSON(t *testing.T) {
+	_, err := decodeSpecPayload(`{"format":"mangle_synth_v1","program":{}} {"extra":1}`)
+	if err == nil {
+		t.Fatal("expected trailing-content error, got nil")
+	}
+	if !strings.Contains(err.Error(), "trailing") {
+		t.Fatalf("expected trailing error, got %v", err)
+	}
+}
+
+func TestExtractJSONPayload_StrayBracePrefix(t *testing.T) {
+	res, err := extractJSONPayload(`} {"format":"mangle_synth_v1","program":{}}`)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !strings.Contains(res, "mangle_synth_v1") {
+		t.Fatalf("expected to extract JSON past stray brace, got %q", res)
+	}
+}

@@ -866,6 +866,47 @@ func TestIsValidVariable(t *testing.T) {
 	}
 }
 
+func TestValidateTransformStmt_CaseInsensitiveKind(t *testing.T) {
+	mkFn := func() ExprSpec {
+		return ExprSpec{Kind: "apply", Function: "fn:do", Args: []ExprSpec{{Kind: "string", Value: "x"}}}
+	}
+	for _, kind := range []string{"DO", "do", " Do ", "LET", "let", " Let "} {
+		stmt := TransformStmtSpec{Kind: kind, Fn: mkFn()}
+		if kind == "LET" || kind == "let" || kind == " Let " {
+			stmt.Var = "X"
+		}
+		if err := validateTransformStmt(stmt, "p.transform.statements[0]"); err != nil {
+			t.Errorf("validateTransformStmt(%q) = %v, want nil", kind, err)
+		}
+	}
+}
+
+func TestValidateExprSpec_MapStructEvenArgs(t *testing.T) {
+	strArg := ExprSpec{Kind: "string", Value: "k"}
+	mapOdd := ExprSpec{Kind: "map", Args: []ExprSpec{strArg}}
+	if err := validateExprSpec(mapOdd, "p"); err == nil {
+		t.Error("validateExprSpec(map odd) expected error, got nil")
+	} else if !strings.Contains(err.Error(), "even") {
+		t.Errorf("validateExprSpec(map odd) error = %v, want even-args message", err)
+	}
+	structOdd := ExprSpec{Kind: "struct", Args: []ExprSpec{strArg}}
+	if err := validateExprSpec(structOdd, "p"); err == nil {
+		t.Error("validateExprSpec(struct odd) expected error, got nil")
+	}
+	listOdd := ExprSpec{Kind: "list", Args: []ExprSpec{strArg}}
+	if err := validateExprSpec(listOdd, "p"); err != nil {
+		t.Errorf("validateExprSpec(list odd) = %v, want nil", err)
+	}
+}
+
+func TestValidateFloat_PointerTakesPrecedence(t *testing.T) {
+	f := 1.5
+	spec := ExprSpec{Kind: "float", Value: "not-a-number", Float: &f}
+	if err := validateExprSpec(spec, "p"); err != nil {
+		t.Errorf("validateExprSpec(float pointer) = %v, want nil", err)
+	}
+}
+
 // TODO: QA Gap - Add tests for Boundary Value Analysis: verify behavior with invalid unicode characters in string expressions and exactly empty strings passed as valid input for ExprSpec.
 // TODO: QA Gap - Add tests for Negative Testing: verify handling of missing vs nil arrays.
 // TODO: QA Gap - Add tests for Boundary Value Analysis: extreme string lengths for variables (>10,000 chars).

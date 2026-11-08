@@ -1,8 +1,10 @@
 package perception
 
 import (
+	"codenerd/internal/types"
 	"context"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -155,5 +157,86 @@ func TestIsReadOnly_AgreesWithTheRestriction(t *testing.T) {
 	u := &Understanding{ActionType: "modify", UserConstraints: []string{"confirm_first"}}
 	if !u.NeedsConfirmation() {
 		t.Error("confirm_first must need confirmation")
+	}
+}
+
+func TestBrief_EmptyFactsRender_Stabilize(t *testing.T) {
+	cases := []struct {
+		name  string
+		brief *Brief
+		empty bool
+	}{
+		{name: "nil is empty", brief: nil, empty: true},
+		{name: "zero is empty", brief: &Brief{}, empty: true},
+		{name: "blank goal is empty", brief: &Brief{Goal: "   "}, empty: true},
+		{name: "goal present is not empty", brief: &Brief{Goal: "ship it"}, empty: false},
+		{name: "constraint alone is not empty", brief: &Brief{Constraints: []string{"no_changes"}}, empty: false},
+		{name: "ready alone stays empty", brief: &Brief{Ready: true}, empty: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.brief.Empty(); got != tc.empty {
+				t.Fatalf("Empty() = %v, want %v", got, tc.empty)
+			}
+		})
+	}
+
+	empty := &Brief{}
+	if got := empty.Facts(); got != nil {
+		t.Fatalf("empty Facts() = %v, want nil", got)
+	}
+	if got := empty.Render(); got != "(empty: no work discussed yet)" {
+		t.Fatalf("empty Render() = %q", got)
+	}
+
+	ready := &Brief{Goal: "  ship it  ", Constraints: []string{"  keep it simple  ", "", "   "}, Ready: true}
+	facts := ready.Facts()
+	if len(facts) != 3 {
+		t.Fatalf("Facts() len = %d, want 3 (goal+constraint+ready marker)", len(facts))
+	}
+	rendered := ready.Render()
+	for _, want := range []string{"- Goal: ship it", "- Constraint: keep it simple", "- Ready: yes"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("Render() = %q, missing %q", rendered, want)
+		}
+	}
+
+	unready := &Brief{Goal: "ship it"}
+	if got := unready.Render(); !strings.Contains(got, "- Ready: no") {
+		t.Fatalf("unready Render() = %q, want Ready no", got)
+	}
+}
+
+func TestBriefFromFacts_RoundTripAndSkipsBadRows_Stabilize(t *testing.T) {
+	if got := BriefFromFacts(nil); got != nil {
+		t.Fatalf("BriefFromFacts(nil) = %+v, want nil", got)
+	}
+	if got := BriefFromFacts([]types.Fact{{Predicate: "brief_unknown"}}); got != nil {
+		t.Fatalf("unknown predicate alone = %+v, want nil", got)
+	}
+
+	orig := &Brief{Goal: "ship it", Constraints: []string{"keep it simple"}, Decisions: []string{"use x"}, OpenQuestions: []string{"q?"}, Ready: true}
+	back := BriefFromFacts(orig.Facts())
+	if back == nil {
+		t.Fatal("round trip returned nil")
+	}
+	if back.Goal != "ship it" || len(back.Constraints) != 1 || len(back.Decisions) != 1 || len(back.OpenQuestions) != 1 || !back.Ready {
+		t.Fatalf("round trip = %+v", back)
+	}
+
+	// Bad rows are skipped: wrong arg count contributes nothing. A blank
+	// goal string is kept verbatim on read (Facts skips blanks on write);
+	// the brief is non-empty here because of its constraint.
+	bad := []types.Fact{
+		{Predicate: "brief_goal"},
+		{Predicate: "brief_goal", Args: []any{types.MangleString("  ")}},
+		{Predicate: "brief_constraint", Args: []any{types.MangleString("keep")}},
+	}
+	got := BriefFromFacts(bad)
+	if got == nil || len(got.Constraints) != 1 || got.Constraints[0] != "keep" {
+		t.Fatalf("bad-row filtering = %+v", got)
+	}
+	if got.Goal != "  " {
+		t.Fatalf("blank goal is kept verbatim on read, got %q", got.Goal)
 	}
 }

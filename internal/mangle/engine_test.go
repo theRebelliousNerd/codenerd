@@ -688,6 +688,83 @@ func TestEngineQueryFacts(t *testing.T) {
 	}
 }
 
+func TestEngineQueryFacts_OrderIsStable(t *testing.T) {
+	buildEngine := func(t *testing.T, facts []Fact) *Engine {
+		t.Helper()
+		engine, err := NewEngine(DefaultConfig(), nil)
+		if err != nil {
+			t.Fatalf("NewEngine() error = %v", err)
+		}
+		if err := engine.LoadSchemaString(`Decl stable_fact(Name, Val).`); err != nil {
+			t.Fatalf("LoadSchemaString() error = %v", err)
+		}
+		if err := engine.AddFacts(facts); err != nil {
+			t.Fatalf("AddFacts() error = %v", err)
+		}
+		return engine
+	}
+	factStrings := func(facts []Fact) []string {
+		got := make([]string, len(facts))
+		for i, f := range facts {
+			got[i] = f.String()
+		}
+		return got
+	}
+
+	forward := []Fact{
+		{Predicate: "stable_fact", Args: []any{"Echo", "5"}},
+		{Predicate: "stable_fact", Args: []any{"Alpha", "1"}},
+		{Predicate: "stable_fact", Args: []any{"Delta", "4"}},
+		{Predicate: "stable_fact", Args: []any{"Charlie", "3"}},
+		{Predicate: "stable_fact", Args: []any{"Bravo", "2"}},
+	}
+	reverse := []Fact{
+		{Predicate: "stable_fact", Args: []any{"Bravo", "2"}},
+		{Predicate: "stable_fact", Args: []any{"Charlie", "3"}},
+		{Predicate: "stable_fact", Args: []any{"Delta", "4"}},
+		{Predicate: "stable_fact", Args: []any{"Alpha", "1"}},
+		{Predicate: "stable_fact", Args: []any{"Echo", "5"}},
+	}
+
+	first := factStrings(buildEngine(t, forward).QueryFacts("stable_fact"))
+	second := factStrings(buildEngine(t, reverse).QueryFacts("stable_fact"))
+	if len(first) != len(forward) {
+		t.Fatalf("QueryFacts() returned %d facts, want %d: %v", len(first), len(forward), first)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("QueryFacts() insertion order leaked:\nforward=%v\nreverse=%v", first, second)
+	}
+	for i := 1; i < len(first); i++ {
+		if first[i-1] >= first[i] {
+			t.Fatalf("QueryFacts() not sorted by stable canonical key: %v", first)
+		}
+	}
+	repeated := factStrings(buildEngine(t, forward).QueryFacts("stable_fact"))
+	if !reflect.DeepEqual(first, repeated) {
+		t.Fatalf("QueryFacts() repeated call differed:\nfirst=%v\nrepeated=%v", first, repeated)
+	}
+
+	grouped := []Fact{
+		{Predicate: "stable_fact", Args: []any{"k", "zebra"}},
+		{Predicate: "stable_fact", Args: []any{"k", "apple"}},
+		{Predicate: "stable_fact", Args: []any{"k", "mango"}},
+		{Predicate: "stable_fact", Args: []any{"other", "solo"}},
+	}
+	groupedEngine := buildEngine(t, grouped)
+	filtered := factStrings(groupedEngine.QueryFacts("stable_fact", "k"))
+	if len(filtered) != 3 {
+		t.Fatalf("QueryFacts(filtered) returned %d facts, want 3: %v", len(filtered), filtered)
+	}
+	for i := 1; i < len(filtered); i++ {
+		if filtered[i-1] >= filtered[i] {
+			t.Fatalf("QueryFacts(filtered) not sorted by stable canonical key: %v", filtered)
+		}
+	}
+	if again := factStrings(groupedEngine.QueryFacts("stable_fact", "k")); !reflect.DeepEqual(filtered, again) {
+		t.Fatalf("QueryFacts(filtered) repeated call differed:\nfirst=%v\nagain=%v", filtered, again)
+	}
+}
+
 func TestEngineRecomputeRules(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AutoEval = false // Disable auto eval to test manual recompute

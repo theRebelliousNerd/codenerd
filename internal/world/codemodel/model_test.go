@@ -337,3 +337,147 @@ q(X) :- r(X), !s(X).
 		t.Fatalf("body predicates %v", got)
 	}
 }
+
+func TestModelHelpers_LanguageNormalizeAndGuess(t *testing.T) {
+	cases := map[string]string{
+		"a.go": LangGo, "A.GO": LangGo,
+		"x.mg": LangMangle, "x.dl": LangMangle, "x.mangle": LangMangle,
+		"a.py": LangPython, "a.pyi": LangPython,
+		"a.ts": LangTypeScript, "a.mts": LangTypeScript,
+		"a.tsx": LangTSX, "a.js": LangJavaScript, "a.jsx": LangJavaScript,
+		"a.md": "", "x.txt": "",
+	}
+	for path, want := range cases {
+		if got := LanguageOf(path); got != want {
+			t.Errorf("LanguageOf(%q) = %q, want %q", path, got, want)
+		}
+	}
+	if !IsScriptLang(LangPython) || !IsScriptLang(LangTSX) || IsScriptLang(LangGo) || IsScriptLang("") {
+		t.Error("IsScriptLang gates exactly the tree-sitter languages")
+	}
+	if !IsScriptPath("a.py") || !IsScriptPath("a.jsx") || IsScriptPath("a.go") || IsScriptPath("README.md") {
+		t.Error("IsScriptPath follows LanguageOf")
+	}
+	if got := Normalize("a\r\nb\rc\nd"); got != "a\nb\nc\nd" {
+		t.Errorf("Normalize CRLF/CR = %q", got)
+	}
+	if got := Normalize("plain"); got != "plain" {
+		t.Errorf("Normalize without CR must be identity, got %q", got)
+	}
+	guess := map[string]string{
+		"strings":              "strings",
+		"example.com/mod/v2":   "mod",
+		"example.com/mymod.v2": "mymod",
+		"example.com/go-foo":   "foo",
+		"example.com/foo-go":   "foo",
+		"example.com/my-pkg":   "mypkg",
+	}
+	for path, want := range guess {
+		if got := GuessPackageName(path); got != want {
+			t.Errorf("GuessPackageName(%q) = %q, want %q", path, got, want)
+		}
+	}
+	if _, ok := Parse("note.txt", "hello"); ok {
+		t.Error("Parse of an unmodelled language must report ok=false")
+	}
+	f, ok := Parse("x.go", "package p\n")
+	if !ok || f.Language != LangGo {
+		t.Fatalf("Parse go: %v %v", f, ok)
+	}
+	if _, ok := Parse("README.md", "# Hi\n"); !ok {
+		t.Error("Parse must accept Markdown paths")
+	}
+	imp := Import{Path: "example.com/my-pkg"}
+	if imp.LocalName() != "mypkg" {
+		t.Errorf("LocalName guess = %q", imp.LocalName())
+	}
+	named := Import{Name: "mine", Path: "example.com/other"}
+	if named.LocalName() != "mine" {
+		t.Errorf("explicit LocalName = %q", named.LocalName())
+	}
+}
+
+func TestModelHelpers_FileLineAndLookupEdges(t *testing.T) {
+	f := ParseGo("p.go", "package p\n\nfunc A() {}\n")
+	if got := f.LineCount(); got != 3 {
+		t.Fatalf("LineCount = %d, want 3", got)
+	}
+	if got := f.LineText(0, 99); !strings.Contains(got, "func A()") {
+		t.Fatalf("clamped LineText must still hold the func, got %q", got)
+	}
+	if got := f.LineText(3, 2); got != "" {
+		t.Fatalf("inverted range must be empty, got %q", got)
+	}
+	if got := f.NumberedLines(3, 3); !strings.Contains(got, "3") || !strings.Contains(got, "func A()") {
+		t.Fatalf("NumberedLines = %q", got)
+	}
+	if got := f.NumberedLines(5, 4); got != "" {
+		t.Fatalf("empty NumberedLines range must be empty, got %q", got)
+	}
+	if f.LineStart(0) != 0 || f.LineStart(99) != len(f.Source) {
+		t.Fatal("LineStart clamps below 1 and past the end")
+	}
+	if f.LineOf(0) != 1 {
+		t.Fatalf("LineOf(0) = %d", f.LineOf(0))
+	}
+	var nilEl *Element
+	if f.Text(nilEl) != "" {
+		t.Fatal("Text(nil) must be empty")
+	}
+	bad := &Element{Start: 5, End: 2}
+	if f.Text(bad) != "" {
+		t.Fatal("Text with Start>End must be empty")
+	}
+	if f.Element("missing") != nil {
+		t.Fatal("Element(missing) must be nil")
+	}
+	mg := ParseMangle("x.mg", "p(X) :- q(X).\n")
+	if mg.Header() != nil {
+		t.Fatal("Mangle files have no header element")
+	}
+	if got := mg.Lookup(""); len(got) != 0 {
+		t.Fatalf("empty Lookup must be nil, got %v", got)
+	}
+	if got := mg.Lookup("   "); len(got) != 0 {
+		t.Fatalf("blank Lookup must be nil, got %v", got)
+	}
+	g := ParseGo("demo.go", fixture)
+	if got := g.Lookup("demo.T.M"); len(got) != 1 || got[0].Key != "T.M" {
+		t.Fatalf("pkg-qualified receiver lookup: %v", got)
+	}
+	if got := g.Lookup("nope"); len(got) != 0 {
+		t.Fatalf("unknown name must be empty, got %v", got)
+	}
+}
+
+func TestRenameHelpers_ValidRenamePinsIdentifierRule(t *testing.T) {
+	good := []string{"a", "_x", "useSession", "A1", "_1"}
+	for _, s := range good {
+		if !ValidRename(s) {
+			t.Errorf("ValidRename(%q) = false, want true", s)
+		}
+	}
+	bad := []string{"", "1a", "a-b", "a b", "a.b", "use session"}
+	for _, s := range bad {
+		if ValidRename(s) {
+			t.Errorf("ValidRename(%q) = true, want false", s)
+		}
+	}
+	if _, err := RenameSites(nil, "A", nil); err == nil {
+		t.Fatal("RenameSites(nil) must fail")
+	}
+	g := ParseGo("demo.go", fixture)
+	if _, err := RenameSites(g, "missing", nil); err == nil {
+		t.Fatal("RenameSites unknown key must fail")
+	}
+	if _, err := ApplyRename(nil, "B", nil); err == nil {
+		t.Fatal("ApplyRename(nil) must fail")
+	}
+	if _, err := ApplyRename(g, "not an ident", nil); err == nil {
+		t.Fatal("ApplyRename with a bad name must fail")
+	}
+	out, err := ApplyRename(g, "B", nil)
+	if err != nil || out.File != g {
+		t.Fatalf("rename with no sites must return the file unchanged: %v", err)
+	}
+}

@@ -423,3 +423,181 @@ func TestRunBattery_LegacySignature_ShouldStillWork(t *testing.T) {
 		t.Fatalf("unexpected results: %+v", results)
 	}
 }
+
+func TestValidate_ShouldRejectNilBattery(t *testing.T) {
+	var b *Battery
+	err := b.Validate()
+	if err == nil {
+		t.Fatal("a nil battery must be rejected, not treated as valid")
+	}
+	if !strings.Contains(err.Error(), "nil") {
+		t.Errorf("nil battery error should name the cause, got: %v", err)
+	}
+}
+
+func TestValidate_ShouldNormalizeTypeCaseAndWhitespace(t *testing.T) {
+	for _, typ := range []string{"shell", " SHELL ", "Shell", "", "  "} {
+		b := &Battery{Tasks: []Task{{ID: "a", Type: typ, Command: "echo hi"}}}
+		if err := b.Validate(); err != nil {
+			t.Errorf("type %q should normalize to shell, got: %v", typ, err)
+		}
+	}
+	bad := &Battery{Tasks: []Task{{ID: "a", Type: " Python ", Command: "echo hi"}}}
+	if err := bad.Validate(); err == nil {
+		t.Error("a non-shell type with surrounding spaces must still be rejected")
+	}
+}
+
+func TestSummary_OK_ShouldPassWhenClean(t *testing.T) {
+	if !(Summary{Total: 2, Passed: 2}.OK()) {
+		t.Error("a run with only passes should report OK")
+	}
+	if (Summary{Total: 2, Passed: 1, Failed: 1}.OK()) {
+		t.Error("a run with a failure must not report OK")
+	}
+}
+
+func TestRunBatteryWithOptions_WhenBatteryIsNil_ShouldReturnEmptySummary(t *testing.T) {
+	s, err := RunBatteryWithOptions(context.Background(), nil, RunOptions{})
+	if err != nil {
+		t.Fatalf("nil battery must not be a run-level error: %v", err)
+	}
+	if s.Total != 0 || len(s.Results) != 0 {
+		t.Errorf("nil battery should yield an empty summary, got %+v", s)
+	}
+	if s.Failed != 0 || s.Skipped != 0 {
+		t.Errorf("empty summary must record no failures or skips, got %+v", s)
+	}
+}
+
+func TestRunTask_ShouldFailOnEmptyCommandWithoutSpawningShell(t *testing.T) {
+	if err := CheckShell(); err != nil {
+		t.Skipf("shell preflight fails here: %v", err)
+	}
+	b := &Battery{Tasks: []Task{{ID: "blank", Type: "shell", Command: "   ", TimeoutSec: 20}}}
+	s, err := RunBatteryWithOptions(context.Background(), b, RunOptions{})
+	if err != nil {
+		t.Fatalf("empty command is a task failure, not a run error: %v", err)
+	}
+	if len(s.Results) != 1 {
+		t.Fatalf("expected 1 result, got %+v", s.Results)
+	}
+	r := s.Results[0]
+	if r.Success {
+		t.Fatal("a blank command must fail")
+	}
+	if !strings.Contains(r.Error, "empty command") {
+		t.Errorf("error should name the empty command, got %q", r.Error)
+	}
+	if r.TimedOut {
+		t.Errorf("a blank command must not report a timeout: %+v", r)
+	}
+	if r.ExitCode != -1 {
+		t.Errorf("ExitCode = %d, want -1 for a command that never started", r.ExitCode)
+	}
+}
+
+func TestLoadBattery_ShouldWrapValidationFailures(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "battery.yaml")
+	content := "version: 1\ntasks:\n  - id: a\n    type: shell\n    command: echo 1\n  - id: a\n    type: shell\n    command: echo 2\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := LoadBattery(path)
+	if err == nil {
+		t.Fatal("a battery with duplicate ids must be rejected at load time")
+	}
+	if !strings.Contains(err.Error(), "invalid battery") {
+		t.Errorf("load error should wrap the validation failure, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "duplicates") {
+		t.Errorf("load error should preserve the duplicate-id cause, got: %v", err)
+	}
+}
+
+func TestListRuns_ShouldIgnoreNonRunFilesAndOrderNewestFirst(t *testing.T) {
+	ws := t.TempDir()
+	dir := RunsDir(ws)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	for _, name := range []string{"20260101-000000.json", "20260102-000000.json"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("{}"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("not a run"), 0o644); err != nil {
+		t.Fatalf("write notes: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "20260103-000000.json"), 0o755); err != nil {
+		t.Fatalf("mkdir dir decoy: %v", err)
+	}
+	runs, err := ListRuns(ws)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("ListRuns should return only the 2 JSON files, got %v", runs)
+	}
+	if !strings.HasSuffix(runs[0], "20260102-000000.json") || !strings.HasSuffix(runs[1], "20260101-000000.json") {
+		t.Errorf("ListRuns should order newest first, got %v", runs)
+	}
+	for _, p := range runs {
+		if strings.HasSuffix(p, ".txt") {
+			t.Errorf("ListRuns leaked a non-JSON file: %v", runs)
+		}
+	}
+}
+
+func TestFormatSummary_ShouldUseDashForPassAndHideNonFailureOutput(t *testing.T) {
+	out := FormatSummary(Summary{
+		Total: 4, Passed: 1, Failed: 2, Skipped: 1,
+		Results: []Result{
+			{TaskID: "ok", Success: true, DurationMs: 5},
+			{TaskID: "bad", Error: "boom", Output: "some output", DurationMs: 5},
+			{TaskID: "quiet-fail", Error: "boom", Output: "   \n", DurationMs: 5},
+			{TaskID: "skip", Skipped: true, Error: "skipped", Output: "must stay hidden", DurationMs: 0},
+		},
+	})
+	// The passing row renders an empty detail as "-".
+	foundDash := false
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "ok") && strings.Contains(line, "PASS") {
+			if strings.Contains(line, "-") {
+				foundDash = true
+			} else {
+				t.Errorf("passing row should render detail as -, got %q", line)
+			}
+		}
+	}
+	if !foundDash {
+		t.Errorf("no PASS row found in summary:\n%s", out)
+	}
+	if !strings.Contains(out, "--- bad output ---") {
+		t.Errorf("failed task output missing:\n%s", out)
+	}
+	if strings.Contains(out, "--- ok output ---") {
+		t.Errorf("passing task output must not be printed:\n%s", out)
+	}
+	if strings.Contains(out, "--- skip output ---") || strings.Contains(out, "must stay hidden") {
+		t.Errorf("skipped task output must not be printed:\n%s", out)
+	}
+	if strings.Contains(out, "--- quiet-fail output ---") {
+		t.Errorf("failed task with blank output must not emit a block:\n%s", out)
+	}
+}
+
+func TestFirstLine_ShouldHandleCarriageReturnAndSingleLine(t *testing.T) {
+	if got := firstLine("a\rb"); got != "a …" {
+		t.Errorf("firstLine(%q) = %q, want %q", "a\rb", got, "a …")
+	}
+	if got := firstLine("a\r\nb"); got != "a …" {
+		t.Errorf("firstLine CRLF = %q, want %q", got, "a …")
+	}
+	if got := firstLine("single"); got != "single" {
+		t.Errorf("single-line input must pass through, got %q", got)
+	}
+	if got := firstLine(""); got != "" {
+		t.Errorf("empty input must stay empty, got %q", got)
+	}
+}

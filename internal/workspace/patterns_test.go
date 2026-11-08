@@ -103,3 +103,49 @@ func TestBlocksDirAnchor(t *testing.T) {
 		t.Error("other/generated is excluded and the negation is anchored elsewhere")
 	}
 }
+
+func TestPatternHelpersPinEdgeCases(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{"", "!", "foo//bar", "bad[", "/"} {
+		if _, ok := compilePattern(raw); ok {
+			t.Errorf("compilePattern(%q) accepted an invalid pattern", raw)
+		}
+	}
+	if p, ok := compilePattern("build/"); !ok || !p.dirOnly || p.neg {
+		t.Errorf("compilePattern(build/) = %+v, %v; want dirOnly non-negated", p, ok)
+	}
+	if p, ok := compilePattern("!keep.go"); !ok || !p.neg || !p.unanchored {
+		t.Errorf("compilePattern(!keep.go) = %+v, %v; want negated unanchored", p, ok)
+	}
+	if !bracketsBalanced("a[b]c") || !bracketsBalanced("plain") {
+		t.Error("balanced brackets reported unbalanced")
+	}
+	if bracketsBalanced("a[b") {
+		t.Error("unbalanced [ reported balanced")
+	}
+	if !matchName("*.go", "a.go", false) || matchName("*.go", "a.txt", false) {
+		t.Error("matchName glob mismatch")
+	}
+	if !matchName("exact.go", "exact.go", false) || matchName("exact.go", "other.go", false) {
+		t.Error("matchName literal mismatch")
+	}
+	if got := ancestorPaths("a/b/c"); len(got) != 2 || got[0] != "a/b" || got[1] != "a" {
+		t.Errorf("ancestorPaths(a/b/c) = %v", got)
+	}
+	if len(ancestorPaths("single")) != 0 {
+		t.Error("ancestorPaths(single) must be empty")
+	}
+	if !strictAncestor("a", "a/b", false) || strictAncestor("a/b", "a", false) || strictAncestor("a", "a", false) {
+		t.Error("strictAncestor direction mismatch")
+	}
+	if !strictAncestor("", "a", false) {
+		t.Error("root is a strict ancestor of every path")
+	}
+	if got := GenerationOf(nil); got != "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
+		t.Errorf("GenerationOf(nil) = %q", got)
+	}
+	ordered := GenerationOf([]string{"b", "a"})
+	if ordered != GenerationOf([]string{"a", "b"}) {
+		t.Error("GenerationOf must sort its input")
+	}
+}

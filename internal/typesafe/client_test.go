@@ -399,3 +399,260 @@ func TestParseRetryAfter(t *testing.T) {
 		}
 	}
 }
+
+func TestErrorDetail_FallbackShapes(t *testing.T) {
+	cases := map[string]struct {
+		body string
+		want string
+	}{
+		"non-JSON is trimmed":      {"  oops  ", "oops"},
+		"empty body stays empty":   {"", ""},
+		"missing detail keeps raw": {`{"other":1}`, `{"other":1}`},
+		"null detail is empty":     {`{"detail":null}`, ""},
+		"numeric detail is raw":    {`{"detail":123}`, "123"},
+		"object detail is raw":     {`{"detail":{"code":"bad"}}`, `{"code":"bad"}`},
+		"empty list is raw":        {`{"detail":[]}`, "[]"},
+		"string detail is bare":    {`{"detail":"boom"}`, "boom"},
+	}
+	for name, tc := range cases {
+		if got := errorDetail([]byte(tc.body)); got != tc.want {
+			t.Errorf("%s: errorDetail(%q) = %q, want %q", name, tc.body, got, tc.want)
+		}
+	}
+}
+
+func TestAPIError_ErrorAndRetryable(t *testing.T) {
+	if got := (&APIError{Status: 500}).Error(); got != "typesafe: HTTP 500" {
+		t.Errorf("empty detail Error() = %q", got)
+	}
+	if got := (&APIError{Status: 400, Detail: "bad"}).Error(); got != "typesafe: HTTP 400: bad" {
+		t.Errorf("detail Error() = %q", got)
+	}
+	for status, want := range map[int]bool{429: true, 529: true, 400: false, 422: false, 500: false} {
+		if got := (&APIError{Status: status}).retryable(); got != want {
+			t.Errorf("status %d retryable = %v, want %v", status, got, want)
+		}
+	}
+}
+
+func TestJsonDepth_IgnoresBracesInStrings(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want int
+	}{
+		{`{"a":"}{"}`, 1},
+		{`{"a":"}"}`, 1},
+		{`{"a":"\\"}`, 1},
+		{`[[[]]]`, 3},
+		{`{"a":[{},{}]}`, 3},
+		{`[1,2]`, 1},
+		{`42`, 0},
+	} {
+		if got := jsonDepth([]byte(tc.in)); got != tc.want {
+			t.Errorf("jsonDepth(%q) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestRetry_BackoffCapsAndWaitPrefersRetryAfter(t *testing.T) {
+	p := RetryPolicy{Max: 4, Base: time.Second, Cap: 4 * time.Second, MaxWait: time.Minute}
+	if got := p.backoff(0); got != time.Second {
+		t.Errorf("backoff(0) = %v", got)
+	}
+	if got := p.backoff(1); got != 2*time.Second {
+		t.Errorf("backoff(1) = %v", got)
+	}
+	if got := p.backoff(10); got != 4*time.Second {
+		t.Errorf("backoff(10) = %v, want cap", got)
+	}
+	big := RetryPolicy{Base: 10 * time.Second, Cap: 4 * time.Second}
+	if got := big.backoff(0); got != 4*time.Second {
+		t.Errorf("base above cap backoff(0) = %v", got)
+	}
+	if got := p.wait(0, &APIError{RetryAfter: 5 * time.Second}); got != 5*time.Second {
+		t.Errorf("wait with retry-after = %v", got)
+	}
+	if got := p.wait(0, &APIError{}); got != time.Second {
+		t.Errorf("wait without retry-after = %v", got)
+	}
+}
+
+func TestParseRetryAfter_TrimsSpacesAndZero(t *testing.T) {
+	now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	h := func(v string) http.Header { return http.Header{"Retry-After": {v}} }
+	if got := parseRetryAfter(h("  7  "), now); got != 7*time.Second {
+		t.Errorf("spaced seconds = %v", got)
+	}
+	if got := parseRetryAfter(h("0"), now); got != 0 {
+		t.Errorf("zero seconds = %v", got)
+	}
+}
+
+func TestSleepCtx_SucceedsAndStopsOnCancel(t *testing.T) {
+	if err := sleepCtx(context.Background(), time.Millisecond); err != nil {
+		t.Errorf("short sleep = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := sleepCtx(ctx, time.Hour); !errors.Is(err, context.Canceled) {
+		t.Errorf("canceled sleep = %v", err)
+	}
+}
+
+func TestDo_WaitWouldPassDeadlineIsAnError(t *testing.T) {
+	var calls atomic.Int32
+	c, slept := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Retry-After", "5")
+		w.WriteHeader(429)
+		io.WriteString(w, `{"detail":"slow"}`)
+	}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := c.Ask(ctx, "x", testQuestions())
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != 429 {
+		t.Fatalf("err=%v; want wrapped 429", err)
+	}
+	if !strings.Contains(err.Error(), "would pass the deadline") {
+		t.Errorf("err=%v; want deadline wording", err)
+	}
+	if calls.Load() != 1 || len(*slept) != 0 {
+		t.Errorf("calls=%d slept=%v; want one call and no wait", calls.Load(), *slept)
+	}
+}
+
+func TestOnce_BadBaseURLIsAnError(t *testing.T) {
+	c, err := NewClient(Options{Model: "m", BaseURL: "://bad", APIKey: "k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Ask(context.Background(), "x", testQuestions()); err == nil || !strings.Contains(err.Error(), "typesafe:") {
+		t.Errorf("err=%v; want a typesafe-wrapped request error", err)
+	}
+}
+
+func TestBuildBody_RejectsBoolStateAndBadQuestionEncoding(t *testing.T) {
+	c, _ := newTestClient(t, reply(200, answersJSON), nil)
+	if _, err := c.Ask(context.Background(), true, testQuestions()); err == nil || !strings.Contains(err.Error(), "must be a string") {
+		t.Errorf("bool state: %v", err)
+	}
+	bad := map[string]Question{"q": Noul{Instructions: nanValue()}}
+	if _, err := c.Ask(context.Background(), "x", bad); err == nil || !strings.Contains(err.Error(), "not encodable") {
+		t.Errorf("NaN question: %v", err)
+	}
+}
+
+func TestListModels_FailureIsAnError(t *testing.T) {
+	c, _ := newTestClient(t, reply(500, `{"detail":"boom"}`), nil)
+	models, err := c.ListModels(context.Background())
+	var apiErr *APIError
+	if models != nil || !errors.As(err, &apiErr) || apiErr.Status != 500 {
+		t.Errorf("models=%v err=%v; want 500 APIError", models, err)
+	}
+}
+
+func TestResponse_NamesAreSorted(t *testing.T) {
+	var r Response
+	body := `{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":{"z":{"type":"noul","noul":0.1},"a":{"type":"noul","noul":0.2}}}`
+	if err := json.Unmarshal([]byte(body), &r); err != nil {
+		t.Fatal(err)
+	}
+	names := r.Names()
+	if len(names) != 2 || names[0] != "a" || names[1] != "z" {
+		t.Errorf("Names() = %v", names)
+	}
+}
+
+func TestResponse_NoulBounds(t *testing.T) {
+	mk := func(noul string) *Response {
+		var r Response
+		body := `{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":{"q":{"type":"noul","noul":` + noul + `}}}`
+		if err := json.Unmarshal([]byte(body), &r); err != nil {
+			t.Fatal(err)
+		}
+		return &r
+	}
+	for _, tc := range []struct {
+		in      string
+		want    float64
+		wantErr bool
+	}{
+		{"0", 0, false},
+		{"1", 1, false},
+		{"0.5", 0.5, false},
+		{"-0.1", 0, true},
+		{"1.1", 0, true},
+	} {
+		got, err := mk(tc.in).Noul("q")
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("noul %s accepted", tc.in)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Errorf("noul %s = %v, %v", tc.in, got, err)
+		}
+	}
+}
+
+func TestResponse_MalformedAnswerShapesAreErrors(t *testing.T) {
+	mk := func(answer string) *Response {
+		var r Response
+		body := `{"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":{"q":` + answer + `}}`
+		if err := json.Unmarshal([]byte(body), &r); err != nil {
+			t.Fatal(err)
+		}
+		return &r
+	}
+	if _, err := mk(`123`).Noul("q"); err == nil || !strings.Contains(err.Error(), "malformed") {
+		t.Errorf("numeric answer: %v", err)
+	}
+	if _, err := mk(`{"type":"noul","noul":"oops"}`).Noul("q"); err == nil || !strings.Contains(err.Error(), "malformed") {
+		t.Errorf("mistyped noul field: %v", err)
+	}
+	if _, err := mk(`{"type":"choice","choice":"","confidence":0.5,"probabilities":{"a":1}}`).Choice("q"); err == nil {
+		t.Errorf("empty choice accepted")
+	}
+	for name, answer := range map[string]string{
+		"missing score":       `{"type":"score","confidence":0.5,"legend":{"0":"a"},"probabilities":{"0":1}}`,
+		"missing confidence":  `{"type":"score","score":1,"legend":{"0":"a"},"probabilities":{"0":1}}`,
+		"missing legend":      `{"type":"score","score":1,"confidence":0.5,"probabilities":{"0":1}}`,
+		"missing probability": `{"type":"score","score":1,"confidence":0.5,"legend":{"0":"a"}}`,
+	} {
+		if _, err := mk(answer).Score("q"); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	if _, err := mk(`{"type":"choice","choice":"a","confidence":0.5}`).Choice("q"); err == nil {
+		t.Errorf("choice without probabilities accepted")
+	}
+}
+
+func TestQuestion_MarshalShapesAndNullLevel(t *testing.T) {
+	raw, err := json.Marshal(Noul{Instructions: "?"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "criteria") {
+		t.Errorf("nil criteria must be omitted: %s", raw)
+	}
+	raw, err = json.Marshal(Noul{Instructions: "?", Criteria: &NoulCriteria{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "criteria") {
+		t.Errorf("empty criteria must be omitted: %s", raw)
+	}
+	raw, err = json.Marshal(Noul{Instructions: "?", Criteria: &NoulCriteria{True: "yes"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"true":"yes"`) {
+		t.Errorf("set criteria must be kept: %s", raw)
+	}
+	if err := (Score{Instructions: "?", Criteria: []any{"a", nil}}).validate(); err == nil || !strings.Contains(err.Error(), "score level 1 is null") {
+		t.Errorf("null level: %v", err)
+	}
+}

@@ -347,6 +347,88 @@ func TestSearchFile_MaxMatches(t *testing.T) {
 	}
 }
 
+func TestExcludedNote_EmptyReturnsEmpty(t *testing.T) {
+	if got := excludedNote(nil, ""); got != "" {
+		t.Errorf("expected empty note for no exclusions, got %q", got)
+	}
+	if got := excludedNote([]string{}, ""); got != "" {
+		t.Errorf("expected empty note for empty exclusions, got %q", got)
+	}
+}
+
+func TestExcludedNote_SearchRootMentionsNotSearched(t *testing.T) {
+	got := excludedNote(nil, "ignored-root")
+	if !strings.Contains(got, "ignored-root") {
+		t.Errorf("expected note to name the search root, got %q", got)
+	}
+	if !strings.Contains(got, "not searched") {
+		t.Errorf("expected note to say the root was not searched, got %q", got)
+	}
+}
+
+func TestExcludedNote_TruncatesShownPathsToThree(t *testing.T) {
+	excluded := []string{"a.txt", "b.txt", "c.txt", "d.txt", "e.txt"}
+	got := excludedNote(excluded, "")
+	if !strings.Contains(got, "5 matching path(s)") {
+		t.Errorf("expected note to carry the total count, got %q", got)
+	}
+	for _, want := range []string{"a.txt", "b.txt", "c.txt"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected note to show %q, got %q", want, got)
+		}
+	}
+	if strings.Contains(got, "d.txt") || strings.Contains(got, "e.txt") {
+		t.Errorf("expected note to truncate shown paths to three, got %q", got)
+	}
+}
+
+func TestContentSearchDisplay_ShortensInsideRoot(t *testing.T) {
+	root := filepath.FromSlash("/tmp/ws-stabilize")
+	s := contentSearch{root: root}
+	file := filepath.Join(root, "sub", "hit.go")
+	if got := s.display(file); got != filepath.ToSlash(filepath.Join("sub", "hit.go")) {
+		t.Errorf("expected workspace-relative display, got %q", got)
+	}
+}
+
+func TestContentSearchDisplay_EmptyRootReturnsAbsolute(t *testing.T) {
+	s := contentSearch{}
+	file := filepath.FromSlash("/tmp/ws-stabilize/sub/hit.go")
+	if got := s.display(file); got != file {
+		t.Errorf("expected absolute passthrough without root, got %q", got)
+	}
+}
+
+func TestContentSearchDisplay_OutsideRootReturnsAbsolute(t *testing.T) {
+	s := contentSearch{root: filepath.FromSlash("/tmp/ws-stabilize")}
+	file := filepath.FromSlash("/tmp/other/hit.go")
+	if got := s.display(file); got != file {
+		t.Errorf("expected absolute passthrough outside root, got %q", got)
+	}
+}
+
+func TestSearchFile_ContextLinesAttachPriorLines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ctx.txt")
+	content := "alpha\nbeta\ntarget gamma\ndelta\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	matches, _, err := searchFile(path, regexp.MustCompile("target"), 1, 10)
+	if err != nil {
+		t.Fatalf("searchFile: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match, got %d", len(matches))
+	}
+	if len(matches[0].Context) == 0 {
+		t.Fatalf("expected context lines, got none in %+v", matches[0])
+	}
+	if !strings.Contains(matches[0].Context[0], "beta") {
+		t.Errorf("expected prior line beta in context, got %q", matches[0].Context[0])
+	}
+}
+
 // =============================================================================
 // SEARCH CODE TOOL TESTS
 // =============================================================================

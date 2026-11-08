@@ -1,6 +1,7 @@
 package main
 
 import (
+	"codenerd/internal/prompt"
 	"context"
 	"encoding/binary"
 	"math"
@@ -151,5 +152,111 @@ func TestGenerateAndStoreAtoms_PersistsPinAndToolTags(t *testing.T) {
 		if got[dim] != tag {
 			t.Errorf("dimension %q = %q, want %q (full row set %v)", dim, got[dim], tag, got)
 		}
+	}
+}
+
+func TestValidateAtomsRejectsMissingCategory(t *testing.T) {
+	atoms := []ProcessedAtom{
+		{AtomDefinition: AtomDefinition{ID: "/alpha", Category: "protocol"}, SourceFile: "a.yaml"},
+		{AtomDefinition: AtomDefinition{ID: "/beta"}, SourceFile: "b.yaml"},
+	}
+	if err := validateAtoms(atoms); err == nil {
+		t.Fatalf("expected missing category error for /beta")
+	}
+}
+
+func TestParseYAMLFileSkipsAtomsWithoutContent(t *testing.T) {
+	dir := t.TempDir()
+	yamlPath := filepath.Join(dir, "atoms.yaml")
+	yamlData := []byte("- id: /empty\n  category: protocol\n- id: \"\"\n  category: protocol\n  content: \"no id\"\n- id: /ok\n  category: protocol\n  content: \"hello world\"\n")
+	if err := os.WriteFile(yamlPath, yamlData, 0644); err != nil {
+		t.Fatalf("write yaml: %v", err)
+	}
+	atoms, err := parseYAMLFile(yamlPath, dir)
+	if err != nil {
+		t.Fatalf("parse YAML: %v", err)
+	}
+	if len(atoms) != 1 || atoms[0].ID != "/ok" {
+		t.Fatalf("expected only /ok, got %+v", atoms)
+	}
+}
+
+func TestReconcileEmbeddedSeedRejectsCustomInput(t *testing.T) {
+	if _, err := reconcileEmbeddedSeed(context.Background(), t.TempDir(), filepath.Join(t.TempDir(), "out.db")); err == nil {
+		t.Fatalf("expected custom -input conflict error")
+	}
+}
+
+func TestCreateEmbeddingEngineRequiresModelEnv(t *testing.T) {
+	t.Setenv("GENAI_EMBEDDING_MODEL", "")
+	if _, err := createEmbeddingEngine("dummy-key"); err == nil {
+		t.Fatalf("expected missing GENAI_EMBEDDING_MODEL error")
+	}
+}
+
+func TestExtractAtomDefinitionsRejectsMissingDir(t *testing.T) {
+	if _, err := extractAtomDefinitions(filepath.Join(t.TempDir(), "does-not-exist")); err == nil {
+		t.Fatalf("expected walk error for missing directory")
+	}
+}
+
+func TestEncodeFloat32SliceRoundTripsAllElements(t *testing.T) {
+	vec := []float32{0, 1.5, -2.25, 3.75}
+	blob := encodeFloat32Slice(vec)
+	if len(blob) != len(vec)*4 {
+		t.Fatalf("expected %d bytes, got %d", len(vec)*4, len(blob))
+	}
+	for i, want := range vec {
+		got := math.Float32frombits(binary.LittleEndian.Uint32(blob[i*4:]))
+		if got != want {
+			t.Fatalf("element %d: expected %v, got %v", i, want, got)
+		}
+	}
+	if len(encodeFloat32Slice(nil)) != 0 {
+		t.Fatalf("expected empty blob for nil vector")
+	}
+}
+
+func TestNearestByEmbeddingSkipsRelatedAndRanksBySimilarity(t *testing.T) {
+	mk := func(id, section string) *prompt.PromptAtom {
+		a := prompt.NewPromptAtom(id, prompt.AtomCategory("protocol"), "content "+id)
+		a.SectionOf = section
+		return a
+	}
+	head := mk("head", "")
+	sec := mk("head/section", "head")
+	other := mk("other", "")
+	// head and its section are related: they must never be reported as neighbours.
+	atoms := []*prompt.PromptAtom{head, sec, other}
+	vecs := [][]float32{{1, 0}, {1, 0}, {0, 1}}
+	got := nearestByEmbedding(atoms, vecs)
+	if _, ok := got[head.ID]; ok {
+		t.Fatalf("related section must not appear as neighbour: %v", got)
+	}
+	// Orthogonal vectors are below the similarity threshold: no neighbours at all.
+	if len(got) != 0 {
+		t.Fatalf("expected no neighbours for orthogonal vectors, got %v", got)
+	}
+	// Near-identical vectors are neighbours, rounded to three decimals.
+	atoms = []*prompt.PromptAtom{mk("a", ""), mk("b", ""), mk("c", "")}
+	vecs = [][]float32{{1, 0}, {1, 0.001}, {0, 1}}
+	got = nearestByEmbedding(atoms, vecs)
+	sim, ok := got["a"]["b"]
+	if !ok {
+		t.Fatalf("expected a->b neighbour, got %v", got)
+	}
+	if sim < 0.999 || sim > 1.0 {
+		t.Fatalf("expected similarity near 1.0, got %v", sim)
+	}
+	if _, ok := got["a"]["c"]; ok {
+		t.Fatalf("dissimilar atom must not appear as neighbour: %v", got)
+	}
+}
+
+func TestImportanceOfReturnsNilWhenUnscored(t *testing.T) {
+	ledger := &prompt.ImportanceLedger{Atoms: map[string]prompt.ImportanceRecord{}}
+	atom := ProcessedAtom{AtomDefinition: AtomDefinition{ID: "/alpha"}, ContentHash: "hash-a"}
+	if got := importanceOf(ledger, atom); got != nil {
+		t.Fatalf("expected nil for unscored atom, got %v", got)
 	}
 }

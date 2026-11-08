@@ -13,6 +13,7 @@
 package typestest
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -92,8 +93,17 @@ func (m *MockKernel) Query(predicate string) ([]types.Fact, error) {
 		return nil, m.QueryErr
 	}
 	m.ensure()
-	out := make([]types.Fact, len(m.facts[predicate]))
-	copy(out, m.facts[predicate])
+	src := m.facts[predicate]
+	out := make([]types.Fact, len(src))
+	for i, f := range src {
+		cp := f
+		if f.Args != nil {
+			args := make([]any, len(f.Args))
+			copy(args, f.Args)
+			cp.Args = args
+		}
+		out[i] = cp
+	}
 	return out, nil
 }
 
@@ -108,7 +118,15 @@ func (m *MockKernel) QueryAll() (map[string][]types.Fact, error) {
 	out := make(map[string][]types.Fact, len(m.facts))
 	for k, v := range m.facts {
 		cp := make([]types.Fact, len(v))
-		copy(cp, v)
+		for i, f := range v {
+			dup := f
+			if f.Args != nil {
+				args := make([]any, len(f.Args))
+				copy(args, f.Args)
+				dup.Args = args
+			}
+			cp[i] = dup
+		}
 		out[k] = cp
 	}
 	return out, nil
@@ -133,10 +151,21 @@ func (m *MockKernel) Assert(fact types.Fact) error {
 }
 
 func (m *MockKernel) AssertBatch(facts []types.Fact) error {
+	if len(facts) == 0 {
+		return nil
+	}
+	// A batch is a convenience, not a transaction: good facts land, rejections
+	// are collected and returned, matching RealKernel.AssertBatch. Stopping at
+	// the first rejection would hide later facts that production would store.
+	var rejected []error
 	for _, f := range facts {
 		if err := m.Assert(f); err != nil {
-			return err
+			rejected = append(rejected, fmt.Errorf("%s: %w", f.String(), err))
+			continue
 		}
+	}
+	if len(rejected) > 0 {
+		return fmt.Errorf("AssertBatch rejected %d of %d facts: %w", len(rejected), len(facts), errors.Join(rejected...))
 	}
 	return nil
 }
@@ -160,10 +189,20 @@ func (m *MockKernel) RetractFact(fact types.Fact) error {
 	if m.RetractErr != nil {
 		return m.RetractErr
 	}
+	// Fail closed like RealKernel.RetractFact: matching needs a first argument,
+	// so an arg-less fact is a caller bug, not a no-op retract-all.
+	if len(fact.Args) == 0 {
+		return fmt.Errorf("retractFact %s: fact must have at least one argument for matching", fact.Predicate)
+	}
 	m.ensure()
-	m.facts[fact.Predicate] = filterFacts(m.facts[fact.Predicate], func(f types.Fact) bool {
+	kept := filterFacts(m.facts[fact.Predicate], func(f types.Fact) bool {
 		return !firstArgEqual(f, fact)
 	})
+	if len(kept) == 0 {
+		delete(m.facts, fact.Predicate)
+	} else {
+		m.facts[fact.Predicate] = kept
+	}
 	return nil
 }
 
@@ -178,8 +217,11 @@ func (m *MockKernel) UpdateSystemFacts() error {
 // declarations should use a real kernel; a fabricated ProgramInfo is worse than
 // none because it would let a test pass against declarations that do not exist.
 func (m *MockKernel) GetProgramInfo() *analysis.ProgramInfo {
-	if m.ProgramInfoFn != nil {
-		return m.ProgramInfoFn()
+	m.mu.Lock()
+	fn := m.ProgramInfoFn
+	m.mu.Unlock()
+	if fn != nil {
+		return fn()
 	}
 	return nil
 }
@@ -206,9 +248,14 @@ func (m *MockKernel) RetractExactFactsBatch(facts []types.Fact) error {
 	}
 	m.ensure()
 	for _, target := range facts {
-		m.facts[target.Predicate] = filterFacts(m.facts[target.Predicate], func(f types.Fact) bool {
+		kept := filterFacts(m.facts[target.Predicate], func(f types.Fact) bool {
 			return !allArgsEqual(f, target)
 		})
+		if len(kept) == 0 {
+			delete(m.facts, target.Predicate)
+		} else {
+			m.facts[target.Predicate] = kept
+		}
 	}
 	return nil
 }
@@ -267,7 +314,11 @@ func (t *mockTx) RetractExactFact(fact types.Fact) {
 }
 
 func (t *mockTx) RetractPredicateSet(predicates map[string]struct{}) {
-	t.ops = append(t.ops, mockTxOp{kind: "retract_set", set: predicates})
+	cp := make(map[string]struct{}, len(predicates))
+	for p := range predicates {
+		cp[p] = struct{}{}
+	}
+	t.ops = append(t.ops, mockTxOp{kind: "retract_set", set: cp})
 }
 
 func (t *mockTx) Assert(fact types.Fact) {
@@ -275,8 +326,11 @@ func (t *mockTx) Assert(fact types.Fact) {
 }
 
 func (t *mockTx) Commit() error {
-	if t.k.CommitErr != nil {
-		return t.k.CommitErr
+	t.k.mu.Lock()
+	commitErr := t.k.CommitErr
+	t.k.mu.Unlock()
+	if commitErr != nil {
+		return commitErr
 	}
 	for _, op := range t.ops {
 		var err error
@@ -304,7 +358,7 @@ func (t *mockTx) Commit() error {
 }
 
 func filterFacts(facts []types.Fact, keep func(types.Fact) bool) []types.Fact {
-	out := facts[:0]
+	out := make([]types.Fact, 0, len(facts))
 	for _, f := range facts {
 		if keep(f) {
 			out = append(out, f)

@@ -31,7 +31,7 @@ func (v SafetyViolationType) String() string {
 		"Unauthorized",
 		"Unknown",
 	}
-	if int(v) < len(names) {
+	if v >= 0 && int(v) < len(names) {
 		return names[v]
 	}
 	return "Unknown"

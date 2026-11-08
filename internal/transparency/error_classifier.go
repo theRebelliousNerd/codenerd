@@ -51,7 +51,7 @@ func (c ErrorCategory) Prefix() string {
 		"[TIMEOUT]",
 		"[ERROR]",
 	}
-	if int(c) < len(prefixes) {
+	if c >= 0 && int(c) < len(prefixes) {
 		return prefixes[c]
 	}
 	return "[ERROR]"
@@ -70,7 +70,7 @@ func (c ErrorCategory) String() string {
 		"timeout",
 		"unknown",
 	}
-	if int(c) < len(names) {
+	if c >= 0 && int(c) < len(names) {
 		return names[c]
 	}
 	return "unknown"

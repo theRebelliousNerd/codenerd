@@ -602,3 +602,72 @@ func TestValidateShellToolInvocation_GitHubCLI(t *testing.T) {
 		}
 	}
 }
+
+func TestShellEffectKind_StringAndPredicates(t *testing.T) {
+	cases := []struct {
+		kind     ShellEffectKind
+		str      string
+		mutating bool
+		allowed  bool
+	}{
+		{ShellEffectNone, "none", false, false},
+		{ShellEffectReadOnly, "read_only", false, true},
+		{ShellEffectVerification, "verification", false, true},
+		{ShellEffectMutating, "mutating", true, false},
+		{ShellEffectUnknownMutating, "unknown_mutating", true, false},
+		{ShellEffectKind(99), "unknown", false, false},
+	}
+	for _, tc := range cases {
+		if got := tc.kind.String(); got != tc.str {
+			t.Errorf("ShellEffectKind(%d).String() = %q, want %q", int(tc.kind), got, tc.str)
+		}
+		if got := tc.kind.IsMutating(); got != tc.mutating {
+			t.Errorf("ShellEffectKind(%d).IsMutating() = %v, want %v", int(tc.kind), got, tc.mutating)
+		}
+		if got := tc.kind.AllowedWithoutMutationScope(); got != tc.allowed {
+			t.Errorf("ShellEffectKind(%d).AllowedWithoutMutationScope() = %v, want %v", int(tc.kind), got, tc.allowed)
+		}
+	}
+}
+
+func TestShellCommand_ExtractsAlternateKeys(t *testing.T) {
+	if got := ShellCommand(map[string]any{"command": "go test ./..."}); got != "go test ./..." {
+		t.Errorf("ShellCommand command key = %q", got)
+	}
+	if got := ShellCommand(map[string]any{"script": "go vet ./..."}); got != "go vet ./..." {
+		t.Errorf("ShellCommand script fallback = %q", got)
+	}
+	if got := ShellCommand(map[string]any{"cmd": "ls"}); got != "ls" {
+		t.Errorf("ShellCommand cmd fallback = %q", got)
+	}
+	if got := ShellCommand(map[string]any{"content": "pwd"}); got != "pwd" {
+		t.Errorf("ShellCommand content fallback = %q", got)
+	}
+	// First non-blank key in command,script,cmd,content order wins.
+	got := ShellCommand(map[string]any{"script": "go vet ./...", "command": "  ", "cmd": "ls"})
+	if got != "go vet ./..." {
+		t.Errorf("ShellCommand precedence with blank command = %q, want %q", got, "go vet ./...")
+	}
+	if got := ShellCommand(map[string]any{"command": 123, "script": ""}); got != "" {
+		t.Errorf("ShellCommand non-string and blank = %q, want empty", got)
+	}
+	if got := ShellCommand(nil); got != "" {
+		t.Errorf("ShellCommand nil args = %q, want empty", got)
+	}
+	if got := ShellCommand(map[string]any{"other": "x"}); got != "" {
+		t.Errorf("ShellCommand unknown key = %q, want empty", got)
+	}
+}
+
+func TestIsWriteMutationTool_NormalizesName(t *testing.T) {
+	for _, name := range []string{"write_file", " Write_File ", "EDIT_ELEMENT", "regenerate", "apply_patch"} {
+		if !IsWriteMutationTool(name) {
+			t.Errorf("IsWriteMutationTool(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{"", "   ", "read_file", "run_command", "git_operation"} {
+		if IsWriteMutationTool(name) {
+			t.Errorf("IsWriteMutationTool(%q) = true, want false", name)
+		}
+	}
+}

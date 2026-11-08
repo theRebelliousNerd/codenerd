@@ -165,3 +165,63 @@ func TestHumanApproval_RequiredOnlyForApprovableDenials(t *testing.T) {
 		t.Error("a permitted read asked for approval")
 	}
 }
+
+func TestHumanApproval_EachGrantAdmitsOnlyItsOwnTuple(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	// No existing test grants two sibling requests at once. Each grant must
+	// admit exactly its own pending tuple: granting both admits both, and
+	// granting only the second leaves the first denied.
+	t.Run("both granted admits both", func(t *testing.T) {
+		eng := approvalEngine(t,
+			pending("exec-1", "/delete_file", "a.md", `{"path":"a.md"}`),
+			pending("exec-2", "/delete_file", "b.md", `{"path":"b.md"}`),
+			granted("exec-1", "/delete_file", "a.md", `{"path":"a.md"}`),
+			granted("exec-2", "/delete_file", "b.md", `{"path":"b.md"}`),
+		)
+		got := permittedTuples(t, eng)
+		if !got[[3]string{"/delete_file", "a.md", `{"path":"a.md"}`}] {
+			t.Fatal("the first approved request was not admitted")
+		}
+		if !got[[3]string{"/delete_file", "b.md", `{"path":"b.md"}`}] {
+			t.Fatal("the second approved request was not admitted")
+		}
+		if len(got) != 2 {
+			t.Fatalf("expected exactly 2 permissions, got %d", len(got))
+		}
+	})
+	t.Run("granting only the second leaves the first denied", func(t *testing.T) {
+		eng := approvalEngine(t,
+			pending("exec-1", "/delete_file", "a.md", `{"path":"a.md"}`),
+			pending("exec-2", "/delete_file", "b.md", `{"path":"b.md"}`),
+			granted("exec-2", "/delete_file", "b.md", `{"path":"b.md"}`),
+		)
+		got := permittedTuples(t, eng)
+		if got[[3]string{"/delete_file", "a.md", `{"path":"a.md"}`}] {
+			t.Fatal("the unapproved sibling borrowed the approval")
+		}
+		if !got[[3]string{"/delete_file", "b.md", `{"path":"b.md"}`}] {
+			t.Fatal("the approved request was not admitted")
+		}
+	})
+}
+
+func TestHumanApproval_RunArbitraryCommandNeedsGrantAndOpensRequest(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	tuple := [3]string{"/run_arbitrary_command", "mcp-tool", `{"tool":"mcp-tool"}`}
+	eng := approvalEngine(t,
+		pending("exec-mcp-1", "/run_arbitrary_command", "mcp-tool", `{"tool":"mcp-tool"}`),
+	)
+	if permittedTuples(t, eng)[tuple] {
+		t.Fatal("an unapproved /run_arbitrary_command was permitted")
+	}
+	if !requiredIDs(t, eng)["exec-mcp-1"] {
+		t.Fatal("an approvable denial for /run_arbitrary_command opened no approval request")
+	}
+	engGranted := approvalEngine(t,
+		pending("exec-mcp-1", "/run_arbitrary_command", "mcp-tool", `{"tool":"mcp-tool"}`),
+		granted("exec-mcp-1", "/run_arbitrary_command", "mcp-tool", `{"tool":"mcp-tool"}`),
+	)
+	if !permittedTuples(t, engGranted)[tuple] {
+		t.Fatal("the exact grant for /run_arbitrary_command did not admit it")
+	}
+}

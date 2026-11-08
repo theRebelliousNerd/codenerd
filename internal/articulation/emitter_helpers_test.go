@@ -88,3 +88,81 @@ func TestLooksLikePartialEnvelope_DecisionSummary(t *testing.T) {
 		t.Error("a partial envelope opening with decision_summary must be recognised")
 	}
 }
+
+func TestStabilize_TruncateUTF8BytesBoundsAndRuneSafety(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		max   int
+		want  string
+	}{
+		{name: "short passthrough", value: "hello", max: 10, want: "hello"},
+		{name: "nonpositive max returns value", value: "hello", max: 0, want: "hello"},
+		{name: "negative max returns value", value: "hello", max: -1, want: "hello"},
+		{name: "ascii cut", value: "hello world", max: 5, want: "hello"},
+		{name: "multibyte rune not split", value: "héllo", max: 2, want: "h"},
+		{name: "exact fit", value: "abc", max: 3, want: "abc"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := truncateUTF8Bytes(tc.value, tc.max); got != tc.want {
+				t.Errorf("truncateUTF8Bytes(%q,%d)=%q want %q", tc.value, tc.max, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestStabilize_UpdateDetailPredicateAndFallback(t *testing.T) {
+	if got := updateDetail("my_pred(/x)."); got != "my_pred" {
+		t.Errorf("updateDetail predicate=%q want %q", got, "my_pred")
+	}
+	if got := updateDetail("   spaced_pred(/a).  "); got != "spaced_pred" {
+		t.Errorf("updateDetail trims then extracts, got %q", got)
+	}
+	long := strings.Repeat("z", 100)
+	if got := updateDetail(long); got != truncateUTF8Bytes(long, 40) {
+		t.Errorf("updateDetail without paren should truncate to 40 bytes, got %q", got)
+	}
+	if got := updateDetail(""); got != "" {
+		t.Errorf("updateDetail empty=%q want empty", got)
+	}
+}
+
+func TestStabilize_LooksLikePartialEnvelopeNegatives(t *testing.T) {
+	if looksLikePartialEnvelope("just a plain reply") {
+		t.Error("plain text must not look like a partial envelope")
+	}
+	if looksLikePartialEnvelope(`{"surface_response":"hi"}`) {
+		// Complete single-key envelope without control markers is not the
+		// truncated-envelope salvage path trigger.
+		t.Error("envelope without control markers must not trigger salvage path")
+	}
+	if !looksLikePartialEnvelope("   ```json\n{\"control_packet\":") {
+		t.Error("fenced partial envelope must be recognised despite leading whitespace")
+	}
+}
+
+func TestStabilize_SalvageSurfaceShortAndMissing(t *testing.T) {
+	if got := salvageSurfaceFromPartial(`{"control_packet":{}}`); got != "" {
+		t.Errorf("missing surface key must yield empty, got %q", got)
+	}
+	// Truncated mid-string with fewer than 8 usable runes is not surfaced;
+	// showing a 2-char fragment would be noise, not help.
+	if got := salvageSurfaceFromPartial(`{"surface_response":"hi`); got != "" {
+		t.Errorf("short truncated fragment must yield empty, got %q", got)
+	}
+	if got := salvageSurfaceFromPartial(`{"surface_response":"hello world, this is a longer reply`); !strings.HasSuffix(got, "[…truncated]") {
+		t.Errorf("long truncated fragment must carry truncation marker, got %q", got)
+	}
+}
+
+func TestStabilize_TruncatedEnvelopeMessageRuneCut(t *testing.T) {
+	long := strings.Repeat("é", 700)
+	msg := truncatedEnvelopeMessage(`{"decision_summary":"` + long + `"}`)
+	if !strings.Contains(msg, "It had decided:") {
+		t.Errorf("long summary should keep decided lead-in, got %q", msg[:80])
+	}
+	if !strings.HasSuffix(strings.SplitN(msg, "> ", 2)[1], "…") {
+		t.Error("summary beyond 600 runes must be cut with ellipsis")
+	}
+}

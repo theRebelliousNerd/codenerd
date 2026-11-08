@@ -229,3 +229,101 @@ func TestSemanticVectors_DimensionMismatchIsNotCoverage(t *testing.T) {
 		t.Fatalf("mismatched vectors were ranked: %+v", result)
 	}
 }
+
+func TestRetrieverMetrics_CacheHitRatePinZeroAndFraction(t *testing.T) {
+	var zero RetrieverMetrics
+	if got := zero.CacheHitRate(); got != 0 {
+		t.Fatalf("zero metrics hit rate = %v, want 0", got)
+	}
+	m := RetrieverMetrics{CacheHits: 3, CacheMisses: 1}
+	if got, want := m.CacheHitRate(), 0.75; got != want {
+		t.Fatalf("hit rate = %v, want %v", got, want)
+	}
+}
+
+func TestRetrieverMetrics_MeanSearchTimePinZeroAndAverage(t *testing.T) {
+	var zero RetrieverMetrics
+	if got := zero.MeanSearchTime(); got != 0 {
+		t.Fatalf("zero mean search = %v, want 0", got)
+	}
+	m := RetrieverMetrics{Searches: 2, TotalSearchTime: 3000000}
+	if got, want := m.MeanSearchTime(), uint64(1500000); uint64(got) != want {
+		t.Fatalf("mean search = %v, want %v ns", got, want)
+	}
+}
+
+func TestRetrieverMetrics_StringPinFormat(t *testing.T) {
+	m := RetrieverMetrics{Searches: 4, CacheHits: 1, CacheMisses: 3, FilesWalked: 10, FilesScanned: 8, FilesSkipped: 2, Hits: 5, Timeouts: 1, Errors: 0, TotalSearchTime: 4000000}
+	s := m.String()
+	for _, want := range []string{"searches=4", "cache_hit_rate=25%", "walked=10", "scanned=8", "skipped=2", "hits=5", "timeouts=1", "errors=0"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("metrics string %q missing %q", s, want)
+		}
+	}
+}
+
+func TestSparseRetriever_MetricsPinEmptySnapshot(t *testing.T) {
+	dir := t.TempDir()
+	r := NewSparseRetriever(DefaultSparseRetrieverConfig(dir))
+	if r == nil {
+		t.Fatal("NewSparseRetriever returned nil")
+	}
+	got := r.Metrics()
+	if got.Searches != 0 || got.CacheHits != 0 || got.CacheMisses != 0 || got.TotalSearchTime != 0 {
+		t.Fatalf("fresh retriever metrics = %+v, want zeros", got)
+	}
+	if got.CacheHitRate() != 0 || got.MeanSearchTime() != 0 {
+		t.Fatalf("fresh derived metrics nonzero: hit=%v mean=%v", got.CacheHitRate(), got.MeanSearchTime())
+	}
+}
+
+func TestTierOutcome_StringPinBranches(t *testing.T) {
+	cases := map[string]struct {
+		in   TierOutcome
+		want []string
+	}{
+		"complete hides none reason": {in: TierOutcome{Tier: TierKeyword, Status: StatusComplete, Reason: ReasonNone, Used: BackendNative}, want: []string{"keyword complete", "via native"}},
+		"partial shows reason":       {in: TierOutcome{Tier: TierKeyword, Status: StatusPartial, Reason: ReasonOverflow}, want: []string{"keyword partial", "(overflow)"}},
+		"fallback names attempted":   {in: TierOutcome{Tier: TierSemantic, Status: StatusPartial, Reason: ReasonEmbedPending, Attempted: BackendEmbeddings, Used: BackendDefinitionScan}, want: []string{"via definition_scan", "embeddings attempted"}},
+		"coverage counts":            {in: TierOutcome{Tier: TierKeyword, Status: StatusComplete, Eligible: 10, Covered: 7}, want: []string{"7 of 10 files covered"}},
+		"incomplete counts":          {in: TierOutcome{Tier: TierKeyword, Status: StatusPartial, Reason: ReasonBackendError, Queries: 3, Incomplete: []string{"a", "b"}}, want: []string{"2 of 3 keywords incomplete"}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := tc.in.String()
+			for _, want := range tc.want {
+				if !strings.Contains(s, want) {
+					t.Fatalf("TierOutcome.String() = %q, missing %q", s, want)
+				}
+			}
+		})
+	}
+}
+
+func TestErrorReasonPinClassification(t *testing.T) {
+	if got := errorReason(nil); got != ReasonNone {
+		t.Fatalf("nil error reason = %q, want %q", got, ReasonNone)
+	}
+	if got := errorReason(context.DeadlineExceeded); got != ReasonTimeout {
+		t.Fatalf("deadline reason = %q, want %q", got, ReasonTimeout)
+	}
+	if got := errorReason(context.Canceled); got != ReasonCanceled {
+		t.Fatalf("canceled reason = %q, want %q", got, ReasonCanceled)
+	}
+	if got := errorReason(errMembership); got != ReasonMembership {
+		t.Fatalf("membership reason = %q, want %q", got, ReasonMembership)
+	}
+	if got := errorReason(fmt.Errorf("boom")); got != ReasonBackendError {
+		t.Fatalf("generic reason = %q, want %q", got, ReasonBackendError)
+	}
+}
+
+func TestCaveatLinePinUnderscoreSpacing(t *testing.T) {
+	s := caveatLine(BriefCaveat{Tier: TierKeyword, Status: string(StatusPartial), Reason: ReasonBackendError})
+	if !strings.Contains(s, "backend error") {
+		t.Fatalf("caveat line = %q, want spaced reason", s)
+	}
+	if strings.Contains(s, "backend_error") {
+		t.Fatalf("caveat line = %q, underscores should be spaced", s)
+	}
+}

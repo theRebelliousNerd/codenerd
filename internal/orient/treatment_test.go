@@ -469,3 +469,94 @@ func TestRefreshPublishesTreatmentArtifact(t *testing.T) {
 		t.Fatalf("memoized refresh re-derived treatment: %+v", second.Treatment)
 	}
 }
+
+func TestTreeParentAndDepthAreSegmentPure(t *testing.T) {
+	t.Parallel()
+	parentCases := []struct {
+		in   string
+		want string
+	}{
+		{in: "a/b/c", want: "a/b"},
+		{in: "a/b", want: "a"},
+		{in: "a", want: ""},
+		{in: "", want: ""},
+	}
+	for _, tc := range parentCases {
+		if got := treeParent(tc.in); got != tc.want {
+			t.Errorf("treeParent(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	depthCases := []struct {
+		in   string
+		want int
+	}{
+		{in: "a", want: 1},
+		{in: "a/b", want: 2},
+		{in: "a/b/c", want: 3},
+	}
+	for _, tc := range depthCases {
+		if got := treeDepth(tc.in); got != tc.want {
+			t.Errorf("treeDepth(%q) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestAbsPathRejectsEmptyWorkspace(t *testing.T) {
+	t.Parallel()
+	for _, in := range []string{"", "   ", "\n\t "} {
+		if got, err := absPath(in); err == nil || got != "" {
+			t.Errorf("absPath(%q) = %q, %v; want empty result with error", in, got, err)
+		}
+	}
+	got, err := absPath(".")
+	if err != nil || got == "" {
+		t.Fatalf("absPath(.) = %q, %v; want current directory without error", got, err)
+	}
+}
+
+func TestResolveDocLinkFiltersNonMembers(t *testing.T) {
+	t.Parallel()
+	known := map[string]struct{}{"docs/b.md": {}, "docs/c.md": {}}
+	cases := []struct {
+		name string
+		from string
+		raw  string
+		want string
+		ok   bool
+	}{
+		{name: "relative member", from: "docs/a.md", raw: "b.md", want: "docs/b.md", ok: true},
+		{name: "fragment is stripped", from: "docs/a.md", raw: "b.md#section", want: "docs/b.md", ok: true},
+		{name: "query is stripped", from: "docs/a.md", raw: "c.md?x=1", want: "docs/c.md", ok: true},
+		{name: "empty", from: "docs/a.md", raw: "   ", want: "", ok: false},
+		{name: "fragment only", from: "docs/a.md", raw: "#section", want: "", ok: false},
+		{name: "external url", from: "docs/a.md", raw: "https://example.com/b.md", want: "", ok: false},
+		{name: "mailto", from: "docs/a.md", raw: "mailto:a@b.c", want: "", ok: false},
+		{name: "absolute path", from: "docs/a.md", raw: "/docs/b.md", want: "", ok: false},
+		{name: "escape escapes workspace", from: "a.md", raw: "../escape.md", want: "", ok: false},
+		{name: "self link", from: "docs/a.md", raw: "a.md", want: "", ok: false},
+		{name: "unknown member", from: "docs/a.md", raw: "missing.md", want: "", ok: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := resolveDocLink(tc.from, tc.raw, known)
+			if got != tc.want || ok != tc.ok {
+				t.Errorf("resolveDocLink(%q, %q) = (%q, %v), want (%q, %v)", tc.from, tc.raw, got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
+
+func TestLinksInIgnoresFencesAndDedupes(t *testing.T) {
+	t.Parallel()
+	known := map[string]struct{}{"docs/b.md": {}, "docs/c.md": {}}
+	text := "# A\n\nSee [b](b.md) and [b again](b.md).\n\n```\n[fenced](b.md)\n```\n\n[c][ref]\n\n[ref]: c.md\n"
+	got := linksIn("docs/a.md", text, known)
+	if len(got) != 2 || got[0] != "docs/b.md" || got[1] != "docs/c.md" {
+		t.Fatalf("linksIn = %q, want [docs/b.md docs/c.md]", got)
+	}
+	selfOnly := linksIn("docs/a.md", "[self](a.md)", known)
+	if len(selfOnly) != 0 {
+		t.Fatalf("linksIn self link = %q, want no rows", selfOnly)
+	}
+}

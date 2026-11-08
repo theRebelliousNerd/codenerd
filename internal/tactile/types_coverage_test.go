@@ -1,6 +1,7 @@
 package tactile
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -296,5 +297,68 @@ func TestAuditEventTypeConstants_ShouldBeDistinct(t *testing.T) {
 			t.Errorf("duplicate audit event type: %s", et)
 		}
 		seen[et] = true
+	}
+}
+
+func TestExecutionResult_Output_WhenTruncated_ShouldAnnounceCut(t *testing.T) {
+	r := &ExecutionResult{Success: true, ExitCode: 0, Combined: "partial log", Truncated: true, TruncatedBytes: 42}
+	out := r.Output()
+	if !strings.Contains(out, "partial log") {
+		t.Fatalf("truncated Output dropped kept text: %q", out)
+	}
+	if !strings.Contains(out, "[codenerd: truncated") {
+		t.Fatalf("truncated Output has no marker: %q", out)
+	}
+}
+
+func TestExecutionResult_Output_WhenTruncatedWithoutByteCount_ShouldStillAnnounce(t *testing.T) {
+	r := &ExecutionResult{Success: true, Combined: "partial", Truncated: true}
+	out := r.Output()
+	if !strings.Contains(out, "[codenerd: truncated") {
+		t.Fatalf("truncated Output without byte count has no marker: %q", out)
+	}
+	plain := (&ExecutionResult{Success: true, Combined: "partial"}).Output()
+	if strings.Contains(plain, "[codenerd: truncated") {
+		t.Fatalf("non-truncated Output must not carry a marker: %q", plain)
+	}
+}
+
+func TestExecutionResult_MarkTruncated_ShouldMirrorOutputMarker(t *testing.T) {
+	r := &ExecutionResult{Success: true, Stdout: "out", Truncated: true, TruncatedBytes: 7}
+	marked := r.MarkTruncated("out")
+	if !strings.Contains(marked, "[codenerd: truncated") {
+		t.Fatalf("MarkTruncated has no marker: %q", marked)
+	}
+	if got := r.MarkTruncated("out"); got != marked {
+		t.Fatalf("MarkTruncated not deterministic: %q vs %q", marked, got)
+	}
+	untruncated := &ExecutionResult{Success: true, Stdout: "out"}
+	if got := untruncated.MarkTruncated("out"); got != "out" {
+		t.Fatalf("MarkTruncated on a complete result must be identity, got %q", got)
+	}
+}
+
+func TestMerge_ShouldCopyLimitsAndSandbox(t *testing.T) {
+	cfg := DefaultExecutorConfig()
+	cfg.DefaultLimits = &ResourceLimits{TimeoutMs: 1000, MaxOutputBytes: 100}
+	cfg.DefaultSandbox = &SandboxConfig{Mode: SandboxNone}
+	merged := cfg.Merge(Command{Binary: "go"})
+	merged.Limits.TimeoutMs = 9999
+	merged.Sandbox.Mode = SandboxDocker
+	if cfg.DefaultLimits.TimeoutMs != 1000 {
+		t.Fatalf("Merge aliased DefaultLimits: got %d", cfg.DefaultLimits.TimeoutMs)
+	}
+	if cfg.DefaultSandbox.Mode != SandboxNone {
+		t.Fatalf("Merge aliased DefaultSandbox: got %q", cfg.DefaultSandbox.Mode)
+	}
+}
+
+func TestMerge_WhenNoMaxTimeout_ShouldNotCap(t *testing.T) {
+	cfg := DefaultExecutorConfig()
+	cfg.MaxTimeout = 0
+	cfg.DefaultLimits = &ResourceLimits{TimeoutMs: 30 * 60 * 1000}
+	merged := cfg.Merge(Command{Binary: "go"})
+	if merged.Limits.TimeoutMs != 30*60*1000 {
+		t.Fatalf("Merge capped timeout with no MaxTimeout: got %d", merged.Limits.TimeoutMs)
 	}
 }

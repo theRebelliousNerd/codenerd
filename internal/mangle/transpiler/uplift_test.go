@@ -116,3 +116,167 @@ func TestUpliftGroupByKeysDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// Sanitize must fail closed on input that does not parse, rather than
+// emitting an empty or partial program.
+func TestUpliftSanitizeParseErrorFails(t *testing.T) {
+	if _, err := NewSanitizer().Sanitize("@@@ not valid mangle @@@"); err == nil {
+		t.Fatalf("Sanitize() = success, want parse error")
+	}
+}
+
+// Plain variable equality is not an aggregation: it passes through without
+// a pipe. Only count/sum/min/max/avg are rewritten by the preprocessor.
+func TestUpliftUnknownAggFuncNoPipe(t *testing.T) {
+	s := NewSanitizer()
+	input := `stats(K, C) :- item(K, V), C = V.`
+	output, err := s.Sanitize(input)
+	if err != nil {
+		t.Fatalf("Sanitize() error = %v", err)
+	}
+	if strings.Contains(output, "|>") || strings.Contains(output, "group_by") {
+		t.Fatalf("plain equality produced a pipe: %q", output)
+	}
+	if _, err := mangle.ParseUnit(strings.NewReader(output)); err != nil {
+		t.Fatalf("passthrough output does not parse: %v\n%s", err, output)
+	}
+}
+
+// An llm_agg marker with the wrong arity is not an aggregation: it passes
+// through as a regular premise instead of erroring or gaining a pipe.
+func TestUpliftMalformedLlmAggArityPassesThrough(t *testing.T) {
+	s := NewSanitizer()
+	input := `p(X) :- q(X), llm_agg("count", X).`
+	output, err := s.Sanitize(input)
+	if err != nil {
+		t.Fatalf("Sanitize() error = %v", err)
+	}
+	if !strings.Contains(output, "llm_agg") {
+		t.Fatalf("malformed llm_agg was dropped: %q", output)
+	}
+	if strings.Contains(output, "|>") {
+		t.Fatalf("malformed llm_agg gained a pipe: %q", output)
+	}
+}
+
+// An llm_agg marker whose result/arg positions are not variables is left
+// alone: the repair only fires on (func-string, result-var, arg-var).
+func TestUpliftMalformedLlmAggTypesPassThrough(t *testing.T) {
+	s := NewSanitizer()
+	input := `p(X) :- q(X), llm_agg("count", "notvar", "alsonotvar").`
+	output, err := s.Sanitize(input)
+	if err != nil {
+		t.Fatalf("Sanitize() error = %v", err)
+	}
+	if !strings.Contains(output, "llm_agg") {
+		t.Fatalf("non-variable llm_agg was dropped: %q", output)
+	}
+	if strings.Contains(output, "|>") {
+		t.Fatalf("non-variable llm_agg gained a pipe: %q", output)
+	}
+}
+
+// isInsideString is the gate that keeps string data from becoming code.
+// Escaped quotes must not toggle the state; an unbalanced quote fails closed.
+func TestUpliftIsInsideStringEdges(t *testing.T) {
+	if isInsideString("abc", 1) {
+		t.Errorf("plain text reported as inside string")
+	}
+	if !isInsideString(`"abc"`, 2) {
+		t.Errorf("offset inside quotes not detected")
+	}
+	if isInsideString(`"abc"`, 5) {
+		t.Errorf("offset past closing quote reported as inside string")
+	}
+	escaped := `"a \"b\" d"`
+	if !isInsideString(escaped, len(escaped)-1) {
+		t.Errorf("escaped quotes toggled string state: %q", escaped)
+	}
+	if !isInsideString(`"unclosed`, 5) {
+		t.Errorf("unbalanced quote should fail closed (inside string)")
+	}
+}
+
+// A negated variable that already has a positive binding needs no generator:
+// injecting a second candidate_node would duplicate the premise.
+func TestUpliftSafetyBoundVarNoDupInjection(t *testing.T) {
+	s := NewSanitizer()
+	s.validator.ValidPredicates["candidate_node"] = mangle.PredicateSpec{
+		Name:  "candidate_node",
+		Arity: 1,
+		Args:  []mangle.ArgSpec{{Name: "Node", Type: mangle.ArgTypeVariable}},
+	}
+	output, err := s.Sanitize(`unsafe(X) :- candidate_node(X), !safe(X).`)
+	if err != nil {
+		t.Fatalf("Sanitize() error = %v", err)
+	}
+	if n := strings.Count(output, "candidate_node(X)"); n != 1 {
+		t.Fatalf("bound var injection count = %d, want 1: %q", n, output)
+	}
+}
+
+// System markers never count as positive bindings: sys_foo(X) must not
+// satisfy the safety of X, so the generator is still injected.
+func TestUpliftSafetyIgnoresSysPremises(t *testing.T) {
+	s := NewSanitizer()
+	s.validator.ValidPredicates["candidate_node"] = mangle.PredicateSpec{
+		Name:  "candidate_node",
+		Arity: 1,
+		Args:  []mangle.ArgSpec{{Name: "Node", Type: mangle.ArgTypeVariable}},
+	}
+	output, err := s.Sanitize(`unsafe(X) :- sys_foo(X), !safe(X).`)
+	if err != nil {
+		t.Fatalf("Sanitize() error = %v", err)
+	}
+	if !strings.Contains(output, "candidate_node(X)") {
+		t.Fatalf("sys_ premise wrongly counted as binding: %q", output)
+	}
+}
+
+// The same unbound variable in two negations gets exactly one generator.
+func TestUpliftSafetyDedupsAcrossNegations(t *testing.T) {
+	s := NewSanitizer()
+	s.validator.ValidPredicates["candidate_node"] = mangle.PredicateSpec{
+		Name:  "candidate_node",
+		Arity: 1,
+		Args:  []mangle.ArgSpec{{Name: "Node", Type: mangle.ArgTypeVariable}},
+	}
+	output, err := s.Sanitize(`p(X, Y) :- !a(X), !b(X, Y).`)
+	if err != nil {
+		t.Fatalf("Sanitize() error = %v", err)
+	}
+	if n := strings.Count(output, "candidate_node(X)"); n != 1 {
+		t.Fatalf("candidate_node(X) count = %d, want 1: %q", n, output)
+	}
+	if !strings.Contains(output, "candidate_node(Y)") {
+		t.Fatalf("candidate_node(Y) missing: %q", output)
+	}
+}
+
+// Predicates the schema does not know pass through untouched: no interning.
+func TestUpliftUnknownPredicateUntouched(t *testing.T) {
+	s := NewSanitizer()
+	output, err := s.Sanitize(`totally_unknown_pred("hello", X) :- other_unknown(X).`)
+	if err != nil {
+		t.Fatalf("Sanitize() error = %v", err)
+	}
+	if !strings.Contains(output, `"hello"`) {
+		t.Fatalf("unknown predicate was interned: %q", output)
+	}
+	if strings.Contains(output, "/hello") {
+		t.Fatalf("unknown predicate gained an atom: %q", output)
+	}
+}
+
+// UpdateFromProgramInfo(nil) is a no-op that must not disturb the validator.
+func TestUpliftUpdateFromProgramInfoNilSafe(t *testing.T) {
+	s := NewSanitizer()
+	s.UpdateFromProgramInfo(nil)
+	output, err := s.Sanitize(`research_topic("gemini", "testing", "pending").`)
+	if err != nil {
+		t.Fatalf("Sanitize() after nil update error = %v", err)
+	}
+	if !strings.Contains(output, "research_topic") {
+		t.Fatalf("validator disturbed by nil update: %q", output)
+	}
+}

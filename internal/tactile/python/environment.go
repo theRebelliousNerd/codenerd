@@ -254,6 +254,10 @@ func (e *Environment) Initialize(ctx context.Context) error {
 
 	// Start container
 	if err := e.executor.StartContainer(ctx, container.ID); err != nil {
+		_ = e.executor.RemoveContainer(ctx, container.ID, true)
+		e.mu.Lock()
+		e.container = nil
+		e.mu.Unlock()
 		e.setError(fmt.Errorf("failed to start container: %w", err))
 		return e.lastError
 	}

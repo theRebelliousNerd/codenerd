@@ -59,3 +59,64 @@ func TestReturn_EffectsSurviveSerialization(t *testing.T) {
 		t.Fatalf("round trip lost the receipt: %+v", back.Effects)
 	}
 }
+
+func TestUnsettled_WhenClosureOwed_ShouldNameOnlyCurrentPaths(t *testing.T) {
+	r := rejectedReceipt()
+	r.Closure = &EffectClosure{State: ClosureOwed, Current: []string{"cfg.json"}, Recovery: "/reconcile"}
+	got := r.Unsettled()
+	if got == "" {
+		t.Fatal("owed closure should stay unsettled")
+	}
+	if !strings.Contains(got, "cfg.json") {
+		t.Fatalf("owed closure should name current path, got %q", got)
+	}
+	if !strings.Contains(got, "/reconcile") {
+		t.Fatalf("owed closure should use closure recovery, got %q", got)
+	}
+}
+
+func TestUnsettled_WhenClosureUnknown_ShouldSaySoDistinctly(t *testing.T) {
+	r := rejectedReceipt()
+	r.Closure = &EffectClosure{State: ClosureUnknown}
+	got := r.Unsettled()
+	if !strings.Contains(got, "could not be read") {
+		t.Fatalf("unknown closure must be explicit, got %q", got)
+	}
+	if !strings.Contains(got, "/repair") {
+		t.Fatalf("unknown closure should keep call-time recovery, got %q", got)
+	}
+}
+
+func TestUnsettled_WhenClosureSettled_ShouldAddNothing(t *testing.T) {
+	r := rejectedReceipt()
+	r.Closure = &EffectClosure{State: ClosureSettled}
+	if got := r.Unsettled(); got != "" {
+		t.Fatalf("settled closure should be measured, got %q", got)
+	}
+}
+
+func TestUnsettled_WhenClosureSuperseded_ShouldAddNothing(t *testing.T) {
+	r := rejectedReceipt()
+	r.Closure = &EffectClosure{State: ClosureSuperseded}
+	if got := r.Unsettled(); got != "" {
+		t.Fatalf("superseded closure should be measured, got %q", got)
+	}
+}
+
+func TestUnsettled_WhenHandlerFailed_ShouldNameHandlerFailure(t *testing.T) {
+	r := rejectedReceipt()
+	r.HandlerError = "exit status 1"
+	got := r.Unsettled()
+	if !strings.Contains(got, "handler failed: exit status 1") {
+		t.Fatalf("handler failure should be named, got %q", got)
+	}
+}
+
+func TestUnsettled_WhenReasonBlank_ShouldFallBackToValidation(t *testing.T) {
+	r := rejectedReceipt()
+	r.Reason = "   "
+	got := r.Unsettled()
+	if !strings.Contains(got, "validation rejected (rejected)") {
+		t.Fatalf("blank reason should fall back to validation, got %q", got)
+	}
+}

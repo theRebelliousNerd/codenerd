@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"codenerd/internal/types"
+	"codenerd/internal/usage"
 )
 
 func TestBrokerReserveAdmissionContract(test *testing.T) {
@@ -529,4 +530,112 @@ func TestReceipt_WhenTheContextCarriesAPhase_ShouldRecordIt(t *testing.T) {
 	if r, _ := sink.last(); r.Phase != "" {
 		t.Errorf("an untagged call recorded phase %q, want none", r.Phase)
 	}
+}
+
+func TestStabilize_ResponseReported_PinTruthTable(t *testing.T) {
+	t.Parallel()
+	if responseReported(types.UsageMetadata{}) {
+		t.Fatal("empty usage must not count as reported")
+	}
+	if !responseReported(types.UsageMetadata{InputTokens: 1}) {
+		t.Fatal("input tokens must count as reported")
+	}
+	if !responseReported(types.UsageMetadata{OutputTokens: 1}) {
+		t.Fatal("output tokens must count as reported")
+	}
+	reported := types.UsageMetadata{Known: types.UsageTokens}
+	if !responseReported(reported) {
+		t.Fatal("provider-flagged report must count as reported even with zero totals")
+	}
+}
+
+func TestStabilize_EnrichUsage_FillsMissingCategories(t *testing.T) {
+	t.Parallel()
+	observed := types.UsageMetadata{InputTokens: 10, OutputTokens: 5, Known: types.UsageTokens}
+	reported := types.UsageMetadata{
+		InputTokens:         10,
+		OutputTokens:        5,
+		CachedContentTokens: 3,
+		CacheWriteTokens:    2,
+		ThinkingTokens:      7,
+		Known:               types.UsageTokens | types.UsageCacheRead | types.UsageCacheWrite | types.UsageReasoning,
+	}
+	got := enrichUsage(observed, reported)
+	if got.CachedContentTokens != 3 || !got.Has(types.UsageCacheRead) {
+		t.Fatalf("cache read not filled: %+v", got)
+	}
+	if got.CacheWriteTokens != 2 || !got.Has(types.UsageCacheWrite) {
+		t.Fatalf("cache write not filled: %+v", got)
+	}
+	if got.ThinkingTokens != 7 || !got.Has(types.UsageReasoning) {
+		t.Fatalf("reasoning not filled: %+v", got)
+	}
+	if got.InputTokens != 10 || got.OutputTokens != 5 {
+		t.Fatalf("known totals must be preserved: %+v", got)
+	}
+}
+
+func TestStabilize_EnrichUsage_DisagreementPreservesObserver(t *testing.T) {
+	t.Parallel()
+	observed := types.UsageMetadata{InputTokens: 10, OutputTokens: 5, Known: types.UsageTokens}
+	reported := types.UsageMetadata{InputTokens: 11, OutputTokens: 5, CachedContentTokens: 3, Known: types.UsageTokens | types.UsageCacheRead}
+	got := enrichUsage(observed, reported)
+	if got.CachedContentTokens != 0 || got.Has(types.UsageCacheRead) {
+		t.Fatalf("disagreement must preserve observer: %+v", got)
+	}
+}
+
+func TestStabilize_UsageStatus_PinClassification(t *testing.T) {
+	t.Parallel()
+	if got := usageStatus(types.UsageMetadata{Partial: true}); got != UsagePartial {
+		t.Fatalf("partial must classify as partial, got %v", got)
+	}
+	if got := usageStatus(types.UsageMetadata{InputTokens: 1}); got != UsageReported {
+		t.Fatalf("tokens must classify as reported, got %v", got)
+	}
+	if got := usageStatus(types.UsageMetadata{}); got != UsageUnreported {
+		t.Fatalf("empty must classify as unreported, got %v", got)
+	}
+}
+
+func TestStabilize_CallObserver_AccumulatesReports(t *testing.T) {
+	t.Parallel()
+	obs := &callObserver{}
+	obs.Observed(newUsageReport(10, 5))
+	obs.Observed(newUsageReport(4, 2))
+	got, reports := obs.result()
+	if reports != 2 {
+		t.Fatalf("reports=%d, want 2", reports)
+	}
+	if got.InputTokens != 14 || got.OutputTokens != 7 {
+		t.Fatalf("accumulated usage=%+v, want in=14 out=7", got)
+	}
+	if got.Partial {
+		t.Fatal("accumulated complete reports must not be partial")
+	}
+}
+
+func TestStabilize_CallObserver_UnknownAloneIsNotPartial(t *testing.T) {
+	t.Parallel()
+	obs := &callObserver{}
+	obs.UsageUnknown()
+	got, reports := obs.result()
+	if reports != 0 {
+		t.Fatalf("reports=%d, want 0", reports)
+	}
+	if got.Partial {
+		t.Fatal("unknown with no reports must not mark partial result")
+	}
+	obs.Observed(newUsageReport(10, 5))
+	got, reports = obs.result()
+	if reports != 1 {
+		t.Fatalf("reports=%d, want 1", reports)
+	}
+	if !got.Partial {
+		t.Fatal("unknown plus a report must mark partial lower bound")
+	}
+}
+
+func newUsageReport(in, out int) usage.Report {
+	return usage.Report{Usage: types.UsageMetadata{InputTokens: in, OutputTokens: out, Known: types.UsageTokens}}
 }
