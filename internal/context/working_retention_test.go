@@ -203,3 +203,25 @@ func TestWorkingRetentionPolicy_DerivesPrunableFromOwnershipFacts(t *testing.T) 
 		}
 	}
 }
+
+func TestHumanBytes_RendersEachUnit(t *testing.T) {
+	cases := []struct {
+		name string
+		n    int64
+		want string
+	}{
+		{name: "bytes", n: 0, want: "0 B"},
+		{name: "justUnderKiB", n: 1023, want: "1023 B"},
+		{name: "kib", n: 1024, want: "1.0 KiB"},
+		{name: "mib", n: 1 << 20, want: "1.0 MiB"},
+		{name: "gib", n: 1 << 30, want: "1.0 GiB"},
+		{name: "fractionalKiB", n: 1536, want: "1.5 KiB"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := humanBytes(tc.n); got != tc.want {
+				t.Fatalf("humanBytes(%d) = %q, want %q", tc.n, got, tc.want)
+			}
+		})
+	}
+}
