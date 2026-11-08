@@ -497,18 +497,22 @@ func TestRouteActionReadFile_PersistsContentFacts(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 // Boundary Value Analysis: Identified Gaps (Vector A: Null/Undefined/Empty)
+// TODO: Vector A: ActionRequest with nil Payload map
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
 // Boundary Value Analysis: Identified Gaps (Vector B: Type Coercion)
+// TODO: Vector B: ActionRequest Timeout passed as extremely large int or negative value
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
 // Boundary Value Analysis: Identified Gaps (Vector C: User Extremes)
+// TODO: Vector C: ActionExecCmd with 10MB Target command string
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
 // Boundary Value Analysis: Identified Gaps (Vector D: State Conflicts & Concurrency)
+// TODO: Vector D: Concurrent modification of VirtualStore.mcpClients map during RouteAction
 // -----------------------------------------------------------------------------
 
 // =============================================================================
