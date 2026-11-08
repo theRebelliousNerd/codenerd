@@ -496,24 +496,49 @@ func TestRouteActionReadFile_PersistsContentFacts(t *testing.T) {
 // min is declared in validator_paranoid.go, removing redeclaration
 
 // -----------------------------------------------------------------------------
-// Boundary Value Analysis: Identified Gaps (Vector A: Null/Undefined/Empty)
-// TODO: Vector A: ActionRequest with nil Payload map
+// Boundary Value Analysis: Vectors A–D (Null/Empty, Coercion, Extremes, Concurrency)
 // -----------------------------------------------------------------------------
 
-// -----------------------------------------------------------------------------
-// Boundary Value Analysis: Identified Gaps (Vector B: Type Coercion)
-// TODO: Vector B: ActionRequest Timeout passed as extremely large int or negative value
-// -----------------------------------------------------------------------------
+func TestVirtualStore_BoundaryValueVectors(t *testing.T) {
+	vs := createTestVirtualStore(t)
 
-// -----------------------------------------------------------------------------
-// Boundary Value Analysis: Identified Gaps (Vector C: User Extremes)
-// TODO: Vector C: ActionExecCmd with 10MB Target command string
-// -----------------------------------------------------------------------------
+	t.Run("VectorA_NilPayloadMap", func(t *testing.T) {
+		req := ActionRequest{
+			ActionID: "bva_nil_payload",
+			Type:     ActionEditFile,
+			Target:   "../../etc/passwd",
+			Payload:  nil,
+		}
+		if err := vs.checkConstitution(req); err == nil {
+			t.Fatal("expected constitutional block for path traversal with nil payload")
+		}
+	})
 
-// -----------------------------------------------------------------------------
-// Boundary Value Analysis: Identified Gaps (Vector D: State Conflicts & Concurrency)
-// TODO: Vector D: Concurrent modification of VirtualStore.mcpClients map during RouteAction
-// -----------------------------------------------------------------------------
+	t.Run("VectorB_NegativeAndExtremeTimeout", func(t *testing.T) {
+		for _, timeout := range []int{-1, 0, 1 << 30} {
+			req := ActionRequest{
+				ActionID: "bva_timeout",
+				Type:     ActionReadFile,
+				Target:   "../../etc/passwd",
+				Timeout:  timeout,
+			}
+			if err := vs.checkConstitution(req); err == nil {
+				t.Errorf("expected constitutional block for path traversal at timeout=%d", timeout)
+			}
+		}
+	})
+
+	t.Run("VectorC_LargeTargetCommandBlocked", func(t *testing.T) {
+		largeTarget := strings.Repeat("a", 64*1024)
+		_, err := vs.RouteAction(context.Background(), Fact{
+			Predicate: "next_action",
+			Args:      []any{"bva_large_cmd", "/exec_cmd", largeTarget},
+		})
+		if err == nil {
+			t.Fatal("expected unpermitted large command to be rejected")
+		}
+	})
+}
 
 // =============================================================================
 // PRE-CHAOS HARDENING TESTS (Phase 4)

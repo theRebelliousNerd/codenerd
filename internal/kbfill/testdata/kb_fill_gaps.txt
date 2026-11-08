@@ -1,8 +1,6 @@
 # Knowledge-database fill gaps (program item #14). One gap per line:
 # <database> <table>.<column> <kind>, or <database> <table> empty_table.
 # The list may only shrink. Regenerate: CODENERD_UPDATE_KB_FILL=1 go test ./internal/kbfill/ -run TestKBFillBaseline
-predicate_corpus predicate_examples empty_table
-predicate_corpus predicates.description partial
 prompt_corpus prompt_atoms.content_concise partial
 prompt_corpus prompt_atoms.content_min partial
 prompt_corpus prompt_atoms.description partial

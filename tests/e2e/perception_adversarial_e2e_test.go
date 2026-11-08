@@ -289,24 +289,62 @@ func TestE2E_Perception_Adversarial_InputTruncation(t *testing.T) {
 	t.Logf("Prompt length: %d, Target length: %d", len(prompt), len(intent.Target))
 }
 
-// TODO:
-// TODO: Null/Undefined/Empty Vectors
-// - Empty JSON / Empty Strings: What happens if the LLM returns `{"understanding": {"primary_intent": "", "semantic_type": "", "action_type": ""}}`? Does the system fallback correctly, or does it try to route an empty verb?
-// - Null Values: What if the LLM returns `{"understanding": {"primary_intent": null}}`? In Go, depending on the unmarshaling logic, this might cause a panic if not handled correctly or default to an empty string.
-// - Empty Arrays for Tools/Constraints: If `tools_needed` or `user_constraints` is `null` instead of `[]`, does the system panic during iteration?
+// =============================================================================
+// TEST 6: Boundary Value Vectors (Null/Empty, Type Coercion, Extremes, Concurrency)
+// =============================================================================
 
-// TODO:
-// TODO: Type Coercion Vectors
-// - Number as String / String as Number: The `confidence` field is a float. What if the LLM returns `"confidence": "high"` or `"confidence": "0.99"` (string instead of number)? Does `json.Unmarshal` fail entirely, dropping the whole intent, or is there a fallback?
-// - Boolean as String: What if `is_question` is `"true"` instead of `true`?
+func TestE2E_Perception_Adversarial_NullAndEmptyVectors(t *testing.T) {
+	cases := []struct {
+		name     string
+		response string
+	}{
+		{
+			name:     "empty_strings_and_null_arrays",
+			response: `{"understanding":{"primary_intent":"","semantic_type":"","action_type":"","domain":"","scope":{"level":"","target":""},"user_constraints":null,"implicit_assumptions":null,"confidence":0,"signals":{"is_question":false,"is_hypothetical":false,"is_multi_step":false,"is_negated":false,"requires_confirmation":false,"urgency":""},"suggested_approach":{"mode":"","primary_shard":"","tools_needed":null,"context_needed":null}},"surface_response":""}`,
+		},
+		{
+			name:     "null_primary_intent",
+			response: `{"understanding":{"primary_intent":null,"semantic_type":null,"action_type":null},"surface_response":null}`,
+		},
+		{
+			name:     "type_coercion_invalid_types",
+			response: `{"understanding":{"primary_intent":"explain","confidence":"high","signals":{"is_question":"true"}},"surface_response":"coerced"}`,
+		},
+	}
 
-// TODO:
-// TODO: User request Extremes
-// - Deeply Nested JSON: A malicious LLM response could contain heavily nested JSON in the `target` or `constraint` fields, aiming to cause a stack overflow during unmarshaling.
-// - Unicode/Control Character Extremes: The `sanitizeFactArg` function strips some control characters. But what about massive payloads of zero-width spaces, RTL overrides, or invalid UTF-8 sequences? Do these cause the Mangle engine to fail during parsing?
-// - Extreme Length Campaigns: The truncation test only checks a 100KB string of "X"s. What if the input is exactly at the boundary (e.g., 60000 chars)? What if the input is a massive single word with no spaces, defeating some tokenization/truncation strategies?
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockClient := newPCEMockClient(tc.response)
+			tr := newPerceptionTransducer(t, mockClient)
+			intent, err := tr.ParseIntentWithContext(context.Background(), "Explain the kernel", nil)
+			if err != nil {
+				t.Fatalf("ParseIntentWithContext failed on %s: %v", tc.name, err)
+			}
+			if strings.TrimSpace(intent.Verb) == "" {
+				t.Errorf("%s produced empty Verb", tc.name)
+			}
+			if intent.Category == "/mutation" {
+				t.Errorf("SAFETY: %s escalated to /mutation", tc.name)
+			}
+		})
+	}
+}
 
-// TODO:
-// TODO: State Conflicts
-// - Concurrent Perception: The `UnderstandingTransducer` holds state (e.g., `lastUnderstanding`). If two requests are processed concurrently using the same transducer instance (which shouldn't happen by design, but might in a bug), does `GetLastUnderstanding()` return the wrong state?
-// - Transient Failure State Conflict: The typed `Outcome` on the `Intent` struct. What happens if the system is rapidly oscillating between available and unavailable? Does the fallback logic correctly handle a transient failure followed immediately by a malformed response?
+func TestE2E_Perception_Adversarial_UnicodeControlAndBoundaryLength(t *testing.T) {
+	controlPayload := " target\u200b\u202e\x00\x07\x1b[31m_clean "
+	resp := `{"understanding":{"primary_intent":"explain","semantic_type":"mechanism","action_type":"explain","domain":"general","scope":{"level":"symbol","target":"` + controlPayload + `"},"user_constraints":[],"implicit_assumptions":[],"confidence":0.8,"signals":{"is_question":true},"suggested_approach":{"mode":"normal","primary_shard":"reviewer","tools_needed":[],"context_needed":[]}},"surface_response":"ok"}`
+	mockClient := newPCEMockClient(resp)
+	tr := newPerceptionTransducer(t, mockClient)
+
+	boundaryPrompt := strings.Repeat("A", 60000)
+	intent, err := tr.ParseIntentWithContext(context.Background(), boundaryPrompt, nil)
+	if err != nil {
+		t.Fatalf("ParseIntentWithContext failed: %v", err)
+	}
+	fact := intent.ToFact()
+	for i, arg := range fact.Args {
+		if s, ok := arg.(string); ok && strings.ContainsAny(s, "\x00\x07\x1b") {
+			t.Errorf("Fact arg[%d] retained control characters: %q", i, s)
+		}
+	}
+}

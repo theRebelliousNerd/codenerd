@@ -33,7 +33,10 @@ const (
 	policyDir = "internal/core/defaults/policy"
 
 	// skillPath for mangle-programming skill resources
-	skillPath = ".claude/skills/mangle-programming/references"
+	skillPath = ".agents/skills/mangle-programming"
+
+	// promptAtomsMangleDir for mangle prompt atom examples
+	promptAtomsMangleDir = "internal/prompt/atoms/mangle"
 )
 
 // PredicateEntry represents a single predicate definition.
@@ -130,6 +133,7 @@ func main() {
 	// Step 5: Extract examples from skill resources
 	fmt.Println("[5/6] Extracting examples from mangle-programming skill...")
 	examples := extractExamplesFromSkill(skillPath)
+	examples = append(examples, extractExamplesFromSkill(promptAtomsMangleDir)...)
 	fmt.Printf("      Found %d predicate examples\n", len(examples))
 
 	// Step 6: Create database and populate
@@ -292,17 +296,36 @@ func countArgs(argsStr string) int {
 
 // extractExamplesFromSkill extracts predicate examples from mangle-programming skill files.
 func extractExamplesFromSkill(skillDir string) []PredicateExample {
-	var examples []PredicateExample
-
-	// Process key files that contain examples
-	files := []string{
-		"150-AI_FAILURE_MODES.md",
-		"300-PATTERN_LIBRARY.md",
-		"450-PROMPT_ATOM_PREDICATES.md",
-		"EXAMPLES.md",
+	entries, err := os.ReadDir(skillDir)
+	if err != nil {
+		fmt.Printf("      Skipping %s: %v\n", skillDir, err)
+		return nil
 	}
 
-	for _, file := range files {
+	var relFiles []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() {
+			if name == "references" {
+				refEntries, refErr := os.ReadDir(filepath.Join(skillDir, name))
+				if refErr == nil {
+					for _, re := range refEntries {
+						if !re.IsDir() && (strings.HasSuffix(re.Name(), ".md") || strings.HasSuffix(re.Name(), ".yaml")) {
+							relFiles = append(relFiles, filepath.Join(name, re.Name()))
+						}
+					}
+				}
+			}
+			continue
+		}
+		if strings.HasSuffix(name, ".md") || strings.HasSuffix(name, ".yaml") {
+			relFiles = append(relFiles, name)
+		}
+	}
+	sort.Strings(relFiles)
+
+	var examples []PredicateExample
+	for _, file := range relFiles {
 		path := filepath.Join(skillDir, file)
 		content, err := os.ReadFile(path)
 		if err != nil {
@@ -324,47 +347,72 @@ func extractExamplesFromSkill(skillDir string) []PredicateExample {
 func extractExamplesFromMarkdown(content, source string) []PredicateExample {
 	var examples []PredicateExample
 
-	// Find all ```mangle code blocks
+	// Find all ```mangle and ```mangle-rejected code blocks
 	lines := strings.Split(content, "\n")
 	inCodeBlock := false
+	fenceAntiPattern := false
 	var currentBlock strings.Builder
 	var blockContext string
 	isAntiPattern := false
 
 	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
 		// Track context (headers before code blocks)
-		if strings.HasPrefix(line, "##") || strings.HasPrefix(line, "###") {
+		if strings.HasPrefix(line, "#") && !inCodeBlock {
 			blockContext = strings.TrimSpace(strings.TrimLeft(line, "#"))
 			isAntiPattern = strings.Contains(strings.ToLower(blockContext), "wrong") ||
 				strings.Contains(strings.ToLower(blockContext), "anti") ||
 				strings.Contains(strings.ToLower(blockContext), "bad") ||
 				strings.Contains(strings.ToLower(blockContext), "incorrect") ||
 				strings.Contains(strings.ToLower(blockContext), "hallucination")
+		} else if !inCodeBlock && strings.HasPrefix(trimmed, "- id:") {
+			blockContext = strings.TrimSpace(strings.TrimPrefix(trimmed, "- id:"))
+			isAntiPattern = strings.Contains(strings.ToLower(blockContext), "anti") ||
+				strings.Contains(strings.ToLower(blockContext), "error")
 		}
 
-		if strings.HasPrefix(strings.TrimSpace(line), "```mangle") {
+		if strings.HasPrefix(trimmed, "```mangle") {
 			inCodeBlock = true
+			fenceAntiPattern = strings.HasPrefix(trimmed, "```mangle-rejected")
 			currentBlock.Reset()
 			continue
 		}
 
-		if inCodeBlock && strings.HasPrefix(strings.TrimSpace(line), "```") {
+		if inCodeBlock && strings.HasPrefix(trimmed, "```") {
 			inCodeBlock = false
 			code := strings.TrimSpace(currentBlock.String())
 			if code != "" {
+				explanation := strings.TrimSpace(blockContext)
+				if explanation == "" {
+					explanation = source
+				}
+				anti := isAntiPattern || fenceAntiPattern
+				errType := ""
+				if anti {
+					errType = getErrorTypeFromContext(explanation)
+					if errType == "" {
+						errType = getErrorTypeFromContext(code)
+					}
+					if errType == "" {
+						errType = "anti_pattern"
+					}
+				} else {
+					errType = getErrorTypeFromContext(blockContext)
+				}
 				// Extract predicates from this code block
 				predicates := extractPredicatesFromCode(code)
 				for _, pred := range predicates {
 					examples = append(examples, PredicateExample{
 						PredicateName: pred,
 						ExampleCode:   code,
-						Explanation:   blockContext,
-						IsCorrect:     !isAntiPattern,
-						ErrorType:     getErrorTypeFromContext(blockContext),
+						Explanation:   explanation,
+						IsCorrect:     !anti,
+						ErrorType:     errType,
 						Source:        source,
 					})
 				}
 			}
+			fenceAntiPattern = false
 			// Look ahead for context of next block
 			for j := i + 1; j < len(lines) && j < i+5; j++ {
 				nextLine := lines[j]
@@ -691,8 +739,16 @@ func populateDatabase(db *sql.DB, predicates []PredicateEntry, errorPatterns []E
 		var valueArgs []interface{}
 
 		for _, p := range batch {
+			desc := strings.TrimSpace(p.Description)
+			if desc == "" {
+				if p.Section != "" && p.Section != "unknown" {
+					desc = fmt.Sprintf("%s/%d (%s predicate in %s, section %s)", p.Name, p.Arity, p.Type, p.SourceFile, p.Section)
+				} else {
+					desc = fmt.Sprintf("%s/%d (%s %s predicate in %s)", p.Name, p.Arity, p.Category, p.Type, p.SourceFile)
+				}
+			}
 			valueStrings = append(valueStrings, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-			valueArgs = append(valueArgs, p.Name, p.Arity, p.Type, p.Category, p.Description, p.SafetyLevel, p.Domain, p.Section, p.SourceFile, p.ActivationPriority, p.SerializationOrder)
+			valueArgs = append(valueArgs, p.Name, p.Arity, p.Type, p.Category, desc, p.SafetyLevel, p.Domain, p.Section, p.SourceFile, p.ActivationPriority, p.SerializationOrder)
 		}
 
 		stmt := fmt.Sprintf(`

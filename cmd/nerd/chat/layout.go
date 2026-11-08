@@ -137,6 +137,7 @@ func (m Model) applyLayout() Model {
 	viewportH := max(frameH-headerHeight-footerHeight-inputHeight-contentPadY-
 		errorPanelHeight-activityHeight-serviceHeight-stackedPanelH, 1)
 
+	wasReady := m.ready
 	if !m.ready {
 		m.viewport = viewport.New(viewportW, viewportH)
 		m.ready = true
@@ -185,7 +186,8 @@ func (m Model) applyLayout() Model {
 	// A new wrap width invalidates every cached rendering: glamour wraps
 	// at render time, so a message rendered for the old column would be
 	// clipped by the narrower viewport, not rewrapped.
-	if m.wrapWidth != wrapWidth {
+	wrapChanged := m.wrapWidth != wrapWidth
+	if wrapChanged {
 		m.wrapWidth = wrapWidth
 		if m.renderer != nil {
 			m.renderer, _ = glamour.NewTermRenderer(
@@ -197,7 +199,9 @@ func (m Model) applyLayout() Model {
 		m.cacheInvalidFrom = 0
 		m.renderedCacheWidth = wrapWidth
 	}
-	m.viewport.SetContent(m.renderHistory())
+	if !wasReady || wrapChanged || m.renderedCache == nil || m.renderedCacheWidth != wrapWidth || m.cacheInvalidFrom < len(m.history) {
+		m.viewport.SetContent(m.renderHistory())
+	}
 
 	return m
 }

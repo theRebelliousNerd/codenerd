@@ -65,11 +65,13 @@ func shippedCorpusColumns() map[string]Column {
 var PredicateCorpus = Spec{
 	Name: "predicate_corpus",
 	Tables: map[string]Table{
-		"predicates":         {},
-		"predicate_args":     {},
-		"predicate_domains":  {},
-		"error_patterns":     {},
-		"predicate_examples": {},
+		"predicates":        {},
+		"predicate_args":    {},
+		"predicate_domains": {},
+		"error_patterns":    {},
+		"predicate_examples": {Columns: map[string]Column{
+			"error_type": {When: "NOT is_correct"},
+		}},
 	},
 }
 
