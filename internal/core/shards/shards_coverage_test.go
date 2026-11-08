@@ -485,3 +485,138 @@ func TestDisableExecutiveBootGuard_LeavesOtherRunningShardsAlone(t *testing.T) {
 		t.Error("released the boot guard on perception_firewall; only executive_policy should be touched")
 	}
 }
+
+func TestDefaultSpawnQueueConfig_ShouldReturnSensibleDefaults(t *testing.T) {
+	cfg := DefaultSpawnQueueConfig()
+	if cfg.MaxQueueSize != 100 {
+		t.Errorf("expected MaxQueueSize 100, got %d", cfg.MaxQueueSize)
+	}
+	if cfg.MaxQueuePerPriority != 30 {
+		t.Errorf("expected MaxQueuePerPriority 30, got %d", cfg.MaxQueuePerPriority)
+	}
+	if cfg.DefaultTimeout != 5*time.Minute {
+		t.Errorf("expected DefaultTimeout 5m, got %v", cfg.DefaultTimeout)
+	}
+	if cfg.HighWaterMark != 0.7 {
+		t.Errorf("expected HighWaterMark 0.7, got %v", cfg.HighWaterMark)
+	}
+	if cfg.WorkerCount != 2 {
+		t.Errorf("expected WorkerCount 2, got %d", cfg.WorkerCount)
+	}
+	if cfg.DrainTimeout != 30*time.Second {
+		t.Errorf("expected DrainTimeout 30s, got %v", cfg.DrainTimeout)
+	}
+}
+
+func TestSpawnQueue_InitialStateIsIdleAndEmpty(t *testing.T) {
+	sq := NewSpawnQueue(nil, nil, DefaultSpawnQueueConfig())
+	if sq.IsRunning() {
+		t.Errorf("expected new queue to not be running")
+	}
+	if got := sq.GetQueueDepth(); got != 0 {
+		t.Errorf("expected queue depth 0, got %d", got)
+	}
+	if !sq.CanSpawnNow() {
+		t.Errorf("expected CanSpawnNow true without enforcer")
+	}
+	if got := sq.GetAvailableSlots(); got != 10 {
+		t.Errorf("expected 10 available slots without enforcer, got %d", got)
+	}
+	m := sq.GetMetrics()
+	if m.TotalQueued != 0 || m.TotalSpawned != 0 || m.TotalTimedOut != 0 || m.TotalRejected != 0 {
+		t.Errorf("expected zero counters, got %+v", m)
+	}
+	if m.IsRunning {
+		t.Errorf("expected metrics IsRunning false")
+	}
+	if m.CurrentUtilization != 0 {
+		t.Errorf("expected zero utilization, got %v", m.CurrentUtilization)
+	}
+	ok, reason := sq.CanAccept(types.PriorityNormal)
+	if !ok {
+		t.Errorf("expected empty queue to accept normal priority, got reason %q", reason)
+	}
+}
+
+func TestSpawnQueue_CanAcceptRejectsPerPriorityFull(t *testing.T) {
+	cfg := SpawnQueueConfig{MaxQueueSize: 10, MaxQueuePerPriority: 1, HighWaterMark: 0.9, DefaultTimeout: time.Minute, WorkerCount: 1, DrainTimeout: time.Second}
+	sq := NewSpawnQueue(nil, nil, cfg)
+	sq.queues[types.PriorityLow] <- &spawnRequestWrapper{ID: "low-1"}
+	ok, reason := sq.CanAccept(types.PriorityLow)
+	if ok {
+		t.Fatalf("expected low priority rejection when per-priority queue full")
+	}
+	if reason == "" {
+		t.Fatalf("expected non-empty reason for per-priority rejection")
+	}
+	ok, _ = sq.CanAccept(types.PriorityHigh)
+	if !ok {
+		t.Fatalf("expected other priority to still be accepted when only low is full")
+	}
+}
+
+func TestShardManager_EmptyActiveCountsAndResults(t *testing.T) {
+	sm := NewShardManager()
+	if got := sm.GetActiveShardCount(); got != 0 {
+		t.Errorf("expected 0 active shards, got %d", got)
+	}
+	if got := sm.GetActiveNonSystemShardCount(); got != 0 {
+		t.Errorf("expected 0 active non-system shards, got %d", got)
+	}
+	if got := sm.GetActiveShards(); len(got) != 0 {
+		t.Errorf("expected no active shards, got %d", len(got))
+	}
+	if _, ok := sm.GetResult("missing-id"); ok {
+		t.Errorf("expected missing result to return false")
+	}
+	// These are no-ops on an empty manager but must not panic.
+	sm.DisableSystemShard("legislator")
+	sm.StopAll()
+	sm.StopSpawnQueue(0)
+	if status := sm.GetBackpressureStatus(); status != nil {
+		t.Errorf("expected nil backpressure without queue, got %+v", status)
+	}
+}
+
+func TestNormalizeShardTypeName_ShouldTrimSpacesAndSlashes(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"coder", "coder"},
+		{"  coder  ", "coder"},
+		{"/coder", "coder"},
+		{"///coder", "coder"},
+		{"  /coder  ", "coder"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		if got := normalizeShardTypeName(tc.in); got != tc.want {
+			t.Errorf("normalizeShardTypeName(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestShardTypeName_ShouldMapBareAndEmpty(t *testing.T) {
+	if got := string(shardTypeName("coder")); got != "/coder" {
+		t.Errorf("expected /coder, got %q", got)
+	}
+	if got := string(shardTypeName("/coder")); got != "/coder" {
+		t.Errorf("expected /coder for slashed input, got %q", got)
+	}
+	if got := shardTypeName(""); got != types.Atom("") {
+		t.Errorf("expected empty atom for empty type, got %q", string(got))
+	}
+}
+
+func TestExtractSummary_ShouldPrefixShortResults(t *testing.T) {
+	sm := NewShardManager()
+	if got := sm.extractSummary("coder", "ok"); got != "[coder] ok" {
+		t.Errorf("expected prefixed summary, got %q", got)
+	}
+}
+
+func TestShardManager_SpawnWithPriorityFallsBackWithoutQueue(t *testing.T) {
+	sm := NewShardManager()
+	_, err := sm.SpawnWithPriority(context.Background(), "unregistered-type-xyz", "task", nil, types.PriorityNormal)
+	if err == nil {
+		t.Fatalf("expected error spawning unknown type without queue or delegator")
+	}
+}
