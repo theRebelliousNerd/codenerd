@@ -727,6 +727,7 @@ func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) e
 		r.saveWorkspaceState(ctx, pass)
 	} else {
 		r.seedSeenFromState()
+		r.saveWorkspaceState(ctx, pass)
 	}
 	if err := r.journal.append(recurseRecord{Step: stepPassStart, Pass: pass, Open: r.openCount()}); err != nil {
 		return err
@@ -787,7 +788,7 @@ func (r *recurseRun) pass(ctx context.Context, pass int, done map[string]bool) e
 			return err
 		}
 	}
-	_ = os.Remove(workspaceStatePath(r.root))
+	r.saveWorkspaceState(ctx, pass+1)
 	r.seenLastPass, r.seenThisPass = r.seenThisPass, map[string]bool{}
 	return r.journal.append(recurseRecord{Step: stepPassEnd, Pass: pass, Open: r.openCount()})
 }
@@ -844,7 +845,26 @@ func goPackagePatterns(nodes []SubsystemNode) []string {
 }
 
 func scopeGateToNodes(g gates.Gate, nodes []SubsystemNode, focused bool) gates.Gate {
-	if !focused || g.Scope != gates.ScopeAll || g.Language != "go" {
+	if g.Scope != gates.ScopeAll || g.Language != "go" {
+		return g
+	}
+	if !focused {
+		if len(nodes) > 20 && g.Kind == gates.Test {
+			var argv []string
+			stripped := false
+			for _, arg := range g.Argv {
+				if arg == "-count=1" || arg == "-test.count=1" {
+					stripped = true
+					continue
+				}
+				argv = append(argv, arg)
+			}
+			if stripped {
+				cp := g
+				cp.Argv = argv
+				return cp
+			}
+		}
 		return g
 	}
 	pkgs := goPackagePatterns(nodes)
@@ -1509,7 +1529,11 @@ func (r *recurseRun) run(ctx context.Context, v visitScope, spec attemptSpec) (r
 	if changed, err = r.discardBuiltExecutables(ctx, changed, untracked); err != nil {
 		return err
 	}
-	changed = r.filterAttemptChanges(changed, dirtyBefore, owned, a.Mission != nil)
+	adoptNodeID := ""
+	if a.Mission == nil && (spec.finding != nil || len(owned) > 0) {
+		adoptNodeID = node.ID
+	}
+	changed = r.filterAttemptChanges(changed, dirtyBefore, owned, a.Mission != nil, adoptNodeID, v.nodes)
 	after := map[string]gateRun{}
 	afterMetrics := before
 	if len(changed) > 0 {
@@ -1887,8 +1911,9 @@ func (r *recurseRun) captureDirtyBefore(ctx context.Context, untrackedBefore map
 // filterAttemptChanges excludes files that were already dirty before the
 // attempt started and were not modified during the attempt, and (in non-mission
 // runs with recorded attempt writes) files modified by an outside writer that
-// this attempt never wrote.
-func (r *recurseRun) filterAttemptChanges(changed []string, dirtyBefore map[string]observation.FileState, owned []observation.FileWrite, isMission bool) []string {
+// this attempt never wrote, unless the file belongs to the currently visited
+// node (adoptNodeID) and is not forbidden.
+func (r *recurseRun) filterAttemptChanges(changed []string, dirtyBefore map[string]observation.FileState, owned []observation.FileWrite, isMission bool, adoptNodeID string, nodes []SubsystemNode) []string {
 	if len(changed) == 0 || (len(dirtyBefore) == 0 && (isMission || len(owned) == 0)) {
 		return changed
 	}
@@ -1905,6 +1930,10 @@ func (r *recurseRun) filterAttemptChanges(changed []string, dirtyBefore map[stri
 	out := make([]string, 0, len(changed))
 	for _, p := range changed {
 		if ownedRel[p] {
+			out = append(out, p)
+			continue
+		}
+		if !isMission && adoptNodeID != "" && attributeNodeInRoot(r.root, p, nodes) == adoptNodeID && len(r.forbidden([]string{p})) == 0 {
 			out = append(out, p)
 			continue
 		}

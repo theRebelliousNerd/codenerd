@@ -182,3 +182,60 @@ func TestFilterSnapshotForConcurrentWrites_PreservesHumanEditsInsideWriteSet(t *
 		t.Fatalf("unexpected left list: %v", left)
 	}
 }
+
+func TestRecurseCycles_IncorporatesPreExistingHumanEditInVisitedNode(t *testing.T) {
+	t.Parallel()
+	root := recurseFixture(t, map[string]string{"web/helper.go": "package web\n"})
+	const humanHelper = "package web\n\n// Helper added by human while recurse was working in store.\nfunc Helper() int { return 1 }\n"
+	const webExtraTest = "package web\n\nimport \"testing\"\n\nfunc TestHelper(t *testing.T) {\n\tif Helper() != 1 {\n\t\tt.Fatal(Helper())\n\t}\n}\n"
+
+	k, err := core.NewRealKernelWithWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixedStoreOnce := false
+	improvedWebOnce := false
+	execute := func(_ context.Context, a RecurseAttempt) ([]observation.FileWrite, error) {
+		if a.Finding.ID != "" && !fixedStoreOnce {
+			fixedStoreOnce = true
+			storePath := filepath.Join(root, "store", "store.go")
+			write(t, root, "store/store.go", fixedStore)
+			// Human concurrently edits web/helper.go while recurse is working in store.
+			write(t, root, "web/helper.go", humanHelper)
+			return []observation.FileWrite{
+				{Path: storePath, Before: known(recurseModule["store/store.go"]), After: known(fixedStore)},
+			}, nil
+		}
+		if a.Node.ID == "web" && !improvedWebOnce {
+			improvedWebOnce = true
+			testPath := filepath.Join(root, "web", "helper_test.go")
+			write(t, root, "web/helper_test.go", webExtraTest)
+			return []observation.FileWrite{
+				{Path: testPath, After: known(webExtraTest)},
+			}, nil
+		}
+		return nil, nil
+	}
+	res, err := RunRecurseCycles(context.Background(), RecurseCycleConfig{Workspace: root, Kernel: k, Execute: execute, Passes: 1})
+	if err != nil {
+		t.Fatalf("RunRecurseCycles failed: %v", err)
+	}
+	if res.Kept != 2 {
+		t.Fatalf("expected Kept=2 (store fix + web improvement incorporating human edit), got %+v", res)
+	}
+	if got := mustRead(t, root, "web/helper.go"); got != humanHelper {
+		t.Fatalf("human edit in web/helper.go was lost:\n%s", got)
+	}
+	g := recurseGit{root: root}
+	untracked, err := g.untracked(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stillDirty, err := g.changed(context.Background(), untracked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stillDirty) != 0 {
+		t.Fatalf("expected human edit in web/helper.go to be incorporated into web's kept commit, got dirty=%v", stillDirty)
+	}
+}

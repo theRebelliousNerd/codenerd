@@ -98,21 +98,10 @@ func init() {
 	f.StringSliceVar(&recurseGates, "gates", nil, "Measure the error-free gates around every cycle and keep none that leaves one worse: all, or names/labels (vet,G4,gofmt,...)")
 	f.StringSliceVar(&recurseGateTests, "gate-tests", nil, "Package patterns the measured G3 (go test) runs (default ./...)")
 	f.IntVar(&recurseGateFull, "gate-full-every", 10, "With --gates: measure every gate in full again after this many cycles judged on scoped measurements (0 = only at the start)")
-	// --json is local to status; it stays out of RecurseConfig.
-	campaignRecurseStatusCmd.Flags().BoolVar(&recurseStatusJSON, "json", false, "output recurse status as JSON")
 	campaignRecurseCmd.AddCommand(campaignRecurseStatusCmd, campaignRecurseStopCmd)
 }
 
-var recurseStatusJSON bool
-
-var campaignRecurseStatusCmd = &cobra.Command{
-	Use:          "status",
-	Short:        "Show what the recurse loop has done in this workspace",
-	SilenceUsage: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runRecurseStatus(cmd, recurseWorkspace())
-	},
-}
+var campaignRecurseStatusCmd = newRecurseStatusCmd("")
 
 // runRecurseStatus reads the workspace ledger and writes the report to
 // cmd.OutOrStdout(): human text by default, one JSON object with --json.
@@ -120,6 +109,9 @@ var campaignRecurseStatusCmd = &cobra.Command{
 // asJSON comes from the command's own flag so parallel runs with separate
 // commands do not share package state.
 func runRecurseStatus(cmd *cobra.Command, workspace string) error {
+	if workspace == "" {
+		workspace = recurseWorkspace()
+	}
 	asJSON, _ := cmd.Flags().GetBool("json")
 	st, err := campaign.ReadRecurseStatus(workspace)
 	if err != nil {
@@ -137,9 +129,9 @@ func runRecurseStatus(cmd *cobra.Command, workspace string) error {
 	return nil
 }
 
-// newRecurseStatusCmd builds a fresh status command bound to workspace for
-// hermetic tests: each case owns its TempDir, buffers, and command, so no
-// shared global or flag Changed state leaks between table rows.
+// newRecurseStatusCmd builds a status command bound to workspace (or the
+// command's resolved workspace when workspace is empty) so both the root
+// subcommand and parallel hermetic tests share one constructor.
 func newRecurseStatusCmd(workspace string) *cobra.Command {
 	c := &cobra.Command{
 		Use:          "status",
