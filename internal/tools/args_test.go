@@ -145,3 +145,68 @@ func TestCoerceInt64_TimestampShapes(t *testing.T) {
 		}
 	}
 }
+
+// TestArgInt_MissingAndShapes pins ArgInt map handling: nil map and absent
+// keys fail closed, present values flow through CoerceInt truncation.
+func TestArgInt_MissingAndShapes(t *testing.T) {
+	if got, ok := ArgInt(nil, "limit"); got != 0 || ok {
+		t.Errorf("ArgInt(nil)=(%d,%v), want (0,false)", got, ok)
+	}
+	if got, ok := ArgInt(map[string]any{}, "limit"); got != 0 || ok {
+		t.Errorf("ArgInt(missing)=(%d,%v), want (0,false)", got, ok)
+	}
+	cases := []struct {
+		in   any
+		want int
+		ok   bool
+	}{
+		{42, 42, true},
+		{float64(4.7), 4, true},
+		{json.Number("15"), 15, true},
+		{json.Number("3.8"), 3, true},
+		{"123", 123, true},
+		{"6.5", 6, true},
+		{"notanumber", 0, false},
+		{nil, 0, false},
+	}
+	for _, c := range cases {
+		got, ok := ArgInt(map[string]any{"limit": c.in}, "limit")
+		if got != c.want || ok != c.ok {
+			t.Errorf("ArgInt(%v)=(%d,%v), want (%d,%v)", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+// TestArgIntStrict_MissingAndRefusals pins ArgIntStrict map handling: nil map
+// and absent keys fail closed, integral values pass, fractional payloads are
+// refused instead of truncated.
+func TestArgIntStrict_MissingAndRefusals(t *testing.T) {
+	if got, ok := ArgIntStrict(nil, "line"); got != 0 || ok {
+		t.Errorf("ArgIntStrict(nil)=(%d,%v), want (0,false)", got, ok)
+	}
+	if got, ok := ArgIntStrict(map[string]any{}, "line"); got != 0 || ok {
+		t.Errorf("ArgIntStrict(missing)=(%d,%v), want (0,false)", got, ok)
+	}
+	cases := []struct {
+		in   any
+		want int
+		ok   bool
+	}{
+		{42, 42, true},
+		{int64(9), 9, true},
+		{float64(4.7), 0, false},
+		{float64(4.0), 4, true},
+		{json.Number("15"), 15, true},
+		{json.Number("3.8"), 0, false},
+		{"123", 123, true},
+		{"6.5", 0, false},
+		{"notanumber", 0, false},
+		{nil, 0, false},
+	}
+	for _, c := range cases {
+		got, ok := ArgIntStrict(map[string]any{"line": c.in}, "line")
+		if got != c.want || ok != c.ok {
+			t.Errorf("ArgIntStrict(%v)=(%d,%v), want (%d,%v)", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
