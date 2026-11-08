@@ -884,3 +884,12 @@ func TestCacheGetPut_RoundTrip(t *testing.T) {
 // TODO: Test gap - Test extreme TopK values (e.g. math.MaxInt64) to ensure mergeResults does not integer overflow and panic.
 // TODO: Test gap - Test massive amount of facts returning from kernel.Query to ensure memory exhaustion does not occur in loadFromKernel.
 // TODO: Test gap - Verify state isn't wiped if kernel.Query fails in EmbeddedCorpusStore.LoadFromKernel.
+
+// TODO: Edge Case - Null/Undefined/Empty: Test Classify with an empty string "" to ensure it returns a deterministic fallback instead of calling the embedding API.
+// TODO: Edge Case - Null/Undefined/Empty: Mock an embedEngine that returns a zero-vector [0,0,...] and verify searchInMemory handles it without a NaN panic during sort.
+// TODO: Edge Case - Type Coercion: Test argument coercion where kernel.Query returns an integer instead of string, ensuring it does not crash when used as a Mangle atom.
+// TODO: Edge Case - Type Coercion: Test passing a Target string without the '/' prefix and verify it is either gracefully rejected or auto-coerced into a valid MangleAtom.
+// TODO: Edge Case - User Request Extremes: Provide topK = math.MaxInt64 to Search and verify it bounds the allocation size and doesn't cause OOM/Integer overflow.
+// TODO: Edge Case - User Request Extremes: Simulate a corrupted SQLite cache returning a truncated byte array and verify LoadFromKernel treats it as a miss instead of panicking on slice index bounds.
+// TODO: Edge Case - State Conflicts: Run parallel goroutines calling SetConfig, Classify, and Search to trigger race conditions and verify struct tearing does not occur under concurrency.
+// TODO: Edge Case - State Conflicts: Cancel the context midway through LoadFromKernel and verify the partial state does not poison the classifier or leave it completely unusable.
