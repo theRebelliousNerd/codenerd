@@ -170,3 +170,82 @@ func TestBuiltin_ExeSuffixAndEcho(t *testing.T) {
 		t.Fatalf("echo.exe = %q handled=%v", out, handled)
 	}
 }
+
+func TestSplitFlags_PinParsing(t *testing.T) {
+	cases := []struct {
+		name      string
+		args      []string
+		wantFlags map[rune]bool
+		wantVals  map[string]string
+		wantOps   []string
+	}{
+		{name: "combined shorts", args: []string{"-ln", "beta.txt"}, wantFlags: map[rune]bool{'l': true, 'n': true}, wantVals: map[string]string{}, wantOps: []string{"beta.txt"}},
+		{name: "n consumes next", args: []string{"-n", "2", "beta.txt"}, wantFlags: map[rune]bool{}, wantVals: map[string]string{"n": "2"}, wantOps: []string{"beta.txt"}},
+		{name: "n attached", args: []string{"-n5", "beta.txt"}, wantFlags: map[rune]bool{}, wantVals: map[string]string{"n": "5"}, wantOps: []string{"beta.txt"}},
+		{name: "dash dash ends flags", args: []string{"-l", "--", "-n"}, wantFlags: map[rune]bool{'l': true}, wantVals: map[string]string{}, wantOps: []string{"-n"}},
+		{name: "lone dash is operand", args: []string{"-"}, wantFlags: map[rune]bool{}, wantVals: map[string]string{}, wantOps: []string{"-"}},
+		{name: "operand stops nothing but recorded", args: []string{"beta.txt", "-l"}, wantFlags: map[rune]bool{'l': true}, wantVals: map[string]string{}, wantOps: []string{"beta.txt"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			flags, vals, ops := splitFlags(tc.args)
+			for r := range tc.wantFlags {
+				if !flags[r] {
+					t.Fatalf("splitFlags(%q) missing flag %q, got %v", tc.args, string(r), flags)
+				}
+			}
+			if len(flags) != len(tc.wantFlags) {
+				t.Fatalf("splitFlags(%q) flags = %v, want %v", tc.args, flags, tc.wantFlags)
+			}
+			if len(vals) != len(tc.wantVals) {
+				t.Fatalf("splitFlags(%q) vals = %v, want %v", tc.args, vals, tc.wantVals)
+			}
+			for k, v := range tc.wantVals {
+				if vals[k] != v {
+					t.Fatalf("splitFlags(%q) vals[%q] = %q, want %q", tc.args, k, vals[k], v)
+				}
+			}
+			if len(ops) != len(tc.wantOps) {
+				t.Fatalf("splitFlags(%q) operands = %v, want %v", tc.args, ops, tc.wantOps)
+			}
+			for i := range tc.wantOps {
+				if ops[i] != tc.wantOps[i] {
+					t.Fatalf("splitFlags(%q) operands = %v, want %v", tc.args, ops, tc.wantOps)
+				}
+			}
+		})
+	}
+}
+
+func TestBuiltinLs_HiddenMultiAndMissing(t *testing.T) {
+	dir := setupTree(t)
+	if err := os.WriteFile(filepath.Join(dir, ".hidden"), []byte("h\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	scope := builtinScope{ctx: ctx, root: dir, dir: dir}
+	plain := builtinLs(nil, scope)
+	if strings.Contains(plain, ".hidden") {
+		t.Fatalf("ls without -a listed dotfile: %q", plain)
+	}
+	withAll := builtinLs([]string{"-a"}, scope)
+	if !strings.Contains(withAll, ".hidden") {
+		t.Fatalf("ls -a hid dotfile: %q", withAll)
+	}
+	multi := builtinLs([]string{"alpha.go", "beta.txt"}, scope)
+	if !strings.Contains(multi, "alpha.go") || !strings.Contains(multi, "beta.txt") {
+		t.Fatalf("ls multi-operand lost entries: %q", multi)
+	}
+	missing := builtinLs([]string{"nope.txt"}, scope)
+	if !strings.Contains(missing, "cannot access") {
+		t.Fatalf("ls missing file should report access error, got: %q", missing)
+	}
+}
+
+func TestBuiltinPwd_ReturnsAbsolute(t *testing.T) {
+	dir := setupTree(t)
+	got := builtinPwd(dir)
+	if !filepath.IsAbs(got) {
+		t.Fatalf("builtinPwd(%q) = %q, want absolute path", dir, got)
+	}
+}
