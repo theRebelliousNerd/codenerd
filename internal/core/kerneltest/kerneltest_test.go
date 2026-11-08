@@ -112,6 +112,126 @@ func TestWithWorkspace_BindsTheRootAndBootsWhenTheWorkspaceExtendsTheKernel(t *t
 	}
 }
 
+func TestWithWorkspace_EmptyRootServesTheTemplate(t *testing.T) {
+	t.Parallel()
+	for _, root := range []string{"", "   ", "\t\n "} {
+		k := WithWorkspace(t, root)
+		if got := k.GetWorkspace(); got != "" {
+			t.Fatalf("WithWorkspace(%q): workspace = %q, want none", root, got)
+		}
+		if rows, _ := k.Query("kerneltest_probe"); len(rows) != 0 {
+			t.Fatalf("WithWorkspace(%q): answers an undeclared predicate", root)
+		}
+	}
+}
+
+func TestWithWorkspace_TrimsSurroundingSpace(t *testing.T) {
+	t.Parallel()
+	plain := t.TempDir()
+	padded := "  " + plain + "  "
+	k := WithWorkspace(t, padded)
+	if abs, _ := filepath.Abs(plain); k.GetWorkspace() != abs {
+		t.Fatalf("workspace = %q, want %q", k.GetWorkspace(), abs)
+	}
+}
+
+func TestWithWorkspace_PlainBindingDoesNotLeakToTemplate(t *testing.T) {
+	t.Parallel()
+	plain := t.TempDir()
+	bound := WithWorkspace(t, plain)
+	if err := bound.Assert(core.Fact{Predicate: "user_intent", Args: []any{"/kt_leak", "/query", "/explain", "target", ""}}); err != nil {
+		t.Fatal(err)
+	}
+	fresh := New(t)
+	if got := fresh.GetWorkspace(); got != "" {
+		t.Fatalf("fresh kernel workspace = %q, want none after binding %q", got, bound.GetWorkspace())
+	}
+	if rows, _ := fresh.Query("user_intent"); len(rows) != 0 {
+		t.Fatalf("fresh kernel inherited %d user_intent row(s) from a workspace-bound clone", len(rows))
+	}
+}
+
+func TestWithWorkspace_ExtendedBindsTheRoot(t *testing.T) {
+	t.Parallel()
+	extended := t.TempDir()
+	dir := filepath.Join(extended, ".nerd", "mangle")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "extensions.mg"), []byte("Decl kerneltest_probe(X).\nkerneltest_probe(7).\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ek := WithWorkspace(t, extended)
+	if abs, _ := filepath.Abs(extended); ek.GetWorkspace() != abs {
+		t.Fatalf("workspace = %q, want %q", ek.GetWorkspace(), abs)
+	}
+}
+
+func TestHasUserExtensions_DetectsEveryKnownFile(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"extensions":       filepath.Join("mangle", "extensions.mg"),
+		"policy_overrides": filepath.Join("mangle", "policy_overrides.mg"),
+		"learned":          filepath.Join("mangle", "learned.mg"),
+		"northstar":        "northstar.mg",
+		"orientation":      filepath.Join("orientation", "orientation.mg"),
+	}
+	if len(cases) != len(userExtensionFiles) {
+		t.Fatalf("test covers %d extension files, package lists %d", len(cases), len(userExtensionFiles))
+	}
+	for _, rel := range userExtensionFiles {
+		found := false
+		for _, r := range cases {
+			if r == rel {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("extension file %q has no detection case", rel)
+		}
+	}
+	for name, r := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			if hasUserExtensions(root) {
+				t.Fatal("plain workspace reports extensions")
+			}
+			p := filepath.Join(root, ".nerd", r)
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte("Decl kerneltest_probe(X).\nkerneltest_probe(7).\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if !hasUserExtensions(root) {
+				t.Fatalf("workspace carrying %s is not detected", r)
+			}
+		})
+	}
+}
+
+func TestHasUserExtensions_IgnoresMissingAndNonRegularFiles(t *testing.T) {
+	t.Parallel()
+	if hasUserExtensions(filepath.Join(t.TempDir(), "does-not-exist")) {
+		t.Fatal("missing workspace reports extensions")
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".nerd", "mangle", "extensions.mg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if hasUserExtensions(root) {
+		t.Fatal("a directory named like an extension file must not count as one")
+	}
+	if fileExists("") {
+		t.Fatal("fileExists(\"\") = true, want false")
+	}
+	if fileExists(filepath.Join(root, "does-not-exist.mg")) {
+		t.Fatal("fileExists on a missing path = true, want false")
+	}
+}
+
 // BenchmarkBoot and BenchmarkServed measure what the package saves: a real
 // boot per kernel against a clone of the evaluated template.
 func BenchmarkBoot(b *testing.B) {
