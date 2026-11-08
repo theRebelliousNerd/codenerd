@@ -171,3 +171,192 @@ func TestNearest_RanksLexicalNeighboursAndSkipsSelf(t *testing.T) {
 		}
 	}
 }
+
+func TestAdmission_VerdictAdmitAndString(t *testing.T) {
+	for _, tc := range []struct {
+		decision string
+		admit    bool
+	}{
+		{Admitted, true},
+		{Unjudged, true},
+		{Oversize, false},
+		{Duplicate, false},
+		{SeveralConcerns, false},
+		{KnownByDefault, false},
+		{Padding, false},
+	} {
+		if got := (AdmissionVerdict{Decision: tc.decision}).Admit(); got != tc.admit {
+			t.Fatalf("Admit() for %s = %v, want %v", tc.decision, got, tc.admit)
+		}
+	}
+	if got := (AdmissionVerdict{Decision: Admitted}).String(); got != Admitted {
+		t.Fatalf("String without reason = %q, want %q", got, Admitted)
+	}
+	if got := (AdmissionVerdict{Decision: Duplicate, Reason: "x covers it"}).String(); got != Duplicate+": x covers it" {
+		t.Fatalf("String with reason = %q", got)
+	}
+}
+
+func TestAdmission_CheckRejectsBadInput(t *testing.T) {
+	ctx := context.Background()
+	if _, err := (Admission{MaxChars: 1500, Yes: 0.7}).Check(ctx, nil, nil); err == nil {
+		t.Fatal("nil candidate must be an error")
+	}
+	if _, err := (Admission{MaxChars: 1500, Yes: 0.7, Asker: readings(1, 0.3, 0.3, 0.1)}).Check(ctx, coder("c", "   "), nil); err == nil {
+		t.Fatal("blank content must be an error")
+	}
+	if _, err := (Admission{}).Check(ctx, coder("c", "x"), nil); err == nil {
+		t.Fatal("missing MaxChars must be an error")
+	}
+	for _, yes := range []float64{0, -0.5, 1.5} {
+		if _, err := (Admission{MaxChars: 1500, Yes: yes, Asker: readings(1, 0.3, 0.3, 0.1)}).Check(ctx, coder("c", "x"), nil); err == nil {
+			t.Fatalf("Yes=%v must be an error", yes)
+		}
+	}
+}
+
+func TestAdmission_DuplicateOutranksContentRefusals(t *testing.T) {
+	existing := []*prompt.PromptAtom{coder("existing/wrap", "Wrap returned errors with %w so callers can inspect them.")}
+	cand := coder("cand/wrap", "Wrap errors with %w when returning them so callers can use errors.Is.")
+	a := Admission{Asker: readings(3.9, 3.9, 3.9, 0.95), MaxChars: 1500, Yes: 0.7, Compare: 3}
+	v, err := a.Check(context.Background(), cand, existing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Decision != Duplicate {
+		t.Fatalf("duplicate must outrank content refusals, got %s", v)
+	}
+	narrow := coder("existing/wrap", "Wrap returned errors with %w.")
+	narrow.Languages = []string{"/go"}
+	wide := coder("cand/wrap", "Wrap returned errors with %w.")
+	wide.Languages = []string{"/go", "/rust"}
+	a2 := Admission{Asker: readings(1, 3.9, 0.3, 0.95), MaxChars: 1500, Yes: 0.7, Compare: 3}
+	v2, err := a2.Check(context.Background(), wide, []*prompt.PromptAtom{narrow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v2.Decision != SeveralConcerns {
+		t.Fatalf("non-reaching cover must fall through to concerns, got %s", v2)
+	}
+}
+
+func TestAdmission_CompareBoundZeroSkipsDuplicate(t *testing.T) {
+	existing := []*prompt.PromptAtom{coder("existing/wrap", "Wrap returned errors with %w so callers can inspect them.")}
+	cand := coder("cand/wrap", "Wrap errors with %w when returning them so callers can use errors.Is.")
+	for _, compare := range []int{0, -5} {
+		a := Admission{Asker: readings(1, 0.3, 0.3, 0.95), MaxChars: 1500, Yes: 0.7, Compare: compare}
+		v, err := a.Check(context.Background(), cand, existing)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v.Decision != Admitted {
+			t.Fatalf("Compare=%d must skip the duplicate check, got %s", compare, v)
+		}
+	}
+}
+
+func TestReaches_SelectorContainmentMatrix(t *testing.T) {
+	base := func() *prompt.PromptAtom { return &prompt.PromptAtom{ID: "x", Content: "x"} }
+	if !Reaches(base(), base()) {
+		t.Fatal("two unconstrained atoms must reach each other")
+	}
+	narrow := base()
+	narrow.Languages = []string{"/go"}
+	if !Reaches(base(), narrow) {
+		t.Fatal("an unconstrained existing atom must reach a constrained candidate")
+	}
+	if Reaches(narrow, base()) {
+		t.Fatal("a constrained existing atom must not reach an unconstrained candidate")
+	}
+	goOnly := base()
+	goOnly.Languages = []string{"/go"}
+	goRust := base()
+	goRust.Languages = []string{"/go", "/rust"}
+	if !Reaches(goRust, goOnly) {
+		t.Fatal("a broader existing atom must reach a narrower candidate")
+	}
+	if Reaches(goOnly, goRust) {
+		t.Fatal("a narrower existing atom must not reach a broader candidate")
+	}
+	slash, plain := base(), base()
+	slash.Languages = []string{"/go"}
+	plain.Languages = []string{"go"}
+	if !Reaches(slash, plain) || !Reaches(plain, slash) {
+		t.Fatal("selector comparison must ignore a leading slash")
+	}
+	other := base()
+	other.Languages = []string{"/rust"}
+	if Reaches(goOnly, other) {
+		t.Fatal("disjoint languages must not reach")
+	}
+	multiE, multiC := base(), base()
+	multiE.ShardTypes = []string{"/coder"}
+	multiE.Languages = []string{"/go"}
+	multiC.ShardTypes = []string{"/coder"}
+	multiC.Languages = []string{"/rust"}
+	if Reaches(multiE, multiC) {
+		t.Fatal("one disjoint dimension must refuse reachability even when another matches")
+	}
+}
+
+func TestNearest_SkipsUnusableAndOrdersTies(t *testing.T) {
+	cand := atom("c", "wrap returned errors with fmt errorf and the w verb")
+	if got := Nearest(cand, []*prompt.PromptAtom{atom("n", "wrap errors")}, 0); got != nil {
+		t.Fatalf("k=0 must return nil, got %v", got)
+	}
+	if got := Nearest(cand, nil, 3); got != nil {
+		t.Fatalf("empty pool must return nil, got %v", got)
+	}
+	near := atom("n", "wrap errors with fmt errorf w verb so callers inspect them")
+	far := atom("f", "table driven tests name each case")
+	blank := atom("blank", "   ")
+	got := Nearest(cand, []*prompt.PromptAtom{nil, far, cand, blank, near}, 3)
+	if len(got) != 1 || got[0].ID != "n" {
+		ids := []string{}
+		for _, a := range got {
+			ids = append(ids, a.ID)
+		}
+		t.Fatalf("unusable and disjoint atoms must be skipped, got %v", ids)
+	}
+	twinA := atom("a", "wrap errors with fmt errorf w verb")
+	twinB := atom("b", "wrap errors with fmt errorf w verb")
+	tied := Nearest(cand, []*prompt.PromptAtom{twinB, twinA}, 2)
+	if len(tied) != 2 || tied[0].ID != "a" || tied[1].ID != "b" {
+		t.Fatalf("equal similarity must order by ID, got %v", tied)
+	}
+	wide := Nearest(cand, []*prompt.PromptAtom{near, far}, 10)
+	if len(wide) != 1 {
+		t.Fatalf("k above the pool must return only usable atoms, got %d", len(wide))
+	}
+}
+
+func TestNearestLevel_ClampsToEnds(t *testing.T) {
+	if got := nearestLevel(KnownLevels, -5); got != KnownLevels[0] {
+		t.Fatalf("low clamp = %q", got)
+	}
+	if got := nearestLevel(KnownLevels, 99); got != KnownLevels[len(KnownLevels)-1] {
+		t.Fatalf("high clamp = %q", got)
+	}
+	if got := nearestLevel(ConcernLevels, 1.6); got != ConcernLevels[2] {
+		t.Fatalf("1.6 rounds to level 2 = %q, got %q", ConcernLevels[2], got)
+	}
+}
+
+func TestCosineAndWordVector_Basics(t *testing.T) {
+	if got := cosine(wordVector("wrap errors"), wordVector("wrap errors")); got != 1 {
+		t.Fatalf("identical vectors must have cosine 1, got %v", got)
+	}
+	if got := cosine(wordVector("wrap errors carefully"), wordVector("table driven tests")); got != 0 {
+		t.Fatalf("disjoint vectors must have cosine 0, got %v", got)
+	}
+	if got := cosine(map[string]float64{}, wordVector("wrap errors")); got != 0 {
+		t.Fatalf("empty vector must have cosine 0, got %v", got)
+	}
+	v := wordVector("Wrap WRAP a an of wrap_error 123")
+	if v["wrap"] != 2 || v["wrap_error"] != 1 {
+		t.Fatalf("vectors lowercase and keep underscores, drop short words: %v", v)
+	}
+	if _, ok := v["a"]; ok {
+		t.Fatalf("words shorter than three letters must be dropped: %v", v)
+	}
+}

@@ -181,3 +181,104 @@ func TestEmbeddedLedgerCoversEveryAtom(t *testing.T) {
 		t.Fatalf("%d embedded atoms lack a current importance score (first %v); regenerate them with the regenerate tool (generator atom-importance) or `go run ./cmd/tools/prompt_builder -score-importance`", len(stale), ids)
 	}
 }
+
+func TestAtomicityRequest_TooLargeIsReportedNeverCut(t *testing.T) {
+	huge := atom("huge", strings.Repeat("word ", 40000*4))
+	if _, _, err := AtomicityRequest(huge, nil); err == nil {
+		t.Fatal("an oversized atom must be an error, never cut to fit")
+	} else if !strings.Contains(err.Error(), "one Jev question holds") {
+		t.Fatalf("error = %v", err)
+	}
+	if _, _, err := AtomicityRequest(nil, nil); err == nil {
+		t.Fatal("a missing atom must be an error")
+	}
+}
+
+func TestJudgeAtomicity_NilAskerIsError(t *testing.T) {
+	if _, err := JudgeAtomicity(context.Background(), nil, atom("a", "x"), nil); err == nil {
+		t.Fatal("a missing Jev client must be an error, never a reading")
+	}
+}
+
+func TestJudgeCorpusAtomicity_SortsAndIsolatesFailures(t *testing.T) {
+	asker := readings(1, 0.3, 0.3, 0.1)
+	atoms := []*prompt.PromptAtom{atom("b", "check errors wrap"), atom("a", "check errors wrap"), {ID: "bad", Content: "   "}}
+	results := JudgeCorpusAtomicity(context.Background(), asker, atoms, nil, 0)
+	if len(results) != 3 {
+		t.Fatalf("results = %v", results)
+	}
+	if results[0].AtomID != "a" || results[1].AtomID != "b" || results[2].AtomID != "bad" {
+		t.Fatalf("results must sort by atom ID: %v", results)
+	}
+	for _, r := range results[:2] {
+		if r.Atomicity == nil || r.Err != "" {
+			t.Fatalf("result %v must carry a reading", r)
+		}
+	}
+	if results[2].Atomicity != nil || results[2].Err == "" {
+		t.Fatalf("one bad atom must fail only itself: %+v", results[2])
+	}
+}
+
+func TestScoreImportance_MissingProbabilityFailsItsAtom(t *testing.T) {
+	f := &fakeAsker{answer: func(string, typesafe.Question) string {
+		return `{"type":"score","score":1,"confidence":0.5,"legend":{"0":"a"},"probabilities":{"0":1}}`
+	}}
+	results := ScoreImportance(context.Background(), f, []*prompt.PromptAtom{atom("a", "x")}, 1)
+	if len(results) != 1 || results[0].Err == nil || !strings.Contains(results[0].Err.Error(), "lacks level") {
+		t.Fatalf("a mistyped distribution must fail its atom: %+v", results)
+	}
+}
+
+func TestStaleAtoms_NilLedgerReturnsAllSorted(t *testing.T) {
+	got := StaleAtoms(nil, []*prompt.PromptAtom{atom("b", "y"), atom("a", "x")})
+	if len(got) != 2 || got[0].ID != "a" || got[1].ID != "b" {
+		t.Fatalf("nil ledger must stale every atom in ID order: %v", got)
+	}
+	if got := StaleAtoms(nil, nil); len(got) != 0 {
+		t.Fatalf("empty pool must stay empty: %v", got)
+	}
+}
+
+func TestRoundTo_ThreePlaces(t *testing.T) {
+	if got := roundTo(1.23456, 3); got != 1.235 {
+		t.Fatalf("roundTo = %v", got)
+	}
+	if got := roundTo(1.2, 3); got != 1.2 {
+		t.Fatalf("roundTo = %v", got)
+	}
+}
+
+func TestGuidanceOf_StripsSlashesAndOmitsEmpty(t *testing.T) {
+	a := &prompt.PromptAtom{ID: "x", Category: prompt.CategoryLanguage, Content: "do x", ContentHash: prompt.HashContent("do x"), ShardTypes: []string{"/coder"}, Languages: []string{"/go"}}
+	g := guidanceOf(a)
+	if agents, _ := g["agents"].([]string); len(agents) != 1 || agents[0] != "coder" {
+		t.Fatalf("agents = %v", g["agents"])
+	}
+	if _, ok := g["description"]; ok {
+		t.Fatalf("empty description must be omitted: %v", g)
+	}
+	if _, ok := g["frameworks"]; ok {
+		t.Fatalf("empty selectors must be omitted: %v", g)
+	}
+}
+
+func TestPlanRelevance_RejectsBadLimitsAndOversizedGuidance(t *testing.T) {
+	req := prompt.AtomRelevanceRequest{Request: "fix errors"}
+	if _, err := (RelevanceJudge{Asker: yesAsker(), MaxAtoms: -1}).planRelevance(context.Background(), req, relevanceAtoms(1)); err == nil {
+		t.Fatal("a negative limit must be an error")
+	}
+	huge := atom("huge", strings.Repeat("word ", 40000*4))
+	if _, err := (RelevanceJudge{Asker: yesAsker(), MaxAtoms: 100, MaxInputTokens: 100000}).planRelevance(context.Background(), req, []*prompt.PromptAtom{huge}); err == nil {
+		t.Fatal("oversized guidance must be refused before any Ask call")
+	} else if !strings.Contains(err.Error(), "one Jev question holds") {
+		t.Fatalf("error = %v", err)
+	}
+	plan, err := (RelevanceJudge{Asker: yesAsker()}).planRelevance(context.Background(), req, nil)
+	if err != nil || len(plan.batches) != 0 || plan.inputTokens != 0 {
+		t.Fatalf("empty pool = %+v, %v", plan, err)
+	}
+	if err := (&RelevanceBudgetError{Resource: "atoms", Required: 3, Limit: 2}).Error(); !strings.Contains(err, "atom relevance budget exceeded") {
+		t.Fatalf("budget error = %q", err)
+	}
+}
