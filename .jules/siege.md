@@ -5,3 +5,7 @@
 ## 2026-10-03 - VirtualStore Assertion Failure Cascades
 **Learning:** The Session Executor expects VirtualStore to write to disk *and* assert a success fact into the Kernel. If VirtualStore executes the action but panics or fails before the Kernel assertion, the system state is inconsistent (side-effects happened, but no evidence was recorded). The session may retry or hang.
 **Action:** Introduce partial-failure mocks or context cancellations exactly between the execution and the assertion steps in VirtualStore to test the Executor's ability to handle this inconsistency.
+
+## 2026-11-03 - Perception Transducer Semantic Type Mismatch
+**Learning:** The Perception Transducer translates natural language into Mangle atoms. However, if adversarial input causes it to generate valid Mangle syntax that uses incorrect types (e.g. stringly typed instead of ast.Name), the kernel silently produces empty results instead of an error, breaking the intent pipeline without triggering fallback.
+**Action:** When testing Perception to Kernel integration, assert that malformed types cause proper rejections rather than silent empty result sets.
