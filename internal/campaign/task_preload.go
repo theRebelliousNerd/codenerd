@@ -359,7 +359,7 @@ func renderPreload(forms map[string]string, pm preloadMeasure, workspace string)
 		return a < b
 	})
 	var sb strings.Builder
-	sb.WriteString("## Code this task names (structure index; rev is the element revision an edit verb takes as its precondition)\n")
+	sb.WriteString("## Code this task names (structure index; rev is the revision argument for element tools like edit_element/replace_element — line tools like edit_lines/insert_lines use a read_file obs:fr:... precondition)\n")
 	for _, t := range targets {
 		form := forms[t]
 		counts[form]++

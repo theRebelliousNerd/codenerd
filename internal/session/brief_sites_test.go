@@ -37,6 +37,9 @@ func TestBriefSites(t *testing.T) {
 		{"host-appended structure outline is not counted as brief sites",
 			"In internal/atomicfile, stabilize error paths.\n\n## Code this task names (structure index; rev is the element revision an edit verb takes as its precondition)\n  - internal/atomicfile/atomicfile.go\n    - function WriteFile (internal/atomicfile/atomicfile.go:19-60, rev=abc)\n    - function WriteReader (internal/atomicfile/atomicfile.go:62-95, rev=def)\n\nFILES THIS TASK MAY MODIFY (workspace-relative):\n  - internal/atomicfile/atomicfile.go\n  - internal/atomicfile/atomicfile_test.go",
 			nil},
+		{"host-appended reverted prior cycle diff and redispatch note are not counted as brief sites",
+			"In internal/tactile/swebench (mode improve: stabilize), find and land one change.\nCycle 57, reverted: task_failed\nIt changed:\n```diff\ndiff --git a/internal/tactile/swebench/config.go b/internal/tactile/swebench/config.go\n--- a/internal/tactile/swebench/config.go\n+++ b/internal/tactile/swebench/config.go\n```\n\n=== THE PREVIOUS DISPATCH OF THIS TASK ENDED (/step_plan_incomplete) ===\nUnresolved gaps: [1] internal/tactile/swebench/environment.go",
+			nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

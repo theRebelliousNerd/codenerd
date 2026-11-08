@@ -6569,3 +6569,29 @@ old body passes every test by design. Hand repair: `run(args, w)` dispatches
 `<db> [--deep|--vectors|--atoms]`, a dispatch test, decoys removed. Coverage
 58.1% -> 93.4%. Open: the pinning gate cannot tell a behavior-preserving
 extraction from an untested change.
+
+## Campaign start, `nerd campaign recurse status --json` -- landed autonomously (2026-11-07, 17:20-19:51)
+
+Brief (`nerd campaign start --yolo`, `/campaign_ea6ac570`): add `--json` to
+`nerd campaign recurse status` in `cmd/nerd/cmd_campaign_recurse.go` and
+`internal/campaign/recurse_status.go` so `nerd campaign recurse status --json`
+emits a single JSON object containing running state, current pass, attempt
+counts by outcome, base branch and last absorbed commit, and each attempt's
+cycle, outcome, node, and short commit, with unit tests in `internal/campaign`
+and `cmd/nerd`. 4 phases, 8 tasks + 1 `/nemesis_gauntlet` checkpoint repair task.
+
+Landed: `RecurseStatusJSON` and `MarshalRecurseStatusJSON` in
+`internal/campaign/recurse_status_json.go`, `--json` flag and `runRecurseStatus`
+in `cmd/nerd/cmd_campaign_recurse.go` (plus routing the `runRecurse` progress
+banner through `progressOut` instead of `fmt.Printf`), and hermetic unit tests
+across `internal/campaign/recurse_status_json*_test.go` and
+`cmd/nerd/cmd_campaign_recurse*_test.go` (covering empty journal, sub-9-char
+hashes, stop-file states, and text-vs-JSON cross-checks). Both coverage repair
+(1 attempt) and pinning repair (1 attempt) converged automatically, and
+`/nemesis_gauntlet` passed on the checkpoint repair round. Blocker uncovered and
+fixed along the way: `run_check` and `runAcceptanceRound` fell back to the 30s
+tactile default timeout when `execution.default_timeout` was unset in
+`.nerd/config.json`, killing multi-package `go test -count=1 ./internal/campaign/ ./cmd/nerd/`
+runs at 30s (57s actual runtime); setting `execution.default_timeout: "5m"`
+cleared `/check_not_green`.
+
