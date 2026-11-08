@@ -266,3 +266,128 @@ func sortedKeys(m map[string]bool) []string {
 	sort.Strings(out)
 	return out
 }
+
+func TestCodeIndexAccessorsArePinned(t *testing.T) {
+	ix := fixtureIndex()
+	if !ix.HasFile("internal/core/foo.go") {
+		t.Fatal("HasFile should report a workspace file")
+	}
+	if ix.HasFile("internal/core/missing.go") {
+		t.Fatal("HasFile should be false for a path the workspace does not hold")
+	}
+	if got, ok := ix.Element("internal/core.Func"); !ok || got.Ref != "internal/core.Func" {
+		t.Fatalf("Element should return the indexed element: %+v %v", got, ok)
+	}
+	if _, ok := ix.Element("internal/core.Missing"); ok {
+		t.Fatal("Element should be false for a ref the index never saw")
+	}
+	if h, ok := ix.FileHeader("internal/core/foo.go"); !ok || h.Ref != "internal/core/foo.go:header" {
+		t.Fatalf("FileHeader should be the file address: %+v %v", h, ok)
+	}
+	if _, ok := ix.FileHeader("internal/core/missing.go"); ok {
+		t.Fatal("FileHeader should be false for a missing file")
+	}
+	if len(ix.Elements()) != 9 {
+		t.Fatalf("Elements should return every indexed element: %d", len(ix.Elements()))
+	}
+	if found := ix.inFile("internal/core/foo.go", "(*Kernel).Eval"); len(found) != 1 || found[0].Ref != "internal/core.Kernel.Eval" {
+		t.Fatalf("Go receiver spelling (*Kernel).Eval canonicalizes to Kernel.Eval: %+v", found)
+	}
+	if found := ix.inFile("internal/core/foo.go", "Eval"); len(found) != 1 || found[0].Ref != "internal/core.Kernel.Eval" {
+		t.Fatalf("bare method name falls back to methods when nothing else carries it: %+v", found)
+	}
+	if found := ix.global("impact_caller/2"); len(found) != 1 || found[0].Ref != "internal/core/policy.mg:decl:impact_caller/2" {
+		t.Fatalf("Mangle arity finds the predicate Decl: %+v", found)
+	}
+}
+
+func TestSplitHelpersPinTheirContracts(t *testing.T) {
+	if p, k, ok := splitCodePath("internal/core/foo.go:Func"); !ok || p != "internal/core/foo.go" || k != "Func" {
+		t.Fatalf("splitCodePath go: %q %q %v", p, k, ok)
+	}
+	if p, k, ok := splitCodePath("internal/core/policy.mg:decl:impact_caller/2"); !ok || p != "internal/core/policy.mg" || k != "decl:impact_caller/2" {
+		t.Fatalf("splitCodePath mg with colon in key: %q %q %v", p, k, ok)
+	}
+	if _, _, ok := splitCodePath("Docs/guide.md"); ok {
+		t.Fatal("splitCodePath without a :Key must fail")
+	}
+	if p, s := splitTarget("internal/core/foo.go:Kernel.Eval"); p != "internal/core/foo.go" || s != "Kernel.Eval" {
+		t.Fatalf("splitTarget path:Symbol: %q %q", p, s)
+	}
+	if p, s := splitTarget("internal/core/foo.go#Func"); p != "internal/core/foo.go" || s != "Func" {
+		t.Fatalf("splitTarget path#Symbol: %q %q", p, s)
+	}
+	if p, s := splitTarget("Func"); p != "" || s != "Func" {
+		t.Fatalf("splitTarget bare symbol: %q %q", p, s)
+	}
+	if p, s := splitTarget("internal/core/foo.go"); p != "internal/core/foo.go" || s != "" {
+		t.Fatalf("splitTarget bare path: %q %q", p, s)
+	}
+}
+
+func TestConfirmationsHelpersArePinned(t *testing.T) {
+	a := Confirmations{LinkKey{Spec: "s1", Code: "c1"}: {SpecFingerprint: "s", CodeFingerprint: "c", ConfirmedAt: 1, SpecChangedAt: 2}}
+	clone := a.Clone()
+	if !clone.Equal(a) {
+		t.Fatal("Clone should hold the same confirmations")
+	}
+	clone[LinkKey{Spec: "s1", Code: "c1"}] = Confirmation{SpecFingerprint: "changed", CodeFingerprint: "c", ConfirmedAt: 1}
+	if a.Equal(clone) {
+		t.Fatal("Clone must be independent of the original")
+	}
+	if a[LinkKey{Spec: "s1", Code: "c1"}].SpecFingerprint != "s" {
+		t.Fatal("mutating the clone must not touch the original")
+	}
+	mixed := Confirmations{
+		{Spec: "b", Code: "a"}: {SpecFingerprint: "s", CodeFingerprint: "c", ConfirmedAt: 1},
+		{Spec: "a", Code: "z"}: {SpecFingerprint: "s", CodeFingerprint: "c", ConfirmedAt: 1},
+		{Spec: "a", Code: "a"}: {SpecFingerprint: "s", CodeFingerprint: "c", ConfirmedAt: 1},
+	}
+	first, second := mixed.Keys(), mixed.Keys()
+	if len(first) != 3 {
+		t.Fatalf("Keys should return every link: %+v", first)
+	}
+	for i := range first {
+		if first[i] != second[i] {
+			t.Fatalf("Keys should be stable: %+v vs %+v", first, second)
+		}
+	}
+	prev := Confirmations{LinkKey{Spec: "s", Code: "c"}: {SpecFingerprint: "old", CodeFingerprint: "old", ConfirmedAt: 1, SpecChangedAt: 7, CodeChangedAt: 8}}
+	next := Confirm(prev, "s", "c2", "ns", "nc", 99)
+	if len(prev) != 1 {
+		t.Fatal("Confirm must not mutate its input")
+	}
+	got := next[LinkKey{Spec: "s", Code: "c2"}]
+	if got.SpecFingerprint != "ns" || got.CodeFingerprint != "nc" || got.ConfirmedAt != 99 || got.SpecChangedAt != 0 || got.CodeChangedAt != 0 {
+		t.Fatalf("Confirm records a fresh agreement: %+v", got)
+	}
+	if _, ok := next[LinkKey{Spec: "s", Code: "c"}]; !ok {
+		t.Fatal("Confirm keeps the links it was given")
+	}
+	again := Confirm(prev, "s", "c", "ns2", "nc2", 100)
+	if got := again[LinkKey{Spec: "s", Code: "c"}]; got.SpecChangedAt != 0 || got.CodeChangedAt != 0 || got.ConfirmedAt != 100 {
+		t.Fatalf("Confirm overwrites with a clean agreement: %+v", got)
+	}
+}
+
+func TestStoreUpdateRoundTripAndNoopArePinned(t *testing.T) {
+	root := t.TempDir()
+	s := OpenStore(root)
+	if got, err := s.Load(); err != nil || len(got) != 0 {
+		t.Fatalf("new store loads empty: %v %v", got, err)
+	}
+	key := LinkKey{Spec: "Docs/a.md:A", Code: "pkg.F"}
+	want := Confirmation{SpecFingerprint: "s", CodeFingerprint: "c", ConfirmedAt: 5}
+	updated, err := s.Update(func(Confirmations) (Confirmations, error) { return Confirmations{key: want}, nil })
+	if err != nil || updated[key] != want {
+		t.Fatalf("Update writes: %v %v", updated, err)
+	}
+	reloaded, err := s.Load()
+	if err != nil || reloaded[key] != want {
+		t.Fatalf("Load reads what Update wrote: %v %v", reloaded, err)
+	}
+	same, err := s.Update(func(c Confirmations) (Confirmations, error) { return c, nil })
+	if err != nil || !same.Equal(updated) {
+		t.Fatalf("no-op Update leaves the set alone: %v %v", same, err)
+	}
+}
