@@ -34,3 +34,9 @@ func TestSafetyReporterSecretExposure(t *testing.T) {
 		t.Fatalf("expected secret exposure violation, got %v", violation.ViolationType)
 	}
 }
+
+func TestSafetyViolationType_WhenNegative_ShouldReturnUnknown(t *testing.T) {
+	if got := SafetyViolationType(-1).String(); got != "Unknown" {
+		t.Fatalf("expected Unknown for negative violation type, got %q", got)
+	}
+}
