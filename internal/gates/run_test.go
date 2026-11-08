@@ -3,6 +3,7 @@ package gates
 import (
 	"codenerd/internal/build"
 	"context"
+	"errors"
 	"os/exec"
 	"slices"
 	"strings"
@@ -115,4 +116,98 @@ func TestBoundedBuffer_KeepsHeadAndTail(t *testing.T) {
 	if small.String() != "all of it" {
 		t.Fatalf("under the limit nothing is dropped: %q", small.String())
 	}
+}
+
+func TestGate_ForNodeExpandsTokens(t *testing.T) {
+	g := Gate{ID: "go:test", Scope: ScopeNode, Argv: []string{"go", "test", "{pkg}", "{node}"}}
+	cases := []struct {
+		node string
+		want []string
+	}{
+		{"", []string{"go", "test", ".", "."}},
+		{".", []string{"go", "test", ".", "."}},
+		{"pkg/store", []string{"go", "test", "./pkg/store", "pkg/store"}},
+		{"  pkg/store  ", []string{"go", "test", "./pkg/store", "pkg/store"}},
+		{"./pkg/store", []string{"go", "test", "./pkg/store", "./pkg/store"}},
+	}
+	for _, tc := range cases {
+		if got := g.ForNode(tc.node); !equalStrings(got, tc.want) {
+			t.Errorf("ForNode(%q) = %q, want %q", tc.node, got, tc.want)
+		}
+	}
+	all := Gate{ID: "go:build", Scope: ScopeAll, Argv: []string{"go", "build", "./..."}}
+	if got := all.ForNode("pkg/store"); !equalStrings(got, []string{"go", "build", "./..."}) {
+		t.Errorf("workspace gate argv changed per node: %q", got)
+	}
+}
+
+func TestGate_PassedNoTestsAppliesToString(t *testing.T) {
+	def := Gate{ID: "x"}
+	if !def.Passed(0) || def.Passed(1) {
+		t.Errorf("default pass rule wants only 0")
+	}
+	custom := Gate{OKExitCodes: []int{0, 5}}
+	if !custom.Passed(5) || custom.Passed(1) {
+		t.Errorf("custom OKExitCodes not honored")
+	}
+	py := Gate{OKExitCodes: []int{0, 5}, NoTestsExitCodes: []int{5}}
+	if !py.NoTests(5) || py.NoTests(0) || py.NoTests(1) {
+		t.Errorf("NoTests wants passing no-test exits only")
+	}
+	if def.NoTests(0) {
+		t.Errorf("gate without NoTestsExitCodes reports no tests")
+	}
+	any := Gate{ID: "a"}
+	if !any.AppliesTo(nil) || !any.AppliesTo([]string{"go"}) {
+		t.Errorf("languageless gate applies everywhere")
+	}
+	gogo := Gate{ID: "g", Language: "go"}
+	if !gogo.AppliesTo([]string{"go"}) || gogo.AppliesTo([]string{"python"}) || gogo.AppliesTo(nil) {
+		t.Errorf("language gate filter wrong")
+	}
+	s := Gate{ID: "go:test", Kind: Test, Scope: ScopeNode, Argv: []string{"go", "test", "./..."}}.String()
+	if !strings.Contains(s, "go:test") || !strings.Contains(s, "go test ./...") {
+		t.Errorf("String should carry id and argv: %q", s)
+	}
+	if (Result{Err: errors.New("boom")}).Unverified() != true {
+		t.Errorf("error result is unverified")
+	}
+	if (Result{ExitCode: 1}).Unverified() != false {
+		t.Errorf("failed run with exit is verified")
+	}
+}
+
+func TestCommand_EmptyAndNodeScope(t *testing.T) {
+	ctx := context.Background()
+	if _, _, err := Command(ctx, t.TempDir(), Gate{ID: "empty"}, "."); err == nil {
+		t.Fatalf("empty command must fail")
+	}
+	node := Gate{ID: "n", Scope: ScopeNode, Argv: []string{"go", "test", "{pkg}"}}
+	_, argv, err := Command(ctx, t.TempDir(), node, "pkg/store")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !equalStrings(argv, []string{"go", "test", "./pkg/store"}) {
+		t.Fatalf("node argv = %q", argv)
+	}
+	all := Gate{ID: "w", Scope: ScopeAll, Argv: []string{"go", "build", "./..."}}
+	_, argv, err = Command(ctx, t.TempDir(), all, "pkg/store")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !equalStrings(argv, []string{"go", "build", "./..."}) {
+		t.Fatalf("workspace argv must pass through: %q", argv)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

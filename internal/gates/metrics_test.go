@@ -62,3 +62,43 @@ func TestCoverage_GoAndPytestCov(t *testing.T) {
 		}
 	}
 }
+
+func TestCoverage_MinimumInvalidAndMixed(t *testing.T) {
+	if got, ok := Coverage(""); ok || got != 0 {
+		t.Fatalf("empty output = %d, %v; want 0, false", got, ok)
+	}
+	if got, ok := Coverage("coverage: bogus% of statements\n"); ok || got != 0 {
+		t.Fatalf("unparsable percent = %d, %v; want 0, false", got, ok)
+	}
+	out := "ok a\tcoverage: 80.0% of statements\nok b\tcoverage: 55.5% of statements\nName   Stmts   Miss  Cover\nTOTAL    120     30    75%\n"
+	if got, ok := Coverage(out); !ok || got != 5550 {
+		t.Fatalf("mixed minima = %d, %v; want 5550, true", got, ok)
+	}
+	if got, ok := Coverage("coverage: 73.25% of statements\n"); !ok || got != 7325 {
+		t.Fatalf("rounded basis points = %d, %v; want 7325, true", got, ok)
+	}
+}
+
+func TestTestsIn_ExcludesTestMainAndNonTestFiles(t *testing.T) {
+	if n := testsIn("store/store.go", []byte("package store\n\nfunc TestGet(t *testing.T) {}\n")); n != 0 {
+		t.Fatalf("non-test go file counted %d", n)
+	}
+	if n := testsIn("store/store_test.go", []byte("package store\n\nfunc TestMain(m *testing.M) {}\n")); n != 0 {
+		t.Fatalf("TestMain counted %d", n)
+	}
+	if n := testsIn("store/store_test.go", []byte("package store\n\nfunc TestA(t *testing.T) {}\nfunc FuzzB(f *testing.F) {}\n")); n != 2 {
+		t.Fatalf("Test+Fuzz = %d, want 2", n)
+	}
+	if n := testsIn("cart.py", []byte("def test_like_name():\n    pass\n")); n != 0 {
+		t.Fatalf("non-test python file counted %d", n)
+	}
+	if n := testsIn("crate/src/lib.rs", []byte("#[test]\nfn a() {}\n")); n != 1 {
+		t.Fatalf("rust attribute = %d, want 1", n)
+	}
+	if !isTestFile("web/app.test.ts") || !isTestFile("web/app.spec.js") || isTestFile("web/app.ts") {
+		t.Fatalf("js test-file convention wrong")
+	}
+	if isTestFile("crate/src/lib.rs") {
+		t.Fatalf("rust file is never a test file by name")
+	}
+}
