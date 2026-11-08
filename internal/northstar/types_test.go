@@ -654,3 +654,151 @@ func TestGuardianConfigFor_WatchesTheWorkspacesCriticalPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestStabilize_PersonaFactID_TrimsPrefixesAndEmpty(t *testing.T) {
+	t.Parallel()
+	if got := PersonaFactID(""); got != "" {
+		t.Fatalf("empty should stay empty, got %q", got)
+	}
+	if got := PersonaFactID("  "); got != "" {
+		t.Fatalf("blank should stay empty, got %q", got)
+	}
+	if got := PersonaFactID("  ada "); got != "persona_ada" {
+		t.Fatalf("should trim and prefix, got %q", got)
+	}
+	if got := PersonaFactID("persona_ada"); got != "persona_ada" {
+		t.Fatalf("should not double-prefix, got %q", got)
+	}
+}
+
+func TestStabilize_AlignmentResultAssessed_SeparatesVerdicts(t *testing.T) {
+	t.Parallel()
+	for _, r := range []AlignmentResult{AlignmentPassed, AlignmentWarning, AlignmentFailed, AlignmentBlocked} {
+		if !r.Assessed() {
+			t.Fatalf("%q should count as assessed", r)
+		}
+	}
+	for _, r := range []AlignmentResult{AlignmentSkipped, AlignmentUnknown, AlignmentResult("other")} {
+		if r.Assessed() {
+			t.Fatalf("%q should not count as assessed", r)
+		}
+	}
+}
+
+func TestStabilize_MitigationStrategyAtom_StableDistinctAndSafe(t *testing.T) {
+	t.Parallel()
+	a1 := string(MitigationStrategyAtom("retry with backoff"))
+	a2 := string(MitigationStrategyAtom("retry with backoff"))
+	if a1 != a2 {
+		t.Fatalf("same text should give same atom: %q vs %q", a1, a2)
+	}
+	a3 := string(MitigationStrategyAtom("retry with backoff!"))
+	if a1 == a3 {
+		t.Fatalf("different text should give different atoms: %q", a1)
+	}
+	for _, a := range []string{a1, a3, string(MitigationStrategyAtom("  "))} {
+		if len(a) < 5 || a[:5] != "/mit_" {
+			t.Fatalf("atom should have /mit_ prefix, got %q", a)
+		}
+		for _, r := range a {
+			isLower := r >= 'a' && r <= 'z'
+			isDigit := r >= '0' && r <= '9'
+			if r != '/' && r != '_' && !isLower && !isDigit {
+				t.Fatalf("atom %q has unsafe rune %q", a, r)
+			}
+		}
+	}
+}
+
+func TestStabilize_IsNil_CoversTypedNils(t *testing.T) {
+	t.Parallel()
+	var p *Guardian
+	var m map[string]struct{}
+	var s []string
+	var ch chan int
+	var fn func()
+	if !IsNil(nil) {
+		t.Fatal("nil interface should be nil")
+	}
+	if !IsNil(p) || !IsNil(m) || !IsNil(s) || !IsNil(ch) || !IsNil(fn) {
+		t.Fatal("typed nils should report nil")
+	}
+	if IsNil(0) || IsNil("") || IsNil(struct{}{}) {
+		t.Fatal("non-nil values should not report nil")
+	}
+	if IsNil(&Guardian{}) {
+		t.Fatal("non-nil pointer should not report nil")
+	}
+}
+
+func TestStabilize_SortedResults_StableOrder(t *testing.T) {
+	t.Parallel()
+	m := &AlignmentMetrics{ChecksByResult: map[AlignmentResult]int{AlignmentFailed: 1, AlignmentPassed: 2, AlignmentBlocked: 3}}
+	got := m.SortedResults()
+	want := []AlignmentResult{AlignmentBlocked, AlignmentFailed, AlignmentPassed}
+	if len(got) != len(want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v want %v", got, want)
+		}
+	}
+	var nilMapMetrics *AlignmentMetrics
+	_ = nilMapMetrics
+	empty := &AlignmentMetrics{}
+	if out := empty.SortedResults(); len(out) != 0 {
+		t.Fatalf("empty metrics should sort to empty, got %v", out)
+	}
+}
+
+func TestStabilize_Clamp01AndTermOverlap_Boundaries(t *testing.T) {
+	t.Parallel()
+	if clamp01(-0.5) != 0 || clamp01(1.5) != 1 || clamp01(0.25) != 0.25 {
+		t.Fatalf("clamp01 should bound to [0,1]")
+	}
+	if termOverlap("anything", "") != 0 {
+		t.Fatal("empty source should overlap 0")
+	}
+	if termOverlap("anything", "a an of") != 0 {
+		t.Fatal("short-only source should overlap 0")
+	}
+	full := termOverlap("the guardian watches critical paths", "guardian critical paths")
+	if full != 1 {
+		t.Fatalf("full overlap should be 1, got %v", full)
+	}
+	partial := termOverlap("guardian only", "guardian critical paths")
+	if partial <= 0 || partial >= 1 {
+		t.Fatalf("partial overlap should be in (0,1), got %v", partial)
+	}
+	dup := termOverlap("guardian", "guardian guardian paths paths")
+	if dup != 0.5 {
+		t.Fatalf("duplicate source terms should dedupe, got %v", dup)
+	}
+}
+
+func TestStabilize_MintID_LowestFreeCaseInsensitive(t *testing.T) {
+	t.Parallel()
+	if got := MintID("cap_", nil); got != "cap_1" {
+		t.Fatalf("empty pool should mint cap_1, got %q", got)
+	}
+	if got := MintID("cap_", []string{"cap_1", "CAP_2", "cap_4"}); got != "cap_3" {
+		t.Fatalf("should fill lowest free gap case-insensitively, got %q", got)
+	}
+}
+
+func TestStabilize_CosineSimilarity_IdentityAndOrthogonal(t *testing.T) {
+	t.Parallel()
+	if got := CosineSimilarity([]float32{1, 0}, []float32{0, 1}); got != 0 {
+		t.Fatalf("orthogonal should be 0, got %v", got)
+	}
+	if got := CosineSimilarity([]float32{1, 2}, []float32{1, 2}); got < 0.999999 || got > 1.000001 {
+		t.Fatalf("identical should be ~1, got %v", got)
+	}
+	if got := CosineSimilarity(nil, []float32{1}); got != 0 {
+		t.Fatalf("empty should be 0, got %v", got)
+	}
+	if got := CosineSimilarity([]float32{1}, []float32{1, 2}); got != 0 {
+		t.Fatalf("mismatched lengths should be 0, got %v", got)
+	}
+}
