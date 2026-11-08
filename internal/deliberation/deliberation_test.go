@@ -225,3 +225,211 @@ func TestReadToolDefinitions_CarryNoNullSchemaField(t *testing.T) {
 		}
 	}
 }
+
+func TestStabilize_IsMissionOwnedDistinguishesOwners(t *testing.T) {
+	var nilThread *Thread
+	if nilThread.IsMissionOwned() {
+		t.Error("nil thread is not mission owned")
+	}
+	if (&Thread{}).IsMissionOwned() {
+		t.Error("empty thread is not mission owned")
+	}
+	if !(&Thread{OwnerKind: "mission"}).IsMissionOwned() {
+		t.Error("OwnerKind mission must be mission owned")
+	}
+	if !(&Thread{OwnerID: "mission-1"}).IsMissionOwned() {
+		t.Error("non-empty OwnerID must be mission owned")
+	}
+	if !(&Thread{OwnerDisposition: "retained_for_owner"}).IsMissionOwned() {
+		t.Error("retained_for_owner disposition must be mission owned")
+	}
+	if (&Thread{OwnerKind: "chat"}).IsMissionOwned() {
+		t.Error("chat owner without ID is not mission owned")
+	}
+}
+
+func TestStabilize_NumberConvertsKernelValues(t *testing.T) {
+	if number(int64(3)) != 3 {
+		t.Error("int64 not converted")
+	}
+	if number(int(4)) != 4 {
+		t.Error("int not converted")
+	}
+	if number(float64(2.9)) != 2 {
+		t.Error("float64 not truncated")
+	}
+	if number("x") != -1 {
+		t.Error("string must be -1")
+	}
+	if number(nil) != -1 {
+		t.Error("nil must be -1")
+	}
+}
+
+func TestStabilize_CandidateFindsByID(t *testing.T) {
+	r := validRound()
+	c := candidate(&r, "a")
+	if c == nil || c.ID != "a" || c.Brief != "read it one way" {
+		t.Fatalf("candidate a not found: %+v", c)
+	}
+	if candidate(&r, "missing") != nil {
+		t.Error("unknown id must return nil")
+	}
+}
+
+func TestStabilize_OptionFormatsAndChoiceRejectsBlank(t *testing.T) {
+	if got := option(Candidate{ID: "x", Brief: "do y"}); got != "x: do y" {
+		t.Errorf("option = %q, want %q", got, "x: do y")
+	}
+	r := validRound()
+	if choice(r, "") != nil {
+		t.Error("blank answer must choose nothing")
+	}
+	if choice(r, "   ") != nil {
+		t.Error("whitespace answer must choose nothing")
+	}
+}
+
+func TestStabilize_DecodeTrimsWhitespaceAndEmptyEnvelope(t *testing.T) {
+	var c Challenge
+	if err := Decode("  {\"recommendation\":\"a\"}  ", &c); err != nil || c.Recommendation != "a" {
+		t.Errorf("whitespace-trimmed decode failed: %+v, %v", c, err)
+	}
+	var d Challenge
+	if err := Decode("{\"surface_response\":\"\", \"recommendation\":\"a\"}", &d); err != nil || d.Recommendation != "a" {
+		t.Errorf("empty-surface envelope must decode outer object: %+v, %v", d, err)
+	}
+	var e Challenge
+	if err := Decode("```\n{\"recommendation\":\"b\"}\n```", &e); err != nil || e.Recommendation != "b" {
+		t.Errorf("fence without language tag must decode: %+v, %v", e, err)
+	}
+}
+
+func TestStabilize_BoundObservationKeepsFitsAndCutsVisibly(t *testing.T) {
+	if got := boundObservation("abc", 10); got != "abc" {
+		t.Errorf("fitting text must be unchanged, got %q", got)
+	}
+	room := len(cutNote) + 32
+	got := boundObservation(strings.Repeat("x", 300), room)
+	if len(got) > room {
+		t.Errorf("cut output %d bytes exceeds room %d", len(got), room)
+	}
+	if !strings.Contains(got, "cut at the deliberation context bound") {
+		t.Errorf("cut must be visible: %q", got)
+	}
+	if got := boundObservation(strings.Repeat("x", 100), 5); got != cutNote[1:] {
+		t.Errorf("tiny room must return the bare marker, got %q", got)
+	}
+}
+
+func TestStabilize_AddNoteTrimsLargestToFitAndErrorsWithoutRoom(t *testing.T) {
+	obs := []ProbeResult{{Key: "a", Tool: "read_file", Output: strings.Repeat("x", 1000)}}
+	note := ProbeResult{Key: "n", Error: "e"}
+	if err := addNote(&obs, note, &obs, 200); err != nil {
+		t.Fatalf("addNote should trim to fit: %v", err)
+	}
+	if len(obs) != 2 {
+		t.Fatalf("addNote must append the note, got %d observations", len(obs))
+	}
+	if !strings.Contains(obs[0].Output, "cut at the deliberation context bound") {
+		t.Errorf("largest output should have been cut visibly: %.100s", obs[0].Output)
+	}
+	b, err := json.Marshal(&obs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) > 200 {
+		t.Errorf("trimmed observations still exceed bound: %d > 200", len(b))
+	}
+
+	empty := []ProbeResult{}
+	if err := addNote(&empty, ProbeResult{Key: "n", Error: "e"}, &empty, 5); err == nil {
+		t.Error("a bound with no room for a note must fail")
+	}
+}
+
+func TestStabilize_OutcomeNoteCoversBranches(t *testing.T) {
+	if got := (Outcome{}).Note(); got != "" {
+		t.Errorf("nil thread note = %q, want empty", got)
+	}
+	if got := (Outcome{Thread: &Thread{Status: "running"}}).Note(); got != "Deliberation: running." {
+		t.Errorf("non-ready note = %q", got)
+	}
+	ready := Outcome{Thread: &Thread{Status: "ready"}, Action: "proceed", Candidate: &Candidate{ID: "a", Brief: "keep it", SuccessTest: "tests pass"}}
+	note := ready.Note()
+	for _, want := range []string{"Decided: keep it", "Success test: tests pass"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("ready note lacks %q: %s", want, note)
+		}
+	}
+	if strings.Contains(note, "Assumed") {
+		t.Errorf("proceed without assumptions must not mention them: %s", note)
+	}
+	withProof := Outcome{
+		Thread:    &Thread{Status: "ready", Rounds: []Round{{Number: 1, Proof: json.RawMessage(`{"Goal":"g","Proofs":[{"ID":"p1"}]}`)}}},
+		Action:    "proceed",
+		Candidate: &Candidate{ID: "a", Brief: "keep it", SuccessTest: "tests pass"},
+	}
+	if got := withProof.Note(); !strings.Contains(got, "Policy proof: p1") {
+		t.Errorf("ready note with proof must name it: %s", got)
+	}
+}
+
+func TestStabilize_ProgressFingerprintIgnoresImportantAndOrdersProbes(t *testing.T) {
+	base := validRound()
+	onlyImportantA := validRound()
+	onlyImportantA.Challenge.Assessments[1].Items[0].Severity = "important"
+	onlyImportantA.Challenge.Assessments[1].Items[0].Detail = "first wording"
+	onlyImportantB := validRound()
+	onlyImportantB.Challenge.Assessments[1].Items[0].Severity = "important"
+	onlyImportantB.Challenge.Assessments[1].Items[0].Detail = "second wording"
+	if progressFingerprint(onlyImportantA) != progressFingerprint(onlyImportantB) {
+		t.Error("important-only items must not affect progress")
+	}
+	roundA := validRound()
+	roundA.Probes = []ProbeResult{{Key: "k1", Tool: "read_file", Output: "one"}, {Key: "k2", Tool: "read_file", Output: "two"}}
+	roundB := validRound()
+	roundB.Probes = []ProbeResult{{Key: "k2", Tool: "read_file", Output: "two"}, {Key: "k1", Tool: "read_file", Output: "one"}}
+	if progressFingerprint(roundA) != progressFingerprint(roundB) {
+		t.Error("probe order must not affect progress")
+	}
+	changed := validRound()
+	changed.Challenge.Assessments[1].Items[0].Key = "other-key"
+	if progressFingerprint(base) == progressFingerprint(changed) {
+		t.Error("a new critical item key must count as progress")
+	}
+}
+
+func TestStabilize_ValidateRoundRejectsEmptyAndBlank(t *testing.T) {
+	if err := validateRound(Round{}, 3); err == nil {
+		t.Error("empty round accepted")
+	}
+	r := validRound()
+	r.Proposal.Candidates[0].ID = ""
+	if err := validateRound(r, 3); err == nil {
+		t.Error("blank candidate id accepted")
+	}
+	r = validRound()
+	r.Proposal.Candidates[0].Brief = "   "
+	if err := validateRound(r, 3); err == nil {
+		t.Error("blank brief accepted")
+	}
+	r = validRound()
+	r.Challenge.Assessments[1].Items[0].Key = ""
+	if err := validateRound(r, 3); err == nil {
+		t.Error("empty item key accepted")
+	}
+}
+
+func TestStabilize_PendingWithNoDirectoryReturnsNil(t *testing.T) {
+	s := &Service{Workspace: t.TempDir(), Session: "sess-absent"}
+	if got, err := s.Pending(); err != nil || got != nil {
+		t.Errorf("Pending with no directory = %+v, %v; want nil, nil", got, err)
+	}
+	if got, err := s.PendingForOwner("mission", "m1"); err != nil || got != nil {
+		t.Errorf("PendingForOwner with no directory = %+v, %v; want nil, nil", got, err)
+	}
+	if all, err := s.PendingMissionThreads(); err != nil || len(all) != 0 {
+		t.Errorf("PendingMissionThreads with no directory = %d, %v; want 0, nil", len(all), err)
+	}
+}
