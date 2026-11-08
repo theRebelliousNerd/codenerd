@@ -40,3 +40,26 @@ func TestArgInt(t *testing.T) {
 		})
 	}
 }
+
+func TestArgInt_StabilizePinsEdgeCases(t *testing.T) {
+	cases := []struct {
+		name string
+		args map[string]any
+		want int
+		ok   bool
+	}{
+		{"nil map fails closed", nil, 0, false},
+		{"nil value fails closed", map[string]any{"n": nil}, 0, false},
+		{"empty string fails closed", map[string]any{"n": ""}, 0, false},
+		{"negative json number truncates toward zero", map[string]any{"n": float64(-4.7)}, -4, true},
+		{"negative int passes through", map[string]any{"n": -3}, -3, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := argInt(tc.args, "n")
+			if got != tc.want || ok != tc.ok {
+				t.Errorf("argInt(%#v) = (%d, %v); want (%d, %v)", tc.args, got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
