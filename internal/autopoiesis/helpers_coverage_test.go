@@ -191,3 +191,55 @@ func TestExtractJSON_WhenStringWithBraces_ShouldHandleQuotes(t *testing.T) {
 		t.Errorf("expected properly handled quoted braces, got %q", got)
 	}
 }
+
+func TestExtractJSON_WhenUnterminated_ShouldReturnEmpty(t *testing.T) {
+	got := extractJSON(`{"a": 1`)
+	if got != "" {
+		t.Errorf("expected empty for unterminated JSON, got %q", got)
+	}
+}
+
+func TestExtractJSON_WhenEscapedQuotes_ShouldExtractFull(t *testing.T) {
+	want := `{"a": "b\"c"}`
+	got := extractJSON(`prefix ` + want + ` suffix`)
+	if got != want {
+		t.Errorf("expected escaped-quote JSON preserved, got %q", got)
+	}
+}
+
+func TestExtractJSON_WhenArrayOfStrings_ShouldExtract(t *testing.T) {
+	want := `["a", "b"]`
+	got := extractJSON(`result: ` + want + ` end`)
+	if got != want {
+		t.Errorf("expected string array extracted, got %q", got)
+	}
+}
+
+func TestHasStrongToolEvidence_WhenUppercaseFailed_ShouldReturnTrue(t *testing.T) {
+	need := &ToolNeed{Triggers: []string{"PREVIOUS ATTEMPT FAILED"}}
+	if !hasStrongToolEvidence(need) {
+		t.Error("expected true for uppercase failed trigger (matching is case-insensitive)")
+	}
+}
+
+func TestShouldGenerateToolNeed_WhenDuplicateTool_ShouldGate(t *testing.T) {
+	o := &Orchestrator{
+		config:  Config{MinConfidence: 0.5, MinToolConfidence: 0.75},
+		toolGen: &ToolGenerator{existingTools: map[string]ToolSchema{"t": {}}},
+	}
+	need := &ToolNeed{Name: "t", Confidence: 0.9}
+	if o.shouldGenerateToolNeed(need) {
+		t.Error("existing tool must gate further generation")
+	}
+}
+
+func TestShouldGenerateToolNeed_WhenNoSessionCap_ShouldPass(t *testing.T) {
+	o := &Orchestrator{
+		config:         Config{MinConfidence: 0.5, MinToolConfidence: 0.75, MaxToolsPerSession: 0},
+		toolsGenerated: 100,
+	}
+	need := &ToolNeed{Name: "t", Confidence: 0.9}
+	if !o.shouldGenerateToolNeed(need) {
+		t.Error("zero MaxToolsPerSession disables the session cap")
+	}
+}
