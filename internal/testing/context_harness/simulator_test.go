@@ -26,6 +26,80 @@ func TestCalculateFactScoreAndReason(t *testing.T) {
 	}
 }
 
+func TestStabilize_InferOperationalMode_PinBranches(t *testing.T) {
+	s := &SessionSimulator{}
+	cases := []struct {
+		name   string
+		intent string
+		want   string
+	}{
+		{"debug", "debug", "/debugging"},
+		{"analyze", "analyze", "/debugging"},
+		{"test", "test", "/testing"},
+		{"test-response", "test-response", "/testing"},
+		{"implement", "implement", "/coding"},
+		{"implement-response", "implement-response", "/coding"},
+		{"refactor", "refactor", "/coding"},
+		{"refactor-response", "refactor-response", "/coding"},
+		{"review", "review", "/reviewing"},
+		{"review-response", "review-response", "/reviewing"},
+		{"unknown falls back", "plan", "/default"},
+		{"empty falls back", "", "/default"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := s.inferOperationalMode(tc.intent); got != tc.want {
+				t.Fatalf("inferOperationalMode(%q) = %q, want %q", tc.intent, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestStabilize_CalculateFactScore_PinBranches(t *testing.T) {
+	cases := []struct {
+		name     string
+		pred     string
+		position int
+		total    int
+		want     float64
+	}{
+		{"no recency when total zero", "turn_error_message", 0, 0, 0.7},
+		{"topic with full recency", "turn_topic", 0, 4, 0.95},
+		{"references file mid recency", "turn_references_file", 2, 4, 0.75},
+		{"conversation turn late", "conversation_turn", 3, 4, 0.625},
+		{"unknown predicate keeps base plus recency", "other_pred", 0, 2, 0.8},
+		{"clamped at one", "turn_error_message", 0, 1, 1.0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := calculateFactScore(core.Fact{Predicate: tc.pred}, tc.position, tc.total)
+			diff := got - tc.want
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff > 1e-9 {
+				t.Fatalf("calculateFactScore(%q,pos=%d,total=%d) = %.4f, want %.4f", tc.pred, tc.position, tc.total, got, tc.want)
+			}
+			if got < 0.0 || got > 1.0 {
+				t.Fatalf("score out of range: %.4f", got)
+			}
+		})
+	}
+}
+
+func TestStabilize_BuildScoreReason_PinBranches(t *testing.T) {
+	fact := core.Fact{Predicate: "turn_topic"}
+	if got := buildScoreReason(fact, 0.7, true); !strings.Contains(got, "Relevant") {
+		t.Fatalf("expected Relevant reason, got %q", got)
+	}
+	if got := buildScoreReason(fact, 0.5, true); !strings.Contains(got, "Retrieved") {
+		t.Fatalf("expected Retrieved reason, got %q", got)
+	}
+	if got := buildScoreReason(fact, 0.6, true); !strings.Contains(got, "Retrieved") {
+		t.Fatalf("expected Retrieved at boundary 0.6, got %q", got)
+	}
+}
+
 func TestConvertToFactActivations(t *testing.T) {
 	facts := []core.Fact{
 		{Predicate: "turn_topic", Args: []any{"t1", "topic"}},
