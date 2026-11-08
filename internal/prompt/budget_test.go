@@ -917,3 +917,60 @@ func TestGenerateReport_ConcurrentWithSetCategoryBudget(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestStabilize_ContentForModeVariants(t *testing.T) {
+	tests := []struct {
+		name     string
+		atom     *PromptAtom
+		mode     string
+		expected string
+	}{
+		{name: "nil atom", atom: nil, mode: "concise", expected: ""},
+		{name: "concise present", atom: &PromptAtom{Content: "full", ContentConcise: "short"}, mode: "concise", expected: "short"},
+		{name: "concise fallback", atom: &PromptAtom{Content: "full"}, mode: "concise", expected: "full"},
+		{name: "min present", atom: &PromptAtom{Content: "full", ContentMin: "tiny"}, mode: "min", expected: "tiny"},
+		{name: "min fallback", atom: &PromptAtom{Content: "full"}, mode: "min", expected: "full"},
+		{name: "unknown mode returns content", atom: &PromptAtom{Content: "full", ContentConcise: "short", ContentMin: "tiny"}, mode: "full", expected: "full"},
+		{name: "empty mode returns content", atom: &PromptAtom{Content: "full"}, mode: "", expected: "full"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, contentForMode(tt.atom, tt.mode))
+		})
+	}
+}
+
+func TestStabilize_TokenCountForModeFallback(t *testing.T) {
+	assert.Equal(t, 0, tokenCountForMode(nil, "concise"))
+
+	full := &PromptAtom{Content: "hello world hello world", TokenCount: 999}
+	// No concise variant falls back to declared TokenCount.
+	assert.Equal(t, 999, tokenCountForMode(full, "concise"))
+	assert.Equal(t, 999, tokenCountForMode(full, "min"))
+	assert.Equal(t, 999, tokenCountForMode(full, "other"))
+
+	concise := &PromptAtom{Content: "hello world hello world hello world hello world", ContentConcise: "hi", TokenCount: 999}
+	assert.Equal(t, EstimateTokens("hi"), tokenCountForMode(concise, "concise"))
+
+	minimal := &PromptAtom{Content: "hello world hello world hello world hello world", ContentMin: "yo", TokenCount: 999}
+	assert.Equal(t, EstimateTokens("yo"), tokenCountForMode(minimal, "min"))
+
+	negative := &PromptAtom{Content: "x", TokenCount: -5}
+	assert.Equal(t, 0, tokenCountForMode(negative, "full"))
+}
+
+func TestStabilize_CategoryPriorityUnknown(t *testing.T) {
+	mgr := NewTokenBudgetManager()
+	require.NotNil(t, mgr)
+	assert.Equal(t, PriorityMandatory, mgr.CategoryPriority(CategorySafety))
+	assert.Equal(t, PriorityUnknown, mgr.CategoryPriority(AtomCategory("no_such_category_xyz")))
+	assert.Equal(t, "unbudgeted", mgr.CategoryPriority(AtomCategory("no_such_category_xyz")).String())
+}
+
+func TestStabilize_GenerateReportEmpty(t *testing.T) {
+	mgr := NewTokenBudgetManager()
+	report := mgr.GenerateReport(nil, 1000)
+	assert.Equal(t, 1000, report.TotalBudget)
+	assert.Equal(t, 0, report.UsedTokens)
+	assert.Empty(t, report.CategoryUsage)
+}
