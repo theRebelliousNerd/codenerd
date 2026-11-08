@@ -475,3 +475,209 @@ func TestResolve_WhenBareNameHasBothCodecs_ShouldPreferGzip(t *testing.T) {
 		t.Fatalf("Resolve dupe = %q, want deterministic gzip %q", got, gz)
 	}
 }
+
+func TestList_WhenMixedEntryKinds_ShouldSkipNonSnapshots(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Export(root, "keep-gz", facts(3), factsnap.CodecGzip); err != nil {
+		t.Fatalf("Export keep-gz: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(Dir(root), "subdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	junk := []string{".hidden" + factsnap.ExtGzip, "notes.txt", "stale" + factsnap.ExtGzip + ".tmp1"}
+	for _, name := range junk {
+		if err := os.WriteFile(filepath.Join(Dir(root), name), []byte("junk"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(Dir(root), "legacy"+factsnap.ExtJSON), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(Dir(root), "noside"+factsnap.ExtGzip), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := List(root)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(entries) != 3 {
+		names := []string{}
+		for _, e := range entries {
+			names = append(names, e.Name+"/"+e.Codec)
+		}
+		t.Fatalf("expected 3 snapshots, got %d: %v", len(entries), names)
+	}
+	byName := map[string]Entry{}
+	for _, e := range entries {
+		byName[e.Name] = e
+	}
+	if byName["keep-gz"].Codec != "gzip" {
+		t.Fatalf("keep-gz codec = %q, want gzip", byName["keep-gz"].Codec)
+	}
+	if !byName["keep-gz"].Verifiable {
+		t.Fatal("keep-gz should be verifiable via its sidecar")
+	}
+	if byName["legacy"].Codec != "json" {
+		t.Fatalf("legacy codec = %q, want json", byName["legacy"].Codec)
+	}
+	if byName["legacy"].Verifiable {
+		t.Fatal("legacy without a sidecar must not report Verifiable")
+	}
+	if byName["noside"].Codec != "gzip" {
+		t.Fatalf("noside codec = %q, want gzip", byName["noside"].Codec)
+	}
+	if byName["noside"].Verifiable {
+		t.Fatal("noside without a sidecar must not report Verifiable")
+	}
+	for _, bad := range []string{"subdir", ".hidden", "notes", "stale"} {
+		if _, ok := byName[bad]; ok {
+			t.Fatalf("List surfaced non-snapshot %q", bad)
+		}
+	}
+}
+
+func TestList_WhenModTimesDiffer_ShouldOrderNewestFirst(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Export(root, "older", facts(2), factsnap.CodecGzip); err != nil {
+		t.Fatalf("Export older: %v", err)
+	}
+	if _, err := Export(root, "newer", facts(2), factsnap.CodecGzip); err != nil {
+		t.Fatalf("Export newer: %v", err)
+	}
+	oldTime := time.Date(2026, 8, 15, 14, 5, 1, 0, time.UTC)
+	newTime := oldTime.Add(time.Hour)
+	if err := os.Chtimes(filepath.Join(Dir(root), "older"+factsnap.ExtGzip), oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(filepath.Join(Dir(root), "newer"+factsnap.ExtGzip), newTime, newTime); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := List(root)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	if entries[0].Name != "newer" || entries[1].Name != "older" {
+		t.Fatalf("newest-first order broken, got %q then %q", entries[0].Name, entries[1].Name)
+	}
+}
+
+func TestSanitizeName_WhenPaddedOrSuffixed_ShouldNormalize(t *testing.T) {
+	got, err := SanitizeName("  kernel  ")
+	if err != nil {
+		t.Fatalf("SanitizeName padded: %v", err)
+	}
+	if got != "kernel" {
+		t.Fatalf("SanitizeName padded = %q, want %q", got, "kernel")
+	}
+	got, err = SanitizeName("kernel" + factsnap.ExtZstd)
+	if err != nil {
+		t.Fatalf("SanitizeName zstd suffix: %v", err)
+	}
+	if got != "kernel" {
+		t.Fatalf("SanitizeName zstd suffix = %q, want %q", got, "kernel")
+	}
+	got, err = SanitizeName("my.snap_01-2")
+	if err != nil {
+		t.Fatalf("SanitizeName dotted: %v", err)
+	}
+	if got != "my.snap_01-2" {
+		t.Fatalf("SanitizeName dotted = %q, want it unchanged", got)
+	}
+	if _, err := SanitizeName("."); err == nil {
+		t.Fatal("SanitizeName(\".\") should be rejected")
+	}
+}
+
+func TestExport_WhenNameHasCodecSuffix_ShouldNotDoubleExtension(t *testing.T) {
+	root := t.TempDir()
+	path, err := Export(root, "dupname"+factsnap.ExtGzip, facts(2), factsnap.CodecGzip)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	want := filepath.Join(Dir(root), "dupname"+factsnap.ExtGzip)
+	if path != want {
+		t.Fatalf("export path = %q, want %q (no doubled suffix)", path, want)
+	}
+	path, err = Export(root, "dupz"+factsnap.ExtZstd, facts(2), factsnap.CodecZstd)
+	if err != nil {
+		t.Fatalf("Export zstd: %v", err)
+	}
+	want = filepath.Join(Dir(root), "dupz"+factsnap.ExtZstd)
+	if path != want {
+		t.Fatalf("export zstd path = %q, want %q", path, want)
+	}
+	if _, err := Export(root, "   ", facts(1), factsnap.CodecGzip); err == nil {
+		t.Fatal("expected empty export name to be rejected")
+	}
+}
+
+func TestResolve_WhenReferenceHasSpacesOrExtension_ShouldResolve(t *testing.T) {
+	root := t.TempDir()
+	path, err := Export(root, "spaced", facts(2), factsnap.CodecGzip)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	got, err := Resolve(root, "  spaced  ")
+	if err != nil {
+		t.Fatalf("Resolve padded: %v", err)
+	}
+	if got != path {
+		t.Fatalf("Resolve padded = %q, want %q", got, path)
+	}
+	got, err = Resolve(root, "spaced"+factsnap.ExtGzip)
+	if err != nil {
+		t.Fatalf("Resolve with extension: %v", err)
+	}
+	if got != path {
+		t.Fatalf("Resolve with extension = %q, want %q", got, path)
+	}
+}
+
+func TestResolve_WhenReferenceIsDirectory_ShouldFail(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(Dir(root), "subdir")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Resolve(root, "subdir"); err == nil {
+		t.Fatal("expected a directory bare name to fail resolution")
+	}
+	if _, err := Resolve(root, sub); err == nil {
+		t.Fatal("expected an explicit directory path to fail resolution")
+	}
+}
+
+func TestCodecFor_WhenCaseAndSpacesVary_ShouldNormalize(t *testing.T) {
+	for _, name := range []string{"  GZIP  ", " Gz ", "GZ"} {
+		if c, err := CodecFor(name); err != nil || c != factsnap.CodecGzip {
+			t.Fatalf("CodecFor(%q) = %v, %v; want gzip", name, c, err)
+		}
+	}
+	for _, name := range []string{"  ZSTD  ", " zst ", "ZStd"} {
+		if c, err := CodecFor(name); err != nil || c != factsnap.CodecZstd {
+			t.Fatalf("CodecFor(%q) = %v, %v; want zstd", name, c, err)
+		}
+	}
+}
+
+func TestImport_WhenGivenExplicitPath_ShouldImport(t *testing.T) {
+	root := t.TempDir()
+	want := facts(5)
+	path, err := Export(root, "explicit-import", want, factsnap.CodecGzip)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	got, resolved, err := Import(root, path)
+	if err != nil {
+		t.Fatalf("Import explicit path: %v", err)
+	}
+	if resolved != path {
+		t.Fatalf("Import resolved %q, want %q", resolved, path)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("imported %d facts, exported %d", len(got), len(want))
+	}
+}
