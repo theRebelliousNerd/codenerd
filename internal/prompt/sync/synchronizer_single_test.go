@@ -384,3 +384,37 @@ func BenchmarkSyncAllUnchanged(b *testing.B) {
 		}
 	}
 }
+
+func TestSyncAll_IgnoresStrayFilesInAgentsDir(t *testing.T) {
+	root := t.TempDir()
+	writeAgentYAML(t, root, "Good", agentYAML("good", 1, "Good"))
+	if err := os.WriteFile(filepath.Join(root, ".nerd", "agents", "stray.yaml"), []byte("id: stray"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	syncer := NewAgentSynchronizer(root, prompt.NewAtomLoader(nil))
+	if err := syncer.SyncAll(context.Background()); err != nil {
+		t.Fatalf("SyncAll: %v", err)
+	}
+	got := syncer.GetDiscoveredAgents()
+	if len(got) != 1 || got[0].ID != "Good" {
+		t.Fatalf("discovered = %v, want [Good]", got)
+	}
+}
+
+func TestRecordDiscovered_UpdatesExistingIDCaseInsensitively(t *testing.T) {
+	root := t.TempDir()
+	writeAgentYAML(t, root, "Delta", agentYAML("delta", 1, "Delta"))
+	syncer := NewAgentSynchronizer(root, prompt.NewAtomLoader(nil))
+	if _, err := syncer.SyncAgent(context.Background(), "Delta"); err != nil {
+		t.Fatal(err)
+	}
+	wantDB := filepath.Join(root, ".nerd", "shards", "delta_knowledge.db")
+	syncer.recordDiscovered("DELTA", wantDB)
+	got := syncer.GetDiscoveredAgents()
+	if len(got) != 1 {
+		t.Fatalf("discovered = %v, want one entry after case-insensitive update", got)
+	}
+	if got[0].DBPath != wantDB {
+		t.Errorf("DBPath = %s, want %s", got[0].DBPath, wantDB)
+	}
+}

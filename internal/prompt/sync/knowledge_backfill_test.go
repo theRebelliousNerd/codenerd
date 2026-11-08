@@ -332,3 +332,54 @@ func TestBackfillMissingVectors_CancelledContextStops(t *testing.T) {
 }
 
 var errBackfillTest = errors.New("backfill test embed failure")
+
+func TestStoreVectorForAtom_DBErrorIsReturned(t *testing.T) {
+	db, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "novectors.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	err = storeVectorForAtom(context.Background(), db, &fakeBackfillEngine{}, "fake-test", knowledgeAtomRow{concept: "c", content: "hi", confidence: 0.9})
+	if err == nil {
+		t.Fatal("storeVectorForAtom() with missing vectors table = nil, want error")
+	}
+}
+
+func TestBackfillMissingVectors_DeduplicatesDuplicateRowsInOneBatch(t *testing.T) {
+	db := openSeededTestDB(t, filepath.Join(t.TempDir(), "dedupe_knowledge.db"))
+	atoms := []knowledgeAtomRow{
+		{concept: "c", content: "same", confidence: 0.9},
+		{concept: "c", content: "same", confidence: 0.9},
+	}
+	eng := &fakeBackfillEngine{}
+	if done := backfillMissingVectors(context.Background(), db, eng, atoms, map[string]bool{}); done != 1 {
+		t.Fatalf("backfillMissingVectors() with duplicate rows = %d, want 1", done)
+	}
+	if got := vectorCount(t, db); got != 1 {
+		t.Fatalf("vectorCount() = %d, want 1", got)
+	}
+	if eng.calls != 1 {
+		t.Fatalf("embed calls = %d, want 1", eng.calls)
+	}
+}
+
+func TestSyncMetadata_HashRoundTrip(t *testing.T) {
+	db, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "meta.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := ensureSyncMetadataTable(db); err != nil {
+		t.Fatalf("ensureSyncMetadataTable() = %v", err)
+	}
+	if _, err := getLastSyncHash(db, "agentX"); err == nil {
+		t.Fatal("getLastSyncHash() on missing key = nil, want error")
+	}
+	if err := setLastSyncHash(db, "agentX", "abc123"); err != nil {
+		t.Fatalf("setLastSyncHash() = %v", err)
+	}
+	got, err := getLastSyncHash(db, "agentX")
+	if err != nil || got != "abc123" {
+		t.Fatalf("getLastSyncHash() = %q, %v; want abc123", got, err)
+	}
+}
