@@ -227,3 +227,170 @@ func TestSnapshotTracksDirtyUntrackedAndConfiguration(t *testing.T) {
 		t.Fatal("configuration omitted")
 	}
 }
+
+func TestContractValidate_PinBoundaries(t *testing.T) {
+	valid := func() Contract {
+		_, c := fixture(t)
+		return c
+	}
+	if err := valid().Validate(); err != nil {
+		t.Fatalf("fixture contract must validate: %v", err)
+	}
+	cases := map[string]func(*Contract){
+		"empty task":      func(c *Contract) { c.Task = "  " },
+		"empty authority": func(c *Contract) { c.Authority = "" },
+		"no obligations":  func(c *Contract) { c.Obligations = nil },
+		"missing reproducer": func(c *Contract) {
+			for i := range c.Obligations {
+				c.Obligations[i].Reproducer = false
+			}
+		},
+		"duplicate id":        func(c *Contract) { c.Obligations[1].ID = c.Obligations[0].ID },
+		"empty description":   func(c *Contract) { c.Obligations[0].Description = "" },
+		"bad test name":       func(c *Contract) { c.Obligations[0].Test = "test_add" },
+		"bad package parent":  func(c *Contract) { c.Obligations[0].Package = "../escape" },
+		"bad package space":   func(c *Contract) { c.Obligations[0].Package = "./has space" },
+		"missing test suffix": func(c *Contract) { c.Obligations[0].TestFile = "add.go" },
+	}
+	for name, mutate := range cases {
+		c := valid()
+		mutate(&c)
+		if err := c.Validate(); err == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+	overflow := valid()
+	for len(overflow.Obligations) <= 32 {
+		extra := overflow.Obligations[0]
+		extra.ID += string(rune('a' + len(overflow.Obligations)))
+		overflow.Obligations = append(overflow.Obligations, extra)
+	}
+	if err := overflow.Validate(); err == nil {
+		t.Fatal("more than 32 obligations accepted")
+	}
+}
+
+func TestLoadContract_PinSingleObjectContract(t *testing.T) {
+	dir := t.TempDir()
+	valid := `{"task":"t","authority":"a","obligations":[{"id":"x","description":"d","package":".","test":"TestX","test_file":"x_test.go","reproducer":true}]}`
+	validPath := filepath.Join(dir, "valid.json")
+	if err := os.WriteFile(validPath, []byte(valid), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadContract(validPath); err != nil {
+		t.Fatalf("valid contract rejected: %v", err)
+	}
+	unknownPath := filepath.Join(dir, "unknown.json")
+	if err := os.WriteFile(unknownPath, []byte(`{"task":"t","authority":"a","extra":1,"obligations":[{"id":"x","description":"d","package":".","test":"TestX","test_file":"x_test.go","reproducer":true}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadContract(unknownPath); err == nil {
+		t.Fatal("unknown field accepted")
+	}
+	trailingPath := filepath.Join(dir, "trailing.json")
+	if err := os.WriteFile(trailingPath, []byte(valid+"\n{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadContract(trailingPath); err == nil {
+		t.Fatal("trailing JSON accepted")
+	}
+	if _, err := LoadContract(filepath.Join(dir, "missing.json")); err == nil {
+		t.Fatal("missing file accepted")
+	}
+	badPath := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(badPath, []byte(`{not json`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadContract(badPath); err == nil {
+		t.Fatal("malformed JSON accepted")
+	}
+}
+
+func TestPersist_PinIdentityValidation(t *testing.T) {
+	root, _ := fixture(t)
+	badID := Report{ContractID: "not-hex", After: ""}
+	if _, err := Persist(root, badID); err == nil {
+		t.Fatal("invalid contract ID accepted")
+	}
+	badAfter := Report{ContractID: strings.Repeat("a", 64), After: "zzz"}
+	if _, err := Persist(root, badAfter); err == nil {
+		t.Fatal("invalid after snapshot accepted")
+	}
+	ok := Report{ContractID: strings.Repeat("b", 64), After: "", Status: "unverified"}
+	path, err := Persist(root, ok)
+	if err != nil {
+		t.Fatalf("empty after snapshot rejected: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("persisted report missing: %v", err)
+	}
+}
+
+func TestVerify_RequiresArtifactChange(t *testing.T) {
+	root, c := fixture(t)
+	ctx := context.Background()
+	tx, err := Begin(ctx, root, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := tx.Verify(ctx)
+	if r.Status == "verified" {
+		t.Fatal("unchanged workspace verified")
+	}
+	found := false
+	for _, u := range r.Unknown {
+		if strings.Contains(u, "no artifact change") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing no-change signal: %+v", r)
+	}
+}
+
+func TestWithContract_CopiesObligations(t *testing.T) {
+	_, c := fixture(t)
+	ctx := WithContract(context.Background(), c)
+	c.Obligations[0].ID = "mutated"
+	got, ok := ContractFromContext(ctx)
+	if !ok {
+		t.Fatal("contract missing from context")
+	}
+	if got.Obligations[0].ID == "mutated" {
+		t.Fatal("WithContract retained caller slice")
+	}
+	got.Obligations[0].ID = "mutated-again"
+	again, _ := ContractFromContext(ctx)
+	if again.Obligations[0].ID == "mutated-again" {
+		t.Fatal("ContractFromContext exposed stored slice")
+	}
+	if _, ok := ContractFromContext(context.Background()); ok {
+		t.Fatal("empty context reported a contract")
+	}
+}
+
+func TestReportSummaryAndUnverified_PinStatus(t *testing.T) {
+	_, c := fixture(t)
+	r := Report{Contract: c, ContractID: strings.Repeat("c", 64), Before: strings.Repeat("0", 64), After: strings.Repeat("1", 64), Status: "verified"}
+	r.Witnesses = []Witness{{Obligation: "sum", Status: "passed"}}
+	r.Unknown = []string{"note"}
+	s := r.Summary()
+	if !strings.Contains(s, "verified") || !strings.Contains(s, "sum: passed") || !strings.Contains(s, "Unverified: note") {
+		t.Fatalf("summary omitted status, witness or unknown: %q", s)
+	}
+	shortAfter := s
+	if !strings.Contains(shortAfter, r.After[:12]) {
+		t.Fatalf("summary did not shorten after snapshot: %q", s)
+	}
+	unverifiedTx := &Transaction{report: Report{Contract: c}}
+	u := unverifiedTx.Unverified("reason")
+	if u.Status != "unverified" || len(u.Unknown) != 1 || u.Unknown[0] != "reason" {
+		t.Fatalf("Unverified did not pin reason: %+v", u)
+	}
+	if got := short(strings.Repeat("x", 64)); len(got) != 12 {
+		t.Fatalf("short did not truncate: %q", got)
+	}
+	if got := short("tiny"); got != "tiny" {
+		t.Fatalf("short altered small input: %q", got)
+	}
+}
