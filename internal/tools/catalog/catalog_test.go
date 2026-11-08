@@ -111,6 +111,64 @@ func TestConditionalTool_StaysOutOfFamilies(t *testing.T) {
 		t.Fatalf("catalog.Names omits conditional tool %q", name)
 	}
 }
+func TestFamilies_CopyIsolated(t *testing.T) {
+	first := catalog.Families()
+	if len(first) == 0 {
+		t.Fatal("catalog.Families is empty")
+	}
+	first[0].Name = "mutated-not-a-family"
+	first[0].Register = nil
+	second := catalog.Families()
+	if second[0].Name == "mutated-not-a-family" {
+		t.Fatal("Families exposes its internal slice: mutating the result changed the catalog")
+	}
+	if second[0].Register == nil {
+		t.Fatal("Families exposes its internal slice: nil registrar leaked back")
+	}
+	if len(second) != len(first) {
+		t.Fatalf("Families length changed: %d vs %d", len(second), len(first))
+	}
+}
+
+type unsupportedSearcher struct{ conditionalProbeSearcher }
+
+func (unsupportedSearcher) SupportsGroundedWebSearch() bool { return false }
+
+func TestRegisterGroundedWebSearch_UnsupportedSearcherSkips(t *testing.T) {
+	reg := tools.NewRegistry()
+	ok, err := catalog.RegisterGroundedWebSearch(reg, unsupportedSearcher{})
+	if err != nil {
+		t.Fatalf("RegisterGroundedWebSearch(unsupported): %v", err)
+	}
+	if ok {
+		t.Fatal("RegisterGroundedWebSearch(unsupported) reported install")
+	}
+	if reg.Count() != 0 {
+		t.Fatalf("unsupported searcher installed %v", reg.Names())
+	}
+}
+
+func TestNames_ContainsEveryFamilyTool(t *testing.T) {
+	names, err := catalog.Names()
+	if err != nil {
+		t.Fatalf("catalog.Names: %v", err)
+	}
+	have := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		have[n] = struct{}{}
+	}
+	for _, family := range catalog.Families() {
+		reg := tools.NewRegistry()
+		if err := family.Register(reg); err != nil {
+			t.Fatalf("%s.RegisterAll: %v", family.Name, err)
+		}
+		for _, n := range reg.Names() {
+			if _, ok := have[n]; !ok {
+				t.Errorf("catalog.Names omits %q from family %q", n, family.Name)
+			}
+		}
+	}
+}
 
 func contains(names []string, want string) bool {
 	for _, name := range names {
