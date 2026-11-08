@@ -403,18 +403,57 @@ type TransducerWithKernel interface {
 	SetKernel(kernel *core.RealKernel)
 }
 
-// GetShardTypeForVerb returns the shard type associated with a canonical verb.
-// Returns empty string if verb is not found in the VerbCorpus.
-// IsTaxonomyVerb reports whether the built-in verb taxonomy defines verb,
-// whatever its shard type (a ShardType /none verb such as /explain is still a
-// taxonomy verb, never a user agent's name).
+// builtinVerbShardTypes maps non-canonical built-in intent verbs (from
+// policy/intent_routing_rules.mg verb_persona and policy/delegation.mg
+// persona_verb) to their bare shard persona name (or "" for /general).
+// Canonical classification verbs live in DefaultTaxonomyData / VerbCorpus;
+// these verbs are emitted by persona_verb normalization (e.g. /nemesis ->
+// /attack, /librarian -> /learn, /planner -> /plan, /legislator ->
+// /legislate, /generalist -> /implement) and by adapter/config aliases.
+// Keeping them here ensures GetShardTypeForVerb, IsTaxonomyVerb, agentName,
+// turnUserAgent, and buildCompilationContextWith resolve the right shard
+// persona instead of mistaking "/attack" for a user-defined agent named
+// "attack".
+var builtinVerbShardTypes = map[string]string{
+	"/implement":     "coder",
+	"/modify":        "coder",
+	"/add":           "coder",
+	"/update":        "coder",
+	"/cover":         "tester",
+	"/verify":        "tester",
+	"/validate":      "tester",
+	"/check":         "reviewer",
+	"/inspect":       "reviewer",
+	"/learn":         "researcher",
+	"/understand":    "researcher",
+	"/find":          "researcher",
+	"/attack":        "nemesis",
+	"/break":         "nemesis",
+	"/exploit":       "nemesis",
+	"/fuzz":          "nemesis",
+	"/pentest":       "nemesis",
+	"/generate":      "tool_generator",
+	"/generate-tool": "tool_generator",
+	"/create_tool":   "tool_generator",
+	"/plan":          "planner",
+	"/legislate":     "legislator",
+	"/general":       "",
+}
+
+// GetShardTypeForVerb returns the shard type associated with a canonical or
+// built-in alias verb. Returns empty string if verb is not found or routes no
+// persona (/none, /general).
+// IsTaxonomyVerb reports whether the built-in verb taxonomy or alias set
+// defines verb, whatever its shard type (a ShardType /none verb such as
+// /explain is still a taxonomy verb, never a user agent's name).
 func IsTaxonomyVerb(verb string) bool {
 	for _, entry := range GetVerbCorpus() {
 		if entry.Verb == verb {
 			return true
 		}
 	}
-	return false
+	_, ok := builtinVerbShardTypes[verb]
+	return ok
 }
 
 func GetShardTypeForVerb(verb string) string {
@@ -424,7 +463,7 @@ func GetShardTypeForVerb(verb string) string {
 			return entry.ShardType
 		}
 	}
-	return ""
+	return builtinVerbShardTypes[verb]
 }
 
 // =============================================================================

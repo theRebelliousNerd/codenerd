@@ -98,9 +98,14 @@ func TestRunsIsolated_IsTheKernels(t *testing.T) {
 func TestAgentName_FollowsTheTaxonomy(t *testing.T) {
 	for in, want := range map[string]string{
 		"/fix":                "coder",
+		"/implement":          "coder",
 		"/test":               "tester",
 		"/review":             "reviewer",
 		"/research":           "researcher",
+		"/learn":              "researcher",
+		"/attack":             "nemesis",
+		"/plan":               "planner",
+		"/legislate":          "legislator",
 		"/consult/rustexpert": "rustexpert",
 		"":                    "executor",
 		"/":                   "executor",

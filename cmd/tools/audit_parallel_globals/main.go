@@ -117,6 +117,9 @@ var watched = map[string]map[string]string{
 		"SetMemoryLimit": "changes the garbage collector for the whole process",
 		"SetMaxStack":    "changes the stack limit for the whole process",
 	},
+	"codenerd/internal/northstar": {
+		"ResetGuardianRegistry": "closes every shared Guardian across the whole process, including every other parallel test's; ReleaseGuardian is the per-directory cleanup",
+	},
 }
 
 type finding struct {
@@ -483,6 +486,11 @@ func watchedCall(fset *token.FileSet, call *ast.CallExpr, pkg, fn string, names 
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return finding{}, false
+	}
+	if sel.Sel.Name == "Cleanup" && len(call.Args) == 1 {
+		if argSel, ok := call.Args[0].(*ast.SelectorExpr); ok {
+			sel = argSel
+		}
 	}
 	ident, ok := sel.X.(*ast.Ident)
 	if !ok {

@@ -1772,9 +1772,10 @@ func (e *Executor) buildCompilationContextWith(ctx context.Context, intent perce
 	// announcement instead of doing the work. That is the hollow-output class
 	// previously treated as a model failure and papered over with retries.
 	//
-	// GetShardTypeForVerb is the same verb->persona mapping the routing layer
-	// uses, so the prompt agrees with the router about who is acting.
-	if shardType := perception.GetShardTypeForVerb(intent.Verb); shardType != "" {
+	// shardTypeForVerb resolves the built-in persona from the taxonomy/alias
+	// corpus and falls back to the kernel's verb_persona table so the prompt
+	// agrees with the router about who is acting.
+	if shardType := e.shardTypeForVerb(intent.Verb); shardType != "" {
 		cc.ShardType = "/" + strings.TrimPrefix(shardType, "/")
 		// ShardID selects the per-shard atom DB and must be the bare agent
 		// name, not an instance id.
@@ -1844,6 +1845,31 @@ func (e *Executor) buildCompilationContextWith(ctx context.Context, intent perce
 	e.mu.RUnlock()
 	e.resolveAvailableTools(ctx, cc, intent)
 	return cc
+}
+
+// shardTypeForVerb returns the built-in persona for verb from the taxonomy or
+// the kernel's verb_persona table, or "" when verb is persona-less (/none,
+// /general) or a custom user agent.
+func (e *Executor) shardTypeForVerb(verb string) string {
+	if shardType := perception.GetShardTypeForVerb(verb); shardType != "" {
+		return shardType
+	}
+	if perception.IsTaxonomyVerb(verb) || e == nil || e.kernel == nil || !validMangleVerb(verb) {
+		return ""
+	}
+	rows, err := e.kernel.Query(fmt.Sprintf("verb_persona(%s, Persona)", verb))
+	if err != nil {
+		return ""
+	}
+	for _, f := range rows {
+		if len(f.Args) == 2 {
+			persona := strings.TrimPrefix(types.ExtractString(f.Args[1]), "/")
+			if persona != "" && persona != "general" && persona != "none" {
+				return persona
+			}
+		}
+	}
+	return ""
 }
 
 // applyCampaignPhase copies an active campaign's phase onto the compilation

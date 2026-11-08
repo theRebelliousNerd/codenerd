@@ -607,3 +607,88 @@ func TestKeyPool_A403DeniesTheRequestNotTheCredential(t *testing.T) {
 		t.Fatalf("credential %q was never selected again after one denied request: %v", denied, messages)
 	}
 }
+
+func TestKeyPool_NetworkFailureRetriesOnLastKeyAndRotatesWhenFallbackExists(t *testing.T) {
+	t.Run("single_key_retries_in_adapter", func(t *testing.T) {
+		var attempts atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/messages/count_tokens" {
+				poolReply(w, r, false)
+				return
+			}
+			if attempts.Add(1) == 1 {
+				hj, ok := w.(http.Hijacker)
+				if !ok {
+					t.Fatal("server does not support hijacking")
+				}
+				conn, _, err := hj.Hijack()
+				if err != nil {
+					t.Fatal(err)
+				}
+				_ = conn.Close()
+				return
+			}
+			poolReply(w, r, false)
+		}))
+		defer srv.Close()
+
+		id := poolTestSequence.Add(1)
+		cfg := &ProviderConfig{
+			Provider: ProviderAnthropic,
+			Model:    "claude-opus-5-5",
+			BaseURL:  srv.URL,
+			APIKeys: []config.ResolvedProviderAPIKey{
+				{Name: "solo", Key: fmt.Sprintf("test-secret-%d-solo", id), WorkspaceID: "wrkspc_solo"},
+			},
+		}
+		client, err := NewClientFromConfig(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := client.Complete(context.Background(), "hi")
+		if err != nil {
+			t.Fatalf("Complete failed after transient transport drop on single-key pool: %v", err)
+		}
+		if got != `{"answer":"yes"}` || attempts.Load() != 2 {
+			t.Fatalf("got=%q attempts=%d, want {\"answer\":\"yes\"} after 2 attempts", got, attempts.Load())
+		}
+	})
+
+	t.Run("multi_key_rotates_immediately", func(t *testing.T) {
+		var aAttempts, bAttempts atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/messages/count_tokens" {
+				poolReply(w, r, false)
+				return
+			}
+			if strings.HasSuffix(r.Header.Get("x-api-key"), "-a") {
+				aAttempts.Add(1)
+				hj, ok := w.(http.Hijacker)
+				if !ok {
+					t.Fatal("server does not support hijacking")
+				}
+				conn, _, err := hj.Hijack()
+				if err != nil {
+					t.Fatal(err)
+				}
+				_ = conn.Close()
+				return
+			}
+			bAttempts.Add(1)
+			poolReply(w, r, false)
+		}))
+		defer srv.Close()
+
+		client, err := NewClientFromConfig(testPoolConfig(t, srv.URL))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := client.Complete(context.Background(), "hi")
+		if err != nil {
+			t.Fatalf("Complete failed on multi-key pool failover: %v", err)
+		}
+		if got != `{"answer":"yes"}` || aAttempts.Load() != 1 || bAttempts.Load() != 1 {
+			t.Fatalf("got=%q aAttempts=%d bAttempts=%d, want immediate failover to key b", got, aAttempts.Load(), bAttempts.Load())
+		}
+	})
+}

@@ -60,7 +60,11 @@ func (t poolObservedTransport) RoundTrip(req *http.Request) (*http.Response, err
 	if err != nil {
 		if req.Context().Err() == nil {
 			attempt.failure(0, 0, true)
-			return &http.Response{StatusCode: 503, Header: make(http.Header), Body: &poolFailureBody{ReadCloser: io.NopCloser(strings.NewReader(`{"error":{"message":"provider transport unavailable"}}`)), cancel: attempt.cancel}, Request: req}, nil
+			body := io.NopCloser(strings.NewReader(`{"error":{"message":"provider transport unavailable"}}`))
+			if attempt.hasFallback {
+				body = &poolFailureBody{ReadCloser: body, cancel: attempt.cancel}
+			}
+			return &http.Response{StatusCode: 503, Header: make(http.Header), Body: body, Request: req}, nil
 		}
 		return resp, err
 	}
