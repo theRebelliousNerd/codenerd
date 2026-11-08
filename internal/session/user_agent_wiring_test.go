@@ -60,9 +60,15 @@ func TestBuiltinVerbsKeepTheirPersona(t *testing.T) {
 	// when the mock LLM returns text without calling a tool, which is correct
 	// behavior and unrelated to what this test asserts.
 	cases := map[string]string{
-		"/review":   "reviewer",
-		"/research": "researcher",
-		"/explore":  "researcher",
+		"/review":    "reviewer",
+		"/research":  "researcher",
+		"/explore":   "researcher",
+		"/attack":    "nemesis",
+		"/learn":     "researcher",
+		"/check":     "reviewer",
+		"/verify":    "tester",
+		"/plan":      "planner",
+		"/legislate": "legislator",
 	}
 
 	for verb, wantShard := range cases {
@@ -86,6 +92,14 @@ func TestBuiltinVerbsKeepTheirPersona(t *testing.T) {
 		if seen.ShardID != wantShard {
 			t.Errorf("%s: ShardID = %q, want %q (built-in taxonomy must win over the user-agent fallback)",
 				verb, seen.ShardID, wantShard)
+		}
+		if seen.ShardType != "/"+wantShard {
+			t.Errorf("%s: ShardType = %q, want %q (built-in taxonomy must win over the user-agent fallback)",
+				verb, seen.ShardType, "/"+wantShard)
+		}
+		if gotAgent := turnUserAgent(verb); gotAgent != "" {
+			t.Errorf("turnUserAgent(%s) = %q, want \"\" (built-in verb must never look like a user agent)",
+				verb, gotAgent)
 		}
 	}
 }

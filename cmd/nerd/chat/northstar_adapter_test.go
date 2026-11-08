@@ -28,7 +28,6 @@ func (c *scriptedAlignmentClient) CompleteWithSystem(ctx context.Context, system
 
 func newTestAdapter(t *testing.T, response string) *northstarHandlerAdapter {
 	t.Helper()
-	t.Cleanup(northstar.ResetGuardianRegistry)
 
 	nerdDir := t.TempDir()
 	guardian, err := northstar.AcquireGuardian(nerdDir, northstar.DefaultGuardianConfig())
@@ -120,7 +119,6 @@ func TestNorthstarHandlerAdapter_WhenGuardianPasses_ShouldReturnProceed(t *testi
 
 func TestNorthstarHandlerAdapter_WhenNoVisionDefined_ShouldReturnNilAssessment(t *testing.T) {
 	t.Parallel()
-	t.Cleanup(northstar.ResetGuardianRegistry)
 
 	nerdDir := t.TempDir()
 	guardian, err := northstar.AcquireGuardian(nerdDir, northstar.DefaultGuardianConfig())
