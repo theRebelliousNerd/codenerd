@@ -1,11 +1,16 @@
 package core
 
 import (
+	"fmt"
+
 	"codenerd/internal/tools"
 )
 
 // RegisterAll registers all core filesystem tools with the given registry.
 func RegisterAll(registry *tools.Registry) error {
+	if registry == nil {
+		return fmt.Errorf("core tools registry is nil")
+	}
 	allTools := []*tools.Tool{
 		// File operations
 		ReadFileTool(),

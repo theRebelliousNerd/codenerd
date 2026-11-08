@@ -18,4 +18,7 @@ func TestRegisterAllCore(t *testing.T) {
 	if err := RegisterAll(r); err != nil {
 		t.Errorf("second RegisterAll should be a no-op, got: %v", err)
 	}
+	if err := RegisterAll(nil); err == nil {
+		t.Error("expected RegisterAll(nil) to return an error")
+	}
 }
