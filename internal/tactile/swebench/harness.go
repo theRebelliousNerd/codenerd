@@ -5,6 +5,7 @@ package swebench
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"codenerd/internal/logging"
@@ -35,6 +36,11 @@ func NewHarness(
 	config python.EnvironmentConfig,
 	executor tactile.ContainerRuntime,
 ) *Harness {
+	// NewHarness tolerates a nil instance so callers that wire
+	// configuration before data do not panic on RepoName/GitURL.
+	if instance == nil {
+		instance = &Instance{}
+	}
 	// Convert SWE-bench instance to general project info
 	project := &python.ProjectInfo{
 		Name:   instance.RepoName(),
@@ -79,6 +85,12 @@ func (h *Harness) Teardown(ctx context.Context) error {
 
 // Reset restores to post-setup state.
 func (h *Harness) Reset(ctx context.Context) error {
+	if h == nil {
+		return fmt.Errorf("swebench: Reset called with nil harness")
+	}
+	if h.env == nil {
+		return fmt.Errorf("swebench: Reset called with nil environment")
+	}
 	return h.env.Reset(ctx)
 }
 
@@ -113,16 +125,34 @@ func (h *Harness) Environment() *python.Environment {
 
 // RunFailToPassTests runs only the FAIL_TO_PASS tests.
 func (h *Harness) RunFailToPassTests(ctx context.Context) (map[string]*python.TestResult, error) {
+	if h == nil || h.instance == nil {
+		return nil, fmt.Errorf("swebench: RunFailToPassTests called with nil harness or instance")
+	}
+	if h.env == nil {
+		return nil, fmt.Errorf("swebench: RunFailToPassTests called with nil environment")
+	}
 	return h.env.RunTests(ctx, h.instance.FailToPass)
 }
 
 // RunPassToPassTests runs only the PASS_TO_PASS tests.
 func (h *Harness) RunPassToPassTests(ctx context.Context) (map[string]*python.TestResult, error) {
+	if h == nil || h.instance == nil {
+		return nil, fmt.Errorf("swebench: RunPassToPassTests called with nil harness or instance")
+	}
+	if h.env == nil {
+		return nil, fmt.Errorf("swebench: RunPassToPassTests called with nil environment")
+	}
 	return h.env.RunTests(ctx, h.instance.PassToPass)
 }
 
 // Evaluate runs the full SWE-bench evaluation: apply patch, run tests, compute metrics.
 func (h *Harness) Evaluate(ctx context.Context, prediction *Prediction) (*EvaluationResult, error) {
+	if h == nil || h.instance == nil {
+		return nil, fmt.Errorf("swebench: Evaluate called with nil harness or instance")
+	}
+	if h.env == nil {
+		return nil, fmt.Errorf("swebench: Evaluate called with nil environment")
+	}
 	logging.Tactile("Evaluating prediction for %s", h.instance.InstanceID)
 	startTime := time.Now()
 
@@ -132,12 +162,26 @@ func (h *Harness) Evaluate(ctx context.Context, prediction *Prediction) (*Evalua
 		PassToPassResults: make(map[string]TestResult),
 		StartedAt:         startTime,
 	}
+	finish := func() {
+		evalResult.CompletedAt = time.Now()
+		evalResult.Duration = evalResult.CompletedAt.Sub(startTime)
+		evalResult.TestDuration = evalResult.Duration
+	}
+
+	if prediction == nil {
+		evalResult.Error = "nil prediction"
+		evalResult.ErrorPhase = "patch"
+		evalResult.PatchApplied = false
+		finish()
+		return evalResult, fmt.Errorf("swebench: nil prediction")
+	}
 
 	// Apply patch
 	if err := h.ApplyPatch(ctx, prediction.ModelPatch); err != nil {
 		evalResult.Error = err.Error()
 		evalResult.ErrorPhase = "patch"
 		evalResult.PatchApplied = false
+		finish()
 		return evalResult, nil
 	}
 	evalResult.PatchApplied = true
@@ -148,9 +192,19 @@ func (h *Harness) Evaluate(ctx context.Context, prediction *Prediction) (*Evalua
 	if err != nil {
 		evalResult.Error = err.Error()
 		evalResult.ErrorPhase = "test"
+		finish()
 		return evalResult, nil
 	}
 	for name, result := range ftpResults {
+		if result == nil {
+			evalResult.FailToPassResults[name] = TestResult{
+				TestName:     name,
+				Passed:       false,
+				ErrorMessage: "nil test result",
+			}
+			evalResult.FailedTests++
+			continue
+		}
 		evalResult.FailToPassResults[name] = TestResult{
 			TestName:     result.TestName,
 			Passed:       result.Passed,
@@ -172,9 +226,19 @@ func (h *Harness) Evaluate(ctx context.Context, prediction *Prediction) (*Evalua
 	if err != nil {
 		evalResult.Error = err.Error()
 		evalResult.ErrorPhase = "test"
+		finish()
 		return evalResult, nil
 	}
 	for name, result := range ptpResults {
+		if result == nil {
+			evalResult.PassToPassResults[name] = TestResult{
+				TestName:     name,
+				Passed:       false,
+				ErrorMessage: "nil test result",
+			}
+			evalResult.FailedTests++
+			continue
+		}
 		evalResult.PassToPassResults[name] = TestResult{
 			TestName:     result.TestName,
 			Passed:       result.Passed,
@@ -194,9 +258,7 @@ func (h *Harness) Evaluate(ctx context.Context, prediction *Prediction) (*Evalua
 	evalResult.TotalTests = len(h.instance.FailToPass) + len(h.instance.PassToPass)
 	evalResult.Resolved = evalResult.FailToPassRate() == 100.0 && evalResult.PassToPassRate() == 100.0
 
-	evalResult.CompletedAt = time.Now()
-	evalResult.Duration = evalResult.CompletedAt.Sub(startTime)
-	evalResult.TestDuration = evalResult.Duration
+	finish()
 
 	logging.Tactile("Evaluation complete: %s", evalResult.Summary())
 	return evalResult, nil
@@ -204,6 +266,9 @@ func (h *Harness) Evaluate(ctx context.Context, prediction *Prediction) (*Evalua
 
 // EvaluateWithReset evaluates and then resets the environment for next attempt.
 func (h *Harness) EvaluateWithReset(ctx context.Context, prediction *Prediction) (*EvaluationResult, error) {
+	if h == nil || h.instance == nil {
+		return nil, fmt.Errorf("swebench: EvaluateWithReset called with nil harness or instance")
+	}
 	result, err := h.Evaluate(ctx, prediction)
 
 	// Reset for next evaluation attempt

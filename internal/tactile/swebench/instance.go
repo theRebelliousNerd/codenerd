@@ -167,6 +167,9 @@ func LoadInstance(path string) (*Instance, error) {
 
 // RepoOwner returns the repository owner (e.g., "django" from "django/django").
 func (i *Instance) RepoOwner() string {
+	if i == nil {
+		return ""
+	}
 	parts := strings.Split(i.Repo, "/")
 	if len(parts) >= 1 {
 		return parts[0]
@@ -176,6 +179,9 @@ func (i *Instance) RepoOwner() string {
 
 // RepoName returns the repository name (e.g., "django" from "django/django").
 func (i *Instance) RepoName() string {
+	if i == nil {
+		return ""
+	}
 	parts := strings.Split(i.Repo, "/")
 	if len(parts) >= 2 {
 		return parts[1]
@@ -185,11 +191,17 @@ func (i *Instance) RepoName() string {
 
 // GitURL returns the full Git URL for cloning.
 func (i *Instance) GitURL() string {
+	if i == nil || i.Repo == "" {
+		return ""
+	}
 	return fmt.Sprintf("https://github.com/%s.git", i.Repo)
 }
 
 // AllTests returns all test names (FAIL_TO_PASS + PASS_TO_PASS).
 func (i *Instance) AllTests() []string {
+	if i == nil {
+		return nil
+	}
 	all := make([]string, 0, len(i.FailToPass)+len(i.PassToPass))
 	all = append(all, i.FailToPass...)
 	all = append(all, i.PassToPass...)
@@ -198,11 +210,17 @@ func (i *Instance) AllTests() []string {
 
 // TestCount returns the total number of tests.
 func (i *Instance) TestCount() int {
+	if i == nil {
+		return 0
+	}
 	return len(i.FailToPass) + len(i.PassToPass)
 }
 
 // String returns a human-readable representation.
 func (i *Instance) String() string {
+	if i == nil {
+		return "Instance{<nil>}"
+	}
 	return fmt.Sprintf("Instance{ID: %s, Repo: %s, Version: %s, Tests: %d}",
 		i.InstanceID, i.Repo, i.Version, i.TestCount())
 }
@@ -213,11 +231,17 @@ func (i *Instance) String() string {
 
 // IsResolved returns true if the patch fully resolved the issue.
 func (r *EvaluationResult) IsResolved() bool {
+	if r == nil {
+		return false
+	}
 	return r.Resolved
 }
 
 // FailToPassRate returns the percentage of FAIL_TO_PASS tests that passed.
 func (r *EvaluationResult) FailToPassRate() float64 {
+	if r == nil {
+		return 0.0
+	}
 	if len(r.FailToPassResults) == 0 {
 		return 0.0
 	}
@@ -232,6 +256,9 @@ func (r *EvaluationResult) FailToPassRate() float64 {
 
 // PassToPassRate returns the percentage of PASS_TO_PASS tests that passed.
 func (r *EvaluationResult) PassToPassRate() float64 {
+	if r == nil {
+		return 100.0
+	}
 	if len(r.PassToPassResults) == 0 {
 		return 100.0 // No tests to maintain = 100%
 	}
@@ -246,6 +273,9 @@ func (r *EvaluationResult) PassToPassRate() float64 {
 
 // Summary returns a human-readable summary.
 func (r *EvaluationResult) Summary() string {
+	if r == nil {
+		return "[<nil>] <nil>: no result"
+	}
 	status := "FAILED"
 	if r.Resolved {
 		status = "RESOLVED"
@@ -264,6 +294,9 @@ func (r *EvaluationResult) Summary() string {
 }
 
 func (r *EvaluationResult) countPassed(results map[string]TestResult) int {
+	if r == nil {
+		return 0
+	}
 	count := 0
 	for _, result := range results {
 		if result.Passed {
@@ -280,6 +313,9 @@ func (r *EvaluationResult) countPassed(results map[string]TestResult) int {
 // PythonVersionHints returns likely Python versions based on the instance.
 // SWE-bench instances are from specific repos with known Python requirements.
 func (i *Instance) PythonVersionHints() []string {
+	if i == nil {
+		return []string{"3.10", "3.11"}
+	}
 	// Known Python versions for SWE-bench Lite repos
 	repoVersions := map[string][]string{
 		"django/django":             {"3.9", "3.10", "3.11"},
@@ -306,6 +342,9 @@ func (i *Instance) PythonVersionHints() []string {
 
 // PreferredPythonVersion returns the most likely Python version to use.
 func (i *Instance) PreferredPythonVersion() string {
+	if i == nil {
+		return "3.10"
+	}
 	hints := i.PythonVersionHints()
 	if len(hints) > 0 {
 		// Prefer the middle version (usually most stable)
@@ -316,5 +355,8 @@ func (i *Instance) PreferredPythonVersion() string {
 
 // DockerImage returns the recommended Docker image for this instance.
 func (i *Instance) DockerImage() string {
+	if i == nil {
+		return "python:3.10-slim"
+	}
 	return fmt.Sprintf("python:%s-slim", i.PreferredPythonVersion())
 }
