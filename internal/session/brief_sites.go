@@ -38,15 +38,26 @@ var hostBriefSectionHeaders = []string{
 	"\n\n## Code this task names",
 	"\n\n## Evidence from earlier tasks",
 	"\n\n=== CONTEXT FROM TASK ",
+	"\n\n=== THE PREVIOUS DISPATCH OF THIS TASK ENDED ",
 	"\n\nFILES THIS TASK MAY MODIFY",
 	"\n\nTHIS TASK'S PLANNED TARGET DOES NOT EXIST",
 }
+
+// priorAttemptBriefHeader marks host-appended prior reverted cycle notes and
+// diffs in a recurse attempt brief (e.g. "\nCycle 57, reverted: ...").
+var priorAttemptBriefHeader = regexp.MustCompile(`(?m)^Cycle \d+, reverted: `)
 
 func stripHostBriefSections(brief string) string {
 	cut := len(brief)
 	for _, header := range hostBriefSectionHeaders {
 		if idx := strings.Index(brief, header); idx >= 0 && idx < cut {
 			cut = idx
+		}
+	}
+	if loc := priorAttemptBriefHeader.FindStringIndex(brief); loc != nil && loc[0] < cut {
+		cut = loc[0]
+		if cut > 0 && brief[cut-1] == '\n' {
+			cut--
 		}
 	}
 	return brief[:cut]

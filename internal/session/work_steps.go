@@ -157,7 +157,7 @@ func workStepPlanUser(task, verb string) string {
 	if verb == "" {
 		verb = "unknown"
 	}
-	return "Task: " + task + "\nIntent verb: " + verb
+	return "Task: " + stripHostBriefSections(task) + "\nIntent verb: " + verb
 }
 
 // emptyCompletionError reports whether err describes a planner answer that
