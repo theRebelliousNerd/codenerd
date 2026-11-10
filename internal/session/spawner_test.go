@@ -281,3 +281,8 @@ func TestSpawner_StateConflicts_ShutdownConcurrentSpawn(t *testing.T) {
 // TODO: TEST_GAP: [Type Coercion] Verify Spawner handles invalid YAML Types in Specialist Config (e.g. string for Timeout, arrays for objects).
 // TODO: TEST_GAP: [User Request Extremes] Verify Spawner handles 10,000+ concurrent spawn requests gracefully rejecting with capacity errors.
 // TODO: TEST_GAP: [State Conflicts] Verify that rapid spawn and immediate shutdown calls don't result in zombie goroutines due to race conditions.
+// TODO: TEST_GAP: [Mangle/Type Coercion] Verify Spawner strictly asserts types when passing Go strings into Mangle atom fields to prevent silent join failures.
+// TODO: TEST_GAP: [Mangle/State Conflicts] Verify Spawner aborts gracefully when a dynamic Mangle schema change causes an empty result set (tool-less agent degradation).
+// TODO: TEST_GAP: [User Request Extremes/Performance] Verify Spawner handles immense string inputs in the intent Category field without token-counting CPU spikes.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Spawner initialization correctly asserts nil dependencies (ConfigFactory vs JITCompiler mismatch).
+// TODO: TEST_GAP: [State Conflicts] Verify concurrent calls to Remove() and Cleanup() for the same SubAgent ID resolve safely without ghost state.
