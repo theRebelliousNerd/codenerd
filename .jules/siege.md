@@ -9,3 +9,7 @@
 ## 2026-11-03 - Perception Transducer Semantic Type Mismatch
 **Learning:** The Perception Transducer translates natural language into Mangle atoms. However, if adversarial input causes it to generate valid Mangle syntax that uses incorrect types (e.g. stringly typed instead of ast.Name), the kernel silently produces empty results instead of an error, breaking the intent pipeline without triggering fallback.
 **Action:** When testing Perception to Kernel integration, assert that malformed types cause proper rejections rather than silent empty result sets.
+
+## 2024-12-01 - ShardManager/JITExecutor Boundary Implicit Fallback
+**Learning:** The ShardManager implicitly relies on the JITExecutor (via TaskDelegator) for any shard type it lacks a factory for. When testing this boundary, passing execution through an intermediary requires precise error translation and state management. The failure of JIT compilation or the generation of empty strings (the "BaseShardAgent" bug) must be explicitly managed by both components.
+**Action:** In E2E tests, verify that `ShardStateCompleted` is only set when the delegator produces tangible work, and that temporal failures (context timeouts) are respected across the boundary.
