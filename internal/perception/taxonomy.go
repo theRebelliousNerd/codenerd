@@ -59,23 +59,25 @@ func (t *TaxonomyEngine) loadStaticSchemasLocked() error {
 		return nil
 	}
 
-	for _, file := range taxonomySchemaFiles() {
+	files := taxonomySchemaFiles()
+	sources := make([]mangle.SchemaSource, 0, len(files))
+	for _, file := range files {
 		content, err := core.GetDefaultContent(file)
 		if err != nil {
 			// schemas_learning.mg has a documented fallback below; everything
 			// else is required for correct inference.
 			if file == "schemas_learning.mg" {
 				fmt.Printf("WARNING: learning.mg not found in embedded defaults: %v. Using fallback declaration.\n", err)
-				if ferr := t.engine.LoadSchemaString("Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence)."); ferr != nil {
-					return fmt.Errorf("failed to define fallback learned_exemplar: %w", ferr)
-				}
+				sources = append(sources, mangle.SchemaSource{Name: "fallback learned_exemplar", Content: "Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence)."})
 				continue
 			}
 			return fmt.Errorf("failed to get embedded content for %s: %w", file, err)
 		}
-		if err := t.engine.LoadSchemaString(content); err != nil {
-			return fmt.Errorf("failed to load %s: %w", file, err)
-		}
+		sources = append(sources, mangle.SchemaSource{Name: file, Content: content})
+	}
+	// One analysis for the whole program, not one per file.
+	if err := t.engine.LoadSchemaSources(sources...); err != nil {
+		return fmt.Errorf("failed to load taxonomy schemas: %w", err)
 	}
 
 	t.schemasLoaded = true
@@ -113,29 +115,33 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 		return nil, err
 	}
 
-	// Populate default data (robustly via Go)
-	for _, entry := range DefaultTaxonomyData {
-		// verb_def
-		if err := eng.AddFact("verb_def", entry.Verb, entry.Category, entry.ShardType, entry.Priority); err != nil {
-			return nil, fmt.Errorf("failed to add verb_def %s: %w", entry.Verb, err)
-		}
-		// synonyms
-		for _, syn := range entry.Synonyms {
-			if err := eng.AddFact("verb_synonym", entry.Verb, syn); err != nil {
-				return nil, fmt.Errorf("failed to add synonym %s: %w", syn, err)
-			}
-		}
-		// patterns
-		for _, pat := range entry.Patterns {
-			if err := eng.AddFact("verb_pattern", entry.Verb, pat); err != nil {
-				return nil, fmt.Errorf("failed to add pattern %s: %w", pat, err)
-			}
-		}
+	// Populate default data in one batch: AddFacts re-derives once per call
+	// under AutoEval, so asserting entry by entry ran the whole taxonomy
+	// program to fixpoint once per synonym and pattern (about 1.3 s and
+	// 490 MB of garbage at every process start, since this runs at init).
+	if err := eng.AddFacts(defaultTaxonomyFacts(DefaultTaxonomyData)); err != nil {
+		return nil, fmt.Errorf("failed to add default taxonomy data: %w", err)
 	}
 
 	// Load learned rules if available (workspace-aware; SetWorkspace() will re-attempt).
 	t.tryLoadLearned()
 	return t, nil
+}
+
+// defaultTaxonomyFacts is the verb_def, verb_synonym and verb_pattern EDB
+// for the given taxonomy entries, in entry order.
+func defaultTaxonomyFacts(entries []TaxonomyDef) []mangle.Fact {
+	var facts []mangle.Fact
+	for _, entry := range entries {
+		facts = append(facts, mangle.Fact{Predicate: "verb_def", Args: []any{entry.Verb, entry.Category, entry.ShardType, entry.Priority}})
+		for _, syn := range entry.Synonyms {
+			facts = append(facts, mangle.Fact{Predicate: "verb_synonym", Args: []any{entry.Verb, syn}})
+		}
+		for _, pat := range entry.Patterns {
+			facts = append(facts, mangle.Fact{Predicate: "verb_pattern", Args: []any{entry.Verb, pat}})
+		}
+	}
+	return facts
 }
 
 // SetStore attaches a persistence store to the taxonomy engine.
