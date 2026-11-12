@@ -401,10 +401,11 @@ needs_clarification() :-
     acts_on_target(Verb),
     target_names_nothing(Target).
 needs_clarification() :-
-    user_intent(/current_intent, _, _, Target, _),
+    user_intent(/current_intent, _, Verb, Target, _),
     target_names_nothing(Target),
     delegation_candidate(/current_intent, Shard, _),
-    /none != Shard.
+    /none != Shard,
+    !verb_target_implied(Verb).
 
 # The kernel already has a question for this intent (clarification.mg: an
 # unknown or unmapped verb, an unreachable model).
