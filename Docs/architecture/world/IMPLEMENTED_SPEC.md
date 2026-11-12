@@ -791,3 +791,26 @@ scanner/kernel tests, not live model or full-recurse qualification.
 ---
 
 *End of IMPLEMENTED_SPEC — living document, last verified 2026-07-13.*
+
+## Rescans apply as net deltas
+
+`ApplyIncrementalResult` (`internal/world/apply_incremental.go:12`) retracts only
+the facts a rescan does not assert again (`notReasserted`, `:133`) and adds only
+the new ones, so the kernel ends with exactly the facts a retract-all-then-assert
+would leave while the evaluation after it is incremental. Measured on a rescan of
+654 importers: a 9.5 s full evaluation became a 2.3 s incremental one.
+
+## Fast snapshot persistence is one transaction
+
+`PersistFastSnapshotToDBInRoot` (`internal/world/persist.go:29`) writes a full
+fast snapshot in one transaction and returns an error when it fails, where it
+used to log per file and report success.
+`TestPersistFastSnapshotToDB_WritesWholeSnapshotOrReports`
+(`internal/world/persist_batch_test.go:32`) holds that;
+`BenchmarkPersistFastSnapshotToDB` (`:59`) measured 4.26 s -> 0.21 s for 2000
+files.
+
+Not built: `world_facts` carries four indexes, one of which duplicates the
+primary key's leading column, and `cold_storage` mirroring rewrites unchanged
+rows. Both are measured costs (7 s and 5.5 s on a 284k-row rescan) left for a
+schema migration.

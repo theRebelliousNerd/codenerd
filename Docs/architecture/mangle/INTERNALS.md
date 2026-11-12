@@ -221,3 +221,11 @@ The upstream parser is not goroutine-safe: `parse_lock.go:ParseUnitGuard`
 documents the lock ordering where the two meet. `simd.go` (29 lines) is a
 build-tagged probe — the scalar path does the work on every platform this
 repository builds on.
+
+## Schema sources and work counts (engine.go)
+
+`Engine.LoadSchemaSources` (`internal/mangle/engine.go:380`) loads several
+schema sources with one analysis instead of one per source, and
+`Engine.WorkCounts` (`internal/mangle/engine.go:117`) reports how many analyses
+and full evaluations an engine has run, so a boot path that re-evaluates per
+source is a measured regression and not a guess.

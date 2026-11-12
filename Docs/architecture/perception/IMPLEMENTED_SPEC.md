@@ -657,3 +657,12 @@ broker and direct TypeSafe controls are
 `internal/campaign/recurse_mission_attempt_stop_test.go:46`. This closes the
 bounded request-stop gap, not hard billing, pre-mission boot, CLI engine or
 independent paid-tool coverage.
+
+## Verb taxonomy boot cost
+
+The shared verb taxonomy is built with one schema analysis and one fixpoint
+(`Engine.LoadSchemaSources`, `internal/mangle/engine.go:380`); it ran 18
+analyses and 414 full evaluations at package init before. `BenchmarkNewTaxonomyEngine`
+(`internal/perception/taxonomy_boot_bench_test.go:47`) measures it: 1270 ms and
+487 MB before, 50 ms and 30 MB after. Every `nerd` command pays this at init,
+`nerd --help` included.

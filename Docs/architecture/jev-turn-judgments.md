@@ -253,6 +253,29 @@ problem.
 - Unsettled or failed: every problem is a defect, in the log's order. The last
   chain's judgments are retracted before Jev is asked again.
 
+### Self-diagnosis verdict: switch `diagnosis_verdict`
+
+The questions are in `internal/turnjudge/verdict.go`: for each target of a
+finished self-diagnosis, whether the report names a defect in codeNERD's own
+source that a code change would fix; on the optimize lane, whether it names a
+code change that would make the operation faster. One request carries the report
+and one question per target. A job that knows no targets asks once about the
+whole report.
+
+- Call: when a self-diagnosis job with a follow-up finishes
+  (`cmd/nerd/chat/self_diagnosis_verdict.go`), in the job's own goroutine.
+- Rules: `self_diagnosis_fix_due` and `self_diagnosis_no_defect`
+  (`policy/self_diagnosis.mg`), read at the yes and no thresholds.
+- What the user sees: a fix turn for the targets judged yes or unsettled; one
+  line saying nothing of codeNERD's was found to fix when none is.
+- Unsettled: the target still gets a fix. Off or failed: no verdict facts, and
+  the fix turn runs as it did before the verdict existed. A failed call is never
+  read as a no.
+- Calibration: 20 judgments against `jev-latest`, recorded in
+  `internal/turnjudge/verdict_cases_test.go`; no-fix cases scored 0.01-0.04 and
+  fix cases 0.85-0.99. Re-run with
+  `go test -tags jevlive ./internal/turnjudge/ -run LiveDiagnosisVerdict -v`.
+
 ## Prompt atoms
 
 Code: `internal/atomjudge` (both questions), `internal/prompt/importance.go`,

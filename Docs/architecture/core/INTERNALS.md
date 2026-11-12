@@ -194,6 +194,51 @@ checks before their behavioral acceptance is established.
   `Explain` (`kernel_provenance.go:72-112`) returns the derivation tree.
   With provenance off, `Explain` has nothing to show.
 
+### Proofs are recorded per goal, on demand (kernel_proof_slice.go)
+
+Evaluation never records derivations, whether or not provenance is enabled. A
+recorded fixpoint over the whole world shard cost 7.5-8.2 s and about 880 MiB of
+heap per write; every deliberation enables provenance, so each kernel write in
+one paid that. `Explain` now asks `proofSliceLocked`
+(`internal/core/kernel_proof_slice.go:72`) for the goal's slice:
+`recordProofSliceLocked` (`:98`) walks the predicates the goal depends on
+(`upstream`, `:210`), takes exactly those predicates' EDB rows
+(`edbAtomsOfLocked`, `:177`) and records one evaluation of that part of the
+program. The recording is kept until the next write or program change, so a
+proof never outlives the facts it was drawn from. Enabling provenance
+mid-session explains the current evaluation at once; there is no "armed but not
+yet recorded" state. `TestProofSlice_MatchesTheFullRecordedPass`
+(`internal/core/kernel_proof_slice_test.go:137`) holds every goal's slice equal
+to a fully recorded pass over the production corpus.
+
+### LoadFacts prepares batches on every core (kernel_facts_prepare.go)
+
+`prepareFactsLocked` (`internal/core/kernel_facts_prepare.go:35`) interns, keys
+and admits facts against their Decl in parallel; `insertPreparedLoadLocked`
+(`:73`) inserts in input order, so the same fact wins and the same facts are
+refused as in a serial load.
+
+### World rule shapes (coder_safety.mg, schemas_shards.mg)
+
+Three world-model rules were reordered to start from their smallest relation:
+`doc_exists_for` goes through `dir_has_doc`
+(`internal/core/defaults/schemas_shards.mg:411`), `dependent_count` reuses
+`intelligence_dependent_count`, and `intelligence_file_depends` starts from
+`file_topology`. Their results are pinned against the earlier shapes by the
+`TestWorldRuleShapes_*` tests (`internal/core/world_rule_shapes_test.go:86`,
+`:93`).
+
+### Not built: world facts on relevance
+
+The world shard holds every world fact in RAM (about 1.06 GB live for a
+600k-fact workspace, each EDB fact held roughly four times: Go fact, dedupe
+index, remembered atom, indexed store). The north star asks for evidence that a
+turn does not reason over to stay recoverable in the store and enter the kernel
+on relevance. Every world predicate is read by at least one rule today
+(`dependency_link` by 17 rule heads), so this needs those rules restated over a
+demand-loaded relation, not a cache. It is the largest open memory cost.
+
+
 ## System facts feed the outside world in (kernel_sysfacts.go)
 
 - `UpdateSystemFacts` (`kernel_sysfacts.go:24-107`, locked variant

@@ -16,7 +16,7 @@ from the new process's own evidence. The kernel decides what is due; the chat ex
 ## Target behaviour
 
 1. **Trigger.** `self_repair_due(Target, Lane)` is derived
-   (`internal/core/defaults/policy/self_repair.mg:156-157`). The chat asks at a turn
+   (`internal/core/defaults/policy/self_repair.mg:187-188`). The chat asks at a turn
    boundary and on an idle timer, never through perception.
 2. **Two lanes.** `/repair`: every hot problem of the session's problems log that is not
    held. `/optimize`, once nothing is left to repair: the recurring operation that cost
@@ -27,7 +27,7 @@ from the new process's own evidence. The kernel decides what is due; the chat ex
    pending, or restored work has not resumed. A self-repair follows the work mode: only
    yolo runs the fix unattended.
 4. **Lifecycle.** `being_fixed` -> `pending_restart` -> `verifying` -> `verified` or
-   `regressed`, plus `failed` and `stopped`, persisted in
+   `regressed`, plus `failed`, `stopped` and `no_defect`, persisted in
    `.nerd/self_repair/ledger.json` so it survives the re-exec. A target that failed
    the `self_repair_max_failures` logging key times is left. A retry is told what earlier attempts
    came to.
@@ -38,10 +38,28 @@ from the new process's own evidence. The kernel decides what is due; the chat ex
 6. **Resuming restart.** Running background jobs (with follow-up and lane) and queued
    turns are written to the restore state (`Resume`) and started again after the startup
    scan of the new process.
-7. **Safety.** While a fix turn runs, `self_repair_fixing()` makes the constitution, the
+7. **Verdict before the fix.** A finished diagnosis is judged per target by Jev
+   (`JudgeDiagnosis`, `internal/turnjudge/verdict.go:56`; switch `diagnosis_verdict`
+   under `typesafe`). The kernel derives `self_diagnosis_fix_due(Job)`
+   (`internal/core/defaults/policy/self_diagnosis.mg:67-68`): true when any target is a
+   fix target (yes or unsettled), or when the job has no verdict because Jev is off or
+   the call failed. A target at or below the no threshold settles as `no_defect`
+   (`self_diagnosis.mg:58`): no fix turn, not a failure, and held until its count grows
+   by the configured regrowth factor over what the diagnosis saw
+   (`self_repair_evidence_regrown`, `self_repair.mg:137`). With nothing due the user sees
+   one line saying the diagnosis found nothing of codeNERD's to fix.
+8. **The fix step is a chain step.** It runs with a preset intent (`/fix`, or `/refactor`
+   on the optimize lane) aimed at the files the diagnosis cites (`fixStep`,
+   `cmd/nerd/chat/self_diagnosis_verdict.go:276`). It is never perceived again and never
+   decomposed into a plan (`intent_signal(/chain_step)`,
+   `internal/core/defaults/policy/routing_arbitration.mg:236`), and in yolo it is not held
+   on the conversation's brief (`:270`). A queued chain step survives a restart as a step
+   and gives way to the user's queued messages. A fix turn the user stops settles as
+   `stopped`, not `failed`.
+9. **Safety.** While a fix turn runs, `self_repair_fixing()` makes the constitution, the
    safety and permission policies, the write guards, the approval and work-mode code, the
    self-repair trigger itself and `nerd.md` `project_forbidden_path`
-   (`self_repair.mg:205-229`). The executor's write gate and `coder_edit_barred` both
+   (`self_repair.mg:236-260`). The executor's write gate and `coder_edit_barred` both
    refuse them.
 
 ## Go / Mangle split
@@ -51,11 +69,12 @@ from the new process's own evidence. The kernel decides what is due; the chat ex
 | What is due, on which lane, by which persona | `self_repair.mg` (`self_repair_due`, `self_repair_shard`) |
 | Slot, cooldown, failure limit, hold | `self_repair.mg` (`self_repair_slot_open`, `self_repair_held`) |
 | Verdict after the restart | `self_repair.mg` (`self_repair_verified`, `self_repair_regressed`) |
+| Whether the fix turn runs, and for which targets | `self_diagnosis.mg`, `jev_evidence.mg` (`self_diagnosis_fix_due`, `self_diagnosis_no_defect`) |
 | What a fix turn may not edit | `self_repair.mg` -> `project_forbidden_path` |
 | Measuring: problems log, timings, ledger, clock | `internal/problemlog/repair.go`, `timing.go` |
 | Asking, starting the job, recording outcomes | `cmd/nerd/chat/self_repair.go` |
-| Idleness (is anything of the user's in the way) | `cmd/nerd/chat/self_repair.go:141` (Go: UI state) |
-| Build, self-check, install, resume | `cmd/nerd/chat/self_restart.go:373`, `:439` |
+| Idleness (is anything of the user's in the way) | `cmd/nerd/chat/self_repair.go:144` (Go: UI state) |
+| Build, self-check, install, resume | `cmd/nerd/chat/self_restart.go:378`, `:448` |
 
 Knobs live in the logging section of `.nerd/config.json`: whether self-repair is disabled, its cooldown,
 failure limit, job limit, verify window, poll interval and self-check timeout, and the optimize
@@ -64,7 +83,9 @@ lane's minimum count (`SelfOptimizeMinCount`, `internal/config/logging.go:55`, a
 ## Not built
 
 - The yolo fix -> real rebuild -> exec -> resume -> verify path is proven with fakes
-  (`TestSelfRepair_WalksTriggerJobFixRebuildRestoreResumeVerify`); see GAP-CLI-SELF-REPAIR-06.
-- Once a fix turn starts it holds the turn slot; a user message queues behind it.
+  (TestSelfRepair_WalksTriggerJobFixRebuildRestoreResumeVerify); see GAP-CLI-SELF-REPAIR-06.
+- A running fix turn is not interrupted mid-edit; it can only be stopped, which records it
+  as stopped. A pause point between tool calls inside the executor is not built
+  (GAP-CLI-SELF-REPAIR-08).
 - Task text for the diagnosis and fix steps is Go constants, not prompt atoms.
 - Each idle poll re-asserts the clock and ledger facts and re-evaluates.
