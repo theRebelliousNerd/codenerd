@@ -170,6 +170,9 @@ Run without arguments to start the interactive chat interface.`,
 	},
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {
 		stopCPUProfile()
+		if err := writeMemProfile(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
 		if logger != nil {
 			_ = logger.Sync()
 		}
@@ -227,6 +230,7 @@ func init() {
 	// System shard controls
 	rootCmd.PersistentFlags().StringSliceVar(&disableSystemShards, "disable-system-shard", nil, "Disable a Type 1 system shard by name")
 	rootCmd.PersistentFlags().StringVar(&cpuProfilePath, "cpuprofile", "", "Write a pprof CPU profile of the command to this file (go tool pprof)")
+	rootCmd.PersistentFlags().StringVar(&memProfilePath, "memprofile", "", "Write a pprof heap profile to this file when the command ends (go tool pprof)")
 
 	// Interactive mode flag for direct action commands
 	// Enables multi-turn feedback loops with refine/redo/approve meta-commands
