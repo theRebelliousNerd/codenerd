@@ -849,7 +849,10 @@ func scopeGateToNodes(g gates.Gate, nodes []SubsystemNode, focused bool) gates.G
 		return g
 	}
 	if !focused {
-		if len(nodes) > 20 && g.Kind == gates.Test {
+		// A whole-workspace Go test run may use Go's test cache whatever the
+		// workspace's size: the cache is keyed on each package's inputs, so a
+		// cached pass is as sound for three nodes as for three hundred.
+		if g.Kind == gates.Test {
 			var argv []string
 			stripped := false
 			for _, arg := range g.Argv {

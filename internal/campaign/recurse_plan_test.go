@@ -65,9 +65,15 @@ func TestScopeGateToNodes_NarrowsFocusedGoWorkspaceGate(t *testing.T) {
 	if !slices.Equal(scoped.Argv, want) {
 		t.Fatalf("scoped.Argv = %v, want %v", scoped.Argv, want)
 	}
+	// Unfocused, a workspace of any size runs the suite against Go's cache.
 	unfocused := scopeGateToNodes(g, nodes, false)
-	if !slices.Equal(unfocused.Argv, g.Argv) {
-		t.Fatalf("unfocused.Argv = %v, want %v", unfocused.Argv, g.Argv)
+	if want := []string{"go", "test", "./..."}; !slices.Equal(unfocused.Argv, want) {
+		t.Fatalf("unfocused.Argv = %v, want %v", unfocused.Argv, want)
+	}
+	lint := g
+	lint.Kind = gates.Lint
+	if got := scopeGateToNodes(lint, nodes, false); !slices.Equal(got.Argv, g.Argv) {
+		t.Fatalf("a non-test gate's argv changed: %v", got.Argv)
 	}
 	largeNodes := make([]SubsystemNode, 25)
 	for i := range largeNodes {
