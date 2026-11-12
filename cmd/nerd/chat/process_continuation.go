@@ -43,9 +43,8 @@ func (m *Model) checkContinuation(ctx context.Context, dc *deliveryChain, shardT
 		changed = ret.Changed
 	}
 	if ret.Outcome == "/done" && m.shouldRebuildWatchedExecutable(changed) {
-		if err := m.rebuildWatchedExecutable(ctx, changed); err != nil {
-			logging.Get(logging.CategoryBoot).Warn("self-rebuild after turn failed: %v", err)
-		}
+		// A failure is logged (and recorded) by the rebuild itself.
+		_ = m.rebuildWatchedExecutable(ctx, changed)
 	}
 	return nil, dc.summaryNote()
 }
@@ -152,9 +151,8 @@ func (m Model) executeSubtask(step Subtask) tea.Cmd {
 			m.delivery.mu.Unlock()
 		}
 		if ret.Outcome == "/done" && m.shouldRebuildWatchedExecutable(changed) {
-			if err := m.rebuildWatchedExecutable(ctx, changed); err != nil {
-				logging.Get(logging.CategoryBoot).Warn("self-rebuild after continuation failed: %v", err)
-			}
+			// A failure is logged (and recorded) by the rebuild itself.
+			_ = m.rebuildWatchedExecutable(ctx, changed)
 		}
 		return continuationDoneMsg{
 			stepCount:            m.continuationStep,

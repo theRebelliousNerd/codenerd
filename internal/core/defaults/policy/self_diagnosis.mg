@@ -11,6 +11,12 @@ self_diagnosis_lane() :-
     user_intent(/current_intent, _, /self_diagnose, _, _),
     !jev_no("about_codenerd").
 
+# The object of a self-diagnosis is codeNERD itself, so the turn names no
+# target and is not missing one. Without this, "debug yourself" (scope.target
+# empty) derived needs_clarification from the empty target and became a
+# multi-round deliberation instead of this chain (live TUI, 2026-11-12).
+verb_target_implied(/self_diagnose).
+
 # A question perception filed as /self_diagnose that Jev reads as not asking
 # codeNERD to investigate its own failures ("is debug-self on?", "what mode are
 # you in?") is answered from the operating state the main agent is given

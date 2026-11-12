@@ -50,6 +50,12 @@ type backgroundJob struct {
 	// RequestID is the request the job's result answers (applyAnswer): the
 	// turn that started it only acknowledged it.
 	RequestID uint64
+	// SelfRepair is the self-repair lane (problemlog.LaneRepair or
+	// LaneOptimize) when codeNERD started the job itself (self_repair.go);
+	// its settling is recorded in the self-repair ledger.
+	SelfRepair string
+	// selfRepairTargets are the targets a self-repair job is begun on.
+	selfRepairTargets []string
 }
 
 // backgroundJobs is shared across Model copies: Update works on values, and
@@ -267,19 +273,23 @@ func (m Model) finishBackground(msg backgroundDoneMsg) (Model, tea.Cmd) {
 	}
 	report := backgroundReport(msg, stopped, elapsed)
 	if msg.Job.Session != "" && msg.Job.Session != m.sessionID {
+		m.selfRepairSettled(msg.Job, msg.Err, stopped, false)
 		return m.settleElsewhere(msg, stopped, report), nil
 	}
 	if msg.Err != nil {
+		m.selfRepairSettled(msg.Job, msg.Err, stopped, false)
 		return m.pushAssistantMsg(report), nil
 	}
 	m.storeShardResult(msg.Job.Shard, msg.Job.Task, msg.Result, msg.Facts)
 	if msg.Job.FollowUp == "" || stopped {
+		m.selfRepairSettled(msg.Job, nil, stopped, false)
 		return m.pushAssistantMsg(report), nil
 	}
 	// The chain's next step is a turn like any other: perception reads it and
 	// the kernel's work admission decides whether it runs, is proposed, or
 	// waits for go. A turn in flight makes it wait its turn, not vanish.
 	next := msg.Job.FollowUp + "\n\n" + msg.Result
+	m.selfRepairSettled(msg.Job, nil, false, true)
 	if m.isLoading || m.turn.current() != 0 {
 		m.turn.enqueue(queuedMessage{input: next})
 		return m.pushAssistantMsg(report + "\n\n_Its next step is queued for when the current turn finishes._"), nil

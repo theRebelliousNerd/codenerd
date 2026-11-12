@@ -122,6 +122,24 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 		add(SeverityError, "logging.self_problem_warn_repeats", fmt.Sprintf("%d is negative", c.Logging.SelfProblemWarnRepeats), "a count of 1 or more, or remove the key for the default")
 	}
 	if c.Logging != nil {
+		for _, knob := range []struct {
+			key string
+			v   int
+		}{
+			{"logging.self_repair_cooldown_sec", c.Logging.SelfRepairCooldownSec},
+			{"logging.self_repair_max_failures", c.Logging.SelfRepairMaxFailures},
+			{"logging.self_repair_max_jobs", c.Logging.SelfRepairMaxJobs},
+			{"logging.self_repair_verify_window_sec", c.Logging.SelfRepairVerifyWindowSec},
+			{"logging.self_repair_poll_sec", c.Logging.SelfRepairPollSec},
+			{"logging.self_optimize_min_count", c.Logging.SelfOptimizeMinCount},
+			{"logging.self_repair_check_timeout_sec", c.Logging.SelfRepairCheckTimeoutSec},
+		} {
+			if knob.v < 0 {
+				add(SeverityError, knob.key, fmt.Sprintf("%d is negative", knob.v), "1 or more, or remove the key for the default; logging.self_repair_disabled turns self-repair off")
+			}
+		}
+	}
+	if c.Logging != nil {
 		if _, err := c.Logging.SessionRetention(); err != nil {
 			add(SeverityError, "logging.session_ttl", err.Error(), `a duration such as "14d" or "36h", "off" to keep every session, or remove the key for 14 days`)
 		}

@@ -231,6 +231,10 @@ Decl approve_lane() bound [].
 Decl needs_clarification() bound [].
 Decl acts_on_target(Verb) bound [/name].
 Decl target_names_nothing(Target) bound [/string].
+# verb_target_implied(Verb) - a verb whose object is fixed by the verb itself,
+# so a turn that names no target is not missing one (self_diagnosis.mg:
+# /self_diagnose acts on codeNERD).
+Decl verb_target_implied(Verb) bound [/name].
 
 # Conversation acts (policy/conversation_acts.mg): what the user is doing with
 # the turn -- asking for work, replying, asking about codeNERD, giving

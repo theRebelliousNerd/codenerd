@@ -17,21 +17,33 @@ import (
 	"codenerd/internal/types"
 )
 
-// /debug-self turns codenerd on its own logs (stage 1: reporting only).
-// Persisted as logging.debug_self in .nerd/config.json. While on, a session
-// implies debug logging (no log files exist without it) and session-level
-// yolo via yoloFlag — work_mode yolo is never persisted because of debug_self.
+// /debug-self turns codenerd on its own logs. Persisted as logging.debug_self
+// in .nerd/config.json. While on, a session implies debug logging (no log
+// files exist without it). It does not change the work mode: a self-repair's
+// fix turn runs, is proposed, or waits for go as the work mode says, like any
+// other turn.
 //
-// Signal scope: new ERROR lines are the actionable set; new WARN lines are a
-// deduped digest (one entry per normalized signature, with counts). Stage 2
-// (a background fixer shard) must consume the same batch via
-// pendingSelfProblemsForTurn; nothing here spawns shards or edits code.
+// Two stages. Stage 1 (this file) reports: each turn drains the new problems
+// into PendingProblems, the main model sees a capped digest of them, and the
+// whole log is projected into the kernel. Signal scope: new ERROR lines are
+// the actionable set; new WARN lines are a deduped digest (one entry per
+// normalized signature, with counts).
+//
+// Stage 2 (self_repair.go, policy/self_repair.mg) acts on that evidence with
+// no one asking: the kernel derives which hot problems -- or, with none left,
+// which costliest recurring operation -- a self-repair is due for, and the
+// chat starts the self-diagnosis chain (self_diagnosis.go) for it in the
+// background at an idle moment; its fix turn rebuilds, self-checks and
+// installs the binary, the session restarts onto it and resumes its work, and
+// the new process's evidence decides whether the fix held. Each attempt's
+// lifecycle (problemlog.RepairStatus: being-fixed, pending-restart, verifying,
+// verified or regressed) is in the ledger under .nerd/self_repair.
 //
 // Main-context ruling (user steering): what enters the MAIN chat model's
 // context is strictly delta-only and deduped by signature under a hard
 // small cap — counts, signatures, first/last seen, and a problems-log
 // path + byte-offset reference. Full raw lines never enter the main
-// context; they stay in PendingProblems/the file range for stage 2.
+// context; they stay in PendingProblems and the file range.
 // Signatures already reported in earlier turns collapse to one tally line.
 //
 // Evidence in the kernel: separately from that digest, the whole problems log
@@ -62,7 +74,7 @@ type SelfProblem struct {
 }
 
 // SelfProblemKind is one deduped signature with counts and first/last seen.
-// Example holds a raw line for stage 2; it is never rendered to main context.
+// Example holds a raw line; it is never rendered to main context.
 type SelfProblemKind struct {
 	Signature string
 	Category  string
@@ -77,10 +89,10 @@ type SelfProblemKind struct {
 // SelfWarnKind is the warning flavour of SelfProblemKind.
 type SelfWarnKind = SelfProblemKind
 
-// PendingProblems is the new-problem set for one turn: the stage-2 seam.
-// Errors/WarnKinds carry raw lines for a fixer; the main chat model only
-// ever sees Render()'s capped digest. [StartOffset, EndOffset) is this
-// batch's byte range in Path, so stage 2 can read exactly its batch.
+// PendingProblems is the new-problem set for one turn. Errors/WarnKinds
+// carry raw lines; the main chat model only ever sees Render()'s capped
+// digest, and stage 2 reads the whole log from the kernel (self_problem).
+// [StartOffset, EndOffset) is this batch's byte range in Path.
 type PendingProblems struct {
 	Path          string
 	StartOffset   int64
@@ -95,17 +107,6 @@ type PendingProblems struct {
 	Dropped    int
 	MoreInFile bool
 }
-
-// SelfProblemStatus names a batch's lifecycle for stage 2. Stage 1 only
-// produces "reported"; a fixer shard would advance a batch through the
-// rest. Status lives outside PendingProblems until stage 2 needs it.
-type SelfProblemStatus string
-
-const (
-	SelfProblemReported                  SelfProblemStatus = "reported"
-	SelfProblemBeingFixed                SelfProblemStatus = "being-fixed"
-	SelfProblemFixedOnDiskPendingRestart SelfProblemStatus = "fixed-on-disk-pending-restart"
-)
 
 // Empty reports whether there is nothing new to inject or announce.
 func (p PendingProblems) Empty() bool {
@@ -428,7 +429,7 @@ func isSelfNote(e problemlog.Entry) bool {
 }
 
 // =============================================================================
-// TURN SEAM (stage 2 consumes this same batch)
+// TURN SEAM
 // =============================================================================
 
 func (m Model) debugSelfEnabled() bool {
@@ -535,9 +536,9 @@ func (m Model) handleCmdDebugSelf(input string, parts []string) (tea.Model, tea.
 	var captureNote string
 	m, captureNote = m.setDebugSelf(on)
 	if on {
-		return m.pushYoloNote("Debug-self mode ON. " + captureNote + "\n" + debugSelfStatusText(m)), nil
+		return m.pushYoloNote("Debug-self mode ON. " + captureNote + "\n" + debugSelfStatusText(m)), m.startSelfRepairTimer()
 	}
-	return m.pushYoloNote("Debug-self mode OFF: no per-turn log problem reporting. " + captureNote), nil
+	return m.pushYoloNote("Debug-self mode OFF: no per-turn log problem reporting and no self-repair. " + captureNote), nil
 }
 
 func (m Model) setDebugSelf(on bool) (Model, string) {
@@ -558,6 +559,7 @@ func (m Model) setDebugSelf(on bool) (Model, string) {
 	if !on {
 		m.syncSelfProblemFacts()
 		m.consumeSelfProblems()
+		m.selfRepairOff()
 		m.applyLoggingIfBound()
 		return m, "Debug logging now follows logging.debug_mode."
 	}
@@ -615,6 +617,6 @@ func debugSelfStatusText(m Model) string {
 	if path, _, _ := logging.ProblemsSnapshot(); path != "" {
 		pathPart = "`" + path + "`"
 	}
-	return fmt.Sprintf("Debug-self mode is ON (logging.debug_self). Debug logging: implied on. Work mode: %s (debug-self does not change it). Log capture: %s. Problems log: %s. New ERROR lines are injected each turn; new WARN lines arrive as a deduped digest.",
-		workModeLabel(m.workMode()), capturePart, pathPart)
+	return fmt.Sprintf("Debug-self mode is ON (logging.debug_self). Debug logging: implied on. Work mode: %s (debug-self does not change it). Log capture: %s. Problems log: %s. New ERROR lines are injected each turn; new WARN lines arrive as a deduped digest. %s",
+		workModeLabel(m.workMode()), capturePart, pathPart, selfRepairStatusText(m))
 }

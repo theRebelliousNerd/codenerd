@@ -836,9 +836,8 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 			}
 		}
 		if verifiedSteps > 0 && m.shouldRebuildWatchedExecutable(allChanged) {
-			if err := m.rebuildWatchedExecutable(ctx, allChanged); err != nil {
-				logging.Get(logging.CategoryBoot).Warn("self-rebuild after multi-step plan failed: %v", err)
-			}
+			// A failure is logged (and recorded) by the rebuild itself.
+			_ = m.rebuildWatchedExecutable(ctx, allChanged)
 		}
 
 		return assistantMsg{

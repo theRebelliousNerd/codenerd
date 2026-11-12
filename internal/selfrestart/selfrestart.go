@@ -7,7 +7,9 @@
 // the process execs the new binary over itself (same PID, same terminal, so
 // tmux and attached terminals stay), with -restore-session naming the file;
 // the new process reads it once and resumes the conversation, its mode, its
-// brief and its held work, and names the work the restart interrupted. An exec that fails leaves the old process
+// brief and its held work, starts again the background jobs and queued turns
+// the restart cut (Resume), and names what it does not take up itself
+// (Interrupted). An exec that fails leaves the old process
 // running and says why. Where exec in place is not available (Windows), the
 // rebuild is reported and the user is asked to restart.
 package selfrestart
@@ -112,13 +114,47 @@ type State struct {
 	Draft       string   `json:"draft,omitempty"`
 	Recurse     bool     `json:"recurse,omitempty"`
 	RecurseArgs []string `json:"recurse_args,omitempty"`
-	// Interrupted names the work the restart stopped (background jobs, a
-	// running campaign, an offered step), for the restored session to say.
+	// Interrupted names the work the restart stopped and the new process
+	// does not take up itself (a running campaign, which resumes through the
+	// campaign resume path; an offered step, which waits for the user), for
+	// the restored session to say.
 	Interrupted []string `json:"interrupted,omitempty"`
-	OldBuild    string   `json:"old_build"`
-	NewBuild    string   `json:"new_build"`
+	// Resume is the work the restart cut that the new process starts again
+	// by itself once its boot is done: the background jobs that were running
+	// and the turns that were queued, in order.
+	Resume   []ResumeWork `json:"resume,omitempty"`
+	OldBuild string       `json:"old_build"`
+	NewBuild string       `json:"new_build"`
 }
 
+// Kinds of resumed work.
+const (
+	ResumeBackground = "background" // a background shard job, started again
+	ResumeTurn       = "turn"       // a queued message, queued again
+)
+
+// ResumeWork is one piece of work a restart carries over.
+type ResumeWork struct {
+	Kind string `json:"kind"`
+	// A background job: its id (kept, so what refers to it still does), its
+	// shard and task, its routed target and constraint, the request it came
+	// from, the chain's next step, and its self-repair lane.
+	ID         string `json:"id,omitempty"`
+	Shard      string `json:"shard,omitempty"`
+	Task       string `json:"task,omitempty"`
+	Target     string `json:"target,omitempty"`
+	Constraint string `json:"constraint,omitempty"`
+	Request    string `json:"request,omitempty"`
+	FollowUp   string `json:"follow_up,omitempty"`
+	SelfRepair string `json:"self_repair,omitempty"`
+	// A queued turn: its input, and whether it is a slash command.
+	Input   string `json:"input,omitempty"`
+	Command bool   `json:"command,omitempty"`
+}
+
+// stateVersion stays 1 while every field added is optional: the process that
+// writes the file is the old build and the one that reads it the new, so a
+// bump would make every self-update lose its session.
 const stateVersion = 1
 
 // WriteState writes st to a restore file under dir and returns its path.

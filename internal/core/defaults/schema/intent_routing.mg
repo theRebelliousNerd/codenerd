@@ -72,6 +72,12 @@ valid_action_type(/benchmark, "Measure performance, run benchmarks").
 valid_action_type(/profile, "Profile CPU or memory, find bottlenecks").
 valid_action_type(/lint, "Run linters, static analysis").
 valid_action_type(/format, "Format code, fix style").
+# The two actions the understanding atom offers beyond the coding verbs
+# (internal/prompt/atoms/perception/understanding.yaml); the adapter maps them
+# to /self_diagnose and /approve. Absent here, every such turn was a vocabulary
+# miss whose routing fell back to the model's own suggestion.
+valid_action_type(/diagnose_self, "Diagnose codeNERD itself: its own errors, logs or misbehavior").
+valid_action_type(/approve, "Go-ahead on work the assistant proposed or held").
 
 # --- Domains (what area of concern?) ---
 valid_domain(/testing, "Unit tests, integration tests, coverage, test fixtures").
@@ -287,6 +293,10 @@ shard_affinity_action(/attack, /nemesis, 100).
 shard_affinity_action(/attack, /tester, 70).
 
 shard_affinity_action(/review, /reviewer, 100).
+
+# A self-diagnosis is read by the reviewer (verb_persona(/self_diagnose,
+# /reviewer), intent_routing_rules.mg).
+shard_affinity_action(/diagnose_self, /reviewer, 100).
 
 shard_affinity_action(/revert, /coder, 90).
 
