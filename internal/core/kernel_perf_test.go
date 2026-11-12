@@ -212,8 +212,10 @@ func TestConePlanMatchesProgramScanOnProductionCorpus(t *testing.T) {
 	}
 }
 
-// A named write that cannot take the cone path says why.
-func TestEvaluationStatsNameTheConeFallback(t *testing.T) {
+// Provenance does not take writes off the incremental paths: proofs are
+// recorded per goal on demand, never by evaluate(). Recording during
+// evaluation made every write a full fixpoint (8 s on a 575k-fact world).
+func TestEvaluationStats_ProvenanceKeepsWritesIncremental(t *testing.T) {
 	k := newPerfKernel(t, 8)
 	if ev := k.LastEvaluation(); ev.Mode != "full" || ev.EngineDuration <= 0 || ev.Rules != 3 {
 		t.Fatalf("explicit Evaluate recorded %+v, want a full evaluation of 3 rules", ev)
@@ -225,8 +227,8 @@ func TestEvaluationStatsNameTheConeFallback(t *testing.T) {
 	if _, err := k.Query("perf_quiet_seen"); err != nil {
 		t.Fatal(err)
 	}
-	if ev := k.LastEvaluation(); ev.Mode != "full" || ev.ConeFallback != "provenance recording" {
-		t.Fatalf("provenance-recording write recorded mode=%q fallback=%q", ev.Mode, ev.ConeFallback)
+	if ev := k.LastEvaluation(); ev.Mode == "full" {
+		t.Fatalf("a named write with provenance on ran a full evaluation (fallback %q)", ev.ConeFallback)
 	}
 }
 

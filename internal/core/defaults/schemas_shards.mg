@@ -407,6 +407,9 @@ Decl is_public_api(FilePath) bound [/string].
 # doc_exists_for(FilePath) - documentation exists for this file
 Decl doc_exists_for(FilePath) bound [/string].
 
+# dir_has_doc(Dir) - the directory holds a markdown file
+Decl dir_has_doc(Dir) bound [/string].
+
 # test_file_for(TestFile, SourceFile) - TestFile contains tests for SourceFile
 Decl test_file_for(TestFile, SourceFile) bound [/string, /string].
 

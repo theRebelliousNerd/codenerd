@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"runtime/pprof"
 )
 
@@ -38,4 +39,25 @@ func stopCPUProfile() {
 	pprof.StopCPUProfile()
 	_ = cpuProfileFile.Close()
 	cpuProfileFile = nil
+}
+
+// memProfilePath is --memprofile: write a pprof heap profile (live objects
+// after a final GC, plus allocations) when the command ends. Empty means none.
+var memProfilePath string
+
+// writeMemProfile writes the heap profile --memprofile asked for, if any.
+func writeMemProfile() error {
+	if memProfilePath == "" {
+		return nil
+	}
+	f, err := os.Create(memProfilePath)
+	if err != nil {
+		return fmt.Errorf("--memprofile: %w", err)
+	}
+	runtime.GC() // the live heap, not garbage awaiting collection
+	if err := pprof.WriteHeapProfile(f); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("--memprofile: %w", err)
+	}
+	return f.Close()
 }

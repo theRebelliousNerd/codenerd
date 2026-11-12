@@ -67,6 +67,9 @@ type coneIndex struct {
 
 	dredOnce sync.Once  // builds dred on first use (kernel_eval_dred.go)
 	dred     *dredIndex // the DRed evaluator's view of the program
+
+	producersOnce sync.Once           // builds producers on first use (kernel_proof_slice.go)
+	producers     map[string][]string // head -> every predicate its rules read
 }
 
 // errConeIneligible makes evaluate() take the full path. It is not a fault.
@@ -321,8 +324,6 @@ func (k *RealKernel) coneIneligibilityLocked() string {
 		return "program changed"
 	case k.atomCacheStale:
 		return "atoms converted under an older program"
-	case k.proofRecorder != nil:
-		return "provenance recording"
 	case k.factIndex == nil:
 		return "no EDB index"
 	case !k.factIndex.delta.known:

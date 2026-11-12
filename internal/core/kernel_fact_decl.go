@@ -85,6 +85,18 @@ var lenientNameWarnings sync.Map // string -> struct{}
 // admissionForLocked returns the compiled admission of pred, or nil when the
 // program does not declare it (the undeclared path warns instead). Call
 // holding k.mu.
+// ensureAdmissionSchemaLocked points k.admission at the current program,
+// starting a fresh cache when the program changed. Caller holds k.mu
+// exclusively.
+func (k *RealKernel) ensureAdmissionSchemaLocked() {
+	if k.programInfo == nil || k.programInfo.Decls == nil {
+		return
+	}
+	if k.admission == nil || k.admission.info != k.programInfo {
+		k.admission = &admissionSchema{info: k.programInfo, preds: make(map[ast.PredicateSym]*predAdmission)}
+	}
+}
+
 func (k *RealKernel) admissionForLocked(pred ast.PredicateSym) (*predAdmission, error) {
 	if k.programInfo == nil || k.programInfo.Decls == nil {
 		return nil, nil
@@ -93,9 +105,7 @@ func (k *RealKernel) admissionForLocked(pred ast.PredicateSym) (*predAdmission, 
 	if !ok || decl == nil {
 		return nil, nil
 	}
-	if k.admission == nil || k.admission.info != k.programInfo {
-		k.admission = &admissionSchema{info: k.programInfo, preds: make(map[ast.PredicateSym]*predAdmission)}
-	}
+	k.ensureAdmissionSchemaLocked()
 	s := k.admission
 	s.mu.Lock()
 	defer s.mu.Unlock()

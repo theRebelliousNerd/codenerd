@@ -18,7 +18,6 @@ import (
 	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/factstore"
-	"codeberg.org/TauCeti/mangle-go/provenance"
 )
 
 // TYPE ALIASES - Import from internal/types to break import cycles
@@ -140,19 +139,20 @@ type RealKernel struct {
 	// types.ErrRolePromptUnavailable.
 	rolePrompts types.RolePromptCompiler
 
-	// proofRecorder, when non-nil, captures derivation events during evaluate()
-	// so Explain() can answer "why was this fact derived?" via the Codeberg
-	// mangle-go fork's provenance package. Off by default — enable via
-	// EnableProvenance(). The recorder is reset at the start of every
-	// evaluate() to bound memory usage.
-	proofRecorder *provenance.MemoryRecorder
-	// recorderEpoch identifies the evaluation proofRecorder belongs to, for
-	// ExplanationEnvelope (kernel_explanation.go): armed is the empty recorder
-	// EnableProvenance installed (no pass recorded yet), seen/generation
-	// number each recorder an evaluation installs.
+	// provenanceOn lets Explain answer "why was this fact derived?" (off by
+	// default; EnableProvenance). Evaluation never records: Explain records
+	// the goal's upstream slice of the current evaluation on demand, and
+	// proofs caches those recordings until the next write or program change
+	// (kernel_proof_slice.go).
+	provenanceOn bool
+	proofs       proofSliceCache
+	// recorderEpoch numbers the evaluations ExplainEnvelope has answered
+	// about (kernel_explanation.go): seen is the write generation and program
+	// of the last one, generation counts how many distinct ones there were.
 	recorderEpoch struct {
-		armed, seen *provenance.MemoryRecorder
-		generation  uint64
+		seenGeneration uint64
+		seenProgram    *analysis.ProgramInfo
+		generation     uint64
 	}
 	// digest caches the sha256 of the program text programInfo was analyzed
 	// from (programDigestLocked).

@@ -31,11 +31,11 @@ coder_target(File) :-
 coder_target(File) :-
     pending_edit(File, _).
 
-# How many files import a file: an aggregate over the import edges.
-dependent_count(File, N) :-
-    dependency_link(Importer, File, _),
-    file_topology(File, _, _, _, _)
-    |> do fn:group_by(File), let N = fn:count().
+# How many files import a file: the count intelligence.mg already aggregates
+# over the live import edges. Aggregating the same dependency_link join a
+# second time here cost 1.5 s and a 222k-row scratch relation per full
+# evaluation of codeNERD's own world model (2026-11-12).
+dependent_count(File, N) :- intelligence_dependent_count(File, N).
 
 is_core_file(File) :-
     dependent_count(File, N),

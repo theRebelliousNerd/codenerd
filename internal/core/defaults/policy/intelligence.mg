@@ -19,8 +19,8 @@ intelligence_file_topology(Path, Hash, Language, Lines, IsTest) :-
     file_line_count(Path, Lines).
 
 intelligence_file_depends(File, DependsOn) :-
-    dependency_link(File, DependsOn, _),
-    file_topology(DependsOn, _, _, _, _).
+    file_topology(DependsOn, _, _, _, _),
+    dependency_link(File, DependsOn, _).
 
 # Churn from the repository history; the gatherer's hotspot list adds to it.
 Decl intelligence_churn(Path, Churn) bound [/string, /number].

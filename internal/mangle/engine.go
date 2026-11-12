@@ -100,6 +100,24 @@ type Engine struct {
 	dirtyAll       bool
 	idbBase        map[ast.PredicateSym]map[string]struct{}
 	derivedReadErr error // Cleared only by successful evaluation or Clear/Reset.
+
+	// work counts how often the engine analyzed its program and ran it to
+	// fixpoint; WorkCounts reports it so a caller's batching is checkable.
+	work WorkCounts
+}
+
+// WorkCounts is how much whole-program work an Engine has done: program
+// analyses (schema loads) and fixpoint evaluations.
+type WorkCounts struct {
+	ProgramBuilds int
+	Evaluations   int
+}
+
+// WorkCounts reports the engine's analysis and evaluation counts so far.
+func (e *Engine) WorkCounts() WorkCounts {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.work
 }
 
 // Fact represents a single fact in the knowledge graph.
@@ -252,6 +270,7 @@ func (e *Engine) evalWithGasLimit() (mengine.Stats, error) {
 		return mengine.Stats{}, fmt.Errorf("stratification not computed; call LoadSchema first")
 	}
 
+	e.work.Evaluations++
 	// Count facts before evaluation
 	beforeCount := e.store.EstimateFactCount()
 
@@ -346,6 +365,44 @@ func (e *Engine) LoadSchemaString(schema string) error {
 	return nil
 }
 
+// SchemaSource is one named schema text for LoadSchemaSources. Name only
+// labels errors.
+type SchemaSource struct {
+	Name    string
+	Content string
+}
+
+// LoadSchemaSources parses every source, then analyzes and stratifies the
+// whole program once. LoadSchemaString in a loop analyzes the growing program
+// once per fragment; an engine assembled from several files pays that cost
+// N times for one program. Admission is all-or-nothing: if any source fails to
+// parse, or the combined program fails analysis, none of them is kept.
+func (e *Engine) LoadSchemaSources(sources ...SchemaSource) error {
+	if len(sources) == 0 {
+		return nil
+	}
+	units := make([]parse.SourceUnit, 0, len(sources))
+	for _, src := range sources {
+		unit, err := ParseUnit(bytes.NewReader([]byte(src.Content)))
+		if err != nil {
+			logging.Get(logging.CategoryKernel).Error("Failed to parse schema %s: %v", src.Name, err)
+			return fmt.Errorf("failed to parse schema %s: %w", src.Name, err)
+		}
+		units = append(units, unit)
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	kept := len(e.schemaFragments)
+	e.schemaFragments = append(e.schemaFragments, units...)
+	if err := e.rebuildProgramLocked(); err != nil {
+		e.schemaFragments = e.schemaFragments[:kept]
+		return fmt.Errorf("failed to analyze schema: %w", err)
+	}
+	return nil
+}
+
 // rebuildProgramLocked analyzes all loaded schema fragments and refreshes predicate indexes.
 func (e *Engine) rebuildProgramLocked() error {
 	if len(e.schemaFragments) == 0 {
@@ -364,6 +421,7 @@ func (e *Engine) rebuildProgramLocked() error {
 		Decls:   decls,
 	}
 
+	e.work.ProgramBuilds++
 	programInfo, err := analysis.AnalyzeOneUnit(unit, nil)
 	if err != nil {
 		return err

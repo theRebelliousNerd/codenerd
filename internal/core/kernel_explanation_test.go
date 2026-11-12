@@ -20,7 +20,10 @@ reach(A, C) :- edge(A, B), reach(B, C).`)
 	return k
 }
 
-func TestExplainEnvelope_ArmedButUnrecordedIsNotNoProof(t *testing.T) {
+// Enabling provenance after the store was evaluated still explains the
+// current evaluation: the goal's slice is recorded when it is asked for, with
+// no re-evaluation and no "armed but unrecorded" epoch.
+func TestExplainEnvelope_EnabledLateStillExplainsTheCurrentEvaluation(t *testing.T) {
 	t.Parallel()
 	k := explanationKernel(t)
 	require.NoError(t, k.Assert(Fact{Predicate: "edge", Args: []any{MangleAtom("/a"), MangleAtom("/b")}}))
@@ -30,16 +33,15 @@ func TestExplainEnvelope_ArmedButUnrecordedIsNotNoProof(t *testing.T) {
 	k.EnableProvenance()
 	env, err := k.ExplainEnvelope("reach(/a, /b)", ExplainOptions{})
 	require.NoError(t, err)
-	require.False(t, env.RecordedThisEpoch, "no evaluation has run since recording was armed")
-	require.Empty(t, env.Proofs)
+	require.True(t, env.RecordedThisEpoch, "the current evaluation is recorded on demand")
+	require.NotEmpty(t, env.Proofs)
 	require.NotEmpty(t, env.ProgramDigest)
+	gen := env.RecorderGeneration
 
-	require.NoError(t, k.Evaluate())
+	// Asking again about the same evaluation is the same epoch.
 	env, err = k.ExplainEnvelope("reach(/a, /b)", ExplainOptions{})
 	require.NoError(t, err)
-	require.True(t, env.RecordedThisEpoch)
-	require.NotEmpty(t, env.Proofs)
-	gen := env.RecorderGeneration
+	require.Equal(t, gen, env.RecorderGeneration)
 
 	// A new evaluation is a new epoch.
 	require.NoError(t, k.Assert(Fact{Predicate: "edge", Args: []any{MangleAtom("/b"), MangleAtom("/c")}}))

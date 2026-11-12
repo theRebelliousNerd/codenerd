@@ -20,12 +20,12 @@ import (
 // proves/premise/edb_leaf/absence_leaf/... facts a second program can read.
 // Two things are lost on the way, and both matter to a consumer:
 //
-//   - which evaluation the proof is about. The recorder is reset every pass,
-//     so a "why?" answered after the next evaluation silently describes a
+//   - which evaluation the proof is about. A recording describes one
+//     evaluation, so a "why?" answered after the next one describes a
 //     different world. The envelope stamps the program digest, the source
-//     revision and the recorder generation, and says whether the current
-//     epoch was recorded at all (EnableProvenance arms an empty recorder that
-//     no pass has filled yet).
+//     revision and the recorder generation (one per distinct evaluation
+//     explained). Recording is on demand (kernel_proof_slice.go), so the
+//     current evaluation is always the one recorded.
 //   - ProofNode.Partial. EmitFacts does not export it, though the printer
 //     shows it. A partial node is not "the conclusion is wrong"; it is an
 //     unexpanded step. The envelope keeps the flag per node, with the reason
@@ -64,8 +64,8 @@ type ExplanationEnvelope struct {
 	Goal               string
 	SourceRevision     string // vcs.revision of this binary, "" when unknown
 	ProgramDigest      string // sha256 of the analyzed program text
-	RecorderGeneration uint64 // which evaluation's recorder answered
-	RecordedThisEpoch  bool   // false: provenance armed but no pass recorded yet
+	RecorderGeneration uint64 // which evaluation's recording answered
+	RecordedThisEpoch  bool   // the current evaluation was recorded (always, when provenance is on)
 	Limits             ExplainOptions
 	Truncated          bool
 	TruncationReasons  []string
@@ -77,16 +77,15 @@ type ExplanationEnvelope struct {
 }
 
 // ExplainEnvelope answers "why goal?" for the current evaluation, bounded by
-// opts. With provenance armed but no pass recorded yet, it returns an
-// envelope with RecordedThisEpoch false and no proofs rather than an error:
-// "not recorded" is not "not derivable".
+// opts. The goal's slice of the current evaluation is recorded on demand. An
+// underived goal yields an envelope without proofs, not an error.
 func (k *RealKernel) ExplainEnvelope(goal string, opts ExplainOptions) (*ExplanationEnvelope, error) {
 	if err := k.ensureEvaluated(); err != nil {
 		return nil, fmt.Errorf("ExplainEnvelope: evaluation failed: %w", err)
 	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if k.proofRecorder == nil {
+	if !k.provenanceOn {
 		return nil, ErrProvenanceDisabled
 	}
 	env := &ExplanationEnvelope{
@@ -95,15 +94,12 @@ func (k *RealKernel) ExplainEnvelope(goal string, opts ExplainOptions) (*Explana
 		ProgramDigest:  k.programDigestLocked(),
 		Limits:         opts,
 	}
-	if k.proofRecorder != k.recorderEpoch.seen {
-		k.recorderEpoch.seen = k.proofRecorder
+	if gen := k.generation.Load(); k.recorderEpoch.generation == 0 || gen != k.recorderEpoch.seenGeneration || k.programInfo != k.recorderEpoch.seenProgram {
+		k.recorderEpoch.seenGeneration, k.recorderEpoch.seenProgram = gen, k.programInfo
 		k.recorderEpoch.generation++
 	}
 	env.RecorderGeneration = k.recorderEpoch.generation
-	env.RecordedThisEpoch = k.proofRecorder != k.recorderEpoch.armed
-	if !env.RecordedThisEpoch {
-		return env, nil
-	}
+	env.RecordedThisEpoch = true
 	proofs, err := k.explainLocked(goal, opts)
 	if errors.Is(err, provenance.ErrNoProof) {
 		return env, nil

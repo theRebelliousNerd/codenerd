@@ -1,6 +1,8 @@
 package world
 
 import (
+	"fmt"
+
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
@@ -30,6 +32,9 @@ func PersistFastSnapshotToDBInRoot(db *store.LocalStore, root string, facts []co
 	}
 	root = workspaceRootOrCwd(root)
 	grouped := groupFactsByPath(facts)
+	// One transaction for the whole snapshot. Two per file (an upsert of the
+	// file row, a replace of its facts) took 30 s for codeNERD's 7k files.
+	updates := make([]store.FileUpdates, 0, len(grouped))
 	for path, fs := range grouped {
 		lang := "unknown"
 		for _, f := range fs {
@@ -70,16 +75,15 @@ func PersistFastSnapshotToDBInRoot(db *store.LocalStore, root string, facts []co
 			}
 			meta.Fingerprint = fp
 		}
-		if err := db.UpsertWorldFile(meta); err != nil {
-			logging.WorldWarn("PersistFastSnapshotToDB: failed to upsert world file %s: %v", path, err)
-		}
 		inputs := make([]store.WorldFactInput, 0, len(fs))
 		for _, f := range fs {
 			inputs = append(inputs, store.WorldFactInput{Predicate: f.Predicate, Args: f.Args})
 		}
-		if err := db.ReplaceWorldFactsForFile(path, "fast", fp, inputs); err != nil {
-			logging.WorldWarn("PersistFastSnapshotToDB: failed to replace world facts for file %s: %v", path, err)
-		}
+		updates = append(updates, store.FileUpdates{Meta: meta, Facts: inputs})
+	}
+	if err := db.UpdateWorldFilesAndFacts("fast", updates); err != nil {
+		logging.WorldWarn("PersistFastSnapshotToDB: failed to write %d files: %v", len(updates), err)
+		return fmt.Errorf("persist fast world snapshot (%d files): %w", len(updates), err)
 	}
 	return nil
 }

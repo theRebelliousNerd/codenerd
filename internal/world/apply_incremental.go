@@ -62,9 +62,13 @@ func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 		return applyOrientationDelta(kernel, res)
 	}
 
-	if len(res.RetractFacts) > 0 {
-		typeFacts := toTypesFacts(res.RetractFacts)
-		_ = kernel.RetractExactFactsBatch(typeFacts)
+	// A rescanned file re-emits every fact it had, and most are unchanged:
+	// adding one file to a package rescans each importer of it (652 files for
+	// internal/core, 282k facts). Retracting all of them and asserting them
+	// again made the kernel see the whole world change and run a full
+	// fixpoint; only the facts that are not asserted again are retracted.
+	if retract := notReasserted(res.RetractFacts, res.NewFacts); len(retract) > 0 {
+		_ = kernel.RetractExactFactsBatch(toTypesFacts(retract))
 	}
 	edgesChanged := importEdgesChanged(res.RetractFacts, res.NewFacts)
 
@@ -117,6 +121,37 @@ func applyOrientationDelta(kernel types.Kernel, res *IncrementalResult) error {
 		return fmt.Errorf("apply orientation refresh: kernel %T does not support transactions", kernel)
 	}
 	return res.Orientation.Apply(transactor)
+}
+
+// notReasserted is the retracted facts that the new facts do not assert
+// again. Retracting a fact and loading an identical one leaves the kernel as
+// skipping both does, since LoadFacts keeps a fact already held; skipping
+// both spares the kernel a delete and a re-insert of the same row. Identity
+// is the predicate and the Go-syntax form of the arguments, which tells
+// apart every value the kernel could tell apart, so the kernel ends with
+// exactly the facts it would have.
+func notReasserted(retracted, added []Fact) []Fact {
+	if len(retracted) == 0 || len(added) == 0 {
+		return retracted
+	}
+	again := make(map[string]int, len(added))
+	for _, f := range added {
+		again[factIdentity(f)]++
+	}
+	out := make([]Fact, 0, len(retracted)/8)
+	for _, f := range retracted {
+		key := factIdentity(f)
+		if again[key] > 0 {
+			again[key]--
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+func factIdentity(f Fact) string {
+	return f.Predicate + "\x00" + fmt.Sprintf("%#v", f.Args)
 }
 
 func toTypesFacts(worldFacts []Fact) []types.Fact {
