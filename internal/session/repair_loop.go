@@ -131,6 +131,10 @@ type repairSpec struct {
 	// single-round repair used so existing consumers keep matching; the
 	// new cost and attempt evidence rides after it.
 	brokenPhrase string
+	// brokenPhraseFor, when set, words the give-up from what the episode
+	// ended on (a test gate whose failing tests are all ones the turn
+	// wrote says so); brokenPhrase is the fallback and the contract.
+	brokenPhraseFor func() string
 	// promptFor writes the round's prompt from output that shows the round's
 	// own subject.
 	promptFor func(failingOutput string) string
@@ -149,6 +153,16 @@ type repairSpec struct {
 	// pinning, removed_tests): its write guard also admits the existing
 	// _test.go files beside the turn's Go files (repairWriteGuard).
 	writesTests bool
+}
+
+// broken is the give-up phrase for the episode as it ended.
+func (s repairSpec) broken() string {
+	if s.brokenPhraseFor != nil {
+		if p := s.brokenPhraseFor(); p != "" {
+			return p
+		}
+	}
+	return s.brokenPhrase
 }
 
 // prompt is the only way a round's prompt is written, so that the choice is
@@ -248,7 +262,7 @@ func (e *Executor) repairLoop(
 				spec.kind, attempt-1, rec.Cost.String())
 			return nil, allErrs, rec, fmt.Errorf(
 				"%w: %s and the turn's deadline passed after %d repair attempt(s) (cost=%s) and the workspace still fails. Follow-ups: %s. Last failure:\n%s",
-				ErrVerificationFailed, spec.brokenPhrase, attempt-1, rec.Cost.String(),
+				ErrVerificationFailed, spec.broken(), attempt-1, rec.Cost.String(),
 				strings.Join(rec.Followups, "; "), failure.Output)
 		}
 
@@ -268,7 +282,12 @@ func (e *Executor) repairLoop(
 		if useCommitRegime {
 			regimeNote = " under the commit regime"
 		}
-		logging.Get(logging.CategorySession).Warn(
+		// Info, not Warn: a repair round is progress on the workspace's
+		// edits, and its outcome is the turn's own report. WARN and ERROR are
+		// the problems log, which debug-self reads as codeNERD's own faults:
+		// a failed self-repair turn's rounds became the next self-repair's
+		// targets (live, 2026-11-12).
+		logging.Get(logging.CategorySession).Info(
 			"Repair attempt %d (%s)%s", attempt, spec.kind, regimeNote)
 
 		// A repair round is counted and its own (model and tool) time is
@@ -287,7 +306,7 @@ func (e *Executor) repairLoop(
 			rec.Followups = spec.followups()
 			return nil, allErrs, rec, fmt.Errorf(
 				"%w: %s and the repair loop failed on attempt %d (%v) (cost=%s). Follow-ups: %s. Last failure:\n%s",
-				ErrVerificationFailed, spec.brokenPhrase, attempt, err, rec.Cost.String(),
+				ErrVerificationFailed, spec.broken(), attempt, err, rec.Cost.String(),
 				strings.Join(rec.Followups, "; "), failure.Output)
 		}
 		last = repaired
@@ -341,7 +360,7 @@ func (e *Executor) repairLoop(
 					// foreign work by mistake.
 					gaveUp = fmt.Sprintf("the same failure survived two edits, and the restart could not undo them (%s changed since the turn last wrote them and were left as found)", strings.Join(conflicts, ", "))
 				} else {
-					logging.Get(logging.CategorySession).Warn(
+					logging.Get(logging.CategorySession).Info(
 						"Repair episode (%s): the same failure survived two edits; restarted from the episode's start (undid %s) to look for a different cause",
 						spec.kind, strings.Join(restored, ", "))
 					failure = repairFailure{Output: seedOutput}
@@ -350,7 +369,7 @@ func (e *Executor) repairLoop(
 				}
 			}
 			if gaveUp == "" && !next.restart {
-				logging.Get(logging.CategorySession).Warn(
+				logging.Get(logging.CategorySession).Info(
 					"Repair attempt %d (%s) still failing; backtracking to retained error context",
 					attempt, spec.kind)
 			}
@@ -367,7 +386,9 @@ func (e *Executor) repairLoop(
 
 	rec.EditedFiles = editedFilesFor(result)
 	rec.Followups = spec.followups()
-	logging.Get(logging.CategorySession).Warn(
+	// The give-up is the turn's verdict, which the turn's error reports
+	// (ErrVerificationFailed below): Info, like the rounds above.
+	logging.Get(logging.CategorySession).Info(
 		"Repair episode (%s) gave up after %d attempts (%s); cost=%s",
 		spec.kind, rec.Cost.Attempts, gaveUp, rec.Cost.String())
 	// Only the turn's own build and test repair ends here with nothing behind
@@ -382,7 +403,7 @@ func (e *Executor) repairLoop(
 	}
 	return nil, allErrs, rec, fmt.Errorf(
 		"%w: %s and the repair loop did not converge after %d attempts: %s (cost=%s).%s Follow-ups: %s. Last failure:\n%s",
-		ErrVerificationFailed, spec.brokenPhrase, rec.Cost.Attempts, gaveUp, rec.Cost.String(), restoredNote,
+		ErrVerificationFailed, spec.broken(), rec.Cost.Attempts, gaveUp, rec.Cost.String(), restoredNote,
 		strings.Join(rec.Followups, "; "), failure.Output)
 }
 

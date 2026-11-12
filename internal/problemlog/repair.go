@@ -97,6 +97,21 @@ type RepairAttempt struct {
 	// logged (or the operation timed) when its diagnosis found nothing to
 	// fix: the kernel holds the target until the evidence outgrows it.
 	EvidenceCount int `json:"evidence_count,omitempty"`
+	// AttemptDiff is, for a fix turn that did not end installed, the
+	// workspace-relative file its undone edits were saved to; FailedTests
+	// are the tests failing when it ended, one line each. A retry is told
+	// both, so it does not make the same change again.
+	AttemptDiff string   `json:"attempt_diff,omitempty"`
+	FailedTests []string `json:"failed_tests,omitempty"`
+}
+
+// FixWindow is when a self-repair fix turn ran, in unix seconds. EndUnix is
+// 0 while it runs. A problem logged only inside fix windows is the record of
+// those attempts, not a defect to repair (self_problem_from_repair).
+type FixWindow struct {
+	Job       string `json:"job"`
+	StartUnix int64  `json:"start_unix"`
+	EndUnix   int64  `json:"end_unix,omitempty"`
 }
 
 // RepairLedger is the persistent set of attempts, one per target. It is safe
@@ -106,6 +121,7 @@ type RepairLedger struct {
 	mu       sync.Mutex
 	path     string
 	attempts map[string]*RepairAttempt
+	windows  []FixWindow
 }
 
 const ledgerVersion = 1
@@ -113,6 +129,7 @@ const ledgerVersion = 1
 type ledgerFile struct {
 	Version  int             `json:"version"`
 	Attempts []RepairAttempt `json:"attempts"`
+	Windows  []FixWindow     `json:"fix_windows,omitempty"`
 }
 
 // RepairLedgerPath is the ledger's place in a workspace.
@@ -141,6 +158,15 @@ func LoadRepairLedger(path string, now time.Time) (*RepairLedger, error) {
 		return nil, fmt.Errorf("self-repair ledger %s is version %d, this build reads %d", path, f.Version, ledgerVersion)
 	}
 	adopted := false
+	// A window still open was the previous process's fix turn, which ended
+	// with that process. Its lines are in that process's problems log, never
+	// this one's: closed where it began, it attributes nothing here.
+	for _, w := range f.Windows {
+		if w.EndUnix == 0 {
+			w.EndUnix, adopted = w.StartUnix, true
+		}
+		l.windows = append(l.windows, w)
+	}
 	for i := range f.Attempts {
 		a := f.Attempts[i]
 		if a.Status == RepairPendingRestart {
@@ -324,9 +350,69 @@ func (l *RepairLedger) Verdict(target string, status RepairStatus, note string, 
 
 func settle(a *RepairAttempt, status RepairStatus, note string, now time.Time) {
 	a.Status, a.Phase, a.Note, a.UpdatedUnix, a.EvidenceCount = status, "", note, now.Unix(), 0
+	a.AttemptDiff, a.FailedTests = "", nil
 	if status.countsAsFailure() {
 		a.Failures++
 	}
+}
+
+// Annotate adds to job's failed or stopped attempts what their fix turn left: a
+// sentence for the note, the saved diff of its undone edits, and the tests
+// failing when it ended. It returns how many attempts it annotated.
+func (l *RepairLedger) Annotate(job, note, diff string, failedTests []string) (int, error) {
+	n := 0
+	err := l.update(func(a *RepairAttempt) bool {
+		if a.Job != job || (a.Status != RepairFailed && a.Status != RepairStopped) {
+			return false
+		}
+		if note != "" {
+			if a.Note != "" {
+				a.Note += "; "
+			}
+			a.Note += note
+		}
+		a.AttemptDiff, a.FailedTests = diff, append([]string(nil), failedTests...)
+		n++
+		return true
+	})
+	return n, err
+}
+
+// OpenFixWindow records that job's fix turn starts now.
+func (l *RepairLedger) OpenFixWindow(job string, now time.Time) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, w := range l.windows {
+		if w.Job == job && w.EndUnix == 0 {
+			return nil
+		}
+	}
+	l.windows = append(l.windows, FixWindow{Job: job, StartUnix: now.Unix()})
+	return l.saveLocked()
+}
+
+// CloseFixWindow records that job's fix turn ended now.
+func (l *RepairLedger) CloseFixWindow(job string, now time.Time) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	changed := false
+	for i := range l.windows {
+		if l.windows[i].Job == job && l.windows[i].EndUnix == 0 {
+			l.windows[i].EndUnix = max(now.Unix(), l.windows[i].StartUnix)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return l.saveLocked()
+}
+
+// FixWindows returns a copy of every fix window, oldest first.
+func (l *RepairLedger) FixWindows() []FixWindow {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]FixWindow(nil), l.windows...)
 }
 
 // update applies f to every record and saves when it changed one.
@@ -349,7 +435,7 @@ func (l *RepairLedger) saveLocked() error {
 	if l.path == "" {
 		return nil
 	}
-	data, err := json.MarshalIndent(ledgerFile{Version: ledgerVersion, Attempts: l.listLocked()}, "", "  ")
+	data, err := json.MarshalIndent(ledgerFile{Version: ledgerVersion, Attempts: l.listLocked(), Windows: l.windows}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -368,6 +454,7 @@ const (
 	RepairBaselinePredicate = "self_repair_baseline"
 	RepairEvidencePredicate = "self_repair_no_defect_evidence"
 	RepairClockPredicate    = "self_repair_clock"
+	RepairWindowPredicate   = "self_repair_fix_window"
 	RepairFixingPredicate   = "self_repair_fixing"
 	RepairDuePredicate      = "self_repair_due"
 	RepairShardPredicate    = "self_repair_shard"
@@ -376,7 +463,7 @@ const (
 )
 
 // RepairPredicates are the base predicates ReplaceRepair writes.
-var RepairPredicates = []string{RepairAttemptPredicate, RepairBaselinePredicate, RepairEvidencePredicate, RepairClockPredicate}
+var RepairPredicates = []string{RepairAttemptPredicate, RepairBaselinePredicate, RepairEvidencePredicate, RepairClockPredicate, RepairWindowPredicate}
 
 // Facts projects the ledger as self_repair_attempt, self_repair_baseline and
 // self_repair_no_defect_evidence rows.
@@ -400,6 +487,23 @@ func (l *RepairLedger) Facts() []types.Fact {
 	return out
 }
 
+// WindowFacts projects the fix windows as self_repair_fix_window rows; a
+// window still open ends now.
+func (l *RepairLedger) WindowFacts(now time.Time) []types.Fact {
+	if l == nil {
+		return nil
+	}
+	var out []types.Fact
+	for _, w := range l.FixWindows() {
+		end := w.EndUnix
+		if end == 0 {
+			end = max(now.Unix(), w.StartUnix)
+		}
+		out = append(out, types.Fact{Predicate: RepairWindowPredicate, Args: []any{types.MangleString(w.Job), w.StartUnix, end}})
+	}
+	return out
+}
+
 // ReplaceRepair swaps the kernel's ledger facts and clock for the ledger's
 // current state at now. Every retraction error and the assert error come back
 // joined.
@@ -414,6 +518,7 @@ func ReplaceRepair(k Kernel, l *RepairLedger, now time.Time) error {
 		}
 	}
 	facts := append(l.Facts(), types.Fact{Predicate: RepairClockPredicate, Args: []any{now.Unix()}})
+	facts = append(facts, l.WindowFacts(now)...)
 	if err := k.AssertBatch(facts); err != nil {
 		errs = append(errs, fmt.Errorf("problemlog: assert %d self-repair facts: %w", len(facts), err))
 	}

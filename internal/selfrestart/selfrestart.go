@@ -164,6 +164,9 @@ type ChainStep struct {
 	Verb        string `json:"verb"`
 	Target      string `json:"target"`
 	Autonomous  bool   `json:"autonomous,omitempty"`
+	// Job is the self-repair job whose fix step this is ("" for any other
+	// chain): its turn's writes are journaled and undone if it fails.
+	Job string `json:"job,omitempty"`
 }
 
 // stateVersion stays 1 while every field added is optional: the process that

@@ -15,6 +15,9 @@
 Decl self_problem(Signature, Level, Category, Count, Sample) bound [/string, /name, /string, /number, /string].
 Decl self_problem_seen(Signature, Level, Category, FirstUnix, LastUnix) bound [/string, /name, /string, /number, /number].
 Decl self_problem_omitted(Problems, Entries) bound [/number, /number].
+# One row per signature and distinct second (unix) it was logged in: when it
+# happened, which First/Last alone cannot say for a problem logged in bursts.
+Decl self_problem_at(Signature, Unix) bound [/string, /number].
 # The chat asserts it while /debug-self is on; the lines below are injected
 # only then.
 Decl debug_self_active() bound [].

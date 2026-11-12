@@ -194,3 +194,13 @@ func firstFailures(failures []Failure) []Failure {
 	}
 	return out
 }
+
+// FirstFailures is the run's failing tests, one per package and test with
+// its first failure, then one per package that failed to build: the rows
+// failing_test is asserted from, for a caller that reports them.
+func (r *Result) FirstFailures() []Failure {
+	if r == nil {
+		return nil
+	}
+	return r.failingTests()
+}

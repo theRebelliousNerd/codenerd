@@ -164,8 +164,26 @@ func TestFacts_ProjectProblemsSeenAndOmitted(t *testing.T) {
 		t.Fatal(err)
 	}
 	facts := rep.Facts()
-	if len(facts) != 4*2+1 {
-		t.Fatalf("%d facts, want a problem and a seen row per problem plus the omission", len(facts))
+	seconds := map[string]map[int64]bool{}
+	for _, p := range rep.Problems {
+		if seconds[p.Signature] == nil {
+			seconds[p.Signature] = map[int64]bool{}
+		}
+		for _, s := range p.Seconds {
+			seconds[p.Signature][s] = true
+		}
+	}
+	at := 0
+	for _, secs := range seconds {
+		at += len(secs)
+	}
+	if at == 0 || len(facts) != 4*2+at+1 {
+		t.Fatalf("%d facts, want a problem and a seen row per problem, %d self_problem_at rows, and the omission", len(facts), at)
+	}
+	for _, f := range facts[4*2 : 4*2+at] {
+		if f.Predicate != AtPredicate || len(f.Args) != 2 {
+			t.Fatalf("expected self_problem_at rows after the problems, got %+v", f)
+		}
 	}
 	p := facts[0]
 	if p.Predicate != "self_problem" || len(p.Args) != 5 {

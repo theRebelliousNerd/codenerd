@@ -1339,6 +1339,10 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 	ctx = withTestSelectionTimeout(ctx, e.configSnapshot().TestSelectionTimeout)
 
 	result := &ExecutionResult{}
+	// A caller that owns this turn's span (a self-repair fix turn) undoes
+	// exactly what it wrote when the span fails (write_journal.go). Deferred
+	// so every exit records, the error paths most of all.
+	defer func() { journalTurn(ctx, e.workspaceForVerification(), result) }()
 	if contract, ok := evidence.ContractFromContext(ctx); ok {
 		tx, err := evidence.Begin(ctx, e.workspaceForVerification(), contract)
 		if err != nil {

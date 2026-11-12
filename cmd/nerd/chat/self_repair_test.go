@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -470,16 +471,29 @@ func TestSelfRepair_SettlingAJobRecordsItsOutcome(t *testing.T) {
 func TestSelfRepair_OptimizesTheCostliestOperationOnceNothingIsHot(t *testing.T) {
 	t.Parallel()
 	r := newSelfRepairRig(t, "", "20261112_090000_problems.log", "")
+	settled := r.m.selfRepair.clock().UnixMilli()
 	var b strings.Builder
 	b.WriteString("# Audit log started\n")
+	// The boot: a whole-world evaluation, costlier in all than anything the
+	// steady state does, and not the steady state's cost to cut.
 	for i := 0; i < config.DefaultSelfOptimizeMinCount+5; i++ {
-		b.WriteString(`{"event":"perf_metric","cat":"kernel","action":"Evaluate","dur_ms":120}` + "\n")
-		b.WriteString(`{"event":"perf_metric","cat":"store","action":"Get","dur_ms":2}` + "\n")
-		b.WriteString(`{"event":"perf_slow","cat":"api","action":"Complete","dur_ms":9000}` + "\n")
+		fmt.Fprintf(&b, `{"ts":%d,"event":"perf_metric","cat":"world","action":"BootRescan","dur_ms":5000}`+"\n", settled-60_000)
+	}
+	for i := 0; i < config.DefaultSelfOptimizeMinCount+5; i++ {
+		fmt.Fprintf(&b, `{"ts":%d,"event":"perf_metric","cat":"kernel","action":"Evaluate","dur_ms":120}`+"\n", settled+1000)
+		fmt.Fprintf(&b, `{"ts":%d,"event":"perf_metric","cat":"store","action":"Get","dur_ms":2}`+"\n", settled+1000)
+		fmt.Fprintf(&b, `{"ts":%d,"event":"perf_slow","cat":"api","action":"Complete","dur_ms":9000}`+"\n", settled+1000)
 	}
 	if err := os.WriteFile(r.m.selfRepair.auditLog(), []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// Before the boot settles, nothing is the steady state's: no optimize job.
+	if m, _ := r.m.selfRepairStep(); len(m.background.list()) != 0 {
+		t.Fatalf("an optimize job started before the boot settled: %+v", m.background.list())
+	}
+	// The startup scan completes: the boot has settled.
+	r.m.isBooting, r.m.bootStage = true, BootStageScanning
+	r.m, _, _ = r.m.handleScanCompleteMsg(scanCompleteMsg{})
 	m, cmd := r.m.selfRepairStep()
 	jobs := m.background.list()
 	if cmd == nil || len(jobs) != 1 || jobs[0].SelfRepair != problemlog.LaneOptimize {

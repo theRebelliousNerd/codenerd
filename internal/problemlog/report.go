@@ -3,6 +3,7 @@ package problemlog
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"time"
 )
@@ -22,6 +23,12 @@ type Problem struct {
 	Count     int
 	First     time.Time
 	Last      time.Time
+	// Seconds is every distinct second (unix) the problem was logged in,
+	// ascending: the kernel attributes a problem logged only while a
+	// self-repair fix turn ran to that attempt (self_problem_at,
+	// self_repair.mg), and First/Last alone cannot say whether it was also
+	// logged between two such turns.
+	Seconds []int64
 }
 
 // Report is a problems log grouped into distinct problems, most urgent first
@@ -77,10 +84,15 @@ func ReadFile(path string, opts Options) (*Report, error) {
 		signature string
 	}
 	groups := map[groupKey]*Problem{}
+	seconds := map[groupKey]map[int64]bool{}
 	err = Scan(f, opts.Skip, func(e Entry) {
 		rep.Entries++
 		sig := Signature(e.Message)
 		key := groupKey{level: e.Level, category: e.Category, signature: sig}
+		if seconds[key] == nil {
+			seconds[key] = map[int64]bool{}
+		}
+		seconds[key][e.Time.Unix()] = true
 		if p, ok := groups[key]; ok {
 			p.Count++
 			if e.Time.Before(p.First) {
@@ -100,7 +112,11 @@ func ReadFile(path string, opts Options) (*Report, error) {
 		return nil, fmt.Errorf("read problems log %s: %w", path, err)
 	}
 	all := make([]Problem, 0, len(groups))
-	for _, p := range groups {
+	for key, p := range groups {
+		for sec := range seconds[key] {
+			p.Seconds = append(p.Seconds, sec)
+		}
+		slices.Sort(p.Seconds)
 		all = append(all, *p)
 	}
 	rank := func(level string) int {
