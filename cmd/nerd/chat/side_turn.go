@@ -62,6 +62,10 @@ type turnState struct {
 	// stopNotice is the execution Ctrl+X announced as stopping; it is
 	// announced as stopped once it no longer owns the slot (stopSettled).
 	stopNotice uint64
+	// stoppedEnds are the executions that ended after a stop was asked of
+	// them (end), until someone asks (endedStopped): a self-repair fix turn
+	// the user stopped settles as stopped, not failed.
+	stoppedEnds map[uint64]bool
 
 	// decide serializes a side turn's kernel section (its decision facts,
 	// the query, the brief publication). It is never held across a model
@@ -84,7 +88,14 @@ type queuedMessage struct {
 	request uint64
 	command bool
 	pending bool
+	// chain is a chain's step queued behind a running turn: it runs with its
+	// preset intent (runChainStep). An autonomous one (self-repair) yields
+	// its place to every message of the user's queued after it (dequeue).
+	chain *chainStep
 }
+
+// autonomous reports a queued step codeNERD started itself.
+func (q queuedMessage) autonomous() bool { return q.chain != nil && q.chain.Autonomous }
 
 func newTurnState() *turnState { return &turnState{} }
 
@@ -130,7 +141,26 @@ func (t *turnState) end(id uint64) {
 	if id != t.owner {
 		return
 	}
+	if t.stopRequested {
+		if t.stoppedEnds == nil {
+			t.stoppedEnds = map[uint64]bool{}
+		}
+		t.stoppedEnds[id] = true
+	}
 	t.owner, t.cancel, t.stopRequested, t.working, t.began = 0, nil, false, "", time.Time{}
+}
+
+// endedStopped reports, once, whether execution id ended after a stop was
+// asked of it.
+func (t *turnState) endedStopped(id uint64) bool {
+	if t == nil || id == 0 {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	stopped := t.stoppedEnds[id]
+	delete(t.stoppedEnds, id)
+	return stopped
 }
 
 // announceStop records that execution id was told it is stopping.
@@ -304,19 +334,35 @@ func (t *turnState) settle(id uint64, keep bool) {
 	}
 }
 
-// dequeue takes the oldest message when it is ready; a pending one at the
-// head holds the queue, since a later message may depend on it.
+// dequeue takes the oldest message when it is ready; a pending one holds
+// the queue behind it, since a later message may depend on it. The user
+// comes first: a step codeNERD queued for itself (a self-repair fix) yields
+// to every ready message of the user's, wherever it was queued, and runs
+// once none waits.
 func (t *turnState) dequeue() (queuedMessage, bool) {
 	if t == nil {
 		return queuedMessage{}, false
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if len(t.queued) == 0 || t.queued[0].pending {
-		return queuedMessage{}, false
+	pick := -1
+	for i, q := range t.queued {
+		if q.pending {
+			break
+		}
+		if !q.autonomous() {
+			pick = i
+			break
+		}
 	}
-	next := t.queued[0]
-	t.queued = t.queued[1:]
+	if pick < 0 {
+		if len(t.queued) == 0 || t.queued[0].pending {
+			return queuedMessage{}, false
+		}
+		pick = 0
+	}
+	next := t.queued[pick]
+	t.queued = append(t.queued[:pick:pick], t.queued[pick+1:]...)
 	return next, true
 }
 
@@ -642,6 +688,10 @@ func (m Model) startQueuedTurn() (Model, tea.Cmd) {
 			continue
 		}
 		m.isLoading = true
+		if next.chain != nil {
+			cmds = append(cmds, m.runChainStep(*next.chain, next.request))
+			continue
+		}
 		cmds = append(cmds, m.processInput(next.input, next.request))
 	}
 	if len(cmds) == 0 {

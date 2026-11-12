@@ -91,12 +91,23 @@ func (m Model) selfDiagnosisJob(ctx context.Context, shard string) (job backgrou
 		writeDiagnosisProblems(&b, around, n)
 	}
 	return backgroundJob{
-		ID:       fmt.Sprintf("self-diagnosis-%d", time.Now().UnixNano()),
-		Shard:    shard,
-		Task:     b.String(),
-		Started:  time.Now(),
-		FollowUp: selfDiagnosisFollowUp,
+		ID:        fmt.Sprintf("self-diagnosis-%d", time.Now().UnixNano()),
+		Shard:     shard,
+		Task:      b.String(),
+		Started:   time.Now(),
+		FollowUp:  selfDiagnosisFollowUp,
+		diagnosed: diagnosisTargetsOf(append(append([]problemlog.Problem(nil), defects...), around...)),
 	}, true, ""
+}
+
+// diagnosisTargetsOf is the problems a diagnosis covers, as the verdict's
+// targets: keyed by signature, each with its whole first message.
+func diagnosisTargetsOf(problems []problemlog.Problem) []turnjudge.DiagnosisTarget {
+	out := make([]turnjudge.DiagnosisTarget, 0, len(problems))
+	for _, p := range problems {
+		out = append(out, turnjudge.DiagnosisTarget{Key: p.Signature, Level: p.Level, Category: p.Category, Message: p.Sample})
+	}
+	return out
 }
 
 // triageProblems is the chain's Jev triage, when on: Jev judges each hot

@@ -215,13 +215,19 @@ func (m Model) processInput(input string, request uint64) tea.Cmd {
 		var err error
 
 		// An approved proposal runs with the intent perception read when it was
-		// proposed: the "go" that approved it is not the request. user_intent
-		// is asserted from it below, as for any intent no shard asserted.
-		reusedIntent := m.goAheadWork != nil || m.resumeIntent != nil
+		// proposed: the "go" that approved it is not the request. A chain's
+		// step runs with the intent the chain knows: its instruction is the
+		// request and the result it carries is evidence, not words to read
+		// for one. user_intent is asserted from it below, as for any intent
+		// no shard asserted.
+		reusedIntent := m.goAheadWork != nil || m.resumeIntent != nil || m.chainStep != nil
 		if reusedIntent {
-			if m.resumeIntent != nil {
+			switch {
+			case m.chainStep != nil:
+				intent = m.chainStep.intent()
+			case m.resumeIntent != nil:
 				intent = *m.resumeIntent
-			} else {
+			default:
 				intent = m.goAheadWork.Intent
 			}
 		}

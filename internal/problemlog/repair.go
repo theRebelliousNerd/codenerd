@@ -43,12 +43,19 @@ const (
 	// got no faster. Counts as a failure.
 	RepairRegressed RepairStatus = "regressed"
 	// RepairFailed: the job or fix turn ended without an installed fix (it
-	// failed, found nothing to change, or its build did not pass the
-	// self-check). Counts as a failure.
+	// failed, or its build did not pass the self-check). Counts as a failure.
 	RepairFailed RepairStatus = "failed"
 	// RepairStopped: the user stopped it. Not a failure of the fix.
 	RepairStopped RepairStatus = "stopped"
+	// RepairNoDefect: its diagnosis found nothing of codeNERD's to fix (the
+	// kernel's self_diagnosis_no_defect), so no fix turn ran. Held until its
+	// evidence grows (self_repair.mg); not a failure.
+	RepairNoDefect RepairStatus = "no_defect"
 )
+
+// RepairStatuses is every status, in lifecycle order.
+var RepairStatuses = []RepairStatus{RepairBeingFixed, RepairPendingRestart, RepairVerifying, RepairVerified,
+	RepairRegressed, RepairFailed, RepairStopped, RepairNoDefect}
 
 // countsAsFailure reports the statuses that move a target toward being left.
 func (s RepairStatus) countsAsFailure() bool {
@@ -86,6 +93,10 @@ type RepairAttempt struct {
 	// Note says why the latest attempt ended as it did; a retry is told it,
 	// so it does not repeat a fix that did not hold.
 	Note string `json:"note,omitempty"`
+	// EvidenceCount is, for RepairNoDefect, how often the problem had been
+	// logged (or the operation timed) when its diagnosis found nothing to
+	// fix: the kernel holds the target until the evidence outgrows it.
+	EvidenceCount int `json:"evidence_count,omitempty"`
 }
 
 // RepairLedger is the persistent set of attempts, one per target. It is safe
@@ -220,6 +231,24 @@ func (l *RepairLedger) Fixing(job string, now time.Time) error {
 	})
 }
 
+// NoDefect settles job's targets whose diagnosis found nothing of codeNERD's
+// to fix, each with the evidence count it was judged on (at least 1), and
+// returns how many it settled. It is not a failure.
+func (l *RepairLedger) NoDefect(job string, evidence map[string]int, note string, now time.Time) (int, error) {
+	n := 0
+	err := l.update(func(a *RepairAttempt) bool {
+		count, ok := evidence[a.Target]
+		if !ok || a.Job != job || a.Status != RepairBeingFixed {
+			return false
+		}
+		settle(a, RepairNoDefect, note, now)
+		a.EvidenceCount = max(count, 1)
+		n++
+		return true
+	})
+	return n, err
+}
+
 // InFixing reports the jobs whose fix turn is running.
 func (l *RepairLedger) InFixing() []string {
 	l.mu.Lock()
@@ -294,7 +323,7 @@ func (l *RepairLedger) Verdict(target string, status RepairStatus, note string, 
 }
 
 func settle(a *RepairAttempt, status RepairStatus, note string, now time.Time) {
-	a.Status, a.Phase, a.Note, a.UpdatedUnix = status, "", note, now.Unix()
+	a.Status, a.Phase, a.Note, a.UpdatedUnix, a.EvidenceCount = status, "", note, now.Unix(), 0
 	if status.countsAsFailure() {
 		a.Failures++
 	}
@@ -337,6 +366,7 @@ func (l *RepairLedger) saveLocked() error {
 const (
 	RepairAttemptPredicate  = "self_repair_attempt"
 	RepairBaselinePredicate = "self_repair_baseline"
+	RepairEvidencePredicate = "self_repair_no_defect_evidence"
 	RepairClockPredicate    = "self_repair_clock"
 	RepairFixingPredicate   = "self_repair_fixing"
 	RepairDuePredicate      = "self_repair_due"
@@ -346,10 +376,10 @@ const (
 )
 
 // RepairPredicates are the base predicates ReplaceRepair writes.
-var RepairPredicates = []string{RepairAttemptPredicate, RepairBaselinePredicate, RepairClockPredicate}
+var RepairPredicates = []string{RepairAttemptPredicate, RepairBaselinePredicate, RepairEvidencePredicate, RepairClockPredicate}
 
-// Facts projects the ledger as self_repair_attempt and self_repair_baseline
-// rows.
+// Facts projects the ledger as self_repair_attempt, self_repair_baseline and
+// self_repair_no_defect_evidence rows.
 func (l *RepairLedger) Facts() []types.Fact {
 	if l == nil {
 		return nil
@@ -362,6 +392,9 @@ func (l *RepairLedger) Facts() []types.Fact {
 		}})
 		if a.Lane == LaneOptimize && a.BaselineMs > 0 {
 			out = append(out, types.Fact{Predicate: RepairBaselinePredicate, Args: []any{types.MangleString(a.Target), a.BaselineMs}})
+		}
+		if a.Status == RepairNoDefect {
+			out = append(out, types.Fact{Predicate: RepairEvidencePredicate, Args: []any{types.MangleString(a.Target), int64(max(a.EvidenceCount, 1))}})
 		}
 	}
 	return out

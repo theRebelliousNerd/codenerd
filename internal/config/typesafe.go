@@ -48,6 +48,11 @@ type TypeSafeConfig struct {
 	RetrievalRelevance *bool `json:"retrieval_relevance,omitempty"`
 	ReviewChecks       *bool `json:"review_checks,omitempty"`
 	DiagnosisTriage    *bool `json:"diagnosis_triage,omitempty"`
+	// DiagnosisVerdict: Jev reads a finished self-diagnosis and judges, per
+	// target, whether it names a fix in codeNERD's own source; the kernel
+	// then decides whether the chain's fix turn runs (self_diagnosis.mg).
+	// Off, or failed, the fix turn runs as it did before the verdict.
+	DiagnosisVerdict *bool `json:"diagnosis_verdict,omitempty"`
 	// The learning and self-modification loops (Docs/architecture/
 	// jev-turn-judgments.md, "Learning and autopoiesis"): whether the user is
 	// correcting codeNERD's last turn, the prompt-evolution task verdict and
@@ -96,6 +101,8 @@ type TypeSafeConfig struct {
 // request, docs.typesafe.ai/models).
 type TypeSafeUses struct {
 	TurnJudgments, RetrievalRelevance, ReviewChecks, DiagnosisTriage bool
+	// DiagnosisVerdict is the finished self-diagnosis's verdict.
+	DiagnosisVerdict bool
 	// The learning and autopoiesis uses (TypeSafeConfig).
 	CorrectionJudgments, TaskVerdicts, ProblemTypes, ToolChecks, AutopoiesisChecks, AtomChecks bool
 	// AtomRelevance is the per-turn flesh-atom judgment (atom_relevance).
@@ -132,7 +139,7 @@ type TypeSafeUses struct {
 // DefaultTypeSafeUses is every use on with the default tuning.
 func DefaultTypeSafeUses() TypeSafeUses {
 	return TypeSafeUses{
-		TurnJudgments: true, RetrievalRelevance: true, ReviewChecks: true, DiagnosisTriage: true,
+		TurnJudgments: true, RetrievalRelevance: true, ReviewChecks: true, DiagnosisTriage: true, DiagnosisVerdict: true,
 		CorrectionJudgments: true, TaskVerdicts: true, ProblemTypes: true, ToolChecks: true, AutopoiesisChecks: true, AtomChecks: true,
 		AtomRelevance:       true,
 		InstructionCoverage: true,
@@ -161,6 +168,7 @@ func (c *TypeSafeConfig) Uses() TypeSafeUses {
 	u.RetrievalRelevance = on(c.RetrievalRelevance, u.RetrievalRelevance)
 	u.ReviewChecks = on(c.ReviewChecks, u.ReviewChecks)
 	u.DiagnosisTriage = on(c.DiagnosisTriage, u.DiagnosisTriage)
+	u.DiagnosisVerdict = on(c.DiagnosisVerdict, u.DiagnosisVerdict)
 	u.CorrectionJudgments = on(c.CorrectionJudgments, u.CorrectionJudgments)
 	u.TaskVerdicts = on(c.TaskVerdicts, u.TaskVerdicts)
 	u.ProblemTypes = on(c.ProblemTypes, u.ProblemTypes)

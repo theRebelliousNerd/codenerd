@@ -221,6 +221,11 @@ func (m *Model) decideRoute(input string, intent perception.Intent, shardType st
 	if m.goAheadWork != nil {
 		signals = append(signals, "/user_go_ahead")
 	}
+	// This turn is one step of a chain the kernel laid out (the
+	// self-diagnosis's fix): it is not decomposed again.
+	if m.chainStep != nil {
+		signals = append(signals, "/chain_step")
+	}
 	for _, sig := range signals {
 		if err := m.kernel.Assert(core.Fact{
 			Predicate: "intent_signal",

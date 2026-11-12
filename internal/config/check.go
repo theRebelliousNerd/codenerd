@@ -133,6 +133,7 @@ func (c *UserConfig) Check(raw []byte) []Problem {
 			{"logging.self_repair_poll_sec", c.Logging.SelfRepairPollSec},
 			{"logging.self_optimize_min_count", c.Logging.SelfOptimizeMinCount},
 			{"logging.self_repair_check_timeout_sec", c.Logging.SelfRepairCheckTimeoutSec},
+			{"logging.self_repair_no_defect_regrowth", c.Logging.SelfRepairNoDefectRegrowth},
 		} {
 			if knob.v < 0 {
 				add(SeverityError, knob.key, fmt.Sprintf("%d is negative", knob.v), "1 or more, or remove the key for the default; logging.self_repair_disabled turns self-repair off")

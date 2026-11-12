@@ -150,7 +150,7 @@ func TestTypeSafeUses_DefaultsSwitchesAndTuning(t *testing.T) {
 	off := false
 	c := &TypeSafeConfig{RetrievalRelevance: &off, BatchSize: 7}
 	u := c.Uses()
-	if !u.TurnJudgments || u.RetrievalRelevance || !u.ReviewChecks || !u.DiagnosisTriage {
+	if !u.TurnJudgments || u.RetrievalRelevance || !u.ReviewChecks || !u.DiagnosisTriage || !u.DiagnosisVerdict {
 		t.Fatalf("switches = %+v, want every use on but retrieval relevance", u)
 	}
 	if u.BatchSize != 7 || u.RecentTurns != DefaultTypeSafeUses().RecentTurns {
@@ -158,6 +158,9 @@ func TestTypeSafeUses_DefaultsSwitchesAndTuning(t *testing.T) {
 	}
 	if !u.CorrectionJudgments || !u.TaskVerdicts || !u.ProblemTypes || !u.ToolChecks || !u.AutopoiesisChecks || !u.AtomChecks {
 		t.Fatalf("learning uses = %+v, want each on when its key is absent", u)
+	}
+	if v := (&TypeSafeConfig{DiagnosisVerdict: &off}).Uses(); v.DiagnosisVerdict || !v.DiagnosisTriage {
+		t.Fatalf("diagnosis_verdict off = %+v, want only the verdict off", v)
 	}
 	learnOff := &TypeSafeConfig{CorrectionJudgments: &off, TaskVerdicts: &off, ProblemTypes: &off, ToolChecks: &off, AutopoiesisChecks: &off, AtomChecks: &off}
 	if lu := learnOff.Uses(); lu.CorrectionJudgments || lu.TaskVerdicts || lu.ProblemTypes || lu.ToolChecks || lu.AutopoiesisChecks || lu.AtomChecks || !lu.TurnJudgments {

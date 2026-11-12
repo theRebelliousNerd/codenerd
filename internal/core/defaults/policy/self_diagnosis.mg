@@ -31,3 +31,40 @@ wants_direct_answer() :-
 # state even when about_codenerd is unsettled ("what work mode are you in, and
 # is debug-self on?" scored 0.31 there): the conversation act
 # question_about_codenerd (conversation_acts.mg) reads it, for any verb.
+
+# The chain's fix step is due only when the diagnosis found something of
+# codeNERD's to fix (chat background.go asks self_diagnosis_fix_due when a
+# diagnosis with a follow-up returns). The chat asserts
+# self_diagnosis_finished(Job) for it, and Jev's verdict per target
+# (self_diagnosis_verdict, jev_evidence.mg) when the diagnosis_verdict use is
+# on. Truth table, per target of a finished job; every row has an outcome:
+#   verdict at or below no      self_diagnosis_no_defect   the target is settled
+#                               as nothing to fix (the ledger's /no_defect);
+#   verdict above no            self_diagnosis_fix_target  the fix turn covers
+#                               it (an unsettled verdict still needs a look);
+#   no verdict for the job      (Jev off, or its call failed) the fix turn runs
+#                               for every target, as before the verdict: a
+#                               missing judgment is no evidence, never a "no".
+# The job's fix turn is due when any target is a fix target, or when the job
+# was not judged; a job whose every target found nothing to fix starts none.
+Decl self_diagnosis_finished(Job) bound [/string].
+Decl self_diagnosis_judged(Job) bound [/string].
+Decl self_diagnosis_no_defect(Job, Target) bound [/string, /string].
+Decl self_diagnosis_fix_target(Job, Target) bound [/string, /string].
+Decl self_diagnosis_fix_due(Job) bound [/string].
+
+self_diagnosis_judged(Job) :- self_diagnosis_verdict(Job, _, _).
+
+self_diagnosis_no_defect(Job, Target) :-
+    self_diagnosis_finished(Job),
+    self_diagnosis_names_no_fix(Job, Target).
+
+self_diagnosis_fix_target(Job, Target) :-
+    self_diagnosis_finished(Job),
+    self_diagnosis_verdict(Job, Target, _),
+    !self_diagnosis_names_no_fix(Job, Target).
+
+self_diagnosis_fix_due(Job) :- self_diagnosis_fix_target(Job, _).
+self_diagnosis_fix_due(Job) :-
+    self_diagnosis_finished(Job),
+    !self_diagnosis_judged(Job).

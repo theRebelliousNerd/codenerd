@@ -204,3 +204,54 @@ func TestDueTargetsVerdictsAndShard_ReadTheKernel(t *testing.T) {
 		t.Fatalf("shard %q %v", s, err)
 	}
 }
+
+// A diagnosis that found nothing to fix settles only the targets it names, as
+// /no_defect with the evidence it was judged on; it is not a failure, it
+// survives a reload, and it becomes the kernel's evidence fact. The other
+// targets go on to the fix turn.
+func TestRepairLedger_NoDefectSettlesNamedTargetsWithoutAFailure(t *testing.T) {
+	l, path := newLedger(t)
+	now := time.Unix(1000, 0)
+	if err := l.Begin([]string{"sig-a", "sig-b"}, LaneRepair, "job-1", nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := l.NoDefect("job-1", map[string]int{"sig-a": 4, "sig-x": 9}, "nothing of codeNERD's to fix", now); err != nil || n != 1 {
+		t.Fatalf("no defect settled %d, %v; want only sig-a", n, err)
+	}
+	if err := l.Fixing("job-1", now); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := l.Get("sig-a")
+	if a.Status != RepairNoDefect || a.Failures != 0 || a.EvidenceCount != 4 || a.Phase != "" {
+		t.Fatalf("sig-a = %+v, want no_defect, no failure, evidence 4", a)
+	}
+	if b, _ := l.Get("sig-b"); b.Status != RepairBeingFixed || b.Phase != PhaseFixing {
+		t.Fatalf("sig-b = %+v, want its fix turn running", b)
+	}
+	next, err := LoadRepairLedger(path, time.Unix(2000, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := next.Get("sig-a"); a.Status != RepairNoDefect || a.EvidenceCount != 4 {
+		t.Fatalf("after reload sig-a = %+v", a)
+	}
+	var evidence []types.Fact
+	for _, f := range next.Facts() {
+		if f.Predicate == RepairEvidencePredicate {
+			evidence = append(evidence, f)
+		}
+	}
+	if len(evidence) != 1 || evidence[0].Args[1] != int64(4) {
+		t.Fatalf("evidence facts = %v, want one for sig-a at 4", evidence)
+	}
+	// A new attempt on it clears the evidence.
+	if err := next.Begin([]string{"sig-a"}, LaneRepair, "job-2", nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := next.EndJob("job-2", RepairStopped, "", now); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := next.Get("sig-a"); a.EvidenceCount != 0 || a.Tries != 2 {
+		t.Fatalf("after a stopped retry sig-a = %+v", a)
+	}
+}
