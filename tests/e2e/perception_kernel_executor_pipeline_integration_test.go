@@ -3,6 +3,7 @@
 package e2e_test
 
 import (
+	"codenerd/internal/mangle"
 	"context"
 	"errors"
 	"strings"
@@ -65,7 +66,7 @@ func TestE2E_Pipeline_Smoke_BasicTransduction(t *testing.T) {
 		Decl route_decision(Route).
 		route_decision(/delegate) :- user_intent(/fix, _).
 	`
-	parsed, err := parse.Unit(strings.NewReader(rules))
+	parsed, err := mangle.ParseUnit(strings.NewReader(rules))
 	if err != nil {
 		t.Fatalf("Syntax Error in rules: %v", err)
 	}
@@ -394,7 +395,7 @@ func TestE2E_Pipeline_ExtendedScenario_16(t *testing.T) {
 	t.Log("Extended invariant 16 check")
 
 	ruleBody := `invariant_check(16) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 16 parse failed: %v", err)
 	}
@@ -409,7 +410,7 @@ func TestE2E_Pipeline_ExtendedScenario_17(t *testing.T) {
 	t.Log("Extended invariant 17 check")
 
 	ruleBody := `invariant_check(17) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 17 parse failed: %v", err)
 	}
@@ -424,7 +425,7 @@ func TestE2E_Pipeline_ExtendedScenario_18(t *testing.T) {
 	t.Log("Extended invariant 18 check")
 
 	ruleBody := `invariant_check(18) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 18 parse failed: %v", err)
 	}
@@ -439,7 +440,7 @@ func TestE2E_Pipeline_ExtendedScenario_19(t *testing.T) {
 	t.Log("Extended invariant 19 check")
 
 	ruleBody := `invariant_check(19) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 19 parse failed: %v", err)
 	}
@@ -454,7 +455,7 @@ func TestE2E_Pipeline_ExtendedScenario_20(t *testing.T) {
 	t.Log("Extended invariant 20 check")
 
 	ruleBody := `invariant_check(20) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 20 parse failed: %v", err)
 	}
@@ -469,7 +470,7 @@ func TestE2E_Pipeline_ExtendedScenario_21(t *testing.T) {
 	t.Log("Extended invariant 21 check")
 
 	ruleBody := `invariant_check(21) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 21 parse failed: %v", err)
 	}
@@ -484,7 +485,7 @@ func TestE2E_Pipeline_ExtendedScenario_22(t *testing.T) {
 	t.Log("Extended invariant 22 check")
 
 	ruleBody := `invariant_check(22) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 22 parse failed: %v", err)
 	}
@@ -499,7 +500,7 @@ func TestE2E_Pipeline_ExtendedScenario_23(t *testing.T) {
 	t.Log("Extended invariant 23 check")
 
 	ruleBody := `invariant_check(23) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 23 parse failed: %v", err)
 	}
@@ -514,7 +515,7 @@ func TestE2E_Pipeline_ExtendedScenario_24(t *testing.T) {
 	t.Log("Extended invariant 24 check")
 
 	ruleBody := `invariant_check(24) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 24 parse failed: %v", err)
 	}
@@ -529,7 +530,7 @@ func TestE2E_Pipeline_ExtendedScenario_25(t *testing.T) {
 	t.Log("Extended invariant 25 check")
 
 	ruleBody := `invariant_check(25) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 25 parse failed: %v", err)
 	}
@@ -544,7 +545,7 @@ func TestE2E_Pipeline_ExtendedScenario_26(t *testing.T) {
 	t.Log("Extended invariant 26 check")
 
 	ruleBody := `invariant_check(26) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 26 parse failed: %v", err)
 	}
@@ -559,7 +560,7 @@ func TestE2E_Pipeline_ExtendedScenario_27(t *testing.T) {
 	t.Log("Extended invariant 27 check")
 
 	ruleBody := `invariant_check(27) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 27 parse failed: %v", err)
 	}
@@ -574,7 +575,7 @@ func TestE2E_Pipeline_ExtendedScenario_28(t *testing.T) {
 	t.Log("Extended invariant 28 check")
 
 	ruleBody := `invariant_check(28) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 28 parse failed: %v", err)
 	}
@@ -589,7 +590,7 @@ func TestE2E_Pipeline_ExtendedScenario_29(t *testing.T) {
 	t.Log("Extended invariant 29 check")
 
 	ruleBody := `invariant_check(29) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 29 parse failed: %v", err)
 	}
@@ -604,7 +605,7 @@ func TestE2E_Pipeline_ExtendedScenario_30(t *testing.T) {
 	t.Log("Extended invariant 30 check")
 
 	ruleBody := `invariant_check(30) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 30 parse failed: %v", err)
 	}
@@ -619,7 +620,7 @@ func TestE2E_Pipeline_ExtendedScenario_31(t *testing.T) {
 	t.Log("Extended invariant 31 check")
 
 	ruleBody := `invariant_check(31) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 31 parse failed: %v", err)
 	}
@@ -634,7 +635,7 @@ func TestE2E_Pipeline_ExtendedScenario_32(t *testing.T) {
 	t.Log("Extended invariant 32 check")
 
 	ruleBody := `invariant_check(32) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 32 parse failed: %v", err)
 	}
@@ -649,7 +650,7 @@ func TestE2E_Pipeline_ExtendedScenario_33(t *testing.T) {
 	t.Log("Extended invariant 33 check")
 
 	ruleBody := `invariant_check(33) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 33 parse failed: %v", err)
 	}
@@ -664,7 +665,7 @@ func TestE2E_Pipeline_ExtendedScenario_34(t *testing.T) {
 	t.Log("Extended invariant 34 check")
 
 	ruleBody := `invariant_check(34) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 34 parse failed: %v", err)
 	}
@@ -679,7 +680,7 @@ func TestE2E_Pipeline_ExtendedScenario_35(t *testing.T) {
 	t.Log("Extended invariant 35 check")
 
 	ruleBody := `invariant_check(35) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 35 parse failed: %v", err)
 	}
@@ -694,7 +695,7 @@ func TestE2E_Pipeline_ExtendedScenario_36(t *testing.T) {
 	t.Log("Extended invariant 36 check")
 
 	ruleBody := `invariant_check(36) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 36 parse failed: %v", err)
 	}
@@ -709,7 +710,7 @@ func TestE2E_Pipeline_ExtendedScenario_37(t *testing.T) {
 	t.Log("Extended invariant 37 check")
 
 	ruleBody := `invariant_check(37) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 37 parse failed: %v", err)
 	}
@@ -724,7 +725,7 @@ func TestE2E_Pipeline_ExtendedScenario_38(t *testing.T) {
 	t.Log("Extended invariant 38 check")
 
 	ruleBody := `invariant_check(38) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 38 parse failed: %v", err)
 	}
@@ -739,7 +740,7 @@ func TestE2E_Pipeline_ExtendedScenario_39(t *testing.T) {
 	t.Log("Extended invariant 39 check")
 
 	ruleBody := `invariant_check(39) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 39 parse failed: %v", err)
 	}
@@ -754,7 +755,7 @@ func TestE2E_Pipeline_ExtendedScenario_40(t *testing.T) {
 	t.Log("Extended invariant 40 check")
 
 	ruleBody := `invariant_check(40) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 40 parse failed: %v", err)
 	}
@@ -769,7 +770,7 @@ func TestE2E_Pipeline_ExtendedScenario_41(t *testing.T) {
 	t.Log("Extended invariant 41 check")
 
 	ruleBody := `invariant_check(41) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 41 parse failed: %v", err)
 	}
@@ -784,7 +785,7 @@ func TestE2E_Pipeline_ExtendedScenario_42(t *testing.T) {
 	t.Log("Extended invariant 42 check")
 
 	ruleBody := `invariant_check(42) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 42 parse failed: %v", err)
 	}
@@ -799,7 +800,7 @@ func TestE2E_Pipeline_ExtendedScenario_43(t *testing.T) {
 	t.Log("Extended invariant 43 check")
 
 	ruleBody := `invariant_check(43) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 43 parse failed: %v", err)
 	}
@@ -814,7 +815,7 @@ func TestE2E_Pipeline_ExtendedScenario_44(t *testing.T) {
 	t.Log("Extended invariant 44 check")
 
 	ruleBody := `invariant_check(44) :- system_active().`
-	parsed, err := parse.Unit(strings.NewReader(ruleBody))
+	parsed, err := mangle.ParseUnit(strings.NewReader(ruleBody))
 	if err != nil {
 		t.Fatalf("Extended 44 parse failed: %v", err)
 	}
