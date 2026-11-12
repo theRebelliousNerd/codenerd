@@ -221,11 +221,19 @@ route_decision(/respond_directly, /none) :-
 # Decompose multi-step MUTATIONS only. Questions are never decomposed — a
 # multi-part question is still answered in one prose pass. And only into a
 # plan: a request the decomposition cannot split is delegated whole.
+#
+# A chain's step (the self-diagnosis's fix, intent_signal(/chain_step)) is
+# already one step of a chain the kernel laid out (self_diagnosis.mg): it is
+# not decomposed again. Its instruction asks for a fix "with tests", and the
+# diagnosis it carries names many verbs; read as a request, the follow-up
+# became a two-step plan whose "request" was the diagnosis's own last sentence
+# (live, 2026-11-12).
 multi_step_lane() :-
     is_multi_step(),
     multi_step_plan_ready(),
     user_intent(/current_intent, /mutation, _, _, _),
     !wants_direct_answer(),
+    !intent_signal(/chain_step),
     !early_lane().
 
 # A plan is two steps or more, and every step names the shard that runs it:
@@ -256,7 +264,10 @@ multi_step_plan_ready() :-
 # outside the chat) holds nothing.
 work_hold_requested() :- work_mode(/propose).
 work_hold_requested() :- work_mode(/explicit).
-work_hold_requested() :- work_mode(/yolo), brief_present(), !brief_ready(), !intent_signal(/deliberation_resolved).
+# The brief is the conversation's: a chain's step (intent_signal(/chain_step))
+# is fully specified by the chain and not held on whether the user's brief is
+# ready. propose and explicit still hold it.
+work_hold_requested() :- work_mode(/yolo), brief_present(), !brief_ready(), !intent_signal(/deliberation_resolved), !intent_signal(/chain_step).
 work_admitted() :- !work_hold_requested().
 work_admitted() :- intent_signal(/user_go_ahead).
 work_admitted() :- user_intent(/current_intent, /query, _, _, _).

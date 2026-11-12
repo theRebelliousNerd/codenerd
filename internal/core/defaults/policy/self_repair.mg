@@ -16,9 +16,11 @@
 # running binary) -> /verifying (a new process runs the fix) -> /verified, or
 # /regressed (the problem came back, or the operation got no faster). A job or
 # fix turn that ends without an installed fix is /failed; one the user stopped
-# is /stopped. /failed and /regressed count toward Failures; a target that has
-# failed logging.self_repair_max_failures times is left, as recurse leaves a
-# node that fails the same way twice.
+# is /stopped. A diagnosis whose verdict (self_diagnosis.mg) found nothing of
+# codeNERD's to fix for a target settles it as /no_defect without a fix turn.
+# /failed and /regressed count toward Failures; /no_defect and /stopped do not.
+# A target that has failed logging.self_repair_max_failures times is left, as
+# recurse leaves a node that fails the same way twice.
 
 Decl self_repair_attempt(Target, Lane, Status, Job, Tries, Failures, UpdatedUnix) bound [/string, /name, /name, /string, /number, /number, /number].
 # The optimize lane's measured mean before its fix, in milliseconds.
@@ -48,6 +50,11 @@ Decl self_repair_due(Target, Lane) bound [/string, /name].
 Decl self_repair_shard(Persona) bound [/name].
 Decl self_repair_verified(Target) bound [/string].
 Decl self_repair_regressed(Target) bound [/string].
+# The evidence a /no_defect verdict was given on: the target's count (the
+# problem's in the problems log, or the operation's timings) when it settled.
+Decl self_repair_no_defect_evidence(Target, Count) bound [/string, /number].
+Decl self_repair_evidence_count(Target, Count) bound [/string, /number].
+Decl self_repair_evidence_regrown(Target) bound [/string].
 
 config_param_required(/logging, /logging_self_repair_enabled).
 config_param_required(/logging, /logging_self_repair_cooldown_sec).
@@ -55,6 +62,7 @@ config_param_required(/logging, /logging_self_repair_max_failures).
 config_param_required(/logging, /logging_self_repair_max_jobs).
 config_param_required(/logging, /logging_self_repair_verify_window_sec).
 config_param_required(/logging, /logging_self_optimize_min_count).
+config_param_required(/logging, /logging_self_repair_no_defect_regrowth).
 
 # --- When a job may start ------------------------------------------------------
 
@@ -114,6 +122,29 @@ self_repair_held(Target) :-
     config_param(/logging_self_repair_cooldown_sec, Cooldown),
     Until = fn:plus(Updated, Cooldown),
     Now < Until.
+# A diagnosis that found nothing of codeNERD's to fix is not redone on the same
+# evidence. It is due again only once the evidence has grown
+# logging.self_repair_no_defect_regrowth times over what that diagnosis saw:
+# the problem recurred that much more often, or the operation was timed that
+# much more often, in the run that reads it. A new process's problems log
+# starts its count again, so a problem that comes back after a restart must
+# recur that often there too. It never counts as a failure.
+self_repair_evidence_count(Target, Count) :-
+    self_problem(Target, _, _, Count, _).
+self_repair_evidence_count(Target, Count) :-
+    self_timing(Target, _, _, Count, _, _).
+
+self_repair_evidence_regrown(Target) :-
+    self_repair_attempt(Target, _, /no_defect, _, _, _, _),
+    self_repair_no_defect_evidence(Target, Base),
+    self_repair_evidence_count(Target, Count),
+    config_param(/logging_self_repair_no_defect_regrowth, Factor),
+    Need = fn:mult(Base, Factor),
+    Count >= Need.
+
+self_repair_held(Target) :-
+    self_repair_attempt(Target, _, /no_defect, _, _, _, _),
+    !self_repair_evidence_regrown(Target).
 # A failure Jev judged to come from around codeNERD (jev_evidence.mg) is not
 # codeNERD's to fix.
 self_repair_held(Target) :-

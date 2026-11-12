@@ -17,6 +17,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
 	"codenerd/internal/sessionlog"
+	"codenerd/internal/turnjudge"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
 )
@@ -56,6 +57,10 @@ type backgroundJob struct {
 	SelfRepair string
 	// selfRepairTargets are the targets a self-repair job is begun on.
 	selfRepairTargets []string
+	// diagnosed are the targets a self-diagnosis covered, each with its whole
+	// message: what Jev's verdict on the finished diagnosis is asked about
+	// (self_diagnosis_verdict.go).
+	diagnosed []turnjudge.DiagnosisTarget
 }
 
 // backgroundJobs is shared across Model copies: Update works on values, and
@@ -157,6 +162,9 @@ type backgroundDoneMsg struct {
 	Result  string
 	Facts   []core.Fact
 	Err     error
+	// Verdict is Jev's verdict on a diagnosis with a follow-up, asked in the
+	// job's goroutine once its work returned; nil when it was not asked.
+	Verdict *diagnosisVerdict
 }
 
 // backgroundTask is the task of a read-only delegation. A /test query ("run
@@ -214,6 +222,7 @@ func (m Model) startBackground(job backgroundJob, input string) tea.Cmd {
 		}
 		done := backgroundDoneMsg{Job: job, Result: result, Facts: facts, Err: err}
 		if err == nil {
+			done.Verdict = m.judgeDiagnosis(ctx, job, result)
 			// Reviewer and tester output is read for the user, as in the
 			// foreground; the raw output stays attached.
 			if interpretsOutput(job.Shard) {
@@ -285,19 +294,47 @@ func (m Model) finishBackground(msg backgroundDoneMsg) (Model, tea.Cmd) {
 		m.selfRepairSettled(msg.Job, nil, stopped, false)
 		return m.pushAssistantMsg(report), nil
 	}
-	// The chain's next step is a turn like any other: perception reads it and
-	// the kernel's work admission decides whether it runs, is proposed, or
-	// waits for go. A turn in flight makes it wait its turn, not vanish.
-	next := msg.Job.FollowUp + "\n\n" + msg.Result
+	// Whether the chain's next step runs is the kernel's: a diagnosis that
+	// found nothing of codeNERD's to fix starts no fix turn
+	// (self_diagnosis_fix_due, self_diagnosis_verdict.go).
+	decision := m.decideDiagnosisFix(msg.Job, msg.Verdict)
+	m.settleNoDefect(msg.Job, decision)
+	if !decision.Due {
+		m.selfRepairSettled(msg.Job, nil, false, false)
+		return m.pushAssistantMsg(report + "\n\n" + noDefectLine(msg.Job, decision)), nil
+	}
+	if len(decision.NoDefect) > 0 {
+		report += "\n\n" + noDefectLine(msg.Job, decision)
+	}
+	// The chain's next step is a turn with the intent the chain knows (its
+	// instruction is the request, the diagnosis its evidence); the kernel's
+	// work admission decides whether it runs, is proposed, or waits for go.
+	// A turn in flight makes it wait its turn, not vanish.
+	step := m.fixStep(msg.Job, msg.Result, decision)
 	m.selfRepairSettled(msg.Job, nil, false, true)
 	if m.isLoading || m.turn.current() != 0 {
-		m.turn.enqueue(queuedMessage{input: next})
+		m.turn.enqueue(queuedMessage{input: step.input(), chain: &step})
 		return m.pushAssistantMsg(report + "\n\n_Its next step is queued for when the current turn finishes._"), nil
 	}
 	m = m.pushAssistantMsg(report)
 	m.isLoading = true
-	// The next step is the chain's, not a request the person made.
-	return m, m.processInput(next, 0)
+	return m, m.runChainStep(step, 0)
+}
+
+// runChainStep runs the chain's step as a turn of its own with its preset
+// intent. The intent rides a copy of the model, so it never outlives the
+// turn on the live one.
+func (m Model) runChainStep(step chainStep, request uint64) tea.Cmd {
+	m.chainStep = &step
+	cmd := m.processInput(step.input(), request)
+	// processInput took the slot on this thread: that execution is the fix
+	// turn, and how it ends settles its attempts (selfRepairStep).
+	if step.Autonomous && m.selfRepair != nil {
+		m.selfRepair.mu.Lock()
+		m.selfRepair.fixTurn = m.turn.current()
+		m.selfRepair.mu.Unlock()
+	}
+	return cmd
 }
 
 // backgroundReport is the message for a settled job.

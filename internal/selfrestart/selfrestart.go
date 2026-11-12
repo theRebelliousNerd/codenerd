@@ -150,6 +150,20 @@ type ResumeWork struct {
 	// A queued turn: its input, and whether it is a slash command.
 	Input   string `json:"input,omitempty"`
 	Command bool   `json:"command,omitempty"`
+	// Step is set when the queued turn is a chain's step (a self-diagnosis's
+	// fix): it runs again as that step, with its preset intent.
+	Step *ChainStep `json:"step,omitempty"`
+}
+
+// ChainStep is a queued chain step: its instruction (the request), the
+// result it acts on (evidence), the verb and target it runs with, and
+// whether codeNERD started it itself.
+type ChainStep struct {
+	Instruction string `json:"instruction"`
+	Evidence    string `json:"evidence"`
+	Verb        string `json:"verb"`
+	Target      string `json:"target"`
+	Autonomous  bool   `json:"autonomous,omitempty"`
 }
 
 // stateVersion stays 1 while every field added is optional: the process that

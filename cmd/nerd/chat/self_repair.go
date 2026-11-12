@@ -13,6 +13,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/problemlog"
+	"codenerd/internal/turnjudge"
 )
 
 // Self-repair: the autonomous stage of debug-self (policy/self_repair.mg).
@@ -44,6 +45,8 @@ type selfRepairState struct {
 	timing  *problemlog.TimingWatcher
 	// fixing mirrors the kernel's self_repair_fixing() marker.
 	fixing bool
+	// fixTurn is the execution running the latest fix turn (runChainStep).
+	fixTurn uint64
 	// gen numbers the timer loop; a tick of an older loop stops.
 	gen uint64
 	// now is the clock, audit names this process's audit log (the timings'
@@ -161,7 +164,19 @@ func (m Model) selfRepairStep() (Model, tea.Cmd) {
 	now := m.selfRepair.clock()
 
 	// Idle means every fix turn has ended. One that ended with an installed
-	// binary already waits for the restart; any other did not fix anything.
+	// binary already waits for the restart; one the user stopped is stopped;
+	// any other did not fix anything.
+	m.selfRepair.mu.Lock()
+	fixTurn := m.selfRepair.fixTurn
+	m.selfRepair.fixTurn = 0
+	m.selfRepair.mu.Unlock()
+	if m.turn.endedStopped(fixTurn) {
+		if n, err := ledger.EndFixing(problemlog.RepairStopped, "its fix turn was stopped by the user", now); err != nil {
+			log.Error("%s self-repair ledger: %v", selfDebugMarker, err)
+		} else if n > 0 {
+			m = m.pushAssistantMsg(fmt.Sprintf("_Self-repair: you stopped the fix turn for %d target(s); they are recorded as stopped, not failed._", n))
+		}
+	}
 	if n, err := ledger.EndFixing(problemlog.RepairFailed, "the fix turn ended without a verified, rebuilt and self-checked binary", now); err != nil {
 		log.Error("%s self-repair ledger: %v", selfDebugMarker, err)
 	} else if n > 0 {
@@ -440,11 +455,16 @@ func (m Model) selfRepairJob(ctx context.Context, due []problemlog.Due, ledger *
 	}
 	switch lane {
 	case problemlog.LaneRepair:
-		task, kept, reason := m.selfRepairTask(ctx, targets, ledger)
+		task, problems, reason := m.selfRepairTask(ctx, targets, ledger)
 		if task == "" {
 			return backgroundJob{}, false, reason
 		}
-		job.Task, job.selfRepairTargets = task, kept
+		job.Task, job.diagnosed = task, diagnosisTargetsOf(problems)
+		job.selfRepairTargets = nil
+		for _, p := range problems {
+			job.selfRepairTargets = append(job.selfRepairTargets, p.Signature)
+		}
+		sort.Strings(job.selfRepairTargets)
 		job.FollowUp = selfDiagnosisFollowUp + " " + selfRepairFollowUpGuard
 	case problemlog.LaneOptimize:
 		if len(targets) > 1 {
@@ -455,6 +475,7 @@ func (m Model) selfRepairJob(ctx context.Context, due []problemlog.Due, ledger *
 			return backgroundJob{}, false, "the due operation " + targets[0] + " has no timing in this run"
 		}
 		job.selfRepairTargets = targets
+		job.diagnosed = []turnjudge.DiagnosisTarget{{Key: targets[0]}}
 		job.Task = selfOptimizeTask(tm, ledger)
 		job.FollowUp = selfOptimizeFollowUp + " " + selfRepairFollowUpGuard
 	default:
@@ -464,8 +485,9 @@ func (m Model) selfRepairJob(ctx context.Context, due []problemlog.Due, ledger *
 }
 
 // selfRepairTask is the diagnosis of the due problems, read whole from the
-// problems log, defects before failures around codeNERD (triageProblems).
-func (m Model) selfRepairTask(ctx context.Context, targets []string, ledger *problemlog.RepairLedger) (task string, kept []string, reason string) {
+// problems log, defects before failures around codeNERD (triageProblems),
+// and the problems it covers in that order.
+func (m Model) selfRepairTask(ctx context.Context, targets []string, ledger *problemlog.RepairLedger) (task string, covered []problemlog.Problem, reason string) {
 	path := m.latestProblemsLog()
 	if path == "" {
 		return "", nil, "no problems log to read the due problems from"
@@ -479,6 +501,7 @@ func (m Model) selfRepairTask(ctx context.Context, targets []string, ledger *pro
 		want[t] = true
 	}
 	var problems []problemlog.Problem
+	var kept []string
 	for _, p := range rep.Problems {
 		if want[p.Signature] {
 			problems = append(problems, p)
@@ -499,8 +522,7 @@ func (m Model) selfRepairTask(ctx context.Context, targets []string, ledger *pro
 		writeDiagnosisProblems(&b, around, n)
 	}
 	writeSelfRepairHistory(&b, kept, ledger)
-	sort.Strings(kept)
-	return b.String(), kept, ""
+	return b.String(), append(append([]problemlog.Problem(nil), defects...), around...), ""
 }
 
 // selfOptimizeTask is the diagnosis of the costliest recurring operation.
@@ -550,8 +572,9 @@ func selfRepairStatusText(m Model) string {
 	for _, a := range ledger.Attempts() {
 		counts[a.Status]++
 	}
-	return fmt.Sprintf("Self-repair: on (every %s while idle). Ledger %s: %d being fixed, %d awaiting restart, %d verifying, %d verified, %d regressed, %d failed, %d stopped.",
+	return fmt.Sprintf("Self-repair: on (every %s while idle). Ledger %s: %d being fixed, %d awaiting restart, %d verifying, %d verified, %d regressed, %d failed, %d stopped, %d no defect (held until their evidence grows %dx).",
 		m.Config.Logging.SelfRepairPoll(), problemlog.RepairLedgerPath(m.workspace),
 		counts[problemlog.RepairBeingFixed], counts[problemlog.RepairPendingRestart], counts[problemlog.RepairVerifying],
-		counts[problemlog.RepairVerified], counts[problemlog.RepairRegressed], counts[problemlog.RepairFailed], counts[problemlog.RepairStopped])
+		counts[problemlog.RepairVerified], counts[problemlog.RepairRegressed], counts[problemlog.RepairFailed], counts[problemlog.RepairStopped],
+		counts[problemlog.RepairNoDefect], m.Config.Logging.SelfRepairNoDefectRegrowthFactor())
 }

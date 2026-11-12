@@ -53,6 +53,12 @@ type LoggingConfig struct {
 	// the run before the optimize lane may choose it, and before its fix is
 	// judged. Default DefaultSelfOptimizeMinCount.
 	SelfOptimizeMinCount int `yaml:"self_optimize_min_count" json:"self_optimize_min_count,omitempty"`
+	// SelfRepairNoDefectRegrowth: a target whose diagnosis found nothing of
+	// codeNERD's to fix is held until its evidence grows this many times
+	// over (the problem's count, or the operation's, in the run that reads
+	// it, against the count that diagnosis saw). Default
+	// DefaultSelfRepairNoDefectRegrowth.
+	SelfRepairNoDefectRegrowth int `yaml:"self_repair_no_defect_regrowth" json:"self_repair_no_defect_regrowth,omitempty"`
 	// SelfRepairCheckTimeoutSec bounds each self-check step a rebuilt binary
 	// must pass before it replaces the running one. Default
 	// DefaultSelfRepairCheckTimeoutSec.
@@ -106,13 +112,14 @@ const DefaultSelfProblemWarnRepeats = 3
 
 // Self-repair defaults (LoggingConfig's self_repair_* keys).
 const (
-	DefaultSelfRepairCooldownSec     = 600
-	DefaultSelfRepairMaxFailures     = 2
-	DefaultSelfRepairMaxJobs         = 1
-	DefaultSelfRepairVerifyWindowSec = 300
-	DefaultSelfRepairPollSec         = 30
-	DefaultSelfOptimizeMinCount      = 20
-	DefaultSelfRepairCheckTimeoutSec = 300
+	DefaultSelfRepairCooldownSec      = 600
+	DefaultSelfRepairMaxFailures      = 2
+	DefaultSelfRepairMaxJobs          = 1
+	DefaultSelfRepairVerifyWindowSec  = 300
+	DefaultSelfRepairPollSec          = 30
+	DefaultSelfOptimizeMinCount       = 20
+	DefaultSelfRepairCheckTimeoutSec  = 300
+	DefaultSelfRepairNoDefectRegrowth = 2
 )
 
 // orDefault is v when the config set it, else def.
@@ -143,7 +150,17 @@ func (c *LoggingConfig) Params() []Param {
 		{Key: "/logging_self_repair_max_jobs", Value: int64(orDefault(l.SelfRepairMaxJobs, DefaultSelfRepairMaxJobs))},
 		{Key: "/logging_self_repair_verify_window_sec", Value: int64(orDefault(l.SelfRepairVerifyWindowSec, DefaultSelfRepairVerifyWindowSec))},
 		{Key: "/logging_self_optimize_min_count", Value: int64(orDefault(l.SelfOptimizeMinCount, DefaultSelfOptimizeMinCount))},
+		{Key: "/logging_self_repair_no_defect_regrowth", Value: int64(c.SelfRepairNoDefectRegrowthFactor())},
 	}
+}
+
+// SelfRepairNoDefectRegrowthFactor is logging.self_repair_no_defect_regrowth
+// with its default. Nil-safe.
+func (c *LoggingConfig) SelfRepairNoDefectRegrowthFactor() int {
+	if c == nil {
+		return DefaultSelfRepairNoDefectRegrowth
+	}
+	return orDefault(c.SelfRepairNoDefectRegrowth, DefaultSelfRepairNoDefectRegrowth)
 }
 
 // SelfRepairPoll is how often an idle chat asks whether a self-repair is due.

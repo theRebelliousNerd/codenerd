@@ -237,3 +237,18 @@ self_problem_around(Signature, Category) :-
     self_problem_triage(Signature, Category, Percent),
     config_param(/jev_no_percent, No),
     Percent <= No.
+
+# Self-diagnosis verdict (turnjudge.JudgeDiagnosis): once the chain's
+# read-only diagnosis returns, Jev's probability, per target the job covered,
+# that its report names a fix in codeNERD's own source (or, on the optimize
+# lane, a change to codeNERD's code that makes the operation faster). Target
+# "*" is a verdict on the whole report, for a job that names no targets. At or
+# below no the report found nothing of codeNERD's to fix for that target;
+# self_diagnosis.mg decides from it whether the fix turn runs.
+Decl self_diagnosis_verdict(Job, Target, Percent) bound [/string, /string, /number].
+Decl self_diagnosis_names_no_fix(Job, Target) bound [/string, /string].
+
+self_diagnosis_names_no_fix(Job, Target) :-
+    self_diagnosis_verdict(Job, Target, Percent),
+    config_param(/jev_no_percent, No),
+    Percent <= No.

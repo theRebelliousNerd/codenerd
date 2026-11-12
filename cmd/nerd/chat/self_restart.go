@@ -201,7 +201,12 @@ func (m Model) restartState() selfrestart.State {
 		})
 	}
 	for _, q := range m.turn.queuedWork() {
-		st.Resume = append(st.Resume, selfrestart.ResumeWork{Kind: selfrestart.ResumeTurn, Input: q.input, Command: q.command})
+		w := selfrestart.ResumeWork{Kind: selfrestart.ResumeTurn, Input: q.input, Command: q.command}
+		if q.chain != nil {
+			w.Step = &selfrestart.ChainStep{Instruction: q.chain.Instruction, Evidence: q.chain.Evidence,
+				Verb: q.chain.Verb, Target: q.chain.Target, Autonomous: q.chain.Autonomous}
+		}
+		st.Resume = append(st.Resume, w)
 	}
 	if m.activeCampaign != nil {
 		st.Interrupted = append(st.Interrupted, fmt.Sprintf("campaign %s (%s); its progress is saved and it resumes through the campaign resume path", m.activeCampaign.ID, m.activeCampaign.Title))
@@ -383,7 +388,11 @@ func (m Model) resumeRestoredWork() (Model, tea.Cmd) {
 			}
 			cmds = append(cmds, m.startBackground(job, job.Task))
 		case selfrestart.ResumeTurn:
-			m.turn.enqueue(queuedMessage{input: w.Input, command: w.Command})
+			q := queuedMessage{input: w.Input, command: w.Command}
+			if s := w.Step; s != nil {
+				q.chain = &chainStep{Instruction: s.Instruction, Evidence: s.Evidence, Verb: s.Verb, Target: s.Target, Autonomous: s.Autonomous}
+			}
+			m.turn.enqueue(q)
 		default:
 			logging.Get(logging.CategorySession).Warn("self-restart: resumed work of unknown kind %q not started: %+v", w.Kind, w)
 		}

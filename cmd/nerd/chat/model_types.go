@@ -311,6 +311,11 @@ type Model struct {
 	// pendingWork is work the kernel held until the user says go
 	// (route_decision(/hold), work_hold.go); newer held work replaces it.
 	pendingWork *pendingWork
+	// chainStep is set only on the command that runs a chain's step (the
+	// self-diagnosis's fix, self_diagnosis_verdict.go): processInput runs it
+	// with the step's preset intent, and routing knows it is one step of a
+	// chain the kernel laid out (intent_signal(/chain_step)).
+	chainStep *chainStep
 	// goAheadWork is set only on the command that runs an approved proposal:
 	// processInput reuses its intent and the turn carries /user_go_ahead.
 	goAheadWork *pendingWork
