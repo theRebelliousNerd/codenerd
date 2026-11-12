@@ -2,6 +2,7 @@ package world
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"testing"
 
@@ -38,11 +39,9 @@ func TestApplyIncrementalResult_UnchangedFactsAreNotRetracted(t *testing.T) {
 
 	// Every importer was rescanned: all its facts are retracted and re-emitted,
 	// plus one new edge each to the package's new file; one edge disappeared.
-	res := &IncrementalResult{RetractFacts: old[:len(old)-1:len(old)-1]}
-	res.RetractFacts = append(res.RetractFacts, link("f0.go", "gone.go"))
-	for _, f := range old[:len(old)-1] {
-		res.NewFacts = append(res.NewFacts, f)
-	}
+	kept := old[:len(old)-1]
+	res := &IncrementalResult{RetractFacts: append(slices.Clone(kept), link("f0.go", "gone.go"))}
+	res.NewFacts = slices.Clone(kept)
 	res.NewFacts = append(res.NewFacts, topo("new.go"))
 	for i := 0; i < 2000; i++ {
 		res.NewFacts = append(res.NewFacts, link(fmt.Sprintf("f%d.go", i), "new.go"))
