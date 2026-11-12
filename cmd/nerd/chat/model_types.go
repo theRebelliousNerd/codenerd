@@ -359,7 +359,13 @@ type Model struct {
 	// Debug-self (self_debug.go): the watcher is a pointer so its offset
 	// survives Model value copies across turns. Debug-self reports problems;
 	// it does not touch the work mode.
-	selfDebug        *selfDebugWatcher
+	selfDebug *selfDebugWatcher
+	// selfRepair is debug-self's autonomous stage (self_repair.go), shared
+	// across Model copies.
+	selfRepair *selfRepairState
+	// rebuildHooks replace how a rebuilt binary is built and self-checked
+	// (self_restart.go); nil is production.
+	rebuildHooks     *selfRebuildHooks
 	browserMgr       *browser.SessionManager // Browser automation manager
 	browserCtxCancel context.CancelFunc      // Cancels browser manager goroutine
 
@@ -392,11 +398,14 @@ type Model struct {
 	// restarter and channel, the state a quit asks RunInteractiveChat to exec
 	// with, a failed exec (no retry until the next rebuild), and the state
 	// this process was restored from, applied once boot has wired the kernel.
-	restarter         *selfrestart.Restarter
-	rebuilds          <-chan selfrestart.Identity
-	restartRequest    *selfrestart.State
-	restartFailed     *selfrestart.Identity // suppress only the executable whose attempt failed
-	restore           *selfrestart.State
+	restarter      *selfrestart.Restarter
+	rebuilds       <-chan selfrestart.Identity
+	restartRequest *selfrestart.State
+	restartFailed  *selfrestart.Identity // suppress only the executable whose attempt failed
+	restore        *selfrestart.State
+	// resumeWork is the work a restart carried over, started once the
+	// startup scan completes (resumeRestoredWork).
+	resumeWork        []selfrestart.ResumeWork
 	resumeRecurse     bool
 	resumeRecurseArgs []string
 	planChain         bool

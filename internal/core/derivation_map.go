@@ -814,7 +814,10 @@ func (b *derivationBuilder) completeOf(p string) Presence {
 // fact. A derived predicate is complete where every one of its rules has every
 // positive premise complete: a rule whose premise is missing in a shard
 // derives, in the owning shard, facts this shard never sees. A derived
-// predicate Go also asserts into its owner has facts of its own there.
+// predicate Go also asserts into its owner has facts of its own there, and in
+// every bounded consumer its asserted rows are copied to (a rule over
+// project_forbidden_path, owned by the world and copied to the policy shard,
+// leaves it complete in both).
 // Presence cannot say this: a predicate defined by one shared-only rule and
 // one world-only rule is present in every shard and complete in the world only.
 func (b *derivationBuilder) completeFixpoint() {
@@ -822,7 +825,11 @@ func (b *derivationBuilder) completeFixpoint() {
 	for p := range b.derived {
 		b.complete[p] = AllPresence()
 		if owner, ok := b.owners[p]; ok {
-			b.complete[p] = SingleShardPresence(owner)
+			pr := SingleShardPresence(owner)
+			for consumer := range b.consumerReplicas[p] {
+				pr = pr.Join(SingleShardPresence(consumer))
+			}
+			b.complete[p] = pr
 		}
 	}
 	for changed := true; changed; {

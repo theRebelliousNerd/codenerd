@@ -22,7 +22,13 @@ import (
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	wasBusy := m.selfRepair != nil && m.selfRepairBusy()
 	next, cmd := m.updateCore(msg)
+	// A turn boundary: the session just went idle, so ask the kernel whether
+	// a self-repair is due now rather than at the next tick.
+	if nm, ok := next.(Model); ok && wasBusy && nm.debugSelfEnabled() && !nm.selfRepairBusy() {
+		cmd = tea.Batch(cmd, func() tea.Msg { return selfRepairCheckMsg{} })
+	}
 	// A Ctrl+X stop is announced as stopped once its execution has settled.
 	if nm, ok := next.(Model); ok && nm.turn.stopSettled() {
 		next = nm.pushAssistantMsg(nm.stoppedNotice())
@@ -617,6 +623,10 @@ The strategic knowledge base has been updated with new documentation.%s`, msg.do
 		return m.handleBinaryRebuilt(msg)
 	case restartCheckMsg:
 		return m.handleRestartCheck()
+	case selfRepairTickMsg:
+		return m.handleSelfRepairTick(msg)
+	case selfRepairCheckMsg:
+		return m.selfRepairStep()
 	case policyReloadMsg:
 		return m.handlePolicyReload(msg)
 	case bootDeferredMsg:
@@ -866,7 +876,7 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 	// boot (under the same session id) has wired the kernel; and every
 	// session watches for the next rebuild.
 	m = m.applyRestore()
-	rebuildWatch := m.startRebuildWatch()
+	rebuildWatch := tea.Batch(m.startRebuildWatch(), m.startSelfRepairTimer())
 	var policyReloads tea.Cmd
 	if m.cortex != nil && m.cortex.DevPolicyDir() != "" {
 		m = m.pushAssistantMsg(fmt.Sprintf("Dev mode: policy is read from `%s`; edits are reloaded live once they compile.", m.cortex.DevPolicyDir()))
@@ -1107,6 +1117,10 @@ func (m Model) handleScanCompleteMsg(msg scanCompleteMsg) (Model, tea.Cmd, bool)
 			m.resumeRecurseArgs = nil
 			resumeCmd = m.startRecurseCampaign(args)
 		}
+		// The jobs and turns a self-restart cut start again now.
+		var resumedWork tea.Cmd
+		m, resumedWork = m.resumeRestoredWork()
+		resumeCmd = tea.Batch(resumeCmd, resumedWork)
 
 		// Fire first-run onboarding check AND LLM health check in parallel.
 		// The health check is a non-blocking smoke test that also generates

@@ -27,6 +27,36 @@ type LoggingConfig struct {
 	// (self_problem_hot, policy/self_problems.mg). Errors are always hot.
 	// Default DefaultSelfProblemWarnRepeats.
 	SelfProblemWarnRepeats int `yaml:"self_problem_warn_repeats" json:"self_problem_warn_repeats,omitempty"`
+	// Self-repair (policy/self_repair.mg): while debug_self is on, codeNERD
+	// diagnoses and fixes its own hot problems, and then its costliest
+	// recurring operation, in the background, and restarts onto each fix.
+	// SelfRepairDisabled keeps debug-self to reporting only.
+	SelfRepairDisabled bool `yaml:"self_repair_disabled" json:"self_repair_disabled,omitempty"`
+	// SelfRepairCooldownSec is how long a target rests after its attempt
+	// changed state before it is tried again. Default
+	// DefaultSelfRepairCooldownSec.
+	SelfRepairCooldownSec int `yaml:"self_repair_cooldown_sec" json:"self_repair_cooldown_sec,omitempty"`
+	// SelfRepairMaxFailures is how many failed or regressed attempts leave a
+	// target alone for good. Default DefaultSelfRepairMaxFailures.
+	SelfRepairMaxFailures int `yaml:"self_repair_max_failures" json:"self_repair_max_failures,omitempty"`
+	// SelfRepairMaxJobs bounds the self-repair jobs running at once. Default
+	// DefaultSelfRepairMaxJobs.
+	SelfRepairMaxJobs int `yaml:"self_repair_max_jobs" json:"self_repair_max_jobs,omitempty"`
+	// SelfRepairVerifyWindowSec is how long a repaired problem must stay out
+	// of the problems log of the process running its fix to count as fixed.
+	// Default DefaultSelfRepairVerifyWindowSec.
+	SelfRepairVerifyWindowSec int `yaml:"self_repair_verify_window_sec" json:"self_repair_verify_window_sec,omitempty"`
+	// SelfRepairPollSec is how often an idle chat asks the kernel whether a
+	// self-repair is due. Default DefaultSelfRepairPollSec.
+	SelfRepairPollSec int `yaml:"self_repair_poll_sec" json:"self_repair_poll_sec,omitempty"`
+	// SelfOptimizeMinCount is how often an operation must have been timed in
+	// the run before the optimize lane may choose it, and before its fix is
+	// judged. Default DefaultSelfOptimizeMinCount.
+	SelfOptimizeMinCount int `yaml:"self_optimize_min_count" json:"self_optimize_min_count,omitempty"`
+	// SelfRepairCheckTimeoutSec bounds each self-check step a rebuilt binary
+	// must pass before it replaces the running one. Default
+	// DefaultSelfRepairCheckTimeoutSec.
+	SelfRepairCheckTimeoutSec int `yaml:"self_repair_check_timeout_sec" json:"self_repair_check_timeout_sec,omitempty"`
 	// SessionTTL is how long a session folder (.nerd/sessions/<id>/) is kept
 	// after its last activity, as a duration string ("14d", "36h"). Unset keeps
 	// DefaultSessionTTL; "0" or "off" keeps every session forever. Expired
@@ -74,14 +104,66 @@ func (c *LoggingConfig) SessionRetention() (time.Duration, error) {
 // treats a warning as a problem worth the model's attention.
 const DefaultSelfProblemWarnRepeats = 3
 
-// Params are the logging knobs the kernel's rules read, as config_param rows
-// (config_param_required(/logging, Key), policy/self_problems.mg). Nil-safe.
-func (c *LoggingConfig) Params() []Param {
-	repeats := DefaultSelfProblemWarnRepeats
-	if c != nil && c.SelfProblemWarnRepeats > 0 {
-		repeats = c.SelfProblemWarnRepeats
+// Self-repair defaults (LoggingConfig's self_repair_* keys).
+const (
+	DefaultSelfRepairCooldownSec     = 600
+	DefaultSelfRepairMaxFailures     = 2
+	DefaultSelfRepairMaxJobs         = 1
+	DefaultSelfRepairVerifyWindowSec = 300
+	DefaultSelfRepairPollSec         = 30
+	DefaultSelfOptimizeMinCount      = 20
+	DefaultSelfRepairCheckTimeoutSec = 300
+)
+
+// orDefault is v when the config set it, else def.
+func orDefault(v, def int) int {
+	if v > 0 {
+		return v
 	}
-	return []Param{{Key: "/logging_self_problem_warn_repeats", Value: int64(repeats)}}
+	return def
+}
+
+// Params are the logging knobs the kernel's rules read, as config_param rows
+// (config_param_required(/logging, Key), policy/self_problems.mg and
+// policy/self_repair.mg). Nil-safe.
+func (c *LoggingConfig) Params() []Param {
+	var l LoggingConfig
+	if c != nil {
+		l = *c
+	}
+	enabled := int64(1)
+	if l.SelfRepairDisabled {
+		enabled = 0
+	}
+	return []Param{
+		{Key: "/logging_self_problem_warn_repeats", Value: int64(orDefault(l.SelfProblemWarnRepeats, DefaultSelfProblemWarnRepeats))},
+		{Key: "/logging_self_repair_enabled", Value: enabled},
+		{Key: "/logging_self_repair_cooldown_sec", Value: int64(orDefault(l.SelfRepairCooldownSec, DefaultSelfRepairCooldownSec))},
+		{Key: "/logging_self_repair_max_failures", Value: int64(orDefault(l.SelfRepairMaxFailures, DefaultSelfRepairMaxFailures))},
+		{Key: "/logging_self_repair_max_jobs", Value: int64(orDefault(l.SelfRepairMaxJobs, DefaultSelfRepairMaxJobs))},
+		{Key: "/logging_self_repair_verify_window_sec", Value: int64(orDefault(l.SelfRepairVerifyWindowSec, DefaultSelfRepairVerifyWindowSec))},
+		{Key: "/logging_self_optimize_min_count", Value: int64(orDefault(l.SelfOptimizeMinCount, DefaultSelfOptimizeMinCount))},
+	}
+}
+
+// SelfRepairPoll is how often an idle chat asks whether a self-repair is due.
+// Nil-safe.
+func (c *LoggingConfig) SelfRepairPoll() time.Duration {
+	v := 0
+	if c != nil {
+		v = c.SelfRepairPollSec
+	}
+	return time.Duration(orDefault(v, DefaultSelfRepairPollSec)) * time.Second
+}
+
+// SelfRepairCheckTimeout bounds each self-check step of a rebuilt binary.
+// Nil-safe.
+func (c *LoggingConfig) SelfRepairCheckTimeout() time.Duration {
+	v := 0
+	if c != nil {
+		v = c.SelfRepairCheckTimeoutSec
+	}
+	return time.Duration(orDefault(v, DefaultSelfRepairCheckTimeoutSec)) * time.Second
 }
 
 // EffectiveDebugMode reports whether logging is effectively on. DebugSelf

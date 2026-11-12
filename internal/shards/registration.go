@@ -670,6 +670,11 @@ func SharedPredicates() []string {
 		// reads debug_self_active under negation: "Debug-self is off" would
 		// derive in every shard that never saw it.
 		"debug_self_active",
+		// A self-repair fix turn's marker (self_repair.mg): it derives the
+		// project_forbidden_path rows that keep the fix off the safety gate,
+		// and coder_edit_barred joins those with pending_action in the
+		// policy shard. Homed in one shard, the deny held nowhere else.
+		"self_repair_fixing",
 		"brief_goal",
 		"brief_constraint",
 		"brief_decision",

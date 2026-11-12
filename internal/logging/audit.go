@@ -169,6 +169,19 @@ func InitAudit() error {
 	return nil
 }
 
+// AuditPath is the audit log this process is writing, "" while none is open.
+// Unlike LatestAuditLogPath it never names an earlier run's file: a reader
+// that judges this process by its own measurements (debug-self's timings)
+// must not read another process's.
+func AuditPath() string {
+	auditMu.Lock()
+	defer auditMu.Unlock()
+	if auditFile == nil {
+		return ""
+	}
+	return auditFile.path
+}
+
 // CloseAudit closes the audit log file
 func CloseAudit() {
 	auditMu.Lock()

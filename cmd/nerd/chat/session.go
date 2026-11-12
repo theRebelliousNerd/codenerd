@@ -222,6 +222,7 @@ func InitChat(cfg Config) Model {
 		selected:            &selectedSession{},
 		apiKeyFlag:          cfg.APIKey,
 		selfDebug:           newSelfDebugWatcher(),
+		selfRepair:          newSelfRepairState(),
 		// Mouse capture enabled by default (Alt+M to toggle for text selection)
 		mouseEnabled: true,
 		// Shutdown coordination (pointer to sync.Once to allow Model copy without noCopy violation)

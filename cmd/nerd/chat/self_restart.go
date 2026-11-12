@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -188,8 +190,18 @@ func (m Model) restartState() selfrestart.State {
 		st.Recurse = true
 		st.RecurseArgs = slices.Clone(m.recurse.args)
 	}
+	// What the restart cuts and the new process starts again by itself: the
+	// background jobs (a self-repair diagnosis among them) and the queued
+	// turns (a self-repair fix turn among them).
 	for _, job := range m.background.list() {
-		st.Interrupted = append(st.Interrupted, fmt.Sprintf("background job %s (%s: %s)", job.ID, job.Shard, job.Task))
+		st.Resume = append(st.Resume, selfrestart.ResumeWork{
+			Kind: selfrestart.ResumeBackground, ID: job.ID, Shard: job.Shard, Task: job.Task,
+			Target: job.Target, Constraint: job.Constraint, Request: job.Request,
+			FollowUp: job.FollowUp, SelfRepair: job.SelfRepair,
+		})
+	}
+	for _, q := range m.turn.queuedWork() {
+		st.Resume = append(st.Resume, selfrestart.ResumeWork{Kind: selfrestart.ResumeTurn, Input: q.input, Command: q.command})
 	}
 	if m.activeCampaign != nil {
 		st.Interrupted = append(st.Interrupted, fmt.Sprintf("campaign %s (%s); its progress is saved and it resumes through the campaign resume path", m.activeCampaign.ID, m.activeCampaign.Title))
@@ -296,7 +308,19 @@ func (m Model) applyRestore() Model {
 		m.resumeRecurse = true
 		m.resumeRecurseArgs = slices.Clone(st.RecurseArgs)
 	}
+	m.resumeWork = slices.Clone(st.Resume)
 	notice := fmt.Sprintf("codeNERD updated (%s → %s build), session restored.", st.OldBuild, st.NewBuild)
+	if len(st.Resume) > 0 {
+		lines := make([]string, 0, len(st.Resume))
+		for _, w := range st.Resume {
+			if w.Kind == selfrestart.ResumeBackground {
+				lines = append(lines, fmt.Sprintf("background %s job %s: %s", w.Shard, w.ID, oneLine(w.Task)))
+			} else {
+				lines = append(lines, "queued turn: "+oneLine(w.Input))
+			}
+		}
+		notice += "\n\nResuming once the workspace scan completes:\n- " + strings.Join(lines, "\n- ")
+	}
 	if len(st.Interrupted) > 0 {
 		notice += "\n\nInterrupted by the restart:\n- " + strings.Join(st.Interrupted, "\n- ")
 	}
@@ -342,32 +366,197 @@ func hasExecutableSourceChanges(changed []string) bool {
 	return false
 }
 
-// rebuildWatchedExecutable compiles ./cmd/nerd into a sibling temp file and
-// atomically renames it over the watched executable so the self-restart
-// watcher picks up the new build without ETXTBSY or partial reads.
+// resumeRestoredWork starts again what the restart cut (applyRestore kept
+// it): each background job under its own id, and each queued turn back on
+// the queue, which runs it once nothing is in flight. It runs when the
+// startup scan is done, as a resumed /recurse does.
+func (m Model) resumeRestoredWork() (Model, tea.Cmd) {
+	work := m.resumeWork
+	m.resumeWork = nil
+	var cmds []tea.Cmd
+	for _, w := range work {
+		switch w.Kind {
+		case selfrestart.ResumeBackground:
+			job := backgroundJob{
+				ID: w.ID, Shard: w.Shard, Task: w.Task, Target: w.Target, Constraint: w.Constraint,
+				Request: w.Request, FollowUp: w.FollowUp, SelfRepair: w.SelfRepair, Started: time.Now(),
+			}
+			cmds = append(cmds, m.startBackground(job, job.Task))
+		case selfrestart.ResumeTurn:
+			m.turn.enqueue(queuedMessage{input: w.Input, command: w.Command})
+		default:
+			logging.Get(logging.CategorySession).Warn("self-restart: resumed work of unknown kind %q not started: %+v", w.Kind, w)
+		}
+	}
+	return m, tea.Batch(cmds...)
+}
+
+// queuedWork is the messages waiting as work, in order: what a restart
+// carries over.
+func (t *turnState) queuedWork() []queuedMessage {
+	if t == nil {
+		return nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var out []queuedMessage
+	for _, q := range t.queued {
+		if !q.pending {
+			out = append(out, q)
+		}
+	}
+	return out
+}
+
+// selfRebuildHooks build and self-check a rebuilt binary; nil fields (or a
+// nil hooks value) are the production ones. Tests inject them.
+type selfRebuildHooks struct {
+	Build func(ctx context.Context, workspace, out string) error
+	Check func(ctx context.Context, workspace, binary string, changed []string) error
+}
+
+// rebuildWatchedExecutable compiles ./cmd/nerd into a sibling temp file,
+// proves the build (selfCheckBinary), and only then renames it over the
+// watched executable, so the self-restart watcher picks up a build that runs
+// -- without ETXTBSY or partial reads. A broken build never replaces a working
+// one: the failure is logged as an ERROR, which the problems log makes a
+// self_problem a self-repair can take up, and the running binary stays. A
+// rebuild runs only after a verified turn changed source, so a failure does
+// not loop: the next try is the next fix.
 func (m Model) rebuildWatchedExecutable(ctx context.Context, changed []string) error {
 	if !m.shouldRebuildWatchedExecutable(changed) {
 		return nil
 	}
+	err := m.rebuildAndInstall(ctx, changed)
+	if err != nil {
+		logging.Get(logging.CategoryBuild).Error("self-rebuild of %s failed; the running binary is unchanged: %v", build.SelfBinaryPackage, err)
+		m.selfRepairRebuilt("", err)
+		return err
+	}
+	return nil
+}
+
+func (m Model) rebuildAndInstall(ctx context.Context, changed []string) error {
 	exe := selfrestart.CleanExecutablePath(m.restarter.CurrentPath())
 	tmp := fmt.Sprintf("%s.rebuild-%d.tmp", exe, os.Getpid())
 	defer func() { _ = os.Remove(tmp) }()
 
-	out, err := build.BuildBinary(ctx, m.workspace, tmp, "./cmd/nerd")
-	if err != nil {
-		return fmt.Errorf("self-rebuild ./cmd/nerd failed: %w (%s)", err, strings.TrimSpace(string(out)))
+	buildFn, check := defaultSelfBuild, m.selfCheckBinary
+	if h := m.rebuildHooks; h != nil {
+		if h.Build != nil {
+			buildFn = h.Build
+		}
+		if h.Check != nil {
+			check = h.Check
+		}
+	}
+	if err := buildFn(ctx, m.workspace, tmp); err != nil {
+		return fmt.Errorf("go build %s: %w", build.SelfBinaryPackage, err)
 	}
 	if err := os.Chmod(tmp, 0o755); err != nil {
 		return fmt.Errorf("chmod rebuilt binary: %w", err)
 	}
+	if err := check(ctx, m.workspace, tmp, changed); err != nil {
+		return fmt.Errorf("self-check of the rebuilt binary: %w", err)
+	}
 	if err := os.Rename(tmp, exe); err != nil {
 		return fmt.Errorf("install rebuilt binary over %s: %w", exe, err)
 	}
-	if id, err := selfrestart.IdentityOf(exe); err == nil {
+	id, err := selfrestart.IdentityOf(exe)
+	if err == nil {
 		m.restarter.BinaryChanged(id)
 	}
-	logging.Get(logging.CategoryBoot).Info("self-rebuild: updated %s after source changes", exe)
+	m.selfRepairRebuilt(id.Build, nil)
+	logging.Get(logging.CategoryBoot).Info("self-rebuild: built, self-checked and installed %s after source changes", exe)
 	return nil
+}
+
+func defaultSelfBuild(ctx context.Context, workspace, out string) error {
+	output, err := build.BuildBinary(ctx, workspace, out, build.SelfBinaryPackage)
+	if err != nil {
+		return fmt.Errorf("%w\n%s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+// selfCheckBinary proves a rebuilt binary before it replaces the running one,
+// each step under logging.self_repair_check_timeout_sec: it starts (--help),
+// its engine loads every changed .mg file (check-mangle), and go vet passes
+// on every changed package. The proof is cheap and needs no model.
+func (m Model) selfCheckBinary(ctx context.Context, workspace, binary string, changed []string) error {
+	timeout := m.Config.Logging.SelfRepairCheckTimeout()
+	run := func(name string, argv []string, env []string) error {
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, name, argv...)
+		cmd.Dir = workspace
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("`%s %s` failed: %w\n%s", filepath.Base(name), strings.Join(argv, " "), err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	env := build.AllowedEnv(workspace)
+	if err := run(binary, []string{"--help"}, env); err != nil {
+		return err
+	}
+	mg, pkgs := changedSources(workspace, changed)
+	if len(mg) > 0 {
+		if err := run(binary, append([]string{"check-mangle"}, mg...), env); err != nil {
+			return err
+		}
+	}
+	if len(pkgs) > 0 {
+		goEnv, argv := build.GoInvocation(workspace, workspace, append(append([]string{"vet"}, build.TestTagsForWorkspace(workspace)...), pkgs...))
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "go", argv...)
+		cmd.Dir = workspace
+		cmd.Env = goEnv
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("`go vet %s` failed: %w\n%s", strings.Join(pkgs, " "), err, strings.TrimSpace(string(out)))
+		}
+	}
+	return nil
+}
+
+// changedSources splits changed paths into the workspace-relative .mg files
+// that still exist and the ./-relative packages of the non-test .go files
+// that still exist, each sorted and unique.
+func changedSources(workspace string, changed []string) (mg, pkgs []string) {
+	seenMG, seenPkg := map[string]bool{}, map[string]bool{}
+	for _, p := range changed {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		abs := p
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(workspace, p)
+		}
+		rel, err := filepath.Rel(workspace, abs)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			continue
+		}
+		if _, err := os.Stat(abs); err != nil {
+			continue // deleted: the build itself covered it
+		}
+		rel = filepath.ToSlash(rel)
+		switch {
+		case strings.HasSuffix(rel, ".mg") && !seenMG[rel]:
+			seenMG[rel] = true
+			mg = append(mg, rel)
+		case strings.HasSuffix(rel, ".go") && !strings.HasSuffix(rel, "_test.go"):
+			pkg := "./" + filepath.ToSlash(filepath.Dir(rel))
+			if !seenPkg[pkg] {
+				seenPkg[pkg] = true
+				pkgs = append(pkgs, pkg)
+			}
+		}
+	}
+	sort.Strings(mg)
+	sort.Strings(pkgs)
+	return mg, pkgs
 }
 
 // readRestore reads the restore file the launch named, once.
