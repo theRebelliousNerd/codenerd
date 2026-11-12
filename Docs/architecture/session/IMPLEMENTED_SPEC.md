@@ -929,3 +929,25 @@ explicit environment-forwarding paths. No control dispatches to the network.
 `internal/build/live_test_admission_test.go:13` checks the retained environment
 contract for Go and non-Go workspace commands. This is a test-admission boundary,
 not an egress sandbox or cross-process usage meter.
+
+## Repair rounds: failing tests first, new tests named, verdicts at INFO
+
+After a red test, a repair recheck reruns only the tests the turn has to clear
+(`failingFirstRuns`, `internal/session/failing_first.go:61`); the full gate, own
+packages plus importers, runs once those pass. Failures that predate the turn or
+did not reproduce are not in that set. When a failing test is one the turn
+itself wrote (`newFailingTests`, `internal/session/new_tests.go:63`) the repair
+prompt says so, and a turn whose only failures are its own new tests gives up
+with "the tests this turn wrote fail" and not "edits broke the tests"
+(`testsBrokenPhrase`, `internal/session/new_tests.go:114`). A verification
+verdict on the workspace, a repair round and a gate's FAILED line log at INFO.
+
+`WriteJournal` (`internal/session/write_journal.go:53`) records a turn's writes
+with their first pre-image on every exit path, so a caller can restore exactly
+what a chain of turns wrote and leave a file another writer changed since.
+
+Not built (GAP-SESSION-REPAIR-COST-01): the input size of each repair request is
+not logged, and each attempt's prompt (failing output, test source, budgeted
+diff) is appended to the turn's history and never replaced. One live repair
+turn measured 1.63M input tokens over 17 calls. Exit: a logged per-call size,
+and the repeated failing output measured and carried once.

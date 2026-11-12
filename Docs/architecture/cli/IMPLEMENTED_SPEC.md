@@ -601,7 +601,7 @@ recovery. Their execution remains pending.
 Spec: [08-AUTONOMOUS-SELF-REPAIR.md](08-AUTONOMOUS-SELF-REPAIR.md); gaps
 GAP-CLI-SELF-REPAIR-01..08 and GAP-CLI-SELF-DIAGNOSE-ROUTE.
 
-With the `debug_self` logging key on, `selfRepairStep` (`cmd/nerd/chat/self_repair.go:154`)
+With the `debug_self` logging key on, `selfRepairStep` (`cmd/nerd/chat/self_repair.go:159`)
 runs when a turn or background job settles and on an idle timer. It syncs the
 problems log, the run's timings (`internal/problemlog/timing.go`) and the repair
 ledger (`internal/problemlog/repair.go`) into the kernel, adopts the derived
@@ -610,7 +610,7 @@ verdicts, and starts one background diagnosis job for the targets
 finishes, Jev judges its report per target (`internal/turnjudge/verdict.go:56`)
 and the kernel derives whether a fix is due
 (`internal/core/defaults/policy/self_diagnosis.mg:67-68`). A due fix runs as a
-chain step with a preset intent (`cmd/nerd/chat/self_diagnosis_verdict.go:276`),
+chain step with a preset intent (`cmd/nerd/chat/self_diagnosis_verdict.go:280`),
 which the work mode admits, proposes or holds; a target judged to have no defect
 settles in the ledger without a fix turn and without counting as a failure.
 A verified turn that changed source goes through `rebuildAndInstall`
@@ -621,3 +621,11 @@ starts them again in the new process, which takes `pending_restart` attempts
 to `verifying` by loading the ledger.
 
 Not proven live: see GAP-CLI-SELF-REPAIR-06.
+
+A fix chain in yolo runs under a write journal and a fix window. `settleFixTurn`
+(`cmd/nerd/chat/self_repair_fix_turn.go:98`) undoes a fix that was not installed,
+restoring only that fix's writes, and saves its diff and failing tests under
+`.nerd/self_repair/attempts/` for the retry. Problems logged only inside a fix
+window are the attempt's record and are held
+(`internal/core/defaults/policy/self_repair.mg:178`). The optimize lane
+ranks timings taken after the startup scan.
