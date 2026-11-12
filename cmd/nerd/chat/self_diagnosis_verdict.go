@@ -224,6 +224,10 @@ type chainStep struct {
 	// Autonomous: codeNERD started it itself (self-repair); a message of the
 	// user's goes before it in the queue.
 	Autonomous bool
+	// Job is the self-repair job whose fix this is: the turn runs under a
+	// write journal, and a fix that does not end installed is undone
+	// (self_repair_fix_turn.go).
+	Job string
 }
 
 // input is the turn's text: the instruction, then the diagnosis.
@@ -275,6 +279,9 @@ func citedFiles(workspace, diagnosis string) []string {
 // nothing to fix) and its diagnosis.
 func (m Model) fixStep(job backgroundJob, result string, d turnjudge.FixDecision) chainStep {
 	step := chainStep{Instruction: job.FollowUp, Evidence: result, Verb: "/fix", Target: ownSourceTarget, Autonomous: job.SelfRepair != ""}
+	if job.SelfRepair != "" {
+		step.Job = job.ID
+	}
 	if job.SelfRepair == problemlog.LaneOptimize {
 		step.Verb = "/refactor"
 	}

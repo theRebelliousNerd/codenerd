@@ -440,7 +440,9 @@ func verifyTestRunsOnce(ctx context.Context, workspace, note string, runs ...tes
 		}
 		v = TestVerification{Ran: true, OK: false, Output: text, Outcome: VerifyFailed, Command: command, Reason: reason, Duration: elapsed, Result: res}
 		annotateFailingTestRecall(ctx, &v)
-		logging.Get(logging.CategorySession).Warn(
+		// A measurement of the workspace, which the gate reports: Info, not
+		// the problems log of codeNERD's own faults (repair_loop.go).
+		logging.Get(logging.CategorySession).Info(
 			"test verification FAILED in %s:\n%s", elapsed.Round(time.Millisecond), v.Output)
 		return v
 	case VerifyCanceled:

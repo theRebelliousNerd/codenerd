@@ -213,7 +213,9 @@ func verifyBuild(ctx context.Context, workspace string, userCfg *config.UserConf
 		// first 6000 characters was a repair of the errors that happened to sort
 		// first; if the whole log does not fit the window, the broker refuses the
 		// request and says so instead.
-		logging.Get(logging.CategorySession).Warn(
+		// A measurement of the workspace, which the gate reports: Info, not
+		// the problems log of codeNERD's own faults (repair_loop.go).
+		logging.Get(logging.CategorySession).Info(
 			"build verification FAILED in %s:\n%s", elapsed.Round(time.Millisecond), text)
 		// A non-nil slice, empty when nothing was located. Nil would mean
 		// "not parsed", and a later sync would parse the text a second time.
@@ -487,7 +489,7 @@ func (e *Executor) verifyAndRepairTests(
 			ErrVerificationFailed, strings.Join(foreign, ", "), strings.Join(owned, ", "), verification.Output)
 	}
 
-	logging.Get(logging.CategorySession).Warn(
+	logging.Get(logging.CategorySession).Info(
 		"Edits broke the tests; giving the model one repair round with the test output")
 
 	// The seed is the run the suite actually failed on. verification is the
@@ -502,6 +504,9 @@ func (e *Executor) verifyAndRepairTests(
 	spec := repairSpec{
 		kind:         "tests",
 		brokenPhrase: "edits broke the tests",
+		// A give-up whose failing tests are all ones this turn wrote says
+		// so: the new test may be what cannot pass (new_tests.go).
+		brokenPhraseFor: func() string { return testsBrokenPhrase(workspace, result) },
 		// The prompt carries the failing tests themselves (N24): this round
 		// closes the read tools after its first round that writes nothing, so
 		// a model that has not already read the test it broke cannot.
@@ -510,7 +515,14 @@ func (e *Executor) verifyAndRepairTests(
 			// the run this seed was taken from. A build recheck's seed is
 			// compiler text and has no Result; the previous run's tests
 			// would name the wrong files.
-			return testRepairPrompt(seed, failingTestSection(workspace, suiteFailureResult(result, seed), result.WrittenPaths)) +
+			// Failing tests this turn wrote are named as its own: one can
+			// be wrong itself (new_tests.go).
+			note := ""
+			if run := lastFailingRun(result); run != nil && run.Output == seed {
+				added, _ := newFailingTests(workspace, turnFailures(*run), result.WrittenPaths, result.PreWriteContents)
+				note = newTestRepairNote(added)
+			}
+			return note + testRepairPrompt(seed, failingTestSection(workspace, suiteFailureResult(result, seed), result.WrittenPaths)) +
 				turnDiffSection(workspace, result.WrittenPaths, result.PreWriteContents, e.configSnapshot().repairDiffBudget())
 		},
 		// A test repair can break the build, so re-check both, cheapest
@@ -529,6 +541,13 @@ func (e *Executor) verifyAndRepairTests(
 				}
 			} else if rb.Verdict() == VerifyCanceled {
 				return false, repairFailure{}, VerifyCanceled
+			}
+			// The tests that failed first: while they still fail, the
+			// full gate (own packages and importers) waits (failing_first.go).
+			if still, canceled := recheckFailingFirst(epCtx, workspace, result); canceled {
+				return false, repairFailure{}, VerifyCanceled
+			} else if still {
+				return false, repairFailure{Output: suiteFailureText(result)}, VerifyFailed
 			}
 			rt, _ := gateTests(epCtx, workspace, result, false)
 			// gateTests stored the importer measurement on result. The own

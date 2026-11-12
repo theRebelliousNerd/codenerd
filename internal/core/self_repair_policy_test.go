@@ -268,14 +268,19 @@ func ledgerPathOf(t *testing.T, l *problemlog.RepairLedger) string {
 }
 
 // The optimize lane: once nothing is left to repair, the recurring operation
-// with the largest total time is due; one timed too rarely, or one that waits
-// on a model, is not. Its fix is judged against the baseline mean.
+// with the largest total time since boot settled is due; one timed too rarely
+// after boot, one whose cost is the boot's, or one that waits on a model, is
+// not. Its fix is judged against the baseline mean, on the new process's
+// timings after its own boot.
 func TestSelfRepair_OptimizeTheCostliestRecurringOperation(t *testing.T) {
 	timings := []problemlog.Timing{
-		{System: "kernel", Operation: "Evaluate", Count: 40, TotalMs: 8000},
-		{System: "store", Operation: "Query", Count: 100, TotalMs: 3000},
-		{System: "api", Operation: "Complete", Count: 50, TotalMs: 90000},
-		{System: "world", Operation: "Scan", Count: 3, TotalMs: 20000},
+		{System: "kernel", Operation: "Evaluate", Count: 40, TotalMs: 8000, SettledCount: 40, SettledTotalMs: 8000},
+		{System: "store", Operation: "Query", Count: 100, TotalMs: 3000, SettledCount: 100, SettledTotalMs: 3000},
+		{System: "api", Operation: "Complete", Count: 50, TotalMs: 90000, SettledCount: 50, SettledTotalMs: 90000},
+		{System: "world", Operation: "Scan", Count: 3, TotalMs: 20000, SettledCount: 3, SettledTotalMs: 20000},
+		// Costliest over the run, but 22 of its 24 runs were the boot's
+		// (live 2026-11-12): not the steady state's cost to cut.
+		{System: "kernel", Operation: "Boot", Count: 24, TotalMs: 60000, SettledCount: 2, SettledTotalMs: 40},
 	}
 	k := selfRepairKernel(t, nil, nil, timings, repairNow)
 	if due := dueByLane(t, k); len(due[problemlog.LaneOptimize]) != 0 {
@@ -305,15 +310,16 @@ func TestSelfRepair_OptimizeTheCostliestRecurringOperation(t *testing.T) {
 	_ = l.Fixing("opt", repairNow)
 	_, _ = l.Installed("dddd", repairNow)
 	adopted := reloadLedger(t, l, repairNow)
-	faster := []problemlog.Timing{{System: "kernel", Operation: "Evaluate", Count: 25, TotalMs: 2500}}
+	// The new process's boot is slow again; its steady state is what counts.
+	faster := []problemlog.Timing{{System: "kernel", Operation: "Evaluate", Count: 47, TotalMs: 50000, SettledCount: 25, SettledTotalMs: 2500}}
 	if v, r, _ := problemlog.Verdicts(selfRepairKernel(t, nil, adopted, faster, repairNow)); len(v) != 1 || v[0] != want || len(r) != 0 {
 		t.Fatalf("faster: verified %v regressed %v", v, r)
 	}
-	slower := []problemlog.Timing{{System: "kernel", Operation: "Evaluate", Count: 25, TotalMs: 7500}}
+	slower := []problemlog.Timing{{System: "kernel", Operation: "Evaluate", Count: 25, TotalMs: 7500, SettledCount: 25, SettledTotalMs: 7500}}
 	if v, r, _ := problemlog.Verdicts(selfRepairKernel(t, nil, adopted, slower, repairNow)); len(v) != 0 || len(r) != 1 {
 		t.Fatalf("slower: verified %v regressed %v", v, r)
 	}
-	tooFew := []problemlog.Timing{{System: "kernel", Operation: "Evaluate", Count: 2, TotalMs: 10}}
+	tooFew := []problemlog.Timing{{System: "kernel", Operation: "Evaluate", Count: 30, TotalMs: 10, SettledCount: 2, SettledTotalMs: 10}}
 	if v, r, _ := problemlog.Verdicts(selfRepairKernel(t, nil, adopted, tooFew, repairNow)); len(v)+len(r) != 0 {
 		t.Fatalf("judged on too few samples: verified %v regressed %v", v, r)
 	}

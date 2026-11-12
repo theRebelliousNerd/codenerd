@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"codenerd/internal/types"
 )
@@ -88,7 +89,45 @@ func TestTimingFacts_MatchTheDecl(t *testing.T) {
 		}
 	}
 	k := &fakeKernel{}
-	if err := ReplaceTimings(k, nil); err != nil || len(k.retracted) != 1 || len(k.asserted) != 0 {
+	if err := ReplaceTimings(k, nil); err != nil || len(k.retracted) != 2 || len(k.asserted) != 0 {
 		t.Fatalf("replace with none: %v %v %v", err, k.retracted, k.asserted)
+	}
+}
+
+// Timings after the boot settled are kept apart from the boot's: the optimize
+// lane ranks the steady state (self_timing_settled). A boundary set after
+// lines were read re-reads them on the right side of it.
+func TestTimingWatcher_SettledTimingsExcludeTheBoot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run_audit.log")
+	appendFile(t, path, `{"ts":1000,"event":"perf_metric","cat":"kernel","action":"Evaluate","dur_ms":900}`+"\n"+
+		`{"ts":2000,"event":"perf_metric","cat":"kernel","action":"Evaluate","dur_ms":800}`+"\n"+
+		`{"ts":9000,"event":"perf_metric","cat":"kernel","action":"Evaluate","dur_ms":10}`+"\n")
+	w := NewTimingWatcher()
+	if err := w.Read(path); err != nil {
+		t.Fatal(err)
+	}
+	if ev, _ := w.Lookup("timing:kernel.Evaluate"); ev.Count != 3 || ev.SettledCount != 0 {
+		t.Fatalf("before the boot settled: %+v, want no settled timings", ev)
+	}
+	if facts := TimingFacts(w.Timings()); len(facts) != 1 {
+		t.Fatalf("facts before the boot settled = %v, want only self_timing", facts)
+	}
+	w.SetSettled(time.UnixMilli(5000))
+	if err := w.Read(path); err != nil {
+		t.Fatal(err)
+	}
+	ev, _ := w.Lookup("timing:kernel.Evaluate")
+	if ev.Count != 3 || ev.TotalMs != 1710 || ev.SettledCount != 1 || ev.SettledTotalMs != 10 || ev.SettledMeanMs() != 10 {
+		t.Fatalf("after the boot settled: %+v", ev)
+	}
+	facts := TimingFacts(w.Timings())
+	want := []any{types.MangleString("timing:kernel.Evaluate"), int64(1), int64(10), int64(10)}
+	if len(facts) != 2 || facts[1].Predicate != SettledTimingPredicate || len(facts[1].Args) != len(want) {
+		t.Fatalf("facts = %v", facts)
+	}
+	for i, a := range want {
+		if facts[1].Args[i] != a {
+			t.Fatalf("settled arg %d = %#v, want %#v", i, facts[1].Args[i], a)
+		}
 	}
 }

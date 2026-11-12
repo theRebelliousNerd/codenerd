@@ -35,5 +35,9 @@ func (m Model) sessionOperationContext() (context.Context, context.CancelFunc) {
 	if m.delegatedEvents != nil {
 		ctx = sessionlog.WithLiveProgress(ctx, m.sendDelegatedProgress)
 	}
+	// While a self-repair fix chain is open its continuation steps record
+	// their writes in its journal; the chain settles before any turn of the
+	// user's starts, so theirs are never journaled (self_repair_fix_turn.go).
+	ctx = m.withFixJournal(ctx)
 	return ctx, cancel
 }

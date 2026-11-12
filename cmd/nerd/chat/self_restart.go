@@ -204,7 +204,7 @@ func (m Model) restartState() selfrestart.State {
 		w := selfrestart.ResumeWork{Kind: selfrestart.ResumeTurn, Input: q.input, Command: q.command}
 		if q.chain != nil {
 			w.Step = &selfrestart.ChainStep{Instruction: q.chain.Instruction, Evidence: q.chain.Evidence,
-				Verb: q.chain.Verb, Target: q.chain.Target, Autonomous: q.chain.Autonomous}
+				Verb: q.chain.Verb, Target: q.chain.Target, Autonomous: q.chain.Autonomous, Job: q.chain.Job}
 		}
 		st.Resume = append(st.Resume, w)
 	}
@@ -390,7 +390,7 @@ func (m Model) resumeRestoredWork() (Model, tea.Cmd) {
 		case selfrestart.ResumeTurn:
 			q := queuedMessage{input: w.Input, command: w.Command}
 			if s := w.Step; s != nil {
-				q.chain = &chainStep{Instruction: s.Instruction, Evidence: s.Evidence, Verb: s.Verb, Target: s.Target, Autonomous: s.Autonomous}
+				q.chain = &chainStep{Instruction: s.Instruction, Evidence: s.Evidence, Verb: s.Verb, Target: s.Target, Autonomous: s.Autonomous, Job: s.Job}
 			}
 			m.turn.enqueue(q)
 		default:

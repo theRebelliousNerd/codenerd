@@ -10,6 +10,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"time"
 
 	"codenerd/internal/types"
 )
@@ -25,6 +26,14 @@ import (
 // TimingPredicate is self_timing(Target, System, Operation, Count, TotalMs, MeanMs).
 const TimingPredicate = "self_timing"
 
+// SettledTimingPredicate is self_timing_settled(Target, Count, TotalMs,
+// MeanMs): the operation's timings since the process's boot settled
+// (TimingWatcher.SetSettled). The optimize lane ranks and judges these: a
+// boot evaluates the whole world once, and its cost is not the steady
+// state's (live 2026-11-12: kernel.evaluate's 244 ms mean came from 22 runs
+// right after a boot over a 1M-fact world).
+const SettledTimingPredicate = "self_timing_settled"
+
 // TimingTargetPrefix starts every optimize-lane target.
 const TimingTargetPrefix = "timing:"
 
@@ -35,6 +44,10 @@ type Timing struct {
 	Count     int64
 	TotalMs   int64
 	MaxMs     int64
+	// SettledCount and SettledTotalMs are the timings since boot settled;
+	// zero while the boot has not (no SetSettled yet).
+	SettledCount   int64
+	SettledTotalMs int64
 }
 
 // Target is the optimize lane's name for the operation.
@@ -53,9 +66,19 @@ func (t Timing) MeanMs() int64 {
 	return t.TotalMs / t.Count
 }
 
+// SettledMeanMs is the operation's average since boot settled, rounded
+// down; 0 with none.
+func (t Timing) SettledMeanMs() int64 {
+	if t.SettledCount == 0 {
+		return 0
+	}
+	return t.SettledTotalMs / t.SettledCount
+}
+
 // auditPerf is the part of an audit event (internal/logging AuditEvent) a
 // timing needs.
 type auditPerf struct {
+	Timestamp  int64  `json:"ts"` // unix milliseconds
 	Event      string `json:"event"`
 	Category   string `json:"cat"`
 	Action     string `json:"action"`
@@ -73,11 +96,28 @@ type TimingWatcher struct {
 	timings map[[2]string]*Timing
 	// changed is set when a read added a timing since the last Facts.
 	changed bool
+	// settledMs is when the process's boot settled, unix milliseconds; 0
+	// until SetSettled.
+	settledMs int64
 }
 
 // NewTimingWatcher starts with no log.
 func NewTimingWatcher() *TimingWatcher {
 	return &TimingWatcher{timings: map[[2]string]*Timing{}}
+}
+
+// SetSettled records when the process's boot settled (the startup scan
+// finished): timings from then on are the steady state's. A new boundary
+// re-reads the log from the start, so lines already read are counted on the
+// right side of it.
+func (w *TimingWatcher) SetSettled(at time.Time) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	ms := at.UnixMilli()
+	if ms == w.settledMs {
+		return
+	}
+	w.settledMs, w.offset, w.timings, w.changed = ms, 0, map[[2]string]*Timing{}, true
 }
 
 // Read consumes the complete lines appended to path since the last read. A
@@ -153,6 +193,10 @@ func (w *TimingWatcher) add(line []byte) {
 	if ev.DurationMs > t.MaxMs {
 		t.MaxMs = ev.DurationMs
 	}
+	if w.settledMs > 0 && ev.Timestamp >= w.settledMs {
+		t.SettledCount++
+		t.SettledTotalMs += ev.DurationMs
+	}
 	w.changed = true
 }
 
@@ -197,14 +241,20 @@ func (w *TimingWatcher) Changed() bool {
 	return c
 }
 
-// TimingFacts renders timings as self_timing rows.
+// TimingFacts renders timings as self_timing rows, and as
+// self_timing_settled rows for the operations timed since boot settled.
 func TimingFacts(timings []Timing) []types.Fact {
-	out := make([]types.Fact, 0, len(timings))
+	out := make([]types.Fact, 0, 2*len(timings))
 	for _, t := range timings {
 		out = append(out, types.Fact{Predicate: TimingPredicate, Args: []any{
 			types.MangleString(t.Target()), types.MangleString(t.System), types.MangleString(t.Operation),
 			t.Count, t.TotalMs, t.MeanMs(),
 		}})
+		if t.SettledCount > 0 {
+			out = append(out, types.Fact{Predicate: SettledTimingPredicate, Args: []any{
+				types.MangleString(t.Target()), t.SettledCount, t.SettledTotalMs, t.SettledMeanMs(),
+			}})
+		}
 	}
 	return out
 }
@@ -215,8 +265,10 @@ func ReplaceTimings(k Kernel, timings []Timing) error {
 		return errors.New("problemlog: nil Kernel")
 	}
 	var errs []error
-	if err := k.Retract(TimingPredicate); err != nil {
-		errs = append(errs, fmt.Errorf("problemlog: retract %s: %w", TimingPredicate, err))
+	for _, pred := range []string{TimingPredicate, SettledTimingPredicate} {
+		if err := k.Retract(pred); err != nil {
+			errs = append(errs, fmt.Errorf("problemlog: retract %s: %w", pred, err))
+		}
 	}
 	if facts := TimingFacts(timings); len(facts) > 0 {
 		if err := k.AssertBatch(facts); err != nil {

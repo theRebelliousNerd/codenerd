@@ -129,6 +129,11 @@ func (m Model) processInput(input string, request uint64) tea.Cmd {
 		// The agents this turn starts record their transcripts under its task
 		// id, so a side turn can say what the work has done (running_work.go).
 		ctx = sessionlog.WithTask(ctx, foregroundTask(turnID))
+		// A self-repair fix step records every write it makes, so a fix
+		// that is not installed can be undone (self_repair_fix_turn.go).
+		if m.chainStep != nil && m.chainStep.Job != "" {
+			ctx = m.withFixJournal(ctx)
+		}
 		// Ctrl+X and a side turn's stop reach this turn through m.turn.
 		m.turn.begin(turnID, cancel)
 		// The stall watch (debug-self) counts this turn as active until it

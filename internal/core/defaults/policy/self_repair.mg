@@ -29,8 +29,14 @@ Decl self_repair_clock(Unix) bound [/number].
 # One row per operation the run timed (logging.StartTimer), from its audit log:
 # Target is "timing:<system>.<operation>".
 Decl self_timing(Target, System, Operation, Count, TotalMs, MeanMs) bound [/string, /string, /string, /number, /number, /number].
+# The same operation's timings since the process's boot settled (the startup
+# scan finished): the steady state the optimize lane ranks and judges.
+Decl self_timing_settled(Target, Count, TotalMs, MeanMs) bound [/string, /number, /number, /number].
 # Asserted while a self-repair fix turn runs (shared into every shard).
 Decl self_repair_fixing() bound [].
+# When each fix turn ran, from the ledger; a window still open ends at the
+# clock.
+Decl self_repair_fix_window(Job, StartUnix, EndUnix) bound [/string, /number, /number].
 
 Decl self_timing_external(System) bound [/string].
 Decl self_repair_protected_path(Match) bound [/string].
@@ -55,6 +61,10 @@ Decl self_repair_regressed(Target) bound [/string].
 Decl self_repair_no_defect_evidence(Target, Count) bound [/string, /number].
 Decl self_repair_evidence_count(Target, Count) bound [/string, /number].
 Decl self_repair_evidence_regrown(Target) bound [/string].
+Decl self_problem_at_in_fix(Signature, Unix, Job) bound [/string, /number, /string].
+Decl self_problem_at_fixed(Signature, Unix) bound [/string, /number].
+Decl self_problem_outside_fix(Signature) bound [/string].
+Decl self_problem_from_repair(Signature, Job) bound [/string, /string].
 
 config_param_required(/logging, /logging_self_repair_enabled).
 config_param_required(/logging, /logging_self_repair_cooldown_sec).
@@ -145,6 +155,32 @@ self_repair_evidence_regrown(Target) :-
 self_repair_held(Target) :-
     self_repair_attempt(Target, _, /no_defect, _, _, _, _),
     !self_repair_evidence_regrown(Target).
+# A problem logged only while self-repair fix turns ran is the record of those
+# attempts -- a provider call that timed out under the coder, a line about the
+# attempt's own edits -- and not a defect a new diagnosis should chase: the
+# attempt it belongs to has already been judged (failed, with what it tried).
+# One logged at any second outside every fix window is still codeNERD's
+# problem, and is due like any other. Observed live 2026-11-12: a failed fix
+# turn's own log lines became the next four "hot problems", and self-repair
+# began diagnosing its own exhaust.
+self_problem_at_in_fix(Signature, Unix, Job) :-
+    self_problem_at(Signature, Unix),
+    self_repair_fix_window(Job, Start, End),
+    Start <= Unix,
+    Unix <= End.
+
+self_problem_at_fixed(Signature, Unix) :- self_problem_at_in_fix(Signature, Unix, _).
+
+self_problem_outside_fix(Signature) :-
+    self_problem_at(Signature, Unix),
+    !self_problem_at_fixed(Signature, Unix).
+
+self_problem_from_repair(Signature, Job) :-
+    self_problem_at_in_fix(Signature, _, Job),
+    !self_problem_outside_fix(Signature).
+
+self_repair_held(Signature) :- self_problem_from_repair(Signature, _).
+
 # A failure Jev judged to come from around codeNERD (jev_evidence.mg) is not
 # codeNERD's to fix.
 self_repair_held(Target) :-
@@ -161,14 +197,20 @@ self_repair_fix_due(Signature) :-
 self_repair_fix_due_any() :- self_repair_fix_due(_).
 
 # Optimize, once nothing is left to repair: the recurring operation that cost
-# the run the most time in all (count times mean). Time spent waiting on a
-# model, the network or a browser is not codeNERD's code to speed up.
+# the run the most time in all (count times mean) since its boot settled.
+# Time spent waiting on a model, the network or a browser is not codeNERD's
+# code to speed up. A boot evaluates the whole world once, and that cost is
+# not the steady state's: an operation is a candidate only once it has
+# recurred logging.self_optimize_min_count times after boot, ranked by what
+# it cost after boot. Live 2026-11-12, kernel.evaluate's 244 ms mean was 22
+# runs right after a boot over a 1M-fact world.
 self_timing_external("api").
 self_timing_external("embedding").
 self_timing_external("browser").
 
 self_optimize_candidate(Target, Total) :-
-    self_timing(Target, System, _, Count, Total, _),
+    self_timing(Target, System, _, _, _, _),
+    self_timing_settled(Target, Count, Total, _),
     config_param(/logging_self_optimize_min_count, Min),
     Count >= Min,
     !self_timing_external(System),
@@ -210,18 +252,19 @@ self_repair_verified(Signature) :-
     !self_repair_regressed(Signature).
 
 # An optimized operation is judged once it has recurred as often as it had to
-# before it was chosen: faster on average than its baseline, or not.
+# before it was chosen, after the new process's boot settled: faster on
+# average than its baseline (its settled mean when chosen), or not.
 self_repair_verified(Target) :-
     self_repair_attempt(Target, /optimize, /verifying, _, _, _, _),
     self_repair_baseline(Target, Base),
-    self_timing(Target, _, _, Count, _, Mean),
+    self_timing_settled(Target, Count, _, Mean),
     config_param(/logging_self_optimize_min_count, Min),
     Count >= Min,
     Mean < Base.
 self_repair_regressed(Target) :-
     self_repair_attempt(Target, /optimize, /verifying, _, _, _, _),
     self_repair_baseline(Target, Base),
-    self_timing(Target, _, _, Count, _, Mean),
+    self_timing_settled(Target, Count, _, Mean),
     config_param(/logging_self_optimize_min_count, Min),
     Count >= Min,
     Mean >= Base.

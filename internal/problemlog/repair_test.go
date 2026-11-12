@@ -255,3 +255,58 @@ func TestRepairLedger_NoDefectSettlesNamedTargetsWithoutAFailure(t *testing.T) {
 		t.Fatalf("after a stopped retry sig-a = %+v", a)
 	}
 }
+
+// A fix turn's window and what it left survive the process: the window ends
+// where the turn ended, and only a failed or stopped attempt carries the
+// undone diff and the failing tests, which the next settle clears.
+func TestRepairLedger_FixWindowsAndAnnotationsPersist(t *testing.T) {
+	l, path := newLedger(t)
+	if err := l.Begin([]string{"a", "b"}, LaneRepair, "job-1", nil, time.Unix(100, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.NoDefect("job-1", map[string]int{"b": 3}, "nothing to fix", time.Unix(110, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Fixing("job-1", time.Unix(120, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.OpenFixWindow("job-1", time.Unix(120, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if facts := l.WindowFacts(time.Unix(150, 0)); len(facts) != 1 || facts[0].Args[2] != int64(150) {
+		t.Fatalf("an open window's facts = %v, want it to end now", facts)
+	}
+	if _, err := l.EndJob("job-1", RepairFailed, "the fix turn ended", time.Unix(200, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.CloseFixWindow("job-1", time.Unix(200, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := l.Annotate("job-1", "its edits were undone", ".nerd/self_repair/attempts/job-1.diff", []string{"pkg.TestX: x_test.go:3: boom"}); err != nil || n != 1 {
+		t.Fatalf("annotated %d (%v), want the failed attempt only", n, err)
+	}
+	next, err := LoadRepairLedger(path, time.Unix(300, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws := next.FixWindows(); len(ws) != 1 || ws[0].StartUnix != 120 || ws[0].EndUnix != 200 {
+		t.Fatalf("windows after reload = %+v", ws)
+	}
+	a, _ := next.Get("a")
+	if a.AttemptDiff != ".nerd/self_repair/attempts/job-1.diff" || len(a.FailedTests) != 1 || a.Note != "the fix turn ended; its edits were undone" {
+		t.Fatalf("failed attempt after reload = %+v", a)
+	}
+	if b, _ := next.Get("b"); b.AttemptDiff != "" || len(b.FailedTests) != 0 {
+		t.Fatalf("the no-defect attempt was annotated: %+v", b)
+	}
+	// The next attempt's settle clears what the last one left.
+	if err := next.Begin([]string{"a"}, LaneRepair, "job-2", nil, time.Unix(400, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := next.EndJob("job-2", RepairStopped, "stopped", time.Unix(410, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := next.Get("a"); a.AttemptDiff != "" || len(a.FailedTests) != 0 {
+		t.Fatalf("a later attempt kept the old diff: %+v", a)
+	}
+}

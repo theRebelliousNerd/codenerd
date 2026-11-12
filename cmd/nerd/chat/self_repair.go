@@ -13,6 +13,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/problemlog"
+	"codenerd/internal/session"
 	"codenerd/internal/turnjudge"
 )
 
@@ -47,6 +48,10 @@ type selfRepairState struct {
 	fixing bool
 	// fixTurn is the execution running the latest fix turn (runChainStep).
 	fixTurn uint64
+	// journal records every write of the open fix chain, of journalJob;
+	// settleFixTurn undoes it unless the fix was installed.
+	journal    *session.WriteJournal
+	journalJob string
 	// gen numbers the timer loop; a tick of an older loop stops.
 	gen uint64
 	// now is the clock, audit names this process's audit log (the timings'
@@ -163,20 +168,12 @@ func (m Model) selfRepairStep() (Model, tea.Cmd) {
 	}
 	now := m.selfRepair.clock()
 
-	// Idle means every fix turn has ended. One that ended with an installed
-	// binary already waits for the restart; one the user stopped is stopped;
-	// any other did not fix anything.
-	m.selfRepair.mu.Lock()
-	fixTurn := m.selfRepair.fixTurn
-	m.selfRepair.fixTurn = 0
-	m.selfRepair.mu.Unlock()
-	if m.turn.endedStopped(fixTurn) {
-		if n, err := ledger.EndFixing(problemlog.RepairStopped, "its fix turn was stopped by the user", now); err != nil {
-			log.Error("%s self-repair ledger: %v", selfDebugMarker, err)
-		} else if n > 0 {
-			m = m.pushAssistantMsg(fmt.Sprintf("_Self-repair: you stopped the fix turn for %d target(s); they are recorded as stopped, not failed._", n))
-		}
-	}
+	// Idle means every fix turn has ended. The one this process ran settles
+	// with its own outcome and its edits undone unless it was installed
+	// (settleFixTurn; normally already settled at its turn boundary). One
+	// still in its fixing phase with no fix turn here -- its process exited,
+	// or it never started -- did not fix anything.
+	m = m.settleFixTurn()
 	if n, err := ledger.EndFixing(problemlog.RepairFailed, "the fix turn ended without a verified, rebuilt and self-checked binary", now); err != nil {
 		log.Error("%s self-repair ledger: %v", selfDebugMarker, err)
 	} else if n > 0 {
@@ -221,7 +218,9 @@ func (m Model) selfRepairStep() (Model, tea.Cmd) {
 	if job.SelfRepair == problemlog.LaneOptimize {
 		for _, t := range targets {
 			if tm, ok := m.selfRepair.timing.Lookup(t); ok {
-				baselines[t] = tm.MeanMs()
+				// The steady state's mean, the one the lane ranked and the
+				// verdict compares (self_timing_settled).
+				baselines[t] = tm.SettledMeanMs()
 			}
 		}
 	}
@@ -528,8 +527,8 @@ func (m Model) selfRepairTask(ctx context.Context, targets []string, ledger *pro
 // selfOptimizeTask is the diagnosis of the costliest recurring operation.
 func selfOptimizeTask(tm problemlog.Timing, ledger *problemlog.RepairLedger) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Find why %s.%s is the costliest recurring operation of this codeNERD run: timed %d times, %dms in all, %dms on average, %dms at most (the run's audit log, perf_metric). Read-only: change nothing. codeNERD started this itself (debug-self self-repair); no one asked.\n",
-		tm.System, tm.Operation, tm.Count, tm.TotalMs, tm.MeanMs(), tm.MaxMs)
+	fmt.Fprintf(&b, "Find why %s.%s is the costliest recurring operation of this codeNERD run once its boot settled: timed %d times since, %dms in all, %dms on average (over the whole run, boot included: %d times, %dms on average, %dms at most; the run's audit log, perf_metric). Read-only: change nothing. codeNERD started this itself (debug-self self-repair); no one asked.\n",
+		tm.System, tm.Operation, tm.SettledCount, tm.SettledTotalMs, tm.SettledMeanMs(), tm.Count, tm.MeanMs(), tm.MaxMs)
 	fmt.Fprintf(&b, "Find where codeNERD's source times it (logging.StartTimer with the %q category and the %q operation), read what its time goes to, and say whether it is spent in codeNERD's own code -- then give the change that would cut it, with file:line and why behavior stays the same -- or waiting on something outside (a model, the network, the disk) that codeNERD cannot speed up.\n", tm.System, tm.Operation)
 	writeSelfRepairHistory(&b, []string{tm.Target()}, ledger)
 	return b.String()
@@ -553,6 +552,15 @@ func writeSelfRepairHistory(b *strings.Builder, targets []string, ledger *proble
 			fmt.Fprintf(b, " (%s)", a.Note)
 		}
 		b.WriteString("\n")
+		if a.AttemptDiff != "" {
+			fmt.Fprintf(b, "  What it changed was undone and is saved at %s: read it, and do not make the same change again.\n", a.AttemptDiff)
+		}
+		if len(a.FailedTests) > 0 {
+			b.WriteString("  Tests failing when it ended:\n")
+			for _, f := range a.FailedTests {
+				fmt.Fprintf(b, "    - %s\n", f)
+			}
+		}
 	}
 }
 

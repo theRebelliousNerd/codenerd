@@ -326,6 +326,9 @@ func (m Model) finishBackground(msg backgroundDoneMsg) (Model, tea.Cmd) {
 // turn on the live one.
 func (m Model) runChainStep(step chainStep, request uint64) tea.Cmd {
 	m.chainStep = &step
+	// A self-repair fix step runs under its job's write journal and fix
+	// window (self_repair_fix_turn.go), opened before the turn can write.
+	m.beginFixTurn(step)
 	cmd := m.processInput(step.input(), request)
 	// processInput took the slot on this thread: that execution is the fix
 	// turn, and how it ends settles its attempts (selfRepairStep).

@@ -13,6 +13,7 @@ import (
 const (
 	ProblemPredicate         = "self_problem"
 	SeenPredicate            = "self_problem_seen"
+	AtPredicate              = "self_problem_at"
 	OmittedPredicate         = "self_problem_omitted"
 	DebugSelfActivePredicate = "debug_self_active"
 )
@@ -34,10 +35,11 @@ func problemLevelAtom(level string) types.MangleAtom {
 }
 
 // Predicates are the base predicates Facts writes, for retract-and-replace.
-var Predicates = []string{ProblemPredicate, SeenPredicate, OmittedPredicate}
+var Predicates = []string{ProblemPredicate, SeenPredicate, AtPredicate, OmittedPredicate}
 
 // Facts projects the report as self_problems.mg's base facts: one
-// self_problem and one self_problem_seen per distinct problem, and a
+// self_problem and one self_problem_seen per distinct problem, one
+// self_problem_at per signature and second it was logged in, and a
 // self_problem_omitted when the cut left problems out. Strings are explicit
 // MangleStrings so a message that looks like a name stays a string.
 func (r *Report) Facts() []types.Fact {
@@ -53,6 +55,18 @@ func (r *Report) Facts() []types.Fact {
 			types.Fact{Predicate: ProblemPredicate, Args: []any{sig, level, cat, int64(p.Count), types.MangleString(p.Sample)}},
 			types.Fact{Predicate: SeenPredicate, Args: []any{sig, level, cat, p.First.Unix(), p.Last.Unix()}},
 		)
+	}
+	at := map[string]map[int64]bool{}
+	for _, p := range r.Problems {
+		if at[p.Signature] == nil {
+			at[p.Signature] = map[int64]bool{}
+		}
+		for _, sec := range p.Seconds {
+			if !at[p.Signature][sec] {
+				at[p.Signature][sec] = true
+				out = append(out, types.Fact{Predicate: AtPredicate, Args: []any{types.MangleString(p.Signature), sec}})
+			}
+		}
 	}
 	if r.Omitted() {
 		out = append(out, types.Fact{Predicate: OmittedPredicate, Args: []any{int64(r.OmittedProblems), int64(r.OmittedEntries)}})

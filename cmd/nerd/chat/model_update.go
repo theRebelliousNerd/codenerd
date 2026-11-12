@@ -29,6 +29,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if nm, ok := next.(Model); ok && wasBusy && nm.debugSelfEnabled() && !nm.selfRepairBusy() {
 		cmd = tea.Batch(cmd, func() tea.Msg { return selfRepairCheckMsg{} })
 	}
+	// A self-repair fix chain that stopped running settles now -- its edits
+	// undone unless its fix was installed -- before a queued message of the
+	// user's can start on the tree it left (self_repair_fix_turn.go).
+	if nm, ok := next.(Model); ok {
+		next = nm.settleFixTurn()
+	}
 	// A Ctrl+X stop is announced as stopped once its execution has settled.
 	if nm, ok := next.(Model); ok && nm.turn.stopSettled() {
 		next = nm.pushAssistantMsg(nm.stoppedNotice())
@@ -1106,6 +1112,11 @@ func (m Model) handleScanCompleteMsg(msg scanCompleteMsg) (Model, tea.Cmd, bool)
 	// If this was the startup scan, unlock chat input now that we're green.
 	if startupScan {
 		m.isBooting = false
+		// Boot has settled: from here on an operation's timings are the
+		// steady state's, which the optimize lane ranks (self_repair.mg).
+		if m.selfRepair != nil {
+			m.selfRepair.timing.SetSettled(m.selfRepair.clock())
+		}
 		m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
 		m.textarea.Focus()
 
