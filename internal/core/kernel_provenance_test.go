@@ -33,8 +33,8 @@ func TestProvenance_EnableTogglesRecorder(t *testing.T) {
 	if !k.IsProvenanceEnabled() {
 		t.Errorf("after EnableProvenance, IsProvenanceEnabled returned false")
 	}
-	if k.proofRecorder == nil {
-		t.Errorf("after EnableProvenance, proofRecorder is nil")
+	if !k.provenanceOn {
+		t.Errorf("after EnableProvenance, provenanceOn is false")
 	}
 
 	// Calling Enable a second time should be idempotent (no panic, still on).
@@ -47,8 +47,8 @@ func TestProvenance_EnableTogglesRecorder(t *testing.T) {
 	if k.IsProvenanceEnabled() {
 		t.Errorf("after DisableProvenance, IsProvenanceEnabled returned true")
 	}
-	if k.proofRecorder != nil {
-		t.Errorf("after DisableProvenance, proofRecorder is non-nil")
+	if k.provenanceOn || k.proofs.byPred != nil {
+		t.Errorf("after DisableProvenance, provenance is on or slices are held")
 	}
 
 	// Disable when already disabled is a no-op.

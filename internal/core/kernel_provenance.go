@@ -1,17 +1,16 @@
 // Package core - provenance / "why did this fact get derived?" API.
 //
-// Backed by the Codeberg mangle-go fork's DerivationRecorder mechanism
-// (commit 4dcaa582), which captures every rule firing, let-transform
-// emission, and do-transform (aggregation) emission as evaluation runs.
-// Off by default — must be turned on with EnableProvenance() before the
-// next evaluate(), since the recorder is wired during eval option
-// assembly (see kernel_eval.go).
+// Backed by mangle-go's DerivationRecorder, which captures every rule
+// firing, let-transform emission and do-transform (aggregation) emission as
+// an evaluation runs. Off by default: EnableProvenance lets Explain answer.
 //
-// The recorder buffer is reset at the start of every evaluate() so its
-// memory footprint stays bounded; only the most recent fixpoint pass is
-// inspectable. Long-running sessions can therefore leave provenance on
-// without unbounded growth. ExplanationEnvelope (kernel_explanation.go) is
-// the bounded, epoch-stamped form a consumer reads.
+// Evaluation itself never records. Explain records, on demand, the slice of
+// the program upstream of the goal's predicate over the current EDB, and keeps
+// that recording until the next write or program change
+// (kernel_proof_slice.go). Recording during every evaluate() made each write a
+// full recorded fixpoint, seconds and hundreds of megabytes on a world-sized
+// EDB. ExplanationEnvelope (kernel_explanation.go) is the bounded,
+// epoch-stamped form a consumer reads.
 package core
 
 import (
@@ -23,36 +22,33 @@ import (
 	"codeberg.org/TauCeti/mangle-go/provenance"
 )
 
-// EnableProvenance turns on derivation recording. The next evaluate()
-// will install a fresh MemoryRecorder; subsequent evaluates will reset
-// it. To take effect immediately on the next Query/QueryAll, also call
-// MarkPolicyDirty() or assert a fact.
+// EnableProvenance lets Explain answer. Nothing is recorded until a goal is
+// explained; then the goal's slice of the current evaluation is recorded.
 func (k *RealKernel) EnableProvenance() {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if k.proofRecorder == nil {
-		k.proofRecorder = provenance.NewMemoryRecorder()
-		k.recorderEpoch.armed = k.proofRecorder
-		logging.Kernel("Provenance recording ENABLED (next evaluate will populate)")
+	if !k.provenanceOn {
+		k.provenanceOn = true
+		logging.Kernel("Provenance ENABLED (proofs are recorded per goal on demand)")
 	}
 }
 
-// DisableProvenance turns off derivation recording and releases the
-// current recorder buffer.
+// DisableProvenance turns explanations off and releases recorded slices.
 func (k *RealKernel) DisableProvenance() {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if k.proofRecorder != nil {
-		k.proofRecorder = nil
-		logging.Kernel("Provenance recording DISABLED")
+	if k.provenanceOn {
+		k.provenanceOn = false
+		k.proofs = proofSliceCache{}
+		logging.Kernel("Provenance DISABLED")
 	}
 }
 
-// IsProvenanceEnabled reports whether the recorder is currently active.
+// IsProvenanceEnabled reports whether Explain may answer.
 func (k *RealKernel) IsProvenanceEnabled() bool {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
-	return k.proofRecorder != nil
+	return k.provenanceOn
 }
 
 // ExplainOptions controls the depth and breadth of Explain output.
@@ -72,26 +68,25 @@ type ExplainOptions struct {
 // a ground (variable-free) atom string parseable by the Mangle parser,
 // e.g. "next_action(/generate_tool)" or "permitted(/edit, "main.go")".
 //
-// Returns ErrProvenanceDisabled if EnableProvenance() was not called
-// before the most recent evaluate(). Returns ErrNoProof if the recorder
-// has no events for the goal (either it was never derived, or it was
-// derived before the recorder was installed).
+// Returns ErrProvenanceDisabled if EnableProvenance() was not called.
+// Returns ErrNoProof if the goal is not derived in the current evaluation.
 func (k *RealKernel) Explain(goalStr string, opts ExplainOptions) ([]*provenance.ProofNode, error) {
-	// First ensure evaluation is current (the recorder only sees the most
-	// recent pass anyway, but stale dirty facts would be confusing).
+	// The proof describes the current evaluation, so bring it up to date.
 	if err := k.ensureEvaluated(); err != nil {
 		return nil, fmt.Errorf("Explain: evaluation failed: %w", err)
 	}
 
-	k.mu.RLock()
-	defer k.mu.RUnlock()
+	// Exclusive: recording a slice fills the kernel's slice cache.
+	k.mu.Lock()
+	defer k.mu.Unlock()
 	return k.explainLocked(goalStr, opts)
 }
 
-// explainLocked builds the proofs of goalStr from the recorder and store of
-// the current evaluation. Call holding k.mu (read or write).
+// explainLocked builds the proofs of goalStr from the recorded slice of the
+// current evaluation, recording it first if needed. Caller holds k.mu
+// exclusively.
 func (k *RealKernel) explainLocked(goalStr string, opts ExplainOptions) ([]*provenance.ProofNode, error) {
-	if k.proofRecorder == nil {
+	if !k.provenanceOn {
 		return nil, ErrProvenanceDisabled
 	}
 	if k.store == nil {
@@ -112,7 +107,11 @@ func (k *RealKernel) explainLocked(goalStr string, opts ExplainOptions) ([]*prov
 	}
 	goal := parsed.Clauses[0].Head
 
-	proofs, err := provenance.BuildFromRecording(k.proofRecorder, k.store, goal, provenance.Options{
+	slice, err := k.proofSliceLocked(goal)
+	if err != nil {
+		return nil, err
+	}
+	proofs, err := provenance.BuildFromRecording(slice.recorder, slice.store, goal, provenance.Options{
 		MaxProofs: opts.MaxProofs,
 		MaxDepth:  opts.MaxDepth,
 	})
@@ -123,6 +122,5 @@ func (k *RealKernel) explainLocked(goalStr string, opts ExplainOptions) ([]*prov
 	return proofs, nil
 }
 
-// ErrProvenanceDisabled is returned by Explain when no recorder is
-// installed. Call EnableProvenance() and re-trigger evaluation first.
+// ErrProvenanceDisabled is returned by Explain when provenance is off.
 var ErrProvenanceDisabled = fmt.Errorf("provenance recording is disabled; call EnableProvenance() first")

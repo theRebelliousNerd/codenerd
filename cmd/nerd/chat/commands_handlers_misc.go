@@ -96,23 +96,12 @@ func (m Model) handleExplainCommand(input string, parts []string) (tea.Model, te
 		m.textarea.Reset()
 		return m, nil
 	}
-	// Enable provenance if it's off and force a re-eval so the
-	// recorder catches the current store.
+	// Enable provenance if it's off. No re-evaluation: the kernel records
+	// the goal's slice of the current evaluation when it is explained.
 	newlyEnabled := false
 	if !m.kernel.IsProvenanceEnabled() {
 		m.kernel.EnableProvenance()
 		newlyEnabled = true
-		if evalErr := m.kernel.Evaluate(); evalErr != nil {
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("## /explain %s\n\n_error: forced re-evaluation failed: %v_\n", goal, evalErr),
-				Time:    time.Now(),
-			})
-			m.viewport.SetContent(m.renderHistory())
-			m.viewport.GotoBottom()
-			m.textarea.Reset()
-			return m, nil
-		}
 	}
 	env, err := m.kernel.ExplainEnvelope(goal, explainOptions(m.Config))
 	msg := explainCommandReply(goal, env, err)

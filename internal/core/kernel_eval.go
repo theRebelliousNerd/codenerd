@@ -20,7 +20,6 @@ import (
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/engine"
 	"codeberg.org/TauCeti/mangle-go/factstore"
-	"codeberg.org/TauCeti/mangle-go/provenance"
 )
 
 // =============================================================================
@@ -416,15 +415,8 @@ func (k *RealKernel) evaluate() (err error) {
 		engine.WithCreatedFactLimit(derivedFactLimit),
 	}
 
-	// Optional provenance recording (Codeberg mangle-go DerivationRecorder).
-	// Reset on every evaluate() so the recorder only holds events from the
-	// most recent fixpoint pass; otherwise long-lived sessions would grow
-	// unboundedly large recorder buffers.
-	if k.proofRecorder != nil {
-		k.proofRecorder = provenance.NewMemoryRecorder()
-		evalOpts = append(evalOpts, engine.WithDerivationRecorder(k.proofRecorder))
-		logging.KernelDebug("evaluate: provenance recording enabled for this pass")
-	}
+	// No derivation recorder here: proofs are recorded per goal on demand
+	// (kernel_proof_slice.go), so a write never pays for one.
 
 	evalOpts = append(evalOpts, k.externalPredicateOptionsLocked()...)
 

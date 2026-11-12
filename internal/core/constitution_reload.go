@@ -7,8 +7,6 @@ import (
 	"iter"
 	"slices"
 	"strings"
-
-	"codeberg.org/TauCeti/mangle-go/provenance"
 )
 
 // ConstitutionReload identifies an atomic reload's disposition. An error is
@@ -73,9 +71,7 @@ func (k *RealKernel) stageConstitutionLocked(src constitutionSnapshot) (*RealKer
 	if next.schemaValidator == nil {
 		return nil, fmt.Errorf("the edited constitution has no usable schema validator")
 	}
-	if k.proofRecorder != nil {
-		next.proofRecorder = provenance.NewMemoryRecorder()
-	}
+	next.provenanceOn = k.provenanceOn
 	return next, nil
 }
 
@@ -104,7 +100,8 @@ func (k *RealKernel) publishConstitutionLocked(next *RealKernel) {
 	k.cachedAtoms, k.factIndex = next.cachedAtoms, next.factIndex
 	k.store, k.initialized, k.storeTainted = next.store, next.initialized, next.storeTainted
 	k.atomCacheStale, k.policyDirty, k.evalErr = false, false, nil
-	k.lastEvaluation, k.proofRecorder = next.lastEvaluation, next.proofRecorder
+	k.lastEvaluation, k.provenanceOn = next.lastEvaluation, next.provenanceOn
+	k.proofs = proofSliceCache{}
 	k.generation.Add(1)
 	k.clearDirtyLocked()
 	k.storeShared.Store(false)

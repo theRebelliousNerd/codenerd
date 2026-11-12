@@ -70,7 +70,7 @@ type MangleCapabilityManifest struct {
 func (k *RealKernel) CapabilityManifest() MangleCapabilityManifest {
 	k.mu.Lock()
 	digest := k.programDigestLocked()
-	recording := k.proofRecorder != nil
+	recording := k.provenanceOn
 	k.mu.Unlock()
 	return realKernelManifest(mangleDependencyVersion(), digest, recording)
 }
@@ -98,9 +98,9 @@ func realKernelManifest(version, digest string, recording bool) MangleCapability
 
 func realKernelFeatures(recording bool) []MangleFeature {
 	recordingState := FeatureImplementedOptIn
-	recordingContract := "EnableProvenance before the evaluation; off by default"
+	recordingContract := "EnableProvenance, then Explain records the goal's upstream slice of the current evaluation; off by default"
 	if recording {
-		recordingContract = "recording is on for this kernel"
+		recordingContract = "on for this kernel: Explain records the goal's upstream slice of the current evaluation"
 	}
 	return []MangleFeature{
 		{
