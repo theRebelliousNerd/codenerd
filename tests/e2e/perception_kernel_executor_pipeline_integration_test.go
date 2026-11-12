@@ -25,6 +25,7 @@ type pipelineMockLLM struct {
 	response string
 	err      error
 }
+
 func (m *pipelineMockLLM) Generate(ctx context.Context, prompt string) (string, error) {
 	return m.response, m.err
 }
@@ -36,14 +37,19 @@ func (m *pipelineMockLLM) Stream(ctx context.Context, prompt string, ch chan<- s
 type pipelineMockVStore struct {
 	executeFunc func(action, target, payload string) (string, error)
 }
+
 func (m *pipelineMockVStore) Execute(ctx context.Context, action string, target string, payload string) (string, error) {
 	if m.executeFunc != nil {
 		return m.executeFunc(action, target, payload)
 	}
 	return "success", nil
 }
-func (m *pipelineMockVStore) GetFileContent(ctx context.Context, path string) (string, error) { return "", nil }
-func (m *pipelineMockVStore) WriteFileContent(ctx context.Context, path, content string) error { return nil }
+func (m *pipelineMockVStore) GetFileContent(ctx context.Context, path string) (string, error) {
+	return "", nil
+}
+func (m *pipelineMockVStore) WriteFileContent(ctx context.Context, path, content string) error {
+	return nil
+}
 
 // TestE2E_Pipeline_Smoke_BasicTransduction tests the happy path across the boundary.
 func TestE2E_Pipeline_Smoke_BasicTransduction(t *testing.T) {

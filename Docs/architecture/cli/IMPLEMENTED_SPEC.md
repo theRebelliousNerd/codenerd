@@ -595,3 +595,24 @@ The session, brief, held work and draft still cross the existing restore-file
 path. Regression definitions in `cmd/nerd/chat/self_restart_test.go` cover
 failure, duplicate observations, watcher replacement and later-generation
 recovery. Their execution remains pending.
+
+## Autonomous self-repair
+
+Spec: [08-AUTONOMOUS-SELF-REPAIR.md](08-AUTONOMOUS-SELF-REPAIR.md); gaps
+GAP-CLI-SELF-REPAIR-01..06 and GAP-CLI-SELF-DIAGNOSE-ROUTE.
+
+With the `debug_self` logging key on, `selfRepairStep` (`cmd/nerd/chat/self_repair.go:151`)
+runs when a turn or background job settles and on an idle timer. It syncs the
+problems log, the run's timings (`internal/problemlog/timing.go`) and the repair
+ledger (`internal/problemlog/repair.go`) into the kernel, adopts the derived
+verdicts, and starts one background diagnosis job for the targets
+`self_repair_due` names (`internal/core/defaults/policy/self_repair.mg`). The
+job's follow-up is the fix turn, which the work mode admits, proposes or holds.
+A verified turn that changed source goes through `rebuildAndInstall`
+(`cmd/nerd/chat/self_restart.go:439`): build aside, self-check, rename. The
+restart writes running background jobs and queued turns to
+the restore state; `resumeRestoredWork` (`cmd/nerd/chat/self_restart.go:373`)
+starts them again in the new process, which takes `pending_restart` attempts
+to `verifying` by loading the ledger.
+
+Not proven live: see GAP-CLI-SELF-REPAIR-06.

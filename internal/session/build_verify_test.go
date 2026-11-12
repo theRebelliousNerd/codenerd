@@ -159,7 +159,7 @@ func TestVerifyAndRepairBuild_TestOnlyGoPackagePasses(t *testing.T) {
 	e, result := verifyGateExecutor(t)
 	ws := e.config.WorkspaceRoot
 	for path, text := range map[string]string{
-		"go.mod":             "module buildscope\n\ngo 1.22\n",
+		"go.mod":                "module buildscope\n\ngo 1.22\n",
 		"policy/safety_test.go": "package policy\nimport \"testing\"\nfunc TestPolicy(t *testing.T) {}\n",
 	} {
 		abs := filepath.Join(ws, path)
