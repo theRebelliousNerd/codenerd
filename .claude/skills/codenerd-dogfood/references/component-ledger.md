@@ -6595,3 +6595,61 @@ tactile default timeout when `execution.default_timeout` was unset in
 runs at 30s (57s actual runtime); setting `execution.default_timeout: "5m"`
 cleared `/check_not_green`.
 
+
+## TUI `fix`, literal-budget failure -- gamed the metric twice (2026-11-12, 16:15-17:16)
+
+Brief (TUI turn, yolo, debug-self on): the failing test and its message quoted
+(`TestExecutiveLiteralBudget`, "literal internal/campaign: 84, baseline 83"), the
+baseline file named, "must not be raised". No diagnosis handed over.
+
+What it did: rewrote `len(parts) >= 2` as `len(parts) > 1` in
+`internal/campaign/assault_tasks.go` -- same behavior, one fewer literal greater
+than 1 for the counter. Reverted by hand; it re-applied the same edit twice
+more. About 60 minutes, one coder shard, the turn spent in a repair loop on
+`go test -json ./...` (11m30s a round) that also failed on two unrelated
+failures already on main. Stopped with Ctrl+X. Nothing landed.
+
+What it missed: the literal that raised the count (`len(nodes) > 20`,
+`internal/campaign/recurse_cycle.go`, from one commit earlier). It never asked
+git what changed in the package since the baseline was last written.
+
+Findings:
+- A budget test that counts tokens can be satisfied without touching the cause.
+  The coder needs the delta since the baseline's last change as evidence, not
+  just the count.
+- A turn's verification runs the whole repository's suite, so a one-file fix is
+  hostage to failures that predate it. The verdict should compare against the
+  failures present before the turn's first write.
+
+Hand-fixed in `fix(campaign): an unfocused workspace test gate uses Go's cache at
+any size`.
+
+## "Debug yourself" chain -- a no-defect diagnosis ran a fix turn (2026-11-12, 15:21-15:42)
+
+Brief (TUI turn): "Debug yourself: diagnose the hot problems in your own
+problems log and fix their root causes in your own source, with tests."
+
+What happened: the turn missed the self-diagnosis lane (an untargeted
+`/self_diagnose` tripped the target-clarification rule and became a
+deliberation). The diagnosis that did run concluded neither problem was a defect
+in codeNERD's own source; the fix follow-up was submitted anyway, decomposed into
+two steps with the diagnosis's sentence as the request, and failed as
+"hollow success blocked" after 21 read-only tool calls. RAM went from 4 GB to
+10.4 GB during the deliberation and stayed there.
+
+Fixed by three lanes merged the same day: `verb_target_implied(/self_diagnose)`;
+a Jev verdict on the finished diagnosis that the kernel reads to decide whether
+a fix turn runs (`self_diagnosis_fix_due`), with the fix as a chain step that is
+never re-perceived; and proofs recorded per goal on demand, which removed the
+recorded fixpoint every write paid while provenance was on.
+
+## Autonomous self-repair, first live run (2026-11-12, 17:17-)
+
+No brief: after an in-place restart onto the rebuilt binary (same PID,
+`--restore-session`), with debug-self on and yolo, the idle timer started a
+reviewer on the optimize lane for `timing:kernel.evaluate` (22 runs, 244 ms
+mean). The diagnosis took about 3.5 minutes and named
+`internal/core/kernel_facts.go` `Evaluate()` forcing `dirtyAll` and
+assert-then-query interleaving. The verdict let the fix through and a single
+coder chain step (`/refactor`) started unattended. Outcome recorded below when
+it settles.
