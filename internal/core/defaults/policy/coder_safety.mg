@@ -894,10 +894,16 @@ edit_needs_tests(File) :-
     !is_test_file(File).
 
 # A documentation page sits beside the file: a markdown file in its directory.
+# The directories come from the markdown files, then their files: joining
+# file_dir with itself first paired every two files of a directory before
+# looking for markdown (2.7 s per full evaluation of a 7k-file world, 2026-11-12).
+dir_has_doc(Dir) :-
+    file_extension(Doc, ".md"),
+    file_dir(Doc, Dir).
+
 doc_exists_for(File) :-
     file_dir(File, Dir),
-    file_dir(Doc, Dir),
-    file_extension(Doc, ".md").
+    dir_has_doc(Dir).
 
 # Edit should update docs if modifying public API
 edit_needs_docs(File) :-
