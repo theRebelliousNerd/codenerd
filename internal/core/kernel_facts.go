@@ -81,9 +81,10 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 	added := 0
 	var loadedPreds map[string]struct{}
 	var jitCounts map[string]int
-	for _, f := range facts {
-		sf := sanitizeFactForNumericPredicates(f)
-		if k.addFactIfNewLocked(sf) {
+	prepared := k.prepareFactsLocked(facts)
+	for i := range prepared {
+		sf := prepared[i].fact
+		if k.insertPreparedLoadLocked(&prepared[i]) {
 			added++
 			if loadedPreds == nil {
 				loadedPreds = make(map[string]struct{})
@@ -527,20 +528,32 @@ func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
 //
 // Duplicates still return (false, nil): a no-op is not a failure.
 func (k *RealKernel) addFactIfNewLockedErr(f Fact) (bool, error) {
-	// Enforce EDB size limit to prevent unbounded memory growth
+	if err := k.checkFactLimitLocked(f.Predicate); err != nil {
+		return false, err
+	}
+	k.ensureFactIndexLocked()
+	p := preparedFact{fact: internFact(f)}
+	p.key = k.canonFact(p.fact)
+	return k.insertPreparedFactLocked(&p)
+}
+
+// checkFactLimitLocked enforces the EDB size limit, which keeps memory from
+// growing without bound.
+func (k *RealKernel) checkFactLimitLocked(pred string) error {
 	maxFacts := k.effectiveMaxFactsLocked()
 	if k.facts.len() >= maxFacts {
 		logging.Get(logging.CategoryKernel).Warn("EDB fact limit reached (%d/%d), rejecting fact: %s",
-			k.facts.len(), maxFacts, f.Predicate)
-		return false, fmt.Errorf("EDB fact limit reached (%d/%d), rejected %s", k.facts.len(), maxFacts, f.Predicate)
+			k.facts.len(), maxFacts, pred)
+		return fmt.Errorf("EDB fact limit reached (%d/%d), rejected %s", k.facts.len(), maxFacts, pred)
 	}
+	return nil
+}
 
-	// Intern predicate name + string args so repeated values across
-	// the EDB share a single backing string (stdlib unique.Handle).
-	f = internFact(f)
-
-	k.ensureFactIndexLocked()
-	key := k.canonFact(f)
+// insertPreparedFactLocked adds a prepared fact unless its key is already
+// held. A fact whose atom was not converted yet is converted only when it is
+// new. The fact index must exist (ensureFactIndexLocked).
+func (k *RealKernel) insertPreparedFactLocked(p *preparedFact) (bool, error) {
+	f, key := p.fact, p.key
 	if k.factIndex.has(f.Predicate, key) {
 		return false, nil
 	}
@@ -550,7 +563,11 @@ func (k *RealKernel) addFactIfNewLockedErr(f Fact) (bool, error) {
 	// Previously, failed facts were added to k.facts but skipped k.cachedAtoms,
 	// causing evaluate() to detect a length mismatch and attempt a full rebuild
 	// that could also fail, soft-bricking the kernel.
-	atom, err := k.factToAtomLocked(f)
+	if !p.converted {
+		p.atom, p.err = k.factToAtomLocked(f)
+		p.converted = true
+	}
+	atom, err := p.atom, p.err
 	if err != nil {
 		logging.Get(logging.CategoryKernel).Error("addFactIfNewLocked: rejecting fact that fails ToAtom: %s - %v", f.Predicate, err)
 		return false, fmt.Errorf("fact %s rejected by the kernel: %w", f.Predicate, err)
