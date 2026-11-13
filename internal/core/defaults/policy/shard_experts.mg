@@ -222,6 +222,45 @@ expert_critique(Task, Agent) :-
     expert_task(Task, Verb),
     execution_mode(Verb, /advisory_with_critique).
 
+# Which owed critics the change itself reaches. The selection spawned the
+# critic for what the task's files are and import; the review is for what the
+# turn changed. Go measures each written, changed file's extension and, for Go
+# source, the imports the change adds or removes or whose package a changed
+# line names (turn_change_file_ext, turn_change_import; Executor
+# .reviewWithShardExperts), and the technologies the critic was selected for
+# (turn_expert_critic_tech). Live 2026-11-12 two reviews of 2m47s and 3m39s
+# ran for a technology the selection read off a file's imports.
+turn_change_technology(Turn, Lang) :-
+    turn_change_file_ext(Turn, _, Ext),
+    extension_language(Ext, Lang).
+
+turn_change_technology(Turn, Tech) :-
+    turn_change_import(Turn, _, Import),
+    technology_import_exact(Import, Tech).
+
+turn_change_technology(Turn, Tech) :-
+    turn_change_import(Turn, _, Import),
+    technology_import_prefix(Prefix, Tech),
+    :string:starts_with(Import, Prefix).
+
+turn_expert_critic_scoped(Turn, Agent) :- turn_expert_critic_tech(Turn, Agent, _).
+
+turn_expert_critic_due(Turn, Agent) :-
+    turn_expert_critic(Turn, Agent),
+    turn_expert_critic_tech(Turn, Agent, Tech),
+    turn_change_technology(Turn, Tech).
+
+# A concept domain (security, testing) is no code technology a diff shows.
+turn_expert_critic_due(Turn, Agent) :-
+    turn_expert_critic(Turn, Agent),
+    turn_expert_critic_tech(Turn, Agent, Domain),
+    domain_concept_term(_, Domain).
+
+# A critic recorded with no technology is kept: nothing says it is off the change.
+turn_expert_critic_due(Turn, Agent) :-
+    turn_expert_critic(Turn, Agent),
+    !turn_expert_critic_scoped(Turn, Agent).
+
 # --- The consultation routing ladder ------------------------------------------
 # expert_spawn says a task needs an expert's own reading; it does not say a
 # model call must buy it. Completed advice has no evidence receipts and is

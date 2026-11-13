@@ -310,6 +310,11 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// The turn's shard-agent critique (turn_rounds.mg), beside
 				// turn_wrote, which the round's owing joins.
 				"turn_expert_critic", "turn_expert_finding",
+				// What the change touches deals the critique
+				// (turn_expert_critic_due): its files' extensions and imports
+				// join the technology vocabulary and the critics, homed here.
+				"turn_expert_critic_tech", "turn_change_file_ext", "turn_change_import",
+				"turn_change_technology", "turn_expert_critic_scoped", "turn_expert_critic_due",
 				// Mandates (shard_experts.mg): a card's REQUIRE, the card it
 				// came on and the agent's /mandate grant decide an admitted
 				// mandate, which only this turn's passing test case

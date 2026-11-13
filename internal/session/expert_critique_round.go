@@ -44,6 +44,11 @@ func (e *Executor) recordExpertCritics(result *ExecutionResult, sel experts.Sele
 	for _, need := range sel.Needs {
 		if need.Critique {
 			e.assertTurnFact(types.Fact{Predicate: "turn_expert_critic", Args: []any{turn, experts.AgentAtom(need.Agent)}})
+			for _, tech := range need.Technologies {
+				if t := strings.TrimPrefix(strings.TrimSpace(tech), "/"); t != "" {
+					e.assertTurnFact(types.Fact{Predicate: "turn_expert_critic_tech", Args: []any{turn, experts.AgentAtom(need.Agent), types.MangleAtom("/" + t)}})
+				}
+			}
 			// The agent's domain files ride with the obligation: its review
 			// is shown them first (readWrittenFilesForReview).
 			if result.expertDomainFiles == nil {
@@ -108,15 +113,37 @@ func (e *Executor) reviewWithShardExperts(
 		return nil, nil
 	}
 	turn := result.turnAtom()
-	rows, err := e.turnRows("turn_expert_critic", turn)
+	owed, err := e.turnRows("turn_expert_critic", turn)
 	if err != nil {
 		return nil, fmt.Errorf("query turn_expert_critic: %w", err)
+	}
+	if len(owed) == 0 {
+		return nil, nil
+	}
+	// The kernel deals the review by what the change touches.
+	for _, f := range changeTouchFacts(e.workspaceForVerification(), turn, result) {
+		e.assertTurnFact(f)
+	}
+	rows, err := e.turnRows("turn_expert_critic_due", turn)
+	if err != nil {
+		return nil, fmt.Errorf("query turn_expert_critic_due: %w", err)
 	}
 	var agents []string
 	for _, row := range rows {
 		if len(row.Args) > 1 {
 			agents = append(agents, experts.AgentKey(types.ExtractString(row.Args[1])))
 		}
+	}
+	var spared []string
+	for _, row := range owed {
+		if len(row.Args) > 1 {
+			if a := experts.AgentKey(types.ExtractString(row.Args[1])); !slices.Contains(agents, a) {
+				spared = append(spared, a)
+			}
+		}
+	}
+	if len(spared) > 0 {
+		logging.Session("shard agent review: %v not asked; the change touches none of their technologies", spared)
 	}
 	consultant := e.consultant()
 	if len(agents) == 0 {

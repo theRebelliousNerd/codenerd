@@ -32,9 +32,13 @@ func (c *critiqueConsultant) SpawnConsultation(_ context.Context, agent, task st
 	return "Plan: keep Double pure.", nil
 }
 
+// critiqueMain is the turn's file: it uses the import the reviewing expert's
+// technology names, so the change reaches that expert (turn_expert_critic_due).
+const critiqueMain = "package main\n\nimport \"strings\"\n\nfunc Double(x int) int {\n\treturn x * 2\n}\n\nvar label = strings.ToUpper(\"double\")\n\nfunc main() { _ = label }\n"
+
 const expertRepairAsk = "The shard agents whose domain this change is in reviewed"
 
-// A /fix whose target imports the Bubble Tea expert's subject owes that
+// A /fix whose target imports the text-kit expert's subject (strings, in this fixture) owes that
 // expert's critique (expert_critique: /fix's mode is advise, execute,
 // critique). After the turn writes, the /expert_critique round has the expert
 // review the change through the consultation path, and its on-change high
@@ -49,10 +53,10 @@ func TestExpertCritiqueRoundHandsTheFindingBack(t *testing.T) {
 	consultant := &critiqueConsultant{}
 	h := newRepairHarness(t, func(e *Executor) { e.SetExpertConsultant(consultant) })
 	if err := h.executor.kernel.AssertBatch([]types.Fact{
-		{Predicate: "shard_agent", Args: []any{experts.AgentAtom("BubbleTeaExpert")}},
-		{Predicate: "shard_agent_domain", Args: []any{experts.AgentAtom("BubbleTeaExpert"), types.MangleAtom("/bubbletea"), types.MangleAtom("/registry")}},
-		{Predicate: "technology_import_exact", Args: []any{"github.com/charmbracelet/bubbletea", types.MangleAtom("/bubbletea")}},
-		{Predicate: "dependency_link", Args: []any{"main.go", "pkg:github.com/charmbracelet/bubbletea", "github.com/charmbracelet/bubbletea"}},
+		{Predicate: "shard_agent", Args: []any{experts.AgentAtom("TextKitExpert")}},
+		{Predicate: "shard_agent_domain", Args: []any{experts.AgentAtom("TextKitExpert"), types.MangleAtom("/textkit"), types.MangleAtom("/registry")}},
+		{Predicate: "technology_import_exact", Args: []any{"strings", types.MangleAtom("/textkit")}},
+		{Predicate: "dependency_link", Args: []any{"main.go", "pkg:strings", "strings"}},
 	}); err != nil {
 		t.Fatalf("assert roster: %v", err)
 	}
@@ -72,7 +76,7 @@ func TestExpertCritiqueRoundHandsTheFindingBack(t *testing.T) {
 		}
 		return resp
 	}
-	initial := map[string]string{"main.go": closureDouble, "main_test.go": closureTestDouble}
+	initial := map[string]string{"main.go": critiqueMain, "main_test.go": closureTestDouble}
 	h.executor.llmClient = &MockToolResultsLLM{
 		MockLLMClient: &MockLLMClient{
 			CompleteWithSystemFunc: func(context.Context, string, string) (string, error) { return "NO FINDINGS", nil },
@@ -86,7 +90,7 @@ func TestExpertCritiqueRoundHandsTheFindingBack(t *testing.T) {
 			}
 			if last := history[len(history)-1]; strings.Contains(last.Text, expertRepairAsk) && repairPrompt == "" {
 				repairPrompt = last.Text
-				return writes(map[string]string{"main.go": strings.Replace(closureDouble, "return x * 2", "return x * 2 // clamped by the caller", 1)}), nil
+				return writes(map[string]string{"main.go": strings.Replace(critiqueMain, "return x * 2", "return x * 2 // clamped by the caller", 1)}), nil
 			}
 			return &types.LLMToolResponse{Text: "done"}, nil
 		},
@@ -103,11 +107,11 @@ func TestExpertCritiqueRoundHandsTheFindingBack(t *testing.T) {
 	asked := slices.Clone(consultant.asked)
 	consultant.mu.Unlock()
 	if !slices.ContainsFunc(asked, func(a string) bool {
-		return strings.HasPrefix(a, "bubbleteaexpert: ") && strings.Contains(a, "review this change")
+		return strings.HasPrefix(a, "textkitexpert: ") && strings.Contains(a, "review this change")
 	}) {
 		t.Fatalf("the expert was not asked to review the change; asked %q", asked)
 	}
-	if !strings.Contains(repairPrompt, "[bubbleteaexpert] main.go:4 [high]") {
+	if !strings.Contains(repairPrompt, "[textkitexpert] main.go:4 [high]") {
 		t.Fatalf("the expert's finding did not come back as a repair round; prompt %q", repairPrompt)
 	}
 	if result == nil || len(result.ExpertFindings) != 1 {

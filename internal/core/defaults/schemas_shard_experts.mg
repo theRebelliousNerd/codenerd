@@ -176,6 +176,22 @@ Decl expert_critique(Task, Agent) bound [/string, /name].
 # turn starts. Producer: internal/session (Executor.recordExpertCritics).
 Decl turn_expert_critic(Turn, Agent) bound [/name, /name].
 
+# turn_expert_critic_tech(Turn, Agent, Technology) - a technology the critic
+# was selected for (experts.Need.Technologies). Producer: internal/session
+# (Executor.recordExpertCritics).
+Decl turn_expert_critic_tech(Turn, Agent, Technology) bound [/name, /name, /name].
+# turn_change_file_ext(Turn, File, Ext) - a file the turn wrote and changed,
+# and its lowercased extension. turn_change_import(Turn, File, Import) - an
+# import of a changed Go file the change adds, removes, or names on a changed
+# line. Producer: internal/session (Executor.reviewWithShardExperts).
+Decl turn_change_file_ext(Turn, File, Ext) bound [/name, /string, /string].
+Decl turn_change_import(Turn, File, Import) bound [/name, /string, /string].
+# Derived (policy/shard_experts.mg): the technologies the change touches, and
+# the owed critics it reaches. Consumer: Executor.reviewWithShardExperts.
+Decl turn_change_technology(Turn, Technology) bound [/name, /name].
+Decl turn_expert_critic_scoped(Turn, Agent) bound [/name, /name].
+Decl turn_expert_critic_due(Turn, Agent) bound [/name, /name].
+
 # turn_expert_finding(Turn, Agent, Idx, Severity) - one finding of an agent's
 # review that cites a line the turn changed, by its index in the round.
 # Producer: internal/session (Executor.reviewWithShardExperts).
