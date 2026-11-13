@@ -176,3 +176,17 @@ coverage, permissions, campaign risk preflight and outer ratchet remain independ
 Implementation and authored regression evidence are indexed in the As built
 sections of `Docs/audits/recurse-gate-contract-continuity.md` and
 `Docs/audits/recurse-gate-subsumption.md`. Runtime verification remains required.
+
+## Edge-case detector reads one file's rows
+
+`EdgeCaseDetector.queryDependencies` and `queryComplexity`
+(`internal/campaign/edge_case_detector.go:316`, `:412`) ask the kernel only for
+the analysed file's rows through `core.BoundRows`, keyed by the file's canonical
+path (`identity`, `:460`). A file's dependents are the `import_unit` importers
+of its `file_unit`, plus the raw `pkg:` rows for a Go source file; importers in
+the file's own directory do not count. The earlier form copied the whole
+`dependency_link` and `cyclomatic_complexity` relations on every run, matched
+files by base name, and found no dependents for any Go file
+(`TestEdgeCaseDetector_GoFileDependentsComeFromPackageImports`,
+`TestEdgeCaseDetector_SameBaseNameFilesDoNotShareDependents`,
+`TestEdgeCaseDetector_AsksOnlyForTheFilesRows`).

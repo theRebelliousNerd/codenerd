@@ -93,3 +93,19 @@ removed; strategic storage is fed from orientation instead
 
 ### E. Native Browser Subsystem (`internal/browser`)
 - `internal/browser/session_manager.go:45-120` provides production Rod/CDP browser management, tab isolation, and DOM interaction primitives.
+
+## Mirrored files are one knowledge source
+
+Files with the same digest are one source of agent knowledge
+(`internal/orient/ecosystem_agents.mg`): the canonical copy is the git-tracked
+one, then the earliest in stable source order, and a copy makes no prompt atom.
+Init stores each paragraph once per agent. The boot knowledge refresh
+(`internal/system/knowledge_refresh.go`, `policy/knowledge_refresh.mg`) prunes
+rows whose content an earlier, still-present concept holds (`/duplicate`) and
+rows whose source file is gone or inside a nested checkout (`/source_gone`),
+from the `knowledge_atom_row` and `knowledge_atom_origin_gone` measurements
+(`internal/core/defaults/schemas_kb_refresh.mg:47`). Measured before: 1,662 of
+4,259 rows in this repository's knowledge bases repeated another row of the
+same base (`TestPolicy_MirroredCopiesAreOneKnowledgeSource`,
+`TestEcosystemKnowledgeByAgent_SharedParagraphIsOneRow`,
+`TestKnowledgeRefreshFoldsMirrorCopiesAndRetiresGoneSources`).

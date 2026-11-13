@@ -1003,3 +1003,31 @@ a 147k-character step prompt in the measured case); the relevance judgment
 now refuses rows read as not applying, which removed about 13% in a sample of
 that step's rows, and the same paragraphs are still ingested several times
 into expert knowledge bases from mirrored agent files.
+
+## A planned step's imported technologies are read against the step
+
+For a planned step, Jev reads each imported technology against the step's
+change text (`JudgeStepTechnologies`, `internal/turnjudge/step_technology.go:78`;
+switch `typesafe.step_technologies`). A reading at or below `jev_no_percent`
+declines that technology's expert for the step (`expert_step_declines`,
+`internal/core/defaults/policy/shard_experts.mg:67`). With Jev off, failed or
+unsettled, and for a whole turn, the import rule stands. Probe, 8 cases with
+package names in the state: Go-only steps read 3-29%, Mangle-writing steps
+97-99%; one Go-only case read 29%, just under the threshold of 30.
+
+## The pinning gate is bounded and can find a change not pinnable
+
+A pinning repair episode stops at `session.pin_repair_max_attempts` (2) or at
+`session.pin_gate_share_percent` (25) of what the turn had left when the gate
+began (`repair_pin_exhausted`, `repair_over_share`,
+`internal/core/defaults/policy/repair_episode.mg:90`, `:96`), and reports the
+unpinned changes as owed. `turn_pin_not_pinnable`
+(`internal/core/defaults/policy/turn_rounds.mg:138`) requires both Jev's reading
+that taking the change out alters nothing a test can observe
+(`typesafe.pin_equivalence`) and a pass of the package's whole suite with it
+taken out (`classifyUnpinnable`, `internal/session/pin_classify.go:54`); such a
+change is dropped from what the gate asks for and named in `PinNotPinnable`.
+
+Not built: one build serving many mutants (measured 7.6 s a mutant against
+2.0 s cached for `internal/session`). A race-only branch is read by Jev as
+observable (82-85%) and stays owed, bounded by the attempt and share limits.

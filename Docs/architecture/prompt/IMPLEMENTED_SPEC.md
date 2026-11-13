@@ -812,3 +812,23 @@ go run ./cmd/tools/prompt_builder -input internal/prompt/atoms -output internal/
 - Deep narrative of the full pipeline: [13-PROMPT-JIT-DEEP-DIVE.md](13-PROMPT-JIT-DEEP-DIVE.md)  
 - API catalog: [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md)  
 - Wiring: [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md)
+
+## Retrieved knowledge has a share of the budget
+
+Retrieved knowledge and learning rows share `jit.retrieved_knowledge_percent`
+(5) of the compile budget, capped at `jit.retrieved_knowledge_max_tokens`
+(8,000). Each row carries its tokens and retrieval rank into the selection
+kernel, which admits rows in order -- Jev's relevance where it judged the row,
+50 where it did not, then rank -- while the running total fits
+(`retrieved_within_share`, `internal/core/defaults/jit_compiler.mg:392`). A row
+larger than the whole share spends none of it. A withheld row is left out whole
+and named in one pointer atom with an `obs:kn:` handle
+(`withheldKnowledgePointer`, `internal/prompt/knowledge_withheld.go:45`) that
+`recall_context` redeems verbatim. Overlapping rows from one source page count
+once. A compile that derived no share, and a row given no tokens or rank, are
+admitted as before the share existed: an absent measurement is never a refusal
+(`TestJITRetrievedContext_AnUnmeasuredRowIsAdmittedBesideTheShare`).
+
+Measured on one recorded step (a Go fix with three experts, lexical retrieval,
+no Jev): 222,536 chars with 19 retrieved rows before; 63,660 chars with 2 rows
+and a pointer naming the other 17 after.

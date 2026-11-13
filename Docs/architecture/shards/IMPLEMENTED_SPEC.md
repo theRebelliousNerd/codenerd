@@ -539,3 +539,13 @@ its 0..1 ratio. `internal/shards/system/executive_metadata_test.go:43` exercises
 the actual handler, scripted generation/retry, real feedback validation and real
 kernel adoption/pending outcomes. This is offline evidence, not live model
 qualification; the separate constitution autopoiesis path is unchanged.
+
+## StopAll joins what it started
+
+`ShardManager.StopAll` (`internal/core/shards/manager_spawn.go:644`) cancels
+every running shard's context and waits until each goroutine has returned,
+including its transcript's final record and its recorded result. `Cortex.Close`
+therefore leaves no shard writer behind; before this a system shard could write
+under `.nerd/sessions/` after `Close` had returned
+(`TestStopAllJoinsRunningShards`). The intermittent test failure that led here
+was not reproduced; the cause is established from the code path.
