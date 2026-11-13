@@ -108,7 +108,7 @@ func (m Model) saveNorthstar(startCampaign bool) (tea.Model, tea.Cmd) {
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 
 	if startCampaign && !deferCampaign {
@@ -137,7 +137,7 @@ func (m Model) northstarSaveRefused(err error) Model {
 	}
 	m = m.addMessage(Message{Role: "assistant", Content: msg, Time: time.Now()})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m
 }

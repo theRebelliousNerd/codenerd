@@ -93,7 +93,7 @@ Press **Enter** to begin...`,
 					Time:    time.Now(),
 				})
 				m.viewport.SetContent(m.renderHistory())
-				m.viewport.GotoBottom()
+				m.followTail()
 				m.textarea.Reset()
 				return m, nil
 			}
@@ -268,7 +268,7 @@ Press **Enter** to begin...`,
 		}
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 
@@ -380,7 +380,7 @@ func (m Model) handleEmbeddingCommand(input string, parts []string) (tea.Model, 
 					Time:    time.Now(),
 				})
 				m.viewport.SetContent(m.renderHistory())
-				m.viewport.GotoBottom()
+				m.followTail()
 				m.textarea.Reset()
 				m.isLoading = true
 				return m, tea.Batch(m.spinner.Tick, m.runReembedAllDBs())
@@ -400,7 +400,7 @@ func (m Model) handleEmbeddingCommand(input string, parts []string) (tea.Model, 
 		}
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 
@@ -451,7 +451,7 @@ func (m Model) handleLearnCommand(input string, parts []string) (tea.Model, tea.
 			}
 		}
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -533,7 +533,7 @@ func (m Model) handleLearnCommand(input string, parts []string) (tea.Model, tea.
 			}
 		}
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -577,7 +577,7 @@ func (m Model) handleLearnCommand(input string, parts []string) (tea.Model, tea.
 			}
 		}
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -591,7 +591,7 @@ func (m Model) handleLearnCommand(input string, parts []string) (tea.Model, tea.
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 
 	return m, func() tea.Msg {
@@ -684,7 +684,7 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 					Time:    time.Now(),
 				})
 				m.viewport.SetContent(m.renderHistory())
-				m.viewport.GotoBottom()
+				m.followTail()
 				m.textarea.Reset()
 				m.isLoading = true
 				return m, tea.Batch(m.spinner.Tick, m.startCampaign(goal))
@@ -714,7 +714,7 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 				Time:    time.Now(),
 			})
 			m.viewport.SetContent(m.renderHistory())
-			m.viewport.GotoBottom()
+			m.followTail()
 			m.textarea.Reset()
 			m.isLoading = true
 			return m, tea.Batch(m.spinner.Tick, m.startAssaultCampaign(parts[2:]))
@@ -739,7 +739,7 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 				Time:    time.Now(),
 			})
 			m.viewport.SetContent(m.renderHistory())
-			m.viewport.GotoBottom()
+			m.followTail()
 			m.textarea.Reset()
 			m.isLoading = true
 			args, err := recurseCommandArgs(input)
@@ -761,7 +761,7 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 			}
 			m = m.addMessage(Message{Role: "assistant", Content: fmt.Sprintf("Adding to the running campaign: %s", requirement), Time: time.Now()})
 			m.viewport.SetContent(m.renderHistory())
-			m.viewport.GotoBottom()
+			m.followTail()
 			m.textarea.Reset()
 			return m, m.addCampaignRequirement(requirement)
 		case "status":
@@ -804,7 +804,7 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 					Time:    time.Now(),
 				})
 				m.viewport.SetContent(m.renderHistory())
-				m.viewport.GotoBottom()
+				m.followTail()
 				m.textarea.Reset()
 				m.isLoading = true
 				return m, tea.Batch(m.spinner.Tick, m.resumePersistedCampaign(idArg))
@@ -835,7 +835,7 @@ func (m Model) handleCampaignCommand(input string, parts []string) (tea.Model, t
 		}
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 
@@ -905,7 +905,7 @@ func (m Model) handleToolCommand(input string, parts []string) (tea.Model, tea.C
 					Time:    time.Now(),
 				})
 				m.viewport.SetContent(m.renderHistory())
-				m.viewport.GotoBottom()
+				m.followTail()
 				m.textarea.Reset()
 				m.isLoading = true
 				return m, tea.Batch(m.spinner.Tick, m.runTool(toolName, toolInput))
@@ -942,7 +942,7 @@ func (m Model) handleToolCommand(input string, parts []string) (tea.Model, tea.C
 					Time:    time.Now(),
 				})
 				m.viewport.SetContent(m.renderHistory())
-				m.viewport.GotoBottom()
+				m.followTail()
 				m.textarea.Reset()
 				m.isLoading = true
 				return m, tea.Batch(m.spinner.Tick, m.retireTool(name))
@@ -962,7 +962,7 @@ func (m Model) handleToolCommand(input string, parts []string) (tea.Model, tea.C
 					Time:    time.Now(),
 				})
 				m.viewport.SetContent(m.renderHistory())
-				m.viewport.GotoBottom()
+				m.followTail()
 				m.textarea.Reset()
 				m.isLoading = true
 				return m, tea.Batch(m.spinner.Tick, m.generateTool(description))
@@ -976,7 +976,7 @@ func (m Model) handleToolCommand(input string, parts []string) (tea.Model, tea.C
 		}
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 
@@ -997,7 +997,7 @@ func (m Model) handleNorthstarCommand(input string, parts []string) (tea.Model, 
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -1031,7 +1031,7 @@ You have an existing Northstar definition. What would you like to do?
 		})
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 
@@ -1079,7 +1079,7 @@ func (m Model) handleReviewCommand(input string, parts []string) (tea.Model, tea
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		m.isLoading = true
 		return m, tea.Batch(m.spinner.Tick, m.spawnMultiShardReview(target, opts))
@@ -1104,7 +1104,7 @@ func (m Model) handleReviewCommand(input string, parts []string) (tea.Model, tea
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	m.isLoading = true
 	return m, tea.Batch(m.spinner.Tick, m.spawnShard("reviewer", task))

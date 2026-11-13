@@ -57,7 +57,7 @@ func (m Model) addMessage(msg Message) Model {
 func (m Model) pushAssistantMsg(content string) Model {
 	m = m.addMessage(Message{Role: "assistant", Content: content, Time: time.Now()})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m
 }
 
@@ -66,7 +66,7 @@ func (m Model) pushAssistantMsg(content string) Model {
 func (m Model) pushAssistantMsgWithThought(content string, thought string) Model {
 	m = m.addMessage(Message{Role: "assistant", Content: content, ThoughtSummary: thought, Time: time.Now()})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m
 }
 
@@ -74,8 +74,10 @@ func (m Model) pushAssistantMsgWithThought(content string, thought string) Model
 // re-renders the viewport, and scrolls to bottom in one call.
 func (m Model) pushUserMsg(content string) Model {
 	m = m.addMessage(Message{Role: "user", Content: content, Time: time.Now()})
+	// Sending a message returns to the live tail.
+	m.readingBack = false
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m
 }
 
@@ -162,7 +164,7 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 
 	// Update viewport
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 
 	// Start loading
 	if m.inputMode == InputModeAgentWizard {
@@ -487,7 +489,7 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 
 	// Update viewport
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 
 	// Start loading
 	m.isLoading = true

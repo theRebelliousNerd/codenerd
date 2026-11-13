@@ -120,7 +120,7 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentStream = ""
 		m.currentThought = ""
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		// Watch both surface and thoughts in parallel. waitForThoughts
 		// returns nil when thoughtsChan is nil (provider has no thought
 		// stream) — tea.Batch drops nil cmds, so this is safe.
@@ -139,7 +139,7 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentStream += msg.chunk
 			}
 			m.viewport.SetContent(m.renderHistory())
-			m.viewport.GotoBottom()
+			m.followTail()
 		}
 		// Continue watching the same channel for the next chunk.
 		if msg.kind == streamKindThought {
@@ -151,7 +151,7 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.isStreaming = false
 		m.currentThought = ""
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		return m, nil
 
 	case cmdMsg:
@@ -271,7 +271,7 @@ func (m Model) updateCore(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.storeAggregatedReviewResult(msg.review, content)
 		}
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		persistCmd = m.saveSessionStateCmd()
 
 	case clarificationMsg:
@@ -506,7 +506,7 @@ The strategic knowledge base has been updated with new documentation.%s`, msg.do
 			})
 		}
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		persistCmd = m.saveSessionStateCmd()
 
 	case reembedCompleteMsg:
@@ -535,7 +535,7 @@ The strategic knowledge base has been updated with new documentation.%s`, msg.do
 			})
 		}
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		persistCmd = m.saveSessionStateCmd()
 
 	case statusMsg:
@@ -562,7 +562,7 @@ The strategic knowledge base has been updated with new documentation.%s`, msg.do
 		// The activity trail may have grown lines; refit so its height is
 		// reserved instead of pushing the input off-frame.
 		m = m.applyLayout()
-		m.viewport.GotoBottom()
+		m.followTail()
 		return m, m.listenGlassBoxEvents() // Listen for next event
 
 	case evolutionResultMsg:
@@ -591,14 +591,14 @@ The strategic knowledge base has been updated with new documentation.%s`, msg.do
 		m.handleDelegatedProgress(sessionlog.LiveEvent(msg))
 		m = m.applyLayout()
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		return m, m.listenDelegatedProgress()
 
 	case toolEventMsg:
 		// Handle tool event - ALWAYS add to history (not gated by Glass Box)
 		m.handleToolEvent(transparency.ToolEvent(msg))
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		return m, m.listenToolEvents() // Listen for next event
 
 	case observerAssessmentMsg:
@@ -610,7 +610,7 @@ The strategic knowledge base has been updated with new documentation.%s`, msg.do
 			Time:    msg.Timestamp,
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		return m, m.listenObserverAssessments() // Keep listening
 
 	case memUsageMsg:
@@ -665,7 +665,7 @@ The strategic knowledge base has been updated with new documentation.%s`, msg.do
 			}
 		}
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		return m, nil
 
 	case welcomeHealthCheckMsg:
@@ -706,7 +706,16 @@ The strategic knowledge base has been updated with new documentation.%s`, msg.do
 		return m, nil
 	}
 
+	if scrollsUp(msg) {
+		m.loadEarlierHistory()
+	}
 	m.viewport, vpCmd = m.viewport.Update(msg)
+	switch msg.(type) {
+	case tea.KeyMsg, tea.MouseMsg:
+		// Only the user's own scrolling decides whether the view follows
+		// new output: content growing under them does not.
+		m.readingBack = !m.viewport.AtBottom()
+	}
 
 	return m, tea.Batch(tiCmd, vpCmd, spCmd, persistCmd)
 }
@@ -1060,7 +1069,7 @@ func (m Model) handleKnowledgeGatheredMsg(msg knowledgeGatheredMsg) (tea.Model, 
 
 	if historyUpdated {
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		persistCmd = m.saveSessionStateCmd()
 	}
 
@@ -1106,7 +1115,7 @@ func (m Model) handleScanCompleteMsg(msg scanCompleteMsg) (Model, tea.Cmd, bool)
 		})
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	persistCmd = m.saveSessionStateCmd()
 
 	// If this was the startup scan, unlock chat input now that we're green.
@@ -1198,7 +1207,7 @@ func (m Model) handleNorthstarDocsAnalyzedMsg(msg northstarDocsAnalyzedMsg) Mode
 		m.textarea.Placeholder = "Describe the problem..."
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 
 	return m
 }
@@ -1230,7 +1239,7 @@ func (m Model) handleRequirementsGeneratedMsg(msg requirementsGeneratedMsg) Mode
 		m.textarea.Placeholder = "Add requirement or 'done'..."
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 
 	// Campaign message handlers
 	return m

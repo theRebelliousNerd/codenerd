@@ -13,6 +13,8 @@ import (
 
 	"codenerd/internal/sessionlog"
 	"github.com/charmbracelet/lipgloss"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // =============================================================================
@@ -38,16 +40,65 @@ const (
 // =============================================================================
 // These functions render the TUI components: history, header, footer, etc.
 
+// historyRenderLimit is how many messages the view renders by default, and
+// how many more each scroll past the top loads.
+const historyRenderLimit = 100
+
+// historyStart is the index of the first message the view renders.
+func (m *Model) historyStart() int {
+	start := len(m.history) - historyRenderLimit - m.historyExtra
+	if start < 0 {
+		return 0
+	}
+	return start
+}
+
+// loadEarlierHistory widens the rendered window by one more page when the
+// user scrolls up at its top, keeping the lines they were reading in place.
+// It reports whether anything was loaded.
+func (m *Model) loadEarlierHistory() bool {
+	if m.historyStart() == 0 || !m.viewport.AtTop() {
+		return false
+	}
+	before := m.viewport.TotalLineCount()
+	m.historyExtra += historyRenderLimit
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.SetYOffset(m.viewport.TotalLineCount() - before)
+	return true
+}
+
+// followTail scrolls to the newest output unless the user has scrolled up to
+// read back: new messages must not pull the view away from what they are
+// reading. Scrolling back to the bottom, or sending a message, resumes it.
+func (m *Model) followTail() {
+	if m.readingBack {
+		return
+	}
+	m.viewport.GotoBottom()
+}
+
+// scrollsUp reports whether msg asks the chat view to scroll up.
+func scrollsUp(msg tea.Msg) bool {
+	switch v := msg.(type) {
+	case tea.KeyMsg:
+		return v.Type == tea.KeyPgUp || v.Type == tea.KeyUp
+	case tea.MouseMsg:
+		return v.Button == tea.MouseButtonWheelUp
+	}
+	return false
+}
+
 func (m *Model) renderHistory() string {
 	var sb strings.Builder
 
-	// Optimization: Only render messages visible in viewport (with some buffer)
-	// For very long sessions, this prevents O(N) rendering on every frame
-	const historyRenderLimit = 100
-	startIdx := 0
-	if len(m.history) > historyRenderLimit {
-		// Keep last 100 messages + some buffer for smooth scrolling
-		startIdx = len(m.history) - historyRenderLimit
+	// Only the tail of a long session is rendered by default; scrolling up
+	// past its top loads the window before it (loadEarlierHistory), so the
+	// whole conversation is reachable without rendering all of it per frame.
+	startIdx := m.historyStart()
+	if startIdx > 0 {
+		sb.WriteString(m.styles.Text.Muted.Width(m.wrapWidth).Render(
+			fmt.Sprintf("↑ %d earlier message(s) — keep scrolling up to load them", startIdx)))
+		sb.WriteString("\n")
 	}
 
 	// Performance: Use message-level caching with invalidation

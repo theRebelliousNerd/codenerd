@@ -53,7 +53,7 @@ func (m Model) showShardModelPrompt() (tea.Model, tea.Cmd) {
 	})
 	m.textarea.Placeholder = fmt.Sprintf("%s model (Enter for default)...", shard)
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }
 
@@ -105,7 +105,7 @@ Enter temperature (0.0-1.0) or Enter for suggested:`, shard, shard, defaultTemp)
 	})
 	m.textarea.Placeholder = fmt.Sprintf("Temperature (%.1f)...", defaultTemp)
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }
 
@@ -169,7 +169,7 @@ Enter selection (1-3):`,
 	})
 	m.textarea.Placeholder = "Embedding provider (1-3)..."
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }
 
@@ -211,7 +211,7 @@ Enter your Google GenAI API key for embeddings:
 	}
 
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }
 
@@ -254,7 +254,7 @@ Enter max tokens or Enter for default:`, m.configWizard.MaxTokens),
 	})
 	m.textarea.Placeholder = fmt.Sprintf("Max tokens (%d)...", m.configWizard.MaxTokens)
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }
 
@@ -281,7 +281,7 @@ Enter max concurrent shards or Enter for default:`, m.configWizard.MaxConcurrent
 	})
 	m.textarea.Placeholder = fmt.Sprintf("Max shards (%d)...", m.configWizard.MaxConcurrentShards)
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }
 
@@ -372,7 +372,7 @@ func (m Model) showConfigReview() (tea.Model, tea.Cmd) {
 	})
 	m.textarea.Placeholder = "Save? (y/n)..."
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }
 
@@ -416,7 +416,7 @@ You can edit the config manually or run ` + "`" + `/config wizard` + "`" + ` aga
 	}
 
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }
 

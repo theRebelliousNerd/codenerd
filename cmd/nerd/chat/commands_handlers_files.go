@@ -35,7 +35,7 @@ func (m Model) handleCmdReset(input string, parts []string) (tea.Model, tea.Cmd)
 		})
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -128,7 +128,7 @@ func (m Model) handleCmdModel(input string, parts []string) (tea.Model, tea.Cmd)
 		}
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -159,7 +159,7 @@ func (m Model) handleCmdNewSession(input string, parts []string) (tea.Model, tea
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	if err := m.saveSessionState(); err != nil {
 		logging.Get(logging.CategorySession).Error("new session %s: save: %v", m.sessionID, err)
@@ -178,7 +178,7 @@ func (m Model) handleCmdSessions(input string, parts []string) (tea.Model, tea.C
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -211,7 +211,7 @@ func (m Model) handleCmdLoadSession(input string, parts []string) (tea.Model, te
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -239,7 +239,7 @@ func (m Model) handleCmdHelp(input string, parts []string) (tea.Model, tea.Cmd) 
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -254,7 +254,7 @@ func (m Model) handleCmdStatus(input string, parts []string) (tea.Model, tea.Cmd
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -268,7 +268,7 @@ func (m Model) handleCmdReflection(input string, parts []string) (tea.Model, tea
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -348,7 +348,7 @@ func (m Model) handleCmdKnowledge(input string, parts []string) (tea.Model, tea.
 		}
 
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -398,7 +398,7 @@ func (m Model) handleCmdKnowledge(input string, parts []string) (tea.Model, tea.
 		}
 
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -470,7 +470,7 @@ func (m Model) handleCmdKnowledge(input string, parts []string) (tea.Model, tea.
 		}
 
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -481,7 +481,7 @@ func (m Model) handleCmdKnowledge(input string, parts []string) (tea.Model, tea.
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }

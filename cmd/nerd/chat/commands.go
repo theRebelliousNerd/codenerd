@@ -290,7 +290,7 @@ func (m Model) handleCommand(raw string) (tea.Model, tea.Cmd) {
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}

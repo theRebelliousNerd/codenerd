@@ -101,7 +101,7 @@ func (m Model) ingestPatchSubmission(raw string) (tea.Model, tea.Cmd) {
 	})
 	m.textarea.Reset()
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }
 

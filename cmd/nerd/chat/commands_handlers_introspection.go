@@ -41,7 +41,7 @@ func (m Model) handleCmdShards(input string, parts []string) (tea.Model, tea.Cmd
 	}
 	m = m.addMessage(Message{Role: "assistant", Content: sb.String(), Time: time.Now()})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -60,7 +60,7 @@ func (m Model) handleCmdAutopoiesis(input string, parts []string) (tea.Model, te
 	}
 	m = m.addMessage(Message{Role: "assistant", Content: sb.String(), Time: time.Now()})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -97,7 +97,7 @@ func (m Model) handleCmdFacts(input string, parts []string) (tea.Model, tea.Cmd)
 	}
 	m = m.addMessage(Message{Role: "assistant", Content: sb.String(), Time: time.Now()})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }

@@ -24,7 +24,7 @@ func (m Model) recurseHoldsWorkspace() (string, bool) {
 func (m Model) replyAndReset(text string) (tea.Model, tea.Cmd) {
 	m = m.addMessage(Message{Role: "assistant", Content: text, Time: time.Now()})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }

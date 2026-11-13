@@ -244,7 +244,7 @@ func (m Model) loadSelectedSession(sessionID string) (tea.Model, tea.Cmd) {
 		})
 		m.viewMode = ChatView
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		return m, nil
 	}
 
@@ -298,7 +298,7 @@ func (m Model) loadSelectedSession(sessionID string) (tea.Model, tea.Cmd) {
 	// Switch back to chat view
 	m.viewMode = ChatView
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 
 	return m, nil
