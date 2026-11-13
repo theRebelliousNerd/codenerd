@@ -309,6 +309,10 @@ func (k *RealKernel) evaluate() (err error) {
 		logging.KernelDebug("evaluate: using cached programInfo")
 	}
 
+	// The incremental paths below keep the store they find. One that was
+	// made small is traded for an indexed one once it has outgrown that.
+	k.indexGrownStoreLocked()
+
 	// A write whose predicates were named is maintained by DRed
 	// (kernel_eval_dred.go), else re-derived as a cone.
 	named := !k.dirtyAll && len(k.dirtyPreds) > 0
@@ -727,6 +731,29 @@ const indexedStoreMinFacts = 1024
 // Keep the small-store allocation profile for small kernels. The indexed array
 // implementation also checks equality within hash buckets, including collisions.
 // Both kinds support removal, which the cone evaluator relies on.
+// indexGrownStoreLocked moves the kernel's facts into an argument-indexed store
+// when it still holds the small kind and has grown past indexedStoreMinFacts.
+//
+// The kind is chosen by the full fixpoint, from the EDB's size at that moment.
+// A kernel that boots with little and then grows by incremental passes -- a
+// session's own shard does exactly that -- never runs the full fixpoint again
+// and kept the small store for good: every bound premise of every later rule,
+// query and support test walked the whole relation. The facts are the same;
+// only how they are found changes.
+func (k *RealKernel) indexGrownStoreLocked() {
+	small, ok := k.store.(factstore.SimpleInMemoryStore)
+	if !ok || small.EstimateFactCount() < indexedStoreMinFacts {
+		return
+	}
+	indexed := factstore.NewMultiIndexedArrayInMemoryStore()
+	_ = factstore.GetAllFacts(small, func(a ast.Atom) error {
+		indexed.Add(a)
+		return nil
+	})
+	k.store = indexed
+	logging.KernelDebug("evaluate: the store grew to %d facts; moved to an indexed store", indexed.EstimateFactCount())
+}
+
 func newEvaluationFactStore(facts int) factstore.FactStoreWithRemove {
 	if facts >= indexedStoreMinFacts {
 		return factstore.NewMultiIndexedArrayInMemoryStore()

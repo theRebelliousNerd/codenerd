@@ -1,8 +1,11 @@
 package core
 
 import (
+	"runtime"
+
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/engine"
+	"golang.org/x/sync/errgroup"
 )
 
 // =============================================================================
@@ -51,13 +54,34 @@ func (r *dredRun) rederive(members map[int]struct{}, ctx engine.QueryContext, ov
 	if len(pending) > 0 {
 		r.profile.rederiveRounds.Add(1)
 	}
-	for _, a := range pending {
-		ok, err := r.supported(ctx, a)
+	if len(pending) < dredParallelMinRows {
+		for _, a := range pending {
+			ok, err := r.supported(ctx, a)
+			if err != nil {
+				return err
+			}
+			if ok {
+				restore(a)
+			}
+		}
+	} else {
+		// A large over-delete: the tests are independent of one another (each
+		// reads the state with every over-deleted fact gone), so they run on
+		// every core and the supported facts are restored afterwards, in
+		// order. A fact whose only support is another restored fact is not
+		// found here; it is found by the frontier rounds below, as before.
+		// Retracting a turn's handful of coder_target and modified rows
+		// over-deleted about 3,300 context and impact facts and tested them
+		// one at a time: 1.1-1.5 s of a turn boundary (kernel log, "6 changed
+		// rows ... 3298 over-deleted ... re-derive 1.46s").
+		supported, err := r.supportedAll(ctx, pending)
 		if err != nil {
 			return err
 		}
-		if ok {
-			restore(a)
+		for i, a := range pending {
+			if supported[i] {
+				restore(a)
+			}
 		}
 	}
 
@@ -77,4 +101,45 @@ func (r *dredRun) rederive(members map[int]struct{}, ctx engine.QueryContext, ov
 		}
 	}
 	return nil
+}
+
+// supportedAll is supported for every atom, concurrently. The store is only
+// read. The EDB rows of each predicate tested are loaded first: heldEDB fills
+// a map, which the concurrent tests may then only read.
+func (r *dredRun) supportedAll(ctx engine.QueryContext, atoms []ast.Atom) ([]bool, error) {
+	warmed := make(map[string]struct{})
+	for _, a := range atoms {
+		pred := a.Predicate.Symbol
+		if _, done := warmed[pred]; done {
+			continue
+		}
+		warmed[pred] = struct{}{}
+		if r.k.factIndex.aritiesOf(pred) != nil {
+			if _, err := r.heldEDB(pred); err != nil {
+				return nil, err
+			}
+		}
+	}
+	out := make([]bool, len(atoms))
+	workers := runtime.GOMAXPROCS(0)
+	chunk := max(len(atoms)/(workers*4), 16)
+	var g errgroup.Group
+	g.SetLimit(workers)
+	for start := 0; start < len(atoms); start += chunk {
+		end := min(start+chunk, len(atoms))
+		g.Go(func() error {
+			for i := start; i < end; i++ {
+				ok, err := r.supported(ctx, atoms[i])
+				if err != nil {
+					return err
+				}
+				out[i] = ok
+			}
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
