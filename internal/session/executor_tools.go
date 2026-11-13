@@ -1310,10 +1310,12 @@ func (e *Executor) intentRequiresToolCall(verb string) bool {
 	return len(facts) > 0
 }
 
-// validMangleVerb admits only the atom shape emitted by perception and used by
-// the policy corpus. Query helpers interpolate this value into Mangle source,
-// so accepting whitespace, delimiters, or a second slash would turn malformed
-// user state into a query-language fragment.
+// isConsultIntentVerb reports whether verb is a consultation's routing verb,
+// "/consult/<agent>", with the agent named as the roster names agents: one
+// segment of letters, digits, '_' and '-' (mangle-logic-architect,
+// codenerd-dogfood). It refused '-', so every review by a hyphenated agent
+// logged its own verb as malformed user state (four times in one live fix
+// turn, 2026-11-12).
 func isConsultIntentVerb(verb string) bool {
 	after, ok := strings.CutPrefix(verb, "/consult/")
 	if !ok || after == "" {
@@ -1321,13 +1323,17 @@ func isConsultIntentVerb(verb string) bool {
 	}
 	for i := 0; i < len(after); i++ {
 		c := after[i]
-		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' && c != '-' {
 			return false
 		}
 	}
 	return true
 }
 
+// validMangleVerb admits only the atom shape emitted by perception and used by
+// the policy corpus. Query helpers interpolate this value into Mangle source,
+// so accepting whitespace, delimiters, or a second slash would turn malformed
+// user state into a query-language fragment.
 func validMangleVerb(verb string) bool {
 	if len(verb) < 2 || verb[0] != '/' {
 		return false
