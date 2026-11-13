@@ -446,18 +446,75 @@ func anyCitation(in specs.Input) bool {
 	return false
 }
 
-// applySpecFacts replaces the kernel's spec rows with the scan's measurement.
+// applySpecFacts replaces the kernel's spec rows with the scan's measurement,
+// as the rows that left and the rows that arrived.
+//
+// A measurement is the complete set (about 75k rows on this repository) and it
+// is retaken whenever any document or code file changes, so after every edit
+// the model made. Retracting every spec predicate and loading the set again
+// told the kernel 151k rows had changed when two had: a second or more of
+// evaluation per edit (kernel log, "151107 changed rows, 2 inserted"). The
+// kernel ends with exactly the measurement either way.
 func applySpecFacts(kernel types.Kernel, res *IncrementalResult) error {
 	if !res.SpecMeasured {
 		return nil
 	}
-	for _, pred := range SpecPredicates {
-		if err := kernel.Retract(pred); err != nil {
-			return fmt.Errorf("retract %s: %w", pred, err)
+	measured := toTypesFacts(res.SpecFacts)
+	held, ok := heldSpecFacts(kernel)
+	if !ok {
+		// The kernel could not say what it holds: replace whole, as before.
+		for _, pred := range SpecPredicates {
+			if err := kernel.Retract(pred); err != nil {
+				return fmt.Errorf("retract %s: %w", pred, err)
+			}
+		}
+		if len(measured) == 0 {
+			return nil
+		}
+		return kernel.LoadFacts(measured)
+	}
+	// Identity is the fact's Mangle spelling, the form in which a row read
+	// back from the kernel and the row a measurement builds agree.
+	want := make(map[string]struct{}, len(measured))
+	for _, f := range measured {
+		want[f.String()] = struct{}{}
+	}
+	have := make(map[string]struct{}, len(held))
+	var gone []types.Fact
+	for _, f := range held {
+		key := f.String()
+		have[key] = struct{}{}
+		if _, kept := want[key]; !kept {
+			gone = append(gone, f)
 		}
 	}
-	if len(res.SpecFacts) == 0 {
+	var arrived []types.Fact
+	for _, f := range measured {
+		if _, already := have[f.String()]; !already {
+			arrived = append(arrived, f)
+		}
+	}
+	if len(gone) > 0 {
+		if err := kernel.RetractExactFactsBatch(gone); err != nil {
+			return fmt.Errorf("retract %d spec rows: %w", len(gone), err)
+		}
+	}
+	if len(arrived) == 0 {
 		return nil
 	}
-	return kernel.LoadFacts(toTypesFacts(res.SpecFacts))
+	return kernel.LoadFacts(arrived)
+}
+
+// heldSpecFacts reads the kernel's current spec rows; false when any of the
+// spec predicates could not be read.
+func heldSpecFacts(kernel types.Kernel) ([]types.Fact, bool) {
+	var held []types.Fact
+	for _, pred := range SpecPredicates {
+		rows, err := kernel.Query(pred)
+		if err != nil {
+			return nil, false
+		}
+		held = append(held, rows...)
+	}
+	return held, true
 }
