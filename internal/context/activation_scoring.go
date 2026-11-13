@@ -114,120 +114,156 @@ func (ae *ActivationEngine) computeRecencyScore(v factView) float64 {
 }
 
 // computeRelevanceScore scores based on relevance to current intent.
+// relevanceTerms are the intent's target, verb and the focus lists as the
+// relevance score compares them, lower-cased once for the state they were made
+// from. computeRelevanceScore runs for every fact of a scoring pass; it used to
+// lower-case each term again for every fact, and to build the whole
+// verb-to-predicate boost table as a fresh map of maps for every fact: 83% of
+// a pass's allocations, about 5 KB per fact, 1.5 GB over 300k facts.
+type relevanceTerms struct {
+	intent     *core.Fact
+	paths      []string
+	symbols    []string
+	target     string
+	verb       string
+	lowPaths   []string
+	lowSymbols []string
+}
+
+// relevanceTermsLocked returns the terms for the current state, remaking them
+// only when the intent or a focus list changed. Caller holds ae.mu.
+func (ae *ActivationEngine) relevanceTermsLocked() *relevanceTerms {
+	t := &ae.relevance
+	if t.intent == ae.state.ActiveIntent && slices.Equal(t.paths, ae.state.FocusedPaths) && slices.Equal(t.symbols, ae.state.FocusedSymbols) {
+		return t
+	}
+	*t = relevanceTerms{
+		intent:  ae.state.ActiveIntent,
+		paths:   slices.Clone(ae.state.FocusedPaths),
+		symbols: slices.Clone(ae.state.FocusedSymbols),
+	}
+	if intent := ae.state.ActiveIntent; intent != nil {
+		if len(intent.Args) >= 4 {
+			if target, ok := factArgAsString(intent.Args[3]); ok {
+				t.target = strings.ToLower(target)
+			}
+		}
+		if len(intent.Args) >= 3 {
+			t.verb, _ = factArgAsString(intent.Args[2])
+		}
+	}
+	for _, path := range t.paths {
+		t.lowPaths = append(t.lowPaths, strings.ToLower(path))
+	}
+	for _, symbol := range t.symbols {
+		t.lowSymbols = append(t.lowSymbols, strings.ToLower(symbol))
+	}
+	return t
+}
+
+// verbPredicateBoosts is the relevance boost of a predicate under an intent
+// verb.
+var verbPredicateBoosts = map[string]map[string]float64{
+	"/fix": {
+		"diagnostic":     35.0,
+		"test_state":     30.0,
+		"impacted":       25.0,
+		"file_content":   20.0,
+		"error_context":  40.0,
+		"knowledge_atom": 30.0, // Architecture knowledge helps fix decisions
+	},
+	"/debug": {
+		"diagnostic":     40.0,
+		"test_state":     35.0,
+		"impacted":       30.0,
+		"symbol_graph":   25.0,
+		"stack_trace":    45.0,
+		"knowledge_atom": 25.0, // Pattern knowledge helps debugging
+	},
+	"/refactor": {
+		"dependency_link":    40.0,
+		"impacted":           35.0,
+		"unsafe_to_refactor": 50.0,
+		"block_refactor":     50.0,
+		"symbol_graph":       30.0,
+		"knowledge_atom":     40.0, // Architecture knowledge is critical for refactoring
+	},
+	"/test": {
+		"test_state":     45.0,
+		"test_coverage":  40.0,
+		"diagnostic":     30.0,
+		"test_result":    40.0,
+		"knowledge_atom": 25.0, // Testing patterns from docs
+	},
+	"/explain": {
+		"symbol_graph":    35.0,
+		"dependency_link": 30.0,
+		"file_topology":   25.0,
+		"documentation":   30.0,
+		"knowledge_atom":  40.0, // Strategic knowledge helps explanations
+	},
+	"/research": {
+		"knowledge_atom": 45.0,
+		"vector_recall":  40.0,
+		"knowledge_link": 35.0,
+		"documentation":  35.0,
+	},
+	"/review": {
+		"diagnostic":     35.0,
+		"security_issue": 45.0,
+		"code_smell":     30.0,
+		"complexity":     25.0,
+		"knowledge_atom": 35.0, // Pattern knowledge for code review
+	},
+	"/security": {
+		"security_issue":   50.0,
+		"vulnerability":    50.0,
+		"diagnostic":       30.0,
+		"security_pattern": 40.0,
+		"knowledge_atom":   30.0, // Security constraints from docs
+	},
+	"/create": {
+		"file_topology":   30.0,
+		"symbol_graph":    25.0,
+		"template":        35.0,
+		"dependency_link": 20.0,
+		"knowledge_atom":  45.0, // Architecture knowledge is critical for new code
+	},
+}
+
 func (ae *ActivationEngine) computeRelevanceScore(v factView) float64 {
 	fact := v.fact
 	if ae.state.ActiveIntent == nil {
 		return 0.0
 	}
+	terms := ae.relevanceTermsLocked()
 
 	score := 0.0
 
-	// Extract target from intent
-	var intentTarget string
-	if len(ae.state.ActiveIntent.Args) >= 4 {
-		if t, ok := factArgAsString(ae.state.ActiveIntent.Args[3]); ok {
-			intentTarget = strings.ToLower(t)
-		}
-	}
-
 	// Check if fact relates to the target
 	factStr := v.lower
-	if intentTarget != "" && strings.Contains(factStr, intentTarget) {
+	if terms.target != "" && strings.Contains(factStr, terms.target) {
 		score += 40.0
 	}
 
 	// Check if fact relates to focused paths
-	for _, path := range ae.state.FocusedPaths {
-		if strings.Contains(factStr, strings.ToLower(path)) {
+	for _, path := range terms.lowPaths {
+		if strings.Contains(factStr, path) {
 			score += 30.0
 			break
 		}
 	}
 
 	// Check if fact relates to focused symbols
-	for _, symbol := range ae.state.FocusedSymbols {
-		if strings.Contains(factStr, strings.ToLower(symbol)) {
+	for _, symbol := range terms.lowSymbols {
+		if strings.Contains(factStr, symbol) {
 			score += 20.0
 			break
 		}
 	}
 
 	// Special boosting for certain predicates related to active intent
-	intentVerb := ""
-	if len(ae.state.ActiveIntent.Args) >= 3 {
-		intentVerb, _ = factArgAsString(ae.state.ActiveIntent.Args[2])
-	}
-
-	// Enhanced verb-predicate relevance boosting
-	verbPredicateBoosts := map[string]map[string]float64{
-		"/fix": {
-			"diagnostic":     35.0,
-			"test_state":     30.0,
-			"impacted":       25.0,
-			"file_content":   20.0,
-			"error_context":  40.0,
-			"knowledge_atom": 30.0, // Architecture knowledge helps fix decisions
-		},
-		"/debug": {
-			"diagnostic":     40.0,
-			"test_state":     35.0,
-			"impacted":       30.0,
-			"symbol_graph":   25.0,
-			"stack_trace":    45.0,
-			"knowledge_atom": 25.0, // Pattern knowledge helps debugging
-		},
-		"/refactor": {
-			"dependency_link":    40.0,
-			"impacted":           35.0,
-			"unsafe_to_refactor": 50.0,
-			"block_refactor":     50.0,
-			"symbol_graph":       30.0,
-			"knowledge_atom":     40.0, // Architecture knowledge is critical for refactoring
-		},
-		"/test": {
-			"test_state":     45.0,
-			"test_coverage":  40.0,
-			"diagnostic":     30.0,
-			"test_result":    40.0,
-			"knowledge_atom": 25.0, // Testing patterns from docs
-		},
-		"/explain": {
-			"symbol_graph":    35.0,
-			"dependency_link": 30.0,
-			"file_topology":   25.0,
-			"documentation":   30.0,
-			"knowledge_atom":  40.0, // Strategic knowledge helps explanations
-		},
-		"/research": {
-			"knowledge_atom": 45.0,
-			"vector_recall":  40.0,
-			"knowledge_link": 35.0,
-			"documentation":  35.0,
-		},
-		"/review": {
-			"diagnostic":     35.0,
-			"security_issue": 45.0,
-			"code_smell":     30.0,
-			"complexity":     25.0,
-			"knowledge_atom": 35.0, // Pattern knowledge for code review
-		},
-		"/security": {
-			"security_issue":   50.0,
-			"vulnerability":    50.0,
-			"diagnostic":       30.0,
-			"security_pattern": 40.0,
-			"knowledge_atom":   30.0, // Security constraints from docs
-		},
-		"/create": {
-			"file_topology":   30.0,
-			"symbol_graph":    25.0,
-			"template":        35.0,
-			"dependency_link": 20.0,
-			"knowledge_atom":  45.0, // Architecture knowledge is critical for new code
-		},
-	}
-
-	if boosts, ok := verbPredicateBoosts[intentVerb]; ok {
+	if boosts, ok := verbPredicateBoosts[terms.verb]; ok {
 		if boost, found := boosts[fact.Predicate]; found {
 			score += boost
 		}

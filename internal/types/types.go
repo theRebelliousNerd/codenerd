@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -132,45 +133,55 @@ func hasFileExtension(v string) bool {
 }
 
 // String returns the Datalog string representation of the fact.
+//
+// It is called for every fact of every scoring, logging and keying pass, so it
+// writes straight into one buffer: the earlier form formatted each argument
+// with fmt.Sprintf into a slice and joined it, about a dozen allocations a
+// fact. The text is byte-for-byte the same (TestFactString_MatchesSprintfForm).
 func (f Fact) String() string {
-	var args []string
-	for _, arg := range f.Args {
+	buf := make([]byte, 0, len(f.Predicate)+2+24*len(f.Args))
+	buf = append(buf, f.Predicate...)
+	buf = append(buf, '(')
+	for i, arg := range f.Args {
+		if i > 0 {
+			buf = append(buf, ", "...)
+		}
 		switch v := arg.(type) {
 		case MangleAtom:
-			args = append(args, string(v))
+			buf = append(buf, v...)
 		case MangleString:
-			args = append(args, fmt.Sprintf("%q", v))
+			buf = strconv.AppendQuote(buf, string(v))
 		case string:
 			// Handle valid Mangle name constants (start with /).
 			// NOTE: Many normal strings can start with "/" (e.g., Go comments "//", Unix paths),
 			// so we only treat it as a name constant if it parses as one.
 			if isValidMangleNameConstant(v) {
-				args = append(args, v)
+				buf = append(buf, v...)
 			} else {
-				args = append(args, fmt.Sprintf("%q", v))
+				buf = strconv.AppendQuote(buf, v)
 			}
 		case int:
-			args = append(args, fmt.Sprintf("%d", v))
+			buf = strconv.AppendInt(buf, int64(v), 10)
 		case int64:
-			args = append(args, fmt.Sprintf("%d", v))
+			buf = strconv.AppendInt(buf, v, 10)
 		case float64:
-			// %f, not %v or the AST renderer: mangle-go prints Float64(2.0) as
-			// "2", which re-parses as an int64. Keeping the decimal point is
-			// what makes a whole float survive a round trip through a .mg file.
-			args = append(args, fmt.Sprintf("%f", v))
+			// Six decimals, as %f: mangle-go prints Float64(2.0) as "2", which
+			// re-parses as an int64. Keeping the decimal point is what makes a
+			// whole float survive a round trip through a .mg file.
+			buf = strconv.AppendFloat(buf, v, 'f', 6, 64)
 		case float32:
-			args = append(args, fmt.Sprintf("%f", float64(v)))
+			buf = strconv.AppendFloat(buf, float64(v), 'f', 6, 64)
 		case time.Time:
 			// Quoted RFC3339Nano matches what ExtractString produces when the
 			// same argument is read back, so writer and reader agree.
-			args = append(args, fmt.Sprintf("%q", v.Format(time.RFC3339Nano)))
+			buf = strconv.AppendQuote(buf, v.Format(time.RFC3339Nano))
 		case time.Duration:
-			args = append(args, fmt.Sprintf("%q", v.String()))
+			buf = strconv.AppendQuote(buf, v.String())
 		case bool:
 			if v {
-				args = append(args, "/true")
+				buf = append(buf, "/true"...)
 			} else {
-				args = append(args, "/false")
+				buf = append(buf, "/false"...)
 			}
 		case map[string]any, []any, []string, []int, []int64, []float64:
 			// Containers must render the way ToAtom encodes them: as a quoted
@@ -180,16 +191,17 @@ func (f Fact) String() string {
 			// writes Fact.String() into a .mg file that the kernel loads at
 			// boot, so one container-valued fact would have made the whole
 			// generated file fail to parse.
-			args = append(args, quoteJSON(v))
+			buf = append(buf, quoteJSON(v)...)
 		default:
 			// Same reasoning as the container branch: whatever this is, it has
 			// to leave here as a single valid Mangle token. ToAtom rejects
 			// unknown types outright, but String cannot return an error, so it
 			// quotes instead of emitting a bare pointer address.
-			args = append(args, quoteJSONOrValue(v))
+			buf = append(buf, quoteJSONOrValue(v)...)
 		}
 	}
-	return fmt.Sprintf("%s(%s).", f.Predicate, strings.Join(args, ", "))
+	buf = append(buf, ")."...)
+	return string(buf)
 }
 
 // quoteJSON renders a container as a quoted JSON string constant, matching what

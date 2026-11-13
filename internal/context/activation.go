@@ -82,6 +82,9 @@ type ActivationEngine struct {
 
 	// Current intent verb for intent-specific feedback lookup
 	currentIntentVerb string
+	// relevance caches the lower-cased terms of the relevance score for the
+	// state they were made from (activation_scoring.go).
+	relevance relevanceTerms
 }
 
 // CampaignActivationContext holds campaign-specific activation state.
@@ -287,23 +290,7 @@ func (ae *ActivationEngine) ScoreFacts(facts []core.Fact, currentIntent *core.Fa
 // scoreFactsLocked is the locked implementation of ScoreFacts.
 // Caller must hold ae.mu for writing (buildSymbolGraph mutates maps).
 func (ae *ActivationEngine) scoreFactsLocked(facts []core.Fact, currentIntent *core.Fact) []ScoredFact {
-	ae.state.ActiveIntent = currentIntent
-	ae.state.LastUpdate = time.Now()
-
-	// Extract intent verb for intent-specific feedback lookup
-	ae.currentIntentVerb = ""
-	if currentIntent != nil && len(currentIntent.Args) >= 3 {
-		ae.currentIntentVerb, _ = factArgAsString(currentIntent.Args[2])
-	}
-
-	intentStr := "<none>"
-	if currentIntent != nil {
-		intentStr = currentIntent.String()
-	}
-	logging.ContextDebug("Scoring %d facts with intent: %s", len(facts), intentStr)
-
-	// Build symbol graph from facts (for dependency spreading)
-	ae.buildSymbolGraphLocked(facts)
+	ae.beginScoringLocked(facts, currentIntent)
 
 	scored := make([]ScoredFact, 0, len(facts))
 
@@ -344,6 +331,28 @@ func (ae *ActivationEngine) scoreFactsLocked(facts []core.Fact, currentIntent *c
 	}
 
 	return scored
+}
+
+// beginScoringLocked sets what every scoring pass reads: the intent, its verb
+// and the symbol graph of this fact set. Caller must hold ae.mu for writing.
+func (ae *ActivationEngine) beginScoringLocked(facts []core.Fact, currentIntent *core.Fact) {
+	ae.state.ActiveIntent = currentIntent
+	ae.state.LastUpdate = time.Now()
+
+	// Extract intent verb for intent-specific feedback lookup
+	ae.currentIntentVerb = ""
+	if currentIntent != nil && len(currentIntent.Args) >= 3 {
+		ae.currentIntentVerb, _ = factArgAsString(currentIntent.Args[2])
+	}
+
+	intentStr := "<none>"
+	if currentIntent != nil {
+		intentStr = currentIntent.String()
+	}
+	logging.ContextDebug("Scoring %d facts with intent: %s", len(facts), intentStr)
+
+	// Build symbol graph from facts (for dependency spreading)
+	ae.buildSymbolGraphLocked(facts)
 }
 
 // buildSymbolGraphLocked extracts symbol relationships from symbol_graph and
@@ -605,11 +614,47 @@ func (ae *ActivationEngine) ApplyIntentActivation(facts []core.Fact, intent *cor
 	// Update focus from focus_resolution facts
 	ae.updateFocusedPathsLocked(facts)
 
-	// Score all facts (already under lock)
-	scored := ae.scoreFactsLocked(facts, intent)
+	// Score every fact, keep what clears the threshold, and order only that.
+	return ae.scoreAboveThresholdLocked(facts, intent)
+}
 
-	// Filter by threshold
-	return ae.FilterByThreshold(scored)
+// scoreAboveThresholdLocked is FilterByThreshold(scoreFactsLocked(...)) without
+// the part that made it expensive: it sorted every scored fact -- a million of
+// them with a world model loaded, each formatted to a string a second time for
+// the tie-break -- and then threw away all but the few above the threshold.
+// The order of what survives is the same: the comparison is total over score
+// and key, and equal facts keep their input order either way.
+// Caller must hold ae.mu for writing.
+func (ae *ActivationEngine) scoreAboveThresholdLocked(facts []core.Fact, currentIntent *core.Fact) []ScoredFact {
+	ae.beginScoringLocked(facts, currentIntent)
+	threshold := ae.config.ActivationThreshold
+	scored := make([]ScoredFact, 0)
+	var keys []string
+	for _, fact := range facts {
+		view := newFactView(fact)
+		score := ae.computeScore(view)
+		total := score.Total()
+		if total < threshold {
+			continue
+		}
+		scored = append(scored, ScoredFact{
+			Fact:               fact,
+			Score:              total,
+			BaseScore:          score.base,
+			RecencyScore:       score.recency,
+			RelevanceScore:     score.relevance,
+			DependencyScore:    score.dependency,
+			CampaignScore:      score.campaign,
+			SessionScore:       score.session,
+			IssueScore:         score.issue,
+			FeedbackScore:      score.feedback,
+			BackReferenceScore: score.backReference,
+		})
+		keys = append(keys, view.key)
+	}
+	sort.Stable(scoredByScoreThenKey{scored: scored, keys: keys})
+	logging.ContextDebug("Activation scoring: %d of %d facts at or above the threshold (%.1f)", len(scored), len(facts), threshold)
+	return scored
 }
 
 // GetHighActivationFacts returns facts above the threshold sorted by score.
